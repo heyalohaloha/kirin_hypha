@@ -559,6 +559,14 @@ hypha::pre_display::DisplaySnapshot KirinHyphaProcessorBase::preDisplaySnapshot(
         : hypha::pre_display::DisplaySnapshot {};
 }
 
+hypha::pre_display::GuidePresentationSnapshot
+KirinHyphaProcessorBase::guidePresentationSnapshot() const
+{
+    return preDisplayController != nullptr
+        ? preDisplayController->guidePresentationSnapshot()
+        : hypha::pre_display::GuidePresentationSnapshot {};
+}
+
 hypha::pre_display::ConnectionRequest KirinHyphaProcessorBase::pendingPreDisplayConnection() const
 {
     return preDisplayController != nullptr

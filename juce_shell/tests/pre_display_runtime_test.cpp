@@ -390,6 +390,46 @@ int main()
              && exactDouble (postFixtureModel.items.front().lowHz, 3'150.0)
              && exactDouble (postFixtureModel.items.front().highHz, 3'700.0),
              "parse one exact v3 Hypha POST target with its time-frequency fact");
+    pre::ClockSnapshot postFixtureClock;
+    postFixtureClock.generation = 1;
+    postFixtureClock.positionSamples = 72'000;
+    postFixtureClock.sampleRate = 48'000.0;
+    postFixtureClock.playing = true;
+    postFixtureClock.source = pre::ClockSource::projectTimeline;
+    auto postPresentation = pre::projectGuidePresentation (
+        postFixtureModel, postFixtureClock, 1'000, 1'000);
+    require (postPresentation.guideAvailable
+             && postPresentation.targetRole == pre::GuideTargetRole::post
+             && postPresentation.status == pre::DisplayStatus::active
+             && postPresentation.clockState == pre::GuideClockState::projectable
+             && postPresentation.hasSourcePosition
+             && postPresentation.sourcePositionNs == 1'500'000'000
+             && postPresentation.hasPrimary
+             && postPresentation.primary.phase == pre::GuideFactPhase::active
+             && postPresentation.primary.focused
+             && postPresentation.primary.temporalKind
+                    == pre::TemporalFactKind::measuredInterval
+             && postPresentation.primary.frequencyBasis.isEmpty()
+             && exactDouble (postPresentation.primary.lowHz, 3'150.0)
+             && exactDouble (postPresentation.primary.highHz, 3'700.0)
+             && postPresentation.overlapCount == 1
+             && ! postPresentation.hasNext && ! postPresentation.truncated,
+             "project the exact POST fact into one typed active time-frequency snapshot");
+    postFixtureClock.positionSamples = 24'000;
+    postPresentation = pre::projectGuidePresentation (
+        postFixtureModel, postFixtureClock, 1'000, 1'000);
+    require (postPresentation.status == pre::DisplayStatus::next
+             && ! postPresentation.hasPrimary && postPresentation.hasNext
+             && postPresentation.next.phase == pre::GuideFactPhase::next
+             && postPresentation.next.itemId == "event_focus_1",
+             "keep an upcoming POST fact separate from the active presentation slot");
+    postFixtureClock.positionSamples = 120'000;
+    postPresentation = pre::projectGuidePresentation (
+        postFixtureModel, postFixtureClock, 1'000, 1'000);
+    require (postPresentation.status == pre::DisplayStatus::active
+             && postPresentation.hasPrimary
+             && postPresentation.primary.phase == pre::GuideFactPhase::held,
+             "type retained INSPECT context as held instead of active glow");
     auto wrongPostRole = juce::JSON::parse (postFixtureFile);
     wrongPostRole.getDynamicObject()->getProperty ("target").getDynamicObject()
         ->setProperty ("target_role", "pre");

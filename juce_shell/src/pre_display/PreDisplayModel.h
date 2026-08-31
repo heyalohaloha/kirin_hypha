@@ -23,6 +23,22 @@ namespace hypha::pre_display
         end,
     };
 
+    enum class GuideFactPhase
+    {
+        none,
+        next,
+        cue,
+        active,
+        held,
+    };
+
+    enum class GuideClockState
+    {
+        unavailable,
+        projectable,
+        outsideGuideRange,
+    };
+
     struct DisplaySnapshot
     {
         DisplayStatus status = DisplayStatus::none;
@@ -90,6 +106,48 @@ namespace hypha::pre_display
         double lowHz = 0.0;
         double highHz = 0.0;
         bool hasBand = false;
+    };
+
+    // Bounded, UI-facing fact copied by the Guide worker. Domain views consume this type instead
+    // of reparsing transport JSON or inferring time state from presentation text.
+    struct GuidePresentationFact
+    {
+        GuideFactPhase phase = GuideFactPhase::none;
+        juce::String itemId;
+        juce::String selectionRef;
+        juce::String label;
+        juce::String sourceLabel;
+        juce::String channel;
+        juce::String frequencyBasis;
+        std::int64_t startNs = 0;
+        std::int64_t endNs = 0;
+        TemporalFactKind temporalKind = TemporalFactKind::measuredInterval;
+        double lowHz = 0.0;
+        double highHz = 0.0;
+        bool hasBand = false;
+        bool focused = false;
+    };
+
+    struct GuidePresentationSnapshot
+    {
+        GuideTargetRole targetRole = GuideTargetRole::pre;
+        DisplayStatus status = DisplayStatus::none;
+        GuideClockState clockState = GuideClockState::unavailable;
+        juce::String guideId;
+        juce::String contentHash;
+        juce::String payloadKind;
+        juce::String sourcePairLabel;
+        std::int64_t revision = 0;
+        std::int64_t sourcePositionNs = 0;
+        GuidePresentationFact primary;
+        GuidePresentationFact next;
+        int overlapCount = 0;
+        bool guideAvailable = false;
+        bool hasSourcePosition = false;
+        bool clockPaused = false;
+        bool hasPrimary = false;
+        bool hasNext = false;
+        bool truncated = false;
     };
 
     struct GuideModel

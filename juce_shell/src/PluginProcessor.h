@@ -53,6 +53,7 @@ public:
     void setUseShortTermLoudness (bool shortTerm);
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     hypha::pre_display::DisplaySnapshot preDisplaySnapshot() const;
+    hypha::pre_display::GuidePresentationSnapshot guidePresentationSnapshot() const;
     hypha::pre_display::ConnectionRequest pendingPreDisplayConnection() const;
     bool acceptPreDisplayConnection();
 #endif

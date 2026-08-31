@@ -19,6 +19,7 @@ namespace hypha::pre_display
         void configureAndStart (RuntimeIdentity identityIn);
         void setName (const juce::String& name);
         DisplaySnapshot displaySnapshot() const;
+        GuidePresentationSnapshot guidePresentationSnapshot() const;
         ConnectionRequest pendingConnection() const;
         bool acceptPendingConnection();
 
@@ -28,7 +29,7 @@ namespace hypha::pre_display
         struct WorkerState;
 
         void run() override;
-        void publishDisplay (DisplaySnapshot);
+        void publishDisplay (DisplaySnapshot, GuidePresentationSnapshot);
         void removeOwnLeaseFiles();
 
         const ClockTap& clockTap;
@@ -38,6 +39,7 @@ namespace hypha::pre_display
         bool configured = false;
         mutable juce::CriticalSection displayLock;
         DisplaySnapshot display;
+        GuidePresentationSnapshot guidePresentation;
         mutable juce::CriticalSection connectionLock;
         ConnectionRequest connectionRequest;
         juce::File ownPresenceFile;

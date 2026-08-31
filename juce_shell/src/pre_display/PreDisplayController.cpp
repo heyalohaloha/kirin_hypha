@@ -91,6 +91,12 @@ namespace hypha::pre_display
         return display;
     }
 
+    GuidePresentationSnapshot Controller::guidePresentationSnapshot() const
+    {
+        const juce::ScopedLock lock (displayLock);
+        return guidePresentation;
+    }
+
     ConnectionRequest Controller::pendingConnection() const
     {
         const juce::ScopedLock lock (connectionLock);
@@ -153,7 +159,10 @@ namespace hypha::pre_display
                 const auto nextDisplay = projectDisplay (workerState->guide,
                                                          workerState->clock.snapshot(),
                                                          workerState->clock.observedAtMs(), now);
-                publishDisplay (nextDisplay);
+                const auto nextGuidePresentation = projectGuidePresentation (
+                    workerState->guide, workerState->clock.snapshot(),
+                    workerState->clock.observedAtMs(), now);
+                publishDisplay (nextDisplay, nextGuidePresentation);
                 if (scannedGuide)
                 {
                     if (receipt.state == GuideRefreshState::accepted
@@ -171,10 +180,12 @@ namespace hypha::pre_display
         }
     }
 
-    void Controller::publishDisplay (DisplaySnapshot next)
+    void Controller::publishDisplay (DisplaySnapshot next,
+                                     GuidePresentationSnapshot nextGuidePresentation)
     {
         const juce::ScopedLock lock (displayLock);
         display = std::move (next);
+        guidePresentation = std::move (nextGuidePresentation);
     }
 
     void Controller::removeOwnLeaseFiles()
