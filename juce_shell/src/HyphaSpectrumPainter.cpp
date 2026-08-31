@@ -214,12 +214,6 @@ void paintAbsolute (juce::Graphics& g,
                     const SpectrumBins& peakHold,
                     const absolute_spectrum::History& history)
 {
-    constexpr float floorDbfs = -96.0f;
-    const auto yForMagnitude = [plot] (float value) {
-        return juce::jmap (juce::jlimit (floorDbfs, 0.0f, value),
-                           0.0f, floorDbfs, plot.getY(), plot.getBottom());
-    };
-
     if (! history.empty())
     {
         const auto& newest = history.at (history.size() - 1u);
@@ -243,11 +237,11 @@ void paintAbsolute (juce::Graphics& g,
                 const size_t first = column * KIRIN_SPECTRUM_BAND_COUNT / frequencyColumns;
                 const size_t last = (column + 1u) * KIRIN_SPECTRUM_BAND_COUNT
                                   / frequencyColumns;
-                float magnitude = floorDbfs;
+                float magnitude = kMagnitudeFloorDbfs;
                 for (size_t band = first; band < last; ++band)
                     magnitude = std::max (magnitude, frame.postDbfs[band]);
                 const float intensity = juce::jlimit (0.0f, 1.0f,
-                    (magnitude - floorDbfs) / -floorDbfs);
+                    (magnitude - kMagnitudeFloorDbfs) / -kMagnitudeFloorDbfs);
                 if (intensity <= 0.015f)
                     continue;
                 g.setColour (COL_SPECTRUM_POST.withAlpha (0.018f + 0.13f * intensity));
@@ -264,9 +258,10 @@ void paintAbsolute (juce::Graphics& g,
     {
         x[index] = juce::jmap (spectrum_geometry::bandCentreNormalisedX (index),
                                plot.getX(), plot.getRight());
-        currentY[index] = yForMagnitude (post[index]);
-        holdY[index] = yForMagnitude (std::isfinite (peakHold[index])
-                                           ? peakHold[index] : floorDbfs);
+        currentY[index] = yForMagnitudeDbfs (post[index], plot);
+        holdY[index] = yForMagnitudeDbfs (std::isfinite (peakHold[index])
+                                              ? peakHold[index] : kMagnitudeFloorDbfs,
+                                          plot);
     }
     const auto current = makeCurve (x, currentY);
     const auto hold = makeCurve (x, holdY);

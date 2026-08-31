@@ -325,6 +325,12 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         juce::juce_gui_basics
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+    if(MSVC)
+        # This all-screen contract deliberately keeps several ~200 KiB UI fixtures alive at once.
+        # DAW editors are heap-owned, but the test fixtures are automatic objects; reserve enough
+        # stack for the complete suite instead of silently skipping Windows render coverage.
+        target_link_options(KirinUiRenderContractTests PRIVATE "/STACK:8388608")
+    endif()
     add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
 
     juce_add_console_app(KirinGuideFrequencyOverlayContractTests
