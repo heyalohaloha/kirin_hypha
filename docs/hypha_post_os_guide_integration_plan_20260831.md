@@ -16,7 +16,8 @@ Implementation status:
 - protocol v3 guide target: `exact_hypha_binding + target_role=post`のproducer/consumer fixtureを追加した。
 - v3 transport identity: presence、capability、connection、active pointer、clear authority、acknowledgementをPOST roleとexact runtime identityで照合する契約を追加した。
 - POST receiver worker: PREと同じ低優先度workerをPOST targetにも組み込み、Audio Threadはlock-free clock publishだけに限定した。POST VST3 Release buildで組込みを検証済み。
-- 未接続: Kirin OSの既定送信入口、POST上の接続確認とGuide UI route。
+- B-586〜B-589: Hypha POST receiver、接続確認、Guide rail、FREQ投影を実装した。
+- W-2836: Kirin OSのINSPECT／MASKING既定送信入口をPOSTへ変更し、旧PRE bindingを明示再接続までfail-closedにした。
 
 ## 1. Decision
 
@@ -256,11 +257,13 @@ OS GUIDEとHypha実測はlabel、line style、snapshot authorityを分離する�
 
 Kirin OSの接続、送信、受信状態、End、DisconnectをPOST中心の文言と動線へ変更する。
 
-旧PRE fallbackは別の明示操作へ下げる。
+旧PRE artifactのparser／store互換だけを保持し、現在のUIにはPRE fallbackを出さない。
+
+旧PRE bindingを検出した場合は`role_mismatch`としてfail-closedにし、利用者がPOSTへの再接続を明示する。
 
 ### Phase 8: Cross-platform release gate
 
-macOSとWindowsの同一commitでPOST receipt、clock projection、UI、legacy PRE fallbackを検証する。
+macOSとWindowsの同一commitでPOST receipt、clock projection、UI、legacy PRE artifact互換を検証する。
 
 公開3チャネルを同一versionで揃えるまでmigration完了としない。
 
