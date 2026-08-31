@@ -106,7 +106,7 @@ LRAはSessionSummaryに存在するが現行6-cell UIには出ない。
 
 PLRはplugin dataで算出されるが、現行UI snapshotにはない。
 
-per-channel TP、correlation、balance、長時間historyは未実装である。
+per-channel Peak/TP、correlation、balance、clip event、長時間historyはMeter Session coreとC ABIまで実装済みだが、現行6-cell UIには未接続である。
 
 現行AnalysisのFREQ、SHARP、LIVEと完了したATTACKは、計測器として再利用するが画面名と配置を固定しない。
 
@@ -306,11 +306,17 @@ L/R同時clipは各チャンネルの独立eventとして数え、総数へ暗�
 
 表示履歴はMeasure Thread側で固定容量の多段ring bufferへ集計する。
 
-初期候補はM、S、TP、CORRを10 Hzで10分、1 Hzで2時間、0.1 Hzで24時間保持する。
+M、S、TP、CORRを10 Hzで10分、1 Hzで2時間、0.1 Hzで24時間保持する。
 
 10 Hz層は既存Watch snapshotのexact sample endpointを保持する。
 
 低rate層はbucketのmin、max、mean、first endpoint、last endpointを保持し、exact値と同じ線として描かない。
+
+各100 ms観測はDAW presentation sample endpointとtransport run IDを保持する。
+
+一つの観測がtransport jumpをまたいだ場合、その観測に虚偽のendpointを付けずhistoryだけをskipし、次の完全な100 msから新runとして再開する。
+
+hostがsample座標を供給しない場合はDAW endpointを`Unavailable`にしたまま、Meter Session相対endpointによる履歴を保持する。
 
 UIは30 s、2 min、10 min、2 h、24 hを切り替える。
 

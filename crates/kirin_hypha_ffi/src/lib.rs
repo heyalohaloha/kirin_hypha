@@ -71,17 +71,19 @@ use kirin_measure::{
     write_stop_broadcast, write_stop_broadcast_for_generation, AnalysisViewMode, BalanceState,
     CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
     DeltaMode, DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License,
-    LiveLicense, LivenessEvaluator, MeasureResult, MeterSession, MeterSessionSnapshot,
-    MeterSessionState, PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths,
-    PluginDataRole, PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource,
-    PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
-    RestartIoFn, SignalError, SignalState, SpectrumChannelMode, SpectrumCoordinator,
-    SpectrumRuntime, SpectrumRuntimeStats, SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths,
-    WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY,
-    CAPTURE_PRODUCER_READY_TIMEOUT, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
-    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY,
-    SPECTRUM_BAND_COUNT, SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
+    LiveLicense, LivenessEvaluator, MeasureResult, MeterHistoryEntry, MeterHistoryRange,
+    MeterHistoryResolution, MeterSession, MeterSessionSnapshot, MeterSessionState,
+    PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths, PluginDataRole,
+    PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource, PsbSummary,
+    RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine,
+    RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError,
+    SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumRuntime, SpectrumRuntimeStats,
+    SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff,
+    WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
+    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT,
+    MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
+    PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
+    SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
 };
 
 mod attack_ffi;
@@ -3382,6 +3384,19 @@ impl KirinHyphaEngine {
             .map(|session| session.snapshot())
     }
 
+    /// TIME履歴を選択したresolutionで新しい順の範囲まで非ブロッキング取得する。
+    pub fn poll_meter_history(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+    ) -> Option<Vec<MeterHistoryEntry>> {
+        self.meter_session
+            .as_ref()?
+            .try_lock()
+            .ok()
+            .map(|session| session.recent_history(resolution, max_entries))
+    }
+
     /// 利用者操作だけが常設セッションを破棄できる。UI/control thread専用。
     /// Measure workerとの競合時は待たずにfalseを返し、呼び出し側が操作失敗を通知する。
     pub fn reset_meter_session(&self) -> bool {
@@ -3540,6 +3555,13 @@ pub const KIRIN_BALANCE_UNAVAILABLE: u8 = 0;
 pub const KIRIN_BALANCE_NUMERIC: u8 = 1;
 pub const KIRIN_BALANCE_LEFT_ONLY: u8 = 2;
 pub const KIRIN_BALANCE_RIGHT_ONLY: u8 = 3;
+pub const KIRIN_METER_HISTORY_10_HZ: u8 = 0;
+pub const KIRIN_METER_HISTORY_1_HZ: u8 = 1;
+pub const KIRIN_METER_HISTORY_0_1_HZ: u8 = 2;
+pub const KIRIN_METER_HISTORY_10_HZ_CAPACITY: usize = HISTORY_10_HZ_CAPACITY;
+pub const KIRIN_METER_HISTORY_1_HZ_CAPACITY: usize = HISTORY_1_HZ_CAPACITY;
+pub const KIRIN_METER_HISTORY_0_1_HZ_CAPACITY: usize = HISTORY_0_1_HZ_CAPACITY;
+pub const KIRIN_METER_HISTORY_MAX_ENTRIES: usize = HISTORY_0_1_HZ_CAPACITY;
 
 /// Record/Keepから独立した常設メーターの一貫したスナップショット。
 /// current値とsession値は同じ`observed_frames`境界から生成され、値なしはNaNで表す。
@@ -3568,6 +3590,32 @@ pub struct KirinMeterSession {
     pub clip_events: [u64; 2],
     pub balance_db: f64,
     pub correlation: f64,
+}
+
+/// TIME履歴1指標の範囲。10 Hzではmin=max=mean、値なしはNaN。
+#[repr(C)]
+pub struct KirinMeterHistoryRange {
+    pub min: f64,
+    pub max: f64,
+    pub mean: f64,
+}
+
+/// TIME履歴の1点。低rate層は`observation_count`個の100 ms事実を集約する。
+#[repr(C)]
+pub struct KirinMeterHistoryEntry {
+    pub generation: u64,
+    pub run_id: u64,
+    pub first_observed_frames: u64,
+    pub last_observed_frames: u64,
+    pub first_timeline_endpoint_samples: i64,
+    pub last_timeline_endpoint_samples: i64,
+    pub observation_count: u16,
+    pub resolution: u8,
+    pub reserved: [u8; 5],
+    pub lufs_m: KirinMeterHistoryRange,
+    pub lufs_s: KirinMeterHistoryRange,
+    pub true_peak: KirinMeterHistoryRange,
+    pub correlation: KirinMeterHistoryRange,
 }
 
 /// `KirinIdentity` — state chunk 往復する識別子（C struct / 方式A）。
@@ -3838,6 +3886,46 @@ fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterSession {
         clip_events: snapshot.stereo.clip_events,
         balance_db: opt_f64(snapshot.stereo.balance_db),
         correlation: opt_f64(snapshot.stereo.correlation),
+    }
+}
+
+fn to_c_history_range(range: MeterHistoryRange) -> KirinMeterHistoryRange {
+    KirinMeterHistoryRange {
+        min: opt_f64(range.min),
+        max: opt_f64(range.max),
+        mean: opt_f64(range.mean),
+    }
+}
+
+fn to_c_history_entry(entry: MeterHistoryEntry) -> KirinMeterHistoryEntry {
+    let resolution = match entry.resolution {
+        MeterHistoryResolution::Hz10 => KIRIN_METER_HISTORY_10_HZ,
+        MeterHistoryResolution::Hz1 => KIRIN_METER_HISTORY_1_HZ,
+        MeterHistoryResolution::Hz0_1 => KIRIN_METER_HISTORY_0_1_HZ,
+    };
+    KirinMeterHistoryEntry {
+        generation: entry.generation,
+        run_id: entry.run_id,
+        first_observed_frames: entry.first_observed_frames,
+        last_observed_frames: entry.last_observed_frames,
+        first_timeline_endpoint_samples: entry.first_timeline_endpoint_samples.unwrap_or(i64::MIN),
+        last_timeline_endpoint_samples: entry.last_timeline_endpoint_samples.unwrap_or(i64::MIN),
+        observation_count: entry.observation_count,
+        resolution,
+        reserved: [0; 5],
+        lufs_m: to_c_history_range(entry.lufs_m),
+        lufs_s: to_c_history_range(entry.lufs_s),
+        true_peak: to_c_history_range(entry.true_peak),
+        correlation: to_c_history_range(entry.correlation),
+    }
+}
+
+fn meter_history_resolution_from_abi(value: u8) -> Option<MeterHistoryResolution> {
+    match value {
+        KIRIN_METER_HISTORY_10_HZ => Some(MeterHistoryResolution::Hz10),
+        KIRIN_METER_HISTORY_1_HZ => Some(MeterHistoryResolution::Hz1),
+        KIRIN_METER_HISTORY_0_1_HZ => Some(MeterHistoryResolution::Hz0_1),
+        _ => None,
     }
 }
 
@@ -4240,6 +4328,8 @@ mod meter_session_abi_tests {
     #[test]
     fn snapshot_layout_and_mapping_are_stable() {
         assert_eq!(std::mem::size_of::<KirinMeterSession>(), 192);
+        assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
+        assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 152);
         let current = MeasureResult {
             lufs_m: Some(-14.2),
             lufs_s: Some(-14.8),
@@ -4288,6 +4378,31 @@ mod meter_session_abi_tests {
         assert_eq!(mapped.clip_events, [2, 1]);
         assert_eq!(mapped.balance_db, 0.75);
         assert_eq!(mapped.correlation, 0.91);
+
+        let history = to_c_history_entry(MeterHistoryEntry {
+            resolution: MeterHistoryResolution::Hz1,
+            generation: 3,
+            run_id: 7,
+            observation_count: 10,
+            first_observed_frames: 4_800,
+            last_observed_frames: 48_000,
+            first_timeline_endpoint_samples: Some(104_800),
+            last_timeline_endpoint_samples: None,
+            lufs_m: MeterHistoryRange {
+                min: Some(-16.0),
+                max: Some(-13.0),
+                mean: Some(-14.5),
+            },
+            lufs_s: MeterHistoryRange::default(),
+            true_peak: MeterHistoryRange::default(),
+            correlation: MeterHistoryRange::default(),
+        });
+        assert_eq!(history.resolution, KIRIN_METER_HISTORY_1_HZ);
+        assert_eq!(history.observation_count, 10);
+        assert_eq!(history.first_timeline_endpoint_samples, 104_800);
+        assert_eq!(history.last_timeline_endpoint_samples, i64::MIN);
+        assert_eq!(history.lufs_m.min, -16.0);
+        assert!(history.lufs_s.mean.is_nan());
     }
 
     #[test]
@@ -4318,6 +4433,17 @@ mod meter_session_abi_tests {
             correlation: 0.0,
         };
         assert!(!unsafe { kirin_hypha_poll_meter_session(std::ptr::null_mut(), &mut out) });
+        let mut history_count = 41_u32;
+        assert!(!unsafe {
+            kirin_hypha_poll_meter_history(
+                std::ptr::null_mut(),
+                KIRIN_METER_HISTORY_10_HZ,
+                std::ptr::null_mut(),
+                0,
+                &mut history_count,
+            )
+        });
+        assert_eq!(history_count, 41);
         assert!(!unsafe { kirin_hypha_reset_meter_session(std::ptr::null_mut()) });
         assert_eq!(out.generation, 41);
     }
@@ -4373,6 +4499,48 @@ mod meter_session_abi_tests {
             .all(Option::is_some));
         assert!(active.stereo.true_peak_dbtp.iter().all(Option::is_some));
         assert!(active.stereo.correlation.is_none());
+        let history = engine
+            .poll_meter_history(MeterHistoryResolution::Hz10, 20)
+            .unwrap();
+        assert_eq!(history.len(), 10);
+        assert_eq!(history[0].last_timeline_endpoint_samples, Some(4_800));
+        assert_eq!(history[9].last_timeline_endpoint_samples, Some(48_000));
+        let one_second = engine
+            .poll_meter_history(MeterHistoryResolution::Hz1, 20)
+            .unwrap();
+        assert_eq!(one_second.len(), 1);
+        assert_eq!(one_second[0].observation_count, 10);
+
+        let mut ffi_entries: Vec<std::mem::MaybeUninit<KirinMeterHistoryEntry>> =
+            std::iter::repeat_with(std::mem::MaybeUninit::uninit)
+                .take(12)
+                .collect();
+        let mut ffi_count = 0_u32;
+        assert!(unsafe {
+            kirin_hypha_poll_meter_history(
+                std::ptr::from_ref(&engine).cast_mut(),
+                KIRIN_METER_HISTORY_10_HZ,
+                ffi_entries.as_mut_ptr().cast(),
+                12,
+                &mut ffi_count,
+            )
+        });
+        assert_eq!(ffi_count, 10);
+        let ffi_last = unsafe { ffi_entries[9].assume_init_ref() };
+        assert_eq!(ffi_last.resolution, KIRIN_METER_HISTORY_10_HZ);
+        assert_eq!(ffi_last.last_timeline_endpoint_samples, 48_000);
+
+        ffi_count = 77;
+        assert!(!unsafe {
+            kirin_hypha_poll_meter_history(
+                std::ptr::from_ref(&engine).cast_mut(),
+                99,
+                ffi_entries.as_mut_ptr().cast(),
+                12,
+                &mut ffi_count,
+            )
+        });
+        assert_eq!(ffi_count, 77);
 
         engine.set_signal_state(KIRIN_SIGNAL_STATE_INACTIVE);
         let deadline = std::time::Instant::now() + Duration::from_secs(1);
@@ -6180,6 +6348,45 @@ pub unsafe extern "C" fn kirin_hypha_poll_meter_session(
             return false;
         };
         unsafe { *out = to_c_meter_session(&snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// 常設Meter SessionのTIME履歴を古い順で最大`out_capacity`件取得する。
+/// 10 Hzはexact、1 Hz/0.1 Hzはmin/max/mean集約であり、同じ線として偽装しない。
+///
+/// # Safety
+/// `out_count`は書き込み可能、`out_capacity > 0`なら`out`は同数要素を書き込み可能であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_meter_history(
+    handle: *mut KirinHyphaEngine,
+    resolution: u8,
+    out: *mut KirinMeterHistoryEntry,
+    out_capacity: u32,
+    out_count: *mut u32,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null()
+            || out_count.is_null()
+            || (out_capacity > 0 && out.is_null())
+            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+        {
+            return false;
+        }
+        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
+            return false;
+        };
+        let Some(entries) =
+            (unsafe { &*handle }).poll_meter_history(resolution, out_capacity as usize)
+        else {
+            return false;
+        };
+        let count = u32::try_from(entries.len()).unwrap_or(u32::MAX);
+        for (index, entry) in entries.into_iter().enumerate() {
+            unsafe { out.add(index).write(to_c_history_entry(entry)) };
+        }
+        unsafe { *out_count = out_capacity.min(count) };
         true
     }))
     .unwrap_or(false)

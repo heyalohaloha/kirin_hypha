@@ -5,7 +5,12 @@
 //! accumulated statistics. The owner lives outside the replaceable Measure worker so a worker
 //! restart does not implicitly discard the session.
 
-use crate::{MeasureEngine, MeasureResult, SessionSummary, StereoMeter, StereoMeterSnapshot};
+use crate::meter_clock::MeterClockTracker;
+use crate::meter_history::MeterHistory;
+use crate::{
+    MeasureEngine, MeasureResult, MeterClockStart, MeterHistoryEntry, MeterHistoryResolution,
+    SessionSummary, StereoMeter, StereoMeterSnapshot,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeterSessionState {
@@ -50,6 +55,8 @@ pub struct MeterSession {
     summary: SessionSummary,
     observed_frames: u64,
     stereo: StereoMeter,
+    clock: MeterClockTracker,
+    history: MeterHistory,
 }
 
 impl MeterSession {
@@ -67,12 +74,19 @@ impl MeterSession {
             summary: SessionSummary::default(),
             observed_frames: 0,
             stereo,
+            clock: MeterClockTracker::new(),
+            history: MeterHistory::new(),
         })
     }
 
     /// Adds one direct, active input span. Replayed Record pre-roll must never call this method.
     /// Invalid spans fail closed without advancing either time or EBU state.
     pub fn push_active(&mut self, interleaved: &[f64]) -> bool {
+        self.push_active_at(interleaved, MeterClockStart::unknown())
+    }
+
+    /// Adds one direct, active input span with its optional DAW presentation-clock start.
+    pub fn push_active_at(&mut self, interleaved: &[f64], clock: MeterClockStart) -> bool {
         if interleaved.is_empty()
             || !interleaved.len().is_multiple_of(self.n_channels)
             || interleaved.iter().any(|sample| !sample.is_finite())
@@ -83,20 +97,46 @@ impl MeterSession {
             .active_frames
             .saturating_add((interleaved.len() / self.n_channels) as u64);
         self.state = MeterSessionState::Active;
+        self.clock
+            .push_span((interleaved.len() / self.n_channels) as u64, clock);
         let mut advanced = false;
         self.engine
             .push_observed(interleaved, |_, current, observed_samples| {
-                let _ = self.stereo.push_observation(observed_samples);
+                let stereo_advanced = self.stereo.push_observation(observed_samples);
                 self.current = current.clone();
                 self.observed_frames = self
                     .observed_frames
                     .saturating_add((observed_samples.len() / self.n_channels) as u64);
+                let clock = self
+                    .clock
+                    .consume_observation((observed_samples.len() / self.n_channels) as u64);
+                if clock.usable_for_history {
+                    let correlation = stereo_advanced
+                        .then(|| self.stereo.snapshot().correlation)
+                        .flatten();
+                    self.history.push(
+                        self.generation,
+                        clock.run_id,
+                        self.observed_frames,
+                        clock.timeline_endpoint_samples,
+                        current,
+                        correlation,
+                    );
+                }
                 advanced = true;
             });
         if advanced {
             self.summary = self.engine.finalize();
         }
         true
+    }
+
+    pub fn recent_history(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+    ) -> Vec<MeterHistoryEntry> {
+        self.history.recent(resolution, max_entries)
     }
 
     pub fn pause(&mut self) {
@@ -114,6 +154,8 @@ impl MeterSession {
         self.summary = SessionSummary::default();
         self.observed_frames = 0;
         self.stereo.reset();
+        self.clock.reset();
+        self.history.reset();
     }
 
     pub fn snapshot(&self) -> MeterSessionSnapshot {
@@ -158,6 +200,14 @@ mod tests {
             (Some(a), Some(b)) => (a - b).abs() <= tolerance,
             (None, None) => true,
             _ => false,
+        }
+    }
+
+    fn project_clock(position_samples: i64, epoch: u64) -> MeterClockStart {
+        MeterClockStart {
+            position_samples: Some(position_samples),
+            epoch: Some(epoch),
+            source: crate::CaptureClockSource::ProjectTimeline,
         }
     }
 
@@ -278,5 +328,53 @@ mod tests {
             chunked.stereo.correlation,
             1.0e-12
         ));
+    }
+
+    #[test]
+    fn history_retains_exact_and_multi_resolution_facts_while_editor_is_absent() {
+        let samples = stereo_sine(3.2, 0.5);
+        let mut session = MeterSession::new(SR, 2).unwrap();
+        let mut position = 120_000_i64;
+        for chunk in samples.chunks(742) {
+            assert!(session.push_active_at(chunk, project_clock(position, 9)));
+            position += (chunk.len() / 2) as i64;
+        }
+        let exact = session.recent_history(MeterHistoryResolution::Hz10, 100);
+        assert_eq!(exact.len(), 32);
+        assert_eq!(exact[0].last_observed_frames, 4_800);
+        assert_eq!(exact[0].last_timeline_endpoint_samples, Some(124_800));
+        assert_eq!(exact[31].last_observed_frames, 153_600);
+        assert_eq!(exact[31].last_timeline_endpoint_samples, Some(273_600));
+
+        let one_second = session.recent_history(MeterHistoryResolution::Hz1, 100);
+        assert_eq!(one_second.len(), 4);
+        assert_eq!(one_second[0].observation_count, 10);
+        assert_eq!(one_second[3].observation_count, 2);
+        let ten_seconds = session.recent_history(MeterHistoryResolution::Hz0_1, 100);
+        assert_eq!(ten_seconds.len(), 1);
+        assert_eq!(ten_seconds[0].observation_count, 32);
+
+        session.reset();
+        assert!(session
+            .recent_history(MeterHistoryResolution::Hz10, 100)
+            .is_empty());
+    }
+
+    #[test]
+    fn history_never_joins_one_observation_across_a_transport_jump() {
+        let half_observation = stereo_sine(0.05, 0.5);
+        let one_observation = stereo_sine(0.1, 0.5);
+        let mut session = MeterSession::new(SR, 2).unwrap();
+        assert!(session.push_active_at(&half_observation, project_clock(10_000, 1)));
+        assert!(session.push_active_at(&half_observation, project_clock(50_000, 2)));
+        assert!(session
+            .recent_history(MeterHistoryResolution::Hz10, 10)
+            .is_empty());
+
+        assert!(session.push_active_at(&one_observation, project_clock(52_400, 2)));
+        let history = session.recent_history(MeterHistoryResolution::Hz10, 10);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].run_id, 2);
+        assert_eq!(history[0].last_timeline_endpoint_samples, Some(57_200));
     }
 }

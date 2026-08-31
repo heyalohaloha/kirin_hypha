@@ -30,6 +30,8 @@ pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
 pub mod measure_thread;
+mod meter_clock;
+pub mod meter_history;
 pub mod meter_session;
 pub mod pair_claim_index;
 pub mod pair_operation_group;
@@ -159,6 +161,11 @@ pub use license::{
 };
 pub use measure_thread::{
     live_window, pair_lock_active, spawn_measure_thread, stalled_signal_state, LivenessEvaluator,
+};
+pub use meter_clock::MeterClockStart;
+pub use meter_history::{
+    MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution, HISTORY_0_1_HZ_CAPACITY,
+    HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY,
 };
 pub use meter_session::{MeterSession, MeterSessionSnapshot, MeterSessionState};
 pub use pair_claim_index::{

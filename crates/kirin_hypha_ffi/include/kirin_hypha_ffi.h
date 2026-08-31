@@ -87,6 +87,14 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_BALANCE_LEFT_ONLY 2u
 #define KIRIN_BALANCE_RIGHT_ONLY 3u
 
+#define KIRIN_METER_HISTORY_10_HZ 0u
+#define KIRIN_METER_HISTORY_1_HZ 1u
+#define KIRIN_METER_HISTORY_0_1_HZ 2u
+#define KIRIN_METER_HISTORY_10_HZ_CAPACITY 6000u
+#define KIRIN_METER_HISTORY_1_HZ_CAPACITY 7200u
+#define KIRIN_METER_HISTORY_0_1_HZ_CAPACITY 8640u
+#define KIRIN_METER_HISTORY_MAX_ENTRIES 8640u
+
 /* RT 計測結果. 各 double の「値なし」は NaN. */
 typedef struct {
   double lufs_m;        /* LUFS-M (ITU-R BS.1770-4 Momentary, 400ms) */
@@ -146,6 +154,29 @@ typedef struct {
   double balance_db;  /* positive=L, negative=R; one-sidedはbalance_stateで表す */
   double correlation; /* fixed 3 s; denominator 0/mono/未成立はNaN */
 } KirinMeterSession;
+
+typedef struct {
+  double min;
+  double max;
+  double mean;
+} KirinMeterHistoryRange;
+
+/* TIME履歴1点。10 Hzはexact（min=max=mean）、低rate層は100 ms事実の集約。 */
+typedef struct {
+  uint64_t generation;
+  uint64_t run_id;
+  uint64_t first_observed_frames;
+  uint64_t last_observed_frames;
+  int64_t first_timeline_endpoint_samples; /* 不明はINT64_MIN */
+  int64_t last_timeline_endpoint_samples;  /* 不明はINT64_MIN */
+  uint16_t observation_count;
+  uint8_t resolution; /* KIRIN_METER_HISTORY_* */
+  uint8_t reserved[5];
+  KirinMeterHistoryRange lufs_m;
+  KirinMeterHistoryRange lufs_s;
+  KirinMeterHistoryRange true_peak;
+  KirinMeterHistoryRange correlation;
+} KirinMeterHistoryEntry;
 
 /* state chunk 往復する識別子（方式A）. 各フィールドは null 終端 C 文字列（最大 63 + null）.
  * project_hash は派生値のため含めない（JUCE は下記 4 キーを chunk に保存する）. */
@@ -728,6 +759,13 @@ bool kirin_hypha_poll_session(KirinHypha* handle, KirinSessionSummary* out);
 
 /* Record/Keepとは独立した常設メーターを取得。Emptyも有効なsnapshotとしてtrue。 */
 bool kirin_hypha_poll_meter_session(KirinHypha* handle, KirinMeterSession* out);
+
+/* TIME履歴を古い順で最大out_capacity件取得。競合時はfalse、out_countを変更しない。 */
+bool kirin_hypha_poll_meter_history(KirinHypha* handle,
+                                    uint8_t resolution,
+                                    KirinMeterHistoryEntry* out,
+                                    uint32_t out_capacity,
+                                    uint32_t* out_count);
 
 /* 利用者操作で常設メーターだけをReset。競合・未生成時はfalse。 */
 bool kirin_hypha_reset_meter_session(KirinHypha* handle);

@@ -9,6 +9,8 @@ namespace
 {
     static_assert (sizeof (KirinMeterSession) == 192u,
                    "Rust/C++ Meter Session ABI size must remain exact");
+    static_assert (sizeof (KirinMeterHistoryEntry) == 152u,
+                   "Rust/C++ Meter history ABI size must remain exact");
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::unknown)
                        == KIRIN_HYPHA_CLOCK_UNKNOWN);
@@ -550,6 +552,31 @@ bool KirinHyphaProcessorBase::pollMeterSession (KirinMeterSession& out) const
 {
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr && kirin_hypha_poll_meter_session (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollMeterHistory (
+    uint8_t resolution,
+    std::vector<KirinMeterHistoryEntry>& out,
+    size_t maxEntries) const
+{
+    const auto bounded = std::min (maxEntries,
+                                   static_cast<size_t> (KIRIN_METER_HISTORY_MAX_ENTRIES));
+    out.resize (bounded);
+    uint32_t count = 0;
+    const juce::ScopedLock sl (handleLock);
+    const auto ok = hyphaHandle != nullptr
+                 && kirin_hypha_poll_meter_history (hyphaHandle,
+                                                    resolution,
+                                                    out.data(),
+                                                    static_cast<uint32_t> (bounded),
+                                                    &count);
+    if (! ok)
+    {
+        out.clear();
+        return false;
+    }
+    out.resize (count);
+    return true;
 }
 
 bool KirinHyphaProcessorBase::resetMeterSession()

@@ -47,6 +47,9 @@ public:
     bool pollWatchDisplay (KirinWatchDisplay& out) const;
     bool pollRecordDisplay (KirinRecordDisplay& out) const;
     bool pollMeterSession (KirinMeterSession& out) const;
+    bool pollMeterHistory (uint8_t resolution,
+                           std::vector<KirinMeterHistoryEntry>& out,
+                           size_t maxEntries) const;
     bool resetMeterSession();
     bool useShortTermLoudness() const
     {
