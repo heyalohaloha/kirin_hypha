@@ -28,8 +28,9 @@ mod worker;
 
 pub use pair::{AttackPairError, AttackPairEvent, AttackPairEventKind, AttackPairJoiner};
 pub use state::{
-    AttackDetailedEvent, AttackEvent, AttackHistory, AttackOdfFrame, AttackRuntimeStats,
-    ATTACK_EVENT_HISTORY_CAPACITY, ATTACK_ODF_HISTORY_CAPACITY,
+    AttackDetailedEvent, AttackEvent, AttackEventShape, AttackHistory, AttackOdfFrame,
+    AttackRuntimeStats, AttackWaveformPoint, ATTACK_EVENT_HISTORY_CAPACITY,
+    ATTACK_ODF_HISTORY_CAPACITY, ATTACK_SHAPE_POINT_CAPACITY, ATTACK_WAVEFORM_HISTORY_CAPACITY,
 };
 
 const ATTACK_BLOCK_RING_CAPACITY: usize = 128;

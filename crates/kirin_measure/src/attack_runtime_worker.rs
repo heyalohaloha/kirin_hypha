@@ -93,14 +93,27 @@ impl AttackRuntime {
             } else {
                 None
             };
-            if !detail_tracker.push_frame(left, right) {
-                return false;
+            match detail_tracker.push_frame(left, right) {
+                Ok(Some(waveform)) => self.publish_waveform(waveform),
+                Ok(None) => {}
+                Err(()) => return false,
             }
             if let Some(frame) = assembler.push_frame(left, right) {
                 self.publish(frame, peak_picker, detail_tracker);
             }
         }
         true
+    }
+
+    fn publish_waveform(&self, point: super::AttackWaveformPoint) {
+        if self.generation.load(Ordering::Acquire) != point.generation {
+            return;
+        }
+        if let Ok(mut history) = self.history.lock() {
+            if self.generation.load(Ordering::Acquire) == point.generation {
+                history.push_waveform(point);
+            }
+        }
     }
 
     fn publish(

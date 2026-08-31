@@ -92,6 +92,8 @@ public:
     bool setInternalAttackEnabled (bool enabled);       // POST-only, internal, never DAW state
     bool pollInternalAttackBatch (KirinAttackBatch& out) const;
     bool pollInternalAttackEvents (KirinAttackEventBatch& out) const;
+    bool pollInternalAttackWaveform (KirinAttackWaveformBatch& out) const;
+    bool pollInternalAttackDetails (KirinAttackDetailBatch& out) const;
     bool internalAttackStats (KirinAttackStats& out) const;
     uint8_t spectrumSizePreference() const              // editor-lifetime recreation only; not DAW state
     {

@@ -911,6 +911,24 @@ bool KirinHyphaProcessorBase::pollInternalAttackEvents (KirinAttackEventBatch& o
         && kirin_hypha_poll_internal_attack_events (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::pollInternalAttackWaveform (KirinAttackWaveformBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_internal_attack_waveform (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollInternalAttackDetails (KirinAttackDetailBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_internal_attack_details (hyphaHandle, &out);
+}
+
 bool KirinHyphaProcessorBase::internalAttackStats (KirinAttackStats& out) const
 {
     if (role != Role::Post)

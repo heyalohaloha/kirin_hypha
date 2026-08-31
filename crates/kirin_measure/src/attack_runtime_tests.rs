@@ -96,6 +96,10 @@ fn selected_drum_superflux_runs_on_source_zero_grid() {
     assert_eq!(frames[0].definition_hash, frames[1].definition_hash);
     assert_eq!(runtime.latest_presentation_end(), Some(5_000));
     assert_eq!(runtime.stats().dropped_blocks, 0);
+    assert!(history.waveform().len() >= 8);
+    assert!(history
+        .waveform()
+        .all(AttackWaveformPoint::has_valid_layout));
     runtime.shutdown_and_join();
 }
 
@@ -116,6 +120,8 @@ fn confirmed_runtime_event_receives_real_perceptual_detail() {
             assert_eq!(detail.features.attack_frames, 1_440);
             assert!(detail.features.contrast_db > 0.0);
             assert!(detail.features.temporal_centroid_ms.is_some());
+            assert_eq!(detail.shape.points.len(), ATTACK_SHAPE_POINT_CAPACITY);
+            assert!(detail.shape.points.iter().any(|value| *value > 0.0));
             runtime.shutdown_and_join();
             return;
         }

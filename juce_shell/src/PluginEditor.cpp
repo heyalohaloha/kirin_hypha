@@ -314,6 +314,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         absoluteView.setVisible (false);
         attackInternalView.setVisible (true);
         processorRef.setInternalAttackEnabled (true);
+        const auto attackPreset = ui::spectrumSizePresets.back();
+        setSize (attackPreset.width, attackPreset.height);
     }
    #endif
     resized();                     // finalise positions now that postControls exists
@@ -1011,6 +1013,14 @@ void KirinHyphaEditor::updatePost()
         if (processorRef.pollInternalAttackEvents (events))
             cachedAttackEvents = events;
 
+        KirinAttackWaveformBatch waveform {};
+        if (processorRef.pollInternalAttackWaveform (waveform))
+            cachedAttackWaveform = waveform;
+
+        KirinAttackDetailBatch details {};
+        if (processorRef.pollInternalAttackDetails (details))
+            cachedAttackDetails = details;
+
         KirinAttackBatch raw {};
         if (processorRef.pollInternalAttackBatch (raw) && raw.count > 0)
         {
@@ -1021,7 +1031,8 @@ void KirinHyphaEditor::updatePost()
             cachedAttackRate = newest.sample_rate;
             cachedAttackGeneration = newest.generation;
         }
-        attackInternalView.setSnapshot (cachedAttackEvents, cachedAttackLatest,
+        attackInternalView.setSnapshot (cachedAttackEvents, cachedAttackWaveform,
+                                        cachedAttackDetails, cachedAttackLatest,
                                         cachedAttackRate, cachedAttackGeneration,
                                         cachedAttackStats);
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));

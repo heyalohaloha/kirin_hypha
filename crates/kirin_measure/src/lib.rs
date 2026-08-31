@@ -108,9 +108,10 @@ pub use attack_perception::{
 };
 pub use attack_runtime::{
     analyze_drum_attacks_interleaved_offline, analyze_drum_attacks_mono_offline,
-    AttackDetailedEvent, AttackEvent, AttackHistory, AttackOdfFrame, AttackPairError,
-    AttackPairEvent, AttackPairEventKind, AttackPairJoiner, AttackRuntime, AttackRuntimeStats,
-    ATTACK_EVENT_HISTORY_CAPACITY, ATTACK_ODF_HISTORY_CAPACITY,
+    AttackDetailedEvent, AttackEvent, AttackEventShape, AttackHistory, AttackOdfFrame,
+    AttackPairError, AttackPairEvent, AttackPairEventKind, AttackPairJoiner, AttackRuntime,
+    AttackRuntimeStats, AttackWaveformPoint, ATTACK_EVENT_HISTORY_CAPACITY,
+    ATTACK_ODF_HISTORY_CAPACITY, ATTACK_SHAPE_POINT_CAPACITY, ATTACK_WAVEFORM_HISTORY_CAPACITY,
 };
 pub use capture_contract::{CAPTURE_PRODUCER_READY_TIMEOUT, MAX_CAPTURE_PAIRS};
 pub use capture_generation::{

@@ -366,6 +366,14 @@ Brightnessは新しい曖昧なscoreを作らず、既存100 ms Sharpnessを同�
 POST workerの実音声ringへ接続し、確定eventごとの100 ms/30 ms窓から`AttackDetailedEvent`をhistoryへ発行する。source originだけzero padし、任意transport jump直後に不足contextを発明しない。
 Saturation-like Textureは処理器の推定値にせず、PREからPOSTでsample-edge比増加、Crest低下、peak plateau拡大が同時に起きた事実だけを別表示へ渡す。identityと固定gainでは三値とも差分0になる。
 
+### B-576 live scrub presentation
+
+Audio Threadの既存copy/notify境界は変えず、ATTACK workerがsource 0基準の10 ms waveform envelopeを生成する。
+上段6秒scrubはraw ODFではなく実音のmean-linear-power envelope、下段は確定eventの`[-100,+30) ms`実波形shapeを96点で表示する。
+C ABIはwaveform 600点、detail 240件を固定長snapshotでUI threadへ渡し、Contrast、Peak、Crest、sample-edge比、peak plateau、pending Sharpnessを保持する。
+opt-in POST内部画面は600×400でlive waveform、event marker、click scrub、選択event shapeと事実値を表示する。
+PREが未接続の間は`POST ABSOLUTE`と明示し、偽のPRE/POST比較を作らない。公開Analysis route、DAW state、閾値編集、楽器推定も引き続き追加しない。
+
 ## 7. 再現性
 
 最良pilotは二回実行でbyte単位に一致した。

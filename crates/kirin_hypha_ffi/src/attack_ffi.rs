@@ -7,15 +7,22 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use kirin_measure::{
-    AttackEvent, AttackHistory, AttackOdfFrame, AttackRuntimeStats, PluginDataRole,
+    AttackHistory, PluginDataRole, ATTACK_SHAPE_POINT_CAPACITY, ATTACK_WAVEFORM_HISTORY_CAPACITY,
 };
 
 use super::KirinHyphaEngine;
+
+#[path = "attack_ffi_convert.rs"]
+mod convert;
+use convert::*;
 
 pub const KIRIN_ATTACK_BATCH_CAPACITY: usize = 64;
 // Six seconds at the strict >30 ms event separation can contain at most 200 confirmed events.
 // Keep one complete internal presentation window in a single lock-free snapshot.
 pub const KIRIN_ATTACK_EVENT_BATCH_CAPACITY: usize = 240;
+pub const KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY: usize = ATTACK_WAVEFORM_HISTORY_CAPACITY;
+pub const KIRIN_ATTACK_DETAIL_BATCH_CAPACITY: usize = 240;
+pub const KIRIN_ATTACK_SHAPE_CAPACITY: usize = ATTACK_SHAPE_POINT_CAPACITY;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -83,6 +90,115 @@ impl Default for KirinAttackEventBatch {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KirinAttackWaveformPoint {
+    pub generation: u64,
+    pub sample_rate: u32,
+    pub channels: u8,
+    pub reserved: [u8; 3],
+    pub start_sample: i64,
+    pub end_sample: i64,
+    pub peak_linear: f32,
+    pub rms_dbfs: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KirinAttackWaveformBatch {
+    pub count: u32,
+    pub capacity: u32,
+    pub points: [KirinAttackWaveformPoint; KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY],
+}
+
+impl Default for KirinAttackWaveformBatch {
+    fn default() -> Self {
+        Self {
+            count: 0,
+            capacity: KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY as u32,
+            points: [KirinAttackWaveformPoint::default(); KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KirinAttackDetail {
+    pub generation: u64,
+    pub sample_rate: u32,
+    pub channels: u8,
+    pub temporal_centroid_available: u8,
+    pub sharpness_available: u8,
+    pub reserved: u8,
+    pub definition_hash: [u8; 32],
+    pub event_sample: i64,
+    pub decision_sample: i64,
+    pub shape_start_sample: i64,
+    pub shape_end_sample: i64,
+    pub value: f32,
+    pub contrast_db: f32,
+    pub context_rms_dbfs: f32,
+    pub attack_rms_dbfs: f32,
+    pub sample_peak_dbfs: f32,
+    pub crest_db: f32,
+    pub sample_edge_ratio_db: f32,
+    pub peak_plateau_ms: f32,
+    pub temporal_centroid_ms: f32,
+    pub sharpness_acum: f32,
+    pub shape_count: u32,
+    pub reserved2: u32,
+    pub shape: [f32; KIRIN_ATTACK_SHAPE_CAPACITY],
+}
+
+impl Default for KirinAttackDetail {
+    fn default() -> Self {
+        Self {
+            generation: 0,
+            sample_rate: 0,
+            channels: 0,
+            temporal_centroid_available: 0,
+            sharpness_available: 0,
+            reserved: 0,
+            definition_hash: [0; 32],
+            event_sample: 0,
+            decision_sample: 0,
+            shape_start_sample: 0,
+            shape_end_sample: 0,
+            value: 0.0,
+            contrast_db: 0.0,
+            context_rms_dbfs: 0.0,
+            attack_rms_dbfs: 0.0,
+            sample_peak_dbfs: 0.0,
+            crest_db: 0.0,
+            sample_edge_ratio_db: 0.0,
+            peak_plateau_ms: 0.0,
+            temporal_centroid_ms: 0.0,
+            sharpness_acum: 0.0,
+            shape_count: 0,
+            reserved2: 0,
+            shape: [0.0; KIRIN_ATTACK_SHAPE_CAPACITY],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KirinAttackDetailBatch {
+    pub count: u32,
+    pub capacity: u32,
+    pub details: [KirinAttackDetail; KIRIN_ATTACK_DETAIL_BATCH_CAPACITY],
+}
+
+impl Default for KirinAttackDetailBatch {
+    fn default() -> Self {
+        Self {
+            count: 0,
+            capacity: KIRIN_ATTACK_DETAIL_BATCH_CAPACITY as u32,
+            details: [KirinAttackDetail::default(); KIRIN_ATTACK_DETAIL_BATCH_CAPACITY],
+        }
+    }
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct KirinAttackStats {
     pub available: u8,
@@ -128,6 +244,14 @@ impl KirinHyphaEngine {
             .map(to_c_attack_event_batch)
     }
 
+    pub fn poll_internal_attack_waveform(&self) -> Option<KirinAttackWaveformBatch> {
+        self.post_attack_history().map(to_c_attack_waveform_batch)
+    }
+
+    pub fn poll_internal_attack_details(&self) -> Option<KirinAttackDetailBatch> {
+        self.post_attack_history().map(to_c_attack_detail_batch)
+    }
+
     pub fn internal_attack_stats(&self) -> KirinAttackStats {
         self.attack_runtime
             .as_ref()
@@ -135,74 +259,13 @@ impl KirinHyphaEngine {
                 to_c_attack_stats(runtime.stats())
             })
     }
-}
 
-fn to_c_attack_frame(frame: &AttackOdfFrame) -> KirinAttackOdfFrame {
-    KirinAttackOdfFrame {
-        generation: frame.generation,
-        sample_rate: frame.sample_rate,
-        channels: frame.channels,
-        reserved: [0; 3],
-        definition_hash: frame.definition_hash,
-        window_samples: frame.window_samples,
-        hop_samples: frame.hop_samples,
-        support_start_samples: frame.support_start_samples,
-        support_end_samples: frame.support_end_samples,
-        event_sample: frame.event_sample,
-        value: frame.value,
+    fn post_attack_history(&self) -> Option<AttackHistory> {
+        if self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post) {
+            return None;
+        }
+        self.attack_runtime.as_ref()?.try_history()
     }
-}
-
-fn to_c_attack_batch(history: &AttackHistory) -> KirinAttackBatch {
-    let mut batch = KirinAttackBatch::default();
-    let skip = history
-        .frames()
-        .len()
-        .saturating_sub(KIRIN_ATTACK_BATCH_CAPACITY);
-    for (destination, source) in batch.frames.iter_mut().zip(history.frames().skip(skip)) {
-        *destination = to_c_attack_frame(source);
-        batch.count += 1;
-    }
-    batch
-}
-
-fn to_c_attack_stats(stats: AttackRuntimeStats) -> KirinAttackStats {
-    KirinAttackStats {
-        available: 1,
-        enabled: stats.enabled as u8,
-        worker_running: stats.worker_running as u8,
-        channels: stats.channels,
-        reserved: [0; 4],
-        pushed_blocks: stats.pushed_blocks,
-        dropped_blocks: stats.dropped_blocks,
-        analyzed_frames: stats.analyzed_frames,
-    }
-}
-
-fn to_c_attack_event(event: &AttackEvent) -> KirinAttackEvent {
-    KirinAttackEvent {
-        generation: event.generation,
-        sample_rate: event.sample_rate,
-        channels: event.channels,
-        reserved: [0; 3],
-        definition_hash: event.definition_hash,
-        event_sample: event.event_sample,
-        decision_sample: event.decision_sample,
-        value: event.value,
-    }
-}
-
-fn to_c_attack_event_batch(history: &AttackHistory) -> KirinAttackEventBatch {
-    let mut batch = KirinAttackEventBatch::default();
-    let skip = history
-        .events()
-        .len()
-        .saturating_sub(KIRIN_ATTACK_EVENT_BATCH_CAPACITY);
-    for (destination, source) in batch.events.iter_mut().zip(history.events().skip(skip)) {
-        *destination = to_c_attack_event(source);
-        batch.count += 1;
-    }
-    batch
 }
 
 /// Internal ATTACK DRUM validation switch. Not a public analysis route.
@@ -267,6 +330,50 @@ pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_events(
     .unwrap_or(false)
 }
 
+/// Copies the exact 10 ms absolute POST waveform envelope for the last six seconds.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_waveform(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinAttackWaveformBatch,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(batch) = (unsafe { &*handle }).poll_internal_attack_waveform() else {
+            return false;
+        };
+        unsafe { *out = batch };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Copies event-local waveform shapes and factual perceptual descriptors.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_details(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinAttackDetailBatch,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(batch) = (unsafe { &*handle }).poll_internal_attack_details() else {
+            return false;
+        };
+        unsafe { *out = batch };
+        true
+    }))
+    .unwrap_or(false)
+}
+
 /// Reads default-OFF worker counters without enabling the worker.
 ///
 /// # Safety
@@ -287,172 +394,5 @@ pub unsafe extern "C" fn kirin_hypha_internal_attack_stats(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::mem::{offset_of, size_of};
-    use std::thread;
-    use std::time::{Duration, Instant};
-
-    use kirin_measure::{
-        CaptureClockSource, PluginDataRole, PresentationLatencySamples, PresentationLatencySource,
-    };
-
-    use super::*;
-
-    #[test]
-    fn attack_c_layout_is_fixed_without_changing_existing_abi() {
-        assert_eq!(size_of::<KirinAttackOdfFrame>(), 88);
-        assert_eq!(offset_of!(KirinAttackOdfFrame, definition_hash), 16);
-        assert_eq!(offset_of!(KirinAttackOdfFrame, support_start_samples), 56);
-        assert_eq!(offset_of!(KirinAttackOdfFrame, value), 80);
-        assert_eq!(size_of::<KirinAttackBatch>(), 5_640);
-        assert_eq!(offset_of!(KirinAttackBatch, frames), 8);
-        assert_eq!(size_of::<KirinAttackEvent>(), 72);
-        assert_eq!(offset_of!(KirinAttackEvent, event_sample), 48);
-        assert_eq!(offset_of!(KirinAttackEvent, value), 64);
-        assert_eq!(size_of::<KirinAttackEventBatch>(), 17_288);
-        assert_eq!(size_of::<KirinAttackStats>(), 32);
-    }
-
-    #[test]
-    fn default_is_off_and_only_post_can_enable_internal_attack() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
-        assert_eq!(
-            engine.internal_attack_stats(),
-            KirinAttackStats {
-                available: 1,
-                channels: 2,
-                ..KirinAttackStats::default()
-            }
-        );
-        assert!(!engine.set_internal_attack_enabled(true));
-        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
-        assert!(!engine.set_internal_attack_enabled(true));
-        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
-        assert!(engine.set_internal_attack_enabled(true));
-        assert_eq!(engine.internal_attack_stats().enabled, 1);
-        assert!(engine.set_internal_attack_enabled(false));
-        assert_eq!(engine.internal_attack_stats().enabled, 0);
-    }
-
-    #[test]
-    fn unsupported_host_rate_stays_unavailable_without_failing_engine() {
-        let engine = KirinHyphaEngine::new(12_345, 2);
-        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
-        assert_eq!(engine.internal_attack_stats().available, 0);
-        assert!(!engine.set_internal_attack_enabled(true));
-        assert!(engine.poll_internal_attack_batch().is_none());
-    }
-
-    #[test]
-    fn shipping_vst_clock_and_audio_transaction_reaches_attack_worker() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
-        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
-        assert!(engine.set_internal_attack_enabled(true));
-
-        let mut position = 0_i64;
-        for block_index in 0..24 {
-            let mut block = vec![0.0_f32; 256 * 2];
-            if block_index == 8 {
-                block[0] = 1.0;
-                block[1] = 1.0;
-            }
-            engine.note_capture_window_with_presentation(
-                true,
-                position,
-                256,
-                CaptureClockSource::ProjectTimeline,
-                PresentationLatencySamples {
-                    source: PresentationLatencySource::Vst3,
-                    input: Some(0),
-                    output: Some(0),
-                },
-                false,
-            );
-            assert!(engine.push_samples_transaction(&block, 2));
-            position += 256;
-        }
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while engine
-            .poll_internal_attack_events()
-            .is_none_or(|batch| batch.count == 0)
-            && Instant::now() < deadline
-        {
-            thread::sleep(Duration::from_millis(5));
-        }
-        let batch = engine.poll_internal_attack_batch().unwrap();
-        assert!(batch.count > 0);
-        assert!(batch.count as usize <= KIRIN_ATTACK_BATCH_CAPACITY);
-        let frames = &batch.frames[..batch.count as usize];
-        assert!(frames.iter().all(|frame| frame.sample_rate == 48_000));
-        assert!(frames.iter().all(|frame| frame.channels == 2));
-        assert!(frames.iter().all(|frame| frame.window_samples == 2_048));
-        assert!(frames.iter().all(|frame| frame.hop_samples == 256));
-        assert!(frames.iter().any(|frame| frame.value > 0.0));
-        let events = engine.poll_internal_attack_events().unwrap();
-        assert!(events.count > 0);
-        assert!(events.events[..events.count as usize]
-            .iter()
-            .all(|event| event.decision_sample > event.event_sample));
-    }
-
-    #[test]
-    fn studio_project_clock_without_optional_presentation_callback_reaches_attack_worker() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
-        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
-        assert!(engine.set_internal_attack_enabled(true));
-
-        let mut position = 0_i64;
-        for block_index in 0..24 {
-            let mut block = vec![0.0_f32; 256 * 2];
-            if block_index == 8 {
-                block[0] = 1.0;
-                block[1] = 1.0;
-            }
-            engine.note_capture_window(true, position, 256, CaptureClockSource::ProjectTimeline);
-            assert!(engine.push_samples_transaction(&block, 2));
-            position += 256;
-        }
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while engine
-            .poll_internal_attack_events()
-            .is_none_or(|batch| batch.count == 0)
-            && Instant::now() < deadline
-        {
-            thread::sleep(Duration::from_millis(5));
-        }
-        let frames = engine.poll_internal_attack_batch().unwrap();
-        assert!(frames.count > 0);
-        assert!(frames.frames[..frames.count as usize]
-            .iter()
-            .any(|frame| frame.value > 0.0));
-        let events = engine.poll_internal_attack_events().unwrap();
-        assert!(events.count > 0);
-    }
-
-    #[test]
-    fn c_functions_are_null_safe() {
-        let mut stats = KirinAttackStats::default();
-        let mut batch = KirinAttackBatch::default();
-        let mut events = KirinAttackEventBatch::default();
-        unsafe {
-            assert!(!kirin_hypha_set_internal_attack_enabled(
-                std::ptr::null_mut(),
-                true
-            ));
-            assert!(!kirin_hypha_internal_attack_stats(
-                std::ptr::null_mut(),
-                &mut stats
-            ));
-            assert!(!kirin_hypha_poll_internal_attack_batch(
-                std::ptr::null_mut(),
-                &mut batch
-            ));
-            assert!(!kirin_hypha_poll_internal_attack_events(
-                std::ptr::null_mut(),
-                &mut events
-            ));
-        }
-    }
-}
+#[path = "attack_ffi_tests.rs"]
+mod tests;

@@ -33,6 +33,8 @@ TEXTUREは処理器を推定しない。POSTで高周波方向のsample-edge比�
 ## Fixed measurement contract
 
 - Worker only。Audio Threadでは算出しない。
+- 六秒scrubのabsolute waveformは10 ms binごとのRMS/Peakをsource 0 gridで保持し、ODFを波形として代用しない。
+- 選択eventのshapeは`[event−100 ms,event+30 ms)`を96個の固定binへ写し、各binのstereo mean-linear-power peakを使う。
 - sample rateはhost-native、monoまたはstereo。stereoはchannelごとのlinear power平均でdownmixしない。
 - contextは`[event−100 ms,event)`、attackは`[event,event+30 ms)`。content先頭不足だけzero padする。
 - レベルfloorは固定−120 dBFS。floorへ触れたContrastはpayloadで明示し、通常値と区別する。

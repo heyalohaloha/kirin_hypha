@@ -126,6 +126,8 @@ private:
     size_t spectrumSizeIndex = 0;
     bool internalAttackUi = false;
     KirinAttackEventBatch cachedAttackEvents {};
+    KirinAttackWaveformBatch cachedAttackWaveform {};
+    KirinAttackDetailBatch cachedAttackDetails {};
     KirinAttackStats cachedAttackStats {};
     std::int64_t cachedAttackLatest = -1;
     std::uint32_t cachedAttackRate = 0;
