@@ -338,7 +338,10 @@ fn run_worker(state: Arc<WorkerState>, coordinator: Weak<SpectrumCoordinator>) {
         };
         wait = if !active {
             INACTIVE_WAIT
-        } else if coordinator.active_analysis_mode() == crate::AnalysisViewMode::Absolute {
+        } else if matches!(
+            coordinator.active_analysis_mode(),
+            crate::AnalysisViewMode::Absolute | crate::AnalysisViewMode::Attack
+        ) {
             ABSOLUTE_ACTIVE_WAIT
         } else {
             ACTIVE_WAIT

@@ -36,12 +36,12 @@ impl SpectrumCoordinator {
         match self.ensure_analysis_lease(owner_name) {
             Ok(true) => {}
             Ok(false) => {
-                let _ = self.runtime.set_enabled(false);
+                self.disable_analysis_runtimes();
                 self.store_analysis_in_use(self.observed_analysis_owner_names());
                 return false;
             }
             Err(_) => {
-                let _ = self.runtime.set_enabled(false);
+                self.disable_analysis_runtimes();
                 self.store_view(SpectrumViewStatus::Unavailable, None, None);
                 return false;
             }
@@ -49,12 +49,15 @@ impl SpectrumCoordinator {
         if self.runtime.analysis_mode() == AnalysisViewMode::Absolute {
             return self.post_absolute_tick();
         }
+        let analysis_mode = self.runtime.analysis_mode();
+        if analysis_mode == AnalysisViewMode::Attack && target.is_none() {
+            return self.post_unpaired_attack_tick();
+        }
         let Some(target) = target else {
             self.retire_unpaired_post_session();
             return false;
         };
 
-        let analysis_mode = self.runtime.analysis_mode();
         let channel_mode = self.runtime.channel_mode();
         let rearm_required = analysis_mode == AnalysisViewMode::Perceptual
             && self.runtime.take_perceptual_rearm_required();
@@ -74,7 +77,7 @@ impl SpectrumCoordinator {
             cleanup_owned_request(retired_target.as_ref(), retired_id);
         }
         if reset_runtime {
-            let _ = self.runtime.set_enabled(false);
+            self.disable_analysis_runtimes();
             if analysis_mode == AnalysisViewMode::Perceptual {
                 let _ = self.runtime.set_perceptual_state_epoch(None);
             }
@@ -86,7 +89,7 @@ impl SpectrumCoordinator {
             cleanup_owned_request(Some(&target), session.request_id);
             return false;
         }
-        if !self.runtime.set_enabled(true) {
+        if !self.set_active_runtime_enabled(analysis_mode, true) {
             cleanup_owned_request(Some(&target), session.request_id);
             self.clear_post_renewal(session.request_id);
             self.store_view(SpectrumViewStatus::Unavailable, None, None);
@@ -130,6 +133,34 @@ impl SpectrumCoordinator {
             SpectrumViewStatus::WarmingUp
         };
         self.store_absolute_view(status, history);
+        true
+    }
+
+    fn post_unpaired_attack_tick(&self) -> bool {
+        let retired = self.try_post_session().map(|mut slot| {
+            slot.take()
+                .map(|session| (session.target, session.request_id))
+        });
+        if let Some(Some((target, request_id))) = retired {
+            cleanup_owned_request(target.as_ref(), request_id);
+        }
+        if !self.set_active_runtime_enabled(AnalysisViewMode::Attack, true) {
+            self.store_attack_view(AttackPairViewSnapshot {
+                status: SpectrumViewStatus::Unavailable,
+                ..Default::default()
+            });
+            return false;
+        }
+        let post = self
+            .attack_runtime
+            .as_ref()
+            .and_then(|runtime| runtime.try_history());
+        self.store_attack_view(AttackPairViewSnapshot {
+            status: SpectrumViewStatus::NoPair,
+            pre: None,
+            post,
+            pair_events: Vec::new(),
+        });
         true
     }
 
@@ -295,6 +326,13 @@ impl SpectrumCoordinator {
         let perceptual_local = (session.analysis_mode == AnalysisViewMode::Perceptual)
             .then(|| self.runtime.try_perceptual_history())
             .flatten();
+        let attack_local = (session.analysis_mode == AnalysisViewMode::Attack)
+            .then(|| {
+                self.attack_runtime
+                    .as_ref()
+                    .and_then(|runtime| runtime.try_history())
+            })
+            .flatten();
         let spectrum_remote = (session.analysis_mode == AnalysisViewMode::Spectrum)
             .then(|| read_snapshot(&target.instance_dir))
             .flatten()
@@ -302,6 +340,11 @@ impl SpectrumCoordinator {
             .map(|snapshot| snapshot.history);
         let perceptual_remote = (session.analysis_mode == AnalysisViewMode::Perceptual)
             .then(|| read_perceptual_snapshot(&target.instance_dir))
+            .flatten()
+            .filter(|snapshot| snapshot.request_id == session.request_id)
+            .map(|snapshot| snapshot.history);
+        let attack_remote = (session.analysis_mode == AnalysisViewMode::Attack)
+            .then(|| read_attack_snapshot(&target.instance_dir))
             .flatten()
             .filter(|snapshot| snapshot.request_id == session.request_id)
             .map(|snapshot| snapshot.history);
@@ -338,6 +381,9 @@ impl SpectrumCoordinator {
                 perceptual_local.as_ref(),
                 perceptual_remote.as_ref(),
             ),
+            AnalysisViewMode::Attack => {
+                store_joined_attack(self, current, now, attack_local, attack_remote)
+            }
             AnalysisViewMode::Absolute => {}
         }
         true
@@ -415,7 +461,7 @@ impl SpectrumCoordinator {
         if let Some((target, request_id)) = retired {
             cleanup_owned_request(target.as_ref(), request_id);
         }
-        let _ = self.runtime.set_enabled(false);
+        self.disable_analysis_runtimes();
         self.store_view(SpectrumViewStatus::NoPair, None, None);
     }
 

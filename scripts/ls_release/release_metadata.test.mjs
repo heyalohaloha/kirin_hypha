@@ -145,6 +145,27 @@ test('README uses the verified current Hypha UI media', () => {
   const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
   const media = [
     {
+      relativePath: 'docs/media/kirin-hypha-freq.jpg',
+      sha256: '07ead3f12501b601e3e098d48f81bee44faf1a55d8681548ac63ac93cefb7c60',
+      signature: Buffer.from([0xff, 0xd8, 0xff]),
+    },
+    {
+      relativePath: 'docs/media/kirin-hypha-freq-demo.mp4',
+      sha256: 'e149441b4c8bbbcd908c9bda53fc56c0ef106962abadab0531f39d5d9b77194d',
+      signature: Buffer.from('ftyp'),
+      signatureOffset: 4,
+    },
+    {
+      relativePath: 'docs/media/kirin-hypha-sharp.jpg',
+      sha256: '5ffa99bc02eca335b95643c11df07e84e369abb54024f32a8108857d5a12c2d2',
+      signature: Buffer.from([0xff, 0xd8, 0xff]),
+    },
+    {
+      relativePath: 'docs/media/kirin-hypha-live.jpg',
+      sha256: '9b200ff12454b176e213f7ea5dfa31d75c23a7ce59a29fe5d94cf776311d5cb6',
+      signature: Buffer.from([0xff, 0xd8, 0xff]),
+    },
+    {
       relativePath: 'docs/media/kirin-hypha-pre-post.jpg',
       sha256: 'c38f068db726a4172850a0cd4099a7dcf116fe1ef29f123eda647612217c5416',
       signature: Buffer.from([0xff, 0xd8, 0xff]),
@@ -184,6 +205,30 @@ test('README uses the verified current Hypha UI media', () => {
     assert.equal(fs.existsSync(path.join(repoRoot, retired)), false, `${retired} must stay retired`);
     assert.doesNotMatch(readme, new RegExp(retired.replaceAll('.', '\\.')));
   }
+});
+
+test('README opens with current analysis, exact pairing, and supported Windows facts', () => {
+  const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  const designIndex = readme.indexOf('\n## Design\n');
+  const entrance = readme.slice(0, designIndex);
+
+  assert.ok(designIndex > 0, 'README must keep the technical Design contract after the entrance');
+  assert.match(entrance, /docs\/media\/kirin-hypha-freq\.jpg/);
+  assert.match(entrance, /docs\/media\/kirin-hypha-freq-demo\.mp4/);
+  assert.match(entrance, /docs\/media\/kirin-hypha-sharp\.jpg/);
+  assert.match(entrance, /docs\/media\/kirin-hypha-live\.jpg/);
+  assert.ok(
+    entrance.indexOf('docs/media/kirin-hypha-freq.jpg')
+      < readme.indexOf('docs/media/kirin-hypha-pre-post.jpg'),
+    'FREQ must be the first public product image',
+  );
+  assert.match(entrance, /choose that exact PRE under \*\*Pair choices\*\*/);
+  assert.match(entrance, /Names are optional labels/);
+  assert.match(readme, /Windows 10\/11 64-bit VST3 release is a supported manual PRE\/POST ZIP/);
+  assert.doesNotMatch(readme, /supported release is currently macOS-only/);
+  assert.doesNotMatch(readme, /Windows validation candidate/);
+  assert.doesNotMatch(readme, /External validation is pending/);
+  assert.doesNotMatch(readme, /Pairing is by \*\*name\*\*/);
 });
 
 test('published release commit rewrites retain verifiable immutable provenance', () => {

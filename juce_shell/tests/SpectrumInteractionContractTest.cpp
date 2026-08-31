@@ -219,14 +219,27 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     KIRIN_INTERACTION_REQUIRE (countWarmPixels (afterMarkClear, markButton) > 8);
     spectrum.mouseDown (mouseEvent (spectrum, markX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (spectrum.hasMark());
+    const float retainedFocusX = dataPlot.getCentreX();
+    spectrum.mouseDown (mouseEvent (
+        spectrum, retainedFocusX, dataPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (spectrum.hasFocusLock());
+    const float retainedFrequency = spectrum.focusLockFrequencyHz();
+    const size_t retainedTrailSize = spectrum.focusTrailSizeForTest();
     KirinSpectrumView warmingSnapshot = movedSnapshot;
     warmingSnapshot.status = KIRIN_SPECTRUM_WARMING_UP;
     warmingSnapshot.has_data = 0u;
     spectrum.setSnapshot (warmingSnapshot);
-    KIRIN_INTERACTION_REQUIRE (! spectrum.hasMark());
-    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 0u);
+    KIRIN_INTERACTION_REQUIRE (spectrum.hasMark());
+    KIRIN_INTERACTION_REQUIRE (spectrum.hasFocusLock());
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (spectrum.focusLockFrequencyHz() - retainedFrequency) < 1.0e-4f);
+    KIRIN_INTERACTION_REQUIRE (
+        spectrum.focusTrailSizeForTest() == retainedTrailSize);
     spectrum.setSnapshot (snapshot);
-    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 1u);
+    KIRIN_INTERACTION_REQUIRE (spectrum.hasMark());
+    KIRIN_INTERACTION_REQUIRE (spectrum.hasFocusLock());
+    KIRIN_INTERACTION_REQUIRE (
+        spectrum.focusTrailSizeForTest() == retainedTrailSize);
     KirinSpectrumView nextEndpoint = snapshot;
     nextEndpoint.presentation_end_samples += 1'600;
     spectrum.setSnapshot (nextEndpoint);
@@ -303,6 +316,9 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     KIRIN_INTERACTION_REQUIRE (
         recoveredSpectrum.presentedEndpointForTest() == backwardsStart);
     KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.focusTrailSizeForTest() == 3u);
+    KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.hasFocusLock());
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (recoveredSpectrum.focusLockFrequencyHz() - lockedFrequency) < 1.0e-4f);
 
     uint8_t requestedChannelMode = 0xffu;
     spectrum.onChannelModeChange = [&requestedChannelMode] (uint8_t mode) {

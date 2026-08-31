@@ -8,7 +8,7 @@ Branch: `codex/hypha-meter`
 
 Public baseline: `734a72ac17cb113b3ea4ec2da58150a3f39e2ddb`
 
-ATTACK baseline: `901a6e8a34af512b1c8dff83c4aa7c58ff7899a6` and its read-only working snapshot at 2026-08-31 15:11 JST
+ATTACK baseline: `d464f71c8426cb859a4076f3aa055fd60b21d553` (`[B-580] Make ATTACK UI contract Windows-safe`)
 
 ## 1. Product decision
 
@@ -24,6 +24,8 @@ POSTを2MIXの最終段に常設したとき、Hyphaだけで日常的なメー�
 
 Kirin OSのINSPECTとMASKINGから送るGuideは、常時表示されるPOSTを主送信先とし、親Shellのcontext layerへ統合する。
 
+ATTACK統合後のworkspace testがgreenになったため、Daisukeの2026-08-31の判断に従ってMeter本体と共同で進める。
+
 精度を装飾で演出するのではなく、単位、時間窓、軸、状態、測定時刻を美しく組み立てる。
 
 この文書は設計契約であり、計測アルゴリズムや製品コードをまだ変更しない。
@@ -34,9 +36,9 @@ Kirin OSのINSPECTとMASKINGから送るGuideは、常時表示されるPOSTを�
 
 ATTACKセッションが使用するworktree、ブランチ、submodule、build成果物、VST3配置先には触れない。
 
-ATTACKの未コミット実装は読み取り専用の調査対象であり、このブランチへcopy、cherry-pick、rebaseしない。
+ATTACKの完了commitはGitの三者マージでこのブランチへ統合し、ATTACK worktreeの作業中submoduleや生成物をcopyしない。
 
-共用のStudio Oneプラグイン配置とリリース操作は、ATTACK確定後の統合セッションまで行わない。
+共用のStudio Oneプラグイン配置とリリース操作は、この設計統合では行わない。
 
 ## 3. Preserved engineering contracts
 
@@ -106,13 +108,15 @@ PLRはplugin dataで算出されるが、現行UI snapshotにはない。
 
 per-channel TP、correlation、balance、長時間historyは未実装である。
 
-現行AnalysisのFREQ、SHARP、LIVEと進行中のATTACKは、計測器として再利用するが画面名と配置を固定しない。
+現行AnalysisのFREQ、SHARP、LIVEと完了したATTACKは、計測器として再利用するが画面名と配置を固定しない。
 
 ペア選択時にΔ gridへ強制遷移する現行表示も、互換性のための不変条件とはしない。
 
 現行PRE DisplayはINSPECTとMASKINGの構造化Guideをexact PRE一台へ送信し、project clockへ投影する。
 
 PRE送信は当時の表示余地に基づくため、再設計ではtransportの安全契約を保持して主送信先をPOSTへ移す。
+
+POST版の受信、表示、移行Gateが成立するまで、現行PREのtransportと表示を維持する。
 
 ## 5. Standards gate
 
@@ -437,11 +441,11 @@ INSPECT instant、MASKING interval、optional band、unlocated frequencyを全4�
 
 ## 16. Implementation order
 
-1. ATTACK側の現在のvisual refactorがcommitされ、worktreeがcleanになった時点で統合baselineを固定する。
+1. 公開系`734a72a`とATTACK完了点`d464f71`をMeter branchで統合し、sourceとtracked JUCE patch stackを検証する。
 2. 規格差分と全metricの測定仕様を固定し、golden testを追加する。
-3. PREとPOST、4サイズのwireframeと共通visual tokenを完成させる。
-4. PRE専用Guide protocolをrole-neutralなexact POST bindingへ拡張する。
-5. UI非依存の`MeterSnapshot`、`MeterSession`、固定容量history、`GuidePresentationSnapshot`を追加する。
+3. Guideの有無を含むPREとPOST、4サイズのwireframeと共通visual tokenを完成させる。
+4. UI非依存の`MeterSnapshot`、`MeterSession`、固定容量history、`GuidePresentationSnapshot`を追加する。
+5. PRE専用Guide protocolをrole-neutralなexact POST bindingへ拡張する。
 6. 新しいglobal shellと`LEVEL / TIME / FREQ / SPACE` router、Guide railを追加する。
 7. 現行FREQ、SHARP、LIVE由来の表示、ATTACKを新しい領域へ移し、旧routerを除去する。
 8. TIMEとFREQへOS Guideを投影し、OS GUIDEとLIVE測定のauthorityを分離する。

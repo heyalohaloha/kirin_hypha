@@ -116,6 +116,11 @@ pub struct LivenessEvaluator {
     last_change_nanos: AtomicU64,
     /// live ウィンドウ（ns）。製品 = `live_window()`、テスト = 注入値。
     window_nanos: u64,
+    /// VST3 component が host から active と宣言されているか。
+    ///
+    /// transport停止や無音では変化しない。host の component activation callback だけが
+    /// 更新するため、heartbeat停止を利用者の明示OFFと取り違えない。
+    host_component_active: AtomicBool,
     /// 単調時計の基点（生成時刻）。`is_live` は `epoch.elapsed()` で now を取る。
     epoch: Instant,
 }
@@ -131,8 +136,20 @@ impl LivenessEvaluator {
             last_seen: AtomicU32::new(last_seen),
             last_change_nanos: AtomicU64::new(0),
             window_nanos: window.as_nanos() as u64,
+            host_component_active: AtomicBool::new(true),
             epoch: Instant::now(),
         }
+    }
+
+    /// VST3 component activation の host 通知を保持する。
+    /// Audio callback の有無とは独立した単一ビットで、alloc/lock/IO を行わない。
+    pub fn set_host_component_active(&self, active: bool) {
+        self.host_component_active.store(active, Ordering::Release);
+    }
+
+    /// host が component を active と宣言しているか。
+    pub fn host_component_active(&self) -> bool {
+        self.host_component_active.load(Ordering::Acquire)
     }
 
     /// 製品 reader 用: 内部 `epoch` で now を取り、heartbeat を観測して鮮度を返す。
@@ -152,6 +169,19 @@ impl LivenessEvaluator {
         }
         elapsed_nanos.saturating_sub(self.last_change_nanos.load(Ordering::Relaxed))
             < self.window_nanos
+    }
+}
+
+/// heartbeat が鮮度切れになった後の表示状態。
+///
+/// host component が active のままなら通常の処理停止（transport停止・無音・一時停止）なので
+/// Inactive。host が component 自体を deactivate した場合だけ Bypassed とする。
+#[inline]
+pub fn stalled_signal_state(host_component_active: bool) -> SignalState {
+    if host_component_active {
+        SignalState::Inactive
+    } else {
+        SignalState::Bypassed
     }
 }
 
@@ -533,17 +563,21 @@ pub fn spawn_measure_thread(
 
             // ── B-118: 単一鮮度評価器による stall detection（G-115-245: 3s）──────
             // measure loop は評価器の consumer。process() が live ウィンドウ(3s)変化しなければ
-            // signal_state を Inactive に上書きする（process() 再開時に Audio Thread が即座に
-            // 正しい state を書き戻す）。評価器は heartbeat を内部観測する（独自計数なし）。
+            // signal_state を停止理由に応じて上書きする（process() 再開時に Audio Thread が
+            // 即座に正しい state を書き戻す）。通常停止は Inactive、host が component を
+            // deactivate した場合だけ Bypassed。評価器は heartbeat と host activation を
+            // 独立に保持する（独自 stale 計数なし）。
             let live = evaluator.is_live();
             if !live {
+                let stalled_state = stalled_signal_state(evaluator.host_component_active());
                 if prev_live {
                     log::info!(
-                        "[MeasureThread] heartbeat stale (>{}s) — process() stopped, overriding to Inactive",
-                        live_window().as_secs()
+                        "[MeasureThread] heartbeat stale (>{}s) — process() stopped, overriding to {}",
+                        live_window().as_secs(),
+                        stalled_state.as_str()
                     );
                 }
-                store_signal_state(&signal_state, SignalState::Inactive);
+                store_signal_state(&signal_state, stalled_state);
             } else if !prev_live {
                 log::info!("[MeasureThread] heartbeat resumed — process() restarted");
             }
@@ -2880,6 +2914,45 @@ pub mod tests {
         assert!(
             ev.is_live_at(1_000 + w + 2_000_000_000),
             "再 beat で live 復帰"
+        );
+    }
+
+    #[test]
+    fn b544_host_component_state_only_changes_stalled_signal_reason() {
+        use std::sync::atomic::AtomicU32;
+        use std::sync::Arc;
+
+        let hb = Arc::new(AtomicU32::new(0));
+        let ev = super::LivenessEvaluator::new(Arc::clone(&hb), std::time::Duration::from_secs(3));
+
+        assert!(ev.host_component_active(), "component starts active");
+        assert_eq!(
+            super::stalled_signal_state(ev.host_component_active()),
+            crate::SignalState::Inactive,
+            "ordinary heartbeat stall remains Inactive"
+        );
+
+        ev.set_host_component_active(false);
+        assert!(!ev.host_component_active());
+        assert!(
+            ev.is_live_at(2_999_999_999),
+            "component OFF remains inside the shared three-second heartbeat grace"
+        );
+        assert!(
+            !ev.is_live_at(3_000_000_000),
+            "component OFF becomes publishable only after heartbeat freshness expires"
+        );
+        assert_eq!(
+            super::stalled_signal_state(ev.host_component_active()),
+            crate::SignalState::Bypassed,
+            "only host component deactivation becomes Bypassed"
+        );
+
+        ev.set_host_component_active(true);
+        assert_eq!(
+            super::stalled_signal_state(ev.host_component_active()),
+            crate::SignalState::Inactive,
+            "reactivation returns stalled presentation to Inactive"
         );
     }
 

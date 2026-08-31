@@ -1,0 +1,23 @@
+{
+  "schema": "kirin-hypha-attack-drum-formal-candidate-config-v1",
+  "candidate_id": "b553-superflux-pilot-best",
+  "profile": "DRUM",
+  "eligibility": "formal_development_candidate",
+  "analyzer": {
+    "front_end": "fixed_superflux",
+    "reference_window_samples": 2048,
+    "bands_per_octave": 12,
+    "maximum_filter_radius": 0,
+    "reference_dbfs": -50
+  },
+  "peak_picker": {
+    "mode": "local_mean",
+    "delta_micro_units": 6250,
+    "absolute_floor_micro_units": 0,
+    "pre_max_hops": 3,
+    "post_max_hops": 0,
+    "pre_avg_hops": 24,
+    "post_avg_hops": 0,
+    "refractory_micros": 30000
+  }
+}

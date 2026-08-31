@@ -33,6 +33,7 @@ public:
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
+    void hostComponentActivationChanged (bool active) override;
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -90,6 +91,15 @@ public:
     bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;
     bool pollAnalysisOwnerNames (juce::String& out) const;
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
+    bool setInternalAttackEnabled (bool enabled);       // POST ATTACK page; never DAW state
+    bool pollInternalAttackBatch (KirinAttackBatch& out) const;
+    bool pollInternalAttackEvents (KirinAttackEventBatch& out) const;
+    bool pollInternalAttackWaveform (KirinAttackWaveformBatch& out) const;
+    bool pollInternalAttackDetails (KirinAttackDetailBatch& out) const;
+    bool pollInternalAttackPreWaveform (KirinAttackWaveformBatch& out) const;
+    bool pollInternalAttackPreDetails (KirinAttackDetailBatch& out) const;
+    bool pollInternalAttackPairEvents (KirinAttackPairEventBatch& out) const;
+    bool internalAttackStats (KirinAttackStats& out) const;
     uint8_t spectrumSizePreference() const              // editor-lifetime recreation only; not DAW state
     {
         return preferredSpectrumSize.load (std::memory_order_acquire);
@@ -162,6 +172,7 @@ private:
 
     juce::CriticalSection handleLock;                  // guards hyphaHandle vs editor poll / create / destroy
     KirinHypha* hyphaHandle = nullptr;                 // owned; reused across same-format prepareToPlay; destroyed on incompatible reprepare/dtor
+    bool hostComponentActive = true;                   // guarded by handleLock; retains VST3 setActive before engine creation
     double preparedSampleRate = 0.0;                   // format bound to hyphaHandle
     int preparedInputChannels = 0;                     // format bound to hyphaHandle
     bool lastProcessPositionValid = false;             // audio-thread local transport position cache
@@ -191,7 +202,8 @@ private:
     std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
     std::atomic<bool> perceptualAnalysisRequested { false }; // restores the visible analyzer after engine recreation
     std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
-    std::atomic<uint8_t> preferredSpectrumSize { 0 };      // processor lifetime; Analysis still opens off
+    std::atomic<bool> internalAttackRequested { false }; // internal validation UI; default OFF
+    std::atomic<uint8_t> preferredSpectrumSize { 3 };      // rich 200% default; Analysis still opens off
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
 
 #if KIRIN_HYPHA_PRE_DISPLAY

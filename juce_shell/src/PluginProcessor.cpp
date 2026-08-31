@@ -90,7 +90,10 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
     if (hyphaHandle != nullptr)
     {
         if (role == Role::Post)
+        {
             kirin_hypha_set_spectrum_visible (hyphaHandle, false);
+            kirin_hypha_set_internal_attack_enabled (hyphaHandle, false);
+        }
         kirin_hypha_destroy (hyphaHandle);
         hyphaHandle = nullptr;
     }
@@ -161,6 +164,10 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         const uint8_t lic = kirin_hypha_load_license();
         cachedLicenseCode.store ((int) lic, std::memory_order_release);
         kirin_hypha_set_license (hyphaHandle, lic);
+        // A recalled Studio Pro session may deliver setActive(false) before prepareToPlay creates
+        // the Rust engine. Apply the retained host fact to every fresh handle so an insert that
+        // was already OFF at project-open reaches the same ABS state as an explicit live click.
+        kirin_hypha_set_host_component_active (hyphaHandle, hostComponentActive);
         writesEnabled.store (false, std::memory_order_release);
         // Logic stopped-state fix: re-prepare needs a fresh enable, but Logic may not call processBlock until
         // playback. Start a message-thread fallback so Inactive presence/candidates are published
@@ -183,6 +190,18 @@ void KirinHyphaProcessorBase::releaseResources()
     // incompatible prepareToPlay rebuild.
     // Offline bounce end is not user intent either. Record stop authority stays with explicit
     // Stop/All Stop and the IO-thread idle timeout; this callback intentionally does nothing.
+}
+
+void KirinHyphaProcessorBase::hostComponentActivationChanged (bool active)
+{
+    // VST3 IComponent::setActive is distinct from transport/silence. Studio Pro uses this path
+    // when the insert power button is changed, while releaseResources alone is too ambiguous
+    // (sample-rate reconfigure / offline render / teardown). Rust applies the shared heartbeat
+    // grace before publishing Bypassed, so transient host reconfiguration remains Inactive.
+    const juce::ScopedLock sl (handleLock);
+    hostComponentActive = active;
+    if (hyphaHandle != nullptr)
+        kirin_hypha_set_host_component_active (hyphaHandle, active);
 }
 
 bool KirinHyphaProcessorBase::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -733,6 +752,7 @@ bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
     {
         perceptualAnalysisRequested.store (false, std::memory_order_release);
         absoluteAnalysisRequested.store (false, std::memory_order_release);
+        internalAttackRequested.store (false, std::memory_order_release);
     }
     spectrumVisibleRequested.store (visible, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
@@ -753,6 +773,7 @@ bool KirinHyphaProcessorBase::setPerceptualVisible (bool visible)
     {
         perceptualAnalysisRequested.store (true, std::memory_order_release);
         absoluteAnalysisRequested.store (false, std::memory_order_release);
+        internalAttackRequested.store (false, std::memory_order_release);
     }
     else
     {
@@ -777,6 +798,7 @@ bool KirinHyphaProcessorBase::setAbsoluteVisible (bool visible)
     {
         perceptualAnalysisRequested.store (false, std::memory_order_release);
         absoluteAnalysisRequested.store (true, std::memory_order_release);
+        internalAttackRequested.store (false, std::memory_order_release);
     }
     else
     {
@@ -874,6 +896,94 @@ bool KirinHyphaProcessorBase::pollAnalysisOwnerNames (juce::String& out) const
     }
     out = names.joinIntoString (", ");
     return true;
+}
+
+bool KirinHyphaProcessorBase::setInternalAttackEnabled (bool enabled)
+{
+    if (role != Role::Post)
+        return false;
+    if (enabled)
+    {
+        perceptualAnalysisRequested.store (false, std::memory_order_release);
+        absoluteAnalysisRequested.store (false, std::memory_order_release);
+    }
+    spectrumVisibleRequested.store (enabled, std::memory_order_release);
+    internalAttackRequested.store (enabled, std::memory_order_release);
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_set_internal_attack_enabled (hyphaHandle, enabled);
+}
+
+bool KirinHyphaProcessorBase::pollInternalAttackBatch (KirinAttackBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_internal_attack_batch (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollInternalAttackEvents (KirinAttackEventBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_internal_attack_events (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollInternalAttackWaveform (KirinAttackWaveformBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_internal_attack_waveform (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollInternalAttackDetails (KirinAttackDetailBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_internal_attack_details (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollInternalAttackPreWaveform (KirinAttackWaveformBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_internal_attack_pre_waveform (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollInternalAttackPreDetails (KirinAttackDetailBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_internal_attack_pre_details (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollInternalAttackPairEvents (KirinAttackPairEventBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_internal_attack_pair_events (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::internalAttackStats (KirinAttackStats& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_internal_attack_stats (hyphaHandle, &out);
 }
 
 bool KirinHyphaProcessorBase::spectrumStats (KirinSpectrumStats& out) const
@@ -1223,7 +1333,11 @@ void KirinHyphaProcessorBase::enableWritesNow()
                 persistPairProjectHash.clear();
             }
         }
-        if (spectrumVisibleRequested.load (std::memory_order_acquire))
+        if (internalAttackRequested.load (std::memory_order_acquire))
+        {
+            kirin_hypha_set_internal_attack_enabled (hyphaHandle, true);
+        }
+        else if (spectrumVisibleRequested.load (std::memory_order_acquire))
         {
             kirin_hypha_set_spectrum_channel_mode (
                 hyphaHandle,

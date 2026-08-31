@@ -84,7 +84,10 @@ use kirin_measure::{
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
 };
 
+mod attack_ffi;
 mod pair_binding;
+
+pub use attack_ffi::*;
 
 use pair_binding::{PairBinding, PairTargetTransition};
 
@@ -348,6 +351,25 @@ fn spectrum_presentation_start(clock: PendingCaptureWindow) -> Option<i64> {
         .and_then(|latency| clock.position_samples.checked_add(i64::from(latency)))
 }
 
+/// Clock for the POST-only internal ATTACK validator.
+///
+/// Prefer the host's output-presentation clock when the optional VST3/AU extension is present.
+/// Studio Pro can omit that optional callback while still supplying the exact project sample
+/// position on every rendered block. The internal validator may use that producer clock because it
+/// displays only relative POST event positions; it does not perform the public PRE/POST join.
+/// Unknown or invalid producer clocks remain fail-closed.
+#[inline]
+fn internal_attack_timeline_start(clock: PendingCaptureWindow) -> Option<i64> {
+    spectrum_presentation_start(clock).or_else(|| {
+        (clock.position_valid
+            && matches!(
+                clock.clock_source,
+                CaptureClockSource::ProjectTimeline | CaptureClockSource::AudioRenderTimeline
+            ))
+        .then_some(clock.position_samples)
+    })
+}
+
 /// RT 計測ランタイムのハンドル。C ABI からは不透明ポインタ。
 pub struct KirinHyphaEngine {
     /// Audio Thread → Measure Thread の rtrb Producer 所有権。
@@ -365,6 +387,10 @@ pub struct KirinHyphaEngine {
     /// prepare time, but its worker remains absent and its audio ingress returns after one atomic
     /// read until the POST Spectrum page is visible (or an exact PRE is serving that request).
     spectrum_runtime: Arc<SpectrumRuntime>,
+    /// Internal-only ATTACK DRUM measurement path. Unsupported host rates keep this absent;
+    /// supported rates allocate bounded ingress at prepare time, but remain default-OFF with no
+    /// worker until the POST validation control explicitly enables it.
+    attack_runtime: Option<Arc<kirin_measure::AttackRuntime>>,
     /// Exact-pair request/snapshot coordination. All filesystem work runs on the existing IO
     /// worker; the UI only changes visibility and polls the latest immutable view.
     spectrum: Arc<SpectrumCoordinator>,
@@ -1202,8 +1228,13 @@ impl KirinHyphaEngine {
 
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
+        let attack_runtime = kirin_measure::AttackRuntime::new(sample_rate, num_channels).ok();
         let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
-        let spectrum = SpectrumCoordinator::new(sample_rate, Arc::clone(&spectrum_runtime));
+        let spectrum = SpectrumCoordinator::new_with_attack(
+            sample_rate,
+            Arc::clone(&spectrum_runtime),
+            attack_runtime.as_ref().map(Arc::clone),
+        );
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
         let record_trace_queue = new_record_trace_queue();
         let record_take_tracker = new_record_take_tracker();
@@ -1300,6 +1331,7 @@ impl KirinHyphaEngine {
             measure_result,
             delta_result,
             spectrum_runtime,
+            attack_runtime,
             spectrum,
             session_summary,
             record_trace_queue,
@@ -1388,6 +1420,21 @@ impl KirinHyphaEngine {
             _ => SignalState::Inactive,
         };
         store_signal_state(&self.signal_state, s);
+    }
+
+    /// VST3 host の component activation を通知する。
+    ///
+    /// `active=false` を直ちに Bypassed へ変換しない。短い再構成や offline render の前後でも
+    /// setActive(false/true) は使われるため、共通 LivenessEvaluator の heartbeat が既に stale
+    /// の場合だけ停止理由を反映する。継続停止は Measure Thread が同じ契約で確定する。
+    pub fn set_host_component_active(&self, active: bool) {
+        self.liveness.set_host_component_active(active);
+        if !self.liveness.is_live() {
+            store_signal_state(
+                &self.signal_state,
+                kirin_measure::stalled_signal_state(active),
+            );
+        }
     }
 
     /// 現在の信号状態を **C ABI コード**（0=Inactive 1=Active 2=Bypassed）で返す。
@@ -2145,6 +2192,11 @@ impl KirinHyphaEngine {
         if !is_post {
             return false;
         }
+        if visible {
+            if let Some(runtime) = self.attack_runtime.as_ref() {
+                runtime.set_enabled(false);
+            }
+        }
         if visible
             && !self
                 .spectrum
@@ -2162,6 +2214,11 @@ impl KirinHyphaEngine {
             self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
         if !is_post {
             return false;
+        }
+        if visible {
+            if let Some(runtime) = self.attack_runtime.as_ref() {
+                runtime.set_enabled(false);
+            }
         }
         if visible
             && !self
@@ -2181,6 +2238,11 @@ impl KirinHyphaEngine {
             self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
         if !is_post {
             return false;
+        }
+        if visible {
+            if let Some(runtime) = self.attack_runtime.as_ref() {
+                runtime.set_enabled(false);
+            }
         }
         if visible
             && !self
@@ -3169,14 +3231,23 @@ impl KirinHyphaEngine {
         }
         // Optional Spectrum ingress is independent from the established Watch/Record ring. Its
         // first operation is an atomic enabled check; hidden PRE/POST instances do no copy, FFT,
-        // allocation, lock, I/O, wake, or repaint. Alignment is fail-closed unless the format
-        // wrapper supplied an exact producer coordinate plus output presentation latency.
+        // allocation, lock, I/O, wake, or repaint. Spectrum remains strict about output
+        // presentation latency; the internal POST-only ATTACK validator may use an exact producer
+        // clock when the host omits that optional callback.
         let spectrum_presentation_start = pending_clock.and_then(spectrum_presentation_start);
+        let internal_attack_timeline_start = pending_clock.and_then(internal_attack_timeline_start);
         let _ = self.spectrum_runtime.push_block_from_audio(
             interleaved,
             self.num_channels,
             spectrum_presentation_start,
         );
+        if let Some(runtime) = self.attack_runtime.as_ref() {
+            let _ = runtime.push_block_from_audio(
+                interleaved,
+                self.num_channels,
+                internal_attack_timeline_start,
+            );
+        }
         let accepted_offline_mode = pending_record.map(|block| block.offline);
         let offline_capture_boundary = accepted_offline_mode.is_some_and(|offline| offline)
             && !self.capture_last_offline.load(Ordering::Acquire);
@@ -3377,6 +3448,9 @@ impl Drop for KirinHyphaEngine {
             }
         }
         self.spectrum_runtime.shutdown_and_join();
+        if let Some(runtime) = self.attack_runtime.as_ref() {
+            runtime.shutdown_and_join();
+        }
         // B-110: live インスタンス refcount −1。watchdog が全世代の io→measure を join した後なので、
         // refcount 0 到達時の共有セル clear が生存 thread の Arc live-read と競合しない。
         identity_instance_detach(clear_role_scoped_cells);
@@ -4291,6 +4365,54 @@ mod spectrum_abi_tests {
     }
 
     #[test]
+    fn internal_attack_uses_exact_project_clock_when_presentation_callback_is_absent() {
+        let exact = PendingCaptureWindow {
+            position_valid: true,
+            position_samples: 9_600,
+            num_frames: 480,
+            clock_source: CaptureClockSource::ProjectTimeline,
+            presentation_latency: PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(2_048),
+            },
+            force_new_epoch: false,
+        };
+        assert_eq!(internal_attack_timeline_start(exact), Some(11_648));
+        assert_eq!(
+            internal_attack_timeline_start(PendingCaptureWindow {
+                presentation_latency: PresentationLatencySamples::default(),
+                ..exact
+            }),
+            Some(9_600)
+        );
+        assert_eq!(
+            internal_attack_timeline_start(PendingCaptureWindow {
+                clock_source: CaptureClockSource::AudioRenderTimeline,
+                presentation_latency: PresentationLatencySamples::default(),
+                ..exact
+            }),
+            Some(9_600)
+        );
+        assert_eq!(
+            internal_attack_timeline_start(PendingCaptureWindow {
+                position_valid: false,
+                presentation_latency: PresentationLatencySamples::default(),
+                ..exact
+            }),
+            None
+        );
+        assert_eq!(
+            internal_attack_timeline_start(PendingCaptureWindow {
+                clock_source: CaptureClockSource::Unknown,
+                presentation_latency: PresentationLatencySamples::default(),
+                ..exact
+            }),
+            None
+        );
+    }
+
+    #[test]
     fn pre_role_cannot_expose_the_post_spectrum_page() {
         let engine = KirinHyphaEngine::new(48_000, 2);
         assert!(!engine.set_spectrum_visible(true));
@@ -4455,6 +4577,25 @@ pub unsafe extern "C" fn kirin_hypha_set_signal_state(handle: *mut KirinHyphaEng
             return;
         }
         unsafe { (*handle).set_signal_state(state) };
+    }));
+}
+
+/// VST3 component activation を通知する（true=active / false=host deactivated）。
+/// transport停止・無音・通常の bypass parameter とは別経路。短い host 再構成は heartbeat
+/// grace 内で無視し、継続した deactivation だけを Bypassed として公開する。
+///
+/// # Safety
+/// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_host_component_active(
+    handle: *mut KirinHyphaEngine,
+    active: bool,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return;
+        }
+        unsafe { (*handle).set_host_component_active(active) };
     }));
 }
 

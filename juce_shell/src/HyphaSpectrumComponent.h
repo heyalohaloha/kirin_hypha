@@ -53,8 +53,11 @@ public:
     std::function<bool(uint8_t)> onChannelModeChange;
 
 private:
+    void clearInteractionState() noexcept;
+
     KirinSpectrumView snapshot {};
     KirinSpectrumView pendingSnapshot {};
+    KirinSpectrumView interactionDefinition {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPre {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPost {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedDelta {};
@@ -68,6 +71,7 @@ private:
     std::unique_ptr<spectrum_focus::FocusTrailHistory> focusTrail;
     bool haveSnapshot = false;
     bool havePendingSnapshot = false;
+    bool haveInteractionDefinition = false;
     bool curveDirty = false;
     bool numericDirty = false;
     bool haveMark = false;

@@ -13,8 +13,8 @@ use kirin_hypha_ffi::{
     kirin_hypha_get_paired_pre_locator, kirin_hypha_pair_status, kirin_hypha_poll_record_display,
     kirin_hypha_poll_result, kirin_hypha_poll_session, kirin_hypha_push_samples,
     kirin_hypha_restore_pair_candidate, kirin_hypha_select_pair_candidate,
-    kirin_hypha_set_signal_state, KirinLegacyNihState, KirinMeasureResult, KirinPostPairClaim,
-    KirinRecordDisplay, KirinSessionSummary,
+    kirin_hypha_set_host_component_active, kirin_hypha_set_signal_state, KirinLegacyNihState,
+    KirinMeasureResult, KirinPostPairClaim, KirinRecordDisplay, KirinSessionSummary,
 };
 
 #[test]
@@ -22,6 +22,7 @@ fn null_handle_calls_are_safe_noops() {
     // null handle に対する全関数呼び出しが UB を起こさず安全に戻ること。
     unsafe {
         kirin_hypha_set_signal_state(std::ptr::null_mut(), 1);
+        kirin_hypha_set_host_component_active(std::ptr::null_mut(), false);
         kirin_hypha_push_samples(std::ptr::null_mut(), std::ptr::null(), 0, 2);
 
         let mut mr = std::mem::zeroed::<KirinMeasureResult>();

@@ -1,6 +1,9 @@
 #include "PluginEditor.h"
 #include "HyphaAnalysisUiText.h"
 #include "HyphaDisplayContract.h"
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+ #include "HyphaAttackUiContract.h"
+#endif
 
 #include <cmath>
 #include <limits>
@@ -10,6 +13,7 @@ using hypha::COL_FLORA_BR;
 using hypha::COL_MUTED;
 using hypha::COL_NORMAL;
 using hypha::COL_SPECTRUM_DELTA;
+using hypha::COL_SPECTRUM_POST;
 
 namespace
 {
@@ -91,22 +95,25 @@ namespace
         return latchedPreInstanceId;
     }
 
-    juce::String pairStatusText (int status)
+    juce::String pairStatusText (int status, bool postAbsolute = false)
     {
+        if (postAbsolute) return "ABS";
         if (status == KIRIN_PAIR_STATUS_PAIRED) return juce::CharPointer_UTF8 ("PAIR ●");
         if (status == KIRIN_PAIR_STATUS_WAITING) return juce::CharPointer_UTF8 ("PAIR ◌");
         return juce::CharPointer_UTF8 ("PAIR —");
     }
 
-    juce::Colour pairStatusColour (int status)
+    juce::Colour pairStatusColour (int status, bool postAbsolute = false)
     {
+        if (postAbsolute) return COL_SPECTRUM_POST;
         if (status == KIRIN_PAIR_STATUS_PAIRED) return hypha::COL_LED_BLUE;
         if (status == KIRIN_PAIR_STATUS_WAITING) return COL_FLORA;
         return COL_MUTED;
     }
 
-    juce::String pairStatusHelp (int status)
+    juce::String pairStatusHelp (int status, bool postAbsolute = false)
     {
+        if (postAbsolute) return "Paired PRE is off. Showing POST absolute values.";
         if (status == KIRIN_PAIR_STATUS_PAIRED) return "PRE and POST are paired.";
         if (status == KIRIN_PAIR_STATUS_WAITING) return "Waiting for the selected PRE.";
         return "No PRE pair is selected.";
@@ -117,6 +124,12 @@ namespace
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     : juce::AudioProcessorEditor (&p), processorRef (p), isPost (p.isPostRole())
 {
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    const bool openAttackAtLaunch = isPost
+        && juce::SystemStats::getEnvironmentVariable (
+            hypha::attack_ui::activationEnvironmentVariable, {})
+               .trim() == hypha::attack_ui::activationValue;
+   #endif
     tooltip.setLookAndFeel (&tooltipLookAndFeel);
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
@@ -138,6 +151,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     {
         if (isPost)
         {
+            pairedPreExplicitlyBypassed = false;
             processorRef.setPairName (n);
             if (n.isEmpty()) nameField.setFallback ("___");
         }
@@ -177,9 +191,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
         // B-102/B-492: vector-arrow dropdown beside the pair field — All Keep / All Stop / candidates.
         // The free-text pair field (nameField) is retained; this only adds the egui ComboBox.
-        pairDropdown.setTitle ("Pair and Keep menu");
-        pairDropdown.setDescription ("Choose an exact PRE pair or start and stop all ready pairs");
-        pairDropdown.setTooltip ("Choose a PRE pair, or Keep and Stop all ready pairs.");
+        pairDropdown.setTitle ("Pair, Keep, and display menu");
+        pairDropdown.setDescription (
+            "Choose an exact PRE pair, control Keep, or change hover help");
+        pairDropdown.setTooltip ("Pair, Keep, and display options.");
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
         pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);
@@ -198,20 +213,23 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         spectrumToggle.onClick = [this]
         {
             setAnalysisPage (analysisPage == AnalysisPage::meters
-                               ? AnalysisPage::spectrum : AnalysisPage::meters);
+                               ? AnalysisPage::attack : AnalysisPage::meters);
         };
         addAndMakeVisible (spectrumToggle);
         analysisModeToggle.setTitle ("Analysis view");
-        analysisModeToggle.setDescription ("Switch frequency, Sharpness Delta, and live facts");
+        analysisModeToggle.setDescription (
+            "Switch ATTACK, frequency, Sharpness Delta, and live facts");
         analysisModeToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         analysisModeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
         analysisModeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
         analysisModeToggle.onClick = [this]
         {
-            setAnalysisPage (analysisPage == AnalysisPage::spectrum
-                               ? AnalysisPage::perceptual
-                               : analysisPage == AnalysisPage::perceptual
-                                   ? AnalysisPage::absolute : AnalysisPage::spectrum);
+            setAnalysisPage (analysisPage == AnalysisPage::attack
+                               ? AnalysisPage::spectrum
+                               : analysisPage == AnalysisPage::spectrum
+                                   ? AnalysisPage::perceptual
+                                   : analysisPage == AnalysisPage::perceptual
+                                       ? AnalysisPage::absolute : AnalysisPage::attack);
         };
         spectrumSizeToggle.setTitle ("Spectrum size");
         spectrumSizeToggle.setDescription (
@@ -234,6 +252,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         addChildComponent (spectrumView);
         addChildComponent (perceptualView);
         addChildComponent (absoluteView);
+        addChildComponent (attackInternalView);
        #endif
     }
     else
@@ -300,6 +319,13 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     // Producer JSON and meter snapshots advance at 100 ms. Spectrum raises this same timer to
     // 30 Hz only while its exact-pair exchange is active; every normal meter stays at 10 Hz.
     startTimerHz (ui::preDisplayPresentationHz);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (openAttackAtLaunch)
+    {
+        spectrumSizeIndex = ui::spectrumSizePresets.size() - 1u;
+        setAnalysisPage (AnalysisPage::attack);
+    }
+   #endif
 }
 
 KirinHyphaEditor::~KirinHyphaEditor()
@@ -311,6 +337,9 @@ KirinHyphaEditor::~KirinHyphaEditor()
         processorRef.setSpectrumVisible (false);
         processorRef.setPerceptualVisible (false);
         processorRef.setAbsoluteVisible (false);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        processorRef.setInternalAttackEnabled (false);
+       #endif
     }
 }
 
@@ -337,7 +366,8 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
 
     // Spectrum page changes only this separator to its cool accent; meter pages keep flora.
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    g.setColour (analysisPage != AnalysisPage::meters ? COL_SPECTRUM_DELTA : COL_FLORA);
+    g.setColour (analysisPage != AnalysisPage::meters
+                   ? COL_SPECTRUM_DELTA : COL_FLORA);
    #else
     g.setColour (COL_FLORA);
    #endif
@@ -368,6 +398,7 @@ void KirinHyphaEditor::resized()
         spectrumView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
         perceptualView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
         absoluteView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
+        attackInternalView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
     }
    #endif
     floraY = layout.floraY;
@@ -423,9 +454,19 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     spectrumView.clearSnapshot();
     perceptualView.clearSnapshot();
     absoluteView.clearSnapshot();
-    // FREQ / SHARP / LIVE share the current Analysis lease. Their `true` edge atomically changes
-    // the isolated analyzer while post_visible remains set. Releasing the previous mode here gave
-    // a waiting third instance a brief chance to steal this user's slot.
+    attackInternalView.clearSnapshot();
+    cachedAttackEvents = {};
+    cachedAttackWaveform = {};
+    cachedAttackDetails = {};
+    cachedAttackPreWaveform = {};
+    cachedAttackPreDetails = {};
+    cachedAttackPairEvents = {};
+    cachedAttackStats = {};
+    cachedAttackLatest = -1;
+    cachedAttackRate = 0;
+    cachedAttackGeneration = 0;
+    // ATTACK / FREQ / SHARP / LIVE share the current Analysis lease. Their `true` edge changes
+    // the isolated analyzer while post_visible remains set. Only METERS releases the slot.
     if (hypha::analysis_navigation::releasesSlot (previousPage, page))
     {
         if (previousPage == AnalysisPage::spectrum)
@@ -434,6 +475,8 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
             processorRef.setPerceptualVisible (false);
         else if (previousPage == AnalysisPage::absolute)
             processorRef.setAbsoluteVisible (false);
+        else if (previousPage == AnalysisPage::attack)
+            processorRef.setInternalAttackEnabled (false);
     }
     analysisPage = page;
     const bool analysisOpen = page != AnalysisPage::meters;
@@ -443,15 +486,19 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     spectrumView.setVisible (page == AnalysisPage::spectrum);
     perceptualView.setVisible (page == AnalysisPage::perceptual);
     absoluteView.setVisible (page == AnalysisPage::absolute);
+    attackInternalView.setVisible (page == AnalysisPage::attack);
     analysisModeToggle.setVisible (analysisOpen);
     spectrumSizeToggle.setVisible (analysisOpen);
     spectrumToggle.setButtonText (analysisOpen ? "METERS" : "ANALYSIS");
     spectrumToggle.setTooltip (ui::spectrumTooltip (analysisOpen));
     spectrumToggle.setColour (juce::TextButton::textColourOffId,
                               analysisOpen ? COL_SPECTRUM_DELTA : COL_MUTED);
-    analysisModeToggle.setButtonText (page == AnalysisPage::spectrum ? "FREQ"
+    analysisModeToggle.setButtonText (page == AnalysisPage::attack ? "ATTACK"
+                                       : page == AnalysisPage::spectrum ? "FREQ"
                                        : page == AnalysisPage::perceptual ? "SHARP" : "LIVE");
-    analysisModeToggle.setTooltip (page == AnalysisPage::spectrum
+    analysisModeToggle.setTooltip (page == AnalysisPage::attack
+                                     ? hypha::analysis_ui::switchViewTooltip ("Attack")
+                                     : page == AnalysisPage::spectrum
                                      ? hypha::analysis_ui::switchViewTooltip ("Frequency Delta")
                                      : page == AnalysisPage::perceptual
                                          ? hypha::analysis_ui::switchViewTooltip ("Sharpness Delta")
@@ -466,7 +513,9 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
         setSize (preset.width, preset.height);
     resized();
     repaint();
-    if (page == AnalysisPage::spectrum)
+    if (page == AnalysisPage::attack)
+        processorRef.setInternalAttackEnabled (true);
+    else if (page == AnalysisPage::spectrum)
         processorRef.setSpectrumVisible (true);
     else if (page == AnalysisPage::perceptual)
         processorRef.setPerceptualVisible (true);
@@ -642,6 +691,10 @@ void KirinHyphaEditor::showCandidateMenu()
     const int nReady = processorRef.keepReadyCount();
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
+    menu.addSectionHeader ("Display");
+    menu.addItem (10, "Show hover help", true,
+                  hypha::HoverHelpPreference::shared().isEnabled());
+    menu.addSeparator();
     if (! keepActive && processorRef.licenseIsOs() && nReady >= 1)
         menu.addItem (1, allKeepMenuLabel (nReady));
     if (keepActive)
@@ -685,6 +738,16 @@ void KirinHyphaEditor::handleCandidateMenu (
     }
     else if (result == 2)
         processorRef.stopAll();
+    else if (result == 10)
+    {
+        auto& preference = hypha::HoverHelpPreference::shared();
+        const bool enabled = ! preference.isEnabled();
+        const bool persisted = preference.setEnabled (enabled);
+        if (! enabled)
+            tooltip.hideTip();
+        if (! persisted)
+            showToast ("Hover help changed for this session only");
+    }
     else if (result >= 100)
     {
         const int idx = result - 100;
@@ -694,6 +757,7 @@ void KirinHyphaEditor::handleCandidateMenu (
             const juce::String name = candidate.hasName ? candidate.name : juce::String();
             if (processorRef.setPairCandidate (candidate.instanceId, name))
             {
+                pairedPreExplicitlyBypassed = false;
                #if ! KIRIN_HYPHA_PRE_DISPLAY
                 spectrumView.clearSnapshot();
                 perceptualView.clearSnapshot();
@@ -907,9 +971,20 @@ void KirinHyphaEditor::updatePost()
     const juce::String pairName = processorRef.pairName();
     const int pairStatus = processorRef.pairStatus();
     const bool pairSelected = pairStatus != KIRIN_PAIR_STATUS_UNPAIRED;
-    pairStatusLabel.setText (pairStatusText (pairStatus), juce::dontSendNotification);
-    pairStatusLabel.setColour (juce::Label::textColourId, pairStatusColour (pairStatus));
-    pairStatusLabel.setTooltip (pairStatusHelp (pairStatus));
+    KirinDelta observedDelta {};
+    const bool haveObservedDelta = pairSelected && processorRef.pollDelta (observedDelta);
+    if (pairStatus != KIRIN_PAIR_STATUS_PAIRED)
+        pairedPreExplicitlyBypassed = false;
+    else if (haveObservedDelta)
+        pairedPreExplicitlyBypassed = display::pairedPreIsExplicitlyBypassed (
+            true, true, observedDelta.mode);
+    const bool postAbsolute = pairStatus == KIRIN_PAIR_STATUS_PAIRED
+                           && pairedPreExplicitlyBypassed;
+    pairStatusLabel.setText (pairStatusText (pairStatus, postAbsolute),
+                             juce::dontSendNotification);
+    pairStatusLabel.setColour (juce::Label::textColourId,
+                               pairStatusColour (pairStatus, postAbsolute));
+    pairStatusLabel.setTooltip (pairStatusHelp (pairStatus, postAbsolute));
 
     nameField.setModelName (pairName);
     nameField.setEditingEnabled (! pairLocked); // W-280 + B-115 playback pair lock (playing AND live)
@@ -959,6 +1034,54 @@ void KirinHyphaEditor::updatePost()
                           pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
 
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (analysisPage == AnalysisPage::attack)
+    {
+        KirinAttackStats stats {};
+        if (processorRef.internalAttackStats (stats))
+            cachedAttackStats = stats;
+
+        KirinAttackEventBatch events {};
+        if (processorRef.pollInternalAttackEvents (events))
+            cachedAttackEvents = events;
+
+        KirinAttackWaveformBatch waveform {};
+        if (processorRef.pollInternalAttackWaveform (waveform))
+            cachedAttackWaveform = waveform;
+
+        KirinAttackDetailBatch details {};
+        if (processorRef.pollInternalAttackDetails (details))
+            cachedAttackDetails = details;
+
+        KirinAttackWaveformBatch preWaveform {};
+        if (processorRef.pollInternalAttackPreWaveform (preWaveform))
+            cachedAttackPreWaveform = preWaveform;
+
+        KirinAttackDetailBatch preDetails {};
+        if (processorRef.pollInternalAttackPreDetails (preDetails))
+            cachedAttackPreDetails = preDetails;
+
+        KirinAttackPairEventBatch pairEvents {};
+        if (processorRef.pollInternalAttackPairEvents (pairEvents))
+            cachedAttackPairEvents = pairEvents;
+
+        KirinAttackBatch raw {};
+        if (processorRef.pollInternalAttackBatch (raw) && raw.count > 0)
+        {
+            const auto count = juce::jmin (
+                raw.count, static_cast<std::uint32_t> (KIRIN_ATTACK_BATCH_CAPACITY));
+            const auto& newest = raw.frames[count - 1];
+            cachedAttackLatest = newest.support_end_samples;
+            cachedAttackRate = newest.sample_rate;
+            cachedAttackGeneration = newest.generation;
+        }
+        attackInternalView.setSnapshot (
+            cachedAttackEvents, cachedAttackWaveform, cachedAttackDetails,
+            cachedAttackPreWaveform, cachedAttackPreDetails, cachedAttackPairEvents,
+            cachedAttackLatest, cachedAttackRate, cachedAttackGeneration, cachedAttackStats);
+        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
+        return;
+    }
+
     juce::String analysisOwnerNames;
     const bool haveAnalysisOwnerNames = analysisPage != AnalysisPage::meters
         && processorRef.pollAnalysisOwnerNames (analysisOwnerNames);
@@ -1073,7 +1196,8 @@ void KirinHyphaEditor::updatePost()
             rec, pairSelected, haveD,
             haveRecordDisplay && cachedRecordDisplay.pair_matches_current != 0);
 
-        if (display::recordMetricMode (recordPairSelected, haveD, d.mode)
+        if ((postAbsolute ? display::MetricMode::absolute
+                          : display::recordMetricMode (recordPairSelected, haveD, d.mode))
             == display::MetricMode::absolute)
         {
             if (currentKind != Kind::Abs6) configureForKind (Kind::Abs6);
@@ -1143,9 +1267,9 @@ void KirinHyphaEditor::updatePost()
     }
     else // Active + Watch
     {
-        KirinDelta rawD {};
+        KirinDelta rawD = observedDelta;
         KirinDelta d {};
-        const bool haveRawD = processorRef.pollDelta (rawD);
+        const bool haveRawD = haveObservedDelta;
         const bool preUnavailable = haveRawD && display::preUnavailableForDelta (rawD.mode);
         bool haveD = false;
         bool mutedD = false;
@@ -1171,7 +1295,10 @@ void KirinHyphaEditor::updatePost()
             mutedD = true;
         }
 
-        if (display::watchMetricMode (pairSelected, haveRawD, rawD.mode)
+        const bool effectiveHaveD = haveRawD || postAbsolute;
+        const uint8_t effectiveMode = haveRawD ? rawD.mode
+                                               : (uint8_t) KIRIN_DELTA_MODE_BYPASSED;
+        if (display::watchMetricMode (pairSelected, effectiveHaveD, effectiveMode)
             == display::MetricMode::delta)
         {
             if (currentKind != Kind::WatchDelta6) configureForKind (Kind::WatchDelta6);
@@ -1185,7 +1312,7 @@ void KirinHyphaEditor::updatePost()
             fillDelta (4, haveD ? d.crest     : kNaN, false, base, warn, ! liveDelta);
             fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, ! liveDelta);
         }
-        else // no selected pair -> POST absolute
+        else // no selected pair, or paired PRE explicitly bypassed -> POST absolute
         {
             if (currentKind != Kind::WatchAbs6) configureForKind (Kind::WatchAbs6);
             auto V = [&] (double x) { return haveM ? x : kNaN; };

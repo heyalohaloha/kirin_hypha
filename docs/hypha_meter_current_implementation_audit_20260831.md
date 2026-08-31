@@ -4,11 +4,11 @@ Status: verified implementation snapshot for redesign
 
 Date: 2026-08-31
 
-Inspection time: 15:11 JST
+Inspection time: 16:21 JST
 
 ## 1. Scope
 
-Meter再設計が古いHypha像を前提にしないよう、公開系と進行中のATTACK系を分けて調査した。
+Meter再設計が古いHypha像を前提にしないよう、公開系と完了したATTACK系を分けて調査した。
 
 この文書は、画面構造を維持するための仕様書ではない。
 
@@ -21,8 +21,8 @@ Meter再設計が古いHypha像を前提にしないよう、公開系と進行�
 | Baseline | Path | Commit | State |
 |---|---|---|---|
 | Public and release line | `/Users/nishiodaisuke/Dev/kirin_hypha` | `734a72ac17cb113b3ea4ec2da58150a3f39e2ddb` | `[B-552] Bind PRE display to one Work and runtime` |
-| Meter design | `/Users/nishiodaisuke/Dev/kirin_hypha_meter` | `a287050cd07914b24708d9ff84b46dc363acb77f` before this update | isolated documentation branch |
-| ATTACK development | `/Users/nishiodaisuke/Dev/kirin_hypha_perceptual_continuous` | `901a6e8a34af512b1c8dff83c4aa7c58ff7899a6` | `[B-578] Promote DRUM ATTACK into Analysis` plus uncommitted visual work |
+| Meter design | `/Users/nishiodaisuke/Dev/kirin_hypha_meter` | merge in progress at this update | isolated integration branch |
+| ATTACK development | `/Users/nishiodaisuke/Dev/kirin_hypha_perceptual_continuous` | `d464f71c8426cb859a4076f3aa055fd60b21d553` | `[B-580] Make ATTACK UI contract Windows-safe` |
 
 公開系とATTACK系のmerge baseは`cf2acd59c796258454c817f788a2dc42e8ead61f`である。
 
@@ -32,11 +32,11 @@ ATTACK系にはFREQ操作、host clock、DRUM ATTACK検出、event timeline、pe
 
 両者はfast-forward関係ではないため、Meter branchを一方へrebaseしても全実装を取り込んだことにはならない。
 
-ATTACK worktreeの15:11 JST時点には8 tracked pathの`+619 / -302`と、未追跡の`HyphaAttackPainter.cpp` 449行、`HyphaAttackPainter.h` 43行があった。
+ATTACKのsource変更は`505438c`と`d464f71`へcommitされ、親repositoryには未コミットのsource fileがない。
 
-JUCE submoduleはmodified表示であるが、差分行数には含まれない。
+JUCE submoduleはmodified表示であるが、`verify_juce_patch_state.sh`によりupstream `4f43011b`へ追跡済み7 patchを適用した状態と確認した。
 
-この未コミット状態は進行中snapshotであり、製品の確定仕様とは扱わない。
+Meter branchはATTACK worktreeのsubmoduleをcopyせず、ATTACK commitと追跡済みpatch fileだけを統合する。
 
 ## 3. Audio processing boundary
 
@@ -145,7 +145,7 @@ POSTまたはΔを利用者が独立して選ぶglobal perspective controlはな
 
 公開系POST AnalysisはFREQ、SHARP、LIVEを持つ。
 
-ATTACK commit `901a6e8`はDRUM ATTACKを通常Analysisへ昇格し、Analysisを開くとATTACKへ入り、`ATTACK → FREQ → SHARP → LIVE`を循環する。
+ATTACK完了点`d464f71`はDRUM ATTACKを通常Analysisへ昇格し、Analysisを開くとATTACKへ入り、`ATTACK → FREQ → SHARP → LIVE`を循環する。
 
 ATTACK初回表示は200%を使い、環境変数は直接起動する検証shortcutとして残る。
 
@@ -174,7 +174,7 @@ LIVEも10 Hz source、64 point payload、六秒表示、5 Hz curve、2 Hz numeri
 
 LIVEの三値は一つの時刻を共有するが単位と値域を共有しない。
 
-## 8. ATTACK development snapshot
+## 8. ATTACK completion snapshot
 
 committed enumは既存値を保って末尾へATTACKを追加している。
 
@@ -191,15 +191,15 @@ ATTACK workerとpayloadはUI routeから分離されている。
 
 Audio Threadはenableされた専用runtimeへだけsampleを渡し、event決定とdetail算出をworker側で行う。
 
-ATTACKのcommitted visual contractはinstrument classificationを禁止する。
+ATTACKのvisual contractはinstrument classificationを禁止する。
 
-committed baselineはCONTRAST、SHAPE、BRIGHTNESS、PEAK、条件付きTEXTUREを、価値判断なしの実測量として表示する。
+完了baselineはSTRENGTH、BRIGHTNESS、TRANSIENT、TEXTUREを、価値判断なしの固定paletteと固定scaleで表示する。
 
-15:11 JSTの未コミットvisual refactorはSTRENGTH、BRIGHTNESS、TRANSIENT、TEXTUREの固定scale表現へ変更中であり、専用Painter、LIVEとLOCK、drag scrub、二段とoverlayを追加している。
+専用PainterはLIVEとLOCK、drag scrub、二段とoverlayを実装する。
 
-この未コミットvisual inventoryは進行中snapshotであり、MeterとGuideの確定用語には使わない。
+Windows向けUI contract testは大きなfixtureをheapへ移し、stack size差による失敗を避けている。
 
-committed baselineではATTACK、FREQ、SHARP、LIVEが一つのAnalysis leaseを共有し、METERSへ戻るときだけ解放する。
+ATTACK、FREQ、SHARP、LIVEは一つのAnalysis leaseを共有し、METERSへ戻るときだけ解放する。
 
 2MIXはATTACK DRUMとは別profileとされ、精度契約が確定するまでATTACK routeへ入れない。
 
@@ -314,12 +314,10 @@ Hyphaはaudio threadが公開したproject clockをworker threadで読み、Guid
 
 ## 14. Safe next step
 
-ATTACK worktreeへ実装を加えず、Meter branchでPREとPOSTの4サイズwireframeと新しいrouter contractを作る。
+ATTACK完了点を公開系へ統合したMeter branchで、PREとPOSTの4サイズwireframeと新しいrouter contractを作る。
 
-ATTACK側がcommitされた後に共通ancestorを再確認し、公開系のrelease変更とATTACK系を統合した新baselineを作る。
+統合baseline上で計測payloadを`MeterSnapshot`へ整理し、既存Analysis workerを`LEVEL / TIME / FREQ / SPACE`から呼び出す。
 
-そのbaseline上で計測payloadを`MeterSnapshot`へ整理し、既存Analysis workerを`LEVEL / TIME / FREQ / SPACE`から呼び出す。
+Kirin OSからPOSTへGuideを送る計画は、`MeterSnapshot`と分離した`GuidePresentationSnapshot`として同じ親Shellへ接続する。
 
-同時にGuide transportをrole-neutralなexact bindingへ拡張し、POSTの親Shellへ`GuidePresentationSnapshot`を追加する。
-
-この順序なら、進行中ATTACKへ影響を与えず、ATTACKの計測資産を旧navigationへ固定することも避けられる。
+POST版の移行Gateが成立するまで現行PRE Guideを維持し、ATTACKの計測資産を旧navigationへ固定せずにMeter本体とGuideを進める。

@@ -167,6 +167,12 @@ impl SpectrumCoordinator {
         &self,
         analysis_owner_names: [String; crate::ANALYSIS_SLOT_COUNT],
     ) {
+        if self.runtime.analysis_mode() == crate::AnalysisViewMode::Attack {
+            self.store_attack_view(crate::AttackPairViewSnapshot {
+                status: SpectrumViewStatus::InUse,
+                ..Default::default()
+            });
+        }
         let mut view = match self.view.lock() {
             Ok(view) => view,
             Err(poisoned) => poisoned.into_inner(),

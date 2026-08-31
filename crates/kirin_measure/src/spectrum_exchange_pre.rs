@@ -51,11 +51,11 @@ impl SpectrumCoordinator {
             None => return false,
         };
         if slot.as_ref().map(|state| state.request_id) != Some(request_id) {
-            let _ = self.runtime.set_enabled(false);
+            self.disable_analysis_runtimes();
             if analysis_mode == AnalysisViewMode::Perceptual {
                 let _ = self.runtime.set_perceptual_state_epoch(None);
             }
-            if !self.runtime.set_enabled(true) {
+            if !self.set_active_runtime_enabled(analysis_mode, true) {
                 *slot = None;
                 return false;
             }
@@ -223,6 +223,21 @@ impl SpectrumCoordinator {
                     self.runtime.perceptual_state_epoch(),
                 )
             }
+            AnalysisViewMode::Attack => {
+                let Some(history) = self
+                    .attack_runtime
+                    .as_ref()
+                    .and_then(|runtime| runtime.try_history())
+                else {
+                    return true;
+                };
+                let newest_end = history.waveform().next_back().map(|point| point.end_sample);
+                (
+                    newest_end,
+                    encode_attack_snapshot(request_id, &history),
+                    None,
+                )
+            }
             AnalysisViewMode::Absolute => return false,
         };
         let Some(newest_end) = newest_end else {
@@ -261,6 +276,7 @@ impl SpectrumCoordinator {
         let write_result = match analysis_mode {
             AnalysisViewMode::Spectrum => write_snapshot(instance_dir, &bytes),
             AnalysisViewMode::Perceptual => write_perceptual_snapshot(instance_dir, &bytes),
+            AnalysisViewMode::Attack => write_attack_snapshot(instance_dir, &bytes),
             AnalysisViewMode::Absolute => return false,
         };
         if write_result.is_err() {
@@ -306,7 +322,7 @@ impl SpectrumCoordinator {
             .and_then(|mut slot| slot.take())
             .is_some();
         if retired {
-            let _ = self.runtime.set_enabled(false);
+            self.disable_analysis_runtimes();
             let _ = self.runtime.set_perceptual_state_epoch(None);
         }
     }

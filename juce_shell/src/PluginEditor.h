@@ -8,6 +8,7 @@
 #include "PluginProcessor.h"
 #include "DisplaySmoother.h"
 #include "HyphaAnalysisNavigation.h"
+#include "HyphaHoverHelpPreference.h"
 #include "HyphaTheme.h"
 #include "HyphaTooltipLookAndFeel.h"
 #include "HyphaWidgets.h"
@@ -16,6 +17,7 @@
  #include "HyphaSpectrumComponent.h"
  #include "HyphaPerceptualComponent.h"
  #include "HyphaAbsoluteComponent.h"
+ #include "HyphaAttackInternalComponent.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -27,7 +29,7 @@
 //      Record(6) metric grid (per-cell hover help) + Keeping banner + 5-state static LED.
 // POST: title "POST" + Record pair label + click-to-edit pair name (→ set_pair_target) + flora +
 //      display-branch grid (Bypassed/Inactive→"---" ; pair-empty/PRE bypassed→absolute ;
-//      paired Stale/NoPre→muted Δ/--- ; PRE Bypassed/Inactive→POST absolute ; Δ Active ; Record→6) +
+//      paired Stale/NoPre/Inactive→muted Δ/--- ; PRE Bypassed→POST absolute ; Δ Active ; Record→6) +
 //      Keep/Stop/Sense hint + one prioritized feedback row + playback pair
 //      lock + LED + exact candidate dropdown + All Keep/All Stop. (Proposals cards remain egui-only.)
 class KirinHyphaEditor : public juce::AudioProcessorEditor,
@@ -108,20 +110,31 @@ private:
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::TextButton          spectrumToggle;               // POST: meters / Analysis page
-    juce::TextButton          analysisModeToggle;            // POST: FREQ / SHARP page switch
+    juce::TextButton          analysisModeToggle;            // POST: ATTACK / FREQ / SHARP / LIVE
     juce::TextButton          spectrumSizeToggle;           // POST Analysis: 100/125/150/200 percent
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
     hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
+    hypha::AttackInternalComponent attackInternalView;         // POST DRUM product trial
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
-    juce::TooltipWindow       tooltip { this, 550 };       // bounded in-panel hover help
+    hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help
 
     Kind   currentKind = Kind::WatchAbs6;
     bool   currentSix  = false;
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     AnalysisPage analysisPage = AnalysisPage::meters;
     size_t spectrumSizeIndex = 0;
+    KirinAttackEventBatch cachedAttackEvents {};
+    KirinAttackWaveformBatch cachedAttackWaveform {};
+    KirinAttackDetailBatch cachedAttackDetails {};
+    KirinAttackWaveformBatch cachedAttackPreWaveform {};
+    KirinAttackDetailBatch cachedAttackPreDetails {};
+    KirinAttackPairEventBatch cachedAttackPairEvents {};
+    KirinAttackStats cachedAttackStats {};
+    std::int64_t cachedAttackLatest = -1;
+    std::uint32_t cachedAttackRate = 0;
+    std::uint64_t cachedAttackGeneration = 0;
 #endif
     int    metricTop   = 0;       // y of the first metric row (set in resized())
     int    floraY      = 0;       // y of the flora separator line
@@ -136,6 +149,7 @@ private:
     hypha::DisplaySmoother displaySmoother;
     KirinMeasureResult watchMaximum {};
     bool haveWatchMaximum = false;
+    bool pairedPreExplicitlyBypassed = false; // updated only from a successful exact delta poll
     KirinRecordDisplay cachedRecordDisplay {};
     bool haveRecordDisplay = false;
 

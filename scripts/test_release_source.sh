@@ -68,9 +68,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 run cmake "${PRE_DISPLAY_CMAKE_ARGS[@]}"
 run cmake --build "$PRE_DISPLAY_BUILD" \
-  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests --config Release
+  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests KirinAttackUiContractTests --config Release
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
-  --output-on-failure -R '^(kirin_pre_display_runtime|kirin_ui_render_contract)$'
+  --output-on-failure -R '^(kirin_pre_display_runtime|kirin_ui_render_contract|kirin_attack_ui_contract)$'
 
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked

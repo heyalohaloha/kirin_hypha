@@ -23,6 +23,7 @@
  *   - push_samples: Audio Thread 単独・RT-safe（内部は rtrb push + heartbeat++ のみ）.
  *   - poll_result : UI Thread（内部は try_lock 非ブロッキング）.
  *   - push_samples は毎オーディオブロック呼ぶこと（B-118/G-115-245: ~3s 呼ばないと計測が Inactive に落ちる）.
+ *   - set_host_component_active は VST3 lifecycle thread 専用。transport/無音と component OFF を分離する.
  */
 #ifndef KIRIN_HYPHA_FFI_H
 #define KIRIN_HYPHA_FFI_H
@@ -247,6 +248,147 @@ typedef struct {
   uint64_t analyzed_frames;
 } KirinSpectrumStats;
 
+#define KIRIN_ATTACK_BATCH_CAPACITY 64u
+#define KIRIN_ATTACK_EVENT_BATCH_CAPACITY 240u
+#define KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY 600u
+#define KIRIN_ATTACK_DETAIL_BATCH_CAPACITY 240u
+#define KIRIN_ATTACK_SHAPE_CAPACITY 96u
+#define KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY 240u
+
+/* ATTACK DRUM内部検証用のraw SuperFlux ODF。公開Analysis route/stateには含めない。 */
+typedef struct {
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t reserved[3];
+  uint8_t definition_hash[32];
+  uint32_t window_samples;
+  uint32_t hop_samples;
+  int64_t support_start_samples;
+  int64_t support_end_samples;
+  int64_t event_sample;
+  float value;
+} KirinAttackOdfFrame;
+
+/* UI/control threadが回収する固定長窓。framesは古い順。 */
+typedef struct {
+  uint32_t count;
+  uint32_t capacity;
+  KirinAttackOdfFrame frames[KIRIN_ATTACK_BATCH_CAPACITY];
+} KirinAttackBatch;
+
+/* B-553固定peak ruleを通過し、30 ms refractoryが確定したATTACK event。 */
+typedef struct {
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t reserved[3];
+  uint8_t definition_hash[32];
+  int64_t event_sample;
+  int64_t decision_sample;
+  float value;
+} KirinAttackEvent;
+
+typedef struct {
+  uint32_t count;
+  uint32_t capacity;
+  KirinAttackEvent events[KIRIN_ATTACK_EVENT_BATCH_CAPACITY];
+} KirinAttackEventBatch;
+
+/* source 0基準の10 ms絶対波形envelope。stereoはmean linear power。 */
+typedef struct {
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t reserved[3];
+  int64_t start_sample;
+  int64_t end_sample;
+  float peak_linear;
+  float rms_dbfs;
+} KirinAttackWaveformPoint;
+
+typedef struct {
+  uint32_t count;
+  uint32_t capacity;
+  KirinAttackWaveformPoint points[KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY];
+} KirinAttackWaveformBatch;
+
+/* 確定eventの実波形shapeと事実記述子。評価語や処理器種別は含めない。 */
+typedef struct {
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t temporal_centroid_available;
+  uint8_t sharpness_available;
+  uint8_t reserved;
+  uint8_t definition_hash[32];
+  int64_t event_sample;
+  int64_t decision_sample;
+  int64_t shape_start_sample;
+  int64_t shape_end_sample;
+  float value;
+  float contrast_db;
+  float context_rms_dbfs;
+  float attack_rms_dbfs;
+  float sample_peak_dbfs;
+  float crest_db;
+  float sample_edge_ratio_db;
+  float peak_plateau_ms;
+  float temporal_centroid_ms;
+  float sharpness_acum;
+  uint32_t shape_count;
+  uint32_t reserved2;
+  float shape[KIRIN_ATTACK_SHAPE_CAPACITY];
+} KirinAttackDetail;
+
+typedef struct {
+  uint32_t count;
+  uint32_t capacity;
+  KirinAttackDetail details[KIRIN_ATTACK_DETAIL_BATCH_CAPACITY];
+} KirinAttackDetailBatch;
+
+/* 同一content sample上の共通ATTACK判定。kind: 0=matched,1=PRE-only,2=POST-only,3=ambiguous. */
+typedef struct {
+  uint64_t pair_generation;
+  uint64_t pre_generation;
+  uint64_t post_generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t kind;
+  uint8_t pre_available;
+  uint8_t post_available;
+  uint8_t definition_hash[32];
+  int64_t event_sample;
+  int64_t decision_sample;
+  int64_t pre_event_sample;
+  int64_t post_event_sample;
+  float pre_value;
+  float post_value;
+  float delta_value;
+  uint8_t delta_available;
+  uint8_t reserved[3];
+} KirinAttackPairEvent;
+
+typedef struct {
+  uint8_t status; /* KIRIN_SPECTRUM_*と同じ状態語彙 */
+  uint8_t reserved[3];
+  uint32_t count;
+  uint32_t capacity;
+  uint32_t reserved2;
+  KirinAttackPairEvent events[KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY];
+} KirinAttackPairEventBatch;
+
+typedef struct {
+  uint8_t available;
+  uint8_t enabled;
+  uint8_t worker_running;
+  uint8_t channels;
+  uint8_t reserved[4];
+  uint64_t pushed_blocks;
+  uint64_t dropped_blocks;
+  uint64_t analyzed_frames;
+} KirinAttackStats;
+
 /* Keep/Record専用の世代付き表示スナップショット.
  * 計測・TRACE・plugin_dataの正本とは独立し、GUIがStop後の最終Iを保持するためだけに使う. */
 typedef struct {
@@ -284,6 +426,11 @@ KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
 
 /* 信号状態（0=Inactive 1=Active 2=Bypassed）. */
 void kirin_hypha_set_signal_state(KirinHypha* handle, uint8_t state);
+
+/* VST3 host component activation（true=active / false=host deactivated）.
+ * false は即時 bypass ではない。heartbeat grace を越えて処理停止が続いた場合だけ Bypassed になり、
+ * 一時的な host 再構成・offline render 切替を利用者のOFFと誤認しない. */
+void kirin_hypha_set_host_component_active(KirinHypha* handle, bool active);
 
 /* 現在の信号状態を読む（0=Inactive 1=Active 2=Bypassed）. LED poller 系（read-only）.
  * Measure Thread の heartbeat 停止検出で Inactive へ上書きされた値も反映する（B-113）. */
@@ -498,6 +645,20 @@ bool kirin_hypha_poll_analysis_owners(KirinHypha* handle, KirinAnalysisOwners* o
 
 /* Spectrum optional workerの検証カウンタを取得。 */
 bool kirin_hypha_spectrum_stats(KirinHypha* handle, KirinSpectrumStats* out);
+
+/* ATTACK DRUM内部検証専用。POSTだけが有効化可能で、既定OFF・state保存なし。 */
+bool kirin_hypha_set_internal_attack_enabled(KirinHypha* handle, bool enabled);
+bool kirin_hypha_poll_internal_attack_batch(KirinHypha* handle, KirinAttackBatch* out);
+bool kirin_hypha_poll_internal_attack_events(KirinHypha* handle, KirinAttackEventBatch* out);
+bool kirin_hypha_poll_internal_attack_waveform(KirinHypha* handle, KirinAttackWaveformBatch* out);
+bool kirin_hypha_poll_internal_attack_details(KirinHypha* handle, KirinAttackDetailBatch* out);
+bool kirin_hypha_poll_internal_attack_pre_waveform(KirinHypha* handle,
+                                                    KirinAttackWaveformBatch* out);
+bool kirin_hypha_poll_internal_attack_pre_details(KirinHypha* handle,
+                                                   KirinAttackDetailBatch* out);
+bool kirin_hypha_poll_internal_attack_pair_events(KirinHypha* handle,
+                                                   KirinAttackPairEventBatch* out);
+bool kirin_hypha_internal_attack_stats(KirinHypha* handle, KirinAttackStats* out);
 
 /* Keep/Record表示を1スナップショットで取得. UI Thread専用・ロック競合時false. */
 bool kirin_hypha_poll_record_display(KirinHypha* handle, KirinRecordDisplay* out);

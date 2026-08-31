@@ -11,6 +11,8 @@ mod analysis_exchange_transport;
 mod analysis_lease;
 mod atomic_claim;
 pub mod atomic_file;
+pub mod attack_perception;
+pub mod attack_runtime;
 mod broadcast_edge;
 pub mod capture_contract;
 pub mod capture_generation;
@@ -72,6 +74,10 @@ mod sync_recovery;
 pub mod trace_alignment;
 mod trace_clock_resolution;
 mod trace_content_clock;
+mod transient_layout;
+mod transient_odf;
+mod transient_superflux;
+mod transient_superflux_reference;
 pub mod watch_max;
 pub mod watch_playback_pass;
 mod watch_snapshot_lease;
@@ -96,6 +102,17 @@ pub use all_stop_signal::{
     AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION, ALL_STOP_SIGNAL_SUBDIR,
 };
 pub use analysis_lease::{ANALYSIS_OWNER_NAME_MAX_BYTES, ANALYSIS_SLOT_COUNT};
+pub use attack_perception::{
+    AttackPerceptionError, AttackPerceptualDelta, AttackPerceptualFeatures, ATTACK_CONTEXT_MICROS,
+    ATTACK_DETAIL_MICROS, ATTACK_LEVEL_FLOOR_DBFS,
+};
+pub use attack_runtime::{
+    analyze_drum_attacks_interleaved_offline, analyze_drum_attacks_mono_offline,
+    AttackDetailedEvent, AttackEvent, AttackEventShape, AttackHistory, AttackOdfFrame,
+    AttackPairError, AttackPairEvent, AttackPairEventKind, AttackPairJoiner, AttackRuntime,
+    AttackRuntimeStats, AttackWaveformPoint, ATTACK_EVENT_HISTORY_CAPACITY,
+    ATTACK_ODF_HISTORY_CAPACITY, ATTACK_SHAPE_POINT_CAPACITY, ATTACK_WAVEFORM_HISTORY_CAPACITY,
+};
 pub use capture_contract::{CAPTURE_PRODUCER_READY_TIMEOUT, MAX_CAPTURE_PAIRS};
 pub use capture_generation::{
     active_generation_path, archive_generation, archived_generation_path, current_generation_path,
@@ -138,7 +155,9 @@ pub use license::{
     can_enter_record, can_read_preset, can_write_plugin_data, load_license_safe, show_note_button,
     show_save_button, show_stop_record_button, LiveLicense, SENSE_RECORD_HINT, SENSE_UPSELL_URL,
 };
-pub use measure_thread::{live_window, pair_lock_active, spawn_measure_thread, LivenessEvaluator};
+pub use measure_thread::{
+    live_window, pair_lock_active, spawn_measure_thread, stalled_signal_state, LivenessEvaluator,
+};
 pub use pair_claim_index::{
     live_claim_owned_by_other, pair_claim_is_live, pair_claim_is_owned,
     pair_claim_owned_by_other_post, publish_pair_claim, read_pair_claim, release_pair_claim,
@@ -264,7 +283,8 @@ pub use spectrum_difference_timeline::{
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
 };
 pub use spectrum_exchange::{
-    SpectrumCoordinator, SpectrumTarget, SpectrumViewSnapshot, SpectrumViewStatus,
+    AttackPairViewSnapshot, SpectrumCoordinator, SpectrumTarget, SpectrumViewSnapshot,
+    SpectrumViewStatus,
 };
 pub use spectrum_runtime::{
     PerceptualHistory, SpectrumHistory, SpectrumRuntime, SpectrumRuntimeStats,
@@ -276,6 +296,25 @@ pub use storage::{
     PlatformPaths, StorageError, StoragePaths, CLEANUP_V1_DONE_FILENAME,
 };
 pub use trace_alignment::TraceContentAlignment;
+pub use transient_layout::{TransientLayout, TransientOdfKind};
+pub use transient_odf::{TransientCandidateAnalyzer, TransientOdfFrame};
+pub use transient_superflux::{
+    SuperFluxAnalyzer, SuperFluxChannelMode, SuperFluxConfig, SuperFluxFrame, SuperFluxLayout,
+    SuperFluxRuntimeVerification, SUPERFLUX_ALGORITHM_VERSION, SUPERFLUX_DEFINITION_VERSION,
+    SUPERFLUX_MAX_HZ, SUPERFLUX_MIN_HZ, SUPERFLUX_REFERENCE_HOP, SUPERFLUX_REFERENCE_RATE,
+    SUPERFLUX_SUPPORTED_RATES,
+};
+pub use transient_superflux_reference::{
+    build_superflux_reference_receipt, SuperFluxReferenceBandReduction,
+    SuperFluxReferenceBinRounding, SuperFluxReferenceCombineProvenance, SuperFluxReferenceContract,
+    SuperFluxReferenceDelta, SuperFluxReferenceId, SuperFluxReferenceLayoutStatus,
+    SuperFluxReferenceMagnitudeCompression, SuperFluxReferenceReceipt,
+    SuperFluxReferenceTraceStatus, SuperFluxReferenceUse, SuperFluxReferenceWindow,
+    CPJKU_1_03_BIN_GOLDEN_SHA256, CPJKU_1_03_ONLINE, CPJKU_1_03_ONLINE_DEFINITION_SHA256,
+    CPJKU_1_03_SOURCE_REVISION, CPJKU_1_03_SOURCE_SHA256, CPJKU_1_03_SOURCE_URL, PAPER_2013_ONLINE,
+    PAPER_2013_ONLINE_DEFINITION_SHA256, PAPER_2013_SOURCE_SHA256, PAPER_2013_SOURCE_URL,
+    SUPERFLUX_REFERENCE_CONTRACT_VERSION,
+};
 pub use watch_max::WatchMaxTracker;
 pub use watch_playback_pass::{
     add_watch_ring_cursor_samples, advance_watch_playback_pass_id,

@@ -1,10 +1,14 @@
 # Hypha POST OS Guide integration plan
 
-Status: implementation plan
+Status: active joint plan with Hypha Meter (resumed 2026-08-31)
 
 Date: 2026-08-31
 
 Branch: `codex/hypha-meter`
+
+ATTACK統合後のworkspace testがgreenになったため、Daisukeの判断に従ってMeter本体と共同で進める。
+
+POST版の受信、表示、移行Gateが成立するまで、現行PREのprotocol、receiver、routing、UIを維持する。
 
 ## 1. Decision
 
@@ -308,9 +312,9 @@ Guide artifactへsource audioを含めない。
 
 ## 14. Integration order with ATTACK
 
-ATTACK worktreeの現在のvisual refactorがcommitされ、cleanなbaselineを固定できるまで、Meter branchはprotocol、UI contract、fixture計画だけを保持する。
+ATTACK完了点`d464f71`はMeter branchへ統合する。
 
-統合baselineを作った後、Guide receiverをATTACK workerとは別のoptional subsystemとして接続する。
+POST Guideを再開する場合は、統合baseline上でGuide receiverをATTACK workerとは別のoptional subsystemとして接続する。
 
 ATTACK、FREQ、SHARPのanalysis leaseとGuide receiverの生存期間を共有しない。
 
