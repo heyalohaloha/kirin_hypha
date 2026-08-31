@@ -31,6 +31,7 @@ pub mod io_thread_pre;
 pub mod license;
 pub mod measure_thread;
 mod meter_clock;
+pub mod meter_delta_history;
 pub mod meter_history;
 pub mod meter_session;
 pub mod pair_claim_index;
@@ -163,6 +164,10 @@ pub use measure_thread::{
     live_window, pair_lock_active, spawn_measure_thread, stalled_signal_state, LivenessEvaluator,
 };
 pub use meter_clock::MeterClockStart;
+pub use meter_delta_history::{
+    MeterDeltaHistoryExchange, MeterHistoryTarget, METER_HISTORY_EXCHANGE_FILE,
+    METER_HISTORY_EXCHANGE_POINTS, METER_HISTORY_EXCHANGE_SCHEMA,
+};
 pub use meter_history::{
     MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution, HISTORY_0_1_HZ_CAPACITY,
     HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY,

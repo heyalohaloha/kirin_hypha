@@ -13,5 +13,6 @@ namespace hypha::time_history
 void paint (juce::Graphics&,
             juce::Rectangle<int> area,
             const std::vector<KirinMeterHistoryEntry>&,
-            const juce::String& rangeLabel);
+            const juce::String& rangeLabel,
+            bool delta = false);
 }

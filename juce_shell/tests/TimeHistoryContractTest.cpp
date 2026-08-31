@@ -52,11 +52,14 @@ std::vector<KirinMeterHistoryEntry> fixture (bool alternate)
     return result;
 }
 
-juce::Image render (const std::vector<KirinMeterHistoryEntry>& history, int width, int height)
+juce::Image render (const std::vector<KirinMeterHistoryEntry>& history,
+                    int width, int height, bool delta = false)
 {
     observatory::View view (observatory::Role::post);
     view.setSize (width, height);
     view.setDomain (observatory::Domain::time);
+    if (delta)
+        view.setTarget (observatory::ObservationTarget::delta);
     view.setHistory (history);
     juce::Image image (juce::Image::ARGB, width, height, true);
     juce::Graphics graphics (image);
@@ -81,6 +84,17 @@ void verifyTimeHistoryContract()
     const auto normalImage = render (normal, 600, 400);
     const auto alternateImage = render (alternate, 600, 400);
     KIRIN_TIME_HISTORY_REQUIRE (changedPixels (normalImage, alternateImage) > 1'000);
+
+    auto difference = fixture (false);
+    for (size_t index = 0u; index < difference.size(); ++index)
+    {
+        const double value = std::sin ((double) index * 0.115) * 4.5;
+        difference[index].lufs_m = { value - 0.4, value + 0.4, value };
+        difference[index].lufs_s = { value * 0.6 - 0.2, value * 0.6 + 0.2, value * 0.6 };
+        difference[index].true_peak = { -value - 0.3, -value + 0.3, -value };
+    }
+    const auto differenceImage = render (difference, 600, 400, true);
+    KIRIN_TIME_HISTORY_REQUIRE (changedPixels (normalImage, differenceImage) > 1'000);
 
     for (const auto dimensions : {
              std::pair { 300, 200 }, std::pair { 375, 250 },
@@ -111,6 +125,15 @@ void verifyTimeHistoryContract()
         KIRIN_TIME_HISTORY_REQUIRE (output != nullptr);
         KIRIN_TIME_HISTORY_REQUIRE (
             juce::PNGImageFormat().writeImageToStream (normalImage, *output));
+    }
+    const auto deltaOutputPath = juce::SystemStats::getEnvironmentVariable (
+        "KIRIN_HYPHA_TIME_DELTA_TEST_PNG", {});
+    if (deltaOutputPath.isNotEmpty())
+    {
+        auto output = juce::File (deltaOutputPath).createOutputStream();
+        KIRIN_TIME_HISTORY_REQUIRE (output != nullptr);
+        KIRIN_TIME_HISTORY_REQUIRE (
+            juce::PNGImageFormat().writeImageToStream (differenceImage, *output));
     }
 }
 }

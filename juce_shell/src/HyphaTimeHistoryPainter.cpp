@@ -33,15 +33,17 @@ const KirinMeterHistoryRange& rangeFor (const KirinMeterHistoryEntry& entry,
     return entry.lufs_m;
 }
 
-float normalizedMagnitude (Metric metric, double value) noexcept
+float normalizedMagnitude (Metric metric, double value, bool delta) noexcept
 {
+    if (delta)
+        return (float) juce::jlimit (0.0, 1.0, (12.0 - value) / 24.0);
     const double floor = metric == Metric::truePeak ? -24.0 : -48.0;
-    return (float) juce::jlimit (0.0, 1.0, (value - floor) / -floor);
+    return 1.0f - (float) juce::jlimit (0.0, 1.0, (value - floor) / -floor);
 }
 
-float yFor (juce::Rectangle<float> plot, Metric metric, double value) noexcept
+float yFor (juce::Rectangle<float> plot, Metric metric, double value, bool delta) noexcept
 {
-    return plot.getBottom() - normalizedMagnitude (metric, value) * plot.getHeight();
+    return plot.getY() + normalizedMagnitude (metric, value, delta) * plot.getHeight();
 }
 
 float xFor (juce::Rectangle<float> plot,
@@ -59,13 +61,14 @@ float xFor (juce::Rectangle<float> plot,
 }
 
 juce::String latestText (const std::vector<KirinMeterHistoryEntry>& history,
-                         Metric metric)
+                         Metric metric,
+                         bool delta)
 {
     for (auto iterator = history.rbegin(); iterator != history.rend(); ++iterator)
     {
         const auto value = rangeFor (*iterator, metric).mean;
         if (std::isfinite (value))
-            return juce::String (value, 1);
+            return (delta && value >= 0.0 ? "+" : "") + juce::String (value, 1);
     }
     return "---";
 }
@@ -79,21 +82,27 @@ bool hasExactDawEndpoint (const std::vector<KirinMeterHistoryEntry>& history) no
            });
 }
 
-void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot)
+void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta)
 {
     constexpr std::array<const char*, 5> loudness { "0", "-12", "-24", "-36", "-48" };
     constexpr std::array<const char*, 5> peak { "0", "-6", "-12", "-18", "-24" };
+    constexpr std::array<const char*, 5> difference { "+12", "+6", "0", "-6", "-12" };
     g.setFont (monoFont (8.0f));
     for (size_t index = 0u; index < loudness.size(); ++index)
     {
         const float proportion = (float) index / (float) (loudness.size() - 1u);
         const int y = juce::roundToInt (plot.getY() + proportion * plot.getHeight());
-        g.setColour (COL_MUTED.withAlpha (index == 0u || index == 4u ? 0.34f : 0.20f));
+        const bool zero = delta && index == 2u;
+        g.setColour ((zero ? COL_FLORA_BR : COL_MUTED)
+                         .withAlpha (zero ? 0.42f
+                                         : index == 0u || index == 4u ? 0.34f : 0.20f));
         g.drawHorizontalLine (y, plot.getX(), plot.getRight());
         g.setColour (COL_MUTED.withAlpha (0.78f));
-        g.drawText (loudness[index], juce::roundToInt (plot.getX()) - 27, y - 5,
+        g.drawText (delta ? difference[index] : loudness[index],
+                    juce::roundToInt (plot.getX()) - 27, y - 5,
                     23, 10, juce::Justification::centredRight);
-        g.drawText (peak[index], juce::roundToInt (plot.getRight()) + 4, y - 5,
+        g.drawText (delta ? difference[index] : peak[index],
+                    juce::roundToInt (plot.getRight()) + 4, y - 5,
                     23, 10, juce::Justification::centredLeft);
     }
 }
@@ -103,7 +112,8 @@ void paintMetric (juce::Graphics& g,
                   const std::vector<KirinMeterHistoryEntry>& history,
                   const MetricVisual& visual,
                   uint64_t firstObserved,
-                  uint64_t observedSpan)
+                  uint64_t observedSpan,
+                  bool delta)
 {
     juce::Path mean;
     bool open = false;
@@ -123,15 +133,15 @@ void paintMetric (juce::Graphics& g,
         {
             g.setColour (visual.colour.withAlpha (0.16f));
             g.drawVerticalLine (juce::roundToInt (x),
-                                yFor (plot, visual.metric, range.max),
-                                yFor (plot, visual.metric, range.min));
+                                yFor (plot, visual.metric, range.max, delta),
+                                yFor (plot, visual.metric, range.min, delta));
         }
         if (! std::isfinite (range.mean))
         {
             open = false;
             continue;
         }
-        const float y = yFor (plot, visual.metric, range.mean);
+        const float y = yFor (plot, visual.metric, range.mean, delta);
         const bool newRun = ! open || entry.generation != previousGeneration
                          || entry.run_id != previousRun;
         if (newRun)
@@ -166,7 +176,8 @@ void paintLegend (juce::Graphics& g,
                   juce::Rectangle<int> area,
                   const std::vector<KirinMeterHistoryEntry>& history,
                   const juce::String& rangeLabel,
-                  const std::array<MetricVisual, 3>& visuals)
+                  const std::array<MetricVisual, 3>& visuals,
+                  bool delta)
 {
     const bool compact = area.getWidth() < 350;
     auto left = area;
@@ -179,11 +190,12 @@ void paintLegend (juce::Graphics& g,
         g.setColour (visual.colour);
         const auto text = compact ? juce::String (visual.label)
                                   : juce::String (visual.label) + " "
-                                      + latestText (history, visual.metric);
+                                      + latestText (history, visual.metric, delta);
         g.drawText (text, cell, juce::Justification::centredLeft);
     }
     g.setColour (COL_MUTED.withAlpha (0.82f));
-    const auto basis = hasExactDawEndpoint (history) ? "  DAW RUNS" : "  SESSION";
+    const auto basis = delta ? "  EXACT Δ" : hasExactDawEndpoint (history)
+        ? "  DAW RUNS" : "  SESSION";
     g.drawText (rangeLabel + (compact ? "" : basis), range,
                 juce::Justification::centredRight);
 }
@@ -192,7 +204,8 @@ void paintLegend (juce::Graphics& g,
 void paint (juce::Graphics& g,
             juce::Rectangle<int> area,
             const std::vector<KirinMeterHistoryEntry>& history,
-            const juce::String& rangeLabel)
+            const juce::String& rangeLabel,
+            bool delta)
 {
     g.setColour (BG.withAlpha (0.82f));
     g.fillRoundedRectangle (area.toFloat(), 4.0f);
@@ -203,7 +216,8 @@ void paint (juce::Graphics& g,
     {
         g.setColour (COL_MUTED);
         g.setFont (monoFont (12.0f));
-        g.drawText ("HISTORY —", area, juce::Justification::centred);
+        g.drawText (delta ? "EXACT Δ HISTORY —" : "HISTORY —",
+                    area, juce::Justification::centred);
         return;
     }
 
@@ -212,24 +226,24 @@ void paint (juce::Graphics& g,
         { Metric::shortTerm, "S", COL_NORMAL, 3.0f, 1.05f },
         { Metric::truePeak, "TP", COL_FLORA_BR, 2.4f, 0.9f },
     }};
-    paintLegend (g, area.removeFromTop (16), history, rangeLabel, visuals);
+    paintLegend (g, area.removeFromTop (16), history, rangeLabel, visuals, delta);
     auto plot = area.reduced (27, 2).toFloat();
     plot.removeFromBottom (3.0f);
-    paintAxes (g, plot);
+    paintAxes (g, plot, delta);
 
     const uint64_t firstObserved = history.front().last_observed_frames;
     const uint64_t lastObserved = history.back().last_observed_frames;
     const uint64_t observedSpan = lastObserved >= firstObserved
         ? lastObserved - firstObserved : 0u;
     for (const auto& visual : visuals)
-        paintMetric (g, plot, history, visual, firstObserved, observedSpan);
+        paintMetric (g, plot, history, visual, firstObserved, observedSpan, delta);
 
     g.setColour (COL_MUTED.withAlpha (0.62f));
     g.setFont (labelFont (7.5f));
-    g.drawText ("LUFS", juce::roundToInt (plot.getX()) - 27,
+    g.drawText (delta ? "LU" : "LUFS", juce::roundToInt (plot.getX()) - 27,
                 juce::roundToInt (plot.getBottom()) - 8, 23, 9,
                 juce::Justification::centredRight);
-    g.drawText ("dBTP", juce::roundToInt (plot.getRight()) + 4,
+    g.drawText (delta ? "dB" : "dBTP", juce::roundToInt (plot.getRight()) + 4,
                 juce::roundToInt (plot.getBottom()) - 8, 23, 9,
                 juce::Justification::centredLeft);
 }

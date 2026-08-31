@@ -470,6 +470,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.overflow), // B-076: per-Record dropped_samples
             Arc::clone(&oversized_drop), // B-125: egui は常に 0（per-sample で overflow に計上済）
             None, // Spectrum is JUCE-shell-only; preserve the legacy egui IO surface.
+            None, // Observatory Meter History exchange is JUCE-shell-only.
         );
 
         let restart_io = {
@@ -512,6 +513,7 @@ impl Plugin for HyphaPre {
                     Arc::clone(&overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: egui は常に 0
                     None, // Spectrum is JUCE-shell-only; preserve the legacy egui IO surface.
+                    None, // Observatory Meter History exchange is JUCE-shell-only.
                 )
             }
         };

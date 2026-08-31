@@ -118,7 +118,7 @@ impl MeterSession {
                         self.generation,
                         clock.run_id,
                         self.observed_frames,
-                        clock.timeline_endpoint_samples,
+                        (clock.timeline_endpoint_samples, clock.timeline_source),
                         current,
                         correlation,
                     );

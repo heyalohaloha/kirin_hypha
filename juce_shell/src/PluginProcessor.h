@@ -50,6 +50,9 @@ public:
     bool pollMeterHistory (uint8_t resolution,
                            std::vector<KirinMeterHistoryEntry>& out,
                            size_t maxEntries) const;
+    bool pollMeterDeltaHistory (uint8_t resolution,
+                                std::vector<KirinMeterHistoryEntry>& out,
+                                size_t maxEntries) const;
     bool resetMeterSession();
     bool useShortTermLoudness() const
     {

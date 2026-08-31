@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 
-use crate::MeasureResult;
+use crate::{CaptureClockSource, MeasureResult};
 
 pub const HISTORY_10_HZ_CAPACITY: usize = 10 * 60 * 10;
 pub const HISTORY_1_HZ_CAPACITY: usize = 2 * 60 * 60;
@@ -33,6 +33,7 @@ pub struct MeterHistoryEntry {
     pub last_observed_frames: u64,
     pub first_timeline_endpoint_samples: Option<i64>,
     pub last_timeline_endpoint_samples: Option<i64>,
+    pub timeline_source: CaptureClockSource,
     pub lufs_m: MeterHistoryRange,
     pub lufs_s: MeterHistoryRange,
     pub true_peak: MeterHistoryRange,
@@ -44,7 +45,7 @@ impl MeterHistoryEntry {
         generation: u64,
         run_id: u64,
         observed_frames: u64,
-        timeline_endpoint_samples: Option<i64>,
+        timeline: (Option<i64>, CaptureClockSource),
         current: &MeasureResult,
         correlation: Option<f64>,
     ) -> Self {
@@ -55,8 +56,9 @@ impl MeterHistoryEntry {
             observation_count: 1,
             first_observed_frames: observed_frames,
             last_observed_frames: observed_frames,
-            first_timeline_endpoint_samples: timeline_endpoint_samples,
-            last_timeline_endpoint_samples: timeline_endpoint_samples,
+            first_timeline_endpoint_samples: timeline.0,
+            last_timeline_endpoint_samples: timeline.0,
+            timeline_source: timeline.1,
             lufs_m: MeterHistoryRange::exact(current.lufs_m),
             lufs_s: MeterHistoryRange::exact(current.lufs_s),
             true_peak: MeterHistoryRange::exact(current.true_peak),
@@ -113,6 +115,7 @@ struct BucketAccumulator {
     first_timeline_endpoint_samples: Option<i64>,
     last_timeline_endpoint_samples: Option<i64>,
     timeline_complete: bool,
+    timeline_source: CaptureClockSource,
     lufs_m: RangeAccumulator,
     lufs_s: RangeAccumulator,
     true_peak: RangeAccumulator,
@@ -130,6 +133,7 @@ impl BucketAccumulator {
             first_timeline_endpoint_samples: point.first_timeline_endpoint_samples,
             last_timeline_endpoint_samples: point.last_timeline_endpoint_samples,
             timeline_complete: point.first_timeline_endpoint_samples.is_some(),
+            timeline_source: point.timeline_source,
             lufs_m: RangeAccumulator::default(),
             lufs_s: RangeAccumulator::default(),
             true_peak: RangeAccumulator::default(),
@@ -143,6 +147,9 @@ impl BucketAccumulator {
         self.observation_count = self.observation_count.saturating_add(1);
         self.last_observed_frames = point.last_observed_frames;
         self.timeline_complete &= point.last_timeline_endpoint_samples.is_some();
+        if self.timeline_source != point.timeline_source {
+            self.timeline_source = CaptureClockSource::Unknown;
+        }
         self.last_timeline_endpoint_samples = point.last_timeline_endpoint_samples;
         self.lufs_m.push(point.lufs_m.mean);
         self.lufs_s.push(point.lufs_s.mean);
@@ -166,6 +173,7 @@ impl BucketAccumulator {
                 .timeline_complete
                 .then_some(self.last_timeline_endpoint_samples)
                 .flatten(),
+            timeline_source: self.timeline_source,
             lufs_m: self.lufs_m.finish(),
             lufs_s: self.lufs_s.finish(),
             true_peak: self.true_peak.finish(),
@@ -290,7 +298,7 @@ impl MeterHistory {
         generation: u64,
         run_id: u64,
         observed_frames: u64,
-        timeline_endpoint_samples: Option<i64>,
+        timeline: (Option<i64>, CaptureClockSource),
         current: &MeasureResult,
         correlation: Option<f64>,
     ) {
@@ -298,7 +306,7 @@ impl MeterHistory {
             generation,
             run_id,
             observed_frames,
-            timeline_endpoint_samples,
+            timeline,
             current,
             correlation,
         );
@@ -378,7 +386,10 @@ mod tests {
                 1,
                 4,
                 (index + 1) * 4_800,
-                Some(10_000 + ((index + 1) * 4_800) as i64),
+                (
+                    Some(10_000 + ((index + 1) * 4_800) as i64),
+                    CaptureClockSource::ProjectTimeline,
+                ),
                 &point_value(index as f64),
                 Some(index as f64 / 10.0),
             );
@@ -400,9 +411,23 @@ mod tests {
     fn run_change_flushes_partial_bucket_instead_of_joining_a_seek() {
         let mut history = MeterHistory::with_config(20, 20, 20, 10, 100);
         for index in 0..4_u64 {
-            history.push(1, 1, index + 1, Some(index as i64), &point_value(1.0), None);
+            history.push(
+                1,
+                1,
+                index + 1,
+                (Some(index as i64), CaptureClockSource::ProjectTimeline),
+                &point_value(1.0),
+                None,
+            );
         }
-        history.push(1, 2, 5, Some(50_000), &point_value(2.0), None);
+        history.push(
+            1,
+            2,
+            5,
+            (Some(50_000), CaptureClockSource::ProjectTimeline),
+            &point_value(2.0),
+            None,
+        );
         let entries = history.recent(MeterHistoryResolution::Hz1, 10);
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].run_id, 1);
@@ -415,7 +440,14 @@ mod tests {
     fn fixed_capacity_drops_only_the_oldest_entry_and_reset_clears_every_tier() {
         let mut history = MeterHistory::with_config(2, 2, 2, 1, 1);
         for index in 0..3_u64 {
-            history.push(1, 1, index + 1, None, &point_value(index as f64), None);
+            history.push(
+                1,
+                1,
+                index + 1,
+                (None, CaptureClockSource::Unknown),
+                &point_value(index as f64),
+                None,
+            );
         }
         let exact = history.recent(MeterHistoryResolution::Hz10, 10);
         assert_eq!(exact.len(), 2);

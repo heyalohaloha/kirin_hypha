@@ -777,6 +777,13 @@ bool kirin_hypha_poll_meter_history(KirinHypha* handle,
                                     uint32_t out_capacity,
                                     uint32_t* out_count);
 
+/* POST−PRE TIME履歴。同一presentation sample終端で結合できた点だけを返す。 */
+bool kirin_hypha_poll_meter_delta_history(KirinHypha* handle,
+                                          uint8_t resolution,
+                                          KirinMeterHistoryEntry* out,
+                                          uint32_t out_capacity,
+                                          uint32_t* out_count);
+
 /* 利用者操作で常設メーターだけをReset。競合・未生成時はfalse。 */
 bool kirin_hypha_reset_meter_session(KirinHypha* handle);
 

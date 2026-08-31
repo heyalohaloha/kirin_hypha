@@ -134,6 +134,7 @@ void View::setTarget (ObservationTarget value)
     if (! targetAllowed (role, selectedDomain, value) || selectedTarget == value)
         return;
     selectedTarget = value;
+    history.clear();
     updateControls();
     repaint();
 }
@@ -410,14 +411,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
 
 void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
-    if (target() == ObservationTarget::delta)
-    {
-        drawPanel (g, area);
-        g.setColour (COL_MUTED);
-        g.setFont (monoFont (12.0f));
-        g.drawText ("DELTA HISTORY —", area, juce::Justification::centred);
-        return;
-    }
-    time_history::paint (g, area, history, historyRequest().label);
+    time_history::paint (g, area, history, historyRequest().label,
+                         target() == ObservationTarget::delta);
 }
 }

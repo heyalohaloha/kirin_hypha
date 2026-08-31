@@ -47,12 +47,15 @@ void KirinHyphaEditor::refreshObservatory()
                         && processorRef.pollDelta (delta);
     observatoryView.setDeltaSnapshot (delta, haveDelta);
 
-    if (observatoryDomain == hypha::observatory::Domain::time
-        && observatoryView.target() == hypha::observatory::ObservationTarget::absolute)
+    if (observatoryDomain == hypha::observatory::Domain::time)
     {
         const auto request = observatoryView.historyRequest();
         std::vector<KirinMeterHistoryEntry> history;
-        if (processorRef.pollMeterHistory (request.resolution, history, request.maxEntries))
+        const auto historyReady = observatoryView.target()
+            == hypha::observatory::ObservationTarget::absolute
+            ? processorRef.pollMeterHistory (request.resolution, history, request.maxEntries)
+            : processorRef.pollMeterDeltaHistory (request.resolution, history, request.maxEntries);
+        if (historyReady)
             observatoryView.setHistory (std::move (history));
     }
 

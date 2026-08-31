@@ -579,6 +579,31 @@ bool KirinHyphaProcessorBase::pollMeterHistory (
     return true;
 }
 
+bool KirinHyphaProcessorBase::pollMeterDeltaHistory (
+    uint8_t resolution,
+    std::vector<KirinMeterHistoryEntry>& out,
+    size_t maxEntries) const
+{
+    const auto bounded = std::min (maxEntries,
+                                   static_cast<size_t> (KIRIN_METER_HISTORY_MAX_ENTRIES));
+    out.resize (bounded);
+    uint32_t count = 0;
+    const juce::ScopedLock sl (handleLock);
+    const auto ok = hyphaHandle != nullptr
+                 && kirin_hypha_poll_meter_delta_history (hyphaHandle,
+                                                          resolution,
+                                                          out.data(),
+                                                          static_cast<uint32_t> (bounded),
+                                                          &count);
+    if (! ok)
+    {
+        out.clear();
+        return false;
+    }
+    out.resize (count);
+    return true;
+}
+
 bool KirinHyphaProcessorBase::resetMeterSession()
 {
     const juce::ScopedLock sl (handleLock);

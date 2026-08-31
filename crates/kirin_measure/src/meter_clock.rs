@@ -21,6 +21,7 @@ impl MeterClockStart {
 pub(crate) struct MeterObservationClock {
     pub run_id: u64,
     pub timeline_endpoint_samples: Option<i64>,
+    pub timeline_source: CaptureClockSource,
     /// False only when one observation straddles incompatible clock runs.
     pub usable_for_history: bool,
 }
@@ -153,6 +154,14 @@ impl MeterClockTracker {
         MeterObservationClock {
             run_id: run_id.unwrap_or(0),
             timeline_endpoint_samples: compatible.then_some(timeline_endpoint_samples).flatten(),
+            timeline_source: if compatible {
+                match kind {
+                    Some(ClockKind::Exact { source, .. }) => source,
+                    _ => CaptureClockSource::Unknown,
+                }
+            } else {
+                CaptureClockSource::Unknown
+            },
             usable_for_history: compatible && remaining == 0,
         }
     }
@@ -185,6 +194,7 @@ mod tests {
         assert!(point.usable_for_history);
         assert_eq!(point.run_id, 1);
         assert_eq!(point.timeline_endpoint_samples, Some(14_800));
+        assert_eq!(point.timeline_source, CaptureClockSource::ProjectTimeline);
     }
 
     #[test]
@@ -195,6 +205,7 @@ mod tests {
         let mixed = tracker.consume_observation(4_800);
         assert!(!mixed.usable_for_history);
         assert_eq!(mixed.timeline_endpoint_samples, None);
+        assert_eq!(mixed.timeline_source, CaptureClockSource::Unknown);
 
         tracker.push_span(4_800, exact(32_400, 2));
         let resumed = tracker.consume_observation(4_800);

@@ -356,6 +356,8 @@ pub fn spawn_io_thread_post(
     // JUCE measurement shell supplies the optional on-demand Spectrum coordinator. The legacy
     // egui shell passes None so its pair/IO behavior remains unchanged.
     spectrum: Option<Arc<crate::SpectrumCoordinator>>,
+    // JUCE Observatory exact TIME join. Legacy shells pass None.
+    meter_history: Option<Arc<crate::MeterDeltaHistoryExchange>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         // B-128 (G-115-370): 観測 family（io_thread）入口の identity materialize（唯一の検証点）。
@@ -656,6 +658,20 @@ pub fn spawn_io_thread_post(
                     spectrum_target,
                     &pair_pre_name_snapshot,
                 );
+            }
+            if let Some(meter_history) = meter_history.as_ref() {
+                let meter_target = latched_pre
+                    .lock()
+                    .ok()
+                    .and_then(|latched| latched.clone())
+                    .filter(|latched| latched.readiness == crate::LatchedPreReadiness::Confirmed)
+                    .and_then(|latched| {
+                        crate::MeterHistoryTarget::from_pre_json(
+                            latched.instance_id,
+                            &latched.pre_json,
+                        )
+                    });
+                meter_history.service_post_endpoint(meter_target);
             }
 
             // The exact PRE ownership index is published only after this POST's atomic snapshot

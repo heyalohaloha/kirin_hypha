@@ -71,20 +71,20 @@ use kirin_measure::{
     write_stop_broadcast, write_stop_broadcast_for_generation, AnalysisViewMode, BalanceState,
     CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
     DeltaMode, DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License,
-    LiveLicense, LivenessEvaluator, MeasureResult, MeterHistoryEntry, MeterHistoryRange,
-    MeterHistoryResolution, MeterSession, MeterSessionSnapshot, MeterSessionState,
-    PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths, PluginDataRole,
-    PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource, PsbSummary,
-    RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine,
-    RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError,
-    SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame, SpectrumRuntime,
-    SpectrumRuntimeStats, SpectrumTimelineFrame, SpectrumViewSnapshot, SpectrumViewStatus,
-    StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams,
-    ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT, HISTORY_0_1_HZ_CAPACITY,
-    HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
-    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY,
-    SPECTRUM_BAND_COUNT, SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS,
-    STEREO_FIELD_SIZE,
+    LiveLicense, LivenessEvaluator, MeasureResult, MeterDeltaHistoryExchange, MeterHistoryEntry,
+    MeterHistoryRange, MeterHistoryResolution, MeterSession, MeterSessionSnapshot,
+    MeterSessionState, PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths,
+    PluginDataRole, PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource,
+    PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue,
+    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
+    RestartIoFn, SignalError, SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame,
+    SpectrumRuntime, SpectrumRuntimeStats, SpectrumTimelineFrame, SpectrumViewSnapshot,
+    SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo,
+    WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
+    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT,
+    MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
+    PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
+    SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS, STEREO_FIELD_SIZE,
 };
 
 mod attack_ffi;
@@ -406,6 +406,8 @@ pub struct KirinHyphaEngine {
     /// Record/Keep, Watch pass, pairing and editor lifetimeから独立した常設メーターセッション。
     /// replace可能なMeasure workerの外側で所有し、worker再起動では破棄しない。
     meter_session: Option<Arc<Mutex<MeterSession>>>,
+    /// Exact sample-time POST−PRE TIME join. Filesystem work stays on the existing IO worker.
+    meter_delta_history: Option<Arc<MeterDeltaHistoryExchange>>,
     /// Offline bounce 用 TRACE queue（Measure → IO）。
     record_trace_queue: RecordTraceQueue,
     /// Audio Thread が積む実レンダー長。Record close 時に bounce_take の正本になる。
@@ -1248,6 +1250,9 @@ impl KirinHyphaEngine {
         let meter_session = MeterSession::new(sample_rate, num_channels)
             .ok()
             .map(|session| Arc::new(Mutex::new(session)));
+        let meter_delta_history = meter_session
+            .as_ref()
+            .map(|session| MeterDeltaHistoryExchange::new(sample_rate, Arc::clone(session)));
         let record_trace_queue = new_record_trace_queue();
         let record_take_tracker = new_record_take_tracker();
         let record_mark_queue = new_record_mark_queue();
@@ -1349,6 +1354,7 @@ impl KirinHyphaEngine {
             spectrum,
             session_summary,
             meter_session,
+            meter_delta_history,
             record_trace_queue,
             record_take_tracker,
             pending_capture_version: AtomicU64::new(0),
@@ -1914,6 +1920,7 @@ impl KirinHyphaEngine {
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
             let spectrum = Arc::clone(&self.spectrum);
+            let meter_delta_history = self.meter_delta_history.as_ref().map(Arc::clone);
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -1938,6 +1945,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                     Some(Arc::clone(&spectrum)),
+                    meter_delta_history.as_ref().map(Arc::clone),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -2136,6 +2144,7 @@ impl KirinHyphaEngine {
             let pair_owner = Arc::clone(&pair_owner);
             let latched_pre = self.pair_binding.latched_pre();
             let spectrum = Arc::clone(&self.spectrum);
+            let meter_delta_history = self.meter_delta_history.as_ref().map(Arc::clone);
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -2172,6 +2181,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&pair_owner),    // exact pair survives IO worker restart
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
                     Some(Arc::clone(&spectrum)),
+                    meter_delta_history.as_ref().map(Arc::clone),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -3398,6 +3408,21 @@ impl KirinHyphaEngine {
             .map(|session| session.recent_history(resolution, max_entries))
     }
 
+    /// Exact-pair POST−PRE TIME history. PRE/unenabled roles fail closed.
+    pub fn poll_meter_delta_history(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+    ) -> Option<Vec<MeterHistoryEntry>> {
+        let is_post =
+            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
+        is_post.then(|| {
+            self.meter_delta_history
+                .as_ref()
+                .map(|exchange| exchange.recent(resolution, max_entries))
+        })?
+    }
+
     /// 利用者操作だけが常設セッションを破棄できる。UI/control thread専用。
     /// Measure workerとの競合時は待たずにfalseを返し、呼び出し側が操作失敗を通知する。
     pub fn reset_meter_session(&self) -> bool {
@@ -3408,6 +3433,9 @@ impl KirinHyphaEngine {
             return false;
         };
         session.reset();
+        if let Some(exchange) = self.meter_delta_history.as_ref() {
+            exchange.reset();
+        }
         true
     }
 
@@ -4430,6 +4458,7 @@ mod meter_session_abi_tests {
             last_observed_frames: 48_000,
             first_timeline_endpoint_samples: Some(104_800),
             last_timeline_endpoint_samples: None,
+            timeline_source: CaptureClockSource::ProjectTimeline,
             lufs_m: MeterHistoryRange {
                 min: Some(-16.0),
                 max: Some(-13.0),
@@ -4490,8 +4519,48 @@ mod meter_session_abi_tests {
             )
         });
         assert_eq!(history_count, 41);
+        assert!(!unsafe {
+            kirin_hypha_poll_meter_delta_history(
+                std::ptr::null_mut(),
+                KIRIN_METER_HISTORY_10_HZ,
+                std::ptr::null_mut(),
+                0,
+                &mut history_count,
+            )
+        });
+        assert_eq!(history_count, 41);
         assert!(!unsafe { kirin_hypha_reset_meter_session(std::ptr::null_mut()) });
         assert_eq!(out.generation, 41);
+    }
+
+    #[test]
+    fn delta_history_abi_is_post_only_and_empty_is_a_valid_fact() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        assert!(engine
+            .poll_meter_delta_history(MeterHistoryResolution::Hz10, 10)
+            .is_none());
+        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
+        assert!(engine
+            .poll_meter_delta_history(MeterHistoryResolution::Hz10, 10)
+            .is_none());
+        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
+        assert_eq!(
+            engine
+                .poll_meter_delta_history(MeterHistoryResolution::Hz10, 10)
+                .unwrap(),
+            Vec::<MeterHistoryEntry>::new()
+        );
+        let mut count = 41_u32;
+        assert!(unsafe {
+            kirin_hypha_poll_meter_delta_history(
+                std::ptr::from_ref(&engine).cast_mut(),
+                KIRIN_METER_HISTORY_10_HZ,
+                std::ptr::null_mut(),
+                0,
+                &mut count,
+            )
+        });
+        assert_eq!(count, 0);
     }
 
     #[test]
@@ -6473,6 +6542,45 @@ pub unsafe extern "C" fn kirin_hypha_poll_meter_history(
         };
         let Some(entries) =
             (unsafe { &*handle }).poll_meter_history(resolution, out_capacity as usize)
+        else {
+            return false;
+        };
+        let count = u32::try_from(entries.len()).unwrap_or(u32::MAX);
+        for (index, entry) in entries.into_iter().enumerate() {
+            unsafe { out.add(index).write(to_c_history_entry(entry)) };
+        }
+        unsafe { *out_count = out_capacity.min(count) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// 同じDAW presentation sample終端で結合できたPOST−PRE TIME履歴だけを返す。
+/// 欠測・重複時刻・PRE roleは値を生成しない。
+///
+/// # Safety
+/// `out_count`は書き込み可能、`out_capacity > 0`なら`out`は同数要素を書き込み可能であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_meter_delta_history(
+    handle: *mut KirinHyphaEngine,
+    resolution: u8,
+    out: *mut KirinMeterHistoryEntry,
+    out_capacity: u32,
+    out_count: *mut u32,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null()
+            || out_count.is_null()
+            || (out_capacity > 0 && out.is_null())
+            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+        {
+            return false;
+        }
+        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
+            return false;
+        };
+        let Some(entries) =
+            (unsafe { &*handle }).poll_meter_delta_history(resolution, out_capacity as usize)
         else {
             return false;
         };

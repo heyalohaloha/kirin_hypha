@@ -873,6 +873,7 @@ impl Plugin for HyphaPost {
             Arc::clone(&pair_owner),    // exact pair survives IO worker restart
             Arc::clone(&self.latched_pre), // B-108: display/keep 共有ラッチ
             None, // Spectrum is JUCE-shell-only; preserve the legacy egui IO surface.
+            None, // Observatory Meter History exchange is JUCE-shell-only.
         );
 
         // ── Watchdog Thread 起動 ──────────────────────────────────────
@@ -949,6 +950,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&pair_owner), // exact pair survives IO worker restart
                     Arc::clone(&latched_pre), // B-108: display/keep 共有ラッチ
                     None, // Spectrum is JUCE-shell-only; preserve the legacy egui IO surface.
+                    None, // Observatory Meter History exchange is JUCE-shell-only.
                 )
             }
         };
