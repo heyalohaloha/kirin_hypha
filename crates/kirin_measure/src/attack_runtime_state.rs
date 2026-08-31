@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use crate::AttackPerceptualFeatures;
+
 pub const ATTACK_ODF_HISTORY_CAPACITY: usize = 1_200;
 pub const ATTACK_EVENT_HISTORY_CAPACITY: usize = 240;
 
@@ -82,10 +84,26 @@ impl AttackEvent {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AttackDetailedEvent {
+    pub event: AttackEvent,
+    pub features: AttackPerceptualFeatures,
+}
+
+impl AttackDetailedEvent {
+    pub fn has_valid_layout(&self) -> bool {
+        self.event.has_valid_layout()
+            && self.features.has_valid_layout()
+            && self.event.sample_rate == self.features.sample_rate
+            && self.event.channels == self.features.channels
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AttackHistory {
     frames: VecDeque<AttackOdfFrame>,
     events: VecDeque<AttackEvent>,
+    details: VecDeque<AttackDetailedEvent>,
 }
 
 impl Default for AttackHistory {
@@ -99,6 +117,7 @@ impl AttackHistory {
         Self {
             frames: VecDeque::with_capacity(ATTACK_ODF_HISTORY_CAPACITY),
             events: VecDeque::with_capacity(ATTACK_EVENT_HISTORY_CAPACITY),
+            details: VecDeque::with_capacity(ATTACK_EVENT_HISTORY_CAPACITY),
         }
     }
 
@@ -114,6 +133,7 @@ impl AttackHistory {
         }) {
             self.frames.clear();
             self.events.clear();
+            self.details.clear();
         }
         if self.frames.len() == ATTACK_ODF_HISTORY_CAPACITY {
             self.frames.pop_front();
@@ -139,6 +159,21 @@ impl AttackHistory {
         self.events.push_back(event);
     }
 
+    pub(crate) fn push_detail(&mut self, detail: AttackDetailedEvent) {
+        if !detail.has_valid_layout()
+            || self
+                .events
+                .back()
+                .is_none_or(|event| *event != detail.event)
+        {
+            return;
+        }
+        if self.details.len() == ATTACK_EVENT_HISTORY_CAPACITY {
+            self.details.pop_front();
+        }
+        self.details.push_back(detail);
+    }
+
     pub fn newest(&self) -> Option<&AttackOdfFrame> {
         self.frames.back()
     }
@@ -149,6 +184,12 @@ impl AttackHistory {
 
     pub fn events(&self) -> impl DoubleEndedIterator<Item = &AttackEvent> + ExactSizeIterator {
         self.events.iter()
+    }
+
+    pub fn details(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = &AttackDetailedEvent> + ExactSizeIterator {
+        self.details.iter()
     }
 }
 

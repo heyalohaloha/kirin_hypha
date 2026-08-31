@@ -11,6 +11,7 @@ mod analysis_exchange_transport;
 mod analysis_lease;
 mod atomic_claim;
 pub mod atomic_file;
+pub mod attack_perception;
 pub mod attack_runtime;
 mod broadcast_edge;
 pub mod capture_contract;
@@ -101,9 +102,14 @@ pub use all_stop_signal::{
     AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION, ALL_STOP_SIGNAL_SUBDIR,
 };
 pub use analysis_lease::{ANALYSIS_OWNER_NAME_MAX_BYTES, ANALYSIS_SLOT_COUNT};
+pub use attack_perception::{
+    AttackPerceptionError, AttackPerceptualDelta, AttackPerceptualFeatures, ATTACK_CONTEXT_MICROS,
+    ATTACK_DETAIL_MICROS, ATTACK_LEVEL_FLOOR_DBFS,
+};
 pub use attack_runtime::{
-    analyze_drum_attacks_interleaved_offline, analyze_drum_attacks_mono_offline, AttackEvent,
-    AttackHistory, AttackOdfFrame, AttackRuntime, AttackRuntimeStats,
+    analyze_drum_attacks_interleaved_offline, analyze_drum_attacks_mono_offline,
+    AttackDetailedEvent, AttackEvent, AttackHistory, AttackOdfFrame, AttackPairError,
+    AttackPairEvent, AttackPairEventKind, AttackPairJoiner, AttackRuntime, AttackRuntimeStats,
     ATTACK_EVENT_HISTORY_CAPACITY, ATTACK_ODF_HISTORY_CAPACITY,
 };
 pub use capture_contract::{CAPTURE_PRODUCER_READY_TIMEOUT, MAX_CAPTURE_PAIRS};

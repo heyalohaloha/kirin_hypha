@@ -346,6 +346,26 @@ layered sample中の複数の可聴attackか、decayの過検出かはファイ�
 音源bytesと絶対pathはrepositoryへ入れず、file名、SHA-256、format、eventだけを決定的artifactへ記録する。
 二回のartifactはbyte一致し、SHA-256は`8440f280842b22ed692b1c937e3054af89b90fc06065540ac1df23ca534d3fe4`である。
 
+### B-574 PRE/POST共通イベント結合
+
+POST単独のevent列を差分として扱わず、同じcontent sample、sample rate、channel、window、hop、definition hashを持つPRE/POST ODFだけを受ける`AttackPairJoiner`を実装した。
+共通系列`max(PRE, POST)`へB-553と同じcausal peak ruleを一度だけ適用し、確定eventから前後25 ms以内のPRE候補とPOST候補を決定的に対応させる。
+両側が対応した場合だけ`POST - PRE`を生成し、片側だけなら`PRE ONLY`または`POST ONLY`として値を発明しない。
+25 ms境界は対応に含み、26 msは差分へ昇格しない。
+definitionまたはexact content sampleが異なる入力は相関shiftや補間を行わずfail closedとし、continuityをresetする。
+
+この段階で共通eventと符号付きOnset Flux差分のproduct coreは成立した。
+別instance間のPRE payload transportと公開UIへの接続は次工程であり、公開routeはまだOFFとする。
+
+### B-575 知覚表示payload
+
+`AttackPerceptualFeatures`を追加し、100 msの直前contextと30 msのattack apertureからContrast、Peak、Crest、Attack temporal centroid、level-independent sample-edge比、−3 dB peak plateau幅を決定的に算出する。
+stereo kick/snareをmonoへdownmixせず、L/Rのlinear power平均でdual-mono不変、片ch入力はpowerとして-3.0103 dBになる契約を固定した。
+Brightnessは新しい曖昧なscoreを作らず、既存100 ms Sharpnessを同じeventへ遅延追記する。PRE/POSTの片側が未完ならΔを発明しない。
+画面の主stemをODF差からAttack Contrast差へ変更する。ODFはevent検出、選択詳細はContrast、Shape、Brightness、Peak/CrestをPRE/POST並列で表示する。
+POST workerの実音声ringへ接続し、確定eventごとの100 ms/30 ms窓から`AttackDetailedEvent`をhistoryへ発行する。source originだけzero padし、任意transport jump直後に不足contextを発明しない。
+Saturation-like Textureは処理器の推定値にせず、PREからPOSTでsample-edge比増加、Crest低下、peak plateau拡大が同時に起きた事実だけを別表示へ渡す。identityと固定gainでは三値とも差分0になる。
+
 ## 7. 再現性
 
 最良pilotは二回実行でbyte単位に一致した。

@@ -1,8 +1,8 @@
 # Kirin Hypha POST Transient Delta 実装計画
 
 **日付**：2026-08-30
-**状態**：DRUMのSuperFlux、固定common peak判定、POST内部6秒event表示までHypha VSTへ接続済み。公開ATTACKはOFF
-**実装ラベル**：B-569
+**状態**：DRUMのSuperFlux、PRE/POST共通event join、実音声Perceptual Detail、POST内部6秒event表示まで実装済み。PRE exchangeと公開ATTACKはOFF
+**実装ラベル**：B-575
 **画面名**：`ATTACK`（仮称）
 
 Phase 2-Rの正本は`docs/transient_delta_phase2_recovery_plan_20260830.md`とする。
@@ -12,8 +12,8 @@ B-550からB-552の入力契約とB-553の実測は各報告書に記録する�
 ## 1. 結論
 
 POST限定の一つのAnalysis画面として、六秒の時間軸を持つ`ATTACK`へ明示選択式の`DRUM`と`2MIX`を追加する。
-主表示は、同じイベント時刻における符号付き `POST − PRE` Onset Flux のイベントステムとする。
-補助値は、同じイベントに対する短時間 Crest、Sample Peak、Sharpness とする。
+主表示は、同じイベント時刻における符号付き `POST − PRE` Attack Contrast のイベントステムとする。
+補助値は、同じイベントに対するShape、Brightness、Sample Peak、Crestとし、Onset Fluxはイベント検出に専念させる。
 キック、スネア、ハイハットなどの楽器名は推定しない。
 利用者へスコア、良否、目標値、修正提案を出さない。
 画面へ複数の連続曲線を詰め込まず、イベントの位置と変化量を最初に読める構成にする。
@@ -83,23 +83,24 @@ ODF の計算と peak picking は別段階にし、候補アルゴリズムの�
 
 六秒の横時間軸へ、検出されたイベントだけをステムで描画する。
 縦軸の中央を `0` とし、上側を `POST > PRE`、下側を `POST < PRE` とする。
-ステム長は符号付き Onset Flux 差分を固定 scale へ写した表示値とする。
+ステム長は符号付きAttack Contrast差分を固定scaleへ写し、上を「POSTで直前からより際立つ」、下を「POSTで際立ちが弱い」とする。
+イベントのcap幅はAttack Shapeの実測値へ写すが、BrightnessとPeakを同じglyphへ重ねず選択詳細でPRE/POSTを並べる。
 イベントがない時刻を線で結ばない。
 PRE だけまたは POST だけで確認されたイベントは差分へ昇格せず、未対応イベントとして輪郭だけを表示する。
 
 ### 6.2 イベント詳細
 
-一つのイベントへ次の四項目を保持する。
+一つのイベントへ次の四表示群を保持する。
 
 | 項目 | 役割 | 時間窓 | 表示 |
 |---|---|---:|---|
-| Onset Flux | 主指標 | 候補評価後に固定 | 符号付き Δ |
-| Crest | 短時間の形状 | 30 ms 基準 | PRE、POST、Δ |
-| Sample Peak | 瞬間的な高さ | Crest と同じ 30 ms | PRE、POST、Δ |
-| Sharpness | 知覚的な明るさ | 既存定義と同じ 100 ms | PRE、POST、Δ |
+| Attack Contrast | 直前100 msからアタック30 msへの落差 | 100 ms + 30 ms | PRE、POST、Δ |
+| Attack Shape | baseline超過energyの時間重心 | 30 ms | PRE、POST、Δ ms |
+| Brightness | 既存Sharpness | 既存定義と同じ100 ms | PRE、POST、Δ acum |
+| Peak / Crest | 瞬間的な高さと短時間の形状 | 30 ms | PRE、POST、Δ dB |
 
-`Crest 30 ms` は同じイベント窓の `sample peak dB − RMS dB` と定義する。
-Sample Peak は True Peak ではなく、同じ 30 ms 窓内の sample peak とする。
+Attack Contrastは`attack RMS dBFS − preceding-context RMS dBFS`、Attack Shapeはcontext powerを差し引いた正のenergyの時間重心とする。
+`Crest 30 ms` は同じイベント窓の `sample peak dB − RMS dB`、Sample PeakはTrue Peakでなく同窓内sample peakとする。
 `event_sample`はPhase 2-Rで固定したzero-padded ODF frameのcenterとし、CrestとSample Peakは`[event_sample, event_sample + 30 ms)`を使う。
 Sharpness は連続した既存 100 ms endpoint のうち、event_sample との対応誤差が固定上限内にある値だけを関連付ける。
 計測 floor 未満で Crest を定義できない場合は未定義のまま保持し、ゼロを発明しない。
@@ -108,7 +109,7 @@ Sharpness は既存の 100 ms 定義とチャンネル定義を再利用し、�
 ### 6.3 段階的な表示確定
 
 Onset marker は共通イベント判定が確定した時点で表示する。
-Crest と Sample Peak は 30 ms の実測窓が揃った時点で同じイベントへ追記する。
+Contrast、Shape、Crest、Sample Peakは30 msの実測窓が揃った時点で同じイベントへ追記する。
 Sharpness は 100 ms の実測窓が揃った時点で同じイベントへ追記する。
 Sharpness の完了を待って onset marker を遅らせない。
 48 kHz での目標は、annotated acoustic onset から painted marker までの end-to-end P95 表示遅延を 50 ms 以下、最悪値を 75 ms 以下とする。

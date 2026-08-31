@@ -100,6 +100,32 @@ fn selected_drum_superflux_runs_on_source_zero_grid() {
 }
 
 #[test]
+fn confirmed_runtime_event_receives_real_perceptual_detail() {
+    let runtime = AttackRuntime::new(48_000, 2).unwrap();
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 14_000, 256, Some(8_000));
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if let Some(detail) = runtime
+            .try_history()
+            .and_then(|history| history.details().next_back().copied())
+        {
+            assert!(detail.has_valid_layout());
+            assert_eq!(detail.event.channels, 2);
+            assert_eq!(detail.features.context_frames, 4_800);
+            assert_eq!(detail.features.attack_frames, 1_440);
+            assert!(detail.features.contrast_db > 0.0);
+            assert!(detail.features.temporal_centroid_ms.is_some());
+            runtime.shutdown_and_join();
+            return;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    runtime.shutdown_and_join();
+    panic!("ATTACK worker did not attach perceptual detail to the confirmed event");
+}
+
+#[test]
 fn silence_is_a_valid_zero_trace() {
     let runtime = AttackRuntime::new(44_100, 1).unwrap();
     assert!(runtime.set_enabled(true));

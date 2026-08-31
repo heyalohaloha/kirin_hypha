@@ -23,6 +23,11 @@ pub(super) struct AttackPeakPicker {
     pending: Option<AttackEvent>,
 }
 
+pub(super) struct AttackPeakObservation {
+    pub candidate: bool,
+    pub emitted: Option<AttackEvent>,
+}
+
 impl AttackPeakPicker {
     pub(super) fn new() -> Self {
         Self {
@@ -39,6 +44,10 @@ impl AttackPeakPicker {
     }
 
     pub(super) fn push(&mut self, frame: AttackOdfFrame) -> Option<AttackEvent> {
+        self.observe(frame).emitted
+    }
+
+    pub(super) fn observe(&mut self, frame: AttackOdfFrame) -> AttackPeakObservation {
         let identity = TraceIdentity {
             generation: frame.generation,
             sample_rate: frame.sample_rate,
@@ -53,7 +62,10 @@ impl AttackPeakPicker {
         let eligible = self.is_eligible(frame.value);
         self.remember(frame.value);
         let candidate = eligible.then(|| AttackEvent::from_odf(frame));
-        self.advance(candidate, frame.event_sample, frame.sample_rate)
+        AttackPeakObservation {
+            candidate: eligible,
+            emitted: self.advance(candidate, frame.event_sample, frame.sample_rate),
+        }
     }
 
     fn is_eligible(&self, value: f32) -> bool {
