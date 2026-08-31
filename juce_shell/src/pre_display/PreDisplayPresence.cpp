@@ -53,7 +53,11 @@ namespace hypha::pre_display
         void addRuntimeIdentity (juce::DynamicObject& root, const RuntimeIdentity& identity)
         {
             if (identity.runtimeInstanceId.isNotEmpty())
+            {
                 root.setProperty ("runtime_instance_id", identity.runtimeInstanceId);
+                if (identity.role == GuideTargetRole::post)
+                    root.setProperty ("target_role", "post");
+            }
             root.setProperty ("instance_id", identity.instanceId);
             root.setProperty ("host_process_id", static_cast<juce::int64> (identity.hostProcessId));
             root.setProperty ("project_uuid", identity.projectUuid);
@@ -83,6 +87,8 @@ namespace hypha::pre_display
             root.setProperty ("payload_kind", receipt.payloadKind);
             if (receipt.runtimeInstanceId.isNotEmpty())
             {
+                if (receipt.targetRole == GuideTargetRole::post)
+                    root.setProperty ("target_role", "post");
                 root.setProperty ("work_id", receipt.workId);
                 root.setProperty ("binding_id", receipt.bindingId);
                 root.setProperty ("runtime_instance_id", receipt.runtimeInstanceId);
@@ -148,6 +154,7 @@ namespace hypha::pre_display
             requested.hostProcessId = currentProcessId();
 
         const bool sameOpenInstance = alreadyConfigured
+            && current.role == requested.role
             && current.instanceId == requested.instanceId
             && current.projectUuid == requested.projectUuid
             && current.dawSessionUuid == requested.dawSessionUuid
@@ -184,9 +191,14 @@ namespace hypha::pre_display
         auto root = new juce::DynamicObject();
         root->setProperty ("format", "kirin_pre_display_presence");
         const bool exact = identity.runtimeInstanceId.isNotEmpty();
-        root->setProperty ("version", exact ? "2.0" : "1.0");
+        const bool post = exact && identity.role == GuideTargetRole::post;
+        root->setProperty ("version", post ? "3.0" : exact ? "2.0" : "1.0");
         if (exact)
+        {
             root->setProperty ("runtime_instance_id", identity.runtimeInstanceId);
+            if (post)
+                root->setProperty ("target_role", "post");
+        }
         root->setProperty ("instance_id", identity.instanceId);
         root->setProperty ("name", identity.name.substring (0, 64));
         root->setProperty ("plugin_version", identity.pluginVersion);
@@ -206,9 +218,9 @@ namespace hypha::pre_display
         }
 
         auto capabilities = new juce::DynamicObject();
-        capabilities->setProperty ("guide_protocol", exact ? "2.0" : "1.0");
+        capabilities->setProperty ("guide_protocol", post ? "3.0" : exact ? "2.0" : "1.0");
         if (exact)
-            capabilities->setProperty ("guide_acknowledgement", "2.0");
+            capabilities->setProperty ("guide_acknowledgement", post ? "3.0" : "2.0");
         capabilities->setProperty ("project_clock", true);
         capabilities->setProperty ("audio_alignment", false);
         root->setProperty ("capabilities", juce::var (capabilities));
@@ -240,10 +252,11 @@ namespace hypha::pre_display
         auto root = new juce::DynamicObject();
         root->setProperty ("format", "kirin_pre_display_capability");
         const bool exact = identity.runtimeInstanceId.isNotEmpty();
-        root->setProperty ("version", exact ? "2.0" : "1.0");
+        const bool post = exact && identity.role == GuideTargetRole::post;
+        root->setProperty ("version", post ? "3.0" : exact ? "2.0" : "1.0");
         addRuntimeIdentity (*root, identity);
-        root->setProperty ("guide_protocol", exact ? "2.0" : "1.0");
-        root->setProperty ("acknowledgement_protocol", exact ? "2.0" : "1.2");
+        root->setProperty ("guide_protocol", post ? "3.0" : exact ? "2.0" : "1.0");
+        root->setProperty ("acknowledgement_protocol", post ? "3.0" : exact ? "2.0" : "1.2");
         addLease (*root, nowMs);
         const auto file = transportRoot.getChildFile ("capability")
                                        .getChildFile ((exact ? identity.runtimeInstanceId : identity.instanceId) + ".json");
@@ -258,6 +271,7 @@ namespace hypha::pre_display
     {
         const auto displayStatus = displayStatusName (display.status);
         GuideReceipt receipt;
+        receipt.targetRole = guide.targetRole;
         receipt.groupId = guide.groupId;
         receipt.workId = guide.workId;
         receipt.bindingId = guide.bindingId;
@@ -268,17 +282,19 @@ namespace hypha::pre_display
         receipt.payloadKind = guide.payloadKind;
         if (! validIdentity (transportRoot, identity) || ! validLeaseNow (nowMs)
             || ! guide.valid() || ! validReceiptIdentity (receipt) || displayStatus.isEmpty()
-            || (guide.protocolVersion == "2.0"
+            || ((guide.protocolVersion == "2.0" || guide.protocolVersion == "3.0")
                 && (identity.runtimeInstanceId != guide.runtimeInstanceId
-                    || identity.workId != guide.workId || identity.bindingId != guide.bindingId))
+                    || identity.workId != guide.workId || identity.bindingId != guide.bindingId
+                    || identity.role != guide.targetRole))
             || display.guideId != guide.guideId || display.contentHash != guide.contentHash
             || display.payloadKind != guide.payloadKind)
             return false;
 
         auto root = new juce::DynamicObject();
         root->setProperty ("format", "kirin_pre_display_acknowledgement");
-        const bool exact = guide.protocolVersion == "2.0";
-        root->setProperty ("version", exact ? "2.0" : "1.2");
+        const bool exact = guide.protocolVersion == "2.0" || guide.protocolVersion == "3.0";
+        root->setProperty ("version", guide.protocolVersion == "3.0" ? "3.0"
+                                                                   : exact ? "2.0" : "1.2");
         addRuntimeIdentity (*root, identity);
         addGuideIdentity (*root, receipt);
         root->setProperty ("receipt_status", "accepted");
@@ -297,12 +313,14 @@ namespace hypha::pre_display
     {
         if (! validIdentity (transportRoot, identity) || ! validLeaseNow (nowMs)
             || receipt.state != GuideRefreshState::rejected || ! receipt.hasGuideIdentity()
-            || ! validReceiptIdentity (receipt))
+            || ! validReceiptIdentity (receipt)
+            || (receipt.runtimeInstanceId.isNotEmpty() && identity.role != receipt.targetRole))
             return false;
         auto root = new juce::DynamicObject();
         root->setProperty ("format", "kirin_pre_display_acknowledgement");
         const bool exact = receipt.runtimeInstanceId.isNotEmpty();
-        root->setProperty ("version", exact ? "2.0" : "1.2");
+        root->setProperty ("version", receipt.targetRole == GuideTargetRole::post ? "3.0"
+                                                                                  : exact ? "2.0" : "1.2");
         addRuntimeIdentity (*root, identity);
         addGuideIdentity (*root, receipt);
         root->setProperty ("receipt_status", "rejected");

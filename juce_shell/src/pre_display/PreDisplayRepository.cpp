@@ -79,13 +79,19 @@ namespace hypha::pre_display
         {
             const auto value = parseBoundedJson (file, maxPointerBytes);
             const auto* clear = value.getDynamicObject();
+            const bool post = identity.role == GuideTargetRole::post;
             return clear != nullptr
-                && exactProperties (*clear, { "format", "version", "scope", "group_id",
-                                              "binding_id", "work_id", "retired_at" })
+                && (post
+                    ? exactProperties (*clear, { "format", "version", "scope", "group_id",
+                                                 "target_role", "binding_id", "work_id",
+                                                 "retired_at" })
+                    : exactProperties (*clear, { "format", "version", "scope", "group_id",
+                                                 "binding_id", "work_id", "retired_at" }))
                 && objectString (*clear, "format") == "kirin_pre_display_retired"
-                && objectString (*clear, "version") == "2.0"
+                && objectString (*clear, "version") == (post ? "3.0" : "2.0")
                 && objectString (*clear, "scope") == "binding"
                 && objectString (*clear, "group_id") == "kirin_os"
+                && (! post || objectString (*clear, "target_role") == "post")
                 && objectString (*clear, "binding_id") == identity.bindingId
                 && (clear->getProperty ("work_id").isVoid()
                     || objectString (*clear, "work_id") == identity.workId)
@@ -93,20 +99,28 @@ namespace hypha::pre_display
         }
     }
 
-    ConnectionRequest GuideRepository::pendingConnection (std::int64_t nowMs) const
+    ConnectionRequest GuideRepository::pendingConnection (
+        std::int64_t nowMs, const RuntimeIdentity& identity) const
     {
         const auto value = parseBoundedJson (
             root.getChildFile ("connection").getChildFile ("request.json"), maxPointerBytes);
         const auto* request = value.getDynamicObject();
         ConnectionRequest result;
+        const bool post = identity.role == GuideTargetRole::post;
         if (request == nullptr
-            || ! exactProperties (*request, { "format", "version", "binding_id", "work_id",
-                                              "work_title", "observed_at_ms", "expires_at_ms" })
+            || (post
+                ? ! exactProperties (*request, { "format", "version", "target_role",
+                                                  "binding_id", "work_id", "work_title",
+                                                  "observed_at_ms", "expires_at_ms" })
+                : ! exactProperties (*request, { "format", "version", "binding_id", "work_id",
+                                                  "work_title", "observed_at_ms", "expires_at_ms" }))
             || objectString (*request, "format") != "kirin_pre_display_connection_request"
-            || objectString (*request, "version") != "1.0"
+            || objectString (*request, "version") != (post ? "2.0" : "1.0")
+            || (post && objectString (*request, "target_role") != "post")
             || ! objectInteger (*request, "observed_at_ms", 0, maxSafeJsonInteger, result.observedAtMs)
             || ! objectInteger (*request, "expires_at_ms", 0, maxSafeJsonInteger, result.expiresAtMs))
             return {};
+        result.targetRole = identity.role;
         result.bindingId = objectString (*request, "binding_id");
         result.workId = objectString (*request, "work_id");
         result.workTitle = objectString (*request, "work_title");
@@ -128,11 +142,14 @@ namespace hypha::pre_display
             retainedGuide = {};
             return {};
         }
-        // A PRE instance may be explicitly reconnected from one Work to another while its
+        const bool post = identity.role == GuideTargetRole::post;
+        const juce::String expectedVersion = post ? "3.0" : "2.0";
+        // A Hypha instance may be explicitly reconnected from one Work to another while its
         // process remains alive. Never project the previous Work's retained guide under the
         // new binding, even when the new pointer has not been published yet.
         if (retainedGuide.valid()
-            && (retainedGuide.runtimeInstanceId != identity.runtimeInstanceId
+            && (retainedGuide.targetRole != identity.role
+                || retainedGuide.runtimeInstanceId != identity.runtimeInstanceId
                 || retainedGuide.workId != identity.workId
                 || retainedGuide.bindingId != identity.bindingId))
             retainedGuide = {};
@@ -143,6 +160,7 @@ namespace hypha::pre_display
             retainedGuide = {};
             GuideReceipt receipt;
             receipt.state = GuideRefreshState::cleared;
+            receipt.targetRole = identity.role;
             return receipt;
         }
 
@@ -151,12 +169,19 @@ namespace hypha::pre_display
             maxPointerBytes);
         const auto* pointer = pointerValue.getDynamicObject();
         if (pointer == nullptr
-            || ! exactProperties (*pointer, { "format", "version", "group_id", "work_id",
-                                              "binding_id", "runtime_instance_id", "guide_id",
-                                              "revision", "content_hash", "artifact_sha256",
-                                              "guide_file", "payload_kind", "activated_at" })
+            || (post
+                ? ! exactProperties (*pointer, { "format", "version", "group_id", "target_role",
+                                                  "work_id", "binding_id", "runtime_instance_id",
+                                                  "guide_id", "revision", "content_hash",
+                                                  "artifact_sha256", "guide_file", "payload_kind",
+                                                  "activated_at" })
+                : ! exactProperties (*pointer, { "format", "version", "group_id", "work_id",
+                                                  "binding_id", "runtime_instance_id", "guide_id",
+                                                  "revision", "content_hash", "artifact_sha256",
+                                                  "guide_file", "payload_kind", "activated_at" }))
             || objectString (*pointer, "format") != "kirin_pre_display_active"
-            || objectString (*pointer, "version") != "2.0")
+            || objectString (*pointer, "version") != expectedVersion
+            || (post && objectString (*pointer, "target_role") != "post"))
             return {};
 
         const auto guideFileName = objectString (*pointer, "guide_file");
@@ -184,6 +209,7 @@ namespace hypha::pre_display
 
         GuideReceipt receipt;
         receipt.state = GuideRefreshState::rejected;
+        receipt.targetRole = identity.role;
         receipt.groupId = pointerGroupId;
         receipt.workId = pointerWorkId;
         receipt.bindingId = pointerBindingId;
@@ -195,6 +221,7 @@ namespace hypha::pre_display
 
         if (retainedGuide.valid() && retainedGuide.cacheKey == cacheKey
             && retainedGuide.guideId == guideId && retainedGuide.contentHash == contentHash
+            && retainedGuide.targetRole == identity.role
             && retainedGuide.workId == pointerWorkId && retainedGuide.bindingId == pointerBindingId
             && retainedGuide.runtimeInstanceId == pointerRuntimeId
             && retainedGuide.payloadKind == pointerPayloadKind && retainedGuide.revision == revision)
@@ -214,7 +241,8 @@ namespace hypha::pre_display
         if (guide == nullptr || objectString (*guide, "guide_id") != guideId
             || objectString (*guide, "content_hash") != contentHash
             || ! parseArtifactVerifiedGuideModel (*guide, cacheKey, parsed)
-            || parsed.protocolVersion != "2.0" || parsed.groupId != pointerGroupId
+            || parsed.protocolVersion != expectedVersion || parsed.targetRole != identity.role
+            || parsed.groupId != pointerGroupId
             || parsed.workId != identity.workId || parsed.bindingId != identity.bindingId
             || parsed.runtimeInstanceId != identity.runtimeInstanceId
             || parsed.payloadKind != pointerPayloadKind || parsed.revision != revision)

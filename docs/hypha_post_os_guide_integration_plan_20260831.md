@@ -14,7 +14,8 @@ Implementation status:
 
 - B-583: Kirin OSの現行MASKING v1.1 fixtureとHypha consumerをbyte同期した。
 - protocol v3 guide target: `exact_hypha_binding + target_role=post`のproducer/consumer fixtureを追加した。
-- 未接続: v3 presence、capability、connection、active pointer、acknowledgement、POST receiver、UI route。
+- v3 transport identity: presence、capability、connection、active pointer、clear authority、acknowledgementをPOST roleとexact runtime identityで照合する契約を追加した。
+- 未接続: POST plugin targetへのreceiver worker、既定送信入口、UI route。
 
 ## 1. Decision
 

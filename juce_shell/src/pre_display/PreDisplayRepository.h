@@ -16,7 +16,8 @@ namespace hypha::pre_display
 
         GuideReceipt refresh (GuideModel& retainedGuide) const;
         GuideReceipt refresh (GuideModel& retainedGuide, const RuntimeIdentity& identity) const;
-        ConnectionRequest pendingConnection (std::int64_t nowMs) const;
+        ConnectionRequest pendingConnection (std::int64_t nowMs,
+                                             const RuntimeIdentity& identity) const;
 
     private:
         juce::File root;

@@ -136,7 +136,7 @@ namespace hypha::pre_display
                 bool scannedGuide = false;
                 if (workerState->pollsUntilGuideScan <= 0)
                 {
-                    const auto pending = workerState->repository.pendingConnection (now);
+                    const auto pending = workerState->repository.pendingConnection (now, currentIdentity);
                     {
                         const juce::ScopedLock lock (connectionLock);
                         connectionRequest = pending;

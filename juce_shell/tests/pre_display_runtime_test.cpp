@@ -247,12 +247,16 @@ namespace
                                   const juce::String& contentHash,
                                   const juce::String& workId,
                                   const juce::String& bindingId,
-                                  const juce::String& runtimeInstanceId)
+                                  const juce::String& runtimeInstanceId,
+                                  pre::GuideTargetRole role = pre::GuideTargetRole::pre)
     {
         auto pointer = new juce::DynamicObject();
+        const bool post = role == pre::GuideTargetRole::post;
         pointer->setProperty ("format", "kirin_pre_display_active");
-        pointer->setProperty ("version", "2.0");
+        pointer->setProperty ("version", post ? "3.0" : "2.0");
         pointer->setProperty ("group_id", "kirin_os");
+        if (post)
+            pointer->setProperty ("target_role", "post");
         pointer->setProperty ("work_id", workId);
         pointer->setProperty ("binding_id", bindingId);
         pointer->setProperty ("runtime_instance_id", runtimeInstanceId);
@@ -268,11 +272,15 @@ namespace
 
     juce::var connectionRequest (const juce::String& workId,
                                  const juce::String& bindingId,
-                                 std::int64_t nowMs)
+                                 std::int64_t nowMs,
+                                 pre::GuideTargetRole role = pre::GuideTargetRole::pre)
     {
         auto request = new juce::DynamicObject();
+        const bool post = role == pre::GuideTargetRole::post;
         request->setProperty ("format", "kirin_pre_display_connection_request");
-        request->setProperty ("version", "1.0");
+        request->setProperty ("version", post ? "2.0" : "1.0");
+        if (post)
+            request->setProperty ("target_role", "post");
         request->setProperty ("binding_id", bindingId);
         request->setProperty ("work_id", workId);
         request->setProperty ("work_title", "Exact Work");
@@ -439,6 +447,43 @@ int main()
              && exactLoaded.bindingId == exactBindingId
              && exactLoaded.runtimeInstanceId == exactRuntimeId,
              "load only the guide addressed to this Work and PRE runtime");
+
+    const auto postWorkId = postFixtureModel.workId;
+    const auto postBindingId = postFixtureModel.bindingId;
+    const auto postRuntimeId = postFixtureModel.runtimeInstanceId;
+    const auto postArtifact = root.getChildFile ("guides")
+                                  .getChildFile ("exact-post-inspect.v3.json");
+    require (postFixtureFile.copyFileTo (postArtifact), "copy the exact POST guide fixture");
+    require (writeJson (root.getChildFile ("active_exact")
+                            .getChildFile (postBindingId + ".json"),
+                        exactActivePointer (postArtifact,
+                                            juce::SHA256 (postArtifact).toHexString(),
+                                            postFixtureModel.guideId,
+                                            postFixtureModel.contentHash,
+                                            postWorkId, postBindingId, postRuntimeId,
+                                            pre::GuideTargetRole::post)),
+             "write the role-bound POST active pointer");
+    pre::RuntimeIdentity postIdentity;
+    postIdentity.role = pre::GuideTargetRole::post;
+    postIdentity.runtimeInstanceId = postRuntimeId;
+    postIdentity.instanceId = "post_exact_1";
+    postIdentity.projectUuid = "project_post_exact_1";
+    postIdentity.workId = postWorkId;
+    postIdentity.bindingId = postBindingId;
+    pre::GuideModel postLoaded;
+    const auto postReceipt = pre::GuideRepository (root).refresh (postLoaded, postIdentity);
+    require (postReceipt.state == pre::GuideRefreshState::accepted
+             && postReceipt.targetRole == pre::GuideTargetRole::post
+             && postLoaded.targetRole == pre::GuideTargetRole::post
+             && postLoaded.runtimeInstanceId == postRuntimeId,
+             "load a v3 guide only for its exact POST runtime");
+    auto preAtPostBinding = postIdentity;
+    preAtPostBinding.role = pre::GuideTargetRole::pre;
+    pre::GuideModel roleMismatchLoaded;
+    require (pre::GuideRepository (root).refresh (roleMismatchLoaded, preAtPostBinding).state
+                 == pre::GuideRefreshState::unavailable
+             && ! roleMismatchLoaded.valid(),
+             "never route a POST pointer into a PRE runtime");
     auto reboundIdentity = exactIdentity;
     reboundIdentity.workId = testUuid ("rebound_work");
     reboundIdentity.bindingId = testUuid ("rebound_binding");
@@ -465,11 +510,25 @@ int main()
     require (writeJson (root.getChildFile ("connection").getChildFile ("request.json"),
                         connectionRequest (exactWorkId, exactBindingId, connectionNowMs)),
              "write a live exact Work connection request");
-    const auto pendingConnection = pre::GuideRepository (root).pendingConnection (connectionNowMs);
+    const auto pendingConnection = pre::GuideRepository (root).pendingConnection (
+        connectionNowMs, exactIdentity);
     require (pendingConnection.validAt (connectionNowMs)
              && pendingConnection.workId == exactWorkId
              && pendingConnection.bindingId == exactBindingId,
              "read the exact Work request that must be confirmed in the intended PRE");
+    require (writeJson (root.getChildFile ("connection").getChildFile ("request.json"),
+                        connectionRequest (postWorkId, postBindingId, connectionNowMs,
+                                           pre::GuideTargetRole::post)),
+             "write a live exact POST Work connection request");
+    require (! pre::GuideRepository (root).pendingConnection (
+                    connectionNowMs, exactIdentity).validAt (connectionNowMs),
+             "hide a POST connection request from PRE");
+    const auto pendingPostConnection = pre::GuideRepository (root).pendingConnection (
+        connectionNowMs, postIdentity);
+    require (pendingPostConnection.validAt (connectionNowMs)
+             && pendingPostConnection.targetRole == pre::GuideTargetRole::post
+             && pendingPostConnection.workId == postWorkId,
+             "expose a POST connection request only to POST");
 
     pre::GuideModel exactMaskingModel;
     auto exactMasking = exactMaskingGuide (exactWorkId, exactBindingId, exactRuntimeId);
@@ -815,6 +874,49 @@ int main()
              && exactPresence.getDynamicObject()->getProperty ("work_id") == exactWorkId
              && exactPresence.getDynamicObject()->getProperty ("binding_id") == exactBindingId,
              "bind the live PRE lease to one Work and one fresh runtime");
+    auto postPresenceIdentity = identity;
+    postPresenceIdentity.role = pre::GuideTargetRole::post;
+    postPresenceIdentity.runtimeInstanceId = postRuntimeId;
+    postPresenceIdentity.instanceId = "post_instance_1";
+    postPresenceIdentity.workId = postWorkId;
+    postPresenceIdentity.bindingId = postBindingId;
+    require (pre::writePresence (root, postPresenceIdentity, clock, 12'345, 13'000)
+             && pre::writeCapability (root, postPresenceIdentity, 13'000),
+             "publish independent v3 POST presence and capability leases");
+    const auto postPresence = juce::JSON::parse (
+        root.getChildFile ("presence").getChildFile (postRuntimeId + ".json"));
+    const auto postCapability = juce::JSON::parse (
+        root.getChildFile ("capability").getChildFile (postRuntimeId + ".json"));
+    require (postPresence.getDynamicObject() != nullptr
+             && postPresence.getDynamicObject()->getProperty ("version") == "3.0"
+             && postPresence.getDynamicObject()->getProperty ("target_role") == "post"
+             && postPresence.getDynamicObject()->getProperty ("capabilities")
+                    .getDynamicObject()->getProperty ("guide_protocol") == "3.0"
+             && postCapability.getDynamicObject() != nullptr
+             && postCapability.getDynamicObject()->getProperty ("version") == "3.0"
+             && postCapability.getDynamicObject()->getProperty ("target_role") == "post"
+             && postCapability.getDynamicObject()->getProperty ("acknowledgement_protocol")
+                    == "3.0",
+             "bind POST capability negotiation to protocol v3");
+    pre::DisplaySnapshot postDisplay;
+    postDisplay.status = pre::DisplayStatus::active;
+    postDisplay.guideId = postFixtureModel.guideId;
+    postDisplay.contentHash = postFixtureModel.contentHash;
+    postDisplay.payloadKind = postFixtureModel.payloadKind;
+    require (pre::writeAcknowledgement (root, postPresenceIdentity,
+                                        postFixtureModel, postDisplay, 13'000),
+             "acknowledge the exact v3 guide from its POST runtime");
+    const auto postAcknowledgement = juce::JSON::parse (
+        root.getChildFile ("ack").getChildFile (postRuntimeId + ".json"));
+    require (postAcknowledgement.getDynamicObject() != nullptr
+             && postAcknowledgement.getDynamicObject()->getProperty ("version") == "3.0"
+             && postAcknowledgement.getDynamicObject()->getProperty ("target_role") == "post"
+             && postAcknowledgement.getDynamicObject()->getProperty ("receipt_status")
+                    == "accepted",
+             "carry the POST role through its acknowledgement receipt");
+    require (! pre::writeAcknowledgement (root, exactPresenceIdentity,
+                                          postFixtureModel, postDisplay, 13'000),
+             "reject a v3 POST acknowledgement from a PRE identity");
     require (pre::writeAcknowledgement (root, identity, inspect, display, 13'000),
              "write acknowledgement only after strict guide projection");
     const auto acknowledgement = juce::JSON::parse (

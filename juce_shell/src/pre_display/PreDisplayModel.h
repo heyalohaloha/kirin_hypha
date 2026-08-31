@@ -55,6 +55,7 @@ namespace hypha::pre_display
 
     struct ConnectionRequest
     {
+        GuideTargetRole targetRole = GuideTargetRole::pre;
         juce::String bindingId;
         juce::String workId;
         juce::String workTitle;
