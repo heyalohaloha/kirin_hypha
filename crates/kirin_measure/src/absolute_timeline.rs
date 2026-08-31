@@ -7,9 +7,9 @@
 use std::collections::VecDeque;
 use std::fmt;
 
+use crate::absolute_level::{AbsoluteLevelAnalyzer, AbsoluteLevelFrame};
 use crate::perceptual::{PerceptualError, SharpnessContinuousAnalyzer};
 use crate::spectrum::SpectrumChannelMode;
-use crate::{MeasureEngine, MeasureResult};
 
 pub const ABSOLUTE_SCHEMA_VERSION: u16 = 1;
 pub const ABSOLUTE_PRESENTATION_HZ: u32 = 10;
@@ -155,10 +155,9 @@ pub struct AbsoluteContinuousAnalyzer {
     sample_rate: u32,
     channels: usize,
     aperture_samples: usize,
-    core: MeasureEngine,
+    core: AbsoluteLevelAnalyzer,
     sharpness: SharpnessContinuousAnalyzer,
-    input_f64: Vec<f64>,
-    pending_core: VecDeque<(i64, MeasureResult)>,
+    pending_core: VecDeque<(i64, AbsoluteLevelFrame)>,
     output_frames: Vec<AbsoluteFrame>,
     state_epoch_samples: Option<i64>,
 }
@@ -176,10 +175,9 @@ impl AbsoluteContinuousAnalyzer {
             sample_rate,
             channels,
             aperture_samples,
-            core: MeasureEngine::new(sample_rate, channels)
+            core: AbsoluteLevelAnalyzer::new(sample_rate, channels)
                 .map_err(|_| AbsoluteError::CoreUnavailable)?,
             sharpness: SharpnessContinuousAnalyzer::new(sample_rate, channels)?,
-            input_f64: Vec::with_capacity(aperture_samples * channels),
             pending_core: VecDeque::with_capacity(JOIN_CAPACITY),
             output_frames: Vec::with_capacity(2),
             state_epoch_samples: None,
@@ -196,7 +194,6 @@ impl AbsoluteContinuousAnalyzer {
         }
         self.core.reset();
         self.sharpness.reset_at_epoch(epoch)?;
-        self.input_f64.clear();
         self.pending_core.clear();
         self.output_frames.clear();
         self.state_epoch_samples = Some(epoch);
@@ -221,13 +218,10 @@ impl AbsoluteContinuousAnalyzer {
         {
             return Err(AbsoluteError::InvalidEpoch);
         }
-        self.input_f64.clear();
-        self.input_f64
-            .extend(interleaved.iter().map(|sample| f64::from(*sample)));
         let core = self
             .core
-            .push(&self.input_f64)
-            .ok_or(AbsoluteError::CoreUnavailable)?;
+            .analyze(interleaved)
+            .map_err(|_| AbsoluteError::CoreUnavailable)?;
         if self.pending_core.len() == JOIN_CAPACITY {
             self.pending_core.pop_front();
         }

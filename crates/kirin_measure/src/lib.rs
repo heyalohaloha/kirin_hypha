@@ -3,6 +3,7 @@
 //! napi-rs 依存を持たない純粋な Rust ライブラリ。
 //! nih-plug の Audio Thread から独立した Measure Thread / IO Thread で使用する。
 
+mod absolute_level;
 pub mod absolute_timeline;
 pub mod all_keep_signal;
 pub mod all_stop_signal;
