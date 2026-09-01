@@ -212,6 +212,12 @@ namespace
         const double focusedPaintMs = meanPaintMs (component);
         const auto focused = paintImage (component);
         const auto trailBounds = spectrum_geometry::focusTrailBoundsFor (bounds).toNearestInt();
+        if (spectrum_geometry::visualScaleFor (bounds) > 1.1f)
+        {
+            juce::Image blank (juce::Image::ARGB, unlocked.getWidth(), unlocked.getHeight(), true);
+            blank.clear (blank.getBounds(), BG);
+            KIRIN_FOCUS_REQUIRE (differentPixels (unlocked, blank, trailBounds) > 30);
+        }
         const double trailOnlyPaintMs = meanTrailPaintMs (
             directHistory, trailBounds.toFloat(),
             spectrum_geometry::visualScaleFor (bounds));

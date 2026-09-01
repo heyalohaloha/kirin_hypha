@@ -1,5 +1,4 @@
 #include "PluginEditor.h"
-#include "HyphaAnalysisUiText.h"
 #include "HyphaDisplayContract.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaAttackUiContract.h"
@@ -247,22 +246,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
                                ? AnalysisPage::attack : AnalysisPage::meters);
         };
         addAndMakeVisible (spectrumToggle);
-        analysisModeToggle.setTitle ("Analysis view");
-        analysisModeToggle.setDescription (
-            "Switch ATTACK, frequency, Sharpness Delta, and live facts");
-        analysisModeToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
-        analysisModeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
-        analysisModeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
-        analysisModeToggle.onClick = [this]
+        timePageNavigation.onPageChange = [this] (AnalysisPage page)
         {
-            if (observatoryDomain != hypha::observatory::Domain::time)
-                return;
-            setAnalysisPage (analysisPage == AnalysisPage::meters
-                               ? AnalysisPage::attack
-                               : analysisPage == AnalysisPage::attack
-                                   ? AnalysisPage::perceptual
-                                   : analysisPage == AnalysisPage::perceptual
-                                       ? AnalysisPage::absolute : AnalysisPage::meters);
+            if (observatoryDomain == hypha::observatory::Domain::time)
+                setAnalysisPage (page);
         };
         spectrumSizeToggle.setTitle ("Spectrum size");
         spectrumSizeToggle.setDescription (
@@ -280,7 +267,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
             return processorRef.setSpectrumChannelMode (channelMode);
         };
         updateSpectrumSizeControl();
-        addChildComponent (analysisModeToggle);
+        addChildComponent (timePageNavigation);
         addChildComponent (spectrumSizeToggle);
         addChildComponent (spectrumView);
         addChildComponent (perceptualView);
@@ -411,12 +398,24 @@ void KirinHyphaEditor::resized()
         auto body = observatoryView.bodyBounds();
         spectrumToggle.setVisible (false);
         spectrumSizeToggle.setVisible (false);
-        analysisModeToggle.setBounds (body.removeFromTop (24).removeFromLeft (72).reduced (2));
-        spectrumView.setBounds (observatoryView.bodyBounds());
-        perceptualView.setBounds (observatoryView.bodyBounds());
-        absoluteView.setBounds (observatoryView.bodyBounds());
-        attackInternalView.setBounds (observatoryView.bodyBounds());
-        analysisModeToggle.toFront (false);
+        updateTimePageNavigation();
+        const bool directTimeNavigation = observatoryDomain == hypha::observatory::Domain::time
+            && observatoryView.experienceFamily()
+                == hypha::observatory::ExperienceFamily::observatory;
+        auto analysisBody = observatoryView.bodyBounds();
+        if (directTimeNavigation)
+        {
+            auto navigation = analysisBody.removeFromTop (24);
+            navigation.removeFromRight (juce::jmin (112, navigation.getWidth() / 3));
+            timePageNavigation.setBounds (navigation);
+        }
+        else
+            timePageNavigation.setBounds (body.removeFromTop (24).removeFromLeft (72));
+        spectrumView.setBounds (analysisBody);
+        perceptualView.setBounds (analysisBody);
+        absoluteView.setBounds (analysisBody);
+        attackInternalView.setBounds (analysisBody);
+        timePageNavigation.toFront (false);
     }
    #endif
     guideConnectButton.setBounds (observatoryView.guideBounds());
@@ -472,22 +471,10 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     perceptualView.setVisible (page == AnalysisPage::perceptual);
     absoluteView.setVisible (page == AnalysisPage::absolute);
     attackInternalView.setVisible (page == AnalysisPage::attack);
-    analysisModeToggle.setVisible (observatoryDomain == hypha::observatory::Domain::time);
     spectrumSizeToggle.setVisible (false);
     spectrumToggle.setVisible (false);
-    analysisModeToggle.setButtonText (page == AnalysisPage::meters ? "HISTORY"
-                                       : page == AnalysisPage::attack ? "ATTACK"
-                                       : page == AnalysisPage::spectrum ? "FREQ"
-                                       : page == AnalysisPage::perceptual ? "SHARP" : "LIVE");
-    analysisModeToggle.setTooltip (page == AnalysisPage::meters
-                                     ? "Switch TIME detail view"
-                                     : page == AnalysisPage::attack
-                                     ? hypha::analysis_ui::switchViewTooltip ("Attack")
-                                     : page == AnalysisPage::spectrum
-                                     ? hypha::analysis_ui::switchViewTooltip ("Frequency Delta")
-                                     : page == AnalysisPage::perceptual
-                                         ? hypha::analysis_ui::switchViewTooltip ("Sharpness Delta")
-                                         : hypha::analysis_ui::switchViewTooltip ("POST live facts"));
+    timePageNavigation.setPage (page);
+    updateTimePageNavigation();
     startTimerHz (page == AnalysisPage::absolute
                     ? ui::absoluteTimelineSourceHz
                     : analysisOpen ? ui::spectrumPresentationHz
@@ -502,6 +489,16 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
         processorRef.setPerceptualVisible (true);
     else if (page == AnalysisPage::absolute)
         processorRef.setAbsoluteVisible (true);
+}
+
+void KirinHyphaEditor::updateTimePageNavigation()
+{
+    const bool time = observatoryDomain == hypha::observatory::Domain::time;
+    const bool direct = time && observatoryView.experienceFamily()
+        == hypha::observatory::ExperienceFamily::observatory;
+    timePageNavigation.setDirect (direct);
+    timePageNavigation.setPage (analysisPage);
+    timePageNavigation.setVisible (time);
 }
 
 void KirinHyphaEditor::cycleSpectrumSize()

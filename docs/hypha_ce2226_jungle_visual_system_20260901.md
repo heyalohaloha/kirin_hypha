@@ -68,6 +68,7 @@ ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep teal�
 | POST TIME HISTORY | 3/5 | 時間、観測 | ObservatoryはM、S、TP、PLR、correlationのexact history、CompactはM、S、TPだけを表示する | M、S、TP |
 | POST TIME ATTACK | 5/5 | 観測、時間 | 選択eventのstrength、texture、brightness、transientをspecimenへ投影する | specimen、主値、選択位置 |
 | POST TIME SHARP | 3/5 | 観測、時間 | exact Sharpness差分と六秒historyを膜状のfillへ投影する | 現在値、差分、history |
+| POST TIME LIVE | 3/5 | 観測、時間 | POST単体のLUFS-M、TP、Sharpnessを固定scale上で追跡する | 三つの絶対値、history |
 | POST FREQ | 3/5 | 構造、観測、接続 | SpectrumとGuide bandを別authorityとして重ねる | Spectrum、主値、差分 |
 | POST SPACE | 4/5 | 観測 | 三秒MID/SIDE densityを抽象的な場へ投影する | field、balance、correlation |
 | POST Delta | 2/5 | 観測 | PREを低明度の基準、POSTを現在の測定として描く | 選択ΔM/S、ΔTP、ΔCrest |
@@ -76,6 +77,9 @@ ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep teal�
 | WARMING、Inactive、Bypassed | 1/5 | 構造 | 成立していない値を`---`または事実状態で示す | role、domain、state、操作 |
 
 ATTACK、SHARP、FREQは親Shellのbody上へ透明componentとして描画する。
+ObservatoryのTIMEは`HISTORY / ATTACK / SHARP / LIVE`を常時見える二階層目のtabとして直接選択する。
+Compact Meterでは同じ四項目を一つのcycle controlへ畳み、常設UIを増やさない。
+FREQは時間detailへ埋めず一階層目に置き、`MARK`で現在の全帯域差分を固定し、`Focus Trail`で選択帯域の六秒差分を追跡する。
 
 そのため、各解析面は同じ背景、外周、Header、Guide、Footer、Captureの文法を継承する。
 

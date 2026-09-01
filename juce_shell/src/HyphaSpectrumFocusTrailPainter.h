@@ -6,6 +6,10 @@
 
 namespace hypha::spectrum_focus_painter
 {
+    void paintEmptyPrompt (juce::Graphics& graphics,
+                           juce::Rectangle<float> bounds,
+                           float visualScale);
+
     void paint (juce::Graphics& graphics,
                 juce::Rectangle<float> bounds,
                 float visualScale,

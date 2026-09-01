@@ -30,6 +30,16 @@ namespace
     }
 }
 
+void paintEmptyPrompt (juce::Graphics& g,
+                       juce::Rectangle<float> bounds,
+                       float visualScale)
+{
+    g.setColour (COL_MUTED.brighter (0.10f).withAlpha (0.64f));
+    g.setFont (monoFont (7.5f * ui_contract::analysisTextScale (visualScale)));
+    g.drawText ("FOCUS TRAIL  /  CLICK A BAND", bounds.toNearestInt(),
+                juce::Justification::centred);
+}
+
 void paint (juce::Graphics& g,
             juce::Rectangle<float> bounds,
             float visualScale,

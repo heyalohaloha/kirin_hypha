@@ -14,6 +14,7 @@
 #include "ObservatoryViewContractTest.h"
 #include "ObservatoryCompositeContractTest.h"
 #include "TimeHistoryContractTest.h"
+#include "TimePageNavigationContractTest.h"
 #include "SpaceFieldContractTest.h"
 #include <cmath>
 #include <cstdlib>
@@ -207,6 +208,7 @@ namespace
 int main()
 {
     hypha::tests::verifyPerceptualHistoryContract();
+    hypha::tests::verifyTimePageNavigationContract();
     hypha::tests::verifySpectrumFocusTrailContract();
     hypha::tests::verifySpectrumPresentationContract();
     juce::ScopedJuceInitialiser_GUI juceInitialiser;

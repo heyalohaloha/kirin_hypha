@@ -11,6 +11,7 @@
 #include "HyphaHoverHelpPreference.h"
 #include "HyphaObservatoryView.h"
 #include "HyphaTheme.h"
+#include "HyphaTimePageNavigation.h"
 #include "HyphaTooltipLookAndFeel.h"
 #include "HyphaWidgets.h"
 #include "PostControls.h"
@@ -72,6 +73,7 @@ private:
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     using AnalysisPage = hypha::analysis_navigation::Page;
     void setAnalysisPage (AnalysisPage page);
+    void updateTimePageNavigation();
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();
 #endif
@@ -110,7 +112,7 @@ private:
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::TextButton          spectrumToggle;               // POST: meters / Analysis page
-    juce::TextButton          analysisModeToggle;            // POST: ATTACK / FREQ / SHARP / LIVE
+    hypha::TimePageNavigation timePageNavigation;            // Compact cycle / Observatory tabs
     juce::TextButton          spectrumSizeToggle;           // POST Analysis: 100/125/150/200 percent
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
     hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History

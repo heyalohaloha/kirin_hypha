@@ -490,6 +490,9 @@ void paint (juce::Graphics& g,
             g, spectrum_geometry::focusTrailBoundsFor (bounds), scale,
             *state.focusTrail, focusNormalisedX, scale <= 1.1f);
     }
+    else if (! state.absoluteObservation && scale > 1.1f && focusNormalisedX < 0.0f)
+        spectrum_focus_painter::paintEmptyPrompt (
+            g, spectrum_geometry::focusTrailBoundsFor (bounds), scale);
     if (probeNormalisedX >= 0.0f)
         paintProbe (g, outerPlot, plot, scale, probeNormalisedX,
                     minimumHz, maximumHz, state);

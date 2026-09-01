@@ -45,7 +45,7 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
     const auto page = domain == hypha::observatory::Domain::frequency
         ? AnalysisPage::spectrum : AnalysisPage::meters;
     setAnalysisPage (page);
-    analysisModeToggle.setVisible (domain == hypha::observatory::Domain::time);
+    updateTimePageNavigation();
 #endif
     resized();
     repaint();

@@ -87,9 +87,13 @@ fn attack_abi_stays_compatible_and_the_product_trial_has_a_navigation_route() {
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     let navigation = read_repo("juce_shell/src/HyphaAnalysisNavigation.h");
+    let time_navigation = read_repo("juce_shell/src/HyphaTimePageNavigation.cpp");
+    let time_navigation_header = read_repo("juce_shell/src/HyphaTimePageNavigation.h");
     assert!(editor.contains("activationEnvironmentVariable"));
     assert!(editor.contains("? AnalysisPage::attack : AnalysisPage::meters"));
-    assert!(editor.contains("page == AnalysisPage::attack ? \"ATTACK\""));
+    assert!(editor.contains("timePageNavigation.onPageChange"));
+    assert!(time_navigation_header.contains("attackButton { \"ATTACK\""));
+    assert!(time_navigation.contains("choose (Page::attack)"));
     assert!(editor.contains("processorRef.setInternalAttackEnabled (true)"));
     assert!(processor.contains("kirin_hypha_set_internal_attack_enabled"));
     assert!(navigation.contains("attack"));

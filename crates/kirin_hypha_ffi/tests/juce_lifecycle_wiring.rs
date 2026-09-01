@@ -422,11 +422,19 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(processor_header.contains("preferredSpectrumSize { 0 }"));
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let observatory_editor = read_repo("juce_shell/src/PluginEditorObservatory.cpp");
+    let time_navigation = read_repo("juce_shell/src/HyphaTimePageNavigation.cpp");
+    let time_navigation_header = read_repo("juce_shell/src/HyphaTimePageNavigation.h");
+    let analysis_navigation = read_repo("juce_shell/src/HyphaAnalysisNavigation.h");
     assert!(editor.contains("#if ! KIRIN_HYPHA_PRE_DISPLAY"));
     assert!(editor.contains("setAnalysisPage (analysisPage == AnalysisPage::meters"));
-    assert!(editor.contains("page == AnalysisPage::attack ? \"ATTACK\""));
-    assert!(editor.contains(": page == AnalysisPage::spectrum ? \"FREQ\""));
-    assert!(editor.contains(": page == AnalysisPage::perceptual ? \"SHARP\" : \"LIVE\""));
+    assert!(editor.contains("timePageNavigation.onPageChange"));
+    for label in ["HISTORY", "ATTACK", "SHARP", "LIVE"] {
+        assert!(time_navigation.contains(label) || time_navigation_header.contains(label));
+    }
+    assert!(analysis_navigation
+        .contains("Page::meters, Page::attack, Page::perceptual, Page::absolute"));
+    assert!(observatory_editor.contains("? AnalysisPage::spectrum : AnalysisPage::meters"));
     assert!(editor.contains("processorRef.setSpectrumVisible (false)"));
     assert!(editor.contains("processorRef.setPerceptualVisible (false)"));
     assert!(editor.contains("AnalysisPage::perceptual"));
