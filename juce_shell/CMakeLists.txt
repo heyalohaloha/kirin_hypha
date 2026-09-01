@@ -105,6 +105,7 @@ option(KIRIN_HYPHA_REQUIRE_KIMERA_FONT
 
 set(KIRIN_HYPHA_DATA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/observatory_understory.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/attack_specimen_emission.png)
 set(KIRIN_HYPHA_KIMERA_EMBEDDED 0)
 if(KIRIN_HYPHA_KIMERA_FONT_FILE)
@@ -166,9 +167,11 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginEditorObservatory.cpp
         src/PluginEditorCapture.cpp
         src/HyphaObservatoryCapture.cpp
+        src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryLevelStrips.cpp
+        src/HyphaObservatoryWorld.cpp
         src/HyphaSpacePainter.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaTypography.cpp
@@ -323,9 +326,11 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpaceFieldContractTest.cpp
         tests/TimeHistoryContractTest.cpp
         src/HyphaObservatoryCapture.cpp
+        src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryLevelStrips.cpp
+        src/HyphaObservatoryWorld.cpp
         src/HyphaSpacePainter.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaTypography.cpp

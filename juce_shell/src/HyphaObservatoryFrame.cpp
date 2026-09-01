@@ -53,4 +53,24 @@ bool View::deltaFactsAvailable() const noexcept
         && observatoryFrame.delta.mode == KIRIN_DELTA_MODE_ACTIVE
         && observatoryFrame.delta_available != 0u;
 }
+
+observatory_world::State View::worldState() const noexcept
+{
+    observatory_world::State state;
+    state.role = role;
+    state.domain = selectedDomain;
+    state.density = currentPreset().density;
+    state.active = currentFactsAvailable();
+    state.paired = connectionText.isNotEmpty()
+        && connectionColour.getARGB() == COL_LED_BLUE.getARGB();
+    state.guidePresent = guidePresence() == GuidePresence::present;
+    state.capture = captureFrame;
+    state.energy = state.active && std::isfinite (observatoryFrame.meter.lufs_m)
+        ? static_cast<float> (juce::jlimit (
+            0.0, 1.0, (observatoryFrame.meter.lufs_m + 48.0) / 48.0)) : 0.0f;
+    state.direction = state.active && std::isfinite (observatoryFrame.meter.balance_db)
+        ? static_cast<float> (juce::jlimit (
+            -1.0, 1.0, observatoryFrame.meter.balance_db / 12.0)) : 0.0f;
+    return state;
+}
 }

@@ -6,12 +6,23 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaObservatoryContract.h"
+#include "HyphaObservatoryWorld.h"
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::observatory
 {
+class Button final : public juce::TextButton
+{
+public:
+    Button (juce::String text, bool tabIn);
+    void paintButton (juce::Graphics&, bool highlighted, bool down) override;
+
+private:
+    bool tab = false;
+};
+
 class View final : public juce::Component
 {
 public:
@@ -84,6 +95,7 @@ private:
     void paintClipEventRail (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
     void paintMeasuredMycelium (juce::Graphics&, juce::Rectangle<int>);
+    observatory_world::State worldState() const noexcept;
     bool currentFactsAvailable() const noexcept;
     bool cumulativeFactsAvailable() const noexcept;
     bool deltaFactsAvailable() const noexcept;
@@ -107,18 +119,18 @@ private:
     juce::Rectangle<int> connectionArea;
     juce::Rectangle<int> guideArea;
     juce::Rectangle<int> sessionArea;
-    MyceliumBackground background;
+    observatory_world::Backdrop background;
 
-    juce::TextButton levelButton { "LEVEL" };
-    juce::TextButton timeButton { "TIME" };
-    juce::TextButton frequencyButton { "FREQ" };
-    juce::TextButton spaceButton { "SPACE" };
-    juce::TextButton domainCycleButton;
-    juce::TextButton targetButton;
-    juce::TextButton timeRangeButton;
-    juce::TextButton sizeButton;
-    juce::TextButton resetButton { "RESET" };
-    juce::TextButton captureButton { "CAPTURE" };
+    Button levelButton { "LEVEL", true };
+    Button timeButton { "TIME", true };
+    Button frequencyButton { "FREQ", true };
+    Button spaceButton { "SPACE", true };
+    Button domainCycleButton { {}, true };
+    Button targetButton { {}, false };
+    Button timeRangeButton { {}, false };
+    Button sizeButton { {}, false };
+    Button resetButton { "RESET", false };
+    Button captureButton { "CAPTURE", false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (View)
 };

@@ -1,6 +1,7 @@
 #include "ObservatoryViewContractTest.h"
 
 #include "../src/HyphaObservatoryView.h"
+#include "../src/HyphaSpectrumComponent.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -53,6 +54,16 @@ KirinMeterSession activeMeter()
     meter.clip_events[1] = 1;
     meter.balance_db = 0.7;
     meter.correlation = 0.82;
+    meter.field_size = KIRIN_STEREO_FIELD_SIZE;
+    meter.field_observation_count = 30;
+    constexpr size_t fieldCentre = KIRIN_STEREO_FIELD_SIZE / 2u;
+    for (size_t offset = 2u; offset < KIRIN_STEREO_FIELD_SIZE - 2u; ++offset)
+    {
+        const int distance = std::abs (static_cast<int> (offset)
+                                      - static_cast<int> (fieldCentre));
+        meter.field_density[offset * KIRIN_STEREO_FIELD_SIZE + fieldCentre]
+            = static_cast<uint8_t> (juce::jmax (42, 255 - distance * 16));
+    }
     return meter;
 }
 
@@ -121,6 +132,17 @@ int differentPixels (const juce::Image& left, const juce::Image& right)
     return count;
 }
 
+void writePreview (const juce::File& directory,
+                   const juce::String& name,
+                   const juce::Image& image)
+{
+    KIRIN_OBSERVATORY_REQUIRE (directory.createDirectory().wasOk());
+    auto output = directory.getChildFile (name).createOutputStream();
+    KIRIN_OBSERVATORY_REQUIRE (output != nullptr);
+    KIRIN_OBSERVATORY_REQUIRE (
+        juce::PNGImageFormat().writeImageToStream (image, *output));
+}
+
 void verifyRoleAtEverySize (observatory::Role role,
                             const KirinMeterSession& meter,
                             const std::vector<KirinMeterHistoryEntry>& history)
@@ -161,11 +183,69 @@ void verifyRoleAtEverySize (observatory::Role role,
 }
 }
 
+void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
+{
+    const auto outputPath = juce::SystemStats::getEnvironmentVariable (
+        "KIRIN_HYPHA_FREQ_OBSERVATORY_OUTPUT", {});
+    if (outputPath.isEmpty())
+        return;
+
+    observatory::View shell (observatory::Role::post);
+    shell.setSize (600, 400);
+    shell.setDomain (observatory::Domain::frequency);
+    shell.setConnectionText ("PAIR DRUM", COL_LED_BLUE);
+    shell.setGuide ("OS GUIDE  MASKING 03:18", "3150-3700 HZ", true);
+    auto meter = activeMeter();
+    shell.setMeterSnapshot (meter, true);
+    juce::Image composed (juce::Image::ARGB, 600, 400, true);
+    juce::Graphics composedGraphics (composed);
+    shell.paintEntireComponent (composedGraphics, true);
+
+    SpectrumComponent frequencyBody;
+    const auto body = shell.bodyBounds();
+    frequencyBody.setSize (body.getWidth(), body.getHeight());
+    frequencyBody.setAbsoluteObservation (true);
+    frequencyBody.setSnapshot (snapshot);
+    guide_frequency::Overlay overlay;
+    overlay.count = 1;
+    overlay.bands[0].emphasis = guide_frequency::Emphasis::active;
+    overlay.bands[0].lowHz = 3'150.0;
+    overlay.bands[0].highHz = 3'700.0;
+    frequencyBody.setGuideFrequencyOverlay (overlay);
+    {
+        juce::Graphics::ScopedSaveState saved (composedGraphics);
+        composedGraphics.addTransform (juce::AffineTransform::translation (
+            static_cast<float> (body.getX()), static_cast<float> (body.getY())));
+        frequencyBody.paintEntireComponent (composedGraphics, true);
+    }
+
+    auto output = juce::File (outputPath).createOutputStream();
+    KIRIN_OBSERVATORY_REQUIRE (output != nullptr);
+    KIRIN_OBSERVATORY_REQUIRE (
+        juce::PNGImageFormat().writeImageToStream (composed, *output));
+}
+
 void verifyObservatoryViewContract()
 {
     const auto meter = activeMeter();
     const auto delta = activeDelta();
     const auto history = historyFixture();
+    observatory_world::Backdrop backdrop;
+    KIRIN_OBSERVATORY_REQUIRE (backdrop.isValid());
+    juce::Image specimenImage (juce::Image::ARGB, 300, 200, true);
+    specimenImage.clear (specimenImage.getBounds(), BG);
+    const auto specimenBlank = specimenImage.createCopy();
+    {
+        juce::Graphics graphics (specimenImage);
+        observatory_world::State state;
+        state.domain = observatory::Domain::time;
+        state.active = true;
+        backdrop.drawHyphaSpecimen (graphics, specimenImage.getBounds(), state);
+    }
+    KIRIN_OBSERVATORY_REQUIRE (
+        differentPixels (specimenBlank, specimenImage) > 2'000);
+    KIRIN_OBSERVATORY_REQUIRE (meter.field_size == KIRIN_STEREO_FIELD_SIZE);
+    KIRIN_OBSERVATORY_REQUIRE (meter.field_observation_count == 30u);
     verifyRoleAtEverySize (observatory::Role::pre, meter, history);
     verifyRoleAtEverySize (observatory::Role::post, meter, history);
 
@@ -268,5 +348,53 @@ void verifyObservatoryViewContract()
     const auto changedMetadata = post.createCaptureImage (
         1'200, 630, false, "2026-09-02 12:34:56", "9.8.7");
     KIRIN_OBSERVATORY_REQUIRE (differentPixels (defaultPrivate, changedMetadata) > 100);
+
+    const auto previewDirectory = juce::SystemStats::getEnvironmentVariable (
+        "KIRIN_HYPHA_OBSERVATORY_PREVIEW_DIR", {});
+    if (previewDirectory.isNotEmpty())
+    {
+        const juce::File directory (previewDirectory);
+        post.setTarget (observatory::ObservationTarget::absolute);
+        post.setObservatoryFrame (activeFrame(), true);
+        post.setGuide ("OS GUIDE  MASKING 03:18", "3150-3700 HZ", true);
+        post.setHistory (history);
+        for (const auto preset : {
+                 observatory::sizePresets[0], observatory::sizePresets[3] })
+        {
+            post.setSize (preset.width, preset.height);
+            for (const auto domain : {
+                     observatory::Domain::level,
+                     observatory::Domain::time,
+                     observatory::Domain::space })
+            {
+                post.setDomain (domain);
+                const auto suffix = domain == observatory::Domain::level ? "level"
+                                  : domain == observatory::Domain::time ? "time" : "space";
+                writePreview (directory,
+                              "post-" + juce::String (suffix) + "-"
+                                  + juce::String (preset.width) + "x"
+                                  + juce::String (preset.height) + ".png",
+                              render (post));
+            }
+        }
+
+        pre.setSize (600, 400);
+        pre.setConnectionText ("SOURCE PRE", COL_LED_BLUE);
+        pre.setObservatoryFrame (activeFrame(), true);
+        pre.setGuide ("OS GUIDE  INSPECT 03:18", "SOURCE OBSERVATION", false);
+        pre.setDomain (observatory::Domain::level);
+        writePreview (directory, "pre-level-600x400.png", render (pre));
+        pre.setSize (300, 200);
+        writePreview (directory, "pre-level-300x200.png", render (pre));
+
+        post.setSize (600, 400);
+        post.setDomain (observatory::Domain::level);
+        post.setObservatoryFrame (inactiveFrame, true);
+        writePreview (directory, "post-level-inactive-600x400.png", render (post));
+        post.setObservatoryFrame (activeFrame(), true);
+        writePreview (directory, "capture-level-1200x630.png",
+                      post.createCaptureImage (1'200, 630, false,
+                                               "2026-09-01 00:00:00", "0.1.0"));
+    }
 }
 }

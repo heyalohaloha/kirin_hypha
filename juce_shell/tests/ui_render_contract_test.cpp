@@ -463,6 +463,7 @@ int main()
     KirinSpectrumView spectrumSnapshot {};
     spectrumSnapshot.status = KIRIN_SPECTRUM_ACTIVE;
     spectrumSnapshot.has_data = 1;
+    spectrumSnapshot.post_has_data = 1;
     spectrumSnapshot.channel_mode = KIRIN_SPECTRUM_CHANNEL_LR;
     spectrumSnapshot.channels = 2;
     spectrumSnapshot.sample_rate = 48'000;
@@ -612,6 +613,7 @@ int main()
         spectrumSnapshot, ui::spectrumSizePresets[2], "KIRIN_UI_RENDER_OUTPUT_LARGE");
     const auto extraLargeSpectrum = renderSpectrumAtSize (
         spectrumSnapshot, ui::spectrumSizePresets[3], "KIRIN_UI_RENDER_OUTPUT_XLARGE");
+    hypha::tests::writeFrequencyObservatoryPreview (spectrumSnapshot);
     const auto mediumBounds = ui::spectrumPlotBounds (375, 250);
     const auto largeBounds = ui::spectrumPlotBounds (450, 300);
     const auto extraLargeBounds = ui::spectrumPlotBounds (600, 400);

@@ -36,7 +36,7 @@ juce::String valueText (double value, int decimals = 1, bool signedValue = false
 
 void drawPanel (juce::Graphics& g, juce::Rectangle<int> area, float corner = 4.0f)
 {
-    g.setColour (BG.withAlpha (0.82f));
+    g.setColour (BG.withAlpha (0.92f));
     g.fillRoundedRectangle (area.toFloat(), corner);
     g.setColour (COL_MUTED.withAlpha (0.34f));
     g.drawRoundedRectangle (area.toFloat().reduced (0.5f), corner, 1.0f);
@@ -88,10 +88,6 @@ double optionValue (double value, bool available)
 
 void styleButton (juce::TextButton& button)
 {
-    button.setColour (juce::TextButton::buttonColourId, BG.withAlpha (0.76f));
-    button.setColour (juce::TextButton::buttonOnColourId, kFieldFill.brighter (0.08f));
-    button.setColour (juce::TextButton::textColourOffId, COL_MUTED);
-    button.setColour (juce::TextButton::textColourOnId, COL_FLORA_BR);
     button.setMouseCursor (juce::MouseCursor::PointingHandCursor);
 }
 }
@@ -237,6 +233,7 @@ void View::updateControls()
     timeButton.setToggleState (selectedDomain == Domain::time, juce::dontSendNotification);
     frequencyButton.setToggleState (selectedDomain == Domain::frequency, juce::dontSendNotification);
     spaceButton.setToggleState (selectedDomain == Domain::space, juce::dontSendNotification);
+    domainCycleButton.setToggleState (true, juce::dontSendNotification);
     domainCycleButton.setButtonText (domainName (selectedDomain));
     targetButton.setButtonText (target() == ObservationTarget::absolute ? "POST" : hypha::delta());
     targetButton.setToggleState (target() == ObservationTarget::delta, juce::dontSendNotification);
@@ -309,30 +306,44 @@ void View::resized()
 
 void View::paint (juce::Graphics& g)
 {
-    background.draw (g, getLocalBounds());
+    const auto state = worldState();
+    background.draw (g, getLocalBounds(), state);
     const auto layout = shellLayout (role, currentPreset(), guidePresence());
+    observatory_world::paintDomainBed (g, bodyArea, state);
+    background.drawHyphaSpecimen (g, bodyArea, state);
     paintHeader (g, layout);
     paintGuide (g, layout);
-    paintMeasuredMycelium (g, bodyArea);
+    if (selectedDomain == Domain::level)
+        paintMeasuredMycelium (g, bodyArea);
     if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
     else if (selectedDomain == Domain::time) paintTime (g, bodyArea);
     else if (selectedDomain == Domain::space)
         space_field::paint (g, bodyArea, observatoryFrame.meter, currentFactsAvailable());
     else drawPanel (g, bodyArea);
     paintFooter (g, layout);
+    observatory_world::paintPlateFrame (g, getLocalBounds(), state);
 }
 
 void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
 {
     drawPanel (g, toJuce (layout.header), 5.0f);
-    g.setColour (COL_NORMAL);
+    const auto state = worldState();
+    observatory_world::paintPairRoot (g, toJuce (layout.connectionStatus), state,
+                                      connectionColour);
     const auto density = currentPreset().density;
     const auto titleHeight = density == Density::compact ? 12.0f
                            : density == Density::focused ? 14.0f
                            : density == Density::standard ? 16.0f : 18.0f;
+    auto titleArea = toJuce (layout.roleTitle).reduced (6, 0);
+    const int roleWidth = density == Density::compact ? 26 : 34;
+    auto roleArea = titleArea.removeFromRight (roleWidth);
     g.setFont (labelFont (titleHeight));
-    g.drawText (role == Role::post ? "HYPHA POST" : "HYPHA PRE",
-                toJuce (layout.roleTitle).reduced (6, 0), juce::Justification::centredLeft);
+    g.setColour (COL_NORMAL);
+    g.drawFittedText ("HYPHA", titleArea, juce::Justification::centredLeft, 1, 0.82f);
+    g.setColour (COL_MUTED.brighter (0.18f));
+    g.setFont (labelFont (titleHeight * 0.78f));
+    g.drawText (role == Role::post ? "POST" : "PRE", roleArea,
+                juce::Justification::centredRight);
     g.setColour (connectionColour);
     g.setFont (monoFont (currentPreset().density == Density::compact ? 9.0f : 11.0f));
     g.drawText (connectionText, toJuce (layout.connectionStatus).reduced (4, 0),
@@ -353,6 +364,7 @@ void View::paintGuide (juce::Graphics& g, const ShellLayout& layout)
                                   .reduced (6, 0), juce::Justification::centredLeft);
     g.setColour (COL_GUIDE.withAlpha (0.78f));
     g.drawText (guideDetail, area.reduced (4, 0), juce::Justification::centredRight);
+    observatory_world::paintGuideRoot (g, toJuce (layout.guideRail), worldState());
 }
 
 void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
@@ -461,7 +473,17 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
 
 void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
-    time_history::paint (g, area, history, historyRequest().label,
+    const bool compact = currentPreset().density == Density::compact;
+    if (! compact)
+    {
+        auto context = area.removeFromTop (22);
+        g.setColour (COL_MUTED.withAlpha (0.78f));
+        g.setFont (monoFont (8.0f));
+        g.drawText ("SESSION HISTORY", context.reduced (6, 0),
+                    juce::Justification::centredLeft);
+        area.removeFromTop (2);
+    }
+    time_history::paint (g, area, history, compact ? historyRequest().label : "",
                          target() == ObservationTarget::delta);
 }
 }
