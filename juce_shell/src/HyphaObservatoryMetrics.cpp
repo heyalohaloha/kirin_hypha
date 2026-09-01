@@ -88,27 +88,35 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
         area.removeFromTop (20);
     if (target() == ObservationTarget::delta)
     {
-        const std::array<double, 3> values = compact
-            ? std::array<double, 3> {
+        if (compact)
+        {
+            const std::array<double, 3> values {
                 selectedShortTermLoudness ? delta.lufs_s : delta.lufs,
                 delta.true_peak,
                 delta.crest
-            }
-            : std::array<double, 3> { delta.lufs, delta.lufs_s, delta.true_peak };
-        const std::array<const char*, 3> labels = compact
-            ? std::array<const char*, 3> {
+            };
+            const std::array<const char*, 3> labels {
                 selectedShortTermLoudness ? "S" : "M", "TP", "CREST"
-            }
-            : std::array<const char*, 3> { "M", "S", "TP" };
-        const std::array<const char*, 3> units = compact
-            ? std::array<const char*, 3> { "LU", "dB", "dB" }
-            : std::array<const char*, 3> { "LU", "LU", "dB" };
-        for (int index = 0; index < 3; ++index)
-            drawMetric (g, area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
+            };
+            const std::array<const char*, 3> units { "LU", "dB", "dB" };
+            for (int index = 0; index < 3; ++index)
+                drawMetric (g, area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
+                            hypha::delta() + labels[(size_t) index],
+                            optionValue (values[(size_t) index], deltaFactsAvailable()),
+                            units[(size_t) index], 27.0f, family, true);
+            return;
+        }
+        const std::array<double, 4> values {
+            delta.lufs, delta.lufs_s, delta.true_peak, delta.crest
+        };
+        const std::array<const char*, 4> labels { "M", "S", "TP", "CREST" };
+        const std::array<const char*, 4> units { "LU", "LU", "dB", "dB" };
+        const auto valueHeight = density == Density::standard ? 30.0f : 36.0f;
+        for (int index = 0; index < 4; ++index)
+            drawMetric (g, area.removeFromLeft (area.getWidth() / (4 - index)).reduced (2),
                         hypha::delta() + labels[(size_t) index],
                         optionValue (values[(size_t) index], deltaFactsAvailable()),
-                        units[(size_t) index], compact ? 27.0f : 36.0f,
-                        family, true);
+                        units[(size_t) index], valueHeight, family, true);
         return;
     }
 
@@ -119,8 +127,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
     {
         area = main;
         const auto& watch = compactShowsMaximum
-            ? compactWatchDisplay.maximum : compactWatchDisplay.current;
-        const auto compactFactsAvailable = compactWatchAvailable && currentFactsAvailable();
+            ? watchDisplay.maximum : watchDisplay.current;
+        const auto compactFactsAvailable = watchDisplayAvailable && currentFactsAvailable();
         const std::array<double, 3> compactValues {
             selectedShortTermLoudness ? watch.lufs_s : watch.lufs_m,
             watch.true_peak,
@@ -137,15 +145,22 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
                         compactUnits[(size_t) index], 25.0f, family);
         return;
     }
-    const std::array<double, 3> mainValues { meter.lufs_m, meter.lufs_s, meter.lufs_i };
-    const std::array<const char*, 3> mainLabels { "M", "S", "I" };
-    constexpr int mainCount = 3;
+    const std::array<double, 4> mainValues {
+        meter.lufs_m, meter.lufs_s, meter.lufs_i, watchDisplay.current.crest
+    };
+    const std::array<bool, 4> mainAvailable {
+        currentAvailable, currentAvailable, cumulativeAvailable,
+        currentAvailable && watchDisplayAvailable
+    };
+    const std::array<const char*, 4> mainLabels { "M", "S", "I", "CREST" };
+    const std::array<const char*, 4> mainUnits { "LUFS", "LUFS", "LUFS", "dB" };
+    const auto mainValueHeight = density == Density::standard ? 28.0f : 42.0f;
+    constexpr int mainCount = 4;
     for (int index = 0; index < mainCount; ++index)
         drawMetric (g, main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
                     mainLabels[(size_t) index],
-                    optionValue (mainValues[(size_t) index],
-                                 index < 2 ? currentAvailable : cumulativeAvailable),
-                    "LUFS", 42.0f, family);
+                    optionValue (mainValues[(size_t) index], mainAvailable[(size_t) index]),
+                    mainUnits[(size_t) index], mainValueHeight, family);
 
     const std::array<double, 5> supportValues {
         meter.true_peak, meter.max_true_peak, meter.lra, meter.plr, meter.correlation

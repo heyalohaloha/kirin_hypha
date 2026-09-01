@@ -150,7 +150,6 @@ void writePreview (const juce::File& directory,
     KIRIN_OBSERVATORY_REQUIRE (
         juce::PNGImageFormat().writeImageToStream (image, *output));
 }
-
 void verifyRoleAtEverySize (observatory::Role role,
                             const KirinMeterSession& meter,
                             const std::vector<KirinMeterHistoryEntry>& history)
@@ -166,9 +165,8 @@ void verifyRoleAtEverySize (observatory::Role role,
                                 : observatory::ConnectionState::source);
         view.setGuide ("MASKING 03:18", "3150-3700 HZ", true);
         view.setMeterSnapshot (meter, true);
-        view.setCompactWatchDisplay (activeWatch(), true);
+        view.setWatchDisplay (activeWatch(), true);
         view.setHistory (history);
-
         for (const auto domain : {
                  observatory::Domain::level, observatory::Domain::time,
                  observatory::Domain::frequency, observatory::Domain::space })
@@ -191,14 +189,14 @@ void verifyRoleAtEverySize (observatory::Role role,
                 KIRIN_OBSERVATORY_REQUIRE (
                     observatory::isCompactMeter (preset) ? clipPixels == 0 : clipPixels > 8);
                 view.setMeterSnapshot (meter, true);
+                auto alternateWatch = activeWatch();
                 if (observatory::isCompactMeter (preset))
-                {
-                    auto alternateWatch = activeWatch();
                     alternateWatch.current.true_peak -= 6.0;
-                    view.setCompactWatchDisplay (alternateWatch, true);
-                    KIRIN_OBSERVATORY_REQUIRE (differentPixels (image, render (view)) > 8);
-                    view.setCompactWatchDisplay (activeWatch(), true);
-                }
+                else
+                    alternateWatch.current.crest += 5.0;
+                view.setWatchDisplay (alternateWatch, true);
+                KIRIN_OBSERVATORY_REQUIRE (differentPixels (image, render (view)) > 8);
+                view.setWatchDisplay (activeWatch(), true);
             }
         }
     }
@@ -211,7 +209,6 @@ void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
         "KIRIN_HYPHA_FREQ_OBSERVATORY_OUTPUT", {});
     if (outputPath.isEmpty())
         return;
-
     observatory::View shell (observatory::Role::post);
     shell.setSize (600, 400);
     shell.setDomain (observatory::Domain::frequency);
@@ -291,7 +288,7 @@ void verifyObservatoryViewContract()
     verifyRoleAtEverySize (observatory::Role::post, meter, history);
 
     observatory::View pre (observatory::Role::pre);
-    pre.setCompactWatchDisplay (watch, true);
+    pre.setWatchDisplay (watch, true);
     pre.setTarget (observatory::ObservationTarget::delta);
     KIRIN_OBSERVATORY_REQUIRE (pre.target() == observatory::ObservationTarget::absolute);
     pre.setDomain (observatory::Domain::frequency);
@@ -302,7 +299,7 @@ void verifyObservatoryViewContract()
     post.setSize (600, 400);
     post.setMeterSnapshot (meter, true);
     post.setDeltaSnapshot (delta, true);
-    post.setCompactWatchDisplay (watch, true);
+    post.setWatchDisplay (watch, true);
     post.setConnection ("PAIR DRUM", COL_LED_BLUE, observatory::ConnectionState::paired);
     post.setGuide ("MASKING 03:18", "3150-3700 HZ", true);
     post.setDomain (observatory::Domain::level);
@@ -387,6 +384,10 @@ void verifyObservatoryViewContract()
     post.setTarget (observatory::ObservationTarget::delta);
     const auto difference = render (post);
     KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, difference) > 500);
+    auto observatoryCrestFrame = activeFrame();
+    observatoryCrestFrame.delta.crest = 4.8;
+    post.setObservatoryFrame (observatoryCrestFrame, true);
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (difference, render (post)) > 20);
     auto staleDeltaFrame = activeFrame();
     staleDeltaFrame.delta.mode = KIRIN_DELTA_MODE_STALE;
     staleDeltaFrame.delta_available = 1u;
@@ -394,7 +395,6 @@ void verifyObservatoryViewContract()
     KIRIN_OBSERVATORY_REQUIRE (differentPixels (difference, render (post)) > 100);
     post.setObservatoryFrame (activeFrame(), true);
     KIRIN_OBSERVATORY_REQUIRE (post.domain() == observatory::Domain::level);
-
     post.setDomain (observatory::Domain::time);
     post.setHistory (history);
     KIRIN_OBSERVATORY_REQUIRE (post.domain() == observatory::Domain::time);
@@ -434,7 +434,6 @@ void verifyObservatoryViewContract()
     const auto changedMetadata = post.createCaptureImage (
         1'200, 630, false, "2026-09-02 12:34:56", "9.8.7");
     KIRIN_OBSERVATORY_REQUIRE (differentPixels (defaultPrivate, changedMetadata) > 100);
-
     const auto previewDirectory = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_HYPHA_OBSERVATORY_PREVIEW_DIR", {});
     if (previewDirectory.isNotEmpty())
@@ -462,7 +461,6 @@ void verifyObservatoryViewContract()
                               render (post));
             }
         }
-
         post.setSize (300, 200);
         post.setDomain (observatory::Domain::level);
         post.setCompactMaximum (true);
@@ -471,13 +469,15 @@ void verifyObservatoryViewContract()
         writePreview (directory, "post-level-max-shortterm-300x200.png", render (post));
         post.setTarget (observatory::ObservationTarget::delta);
         writePreview (directory, "post-level-delta-300x200.png", render (post));
+        post.setSize (600, 400);
+        writePreview (directory, "post-level-delta-600x400.png", render (post));
+        post.setSize (300, 200);
         post.setTarget (observatory::ObservationTarget::absolute);
         post.setShortTermLoudness (false);
         post.setCompactMaximum (false);
         post.setObservatoryFrame (inactiveFrame, true);
         writePreview (directory, "post-level-inactive-300x200.png", render (post));
         post.setObservatoryFrame (activeFrame(), true);
-
         pre.setSize (600, 400);
         pre.setConnection ("SOURCE PRE", COL_LED_BLUE, observatory::ConnectionState::source);
         pre.setObservatoryFrame (activeFrame(), true);

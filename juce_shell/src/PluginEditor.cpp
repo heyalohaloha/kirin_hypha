@@ -841,10 +841,10 @@ void KirinHyphaEditor::updatePre()
     bool haveSummary = false;
     KirinWatchDisplay watch {};
     const bool polledWatch = processorRef.pollWatchDisplay (watch);
-    haveCompactWatchDisplay = polledWatch;
+    haveObservatoryWatchDisplay = polledWatch;
     if (polledWatch)
     {
-        compactWatchDisplay = watch;
+        observatoryWatchDisplay = watch;
         watchMaximum = watch.maximum;
         haveWatchMaximum = true;
     }
@@ -884,7 +884,7 @@ void KirinHyphaEditor::updatePre()
     else if (! displayRecord && sig == KIRIN_SIGNAL_STATE_BYPASSED)
     {
         displaySmoother.reset();
-        haveCompactWatchDisplay = false;
+        haveObservatoryWatchDisplay = false;
         haveWatchMaximum = false;
     }
     auto V = [&] (double x) { return have ? x : kNaN; };
@@ -1099,10 +1099,10 @@ void KirinHyphaEditor::updatePost()
     bool haveSummary = false;
     KirinWatchDisplay watch {};
     const bool polledWatch = processorRef.pollWatchDisplay (watch);
-    haveCompactWatchDisplay = polledWatch;
+    haveObservatoryWatchDisplay = polledWatch;
     if (polledWatch)
     {
-        compactWatchDisplay = watch;
+        observatoryWatchDisplay = watch;
         watchMaximum = watch.maximum;
         haveWatchMaximum = true;
     }
@@ -1142,7 +1142,7 @@ void KirinHyphaEditor::updatePost()
     else if (! displayRecord && sig == KIRIN_SIGNAL_STATE_BYPASSED)
     {
         displaySmoother.reset();
-        haveCompactWatchDisplay = false;
+        haveObservatoryWatchDisplay = false;
         haveWatchMaximum = false;
     }
     const bool tpWarn = ! mutedM && hypha::tpOver (haveM ? m.true_peak : kNaN);

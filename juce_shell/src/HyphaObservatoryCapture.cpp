@@ -39,8 +39,8 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     frame.timeRange = timeRange;
     frame.observatoryFrame = observatoryFrame;
     frame.frameAvailable = frameAvailable;
-    frame.compactWatchDisplay = compactWatchDisplay;
-    frame.compactWatchAvailable = compactWatchAvailable;
+    frame.watchDisplay = watchDisplay;
+    frame.watchDisplayAvailable = watchDisplayAvailable;
     frame.selectedShortTermLoudness = selectedShortTermLoudness;
     frame.compactShowsMaximum = compactShowsMaximum;
     frame.connectionText = connectionText;

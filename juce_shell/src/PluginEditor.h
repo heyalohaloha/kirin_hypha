@@ -148,8 +148,8 @@ private:
     double pathAnomalyUntil = 0.0;        // B-128 (G-115-371 D3): restore identity anomaly latch
     juce::String pathAnomalyText;         //   drained 文言を fade まで保持
     hypha::DisplaySmoother displaySmoother;
-    KirinWatchDisplay compactWatchDisplay {};
-    bool haveCompactWatchDisplay = false;
+    KirinWatchDisplay observatoryWatchDisplay {};
+    bool haveObservatoryWatchDisplay = false;
     KirinMeasureResult watchMaximum {};
     bool haveWatchMaximum = false;
     bool pairedPreExplicitlyBypassed = false; // updated only from a successful exact delta poll

@@ -58,7 +58,7 @@ public:
     void setMeterSnapshot (const KirinMeterSession&, bool available);
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
-    void setCompactWatchDisplay (const KirinWatchDisplay&, bool available);
+    void setWatchDisplay (const KirinWatchDisplay&, bool available);
     void setShortTermLoudness (bool);
     bool shortTermLoudness() const noexcept { return selectedShortTermLoudness; }
     void setCompactMaximum (bool);
@@ -121,8 +121,8 @@ private:
     TimeRange timeRange = TimeRange::seconds30;
     KirinObservatoryFrame observatoryFrame {};
     bool frameAvailable = false;
-    KirinWatchDisplay compactWatchDisplay {};
-    bool compactWatchAvailable = false;
+    KirinWatchDisplay watchDisplay {};
+    bool watchDisplayAvailable = false;
     bool selectedShortTermLoudness = false;
     bool compactShowsMaximum = false;
     juce::String connectionText;

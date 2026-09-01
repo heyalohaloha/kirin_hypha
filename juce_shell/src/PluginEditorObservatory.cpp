@@ -84,7 +84,7 @@ void KirinHyphaEditor::refreshObservatory()
 
     KirinObservatoryFrame frame {};
     observatoryView.setObservatoryFrame (frame, processorRef.pollObservatoryFrame (frame));
-    observatoryView.setCompactWatchDisplay (compactWatchDisplay, haveCompactWatchDisplay);
+    observatoryView.setWatchDisplay (observatoryWatchDisplay, haveObservatoryWatchDisplay);
     observatoryView.setShortTermLoudness (processorRef.useShortTermLoudness());
 
     const auto pairStatus = processorRef.pairStatus();

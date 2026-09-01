@@ -117,12 +117,11 @@ void View::setConnection (juce::String text, juce::Colour colour, ConnectionStat
     repaint();
 }
 
-void View::setCompactWatchDisplay (const KirinWatchDisplay& display, bool available)
+void View::setWatchDisplay (const KirinWatchDisplay& display, bool available)
 {
-    compactWatchDisplay = display;
-    compactWatchAvailable = available;
-    if (experienceFamily() == ExperienceFamily::compactMeter
-        && selectedDomain == Domain::level)
+    watchDisplay = display;
+    watchDisplayAvailable = available;
+    if (selectedDomain == Domain::level)
         repaint (bodyArea);
 }
 

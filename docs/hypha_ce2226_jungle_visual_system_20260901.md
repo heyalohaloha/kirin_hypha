@@ -136,6 +136,10 @@ Observatoryは分析とCaptureのためのCE2226地下観測所である。
 
 四domain、主visual、背景構造、domain固有の世界層、詳細axisを表示する。
 
+LEVELの主値はM、S、I、Crestとし、PREとの差分ではΔM、ΔS、ΔTP、ΔCrestを同じ四列geometryで比較する。
+
+ΔMAXは時刻の異なる独立最大値同士を差し引く可能性があるため作らず、MAXは絶対値の事実としてだけ表示する。
+
 450×300では同じ情報階層の余白と補助labelを縮め、600×400では補助metricとCaptureを含む完全表示にする。
 
 背景素材はaspect ratioを維持して中央cropし、有機構造を引き伸ばさない。
@@ -153,6 +157,8 @@ Pair名、PRE/POSTの役割、選択したM/S loudness、TP、Crest、CURRENT/MA
 B-617ではPair名、PRE/POST、二系統の画面密度、低負荷境界を親Shellへ固定した。
 
 B-618では既存Watch値と既存M/S設定を再利用し、選択式M/S、TP、Crest、CURRENT/MAXを三値切替としてCompactへ再統合した。
+
+B-619ではObservatory LEVELの主値へCrestを戻し、PREとの差分へΔCrestを追加した。
 
 Audio Thread、Measure Thread、FFI ABIへ新しい処理や値は追加していない。
 
