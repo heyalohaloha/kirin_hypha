@@ -33,6 +33,7 @@ public:
     std::function<void (ObservationTarget)> onTargetChange;
     std::function<void (TimeRange)> onTimeRangeChange;
     std::function<void (SizePreset)> onSizeChange;
+    std::function<void (bool)> onLoudnessChange;
     std::function<void()> onReset;
     std::function<void()> onCapture;
 
@@ -57,6 +58,11 @@ public:
     void setMeterSnapshot (const KirinMeterSession&, bool available);
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
+    void setCompactWatchDisplay (const KirinWatchDisplay&, bool available);
+    void setShortTermLoudness (bool);
+    bool shortTermLoudness() const noexcept { return selectedShortTermLoudness; }
+    void setCompactMaximum (bool);
+    bool compactMaximum() const noexcept { return compactShowsMaximum; }
     void setConnection (juce::String text, juce::Colour colour, ConnectionState state);
     ConnectionState connection() const noexcept { return connectionState; }
     void setGuide (juce::String primary, juce::String detail, bool emphasized);
@@ -115,6 +121,10 @@ private:
     TimeRange timeRange = TimeRange::seconds30;
     KirinObservatoryFrame observatoryFrame {};
     bool frameAvailable = false;
+    KirinWatchDisplay compactWatchDisplay {};
+    bool compactWatchAvailable = false;
+    bool selectedShortTermLoudness = false;
+    bool compactShowsMaximum = false;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;
     ConnectionState connectionState = ConnectionState::unpaired;
@@ -138,6 +148,8 @@ private:
     Button domainCycleButton { {}, true };
     Button targetButton { {}, false };
     Button timeRangeButton { {}, false };
+    Button compactLoudnessButton { {}, false };
+    Button compactRangeButton { {}, false };
     Button sizeButton { {}, false };
     Button resetButton { "RESET", false };
     Button captureButton { "CAPTURE", false };

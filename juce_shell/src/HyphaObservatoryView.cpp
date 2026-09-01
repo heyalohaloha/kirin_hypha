@@ -45,6 +45,7 @@ View::View (Role roleIn) : role (roleIn)
     setOpaque (true);
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                           &domainCycleButton, &targetButton, &timeRangeButton,
+                          &compactLoudnessButton, &compactRangeButton,
                           &sizeButton, &resetButton, &captureButton })
     {
         styleButton (*button);
@@ -62,6 +63,14 @@ View::View (Role roleIn) : role (roleIn)
         if (onTargetChange) onTargetChange (next);
     };
     timeRangeButton.onClick = [this] { cycleTimeRange(); };
+    compactLoudnessButton.onClick = [this]
+    {
+        const auto next = ! selectedShortTermLoudness;
+        if (onLoudnessChange) onLoudnessChange (next); else setShortTermLoudness (next);
+    };
+    compactRangeButton.onClick = [this] { setCompactMaximum (! compactShowsMaximum); };
+    compactLoudnessButton.setTooltip ("Switch Momentary / Short-term loudness");
+    compactRangeButton.setTooltip ("Switch current / session maximum values");
     sizeButton.onClick = [this] { cycleSize(); };
     resetButton.onClick = [this] { if (onReset) onReset(); };
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
@@ -96,6 +105,7 @@ void View::setTarget (ObservationTarget value)
     selectedTarget = value;
     history.clear();
     updateControls();
+    resized();
     repaint();
 }
 
@@ -105,6 +115,33 @@ void View::setConnection (juce::String text, juce::Colour colour, ConnectionStat
     connectionColour = colour;
     connectionState = state;
     repaint();
+}
+
+void View::setCompactWatchDisplay (const KirinWatchDisplay& display, bool available)
+{
+    compactWatchDisplay = display;
+    compactWatchAvailable = available;
+    if (experienceFamily() == ExperienceFamily::compactMeter
+        && selectedDomain == Domain::level)
+        repaint (bodyArea);
+}
+
+void View::setShortTermLoudness (bool shortTerm)
+{
+    if (selectedShortTermLoudness == shortTerm)
+        return;
+    selectedShortTermLoudness = shortTerm;
+    updateControls();
+    repaint (bodyArea);
+}
+
+void View::setCompactMaximum (bool maximum)
+{
+    if (compactShowsMaximum == maximum)
+        return;
+    compactShowsMaximum = maximum;
+    updateControls();
+    repaint (bodyArea);
 }
 
 void View::setGuide (juce::String primary, juce::String detail, bool emphasized)
@@ -188,6 +225,11 @@ void View::updateControls()
     targetButton.setToggleState (target() == ObservationTarget::delta, juce::dontSendNotification);
     targetButton.setEnabled (selectedDomain != Domain::space);
     timeRangeButton.setButtonText (historyRequest().label);
+    compactLoudnessButton.setButtonText (
+        selectedShortTermLoudness ? "LOUDNESS S" : "LOUDNESS M");
+    compactLoudnessButton.setToggleState (true, juce::dontSendNotification);
+    compactRangeButton.setButtonText (compactShowsMaximum ? "MAX" : "CURRENT");
+    compactRangeButton.setToggleState (true, juce::dontSendNotification);
     sizeButton.setButtonText (currentPreset().label);
 }
 
@@ -233,6 +275,22 @@ void View::resized()
         timeRangeButton.setBounds (
             timeRangeArea.removeFromTop (juce::jmin (22, timeRangeArea.getHeight() / 5))
                          .removeFromRight (juce::jmin (110, timeRangeArea.getWidth() / 2)));
+    }
+    const bool compactLevel = compact && selectedDomain == Domain::level;
+    compactLoudnessButton.setVisible (compactLevel);
+    compactRangeButton.setVisible (
+        compactLevel && target() == ObservationTarget::absolute);
+    if (compactLevel)
+    {
+        auto compactBody = bodyArea;
+        auto compactControls = compactBody.removeFromTop (20);
+        compactLoudnessButton.setBounds (
+            compactControls.removeFromLeft (juce::jmin (82, compactControls.getWidth() / 2))
+                           .reduced (2, 1));
+        if (compactRangeButton.isVisible())
+            compactRangeButton.setBounds (
+                compactControls.removeFromRight (
+                    juce::jmin (74, compactControls.getWidth())).reduced (2, 1));
     }
     sizeButton.setVisible (! captureFrame);
     if (! captureFrame)

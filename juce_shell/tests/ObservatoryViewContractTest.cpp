@@ -66,7 +66,19 @@ KirinMeterSession activeMeter()
     }
     return meter;
 }
-
+KirinWatchDisplay activeWatch()
+{
+    KirinWatchDisplay watch {};
+    watch.current.lufs_m = -13.8;
+    watch.current.lufs_s = -14.2;
+    watch.current.true_peak = -3.6;
+    watch.current.crest = 12.7;
+    watch.maximum.lufs_m = -9.4;
+    watch.maximum.lufs_s = -10.1;
+    watch.maximum.true_peak = -1.2;
+    watch.maximum.crest = 16.3;
+    return watch;
+}
 KirinDelta activeDelta()
 {
     KirinDelta delta {};
@@ -74,9 +86,9 @@ KirinDelta activeDelta()
     delta.lufs = 1.1;
     delta.lufs_s = 0.8;
     delta.true_peak = 0.4;
+    delta.crest = -1.6;
     return delta;
 }
-
 KirinObservatoryFrame activeFrame()
 {
     KirinObservatoryFrame frame {};
@@ -89,7 +101,6 @@ KirinObservatoryFrame activeFrame()
     frame.delta = activeDelta();
     return frame;
 }
-
 std::vector<KirinMeterHistoryEntry> historyFixture()
 {
     std::vector<KirinMeterHistoryEntry> result (90);
@@ -113,7 +124,6 @@ std::vector<KirinMeterHistoryEntry> historyFixture()
     }
     return result;
 }
-
 juce::Image render (observatory::View& view)
 {
     juce::Image image (juce::Image::ARGB, view.getWidth(), view.getHeight(), true);
@@ -121,7 +131,6 @@ juce::Image render (observatory::View& view)
     view.paintEntireComponent (graphics, true);
     return image;
 }
-
 int differentPixels (const juce::Image& left, const juce::Image& right)
 {
     KIRIN_OBSERVATORY_REQUIRE (left.getBounds() == right.getBounds());
@@ -131,7 +140,6 @@ int differentPixels (const juce::Image& left, const juce::Image& right)
             count += left.getPixelAt (x, y).getARGB() != right.getPixelAt (x, y).getARGB();
     return count;
 }
-
 void writePreview (const juce::File& directory,
                    const juce::String& name,
                    const juce::Image& image)
@@ -158,6 +166,7 @@ void verifyRoleAtEverySize (observatory::Role role,
                                 : observatory::ConnectionState::source);
         view.setGuide ("MASKING 03:18", "3150-3700 HZ", true);
         view.setMeterSnapshot (meter, true);
+        view.setCompactWatchDisplay (activeWatch(), true);
         view.setHistory (history);
 
         for (const auto domain : {
@@ -184,11 +193,11 @@ void verifyRoleAtEverySize (observatory::Role role,
                 view.setMeterSnapshot (meter, true);
                 if (observatory::isCompactMeter (preset))
                 {
-                    auto alternatePeak = meter;
-                    alternatePeak.true_peak -= 6.0;
-                    view.setMeterSnapshot (alternatePeak, true);
+                    auto alternateWatch = activeWatch();
+                    alternateWatch.current.true_peak -= 6.0;
+                    view.setCompactWatchDisplay (alternateWatch, true);
                     KIRIN_OBSERVATORY_REQUIRE (differentPixels (image, render (view)) > 8);
-                    view.setMeterSnapshot (meter, true);
+                    view.setCompactWatchDisplay (activeWatch(), true);
                 }
             }
         }
@@ -242,6 +251,7 @@ void verifyObservatoryViewContract()
 {
     const auto meter = activeMeter();
     const auto delta = activeDelta();
+    const auto watch = activeWatch();
     const auto history = historyFixture();
     observatory_world::Backdrop backdrop;
     KIRIN_OBSERVATORY_REQUIRE (backdrop.isValid());
@@ -281,6 +291,7 @@ void verifyObservatoryViewContract()
     verifyRoleAtEverySize (observatory::Role::post, meter, history);
 
     observatory::View pre (observatory::Role::pre);
+    pre.setCompactWatchDisplay (watch, true);
     pre.setTarget (observatory::ObservationTarget::delta);
     KIRIN_OBSERVATORY_REQUIRE (pre.target() == observatory::ObservationTarget::absolute);
     pre.setDomain (observatory::Domain::frequency);
@@ -291,6 +302,7 @@ void verifyObservatoryViewContract()
     post.setSize (600, 400);
     post.setMeterSnapshot (meter, true);
     post.setDeltaSnapshot (delta, true);
+    post.setCompactWatchDisplay (watch, true);
     post.setConnection ("PAIR DRUM", COL_LED_BLUE, observatory::ConnectionState::paired);
     post.setGuide ("MASKING 03:18", "3150-3700 HZ", true);
     post.setDomain (observatory::Domain::level);
@@ -315,6 +327,29 @@ void verifyObservatoryViewContract()
                                    observatory::ConnectionState::paired);
     KIRIN_OBSERVATORY_REQUIRE (
         differentPixels (observatoryWaiting, render (connectionProbe)) > 8);
+    post.setSize (300, 200);
+    post.setTarget (observatory::ObservationTarget::absolute);
+    post.setShortTermLoudness (false);
+    post.setCompactMaximum (false);
+    const auto compactCurrentMomentary = render (post);
+    post.setCompactMaximum (true);
+    const auto compactMaximumMomentary = render (post);
+    KIRIN_OBSERVATORY_REQUIRE (
+        differentPixels (compactCurrentMomentary, compactMaximumMomentary) > 100);
+    post.setShortTermLoudness (true);
+    KIRIN_OBSERVATORY_REQUIRE (
+        differentPixels (compactMaximumMomentary, render (post)) > 30);
+    post.setCompactMaximum (false);
+    post.setTarget (observatory::ObservationTarget::delta);
+    const auto compactDelta = render (post);
+    auto alternateCrestFrame = activeFrame();
+    alternateCrestFrame.delta.crest = 4.8;
+    post.setObservatoryFrame (alternateCrestFrame, true);
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (compactDelta, render (post)) > 20);
+    post.setShortTermLoudness (false);
+    post.setTarget (observatory::ObservationTarget::absolute);
+    post.setObservatoryFrame (activeFrame(), true);
+    post.setSize (600, 400);
     const auto absolute = render (post);
     auto noClipsMeter = meter;
     noClipsMeter.clip_events[0] = 0;
@@ -427,6 +462,21 @@ void verifyObservatoryViewContract()
                               render (post));
             }
         }
+
+        post.setSize (300, 200);
+        post.setDomain (observatory::Domain::level);
+        post.setCompactMaximum (true);
+        writePreview (directory, "post-level-max-300x200.png", render (post));
+        post.setShortTermLoudness (true);
+        writePreview (directory, "post-level-max-shortterm-300x200.png", render (post));
+        post.setTarget (observatory::ObservationTarget::delta);
+        writePreview (directory, "post-level-delta-300x200.png", render (post));
+        post.setTarget (observatory::ObservationTarget::absolute);
+        post.setShortTermLoudness (false);
+        post.setCompactMaximum (false);
+        post.setObservatoryFrame (inactiveFrame, true);
+        writePreview (directory, "post-level-inactive-300x200.png", render (post));
+        post.setObservatoryFrame (activeFrame(), true);
 
         pre.setSize (600, 400);
         pre.setConnection ("SOURCE PRE", COL_LED_BLUE, observatory::ConnectionState::source);

@@ -84,15 +84,30 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
         && (density == Density::standard || density == Density::observatory))
         channelStrips = area.removeFromRight (
             density == Density::observatory ? 76 : 62).reduced (2);
+    if (compact)
+        area.removeFromTop (20);
     if (target() == ObservationTarget::delta)
     {
-        const std::array<double, 3> values { delta.lufs, delta.lufs_s, delta.true_peak };
-        const std::array<const char*, 3> labels { "M", "S", "TP" };
+        const std::array<double, 3> values = compact
+            ? std::array<double, 3> {
+                selectedShortTermLoudness ? delta.lufs_s : delta.lufs,
+                delta.true_peak,
+                delta.crest
+            }
+            : std::array<double, 3> { delta.lufs, delta.lufs_s, delta.true_peak };
+        const std::array<const char*, 3> labels = compact
+            ? std::array<const char*, 3> {
+                selectedShortTermLoudness ? "S" : "M", "TP", "CREST"
+            }
+            : std::array<const char*, 3> { "M", "S", "TP" };
+        const std::array<const char*, 3> units = compact
+            ? std::array<const char*, 3> { "LU", "dB", "dB" }
+            : std::array<const char*, 3> { "LU", "LU", "dB" };
         for (int index = 0; index < 3; ++index)
             drawMetric (g, area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
                         hypha::delta() + labels[(size_t) index],
                         optionValue (values[(size_t) index], deltaFactsAvailable()),
-                        index == 2 ? "dB" : "LU", compact ? 27.0f : 36.0f,
+                        units[(size_t) index], compact ? 27.0f : 36.0f,
                         family, true);
         return;
     }
@@ -102,15 +117,23 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
     auto main = area.removeFromTop (mainHeight);
     if (compact)
     {
+        area = main;
+        const auto& watch = compactShowsMaximum
+            ? compactWatchDisplay.maximum : compactWatchDisplay.current;
+        const auto compactFactsAvailable = compactWatchAvailable && currentFactsAvailable();
         const std::array<double, 3> compactValues {
-            meter.lufs_m, meter.lufs_s, meter.true_peak
+            selectedShortTermLoudness ? watch.lufs_s : watch.lufs_m,
+            watch.true_peak,
+            watch.crest
         };
-        const std::array<const char*, 3> compactLabels { "M", "S", "TP" };
-        const std::array<const char*, 3> compactUnits { "LUFS", "LUFS", "dBTP" };
+        const std::array<const char*, 3> compactLabels {
+            selectedShortTermLoudness ? "S" : "M", "TP", "CREST"
+        };
+        const std::array<const char*, 3> compactUnits { "LUFS", "dBTP", "dB" };
         for (int index = 0; index < 3; ++index)
-            drawMetric (g, main.removeFromLeft (main.getWidth() / (3 - index)).reduced (2),
+            drawMetric (g, area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
                         compactLabels[(size_t) index],
-                        optionValue (compactValues[(size_t) index], currentAvailable),
+                        optionValue (compactValues[(size_t) index], compactFactsAvailable),
                         compactUnits[(size_t) index], 25.0f, family);
         return;
     }

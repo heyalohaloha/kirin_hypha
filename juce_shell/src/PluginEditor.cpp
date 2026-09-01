@@ -166,7 +166,14 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     loudnessSelector.onChange = [this] (bool shortTerm)
     {
         processorRef.setUseShortTermLoudness (shortTerm);
+        observatoryView.setShortTermLoudness (shortTerm);
         configureForKind (currentKind);
+    };
+    observatoryView.onLoudnessChange = [this] (bool shortTerm)
+    {
+        processorRef.setUseShortTermLoudness (shortTerm);
+        loudnessSelector.setShortTerm (shortTerm);
+        observatoryView.setShortTermLoudness (shortTerm);
     };
     addAndMakeVisible (loudnessSelector);
 
@@ -833,9 +840,11 @@ void KirinHyphaEditor::updatePre()
     KirinSessionSummary summary {};
     bool haveSummary = false;
     KirinWatchDisplay watch {};
-    const bool polledWatch = ! displayRecord && processorRef.pollWatchDisplay (watch);
+    const bool polledWatch = processorRef.pollWatchDisplay (watch);
+    haveCompactWatchDisplay = polledWatch;
     if (polledWatch)
     {
+        compactWatchDisplay = watch;
         watchMaximum = watch.maximum;
         haveWatchMaximum = true;
     }
@@ -875,6 +884,7 @@ void KirinHyphaEditor::updatePre()
     else if (! displayRecord && sig == KIRIN_SIGNAL_STATE_BYPASSED)
     {
         displaySmoother.reset();
+        haveCompactWatchDisplay = false;
         haveWatchMaximum = false;
     }
     auto V = [&] (double x) { return have ? x : kNaN; };
@@ -1088,9 +1098,11 @@ void KirinHyphaEditor::updatePost()
     KirinSessionSummary summary {};
     bool haveSummary = false;
     KirinWatchDisplay watch {};
-    const bool polledWatch = ! displayRecord && processorRef.pollWatchDisplay (watch);
+    const bool polledWatch = processorRef.pollWatchDisplay (watch);
+    haveCompactWatchDisplay = polledWatch;
     if (polledWatch)
     {
+        compactWatchDisplay = watch;
         watchMaximum = watch.maximum;
         haveWatchMaximum = true;
     }
@@ -1130,6 +1142,7 @@ void KirinHyphaEditor::updatePost()
     else if (! displayRecord && sig == KIRIN_SIGNAL_STATE_BYPASSED)
     {
         displaySmoother.reset();
+        haveCompactWatchDisplay = false;
         haveWatchMaximum = false;
     }
     const bool tpWarn = ! mutedM && hypha::tpOver (haveM ? m.true_peak : kNaN);
