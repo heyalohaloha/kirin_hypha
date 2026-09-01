@@ -430,7 +430,8 @@ void paint (juce::Graphics& g,
                + " @ " + relativeTimeText (peakSummary.secondsBeforeEnd);
     }
     else
-        detail = delta ? "M / S   |   60 S / 10 HZ" : "TP —   |   60 S / 10 HZ";
+        detail = delta ? juce::String ("M / S   |   60 S / 10 HZ")
+                       : juce::String ("TP ") + emDash() + "   |   60 S / 10 HZ";
     if (contextFact.isNotEmpty())
         detail = contextFact + "   |   " + detail;
     g.drawFittedText (detail, layout.legend, juce::Justification::centredRight, 1, 0.70f);
@@ -439,7 +440,7 @@ void paint (juce::Graphics& g,
     {
         g.setColour (COL_MUTED);
         g.setFont (monoFont (11.0f));
-        g.drawText ("HISTORY —", layout.loudnessPlot.getUnion (
+        g.drawText (juce::String ("HISTORY ") + emDash(), layout.loudnessPlot.getUnion (
                         layout.truePeakRail).toNearestInt(), juce::Justification::centred);
         return;
     }

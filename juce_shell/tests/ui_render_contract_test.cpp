@@ -278,6 +278,10 @@ int main()
                    == postLayout.pairStatus.x);
 
     const auto deltaFont = hypha::labelFont (ui::metricLabelFontHeight);
+    KIRIN_REQUIRE (hypha::delta().length() == 1
+                   && hypha::delta()[0] == (juce::juce_wchar) 0x0394);
+    KIRIN_REQUIRE (hypha::emDash().length() == 1
+                   && hypha::emDash()[0] == (juce::juce_wchar) 0x2014);
     const int deltaWidth = static_cast<int> (
         std::ceil (deltaFont.getStringWidthFloat (hypha::delta())));
     const auto deltaLayout = ui::loudnessSelectorLayout (true, deltaWidth);

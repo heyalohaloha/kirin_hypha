@@ -49,8 +49,9 @@ namespace hypha
     void drawTabularText (juce::Graphics&, const juce::Font&, const juce::String&,
                           juce::Rectangle<float>, juce::Justification);
 
-    // Δ (U+0394) built from its codepoint to avoid non-ASCII source/escape issues.
+    // UI symbols built from codepoints avoid the narrow-string Windows code-page path.
     inline juce::String delta() { return juce::String::charToString ((juce::juce_wchar) 0x0394); }
+    inline juce::String emDash() { return juce::String::charToString ((juce::juce_wchar) 0x2014); }
 
     // ── common.rs: value/delta formatting (1 decimal, "---" for NaN/None) ──────────────────
     inline juce::String fmtVal (double v)

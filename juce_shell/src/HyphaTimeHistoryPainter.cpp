@@ -265,8 +265,9 @@ void paintLegend (juce::Graphics& g,
         g.drawText (text, cell, juce::Justification::centredLeft);
     }
     g.setColour (COL_MUTED.withAlpha (0.82f));
-    const auto basis = juce::String (delta ? "  EXACT Δ / " : "  ")
-                     + axisLabel (axis.mode);
+    const auto basis = delta
+        ? juce::String ("  EXACT ") + hypha::delta() + " / " + axisLabel (axis.mode)
+        : juce::String ("  ") + axisLabel (axis.mode);
     g.drawText (rangeLabel + (compact ? "" : basis), range,
                 juce::Justification::centredRight);
 }
@@ -288,8 +289,10 @@ void paint (juce::Graphics& g,
     {
         g.setColour (COL_MUTED);
         g.setFont (monoFont (12.0f));
-        g.drawText (delta ? "EXACT Δ HISTORY —" : "HISTORY —",
-                    area, juce::Justification::centred);
+        const auto emptyText = delta
+            ? juce::String ("EXACT ") + hypha::delta() + " HISTORY " + hypha::emDash()
+            : juce::String ("HISTORY ") + hypha::emDash();
+        g.drawText (emptyText, area, juce::Justification::centred);
         return;
     }
 

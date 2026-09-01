@@ -124,7 +124,7 @@ void paint (juce::Graphics& g,
     const bool fieldAvailable = available && meter.channels == 2
                              && meter.field_size == KIRIN_STEREO_FIELD_SIZE
                              && meter.field_observation_count > 0u;
-    const auto fieldState = ! available ? juce::String ("FIELD —")
+    const auto fieldState = ! available ? juce::String ("FIELD ") + hypha::emDash()
                           : meter.channels != 2 ? juce::String ("MONO INPUT")
                           : meter.field_observation_count < 30u
                               ? "WARMING " + juce::String (meter.field_observation_count) + "/30"

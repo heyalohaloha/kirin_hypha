@@ -21,7 +21,7 @@ void paintClipCount (juce::Graphics& g,
 {
     g.setColour (available && count > 0 ? COL_FLORA_BR : COL_MUTED);
     g.setFont (monoFont (area.getHeight() < 14 ? 7.0f : 8.0f));
-    const auto value = available ? clipCountText (count) : juce::String ("—");
+    const auto value = available ? clipCountText (count) : hypha::emDash();
     drawTabularText (g, monoFont (area.getHeight() < 14 ? 7.0f : 8.0f),
                      juce::String (channel) + " " + value,
                      area.toFloat(), juce::Justification::centred);
@@ -50,7 +50,7 @@ void paintFullChannelStrips (juce::Graphics& g,
     g.setFont (monoFont (11.0f));
     g.drawText ("L", labels.withX (leftColumn.getX()).withWidth (columnWidth),
                 juce::Justification::centred);
-    g.drawText (meter.channels > 1 ? "R" : "—",
+    g.drawText (meter.channels > 1 ? juce::String ("R") : hypha::emDash(),
                 labels.withX (rightColumn.getX()).withWidth (columnWidth),
                 juce::Justification::centred);
 
@@ -209,7 +209,8 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     g.setColour (COL_MUTED);
     g.drawText ("L", labels.removeFromLeft (columnWidth), juce::Justification::centred);
     labels.removeFromLeft (columnGap);
-    g.drawText (meter.channels > 1 ? "R" : "—", labels, juce::Justification::centred);
+    g.drawText (meter.channels > 1 ? juce::String ("R") : hypha::emDash(), labels,
+                juce::Justification::centred);
 
     for (int channel = 0; channel < 2; ++channel)
     {

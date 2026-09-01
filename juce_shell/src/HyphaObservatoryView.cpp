@@ -444,7 +444,7 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     drawPanel (g, toJuce (layout.footer), experienceFamily(), 4.0f);
     auto session = sessionArea.reduced (6, 0);
     const auto& meter = observatoryFrame.meter;
-    const auto state = ! frameAvailable ? juce::String ("SESSION —")
+    const auto state = ! frameAvailable ? juce::String ("SESSION ") + hypha::emDash()
                      : meter.state == KIRIN_METER_SESSION_EMPTY ? juce::String ("READY  ")
                      : observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED
                          ? juce::String ("BYPASSED  ")
