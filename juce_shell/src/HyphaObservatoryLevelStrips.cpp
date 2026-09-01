@@ -150,6 +150,16 @@ SizePreset View::currentPreset() const noexcept
     return { getWidth(), getHeight(), density, "SIZE" };
 }
 
+void View::setDisplayedEditorSize (int width, int height)
+{
+    if (! validEditorSize (width, height))
+        return;
+    displayedEditorWidth = width;
+    displayedSizeLabel = juce::String (juce::roundToInt (
+        static_cast<double> (width) * 100.0 / 300.0)) + "%";
+    sizeButton.setButtonText (displayedSizeLabel);
+}
+
 void View::cycleSize()
 {
     const auto width = displayedEditorWidth > 0 ? displayedEditorWidth : currentPreset().width;

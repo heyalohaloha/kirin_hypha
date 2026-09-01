@@ -71,13 +71,15 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         "enum class ObservationTarget",
         "    absolute,",
         "    delta,",
-        "std::array<SizePreset, 5>",
     ] {
         assert!(
             observatory.contains(required),
             "Observatory contract missing {required}"
         );
     }
+    let observatory_resize = read_repo("juce_shell/src/HyphaObservatoryResizeContract.h");
+    assert!(observatory_resize.contains("std::array<SizePreset, 5>"));
+    assert!(observatory_resize.contains("validEditorSize"));
 
     let ui_contract = read_repo("juce_shell/src/HyphaUiContract.h");
     for required in [
