@@ -9,6 +9,7 @@
 #include "HyphaSignalStateContract.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
+ #include "CaptureWorkAttachment.h"
  #include "pre_display/PreDisplayClock.h"
  #include "pre_display/PreDisplayController.h"
 #endif
@@ -68,7 +69,13 @@ public:
     hypha::pre_display::GuidePresentationSnapshot guidePresentationSnapshot() const;
     hypha::pre_display::ConnectionRequest pendingPreDisplayConnection() const;
     bool acceptPreDisplayConnection();
+    hypha::pre_display::WorkReference connectedWorkReference() const;
     juce::String connectedWorkTitle() const;
+    hypha::capture::WorkAttachmentSubmit attachCaptureToWork (
+        const hypha::pre_display::WorkReference& expectedWork,
+        juce::MemoryBlock pngBytes,
+        hypha::capture::WorkAttachmentDescriptor descriptor);
+    hypha::capture::WorkAttachmentResult takeCaptureWorkAttachmentResult();
 #endif
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
@@ -246,6 +253,7 @@ private:
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     hypha::pre_display::ClockTap preDisplayClock;
     std::unique_ptr<hypha::pre_display::Controller> preDisplayController;
+    std::unique_ptr<hypha::capture::WorkAttachmentController> captureWorkAttachmentController;
 #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)

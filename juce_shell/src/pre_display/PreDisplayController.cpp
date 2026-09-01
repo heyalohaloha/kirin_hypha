@@ -56,9 +56,11 @@ namespace hypha::pre_display
             const auto lease = prepareRuntimeLease (root, std::move (identityIn), identity, configured);
             if (! lease.valid())
                 return;
-            if (lease.identity.workId != identity.workId
-                || lease.identity.bindingId != identity.bindingId)
-                acceptedWorkTitle.clear();
+            if (lease.identity.role != identity.role
+                || lease.identity.workId != identity.workId
+                || lease.identity.bindingId != identity.bindingId
+                || lease.identity.runtimeInstanceId != identity.runtimeInstanceId)
+                acceptedWorkReference = {};
             previousPresenceFile = ownPresenceFile;
             previousAcknowledgementFile = ownAcknowledgementFile;
             previousCapabilityFile = ownCapabilityFile;

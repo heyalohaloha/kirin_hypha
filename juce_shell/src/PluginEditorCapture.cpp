@@ -15,6 +15,18 @@ const char* captureDomainName (hypha::observatory::Domain domain)
     }
     return "LEVEL";
 }
+
+juce::String captureDomainId (hypha::observatory::Domain domain)
+{
+    switch (domain)
+    {
+        case hypha::observatory::Domain::level:     return "level";
+        case hypha::observatory::Domain::time:      return "time";
+        case hypha::observatory::Domain::frequency: return "frequency";
+        case hypha::observatory::Domain::space:     return "space";
+    }
+    return "level";
+}
 }
 
 void KirinHyphaEditor::beginObservatoryCapture()
@@ -26,6 +38,22 @@ void KirinHyphaEditor::beginObservatoryCapture()
     menu.addItem (1, "1200 x 630  Landscape");
     menu.addItem (2, "1080 x 1080  Square");
     menu.addItem (3, "1080 x 1350  Portrait");
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
+    const auto workReference = processorRef.connectedWorkReference();
+    if (isPost && workReference.valid()
+        && workReference.targetRole == hypha::pre_display::GuideTargetRole::post)
+    {
+        juce::PopupMenu attachmentMenu;
+        attachmentMenu.addItem (21, "1200 x 630  Landscape");
+        attachmentMenu.addItem (22, "1080 x 1080  Square");
+        attachmentMenu.addItem (23, "1080 x 1350  Portrait");
+        const auto title = workReference.displayTitle.isNotEmpty()
+            ? workReference.displayTitle.substring (0, 36) : juce::String ("Connected Work");
+        menu.addSubMenu ("Attach to Work - " + title, attachmentMenu);
+    }
+    else if (isPost)
+        menu.addItem (20, "Attach to Work - connect from Kirin OS", false, false);
+#endif
     menu.addSeparator();
     menu.addSectionHeader ("Privacy - private by default");
     menu.addItem (10, "Include OS Guide", true, capturePrivacy.includeGuide);
@@ -40,13 +68,22 @@ void KirinHyphaEditor::beginObservatoryCapture()
         .withDeletionCheck (*this)
         .withMinimumWidth (220);
     juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);
-    menu.showMenuAsync (options, [safeThis] (int result)
+    menu.showMenuAsync (options, [safeThis
+       #if KIRIN_HYPHA_GUIDE_TRANSPORT
+        , workReference
+       #endif
+    ] (int result)
     {
         if (safeThis == nullptr || result == 0)
             return;
         if (result == 1) safeThis->chooseObservatoryCapture (1'200, 630);
         else if (result == 2) safeThis->chooseObservatoryCapture (1'080, 1'080);
         else if (result == 3) safeThis->chooseObservatoryCapture (1'080, 1'350);
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
+        else if (result == 21) safeThis->attachObservatoryCapture (1'200, 630, workReference);
+        else if (result == 22) safeThis->attachObservatoryCapture (1'080, 1'080, workReference);
+        else if (result == 23) safeThis->attachObservatoryCapture (1'080, 1'350, workReference);
+#endif
         else if (result == 10)
         {
             safeThis->capturePrivacy.includeGuide = ! safeThis->capturePrivacy.includeGuide;
@@ -99,6 +136,7 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
     snapshot.target = observatoryView.target();
     snapshot.capturedAt = now.formatted ("%Y-%m-%d %H:%M:%S");
     snapshot.filenameStamp = now.formatted ("%Y%m%d-%H%M%S");
+    snapshot.capturedAtMs = now.toMilliseconds();
     snapshot.pixelWidth = width;
     snapshot.pixelHeight = height;
     const auto metadata = availableCaptureMetadata().applying (capturePrivacy);
@@ -155,6 +193,43 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
    #endif
     return snapshot;
 }
+
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
+void KirinHyphaEditor::attachObservatoryCapture (
+    int width, int height, const hypha::pre_display::WorkReference& expectedWork)
+{
+    const auto snapshot = freezeObservatoryCapture (width, height);
+    if (! snapshot.complete())
+    {
+        showToast ("Capture could not be prepared");
+        return;
+    }
+    juce::MemoryBlock pngBytes;
+    juce::MemoryOutputStream stream (pngBytes, false);
+    if (! juce::PNGImageFormat().writeImageToStream (snapshot.image, stream))
+    {
+        showToast ("Capture could not be prepared");
+        return;
+    }
+    hypha::capture::WorkAttachmentDescriptor descriptor;
+    descriptor.pixelWidth = snapshot.pixelWidth;
+    descriptor.pixelHeight = snapshot.pixelHeight;
+    descriptor.domain = captureDomainId (snapshot.domain);
+    descriptor.observationTarget = snapshot.target
+        == hypha::observatory::ObservationTarget::delta ? "delta" : "absolute";
+    descriptor.capturedAtMs = snapshot.capturedAtMs;
+    const auto submitted = processorRef.attachCaptureToWork (
+        expectedWork, std::move (pngBytes), std::move (descriptor));
+    if (submitted == hypha::capture::WorkAttachmentSubmit::accepted)
+        showToast ("Sending Capture to Work");
+    else if (submitted == hypha::capture::WorkAttachmentSubmit::busy)
+        showToast ("Another Work attachment is still in progress");
+    else if (submitted == hypha::capture::WorkAttachmentSubmit::invalidReference)
+        showToast ("Work connection changed; Capture was not attached");
+    else
+        showToast ("Capture could not be prepared");
+}
+#endif
 
 void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
 {

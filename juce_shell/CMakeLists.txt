@@ -167,6 +167,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginEditor.cpp
         src/PluginEditorObservatory.cpp
         src/PluginEditorCapture.cpp
+        src/CaptureWorkAttachment.cpp
         src/HyphaObservatoryCapture.cpp
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaObservatoryButton.cpp
@@ -473,4 +474,21 @@ if(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS)
     add_test(NAME kirin_pre_display_runtime COMMAND KirinPreDisplayRuntimeTests)
     set_tests_properties(kirin_pre_display_runtime PROPERTIES
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+    juce_add_console_app(KirinCaptureWorkAttachmentTests
+        PRODUCT_NAME "Kirin CAPTURE Work Attachment Tests")
+    target_sources(KirinCaptureWorkAttachmentTests PRIVATE
+        tests/CaptureWorkAttachmentTest.cpp
+        src/CaptureWorkAttachment.cpp
+        src/pre_display/PreDisplayProtocol.cpp
+        src/pre_display/PreDisplayProtocolTime.cpp)
+    target_compile_definitions(KirinCaptureWorkAttachmentTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_link_libraries(KirinCaptureWorkAttachmentTests PRIVATE
+        juce::juce_core
+        juce::juce_cryptography
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_capture_work_attachment COMMAND KirinCaptureWorkAttachmentTests)
 endif()

@@ -681,10 +681,37 @@ bool KirinHyphaProcessorBase::acceptPreDisplayConnection()
     return preDisplayController != nullptr && preDisplayController->acceptPendingConnection();
 }
 
+hypha::pre_display::WorkReference KirinHyphaProcessorBase::connectedWorkReference() const
+{
+    return preDisplayController != nullptr
+        ? preDisplayController->connectedWorkReference()
+        : hypha::pre_display::WorkReference {};
+}
+
 juce::String KirinHyphaProcessorBase::connectedWorkTitle() const
 {
     return preDisplayController != nullptr
         ? preDisplayController->connectedWorkTitle() : juce::String {};
+}
+
+hypha::capture::WorkAttachmentSubmit KirinHyphaProcessorBase::attachCaptureToWork (
+    const hypha::pre_display::WorkReference& expectedWork,
+    juce::MemoryBlock pngBytes,
+    hypha::capture::WorkAttachmentDescriptor descriptor)
+{
+    if (preDisplayController == nullptr || captureWorkAttachmentController == nullptr
+        || ! connectedWorkReference().sameAuthority (expectedWork))
+        return hypha::capture::WorkAttachmentSubmit::invalidReference;
+    return captureWorkAttachmentController->submit (
+        expectedWork, std::move (pngBytes), std::move (descriptor));
+}
+
+hypha::capture::WorkAttachmentResult
+KirinHyphaProcessorBase::takeCaptureWorkAttachmentResult()
+{
+    return captureWorkAttachmentController != nullptr
+        ? captureWorkAttachmentController->takeResult()
+        : hypha::capture::WorkAttachmentResult {};
 }
 #endif
 
@@ -1507,6 +1534,9 @@ void KirinHyphaProcessorBase::enableWritesNow()
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     if (preDisplayController == nullptr)
         preDisplayController = std::make_unique<hypha::pre_display::Controller> (preDisplayClock);
+    if (role == Role::Post && captureWorkAttachmentController == nullptr)
+        captureWorkAttachmentController =
+            std::make_unique<hypha::capture::WorkAttachmentController>();
     hypha::pre_display::RuntimeIdentity displayIdentity;
     displayIdentity.role = role == Role::Post ? hypha::pre_display::GuideTargetRole::post
                                               : hypha::pre_display::GuideTargetRole::pre;

@@ -70,6 +70,10 @@ private:
     void setObservatoryDomain (hypha::observatory::Domain domain);
     void beginObservatoryCapture();
     void chooseObservatoryCapture (int width, int height);
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
+    void attachObservatoryCapture (
+        int width, int height, const hypha::pre_display::WorkReference& expectedWork);
+#endif
     hypha::capture::DisplayMetadata availableCaptureMetadata() const;
     hypha::capture::Snapshot freezeObservatoryCapture (int width, int height);
 #if ! KIRIN_HYPHA_PRE_DISPLAY

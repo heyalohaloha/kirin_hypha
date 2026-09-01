@@ -773,6 +773,28 @@ void KirinHyphaEditor::handleCandidateMenu (
 
 void KirinHyphaEditor::timerCallback()
 {
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
+    const auto attachment = processorRef.takeCaptureWorkAttachmentResult();
+    if (attachment.state == hypha::capture::WorkAttachmentResultState::attached)
+        showToast ("Capture attached to Work");
+    else if (attachment.state == hypha::capture::WorkAttachmentResultState::rejected)
+    {
+        if (attachment.code == "work_binding_changed")
+            showToast ("Work connection changed; Capture was not attached");
+        else if (attachment.code == "work_not_found")
+            showToast ("Connected Work is no longer available");
+        else if (attachment.code == "work_record_invalid"
+                 || attachment.code == "work_write_failed"
+                 || attachment.code == "destination_write_failed")
+            showToast ("Work could not be updated");
+        else if (attachment.code == "request_write_failed"
+                 || attachment.code == "artifact_invalid"
+                 || attachment.code == "request_invalid")
+            showToast ("Capture could not be attached");
+        else
+            showToast ("Kirin OS could not attach this Capture");
+    }
+#endif
     if (isPost) updatePost();
     else        updatePre();
     refreshObservatory();

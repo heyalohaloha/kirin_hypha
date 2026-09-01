@@ -1028,11 +1028,27 @@ int main()
         require (controller.acceptPendingConnection()
                  && controller.connectedWorkTitle() == "Exact Work",
                  "expose only the accepted Work display title to Capture");
+        const auto reference = controller.connectedWorkReference();
+        require (reference.valid()
+                 && reference.targetRole == pre::GuideTargetRole::post
+                 && reference.workId == postWorkId
+                 && reference.bindingId == postBindingId
+                 && reference.runtimeInstanceId == "capture_metadata_runtime"
+                 && reference.displayTitle == "Exact Work",
+                 "freeze the exact accepted POST Work authority independently of its title");
+        captureIdentity.workId = postWorkId;
+        captureIdentity.bindingId = postBindingId;
+        captureIdentity.runtimeInstanceId = "capture_metadata_runtime_restarted";
+        controller.configureAndStart (captureIdentity);
+        require (! controller.connectedWorkReference().valid(),
+                 "clear the Work Reference when its runtime instance changes");
         captureIdentity.workId = testUuid ("capture_other_work");
         captureIdentity.bindingId = testUuid ("capture_other_binding");
         controller.configureAndStart (captureIdentity);
         require (controller.connectedWorkTitle().isEmpty(),
                  "clear the accepted display title when the Work binding changes");
+        require (! controller.connectedWorkReference().valid(),
+                 "clear the complete Work Reference when the binding changes");
     }
 
     require (pre::writeAcknowledgement (root, identity, inspect, display, 13'000),

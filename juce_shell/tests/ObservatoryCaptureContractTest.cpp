@@ -230,6 +230,7 @@ void verifyObservatoryCaptureContract (
     frozen.image = namedCapture;
     frozen.capturedAt = "2026-09-01 00:00:00";
     frozen.filenameStamp = "20260901-000000";
+    frozen.capturedAtMs = 1'788'220'800'000;
     frozen.pixelWidth = 1'200;
     frozen.pixelHeight = 630;
     KIRIN_OBSERVATORY_CAPTURE_REQUIRE (frozen.complete());

@@ -92,6 +92,7 @@ struct Snapshot
     observatory::ObservationTarget target = observatory::ObservationTarget::absolute;
     juce::String capturedAt;
     juce::String filenameStamp;
+    std::int64_t capturedAtMs = 0;
     int pixelWidth = 0;
     int pixelHeight = 0;
 
@@ -99,7 +100,7 @@ struct Snapshot
     {
         return image.isValid() && image.getWidth() == pixelWidth
             && image.getHeight() == pixelHeight && capturedAt.isNotEmpty()
-            && filenameStamp.isNotEmpty();
+            && filenameStamp.isNotEmpty() && capturedAtMs > 0;
     }
 };
 }

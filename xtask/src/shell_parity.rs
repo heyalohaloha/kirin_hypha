@@ -264,12 +264,17 @@ mod tests {
         for source in [
             "PreDisplayPresence.cpp",
             "PreDisplayProjection.cpp",
-            "PreDisplayProtocol.cpp",
-            "PreDisplayProtocolTime.cpp",
             "PreDisplayRepository.cpp",
             "PreDisplayTransport.cpp",
         ] {
             assert_eq!(count_occurrences(JUCE_CMAKE, source), 2, "{source}");
+        }
+        for source in ["PreDisplayProtocol.cpp", "PreDisplayProtocolTime.cpp"] {
+            assert_eq!(
+                count_occurrences(JUCE_CMAKE, source),
+                3,
+                "{source} is shared by both roles and the CAPTURE receipt contract test"
+            );
         }
         assert!(JUCE_CMAKE.contains("if(\"${TARGET}\" STREQUAL \"KirinHyphaPRE\")"));
         assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_PRE_DISPLAY=1"));

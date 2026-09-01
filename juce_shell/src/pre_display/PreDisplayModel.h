@@ -69,6 +69,30 @@ namespace hypha::pre_display
         juce::String bindingId;
     };
 
+    // Immutable, user-accepted authority for operations that refer back to one Kirin OS Work.
+    // The display title is never an identifier. A consumer must match all three private IDs.
+    struct WorkReference
+    {
+        GuideTargetRole targetRole = GuideTargetRole::pre;
+        juce::String workId;
+        juce::String bindingId;
+        juce::String runtimeInstanceId;
+        juce::String displayTitle;
+
+        bool valid() const noexcept
+        {
+            return workId.isNotEmpty() && bindingId.isNotEmpty()
+                && runtimeInstanceId.isNotEmpty();
+        }
+
+        bool sameAuthority (const WorkReference& other) const noexcept
+        {
+            return valid() && other.valid() && targetRole == other.targetRole
+                && workId == other.workId && bindingId == other.bindingId
+                && runtimeInstanceId == other.runtimeInstanceId;
+        }
+    };
+
     struct ConnectionRequest
     {
         GuideTargetRole targetRole = GuideTargetRole::pre;

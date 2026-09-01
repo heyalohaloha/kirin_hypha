@@ -23,15 +23,25 @@ bool Controller::acceptPendingConnection()
             return false;
         identity.workId = request.workId;
         identity.bindingId = request.bindingId;
-        acceptedWorkTitle = request.workTitle;
+        acceptedWorkReference.targetRole = identity.role;
+        acceptedWorkReference.workId = identity.workId;
+        acceptedWorkReference.bindingId = identity.bindingId;
+        acceptedWorkReference.runtimeInstanceId = identity.runtimeInstanceId;
+        acceptedWorkReference.displayTitle = request.workTitle;
     }
     notify();
     return true;
 }
 
+WorkReference Controller::connectedWorkReference() const
+{
+    const juce::ScopedLock lock (identityLock);
+    return acceptedWorkReference;
+}
+
 juce::String Controller::connectedWorkTitle() const
 {
     const juce::ScopedLock lock (identityLock);
-    return acceptedWorkTitle;
+    return acceptedWorkReference.displayTitle;
 }
 }

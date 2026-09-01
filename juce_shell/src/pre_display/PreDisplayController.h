@@ -26,6 +26,7 @@ namespace hypha::pre_display
         }
         ConnectionRequest pendingConnection() const;
         bool acceptPendingConnection();
+        WorkReference connectedWorkReference() const;
         juce::String connectedWorkTitle() const;
 
         static juce::File transportRoot();
@@ -41,7 +42,7 @@ namespace hypha::pre_display
         const juce::File root;
         mutable juce::CriticalSection identityLock;
         RuntimeIdentity identity;
-        juce::String acceptedWorkTitle;
+        WorkReference acceptedWorkReference;
         bool configured = false;
         mutable juce::CriticalSection displayLock;
         DisplaySnapshot display;
