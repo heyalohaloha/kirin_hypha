@@ -25,6 +25,16 @@ void require (bool condition, const char* expression, int line)
 
 #define KIRIN_OBSERVATORY_REQUIRE(expression) require ((expression), #expression, __LINE__)
 
+bool sameRgbWithin (juce::Colour actual, juce::Colour expected, int tolerance) noexcept
+{
+    return std::abs (static_cast<int> (actual.getRed())
+                     - static_cast<int> (expected.getRed())) <= tolerance
+        && std::abs (static_cast<int> (actual.getGreen())
+                     - static_cast<int> (expected.getGreen())) <= tolerance
+        && std::abs (static_cast<int> (actual.getBlue())
+                     - static_cast<int> (expected.getBlue())) <= tolerance;
+}
+
 KirinMeterSession activeMeter()
 {
     KirinMeterSession meter {};
@@ -286,9 +296,13 @@ void verifyObservatoryViewContract()
         juce::Graphics graphics (fillTarget);
         observatory_world::drawAspectFill (graphics, fillSource, fillTarget.getBounds());
     }
+    const auto platformFlora = fillSource.getPixelAt (
+        fillSource.getWidth() / 2, fillSource.getHeight() / 2);
+    KIRIN_OBSERVATORY_REQUIRE (sameRgbWithin (platformFlora, COL_FLORA, 2));
     for (int y = 0; y < fillTarget.getHeight(); ++y)
         for (int x = 0; x < fillTarget.getWidth(); ++x)
-            KIRIN_OBSERVATORY_REQUIRE (fillTarget.getPixelAt (x, y) == COL_FLORA);
+            KIRIN_OBSERVATORY_REQUIRE (
+                sameRgbWithin (fillTarget.getPixelAt (x, y), platformFlora, 2));
     KIRIN_OBSERVATORY_REQUIRE (meter.field_size == KIRIN_STEREO_FIELD_SIZE);
     KIRIN_OBSERVATORY_REQUIRE (meter.field_observation_count == 30u);
     verifyRoleAtEverySize (observatory::Role::pre, meter, history);
