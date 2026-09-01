@@ -450,6 +450,8 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(editor.contains("setResizeLimits (300, 200, 900, 600)"));
     assert!(editor.contains("setFixedAspectRatio (1.5)"));
     assert!(editor.contains("displayViewport (getWidth(), getHeight())"));
+    assert!(editor.contains("scaleRoot.setOpaque (true)"));
+    assert!(editor.contains("scaleRoot.setBufferedToImage (viewport.scale > 1.0f)"));
     assert!(observatory_editor.contains("observatoryEditorSizePreference"));
     assert!(observatory_editor
         .contains("setSize (restoredEditorSize.width, restoredEditorSize.height)"));

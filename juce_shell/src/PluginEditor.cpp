@@ -110,6 +110,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     tooltip.setLookAndFeel (&tooltipLookAndFeel);
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
+    // ObservatoryView covers the complete logical surface. Declaring the scale root opaque lets
+    // Windows present one finished frame instead of compositing it over an intermediate editor
+    // background while a transformed child hierarchy is being refreshed.
+    scaleRoot.setOpaque (true);
     addAndMakeVisible (scaleRoot);
     observatorySizeIndex = juce::jmin (
         (size_t) processorRef.spectrumSizePreference(),
@@ -409,6 +413,11 @@ void KirinHyphaEditor::resized()
     const auto viewport = hypha::observatory::displayViewport (getWidth(), getHeight());
     scaleRoot.setTransform (juce::AffineTransform());
     scaleRoot.setBounds (0, 0, viewport.width, viewport.height);
+    // Above 200%, JUCE otherwise transforms each invalidated child directly into the host peer.
+    // Studio Pro on Windows can expose those partial updates as flicker. Its retained component
+    // image is invalidated by child repaint() calls and presents the complete scaled hierarchy in
+    // one draw, while sizes up to 200% keep the direct native path.
+    scaleRoot.setBufferedToImage (viewport.scale > 1.0f);
     scaleRoot.setTransform (juce::AffineTransform::scale (viewport.scale));
     observatoryView.setDisplayedEditorSize (getWidth(), getHeight());
     observatoryView.setBounds (scaleRoot.getLocalBounds());
