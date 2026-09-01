@@ -152,11 +152,19 @@ SizePreset View::currentPreset() const noexcept
 
 void View::cycleSize()
 {
-    const auto preset = currentPreset();
-    size_t current = 0;
+    const auto width = displayedEditorWidth > 0 ? displayedEditorWidth : currentPreset().width;
+    size_t current = sizePresets.size() - 1u;
     for (size_t index = 0; index < sizePresets.size(); ++index)
-        if (sizePresets[index].width == preset.width)
+        if (sizePresets[index].width > width)
+        {
+            current = index == 0u ? sizePresets.size() - 1u : index - 1u;
+            break;
+        }
+        else if (sizePresets[index].width == width)
+        {
             current = index;
+            break;
+        }
     if (onSizeChange)
         onSizeChange (sizePresets[(current + 1u) % sizePresets.size()]);
 }

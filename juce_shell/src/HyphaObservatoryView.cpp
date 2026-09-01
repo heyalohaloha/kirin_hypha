@@ -190,6 +190,16 @@ void View::setHistory (std::vector<KirinMeterHistoryEntry> entries)
         repaint (bodyArea);
 }
 
+void View::setDisplayedEditorSize (int width, int height)
+{
+    if (! validEditorSize (width, height))
+        return;
+    displayedEditorWidth = width;
+    displayedSizeLabel = juce::String (juce::roundToInt (
+        static_cast<double> (width) * 100.0 / 300.0)) + "%";
+    sizeButton.setButtonText (displayedSizeLabel);
+}
+
 View::HistoryRequest View::historyRequest() const noexcept
 {
     const auto maxOutput = static_cast<size_t> (juce::jlimit (
@@ -256,7 +266,8 @@ void View::updateControls()
     compactLoudnessButton.setToggleState (true, juce::dontSendNotification);
     compactRangeButton.setButtonText (compactShowsMaximum ? "MAX" : "CURRENT");
     compactRangeButton.setToggleState (true, juce::dontSendNotification);
-    sizeButton.setButtonText (currentPreset().label);
+    sizeButton.setButtonText (
+        displayedEditorWidth > 0 ? displayedSizeLabel : currentPreset().label);
 }
 
 void View::resized()

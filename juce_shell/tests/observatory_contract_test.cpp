@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstring>
 
 namespace observatory = hypha::observatory;
@@ -73,6 +74,34 @@ int main()
     assert (std::strcmp (observatory::sizePresets[0].label, "100%") == 0);
     assert (std::strcmp (observatory::sizePresets[3].label, "200%") == 0);
     assert (std::strcmp (observatory::sizePresets[4].label, "300%") == 0);
+    const auto twoHundredViewport = observatory::displayViewport (observatory::sizePresets[3]);
+    const auto threeHundredViewport = observatory::displayViewport (observatory::sizePresets[4]);
+    assert (twoHundredViewport.width == 600 && twoHundredViewport.height == 400);
+    assert (std::abs (twoHundredViewport.scale - 1.0f) < 0.0001f);
+    assert (threeHundredViewport.width == 600 && threeHundredViewport.height == 400);
+    assert (std::abs (threeHundredViewport.scale - 1.5f) < 0.0001f);
+    const auto freeResizeViewport = observatory::displayViewport (720, 480);
+    assert (freeResizeViewport.width == 600 && freeResizeViewport.height == 400);
+    assert (std::abs (freeResizeViewport.scale - 1.2f) < 0.0001f);
+    assert (observatory::validEditorSize (300, 200));
+    assert (observatory::validEditorSize (500, 333));
+    assert (observatory::validEditorSize (720, 480));
+    assert (observatory::validEditorSize (900, 600));
+    assert (! observatory::validEditorSize (720, 400));
+    const auto packedFreeSize = observatory::packEditorSize ({ 720, 480 });
+    const auto unpackedFreeSize = observatory::unpackEditorSize (packedFreeSize);
+    assert (unpackedFreeSize.width == 720 && unpackedFreeSize.height == 480);
+    const auto legacySize = observatory::editorSizeFromState (2, 3, 720, 480);
+    assert (legacySize.width == 600 && legacySize.height == 400);
+    const auto restoredFreeSize = observatory::editorSizeFromState (3, 3, 720, 480);
+    assert (restoredFreeSize.width == 720 && restoredFreeSize.height == 480);
+    const auto rejectedStoredSize = observatory::editorSizeFromState (3, 3, 720, 400);
+    assert (rejectedStoredSize.width == 600 && rejectedStoredSize.height == 400);
+    const auto observatoryHeader = observatory::shellLayout (
+        observatory::Role::post, observatory::sizePresets[3],
+        observatory::GuidePresence::absent);
+    assert (observatoryHeader.connectionStatus.width >= 140);
+    assert (observatoryHeader.domainNavigation.width >= 300);
 
     for (const auto preset : observatory::sizePresets)
     {

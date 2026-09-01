@@ -121,16 +121,21 @@ public:
     bool pollInternalAttackPreDetails (KirinAttackDetailBatch& out) const;
     bool pollInternalAttackPairEvents (KirinAttackPairEventBatch& out) const;
     bool internalAttackStats (KirinAttackStats& out) const;
-    uint8_t spectrumSizePreference() const              // editor-lifetime recreation only; not DAW state
+    uint8_t spectrumSizePreference() const              // nearest preset; exact free size stored below
     {
         return preferredSpectrumSize.load (std::memory_order_acquire);
     }
     void setSpectrumSizePreference (uint8_t index)
     {
         const uint8_t bounded = index < 5u ? index : uint8_t { 0 };
-        if (preferredSpectrumSize.exchange (bounded, std::memory_order_acq_rel) != bounded)
-            updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+        preferredSpectrumSize.store (bounded, std::memory_order_release);
     }
+    uint32_t observatoryEditorSizePreference() const
+    {
+        return preferredEditorSize.load (std::memory_order_acquire);
+    }
+    bool setObservatoryEditorSizePreference (int width, int height);
+    void notifyObservatoryEditorSizeChanged();
     uint8_t observatoryDomainPreference() const
     {
         return preferredObservatoryDomain.load (std::memory_order_acquire);
@@ -245,6 +250,8 @@ private:
     std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
     std::atomic<bool> internalAttackRequested { false }; // internal validation UI; default OFF
     std::atomic<uint8_t> preferredSpectrumSize { 0 };      // legacy/default state opens at 100%
+    // Packed into one atomic so a concurrent host state read can never persist mismatched axes.
+    std::atomic<uint32_t> preferredEditorSize { (300u << 16u) | 200u }; // DisplayState v3
     std::atomic<uint8_t> preferredObservatoryDomain { 0 }; // DisplayState v2; LEVEL
     std::atomic<uint8_t> preferredObservatoryTarget { 0 }; // DisplayState v2; absolute
     std::atomic<uint8_t> preferredObservatoryTimeRange { 0 }; // DisplayState v2; 30 s

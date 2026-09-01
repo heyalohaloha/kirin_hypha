@@ -74,6 +74,9 @@ public:
     void setGuide (juce::String primary, juce::String detail, bool emphasized);
     void clearGuide();
     void setHistory (std::vector<KirinMeterHistoryEntry> entries);
+    // The editor may render a physical preset through a scaled logical viewport. This affects
+    // only the size label/cycle identity; measurement and shell layout keep using local bounds.
+    void setDisplayedEditorSize (int width, int height);
 
     struct HistoryRequest
     {
@@ -159,6 +162,8 @@ private:
     std::optional<juce::Point<float>> levelHistoryPointer;
     std::optional<std::size_t> hoveredLevelHistoryIndex;
     observatory_world::Backdrop background;
+    int displayedEditorWidth = 0;
+    juce::String displayedSizeLabel;
 
     Button levelButton { "LEVEL", true };
     Button timeButton { "TIME", true };

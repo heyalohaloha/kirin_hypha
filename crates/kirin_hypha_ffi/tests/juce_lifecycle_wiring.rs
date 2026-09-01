@@ -35,11 +35,9 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
             "common JUCE shell missing {text}"
         );
     }
-    assert!(juce_editor.contains(
-        "const auto initialPreset = hypha::observatory::sizePresets[observatorySizeIndex]"
-    ));
-    assert!(juce_editor.contains("setSize (initialPreset.width, initialPreset.height)"));
-    assert!(juce_editor.contains("observatoryView.setBounds (getLocalBounds())"));
+    assert!(juce_editor.contains("unpackEditorSize"));
+    assert!(juce_editor.contains("setSize (initialWidth, initialHeight)"));
+    assert!(juce_editor.contains("observatoryView.setBounds (scaleRoot.getLocalBounds())"));
     assert!(juce_editor.contains("observatoryView.connectionBounds()"));
     assert!(juce_editor.contains("observatoryView.bodyBounds()"));
     assert!(juce_editor.contains("ui::watchMetrics"));
@@ -240,9 +238,11 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     assert!(processor.contains("xml.setAttribute (\"loudness_view\""));
     assert!(processor.contains("getStringAttribute (\"loudness_view\") == \"S\""));
-    assert!(processor.contains("xml.setAttribute (\"display_state_version\", 2)"));
+    assert!(processor.contains("xml.setAttribute (\"display_state_version\", 3)"));
     assert!(processor.contains("observatory_time_range"));
     assert!(processor.contains("observatory_size"));
+    assert!(processor.contains("observatory_width"));
+    assert!(processor.contains("observatory_height"));
     assert!(processor.contains("withNonParameterStateChanged (true)"));
 
     let contract = read_repo("juce_shell/src/HyphaUiContract.h");
@@ -420,6 +420,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     let processor_header = read_repo("juce_shell/src/PluginProcessor.h");
     assert!(processor_header.contains("index < 5u ? index : uint8_t { 0 }"));
     assert!(processor_header.contains("preferredSpectrumSize { 0 }"));
+    assert!(processor_header.contains("preferredEditorSize { (300u << 16u) | 200u }"));
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     let observatory_editor = read_repo("juce_shell/src/PluginEditorObservatory.cpp");
@@ -442,11 +443,14 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(editor.contains("processorRef.pollAbsoluteBatch"));
     assert!(editor.contains("observatorySizeIndex + 1u"));
     assert!(editor.contains("ui::spectrumSizePresets[observatorySizeIndex]"));
-    assert!(editor.contains(
-        "const auto launchPreset = hypha::observatory::sizePresets[observatorySizeIndex]"
-    ));
     assert!(editor.contains("setSize (preset.width, preset.height)"));
-    assert!(!editor.contains("setResizable (true"));
+    assert!(editor.contains("setResizable (true, false)"));
+    assert!(editor.contains("setResizeLimits (300, 200, 900, 600)"));
+    assert!(editor.contains("setFixedAspectRatio (1.5)"));
+    assert!(editor.contains("displayViewport (getWidth(), getHeight())"));
+    assert!(observatory_editor.contains("observatoryEditorSizePreference"));
+    assert!(observatory_editor
+        .contains("setSize (restoredEditorSize.width, restoredEditorSize.height)"));
 
     let ui_contract = read_repo("juce_shell/src/HyphaSpectrumUiContract.h");
     for fixed_size in [
@@ -463,10 +467,9 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     }
 
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
-    assert!(
-        !processor.contains("spectrum_size"),
-        "editor size must not enter DAW/plugin state"
-    );
+    assert!(processor.contains("setObservatoryEditorSizePreference"));
+    assert!(processor.contains("editorSizeFromState"));
+    assert!(processor.contains("packEditorSize"));
 
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     let post_only_branch = slice_between(

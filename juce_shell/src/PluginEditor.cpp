@@ -110,6 +110,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     tooltip.setLookAndFeel (&tooltipLookAndFeel);
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
+    addAndMakeVisible (scaleRoot);
     observatorySizeIndex = juce::jmin (
         (size_t) processorRef.spectrumSizePreference(),
         hypha::observatory::sizePresets.size() - 1u);
@@ -121,8 +122,21 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         processorRef.observatoryTargetPreference()));
     observatoryView.setTimeRange (hypha::observatory::timeRangeFromState (
         processorRef.observatoryTimeRangePreference()));
-    const auto initialPreset = hypha::observatory::sizePresets[observatorySizeIndex];
-    setSize (initialPreset.width, initialPreset.height);
+    setResizable (true, false);
+    setResizeLimits (300, 200, 900, 600);
+    if (auto* constrainer = getConstrainer())
+        constrainer->setFixedAspectRatio (1.5);
+    const auto storedEditorSize = hypha::observatory::unpackEditorSize (
+        processorRef.observatoryEditorSizePreference());
+    auto initialWidth = storedEditorSize.width;
+    auto initialHeight = storedEditorSize.height;
+    if (! hypha::observatory::validEditorSize (initialWidth, initialHeight))
+    {
+        const auto fallback = hypha::observatory::sizePresets[observatorySizeIndex];
+        initialWidth = fallback.width;
+        initialHeight = fallback.height;
+    }
+    setSize (initialWidth, initialHeight);
     observatoryView.onDomainChange = [this] (hypha::observatory::Domain domain)
     {
         setObservatoryDomain (domain);
@@ -156,11 +170,11 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
             showToast ("Meter Session could not be reset");
     };
     observatoryView.onCapture = [this] { beginObservatoryCapture(); };
-    addAndMakeVisible (observatoryView);
+    scaleRoot.addAndMakeVisible (observatoryView);
 
-    addAndMakeVisible (led);
+    scaleRoot.addAndMakeVisible (led);
     for (auto& c : cells)
-        addAndMakeVisible (c);
+        scaleRoot.addAndMakeVisible (c);
     loudnessSelector.setShortTerm (processorRef.useShortTermLoudness());
     loudnessSelector.onChange = [this] (bool shortTerm)
     {
@@ -174,9 +188,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         loudnessSelector.setShortTerm (shortTerm);
         observatoryView.setShortTermLoudness (shortTerm);
     };
-    addAndMakeVisible (loudnessSelector);
+    scaleRoot.addAndMakeVisible (loudnessSelector);
 
-    addAndMakeVisible (nameField);
+    scaleRoot.addAndMakeVisible (nameField);
     nameField.onCommit = [this] (const juce::String& n)
     {
         if (isPost)
@@ -191,7 +205,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     pairStatusLabel.setFont (hypha::monoFont (ui::pairStatusFontHeight));
     pairStatusLabel.setJustificationType (juce::Justification::centredRight);
     pairStatusLabel.setInterceptsMouseClicks (true, false);
-    addAndMakeVisible (pairStatusLabel);
+    scaleRoot.addAndMakeVisible (pairStatusLabel);
 
     if (isPost)
     {
@@ -202,7 +216,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setModelName (processorRef.pairName());
 
         postControls = std::make_unique<hypha::PostControls>();
-        addAndMakeVisible (*postControls);
+        scaleRoot.addAndMakeVisible (*postControls);
         postControls->onKeep = [this] {
             if (processorRef.keepPair()) return;
             const juce::String notice = processorRef.drainKeepActionNotice();
@@ -229,7 +243,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
         pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);
         pairDropdown.onClick = [this] { showCandidateMenu(); };
-        addAndMakeVisible (pairDropdown);
+        scaleRoot.addAndMakeVisible (pairDropdown);
 
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         observatorySizeIndex = juce::jmin (
@@ -245,7 +259,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
             setAnalysisPage (analysisPage == AnalysisPage::meters
                                ? AnalysisPage::attack : AnalysisPage::meters);
         };
-        addAndMakeVisible (spectrumToggle);
+        scaleRoot.addAndMakeVisible (spectrumToggle);
         timePageNavigation.onPageChange = [this] (AnalysisPage page)
         {
             if (observatoryDomain == hypha::observatory::Domain::time)
@@ -267,12 +281,12 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
             return processorRef.setSpectrumChannelMode (channelMode);
         };
         updateSpectrumSizeControl();
-        addChildComponent (timePageNavigation);
-        addChildComponent (spectrumSizeToggle);
-        addChildComponent (spectrumView);
-        addChildComponent (perceptualView);
-        addChildComponent (absoluteView);
-        addChildComponent (attackInternalView);
+        scaleRoot.addChildComponent (timePageNavigation);
+        scaleRoot.addChildComponent (spectrumSizeToggle);
+        scaleRoot.addChildComponent (spectrumView);
+        scaleRoot.addChildComponent (perceptualView);
+        scaleRoot.addChildComponent (absoluteView);
+        scaleRoot.addChildComponent (attackInternalView);
        #endif
     }
     else
@@ -290,7 +304,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     feedbackLabel.setJustificationType (juce::Justification::centredLeft);
     feedbackLabel.setMinimumHorizontalScale (1.0f);
     feedbackLabel.setInterceptsMouseClicks (false, false);
-    addChildComponent (feedbackLabel);
+    scaleRoot.addChildComponent (feedbackLabel);
 
     guideConnectButton.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
     guideConnectButton.setColour (juce::TextButton::buttonOnColourId, hypha::kFieldFill);
@@ -301,7 +315,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         if (! processorRef.acceptPreDisplayConnection())
             showToast ("Connection request is no longer available");
     };
-    addChildComponent (guideConnectButton);
+    scaleRoot.addChildComponent (guideConnectButton);
 
     configureForKind (Kind::WatchAbs6); // retained display compatibility; Observatory owns chrome
     for (auto& cell : cells)
@@ -312,8 +326,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         postControls->setVisible (false);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumToggle.setVisible (false);
-    const auto launchPreset = hypha::observatory::sizePresets[observatorySizeIndex];
-    setSize (launchPreset.width, launchPreset.height);
    #endif
     setObservatoryDomain (observatoryDomain);
     resized();
@@ -335,6 +347,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    commitEditorSizeStateIfSettled (true);
     tooltip.setLookAndFeel (nullptr);
     if (isPost)
     {
@@ -381,7 +394,24 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
 
 void KirinHyphaEditor::resized()
 {
-    observatoryView.setBounds (getLocalBounds());
+    size_t nearestPreset = 0u;
+    for (size_t index = 0u; index < hypha::observatory::sizePresets.size(); ++index)
+        if (getWidth() >= hypha::observatory::sizePresets[index].width)
+            nearestPreset = index;
+    observatorySizeIndex = nearestPreset;
+    processorRef.setSpectrumSizePreference ((uint8_t) nearestPreset);
+    if (processorRef.setObservatoryEditorSizePreference (getWidth(), getHeight()))
+    {
+        editorSizeStateDirty = true;
+        editorSizeLastChangedAt = nowSecs();
+    }
+
+    const auto viewport = hypha::observatory::displayViewport (getWidth(), getHeight());
+    scaleRoot.setTransform (juce::AffineTransform());
+    scaleRoot.setBounds (0, 0, viewport.width, viewport.height);
+    scaleRoot.setTransform (juce::AffineTransform::scale (viewport.scale));
+    observatoryView.setDisplayedEditorSize (getWidth(), getHeight());
+    observatoryView.setBounds (scaleRoot.getLocalBounds());
     observatoryView.toBack();
     auto connection = observatoryView.connectionBounds().reduced (4, 2);
     led.setBounds (connection.removeFromLeft (10).withSizeKeepingCentre (7, 7));
@@ -773,6 +803,7 @@ void KirinHyphaEditor::handleCandidateMenu (
 
 void KirinHyphaEditor::timerCallback()
 {
+    commitEditorSizeStateIfSettled (false);
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     const auto attachment = processorRef.takeCaptureWorkAttachmentResult();
     if (attachment.state == hypha::capture::WorkAttachmentResultState::attached)
@@ -798,6 +829,16 @@ void KirinHyphaEditor::timerCallback()
     if (isPost) updatePost();
     else        updatePre();
     refreshObservatory();
+}
+
+void KirinHyphaEditor::commitEditorSizeStateIfSettled (bool force)
+{
+    constexpr double settleSeconds = 0.2;
+    if (! editorSizeStateDirty
+        || (! force && nowSecs() - editorSizeLastChangedAt < settleSeconds))
+        return;
+    editorSizeStateDirty = false;
+    processorRef.notifyObservatoryEditorSizeChanged();
 }
 
 void KirinHyphaEditor::updatePre()

@@ -75,11 +75,15 @@ void KirinHyphaEditor::refreshObservatory()
     const auto restoredSize = juce::jmin (
         (size_t) processorRef.spectrumSizePreference(),
         hypha::observatory::sizePresets.size() - 1u);
-    if (restoredSize != observatorySizeIndex)
+    const auto restoredEditorSize = hypha::observatory::unpackEditorSize (
+        processorRef.observatoryEditorSizePreference());
+    if (hypha::observatory::validEditorSize (
+            restoredEditorSize.width, restoredEditorSize.height)
+        && (restoredEditorSize.width != getWidth()
+            || restoredEditorSize.height != getHeight()))
     {
         observatorySizeIndex = restoredSize;
-        const auto preset = hypha::observatory::sizePresets[restoredSize];
-        setSize (preset.width, preset.height);
+        setSize (restoredEditorSize.width, restoredEditorSize.height);
     }
 
     KirinObservatoryFrame frame {};
