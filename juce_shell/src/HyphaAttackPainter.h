@@ -36,11 +36,11 @@ namespace hypha::attack_painter
                          const KirinAttackDetail* preDetail,
                          const KirinAttackDetail* postDetail,
                          juce::Rectangle<int>);
-    void drawMetricCard (juce::Graphics&,
+    void drawMetricFact (juce::Graphics&,
                          juce::Rectangle<int>,
                          const juce::String& title,
                          const juce::String& value,
-                         const juce::String& detail,
+                         const juce::String& context,
                          juce::Colour,
-                         bool active = true);
+                         bool alignRight);
 }

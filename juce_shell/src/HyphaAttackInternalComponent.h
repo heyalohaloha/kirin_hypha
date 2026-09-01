@@ -48,7 +48,7 @@ namespace hypha
         std::uint32_t rate = 0;
         std::uint64_t currentGeneration = 0;
         std::int64_t selectedEventSample = -1;
-        bool overlayMode = false;
+        bool overlayMode = true;
         bool followLatest = true;
 
         const KirinAttackPairEvent* selectedPairEvent() const noexcept;

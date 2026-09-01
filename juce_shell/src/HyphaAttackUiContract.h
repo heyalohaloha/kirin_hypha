@@ -13,9 +13,9 @@ namespace hypha::attack_ui
     constexpr const char* activationEnvironmentVariable = "KIRIN_HYPHA_INTERNAL_ATTACK";
     constexpr const char* activationValue = "1";
     constexpr int minimumPlotWidth = 1;
-    constexpr int headerHeight = 32;
-    constexpr int axisLabelHeight = 22;
-    constexpr int detailMetricsHeight = 74;
+    constexpr int headerHeight = 30;
+    constexpr int axisLabelHeight = 18;
+    constexpr int detailMetricsHeight = 120;
     constexpr int modeControlMaximumWidth = 112;
     constexpr float absoluteFloorDb = -72.0f;
     constexpr float strengthGlowOnDbfs = -42.0f;
@@ -35,21 +35,21 @@ namespace hypha::attack_ui
     constexpr float textureDifferenceGlowOn = 0.04f;
     constexpr float textureDifferenceGlowFull = 0.35f;
     constexpr float organismFeather = 0.12f;
-    constexpr float strengthCoreRadius = 0.38f;
-    constexpr float textureBodyRadius = 0.64f;
-    constexpr float brightnessShellRadius = 0.82f;
-    constexpr float brightnessShellHalfWidth = 0.045f;
-    constexpr float transientAuraRadius = 1.00f;
-    constexpr float transientAuraHalfWidth = 0.055f;
-    constexpr float transientAuraReach = 5.0f;
+    constexpr float strengthCoreRadius = 0.34f;
+    constexpr float textureBodyRadius = 0.62f;
+    constexpr float brightnessShellRadius = 0.84f;
+    constexpr float brightnessShellHalfWidth = 0.040f;
+    constexpr float transientAuraRadius = 1.03f;
+    constexpr float transientAuraHalfWidth = 0.050f;
+    constexpr float transientAuraReach = 7.0f;
     // A colour-vision-resilient gold/cyan family. Fixed radial bands retain each observation's
     // chroma; magnitude is carried by lightness, opacity and thickness, never by hue movement.
-    constexpr std::uint32_t waveformColour = 0xff6f93a8;
-    constexpr std::uint32_t strengthColour = 0xffd8b36f;
-    constexpr std::uint32_t brightnessColour = 0xff83c8dc;
-    constexpr std::uint32_t transientColour = 0xff76c3bb;
-    constexpr std::uint32_t textureColour = 0xffc39268;
-    constexpr std::uint32_t selectionColour = 0xffe7ddc6;
+    constexpr std::uint32_t waveformColour = 0xff789db7;
+    constexpr std::uint32_t strengthColour = 0xffefc977;
+    constexpr std::uint32_t brightnessColour = 0xffa9dcf3;
+    constexpr std::uint32_t transientColour = 0xff59d6d0;
+    constexpr std::uint32_t textureColour = 0xffdd8b54;
+    constexpr std::uint32_t selectionColour = 0xffffe6ad;
 
     constexpr int rgbChromaRange (std::uint32_t colour) noexcept
     {
@@ -79,9 +79,9 @@ namespace hypha::attack_ui
 
     constexpr int metricsHeight (int totalHeight) noexcept
     {
-        return totalHeight < 120 ? 0
-             : totalHeight >= 220 ? detailMetricsHeight
-             : totalHeight >= 140 ? 58 : 38;
+        return totalHeight >= 250 ? detailMetricsHeight
+             : totalHeight >= 190 ? 86
+             : totalHeight >= 145 ? 62 : 0;
     }
 
     constexpr int modeControlWidth (int totalWidth) noexcept

@@ -1,5 +1,6 @@
 #include "HyphaAttackPainter.h"
 
+#include <cmath>
 #include <vector>
 
 #include "HyphaAttackOrganismPainter.h"
@@ -142,6 +143,29 @@ void drawContinuousBase (juce::Graphics& g,
         g.setColour (waveformColour.withAlpha (alpha * strokeAlpha));
         g.strokePath (upper, juce::PathStrokeType (stroke));
         g.strokePath (lower, juce::PathStrokeType (stroke));
+    }
+    constexpr int fibres = 9;
+    for (int index = 1; index <= fibres; ++index)
+    {
+        const auto position = -0.80f
+                            + 1.60f * static_cast<float> (index)
+                                   / static_cast<float> (fibres + 1);
+        const auto phase = static_cast<float> (index) * 0.53f;
+        juce::Path fibre;
+        appendSmoothContour (fibre, points, centreY, [=] (const PaintedPoint& point)
+        {
+            const auto xPhase = (point.x - static_cast<float> (area.getX()))
+                              / static_cast<float> (juce::jmax (1, area.getWidth()));
+            const auto measuredMeander = std::sin ((xPhase * 2.3f + phase)
+                                                    * juce::MathConstants<float>::pi)
+                                        * point.height * 0.095f
+                                        * (1.0f - std::abs (position) * 0.45f);
+            return point.height * position + measuredMeander;
+        }, false, true);
+        g.setColour (waveformColour.withAlpha (alpha * (index % 3 == 0 ? 0.20f : 0.105f)));
+        g.strokePath (fibre, juce::PathStrokeType (index % 3 == 0 ? 0.72f : 0.46f,
+                                                   juce::PathStrokeType::curved,
+                                                   juce::PathStrokeType::rounded));
     }
 }
 }

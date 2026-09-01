@@ -13,8 +13,16 @@ SuperFluxはトランジェントの位置を決める内部検出器に限定�
 | TEXTURE | sample-edge比、Crest、peak plateau幅 | copperの連続組織。原因をSaturationとは断定しない |
 
 色や文言で良い、悪い、改善、劣化を示さない。
-六秒overviewへ四成分を同じ強さで重ねない。overviewは連続波形を背骨とし、イベントの体積と外光だけを即読できる形で残す。選択イベントは`−100 / +30 ms`のEVENT SHAPEへ拡大し、ここで四成分と四つの実測cardを同時に読む。PREまたはPOST単体でも同じ固定scaleを使い、focusの横軸を六秒overviewと混同させない。
-色を硬い境界線では区切らず、連続波形を背骨、実測attack shapeを各イベントの個体輪郭として描く。個体内部のamber体積をStrength、その周囲に連続するcopper組織の密度をTexture、外側のice表皮をBrightness、輪郭外のteal発光をTransientとする。暖色の内部二層と寒色の外部二層を分け、実測が同時に強いほど灰褐色へ収束する表示を禁止する。点、点線、短いdash、四角、三角、菱形、等間隔stripeのような記号形は使わず、実測shapeへ追従する連続曲線と連続面だけで、生き物の断面のように一体で見せる。
+六秒overviewへ四成分を同じ強さで重ねない。overviewは連続波形と、その同じ高さから生成する複数の連続繊維を背骨とし、イベント位置では実測shapeが同じ流れを膨らませる。イベント棒や独立したpinは置かない。選択イベントは`−100 / +30 ms`のEVENT SHAPEへ拡大し、ここで四成分と四つの実測値を一つの標本として同時に読む。PREまたはPOST単体でも同じ固定scaleを使い、focusの横軸を六秒overviewと混同させない。
+色を硬い境界線では区切らず、連続波形を背骨、実測attack shapeを各イベントの個体輪郭として描く。個体内部のchampagne gold体積と実測ピーク位置の非対称な核をStrength、その周囲に連続するcopper組織の密度をTexture、外側のice表皮をBrightness、輪郭外から減衰側へ伸びるtealの尾をTransientとする。核も点記号ではなく、実測shapeのピーク位置、高さ、Strength量から生成する連続体とする。暖色の内部二層と寒色の外部二層を分け、実測が同時に強いほど灰褐色へ収束する表示を禁止する。点、点線、短いdash、四角、三角、菱形、等間隔stripeのような記号形は使わず、実測shapeへ追従する連続曲線と連続面だけで、生き物の断面のように一体で見せる。
+
+数値と発光体の対応にリーダー線、引出線、折れ線を使わない。縮小時に孤立した単線や角形終端へ見えるためである。四つの事実は左右の定位置と固有色で識別し、発光体は外へ線を突き出さず、膜の内部から滑らかに黒へ溶ける。
+
+四つの数値はcardへ分断しない。標本の左右へ二つずつ定位置で置き、固有色と名称で対応する層を識別する。標本へ結ぶ線は置かない。150%未満では補助文を省略しても、値と単位を残す。選択位置はoverviewを貫く縦棒や点で示さず、流れの下端に沿う一つの連続arcで示す。
+
+EVENT SPECIMENの微細構造は、製品内へ埋め込んだ固定の高解像度emission plateを正本とする。plateは黒背景上の発光情報だけを持ち、実行時にStrength、Texture、Brightness、Transientの四領域へ分解して個別にopacityを与える。形状を音声ごとに偽造せず、測定値は発光量、到達範囲、内部線の曲率、尾の伸びへ反映する。選択eventが無い、workerが無効、または四量が発光閾値未満の時はplateも補助輪郭も描かず、下部を完全な黒にする。中心は一点光だけを許可し、その周囲へ円形のorb、ring、diskを描かない。
+
+「流れるように見える」性質は、固定された微細線の方向、連続する輝度勾配、核から尾へ向かう密度変化で作る。plate内の光点を勝手に移動させない。過去eventの選択中、transport停止中、入力不在時に呼吸、揺動、巡回光を作らない。既存の100 ms smooth-stepは六秒overviewの正本時刻補間に限定する。
 四色を同じ彩度・面積で競わせない。量は色相の移動ではなく、固定色の明度、透明度、厚みで示す。色名が読めなくても、`CORE / FIELD / SHELL / AURA`の位置、形、密度、文字で四成分を区別できるようにする。
 各色は固定物理閾値を越えた時だけ発光し、発光開始からfull値までをsmooth-stepで連続表示する。初期値はStrength `−42..−6 dBFS attack RMS`、Brightness `0.60..2.50 acum`、Transient `3..15 dB contrast`、Texture composite `0.10..0.65`。比較表示の最小差はそれぞれ`0.50 dB / 0.05 acum / 0.50 dB / 0.04`とし、曲内max、percentile、material依存normalizationを使わない。
 TEXTUREは処理器を推定しない。sample-edge比、Crest、−3 dB peak plateauの固定観測からtexture-likeな状態だけを示し、`Saturation`という原因名へ置き換えない。
@@ -62,7 +70,7 @@ W3CのUse of ColorとNon-text Contrastに従い、色を唯一の識別手段に
 初期表示は主scrubをPRE/POST二段で大きく使う。明示ボタンで、同じ全領域を使う一段の重ね表示へ切り替える。小さな別comparison plotは置かない。
 二段はPRE/POSTで同じpaletteと絶対scaleを使い、identityでは同じ形・色にする。
 重ね表示はPREを細い連続trace、POSTを連続bodyにする。離散点や点線でPREを表さない。色は絶対値を二重表示せず、Strength差を金、Brightness差をアイスブルー、Transient差をteal、Texture差をcopperの連続膜で示す。
-EVENT SHAPEは150%と200%で常設し、四つのcardを右側の二行へ置く。125%は四card、100%はoverviewへ段階的に縮退し、読めない装飾を押し込まない。
+EVENT SHAPEは150%と200%で常設し、四つの実測値を標本の左右へ配置する。125%と100%はoverviewへ段階的に縮退し、読めない標本や装飾を押し込まない。
 10 Hzの正本更新間は同じサンプル時刻を参照したまま100 msのsmooth-stepで横軸だけを補間する。transport世代変更、後方seek、無効状態では補間せず即時にsnapし、信号が止まっている間に自律的な呼吸や発光を作らない。
 見た目から楽器名、原因、推奨操作を推測しない。
 未対応event、欠測、floor-limited、Brightness pendingは輪郭または`---`で事実状態を保つ。

@@ -306,6 +306,7 @@ int main()
 
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
                            288'000, 48'000, 7, stats);
+    component.setOverlayMode (false);
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyContinuousTrace (waveform, details));
     const auto image = render (component);
     writePreview ("KIRIN_ATTACK_UI_PREVIEW_PATH", image);
@@ -322,6 +323,7 @@ int main()
     auto identityComponentStorage = std::make_unique<hypha::AttackInternalComponent>();
     auto& identityComponent = *identityComponentStorage;
     identityComponent.setSize (bounds.width, bounds.height);
+    identityComponent.setOverlayMode (false);
     identityComponent.setSnapshot (events, waveform, details, waveform, details, pairEvents,
                                    288'000, 48'000, 7, stats);
     const auto identity = render (identityComponent);
@@ -401,10 +403,9 @@ int main()
         const auto featureImage = renderFocus (feature);
         KIRIN_REQUIRE (countAreaDifferences (
             thresholdImage, featureImage, featureImage.getBounds()) > 0);
-        const auto eventShapeX = static_cast<int> (
-            74 * static_cast<std::uint32_t> (focusWidth - 1) / (feature.shape_count - 1));
+        const auto specimenCoreX = focusWidth * 43 / 100;
         const auto radius = meanDifferenceRadius (
-            thresholdImage, featureImage, eventShapeX, focusHeight / 2,
+            thresholdImage, featureImage, specimenCoreX, focusHeight / 2,
             featureImage.getBounds());
         if (visual == VisualComponent::strength)
             strengthRadius = radius;
@@ -491,7 +492,8 @@ int main()
                            288'000, 48'000, 7, stats);
     const auto warming = render (component);
     KIRIN_REQUIRE (countRuns (warming, { 0, 20, warming.getWidth(), 150 },
-                              selectionColour) == 0);
+                              selectionColour) == 0
+                   && hypha::attack_ui_test::verifyDormantSpecimenBlack (warming));
     std::cout << "ATTACK UI contract passed: split PRE/POST, scrub, factual deltas\n";
     return EXIT_SUCCESS;
 }

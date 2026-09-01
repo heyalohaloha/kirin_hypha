@@ -1,15 +1,16 @@
 #include "HyphaAttackOrganismPainter.h"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
+#include "HyphaAttackSpecimenPainter.h"
 #include "HyphaAttackUiContract.h"
 
 namespace hypha::attack_organism
 {
 namespace
 {
-const auto waveformColour = juce::Colour (attack_ui::waveformColour);
 const auto strengthColour = juce::Colour (attack_ui::strengthColour);
 const auto brightnessColour = juce::Colour (attack_ui::brightnessColour);
 const auto transientColour = juce::Colour (attack_ui::transientColour);
@@ -22,16 +23,22 @@ struct FeatureTint
     float transient = 0.0f;
     float texture = 0.0f;
 };
-struct Point { float x = 0.0f; float height = 0.0f; };
+
+struct Point
+{
+    float x = 0.0f;
+    float height = 0.0f;
+    float phase = 0.0f;
+};
+
 struct Band { float inner = 0.0f; float outer = 0.0f; };
 
-float levelHeight (float amplitude, float halfHeight)
+float shapeHeight (float amplitude, float halfHeight)
 {
-    const auto db = amplitude > 0.0f ? 20.0f * std::log10 (amplitude)
-                                     : attack_ui::absoluteFloorDb;
-    const auto normalized = juce::jlimit (
-        0.0f, 1.0f, (db - attack_ui::absoluteFloorDb) / -attack_ui::absoluteFloorDb);
-    return normalized * juce::jmax (0.0f, halfHeight - 1.0f);
+    if (! std::isfinite (amplitude) || amplitude <= 0.0f)
+        return 0.0f;
+    const auto perceptual = std::pow (juce::jlimit (0.0f, 1.0f, amplitude), 0.52f);
+    return perceptual * juce::jmax (0.0f, halfHeight - 1.0f);
 }
 
 const KirinAttackDetail* findDetail (const KirinAttackDetailBatch& batch,
@@ -117,9 +124,6 @@ std::vector<Point> collectShape (const KirinAttackDetail& detail,
     const auto span = detail.shape_end_sample - detail.shape_start_sample;
     for (std::uint32_t index = 0; index < count; ++index)
     {
-        const auto amplitude = detail.shape[index];
-        if (! std::isfinite (amplitude) || amplitude < 0.0f)
-            continue;
         const auto sample = detail.shape_start_sample
                           + static_cast<std::int64_t> (index) * span / (count - 1);
         const auto localX = focus
@@ -128,12 +132,29 @@ std::vector<Point> collectShape (const KirinAttackDetail& detail,
             : attack_ui::sampleX (sample, first, latest, area.getWidth());
         if (localX < 0)
             continue;
-        const auto xInteger = area.getX() + localX;
-        const auto height = levelHeight (amplitude, halfHeight);
-        if (! points.empty() && static_cast<int> (std::lround (points.back().x)) == xInteger)
+        const auto phase = static_cast<float> (index) / static_cast<float> (count - 1);
+        float weightedAmplitude = 0.0f;
+        float weightSum = 0.0f;
+        for (int offset = -2; offset <= 2; ++offset)
+        {
+            const auto source = static_cast<std::uint32_t> (juce::jlimit (
+                0, static_cast<int> (count - 1), static_cast<int> (index) + offset));
+            const auto amplitude = detail.shape[source];
+            if (! std::isfinite (amplitude) || amplitude < 0.0f)
+                continue;
+            const auto weight = static_cast<float> (3 - std::abs (offset));
+            weightedAmplitude += amplitude * weight;
+            weightSum += weight;
+        }
+        const auto edgeTaper = std::sqrt (juce::jlimit (
+            0.0f, 1.0f, juce::jmin (phase, 1.0f - phase) / 0.055f));
+        const auto x = area.getX() + localX;
+        const auto height = shapeHeight (
+            weightSum > 0.0f ? weightedAmplitude / weightSum : 0.0f, halfHeight) * edgeTaper;
+        if (! points.empty() && static_cast<int> (std::lround (points.back().x)) == x)
             points.back().height = juce::jmax (points.back().height, height);
         else
-            points.push_back ({ static_cast<float> (xInteger), height });
+            points.push_back ({ static_cast<float> (x), height, phase });
     }
     return points;
 }
@@ -152,16 +173,13 @@ void appendContour (juce::Path& path, const std::vector<Point>& points,
     const auto& first = pointAt (0);
     if (startNew) path.startNewSubPath (first.x, yAt (first));
     else path.lineTo (first.x, yAt (first));
-    if (points.size() == 1)
-        return;
-    const auto& second = pointAt (1);
-    path.lineTo ((first.x + second.x) * 0.5f, (yAt (first) + yAt (second)) * 0.5f);
-    for (std::size_t index = 1; index + 1 < points.size(); ++index)
+    for (std::size_t index = 1; index < points.size(); ++index)
     {
+        const auto& previous = pointAt (index - 1);
         const auto& point = pointAt (index);
-        const auto& next = pointAt (index + 1);
-        path.quadraticTo (point.x, yAt (point),
-                          (point.x + next.x) * 0.5f, (yAt (point) + yAt (next)) * 0.5f);
+        path.quadraticTo (previous.x, yAt (previous),
+                          (previous.x + point.x) * 0.5f,
+                          (yAt (previous) + yAt (point)) * 0.5f);
     }
     const auto& last = pointAt (points.size() - 1);
     path.lineTo (last.x, yAt (last));
@@ -173,8 +191,9 @@ juce::Path body (const std::vector<Point>& points, float centreY, Extent extent)
     juce::Path path;
     if (points.empty()) return path;
     appendContour (path, points, centreY,
-                   [&] (const Point& point) { return -extent (point); }, false, true);
-    appendContour (path, points, centreY, extent, true, false);
+                   [&] (const Point& point) { return -extent (point) * 0.82f; }, false, true);
+    appendContour (path, points, centreY,
+                   [&] (const Point& point) { return extent (point) * 1.06f; }, true, false);
     path.closeSubPath();
     return path;
 }
@@ -183,7 +202,7 @@ template <typename Provider>
 void featheredBand (juce::Graphics& g, const std::vector<Point>& points, float centreY,
                     Provider provider, juce::Colour colour, float density)
 {
-    constexpr int layers = 8;
+    constexpr int layers = 7;
     for (int layer = 0; layer < layers; ++layer)
     {
         const auto progress = static_cast<float> (layer) / static_cast<float> (layers - 1);
@@ -200,7 +219,7 @@ void featheredBand (juce::Graphics& g, const std::vector<Point>& points, float c
             return juce::jmax (0.0f, radial.inner
                 - (radial.outer - radial.inner) * spread);
         }));
-        g.setColour (colour.withAlpha (density * (0.020f + progress * 0.035f)));
+        g.setColour (colour.withAlpha (density * (0.018f + progress * 0.044f)));
         g.fillPath (band);
     }
 }
@@ -209,30 +228,101 @@ Band featureBand (const Point& point, float radius, float halfWidth,
                   float amount, float reach = 0.0f)
 {
     const auto eased = std::sqrt (juce::jlimit (0.0f, 1.0f, amount));
-    const auto centre = point.height * radius + reach * eased;
-    const auto width = (point.height * halfWidth + 0.35f) * eased;
+    const auto decayReach = reach * eased * point.phase * point.phase;
+    const auto centre = point.height * radius + decayReach;
+    const auto width = (point.height * halfWidth + 0.28f) * eased;
     return { juce::jmax (0.0f, centre - width), centre + width };
 }
 
 void featheredBody (juce::Graphics& g, const std::vector<Point>& points,
-                    float centreY, float amount, float bodyRadius,
+                    float centreY, float amount, float radius,
                     juce::Colour colour, float density)
 {
-    constexpr int layers = 8;
+    constexpr int layers = 7;
     for (int layer = 0; layer < layers; ++layer)
     {
         const auto progress = static_cast<float> (layer) / static_cast<float> (layers - 1);
-        const auto scale = 1.12f - progress * 0.24f;
-        const auto radius = bodyRadius
-                          * std::sqrt (juce::jlimit (0.0f, 1.0f, amount)) * scale;
-        g.setColour (colour.withAlpha (density * (0.020f + progress * 0.035f)));
-        g.fillPath (body (points, centreY,
-                          [radius] (const Point& point) { return point.height * radius; }));
+        const auto scale = (1.14f - progress * 0.25f)
+                         * std::sqrt (juce::jlimit (0.0f, 1.0f, amount));
+        g.setColour (colour.withAlpha (density * (0.018f + progress * 0.047f)));
+        g.fillPath (body (points, centreY, [=] (const Point& point)
+        {
+            return point.height * radius * scale;
+        }));
     }
 }
 
-void drawOrganism (juce::Graphics& g, const std::vector<Point>& points,
-                   juce::Rectangle<int> area, FeatureTint tint, bool fullDetail)
+void drawTextureFibres (juce::Graphics& g, const std::vector<Point>& points,
+                        float centreY, float amount)
+{
+    const auto visible = juce::jlimit (0.0f, 1.0f, amount);
+    if (visible <= 0.0f)
+        return;
+    constexpr int fibres = 11;
+    for (int index = 1; index <= fibres; ++index)
+    {
+        const auto fraction = static_cast<float> (index) / static_cast<float> (fibres + 1);
+        const auto radial = (0.12f + fraction * 0.50f) * std::sqrt (visible);
+        for (const auto sign : { -1.0f, 1.0f })
+        {
+            juce::Path fibre;
+            appendContour (fibre, points, centreY, [=] (const Point& point)
+            {
+                const auto meander = std::sin ((point.phase * 3.0f + fraction)
+                                                * juce::MathConstants<float>::pi)
+                                    * point.height * 0.025f * visible;
+                return sign * (point.height * radial + meander);
+            }, false, true);
+            g.setColour (textureColour.withAlpha (0.045f + visible * 0.13f));
+            g.strokePath (fibre, juce::PathStrokeType (index % 3 == 0 ? 0.78f : 0.48f,
+                                                       juce::PathStrokeType::curved,
+                                                       juce::PathStrokeType::rounded));
+        }
+    }
+}
+
+void drawNucleus (juce::Graphics& g, const std::vector<Point>& points,
+                  float centreY, float strength)
+{
+    if (points.empty() || strength <= 0.0f)
+        return;
+    const auto peak = std::max_element (points.begin(), points.end(), [] (const Point& left,
+                                                                          const Point& right)
+    {
+        return left.height < right.height;
+    });
+    const auto amount = std::sqrt (juce::jlimit (0.0f, 1.0f, strength));
+    const auto radiusY = juce::jmax (1.5f, peak->height * 0.31f * amount);
+    const auto radiusX = juce::jmax (2.5f, juce::jmin (20.0f, radiusY * 1.65f));
+    const auto makeLens = [&] (float scale)
+    {
+        const auto x = peak->x;
+        const auto y = centreY - radiusY * 0.05f;
+        const auto rx = radiusX * scale;
+        const auto ry = radiusY * scale;
+        juce::Path lens;
+        lens.startNewSubPath (x - rx * 0.82f, y);
+        lens.cubicTo (x - rx * 0.55f, y - ry,
+                      x + rx * 0.32f, y - ry * 0.88f,
+                      x + rx, y + ry * 0.05f);
+        lens.cubicTo (x + rx * 0.30f, y + ry,
+                      x - rx * 0.62f, y + ry * 0.78f,
+                      x - rx * 0.82f, y);
+        lens.closeSubPath();
+        return lens;
+    };
+    for (int layer = 0; layer < 7; ++layer)
+    {
+        const auto progress = static_cast<float> (layer) / 6.0f;
+        g.setColour (strengthColour.withAlpha (0.025f + progress * 0.075f));
+        g.fillPath (makeLens (1.18f - progress * 0.62f));
+    }
+    g.setColour (juce::Colour (0xffffedb0).withAlpha (0.72f * amount));
+    g.fillPath (makeLens (0.16f));
+}
+
+void paintOrganism (juce::Graphics& g, const std::vector<Point>& points,
+                    juce::Rectangle<int> area, FeatureTint tint, bool fullDetail)
 {
     if (points.size() < 2)
         return;
@@ -242,48 +332,34 @@ void drawOrganism (juce::Graphics& g, const std::vector<Point>& points,
         return featureBand (point, attack_ui::transientAuraRadius,
                             attack_ui::transientAuraHalfWidth, tint.transient,
                             attack_ui::transientAuraReach);
-    }, transientColour, 1.72f);
+    }, transientColour, fullDetail ? 1.85f : 1.22f);
     if (fullDetail)
     {
         featheredBand (g, points, centreY, [tint] (const Point& point)
         {
             return featureBand (point, attack_ui::brightnessShellRadius,
                                 attack_ui::brightnessShellHalfWidth, tint.brightness);
-        }, brightnessColour, 1.58f);
+        }, brightnessColour, 1.72f);
         featheredBody (g, points, centreY, tint.texture,
-                       attack_ui::textureBodyRadius, textureColour, 1.48f);
+                       attack_ui::textureBodyRadius, textureColour, 1.34f);
+        drawTextureFibres (g, points, centreY, tint.texture);
+    }
+    else
+    {
+        featheredBand (g, points, centreY, [tint] (const Point& point)
+        {
+            return featureBand (point, attack_ui::brightnessShellRadius,
+                                attack_ui::brightnessShellHalfWidth, tint.brightness);
+        }, brightnessColour, 0.72f);
+        featheredBody (g, points, centreY, tint.texture,
+                       attack_ui::textureBodyRadius, textureColour, 0.62f);
     }
     featheredBody (g, points, centreY, tint.strength,
-                   attack_ui::strengthCoreRadius, strengthColour, 1.65f);
+                   attack_ui::strengthCoreRadius, strengthColour, fullDetail ? 2.0f : 1.50f);
+    if (fullDetail)
+        drawNucleus (g, points, centreY, tint.strength);
 }
 
-void drawShapeBody (juce::Graphics& g, const std::vector<Point>& points,
-                    juce::Rectangle<int> area, float alpha, bool fill)
-{
-    const auto centreY = static_cast<float> (area.getCentreY());
-    const auto shape = body (points, centreY, [] (const Point& point) { return point.height; });
-    if (fill)
-    {
-        juce::ColourGradient gradient (
-            waveformColour.withAlpha (alpha * 0.035f), 0.0f,
-            static_cast<float> (area.getY()),
-            waveformColour.withAlpha (alpha * 0.035f), 0.0f,
-            static_cast<float> (area.getBottom()), false);
-        gradient.addColour (0.5, waveformColour.withAlpha (alpha * 0.11f));
-        g.setGradientFill (gradient);
-        g.fillPath (shape);
-    }
-    for (const auto sign : { -1.0f, 1.0f })
-    {
-        juce::Path contour;
-        appendContour (contour, points, centreY,
-                       [sign] (const Point& point) { return sign * point.height; }, false, true);
-        g.setColour (waveformColour.withAlpha (alpha * 0.12f));
-        g.strokePath (contour, juce::PathStrokeType (4.0f));
-        g.setColour (waveformColour.withAlpha (alpha * 0.68f));
-        g.strokePath (contour, juce::PathStrokeType (1.0f));
-    }
-}
 }
 
 void drawAbsoluteOverview (juce::Graphics& g, const KirinAttackDetailBatch& details,
@@ -293,8 +369,8 @@ void drawAbsoluteOverview (juce::Graphics& g, const KirinAttackDetailBatch& deta
     const auto count = juce::jmin (
         details.count, static_cast<std::uint32_t> (KIRIN_ATTACK_DETAIL_BATCH_CAPACITY));
     for (std::uint32_t index = 0; index < count; ++index)
-        drawOrganism (g, collectShape (details.details[index], area, first, latest, rate, false),
-                      area, absoluteTint (details.details[index]), false);
+        paintOrganism (g, collectShape (details.details[index], area, first, latest, rate, false),
+                       area, absoluteTint (details.details[index]), false);
 }
 
 void drawDifferenceOverview (juce::Graphics& g, const KirinAttackDetailBatch& preDetails,
@@ -313,8 +389,8 @@ void drawDifferenceOverview (juce::Graphics& g, const KirinAttackDetailBatch& pr
         const auto* post = pair.post_available != 0
             ? findDetail (postDetails, pair.post_event_sample) : nullptr;
         if (pre != nullptr && post != nullptr)
-            drawOrganism (g, collectShape (*post, area, first, latest, rate, false), area,
-                          differenceTint (*pre, *post), false);
+            paintOrganism (g, collectShape (*post, area, first, latest, rate, false),
+                           area, differenceTint (*pre, *post), false);
     }
 }
 
@@ -323,12 +399,8 @@ void drawFocus (juce::Graphics& g, const KirinAttackDetail* pre,
 {
     if (post == nullptr || area.getWidth() < 2 || area.getHeight() < 2)
         return;
-    const auto postPoints = collectShape (*post, area, 0, 1, post->sample_rate, true);
-    drawShapeBody (g, postPoints, area, 0.96f, true);
-    if (pre != nullptr)
-        drawShapeBody (g, collectShape (*pre, area, 0, 1, pre->sample_rate, true),
-                       area, 0.62f, false);
-    drawOrganism (g, postPoints, area, pre != nullptr ? differenceTint (*pre, *post)
-                                                       : absoluteTint (*post), true);
+    const auto tint = pre != nullptr ? differenceTint (*pre, *post) : absoluteTint (*post);
+    attack_specimen::draw (g, *post, area,
+                           { tint.strength, tint.brightness, tint.transient, tint.texture });
 }
 }
