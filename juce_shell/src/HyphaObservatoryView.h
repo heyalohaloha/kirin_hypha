@@ -5,6 +5,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "HyphaCaptureContract.h"
 #include "HyphaObservatoryContract.h"
 #include "HyphaObservatoryPresentation.h"
 #include "HyphaObservatoryWorld.h"
@@ -42,6 +43,10 @@ public:
     ExperienceFamily experienceFamily() const noexcept
     {
         return observatory::experienceFamily (currentPreset());
+    }
+    bool fullCockpit() const noexcept
+    {
+        return currentPreset().density == Density::observatory;
     }
     PresentationContract presentation() const noexcept
     {
@@ -81,13 +86,19 @@ public:
     juce::Image createCaptureImage (int pixelWidth, int pixelHeight,
                                     bool includeGuide = false,
                                     juce::String capturedAt = {},
-                                    juce::String productVersion = {}) const;
+                                    juce::String productVersion = {},
+                                    capture::DisplayMetadata metadata = {},
+                                    const std::vector<KirinMeterHistoryEntry>* historySnapshot = nullptr) const;
     juce::Rectangle<int> captureBodyBounds (int pixelWidth, int pixelHeight,
                                             bool includeGuide = false) const;
     juce::Rectangle<int> bodyBounds() const noexcept { return bodyArea; }
     juce::Rectangle<int> connectionBounds() const noexcept { return connectionArea; }
     juce::Rectangle<int> guideBounds() const noexcept { return guideArea; }
     juce::Rectangle<int> sessionBounds() const noexcept { return sessionArea; }
+    std::uint64_t captureHistoryEndpoint() const noexcept
+    {
+        return frameAvailable ? observatoryFrame.meter.observed_frames : 0u;
+    }
     bool bodyOwnedByExternalAnalysis() const noexcept
     {
         return role == Role::post && selectedDomain == Domain::frequency;
@@ -106,10 +117,10 @@ private:
     void paintHeader (juce::Graphics&, const ShellLayout&);
     void paintGuide (juce::Graphics&, const ShellLayout&);
     void paintFooter (juce::Graphics&, const ShellLayout&);
-    void paintLevel (juce::Graphics&, juce::Rectangle<int>);
+    void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
+    void paintLevelCapture (juce::Graphics&, juce::Rectangle<int>);
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
-    void paintMeasuredMycelium (juce::Graphics&, juce::Rectangle<int>);
     observatory_world::State worldState() const noexcept;
     bool currentFactsAvailable() const noexcept;
     bool cumulativeFactsAvailable() const noexcept;
@@ -134,6 +145,7 @@ private:
     bool captureFrame = false;
     juce::String captureTimestamp;
     juce::String captureVersion;
+    capture::DisplayMetadata captureMetadata;
     std::vector<KirinMeterHistoryEntry> history;
     juce::Rectangle<int> bodyArea;
     juce::Rectangle<int> connectionArea;
@@ -147,6 +159,7 @@ private:
     Button spaceButton { "SPACE", true };
     Button domainCycleButton { {}, true };
     Button targetButton { {}, false };
+    Button deltaButton { hypha::delta(), false };
     Button timeRangeButton { {}, false };
     Button compactLoudnessButton { {}, false };
     Button compactRangeButton { {}, false };

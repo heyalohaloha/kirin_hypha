@@ -35,11 +35,16 @@ class Backdrop
 public:
     Backdrop();
     void draw (juce::Graphics&, juce::Rectangle<int>, const State&) const;
+    void drawLevelCorners (juce::Graphics&, juce::Rectangle<int>, const State&) const;
     void drawHyphaSpecimen (juce::Graphics&, juce::Rectangle<int>, const State&) const;
-    bool isValid() const noexcept { return image.isValid() && hyphaSpecimen.isValid(); }
+    bool isValid() const noexcept
+    {
+        return image.isValid() && levelCorners.isValid() && hyphaSpecimen.isValid();
+    }
 
 private:
     juce::Image image;
+    juce::Image levelCorners;
     juce::Image hyphaSpecimen;
 };
 

@@ -102,6 +102,22 @@ void KirinHyphaEditor::refreshObservatory()
         if (historyReady)
             observatoryView.setHistory (std::move (history));
     }
+    else if (observatoryDomain == hypha::observatory::Domain::level
+             && observatoryView.fullCockpit())
+    {
+        std::vector<KirinMeterHistoryEntry> history;
+        constexpr size_t maximumEntries = 600;
+        const auto maximumOutput = static_cast<size_t> (
+            juce::jlimit (128, 600, observatoryView.bodyBounds().getWidth() * 2));
+        const auto historyReady = observatoryView.target()
+            == hypha::observatory::ObservationTarget::absolute
+            ? processorRef.pollMeterHistory (KIRIN_METER_HISTORY_10_HZ, history,
+                                             maximumEntries, maximumOutput)
+            : processorRef.pollMeterDeltaHistory (KIRIN_METER_HISTORY_10_HZ, history,
+                                                  maximumEntries, maximumOutput);
+        if (historyReady)
+            observatoryView.setHistory (std::move (history));
+    }
 
     observatoryView.setConnection (observatoryPairText (isPost, pairStatus),
                                    observatoryPairColour (isPost, pairStatus),

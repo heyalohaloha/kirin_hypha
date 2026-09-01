@@ -188,7 +188,7 @@ PREはpair側の測定sensorであり、POSTと同じ機能数を無理に持た
 
 | Domain | Default surface | Existing capability absorbed | Optional subview |
 |---|---|---|---|
-| LEVEL | M、S、I、recent TP、MaxTP、LRA、PLR、L/R meter | 現行Watch、Record、LIVEの現在値 | session facts |
+| LEVEL | M、S、I、recent TP、MaxTP、LRA、PLR、Crest、L/R meter | 現行Watch、Record、LIVEの現在値 | session facts |
 | TIME | M、S、TPの履歴 | LIVE timeline、SHARP timeline、ATTACK event timeline | LOUDNESS、SHARP、ATTACK |
 | FREQ | Spectrum | 現行FREQのPRE、POST、Δ、LR、MID、SIDE、probe、MARK、Focus Trail | SPECTRUM |
 | SPACE | correlation、L/R balance、goniometer density | なし | FIELD |
@@ -360,8 +360,8 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 |---|---|---|
 | 300×200 | 選択domainの主値、role、pair、POST/Δ、Session state | MまたはS、TP、Crest、name、pair state |
 | 375×250 | Compact内容、補助値、domain switch | Compact内容、I/O state、接続context |
-| 450×300 | 選択domainの主visual、軸、session facts | Standard内容、測定stateの詳細 |
-| 600×400 | Concept Cのfull cockpit、主visualと補助値、Capture | POSTと共通のshell、広い数値面、接続context |
+| 450×300 | 世界背景を抑えた主visual、軸、session facts | Standard内容、測定stateの詳細 |
+| 600×400 | Concept Cのfull cockpit、M/S/I、TP/MaxTP/LRA/PLR/Crest、60秒History、左右TP、POST/Δ、Capture | POSTと共通のshell、広い数値面、接続context |
 
 小さい画面で情報を単純に縮小しない。
 
@@ -413,13 +413,19 @@ Captureは利用者の明示操作で現在の測定snapshotを画像に保存�
 
 出力presetは1200×630、1080×1080、1080×1350とする。
 
-画像には製品名、POSTまたはΔ、主要値、Session elapsed、capture時刻、Hypha versionを含める。
+画像には製品名、POSTまたはΔ、主要値と単位、ABS/Δ、Session elapsed、測定標準、capture時刻、Hypha versionを含める。
 
-プロジェクト名、ファイルpath、instance ID、UUIDは既定で含めない。
+PRE名、POST名、プロジェクト名、OS Guideは項目ごとの明示opt-inとし、既定で含めない。
 
-プロジェクト名を含める場合は明示opt-inにする。
+PRE名は利用者が設定したpair表示名、POST名はホストが明示提供したtrack表示名、プロジェクト名は利用者が接続を承認したKirin OS Work表示名だけを候補にする。
 
-画像は表示中のUIを拡大せず、同じimmutable snapshotから専用layoutで描く。
+表示名を取得できない項目は選択不可とし、ファイルpath、UUID、work ID、内部instance IDで代替しない。
+
+画像は表示中のUIを拡大せず、shellとATTACK、SHARPNESS、FREQ、LIVEを含む表示中の観測面を一回の同期read boundaryで固定し、同じimmutable snapshotから専用layoutで描く。
+
+LEVELのObservation Plateは主値、補助値、channel stripに加え、Capture操作時に固定した直近60秒のM/S Historyを含める。
+
+60秒Historyは600×400のLEVELとLEVEL保存構図だけに置き、TIMEのrange切替や全機能は重複させない。SpectrumはLEVELへ重複搭載せずFREQを正規入口にする。
 
 保存とPNG encodeは非Audio Threadで行う。
 

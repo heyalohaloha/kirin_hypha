@@ -44,7 +44,7 @@ View::View (Role roleIn) : role (roleIn)
 {
     setOpaque (true);
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
-                          &domainCycleButton, &targetButton, &timeRangeButton,
+                          &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton,
                           &compactLoudnessButton, &compactRangeButton,
                           &sizeButton, &resetButton, &captureButton })
     {
@@ -58,9 +58,18 @@ View::View (Role roleIn) : role (roleIn)
     domainCycleButton.onClick = [this] { cycleDomain(); };
     targetButton.onClick = [this]
     {
+        if (currentPreset().density == Density::observatory)
+        {
+            if (onTargetChange) onTargetChange (ObservationTarget::absolute);
+            return;
+        }
         const auto next = selectedTarget == ObservationTarget::absolute
             ? ObservationTarget::delta : ObservationTarget::absolute;
         if (onTargetChange) onTargetChange (next);
+    };
+    deltaButton.onClick = [this]
+    {
+        if (onTargetChange) onTargetChange (ObservationTarget::delta);
     };
     timeRangeButton.onClick = [this] { cycleTimeRange(); };
     compactLoudnessButton.onClick = [this]
@@ -168,7 +177,8 @@ void View::clearGuide()
 void View::setHistory (std::vector<KirinMeterHistoryEntry> entries)
 {
     history = std::move (entries);
-    if (selectedDomain == Domain::time)
+    if (selectedDomain == Domain::time
+        || (selectedDomain == Domain::level && fullCockpit()))
         repaint (bodyArea);
 }
 
@@ -220,9 +230,18 @@ void View::updateControls()
     spaceButton.setToggleState (selectedDomain == Domain::space, juce::dontSendNotification);
     domainCycleButton.setToggleState (true, juce::dontSendNotification);
     domainCycleButton.setButtonText (domainName (selectedDomain));
-    targetButton.setButtonText (target() == ObservationTarget::absolute ? "POST" : hypha::delta());
-    targetButton.setToggleState (target() == ObservationTarget::delta, juce::dontSendNotification);
+    const bool fullCockpit = currentPreset().density == Density::observatory;
+    targetButton.setButtonText (
+        fullCockpit ? "POST"
+                    : target() == ObservationTarget::absolute ? "POST" : hypha::delta());
+    targetButton.setToggleState (
+        fullCockpit ? target() == ObservationTarget::absolute
+                    : target() == ObservationTarget::delta,
+        juce::dontSendNotification);
     targetButton.setEnabled (selectedDomain != Domain::space);
+    deltaButton.setToggleState (target() == ObservationTarget::delta,
+                                juce::dontSendNotification);
+    deltaButton.setEnabled (selectedDomain != Domain::space);
     timeRangeButton.setButtonText (historyRequest().label);
     compactLoudnessButton.setButtonText (
         selectedShortTermLoudness ? "LOUDNESS S" : "LOUDNESS M");
@@ -241,6 +260,9 @@ void View::resized()
     connectionArea = toJuce (layout.connectionStatus);
     guideArea = toJuce (layout.guideRail);
     sessionArea = toJuce (layout.session);
+    updateControls();
+    if (captureFrame)
+        sessionArea.setRight (toJuce (layout.footer).getRight());
     const auto contract = presentationContract (preset);
     const auto compact = contract.family == ExperienceFamily::compactMeter;
     const auto singleDomainControl = ! contract.domainTabs;
@@ -265,8 +287,21 @@ void View::resized()
         spaceButton.setBounds (remaining);
     }
 
+    const bool splitTargets = role == Role::post
+                           && preset.density == Density::observatory;
     targetButton.setVisible (role == Role::post);
-    targetButton.setBounds (toJuce (layout.observationTarget).reduced (0, 2));
+    deltaButton.setVisible (splitTargets);
+    auto targetArea = toJuce (layout.observationTarget);
+    if (splitTargets)
+    {
+        targetButton.setBounds (
+            targetArea.removeFromLeft (juce::roundToInt (targetArea.getWidth() * 0.62f))
+                      .reduced (0, 2));
+        targetArea.removeFromLeft (4);
+        deltaButton.setBounds (targetArea.reduced (0, 2));
+    }
+    else
+        targetButton.setBounds (targetArea.reduced (0, 2));
     timeRangeButton.setVisible (selectedDomain == Domain::time && contract.detailedAxes);
     if (timeRangeButton.isVisible())
     {
@@ -298,7 +333,7 @@ void View::resized()
         sizeButton.setBounds (sessionArea.removeFromRight (sizeWidth).reduced (1, 2));
     }
     const auto actions = toJuce (layout.actions);
-    const bool full = preset.density == Density::observatory && role == Role::post;
+    const bool full = captureEntryAvailable (role, preset);
     resetButton.setVisible (! captureFrame);
     captureButton.setVisible (full && ! captureFrame);
     if (full && ! captureFrame)
@@ -330,9 +365,9 @@ void View::paint (juce::Graphics& g)
     }
     paintHeader (g, layout);
     paintGuide (g, layout);
-    if (selectedDomain == Domain::level && contract.domainWorld)
-        paintMeasuredMycelium (g, bodyArea);
-    if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
+    if (selectedDomain == Domain::level && (captureFrame || fullCockpit()))
+        paintLevelCapture (g, bodyArea);
+    else if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
     else if (selectedDomain == Domain::time) paintTime (g, bodyArea);
     else if (selectedDomain == Domain::space)
         space_field::paint (g, bodyArea, observatoryFrame.meter,
@@ -395,7 +430,7 @@ void View::paintGuide (juce::Graphics& g, const ShellLayout& layout)
 void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
 {
     drawPanel (g, toJuce (layout.footer), experienceFamily(), 4.0f);
-    const auto session = sessionArea.reduced (6, 0);
+    auto session = sessionArea.reduced (6, 0);
     const auto& meter = observatoryFrame.meter;
     const auto state = ! frameAvailable ? juce::String ("SESSION —")
                      : meter.state == KIRIN_METER_SESSION_EMPTY ? juce::String ("READY  ")
@@ -407,17 +442,31 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     const auto seconds = frameAvailable && meter.sample_rate > 0
         ? static_cast<double> (meter.active_frames) / static_cast<double> (meter.sample_rate) : 0.0;
     g.setColour (frameAvailable ? COL_MUTED.brighter (0.25f) : COL_MUTED);
-    g.setFont (monoFont (currentPreset().density == Density::compact ? 8.5f : 10.5f));
-    auto captureFacts = juce::String();
-    if (captureFrame)
+    if (! captureFrame)
     {
-        captureFacts = "  |  " + captureTimestamp;
-        if (captureVersion.isNotEmpty())
-            captureFacts += "  |  v" + captureVersion;
-        captureFacts += "  |  ITU-R BS.1770";
+        g.setFont (monoFont (currentPreset().density == Density::compact ? 8.5f : 10.5f));
+        g.drawText (state + juce::String (seconds, 1) + " S", session,
+                    juce::Justification::centred);
+        return;
     }
-    g.drawText (state + juce::String (seconds, 1) + " S" + captureFacts, session,
-                juce::Justification::centred);
+
+    auto upper = session.removeFromTop (session.getHeight() / 2);
+    auto lower = session;
+    auto provenance = captureTimestamp;
+    if (captureVersion.isNotEmpty())
+        provenance += "  |  v" + captureVersion;
+    g.setFont (monoFont (8.0f));
+    auto statusArea = upper.removeFromLeft (juce::roundToInt (upper.getWidth() * 0.55f));
+    g.drawFittedText (state + juce::String (seconds, 1) + " S  |  ITU-R BS.1770",
+                      statusArea, juce::Justification::centredLeft, 1, 0.78f);
+    g.drawFittedText (provenance, upper, juce::Justification::centredRight, 1, 0.72f);
+    const auto metadata = captureMetadata.footerLine();
+    if (metadata.isNotEmpty())
+    {
+        g.setColour (COL_FLORA.withAlpha (0.82f));
+        g.setFont (monoFont (7.5f));
+        g.drawFittedText (metadata, lower, juce::Justification::centredLeft, 1, 0.70f);
+    }
 }
 
 void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)

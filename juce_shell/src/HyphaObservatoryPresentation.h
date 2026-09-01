@@ -48,22 +48,28 @@ constexpr ExperienceFamily experienceFamily (SizePreset preset) noexcept
 constexpr PresentationContract presentationContract (SizePreset preset) noexcept
 {
     const auto family = experienceFamily (preset);
-    const bool full = family == ExperienceFamily::observatory;
+    const bool detailed = family == ExperienceFamily::observatory;
+    const bool full = preset.density == Density::observatory;
     return {
         family,
         full,
         full,
         ! full,
-        full,
-        full,
-        full,
-        full ? 0u : 3u,
+        detailed,
+        detailed,
+        detailed,
+        detailed ? 0u : 3u,
     };
 }
 
 constexpr bool isCompactMeter (SizePreset preset) noexcept
 {
     return experienceFamily (preset) == ExperienceFamily::compactMeter;
+}
+
+constexpr bool captureEntryAvailable (Role role, SizePreset preset) noexcept
+{
+    return role == Role::post && preset.density == Density::observatory;
 }
 
 static_assert (experienceFamily (sizePresets[0]) == ExperienceFamily::compactMeter);
@@ -76,7 +82,14 @@ static_assert (presentationContract (sizePresets[1]).maximumNumericFacts == 3u);
 static_assert (presentationContract (sizePresets[2]).maximumNumericFacts == 0u);
 static_assert (! presentationContract (sizePresets[0]).worldBackdrop);
 static_assert (presentationContract (sizePresets[0]).hyphaAperture);
+static_assert (! presentationContract (sizePresets[2]).worldBackdrop);
+static_assert (presentationContract (sizePresets[2]).hyphaAperture);
 static_assert (presentationContract (sizePresets[3]).worldBackdrop);
 static_assert (presentationContract (sizePresets[3]).domainWorld);
 static_assert (! presentationContract (sizePresets[3]).hyphaAperture);
+static_assert (! captureEntryAvailable (Role::post, sizePresets[0]));
+static_assert (! captureEntryAvailable (Role::post, sizePresets[1]));
+static_assert (! captureEntryAvailable (Role::post, sizePresets[2]));
+static_assert (captureEntryAvailable (Role::post, sizePresets[3]));
+static_assert (! captureEntryAvailable (Role::pre, sizePresets[3]));
 }

@@ -1,6 +1,7 @@
 #include "ObservatoryViewContractTest.h"
 
 #include "../src/HyphaObservatoryView.h"
+#include "../src/HyphaCaptureHistoryPainter.h"
 #include "../src/HyphaSpectrumComponent.h"
 
 #include <cmath>
@@ -264,6 +265,19 @@ void verifyObservatoryViewContract()
     }
     KIRIN_OBSERVATORY_REQUIRE (
         differentPixels (specimenBlank, specimenImage) > 2'000);
+    juce::Image levelCornersImage (juce::Image::ARGB, 580, 112, true);
+    levelCornersImage.clear (levelCornersImage.getBounds(), BG);
+    const auto levelCornersBlank = levelCornersImage.createCopy();
+    {
+        juce::Graphics graphics (levelCornersImage);
+        observatory_world::State state;
+        state.domain = observatory::Domain::level;
+        state.density = observatory::Density::observatory;
+        state.active = true;
+        backdrop.drawLevelCorners (graphics, levelCornersImage.getBounds(), state);
+    }
+    KIRIN_OBSERVATORY_REQUIRE (
+        differentPixels (levelCornersBlank, levelCornersImage) > 2'000);
     const auto wideCrop = observatory_world::aspectFillSourceBounds (1536, 1024, 1200, 630);
     KIRIN_OBSERVATORY_REQUIRE (std::abs (wideCrop.getWidth() - 1536.0f) < 0.01f);
     KIRIN_OBSERVATORY_REQUIRE (std::abs (wideCrop.getHeight() - 806.4f) < 0.1f);
@@ -434,6 +448,64 @@ void verifyObservatoryViewContract()
     const auto changedMetadata = post.createCaptureImage (
         1'200, 630, false, "2026-09-02 12:34:56", "9.8.7");
     KIRIN_OBSERVATORY_REQUIRE (differentPixels (defaultPrivate, changedMetadata) > 100);
+    const capture::DisplayMetadata unsafeNames {
+        "  Drum PRE\n01  ", "Track\tPOST", "  Album\r\nProject  "
+    };
+    const auto normalizedNames = unsafeNames.normalized();
+    KIRIN_OBSERVATORY_REQUIRE (normalizedNames.preName == "Drum PRE 01");
+    KIRIN_OBSERVATORY_REQUIRE (normalizedNames.postName == "Track POST");
+    KIRIN_OBSERVATORY_REQUIRE (normalizedNames.projectName == "Album Project");
+    const capture::PrivacyOptions privateNames;
+    KIRIN_OBSERVATORY_REQUIRE (
+        unsafeNames.applying (privateNames).footerLine().isEmpty());
+    auto preOnly = privateNames;
+    preOnly.includePreName = true;
+    KIRIN_OBSERVATORY_REQUIRE (
+        unsafeNames.applying (preOnly).footerLine() == "PRE  Drum PRE 01");
+    auto allNames = preOnly;
+    allNames.includePostName = true;
+    allNames.includeProjectName = true;
+    const auto namedCapture = post.createCaptureImage (
+        1'200, 630, false, "2026-09-01 00:00:00", "0.1.0",
+        unsafeNames.applying (allNames));
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (defaultPrivate, namedCapture) > 100);
+    capture::Snapshot frozen;
+    frozen.image = namedCapture;
+    frozen.capturedAt = "2026-09-01 00:00:00";
+    frozen.filenameStamp = "20260901-000000";
+    frozen.pixelWidth = 1'200;
+    frozen.pixelHeight = 630;
+    KIRIN_OBSERVATORY_REQUIRE (frozen.complete());
+    post.setDomain (observatory::Domain::level);
+    const std::vector<KirinMeterHistoryEntry> emptyHistory;
+    const auto emptySignature = post.createCaptureImage (
+        1'200, 630, false, "2026-09-01 00:00:00", "0.1.0", {}, &emptyHistory);
+    const auto measuredSignature = post.createCaptureImage (
+        1'200, 630, false, "2026-09-01 00:00:00", "0.1.0", {}, &history);
+    KIRIN_OBSERVATORY_REQUIRE (
+        differentPixels (emptySignature, measuredSignature) > 500);
+    auto boundedHistory = history;
+    auto future = boundedHistory.back();
+    future.last_observed_frames = post.captureHistoryEndpoint() + 1u;
+    boundedHistory.push_back (future);
+    capture_history::retainThrough (boundedHistory, post.captureHistoryEndpoint());
+    KIRIN_OBSERVATORY_REQUIRE (boundedHistory.size() == history.size());
+    capture_history::retainThrough (boundedHistory, 0u);
+    KIRIN_OBSERVATORY_REQUIRE (boundedHistory.empty());
+    auto deltaHistory = history;
+    for (size_t index = 0; index < deltaHistory.size(); ++index)
+    {
+        const auto value = std::sin ((double) index * 0.115) * 3.0;
+        deltaHistory[index].lufs_m = { value - 0.2, value + 0.2, value };
+        deltaHistory[index].lufs_s = { value * 0.6 - 0.1,
+                                       value * 0.6 + 0.1, value * 0.6 };
+    }
+    post.setTarget (observatory::ObservationTarget::delta);
+    const auto deltaSignature = post.createCaptureImage (
+        1'200, 630, false, "2026-09-01 00:00:00", "0.1.0", {}, &deltaHistory);
+    KIRIN_OBSERVATORY_REQUIRE (
+        differentPixels (measuredSignature, deltaSignature) > 500);
+    post.setTarget (observatory::ObservationTarget::absolute);
     const auto previewDirectory = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_HYPHA_OBSERVATORY_PREVIEW_DIR", {});
     if (previewDirectory.isNotEmpty())
@@ -493,8 +565,21 @@ void verifyObservatoryViewContract()
         writePreview (directory, "post-level-inactive-600x400.png", render (post));
         post.setObservatoryFrame (activeFrame(), true);
         writePreview (directory, "capture-level-1200x630.png",
-                      post.createCaptureImage (1'200, 630, false,
-                                               "2026-09-01 00:00:00", "0.1.0"));
+                      post.createCaptureImage (
+                          1'200, 630, false, "2026-09-01 00:00:00", "0.1.0",
+                          {}, &history));
+        writePreview (directory, "capture-level-named-1200x630.png",
+                      post.createCaptureImage (
+                          1'200, 630, false, "2026-09-01 00:00:00", "0.1.0",
+                          unsafeNames.applying (allNames), &history));
+        writePreview (directory, "capture-level-1080x1080.png",
+                      post.createCaptureImage (
+                          1'080, 1'080, false, "2026-09-01 00:00:00", "0.1.0",
+                          {}, &history));
+        writePreview (directory, "capture-level-1080x1350.png",
+                      post.createCaptureImage (
+                          1'080, 1'350, false, "2026-09-01 00:00:00", "0.1.0",
+                          {}, &history));
     }
 }
 }

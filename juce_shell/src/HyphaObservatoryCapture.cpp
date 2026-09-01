@@ -30,7 +30,9 @@ juce::Rectangle<int> scaled (Rect rect)
 juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
                                       bool includeGuide,
                                       juce::String capturedAt,
-                                      juce::String productVersion) const
+                                      juce::String productVersion,
+                                      capture::DisplayMetadata metadata,
+                                      const std::vector<KirinMeterHistoryEntry>* historySnapshot) const
 {
     const auto preset = capturePreset (pixelWidth, pixelHeight);
     View frame (role);
@@ -52,12 +54,13 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
         frame.guideDetail = guideDetail;
         frame.guideEmphasized = guideEmphasized;
     }
-    frame.history = history;
+    frame.history = historySnapshot != nullptr ? *historySnapshot : history;
     frame.captureFrame = true;
     frame.captureTimestamp = capturedAt.isNotEmpty()
         ? std::move (capturedAt)
         : juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H:%M:%S");
     frame.captureVersion = std::move (productVersion);
+    frame.captureMetadata = metadata.normalized();
     frame.onCapture = [] {};
     frame.updateControls();
     frame.setSize (preset.width, preset.height);

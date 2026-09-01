@@ -1,5 +1,7 @@
 #include "PluginEditor.h"
 
+#include "HyphaCaptureHistoryPainter.h"
+
 namespace
 {
 const char* captureDomainName (hypha::observatory::Domain domain)
@@ -17,6 +19,7 @@ const char* captureDomainName (hypha::observatory::Domain domain)
 
 void KirinHyphaEditor::beginObservatoryCapture()
 {
+    const auto metadata = availableCaptureMetadata().normalized();
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader ("Capture format");
@@ -24,7 +27,14 @@ void KirinHyphaEditor::beginObservatoryCapture()
     menu.addItem (2, "1080 x 1080  Square");
     menu.addItem (3, "1080 x 1350  Portrait");
     menu.addSeparator();
-    menu.addItem (10, "Include OS Guide", true, captureIncludeGuide);
+    menu.addSectionHeader ("Privacy - private by default");
+    menu.addItem (10, "Include OS Guide", true, capturePrivacy.includeGuide);
+    menu.addItem (11, "Include PRE name", metadata.preName.isNotEmpty(),
+                  capturePrivacy.includePreName);
+    menu.addItem (12, "Include POST name", metadata.postName.isNotEmpty(),
+                  capturePrivacy.includePostName);
+    menu.addItem (13, "Include project name", metadata.projectName.isNotEmpty(),
+                  capturePrivacy.includeProjectName);
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (&observatoryView)
         .withDeletionCheck (*this)
@@ -39,21 +49,80 @@ void KirinHyphaEditor::beginObservatoryCapture()
         else if (result == 3) safeThis->chooseObservatoryCapture (1'080, 1'350);
         else if (result == 10)
         {
-            safeThis->captureIncludeGuide = ! safeThis->captureIncludeGuide;
-            safeThis->showToast (safeThis->captureIncludeGuide
+            safeThis->capturePrivacy.includeGuide = ! safeThis->capturePrivacy.includeGuide;
+            safeThis->showToast (safeThis->capturePrivacy.includeGuide
                 ? "OS Guide will be included" : "OS Guide will stay private");
+        }
+        else if (result == 11)
+        {
+            safeThis->capturePrivacy.includePreName =
+                ! safeThis->capturePrivacy.includePreName;
+            safeThis->showToast (safeThis->capturePrivacy.includePreName
+                ? "PRE name will be included" : "PRE name will stay private");
+        }
+        else if (result == 12)
+        {
+            safeThis->capturePrivacy.includePostName =
+                ! safeThis->capturePrivacy.includePostName;
+            safeThis->showToast (safeThis->capturePrivacy.includePostName
+                ? "POST name will be included" : "POST name will stay private");
+        }
+        else if (result == 13)
+        {
+            safeThis->capturePrivacy.includeProjectName =
+                ! safeThis->capturePrivacy.includeProjectName;
+            safeThis->showToast (safeThis->capturePrivacy.includeProjectName
+                ? "Project name will be included" : "Project name will stay private");
         }
     });
 }
 
-void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
+hypha::capture::DisplayMetadata KirinHyphaEditor::availableCaptureMetadata() const
 {
-    // Freeze the complete visual fact before opening the asynchronous save panel. The meter and
-    // any external analysis may keep advancing while the user chooses a filename, but the exported
-    // image must remain the exact frame selected by the Capture action.
-    const auto capturedAt = juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H:%M:%S");
-    auto image = observatoryView.createCaptureImage (
-        width, height, captureIncludeGuide, capturedAt, JucePlugin_VersionString);
+    hypha::capture::DisplayMetadata metadata;
+    metadata.preName = isPost ? processorRef.pairName() : processorRef.preName();
+    metadata.postName = isPost ? processorRef.hostTrackName() : juce::String {};
+   #if KIRIN_HYPHA_GUIDE_TRANSPORT
+    metadata.projectName = processorRef.connectedWorkTitle();
+   #endif
+    return metadata;
+}
+
+hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, int height)
+{
+    // This function is the single Capture read boundary. Every displayed shell fact and external
+    // analysis surface is rendered synchronously on the message thread before the asynchronous
+    // save panel opens. Later UI/timer updates cannot alter the owned image in this snapshot.
+    const auto now = juce::Time::getCurrentTime();
+    hypha::capture::Snapshot snapshot;
+    snapshot.domain = observatoryView.domain();
+    snapshot.target = observatoryView.target();
+    snapshot.capturedAt = now.formatted ("%Y-%m-%d %H:%M:%S");
+    snapshot.filenameStamp = now.formatted ("%Y%m%d-%H%M%S");
+    snapshot.pixelWidth = width;
+    snapshot.pixelHeight = height;
+    const auto metadata = availableCaptureMetadata().applying (capturePrivacy);
+    std::vector<KirinMeterHistoryEntry> levelHistory;
+    const std::vector<KirinMeterHistoryEntry>* historySnapshot = nullptr;
+    if (snapshot.domain == hypha::observatory::Domain::level)
+    {
+        const auto maximumOutput = static_cast<size_t> (juce::jlimit (
+            128, 600, juce::roundToInt ((float) width
+                                       / hypha::observatory::captureRenderScale)));
+        if (snapshot.target == hypha::observatory::ObservationTarget::absolute)
+            processorRef.pollMeterHistory (KIRIN_METER_HISTORY_10_HZ, levelHistory,
+                                           600, maximumOutput);
+        else
+            processorRef.pollMeterDeltaHistory (KIRIN_METER_HISTORY_10_HZ, levelHistory,
+                                                600, maximumOutput);
+        hypha::capture_history::retainThrough (
+            levelHistory, observatoryView.captureHistoryEndpoint());
+        // Even an empty result is authoritative for this click. Never reuse an earlier TIME page.
+        historySnapshot = &levelHistory;
+    }
+    snapshot.image = observatoryView.createCaptureImage (
+        width, height, capturePrivacy.includeGuide, snapshot.capturedAt,
+        JucePlugin_VersionString, metadata, historySnapshot);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::Component* external = nullptr;
     if (analysisPage == AnalysisPage::spectrum)
@@ -66,7 +135,8 @@ void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
         external = &attackInternalView;
     if (external != nullptr && ! external->getLocalBounds().isEmpty())
     {
-        const auto body = observatoryView.captureBodyBounds (width, height, captureIncludeGuide);
+        const auto body = observatoryView.captureBodyBounds (
+            width, height, capturePrivacy.includeGuide);
         const auto originalBounds = external->getBounds();
         external->setSize (
             juce::roundToInt ((float) body.getWidth()
@@ -76,20 +146,30 @@ void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
         const auto analysis = external->createComponentSnapshot (
             external->getLocalBounds(), true, hypha::observatory::captureRenderScale);
         external->setBounds (originalBounds);
-        juce::Graphics graphics (image);
+        juce::Graphics graphics (snapshot.image);
         graphics.setColour (hypha::BG);
         graphics.fillRoundedRectangle (body.toFloat(), 4.0f);
         graphics.drawImage (analysis, body.getX(), body.getY(), body.getWidth(), body.getHeight(),
                             0, 0, analysis.getWidth(), analysis.getHeight(), false);
     }
    #endif
+    return snapshot;
+}
+
+void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
+{
+    const auto snapshot = freezeObservatoryCapture (width, height);
+    if (! snapshot.complete())
+    {
+        showToast ("Capture could not be prepared");
+        return;
+    }
 
     const auto role = isPost ? juce::String ("POST") : juce::String ("PRE");
-    const auto target = observatoryView.target()
+    const auto target = snapshot.target
         == hypha::observatory::ObservationTarget::delta ? juce::String ("DELTA") : role;
-    const auto stamp = juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
-    const auto filename = "Hypha-" + role + "-" + captureDomainName (observatoryDomain)
-                        + "-" + target + "-" + stamp + "-"
+    const auto filename = "Hypha-" + role + "-" + captureDomainName (snapshot.domain)
+                        + "-" + target + "-" + snapshot.filenameStamp + "-"
                         + juce::String (width) + "x" + juce::String (height) + ".png";
     const auto initial = juce::File::getSpecialLocation (juce::File::userPicturesDirectory)
                              .getChildFile (filename);
@@ -99,7 +179,8 @@ void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
                      | juce::FileBrowserComponent::canSelectFiles
                      | juce::FileBrowserComponent::warnAboutOverwriting;
     juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);
-    captureChooser->launchAsync (flags, [safeThis, image] (const juce::FileChooser& chooser)
+    captureChooser->launchAsync (
+        flags, [safeThis, image = snapshot.image] (const juce::FileChooser& chooser)
     {
         if (safeThis == nullptr)
             return;

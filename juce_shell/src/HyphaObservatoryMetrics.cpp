@@ -1,5 +1,7 @@
 #include "HyphaObservatoryView.h"
 
+#include "HyphaCaptureHistoryPainter.h"
+
 #include <array>
 #include <cmath>
 #include <limits>
@@ -15,9 +17,14 @@ juce::String valueText (double value, int decimals, bool signedValue)
     return (signedValue && value >= 0.0 ? "+" : "") + juce::String (value, decimals);
 }
 
-void drawPanel (juce::Graphics& g, juce::Rectangle<int> area, ExperienceFamily family)
+void drawPanel (juce::Graphics& g,
+                juce::Rectangle<int> area,
+                ExperienceFamily family,
+                float opacityOverride = -1.0f)
 {
-    const auto opacity = family == ExperienceFamily::compactMeter ? 0.96f : 0.76f;
+    const auto opacity = opacityOverride >= 0.0f
+        ? opacityOverride
+        : family == ExperienceFamily::compactMeter ? 0.96f : 0.76f;
     g.setColour (BG.withAlpha (opacity));
     g.fillRoundedRectangle (area.toFloat(), 4.0f);
     g.setColour (COL_MUTED.withAlpha (0.34f));
@@ -33,9 +40,10 @@ void drawMetric (juce::Graphics& g,
                  ExperienceFamily family,
                  bool signedValue = false,
                  int decimals = 1,
-                 const juce::String& textOverride = {})
+                 const juce::String& textOverride = {},
+                 float panelOpacity = -1.0f)
 {
-    drawPanel (g, area, family);
+    drawPanel (g, area, family, panelOpacity);
     const auto labelArea = area.removeFromTop (juce::jmax (14, area.getHeight() / 4));
     g.setColour (COL_MUTED);
     g.setFont (labelFont (juce::jlimit (9.0f, 12.0f, valueHeight * 0.32f)));
@@ -70,7 +78,8 @@ double optionValue (double value, bool available)
 }
 }
 
-void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
+void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
+                       bool includeChannelStrips)
 {
     const auto& meter = observatoryFrame.meter;
     const auto& delta = observatoryFrame.delta;
@@ -80,10 +89,10 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
     const auto family = experienceFamily();
     const auto compact = family == ExperienceFamily::compactMeter;
     juce::Rectangle<int> channelStrips;
-    if (target() == ObservationTarget::absolute
+    if (includeChannelStrips && target() == ObservationTarget::absolute
         && (density == Density::standard || density == Density::observatory))
         channelStrips = area.removeFromRight (
-            density == Density::observatory ? 76 : 62).reduced (2);
+            density == Density::observatory ? 112 : 62).reduced (2);
     if (compact)
         area.removeFromTop (20);
     if (target() == ObservationTarget::delta)
@@ -155,36 +164,60 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
     const std::array<const char*, 4> mainLabels { "M", "S", "I", "CREST" };
     const std::array<const char*, 4> mainUnits { "LUFS", "LUFS", "LUFS", "dB" };
     const auto mainValueHeight = density == Density::standard ? 28.0f : 42.0f;
-    constexpr int mainCount = 4;
+    const int mainCount = density == Density::observatory ? 3 : 4;
+    if (density == Density::observatory)
+        background.drawLevelCorners (g, main, worldState());
     for (int index = 0; index < mainCount; ++index)
         drawMetric (g, main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
                     mainLabels[(size_t) index],
                     optionValue (mainValues[(size_t) index], mainAvailable[(size_t) index]),
-                    mainUnits[(size_t) index], mainValueHeight, family);
+                    mainUnits[(size_t) index], mainValueHeight, family,
+                    false, 1, {}, density == Density::observatory ? 0.42f : -1.0f);
 
     const std::array<double, 5> supportValues {
-        meter.true_peak, meter.max_true_peak, meter.lra, meter.plr, meter.correlation
+        meter.true_peak, meter.max_true_peak, meter.lra, meter.plr,
+        watchDisplay.current.crest
     };
     const std::array<bool, 5> supportAvailable {
         currentAvailable, cumulativeAvailable,
         cumulativeAvailable && observatoryFrame.lra_state == KIRIN_LRA_READY,
-        cumulativeAvailable, currentAvailable
+        cumulativeAvailable, currentAvailable && watchDisplayAvailable
     };
-    const std::array<const char*, 5> supportLabels { "TP", "MAX TP", "LRA", "PLR", "CORR" };
-    const std::array<const char*, 5> supportUnits { "dBTP", "dBTP", "LU", "dB", "" };
-    for (int index = 0; index < 5; ++index)
+    const std::array<const char*, 5> supportLabels { "TP", "MAX TP", "LRA", "PLR", "CREST" };
+    const std::array<const char*, 5> supportUnits { "dBTP", "dBTP", "LU", "dB", "dB" };
+    const int supportCount = density == Density::observatory ? 5 : 4;
+    for (int index = 0; index < supportCount; ++index)
     {
         const auto warming = index == 2 && cumulativeAvailable
                           && observatoryFrame.lra_state == KIRIN_LRA_WARMING;
         const auto warmingText = warming
             ? "WARM " + juce::String ((int) std::floor (observatoryFrame.lra_elapsed_seconds)) + "S"
             : juce::String();
-        drawMetric (g, area.removeFromLeft (area.getWidth() / (5 - index)).reduced (2),
+        drawMetric (g, area.removeFromLeft (
+                        area.getWidth() / (supportCount - index)).reduced (2),
                     supportLabels[(size_t) index],
                     optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
                     supportUnits[(size_t) index], 18.0f, family,
-                    index == 4, index == 4 ? 2 : 1, warmingText);
+                    false, 1, warmingText);
     }
+    if (! channelStrips.isEmpty())
+        paintChannelStrips (g, channelStrips);
+}
+
+void View::paintLevelCapture (juce::Graphics& g, juce::Rectangle<int> area)
+{
+    juce::Rectangle<int> channelStrips;
+    if (target() == ObservationTarget::absolute)
+        channelStrips = area.removeFromRight (76).reduced (2);
+
+    const auto landscape = area.getWidth() > area.getHeight();
+    const auto historyHeight = juce::jlimit (
+        72, 170, juce::roundToInt (area.getHeight() * (landscape ? 0.40f : 0.32f)));
+    auto historyArea = area.removeFromBottom (historyHeight);
+    area.removeFromBottom (4);
+    paintLevel (g, area, false);
+    capture_history::paint (g, historyArea.reduced (2), history,
+                            target() == ObservationTarget::delta);
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
 }

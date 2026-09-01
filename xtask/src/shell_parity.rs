@@ -69,6 +69,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/pre_display/PreDisplayController.cpp"
     ));
+    const PRE_DISPLAY_CONTROLLER_CONNECTION_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/pre_display/PreDisplayControllerConnection.cpp"
+    ));
     const PRE_DISPLAY_REPOSITORY_CPP: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/pre_display/PreDisplayRepository.cpp"
@@ -167,7 +171,7 @@ mod tests {
     #[test]
     fn capture_freezes_the_authoritative_frame_before_the_async_save_panel() {
         let freeze = PLUGIN_EDITOR_CAPTURE_CPP
-            .find("auto image = observatoryView.createCaptureImage")
+            .find("snapshot.image = observatoryView.createCaptureImage")
             .expect("Capture must freeze the parent frame");
         let chooser = PLUGIN_EDITOR_CAPTURE_CPP
             .find("captureChooser->launchAsync")
@@ -176,7 +180,24 @@ mod tests {
             freeze < chooser,
             "visual facts must freeze before filename selection"
         );
-        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("[safeThis, image]"));
+        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("[safeThis, image = snapshot.image]"));
+        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("historySnapshot = &levelHistory"));
+        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("captureHistoryEndpoint"));
+        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("capture_history::retainThrough"));
+        assert!(PLUGIN_EDITOR_CAPTURE_CPP.contains("Never reuse an earlier TIME page"));
+        for forbidden in [
+            "instanceId()",
+            "pairedPreInstanceId",
+            "persistProjectUuid",
+            "persistDawSessionUuid",
+            ".workId",
+            ".bindingId",
+        ] {
+            assert!(
+                !PLUGIN_EDITOR_CAPTURE_CPP.contains(forbidden),
+                "Capture must not export implementation identity: {forbidden}"
+            );
+        }
         assert_eq!(
             count_occurrences(
                 PLUGIN_EDITOR_CAPTURE_CPP,
@@ -233,6 +254,13 @@ mod tests {
             count_occurrences(JUCE_CMAKE, "src/pre_display/PreDisplayController.cpp"),
             2
         );
+        assert_eq!(
+            count_occurrences(
+                JUCE_CMAKE,
+                "src/pre_display/PreDisplayControllerConnection.cpp"
+            ),
+            2
+        );
         for source in [
             "PreDisplayPresence.cpp",
             "PreDisplayProjection.cpp",
@@ -272,6 +300,7 @@ mod tests {
             .contains(".getChildFile (\"active\").getChildFile (\"kirin_os.json\")"));
         for source in [
             PRE_DISPLAY_CONTROLLER_CPP,
+            PRE_DISPLAY_CONTROLLER_CONNECTION_CPP,
             PRE_DISPLAY_REPOSITORY_CPP,
             PRE_DISPLAY_PROTOCOL_CPP,
             PRE_DISPLAY_PROTOCOL_TIME_CPP,
@@ -280,6 +309,7 @@ mod tests {
             assert!(!source.contains("TRACE"));
         }
         assert!(PRE_DISPLAY_CONTROLLER_CPP.lines().count() < 200);
+        assert!(PRE_DISPLAY_CONTROLLER_CONNECTION_CPP.lines().count() < 200);
         assert!(PRE_DISPLAY_CONTROLLER_CPP.contains("stopThread (-1)"));
         assert!(!PRE_DISPLAY_CONTROLLER_CPP.contains("stopThread (2'000)"));
         assert!(PRE_DISPLAY_TRANSPORT_CPP.contains("juce::File::windowsLocalAppData"));

@@ -1,5 +1,6 @@
 #include "HyphaObservatoryView.h"
 
+#include <array>
 #include <cmath>
 #include <string>
 
@@ -24,6 +25,117 @@ void paintClipCount (juce::Graphics& g,
     drawTabularText (g, monoFont (area.getHeight() < 14 ? 7.0f : 8.0f),
                      juce::String (channel) + " " + value,
                      area.toFloat(), juce::Justification::centred);
+}
+
+void paintFullChannelStrips (juce::Graphics& g,
+                             juce::Rectangle<int> area,
+                             const KirinMeterSession& meter,
+                             bool currentAvailable,
+                             bool cumulativeAvailable)
+{
+    auto labels = area.removeFromTop (18);
+    auto readouts = area.removeFromTop (46);
+    auto clips = area.removeFromBottom (23);
+    constexpr int scaleWidth = 22;
+    constexpr int columnGap = 4;
+    const int columnWidth = (area.getWidth() - scaleWidth - 2 * columnGap) / 2;
+    const auto leftColumn = area.withWidth (columnWidth);
+    const auto scaleColumn = area.withX (leftColumn.getRight() + columnGap)
+                                 .withWidth (scaleWidth);
+    const auto rightColumn = area.withX (scaleColumn.getRight() + columnGap)
+                                 .withWidth (columnWidth);
+    const std::array<juce::Rectangle<int>, 2> columns { leftColumn, rightColumn };
+
+    g.setColour (COL_MUTED);
+    g.setFont (monoFont (11.0f));
+    g.drawText ("L", labels.withX (leftColumn.getX()).withWidth (columnWidth),
+                juce::Justification::centred);
+    g.drawText (meter.channels > 1 ? "R" : "—",
+                labels.withX (rightColumn.getX()).withWidth (columnWidth),
+                juce::Justification::centred);
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        auto readout = readouts.withX (columns[(size_t) channel].getX())
+                               .withWidth (columnWidth);
+        const bool available = currentAvailable && channel < meter.channels
+                            && std::isfinite (meter.channel_true_peak_dbtp[channel]);
+        g.setColour (COL_MUTED);
+        g.setFont (labelFont (8.0f));
+        g.drawText ("TP", readout.removeFromTop (12), juce::Justification::centred);
+        g.setColour (available ? COL_NORMAL : COL_MUTED);
+        drawTabularText (g, monoFont (14.0f),
+                         available ? juce::String (meter.channel_true_peak_dbtp[channel], 1)
+                                   : juce::String ("---"),
+                         readout.removeFromTop (21).toFloat(),
+                         juce::Justification::centred);
+        g.setColour (COL_MUTED);
+        g.setFont (labelFont (7.0f));
+        g.drawText ("dBTP", readout, juce::Justification::centred);
+    }
+
+    const auto mapY = [&area] (double value)
+    {
+        const auto normalized = juce::jlimit (0.0, 1.0, (value + 48.0) / 48.0);
+        return (float) area.getBottom() - (float) normalized * (float) area.getHeight();
+    };
+    g.setFont (monoFont (7.0f));
+    for (int db = 0; db >= -48; db -= 6)
+    {
+        const auto y = juce::roundToInt (mapY ((double) db));
+        g.setColour (COL_MUTED.withAlpha (0.22f));
+        for (const auto column : columns)
+            g.drawHorizontalLine (y, (float) column.getX(), (float) column.getRight());
+        g.setColour (COL_MUTED.withAlpha (0.82f));
+        g.drawText (juce::String (db), scaleColumn.withY (y - 5).withHeight (10),
+                    juce::Justification::centred);
+    }
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        const auto column = columns[(size_t) channel];
+        const bool available = currentAvailable && channel < meter.channels
+                            && std::isfinite (meter.sample_peak_dbfs[channel]);
+        if (available)
+        {
+            for (int db = -48; db < 0; db += 2)
+            {
+                if ((double) db > meter.sample_peak_dbfs[channel])
+                    continue;
+                const auto top = mapY ((double) db + 1.45);
+                const auto bottom = mapY ((double) db);
+                g.setColour ((db >= -6 ? COL_FLORA : COL_SPECTRUM_DELTA)
+                                 .withAlpha (db >= -6 ? 0.72f : 0.68f));
+                g.fillRect ((float) column.getX(), top,
+                            (float) column.getWidth(), juce::jmax (1.0f, bottom - top));
+            }
+            if (std::isfinite (meter.channel_true_peak_dbtp[channel]))
+            {
+                g.setColour (COL_FLORA_BR.withAlpha (0.94f));
+                g.drawHorizontalLine (juce::roundToInt (
+                    mapY (meter.channel_true_peak_dbtp[channel])),
+                    (float) column.getX(), (float) column.getRight());
+            }
+        }
+        if (cumulativeAvailable && channel < meter.channels
+            && std::isfinite (meter.sample_peak_hold_dbfs[channel]))
+        {
+            g.setColour (COL_NORMAL.withAlpha (0.62f));
+            g.fillRect ((float) column.getX(),
+                        mapY (meter.sample_peak_hold_dbfs[channel]),
+                        (float) column.getWidth(), 1.0f);
+        }
+    }
+
+    g.setColour (COL_MUTED.withAlpha (0.34f));
+    g.drawHorizontalLine (clips.getY(), (float) clips.getX(), (float) clips.getRight());
+    g.setColour (COL_MUTED);
+    g.setFont (labelFont (7.0f));
+    g.drawText ("CLIP", clips.removeFromTop (10), juce::Justification::centred);
+    paintClipCount (g, clips.withX (leftColumn.getX()).withWidth (columnWidth),
+                    "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0);
+    paintClipCount (g, clips.withX (rightColumn.getX()).withWidth (columnWidth),
+                    "R", meter.clip_events[1], cumulativeAvailable && meter.channels > 1);
 }
 }
 
@@ -60,6 +172,11 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     g.setColour (COL_MUTED.withAlpha (0.34f));
     g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
     area.reduce (5, 5);
+    if (currentPreset().density == Density::observatory)
+    {
+        paintFullChannelStrips (g, area, meter, currentAvailable, cumulativeAvailable);
+        return;
+    }
     auto labels = area.removeFromTop (15);
     auto clips = area.removeFromBottom (23);
     const auto columnGap = 4;
@@ -121,28 +238,4 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     paintClipCount (g, clips, "R", meter.clip_events[1], cumulativeAvailable && meter.channels > 1);
 }
 
-void View::paintMeasuredMycelium (juce::Graphics& g, juce::Rectangle<int> area)
-{
-    const auto& meter = observatoryFrame.meter;
-    if (! currentFactsAvailable()
-        || ! std::isfinite (meter.lufs_m))
-        return;
-    const auto energy = (float) juce::jlimit (0.0, 1.0, (meter.lufs_m + 48.0) / 48.0);
-    const auto direction = std::isfinite (meter.balance_db)
-        ? (float) juce::jlimit (-1.0, 1.0, meter.balance_db / 12.0) : 0.0f;
-    for (int branch = 0; branch < 5; ++branch)
-    {
-        const auto y = (float) area.getBottom() - 5.0f
-                     - (float) branch * area.getHeight() * 0.17f;
-        juce::Path path;
-        path.startNewSubPath ((float) area.getX(), y);
-        path.cubicTo ((float) area.getX() + area.getWidth() * (0.24f + direction * 0.05f),
-                      y - area.getHeight() * energy * 0.12f,
-                      (float) area.getX() + area.getWidth() * (0.60f + direction * 0.08f),
-                      y + area.getHeight() * energy * 0.09f,
-                      (float) area.getRight(), y - area.getHeight() * energy * 0.04f);
-        g.setColour (COL_FLORA.withAlpha (0.035f + energy * 0.035f));
-        g.strokePath (path, juce::PathStrokeType (0.7f + energy * 0.45f));
-    }
-}
 }

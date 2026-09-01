@@ -106,6 +106,7 @@ option(KIRIN_HYPHA_REQUIRE_KIMERA_FONT
 set(KIRIN_HYPHA_DATA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/observatory_understory.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hypha_level_corners.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/attack_specimen_emission.png)
 set(KIRIN_HYPHA_KIMERA_EMBEDDED 0)
 if(KIRIN_HYPHA_KIMERA_FONT_FILE)
@@ -167,6 +168,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginEditorObservatory.cpp
         src/PluginEditorCapture.cpp
         src/HyphaObservatoryCapture.cpp
+        src/HyphaCaptureHistoryPainter.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryFrame.cpp
@@ -181,6 +183,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         ${KIRIN_HYPHA_WIDGETS_SOURCE} # B-054: LED / mycelium bg / metric cells / editable name
         src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
         src/pre_display/PreDisplayController.cpp
+        src/pre_display/PreDisplayControllerConnection.cpp
         src/pre_display/PreDisplayPresence.cpp
         src/pre_display/PreDisplayProjection.cpp
         src/pre_display/PreDisplayProtocol.cpp
@@ -330,6 +333,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/TimeHistoryContractTest.cpp
         tests/TimePageNavigationContractTest.cpp
         src/HyphaObservatoryCapture.cpp
+        src/HyphaCaptureHistoryPainter.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryFrame.cpp
@@ -447,6 +451,7 @@ if(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS)
     target_sources(KirinPreDisplayRuntimeTests PRIVATE
         tests/pre_display_runtime_test.cpp
         src/pre_display/PreDisplayController.cpp
+        src/pre_display/PreDisplayControllerConnection.cpp
         src/pre_display/PreDisplayPresence.cpp
         src/pre_display/PreDisplayProjection.cpp
         src/pre_display/PreDisplayProtocol.cpp

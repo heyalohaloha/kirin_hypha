@@ -56,6 +56,9 @@ namespace hypha::pre_display
             const auto lease = prepareRuntimeLease (root, std::move (identityIn), identity, configured);
             if (! lease.valid())
                 return;
+            if (lease.identity.workId != identity.workId
+                || lease.identity.bindingId != identity.bindingId)
+                acceptedWorkTitle.clear();
             previousPresenceFile = ownPresenceFile;
             previousAcknowledgementFile = ownAcknowledgementFile;
             previousCapabilityFile = ownCapabilityFile;
@@ -89,32 +92,6 @@ namespace hypha::pre_display
     {
         const juce::ScopedLock lock (displayLock);
         return display;
-    }
-
-    ConnectionRequest Controller::pendingConnection() const
-    {
-        const juce::ScopedLock lock (connectionLock);
-        return connectionRequest;
-    }
-
-    bool Controller::acceptPendingConnection()
-    {
-        ConnectionRequest request;
-        {
-            const juce::ScopedLock lock (connectionLock);
-            request = connectionRequest;
-        }
-        if (! request.validAt (juce::Time::currentTimeMillis()))
-            return false;
-        {
-            const juce::ScopedLock lock (identityLock);
-            if (! configured)
-                return false;
-            identity.workId = request.workId;
-            identity.bindingId = request.bindingId;
-        }
-        notify();
-        return true;
     }
 
     void Controller::run()

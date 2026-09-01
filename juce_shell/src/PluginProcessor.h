@@ -34,6 +34,7 @@ public:
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     void hostComponentActivationChanged (bool active) override;
+    void updateTrackProperties (const TrackProperties& properties) override;
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -67,6 +68,7 @@ public:
     hypha::pre_display::GuidePresentationSnapshot guidePresentationSnapshot() const;
     hypha::pre_display::ConnectionRequest pendingPreDisplayConnection() const;
     bool acceptPreDisplayConnection();
+    juce::String connectedWorkTitle() const;
 #endif
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
@@ -141,6 +143,7 @@ public:
 
     // --- B-054: PRE live name + LED pollers (egui parity) --------------------------------
     juce::String preName() const   { return persistName; }       // PRE self name (= identity.name)
+    juce::String hostTrackName() const { return hostTrackDisplayName; }
     juce::String instanceId() const { return persistInstanceId; } // for the empty-name 8-char fallback
     void setPreName (const juce::String& name);                   // persist + kirin_hypha_set_pre_name (live, sanitized in FFI)
     // (isRecording() is declared in the B-072 block above; record_sm reflects PRE autonomous record too.)
@@ -217,6 +220,8 @@ private:
     // (B-070/B-072 enableWritesNow). Empty until restored or generated.
     juce::String persistInstanceId, persistProjectUuid, persistDawSessionUuid, persistName;
     juce::String persistPairName;                      // POST pair target (B-072)
+    // Message-thread-only host display metadata. Never persisted and never replaced by IDs.
+    juce::String hostTrackDisplayName;
     juce::String persistPairInstanceId;                // exact PRE target; survives DAW restart
     juce::String persistPairProjectHash;               // exact PRE shelf; no cross-format guess
     std::atomic<bool> persistShortTermLoudness { false }; // display-only M/S choice; legacy default M

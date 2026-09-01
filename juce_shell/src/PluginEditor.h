@@ -70,6 +70,8 @@ private:
     void setObservatoryDomain (hypha::observatory::Domain domain);
     void beginObservatoryCapture();
     void chooseObservatoryCapture (int width, int height);
+    hypha::capture::DisplayMetadata availableCaptureMetadata() const;
+    hypha::capture::Snapshot freezeObservatoryCapture (int width, int height);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     using AnalysisPage = hypha::analysis_navigation::Page;
     void setAnalysisPage (AnalysisPage page);
@@ -108,7 +110,7 @@ private:
     juce::TextButton          guideConnectButton;          // role-neutral explicit Work/session connect
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     std::unique_ptr<juce::FileChooser> captureChooser;
-    bool captureIncludeGuide = false;
+    hypha::capture::PrivacyOptions capturePrivacy;         // editor-lifetime, private by default
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::TextButton          spectrumToggle;               // POST: meters / Analysis page

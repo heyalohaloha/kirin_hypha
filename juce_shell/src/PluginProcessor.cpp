@@ -198,6 +198,13 @@ void KirinHyphaProcessorBase::releaseResources()
     // Stop/All Stop and the IO-thread idle timeout; this callback intentionally does nothing.
 }
 
+void KirinHyphaProcessorBase::updateTrackProperties (const TrackProperties& properties)
+{
+    // JUCE specifies this callback on the message thread. Keep only the host's human-readable
+    // label; colour and all implementation identity remain outside Capture.
+    hostTrackDisplayName = properties.name;
+}
+
 void KirinHyphaProcessorBase::hostComponentActivationChanged (bool active)
 {
     // VST3 IComponent::setActive is distinct from transport/silence. Studio Pro uses this path
@@ -672,6 +679,12 @@ hypha::pre_display::ConnectionRequest KirinHyphaProcessorBase::pendingPreDisplay
 bool KirinHyphaProcessorBase::acceptPreDisplayConnection()
 {
     return preDisplayController != nullptr && preDisplayController->acceptPendingConnection();
+}
+
+juce::String KirinHyphaProcessorBase::connectedWorkTitle() const
+{
+    return preDisplayController != nullptr
+        ? preDisplayController->connectedWorkTitle() : juce::String {};
 }
 #endif
 

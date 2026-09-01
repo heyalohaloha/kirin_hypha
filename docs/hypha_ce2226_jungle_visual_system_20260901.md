@@ -126,9 +126,9 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 
 300×200と375×250は同じgeometry規則を使用し、375専用の第三の表示思想を作らない。
 
-### Observatory: 450×300、600×400
+### Standard: 450×300 / Full cockpit: 600×400
 
-Observatoryは分析とCaptureのためのCE2226地下観測所である。
+450×300は詳細な計測面、600×400はCE2226地下観測所のfull cockpitである。
 
 同時に開けるObservatoryは二枠に限定する。
 
@@ -138,13 +138,27 @@ Observatoryは分析とCaptureのためのCE2226地下観測所である。
 
 二枠は一画面内のmetric数ではなく、optional analysisを所有できる同時インスタンス数を意味する。
 
-四domain、主visual、背景構造、domain固有の世界層、詳細axisを表示する。
+両方で四domain、主visual、詳細axisを表示する。
 
-LEVELの主値はM、S、I、Crestとし、PREとの差分ではΔM、ΔS、ΔTP、ΔCrestを同じ四列geometryで比較する。
+全面背景、domain固有の世界層、LEVELの60秒Historyは600×400だけに表示する。
+
+450×300のLEVEL主値はM、S、I、Crestとする。
+
+600×400はConcept Cに合わせてM、S、Iを三つの主面とし、TP、MAX TP、LRA、PLR、Crestを五つの補助面へ置く。
+
+主面は横長の専用Hypha素材で一つに括るが、菌糸装飾は左右端だけに留め、中央の数値面を暗く静かに保つ。
+
+LEVEL下段は60秒Historyを既定とし、Spectrumは重複搭載せずFREQを正規入口にする。
+
+PREとの差分ではΔM、ΔS、ΔTP、ΔCrestを同じ四列geometryで比較する。
 
 ΔMAXは時刻の異なる独立最大値同士を差し引く可能性があるため作らず、MAXは絶対値の事実としてだけ表示する。
 
-450×300では同じ情報階層の余白と補助labelを縮め、600×400では補助metricとCaptureを含む完全表示にする。
+450×300では世界背景を出さず、同じ測定事実を明るさと余白を抑えたStandard面で示す。
+
+600×400のPOST FooterだけにPOSTとΔの独立ボタン、左右TP数値と0〜−48 dBTP目盛り、CAPTURE入口を置く。
+
+450×300以下ではPOST/Δを一つの切替へ畳み、CAPTURE入口を出さない。
 
 背景素材はaspect ratioを維持して中央cropし、有機構造を引き伸ばさない。
 
@@ -204,6 +218,16 @@ OS Guideは既定で含めない。
 
 利用者が明示した場合だけGuideを含める。
 
+PRE名、POST名、プロジェクト名も個別opt-inとする。
+
+PRE名はpair表示名、POST名はhost track表示名、プロジェクト名は承認済みKirin OS Work表示名だけを使い、利用できない表示名をpath、UUID、work ID、instance IDで補完しない。
+
+CAPTURE操作時にshellと表示中の外部解析面を同じmessage-thread read boundaryで画像へ固定し、保存先選択中のtimer更新を出力へ混ぜない。
+
+LEVELのObservation Plateでは、通常画面を縦横へ引き伸ばさず、右のchannel strip、上段の測定値、下段の60秒Historyを一つの標本構図に組み直す。
+
+60秒Historyでは指定済みHypha標本と時間strataをHistory領域内だけ、測定線の背後へ低明度で残し、Mを青緑、Sを低彩度の補助線として描く。
+
 保存失敗は利用者操作の結果なので通知する。
 
 ## 10. 生成素材と権利境界
@@ -250,7 +274,7 @@ native render testはPREとPOST、四domain、四size、POSTとDelta、Guide有�
 
 ATTACKはCompact、Observatory、1200×630 Captureの三経路でbodyが欠落しないことをpixel差分で確認する。
 
-300×200と375×250はCompact、450×300と600×400はObservatoryに属することをcompile-timeとruntimeの両方で固定する。
+300×200と375×250はCompact、450×300はStandard、600×400だけをfull cockpitとしてcompile-timeとruntimeの両方で固定する。
 
 TIMEとSPACEの600×400描画は12 ms未満を維持する。
 

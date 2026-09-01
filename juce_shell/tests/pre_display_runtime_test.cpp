@@ -1009,6 +1009,32 @@ int main()
     require (! pre::writeAcknowledgement (root, exactPresenceIdentity,
                                           postFixtureModel, postDisplay, 13'000),
              "reject a v3 POST acknowledgement from a PRE identity");
+
+    {
+        pre::ClockTap captureClock;
+        captureClock.publish (0, 48'000.0, 512, false,
+                              pre::ClockSource::projectTimeline);
+        pre::Controller controller (captureClock, root);
+        auto captureIdentity = postIdentity;
+        captureIdentity.instanceId = "capture_metadata_post";
+        captureIdentity.runtimeInstanceId = "capture_metadata_runtime";
+        controller.configureAndStart (captureIdentity);
+        for (int attempt = 0; attempt < 100
+             && ! controller.pendingConnection().validAt (
+                 juce::Time::currentTimeMillis()); ++attempt)
+            juce::Thread::sleep (10);
+        require (controller.connectedWorkTitle().isEmpty(),
+                 "keep the Work title private before explicit connection acceptance");
+        require (controller.acceptPendingConnection()
+                 && controller.connectedWorkTitle() == "Exact Work",
+                 "expose only the accepted Work display title to Capture");
+        captureIdentity.workId = testUuid ("capture_other_work");
+        captureIdentity.bindingId = testUuid ("capture_other_binding");
+        controller.configureAndStart (captureIdentity);
+        require (controller.connectedWorkTitle().isEmpty(),
+                 "clear the accepted display title when the Work binding changes");
+    }
+
     require (pre::writeAcknowledgement (root, identity, inspect, display, 13'000),
              "write acknowledgement only after strict guide projection");
     const auto acknowledgement = juce::JSON::parse (
