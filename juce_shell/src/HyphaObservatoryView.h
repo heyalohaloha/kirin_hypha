@@ -6,6 +6,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaObservatoryContract.h"
+#include "HyphaObservatoryPresentation.h"
 #include "HyphaObservatoryWorld.h"
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
@@ -37,6 +38,14 @@ public:
 
     void setDomain (Domain);
     Domain domain() const noexcept { return selectedDomain; }
+    ExperienceFamily experienceFamily() const noexcept
+    {
+        return observatory::experienceFamily (currentPreset());
+    }
+    PresentationContract presentation() const noexcept
+    {
+        return presentationContract (currentPreset());
+    }
     void setTarget (ObservationTarget);
     ObservationTarget target() const noexcept
     {

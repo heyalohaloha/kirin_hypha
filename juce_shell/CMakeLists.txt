@@ -323,6 +323,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpectrumPresentationContractTest.cpp
         tests/GuideFrequencyOverlayContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
+        tests/ObservatoryCompositeContractTest.cpp
         tests/SpaceFieldContractTest.cpp
         tests/TimeHistoryContractTest.cpp
         src/HyphaObservatoryCapture.cpp
@@ -338,6 +339,13 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaGuideFrequencyOverlay.cpp
         src/HyphaAbsoluteComponent.cpp
         src/HyphaAbsolutePainter.cpp
+        src/HyphaAttackInternalComponent.cpp
+        src/HyphaAttackInteraction.cpp
+        src/HyphaAttackMetricPainter.cpp
+        src/HyphaAttackOverviewGlyphPainter.cpp
+        src/HyphaAttackOrganismPainter.cpp
+        src/HyphaAttackPainter.cpp
+        src/HyphaAttackSpecimenPainter.cpp
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
         src/HyphaSpectrumComponent.cpp

@@ -62,17 +62,17 @@ ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep teal�
 
 ## 4. 画面別の配分
 
-| Surface | 強度 | 主な視覚層 | 実測との接続 | 縮退時に残すもの |
+| Surface | 強度 | 主な視覚層 | 実測との接続 | Compactの大きい2枠 |
 |---|---:|---|---|---|
-| POST LEVEL | 2/5 | 構造、観測、接続 | LUFS-Mとbalanceが低明度の菌糸形状を決める | M、S、clip、Pair、Session |
-| POST TIME HISTORY | 3/5 | 時間、観測 | M、S、TP、PLR、correlationのexact historyを表示する | M、S、TP、PLR、correlation |
-| POST TIME ATTACK | 5/5 | 観測、時間 | 選択eventのstrength、texture、brightness、transientをspecimenへ投影する | specimen、event rail、主要fact |
-| POST TIME SHARP | 3/5 | 観測、時間 | exact Sharpness差分と六秒historyを膜状のfillへ投影する | 差分、zero line、history |
-| POST FREQ | 3/5 | 構造、観測、接続 | SpectrumとGuide bandを別authorityとして重ねる | LR、POSTまたはDelta、Spectrum |
-| POST SPACE | 4/5 | 観測 | 三秒MID/SIDE densityを抽象的な場へ投影する | field、balance、correlation |
-| POST Delta | 2/5 | 観測 | PREを低明度の基準、POSTを現在の測定として描く | exact差分と欠測状態 |
-| PRE LEVEL | 2/5 | 構造、観測 | upstream sensorの実測だけを表示する | M、S、clip、Source、Session |
-| Capture | 4/5 | 全層 | immutable snapshotをObservation Plateへ固定する | 測定値、時刻、版、規格名 |
+| POST LEVEL | 2/5 | 構造、観測、接続 | LUFS-Mとbalanceが低明度の菌糸形状を決める | M、S |
+| POST TIME HISTORY | 3/5 | 時間、観測 | M、S、TP、PLR、correlationのexact historyを表示する | 現在値、最大値 |
+| POST TIME ATTACK | 5/5 | 観測、時間 | 選択eventのstrength、texture、brightness、transientをspecimenへ投影する | strength、texture |
+| POST TIME SHARP | 3/5 | 観測、時間 | exact Sharpness差分と六秒historyを膜状のfillへ投影する | 現在値、差分 |
+| POST FREQ | 3/5 | 構造、観測、接続 | SpectrumとGuide bandを別authorityとして重ねる | POST、Delta |
+| POST SPACE | 4/5 | 観測 | 三秒MID/SIDE densityを抽象的な場へ投影する | balance、correlation |
+| POST Delta | 2/5 | 観測 | PREを低明度の基準、POSTを現在の測定として描く | ΔM、ΔS |
+| PRE LEVEL | 2/5 | 構造、観測 | upstream sensorの実測だけを表示する | M、S |
+| Capture | 4/5 | 全層 | immutable snapshotをObservation Plateへ固定する | Compactでは操作を出さない |
 | WARMING、Inactive、Bypassed | 1/5 | 構造 | 成立していない値を`---`または事実状態で示す | role、domain、state、操作 |
 
 ATTACK、SHARP、FREQは親Shellのbody上へ透明componentとして描画する。
@@ -90,7 +90,7 @@ ATTACK、SHARP、FREQは親Shellのbody上へ透明componentとして描画す�
 5. PRE LEVEL 600×400
 6. Capture 1200×630
 
-各画面について300×200の縮退を確認する。
+各画面についてCompact 300×200と375×250、Observatory 450×300と600×400の二系統を確認する。
 
 Captureは追加で1080×1080と1080×1350のbounds契約を検証する。
 
@@ -98,17 +98,41 @@ ATTACKのbodyは既存の`attack_specimen_emission.png`とnative painterを使�
 
 ## 6. responsive契約
 
-600×400では四domain、補助metric、axis、Captureを表示する。
+画面寸法は四段階を保持するが、利用者に提供する表示思想は二系統だけとする。
 
-450×300では四domainと主visualを残し、補助情報の余白を縮める。
+### Compact meter: 300×200、375×250
 
-375×250ではdomainを単一cycle controlへ縮退し、補助metricを残す。
+CompactはDAW作業中に常設する即読メーターである。
 
-300×200ではMとSを主値として残し、LEVELではL/R clip event、TIMEでは五つのhistory fact、SPACEではfieldと二つの数値を保持する。
+大きい数値枠は二つに固定する。
 
-小サイズでは背景の明度を下げる。
+これは情報を単に減らすためではない。
 
-有機構造を切り取って拡大する処理は行わない。
+トラックとステムへ刺しっぱなしにした状態、トラックと2MIXを並べた状態、PREとPOSTを見比べる状態で、二つの主要値を同じ視線移動で読めるようにするためである。
+
+状態、単位、clip、選択位置などの小さな補助情報は大きい数値枠へ数えないが、主値と競合する大きさでは表示しない。
+
+domain tab、詳細axis、補助metric群、全面背景、domain固有の有機装飾は表示しない。
+
+世界観はHeader接続領域の**Hypha Aperture**一箇所だけに固定する。
+
+Hypha Apertureは小さな有機鉱物の開口部であり、信号状態とPair事実だけを静的な輪郭と微光で示す。
+
+domainが変わっても位置と面積を変えず、小画面へ複数の世界観表現を持ち込まない。
+
+300×200と375×250は同じgeometry規則を使用し、375専用の第三の表示思想を作らない。
+
+### Observatory: 450×300、600×400
+
+Observatoryは分析とCaptureのためのCE2226地下観測所である。
+
+四domain、主visual、背景構造、domain固有の世界層、詳細axisを表示する。
+
+450×300では同じ情報階層の余白と補助labelを縮め、600×400では補助metricとCaptureを含む完全表示にする。
+
+背景素材はaspect ratioを維持して中央cropし、有機構造を引き伸ばさない。
+
+CompactとObservatoryの境界で、測定値、Pair、信号状態、domain選択の意味を変えない。
 
 ## 7. 状態と発光
 
@@ -189,6 +213,12 @@ Avoid: generic vines, steampunk ornament, Celtic filigree, floral wallpaper, fan
 ## 11. 検証項目
 
 native render testはPREとPOST、四domain、四size、POSTとDelta、Guide有無、Active、Inactive、Bypassed、LRA Warming、三つのCapture寸法を一括で描画する。
+
+親Shellだけで合格とせず、LEVEL、HISTORY、ATTACK、SHARP、FREQ、SPACEを実際の外部body componentと合成して検証する。
+
+ATTACKはCompact、Observatory、1200×630 Captureの三経路でbodyが欠落しないことをpixel差分で確認する。
+
+300×200と375×250はCompact、450×300と600×400はObservatoryに属することをcompile-timeとruntimeの両方で固定する。
 
 TIMEとSPACEの600×400描画は12 ms未満を維持する。
 

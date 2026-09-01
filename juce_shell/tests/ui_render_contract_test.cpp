@@ -12,6 +12,7 @@
 #include "SpectrumPresentationContractTest.h"
 #include "GuideFrequencyOverlayContractTest.h"
 #include "ObservatoryViewContractTest.h"
+#include "ObservatoryCompositeContractTest.h"
 #include "TimeHistoryContractTest.h"
 #include "SpaceFieldContractTest.h"
 #include <cmath>
@@ -214,6 +215,7 @@ int main()
     hypha::tests::verifyAbsoluteSpectrumContract();
     hypha::tests::verifyPerceptualRenderingContract();
     hypha::tests::verifyObservatoryViewContract();
+    hypha::tests::verifyObservatoryCompositeContract();
     hypha::tests::verifyTimeHistoryContract();
     hypha::tests::verifySpaceFieldContract();
 
