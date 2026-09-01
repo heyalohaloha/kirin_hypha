@@ -11,7 +11,7 @@ namespace
                    "Rust/C++ Meter Session ABI size must remain exact");
     static_assert (sizeof (KirinObservatoryFrame) == 912u,
                    "Rust/C++ Observatory frame ABI size must remain exact");
-    static_assert (sizeof (KirinMeterHistoryEntry) == 176u,
+    static_assert (sizeof (KirinMeterHistoryEntry) == 184u,
                    "Rust/C++ Meter history ABI size must remain exact");
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::unknown)
@@ -1336,7 +1336,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
                 restoredObservatoryTimeRange = (uint8_t) juce::jlimit (
                     0, 4, xml->getIntAttribute ("observatory_time_range", 0));
                 restoredObservatorySize = (uint8_t) juce::jlimit (
-                    0, 3, xml->getIntAttribute ("observatory_size", 0));
+                    0, 4, xml->getIntAttribute ("observatory_size", 0));
             }
             restored = true;
         }

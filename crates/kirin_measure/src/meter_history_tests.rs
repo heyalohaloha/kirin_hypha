@@ -32,6 +32,11 @@ fn one_second_bucket_keeps_min_max_mean_and_exact_endpoints() {
             MeterHistoryAux {
                 correlation: Some(index as f64 / 10.0),
                 plr: Some(10.0 + index as f64),
+                clip_event_count: match index {
+                    2 => [1, 0],
+                    8 => [0, 2],
+                    _ => [0, 0],
+                },
             },
         );
     }
@@ -49,6 +54,35 @@ fn one_second_bucket_keeps_min_max_mean_and_exact_endpoints() {
     assert_eq!(entry.plr.min, Some(10.0));
     assert_eq!(entry.plr.max, Some(19.0));
     assert_eq!(entry.plr.mean, Some(14.5));
+    assert_eq!(entry.clip_event_count, [1, 2]);
+}
+
+#[test]
+fn clip_event_counts_saturate_in_aggregated_history_without_wrapping() {
+    let mut history = MeterHistory::with_config(4, 4, 4, 2, 2);
+    for clip_event_count in [[u32::MAX, 10], [1, 20]] {
+        history.push(
+            1,
+            1,
+            1,
+            (Some(1), CaptureClockSource::ProjectTimeline),
+            &point_value(-18.0),
+            MeterHistoryAux {
+                correlation: None,
+                plr: None,
+                clip_event_count,
+            },
+        );
+    }
+    const EXPECTED: [u32; 2] = [u32::MAX, 30];
+    assert_eq!(
+        history.recent(MeterHistoryResolution::Hz1, 1)[0].clip_event_count,
+        EXPECTED
+    );
+    assert_eq!(
+        history.recent_decimated(MeterHistoryResolution::Hz10, 2, 1)[0].clip_event_count,
+        EXPECTED
+    );
 }
 
 #[test]

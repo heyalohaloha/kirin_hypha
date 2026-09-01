@@ -182,7 +182,7 @@ CaptureへGuideを含める場合は明示toggleを要求し、Work名、source 
 
 ## 9. Responsive behavior
 
-PREとPOSTの4サイズを同じ変更単位で検証する。
+PREとPOSTの5サイズを同じ変更単位で検証する。
 
 | Size | POST Guide behavior |
 |---|---|
@@ -190,6 +190,7 @@ PREとPOSTの4サイズを同じ変更単位で検証する。
 | 375×250 | railに時刻とlabelを表示し、bandの有無を示す |
 | 450×300 | railと選択domainのmarkerまたはbandを同時表示する |
 | 600×400 | rail、TIMEまたはFREQ projection、LIVE POSTまたはLIVE Δを同時表示する |
+| 900×600 | 600×400と同じauthorityを保ち、全projectionをInspection解像度で表示する |
 
 旧PRE fallbackを残す期間は、PREも共通visual tokenへ更新し、従来の二行Guideを旧画面だけに残さない。
 
@@ -237,7 +238,7 @@ receiver起動と終了がWatch、Record、Keep、Pairing、Analysisへ依存し
 
 ### Phase 4: Global Guide rail
 
-POSTの全domainと4サイズへGuide railを追加する。
+POSTの全domainと5サイズへGuide railを追加する。
 
 Guide不在、受信待ち、project clock待ち、active、held、end、paused、rejectedを同じfixtureでrenderする。
 
@@ -302,7 +303,7 @@ macOSとWindowsの同一commitでPOST receipt、clock projection、UI、legacy P
 
 ### Visual
 
-- PREとPOSTの4サイズを一括renderする
+- PREとPOSTの5サイズを一括renderする
 - INSPECT、MASKING、NEXT、CUE、ACTIVE、HELD、END、PAUSEDを確認する
 - grayscaleとreduced motionで意味が保持される
 - GuideとLIVEのauthorityが色だけに依存しない

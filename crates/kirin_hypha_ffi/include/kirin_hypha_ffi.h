@@ -183,7 +183,9 @@ typedef struct {
   int64_t last_timeline_endpoint_samples;  /* 不明はINT64_MIN */
   uint16_t observation_count;
   uint8_t resolution; /* KIRIN_METER_HISTORY_* */
-  uint8_t reserved[5];
+  uint8_t reserved;
+  /* この履歴点の区間内で新たに始まったsample clip run数。0=L, 1=R。 */
+  uint32_t clip_event_count[2];
   KirinMeterHistoryRange lufs_m;
   KirinMeterHistoryRange lufs_s;
   KirinMeterHistoryRange true_peak;

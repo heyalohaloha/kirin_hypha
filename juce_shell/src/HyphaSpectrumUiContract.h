@@ -26,11 +26,12 @@ namespace hypha::ui_contract
         const char* tooltip;
     };
 
-    constexpr std::array<SpectrumSizePreset, 4> spectrumSizePresets {{
+    constexpr std::array<SpectrumSizePreset, 5> spectrumSizePresets {{
         { 300, 200, "100%", "Analysis size: 100%" },
         { 375, 250, "125%", "Analysis size: 125%" },
         { 450, 300, "150%", "Analysis size: 150%" },
         { 600, 400, "200%", "Analysis size: 200%" },
+        { 900, 600, "300%", "Analysis size: 300% inspection view" },
     }};
 
     constexpr int spectrumPlotLeftInset = 24;

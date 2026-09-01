@@ -39,6 +39,8 @@ std::vector<KirinMeterHistoryEntry> fixture()
         entry.last_timeline_endpoint_samples = entry.first_timeline_endpoint_samples;
         entry.observation_count = 1;
         entry.resolution = KIRIN_METER_HISTORY_10_HZ;
+        entry.clip_event_count[0] = index == 1u ? 1u : 0u;
+        entry.clip_event_count[1] = index == 5u ? 2u : 0u;
         const auto loudness = -24.0 + std::sin (static_cast<double> (index)) * 3.0;
         entry.lufs_m = { loudness, loudness, loudness };
         entry.lufs_s = { loudness + 2.0, loudness + 2.0, loudness + 2.0 };
@@ -109,11 +111,17 @@ void verifyCaptureHistoryContract()
 
     const auto factual = render (history, false);
     const auto missing = render (noPeakFacts, false);
+    auto noClipFacts = history;
+    for (auto& entry : noClipFacts)
+        entry.clip_event_count[0] = entry.clip_event_count[1] = 0u;
     KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (factual, missing) > 40);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (factual, render (noClipFacts, false)) > 10);
     KIRIN_CAPTURE_HISTORY_REQUIRE (
         changedPixels (factual, render (history, false, 5u)) > 40);
     KIRIN_CAPTURE_HISTORY_REQUIRE (
         changedPixels (render (history, true), render (noPeakFacts, true)) == 0);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (
+        changedPixels (render (history, true), render (noClipFacts, true)) == 0);
 
     auto frozen = history;
     capture_history::retainThrough (frozen, history[4].last_observed_frames);

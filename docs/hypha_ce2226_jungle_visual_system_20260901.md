@@ -140,7 +140,7 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 
 両方で四domain、主visual、詳細axisを表示する。
 
-全面背景、domain固有の世界層、LEVELの60秒Historyは600×400だけに表示する。
+全面背景、domain固有の世界層、LEVELの60秒Historyは600×400以上に表示する。
 
 450×300のLEVEL主値はM、S、I、Crestとする。
 
@@ -160,7 +160,9 @@ Mを主線、Sを低彩度の副線とし、TPは連続線を重ねず、runご�
 
 Δ HistoryはM/S差分に限定し、意味の異なる符号付きΔTPを絶対TP event railへ混在させない。
 
-L/R clipは現行History点にchannel別発生時刻が無いため、右stripのSession累積値だけを表示し、時刻を推測しない。
+各100 ms History点はL/R別の新規sample clip run数を保持し、event railにchannel別pipを置く。hoverでは同じ観測点の相対時刻とL/R件数を表示し、右stripのSession累積値とは範囲を混同しない。
+
+900×600は四domain共通のInspection Viewとし、LEVELではHistory、channel strip、数値階層へ追加面積を与える。TIME、FREQ、SPACEとTIME配下解析も既存の測定事実と操作を変えず高解像度化し、未合意の新指標は載せない。
 
 PREとの差分ではΔM、ΔS、ΔTP、ΔCrestを同じ四列geometryで比較する。
 
@@ -280,15 +282,15 @@ Avoid: generic vines, steampunk ornament, Celtic filigree, floral wallpaper, fan
 
 ## 11. 検証項目
 
-native render testはPREとPOST、四domain、四size、POSTとDelta、Guide有無、Active、Inactive、Bypassed、LRA Warming、三つのCapture寸法を一括で描画する。
+native render testはPREとPOST、四domain、五size、POSTとDelta、Guide有無、Active、Inactive、Bypassed、LRA Warming、三つのCapture寸法を一括で描画する。
 
 親Shellだけで合格とせず、LEVEL、HISTORY、ATTACK、SHARP、FREQ、SPACEを実際の外部body componentと合成して検証する。
 
 ATTACKはCompact、Observatory、1200×630 Captureの三経路でbodyが欠落しないことをpixel差分で確認する。
 
-300×200と375×250はCompact、450×300はStandard、600×400だけをfull cockpitとしてcompile-timeとruntimeの両方で固定する。
+300×200と375×250はCompact、450×300はStandard、600×400と900×600をfull cockpitとしてcompile-timeとruntimeの両方で固定する。
 
-TIMEとSPACEの600×400描画は12 ms未満を維持する。
+TIMEとSPACEの600×400描画は12 ms未満を維持し、900×600も独立の性能上限で検証する。
 
 背景PNGはUIプロセス内で一度だけdecodeし、通常ViewとCapture Viewで共有する。
 
@@ -296,6 +298,6 @@ TIMEとSPACEの600×400描画は12 ms未満を維持する。
 
 描画処理はMessage Threadだけで動作する。
 
-Audio Thread、Measure Thread、FFI、計測式、payloadは変更しない。
+900×600追加はAudio Threadと計測式を変更しない。L/R clip event timestampはMeasure Thread既存100 ms観測から履歴schemaへ渡し、Audio Threadへ処理を追加しない。
 
 Windowsは同じnative render contractをCIで実行し、文字欠け、bounds、stack、asset埋め込みを確認する。

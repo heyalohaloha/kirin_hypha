@@ -25,7 +25,7 @@ static_assert (sizeof (KirinSpectrumView) == 3'112, "Spectrum view ABI size must
 static_assert (sizeof (KirinSpectrumBatch) == 28'016, "Spectrum batch ABI size must remain exact");
 static_assert (sizeof (KirinMeterSession) == 832u, "Meter Session ABI size must remain exact");
 static_assert (sizeof (KirinObservatoryFrame) == 912u, "Observatory frame ABI size must remain exact");
-static_assert (sizeof (KirinMeterHistoryEntry) == 176u, "Meter history ABI size must remain exact");
+static_assert (sizeof (KirinMeterHistoryEntry) == 184u, "Meter history ABI size must remain exact");
 namespace
 {
     void require (bool condition, const char* expression, int line)
@@ -557,7 +557,7 @@ int main()
             markSpectrum, spectrumSnapshot,
             markSpectrumBounds.width, markSpectrumBounds.height, eventTime);
     }
-    // Keep the performance-sensitive trail gate after all four MARK size contracts.
+    // Keep the performance-sensitive trail gate after all five MARK size contracts.
     hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);
     hypha::SpectrumComponent lineEncodingSpectrum;
     lineEncodingSpectrum.setSize (spectrumBounds.width, spectrumBounds.height);
@@ -619,30 +619,39 @@ int main()
         spectrumSnapshot, ui::spectrumSizePresets[2], "KIRIN_UI_RENDER_OUTPUT_LARGE");
     const auto extraLargeSpectrum = renderSpectrumAtSize (
         spectrumSnapshot, ui::spectrumSizePresets[3], "KIRIN_UI_RENDER_OUTPUT_XLARGE");
+    const auto inspectionSpectrum = renderSpectrumAtSize (
+        spectrumSnapshot, ui::spectrumSizePresets[4], "KIRIN_UI_RENDER_OUTPUT_INSPECTION");
     hypha::tests::writeFrequencyObservatoryPreview (spectrumSnapshot);
     const auto mediumBounds = ui::spectrumPlotBounds (375, 250);
     const auto largeBounds = ui::spectrumPlotBounds (450, 300);
     const auto extraLargeBounds = ui::spectrumPlotBounds (600, 400);
+    const auto inspectionBounds = ui::spectrumPlotBounds (900, 600);
     KIRIN_REQUIRE (mediumSpectrum.image.getWidth() == mediumBounds.width);
     KIRIN_REQUIRE (mediumSpectrum.image.getHeight() == mediumBounds.height);
     KIRIN_REQUIRE (largeSpectrum.image.getWidth() == largeBounds.width);
     KIRIN_REQUIRE (largeSpectrum.image.getHeight() == largeBounds.height);
     KIRIN_REQUIRE (extraLargeSpectrum.image.getWidth() == extraLargeBounds.width);
     KIRIN_REQUIRE (extraLargeSpectrum.image.getHeight() == extraLargeBounds.height);
+    KIRIN_REQUIRE (inspectionSpectrum.image.getWidth() == inspectionBounds.width);
+    KIRIN_REQUIRE (inspectionSpectrum.image.getHeight() == inspectionBounds.height);
     KIRIN_REQUIRE (countVisiblePixels (mediumSpectrum.image,
                                        mediumSpectrum.image.getBounds()) > 1'000);
     KIRIN_REQUIRE (countVisiblePixels (largeSpectrum.image,
                                        largeSpectrum.image.getBounds()) > 1'500);
     KIRIN_REQUIRE (countVisiblePixels (extraLargeSpectrum.image,
                                        extraLargeSpectrum.image.getBounds()) > 2'500);
+    KIRIN_REQUIRE (countVisiblePixels (inspectionSpectrum.image,
+                                       inspectionSpectrum.image.getBounds()) > 4'000);
     std::cout << "Spectrum paint samples: " << compactSpectrum.paintMs
               << '/' << mediumSpectrum.paintMs
               << '/' << largeSpectrum.paintMs
-              << '/' << extraLargeSpectrum.paintMs << " ms/frame\n";
+              << '/' << extraLargeSpectrum.paintMs
+              << '/' << inspectionSpectrum.paintMs << " ms/frame\n";
     KIRIN_REQUIRE (compactSpectrum.paintMs < 4.5);
     KIRIN_REQUIRE (mediumSpectrum.paintMs < 6.5);
     KIRIN_REQUIRE (largeSpectrum.paintMs < 8.5);
     KIRIN_REQUIRE (extraLargeSpectrum.paintMs < 12.5);
+    KIRIN_REQUIRE (inspectionSpectrum.paintMs < 22.0);
 
     std::cout << "UI render contract passed: label="
               << label.getTypefaceName().toStdString()
@@ -656,6 +665,7 @@ int main()
               << ", spectrum-paint=" << compactSpectrum.paintMs
               << '/' << mediumSpectrum.paintMs
               << '/' << largeSpectrum.paintMs
-              << '/' << extraLargeSpectrum.paintMs << " ms/frame\n";
+              << '/' << extraLargeSpectrum.paintMs
+              << '/' << inspectionSpectrum.paintMs << " ms/frame\n";
     return 0;
 }

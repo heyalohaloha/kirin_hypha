@@ -354,7 +354,7 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 ## 11. Responsive screens
 
-4サイズとPRE、POSTを同じ変更単位として設計、実装、確認する。
+5サイズとPRE、POSTを同じ変更単位として設計、実装、確認する。
 
 | Size | POST required content | PRE required content |
 |---|---|---|
@@ -362,18 +362,19 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 | 375×250 | Compact内容、補助値、domain switch | Compact内容、I/O state、接続context |
 | 450×300 | 世界背景を抑えた主visual、軸、session facts | Standard内容、測定stateの詳細 |
 | 600×400 | Concept Cのfull cockpit、M/S/I、TP/MaxTP/LRA/PLR/Crest、60秒History、左右TP、POST/Δ、Capture | POSTと共通のshell、広い数値面、接続context |
+| 900×600 | 全domain共通Inspection View、拡張History、詳細axis、既存解析の高解像度表示 | POSTと共通のInspection shell、拡張History、詳細axis |
 
 小さい画面で情報を単純に縮小しない。
 
 優先度の低い補助値を折り畳み、数字の最小可読サイズを守る。
 
-現行Analysisの4 presetを一般Editor sizeへ昇格し、Metersだけ固定という分断をなくす。
+現行Analysisと一般Editorは5 presetを共有し、Metersだけ固定という分断をなくす。
 
 600×400は二つのトラック比較、および2MIXと単体トラックの二面比較を成立させる主力Observatoryとして維持する。
 
-900×600（300%）は600×400の置換や単純拡大にせず、Historyの詳細inspectionと将来のSession Atlasへ追加情報を割り当てる候補とする。表示内容をDaisukeと確定するまでは現行presetへ追加しない。
+900×600（300%）は600×400を置換せず、LEVEL、TIME、FREQ、SPACEとTIME配下の解析を同じ操作体系のまま高解像度で読むInspection Viewとする。LEVELは履歴面積、channel strip、数値階層を拡張するが、未合意の新指標は追加しない。将来Session Atlasを載せる場合は別途表示内容を確定する。
 
-LEVELの60秒Historyは固定時間軸とし、M主線、S副線、run別2秒最大TP event、`WINDOW MAX TP`と相対時刻を表示する。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。
+LEVELの60秒Historyは固定時間軸とし、M主線、S副線、run別2秒最大TP event、L/R別sample clip event、`WINDOW MAX TP`と相対時刻を表示する。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。
 
 ## 12. Visual system
 
@@ -431,7 +432,7 @@ PRE名は利用者が設定したpair表示名、POST名はホストが明示提
 
 LEVELのObservation Plateは主値、補助値、channel stripに加え、Capture操作時に固定した直近60秒のM/S Historyを含める。
 
-60秒Historyは600×400のLEVELとLEVEL保存構図だけに置き、TIMEのrange切替や全機能は重複させない。SpectrumはLEVELへ重複搭載せずFREQを正規入口にする。
+60秒Historyは600×400以上のLEVELとLEVEL保存構図だけに置き、TIMEのrange切替や全機能は重複させない。SpectrumはLEVELへ重複搭載せずFREQを正規入口にする。
 
 保存とPNG encodeは非Audio Threadで行う。
 
@@ -474,7 +475,7 @@ Measure Thread panic、UI close/reopen、history欠落、sample rate変更を検
 
 ### Gate C: visual system
 
-PREとPOSTの4サイズを同じfixtureでrenderする。
+PREとPOSTの5サイズを同じfixtureでrenderする。
 
 文字切れ、unit誤記、小数桁、WARMING、NO PAIR、Inactive、Bypassedを画像差分で確認する。
 
@@ -494,7 +495,7 @@ exact POST binding、receipt、artifact完全性、project clock、retention、E
 
 Guide受信がdomain、pair、Meter Session、Analysis selectionを変更しないことを確認する。
 
-INSPECT instant、MASKING interval、optional band、unlocated frequencyを全4サイズで確認する。
+INSPECT instant、MASKING interval、optional band、unlocated frequencyを全5サイズで確認する。
 
 ### Gate F: capture
 
@@ -510,7 +511,7 @@ Guideは既定で含めず、明示選択時だけ含める。
 
 1. 公開系`734a72a`とATTACK完了点`d464f71`をMeter branchで統合し、sourceとtracked JUCE patch stackを検証する。
 2. 規格差分と全metricの測定仕様を固定し、golden testを追加する。
-3. Guideの有無を含むPREとPOST、4サイズのwireframeと共通visual tokenを完成させる。
+3. Guideの有無を含むPREとPOST、5サイズのwireframeと共通visual tokenを完成させる。
 4. UI非依存の`MeterSnapshot`、`MeterSession`、固定容量history、`GuidePresentationSnapshot`を追加する。
 5. PRE専用Guide protocolをrole-neutralなexact POST bindingへ拡張する。
 6. 新しいglobal shellと`LEVEL / TIME / FREQ / SPACE` router、Guide railを追加する。

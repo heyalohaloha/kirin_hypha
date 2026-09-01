@@ -35,6 +35,8 @@ pub struct MeterHistoryEntry {
     pub first_timeline_endpoint_samples: Option<i64>,
     pub last_timeline_endpoint_samples: Option<i64>,
     pub timeline_source: CaptureClockSource,
+    /// New contiguous sample-clip runs first observed inside this history point, per L/R channel.
+    pub clip_event_count: [u32; 2],
     pub lufs_m: MeterHistoryRange,
     pub lufs_s: MeterHistoryRange,
     pub true_peak: MeterHistoryRange,
@@ -46,6 +48,7 @@ pub struct MeterHistoryEntry {
 pub struct MeterHistoryAux {
     pub correlation: Option<f64>,
     pub plr: Option<f64>,
+    pub clip_event_count: [u32; 2],
 }
 
 impl MeterHistoryEntry {
@@ -67,6 +70,7 @@ impl MeterHistoryEntry {
             first_timeline_endpoint_samples: timeline.0,
             last_timeline_endpoint_samples: timeline.0,
             timeline_source: timeline.1,
+            clip_event_count: aux.clip_event_count,
             lufs_m: MeterHistoryRange::exact(current.lufs_m),
             lufs_s: MeterHistoryRange::exact(current.lufs_s),
             true_peak: MeterHistoryRange::exact(current.true_peak),
@@ -125,6 +129,7 @@ struct BucketAccumulator {
     last_timeline_endpoint_samples: Option<i64>,
     timeline_complete: bool,
     timeline_source: CaptureClockSource,
+    clip_event_count: [u32; 2],
     lufs_m: RangeAccumulator,
     lufs_s: RangeAccumulator,
     true_peak: RangeAccumulator,
@@ -144,6 +149,7 @@ impl BucketAccumulator {
             last_timeline_endpoint_samples: point.last_timeline_endpoint_samples,
             timeline_complete: point.first_timeline_endpoint_samples.is_some(),
             timeline_source: point.timeline_source,
+            clip_event_count: [0; 2],
             lufs_m: RangeAccumulator::default(),
             lufs_s: RangeAccumulator::default(),
             true_peak: RangeAccumulator::default(),
@@ -162,6 +168,9 @@ impl BucketAccumulator {
             self.timeline_source = CaptureClockSource::Unknown;
         }
         self.last_timeline_endpoint_samples = point.last_timeline_endpoint_samples;
+        for (total, count) in self.clip_event_count.iter_mut().zip(point.clip_event_count) {
+            *total = total.saturating_add(count);
+        }
         self.lufs_m.push(point.lufs_m.mean);
         self.lufs_s.push(point.lufs_s.mean);
         self.true_peak.push(point.true_peak.mean);
@@ -186,6 +195,7 @@ impl BucketAccumulator {
                 .then_some(self.last_timeline_endpoint_samples)
                 .flatten(),
             timeline_source: self.timeline_source,
+            clip_event_count: self.clip_event_count,
             lufs_m: self.lufs_m.finish(),
             lufs_s: self.lufs_s.finish(),
             true_peak: self.true_peak.finish(),

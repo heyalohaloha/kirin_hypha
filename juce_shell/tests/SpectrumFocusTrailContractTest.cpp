@@ -337,5 +337,7 @@ void verifySpectrumFocusTrailRendering (const KirinSpectrumView& snapshot)
                            "KIRIN_UI_FOCUS_TRAIL_OUTPUT_LARGE", 8.5, 0.8);
     verifyRenderingAtSize (snapshot, ui_contract::spectrumSizePresets[3],
                            "KIRIN_UI_FOCUS_TRAIL_OUTPUT_XLARGE", 12.5, 1.2);
+    verifyRenderingAtSize (snapshot, ui_contract::spectrumSizePresets[4],
+                           "KIRIN_UI_FOCUS_TRAIL_OUTPUT_INSPECTION", 22.0, 2.0);
 }
 }

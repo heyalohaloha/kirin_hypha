@@ -76,6 +76,8 @@ std::vector<KirinMeterHistoryEntry> fullMinutePreviewHistory (
         const auto peak = index == 178u ? -1.6
                         : index == 422u ? -1.2 : -5.0 + wave;
         entry.true_peak = { peak, peak, peak };
+        entry.clip_event_count[0] = index == 132u ? 1u : 0u;
+        entry.clip_event_count[1] = index == 422u ? 2u : 0u;
         result[index] = entry;
     }
     return result;

@@ -242,6 +242,9 @@ void verifyObservatoryCompositeContract()
     KIRIN_COMPOSITE_REQUIRE (
         observatory::presentationContract (observatory::sizePresets[3]).family
         == observatory::ExperienceFamily::observatory);
+    KIRIN_COMPOSITE_REQUIRE (
+        observatory::presentationContract (observatory::sizePresets[4]).family
+        == observatory::ExperienceFamily::observatory);
 
     observatory::View shell (observatory::Role::post);
     shell.setSize (600, 400);
@@ -289,6 +292,20 @@ void verifyObservatoryCompositeContract()
     auto attack = attackFixture();
     requireExternalComposite (shell, *attack);
     writeCompositePreview ("post-attack-600x400.png", compose (shell, *attack));
+
+    shell.setSize (900, 600);
+    KIRIN_COMPOSITE_REQUIRE (
+        shell.experienceFamily() == observatory::ExperienceFamily::observatory);
+    shell.setDomain (observatory::Domain::frequency);
+    requireExternalComposite (shell, spectrum);
+    writeCompositePreview ("post-freq-900x600.png", compose (shell, spectrum));
+    shell.setDomain (observatory::Domain::time);
+    requireExternalComposite (shell, sharpness);
+    writeCompositePreview ("post-sharp-900x600.png", compose (shell, sharpness));
+    requireExternalComposite (shell, live);
+    writeCompositePreview ("post-live-900x600.png", compose (shell, live));
+    requireExternalComposite (shell, *attack);
+    writeCompositePreview ("post-attack-900x600.png", compose (shell, *attack));
 
     shell.setSize (300, 200);
     KIRIN_COMPOSITE_REQUIRE (

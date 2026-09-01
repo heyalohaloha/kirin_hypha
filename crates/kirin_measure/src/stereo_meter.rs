@@ -191,6 +191,10 @@ impl StereoMeter {
         self.field_sum = [0; STEREO_FIELD_BINS];
     }
 
+    pub fn clip_events(&self) -> [u64; 2] {
+        self.clip_events
+    }
+
     pub fn snapshot(&self) -> StereoMeterSnapshot {
         let sample_peak_dbfs = self.map_channels(self.sample_peak, linear_to_db);
         let sample_peak_hold_dbfs = self.map_channels(self.sample_peak_hold, linear_to_db);

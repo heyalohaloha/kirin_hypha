@@ -163,7 +163,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     };
     const std::array<const char*, 4> mainLabels { "M", "S", "I", "CREST" };
     const std::array<const char*, 4> mainUnits { "LUFS", "LUFS", "LUFS", "dB" };
-    const auto mainValueHeight = density == Density::standard ? 28.0f : 42.0f;
+    const auto mainValueHeight = density == Density::standard ? 28.0f
+                               : getWidth() >= 900 ? 58.0f : 42.0f;
     const int mainCount = density == Density::observatory ? 3 : 4;
     if (density == Density::observatory)
         background.drawLevelCorners (g, main, worldState());
@@ -197,7 +198,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                         area.getWidth() / (supportCount - index)).reduced (2),
                     supportLabels[(size_t) index],
                     optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
-                    supportUnits[(size_t) index], 18.0f, family,
+                    supportUnits[(size_t) index], getWidth() >= 900 ? 24.0f : 18.0f, family,
                     false, 1, warmingText);
     }
     if (! channelStrips.isEmpty())
@@ -206,13 +207,16 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
 
 void View::paintLevelCapture (juce::Graphics& g, juce::Rectangle<int> area)
 {
+    const auto inspection = getWidth() >= 900;
     juce::Rectangle<int> channelStrips;
     if (target() == ObservationTarget::absolute)
-        channelStrips = area.removeFromRight (76).reduced (2);
+        channelStrips = area.removeFromRight (inspection ? 110 : 76).reduced (2);
 
     const auto landscape = area.getWidth() > area.getHeight();
     const auto historyHeight = juce::jlimit (
-        72, 170, juce::roundToInt (area.getHeight() * (landscape ? 0.40f : 0.32f)));
+        72, inspection ? 240 : 170,
+        juce::roundToInt (area.getHeight()
+                          * (inspection ? 0.46f : landscape ? 0.40f : 0.32f)));
     auto historyArea = area.removeFromBottom (historyHeight);
     area.removeFromBottom (4);
     paintLevel (g, area, false);

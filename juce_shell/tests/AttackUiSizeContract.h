@@ -109,17 +109,19 @@ inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform,
 
 inline bool verifySupportedSizes (AttackInternalComponent& component)
 {
-    constexpr std::array<const char*, 4> splitPreviewVariables {{
+    constexpr std::array<const char*, 5> splitPreviewVariables {{
         "KIRIN_ATTACK_UI_100_SPLIT_PREVIEW_PATH",
         "KIRIN_ATTACK_UI_125_SPLIT_PREVIEW_PATH",
         "KIRIN_ATTACK_UI_150_SPLIT_PREVIEW_PATH",
         "KIRIN_ATTACK_UI_200_SPLIT_PREVIEW_PATH",
+        "KIRIN_ATTACK_UI_300_SPLIT_PREVIEW_PATH",
     }};
-    constexpr std::array<const char*, 4> overlayPreviewVariables {{
+    constexpr std::array<const char*, 5> overlayPreviewVariables {{
         "KIRIN_ATTACK_UI_100_OVERLAY_PREVIEW_PATH",
         "KIRIN_ATTACK_UI_125_OVERLAY_PREVIEW_PATH",
         "KIRIN_ATTACK_UI_150_OVERLAY_PREVIEW_PATH",
         "KIRIN_ATTACK_UI_200_OVERLAY_PREVIEW_PATH",
+        "KIRIN_ATTACK_UI_300_OVERLAY_PREVIEW_PATH",
     }};
     const auto originalWidth = component.getWidth();
     const auto originalHeight = component.getHeight();

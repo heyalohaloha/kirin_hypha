@@ -68,10 +68,11 @@ void verifyLayout (observatory::Role role,
 
 int main()
 {
-    static_assert (observatory::sizePresets.size() == 4);
+    static_assert (observatory::sizePresets.size() == 5);
     static_assert (observatory::captureRenderScale == 2.0f);
     assert (std::strcmp (observatory::sizePresets[0].label, "100%") == 0);
     assert (std::strcmp (observatory::sizePresets[3].label, "200%") == 0);
+    assert (std::strcmp (observatory::sizePresets[4].label, "300%") == 0);
 
     for (const auto preset : observatory::sizePresets)
     {

@@ -36,8 +36,8 @@ std::optional<std::size_t> hitTest (juce::Rectangle<int> area,
                                     double sampleRate);
 
 // A deliberately narrow 60-second history for the LEVEL Observation Plate. M is the primary
-// trajectory, S is secondary, and TP is represented as sparse measured event stems rather than a
-// second continuous curve with a competing axis.
+// trajectory, S is secondary, TP is represented as sparse measured event stems, and channel clip
+// runs remain timestamped pips rather than a second continuous curve with a competing axis.
 void paint (juce::Graphics&,
             juce::Rectangle<int>,
             const std::vector<KirinMeterHistoryEntry>&,

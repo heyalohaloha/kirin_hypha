@@ -229,11 +229,14 @@ void verifyAbsoluteTimelineContract()
     const double medium = renderAt (ui_contract::spectrumSizePresets[1]);
     const double large = renderAt (ui_contract::spectrumSizePresets[2]);
     const double extraLarge = renderAt (ui_contract::spectrumSizePresets[3]);
+    const double inspection = renderAt (ui_contract::spectrumSizePresets[4]);
     std::cout << "Absolute timeline paint samples: " << compact << '/'
-              << medium << '/' << large << '/' << extraLarge << " ms/frame\n";
+              << medium << '/' << large << '/' << extraLarge << '/'
+              << inspection << " ms/frame\n";
     KIRIN_ABSOLUTE_REQUIRE (compact < 1.5);
     KIRIN_ABSOLUTE_REQUIRE (medium < 2.5);
     KIRIN_ABSOLUTE_REQUIRE (large < 3.5);
     KIRIN_ABSOLUTE_REQUIRE (extraLarge < 6.0);
+    KIRIN_ABSOLUTE_REQUIRE (inspection < 9.0);
 }
 }

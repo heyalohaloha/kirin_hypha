@@ -23,11 +23,12 @@ struct Layout
 Layout layoutFor (juce::Rectangle<int> area)
 {
     area.reduce (7, 5);
+    const auto inspection = area.getWidth() >= 700;
     Layout result;
-    result.legend = area.removeFromTop (15);
-    result.labels = area.removeFromLeft (25);
+    result.legend = area.removeFromTop (inspection ? 20 : 15);
+    result.labels = area.removeFromLeft (inspection ? 32 : 25);
     auto plot = area.reduced (2, 2).toFloat();
-    result.truePeakRail = plot.removeFromBottom (18.0f);
+    result.truePeakRail = plot.removeFromBottom (inspection ? 24.0f : 18.0f);
     plot.removeFromBottom (3.0f);
     result.loudnessPlot = plot;
     return result;
@@ -187,37 +188,52 @@ void paintTruePeakEvents (juce::Graphics& g,
                 juce::Justification::centred);
     g.drawText ("NOW", labels.withLeft (labels.getRight() - 24),
                 juce::Justification::centredRight);
-    if (! summary.available)
-        return;
-
-    for (const auto index : summary.eventIndices)
+    if (summary.available)
     {
-        if (index >= history.size())
-            continue;
-        const auto value = history[index].true_peak.max;
-        if (! std::isfinite (value))
-            continue;
-        const auto x = rail.getX()
-                     + static_cast<float> (normalizedHistoryX (
-                           history, axis, history[index], index, sampleRate)) * rail.getWidth();
-        const auto y = yForTruePeak (rail, value);
-        const auto relative = juce::jlimit (
-            0.0, 1.0, 1.0 - (summary.windowMaximumDbtp - value) / 12.0);
-        const auto maximum = index == summary.windowMaximumIndex;
-        const auto colour = maximum ? COL_FLORA_BR : COL_FLORA;
-        const auto alpha = maximum ? 0.94f : static_cast<float> (0.20 + relative * 0.52);
-        g.setColour (colour.withAlpha (maximum ? 0.16f : alpha * 0.10f));
-        g.drawLine (x, y, x, baseline, maximum ? 4.0f : 2.0f);
-        g.setColour (colour.withAlpha (alpha));
-        g.drawLine (x, y, x, baseline, maximum ? 1.5f : 0.75f);
-        if (maximum)
+        for (const auto index : summary.eventIndices)
         {
-            g.setColour (colour.withAlpha (0.24f));
-            g.fillEllipse (x - 4.0f, y - 4.0f, 8.0f, 8.0f);
-            g.setColour (colour);
-            g.fillEllipse (x - 1.7f, y - 1.7f, 3.4f, 3.4f);
+            if (index >= history.size())
+                continue;
+            const auto value = history[index].true_peak.max;
+            if (! std::isfinite (value))
+                continue;
+            const auto x = rail.getX()
+                         + static_cast<float> (normalizedHistoryX (
+                               history, axis, history[index], index, sampleRate)) * rail.getWidth();
+            const auto y = yForTruePeak (rail, value);
+            const auto relative = juce::jlimit (
+                0.0, 1.0, 1.0 - (summary.windowMaximumDbtp - value) / 12.0);
+            const auto maximum = index == summary.windowMaximumIndex;
+            const auto colour = maximum ? COL_FLORA_BR : COL_FLORA;
+            const auto alpha = maximum ? 0.94f : static_cast<float> (0.20 + relative * 0.52);
+            g.setColour (colour.withAlpha (maximum ? 0.16f : alpha * 0.10f));
+            g.drawLine (x, y, x, baseline, maximum ? 4.0f : 2.0f);
+            g.setColour (colour.withAlpha (alpha));
+            g.drawLine (x, y, x, baseline, maximum ? 1.5f : 0.75f);
+            if (maximum)
+            {
+                g.setColour (colour.withAlpha (0.24f));
+                g.fillEllipse (x - 4.0f, y - 4.0f, 8.0f, 8.0f);
+                g.setColour (colour);
+                g.fillEllipse (x - 1.7f, y - 1.7f, 3.4f, 3.4f);
+            }
         }
     }
+    const std::array<juce::Colour, 2> clipColours { COL_LED_BLUE, COL_SPECTRUM_POST };
+    for (std::size_t index = 0; index < history.size(); ++index)
+        for (std::size_t channel = 0; channel < 2; ++channel)
+            if (history[index].clip_event_count[channel] > 0u)
+            {
+                const auto x = rail.getX()
+                             + static_cast<float> (normalizedHistoryX (
+                                   history, axis, history[index], index, sampleRate))
+                               * rail.getWidth();
+                const auto y = rail.getY() + 1.5f + static_cast<float> (channel) * 4.0f;
+                g.setColour (clipColours[channel].withAlpha (0.24f));
+                g.fillEllipse (x - 3.0f, y - 1.0f, 6.0f, 4.0f);
+                g.setColour (clipColours[channel].withAlpha (0.94f));
+                g.fillRoundedRectangle (x - 1.5f, y, 3.0f, 2.0f, 1.0f);
+            }
 }
 
 void paintHover (juce::Graphics& g,
@@ -404,6 +420,9 @@ void paint (juce::Graphics& g,
                + "   S " + measuredText (entry.lufs_s.mean, delta);
         if (! delta)
             detail += "   TP " + measuredText (entry.true_peak.max);
+        if (! delta && (entry.clip_event_count[0] > 0u || entry.clip_event_count[1] > 0u))
+            detail += "   CLIP L" + juce::String (entry.clip_event_count[0])
+                    + " R" + juce::String (entry.clip_event_count[1]);
     }
     else if (peakSummary.available)
     {

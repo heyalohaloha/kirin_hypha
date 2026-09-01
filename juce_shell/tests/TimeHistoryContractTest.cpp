@@ -129,7 +129,8 @@ void verifyTimeHistoryContract()
 
     for (const auto dimensions : {
              std::pair { 300, 200 }, std::pair { 375, 250 },
-             std::pair { 450, 300 }, std::pair { 600, 400 } })
+             std::pair { 450, 300 }, std::pair { 600, 400 },
+             std::pair { 900, 600 } })
     {
         const auto image = render (normal, dimensions.first, dimensions.second);
         int visible = 0;

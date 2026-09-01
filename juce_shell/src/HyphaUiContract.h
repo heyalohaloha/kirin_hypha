@@ -426,18 +426,21 @@ namespace hypha::ui_contract
                        && spectrumSizePresets[0].height == editorHeight
                        && spectrumSizePresets[1].width == 375 && spectrumSizePresets[1].height == 250
                        && spectrumSizePresets[2].width == 450 && spectrumSizePresets[2].height == 300
-                       && spectrumSizePresets[3].width == 600 && spectrumSizePresets[3].height == 400,
-                   "POST Analysis must expose only the fixed 100/125/150/200 percent sizes");
+                       && spectrumSizePresets[3].width == 600 && spectrumSizePresets[3].height == 400
+                       && spectrumSizePresets[4].width == 900 && spectrumSizePresets[4].height == 600,
+                   "POST Analysis must expose only the fixed 100/125/150/200/300 percent sizes");
     static_assert (right (spectrumSizeToggleBounds()) < editorLayout (true).pairStatus.x
                        && right (spectrumSizeToggleBounds (375)) < editorLayout (true, 375, 250).pairStatus.x
                        && right (spectrumSizeToggleBounds (450)) < editorLayout (true, 450, 300).pairStatus.x
-                       && right (spectrumSizeToggleBounds (600)) < editorLayout (true, 600, 400).pairStatus.x,
+                       && right (spectrumSizeToggleBounds (600)) < editorLayout (true, 600, 400).pairStatus.x
+                       && right (spectrumSizeToggleBounds (900)) < editorLayout (true, 900, 600).pairStatus.x,
                    "POST Analysis size control must never overlap pair status");
     static_assert (bottom (spectrumPlotBounds()) < spectrumPostControlsBounds().y,
                    "POST Spectrum plot and controls must not overlap");
     static_assert (bottom (spectrumPlotBounds (375, 250)) < spectrumPostControlsBounds (375, 250).y
                        && bottom (spectrumPlotBounds (450, 300)) < spectrumPostControlsBounds (450, 300).y
-                       && bottom (spectrumPlotBounds (600, 400)) < spectrumPostControlsBounds (600, 400).y,
+                       && bottom (spectrumPlotBounds (600, 400)) < spectrumPostControlsBounds (600, 400).y
+                       && bottom (spectrumPlotBounds (900, 600)) < spectrumPostControlsBounds (900, 600).y,
                    "Expanded Analysis plots and controls must not overlap");
     static_assert (spectrumPostControlsBounds().x == editorLayout (true).postControls.x
                        && spectrumPostControlsBounds().y == editorLayout (true).postControls.y
@@ -446,7 +449,8 @@ namespace hypha::ui_contract
                    "Compact Spectrum must retain the established control geometry");
     static_assert (spectrumVisualScale (spectrumPlotBounds().width) == 1.0f
                        && spectrumVisualScale (spectrumPlotBounds (450, 300).width) == 1.5f
-                       && spectrumVisualScale (spectrumPlotBounds (600, 400).width) == 2.0f,
+                       && spectrumVisualScale (spectrumPlotBounds (600, 400).width) == 2.0f
+                       && spectrumVisualScale (spectrumPlotBounds (900, 600).width) == 3.0f,
                    "Spectrum visual scale must follow the exact fixed window widths");
     static_assert (bottom (editorLayout (true).postControls) <= editorLayout (true).feedback.y,
                    "POST controls and feedback must not overlap");

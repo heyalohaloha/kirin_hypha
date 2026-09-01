@@ -102,7 +102,17 @@ impl MeterSession {
         let mut advanced = false;
         self.engine
             .push_observed_with_plr(interleaved, |_, current, observed_samples, plr| {
+                const MAX_HISTORY_CLIP_EVENTS: u64 = u32::MAX as u64;
+                let previous_clip_events = self.stereo.clip_events();
                 let stereo_advanced = self.stereo.push_observation(observed_samples);
+                let stereo_snapshot = stereo_advanced.then(|| self.stereo.snapshot());
+                let clip_event_count = stereo_snapshot.map_or([0; 2], |snapshot| {
+                    std::array::from_fn(|channel| {
+                        snapshot.clip_events[channel]
+                            .saturating_sub(previous_clip_events[channel])
+                            .min(MAX_HISTORY_CLIP_EVENTS) as u32
+                    })
+                });
                 self.current = current.clone();
                 self.observed_frames = self
                     .observed_frames
@@ -111,16 +121,18 @@ impl MeterSession {
                     .clock
                     .consume_observation((observed_samples.len() / self.n_channels) as u64);
                 if clock.usable_for_history {
-                    let correlation = stereo_advanced
-                        .then(|| self.stereo.snapshot().correlation)
-                        .flatten();
+                    let correlation = stereo_snapshot.and_then(|snapshot| snapshot.correlation);
                     self.history.push(
                         self.generation,
                         clock.run_id,
                         self.observed_frames,
                         (clock.timeline_endpoint_samples, clock.timeline_source),
                         current,
-                        MeterHistoryAux { correlation, plr },
+                        MeterHistoryAux {
+                            correlation,
+                            plr,
+                            clip_event_count,
+                        },
                     );
                 }
                 advanced = true;
@@ -203,6 +215,14 @@ mod tests {
             samples.extend_from_slice(&[sample, sample]);
         }
         samples
+    }
+
+    fn stereo_constant(left: f64, right: f64) -> Vec<f64> {
+        [left, right]
+            .into_iter()
+            .cycle()
+            .take(SR as usize / 10 * 2)
+            .collect()
     }
 
     fn close(left: Option<f64>, right: Option<f64>, tolerance: f64) -> bool {
@@ -297,6 +317,22 @@ mod tests {
         let snapshot = session.snapshot();
         assert_eq!(snapshot.state, MeterSessionState::Empty);
         assert_eq!(snapshot.active_frames, 0);
+    }
+
+    #[test]
+    fn history_timestamps_new_channel_clip_runs_at_the_exact_observation() {
+        let mut session = MeterSession::new(SR, 2).unwrap();
+        assert!(session.push_active_at(&stereo_constant(1.0, 0.5), project_clock(0, 1)));
+        assert!(session.push_active_at(&stereo_constant(0.5, 0.5), project_clock(4_800, 1)));
+        assert!(session.push_active_at(&stereo_constant(0.5, -1.0), project_clock(9_600, 1)));
+
+        let history = session.recent_history(MeterHistoryResolution::Hz10, 10);
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0].last_timeline_endpoint_samples, Some(4_800));
+        assert_eq!(history[0].clip_event_count, [1, 0]);
+        assert_eq!(history[1].clip_event_count, [0, 0]);
+        assert_eq!(history[2].last_timeline_endpoint_samples, Some(14_400));
+        assert_eq!(history[2].clip_event_count, [0, 1]);
     }
 
     #[test]

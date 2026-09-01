@@ -73,7 +73,7 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         "enum class ObservationTarget",
         "    absolute,",
         "    delta,",
-        "std::array<SizePreset, 4>",
+        "std::array<SizePreset, 5>",
     ] {
         assert!(
             observatory.contains(required),
@@ -418,7 +418,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(processor.contains("kirin_hypha_set_perceptual_visible (hyphaHandle, true)"));
     assert!(processor.contains("kirin_hypha_set_absolute_visible (hyphaHandle, true)"));
     let processor_header = read_repo("juce_shell/src/PluginProcessor.h");
-    assert!(processor_header.contains("index < 4u ? index : uint8_t { 0 }"));
+    assert!(processor_header.contains("index < 5u ? index : uint8_t { 0 }"));
     assert!(processor_header.contains("preferredSpectrumSize { 0 }"));
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
@@ -454,6 +454,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
         "{ 375, 250, \"125%\"",
         "{ 450, 300, \"150%\"",
         "{ 600, 400, \"200%\"",
+        "{ 900, 600, \"300%\"",
     ] {
         assert!(
             ui_contract.contains(fixed_size),

@@ -70,11 +70,12 @@ struct SizePreset
     const char* label = "";
 };
 
-constexpr std::array<SizePreset, 4> sizePresets {{
+constexpr std::array<SizePreset, 5> sizePresets {{
     { 300, 200, Density::compact, "100%" },
     { 375, 250, Density::focused, "125%" },
     { 450, 300, Density::standard, "150%" },
     { 600, 400, Density::observatory, "200%" },
+    { 900, 600, Density::observatory, "300%" },
 }};
 
 constexpr float captureRenderScale = 2.0f;
@@ -407,6 +408,7 @@ static_assert (sizePresets[0].width == 300 && sizePresets[0].height == 200);
 static_assert (sizePresets[1].width == 375 && sizePresets[1].height == 250);
 static_assert (sizePresets[2].width == 450 && sizePresets[2].height == 300);
 static_assert (sizePresets[3].width == 600 && sizePresets[3].height == 400);
+static_assert (sizePresets[4].width == 900 && sizePresets[4].height == 600);
 static_assert (! hasArea (shellLayout (Role::post, sizePresets[0],
                                        GuidePresence::absent).guideRail));
 static_assert (hasArea (shellLayout (Role::post, sizePresets[0],

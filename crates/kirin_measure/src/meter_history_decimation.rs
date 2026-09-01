@@ -35,6 +35,7 @@ impl RangeAggregate {
 struct EntryAggregate {
     first: MeterHistoryEntry,
     observations: u32,
+    clip_event_count: [u32; 2],
     lufs_m: RangeAggregate,
     lufs_s: RangeAggregate,
     true_peak: RangeAggregate,
@@ -47,6 +48,7 @@ impl EntryAggregate {
         let mut result = Self {
             first: point,
             observations: 0,
+            clip_event_count: [0; 2],
             lufs_m: RangeAggregate::default(),
             lufs_s: RangeAggregate::default(),
             true_peak: RangeAggregate::default(),
@@ -63,6 +65,9 @@ impl EntryAggregate {
             .saturating_add(u32::from(point.observation_count.max(1)));
         self.first.last_observed_frames = point.last_observed_frames;
         self.first.last_timeline_endpoint_samples = point.last_timeline_endpoint_samples;
+        for (total, count) in self.clip_event_count.iter_mut().zip(point.clip_event_count) {
+            *total = total.saturating_add(count);
+        }
         self.lufs_m.push(point.lufs_m, point.observation_count);
         self.lufs_s.push(point.lufs_s, point.observation_count);
         self.true_peak
@@ -75,6 +80,7 @@ impl EntryAggregate {
     fn finish(mut self, resolution: MeterHistoryResolution) -> MeterHistoryEntry {
         self.first.resolution = resolution;
         self.first.observation_count = self.observations.min(u32::from(u16::MAX)) as u16;
+        self.first.clip_event_count = self.clip_event_count;
         self.first.lufs_m = self.lufs_m.finish();
         self.first.lufs_s = self.lufs_s.finish();
         self.first.true_peak = self.true_peak.finish();

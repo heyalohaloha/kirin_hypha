@@ -17,6 +17,7 @@ fn post_point(observed: u64, endpoint: i64, value: f64) -> MeterHistoryEntry {
         first_timeline_endpoint_samples: Some(endpoint),
         last_timeline_endpoint_samples: Some(endpoint),
         timeline_source: CaptureClockSource::ProjectTimeline,
+        clip_event_count: [0; 2],
         lufs_m: exact(value),
         lufs_s: exact(value - 1.0),
         true_peak: exact(value + 10.0),

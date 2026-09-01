@@ -4,7 +4,7 @@
 
 // Product-level presentation contract for the Observatory shell.
 //
-// Geometry may still scale through the four persisted size presets, but the product exposes only
+// Geometry may still scale through the five persisted size presets, but the product exposes only
 // two experiences: a compact meter that prioritises immediate facts, and the full CE2226
 // observatory. Keeping this pure makes the breakpoint and world/detail budget executable in native
 // render tests without coupling it to JUCE, measurement, or transport state.
@@ -76,6 +76,7 @@ static_assert (experienceFamily (sizePresets[0]) == ExperienceFamily::compactMet
 static_assert (experienceFamily (sizePresets[1]) == ExperienceFamily::compactMeter);
 static_assert (experienceFamily (sizePresets[2]) == ExperienceFamily::observatory);
 static_assert (experienceFamily (sizePresets[3]) == ExperienceFamily::observatory);
+static_assert (experienceFamily (sizePresets[4]) == ExperienceFamily::observatory);
 static_assert (maximumConcurrentObservatorySlots == 2u);
 static_assert (presentationContract (sizePresets[0]).maximumNumericFacts == 3u);
 static_assert (presentationContract (sizePresets[1]).maximumNumericFacts == 3u);
@@ -87,9 +88,14 @@ static_assert (presentationContract (sizePresets[2]).hyphaAperture);
 static_assert (presentationContract (sizePresets[3]).worldBackdrop);
 static_assert (presentationContract (sizePresets[3]).domainWorld);
 static_assert (! presentationContract (sizePresets[3]).hyphaAperture);
+static_assert (presentationContract (sizePresets[4]).worldBackdrop);
+static_assert (presentationContract (sizePresets[4]).domainWorld);
+static_assert (! presentationContract (sizePresets[4]).hyphaAperture);
 static_assert (! captureEntryAvailable (Role::post, sizePresets[0]));
 static_assert (! captureEntryAvailable (Role::post, sizePresets[1]));
 static_assert (! captureEntryAvailable (Role::post, sizePresets[2]));
 static_assert (captureEntryAvailable (Role::post, sizePresets[3]));
 static_assert (! captureEntryAvailable (Role::pre, sizePresets[3]));
+static_assert (captureEntryAvailable (Role::post, sizePresets[4]));
+static_assert (! captureEntryAvailable (Role::pre, sizePresets[4]));
 }

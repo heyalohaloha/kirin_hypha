@@ -3679,7 +3679,8 @@ pub struct KirinMeterHistoryEntry {
     pub last_timeline_endpoint_samples: i64,
     pub observation_count: u16,
     pub resolution: u8,
-    pub reserved: [u8; 5],
+    pub reserved: u8,
+    pub clip_event_count: [u32; 2],
     pub lufs_m: KirinMeterHistoryRange,
     pub lufs_s: KirinMeterHistoryRange,
     pub true_peak: KirinMeterHistoryRange,
@@ -4006,7 +4007,8 @@ fn to_c_history_entry(entry: MeterHistoryEntry) -> KirinMeterHistoryEntry {
         last_timeline_endpoint_samples: entry.last_timeline_endpoint_samples.unwrap_or(i64::MIN),
         observation_count: entry.observation_count,
         resolution,
-        reserved: [0; 5],
+        reserved: 0,
+        clip_event_count: entry.clip_event_count,
         lufs_m: to_c_history_range(entry.lufs_m),
         lufs_s: to_c_history_range(entry.lufs_s),
         true_peak: to_c_history_range(entry.true_peak),
@@ -4469,7 +4471,7 @@ mod meter_session_abi_tests {
     fn snapshot_layout_and_mapping_are_stable() {
         assert_eq!(std::mem::size_of::<KirinMeterSession>(), 832);
         assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
-        assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 176);
+        assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 184);
         assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 912);
         let current = MeasureResult {
             lufs_m: Some(-14.2),
@@ -4539,6 +4541,7 @@ mod meter_session_abi_tests {
             first_timeline_endpoint_samples: Some(104_800),
             last_timeline_endpoint_samples: None,
             timeline_source: CaptureClockSource::ProjectTimeline,
+            clip_event_count: [3, 1],
             lufs_m: MeterHistoryRange {
                 min: Some(-16.0),
                 max: Some(-13.0),
@@ -4555,6 +4558,7 @@ mod meter_session_abi_tests {
         });
         assert_eq!(history.resolution, KIRIN_METER_HISTORY_1_HZ);
         assert_eq!(history.observation_count, 10);
+        assert_eq!(history.clip_event_count, [3, 1]);
         assert_eq!(history.first_timeline_endpoint_samples, 104_800);
         assert_eq!(history.plr.mean, 13.0);
         assert_eq!(history.last_timeline_endpoint_samples, i64::MIN);

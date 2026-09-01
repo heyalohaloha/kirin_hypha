@@ -115,6 +115,8 @@ std::vector<KirinMeterHistoryEntry> historyFixture()
         entry.last_timeline_endpoint_samples = static_cast<int64_t> (entry.last_observed_frames);
         entry.observation_count = 1;
         entry.resolution = KIRIN_METER_HISTORY_10_HZ;
+        entry.clip_event_count[0] = index == 22u ? 1u : 0u;
+        entry.clip_event_count[1] = index == 70u ? 1u : 0u;
         const auto wave = std::sin (static_cast<double> (index) * 0.24);
         entry.lufs_m.min = entry.lufs_m.max = entry.lufs_m.mean = -22.0 + 3.2 * wave;
         entry.lufs_s.min = entry.lufs_s.max = entry.lufs_s.mean = -20.0 + 2.0 * wave;

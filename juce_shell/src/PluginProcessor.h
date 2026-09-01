@@ -120,7 +120,7 @@ public:
     }
     void setSpectrumSizePreference (uint8_t index)
     {
-        const uint8_t bounded = index < 4u ? index : uint8_t { 0 };
+        const uint8_t bounded = index < 5u ? index : uint8_t { 0 };
         if (preferredSpectrumSize.exchange (bounded, std::memory_order_acq_rel) != bounded)
             updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
     }
