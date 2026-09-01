@@ -150,6 +150,18 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 
 LEVEL下段は60秒Historyを既定とし、Spectrumは重複搭載せずFREQを正規入口にする。
 
+LEVEL Historyの横軸は常に固定60秒とし、測定開始直後の短い履歴を横幅いっぱいへ引き伸ばさない。
+
+Mを主線、Sを低彩度の副線とし、TPは連続線を重ねず、runごとの2秒区間で保持した最大`true_peak.max`をevent stemとして示す。
+
+可視区間の正確な最大値と相対時刻を`WINDOW MAX TP`として表示し、中央の`MAX TP`がResetまでの全Session最大であることと区別する。
+
+ポインタ位置では同一100 ms観測点のM、S、TP、相対時刻へ切り替え、Captureは同じ固定軸とevent位置を正本snapshotから描く。
+
+Δ HistoryはM/S差分に限定し、意味の異なる符号付きΔTPを絶対TP event railへ混在させない。
+
+L/R clipは現行History点にchannel別発生時刻が無いため、右stripのSession累積値だけを表示し、時刻を推測しない。
+
 PREとの差分ではΔM、ΔS、ΔTP、ΔCrestを同じ四列geometryで比較する。
 
 ΔMAXは時刻の異なる独立最大値同士を差し引く可能性があるため作らず、MAXは絶対値の事実としてだけ表示する。

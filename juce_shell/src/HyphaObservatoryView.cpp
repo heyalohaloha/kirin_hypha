@@ -92,6 +92,9 @@ void View::setDomain (Domain value)
     if (selectedDomain == value)
         return;
     selectedDomain = value;
+    levelHistoryPointer.reset();
+    hoveredLevelHistoryIndex.reset();
+    levelHistoryArea = {};
     updateControls();
     resized();
     repaint();
@@ -103,6 +106,8 @@ void View::setTimeRange (TimeRange value)
         return;
     timeRange = value;
     history.clear();
+    levelHistoryPointer.reset();
+    hoveredLevelHistoryIndex.reset();
     updateControls();
     repaint (bodyArea);
 }
@@ -113,6 +118,8 @@ void View::setTarget (ObservationTarget value)
         return;
     selectedTarget = value;
     history.clear();
+    levelHistoryPointer.reset();
+    hoveredLevelHistoryIndex.reset();
     updateControls();
     resized();
     repaint();
@@ -177,6 +184,7 @@ void View::clearGuide()
 void View::setHistory (std::vector<KirinMeterHistoryEntry> entries)
 {
     history = std::move (entries);
+    refreshLevelHistoryHover();
     if (selectedDomain == Domain::time
         || (selectedDomain == Domain::level && fullCockpit()))
         repaint (bodyArea);
@@ -253,6 +261,9 @@ void View::updateControls()
 
 void View::resized()
 {
+    levelHistoryArea = {};
+    levelHistoryPointer.reset();
+    hoveredLevelHistoryIndex.reset();
     const auto preset = currentPreset();
     const auto layout = shellLayout (role, preset, guidePresence());
     sizeButton.setButtonText (preset.label);

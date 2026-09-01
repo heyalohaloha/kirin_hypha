@@ -13,6 +13,7 @@
 #include "GuideFrequencyOverlayContractTest.h"
 #include "ObservatoryViewContractTest.h"
 #include "ObservatoryCompositeContractTest.h"
+#include "CaptureHistoryContractTest.h"
 #include "TimeHistoryContractTest.h"
 #include "TimePageNavigationContractTest.h"
 #include "SpaceFieldContractTest.h"
@@ -218,6 +219,7 @@ int main()
     hypha::tests::verifyPerceptualRenderingContract();
     hypha::tests::verifyObservatoryViewContract();
     hypha::tests::verifyObservatoryCompositeContract();
+    hypha::tests::verifyCaptureHistoryContract();
     hypha::tests::verifyTimeHistoryContract();
     hypha::tests::verifySpaceFieldContract();
 

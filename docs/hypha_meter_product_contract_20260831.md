@@ -369,6 +369,12 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 現行Analysisの4 presetを一般Editor sizeへ昇格し、Metersだけ固定という分断をなくす。
 
+600×400は二つのトラック比較、および2MIXと単体トラックの二面比較を成立させる主力Observatoryとして維持する。
+
+900×600（300%）は600×400の置換や単純拡大にせず、Historyの詳細inspectionと将来のSession Atlasへ追加情報を割り当てる候補とする。表示内容をDaisukeと確定するまでは現行presetへ追加しない。
+
+LEVELの60秒Historyは固定時間軸とし、M主線、S副線、run別2秒最大TP event、`WINDOW MAX TP`と相対時刻を表示する。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。
+
 ## 12. Visual system
 
 Concept C Hybrid Observatoryをvisual baselineとする。

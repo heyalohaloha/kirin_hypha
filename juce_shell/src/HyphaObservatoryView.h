@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <vector>
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -106,6 +107,8 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
 private:
     void cycleDomain();
@@ -121,6 +124,7 @@ private:
     void paintLevelCapture (juce::Graphics&, juce::Rectangle<int>);
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
+    void refreshLevelHistoryHover();
     observatory_world::State worldState() const noexcept;
     bool currentFactsAvailable() const noexcept;
     bool cumulativeFactsAvailable() const noexcept;
@@ -151,6 +155,9 @@ private:
     juce::Rectangle<int> connectionArea;
     juce::Rectangle<int> guideArea;
     juce::Rectangle<int> sessionArea;
+    juce::Rectangle<int> levelHistoryArea;
+    std::optional<juce::Point<float>> levelHistoryPointer;
+    std::optional<std::size_t> hoveredLevelHistoryIndex;
     observatory_world::Backdrop background;
 
     Button levelButton { "LEVEL", true };

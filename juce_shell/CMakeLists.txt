@@ -172,6 +172,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryFrame.cpp
+        src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryWorld.cpp
@@ -328,7 +329,9 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpectrumPresentationContractTest.cpp
         tests/GuideFrequencyOverlayContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
+        tests/ObservatoryCaptureContractTest.cpp
         tests/ObservatoryCompositeContractTest.cpp
+        tests/CaptureHistoryContractTest.cpp
         tests/SpaceFieldContractTest.cpp
         tests/TimeHistoryContractTest.cpp
         tests/TimePageNavigationContractTest.cpp
@@ -337,6 +340,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryFrame.cpp
+        src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryWorld.cpp

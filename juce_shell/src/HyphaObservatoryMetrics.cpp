@@ -216,8 +216,11 @@ void View::paintLevelCapture (juce::Graphics& g, juce::Rectangle<int> area)
     auto historyArea = area.removeFromBottom (historyHeight);
     area.removeFromBottom (4);
     paintLevel (g, area, false);
-    capture_history::paint (g, historyArea.reduced (2), history,
-                            target() == ObservationTarget::delta);
+    levelHistoryArea = historyArea.reduced (2);
+    capture_history::paint (g, levelHistoryArea, history,
+                            target() == ObservationTarget::delta,
+                            static_cast<double> (observatoryFrame.meter.sample_rate),
+                            captureFrame ? std::nullopt : hoveredLevelHistoryIndex);
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
 }
