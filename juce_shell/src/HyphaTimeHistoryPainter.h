@@ -14,5 +14,6 @@ void paint (juce::Graphics&,
             juce::Rectangle<int> area,
             const std::vector<KirinMeterHistoryEntry>&,
             const juce::String& rangeLabel,
-            bool delta = false);
+            bool delta,
+            bool compactMeter);
 }

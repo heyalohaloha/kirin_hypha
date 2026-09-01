@@ -46,6 +46,14 @@ enum class GuidePresence
     present,
 };
 
+enum class ConnectionState
+{
+    source,
+    unpaired,
+    waiting,
+    paired,
+};
+
 enum class Density
 {
     compact,
@@ -68,6 +76,8 @@ constexpr std::array<SizePreset, 4> sizePresets {{
     { 450, 300, Density::standard, "150%" },
     { 600, 400, Density::observatory, "200%" },
 }};
+
+constexpr float captureRenderScale = 2.0f;
 
 struct Rect
 {
@@ -259,15 +269,15 @@ constexpr VisibleContent visibleContent (Role role,
                                          Density density,
                                          GuidePresence guide) noexcept
 {
-    const bool compact = density == Density::compact;
-    const bool singleDomainControl = compact || density == Density::focused;
+    const bool compactMeter = density == Density::compact || density == Density::focused;
+    const bool singleDomainControl = compactMeter;
     const bool visual = density == Density::standard
                      || density == Density::observatory;
     const bool full = density == Density::observatory;
     return {
         ! singleDomainControl,
         singleDomainControl,
-        ! compact,
+        ! compactMeter,
         visual,
         visual,
         role == Role::post,

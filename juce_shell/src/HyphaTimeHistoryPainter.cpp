@@ -94,16 +94,14 @@ void paintAuxLane (juce::Graphics& g,
 {
     g.setColour (COL_MUTED.withAlpha (0.16f));
     g.fillRoundedRectangle (area.toFloat(), 2.0f);
-    const bool compact = area.getWidth() < 350;
-    auto labelArea = area.removeFromLeft (compact ? 46 : 78);
+    auto labelArea = area.removeFromLeft (78);
     g.setColour (colour.withAlpha (0.90f));
-    g.setFont (monoFont (compact ? 7.0f : 8.0f));
-    const auto labelText = compact ? juce::String (label)
-                                   : juce::String (label) + " "
-                                       + latestText (history, metric, delta);
+    g.setFont (monoFont (8.0f));
+    const auto labelText = juce::String (label) + " "
+                         + latestText (history, metric, delta);
     g.drawText (labelText, labelArea.reduced (2, 0), juce::Justification::centredLeft);
 
-    const auto axisWidth = compact ? 17 : 23;
+    const auto axisWidth = 23;
     auto axisArea = area.removeFromRight (axisWidth);
     auto plot = area.reduced (2, 2).toFloat();
     const auto zeroY = plot.getY() + normalizedAux (metric, 0.0, delta) * plot.getHeight();
@@ -133,10 +131,10 @@ void paintAuxLane (juce::Graphics& g,
         previousRun = entry.run_id;
     }
     g.setColour (colour.withAlpha (0.88f));
-    g.strokePath (path, juce::PathStrokeType (compact ? 0.8f : 1.0f));
+    g.strokePath (path, juce::PathStrokeType (1.0f));
 
     g.setColour (COL_MUTED.withAlpha (0.72f));
-    g.setFont (monoFont (compact ? 5.5f : 6.5f));
+    g.setFont (monoFont (6.5f));
     const auto top = metric == Metric::plr ? (delta ? "+12" : "24")
                                             : (delta ? "+2" : "+1");
     const auto bottom = metric == Metric::plr ? (delta ? "-12" : "0")
@@ -146,7 +144,8 @@ void paintAuxLane (juce::Graphics& g,
     g.drawText (bottom, axisArea, juce::Justification::centredRight);
 }
 
-void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta)
+void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta,
+                bool detailedAxes)
 {
     constexpr std::array<const char*, 5> loudness { "0", "-12", "-24", "-36", "-48" };
     constexpr std::array<const char*, 5> peak { "0", "-6", "-12", "-18", "-24" };
@@ -161,13 +160,16 @@ void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta)
                          .withAlpha (zero ? 0.42f
                                          : index == 0u || index == 4u ? 0.34f : 0.20f));
         g.drawHorizontalLine (y, plot.getX(), plot.getRight());
-        g.setColour (COL_MUTED.withAlpha (0.78f));
-        g.drawText (delta ? difference[index] : loudness[index],
-                    juce::roundToInt (plot.getX()) - 27, y - 5,
-                    23, 10, juce::Justification::centredRight);
-        g.drawText (delta ? difference[index] : peak[index],
-                    juce::roundToInt (plot.getRight()) + 4, y - 5,
-                    23, 10, juce::Justification::centredLeft);
+        if (detailedAxes)
+        {
+            g.setColour (COL_MUTED.withAlpha (0.78f));
+            g.drawText (delta ? difference[index] : loudness[index],
+                        juce::roundToInt (plot.getX()) - 27, y - 5,
+                        23, 10, juce::Justification::centredRight);
+            g.drawText (delta ? difference[index] : peak[index],
+                        juce::roundToInt (plot.getRight()) + 4, y - 5,
+                        23, 10, juce::Justification::centredLeft);
+        }
     }
 }
 
@@ -241,9 +243,9 @@ void paintLegend (juce::Graphics& g,
                   const juce::String& rangeLabel,
                   const std::array<MetricVisual, 3>& visuals,
                   const HistoryAxis& axis,
-                  bool delta)
+                  bool delta,
+                  bool compact)
 {
-    const bool compact = area.getWidth() < 350;
     auto left = area;
     const auto range = left.removeFromRight (compact ? 94 : 154);
     const int metricWidth = compact ? 42 : 72;
@@ -269,9 +271,10 @@ void paint (juce::Graphics& g,
             juce::Rectangle<int> area,
             const std::vector<KirinMeterHistoryEntry>& history,
             const juce::String& rangeLabel,
-            bool delta)
+            bool delta,
+            bool compactMeter)
 {
-    g.setColour (BG.withAlpha (0.82f));
+    g.setColour (BG.withAlpha (compactMeter ? 0.96f : 0.76f));
     g.fillRoundedRectangle (area.toFloat(), 4.0f);
     g.setColour (COL_MUTED.withAlpha (0.34f));
     g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
@@ -291,30 +294,43 @@ void paint (juce::Graphics& g,
         { Metric::truePeak, "TP", COL_FLORA_BR, 2.4f, 0.9f },
     }};
     const auto axis = selectAxis (history);
-    paintLegend (g, area.removeFromTop (16), history, rangeLabel, visuals, axis, delta);
-    const auto auxLaneHeight = juce::jlimit (13, 22, area.getHeight() / 7);
-    auto auxArea = area.removeFromBottom (auxLaneHeight * 2 + 2);
-    auto plrArea = auxArea.removeFromTop (auxLaneHeight);
-    auxArea.removeFromTop (2);
-    auto correlationArea = auxArea;
-    auto plot = area.reduced (27, 2).toFloat();
+    paintLegend (g, area.removeFromTop (16), history, rangeLabel,
+                 visuals, axis, delta, compactMeter);
+    auto plotArea = area;
+    juce::Rectangle<int> plrArea;
+    juce::Rectangle<int> correlationArea;
+    if (! compactMeter)
+    {
+        const auto auxLaneHeight = juce::jlimit (13, 22, plotArea.getHeight() / 7);
+        auto auxArea = plotArea.removeFromBottom (auxLaneHeight * 2 + 2);
+        plrArea = auxArea.removeFromTop (auxLaneHeight);
+        auxArea.removeFromTop (2);
+        correlationArea = auxArea;
+    }
+    auto plot = plotArea.reduced (compactMeter ? 4 : 27, 2).toFloat();
     plot.removeFromBottom (3.0f);
-    paintAxes (g, plot, delta);
+    paintAxes (g, plot, delta, ! compactMeter);
 
     for (const auto& visual : visuals)
         paintMetric (g, plot, history, visual, axis, delta);
-    paintAuxLane (g, plrArea, history, Metric::plr, "PLR", COL_GUIDE_BR,
-                  axis, delta);
-    paintAuxLane (g, correlationArea, history, Metric::correlation, "CORR",
-                  COL_SPECTRUM_DELTA_BR, axis, delta);
+    if (! compactMeter)
+    {
+        paintAuxLane (g, plrArea, history, Metric::plr, "PLR", COL_GUIDE_BR,
+                      axis, delta);
+        paintAuxLane (g, correlationArea, history, Metric::correlation, "CORR",
+                      COL_SPECTRUM_DELTA_BR, axis, delta);
+    }
 
-    g.setColour (COL_MUTED.withAlpha (0.62f));
-    g.setFont (labelFont (7.5f));
-    g.drawText (delta ? "LU" : "LUFS", juce::roundToInt (plot.getX()) - 27,
-                juce::roundToInt (plot.getBottom()) - 8, 23, 9,
-                juce::Justification::centredRight);
-    g.drawText (delta ? "dB" : "dBTP", juce::roundToInt (plot.getRight()) + 4,
-                juce::roundToInt (plot.getBottom()) - 8, 23, 9,
-                juce::Justification::centredLeft);
+    if (! compactMeter)
+    {
+        g.setColour (COL_MUTED.withAlpha (0.62f));
+        g.setFont (labelFont (7.5f));
+        g.drawText (delta ? "LU" : "LUFS", juce::roundToInt (plot.getX()) - 27,
+                    juce::roundToInt (plot.getBottom()) - 8, 23, 9,
+                    juce::Justification::centredRight);
+        g.drawText (delta ? "dB" : "dBTP", juce::roundToInt (plot.getRight()) + 4,
+                    juce::roundToInt (plot.getBottom()) - 8, 23, 9,
+                    juce::Justification::centredLeft);
+    }
 }
 }

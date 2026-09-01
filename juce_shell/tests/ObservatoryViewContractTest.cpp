@@ -151,8 +151,11 @@ void verifyRoleAtEverySize (observatory::Role role,
     {
         observatory::View view (role);
         view.setSize (preset.width, preset.height);
-        view.setConnectionText (role == observatory::Role::post ? "PAIR DRUM" : "SOURCE PRE",
-                                COL_LED_BLUE);
+        view.setConnection (role == observatory::Role::post ? "PAIR DRUM" : "SOURCE PRE",
+                            COL_LED_BLUE,
+                            role == observatory::Role::post
+                                ? observatory::ConnectionState::paired
+                                : observatory::ConnectionState::source);
         view.setGuide ("MASKING 03:18", "3150-3700 HZ", true);
         view.setMeterSnapshot (meter, true);
         view.setHistory (history);
@@ -175,8 +178,18 @@ void verifyRoleAtEverySize (observatory::Role role,
                 noClipsMeter.clip_events[0] = 0;
                 noClipsMeter.clip_events[1] = 0;
                 view.setMeterSnapshot (noClipsMeter, true);
-                KIRIN_OBSERVATORY_REQUIRE (differentPixels (image, render (view)) > 8);
+                const auto clipPixels = differentPixels (image, render (view));
+                KIRIN_OBSERVATORY_REQUIRE (
+                    observatory::isCompactMeter (preset) ? clipPixels == 0 : clipPixels > 8);
                 view.setMeterSnapshot (meter, true);
+                if (observatory::isCompactMeter (preset))
+                {
+                    auto alternatePeak = meter;
+                    alternatePeak.true_peak -= 6.0;
+                    view.setMeterSnapshot (alternatePeak, true);
+                    KIRIN_OBSERVATORY_REQUIRE (differentPixels (image, render (view)) > 8);
+                    view.setMeterSnapshot (meter, true);
+                }
             }
         }
     }
@@ -193,7 +206,7 @@ void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
     observatory::View shell (observatory::Role::post);
     shell.setSize (600, 400);
     shell.setDomain (observatory::Domain::frequency);
-    shell.setConnectionText ("PAIR DRUM", COL_LED_BLUE);
+    shell.setConnection ("PAIR DRUM", COL_LED_BLUE, observatory::ConnectionState::paired);
     shell.setGuide ("OS GUIDE  MASKING 03:18", "3150-3700 HZ", true);
     auto meter = activeMeter();
     shell.setMeterSnapshot (meter, true);
@@ -244,6 +257,24 @@ void verifyObservatoryViewContract()
     }
     KIRIN_OBSERVATORY_REQUIRE (
         differentPixels (specimenBlank, specimenImage) > 2'000);
+    const auto wideCrop = observatory_world::aspectFillSourceBounds (1536, 1024, 1200, 630);
+    KIRIN_OBSERVATORY_REQUIRE (std::abs (wideCrop.getWidth() - 1536.0f) < 0.01f);
+    KIRIN_OBSERVATORY_REQUIRE (std::abs (wideCrop.getHeight() - 806.4f) < 0.1f);
+    KIRIN_OBSERVATORY_REQUIRE (std::abs (wideCrop.getY() - 108.8f) < 0.1f);
+    const auto tallCrop = observatory_world::aspectFillSourceBounds (1536, 1024, 600, 600);
+    KIRIN_OBSERVATORY_REQUIRE (std::abs (tallCrop.getWidth() - 1024.0f) < 0.1f);
+    KIRIN_OBSERVATORY_REQUIRE (std::abs (tallCrop.getX() - 256.0f) < 0.1f);
+    juce::Image fillSource (juce::Image::RGB, 40, 20, true);
+    fillSource.clear (fillSource.getBounds(), COL_FLORA);
+    juce::Image fillTarget (juce::Image::RGB, 30, 30, true);
+    fillTarget.clear (fillTarget.getBounds(), BG);
+    {
+        juce::Graphics graphics (fillTarget);
+        observatory_world::drawAspectFill (graphics, fillSource, fillTarget.getBounds());
+    }
+    for (int y = 0; y < fillTarget.getHeight(); ++y)
+        for (int x = 0; x < fillTarget.getWidth(); ++x)
+            KIRIN_OBSERVATORY_REQUIRE (fillTarget.getPixelAt (x, y) == COL_FLORA);
     KIRIN_OBSERVATORY_REQUIRE (meter.field_size == KIRIN_STEREO_FIELD_SIZE);
     KIRIN_OBSERVATORY_REQUIRE (meter.field_observation_count == 30u);
     verifyRoleAtEverySize (observatory::Role::pre, meter, history);
@@ -260,10 +291,30 @@ void verifyObservatoryViewContract()
     post.setSize (600, 400);
     post.setMeterSnapshot (meter, true);
     post.setDeltaSnapshot (delta, true);
-    post.setConnectionText ("PAIR DRUM", COL_LED_BLUE);
+    post.setConnection ("PAIR DRUM", COL_LED_BLUE, observatory::ConnectionState::paired);
     post.setGuide ("MASKING 03:18", "3150-3700 HZ", true);
     post.setDomain (observatory::Domain::level);
     post.setObservatoryFrame (activeFrame(), true);
+    observatory::View connectionProbe (observatory::Role::post);
+    connectionProbe.setSize (300, 200);
+    connectionProbe.setObservatoryFrame (activeFrame(), true);
+    connectionProbe.setConnection ("PAIR", COL_LED_BLUE,
+                                   observatory::ConnectionState::waiting);
+    const auto compactWaiting = render (connectionProbe);
+    connectionProbe.setConnection ("PAIR", COL_LED_BLUE,
+                                   observatory::ConnectionState::paired);
+    KIRIN_OBSERVATORY_REQUIRE (connectionProbe.connection()
+                               == observatory::ConnectionState::paired);
+    KIRIN_OBSERVATORY_REQUIRE (
+        differentPixels (compactWaiting, render (connectionProbe)) > 8);
+    connectionProbe.setSize (600, 400);
+    connectionProbe.setConnection ("PAIR", COL_LED_BLUE,
+                                   observatory::ConnectionState::waiting);
+    const auto observatoryWaiting = render (connectionProbe);
+    connectionProbe.setConnection ("PAIR", COL_LED_BLUE,
+                                   observatory::ConnectionState::paired);
+    KIRIN_OBSERVATORY_REQUIRE (
+        differentPixels (observatoryWaiting, render (connectionProbe)) > 8);
     const auto absolute = render (post);
     auto noClipsMeter = meter;
     noClipsMeter.clip_events[0] = 0;
@@ -358,8 +409,7 @@ void verifyObservatoryViewContract()
         post.setObservatoryFrame (activeFrame(), true);
         post.setGuide ("OS GUIDE  MASKING 03:18", "3150-3700 HZ", true);
         post.setHistory (history);
-        for (const auto preset : {
-                 observatory::sizePresets[0], observatory::sizePresets[3] })
+        for (const auto preset : observatory::sizePresets)
         {
             post.setSize (preset.width, preset.height);
             for (const auto domain : {
@@ -379,7 +429,7 @@ void verifyObservatoryViewContract()
         }
 
         pre.setSize (600, 400);
-        pre.setConnectionText ("SOURCE PRE", COL_LED_BLUE);
+        pre.setConnection ("SOURCE PRE", COL_LED_BLUE, observatory::ConnectionState::source);
         pre.setObservatoryFrame (activeFrame(), true);
         pre.setGuide ("OS GUIDE  INSPECT 03:18", "SOURCE OBSERVATION", false);
         pre.setDomain (observatory::Domain::level);

@@ -65,7 +65,7 @@ ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep teal�
 | Surface | 強度 | 主な視覚層 | 実測との接続 | Compactで残す事実（最大3） |
 |---|---:|---|---|---|
 | POST LEVEL | 2/5 | 構造、観測、接続 | LUFS-Mとbalanceが低明度の菌糸形状を決める | M、S、TP |
-| POST TIME HISTORY | 3/5 | 時間、観測 | M、S、TP、PLR、correlationのexact historyを表示する | 現在値、最大値、経過 |
+| POST TIME HISTORY | 3/5 | 時間、観測 | ObservatoryはM、S、TP、PLR、correlationのexact history、CompactはM、S、TPだけを表示する | M、S、TP |
 | POST TIME ATTACK | 5/5 | 観測、時間 | 選択eventのstrength、texture、brightness、transientをspecimenへ投影する | specimen、主値、選択位置 |
 | POST TIME SHARP | 3/5 | 観測、時間 | exact Sharpness差分と六秒historyを膜状のfillへ投影する | 現在値、差分、history |
 | POST FREQ | 3/5 | 構造、観測、接続 | SpectrumとGuide bandを別authorityとして重ねる | Spectrum、主値、差分 |
@@ -137,6 +137,20 @@ Observatoryは分析とCaptureのためのCE2226地下観測所である。
 背景素材はaspect ratioを維持して中央cropし、有機構造を引き伸ばさない。
 
 CompactとObservatoryの境界で、測定値、Pair、信号状態、domain選択の意味を変えない。
+
+### 旧版Hyphaから継承する製品核
+
+旧版の価値は背景画像だけではない。
+
+参照: https://kirinmastering.com/ja/hypha
+
+Pair名、PRE/POSTの役割、選択したM/S loudness、TP、Crest、CURRENT/MAXを同じ面で即読でき、多数のトラック、ステム、busへ低負荷で挿しっぱなしにできることが製品核である。
+
+B-617ではこのうちPair名、PRE/POST、CompactのM/S/TP、二系統の画面密度、低負荷境界を親Shellへ固定した。
+
+選択式M/S、Crest、CURRENT/MAXのCompact再統合は、計測値を増やすためではなく旧版の即読性を現行設計へ戻す後続gateとして扱う。
+
+このgateが完了するまで、Compactの製品継承を完了とは判定しない。
 
 ## 7. 状態と発光
 

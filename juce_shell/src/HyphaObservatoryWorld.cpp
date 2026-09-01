@@ -134,6 +134,39 @@ Backdrop::Backdrop()
     hyphaSpecimen = sharedHyphaSpecimenImage();
 }
 
+juce::Rectangle<float> aspectFillSourceBounds (int sourceWidth, int sourceHeight,
+                                                int targetWidth, int targetHeight) noexcept
+{
+    if (sourceWidth <= 0 || sourceHeight <= 0 || targetWidth <= 0 || targetHeight <= 0)
+        return {};
+    const auto sourceAspect = static_cast<float> (sourceWidth)
+                            / static_cast<float> (sourceHeight);
+    const auto targetAspect = static_cast<float> (targetWidth)
+                            / static_cast<float> (targetHeight);
+    if (sourceAspect > targetAspect)
+    {
+        const auto width = static_cast<float> (sourceHeight) * targetAspect;
+        return { (static_cast<float> (sourceWidth) - width) * 0.5f,
+                 0.0f, width, static_cast<float> (sourceHeight) };
+    }
+    const auto height = static_cast<float> (sourceWidth) / targetAspect;
+    return { 0.0f, (static_cast<float> (sourceHeight) - height) * 0.5f,
+             static_cast<float> (sourceWidth), height };
+}
+
+void drawAspectFill (juce::Graphics& g, const juce::Image& sourceImage,
+                     juce::Rectangle<int> target)
+{
+    if (! sourceImage.isValid() || target.isEmpty())
+        return;
+    const auto source = aspectFillSourceBounds (
+        sourceImage.getWidth(), sourceImage.getHeight(), target.getWidth(), target.getHeight());
+    g.drawImage (sourceImage, target.getX(), target.getY(), target.getWidth(), target.getHeight(),
+                 juce::roundToInt (source.getX()), juce::roundToInt (source.getY()),
+                 juce::roundToInt (source.getWidth()), juce::roundToInt (source.getHeight()),
+                 false);
+}
+
 void Backdrop::draw (juce::Graphics& g, juce::Rectangle<int> area, const State& state) const
 {
     g.setColour (BG);
@@ -143,7 +176,7 @@ void Backdrop::draw (juce::Graphics& g, juce::Rectangle<int> area, const State& 
 
     juce::Graphics::ScopedSaveState saved (g);
     g.setOpacity (juce::jlimit (0.0f, 1.0f, backdropOpacity (state)));
-    g.drawImage (image, area.toFloat(), juce::RectanglePlacement::stretchToFit);
+    drawAspectFill (g, image, area);
 }
 
 void Backdrop::drawHyphaSpecimen (juce::Graphics& g,
@@ -206,7 +239,7 @@ void paintPlateFrame (juce::Graphics& g, juce::Rectangle<int> area, const State&
 void paintPairRoot (juce::Graphics& g, juce::Rectangle<int> area, const State& state,
                     juce::Colour connectionColour)
 {
-    if (! state.paired || area.isEmpty())
+    if (state.connection != observatory::ConnectionState::paired || area.isEmpty())
         return;
     const auto bounds = area.toFloat().reduced (2.0f);
     juce::Path root;
@@ -218,6 +251,38 @@ void paintPairRoot (juce::Graphics& g, juce::Rectangle<int> area, const State& s
     g.strokePath (root, juce::PathStrokeType (0.8f));
     g.setColour (connectionColour.withAlpha (0.30f));
     g.fillEllipse (bounds.getX() - 1.4f, bounds.getCentreY() - 1.4f, 2.8f, 2.8f);
+}
+
+void paintHyphaAperture (juce::Graphics& g, juce::Rectangle<int> area, const State& state,
+                         juce::Colour connectionColour)
+{
+    if (area.isEmpty())
+        return;
+    const auto diameter = juce::jlimit (10.0f, 16.0f, area.getHeight() * 0.42f);
+    const auto centre = juce::Point<float> (area.getX() + 7.5f,
+                                            static_cast<float> (area.getCentreY()));
+    const auto aperture = juce::Rectangle<float> (diameter, diameter).withCentre (centre);
+    const auto signalAlpha = state.active ? 0.38f : 0.16f;
+    g.setColour (COL_FLORA.withAlpha (0.12f));
+    g.fillEllipse (aperture.expanded (2.0f));
+    g.setColour (COL_MUTED.withAlpha (0.52f));
+    g.drawEllipse (aperture, 0.75f);
+    g.setColour ((state.active ? COL_SPECTRUM_POST : COL_MUTED).withAlpha (signalAlpha));
+    g.fillEllipse (aperture.reduced (diameter * 0.29f));
+
+    const bool connected = state.connection == observatory::ConnectionState::paired
+                        || state.connection == observatory::ConnectionState::source;
+    if (! connected)
+        return;
+    juce::Path root;
+    root.startNewSubPath (aperture.getRight() - 1.0f, centre.y);
+    root.cubicTo (aperture.getRight() + 4.0f, centre.y - 3.0f,
+                  aperture.getRight() + 7.0f, centre.y + 2.0f,
+                  aperture.getRight() + 11.0f, centre.y);
+    const auto sourceAlpha = state.connection == observatory::ConnectionState::source
+        ? 0.22f : 0.32f;
+    g.setColour (connectionColour.withAlpha (sourceAlpha));
+    g.strokePath (root, juce::PathStrokeType (0.8f));
 }
 
 void paintGuideRoot (juce::Graphics& g, juce::Rectangle<int> area, const State& state)

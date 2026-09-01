@@ -1,9 +1,6 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaSpacePainter.h"
 #include "HyphaTimeHistoryPainter.h"
-#include <array>
-#include <cmath>
-#include <limits>
 #include <utility>
 
 namespace hypha::observatory
@@ -27,63 +24,14 @@ const char* domainName (Domain domain)
     return "LEVEL";
 }
 
-juce::String valueText (double value, int decimals = 1, bool signedValue = false)
+void drawPanel (juce::Graphics& g, juce::Rectangle<int> area,
+                ExperienceFamily family, float corner = 4.0f)
 {
-    if (! std::isfinite (value))
-        return "---";
-    return (signedValue && value >= 0.0 ? "+" : "") + juce::String (value, decimals);
-}
-
-void drawPanel (juce::Graphics& g, juce::Rectangle<int> area, float corner = 4.0f)
-{
-    g.setColour (BG.withAlpha (0.92f));
+    const auto opacity = family == ExperienceFamily::compactMeter ? 0.96f : 0.76f;
+    g.setColour (BG.withAlpha (opacity));
     g.fillRoundedRectangle (area.toFloat(), corner);
     g.setColour (COL_MUTED.withAlpha (0.34f));
     g.drawRoundedRectangle (area.toFloat().reduced (0.5f), corner, 1.0f);
-}
-
-void drawMetric (juce::Graphics& g,
-                 juce::Rectangle<int> area,
-                 const juce::String& label,
-                 double value,
-                 const juce::String& unit,
-                 float valueHeight,
-                 bool signedValue = false,
-                 int decimals = 1,
-                 const juce::String& textOverride = {})
-{
-    drawPanel (g, area);
-    const auto labelArea = area.removeFromTop (juce::jmax (14, area.getHeight() / 4));
-    g.setColour (COL_MUTED);
-    g.setFont (labelFont (juce::jlimit (9.0f, 12.0f, valueHeight * 0.32f)));
-    g.drawText (label, labelArea.reduced (6, 1), juce::Justification::centredLeft);
-    if (area.getWidth() < 180)
-    {
-        g.setFont (labelFont (juce::jlimit (7.0f, 10.0f, valueHeight * 0.23f)));
-        g.drawText (unit, labelArea.reduced (6, 1), juce::Justification::centredRight);
-        g.setColour (std::isfinite (value) && textOverride.isEmpty() ? COL_NORMAL : COL_MUTED);
-        drawTabularText (g, monoFont (valueHeight),
-                         textOverride.isNotEmpty() ? textOverride
-                                                   : valueText (value, decimals, signedValue),
-                         area.reduced (5, 0).toFloat(), juce::Justification::centred);
-        return;
-    }
-    const auto unitWidth = juce::jmin (46, area.getWidth() / 3);
-    const auto unitArea = area.removeFromRight (unitWidth);
-    g.setColour (std::isfinite (value) && textOverride.isEmpty() ? COL_NORMAL : COL_MUTED);
-    drawTabularText (g, monoFont (valueHeight),
-                     textOverride.isNotEmpty() ? textOverride
-                                               : valueText (value, decimals, signedValue),
-                     area.reduced (5, 0).toFloat(), juce::Justification::centredRight);
-    g.setColour (COL_MUTED);
-    g.setFont (labelFont (juce::jlimit (8.0f, 11.0f, valueHeight * 0.28f)));
-    g.drawText (unit, unitArea.reduced (2, 0), juce::Justification::centredLeft);
-}
-
-double optionValue (double value, bool available)
-{
-    return available && std::isfinite (value)
-        ? value : std::numeric_limits<double>::quiet_NaN();
 }
 
 void styleButton (juce::TextButton& button)
@@ -151,10 +99,11 @@ void View::setTarget (ObservationTarget value)
     repaint();
 }
 
-void View::setConnectionText (juce::String text, juce::Colour colour)
+void View::setConnection (juce::String text, juce::Colour colour, ConnectionState state)
 {
     connectionText = std::move (text);
     connectionColour = colour;
+    connectionState = state;
     repaint();
 }
 
@@ -251,8 +200,9 @@ void View::resized()
     connectionArea = toJuce (layout.connectionStatus);
     guideArea = toJuce (layout.guideRail);
     sessionArea = toJuce (layout.session);
-    const auto compact = preset.density == Density::compact;
-    const auto singleDomainControl = compact || preset.density == Density::focused;
+    const auto contract = presentationContract (preset);
+    const auto compact = contract.family == ExperienceFamily::compactMeter;
+    const auto singleDomainControl = ! contract.domainTabs;
     const auto navigation = toJuce (layout.domainNavigation);
     domainCycleButton.setVisible (singleDomainControl);
     levelButton.setVisible (! singleDomainControl);
@@ -276,7 +226,7 @@ void View::resized()
 
     targetButton.setVisible (role == Role::post);
     targetButton.setBounds (toJuce (layout.observationTarget).reduced (0, 2));
-    timeRangeButton.setVisible (selectedDomain == Domain::time && ! compact);
+    timeRangeButton.setVisible (selectedDomain == Domain::time && contract.detailedAxes);
     if (timeRangeButton.isVisible())
     {
         auto timeRangeArea = bodyArea;
@@ -307,29 +257,45 @@ void View::resized()
 void View::paint (juce::Graphics& g)
 {
     const auto state = worldState();
-    background.draw (g, getLocalBounds(), state);
+    const auto contract = presentation();
+    if (contract.worldBackdrop)
+        background.draw (g, getLocalBounds(), state);
+    else
+    {
+        g.setColour (BG);
+        g.fillRect (getLocalBounds());
+    }
     const auto layout = shellLayout (role, currentPreset(), guidePresence());
-    observatory_world::paintDomainBed (g, bodyArea, state);
-    background.drawHyphaSpecimen (g, bodyArea, state);
+    if (contract.domainWorld)
+    {
+        observatory_world::paintDomainBed (g, bodyArea, state);
+        background.drawHyphaSpecimen (g, bodyArea, state);
+    }
     paintHeader (g, layout);
     paintGuide (g, layout);
-    if (selectedDomain == Domain::level)
+    if (selectedDomain == Domain::level && contract.domainWorld)
         paintMeasuredMycelium (g, bodyArea);
     if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
     else if (selectedDomain == Domain::time) paintTime (g, bodyArea);
     else if (selectedDomain == Domain::space)
-        space_field::paint (g, bodyArea, observatoryFrame.meter, currentFactsAvailable());
-    else drawPanel (g, bodyArea);
+        space_field::paint (g, bodyArea, observatoryFrame.meter,
+                            currentFactsAvailable(),
+                            contract.family == ExperienceFamily::compactMeter);
+    else drawPanel (g, bodyArea, contract.family);
     paintFooter (g, layout);
     observatory_world::paintPlateFrame (g, getLocalBounds(), state);
 }
 
 void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
 {
-    drawPanel (g, toJuce (layout.header), 5.0f);
+    const auto contract = presentation();
+    drawPanel (g, toJuce (layout.header), contract.family, 5.0f);
     const auto state = worldState();
-    observatory_world::paintPairRoot (g, toJuce (layout.connectionStatus), state,
-                                      connectionColour);
+    auto statusArea = toJuce (layout.connectionStatus);
+    if (contract.hyphaAperture)
+        observatory_world::paintHyphaAperture (g, statusArea, state, connectionColour);
+    else
+        observatory_world::paintPairRoot (g, statusArea, state, connectionColour);
     const auto density = currentPreset().density;
     const auto titleHeight = density == Density::compact ? 12.0f
                            : density == Density::focused ? 14.0f
@@ -346,7 +312,9 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
                 juce::Justification::centredRight);
     g.setColour (connectionColour);
     g.setFont (monoFont (currentPreset().density == Density::compact ? 9.0f : 11.0f));
-    g.drawText (connectionText, toJuce (layout.connectionStatus).reduced (4, 0),
+    if (contract.hyphaAperture)
+        statusArea.removeFromLeft (22);
+    g.drawText (connectionText, statusArea.reduced (4, 0),
                 juce::Justification::centredRight);
 }
 
@@ -369,7 +337,7 @@ void View::paintGuide (juce::Graphics& g, const ShellLayout& layout)
 
 void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
 {
-    drawPanel (g, toJuce (layout.footer), 4.0f);
+    drawPanel (g, toJuce (layout.footer), experienceFamily(), 4.0f);
     const auto session = sessionArea.reduced (6, 0);
     const auto& meter = observatoryFrame.meter;
     const auto state = ! frameAvailable ? juce::String ("SESSION —")
@@ -395,85 +363,9 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
                 juce::Justification::centred);
 }
 
-void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area)
-{
-    const auto& meter = observatoryFrame.meter;
-    const auto& delta = observatoryFrame.delta;
-    const bool currentAvailable = currentFactsAvailable();
-    const bool cumulativeAvailable = cumulativeFactsAvailable();
-    const auto density = currentPreset().density;
-    const auto compact = density == Density::compact;
-    juce::Rectangle<int> channelStrips;
-    juce::Rectangle<int> clipEventRail;
-    if (target() == ObservationTarget::absolute
-        && (density == Density::standard || density == Density::observatory))
-        channelStrips = area.removeFromRight (
-            density == Density::observatory ? 76 : 62).reduced (2);
-    else if (target() == ObservationTarget::absolute)
-        clipEventRail = area.removeFromBottom (compact ? 17 : 19).reduced (2, 1);
-    if (target() == ObservationTarget::delta)
-    {
-        const std::array<double, 3> values { delta.lufs, delta.lufs_s, delta.true_peak };
-        const std::array<const char*, 3> labels { "M", "S", "TP" };
-        const auto cellWidth = area.getWidth() / (compact ? 2 : 3);
-        for (int index = 0; index < (compact ? 2 : 3); ++index)
-            drawMetric (g, area.removeFromLeft (cellWidth).reduced (2),
-                        hypha::delta() + labels[(size_t) index],
-                        optionValue (values[(size_t) index], deltaFactsAvailable()),
-                        index == 2 ? "dB" : "LU", compact ? 27.0f : 36.0f, true);
-        return;
-    }
-
-    const auto mainHeight = compact ? area.getHeight() : juce::roundToInt (area.getHeight() * 0.58f);
-    auto main = area.removeFromTop (mainHeight);
-    const std::array<double, 3> mainValues { meter.lufs_m, meter.lufs_s, meter.lufs_i };
-    const std::array<const char*, 3> mainLabels { "M", "S", "I" };
-    const auto mainCount = compact ? 2 : 3;
-    for (int index = 0; index < mainCount; ++index)
-        drawMetric (g, main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
-                    mainLabels[(size_t) index],
-                    optionValue (mainValues[(size_t) index],
-                                 index < 2 ? currentAvailable : cumulativeAvailable), "LUFS",
-                    compact ? 28.0f : 42.0f);
-    if (compact)
-    {
-        if (! clipEventRail.isEmpty())
-            paintClipEventRail (g, clipEventRail);
-        return;
-    }
-
-    const std::array<double, 5> supportValues {
-        meter.true_peak, meter.max_true_peak, meter.lra, meter.plr, meter.correlation
-    };
-    const std::array<bool, 5> supportAvailable {
-        currentAvailable, cumulativeAvailable,
-        cumulativeAvailable && observatoryFrame.lra_state == KIRIN_LRA_READY,
-        cumulativeAvailable, currentAvailable
-    };
-    const std::array<const char*, 5> supportLabels { "TP", "MAX TP", "LRA", "PLR", "CORR" };
-    const std::array<const char*, 5> supportUnits { "dBTP", "dBTP", "LU", "dB", "" };
-    for (int index = 0; index < 5; ++index)
-    {
-        const auto warming = index == 2 && cumulativeAvailable
-                          && observatoryFrame.lra_state == KIRIN_LRA_WARMING;
-        const auto warmingText = warming
-            ? "WARM " + juce::String ((int) std::floor (observatoryFrame.lra_elapsed_seconds)) + "S"
-            : juce::String();
-        drawMetric (g, area.removeFromLeft (area.getWidth() / (5 - index)).reduced (2),
-                    supportLabels[(size_t) index],
-                    optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
-                    supportUnits[(size_t) index], 18.0f, index == 4, index == 4 ? 2 : 1,
-                    warmingText);
-    }
-    if (! channelStrips.isEmpty())
-        paintChannelStrips (g, channelStrips);
-    else if (! clipEventRail.isEmpty())
-        paintClipEventRail (g, clipEventRail);
-}
-
 void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
-    const bool compact = currentPreset().density == Density::compact;
+    const bool compact = experienceFamily() == ExperienceFamily::compactMeter;
     if (! compact)
     {
         auto context = area.removeFromTop (22);
@@ -484,6 +376,6 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
         area.removeFromTop (2);
     }
     time_history::paint (g, area, history, compact ? historyRequest().label : "",
-                         target() == ObservationTarget::delta);
+                         target() == ObservationTarget::delta, compact);
 }
 }

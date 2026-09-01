@@ -67,15 +67,20 @@ void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
     if (external != nullptr && ! external->getLocalBounds().isEmpty())
     {
         const auto body = observatoryView.captureBodyBounds (width, height, captureIncludeGuide);
-        const auto scale = juce::jmax (
-            (float) body.getWidth() / (float) external->getWidth(),
-            (float) body.getHeight() / (float) external->getHeight());
+        const auto originalBounds = external->getBounds();
+        external->setSize (
+            juce::roundToInt ((float) body.getWidth()
+                              / hypha::observatory::captureRenderScale),
+            juce::roundToInt ((float) body.getHeight()
+                              / hypha::observatory::captureRenderScale));
         const auto analysis = external->createComponentSnapshot (
-            external->getLocalBounds(), true, scale);
+            external->getLocalBounds(), true, hypha::observatory::captureRenderScale);
+        external->setBounds (originalBounds);
         juce::Graphics graphics (image);
-        graphics.drawImageWithin (analysis, body.getX(), body.getY(),
-                                  body.getWidth(), body.getHeight(),
-                                  juce::RectanglePlacement::centred, false);
+        graphics.setColour (hypha::BG);
+        graphics.fillRoundedRectangle (body.toFloat(), 4.0f);
+        graphics.drawImage (analysis, body.getX(), body.getY(), body.getWidth(), body.getHeight(),
+                            0, 0, analysis.getWidth(), analysis.getHeight(), false);
     }
    #endif
 

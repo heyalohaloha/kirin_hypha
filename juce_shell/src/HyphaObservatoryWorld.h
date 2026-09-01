@@ -12,7 +12,7 @@ struct State
     observatory::Domain domain = observatory::Domain::level;
     observatory::Density density = observatory::Density::compact;
     bool active = false;
-    bool paired = false;
+    observatory::ConnectionState connection = observatory::ConnectionState::unpaired;
     bool guidePresent = false;
     bool capture = false;
     float energy = 0.0f;
@@ -43,9 +43,15 @@ private:
     juce::Image hyphaSpecimen;
 };
 
+juce::Rectangle<float> aspectFillSourceBounds (int sourceWidth, int sourceHeight,
+                                                int targetWidth, int targetHeight) noexcept;
+void drawAspectFill (juce::Graphics&, const juce::Image&, juce::Rectangle<int> target);
+
 void paintDomainBed (juce::Graphics&, juce::Rectangle<int>, const State&);
 void paintPlateFrame (juce::Graphics&, juce::Rectangle<int>, const State&);
 void paintPairRoot (juce::Graphics&, juce::Rectangle<int>, const State&,
                     juce::Colour connectionColour);
+void paintHyphaAperture (juce::Graphics&, juce::Rectangle<int>, const State&,
+                         juce::Colour connectionColour);
 void paintGuideRoot (juce::Graphics&, juce::Rectangle<int>, const State&);
 }

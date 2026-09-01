@@ -43,5 +43,10 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
         g.setColour (COL_FLORA_BR.withAlpha (0.92f));
         g.fillRect (area.getCentreX() - width * 0.5f, area.getBottom() - 1.0f, width, 1.0f);
     }
+    if (hasKeyboardFocus (true))
+    {
+        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.92f));
+        g.drawRoundedRectangle (area.reduced (1.0f), 3.0f, 1.0f);
+    }
 }
 }

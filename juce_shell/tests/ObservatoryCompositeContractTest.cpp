@@ -103,6 +103,19 @@ juce::Image compose (observatory::View& shell, juce::Component& body)
     return image;
 }
 
+void writeCompositePreview (const juce::String& name, const juce::Image& image)
+{
+    const auto outputDirectory = juce::SystemStats::getEnvironmentVariable (
+        "KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+    if (outputDirectory.isEmpty())
+        return;
+    const juce::File directory (outputDirectory);
+    KIRIN_COMPOSITE_REQUIRE (directory.createDirectory().wasOk());
+    auto output = directory.getChildFile (name).createOutputStream();
+    KIRIN_COMPOSITE_REQUIRE (output != nullptr);
+    KIRIN_COMPOSITE_REQUIRE (juce::PNGImageFormat().writeImageToStream (image, *output));
+}
+
 KirinSpectrumView spectrumFixture()
 {
     KirinSpectrumView view {};
@@ -233,7 +246,7 @@ void verifyObservatoryCompositeContract()
     observatory::View shell (observatory::Role::post);
     shell.setSize (600, 400);
     shell.setObservatoryFrame (activeFrame(), true);
-    shell.setConnectionText ("PAIR DRUM", COL_LED_BLUE);
+    shell.setConnection ("PAIR DRUM", COL_LED_BLUE, observatory::ConnectionState::paired);
     shell.setGuide ("OS GUIDE  MASKING 03:18", "3150-3700 HZ", true);
 
     SpectrumComponent spectrum;
@@ -275,11 +288,13 @@ void verifyObservatoryCompositeContract()
 
     auto attack = attackFixture();
     requireExternalComposite (shell, *attack);
+    writeCompositePreview ("post-attack-600x400.png", compose (shell, *attack));
 
     shell.setSize (300, 200);
     KIRIN_COMPOSITE_REQUIRE (
         shell.experienceFamily() == observatory::ExperienceFamily::compactMeter);
     requireExternalComposite (shell, *attack);
+    writeCompositePreview ("post-attack-300x200.png", compose (shell, *attack));
     shell.setSize (600, 400);
     KIRIN_COMPOSITE_REQUIRE (
         shell.experienceFamily() == observatory::ExperienceFamily::observatory);
@@ -288,20 +303,26 @@ void verifyObservatoryCompositeContract()
         1'200, 630, false, "2026-09-01 00:00:00", "0.1.0");
     auto captureComposite = captureBase.createCopy();
     const auto captureBody = shell.captureBodyBounds (1'200, 630, false);
-    attack->setSize (shell.bodyBounds().getWidth(), shell.bodyBounds().getHeight());
+    attack->setSize (
+        juce::roundToInt ((float) captureBody.getWidth()
+                          / observatory::captureRenderScale),
+        juce::roundToInt ((float) captureBody.getHeight()
+                          / observatory::captureRenderScale));
     const auto attackSnapshot = attack->createComponentSnapshot (
-        attack->getLocalBounds(), true,
-        static_cast<float> (captureBody.getWidth()) / attack->getWidth());
+        attack->getLocalBounds(), true, observatory::captureRenderScale);
     {
         juce::Graphics graphics (captureComposite);
-        graphics.drawImageWithin (attackSnapshot, captureBody.getX(), captureBody.getY(),
-                                  captureBody.getWidth(), captureBody.getHeight(),
-                                  juce::RectanglePlacement::centred, false);
+        graphics.setColour (BG);
+        graphics.fillRoundedRectangle (captureBody.toFloat(), 4.0f);
+        graphics.drawImage (attackSnapshot, captureBody.getX(), captureBody.getY(),
+                            captureBody.getWidth(), captureBody.getHeight(),
+                            0, 0, attackSnapshot.getWidth(), attackSnapshot.getHeight(), false);
     }
     const auto captureInk = differentPixels (captureBase, captureComposite, captureBody);
     std::cout << "Observatory capture body " << captureBody.getWidth() << 'x'
               << captureBody.getHeight() << ": " << captureInk << " changed pixels\n";
     KIRIN_COMPOSITE_REQUIRE (
         captureInk > captureBody.getWidth() * captureBody.getHeight() / 500);
+    writeCompositePreview ("capture-attack-1200x630.png", captureComposite);
 }
 }

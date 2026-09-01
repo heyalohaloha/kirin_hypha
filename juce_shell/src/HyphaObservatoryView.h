@@ -57,7 +57,8 @@ public:
     void setMeterSnapshot (const KirinMeterSession&, bool available);
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
-    void setConnectionText (juce::String text, juce::Colour colour);
+    void setConnection (juce::String text, juce::Colour colour, ConnectionState state);
+    ConnectionState connection() const noexcept { return connectionState; }
     void setGuide (juce::String primary, juce::String detail, bool emphasized);
     void clearGuide();
     void setHistory (std::vector<KirinMeterHistoryEntry> entries);
@@ -101,7 +102,6 @@ private:
     void paintFooter (juce::Graphics&, const ShellLayout&);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>);
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
-    void paintClipEventRail (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
     void paintMeasuredMycelium (juce::Graphics&, juce::Rectangle<int>);
     observatory_world::State worldState() const noexcept;
@@ -117,6 +117,7 @@ private:
     bool frameAvailable = false;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;
+    ConnectionState connectionState = ConnectionState::unpaired;
     juce::String guidePrimary;
     juce::String guideDetail;
     bool guideEmphasized = false;

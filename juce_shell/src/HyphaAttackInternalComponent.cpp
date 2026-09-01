@@ -222,6 +222,10 @@ const KirinAttackDetail* AttackInternalComponent::selectedPreDetail() const noex
 void AttackInternalComponent::paint (juce::Graphics& g)
 {
     auto bounds = getLocalBounds();
+    // ATTACK owns the Observatory body while selected. Keep the body opaque so the HISTORY
+    // labels beneath this child cannot leak into its transparent header or capture composite.
+    g.setColour (BG);
+    g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
     auto header = bounds.removeFromTop (attack_ui::headerHeight);
     auto metrics = bounds.removeFromBottom (attack_ui::metricsHeight (getHeight()));
     auto timeline = bounds.removeFromTop (attack_ui::timelineHeight (getHeight()));

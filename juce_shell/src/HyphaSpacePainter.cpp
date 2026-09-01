@@ -8,9 +8,10 @@ namespace hypha::space_field
 {
 namespace
 {
-void drawPanel (juce::Graphics& g, juce::Rectangle<int> area, float radius = 4.0f)
+void drawPanel (juce::Graphics& g, juce::Rectangle<int> area,
+                bool compact, float radius = 4.0f)
 {
-    g.setColour (BG.withAlpha (0.82f));
+    g.setColour (BG.withAlpha (compact ? 0.96f : 0.76f));
     g.fillRoundedRectangle (area.toFloat(), radius);
     g.setColour (COL_MUTED.withAlpha (0.34f));
     g.drawRoundedRectangle (area.toFloat().reduced (0.5f), radius, 1.0f);
@@ -36,7 +37,7 @@ void drawMetric (juce::Graphics& g,
                  const char* unit,
                  bool compact)
 {
-    drawPanel (g, area);
+    drawPanel (g, area, compact);
     area.reduce (compact ? 5 : 9, compact ? 4 : 7);
     g.setColour (COL_MUTED.brighter (0.16f));
     g.setFont (labelFont (compact ? 8.0f : 10.0f));
@@ -110,10 +111,11 @@ void drawAxisLabels (juce::Graphics& g, juce::Rectangle<int> plot)
 void paint (juce::Graphics& g,
             juce::Rectangle<int> area,
             const KirinMeterSession& meter,
-            bool available)
+            bool available,
+            bool compactMeter)
 {
-    drawPanel (g, area);
-    const bool compact = area.getWidth() < 340;
+    const bool compact = compactMeter;
+    drawPanel (g, area, compact);
     area.reduce (compact ? 6 : 9, compact ? 5 : 7);
     auto title = area.removeFromTop (compact ? 14 : 18);
     g.setColour (COL_MUTED.brighter (0.18f));
@@ -137,7 +139,7 @@ void paint (juce::Graphics& g,
     area.removeFromRight (gap);
     const int side = juce::jmin (area.getWidth(), area.getHeight());
     auto field = juce::Rectangle<int> (0, 0, side, side).withCentre (area.getCentre());
-    drawPanel (g, field);
+    drawPanel (g, field, compact);
     auto plot = field.reduced (compact ? 11 : 16).toFloat();
     drawFieldAxes (g, plot);
     if (fieldAvailable)

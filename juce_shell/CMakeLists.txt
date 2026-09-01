@@ -170,6 +170,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryFrame.cpp
+        src/HyphaObservatoryMetrics.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryWorld.cpp
         src/HyphaSpacePainter.cpp
@@ -330,6 +331,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryFrame.cpp
+        src/HyphaObservatoryMetrics.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryWorld.cpp
         src/HyphaSpacePainter.cpp

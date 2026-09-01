@@ -5,18 +5,30 @@ using hypha::COL_MUTED;
 
 namespace
 {
-juce::String observatoryPairText (int status)
+juce::String observatoryPairText (bool isPost, int status)
 {
+    if (! isPost) return "SOURCE";
     if (status == KIRIN_PAIR_STATUS_PAIRED) return juce::CharPointer_UTF8 ("PAIR ●");
     if (status == KIRIN_PAIR_STATUS_WAITING) return juce::CharPointer_UTF8 ("PAIR ◌");
     return juce::CharPointer_UTF8 ("PAIR —");
 }
 
-juce::Colour observatoryPairColour (int status)
+juce::Colour observatoryPairColour (bool isPost, int status)
 {
+    if (! isPost) return hypha::COL_SPECTRUM_POST;
     if (status == KIRIN_PAIR_STATUS_PAIRED) return COL_LED_BLUE;
     if (status == KIRIN_PAIR_STATUS_WAITING) return hypha::COL_FLORA;
     return COL_MUTED;
+}
+
+hypha::observatory::ConnectionState observatoryConnectionState (bool isPost, int status)
+{
+    if (! isPost) return hypha::observatory::ConnectionState::source;
+    if (status == KIRIN_PAIR_STATUS_PAIRED)
+        return hypha::observatory::ConnectionState::paired;
+    if (status == KIRIN_PAIR_STATUS_WAITING)
+        return hypha::observatory::ConnectionState::waiting;
+    return hypha::observatory::ConnectionState::unpaired;
 }
 }
 
@@ -89,8 +101,9 @@ void KirinHyphaEditor::refreshObservatory()
             observatoryView.setHistory (std::move (history));
     }
 
-    observatoryView.setConnectionText (observatoryPairText (pairStatus),
-                                       observatoryPairColour (pairStatus));
+    observatoryView.setConnection (observatoryPairText (isPost, pairStatus),
+                                   observatoryPairColour (isPost, pairStatus),
+                                   observatoryConnectionState (isPost, pairStatus));
 
     const auto previousBody = observatoryView.bodyBounds();
 #if KIRIN_HYPHA_GUIDE_TRANSPORT

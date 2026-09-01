@@ -137,8 +137,10 @@ void verifyTimeHistoryContract()
             for (int x = 0; x < image.getWidth(); ++x)
                 visible += image.getPixelAt (x, y).getAlpha() > 0 ? 1 : 0;
         KIRIN_TIME_HISTORY_REQUIRE (visible == image.getWidth() * image.getHeight());
-        KIRIN_TIME_HISTORY_REQUIRE (
-            changedPixels (image, render (alternateAux, dimensions.first, dimensions.second)) > 30);
+        const auto auxChanged = changedPixels (
+            image, render (alternateAux, dimensions.first, dimensions.second));
+        const auto compact = dimensions.first <= 375;
+        KIRIN_TIME_HISTORY_REQUIRE (compact ? auxChanged == 0 : auxChanged > 30);
     }
 
     constexpr int paintIterations = 30;

@@ -11,5 +11,6 @@ namespace hypha::space_field
 void paint (juce::Graphics&,
             juce::Rectangle<int> area,
             const KirinMeterSession&,
-            bool available);
+            bool available,
+            bool compactMeter);
 }

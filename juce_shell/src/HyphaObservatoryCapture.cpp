@@ -4,12 +4,12 @@ namespace hypha::observatory
 {
 namespace
 {
-constexpr float captureScale = 2.0f;
-
 SizePreset capturePreset (int pixelWidth, int pixelHeight)
 {
-    const int width = juce::jmax (1, juce::roundToInt ((float) pixelWidth / captureScale));
-    const int height = juce::jmax (1, juce::roundToInt ((float) pixelHeight / captureScale));
+    const int width = juce::jmax (
+        1, juce::roundToInt ((float) pixelWidth / captureRenderScale));
+    const int height = juce::jmax (
+        1, juce::roundToInt ((float) pixelHeight / captureRenderScale));
     const auto density = width < 338 ? Density::compact
                        : width < 413 ? Density::focused
                        : width < 525 ? Density::standard : Density::observatory;
@@ -19,10 +19,10 @@ SizePreset capturePreset (int pixelWidth, int pixelHeight)
 juce::Rectangle<int> scaled (Rect rect)
 {
     return {
-        juce::roundToInt ((float) rect.x * captureScale),
-        juce::roundToInt ((float) rect.y * captureScale),
-        juce::roundToInt ((float) rect.width * captureScale),
-        juce::roundToInt ((float) rect.height * captureScale),
+        juce::roundToInt ((float) rect.x * captureRenderScale),
+        juce::roundToInt ((float) rect.y * captureRenderScale),
+        juce::roundToInt ((float) rect.width * captureRenderScale),
+        juce::roundToInt ((float) rect.height * captureRenderScale),
     };
 }
 }
@@ -41,6 +41,7 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     frame.frameAvailable = frameAvailable;
     frame.connectionText = connectionText;
     frame.connectionColour = connectionColour;
+    frame.connectionState = connectionState;
     if (includeGuide)
     {
         frame.guidePrimary = guidePrimary;
@@ -59,7 +60,7 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
 
     juce::Image image (juce::Image::RGB, pixelWidth, pixelHeight, false);
     juce::Graphics graphics (image);
-    graphics.addTransform (juce::AffineTransform::scale (captureScale));
+    graphics.addTransform (juce::AffineTransform::scale (captureRenderScale));
     frame.paintEntireComponent (graphics, true);
     return image;
 }

@@ -61,8 +61,7 @@ observatory_world::State View::worldState() const noexcept
     state.domain = selectedDomain;
     state.density = currentPreset().density;
     state.active = currentFactsAvailable();
-    state.paired = connectionText.isNotEmpty()
-        && connectionColour.getARGB() == COL_LED_BLUE.getARGB();
+    state.connection = connectionState;
     state.guidePresent = guidePresence() == GuidePresence::present;
     state.capture = captureFrame;
     state.energy = state.active && std::isfinite (observatoryFrame.meter.lufs_m)

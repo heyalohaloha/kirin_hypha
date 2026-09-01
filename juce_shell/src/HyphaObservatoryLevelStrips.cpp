@@ -54,7 +54,8 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     const auto& meter = observatoryFrame.meter;
     const bool currentAvailable = currentFactsAvailable();
     const bool cumulativeAvailable = cumulativeFactsAvailable();
-    g.setColour (BG.withAlpha (0.82f));
+    g.setColour (BG.withAlpha (experienceFamily() == ExperienceFamily::compactMeter
+                                   ? 0.96f : 0.76f));
     g.fillRoundedRectangle (area.toFloat(), 4.0f);
     g.setColour (COL_MUTED.withAlpha (0.34f));
     g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
@@ -118,24 +119,6 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     clips.removeFromLeft (columnGap);
     paintClipCount (g, left, "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0);
     paintClipCount (g, clips, "R", meter.clip_events[1], cumulativeAvailable && meter.channels > 1);
-}
-
-void View::paintClipEventRail (juce::Graphics& g, juce::Rectangle<int> area)
-{
-    const auto& meter = observatoryFrame.meter;
-    const bool cumulativeAvailable = cumulativeFactsAvailable();
-    g.setColour (BG.withAlpha (0.82f));
-    g.fillRoundedRectangle (area.toFloat(), 3.0f);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 3.0f, 1.0f);
-    area.reduce (5, 1);
-    auto label = area.removeFromLeft (juce::jmin (62, area.getWidth() / 3));
-    g.setColour (COL_MUTED);
-    g.setFont (labelFont (7.5f));
-    g.drawText ("CLIP EVENTS", label, juce::Justification::centredLeft);
-    const auto left = area.removeFromLeft (area.getWidth() / 2);
-    paintClipCount (g, left, "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0);
-    paintClipCount (g, area, "R", meter.clip_events[1], cumulativeAvailable && meter.channels > 1);
 }
 
 void View::paintMeasuredMycelium (juce::Graphics& g, juce::Rectangle<int> area)
