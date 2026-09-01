@@ -118,10 +118,23 @@ constexpr int footerHeight (Density density) noexcept
         case Density::compact:     return 24;
         case Density::focused:     return 28;
         case Density::standard:    return 32;
-        case Density::observatory: return 40;
+        // The full-width action row is supporting chrome. Keeping it at 60% of the original
+        // 40 px returns meaningful vertical area to LEVEL/TIME history without shrinking only
+        // the CAPTURE button.
+        case Density::observatory: return 24;
     }
     return 24;
 }
+
+/// LEVEL's upper-three plus middle-five plate is deliberately subordinate to its 60 s history.
+/// The input is the previous plate allocation; three fifths implements the approved ~60% height.
+constexpr int compressedLevelMetricsHeight (int previousHeight) noexcept
+{
+    return (previousHeight * 3 + 2) / 5;
+}
+
+static_assert (footerHeight (Density::observatory) == 24);
+static_assert (compressedLevelMetricsHeight (150) == 90);
 
 constexpr int guideRailHeight (Density density, GuidePresence presence) noexcept
 {

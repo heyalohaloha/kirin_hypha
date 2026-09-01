@@ -7,9 +7,9 @@
 
 namespace
 {
-    static_assert (sizeof (KirinMeterSession) == 832u,
+    static_assert (sizeof (KirinMeterSession) == 840u,
                    "Rust/C++ Meter Session ABI size must remain exact");
-    static_assert (sizeof (KirinObservatoryFrame) == 912u,
+    static_assert (sizeof (KirinObservatoryFrame) == 920u,
                    "Rust/C++ Observatory frame ABI size must remain exact");
     static_assert (sizeof (KirinMeterHistoryEntry) == 184u,
                    "Rust/C++ Meter history ABI size must remain exact");

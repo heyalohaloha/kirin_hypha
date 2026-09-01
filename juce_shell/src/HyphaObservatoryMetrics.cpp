@@ -41,13 +41,24 @@ void drawMetric (juce::Graphics& g,
                  bool signedValue = false,
                  int decimals = 1,
                  const juce::String& textOverride = {},
-                 float panelOpacity = -1.0f)
+                 float panelOpacity = -1.0f,
+                 const juce::String& auxiliaryText = {})
 {
     drawPanel (g, area, family, panelOpacity);
     const auto labelArea = area.removeFromTop (juce::jmax (14, area.getHeight() / 4));
     g.setColour (COL_MUTED);
     g.setFont (labelFont (juce::jlimit (9.0f, 12.0f, valueHeight * 0.32f)));
     g.drawText (label, labelArea.reduced (6, 1), juce::Justification::centredLeft);
+    if (auxiliaryText.isNotEmpty())
+    {
+        const auto auxiliaryHeight = juce::jlimit (10, 14, area.getHeight() / 3);
+        const auto auxiliaryArea = area.removeFromBottom (auxiliaryHeight);
+        g.setColour (COL_MUTED.withAlpha (0.92f));
+        g.setFont (labelFont (juce::jlimit (8.0f, 10.0f, valueHeight * 0.22f)));
+        g.drawText (auxiliaryText, auxiliaryArea.reduced (6, 0),
+                    juce::Justification::centredRight);
+    }
+    valueHeight = juce::jmin (valueHeight, (float) area.getHeight() * 0.92f);
     if (area.getWidth() < 180)
     {
         g.setFont (labelFont (juce::jlimit (7.0f, 10.0f, valueHeight * 0.23f)));
@@ -169,11 +180,18 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     if (density == Density::observatory)
         background.drawLevelCorners (g, main, worldState());
     for (int index = 0; index < mainCount; ++index)
+    {
+        const auto maximumMomentary = index == 0 && density == Density::observatory
+            ? juce::String ("MAX M  ") + valueText (
+                optionValue (meter.max_lufs_m, cumulativeAvailable), 1, false) + " LUFS"
+            : juce::String();
         drawMetric (g, main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
                     mainLabels[(size_t) index],
                     optionValue (mainValues[(size_t) index], mainAvailable[(size_t) index]),
                     mainUnits[(size_t) index], mainValueHeight, family,
-                    false, 1, {}, density == Density::observatory ? 0.42f : -1.0f);
+                    false, 1, {}, density == Density::observatory ? 0.42f : -1.0f,
+                    maximumMomentary);
+    }
 
     const std::array<double, 5> supportValues {
         meter.true_peak, meter.max_true_peak, meter.lra, meter.plr,
@@ -205,7 +223,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         paintChannelStrips (g, channelStrips);
 }
 
-void View::paintLevelCapture (juce::Graphics& g, juce::Rectangle<int> area)
+void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
 {
     const auto inspection = getWidth() >= 900;
     juce::Rectangle<int> channelStrips;
@@ -213,13 +231,17 @@ void View::paintLevelCapture (juce::Graphics& g, juce::Rectangle<int> area)
         channelStrips = area.removeFromRight (inspection ? 110 : 76).reduced (2);
 
     const auto landscape = area.getWidth() > area.getHeight();
-    const auto historyHeight = juce::jlimit (
+    const auto previousHistoryHeight = juce::jlimit (
         72, inspection ? 240 : 170,
         juce::roundToInt (area.getHeight()
                           * (inspection ? 0.46f : landscape ? 0.40f : 0.32f)));
-    auto historyArea = area.removeFromBottom (historyHeight);
-    area.removeFromBottom (4);
-    paintLevel (g, area, false);
+    const auto previousMetricsHeight = juce::jmax (
+        1, area.getHeight() - previousHistoryHeight - 4);
+    const auto metricsHeight = compressedLevelMetricsHeight (previousMetricsHeight);
+    auto metricsArea = area.removeFromTop (metricsHeight);
+    area.removeFromTop (4);
+    auto historyArea = area;
+    paintLevel (g, metricsArea, false);
     levelHistoryArea = historyArea.reduced (2);
     capture_history::paint (g, levelHistoryArea, history,
                             target() == ObservationTarget::delta,

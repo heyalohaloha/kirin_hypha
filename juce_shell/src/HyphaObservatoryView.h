@@ -124,7 +124,7 @@ private:
     void paintGuide (juce::Graphics&, const ShellLayout&);
     void paintFooter (juce::Graphics&, const ShellLayout&);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
-    void paintLevelCapture (juce::Graphics&, juce::Rectangle<int>);
+    void paintLevelWithHistory (juce::Graphics&, juce::Rectangle<int>);
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
     void refreshLevelHistoryHover();

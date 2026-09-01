@@ -378,7 +378,7 @@ void View::paint (juce::Graphics& g)
     paintHeader (g, layout);
     paintGuide (g, layout);
     if (selectedDomain == Domain::level && (captureFrame || fullCockpit()))
-        paintLevelCapture (g, bodyArea);
+        paintLevelWithHistory (g, bodyArea);
     else if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
     else if (selectedDomain == Domain::time) paintTime (g, bodyArea);
     else if (selectedDomain == Domain::space)

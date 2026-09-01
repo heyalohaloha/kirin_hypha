@@ -232,29 +232,33 @@ impl MeasureEngine {
         samples: &[f64],
         mut observe: impl FnMut(u64, &MeasureResult, &[f64]),
     ) -> Option<MeasureResult> {
-        self.push_observed_internal(samples, false, |frames, result, observed, _| {
+        self.push_observed_internal(samples, false, |frames, result, observed, _, _| {
             observe(frames, result, observed);
         })
     }
 
-    /// Meter Session専用observer。各100 ms境界のIとMaxTPから確定したPLRを、その境界の
-    /// current値と同時に返す。LRAはpush全体の最後にだけqueryし、通常の`push_observed`には
-    /// Integrated queryの追加costを負わせない。
-    pub fn push_observed_with_plr(
+    /// Meter Session専用observer。各100 ms境界のIとMaxTPから確定したPLR、および10 ms
+    /// 規格解析から同境界までに確定したMax Mをcurrent値と同時に返す。LRAはpush全体の
+    /// 最後にだけqueryし、通常の`push_observed`にはIntegrated queryの追加costを負わせない。
+    pub fn push_observed_with_session_facts(
         &mut self,
         samples: &[f64],
-        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>),
+        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>, Option<f64>),
     ) -> Option<MeasureResult> {
-        self.push_observed_internal(samples, true, |frames, result, observed, plr| {
-            observe(frames, result, observed, plr);
-        })
+        self.push_observed_internal(
+            samples,
+            true,
+            |frames, result, observed, plr, max_lufs_m| {
+                observe(frames, result, observed, plr, max_lufs_m);
+            },
+        )
     }
 
     fn push_observed_internal(
         &mut self,
         samples: &[f64],
         include_plr: bool,
-        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>),
+        mut observe: impl FnMut(u64, &MeasureResult, &[f64], Option<f64>, Option<f64>),
     ) -> Option<MeasureResult> {
         self.accum.extend_from_slice(samples);
 
@@ -322,7 +326,13 @@ impl MeasureEngine {
                 .flatten()
                 .map(|(peak, loudness)| peak - loudness)
                 .filter(|value| value.is_finite());
-            observe(self.total_frames, &computed, &self.publish_buf, plr);
+            observe(
+                self.total_frames,
+                &computed,
+                &self.publish_buf,
+                plr,
+                self.max_lufs_m,
+            );
             result = Some(computed);
             self.publish_buf.clear();
         }

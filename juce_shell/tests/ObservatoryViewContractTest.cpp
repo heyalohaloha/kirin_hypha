@@ -49,6 +49,7 @@ KirinMeterSession activeMeter()
     meter.lra = 6.4;
     meter.true_peak = -3.6;
     meter.max_true_peak = -1.2;
+    meter.max_lufs_m = -10.6;
     meter.plr = 13.1;
     meter.channels = 2;
     meter.balance_state = KIRIN_BALANCE_NUMERIC;
@@ -201,6 +202,14 @@ void verifyRoleAtEverySize (observatory::Role role,
                 view.setWatchDisplay (alternateWatch, true);
                 KIRIN_OBSERVATORY_REQUIRE (differentPixels (image, render (view)) > 8);
                 view.setWatchDisplay (activeWatch(), true);
+                auto alternateMaximumMomentary = meter;
+                alternateMaximumMomentary.max_lufs_m = -6.4;
+                view.setMeterSnapshot (alternateMaximumMomentary, true);
+                const auto maximumMomentaryPixels = differentPixels (image, render (view));
+                KIRIN_OBSERVATORY_REQUIRE (
+                    preset.density == observatory::Density::observatory
+                        ? maximumMomentaryPixels > 8 : maximumMomentaryPixels == 0);
+                view.setMeterSnapshot (meter, true);
             }
         }
     }

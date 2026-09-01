@@ -29,6 +29,8 @@ pub struct MeterSessionSnapshot {
     pub observed_frames: u64,
     /// Latest complete 100 ms observation from the same engine as `summary`.
     pub current: MeasureResult,
+    /// EBU Mode Maximum Momentary through the same complete 100 ms observation boundary.
+    pub max_lufs_m: Option<f64>,
     pub summary: SessionSummary,
     pub plr: Option<f64>,
     pub stereo: StereoMeterSnapshot,
@@ -52,6 +54,7 @@ pub struct MeterSession {
     active_frames: u64,
     state: MeterSessionState,
     current: MeasureResult,
+    max_lufs_m: Option<f64>,
     summary: SessionSummary,
     observed_frames: u64,
     stereo: StereoMeter,
@@ -71,6 +74,7 @@ impl MeterSession {
             active_frames: 0,
             state: MeterSessionState::Empty,
             current: MeasureResult::default(),
+            max_lufs_m: None,
             summary: SessionSummary::default(),
             observed_frames: 0,
             stereo,
@@ -100,8 +104,9 @@ impl MeterSession {
         self.clock
             .push_span((interleaved.len() / self.n_channels) as u64, clock);
         let mut advanced = false;
-        self.engine
-            .push_observed_with_plr(interleaved, |_, current, observed_samples, plr| {
+        self.engine.push_observed_with_session_facts(
+            interleaved,
+            |_, current, observed_samples, plr, max_lufs_m| {
                 const MAX_HISTORY_CLIP_EVENTS: u64 = u32::MAX as u64;
                 let previous_clip_events = self.stereo.clip_events();
                 let stereo_advanced = self.stereo.push_observation(observed_samples);
@@ -114,6 +119,7 @@ impl MeterSession {
                     })
                 });
                 self.current = current.clone();
+                self.max_lufs_m = max_lufs_m;
                 self.observed_frames = self
                     .observed_frames
                     .saturating_add((observed_samples.len() / self.n_channels) as u64);
@@ -136,7 +142,8 @@ impl MeterSession {
                     );
                 }
                 advanced = true;
-            });
+            },
+        );
         if advanced {
             self.summary = self.engine.finalize();
         }
@@ -173,6 +180,7 @@ impl MeterSession {
         self.active_frames = 0;
         self.state = MeterSessionState::Empty;
         self.current = MeasureResult::default();
+        self.max_lufs_m = None;
         self.summary = SessionSummary::default();
         self.observed_frames = 0;
         self.stereo.reset();
@@ -188,6 +196,7 @@ impl MeterSession {
             active_frames: self.active_frames,
             observed_frames: self.observed_frames,
             current: self.current.clone(),
+            max_lufs_m: self.max_lufs_m,
             summary: self.summary,
             plr: self
                 .summary
@@ -249,6 +258,7 @@ mod tests {
         assert_eq!(initial.generation, 1);
         assert_eq!(initial.active_frames, 0);
         assert_eq!(initial.active_seconds(), 0.0);
+        assert!(initial.max_lufs_m.is_none());
 
         assert!(session.push_active(&stereo_sine(0.5, 0.25)));
         let active = session.snapshot();
@@ -305,7 +315,50 @@ mod tests {
         assert!(reset.summary.lufs_i.is_none());
         assert!(reset.summary.lra.is_none());
         assert!(reset.summary.max_true_peak.is_none());
+        assert!(reset.max_lufs_m.is_none());
         assert!(reset.plr.is_none());
+    }
+
+    #[test]
+    fn maximum_momentary_is_an_official_session_fact_until_explicit_reset() {
+        let loud = stereo_sine(1.0, 0.5);
+        let quiet = stereo_sine(1.0, 0.05);
+        let mut reference = MeasureEngine::new(SR, 2).unwrap();
+        let _ = reference.push(&loud);
+        let expected = reference.max_lufs_m();
+
+        let mut session = MeterSession::new(SR, 2).unwrap();
+        assert!(session.push_active(&loud));
+        let loudest = session.snapshot().max_lufs_m;
+        assert!(close(loudest, expected, 1.0e-12));
+
+        session.pause();
+        assert!(close(session.snapshot().max_lufs_m, loudest, 1.0e-12));
+        assert!(session.push_active(&quiet));
+        assert!(close(session.snapshot().max_lufs_m, loudest, 1.0e-12));
+
+        session.reset();
+        assert!(session.snapshot().max_lufs_m.is_none());
+    }
+
+    #[test]
+    fn maximum_momentary_never_runs_ahead_of_the_public_observation_boundary() {
+        let mut session = MeterSession::new(SR, 2).unwrap();
+        assert!(session.push_active(&stereo_sine(1.0, 0.05)));
+        let complete = session.snapshot();
+
+        assert!(session.push_active(&stereo_sine(0.05, 0.9)));
+        let partial = session.snapshot();
+        assert_eq!(partial.observed_frames, complete.observed_frames);
+        assert!(close(partial.max_lufs_m, complete.max_lufs_m, 1.0e-12));
+
+        assert!(session.push_active(&stereo_sine(0.05, 0.9)));
+        let next_complete = session.snapshot();
+        assert_eq!(
+            next_complete.observed_frames,
+            complete.observed_frames + SR as u64 / 10
+        );
+        assert!(next_complete.max_lufs_m.unwrap() > complete.max_lufs_m.unwrap());
     }
 
     #[test]
@@ -381,6 +434,7 @@ mod tests {
             1.0e-12
         ));
         assert!(close(whole.plr, chunked.plr, 1.0e-12));
+        assert!(close(whole.max_lufs_m, chunked.max_lufs_m, 1.0e-12));
     }
 
     #[test]

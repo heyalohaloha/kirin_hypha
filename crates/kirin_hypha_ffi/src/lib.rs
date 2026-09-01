@@ -3622,7 +3622,7 @@ pub const KIRIN_METER_HISTORY_1_HZ_CAPACITY: usize = HISTORY_1_HZ_CAPACITY;
 pub const KIRIN_METER_HISTORY_0_1_HZ_CAPACITY: usize = HISTORY_0_1_HZ_CAPACITY;
 pub const KIRIN_METER_HISTORY_MAX_ENTRIES: usize = HISTORY_0_1_HZ_CAPACITY;
 pub const KIRIN_DELTA_MODE_ACTIVE: u8 = 0;
-pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 1;
+pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 2;
 pub const KIRIN_LRA_UNAVAILABLE: u8 = 0;
 pub const KIRIN_LRA_WARMING: u8 = 1;
 pub const KIRIN_LRA_READY: u8 = 2;
@@ -3658,6 +3658,8 @@ pub struct KirinMeterSession {
     pub field_observation_count: u8,
     pub field_reserved: [u8; 6],
     pub field_density: [u8; KIRIN_STEREO_FIELD_BINS],
+    /// EBU Mode Maximum Momentary through `observed_frames`; append-only ABI field.
+    pub max_lufs_m: f64,
 }
 
 /// TIME履歴1指標の範囲。10 Hzではmin=max=mean、値なしはNaN。
@@ -3981,6 +3983,7 @@ fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterSession {
         field_observation_count: snapshot.stereo.field_observation_count,
         field_reserved: [0; 6],
         field_density: snapshot.stereo.field_density,
+        max_lufs_m: opt_f64(snapshot.max_lufs_m),
     }
 }
 
@@ -4469,10 +4472,12 @@ mod meter_session_abi_tests {
 
     #[test]
     fn snapshot_layout_and_mapping_are_stable() {
-        assert_eq!(std::mem::size_of::<KirinMeterSession>(), 832);
+        assert_eq!(std::mem::size_of::<KirinMeterSession>(), 840);
+        assert_eq!(std::mem::offset_of!(KirinMeterSession, field_density), 200);
+        assert_eq!(std::mem::offset_of!(KirinMeterSession, max_lufs_m), 832);
         assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
         assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 184);
-        assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 912);
+        assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 920);
         let current = MeasureResult {
             lufs_m: Some(-14.2),
             lufs_s: Some(-14.8),
@@ -4486,6 +4491,7 @@ mod meter_session_abi_tests {
             active_frames: 96_123,
             observed_frames: 96_000,
             current,
+            max_lufs_m: Some(-10.6),
             summary: SessionSummary {
                 lufs_i: Some(-15.0),
                 lra: Some(4.2),
@@ -4515,6 +4521,7 @@ mod meter_session_abi_tests {
         assert_eq!(mapped.active_frames, 96_123);
         assert_eq!(mapped.observed_frames, 96_000);
         assert_eq!(mapped.lufs_m, -14.2);
+        assert_eq!(mapped.max_lufs_m, -10.6);
         assert_eq!(mapped.lufs_s, -14.8);
         assert_eq!(mapped.lufs_i, -15.0);
         assert_eq!(mapped.lra, 4.2);
@@ -4575,6 +4582,7 @@ mod meter_session_abi_tests {
             active_frames: 48_000 * 59,
             observed_frames: 48_000 * 59,
             current: MeasureResult::default(),
+            max_lufs_m: Some(-11.0),
             summary: SessionSummary {
                 lufs_i: Some(-14.0),
                 lra: Some(0.0),
@@ -4655,6 +4663,7 @@ mod meter_session_abi_tests {
             field_observation_count: 0,
             field_reserved: [0; 6],
             field_density: [0; KIRIN_STEREO_FIELD_BINS],
+            max_lufs_m: 0.0,
         };
         assert!(!unsafe { kirin_hypha_poll_meter_session(std::ptr::null_mut(), &mut out) });
         let mut history_count = 41_u32;

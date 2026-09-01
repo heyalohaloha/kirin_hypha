@@ -236,6 +236,17 @@ void verifyObservatoryCaptureContract (
     KIRIN_OBSERVATORY_CAPTURE_REQUIRE (frozen.complete());
 
     post.setDomain (observatory::Domain::level);
+    post.setTarget (observatory::ObservationTarget::absolute);
+    post.setObservatoryFrame (activeFrame, true);
+    const auto maximumMomentaryCapture = post.createCaptureImage (
+        1'200, 630, false, "2026-09-01 00:00:00", "0.1.0", {}, &history);
+    auto alternateMaximumMomentaryFrame = activeFrame;
+    alternateMaximumMomentaryFrame.meter.max_lufs_m = -6.4;
+    post.setObservatoryFrame (alternateMaximumMomentaryFrame, true);
+    KIRIN_OBSERVATORY_CAPTURE_REQUIRE (
+        differentPixels (maximumMomentaryCapture, post.createCaptureImage (
+            1'200, 630, false, "2026-09-01 00:00:00", "0.1.0", {}, &history)) > 8);
+    post.setObservatoryFrame (activeFrame, true);
     const std::vector<KirinMeterHistoryEntry> emptyHistory;
     const auto emptySignature = post.createCaptureImage (
         1'200, 630, false, "2026-09-01 00:00:00", "0.1.0", {}, &emptyHistory);

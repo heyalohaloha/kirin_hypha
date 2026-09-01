@@ -56,7 +56,7 @@ FFT、履歴集計、画像生成、ファイル保存、UI描画はAudio Thread
 
 ### 3.2 Measurement boundary
 
-現行のM、S、recent TP、Crest、PSR、Sharpness、I、LRA、MaxTPを別の意味へ読み替えない。
+現行のM、S、recent TP、Crest、PSR、Sharpness、I、LRA、MaxTPと、10 ms規格解析から公開するMax Mを別の意味へ読み替えない。
 
 FREQのhost-rate aperture、Hann窓、FFT layout、256 band centre、exact PRE/POST joinを保持する。
 
@@ -108,7 +108,7 @@ PLRはplugin dataで算出されるが、現行UI snapshotにはない。
 
 per-channel Peak/TP、correlation、balance、clip event、長時間historyはMeter Session coreとC ABIまで実装済みである。
 
-Meter再設計branchのObservatoryはper-channel Peak/TP、balance、correlationをLEVEL/SPACEへ接続し、TIMEでは同一履歴点のM、S、TP、PLR、Correlation、集約min/max、run境界を同時表示する。
+Meter再設計branchのObservatoryはper-channel Peak/TP、balance、correlationをLEVEL/SPACEへ接続し、LEVEL上段M内へMeter SessionのMax Mを補助表示する。TIMEでは同一履歴点のM、S、TP、PLR、Correlation、集約min/max、run境界を同時表示する。
 
 TIME ΔはPREの直近32点とPOSTの直近64点をpresentation source＋sample endpointでexact結合し、重複・欠測を線で補わず、pair/runtime変更時に全履歴を分離する。clip eventはLEVELの全sizeでL/R別session累積値を表示する。
 
@@ -137,9 +137,9 @@ LRAは測定開始直後に安定しないため、値が成立していない�
 
 BS.1770-5はobject-based audio用Annex 4と高度音響方式の構成を更新したが、Hyphaのmono、stereoが使うAnnex 1とAnnex 2の測定式は変更していない。
 
-依存crateは`ebur128 0.1.10`で固定し、UIとCaptureは公式test set完走まで版番号を付けない`ITU-R BS.1770`を表示する。
+依存crateは`ebur128 0.1.10`で固定する。公式test set全70素材は完走済みだが、mono/stereoの製品範囲を越えた適合を暗示しないため、UIとCaptureは版番号を付けない`ITU-R BS.1770`を表示する。
 
-HyphaはMaximum M、Maximum S、EBU +9/+18 scaleを製品契約に含めていないため、製品全体を`EBU Mode`とは表示せず、EBU R 128 logoも使用しない。
+HyphaはMaximum Mを製品契約に含める。Maximum SとEBU +9/+18 scaleは含めないため、製品全体を`EBU Mode`とは表示せず、EBU R 128 logoも使用しない。
 
 規格版、計測式、単位、丸め、更新周期を一つの測定仕様に固定し、GUIとexportが同じsnapshotを読む構造にする。
 
@@ -188,7 +188,7 @@ PREはpair側の測定sensorであり、POSTと同じ機能数を無理に持た
 
 | Domain | Default surface | Existing capability absorbed | Optional subview |
 |---|---|---|---|
-| LEVEL | M、S、I、recent TP、MaxTP、LRA、PLR、Crest、L/R meter | 現行Watch、Record、LIVEの現在値 | session facts |
+| LEVEL | M、Max M、S、I、recent TP、MaxTP、LRA、PLR、Crest、L/R meter | 現行Watch、Record、LIVEの現在値 | session facts |
 | TIME | M、S、TPの履歴 | LIVE timeline、SHARP timeline、ATTACK event timeline | LOUDNESS、SHARP、ATTACK |
 | FREQ | Spectrum | 現行FREQのPRE、POST、Δ、LR、MID、SIDE、probe、MARK、Focus Trail | SPECTRUM |
 | SPACE | correlation、L/R balance、goniometer density | なし | FIELD |
@@ -260,7 +260,7 @@ SPACEは対応するGuide事実がないため投影しない。
 
 通常メーターはプラグインを開いた直後から操作なしで読める。
 
-I、LRA、MaxTP、PLR、clip countは独立した`Meter Session`に蓄積する。
+Max M、I、LRA、MaxTP、PLR、clip countは独立した`Meter Session`に蓄積する。
 
 最初のActive音声でSessionを開始する。
 
@@ -283,6 +283,7 @@ I/LRAのgating履歴を完全保存せず累積値だけ復元すると、reload
 | Label | Unit | Window or scope | Display precision |
 |---|---|---|---|
 | M | LUFS | 400 ms | 0.1 LU |
+| MAX M | LUFS | Meter Session内の10 ms cadence Maximum Momentary | 0.1 LU |
 | S | LUFS | 3 s | 0.1 LU |
 | I | LUFS | Meter Session | 0.1 LU |
 | TP | dBTP | recent 400 ms | 0.1 dB |
@@ -361,7 +362,7 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 | 300×200 | 選択domainの主値、role、pair、POST/Δ、Session state | MまたはS、TP、Crest、name、pair state |
 | 375×250 | Compact内容、補助値、domain switch | Compact内容、I/O state、接続context |
 | 450×300 | 世界背景を抑えた主visual、軸、session facts | Standard内容、測定stateの詳細 |
-| 600×400 | Concept Cのfull cockpit、M/S/I、TP/MaxTP/LRA/PLR/Crest、60秒History、左右TP、POST/Δ、Capture | POSTと共通のshell、広い数値面、接続context |
+| 600×400 | Concept Cのfull cockpit、M内のMax M補助値、S/I、TP/MaxTP/LRA/PLR/Crest、60秒History、左右TP、POST/Δ、Capture | POSTと共通のshell、広い数値面、接続context |
 | 900×600 | 全domain共通Inspection View、拡張History、詳細axis、既存解析の高解像度表示 | POSTと共通のInspection shell、拡張History、詳細axis |
 
 小さい画面で情報を単純に縮小しない。
@@ -375,6 +376,8 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 900×600（300%）は600×400を置換せず、LEVEL、TIME、FREQ、SPACEとTIME配下の解析を同じ操作体系のまま高解像度で読むInspection Viewとする。LEVELは履歴面積、channel strip、数値階層を拡張するが、未合意の新指標は追加しない。将来Session Atlasを載せる場合は別途表示内容を確定する。
 
 LEVELの60秒Historyは固定時間軸とし、M主線、S副線、run別2秒最大TP event、L/R別sample clip event、`WINDOW MAX TP`と相対時刻を表示する。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。
+
+600×400以上のLEVELは、上段3と中段5の合計高を従来割当の約60%へ圧縮し、残りをHistoryへ渡す。FooterもCAPTUREボタン単体ではなく操作段全体を40 pxから24 pxへ縮め、測定履歴を画面の主面積にする。
 
 ## 12. Visual system
 
@@ -430,7 +433,7 @@ PRE名は利用者が設定したpair表示名、POST名はホストが明示提
 
 画像は表示中のUIを拡大せず、shellとATTACK、SHARPNESS、FREQ、LIVEを含む表示中の観測面を一回の同期read boundaryで固定し、同じimmutable snapshotから専用layoutで描く。
 
-LEVELのObservation Plateは主値、補助値、channel stripに加え、Capture操作時に固定した直近60秒のM/S Historyを含める。
+LEVELのObservation Plateは主値、M内のMax M補助値、その他の補助値、channel stripに加え、Capture操作時に固定した直近60秒のM/S Historyを含める。
 
 60秒Historyは600×400以上のLEVELとLEVEL保存構図だけに置き、TIMEのrange切替や全機能は重複させない。SpectrumはLEVELへ重複搭載せずFREQを正規入口にする。
 
@@ -456,7 +459,7 @@ LEVELのObservation Plateは主値、補助値、channel stripに加え、Captur
 
 現行規格との差分表は`docs/hypha_bs1770_5_r128_v5_audit_20260831.md`として完了した。
 
-既存test signalによるM、S、I、TP、LRAの数値比較はpassした。
+既存test signalによるM、Max M、S、I、TP、LRAの数値比較はpassした。
 
 公式test set v05の全70素材は、固定`ebur128 0.1.10`とHyphaの`MeasureEngine`でpassした。
 内部解析はTech 3341の20 ms alignmentを保持する10 ms、既存GUI、TRACE、IO公開は100 msである。
@@ -464,6 +467,8 @@ Tech 3341のM、S、I、Max M、Max S、TP、Tech 3342のLRAと4 reference/align
 5.0/5.1素材はdecodeと参照値を確認するが、製品入力範囲はmono/stereoのままである。
 
 PLR、BAL、CORR、clip eventの正常系、境界値、無音、mono、逆相を検証する。
+
+Max Mは10 ms規格解析値を100 msのMeter Session snapshot境界へ固定し、pause、UI close、再開で保持され、明示RESETだけで消えることを検証する。
 
 ### Gate B: real-time safety
 

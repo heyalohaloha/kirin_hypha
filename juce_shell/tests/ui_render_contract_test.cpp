@@ -23,8 +23,8 @@
 namespace ui = hypha::ui_contract;
 static_assert (sizeof (KirinSpectrumView) == 3'112, "Spectrum view ABI size must remain exact");
 static_assert (sizeof (KirinSpectrumBatch) == 28'016, "Spectrum batch ABI size must remain exact");
-static_assert (sizeof (KirinMeterSession) == 832u, "Meter Session ABI size must remain exact");
-static_assert (sizeof (KirinObservatoryFrame) == 912u, "Observatory frame ABI size must remain exact");
+static_assert (sizeof (KirinMeterSession) == 840u, "Meter Session ABI size must remain exact");
+static_assert (sizeof (KirinObservatoryFrame) == 920u, "Observatory frame ABI size must remain exact");
 static_assert (sizeof (KirinMeterHistoryEntry) == 184u, "Meter history ABI size must remain exact");
 namespace
 {
