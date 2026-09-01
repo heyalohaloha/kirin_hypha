@@ -196,6 +196,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaAttackInternalComponent.cpp
             src/HyphaAttackInteraction.cpp
             src/HyphaAttackMetricPainter.cpp
+            src/HyphaAttackOverviewGlyphPainter.cpp
             src/HyphaAttackOrganismPainter.cpp
             src/HyphaAttackPainter.cpp
             src/HyphaAttackSpecimenPainter.cpp
@@ -398,6 +399,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaAttackInternalComponent.cpp
         src/HyphaAttackInteraction.cpp
         src/HyphaAttackMetricPainter.cpp
+        src/HyphaAttackOverviewGlyphPainter.cpp
         src/HyphaAttackOrganismPainter.cpp
         src/HyphaAttackPainter.cpp
         src/HyphaAttackSpecimenPainter.cpp

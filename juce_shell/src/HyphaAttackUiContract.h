@@ -26,22 +26,6 @@ namespace hypha::attack_ui
     constexpr float transientGlowFullDb = 15.0f;
     constexpr float textureGlowOn = 0.10f;
     constexpr float textureGlowFull = 0.65f;
-    constexpr float strengthDifferenceGlowOnDb = 0.50f;
-    constexpr float strengthDifferenceGlowFullDb = 6.0f;
-    constexpr float brightnessDifferenceGlowOnAcum = 0.05f;
-    constexpr float brightnessDifferenceGlowFullAcum = 0.60f;
-    constexpr float transientDifferenceGlowOnDb = 0.50f;
-    constexpr float transientDifferenceGlowFullDb = 6.0f;
-    constexpr float textureDifferenceGlowOn = 0.04f;
-    constexpr float textureDifferenceGlowFull = 0.35f;
-    constexpr float organismFeather = 0.12f;
-    constexpr float strengthCoreRadius = 0.34f;
-    constexpr float textureBodyRadius = 0.62f;
-    constexpr float brightnessShellRadius = 0.84f;
-    constexpr float brightnessShellHalfWidth = 0.040f;
-    constexpr float transientAuraRadius = 1.03f;
-    constexpr float transientAuraHalfWidth = 0.050f;
-    constexpr float transientAuraReach = 7.0f;
     // A colour-vision-resilient gold/cyan family. Fixed radial bands retain each observation's
     // chroma; magnitude is carried by lightness, opacity and thickness, never by hue movement.
     constexpr std::uint32_t waveformColour = 0xff789db7;
@@ -68,14 +52,6 @@ namespace hypha::attack_ui
     static_assert (rgbChromaRange (brightnessColour) >= 56);
     static_assert (rgbChromaRange (transientColour) >= 56);
     static_assert (rgbChromaRange (textureColour) >= 56);
-
-    static_assert (strengthCoreRadius < textureBodyRadius);
-    static_assert (textureBodyRadius < brightnessShellRadius
-                       - brightnessShellHalfWidth * (1.0f + organismFeather));
-    static_assert (brightnessShellRadius
-                       + brightnessShellHalfWidth * (1.0f + organismFeather)
-                   < transientAuraRadius
-                       - transientAuraHalfWidth * (1.0f + organismFeather));
 
     constexpr int metricsHeight (int totalHeight) noexcept
     {

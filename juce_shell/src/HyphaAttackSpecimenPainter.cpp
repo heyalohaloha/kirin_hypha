@@ -67,18 +67,58 @@ const EmissionLayers& emissionLayers()
     return layers;
 }
 
-void drawEmissionLayer (juce::Graphics& g, const juce::Image& image,
-                        juce::Rectangle<int> area, float amount)
+juce::Rectangle<float> emissionTarget (juce::Rectangle<int> area, float scale)
 {
-    if (! image.isValid() || amount <= 0.0f)
-        return;
-    juce::Graphics::ScopedSaveState saved (g);
-    g.setOpacity (std::sqrt (juce::jlimit (0.0f, 1.0f, amount)));
     const auto width = juce::jmin (area.getWidth(),
                                    static_cast<int> (std::lround (area.getHeight() * 3.15f)));
-    const auto target = juce::Rectangle<int> (width, area.getHeight()).withCentre (area.getCentre());
-    g.drawImageWithin (image, target.getX(), target.getY(), target.getWidth(), target.getHeight(),
-                       juce::RectanglePlacement::stretchToFit, false);
+    const auto base = juce::Rectangle<float> (
+        static_cast<float> (width), static_cast<float> (area.getHeight()))
+                          .withCentre (area.getCentre().toFloat());
+    const auto anchor = juce::Point<float> (
+        base.getX() + base.getWidth() * 0.43f, base.getCentreY());
+    const auto boundedScale = juce::jlimit (0.72f, 1.12f, scale);
+    return {
+        anchor.x - (anchor.x - base.getX()) * boundedScale,
+        anchor.y - (anchor.y - base.getY()) * boundedScale,
+        base.getWidth() * boundedScale,
+        base.getHeight() * boundedScale
+    };
+}
+
+void drawEmissionLayer (juce::Graphics& g, const juce::Image& image,
+                        juce::Rectangle<int> area, float opacity, float scale = 1.0f)
+{
+    if (! image.isValid() || opacity <= 0.0f)
+        return;
+    juce::Graphics::ScopedSaveState saved (g);
+    g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+    g.setOpacity (juce::jlimit (0.0f, 1.0f, opacity));
+    g.drawImage (image, emissionTarget (area, scale),
+                 juce::RectanglePlacement::stretchToFit, false);
+}
+
+float comparisonScale (float amount) noexcept
+{
+    return 0.86f + 0.18f * std::sqrt (juce::jlimit (0.0f, 1.0f, amount));
+}
+
+void drawComparisonLayer (juce::Graphics& g, const juce::Image& image,
+                          juce::Rectangle<int> area, float pre, float post)
+{
+    const auto preAmount = juce::jlimit (0.0f, 1.0f, pre);
+    const auto postAmount = juce::jlimit (0.0f, 1.0f, post);
+    if (preAmount > 0.0f)
+        drawEmissionLayer (g, image, area,
+                           0.10f + 0.17f * std::sqrt (preAmount),
+                           comparisonScale (preAmount));
+    if (postAmount > 0.0f)
+        drawEmissionLayer (g, image, area,
+                           0.28f + 0.55f * std::sqrt (postAmount),
+                           comparisonScale (postAmount));
+    if (preAmount > 0.0f)
+        drawEmissionLayer (g, image, area,
+                           0.055f + 0.055f * std::sqrt (preAmount),
+                           comparisonScale (preAmount));
 }
 
 float sampleShape (const KirinAttackDetail& detail, float phase)
@@ -268,21 +308,51 @@ void drawFibres (juce::Graphics& g, const KirinAttackDetail& detail,
 
 }
 
-void draw (juce::Graphics& g, const KirinAttackDetail& detail,
-           juce::Rectangle<int> area, FeatureAmounts amounts)
+void drawAbsolute (juce::Graphics& g, const KirinAttackDetail& detail,
+                   juce::Rectangle<int> area, FeatureAmounts amounts)
 {
     if (area.getWidth() < 4 || area.getHeight() < 4 || detail.shape_count < 2)
         return;
     const auto tail = juce::jlimit (0.0f, 1.0f, amounts.transient);
     const auto& layers = emissionLayers();
-    drawEmissionLayer (g, layers.texture, area, amounts.texture);
-    drawEmissionLayer (g, layers.brightness, area, amounts.brightness);
-    drawEmissionLayer (g, layers.transient, area, amounts.transient);
-    drawEmissionLayer (g, layers.strength, area, amounts.strength);
+    drawEmissionLayer (g, layers.texture, area, std::sqrt (amounts.texture));
+    drawEmissionLayer (g, layers.brightness, area, std::sqrt (amounts.brightness));
+    drawEmissionLayer (g, layers.transient, area, std::sqrt (amounts.transient));
+    drawEmissionLayer (g, layers.strength, area, std::sqrt (amounts.strength));
     drawAura (g, detail, area, amounts.transient * 1.35f, tail);
     fillFeathered (g, detail, area, 0.69f, tail * 0.55f,
                    textureColour, amounts.texture * 1.25f);
     drawMembranes (g, detail, area, amounts.brightness, tail);
     drawFibres (g, detail, area, amounts);
 }
+
+void drawComparison (juce::Graphics& g, const KirinAttackDetail& pre,
+                     const KirinAttackDetail& post, juce::Rectangle<int> area,
+                     FeatureAmounts preAmounts, FeatureAmounts postAmounts)
+{
+    if (area.getWidth() < 4 || area.getHeight() < 4
+        || pre.shape_count < 2 || post.shape_count < 2)
+        return;
+    const auto& layers = emissionLayers();
+    drawComparisonLayer (g, layers.texture, area,
+                         preAmounts.texture, postAmounts.texture);
+    drawComparisonLayer (g, layers.brightness, area,
+                         preAmounts.brightness, postAmounts.brightness);
+    drawComparisonLayer (g, layers.transient, area,
+                         preAmounts.transient, postAmounts.transient);
+    drawComparisonLayer (g, layers.strength, area,
+                         preAmounts.strength, postAmounts.strength);
+
+    const auto tail = juce::jlimit (0.0f, 1.0f, postAmounts.transient);
+    drawAura (g, post, area, postAmounts.transient * 0.72f, tail);
+    fillFeathered (g, post, area, 0.67f, tail * 0.55f,
+                   textureColour, postAmounts.texture * 0.68f);
+    drawMembranes (g, post, area, postAmounts.brightness * 0.72f, tail);
+    drawFibres (g, post, area,
+                { postAmounts.strength * 0.72f,
+                  postAmounts.brightness * 0.64f,
+                  postAmounts.transient * 0.64f,
+                  postAmounts.texture * 0.72f });
+}
+
 }

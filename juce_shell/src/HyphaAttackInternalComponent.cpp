@@ -292,10 +292,6 @@ void AttackInternalComponent::paint (juce::Graphics& g)
         g.drawVerticalLine (x, static_cast<float> (timeline.getY() + 4),
                             static_cast<float> (timeline.getBottom() - 4));
     }
-    g.setColour (waveformColour.withAlpha (0.07f));
-    g.drawHorizontalLine (timeline.getCentreY(), static_cast<float> (timeline.getX() + 3),
-                          static_cast<float> (timeline.getRight() - 3));
-
     const auto first = latest - attack_ui::windowSamples (rate);
     if (paired && ! overlayMode)
     {

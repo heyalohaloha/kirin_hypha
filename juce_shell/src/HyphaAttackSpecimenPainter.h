@@ -14,8 +14,16 @@ namespace hypha::attack_specimen
         float texture = 0.0f;
     };
 
-    void draw (juce::Graphics&,
-               const KirinAttackDetail&,
-               juce::Rectangle<int>,
-               FeatureAmounts);
+    void drawAbsolute (juce::Graphics&,
+                       const KirinAttackDetail&,
+                       juce::Rectangle<int>,
+                       FeatureAmounts);
+
+    void drawComparison (juce::Graphics&,
+                         const KirinAttackDetail& pre,
+                         const KirinAttackDetail& post,
+                         juce::Rectangle<int>,
+                         FeatureAmounts preAmounts,
+                         FeatureAmounts postAmounts);
+
 }

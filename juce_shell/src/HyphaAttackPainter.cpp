@@ -17,13 +17,13 @@ struct PaintedPoint
 {
     float x = 0.0f;
     float height = 0.0f;
+    float energy = 0.0f;
 };
 
-float levelHeight (float db, float halfHeight)
+float levelAmount (float db)
 {
-    const auto normalized = juce::jlimit (
+    return juce::jlimit (
         0.0f, 1.0f, (db - attack_ui::absoluteFloorDb) / -attack_ui::absoluteFloorDb);
-    return normalized * juce::jmax (0.0f, halfHeight - 1.0f);
 }
 
 std::vector<PaintedPoint> collectPoints (const KirinAttackWaveformBatch& batch,
@@ -45,8 +45,13 @@ std::vector<PaintedPoint> collectPoints (const KirinAttackWaveformBatch& batch,
         const auto sample = point.start_sample + (point.end_sample - point.start_sample) / 2;
         const auto localX = attack_ui::sampleX (sample, first, latest, area.getWidth());
         if (localX >= 0)
+        {
+            const auto energy = levelAmount (point.rms_dbfs);
             points.push_back ({ static_cast<float> (area.getX() + localX),
-                                levelHeight (point.rms_dbfs, halfHeight) });
+                                std::pow (energy, 0.64f)
+                                    * juce::jmax (0.0f, halfHeight - 1.0f),
+                                energy });
+        }
     }
     return points;
 }
@@ -86,86 +91,195 @@ void appendSmoothContour (juce::Path& path,
     path.lineTo (last.x, yAt (last));
 }
 
-template <typename Extent>
-juce::Path symmetricBody (const std::vector<PaintedPoint>& points,
-                          float centreY,
-                          Extent extent)
+struct Strand
+{
+    float radial = 0.0f;
+    float meander = 0.0f;
+    float frequency = 0.0f;
+    float phase = 0.0f;
+    float opacity = 0.0f;
+    float width = 0.0f;
+};
+
+constexpr int strandCount = 19;
+
+Strand strandForIndex (int index)
+{
+    const auto order = static_cast<float> (index) + 0.5f;
+    const auto fraction = order / static_cast<float> (strandCount);
+    const auto irregular = std::sin (order * 2.17f) * 0.035f;
+    const auto cycle = std::fmod (order * 0.6180339887f, 1.0f);
+    const auto pulse = 0.5f + 0.5f * std::sin (order * 1.71f);
+    return {
+        -0.92f + fraction * 1.84f + irregular,
+        (0.34f + pulse * 0.33f) * (0.82f + 0.18f * std::sin (fraction * 3.1f)),
+        0.74f + cycle * 2.26f,
+        std::fmod (order * 0.3819660113f, 1.0f),
+        0.065f + pulse * 0.085f + (index % 5 == 0 ? 0.055f : 0.0f),
+        0.34f + pulse * 0.27f
+    };
+}
+
+float strandOffset (const PaintedPoint& point,
+                    juce::Rectangle<int> area,
+                    const Strand& strand)
+{
+    const auto xPhase = (point.x - static_cast<float> (area.getX()))
+                      / static_cast<float> (juce::jmax (1, area.getWidth()));
+    const auto primary = std::sin ((xPhase * strand.frequency + strand.phase)
+                                   * juce::MathConstants<float>::twoPi);
+    const auto secondary = std::sin ((xPhase * (strand.frequency * 0.47f + 0.31f)
+                                      + strand.phase * 1.71f)
+                                     * juce::MathConstants<float>::pi);
+    const auto livingAxis = std::sin ((xPhase * 0.83f + 0.19f)
+                                      * juce::MathConstants<float>::twoPi) * 0.19f;
+    const auto radial = livingAxis + strand.radial
+                      + strand.meander * (primary * 0.68f + secondary * 0.32f);
+    return point.height * juce::jlimit (-1.06f, 1.06f, radial);
+}
+
+juce::Path strandPath (const std::vector<PaintedPoint>& points,
+                       juce::Rectangle<int> area,
+                       float centreY,
+                       const Strand& strand)
 {
     juce::Path path;
-    if (points.empty())
-        return path;
-    appendSmoothContour (path, points, centreY,
-                         [&] (const PaintedPoint& point) { return -extent (point); },
-                         false, true);
-    appendSmoothContour (path, points, centreY, extent, true, false);
+    appendSmoothContour (path, points, centreY, [&] (const PaintedPoint& point)
+    {
+        return strandOffset (point, area, strand);
+    }, false, true);
+    return path;
+}
+
+juce::Path activeStrandPath (const std::vector<PaintedPoint>& points,
+                             juce::Rectangle<int> area,
+                             float centreY,
+                             const Strand& strand,
+                             float threshold)
+{
+    juce::Path path;
+    const auto appendRun = [&] (std::size_t start, std::size_t end)
+    {
+        if (end - start < 2)
+            return;
+        const auto yAt = [&] (const PaintedPoint& point)
+        {
+            return centreY + strandOffset (point, area, strand);
+        };
+        path.startNewSubPath (points[start].x, yAt (points[start]));
+        for (auto index = start + 1; index < end; ++index)
+        {
+            const auto& previous = points[index - 1];
+            const auto& point = points[index];
+            path.quadraticTo (previous.x, yAt (previous),
+                              (previous.x + point.x) * 0.5f,
+                              (yAt (previous) + yAt (point)) * 0.5f);
+        }
+        path.lineTo (points[end - 1].x, yAt (points[end - 1]));
+    };
+    auto runStart = points.size();
+    for (std::size_t index = 0; index < points.size(); ++index)
+    {
+        if (points[index].energy >= threshold)
+        {
+            if (runStart == points.size())
+                runStart = index;
+            continue;
+        }
+        if (runStart != points.size())
+            appendRun (runStart, index);
+        runStart = points.size();
+    }
+    if (runStart != points.size())
+        appendRun (runStart, points.size());
+    return path;
+}
+
+juce::Path flowVeil (const std::vector<PaintedPoint>& points,
+                     juce::Rectangle<int> area,
+                     float centreY,
+                     const Strand& first,
+                     const Strand& second)
+{
+    juce::Path path;
+    appendSmoothContour (path, points, centreY, [&] (const PaintedPoint& point)
+    {
+        return strandOffset (point, area, first);
+    }, false, true);
+    appendSmoothContour (path, points, centreY, [&] (const PaintedPoint& point)
+    {
+        return strandOffset (point, area, second);
+    }, true, false);
     path.closeSubPath();
     return path;
 }
 
-void gradientFill (juce::Graphics& g,
-                   const juce::Path& path,
-                   juce::Rectangle<int> area,
-                   juce::Colour colour,
-                   float edgeAlpha,
-                   float centreAlpha)
+void drawMeasuredFlow (juce::Graphics& g,
+                       const std::vector<PaintedPoint>& points,
+                       juce::Rectangle<int> area,
+                       float alpha,
+                       bool referenceOnly)
 {
-    juce::ColourGradient gradient (
-        colour.withAlpha (edgeAlpha), 0.0f, static_cast<float> (area.getY()),
-        colour.withAlpha (edgeAlpha), 0.0f, static_cast<float> (area.getBottom()), false);
-    gradient.addColour (0.5, colour.withAlpha (centreAlpha));
-    g.setGradientFill (gradient);
-    g.fillPath (path);
-}
-
-void drawContinuousBase (juce::Graphics& g,
-                         const std::vector<PaintedPoint>& points,
-                         juce::Rectangle<int> area,
-                         float alpha)
-{
+    if (points.size() < 2)
+        return;
     const auto centreY = static_cast<float> (area.getCentreY());
-    const auto body = symmetricBody (
-        points, centreY, [] (const PaintedPoint& point) { return point.height; });
-    gradientFill (g, body, area, waveformColour, alpha * 0.08f, alpha * 0.18f);
-    juce::Path upper;
-    juce::Path lower;
-    if (! points.empty())
+    if (! referenceOnly)
     {
-        appendSmoothContour (upper, points, centreY,
-                             [] (const PaintedPoint& point) { return -point.height; },
-                             false, true);
-        appendSmoothContour (lower, points, centreY,
-                             [] (const PaintedPoint& point) { return point.height; },
-                             false, true);
-    }
-    for (const auto stroke : { 5.4f, 3.0f, 1.2f })
-    {
-        const auto strokeAlpha = stroke > 5.0f ? 0.04f : stroke > 2.0f ? 0.07f : 0.12f;
-        g.setColour (waveformColour.withAlpha (alpha * strokeAlpha));
-        g.strokePath (upper, juce::PathStrokeType (stroke));
-        g.strokePath (lower, juce::PathStrokeType (stroke));
-    }
-    constexpr int fibres = 9;
-    for (int index = 1; index <= fibres; ++index)
-    {
-        const auto position = -0.80f
-                            + 1.60f * static_cast<float> (index)
-                                   / static_cast<float> (fibres + 1);
-        const auto phase = static_cast<float> (index) * 0.53f;
-        juce::Path fibre;
-        appendSmoothContour (fibre, points, centreY, [=] (const PaintedPoint& point)
+        constexpr int veilPairs[][2] {{ 0, 4 }, { 4, 9 }, { 9, 14 }, { 14, 18 }};
+        for (const auto& pair : veilPairs)
         {
-            const auto xPhase = (point.x - static_cast<float> (area.getX()))
-                              / static_cast<float> (juce::jmax (1, area.getWidth()));
-            const auto measuredMeander = std::sin ((xPhase * 2.3f + phase)
-                                                    * juce::MathConstants<float>::pi)
-                                        * point.height * 0.095f
-                                        * (1.0f - std::abs (position) * 0.45f);
-            return point.height * position + measuredMeander;
-        }, false, true);
-        g.setColour (waveformColour.withAlpha (alpha * (index % 3 == 0 ? 0.20f : 0.105f)));
-        g.strokePath (fibre, juce::PathStrokeType (index % 3 == 0 ? 0.72f : 0.46f,
-                                                   juce::PathStrokeType::curved,
-                                                   juce::PathStrokeType::rounded));
+            auto veil = flowVeil (points, area, centreY,
+                                  strandForIndex (pair[0]), strandForIndex (pair[1]));
+            veil.setUsingNonZeroWinding (false);
+            g.setColour (waveformColour.withAlpha (alpha * 0.006f));
+            g.fillPath (veil);
+        }
+    }
+    const Strand spine { 0.0f, 0.055f, 1.21f, 0.37f, 0.0f, 0.0f };
+    const auto spinePath = strandPath (points, area, centreY, spine);
+    g.setColour (waveformColour.withAlpha (alpha * 0.008f));
+    g.strokePath (spinePath, juce::PathStrokeType (referenceOnly ? 2.4f : 4.6f,
+                                                   juce::PathStrokeType::curved));
+    for (const auto threshold : { 0.18f, 0.28f, 0.52f })
+    {
+        const auto activeSpine = activeStrandPath (
+            points, area, centreY, spine, threshold);
+        g.setColour (waveformColour.withAlpha (
+            alpha * (threshold < 0.2f ? 0.025f : threshold < 0.4f ? 0.070f : 0.105f)));
+        g.strokePath (activeSpine, juce::PathStrokeType (
+            referenceOnly ? 0.62f : 0.52f, juce::PathStrokeType::curved));
+    }
+
+    for (int index = 0; index < strandCount; ++index)
+    {
+        if (referenceOnly && index % 3 != 1)
+            continue;
+        const auto strand = strandForIndex (index);
+        const auto path = strandPath (points, area, centreY, strand);
+        g.setColour (waveformColour.withAlpha (alpha * 0.006f));
+        g.strokePath (path, juce::PathStrokeType (strand.width,
+                                                  juce::PathStrokeType::curved));
+        if (! referenceOnly && index % 5 == 0)
+        {
+            const auto glow = activeStrandPath (
+                points, area, centreY, strand, 0.26f);
+            g.setColour (waveformColour.withAlpha (alpha * 0.032f));
+            g.strokePath (glow, juce::PathStrokeType (4.2f,
+                                                      juce::PathStrokeType::curved));
+        }
+        constexpr float thresholds[] { 0.18f, 0.24f, 0.45f, 0.70f };
+        constexpr float opacities[] { 0.015f, 0.055f, 0.075f, 0.095f };
+        for (int pass = 0; pass < 4; ++pass)
+        {
+            const auto active = activeStrandPath (
+                points, area, centreY, strand, thresholds[pass]);
+            const auto opacity = opacities[pass] * (0.66f + strand.opacity * 2.2f)
+                               * (referenceOnly ? 1.32f : 1.0f);
+            g.setColour (waveformColour.withAlpha (alpha * opacity));
+            g.strokePath (active, juce::PathStrokeType (
+                referenceOnly ? strand.width * 0.88f : strand.width,
+                juce::PathStrokeType::curved));
+        }
     }
 }
 }
@@ -184,27 +298,10 @@ void drawWaveform (juce::Graphics& g,
     const auto points = collectPoints (batch, area, first, latest, rate);
     if (style == WaveformStyle::trace)
     {
-        const auto centreY = static_cast<float> (area.getCentreY());
-        juce::Path upper;
-        juce::Path lower;
-        if (! points.empty())
-        {
-            appendSmoothContour (upper, points, centreY,
-                                 [] (const PaintedPoint& point) { return -point.height; },
-                                 false, true);
-            appendSmoothContour (lower, points, centreY,
-                                 [] (const PaintedPoint& point) { return point.height; },
-                                 false, true);
-        }
-        g.setColour (waveformColour.withAlpha (alpha * 0.12f));
-        g.strokePath (upper, juce::PathStrokeType (4.4f));
-        g.strokePath (lower, juce::PathStrokeType (4.4f));
-        g.setColour (waveformColour.withAlpha (alpha * 0.72f));
-        g.strokePath (upper, juce::PathStrokeType (1.0f));
-        g.strokePath (lower, juce::PathStrokeType (1.0f));
+        drawMeasuredFlow (g, points, area, alpha, true);
         return;
     }
-    drawContinuousBase (g, points, area, alpha);
+    drawMeasuredFlow (g, points, area, alpha, false);
     if (colourAbsoluteFeatures)
         attack_organism::drawAbsoluteOverview (g, details, area, first, latest, rate);
 }

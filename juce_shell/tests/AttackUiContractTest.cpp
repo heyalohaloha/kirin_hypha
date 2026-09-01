@@ -3,8 +3,9 @@
 #include "../src/HyphaAttackUiContract.h"
 #include "../src/HyphaSpectrumUiContract.h"
 #include "../src/HyphaTheme.h"
+#include "AttackUiComparisonContract.h"
+#include "AttackUiOverviewContract.h"
 #include "AttackUiSizeContract.h"
-
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -182,7 +183,6 @@ int main()
     const auto selectionColour = juce::Colour (hypha::attack_ui::selectionColour);
     const auto bounds = hypha::ui_contract::spectrumPlotBounds (600, 400);
     component.setSize (bounds.width, bounds.height);
-
     KirinAttackStats stats {};
     stats.available = 1;
     stats.enabled = 1;
@@ -307,6 +307,10 @@ int main()
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
                            288'000, 48'000, 7, stats);
     component.setOverlayMode (false);
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifySignedComparisonSpecimen());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyNoPreOnsetFeatureInk());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyAsymmetricMeasuredFlow());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifySignedOverviewGlyph());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyContinuousTrace (waveform, details));
     const auto image = render (component);
     writePreview ("KIRIN_ATTACK_UI_PREVIEW_PATH", image);
@@ -314,12 +318,6 @@ int main()
     KIRIN_REQUIRE (countRuns (image, { 0, 200, image.getWidth(), image.getHeight() },
                               juce::Colour (hypha::attack_ui::textureColour)) > 0);
     const auto timelineHeight = hypha::attack_ui::timelineHeight (component.getHeight());
-    const auto laneHeight = timelineHeight / 2;
-    const auto preLane = juce::Rectangle<int> (
-        0, hypha::attack_ui::headerHeight, image.getWidth(), laneHeight);
-    const auto postLane = juce::Rectangle<int> (
-        0, hypha::attack_ui::headerHeight + laneHeight,
-        image.getWidth(), timelineHeight - laneHeight);
     auto identityComponentStorage = std::make_unique<hypha::AttackInternalComponent>();
     auto& identityComponent = *identityComponentStorage;
     identityComponent.setSize (bounds.width, bounds.height);
@@ -352,7 +350,7 @@ int main()
     hypha::attack_painter::drawWaveformDifferences (
         identityDifferenceGraphics, details, details, pairEvents,
         identityDifferenceLayer.getBounds(), 0, 288'000, 48'000);
-    KIRIN_REQUIRE (countVisiblePixels (identityDifferenceLayer) == 0);
+    KIRIN_REQUIRE (countVisiblePixels (identityDifferenceLayer) > 0);
     auto thresholdDetailsStorage = std::make_unique<KirinAttackDetailBatch> (details);
     auto& thresholdDetails = *thresholdDetailsStorage;
     for (std::uint32_t index = 0; index < thresholdDetails.count; ++index)
