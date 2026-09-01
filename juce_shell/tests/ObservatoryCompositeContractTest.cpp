@@ -221,7 +221,8 @@ void verifyObservatoryCompositeContract()
         observatory::presentationContract (observatory::sizePresets[1]).family
         == observatory::ExperienceFamily::compactMeter);
     KIRIN_COMPOSITE_REQUIRE (
-        observatory::presentationContract (observatory::sizePresets[1]).largeMetricSlots == 2u);
+        observatory::presentationContract (observatory::sizePresets[1]).maximumNumericFacts == 3u);
+    KIRIN_COMPOSITE_REQUIRE (observatory::maximumConcurrentObservatorySlots == 2u);
     KIRIN_COMPOSITE_REQUIRE (
         observatory::presentationContract (observatory::sizePresets[2]).family
         == observatory::ExperienceFamily::observatory);

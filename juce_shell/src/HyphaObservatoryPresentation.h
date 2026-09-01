@@ -16,6 +16,11 @@ enum class ExperienceFamily
     observatory,
 };
 
+// Optional large analysis is intentionally bounded to two concurrent owners. This supports
+// track-to-track comparison and one 2MIX plus one track without making every always-on Compact
+// instance pay the analysis cost.
+constexpr unsigned maximumConcurrentObservatorySlots = 2u;
+
 struct PresentationContract
 {
     ExperienceFamily family = ExperienceFamily::compactMeter;
@@ -25,8 +30,8 @@ struct PresentationContract
     bool supportingMetrics = false;
     bool detailedAxes = false;
     bool domainTabs = false;
-    // Zero means that the Observatory layout is not governed by the Compact two-slot rule.
-    unsigned largeMetricSlots = 2;
+    // Zero means the full Observatory information hierarchy is not governed by this Compact cap.
+    unsigned maximumNumericFacts = 3;
 };
 
 constexpr ExperienceFamily experienceFamily (Density density) noexcept
@@ -52,7 +57,7 @@ constexpr PresentationContract presentationContract (SizePreset preset) noexcept
         full,
         full,
         full,
-        full ? 0u : 2u,
+        full ? 0u : 3u,
     };
 }
 
@@ -65,9 +70,10 @@ static_assert (experienceFamily (sizePresets[0]) == ExperienceFamily::compactMet
 static_assert (experienceFamily (sizePresets[1]) == ExperienceFamily::compactMeter);
 static_assert (experienceFamily (sizePresets[2]) == ExperienceFamily::observatory);
 static_assert (experienceFamily (sizePresets[3]) == ExperienceFamily::observatory);
-static_assert (presentationContract (sizePresets[0]).largeMetricSlots == 2u);
-static_assert (presentationContract (sizePresets[1]).largeMetricSlots == 2u);
-static_assert (presentationContract (sizePresets[2]).largeMetricSlots == 0u);
+static_assert (maximumConcurrentObservatorySlots == 2u);
+static_assert (presentationContract (sizePresets[0]).maximumNumericFacts == 3u);
+static_assert (presentationContract (sizePresets[1]).maximumNumericFacts == 3u);
+static_assert (presentationContract (sizePresets[2]).maximumNumericFacts == 0u);
 static_assert (! presentationContract (sizePresets[0]).worldBackdrop);
 static_assert (presentationContract (sizePresets[0]).hyphaAperture);
 static_assert (presentationContract (sizePresets[3]).worldBackdrop);

@@ -62,16 +62,16 @@ ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep teal�
 
 ## 4. 画面別の配分
 
-| Surface | 強度 | 主な視覚層 | 実測との接続 | Compactの大きい2枠 |
+| Surface | 強度 | 主な視覚層 | 実測との接続 | Compactで残す事実（最大3） |
 |---|---:|---|---|---|
-| POST LEVEL | 2/5 | 構造、観測、接続 | LUFS-Mとbalanceが低明度の菌糸形状を決める | M、S |
-| POST TIME HISTORY | 3/5 | 時間、観測 | M、S、TP、PLR、correlationのexact historyを表示する | 現在値、最大値 |
-| POST TIME ATTACK | 5/5 | 観測、時間 | 選択eventのstrength、texture、brightness、transientをspecimenへ投影する | strength、texture |
-| POST TIME SHARP | 3/5 | 観測、時間 | exact Sharpness差分と六秒historyを膜状のfillへ投影する | 現在値、差分 |
-| POST FREQ | 3/5 | 構造、観測、接続 | SpectrumとGuide bandを別authorityとして重ねる | POST、Delta |
-| POST SPACE | 4/5 | 観測 | 三秒MID/SIDE densityを抽象的な場へ投影する | balance、correlation |
-| POST Delta | 2/5 | 観測 | PREを低明度の基準、POSTを現在の測定として描く | ΔM、ΔS |
-| PRE LEVEL | 2/5 | 構造、観測 | upstream sensorの実測だけを表示する | M、S |
+| POST LEVEL | 2/5 | 構造、観測、接続 | LUFS-Mとbalanceが低明度の菌糸形状を決める | M、S、TP |
+| POST TIME HISTORY | 3/5 | 時間、観測 | M、S、TP、PLR、correlationのexact historyを表示する | 現在値、最大値、経過 |
+| POST TIME ATTACK | 5/5 | 観測、時間 | 選択eventのstrength、texture、brightness、transientをspecimenへ投影する | specimen、主値、選択位置 |
+| POST TIME SHARP | 3/5 | 観測、時間 | exact Sharpness差分と六秒historyを膜状のfillへ投影する | 現在値、差分、history |
+| POST FREQ | 3/5 | 構造、観測、接続 | SpectrumとGuide bandを別authorityとして重ねる | Spectrum、主値、差分 |
+| POST SPACE | 4/5 | 観測 | 三秒MID/SIDE densityを抽象的な場へ投影する | field、balance、correlation |
+| POST Delta | 2/5 | 観測 | PREを低明度の基準、POSTを現在の測定として描く | ΔM、ΔS、ΔTP |
+| PRE LEVEL | 2/5 | 構造、観測 | upstream sensorの実測だけを表示する | M、S、TP |
 | Capture | 4/5 | 全層 | immutable snapshotをObservation Plateへ固定する | Compactでは操作を出さない |
 | WARMING、Inactive、Bypassed | 1/5 | 構造 | 成立していない値を`---`または事実状態で示す | role、domain、state、操作 |
 
@@ -104,13 +104,9 @@ ATTACKのbodyは既存の`attack_specimen_emission.png`とnative painterを使�
 
 CompactはDAW作業中に常設する即読メーターである。
 
-大きい数値枠は二つに固定する。
+主値一つと補助値二つまで、合計三つの数値的事実に限定する。
 
-これは情報を単に減らすためではない。
-
-トラックとステムへ刺しっぱなしにした状態、トラックと2MIXを並べた状態、PREとPOSTを見比べる状態で、二つの主要値を同じ視線移動で読めるようにするためである。
-
-状態、単位、clip、選択位置などの小さな補助情報は大きい数値枠へ数えないが、主値と競合する大きさでは表示しない。
+Compactは多数のトラックとステムへ刺しっぱなしにする常設面であり、optional analysis workerを要求しない。
 
 domain tab、詳細axis、補助metric群、全面背景、domain固有の有機装飾は表示しない。
 
@@ -125,6 +121,14 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 ### Observatory: 450×300、600×400
 
 Observatoryは分析とCaptureのためのCE2226地下観測所である。
+
+同時に開けるObservatoryは二枠に限定する。
+
+一つ目の用途は、二つのトラックを同じ大画面geometryで見比べることである。
+
+二つ目の用途は、2MIX側の大画面を残したまま、単体トラック側をもう一つの大画面で詰めることである。
+
+二枠は一画面内のmetric数ではなく、optional analysisを所有できる同時インスタンス数を意味する。
 
 四domain、主visual、背景構造、domain固有の世界層、詳細axisを表示する。
 
