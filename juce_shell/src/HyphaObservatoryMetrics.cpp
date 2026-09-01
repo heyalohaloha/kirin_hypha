@@ -42,9 +42,31 @@ void drawMetric (juce::Graphics& g,
                  int decimals = 1,
                  const juce::String& textOverride = {},
                  float panelOpacity = -1.0f,
-                 const juce::String& auxiliaryText = {})
+                 const juce::String& auxiliaryText = {},
+                 bool verticalStack = false)
 {
     drawPanel (g, area, family, panelOpacity);
+    if (verticalStack)
+    {
+        const auto labelHeight = juce::jlimit (11, 16, area.getHeight() / 4);
+        const auto unitHeight = juce::jlimit (9, 13, area.getHeight() / 5);
+        const auto labelArea = area.removeFromTop (labelHeight);
+        const auto unitArea = area.removeFromBottom (unitHeight);
+        g.setColour (COL_MUTED.brighter (0.08f));
+        g.setFont (labelFont (juce::jlimit (8.0f, 11.0f, valueHeight * 0.25f)));
+        g.drawText (label, labelArea.reduced (4, 0), juce::Justification::centred);
+        g.setColour (std::isfinite (value) && textOverride.isEmpty()
+                         ? COL_OBSERVATORY_VALUE : COL_MUTED);
+        valueHeight = juce::jmin (valueHeight, (float) area.getHeight() * 0.84f);
+        drawTabularText (g, monoFont (valueHeight),
+                         textOverride.isNotEmpty() ? textOverride
+                                                   : valueText (value, decimals, signedValue),
+                         area.reduced (4, 0).toFloat(), juce::Justification::centred);
+        g.setColour (COL_MUTED.brighter (0.04f));
+        g.setFont (labelFont (juce::jlimit (7.0f, 9.5f, valueHeight * 0.23f)));
+        g.drawText (unit, unitArea.reduced (3, 0), juce::Justification::centred);
+        return;
+    }
     const auto labelArea = area.removeFromTop (juce::jmax (14, area.getHeight() / 4));
     g.setColour (COL_MUTED);
     g.setFont (labelFont (juce::jlimit (9.0f, 12.0f, valueHeight * 0.32f)));
@@ -181,16 +203,12 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         background.drawLevelCorners (g, main, worldState());
     for (int index = 0; index < mainCount; ++index)
     {
-        const auto maximumMomentary = index == 0 && density == Density::observatory
-            ? juce::String ("MAX M  ") + valueText (
-                optionValue (meter.max_lufs_m, cumulativeAvailable), 1, false) + " LUFS"
-            : juce::String();
         drawMetric (g, main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
                     mainLabels[(size_t) index],
                     optionValue (mainValues[(size_t) index], mainAvailable[(size_t) index]),
                     mainUnits[(size_t) index], mainValueHeight, family,
                     false, 1, {}, density == Density::observatory ? 0.42f : -1.0f,
-                    maximumMomentary);
+                    {}, density == Density::observatory);
     }
 
     const std::array<double, 5> supportValues {
@@ -217,7 +235,9 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                     supportLabels[(size_t) index],
                     optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
                     supportUnits[(size_t) index], getWidth() >= 900 ? 24.0f : 18.0f, family,
-                    false, 1, warmingText);
+                    false, 1, warmingText,
+                    density == Density::observatory ? 0.54f : -1.0f, {},
+                    density == Density::observatory);
     }
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
@@ -243,10 +263,16 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
     auto historyArea = area;
     paintLevel (g, metricsArea, false);
     levelHistoryArea = historyArea.reduced (2);
+    const auto maximumMomentary = target() == ObservationTarget::absolute
+                               && cumulativeFactsAvailable()
+                               && std::isfinite (observatoryFrame.meter.max_lufs_m)
+        ? juce::String ("MAX M ") + juce::String (observatoryFrame.meter.max_lufs_m, 1) + " LUFS"
+        : juce::String();
     capture_history::paint (g, levelHistoryArea, history,
                             target() == ObservationTarget::delta,
                             static_cast<double> (observatoryFrame.meter.sample_rate),
-                            captureFrame ? std::nullopt : hoveredLevelHistoryIndex);
+                            captureFrame ? std::nullopt : hoveredLevelHistoryIndex,
+                            maximumMomentary);
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
 }

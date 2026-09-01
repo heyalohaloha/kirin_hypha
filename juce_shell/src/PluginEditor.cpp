@@ -428,6 +428,7 @@ void KirinHyphaEditor::resized()
         pairDropdown.setBounds (connection.removeFromRight (18));
     const bool showName = getWidth() >= hypha::observatory::sizePresets[1].width;
     nameField.setVisible (showName);
+    observatoryView.setExternalConnectionLabelVisible (showName);
     if (showName)
         nameField.setBounds (connection);
     pairStatusLabel.setVisible (false);
@@ -910,10 +911,10 @@ void KirinHyphaEditor::updatePre()
     bool haveSummary = false;
     KirinWatchDisplay watch {};
     const bool polledWatch = processorRef.pollWatchDisplay (watch);
-    haveObservatoryWatchDisplay = polledWatch;
     if (polledWatch)
     {
         observatoryWatchDisplay = watch;
+        haveObservatoryWatchDisplay = true;
         watchMaximum = watch.maximum;
         haveWatchMaximum = true;
     }
@@ -1168,10 +1169,10 @@ void KirinHyphaEditor::updatePost()
     bool haveSummary = false;
     KirinWatchDisplay watch {};
     const bool polledWatch = processorRef.pollWatchDisplay (watch);
-    haveObservatoryWatchDisplay = polledWatch;
     if (polledWatch)
     {
         observatoryWatchDisplay = watch;
+        haveObservatoryWatchDisplay = true;
         watchMaximum = watch.maximum;
         haveWatchMaximum = true;
     }

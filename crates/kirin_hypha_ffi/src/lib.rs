@@ -72,19 +72,20 @@ use kirin_measure::{
     CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
     DeltaMode, DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License,
     LiveLicense, LivenessEvaluator, MeasureResult, MeterDeltaHistoryExchange, MeterHistoryEntry,
-    MeterHistoryRange, MeterHistoryResolution, MeterSession, MeterSessionSnapshot,
-    MeterSessionState, PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths,
-    PluginDataRole, PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource,
-    PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
-    RestartIoFn, SignalError, SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame,
-    SpectrumRuntime, SpectrumRuntimeStats, SpectrumTimelineFrame, SpectrumViewSnapshot,
-    SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo,
-    WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
-    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT,
-    MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
-    PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
-    SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS, STEREO_FIELD_SIZE,
+    MeterHistoryRange, MeterHistoryResolution, MeterSession, MeterSessionPublication,
+    MeterSessionSnapshot, MeterSessionState, PairOwnershipBinding, PairOwnershipLease, PairStatus,
+    PlatformPaths, PluginDataRole, PrePairStatusObserver, PresentationLatencySamples,
+    PresentationLatencySource, PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus,
+    RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
+    RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState, SpectrumChannelMode,
+    SpectrumCoordinator, SpectrumFrame, SpectrumRuntime, SpectrumRuntimeStats,
+    SpectrumTimelineFrame, SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths, WatchMaxTracker,
+    WatchProducerHandoff, WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY,
+    CAPTURE_PRODUCER_READY_TIMEOUT, HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY,
+    HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
+    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY,
+    SPECTRUM_BAND_COUNT, SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS,
+    STEREO_FIELD_SIZE,
 };
 
 mod attack_ffi;
@@ -406,6 +407,8 @@ pub struct KirinHyphaEngine {
     /// Record/Keep, Watch pass, pairing and editor lifetimeから独立した常設メーターセッション。
     /// replace可能なMeasure workerの外側で所有し、worker再起動では破棄しない。
     meter_session: Option<Arc<Mutex<MeterSession>>>,
+    /// UI polling shelf for completed observations. It is never held while EBU processing runs.
+    meter_session_publication: Option<Arc<MeterSessionPublication>>,
     /// Exact sample-time POST−PRE TIME join. Filesystem work stays on the existing IO worker.
     meter_delta_history: Option<Arc<MeterDeltaHistoryExchange>>,
     /// Offline bounce 用 TRACE queue（Measure → IO）。
@@ -1247,9 +1250,11 @@ impl KirinHyphaEngine {
             attack_runtime.as_ref().map(Arc::clone),
         );
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
-        let meter_session = MeterSession::new(sample_rate, num_channels)
-            .ok()
-            .map(|session| Arc::new(Mutex::new(session)));
+        let meter_session = MeterSession::new(sample_rate, num_channels).ok();
+        let meter_session_publication = meter_session
+            .as_ref()
+            .map(|session| Arc::new(MeterSessionPublication::new(session.snapshot())));
+        let meter_session = meter_session.map(|session| Arc::new(Mutex::new(session)));
         let meter_delta_history = meter_session
             .as_ref()
             .map(|session| MeterDeltaHistoryExchange::new(sample_rate, Arc::clone(session)));
@@ -1290,6 +1295,7 @@ impl KirinHyphaEngine {
             num_channels,
             Arc::clone(&measure_result),
             meter_session.as_ref().map(Arc::clone),
+            meter_session_publication.as_ref().map(Arc::clone),
             Arc::clone(&watch_playback_pass_id),
             Arc::clone(&watch_playback_pass_cutover_samples),
             Arc::clone(&watch_ring_cursor_epoch),
@@ -1314,6 +1320,7 @@ impl KirinHyphaEngine {
             ring_capacity: capacity,
             measure_result: Arc::clone(&measure_result),
             meter_session: meter_session.as_ref().map(Arc::clone),
+            meter_session_publication: meter_session_publication.as_ref().map(Arc::clone),
             watch_playback_pass_id: Arc::clone(&watch_playback_pass_id),
             watch_playback_pass_cutover_samples: Arc::clone(&watch_playback_pass_cutover_samples),
             watch_ring_cursor_epoch: Arc::clone(&watch_ring_cursor_epoch),
@@ -1354,6 +1361,7 @@ impl KirinHyphaEngine {
             spectrum,
             session_summary,
             meter_session,
+            meter_session_publication,
             meter_delta_history,
             record_trace_queue,
             record_take_tracker,
@@ -3386,13 +3394,10 @@ impl KirinHyphaEngine {
         }
     }
 
-    /// Record/Keepから独立した常設メーターセッションを非ブロッキングで読む。
+    /// Record/Keepから独立した常設メーターセッションの最新完了値を読む。
+    /// Live EBU calculation lock is never touched by this UI path.
     pub fn poll_meter_session(&self) -> Option<MeterSessionSnapshot> {
-        self.meter_session
-            .as_ref()?
-            .try_lock()
-            .ok()
-            .map(|session| session.snapshot())
+        self.meter_session_publication.as_ref()?.try_snapshot()
     }
 
     /// TIME履歴を選択したresolutionで新しい順の範囲まで非ブロッキング取得する。
@@ -3461,6 +3466,11 @@ impl KirinHyphaEngine {
             return false;
         };
         session.reset();
+        let snapshot = session.snapshot();
+        drop(session);
+        if let Some(publication) = self.meter_session_publication.as_ref() {
+            publication.publish(snapshot);
+        }
         if let Some(exchange) = self.meter_delta_history.as_ref() {
             exchange.reset();
         }
@@ -4700,6 +4710,19 @@ mod meter_session_abi_tests {
         assert_eq!(history_count, 41);
         assert!(!unsafe { kirin_hypha_reset_meter_session(std::ptr::null_mut()) });
         assert_eq!(out.generation, 41);
+    }
+
+    #[test]
+    fn meter_poll_reads_completed_publication_while_live_session_is_locked() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        let live_session = engine.meter_session.as_ref().unwrap();
+        let _live_guard = live_session.lock().unwrap();
+
+        let published = engine.poll_meter_session().unwrap();
+
+        assert_eq!(published.state, MeterSessionState::Empty);
+        assert_eq!(published.sample_rate, 48_000);
+        assert_eq!(published.active_frames, 0);
     }
 
     #[test]

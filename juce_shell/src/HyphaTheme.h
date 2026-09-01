@@ -16,6 +16,7 @@ namespace hypha
     // ── palette.rs (exact) ───────────────────────────────────────────────────────────────
     inline const juce::Colour BG            { ui_contract::background }; // #0D0F1A panel/window fill
     inline const juce::Colour COL_NORMAL    { ui_contract::normal }; // #E0E0E0 values / title (not pure white)
+    inline const juce::Colour COL_OBSERVATORY_VALUE { ui_contract::observatoryValue };
     inline const juce::Colour COL_MUTED     { ui_contract::muted }; // #606060 labels / units / "---"
     inline const juce::Colour COL_FLORA     { ui_contract::flora }; // #D4A043 name / flora line / Keeping / preset LED
     inline const juce::Colour COL_FLORA_BR  { ui_contract::floraBright }; // #FFE0A0 TP > -1.0 dBTP

@@ -152,15 +152,15 @@ LEVEL下段は60秒Historyを既定とし、Spectrumは重複搭載せずFREQを
 
 LEVEL Historyの横軸は常に固定60秒とし、測定開始直後の短い履歴を横幅いっぱいへ引き伸ばさない。
 
-Mを主線、Sを低彩度の副線とし、TPは連続線を重ねず、runごとの2秒区間で保持した最大`true_peak.max`をevent stemとして示す。
+Mを主線、Sを低彩度の副線とし、TPは連続線を重ねず、runごとの2秒区間で保持した最大`true_peak.max`をevent stemとして示す。TPは別railへ分離せず、同じ60秒全面の下部へ右側`+6〜-24 dBTP`軸とともに重ねる。M/S Historyは全面を使い、TP stemだけが下から立ち上がる。
 
-可視区間の正確な最大値と相対時刻を`WINDOW MAX TP`として表示し、中央の`MAX TP`がResetまでの全Session最大であることと区別する。
+可視区間の正確な最大値と相対時刻を`60 S MAX TP`として表示し、中央の`MAX TP`がResetまでの全Session最大であることと区別する。Max Mは現在Mの面から外し、同じHistory凡例にSession factとして置く。
 
 ポインタ位置では同一100 ms観測点のM、S、TP、相対時刻へ切り替え、Captureは同じ固定軸とevent位置を正本snapshotから描く。
 
-Δ HistoryはM/S差分に限定し、意味の異なる符号付きΔTPを絶対TP event railへ混在させない。
+Δ HistoryはM/S差分に限定し、意味の異なる符号付きΔTPを絶対TP eventへ混在させない。
 
-各100 ms History点はL/R別の新規sample clip run数を保持し、event railにchannel別pipを置く。hoverでは同じ観測点の相対時刻とL/R件数を表示し、右stripのSession累積値とは範囲を混同しない。
+各100 ms History点はL/R別の新規sample clip run数を保持し、shared plot下端にchannel別pipを置く。hoverでは同じ観測点の相対時刻とL/R件数を表示し、右stripのSession累積値とは範囲を混同しない。
 
 900×600は四domain共通のInspection Viewとし、LEVELではHistory、channel strip、数値階層へ追加面積を与える。TIME、FREQ、SPACEとTIME配下解析も既存の測定事実と操作を変えず高解像度化し、未合意の新指標は載せない。
 
@@ -171,6 +171,8 @@ PREとの差分ではΔM、ΔS、ΔTP、ΔCrestを同じ四列geometryで比較�
 450×300では世界背景を出さず、同じ測定事実を明るさと余白を抑えたStandard面で示す。
 
 600×400のPOST FooterだけにPOSTとΔの独立ボタン、左右TP数値と0〜−48 dBTP目盛り、CAPTURE入口を置く。
+
+右端L/R meterは1 dBごとの48 blockを使い、300%でも粗い24段表示に見せない。左上の`HYPHA POST/PRE`は一体の静的titleとし、domain tabと同じ操作 affordanceを持たせない。runtimeのPAIR name fieldがあるサイズでは背景側のPAIR文字を重ねて描かない。
 
 450×300以下ではPOST/Δを一つの切替へ畳み、CAPTURE入口を出さない。
 

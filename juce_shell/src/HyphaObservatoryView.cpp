@@ -133,10 +133,20 @@ void View::setConnection (juce::String text, juce::Colour colour, ConnectionStat
     repaint();
 }
 
+void View::setExternalConnectionLabelVisible (bool visible)
+{
+    if (externalConnectionLabelVisible == visible)
+        return;
+    externalConnectionLabelVisible = visible;
+    repaint (connectionArea);
+}
+
 void View::setWatchDisplay (const KirinWatchDisplay& display, bool available)
 {
+    if (! available)
+        return;
     watchDisplay = display;
-    watchDisplayAvailable = available;
+    watchDisplayAvailable = true;
     if (selectedDomain == Domain::level)
         repaint (bodyArea);
 }
@@ -405,21 +415,29 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
                            : density == Density::focused ? 14.0f
                            : density == Density::standard ? 16.0f : 18.0f;
     auto titleArea = toJuce (layout.roleTitle).reduced (6, 0);
-    const int roleWidth = density == Density::compact ? 26 : 34;
-    auto roleArea = titleArea.removeFromRight (roleWidth);
-    g.setFont (labelFont (titleHeight));
+    const auto productFont = labelFont (titleHeight);
+    const auto productWidth = juce::jmin (
+        titleArea.getWidth() - 20,
+        juce::roundToInt (productFont.getStringWidthFloat ("HYPHA")) + 2);
+    auto productArea = titleArea.removeFromLeft (juce::jmax (1, productWidth));
+    titleArea.removeFromLeft (density == Density::compact ? 3 : 5);
+    g.setFont (productFont);
     g.setColour (COL_NORMAL);
-    g.drawFittedText ("HYPHA", titleArea, juce::Justification::centredLeft, 1, 0.82f);
+    g.drawFittedText ("HYPHA", productArea, juce::Justification::centredLeft, 1, 0.82f);
     g.setColour (COL_MUTED.brighter (0.18f));
-    g.setFont (labelFont (titleHeight * 0.78f));
-    g.drawText (role == Role::post ? "POST" : "PRE", roleArea,
-                juce::Justification::centredRight);
-    g.setColour (connectionColour);
-    g.setFont (monoFont (currentPreset().density == Density::compact ? 9.0f : 11.0f));
-    if (contract.hyphaAperture)
-        statusArea.removeFromLeft (22);
-    g.drawText (connectionText, statusArea.reduced (4, 0),
-                juce::Justification::centredRight);
+    g.setFont (labelFont (titleHeight * 0.88f));
+    g.drawFittedText (role == Role::post ? "POST" : "PRE",
+                      titleArea.translated (0, density == Density::compact ? 1 : 0),
+                      juce::Justification::centredLeft, 1, 0.82f);
+    if (! externalConnectionLabelVisible || captureFrame)
+    {
+        g.setColour (connectionColour);
+        g.setFont (monoFont (currentPreset().density == Density::compact ? 9.0f : 11.0f));
+        if (contract.hyphaAperture)
+            statusArea.removeFromLeft (22);
+        g.drawText (connectionText, statusArea.reduced (4, 0),
+                    juce::Justification::centredRight);
+    }
 }
 
 void View::paintGuide (juce::Graphics& g, const ShellLayout& layout)
@@ -439,61 +457,4 @@ void View::paintGuide (juce::Graphics& g, const ShellLayout& layout)
     observatory_world::paintGuideRoot (g, toJuce (layout.guideRail), worldState());
 }
 
-void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
-{
-    drawPanel (g, toJuce (layout.footer), experienceFamily(), 4.0f);
-    auto session = sessionArea.reduced (6, 0);
-    const auto& meter = observatoryFrame.meter;
-    const auto state = ! frameAvailable ? juce::String ("SESSION ") + hypha::emDash()
-                     : meter.state == KIRIN_METER_SESSION_EMPTY ? juce::String ("READY  ")
-                     : observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED
-                         ? juce::String ("BYPASSED  ")
-                     : observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_INACTIVE
-                         ? juce::String ("INACTIVE  ")
-                     : juce::String ("ACTIVE  ");
-    const auto seconds = frameAvailable && meter.sample_rate > 0
-        ? static_cast<double> (meter.active_frames) / static_cast<double> (meter.sample_rate) : 0.0;
-    g.setColour (frameAvailable ? COL_MUTED.brighter (0.25f) : COL_MUTED);
-    if (! captureFrame)
-    {
-        g.setFont (monoFont (currentPreset().density == Density::compact ? 8.5f : 10.5f));
-        g.drawText (state + juce::String (seconds, 1) + " S", session,
-                    juce::Justification::centred);
-        return;
-    }
-
-    auto upper = session.removeFromTop (session.getHeight() / 2);
-    auto lower = session;
-    auto provenance = captureTimestamp;
-    if (captureVersion.isNotEmpty())
-        provenance += "  |  v" + captureVersion;
-    g.setFont (monoFont (8.0f));
-    auto statusArea = upper.removeFromLeft (juce::roundToInt (upper.getWidth() * 0.55f));
-    g.drawFittedText (state + juce::String (seconds, 1) + " S  |  ITU-R BS.1770",
-                      statusArea, juce::Justification::centredLeft, 1, 0.78f);
-    g.drawFittedText (provenance, upper, juce::Justification::centredRight, 1, 0.72f);
-    const auto metadata = captureMetadata.footerLine();
-    if (metadata.isNotEmpty())
-    {
-        g.setColour (COL_FLORA.withAlpha (0.82f));
-        g.setFont (monoFont (7.5f));
-        g.drawFittedText (metadata, lower, juce::Justification::centredLeft, 1, 0.70f);
-    }
-}
-
-void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
-{
-    const bool compact = experienceFamily() == ExperienceFamily::compactMeter;
-    if (! compact)
-    {
-        auto context = area.removeFromTop (22);
-        g.setColour (COL_MUTED.withAlpha (0.78f));
-        g.setFont (monoFont (8.0f));
-        g.drawText ("SESSION HISTORY", context.reduced (6, 0),
-                    juce::Justification::centredLeft);
-        area.removeFromTop (2);
-    }
-    time_history::paint (g, area, history, compact ? historyRequest().label : "",
-                         target() == ObservationTarget::delta, compact);
-}
 }

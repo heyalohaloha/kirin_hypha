@@ -28,16 +28,16 @@ void retainThrough (std::vector<KirinMeterHistoryEntry>&, std::uint64_t observed
 TruePeakSummary analyseTruePeak (const std::vector<KirinMeterHistoryEntry>&,
                                  double sampleRate);
 
-// Returns a nearby measured entry while the pointer is inside the history plot or TP event rail.
+// Returns a nearby measured entry while the pointer is inside the shared loudness / TP plot.
 // Header, padding, and unmeasured portions of the fixed 60-second window return no observation.
 std::optional<std::size_t> hitTest (juce::Rectangle<int> area,
                                     const std::vector<KirinMeterHistoryEntry>&,
                                     juce::Point<float> position,
                                     double sampleRate);
 
-// A deliberately narrow 60-second history for the LEVEL Observation Plate. M is the primary
-// trajectory, S is secondary, TP is represented as sparse measured event stems, and channel clip
-// runs remain timestamped pips rather than a second continuous curve with a competing axis.
+// A shared 60-second LEVEL plot. M is primary, S is secondary, sparse TP events use the right
+// +6..-24 dBTP axis, and channel clip runs remain timestamped pips. No separate rail takes height
+// away from either history.
 void paint (juce::Graphics&,
             juce::Rectangle<int>,
             const std::vector<KirinMeterHistoryEntry>&,

@@ -105,7 +105,7 @@ void verifyCaptureHistoryContract()
         area, history, { 250.0f, 65.0f }, 48'000.0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (! beforeAvailableWindow.has_value());
     const auto newest = capture_history::hitTest (
-        area, history, { 490.9f, 65.0f }, 48'000.0);
+        area, history, { 459.9f, 65.0f }, 48'000.0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (newest.has_value());
     KIRIN_CAPTURE_HISTORY_REQUIRE (*newest == history.size() - 1u);
 

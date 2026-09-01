@@ -7,7 +7,6 @@
 #include <array>
 #include <cmath>
 #include <limits>
-
 namespace hypha::capture_history
 {
 namespace
@@ -15,25 +14,23 @@ namespace
 struct Layout
 {
     juce::Rectangle<int> legend;
-    juce::Rectangle<int> labels;
-    juce::Rectangle<float> loudnessPlot;
-    juce::Rectangle<float> truePeakRail;
+    juce::Rectangle<int> loudnessLabels;
+    juce::Rectangle<int> truePeakLabels;
+    juce::Rectangle<int> timeLabels;
+    juce::Rectangle<float> sharedPlot;
 };
-
 Layout layoutFor (juce::Rectangle<int> area)
 {
     area.reduce (7, 5);
     const auto inspection = area.getWidth() >= 700;
     Layout result;
     result.legend = area.removeFromTop (inspection ? 20 : 15);
-    result.labels = area.removeFromLeft (inspection ? 32 : 25);
-    auto plot = area.reduced (2, 2).toFloat();
-    result.truePeakRail = plot.removeFromBottom (inspection ? 24.0f : 18.0f);
-    plot.removeFromBottom (3.0f);
-    result.loudnessPlot = plot;
+    result.loudnessLabels = area.removeFromLeft (inspection ? 32 : 25);
+    result.truePeakLabels = area.removeFromRight (inspection ? 38 : 31);
+    result.timeLabels = area.removeFromBottom (inspection ? 12 : 10);
+    result.sharedPlot = area.reduced (2, 2).toFloat();
     return result;
 }
-
 float yForLoudness (juce::Rectangle<float> plot, double value, bool delta) noexcept
 {
     const auto minimum = delta ? -12.0 : -48.0;
@@ -41,15 +38,20 @@ float yForLoudness (juce::Rectangle<float> plot, double value, bool delta) noexc
     const auto normalized = juce::jlimit (0.0, 1.0, (value - minimum) / (maximum - minimum));
     return plot.getBottom() - static_cast<float> (normalized) * plot.getHeight();
 }
-
-float yForTruePeak (juce::Rectangle<float> rail, double value) noexcept
+float yForTruePeak (juce::Rectangle<float> plot, double value) noexcept
 {
     constexpr double minimum = -24.0;
-    constexpr double maximum = 0.0;
+    constexpr double maximum = 6.0;
     const auto normalized = juce::jlimit (0.0, 1.0, (value - minimum) / (maximum - minimum));
-    const auto baseline = rail.getBottom() - 7.0f;
-    return baseline - static_cast<float> (normalized)
-                    * juce::jmax (1.0f, rail.getHeight() - 9.0f);
+    return plot.getBottom() - static_cast<float> (normalized) * plot.getHeight();
+}
+
+juce::Rectangle<float> truePeakOverlayFor (juce::Rectangle<float> sharedPlot) noexcept
+{
+    const auto maximumHeight = juce::jmax (1.0f, sharedPlot.getHeight() - 8.0f);
+    const auto height = juce::jlimit (juce::jmin (48.0f, maximumHeight), maximumHeight,
+                                      sharedPlot.getHeight() * 0.42f);
+    return sharedPlot.withTop (sharedPlot.getBottom() - height);
 }
 
 double meanFor (const KirinMeterHistoryEntry& entry, bool shortTerm) noexcept
@@ -169,25 +171,14 @@ void paintPath (juce::Graphics& g,
 }
 
 void paintTruePeakEvents (juce::Graphics& g,
-                          juce::Rectangle<float> rail,
+                          juce::Rectangle<float> sharedPlot,
                           const std::vector<KirinMeterHistoryEntry>& history,
                           const time_history::HistoryAxis& axis,
                           const TruePeakSummary& summary,
                           double sampleRate)
 {
-    const auto baseline = rail.getBottom() - 7.0f;
-    g.setColour (COL_MUTED.withAlpha (0.28f));
-    g.drawHorizontalLine (juce::roundToInt (baseline),
-                          rail.getX(), rail.getRight());
-    g.setFont (monoFont (5.7f));
-    g.setColour (COL_MUTED.withAlpha (0.60f));
-    const auto labels = juce::Rectangle<float> (
-        rail.getX(), baseline, rail.getWidth(), rail.getBottom() - baseline).toNearestInt();
-    g.drawText ("-60", labels.withWidth (24), juce::Justification::centredLeft);
-    g.drawText ("-30", labels.withSizeKeepingCentre (30, labels.getHeight()),
-                juce::Justification::centred);
-    g.drawText ("NOW", labels.withLeft (labels.getRight() - 24),
-                juce::Justification::centredRight);
+    const auto overlay = truePeakOverlayFor (sharedPlot);
+    const auto baseline = overlay.getBottom();
     if (summary.available)
     {
         for (const auto index : summary.eventIndices)
@@ -197,19 +188,22 @@ void paintTruePeakEvents (juce::Graphics& g,
             const auto value = history[index].true_peak.max;
             if (! std::isfinite (value))
                 continue;
-            const auto x = rail.getX()
+            const auto x = sharedPlot.getX()
                          + static_cast<float> (normalizedHistoryX (
-                               history, axis, history[index], index, sampleRate)) * rail.getWidth();
-            const auto y = yForTruePeak (rail, value);
+                               history, axis, history[index], index, sampleRate))
+                           * sharedPlot.getWidth();
+            const auto y = yForTruePeak (overlay, value);
             const auto relative = juce::jlimit (
                 0.0, 1.0, 1.0 - (summary.windowMaximumDbtp - value) / 12.0);
             const auto maximum = index == summary.windowMaximumIndex;
             const auto colour = maximum ? COL_FLORA_BR : COL_FLORA;
             const auto alpha = maximum ? 0.94f : static_cast<float> (0.20 + relative * 0.52);
             g.setColour (colour.withAlpha (maximum ? 0.16f : alpha * 0.10f));
-            g.drawLine (x, y, x, baseline, maximum ? 4.0f : 2.0f);
+            g.drawLine (x, y, x, baseline,
+                        maximum ? 4.0f : 2.0f);
             g.setColour (colour.withAlpha (alpha));
-            g.drawLine (x, y, x, baseline, maximum ? 1.5f : 0.75f);
+            g.drawLine (x, y, x, baseline,
+                        maximum ? 1.5f : 0.75f);
             if (maximum)
             {
                 g.setColour (colour.withAlpha (0.24f));
@@ -224,11 +218,12 @@ void paintTruePeakEvents (juce::Graphics& g,
         for (std::size_t channel = 0; channel < 2; ++channel)
             if (history[index].clip_event_count[channel] > 0u)
             {
-                const auto x = rail.getX()
+                const auto x = sharedPlot.getX()
                              + static_cast<float> (normalizedHistoryX (
                                    history, axis, history[index], index, sampleRate))
-                               * rail.getWidth();
-                const auto y = rail.getY() + 1.5f + static_cast<float> (channel) * 4.0f;
+                               * sharedPlot.getWidth();
+                const auto y = sharedPlot.getBottom() - 2.0f
+                             - static_cast<float> (channel) * 4.0f;
                 g.setColour (clipColours[channel].withAlpha (0.24f));
                 g.fillEllipse (x - 3.0f, y - 1.0f, 6.0f, 4.0f);
                 g.setColour (clipColours[channel].withAlpha (0.94f));
@@ -248,25 +243,26 @@ void paintHover (juce::Graphics& g,
         return;
     const auto index = *hoveredIndex;
     const auto& entry = history[index];
-    const auto x = layout.loudnessPlot.getX()
+    const auto x = layout.sharedPlot.getX()
                  + static_cast<float> (normalizedHistoryX (
-                       history, axis, entry, index, sampleRate)) * layout.loudnessPlot.getWidth();
+                       history, axis, entry, index, sampleRate)) * layout.sharedPlot.getWidth();
     g.setColour (COL_LED_BLUE.withAlpha (0.34f));
-    g.drawVerticalLine (juce::roundToInt (x), layout.loudnessPlot.getY(),
-                        layout.truePeakRail.getBottom() - 7.0f);
+    g.drawVerticalLine (juce::roundToInt (x), layout.sharedPlot.getY(),
+                        layout.sharedPlot.getBottom());
     for (const auto fact : {
              std::pair { entry.lufs_s.mean, COL_NORMAL.withAlpha (0.58f) },
              std::pair { entry.lufs_m.mean, COL_SPECTRUM_POST } })
     {
         if (! std::isfinite (fact.first))
             continue;
-        const auto y = yForLoudness (layout.loudnessPlot, fact.first, delta);
+        const auto y = yForLoudness (layout.sharedPlot, fact.first, delta);
         g.setColour (fact.second);
         g.fillEllipse (x - 2.0f, y - 2.0f, 4.0f, 4.0f);
     }
     if (! delta && std::isfinite (entry.true_peak.max))
     {
-        const auto y = yForTruePeak (layout.truePeakRail, entry.true_peak.max);
+        const auto y = yForTruePeak (truePeakOverlayFor (layout.sharedPlot),
+                                     entry.true_peak.max);
         g.setColour (COL_FLORA_BR);
         g.fillEllipse (x - 2.0f, y - 2.0f, 4.0f, 4.0f);
     }
@@ -367,18 +363,17 @@ std::optional<std::size_t> hitTest (juce::Rectangle<int> area,
     if (history.empty())
         return std::nullopt;
     const auto layout = layoutFor (area);
-    const auto interactive = layout.loudnessPlot.getUnion (layout.truePeakRail);
-    if (! interactive.contains (position))
+    if (! layout.sharedPlot.contains (position))
         return std::nullopt;
     const auto axis = time_history::selectAxis (history);
     auto nearest = std::size_t { 0 };
     auto distance = std::numeric_limits<float>::max();
     for (std::size_t index = 0; index < history.size(); ++index)
     {
-        const auto x = layout.loudnessPlot.getX()
+        const auto x = layout.sharedPlot.getX()
                      + static_cast<float> (normalizedHistoryX (
                            history, axis, history[index], index, sampleRate))
-                       * layout.loudnessPlot.getWidth();
+                       * layout.sharedPlot.getWidth();
         const auto candidate = std::abs (x - position.x);
         if (candidate < distance)
         {
@@ -419,14 +414,14 @@ void paint (juce::Graphics& g,
                + "   M " + measuredText (entry.lufs_m.mean, delta)
                + "   S " + measuredText (entry.lufs_s.mean, delta);
         if (! delta)
-            detail += "   TP " + measuredText (entry.true_peak.max);
+            detail += "   TP " + measuredText (entry.true_peak.max) + " dBTP";
         if (! delta && (entry.clip_event_count[0] > 0u || entry.clip_event_count[1] > 0u))
             detail += "   CLIP L" + juce::String (entry.clip_event_count[0])
                     + " R" + juce::String (entry.clip_event_count[1]);
     }
     else if (peakSummary.available)
     {
-        detail = "WINDOW MAX TP " + measuredText (peakSummary.windowMaximumDbtp)
+        detail = "60 S MAX TP " + measuredText (peakSummary.windowMaximumDbtp) + " dBTP"
                + " @ " + relativeTimeText (peakSummary.secondsBeforeEnd);
     }
     else
@@ -440,8 +435,8 @@ void paint (juce::Graphics& g,
     {
         g.setColour (COL_MUTED);
         g.setFont (monoFont (11.0f));
-        g.drawText (juce::String ("HISTORY ") + emDash(), layout.loudnessPlot.getUnion (
-                        layout.truePeakRail).toNearestInt(), juce::Justification::centred);
+        g.drawText (juce::String ("HISTORY ") + emDash(),
+                    layout.sharedPlot.toNearestInt(), juce::Justification::centred);
         return;
     }
 
@@ -451,31 +446,55 @@ void paint (juce::Graphics& g,
     g.setFont (monoFont (6.5f));
     for (const auto tick : ticks)
     {
-        const auto y = juce::roundToInt (yForLoudness (layout.loudnessPlot, tick, delta));
+        const auto y = juce::roundToInt (yForLoudness (layout.sharedPlot, tick, delta));
         const bool zero = delta && tick == 0.0;
         g.setColour ((zero ? COL_FLORA_BR : COL_MUTED).withAlpha (zero ? 0.38f : 0.18f));
-        g.drawHorizontalLine (y, layout.loudnessPlot.getX(), layout.loudnessPlot.getRight());
+        g.drawHorizontalLine (y, layout.sharedPlot.getX(), layout.sharedPlot.getRight());
         g.setColour (COL_MUTED.withAlpha (0.68f));
         const auto label = (delta && tick > 0.0 ? "+" : "") + juce::String (tick, 0);
-        g.drawText (label, layout.labels.getX(), y - 4, layout.labels.getWidth() - 3, 8,
+        g.drawText (label, layout.loudnessLabels.getX(), y - 4,
+                    layout.loudnessLabels.getWidth() - 3, 8,
                     juce::Justification::centredRight);
     }
     if (! delta)
     {
-        g.setColour (COL_MUTED.withAlpha (0.72f));
-        g.drawText ("TP", layout.labels.getX(), juce::roundToInt (layout.truePeakRail.getY()),
-                    layout.labels.getWidth() - 3,
-                    juce::roundToInt (layout.truePeakRail.getHeight()),
-                    juce::Justification::centredRight);
+        constexpr std::array<double, 5> truePeakTicks { 6.0, 0.0, -6.0, -12.0, -24.0 };
+        const auto overlay = truePeakOverlayFor (layout.sharedPlot);
+        g.setFont (monoFont (6.2f));
+        g.setColour (COL_FLORA.withAlpha (0.72f));
+        g.drawText ("TP", layout.truePeakLabels.getX(),
+                    juce::roundToInt (overlay.getY()) - 10,
+                    layout.truePeakLabels.getWidth(), 8,
+                    juce::Justification::centredLeft);
+        for (const auto tick : truePeakTicks)
+        {
+            const auto y = juce::roundToInt (yForTruePeak (overlay, tick));
+            g.setColour (COL_FLORA.withAlpha (tick == 0.0 ? 0.28f : 0.16f));
+            g.drawHorizontalLine (y, layout.sharedPlot.getRight() - 5.0f,
+                                  layout.sharedPlot.getRight());
+            g.setColour (COL_MUTED.withAlpha (0.72f));
+            const auto label = tick > 0.0 ? "+" + juce::String (tick, 0)
+                                         : juce::String (tick, 0);
+            g.drawText (label, layout.truePeakLabels.getX(), y - 4,
+                        layout.truePeakLabels.getWidth(), 8,
+                        juce::Justification::centredLeft);
+        }
     }
 
     const auto axis = time_history::selectAxis (history);
-    paintPath (g, layout.loudnessPlot, history, axis, true, delta,
+    paintPath (g, layout.sharedPlot, history, axis, true, delta,
                COL_NORMAL, 0.30f, 0.70f, sampleRate);
-    paintPath (g, layout.loudnessPlot, history, axis, false, delta,
+    paintPath (g, layout.sharedPlot, history, axis, false, delta,
                COL_SPECTRUM_POST, 0.96f, 1.20f, sampleRate);
     if (! delta)
-        paintTruePeakEvents (g, layout.truePeakRail, history, axis, peakSummary, sampleRate);
+        paintTruePeakEvents (g, layout.sharedPlot, history, axis, peakSummary, sampleRate);
+    g.setColour (COL_MUTED.withAlpha (0.64f));
+    g.setFont (monoFont (5.8f));
+    g.drawText ("-60", layout.timeLabels.withWidth (24), juce::Justification::centredLeft);
+    g.drawText ("-30", layout.timeLabels.withSizeKeepingCentre (30, layout.timeLabels.getHeight()),
+                juce::Justification::centred);
+    g.drawText ("NOW", layout.timeLabels.withLeft (layout.timeLabels.getRight() - 24),
+                juce::Justification::centredRight);
     paintHover (g, layout, history, axis, hoveredIndex, delta, sampleRate);
 }
 }

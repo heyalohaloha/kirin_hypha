@@ -362,7 +362,7 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 | 300×200 | 選択domainの主値、role、pair、POST/Δ、Session state | MまたはS、TP、Crest、name、pair state |
 | 375×250 | Compact内容、補助値、domain switch | Compact内容、I/O state、接続context |
 | 450×300 | 世界背景を抑えた主visual、軸、session facts | Standard内容、測定stateの詳細 |
-| 600×400 | Concept Cのfull cockpit、M内のMax M補助値、S/I、TP/MaxTP/LRA/PLR/Crest、60秒History、左右TP、POST/Δ、Capture | POSTと共通のshell、広い数値面、接続context |
+| 600×400 | Concept Cのfull cockpit、M/S/I、TP/MaxTP/LRA/PLR/Crest、History凡例のMax M、60秒History、左右TP、POST/Δ、Capture | POSTと共通のshell、広い数値面、接続context |
 | 900×600 | 全domain共通Inspection View、拡張History、詳細axis、既存解析の高解像度表示 | POSTと共通のInspection shell、拡張History、詳細axis |
 
 小さい画面で情報を単純に縮小しない。
@@ -375,7 +375,7 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 900×600（300%）は600×400を置換せず、LEVEL、TIME、FREQ、SPACEとTIME配下の解析を同じ操作体系のまま高解像度で読むInspection Viewとする。LEVELは履歴面積、channel strip、数値階層を拡張するが、未合意の新指標は追加しない。将来Session Atlasを載せる場合は別途表示内容を確定する。
 
-LEVELの60秒Historyは固定時間軸とし、M主線、S副線、run別2秒最大TP event、L/R別sample clip event、`WINDOW MAX TP`と相対時刻を表示する。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。
+LEVELの60秒Historyは固定時間軸とし、M主線、S副線、run別2秒最大TP event、L/R別sample clip event、`60 S MAX TP`と相対時刻を表示する。TP専用railは作らず、M/Sが全面を使う同じ横軸の下部へ、右側`+6〜-24 dBTP`軸と下から立ち上がるstemを重ねる。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。
 
 600×400以上のLEVELは、上段3と中段5の合計高を従来割当の約60%へ圧縮し、残りをHistoryへ渡す。FooterもCAPTUREボタン単体ではなく操作段全体を40 pxから24 pxへ縮め、測定履歴を画面の主面積にする。
 
@@ -392,6 +392,8 @@ Concept C Hybrid Observatoryをvisual baselineとする。
 細い蔓を画面へ貼り付けただけの装飾にはしない。
 
 ivoryの数字、cool cyanの実測線、低彩度amberのholdと居住光を基本とする。
+
+600×400以上のLEVEL主数値はneutral whiteではなく暖色instrument ivoryとし、labelを上、unitを下へ分離する。主数値面のHyphaは専用corner素材を外縁から伸ばし、数値を横切る人工的な楕円線は置かない。
 
 数値はtabular figuresを使い、小数点、符号、単位の位置を揃える。
 

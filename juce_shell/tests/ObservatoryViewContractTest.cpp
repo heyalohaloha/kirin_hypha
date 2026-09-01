@@ -354,6 +354,13 @@ void verifyObservatoryViewContract()
                                    observatory::ConnectionState::paired);
     KIRIN_OBSERVATORY_REQUIRE (
         differentPixels (observatoryWaiting, render (connectionProbe)) > 8);
+    const auto internalConnectionLabel = render (connectionProbe);
+    connectionProbe.setExternalConnectionLabelVisible (true);
+    KIRIN_OBSERVATORY_REQUIRE (
+        differentPixels (internalConnectionLabel, render (connectionProbe)) > 8);
+    connectionProbe.setExternalConnectionLabelVisible (false);
+    KIRIN_OBSERVATORY_REQUIRE (
+        differentPixels (internalConnectionLabel, render (connectionProbe)) == 0);
     post.setSize (300, 200);
     post.setTarget (observatory::ObservationTarget::absolute);
     post.setShortTermLoudness (false);
@@ -378,6 +385,10 @@ void verifyObservatoryViewContract()
     post.setObservatoryFrame (activeFrame(), true);
     post.setSize (600, 400);
     const auto absolute = render (post);
+    post.setObservatoryFrame ({}, false);
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, render (post)) == 0);
+    post.setWatchDisplay ({}, false);
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, render (post)) == 0);
     auto noClipsMeter = meter;
     noClipsMeter.clip_events[0] = 0;
     noClipsMeter.clip_events[1] = 0;

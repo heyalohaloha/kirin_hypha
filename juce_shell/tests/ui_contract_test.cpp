@@ -131,6 +131,7 @@ int main()
     static_assert (ui::pairMenuMaximumColumns == 1);
     static_assert (ui::background == 0xff0d0f1a);
     static_assert (ui::normal == 0xffe0e0e0);
+    static_assert (ui::observatoryValue == 0xffe8d8bd);
     static_assert (ui::muted == 0xff606060);
     static_assert (ui::preDisplayContextDetail == 0xff898989);
     static_assert (ui::flora == 0xffd4a043);

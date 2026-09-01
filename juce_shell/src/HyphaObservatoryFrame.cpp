@@ -30,8 +30,10 @@ void View::setDeltaSnapshot (const KirinDelta& value, bool available)
 
 void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool available)
 {
+    if (! available || value.version != KIRIN_OBSERVATORY_FRAME_VERSION)
+        return;
     observatoryFrame = value;
-    frameAvailable = available && value.version == KIRIN_OBSERVATORY_FRAME_VERSION;
+    frameAvailable = true;
     repaint (bodyArea);
 }
 

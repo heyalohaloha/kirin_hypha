@@ -22,8 +22,8 @@ use crate::record::RecordStateMachine;
 use crate::record_ingress::RecordIngressGenerationObservation;
 use crate::watchdog_handoff::WatchProducerHandoff;
 use crate::{
-    spawn_measure_thread, LivenessEvaluator, MeasureResult, MeterSession, RecordTakeTracker,
-    RecordTraceQueue,
+    spawn_measure_thread, LivenessEvaluator, MeasureResult, MeterSession, MeterSessionPublication,
+    RecordTakeTracker, RecordTraceQueue,
 };
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -85,6 +85,8 @@ pub struct WatchdogParams {
     pub measure_result: Arc<Mutex<MeasureResult>>,
     /// Always-on Meter Session owner. FFI common shell enables it; legacy egui can omit it.
     pub meter_session: Option<Arc<Mutex<MeterSession>>>,
+    /// Completed-observation publication owned outside replaceable Measure workers.
+    pub meter_session_publication: Option<Arc<MeterSessionPublication>>,
     /// Audio Thread が刻む Watch playback pass id。Measure 再起動後も同じ id を読む。
     pub watch_playback_pass_id: Arc<AtomicU64>,
     /// Watch playback pass 開始直前までに ring へ成功 push 済みの sample 数。
@@ -142,6 +144,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
             ring_capacity,
             measure_result,
             meter_session,
+            meter_session_publication,
             watch_playback_pass_id,
             watch_playback_pass_cutover_samples,
             watch_ring_cursor_epoch,
@@ -219,6 +222,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                     n_channels,
                     Arc::clone(&measure_result),
                     meter_session.as_ref().map(Arc::clone),
+                    meter_session_publication.as_ref().map(Arc::clone),
                     Arc::clone(&watch_playback_pass_id),
                     Arc::clone(&watch_playback_pass_cutover_samples),
                     Arc::clone(&watch_ring_cursor_epoch),

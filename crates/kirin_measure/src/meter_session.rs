@@ -11,6 +11,7 @@ use crate::{
     MeasureEngine, MeasureResult, MeterClockStart, MeterHistoryAux, MeterHistoryEntry,
     MeterHistoryResolution, SessionSummary, StereoMeter, StereoMeterSnapshot,
 };
+use std::sync::{RwLock, TryLockError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeterSessionState {
@@ -42,6 +43,39 @@ impl MeterSessionSnapshot {
             0.0
         } else {
             self.active_frames as f64 / self.sample_rate as f64
+        }
+    }
+}
+
+/// A completed MeterSession observation published independently from the live calculation lock.
+///
+/// The Measure Thread builds the snapshot while it owns `MeterSession`, then replaces this small
+/// immutable value after releasing the live calculation lock. UI readers never contend with EBU
+/// processing; a rare publication handoff collision is a silent skipped poll and the shell keeps
+/// displaying its last complete frame.
+pub struct MeterSessionPublication {
+    latest: RwLock<MeterSessionSnapshot>,
+}
+
+impl MeterSessionPublication {
+    pub fn new(initial: MeterSessionSnapshot) -> Self {
+        Self {
+            latest: RwLock::new(initial),
+        }
+    }
+
+    pub fn publish(&self, snapshot: MeterSessionSnapshot) {
+        *self
+            .latest
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = snapshot;
+    }
+
+    pub fn try_snapshot(&self) -> Option<MeterSessionSnapshot> {
+        match self.latest.try_read() {
+            Ok(snapshot) => Some(snapshot.clone()),
+            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner().clone()),
+            Err(TryLockError::WouldBlock) => None,
         }
     }
 }
@@ -273,6 +307,30 @@ mod tests {
         assert!(session.push_active(&stereo_sine(0.25, 0.25)));
         assert_eq!(session.snapshot().state, MeterSessionState::Active);
         assert_eq!(session.snapshot().active_frames, SR as u64 * 3 / 4);
+    }
+
+    #[test]
+    fn publication_exposes_only_complete_replacements_and_never_waits_for_writer() {
+        let mut session = MeterSession::new(SR, 2).unwrap();
+        let publication = MeterSessionPublication::new(session.snapshot());
+        assert_eq!(
+            publication.try_snapshot().unwrap().state,
+            MeterSessionState::Empty
+        );
+
+        assert!(session.push_active(&stereo_constant(0.25, 0.25)));
+        publication.publish(session.snapshot());
+        let active = publication.try_snapshot().unwrap();
+        assert_eq!(active.state, MeterSessionState::Active);
+        assert_eq!(active.observed_frames, SR as u64 / 10);
+
+        let writer = publication.latest.write().unwrap();
+        assert!(publication.try_snapshot().is_none());
+        drop(writer);
+        assert_eq!(
+            publication.try_snapshot().unwrap().observed_frames,
+            SR as u64 / 10
+        );
     }
 
     #[test]

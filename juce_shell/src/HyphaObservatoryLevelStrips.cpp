@@ -98,11 +98,14 @@ void paintFullChannelStrips (juce::Graphics& g,
                             && std::isfinite (meter.sample_peak_dbfs[channel]);
         if (available)
         {
-            for (int db = -48; db < 0; db += 2)
+            // One block per dB keeps the Observatory precise at 200/300% while preserving a
+            // discrete instrument scale. The former 2 dB blocks became visibly coarse when the
+            // logical 600x400 plate was enlarged by the host.
+            for (int db = -48; db < 0; ++db)
             {
                 if ((double) db > meter.sample_peak_dbfs[channel])
                     continue;
-                const auto top = mapY ((double) db + 1.45);
+                const auto top = mapY ((double) db + 0.72);
                 const auto bottom = mapY ((double) db);
                 g.setColour ((db >= -6 ? COL_FLORA : COL_SPECTRUM_DELTA)
                                  .withAlpha (db >= -6 ? 0.72f : 0.68f));

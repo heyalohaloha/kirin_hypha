@@ -72,6 +72,9 @@ namespace hypha::ui_contract
     constexpr const char* stopLabel = "Stop";
     constexpr std::uint32_t background = 0xff0d0f1a;
     constexpr std::uint32_t normal     = 0xffe0e0e0;
+    // Full LEVEL Observatory numerals use the concept image's warm instrument ivory. Compact
+    // meters retain `normal` for maximum small-size contrast.
+    constexpr std::uint32_t observatoryValue = 0xffe8d8bd;
     constexpr std::uint32_t muted      = 0xff606060;
     constexpr std::uint32_t preDisplayContextDetail = 0xff898989;
     constexpr std::uint32_t flora      = 0xffd4a043;

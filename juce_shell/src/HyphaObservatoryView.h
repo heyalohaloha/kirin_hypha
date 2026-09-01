@@ -70,6 +70,7 @@ public:
     void setCompactMaximum (bool);
     bool compactMaximum() const noexcept { return compactShowsMaximum; }
     void setConnection (juce::String text, juce::Colour colour, ConnectionState state);
+    void setExternalConnectionLabelVisible (bool visible);
     ConnectionState connection() const noexcept { return connectionState; }
     void setGuide (juce::String primary, juce::String detail, bool emphasized);
     void clearGuide();
@@ -146,6 +147,7 @@ private:
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;
     ConnectionState connectionState = ConnectionState::unpaired;
+    bool externalConnectionLabelVisible = false;
     juce::String guidePrimary;
     juce::String guideDetail;
     bool guideEmphasized = false;

@@ -22,7 +22,7 @@ use crate::resampler::ResamplerTo48k;
 use crate::watch_playback_pass::watch_ring_cursor_samples_for_pass;
 use crate::{
     engine::SessionSummary, load_signal_state, store_signal_state, MeasureEngine, MeasureResult,
-    MeterClockStart, MeterSession, PsbSummary, SignalState, N_CHANNELS,
+    MeterClockStart, MeterSession, MeterSessionPublication, PsbSummary, SignalState, N_CHANNELS,
 };
 
 /// Watch core と PhaseD の内部処理 SR。Record core は host native SR で別 engine を動かし、
@@ -217,6 +217,7 @@ pub fn spawn_measure_thread(
     n_channels: usize,
     result: Arc<Mutex<MeasureResult>>,
     meter_session: Option<Arc<Mutex<MeterSession>>>,
+    meter_session_publication: Option<Arc<MeterSessionPublication>>,
     watch_playback_pass_id: Arc<AtomicU64>,
     watch_playback_pass_cutover_samples: Arc<AtomicU64>,
     watch_ring_cursor_epoch: Arc<AtomicU64>,
@@ -412,6 +413,7 @@ pub fn spawn_measure_thread(
                     measure_chunk_samples,
                     &signal_state,
                     meter_session.as_ref(),
+                    meter_session_publication.as_ref(),
                 );
                 watch_consumed_samples = consumed_samples;
                 watch_native_frames_total = native_frames_total;
@@ -476,6 +478,7 @@ pub fn spawn_measure_thread(
                             summary_engine: &mut record_summary_engine,
                             session_summary: &session_summary,
                             meter_session: meter_session.as_ref(),
+                            meter_session_publication: meter_session_publication.as_ref(),
                             meter_active: load_signal_state(&signal_state) == SignalState::Active,
                             chunk_f64: &mut chunk_f64,
                             resampled_buf: &mut resampled_buf,
@@ -650,7 +653,7 @@ pub fn spawn_measure_thread(
             if should_suspend_measurement(state, is_recording) {
                 prev_active = false;
                 if !meter_session_suspended {
-                    pause_meter_session(meter_session.as_ref());
+                    pause_meter_session(meter_session.as_ref(), meter_session_publication.as_ref());
                     meter_session_suspended = true;
                 }
                 // Bypassed / Inactive → compute() スキップ。
@@ -888,6 +891,7 @@ pub fn spawn_measure_thread(
                     let direct_sample_offset = replayed_prefix_samples.min(chunk_f64.len());
                     feed_meter_session(
                         meter_session.as_ref(),
+                        meter_session_publication.as_ref(),
                         &chunk_f64[direct_sample_offset..],
                         capture_plan.meter_clock_start((direct_sample_offset / n_channels) as u64),
                     );
@@ -1477,6 +1481,7 @@ struct DrainRingSession<'a> {
     summary_engine: &'a mut MeasureEngine,
     session_summary: &'a Arc<Mutex<Option<SessionSummary>>>,
     meter_session: Option<&'a Arc<Mutex<MeterSession>>>,
+    meter_session_publication: Option<&'a Arc<MeterSessionPublication>>,
     meter_active: bool,
     chunk_f64: &'a mut Vec<f64>,
     resampled_buf: &'a mut Vec<f64>,
@@ -1675,6 +1680,7 @@ fn drain_watch_into_raw_pre_roll(
     chunk_limit_samples: usize,
     signal_state: &AtomicU8,
     meter_session: Option<&Arc<Mutex<MeterSession>>>,
+    meter_session_publication: Option<&Arc<MeterSessionPublication>>,
 ) {
     loop {
         let available = consumer.slots().min(chunk_limit_samples);
@@ -1702,7 +1708,12 @@ fn drain_watch_into_raw_pre_roll(
         }
         let _ = history.append_f64(trusted_pre_roll_epoch(plan), *native_frames_total, scratch);
         if load_signal_state(signal_state) == SignalState::Active {
-            feed_meter_session(meter_session, scratch, plan.meter_clock_start(0));
+            feed_meter_session(
+                meter_session,
+                meter_session_publication,
+                scratch,
+                plan.meter_clock_start(0),
+            );
         }
         *native_frames_total = (*native_frames_total).saturating_add(frames);
     }
@@ -1710,6 +1721,7 @@ fn drain_watch_into_raw_pre_roll(
 
 fn feed_meter_session(
     meter_session: Option<&Arc<Mutex<MeterSession>>>,
+    publication: Option<&Arc<MeterSessionPublication>>,
     direct_active_samples: &[f64],
     clock: MeterClockStart,
 ) {
@@ -1717,14 +1729,31 @@ fn feed_meter_session(
         return;
     }
     if let Some(session) = meter_session {
-        let _ = crate::sync_recovery::lock_recover(session, "MeterSession active push")
-            .push_active_at(direct_active_samples, clock);
+        let snapshot = {
+            let mut session =
+                crate::sync_recovery::lock_recover(session, "MeterSession active push");
+            let _ = session.push_active_at(direct_active_samples, clock);
+            session.snapshot()
+        };
+        if let Some(publication) = publication {
+            publication.publish(snapshot);
+        }
     }
 }
 
-fn pause_meter_session(meter_session: Option<&Arc<Mutex<MeterSession>>>) {
+fn pause_meter_session(
+    meter_session: Option<&Arc<Mutex<MeterSession>>>,
+    publication: Option<&Arc<MeterSessionPublication>>,
+) {
     if let Some(session) = meter_session {
-        crate::sync_recovery::lock_recover(session, "MeterSession pause").pause();
+        let snapshot = {
+            let mut session = crate::sync_recovery::lock_recover(session, "MeterSession pause");
+            session.pause();
+            session.snapshot()
+        };
+        if let Some(publication) = publication {
+            publication.publish(snapshot);
+        }
     }
 }
 
@@ -1891,7 +1920,12 @@ fn drain_ring_into_session(
         }
         let chunk_native_frames = (ctx.chunk_f64.len() / ctx.n_channels) as u64;
         if ctx.meter_active {
-            feed_meter_session(ctx.meter_session, ctx.chunk_f64, plan.meter_clock_start(0));
+            feed_meter_session(
+                ctx.meter_session,
+                ctx.meter_session_publication,
+                ctx.chunk_f64,
+                plan.meter_clock_start(0),
+            );
         }
         *ctx.native_frames_total = (*ctx.native_frames_total).saturating_add(chunk_native_frames);
         let native_frames_after = *ctx.native_frames_total;
@@ -2796,6 +2830,7 @@ pub mod tests {
                 summary_engine: &mut summary_engine,
                 session_summary: &summary,
                 meter_session: None,
+                meter_session_publication: None,
                 meter_active: false,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
@@ -3255,6 +3290,7 @@ mod b132_drain_tests {
                 summary_engine: &mut eng_on,
                 session_summary: &ss,
                 meter_session: Some(&meter_session),
+                meter_session_publication: None,
                 meter_active: true,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
@@ -3331,6 +3367,7 @@ mod b132_drain_tests {
                 summary_engine: &mut eng,
                 session_summary: &ss,
                 meter_session: None,
+                meter_session_publication: None,
                 meter_active: false,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
@@ -3411,6 +3448,7 @@ mod b132_drain_tests {
                 summary_engine: &mut summary_engine,
                 session_summary: &session_summary,
                 meter_session: None,
+                meter_session_publication: None,
                 meter_active: false,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,

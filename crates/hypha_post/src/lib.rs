@@ -669,6 +669,7 @@ impl Plugin for HyphaPost {
             N_CHANNELS,
             Arc::clone(&self.measure_result),
             None,
+            None,
             Arc::clone(&self.watch_playback_pass_id),
             Arc::clone(&self.watch_playback_pass_cutover_samples),
             Arc::clone(&self.watch_ring_cursor_epoch),
@@ -961,6 +962,7 @@ impl Plugin for HyphaPost {
             ring_capacity: capacity,
             measure_result: Arc::clone(&self.measure_result),
             meter_session: None,
+            meter_session_publication: None,
             watch_playback_pass_id: Arc::clone(&self.watch_playback_pass_id),
             watch_playback_pass_cutover_samples: Arc::clone(
                 &self.watch_playback_pass_cutover_samples,
