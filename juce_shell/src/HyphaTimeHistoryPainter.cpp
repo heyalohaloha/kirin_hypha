@@ -181,6 +181,7 @@ void paintMetric (juce::Graphics& g,
                   bool delta)
 {
     juce::Path mean;
+    juce::Path ranges;
     bool open = false;
     uint64_t previousGeneration = 0u;
     uint64_t previousRun = 0u;
@@ -196,10 +197,10 @@ void paintMetric (juce::Graphics& g,
         if (entry.observation_count > 1u
             && std::isfinite (range.min) && std::isfinite (range.max))
         {
-            g.setColour (visual.colour.withAlpha (0.16f));
-            g.drawVerticalLine (juce::roundToInt (x),
-                                yFor (plot, visual.metric, range.max, delta),
-                                yFor (plot, visual.metric, range.min, delta));
+            const auto top = yFor (plot, visual.metric, range.max, delta);
+            const auto bottom = yFor (plot, visual.metric, range.min, delta);
+            if (top < bottom)
+                ranges.addRectangle ((float) juce::roundToInt (x), top, 1.0f, bottom - top);
         }
         if (! std::isfinite (range.mean))
         {
@@ -220,6 +221,10 @@ void paintMetric (juce::Graphics& g,
         lastY = y;
         haveLast = true;
     }
+    // One retained path preserves every exact min/max column while avoiding dozens of separate
+    // Direct2D brush/transform submissions per metric on Windows.
+    g.setColour (visual.colour.withAlpha (0.16f));
+    g.fillPath (ranges);
     g.setColour (visual.colour.withAlpha (0.14f));
     g.strokePath (mean, juce::PathStrokeType (visual.glowWidth,
                                                juce::PathStrokeType::curved,
