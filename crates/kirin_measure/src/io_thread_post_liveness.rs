@@ -6,7 +6,9 @@ use crate::record::RecordStateMachine;
 use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS};
 use crate::storage::StoragePaths;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
@@ -269,6 +271,16 @@ pub(super) fn resolve_closed_drop_target(
     Some((session_id.to_string(), pre_instance_id.to_string()))
 }
 
+/// Build the POST GUI label from the authoritative PRE name or short instance identity.
+pub fn format_pair_label(paired_pre_name: &str, target_id: &str) -> String {
+    if !paired_pre_name.is_empty() {
+        format!("pair: {}", paired_pre_name)
+    } else {
+        let short: String = target_id.chars().take(8).collect();
+        format!("pair: {}", short)
+    }
+}
+
 #[cfg(test)]
 mod closed_drop_target_tests {
     use super::*;
@@ -345,22 +357,5 @@ mod closed_drop_target_tests {
             ),
             Some(("session-memory".to_string(), "pre-memory".to_string()))
         );
-    }
-}
-
-/// B-023 段階 4: pair_label 表示文字列を組み立てる（POST GUI / PRE Name 反映）。
-///
-/// 単一情報源（`kirin_measure::format_pair_label` 経由で hypha_post から再利用）。
-/// drift 防止のため Keep 時 / poll 時 / Stop 時 の全パスから本関数を経由して
-/// 同一フォーマットを生成する。
-///
-/// - `paired_pre_name` 非空 → `pair: <name>`
-/// - `paired_pre_name` 空   → `pair: <target_id 先頭 8 文字>`（PRE_ プレフィックス無し）
-pub fn format_pair_label(paired_pre_name: &str, target_id: &str) -> String {
-    if !paired_pre_name.is_empty() {
-        format!("pair: {}", paired_pre_name)
-    } else {
-        let short: String = target_id.chars().take(8).collect();
-        format!("pair: {}", short)
     }
 }

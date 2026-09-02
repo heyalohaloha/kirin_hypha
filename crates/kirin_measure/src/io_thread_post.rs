@@ -14,17 +14,23 @@
 //!   即座に不可視になる。起動時の履歴sweepは行わない。
 //! - Record 中に終了した場合、保留中の writer は status=closed で flush してから閉じる
 
+#[cfg(test)]
 use std::fs;
+#[cfg(test)]
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant, SystemTime};
+#[cfg(test)]
+use std::time::SystemTime;
+use std::time::{Duration, Instant};
 
 use crate::all_keep_signal::{self, ALL_KEEP_BROADCAST_STALE_SECS};
 use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::cleanup::exit_record_preserve_pair;
-use crate::delta::{DeltaMode, DeltaResult, DeltaSnapshot};
+#[cfg(test)]
+use crate::delta::DeltaSnapshot;
+use crate::delta::{DeltaMode, DeltaResult};
 use crate::engine::SessionSummary;
 use crate::pairing_scope::{
     read_pre_at, select_target_pre_for_arm_for_post_project_in_session, LatchedPre,
@@ -39,11 +45,14 @@ use crate::pre_discovery::PostDiscoveryState;
 #[cfg(test)]
 use crate::pre_discovery::DISCOVERY_STALE_SECS;
 use crate::record::RecordStateMachine;
-use crate::record_signal::{self, SignalStatus, SIGNALS_SUBDIR};
+use crate::record_signal;
+#[cfg(test)]
+use crate::record_signal::{SignalStatus, SIGNALS_SUBDIR};
+#[cfg(test)]
+use crate::record_writer::parse_iso8601_to_epoch_ms;
 use crate::record_writer::{
-    apply_record_take_snapshot, parse_iso8601_to_epoch_ms,
-    run_record_tick_with_pair_names_require_session_and_marks, take_session_summary,
-    writer_close_with_summary_and_marks, RecordingCtx,
+    apply_record_take_snapshot, run_record_tick_with_pair_names_require_session_and_marks,
+    take_session_summary, writer_close_with_summary_and_marks, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTakeTracker, RecordTraceQueue, SignalState};
@@ -210,12 +219,6 @@ pub fn spawn_io_thread_post(
     paired_pre_target: Arc<Mutex<Option<String>>>,
     shutdown: Arc<AtomicBool>,
     pair_label: Arc<Mutex<String>>,
-    // B-027 段階 3-B α-7-1 / Step 6: 末尾 2 引数 (daw_session_id / pair_pre_name) 追加。
-    // Step 11 で license 引数撤去 (closure 経由案 / Q-11-C 案 (i)) + trigger_pair_resolution
-    // 引数追加 (closure 経由 / Q-11-D 案 (a))。引数 count は Step 6 以降 14 で不変。
-    // §4-5 Step 1: `project_hash` / `daw_session_id` を `Arc<RwLock<String>>` 化
-    // (B-022 段階 1 instance_id 同位相 / lib.rs:325-328 コメント参照)。editor() と
-    // initialize() の snapshot timing 差で divergence していた構造異常を是正。
     daw_session_id: Arc<RwLock<String>>,
     pair_pre_name: Arc<RwLock<String>>,
     trigger_pair_resolution: TriggerPairResolutionFn,
@@ -227,9 +230,6 @@ pub fn spawn_io_thread_post(
     // B-245 以降、writer flush failure は Record を止めない。
     // 現在は idle timeout など、Record を正当に閉じた経路の説明だけを書き込む。
     record_error_message: Arc<RwLock<Option<String>>>,
-    // W-281 / G-115-249: pair_claimed_at (Unix epoch sec) Arc 共有 (HyphaPostParams /
-    // editor / IO Thread 全 thread で同実体)。chunk 永続化済の値を IO Thread が
-    // per-tick snapshot して serialize_post_json{,_minimal} に渡す。
     pair_claimed_at: Arc<RwLock<f64>>,
     // W-281 / G-115-249 / D-1: pair release toast 通知 channel (IO Thread → GUI)。
     // None = 通常 / Some(msg) = GUI 側 update closure 入口で take() → Toast 化。

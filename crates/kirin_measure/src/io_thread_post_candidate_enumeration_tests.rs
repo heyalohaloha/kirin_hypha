@@ -115,9 +115,6 @@ fn write_post_json_with_daw(
     post_file
 }
 
-/// scan_post_candidates_in: 通常 case (Active 1 件) → instance_id / project_uuid /
-/// pair_pre_name (空文字 → None / 非空 → Some) / path が正しく構築される。
-
 /// enumerate_active_post_pair_candidates: 多 project_uuid dir flatten + 順序。
 #[test]
 fn enumerate_flattens_multiple_projects() {
