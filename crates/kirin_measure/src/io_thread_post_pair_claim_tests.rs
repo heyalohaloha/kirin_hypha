@@ -33,3 +33,57 @@ fn v2_claim_stays_owned_only_for_the_exact_engine_owner() {
         1.0,
     ));
 }
+
+#[test]
+fn claim_reuse_requires_every_binding_dimension_to_match() {
+    let owned = claim("pair-owner-a");
+    let mismatches = [
+        (None, "project", "post-1", "pair-owner-a", 1.0),
+        (Some("pre-2"), "project", "post-1", "pair-owner-a", 1.0),
+        (
+            Some("pre-1"),
+            "other-project",
+            "post-1",
+            "pair-owner-a",
+            1.0,
+        ),
+        (Some("pre-1"), "project", "post-2", "pair-owner-a", 1.0),
+        (Some("pre-1"), "project", "post-1", "pair-owner-b", 1.0),
+        (
+            Some("pre-1"),
+            "project",
+            "post-1",
+            "pair-owner-a",
+            1.000_000_000_000_000_2,
+        ),
+    ];
+
+    for (pre, project, post, owner, claimed_at) in mismatches {
+        assert!(!pair_claim_matches_desired_binding(
+            &owned, pre, project, post, owner, claimed_at,
+        ));
+    }
+}
+
+#[test]
+fn claim_timestamp_comparison_is_bit_exact() {
+    let mut owned = claim("pair-owner-a");
+    owned.pair_claimed_at_bits = (-0.0f64).to_bits();
+
+    assert!(pair_claim_matches_desired_binding(
+        &owned,
+        Some("pre-1"),
+        "project",
+        "post-1",
+        "pair-owner-a",
+        -0.0,
+    ));
+    assert!(!pair_claim_matches_desired_binding(
+        &owned,
+        Some("pre-1"),
+        "project",
+        "post-1",
+        "pair-owner-a",
+        0.0,
+    ));
+}
