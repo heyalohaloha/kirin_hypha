@@ -106,6 +106,10 @@ use pair_claim::service_pair_claim;
 mod analysis;
 use analysis::service_post_analysis_endpoints;
 
+#[path = "io_thread_post_reservation.rs"]
+mod reservation;
+use reservation::ReservationLeaseRefresh;
+
 #[path = "io_thread_post_broadcast.rs"]
 mod broadcast;
 use broadcast::poll_post_broadcasts;
@@ -357,7 +361,7 @@ pub fn spawn_io_thread_post(
         let mut next_all_keep_poll = Instant::now();
         // B-024 Group A / Gap-2: PRE 死活監視 sub-tick の next-fire 時刻。
         let mut next_pre_liveness_poll = Instant::now();
-        let mut next_reservation_lease_refresh = Instant::now();
+        let mut reservation_lease_refresh = ReservationLeaseRefresh::new(Instant::now());
         let mut next_closed_drop_poll = Instant::now();
         let mut completed_closed_drop_session: Option<String> = None;
         let mut discovery = PostDiscoveryState::new();
@@ -391,30 +395,15 @@ pub fn spawn_io_thread_post(
             let daw_session_id_owned = read_daw_session_id_arc(&daw_session_id_arc);
             let daw_session_id_ref = daw_session_id_owned.as_str();
 
-            // Reservation liveness is one exact inode, refreshed by its POST owner. This replaces
-            // startup/history sweeps and lets a later explicit Keep reclaim a crashed owner after
-            // TTL without enumerating plugin_data. Failure is non-authoritative and never stops an
-            // active Record.
-            if record_sm.is_recording() && Instant::now() >= next_reservation_lease_refresh {
-                if let (Some(pre_instance_id), Ok(paths)) = (
-                    paired_pre_target
-                        .lock()
-                        .ok()
-                        .and_then(|guard| guard.clone()),
-                    StoragePaths::default_platform(),
-                ) {
-                    let _ = crate::reservation::refresh_pairing(
-                        &paths.plugin_data_dir(),
-                        project_hash_ref,
-                        &pre_instance_id,
-                        instance_id_ref,
-                    );
-                }
-                next_reservation_lease_refresh = Instant::now()
-                    + Duration::from_secs(crate::reservation::RESERVATION_LEASE_REFRESH_SECS);
-            } else if !record_sm.is_recording() {
-                next_reservation_lease_refresh = Instant::now();
-            }
+            // Reservation liveness is one exact inode, refreshed by its POST owner. Failure is
+            // non-authoritative and never stops an active Record.
+            reservation_lease_refresh.service(
+                Instant::now(),
+                record_sm.is_recording(),
+                &paired_pre_target,
+                project_hash_ref,
+                instance_id_ref,
+            );
             // B-128 (G-115-370): within-base wall。POST post.json は inline writer ゆえ builder 関数を
             // 通らない。spawn 時 normalize_observation_cell に加え、ここでも guard して PRE(io_dir 毎回
             // guard)との DiD parity を取る（cell が spawn 後に path-unsafe 化しても base 内に留める）。
