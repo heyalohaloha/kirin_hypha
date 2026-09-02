@@ -108,6 +108,10 @@ use pair_claim::service_pair_claim;
 mod shutdown;
 use shutdown::shutdown_post_io;
 
+#[path = "io_thread_post_self_check.rs"]
+mod self_check;
+use self_check::PairSelfCheckState;
+
 #[path = "io_thread_post_tick.rs"]
 mod tick;
 #[cfg(test)]
@@ -125,10 +129,9 @@ mod policy;
 use policy::{
     drop_commit_matches_observed_capture, generation_stop_authorizes_post, idle_autostop_due,
     keep_broadcast_blocked_by_stop, record_idle_timeout, remember_latest_started_at,
-    SelfCheckReleaseGate,
 };
 #[cfg(test)]
-use policy::{parse_idle_timeout, SELF_CHECK_RELEASE_CONFIRMATIONS};
+use policy::{parse_idle_timeout, SelfCheckReleaseGate, SELF_CHECK_RELEASE_CONFIRMATIONS};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
@@ -332,8 +335,7 @@ pub fn spawn_io_thread_post(
         let pair_release_notice_for_thread = pair_release_notice;
         // W-281 / C-3: self check 周期 (1 sec interval / Daisuke 確定 判断 3)。
         // 毎 tick 100ms はコスト過大のため tick state 局所変数で last 時刻を保持。
-        let mut last_self_check_at: Instant = Instant::now() - Duration::from_secs(2);
-        let mut self_check_release_gate = SelfCheckReleaseGate::default();
+        let mut pair_self_check = PairSelfCheckState::new(Instant::now());
 
         let mut recording: Option<RecordingCtx> = None;
         let mut last_preset_available: Option<bool> = None;
@@ -448,62 +450,24 @@ pub fn spawn_io_thread_post(
             // SignalState::Active は無音 gap で Inactive になり得るため、transport.playing も
             // self-check release の gate に含める。名前で結ばれた pair は transport が
             // 動いている間は保持し、競合による選択解除は停止中のみ許容する。
-            let tick_now = Instant::now();
-            let transport_playing = is_playing.load(Ordering::Relaxed);
-            let self_check_allowed = !record_sm.is_recording()
-                && !transport_playing
-                && load_signal_state(&signal_state) != SignalState::Active;
-            if paired_pre_instance_id_snapshot.is_none() || !self_check_allowed {
-                self_check_release_gate.reset();
-            } else if tick_now.duration_since(last_self_check_at) >= Duration::from_secs(1) {
-                last_self_check_at = tick_now;
-                let exact_pre = paired_pre_instance_id_snapshot
-                    .as_deref()
-                    .expect("checked exact PRE above");
-                let conflict = crate::pair_claim_index::live_claim_owned_by_other(
-                    &kirin_root,
-                    exact_pre,
-                    project_hash_ref,
-                    instance_id_ref,
-                    pair_owner.owner_id(),
-                    pair_claimed_at_snapshot,
-                );
-                if !conflict {
-                    self_check_release_gate.reset();
-                } else if self_check_release_gate
-                    .observe_conflict(exact_pre, pair_claimed_at_snapshot)
-                {
-                    // 判定後のrename/re-Keepを古い判定で破壊しない。所有層のtransition lock内で
-                    // name+generationを再照合し、現世代だった場合だけ全bindingを解放する。
-                    let released = !record_sm.is_recording()
-                        && (release_pair_binding_if_current)(
-                            &pair_pre_name_snapshot,
-                            pair_binding_generation_snapshot,
-                        );
-                    if released {
-                        log::info!(
-                            "[POST self_check] reject pair: instance_id={} pair_pre_name={} paired_pre_instance_id={:?} (PRE owned by another POST)",
-                            instance_id_ref,
-                            pair_pre_name_snapshot,
-                            paired_pre_instance_id_snapshot
-                        );
-                        if let Ok(mut c) = pair_claimed_at_for_thread.write() {
-                            *c = 0.0;
-                        }
-                        if let Ok(mut n) = pair_release_notice_for_thread.write() {
-                            *n = Some("PRE already in use".to_string());
-                        }
-                        // W-282 / G-115-250 / A-1: Δ 表示完全リセット。
-                        // B-048 LKG (`last_active=Some(snap)`) を bypass し、解放された POST に
-                        // 古い Δ 値が `draw_delta_grid_frozen` で凍結保持されるのを防ぐ。
-                        *crate::sync_recovery::lock_recover(
-                            &delta_result,
-                            "POST self_check delta",
-                        ) = DeltaResult::default();
-                    }
-                    self_check_release_gate.reset();
-                }
-            }
+            pair_self_check.service(
+                Instant::now(),
+                &kirin_root,
+                &record_sm,
+                &is_playing,
+                &signal_state,
+                paired_pre_instance_id_snapshot.as_deref(),
+                &pair_pre_name_snapshot,
+                pair_binding_generation_snapshot,
+                project_hash_ref,
+                instance_id_ref,
+                pair_owner.owner_id(),
+                pair_claimed_at_snapshot,
+                &release_pair_binding_if_current,
+                &pair_claimed_at_for_thread,
+                &pair_release_notice_for_thread,
+                &delta_result,
+            );
 
             // C-4 直後 / 通常 tick: 解放後の最新値を再 snapshot して run_tick へ渡す
             // (1 tick 内に解放 → 書込まで完結 / 次 tick 待ちでの一過性矛盾を排除)。
@@ -1100,6 +1064,10 @@ mod b206_idle_autostop_tests;
 #[cfg(test)]
 #[path = "io_thread_post_self_check_tests.rs"]
 mod self_check_release_gate_tests;
+
+#[cfg(test)]
+#[path = "io_thread_post_self_check_service_tests.rs"]
+mod self_check_service_tests;
 
 #[cfg(test)]
 #[path = "io_thread_post_stop_keep_barrier_tests.rs"]
