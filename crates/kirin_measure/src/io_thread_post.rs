@@ -110,6 +110,10 @@ use analysis::service_post_analysis_endpoints;
 mod reservation;
 use reservation::ReservationLeaseRefresh;
 
+#[path = "io_thread_post_idle.rs"]
+mod idle;
+use idle::IdleRecordStop;
+
 #[path = "io_thread_post_broadcast.rs"]
 mod broadcast;
 use broadcast::poll_post_broadcasts;
@@ -135,11 +139,11 @@ use tick::run_tick;
 
 #[path = "io_thread_post_policy.rs"]
 mod policy;
-use policy::{drop_commit_matches_observed_capture, idle_autostop_due, record_idle_timeout};
+use policy::{drop_commit_matches_observed_capture, record_idle_timeout};
 #[cfg(test)]
 use policy::{
-    keep_broadcast_blocked_by_stop, parse_idle_timeout, remember_latest_started_at,
-    SelfCheckReleaseGate, SELF_CHECK_RELEASE_CONFIRMATIONS,
+    idle_autostop_due, keep_broadcast_blocked_by_stop, parse_idle_timeout,
+    remember_latest_started_at, SelfCheckReleaseGate, SELF_CHECK_RELEASE_CONFIRMATIONS,
 };
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
@@ -370,12 +374,12 @@ pub fn spawn_io_thread_post(
         let mut next_pair_claim_publish = Instant::now();
         // B-243: Record idle auto-stop は「10分以上無音」の正当停止理由。Active 信号 /
         // 非Record で基点更新し、Record 中に連続無Active がしきい値を超えたら graceful 停止。
-        let mut idle_anchor = Instant::now();
         let idle_timeout = record_idle_timeout();
         match idle_timeout {
             Some(timeout) => log::info!("[IOThread POST] idle auto-stop timeout = {:?}", timeout),
             None => log::info!("[IOThread POST] idle auto-stop disabled"),
         }
+        let mut idle_record_stop = IdleRecordStop::new(Instant::now(), idle_timeout);
 
         loop {
             if shutdown.load(Ordering::Relaxed) {
@@ -680,67 +684,16 @@ pub fn spawn_io_thread_post(
                 next_closed_drop_poll = Instant::now() + Duration::from_secs(1);
             }
 
-            // ── B-243: Record idle auto-stop（10分以上無音）────────────────────────
-            // KEEP は POST 側の操作なので、本機構は POST 主導。ただし通常運用では
-            // Stop/All Stop と、この連続無Active timeout だけを Record 停止権限にする。
-            // - 非Record: 基点を更新（次 Record で 0 から計時 / 過去の idle を持ち越さない）。
-            // - Active: 基点リセット（録音中は決して発火しない）。
-            // - 非Active 連続でしきい値超過: release reservation → mark_released → Record終了。
-            //   writer は次 tick の run_record_tick (false,true) で graceful close（seal 待ち +
-            //   session 集計注入 + trace drain）＝ degraded ではなく正常テイクとして保存。
-            // 非Record または Active 信号あり → 基点リセット（次 Record で 0 から計時 /
-            // 録音中は決して発火しない）。それ以外（Record 中の連続無Active）でしきい値超過 → 停止。
-            if !record_sm.is_recording() || load_signal_state(&signal_state) == SignalState::Active
-            {
-                idle_anchor = Instant::now();
-            } else if idle_autostop_due(true, false, idle_anchor.elapsed(), idle_timeout) {
-                let idle_timeout =
-                    idle_timeout.expect("idle_autostop_due is false when timeout is None");
-                log::info!(
-                    "[IOThread POST] idle auto-stop: no Active signal for {:?} (post_iid={})",
-                    idle_timeout,
-                    instance_id_ref
-                );
-                if let Ok(paths) = StoragePaths::default_platform() {
-                    let base = paths.plugin_data_dir();
-                    // reservation 解放（解放対象 PRE iid を読むため）。
-                    release_record_reservation(
-                        &base,
-                        project_hash_ref,
-                        instance_id_ref,
-                        &paired_pre_target,
-                        "idle_timeout",
-                    );
-                    // PRE は reason 付き released marker だけを Stop として扱う。
-                    let _ = record_signal::mark_released_with_reason(
-                        &base,
-                        project_hash_ref,
-                        instance_id_ref,
-                        record_signal::ReleaseReason::IdleTimeout,
-                    );
-                }
-                // B-207 #3: writer が存在した（=テイクが録れた）ときだけ "Take saved." を付す。
-                // writer_start 失敗（record 開始時ディスクエラー）時は recording==None なので、
-                // 実体のないテイクを「保存済み」と誤通知しない。
-                let take_existed = recording.is_some();
-                exit_record_preserve_pair(&record_sm);
-                if let Ok(mut g) = record_error_message.write() {
-                    // B-207 #3: しきい値を文言へ反映（env override 時も正確 / 既定 600s = "10 min"）。
-                    // 分割り切れなければ秒表記（テスト用の短い override でも 0 min と出さない）。
-                    let secs = idle_timeout.as_secs();
-                    let dur = if secs.is_multiple_of(60) {
-                        format!("{} min", secs / 60)
-                    } else {
-                        format!("{secs} sec")
-                    };
-                    *g = Some(if take_existed {
-                        format!("Auto-stopped after {dur} idle. Take saved.")
-                    } else {
-                        format!("Auto-stopped after {dur} idle.")
-                    });
-                }
-                idle_anchor = Instant::now();
-            }
+            idle_record_stop.service(
+                Instant::now(),
+                &record_sm,
+                &signal_state,
+                recording.is_some(),
+                &record_error_message,
+                &paired_pre_target,
+                project_hash_ref,
+                instance_id_ref,
+            );
 
             if Instant::now() >= next_preset_poll {
                 poll_preset_availability(
