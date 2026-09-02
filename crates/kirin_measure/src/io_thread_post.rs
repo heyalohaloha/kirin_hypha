@@ -1684,6 +1684,9 @@ mod b222_all_stop_keep_barrier_tests;
 #[path = "io_thread_post_compute_delta_tests.rs"]
 mod compute_delta_selection_tests;
 #[cfg(test)]
+#[path = "io_thread_post_latch_state_tests.rs"]
+mod latched_delta_state_tests;
+#[cfg(test)]
 #[path = "io_thread_post_preset_tests.rs"]
 mod preset_poll_tests;
 #[cfg(test)]
@@ -1749,48 +1752,6 @@ mod latched_delta_tests {
             crest: Some(12.0),
             ..Default::default()
         }
-    }
-
-    /// Paired PRE inactive means POST standalone display while the exact binding remains.
-    #[test]
-    fn latch_inactive_switches_to_post_absolute_without_releasing_pair() {
-        let root = isolated_dir("latch_idle");
-        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
-        let latched = std::sync::Mutex::new(None);
-        let (d0, sd0, _) = compute_latched_display(
-            &root,
-            "snare",
-            &latch_post(),
-            Some("snare"),
-            false,
-            &latched,
-        )
-        .unwrap();
-        assert_eq!(d0.mode, DeltaMode::Active, "active で初回 Δ");
-        assert!(!sd0);
-        assert!(latched.lock().unwrap().is_some(), "active で初回ラッチ成立");
-        // PRE が idle（fresh のまま signal_state=inactive）。
-        write_pre_latch(&root, "puid-1", "iid-A", "snare", "inactive", &latch_now());
-        let (d1, sd1, pre_state) = compute_latched_display(
-            &root,
-            "snare",
-            &latch_post(),
-            Some("snare"),
-            false,
-            &latched,
-        )
-        .unwrap();
-        assert_eq!(d1.mode, DeltaMode::PreInactive);
-        assert_eq!(pre_state, Some(SignalState::Inactive));
-        assert!(
-            sd1,
-            "PRE inactive must clear frozen delta for POST absolute display"
-        );
-        assert!(
-            d1.lufs.is_none() && d1.last_active.is_none(),
-            "POST absolute mode must carry no delta or frozen delta"
-        );
-        assert!(latched.lock().unwrap().is_some(), "idle でラッチは外れない");
     }
 
     /// T2: ラッチ後に同名 2 台目 PRE が現れてもラッチ先 instance_id 不変（再選定しない）。
@@ -2098,105 +2059,6 @@ mod latched_delta_tests {
         assert_eq!(
             latched.lock().unwrap().as_ref().unwrap().instance_id,
             "iid-A"
-        );
-    }
-
-    /// T5c: PRE が明示 Bypassed のときは、pair は維持したまま POST 単独表示へ戻す。
-    #[test]
-    fn latch_pre_bypassed_keeps_pair_but_marks_bypassed() {
-        let root = isolated_dir("latch_pre_bypassed");
-        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
-        let latched = std::sync::Mutex::new(None);
-        let _ = compute_latched_display(
-            &root,
-            "snare",
-            &latch_post(),
-            Some("snare"),
-            false,
-            &latched,
-        )
-        .unwrap();
-
-        write_pre_latch(&root, "puid-1", "iid-A", "snare", "bypassed", &latch_now());
-        let (d, sd, pre_state) = compute_latched_display(
-            &root,
-            "snare",
-            &latch_post(),
-            Some("snare"),
-            false,
-            &latched,
-        )
-        .unwrap();
-        assert_eq!(d.mode, DeltaMode::Bypassed);
-        assert!(sd);
-        assert_eq!(pre_state, Some(SignalState::Bypassed));
-        assert!(
-            latched.lock().unwrap().is_some(),
-            "PRE bypass must not release the explicit pair"
-        );
-    }
-
-    /// T6: 停止中(inactive)の PRE を Arm でラッチでき、再生再開(active)で live Δ が出る。
-    /// Step2「stopped Inactive PRE を Keep でき、再生後 Delta が出る」(5c) のシナリオ。
-    /// realtime end-to-end の `b140_inactive_keep_latches_pre_for_delta_after_audio`
-    /// (parity.rs, #[ignore], 遅い) が既に同経路を被覆しているが、本テストは
-    /// `compute_latched_display` 直叩きで決定的・高速な等価カバレッジを通常ゲートに足す。
-    #[test]
-    fn latch_inactive_then_active_yields_live_delta() {
-        let root = isolated_dir("latch_inactive_to_active");
-        // 停止中: PRE は fresh だが signal_state=inactive。
-        write_pre_latch(&root, "puid-1", "iid-A", "snare", "inactive", &latch_now());
-        let latched = std::sync::Mutex::new(None);
-        let (d0, sd0, _) = compute_latched_display(
-            &root,
-            "snare",
-            &latch_post(),
-            Some("snare"),
-            false,
-            &latched,
-        )
-        .unwrap();
-        // Arm は inactive-fresh をラッチする（Keep 可）。差分の代わりにPOST単独表示へ移り、
-        // pair binding は同じ instance の復帰に備えて維持する。
-        assert!(
-            latched.lock().unwrap().is_some(),
-            "inactive-fresh でも Arm でラッチ成立（Keep 可）"
-        );
-        assert_eq!(
-            d0.mode,
-            DeltaMode::PreInactive,
-            "inactive PRE uses POST standalone mode"
-        );
-        assert!(
-            sd0,
-            "PRE inactive clears frozen delta while retaining binding"
-        );
-        assert!(d0.lufs.is_none(), "停止中は Δ 非表示");
-
-        // 再生再開: 同 instance が active+fresh に遷移。
-        write_pre_latch(&root, "puid-1", "iid-A", "snare", "active", &latch_now());
-        let (d1, sd1, _) = compute_latched_display(
-            &root,
-            "snare",
-            &latch_post(),
-            Some("snare"),
-            false,
-            &latched,
-        )
-        .unwrap();
-        assert_eq!(d1.mode, DeltaMode::Active, "再生後は live Δ（Active）");
-        assert!(
-            !sd1,
-            "Active は store_directly でない（last_active 保存経路）"
-        );
-        assert_eq!(
-            d1.lufs,
-            Some(4.0),
-            "Δlufs = post(-10.0) − pre(-14.0) = 4.0（ラッチ先 pre.json 直読）"
-        );
-        assert!(
-            latched.lock().unwrap().is_some(),
-            "active 遷移後もラッチ維持"
         );
     }
 
