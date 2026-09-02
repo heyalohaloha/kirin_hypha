@@ -315,11 +315,11 @@
     fn readme_exposes_the_post_spectrum_measurement_boundary() {
         let spectrum = README
             .split("\n### ")
-            .find(|section| section.starts_with("POST Analysis: Spectrum (on demand)\n"))
-            .expect("README POST Analysis Spectrum section");
+            .find(|section| section.starts_with("FREQ: Spectrum (on demand)\n"))
+            .expect("README FREQ Spectrum section");
         let spectrum = spectrum.split_whitespace().collect::<Vec<_>>().join(" ");
         for required_fact in [
-            "Analysis runs only while this page is open",
+            "Spectrum runs only while FREQ is open",
             "Δ (POST − PRE)",
             "±24 dB",
             "aperture length",
@@ -348,16 +348,12 @@
             .expect("README Watch mode section");
         let watch = watch.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
-            watch.contains("Spectrum")
-                && watch.contains("on demand")
-                && watch.contains("signed POST − PRE frequency difference")
-                && watch.contains("Perceptual Δ")
-                && watch.contains("LIVE")
-                && watch.contains(
-                    "POST-only six-second timeline of absolute LUFS-M, recent True Peak, and Sharpness"
-                )
-                && watch.contains("only the currently visible analyzer runs"),
-            "README Watch mode must connect its grid description to all three POST analysis views"
+            watch.contains("Top-level **FREQ** shows signed POST − PRE spectrum")
+                && watch.contains("Under **TIME**, ATTACK, SHARP, and LIVE")
+                && watch.contains("Only the visible optional analyzer runs")
+                && watch.contains("two POST instances may own slots")
+                && watch.contains("a third identifies the owners and waits"),
+            "README Watch mode must connect its grid description to the current FREQ/TIME analysis routes"
         );
     }
 
@@ -365,8 +361,8 @@
     fn readme_exposes_the_post_perceptual_delta_measurement_boundary() {
         let perceptual = README
             .split("\n### ")
-            .find(|section| section.starts_with("POST Analysis: Perceptual Δ (on demand)\n"))
-            .expect("README POST Analysis Perceptual Delta section");
+            .find(|section| section.starts_with("TIME / SHARP: Perceptual Δ (on demand)\n"))
+            .expect("README TIME SHARP Perceptual Delta section");
         let perceptual = perceptual.split_whitespace().collect::<Vec<_>>().join(" ");
         for required_fact in [
             "signed Sharpness difference",
@@ -385,8 +381,8 @@
             "**LR** measures L and R independently",
             "`(L+R)/2`",
             "`(L−R)/2`",
-            "stops Sharpness before the FFT starts",
-            "neither changes audio nor rewrites Watch or Record results",
+            "Spectrum and Sharpness stop each other before starting",
+            "Neither changes audio nor rewrites Watch or Record results",
         ] {
             assert!(
                 perceptual.contains(required_fact),

@@ -226,6 +226,7 @@ cancel the observation. **MID** measures `(L+R)/2`; **SIDE** measures `(L−R)/2
 only. Changing channel mode starts new history. Returning to **TIME / HISTORY**, another
 non-analysis domain, or closing stops Sharpness and discards display history. Spectrum and
 Sharpness stop each other before starting without releasing the owned optional-analysis slot.
+Neither changes audio nor rewrites Watch or Record results.
 
 ### TIME / LIVE: absolute facts (on demand)
 
