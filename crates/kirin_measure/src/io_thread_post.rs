@@ -88,6 +88,14 @@ use post_json::{
     serialize_post_json_with_daw_owner_and_pair_instance,
 };
 
+#[path = "io_thread_post_identity.rs"]
+mod identity;
+pub(crate) use identity::read_instance_id_arc;
+use identity::{
+    broadcast_scope_or_same_project_host_matches, pair_claim_matches_desired_binding,
+    read_daw_session_id_arc, read_project_hash_arc, snapshot_pair_pre_name,
+};
+
 #[path = "io_thread_post_policy.rs"]
 mod policy;
 use policy::{
@@ -1234,95 +1242,9 @@ pub fn spawn_io_thread_post(
     })
 }
 
-/// `Arc<RwLock<String>>` から現在値を lazy-read（panic-safe）。
-///
-/// B-022 段階 1: chunk-restore 後の最新 instance_id を毎 tick / 各 use site で
-/// 取得するための kirin_measure 内部ヘルパ。`hypha_post::read_instance_id_arc`
-/// と同等の実装だが、kirin_measure crate からは hypha_* を参照できないため
-/// 重複定義する。public は不要 (本ファイル + io_thread_pre.rs から使うのみ)。
-pub(crate) fn read_instance_id_arc(arc: &Arc<RwLock<String>>) -> String {
-    arc.read().ok().map(|g| g.clone()).unwrap_or_default()
-}
-
-/// `Arc<RwLock<String>>` から `project_hash` を lazy-read（panic-safe）。
-///
-/// §4-5 Step 1: `read_instance_id_arc` と同位相。chunk-restore + cell update 後の
-/// 最新 `project_hash` を毎 tick / 各 use site で取得し、editor() snapshot と
-/// initialize() snapshot の divergence (§4-4 R-9 主因 a) を構造的に解消する。
-pub(crate) fn read_project_hash_arc(arc: &Arc<RwLock<String>>) -> String {
-    arc.read().ok().map(|g| g.clone()).unwrap_or_default()
-}
-
-/// `Arc<RwLock<String>>` から `daw_session_id` を lazy-read（panic-safe）。
-///
-/// FFI/JUCE path ではこの Arc が engine 単位の session identity を保持する。
-/// `crate::daw_session_id()` の process scope cell をここで読み直すと、Studio One の
-/// 複数 Song/Project 同時オープン時に後発 document の identity へ吸われ、別棚の
-/// PRE/POST と誤って同居する。IO Thread の各 use site は渡された Arc を正とする。
-pub(crate) fn read_daw_session_id_arc(arc: &Arc<RwLock<String>>) -> String {
-    arc.read().ok().map(|g| g.clone()).unwrap_or_default()
-}
-
-/// `Arc<RwLock<String>>` から `pair_pre_name` を毎 tick snapshot で取得する
-/// (B-027 段階 3-B α-7-1 / Step 6)。
-///
-/// `params.pair_pre_name` (`hypha_post::HyphaPostParams::pair_pre_name` /
-/// `Arc<RwLock<String>>` / `#[persist]`) は GUI から書込される値。POST IO Thread の
-/// 100ms tick で snapshot を取得し `serialize_post_json{,_minimal}` に渡すことで、
-/// Q-A7 採用案 A (post.json schema 拡張による cross-instance 公開機構) を成立させる。
-///
-/// # poison fallback
-/// `RwLock::read()` が `Err(PoisonError)` を返した場合は空文字 fallback。
-/// 旧 schema (本 stage 前 plugin) 互換 (`PostTmpJson::pair_pre_name` は
-/// `#[serde(default)]` で空文字 → `None` 同等) と一貫させ、IO Thread 経路を
-/// pair_pre_name 取得失敗で停止させない (R-28 機能的沈黙)。
-pub(crate) fn snapshot_pair_pre_name(arc: &Arc<RwLock<String>>) -> String {
-    arc.read().map(|g| g.clone()).unwrap_or_default()
-}
-
-fn pair_claim_matches_desired_binding(
-    claim: &crate::PairClaim,
-    pre_instance_id: Option<&str>,
-    project_hash: &str,
-    post_instance_id: &str,
-    pair_owner_id: &str,
-    pair_claimed_at: f64,
-) -> bool {
-    pre_instance_id == Some(claim.pre_instance_id.as_str())
-        && claim.project_hash == project_hash
-        && claim.post_instance_id == post_instance_id
-        && claim.pair_owner_id == pair_owner_id
-        && claim.pair_claimed_at_bits == pair_claimed_at.to_bits()
-}
-
 #[cfg(test)]
 #[path = "io_thread_post_pair_claim_tests.rs"]
 mod pair_claim_binding_tests;
-
-fn same_project_host_broadcast_matches(
-    local_host_process_id: u32,
-    remote_host_process_id: u32,
-) -> bool {
-    local_host_process_id != 0
-        && remote_host_process_id != 0
-        && local_host_process_id == remote_host_process_id
-}
-
-fn broadcast_scope_or_same_project_host_matches(
-    local_daw_session_id: &str,
-    local_host_process_id: u32,
-    remote_daw_session_id: &str,
-    remote_host_process_id: u32,
-) -> bool {
-    // Callers scan one project shelf at a time. The same-host branch only bridges
-    // instance-scoped DAW IDs inside that already-selected shelf.
-    crate::broadcast_scope_ids_match(
-        local_daw_session_id,
-        local_host_process_id,
-        remote_daw_session_id,
-        remote_host_process_id,
-    ) || same_project_host_broadcast_matches(local_host_process_id, remote_host_process_id)
-}
 
 /// 1 ループの処理本体。
 ///
