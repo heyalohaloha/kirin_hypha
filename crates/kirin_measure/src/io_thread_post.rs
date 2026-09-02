@@ -57,7 +57,6 @@ mod record_ack;
 use record_ack::{
     current_preset_exists, poll_record_signal_ack_with_base, post_ack_generation_is_authorized,
 };
-use record_ack::{poll_preset_availability, poll_record_signal_ack};
 
 #[path = "io_thread_post_liveness.rs"]
 mod liveness;
@@ -66,7 +65,6 @@ pub use liveness::format_pair_label;
 use liveness::{
     find_pre_json_mtime, poll_ack_timeout_with_base, poll_pre_liveness, poll_pre_liveness_at,
 };
-use liveness::{poll_ack_timeout, poll_latched_pre_liveness};
 
 #[path = "io_thread_post_delta.rs"]
 mod delta_resolution;
@@ -120,8 +118,13 @@ use closed_drop::ClosedDropRecovery;
 mod writer;
 use writer::service_post_record_writer;
 
+#[path = "io_thread_post_polls.rs"]
+mod polls;
+use polls::PostControlPolls;
+
 #[path = "io_thread_post_broadcast.rs"]
 mod broadcast;
+#[cfg(test)]
 use broadcast::poll_post_broadcasts;
 
 #[path = "io_thread_post_shutdown.rs"]
@@ -161,29 +164,6 @@ const STALE_SECS: i64 = 5; // B-046: 2→5 (fs I/O backpressure 吸収 / G-115-2
 /// PRE ファイルが NoPre とみなされる最大経過時間（秒）
 /// B-059: `pairing_scope::select_target_pre` の freshness gate でも単一ソースとして参照。
 pub(crate) const NO_PRE_SECS: i64 = 10;
-
-/// producer-owned preset/current.json ポーリング間隔（固定 1 path / 1 秒）。
-const PRESET_POLL_INTERVAL: Duration = Duration::from_secs(1);
-
-/// record_signal.json ACK タイムアウト監視間隔（G-60-02: 1 秒）。
-const ACK_TIMEOUT_POLL_INTERVAL: Duration = Duration::from_secs(1);
-
-/// B-023 段階 4: ACK/start barrier polling 間隔。
-/// PRE 側 ack 後 `paired_pre_name` 取得と POST Record start barrier を同じ tick で扱う。
-/// 1 秒 throttle では `started_at` を過ぎた後に POST だけ遅れて Record へ入るため、IO tick と同じ
-/// 100ms cadence にする。
-const PAIR_LABEL_POLL_INTERVAL: Duration = LOOP_SLEEP;
-
-/// B-027 段階 3-B α-7-4-C / Step 10: all_keep_signal broadcast polling 間隔。
-/// Producer preparation is a user-triggered control handshake。既存IO tickと同じ100msで
-/// project-local `current.json` 1件だけを読み、履歴やoriginator数に比例する走査はしない。
-/// これによりAll Keepはbusy scanなしで全exact writerのreadyを確認してから成功を返せる。
-const ALL_KEEP_POLL_INTERVAL: Duration = LOOP_SLEEP;
-
-/// B-024 Group A / Gap-2: PRE 死活確認 sub-tick の間隔 (1 秒 / 既存 PRESET / ACK /
-/// PAIR_LABEL / ALL_KEEP と同位相)。`record_sm.is_recording()` 中のみ動作し disk I/O は
-/// 軽量 (`fs::metadata` 1 件 / project)。
-const PRE_LIVENESS_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// 60 秒以上 mtime 更新が無い (or pre.json 不在) 場合の診断しきい値。
 /// B-243 以降、stale/missing 自体は Stop 権限を持たず Record は維持する。
@@ -358,20 +338,7 @@ pub fn spawn_io_thread_post(
         let mut pair_self_check = PairSelfCheckState::new(Instant::now());
 
         let mut recording: Option<RecordingCtx> = None;
-        let mut last_preset_available: Option<bool> = None;
-        let mut next_preset_poll = Instant::now();
-        let mut next_ack_timeout_poll = Instant::now();
-        let mut next_pair_label_poll = Instant::now();
-        // All Keep/Stop are edge notifications, not renewable execution leases. Each current file
-        // has one owner and is replaced by that owner's next immutable generation, so retaining
-        // the last processed key per originator is naturally bounded by the live POST roster. A
-        // wall-clock TTL here would let an unchanged completed generation become a new edge after
-        // 30 seconds and is therefore forbidden.
-        let mut processed_broadcasts = crate::broadcast_edge::BroadcastEdgeMemory::default();
-        let mut processed_stop_broadcasts = crate::broadcast_edge::BroadcastEdgeMemory::default();
-        let mut next_all_keep_poll = Instant::now();
-        // B-024 Group A / Gap-2: PRE 死活監視 sub-tick の next-fire 時刻。
-        let mut next_pre_liveness_poll = Instant::now();
+        let mut control_polls = PostControlPolls::new(Instant::now());
         let mut reservation_lease_refresh = ReservationLeaseRefresh::new(Instant::now());
         let mut closed_drop_recovery = ClosedDropRecovery::new(Instant::now());
         let mut discovery = PostDiscoveryState::new();
@@ -606,68 +573,20 @@ pub fn spawn_io_thread_post(
                 instance_id_ref,
             );
 
-            if Instant::now() >= next_preset_poll {
-                poll_preset_availability(
-                    project_hash_ref,
-                    &preset_available,
-                    &mut last_preset_available,
-                );
-                next_preset_poll = Instant::now() + PRESET_POLL_INTERVAL;
-            }
-
-            if Instant::now() >= next_ack_timeout_poll {
-                poll_ack_timeout(
-                    project_hash_ref,
-                    instance_id_ref,
-                    &record_sm,
-                    &pair_label,
-                    &paired_pre_target,
-                );
-                next_ack_timeout_poll = Instant::now() + ACK_TIMEOUT_POLL_INTERVAL;
-            }
-
-            // B-023 段階 4: PRE 側 ack 後の paired_pre_name を読み出して pair_label
-            // を更新（1 秒 throttle / record_sm.is_recording() ガードで Stop 直後の
-            // 復活窓を構造的に防止）。
-            if Instant::now() >= next_pair_label_poll {
-                poll_record_signal_ack(
-                    project_hash_ref,
-                    instance_id_ref,
-                    sample_rate,
-                    &record_sm,
-                    &pair_label,
-                    &record_ingress,
-                );
-                next_pair_label_poll = Instant::now() + PAIR_LABEL_POLL_INTERVAL;
-            }
-
-            // B-024 Group A / Gap-2: PRE 死活確認 sub-tick (1 秒 throttle)。
-            // Record 中でも stem/offline export 後は PRE pre.json の mtime が止まるため、
-            // ここで Record を自動解除しない。Keep は利用者の Stop 操作まで保持する。
-            if Instant::now() >= next_pre_liveness_poll {
-                poll_latched_pre_liveness(instance_id_ref, &record_sm, &latched_pre);
-                next_pre_liveness_poll = Instant::now() + PRE_LIVENESS_POLL_INTERVAL;
-            }
-
-            if Instant::now() >= next_all_keep_poll {
-                if let Ok(paths) = StoragePaths::default_platform() {
-                    let base_dir = paths.plugin_data_dir();
-                    poll_post_broadcasts(
-                        &base_dir,
-                        project_hash_ref,
-                        instance_id_ref,
-                        &daw_session_id_arc,
-                        &record_sm,
-                        &mut processed_broadcasts,
-                        &mut processed_stop_broadcasts,
-                        &trigger_pair_resolution,
-                        &trigger_stop_resolution,
-                    );
-                } else {
-                    log::warn!("[all_keep] StoragePaths::default_platform() failed; skipping tick");
-                }
-                next_all_keep_poll = Instant::now() + ALL_KEEP_POLL_INTERVAL;
-            }
+            control_polls.service(
+                project_hash_ref,
+                instance_id_ref,
+                sample_rate,
+                &preset_available,
+                &record_sm,
+                &pair_label,
+                &paired_pre_target,
+                &record_ingress,
+                &latched_pre,
+                &daw_session_id_arc,
+                &trigger_pair_resolution,
+                &trigger_stop_resolution,
+            );
 
             thread::sleep(LOOP_SLEEP);
         }
