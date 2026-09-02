@@ -83,12 +83,15 @@ void verifyCaptureHistoryContract()
     KIRIN_CAPTURE_HISTORY_REQUIRE (summary.windowMaximumIndex == 5u);
     KIRIN_CAPTURE_HISTORY_REQUIRE (std::abs (summary.windowMaximumDbtp - -0.8) < 1.0e-12);
     KIRIN_CAPTURE_HISTORY_REQUIRE (std::abs (summary.secondsBeforeEnd - 0.1) < 1.0e-12);
-    KIRIN_CAPTURE_HISTORY_REQUIRE (
-        std::find (summary.eventIndices.begin(), summary.eventIndices.end(), 1u)
-        != summary.eventIndices.end());
-    KIRIN_CAPTURE_HISTORY_REQUIRE (
-        std::find (summary.eventIndices.begin(), summary.eventIndices.end(), 5u)
-        != summary.eventIndices.end());
+    KIRIN_CAPTURE_HISTORY_REQUIRE (summary.eventIndices.size() == 1u);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (summary.eventIndices.front() == 5u);
+    auto twoEmphasisExcursions = history;
+    twoEmphasisExcursions[1].true_peak.max = -0.5;
+    const auto emphasized = capture_history::analyseTruePeak (
+        twoEmphasisExcursions, 48'000.0);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (emphasized.eventIndices.size() == 2u);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (emphasized.eventIndices[0] == 1u);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (emphasized.eventIndices[1] == 5u);
 
     auto noPeakFacts = history;
     for (auto& entry : noPeakFacts)

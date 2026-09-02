@@ -71,8 +71,13 @@ namespace hypha
     // val_color: Some -> COL_NORMAL, None -> COL_MUTED.
     inline juce::Colour valColour (double v) { return std::isnan (v) ? COL_MUTED : COL_NORMAL; }
 
-    // tp_over: tp.is_some() && tp > -1.0 dBTP.
-    inline bool tpOver (double v) { return ! std::isnan (v) && v > -1.0; }
+    constexpr double truePeakEmphasisThresholdDbtp = -1.0;
+
+    // tp_over: tp.is_some() && tp > the shared visual emphasis threshold.
+    inline bool tpOver (double v)
+    {
+        return ! std::isnan (v) && v > truePeakEmphasisThresholdDbtp;
+    }
 
     // tp_color: > -1.0 -> COL_FLORA_BR ; Some -> COL_NORMAL ; None -> COL_MUTED.
     inline juce::Colour tpColour (double v)

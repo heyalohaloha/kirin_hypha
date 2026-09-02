@@ -36,8 +36,9 @@ struct TruePeakSummary
 // history poll enrich Capture without mixing a later audio callback into the frozen UI fact.
 void retainThrough (std::vector<KirinMeterHistoryEntry>&, std::uint64_t observedFrames);
 
-// Factual two-second/run maxima plus the exact maximum in the visible window. `true_peak.max` is
-// used so a short transient is retained rather than replaced with a bucket mean.
+// One maximum for each contiguous excursion above the shared TP emphasis threshold, plus the exact
+// maximum in the visible window. `true_peak.max` retains a short transient instead of replacing it
+// with a bucket mean; periodic local maxima are deliberately not promoted to visual events.
 TruePeakSummary analyseTruePeak (const std::vector<KirinMeterHistoryEntry>&,
                                  double sampleRate);
 

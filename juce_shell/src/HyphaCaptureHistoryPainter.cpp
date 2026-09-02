@@ -335,54 +335,33 @@ TruePeakSummary analyseTruePeak (const std::vector<KirinMeterHistoryEntry>& hist
     if (! result.available)
         return result;
 
-    if (std::isfinite (sampleRate) && sampleRate > 0.0)
+    std::optional<std::size_t> excursionMaximum;
+    const auto closeExcursion = [&]
     {
-        const auto bucketFrames = static_cast<std::uint64_t> (sampleRate * 2.0);
-        std::optional<std::size_t> selected;
-        std::uint64_t selectedBucket = 0;
-        for (std::size_t index = 0; index < history.size(); ++index)
-        {
-            const auto value = history[index].true_peak.max;
-            if (! std::isfinite (value))
-                continue;
-            const auto bucket = history[index].last_observed_frames
-                              / juce::jmax (std::uint64_t { 1 }, bucketFrames);
-            const bool newBucket = ! selected.has_value()
-                                || ! sameRun (history[*selected], history[index])
-                                || bucket != selectedBucket;
-            if (newBucket)
-            {
-                if (selected.has_value())
-                    result.eventIndices.push_back (*selected);
-                selected = index;
-                selectedBucket = bucket;
-            }
-            else if (value > history[*selected].true_peak.max)
-                selected = index;
-        }
-        if (selected.has_value())
-            result.eventIndices.push_back (*selected);
-    }
-    else
+        if (excursionMaximum.has_value())
+            result.eventIndices.push_back (*excursionMaximum);
+        excursionMaximum.reset();
+    };
+    for (std::size_t index = 0; index < history.size(); ++index)
     {
-        for (std::size_t index = 0; index < history.size(); ++index)
+        const auto value = history[index].true_peak.max;
+        if (! std::isfinite (value) || ! hypha::tpOver (value))
         {
-            const auto value = history[index].true_peak.max;
-            if (! std::isfinite (value))
-                continue;
-            const bool haveLeft = index > 0u && sameRun (history[index - 1u], history[index])
-                               && std::isfinite (history[index - 1u].true_peak.max);
-            const bool haveRight = index + 1u < history.size()
-                                && sameRun (history[index], history[index + 1u])
-                                && std::isfinite (history[index + 1u].true_peak.max);
-            const auto left = haveLeft ? history[index - 1u].true_peak.max : value;
-            const auto right = haveRight ? history[index + 1u].true_peak.max : value;
-            const bool localMaximum = (haveLeft || haveRight) && value >= left && value >= right
-                                   && ((! haveLeft || value > left) || (! haveRight || value > right));
-            if (localMaximum || index == result.windowMaximumIndex)
-                result.eventIndices.push_back (index);
+            closeExcursion();
+            continue;
         }
+        if (excursionMaximum.has_value()
+            && ! sameRun (history[*excursionMaximum], history[index]))
+            closeExcursion();
+        if (! excursionMaximum.has_value()
+            || value > history[*excursionMaximum].true_peak.max)
+            excursionMaximum = index;
     }
+    closeExcursion();
+    if (std::find (result.eventIndices.begin(), result.eventIndices.end(),
+                   result.windowMaximumIndex) == result.eventIndices.end())
+        result.eventIndices.push_back (result.windowMaximumIndex);
+    std::sort (result.eventIndices.begin(), result.eventIndices.end());
     result.secondsBeforeEnd = secondsBeforeEnd (
         history, result.windowMaximumIndex, sampleRate);
     return result;
