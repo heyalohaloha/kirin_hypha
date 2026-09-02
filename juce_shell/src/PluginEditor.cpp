@@ -1,5 +1,8 @@
 #include "PluginEditor.h"
 #include "HyphaDisplayContract.h"
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+ #include "HyphaAttackUiContract.h"
+#endif
 
 #include <cmath>
 #include <limits>
@@ -9,6 +12,7 @@ using hypha::COL_FLORA_BR;
 using hypha::COL_MUTED;
 using hypha::COL_NORMAL;
 using hypha::COL_SPECTRUM_DELTA;
+using hypha::COL_SPECTRUM_POST;
 
 namespace
 {
@@ -20,30 +24,6 @@ namespace
     {
         return { rect.x, rect.y, rect.width, rect.height };
     }
-
-   #if KIRIN_HYPHA_PRE_DISPLAY
-    juce::String fitLabelText (const juce::Label& label, const juce::String& text)
-    {
-        const auto available = static_cast<float> (juce::jmax (
-            0, label.getWidth() - label.getBorderSize().getLeftAndRight()));
-        const auto font = label.getFont();
-        if (font.getStringWidthFloat (text) <= available)
-            return text;
-        const auto ellipsis = juce::String::charToString (0x2026);
-        int low = 0;
-        int high = text.length();
-        while (low < high)
-        {
-            const auto middle = (low + high + 1) / 2;
-            const auto candidate = text.substring (0, middle).trimEnd() + ellipsis;
-            if (font.getStringWidthFloat (candidate) <= available)
-                low = middle;
-            else
-                high = middle - 1;
-        }
-        return text.substring (0, low).trimEnd() + ellipsis;
-    }
-   #endif
 
     juce::String metricHelp (ui::Metric metric)
     {
@@ -90,45 +70,136 @@ namespace
         return latchedPreInstanceId;
     }
 
-    juce::String pairStatusText (int status)
+    juce::String pairStatusText (int status, bool postAbsolute = false)
     {
+        if (postAbsolute) return "ABS";
         if (status == KIRIN_PAIR_STATUS_PAIRED) return juce::CharPointer_UTF8 ("PAIR ●");
         if (status == KIRIN_PAIR_STATUS_WAITING) return juce::CharPointer_UTF8 ("PAIR ◌");
         return juce::CharPointer_UTF8 ("PAIR —");
     }
 
-    juce::Colour pairStatusColour (int status)
+    juce::Colour pairStatusColour (int status, bool postAbsolute = false)
     {
+        if (postAbsolute) return COL_SPECTRUM_POST;
         if (status == KIRIN_PAIR_STATUS_PAIRED) return hypha::COL_LED_BLUE;
         if (status == KIRIN_PAIR_STATUS_WAITING) return COL_FLORA;
         return COL_MUTED;
     }
 
+    juce::String pairStatusHelp (int status, bool postAbsolute = false)
+    {
+        if (postAbsolute) return "Paired PRE is off. Showing POST absolute values.";
+        if (status == KIRIN_PAIR_STATUS_PAIRED) return "PRE and POST are paired.";
+        if (status == KIRIN_PAIR_STATUS_WAITING) return "Waiting for the selected PRE.";
+        return "No PRE pair is selected.";
+    }
+
 }
 
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
-    : juce::AudioProcessorEditor (&p), processorRef (p), isPost (p.isPostRole())
+    : juce::AudioProcessorEditor (&p), processorRef (p), isPost (p.isPostRole()),
+      observatoryView (isPost ? hypha::observatory::Role::post
+                              : hypha::observatory::Role::pre)
 {
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    const bool openAttackAtLaunch = isPost
+        && juce::SystemStats::getEnvironmentVariable (
+            hypha::attack_ui::activationEnvironmentVariable, {})
+               .trim() == hypha::attack_ui::activationValue;
+   #endif
+    tooltip.setLookAndFeel (&tooltipLookAndFeel);
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
-    setSize (ui::editorWidth, ui::editorHeight);
+    // ObservatoryView covers the complete logical surface. Declaring the scale root opaque lets
+    // Windows present one finished frame instead of compositing it over an intermediate editor
+    // background while a transformed child hierarchy is being refreshed.
+    scaleRoot.setOpaque (true);
+    addAndMakeVisible (scaleRoot);
+    observatorySizeIndex = juce::jmin (
+        (size_t) processorRef.spectrumSizePreference(),
+        hypha::observatory::sizePresets.size() - 1u);
+    observatoryDomain = hypha::observatory::domainFromState (
+        isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre,
+        processorRef.observatoryDomainPreference());
+    observatoryView.setTarget (hypha::observatory::targetFromState (
+        isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre,
+        processorRef.observatoryTargetPreference()));
+    observatoryView.setTimeRange (hypha::observatory::timeRangeFromState (
+        processorRef.observatoryTimeRangePreference()));
+    setResizable (true, false);
+    setResizeLimits (300, 200, 900, 600);
+    if (auto* constrainer = getConstrainer())
+        constrainer->setFixedAspectRatio (1.5);
+    const auto storedEditorSize = hypha::observatory::unpackEditorSize (
+        processorRef.observatoryEditorSizePreference());
+    auto initialWidth = storedEditorSize.width;
+    auto initialHeight = storedEditorSize.height;
+    if (! hypha::observatory::validEditorSize (initialWidth, initialHeight))
+    {
+        const auto fallback = hypha::observatory::sizePresets[observatorySizeIndex];
+        initialWidth = fallback.width;
+        initialHeight = fallback.height;
+    }
+    setSize (initialWidth, initialHeight);
+    observatoryView.onDomainChange = [this] (hypha::observatory::Domain domain)
+    {
+        setObservatoryDomain (domain);
+    };
+    observatoryView.onTargetChange = [this] (hypha::observatory::ObservationTarget target)
+    {
+        observatoryView.setTarget (target);
+        processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (target));
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        spectrumView.setAbsoluteObservation (
+            target == hypha::observatory::ObservationTarget::absolute);
+       #endif
+    };
+    observatoryView.onTimeRangeChange = [this] (hypha::observatory::TimeRange range)
+    {
+        processorRef.setObservatoryTimeRangePreference (hypha::observatory::stateValue (range));
+    };
+    observatoryView.onSizeChange = [this] (hypha::observatory::SizePreset preset)
+    {
+        for (size_t index = 0; index < hypha::observatory::sizePresets.size(); ++index)
+            if (hypha::observatory::sizePresets[index].width == preset.width)
+            {
+                observatorySizeIndex = index;
+                processorRef.setSpectrumSizePreference ((uint8_t) index);
+            }
+        setSize (preset.width, preset.height);
+    };
+    observatoryView.onReset = [this]
+    {
+        if (! processorRef.resetMeterSession())
+            showToast ("Meter Session could not be reset");
+    };
+    observatoryView.onCapture = [this] { beginObservatoryCapture(); };
+    scaleRoot.addAndMakeVisible (observatoryView);
 
-    addAndMakeVisible (led);
+    scaleRoot.addAndMakeVisible (led);
     for (auto& c : cells)
-        addAndMakeVisible (c);
+        scaleRoot.addAndMakeVisible (c);
     loudnessSelector.setShortTerm (processorRef.useShortTermLoudness());
     loudnessSelector.onChange = [this] (bool shortTerm)
     {
         processorRef.setUseShortTermLoudness (shortTerm);
+        observatoryView.setShortTermLoudness (shortTerm);
         configureForKind (currentKind);
     };
-    addAndMakeVisible (loudnessSelector);
+    observatoryView.onLoudnessChange = [this] (bool shortTerm)
+    {
+        processorRef.setUseShortTermLoudness (shortTerm);
+        loudnessSelector.setShortTerm (shortTerm);
+        observatoryView.setShortTermLoudness (shortTerm);
+    };
+    scaleRoot.addAndMakeVisible (loudnessSelector);
 
-    addAndMakeVisible (nameField);
+    scaleRoot.addAndMakeVisible (nameField);
     nameField.onCommit = [this] (const juce::String& n)
     {
         if (isPost)
         {
+            pairedPreExplicitlyBypassed = false;
             processorRef.setPairName (n);
             if (n.isEmpty()) nameField.setFallback ("___");
         }
@@ -137,18 +208,19 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
     pairStatusLabel.setFont (hypha::monoFont (ui::pairStatusFontHeight));
     pairStatusLabel.setJustificationType (juce::Justification::centredRight);
-    pairStatusLabel.setInterceptsMouseClicks (false, false);
-    addAndMakeVisible (pairStatusLabel);
+    pairStatusLabel.setInterceptsMouseClicks (true, false);
+    scaleRoot.addAndMakeVisible (pairStatusLabel);
 
     if (isPost)
     {
-        nameField.setPrefix ("pair: ");
+        nameField.setPrefix ("PAIR ");
         nameField.setFallback ("___");
         nameField.setLockedTooltip (juce::CharPointer_UTF8 ("Pair selection is locked during playback"));
+        nameField.setEnabledTooltip ("Click to edit the PRE pair name.");
         nameField.setModelName (processorRef.pairName());
 
         postControls = std::make_unique<hypha::PostControls>();
-        addAndMakeVisible (*postControls);
+        scaleRoot.addAndMakeVisible (*postControls);
         postControls->onKeep = [this] {
             if (processorRef.keepPair()) return;
             const juce::String notice = processorRef.drainKeepActionNotice();
@@ -167,16 +239,18 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
         // B-102/B-492: vector-arrow dropdown beside the pair field — All Keep / All Stop / candidates.
         // The free-text pair field (nameField) is retained; this only adds the egui ComboBox.
-        pairDropdown.setTitle ("Pair and Keep menu");
-        pairDropdown.setDescription ("Choose an exact PRE pair or start and stop all ready pairs");
+        pairDropdown.setTitle ("Pair, Keep, and display menu");
+        pairDropdown.setDescription (
+            "Choose an exact PRE pair, control Keep, or change hover help");
+        pairDropdown.setTooltip ("Pair, Keep, and display options.");
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
         pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);
         pairDropdown.onClick = [this] { showCandidateMenu(); };
-        addAndMakeVisible (pairDropdown);
+        scaleRoot.addAndMakeVisible (pairDropdown);
 
        #if ! KIRIN_HYPHA_PRE_DISPLAY
-        spectrumSizeIndex = juce::jmin (
+        observatorySizeIndex = juce::jmin (
             (size_t) processorRef.spectrumSizePreference(),
             ui::spectrumSizePresets.size() - 1u);
         spectrumToggle.setButtonText ("ANALYSIS");
@@ -187,22 +261,17 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         spectrumToggle.onClick = [this]
         {
             setAnalysisPage (analysisPage == AnalysisPage::meters
-                               ? AnalysisPage::spectrum : AnalysisPage::meters);
+                               ? AnalysisPage::attack : AnalysisPage::meters);
         };
-        addAndMakeVisible (spectrumToggle);
-        analysisModeToggle.setTitle ("Analysis view");
-        analysisModeToggle.setDescription ("Switch between frequency and Sharpness Delta");
-        analysisModeToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
-        analysisModeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
-        analysisModeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
-        analysisModeToggle.onClick = [this]
+        scaleRoot.addAndMakeVisible (spectrumToggle);
+        timePageNavigation.onPageChange = [this] (AnalysisPage page)
         {
-            setAnalysisPage (analysisPage == AnalysisPage::spectrum
-                               ? AnalysisPage::perceptual : AnalysisPage::spectrum);
+            if (observatoryDomain == hypha::observatory::Domain::time)
+                setAnalysisPage (page);
         };
         spectrumSizeToggle.setTitle ("Spectrum size");
         spectrumSizeToggle.setDescription (
-            "Cycle POST Spectrum between 100, 125, and 150 percent");
+            "Cycle POST Analysis between 100, 125, 150, and 200 percent");
         spectrumSizeToggle.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         spectrumSizeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
         spectrumSizeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
@@ -216,14 +285,18 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
             return processorRef.setSpectrumChannelMode (channelMode);
         };
         updateSpectrumSizeControl();
-        addChildComponent (analysisModeToggle);
-        addChildComponent (spectrumSizeToggle);
-        addChildComponent (spectrumView);
-        addChildComponent (perceptualView);
+        scaleRoot.addChildComponent (timePageNavigation);
+        scaleRoot.addChildComponent (spectrumSizeToggle);
+        scaleRoot.addChildComponent (spectrumView);
+        scaleRoot.addChildComponent (perceptualView);
+        scaleRoot.addChildComponent (absoluteView);
+        scaleRoot.addChildComponent (attackView);
        #endif
     }
     else
     {
+        nameField.setPrefix ("SOURCE ");
+        nameField.setEnabledTooltip ("Click to edit this PRE name.");
         nameField.setModelName (processorRef.preName());
         nameField.setFallback (instanceId8());
     }
@@ -235,54 +308,59 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     feedbackLabel.setJustificationType (juce::Justification::centredLeft);
     feedbackLabel.setMinimumHorizontalScale (1.0f);
     feedbackLabel.setInterceptsMouseClicks (false, false);
-    addChildComponent (feedbackLabel);
+    scaleRoot.addChildComponent (feedbackLabel);
 
-#if KIRIN_HYPHA_PRE_DISPLAY
-    if (! isPost)
+    guideConnectButton.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
+    guideConnectButton.setColour (juce::TextButton::buttonOnColourId, hypha::kFieldFill);
+    guideConnectButton.setColour (juce::TextButton::textColourOffId, COL_FLORA_BR);
+    guideConnectButton.setColour (juce::TextButton::textColourOnId, COL_FLORA_BR);
+    guideConnectButton.onClick = [this]
     {
-        preDisplayPrimaryLabel.setFont (hypha::monoFont (ui::preDisplayPrimaryFontHeight));
-        preDisplayPrimaryLabel.setJustificationType (juce::Justification::centredLeft);
-        preDisplayPrimaryLabel.setMinimumHorizontalScale (1.0f);
-        preDisplayPrimaryLabel.setInterceptsMouseClicks (true, false);
-        preDisplayPrimaryLabel.setColour (
-            juce::Label::textColourId,
-            juce::Colour (ui::preDisplayPrimaryColour (ui::PreDisplayTone::context)));
-        addChildComponent (preDisplayPrimaryLabel);
+        if (! processorRef.acceptPreDisplayConnection())
+            showToast ("Connection request is no longer available");
+    };
+    scaleRoot.addChildComponent (guideConnectButton);
 
-        preDisplayDetailLabel.setFont (hypha::monoFont (ui::preDisplayDetailFontHeight));
-        preDisplayDetailLabel.setJustificationType (juce::Justification::centredLeft);
-        preDisplayDetailLabel.setMinimumHorizontalScale (1.0f);
-        preDisplayDetailLabel.setInterceptsMouseClicks (true, false);
-        preDisplayDetailLabel.setColour (
-            juce::Label::textColourId,
-            juce::Colour (ui::preDisplayDetailColour (ui::PreDisplayTone::context)));
-        addChildComponent (preDisplayDetailLabel);
-
-        preDisplayStateLabel.setFont (hypha::monoFont (ui::preDisplayDetailFontHeight));
-        preDisplayStateLabel.setJustificationType (juce::Justification::centredRight);
-        preDisplayStateLabel.setMinimumHorizontalScale (1.0f);
-        preDisplayStateLabel.setInterceptsMouseClicks (true, false);
-        preDisplayStateLabel.setColour (
-            juce::Label::textColourId,
-            juce::Colour (ui::preDisplayDetailColour (ui::PreDisplayTone::context)));
-        addChildComponent (preDisplayStateLabel);
-    }
-#endif
-
-    configureForKind (Kind::WatchAbs6); // current | MAX, three rows
-    resized();                     // finalise positions now that postControls exists
+    configureForKind (Kind::WatchAbs6); // retained display compatibility; Observatory owns chrome
+    for (auto& cell : cells)
+        cell.setVisible (false);
+    loudnessSelector.setVisible (false);
+    pairStatusLabel.setVisible (false);
+    if (postControls != nullptr)
+        postControls->setVisible (false);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    spectrumToggle.setVisible (false);
+   #endif
+    setObservatoryDomain (observatoryDomain);
+    resized();
+    refreshObservatory();
     // Producer JSON and meter snapshots advance at 100 ms. Spectrum raises this same timer to
     // 30 Hz only while its exact-pair exchange is active; every normal meter stays at 10 Hz.
     startTimerHz (ui::preDisplayPresentationHz);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (openAttackAtLaunch)
+    {
+        observatorySizeIndex = ui::spectrumSizePresets.size() - 1u;
+        observatoryDomain = hypha::observatory::Domain::time;
+        observatoryView.setDomain (observatoryDomain);
+        setAnalysisPage (AnalysisPage::attack);
+    }
+   #endif
 }
 
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    commitEditorSizeStateIfSettled (true);
+    tooltip.setLookAndFeel (nullptr);
     if (isPost)
     {
         processorRef.setSpectrumVisible (false);
         processorRef.setPerceptualVisible (false);
+        processorRef.setAbsoluteVisible (false);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        processorRef.setAttackEnabled (false);
+       #endif
     }
 }
 
@@ -309,7 +387,8 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
 
     // Spectrum page changes only this separator to its cool accent; meter pages keep flora.
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    g.setColour (analysisPage != AnalysisPage::meters ? COL_SPECTRUM_DELTA : COL_FLORA);
+    g.setColour (analysisPage != AnalysisPage::meters
+                   ? COL_SPECTRUM_DELTA : COL_FLORA);
    #else
     g.setColour (COL_FLORA);
    #endif
@@ -319,64 +398,69 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
 
 void KirinHyphaEditor::resized()
 {
-    const auto layout = ui::editorLayout (isPost, getWidth(), getHeight());
-    titleArea = juceRect (layout.title);
-    led.setBounds (juceRect (layout.led));
-    pairStatusLabel.setBounds (juceRect (layout.pairStatus));
-    nameField.setBounds (juceRect (layout.name));
+    size_t nearestPreset = 0u;
+    for (size_t index = 0u; index < hypha::observatory::sizePresets.size(); ++index)
+        if (getWidth() >= hypha::observatory::sizePresets[index].width)
+            nearestPreset = index;
+    observatorySizeIndex = nearestPreset;
+    processorRef.setSpectrumSizePreference ((uint8_t) nearestPreset);
+    if (processorRef.setObservatoryEditorSizePreference (getWidth(), getHeight()))
+    {
+        editorSizeStateDirty = true;
+        editorSizeLastChangedAt = nowSecs();
+    }
+
+    const auto viewport = hypha::observatory::displayViewport (getWidth(), getHeight());
+    scaleRoot.setTransform (juce::AffineTransform());
+    scaleRoot.setBounds (0, 0, viewport.width, viewport.height);
+    // Inspection remains a retained native-resolution surface. Studio Pro on Windows can expose
+    // partial child updates at this size; one root image presents the completed 900 x 600 frame
+    // without reducing it to a magnified 600 x 400 anatomy.
+    scaleRoot.setBufferedToImage (getWidth() > 600);
+    scaleRoot.setTransform (juce::AffineTransform::scale (viewport.scale));
+    observatoryView.setDisplayedEditorSize (getWidth(), getHeight());
+    observatoryView.setBounds (scaleRoot.getLocalBounds());
+    observatoryView.toBack();
+    auto connection = observatoryView.connectionBounds().reduced (4, 2);
+    led.setBounds (connection.removeFromLeft (10).withSizeKeepingCentre (7, 7));
     if (isPost)
-        pairDropdown.setBounds (juceRect (layout.pairDropdown));
+        pairDropdown.setBounds (connection.removeFromRight (18));
+    const bool showName = getWidth() >= hypha::observatory::sizePresets[1].width;
+    nameField.setVisible (showName);
+    observatoryView.setExternalConnectionLabelVisible (showName);
+    if (showName)
+        nameField.setBounds (connection);
+    pairStatusLabel.setVisible (false);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost)
     {
-        const bool analysisOpen = analysisPage != AnalysisPage::meters;
-        spectrumToggle.setBounds (juceRect (analysisOpen
-            ? ui::analysisMetersToggleBounds (getWidth())
-            : ui::spectrumToggleBounds (getWidth())));
-        analysisModeToggle.setBounds (juceRect (ui::analysisModeToggleBounds (getWidth())));
-        spectrumSizeToggle.setBounds (juceRect (analysisOpen
-            ? ui::analysisSizeToggleBounds (getWidth())
-            : ui::spectrumSizeToggleBounds (getWidth())));
-        spectrumView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
-        perceptualView.setBounds (juceRect (ui::spectrumPlotBounds (getWidth(), getHeight())));
+        auto body = observatoryView.bodyBounds();
+        spectrumToggle.setVisible (false);
+        spectrumSizeToggle.setVisible (false);
+        updateTimePageNavigation();
+        const bool directTimeNavigation = observatoryDomain == hypha::observatory::Domain::time
+            && observatoryView.experienceFamily()
+                == hypha::observatory::ExperienceFamily::observatory;
+        auto analysisBody = observatoryView.bodyBounds();
+        if (directTimeNavigation)
+        {
+            auto navigation = analysisBody.removeFromTop (24);
+            navigation.removeFromRight (juce::jmin (112, navigation.getWidth() / 3));
+            timePageNavigation.setBounds (navigation);
+        }
+        else
+            timePageNavigation.setBounds (body.removeFromTop (24).removeFromLeft (72));
+        spectrumView.setBounds (analysisBody);
+        perceptualView.setBounds (analysisBody);
+        absoluteView.setBounds (analysisBody);
+        attackView.setBounds (analysisBody);
+        timePageNavigation.toFront (false);
     }
    #endif
-    floraY = layout.floraY;
-    metricTop = layout.metricTop;
-
-    layoutMetrics (currentSix);
-    loudnessSelector.setBounds (juceRect (ui::loudnessSelectorBounds (metricTop, getWidth())));
-    if (isPost && postControls != nullptr)
-    {
-        auto controlsBounds = layout.postControls;
-       #if ! KIRIN_HYPHA_PRE_DISPLAY
-        if (analysisPage != AnalysisPage::meters)
-            controlsBounds = ui::spectrumPostControlsBounds (getWidth(), getHeight());
-       #endif
-        postControls->setBounds (juceRect (controlsBounds));
-    }
-#if KIRIN_HYPHA_PRE_DISPLAY
-    if (! isPost)
-    {
-        preDisplayPrimaryLabel.setBounds (juceRect (layout.preDisplayPrimary));
-        layoutPreDisplayState (preDisplayStateLabel.getText());
-    }
-#endif
-    feedbackLabel.setBounds (juceRect (layout.feedback));
+    guideConnectButton.setBounds (observatoryView.guideBounds());
+    feedbackLabel.setBounds (observatoryView.sessionBounds());
+    feedbackLabel.toFront (false);
 }
-
-#if KIRIN_HYPHA_PRE_DISPLAY
-void KirinHyphaEditor::layoutPreDisplayState (const juce::String& stateText)
-{
-    const auto fullLine = ui::editorLayout (false, getWidth()).preDisplayDetail;
-    const auto requestedWidth = stateText.isEmpty() ? 0 : juce::roundToInt (
-        std::ceil (preDisplayStateLabel.getFont().getStringWidthFloat (stateText)))
-        + preDisplayStateLabel.getBorderSize().getLeftAndRight();
-    const auto split = ui::preDisplayDetailLayout (fullLine, requestedWidth);
-    preDisplayDetailLabel.setBounds (juceRect (split.detail));
-    preDisplayStateLabel.setBounds (juceRect (split.state));
-}
-#endif
 
 void KirinHyphaEditor::layoutMetrics (bool)
 {
@@ -389,57 +473,87 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
 {
     if (! isPost || analysisPage == page)
         return;
+    const auto previousPage = analysisPage;
     spectrumView.clearSnapshot();
     perceptualView.clearSnapshot();
-    if (analysisPage == AnalysisPage::spectrum)
-        processorRef.setSpectrumVisible (false);
-    else if (analysisPage == AnalysisPage::perceptual)
-        processorRef.setPerceptualVisible (false);
+    absoluteView.clearSnapshot();
+    attackView.clearSnapshot();
+    cachedAttackEvents = {};
+    cachedAttackWaveform = {};
+    cachedAttackDetails = {};
+    cachedAttackPreWaveform = {};
+    cachedAttackPreDetails = {};
+    cachedAttackPairEvents = {};
+    cachedAttackStats = {};
+    cachedAttackLatest = -1;
+    cachedAttackRate = 0;
+    cachedAttackGeneration = 0;
+    // ATTACK / FREQ / SHARP / LIVE share the current Analysis lease. Their `true` edge changes
+    // the isolated analyzer while post_visible remains set. Only METERS releases the slot.
+    if (hypha::analysis_navigation::releasesSlot (previousPage, page))
+    {
+        if (previousPage == AnalysisPage::spectrum)
+            processorRef.setSpectrumVisible (false);
+        else if (previousPage == AnalysisPage::perceptual)
+            processorRef.setPerceptualVisible (false);
+        else if (previousPage == AnalysisPage::absolute)
+            processorRef.setAbsoluteVisible (false);
+        else if (previousPage == AnalysisPage::attack)
+            processorRef.setAttackEnabled (false);
+    }
     analysisPage = page;
     const bool analysisOpen = page != AnalysisPage::meters;
     for (auto& cell : cells)
-        cell.setVisible (! analysisOpen);
-    loudnessSelector.setVisible (! analysisOpen);
+        cell.setVisible (false);
+    loudnessSelector.setVisible (false);
     spectrumView.setVisible (page == AnalysisPage::spectrum);
     perceptualView.setVisible (page == AnalysisPage::perceptual);
-    analysisModeToggle.setVisible (analysisOpen);
-    spectrumSizeToggle.setVisible (analysisOpen);
-    spectrumToggle.setButtonText (analysisOpen ? "METERS" : "ANALYSIS");
-    spectrumToggle.setTooltip (ui::spectrumTooltip (analysisOpen));
-    spectrumToggle.setColour (juce::TextButton::textColourOffId,
-                              analysisOpen ? COL_SPECTRUM_DELTA : COL_MUTED);
-    analysisModeToggle.setButtonText (page == AnalysisPage::spectrum ? "SHARP" : "FREQ");
-    analysisModeToggle.setTooltip (page == AnalysisPage::spectrum
-                                     ? "Show Perceptual Delta" : "Show frequency Delta");
-    startTimerHz (analysisOpen ? ui::spectrumPresentationHz : ui::preDisplayPresentationHz);
-    const auto preset = analysisOpen ? ui::spectrumSizePresets[spectrumSizeIndex]
-                                     : ui::spectrumSizePresets[0];
-    if (getWidth() != preset.width || getHeight() != preset.height)
-        setSize (preset.width, preset.height);
+    absoluteView.setVisible (page == AnalysisPage::absolute);
+    attackView.setVisible (page == AnalysisPage::attack);
+    spectrumSizeToggle.setVisible (false);
+    spectrumToggle.setVisible (false);
+    timePageNavigation.setPage (page);
+    updateTimePageNavigation();
+    startTimerHz (page == AnalysisPage::absolute
+                    ? ui::absoluteTimelineSourceHz
+                    : analysisOpen ? ui::spectrumPresentationHz
+                                   : ui::preDisplayPresentationHz);
     resized();
     repaint();
-    if (page == AnalysisPage::spectrum)
+    if (page == AnalysisPage::attack)
+        processorRef.setAttackEnabled (true);
+    else if (page == AnalysisPage::spectrum)
         processorRef.setSpectrumVisible (true);
     else if (page == AnalysisPage::perceptual)
         processorRef.setPerceptualVisible (true);
-    else
-        configureForKind (currentKind);
+    else if (page == AnalysisPage::absolute)
+        processorRef.setAbsoluteVisible (true);
+}
+
+void KirinHyphaEditor::updateTimePageNavigation()
+{
+    const bool time = observatoryDomain == hypha::observatory::Domain::time;
+    const bool direct = time && observatoryView.experienceFamily()
+        == hypha::observatory::ExperienceFamily::observatory;
+    timePageNavigation.setDirect (direct);
+    timePageNavigation.setPage (analysisPage);
+    timePageNavigation.setVisible (time);
 }
 
 void KirinHyphaEditor::cycleSpectrumSize()
 {
     if (analysisPage == AnalysisPage::meters)
         return;
-    spectrumSizeIndex = (spectrumSizeIndex + 1u) % ui::spectrumSizePresets.size();
-    processorRef.setSpectrumSizePreference ((uint8_t) spectrumSizeIndex);
+    observatorySizeIndex = (observatorySizeIndex + 1u) % ui::spectrumSizePresets.size();
+    processorRef.setSpectrumSizePreference ((uint8_t) observatorySizeIndex);
     updateSpectrumSizeControl();
-    const auto preset = ui::spectrumSizePresets[spectrumSizeIndex];
+    const auto preset = ui::spectrumSizePresets[observatorySizeIndex];
     setSize (preset.width, preset.height);
 }
 
 void KirinHyphaEditor::updateSpectrumSizeControl()
 {
-    const auto preset = ui::spectrumSizePresets[spectrumSizeIndex];
+    const auto preset = ui::spectrumSizePresets[observatorySizeIndex];
     spectrumSizeToggle.setButtonText (preset.buttonText);
     spectrumSizeToggle.setTooltip (preset.tooltip);
 }
@@ -473,12 +587,13 @@ void KirinHyphaEditor::configureForKind (Kind k)
                                      ui::metricValueFontHeight,
                                      ui::metricUnitFontHeight,
                                      ui::metricMinimumLabelWidth);
-        cells[(size_t) i].setVisible (true);
+        cells[(size_t) i].setVisible (false);
     }
     currentKind = k;
     currentSix  = true;
     loudnessSelector.setShortTerm (processorRef.useShortTermLoudness());
     loudnessSelector.setDeltaMode (dlt);
+    loudnessSelector.setVisible (false);
     layoutMetrics (true);
     loudnessSelector.toFront (false);
 }
@@ -592,6 +707,15 @@ void KirinHyphaEditor::showCandidateMenu()
     const int nReady = processorRef.keepReadyCount();
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
+    menu.addSectionHeader ("Display");
+    menu.addItem (10, "Show hover help", true,
+                  hypha::HoverHelpPreference::shared().isEnabled());
+    menu.addSeparator();
+    const bool pairSelected = processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED;
+    if (! keepActive && pairSelected)
+        menu.addItem (4, "Keep selected pair", processorRef.licenseIsOs());
+    if (keepActive)
+        menu.addItem (5, "Stop selected pair");
     if (! keepActive && processorRef.licenseIsOs() && nReady >= 1)
         menu.addItem (1, allKeepMenuLabel (nReady));
     if (keepActive)
@@ -635,6 +759,30 @@ void KirinHyphaEditor::handleCandidateMenu (
     }
     else if (result == 2)
         processorRef.stopAll();
+    else if (result == 4)
+    {
+        if (! processorRef.keepPair())
+        {
+            const juce::String notice = processorRef.drainKeepActionNotice();
+            if (notice.isNotEmpty()) { showToast (notice); return; }
+            const juce::String err = processorRef.recordErrorMessage();
+            if (err.isNotEmpty()) { showToast (err); return; }
+            showToast (processorRef.licenseIsOs()
+                           ? "No PRE Paired" : "Record requires Kirin OS license");
+        }
+    }
+    else if (result == 5)
+        processorRef.stopPair();
+    else if (result == 10)
+    {
+        auto& preference = hypha::HoverHelpPreference::shared();
+        const bool enabled = ! preference.isEnabled();
+        const bool persisted = preference.setEnabled (enabled);
+        if (! enabled)
+            tooltip.hideTip();
+        if (! persisted)
+            showToast ("Hover help changed for this session only");
+    }
     else if (result >= 100)
     {
         const int idx = result - 100;
@@ -644,6 +792,7 @@ void KirinHyphaEditor::handleCandidateMenu (
             const juce::String name = candidate.hasName ? candidate.name : juce::String();
             if (processorRef.setPairCandidate (candidate.instanceId, name))
             {
+                pairedPreExplicitlyBypassed = false;
                #if ! KIRIN_HYPHA_PRE_DISPLAY
                 spectrumView.clearSnapshot();
                 perceptualView.clearSnapshot();
@@ -663,41 +812,46 @@ void KirinHyphaEditor::handleCandidateMenu (
 
 void KirinHyphaEditor::timerCallback()
 {
+    commitEditorSizeStateIfSettled (false);
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
+    const auto attachment = processorRef.takeCaptureWorkAttachmentResult();
+    if (attachment.state == hypha::capture::WorkAttachmentResultState::attached)
+        showToast ("Capture attached to Work");
+    else if (attachment.state == hypha::capture::WorkAttachmentResultState::rejected)
+    {
+        if (attachment.code == "work_binding_changed")
+            showToast ("Work connection changed; Capture was not attached");
+        else if (attachment.code == "work_not_found")
+            showToast ("Connected Work is no longer available");
+        else if (attachment.code == "work_record_invalid"
+                 || attachment.code == "work_write_failed"
+                 || attachment.code == "destination_write_failed")
+            showToast ("Work could not be updated");
+        else if (attachment.code == "request_write_failed"
+                 || attachment.code == "artifact_invalid"
+                 || attachment.code == "request_invalid")
+            showToast ("Capture could not be attached");
+        else
+            showToast ("Kirin OS could not attach this Capture");
+    }
+#endif
     if (isPost) updatePost();
     else        updatePre();
+    refreshObservatory();
+}
 
+void KirinHyphaEditor::commitEditorSizeStateIfSettled (bool force)
+{
+    constexpr double settleSeconds = 0.2;
+    if (! editorSizeStateDirty
+        || (! force && nowSecs() - editorSizeLastChangedAt < settleSeconds))
+        return;
+    editorSizeStateDirty = false;
+    processorRef.notifyObservatoryEditorSizeChanged();
 }
 
 void KirinHyphaEditor::updatePre()
 {
-#if KIRIN_HYPHA_PRE_DISPLAY
-    const auto preDisplay = processorRef.preDisplaySnapshot();
-    const auto preDisplayTone = preDisplay.sectionActive || preDisplay.cueActive
-        ? ui::PreDisplayTone::emphasis
-        : ui::PreDisplayTone::context;
-    preDisplayPrimaryLabel.setColour (
-        juce::Label::textColourId,
-        juce::Colour (ui::preDisplayPrimaryColour (preDisplayTone)));
-    preDisplayDetailLabel.setColour (
-        juce::Label::textColourId,
-        juce::Colour (ui::preDisplayDetailColour (preDisplayTone)));
-    preDisplayStateLabel.setColour (
-        juce::Label::textColourId,
-        juce::Colour (ui::preDisplayDetailColour (preDisplayTone)));
-    preDisplayStateLabel.setText (preDisplay.stateText, juce::dontSendNotification);
-    layoutPreDisplayState (preDisplay.stateText);
-    const auto fittedPrimary = fitLabelText (preDisplayPrimaryLabel, preDisplay.primary);
-    const auto fittedDetail = fitLabelText (preDisplayDetailLabel, preDisplay.detail);
-    preDisplayPrimaryLabel.setText (fittedPrimary, juce::dontSendNotification);
-    preDisplayDetailLabel.setText (fittedDetail, juce::dontSendNotification);
-    preDisplayPrimaryLabel.setTooltip (
-        fittedPrimary == preDisplay.primary ? juce::String() : preDisplay.primary);
-    preDisplayDetailLabel.setTooltip (
-        fittedDetail == preDisplay.detail ? juce::String() : preDisplay.detail);
-    preDisplayPrimaryLabel.setVisible (preDisplay.primary.isNotEmpty());
-    preDisplayDetailLabel.setVisible (preDisplay.detail.isNotEmpty());
-    preDisplayStateLabel.setVisible (preDisplay.stateText.isNotEmpty());
-#endif
     const bool alive  = processorRef.measureAlive();
     const int  sig    = processorRef.signalStateLive(); // 0=Inactive 1=Active 2=Bypassed (B-113: heartbeat-aware)
     const bool rec    = processorRef.isRecording();    // record_sm (PRE autonomous record too)
@@ -706,6 +860,7 @@ void KirinHyphaEditor::updatePre()
     const int pairStatus = processorRef.pairStatus();
     pairStatusLabel.setText (pairStatusText (pairStatus), juce::dontSendNotification);
     pairStatusLabel.setColour (juce::Label::textColourId, pairStatusColour (pairStatus));
+    pairStatusLabel.setTooltip (pairStatusHelp (pairStatus));
 
     nameField.setModelName (processorRef.preName());
     nameField.setFallback (instanceId8());
@@ -754,9 +909,11 @@ void KirinHyphaEditor::updatePre()
     KirinSessionSummary summary {};
     bool haveSummary = false;
     KirinWatchDisplay watch {};
-    const bool polledWatch = ! displayRecord && processorRef.pollWatchDisplay (watch);
+    const bool polledWatch = processorRef.pollWatchDisplay (watch);
     if (polledWatch)
     {
+        observatoryWatchDisplay = watch;
+        haveObservatoryWatchDisplay = true;
         watchMaximum = watch.maximum;
         haveWatchMaximum = true;
     }
@@ -796,6 +953,7 @@ void KirinHyphaEditor::updatePre()
     else if (! displayRecord && sig == KIRIN_SIGNAL_STATE_BYPASSED)
     {
         displaySmoother.reset();
+        haveObservatoryWatchDisplay = false;
         haveWatchMaximum = false;
     }
     auto V = [&] (double x) { return have ? x : kNaN; };
@@ -847,8 +1005,20 @@ void KirinHyphaEditor::updatePost()
     const juce::String pairName = processorRef.pairName();
     const int pairStatus = processorRef.pairStatus();
     const bool pairSelected = pairStatus != KIRIN_PAIR_STATUS_UNPAIRED;
-    pairStatusLabel.setText (pairStatusText (pairStatus), juce::dontSendNotification);
-    pairStatusLabel.setColour (juce::Label::textColourId, pairStatusColour (pairStatus));
+    KirinDelta observedDelta {};
+    const bool haveObservedDelta = pairSelected && processorRef.pollDelta (observedDelta);
+    if (pairStatus != KIRIN_PAIR_STATUS_PAIRED)
+        pairedPreExplicitlyBypassed = false;
+    else if (haveObservedDelta)
+        pairedPreExplicitlyBypassed = display::pairedPreIsExplicitlyBypassed (
+            true, true, observedDelta.mode);
+    const bool postAbsolute = pairStatus == KIRIN_PAIR_STATUS_PAIRED
+                           && pairedPreExplicitlyBypassed;
+    pairStatusLabel.setText (pairStatusText (pairStatus, postAbsolute),
+                             juce::dontSendNotification);
+    pairStatusLabel.setColour (juce::Label::textColourId,
+                               pairStatusColour (pairStatus, postAbsolute));
+    pairStatusLabel.setTooltip (pairStatusHelp (pairStatus, postAbsolute));
 
     nameField.setModelName (pairName);
     nameField.setEditingEnabled (! pairLocked); // W-280 + B-115 playback pair lock (playing AND live)
@@ -898,12 +1068,69 @@ void KirinHyphaEditor::updatePost()
                           pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
 
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (analysisPage == AnalysisPage::attack)
+    {
+        KirinAttackStats stats {};
+        if (processorRef.attackStats (stats))
+            cachedAttackStats = stats;
+
+        KirinAttackEventBatch events {};
+        if (processorRef.pollAttackEvents (events))
+            cachedAttackEvents = events;
+
+        KirinAttackWaveformBatch waveform {};
+        if (processorRef.pollAttackWaveform (waveform))
+            cachedAttackWaveform = waveform;
+
+        KirinAttackDetailBatch details {};
+        if (processorRef.pollAttackDetails (details))
+            cachedAttackDetails = details;
+
+        KirinAttackWaveformBatch preWaveform {};
+        if (processorRef.pollAttackPreWaveform (preWaveform))
+            cachedAttackPreWaveform = preWaveform;
+
+        KirinAttackDetailBatch preDetails {};
+        if (processorRef.pollAttackPreDetails (preDetails))
+            cachedAttackPreDetails = preDetails;
+
+        KirinAttackPairEventBatch pairEvents {};
+        if (processorRef.pollAttackPairEvents (pairEvents))
+            cachedAttackPairEvents = pairEvents;
+
+        KirinAttackBatch raw {};
+        if (processorRef.pollAttackBatch (raw) && raw.count > 0)
+        {
+            const auto count = juce::jmin (
+                raw.count, static_cast<std::uint32_t> (KIRIN_ATTACK_BATCH_CAPACITY));
+            const auto& newest = raw.frames[count - 1];
+            cachedAttackLatest = newest.support_end_samples;
+            cachedAttackRate = newest.sample_rate;
+            cachedAttackGeneration = newest.generation;
+        }
+        attackView.setSnapshot (
+            cachedAttackEvents, cachedAttackWaveform, cachedAttackDetails,
+            cachedAttackPreWaveform, cachedAttackPreDetails, cachedAttackPairEvents,
+            cachedAttackLatest, cachedAttackRate, cachedAttackGeneration, cachedAttackStats);
+        attackView.presentationTick (sig == KIRIN_SIGNAL_STATE_ACTIVE);
+        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
+        return;
+    }
+
+    juce::String analysisOwnerNames;
+    const bool haveAnalysisOwnerNames = analysisPage != AnalysisPage::meters
+        && processorRef.pollAnalysisOwnerNames (analysisOwnerNames);
     if (analysisPage == AnalysisPage::spectrum)
     {
+        spectrumView.setGuideFrequencyOverlay (
+            hypha::guide_frequency::fromGuidePresentation (
+                processorRef.guidePresentationSnapshot()));
+        if (haveAnalysisOwnerNames)
+            spectrumView.setAnalysisOwnerNames (analysisOwnerNames);
         spectrumView.presentationTick();
-        KirinSpectrumView spectrum {};
-        if (processorRef.pollSpectrum (spectrum))
-            spectrumView.setSnapshot (spectrum);
+        KirinSpectrumBatch spectrum {};
+        if (processorRef.pollSpectrumBatch (spectrum))
+            spectrumView.setBatch (spectrum);
         // Spectrum is presentation-only. Pair/Keep/feedback and the existing status LED remain
         // live, while meter polling and smoothing are skipped for this page.
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
@@ -911,10 +1138,22 @@ void KirinHyphaEditor::updatePost()
     }
     if (analysisPage == AnalysisPage::perceptual)
     {
+        if (haveAnalysisOwnerNames)
+            perceptualView.setAnalysisOwnerNames (analysisOwnerNames);
         perceptualView.presentationTick();
-        KirinPerceptualView perceptual {};
-        if (processorRef.pollPerceptual (perceptual))
-            perceptualView.setSnapshot (perceptual);
+        KirinPerceptualBatch perceptual {};
+        if (processorRef.pollPerceptualBatch (perceptual))
+            perceptualView.setBatch (perceptual);
+        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
+        return;
+    }
+    if (analysisPage == AnalysisPage::absolute)
+    {
+        if (haveAnalysisOwnerNames)
+            absoluteView.setAnalysisOwnerNames (analysisOwnerNames);
+        KirinAbsoluteBatch absolute {};
+        if (processorRef.pollAbsoluteBatch (absolute))
+            absoluteView.setBatch (absolute);
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
         return;
     }
@@ -928,9 +1167,11 @@ void KirinHyphaEditor::updatePost()
     KirinSessionSummary summary {};
     bool haveSummary = false;
     KirinWatchDisplay watch {};
-    const bool polledWatch = ! displayRecord && processorRef.pollWatchDisplay (watch);
+    const bool polledWatch = processorRef.pollWatchDisplay (watch);
     if (polledWatch)
     {
+        observatoryWatchDisplay = watch;
+        haveObservatoryWatchDisplay = true;
         watchMaximum = watch.maximum;
         haveWatchMaximum = true;
     }
@@ -970,6 +1211,7 @@ void KirinHyphaEditor::updatePost()
     else if (! displayRecord && sig == KIRIN_SIGNAL_STATE_BYPASSED)
     {
         displaySmoother.reset();
+        haveObservatoryWatchDisplay = false;
         haveWatchMaximum = false;
     }
     const bool tpWarn = ! mutedM && hypha::tpOver (haveM ? m.true_peak : kNaN);
@@ -995,7 +1237,8 @@ void KirinHyphaEditor::updatePost()
             rec, pairSelected, haveD,
             haveRecordDisplay && cachedRecordDisplay.pair_matches_current != 0);
 
-        if (display::recordMetricMode (recordPairSelected, haveD, d.mode)
+        if ((postAbsolute ? display::MetricMode::absolute
+                          : display::recordMetricMode (recordPairSelected, haveD, d.mode))
             == display::MetricMode::absolute)
         {
             if (currentKind != Kind::Abs6) configureForKind (Kind::Abs6);
@@ -1065,9 +1308,9 @@ void KirinHyphaEditor::updatePost()
     }
     else // Active + Watch
     {
-        KirinDelta rawD {};
+        KirinDelta rawD = observedDelta;
         KirinDelta d {};
-        const bool haveRawD = processorRef.pollDelta (rawD);
+        const bool haveRawD = haveObservedDelta;
         const bool preUnavailable = haveRawD && display::preUnavailableForDelta (rawD.mode);
         bool haveD = false;
         bool mutedD = false;
@@ -1093,7 +1336,10 @@ void KirinHyphaEditor::updatePost()
             mutedD = true;
         }
 
-        if (display::watchMetricMode (pairSelected, haveRawD, rawD.mode)
+        const bool effectiveHaveD = haveRawD || postAbsolute;
+        const uint8_t effectiveMode = haveRawD ? rawD.mode
+                                               : (uint8_t) KIRIN_DELTA_MODE_BYPASSED;
+        if (display::watchMetricMode (pairSelected, effectiveHaveD, effectiveMode)
             == display::MetricMode::delta)
         {
             if (currentKind != Kind::WatchDelta6) configureForKind (Kind::WatchDelta6);
@@ -1107,7 +1353,7 @@ void KirinHyphaEditor::updatePost()
             fillDelta (4, haveD ? d.crest     : kNaN, false, base, warn, ! liveDelta);
             fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, ! liveDelta);
         }
-        else // no selected pair -> POST absolute
+        else // no selected pair, or paired PRE explicitly bypassed -> POST absolute
         {
             if (currentKind != Kind::WatchAbs6) configureForKind (Kind::WatchAbs6);
             auto V = [&] (double x) { return haveM ? x : kNaN; };

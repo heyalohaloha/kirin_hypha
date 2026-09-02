@@ -10,7 +10,8 @@ use std::sync::Arc;
 use rustfft::num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
 
-pub const SPECTRUM_SCHEMA_VERSION: u16 = 2;
+pub const SPECTRUM_SCHEMA_VERSION: u16 = 3;
+pub const SPECTRUM_REFERENCE_SAMPLE_RATE: u32 = 48_000;
 pub const SPECTRUM_WINDOW_SIZE: usize = 4_096;
 pub const SPECTRUM_FFT_SIZE: usize = 8_192;
 pub const SPECTRUM_BAND_COUNT: usize = 256;
@@ -20,7 +21,58 @@ pub const SPECTRUM_MAX_HZ: f32 = 22_000.0;
 pub const SPECTRUM_FLOOR_DBFS: f32 = -144.0;
 pub const SPECTRUM_DISPLAY_FLOOR_START_DBFS: f32 = -120.0;
 pub const SPECTRUM_DISPLAY_FLOOR_END_DBFS: f32 = -96.0;
-pub const SPECTRUM_DIFF_RANGE_DB: f32 = 18.0;
+pub const SPECTRUM_APPROXIMATE_CYCLES: f32 = 3.0;
+
+/// The exact analysis layout for one host sample rate.
+///
+/// The aperture is defined in time, using the existing 4096-sample/48 kHz behaviour as the
+/// reference. The host samples are never resampled. The FFT is the smallest power of two that
+/// preserves the existing 2x zero-padding contract.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpectrumLayout {
+    pub sample_rate: u32,
+    pub aperture_samples: usize,
+    pub fft_size: usize,
+    pub bin_hz: f32,
+    pub min_hz: f32,
+    pub max_hz: f32,
+    /// Frequencies below this boundary contain fewer than three observed cycles. They remain
+    /// visible facts, but their frequency readout is presented as approximate.
+    pub approximate_below_hz: f32,
+}
+
+impl SpectrumLayout {
+    pub fn new(sample_rate: u32) -> Result<Self, SpectrumError> {
+        if !(8_000..=384_000).contains(&sample_rate) {
+            return Err(SpectrumError::InvalidSampleRate);
+        }
+        let numerator = u64::from(sample_rate) * SPECTRUM_WINDOW_SIZE as u64
+            + u64::from(SPECTRUM_REFERENCE_SAMPLE_RATE / 2);
+        let aperture_samples =
+            usize::try_from(numerator / u64::from(SPECTRUM_REFERENCE_SAMPLE_RATE))
+                .map_err(|_| SpectrumError::InvalidSampleRate)?;
+        let fft_size = aperture_samples
+            .checked_mul(2)
+            .and_then(usize::checked_next_power_of_two)
+            .ok_or(SpectrumError::InvalidSampleRate)?;
+        let bin_hz = sample_rate as f32 / fft_size as f32;
+        let min_hz = SPECTRUM_MIN_HZ.max(bin_hz);
+        let max_hz = SPECTRUM_MAX_HZ.min(sample_rate as f32 * 0.5 - bin_hz);
+        if !(max_hz > min_hz && max_hz.is_finite()) {
+            return Err(SpectrumError::InvalidSampleRate);
+        }
+        Ok(Self {
+            sample_rate,
+            aperture_samples,
+            fft_size,
+            bin_hz,
+            min_hz,
+            max_hz,
+            approximate_below_hz: SPECTRUM_APPROXIMATE_CYCLES * sample_rate as f32
+                / aperture_samples as f32,
+        })
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[repr(u8)]
@@ -28,6 +80,8 @@ pub enum AnalysisViewMode {
     #[default]
     Spectrum = 0,
     Perceptual = 1,
+    Absolute = 2,
+    Attack = 3,
 }
 
 impl TryFrom<u8> for AnalysisViewMode {
@@ -37,6 +91,8 @@ impl TryFrom<u8> for AnalysisViewMode {
         match value {
             0 => Ok(Self::Spectrum),
             1 => Ok(Self::Perceptual),
+            2 => Ok(Self::Absolute),
+            3 => Ok(Self::Attack),
             _ => Err(()),
         }
     }
@@ -68,6 +124,7 @@ impl TryFrom<u8> for SpectrumChannelMode {
 pub struct SpectrumFrame {
     pub schema_version: u16,
     pub sample_rate: u32,
+    pub aperture_samples: u32,
     pub fft_size: u32,
     pub band_count: u16,
     pub presentation_end_samples: i64,
@@ -81,18 +138,35 @@ pub struct SpectrumFrame {
 }
 
 impl SpectrumFrame {
-    pub fn compatible_with(&self, other: &Self) -> bool {
-        self.schema_version == other.schema_version
+    pub fn has_valid_layout(&self) -> bool {
+        self.schema_version == SPECTRUM_SCHEMA_VERSION
+            && self.band_count as usize == SPECTRUM_BAND_COUNT
+            && SpectrumLayout::new(self.sample_rate).is_ok_and(|layout| {
+                self.aperture_samples as usize == layout.aperture_samples
+                    && self.fft_size as usize == layout.fft_size
+                    && self.min_hz.to_bits() == layout.min_hz.to_bits()
+                    && self.max_hz.to_bits() == layout.max_hz.to_bits()
+            })
+            && self.dbfs.iter().all(|value| value.is_finite())
+    }
+
+    pub fn same_analysis_layout(&self, other: &Self) -> bool {
+        self.has_valid_layout()
+            && other.has_valid_layout()
+            && self.schema_version == other.schema_version
             && self.sample_rate == other.sample_rate
+            && self.aperture_samples == other.aperture_samples
             && self.fft_size == other.fft_size
             && self.band_count == other.band_count
-            && self.presentation_end_samples == other.presentation_end_samples
             && self.channel_mode == other.channel_mode
             && self.channels == other.channels
             && self.min_hz.to_bits() == other.min_hz.to_bits()
             && self.max_hz.to_bits() == other.max_hz.to_bits()
-            && self.dbfs.iter().all(|value| value.is_finite())
-            && other.dbfs.iter().all(|value| value.is_finite())
+    }
+
+    pub fn compatible_with(&self, other: &Self) -> bool {
+        self.same_analysis_layout(other)
+            && self.presentation_end_samples == other.presentation_end_samples
     }
 }
 
@@ -100,6 +174,9 @@ impl SpectrumFrame {
 pub struct SpectrumDifference {
     pub presentation_end_samples: i64,
     pub sample_rate: u32,
+    pub aperture_samples: u32,
+    pub fft_size: u32,
+    pub approximate_below_hz: f32,
     pub min_hz: f32,
     pub max_hz: f32,
     pub channel_mode: SpectrumChannelMode,
@@ -134,6 +211,10 @@ pub fn difference_post_minus_pre(
     Some(SpectrumDifference {
         presentation_end_samples: post.presentation_end_samples,
         sample_rate: post.sample_rate,
+        aperture_samples: post.aperture_samples,
+        fft_size: post.fft_size,
+        approximate_below_hz: SPECTRUM_APPROXIMATE_CYCLES * post.sample_rate as f32
+            / post.aperture_samples as f32,
         min_hz: post.min_hz,
         max_hz: post.max_hz,
         channel_mode: post.channel_mode,
@@ -157,7 +238,9 @@ impl fmt::Display for SpectrumError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
             Self::InvalidSampleRate => "invalid Spectrum sample rate",
-            Self::WrongWindowLength => "Spectrum window must contain exactly 4096 samples",
+            Self::WrongWindowLength => {
+                "Spectrum window must contain the configured aperture sample count"
+            }
             Self::NonFiniteInput => "Spectrum input contains a non-finite sample",
             Self::SideRequiresStereo => "Spectrum SIDE requires stereo input",
         };
@@ -181,9 +264,7 @@ enum BandPlan {
 }
 
 pub struct SpectrumAnalyzer {
-    sample_rate: u32,
-    min_hz: f32,
-    max_hz: f32,
+    layout: SpectrumLayout,
     fft: Arc<dyn Fft<f32>>,
     window: Vec<f32>,
     fft_buffer: Vec<Complex32>,
@@ -197,37 +278,33 @@ pub struct SpectrumAnalyzer {
 
 impl SpectrumAnalyzer {
     pub fn new(sample_rate: u32) -> Result<Self, SpectrumError> {
-        if !(8_000..=384_000).contains(&sample_rate) {
-            return Err(SpectrumError::InvalidSampleRate);
-        }
+        let layout = SpectrumLayout::new(sample_rate)?;
         let mut planner = FftPlanner::<f32>::new();
-        let fft = planner.plan_fft_forward(SPECTRUM_FFT_SIZE);
-        let window = (0..SPECTRUM_WINDOW_SIZE)
+        let fft = planner.plan_fft_forward(layout.fft_size);
+        let window = (0..layout.aperture_samples)
             .map(|index| {
                 let phase = std::f32::consts::TAU * index as f32
-                    / (SPECTRUM_WINDOW_SIZE.saturating_sub(1)) as f32;
+                    / (layout.aperture_samples.saturating_sub(1)) as f32;
                 0.5 - 0.5 * phase.cos()
             })
             .collect::<Vec<_>>();
         let amplitude_scale = 2.0 / window.iter().sum::<f32>();
-        let bin_hz = sample_rate as f32 / SPECTRUM_FFT_SIZE as f32;
-        let min_hz = SPECTRUM_MIN_HZ.max(bin_hz);
-        let max_hz = SPECTRUM_MAX_HZ.min(sample_rate as f32 * 0.5 - bin_hz);
-        if !(max_hz > min_hz && max_hz.is_finite()) {
-            return Err(SpectrumError::InvalidSampleRate);
-        }
         let bands = std::array::from_fn(|index| {
-            band_plan(index, min_hz, max_hz, bin_hz, SPECTRUM_FFT_SIZE / 2 - 1)
+            band_plan(
+                index,
+                layout.min_hz,
+                layout.max_hz,
+                layout.bin_hz,
+                layout.fft_size / 2 - 1,
+            )
         });
         Ok(Self {
-            sample_rate,
-            min_hz,
-            max_hz,
+            layout,
             fft_scratch: vec![Complex32::ZERO; fft.get_inplace_scratch_len()],
-            fft_buffer: vec![Complex32::ZERO; SPECTRUM_FFT_SIZE],
-            left_power: vec![0.0; SPECTRUM_FFT_SIZE / 2],
-            right_power: vec![0.0; SPECTRUM_FFT_SIZE / 2],
-            combined: vec![0.0; SPECTRUM_WINDOW_SIZE],
+            fft_buffer: vec![Complex32::ZERO; layout.fft_size],
+            left_power: vec![0.0; layout.fft_size / 2],
+            right_power: vec![0.0; layout.fft_size / 2],
+            combined: vec![0.0; layout.aperture_samples],
             fft,
             window,
             bands,
@@ -236,7 +313,19 @@ impl SpectrumAnalyzer {
     }
 
     pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
+        self.layout.sample_rate
+    }
+
+    pub fn aperture_samples(&self) -> usize {
+        self.layout.aperture_samples
+    }
+
+    pub fn fft_size(&self) -> usize {
+        self.layout.fft_size
+    }
+
+    pub fn layout(&self) -> SpectrumLayout {
+        self.layout
     }
 
     pub fn analyze(
@@ -263,8 +352,8 @@ impl SpectrumAnalyzer {
         presentation_end_samples: i64,
         generation: u64,
     ) -> Result<SpectrumFrame, SpectrumError> {
-        if left.len() != SPECTRUM_WINDOW_SIZE
-            || right.is_some_and(|samples| samples.len() != SPECTRUM_WINDOW_SIZE)
+        if left.len() != self.layout.aperture_samples
+            || right.is_some_and(|samples| samples.len() != self.layout.aperture_samples)
         {
             return Err(SpectrumError::WrongWindowLength);
         }
@@ -347,15 +436,16 @@ impl SpectrumAnalyzer {
         });
         Ok(SpectrumFrame {
             schema_version: SPECTRUM_SCHEMA_VERSION,
-            sample_rate: self.sample_rate,
-            fft_size: SPECTRUM_FFT_SIZE as u32,
+            sample_rate: self.layout.sample_rate,
+            aperture_samples: self.layout.aperture_samples as u32,
+            fft_size: self.layout.fft_size as u32,
             band_count: SPECTRUM_BAND_COUNT as u16,
             presentation_end_samples,
             generation,
             channel_mode,
             channels,
-            min_hz: self.min_hz,
-            max_hz: self.max_hz,
+            min_hz: self.layout.min_hz,
+            max_hz: self.layout.max_hz,
             dbfs,
         })
     }
@@ -404,3 +494,7 @@ fn band_plan(index: usize, min_hz: f32, max_hz: f32, bin_hz: f32, max_bin: usize
 #[cfg(test)]
 #[path = "spectrum_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "spectrum_host_rate_tests.rs"]
+mod host_rate_tests;

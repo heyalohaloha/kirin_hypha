@@ -21,11 +21,22 @@ libc = "0.2"
 rustfft = "6"
 rubato = { version = "2", features = ["fft_resampler"] }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Memory",
+] }
+
 [dev-dependencies]
 symphonia = { version = "0.5", features = ["wav", "pcm"] }
+hound = "3.5"
 # G-79-01 (2026-04-24 Daisuke approved): MoSQITo tolerance assertions.
 # - sharpness: assert_abs_diff_eq!(epsilon = 0.05 acum)
 # - N_spec:    assert_relative_eq!(max_relative = 1e-3)
 # - bit-identical: assert_abs_diff_eq!(epsilon = 1e-8)
 approx = "0.5"
 tempfile = "3"
+crc32fast = "=1.5.0"
+flate2 = { version = "=1.1.9", default-features = false, features = ["zlib-rs"] }
+zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }

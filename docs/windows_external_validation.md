@@ -1,36 +1,55 @@
-# Kirin Hypha Windows External Validation
+# Kirin Hypha Windows Validation and Regression Checklist
 
-Purpose: validate the first Windows JUCE VST3 build before any Lemon Squeezy upload.
+Purpose: validate every Windows JUCE VST3 release on a real Windows DAW before public upload.
 
-Status: external validation gate. A Windows VST3 zip/state can be generated before validation, but it must stay blocked until the pass/fail gates below are complete.
+Status: Windows 10/11 64-bit VST3 is supported. The v1.1.48 release records Windows validation as
+complete after CI, pluginval, and Studio One Pro checks on the dedicated Windows validation machine.
+This document remains the required regression checklist for later release commits; a new package
+must stay blocked until these gates are complete for that commit.
 
 ## Current Boundary
 
 - Windows delivery target: JUCE VST3, PRE and POST.
-- Current proven state: GitHub Actions builds PRE/POST Windows VST3, validates them with pluginval, and packages a Windows VST3 zip candidate.
-- Release packaging: `scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs` creates the zip, SHA256 file, sidecar JSON, and LS state.
-- Validation gate: real Windows DAW load, PRE/POST discovery, Keep, Record, offline bounce, and audio transparency must be complete before LS-ready.
-- Not included yet: Windows installer and Authenticode signing.
+- Current published state: v1.1.48 is a supported, validated manual PRE/POST ZIP without an installer
+  or Authenticode signatures.
+- Next-release procedure: GitHub Actions builds PRE/POST Windows VST3, validates them with pluginval,
+  signs their PE binaries, and packages both roles in one Inno Setup installer.
+- Planned primary packaging: `scripts/windows/build-installer.mjs` creates the Setup EXE, SHA-256,
+  and manifest. `scripts/windows/verify-installer.ps1` gates install, same-version reinstall,
+  installed hashes and signatures, uninstaller signature, cleanup, and preservation of unrelated
+  VST3 files.
+- Fallback packaging: `scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs` creates a manual
+  recovery ZIP. It never replaces the primary installer.
+- Per-release validation gate: real Windows DAW load, PRE/POST discovery, Keep, Record, offline
+  bounce, and audio transparency must be complete before LS-ready.
+- Next-release Authenticode scope: PRE binary, POST binary, Setup EXE, and generated uninstaller must
+  all be Valid before the installer can replace the manual ZIP.
 
 ## Artifact To Send
 
-Send a zip made from the latest green CI artifact named `kirin-hypha-windows-vst3`, or the packaged CI artifact named `kirin-hypha-windows-vst3-ls-package`.
+For the next release, first validate the unsigned installer candidate named
+`kirin-hypha-windows-installer` from the complete green Hypha CI run. Its manifest must identify the
+same exact release-candidate commit and version. After this checklist is green, the private signing
+factory may rebuild that exact source commit with `external_validation=complete`; it then verifies the
+signed payload and installer mechanics again before producing `KirinHypha-Windows-signed-full`.
 
-The handoff zip should include:
+The handoff artifact should include:
 
-- `Kirin Hypha PRE.vst3`
-- `Kirin Hypha POST.vst3`
-- `COMMIT.txt` with the commit hash and CI run URL
-- `SHA256SUMS.txt`
-- this validation document
+- `Kirin-Hypha-<version>-Windows-x64-Setup.exe`
+- the matching `.exe.sha256`
+- the matching `.exe.json`, with signing `verified_unsigned_ci_candidate`, CI validation `passed`,
+  and external validation `pending`
 
-The recipient must treat it as a beta validation build, not a public installer.
+Before the checklist passes, treat that commit's package as a validation build. After it passes, the
+exact source commit may enter the signed factory with external validation marked complete. Publish
+only the factory's signed output after its own pluginval, transparency, signature, repeat-install,
+and uninstall gates pass. The unsigned candidate and fallback ZIP are not normal user-facing downloads.
 
 ## Tester Requirements
 
 - Windows 10 or 11, 64-bit.
 - A DAW that can load VST3 plug-ins.
-- Ability to unzip files and copy folders into the user VST3 directory.
+- Ability to run the current-user installer and Windows Installed apps uninstaller.
 - Ability to send screenshots and exported WAV files back to Daisuke.
 
 Record these facts in the report:
@@ -50,13 +69,17 @@ CI run URL:
 
 Close the DAW before installing.
 
-Use the user-level VST3 directory first:
+Open `Kirin-Hypha-<version>-Windows-x64-Setup.exe` and select **Current user** for the first pass.
+Repeat the installer once before DAW testing to exercise same-version update behavior. Both passes
+must complete without manual VST3 folder selection.
 
-```powershell
-New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Programs\Common\VST3"
-Copy-Item -Recurse -Force ".\Kirin Hypha PRE.vst3" "$env:LOCALAPPDATA\Programs\Common\VST3\"
-Copy-Item -Recurse -Force ".\Kirin Hypha POST.vst3" "$env:LOCALAPPDATA\Programs\Common\VST3\"
-```
+For an upgrade test, begin separately from the preceding public Windows release. For the first
+installer release, install the v1.1.48 PRE/POST manual ZIP into its documented user VST3 location;
+for later releases, install the preceding signed installer. Open and save one DAW session containing
+both roles, close the DAW, then run the candidate installer. Reopen that session and confirm that the
+candidate replaces both owned bundles, preserves the session identities and pair selection, and does
+not alter unrelated VST3 files. Record the old and new versions and both payload hashes in the
+external-validation report. Same-version reinstall does not substitute for this upgrade test.
 
 Expected installed paths:
 
@@ -65,7 +88,8 @@ Expected installed paths:
 %LOCALAPPDATA%\Programs\Common\VST3\Kirin Hypha POST.vst3
 ```
 
-Avoid the global admin path for the first validation pass:
+The optional all-users selection installs to the global path and requires elevation. Do not use it
+for the first validation pass:
 
 ```text
 %ProgramFiles%\Common Files\VST3
@@ -135,9 +159,9 @@ Fail data:
 
 ## Test 3: Pairing And Keep
 
-1. Name the PRE instance with a simple label such as `Mix` or `Drum`.
+1. Optionally name the PRE instance with a simple label such as `Mix` or `Drum`.
 2. On POST, open the pair menu.
-3. Select the matching PRE.
+3. Select that exact PRE under **Pair choices (not Keep targets)**; matching names are not required.
 4. Press `Keep`.
 5. Confirm PRE acknowledges the record request and POST indicates active Keep/Record state.
 6. Stop Keep.
@@ -160,8 +184,8 @@ Fail data:
 1. Select the same PRE/POST pair.
 2. Press `Keep`.
 3. Run an offline bounce/export for at least 20 seconds.
-4. Confirm POST closes Keep/Record after the bounce when the same Record generation has processed at least 1 second of offline audio. Short offline preflight fragments must not close Record. To test the manual-stop fallback only, launch with `KIRIN_HYPHA_OFFLINE_AUTOSTOP=0`.
-5. Press `Stop` manually to close the take.
+4. Confirm POST remains in the active Keep/Record generation after the bounce. Host offline-render state is evidence about processing mode; it does not own the Record lifecycle.
+5. Press `Stop` explicitly to close the take.
 6. Check Record/plugin_data output:
 
 ```powershell
@@ -204,11 +228,19 @@ Pass:
 
 - The two files null or compare bit-identical after alignment.
 
-If the tester cannot do a null test, this gate remains unresolved. Do not treat that as a full release pass.
+Some production sessions contain free-running modulation, reverbs, or other non-deterministic processors
+and cannot produce two bit-identical exports even when the insert state is unchanged. In that case, do not
+attribute the difference to Hypha. Run `KirinAudioTransparencyContractTests` against the exact installed
+PRE and POST VST3 bundles. The host contract exercises active realtime, active offline, stereo, and mono
+processing with known sample buffers and fails on the first changed sample bit or any non-zero latency.
+
+Pass requires either a deterministic DAW null or a passing exact-binary host contract for both PRE and POST.
+If neither can be completed, this gate remains unresolved. Do not treat that as a full release pass.
 
 ## Release Decision
 
 - Any failure in Test 1 or Test 2: do not proceed to LS.
 - Any failure in Test 3 or Test 4: do not proceed to LS.
 - Test 5 missing: beta can continue, but LS release remains blocked.
-- All tests pass with artifacts attached: prepare Windows LS packaging and a separate Windows LS state/runbook.
+- All tests pass with artifacts attached: mark external validation complete in the signed installer
+  manifest and include that exact installer in the three-channel release set.

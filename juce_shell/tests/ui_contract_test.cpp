@@ -1,7 +1,9 @@
 #include "../src/HyphaUiContract.h"
 #include "../src/HyphaDisplayContract.h"
 #include "../src/HyphaClockSourceContract.h"
+#include "../src/HyphaAttackUiContract.h"
 #include "../src/HyphaSignalStateContract.h"
+#include "../src/HyphaSpectrumUiContract.h"
 #include "../src/pre_display/PreDisplayClock.h"
 #include "../src/pre_display/PreDisplayProjection.h"
 #include "../../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
@@ -15,6 +17,7 @@ namespace ui = hypha::ui_contract;
 namespace display = hypha::display_contract;
 namespace clockSource = hypha::clock_source_contract;
 namespace signalState = hypha::signal_state_contract;
+namespace attackUi = hypha::attack_ui;
 
 namespace
 {
@@ -128,6 +131,7 @@ int main()
     static_assert (ui::pairMenuMaximumColumns == 1);
     static_assert (ui::background == 0xff0d0f1a);
     static_assert (ui::normal == 0xffe0e0e0);
+    static_assert (ui::observatoryValue == 0xffe8d8bd);
     static_assert (ui::muted == 0xff606060);
     static_assert (ui::preDisplayContextDetail == 0xff898989);
     static_assert (ui::flora == 0xffd4a043);
@@ -146,36 +150,56 @@ int main()
     static_assert (ui::spectrumPostGlowAlpha < ui::spectrumPostCurveAlpha);
     static_assert (ui::spectrumDeltaLegendAlpha > ui::spectrumPreLegendAlpha);
     static_assert (ui::spectrumPreLegendAlpha > ui::spectrumPostLegendAlpha);
-    static_assert (ui::spectrumSizePresets.size() == 3);
+    static_assert (ui::spectrumSizePresets.size() == 5);
     static_assert (ui::spectrumSizePresets[0].width == 300
                    && ui::spectrumSizePresets[0].height == 200);
     static_assert (ui::spectrumSizePresets[1].width == 375
                    && ui::spectrumSizePresets[1].height == 250);
     static_assert (ui::spectrumSizePresets[2].width == 450
                    && ui::spectrumSizePresets[2].height == 300);
+    static_assert (ui::spectrumSizePresets[3].width == 600
+                   && ui::spectrumSizePresets[3].height == 400);
+    static_assert (ui::spectrumSizePresets[4].width == 900
+                   && ui::spectrumSizePresets[4].height == 600);
     static_assert (ui::spectrumPlotBounds().x == 10
                    && ui::spectrumPlotBounds().y == 67
                    && ui::spectrumPlotBounds().width == 280
                    && ui::spectrumPlotBounds().height == 79);
     static_assert (ui::spectrumPlotBounds (375, 250).height == 129);
     static_assert (ui::spectrumPlotBounds (450, 300).height == 179);
+    static_assert (ui::spectrumPlotBounds (600, 400).height == 279);
+    static_assert (ui::spectrumPlotBounds (900, 600).height == 479);
     static_assert (ui::spectrumVisualScale (ui::spectrumPlotBounds().width) == 1.0f);
     static_assert (ui::spectrumVisualScale (
                        ui::spectrumPlotBounds (375, 250).width) == 1.25f);
     static_assert (ui::spectrumVisualScale (
                        ui::spectrumPlotBounds (450, 300).width) == 1.5f);
+    static_assert (ui::spectrumVisualScale (
+                       ui::spectrumPlotBounds (600, 400).width) == 2.0f);
+    static_assert (ui::spectrumVisualScale (
+                       ui::spectrumPlotBounds (900, 600).width) == 3.0f);
     static_assert (fitsWithin (ui::spectrumPlotBounds (375, 250), 375, 250));
     static_assert (fitsWithin (ui::spectrumPostControlsBounds (375, 250), 375, 250));
     static_assert (fitsWithin (ui::editorLayout (true, 375, 250).feedback, 375, 250));
     static_assert (fitsWithin (ui::spectrumPlotBounds (450, 300), 450, 300));
     static_assert (fitsWithin (ui::spectrumPostControlsBounds (450, 300), 450, 300));
     static_assert (fitsWithin (ui::editorLayout (true, 450, 300).feedback, 450, 300));
+    static_assert (fitsWithin (ui::spectrumPlotBounds (600, 400), 600, 400));
+    static_assert (fitsWithin (ui::spectrumPostControlsBounds (600, 400), 600, 400));
+    static_assert (fitsWithin (ui::editorLayout (true, 600, 400).feedback, 600, 400));
+    static_assert (fitsWithin (ui::spectrumPlotBounds (900, 600), 900, 600));
+    static_assert (fitsWithin (ui::spectrumPostControlsBounds (900, 600), 900, 600));
+    static_assert (fitsWithin (ui::editorLayout (true, 900, 600).feedback, 900, 600));
     static_assert (! overlaps (ui::spectrumSizeToggleBounds(),
                                ui::editorLayout (true).pairStatus));
     static_assert (! overlaps (ui::spectrumPlotBounds (375, 250),
                                ui::spectrumPostControlsBounds (375, 250)));
     static_assert (! overlaps (ui::spectrumPlotBounds (450, 300),
                                ui::spectrumPostControlsBounds (450, 300)));
+    static_assert (! overlaps (ui::spectrumPlotBounds (600, 400),
+                               ui::spectrumPostControlsBounds (600, 400)));
+    static_assert (! overlaps (ui::spectrumPlotBounds (900, 600),
+                               ui::spectrumPostControlsBounds (900, 600)));
     static_assert (ui::spectrumHoverReadoutWidth >= 90);
     static_assert (ui::spectrumHoverReadoutHeight >= 14);
     static_assert (ui::spectrumHoverFrequencyX + ui::spectrumHoverFrequencyWidth
@@ -219,7 +243,27 @@ int main()
     static_assert (KIRIN_DELTA_MODE_BYPASSED == 3u);
     static_assert (KIRIN_DELTA_MODE_PRE_INACTIVE == 4u);
     static_assert (KIRIN_SPECTRUM_BAND_COUNT == 256u);
-    static_assert (KIRIN_SPECTRUM_DISPLAY_RANGE_DB == 18.0f);
+    static_assert (KIRIN_SPECTRUM_DISPLAY_RANGE_DB == 24.0f);
+    static_assert (KIRIN_PERCEPTUAL_BATCH_CAPACITY == 64u);
+    static_assert (KIRIN_ATTACK_EVENT_BATCH_CAPACITY >= 200u);
+    static_assert (attackUi::presentationSeconds == 6);
+    static_assert (attackUi::presentationHz == 10);
+    static_assert (attackUi::activationEnvironmentVariable[0] == 'K');
+    static_assert (attackUi::activationValue[0] == '1');
+    static_assert (attackUi::windowSamples (48'000) == 288'000);
+    static_assert (attackUi::eventIsVisible (0, 288'000, 48'000));
+    static_assert (attackUi::eventIsVisible (-288'000, 0, 48'000));
+    static_assert (! attackUi::eventIsVisible (-288'001, 0, 48'000));
+    static_assert (! attackUi::eventIsVisible (288'001, 288'000, 48'000));
+    static_assert (attackUi::eventX (0, 288'000, 48'000, 281) == 0);
+    static_assert (attackUi::eventX (144'000, 288'000, 48'000, 281) == 140);
+    static_assert (attackUi::eventX (288'000, 288'000, 48'000, 281) == 280);
+    static_assert (attackUi::eventX (0, 0, 0, 281) == -1);
+    static_assert (! attackUi::validTimeline (
+        std::numeric_limits<std::int64_t>::min(), 48'000));
+    static_assert (hypha::ui_contract::spectrumCurvePresentationHz == 12);
+    static_assert (hypha::ui_contract::perceptualCurvePresentationHz == 5);
+    static_assert (hypha::ui_contract::analysisNumericPresentationHz == 2);
     static_assert (KIRIN_SPECTRUM_HIDDEN == 0u);
     static_assert (KIRIN_SPECTRUM_NO_PAIR == 1u);
     static_assert (KIRIN_SPECTRUM_WARMING_UP == 2u);
@@ -240,6 +284,12 @@ int main()
     static_assert (! display::preUnavailableForDelta (KIRIN_DELTA_MODE_NO_PRE));
     static_assert (display::preUnavailableForDelta (KIRIN_DELTA_MODE_BYPASSED));
     static_assert (display::preUnavailableForDelta (KIRIN_DELTA_MODE_PRE_INACTIVE));
+    static_assert (display::pairedPreIsExplicitlyBypassed (
+        true, true, KIRIN_DELTA_MODE_BYPASSED));
+    static_assert (! display::pairedPreIsExplicitlyBypassed (
+        true, true, KIRIN_DELTA_MODE_PRE_INACTIVE));
+    static_assert (! display::pairedPreIsExplicitlyBypassed (
+        true, true, KIRIN_DELTA_MODE_STALE));
     static_assert (display::recordPairContext (true, true, false, false));
     static_assert (display::recordPairContext (false, true, true, true));
     static_assert (! display::recordPairContext (false, true, true, false));
@@ -250,6 +300,8 @@ int main()
                    == display::MetricMode::delta);
     static_assert (display::recordMetricMode (true, true, KIRIN_DELTA_MODE_PRE_INACTIVE)
                    == display::MetricMode::delta);
+    static_assert (display::recordMetricMode (true, true, KIRIN_DELTA_MODE_BYPASSED)
+                   == display::MetricMode::absolute);
     static_assert (display::recordMetricMode (false, false, KIRIN_DELTA_MODE_PRE_INACTIVE)
                    == display::MetricMode::absolute);
     static_assert (display::watchMetricMode (true, false, KIRIN_DELTA_MODE_NO_PRE)
@@ -261,14 +313,15 @@ int main()
     static_assert (display::watchMetricMode (true, false, KIRIN_DELTA_MODE_PRE_INACTIVE)
                    == display::MetricMode::delta);
     static_assert (display::watchMetricMode (true, true, KIRIN_DELTA_MODE_BYPASSED)
-                   == display::MetricMode::delta);
+                   == display::MetricMode::absolute);
     static_assert (display::watchMetricMode (false, true, KIRIN_DELTA_MODE_ACTIVE)
                    == display::MetricMode::absolute);
 
-    assert (std::strcmp (ui::labelFontFamily, ".SF NS") == 0);
-    assert (std::strcmp (ui::monoFontFamily, ".SF NS Mono") == 0);
-    assert (std::strcmp (ui::windowsLabelFontFamily, "Segoe UI") == 0);
-    assert (std::strcmp (ui::windowsMonoFontFamily, "Consolas") == 0);
+    assert (std::strcmp (ui::kimeraFontFamily, "KMR Waldenburg Book") == 0);
+    assert (std::strcmp (ui::fallbackLabelFontFamily, ".SF NS") == 0);
+    assert (std::strcmp (ui::fallbackMonoFontFamily, ".SF NS Mono") == 0);
+    assert (std::strcmp (ui::windowsFallbackLabelFontFamily, "Segoe UI") == 0);
+    assert (std::strcmp (ui::windowsFallbackMonoFontFamily, "Consolas") == 0);
     assert (std::strcmp (ui::preTitle, "PRE") == 0);
     assert (std::strcmp (ui::postTitle, "POST") == 0);
     assert (std::strcmp (ui::maximumLabel, "MAX") == 0);
@@ -277,7 +330,24 @@ int main()
     assert (std::strcmp (ui::spectrumSizePresets[0].buttonText, "100%") == 0);
     assert (std::strcmp (ui::spectrumSizePresets[1].buttonText, "125%") == 0);
     assert (std::strcmp (ui::spectrumSizePresets[2].buttonText, "150%") == 0);
-
+    assert (std::strcmp (ui::spectrumSizePresets[3].buttonText, "200%") == 0);
+    assert (std::strcmp (ui::spectrumSizePresets[4].buttonText, "300%") == 0);
+    assert (std::abs (ui::analysisTextScale (1.0f) - 1.25f) < 0.0001f);
+    assert (std::abs (ui::analysisTextScale (1.25f) - 1.35f) < 0.0001f);
+    assert (std::abs (ui::analysisTextScale (1.5f) - 1.62f) < 0.0001f);
+    assert (std::abs (ui::analysisTextScale (2.0f) - 2.16f) < 0.0001f);
+    static_assert (ui::absoluteLufsBandTop < ui::absoluteLufsBandBottom
+                   && ui::absoluteLufsBandBottom > ui::absolutePeakBandTop
+                   && ui::absolutePeakBandBottom > ui::absoluteSharpnessBandTop
+                   && ui::absoluteSharpnessBandBottom <= 1.0f);
+    static_assert (ui::absoluteLufsBandBottom - ui::absoluteLufsBandTop >= 0.45f
+                   && ui::absolutePeakBandBottom - ui::absolutePeakBandTop >= 0.45f
+                   && ui::absoluteSharpnessBandBottom
+                        - ui::absoluteSharpnessBandTop >= 0.45f);
+    static_assert (ui::spectrumFocusTrailRangeDb == 12.0f
+                   && ui::spectrumFocusTrailCompactHeight >= 24.0f
+                   && ui::spectrumFocusTrailMediumHeight >= 38.0f
+                   && ui::spectrumFocusTrailLargeHeight >= 54.0f);
     // A silent project start is still Inactive. Once Watch has heard audio, short musical rests
     // remain Active and feed zero samples through the meter; one complete LUFS-S window of silence
     // ends the grace. Transport/Record exclusion resets the gate immediately.
@@ -485,6 +555,5 @@ int main()
     assert (ui::recordMetrics[5].metric == M::sharpness);
     assert (! ui::recordMetrics[2].deltaEligible);
     assert (! ui::recordMetrics[3].deltaEligible);
-
     return 0;
 }

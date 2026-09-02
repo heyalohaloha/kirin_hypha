@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::analysis_exchange_transport::{self, AnalysisSlot};
 use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode};
 
 pub(super) const REQUEST_SCHEMA: &str = "kirin_hypha_analysis_request_v4";
@@ -84,6 +85,9 @@ pub(super) fn validated_request(
 ) -> Option<(Uuid, AnalysisViewMode, SpectrumChannelMode, Option<i64>)> {
     let request = read_request(instance_dir)?;
     let analysis_mode = AnalysisViewMode::try_from(request.analysis_mode).ok()?;
+    if analysis_mode == AnalysisViewMode::Absolute {
+        return None;
+    }
     let channel_mode = SpectrumChannelMode::try_from(request.channel_mode).ok()?;
     (request.schema == REQUEST_SCHEMA
         && request.target_pre_instance_id == pre_instance_id
@@ -92,7 +96,10 @@ pub(super) fn validated_request(
         && !request.requested_by_post_instance_id.is_empty())
     .then_some(())?;
     let request_id = Uuid::parse_str(&request.request_id).ok()?;
-    if analysis_mode == AnalysisViewMode::Spectrum && request.state_epoch_samples.is_some() {
+    if analysis_mode != AnalysisViewMode::Perceptual && request.state_epoch_samples.is_some() {
+        return None;
+    }
+    if analysis_mode == AnalysisViewMode::Attack && channel_mode != SpectrumChannelMode::Lr {
         return None;
     }
     if let Some(epoch) = request.state_epoch_samples {
@@ -111,12 +118,19 @@ pub(super) fn validated_request(
 
 pub(super) fn write_request(instance_dir: &Path, request: &AnalysisRequest) -> std::io::Result<()> {
     let bytes = serde_json::to_vec(request).map_err(std::io::Error::other)?;
-    crate::atomic_file::write_bytes_atomic(&request_path(instance_dir), &bytes)
+    analysis_exchange_transport::write(
+        instance_dir,
+        &request_path(instance_dir),
+        AnalysisSlot::Request,
+        &bytes,
+    )
 }
 
 pub(super) fn read_request(instance_dir: &Path) -> Option<AnalysisRequest> {
-    serde_json::from_slice(&super::spectrum_exchange::codec::read_bounded(
+    serde_json::from_slice(&analysis_exchange_transport::read(
+        instance_dir,
         &request_path(instance_dir),
+        AnalysisSlot::Request,
         JSON_MAX_BYTES,
     )?)
     .ok()
@@ -124,19 +138,38 @@ pub(super) fn read_request(instance_dir: &Path) -> Option<AnalysisRequest> {
 
 pub(super) fn write_ready(instance_dir: &Path, ready: &AnalysisReady) -> std::io::Result<()> {
     let bytes = serde_json::to_vec(ready).map_err(std::io::Error::other)?;
-    crate::atomic_file::write_bytes_atomic(&ready_path(instance_dir), &bytes)
+    analysis_exchange_transport::write(
+        instance_dir,
+        &ready_path(instance_dir),
+        AnalysisSlot::Ready,
+        &bytes,
+    )
 }
 
 pub(super) fn read_ready(instance_dir: &Path) -> Option<AnalysisReady> {
-    serde_json::from_slice(&super::spectrum_exchange::codec::read_bounded(
+    serde_json::from_slice(&analysis_exchange_transport::read(
+        instance_dir,
         &ready_path(instance_dir),
+        AnalysisSlot::Ready,
         JSON_MAX_BYTES,
     )?)
     .ok()
 }
 
+pub(super) fn remove_request(instance_dir: &Path) {
+    let _ = analysis_exchange_transport::remove(
+        instance_dir,
+        &request_path(instance_dir),
+        AnalysisSlot::Request,
+    );
+}
+
 pub(super) fn remove_ready(instance_dir: &Path) {
-    let _ = std::fs::remove_file(ready_path(instance_dir));
+    let _ = analysis_exchange_transport::remove(
+        instance_dir,
+        &ready_path(instance_dir),
+        AnalysisSlot::Ready,
+    );
 }
 
 pub(super) fn request_path(instance_dir: &Path) -> PathBuf {

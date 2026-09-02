@@ -668,6 +668,8 @@ impl Plugin for HyphaPost {
             buffer_config.sample_rate as u32,
             N_CHANNELS,
             Arc::clone(&self.measure_result),
+            None,
+            None,
             Arc::clone(&self.watch_playback_pass_id),
             Arc::clone(&self.watch_playback_pass_cutover_samples),
             Arc::clone(&self.watch_ring_cursor_epoch),
@@ -872,6 +874,7 @@ impl Plugin for HyphaPost {
             Arc::clone(&pair_owner),    // exact pair survives IO worker restart
             Arc::clone(&self.latched_pre), // B-108: display/keep 共有ラッチ
             None, // Spectrum is JUCE-shell-only; preserve the legacy egui IO surface.
+            None, // Observatory Meter History exchange is JUCE-shell-only.
         );
 
         // ── Watchdog Thread 起動 ──────────────────────────────────────
@@ -948,6 +951,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&pair_owner), // exact pair survives IO worker restart
                     Arc::clone(&latched_pre), // B-108: display/keep 共有ラッチ
                     None, // Spectrum is JUCE-shell-only; preserve the legacy egui IO surface.
+                    None, // Observatory Meter History exchange is JUCE-shell-only.
                 )
             }
         };
@@ -957,6 +961,8 @@ impl Plugin for HyphaPost {
             n_channels: N_CHANNELS,
             ring_capacity: capacity,
             measure_result: Arc::clone(&self.measure_result),
+            meter_session: None,
+            meter_session_publication: None,
             watch_playback_pass_id: Arc::clone(&self.watch_playback_pass_id),
             watch_playback_pass_cutover_samples: Arc::clone(
                 &self.watch_playback_pass_cutover_samples,

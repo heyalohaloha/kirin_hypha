@@ -18,13 +18,15 @@ namespace hypha::spectrum_focus
     enum class AppendResult
     {
         appended,
+        gapAppended,
         duplicateIgnored,
         discontinuityReset,
         rejected,
     };
 
     // UI-thread-only, fixed-capacity presentation history. It stores exact display snapshots and
-    // their shared PRE/POST sample endpoints so paint never invents a time point or smooths live Δ.
+    // their shared PRE/POST sample endpoints. Missed UI polls remain sparse timestamped gaps, so
+    // paint never invents a time point, resets useful history, or smooths the live Δ.
     class FocusTrailHistory final
     {
     public:
@@ -39,6 +41,7 @@ namespace hypha::spectrum_focus
         int64_t endpointAt (size_t chronologicalIndex) const noexcept;
         float valueAt (size_t chronologicalIndex, float normalisedBand) const noexcept;
         double ageSecondsAt (size_t chronologicalIndex) const noexcept;
+        bool hasGapBetween (size_t earlierIndex, size_t laterIndex) const noexcept;
 
     private:
         struct Frame
@@ -48,6 +51,8 @@ namespace hypha::spectrum_focus
         };
 
         size_t physicalIndex (size_t chronologicalIndex) const noexcept;
+        void discardOldest() noexcept;
+        void trimToVisibleHorizon (int64_t newestEndpoint) noexcept;
 
         std::array<Frame, focusTrailCapacity> frames {};
         size_t start = 0u;

@@ -1,9 +1,12 @@
 #include "SpectrumInteractionContractTest.h"
 
+#include "../src/HyphaAnalysisUiText.h"
+#include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaSpectrumUiContract.h"
 #include "../src/HyphaUiContract.h"
 
 #include <cstdlib>
+#include <cmath>
 #include <iostream>
 
 namespace hypha::tests
@@ -32,6 +35,77 @@ namespace
         return count;
     }
 
+    int countDifferentPixelsOutsideColumns (const juce::Image& a,
+                                            const juce::Image& b,
+                                            juce::Rectangle<int> requested,
+                                            float firstExcludedX,
+                                            float secondExcludedX,
+                                            float exclusionRadius)
+    {
+        KIRIN_INTERACTION_REQUIRE (a.getBounds() == b.getBounds());
+        const auto area = requested.getIntersection (a.getBounds());
+        int count = 0;
+        for (int y = area.getY(); y < area.getBottom(); ++y)
+            for (int x = area.getX(); x < area.getRight(); ++x)
+                if (std::abs ((float) x - firstExcludedX) > exclusionRadius
+                    && std::abs ((float) x - secondExcludedX) > exclusionRadius
+                    && a.getPixelAt (x, y).getARGB() != b.getPixelAt (x, y).getARGB())
+                    ++count;
+        return count;
+    }
+
+    int countWarmChangedPixels (const juce::Image& withMark,
+                                const juce::Image& withoutMark,
+                                juce::Rectangle<int> requested)
+    {
+        KIRIN_INTERACTION_REQUIRE (withMark.getBounds() == withoutMark.getBounds());
+        const auto area = requested.getIntersection (withMark.getBounds());
+        int count = 0;
+        for (int y = area.getY(); y < area.getBottom(); ++y)
+        {
+            for (int x = area.getX(); x < area.getRight(); ++x)
+            {
+                const auto marked = withMark.getPixelAt (x, y);
+                if (marked.getARGB() != withoutMark.getPixelAt (x, y).getARGB()
+                    && (int) marked.getRed() > (int) marked.getBlue() + 18
+                    && (int) marked.getGreen() > (int) marked.getBlue() + 8)
+                {
+                    ++count;
+                }
+            }
+        }
+        return count;
+    }
+
+    int countWarmPixels (const juce::Image& image, juce::Rectangle<int> requested)
+    {
+        const auto area = requested.getIntersection (image.getBounds());
+        int count = 0;
+        for (int y = area.getY(); y < area.getBottom(); ++y)
+            for (int x = area.getX(); x < area.getRight(); ++x)
+            {
+                const auto pixel = image.getPixelAt (x, y);
+                if ((int) pixel.getRed() > (int) pixel.getBlue() + 18
+                    && (int) pixel.getGreen() > (int) pixel.getBlue() + 8)
+                {
+                    ++count;
+                }
+            }
+        return count;
+    }
+
+    void writeReviewImage (const juce::Image& image, const char* environmentVariable)
+    {
+        const auto path = juce::SystemStats::getEnvironmentVariable (
+            environmentVariable, {});
+        if (path.isEmpty())
+            return;
+        auto output = juce::File (path).createOutputStream();
+        KIRIN_INTERACTION_REQUIRE (output != nullptr);
+        KIRIN_INTERACTION_REQUIRE (
+            juce::PNGImageFormat().writeImageToStream (image, *output));
+    }
+
     juce::MouseEvent mouseEvent (juce::Component& component,
                                   float x,
                                   float y,
@@ -53,12 +127,57 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
                                         juce::Time eventTime)
 {
     namespace ui = ui_contract;
-    const float controlY = (float) ui::spectrumPlotTopInset
-                         + (float) ui::spectrumChannelModeTop
-                         + 0.5f * (float) ui::spectrumChannelModeHeight;
-    const float markX = (float) width
-                      - (float) ui::spectrumPlotRightInset
-                      - 0.5f * (float) ui::spectrumMarkWidth;
+    const auto componentBounds = juce::Rectangle<float> (
+        0.0f, 0.0f, (float) width, (float) height);
+    const auto outerPlot = spectrum_geometry::plotBoundsFor (componentBounds);
+    const float scale = spectrum_geometry::visualScaleFor (componentBounds);
+    const auto markBounds = spectrum_geometry::markBoundsFor (outerPlot, scale);
+    const float controlY = markBounds.getCentreY();
+    const float markX = markBounds.getCentreX();
+
+    SpectrumComponent bandMappingSpectrum;
+    bandMappingSpectrum.setSize (width, height);
+    bandMappingSpectrum.setSnapshot (snapshot);
+    const auto mappingPlot = spectrum_geometry::dataPlotBoundsFor (componentBounds);
+    bandMappingSpectrum.mouseMove (mouseEvent (
+        bandMappingSpectrum, mappingPlot.getX(), mappingPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (
+        bandMappingSpectrum.getTooltip() == analysis_ui::approximateFrequencyTooltip());
+    bandMappingSpectrum.mouseExit (mouseEvent (
+        bandMappingSpectrum, mappingPlot.getX(), mappingPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (bandMappingSpectrum.getTooltip().isEmpty());
+    const auto midTooltipBounds = spectrum_geometry::channelModeBoundsFor (1u, outerPlot, scale);
+    bandMappingSpectrum.mouseMove (mouseEvent (
+        bandMappingSpectrum, midTooltipBounds.getCentreX(), midTooltipBounds.getCentreY(),
+        eventTime));
+    KIRIN_INTERACTION_REQUIRE (
+        bandMappingSpectrum.getTooltip() == analysis_ui::channelModeTooltip (1u));
+    bandMappingSpectrum.mouseMove (mouseEvent (
+        bandMappingSpectrum, markX, controlY, eventTime));
+    KIRIN_INTERACTION_REQUIRE (
+        bandMappingSpectrum.getTooltip() == analysis_ui::markTooltip (false));
+    bandMappingSpectrum.mouseDown (mouseEvent (
+        bandMappingSpectrum, mappingPlot.getX(), mappingPlot.getCentreY(), eventTime));
+    const float firstCentreFrequency = spectrum_geometry::frequencyForNormalisedX (
+        spectrum_geometry::bandCentreNormalisedX (0u), snapshot.min_hz, snapshot.max_hz);
+    KIRIN_INTERACTION_REQUIRE (std::abs (
+        bandMappingSpectrum.focusLockFrequencyHz() - firstCentreFrequency) < 0.001f);
+    bandMappingSpectrum.mouseDown (mouseEvent (
+        bandMappingSpectrum, mappingPlot.getRight() - 0.01f,
+        mappingPlot.getCentreY(), eventTime));
+    const float lastCentreFrequency = spectrum_geometry::frequencyForNormalisedX (
+        spectrum_geometry::bandCentreNormalisedX (KIRIN_SPECTRUM_BAND_COUNT - 1u),
+        snapshot.min_hz, snapshot.max_hz);
+    KIRIN_INTERACTION_REQUIRE (std::abs (
+        bandMappingSpectrum.focusLockFrequencyHz() - lastCentreFrequency) < 0.1f);
+
+    KirinSpectrumView invalidLayout = snapshot;
+    --invalidLayout.aperture_samples;
+    SpectrumComponent failClosedSpectrum;
+    failClosedSpectrum.setSize (width, height);
+    failClosedSpectrum.setSnapshot (invalidLayout);
+    KIRIN_INTERACTION_REQUIRE (failClosedSpectrum.focusTrailSizeForTest() == 0u);
+
     spectrum.mouseDown (mouseEvent (spectrum, markX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (spectrum.hasMark());
 
@@ -73,9 +192,14 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         juce::Graphics graphics (withMark);
         spectrum.paintEntireComponent (graphics, true);
     }
+    writeReviewImage (
+        withMark,
+        scale < 1.125f ? "KIRIN_UI_MARK_OUTPUT"
+          : scale < 1.375f ? "KIRIN_UI_MARK_OUTPUT_MEDIUM"
+                           : "KIRIN_UI_MARK_OUTPUT_LARGE");
 
-    const float markClearX = (float) width
-                           - (float) ui::spectrumPlotRightInset - 2.0f;
+    const float markClearX = spectrum_geometry::markClearBoundsFor (
+        markBounds, scale).getCentreX();
     spectrum.mouseDown (mouseEvent (spectrum, markClearX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (! spectrum.hasMark());
     juce::Image afterMarkClear (
@@ -85,16 +209,37 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         spectrum.paintEntireComponent (graphics, true);
     }
     KIRIN_INTERACTION_REQUIRE (countDifferentPixels (withMark, afterMarkClear) > 40);
+    const auto dataPlot = spectrum_geometry::dataPlotBoundsFor (
+        componentBounds).toNearestInt();
+    const auto markButton = markBounds.toNearestInt();
+    KIRIN_INTERACTION_REQUIRE (
+        countWarmChangedPixels (withMark, afterMarkClear, dataPlot) > 20);
+    KIRIN_INTERACTION_REQUIRE (
+        countWarmChangedPixels (withMark, afterMarkClear, markButton) > 8);
+    KIRIN_INTERACTION_REQUIRE (countWarmPixels (afterMarkClear, markButton) > 8);
     spectrum.mouseDown (mouseEvent (spectrum, markX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (spectrum.hasMark());
+    const float retainedFocusX = dataPlot.getCentreX();
+    spectrum.mouseDown (mouseEvent (
+        spectrum, retainedFocusX, dataPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (spectrum.hasFocusLock());
+    const float retainedFrequency = spectrum.focusLockFrequencyHz();
+    const size_t retainedTrailSize = spectrum.focusTrailSizeForTest();
     KirinSpectrumView warmingSnapshot = movedSnapshot;
     warmingSnapshot.status = KIRIN_SPECTRUM_WARMING_UP;
     warmingSnapshot.has_data = 0u;
     spectrum.setSnapshot (warmingSnapshot);
-    KIRIN_INTERACTION_REQUIRE (! spectrum.hasMark());
-    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 0u);
+    KIRIN_INTERACTION_REQUIRE (spectrum.hasMark());
+    KIRIN_INTERACTION_REQUIRE (spectrum.hasFocusLock());
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (spectrum.focusLockFrequencyHz() - retainedFrequency) < 1.0e-4f);
+    KIRIN_INTERACTION_REQUIRE (
+        spectrum.focusTrailSizeForTest() == retainedTrailSize);
     spectrum.setSnapshot (snapshot);
-    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 1u);
+    KIRIN_INTERACTION_REQUIRE (spectrum.hasMark());
+    KIRIN_INTERACTION_REQUIRE (spectrum.hasFocusLock());
+    KIRIN_INTERACTION_REQUIRE (
+        spectrum.focusTrailSizeForTest() == retainedTrailSize);
     KirinSpectrumView nextEndpoint = snapshot;
     nextEndpoint.presentation_end_samples += 1'600;
     spectrum.setSnapshot (nextEndpoint);
@@ -102,17 +247,86 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     KirinSpectrumView skippedEndpoint = nextEndpoint;
     skippedEndpoint.presentation_end_samples += 3'200;
     spectrum.setSnapshot (skippedEndpoint);
-    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 1u);
+    KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 3u);
+
+    SpectrumComponent recoveredSpectrum;
+    recoveredSpectrum.setSize (width, height);
+    KirinSpectrumBatch recovery {};
+    recovery.count = 4u;
+    for (uint32_t index = 0u; index < recovery.count; ++index)
+    {
+        recovery.frames[index] = snapshot;
+        recovery.frames[index].presentation_end_samples += 1'600 * index;
+        recovery.frames[index].display_db[0] += (float) index;
+        recovery.frames[index].post_dbfs[0] += (float) index;
+    }
+    recovery.latest = recovery.frames[recovery.count - 1u];
+    recoveredSpectrum.setBatch (recovery);
+    KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.focusTrailSizeForTest() == 4u);
+    const auto recoveredPlot = spectrum_geometry::dataPlotBoundsFor (componentBounds);
+    const float lockedX = juce::jmap (
+        0.25f, recoveredPlot.getX(), recoveredPlot.getRight());
+    const float movedHoverX = juce::jmap (
+        0.75f, recoveredPlot.getX(), recoveredPlot.getRight());
+    recoveredSpectrum.mouseDown (mouseEvent (
+        recoveredSpectrum,
+        lockedX,
+        recoveredPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.hasFocusLock());
+    const float lockedFrequency = recoveredSpectrum.focusLockFrequencyHz();
+    juce::Image trailAtLock (
+        juce::Image::ARGB, recoveredSpectrum.getWidth(), recoveredSpectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (trailAtLock);
+        recoveredSpectrum.paintEntireComponent (graphics, true);
+    }
+    recoveredSpectrum.mouseMove (mouseEvent (
+        recoveredSpectrum, movedHoverX,
+        recoveredPlot.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (recoveredSpectrum.focusLockFrequencyHz() - lockedFrequency) < 1.0e-4f);
+    juce::Image trailAfterHoverMove (
+        juce::Image::ARGB, recoveredSpectrum.getWidth(), recoveredSpectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (trailAfterHoverMove);
+        recoveredSpectrum.paintEntireComponent (graphics, true);
+    }
+    KIRIN_INTERACTION_REQUIRE (
+        countDifferentPixelsOutsideColumns (
+            trailAtLock, trailAfterHoverMove,
+            spectrum_geometry::focusTrailBoundsFor (componentBounds).toNearestInt(),
+            lockedX, movedHoverX, 8.0f * scale) == 0);
+    KirinSpectrumBatch invalidRecovery = recovery;
+    invalidRecovery.frames[2].presentation_end_samples
+        = invalidRecovery.frames[1].presentation_end_samples;
+    recoveredSpectrum.setBatch (invalidRecovery);
+    KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.focusTrailSizeForTest() == 4u);
+
+    KirinSpectrumBatch backwardsRecovery {};
+    backwardsRecovery.count = 3u;
+    const int64_t backwardsStart = snapshot.presentation_end_samples - 16'000;
+    for (uint32_t index = 0u; index < backwardsRecovery.count; ++index)
+    {
+        backwardsRecovery.frames[index] = snapshot;
+        backwardsRecovery.frames[index].presentation_end_samples
+            = backwardsStart + 1'600 * index;
+    }
+    backwardsRecovery.latest = backwardsRecovery.frames[backwardsRecovery.count - 1u];
+    recoveredSpectrum.setBatch (backwardsRecovery);
+    KIRIN_INTERACTION_REQUIRE (
+        recoveredSpectrum.presentedEndpointForTest() == backwardsStart);
+    KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.focusTrailSizeForTest() == 3u);
+    KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.hasFocusLock());
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (recoveredSpectrum.focusLockFrequencyHz() - lockedFrequency) < 1.0e-4f);
 
     uint8_t requestedChannelMode = 0xffu;
     spectrum.onChannelModeChange = [&requestedChannelMode] (uint8_t mode) {
         requestedChannelMode = mode;
         return true;
     };
-    const float midX = (float) ui::spectrumPlotLeftInset
-                     + (float) ui::spectrumChannelModeWidths[0]
-                     + (float) ui::spectrumChannelModeGap
-                     + 0.5f * (float) ui::spectrumChannelModeWidths[1];
+    const float midX = spectrum_geometry::channelModeBoundsFor (
+        1u, outerPlot, scale).getCentreX();
     spectrum.mouseDown (mouseEvent (spectrum, midX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (requestedChannelMode == KIRIN_SPECTRUM_CHANNEL_MID);
     KIRIN_INTERACTION_REQUIRE (
@@ -130,15 +344,36 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         ++monoModeCallbacks;
         return true;
     };
-    const float sideX = (float) ui::spectrumPlotLeftInset
-                      + (float) ui::spectrumChannelModeWidths[0]
-                      + (float) ui::spectrumChannelModeGap
-                      + (float) ui::spectrumChannelModeWidths[1]
-                      + (float) ui::spectrumChannelModeGap
-                      + 0.5f * (float) ui::spectrumChannelModeWidths[2];
+    const float sideX = spectrum_geometry::channelModeBoundsFor (
+        2u, outerPlot, scale).getCentreX();
     monoSpectrum.mouseDown (mouseEvent (monoSpectrum, sideX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (monoModeCallbacks == 0);
     KIRIN_INTERACTION_REQUIRE (
         monoSpectrum.channelModeForTest() == KIRIN_SPECTRUM_CHANNEL_LR);
+
+    SpectrumComponent pacedSpectrum;
+    pacedSpectrum.setSize (width, height);
+    pacedSpectrum.setSnapshot (snapshot);
+    KirinSpectrumView queuedSnapshot = snapshot;
+    queuedSnapshot.presentation_end_samples += 1'600;
+    queuedSnapshot.display_db[0] += 6.0f;
+    queuedSnapshot.post_dbfs[0] += 6.0f;
+    const float heldDelta = pacedSpectrum.readoutDeltaForTest (0u);
+    pacedSpectrum.queueSnapshot (queuedSnapshot);
+    KIRIN_INTERACTION_REQUIRE (
+        pacedSpectrum.presentedEndpointForTest() == snapshot.presentation_end_samples);
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    pacedSpectrum.presentationTickAt (now + 50.0);
+    KIRIN_INTERACTION_REQUIRE (
+        pacedSpectrum.presentedEndpointForTest() == snapshot.presentation_end_samples);
+    pacedSpectrum.presentationTickAt (now + 90.0);
+    KIRIN_INTERACTION_REQUIRE (
+        pacedSpectrum.presentedEndpointForTest()
+            == queuedSnapshot.presentation_end_samples);
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (pacedSpectrum.readoutDeltaForTest (0u) - heldDelta) < 1.0e-6f);
+    pacedSpectrum.presentationTickAt (now + 510.0);
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (pacedSpectrum.readoutDeltaForTest (0u) - heldDelta) > 0.1f);
 }
 }

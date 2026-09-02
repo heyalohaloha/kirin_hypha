@@ -5,6 +5,9 @@
 namespace hypha::ui_contract
 {
     constexpr int spectrumPresentationHz = 30;
+    constexpr int spectrumCurvePresentationHz = 12;
+    constexpr int perceptualCurvePresentationHz = 5;
+    constexpr int analysisNumericPresentationHz = 2;
     constexpr int spectrumToggleWidth = 84;
     constexpr int spectrumToggleHeight = 21;
     constexpr int spectrumTitleGap = 8;
@@ -23,16 +26,39 @@ namespace hypha::ui_contract
         const char* tooltip;
     };
 
-    constexpr std::array<SpectrumSizePreset, 3> spectrumSizePresets {{
+    constexpr std::array<SpectrumSizePreset, 5> spectrumSizePresets {{
         { 300, 200, "100%", "Analysis size: 100%" },
         { 375, 250, "125%", "Analysis size: 125%" },
         { 450, 300, "150%", "Analysis size: 150%" },
+        { 600, 400, "200%", "Analysis size: 200%" },
+        { 900, 600, "300%", "Analysis size: 300% inspection view" },
     }};
 
     constexpr int spectrumPlotLeftInset = 24;
     constexpr int spectrumPlotRightInset = 25;
     constexpr int spectrumPlotTopInset = 6;
     constexpr int spectrumPlotBottomInset = 12;
+    // Analysis is still usable at the 300 x 200 host size. Geometry keeps its exact preset
+    // scale, while type receives a readability floor and a small proportional lift at every
+    // size. This is presentation-only and never changes the analysis cadence or values.
+    constexpr float analysisTextScale (float visualScale) noexcept
+    {
+        const float proportional = visualScale * 1.08f;
+        return proportional < 1.25f ? 1.25f : proportional;
+    }
+
+    // LIVE uses one shared time field, but its three unrelated units must not collapse into the
+    // same upper strip. The original fixed value ranges remain intact; only their optical bands
+    // are distributed through the field. Slight overlap keeps the result one cockpit surface,
+    // rather than three boxed charts.
+    constexpr float absoluteLufsBandTop = 0.01f;
+    constexpr float absoluteLufsBandBottom = 0.49f;
+    constexpr float absolutePeakBandTop = 0.26f;
+    constexpr float absolutePeakBandBottom = 0.74f;
+    constexpr float absoluteSharpnessBandTop = 0.51f;
+    constexpr float absoluteSharpnessBandBottom = 0.99f;
+    constexpr float absolutePlotTopInset = 2.0f;
+    constexpr float absolutePlotBottomInset = 5.0f;
     constexpr float spectrumLegendFontHeight = 8.5f;
     constexpr int spectrumLegendTop = 1;
     constexpr int spectrumLegendHeight = 10;
@@ -50,6 +76,11 @@ namespace hypha::ui_contract
     constexpr float spectrumPostGlowAlpha = 0.05f;
     constexpr float spectrumPostStrokeWidth = 1.10f;
     constexpr float spectrumPostCurveAlpha = 0.70f;
+    constexpr float guideBandActiveTopAlpha = 0.16f;
+    constexpr float guideBandActiveBottomAlpha = 0.025f;
+    constexpr float guideBandGlowAlpha = 0.105f;
+    constexpr float guideBandActiveStrokeAlpha = 0.90f;
+    constexpr float guideBandCueStrokeAlpha = 0.36f;
     constexpr float spectrumDeltaLegendAlpha = 0.98f;
     constexpr float spectrumPreLegendAlpha = 0.92f;
     constexpr float spectrumPostLegendAlpha = 0.90f;
@@ -80,11 +111,22 @@ namespace hypha::ui_contract
     constexpr int spectrumLegendAfterChannelModes = 84;
     constexpr int spectrumMarkWidth = 42;
     constexpr int spectrumMarkClearWidth = 11;
-    constexpr float spectrumMarkCurveAlpha = 0.38f;
-    constexpr float spectrumMarkStrokeWidth = 1.0f;
-    constexpr float spectrumFocusTrailCompactHeight = 15.0f;
-    constexpr float spectrumFocusTrailMediumHeight = 22.0f;
-    constexpr float spectrumFocusTrailLargeHeight = 30.0f;
+    // MARK is one frozen full-band reference. It must remain visibly distinct from PRE/POST
+    // while staying below the live 2.15 px Δ curve, which also owns fill and glow.
+    constexpr float spectrumMarkCurveAlpha = 0.88f;
+    constexpr float spectrumMarkStrokeWidth = 1.50f;
+    constexpr float spectrumMarkButtonInactiveAlpha = 0.78f;
+    constexpr float spectrumMarkButtonActiveAlpha = 0.98f;
+    constexpr float spectrumMarkButtonInactiveBorderAlpha = 0.34f;
+    constexpr float spectrumMarkButtonActiveBorderAlpha = 0.82f;
+    constexpr float spectrumMarkButtonActiveFillAlpha = 0.13f;
+    // Focus Trail is a selected-band work surface, not a miniature copy of the ±24 dB FREQ
+    // overview. Its fixed ±12 dB scale keeps ordinary EQ moves legible without an auto-ranging
+    // axis that would make two identical changes look different.
+    constexpr float spectrumFocusTrailRangeDb = 12.0f;
+    constexpr float spectrumFocusTrailCompactHeight = 24.0f;
+    constexpr float spectrumFocusTrailMediumHeight = 38.0f;
+    constexpr float spectrumFocusTrailLargeHeight = 54.0f;
     constexpr float spectrumFocusTrailAxisGap = 12.0f;
     constexpr float spectrumFocusTrailInset = 3.0f;
     constexpr float spectrumFocusTrailRadius = 4.0f;

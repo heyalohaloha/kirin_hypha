@@ -157,7 +157,7 @@ namespace hypha::pre_display
                                                   "start_ns", "end_ns" }))
                     return false;
             }
-            else if (! hasOnlyProperties (object, { "item_id", "start_ns", "end_ns",
+            else if (! hasOnlyProperties (object, { "item_id", "selection_ref", "start_ns", "end_ns",
                                                      "frequency_state", "frequency_basis", "band" })
                      || ! hasProperties (object, { "item_id", "start_ns", "end_ns",
                                                    "frequency_state" }))
@@ -200,6 +200,14 @@ namespace hypha::pre_display
             }
 
             const auto state = objectString (object, "frequency_state");
+            item.selectionRef = objectString (object, "selection_ref");
+            const bool hasReviewSelection = model.protocolVersion == "1.1"
+                                         || model.protocolVersion == "2.0"
+                                         || model.protocolVersion == "3.0";
+            if (hasReviewSelection && ! safeId (item.selectionRef))
+                return false;
+            if (! hasReviewSelection && object.hasProperty ("selection_ref"))
+                return false;
             if (state != "measured" && state != "unlocated"
                 && state != "missing" && state != "invalid")
                 return false;
@@ -278,6 +286,7 @@ namespace hypha::pre_display
                                           GuideModel& model)
     {
         GuideModel candidate;
+        candidate.protocolVersion = objectString (guide, "version");
         if (! hasOnlyProperties (guide, { "format", "version", "guide_id", "revision",
                                           "created_at", "content_hash", "producer", "target",
                                           "source_set", "time_basis", "display_locale", "payload" })
@@ -285,7 +294,10 @@ namespace hypha::pre_display
                                          "created_at", "content_hash", "producer", "target",
                                          "source_set", "time_basis", "payload" })
             || objectString (guide, "format") != "kirin_pre_display_guide"
-            || objectString (guide, "version") != "1.0"
+            || (candidate.protocolVersion != "1.0"
+                && candidate.protocolVersion != "1.1"
+                && candidate.protocolVersion != "2.0"
+                && candidate.protocolVersion != "3.0")
             || ! canonicalIsoInstant (objectString (guide, "created_at")))
             return false;
         candidate.cacheKey = cacheKey;
@@ -300,7 +312,7 @@ namespace hypha::pre_display
         if (! canonicalUuid (candidate.guideId) || ! safeHash (candidate.contentHash)
             || target == nullptr || timeBasis == nullptr || payload == nullptr
             || producer == nullptr || sourceSet == nullptr || sourceSet->isEmpty() || sourceSet->size() > 32
-            || ! hasOnlyProperties (*producer, { "session_id", "work_id", "report_id" })
+            || ! hasOnlyProperties (*producer, { "session_id", "work_id", "report_id", "source_sha256_file" })
             || ! hasProperties (*producer, { "session_id" })
             || ! canonicalUuid (objectString (*producer, "session_id"))
             || (guide.hasProperty ("display_locale")
@@ -314,16 +326,39 @@ namespace hypha::pre_display
                 && (! value.isString() || ! canonicalUuid (value.toString())))
                 return false;
         }
+        const auto producerWorkId = objectString (*producer, "work_id");
+        const auto producerSourceHash = objectString (*producer, "source_sha256_file");
+        const auto roleNeutralTarget = candidate.protocolVersion == "3.0";
+        const auto exactTarget = candidate.protocolVersion == "2.0" || roleNeutralTarget;
+        if (exactTarget
+            && (! canonicalUuid (producerWorkId) || ! safeHash (producerSourceHash)))
+            return false;
         candidate.groupId = objectString (*target, "group_id");
         candidate.payloadKind = objectString (*payload, "kind");
-        if (! hasOnlyProperties (*target, { "group_id", "selection_mode" })
-            || ! hasProperties (*target, { "group_id", "selection_mode" })
+        const auto reviewTarget = candidate.protocolVersion == "1.1" || exactTarget;
+        const std::initializer_list<const char*> legacyTargetFields {
+            "group_id", "selection_mode"
+        };
+        const std::initializer_list<const char*> exactPreTargetFields {
+            "group_id", "selection_mode", "work_id", "binding_id", "runtime_instance_id"
+        };
+        const std::initializer_list<const char*> exactHyphaTargetFields {
+            "group_id", "selection_mode", "target_role", "work_id", "binding_id",
+            "runtime_instance_id"
+        };
+        const auto targetFields = roleNeutralTarget ? exactHyphaTargetFields
+                                : exactTarget ? exactPreTargetFields : legacyTargetFields;
+        if (! hasOnlyProperties (*target, targetFields)
+            || ! hasProperties (*target, targetFields)
             || ! hasOnlyProperties (*timeBasis, { "kind", "unit", "interval_convention",
                                                    "source_zero_project_ns", "alignment_method" })
             || ! hasProperties (*timeBasis, { "kind", "unit", "interval_convention",
                                               "source_zero_project_ns", "alignment_method" })
             || ! safeId (candidate.groupId)
-            || objectString (*target, "selection_mode") != "all_pre_instances"
+            || objectString (*target, "selection_mode") != (roleNeutralTarget
+                    ? "exact_hypha_binding" : exactTarget
+                        ? "exact_pre_binding" : "all_pre_instances")
+            || (roleNeutralTarget && objectString (*target, "target_role") != "post")
             || (candidate.payloadKind != "masking" && candidate.payloadKind != "inspect")
             || ! objectInteger (guide, "revision", 1, maxSafeJsonInteger, candidate.revision)
             || objectString (*timeBasis, "kind") != "source_to_project_offset"
@@ -335,6 +370,17 @@ namespace hypha::pre_display
             || ! objectInteger (*timeBasis, "source_zero_project_ns", -maxSafeJsonInteger,
                                 maxSafeJsonInteger, candidate.sourceZeroProjectNs))
             return false;
+        if (exactTarget)
+        {
+            candidate.targetRole = roleNeutralTarget
+                ? GuideTargetRole::post : GuideTargetRole::pre;
+            candidate.workId = objectString (*target, "work_id");
+            candidate.bindingId = objectString (*target, "binding_id");
+            candidate.runtimeInstanceId = objectString (*target, "runtime_instance_id");
+            if (! canonicalUuid (candidate.workId) || candidate.workId != producerWorkId
+                || ! canonicalUuid (candidate.bindingId) || ! safeId (candidate.runtimeInstanceId))
+                return false;
+        }
 
         std::map<std::string, juce::String> sourceLabels;
         std::map<std::string, std::int64_t> sourceDurations;
@@ -396,11 +442,13 @@ namespace hypha::pre_display
         }
 
         const juce::Array<juce::var>* items = nullptr;
+        std::map<std::string, GuideReviewSelection> reviewSelections;
         std::int64_t maskingDuration = maxSafeJsonInteger;
         if (candidate.payloadKind == "masking")
         {
-            if (! hasOnlyProperties (*payload, { "kind", "measurement_state", "pair_key",
-                                                 "source_order", "intervals" })
+            if (! hasOnlyProperties (*payload, reviewTarget
+                    ? std::initializer_list<const char*> { "kind", "measurement_state", "pair_key", "source_order", "review_selections", "intervals" }
+                    : std::initializer_list<const char*> { "kind", "measurement_state", "pair_key", "source_order", "intervals" })
                 || ! hasProperties (*payload, { "kind", "pair_key", "source_order", "intervals" })
                 || ! safeId (objectString (*payload, "pair_key")))
                 return false;
@@ -429,6 +477,39 @@ namespace hypha::pre_display
             candidate.sourcePairLabel = compactText (sourceLabelFor (sourceLabels, a), 16)
                                       + " " + juce::String::charToString (0x00d7) + " "
                                       + compactText (sourceLabelFor (sourceLabels, b), 16);
+            if (reviewTarget)
+            {
+                const auto* selections = payload->getProperty ("review_selections").getArray();
+                if (selections == nullptr || selections->isEmpty() || selections->size() > maxGuideItems)
+                    return false;
+                for (const auto& selectionValue : *selections)
+                {
+                    const auto* selection = selectionValue.getDynamicObject();
+                    std::int64_t selectionStart = 0, selectionEnd = 0;
+                    GuideItem focusBand;
+                    if (selection == nullptr
+                        || ! hasOnlyProperties (*selection, { "selection_id", "start_ns", "end_ns", "focus_band" })
+                        || ! hasProperties (*selection, { "selection_id", "start_ns", "end_ns", "focus_band" })
+                        || ! safeId (objectString (*selection, "selection_id"))
+                        || ! objectInteger (*selection, "start_ns", 0, maxSafeJsonInteger, selectionStart)
+                        || ! objectInteger (*selection, "end_ns", 0, maxSafeJsonInteger, selectionEnd)
+                        || selectionEnd <= selectionStart || selectionEnd > maskingDuration
+                        || ! parseBand (selection->getProperty ("focus_band"), focusBand)
+                        || ! focusBand.hasBand)
+                        return false;
+                    GuideReviewSelection parsedSelection;
+                    parsedSelection.selectionId = objectString (*selection, "selection_id");
+                    parsedSelection.startNs = selectionStart;
+                    parsedSelection.endNs = selectionEnd;
+                    parsedSelection.lowHz = focusBand.lowHz;
+                    parsedSelection.highHz = focusBand.highHz;
+                    parsedSelection.hasBand = true;
+                    if (! reviewSelections.emplace (
+                            objectString (*selection, "selection_id").toStdString(),
+                            parsedSelection).second)
+                        return false;
+                }
+            }
         }
         else
         {
@@ -461,6 +542,32 @@ namespace hypha::pre_display
                 || (candidate.payloadKind == "masking" && item.endNs > maskingDuration))
                 return false;
             candidate.items.push_back (std::move (item));
+        }
+        if (candidate.payloadKind == "masking" && reviewTarget)
+        {
+            for (const auto& item : candidate.items)
+            {
+                const auto selection = reviewSelections.find (item.selectionRef.toStdString());
+                if (selection == reviewSelections.end()
+                    || item.startNs < selection->second.startNs
+                    || item.endNs > selection->second.endNs
+                    || (item.hasBand
+                        && ! (item.highHz > selection->second.lowHz
+                              && item.lowHz < selection->second.highHz)))
+                    return false;
+            }
+            candidate.reviewSelections.reserve (reviewSelections.size());
+            for (const auto& [selectionId, selection] : reviewSelections)
+            {
+                juce::ignoreUnused (selectionId);
+                candidate.reviewSelections.push_back (selection);
+            }
+            std::stable_sort (candidate.reviewSelections.begin(),
+                              candidate.reviewSelections.end(), [] (const auto& a, const auto& b)
+            {
+                if (a.startNs != b.startNs) return a.startNs < b.startNs;
+                return a.selectionId < b.selectionId;
+            });
         }
         if (candidate.payloadKind == "inspect" && candidate.focusEventId.isNotEmpty()
             && itemIds.find (candidate.focusEventId.toStdString()) == itemIds.end())

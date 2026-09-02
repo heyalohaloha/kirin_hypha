@@ -771,7 +771,7 @@ fn editor_rs_combobox_exact_pair_resets_delta_result() {
     );
 }
 
-/// W-282 C-3: io_thread_post.rs W-281 C-4 release block (A-1) で
+/// W-282 C-3: POST self-check W-281 C-4 release block (A-1) で
 /// poisonを解除するworker lock + `DeltaResult::default()` reset が走る配線を invariant 化。
 #[test]
 fn io_thread_post_release_block_clears_delta_result() {
@@ -779,11 +779,11 @@ fn io_thread_post_release_block_clears_delta_result() {
         crate_root()
             .parent()
             .expect("hypha_post -> crates parent")
-            .join("kirin_measure/src/io_thread_post.rs"),
+            .join("kirin_measure/src/io_thread_post_self_check.rs"),
     );
     // release 経路の起点 = pair_release_notice.write() = Some("PRE already in use")
     let release_idx = src
-        .find(r#"*n = Some("PRE already in use".to_string());"#)
+        .find(r#"*notice = Some("PRE already in use".to_string());"#)
         .expect("W-281 C-4 release marker not found");
     // 当該 release write から 1000 byte 以内に回復lock + DeltaResult::default()
     // (UTF-8 Japanese 注釈 byte 膨張を考慮)。
@@ -952,7 +952,7 @@ fn editor_rs_pair_dropdown_distinguishes_keep_from_pair_choices() {
     );
 }
 
-/// W-284 / G-115-252 + B-253: io_thread_post.rs main loop の self_check_pair_claim
+/// W-284 / G-115-252 + B-253: POST self-check lifecycle の conflict release
 /// 発火条件に `!record_sm.is_recording()` と `!transport_playing` gate が含まれることを
 /// invariant 化。Record 中/再生中の self_check release が pair_pre_name="" /
 /// delta_result clear / pair_label 切替で pair 継続を破綻させる regression を防ぐ。
@@ -962,14 +962,13 @@ fn io_thread_post_self_check_gated_when_recording() {
         crate_root()
             .parent()
             .expect("hypha_post -> crates parent")
-            .join("kirin_measure/src/io_thread_post.rs"),
+            .join("kirin_measure/src/io_thread_post_self_check.rs"),
     );
     // W-281 C-3 self_check 発火条件 block (W-284 で Record gate 追加)。
-    // B-263以降は条件を `self_check_allowed` に分離し、禁止状態で release
-    // 候補も reset する。
+    // B-263以降は条件を `release_allowed` に分離し、禁止状態で release候補も reset する。
     let anchor_idx = src
-        .find("let self_check_allowed = !record_sm.is_recording()")
-        .expect("W-281 C-3 self_check_allowed anchor not found");
+        .find("let release_allowed = !record_sm.is_recording()")
+        .expect("W-281 C-3 release_allowed anchor not found");
     // anchor から 500 byte 前後 (allowed 定義 + reset + throttle を含む) で gate を確認。
     let start = anchor_idx.saturating_sub(100);
     let end = (anchor_idx + 650).min(src.len());
@@ -988,15 +987,15 @@ fn io_thread_post_self_check_gated_when_recording() {
         "W-284 G-115-252: self_check 発火条件 block に `!record_sm.is_recording()` gate が無い (Record 中 release で pair 破綻する regression)"
     );
     assert!(
-        window.contains("!transport_playing"),
+        window.contains("&& !transport_playing"),
         "B-253: self_check 発火条件 block に `!transport_playing` gate が無い (再生中の無音 gap で pair が外れる regression)"
     );
     assert!(
-        window.contains("self_check_release_gate.reset()"),
+        window.contains("self.release_gate.reset()"),
         "B-264: playback/Record/Active 中は self-check release 候補を reset し、停止瞬間に古い候補で release しない"
     );
     assert!(
-        window.contains("tick_now.duration_since(last_self_check_at) >= Duration::from_secs(1)"),
+        window.contains("now.duration_since(self.last_check_at) < Duration::from_secs(1)"),
         "W-281 C-3: self_check は 1 秒周期 throttle を維持する"
     );
 }

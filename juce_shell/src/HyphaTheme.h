@@ -16,9 +16,12 @@ namespace hypha
     // ── palette.rs (exact) ───────────────────────────────────────────────────────────────
     inline const juce::Colour BG            { ui_contract::background }; // #0D0F1A panel/window fill
     inline const juce::Colour COL_NORMAL    { ui_contract::normal }; // #E0E0E0 values / title (not pure white)
+    inline const juce::Colour COL_OBSERVATORY_VALUE { ui_contract::observatoryValue };
     inline const juce::Colour COL_MUTED     { ui_contract::muted }; // #606060 labels / units / "---"
     inline const juce::Colour COL_FLORA     { ui_contract::flora }; // #D4A043 name / flora line / Keeping / preset LED
     inline const juce::Colour COL_FLORA_BR  { ui_contract::floraBright }; // #FFE0A0 TP > -1.0 dBTP
+    inline const juce::Colour COL_GUIDE     { ui_contract::guideGold };
+    inline const juce::Colour COL_GUIDE_BR  { ui_contract::guideGoldBright };
     inline const juce::Colour COL_SPECTRUM_DELTA { ui_contract::spectrumDelta };
     inline const juce::Colour COL_SPECTRUM_DELTA_BR { ui_contract::spectrumDeltaBright };
     inline const juce::Colour COL_SPECTRUM_PRE { ui_contract::spectrumPre };
@@ -34,36 +37,22 @@ namespace hypha
     // (Dark Cockpit). Defined after BG so its static initialisation is sequenced after it.
     inline const juce::Colour kFieldFill = BG.brighter (0.05f);
 
-    // ── fonts: native platform families; never depend on a cross-platform fallback ─────────
-    inline const char* nativeLabelFontFamily() noexcept
-    {
-       #if JUCE_WINDOWS
-        return ui_contract::windowsLabelFontFamily;
-       #else
-        return ui_contract::labelFontFamily;
-       #endif
-    }
+    // ── typography ────────────────────────────────────────────────────────────────────
+    // Both functions resolve to paid Kimera Waldenburg Book when a licensed typeface is embedded.
+    // `monoFont` names the measurement role, not a second family. Numeric painters give its digits
+    // fixed cells because JUCE 7 cannot request the font's OpenType `tnum` feature directly.
+    juce::Font labelFont (float h);
+    juce::Font monoFont (float h);
+    bool usingKimeraTypography() noexcept;
+    const char* nativeFallbackLabelFontFamily() noexcept;
+    const char* nativeFallbackMonoFontFamily() noexcept;
+    float tabularTextWidth (const juce::Font&, const juce::String&);
+    void drawTabularText (juce::Graphics&, const juce::Font&, const juce::String&,
+                          juce::Rectangle<float>, juce::Justification);
 
-    inline const char* nativeMonoFontFamily() noexcept
-    {
-       #if JUCE_WINDOWS
-        return ui_contract::windowsMonoFontFamily;
-       #else
-        return ui_contract::monoFontFamily;
-       #endif
-    }
-
-    inline juce::Font labelFont (float h)
-    {
-        return juce::Font (nativeLabelFontFamily(), h, juce::Font::plain);
-    }
-    inline juce::Font monoFont  (float h)
-    {
-        return juce::Font (nativeMonoFontFamily(), h, juce::Font::plain);
-    }
-
-    // Δ (U+0394) built from its codepoint to avoid non-ASCII source/escape issues.
+    // UI symbols built from codepoints avoid the narrow-string Windows code-page path.
     inline juce::String delta() { return juce::String::charToString ((juce::juce_wchar) 0x0394); }
+    inline juce::String emDash() { return juce::String::charToString ((juce::juce_wchar) 0x2014); }
 
     // ── common.rs: value/delta formatting (1 decimal, "---" for NaN/None) ──────────────────
     inline juce::String fmtVal (double v)
@@ -82,8 +71,13 @@ namespace hypha
     // val_color: Some -> COL_NORMAL, None -> COL_MUTED.
     inline juce::Colour valColour (double v) { return std::isnan (v) ? COL_MUTED : COL_NORMAL; }
 
-    // tp_over: tp.is_some() && tp > -1.0 dBTP.
-    inline bool tpOver (double v) { return ! std::isnan (v) && v > -1.0; }
+    constexpr double truePeakEmphasisThresholdDbtp = -1.0;
+
+    // tp_over: tp.is_some() && tp > the shared visual emphasis threshold.
+    inline bool tpOver (double v)
+    {
+        return ! std::isnan (v) && v > truePeakEmphasisThresholdDbtp;
+    }
 
     // tp_color: > -1.0 -> COL_FLORA_BR ; Some -> COL_NORMAL ; None -> COL_MUTED.
     inline juce::Colour tpColour (double v)

@@ -1,5 +1,6 @@
 #include "HyphaSpectrumPainter.h"
 
+#include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 
@@ -12,6 +13,7 @@ namespace hypha::spectrum_painter
 namespace
 {
     constexpr float kDeltaRangeDb = KIRIN_SPECTRUM_DISPLAY_RANGE_DB;
+    constexpr float kIntensityReferenceDb = 18.0f;
     constexpr float kMagnitudeFloorDbfs = -96.0f;
 
     float yForDeltaDb (float db, juce::Rectangle<float> plot) noexcept
@@ -59,8 +61,7 @@ void paintCurves (juce::Graphics& g,
     SpectrumBins markY {};
     for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
     {
-        x[index] = juce::jmap (static_cast<float> (index), 0.0f,
-                               static_cast<float> (KIRIN_SPECTRUM_BAND_COUNT - 1u),
+        x[index] = juce::jmap (spectrum_geometry::bandCentreNormalisedX (index),
                                plot.getX(), plot.getRight());
         preY[index] = yForMagnitudeDbfs (pre[index], plot);
         postY[index] = yForMagnitudeDbfs (post[index], plot);
@@ -75,7 +76,10 @@ void paintCurves (juce::Graphics& g,
     const juce::Path markCurve = mark != nullptr ? makeCurve (x, markY) : juce::Path {};
 
     constexpr size_t intensityLevelCount = ui_contract::spectrumTipAlpha.size();
-    constexpr float intensityStepDb = kDeltaRangeDb / (float) (intensityLevelCount - 1u);
+    // The wider ±24 dB geometry must not make ordinary 1–6 dB work look dimmer. Brightness keeps
+    // the proven ±18 dB response and simply reaches its maximum before the new display edge.
+    constexpr float intensityStepDb = kIntensityReferenceDb
+                                    / (float) (intensityLevelCount - 1u);
     constexpr std::array<float, 6> tipDepthCoverage {
         1.00f, 0.79f, 0.60f, 0.43f, 0.28f, 0.14f
     };
@@ -159,11 +163,11 @@ void paintCurves (juce::Graphics& g,
         }
     }
 
-    // MARK is a presentation-only frozen Δ. Keep it subordinate: one continuous hairline,
-    // without fill, glow, persistence, or a second comparison calculation.
+    // MARK is a presentation-only frozen Δ. Amber separates the chosen moment from the cyan live
+    // fact, while its narrower stroke and lack of fill/glow keep the live Δ visually primary.
     if (! markCurve.isEmpty())
     {
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (
+        g.setColour (COL_FLORA.withAlpha (
             ui_contract::spectrumMarkCurveAlpha));
         g.strokePath (markCurve,
                       juce::PathStrokeType (
@@ -201,5 +205,93 @@ void paintCurves (juce::Graphics& g,
                                                 juce::PathStrokeType::curved,
                                                 juce::PathStrokeType::rounded));
     }
+}
+
+void paintAbsolute (juce::Graphics& g,
+                    juce::Rectangle<float> plot,
+                    float visualScale,
+                    const SpectrumBins& post,
+                    const SpectrumBins& peakHold,
+                    const absolute_spectrum::History& history)
+{
+    if (! history.empty())
+    {
+        const auto& newest = history.at (history.size() - 1u);
+        const size_t rowStride = std::max<size_t> (1u, history.size() / 32u);
+        constexpr size_t frequencyColumns = 64u;
+        const float cellWidth = plot.getWidth() / (float) frequencyColumns;
+        const float rowHeight = std::max (1.0f, plot.getHeight() / 40.0f);
+        for (size_t frameIndex = 0u; frameIndex < history.size(); frameIndex += rowStride)
+        {
+            const auto& frame = history.at (frameIndex);
+            const double ageSeconds = frame.sampleRate > 0u
+                ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate
+                : absolute_spectrum::historySeconds;
+            if (ageSeconds < 0.0 || ageSeconds > absolute_spectrum::historySeconds)
+                continue;
+            const float y = plot.getBottom()
+                          - (float) (ageSeconds / absolute_spectrum::historySeconds)
+                              * plot.getHeight();
+            for (size_t column = 0u; column < frequencyColumns; ++column)
+            {
+                const size_t first = column * KIRIN_SPECTRUM_BAND_COUNT / frequencyColumns;
+                const size_t last = (column + 1u) * KIRIN_SPECTRUM_BAND_COUNT
+                                  / frequencyColumns;
+                float magnitude = kMagnitudeFloorDbfs;
+                for (size_t band = first; band < last; ++band)
+                    magnitude = std::max (magnitude, frame.postDbfs[band]);
+                const float intensity = juce::jlimit (0.0f, 1.0f,
+                    (magnitude - kMagnitudeFloorDbfs) / -kMagnitudeFloorDbfs);
+                if (intensity <= 0.015f)
+                    continue;
+                g.setColour (COL_SPECTRUM_POST.withAlpha (0.018f + 0.13f * intensity));
+                g.fillRect (plot.getX() + (float) column * cellWidth,
+                            y - rowHeight * 0.5f, cellWidth + 0.5f, rowHeight);
+            }
+        }
+    }
+
+    SpectrumBins x {};
+    SpectrumBins currentY {};
+    SpectrumBins holdY {};
+    for (size_t index = 0u; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+    {
+        x[index] = juce::jmap (spectrum_geometry::bandCentreNormalisedX (index),
+                               plot.getX(), plot.getRight());
+        currentY[index] = yForMagnitudeDbfs (post[index], plot);
+        holdY[index] = yForMagnitudeDbfs (std::isfinite (peakHold[index])
+                                              ? peakHold[index] : kMagnitudeFloorDbfs,
+                                          plot);
+    }
+    const auto current = makeCurve (x, currentY);
+    const auto hold = makeCurve (x, holdY);
+
+    juce::Path fill;
+    fill.startNewSubPath (x.front(), plot.getBottom());
+    fill.lineTo (x.front(), currentY.front());
+    for (size_t index = 1u; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+        fill.lineTo (x[index], currentY[index]);
+    fill.lineTo (x.back(), plot.getBottom());
+    fill.closeSubPath();
+    juce::ColourGradient gradient (COL_SPECTRUM_POST.withAlpha (0.19f),
+                                   plot.getX(), plot.getY(),
+                                   COL_SPECTRUM_POST.withAlpha (0.015f),
+                                   plot.getX(), plot.getBottom(), false);
+    g.setGradientFill (gradient);
+    g.fillPath (fill);
+
+    const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
+    g.setColour (COL_SPECTRUM_POST.withAlpha (0.18f));
+    g.strokePath (current, juce::PathStrokeType (4.2f * strokeScale,
+                                                  juce::PathStrokeType::curved,
+                                                  juce::PathStrokeType::rounded));
+    g.setColour (COL_SPECTRUM_POST.withAlpha (0.98f));
+    g.strokePath (current, juce::PathStrokeType (1.8f * strokeScale,
+                                                  juce::PathStrokeType::curved,
+                                                  juce::PathStrokeType::rounded));
+    g.setColour (COL_FLORA_BR.withAlpha (0.58f));
+    g.strokePath (hold, juce::PathStrokeType (0.85f * strokeScale,
+                                               juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
 }
 }

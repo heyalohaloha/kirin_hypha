@@ -922,6 +922,8 @@ pub fn spawn_io_thread_pre(
     // egui shell passes None so its IO cadence, filesystem surface, and worker lifecycle remain
     // exactly as before B-494.
     spectrum: Option<Arc<crate::SpectrumCoordinator>>,
+    // JUCE Observatory only. Legacy shells pass None and keep their filesystem surface intact.
+    meter_history: Option<Arc<crate::MeterDeltaHistoryExchange>>,
 ) -> JoinHandle<()> {
     let license = license.into();
     thread::spawn(move || {
@@ -1010,6 +1012,14 @@ pub fn spawn_io_thread_pre(
                 &signal_state,
             ) {
                 log::warn!("[IOThread PRE] write error: {}", e);
+            }
+            if let Some(meter_history) = meter_history.as_ref() {
+                let _ = meter_history.service_pre_endpoint(
+                    instance_id_ref,
+                    daw_session_id.as_str(),
+                    watch_lease.owner_id(),
+                    &dir,
+                );
             }
 
             // A target/canonical atomic replacement may be briefly unavailable at thread start.

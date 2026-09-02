@@ -11,12 +11,12 @@ namespace
 {
     float yForDelta (float value, juce::Rectangle<float> plot) noexcept
     {
-        const float clipped = juce::jlimit (-KIRIN_SPECTRUM_DISPLAY_RANGE_DB,
-                                             KIRIN_SPECTRUM_DISPLAY_RANGE_DB,
+        const float range = ui_contract::spectrumFocusTrailRangeDb;
+        const float clipped = juce::jlimit (-range, range,
                                              value);
         return juce::jmap (clipped,
-                           KIRIN_SPECTRUM_DISPLAY_RANGE_DB,
-                          -KIRIN_SPECTRUM_DISPLAY_RANGE_DB,
+                           range,
+                          -range,
                            plot.getY(), plot.getBottom());
     }
 
@@ -28,6 +28,16 @@ namespace
         return juce::jmap (static_cast<float> (position),
                            plot.getX(), plot.getRight());
     }
+}
+
+void paintEmptyPrompt (juce::Graphics& g,
+                       juce::Rectangle<float> bounds,
+                       float visualScale)
+{
+    g.setColour (COL_MUTED.brighter (0.10f).withAlpha (0.64f));
+    g.setFont (monoFont (7.5f * ui_contract::analysisTextScale (visualScale)));
+    g.drawText ("FOCUS TRAIL  /  CLICK A BAND", bounds.toNearestInt(),
+                juce::Justification::centred);
 }
 
 void paint (juce::Graphics& g,
@@ -50,9 +60,10 @@ void paint (juce::Graphics& g,
     auto plot = bounds.reduced (3.0f * strokeScale, 2.0f * strokeScale);
     if (! compact)
     {
-        g.setFont (monoFont (7.0f * visualScale));
+        g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (visualScale)));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.68f));
-        g.drawText (juce::String (juce::CharPointer_UTF8 ("\xCE\x94 \xC2\xB7 6s")),
+        g.drawText (juce::String (juce::CharPointer_UTF8 (
+                        "\xCE\x94 \xC2\xB7 6s \xC2\xB7 \xC2\xB1\x31\x32")),
                     plot.removeFromTop (6.5f * visualScale),
                     juce::Justification::centredLeft);
     }
@@ -63,6 +74,13 @@ void paint (juce::Graphics& g,
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (compact ? 0.22f : 0.27f));
     g.drawLine (plot.getX(), zeroY, plot.getRight(), zeroY,
                 0.65f * strokeScale);
+    g.setColour (COL_MUTED.withAlpha (compact ? 0.10f : 0.13f));
+    for (float guide : { -6.0f, 6.0f })
+    {
+        const float guideY = yForDelta (guide, plot);
+        g.drawLine (plot.getX(), guideY, plot.getRight(), guideY,
+                    0.45f * strokeScale);
+    }
 
     const float firstX = xForAge (history.ageSecondsAt (0u), plot);
     const float firstY = yForDelta (history.valueAt (0u, normalisedBand), plot);
@@ -70,18 +88,27 @@ void paint (juce::Graphics& g,
     stroke.startNewSubPath (firstX, firstY);
     juce::Path recentGlow;
     bool glowStarted = false;
-    for (size_t index = 1u; index < history.size(); ++index)
+    // At 100% the lane is narrower than the 180 retained points. Painting every third exact
+    // observation preserves more points than there are useful horizontal pixels while avoiding
+    // redundant anti-aliased segments on Windows' software renderer. Storage and endpoints stay
+    // exact; this is pixel-aware presentation decimation, not smoothing or interpolation.
+    const size_t paintStride = compact ? 3u : 1u;
+    size_t previousIndex = 0u;
+    for (size_t index = paintStride; index < history.size(); index += paintStride)
     {
-        const double previousAge = history.ageSecondsAt (index - 1u);
+        const double previousAge = history.ageSecondsAt (previousIndex);
         const double currentAge = history.ageSecondsAt (index);
         const float previousX = xForAge (previousAge, plot);
         const float currentX = xForAge (currentAge, plot);
         if (currentX <= previousX)
             continue;
         const float previousY = yForDelta (
-            history.valueAt (index - 1u, normalisedBand), plot);
+            history.valueAt (previousIndex, normalisedBand), plot);
         const float currentY = yForDelta (
             history.valueAt (index, normalisedBand), plot);
+        // Missing presentation endpoints remain recorded in FocusTrailHistory. The work surface
+        // joins the surrounding exact observations visually so a delayed Windows UI tick does not
+        // turn into a broken user-facing curve; it does not create or persist measured samples.
         stroke.lineTo (currentX, currentY);
         if (previousAge <= 1.5)
         {
@@ -92,10 +119,23 @@ void paint (juce::Graphics& g,
             }
             recentGlow.lineTo (currentX, currentY);
         }
+        previousIndex = index;
     }
     const size_t newest = history.size() - 1u;
     const float newestX = xForAge (history.ageSecondsAt (newest), plot);
     const float newestY = yForDelta (history.valueAt (newest, normalisedBand), plot);
+    if (previousIndex != newest)
+    {
+        stroke.lineTo (newestX, newestY);
+        if (history.ageSecondsAt (previousIndex) <= 1.5)
+        {
+            if (! glowStarted)
+                recentGlow.startNewSubPath (
+                    xForAge (history.ageSecondsAt (previousIndex), plot),
+                    yForDelta (history.valueAt (previousIndex, normalisedBand), plot));
+            recentGlow.lineTo (newestX, newestY);
+        }
+    }
     if (! compact && ! recentGlow.isEmpty())
     {
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.09f));

@@ -22,7 +22,7 @@ use crate::resampler::ResamplerTo48k;
 use crate::watch_playback_pass::watch_ring_cursor_samples_for_pass;
 use crate::{
     engine::SessionSummary, load_signal_state, store_signal_state, MeasureEngine, MeasureResult,
-    PsbSummary, SignalState, N_CHANNELS,
+    MeterClockStart, MeterSession, MeterSessionPublication, PsbSummary, SignalState, N_CHANNELS,
 };
 
 /// Watch core と PhaseD の内部処理 SR。Record core は host native SR で別 engine を動かし、
@@ -116,6 +116,11 @@ pub struct LivenessEvaluator {
     last_change_nanos: AtomicU64,
     /// live ウィンドウ（ns）。製品 = `live_window()`、テスト = 注入値。
     window_nanos: u64,
+    /// VST3 component が host から active と宣言されているか。
+    ///
+    /// transport停止や無音では変化しない。host の component activation callback だけが
+    /// 更新するため、heartbeat停止を利用者の明示OFFと取り違えない。
+    host_component_active: AtomicBool,
     /// 単調時計の基点（生成時刻）。`is_live` は `epoch.elapsed()` で now を取る。
     epoch: Instant,
 }
@@ -131,8 +136,20 @@ impl LivenessEvaluator {
             last_seen: AtomicU32::new(last_seen),
             last_change_nanos: AtomicU64::new(0),
             window_nanos: window.as_nanos() as u64,
+            host_component_active: AtomicBool::new(true),
             epoch: Instant::now(),
         }
+    }
+
+    /// VST3 component activation の host 通知を保持する。
+    /// Audio callback の有無とは独立した単一ビットで、alloc/lock/IO を行わない。
+    pub fn set_host_component_active(&self, active: bool) {
+        self.host_component_active.store(active, Ordering::Release);
+    }
+
+    /// host が component を active と宣言しているか。
+    pub fn host_component_active(&self) -> bool {
+        self.host_component_active.load(Ordering::Acquire)
     }
 
     /// 製品 reader 用: 内部 `epoch` で now を取り、heartbeat を観測して鮮度を返す。
@@ -152,6 +169,19 @@ impl LivenessEvaluator {
         }
         elapsed_nanos.saturating_sub(self.last_change_nanos.load(Ordering::Relaxed))
             < self.window_nanos
+    }
+}
+
+/// heartbeat が鮮度切れになった後の表示状態。
+///
+/// host component が active のままなら通常の処理停止（transport停止・無音・一時停止）なので
+/// Inactive。host が component 自体を deactivate した場合だけ Bypassed とする。
+#[inline]
+pub fn stalled_signal_state(host_component_active: bool) -> SignalState {
+    if host_component_active {
+        SignalState::Inactive
+    } else {
+        SignalState::Bypassed
     }
 }
 
@@ -186,6 +216,8 @@ pub fn spawn_measure_thread(
     sample_rate: u32,
     n_channels: usize,
     result: Arc<Mutex<MeasureResult>>,
+    meter_session: Option<Arc<Mutex<MeterSession>>>,
+    meter_session_publication: Option<Arc<MeterSessionPublication>>,
     watch_playback_pass_id: Arc<AtomicU64>,
     watch_playback_pass_cutover_samples: Arc<AtomicU64>,
     watch_ring_cursor_epoch: Arc<AtomicU64>,
@@ -299,6 +331,7 @@ pub fn spawn_measure_thread(
 
         // 前回ループの SignalState を保持し、非Active→Active 遷移を検出する（SS-8）。
         let mut prev_active = false;
+        let mut meter_session_suspended = false;
         let mut measure_sequence = 0_u64;
         let mut playback_pass_id = watch_playback_pass_id.load(Ordering::Acquire);
         // A spawned Measure Thread always receives a fresh Consumer. Samples already queued in
@@ -378,6 +411,9 @@ pub fn spawn_measure_thread(
                     n_channels,
                     sample_rate,
                     measure_chunk_samples,
+                    &signal_state,
+                    meter_session.as_ref(),
+                    meter_session_publication.as_ref(),
                 );
                 watch_consumed_samples = consumed_samples;
                 watch_native_frames_total = native_frames_total;
@@ -441,6 +477,9 @@ pub fn spawn_measure_thread(
                             trace_engine: &mut record_trace_engine,
                             summary_engine: &mut record_summary_engine,
                             session_summary: &session_summary,
+                            meter_session: meter_session.as_ref(),
+                            meter_session_publication: meter_session_publication.as_ref(),
+                            meter_active: load_signal_state(&signal_state) == SignalState::Active,
                             chunk_f64: &mut chunk_f64,
                             resampled_buf: &mut resampled_buf,
                             phase_d: &mut phase_d,
@@ -533,17 +572,21 @@ pub fn spawn_measure_thread(
 
             // ── B-118: 単一鮮度評価器による stall detection（G-115-245: 3s）──────
             // measure loop は評価器の consumer。process() が live ウィンドウ(3s)変化しなければ
-            // signal_state を Inactive に上書きする（process() 再開時に Audio Thread が即座に
-            // 正しい state を書き戻す）。評価器は heartbeat を内部観測する（独自計数なし）。
+            // signal_state を停止理由に応じて上書きする（process() 再開時に Audio Thread が
+            // 即座に正しい state を書き戻す）。通常停止は Inactive、host が component を
+            // deactivate した場合だけ Bypassed。評価器は heartbeat と host activation を
+            // 独立に保持する（独自 stale 計数なし）。
             let live = evaluator.is_live();
             if !live {
+                let stalled_state = stalled_signal_state(evaluator.host_component_active());
                 if prev_live {
                     log::info!(
-                        "[MeasureThread] heartbeat stale (>{}s) — process() stopped, overriding to Inactive",
-                        live_window().as_secs()
+                        "[MeasureThread] heartbeat stale (>{}s) — process() stopped, overriding to {}",
+                        live_window().as_secs(),
+                        stalled_state.as_str()
                     );
                 }
-                store_signal_state(&signal_state, SignalState::Inactive);
+                store_signal_state(&signal_state, stalled_state);
             } else if !prev_live {
                 log::info!("[MeasureThread] heartbeat resumed — process() restarted");
             }
@@ -609,6 +652,10 @@ pub fn spawn_measure_thread(
             }
             if should_suspend_measurement(state, is_recording) {
                 prev_active = false;
+                if !meter_session_suspended {
+                    pause_meter_session(meter_session.as_ref(), meter_session_publication.as_ref());
+                    meter_session_suspended = true;
+                }
                 // Bypassed / Inactive → compute() スキップ。
                 // Watch のリングバッファに残っているサンプルは破棄する。
                 // Record 中はこの分岐に入らず、無音を含む admitted audio を継続計測する。
@@ -814,6 +861,7 @@ pub fn spawn_measure_thread(
                     record_grid_cursor = capture_plan.position_start_samples;
                 }
                 chunk_f64.clear();
+                let mut replayed_prefix_samples = 0_usize;
                 for _ in 0..available {
                     let from_prefix = is_recording && !record_prefix_samples.is_empty();
                     let sample = if is_recording {
@@ -826,6 +874,9 @@ pub fn spawn_measure_thread(
                     };
                     match sample {
                         Ok(sample) => {
+                            if from_prefix {
+                                replayed_prefix_samples = replayed_prefix_samples.saturating_add(1);
+                            }
                             if !from_prefix {
                                 // Prefix samples are not part of the Record SPSC cursor.
                                 consumed_samples = consumed_samples.saturating_add(1);
@@ -836,6 +887,16 @@ pub fn spawn_measure_thread(
                     }
                 }
                 let chunk_native_frames = (chunk_f64.len() / n_channels) as u64;
+                if state == SignalState::Active {
+                    let direct_sample_offset = replayed_prefix_samples.min(chunk_f64.len());
+                    feed_meter_session(
+                        meter_session.as_ref(),
+                        meter_session_publication.as_ref(),
+                        &chunk_f64[direct_sample_offset..],
+                        capture_plan.meter_clock_start((direct_sample_offset / n_channels) as u64),
+                    );
+                    meter_session_suspended = false;
+                }
                 let captured_frames_before = native_frames_total;
                 if !is_recording {
                     let _ = raw_pre_roll.append_f64(
@@ -1419,6 +1480,9 @@ struct DrainRingSession<'a> {
     trace_engine: &'a mut MeasureEngine,
     summary_engine: &'a mut MeasureEngine,
     session_summary: &'a Arc<Mutex<Option<SessionSummary>>>,
+    meter_session: Option<&'a Arc<Mutex<MeterSession>>>,
+    meter_session_publication: Option<&'a Arc<MeterSessionPublication>>,
+    meter_active: bool,
     chunk_f64: &'a mut Vec<f64>,
     resampled_buf: &'a mut Vec<f64>,
     phase_d: &'a mut PhaseDChannelStream,
@@ -1526,6 +1590,19 @@ impl CaptureChunkPlan {
             ..start
         })
     }
+
+    fn meter_clock_start(self, frame_offset: u64) -> MeterClockStart {
+        let position_samples = self.position_start_samples.and_then(|position| {
+            i64::try_from(frame_offset)
+                .ok()
+                .and_then(|offset| position.checked_add(offset))
+        });
+        MeterClockStart {
+            position_samples,
+            epoch: self.capture_epoch,
+            source: self.clock_source,
+        }
+    }
 }
 
 /// Resolve one MeasureEngine observer endpoint back to the exact captured audio boundary.
@@ -1601,6 +1678,9 @@ fn drain_watch_into_raw_pre_roll(
     n_channels: usize,
     sample_rate: u32,
     chunk_limit_samples: usize,
+    signal_state: &AtomicU8,
+    meter_session: Option<&Arc<Mutex<MeterSession>>>,
+    meter_session_publication: Option<&Arc<MeterSessionPublication>>,
 ) {
     loop {
         let available = consumer.slots().min(chunk_limit_samples);
@@ -1627,7 +1707,53 @@ fn drain_watch_into_raw_pre_roll(
             break;
         }
         let _ = history.append_f64(trusted_pre_roll_epoch(plan), *native_frames_total, scratch);
+        if load_signal_state(signal_state) == SignalState::Active {
+            feed_meter_session(
+                meter_session,
+                meter_session_publication,
+                scratch,
+                plan.meter_clock_start(0),
+            );
+        }
         *native_frames_total = (*native_frames_total).saturating_add(frames);
+    }
+}
+
+fn feed_meter_session(
+    meter_session: Option<&Arc<Mutex<MeterSession>>>,
+    publication: Option<&Arc<MeterSessionPublication>>,
+    direct_active_samples: &[f64],
+    clock: MeterClockStart,
+) {
+    if direct_active_samples.is_empty() {
+        return;
+    }
+    if let Some(session) = meter_session {
+        let snapshot = {
+            let mut session =
+                crate::sync_recovery::lock_recover(session, "MeterSession active push");
+            let _ = session.push_active_at(direct_active_samples, clock);
+            session.snapshot()
+        };
+        if let Some(publication) = publication {
+            publication.publish(snapshot);
+        }
+    }
+}
+
+fn pause_meter_session(
+    meter_session: Option<&Arc<Mutex<MeterSession>>>,
+    publication: Option<&Arc<MeterSessionPublication>>,
+) {
+    if let Some(session) = meter_session {
+        let snapshot = {
+            let mut session = crate::sync_recovery::lock_recover(session, "MeterSession pause");
+            session.pause();
+            session.snapshot()
+        };
+        if let Some(publication) = publication {
+            publication.publish(snapshot);
+        }
     }
 }
 
@@ -1793,6 +1919,14 @@ fn drain_ring_into_session(
             }
         }
         let chunk_native_frames = (ctx.chunk_f64.len() / ctx.n_channels) as u64;
+        if ctx.meter_active {
+            feed_meter_session(
+                ctx.meter_session,
+                ctx.meter_session_publication,
+                ctx.chunk_f64,
+                plan.meter_clock_start(0),
+            );
+        }
         *ctx.native_frames_total = (*ctx.native_frames_total).saturating_add(chunk_native_frames);
         let native_frames_after = *ctx.native_frames_total;
         let captured_frames_before = native_frames_after.saturating_sub(chunk_native_frames);
@@ -2695,6 +2829,9 @@ pub mod tests {
                 trace_engine: &mut trace_engine,
                 summary_engine: &mut summary_engine,
                 session_summary: &summary,
+                meter_session: None,
+                meter_session_publication: None,
+                meter_active: false,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
                 phase_d: &mut phase,
@@ -2880,6 +3017,45 @@ pub mod tests {
         assert!(
             ev.is_live_at(1_000 + w + 2_000_000_000),
             "再 beat で live 復帰"
+        );
+    }
+
+    #[test]
+    fn b544_host_component_state_only_changes_stalled_signal_reason() {
+        use std::sync::atomic::AtomicU32;
+        use std::sync::Arc;
+
+        let hb = Arc::new(AtomicU32::new(0));
+        let ev = super::LivenessEvaluator::new(Arc::clone(&hb), std::time::Duration::from_secs(3));
+
+        assert!(ev.host_component_active(), "component starts active");
+        assert_eq!(
+            super::stalled_signal_state(ev.host_component_active()),
+            crate::SignalState::Inactive,
+            "ordinary heartbeat stall remains Inactive"
+        );
+
+        ev.set_host_component_active(false);
+        assert!(!ev.host_component_active());
+        assert!(
+            ev.is_live_at(2_999_999_999),
+            "component OFF remains inside the shared three-second heartbeat grace"
+        );
+        assert!(
+            !ev.is_live_at(3_000_000_000),
+            "component OFF becomes publishable only after heartbeat freshness expires"
+        );
+        assert_eq!(
+            super::stalled_signal_state(ev.host_component_active()),
+            crate::SignalState::Bypassed,
+            "only host component deactivation becomes Bypassed"
+        );
+
+        ev.set_host_component_active(true);
+        assert_eq!(
+            super::stalled_signal_state(ev.host_component_active()),
+            crate::SignalState::Inactive,
+            "reactivation returns stalled presentation to Inactive"
         );
     }
 
@@ -3093,6 +3269,7 @@ mod b132_drain_tests {
         }
         let mut cons = MeasureSampleConsumer::watch(cons);
         let ss: Arc<Mutex<Option<crate::engine::SessionSummary>>> = Arc::new(Mutex::new(None));
+        let meter_session = Arc::new(Mutex::new(crate::MeterSession::new(SR, 2).unwrap()));
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
         let mut resampler = None;
@@ -3112,6 +3289,9 @@ mod b132_drain_tests {
                 trace_engine: &mut trace_engine,
                 summary_engine: &mut eng_on,
                 session_summary: &ss,
+                meter_session: Some(&meter_session),
+                meter_session_publication: None,
+                meter_active: true,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
                 phase_d: &mut phase_d,
@@ -3130,6 +3310,11 @@ mod b132_drain_tests {
             None,
         );
         assert!(ok, "drain must succeed");
+        assert_eq!(
+            meter_session.lock().unwrap().snapshot().active_frames,
+            (tail.len() / 2) as u64,
+            "Record close tail must reach the independent Meter Session exactly once"
+        );
         let on = (*ss.lock().unwrap()).expect("session_summary written by drain");
 
         let fp = full.max_true_peak.expect("full tp");
@@ -3181,6 +3366,9 @@ mod b132_drain_tests {
                 trace_engine: &mut trace_engine,
                 summary_engine: &mut eng,
                 session_summary: &ss,
+                meter_session: None,
+                meter_session_publication: None,
+                meter_active: false,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
                 phase_d: &mut phase_d,
@@ -3259,6 +3447,9 @@ mod b132_drain_tests {
                 trace_engine: &mut trace_engine,
                 summary_engine: &mut summary_engine,
                 session_summary: &session_summary,
+                meter_session: None,
+                meter_session_publication: None,
+                meter_active: false,
                 chunk_f64: &mut chunk,
                 resampled_buf: &mut resampled,
                 phase_d: &mut phase_d,

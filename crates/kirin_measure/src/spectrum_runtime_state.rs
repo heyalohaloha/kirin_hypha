@@ -8,7 +8,7 @@ use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SpectrumFrame};
 pub const SPECTRUM_HISTORY_CAPACITY: usize = 8;
 pub const PERCEPTUAL_HISTORY_CAPACITY: usize = 16;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpectrumHistory {
     frames: VecDeque<SpectrumFrame>,
 }
@@ -59,6 +59,14 @@ impl SpectrumHistory {
     }
 
     pub(crate) fn push(&mut self, frame: SpectrumFrame) {
+        if !frame.has_valid_layout() {
+            return;
+        }
+        if self.frames.back().is_some_and(|newest| {
+            !newest.same_analysis_layout(&frame) || newest.generation != frame.generation
+        }) {
+            self.frames.clear();
+        }
         if self.frames.len() == SPECTRUM_HISTORY_CAPACITY {
             self.frames.pop_front();
         }
@@ -95,6 +103,7 @@ pub struct SpectrumRuntimeStats {
     pub dropped_blocks: u64,
     pub analyzed_frames: u64,
     pub analyzed_perceptual_frames: u64,
+    pub analyzed_absolute_frames: u64,
 }
 
 impl SpectrumRuntime {
@@ -125,6 +134,9 @@ impl SpectrumRuntime {
             if let Ok(mut history) = self.perceptual_history.lock() {
                 *history = PerceptualHistory::with_capacity();
             }
+            if let Ok(mut history) = self.absolute_history.lock() {
+                history.clear();
+            }
             self.wake.1.notify_all();
         }
         true
@@ -134,7 +146,7 @@ impl SpectrumRuntime {
         self.perceptual_rearm_required.swap(false, Ordering::AcqRel)
     }
 
-    /// Control/worker thread only. Spectrum and Perceptual analysis are intentionally exclusive.
+    /// Control/worker thread only. Spectrum, Perceptual, and Absolute analysis are exclusive.
     pub fn set_analysis_mode(&self, mode: AnalysisViewMode) -> bool {
         let previous = self.analysis_mode.swap(mode as u8, Ordering::AcqRel);
         if previous != mode as u8 {
@@ -150,6 +162,9 @@ impl SpectrumRuntime {
             }
             if let Ok(mut history) = self.perceptual_history.lock() {
                 *history = PerceptualHistory::with_capacity();
+            }
+            if let Ok(mut history) = self.absolute_history.lock() {
+                history.clear();
             }
             self.wake.1.notify_all();
         }

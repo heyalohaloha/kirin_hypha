@@ -8,7 +8,8 @@
 
 #include "HyphaSignalStateContract.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
-#if KIRIN_HYPHA_PRE_DISPLAY
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
+ #include "CaptureWorkAttachment.h"
  #include "pre_display/PreDisplayClock.h"
  #include "pre_display/PreDisplayController.h"
 #endif
@@ -33,6 +34,8 @@ public:
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
+    void hostComponentActivationChanged (bool active) override;
+    void updateTrackProperties (const TrackProperties& properties) override;
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -45,13 +48,34 @@ public:
     bool pollMeasureResult (KirinMeasureResult& out) const;
     bool pollWatchDisplay (KirinWatchDisplay& out) const;
     bool pollRecordDisplay (KirinRecordDisplay& out) const;
+    bool pollMeterSession (KirinMeterSession& out) const;
+    bool pollObservatoryFrame (KirinObservatoryFrame& out) const;
+    bool pollMeterHistory (uint8_t resolution,
+                           std::vector<KirinMeterHistoryEntry>& out,
+                           size_t maxEntries,
+                           size_t maxOutputEntries) const;
+    bool pollMeterDeltaHistory (uint8_t resolution,
+                                std::vector<KirinMeterHistoryEntry>& out,
+                                size_t maxEntries,
+                                size_t maxOutputEntries) const;
+    bool resetMeterSession();
     bool useShortTermLoudness() const
     {
         return persistShortTermLoudness.load (std::memory_order_acquire);
     }
     void setUseShortTermLoudness (bool shortTerm);
-#if KIRIN_HYPHA_PRE_DISPLAY
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
     hypha::pre_display::DisplaySnapshot preDisplaySnapshot() const;
+    hypha::pre_display::GuidePresentationSnapshot guidePresentationSnapshot() const;
+    hypha::pre_display::ConnectionRequest pendingPreDisplayConnection() const;
+    bool acceptPreDisplayConnection();
+    hypha::pre_display::WorkReference connectedWorkReference() const;
+    juce::String connectedWorkTitle() const;
+    hypha::capture::WorkAttachmentSubmit attachCaptureToWork (
+        const hypha::pre_display::WorkReference& expectedWork,
+        juce::MemoryBlock pngBytes,
+        hypha::capture::WorkAttachmentDescriptor descriptor);
+    hypha::capture::WorkAttachmentResult takeCaptureWorkAttachmentResult();
 #endif
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
@@ -79,22 +103,59 @@ public:
     bool pollDelta (KirinDelta& out) const;            // FFI kirin_hypha_poll_delta (mode + Δ values)
     bool setSpectrumVisible (bool visible);             // POST-only; request work stays on IO thread
     bool setPerceptualVisible (bool visible);           // POST-only exact-aperture Sharpness page
+    bool setAbsoluteVisible (bool visible);             // POST-only LUFS-M / TP / Sharpness timeline
     bool setSpectrumChannelMode (uint8_t channelMode);  // LR/MID/SIDE; SIDE is stereo-only
     bool pollSpectrum (KirinSpectrumView& out) const;   // signed POST-PRE display snapshot
+    bool pollSpectrumBatch (KirinSpectrumBatch& out) const;
     bool pollPerceptual (KirinPerceptualView& out) const;
+    bool pollPerceptualBatch (KirinPerceptualBatch& out) const;
+    bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;
+    bool pollAnalysisOwnerNames (juce::String& out) const;
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
-    uint8_t spectrumSizePreference() const              // editor-lifetime recreation only; not DAW state
+    bool setAttackEnabled (bool enabled);       // POST ATTACK page; never DAW state
+    bool pollAttackBatch (KirinAttackBatch& out) const;
+    bool pollAttackEvents (KirinAttackEventBatch& out) const;
+    bool pollAttackWaveform (KirinAttackWaveformBatch& out) const;
+    bool pollAttackDetails (KirinAttackDetailBatch& out) const;
+    bool pollAttackPreWaveform (KirinAttackWaveformBatch& out) const;
+    bool pollAttackPreDetails (KirinAttackDetailBatch& out) const;
+    bool pollAttackPairEvents (KirinAttackPairEventBatch& out) const;
+    bool attackStats (KirinAttackStats& out) const;
+    uint8_t spectrumSizePreference() const              // nearest preset; exact free size stored below
     {
         return preferredSpectrumSize.load (std::memory_order_acquire);
     }
     void setSpectrumSizePreference (uint8_t index)
     {
-        preferredSpectrumSize.store (index < 3u ? index : 0u, std::memory_order_release);
+        const uint8_t bounded = index < 5u ? index : uint8_t { 0 };
+        preferredSpectrumSize.store (bounded, std::memory_order_release);
     }
+    uint32_t observatoryEditorSizePreference() const
+    {
+        return preferredEditorSize.load (std::memory_order_acquire);
+    }
+    bool setObservatoryEditorSizePreference (int width, int height);
+    void notifyObservatoryEditorSizeChanged();
+    uint8_t observatoryDomainPreference() const
+    {
+        return preferredObservatoryDomain.load (std::memory_order_acquire);
+    }
+    uint8_t observatoryTargetPreference() const
+    {
+        return preferredObservatoryTarget.load (std::memory_order_acquire);
+    }
+    uint8_t observatoryTimeRangePreference() const
+    {
+        return preferredObservatoryTimeRange.load (std::memory_order_acquire);
+    }
+    void setObservatoryDomainPreference (uint8_t value);
+    void setObservatoryTargetPreference (uint8_t value);
+    void setObservatoryTimeRangePreference (uint8_t value);
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
 
     // --- B-054: PRE live name + LED pollers (egui parity) --------------------------------
     juce::String preName() const   { return persistName; }       // PRE self name (= identity.name)
+    juce::String hostTrackName() const { return hostTrackDisplayName; }
     juce::String instanceId() const { return persistInstanceId; } // for the empty-name 8-char fallback
     void setPreName (const juce::String& name);                   // persist + kirin_hypha_set_pre_name (live, sanitized in FFI)
     // (isRecording() is declared in the B-072 block above; record_sm reflects PRE autonomous record too.)
@@ -155,6 +216,7 @@ private:
 
     juce::CriticalSection handleLock;                  // guards hyphaHandle vs editor poll / create / destroy
     KirinHypha* hyphaHandle = nullptr;                 // owned; reused across same-format prepareToPlay; destroyed on incompatible reprepare/dtor
+    bool hostComponentActive = true;                   // guarded by handleLock; retains VST3 setActive before engine creation
     double preparedSampleRate = 0.0;                   // format bound to hyphaHandle
     int preparedInputChannels = 0;                     // format bound to hyphaHandle
     bool lastProcessPositionValid = false;             // audio-thread local transport position cache
@@ -170,6 +232,8 @@ private:
     // (B-070/B-072 enableWritesNow). Empty until restored or generated.
     juce::String persistInstanceId, persistProjectUuid, persistDawSessionUuid, persistName;
     juce::String persistPairName;                      // POST pair target (B-072)
+    // Message-thread-only host display metadata. Never persisted and never replaced by IDs.
+    juce::String hostTrackDisplayName;
     juce::String persistPairInstanceId;                // exact PRE target; survives DAW restart
     juce::String persistPairProjectHash;               // exact PRE shelf; no cross-format guess
     std::atomic<bool> persistShortTermLoudness { false }; // display-only M/S choice; legacy default M
@@ -183,12 +247,20 @@ private:
     std::atomic<bool> stateInformationSeen { false };  // setStateInformation reached this instance at least once
     std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
     std::atomic<bool> perceptualAnalysisRequested { false }; // restores the visible analyzer after engine recreation
-    std::atomic<uint8_t> preferredSpectrumSize { 0 };      // processor lifetime; Spectrum still opens off
+    std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
+    std::atomic<bool> attackRequested { false }; // ATTACK is inactive while its page is hidden
+    std::atomic<uint8_t> preferredSpectrumSize { 0 };      // legacy/default state opens at 100%
+    // Packed into one atomic so a concurrent host state read can never persist mismatched axes.
+    std::atomic<uint32_t> preferredEditorSize { (300u << 16u) | 200u }; // DisplayState v3
+    std::atomic<uint8_t> preferredObservatoryDomain { 0 }; // DisplayState v2; LEVEL
+    std::atomic<uint8_t> preferredObservatoryTarget { 0 }; // DisplayState v2; absolute
+    std::atomic<uint8_t> preferredObservatoryTimeRange { 0 }; // DisplayState v2; 30 s
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
 
-#if KIRIN_HYPHA_PRE_DISPLAY
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
     hypha::pre_display::ClockTap preDisplayClock;
     std::unique_ptr<hypha::pre_display::Controller> preDisplayController;
+    std::unique_ptr<hypha::capture::WorkAttachmentController> captureWorkAttachmentController;
 #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)

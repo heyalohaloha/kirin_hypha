@@ -89,6 +89,18 @@ namespace hypha::perceptual_history
         bool empty() const noexcept { return count == 0u; }
         size_t size() const noexcept { return count; }
         uint32_t sampleRate() const noexcept { return currentSampleRate; }
+        int64_t newestEndpoint() const noexcept
+        {
+            return count == 0u ? 0 : sampleAt (count - 1u).endpoint;
+        }
+
+        bool hasDiscontinuity() const noexcept
+        {
+            for (size_t index = 1u; index < count; ++index)
+                if (! sampleAt (index).continuesPrevious)
+                    return true;
+            return false;
+        }
 
         const Sample& sampleAt (size_t logicalIndex) const noexcept
         {

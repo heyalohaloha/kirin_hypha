@@ -31,18 +31,20 @@ namespace hypha::ui_contract
     constexpr int preDisplayStateGap = 4;
     constexpr int preDisplayDetailMinimumWidth = 72;
     constexpr int preDisplayPresentationHz = 10;
+    constexpr int absoluteTimelineSourceHz = 10;
     // PopupMenu is a separate native window in desktop AU/VST3 hosts. Its geometry therefore
     // cannot inherit the 300x200 editor scale and must be explicit in the shared contract.
     constexpr int pairMenuItemHeight     = 28;
     constexpr int pairMenuMinimumWidth   = editorWidth;
     constexpr int pairMenuMaximumColumns = 1;
-    // The release UI uses native platform fonts without redistributing either vendor's files.
-    // Keep the established macOS appearance, but never ask Windows to resolve Apple's private
-    // family names through the non-deterministic GDI fallback path.
-    constexpr const char* labelFontFamily = ".SF NS";
-    constexpr const char* monoFontFamily  = ".SF NS Mono";
-    constexpr const char* windowsLabelFontFamily = "Segoe UI";
-    constexpr const char* windowsMonoFontFamily  = "Consolas";
+    // Waldenburg Book is Hypha's product typeface. The paid file is never committed to this GPL
+    // repository: licensed release builds inject it through the CMake font boundary. Native faces
+    // remain a deterministic test/development fallback, never an acceptable release substitute.
+    constexpr const char* kimeraFontFamily = "KMR Waldenburg Book";
+    constexpr const char* fallbackLabelFontFamily = ".SF NS";
+    constexpr const char* fallbackMonoFontFamily  = ".SF NS Mono";
+    constexpr const char* windowsFallbackLabelFontFamily = "Segoe UI";
+    constexpr const char* windowsFallbackMonoFontFamily  = "Consolas";
     constexpr float titleFontHeight       = 20.0f;
     constexpr float pairStatusFontHeight  = 13.0f;
     constexpr float feedbackFontHeight    = 13.0f;
@@ -70,10 +72,16 @@ namespace hypha::ui_contract
     constexpr const char* stopLabel = "Stop";
     constexpr std::uint32_t background = 0xff0d0f1a;
     constexpr std::uint32_t normal     = 0xffe0e0e0;
+    // Full LEVEL Observatory numerals use the concept image's warm instrument ivory. Compact
+    // meters retain `normal` for maximum small-size contrast.
+    constexpr std::uint32_t observatoryValue = 0xffe8d8bd;
     constexpr std::uint32_t muted      = 0xff606060;
     constexpr std::uint32_t preDisplayContextDetail = 0xff898989;
     constexpr std::uint32_t flora      = 0xffd4a043;
     constexpr std::uint32_t floraBright = 0xffffe0a0;
+    // Guide gold is a semantic alias, not a quality scale: it identifies received Kirin OS facts.
+    constexpr std::uint32_t guideGold = flora;
+    constexpr std::uint32_t guideGoldBright = floraBright;
     constexpr std::uint32_t spectrumDelta = 0xff75d6e8;
     constexpr std::uint32_t spectrumDeltaBright = 0xffcdeff5;
     constexpr std::uint32_t spectrumPre = 0xff74808f;
@@ -420,24 +428,32 @@ namespace hypha::ui_contract
     static_assert (spectrumSizePresets[0].width == editorWidth
                        && spectrumSizePresets[0].height == editorHeight
                        && spectrumSizePresets[1].width == 375 && spectrumSizePresets[1].height == 250
-                       && spectrumSizePresets[2].width == 450 && spectrumSizePresets[2].height == 300,
-                   "POST Spectrum must expose only the fixed 100/125/150 percent sizes");
+                       && spectrumSizePresets[2].width == 450 && spectrumSizePresets[2].height == 300
+                       && spectrumSizePresets[3].width == 600 && spectrumSizePresets[3].height == 400
+                       && spectrumSizePresets[4].width == 900 && spectrumSizePresets[4].height == 600,
+                   "POST Analysis must expose only the fixed 100/125/150/200/300 percent sizes");
     static_assert (right (spectrumSizeToggleBounds()) < editorLayout (true).pairStatus.x
                        && right (spectrumSizeToggleBounds (375)) < editorLayout (true, 375, 250).pairStatus.x
-                       && right (spectrumSizeToggleBounds (450)) < editorLayout (true, 450, 300).pairStatus.x,
-                   "POST Spectrum size control must never overlap pair status");
+                       && right (spectrumSizeToggleBounds (450)) < editorLayout (true, 450, 300).pairStatus.x
+                       && right (spectrumSizeToggleBounds (600)) < editorLayout (true, 600, 400).pairStatus.x
+                       && right (spectrumSizeToggleBounds (900)) < editorLayout (true, 900, 600).pairStatus.x,
+                   "POST Analysis size control must never overlap pair status");
     static_assert (bottom (spectrumPlotBounds()) < spectrumPostControlsBounds().y,
                    "POST Spectrum plot and controls must not overlap");
     static_assert (bottom (spectrumPlotBounds (375, 250)) < spectrumPostControlsBounds (375, 250).y
-                       && bottom (spectrumPlotBounds (450, 300)) < spectrumPostControlsBounds (450, 300).y,
-                   "Expanded Spectrum plots and controls must not overlap");
+                       && bottom (spectrumPlotBounds (450, 300)) < spectrumPostControlsBounds (450, 300).y
+                       && bottom (spectrumPlotBounds (600, 400)) < spectrumPostControlsBounds (600, 400).y
+                       && bottom (spectrumPlotBounds (900, 600)) < spectrumPostControlsBounds (900, 600).y,
+                   "Expanded Analysis plots and controls must not overlap");
     static_assert (spectrumPostControlsBounds().x == editorLayout (true).postControls.x
                        && spectrumPostControlsBounds().y == editorLayout (true).postControls.y
                        && spectrumPostControlsBounds().width == editorLayout (true).postControls.width
                        && spectrumPostControlsBounds().height == editorLayout (true).postControls.height,
                    "Compact Spectrum must retain the established control geometry");
     static_assert (spectrumVisualScale (spectrumPlotBounds().width) == 1.0f
-                       && spectrumVisualScale (spectrumPlotBounds (450, 300).width) == 1.5f,
+                       && spectrumVisualScale (spectrumPlotBounds (450, 300).width) == 1.5f
+                       && spectrumVisualScale (spectrumPlotBounds (600, 400).width) == 2.0f
+                       && spectrumVisualScale (spectrumPlotBounds (900, 600).width) == 3.0f,
                    "Spectrum visual scale must follow the exact fixed window widths");
     static_assert (bottom (editorLayout (true).postControls) <= editorLayout (true).feedback.y,
                    "POST controls and feedback must not overlap");

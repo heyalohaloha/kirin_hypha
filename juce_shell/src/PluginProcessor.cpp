@@ -7,7 +7,13 @@
 
 namespace
 {
-#if KIRIN_HYPHA_PRE_DISPLAY
+    static_assert (sizeof (KirinMeterSession) == 840u,
+                   "Rust/C++ Meter Session ABI size must remain exact");
+    static_assert (sizeof (KirinObservatoryFrame) == 920u,
+                   "Rust/C++ Observatory frame ABI size must remain exact");
+    static_assert (sizeof (KirinMeterHistoryEntry) == 184u,
+                   "Rust/C++ Meter history ABI size must remain exact");
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::unknown)
                        == KIRIN_HYPHA_CLOCK_UNKNOWN);
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::projectTimeline)
@@ -83,14 +89,17 @@ KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
 KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 {
     stopTimer(); // B-126: stop the non-RT enable poll before teardown (was cancelPendingUpdate / B-070).
-#if KIRIN_HYPHA_PRE_DISPLAY
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
     preDisplayController.reset();
 #endif
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
     {
         if (role == Role::Post)
+        {
             kirin_hypha_set_spectrum_visible (hyphaHandle, false);
+            kirin_hypha_set_attack_enabled (hyphaHandle, false);
+        }
         kirin_hypha_destroy (hyphaHandle);
         hyphaHandle = nullptr;
     }
@@ -161,6 +170,10 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         const uint8_t lic = kirin_hypha_load_license();
         cachedLicenseCode.store ((int) lic, std::memory_order_release);
         kirin_hypha_set_license (hyphaHandle, lic);
+        // A recalled Studio Pro session may deliver setActive(false) before prepareToPlay creates
+        // the Rust engine. Apply the retained host fact to every fresh handle so an insert that
+        // was already OFF at project-open reaches the same ABS state as an explicit live click.
+        kirin_hypha_set_host_component_active (hyphaHandle, hostComponentActive);
         writesEnabled.store (false, std::memory_order_release);
         // Logic stopped-state fix: re-prepare needs a fresh enable, but Logic may not call processBlock until
         // playback. Start a message-thread fallback so Inactive presence/candidates are published
@@ -183,6 +196,25 @@ void KirinHyphaProcessorBase::releaseResources()
     // incompatible prepareToPlay rebuild.
     // Offline bounce end is not user intent either. Record stop authority stays with explicit
     // Stop/All Stop and the IO-thread idle timeout; this callback intentionally does nothing.
+}
+
+void KirinHyphaProcessorBase::updateTrackProperties (const TrackProperties& properties)
+{
+    // JUCE specifies this callback on the message thread. Keep only the host's human-readable
+    // label; colour and all implementation identity remain outside Capture.
+    hostTrackDisplayName = properties.name;
+}
+
+void KirinHyphaProcessorBase::hostComponentActivationChanged (bool active)
+{
+    // VST3 IComponent::setActive is distinct from transport/silence. Studio Pro uses this path
+    // when the insert power button is changed, while releaseResources alone is too ambiguous
+    // (sample-rate reconfigure / offline render / teardown). Rust applies the shared heartbeat
+    // grace before publishing Bypassed, so transient host reconfiguration remains Inactive.
+    const juce::ScopedLock sl (handleLock);
+    hostComponentActive = active;
+    if (hyphaHandle != nullptr)
+        kirin_hypha_set_host_component_active (hyphaHandle, active);
 }
 
 bool KirinHyphaProcessorBase::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -284,11 +316,10 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     // promote those values to wav_clock_native; render span remains a lower-trust fallback
     // until a host-supplied native sample range exists.
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
-#if KIRIN_HYPHA_PRE_DISPLAY
-    if (role == Role::Pre)
-        preDisplayClock.publish (positionSamples, preparedSampleRate,
-                                 static_cast<std::uint32_t> (juce::jmax (0, numFrames)), playing,
-                                 static_cast<hypha::pre_display::ClockSource> (clockSource));
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
+    preDisplayClock.publish (positionSamples, preparedSampleRate,
+                             static_cast<std::uint32_t> (juce::jmax (0, numFrames)), playing,
+                             static_cast<hypha::pre_display::ClockSource> (clockSource));
 #endif
     const bool positionChanged = hasPosition && lastProcessPositionValid
                               && positionSamples != lastProcessPositionSamples;
@@ -526,6 +557,74 @@ bool KirinHyphaProcessorBase::pollRecordDisplay (KirinRecordDisplay& out) const
     return kirin_hypha_poll_record_display (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::pollMeterSession (KirinMeterSession& out) const
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_meter_session (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollObservatoryFrame (KirinObservatoryFrame& out) const
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_observatory_frame (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollMeterHistory (
+    uint8_t resolution,
+    std::vector<KirinMeterHistoryEntry>& out,
+    size_t maxEntries,
+    size_t maxOutputEntries) const
+{
+    const auto boundedRange = std::min (maxEntries,
+                                        static_cast<size_t> (KIRIN_METER_HISTORY_MAX_ENTRIES));
+    const auto boundedOutput = std::min (maxOutputEntries, boundedRange);
+    out.resize (boundedOutput);
+    uint32_t count = 0;
+    const juce::ScopedLock sl (handleLock);
+    const auto ok = hyphaHandle != nullptr
+                 && kirin_hypha_poll_meter_history_decimated (
+                        hyphaHandle, resolution, static_cast<uint32_t> (boundedRange),
+                        out.data(), static_cast<uint32_t> (boundedOutput), &count);
+    if (! ok)
+    {
+        out.clear();
+        return false;
+    }
+    out.resize (count);
+    return true;
+}
+
+bool KirinHyphaProcessorBase::pollMeterDeltaHistory (
+    uint8_t resolution,
+    std::vector<KirinMeterHistoryEntry>& out,
+    size_t maxEntries,
+    size_t maxOutputEntries) const
+{
+    const auto boundedRange = std::min (maxEntries,
+                                        static_cast<size_t> (KIRIN_METER_HISTORY_MAX_ENTRIES));
+    const auto boundedOutput = std::min (maxOutputEntries, boundedRange);
+    out.resize (boundedOutput);
+    uint32_t count = 0;
+    const juce::ScopedLock sl (handleLock);
+    const auto ok = hyphaHandle != nullptr
+                 && kirin_hypha_poll_meter_delta_history_decimated (
+                        hyphaHandle, resolution, static_cast<uint32_t> (boundedRange),
+                        out.data(), static_cast<uint32_t> (boundedOutput), &count);
+    if (! ok)
+    {
+        out.clear();
+        return false;
+    }
+    out.resize (count);
+    return true;
+}
+
+bool KirinHyphaProcessorBase::resetMeterSession()
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_reset_meter_session (hyphaHandle);
+}
+
 void KirinHyphaProcessorBase::setUseShortTermLoudness (bool shortTerm)
 {
     if (persistShortTermLoudness.exchange (shortTerm, std::memory_order_acq_rel) == shortTerm)
@@ -533,12 +632,99 @@ void KirinHyphaProcessorBase::setUseShortTermLoudness (bool shortTerm)
     updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
 
-#if KIRIN_HYPHA_PRE_DISPLAY
+void KirinHyphaProcessorBase::setObservatoryDomainPreference (uint8_t value)
+{
+    const uint8_t bounded = value < 4u ? value : uint8_t { 0 };
+    if (preferredObservatoryDomain.exchange (bounded, std::memory_order_acq_rel) != bounded)
+        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
+void KirinHyphaProcessorBase::setObservatoryTargetPreference (uint8_t value)
+{
+    const uint8_t bounded = value < 2u ? value : uint8_t { 0 };
+    if (preferredObservatoryTarget.exchange (bounded, std::memory_order_acq_rel) != bounded)
+        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
+void KirinHyphaProcessorBase::setObservatoryTimeRangePreference (uint8_t value)
+{
+    const uint8_t bounded = value < 5u ? value : uint8_t { 0 };
+    if (preferredObservatoryTimeRange.exchange (bounded, std::memory_order_acq_rel) != bounded)
+        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
+bool KirinHyphaProcessorBase::setObservatoryEditorSizePreference (int width, int height)
+{
+    if (! hypha::observatory::validEditorSize (width, height))
+        return false;
+    const auto packed = hypha::observatory::packEditorSize ({ width, height });
+    return preferredEditorSize.exchange (packed, std::memory_order_acq_rel) != packed;
+}
+
+void KirinHyphaProcessorBase::notifyObservatoryEditorSizeChanged()
+{
+    updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
 hypha::pre_display::DisplaySnapshot KirinHyphaProcessorBase::preDisplaySnapshot() const
 {
     return preDisplayController != nullptr
         ? preDisplayController->displaySnapshot()
         : hypha::pre_display::DisplaySnapshot {};
+}
+
+hypha::pre_display::GuidePresentationSnapshot
+KirinHyphaProcessorBase::guidePresentationSnapshot() const
+{
+    return preDisplayController != nullptr
+        ? preDisplayController->guidePresentationSnapshot()
+        : hypha::pre_display::GuidePresentationSnapshot {};
+}
+
+hypha::pre_display::ConnectionRequest KirinHyphaProcessorBase::pendingPreDisplayConnection() const
+{
+    return preDisplayController != nullptr
+        ? preDisplayController->pendingConnection()
+        : hypha::pre_display::ConnectionRequest {};
+}
+
+bool KirinHyphaProcessorBase::acceptPreDisplayConnection()
+{
+    return preDisplayController != nullptr && preDisplayController->acceptPendingConnection();
+}
+
+hypha::pre_display::WorkReference KirinHyphaProcessorBase::connectedWorkReference() const
+{
+    return preDisplayController != nullptr
+        ? preDisplayController->connectedWorkReference()
+        : hypha::pre_display::WorkReference {};
+}
+
+juce::String KirinHyphaProcessorBase::connectedWorkTitle() const
+{
+    return preDisplayController != nullptr
+        ? preDisplayController->connectedWorkTitle() : juce::String {};
+}
+
+hypha::capture::WorkAttachmentSubmit KirinHyphaProcessorBase::attachCaptureToWork (
+    const hypha::pre_display::WorkReference& expectedWork,
+    juce::MemoryBlock pngBytes,
+    hypha::capture::WorkAttachmentDescriptor descriptor)
+{
+    if (preDisplayController == nullptr || captureWorkAttachmentController == nullptr
+        || ! connectedWorkReference().sameAuthority (expectedWork))
+        return hypha::capture::WorkAttachmentSubmit::invalidReference;
+    return captureWorkAttachmentController->submit (
+        expectedWork, std::move (pngBytes), std::move (descriptor));
+}
+
+hypha::capture::WorkAttachmentResult
+KirinHyphaProcessorBase::takeCaptureWorkAttachmentResult()
+{
+    return captureWorkAttachmentController != nullptr
+        ? captureWorkAttachmentController->takeResult()
+        : hypha::capture::WorkAttachmentResult {};
 }
 #endif
 
@@ -718,7 +904,11 @@ bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
     if (role != Role::Post)
         return false;
     if (visible)
+    {
         perceptualAnalysisRequested.store (false, std::memory_order_release);
+        absoluteAnalysisRequested.store (false, std::memory_order_release);
+        attackRequested.store (false, std::memory_order_release);
+    }
     spectrumVisibleRequested.store (visible, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
@@ -735,7 +925,15 @@ bool KirinHyphaProcessorBase::setPerceptualVisible (bool visible)
     if (role != Role::Post)
         return false;
     if (visible)
+    {
         perceptualAnalysisRequested.store (true, std::memory_order_release);
+        absoluteAnalysisRequested.store (false, std::memory_order_release);
+        attackRequested.store (false, std::memory_order_release);
+    }
+    else
+    {
+        perceptualAnalysisRequested.store (false, std::memory_order_release);
+    }
     spectrumVisibleRequested.store (visible, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
@@ -745,6 +943,27 @@ bool KirinHyphaProcessorBase::setPerceptualVisible (bool visible)
             preferredSpectrumChannelMode.load (std::memory_order_acquire)))
         return false;
     return kirin_hypha_set_perceptual_visible (hyphaHandle, visible);
+}
+
+bool KirinHyphaProcessorBase::setAbsoluteVisible (bool visible)
+{
+    if (role != Role::Post)
+        return false;
+    if (visible)
+    {
+        perceptualAnalysisRequested.store (false, std::memory_order_release);
+        absoluteAnalysisRequested.store (true, std::memory_order_release);
+        attackRequested.store (false, std::memory_order_release);
+    }
+    else
+    {
+        absoluteAnalysisRequested.store (false, std::memory_order_release);
+    }
+    spectrumVisibleRequested.store (visible, std::memory_order_release);
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
+        return false;
+    return kirin_hypha_set_absolute_visible (hyphaHandle, visible);
 }
 
 bool KirinHyphaProcessorBase::setSpectrumChannelMode (uint8_t channelMode)
@@ -774,12 +993,152 @@ bool KirinHyphaProcessorBase::pollSpectrum (KirinSpectrumView& out) const
     return hyphaHandle != nullptr && kirin_hypha_poll_spectrum (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::pollSpectrumBatch (KirinSpectrumBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_spectrum_batch (hyphaHandle, &out);
+}
+
 bool KirinHyphaProcessorBase::pollPerceptual (KirinPerceptualView& out) const
 {
     if (role != Role::Post)
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr && kirin_hypha_poll_perceptual (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollPerceptualBatch (KirinPerceptualBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_perceptual_batch (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollAbsoluteBatch (KirinAbsoluteBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_poll_absolute_batch (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollAnalysisOwnerNames (juce::String& out) const
+{
+    if (role != Role::Post)
+        return false;
+    KirinAnalysisOwners owners {};
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr || ! kirin_hypha_poll_analysis_owners (hyphaHandle, &owners))
+        return false;
+    if (owners.count != KIRIN_ANALYSIS_SLOT_COUNT)
+    {
+        out.clear();
+        return true;
+    }
+    juce::StringArray names;
+    for (size_t index = 0u; index < KIRIN_ANALYSIS_SLOT_COUNT; ++index)
+    {
+        const auto* utf8 = owners.names[index];
+        if (utf8[0] == '\0')
+        {
+            out.clear();
+            return true;
+        }
+        names.add (juce::String (juce::CharPointer_UTF8 (utf8)));
+    }
+    out = names.joinIntoString (", ");
+    return true;
+}
+
+bool KirinHyphaProcessorBase::setAttackEnabled (bool enabled)
+{
+    if (role != Role::Post)
+        return false;
+    if (enabled)
+    {
+        perceptualAnalysisRequested.store (false, std::memory_order_release);
+        absoluteAnalysisRequested.store (false, std::memory_order_release);
+    }
+    spectrumVisibleRequested.store (enabled, std::memory_order_release);
+    attackRequested.store (enabled, std::memory_order_release);
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_set_attack_enabled (hyphaHandle, enabled);
+}
+
+bool KirinHyphaProcessorBase::pollAttackBatch (KirinAttackBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_attack_batch (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollAttackEvents (KirinAttackEventBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_attack_events (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollAttackWaveform (KirinAttackWaveformBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_attack_waveform (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollAttackDetails (KirinAttackDetailBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_attack_details (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollAttackPreWaveform (KirinAttackWaveformBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_attack_pre_waveform (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollAttackPreDetails (KirinAttackDetailBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_attack_pre_details (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollAttackPairEvents (KirinAttackPairEventBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_attack_pair_events (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::attackStats (KirinAttackStats& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_attack_stats (hyphaHandle, &out);
 }
 
 bool KirinHyphaProcessorBase::spectrumStats (KirinSpectrumStats& out) const
@@ -798,7 +1157,7 @@ void KirinHyphaProcessorBase::setPreName (const juce::String& name)
     // io_thread via the FFI (sanitized to ASCII graphic + space / 16 there). Mirrors how the
     // egui PRE writes its shared name Arc; persistName keeps DAW save/load consistent.
     persistName = name;
-#if KIRIN_HYPHA_PRE_DISPLAY
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
     if (preDisplayController != nullptr)
         preDisplayController->setName (name);
 #endif
@@ -972,6 +1331,15 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("paired_pre_project_hash", persistPairProjectHash);
     xml.setAttribute ("loudness_view",
                       persistShortTermLoudness.load (std::memory_order_acquire) ? "S" : "M");
+    xml.setAttribute ("display_state_version", 3);
+    xml.setAttribute ("observatory_domain", (int) observatoryDomainPreference());
+    xml.setAttribute ("observatory_target", (int) observatoryTargetPreference());
+    xml.setAttribute ("observatory_time_range", (int) observatoryTimeRangePreference());
+    xml.setAttribute ("observatory_size", (int) spectrumSizePreference());
+    const auto editorSize = hypha::observatory::unpackEditorSize (
+        observatoryEditorSizePreference());
+    xml.setAttribute ("observatory_width", editorSize.width);
+    xml.setAttribute ("observatory_height", editorSize.height);
     copyXmlToBinary (xml, destData);
 }
 
@@ -985,6 +1353,12 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     juce::String restoredInstanceId, restoredProjectUuid, restoredDawSessionUuid;
     juce::String restoredName, restoredPairName, restoredPairInstanceId, restoredPairProjectHash;
     bool restoredShortTermLoudness = false;
+    uint8_t restoredObservatoryDomain = 0;
+    uint8_t restoredObservatoryTarget = 0;
+    uint8_t restoredObservatoryTimeRange = 0;
+    uint8_t restoredObservatorySize = 0;
+    int restoredEditorWidth = 300;
+    int restoredEditorHeight = 200;
     bool restored = false;
 
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
@@ -999,6 +1373,26 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             restoredPairInstanceId = xml->getStringAttribute ("paired_pre_instance_id");
             restoredPairProjectHash = xml->getStringAttribute ("paired_pre_project_hash");
             restoredShortTermLoudness = xml->getStringAttribute ("loudness_view") == "S";
+            const int displayStateVersion = xml->getIntAttribute ("display_state_version", 0);
+            if (displayStateVersion >= 2)
+            {
+                restoredObservatoryDomain = (uint8_t) juce::jlimit (
+                    0, 3, xml->getIntAttribute ("observatory_domain", 0));
+                restoredObservatoryTarget = (uint8_t) juce::jlimit (
+                    0, 1, xml->getIntAttribute ("observatory_target", 0));
+                restoredObservatoryTimeRange = (uint8_t) juce::jlimit (
+                    0, 4, xml->getIntAttribute ("observatory_time_range", 0));
+                restoredObservatorySize = (uint8_t) juce::jlimit (
+                    0, 4, xml->getIntAttribute ("observatory_size", 0));
+                const auto preset = hypha::observatory::sizePresets[restoredObservatorySize];
+                const auto restoredEditorSize = hypha::observatory::editorSizeFromState (
+                    displayStateVersion,
+                    restoredObservatorySize,
+                    xml->getIntAttribute ("observatory_width", preset.width),
+                    xml->getIntAttribute ("observatory_height", preset.height));
+                restoredEditorWidth = restoredEditorSize.width;
+                restoredEditorHeight = restoredEditorSize.height;
+            }
             restored = true;
         }
     }
@@ -1026,6 +1420,13 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         // Additive display-only state. Old JUCE states, legacy nih-plug JSON, and invalid values
         // all resolve to the established Momentary default without touching identity/pair fields.
         persistShortTermLoudness.store (restoredShortTermLoudness, std::memory_order_release);
+        preferredObservatoryDomain.store (restoredObservatoryDomain, std::memory_order_release);
+        preferredObservatoryTarget.store (restoredObservatoryTarget, std::memory_order_release);
+        preferredObservatoryTimeRange.store (restoredObservatoryTimeRange,
+                                              std::memory_order_release);
+        preferredSpectrumSize.store (restoredObservatorySize, std::memory_order_release);
+        preferredEditorSize.store (hypha::observatory::packEditorSize (
+            { restoredEditorWidth, restoredEditorHeight }), std::memory_order_release);
         // Once writes are enabled, the io_thread has already snapshotted path identity. Only the
         // live-editable name/pair fields may be applied at that point; the exact-path writer stays
         // coherent with its established identity.
@@ -1129,12 +1530,18 @@ void KirinHyphaProcessorBase::enableWritesNow()
                 persistPairProjectHash.clear();
             }
         }
-        if (spectrumVisibleRequested.load (std::memory_order_acquire))
+        if (attackRequested.load (std::memory_order_acquire))
+        {
+            kirin_hypha_set_attack_enabled (hyphaHandle, true);
+        }
+        else if (spectrumVisibleRequested.load (std::memory_order_acquire))
         {
             kirin_hypha_set_spectrum_channel_mode (
                 hyphaHandle,
                 preferredSpectrumChannelMode.load (std::memory_order_acquire));
-            if (perceptualAnalysisRequested.load (std::memory_order_acquire))
+            if (absoluteAnalysisRequested.load (std::memory_order_acquire))
+                kirin_hypha_set_absolute_visible (hyphaHandle, true);
+            else if (perceptualAnalysisRequested.load (std::memory_order_acquire))
                 kirin_hypha_set_perceptual_visible (hyphaHandle, true);
             else
                 kirin_hypha_set_spectrum_visible (hyphaHandle, true);
@@ -1154,30 +1561,32 @@ void KirinHyphaProcessorBase::enableWritesNow()
     persistDawSessionUuid = juce::String::fromUTF8 (id.daw_session_uuid);
     persistName           = juce::String::fromUTF8 (id.name);
 
-#if KIRIN_HYPHA_PRE_DISPLAY
-    if (role == Role::Pre)
-    {
-        if (preDisplayController == nullptr)
-            preDisplayController = std::make_unique<hypha::pre_display::Controller> (preDisplayClock);
-        hypha::pre_display::RuntimeIdentity displayIdentity;
-        displayIdentity.instanceId = persistInstanceId;
-        displayIdentity.projectUuid = persistProjectUuid;
-        displayIdentity.dawSessionUuid = persistDawSessionUuid;
-        displayIdentity.name = persistName;
-        displayIdentity.pluginVersion = JucePlugin_VersionString;
-        displayIdentity.pluginFormat = wrapperType == juce::AudioProcessor::wrapperType_AudioUnit ? "AU" : "VST3";
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
+    if (preDisplayController == nullptr)
+        preDisplayController = std::make_unique<hypha::pre_display::Controller> (preDisplayClock);
+    if (role == Role::Post && captureWorkAttachmentController == nullptr)
+        captureWorkAttachmentController =
+            std::make_unique<hypha::capture::WorkAttachmentController>();
+    hypha::pre_display::RuntimeIdentity displayIdentity;
+    displayIdentity.role = role == Role::Post ? hypha::pre_display::GuideTargetRole::post
+                                              : hypha::pre_display::GuideTargetRole::pre;
+    displayIdentity.instanceId = persistInstanceId;
+    displayIdentity.projectUuid = persistProjectUuid;
+    displayIdentity.dawSessionUuid = persistDawSessionUuid;
+    displayIdentity.name = persistName;
+    displayIdentity.pluginVersion = JucePlugin_VersionString;
+    displayIdentity.pluginFormat = wrapperType == juce::AudioProcessor::wrapperType_AudioUnit ? "AU" : "VST3";
        #if JUCE_WINDOWS
-        displayIdentity.platform = "windows";
+    displayIdentity.platform = "windows";
        #else
-        displayIdentity.platform = "macos";
+    displayIdentity.platform = "macos";
        #endif
        #if JUCE_ARM
-        displayIdentity.architecture = "arm64";
+    displayIdentity.architecture = "arm64";
        #else
-        displayIdentity.architecture = "x86_64";
+    displayIdentity.architecture = "x86_64";
        #endif
-        preDisplayController->configureAndStart (std::move (displayIdentity));
-    }
+    preDisplayController->configureAndStart (std::move (displayIdentity));
 #endif
 
     writesEnabled.store (true, std::memory_order_release);

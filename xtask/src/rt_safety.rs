@@ -6,6 +6,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_hypha_ffi/src/lib.rs"
     ));
+    const SIGNAL_STATE_FFI_RS: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/kirin_hypha_ffi/src/signal_state_ffi.rs"
+    ));
     const PLUGIN_PROCESSOR_CPP: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
@@ -195,6 +199,39 @@ mod tests {
     }
 
     #[test]
+    fn signal_state_core_avoids_io_allocation_and_blocking_locks() {
+        for signature in [
+            "fn signal_state_to_abi(state: SignalState)",
+            "pub fn set_signal_state(&self, abi_state: u8)",
+            "pub fn signal_state_abi(&self)",
+        ] {
+            let body = function_body(SIGNAL_STATE_FFI_RS, signature);
+            for forbidden in [
+                "StoragePaths",
+                "std::fs",
+                "read_to_string",
+                "write(",
+                "File::",
+                ".lock(",
+                ".try_lock(",
+                "Vec::",
+                "Box::",
+                "String::",
+                "format!",
+                "thread::",
+                "spawn",
+                "sleep",
+                "join",
+            ] {
+                assert!(
+                    !body.contains(forbidden),
+                    "{signature} must not contain {forbidden}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn capture_clock_core_avoids_io_allocation_and_blocking_locks() {
         let body = function_body(
             RECORD_TAKE_RS,
@@ -234,6 +271,7 @@ mod tests {
     fn audio_thread_c_abi_wrappers_remain_thin() {
         for signature in [
             "pub unsafe extern \"C\" fn kirin_hypha_get_signal_state",
+            "pub unsafe extern \"C\" fn kirin_hypha_set_signal_state",
             "pub unsafe extern \"C\" fn kirin_hypha_push_samples",
             "pub unsafe extern \"C\" fn kirin_hypha_note_record_block",
             "pub unsafe extern \"C\" fn kirin_hypha_note_record_window",
@@ -241,7 +279,14 @@ mod tests {
             "pub unsafe extern \"C\" fn kirin_hypha_note_transport_block",
             "pub unsafe extern \"C\" fn kirin_hypha_note_oversized_drop",
         ] {
-            let body = function_body(FFI_LIB_RS, signature);
+            let source = if signature.contains("kirin_hypha_get_signal_state")
+                || signature.contains("kirin_hypha_set_signal_state")
+            {
+                SIGNAL_STATE_FFI_RS
+            } else {
+                FFI_LIB_RS
+            };
+            let body = function_body(source, signature);
             for forbidden in [
                 "StoragePaths",
                 "std::fs",

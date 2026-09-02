@@ -5,9 +5,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 UI_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-ui-contract-$$"
+OBSERVATORY_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-observatory-contract-$$"
 PRE_DISPLAY_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/kirin-pre-display-test.XXXXXX")"
 cleanup() {
   cmake -E rm -f "$UI_CONTRACT_BIN"
+  cmake -E rm -f "$OBSERVATORY_CONTRACT_BIN"
   cmake -E remove_directory "$PRE_DISPLAY_BUILD"
 }
 trap cleanup EXIT
@@ -39,6 +41,10 @@ assert_ignored_count() {
 # pairing, TRACE publication, and error-path integration tests without treating the retired
 # nih-plug editors as the AU/VST3 release shell.
 run cargo fmt --all -- --check
+run node --test scripts/public_history.test.mjs
+run node scripts/check_public_history.mjs --tip HEAD
+run bash scripts/test_source_line_budget.sh
+run bash scripts/check_source_line_budget.sh
 run node --test scripts/ls_release/release_metadata.test.mjs
 
 # Pure C++ contract used by the common AU/VST3 editor. This deliberately runs before any JUCE
@@ -47,6 +53,12 @@ run node --test scripts/ls_release/release_metadata.test.mjs
 run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   juce_shell/tests/ui_contract_test.cpp -o "$UI_CONTRACT_BIN"
 run "$UI_CONTRACT_BIN"
+
+# New shell anatomy is independent of the legacy Meters layout. Pin all four PRE/POST sizes and
+# the optional Guide rail before either transport or JUCE rendering is connected to it.
+run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+  juce_shell/tests/observatory_contract_test.cpp -o "$OBSERVATORY_CONTRACT_BIN"
+run "$OBSERVATORY_CONTRACT_BIN"
 
 # The pinned JUCE submodule is intentionally pristine in a clean checkout. Both the runtime
 # build below and xtask's wrapper parity checks consume the tracked build-time patch stack, so
@@ -68,16 +80,19 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 run cmake "${PRE_DISPLAY_CMAKE_ARGS[@]}"
 run cmake --build "$PRE_DISPLAY_BUILD" \
-  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests --config Release
+  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests KirinAttackUiContractTests --config Release
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
-  --output-on-failure -R '^(kirin_pre_display_runtime|kirin_ui_render_contract)$'
+  --output-on-failure -R '^(kirin_pre_display_runtime|kirin_ui_render_contract|kirin_attack_ui_contract)$'
 
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked
-# One Analysis owner runs exactly one PRE/POST pair. Keep its 48 kHz continuous Sharpness cost
-# below the measured single-core ceiling in the optimized configuration that ships.
+# Each paired SHARP view runs one exact PRE/POST pair. The local LIVE view runs one POST analyzer;
+# quantify both allowed LIVE slots in the same optimized configuration that ships.
 run cargo test -p kirin_measure --release --locked \
   one_visible_pair_continuous_sharpness_worker_budget_is_quantified \
+  --lib -- --ignored --nocapture
+run cargo test -p kirin_measure --release --locked \
+  two_post_absolute_workers_fit_the_optional_analysis_budget \
   --lib -- --ignored --nocapture
 
 # The C++ shell consumes the static C ABI, not Rust's rlib symbols. Build that exact archive and

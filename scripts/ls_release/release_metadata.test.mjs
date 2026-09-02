@@ -9,7 +9,12 @@ import { fileURLToPath } from 'node:url';
 
 import { parseArgs as parseDryRunArgs } from './kirin_hypha_ls_dry_run.mjs';
 import {
+  parseArgs as parseReleaseSetArgs,
+  requireWindowsInstaller,
+} from './build_kirin_hypha_release_set.mjs';
+import {
   artifactManifestFor,
+  commitReceiptFor,
   localReleaseStateFor,
   parseArgs as parseWindowsArgs,
 } from './build_kirin_hypha_windows_vst3_zip.mjs';
@@ -145,6 +150,27 @@ test('README uses the verified current Hypha UI media', () => {
   const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
   const media = [
     {
+      relativePath: 'docs/media/kirin-hypha-freq.jpg',
+      sha256: '07ead3f12501b601e3e098d48f81bee44faf1a55d8681548ac63ac93cefb7c60',
+      signature: Buffer.from([0xff, 0xd8, 0xff]),
+    },
+    {
+      relativePath: 'docs/media/kirin-hypha-freq-demo.mp4',
+      sha256: 'e149441b4c8bbbcd908c9bda53fc56c0ef106962abadab0531f39d5d9b77194d',
+      signature: Buffer.from('ftyp'),
+      signatureOffset: 4,
+    },
+    {
+      relativePath: 'docs/media/kirin-hypha-sharp.jpg',
+      sha256: '5ffa99bc02eca335b95643c11df07e84e369abb54024f32a8108857d5a12c2d2',
+      signature: Buffer.from([0xff, 0xd8, 0xff]),
+    },
+    {
+      relativePath: 'docs/media/kirin-hypha-live.jpg',
+      sha256: '9b200ff12454b176e213f7ea5dfa31d75c23a7ce59a29fe5d94cf776311d5cb6',
+      signature: Buffer.from([0xff, 0xd8, 0xff]),
+    },
+    {
       relativePath: 'docs/media/kirin-hypha-pre-post.jpg',
       sha256: 'c38f068db726a4172850a0cd4099a7dcf116fe1ef29f123eda647612217c5416',
       signature: Buffer.from([0xff, 0xd8, 0xff]),
@@ -184,6 +210,32 @@ test('README uses the verified current Hypha UI media', () => {
     assert.equal(fs.existsSync(path.join(repoRoot, retired)), false, `${retired} must stay retired`);
     assert.doesNotMatch(readme, new RegExp(retired.replaceAll('.', '\\.')));
   }
+});
+
+test('README opens with current analysis, exact pairing, and supported Windows facts', () => {
+  const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  const designIndex = readme.indexOf('\n## Design\n');
+  const entrance = readme.slice(0, designIndex);
+
+  assert.ok(designIndex > 0, 'README must keep the technical Design contract after the entrance');
+  assert.match(entrance, /docs\/media\/kirin-hypha-freq\.jpg/);
+  assert.match(entrance, /docs\/media\/kirin-hypha-freq-demo\.mp4/);
+  assert.match(entrance, /docs\/media\/kirin-hypha-sharp\.jpg/);
+  assert.match(entrance, /docs\/media\/kirin-hypha-live\.jpg/);
+  assert.ok(
+    entrance.indexOf('docs/media/kirin-hypha-freq.jpg')
+      < readme.indexOf('docs/media/kirin-hypha-pre-post.jpg'),
+    'FREQ must be the first public product image',
+  );
+  assert.match(entrance, /choose that exact PRE under \*\*Pair choices\*\*/);
+  assert.match(entrance, /Names are optional labels/);
+  assert.match(readme, /current v1\.1\.48 Windows 10\/11 64-bit VST3 release is a supported manual PRE\/POST ZIP/);
+  assert.match(readme, /The next validated release will use a single installer\s+EXE/);
+  assert.match(readme, /signed installer is required for the next validated release/);
+  assert.doesNotMatch(readme, /supported release is currently macOS-only/);
+  assert.doesNotMatch(readme, /Windows validation candidate/);
+  assert.doesNotMatch(readme, /External validation is pending/);
+  assert.doesNotMatch(readme, /Pairing is by \*\*name\*\*/);
 });
 
 test('published release commit rewrites retain verifiable immutable provenance', () => {
@@ -293,7 +345,90 @@ test('LS dry run requires an explicit local state path', () => {
   assert.equal(parseDryRunArgs(['--state', 'release_state/local.state.json']).state, 'release_state/local.state.json');
 });
 
-test('Windows public manifest excludes operator workflow state', (context) => {
+test('full release set accepts only a signed, verified, externally validated Windows installer', (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-windows-primary-'));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const installer = path.join(root, 'Kirin-Hypha-1.2.3-Windows-x64-Setup.exe');
+  fs.writeFileSync(installer, 'signed installer fixture');
+  const digest = sha256File(installer);
+  const preDigest = '1'.repeat(64);
+  const postDigest = '2'.repeat(64);
+  const uninstallerDigest = '3'.repeat(64);
+  const identity = { version: '1.2.3', commit: '0'.repeat(40), bNumber: 'B-123' };
+  fs.writeFileSync(`${installer}.sha256`, `${digest}  ${path.basename(installer)}\n`);
+  const signatureTarget = (role, targetDigest) => ({
+    role,
+    file_name: `${role}.exe`,
+    status: 'Valid',
+    sha256: targetDigest,
+    signer_subject: 'CN=Kirin fixture',
+    signer_thumbprint: 'A'.repeat(40),
+    timestamp_subject: 'CN=Timestamp fixture',
+    timestamp_thumbprint: 'B'.repeat(40),
+  });
+  const manifest = {
+    schema: 'kirin-hypha-windows-installer-v1',
+    product: { name: 'Kirin Hypha', version: identity.version, platform: 'windows-x64', format: 'VST3' },
+    source: {
+      commit: identity.commit,
+      b_number: identity.bNumber,
+      github_actions_run: 'https://github.com/heyalohaloha/kirin_hypha/actions/runs/123',
+    },
+    installer: {
+      sha256: digest,
+      payload: [
+        { role: 'PRE', binary_sha256: preDigest },
+        { role: 'POST', binary_sha256: postDigest },
+      ],
+    },
+    signing: {
+      status: 'valid',
+      workflow_run: 'https://github.com/heyalohaloha/kirin_sense_lens/actions/runs/456',
+      verification: {
+        targets: [
+          signatureTarget('installer', digest),
+          signatureTarget('installed PRE VST3 binary', preDigest),
+          signatureTarget('installed POST VST3 binary', postDigest),
+          signatureTarget('installed uninstaller', uninstallerDigest),
+        ],
+      },
+    },
+    ci_validation: { status: 'passed' },
+    external_validation: { status: 'complete' },
+    distribution: { primary: true, public_ready: true },
+  };
+  fs.writeFileSync(`${installer}.json`, JSON.stringify(manifest));
+
+  assert.equal(requireWindowsInstaller(root, identity), installer);
+  assert.equal(
+    parseReleaseSetArgs(['--windows-artifact-dir', root]).windowsInstallerDir,
+    root,
+  );
+  fs.writeFileSync(`${installer}.json`, JSON.stringify({
+    ...manifest,
+    signing: { status: 'verified_unsigned_ci_candidate' },
+  }));
+  assert.throws(() => requireWindowsInstaller(root, identity), /not Authenticode-ready/);
+  fs.writeFileSync(`${installer}.json`, JSON.stringify({
+    ...manifest,
+    source: { ...manifest.source, commit: 'f'.repeat(40) },
+  }));
+  assert.throws(() => requireWindowsInstaller(root, identity), /source commit or B number/);
+  fs.writeFileSync(`${installer}.json`, JSON.stringify({
+    ...manifest,
+    signing: {
+      ...manifest.signing,
+      verification: {
+        targets: manifest.signing.verification.targets.map((target) => (
+          target.role === 'installed uninstaller' ? { ...target, status: 'NotSigned' } : target
+        )),
+      },
+    },
+  }));
+  assert.throws(() => requireWindowsInstaller(root, identity), /installed uninstaller/);
+});
+
+test('Windows fallback ZIP manifest excludes operator workflow state', (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-release-metadata-'));
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -311,6 +446,7 @@ test('Windows public manifest excludes operator workflow state', (context) => {
   const opts = {
     releaseKind: 'ls',
     externalValidation: 'complete',
+    payloadSigning: 'signed',
     artifactName: 'kirin-hypha-windows-vst3',
     runUrl: 'https://github.com/example/project/actions/runs/1',
     commit: '0123456789abcdef',
@@ -339,7 +475,16 @@ test('Windows public manifest excludes operator workflow state', (context) => {
   assertExactKeys(manifest.product, ['name', 'version'], 'Windows public product');
   assertExactKeys(
     manifest.package,
-    ['name', 'path', 'size_bytes', 'sha256', 'format', 'contains_top_level_folder'],
+    [
+      'name',
+      'path',
+      'size_bytes',
+      'sha256',
+      'format',
+      'contains_top_level_folder',
+      'distribution_role',
+      'payload_signing',
+    ],
     'Windows public package',
   );
   assertExactKeys(
@@ -372,11 +517,33 @@ test('Windows public manifest excludes operator workflow state', (context) => {
   for (const binary of manifest.validation.binaries) {
     assertExactKeys(binary, ['label', 'path', 'sha256'], `Windows public binary ${binary.label}`);
   }
-  assert.equal(manifest.schema, 'kirin-hypha-windows-vst3-artifact-v2');
-  assert.equal(manifest.schema_version, 2);
+  assert.equal(manifest.schema, 'kirin-hypha-windows-vst3-fallback-artifact-v3');
+  assert.equal(manifest.schema_version, 3);
   assert.equal(manifest.external_validation.status, 'complete');
   assert.equal(manifest.package.name, 'Kirin-Hypha-test.zip');
   assert.equal(manifest.binary_artifact.commit, opts.commit);
+  assert.deepEqual(manifest.binary_artifact.windows_job_gates, [
+    'Build kirin_hypha_ffi staticlib (MSVC)',
+    'Validate two-slot continuous Analysis contract',
+    'Windows preflight gate',
+    'Apply tracked JUCE patches',
+    'Configure JUCE VST3 shell (Windows)',
+    'Validate Windows UI render contract',
+    'Build JUCE VST3 shell (Windows)',
+    'Validate Windows VST3 audio transparency',
+    'Verify Windows VST3 artifacts',
+    'Upload Windows VST3 artifacts',
+    'Validate Windows VST3 with pluginval',
+    'Build Windows installer and sign all executable surfaces',
+    'Verify Windows installer install, same-version reinstall, signatures, and uninstall',
+    'Upload primary Windows installer',
+    'Package fallback Windows VST3 ZIP',
+    'Upload fallback Windows VST3 ZIP',
+  ]);
+  const receipt = commitReceiptFor(opts);
+  assert.match(receipt, /CI gates: Analysis contract, UI render, exact audio transparency,/);
+  assert.match(receipt, /layout verify, pluginval strictness 5, artifact packaging/);
+  assert.match(receipt, /External validation: complete/);
   assert.doesNotMatch(
     publicJson,
     /Daisuke|lsUpload|ls_upload|releaseStatus|release_status|productId|variantId|productAdminUrl|storeName|expectedFilesCount|operator/,
@@ -384,7 +551,7 @@ test('Windows public manifest excludes operator workflow state', (context) => {
   assert.equal(manifest.contents.length, 2);
 
   const localState = localReleaseStateFor(opts, manifest);
-  assert.equal(localState.lsUpload, 'ready_manual_zip_after_external_validation');
+  assert.equal(localState.lsUpload, 'skip_primary_installer_required');
   assert.equal(localState.artifact, manifest);
 
   const pendingOpts = { ...opts, externalValidation: 'pending' };
@@ -396,7 +563,7 @@ test('Windows public manifest excludes operator workflow state', (context) => {
     bundles,
   );
   const pendingState = localReleaseStateFor(pendingOpts, pendingManifest);
-  assert.equal(pendingState.lsUpload, 'blocker_pending_external_validation');
+  assert.equal(pendingState.lsUpload, 'skip_primary_installer_required');
   assert.equal(pendingState.artifact.external_validation.status, 'pending');
   assert.throws(
     () => localReleaseStateFor(opts, pendingManifest),
@@ -419,5 +586,9 @@ test('Windows package arguments reject unsupported validation states', () => {
   assert.throws(
     () => parseWindowsArgs(['--external-validation', 'reported_complete_by_daisuke']),
     /must be complete or pending/,
+  );
+  assert.throws(
+    () => parseWindowsArgs(['--payload-signing', 'targeted']),
+    /must be signed or unsigned/,
   );
 });

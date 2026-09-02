@@ -1,0 +1,41 @@
+{
+  "schema": "kirin-hypha-attack-opened-set-ledger-v1",
+  "sources": [
+    {
+      "source_id": "b546_opened_18",
+      "manifest_path": "crates/kirin_measure/examples/transient_candidate_eval/fixtures/transient_egmd_selection_v1.csv",
+      "manifest_sha256": "adf8753f31ab655089a31434e66c6dbf8084a6589b5d0d32ca8358f92b5b66a3"
+    },
+    {
+      "source_id": "b548_opened_12",
+      "manifest_path": "crates/kirin_measure/examples/transient_development_contract/fixtures/transient_egmd_opened_b548_semantic_v1.csv",
+      "manifest_sha256": "151e876109722459b7d836525e5cf6e0d2e7fe1c41bc87b23c4ca6faadd6c8c3"
+    }
+  ],
+  "entries": [
+    {"performance_id":"drummer1/eval_session/1","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer1/eval_session/4","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer1/eval_session/8","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer1/session1/16","sources":["b546_opened_18","b548_opened_12"],"source_split":"validation","use":"development_required","fresh_holdout_excluded":true},
+    {"performance_id":"drummer1/session1/189","sources":["b548_opened_12"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer3/session1/32","sources":["b548_opened_12"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer3/session1/39","sources":["b546_opened_18","b548_opened_12"],"source_split":"validation","use":"development_required","fresh_holdout_excluded":true},
+    {"performance_id":"drummer3/session2/11","sources":["b548_opened_12"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer3/session2/35","sources":["b548_opened_12"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer5/eval_session/2","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer5/eval_session/5","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer5/eval_session/9","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer7/eval_session/10","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer7/eval_session/3","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer7/eval_session/6","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer7/session1/27","sources":["b548_opened_12"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer7/session1/33","sources":["b546_opened_18","b548_opened_12"],"source_split":"validation","use":"development_required","fresh_holdout_excluded":true},
+    {"performance_id":"drummer7/session2/102","sources":["b546_opened_18","b548_opened_12"],"source_split":"validation","use":"development_required","fresh_holdout_excluded":true},
+    {"performance_id":"drummer7/session2/70","sources":["b546_opened_18","b548_opened_12"],"source_split":"validation","use":"development_required","fresh_holdout_excluded":true},
+    {"performance_id":"drummer7/session3/5","sources":["b548_opened_12"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer8/eval_session/2","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer8/eval_session/7","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer8/eval_session/8","sources":["b546_opened_18"],"source_split":"test","use":"diagnostic_only","fresh_holdout_excluded":true},
+    {"performance_id":"drummer9/session1/12","sources":["b546_opened_18","b548_opened_12"],"source_split":"validation","use":"development_required","fresh_holdout_excluded":true}
+  ]
+}

@@ -29,7 +29,8 @@ namespace hypha
 
     // Drawn as a 12×12 box with a 5px-radius filled circle (led.rs draw). Colour from the
     // Current state only. setState repaints on transitions; no animation clock is required.
-    class StatusLed : public juce::Component
+    class StatusLed : public juce::Component,
+                      public juce::SettableTooltipClient
     {
     public:
         StatusLed();
@@ -140,6 +141,11 @@ namespace hypha
                                                         // (named to avoid hiding juce::Component::setName)
         void setEditingEnabled (bool enabled);         // false -> click does nothing (locked)
         void setLockedTooltip (const juce::String& t)  { lockedTooltip = t; }
+        void setEnabledTooltip (const juce::String& t)
+        {
+            enabledTooltip = t;
+            if (editingEnabled) setTooltip (enabledTooltip);
+        }
         bool isEditing() const                         { return editing; }
 
         void paint (juce::Graphics&) override;
@@ -151,7 +157,7 @@ namespace hypha
         void commitEditing();
         void cancelEditing();
 
-        juce::String rawName, prefix, fallback, lockedTooltip;
+        juce::String rawName, prefix, fallback, enabledTooltip, lockedTooltip;
         bool editing = false;
         bool editingEnabled = true;
         std::unique_ptr<juce::TextEditor> editor;

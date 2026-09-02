@@ -1,6 +1,7 @@
 #include "HyphaPerceptualPainter.h"
 
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaAnalysisUiText.h"
 #include "HyphaTheme.h"
 
 #include <algorithm>
@@ -20,12 +21,13 @@ namespace
         return "LR";
     }
 
-    juce::String statusText (uint8_t status)
+    juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
     {
         if (status == KIRIN_SPECTRUM_NO_PAIR) return juce::CharPointer_UTF8 ("PAIR —");
         if (status == KIRIN_SPECTRUM_WARMING_UP) return juce::CharPointer_UTF8 ("SYNC ◌");
         if (status == KIRIN_SPECTRUM_UNAVAILABLE) return juce::CharPointer_UTF8 ("DATA —");
-        if (status == KIRIN_SPECTRUM_IN_USE) return juce::CharPointer_UTF8 ("ANALYSIS — IN USE");
+        if (status == KIRIN_SPECTRUM_IN_USE)
+            return analysis_ui::slotsInUse (analysisOwnerNames);
         return {};
     }
 
@@ -50,7 +52,7 @@ namespace
                     float scale,
                     const PaintState& state)
     {
-        g.setFont (monoFont (7.5f * scale));
+        g.setFont (monoFont (7.5f * ui_contract::analysisTextScale (scale)));
         if (state.actionNotice.isNotEmpty())
         {
             g.setColour (COL_MUTED.withAlpha (0.90f));
@@ -88,7 +90,7 @@ namespace
     {
         const float left = outer.getX() + 84.0f * scale;
         const float right = outer.getRight();
-        g.setFont (monoFont (8.0f * scale));
+        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.96f));
         g.drawText (juce::CharPointer_UTF8 ("Δ SHARPNESS"),
                     juce::Rectangle<float> (left, outer.getY(), 76.0f * scale, 13.0f * scale),
@@ -107,7 +109,7 @@ namespace
 
         if (scale > 1.1f)
         {
-            g.setFont (monoFont (7.0f * scale));
+            g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (scale)));
             g.setColour (COL_SPECTRUM_PRE.withAlpha (0.88f));
             const auto text = "PRE " + juce::String (state.snapshot.pre_sharpness, 2)
                             + "   POST " + juce::String (state.snapshot.post_sharpness, 2);
@@ -121,7 +123,7 @@ namespace
     void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, float scale)
     {
         const float zeroY = yForValue (0.0, plot);
-        g.setFont (monoFont (8.0f * scale));
+        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
         g.setColour (COL_MUTED.withAlpha (0.86f));
         const int labelWidth = juce::roundToInt (21.0f * scale);
         const int labelHeight = juce::roundToInt (10.0f * scale);
@@ -204,6 +206,7 @@ namespace
                    const PlotPoints& points,
                    size_t first,
                    size_t end,
+                   juce::Rectangle<float> plot,
                    float zeroY,
                    float scale)
     {
@@ -214,13 +217,35 @@ namespace
             fill.lineTo (points.values[end - 1u].x, zeroY);
             fill.lineTo (points.values[first].x, zeroY);
             fill.closeSubPath();
-            juce::ColourGradient gradient (
-                COL_SPECTRUM_DELTA.withAlpha (0.34f), points.values[first].x,
-                points.values[first].y,
-                COL_SPECTRUM_DELTA.withAlpha (0.055f), points.values[first].x, zeroY, false);
-            gradient.addColour (0.58, COL_SPECTRUM_DELTA.withAlpha (0.18f));
-            g.setGradientFill (gradient);
-            g.fillPath (fill);
+
+            // Fill density is a fact about distance from zero, never about the age or value of
+            // the first history point. Anchoring this gradient to points[first] made the whole
+            // fill fade or collapse as that point moved out of the six-second window. Clip two
+            // fixed plot-space gradients to the factual curve instead: quiet at zero, denser
+            // toward either display edge, and identical at every point in time.
+            const auto distanceGradient = [] (float edgeY, float zeroLineY)
+            {
+                juce::ColourGradient gradient (
+                    COL_SPECTRUM_DELTA.withAlpha (0.68f), 0.0f, edgeY,
+                    COL_SPECTRUM_DELTA.withAlpha (0.07f), 0.0f, zeroLineY, false);
+                gradient.addColour (0.25, COL_SPECTRUM_DELTA.withAlpha (0.54f));
+                gradient.addColour (0.50, COL_SPECTRUM_DELTA.withAlpha (0.38f));
+                gradient.addColour (0.75, COL_SPECTRUM_DELTA.withAlpha (0.22f));
+                return gradient;
+            };
+
+            juce::Graphics::ScopedSaveState clippedFill (g);
+            g.reduceClipRegion (fill);
+
+            auto positiveGradient = distanceGradient (plot.getY(), zeroY);
+            g.setGradientFill (positiveGradient);
+            g.fillRect (juce::Rectangle<float> (
+                plot.getX(), plot.getY(), plot.getWidth(), zeroY - plot.getY()));
+
+            auto negativeGradient = distanceGradient (plot.getBottom(), zeroY);
+            g.setGradientFill (negativeGradient);
+            g.fillRect (juce::Rectangle<float> (
+                plot.getX(), zeroY, plot.getWidth(), plot.getBottom() - zeroY));
         }
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.16f));
         g.strokePath (curve, juce::PathStrokeType (4.2f * scale,
@@ -244,19 +269,14 @@ namespace
         {
             if (index == points.count || ! history.sampleAt (index).continuesPrevious)
             {
-                paintRun (g, points, runStart, index, zeroY, scale);
+                paintRun (g, points, runStart, index, plot, zeroY, scale);
                 runStart = index;
             }
         }
 
-        size_t recentStart = points.count > 10u ? points.count - 10u : 0u;
-        for (size_t index = recentStart + 1u; index < points.count; ++index)
-            if (! history.sampleAt (index).continuesPrevious)
-                recentStart = index;
-        const auto recent = smoothPath (points, recentStart, points.count);
-        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.86f));
-        g.strokePath (recent, juce::PathStrokeType (1.8f * scale,
-                      juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        // Sharpness is a six-second history, so its ink must not age or acquire a moving
+        // high-emphasis tail. The curve and fill above remain uniform across the factual run;
+        // only this point identifies the newest exact observation.
         const auto newest = points.values[points.count - 1u];
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.20f));
         g.fillEllipse (newest.x - 4.0f * scale, newest.y - 4.0f * scale,
@@ -280,13 +300,15 @@ void paint (juce::Graphics& g,
 
     if (! state.snapshotValid || state.history.empty())
     {
-        const auto text = state.haveSnapshot ? statusText (state.snapshot.status)
+        const auto text = state.haveSnapshot
+                            ? statusText (state.snapshot.status, state.analysisOwnerNames)
                                              : juce::String ("SYNC");
         if (text.isNotEmpty())
         {
             g.setColour (COL_MUTED);
             g.setFont (monoFont (13.0f * scale));
-            g.drawText (text, plot, juce::Justification::centred);
+            g.drawFittedText (text, plot.toNearestInt(), juce::Justification::centred,
+                              2, 0.72f);
         }
         return;
     }

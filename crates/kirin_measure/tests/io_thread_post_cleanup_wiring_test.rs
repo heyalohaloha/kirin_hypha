@@ -25,7 +25,13 @@ fn read(rel: &str) -> String {
 /// `record_signal::mark_released_if_current` 呼出が存在し、failure は warn ログのみ。
 #[test]
 fn io_thread_post_terminate_marks_released() {
-    let src = read("src/io_thread_post.rs");
+    let coordinator = read("src/io_thread_post.rs");
+    let src = read("src/io_thread_post_shutdown.rs");
+
+    assert!(
+        coordinator.contains("shutdown_post_io("),
+        "POST coordinator must invoke the bounded shutdown lifecycle"
+    );
 
     assert!(
         src.contains("record_signal::mark_released_if_current("),
@@ -47,7 +53,7 @@ fn io_thread_post_terminate_marks_released() {
 /// 前に位置すること。逆順だと thread 終了直前の明示 Stop 伝播が抜ける。
 #[test]
 fn io_thread_post_mark_released_precedes_terminated_log() {
-    let src = read("src/io_thread_post.rs");
+    let src = read("src/io_thread_post_shutdown.rs");
     let release_idx = src
         .find("record_signal::mark_released_if_current(")
         .expect("compare-and-release call must exist (統合点 #4)");
@@ -67,7 +73,7 @@ fn io_thread_post_mark_released_precedes_terminated_log() {
 #[test]
 fn io_thread_termination_does_not_delete_live_watch_files() {
     let pre = read("src/io_thread_pre.rs");
-    let post = read("src/io_thread_post.rs");
+    let post = read("src/io_thread_post_shutdown.rs");
 
     assert!(
         !pre.contains("fs::remove_file(&final_file)"),
@@ -166,13 +172,19 @@ fn pre_pair_status_reads_one_exact_claim_without_enumeration() {
 /// 到達不能でなければならない。
 #[test]
 fn post_runtime_never_reconciles_project_history() {
-    let src = read("src/io_thread_post.rs");
+    let coordinator = read("src/io_thread_post.rs");
+    let recovery = read("src/io_thread_post_closed_drop.rs");
     assert!(
-        src.contains("reconcile_drop_committed_closed_session"),
+        coordinator.contains("closed_drop_recovery.service("),
+        "POST coordinator must invoke one exact closed Drop recovery"
+    );
+    assert!(
+        recovery.contains("reconcile_drop_committed_closed_session"),
         "closed Drop recovery must name one exact session"
     );
     assert!(
-        !src.contains("reconcile_late_expected_wav_project("),
+        !coordinator.contains("reconcile_late_expected_wav_project(")
+            && !recovery.contains("reconcile_late_expected_wav_project("),
         "POST runtime must not recursively reconcile a project"
     );
 }

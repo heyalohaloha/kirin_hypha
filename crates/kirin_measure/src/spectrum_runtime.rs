@@ -5,18 +5,25 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
 
 use rtrb::{Consumer, Producer, RingBuffer};
 
-use crate::perceptual::PerceptualFrame;
+use crate::absolute_timeline::AbsoluteTimeline;
 use crate::spectrum::{
-    AnalysisViewMode, SpectrumAnalyzer, SpectrumChannelMode, SpectrumFrame, SPECTRUM_WINDOW_SIZE,
+    AnalysisViewMode, SpectrumChannelMode, SpectrumLayout, SPECTRUM_WINDOW_SIZE,
 };
 
 #[path = "spectrum_runtime_assemblers.rs"]
 mod assemblers;
-use assemblers::{PerceptualAssembler, SpectrumAssembler};
+#[cfg(test)]
+use crate::perceptual::PerceptualFrame;
+#[cfg(test)]
+use crate::spectrum::{SpectrumAnalyzer, SpectrumFrame};
+#[cfg(test)]
+use assemblers::SpectrumAssembler;
+
+#[path = "spectrum_runtime_worker.rs"]
+mod worker;
 
 #[path = "spectrum_runtime_state.rs"]
 mod state;
@@ -25,10 +32,9 @@ pub use state::{
     SPECTRUM_HISTORY_CAPACITY,
 };
 
-// Two FFT windows cover worker scheduling jitter without charging hidden instances more memory.
-const SPECTRUM_RING_FRAMES: usize = SPECTRUM_WINDOW_SIZE * 2;
+// Two time-normalized apertures cover worker scheduling jitter. The ring exists even while hidden,
+// but FFT storage and work are still created only by the on-demand worker.
 const SPECTRUM_BLOCK_RING_CAPACITY: usize = 64;
-const SPECTRUM_WORKER_IDLE: Duration = Duration::from_millis(10);
 pub(super) const NO_PRESENTATION_POSITION: i64 = i64::MIN;
 
 #[derive(Clone, Copy, Debug)]
@@ -62,11 +68,13 @@ pub struct SpectrumRuntime {
     wake: (Mutex<()>, Condvar),
     history: Mutex<SpectrumHistory>,
     perceptual_history: Mutex<PerceptualHistory>,
+    absolute_history: Mutex<AbsoluteTimeline>,
     worker_running: AtomicBool,
     pushed_blocks: AtomicU64,
     dropped_blocks: AtomicU64,
     analyzed_frames: AtomicU64,
     analyzed_perceptual_frames: AtomicU64,
+    analyzed_absolute_frames: AtomicU64,
 }
 
 // SAFETY: only the one Audio Thread calls `push_block_from_audio`, which is the sole mutable
@@ -77,8 +85,11 @@ unsafe impl Sync for SpectrumRuntime {}
 impl SpectrumRuntime {
     pub fn new(sample_rate: u32, num_channels: usize) -> Arc<Self> {
         let num_channels = num_channels.clamp(1, 2);
+        let aperture_samples = SpectrumLayout::new(sample_rate)
+            .map(|layout| layout.aperture_samples)
+            .unwrap_or(SPECTRUM_WINDOW_SIZE);
         let (sample_producer, sample_consumer) =
-            RingBuffer::new(SPECTRUM_RING_FRAMES * num_channels);
+            RingBuffer::new(aperture_samples * 2 * num_channels);
         let (block_producer, block_consumer) = RingBuffer::new(SPECTRUM_BLOCK_RING_CAPACITY);
         Arc::new(Self {
             sample_rate,
@@ -101,11 +112,13 @@ impl SpectrumRuntime {
             wake: (Mutex::new(()), Condvar::new()),
             history: Mutex::new(SpectrumHistory::with_capacity()),
             perceptual_history: Mutex::new(PerceptualHistory::with_capacity()),
+            absolute_history: Mutex::new(AbsoluteTimeline::default()),
             worker_running: AtomicBool::new(false),
             pushed_blocks: AtomicU64::new(0),
             dropped_blocks: AtomicU64::new(0),
             analyzed_frames: AtomicU64::new(0),
             analyzed_perceptual_frames: AtomicU64::new(0),
+            analyzed_absolute_frames: AtomicU64::new(0),
         })
     }
 
@@ -134,6 +147,9 @@ impl SpectrumRuntime {
             }
             if let Ok(mut history) = self.perceptual_history.lock() {
                 *history = PerceptualHistory::with_capacity();
+            }
+            if let Ok(mut history) = self.absolute_history.lock() {
+                history.clear();
             }
         }
         self.wake.1.notify_all();
@@ -172,6 +188,9 @@ impl SpectrumRuntime {
             }
             if let Ok(mut history) = self.perceptual_history.lock() {
                 *history = PerceptualHistory::with_capacity();
+            }
+            if let Ok(mut history) = self.absolute_history.lock() {
+                history.clear();
             }
             self.wake.1.notify_all();
         }
@@ -246,6 +265,13 @@ impl SpectrumRuntime {
             .map(|history| history.clone())
     }
 
+    pub fn try_absolute_history(&self) -> Option<AbsoluteTimeline> {
+        self.absolute_history
+            .try_lock()
+            .ok()
+            .map(|history| history.clone())
+    }
+
     pub fn stats(&self) -> SpectrumRuntimeStats {
         SpectrumRuntimeStats {
             enabled: self.enabled.load(Ordering::Acquire),
@@ -257,6 +283,7 @@ impl SpectrumRuntime {
             dropped_blocks: self.dropped_blocks.load(Ordering::Relaxed),
             analyzed_frames: self.analyzed_frames.load(Ordering::Relaxed),
             analyzed_perceptual_frames: self.analyzed_perceptual_frames.load(Ordering::Relaxed),
+            analyzed_absolute_frames: self.analyzed_absolute_frames.load(Ordering::Relaxed),
         }
     }
 
@@ -322,156 +349,6 @@ impl SpectrumRuntime {
             Err(_) => false,
         }
     }
-
-    fn run_worker(&self, consumers: &mut SpectrumConsumers) {
-        let Ok(analyzer) = SpectrumAnalyzer::new(self.sample_rate) else {
-            return;
-        };
-        let mut assembler = SpectrumAssembler::new(analyzer, self.num_channels);
-        let mut perceptual = PerceptualAssembler::new(self.sample_rate, self.num_channels).ok();
-        while !self.shutdown.load(Ordering::Acquire) {
-            if !self.enabled.load(Ordering::Acquire) {
-                drain_consumers(consumers);
-                assembler.reset();
-                if let Some(perceptual) = perceptual.as_mut() {
-                    perceptual.reset();
-                }
-                let guard = match self.wake.0.lock() {
-                    Ok(guard) => guard,
-                    Err(_) => return,
-                };
-                let _ = self.wake.1.wait_timeout(guard, Duration::from_millis(250));
-                continue;
-            }
-            let Ok(block) = consumers.blocks.pop() else {
-                thread::sleep(SPECTRUM_WORKER_IDLE);
-                continue;
-            };
-            let current_generation = self.generation.load(Ordering::Acquire);
-            let analysis_mode = self.analysis_mode();
-            if block.generation != current_generation
-                || block.channels as usize != self.num_channels
-            {
-                discard_samples(
-                    &mut consumers.samples,
-                    block.frames as usize * block.channels as usize,
-                );
-                continue;
-            }
-            let began_block = match analysis_mode {
-                AnalysisViewMode::Spectrum => {
-                    assembler.begin_block(block.presentation_start_samples, block.generation)
-                }
-                AnalysisViewMode::Perceptual => perceptual.as_mut().is_some_and(|perceptual| {
-                    perceptual.begin_block(
-                        block.presentation_start_samples,
-                        block.generation,
-                        self.perceptual_state_epoch(),
-                    )
-                }),
-            };
-            if !began_block {
-                discard_samples(
-                    &mut consumers.samples,
-                    block.frames as usize * block.channels as usize,
-                );
-                if analysis_mode == AnalysisViewMode::Perceptual
-                    && perceptual
-                        .as_mut()
-                        .is_some_and(PerceptualAssembler::take_rearm_required)
-                {
-                    self.require_perceptual_rearm();
-                }
-                continue;
-            }
-            let mut complete = true;
-            let channel_mode = self.channel_mode();
-            for _ in 0..block.frames {
-                let Ok(left) = consumers.samples.pop() else {
-                    complete = false;
-                    break;
-                };
-                let right = if self.num_channels == 2 {
-                    match consumers.samples.pop() {
-                        Ok(right) => Some(right),
-                        Err(_) => {
-                            complete = false;
-                            break;
-                        }
-                    }
-                } else {
-                    None
-                };
-                match analysis_mode {
-                    AnalysisViewMode::Spectrum => {
-                        if let Some(frame) = assembler.push_frame(left, right, channel_mode) {
-                            if !self.frame_is_current(&frame) {
-                                continue;
-                            }
-                            self.analyzed_frames.fetch_add(1, Ordering::Relaxed);
-                            if let Ok(mut history) = self.history.lock() {
-                                if self.frame_is_current(&frame) {
-                                    history.push(frame);
-                                }
-                            }
-                        }
-                    }
-                    AnalysisViewMode::Perceptual => {
-                        let Some(perceptual) = perceptual.as_mut() else {
-                            continue;
-                        };
-                        if let Some(frames) = perceptual.push_frame(left, right, channel_mode) {
-                            for frame in frames {
-                                if !self.perceptual_frame_is_current(frame) {
-                                    continue;
-                                }
-                                self.analyzed_perceptual_frames
-                                    .fetch_add(1, Ordering::Relaxed);
-                                if let Ok(mut history) = self.perceptual_history.lock() {
-                                    if self.perceptual_frame_is_current(frame) {
-                                        history.push(frame.clone());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if !complete {
-                assembler.reset();
-                if let Some(perceptual) = perceptual.as_mut() {
-                    perceptual.reset();
-                }
-                if analysis_mode == AnalysisViewMode::Perceptual {
-                    self.require_perceptual_rearm();
-                }
-            }
-        }
-    }
-
-    fn frame_is_current(&self, frame: &SpectrumFrame) -> bool {
-        self.enabled.load(Ordering::Acquire)
-            && frame.generation == self.generation.load(Ordering::Acquire)
-            && frame.channel_mode == self.channel_mode()
-            && frame.channels as usize == self.num_channels
-    }
-
-    fn perceptual_frame_is_current(&self, frame: &PerceptualFrame) -> bool {
-        self.enabled.load(Ordering::Acquire)
-            && self.analysis_mode() == AnalysisViewMode::Perceptual
-            && frame.generation == self.generation.load(Ordering::Acquire)
-            && Some(frame.state_epoch_samples) == self.perceptual_state_epoch()
-            && frame.channel_mode == self.channel_mode()
-            && frame.channels as usize == self.num_channels
-    }
-
-    fn require_perceptual_rearm(&self) {
-        self.perceptual_rearm_required
-            .store(true, Ordering::Release);
-        if let Ok(mut history) = self.perceptual_history.lock() {
-            *history = PerceptualHistory::with_capacity();
-        }
-    }
 }
 
 impl Drop for SpectrumRuntime {
@@ -479,19 +356,6 @@ impl Drop for SpectrumRuntime {
         self.enabled.store(false, Ordering::Release);
         self.shutdown.store(true, Ordering::Release);
         self.wake.1.notify_all();
-    }
-}
-
-fn drain_consumers(consumers: &mut SpectrumConsumers) {
-    while consumers.blocks.pop().is_ok() {}
-    while consumers.samples.pop().is_ok() {}
-}
-
-fn discard_samples(consumer: &mut Consumer<f32>, count: usize) {
-    for _ in 0..count {
-        if consumer.pop().is_err() {
-            break;
-        }
     }
 }
 

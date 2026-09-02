@@ -92,8 +92,45 @@ add_subdirectory(JUCE)
 # B-054: embed the mycelium background PNG (the same GPLv3 asset egui uses:
 # crates/hypha_gui/assets/bg_mycelium.png, 300×200, brightness ~15%) as BinaryData so the
 # editor can draw it without a runtime file dependency. Shared by both plugin targets.
-juce_add_binary_data(KirinHyphaData
-    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png)
+#
+# Waldenburg Book is commercial Font Software and must never enter this GPL source tree. A release
+# owner with the separate Kimera App License supplies the original OTF at configure time. CMake
+# copies it only into the ignored build directory and BinaryData embeds it in the application.
+set(KIRIN_HYPHA_KIMERA_FONT_FILE "" CACHE FILEPATH
+    "Licensed KMR Waldenburg Book OTF (kept outside this GPL repository)")
+option(KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED
+    "Confirm that the supplied Kimera file is covered by an App License for Kirin Hypha" OFF)
+option(KIRIN_HYPHA_REQUIRE_KIMERA_FONT
+    "Fail configure unless licensed Kimera Font Software is embedded" OFF)
+
+set(KIRIN_HYPHA_DATA_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/observatory_understory.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hypha_level_corners.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/attack_specimen_emission.png)
+set(KIRIN_HYPHA_KIMERA_EMBEDDED 0)
+if(KIRIN_HYPHA_KIMERA_FONT_FILE)
+    if(NOT KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED)
+        message(FATAL_ERROR
+            "Kimera font supplied without KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=ON")
+    endif()
+    if(NOT EXISTS "${KIRIN_HYPHA_KIMERA_FONT_FILE}")
+        message(FATAL_ERROR "Kimera font file does not exist: ${KIRIN_HYPHA_KIMERA_FONT_FILE}")
+    endif()
+    set(KIRIN_HYPHA_KIMERA_BUILD_FILE
+        "${CMAKE_CURRENT_BINARY_DIR}/licensed-font/KMRWaldenburgBook.otf")
+    configure_file("${KIRIN_HYPHA_KIMERA_FONT_FILE}"
+                   "${KIRIN_HYPHA_KIMERA_BUILD_FILE}" COPYONLY)
+    list(APPEND KIRIN_HYPHA_DATA_SOURCES "${KIRIN_HYPHA_KIMERA_BUILD_FILE}")
+    set(KIRIN_HYPHA_KIMERA_EMBEDDED 1)
+elseif(KIRIN_HYPHA_REQUIRE_KIMERA_FONT)
+    message(FATAL_ERROR
+        "Licensed Kimera App font is required: set KIRIN_HYPHA_KIMERA_FONT_FILE")
+endif()
+
+juce_add_binary_data(KirinHyphaData SOURCES ${KIRIN_HYPHA_DATA_SOURCES})
+target_compile_definitions(KirinHyphaData INTERFACE
+    KIRIN_HYPHA_KIMERA_EMBEDDED=${KIRIN_HYPHA_KIMERA_EMBEDDED})
 set(KIRIN_HYPHA_WIDGETS_SOURCE src/HyphaWidgets.cpp)
 
 # B-070: PRE and POST are two plugin targets sharing one role-parameterized base
@@ -128,26 +165,58 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
+        src/PluginEditorObservatory.cpp
+        src/PluginEditorCapture.cpp
+        src/CaptureWorkAttachment.cpp
+        src/HyphaObservatoryCapture.cpp
+        src/HyphaCaptureHistoryAnalysis.cpp
+        src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaObservatoryButton.cpp
+        src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryFrame.cpp
+        src/HyphaObservatoryHistoryInteraction.cpp
+        src/HyphaObservatoryMetrics.cpp
+        src/HyphaObservatoryLevelStrips.cpp
+        src/HyphaObservatoryWorld.cpp
+        src/HyphaTimePageNavigation.cpp
+        src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryPainter.cpp
+        src/HyphaTypography.cpp
+        src/HyphaHoverHelpPreference.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE} # B-054: LED / mycelium bg / metric cells / editable name
         src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
+        src/pre_display/PreDisplayController.cpp
+        src/pre_display/PreDisplayControllerConnection.cpp
+        src/pre_display/PreDisplayPresence.cpp
+        src/pre_display/PreDisplayProjection.cpp
+        src/pre_display/PreDisplayProtocol.cpp
+        src/pre_display/PreDisplayProtocolTime.cpp
+        src/pre_display/PreDisplayRepository.cpp
+        src/pre_display/PreDisplayTransport.cpp
         ${MAIN_SRC})
 
+    target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_GUIDE_TRANSPORT=1)
+    target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)
+
     if("${TARGET}" STREQUAL "KirinHyphaPRE")
-        target_sources(${TARGET} PRIVATE
-            src/pre_display/PreDisplayController.cpp
-            src/pre_display/PreDisplayPresence.cpp
-            src/pre_display/PreDisplayProjection.cpp
-            src/pre_display/PreDisplayProtocol.cpp
-            src/pre_display/PreDisplayProtocolTime.cpp
-            src/pre_display/PreDisplayRepository.cpp
-            src/pre_display/PreDisplayTransport.cpp)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=1)
-        target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)
     else()
         target_sources(${TARGET} PRIVATE
+            src/HyphaAbsoluteComponent.cpp
+            src/HyphaAbsolutePainter.cpp
+            src/HyphaAttackComponent.cpp
+            src/HyphaAttackInteraction.cpp
+            src/HyphaAttackMetricPainter.cpp
+            src/HyphaAttackOverviewGlyphPainter.cpp
+            src/HyphaAttackOrganismPainter.cpp
+            src/HyphaAttackPainter.cpp
+            src/HyphaAttackSpecimenPainter.cpp
+            src/HyphaGuideFrequencyOverlay.cpp
             src/HyphaPerceptualComponent.cpp
             src/HyphaPerceptualPainter.cpp
             src/HyphaSpectrumComponent.cpp
+            src/HyphaSpectrumTooltip.cpp
             src/HyphaSpectrumChromePainter.cpp
             src/HyphaSpectrumFocusTrail.cpp
             src/HyphaSpectrumFocusTrailPainter.cpp
@@ -222,6 +291,31 @@ endfunction()
 add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  "PRE Kirin Hypha"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")
 add_kirin_plugin(KirinHyphaPOST Khpo "Kirin Hypha POST" "POST Kirin Hypha" src/PluginMainPOST.cpp "com.kirinmastering.hypha.post")
 
+option(KIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS
+    "Build the Windows VST3 in-place bit-transparency host contract" OFF)
+if(KIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS)
+    if(NOT WIN32)
+        message(FATAL_ERROR "The VST3 audio transparency host contract currently supports Windows only")
+    endif()
+    juce_add_console_app(KirinAudioTransparencyContractTests
+        PRODUCT_NAME "Kirin Audio Transparency Contract Tests")
+    target_sources(KirinAudioTransparencyContractTests PRIVATE
+        tests/audio_transparency_contract_test.cpp)
+    target_compile_definitions(KirinAudioTransparencyContractTests PRIVATE
+        JUCE_PLUGINHOST_VST3=1
+        JUCE_PLUGINHOST_VST=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_compile_options(KirinAudioTransparencyContractTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinAudioTransparencyContractTests PRIVATE
+        juce::juce_audio_processors
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+endif()
+
 option(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS
     "Build the native-font and fixed-geometry UI render contract test" OFF)
 if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
@@ -230,13 +324,50 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin UI Render Contract Tests")
     target_sources(KirinUiRenderContractTests PRIVATE
         tests/ui_render_contract_test.cpp
+        tests/AbsoluteTimelineContractTest.cpp
+        tests/AbsoluteSpectrumContractTest.cpp
         tests/PerceptualHistoryContractTest.cpp
         tests/SpectrumInteractionContractTest.cpp
         tests/SpectrumFocusTrailContractTest.cpp
         tests/SpectrumPresentationContractTest.cpp
+        tests/GuideFrequencyOverlayContractTest.cpp
+        tests/ObservatoryViewContractTest.cpp
+        tests/ObservatoryCaptureContractTest.cpp
+        tests/ObservatoryCompositeContractTest.cpp
+        tests/CaptureHistoryContractTest.cpp
+        tests/SpaceFieldContractTest.cpp
+        tests/TimeHistoryContractTest.cpp
+        tests/TimePageNavigationContractTest.cpp
+        src/HyphaObservatoryCapture.cpp
+        src/HyphaCaptureHistoryAnalysis.cpp
+        src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaObservatoryButton.cpp
+        src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryFrame.cpp
+        src/HyphaObservatoryHistoryInteraction.cpp
+        src/HyphaObservatoryMetrics.cpp
+        src/HyphaObservatoryLevelStrips.cpp
+        src/HyphaObservatoryWorld.cpp
+        src/HyphaTimePageNavigation.cpp
+        src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryPainter.cpp
+        src/HyphaTypography.cpp
+        src/HyphaHoverHelpPreference.cpp
+        src/HyphaGuideFrequencyOverlay.cpp
+        src/HyphaAbsoluteComponent.cpp
+        src/HyphaAbsolutePainter.cpp
+        src/HyphaAttackComponent.cpp
+        src/HyphaAttackInteraction.cpp
+        src/HyphaAttackMetricPainter.cpp
+        src/HyphaAttackOverviewGlyphPainter.cpp
+        src/HyphaAttackOrganismPainter.cpp
+        src/HyphaAttackPainter.cpp
+        src/HyphaAttackSpecimenPainter.cpp
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
         src/HyphaSpectrumComponent.cpp
+        src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
@@ -255,7 +386,69 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         juce::juce_gui_basics
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+    if(MSVC)
+        # This all-screen contract deliberately keeps several ~200 KiB UI fixtures alive at once.
+        # DAW editors are heap-owned, but the test fixtures are automatic objects; reserve enough
+        # stack for the complete suite instead of silently skipping Windows render coverage.
+        target_link_options(KirinUiRenderContractTests PRIVATE "/STACK:8388608")
+    endif()
     add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
+
+    juce_add_console_app(KirinGuideFrequencyOverlayContractTests
+        PRODUCT_NAME "Kirin Guide Frequency Overlay Contract Tests")
+    target_sources(KirinGuideFrequencyOverlayContractTests PRIVATE
+        tests/GuideFrequencyOverlayContractTest.cpp
+        src/HyphaGuideFrequencyOverlay.cpp
+        src/HyphaSpectrumComponent.cpp
+        src/HyphaSpectrumTooltip.cpp
+        src/HyphaSpectrumChromePainter.cpp
+        src/HyphaSpectrumFocusTrail.cpp
+        src/HyphaSpectrumFocusTrailPainter.cpp
+        src/HyphaSpectrumPainter.cpp
+        src/HyphaTypography.cpp)
+    target_compile_definitions(KirinGuideFrequencyOverlayContractTests PRIVATE
+        KIRIN_GUIDE_OVERLAY_STANDALONE=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_compile_options(KirinGuideFrequencyOverlayContractTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_include_directories(KirinGuideFrequencyOverlayContractTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
+    target_link_libraries(KirinGuideFrequencyOverlayContractTests PRIVATE
+        KirinHyphaData
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_guide_frequency_overlay_contract
+        COMMAND KirinGuideFrequencyOverlayContractTests)
+
+    juce_add_console_app(KirinAttackUiContractTests
+        PRODUCT_NAME "Kirin ATTACK UI Contract Tests")
+    target_sources(KirinAttackUiContractTests PRIVATE
+        tests/AttackUiContractTest.cpp
+        src/HyphaAttackComponent.cpp
+        src/HyphaAttackInteraction.cpp
+        src/HyphaAttackMetricPainter.cpp
+        src/HyphaAttackOverviewGlyphPainter.cpp
+        src/HyphaAttackOrganismPainter.cpp
+        src/HyphaAttackPainter.cpp
+        src/HyphaAttackSpecimenPainter.cpp
+        src/HyphaTypography.cpp)
+    target_compile_definitions(KirinAttackUiContractTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_compile_options(KirinAttackUiContractTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_include_directories(KirinAttackUiContractTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
+    target_link_libraries(KirinAttackUiContractTests PRIVATE
+        KirinHyphaData
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_attack_ui_contract COMMAND KirinAttackUiContractTests)
 endif()
 
 option(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS
@@ -267,6 +460,7 @@ if(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS)
     target_sources(KirinPreDisplayRuntimeTests PRIVATE
         tests/pre_display_runtime_test.cpp
         src/pre_display/PreDisplayController.cpp
+        src/pre_display/PreDisplayControllerConnection.cpp
         src/pre_display/PreDisplayPresence.cpp
         src/pre_display/PreDisplayProjection.cpp
         src/pre_display/PreDisplayProtocol.cpp
@@ -284,4 +478,21 @@ if(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS)
     add_test(NAME kirin_pre_display_runtime COMMAND KirinPreDisplayRuntimeTests)
     set_tests_properties(kirin_pre_display_runtime PROPERTIES
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+    juce_add_console_app(KirinCaptureWorkAttachmentTests
+        PRODUCT_NAME "Kirin CAPTURE Work Attachment Tests")
+    target_sources(KirinCaptureWorkAttachmentTests PRIVATE
+        tests/CaptureWorkAttachmentTest.cpp
+        src/CaptureWorkAttachment.cpp
+        src/pre_display/PreDisplayProtocol.cpp
+        src/pre_display/PreDisplayProtocolTime.cpp)
+    target_compile_definitions(KirinCaptureWorkAttachmentTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_link_libraries(KirinCaptureWorkAttachmentTests PRIVATE
+        juce::juce_core
+        juce::juce_cryptography
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_capture_work_attachment COMMAND KirinCaptureWorkAttachmentTests)
 endif()

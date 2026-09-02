@@ -40,7 +40,8 @@ namespace hypha
     // ── StatusLed ──────────────────────────────────────────────────────────────────────────
     StatusLed::StatusLed()
     {
-        setInterceptsMouseClicks (false, false); // purely indicative; never eats clicks
+        setInterceptsMouseClicks (true, false);
+        setTooltip ("No active signal.");
     }
 
     void StatusLed::setState (LedState s)
@@ -48,6 +49,15 @@ namespace hypha
         if (s != state)
         {
             state = s;
+            switch (state)
+            {
+                case LedState::Idle:            setTooltip ("No active signal."); break;
+                case LedState::Error:           setTooltip ("Measurement is unavailable."); break;
+                case LedState::RecordStandby:   setTooltip ("Keep is waiting for its pair."); break;
+                case LedState::WatchBreathing:  setTooltip ("Measurement is active."); break;
+                case LedState::RecordActive:    setTooltip ("Keep is recording."); break;
+                case LedState::PresetAvailable: setTooltip ("A kept result is available."); break;
+            }
             repaint();
         }
     }
@@ -159,7 +169,7 @@ namespace hypha
         const auto  unitF  = labelFont (unitSize);
 
         const float labelW = juce::jmax (minColW, labelF.getStringWidthFloat (label));
-        const float valueW = juce::jmax (minColW, valueF.getStringWidthFloat (value));
+        const float valueW = juce::jmax (minColW, tabularTextWidth (valueF, value));
 
         const float h = (float) getHeight();
         float x = 0.0f;
@@ -169,9 +179,9 @@ namespace hypha
         g.drawText (label, juce::Rectangle<float> (x, 0.0f, labelW, h), juce::Justification::centredLeft);
         x += labelW + spacing;
 
-        g.setFont (valueF);
         g.setColour (valueColour);
-        g.drawText (value, juce::Rectangle<float> (x, 0.0f, valueW, h), juce::Justification::centredLeft);
+        drawTabularText (g, valueF, value, juce::Rectangle<float> (x, 0.0f, valueW, h),
+                         juce::Justification::centredLeft);
         x += valueW + spacing;
 
         g.setFont (unitF);
@@ -221,6 +231,8 @@ namespace hypha
         momentary.setDescription ("Show the 400 millisecond Momentary loudness measurement");
         shortTerm.setTitle ("Short-term loudness");
         shortTerm.setDescription ("Show the 3 second Short-term loudness measurement");
+        momentary.setTooltip (helpLufsM());
+        shortTerm.setTooltip (helpLufsS());
         momentary.onClick = [this]
         {
             setShortTerm (false);
@@ -322,7 +334,7 @@ namespace hypha
         editingEnabled = enabled;
         if (! enabled && editing)
             cancelEditing();
-        setTooltip (enabled ? juce::String() : lockedTooltip);
+        setTooltip (enabled ? enabledTooltip : lockedTooltip);
     }
 
     void EditableName::startEditing()
@@ -382,6 +394,7 @@ namespace hypha
         const juce::String shown = prefix + (empty ? fallback : rawName);
         g.setFont (monoFont (ui_contract::nameFontHeight));
         g.setColour (COL_FLORA);
-        g.drawText (shown, getLocalBounds(), juce::Justification::centredLeft);
+        g.drawFittedText (shown, getLocalBounds(), juce::Justification::centredLeft,
+                          1, 0.72f);
     }
 }

@@ -1,16 +1,18 @@
+#[cfg(not(windows))]
 use std::fs;
 use std::path::Path;
 
 use uuid::Uuid;
 
 use super::snapshot_path;
+use crate::analysis_exchange_transport::{self, AnalysisSlot};
 use crate::spectrum::{
-    SpectrumChannelMode, SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_FFT_SIZE,
+    SpectrumChannelMode, SpectrumFrame, SpectrumLayout, SPECTRUM_BAND_COUNT,
     SPECTRUM_SCHEMA_VERSION,
 };
 use crate::spectrum_runtime::{SpectrumHistory, SPECTRUM_HISTORY_CAPACITY};
 
-const SNAPSHOT_MAGIC: &[u8; 8] = b"KHSPEC02";
+const SNAPSHOT_MAGIC: &[u8; 8] = b"KHSPEC03";
 pub(super) const SNAPSHOT_MAX_BYTES: u64 = 16_384;
 
 pub(super) struct DecodedSnapshot {
@@ -19,12 +21,32 @@ pub(super) struct DecodedSnapshot {
 }
 
 pub(super) fn read_snapshot(instance_dir: &Path) -> Option<DecodedSnapshot> {
-    decode_snapshot(&read_bounded(
+    decode_snapshot(&analysis_exchange_transport::read(
+        instance_dir,
         &snapshot_path(instance_dir),
+        AnalysisSlot::Spectrum,
         SNAPSHOT_MAX_BYTES,
     )?)
 }
 
+pub(super) fn write_snapshot(instance_dir: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    analysis_exchange_transport::write(
+        instance_dir,
+        &snapshot_path(instance_dir),
+        AnalysisSlot::Spectrum,
+        bytes,
+    )
+}
+
+pub(super) fn remove_snapshot(instance_dir: &Path) {
+    let _ = analysis_exchange_transport::remove(
+        instance_dir,
+        &snapshot_path(instance_dir),
+        AnalysisSlot::Spectrum,
+    );
+}
+
+#[cfg(not(windows))]
 pub(crate) fn read_bounded(path: &Path, maximum_bytes: u64) -> Option<Vec<u8>> {
     (fs::metadata(path).ok()?.len() <= maximum_bytes)
         .then(|| fs::read(path).ok())
@@ -33,7 +55,7 @@ pub(crate) fn read_bounded(path: &Path, maximum_bytes: u64) -> Option<Vec<u8>> {
 
 pub(super) fn encode_snapshot(request_id: Uuid, history: &SpectrumHistory) -> Vec<u8> {
     let frame_count = history.frames().len().min(u16::MAX as usize) as u16;
-    let mut bytes = Vec::with_capacity(40 + frame_count as usize * (28 + SPECTRUM_BAND_COUNT * 4));
+    let mut bytes = Vec::with_capacity(44 + frame_count as usize * (28 + SPECTRUM_BAND_COUNT * 4));
     bytes.extend_from_slice(SNAPSHOT_MAGIC);
     bytes.extend_from_slice(&SPECTRUM_SCHEMA_VERSION.to_le_bytes());
     bytes.extend_from_slice(&(SPECTRUM_BAND_COUNT as u16).to_le_bytes());
@@ -43,7 +65,18 @@ pub(super) fn encode_snapshot(request_id: Uuid, history: &SpectrumHistory) -> Ve
             .map_or(0, |frame| frame.sample_rate)
             .to_le_bytes(),
     );
-    bytes.extend_from_slice(&(SPECTRUM_FFT_SIZE as u32).to_le_bytes());
+    bytes.extend_from_slice(
+        &history
+            .newest()
+            .map_or(0, |frame| frame.aperture_samples)
+            .to_le_bytes(),
+    );
+    bytes.extend_from_slice(
+        &history
+            .newest()
+            .map_or(0, |frame| frame.fft_size)
+            .to_le_bytes(),
+    );
     bytes.extend_from_slice(&frame_count.to_le_bytes());
     bytes.extend_from_slice(&0_u16.to_le_bytes());
     bytes.extend_from_slice(request_id.as_bytes());
@@ -68,8 +101,11 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
     (cursor.u16()? == SPECTRUM_SCHEMA_VERSION).then_some(())?;
     (cursor.u16()? as usize == SPECTRUM_BAND_COUNT).then_some(())?;
     let sample_rate = cursor.u32()?;
-    ((8_000..=384_000).contains(&sample_rate)).then_some(())?;
-    (cursor.u32()? as usize == SPECTRUM_FFT_SIZE).then_some(())?;
+    let layout = SpectrumLayout::new(sample_rate).ok()?;
+    let aperture_samples = cursor.u32()?;
+    (aperture_samples as usize == layout.aperture_samples).then_some(())?;
+    let fft_size = cursor.u32()?;
+    (fft_size as usize == layout.fft_size).then_some(())?;
     let frame_count = cursor.u16()? as usize;
     (frame_count <= SPECTRUM_HISTORY_CAPACITY).then_some(())?;
     let _reserved = cursor.u16()?;
@@ -87,7 +123,9 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
         let _reserved = cursor.u16()?;
         let min_hz = cursor.f32()?;
         let max_hz = cursor.f32()?;
-        if !(min_hz.is_finite() && max_hz.is_finite() && max_hz > min_hz) {
+        if min_hz.to_bits() != layout.min_hz.to_bits()
+            || max_hz.to_bits() != layout.max_hz.to_bits()
+        {
             return None;
         }
         let mut dbfs = [0.0; SPECTRUM_BAND_COUNT];
@@ -100,7 +138,8 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
         history.push(SpectrumFrame {
             schema_version: SPECTRUM_SCHEMA_VERSION,
             sample_rate,
-            fft_size: SPECTRUM_FFT_SIZE as u32,
+            aperture_samples,
+            fft_size,
             band_count: SPECTRUM_BAND_COUNT as u16,
             presentation_end_samples,
             generation,

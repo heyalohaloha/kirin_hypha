@@ -7,6 +7,12 @@
 
 namespace hypha::pre_display
 {
+    enum class GuideTargetRole
+    {
+        pre,
+        post,
+    };
+
     enum class DisplayStatus
     {
         none,
@@ -15,6 +21,22 @@ namespace hypha::pre_display
         active,
         next,
         end,
+    };
+
+    enum class GuideFactPhase
+    {
+        none,
+        next,
+        cue,
+        active,
+        held,
+    };
+
+    enum class GuideClockState
+    {
+        unavailable,
+        projectable,
+        outsideGuideRange,
     };
 
     struct DisplaySnapshot
@@ -32,6 +54,8 @@ namespace hypha::pre_display
 
     struct RuntimeIdentity
     {
+        GuideTargetRole role = GuideTargetRole::pre;
+        juce::String runtimeInstanceId;
         juce::String instanceId;
         juce::String projectUuid;
         juce::String dawSessionUuid;
@@ -41,6 +65,49 @@ namespace hypha::pre_display
         juce::String platform;
         juce::String architecture;
         std::uint32_t hostProcessId = 0;
+        juce::String workId;
+        juce::String bindingId;
+    };
+
+    // Immutable, user-accepted authority for operations that refer back to one Kirin OS Work.
+    // The display title is never an identifier. A consumer must match all three private IDs.
+    struct WorkReference
+    {
+        GuideTargetRole targetRole = GuideTargetRole::pre;
+        juce::String workId;
+        juce::String bindingId;
+        juce::String runtimeInstanceId;
+        juce::String displayTitle;
+
+        bool valid() const noexcept
+        {
+            return workId.isNotEmpty() && bindingId.isNotEmpty()
+                && runtimeInstanceId.isNotEmpty();
+        }
+
+        bool sameAuthority (const WorkReference& other) const noexcept
+        {
+            return valid() && other.valid() && targetRole == other.targetRole
+                && workId == other.workId && bindingId == other.bindingId
+                && runtimeInstanceId == other.runtimeInstanceId;
+        }
+    };
+
+    struct ConnectionRequest
+    {
+        GuideTargetRole targetRole = GuideTargetRole::pre;
+        juce::String bindingId;
+        juce::String workId;
+        juce::String workTitle;
+        std::int64_t observedAtMs = 0;
+        std::int64_t expiresAtMs = 0;
+
+        bool validAt (std::int64_t nowMs) const noexcept
+        {
+            return bindingId.isNotEmpty() && workId.isNotEmpty()
+                && observedAtMs >= 0 && expiresAtMs >= observedAtMs
+                && expiresAtMs >= nowMs;
+        }
     };
 
     enum class TemporalFactKind
@@ -49,9 +116,17 @@ namespace hypha::pre_display
         instantMarker,
     };
 
+    enum class GuidePresentationFactKind
+    {
+        inspectEvent,
+        maskingMeasuredInterval,
+        maskingReviewSelection,
+    };
+
     struct GuideItem
     {
         juce::String itemId;
+        juce::String selectionRef;
         juce::String label;
         juce::String sourceLabel;
         juce::String channel;
@@ -64,10 +139,72 @@ namespace hypha::pre_display
         bool hasBand = false;
     };
 
+    struct GuideReviewSelection
+    {
+        juce::String selectionId;
+        std::int64_t startNs = 0;
+        std::int64_t endNs = 0;
+        double lowHz = 0.0;
+        double highHz = 0.0;
+        bool hasBand = false;
+    };
+
+    // Bounded, UI-facing fact copied by the Guide worker. Domain views consume this type instead
+    // of reparsing transport JSON or inferring time state from presentation text.
+    struct GuidePresentationFact
+    {
+        GuidePresentationFactKind kind = GuidePresentationFactKind::inspectEvent;
+        GuideFactPhase phase = GuideFactPhase::none;
+        juce::String itemId;
+        juce::String selectionRef;
+        juce::String label;
+        juce::String sourceLabel;
+        juce::String channel;
+        juce::String frequencyBasis;
+        std::int64_t startNs = 0;
+        std::int64_t endNs = 0;
+        TemporalFactKind temporalKind = TemporalFactKind::measuredInterval;
+        double lowHz = 0.0;
+        double highHz = 0.0;
+        bool hasBand = false;
+        bool focused = false;
+    };
+
+    struct GuidePresentationSnapshot
+    {
+        GuideTargetRole targetRole = GuideTargetRole::pre;
+        DisplayStatus status = DisplayStatus::none;
+        GuideClockState clockState = GuideClockState::unavailable;
+        juce::String guideId;
+        juce::String contentHash;
+        juce::String payloadKind;
+        juce::String sourcePairLabel;
+        std::int64_t revision = 0;
+        std::int64_t sourcePositionNs = 0;
+        GuidePresentationFact primary;
+        GuidePresentationFact next;
+        GuidePresentationFact maskingFocus;
+        GuidePresentationFact nextMaskingFocus;
+        int overlapCount = 0;
+        bool guideAvailable = false;
+        bool hasSourcePosition = false;
+        bool clockPaused = false;
+        bool hasPrimary = false;
+        bool hasNext = false;
+        bool hasMaskingFocus = false;
+        bool hasNextMaskingFocus = false;
+        bool truncated = false;
+    };
+
     struct GuideModel
     {
+        GuideTargetRole targetRole = GuideTargetRole::pre;
         juce::String cacheKey;
+        juce::String protocolVersion;
         juce::String groupId;
+        juce::String workId;
+        juce::String bindingId;
+        juce::String runtimeInstanceId;
         juce::String guideId;
         juce::String contentHash;
         juce::String payloadKind;
@@ -77,6 +214,7 @@ namespace hypha::pre_display
         std::int64_t sourceZeroProjectNs = 0;
         std::int64_t revision = 0;
         std::vector<GuideItem> items;
+        std::vector<GuideReviewSelection> reviewSelections;
 
         bool valid() const noexcept { return guideId.isNotEmpty(); }
         bool hasMeasuredEmptyMasking() const noexcept
@@ -97,7 +235,11 @@ namespace hypha::pre_display
     struct GuideReceipt
     {
         GuideRefreshState state = GuideRefreshState::unavailable;
+        GuideTargetRole targetRole = GuideTargetRole::pre;
         juce::String groupId;
+        juce::String workId;
+        juce::String bindingId;
+        juce::String runtimeInstanceId;
         juce::String guideId;
         juce::String contentHash;
         juce::String payloadKind;

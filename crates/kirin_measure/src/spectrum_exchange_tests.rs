@@ -1,6 +1,7 @@
 use super::*;
 use crate::spectrum::{
     SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_FFT_SIZE, SPECTRUM_SCHEMA_VERSION,
+    SPECTRUM_WINDOW_SIZE,
 };
 use crate::SPECTRUM_HISTORY_CAPACITY;
 use std::thread;
@@ -9,6 +10,7 @@ fn frame(end: i64, value: f32) -> SpectrumFrame {
     SpectrumFrame {
         schema_version: SPECTRUM_SCHEMA_VERSION,
         sample_rate: 48_000,
+        aperture_samples: SPECTRUM_WINDOW_SIZE as u32,
         fft_size: SPECTRUM_FFT_SIZE as u32,
         band_count: SPECTRUM_BAND_COUNT as u16,
         presentation_end_samples: end,
@@ -32,60 +34,6 @@ fn perceptual_frame(end: i64, value: f64) -> crate::PerceptualFrame {
         channel_mode: SpectrumChannelMode::Lr,
         channels: 2,
         sharpness: value,
-    }
-}
-
-fn push_stereo_pair_in_blocks(
-    pre_runtime: &SpectrumRuntime,
-    post_runtime: &SpectrumRuntime,
-    pre_samples: &[f32],
-    post_samples: &[f32],
-) {
-    const BLOCK_FRAMES: usize = 256;
-    assert_eq!(pre_samples.len(), post_samples.len());
-    assert_eq!(pre_samples.len() % 2, 0);
-    for start in (0..pre_samples.len() / 2).step_by(BLOCK_FRAMES) {
-        let end = (start + BLOCK_FRAMES).min(pre_samples.len() / 2);
-        let sample_range = start * 2..end * 2;
-        assert!(pre_runtime.push_block_from_audio(
-            &pre_samples[sample_range.clone()],
-            2,
-            Some(start as i64),
-        ));
-        assert!(post_runtime.push_block_from_audio(
-            &post_samples[sample_range],
-            2,
-            Some(start as i64),
-        ));
-        thread::sleep(Duration::from_millis(1));
-    }
-}
-
-fn push_tone_pair_segment(
-    pre_runtime: &SpectrumRuntime,
-    post_runtime: &SpectrumRuntime,
-    start_frame: i64,
-    end_frame: i64,
-    pre_hz: f32,
-    post_hz: f32,
-) {
-    const BLOCK_FRAMES: usize = 256;
-    let mut position = start_frame;
-    while position < end_frame {
-        let frames = BLOCK_FRAMES.min((end_frame - position) as usize);
-        let mut pre_samples = Vec::with_capacity(frames * 2);
-        let mut post_samples = Vec::with_capacity(frames * 2);
-        for offset in 0..frames {
-            let absolute = position as usize + offset;
-            let pre = (std::f32::consts::TAU * pre_hz * absolute as f32 / 48_000.0).sin();
-            let post = (std::f32::consts::TAU * post_hz * absolute as f32 / 48_000.0).sin();
-            pre_samples.extend_from_slice(&[pre, -pre]);
-            post_samples.extend_from_slice(&[post, -post]);
-        }
-        assert!(pre_runtime.push_block_from_audio(&pre_samples, 2, Some(position)));
-        assert!(post_runtime.push_block_from_audio(&post_samples, 2, Some(position)));
-        position += frames as i64;
-        thread::sleep(Duration::from_millis(1));
     }
 }
 
@@ -120,8 +68,8 @@ fn perceptual_snapshot_roundtrip_preserves_exact_apertures() {
 }
 
 #[test]
-#[ignore = "release-mode 30 Hz atomic exchange performance probe; run explicitly with --nocapture"]
-fn active_pair_30hz_atomic_exchange_budget_is_quantified() {
+#[ignore = "release-mode 30 Hz Analysis transport performance probe; run explicitly with --nocapture"]
+fn active_pair_30hz_analysis_transport_budget_is_quantified() {
     use std::hint::black_box;
 
     let temp = tempfile::tempdir().unwrap();
@@ -138,14 +86,14 @@ fn active_pair_30hz_atomic_exchange_budget_is_quantified() {
     let iterations = 300;
     let started = Instant::now();
     for _ in 0..iterations {
-        crate::atomic_file::write_bytes_atomic(&snapshot_path(&instance_dir), &bytes).unwrap();
+        write_snapshot(&instance_dir, &bytes).unwrap();
         let decoded = black_box(read_snapshot(&instance_dir).unwrap());
         assert_eq!(decoded.request_id, request_id);
     }
     let micros_per_exchange = started.elapsed().as_secs_f64() * 1_000_000.0 / iterations as f64;
     let projected_worker_percent = micros_per_exchange * 30.0 / 10_000.0;
     eprintln!(
-        "30 Hz Spectrum file exchange: {} bytes, {micros_per_exchange:.2} us/cycle, \
+        "30 Hz Spectrum transport: {} bytes, {micros_per_exchange:.2} us/cycle, \
          projected one-pair IO worker time {projected_worker_percent:.3}%",
         bytes.len()
     );
@@ -153,8 +101,8 @@ fn active_pair_30hz_atomic_exchange_budget_is_quantified() {
 }
 
 #[test]
-#[ignore = "release-mode 10 Hz Perceptual Delta exchange probe; run explicitly with --nocapture"]
-fn perceptual_pair_10hz_atomic_exchange_budget_is_quantified() {
+#[ignore = "release-mode 10 Hz Perceptual Delta transport probe; run explicitly with --nocapture"]
+fn perceptual_pair_10hz_analysis_transport_budget_is_quantified() {
     use std::hint::black_box;
 
     let temp = tempfile::tempdir().unwrap();
@@ -174,15 +122,14 @@ fn perceptual_pair_10hz_atomic_exchange_budget_is_quantified() {
     let iterations = 300;
     let started = Instant::now();
     for _ in 0..iterations {
-        crate::atomic_file::write_bytes_atomic(&perceptual_snapshot_path(&instance_dir), &bytes)
-            .unwrap();
+        write_perceptual_snapshot(&instance_dir, &bytes).unwrap();
         let decoded = black_box(read_perceptual_snapshot(&instance_dir).unwrap());
         assert_eq!(decoded.request_id, request_id);
     }
     let micros_per_exchange = started.elapsed().as_secs_f64() * 1_000_000.0 / iterations as f64;
     let projected_worker_percent = micros_per_exchange * 10.0 / 10_000.0;
     eprintln!(
-        "10 Hz Perceptual Delta file exchange: {} bytes, {micros_per_exchange:.2} us/cycle, \
+        "10 Hz Perceptual Delta transport: {} bytes, {micros_per_exchange:.2} us/cycle, \
          projected one-pair IO worker time {projected_worker_percent:.3}%",
         bytes.len()
     );
@@ -199,9 +146,29 @@ fn truncated_trailing_or_nonfinite_snapshot_fails_closed() {
     trailing.push(0);
     assert!(decode_snapshot(&trailing).is_none());
     let mut nonfinite = bytes;
-    let first_value = 40 + 28;
+    let first_value = 44 + 28;
     nonfinite[first_value..first_value + 4].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(decode_snapshot(&nonfinite).is_none());
+}
+
+#[test]
+fn host_rate_layout_metadata_is_exact_and_mismatch_fails_closed() {
+    let mut history = SpectrumHistory::with_capacity();
+    history.push(frame(4_800, -20.0));
+    let bytes = encode_snapshot(Uuid::new_v4(), &history);
+
+    // Header: magic(8), schema(2), bands(2), rate(4), aperture(4), FFT(4).
+    let mut wrong_aperture = bytes.clone();
+    wrong_aperture[16..20].copy_from_slice(&4_095_u32.to_le_bytes());
+    assert!(decode_snapshot(&wrong_aperture).is_none());
+
+    let mut wrong_fft = bytes.clone();
+    wrong_fft[20..24].copy_from_slice(&16_384_u32.to_le_bytes());
+    assert!(decode_snapshot(&wrong_fft).is_none());
+
+    let mut legacy_magic = bytes;
+    legacy_magic[..8].copy_from_slice(b"KHSPEC02");
+    assert!(decode_snapshot(&legacy_magic).is_none());
 }
 
 #[test]
@@ -241,6 +208,24 @@ fn perceptual_difference_joins_only_exact_endpoint_aperture_and_epoch() {
 }
 
 #[test]
+fn perceptual_join_recovers_every_exact_endpoint_after_a_delayed_presentation_tick() {
+    let mut pre = crate::PerceptualHistory::with_capacity();
+    let mut post = crate::PerceptualHistory::with_capacity();
+    for index in 1..=6 {
+        let endpoint = index * 4_800;
+        pre.push(perceptual_frame(endpoint, 1.0 + index as f64 * 0.01));
+        post.push(perceptual_frame(endpoint, 1.2 + index as f64 * 0.02));
+    }
+    let differences = exact_perceptual_differences(&post, &pre);
+    assert_eq!(differences.len(), 6);
+    assert_eq!(differences[0].presentation_end_samples, 4_800);
+    assert_eq!(differences[5].presentation_end_samples, 28_800);
+    assert!(differences.windows(2).all(|pair| {
+        pair[1].presentation_end_samples - pair[0].presentation_end_samples == 4_800
+    }));
+}
+
+#[test]
 fn malformed_perceptual_payload_fails_closed() {
     let mut history = crate::PerceptualHistory::with_capacity();
     history.push(perceptual_frame(4_800, 1.2));
@@ -256,35 +241,72 @@ fn malformed_perceptual_payload_fails_closed() {
 }
 
 #[test]
-fn exactly_one_post_analysis_runtime_is_active_per_process_lease() {
+fn exactly_two_post_analysis_runtimes_are_active_per_process_lease() {
     let temp = tempfile::tempdir().unwrap();
-    let lease_path = temp.path().join("one-analysis.lease");
+    let lease_paths = [
+        temp.path().join("analysis.0.lease"),
+        temp.path().join("analysis.1.lease"),
+    ];
     let first_runtime = SpectrumRuntime::new(48_000, 2);
     let second_runtime = SpectrumRuntime::new(48_000, 2);
+    let third_runtime = SpectrumRuntime::new(48_000, 2);
     let first = SpectrumCoordinator::new_with_lease(
         48_000,
         first_runtime,
-        crate::analysis_lease::AnalysisLease::at_path(lease_path.clone()),
+        crate::analysis_lease::AnalysisLease::at_paths(lease_paths.clone()),
     );
     let second = SpectrumCoordinator::new_with_lease(
         48_000,
         second_runtime,
-        crate::analysis_lease::AnalysisLease::at_path(lease_path),
+        crate::analysis_lease::AnalysisLease::at_paths(lease_paths.clone()),
+    );
+    let third = SpectrumCoordinator::new_with_lease(
+        48_000,
+        third_runtime,
+        crate::analysis_lease::AnalysisLease::at_paths(lease_paths),
     );
     first.set_post_visible(true);
     second.set_post_visible(true);
+    third.set_post_visible(true);
 
-    assert!(!first.post_tick("post-a", None));
-    assert!(!second.post_tick("post-b", None));
-    assert_eq!(first.try_view().unwrap().status, SpectrumViewStatus::NoPair);
-    assert_eq!(second.try_view().unwrap().status, SpectrumViewStatus::InUse);
-
-    first.set_post_visible(false);
-    assert!(!second.post_tick("post-b", None));
+    assert!(first.post_tick_for_owner("post-a", None, "Mix"));
+    assert!(second.post_tick_for_owner("post-b", None, "Vocal"));
+    assert!(!third.post_tick_for_owner("post-c", None, "Music"));
+    assert_eq!(
+        first.try_view().unwrap().status,
+        SpectrumViewStatus::WarmingUp
+    );
     assert_eq!(
         second.try_view().unwrap().status,
-        SpectrumViewStatus::NoPair
+        SpectrumViewStatus::WarmingUp
     );
+    assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::InUse);
+    assert_eq!(
+        third.try_view().unwrap().analysis_owner_names,
+        ["Mix".to_string(), "Vocal".to_string()]
+    );
+
+    // FREQ -> SHARP -> LIVE changes only the analyzer inside the first owner's existing slot.
+    // A waiting third page must not observe a release until the owner explicitly returns to
+    // METERS (set_post_visible(false)) or closes.
+    assert!(first.set_post_analysis_mode(AnalysisViewMode::Perceptual));
+    assert!(!third.post_tick_for_owner("post-c", None, "Music"));
+    assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::InUse);
+    assert_eq!(
+        third.try_view().unwrap().analysis_owner_names,
+        ["Mix".to_string(), "Vocal".to_string()]
+    );
+    assert!(first.set_post_analysis_mode(AnalysisViewMode::Absolute));
+    assert!(!third.post_tick_for_owner("post-c", None, "Music"));
+    assert_eq!(third.try_view().unwrap().status, SpectrumViewStatus::InUse);
+
+    first.set_post_visible(false);
+    assert!(third.post_tick_for_owner("post-c", None, "Music"));
+    assert_eq!(
+        third.try_view().unwrap().status,
+        SpectrumViewStatus::WarmingUp
+    );
+    third.shutdown();
     second.shutdown();
     first.shutdown();
 }
@@ -311,330 +333,143 @@ fn analysis_lease_io_failure_is_unavailable_not_in_use() {
 }
 
 #[test]
-fn post_without_exact_pair_never_enables_fft() {
+fn poisoned_post_session_resets_instead_of_permanently_stalling_analysis() {
     let runtime = SpectrumRuntime::new(48_000, 2);
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     coordinator.set_post_visible(true);
-    coordinator.post_tick("post", None);
-    assert!(!runtime.is_enabled());
+
+    let poisoned = Arc::clone(&coordinator);
+    assert!(thread::spawn(move || {
+        let _session = poisoned.post_session.lock().unwrap();
+        panic!("intentional POST session poison");
+    })
+    .join()
+    .is_err());
+
+    assert!(coordinator.post_tick("post", None));
     assert_eq!(
         coordinator.try_view().unwrap().status,
-        SpectrumViewStatus::NoPair
+        SpectrumViewStatus::WarmingUp
     );
     coordinator.shutdown();
     runtime.shutdown_and_join();
 }
 
 #[test]
-fn lease_enables_exact_pre_and_close_disables_it() {
+fn poisoned_pre_session_resets_instead_of_permanently_stalling_analysis() {
     let temp = tempfile::tempdir().unwrap();
     let pre_dir = temp.path().join("project").join("pre");
-    let pre_json = pre_dir.join("pre.json");
-    crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let pre_runtime = SpectrumRuntime::new(48_000, 2);
-    let post_runtime = SpectrumRuntime::new(48_000, 2);
-    let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
-    let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
-    let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
+    fs::create_dir_all(&pre_dir).unwrap();
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
 
-    post.set_post_visible(true);
-    post.post_tick("post", Some(target.clone()));
-    assert!(post_runtime.is_enabled());
-    pre.pre_tick("pre", &pre_dir);
-    assert!(pre_runtime.is_enabled());
+    let poisoned = Arc::clone(&coordinator);
+    assert!(thread::spawn(move || {
+        let _session = poisoned.pre_session.lock().unwrap();
+        panic!("intentional PRE session poison");
+    })
+    .join()
+    .is_err());
 
-    post.set_post_visible(false);
-    post.post_tick("post", Some(target));
-    pre.pre_tick("pre", &pre_dir);
-    assert!(!post_runtime.is_enabled());
-    assert!(!pre_runtime.is_enabled());
-    assert!(!request_path(&pre_dir).exists());
-
-    pre.shutdown();
-    post.shutdown();
-    pre_runtime.shutdown_and_join();
-    post_runtime.shutdown_and_join();
+    assert!(!coordinator.pre_tick("pre", &pre_dir));
+    assert!(!runtime.is_enabled());
+    coordinator.shutdown();
+    runtime.shutdown_and_join();
 }
 
 #[test]
-fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
-    let temp = tempfile::tempdir().unwrap();
-    let pre_dir = temp.path().join("project").join("pre");
-    let pre_json = pre_dir.join("pre.json");
-    crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let pre_runtime = SpectrumRuntime::new(48_000, 2);
-    let post_runtime = SpectrumRuntime::new(48_000, 2);
-    let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
-    let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
-    let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
-
-    post.set_post_visible(true);
-    post.post_tick("post", Some(target.clone()));
-    pre.pre_tick("pre", &pre_dir);
-
-    let frames = 9_600_usize;
-    let mut pre_samples = Vec::with_capacity(frames * 2);
-    let mut post_samples = Vec::with_capacity(frames * 2);
-    for index in 0..frames {
-        let sample = (std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0).sin();
-        pre_samples.extend_from_slice(&[sample, -sample]);
-        post_samples.extend_from_slice(&[sample * 0.5, sample * -0.5]);
-    }
-    push_stereo_pair_in_blocks(&pre_runtime, &post_runtime, &pre_samples, &post_samples);
-
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < deadline
-        && (pre_runtime
-            .try_history()
-            .and_then(|history| history.newest().cloned())
-            .is_none_or(|frame| frame.presentation_end_samples < 9_600)
-            || post_runtime
-                .try_history()
-                .and_then(|history| history.newest().cloned())
-                .is_none_or(|frame| frame.presentation_end_samples < 9_600))
-    {
-        thread::sleep(Duration::from_millis(2));
-    }
-    assert_eq!(
-        pre_runtime
-            .try_history()
-            .and_then(|history| history.newest().map(|frame| frame.presentation_end_samples)),
-        Some(9_600)
-    );
-    assert_eq!(
-        post_runtime
-            .try_history()
-            .and_then(|history| history.newest().map(|frame| frame.presentation_end_samples)),
-        Some(9_600)
-    );
-
-    pre.pre_tick("pre", &pre_dir);
-    post.post_tick("post", Some(target));
-    let view = post.try_view().unwrap();
-    assert_eq!(view.status, SpectrumViewStatus::Active);
-    let difference = view.difference.unwrap();
-    let strongest = difference
-        .display_db
-        .iter()
-        .enumerate()
-        .min_by(|(_, left), (_, right)| left.total_cmp(right))
-        .map(|(index, _)| index)
-        .unwrap();
-    assert!((difference.raw_db[strongest] + 6.0206).abs() < 0.05);
-
-    pre.shutdown();
-    post.shutdown();
-    pre_runtime.shutdown_and_join();
-    post_runtime.shutdown_and_join();
+fn post_without_exact_pair_enables_local_spectrum_without_claiming_delta() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
+    coordinator.set_post_visible(true);
+    assert!(coordinator.post_tick("post", None));
+    assert!(runtime.is_enabled());
+    let view = coordinator.try_view().unwrap();
+    assert_eq!(view.status, SpectrumViewStatus::WarmingUp);
+    assert!(view.difference.is_none());
+    assert!(view.post_spectrum.is_none());
+    coordinator.shutdown();
+    runtime.shutdown_and_join();
 }
 
 #[test]
-fn perceptual_pair_arms_one_future_epoch_and_joins_only_continuous_state() {
+fn post_absolute_timeline_needs_no_pair_and_never_creates_a_pre_request() {
     let temp = tempfile::tempdir().unwrap();
-    let pre_dir = temp.path().join("project").join("pre");
-    let pre_json = pre_dir.join("pre.json");
-    crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let pre_runtime = SpectrumRuntime::new(48_000, 2);
-    let post_runtime = SpectrumRuntime::new(48_000, 2);
-    let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
-    let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
-    let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
-
-    assert!(post.set_post_analysis_mode(AnalysisViewMode::Perceptual));
-    post.set_post_visible(true);
-    assert!(post.post_tick("post", Some(target.clone())));
-    assert!(pre.pre_tick("pre", &pre_dir));
-    assert_eq!(pre_runtime.perceptual_state_epoch(), None);
-    assert_eq!(post_runtime.perceptual_state_epoch(), None);
-
-    push_tone_pair_segment(&pre_runtime, &post_runtime, 0, 2_048, 1_000.0, 6_000.0);
-    assert!(pre.pre_tick("pre", &pre_dir));
-    assert!(post.post_tick("post", Some(target.clone())));
-    let epoch = post_runtime
-        .perceptual_state_epoch()
-        .expect("POST commits a future epoch after PRE readiness");
-    assert!(epoch >= 2_048 + 9_600);
-    assert_eq!(epoch % 4_800, 0);
-    assert!(pre.pre_tick("pre", &pre_dir));
-    assert_eq!(pre_runtime.perceptual_state_epoch(), Some(epoch));
-
-    let final_endpoint = epoch + 9_600;
-    push_tone_pair_segment(
-        &pre_runtime,
-        &post_runtime,
-        2_048,
-        final_endpoint,
-        1_000.0,
-        6_000.0,
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    assert!(runtime.set_analysis_mode(AnalysisViewMode::Absolute));
+    let coordinator = SpectrumCoordinator::new_with_lease(
+        48_000,
+        Arc::clone(&runtime),
+        crate::analysis_lease::AnalysisLease::at_paths([
+            temp.path().join("analysis.0.lease"),
+            temp.path().join("analysis.1.lease"),
+        ]),
     );
-    let deadline = Instant::now() + Duration::from_secs(4);
-    while Instant::now() < deadline
-        && (pre_runtime
-            .try_perceptual_history()
-            .and_then(|history| history.newest().cloned())
-            .is_none_or(|frame| frame.presentation_end_samples < final_endpoint)
-            || post_runtime
-                .try_perceptual_history()
-                .and_then(|history| history.newest().cloned())
-                .is_none_or(|frame| frame.presentation_end_samples < final_endpoint))
-    {
-        thread::sleep(Duration::from_millis(2));
+    coordinator.set_post_visible(true);
+    assert!(coordinator.post_tick("post", None));
+    assert!(runtime.is_enabled());
+    let view = coordinator.try_view().unwrap();
+    assert_eq!(view.status, SpectrumViewStatus::WarmingUp);
+    assert_eq!(view.analysis_mode, AnalysisViewMode::Absolute);
+    assert!(view.difference.is_none());
+    assert!(view.perceptual_difference.is_none());
+    assert!(!temp.path().join("spectrum").join("request.json").exists());
+    coordinator.shutdown();
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn active_spectrum_view_retains_eight_exact_differences_for_ui_recovery() {
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
+
+    for index in 1..=10 {
+        let endpoint = index * 1_600;
+        let pre = frame(endpoint, -30.0);
+        let post = frame(endpoint, -27.0);
+        let difference = crate::difference_post_minus_pre(&post, &pre).unwrap();
+        coordinator.store_view(SpectrumViewStatus::Active, Some(difference), None);
     }
-    let pre_frames = pre_runtime
-        .try_perceptual_history()
-        .unwrap()
+
+    let view = coordinator.try_view().unwrap();
+    let endpoints = view
+        .spectrum_timeline
         .frames()
-        .map(|frame| (frame.presentation_end_samples, frame.state_epoch_samples))
+        .map(|frame| frame.presentation_end_samples)
         .collect::<Vec<_>>();
-    let post_frames = post_runtime
-        .try_perceptual_history()
-        .unwrap()
-        .frames()
-        .map(|frame| (frame.presentation_end_samples, frame.state_epoch_samples))
-        .collect::<Vec<_>>();
-    assert!(
-        pre_frames.iter().any(|frame| frame.0 == final_endpoint),
-        "PRE frames: {pre_frames:?}"
+    assert_eq!(
+        endpoints,
+        (3..=10).map(|index| index * 1_600).collect::<Vec<_>>()
     );
-    assert!(
-        post_frames.iter().any(|frame| frame.0 == final_endpoint),
-        "POST frames: {post_frames:?}"
+    assert_eq!(
+        view.difference.as_ref().unwrap().presentation_end_samples,
+        10 * 1_600
     );
-    assert!(
-        !pre_runtime.take_perceptual_rearm_required(),
-        "PRE requested re-arm after publishing {pre_frames:?}"
+    assert!((view.difference.as_ref().unwrap().display_db[0] - 3.0).abs() < 1.0e-6);
+
+    let pre = frame(10 * 1_600, -30.0);
+    let conflicting_duplicate = frame(10 * 1_600, -12.0);
+    let conflicting_duplicate =
+        crate::difference_post_minus_pre(&conflicting_duplicate, &pre).unwrap();
+    coordinator.store_view(
+        SpectrumViewStatus::Active,
+        Some(conflicting_duplicate),
+        None,
     );
-    assert!(
-        !post_runtime.take_perceptual_rearm_required(),
-        "POST requested re-arm after publishing {post_frames:?}"
-    );
-    assert!(pre.pre_tick("pre", &pre_dir));
-    let remote = read_perceptual_snapshot(&pre_dir).expect("PRE perceptual snapshot");
-    let local = post_runtime.try_perceptual_history().unwrap();
-    assert!(
-        newest_exact_perceptual_difference(&local, &remote.history).is_some(),
-        "local={post_frames:?} remote={:?}",
-        remote
-            .history
+    let stable = coordinator.try_view().unwrap();
+    assert!((stable.difference.unwrap().display_db[0] - 3.0).abs() < 1.0e-6);
+    assert_eq!(stable.spectrum_timeline.frames().count(), 8);
+
+    coordinator.store_view(SpectrumViewStatus::WarmingUp, None, None);
+    assert_eq!(
+        coordinator
+            .try_view()
+            .unwrap()
+            .spectrum_timeline
             .frames()
-            .map(|frame| (frame.presentation_end_samples, frame.state_epoch_samples))
-            .collect::<Vec<_>>()
-    );
-    assert!(post.post_tick("post", Some(target)));
-    let view = post.try_view().unwrap();
-    assert_eq!(view.status, SpectrumViewStatus::Active);
-    let difference = view.perceptual_difference.unwrap();
-    assert_eq!(difference.state_epoch_samples, epoch);
-    assert_eq!(difference.presentation_end_samples, final_endpoint);
-    assert!(difference.delta_sharpness > 0.0);
-
-    pre.shutdown();
-    post.shutdown();
-    pre_runtime.shutdown_and_join();
-    post_runtime.shutdown_and_join();
-}
-
-#[test]
-fn isolated_worker_advances_exact_pair_without_reentering_normal_io() {
-    let temp = tempfile::tempdir().unwrap();
-    let pre_dir = temp.path().join("project").join("pre");
-    let pre_json = pre_dir.join("pre.json");
-    crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let pre_runtime = SpectrumRuntime::new(48_000, 2);
-    let post_runtime = SpectrumRuntime::new(48_000, 2);
-    let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
-    let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
-    let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
-
-    post.set_post_visible(true);
-    post.service_post_endpoint("post", Some(target));
-    pre.service_pre_endpoint("pre", &pre_dir);
-
-    let frames = 12_800_usize;
-    let mut pre_samples = Vec::with_capacity(frames * 2);
-    let mut post_samples = Vec::with_capacity(frames * 2);
-    for index in 0..frames {
-        let sample = (std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0).sin();
-        pre_samples.extend_from_slice(&[sample, -sample]);
-        post_samples.extend_from_slice(&[sample * 0.5, sample * -0.5]);
-    }
-    push_stereo_pair_in_blocks(&pre_runtime, &post_runtime, &pre_samples, &post_samples);
-
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < deadline
-        && post.try_view().is_none_or(|view| {
-            view.status != SpectrumViewStatus::Active || view.difference.is_none()
-        })
-    {
-        thread::sleep(Duration::from_millis(5));
-    }
-    let view = post.try_view().unwrap();
-    assert_eq!(view.status, SpectrumViewStatus::Active);
-    let difference = view.difference.unwrap();
-    let strongest = difference
-        .display_db
-        .iter()
-        .enumerate()
-        .min_by(|(_, left), (_, right)| left.total_cmp(right))
-        .map(|(index, _)| index)
-        .unwrap();
-    assert!((difference.raw_db[strongest] + 6.0206).abs() < 0.05);
-
-    post.set_post_visible(false);
-    let cleanup_deadline = Instant::now() + Duration::from_secs(1);
-    while Instant::now() < cleanup_deadline
-        && (request_path(&pre_dir).exists() || pre_runtime.is_enabled())
-    {
-        thread::sleep(Duration::from_millis(5));
-    }
-    assert!(!request_path(&pre_dir).exists());
-    assert!(!pre_runtime.is_enabled());
-
-    pre.shutdown();
-    post.shutdown();
-    pre_runtime.shutdown_and_join();
-    post_runtime.shutdown_and_join();
-}
-
-#[test]
-fn request_write_failure_is_unavailable_and_does_not_leave_fft_running() {
-    let temp = tempfile::tempdir().unwrap();
-    let blocked = temp.path().join("not-a-directory");
-    fs::write(&blocked, b"file").unwrap();
-    let runtime = SpectrumRuntime::new(48_000, 2);
-    let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
-    coordinator.set_post_visible(true);
-    coordinator.post_tick(
-        "post",
-        Some(SpectrumTarget {
-            pre_instance_id: "pre".to_string(),
-            instance_dir: blocked,
-        }),
-    );
-    assert!(!runtime.is_enabled());
-    assert_eq!(
-        coordinator.try_view().unwrap().status,
-        SpectrumViewStatus::Unavailable
+            .count(),
+        0
     );
     coordinator.shutdown();
     runtime.shutdown_and_join();
-}
-
-#[test]
-fn oversized_request_and_snapshot_are_rejected_before_reading_payloads() {
-    let temp = tempfile::tempdir().unwrap();
-    let spectrum_dir = temp.path().join("spectrum");
-    fs::create_dir_all(&spectrum_dir).unwrap();
-    fs::write(
-        spectrum_dir.join("request.json"),
-        vec![b' '; REQUEST_MAX_BYTES as usize + 1],
-    )
-    .unwrap();
-    fs::write(
-        spectrum_dir.join("pre.bin"),
-        vec![0_u8; SNAPSHOT_MAX_BYTES as usize + 1],
-    )
-    .unwrap();
-    assert!(read_request(temp.path()).is_none());
-    assert!(read_snapshot(temp.path()).is_none());
 }

@@ -39,10 +39,11 @@
                 .contains("postControls->onStop = [this] { processorRef.stopPair(); };"),
             "manual POST Stop must remain the UI path into stopPair"
         );
+        assert!(PLUGIN_EDITOR_CPP.contains("else if (result == 5)\n        processorRef.stopPair();"));
         assert_eq!(
             count_occurrences(PLUGIN_EDITOR_CPP, "processorRef.stopPair();"),
-            1,
-            "no non-manual JUCE editor path should call stopPair"
+            2,
+            "only the two explicit user Stop controls may call stopPair"
         );
     }
 
@@ -246,8 +247,7 @@
                 && body.contains("recordPhase == KIRIN_RECORD_DISPLAY_LIVE"),
             "POST Record must show absolute Max TP/I and bypass the timed Watch hold after finalize"
         );
-        assert!(HYPHA_DISPLAY_CONTRACT_H
-            .contains("return pairSelected ? MetricMode::delta : MetricMode::absolute;"));
+        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("pairedPreIsExplicitlyBypassed"));
     }
 
     #[test]
@@ -260,7 +260,9 @@
         let window = &body[watch_branch..body.len().min(watch_branch + 3600)];
 
         assert!(
-            window.contains("display::watchMetricMode (pairSelected, haveRawD, rawD.mode)")
+            window.contains(
+                "display::watchMetricMode (pairSelected, effectiveHaveD, effectiveMode)"
+            )
                 && window.contains("configureForKind (Kind::WatchDelta6)")
                 && window.contains("display::deltaIsActive (d.mode)"),
             "JUCE POST Watch must keep the Delta+MAX grid while an explicit pair is selected"
@@ -278,12 +280,10 @@
             "JUCE POST Watch must keep the paired delta grid even when PRE measurements are unavailable"
         );
         assert_eq!(
-            count_occurrences(
-                HYPHA_DISPLAY_CONTRACT_H,
-                "return pairSelected ? MetricMode::delta : MetricMode::absolute;"
-            ),
+            count_occurrences (HYPHA_DISPLAY_CONTRACT_H,
+                               "pairedPreIsExplicitlyBypassed (pairSelected, haveDelta, mode)"),
             2,
-            "Watch and Record layouts must both be owned only by pair context"
+            "Watch and Record must treat explicit PRE bypass identically"
         );
         assert!(
             window.contains("selectedMeasure (watchMaximum)")
@@ -315,21 +315,24 @@
     fn readme_exposes_the_post_spectrum_measurement_boundary() {
         let spectrum = README
             .split("\n### ")
-            .find(|section| section.starts_with("POST Analysis: Spectrum (on demand)\n"))
-            .expect("README POST Analysis Spectrum section");
+            .find(|section| section.starts_with("FREQ: Spectrum (on demand)\n"))
+            .expect("README FREQ Spectrum section");
         let spectrum = spectrum.split_whitespace().collect::<Vec<_>>().join(" ");
         for required_fact in [
-            "Analysis runs only while this page is open",
+            "Spectrum runs only while FREQ is open",
             "Δ (POST − PRE)",
-            "±18 dB",
+            "±24 dB",
+            "aperture length",
             "output-presentation sample endpoint",
             "−120 dBFS",
             "−96 dBFS",
             "follows the host sample rate",
-            "4096-sample Hann window",
-            "8192-point FFT",
-            "At 48 kHz the window spans about 85 ms",
-            "FFT-point spacing changes with the host rate",
+            "without resampling",
+            "`4096 / 48000`",
+            "48 kHz remains exactly 4096 samples / 8192 FFT points",
+            "44.1, 96, 192, and 384 kHz",
+            "same logarithmic band centres `(index + 0.5) / 256`",
+            "unobtrusive `~` prefix",
             "averages their power",
             "`(L+R)/2`",
         ] {
@@ -345,12 +348,12 @@
             .expect("README Watch mode section");
         let watch = watch.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
-            watch.contains("Spectrum")
-                && watch.contains("on demand")
-                && watch.contains("signed POST − PRE frequency difference")
-                && watch.contains("Perceptual Δ")
-                && watch.contains("only the currently visible analyzer runs"),
-            "README Watch mode must connect its grid description to both POST analysis views"
+            watch.contains("Top-level **FREQ** shows signed POST − PRE spectrum")
+                && watch.contains("Under **TIME**, ATTACK, SHARP, and LIVE")
+                && watch.contains("Only the visible optional analyzer runs")
+                && watch.contains("two POST instances may own slots")
+                && watch.contains("a third identifies the owners and waits"),
+            "README Watch mode must connect its grid description to the current FREQ/TIME analysis routes"
         );
     }
 
@@ -358,8 +361,8 @@
     fn readme_exposes_the_post_perceptual_delta_measurement_boundary() {
         let perceptual = README
             .split("\n### ")
-            .find(|section| section.starts_with("POST Analysis: Perceptual Δ (on demand)\n"))
-            .expect("README POST Analysis Perceptual Delta section");
+            .find(|section| section.starts_with("TIME / SHARP: Perceptual Δ (on demand)\n"))
+            .expect("README TIME SHARP Perceptual Delta section");
         let perceptual = perceptual.split_whitespace().collect::<Vec<_>>().join(" ");
         for required_fact in [
             "signed Sharpness difference",
@@ -367,15 +370,19 @@
             "not clipped",
             "±2 acum",
             "no temporal smoothing",
-            "shown as a gap",
+            "retained six-second timeline",
+            "curve is repainted at 5 Hz",
+            "numbers are held for 500 ms",
+            "A true measurement discontinuity starts one clean new run",
+            "no missing value is interpolated",
             "non-overlapping 100 ms aperture",
             "published at 10 Hz",
             "output-presentation sample endpoint",
             "**LR** measures L and R independently",
             "`(L+R)/2`",
             "`(L−R)/2`",
-            "stops Sharpness before the FFT starts",
-            "neither changes audio nor rewrites Watch or Record results",
+            "Spectrum and Sharpness stop each other before starting",
+            "Neither changes audio nor rewrites Watch or Record results",
         ] {
             assert!(
                 perceptual.contains(required_fact),

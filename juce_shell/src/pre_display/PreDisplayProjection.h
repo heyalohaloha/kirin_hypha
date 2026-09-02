@@ -15,6 +15,7 @@ namespace hypha::pre_display
                    "A short PRE fact must span several worker/UI presentation samples");
 
     struct DisplaySnapshot;
+    struct GuidePresentationSnapshot;
     struct GuideModel;
 
     inline bool projectSamplesToNanoseconds (std::int64_t samples, double sampleRate,
@@ -64,4 +65,7 @@ namespace hypha::pre_display
 
     DisplaySnapshot projectDisplay (const GuideModel& guide, const ClockSnapshot& clock,
                                     std::int64_t clockObservedAtMs, std::int64_t nowMs);
+    GuidePresentationSnapshot projectGuidePresentation (
+        const GuideModel& guide, const ClockSnapshot& clock,
+        std::int64_t clockObservedAtMs, std::int64_t nowMs);
 }

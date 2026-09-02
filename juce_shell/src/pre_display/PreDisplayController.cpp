@@ -5,26 +5,11 @@
 #include "PreDisplayProtocol.h"
 #include "PreDisplayRepository.h"
 
-#if JUCE_WINDOWS
- #include <windows.h>
-#else
- #include <unistd.h>
-#endif
-
 namespace hypha::pre_display
 {
     namespace
     {
         constexpr int guideScanEveryPolls = 5;
-
-        std::uint32_t currentProcessId() noexcept
-        {
-           #if JUCE_WINDOWS
-            return static_cast<std::uint32_t> (::GetCurrentProcessId());
-           #else
-            return static_cast<std::uint32_t> (::getpid());
-           #endif
-        }
     }
 
     struct Controller::WorkerState
@@ -57,12 +42,8 @@ namespace hypha::pre_display
 
     void Controller::configureAndStart (RuntimeIdentity identityIn)
     {
-        if (root.getFullPathName().isEmpty()
-            || ! safeId (identityIn.instanceId) || ! safeId (identityIn.projectUuid)
-            || (identityIn.dawSessionUuid.isNotEmpty() && ! safeId (identityIn.dawSessionUuid)))
+        if (root.getFullPathName().isEmpty())
             return;
-        if (identityIn.hostProcessId == 0)
-            identityIn.hostProcessId = currentProcessId();
 
         juce::File previousPresenceFile;
         juce::File previousAcknowledgementFile;
@@ -72,17 +53,22 @@ namespace hypha::pre_display
         juce::File currentCapabilityFile;
         {
             const juce::ScopedLock lock (identityLock);
+            const auto lease = prepareRuntimeLease (root, std::move (identityIn), identity, configured);
+            if (! lease.valid())
+                return;
+            if (lease.identity.role != identity.role
+                || lease.identity.workId != identity.workId
+                || lease.identity.bindingId != identity.bindingId
+                || lease.identity.runtimeInstanceId != identity.runtimeInstanceId)
+                acceptedWorkReference = {};
             previousPresenceFile = ownPresenceFile;
             previousAcknowledgementFile = ownAcknowledgementFile;
             previousCapabilityFile = ownCapabilityFile;
-            identity = std::move (identityIn);
+            identity = lease.identity;
             configured = true;
-            ownPresenceFile = root.getChildFile ("presence")
-                                  .getChildFile (identity.instanceId + ".json");
-            ownAcknowledgementFile = root.getChildFile ("ack")
-                                         .getChildFile (identity.instanceId + ".json");
-            ownCapabilityFile = root.getChildFile ("capability")
-                                    .getChildFile (identity.instanceId + ".json");
+            ownPresenceFile = lease.presenceFile;
+            ownAcknowledgementFile = lease.acknowledgementFile;
+            ownCapabilityFile = lease.capabilityFile;
             currentPresenceFile = ownPresenceFile;
             currentAcknowledgementFile = ownAcknowledgementFile;
             currentCapabilityFile = ownCapabilityFile;
@@ -129,11 +115,16 @@ namespace hypha::pre_display
                 bool scannedGuide = false;
                 if (workerState->pollsUntilGuideScan <= 0)
                 {
+                    const auto pending = workerState->repository.pendingConnection (now, currentIdentity);
+                    {
+                        const juce::ScopedLock lock (connectionLock);
+                        connectionRequest = pending;
+                    }
                     writeCapability (root, currentIdentity, now);
                     writePresence (root, currentIdentity,
                                    workerState->clock.snapshot(),
                                    workerState->clock.observedAtMs(), now);
-                    receipt = workerState->repository.refresh (workerState->guide);
+                    receipt = workerState->repository.refresh (workerState->guide, currentIdentity);
                     scannedGuide = true;
                     workerState->pollsUntilGuideScan = guideScanEveryPolls;
                 }
@@ -141,7 +132,10 @@ namespace hypha::pre_display
                 const auto nextDisplay = projectDisplay (workerState->guide,
                                                          workerState->clock.snapshot(),
                                                          workerState->clock.observedAtMs(), now);
-                publishDisplay (nextDisplay);
+                const auto nextGuidePresentation = projectGuidePresentation (
+                    workerState->guide, workerState->clock.snapshot(),
+                    workerState->clock.observedAtMs(), now);
+                publishDisplay (nextDisplay, nextGuidePresentation);
                 if (scannedGuide)
                 {
                     if (receipt.state == GuideRefreshState::accepted
@@ -152,17 +146,18 @@ namespace hypha::pre_display
                         writeRejectedAcknowledgement (root, currentIdentity, receipt, now);
                     else if (receipt.state == GuideRefreshState::cleared)
                         removeAcknowledgement (root.getChildFile ("ack")
-                            .getChildFile (currentIdentity.instanceId + ".json"));
+                            .getChildFile (currentIdentity.runtimeInstanceId + ".json"));
                 }
             }
             wait (static_cast<int> (projectionPollMs));
         }
     }
 
-    void Controller::publishDisplay (DisplaySnapshot next)
+    void Controller::publishDisplay (DisplaySnapshot next, GuidePresentationSnapshot nextGuidePresentation)
     {
         const juce::ScopedLock lock (displayLock);
         display = std::move (next);
+        guidePresentation = std::move (nextGuidePresentation);
     }
 
     void Controller::removeOwnLeaseFiles()

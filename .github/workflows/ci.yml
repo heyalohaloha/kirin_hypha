@@ -2,6 +2,23 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      windows_signing:
+        description: 'Build an unsigned CI candidate or the Authenticode-signed public installer.'
+        required: true
+        default: unsigned
+        type: choice
+        options:
+          - unsigned
+          - signed
+      windows_external_validation:
+        description: 'Use complete only when the dedicated Windows DAW checklist is already green for this source.'
+        required: true
+        default: pending
+        type: choice
+        options:
+          - pending
+          - complete
   push:
     branches: [main]
   pull_request:
@@ -126,14 +143,16 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Windows starts as VST3-only. Keep AU, codesign, notarize, and LS packaging on the macOS
-      # release path so platform failures stay easy to classify.
+      # Windows remains VST3-only. AU, Apple signing, notarization, and macOS LS packaging stay
+      # on macOS; the Windows installer has its own Authenticode path below.
       - name: Build kirin_hypha_ffi staticlib (MSVC)
         run: cargo build --release -p kirin_hypha_ffi --locked
 
-      - name: Validate single-owner continuous Analysis contract
+      - name: Validate two-slot continuous Analysis contract
         run: |
-          cargo test -p kirin_measure --locked exactly_one_post_analysis_runtime_is_active_per_process_lease
+          cargo test -p kirin_measure --locked exactly_two_post_analysis_runtimes_are_active_per_process_lease
+          cargo test -p kirin_measure --locked absolute_mode_
+          cargo test -p kirin_measure --locked post_absolute_timeline_needs_no_pair
           cargo test -p kirin_measure --locked perceptual_pair_arms_one_future_epoch_and_joins_only_continuous_state
           cargo test -p kirin_measure --locked --test perceptual_delta_mosqito_golden
 
@@ -150,6 +169,7 @@ jobs:
           cmake -S juce_shell -B juce_shell/build-windows
           -DCMAKE_BUILD_TYPE=Release
           -DKIRIN_HYPHA_BUILD_UI_RENDER_TESTS=ON
+          -DKIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS=ON
           -DKIRIN_FFI_LIB="${{ github.workspace }}\target\release\kirin_hypha_ffi.lib"
 
       - name: Validate Windows UI render contract
@@ -163,6 +183,18 @@ jobs:
           --config Release
           --target KirinHyphaPRE_VST3 KirinHyphaPOST_VST3
           --parallel 2
+
+      - name: Validate Windows VST3 audio transparency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake --build juce_shell/build-windows --config Release --target KirinAudioTransparencyContractTests
+          $exe = (Get-ChildItem -Path juce_shell/build-windows -Recurse -File -Filter 'KirinAudioTransparencyContractTests.exe' | Select-Object -First 1).FullName
+          if (-not $exe) { throw 'audio transparency contract executable not found' }
+          $bundles = @(Get-ChildItem -Path juce_shell/build-windows -Recurse -Directory -Filter *.vst3 | Sort-Object FullName)
+          if ($bundles.Count -ne 2) { throw "expected exactly 2 VST3 bundles, found $($bundles.Count)" }
+          & $exe $bundles[0].FullName $bundles[1].FullName
+          if ($LASTEXITCODE -ne 0) { throw "audio transparency contract failed with exit code $LASTEXITCODE" }
 
       - name: Verify Windows VST3 artifacts
         shell: pwsh
@@ -232,16 +264,107 @@ jobs:
             if ($proc.ExitCode -ne 0) { throw "pluginval failed for $($b.FullName) (exit $($proc.ExitCode))" }
           }
 
-      - name: Package Windows VST3 LS candidate
+      - name: Install verified Inno Setup compiler
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $downloadDir = Join-Path $env:RUNNER_TEMP 'inno-download'
+          $installDir = Join-Path $env:RUNNER_TEMP 'Inno Setup 6'
+          $installLog = Join-Path $env:RUNNER_TEMP 'inno-setup-install.log'
+          New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
+          Push-Location $downloadDir
+          try {
+            gh release download is-6_7_3 --repo jrsoftware/issrc --pattern 'innosetup-6.7.3.exe'
+            gh release verify-asset is-6_7_3 'innosetup-6.7.3.exe' --repo jrsoftware/issrc
+            $installer = Join-Path $downloadDir 'innosetup-6.7.3.exe'
+            $arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /PORTABLE=1 /DIR=`"$installDir`" /LOG=`"$installLog`""
+            $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "Inno Setup install failed with exit $($process.ExitCode)" }
+          } finally {
+            Pop-Location
+          }
+          $iscc = Join-Path $installDir 'ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) {
+            if (Test-Path -LiteralPath $installLog -PathType Leaf) { Get-Content -LiteralPath $installLog }
+            throw 'verified ISCC.exe not found'
+          }
+          "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download pinned CodeSignTool
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_signing == 'signed' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://github.com/SSLcom/CodeSignTool/releases/download/v1.3.2/CodeSignTool-v1.3.2-windows.zip'
+          $expectedSha256 = '4afc32e8b7f79bbe1de7e4e7049aaad4e0f754357613b9bbec0e3052f06fd36b'
+          $zipPath = Join-Path $env:RUNNER_TEMP 'CodeSignTool-v1.3.2-windows.zip'
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+          $actualSha256 = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLower()
+          if ($actualSha256 -ne $expectedSha256) {
+            throw "CodeSignTool zip checksum mismatch: $actualSha256"
+          }
+          $extractPath = Join-Path $env:RUNNER_TEMP 'CodeSignTool'
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $extractPath -Force
+          if (-not (Test-Path -LiteralPath (Join-Path $extractPath 'CodeSignTool.bat') -PathType Leaf)) {
+            throw 'CodeSignTool launcher not found after verified download'
+          }
+          "CODE_SIGN_TOOL_PATH=$extractPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build Windows installer and sign all executable surfaces
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING: ${{ inputs.windows_signing || 'unsigned' }}
+          WINDOWS_EXTERNAL_VALIDATION: ${{ inputs.windows_external_validation || 'pending' }}
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
+        run: >
+          node scripts/windows/build-installer.mjs
+          --artifact-dir juce_shell/build-windows
+          --output-dir dist/WINDOWS_CI
+          --signing $env:WINDOWS_SIGNING
+          --external-validation $env:WINDOWS_EXTERNAL_VALIDATION
+
+      - name: Verify Windows installer install, same-version reinstall, signatures, and uninstall
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING: ${{ inputs.windows_signing || 'unsigned' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = @(Get-ChildItem -LiteralPath dist/WINDOWS_CI -File -Filter 'Kirin-Hypha-*-Windows-x64-Setup.exe')
+          if ($installer.Count -ne 1) { throw "expected one installer, found $($installer.Count)" }
+          pwsh -NoProfile -File scripts/windows/verify-installer.ps1 `
+            -Installer $installer[0].FullName `
+            -PayloadDir dist/WINDOWS_CI/installer-payload `
+            -Signing $env:WINDOWS_SIGNING `
+            -Manifest "$($installer[0].FullName).json"
+
+      - name: Upload primary Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: kirin-hypha-windows-installer
+          path: |
+            dist/WINDOWS_CI/Kirin-Hypha-*-Windows-x64-Setup.exe
+            dist/WINDOWS_CI/Kirin-Hypha-*-Windows-x64-Setup.exe.sha256
+            dist/WINDOWS_CI/Kirin-Hypha-*-Windows-x64-Setup.exe.json
+          if-no-files-found: error
+
+      - name: Package fallback Windows VST3 ZIP
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING: ${{ inputs.windows_signing || 'unsigned' }}
         run: >
           node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs
-          --artifact-dir juce_shell/build-windows
+          --artifact-dir dist/WINDOWS_CI/installer-payload
           --output-dir dist/WINDOWS_CI
           --release-kind ci
           --external-validation pending
+          --payload-signing $env:WINDOWS_SIGNING
 
-      - name: Upload Windows VST3 LS package
+      - name: Upload fallback Windows VST3 ZIP
         uses: actions/upload-artifact@v7
         with:
           name: kirin-hypha-windows-vst3-ls-package

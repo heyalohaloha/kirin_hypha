@@ -10,6 +10,27 @@
 
 namespace hypha::spectrum_geometry
 {
+    inline float bandCentreNormalisedX (size_t index) noexcept
+    {
+        return (static_cast<float> (index) + 0.5f)
+             / static_cast<float> (KIRIN_SPECTRUM_BAND_COUNT);
+    }
+
+    inline float clampToBandCentreRange (float position) noexcept
+    {
+        return juce::jlimit (bandCentreNormalisedX (0u),
+                             bandCentreNormalisedX (KIRIN_SPECTRUM_BAND_COUNT - 1u),
+                             position);
+    }
+
+    inline float bandPositionForNormalisedX (float position) noexcept
+    {
+        return juce::jlimit (
+            0.0f, static_cast<float> (KIRIN_SPECTRUM_BAND_COUNT - 1u),
+            clampToBandCentreRange (position)
+                * static_cast<float> (KIRIN_SPECTRUM_BAND_COUNT) - 0.5f);
+    }
+
     inline float visualScaleFor (juce::Rectangle<float> bounds) noexcept
     {
         return ui_contract::spectrumVisualScale (juce::roundToInt (bounds.getWidth()));
@@ -128,5 +149,11 @@ namespace hypha::spectrum_geometry
     {
         const float clipped = juce::jlimit (minHz, maxHz, hz);
         return std::log (clipped / minHz) / std::log (maxHz / minHz);
+    }
+
+    inline float frequencyForProbeNormalisedX (float position, float minHz,
+                                                 float maxHz) noexcept
+    {
+        return frequencyForNormalisedX (clampToBandCentreRange (position), minHz, maxHz);
     }
 }

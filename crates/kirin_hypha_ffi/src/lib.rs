@@ -34,17 +34,15 @@
 //! が毎回 `heartbeat.fetch_add(1)`
 //! していた(hypha_pre.rs:390)。本 FFI では **`push_samples` が heartbeat を進める**。
 
-use std::collections::HashMap;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde_json::Value;
 use uuid::Uuid;
 
 use kirin_measure::engine::SessionSummary;
@@ -55,37 +53,68 @@ use kirin_measure::{
 use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data, count_distinct_pairings,
     current_host_process_id, enqueue_record_mark,
-    enumerate_live_pre_pair_choices_for_post_project_in_session,
-    enumerate_owned_post_pair_candidates_for_operation_group,
     enumerate_ready_post_pair_candidates_for_operation_group, identity_instance_attach,
     identity_instance_detach, latch_selected_pre, live_window, load_license_safe,
-    load_signal_state, mark_generation_terminal, mark_released_if_current,
-    mark_released_with_reason, mark_released_with_reason_if_current, new_record_mark_queue,
-    new_record_take_tracker, new_record_trace_queue, pair_owner_instance_dir, pair_status_for_pre,
+    mark_generation_terminal, mark_released_if_current, mark_released_with_reason,
+    mark_released_with_reason_if_current, new_record_mark_queue, new_record_take_tracker,
+    new_record_trace_queue, pair_owner_instance_dir, pair_status_for_pre,
     pair_status_from_owned_binding_with_intent, pair_status_or_last_known, paired_pre_instance_id,
     read_signal, record_ring_capacity_samples, resolve_arm_target_for_post_project_in_session,
     sanitize_name, select_live_pre_pair_choice_by_instance_for_post_project_in_session,
     set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre,
-    spawn_measure_thread, spawn_watchdog, store_signal_state, watch_ring_capacity_samples,
+    spawn_measure_thread, spawn_watchdog, watch_ring_capacity_samples,
     write_broadcast_for_generation, write_pending_claiming_expected_and_clock_for_generation,
-    write_stop_broadcast, write_stop_broadcast_for_generation, AnalysisViewMode,
+    write_stop_broadcast, write_stop_broadcast_for_generation, AnalysisViewMode, BalanceState,
     CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
     DeltaMode, DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License,
-    LiveLicense, LivenessEvaluator, MeasureResult, PairOwnershipBinding, PairOwnershipLease,
-    PairStatus, PlatformPaths, PluginDataRole, PrePairStatusObserver, PresentationLatencySamples,
+    LiveLicense, LivenessEvaluator, MeasureResult, MeterDeltaHistoryExchange, MeterHistoryEntry,
+    MeterHistoryRange, MeterHistoryResolution, MeterSession, MeterSessionPublication,
+    MeterSessionSnapshot, MeterSessionState, PairOwnershipBinding, PairOwnershipLease, PairStatus,
+    PlatformPaths, PluginDataRole, PrePairStatusObserver, PresentationLatencySamples,
     PresentationLatencySource, PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus,
     RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock, RecordTakeTracker,
     RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState, SpectrumChannelMode,
-    SpectrumCoordinator, SpectrumRuntime, SpectrumRuntimeStats, SpectrumViewSnapshot,
-    SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo,
-    WatchdogParams, CAPTURE_PRODUCER_READY_TIMEOUT, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
-    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, SPECTRUM_BAND_COUNT,
+    SpectrumCoordinator, SpectrumFrame, SpectrumRuntime, SpectrumRuntimeStats,
+    SpectrumTimelineFrame, SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths, WatchMaxTracker,
+    WatchProducerHandoff, WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY,
+    CAPTURE_PRODUCER_READY_TIMEOUT, HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY,
+    HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
+    MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY,
+    SPECTRUM_BAND_COUNT, SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS,
+    STEREO_FIELD_SIZE,
 };
 
+mod attack_ffi;
+mod identity_ffi;
+mod identity_registry;
+mod legacy_nih_state;
 mod pair_binding;
+mod pair_candidates_ffi;
+mod signal_state_ffi;
 
+pub use attack_ffi::*;
+pub use identity_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
+pub use identity_registry::__reset_shared_ids_for_tests;
+pub use legacy_nih_state::{kirin_hypha_decode_legacy_nih_state, KirinLegacyNihState};
+pub use pair_candidates_ffi::{
+    kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
+    kirin_hypha_enumerate_pre_candidates, KirinPostPairClaim, KirinPreCandidate,
+};
+pub use signal_state_ffi::{
+    kirin_hypha_get_signal_state, kirin_hypha_set_host_component_active,
+    kirin_hypha_set_signal_state,
+};
+
+use identity_ffi::IdentityState;
+use identity_registry::{
+    clear_role_scoped_cells, read_shared_id, resolve_post_identity, resolve_pre_identity,
+    store_resolved_identity_cells,
+};
 use pair_binding::{PairBinding, PairTargetTransition};
 
+pub const KIRIN_SIGNAL_STATE_INACTIVE: u8 = 0;
+pub const KIRIN_SIGNAL_STATE_ACTIVE: u8 = 1;
+pub const KIRIN_SIGNAL_STATE_BYPASSED: u8 = 2;
 pub const KIRIN_KEEP_PHASE_IDLE: u8 = 0;
 pub const KIRIN_KEEP_PHASE_PREPARING: u8 = 1;
 pub const KIRIN_KEEP_PHASE_ARMED: u8 = 2;
@@ -152,42 +181,6 @@ mod keep_phase_contract_tests {
     }
 }
 
-/// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
-/// `project_hash` は派生値（= 確定後の `project_uuid` / B-106 共有セル解決値）で永続対象外。
-#[derive(Default, Clone)]
-struct IdentityState {
-    instance_id: String,
-    project_uuid: String,
-    daw_session_uuid: String,
-    name: String,
-    /// enable 時に確定する派生 project_hash（= project_uuid）。add_annotation の path に使う。
-    project_hash: String,
-}
-
-/// 旧 nih-plug VST3 state を JUCE shell へ移すための固定長 DTO。
-/// state restore の message thread でのみ使い、Audio Thread には到達しない。
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct KirinLegacyNihState {
-    pub instance_id: [c_char; ID_BUF_LEN],
-    pub project_uuid: [c_char; ID_BUF_LEN],
-    pub daw_session_uuid: [c_char; ID_BUF_LEN],
-    pub name: [c_char; ID_BUF_LEN],
-    pub pair_pre_name: [c_char; ID_BUF_LEN],
-}
-
-impl Default for KirinLegacyNihState {
-    fn default() -> Self {
-        Self {
-            instance_id: [0; ID_BUF_LEN],
-            project_uuid: [0; ID_BUF_LEN],
-            daw_session_uuid: [0; ID_BUF_LEN],
-            name: [0; ID_BUF_LEN],
-            pair_pre_name: [0; ID_BUF_LEN],
-        }
-    }
-}
-
 fn supported_channel_count(num_channels: u32) -> usize {
     match num_channels {
         1 | 2 => num_channels as usize,
@@ -217,56 +210,6 @@ unsafe fn read_c_str(p: *const c_char) -> String {
         return String::new();
     }
     unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
-}
-
-fn legacy_nih_field(fields: &serde_json::Map<String, Value>, key: &str) -> Option<String> {
-    let encoded = fields.get(key)?.as_str()?;
-    serde_json::from_str::<String>(encoded).ok()
-}
-
-fn decode_legacy_nih_state_bytes(data: &[u8]) -> Option<KirinLegacyNihState> {
-    // Old shipped nih-plug did not enable its optional zstd feature. Keep this decoder deliberately
-    // narrow: accepting arbitrary compressed/enveloped data would turn state restore into a second
-    // format-discovery system. JUCE XML remains the sole current writer.
-    const MAX_LEGACY_STATE_BYTES: usize = 1024 * 1024;
-    if data.is_empty() || data.len() > MAX_LEGACY_STATE_BYTES {
-        return None;
-    }
-    let root: Value = serde_json::from_slice(data).ok()?;
-    let fields = root.get("fields")?.as_object()?;
-    let instance_id = legacy_nih_field(fields, "instance_id");
-    let project_uuid = legacy_nih_field(fields, "project_uuid");
-    let daw_session_uuid = legacy_nih_field(fields, "daw_session_uuid");
-    let name = legacy_nih_field(fields, "name");
-    let pair_pre_name = legacy_nih_field(fields, "pair_pre_name");
-    if instance_id.is_none()
-        && project_uuid.is_none()
-        && daw_session_uuid.is_none()
-        && name.is_none()
-        && pair_pre_name.is_none()
-    {
-        return None;
-    }
-
-    let mut out = KirinLegacyNihState::default();
-    write_c_buf(
-        &mut out.instance_id,
-        instance_id.as_deref().unwrap_or_default(),
-    );
-    write_c_buf(
-        &mut out.project_uuid,
-        project_uuid.as_deref().unwrap_or_default(),
-    );
-    write_c_buf(
-        &mut out.daw_session_uuid,
-        daw_session_uuid.as_deref().unwrap_or_default(),
-    );
-    write_c_buf(&mut out.name, name.as_deref().unwrap_or_default());
-    write_c_buf(
-        &mut out.pair_pre_name,
-        pair_pre_name.as_deref().unwrap_or_default(),
-    );
-    Some(out)
 }
 
 // B-118: IoThreadHandle は kirin_measure に移動（watchdog の Lazy slot 共有型）。FFI は import する。
@@ -346,6 +289,25 @@ fn spectrum_presentation_start(clock: PendingCaptureWindow) -> Option<i64> {
         .and_then(|latency| clock.position_samples.checked_add(i64::from(latency)))
 }
 
+/// Clock for the POST-only on-demand ATTACK worker.
+///
+/// Prefer the host's output-presentation clock when the optional VST3/AU extension is present.
+/// Studio Pro can omit that optional callback while still supplying the exact project sample
+/// position on every rendered block. The ATTACK worker may use that producer clock because it
+/// displays only relative POST event positions; it does not perform the public PRE/POST join.
+/// Unknown or invalid producer clocks remain fail-closed.
+#[inline]
+fn attack_timeline_start(clock: PendingCaptureWindow) -> Option<i64> {
+    spectrum_presentation_start(clock).or_else(|| {
+        (clock.position_valid
+            && matches!(
+                clock.clock_source,
+                CaptureClockSource::ProjectTimeline | CaptureClockSource::AudioRenderTimeline
+            ))
+        .then_some(clock.position_samples)
+    })
+}
+
 /// RT 計測ランタイムのハンドル。C ABI からは不透明ポインタ。
 pub struct KirinHyphaEngine {
     /// Audio Thread → Measure Thread の rtrb Producer 所有権。
@@ -363,12 +325,22 @@ pub struct KirinHyphaEngine {
     /// prepare time, but its worker remains absent and its audio ingress returns after one atomic
     /// read until the POST Spectrum page is visible (or an exact PRE is serving that request).
     spectrum_runtime: Arc<SpectrumRuntime>,
+    /// On-demand ATTACK measurement path. Unsupported host rates keep this absent; supported rates
+    /// allocate bounded ingress at prepare time, but remain inactive until the POST page enables it.
+    attack_runtime: Option<Arc<kirin_measure::AttackRuntime>>,
     /// Exact-pair request/snapshot coordination. All filesystem work runs on the existing IO
     /// worker; the UI only changes visibility and polls the latest immutable view.
     spectrum: Arc<SpectrumCoordinator>,
     /// Record 中、Measure Thread が毎ループ `engine.finalize()` を書き込む
     /// （measure_thread.rs:290-295）。Watch では未更新（Record→Watch で直近値を保持）。
     session_summary: Arc<Mutex<Option<SessionSummary>>>,
+    /// Record/Keep, Watch pass, pairing and editor lifetimeから独立した常設メーターセッション。
+    /// replace可能なMeasure workerの外側で所有し、worker再起動では破棄しない。
+    meter_session: Option<Arc<Mutex<MeterSession>>>,
+    /// UI polling shelf for completed observations. It is never held while EBU processing runs.
+    meter_session_publication: Option<Arc<MeterSessionPublication>>,
+    /// Exact sample-time POST−PRE TIME join. Filesystem work stays on the existing IO worker.
+    meter_delta_history: Option<Arc<MeterDeltaHistoryExchange>>,
     /// Offline bounce 用 TRACE queue（Measure → IO）。
     record_trace_queue: RecordTraceQueue,
     /// Audio Thread が積む実レンダー長。Record close 時に bounce_take の正本になる。
@@ -534,165 +506,6 @@ unsafe impl Sync for KirinHyphaEngine {}
 // SAFETY: 内部状態はスレッド間移動可能（Producer/Arc は Send）。
 unsafe impl Send for KirinHyphaEngine {}
 
-// ── B-106/B-301: FFI dylib 内の role fallback と saved-document identity group ──
-//
-// 空/legacy の `daw_session_uuid` は「明示 document identity なし」として runtime には空のまま
-// 流し、host_process_id の legacy bridge に委ねる。一方、保存済み DAW document で非空
-// `daw_session_uuid` がある場合は、その UUID を key に role 内 group を分ける。Studio One の
-// ように同一 host process で複数 Song/Project を開ける DAW で、後発 document が先発 document
-// の棚へ吸われるのを防ぐため。
-//
-// `spawn_io_thread_post` は `Arc<RwLock<String>>` を受け、io_thread が毎 tick
-// `read_project_hash_arc` / `read_daw_session_id_arc` で deref する。B-301 では各 engine が
-// 解決済み identity cell を持ち、空/legacy は project のみ role fallback・daw は空、
-// 保存済み document は daw-session group と同値を live-read する。
-//
-// **PRE / POST で別セル**（role-scoped）にする理由: 本番では PRE と POST は別 cdylib
-// （KirinHyphaPRE.dylib / KirinHyphaPOST.dylib / juce_shell CMakeLists.txt）として linkage され、
-// 各々が staticlib の statics を 1 部ずつ持つ = dylib 境界 ⇔ role 境界。よって PRE 群は PRE 値に、
-// POST 群は POST 値に独立収束し、PRE↔POST は別値のまま filesystem discovery（B-021/B-022 /
-// PRE が POST の signal の project_hash を adopt）で橋渡しされる。role でセルを分けることで
-// 単一テストバイナリ（parity.rs に PRE+POST 同居）でもこの本番境界を忠実に再現する。
-
-fn shared_pre_project_hash_cell() -> &'static Arc<RwLock<String>> {
-    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
-    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
-}
-
-fn shared_pre_daw_session_id_cell() -> &'static Arc<RwLock<String>> {
-    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
-    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
-}
-
-fn shared_post_project_hash_cell() -> &'static Arc<RwLock<String>> {
-    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
-    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
-}
-
-fn shared_post_daw_session_id_cell() -> &'static Arc<RwLock<String>> {
-    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
-    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
-}
-
-type IdentityCellPair = (Arc<RwLock<String>>, Arc<RwLock<String>>);
-type IdentityGroups = Mutex<HashMap<String, IdentityCellPair>>;
-
-fn shared_pre_identity_groups() -> &'static IdentityGroups {
-    static GROUPS: OnceLock<IdentityGroups> = OnceLock::new();
-    GROUPS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn shared_post_identity_groups() -> &'static IdentityGroups {
-    static GROUPS: OnceLock<IdentityGroups> = OnceLock::new();
-    GROUPS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// 共有セルを **first-wins** で解決する（egui の lazy-once seeding と同位相）。
-///
-/// - 共有セルが空: `candidate`（chunk 復元値）が非空ならそれで seed、空なら新規生成して seed。
-/// - 共有セルが既に非空: その値を採用（**上書きしない** = 毎回生成・上書きの全廃）。
-///
-/// 戻り値 = 採用された共有値。これが broadcast の write 棚パスであり、`spawn_io_thread_*` に
-/// 渡す共有 Arc が live-read する scan 棚パスでもある（両者は同一実体なので恒等的に一致）。
-fn resolve_shared_id(cell: &Arc<RwLock<String>>, candidate: &str) -> String {
-    match cell.write() {
-        Ok(mut g) => {
-            if g.is_empty() {
-                *g = if candidate.is_empty() {
-                    Uuid::new_v4().to_string()
-                } else {
-                    candidate.to_string()
-                };
-            }
-            g.clone()
-        }
-        // poison fallback（R-28 機能的沈黙）: 収束は諦め candidate/生成値で前進する。
-        Err(_) => {
-            if candidate.is_empty() {
-                Uuid::new_v4().to_string()
-            } else {
-                candidate.to_string()
-            }
-        }
-    }
-}
-
-/// 共有セルの現在値を読む（panic-safe / poison は空文字 fallback）。
-fn read_shared_id(cell: &Arc<RwLock<String>>) -> String {
-    cell.read().map(|g| g.clone()).unwrap_or_default()
-}
-
-fn resolve_role_identity(
-    fallback_project_cell: &Arc<RwLock<String>>,
-    _fallback_daw_cell: &Arc<RwLock<String>>,
-    grouped_cells: &IdentityGroups,
-    project_candidate: &str,
-    daw_candidate: &str,
-) -> (String, String) {
-    if daw_candidate.is_empty() {
-        return (
-            resolve_shared_id(fallback_project_cell, project_candidate),
-            String::new(),
-        );
-    }
-
-    let (project_cell, daw_cell) = {
-        let mut groups = grouped_cells.lock().unwrap_or_else(|e| e.into_inner());
-        groups
-            .entry(daw_candidate.to_string())
-            .or_insert_with(|| {
-                (
-                    Arc::new(RwLock::new(String::new())),
-                    Arc::new(RwLock::new(String::new())),
-                )
-            })
-            .clone()
-    };
-
-    (
-        resolve_shared_id(&project_cell, project_candidate),
-        resolve_shared_id(&daw_cell, daw_candidate),
-    )
-}
-
-fn store_resolved_identity_cells(
-    project_cell: &Arc<RwLock<String>>,
-    daw_cell: &Arc<RwLock<String>>,
-    project_hash: &str,
-    daw_session_id: &str,
-) {
-    if let Ok(mut g) = project_cell.write() {
-        *g = project_hash.to_string();
-    }
-    if let Ok(mut g) = daw_cell.write() {
-        *g = daw_session_id.to_string();
-    }
-}
-
-/// role-scoped 共有セル 4 つ（PRE/POST × project_hash/daw_session_id）の内側 `String` を空にする。
-///
-/// セル handle（`Arc<RwLock<String>>`）は不変のまま中身だけ空にするため、`spawn_io_thread_*` に
-/// 渡した Arc clone の live-read 契約を壊さない。B-110 の refcount 0 detach（io_thread join 後）と、
-/// テスト隔離（`__reset_shared_ids_for_tests`）の両方から使う。
-fn clear_role_scoped_cells() {
-    for cell in [
-        shared_pre_project_hash_cell(),
-        shared_pre_daw_session_id_cell(),
-        shared_post_project_hash_cell(),
-        shared_post_daw_session_id_cell(),
-    ] {
-        if let Ok(mut g) = cell.write() {
-            g.clear();
-        }
-    }
-    if let Ok(mut groups) = shared_pre_identity_groups().lock() {
-        groups.clear();
-    }
-    if let Ok(mut groups) = shared_post_identity_groups().lock() {
-        groups.clear();
-    }
-}
-
 fn restored_pair_latch(
     kirin_root: &Path,
     project_hash: &str,
@@ -779,18 +592,6 @@ mod restored_pair_latch_tests {
         )
         .is_none());
     }
-}
-
-/// テスト専用: role-scoped 共有セルを全クリアして first-wins 状態を初期化する。
-///
-/// 本番は単一 DAW プロセス = 単一セッションで「最初の 1 回だけ seed」が正しいが、統合テスト
-/// （`tests/parity.rs`）は 1 バイナリで多数のシナリオを連続実行し、各々が独自の project_uuid を
-/// 期待する。旧実装は enable 毎に `set_project_uuid` で**上書き**していたため各テストが隔離されて
-/// いたが、B-106 は first-wins（上書き廃止）に変えたため、テストは開始時に本関数で共有セルを
-/// reset して隔離する（kirin_measure cell は enable 内の `set_*` が毎回上書きするので別途 reset 不要）。
-#[doc(hidden)]
-pub fn __reset_shared_ids_for_tests() {
-    clear_role_scoped_cells();
 }
 
 /// B-102: keep の解決本体（`keep()` と broadcast 受信 closure が共有する単一実装）。
@@ -1171,17 +972,6 @@ fn clear_keep_action_notice(keep_action_notice: &RwLock<Option<String>>) {
     }
 }
 
-/// 内部 `SignalState` を C ABI コード（0=Inactive 1=Active 2=Bypassed）へ写像する。
-/// `set_signal_state` の逆。純粋関数（Measure Thread 非依存）なので決定的にテストできる（B-113）。
-#[inline]
-fn signal_state_to_abi(state: SignalState) -> u8 {
-    match state {
-        SignalState::Inactive => 0,
-        SignalState::Active => 1,
-        SignalState::Bypassed => 2,
-    }
-}
-
 impl KirinHyphaEngine {
     /// ランタイムを生成し Measure Thread を起動する。
     ///
@@ -1200,9 +990,22 @@ impl KirinHyphaEngine {
 
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
+        let attack_runtime = kirin_measure::AttackRuntime::new(sample_rate, num_channels).ok();
         let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
-        let spectrum = SpectrumCoordinator::new(sample_rate, Arc::clone(&spectrum_runtime));
+        let spectrum = SpectrumCoordinator::new_with_attack(
+            sample_rate,
+            Arc::clone(&spectrum_runtime),
+            attack_runtime.as_ref().map(Arc::clone),
+        );
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
+        let meter_session = MeterSession::new(sample_rate, num_channels).ok();
+        let meter_session_publication = meter_session
+            .as_ref()
+            .map(|session| Arc::new(MeterSessionPublication::new(session.snapshot())));
+        let meter_session = meter_session.map(|session| Arc::new(Mutex::new(session)));
+        let meter_delta_history = meter_session
+            .as_ref()
+            .map(|session| MeterDeltaHistoryExchange::new(sample_rate, Arc::clone(session)));
         let record_trace_queue = new_record_trace_queue();
         let record_take_tracker = new_record_take_tracker();
         let record_mark_queue = new_record_mark_queue();
@@ -1239,6 +1042,8 @@ impl KirinHyphaEngine {
             sample_rate,
             num_channels,
             Arc::clone(&measure_result),
+            meter_session.as_ref().map(Arc::clone),
+            meter_session_publication.as_ref().map(Arc::clone),
             Arc::clone(&watch_playback_pass_id),
             Arc::clone(&watch_playback_pass_cutover_samples),
             Arc::clone(&watch_ring_cursor_epoch),
@@ -1262,6 +1067,8 @@ impl KirinHyphaEngine {
             n_channels: num_channels,
             ring_capacity: capacity,
             measure_result: Arc::clone(&measure_result),
+            meter_session: meter_session.as_ref().map(Arc::clone),
+            meter_session_publication: meter_session_publication.as_ref().map(Arc::clone),
             watch_playback_pass_id: Arc::clone(&watch_playback_pass_id),
             watch_playback_pass_cutover_samples: Arc::clone(&watch_playback_pass_cutover_samples),
             watch_ring_cursor_epoch: Arc::clone(&watch_ring_cursor_epoch),
@@ -1298,8 +1105,12 @@ impl KirinHyphaEngine {
             measure_result,
             delta_result,
             spectrum_runtime,
+            attack_runtime,
             spectrum,
             session_summary,
+            meter_session,
+            meter_session_publication,
+            meter_delta_history,
             record_trace_queue,
             record_take_tracker,
             pending_capture_version: AtomicU64::new(0),
@@ -1375,25 +1186,6 @@ impl KirinHyphaEngine {
             preset_available: Arc::new(AtomicBool::new(false)),
             // B-108: 未ラッチで起動。enable_post_writes で io_thread_post と Arc 共有する。
         }
-    }
-
-    /// 信号状態を設定する。引数は **C ABI コード**（0=Inactive 1=Active 2=Bypassed）。
-    /// 内部 `SignalState` enum（Active=0/Bypassed=1/Inactive=2）へ翻訳する。
-    pub fn set_signal_state(&self, abi_state: u8) {
-        let s = match abi_state {
-            1 => SignalState::Active,
-            2 => SignalState::Bypassed,
-            _ => SignalState::Inactive,
-        };
-        store_signal_state(&self.signal_state, s);
-    }
-
-    /// 現在の信号状態を **C ABI コード**（0=Inactive 1=Active 2=Bypassed）で返す。
-    /// `set_signal_state` の逆写像（写像本体は純粋関数 `signal_state_to_abi`）。`self.signal_state` は
-    /// Measure Thread が heartbeat 停止検出時に `Inactive` へ上書きするため、processBlock 停止後は
-    /// stale な Active を返さない（B-113）。
-    pub fn signal_state_abi(&self) -> u8 {
-        signal_state_to_abi(load_signal_state(&self.signal_state))
     }
 
     /// ライセンスを設定（C ABI コード: 0=Os 1=Sense 2=Unknown / 未知は Unknown）。
@@ -1789,13 +1581,8 @@ impl KirinHyphaEngine {
             // B-106/B-301/B-302: chunk 復元値（id.*）を candidate に渡し、空/legacy session は
             // runtime daw を空にして host fallback、非空 session は saved-document group で解決する。
             // 解決値を identity に書き戻して chunk 永続。kirin_measure cell への反映（set_*）は現状維持。
-            let (resolved_project, resolved_daw) = resolve_role_identity(
-                shared_pre_project_hash_cell(),
-                shared_pre_daw_session_id_cell(),
-                shared_pre_identity_groups(),
-                &id.project_uuid,
-                &id.daw_session_uuid,
-            );
+            let (resolved_project, resolved_daw) =
+                resolve_pre_identity(&id.project_uuid, &id.daw_session_uuid);
             id.project_uuid = resolved_project.clone();
             id.project_hash = resolved_project.clone();
             id.daw_session_uuid = resolved_daw.clone();
@@ -1850,6 +1637,7 @@ impl KirinHyphaEngine {
             let push_overflow = Arc::clone(&self.push_overflow);
             let oversized_drop = Arc::clone(&self.oversized_drop); // B-125
             let spectrum = Arc::clone(&self.spectrum);
+            let meter_delta_history = self.meter_delta_history.as_ref().map(Arc::clone);
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -1874,6 +1662,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&push_overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: per-Record oversized block drop
                     Some(Arc::clone(&spectrum)),
+                    meter_delta_history.as_ref().map(Arc::clone),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -1926,13 +1715,8 @@ impl KirinHyphaEngine {
             }
             // B-106/B-301/B-302: enable_pre_writes と同一規約。空/legacy session は runtime daw
             // を空にして host fallback、非空 session は saved-document group で解決する。
-            let (resolved_project, resolved_daw) = resolve_role_identity(
-                shared_post_project_hash_cell(),
-                shared_post_daw_session_id_cell(),
-                shared_post_identity_groups(),
-                &id.project_uuid,
-                &id.daw_session_uuid,
-            );
+            let (resolved_project, resolved_daw) =
+                resolve_post_identity(&id.project_uuid, &id.daw_session_uuid);
             id.project_uuid = resolved_project.clone();
             id.project_hash = resolved_project.clone();
             id.daw_session_uuid = resolved_daw.clone();
@@ -2072,6 +1856,7 @@ impl KirinHyphaEngine {
             let pair_owner = Arc::clone(&pair_owner);
             let latched_pre = self.pair_binding.latched_pre();
             let spectrum = Arc::clone(&self.spectrum);
+            let meter_delta_history = self.meter_delta_history.as_ref().map(Arc::clone);
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -2108,6 +1893,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&pair_owner),    // exact pair survives IO worker restart
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
                     Some(Arc::clone(&spectrum)),
+                    meter_delta_history.as_ref().map(Arc::clone),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -2143,6 +1929,11 @@ impl KirinHyphaEngine {
         if !is_post {
             return false;
         }
+        if visible {
+            if let Some(runtime) = self.attack_runtime.as_ref() {
+                runtime.set_enabled(false);
+            }
+        }
         if visible
             && !self
                 .spectrum
@@ -2161,10 +1952,39 @@ impl KirinHyphaEngine {
         if !is_post {
             return false;
         }
+        if visible {
+            if let Some(runtime) = self.attack_runtime.as_ref() {
+                runtime.set_enabled(false);
+            }
+        }
         if visible
             && !self
                 .spectrum
                 .set_post_analysis_mode(AnalysisViewMode::Perceptual)
+        {
+            return false;
+        }
+        self.spectrum.set_post_visible(visible);
+        true
+    }
+
+    /// POST-only absolute observation timeline. Unlike the paired views, this mode reads only
+    /// the local POST signal and never publishes a PRE exchange request.
+    pub fn set_absolute_visible(&self, visible: bool) -> bool {
+        let is_post =
+            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
+        if !is_post {
+            return false;
+        }
+        if visible {
+            if let Some(runtime) = self.attack_runtime.as_ref() {
+                runtime.set_enabled(false);
+            }
+        }
+        if visible
+            && !self
+                .spectrum
+                .set_post_analysis_mode(AnalysisViewMode::Absolute)
         {
             return false;
         }
@@ -2189,8 +2009,26 @@ impl KirinHyphaEngine {
         self.spectrum.try_view()
     }
 
+    pub fn poll_spectrum_batch(&self) -> Option<SpectrumViewSnapshot> {
+        self.spectrum.try_view()
+    }
+
     pub fn poll_perceptual(&self) -> Option<SpectrumViewSnapshot> {
         self.spectrum.try_view()
+    }
+
+    pub fn poll_perceptual_batch(&self) -> Option<SpectrumViewSnapshot> {
+        self.spectrum.try_view()
+    }
+
+    pub fn poll_absolute_batch(&self) -> Option<SpectrumViewSnapshot> {
+        self.spectrum.try_view()
+    }
+
+    pub fn poll_analysis_owner_names(
+        &self,
+    ) -> Option<[String; kirin_measure::ANALYSIS_SLOT_COUNT]> {
+        self.spectrum.try_analysis_owner_names()
     }
 
     /// Read-only performance counters used by regression tests and validation builds.
@@ -2853,111 +2691,6 @@ impl KirinHyphaEngine {
         );
     }
 
-    /// pair 候補（Keep 可能な PRE）を列挙する（B-102 / GUI ドロップダウン用・read-only）。
-    /// `$TMPDIR/kirin/` 配下から現在の project/session 境界で arm できる PRE を走査し
-    /// (instance_id, name) で返す。
-    pub fn enumerate_pre_candidates(&self) -> Vec<(String, Option<String>)> {
-        let kirin_root = PlatformPaths::current_kirin_tmp_root();
-        let project_hash = read_shared_id(&self.project_hash_cell);
-        let daw = read_shared_id(&self.daw_session_id_cell);
-        enumerate_live_pre_pair_choices_for_post_project_in_session(
-            &kirin_root,
-            &project_hash,
-            &daw,
-        )
-        .into_iter()
-        .map(|c| (c.instance_id, c.name))
-        .collect()
-    }
-
-    /// All Keep の「N ready」= 同じexplicit-pair operation groupでpair設定済のActive POST数。
-    /// AU/VST3 が project_hash / DAW ID の両方で分裂してもexact PRE可視性で集約する。
-    pub fn count_keep_ready(&self) -> usize {
-        if self.current_license() != License::Os {
-            return 0;
-        }
-        let kirin_root = PlatformPaths::current_kirin_tmp_root();
-        let project_hash = read_shared_id(&self.project_hash_cell);
-        let daw = read_shared_id(&self.daw_session_id_cell);
-        let candidates = enumerate_ready_post_pair_candidates_for_operation_group(
-            &kirin_root,
-            &project_hash,
-            &daw,
-            current_host_process_id(),
-        );
-        candidates.len()
-    }
-
-    /// POST 側の pair claim 一覧（GUI dropdown の keepability 表示用）。
-    /// `count_keep_ready` と同じ explicit-pair operation group を使い、JUCE/egui の表示差を
-    /// 生まないための read-only C ABI surface。
-    pub fn enumerate_post_pair_claims(&self) -> Vec<(String, Option<String>, Option<String>)> {
-        let kirin_root = PlatformPaths::current_kirin_tmp_root();
-        let project_hash = read_shared_id(&self.project_hash_cell);
-        let daw = read_shared_id(&self.daw_session_id_cell);
-        let candidates = enumerate_owned_post_pair_candidates_for_operation_group(
-            &kirin_root,
-            &project_hash,
-            &daw,
-            current_host_process_id(),
-        );
-        candidates
-            .into_iter()
-            .map(|c| (c.instance_id, c.pair_pre_name, c.paired_pre_instance_id))
-            .collect()
-    }
-
-    /// state chunk から復元した識別子を設定する（方式A / B-058 3c）。
-    /// **`enable_pre_writes` の前**に呼ぶこと（復元順: create→set_license→set_identity→enable）。
-    /// 空文字を渡したキーは `enable_pre_writes` で生成される（instance_id / project_uuid）。
-    ///
-    /// B-128 (G-115-371): restore 受領の**単一 materialize 点**。`self.identity` に格納する前に
-    /// `materialize_restore_field` を通し、path-unsafe な値（絶対/`..`/区切り/制御文字/overlength/
-    /// 予約 marker）を fresh new_v4 に差し替える（safe / empty は不変）。これにより keep / record /
-    /// 永続化(get_identity) / enable→io_thread が**全て同一 materialize 済 self.identity** を読み、
-    /// family 間分裂（raw 第二源）と uncounted-Record-bypass が構造的に消える。kirin_measure の
-    /// path builder wall は DiD backstop として維持。invalid 時は invalid-identity event を surface。
-    pub fn set_identity(
-        &self,
-        instance_id: String,
-        project_uuid: String,
-        daw_session_uuid: String,
-        name: String,
-    ) {
-        if let Ok(mut id) = self.identity.lock() {
-            // B-128 (G-115-373 / D3): instance_id を先に materialize し、その結果を tag に project_uuid /
-            // daw の anomaly を per-instance routing する（当該 instance の editor が drain → UI へ）。
-            // instance_id 自体の anomaly は確定前ゆえ tag なし（global wall 扱い・honest）。
-            let iid = kirin_measure::materialize_restore_field(
-                &instance_id,
-                "ffi.set_identity.instance_id",
-                None,
-            );
-            let tag = if iid.is_empty() {
-                None
-            } else {
-                Some(iid.as_str())
-            };
-            id.project_uuid = kirin_measure::materialize_restore_field(
-                &project_uuid,
-                "ffi.set_identity.project_uuid",
-                tag,
-            );
-            id.daw_session_uuid = kirin_measure::materialize_restore_field(
-                &daw_session_uuid,
-                "ffi.set_identity.daw_session_uuid",
-                tag,
-            );
-            id.instance_id = iid;
-            id.name = name; // name は path component でない（traversal 非該当・scope 外）。
-        }
-    }
-
-    /// 現在の識別子スナップショット（JUCE が getStateInformation で chunk へ保存）。
-    fn identity_snapshot(&self) -> IdentityState {
-        self.identity.lock().map(|g| g.clone()).unwrap_or_default()
-    }
-
     /// Record中の最新producer sample境界へ固定タグMARKを追加する。
     pub fn add_mark(&self, tag: String) -> bool {
         if !can_write_plugin_data(self.current_license())
@@ -3130,14 +2863,23 @@ impl KirinHyphaEngine {
         }
         // Optional Spectrum ingress is independent from the established Watch/Record ring. Its
         // first operation is an atomic enabled check; hidden PRE/POST instances do no copy, FFT,
-        // allocation, lock, I/O, wake, or repaint. Alignment is fail-closed unless the format
-        // wrapper supplied an exact producer coordinate plus output presentation latency.
+        // allocation, lock, I/O, wake, or repaint. Spectrum remains strict about output
+        // presentation latency; the POST-only ATTACK worker may use an exact producer
+        // clock when the host omits that optional callback.
         let spectrum_presentation_start = pending_clock.and_then(spectrum_presentation_start);
+        let attack_timeline_start = pending_clock.and_then(attack_timeline_start);
         let _ = self.spectrum_runtime.push_block_from_audio(
             interleaved,
             self.num_channels,
             spectrum_presentation_start,
         );
+        if let Some(runtime) = self.attack_runtime.as_ref() {
+            let _ = runtime.push_block_from_audio(
+                interleaved,
+                self.num_channels,
+                attack_timeline_start,
+            );
+        }
         let accepted_offline_mode = pending_record.map(|block| block.offline);
         let offline_capture_boundary = accepted_offline_mode.is_some_and(|offline| offline)
             && !self.capture_last_offline.load(Ordering::Acquire);
@@ -3251,6 +2993,89 @@ impl KirinHyphaEngine {
         }
     }
 
+    /// Record/Keepから独立した常設メーターセッションの最新完了値を読む。
+    /// Live EBU calculation lock is never touched by this UI path.
+    pub fn poll_meter_session(&self) -> Option<MeterSessionSnapshot> {
+        self.meter_session_publication.as_ref()?.try_snapshot()
+    }
+
+    /// TIME履歴を選択したresolutionで新しい順の範囲まで非ブロッキング取得する。
+    pub fn poll_meter_history(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+    ) -> Option<Vec<MeterHistoryEntry>> {
+        self.meter_session
+            .as_ref()?
+            .try_lock()
+            .ok()
+            .map(|session| session.recent_history(resolution, max_entries))
+    }
+
+    pub fn poll_meter_history_decimated(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+        max_output: usize,
+    ) -> Option<Vec<MeterHistoryEntry>> {
+        self.meter_session
+            .as_ref()?
+            .try_lock()
+            .ok()
+            .map(|session| session.recent_history_decimated(resolution, max_entries, max_output))
+    }
+
+    /// Exact-pair POST−PRE TIME history. PRE/unenabled roles fail closed.
+    pub fn poll_meter_delta_history(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+    ) -> Option<Vec<MeterHistoryEntry>> {
+        let is_post =
+            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
+        is_post.then(|| {
+            self.meter_delta_history
+                .as_ref()
+                .map(|exchange| exchange.recent(resolution, max_entries))
+        })?
+    }
+
+    pub fn poll_meter_delta_history_decimated(
+        &self,
+        resolution: MeterHistoryResolution,
+        max_entries: usize,
+        max_output: usize,
+    ) -> Option<Vec<MeterHistoryEntry>> {
+        let is_post =
+            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
+        is_post.then(|| {
+            self.meter_delta_history
+                .as_ref()
+                .map(|exchange| exchange.recent_decimated(resolution, max_entries, max_output))
+        })?
+    }
+
+    /// 利用者操作だけが常設セッションを破棄できる。UI/control thread専用。
+    /// Measure workerとの競合時は待たずにfalseを返し、呼び出し側が操作失敗を通知する。
+    pub fn reset_meter_session(&self) -> bool {
+        let Some(session) = self.meter_session.as_ref() else {
+            return false;
+        };
+        let Ok(mut session) = session.try_lock() else {
+            return false;
+        };
+        session.reset();
+        let snapshot = session.snapshot();
+        drop(session);
+        if let Some(publication) = self.meter_session_publication.as_ref() {
+            publication.publish(snapshot);
+        }
+        if let Some(exchange) = self.meter_delta_history.as_ref() {
+            exchange.reset();
+        }
+        true
+    }
+
     /// ring 満杯で drop した push 数（§8 RT-safety 検証用）。
     pub fn overflow_count(&self) -> u64 {
         self.push_overflow.load(Ordering::Relaxed)
@@ -3338,6 +3163,9 @@ impl Drop for KirinHyphaEngine {
             }
         }
         self.spectrum_runtime.shutdown_and_join();
+        if let Some(runtime) = self.attack_runtime.as_ref() {
+            runtime.shutdown_and_join();
+        }
         // B-110: live インスタンス refcount −1。watchdog が全世代の io→measure を join した後なので、
         // refcount 0 到達時の共有セル clear が生存 thread の Arc live-read と競合しない。
         identity_instance_detach(clear_role_scoped_cells);
@@ -3386,36 +3214,89 @@ pub struct KirinSessionSummary {
     pub max_true_peak: f64,
 }
 
-/// `KirinIdentity` — state chunk 往復する識別子（C struct / 方式A）。
-/// 各フィールドは null 終端 C 文字列（最大 63 文字 + null）。`project_hash` は派生値の
-/// ため含めない（JUCE は instance_id / project_uuid / daw_session_uuid / name の 4 キーを
-/// chunk に保存する）。
+pub const KIRIN_METER_SESSION_EMPTY: u8 = 0;
+pub const KIRIN_METER_SESSION_ACTIVE: u8 = 1;
+pub const KIRIN_METER_SESSION_PAUSED: u8 = 2;
+pub const KIRIN_BALANCE_UNAVAILABLE: u8 = 0;
+pub const KIRIN_BALANCE_NUMERIC: u8 = 1;
+pub const KIRIN_BALANCE_LEFT_ONLY: u8 = 2;
+pub const KIRIN_BALANCE_RIGHT_ONLY: u8 = 3;
+pub const KIRIN_STEREO_FIELD_SIZE: u8 = STEREO_FIELD_SIZE as u8;
+pub const KIRIN_STEREO_FIELD_BINS: usize = STEREO_FIELD_BINS;
+pub const KIRIN_METER_HISTORY_10_HZ: u8 = 0;
+pub const KIRIN_METER_HISTORY_1_HZ: u8 = 1;
+pub const KIRIN_METER_HISTORY_0_1_HZ: u8 = 2;
+pub const KIRIN_METER_HISTORY_10_HZ_CAPACITY: usize = HISTORY_10_HZ_CAPACITY;
+pub const KIRIN_METER_HISTORY_1_HZ_CAPACITY: usize = HISTORY_1_HZ_CAPACITY;
+pub const KIRIN_METER_HISTORY_0_1_HZ_CAPACITY: usize = HISTORY_0_1_HZ_CAPACITY;
+pub const KIRIN_METER_HISTORY_MAX_ENTRIES: usize = HISTORY_0_1_HZ_CAPACITY;
+pub const KIRIN_DELTA_MODE_ACTIVE: u8 = 0;
+pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 2;
+pub const KIRIN_LRA_UNAVAILABLE: u8 = 0;
+pub const KIRIN_LRA_WARMING: u8 = 1;
+pub const KIRIN_LRA_READY: u8 = 2;
+
+/// Record/Keepから独立した常設メーターの一貫したスナップショット。
+/// current値とsession値は同じ`observed_frames`境界から生成され、値なしはNaNで表す。
 #[repr(C)]
-pub struct KirinIdentity {
-    pub instance_id: [c_char; ID_BUF_LEN],
-    pub project_uuid: [c_char; ID_BUF_LEN],
-    pub daw_session_uuid: [c_char; ID_BUF_LEN],
-    pub name: [c_char; ID_BUF_LEN],
+pub struct KirinMeterSession {
+    pub generation: u64,
+    pub active_frames: u64,
+    pub observed_frames: u64,
+    pub sample_rate: u32,
+    pub state: u8,
+    pub reserved: [u8; 3],
+    pub lufs_m: f64,
+    pub lufs_s: f64,
+    pub lufs_i: f64,
+    pub lra: f64,
+    pub true_peak: f64,
+    pub max_true_peak: f64,
+    pub plr: f64,
+    pub channels: u8,
+    pub balance_state: u8,
+    pub stereo_reserved: [u8; 6],
+    pub sample_peak_dbfs: [f64; 2],
+    pub sample_peak_hold_dbfs: [f64; 2],
+    pub channel_true_peak_dbtp: [f64; 2],
+    pub channel_max_true_peak_dbtp: [f64; 2],
+    pub clip_events: [u64; 2],
+    pub balance_db: f64,
+    pub correlation: f64,
+    pub field_size: u8,
+    pub field_observation_count: u8,
+    pub field_reserved: [u8; 6],
+    pub field_density: [u8; KIRIN_STEREO_FIELD_BINS],
+    /// EBU Mode Maximum Momentary through `observed_frames`; append-only ABI field.
+    pub max_lufs_m: f64,
 }
 
-/// `KirinPreCandidate` — pair 候補 1 件（C struct / B-102 ドロップダウン用）。
-/// `instance_id` は null 終端 C 文字列（最大 63 文字）。`name` は PRE 表示名（旧 schema /
-/// 未設定は `has_name=0` で `name` 内容は不定）。固定長 out-param で marshalling する。
+/// TIME履歴1指標の範囲。10 Hzではmin=max=mean、値なしはNaN。
 #[repr(C)]
-pub struct KirinPreCandidate {
-    pub instance_id: [c_char; ID_BUF_LEN],
-    pub name: [c_char; ID_BUF_LEN],
-    pub has_name: u8,
+pub struct KirinMeterHistoryRange {
+    pub min: f64,
+    pub max: f64,
+    pub mean: f64,
 }
 
-/// `KirinPostPairClaim` — POST pair claim 1 件（C struct / dropdown keepability 表示用）。
+/// TIME履歴の1点。低rate層は`observation_count`個の100 ms事実を集約する。
 #[repr(C)]
-pub struct KirinPostPairClaim {
-    pub instance_id: [c_char; ID_BUF_LEN],
-    pub pair_pre_name: [c_char; ID_BUF_LEN],
-    pub has_pair_pre_name: u8,
-    pub paired_pre_instance_id: [c_char; ID_BUF_LEN],
-    pub has_paired_pre_instance_id: u8,
+pub struct KirinMeterHistoryEntry {
+    pub generation: u64,
+    pub run_id: u64,
+    pub first_observed_frames: u64,
+    pub last_observed_frames: u64,
+    pub first_timeline_endpoint_samples: i64,
+    pub last_timeline_endpoint_samples: i64,
+    pub observation_count: u16,
+    pub resolution: u8,
+    pub reserved: u8,
+    pub clip_event_count: [u32; 2],
+    pub lufs_m: KirinMeterHistoryRange,
+    pub lufs_s: KirinMeterHistoryRange,
+    pub true_peak: KirinMeterHistoryRange,
+    pub correlation: KirinMeterHistoryRange,
+    pub plr: KirinMeterHistoryRange,
 }
 
 /// `KirinDelta` — POST の Δ（C struct / B-061 3d-b）。各 double の「値なし」は NaN。
@@ -3433,6 +3314,20 @@ pub struct KirinDelta {
     pub lufs_s: f64,
 }
 
+/// Observatory表示が一度に受け取る非RTスナップショット。
+/// 接続状態はcontrol-plane事実なので含めず、表示対象の測定事実だけを束ねる。
+#[repr(C)]
+pub struct KirinObservatoryFrame {
+    pub version: u32,
+    pub signal_state: u8,
+    pub lra_state: u8,
+    pub delta_available: u8,
+    pub reserved: u8,
+    pub lra_elapsed_seconds: f64,
+    pub meter: KirinMeterSession,
+    pub delta: KirinDelta,
+}
+
 pub const KIRIN_SPECTRUM_HIDDEN: u8 = 0;
 pub const KIRIN_SPECTRUM_NO_PAIR: u8 = 1;
 pub const KIRIN_SPECTRUM_WARMING_UP: u8 = 2;
@@ -3442,9 +3337,21 @@ pub const KIRIN_SPECTRUM_IN_USE: u8 = 5;
 pub const KIRIN_SPECTRUM_CHANNEL_LR: u8 = SpectrumChannelMode::Lr as u8;
 pub const KIRIN_SPECTRUM_CHANNEL_MID: u8 = SpectrumChannelMode::Mid as u8;
 pub const KIRIN_SPECTRUM_CHANNEL_SIDE: u8 = SpectrumChannelMode::Side as u8;
+pub const KIRIN_ANALYSIS_SLOT_COUNT: usize = kirin_measure::ANALYSIS_SLOT_COUNT;
+pub const KIRIN_ANALYSIS_OWNER_NAME_CAPACITY: usize =
+    kirin_measure::ANALYSIS_OWNER_NAME_MAX_BYTES + 1;
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct KirinAnalysisOwners {
+    pub count: u8,
+    pub reserved: [u8; 7],
+    pub names: [[u8; KIRIN_ANALYSIS_OWNER_NAME_CAPACITY]; KIRIN_ANALYSIS_SLOT_COUNT],
+}
 
 /// POST-only Spectrum view. PRE/POST are the exact magnitudes behind `display_db`, which is signed
 /// POST - PRE and bounded only by the renderer. Rust retains the unclipped raw difference.
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct KirinSpectrumView {
     pub status: u8,
@@ -3459,9 +3366,28 @@ pub struct KirinSpectrumView {
     pub display_db: [f32; SPECTRUM_BAND_COUNT],
     /// Exact shared PRE/POST presentation endpoint. Tail-appended for ABI prefix stability.
     pub presentation_end_samples: i64,
+    /// Exact host-rate aperture and FFT layout used by both frames.
+    pub aperture_samples: u32,
+    pub fft_size: u32,
+    /// Frequencies below this cycle-derived boundary remain visible but use an approximate label.
+    pub approximate_below_hz: f32,
+    /// A local POST Spectrum may exist without an exact PRE/POST difference.
+    pub post_has_data: u8,
+    pub post_reserved: [u8; 3],
+}
+
+/// Eight already-computed exact Spectrum differences, oldest first. This bounded recovery window
+/// absorbs short UI stalls without adding FFT work or changing the latest-view ABI.
+#[repr(C)]
+pub struct KirinSpectrumBatch {
+    pub latest: KirinSpectrumView,
+    pub count: u32,
+    pub reserved: u32,
+    pub frames: [KirinSpectrumView; SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY],
 }
 
 /// POST-only exact-aperture Perceptual Delta view. It carries measured facts, never a verdict.
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct KirinPerceptualView {
     pub status: u8,
@@ -3476,6 +3402,43 @@ pub struct KirinPerceptualView {
     pub presentation_end_samples: i64,
     /// Shared PRE/POST state reset boundary. Tail-appended for ABI prefix stability.
     pub state_epoch_samples: i64,
+}
+
+/// A non-destructive UI snapshot of the complete visible Perceptual Delta timeline.
+/// The newest single view remains first for status-only and backwards-compatible consumers.
+#[repr(C)]
+pub struct KirinPerceptualBatch {
+    pub latest: KirinPerceptualView,
+    pub count: u32,
+    pub reserved: u32,
+    pub frames: [KirinPerceptualView; PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY],
+}
+
+/// One exact 100 ms POST-only absolute observation. Optional quantities use NaN at the ABI.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct KirinAbsoluteView {
+    pub status: u8,
+    pub has_data: u8,
+    pub channels: u8,
+    pub reserved: u8,
+    pub sample_rate: u32,
+    pub aperture_samples: u32,
+    pub lufs_m: f64,
+    pub true_peak: f64,
+    pub sharpness: f64,
+    pub presentation_end_samples: i64,
+    pub state_epoch_samples: i64,
+    pub generation: u64,
+}
+
+/// Non-destructive six-second POST-only observation timeline, oldest frame first.
+#[repr(C)]
+pub struct KirinAbsoluteBatch {
+    pub latest: KirinAbsoluteView,
+    pub count: u32,
+    pub reserved: u32,
+    pub frames: [KirinAbsoluteView; ABSOLUTE_TIMELINE_CAPACITY],
 }
 
 /// Read-only validation counters. No counter is used to make display or DSP decisions.
@@ -3553,29 +3516,94 @@ fn to_c_session(s: &SessionSummary) -> KirinSessionSummary {
     }
 }
 
-/// Shipped nih-plug VST3 state -> JUCE common-shell one-time migration.
-/// This is invoked only from the host's state restore callback, never from `processBlock`.
-///
-/// # Safety
-/// `data` must reference `len` readable bytes and `out` must reference writable storage.
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_decode_legacy_nih_state(
-    data: *const u8,
-    len: usize,
-    out: *mut KirinLegacyNihState,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if data.is_null() || out.is_null() {
-            return false;
-        }
-        let bytes = unsafe { std::slice::from_raw_parts(data, len) };
-        let Some(decoded) = decode_legacy_nih_state_bytes(bytes) else {
-            return false;
-        };
-        unsafe { *out = decoded };
-        true
-    }))
-    .unwrap_or(false)
+fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterSession {
+    let state = match snapshot.state {
+        MeterSessionState::Empty => KIRIN_METER_SESSION_EMPTY,
+        MeterSessionState::Active => KIRIN_METER_SESSION_ACTIVE,
+        MeterSessionState::Paused => KIRIN_METER_SESSION_PAUSED,
+    };
+    let balance_state = match snapshot.stereo.balance_state {
+        BalanceState::Unavailable => KIRIN_BALANCE_UNAVAILABLE,
+        BalanceState::Numeric => KIRIN_BALANCE_NUMERIC,
+        BalanceState::LeftOnly => KIRIN_BALANCE_LEFT_ONLY,
+        BalanceState::RightOnly => KIRIN_BALANCE_RIGHT_ONLY,
+    };
+    KirinMeterSession {
+        generation: snapshot.generation,
+        active_frames: snapshot.active_frames,
+        observed_frames: snapshot.observed_frames,
+        sample_rate: snapshot.sample_rate,
+        state,
+        reserved: [0; 3],
+        lufs_m: opt_f64(snapshot.current.lufs_m),
+        lufs_s: opt_f64(snapshot.current.lufs_s),
+        lufs_i: opt_f64(snapshot.summary.lufs_i),
+        lra: opt_f64(snapshot.summary.lra),
+        true_peak: opt_f64(snapshot.current.true_peak),
+        max_true_peak: opt_f64(snapshot.summary.max_true_peak),
+        plr: opt_f64(snapshot.plr),
+        channels: snapshot.stereo.channels,
+        balance_state,
+        stereo_reserved: [0; 6],
+        sample_peak_dbfs: snapshot.stereo.sample_peak_dbfs.map(opt_f64),
+        sample_peak_hold_dbfs: snapshot.stereo.sample_peak_hold_dbfs.map(opt_f64),
+        channel_true_peak_dbtp: snapshot.stereo.true_peak_dbtp.map(opt_f64),
+        channel_max_true_peak_dbtp: snapshot.stereo.max_true_peak_dbtp.map(opt_f64),
+        clip_events: snapshot.stereo.clip_events,
+        balance_db: opt_f64(snapshot.stereo.balance_db),
+        correlation: opt_f64(snapshot.stereo.correlation),
+        field_size: if snapshot.stereo.channels == 2 {
+            KIRIN_STEREO_FIELD_SIZE
+        } else {
+            0
+        },
+        field_observation_count: snapshot.stereo.field_observation_count,
+        field_reserved: [0; 6],
+        field_density: snapshot.stereo.field_density,
+        max_lufs_m: opt_f64(snapshot.max_lufs_m),
+    }
+}
+
+fn to_c_history_range(range: MeterHistoryRange) -> KirinMeterHistoryRange {
+    KirinMeterHistoryRange {
+        min: opt_f64(range.min),
+        max: opt_f64(range.max),
+        mean: opt_f64(range.mean),
+    }
+}
+
+fn to_c_history_entry(entry: MeterHistoryEntry) -> KirinMeterHistoryEntry {
+    let resolution = match entry.resolution {
+        MeterHistoryResolution::Hz10 => KIRIN_METER_HISTORY_10_HZ,
+        MeterHistoryResolution::Hz1 => KIRIN_METER_HISTORY_1_HZ,
+        MeterHistoryResolution::Hz0_1 => KIRIN_METER_HISTORY_0_1_HZ,
+    };
+    KirinMeterHistoryEntry {
+        generation: entry.generation,
+        run_id: entry.run_id,
+        first_observed_frames: entry.first_observed_frames,
+        last_observed_frames: entry.last_observed_frames,
+        first_timeline_endpoint_samples: entry.first_timeline_endpoint_samples.unwrap_or(i64::MIN),
+        last_timeline_endpoint_samples: entry.last_timeline_endpoint_samples.unwrap_or(i64::MIN),
+        observation_count: entry.observation_count,
+        resolution,
+        reserved: 0,
+        clip_event_count: entry.clip_event_count,
+        lufs_m: to_c_history_range(entry.lufs_m),
+        lufs_s: to_c_history_range(entry.lufs_s),
+        true_peak: to_c_history_range(entry.true_peak),
+        correlation: to_c_history_range(entry.correlation),
+        plr: to_c_history_range(entry.plr),
+    }
+}
+
+fn meter_history_resolution_from_abi(value: u8) -> Option<MeterHistoryResolution> {
+    match value {
+        KIRIN_METER_HISTORY_10_HZ => Some(MeterHistoryResolution::Hz10),
+        KIRIN_METER_HISTORY_1_HZ => Some(MeterHistoryResolution::Hz1),
+        KIRIN_METER_HISTORY_0_1_HZ => Some(MeterHistoryResolution::Hz0_1),
+        _ => None,
+    }
 }
 
 fn delta_mode_to_abi(mode: &DeltaMode) -> u8 {
@@ -3601,6 +3629,36 @@ fn to_c_delta(d: &DeltaResult) -> KirinDelta {
     }
 }
 
+fn delta_has_finite_fact(delta: &KirinDelta) -> bool {
+    delta.mode == KIRIN_DELTA_MODE_ACTIVE
+        && [
+            delta.lufs,
+            delta.lufs_s,
+            delta.true_peak,
+            delta.crest,
+            delta.psr,
+            delta.n_prime_total,
+            delta.sharpness,
+        ]
+        .into_iter()
+        .any(f64::is_finite)
+}
+
+fn lra_readiness(snapshot: &MeterSessionSnapshot) -> (u8, f64) {
+    let elapsed = snapshot.active_seconds();
+    if snapshot.state == MeterSessionState::Empty {
+        return (KIRIN_LRA_UNAVAILABLE, elapsed);
+    }
+    if elapsed < 60.0 {
+        return (KIRIN_LRA_WARMING, elapsed);
+    }
+    if snapshot.summary.lra.is_some_and(f64::is_finite) {
+        (KIRIN_LRA_READY, elapsed)
+    } else {
+        (KIRIN_LRA_UNAVAILABLE, elapsed)
+    }
+}
+
 fn spectrum_status_to_abi(status: SpectrumViewStatus) -> u8 {
     match status {
         SpectrumViewStatus::Hidden => KIRIN_SPECTRUM_HIDDEN,
@@ -3612,46 +3670,157 @@ fn spectrum_status_to_abi(status: SpectrumViewStatus) -> u8 {
     }
 }
 
+fn to_c_analysis_owners(
+    owner_names: [String; kirin_measure::ANALYSIS_SLOT_COUNT],
+) -> KirinAnalysisOwners {
+    let mut out = KirinAnalysisOwners {
+        count: 0,
+        reserved: [0; 7],
+        names: [[0; KIRIN_ANALYSIS_OWNER_NAME_CAPACITY]; KIRIN_ANALYSIS_SLOT_COUNT],
+    };
+    for owner_name in owner_names.into_iter().filter(|name| !name.is_empty()) {
+        if out.count as usize >= KIRIN_ANALYSIS_SLOT_COUNT {
+            break;
+        }
+        let bytes = owner_name.as_bytes();
+        if bytes.len() >= KIRIN_ANALYSIS_OWNER_NAME_CAPACITY {
+            continue;
+        }
+        let index = out.count as usize;
+        out.names[index][..bytes.len()].copy_from_slice(bytes);
+        out.count += 1;
+    }
+    out
+}
+
 fn to_c_spectrum(snapshot: SpectrumViewSnapshot) -> KirinSpectrumView {
-    let difference = (snapshot.analysis_mode == AnalysisViewMode::Spectrum)
-        .then_some(snapshot.difference)
-        .flatten();
-    let has_data = difference.is_some() as u8;
-    let (sample_rate, min_hz, max_hz, pre_dbfs, post_dbfs, display_db, presentation_end_samples) =
-        difference.map_or(
-            (
-                0,
-                0.0,
-                0.0,
-                [0.0; SPECTRUM_BAND_COUNT],
-                [0.0; SPECTRUM_BAND_COUNT],
-                [0.0; SPECTRUM_BAND_COUNT],
-                0,
-            ),
-            |difference| {
-                (
-                    difference.sample_rate,
-                    difference.min_hz,
-                    difference.max_hz,
-                    difference.pre_dbfs,
-                    difference.post_dbfs,
-                    difference.display_db,
-                    difference.presentation_end_samples,
-                )
-            },
-        );
+    let status = spectrum_status_to_abi(snapshot.status);
+    if snapshot.analysis_mode == AnalysisViewMode::Spectrum {
+        if let Some(difference) = snapshot.difference {
+            return c_spectrum_from_difference(status, &difference);
+        }
+        if let Some(post) = snapshot.post_spectrum {
+            return c_spectrum_from_post(status, &post);
+        }
+    }
+    let mut empty = empty_c_spectrum();
+    empty.status = status;
+    empty.channel_mode = snapshot.channel_mode as u8;
+    empty.channels = snapshot.channels;
+    empty
+}
+
+fn c_spectrum_from_difference(
+    status: u8,
+    difference: &kirin_measure::SpectrumDifference,
+) -> KirinSpectrumView {
     KirinSpectrumView {
-        status: spectrum_status_to_abi(snapshot.status),
-        has_data,
-        channel_mode: snapshot.channel_mode as u8,
-        channels: snapshot.channels,
-        sample_rate,
-        min_hz,
-        max_hz,
-        pre_dbfs,
-        post_dbfs,
-        display_db,
-        presentation_end_samples,
+        status,
+        has_data: 1,
+        channel_mode: difference.channel_mode as u8,
+        channels: difference.channels,
+        sample_rate: difference.sample_rate,
+        min_hz: difference.min_hz,
+        max_hz: difference.max_hz,
+        pre_dbfs: difference.pre_dbfs,
+        post_dbfs: difference.post_dbfs,
+        display_db: difference.display_db,
+        presentation_end_samples: difference.presentation_end_samples,
+        aperture_samples: difference.aperture_samples,
+        fft_size: difference.fft_size,
+        approximate_below_hz: difference.approximate_below_hz,
+        post_has_data: 1,
+        post_reserved: [0; 3],
+    }
+}
+
+fn c_spectrum_from_post(status: u8, post: &SpectrumFrame) -> KirinSpectrumView {
+    KirinSpectrumView {
+        status,
+        has_data: 0,
+        channel_mode: post.channel_mode as u8,
+        channels: post.channels,
+        sample_rate: post.sample_rate,
+        min_hz: post.min_hz,
+        max_hz: post.max_hz,
+        pre_dbfs: [0.0; SPECTRUM_BAND_COUNT],
+        post_dbfs: post.dbfs,
+        display_db: [0.0; SPECTRUM_BAND_COUNT],
+        presentation_end_samples: post.presentation_end_samples,
+        aperture_samples: post.aperture_samples,
+        fft_size: post.fft_size,
+        approximate_below_hz: 3.0 * post.sample_rate as f32 / post.aperture_samples as f32,
+        post_has_data: 1,
+        post_reserved: [0; 3],
+    }
+}
+
+fn c_spectrum_from_timeline(status: u8, difference: &SpectrumTimelineFrame) -> KirinSpectrumView {
+    KirinSpectrumView {
+        status,
+        has_data: 1,
+        channel_mode: difference.channel_mode as u8,
+        channels: difference.channels,
+        sample_rate: difference.sample_rate,
+        min_hz: difference.min_hz,
+        max_hz: difference.max_hz,
+        pre_dbfs: difference.pre_dbfs,
+        post_dbfs: difference.post_dbfs,
+        display_db: difference.display_db,
+        presentation_end_samples: difference.presentation_end_samples,
+        aperture_samples: difference.aperture_samples,
+        fft_size: difference.fft_size,
+        approximate_below_hz: difference.approximate_below_hz,
+        post_has_data: 1,
+        post_reserved: [0; 3],
+    }
+}
+
+fn empty_c_spectrum() -> KirinSpectrumView {
+    KirinSpectrumView {
+        status: KIRIN_SPECTRUM_HIDDEN,
+        has_data: 0,
+        channel_mode: KIRIN_SPECTRUM_CHANNEL_LR,
+        channels: 0,
+        sample_rate: 0,
+        min_hz: 0.0,
+        max_hz: 0.0,
+        pre_dbfs: [0.0; SPECTRUM_BAND_COUNT],
+        post_dbfs: [0.0; SPECTRUM_BAND_COUNT],
+        display_db: [0.0; SPECTRUM_BAND_COUNT],
+        presentation_end_samples: 0,
+        aperture_samples: 0,
+        fft_size: 0,
+        approximate_below_hz: 0.0,
+        post_has_data: 0,
+        post_reserved: [0; 3],
+    }
+}
+
+fn to_c_spectrum_batch(snapshot: SpectrumViewSnapshot) -> KirinSpectrumBatch {
+    let latest = to_c_spectrum(snapshot.clone());
+    let mut frames = [empty_c_spectrum(); SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY];
+    let mut count = 0usize;
+    if snapshot.analysis_mode == AnalysisViewMode::Spectrum {
+        if snapshot.status == SpectrumViewStatus::Active {
+            for difference in snapshot.spectrum_timeline.frames() {
+                frames[count] = c_spectrum_from_timeline(KIRIN_SPECTRUM_ACTIVE, difference);
+                count += 1;
+            }
+        }
+        if count == 0 {
+            let status = spectrum_status_to_abi(snapshot.status);
+            for post in snapshot.post_spectrum_history.frames() {
+                frames[count] = c_spectrum_from_post(status, post);
+                count += 1;
+            }
+        }
+    }
+    KirinSpectrumBatch {
+        latest,
+        count: count as u32,
+        reserved: 0,
+        frames,
     }
 }
 
@@ -3684,6 +3853,109 @@ fn to_c_perceptual(snapshot: SpectrumViewSnapshot) -> KirinPerceptualView {
         delta_sharpness: delta,
         presentation_end_samples,
         state_epoch_samples: state_epoch,
+    }
+}
+
+fn empty_c_perceptual() -> KirinPerceptualView {
+    KirinPerceptualView {
+        status: KIRIN_SPECTRUM_HIDDEN,
+        has_data: 0,
+        channel_mode: KIRIN_SPECTRUM_CHANNEL_LR,
+        channels: 0,
+        sample_rate: 0,
+        aperture_samples: 0,
+        pre_sharpness: f64::NAN,
+        post_sharpness: f64::NAN,
+        delta_sharpness: f64::NAN,
+        presentation_end_samples: 0,
+        state_epoch_samples: 0,
+    }
+}
+
+fn to_c_perceptual_batch(snapshot: SpectrumViewSnapshot) -> KirinPerceptualBatch {
+    let latest = to_c_perceptual(snapshot.clone());
+    let mut frames = [empty_c_perceptual(); PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY];
+    let mut count = 0usize;
+    if snapshot.status == SpectrumViewStatus::Active
+        && snapshot.analysis_mode == AnalysisViewMode::Perceptual
+    {
+        for difference in snapshot.perceptual_timeline.frames() {
+            frames[count] = KirinPerceptualView {
+                status: KIRIN_SPECTRUM_ACTIVE,
+                has_data: 1,
+                channel_mode: difference.channel_mode as u8,
+                channels: difference.channels,
+                sample_rate: difference.sample_rate,
+                aperture_samples: difference.aperture_samples,
+                pre_sharpness: difference.pre_sharpness,
+                post_sharpness: difference.post_sharpness,
+                delta_sharpness: difference.delta_sharpness,
+                presentation_end_samples: difference.presentation_end_samples,
+                state_epoch_samples: difference.state_epoch_samples,
+            };
+            count += 1;
+        }
+    }
+    KirinPerceptualBatch {
+        latest,
+        count: count as u32,
+        reserved: 0,
+        frames,
+    }
+}
+
+fn empty_c_absolute() -> KirinAbsoluteView {
+    KirinAbsoluteView {
+        status: KIRIN_SPECTRUM_HIDDEN,
+        has_data: 0,
+        channels: 0,
+        reserved: 0,
+        sample_rate: 0,
+        aperture_samples: 0,
+        lufs_m: f64::NAN,
+        true_peak: f64::NAN,
+        sharpness: f64::NAN,
+        presentation_end_samples: 0,
+        state_epoch_samples: 0,
+        generation: 0,
+    }
+}
+
+fn to_c_absolute_batch(snapshot: SpectrumViewSnapshot) -> KirinAbsoluteBatch {
+    let mut latest = empty_c_absolute();
+    latest.status = spectrum_status_to_abi(snapshot.status);
+    latest.channels = snapshot.channels;
+    let mut frames = [empty_c_absolute(); ABSOLUTE_TIMELINE_CAPACITY];
+    let mut count = 0usize;
+    if snapshot.status == SpectrumViewStatus::Active
+        && snapshot.analysis_mode == AnalysisViewMode::Absolute
+    {
+        for frame in snapshot.absolute_timeline.frames() {
+            frames[count] = KirinAbsoluteView {
+                status: KIRIN_SPECTRUM_ACTIVE,
+                has_data: 1,
+                channels: frame.channels,
+                reserved: 0,
+                sample_rate: frame.sample_rate,
+                aperture_samples: frame.aperture_samples,
+                lufs_m: opt_f64(frame.lufs_m),
+                true_peak: opt_f64(frame.true_peak),
+                sharpness: opt_f64(frame.sharpness),
+                presentation_end_samples: frame.presentation_end_samples,
+                state_epoch_samples: frame.state_epoch_samples,
+                generation: frame.generation,
+            };
+            count += 1;
+        }
+        if count > 0 {
+            latest = frames[count - 1];
+        }
+    }
+    KirinAbsoluteBatch {
+        latest,
+        count: count as u32,
+        reserved: 0,
+        frames,
     }
 }
 
@@ -3747,6 +4019,402 @@ fn to_c_record_display(
 }
 
 #[cfg(test)]
+mod meter_session_abi_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_layout_and_mapping_are_stable() {
+        assert_eq!(std::mem::size_of::<KirinMeterSession>(), 840);
+        assert_eq!(std::mem::offset_of!(KirinMeterSession, field_density), 200);
+        assert_eq!(std::mem::offset_of!(KirinMeterSession, max_lufs_m), 832);
+        assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
+        assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 184);
+        assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 920);
+        let current = MeasureResult {
+            lufs_m: Some(-14.2),
+            lufs_s: Some(-14.8),
+            true_peak: Some(-1.1),
+            ..MeasureResult::default()
+        };
+        let snapshot = MeterSessionSnapshot {
+            generation: 3,
+            state: MeterSessionState::Paused,
+            sample_rate: 48_000,
+            active_frames: 96_123,
+            observed_frames: 96_000,
+            current,
+            max_lufs_m: Some(-10.6),
+            summary: SessionSummary {
+                lufs_i: Some(-15.0),
+                lra: Some(4.2),
+                max_true_peak: Some(-0.8),
+            },
+            plr: Some(14.2),
+            stereo: kirin_measure::StereoMeterSnapshot {
+                channels: 2,
+                sample_peak_dbfs: [Some(-1.0), Some(-2.0)],
+                sample_peak_hold_dbfs: [Some(-0.5), Some(-1.5)],
+                true_peak_dbtp: [Some(-0.8), Some(-1.8)],
+                max_true_peak_dbtp: [Some(-0.3), Some(-1.3)],
+                clip_events: [2, 1],
+                balance_db: Some(0.75),
+                balance_state: BalanceState::Numeric,
+                correlation: Some(0.91),
+                field_density: {
+                    let mut density = [0; STEREO_FIELD_BINS];
+                    density[312] = 211;
+                    density
+                },
+                field_observation_count: 30,
+            },
+        };
+        let mapped = to_c_meter_session(&snapshot);
+        assert_eq!(mapped.state, KIRIN_METER_SESSION_PAUSED);
+        assert_eq!(mapped.active_frames, 96_123);
+        assert_eq!(mapped.observed_frames, 96_000);
+        assert_eq!(mapped.lufs_m, -14.2);
+        assert_eq!(mapped.max_lufs_m, -10.6);
+        assert_eq!(mapped.lufs_s, -14.8);
+        assert_eq!(mapped.lufs_i, -15.0);
+        assert_eq!(mapped.lra, 4.2);
+        assert_eq!(mapped.true_peak, -1.1);
+        assert_eq!(mapped.max_true_peak, -0.8);
+        assert_eq!(mapped.plr, 14.2);
+        assert_eq!(mapped.channels, 2);
+        assert_eq!(mapped.balance_state, KIRIN_BALANCE_NUMERIC);
+        assert_eq!(mapped.sample_peak_dbfs, [-1.0, -2.0]);
+        assert_eq!(mapped.clip_events, [2, 1]);
+        assert_eq!(mapped.balance_db, 0.75);
+        assert_eq!(mapped.correlation, 0.91);
+        assert_eq!(mapped.field_size, KIRIN_STEREO_FIELD_SIZE);
+        assert_eq!(mapped.field_observation_count, 30);
+        assert_eq!(mapped.field_density[312], 211);
+
+        let history = to_c_history_entry(MeterHistoryEntry {
+            resolution: MeterHistoryResolution::Hz1,
+            generation: 3,
+            run_id: 7,
+            observation_count: 10,
+            first_observed_frames: 4_800,
+            last_observed_frames: 48_000,
+            first_timeline_endpoint_samples: Some(104_800),
+            last_timeline_endpoint_samples: None,
+            timeline_source: CaptureClockSource::ProjectTimeline,
+            clip_event_count: [3, 1],
+            lufs_m: MeterHistoryRange {
+                min: Some(-16.0),
+                max: Some(-13.0),
+                mean: Some(-14.5),
+            },
+            lufs_s: MeterHistoryRange::default(),
+            true_peak: MeterHistoryRange::default(),
+            correlation: MeterHistoryRange::default(),
+            plr: MeterHistoryRange {
+                min: Some(12.0),
+                max: Some(14.0),
+                mean: Some(13.0),
+            },
+        });
+        assert_eq!(history.resolution, KIRIN_METER_HISTORY_1_HZ);
+        assert_eq!(history.observation_count, 10);
+        assert_eq!(history.clip_event_count, [3, 1]);
+        assert_eq!(history.first_timeline_endpoint_samples, 104_800);
+        assert_eq!(history.plr.mean, 13.0);
+        assert_eq!(history.last_timeline_endpoint_samples, i64::MIN);
+        assert_eq!(history.lufs_m.min, -16.0);
+        assert!(history.lufs_s.mean.is_nan());
+    }
+
+    #[test]
+    fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
+        let mut snapshot = MeterSessionSnapshot {
+            generation: 1,
+            state: MeterSessionState::Active,
+            sample_rate: 48_000,
+            active_frames: 48_000 * 59,
+            observed_frames: 48_000 * 59,
+            current: MeasureResult::default(),
+            max_lufs_m: Some(-11.0),
+            summary: SessionSummary {
+                lufs_i: Some(-14.0),
+                lra: Some(0.0),
+                max_true_peak: Some(-1.0),
+            },
+            plr: Some(13.0),
+            stereo: kirin_measure::StereoMeterSnapshot {
+                channels: 2,
+                sample_peak_dbfs: [None; 2],
+                sample_peak_hold_dbfs: [None; 2],
+                true_peak_dbtp: [None; 2],
+                max_true_peak_dbtp: [None; 2],
+                clip_events: [0; 2],
+                balance_db: None,
+                balance_state: BalanceState::Unavailable,
+                correlation: None,
+                field_density: [0; STEREO_FIELD_BINS],
+                field_observation_count: 0,
+            },
+        };
+        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_WARMING);
+        snapshot.active_frames = 48_000 * 60;
+        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_READY);
+        snapshot.summary.lra = None;
+        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_UNAVAILABLE);
+        snapshot.state = MeterSessionState::Empty;
+        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_UNAVAILABLE);
+    }
+
+    #[test]
+    fn observatory_delta_requires_active_freshness_even_when_stale_values_are_finite() {
+        let mut delta = KirinDelta {
+            mode: KIRIN_DELTA_MODE_ACTIVE,
+            lufs: 1.0,
+            true_peak: f64::NAN,
+            crest: f64::NAN,
+            psr: f64::NAN,
+            n_prime_total: f64::NAN,
+            sharpness: f64::NAN,
+            lufs_s: f64::NAN,
+        };
+        assert!(delta_has_finite_fact(&delta));
+        delta.mode = delta_mode_to_abi(&DeltaMode::Stale);
+        assert!(!delta_has_finite_fact(&delta));
+    }
+
+    #[test]
+    fn null_meter_session_calls_fail_closed_without_touching_output() {
+        let mut frame: KirinObservatoryFrame = unsafe { std::mem::zeroed() };
+        frame.version = 41;
+        assert!(!unsafe { kirin_hypha_poll_observatory_frame(std::ptr::null_mut(), &mut frame) });
+        assert_eq!(frame.version, 41);
+        let mut out = KirinMeterSession {
+            generation: 41,
+            active_frames: 0,
+            observed_frames: 0,
+            sample_rate: 0,
+            state: 0,
+            reserved: [0; 3],
+            lufs_m: 0.0,
+            lufs_s: 0.0,
+            lufs_i: 0.0,
+            lra: 0.0,
+            true_peak: 0.0,
+            max_true_peak: 0.0,
+            plr: 0.0,
+            channels: 0,
+            balance_state: 0,
+            stereo_reserved: [0; 6],
+            sample_peak_dbfs: [0.0; 2],
+            sample_peak_hold_dbfs: [0.0; 2],
+            channel_true_peak_dbtp: [0.0; 2],
+            channel_max_true_peak_dbtp: [0.0; 2],
+            clip_events: [0; 2],
+            balance_db: 0.0,
+            correlation: 0.0,
+            field_size: 0,
+            field_observation_count: 0,
+            field_reserved: [0; 6],
+            field_density: [0; KIRIN_STEREO_FIELD_BINS],
+            max_lufs_m: 0.0,
+        };
+        assert!(!unsafe { kirin_hypha_poll_meter_session(std::ptr::null_mut(), &mut out) });
+        let mut history_count = 41_u32;
+        assert!(!unsafe {
+            kirin_hypha_poll_meter_history(
+                std::ptr::null_mut(),
+                KIRIN_METER_HISTORY_10_HZ,
+                std::ptr::null_mut(),
+                0,
+                &mut history_count,
+            )
+        });
+        assert_eq!(history_count, 41);
+        assert!(!unsafe {
+            kirin_hypha_poll_meter_history_decimated(
+                std::ptr::null_mut(),
+                KIRIN_METER_HISTORY_10_HZ,
+                300,
+                std::ptr::null_mut(),
+                0,
+                &mut history_count,
+            )
+        });
+        assert_eq!(history_count, 41);
+        assert!(!unsafe {
+            kirin_hypha_poll_meter_delta_history(
+                std::ptr::null_mut(),
+                KIRIN_METER_HISTORY_10_HZ,
+                std::ptr::null_mut(),
+                0,
+                &mut history_count,
+            )
+        });
+        assert_eq!(history_count, 41);
+        assert!(!unsafe { kirin_hypha_reset_meter_session(std::ptr::null_mut()) });
+        assert_eq!(out.generation, 41);
+    }
+
+    #[test]
+    fn meter_poll_reads_completed_publication_while_live_session_is_locked() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        let live_session = engine.meter_session.as_ref().unwrap();
+        let _live_guard = live_session.lock().unwrap();
+
+        let published = engine.poll_meter_session().unwrap();
+
+        assert_eq!(published.state, MeterSessionState::Empty);
+        assert_eq!(published.sample_rate, 48_000);
+        assert_eq!(published.active_frames, 0);
+    }
+
+    #[test]
+    fn delta_history_abi_is_post_only_and_empty_is_a_valid_fact() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        assert!(engine
+            .poll_meter_delta_history(MeterHistoryResolution::Hz10, 10)
+            .is_none());
+        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
+        assert!(engine
+            .poll_meter_delta_history(MeterHistoryResolution::Hz10, 10)
+            .is_none());
+        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
+        assert_eq!(
+            engine
+                .poll_meter_delta_history(MeterHistoryResolution::Hz10, 10)
+                .unwrap(),
+            Vec::<MeterHistoryEntry>::new()
+        );
+        let mut count = 41_u32;
+        assert!(unsafe {
+            kirin_hypha_poll_meter_delta_history(
+                std::ptr::from_ref(&engine).cast_mut(),
+                KIRIN_METER_HISTORY_10_HZ,
+                std::ptr::null_mut(),
+                0,
+                &mut count,
+            )
+        });
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn live_measure_worker_advances_pauses_and_resets_independent_session() {
+        let engine = KirinHyphaEngine::new(48_000, 2);
+        engine.set_signal_state(KIRIN_SIGNAL_STATE_ACTIVE);
+        let mut samples = Vec::with_capacity(48_000 * 2);
+        for frame in 0..48_000 {
+            let sample =
+                (2.0 * std::f32::consts::PI * 1_000.0 * frame as f32 / 48_000.0).sin() * 0.25;
+            samples.extend_from_slice(&[sample, sample]);
+        }
+        for (index, chunk) in samples.chunks(480 * 2).enumerate() {
+            let deadline = std::time::Instant::now() + Duration::from_secs(1);
+            loop {
+                engine.note_capture_window(
+                    true,
+                    (index * 480) as i64,
+                    480,
+                    CaptureClockSource::ProjectTimeline,
+                );
+                if engine.push_samples_transaction(chunk, 2) {
+                    break;
+                }
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let active = loop {
+            if let Some(snapshot) = engine
+                .poll_meter_session()
+                .filter(|snapshot| snapshot.active_frames == 48_000)
+            {
+                break snapshot;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(active.state, MeterSessionState::Active);
+        assert_eq!(active.observed_frames, 48_000);
+        assert!(active.current.lufs_m.is_some());
+        assert!(active.summary.lufs_i.is_some());
+        assert_eq!(active.stereo.channels, 2);
+        assert!(active.stereo.sample_peak_dbfs.iter().all(Option::is_some));
+        assert!(active
+            .stereo
+            .sample_peak_hold_dbfs
+            .iter()
+            .all(Option::is_some));
+        assert!(active.stereo.true_peak_dbtp.iter().all(Option::is_some));
+        assert!(active.stereo.correlation.is_none());
+        let history = engine
+            .poll_meter_history(MeterHistoryResolution::Hz10, 20)
+            .unwrap();
+        assert_eq!(history.len(), 10);
+        assert_eq!(history[0].last_timeline_endpoint_samples, Some(4_800));
+        assert_eq!(history[9].last_timeline_endpoint_samples, Some(48_000));
+        let one_second = engine
+            .poll_meter_history(MeterHistoryResolution::Hz1, 20)
+            .unwrap();
+        assert_eq!(one_second.len(), 1);
+        assert_eq!(one_second[0].observation_count, 10);
+
+        let mut ffi_entries: Vec<std::mem::MaybeUninit<KirinMeterHistoryEntry>> =
+            std::iter::repeat_with(std::mem::MaybeUninit::uninit)
+                .take(12)
+                .collect();
+        let mut ffi_count = 0_u32;
+        assert!(unsafe {
+            kirin_hypha_poll_meter_history(
+                std::ptr::from_ref(&engine).cast_mut(),
+                KIRIN_METER_HISTORY_10_HZ,
+                ffi_entries.as_mut_ptr().cast(),
+                12,
+                &mut ffi_count,
+            )
+        });
+        assert_eq!(ffi_count, 10);
+        let ffi_last = unsafe { ffi_entries[9].assume_init_ref() };
+        assert_eq!(ffi_last.resolution, KIRIN_METER_HISTORY_10_HZ);
+        assert_eq!(ffi_last.last_timeline_endpoint_samples, 48_000);
+
+        ffi_count = 77;
+        assert!(!unsafe {
+            kirin_hypha_poll_meter_history(
+                std::ptr::from_ref(&engine).cast_mut(),
+                99,
+                ffi_entries.as_mut_ptr().cast(),
+                12,
+                &mut ffi_count,
+            )
+        });
+        assert_eq!(ffi_count, 77);
+
+        engine.set_signal_state(KIRIN_SIGNAL_STATE_INACTIVE);
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            if engine
+                .poll_meter_session()
+                .is_some_and(|snapshot| snapshot.state == MeterSessionState::Paused)
+            {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        while !engine.reset_meter_session() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        let reset = engine.poll_meter_session().unwrap();
+        assert_eq!(reset.state, MeterSessionState::Empty);
+        assert_eq!(reset.generation, active.generation + 1);
+        assert_eq!(reset.active_frames, 0);
+    }
+}
+
+#[cfg(test)]
 mod delta_mode_abi_tests {
     use super::{delta_mode_to_abi, DeltaMode};
 
@@ -3767,10 +4435,19 @@ mod spectrum_abi_tests {
 
     #[test]
     fn spectrum_status_and_signed_display_values_have_stable_c_mapping() {
-        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_096);
+        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_112);
         assert_eq!(
             std::mem::offset_of!(KirinSpectrumView, presentation_end_samples),
             3_088
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinSpectrumView, aperture_samples),
+            3_096
+        );
+        assert_eq!(std::mem::offset_of!(KirinSpectrumView, fft_size), 3_100);
+        assert_eq!(
+            std::mem::offset_of!(KirinSpectrumView, approximate_below_hz),
+            3_104
         );
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Hidden), 0);
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::NoPair), 1);
@@ -3779,28 +4456,41 @@ mod spectrum_abi_tests {
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Unavailable), 4);
         assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::InUse), 5);
 
+        let difference = SpectrumDifference {
+            presentation_end_samples: 48_000,
+            sample_rate: 48_000,
+            aperture_samples: 4_096,
+            fft_size: 8_192,
+            approximate_below_hz: 35.15625,
+            min_hz: 10.0,
+            max_hz: 22_000.0,
+            channel_mode: SpectrumChannelMode::Side,
+            channels: 2,
+            pre_dbfs: [-42.0; SPECTRUM_BAND_COUNT],
+            post_dbfs: [-45.5; SPECTRUM_BAND_COUNT],
+            raw_db: [15.0; SPECTRUM_BAND_COUNT],
+            display_db: [-3.5; SPECTRUM_BAND_COUNT],
+        };
+        let mut spectrum_timeline = kirin_measure::SpectrumDifferenceTimeline::default();
+        spectrum_timeline.push(&difference);
         let snapshot = SpectrumViewSnapshot {
             status: SpectrumViewStatus::Active,
             analysis_mode: AnalysisViewMode::Spectrum,
             channel_mode: SpectrumChannelMode::Side,
             channels: 2,
-            difference: Some(SpectrumDifference {
-                presentation_end_samples: 48_000,
-                sample_rate: 48_000,
-                min_hz: 10.0,
-                max_hz: 22_000.0,
-                channel_mode: SpectrumChannelMode::Side,
-                channels: 2,
-                pre_dbfs: [-42.0; SPECTRUM_BAND_COUNT],
-                post_dbfs: [-45.5; SPECTRUM_BAND_COUNT],
-                raw_db: [15.0; SPECTRUM_BAND_COUNT],
-                display_db: [-3.5; SPECTRUM_BAND_COUNT],
-            }),
+            difference: Some(difference),
+            spectrum_timeline,
+            post_spectrum: None,
+            post_spectrum_history: Default::default(),
             perceptual_difference: None,
+            perceptual_timeline: Default::default(),
+            absolute_timeline: Default::default(),
+            analysis_owner_names: Default::default(),
         };
-        let out = to_c_spectrum(snapshot);
+        let out = to_c_spectrum(snapshot.clone());
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
         assert_eq!(out.has_data, 1);
+        assert_eq!(out.post_has_data, 1);
         assert_eq!(out.sample_rate, 48_000);
         assert_eq!(out.channel_mode, KIRIN_SPECTRUM_CHANNEL_SIDE);
         assert_eq!(out.channels, 2);
@@ -3809,6 +4499,56 @@ mod spectrum_abi_tests {
         assert_eq!(out.display_db[0], -3.5);
         assert_eq!(out.display_db[SPECTRUM_BAND_COUNT - 1], -3.5);
         assert_eq!(out.presentation_end_samples, 48_000);
+        assert_eq!(out.aperture_samples, 4_096);
+        assert_eq!(out.fft_size, 8_192);
+        assert_eq!(out.approximate_below_hz, 35.15625);
+        let batch = to_c_spectrum_batch(snapshot);
+        // The four-byte POST-presence tail occupies the struct's former alignment padding.
+        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_112);
+        assert_eq!(std::mem::size_of::<KirinSpectrumBatch>(), 28_016);
+        assert_eq!(batch.count, 1);
+        assert_eq!(batch.latest.presentation_end_samples, 48_000);
+        assert_eq!(batch.frames[0].presentation_end_samples, 48_000);
+        assert_eq!(batch.frames[0].display_db[0], -3.5);
+    }
+
+    #[test]
+    fn unpaired_post_spectrum_is_distinct_from_exact_delta_at_the_abi() {
+        let snapshot = SpectrumViewSnapshot {
+            status: SpectrumViewStatus::NoPair,
+            analysis_mode: AnalysisViewMode::Spectrum,
+            channel_mode: SpectrumChannelMode::Lr,
+            channels: 2,
+            difference: None,
+            spectrum_timeline: Default::default(),
+            post_spectrum: Some(SpectrumFrame {
+                schema_version: kirin_measure::SPECTRUM_SCHEMA_VERSION,
+                sample_rate: 48_000,
+                aperture_samples: 4_096,
+                fft_size: 8_192,
+                band_count: SPECTRUM_BAND_COUNT as u16,
+                presentation_end_samples: 9_600,
+                generation: 4,
+                channel_mode: SpectrumChannelMode::Lr,
+                channels: 2,
+                min_hz: 10.0,
+                max_hz: 22_000.0,
+                dbfs: [-27.5; SPECTRUM_BAND_COUNT],
+            }),
+            post_spectrum_history: Default::default(),
+            perceptual_difference: None,
+            perceptual_timeline: Default::default(),
+            absolute_timeline: Default::default(),
+            analysis_owner_names: Default::default(),
+        };
+        let out = to_c_spectrum(snapshot);
+        assert_eq!(out.status, KIRIN_SPECTRUM_NO_PAIR);
+        assert_eq!(out.has_data, 0);
+        assert_eq!(out.post_has_data, 1);
+        assert_eq!(out.post_dbfs[0], -27.5);
+        assert_eq!(out.presentation_end_samples, 9_600);
+        assert_eq!(out.pre_dbfs, [0.0; SPECTRUM_BAND_COUNT]);
+        assert_eq!(out.display_db, [0.0; SPECTRUM_BAND_COUNT]);
     }
 
     #[test]
@@ -3822,23 +4562,32 @@ mod spectrum_abi_tests {
             std::mem::offset_of!(KirinPerceptualView, state_epoch_samples),
             48
         );
+        let difference = kirin_measure::PerceptualDifference {
+            presentation_end_samples: 96_000,
+            state_epoch_samples: 0,
+            sample_rate: 48_000,
+            aperture_samples: 4_800,
+            channel_mode: SpectrumChannelMode::Mid,
+            channels: 2,
+            pre_sharpness: 1.25,
+            post_sharpness: 0.85,
+            delta_sharpness: -0.40,
+        };
+        let mut perceptual_timeline = kirin_measure::PerceptualDifferenceTimeline::default();
+        perceptual_timeline.push(difference);
         let snapshot = SpectrumViewSnapshot {
             status: SpectrumViewStatus::Active,
             analysis_mode: AnalysisViewMode::Perceptual,
             channel_mode: SpectrumChannelMode::Mid,
             channels: 2,
             difference: None,
-            perceptual_difference: Some(kirin_measure::PerceptualDifference {
-                presentation_end_samples: 96_000,
-                state_epoch_samples: 0,
-                sample_rate: 48_000,
-                aperture_samples: 4_800,
-                channel_mode: SpectrumChannelMode::Mid,
-                channels: 2,
-                pre_sharpness: 1.25,
-                post_sharpness: 0.85,
-                delta_sharpness: -0.40,
-            }),
+            spectrum_timeline: Default::default(),
+            post_spectrum: None,
+            post_spectrum_history: Default::default(),
+            perceptual_difference: Some(difference),
+            perceptual_timeline,
+            absolute_timeline: Default::default(),
+            analysis_owner_names: Default::default(),
         };
         let out = to_c_perceptual(snapshot.clone());
         assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
@@ -3851,11 +4600,76 @@ mod spectrum_abi_tests {
         assert_eq!(out.presentation_end_samples, 96_000);
         assert_eq!(out.state_epoch_samples, 0);
 
+        let batch = to_c_perceptual_batch(snapshot.clone());
+        assert_eq!(std::mem::size_of::<KirinPerceptualBatch>(), 3_648);
+        assert_eq!(batch.count, 1);
+        assert_eq!(batch.latest.presentation_end_samples, 96_000);
+        assert_eq!(batch.frames[0].presentation_end_samples, 96_000);
+        assert_eq!(batch.frames[0].delta_sharpness, -0.40);
+
         let mut wrong_mode = snapshot;
         wrong_mode.analysis_mode = AnalysisViewMode::Spectrum;
         let hidden = to_c_perceptual(wrong_mode);
         assert_eq!(hidden.has_data, 0);
         assert!(hidden.delta_sharpness.is_nan());
+    }
+
+    #[test]
+    fn absolute_batch_preserves_exact_post_facts_without_delta() {
+        assert_eq!(std::mem::size_of::<KirinAbsoluteView>(), 64);
+        assert_eq!(std::mem::size_of::<KirinAbsoluteBatch>(), 4_168);
+        let mut absolute_timeline = kirin_measure::AbsoluteTimeline::default();
+        assert!(absolute_timeline.push(kirin_measure::AbsoluteFrame {
+            schema_version: kirin_measure::ABSOLUTE_SCHEMA_VERSION,
+            sample_rate: 48_000,
+            aperture_samples: 4_800,
+            presentation_end_samples: 9_600,
+            state_epoch_samples: 0,
+            generation: 7,
+            channels: 2,
+            lufs_m: Some(-18.5),
+            true_peak: Some(-2.0),
+            sharpness: Some(1.25),
+        }));
+        let batch = to_c_absolute_batch(SpectrumViewSnapshot {
+            status: SpectrumViewStatus::Active,
+            analysis_mode: AnalysisViewMode::Absolute,
+            channel_mode: SpectrumChannelMode::Lr,
+            channels: 2,
+            difference: None,
+            spectrum_timeline: Default::default(),
+            post_spectrum: None,
+            post_spectrum_history: Default::default(),
+            perceptual_difference: None,
+            perceptual_timeline: Default::default(),
+            absolute_timeline,
+            analysis_owner_names: Default::default(),
+        });
+        assert_eq!(batch.count, 1);
+        assert_eq!(batch.latest.lufs_m, -18.5);
+        assert_eq!(batch.latest.true_peak, -2.0);
+        assert_eq!(batch.latest.sharpness, 1.25);
+        assert_eq!(batch.latest.presentation_end_samples, 9_600);
+        assert_eq!(batch.latest.generation, 7);
+    }
+
+    #[test]
+    fn analysis_owner_names_are_bounded_utf8_and_null_terminated() {
+        assert_eq!(std::mem::size_of::<KirinAnalysisOwners>(), 138);
+        let owners = to_c_analysis_owners(["Mix".to_string(), "Vocal".to_string()]);
+        assert_eq!(owners.count, 2);
+        assert_eq!(&owners.names[0][..4], b"Mix\0");
+        assert_eq!(&owners.names[1][..6], b"Vocal\0");
+        assert!(owners.names[0][4..].iter().all(|byte| *byte == 0));
+        assert!(owners.names[1][6..].iter().all(|byte| *byte == 0));
+
+        let unicode = to_c_analysis_owners(["ボーカル".to_string(), String::new()]);
+        assert_eq!(unicode.count, 1);
+        let nul = unicode.names[0].iter().position(|byte| *byte == 0).unwrap();
+        assert_eq!(
+            std::str::from_utf8(&unicode.names[0][..nul]).unwrap(),
+            "ボーカル"
+        );
     }
 
     #[test]
@@ -3883,6 +4697,54 @@ mod spectrum_abi_tests {
         assert_eq!(
             spectrum_presentation_start(PendingCaptureWindow {
                 position_valid: false,
+                ..exact
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn attack_uses_exact_project_clock_when_presentation_callback_is_absent() {
+        let exact = PendingCaptureWindow {
+            position_valid: true,
+            position_samples: 9_600,
+            num_frames: 480,
+            clock_source: CaptureClockSource::ProjectTimeline,
+            presentation_latency: PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(2_048),
+            },
+            force_new_epoch: false,
+        };
+        assert_eq!(attack_timeline_start(exact), Some(11_648));
+        assert_eq!(
+            attack_timeline_start(PendingCaptureWindow {
+                presentation_latency: PresentationLatencySamples::default(),
+                ..exact
+            }),
+            Some(9_600)
+        );
+        assert_eq!(
+            attack_timeline_start(PendingCaptureWindow {
+                clock_source: CaptureClockSource::AudioRenderTimeline,
+                presentation_latency: PresentationLatencySamples::default(),
+                ..exact
+            }),
+            Some(9_600)
+        );
+        assert_eq!(
+            attack_timeline_start(PendingCaptureWindow {
+                position_valid: false,
+                presentation_latency: PresentationLatencySamples::default(),
+                ..exact
+            }),
+            None
+        );
+        assert_eq!(
+            attack_timeline_start(PendingCaptureWindow {
+                clock_source: CaptureClockSource::Unknown,
+                presentation_latency: PresentationLatencySamples::default(),
                 ..exact
             }),
             None
@@ -4040,39 +4902,6 @@ pub extern "C" fn kirin_hypha_create(sample_rate: u32, num_channels: u32) -> *mu
         Box::into_raw(Box::new(KirinHyphaEngine::new(sample_rate, num_channels)))
     }))
     .unwrap_or(std::ptr::null_mut())
-}
-
-/// 信号状態を設定（0=Inactive 1=Active 2=Bypassed）。
-///
-/// # Safety
-/// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_set_signal_state(handle: *mut KirinHyphaEngine, state: u8) {
-    // panic 捕捉時は no-op（音声経路に影響させない）。
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return;
-        }
-        unsafe { (*handle).set_signal_state(state) };
-    }));
-}
-
-/// 現在の信号状態を読む（0=Inactive 1=Active 2=Bypassed）。LED poller 系（read-only）。
-/// Measure Thread の heartbeat 停止検出で `Inactive` へ上書きされた値も反映する（B-113）。
-/// 殻 editor はこの値で表示分岐し、processBlock 停止後に stale な Active を表示しない。
-///
-/// # Safety
-/// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_get_signal_state(handle: *mut KirinHyphaEngine) -> u8 {
-    // panic / null は 0=Inactive（安全側＝表示は `---`）。
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return 0u8;
-        }
-        unsafe { (*handle).signal_state_abi() }
-    }))
-    .unwrap_or(0)
 }
 
 /// identity.json からライセンスコードを読む（0=Os 1=Sense 2=Unknown）。ハンドル不要。
@@ -4697,107 +5526,6 @@ pub unsafe extern "C" fn kirin_hypha_stop_all(handle: *mut KirinHyphaEngine) {
     }));
 }
 
-/// All Keep の「N ready」= pair 設定済の Active POST 数（B-102 / egui n_ready と同一・UI Thread）。
-/// null は 0。
-///
-/// # Safety
-/// `handle` は有効なハンドル。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_count_keep_ready(handle: *mut KirinHyphaEngine) -> usize {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return 0;
-        }
-        unsafe { (*handle).count_keep_ready() }
-    }))
-    .unwrap_or(0)
-}
-
-/// POST 側の pair claim を `out`（最大 `cap` 件）へ書き、書いた件数を返す（UI Thread）。
-/// GUI は PRE 候補名と照合して "Can Keep" / "Keep ready" / "In use" を表示する。
-///
-/// # Safety
-/// `handle` は有効なハンドル。`out` は `cap` 要素以上の書込可能 `KirinPostPairClaim` 配列。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_enumerate_post_pair_claims(
-    handle: *mut KirinHyphaEngine,
-    out: *mut KirinPostPairClaim,
-    cap: usize,
-) -> usize {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() || cap == 0 {
-            return 0;
-        }
-        let claims = unsafe { (*handle).enumerate_post_pair_claims() };
-        let n = claims.len().min(cap);
-        let slice = unsafe { std::slice::from_raw_parts_mut(out, n) };
-        for (dst, (iid, pair_pre_name, paired_pre_instance_id)) in
-            slice.iter_mut().zip(claims.into_iter().take(n))
-        {
-            write_c_buf(&mut dst.instance_id, &iid);
-            match pair_pre_name {
-                Some(name) => {
-                    write_c_buf(&mut dst.pair_pre_name, &name);
-                    dst.has_pair_pre_name = 1;
-                }
-                None => {
-                    write_c_buf(&mut dst.pair_pre_name, "");
-                    dst.has_pair_pre_name = 0;
-                }
-            }
-            match paired_pre_instance_id {
-                Some(instance_id) => {
-                    write_c_buf(&mut dst.paired_pre_instance_id, &instance_id);
-                    dst.has_paired_pre_instance_id = 1;
-                }
-                None => {
-                    write_c_buf(&mut dst.paired_pre_instance_id, "");
-                    dst.has_paired_pre_instance_id = 0;
-                }
-            }
-        }
-        n
-    }))
-    .unwrap_or(0)
-}
-
-/// pair 候補（Active な PRE）を `out`（最大 `cap` 件）へ書き、書いた件数を返す（B-102 / UI Thread）。
-/// `out` は呼び出し側が確保した `KirinPreCandidate[cap]`。`cap` を超える候補は切り捨てる。
-/// null / `cap==0` は 0。各 `instance_id` / `name` は null 終端（最大 63 文字 / `has_name` で名前有無）。
-///
-/// # Safety
-/// `handle` は有効なハンドル。`out` は `cap` 要素以上の書込可能 `KirinPreCandidate` 配列であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_enumerate_pre_candidates(
-    handle: *mut KirinHyphaEngine,
-    out: *mut KirinPreCandidate,
-    cap: usize,
-) -> usize {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() || cap == 0 {
-            return 0;
-        }
-        let cands = unsafe { (*handle).enumerate_pre_candidates() };
-        let n = cands.len().min(cap);
-        let slice = unsafe { std::slice::from_raw_parts_mut(out, n) };
-        for (dst, (iid, name)) in slice.iter_mut().zip(cands.into_iter().take(n)) {
-            write_c_buf(&mut dst.instance_id, &iid);
-            match name {
-                Some(nm) => {
-                    write_c_buf(&mut dst.name, &nm);
-                    dst.has_name = 1;
-                }
-                None => {
-                    write_c_buf(&mut dst.name, "");
-                    dst.has_name = 0;
-                }
-            }
-        }
-        n
-    }))
-    .unwrap_or(0)
-}
-
 /// POST の Δ を `out` に書く（3d-b / GUI 表示用）。値があれば true、競合/未計測なら false。
 /// `post.json` には Δ でなく POST 生メトリクスが入る。Δ はこの API で公開する。
 ///
@@ -4844,7 +5572,7 @@ pub unsafe extern "C" fn kirin_hypha_set_spectrum_visible(
 }
 
 /// Enable or disable the POST-only Perceptual Delta page. Its Sharpness analyzer replaces the
-/// optional FFT while visible; the two analysis modes never run in parallel.
+/// optional FFT while visible; optional modes never run in parallel within one instance.
 ///
 /// # Safety
 /// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
@@ -4858,6 +5586,25 @@ pub unsafe extern "C" fn kirin_hypha_set_perceptual_visible(
             return false;
         }
         unsafe { (*handle).set_perceptual_visible(visible) }
+    }))
+    .unwrap_or(false)
+}
+
+/// Enable or disable the POST-only absolute observation timeline. This mode is local to POST and
+/// never creates a PRE exchange request.
+///
+/// # Safety
+/// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_absolute_visible(
+    handle: *mut KirinHyphaEngine,
+    visible: bool,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { (*handle).set_absolute_visible(visible) }
     }))
     .unwrap_or(false)
 }
@@ -4904,6 +5651,29 @@ pub unsafe extern "C" fn kirin_hypha_poll_spectrum(
     .unwrap_or(false)
 }
 
+/// Poll a bounded batch of already-computed POST-minus-PRE Spectrum views. Status-only snapshots
+/// carry `count=0`; lock contention is a silent skipped UI tick.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers. UI Thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_spectrum_batch(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinSpectrumBatch,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_spectrum_batch() else {
+            return false;
+        };
+        unsafe { *out = to_c_spectrum_batch(snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
 /// Poll the latest exact-aperture POST-minus-PRE Sharpness observation.
 ///
 /// # Safety
@@ -4921,6 +5691,73 @@ pub unsafe extern "C" fn kirin_hypha_poll_perceptual(
             return false;
         };
         unsafe { *out = to_c_perceptual(snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Poll a non-destructive six-second exact Perceptual Delta timeline. A delayed UI reader receives
+/// every retained measured frame; no sample is interpolated and no consumer cursor mutates Rust.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers. UI Thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_perceptual_batch(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinPerceptualBatch,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_perceptual_batch() else {
+            return false;
+        };
+        unsafe { *out = to_c_perceptual_batch(snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Poll the retained six-second POST-only absolute observation timeline.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers. UI Thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_absolute_batch(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinAbsoluteBatch,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_absolute_batch() else {
+            return false;
+        };
+        unsafe { *out = to_c_absolute_batch(snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Poll the factual pair names that currently own the two optional Analysis kernel leases.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers. UI Thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_analysis_owners(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinAnalysisOwners,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(owner_names) = (unsafe { &*handle }).poll_analysis_owner_names() else {
+            return false;
+        };
+        unsafe { *out = to_c_analysis_owners(owner_names) };
         true
     }))
     .unwrap_or(false)
@@ -4966,54 +5803,6 @@ pub unsafe extern "C" fn kirin_hypha_poll_record_display(
         true
     }))
     .unwrap_or(false)
-}
-
-/// state chunk から復元した識別子を設定する（方式A / 3c）。**`enable_pre_writes` の前**に呼ぶ。
-/// 各引数は null 終端 C 文字列（null 可＝空文字扱い）。空のキーは enable 時に生成される。
-///
-/// # Safety
-/// `handle` は有効なハンドル。各文字列ポインタは null か有効な null 終端 C 文字列であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_set_identity(
-    handle: *mut KirinHyphaEngine,
-    instance_id: *const c_char,
-    project_uuid: *const c_char,
-    daw_session_uuid: *const c_char,
-    name: *const c_char,
-) {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return;
-        }
-        let iid = unsafe { read_c_str(instance_id) };
-        let puid = unsafe { read_c_str(project_uuid) };
-        let dsid = unsafe { read_c_str(daw_session_uuid) };
-        let nm = unsafe { read_c_str(name) };
-        unsafe { (*handle).set_identity(iid, puid, dsid, nm) };
-    }));
-}
-
-/// 現在の識別子を `out` に書く（JUCE が getStateInformation で chunk へ保存）。
-/// 各フィールドは null 終端 C 文字列（最大 63 文字）。
-///
-/// # Safety
-/// `handle`/`out` は有効。`out` は書込可能な `KirinIdentity`。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_get_identity(
-    handle: *mut KirinHyphaEngine,
-    out: *mut KirinIdentity,
-) {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() {
-            return;
-        }
-        let id = unsafe { (*handle).identity_snapshot() };
-        let out = unsafe { &mut *out };
-        write_c_buf(&mut out.instance_id, &id.instance_id);
-        write_c_buf(&mut out.project_uuid, &id.project_uuid);
-        write_c_buf(&mut out.daw_session_uuid, &id.daw_session_uuid);
-        write_c_buf(&mut out.name, &id.name);
-    }));
 }
 
 /// B-128 (G-115-373 / D3): restore identity の anomaly を **当該 instance の分だけ** 1 件 `out` に drain
@@ -5237,6 +6026,247 @@ pub unsafe extern "C" fn kirin_hypha_poll_session(
     .unwrap_or(false)
 }
 
+/// Record/Keepから独立した常設メーターセッションを1スナップショットで取得する。
+/// Empty状態も成立した事実なのでtrueを返し、未成立値はNaNになる。
+///
+/// # Safety
+/// `handle`/`out` は有効。UI Threadから呼ぶこと。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_meter_session(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinMeterSession,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_meter_session() else {
+            return false;
+        };
+        unsafe { *out = to_c_meter_session(&snapshot) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Observatoryの測定事実を1つのversion付きフレームとして取得する。
+/// 組立前後でsignal stateが変わった場合はfalseとし、異なる時点を混ぜない。
+///
+/// # Safety
+/// `handle`/`out` は有効。UI Threadから呼ぶこと。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_observatory_frame(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinObservatoryFrame,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let engine = unsafe { &*handle };
+        let signal_before = engine.signal_state_abi();
+        let Some(snapshot) = engine.poll_meter_session() else {
+            return false;
+        };
+        let delta = engine.poll_delta().map_or_else(
+            || to_c_delta(&DeltaResult::default()),
+            |value| to_c_delta(&value),
+        );
+        let signal_after = engine.signal_state_abi();
+        if signal_before != signal_after {
+            return false;
+        }
+        let (lra_state, lra_elapsed_seconds) = lra_readiness(&snapshot);
+        let frame = KirinObservatoryFrame {
+            version: KIRIN_OBSERVATORY_FRAME_VERSION,
+            signal_state: signal_after,
+            lra_state,
+            delta_available: delta_has_finite_fact(&delta) as u8,
+            reserved: 0,
+            lra_elapsed_seconds,
+            meter: to_c_meter_session(&snapshot),
+            delta,
+        };
+        unsafe { *out = frame };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// 常設Meter SessionのTIME履歴を古い順で最大`out_capacity`件取得する。
+/// 10 Hzはexact、1 Hz/0.1 Hzはmin/max/mean集約であり、同じ線として偽装しない。
+///
+/// # Safety
+/// `out_count`は書き込み可能、`out_capacity > 0`なら`out`は同数要素を書き込み可能であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_meter_history(
+    handle: *mut KirinHyphaEngine,
+    resolution: u8,
+    out: *mut KirinMeterHistoryEntry,
+    out_capacity: u32,
+    out_count: *mut u32,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null()
+            || out_count.is_null()
+            || (out_capacity > 0 && out.is_null())
+            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+        {
+            return false;
+        }
+        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
+            return false;
+        };
+        let Some(entries) =
+            (unsafe { &*handle }).poll_meter_history(resolution, out_capacity as usize)
+        else {
+            return false;
+        };
+        let count = u32::try_from(entries.len()).unwrap_or(u32::MAX);
+        for (index, entry) in entries.into_iter().enumerate() {
+            unsafe { out.add(index).write(to_c_history_entry(entry)) };
+        }
+        unsafe { *out_count = out_capacity.min(count) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// 指定時間範囲を最大`out_capacity`点へ集約して取得する。
+///
+/// # Safety
+/// `handle`は有効なエンジンを指すこと。`out_count`は書き込み可能で、`out_capacity > 0`
+/// のとき`out`は同数以上の要素を書き込める領域を指すこと。UI Threadから呼ぶこと。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_meter_history_decimated(
+    handle: *mut KirinHyphaEngine,
+    resolution: u8,
+    max_entries: u32,
+    out: *mut KirinMeterHistoryEntry,
+    out_capacity: u32,
+    out_count: *mut u32,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null()
+            || out_count.is_null()
+            || (out_capacity > 0 && out.is_null())
+            || max_entries as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+        {
+            return false;
+        }
+        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
+            return false;
+        };
+        let Some(entries) = (unsafe { &*handle }).poll_meter_history_decimated(
+            resolution,
+            max_entries as usize,
+            out_capacity as usize,
+        ) else {
+            return false;
+        };
+        for (index, entry) in entries.iter().copied().enumerate() {
+            unsafe { out.add(index).write(to_c_history_entry(entry)) };
+        }
+        unsafe { *out_count = entries.len() as u32 };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// 同じDAW presentation sample終端で結合できたPOST−PRE TIME履歴だけを返す。
+/// 欠測・重複時刻・PRE roleは値を生成しない。
+///
+/// # Safety
+/// `out_count`は書き込み可能、`out_capacity > 0`なら`out`は同数要素を書き込み可能であること。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_meter_delta_history(
+    handle: *mut KirinHyphaEngine,
+    resolution: u8,
+    out: *mut KirinMeterHistoryEntry,
+    out_capacity: u32,
+    out_count: *mut u32,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null()
+            || out_count.is_null()
+            || (out_capacity > 0 && out.is_null())
+            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+        {
+            return false;
+        }
+        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
+            return false;
+        };
+        let Some(entries) =
+            (unsafe { &*handle }).poll_meter_delta_history(resolution, out_capacity as usize)
+        else {
+            return false;
+        };
+        let count = u32::try_from(entries.len()).unwrap_or(u32::MAX);
+        for (index, entry) in entries.into_iter().enumerate() {
+            unsafe { out.add(index).write(to_c_history_entry(entry)) };
+        }
+        unsafe { *out_count = out_capacity.min(count) };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// exact join済みPOST−PRE履歴を最大`out_capacity`点へ集約して取得する。
+///
+/// # Safety
+/// `handle`は有効なエンジンを指すこと。`out_count`は書き込み可能で、`out_capacity > 0`
+/// のとき`out`は同数以上の要素を書き込める領域を指すこと。UI Threadから呼ぶこと。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_meter_delta_history_decimated(
+    handle: *mut KirinHyphaEngine,
+    resolution: u8,
+    max_entries: u32,
+    out: *mut KirinMeterHistoryEntry,
+    out_capacity: u32,
+    out_count: *mut u32,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null()
+            || out_count.is_null()
+            || (out_capacity > 0 && out.is_null())
+            || max_entries as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
+        {
+            return false;
+        }
+        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
+            return false;
+        };
+        let Some(entries) = (unsafe { &*handle }).poll_meter_delta_history_decimated(
+            resolution,
+            max_entries as usize,
+            out_capacity as usize,
+        ) else {
+            return false;
+        };
+        for (index, entry) in entries.iter().copied().enumerate() {
+            unsafe { out.add(index).write(to_c_history_entry(entry)) };
+        }
+        unsafe { *out_count = entries.len() as u32 };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// 利用者操作で常設メーターセッションを破棄する。競合・未生成時はfalse。
+///
+/// # Safety
+/// `handle` は有効。UI/control Threadから呼ぶこと。
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_reset_meter_session(handle: *mut KirinHyphaEngine) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        !handle.is_null() && unsafe { (&*handle).reset_meter_session() }
+    }))
+    .unwrap_or(false)
+}
+
 /// ランタイムを破棄（shutdown → Measure Thread join）。
 ///
 /// # Safety
@@ -5383,153 +6413,6 @@ mod admission_contract_tests {
 }
 
 #[cfg(test)]
-mod b106_shared_id_tests {
-    //! B-106/B-301: 空/legacy session の「role fallback・first-wins・live-read」と、
-    //! 保存済み document の「非空 daw_session_uuid ごとの identity group」を確認する。
-    //! `resolve_shared_id` / `resolve_role_identity` はセルを引数で受けるため、モジュール global
-    //! static を触らずに 2 インスタンス相当の収束/分離を検証できる。
-    use super::{read_shared_id, resolve_role_identity, resolve_shared_id, IdentityGroups};
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex, RwLock};
-
-    #[test]
-    fn second_instance_adopts_shared_value_never_overwrites() {
-        let cell = Arc::new(RwLock::new(String::new()));
-        // instance A enable: 自分の chunk uuid で seed。
-        let a = resolve_shared_id(&cell, "proj-A");
-        // instance B enable: 別 chunk uuid を渡しても上書きせず A の値を採用。
-        let b = resolve_shared_id(&cell, "proj-B");
-        assert_eq!(a, "proj-A");
-        assert_eq!(
-            b, "proj-A",
-            "2 つ目は共有値を採用（毎回生成・上書きの全廃）"
-        );
-        assert_eq!(read_shared_id(&cell), "proj-A");
-    }
-
-    #[test]
-    fn write_shelf_equals_all_io_thread_scan_shelves_even_when_overwritten_midway() {
-        let cell = Arc::new(RwLock::new(String::new()));
-        // spawn 相当: 各 io_thread は共有 Arc の clone を持ち、毎 tick live-read する。
-        let scan_clone_a = Arc::clone(&cell);
-        let scan_clone_b = Arc::clone(&cell);
-        // A enable → broadcast write 棚（keep_all が live-read する値と同一経路）。
-        let write_shelf = resolve_shared_id(&cell, "proj-1");
-        // B enable が「途中で値を変える」（2 つ目が別 candidate）。
-        let _ = resolve_shared_id(&cell, "proj-2");
-        // write 棚 == 全 io_thread scan 棚 が一致し続ける（同一実体 = 恒等）。
-        assert_eq!(write_shelf, "proj-1");
-        assert_eq!(read_shared_id(&scan_clone_a), write_shelf);
-        assert_eq!(read_shared_id(&scan_clone_b), write_shelf);
-        assert_eq!(read_shared_id(&cell), write_shelf);
-    }
-
-    #[test]
-    fn empty_candidate_generates_once_then_all_share() {
-        let cell = Arc::new(RwLock::new(String::new()));
-        // 空ソング / 新規: chunk 空 → 生成して seed。
-        let a = resolve_shared_id(&cell, "");
-        assert!(!a.is_empty(), "空 candidate は生成して seed する");
-        // 2 つ目も chunk 空だが、生成済み共有値を採用（毎回生成しない）。
-        let b = resolve_shared_id(&cell, "");
-        assert_eq!(a, b, "2 つ目は生成済み共有値を採用");
-        // 別 io_thread の scan 棚とも一致。
-        let scan = Arc::clone(&cell);
-        assert_eq!(read_shared_id(&scan), a);
-    }
-
-    #[test]
-    fn empty_cell_seeds_from_nonempty_chunk_candidate() {
-        // chunk 復元値（非空）があれば、それで seed する（生成しない）。
-        let cell = Arc::new(RwLock::new(String::new()));
-        let resolved = resolve_shared_id(&cell, "restored-uuid");
-        assert_eq!(resolved, "restored-uuid");
-        assert_eq!(read_shared_id(&cell), "restored-uuid");
-    }
-
-    #[test]
-    fn distinct_nonempty_daw_sessions_do_not_share_role_identity() {
-        let fallback_project = Arc::new(RwLock::new(String::new()));
-        let fallback_daw = Arc::new(RwLock::new(String::new()));
-        let groups: IdentityGroups = Mutex::new(HashMap::new());
-
-        let first = resolve_role_identity(
-            &fallback_project,
-            &fallback_daw,
-            &groups,
-            "project-mastering",
-            "daw-mastering",
-        );
-        let second = resolve_role_identity(
-            &fallback_project,
-            &fallback_daw,
-            &groups,
-            "project-song",
-            "daw-song",
-        );
-
-        assert_eq!(first, ("project-mastering".into(), "daw-mastering".into()));
-        assert_eq!(second, ("project-song".into(), "daw-song".into()));
-        assert!(
-            read_shared_id(&fallback_project).is_empty(),
-            "saved-document grouping must not seed the legacy fallback cell"
-        );
-    }
-
-    #[test]
-    fn empty_daw_session_remains_empty_for_runtime_legacy_bridge() {
-        let fallback_project = Arc::new(RwLock::new(String::new()));
-        let fallback_daw = Arc::new(RwLock::new(String::new()));
-        let groups: IdentityGroups = Mutex::new(HashMap::new());
-
-        let resolved = resolve_role_identity(
-            &fallback_project,
-            &fallback_daw,
-            &groups,
-            "project-legacy",
-            "",
-        );
-
-        assert_eq!(resolved.0, "project-legacy");
-        assert_eq!(
-            resolved.1, "",
-            "empty/legacy daw_session_uuid is not an explicit document identity"
-        );
-        assert!(
-            read_shared_id(&fallback_daw).is_empty(),
-            "legacy daw fallback cell must not fabricate an explicit DAW session"
-        );
-    }
-}
-
-#[cfg(test)]
-mod b113_signal_state_tests {
-    //! B-113: editor の表示状態源を Rust の signal_state 直読に統一する getter
-    //! （`kirin_hypha_get_signal_state` → `signal_state_abi` → `signal_state_to_abi`）の
-    //! 写像不変条件を決定的に検証する。`signal_state_to_abi` は純粋関数（Measure Thread の
-    //! heartbeat 上書きと独立）なので、engine を構築せずに `set_signal_state` の逆写像である
-    //! ことを確認できる（heartbeat 停止 → Inactive 上書きの反映そのものは DAW 実測 / kirin_measure
-    //! 側 load_signal_state テストで担保）。
-    use super::{signal_state_to_abi, SignalState};
-
-    #[test]
-    fn signal_state_to_abi_is_inverse_of_set_signal_state() {
-        // set_signal_state の写像: 1→Active / 2→Bypassed / _→Inactive。その厳密な逆。
-        assert_eq!(
-            signal_state_to_abi(SignalState::Inactive),
-            0,
-            "Inactive → 0"
-        );
-        assert_eq!(signal_state_to_abi(SignalState::Active), 1, "Active → 1");
-        assert_eq!(
-            signal_state_to_abi(SignalState::Bypassed),
-            2,
-            "Bypassed → 2"
-        );
-    }
-}
-
-#[cfg(test)]
 mod b474_watch_restart_tests {
     use super::watch_transport_starts_new_pass;
 
@@ -5546,48 +6429,6 @@ mod b474_watch_restart_tests {
     #[test]
     fn unavailable_boundary_cannot_start_a_pass_while_transport_is_stopped() {
         assert!(!watch_transport_starts_new_pass(false, true, false, true));
-    }
-}
-
-#[cfg(test)]
-mod legacy_nih_state_tests {
-    use super::{decode_legacy_nih_state_bytes, KirinLegacyNihState};
-    use std::ffi::CStr;
-
-    fn field(state: &KirinLegacyNihState, which: &str) -> String {
-        let ptr = match which {
-            "instance_id" => state.instance_id.as_ptr(),
-            "project_uuid" => state.project_uuid.as_ptr(),
-            "daw_session_uuid" => state.daw_session_uuid.as_ptr(),
-            "name" => state.name.as_ptr(),
-            "pair_pre_name" => state.pair_pre_name.as_ptr(),
-            _ => unreachable!(),
-        };
-        unsafe { CStr::from_ptr(ptr) }
-            .to_string_lossy()
-            .into_owned()
-    }
-
-    #[test]
-    fn decodes_pre_identity_from_exact_nih_fields_contract() {
-        let bytes = br#"{"version":"1.1.26","params":{},"fields":{"instance_id":"\"iid-pre\"","project_uuid":"\"project-a\"","daw_session_uuid":"\"session-a\"","name":"\"Drum\""}}"#;
-        let state = decode_legacy_nih_state_bytes(bytes).expect("legacy PRE state");
-        assert_eq!(field(&state, "instance_id"), "iid-pre");
-        assert_eq!(field(&state, "project_uuid"), "project-a");
-        assert_eq!(field(&state, "daw_session_uuid"), "session-a");
-        assert_eq!(field(&state, "name"), "Drum");
-        assert_eq!(field(&state, "pair_pre_name"), "");
-    }
-
-    #[test]
-    fn decodes_post_pair_and_rejects_unrelated_or_malformed_state() {
-        let bytes = br#"{"version":"1.1.26","params":{"bypass":{"Bool":false}},"fields":{"instance_id":"\"iid-post\"","project_uuid":"\"project-a\"","daw_session_uuid":"\"session-a\"","pair_pre_name":"\"2Mix\"","pair_claimed_at":"12.0"}}"#;
-        let state = decode_legacy_nih_state_bytes(bytes).expect("legacy POST state");
-        assert_eq!(field(&state, "instance_id"), "iid-post");
-        assert_eq!(field(&state, "pair_pre_name"), "2Mix");
-        assert!(decode_legacy_nih_state_bytes(br#"{"fields":{"other":"\"x\""}}"#).is_none());
-        assert!(decode_legacy_nih_state_bytes(b"not-json").is_none());
-        assert!(decode_legacy_nih_state_bytes(&vec![b' '; 1024 * 1024 + 1]).is_none());
     }
 }
 

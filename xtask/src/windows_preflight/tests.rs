@@ -129,6 +129,18 @@ fn preflight_requires_windows_ci_job_static_guard() {
 }
 
 #[test]
+fn preflight_requires_windows_audio_transparency_contract() {
+    let bad = CI_WORKFLOW.replace(
+        "--target KirinAudioTransparencyContractTests",
+        "--target KirinUiRenderContractTests",
+    );
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("must build the audio transparency host contract"));
+}
+
+#[test]
 fn preflight_rejects_static_guard_mentioned_only_in_comment() {
     let bad = CI_WORKFLOW.replace(
         "run: cargo run -p xtask --locked -- windows-preflight",
@@ -216,25 +228,71 @@ fn preflight_requires_windows_artifact_upload_error_on_missing_files() {
 #[test]
 fn preflight_requires_windows_release_package_script() {
     let bad = CI_WORKFLOW.replace(
-        "node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs",
-        "Write-Host skip-windows-package",
+        "node scripts/windows/build-installer.mjs",
+        "Write-Host skip-windows-installer",
     );
     let err = verify_windows_ci_job(&bad).unwrap_err();
     assert!(err
         .to_string()
-        .contains("must run the Windows VST3 release package script"));
+        .contains("must run the Windows installer build script"));
+}
+
+#[test]
+fn preflight_requires_pinned_inno_release_attestation() {
+    let bad = CI_WORKFLOW.replace(
+        "gh release verify-asset is-6_7_3 'innosetup-6.7.3.exe' --repo jrsoftware/issrc",
+        "gh release verify-asset 'innosetup-6.7.3.exe' --repo jrsoftware/issrc",
+    );
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("must verify Inno Setup against its pinned release attestation"));
+}
+
+#[test]
+fn preflight_requires_quoted_portable_inno_install() {
+    let bad = CI_WORKFLOW.replace(
+        r#"/PORTABLE=1 /DIR=`"$installDir`" /LOG=`"$installLog`""#,
+        "/DIR=$installDir",
+    );
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("must quote the pinned Inno Setup destination"));
 }
 
 #[test]
 fn preflight_requires_windows_release_package_upload() {
     let bad = CI_WORKFLOW.replace(
-        "name: kirin-hypha-windows-vst3-ls-package",
+        "name: kirin-hypha-windows-installer",
         "name: kirin-hypha-windows-vst3-only",
     );
     let err = verify_windows_ci_job(&bad).unwrap_err();
     assert!(err
         .to_string()
-        .contains("package artifact must use a stable artifact name"));
+        .contains("primary installer must use a stable artifact name"));
+}
+
+#[test]
+fn preflight_requires_installer_post_install_verification() {
+    let bad = CI_WORKFLOW.replace(
+        "scripts/windows/verify-installer.ps1",
+        "Write-Host skip-installer-verification",
+    );
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("must run the installer verification script"));
+}
+
+#[test]
+fn preflight_requires_fail_closed_esigner_secret_route() {
+    let bad = CI_WORKFLOW.replace(
+        "ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}",
+        "ESIGNER_TOTP_SECRET: hardcoded",
+    );
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err.to_string().contains("only from repository secrets"));
 }
 
 #[test]

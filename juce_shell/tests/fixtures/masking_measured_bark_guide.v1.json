@@ -1,10 +1,10 @@
 {
   "format": "kirin_pre_display_guide",
-  "version": "1.0",
+  "version": "1.1",
   "guide_id": "11111111-1111-4111-8111-111111111111",
   "revision": 7,
   "created_at": "2026-08-15T12:00:00.000Z",
-  "content_hash": "76c628baf4188b63ea16533659ef7763070082fda622908f9ae1a44bc998336f",
+  "content_hash": "54042d99e9e0c6f5f2543e49e4704a636147271a220d675ec527946f9cdaedef",
   "producer": {
     "session_id": "22222222-2222-4222-8222-222222222222",
     "work_id": null,
@@ -42,9 +42,21 @@
       "source_a",
       "source_b"
     ],
+    "review_selections": [
+      {
+        "selection_id": "review_0001",
+        "start_ns": 0,
+        "end_ns": 4000000000,
+        "focus_band": {
+          "low_hz": 90,
+          "high_hz": 220
+        }
+      }
+    ],
     "intervals": [
       {
         "item_id": "mask_0001",
+        "selection_ref": "review_0001",
         "start_ns": 1000000000,
         "end_ns": 2000000000,
         "frequency_state": "measured",
@@ -56,6 +68,7 @@
       },
       {
         "item_id": "mask_0002",
+        "selection_ref": "review_0001",
         "start_ns": 2000000000,
         "end_ns": 2500000000,
         "frequency_state": "unlocated",

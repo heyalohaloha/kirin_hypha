@@ -23,6 +23,7 @@
  *   - push_samples: Audio Thread 単独・RT-safe（内部は rtrb push + heartbeat++ のみ）.
  *   - poll_result : UI Thread（内部は try_lock 非ブロッキング）.
  *   - push_samples は毎オーディオブロック呼ぶこと（B-118/G-115-245: ~3s 呼ばないと計測が Inactive に落ちる）.
+ *   - set_host_component_active は VST3 lifecycle thread 専用。transport/無音と component OFF を分離する.
  */
 #ifndef KIRIN_HYPHA_FFI_H
 #define KIRIN_HYPHA_FFI_H
@@ -58,7 +59,7 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_DELTA_MODE_PRE_INACTIVE 4u
 
 #define KIRIN_SPECTRUM_BAND_COUNT 256u
-#define KIRIN_SPECTRUM_DISPLAY_RANGE_DB 18.0f
+#define KIRIN_SPECTRUM_DISPLAY_RANGE_DB 24.0f
 #define KIRIN_SPECTRUM_HIDDEN 0u
 #define KIRIN_SPECTRUM_NO_PAIR 1u
 #define KIRIN_SPECTRUM_WARMING_UP 2u
@@ -68,12 +69,38 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_SPECTRUM_CHANNEL_LR 0u
 #define KIRIN_SPECTRUM_CHANNEL_MID 1u
 #define KIRIN_SPECTRUM_CHANNEL_SIDE 2u
+#define KIRIN_ANALYSIS_SLOT_COUNT 2u
+#define KIRIN_ANALYSIS_OWNER_NAME_CAPACITY 65u
 
 #define KIRIN_RECORD_DISPLAY_WATCH 0u
 #define KIRIN_RECORD_DISPLAY_LIVE 1u
 #define KIRIN_RECORD_DISPLAY_FINALIZING 2u
 #define KIRIN_RECORD_DISPLAY_RESULT_HOLD 3u
 #define KIRIN_RECORD_DISPLAY_UNAVAILABLE 4u
+
+#define KIRIN_METER_SESSION_EMPTY 0u
+#define KIRIN_METER_SESSION_ACTIVE 1u
+#define KIRIN_METER_SESSION_PAUSED 2u
+
+#define KIRIN_BALANCE_UNAVAILABLE 0u
+#define KIRIN_BALANCE_NUMERIC 1u
+#define KIRIN_BALANCE_LEFT_ONLY 2u
+#define KIRIN_BALANCE_RIGHT_ONLY 3u
+#define KIRIN_STEREO_FIELD_SIZE 25u
+#define KIRIN_STEREO_FIELD_BINS 625u
+
+#define KIRIN_METER_HISTORY_10_HZ 0u
+#define KIRIN_METER_HISTORY_1_HZ 1u
+#define KIRIN_METER_HISTORY_0_1_HZ 2u
+#define KIRIN_METER_HISTORY_10_HZ_CAPACITY 6000u
+#define KIRIN_METER_HISTORY_1_HZ_CAPACITY 7200u
+#define KIRIN_METER_HISTORY_0_1_HZ_CAPACITY 8640u
+#define KIRIN_METER_HISTORY_MAX_ENTRIES 8640u
+
+#define KIRIN_OBSERVATORY_FRAME_VERSION 2u
+#define KIRIN_LRA_UNAVAILABLE 0u
+#define KIRIN_LRA_WARMING 1u
+#define KIRIN_LRA_READY 2u
 
 /* RT 計測結果. 各 double の「値なし」は NaN. */
 typedef struct {
@@ -106,6 +133,66 @@ typedef struct {
   double lra;           /* EBU R128 Loudness Range [LU] */
   double max_true_peak; /* セッション内 True Peak 最大 [dBTP] */
 } KirinSessionSummary;
+
+/* Record/Keepから独立した常設メーターセッション。値なしはNaN。
+ * current/session値はobserved_framesの同一100ms境界から生成される。 */
+typedef struct {
+  uint64_t generation;
+  uint64_t active_frames;   /* 受理したActive音声の総フレーム数 */
+  uint64_t observed_frames; /* 全指標が共有する100ms測定境界 */
+  uint32_t sample_rate;
+  uint8_t state;            /* KIRIN_METER_SESSION_* */
+  uint8_t reserved[3];
+  double lufs_m;
+  double lufs_s;
+  double lufs_i;
+  double lra;
+  double true_peak;
+  double max_true_peak;
+  double plr;
+  uint8_t channels;
+  uint8_t balance_state; /* KIRIN_BALANCE_* */
+  uint8_t stereo_reserved[6];
+  double sample_peak_dbfs[2];
+  double sample_peak_hold_dbfs[2];
+  double channel_true_peak_dbtp[2];
+  double channel_max_true_peak_dbtp[2];
+  uint64_t clip_events[2];
+  double balance_db;  /* positive=L, negative=R; one-sidedはbalance_stateで表す */
+  double correlation; /* fixed 3 s; denominator 0/mono/未成立はNaN */
+  uint8_t field_size; /* 0=unavailable, otherwise KIRIN_STEREO_FIELD_SIZE */
+  uint8_t field_observation_count; /* rolling 100 ms observations, maximum 30 */
+  uint8_t field_reserved[6];
+  /* rolling 3 s MID/SIDE density; row-major top-left, shape-normalized 0..255 */
+  uint8_t field_density[KIRIN_STEREO_FIELD_BINS];
+  double max_lufs_m; /* EBU Mode Maximum Momentary through observed_frames */
+} KirinMeterSession;
+
+typedef struct {
+  double min;
+  double max;
+  double mean;
+} KirinMeterHistoryRange;
+
+/* TIME履歴1点。10 Hzはexact（min=max=mean）、低rate層は100 ms事実の集約。 */
+typedef struct {
+  uint64_t generation;
+  uint64_t run_id;
+  uint64_t first_observed_frames;
+  uint64_t last_observed_frames;
+  int64_t first_timeline_endpoint_samples; /* 不明はINT64_MIN */
+  int64_t last_timeline_endpoint_samples;  /* 不明はINT64_MIN */
+  uint16_t observation_count;
+  uint8_t resolution; /* KIRIN_METER_HISTORY_* */
+  uint8_t reserved;
+  /* この履歴点の区間内で新たに始まったsample clip run数。0=L, 1=R。 */
+  uint32_t clip_event_count[2];
+  KirinMeterHistoryRange lufs_m;
+  KirinMeterHistoryRange lufs_s;
+  KirinMeterHistoryRange true_peak;
+  KirinMeterHistoryRange correlation;
+  KirinMeterHistoryRange plr;
+} KirinMeterHistoryEntry;
 
 /* state chunk 往復する識別子（方式A）. 各フィールドは null 終端 C 文字列（最大 63 + null）.
  * project_hash は派生値のため含めない（JUCE は下記 4 キーを chunk に保存する）. */
@@ -144,9 +231,24 @@ typedef struct {
   double lufs_s;        /* Δ LUFS-S (末尾追加で既存 offset 不変) */
 } KirinDelta;
 
+/* Observatoryが1回のUI pollで受け取るversion付き正本。
+ * current値の表示可否はsignal_state、累積値はmeter.state、LRAはlra_stateが所有する。
+ * pair接続状態は別のcontrol-plane事実であり、この計測フレームには混ぜない。 */
+typedef struct {
+  uint32_t version;       /* KIRIN_OBSERVATORY_FRAME_VERSION */
+  uint8_t signal_state;   /* KIRIN_SIGNAL_STATE_* */
+  uint8_t lra_state;      /* KIRIN_LRA_* */
+  uint8_t delta_available;/* ActiveかつfiniteなPOST-PRE測定値が1つ以上ある */
+  uint8_t reserved;
+  double lra_elapsed_seconds;
+  KirinMeterSession meter;
+  KirinDelta delta;
+} KirinObservatoryFrame;
+
 /* POST専用Spectrum表示. pre/post_dbfsはdisplay_dbの正確な元フレーム、display_dbは
- * 符号付きPOST-PRE。描画側が±18 dBへ収めるが、Rust内部のraw差分はclipしない。
- * presentation_end_samplesは両者が一致した実フレームの終端。has_data=0時はstatusだけが有効。 */
+ * 符号付きPOST-PRE。描画側が±24 dBへ収めるが、Rust内部のraw差分はclipしない。
+ * presentation_end_samplesは実フレームの終端。has_dataはexact Δ、post_has_dataはPOST絶対値を表し、
+ * PAIR不在ではhas_data=0かつpost_has_data=1になり得る。 */
 typedef struct {
   uint8_t status;       /* KIRIN_SPECTRUM_* */
   uint8_t has_data;
@@ -159,7 +261,22 @@ typedef struct {
   float post_dbfs[KIRIN_SPECTRUM_BAND_COUNT];
   float display_db[KIRIN_SPECTRUM_BAND_COUNT];
   int64_t presentation_end_samples; /* 末尾追加: 既存field offsetを不変に保つ */
+  uint32_t aperture_samples; /* host rate追従のexact aperture */
+  uint32_t fft_size;         /* apertureに対応する2x以上のFFT layout */
+  float approximate_below_hz; /* 3周期未満: 値は保持し周波数labelだけ近似表示 */
+  uint8_t post_has_data; /* post_dbfsが実測POST Spectrumを持つ */
+  uint8_t post_reserved[3];
 } KirinSpectrumView;
+
+#define KIRIN_SPECTRUM_BATCH_CAPACITY 8
+
+/* UI scheduling stall用の固定長回収窓。既に算出済みのexact差分だけを古い順に保持する。 */
+typedef struct {
+  KirinSpectrumView latest; /* status-only時も有効 */
+  uint32_t count;
+  uint32_t reserved;
+  KirinSpectrumView frames[KIRIN_SPECTRUM_BATCH_CAPACITY];
+} KirinSpectrumBatch;
 
 /* POST専用Perceptual Delta表示. 同一100 ms aperture / presentation endpointで一致した
  * PRE/POST Sharpnessだけを公開する。delta_sharpnessは符号付きPOST-PREでclipしない。 */
@@ -177,6 +294,49 @@ typedef struct {
   int64_t state_epoch_samples; /* 末尾追加: PRE/POSTの共通状態開始点 */
 } KirinPerceptualView;
 
+#define KIRIN_PERCEPTUAL_BATCH_CAPACITY 64
+
+/* UI遅延後も実測済み100 ms frameを失わない非破壊snapshot。framesは古い順。 */
+typedef struct {
+  KirinPerceptualView latest; /* status-only時も有効 */
+  uint32_t count;
+  uint32_t reserved;
+  KirinPerceptualView frames[KIRIN_PERCEPTUAL_BATCH_CAPACITY];
+} KirinPerceptualBatch;
+
+/* POST単独の100 ms絶対値観察frame。差分・採点・警告色を含まない。値なしはNaN。 */
+typedef struct {
+  uint8_t status;       /* KIRIN_SPECTRUM_*（解析枠と準備状態のみ） */
+  uint8_t has_data;
+  uint8_t channels;
+  uint8_t reserved;
+  uint32_t sample_rate;
+  uint32_t aperture_samples;
+  double lufs_m;
+  double true_peak;
+  double sharpness;
+  int64_t presentation_end_samples;
+  int64_t state_epoch_samples;
+  uint64_t generation;
+} KirinAbsoluteView;
+
+#define KIRIN_ABSOLUTE_BATCH_CAPACITY 64
+
+/* 同じ6秒時間軸へ重ねる絶対値timeline。各指標は独立した固定scale、framesは古い順。 */
+typedef struct {
+  KirinAbsoluteView latest;
+  uint32_t count;
+  uint32_t reserved;
+  KirinAbsoluteView frames[KIRIN_ABSOLUTE_BATCH_CAPACITY];
+} KirinAbsoluteBatch;
+
+/* 2枠が使用中のとき、そのkernel leaseを保持するpair名。UTF-8 null終端、slot順。 */
+typedef struct {
+  uint8_t count;
+  uint8_t reserved[7];
+  char names[KIRIN_ANALYSIS_SLOT_COUNT][KIRIN_ANALYSIS_OWNER_NAME_CAPACITY];
+} KirinAnalysisOwners;
+
 /* 検証用のread-only負荷カウンタ。表示・計測判断には使用しない。 */
 typedef struct {
   uint8_t enabled;
@@ -188,6 +348,147 @@ typedef struct {
   uint64_t dropped_blocks;
   uint64_t analyzed_frames;
 } KirinSpectrumStats;
+
+#define KIRIN_ATTACK_BATCH_CAPACITY 64u
+#define KIRIN_ATTACK_EVENT_BATCH_CAPACITY 240u
+#define KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY 600u
+#define KIRIN_ATTACK_DETAIL_BATCH_CAPACITY 240u
+#define KIRIN_ATTACK_SHAPE_CAPACITY 96u
+#define KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY 240u
+
+/* ATTACK DRUM内部検証用のraw SuperFlux ODF。公開Analysis route/stateには含めない。 */
+typedef struct {
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t reserved[3];
+  uint8_t definition_hash[32];
+  uint32_t window_samples;
+  uint32_t hop_samples;
+  int64_t support_start_samples;
+  int64_t support_end_samples;
+  int64_t event_sample;
+  float value;
+} KirinAttackOdfFrame;
+
+/* UI/control threadが回収する固定長窓。framesは古い順。 */
+typedef struct {
+  uint32_t count;
+  uint32_t capacity;
+  KirinAttackOdfFrame frames[KIRIN_ATTACK_BATCH_CAPACITY];
+} KirinAttackBatch;
+
+/* B-553固定peak ruleを通過し、30 ms refractoryが確定したATTACK event。 */
+typedef struct {
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t reserved[3];
+  uint8_t definition_hash[32];
+  int64_t event_sample;
+  int64_t decision_sample;
+  float value;
+} KirinAttackEvent;
+
+typedef struct {
+  uint32_t count;
+  uint32_t capacity;
+  KirinAttackEvent events[KIRIN_ATTACK_EVENT_BATCH_CAPACITY];
+} KirinAttackEventBatch;
+
+/* source 0基準の10 ms絶対波形envelope。stereoはmean linear power。 */
+typedef struct {
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t reserved[3];
+  int64_t start_sample;
+  int64_t end_sample;
+  float peak_linear;
+  float rms_dbfs;
+} KirinAttackWaveformPoint;
+
+typedef struct {
+  uint32_t count;
+  uint32_t capacity;
+  KirinAttackWaveformPoint points[KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY];
+} KirinAttackWaveformBatch;
+
+/* 確定eventの実波形shapeと事実記述子。評価語や処理器種別は含めない。 */
+typedef struct {
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t temporal_centroid_available;
+  uint8_t sharpness_available;
+  uint8_t reserved;
+  uint8_t definition_hash[32];
+  int64_t event_sample;
+  int64_t decision_sample;
+  int64_t shape_start_sample;
+  int64_t shape_end_sample;
+  float value;
+  float contrast_db;
+  float context_rms_dbfs;
+  float attack_rms_dbfs;
+  float sample_peak_dbfs;
+  float crest_db;
+  float sample_edge_ratio_db;
+  float peak_plateau_ms;
+  float temporal_centroid_ms;
+  float sharpness_acum;
+  uint32_t shape_count;
+  uint32_t reserved2;
+  float shape[KIRIN_ATTACK_SHAPE_CAPACITY];
+} KirinAttackDetail;
+
+typedef struct {
+  uint32_t count;
+  uint32_t capacity;
+  KirinAttackDetail details[KIRIN_ATTACK_DETAIL_BATCH_CAPACITY];
+} KirinAttackDetailBatch;
+
+/* 同一content sample上の共通ATTACK判定。kind: 0=matched,1=PRE-only,2=POST-only,3=ambiguous. */
+typedef struct {
+  uint64_t pair_generation;
+  uint64_t pre_generation;
+  uint64_t post_generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t kind;
+  uint8_t pre_available;
+  uint8_t post_available;
+  uint8_t definition_hash[32];
+  int64_t event_sample;
+  int64_t decision_sample;
+  int64_t pre_event_sample;
+  int64_t post_event_sample;
+  float pre_value;
+  float post_value;
+  float delta_value;
+  uint8_t delta_available;
+  uint8_t reserved[3];
+} KirinAttackPairEvent;
+
+typedef struct {
+  uint8_t status; /* KIRIN_SPECTRUM_*と同じ状態語彙 */
+  uint8_t reserved[3];
+  uint32_t count;
+  uint32_t capacity;
+  uint32_t reserved2;
+  KirinAttackPairEvent events[KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY];
+} KirinAttackPairEventBatch;
+
+typedef struct {
+  uint8_t available;
+  uint8_t enabled;
+  uint8_t worker_running;
+  uint8_t channels;
+  uint8_t reserved[4];
+  uint64_t pushed_blocks;
+  uint64_t dropped_blocks;
+  uint64_t analyzed_frames;
+} KirinAttackStats;
 
 /* Keep/Record専用の世代付き表示スナップショット.
  * 計測・TRACE・plugin_dataの正本とは独立し、GUIがStop後の最終Iを保持するためだけに使う. */
@@ -226,6 +527,11 @@ KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
 
 /* 信号状態（0=Inactive 1=Active 2=Bypassed）. */
 void kirin_hypha_set_signal_state(KirinHypha* handle, uint8_t state);
+
+/* VST3 host component activation（true=active / false=host deactivated）.
+ * false は即時 bypass ではない。heartbeat grace を越えて処理停止が続いた場合だけ Bypassed になり、
+ * 一時的な host 再構成・offline render 切替を利用者のOFFと誤認しない. */
+void kirin_hypha_set_host_component_active(KirinHypha* handle, bool active);
 
 /* 現在の信号状態を読む（0=Inactive 1=Active 2=Bypassed）. LED poller 系（read-only）.
  * Measure Thread の heartbeat 停止検出で Inactive へ上書きされた値も反映する（B-113）. */
@@ -418,17 +724,42 @@ bool kirin_hypha_set_spectrum_visible(KirinHypha* handle, bool visible);
 /* POST Perceptual Deltaページの表示edge。Spectrum FFTとは排他的にSharpnessを解析する。 */
 bool kirin_hypha_set_perceptual_visible(KirinHypha* handle, bool visible);
 
+/* POST単独絶対値timelineの表示edge。PRE exchangeを作成せず、他の解析modeとは排他的。 */
+bool kirin_hypha_set_absolute_visible(KirinHypha* handle, bool visible);
+
 /* POST Spectrumの単一解析モードを切替。SIDEはstereoのみ。PRE/不正値/mono SIDEはfalse。 */
 bool kirin_hypha_set_spectrum_channel_mode(KirinHypha* handle, uint8_t channel_mode);
 
 /* 最新のPOST-PRE Spectrumを取得。status-onlyもtrue（has_data=0）、競合/nullはfalse。 */
 bool kirin_hypha_poll_spectrum(KirinHypha* handle, KirinSpectrumView* out);
+bool kirin_hypha_poll_spectrum_batch(KirinHypha* handle, KirinSpectrumBatch* out);
 
 /* 最新のexact-aperture POST-PRE Sharpnessを取得。status-onlyもtrue。 */
 bool kirin_hypha_poll_perceptual(KirinHypha* handle, KirinPerceptualView* out);
+bool kirin_hypha_poll_perceptual_batch(KirinHypha* handle, KirinPerceptualBatch* out);
+
+/* POST単独の6秒絶対値timelineを取得。status-onlyもtrue。 */
+bool kirin_hypha_poll_absolute_batch(KirinHypha* handle, KirinAbsoluteBatch* out);
+
+/* optional Analysisのkernel leaseを現在保持するpair名。競合/nullはfalse。 */
+bool kirin_hypha_poll_analysis_owners(KirinHypha* handle, KirinAnalysisOwners* out);
 
 /* Spectrum optional workerの検証カウンタを取得。 */
 bool kirin_hypha_spectrum_stats(KirinHypha* handle, KirinSpectrumStats* out);
+
+/* ATTACK DRUM製品導線。POSTだけが有効化可能で、画面非表示時は停止・state保存なし。 */
+bool kirin_hypha_set_attack_enabled(KirinHypha* handle, bool enabled);
+bool kirin_hypha_poll_attack_batch(KirinHypha* handle, KirinAttackBatch* out);
+bool kirin_hypha_poll_attack_events(KirinHypha* handle, KirinAttackEventBatch* out);
+bool kirin_hypha_poll_attack_waveform(KirinHypha* handle, KirinAttackWaveformBatch* out);
+bool kirin_hypha_poll_attack_details(KirinHypha* handle, KirinAttackDetailBatch* out);
+bool kirin_hypha_poll_attack_pre_waveform(KirinHypha* handle,
+                                          KirinAttackWaveformBatch* out);
+bool kirin_hypha_poll_attack_pre_details(KirinHypha* handle,
+                                         KirinAttackDetailBatch* out);
+bool kirin_hypha_poll_attack_pair_events(KirinHypha* handle,
+                                         KirinAttackPairEventBatch* out);
+bool kirin_hypha_attack_stats(KirinHypha* handle, KirinAttackStats* out);
 
 /* Keep/Record表示を1スナップショットで取得. UI Thread専用・ロック競合時false. */
 bool kirin_hypha_poll_record_display(KirinHypha* handle, KirinRecordDisplay* out);
@@ -458,6 +789,45 @@ bool kirin_hypha_poll_result(KirinHypha* handle, KirinMeasureResult* out);
 /* セッション集計を out へ. Record finalize 後に値あり=true / 未 Record・競合=false（UI Thread）.
  * ABI signature は Phase 1 と不変（Record 前は false のまま）. */
 bool kirin_hypha_poll_session(KirinHypha* handle, KirinSessionSummary* out);
+
+/* Record/Keepとは独立した常設メーターを取得。Emptyも有効なsnapshotとしてtrue。 */
+bool kirin_hypha_poll_meter_session(KirinHypha* handle, KirinMeterSession* out);
+
+/* signal / meter / delta / readinessを同一UI poll境界で取得する。
+ * signal stateが組立中に遷移した場合はfalseにして混在フレームを公開しない。 */
+bool kirin_hypha_poll_observatory_frame(KirinHypha* handle,
+                                        KirinObservatoryFrame* out);
+
+/* TIME履歴を古い順で最大out_capacity件取得。競合時はfalse、out_countを変更しない。 */
+bool kirin_hypha_poll_meter_history(KirinHypha* handle,
+                                    uint8_t resolution,
+                                    KirinMeterHistoryEntry* out,
+                                    uint32_t out_capacity,
+                                    uint32_t* out_count);
+
+/* 指定時間範囲を維持しつつ、min/max/meanを画面列数以下へ集約して返す。 */
+bool kirin_hypha_poll_meter_history_decimated(KirinHypha* handle,
+                                              uint8_t resolution,
+                                              uint32_t max_entries,
+                                              KirinMeterHistoryEntry* out,
+                                              uint32_t out_capacity,
+                                              uint32_t* out_count);
+
+/* POST−PRE TIME履歴。同一presentation sample終端で結合できた点だけを返す。 */
+bool kirin_hypha_poll_meter_delta_history(KirinHypha* handle,
+                                          uint8_t resolution,
+                                          KirinMeterHistoryEntry* out,
+                                          uint32_t out_capacity,
+                                          uint32_t* out_count);
+bool kirin_hypha_poll_meter_delta_history_decimated(KirinHypha* handle,
+                                                    uint8_t resolution,
+                                                    uint32_t max_entries,
+                                                    KirinMeterHistoryEntry* out,
+                                                    uint32_t out_capacity,
+                                                    uint32_t* out_count);
+
+/* 利用者操作で常設メーターだけをReset。競合・未生成時はfalse。 */
+bool kirin_hypha_reset_meter_session(KirinHypha* handle);
 
 /* 破棄（shutdown -> Measure Thread join）. */
 void kirin_hypha_destroy(KirinHypha* handle);

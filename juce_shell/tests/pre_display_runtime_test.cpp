@@ -35,6 +35,19 @@ namespace
         return std::memcmp (&left, &right, sizeof (double)) == 0;
     }
 
+    juce::File leaseFileForInstance (const juce::File& directory,
+                                     const juce::String& instanceId)
+    {
+        for (const auto& file : directory.findChildFiles (juce::File::findFiles, false, "*.json"))
+        {
+            const auto parsed = juce::JSON::parse (file);
+            if (parsed.getDynamicObject() != nullptr
+                && parsed.getDynamicObject()->getProperty ("instance_id") == instanceId)
+                return file;
+        }
+        return {};
+    }
+
     juce::String testUuid (const juce::String& seed)
     {
         const auto digest = juce::MD5 (seed.toRawUTF8(), seed.getNumBytesAsUTF8()).toHexString();
@@ -146,6 +159,61 @@ namespace
         return value;
     }
 
+    juce::var exactInspectGuide (const juce::String& workId,
+                                 const juce::String& bindingId,
+                                 const juce::String& runtimeInstanceId)
+    {
+        auto value = inspectGuide();
+        auto* root = value.getDynamicObject();
+        root->setProperty ("version", "2.0");
+        auto* producer = root->getProperty ("producer").getDynamicObject();
+        producer->setProperty ("work_id", workId);
+        producer->setProperty ("source_sha256_file", hashA);
+        auto target = new juce::DynamicObject();
+        target->setProperty ("group_id", "kirin_os");
+        target->setProperty ("selection_mode", "exact_pre_binding");
+        target->setProperty ("work_id", workId);
+        target->setProperty ("binding_id", bindingId);
+        target->setProperty ("runtime_instance_id", runtimeInstanceId);
+        root->setProperty ("target", juce::var (target));
+        return value;
+    }
+
+    juce::var exactMaskingGuide (const juce::String& workId,
+                                 const juce::String& bindingId,
+                                 const juce::String& runtimeInstanceId)
+    {
+        auto value = maskingGuide ("exact_masking", hashA, true, true, true);
+        auto* root = value.getDynamicObject();
+        root->setProperty ("version", "2.0");
+        auto* producer = root->getProperty ("producer").getDynamicObject();
+        producer->setProperty ("work_id", workId);
+        producer->setProperty ("source_sha256_file", hashB);
+        auto target = new juce::DynamicObject();
+        target->setProperty ("group_id", "kirin_os");
+        target->setProperty ("selection_mode", "exact_pre_binding");
+        target->setProperty ("work_id", workId);
+        target->setProperty ("binding_id", bindingId);
+        target->setProperty ("runtime_instance_id", runtimeInstanceId);
+        root->setProperty ("target", juce::var (target));
+
+        auto* payload = root->getProperty ("payload").getDynamicObject();
+        auto selection = new juce::DynamicObject();
+        selection->setProperty ("selection_id", "review_0001");
+        selection->setProperty ("start_ns", static_cast<juce::int64> (1'000'000'000));
+        selection->setProperty ("end_ns", static_cast<juce::int64> (2'000'000'000));
+        auto focusBand = new juce::DynamicObject();
+        focusBand->setProperty ("low_hz", 100.0);
+        focusBand->setProperty ("high_hz", 200.0);
+        selection->setProperty ("focus_band", juce::var (focusBand));
+        juce::Array<juce::var> selections;
+        selections.add (juce::var (selection));
+        payload->setProperty ("review_selections", juce::var (selections));
+        payload->getProperty ("intervals").getArray()->getReference (0)
+            .getDynamicObject()->setProperty ("selection_ref", "review_0001");
+        return value;
+    }
+
     bool writeJson (const juce::File& file, const juce::var& value)
     {
         return file.getParentDirectory().createDirectory()
@@ -171,6 +239,54 @@ namespace
         pointer->setProperty ("revision", static_cast<juce::int64> (revision));
         pointer->setProperty ("activated_at", "2026-08-15T12:00:00.000Z");
         return juce::var (pointer);
+    }
+
+    juce::var exactActivePointer (const juce::File& guideFile,
+                                  const juce::String& artifactHash,
+                                  const juce::String& guideId,
+                                  const juce::String& contentHash,
+                                  const juce::String& workId,
+                                  const juce::String& bindingId,
+                                  const juce::String& runtimeInstanceId,
+                                  pre::GuideTargetRole role = pre::GuideTargetRole::pre)
+    {
+        auto pointer = new juce::DynamicObject();
+        const bool post = role == pre::GuideTargetRole::post;
+        pointer->setProperty ("format", "kirin_pre_display_active");
+        pointer->setProperty ("version", post ? "3.0" : "2.0");
+        pointer->setProperty ("group_id", "kirin_os");
+        if (post)
+            pointer->setProperty ("target_role", "post");
+        pointer->setProperty ("work_id", workId);
+        pointer->setProperty ("binding_id", bindingId);
+        pointer->setProperty ("runtime_instance_id", runtimeInstanceId);
+        pointer->setProperty ("guide_id", guideId);
+        pointer->setProperty ("revision", static_cast<juce::int64> (1));
+        pointer->setProperty ("content_hash", contentHash);
+        pointer->setProperty ("artifact_sha256", artifactHash);
+        pointer->setProperty ("guide_file", guideFile.getFileName());
+        pointer->setProperty ("payload_kind", "inspect");
+        pointer->setProperty ("activated_at", "2026-08-15T12:00:00.000Z");
+        return juce::var (pointer);
+    }
+
+    juce::var connectionRequest (const juce::String& workId,
+                                 const juce::String& bindingId,
+                                 std::int64_t nowMs,
+                                 pre::GuideTargetRole role = pre::GuideTargetRole::pre)
+    {
+        auto request = new juce::DynamicObject();
+        const bool post = role == pre::GuideTargetRole::post;
+        request->setProperty ("format", "kirin_pre_display_connection_request");
+        request->setProperty ("version", post ? "2.0" : "1.0");
+        if (post)
+            request->setProperty ("target_role", "post");
+        request->setProperty ("binding_id", bindingId);
+        request->setProperty ("work_id", workId);
+        request->setProperty ("work_title", "Exact Work");
+        request->setProperty ("observed_at_ms", nowMs);
+        request->setProperty ("expires_at_ms", nowMs + 300'000);
+        return juce::var (request);
     }
 
     juce::File publishGuide (const juce::File& root, const juce::var& guide,
@@ -211,14 +327,22 @@ int main()
         .getChildFile ("masking_measured_bark_guide.v1.json");
     require (fixtureFile.existsAsFile(), "locate the shared producer-consumer guide fixture");
     require (juce::SHA256 (fixtureFile).toHexString()
-                 == "3875787a00fec525247063ef0c654ae70968457545e38f890baf334065d748c3",
+                 == "f8176aecd61cab9c553861629af2164af6f9a6fce3e860f1f50202bf7b6e8f73",
              "retain byte-exact parity with the Kirin OS fixture");
     const auto fixtureValue = juce::JSON::parse (fixtureFile);
     pre::GuideModel fixtureModel;
     require (fixtureValue.getDynamicObject() != nullptr
              && pre::parseArtifactVerifiedGuideModel (
                     *fixtureValue.getDynamicObject(), "fixture", fixtureModel),
-             "parse the exact Kirin OS MASKING fixture");
+             "parse the exact Kirin OS MASKING v1.1 fixture");
+    require (fixtureModel.protocolVersion == "1.1"
+             && fixtureModel.items.size() == 2
+             && fixtureModel.items.front().selectionRef == "review_0001"
+             && fixtureModel.reviewSelections.size() == 1
+             && fixtureModel.reviewSelections.front().selectionId == "review_0001"
+             && exactDouble (fixtureModel.reviewSelections.front().lowHz, 90.0)
+             && exactDouble (fixtureModel.reviewSelections.front().highHz, 220.0),
+             "retain the v1.1 review focus and measured binding as separate facts");
     pre::ClockSnapshot fixtureClock;
     fixtureClock.generation = 1;
     fixtureClock.positionSamples = 72'000;
@@ -249,6 +373,75 @@ int main()
                                                "\xe3\x82\xaf\xe3\x83\xaa\xe3\x83\x83\xe3\x82\xaf"),
              "parse exact Unicode labels and difficult production INSPECT decimals");
 
+    const auto postFixtureFile = juce::File::getCurrentWorkingDirectory()
+        .getChildFile ("tests").getChildFile ("fixtures")
+        .getChildFile ("inspect_exact_post_guide.v3.json");
+    require (juce::SHA256 (postFixtureFile).toHexString()
+                 == "f8c9b2cb46f3b3612b7648651ae3a07dc526cb538acebcda6eb35b3e6f70f602",
+             "retain byte-exact v3 POST fixture parity with Kirin OS");
+    const auto postFixtureValue = juce::JSON::parse (postFixtureFile);
+    pre::GuideModel postFixtureModel;
+    require (postFixtureValue.getDynamicObject() != nullptr
+             && pre::parseArtifactVerifiedGuideModel (*postFixtureValue.getDynamicObject(),
+                                                      "post-fixture", postFixtureModel)
+             && postFixtureModel.protocolVersion == "3.0"
+             && postFixtureModel.targetRole == pre::GuideTargetRole::post
+             && postFixtureModel.workId == "55555555-5555-4555-8555-555555555555"
+             && postFixtureModel.bindingId == "66666666-6666-4666-8666-666666666666"
+             && postFixtureModel.runtimeInstanceId == "runtime_post_fixture_1"
+             && postFixtureModel.items.size() == 1
+             && postFixtureModel.items.front().hasBand
+             && exactDouble (postFixtureModel.items.front().lowHz, 3'150.0)
+             && exactDouble (postFixtureModel.items.front().highHz, 3'700.0),
+             "parse one exact v3 Hypha POST target with its time-frequency fact");
+    pre::ClockSnapshot postFixtureClock;
+    postFixtureClock.generation = 1;
+    postFixtureClock.positionSamples = 72'000;
+    postFixtureClock.sampleRate = 48'000.0;
+    postFixtureClock.playing = true;
+    postFixtureClock.source = pre::ClockSource::projectTimeline;
+    auto postPresentation = pre::projectGuidePresentation (
+        postFixtureModel, postFixtureClock, 1'000, 1'000);
+    require (postPresentation.guideAvailable
+             && postPresentation.targetRole == pre::GuideTargetRole::post
+             && postPresentation.status == pre::DisplayStatus::active
+             && postPresentation.clockState == pre::GuideClockState::projectable
+             && postPresentation.hasSourcePosition
+             && postPresentation.sourcePositionNs == 1'500'000'000
+             && postPresentation.hasPrimary
+             && postPresentation.primary.phase == pre::GuideFactPhase::active
+             && postPresentation.primary.focused
+             && postPresentation.primary.temporalKind
+                    == pre::TemporalFactKind::measuredInterval
+             && postPresentation.primary.frequencyBasis.isEmpty()
+             && exactDouble (postPresentation.primary.lowHz, 3'150.0)
+             && exactDouble (postPresentation.primary.highHz, 3'700.0)
+             && postPresentation.overlapCount == 1
+             && ! postPresentation.hasNext && ! postPresentation.truncated,
+             "project the exact POST fact into one typed active time-frequency snapshot");
+    postFixtureClock.positionSamples = 24'000;
+    postPresentation = pre::projectGuidePresentation (
+        postFixtureModel, postFixtureClock, 1'000, 1'000);
+    require (postPresentation.status == pre::DisplayStatus::next
+             && ! postPresentation.hasPrimary && postPresentation.hasNext
+             && postPresentation.next.phase == pre::GuideFactPhase::next
+             && postPresentation.next.itemId == "event_focus_1",
+             "keep an upcoming POST fact separate from the active presentation slot");
+    postFixtureClock.positionSamples = 120'000;
+    postPresentation = pre::projectGuidePresentation (
+        postFixtureModel, postFixtureClock, 1'000, 1'000);
+    require (postPresentation.status == pre::DisplayStatus::active
+             && postPresentation.hasPrimary
+             && postPresentation.primary.phase == pre::GuideFactPhase::held,
+             "type retained INSPECT context as held instead of active glow");
+    auto wrongPostRole = juce::JSON::parse (postFixtureFile);
+    wrongPostRole.getDynamicObject()->getProperty ("target").getDynamicObject()
+        ->setProperty ("target_role", "pre");
+    pre::GuideModel rejectedPostRole;
+    require (! pre::parseArtifactVerifiedGuideModel (*wrongPostRole.getDynamicObject(),
+                                                     "wrong-post-role", rejectedPostRole),
+             "reject a v3 guide addressed to PRE during the POST-only migration");
+
     const auto root = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-pre-display-runtime", {}, false);
     require (root.createDirectory(), "create isolated transport root");
@@ -260,9 +453,9 @@ int main()
     require (writeJson (root.getChildFile ("active").getChildFile ("kirin_os.json"),
                         activePointer (
                             fixtureArtifact,
-                            "3875787a00fec525247063ef0c654ae70968457545e38f890baf334065d748c3",
+                            "f8176aecd61cab9c553861629af2164af6f9a6fce3e860f1f50202bf7b6e8f73",
                             "11111111-1111-4111-8111-111111111111",
-                            "76c628baf4188b63ea16533659ef7763070082fda622908f9ae1a44bc998336f",
+                            "54042d99e9e0c6f5f2543e49e4704a636147271a220d675ec527946f9cdaedef",
                             "masking", 7)),
              "write fixture pointer");
     pre::GuideModel fixtureFromRepository;
@@ -271,6 +464,188 @@ int main()
              && fixtureFromRepository.guideId == fixtureModel.guideId
              && fixtureFromRepository.contentHash == fixtureModel.contentHash,
              "load the exact cross-boundary fixture through the file repository");
+
+    const auto exactWorkId = testUuid ("exact_work");
+    const auto exactBindingId = testUuid ("exact_binding");
+    const juce::String exactRuntimeId = "runtime_exact_1";
+    const auto exactGuide = exactInspectGuide (exactWorkId, exactBindingId, exactRuntimeId);
+    const auto exactGuideId = pre::objectString (*exactGuide.getDynamicObject(), "guide_id");
+    const auto exactContentHash = pre::objectString (*exactGuide.getDynamicObject(), "content_hash");
+    const auto exactArtifact = root.getChildFile ("guides").getChildFile ("exact-inspect.json");
+    require (writeJson (exactArtifact, exactGuide), "write exact guide artifact");
+    require (writeJson (root.getChildFile ("active_exact").getChildFile (exactBindingId + ".json"),
+                        exactActivePointer (exactArtifact, juce::SHA256 (exactArtifact).toHexString(),
+                                            exactGuideId, exactContentHash, exactWorkId,
+                                            exactBindingId, exactRuntimeId)),
+             "write exact active pointer");
+    pre::RuntimeIdentity exactIdentity;
+    exactIdentity.runtimeInstanceId = exactRuntimeId;
+    exactIdentity.instanceId = "pre_exact_1";
+    exactIdentity.projectUuid = "project_exact_1";
+    exactIdentity.workId = exactWorkId;
+    exactIdentity.bindingId = exactBindingId;
+    pre::GuideModel exactLoaded;
+    const auto exactReceipt = pre::GuideRepository (root).refresh (exactLoaded, exactIdentity);
+    require (exactReceipt.state == pre::GuideRefreshState::accepted
+             && exactLoaded.workId == exactWorkId
+             && exactLoaded.bindingId == exactBindingId
+             && exactLoaded.runtimeInstanceId == exactRuntimeId,
+             "load only the guide addressed to this Work and PRE runtime");
+
+    const auto postWorkId = postFixtureModel.workId;
+    const auto postBindingId = postFixtureModel.bindingId;
+    const auto postRuntimeId = postFixtureModel.runtimeInstanceId;
+    const auto postArtifact = root.getChildFile ("guides")
+                                  .getChildFile ("exact-post-inspect.v3.json");
+    require (postFixtureFile.copyFileTo (postArtifact), "copy the exact POST guide fixture");
+    require (writeJson (root.getChildFile ("active_exact")
+                            .getChildFile (postBindingId + ".json"),
+                        exactActivePointer (postArtifact,
+                                            juce::SHA256 (postArtifact).toHexString(),
+                                            postFixtureModel.guideId,
+                                            postFixtureModel.contentHash,
+                                            postWorkId, postBindingId, postRuntimeId,
+                                            pre::GuideTargetRole::post)),
+             "write the role-bound POST active pointer");
+    pre::RuntimeIdentity postIdentity;
+    postIdentity.role = pre::GuideTargetRole::post;
+    postIdentity.runtimeInstanceId = postRuntimeId;
+    postIdentity.instanceId = "post_exact_1";
+    postIdentity.projectUuid = "project_post_exact_1";
+    postIdentity.workId = postWorkId;
+    postIdentity.bindingId = postBindingId;
+    pre::GuideModel postLoaded;
+    const auto postReceipt = pre::GuideRepository (root).refresh (postLoaded, postIdentity);
+    require (postReceipt.state == pre::GuideRefreshState::accepted
+             && postReceipt.targetRole == pre::GuideTargetRole::post
+             && postLoaded.targetRole == pre::GuideTargetRole::post
+             && postLoaded.runtimeInstanceId == postRuntimeId,
+             "load a v3 guide only for its exact POST runtime");
+    auto preAtPostBinding = postIdentity;
+    preAtPostBinding.role = pre::GuideTargetRole::pre;
+    pre::GuideModel roleMismatchLoaded;
+    require (pre::GuideRepository (root).refresh (roleMismatchLoaded, preAtPostBinding).state
+                 == pre::GuideRefreshState::unavailable
+             && ! roleMismatchLoaded.valid(),
+             "never route a POST pointer into a PRE runtime");
+    auto reboundIdentity = exactIdentity;
+    reboundIdentity.workId = testUuid ("rebound_work");
+    reboundIdentity.bindingId = testUuid ("rebound_binding");
+    auto retainedAcrossRebind = exactLoaded;
+    require (pre::GuideRepository (root).refresh (retainedAcrossRebind, reboundIdentity).state
+                 == pre::GuideRefreshState::unavailable
+             && ! retainedAcrossRebind.valid(),
+             "clear the previous Work guide immediately when this PRE is rebound");
+    auto wrongExactIdentity = exactIdentity;
+    wrongExactIdentity.workId = testUuid ("other_work");
+    pre::GuideModel wrongExactLoaded;
+    require (pre::GuideRepository (root).refresh (wrongExactLoaded, wrongExactIdentity).state
+                 == pre::GuideRefreshState::unavailable
+             && ! wrongExactLoaded.valid(),
+             "ignore an exact guide when the open Work does not match");
+    wrongExactIdentity = exactIdentity;
+    wrongExactIdentity.runtimeInstanceId = "runtime_exact_2";
+    require (pre::GuideRepository (root).refresh (wrongExactLoaded, wrongExactIdentity).state
+                 == pre::GuideRefreshState::unavailable
+             && ! wrongExactLoaded.valid(),
+             "ignore an exact guide after the connected PRE runtime was recreated");
+
+    const auto connectionNowMs = juce::Time::currentTimeMillis();
+    require (writeJson (root.getChildFile ("connection").getChildFile ("request.json"),
+                        connectionRequest (exactWorkId, exactBindingId, connectionNowMs)),
+             "write a live exact Work connection request");
+    const auto pendingConnection = pre::GuideRepository (root).pendingConnection (
+        connectionNowMs, exactIdentity);
+    require (pendingConnection.validAt (connectionNowMs)
+             && pendingConnection.workId == exactWorkId
+             && pendingConnection.bindingId == exactBindingId,
+             "read the exact Work request that must be confirmed in the intended PRE");
+    require (writeJson (root.getChildFile ("connection").getChildFile ("request.json"),
+                        connectionRequest (postWorkId, postBindingId, connectionNowMs,
+                                           pre::GuideTargetRole::post)),
+             "write a live exact POST Work connection request");
+    require (! pre::GuideRepository (root).pendingConnection (
+                    connectionNowMs, exactIdentity).validAt (connectionNowMs),
+             "hide a POST connection request from PRE");
+    const auto pendingPostConnection = pre::GuideRepository (root).pendingConnection (
+        connectionNowMs, postIdentity);
+    require (pendingPostConnection.validAt (connectionNowMs)
+             && pendingPostConnection.targetRole == pre::GuideTargetRole::post
+             && pendingPostConnection.workId == postWorkId,
+             "expose a POST connection request only to POST");
+
+    pre::GuideModel exactMaskingModel;
+    auto exactMasking = exactMaskingGuide (exactWorkId, exactBindingId, exactRuntimeId);
+    require (pre::parseArtifactVerifiedGuideModel (
+                 *exactMasking.getDynamicObject(), "exact-masking", exactMaskingModel)
+             && exactMaskingModel.items.size() == 1
+             && exactMaskingModel.items.front().selectionRef == "review_0001"
+             && exactMaskingModel.reviewSelections.size() == 1
+             && exactMaskingModel.reviewSelections.front().selectionId == "review_0001"
+             && exactMaskingModel.reviewSelections.front().startNs == 1'000'000'000
+             && exactMaskingModel.reviewSelections.front().endNs == 2'000'000'000
+             && exactDouble (exactMaskingModel.reviewSelections.front().lowHz, 100.0)
+             && exactDouble (exactMaskingModel.reviewSelections.front().highHz, 200.0),
+             "retain the selected MASKING focus separately from its measured interval");
+    pre::ClockSnapshot exactMaskingClock;
+    exactMaskingClock.generation = 1;
+    exactMaskingClock.positionSamples = 72'000;
+    exactMaskingClock.sampleRate = 48'000.0;
+    exactMaskingClock.playing = true;
+    exactMaskingClock.source = pre::ClockSource::projectTimeline;
+    const auto exactMaskingPresentation = pre::projectGuidePresentation (
+        exactMaskingModel, exactMaskingClock, 1'000, 1'000);
+    require (exactMaskingPresentation.status == pre::DisplayStatus::active
+             && exactMaskingPresentation.hasPrimary
+             && exactMaskingPresentation.primary.kind
+                    == pre::GuidePresentationFactKind::maskingMeasuredInterval
+             && exactMaskingPresentation.primary.selectionRef == "review_0001"
+             && exactMaskingPresentation.hasMaskingFocus
+             && exactMaskingPresentation.maskingFocus.kind
+                    == pre::GuidePresentationFactKind::maskingReviewSelection
+             && exactMaskingPresentation.maskingFocus.itemId == "review_0001",
+             "project MASKING focus and measured collision as two typed facts");
+    auto focusOnlyMasking = exactMaskingGuide (
+        exactWorkId, exactBindingId, exactRuntimeId);
+    focusOnlyMasking.getDynamicObject()->getProperty ("payload").getDynamicObject()
+        ->getProperty ("intervals").getArray()->clear();
+    pre::GuideModel focusOnlyMaskingModel;
+    require (pre::parseArtifactVerifiedGuideModel (
+                 *focusOnlyMasking.getDynamicObject(), "focus-only-masking",
+                 focusOnlyMaskingModel),
+             "accept a measured MASKING selection with no collision interval");
+    const auto focusOnlyPresentation = pre::projectGuidePresentation (
+        focusOnlyMaskingModel, exactMaskingClock, 1'000, 1'000);
+    require (focusOnlyPresentation.status == pre::DisplayStatus::active
+             && ! focusOnlyPresentation.hasPrimary
+             && focusOnlyPresentation.hasMaskingFocus
+             && focusOnlyPresentation.maskingFocus.phase == pre::GuideFactPhase::active,
+             "keep the selected MASKING focus visible without inventing a collision");
+    const auto focusOnlyDisplay = pre::projectDisplay (
+        focusOnlyMaskingModel, exactMaskingClock, 1'000, 1'000);
+    require (focusOnlyDisplay.status == pre::DisplayStatus::active
+             && focusOnlyDisplay.sectionActive
+             && focusOnlyDisplay.primary.contains (
+                    juce::String ("100") + juce::String::charToString (0x2013)
+                    + "200 Hz"),
+             "present the focus-only range factually in the compatibility display");
+    auto intervalOutsideSelection = exactMaskingGuide (exactWorkId, exactBindingId, exactRuntimeId);
+    intervalOutsideSelection.getDynamicObject()->getProperty ("payload").getDynamicObject()
+        ->getProperty ("review_selections").getArray()->getReference (0).getDynamicObject()
+        ->setProperty ("end_ns", static_cast<juce::int64> (1'500'000'000));
+    pre::GuideModel invalidExactMasking;
+    require (! pre::parseArtifactVerifiedGuideModel (
+                 *intervalOutsideSelection.getDynamicObject(), "outside-selection", invalidExactMasking),
+             "reject a MASKING fact outside the selected time range");
+    auto intervalOutsideFocus = exactMaskingGuide (exactWorkId, exactBindingId, exactRuntimeId);
+    auto* invalidFocus = intervalOutsideFocus.getDynamicObject()->getProperty ("payload")
+        .getDynamicObject()->getProperty ("review_selections").getArray()->getReference (0)
+        .getDynamicObject()->getProperty ("focus_band").getDynamicObject();
+    invalidFocus->setProperty ("low_hz", 300.0);
+    invalidFocus->setProperty ("high_hz", 400.0);
+    require (! pre::parseArtifactVerifiedGuideModel (
+                 *intervalOutsideFocus.getDynamicObject(), "outside-focus", invalidExactMasking),
+             "reject a MASKING fact outside the selected frequency range");
 
     const auto measured = maskingGuide ("masking_guide", hashA, true, true, true);
     publishGuide (root, measured);
@@ -576,6 +951,106 @@ int main()
              && capability.getDynamicObject()->getProperty ("lease_expires_at_ms")
                     == juce::var (static_cast<juce::int64> (14'500)),
              "capability lease identifies the current receipt-capable runtime");
+
+    auto exactPresenceIdentity = identity;
+    exactPresenceIdentity.runtimeInstanceId = exactRuntimeId;
+    exactPresenceIdentity.workId = exactWorkId;
+    exactPresenceIdentity.bindingId = exactBindingId;
+    require (pre::writePresence (root, exactPresenceIdentity, clock, 12'345, 13'000),
+             "publish the exact Work and binding in the PRE runtime lease");
+    const auto exactPresence = juce::JSON::parse (
+        root.getChildFile ("presence").getChildFile (exactRuntimeId + ".json"));
+    require (exactPresence.getDynamicObject() != nullptr
+             && exactPresence.getDynamicObject()->getProperty ("version") == "2.0"
+             && exactPresence.getDynamicObject()->getProperty ("runtime_instance_id") == exactRuntimeId
+             && exactPresence.getDynamicObject()->getProperty ("work_id") == exactWorkId
+             && exactPresence.getDynamicObject()->getProperty ("binding_id") == exactBindingId,
+             "bind the live PRE lease to one Work and one fresh runtime");
+    auto postPresenceIdentity = identity;
+    postPresenceIdentity.role = pre::GuideTargetRole::post;
+    postPresenceIdentity.runtimeInstanceId = postRuntimeId;
+    postPresenceIdentity.instanceId = "post_instance_1";
+    postPresenceIdentity.workId = postWorkId;
+    postPresenceIdentity.bindingId = postBindingId;
+    require (pre::writePresence (root, postPresenceIdentity, clock, 12'345, 13'000)
+             && pre::writeCapability (root, postPresenceIdentity, 13'000),
+             "publish independent v3 POST presence and capability leases");
+    const auto postPresence = juce::JSON::parse (
+        root.getChildFile ("presence").getChildFile (postRuntimeId + ".json"));
+    const auto postCapability = juce::JSON::parse (
+        root.getChildFile ("capability").getChildFile (postRuntimeId + ".json"));
+    require (postPresence.getDynamicObject() != nullptr
+             && postPresence.getDynamicObject()->getProperty ("version") == "3.0"
+             && postPresence.getDynamicObject()->getProperty ("target_role") == "post"
+             && postPresence.getDynamicObject()->getProperty ("capabilities")
+                    .getDynamicObject()->getProperty ("guide_protocol") == "3.0"
+             && postCapability.getDynamicObject() != nullptr
+             && postCapability.getDynamicObject()->getProperty ("version") == "3.0"
+             && postCapability.getDynamicObject()->getProperty ("target_role") == "post"
+             && postCapability.getDynamicObject()->getProperty ("acknowledgement_protocol")
+                    == "3.0",
+             "bind POST capability negotiation to protocol v3");
+    pre::DisplaySnapshot postDisplay;
+    postDisplay.status = pre::DisplayStatus::active;
+    postDisplay.guideId = postFixtureModel.guideId;
+    postDisplay.contentHash = postFixtureModel.contentHash;
+    postDisplay.payloadKind = postFixtureModel.payloadKind;
+    require (pre::writeAcknowledgement (root, postPresenceIdentity,
+                                        postFixtureModel, postDisplay, 13'000),
+             "acknowledge the exact v3 guide from its POST runtime");
+    const auto postAcknowledgement = juce::JSON::parse (
+        root.getChildFile ("ack").getChildFile (postRuntimeId + ".json"));
+    require (postAcknowledgement.getDynamicObject() != nullptr
+             && postAcknowledgement.getDynamicObject()->getProperty ("version") == "3.0"
+             && postAcknowledgement.getDynamicObject()->getProperty ("target_role") == "post"
+             && postAcknowledgement.getDynamicObject()->getProperty ("receipt_status")
+                    == "accepted",
+             "carry the POST role through its acknowledgement receipt");
+    require (! pre::writeAcknowledgement (root, exactPresenceIdentity,
+                                          postFixtureModel, postDisplay, 13'000),
+             "reject a v3 POST acknowledgement from a PRE identity");
+
+    {
+        pre::ClockTap captureClock;
+        captureClock.publish (0, 48'000.0, 512, false,
+                              pre::ClockSource::projectTimeline);
+        pre::Controller controller (captureClock, root);
+        auto captureIdentity = postIdentity;
+        captureIdentity.instanceId = "capture_metadata_post";
+        captureIdentity.runtimeInstanceId = "capture_metadata_runtime";
+        controller.configureAndStart (captureIdentity);
+        for (int attempt = 0; attempt < 100
+             && ! controller.pendingConnection().validAt (
+                 juce::Time::currentTimeMillis()); ++attempt)
+            juce::Thread::sleep (10);
+        require (controller.connectedWorkTitle().isEmpty(),
+                 "keep the Work title private before explicit connection acceptance");
+        require (controller.acceptPendingConnection()
+                 && controller.connectedWorkTitle() == "Exact Work",
+                 "expose only the accepted Work display title to Capture");
+        const auto reference = controller.connectedWorkReference();
+        require (reference.valid()
+                 && reference.targetRole == pre::GuideTargetRole::post
+                 && reference.workId == postWorkId
+                 && reference.bindingId == postBindingId
+                 && reference.runtimeInstanceId == "capture_metadata_runtime"
+                 && reference.displayTitle == "Exact Work",
+                 "freeze the exact accepted POST Work authority independently of its title");
+        captureIdentity.workId = postWorkId;
+        captureIdentity.bindingId = postBindingId;
+        captureIdentity.runtimeInstanceId = "capture_metadata_runtime_restarted";
+        controller.configureAndStart (captureIdentity);
+        require (! controller.connectedWorkReference().valid(),
+                 "clear the Work Reference when its runtime instance changes");
+        captureIdentity.workId = testUuid ("capture_other_work");
+        captureIdentity.bindingId = testUuid ("capture_other_binding");
+        controller.configureAndStart (captureIdentity);
+        require (controller.connectedWorkTitle().isEmpty(),
+                 "clear the accepted display title when the Work binding changes");
+        require (! controller.connectedWorkReference().valid(),
+                 "clear the complete Work Reference when the binding changes");
+    }
+
     require (pre::writeAcknowledgement (root, identity, inspect, display, 13'000),
              "write acknowledgement only after strict guide projection");
     const auto acknowledgement = juce::JSON::parse (
@@ -609,6 +1084,36 @@ int main()
                     == "guide_contract_rejected",
              "rejection receipt exposes no internal parser detail and never claims a display state");
 
+    {
+        pre::ClockTap reprepareClock;
+        reprepareClock.publish (0, 48'000.0, 512, false,
+                                pre::ClockSource::projectTimeline);
+        pre::Controller controller (reprepareClock, root);
+        auto reprepareIdentity = identity;
+        reprepareIdentity.instanceId = "reprepare_instance";
+        reprepareIdentity.runtimeInstanceId.clear();
+        controller.configureAndStart (reprepareIdentity);
+        juce::File firstRuntimeLease;
+        for (int attempt = 0; attempt < 100 && ! firstRuntimeLease.existsAsFile(); ++attempt)
+        {
+            juce::Thread::sleep (10);
+            firstRuntimeLease = leaseFileForInstance (root.getChildFile ("presence"),
+                                                      reprepareIdentity.instanceId);
+        }
+        require (firstRuntimeLease.existsAsFile(),
+                 "publish one generated runtime lease for an open PRE instance");
+        controller.configureAndStart (reprepareIdentity);
+        juce::File secondRuntimeLease;
+        for (int attempt = 0; attempt < 100 && ! secondRuntimeLease.existsAsFile(); ++attempt)
+        {
+            juce::Thread::sleep (10);
+            secondRuntimeLease = leaseFileForInstance (root.getChildFile ("presence"),
+                                                       reprepareIdentity.instanceId);
+        }
+        require (secondRuntimeLease == firstRuntimeLease,
+                 "retain the same runtime identity when the open PRE instance is prepared again");
+    }
+
     for (int iteration = 0; iteration < 32; ++iteration)
     {
         pre::ClockTap lifecycleClock;
@@ -617,16 +1122,18 @@ int main()
         pre::Controller controller (lifecycleClock, root);
         auto lifecycleIdentity = identity;
         lifecycleIdentity.instanceId = "lifecycle_" + juce::String (iteration);
+        lifecycleIdentity.runtimeInstanceId = "lifecycle_runtime_" + juce::String (iteration);
         controller.configureAndStart (std::move (lifecycleIdentity));
     }
     require (true, "repeated controller destruction joins its worker without forced termination");
 
+    const juce::String activeLifecycleRuntimeId = "lifecycle_runtime_active";
     const auto activeLifecyclePresence = root.getChildFile ("presence")
-        .getChildFile ("lifecycle_active.json");
+        .getChildFile (activeLifecycleRuntimeId + ".json");
     const auto activeLifecycleCapability = root.getChildFile ("capability")
-        .getChildFile ("lifecycle_active.json");
+        .getChildFile (activeLifecycleRuntimeId + ".json");
     const auto activeLifecycleAcknowledgement = root.getChildFile ("ack")
-        .getChildFile ("lifecycle_active.json");
+        .getChildFile (activeLifecycleRuntimeId + ".json");
     {
         pre::ClockTap lifecycleClock;
         lifecycleClock.publish (0, 48'000.0, 512, false,
@@ -634,6 +1141,7 @@ int main()
         pre::Controller controller (lifecycleClock, root);
         auto lifecycleIdentity = identity;
         lifecycleIdentity.instanceId = "lifecycle_active";
+        lifecycleIdentity.runtimeInstanceId = activeLifecycleRuntimeId;
         controller.configureAndStart (std::move (lifecycleIdentity));
         for (int attempt = 0; attempt < 100
              && (! activeLifecyclePresence.existsAsFile()

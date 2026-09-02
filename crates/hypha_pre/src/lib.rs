@@ -419,6 +419,8 @@ impl Plugin for HyphaPre {
             buffer_config.sample_rate as u32,
             N_CHANNELS,
             Arc::clone(&self.measure_result),
+            None,
+            None,
             Arc::clone(&self.watch_playback_pass_id),
             Arc::clone(&self.watch_playback_pass_cutover_samples),
             Arc::clone(&self.watch_ring_cursor_epoch),
@@ -469,6 +471,7 @@ impl Plugin for HyphaPre {
             Arc::clone(&self.overflow), // B-076: per-Record dropped_samples
             Arc::clone(&oversized_drop), // B-125: egui は常に 0（per-sample で overflow に計上済）
             None, // Spectrum is JUCE-shell-only; preserve the legacy egui IO surface.
+            None, // Observatory Meter History exchange is JUCE-shell-only.
         );
 
         let restart_io = {
@@ -511,6 +514,7 @@ impl Plugin for HyphaPre {
                     Arc::clone(&overflow), // B-076: per-Record dropped_samples
                     Arc::clone(&oversized_drop), // B-125: egui は常に 0
                     None, // Spectrum is JUCE-shell-only; preserve the legacy egui IO surface.
+                    None, // Observatory Meter History exchange is JUCE-shell-only.
                 )
             }
         };
@@ -520,6 +524,8 @@ impl Plugin for HyphaPre {
             n_channels: N_CHANNELS,
             ring_capacity: capacity,
             measure_result: Arc::clone(&self.measure_result),
+            meter_session: None,
+            meter_session_publication: None,
             watch_playback_pass_id: Arc::clone(&self.watch_playback_pass_id),
             watch_playback_pass_cutover_samples: Arc::clone(
                 &self.watch_playback_pass_cutover_samples,

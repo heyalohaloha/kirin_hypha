@@ -23,6 +23,7 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         "kirin_hypha_get_paired_pre_instance_id",
         "kirin_hypha_drain_keep_action_notice",
         "kirin_hypha_poll_record_display",
+        "kirin_hypha_poll_spectrum_batch",
     ] {
         assert!(ffi_header.contains(symbol), "FFI must expose {symbol}");
     }
@@ -34,15 +35,17 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
             "common JUCE shell missing {text}"
         );
     }
-    assert!(juce_editor.contains("setSize (ui::editorWidth, ui::editorHeight)"));
-    assert!(juce_editor.contains("ui::editorLayout (isPost, getWidth(), getHeight())"));
+    assert!(juce_editor.contains("unpackEditorSize"));
+    assert!(juce_editor.contains("setSize (initialWidth, initialHeight)"));
+    assert!(juce_editor.contains("observatoryView.setBounds (scaleRoot.getLocalBounds())"));
+    assert!(juce_editor.contains("observatoryView.connectionBounds()"));
+    assert!(juce_editor.contains("observatoryView.bodyBounds()"));
     assert!(juce_editor.contains("ui::watchMetrics"));
     assert!(juce_editor.contains("ui::recordMetrics"));
     assert!(juce_editor.contains("ui::metricLabelFontHeight"));
     assert!(juce_editor.contains("ui::metricValueFontHeight"));
     assert!(juce_editor.contains("ui::metricUnitFontHeight"));
     assert!(juce_editor.contains("ui::maximumLabel"));
-    assert!(juce_editor.contains("ui::loudnessSelectorBounds"));
     assert!(juce_editor.contains("cachedRecordDisplay.session"));
     assert!(juce_editor.contains("menu.addSectionHeader"));
     assert!(juce_editor.contains("withMinimumWidth (ui::pairMenuMinimumWidth)"));
@@ -57,6 +60,26 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
             || juce_editor.contains("ui::postTitle : ui::preTitle")
     );
     assert!(!juce_editor.contains("setSize (300, 200)"));
+
+    let observatory = read_repo("juce_shell/src/HyphaObservatoryContract.h");
+    for required in [
+        "enum class Domain",
+        "    level,",
+        "    time,",
+        "    frequency,",
+        "    space,",
+        "enum class ObservationTarget",
+        "    absolute,",
+        "    delta,",
+    ] {
+        assert!(
+            observatory.contains(required),
+            "Observatory contract missing {required}"
+        );
+    }
+    let observatory_resize = read_repo("juce_shell/src/HyphaObservatoryResizeContract.h");
+    assert!(observatory_resize.contains("std::array<SizePreset, 5>"));
+    assert!(observatory_resize.contains("validEditorSize"));
 
     let ui_contract = read_repo("juce_shell/src/HyphaUiContract.h");
     for required in [
@@ -83,8 +106,8 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         "ui_contract::normal",
         "ui_contract::muted",
         "ui_contract::flora",
-        "ui_contract::labelFontFamily",
-        "ui_contract::monoFontFamily",
+        "usingKimeraTypography",
+        "tabularTextWidth",
     ] {
         assert!(
             theme.contains(required),
@@ -163,7 +186,7 @@ fn juce_commits_take_start_only_after_whole_block_admission() {
 }
 
 #[test]
-fn paired_pre_inactive_preserves_delta_layout_without_releasing_binding() {
+fn paired_pre_off_is_absolute_while_inactive_and_stale_preserve_delta_layout() {
     let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     for required in [
         "KIRIN_DELTA_MODE_ACTIVE 0u",
@@ -183,25 +206,29 @@ fn paired_pre_inactive_preserves_delta_layout_without_releasing_binding() {
     assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_BYPASSED"));
     assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_PRE_INACTIVE"));
     assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_ACTIVE"));
+    assert!(display_contract.contains("pairedPreIsExplicitlyBypassed"));
     assert!(editor.contains("display::preUnavailableForDelta (rawD.mode)"));
     assert!(editor.contains("display::recordPairContext ("));
     assert!(editor.contains("cachedRecordDisplay.pair_matches_current != 0"));
     assert!(editor.contains("display::recordMetricMode (recordPairSelected, haveD, d.mode)"));
-    assert!(editor.contains("display::watchMetricMode (pairSelected, haveRawD, rawD.mode)"));
+    assert!(
+        editor.contains("display::watchMetricMode (pairSelected, effectiveHaveD, effectiveMode)")
+    );
     assert!(!editor.contains("rawD.mode == 0"));
     assert!(editor.contains("Kind::Abs6"));
     assert!(editor.contains("const bool unavailable = ! haveHeldD;"));
-    assert!(editor.contains("else // no selected pair -> POST absolute"));
-    assert!(display_contract
-        .contains("return pairSelected ? MetricMode::delta : MetricMode::absolute;"));
-
-    let producer = read_repo("crates/kirin_measure/src/io_thread_post.rs");
+    assert!(editor
+        .contains("else // no selected pair, or paired PRE explicitly bypassed -> POST absolute"));
+    assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_BYPASSED"));
+    assert!(editor.contains("Paired PRE is off. Showing POST absolute values."));
+    assert!(editor.contains("COL_SPECTRUM_POST"));
+    let producer = read_repo("crates/kirin_measure/src/io_thread_post_tick.rs")
+        + &read_repo("crates/kirin_measure/src/io_thread_post_delta.rs");
     assert!(producer.contains("mode: DeltaMode::PreInactive"));
     assert!(producer.contains("Some(SignalState::Inactive) => DeltaMode::PreInactive"));
     assert!(producer.contains("POST absolute until it resumes"));
     assert!(!producer.contains("idle はラッチ維持で Stale"));
 }
-
 #[test]
 fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
@@ -212,6 +239,11 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     assert!(processor.contains("xml.setAttribute (\"loudness_view\""));
     assert!(processor.contains("getStringAttribute (\"loudness_view\") == \"S\""));
+    assert!(processor.contains("xml.setAttribute (\"display_state_version\", 3)"));
+    assert!(processor.contains("observatory_time_range"));
+    assert!(processor.contains("observatory_size"));
+    assert!(processor.contains("observatory_width"));
+    assert!(processor.contains("observatory_height"));
     assert!(processor.contains("withNonParameterStateChanged (true)"));
 
     let contract = read_repo("juce_shell/src/HyphaUiContract.h");
@@ -226,7 +258,7 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     assert!(!editor.contains("fillAbs (3, V (m.n_prime_total)"));
 
     let pre_json = read_repo("crates/kirin_measure/src/io_thread_pre.rs");
-    let post_json = read_repo("crates/kirin_measure/src/io_thread_post.rs");
+    let post_json = read_repo("crates/kirin_measure/src/io_thread_post_json.rs");
     assert!(pre_json.contains("\"lufs_s\""));
     assert!(post_json.contains("\"lufs_s\""));
     let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs");
@@ -234,6 +266,25 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
         !plugin_data.contains("\"lufs_s\""),
         "plugin_data/.kirin schema must remain unchanged"
     );
+}
+
+#[test]
+fn hover_help_is_one_user_preference_without_touching_measurement_state() {
+    let header = read_repo("juce_shell/src/HyphaHoverHelpPreference.h");
+    let implementation = read_repo("juce_shell/src/HyphaHoverHelpPreference.cpp");
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+
+    assert!(header.contains("class HoverHelpTooltipWindow"));
+    assert!(header.contains("TooltipWindow::getTipFor (component)"));
+    assert!(implementation.contains("show_hover_help=1"));
+    assert!(implementation.contains("show_hover_help=0"));
+    assert!(implementation.contains("kRefreshIntervalMs = 1000u"));
+    assert!(editor.contains("menu.addItem (10, \"Show hover help\""));
+    assert!(editor.contains("tooltip.hideTip()"));
+    assert!(editor.contains("Hover help changed for this session only"));
+    assert!(!processor.contains("show_hover_help"));
+    assert!(!processor.contains("HoverHelpPreference"));
 }
 
 #[test]
@@ -315,12 +366,17 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     for required in [
         "KIRIN_SPECTRUM_BAND_COUNT 256u",
-        "KIRIN_SPECTRUM_DISPLAY_RANGE_DB 18.0f",
+        "KIRIN_SPECTRUM_DISPLAY_RANGE_DB 24.0f",
         "kirin_hypha_set_spectrum_visible",
         "kirin_hypha_set_perceptual_visible",
+        "kirin_hypha_set_absolute_visible",
         "kirin_hypha_set_spectrum_channel_mode",
         "kirin_hypha_poll_spectrum",
         "kirin_hypha_poll_perceptual",
+        "kirin_hypha_poll_perceptual_batch",
+        "kirin_hypha_poll_absolute_batch",
+        "KIRIN_PERCEPTUAL_BATCH_CAPACITY 64",
+        "KIRIN_ABSOLUTE_BATCH_CAPACITY 64",
     ] {
         assert!(header.contains(required), "Spectrum ABI missing {required}");
     }
@@ -361,24 +417,53 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(processor.contains("perceptualAnalysisRequested.store (true"));
     assert!(processor.contains("perceptualAnalysisRequested.load"));
     assert!(processor.contains("kirin_hypha_set_perceptual_visible (hyphaHandle, true)"));
+    assert!(processor.contains("kirin_hypha_set_absolute_visible (hyphaHandle, true)"));
+    let processor_header = read_repo("juce_shell/src/PluginProcessor.h");
+    assert!(processor_header.contains("index < 5u ? index : uint8_t { 0 }"));
+    assert!(processor_header.contains("preferredSpectrumSize { 0 }"));
+    assert!(processor_header.contains("preferredEditorSize { (300u << 16u) | 200u }"));
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let observatory_editor = read_repo("juce_shell/src/PluginEditorObservatory.cpp");
+    let resize_contract = read_repo("juce_shell/src/HyphaObservatoryResizeContract.h");
+    let time_navigation = read_repo("juce_shell/src/HyphaTimePageNavigation.cpp");
+    let time_navigation_header = read_repo("juce_shell/src/HyphaTimePageNavigation.h");
+    let analysis_navigation = read_repo("juce_shell/src/HyphaAnalysisNavigation.h");
     assert!(editor.contains("#if ! KIRIN_HYPHA_PRE_DISPLAY"));
     assert!(editor.contains("setAnalysisPage (analysisPage == AnalysisPage::meters"));
+    assert!(editor.contains("timePageNavigation.onPageChange"));
+    for label in ["HISTORY", "ATTACK", "SHARP", "LIVE"] {
+        assert!(time_navigation.contains(label) || time_navigation_header.contains(label));
+    }
+    assert!(analysis_navigation
+        .contains("Page::meters, Page::attack, Page::perceptual, Page::absolute"));
+    assert!(observatory_editor.contains("? AnalysisPage::spectrum : AnalysisPage::meters"));
     assert!(editor.contains("processorRef.setSpectrumVisible (false)"));
     assert!(editor.contains("processorRef.setPerceptualVisible (false)"));
     assert!(editor.contains("AnalysisPage::perceptual"));
-    assert!(editor.contains("spectrumSizeIndex + 1u"));
-    assert!(editor.contains("ui::spectrumSizePresets[spectrumSizeIndex]"));
-    assert!(editor.contains(": ui::spectrumSizePresets[0]"));
+    assert!(editor.contains("AnalysisPage::absolute"));
+    assert!(editor.contains("processorRef.pollAbsoluteBatch"));
+    assert!(editor.contains("observatorySizeIndex + 1u"));
+    assert!(editor.contains("ui::spectrumSizePresets[observatorySizeIndex]"));
     assert!(editor.contains("setSize (preset.width, preset.height)"));
-    assert!(!editor.contains("setResizable (true"));
+    assert!(editor.contains("setResizable (true, false)"));
+    assert!(editor.contains("setResizeLimits (300, 200, 900, 600)"));
+    assert!(editor.contains("setFixedAspectRatio (1.5)"));
+    assert!(editor.contains("displayViewport (getWidth(), getHeight())"));
+    assert!(editor.contains("scaleRoot.setOpaque (true)"));
+    assert!(editor.contains("scaleRoot.setBufferedToImage (getWidth() > 600)"));
+    assert!(resize_contract.contains("return { width, height, 1.0f };"));
+    assert!(observatory_editor.contains("observatoryEditorSizePreference"));
+    assert!(observatory_editor
+        .contains("setSize (restoredEditorSize.width, restoredEditorSize.height)"));
 
     let ui_contract = read_repo("juce_shell/src/HyphaSpectrumUiContract.h");
     for fixed_size in [
         "{ 300, 200, \"100%\"",
         "{ 375, 250, \"125%\"",
         "{ 450, 300, \"150%\"",
+        "{ 600, 400, \"200%\"",
+        "{ 900, 600, \"300%\"",
     ] {
         assert!(
             ui_contract.contains(fixed_size),
@@ -387,18 +472,18 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     }
 
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
-    assert!(
-        !processor.contains("spectrum_size"),
-        "editor size must not enter DAW/plugin state"
-    );
+    assert!(processor.contains("setObservatoryEditorSizePreference"));
+    assert!(processor.contains("editorSizeFromState"));
+    assert!(processor.contains("packEditorSize"));
 
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     let post_only_branch = slice_between(
         &cmake,
-        "else()\n        target_sources(${TARGET} PRIVATE\n            src/HyphaPerceptualComponent.cpp",
+        "else()\n        target_sources(${TARGET} PRIVATE\n            src/HyphaAbsoluteComponent.cpp",
         "endif()",
     );
     assert!(post_only_branch.contains("src/HyphaPerceptualPainter.cpp"));
+    assert!(post_only_branch.contains("src/HyphaAbsolutePainter.cpp"));
     assert!(post_only_branch.contains("src/HyphaSpectrumComponent.cpp"));
     assert!(post_only_branch.contains("src/HyphaSpectrumPainter.cpp"));
     assert!(post_only_branch.contains("src/HyphaSpectrumChromePainter.cpp"));
@@ -462,6 +547,50 @@ fn juce_prepare_does_not_destroy_engine_while_recording() {
 }
 
 #[test]
+fn vst3_component_activation_is_distinct_from_release_resources() {
+    let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    assert!(header.contains("kirin_hypha_set_host_component_active"));
+
+    let processor_header = read_repo("juce_shell/src/PluginProcessor.h");
+    assert!(processor_header.contains("hostComponentActivationChanged (bool active) override"));
+
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    let release = slice_between(
+        &processor,
+        "void KirinHyphaProcessorBase::releaseResources",
+        "void KirinHyphaProcessorBase::hostComponentActivationChanged",
+    );
+    assert!(
+        !release.contains("kirin_hypha_set_host_component_active"),
+        "generic releaseResources must not fabricate a user OFF state"
+    );
+    let activation = slice_between(
+        &processor,
+        "void KirinHyphaProcessorBase::hostComponentActivationChanged",
+        "bool KirinHyphaProcessorBase::isBusesLayoutSupported",
+    );
+    assert!(activation.contains("hostComponentActive = active"));
+    assert!(activation.contains("kirin_hypha_set_host_component_active"));
+
+    let prepare = slice_between(
+        &processor,
+        "void KirinHyphaProcessorBase::prepareToPlay",
+        "void KirinHyphaProcessorBase::releaseResources",
+    );
+    assert!(
+        prepare
+            .contains("kirin_hypha_set_host_component_active (hyphaHandle, hostComponentActive)"),
+        "a host OFF delivered before engine creation must be applied to the fresh handle"
+    );
+
+    assert!(processor_header.contains("bool hostComponentActive = true"));
+
+    let juce_patch = read_repo("juce_shell/patches/0007-vst3-host-component-activation.patch");
+    assert!(juce_patch.contains("hostComponentActivationChanged (willBeActive)"));
+    assert!(juce_patch.contains("virtual void hostComponentActivationChanged (bool)"));
+}
+
+#[test]
 fn io_thread_shutdown_paths_mark_lifecycle_shutdown() {
     for (path, start_marker, close_marker) in [
         (
@@ -470,9 +599,9 @@ fn io_thread_shutdown_paths_mark_lifecycle_shutdown() {
             "writer_close_with_summary(ctx, summary);",
         ),
         (
-            "crates/kirin_measure/src/io_thread_post.rs",
-            "if let Some(mut ctx) = recording.take()",
-            "writer_close_with_summary_and_marks(ctx, summary, &record_mark_queue);",
+            "crates/kirin_measure/src/io_thread_post_shutdown.rs",
+            "if let Some(mut ctx) = recording",
+            "writer_close_with_summary_and_marks(ctx, summary, record_mark_queue);",
         ),
     ] {
         let src = read_repo(path);
@@ -497,7 +626,7 @@ fn io_thread_shutdown_paths_mark_lifecycle_shutdown() {
             reason < close,
             "{path} must tag lifecycle shutdown before closing the writer"
         );
-        if path.ends_with("io_thread_post.rs") {
+        if close_marker.contains("and_marks") {
             assert!(
                 close_marker.contains("and_marks"),
                 "POST lifecycle close must final-drain accepted MARKs"
