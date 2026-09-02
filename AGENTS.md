@@ -116,7 +116,16 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 「システムレベルの問題」「無関係」で片付けずコードで確認する。
 
 ### コード品質
-- ファイルは500行以下
+
+#### 500行長期収束規約
+
+- 新規のowned sourceは500行以下とする。未追跡ファイルも`check_source_line_budget.sh`の対象に含める。
+- 既存の500行超ファイルは`source_line_budget.tsv`に記録した長期的な負債であり、全件分割をUI・製品機能への着手条件にしない。
+- 分離作業は、原則として既存巨大ファイルへ製品変更を加えるときだけ行う。変更対象の責務を先行コミットで500行以下のモジュールへ抽出し、無関係な責務を同時に一括分割しない。
+- 既存巨大ファイルの行数は増やさない。減少した場合は同じコミットでbaselineを現在値へ下げ、過去の大きさまで戻せないratchetにする。500行以下へ到達したらbaselineから削除する。
+- RT安全性、Record整合性、または変更対象のテスト可能性を妨げている境界だけを優先分離する。それ以外の行数負債は製品価値に直結する作業を止める理由にしない。
+- 全owned sourceを500行以下へ収束させることは長期目標であり、現在のUI着手ゲートではない。
+
 - Rust: `cargo clippy` + `cargo test` を毎回実行
 - **kirin_hypha_ffi の検証ゲート**: `cargo test --workspace` の green だけでは Record/pairing を検証しない（Record finalize・PRE-POST ペアリング・plugin_data 実出力のテストは realtime で遅いため全て `#[ignore]`）。kirin_hypha_ffi を変更したら `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1`（parity.rs 20 件）と `cargo test -p kirin_hypha_ffi --test pairing_candidates -- --ignored --test-threads=1`（pairing_candidates.rs 5 件）の #[ignore] スイート（計 25 件）の pass も検証ゲートに含める。件数は `-- --ignored --list | grep -c ': test'` で実測のこと（loose grep は散文中の `#[ignore]` を誤カウントする）。これらは CI（ci.yml）では PR / workflow_dispatch / `[ci full]` 時のみ走る（通常 push は test job ごとスキップ）。
 - エラーログは作業前に必ず読む

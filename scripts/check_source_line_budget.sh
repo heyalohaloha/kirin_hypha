@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BASELINE="$ROOT/scripts/source_line_budget.tsv"
+DEFAULT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="${SOURCE_LINE_BUDGET_ROOT:-$DEFAULT_ROOT}"
+BASELINE="${SOURCE_LINE_BUDGET_BASELINE:-$ROOT/scripts/source_line_budget.tsv}"
 LIMIT=500
 
 if [[ ! -f "$BASELINE" ]]; then
@@ -42,7 +43,7 @@ while IFS= read -r -d '' file; do
     echo "source line budget: REGRESSION $file ($lines > baseline $allowed)" >&2
     failures=$((failures + 1))
   fi
-done < <(cd "$ROOT" && git ls-files -z)
+done < <(cd "$ROOT" && git ls-files -z --cached --others --exclude-standard)
 
 while IFS=$'\t' read -r file allowed; do
   [[ -n "$file" && "$file" != \#* ]] || continue
@@ -58,6 +59,9 @@ while IFS=$'\t' read -r file allowed; do
   elif (( allowed <= LIMIT )); then
     echo "source line budget: invalid allowance for $file ($allowed <= $LIMIT)" >&2
     failures=$((failures + 1))
+  elif (( lines < allowed )); then
+    echo "source line budget: RATCHET REQUIRED $file (baseline $allowed -> current $lines)" >&2
+    failures=$((failures + 1))
   fi
 done < "$BASELINE"
 
@@ -65,4 +69,4 @@ if (( failures > 0 )); then
   exit 1
 fi
 
-echo "source line budget: PASS ($debt grandfathered files, no increase; target <= $LIMIT)"
+echo "source line budget: PASS ($debt legacy oversized files, exact ratchet; new source <= $LIMIT)"
