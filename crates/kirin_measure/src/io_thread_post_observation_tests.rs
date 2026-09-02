@@ -1,5 +1,7 @@
-use super::{stable_record_generation, PostObservation};
+use super::runtime::stable_record_generation;
+use super::{PostObservation, PostObservationRuntime, PostPairObservationDeps};
 use crate::delta::DeltaResult;
+use crate::io_thread_post::analysis::PostAnalysisEndpoints;
 use crate::pairing_scope::{LatchedPre, LatchedPreReadiness};
 use crate::storage::PlatformPaths;
 use crate::{PairOwnershipLease, RecordStateMachine, SignalState};
@@ -80,24 +82,27 @@ fn confirmed_self_check_release_is_published_in_the_same_observation_tick() {
     });
     let start = Instant::now();
     let mut observation = PostObservation::new(
-        instance_id,
-        project_hash,
-        daw_session_id,
-        record_sm,
-        post_result,
-        delta_result,
-        signal_state,
-        is_playing,
-        paired_pre_target,
-        Arc::clone(&pair_pre_name),
-        Arc::new(|| 7),
-        release,
-        Arc::clone(&pair_claimed_at),
-        Arc::clone(&pair_release_notice),
-        Arc::new(PairOwnershipLease::new()),
-        Arc::clone(&latched_pre),
-        None,
-        None,
+        PostObservationRuntime {
+            instance_id,
+            project_hash,
+            daw_session_id,
+            record_sm,
+            post_result,
+            delta_result,
+            signal_state,
+            is_playing,
+        },
+        PostPairObservationDeps {
+            paired_pre_target,
+            pair_pre_name: Arc::clone(&pair_pre_name),
+            pair_binding_generation: Arc::new(|| 7),
+            release_pair_binding_if_current: release,
+            pair_claimed_at: Arc::clone(&pair_claimed_at),
+            pair_release_notice: Arc::clone(&pair_release_notice),
+            pair_owner: Arc::new(PairOwnershipLease::new()),
+            latched_pre: Arc::clone(&latched_pre),
+        },
+        PostAnalysisEndpoints::new(None, None),
         start,
     );
 

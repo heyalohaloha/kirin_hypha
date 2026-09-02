@@ -96,6 +96,7 @@ use pair_claim::service_pair_claim;
 
 #[path = "io_thread_post_analysis.rs"]
 mod analysis;
+use analysis::PostAnalysisEndpoints;
 
 #[path = "io_thread_post_reservation.rs"]
 mod reservation;
@@ -122,7 +123,7 @@ use polls::PostControlPolls;
 
 #[path = "io_thread_post_observation.rs"]
 mod observation;
-use observation::PostObservation;
+use observation::{PostObservation, PostObservationRuntime, PostPairObservationDeps};
 
 #[path = "io_thread_post_broadcast.rs"]
 mod broadcast;
@@ -283,24 +284,27 @@ pub fn spawn_io_thread_post(
     thread::spawn(move || {
         let daw_session_id_arc = daw_session_id;
         let mut observation = PostObservation::new(
-            Arc::clone(&instance_id),
-            Arc::clone(&project_hash),
-            Arc::clone(&daw_session_id_arc),
-            Arc::clone(&record_sm),
-            Arc::clone(&post_result),
-            delta_result,
-            Arc::clone(&signal_state),
-            is_playing,
-            Arc::clone(&paired_pre_target),
-            pair_pre_name,
-            pair_binding_generation,
-            release_pair_binding_if_current,
-            pair_claimed_at,
-            pair_release_notice,
-            pair_owner,
-            Arc::clone(&latched_pre),
-            spectrum,
-            meter_history,
+            PostObservationRuntime {
+                instance_id: Arc::clone(&instance_id),
+                project_hash: Arc::clone(&project_hash),
+                daw_session_id: Arc::clone(&daw_session_id_arc),
+                record_sm: Arc::clone(&record_sm),
+                post_result: Arc::clone(&post_result),
+                delta_result,
+                signal_state: Arc::clone(&signal_state),
+                is_playing,
+            },
+            PostPairObservationDeps {
+                paired_pre_target: Arc::clone(&paired_pre_target),
+                pair_pre_name,
+                pair_binding_generation,
+                release_pair_binding_if_current,
+                pair_claimed_at,
+                pair_release_notice,
+                pair_owner,
+                latched_pre: Arc::clone(&latched_pre),
+            },
+            PostAnalysisEndpoints::new(spectrum, meter_history),
             Instant::now(),
         );
 

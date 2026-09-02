@@ -5,6 +5,38 @@ use std::sync::{Arc, Mutex};
 use crate::pairing_scope::{LatchedPre, LatchedPreReadiness};
 use crate::{MeterDeltaHistoryExchange, MeterHistoryTarget, SpectrumCoordinator, SpectrumTarget};
 
+pub(super) struct PostAnalysisEndpoints {
+    spectrum: Option<Arc<SpectrumCoordinator>>,
+    meter_history: Option<Arc<MeterDeltaHistoryExchange>>,
+}
+
+impl PostAnalysisEndpoints {
+    pub(super) fn new(
+        spectrum: Option<Arc<SpectrumCoordinator>>,
+        meter_history: Option<Arc<MeterDeltaHistoryExchange>>,
+    ) -> Self {
+        Self {
+            spectrum,
+            meter_history,
+        }
+    }
+
+    pub(super) fn service(
+        &self,
+        latched_pre: &Arc<Mutex<Option<LatchedPre>>>,
+        post_instance_id: &str,
+        pair_pre_name: &str,
+    ) {
+        service_post_analysis_endpoints(
+            self.spectrum.as_ref(),
+            self.meter_history.as_ref(),
+            latched_pre,
+            post_instance_id,
+            pair_pre_name,
+        );
+    }
+}
+
 fn confirmed_analysis_targets(
     latched_pre: &Arc<Mutex<Option<LatchedPre>>>,
 ) -> (Option<SpectrumTarget>, Option<MeterHistoryTarget>) {
