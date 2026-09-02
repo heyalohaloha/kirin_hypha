@@ -1,6 +1,7 @@
 //! Exact-session Drop commit acceptance for an open POST Record.
 
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::cleanup::exit_record_preserve_pair;
@@ -18,11 +19,39 @@ pub(super) fn service_open_drop_commit(
     project_hash: &str,
     post_instance_id: &str,
 ) -> bool {
-    let Ok(paths) = StoragePaths::default_platform() else {
+    service_open_drop_commit_with_base(
+        record_sm,
+        record_take_tracker,
+        paired_pre_target,
+        project_hash,
+        post_instance_id,
+        || {
+            StoragePaths::default_platform()
+                .ok()
+                .map(|paths| paths.plugin_data_dir())
+        },
+    )
+}
+
+fn service_open_drop_commit_with_base<F>(
+    record_sm: &Arc<RecordStateMachine>,
+    record_take_tracker: &Arc<RecordTakeTracker>,
+    paired_pre_target: &Arc<Mutex<Option<String>>>,
+    project_hash: &str,
+    post_instance_id: &str,
+    resolve_base: F,
+) -> bool
+where
+    F: FnOnce() -> Option<PathBuf>,
+{
+    if !record_sm.is_recording() {
+        return false;
+    }
+    let Some(base) = resolve_base() else {
         return false;
     };
     service_open_drop_commit_at(
-        &paths.plugin_data_dir(),
+        &base,
         record_sm,
         record_take_tracker,
         paired_pre_target,

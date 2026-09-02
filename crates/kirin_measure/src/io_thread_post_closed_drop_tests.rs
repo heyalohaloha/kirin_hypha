@@ -41,14 +41,22 @@ fn write_signal(base: &Path, status: SignalStatus, session_id: &str, pre_id: &st
 fn record_state_defers_poll_without_consuming_the_immediate_watch_tick() {
     let start = Instant::now();
     let mut state = ClosedDropRecovery::new(start);
-    state.service_with(start, true, |_| {
-        panic!("Record must not inspect a closed session")
-    });
+    state.service_with(
+        start,
+        true,
+        |_| panic!("Record must not inspect a closed session"),
+        || panic!("deferred work has no completion time"),
+    );
     let calls = Cell::new(0);
-    state.service_with(start, false, |_| {
-        calls.set(calls.get() + 1);
-        None
-    });
+    state.service_with(
+        start,
+        false,
+        |_| {
+            calls.set(calls.get() + 1);
+            None
+        },
+        || start,
+    );
     assert_eq!(calls.get(), 1);
 }
 
@@ -57,10 +65,15 @@ fn watch_poll_is_throttled_and_includes_the_one_second_boundary() {
     let start = Instant::now();
     let mut state = ClosedDropRecovery::new(start);
     let calls = Cell::new(0);
-    state.service_with(start, false, |_| {
-        calls.set(calls.get() + 1);
-        None
-    });
+    state.service_with(
+        start,
+        false,
+        |_| {
+            calls.set(calls.get() + 1);
+            None
+        },
+        || start,
+    );
     state.service_with(
         start + POLL_INTERVAL - Duration::from_nanos(1),
         false,
@@ -68,12 +81,18 @@ fn watch_poll_is_throttled_and_includes_the_one_second_boundary() {
             calls.set(calls.get() + 1);
             None
         },
+        || start + POLL_INTERVAL - Duration::from_nanos(1),
     );
     assert_eq!(calls.get(), 1);
-    state.service_with(start + POLL_INTERVAL, false, |_| {
-        calls.set(calls.get() + 1);
-        None
-    });
+    state.service_with(
+        start + POLL_INTERVAL,
+        false,
+        |_| {
+            calls.set(calls.get() + 1);
+            None
+        },
+        || start + POLL_INTERVAL,
+    );
     assert_eq!(calls.get(), 2);
 }
 
@@ -81,13 +100,57 @@ fn watch_poll_is_throttled_and_includes_the_one_second_boundary() {
 fn completed_session_is_remembered_and_passed_to_later_polls() {
     let start = Instant::now();
     let mut state = ClosedDropRecovery::new(start);
-    state.service_with(start, false, |_| Some("session-done".to_string()));
+    state.service_with(start, false, |_| Some("session-done".to_string()), || start);
     let observed = RefCell::new(None);
-    state.service_with(start + POLL_INTERVAL, false, |completed| {
-        *observed.borrow_mut() = completed.map(str::to_string);
-        None
-    });
+    state.service_with(
+        start + POLL_INTERVAL,
+        false,
+        |completed| {
+            *observed.borrow_mut() = completed.map(str::to_string);
+            None
+        },
+        || start + POLL_INTERVAL,
+    );
     assert_eq!(observed.into_inner().as_deref(), Some("session-done"));
+}
+
+#[test]
+fn slow_recovery_is_throttled_from_completion_instead_of_attempt_start() {
+    let start = Instant::now();
+    let completion = start + Duration::from_secs(2);
+    let mut state = ClosedDropRecovery::new(start);
+    let calls = Cell::new(0);
+
+    state.service_with(
+        start,
+        false,
+        |_| {
+            calls.set(calls.get() + 1);
+            None
+        },
+        || completion,
+    );
+    state.service_with(
+        completion + POLL_INTERVAL - Duration::from_nanos(1),
+        false,
+        |_| {
+            calls.set(calls.get() + 1);
+            None
+        },
+        || panic!("throttled work has no completion time"),
+    );
+    assert_eq!(calls.get(), 1);
+
+    state.service_with(
+        completion + POLL_INTERVAL,
+        false,
+        |_| {
+            calls.set(calls.get() + 1);
+            None
+        },
+        || completion + POLL_INTERVAL,
+    );
+    assert_eq!(calls.get(), 2);
 }
 
 #[test]

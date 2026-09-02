@@ -138,12 +138,16 @@ impl PostObservation {
     }
 
     pub(super) fn service(&mut self) -> PostObservationTick {
+        self.service_at(Instant::now())
+    }
+
+    fn service_at(&mut self, cycle_now: Instant) -> PostObservationTick {
         let instance_id = read_instance_id_arc(&self.instance_id);
         let project_hash = read_project_hash_arc(&self.project_hash);
         let daw_session_id = read_daw_session_id_arc(&self.daw_session_id);
 
         self.reservation_lease_refresh.service(
-            Instant::now(),
+            cycle_now,
             self.record_sm.is_recording(),
             &self.paired_pre_target,
             &project_hash,
@@ -174,7 +178,7 @@ impl PostObservation {
             .map(|value| *value)
             .unwrap_or(0.0);
         self.pair_self_check.service(
-            Instant::now(),
+            cycle_now,
             &self.kirin_root,
             &self.record_sm,
             &self.is_playing,
@@ -293,13 +297,5 @@ fn stable_record_generation(before: u64, recording: bool, after: u64) -> Option<
 }
 
 #[cfg(test)]
-mod tests {
-    use super::stable_record_generation;
-
-    #[test]
-    fn record_display_requires_one_unchanged_record_generation() {
-        assert_eq!(stable_record_generation(7, true, 7), Some(7));
-        assert_eq!(stable_record_generation(7, true, 8), None);
-        assert_eq!(stable_record_generation(7, false, 7), None);
-    }
-}
+#[path = "io_thread_post_observation_tests.rs"]
+mod tests;

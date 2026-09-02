@@ -23,9 +23,15 @@ impl ClosedDropRecovery {
         }
     }
 
-    fn service_with<F>(&mut self, now: Instant, is_recording: bool, recover: F)
-    where
+    fn service_with<F, C>(
+        &mut self,
+        now: Instant,
+        is_recording: bool,
+        recover: F,
+        completion_clock: C,
+    ) where
         F: FnOnce(Option<&str>) -> Option<String>,
+        C: FnOnce() -> Instant,
     {
         if is_recording || now < self.next_poll {
             return;
@@ -33,7 +39,7 @@ impl ClosedDropRecovery {
         if let Some(session_id) = recover(self.completed_session.as_deref()) {
             self.completed_session = Some(session_id);
         }
-        self.next_poll = now + POLL_INTERVAL;
+        self.next_poll = completion_clock() + POLL_INTERVAL;
     }
 
     pub(super) fn service(
@@ -44,24 +50,29 @@ impl ClosedDropRecovery {
         project_hash: &str,
         post_instance_id: &str,
     ) {
-        self.service_with(now, record_sm.is_recording(), |completed_session| {
-            let Ok(paths) = StoragePaths::default_platform() else {
-                return None;
-            };
-            let memory_session = record_sm.last_closed_session_id();
-            let memory_pre = paired_pre_target
-                .lock()
-                .ok()
-                .and_then(|guard| guard.clone());
-            reconcile_closed_drop_target(
-                &paths.plugin_data_dir(),
-                project_hash,
-                post_instance_id,
-                memory_session.as_deref(),
-                memory_pre.as_deref(),
-                completed_session,
-            )
-        });
+        self.service_with(
+            now,
+            record_sm.is_recording(),
+            |completed_session| {
+                let Ok(paths) = StoragePaths::default_platform() else {
+                    return None;
+                };
+                let memory_session = record_sm.last_closed_session_id();
+                let memory_pre = paired_pre_target
+                    .lock()
+                    .ok()
+                    .and_then(|guard| guard.clone());
+                reconcile_closed_drop_target(
+                    &paths.plugin_data_dir(),
+                    project_hash,
+                    post_instance_id,
+                    memory_session.as_deref(),
+                    memory_pre.as_deref(),
+                    completed_session,
+                )
+            },
+            Instant::now,
+        );
     }
 }
 
