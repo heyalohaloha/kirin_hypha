@@ -4,25 +4,17 @@
 //! available while that operation is pending, allowing the stable 10 Hz IO path to publish the
 //! same request and keep the factual PRE/POST exchange alive.
 
-use std::sync::{MutexGuard, TryLockError};
-use std::time::Instant;
+use std::{
+    sync::{MutexGuard, TryLockError},
+    time::Instant,
+};
 
 use super::*;
-
-struct PreparedPostSession {
-    session: PostSession,
-    renewal: bool,
-    retired: Option<(Option<SpectrumTarget>, Uuid)>,
-    reset_runtime: bool,
-}
+#[path = "spectrum_exchange_post/post_session.rs"]
+mod post_session;
+use post_session::PreparedPostSession;
 
 impl SpectrumCoordinator {
-    /// Test convenience wrapper. Production supplies the pair name to the lease metadata.
-    #[cfg(test)]
-    pub(crate) fn post_tick(&self, post_instance_id: &str, target: Option<SpectrumTarget>) -> bool {
-        self.post_tick_for_owner(post_instance_id, target, "")
-    }
-
     pub(crate) fn post_tick_for_owner(
         &self,
         post_instance_id: &str,

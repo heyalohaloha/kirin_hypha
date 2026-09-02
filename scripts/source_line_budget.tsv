@@ -34,9 +34,7 @@ crates/kirin_measure/src/record_take.rs	2642
 crates/kirin_measure/src/record_writer.rs	8169
 crates/kirin_measure/src/record_writer_claim.rs	659
 crates/kirin_measure/src/reservation.rs	818
-crates/kirin_measure/src/spectrum_exchange_post.rs	505
 crates/kirin_measure/src/spectrum_exchange_recovery_tests.rs	665
-crates/kirin_measure/src/spectrum_exchange_tests.rs	506
 crates/kirin_measure/src/storage.rs	962
 crates/kirin_measure/src/trace_clock_resolution.rs	765
 crates/kirin_measure/src/trace_content_clock.rs	1652

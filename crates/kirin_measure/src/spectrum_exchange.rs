@@ -342,6 +342,9 @@ mod attack_integration_tests;
 #[cfg(test)]
 #[path = "spectrum_exchange_integration_tests.rs"]
 mod integration_tests;
+#[cfg(test)]
+#[path = "spectrum_exchange_lease_tests.rs"]
+mod lease_tests;
 #[cfg(all(test, not(windows)))]
 #[path = "spectrum_exchange_lock_tests.rs"]
 mod lock_tests;
