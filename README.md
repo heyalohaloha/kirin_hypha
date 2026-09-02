@@ -15,13 +15,24 @@ difference between those two exact points. Hypha does not generate, modify, atte
 1. Insert **PRE Kirin Hypha** before the processing chain.
 2. Insert **POST Kirin Hypha** after the processing chain.
 3. Open POST's arrow menu and choose that exact PRE under **Pair choices**.
-4. Open **ANALYSIS** and switch between **FREQ**, **SHARP**, and **LIVE**.
+4. Use the top-level **LEVEL**, **TIME**, **FREQ**, and **SPACE** domains. In **TIME**, choose
+   **HISTORY**, **ATTACK**, **SHARP**, or **LIVE**.
 
 Names are optional labels. PRE and POST do not need matching names, and track position is never used
 to guess a pair. The two plug-ins are the measurement boundary: PRE captures the input state, while
 POST captures the output state and joins only verified matching observations.
 
-## Three observation views
+## Four observation domains
+
+### LEVEL — loudness, peak, dynamics, and meaningful history
+
+LEVEL keeps immediate loudness and dynamics facts above fixed-scale history. The large view adds M,
+S, I, five supporting facts, and L/R meters without changing the compact measurement definitions.
+
+### TIME — what happened and when
+
+TIME directly selects **HISTORY**, validated DRUM **ATTACK**, signed **SHARP**, or three absolute
+**LIVE** facts. Only the selected optional analyzer runs.
 
 ### FREQ — where the chain changed
 
@@ -43,17 +54,18 @@ warning colour, score, or recommendation.
 LIVE overlays POST **LUFS-M**, **recent True Peak**, and **Sharpness** on one six-second time axis.
 Each metric keeps an independent fixed scale, and the current values update at a readable rate.
 
-Only the visible analyzer runs. Two POST Analysis pages may stay active in one DAW process, supporting
-a persistent 2Mix view plus one working track. A third page identifies the two current owners and
-acquires a slot only after one owner returns to METERS or closes. Switching FREQ / SHARP / LIVE keeps
-the same slot.
+### SPACE — stereo distribution without a verdict
+
+SPACE shows three-second MID/SIDE density, L/R balance, and correlation. It stays absolute because
+Hypha does not invent PRE/POST subtraction for correlation or the stereo field.
+
+Two POST optional analyzers may stay active, supporting a mix bus plus one working track. A third
+identifies the owners and waits until one returns to **LEVEL**, **TIME / HISTORY**, or **SPACE**, or closes.
 
 macOS 12 or later is supported as signed and notarized VST3 and Audio Unit plug-ins. Windows 10/11
 64-bit is supported as VST3 and distributed as a manual ZIP. The Windows build passes CI and
 pluginval and is validated in Studio One Pro on a dedicated Windows machine; a signed Windows
 installer is not currently provided.
-
----
 
 ## Design
 
@@ -63,20 +75,16 @@ It produces measurement data. It does not generate, modify, or attenuate audio. 
 
 Every metric is backed by a known-signal golden test: the expected values are derived independently from the signal definition and the ITU-R BS.1770 filter coefficients, not asserted by hand. The measurement layer demonstrates its precision rather than claiming it.
 
----
-
 ## Modes
 
 | Feature | Standalone | With Kirin OS |
 |---|---|---|
 | Watch mode | ✓ | ✓ |
-| POST Analysis: FREQ / SHARP / LIVE | ✓ | ✓ |
+| POST on-demand ATTACK / FREQ / SHARP / LIVE | ✓ | ✓ |
 | Record mode | — | ✓ |
 | plugin_data output | — | ✓ |
 
 Kirin Hypha is free and fully functional as a standalone plugin. Record mode requires a Kirin OS license.
-
----
 
 ## What it measures
 
@@ -97,10 +105,10 @@ In the Watch grid, the live 400 ms True Peak and its playback-pass MAX are shown
 Pressing **Keep** changes the grid labels; **Max TP** then means the maximum for the whole Keep
 session, including across transport stops.
 
-### POST Analysis: Spectrum (on demand)
+### FREQ: Spectrum (on demand)
 
-A paired POST provides an optional **ANALYSIS** page for inspecting the processing between PRE and
-POST. Analysis runs only while this page is open. The signed **Δ (POST − PRE)** curve is the primary
+A paired POST uses top-level **FREQ** to inspect processing between PRE and POST. Spectrum runs only
+while FREQ is open. The signed **Δ (POST − PRE)** curve is the primary
 display, with absolute PRE and POST spectra retained as reference curves. Δ is shown on a ±24 dB
 scale; the underlying difference is not clipped. A difference is produced only when PRE and POST
 frames have the same sample rate, aperture length, FFT layout, channel mode, channel count, and
@@ -111,7 +119,7 @@ output-presentation sample endpoint.
 | LR / MID / SIDE | Selects exactly one channel definition; the three analyzers never run in parallel |
 | Hover / click | Reads frequency and Δ; click locks the probe, shows its six-second Focus Trail, and × releases it |
 | MARK | Captures or replaces one temporary display-only Δ reference; × clears it |
-| 100% / 125% / 150% / 200% | Resizes every POST Analysis view and remembers the choice for the loaded instance |
+| Free resize / 100–300% presets | Keeps a fixed 3:2 aspect ratio from 300×200 through the native 900×600 Inspection View and remembers the exact loaded-instance size |
 
 The page analyzes one selected channel view at a time. **LR** transforms L and R independently and
 averages their power, so opposite-polarity channels do not cancel. **MID** analyzes the `(L+R)/2`
@@ -120,7 +128,7 @@ SIDE result. Switching LR / MID / SIDE clears the old frame and waits for an exa
 the newly selected mode. Record-mode N and Sharpness use their own independent-channel definition,
 described below, so they can differ from MID or SIDE Spectrum on wide or phase-opposed material.
 
-Hovering the plot shows frequency and Δ; the 125%, 150%, and 200% views also show PRE and POST values.
+Hovering the plot shows frequency and Δ; larger views also show PRE and POST values.
 Below the cycle-derived low-frequency confidence boundary (about 35 Hz), the frequency alone carries
 an unobtrusive `~` prefix. The measured band and Δ remain visible and are not dimmed, hidden, or
 replaced by a warning. Hover help explains that `~` means an approximate low-frequency position.
@@ -129,8 +137,8 @@ in the POST arrow menu disables or restores explanatory popups for every PRE and
 preference survives plug-in and DAW restarts. FREQ inspection, click lock, Focus Trail, and MARK stay
 available while help is hidden. A click in the plot
 locks that readout to the same frequency until its × is pressed. While locked,
-**Focus Trail** shows the last six seconds of Δ at that frequency: compact at 100%, with its own lane
-at 125%, 150%, and 200%. Its newest point is the same exact PRE/POST presentation frame as the live Δ, not a
+**Focus Trail** shows six seconds of Δ: compact at the smallest size and in its own lane when space
+permits. Its newest point is the same exact PRE/POST presentation frame as the live Δ, not a
 UI-clock estimate. A missed UI poll does not erase valid older observations: retained points keep
 their true sample-time positions. The work-surface stroke joins the surrounding exact points across a
 missing endpoint so Windows scheduling jitter does not look like a broken curve; the missing time is
@@ -142,8 +150,8 @@ where the user placed them across a loop, silence, temporary warming state, or s
 the factual trail restarts on the new exact time axis. **MARK** freezes one display-only full-band Δ curve as a solid amber reference beneath
 the cyan live curve; pressing MARK again replaces it, and its × clears it.
 MARK is temporary and is cleared when the pair, sample rate, FFT layout, channel mode, or page changes.
-It neither adds another analyzer nor changes the measured values. The 100% / 125% / 150% / 200% size choice
-is remembered while that plug-in instance remains loaded, while Spectrum itself still opens off.
+It adds no analyzer and changes no measured value. Exact 3:2 size is remembered for the loaded
+instance, while Spectrum itself still opens off.
 Focus Trail retains only fixed-capacity display snapshots while Spectrum is open. It adds no analyzer,
 does not smooth or delay the live Δ, and is discarded on pair, rate, layout, channel-mode, or page
 changes.
@@ -184,9 +192,9 @@ boundaries, not invented samples. It compares measured programme energy rather
 than reconstructing a plug-in transfer function, so narrow low-frequency EQ shapes can appear broader
 than the corresponding EQ control graph.
 
-### POST Analysis: Perceptual Δ (on demand)
+### TIME / SHARP: Perceptual Δ (on demand)
 
-From the POST analysis page, **SHARP** opens Perceptual Δ and **FREQ** returns to Spectrum. The first
+From **TIME**, **SHARP** opens Perceptual Δ; the top-level **FREQ** domain opens Spectrum. The first
 Perceptual Δ observation is **Δ Sharpness History**. It plots the signed Sharpness difference
 `POST − PRE` over the latest six seconds, with the newest exact value shown in acum. The measured
 difference is not clipped; the stable display scale is ±2 acum. The curve is spatially rounded for
@@ -215,14 +223,13 @@ shared future epoch instead of continuing state across a gap.
 
 **LR** measures L and R independently and uses their arithmetic mean, so channel polarity cannot
 cancel the observation. **MID** measures `(L+R)/2`; **SIDE** measures `(L−R)/2` and remains stereo-
-only. Changing channel mode starts a new history. Returning to METERS or closing the editor stops
-Sharpness analysis and discards the display history. Switching to Spectrum stops Sharpness before
-the FFT starts, and vice versa, without releasing the owned Analysis slot. All of this is
-display-only: it neither changes audio nor rewrites Watch or Record results.
+only. Changing channel mode starts new history. Returning to **TIME / HISTORY**, another
+non-analysis domain, or closing stops Sharpness and discards display history. Spectrum and
+Sharpness stop each other before starting without releasing the owned optional-analysis slot.
 
-### POST Analysis: Live facts (on demand)
+### TIME / LIVE: absolute facts (on demand)
 
-From SHARP, **LIVE** opens a POST-only absolute observation timeline; **FREQ** returns to Spectrum.
+From **TIME**, **LIVE** opens a POST-only absolute timeline; top-level **FREQ** opens Spectrum.
 LIVE does not subtract PRE and does not create a PRE analysis request. It overlays three measured
 facts on the same latest-six-second time axis:
 
@@ -248,17 +255,13 @@ dot, and a temporary worker re-arm does not erase the last verified field. Backw
 incompatible format, or a gap spanning the six-second field starts a new run.
 LUFS-M and recent True Peak reuse Watch's measurement definitions; recent True Peak is the latest
 400 ms maximum rather than a session hold. Sharpness keeps the established independent-channel
-arithmetic-mean definition. Switching FREQ / SHARP / LIVE replaces only the analyzer inside the
-same owned slot. Returning to METERS or closing the editor releases the slot, stops optional
-analysis, and discards its display history.
+arithmetic-mean definition. Switching **ATTACK**, **FREQ**, **SHARP**, and **LIVE** replaces only the
+analyzer in the owned slot. A non-analysis domain or editor close releases it and discards history.
 
-Across FREQ, SHARP, and LIVE, at most two POST Analysis pages can be active in one DAW process. This
-supports a persistent 2Mix observation plus one working track without silently starting 12 expensive
-analyzers. A third page remains idle, explains that both slots are active, and starts automatically
-when a slot becomes free. Its single-line status names the two pairs that actually hold the kernel
-slots, so those pages need not be visible on screen. Loaded PRE/POST pairs, Watch, Record, and audio
-pass-through are not limited by these two optional display slots. A mode change between FREQ,
-SHARP, and LIVE never transfers the slot to a waiting page; only METERS or editor close does.
+At most two of ATTACK, FREQ, SHARP, and LIVE run per DAW process. This supports a mix bus plus one
+working track without starting 12 costly analyzers. A third view names the two owners and waits.
+PRE/POST pairs, Watch, Record, and audio pass-through have no such two-slot limit. Switching optional
+views keeps ownership; only a non-analysis domain or editor close releases it.
 
 ### Record mode (Kirin OS required)
 
@@ -287,8 +290,6 @@ even though it is no longer one of the six DAW display cells. For multichannel R
 Sharpness are measured independently per input channel and combined by arithmetic mean. They do not
 sum the waveform before the nonlinear psychoacoustic pipeline. Perceptual Δ uses that same definition
 for LR, while its explicit MID and SIDE selections intentionally measure `(L+R)/2` and `(L−R)/2`.
-
----
 
 ## Download
 
@@ -319,8 +320,6 @@ repeatable real-machine regression checklist.
 
 Published artifacts are immutable. If repository maintenance changes a public commit ID after a release, the commit recorded in that artifact remains its original build commit. [`docs/release_commit_map.json`](docs/release_commit_map.json) maps an affected artifact commit to the commit currently referenced by its release tag and records the verified source-equivalence scope.
 
----
-
 ## Installation
 
 ### macOS
@@ -343,13 +342,9 @@ Published artifacts are immutable. If repository maintenance changes a public co
 3. Start the DAW and rescan VST3 plug-ins if needed.
 4. Insert **PRE Kirin Hypha** before your processing chain and **POST Kirin Hypha** after it.
 
----
-
 ## Sandbox & privacy (Audio Unit)
 
 The Audio Unit declares a broad file-access entitlement (`temporary-exception.files.all.read-write`), which the AU sandbox requires for the plug-in to persist its session data (`.kirin` and plug-in data) on disk. The build declares no network entitlement and links no networking or web frameworks — you can confirm this with `codesign -d --entitlements - "Kirin Hypha PRE.component"` and `otool -L "Kirin Hypha PRE.component"`.
-
----
 
 ## Pairing PRE and POST
 
@@ -367,27 +362,20 @@ its exact instance identity.
 
 Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per project).
 
----
-
 ## Watch mode
 
 Real-time display of selectable LUFS-M / LUFS-S, True Peak (recent), and Crest Factor during
 playback. The M and S selections retain independent playback-pass maximums. POST displays the
 difference between its own measurements and the paired PRE.
-On a paired POST, **ANALYSIS** can be opened on demand. Its **FREQ** Spectrum view shows the signed
-POST − PRE frequency difference, and **SHARP** switches the same page to on-demand **Perceptual Δ**
-with a six-second Δ Sharpness History. **LIVE** adds a POST-only six-second timeline of absolute
-LUFS-M, recent True Peak, and Sharpness. The views are mutually exclusive: only the currently visible
-analyzer runs within an instance; two POST Analysis pages may run in a DAW process, while a third
-explains that both slots are active.
+Top-level **FREQ** shows signed POST − PRE spectrum. Under **TIME**, ATTACK, SHARP, and LIVE provide
+their on-demand time observations. Only the visible optional analyzer runs; two POST instances may
+own slots, while a third identifies the owners and waits.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
 ![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
 [Watch PRE/POST with the M/S selector and independent Watch MAX values (32-second silent MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)
-
----
 
 ## Record mode (Kirin OS required)
 
@@ -410,8 +398,6 @@ If measurement samples are ever dropped during a recording (for example, on a bu
 
 [Watch POST move from Watch to Keep/Record and hold the final result after Stop (45-second silent MP4)](docs/media/kirin-hypha-record-keep-demo.mp4)
 
----
-
 ## Kirin OS ecosystem
 
 Kirin Hypha is one piece of a larger ecosystem. With Kirin OS, session data is written to `plugin_data` in a structured JSON schema and can be bundled with C2PA provenance into a tamper-evident `.kirin` file alongside the audio.
@@ -419,8 +405,6 @@ Kirin Hypha is one piece of a larger ecosystem. With Kirin OS, session data is w
 Hypha itself remains **standalone and free** — Kirin OS is not required to use Watch mode.
 
 Kirin OS is available now. More at [kirinmastering.com](https://kirinmastering.com).
-
----
 
 ## Requirements
 
@@ -432,8 +416,6 @@ Validated on macOS 14 (Sonoma) and Windows with Studio One Pro. Windows is VST3-
 manual ZIP package; a signed Windows installer is not currently provided.
 
 **Not currently supported:** Linux · CLAP
-
----
 
 ## Building from source
 
@@ -483,20 +465,14 @@ cargo run --package xtask -- release-package
 Do not run the signed release checks inside a sandboxed child process; macOS `codesign` can report a false `invalid signature` for valid notarized plugin bundles in that context.
 Upload only `Kirin-Hypha-<version>-macOS-Universal.pkg` to the configured Lemon Squeezy products after local verification passes.
 
----
-
 ## License
 
 [GNU General Public License v3.0](LICENSE)
 
 Kirin Hypha is released under GPLv3 to keep the measurement layer auditable. The numbers a tool produces should be inspectable — any user, researcher, or engineer can read the code that generated them. Derivative works inherit the same openness.
 
----
-
 ## Acknowledgements
 
 Built on [nih-plug](https://github.com/robbert-vdh/nih-plug) by Robbert van der Helm.
-
----
 
 *Kirin Hypha — observation, kept simple.*

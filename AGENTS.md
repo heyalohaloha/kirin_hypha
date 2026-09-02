@@ -242,13 +242,14 @@ Kirin Hypha は CE 2226 の菌糸の先端。DAWの中に200年後の世界が�
 
 
 ### 概要
-Audio Thread が毎 process() で `AtomicU8` に書き込む信号状態。パイプライン全体がこの値に従う。
+以下はC ABIとJUCE表示が使う公開値。Audio Thread内部の`SignalState` enumは別表現を持つため、
+境界では`set_signal_state` / `signal_state_to_abi`の明示写像を必ず通す。
 
 | 状態 | 値 | 意味 | Measure Thread | IO Thread | GUI |
 |------|---|------|---------------|-----------|-----|
-| Active | 0 | 信号あり・バイパスなし | 計測する | 全値JSON | 数値表示 |
-| Bypassed | 1 | DAW バイパス中 | スキップ | 最小JSON | `---` |
-| Inactive | 2 | transport停止 or 無音 | スキップ | 最小JSON | `---` |
+| Inactive | 0 | transport停止 or 無音 | スキップ | 最小JSON | `---` |
+| Active | 1 | 信号あり・バイパスなし | 計測する | 全値JSON | 数値表示 |
+| Bypassed | 2 | DAW バイパス中 | スキップ | 最小JSON | `---` |
 
 ### Heartbeat 方式（Studio One 対応）
 Studio One はバイパス時に `process()` 自体を停止する（BoolParam bypass は同期されない）。
