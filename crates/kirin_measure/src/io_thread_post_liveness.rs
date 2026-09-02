@@ -7,8 +7,6 @@ use crate::record_signal::{self, SignalStatus, ACK_TIMEOUT_SECONDS};
 use crate::storage::StoragePaths;
 use std::fs;
 use std::path::Path;
-#[cfg(test)]
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
@@ -242,67 +240,6 @@ pub(super) fn release_record_reservation(
     }
 }
 
-/// Resolve one stopped-session Drop address without scanning project history.
-///
-/// The canonical `record_signal/{post}.json` survives Stop and contains both immutable session
-/// and PRE identities. Reading it here makes post-Stop reconciliation survive an engine/DAW
-/// restart where the in-memory pair latch and `last_closed_session_id` no longer exist. A live
-/// Pending/Acknowledged signal is never treated as a stopped session; the in-memory pair remains
-/// the compatibility fallback when no released disk identity is available.
-pub(super) fn resolve_closed_drop_target(
-    base: &Path,
-    project_hash: &str,
-    post_instance_id: &str,
-    memory_session_id: Option<&str>,
-    memory_pre_instance_id: Option<&str>,
-) -> Option<(String, String)> {
-    let safe = |value: &str| crate::path_identity::is_path_safe_component(value);
-    if let Some(signal) = record_signal::read_signal(base, project_hash, post_instance_id) {
-        if signal.status == SignalStatus::Released
-            && signal.requested_by == post_instance_id
-            && safe(&signal.session_id)
-            && safe(&signal.target_pre_instance_id)
-        {
-            return Some((signal.session_id, signal.target_pre_instance_id));
-        }
-    }
-    let session_id = memory_session_id.filter(|value| safe(value))?;
-    let pre_instance_id = memory_pre_instance_id.filter(|value| safe(value))?;
-    Some((session_id.to_string(), pre_instance_id.to_string()))
-}
-
-/// Reconcile one exact stopped session and return its id only after durable completion exists.
-pub(super) fn reconcile_closed_drop_target(
-    base: &Path,
-    project_hash: &str,
-    post_instance_id: &str,
-    memory_session_id: Option<&str>,
-    memory_pre_instance_id: Option<&str>,
-    completed_session_id: Option<&str>,
-) -> Option<String> {
-    let (session_id, pre_instance_id) = resolve_closed_drop_target(
-        base,
-        project_hash,
-        post_instance_id,
-        memory_session_id,
-        memory_pre_instance_id,
-    )?;
-    if completed_session_id == Some(session_id.as_str()) {
-        return None;
-    }
-
-    let reconciled = crate::plugin_data::reconcile_drop_committed_closed_session(
-        base,
-        project_hash,
-        &session_id,
-        &pre_instance_id,
-        post_instance_id,
-    );
-    (reconciled > 0
-        || crate::plugin_data::pair_record_session_manifest_exists(base, project_hash, &session_id))
-    .then_some(session_id)
-}
-
 /// Build the POST GUI label from the authoritative PRE name or short instance identity.
 pub fn format_pair_label(paired_pre_name: &str, target_id: &str) -> String {
     if !paired_pre_name.is_empty() {
@@ -310,95 +247,5 @@ pub fn format_pair_label(paired_pre_name: &str, target_id: &str) -> String {
     } else {
         let short: String = target_id.chars().take(8).collect();
         format!("pair: {}", short)
-    }
-}
-
-#[cfg(test)]
-mod closed_drop_target_tests {
-    use super::*;
-    use crate::record_signal::{RecordSignal, ReleaseReason};
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    const PROJECT: &str = "project-a";
-    const POST: &str = "post-a";
-
-    fn isolated_base() -> PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let base = std::env::temp_dir().join(format!(
-            "kirin-closed-drop-target-{}-{n}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&base);
-        fs::create_dir_all(&base).unwrap();
-        base
-    }
-
-    fn write_signal(base: &Path, status: SignalStatus, session_id: &str, pre_id: &str) {
-        let mut signal = RecordSignal::new_pending(
-            POST.to_string(),
-            pre_id.to_string(),
-            "daw-a".to_string(),
-            None,
-            None,
-        );
-        signal.status = status;
-        signal.session_id = session_id.to_string();
-        signal.release_reason =
-            (status == SignalStatus::Released).then_some(ReleaseReason::ManualStop);
-        record_signal::write_signal(base, PROJECT, POST, &signal).unwrap();
-    }
-
-    #[test]
-    fn released_signal_recovers_target_after_all_memory_is_lost() {
-        let base = isolated_base();
-        write_signal(&base, SignalStatus::Released, "session-a", "pre-a");
-
-        assert_eq!(
-            resolve_closed_drop_target(&base, PROJECT, POST, None, None),
-            Some(("session-a".to_string(), "pre-a".to_string()))
-        );
-    }
-
-    #[test]
-    fn active_signal_never_claims_to_be_a_stopped_drop_target() {
-        let base = isolated_base();
-        write_signal(
-            &base,
-            SignalStatus::Acknowledged,
-            "session-live",
-            "pre-live",
-        );
-
-        assert_eq!(
-            resolve_closed_drop_target(&base, PROJECT, POST, None, None),
-            None
-        );
-    }
-
-    #[test]
-    fn in_memory_target_remains_the_legacy_fallback() {
-        let base = isolated_base();
-        assert_eq!(
-            resolve_closed_drop_target(
-                &base,
-                PROJECT,
-                POST,
-                Some("session-memory"),
-                Some("pre-memory"),
-            ),
-            Some(("session-memory".to_string(), "pre-memory".to_string()))
-        );
-    }
-
-    #[test]
-    fn completed_session_is_not_reconciled_twice() {
-        let base = isolated_base();
-        write_signal(&base, SignalStatus::Released, "session-done", "pre-a");
-
-        assert_eq!(
-            reconcile_closed_drop_target(&base, PROJECT, POST, None, None, Some("session-done"),),
-            None
-        );
     }
 }

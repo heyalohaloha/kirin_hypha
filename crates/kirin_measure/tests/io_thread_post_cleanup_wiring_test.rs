@@ -173,9 +173,9 @@ fn pre_pair_status_reads_one_exact_claim_without_enumeration() {
 #[test]
 fn post_runtime_never_reconciles_project_history() {
     let coordinator = read("src/io_thread_post.rs");
-    let recovery = read("src/io_thread_post_liveness.rs");
+    let recovery = read("src/io_thread_post_closed_drop.rs");
     assert!(
-        coordinator.contains("reconcile_closed_drop_target("),
+        coordinator.contains("closed_drop_recovery.service("),
         "POST coordinator must invoke one exact closed Drop recovery"
     );
     assert!(

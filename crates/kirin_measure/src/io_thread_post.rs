@@ -69,7 +69,7 @@ pub use liveness::format_pair_label;
 use liveness::{
     find_pre_json_mtime, poll_ack_timeout_with_base, poll_pre_liveness, poll_pre_liveness_at,
 };
-use liveness::{poll_ack_timeout, poll_latched_pre_liveness, reconcile_closed_drop_target};
+use liveness::{poll_ack_timeout, poll_latched_pre_liveness};
 
 #[path = "io_thread_post_delta.rs"]
 mod delta_resolution;
@@ -114,6 +114,10 @@ use idle::IdleRecordStop;
 #[path = "io_thread_post_drop.rs"]
 mod drop_commit;
 use drop_commit::service_open_drop_commit;
+
+#[path = "io_thread_post_closed_drop.rs"]
+mod closed_drop;
+use closed_drop::ClosedDropRecovery;
 
 #[path = "io_thread_post_broadcast.rs"]
 mod broadcast;
@@ -368,8 +372,7 @@ pub fn spawn_io_thread_post(
         // B-024 Group A / Gap-2: PRE 死活監視 sub-tick の next-fire 時刻。
         let mut next_pre_liveness_poll = Instant::now();
         let mut reservation_lease_refresh = ReservationLeaseRefresh::new(Instant::now());
-        let mut next_closed_drop_poll = Instant::now();
-        let mut completed_closed_drop_session: Option<String> = None;
+        let mut closed_drop_recovery = ClosedDropRecovery::new(Instant::now());
         let mut discovery = PostDiscoveryState::new();
         let mut watch_lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
         let mut owned_pair_claim: Option<crate::pair_claim_index::PairClaim> = None;
@@ -611,31 +614,13 @@ pub fn spawn_io_thread_post(
                 log::warn!("[writer] tick error: {}", e);
             }
 
-            // A user may explicitly Stop before Drop. The producer still knows the exact closed
-            // session and paired PRE, so poll one commit path and inspect only that pair's fixed
-            // `.failed/.pair_pending` files. No project recursion or history convergence runs in
-            // the steady-state IO loop.
-            if !record_sm.is_recording() && Instant::now() >= next_closed_drop_poll {
-                if let Ok(paths) = StoragePaths::default_platform() {
-                    let base = paths.plugin_data_dir();
-                    let memory_session = record_sm.last_closed_session_id();
-                    let memory_pre = paired_pre_target
-                        .lock()
-                        .ok()
-                        .and_then(|guard| guard.clone());
-                    if let Some(session_id) = reconcile_closed_drop_target(
-                        &base,
-                        project_hash_ref,
-                        instance_id_ref,
-                        memory_session.as_deref(),
-                        memory_pre.as_deref(),
-                        completed_closed_drop_session.as_deref(),
-                    ) {
-                        completed_closed_drop_session = Some(session_id);
-                    }
-                }
-                next_closed_drop_poll = Instant::now() + Duration::from_secs(1);
-            }
+            closed_drop_recovery.service(
+                Instant::now(),
+                &record_sm,
+                &paired_pre_target,
+                project_hash_ref,
+                instance_id_ref,
+            );
 
             idle_record_stop.service(
                 Instant::now(),
