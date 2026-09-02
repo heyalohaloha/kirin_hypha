@@ -19,7 +19,7 @@
  #include "HyphaSpectrumComponent.h"
  #include "HyphaPerceptualComponent.h"
  #include "HyphaAbsoluteComponent.h"
- #include "HyphaAttackInternalComponent.h"
+ #include "HyphaAttackComponent.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -125,7 +125,7 @@ private:
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
     hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
-    hypha::AttackInternalComponent attackInternalView;         // POST DRUM product trial
+    hypha::AttackComponent attackView;         // POST ATTACK product view
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help

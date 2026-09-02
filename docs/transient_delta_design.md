@@ -1,6 +1,6 @@
 # POST ATTACK transient delta design contract
 
-**Status**: internal, default OFF until every public gate passes
+**Status**: product route; analysis remains on-demand and inactive while ATTACK is hidden
 **Implementation label**: B-548
 **Measurement contract version**: `kirin-transient-v2-draft`
 
@@ -13,13 +13,17 @@ ATTACK is a POST-only, on-demand observation page. It shows where a transient ob
 and how the same content event changed from PRE to POST. It does not classify instruments, score a
 sound, prescribe a target, suggest a setting, or process audio.
 
-The page has two explicit measurement profiles: `DRUM` for percussion-dominant full-kit buses and
-isolated kick or snare tracks, and `2MIX` for completed mixes. Full-kit material determines DRUM's
-shared detector parameters; isolated tracks are an in-domain regression subset, not extra profiles
-or separately tuned modes. Only one profile may run at a time, and the runtime never infers or
-switches profile from the material.
-The first ATTACK view has no selected profile and emits no analysis request until the user chooses
-one. The selection lasts only for the current editor lifetime.
+The current product route exposes the independently implemented `DRUM` definition for
+percussion-dominant full-kit buses and isolated kick or snare tracks. Full-kit material determines
+DRUM's shared detector parameters; isolated tracks are an in-domain regression subset, not extra
+profiles or separately tuned modes. Entering ATTACK is the user's explicit request to start this
+on-demand definition; leaving ATTACK stops it, and the request is not persisted in DAW state.
+
+`2MIX` remains a separately specified profile for completed mixes, not an alias for DRUM. It has no
+runtime definition or public selector until its independent development audio, audio-only
+annotation, candidate freeze, definition hash, fresh holdout, paired-transform, performance, and
+platform gates pass. The runtime must never infer material type or silently substitute DRUM for
+2MIX. Adding a 2MIX selector is therefore a gated product change, not a copy or rename operation.
 
 The main mark is a signed `POST - PRE` Onset Flux event stem on a six-second observation field.
 Event detail contains PRE, POST, and signed delta for Onset Flux, 30 ms Crest, 30 ms Sample Peak,
@@ -31,8 +35,8 @@ is never replaced with zero.
 - ATTACK owns one of the existing two process-wide Analysis leases.
 - FREQ, SHARP, LIVE, and ATTACK are mutually exclusive inside one POST instance.
 - Switching among Analysis pages retains the lease. METERS and editor close release it.
-- Switching between DRUM and 2MIX retains the lease but retires the request, clears history and
-  selection, and starts a new definition epoch.
+- A future, independently qualified DRUM/2MIX switch must retain the lease but retire the request,
+  clear history and selection, and start a new definition epoch.
 - ATTACK uses a new top-level `PostAnalysisRoute`; the existing wire-level `AnalysisViewMode`
   values `0`, `1`, and `2` and their decoder remain unchanged.
 - Transient request, readiness, payload, cleanup, file namespace, and Windows mapping are separate
@@ -168,7 +172,8 @@ exchange replacement, or real overflow start a new continuity epoch without join
 
 ## Publication gates
 
-Each profile remains internal and default OFF until all of these hold on one commit:
+Each candidate profile remains absent from its public selector until all of these hold on one
+commit:
 
 - its fresh holdout onset precision, recall, timing, and false-match limits fixed by the Phase 2-R
   recovery plan are met, with DRUM also passing kick/hat and isolated-hat gates;

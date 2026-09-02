@@ -59,15 +59,15 @@ impl Default for KirinAttackPairEventBatch {
 }
 
 impl KirinHyphaEngine {
-    pub fn poll_internal_attack_pre_waveform(&self) -> Option<KirinAttackWaveformBatch> {
+    pub fn poll_attack_pre_waveform(&self) -> Option<KirinAttackWaveformBatch> {
         self.attack_pair_view()?.pre.map(to_c_attack_waveform_batch)
     }
 
-    pub fn poll_internal_attack_pre_details(&self) -> Option<KirinAttackDetailBatch> {
+    pub fn poll_attack_pre_details(&self) -> Option<KirinAttackDetailBatch> {
         self.attack_pair_view()?.pre.map(to_c_attack_detail_batch)
     }
 
-    pub fn poll_internal_attack_pair_events(&self) -> Option<KirinAttackPairEventBatch> {
+    pub fn poll_attack_pair_events(&self) -> Option<KirinAttackPairEventBatch> {
         self.attack_pair_view().map(to_c_attack_pair_event_batch)
     }
 
@@ -100,17 +100,17 @@ macro_rules! attack_pair_poll {
 }
 
 attack_pair_poll!(
-    kirin_hypha_poll_internal_attack_pre_waveform,
-    poll_internal_attack_pre_waveform,
+    kirin_hypha_poll_attack_pre_waveform,
+    poll_attack_pre_waveform,
     KirinAttackWaveformBatch
 );
 attack_pair_poll!(
-    kirin_hypha_poll_internal_attack_pre_details,
-    poll_internal_attack_pre_details,
+    kirin_hypha_poll_attack_pre_details,
+    poll_attack_pre_details,
     KirinAttackDetailBatch
 );
 attack_pair_poll!(
-    kirin_hypha_poll_internal_attack_pair_events,
-    poll_internal_attack_pair_events,
+    kirin_hypha_poll_attack_pair_events,
+    poll_attack_pair_events,
     KirinAttackPairEventBatch
 );

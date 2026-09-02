@@ -3,14 +3,14 @@
 #include <cstdint>
 #include <limits>
 
-// ATTACK product-trial presentation. It maps confirmed event samples onto a fixed six-second axis
+// ATTACK product presentation. It maps confirmed event samples onto a fixed six-second axis
 // and never attempts to infer an instrument from a waveform or expose an editable threshold. The
 // environment variable remains only as a direct-open validation shortcut.
 namespace hypha::attack_ui
 {
     constexpr int presentationSeconds = 6;
     constexpr int presentationHz = 10;
-    constexpr const char* activationEnvironmentVariable = "KIRIN_HYPHA_INTERNAL_ATTACK";
+    constexpr const char* activationEnvironmentVariable = "KIRIN_HYPHA_OPEN_ATTACK";
     constexpr const char* activationValue = "1";
     constexpr int minimumPlotWidth = 1;
     constexpr int headerHeight = 30;

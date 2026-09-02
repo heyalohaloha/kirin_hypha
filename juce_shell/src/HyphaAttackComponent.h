@@ -10,10 +10,10 @@ namespace hypha
 {
     // POST-only DRUM ATTACK view. It presents factual absolute PRE/POST shapes and deltas;
     // no confidence score, instrument inference, or quality judgement is introduced.
-    class AttackInternalComponent final : public juce::Component
+    class AttackComponent final : public juce::Component
     {
     public:
-        AttackInternalComponent();
+        AttackComponent();
         void setSnapshot (const KirinAttackEventBatch& events,
                           const KirinAttackWaveformBatch& waveform,
                           const KirinAttackDetailBatch& details,
@@ -61,6 +61,6 @@ namespace hypha
         void selectAdjacentEvent (bool moveRight) noexcept;
         void advancePresentation (double nowMs) noexcept;
 
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AttackInternalComponent)
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AttackComponent)
     };
 }

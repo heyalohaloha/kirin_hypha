@@ -1,7 +1,7 @@
-//! Internal-only ATTACK DRUM C ABI.
+//! On-demand ATTACK C ABI.
 //!
-//! It reuses the exact-pair optional-analysis lease and transport while remaining an internal,
-//! default-OFF presentation route with no persisted DAW state.
+//! It reuses the exact-pair optional-analysis lease and transport. The measurement route remains
+//! inactive while the product view is hidden and has no persisted DAW state.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -215,7 +215,7 @@ pub struct KirinAttackStats {
 
 impl KirinHyphaEngine {
     /// POST-only ATTACK page switch. It is intentionally absent from persisted JUCE state.
-    pub fn set_internal_attack_enabled(&self, enabled: bool) -> bool {
+    pub fn set_attack_enabled(&self, enabled: bool) -> bool {
         if self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post) {
             return false;
         }
@@ -237,7 +237,7 @@ impl KirinHyphaEngine {
         }
     }
 
-    pub fn poll_internal_attack_batch(&self) -> Option<KirinAttackBatch> {
+    pub fn poll_attack_batch(&self) -> Option<KirinAttackBatch> {
         if self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post) {
             return None;
         }
@@ -248,7 +248,7 @@ impl KirinHyphaEngine {
             .map(to_c_attack_batch)
     }
 
-    pub fn poll_internal_attack_events(&self) -> Option<KirinAttackEventBatch> {
+    pub fn poll_attack_events(&self) -> Option<KirinAttackEventBatch> {
         if self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post) {
             return None;
         }
@@ -259,15 +259,15 @@ impl KirinHyphaEngine {
             .map(to_c_attack_event_batch)
     }
 
-    pub fn poll_internal_attack_waveform(&self) -> Option<KirinAttackWaveformBatch> {
+    pub fn poll_attack_waveform(&self) -> Option<KirinAttackWaveformBatch> {
         self.post_attack_history().map(to_c_attack_waveform_batch)
     }
 
-    pub fn poll_internal_attack_details(&self) -> Option<KirinAttackDetailBatch> {
+    pub fn poll_attack_details(&self) -> Option<KirinAttackDetailBatch> {
         self.post_attack_history().map(to_c_attack_detail_batch)
     }
 
-    pub fn internal_attack_stats(&self) -> KirinAttackStats {
+    pub fn attack_stats(&self) -> KirinAttackStats {
         self.attack_runtime
             .as_ref()
             .map_or_else(KirinAttackStats::default, |runtime| {
@@ -283,12 +283,12 @@ impl KirinHyphaEngine {
     }
 }
 
-/// ATTACK DRUM worker switch. The C ABI name is retained for compatibility.
+/// ATTACK DRUM worker switch. The worker exists only while the product page requests it.
 ///
 /// # Safety
 /// `handle` must be null or a live pointer returned by `kirin_hypha_create`.
 #[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_set_internal_attack_enabled(
+pub unsafe extern "C" fn kirin_hypha_set_attack_enabled(
     handle: *mut KirinHyphaEngine,
     enabled: bool,
 ) -> bool {
@@ -296,7 +296,7 @@ pub unsafe extern "C" fn kirin_hypha_set_internal_attack_enabled(
         if handle.is_null() {
             return false;
         }
-        unsafe { (*handle).set_internal_attack_enabled(enabled) }
+        unsafe { (*handle).set_attack_enabled(enabled) }
     }))
     .unwrap_or(false)
 }
@@ -306,7 +306,7 @@ pub unsafe extern "C" fn kirin_hypha_set_internal_attack_enabled(
 /// # Safety
 /// `handle` and `out` must be live writable pointers.
 #[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_batch(
+pub unsafe extern "C" fn kirin_hypha_poll_attack_batch(
     handle: *mut KirinHyphaEngine,
     out: *mut KirinAttackBatch,
 ) -> bool {
@@ -314,7 +314,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_batch(
         if handle.is_null() || out.is_null() {
             return false;
         }
-        let Some(batch) = (unsafe { &*handle }).poll_internal_attack_batch() else {
+        let Some(batch) = (unsafe { &*handle }).poll_attack_batch() else {
             return false;
         };
         unsafe { *out = batch };
@@ -328,7 +328,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_batch(
 /// # Safety
 /// `handle` and `out` must be live writable pointers.
 #[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_events(
+pub unsafe extern "C" fn kirin_hypha_poll_attack_events(
     handle: *mut KirinHyphaEngine,
     out: *mut KirinAttackEventBatch,
 ) -> bool {
@@ -336,7 +336,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_events(
         if handle.is_null() || out.is_null() {
             return false;
         }
-        let Some(batch) = (unsafe { &*handle }).poll_internal_attack_events() else {
+        let Some(batch) = (unsafe { &*handle }).poll_attack_events() else {
             return false;
         };
         unsafe { *out = batch };
@@ -350,7 +350,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_events(
 /// # Safety
 /// `handle` and `out` must be live writable pointers.
 #[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_waveform(
+pub unsafe extern "C" fn kirin_hypha_poll_attack_waveform(
     handle: *mut KirinHyphaEngine,
     out: *mut KirinAttackWaveformBatch,
 ) -> bool {
@@ -358,7 +358,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_waveform(
         if handle.is_null() || out.is_null() {
             return false;
         }
-        let Some(batch) = (unsafe { &*handle }).poll_internal_attack_waveform() else {
+        let Some(batch) = (unsafe { &*handle }).poll_attack_waveform() else {
             return false;
         };
         unsafe { *out = batch };
@@ -372,7 +372,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_waveform(
 /// # Safety
 /// `handle` and `out` must be live writable pointers.
 #[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_details(
+pub unsafe extern "C" fn kirin_hypha_poll_attack_details(
     handle: *mut KirinHyphaEngine,
     out: *mut KirinAttackDetailBatch,
 ) -> bool {
@@ -380,7 +380,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_details(
         if handle.is_null() || out.is_null() {
             return false;
         }
-        let Some(batch) = (unsafe { &*handle }).poll_internal_attack_details() else {
+        let Some(batch) = (unsafe { &*handle }).poll_attack_details() else {
             return false;
         };
         unsafe { *out = batch };
@@ -394,7 +394,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_internal_attack_details(
 /// # Safety
 /// `handle` and `out` must be live writable pointers.
 #[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_internal_attack_stats(
+pub unsafe extern "C" fn kirin_hypha_attack_stats(
     handle: *mut KirinHyphaEngine,
     out: *mut KirinAttackStats,
 ) -> bool {
@@ -402,7 +402,7 @@ pub unsafe extern "C" fn kirin_hypha_internal_attack_stats(
         if handle.is_null() || out.is_null() {
             return false;
         }
-        unsafe { *out = (*handle).internal_attack_stats() };
+        unsafe { *out = (*handle).attack_stats() };
         true
     }))
     .unwrap_or(false)

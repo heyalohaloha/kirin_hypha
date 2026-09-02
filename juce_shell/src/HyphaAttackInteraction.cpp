@@ -1,4 +1,4 @@
-#include "HyphaAttackInternalComponent.h"
+#include "HyphaAttackComponent.h"
 
 #include <limits>
 
@@ -6,12 +6,12 @@
 
 namespace hypha
 {
-AttackInternalComponent::AttackInternalComponent()
+AttackComponent::AttackComponent()
 {
     setWantsKeyboardFocus (true);
 }
 
-void AttackInternalComponent::mouseDown (const juce::MouseEvent& event)
+void AttackComponent::mouseDown (const juce::MouseEvent& event)
 {
     grabKeyboardFocus();
     if (event.y < attack_ui::headerHeight
@@ -38,7 +38,7 @@ void AttackInternalComponent::mouseDown (const juce::MouseEvent& event)
     repaint();
 }
 
-void AttackInternalComponent::mouseDrag (const juce::MouseEvent& event)
+void AttackComponent::mouseDrag (const juce::MouseEvent& event)
 {
     if ((! timelineBounds().contains (event.getPosition())
          && ! scrubBounds().contains (event.getPosition()))
@@ -49,7 +49,7 @@ void AttackInternalComponent::mouseDrag (const juce::MouseEvent& event)
     repaint();
 }
 
-void AttackInternalComponent::selectNearestEventAtX (int x) noexcept
+void AttackComponent::selectNearestEventAtX (int x) noexcept
 {
     const auto timeline = timelineBounds();
     const auto first = latest - attack_ui::windowSamples (rate);
@@ -85,7 +85,7 @@ void AttackInternalComponent::selectNearestEventAtX (int x) noexcept
     }
 }
 
-void AttackInternalComponent::selectBoundaryEvent (bool selectLast) noexcept
+void AttackComponent::selectBoundaryEvent (bool selectLast) noexcept
 {
     auto selected = selectLast ? std::numeric_limits<std::int64_t>::min()
                                : std::numeric_limits<std::int64_t>::max();
@@ -116,7 +116,7 @@ void AttackInternalComponent::selectBoundaryEvent (bool selectLast) noexcept
         selectedEventSample = selected;
 }
 
-void AttackInternalComponent::selectAdjacentEvent (bool moveRight) noexcept
+void AttackComponent::selectAdjacentEvent (bool moveRight) noexcept
 {
     followLatest = false;
     auto selected = moveRight ? std::numeric_limits<std::int64_t>::max()
@@ -151,7 +151,7 @@ void AttackInternalComponent::selectAdjacentEvent (bool moveRight) noexcept
         selectedEventSample = selected;
 }
 
-bool AttackInternalComponent::keyPressed (const juce::KeyPress& key)
+bool AttackComponent::keyPressed (const juce::KeyPress& key)
 {
     if (key == juce::KeyPress::leftKey || key == juce::KeyPress::rightKey)
         selectAdjacentEvent (key == juce::KeyPress::rightKey);

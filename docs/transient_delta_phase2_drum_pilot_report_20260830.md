@@ -278,7 +278,7 @@ POST内部C ABIから最新240件を古い順に取得できる。
 
 ### B-569 POST内部6秒表示
 
-`KIRIN_HYPHA_INTERNAL_ATTACK=1`で起動したPOSTだけに、確定ATTACK位置を六秒軸の等長stemで表示する内部validatorを追加した。
+`KIRIN_HYPHA_OPEN_ATTACK=1`で起動したPOSTだけに、確定ATTACK位置を六秒軸の等長stemで表示する内部validatorを追加した。
 波形、楽器分類、confidence、編集可能thresholdを出さず、利用者が確認する対象を「どこをATTACKとして数えたか」に限定する。
 表示はraw ODFの最新support endをNOWとし、同じgenerationとsample rateの確定eventだけを描く。
 30 ms超の最小event間隔から六秒に必要な最大200件を導き、C ABI snapshotを240件へ拡張した。

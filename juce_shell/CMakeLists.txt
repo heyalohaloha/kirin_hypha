@@ -204,7 +204,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_sources(${TARGET} PRIVATE
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
-            src/HyphaAttackInternalComponent.cpp
+            src/HyphaAttackComponent.cpp
             src/HyphaAttackInteraction.cpp
             src/HyphaAttackMetricPainter.cpp
             src/HyphaAttackOverviewGlyphPainter.cpp
@@ -355,7 +355,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaGuideFrequencyOverlay.cpp
         src/HyphaAbsoluteComponent.cpp
         src/HyphaAbsolutePainter.cpp
-        src/HyphaAttackInternalComponent.cpp
+        src/HyphaAttackComponent.cpp
         src/HyphaAttackInteraction.cpp
         src/HyphaAttackMetricPainter.cpp
         src/HyphaAttackOverviewGlyphPainter.cpp
@@ -425,7 +425,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin ATTACK UI Contract Tests")
     target_sources(KirinAttackUiContractTests PRIVATE
         tests/AttackUiContractTest.cpp
-        src/HyphaAttackInternalComponent.cpp
+        src/HyphaAttackComponent.cpp
         src/HyphaAttackInteraction.cpp
         src/HyphaAttackMetricPainter.cpp
         src/HyphaAttackOverviewGlyphPainter.cpp

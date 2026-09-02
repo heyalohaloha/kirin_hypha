@@ -748,18 +748,18 @@ bool kirin_hypha_poll_analysis_owners(KirinHypha* handle, KirinAnalysisOwners* o
 bool kirin_hypha_spectrum_stats(KirinHypha* handle, KirinSpectrumStats* out);
 
 /* ATTACK DRUM内部検証専用。POSTだけが有効化可能で、既定OFF・state保存なし。 */
-bool kirin_hypha_set_internal_attack_enabled(KirinHypha* handle, bool enabled);
-bool kirin_hypha_poll_internal_attack_batch(KirinHypha* handle, KirinAttackBatch* out);
-bool kirin_hypha_poll_internal_attack_events(KirinHypha* handle, KirinAttackEventBatch* out);
-bool kirin_hypha_poll_internal_attack_waveform(KirinHypha* handle, KirinAttackWaveformBatch* out);
-bool kirin_hypha_poll_internal_attack_details(KirinHypha* handle, KirinAttackDetailBatch* out);
-bool kirin_hypha_poll_internal_attack_pre_waveform(KirinHypha* handle,
+bool kirin_hypha_set_attack_enabled(KirinHypha* handle, bool enabled);
+bool kirin_hypha_poll_attack_batch(KirinHypha* handle, KirinAttackBatch* out);
+bool kirin_hypha_poll_attack_events(KirinHypha* handle, KirinAttackEventBatch* out);
+bool kirin_hypha_poll_attack_waveform(KirinHypha* handle, KirinAttackWaveformBatch* out);
+bool kirin_hypha_poll_attack_details(KirinHypha* handle, KirinAttackDetailBatch* out);
+bool kirin_hypha_poll_attack_pre_waveform(KirinHypha* handle,
                                                     KirinAttackWaveformBatch* out);
-bool kirin_hypha_poll_internal_attack_pre_details(KirinHypha* handle,
+bool kirin_hypha_poll_attack_pre_details(KirinHypha* handle,
                                                    KirinAttackDetailBatch* out);
-bool kirin_hypha_poll_internal_attack_pair_events(KirinHypha* handle,
+bool kirin_hypha_poll_attack_pair_events(KirinHypha* handle,
                                                    KirinAttackPairEventBatch* out);
-bool kirin_hypha_internal_attack_stats(KirinHypha* handle, KirinAttackStats* out);
+bool kirin_hypha_attack_stats(KirinHypha* handle, KirinAttackStats* out);
 
 /* Keep/Record表示を1スナップショットで取得. UI Thread専用・ロック競合時false. */
 bool kirin_hypha_poll_record_display(KirinHypha* handle, KirinRecordDisplay* out);

@@ -1,4 +1,4 @@
-#include "HyphaAttackInternalComponent.h"
+#include "HyphaAttackComponent.h"
 
 #include "HyphaAttackPainter.h"
 #include "HyphaAttackUiContract.h"
@@ -55,13 +55,13 @@ using attack_painter::drawWaveform;
 using attack_painter::drawWaveformDifferences;
 using attack_painter::WaveformStyle;
 
-void AttackInternalComponent::setOverlayMode (bool shouldOverlay)
+void AttackComponent::setOverlayMode (bool shouldOverlay)
 {
     overlayMode = shouldOverlay;
     repaint();
 }
 
-void AttackInternalComponent::advancePresentation (double nowMs) noexcept
+void AttackComponent::advancePresentation (double nowMs) noexcept
 {
     if (presentationStartLatest < 0 || presentationTargetLatest < 0)
         return;
@@ -74,7 +74,7 @@ void AttackInternalComponent::advancePresentation (double nowMs) noexcept
         static_cast<long double> (distance) * eased);
 }
 
-void AttackInternalComponent::presentationTick (bool signalActive)
+void AttackComponent::presentationTick (bool signalActive)
 {
     if (! signalActive)
     {
@@ -89,7 +89,7 @@ void AttackInternalComponent::presentationTick (bool signalActive)
     presentationTickAt (juce::Time::getMillisecondCounterHiRes());
 }
 
-void AttackInternalComponent::presentationTickAt (double nowMs)
+void AttackComponent::presentationTickAt (double nowMs)
 {
     advancePresentation (nowMs);
     if (followLatest)
@@ -97,7 +97,7 @@ void AttackInternalComponent::presentationTickAt (double nowMs)
     repaint();
 }
 
-void AttackInternalComponent::setSnapshot (const KirinAttackEventBatch& events,
+void AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
                                            const KirinAttackWaveformBatch& waveform,
                                            const KirinAttackDetailBatch& details,
                                            const KirinAttackWaveformBatch& preWaveform,
@@ -158,7 +158,7 @@ void AttackInternalComponent::setSnapshot (const KirinAttackEventBatch& events,
     repaint();
 }
 
-void AttackInternalComponent::clearSnapshot()
+void AttackComponent::clearSnapshot()
 {
     eventBatch = {};
     waveformBatch = {};
@@ -178,7 +178,7 @@ void AttackInternalComponent::clearSnapshot()
     repaint();
 }
 
-juce::Rectangle<int> AttackInternalComponent::timelineBounds() const noexcept
+juce::Rectangle<int> AttackComponent::timelineBounds() const noexcept
 {
     auto bounds = getLocalBounds();
     bounds.removeFromTop (attack_ui::headerHeight);
@@ -186,7 +186,7 @@ juce::Rectangle<int> AttackInternalComponent::timelineBounds() const noexcept
     return bounds.removeFromTop (attack_ui::timelineHeight (getHeight()));
 }
 
-juce::Rectangle<int> AttackInternalComponent::scrubBounds() const noexcept
+juce::Rectangle<int> AttackComponent::scrubBounds() const noexcept
 {
     auto bounds = getLocalBounds();
     bounds.removeFromTop (attack_ui::headerHeight + attack_ui::timelineHeight (getHeight()));
@@ -194,7 +194,7 @@ juce::Rectangle<int> AttackInternalComponent::scrubBounds() const noexcept
     return bounds.removeFromTop (attack_ui::axisLabelHeight);
 }
 
-const KirinAttackPairEvent* AttackInternalComponent::selectedPairEvent() const noexcept
+const KirinAttackPairEvent* AttackComponent::selectedPairEvent() const noexcept
 {
     const auto count = juce::jmin (
         pairEventBatch.count,
@@ -205,21 +205,21 @@ const KirinAttackPairEvent* AttackInternalComponent::selectedPairEvent() const n
     return nullptr;
 }
 
-const KirinAttackDetail* AttackInternalComponent::selectedPostDetail() const noexcept
+const KirinAttackDetail* AttackComponent::selectedPostDetail() const noexcept
 {
     if (const auto* pair = selectedPairEvent(); pair != nullptr && pair->post_available != 0)
         return findDetail (detailBatch, pair->post_event_sample);
     return findDetail (detailBatch, selectedEventSample);
 }
 
-const KirinAttackDetail* AttackInternalComponent::selectedPreDetail() const noexcept
+const KirinAttackDetail* AttackComponent::selectedPreDetail() const noexcept
 {
     if (const auto* pair = selectedPairEvent(); pair != nullptr && pair->pre_available != 0)
         return findDetail (preDetailBatch, pair->pre_event_sample);
     return nullptr;
 }
 
-void AttackInternalComponent::paint (juce::Graphics& g)
+void AttackComponent::paint (juce::Graphics& g)
 {
     auto bounds = getLocalBounds();
     // ATTACK owns the Observatory body while selected. Keep the body opaque so the HISTORY

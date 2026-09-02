@@ -1,4 +1,4 @@
-//! Deterministic host-rate layout for the internal ATTACK candidate evaluator.
+//! Deterministic host-rate layout for the on-demand ATTACK candidate evaluator.
 
 use sha2::{Digest, Sha256};
 

@@ -1,4 +1,4 @@
-#include "../src/HyphaAttackInternalComponent.h"
+#include "../src/HyphaAttackComponent.h"
 #include "../src/HyphaAttackPainter.h"
 #include "../src/HyphaAttackUiContract.h"
 #include "../src/HyphaSpectrumUiContract.h"
@@ -138,7 +138,7 @@ namespace
         return count;
     }
 
-    juce::Image render (hypha::AttackInternalComponent& component)
+    juce::Image render (hypha::AttackComponent& component)
     {
         juce::Image image (
             juce::Image::ARGB, component.getWidth(), component.getHeight(), true);
@@ -178,7 +178,7 @@ int main()
     static_assert (sizeof (KirinAttackPairEvent) == 112);
     static_assert (sizeof (KirinAttackPairEventBatch) == 26'896);
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    auto componentStorage = std::make_unique<hypha::AttackInternalComponent>();
+    auto componentStorage = std::make_unique<hypha::AttackComponent>();
     auto& component = *componentStorage;
     const auto selectionColour = juce::Colour (hypha::attack_ui::selectionColour);
     const auto bounds = hypha::ui_contract::spectrumPlotBounds (600, 400);
@@ -318,7 +318,7 @@ int main()
     KIRIN_REQUIRE (countRuns (image, { 0, 200, image.getWidth(), image.getHeight() },
                               juce::Colour (hypha::attack_ui::textureColour)) > 0);
     const auto timelineHeight = hypha::attack_ui::timelineHeight (component.getHeight());
-    auto identityComponentStorage = std::make_unique<hypha::AttackInternalComponent>();
+    auto identityComponentStorage = std::make_unique<hypha::AttackComponent>();
     auto& identityComponent = *identityComponentStorage;
     identityComponent.setSize (bounds.width, bounds.height);
     identityComponent.setOverlayMode (false);

@@ -107,7 +107,7 @@ inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform,
     return started;
 }
 
-inline bool verifySupportedSizes (AttackInternalComponent& component)
+inline bool verifySupportedSizes (AttackComponent& component)
 {
     constexpr std::array<const char*, 5> splitPreviewVariables {{
         "KIRIN_ATTACK_UI_100_SPLIT_PREVIEW_PATH",

@@ -25,7 +25,7 @@ fn slice_between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 }
 
 #[test]
-fn vst_audio_callback_reaches_the_internal_default_off_attack_lane() {
+fn vst_audio_callback_reaches_the_on_demand_attack_lane() {
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     let callback = slice_between(
         &processor,
@@ -49,7 +49,7 @@ fn vst_audio_callback_reaches_the_internal_default_off_attack_lane() {
     assert!(transaction.contains("self.attack_runtime.as_ref()"));
     assert!(transaction.contains("runtime.push_block_from_audio("));
     assert!(transaction.contains("spectrum_presentation_start"));
-    assert!(transaction.contains("internal_attack_timeline_start"));
+    assert!(transaction.contains("attack_timeline_start"));
 
     let runtime = read_repo("crates/kirin_measure/src/attack_runtime.rs");
     let ingress = slice_between(
@@ -67,7 +67,7 @@ fn vst_audio_callback_reaches_the_internal_default_off_attack_lane() {
 }
 
 #[test]
-fn attack_abi_stays_compatible_and_the_product_trial_has_a_navigation_route() {
+fn attack_abi_stays_compatible_and_the_product_view_has_a_navigation_route() {
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     for required in [
         "KIRIN_ATTACK_BATCH_CAPACITY 64u",
@@ -76,10 +76,10 @@ fn attack_abi_stays_compatible_and_the_product_trial_has_a_navigation_route() {
         "KirinAttackBatch",
         "KirinAttackEventBatch",
         "KirinAttackStats",
-        "kirin_hypha_set_internal_attack_enabled",
-        "kirin_hypha_poll_internal_attack_batch",
-        "kirin_hypha_poll_internal_attack_events",
-        "kirin_hypha_internal_attack_stats",
+        "kirin_hypha_set_attack_enabled",
+        "kirin_hypha_poll_attack_batch",
+        "kirin_hypha_poll_attack_events",
+        "kirin_hypha_attack_stats",
     ] {
         assert!(header.contains(required), "ATTACK ABI missing {required}");
     }
@@ -94,8 +94,8 @@ fn attack_abi_stays_compatible_and_the_product_trial_has_a_navigation_route() {
     assert!(editor.contains("timePageNavigation.onPageChange"));
     assert!(time_navigation_header.contains("attackButton { \"ATTACK\""));
     assert!(time_navigation.contains("choose (Page::attack)"));
-    assert!(editor.contains("processorRef.setInternalAttackEnabled (true)"));
-    assert!(processor.contains("kirin_hypha_set_internal_attack_enabled"));
+    assert!(editor.contains("processorRef.setAttackEnabled (true)"));
+    assert!(processor.contains("kirin_hypha_set_attack_enabled"));
     assert!(navigation.contains("attack"));
     assert!(navigation.contains("ATTACK"));
 }

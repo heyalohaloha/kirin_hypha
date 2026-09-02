@@ -170,7 +170,7 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
     else if (analysisPage == AnalysisPage::absolute)
         external = &absoluteView;
     else if (analysisPage == AnalysisPage::attack)
-        external = &attackInternalView;
+        external = &attackView;
     if (external != nullptr && ! external->getLocalBounds().isEmpty())
     {
         const auto body = observatoryView.captureBodyBounds (

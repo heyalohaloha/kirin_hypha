@@ -90,7 +90,7 @@ EVENT SHAPEは150%と200%で常設し、四つの実測値を標本の左右へ�
 見た目から楽器名、原因、推奨操作を推測しない。
 未対応event、欠測、floor-limited、Brightness pendingは輪郭または`---`で事実状態を保つ。
 
-## ATTACK product-trial route
+## ATTACK product route
 
 POSTの通常Analysis導線は最初にDRUM ATTACKを開き、同じ枠内でATTACK、FREQ、SHARP、LIVEを切り替える。
 初回表示は細部を見落とさない200%とし、既存のsize操作で100%、125%、150%、200%を選べる。

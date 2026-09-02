@@ -112,15 +112,15 @@ public:
     bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;
     bool pollAnalysisOwnerNames (juce::String& out) const;
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
-    bool setInternalAttackEnabled (bool enabled);       // POST ATTACK page; never DAW state
-    bool pollInternalAttackBatch (KirinAttackBatch& out) const;
-    bool pollInternalAttackEvents (KirinAttackEventBatch& out) const;
-    bool pollInternalAttackWaveform (KirinAttackWaveformBatch& out) const;
-    bool pollInternalAttackDetails (KirinAttackDetailBatch& out) const;
-    bool pollInternalAttackPreWaveform (KirinAttackWaveformBatch& out) const;
-    bool pollInternalAttackPreDetails (KirinAttackDetailBatch& out) const;
-    bool pollInternalAttackPairEvents (KirinAttackPairEventBatch& out) const;
-    bool internalAttackStats (KirinAttackStats& out) const;
+    bool setAttackEnabled (bool enabled);       // POST ATTACK page; never DAW state
+    bool pollAttackBatch (KirinAttackBatch& out) const;
+    bool pollAttackEvents (KirinAttackEventBatch& out) const;
+    bool pollAttackWaveform (KirinAttackWaveformBatch& out) const;
+    bool pollAttackDetails (KirinAttackDetailBatch& out) const;
+    bool pollAttackPreWaveform (KirinAttackWaveformBatch& out) const;
+    bool pollAttackPreDetails (KirinAttackDetailBatch& out) const;
+    bool pollAttackPairEvents (KirinAttackPairEventBatch& out) const;
+    bool attackStats (KirinAttackStats& out) const;
     uint8_t spectrumSizePreference() const              // nearest preset; exact free size stored below
     {
         return preferredSpectrumSize.load (std::memory_order_acquire);
@@ -248,7 +248,7 @@ private:
     std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
     std::atomic<bool> perceptualAnalysisRequested { false }; // restores the visible analyzer after engine recreation
     std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
-    std::atomic<bool> internalAttackRequested { false }; // internal validation UI; default OFF
+    std::atomic<bool> attackRequested { false }; // ATTACK is inactive while its page is hidden
     std::atomic<uint8_t> preferredSpectrumSize { 0 };      // legacy/default state opens at 100%
     // Packed into one atomic so a concurrent host state read can never persist mismatched axes.
     std::atomic<uint32_t> preferredEditorSize { (300u << 16u) | 200u }; // DisplayState v3

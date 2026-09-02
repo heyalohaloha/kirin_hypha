@@ -98,7 +98,7 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
         if (role == Role::Post)
         {
             kirin_hypha_set_spectrum_visible (hyphaHandle, false);
-            kirin_hypha_set_internal_attack_enabled (hyphaHandle, false);
+            kirin_hypha_set_attack_enabled (hyphaHandle, false);
         }
         kirin_hypha_destroy (hyphaHandle);
         hyphaHandle = nullptr;
@@ -907,7 +907,7 @@ bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
     {
         perceptualAnalysisRequested.store (false, std::memory_order_release);
         absoluteAnalysisRequested.store (false, std::memory_order_release);
-        internalAttackRequested.store (false, std::memory_order_release);
+        attackRequested.store (false, std::memory_order_release);
     }
     spectrumVisibleRequested.store (visible, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
@@ -928,7 +928,7 @@ bool KirinHyphaProcessorBase::setPerceptualVisible (bool visible)
     {
         perceptualAnalysisRequested.store (true, std::memory_order_release);
         absoluteAnalysisRequested.store (false, std::memory_order_release);
-        internalAttackRequested.store (false, std::memory_order_release);
+        attackRequested.store (false, std::memory_order_release);
     }
     else
     {
@@ -953,7 +953,7 @@ bool KirinHyphaProcessorBase::setAbsoluteVisible (bool visible)
     {
         perceptualAnalysisRequested.store (false, std::memory_order_release);
         absoluteAnalysisRequested.store (true, std::memory_order_release);
-        internalAttackRequested.store (false, std::memory_order_release);
+        attackRequested.store (false, std::memory_order_release);
     }
     else
     {
@@ -1053,7 +1053,7 @@ bool KirinHyphaProcessorBase::pollAnalysisOwnerNames (juce::String& out) const
     return true;
 }
 
-bool KirinHyphaProcessorBase::setInternalAttackEnabled (bool enabled)
+bool KirinHyphaProcessorBase::setAttackEnabled (bool enabled)
 {
     if (role != Role::Post)
         return false;
@@ -1063,82 +1063,82 @@ bool KirinHyphaProcessorBase::setInternalAttackEnabled (bool enabled)
         absoluteAnalysisRequested.store (false, std::memory_order_release);
     }
     spectrumVisibleRequested.store (enabled, std::memory_order_release);
-    internalAttackRequested.store (enabled, std::memory_order_release);
+    attackRequested.store (enabled, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
-        && kirin_hypha_set_internal_attack_enabled (hyphaHandle, enabled);
+        && kirin_hypha_set_attack_enabled (hyphaHandle, enabled);
 }
 
-bool KirinHyphaProcessorBase::pollInternalAttackBatch (KirinAttackBatch& out) const
+bool KirinHyphaProcessorBase::pollAttackBatch (KirinAttackBatch& out) const
 {
     if (role != Role::Post)
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
-        && kirin_hypha_poll_internal_attack_batch (hyphaHandle, &out);
+        && kirin_hypha_poll_attack_batch (hyphaHandle, &out);
 }
 
-bool KirinHyphaProcessorBase::pollInternalAttackEvents (KirinAttackEventBatch& out) const
+bool KirinHyphaProcessorBase::pollAttackEvents (KirinAttackEventBatch& out) const
 {
     if (role != Role::Post)
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
-        && kirin_hypha_poll_internal_attack_events (hyphaHandle, &out);
+        && kirin_hypha_poll_attack_events (hyphaHandle, &out);
 }
 
-bool KirinHyphaProcessorBase::pollInternalAttackWaveform (KirinAttackWaveformBatch& out) const
+bool KirinHyphaProcessorBase::pollAttackWaveform (KirinAttackWaveformBatch& out) const
 {
     if (role != Role::Post)
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
-        && kirin_hypha_poll_internal_attack_waveform (hyphaHandle, &out);
+        && kirin_hypha_poll_attack_waveform (hyphaHandle, &out);
 }
 
-bool KirinHyphaProcessorBase::pollInternalAttackDetails (KirinAttackDetailBatch& out) const
+bool KirinHyphaProcessorBase::pollAttackDetails (KirinAttackDetailBatch& out) const
 {
     if (role != Role::Post)
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
-        && kirin_hypha_poll_internal_attack_details (hyphaHandle, &out);
+        && kirin_hypha_poll_attack_details (hyphaHandle, &out);
 }
 
-bool KirinHyphaProcessorBase::pollInternalAttackPreWaveform (KirinAttackWaveformBatch& out) const
+bool KirinHyphaProcessorBase::pollAttackPreWaveform (KirinAttackWaveformBatch& out) const
 {
     if (role != Role::Post)
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
-        && kirin_hypha_poll_internal_attack_pre_waveform (hyphaHandle, &out);
+        && kirin_hypha_poll_attack_pre_waveform (hyphaHandle, &out);
 }
 
-bool KirinHyphaProcessorBase::pollInternalAttackPreDetails (KirinAttackDetailBatch& out) const
+bool KirinHyphaProcessorBase::pollAttackPreDetails (KirinAttackDetailBatch& out) const
 {
     if (role != Role::Post)
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
-        && kirin_hypha_poll_internal_attack_pre_details (hyphaHandle, &out);
+        && kirin_hypha_poll_attack_pre_details (hyphaHandle, &out);
 }
 
-bool KirinHyphaProcessorBase::pollInternalAttackPairEvents (KirinAttackPairEventBatch& out) const
+bool KirinHyphaProcessorBase::pollAttackPairEvents (KirinAttackPairEventBatch& out) const
 {
     if (role != Role::Post)
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
-        && kirin_hypha_poll_internal_attack_pair_events (hyphaHandle, &out);
+        && kirin_hypha_poll_attack_pair_events (hyphaHandle, &out);
 }
 
-bool KirinHyphaProcessorBase::internalAttackStats (KirinAttackStats& out) const
+bool KirinHyphaProcessorBase::attackStats (KirinAttackStats& out) const
 {
     if (role != Role::Post)
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
-        && kirin_hypha_internal_attack_stats (hyphaHandle, &out);
+        && kirin_hypha_attack_stats (hyphaHandle, &out);
 }
 
 bool KirinHyphaProcessorBase::spectrumStats (KirinSpectrumStats& out) const
@@ -1530,9 +1530,9 @@ void KirinHyphaProcessorBase::enableWritesNow()
                 persistPairProjectHash.clear();
             }
         }
-        if (internalAttackRequested.load (std::memory_order_acquire))
+        if (attackRequested.load (std::memory_order_acquire))
         {
-            kirin_hypha_set_internal_attack_enabled (hyphaHandle, true);
+            kirin_hypha_set_attack_enabled (hyphaHandle, true);
         }
         else if (spectrumVisibleRequested.load (std::memory_order_acquire))
         {

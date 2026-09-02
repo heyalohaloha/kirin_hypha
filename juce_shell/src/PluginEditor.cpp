@@ -290,7 +290,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         scaleRoot.addChildComponent (spectrumView);
         scaleRoot.addChildComponent (perceptualView);
         scaleRoot.addChildComponent (absoluteView);
-        scaleRoot.addChildComponent (attackInternalView);
+        scaleRoot.addChildComponent (attackView);
        #endif
     }
     else
@@ -359,7 +359,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
         processorRef.setPerceptualVisible (false);
         processorRef.setAbsoluteVisible (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
-        processorRef.setInternalAttackEnabled (false);
+        processorRef.setAttackEnabled (false);
        #endif
     }
 }
@@ -453,7 +453,7 @@ void KirinHyphaEditor::resized()
         spectrumView.setBounds (analysisBody);
         perceptualView.setBounds (analysisBody);
         absoluteView.setBounds (analysisBody);
-        attackInternalView.setBounds (analysisBody);
+        attackView.setBounds (analysisBody);
         timePageNavigation.toFront (false);
     }
    #endif
@@ -477,7 +477,7 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     spectrumView.clearSnapshot();
     perceptualView.clearSnapshot();
     absoluteView.clearSnapshot();
-    attackInternalView.clearSnapshot();
+    attackView.clearSnapshot();
     cachedAttackEvents = {};
     cachedAttackWaveform = {};
     cachedAttackDetails = {};
@@ -499,7 +499,7 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
         else if (previousPage == AnalysisPage::absolute)
             processorRef.setAbsoluteVisible (false);
         else if (previousPage == AnalysisPage::attack)
-            processorRef.setInternalAttackEnabled (false);
+            processorRef.setAttackEnabled (false);
     }
     analysisPage = page;
     const bool analysisOpen = page != AnalysisPage::meters;
@@ -509,7 +509,7 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     spectrumView.setVisible (page == AnalysisPage::spectrum);
     perceptualView.setVisible (page == AnalysisPage::perceptual);
     absoluteView.setVisible (page == AnalysisPage::absolute);
-    attackInternalView.setVisible (page == AnalysisPage::attack);
+    attackView.setVisible (page == AnalysisPage::attack);
     spectrumSizeToggle.setVisible (false);
     spectrumToggle.setVisible (false);
     timePageNavigation.setPage (page);
@@ -521,7 +521,7 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     resized();
     repaint();
     if (page == AnalysisPage::attack)
-        processorRef.setInternalAttackEnabled (true);
+        processorRef.setAttackEnabled (true);
     else if (page == AnalysisPage::spectrum)
         processorRef.setSpectrumVisible (true);
     else if (page == AnalysisPage::perceptual)
@@ -1071,35 +1071,35 @@ void KirinHyphaEditor::updatePost()
     if (analysisPage == AnalysisPage::attack)
     {
         KirinAttackStats stats {};
-        if (processorRef.internalAttackStats (stats))
+        if (processorRef.attackStats (stats))
             cachedAttackStats = stats;
 
         KirinAttackEventBatch events {};
-        if (processorRef.pollInternalAttackEvents (events))
+        if (processorRef.pollAttackEvents (events))
             cachedAttackEvents = events;
 
         KirinAttackWaveformBatch waveform {};
-        if (processorRef.pollInternalAttackWaveform (waveform))
+        if (processorRef.pollAttackWaveform (waveform))
             cachedAttackWaveform = waveform;
 
         KirinAttackDetailBatch details {};
-        if (processorRef.pollInternalAttackDetails (details))
+        if (processorRef.pollAttackDetails (details))
             cachedAttackDetails = details;
 
         KirinAttackWaveformBatch preWaveform {};
-        if (processorRef.pollInternalAttackPreWaveform (preWaveform))
+        if (processorRef.pollAttackPreWaveform (preWaveform))
             cachedAttackPreWaveform = preWaveform;
 
         KirinAttackDetailBatch preDetails {};
-        if (processorRef.pollInternalAttackPreDetails (preDetails))
+        if (processorRef.pollAttackPreDetails (preDetails))
             cachedAttackPreDetails = preDetails;
 
         KirinAttackPairEventBatch pairEvents {};
-        if (processorRef.pollInternalAttackPairEvents (pairEvents))
+        if (processorRef.pollAttackPairEvents (pairEvents))
             cachedAttackPairEvents = pairEvents;
 
         KirinAttackBatch raw {};
-        if (processorRef.pollInternalAttackBatch (raw) && raw.count > 0)
+        if (processorRef.pollAttackBatch (raw) && raw.count > 0)
         {
             const auto count = juce::jmin (
                 raw.count, static_cast<std::uint32_t> (KIRIN_ATTACK_BATCH_CAPACITY));
@@ -1108,11 +1108,11 @@ void KirinHyphaEditor::updatePost()
             cachedAttackRate = newest.sample_rate;
             cachedAttackGeneration = newest.generation;
         }
-        attackInternalView.setSnapshot (
+        attackView.setSnapshot (
             cachedAttackEvents, cachedAttackWaveform, cachedAttackDetails,
             cachedAttackPreWaveform, cachedAttackPreDetails, cachedAttackPairEvents,
             cachedAttackLatest, cachedAttackRate, cachedAttackGeneration, cachedAttackStats);
-        attackInternalView.presentationTick (sig == KIRIN_SIGNAL_STATE_ACTIVE);
+        attackView.presentationTick (sig == KIRIN_SIGNAL_STATE_ACTIVE);
         led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
         return;
     }

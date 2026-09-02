@@ -1,4 +1,4 @@
-//! Default-OFF ATTACK DRUM ingress and isolated SuperFlux worker.
+//! On-demand ATTACK DRUM ingress and isolated SuperFlux worker.
 //!
 //! The Audio Thread only copies samples and one descriptor into bounded SPSC rings. FFT planning,
 //! window assembly, SuperFlux analysis, and history publication stay on the worker.

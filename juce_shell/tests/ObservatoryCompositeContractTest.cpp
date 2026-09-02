@@ -1,7 +1,7 @@
 #include "ObservatoryCompositeContractTest.h"
 
 #include "../src/HyphaAbsoluteComponent.h"
-#include "../src/HyphaAttackInternalComponent.h"
+#include "../src/HyphaAttackComponent.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaPerceptualComponent.h"
 #include "../src/HyphaSpectrumComponent.h"
@@ -140,9 +140,9 @@ KirinSpectrumView spectrumFixture()
     return view;
 }
 
-std::unique_ptr<AttackInternalComponent> attackFixture()
+std::unique_ptr<AttackComponent> attackFixture()
 {
-    auto component = std::make_unique<AttackInternalComponent>();
+    auto component = std::make_unique<AttackComponent>();
     KirinAttackEventBatch events {};
     events.capacity = KIRIN_ATTACK_EVENT_BATCH_CAPACITY;
     events.count = 1u;
