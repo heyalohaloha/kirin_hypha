@@ -7,8 +7,6 @@ crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h	839
 crates/kirin_hypha_ffi/src/lib.rs	7389
 crates/kirin_hypha_ffi/tests/juce_lifecycle_wiring.rs	664
 crates/kirin_hypha_ffi/tests/parity.rs	3007
-crates/kirin_measure/src/all_keep_signal.rs	767
-crates/kirin_measure/src/all_stop_signal.rs	642
 crates/kirin_measure/src/capture_generation_tx_tests.rs	710
 crates/kirin_measure/src/io_thread_post.rs	6548
 crates/kirin_measure/src/io_thread_pre.rs	5042
@@ -16,10 +14,8 @@ crates/kirin_measure/src/lib.rs	990
 crates/kirin_measure/src/measure_thread.rs	3528
 crates/kirin_measure/src/pairing_scope.rs	1013
 crates/kirin_measure/src/pairing_scope/tests.rs	1573
-crates/kirin_measure/src/phase_d/stream.rs	860
 crates/kirin_measure/src/plugin_data.rs	9325
 crates/kirin_measure/src/post_candidates.rs	563
-crates/kirin_measure/src/record.rs	1055
 crates/kirin_measure/src/record_drop_commit_tests.rs	850
 crates/kirin_measure/src/record_expected.rs	575
 crates/kirin_measure/src/record_ingress.rs	529
@@ -28,10 +24,7 @@ crates/kirin_measure/src/record_signal/tests.rs	855
 crates/kirin_measure/src/record_take.rs	2642
 crates/kirin_measure/src/record_writer.rs	8169
 crates/kirin_measure/src/record_writer_claim.rs	659
-crates/kirin_measure/src/reservation.rs	818
 crates/kirin_measure/src/spectrum_exchange_recovery_tests.rs	665
-crates/kirin_measure/src/storage.rs	962
-crates/kirin_measure/src/trace_clock_resolution.rs	765
 crates/kirin_measure/src/trace_content_clock.rs	1652
 juce_shell/src/PluginEditor.cpp	1374
 juce_shell/src/PluginProcessor.cpp	1593
