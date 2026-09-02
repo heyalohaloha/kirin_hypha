@@ -14,16 +14,11 @@ crates/kirin_measure/src/io_thread_post.rs	6548
 crates/kirin_measure/src/io_thread_pre.rs	5042
 crates/kirin_measure/src/lib.rs	990
 crates/kirin_measure/src/measure_thread.rs	3528
-crates/kirin_measure/src/meter_session.rs	548
 crates/kirin_measure/src/pairing_scope.rs	1013
 crates/kirin_measure/src/pairing_scope/tests.rs	1573
-crates/kirin_measure/src/path_identity.rs	543
 crates/kirin_measure/src/phase_d/stream.rs	860
 crates/kirin_measure/src/plugin_data.rs	9325
 crates/kirin_measure/src/post_candidates.rs	563
-crates/kirin_measure/src/pre_discovery.rs	581
-crates/kirin_measure/src/preset.rs	530
-crates/kirin_measure/src/preset_v2.rs	569
 crates/kirin_measure/src/record.rs	1055
 crates/kirin_measure/src/record_drop_commit_tests.rs	850
 crates/kirin_measure/src/record_expected.rs	575
