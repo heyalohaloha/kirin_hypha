@@ -72,8 +72,8 @@ use liveness::{
     find_pre_json_mtime, poll_ack_timeout_with_base, poll_pre_liveness, poll_pre_liveness_at,
 };
 use liveness::{
-    poll_ack_timeout, poll_latched_pre_liveness, release_record_reservation,
-    resolve_closed_drop_target,
+    poll_ack_timeout, poll_latched_pre_liveness, reconcile_closed_drop_target,
+    release_record_reservation,
 };
 
 #[path = "io_thread_post_delta.rs"]
@@ -730,32 +730,15 @@ pub fn spawn_io_thread_post(
                         .lock()
                         .ok()
                         .and_then(|guard| guard.clone());
-                    if let Some((session_id, pre_instance_id)) = resolve_closed_drop_target(
+                    if let Some(session_id) = reconcile_closed_drop_target(
                         &base,
                         project_hash_ref,
                         instance_id_ref,
                         memory_session.as_deref(),
                         memory_pre.as_deref(),
+                        completed_closed_drop_session.as_deref(),
                     ) {
-                        if completed_closed_drop_session.as_deref() != Some(session_id.as_str()) {
-                            let reconciled =
-                                crate::plugin_data::reconcile_drop_committed_closed_session(
-                                    &base,
-                                    project_hash_ref,
-                                    &session_id,
-                                    &pre_instance_id,
-                                    instance_id_ref,
-                                );
-                            if reconciled > 0
-                                || crate::plugin_data::pair_record_session_manifest_exists(
-                                    &base,
-                                    project_hash_ref,
-                                    &session_id,
-                                )
-                            {
-                                completed_closed_drop_session = Some(session_id);
-                            }
-                        }
+                        completed_closed_drop_session = Some(session_id);
                     }
                 }
                 next_closed_drop_poll = Instant::now() + Duration::from_secs(1);

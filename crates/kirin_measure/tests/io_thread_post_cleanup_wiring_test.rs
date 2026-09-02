@@ -172,13 +172,19 @@ fn pre_pair_status_reads_one_exact_claim_without_enumeration() {
 /// 到達不能でなければならない。
 #[test]
 fn post_runtime_never_reconciles_project_history() {
-    let src = read("src/io_thread_post.rs");
+    let coordinator = read("src/io_thread_post.rs");
+    let recovery = read("src/io_thread_post_liveness.rs");
     assert!(
-        src.contains("reconcile_drop_committed_closed_session"),
+        coordinator.contains("reconcile_closed_drop_target("),
+        "POST coordinator must invoke one exact closed Drop recovery"
+    );
+    assert!(
+        recovery.contains("reconcile_drop_committed_closed_session"),
         "closed Drop recovery must name one exact session"
     );
     assert!(
-        !src.contains("reconcile_late_expected_wav_project("),
+        !coordinator.contains("reconcile_late_expected_wav_project(")
+            && !recovery.contains("reconcile_late_expected_wav_project("),
         "POST runtime must not recursively reconcile a project"
     );
 }

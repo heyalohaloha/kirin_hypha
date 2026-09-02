@@ -271,6 +271,38 @@ pub(super) fn resolve_closed_drop_target(
     Some((session_id.to_string(), pre_instance_id.to_string()))
 }
 
+/// Reconcile one exact stopped session and return its id only after durable completion exists.
+pub(super) fn reconcile_closed_drop_target(
+    base: &Path,
+    project_hash: &str,
+    post_instance_id: &str,
+    memory_session_id: Option<&str>,
+    memory_pre_instance_id: Option<&str>,
+    completed_session_id: Option<&str>,
+) -> Option<String> {
+    let (session_id, pre_instance_id) = resolve_closed_drop_target(
+        base,
+        project_hash,
+        post_instance_id,
+        memory_session_id,
+        memory_pre_instance_id,
+    )?;
+    if completed_session_id == Some(session_id.as_str()) {
+        return None;
+    }
+
+    let reconciled = crate::plugin_data::reconcile_drop_committed_closed_session(
+        base,
+        project_hash,
+        &session_id,
+        &pre_instance_id,
+        post_instance_id,
+    );
+    (reconciled > 0
+        || crate::plugin_data::pair_record_session_manifest_exists(base, project_hash, &session_id))
+    .then_some(session_id)
+}
+
 /// Build the POST GUI label from the authoritative PRE name or short instance identity.
 pub fn format_pair_label(paired_pre_name: &str, target_id: &str) -> String {
     if !paired_pre_name.is_empty() {
@@ -356,6 +388,17 @@ mod closed_drop_target_tests {
                 Some("pre-memory"),
             ),
             Some(("session-memory".to_string(), "pre-memory".to_string()))
+        );
+    }
+
+    #[test]
+    fn completed_session_is_not_reconciled_twice() {
+        let base = isolated_base();
+        write_signal(&base, SignalStatus::Released, "session-done", "pre-a");
+
+        assert_eq!(
+            reconcile_closed_drop_target(&base, PROJECT, POST, None, None, Some("session-done"),),
+            None
         );
     }
 }
