@@ -48,7 +48,6 @@ use crate::record_signal::{SignalStatus, SIGNALS_SUBDIR};
 #[cfg(test)]
 use crate::record_writer::parse_iso8601_to_epoch_ms;
 use crate::record_writer::RecordingCtx;
-use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTakeTracker, RecordTraceQueue, SignalState};
 
 #[path = "io_thread_post_record_ack.rs"]
@@ -92,15 +91,14 @@ pub(crate) use identity::read_instance_id_arc;
 
 #[path = "io_thread_post_pair_claim.rs"]
 mod pair_claim;
+#[cfg(test)]
 use pair_claim::service_pair_claim;
 
 #[path = "io_thread_post_analysis.rs"]
 mod analysis;
-use analysis::service_post_analysis_endpoints;
 
 #[path = "io_thread_post_reservation.rs"]
 mod reservation;
-use reservation::ReservationLeaseRefresh;
 
 #[path = "io_thread_post_idle.rs"]
 mod idle;
@@ -122,6 +120,10 @@ use writer::service_post_record_writer;
 mod polls;
 use polls::PostControlPolls;
 
+#[path = "io_thread_post_observation.rs"]
+mod observation;
+use observation::PostObservation;
+
 #[path = "io_thread_post_broadcast.rs"]
 mod broadcast;
 #[cfg(test)]
@@ -133,6 +135,7 @@ use shutdown::shutdown_post_io;
 
 #[path = "io_thread_post_self_check.rs"]
 mod self_check;
+#[cfg(test)]
 use self_check::PairSelfCheckState;
 
 #[path = "io_thread_post_tick.rs"]
@@ -141,9 +144,11 @@ mod tick;
 use identity::broadcast_scope_or_same_project_host_matches;
 #[cfg(test)]
 use identity::pair_claim_matches_desired_binding;
-use identity::{read_daw_session_id_arc, read_project_hash_arc, snapshot_pair_pre_name};
+#[cfg(test)]
+use identity::snapshot_pair_pre_name;
 #[cfg(test)]
 use tick::compute_latched_display;
+#[cfg(test)]
 use tick::run_tick;
 
 #[path = "io_thread_post_policy.rs"]
@@ -276,75 +281,32 @@ pub fn spawn_io_thread_post(
     meter_history: Option<Arc<crate::MeterDeltaHistoryExchange>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
-        // B-128 (G-115-370): 観測 family（io_thread）入口の identity materialize（唯一の検証点）。
-        // restore 由来の path-unsafe な project_hash / instance_id セルを正規化し、path-unsafe なら
-        // fresh new_v4 へ差し替える（§7② 観測継続）。daw_session_id は空が legacy bridge の明示契約
-        // なので observation 扱いで UUID 化せず、非空 unsafe だけ restore 経路で畳む。
-        // path-safe な値は無改変＝parity の literal id path テスト不変。下流 builder wall が DiD backstop。
-        crate::path_identity::normalize_observation_cell(
-            &instance_id,
-            "io_thread_post.instance_id",
-        );
-        crate::path_identity::normalize_observation_cell(
-            &project_hash,
-            "io_thread_post.project_hash",
-        );
-        crate::path_identity::normalize_restore_cell(
-            &daw_session_id,
-            "io_thread_post.daw_session_id",
-            None,
-        );
-        // B-021 Phase 1A: PRE scan の起点は `kirin_root` (= $TMPDIR/kirin/) で、
-        // POST IO Thread が動的に discover する。`project_dir_hint` は POST 自身の
-        // project_uuid から構築した fallback (PRE が見つからない場合のみ使う)。
-        // POST 自身の post.json 書込先は instance_dir 固定 (POST 自分の project_uuid)。
-        let kirin_root = PlatformPaths::current_kirin_tmp_root();
-        let initial_project_hash = read_project_hash_arc(&project_hash);
-        let initial_instance_id = read_instance_id_arc(&instance_id);
-        let plugin_data_dir_str = match StoragePaths::default_platform() {
-            Ok(paths) => paths.plugin_data_dir().display().to_string(),
-            Err(_) => "<unresolved>".to_string(),
-        };
-
-        log::info!(
-            "[IOThread POST] started: instance_id={} project_hash={} plugin_data_dir={} (lazy-read instance_id/project_hash/daw_session_id, initial project_dir_hint={}, kirin_root={})",
-            initial_instance_id,
-            initial_project_hash,
-            plugin_data_dir_str,
-            kirin_root.join(&initial_project_hash).display(),
-            kirin_root.display()
-        );
-
-        // Exact capture generations and direct lifecycle paths make historical artifacts
-        // non-authoritative. A POST startup performs no plugin_data or /tmp history sweep;
-        // recovery belongs to the exact transaction that is explicitly opened by Keep/Drop.
-
-        // B-027 段階 3-B α-7-1 / Step 6: 引数を closure scope に capture。
-        // Step 11 で `license_for_thread` は撤去 (closure 経由案 / 呼出側 lib.rs で
-        // `trigger_pair_resolution` closure に直接 capture / 申し送り #31 遅延約束追跡完了)。
-        // - `daw_session_id_arc` (§4-5 Step 1 Arc 化): Step 10 で all_keep sub-tick
-        //   (cross-process 防壁 = daw_session_id / host_process_id scope filter) で実 use 中。
-        //   per-tick lazy-read で chunk-restore 後の最新 cell 値を反映 (snapshot timing
-        //   divergence 是正 / §4-4 R-9)。
-        // - `pair_pre_name_for_thread`: Step 6 で実 use (run_tick 内 100ms tick で snapshot
-        //   取得 → serialize_post_json{,_minimal} に渡す / Q-A7 採用案 A)。
         let daw_session_id_arc = daw_session_id;
-        let pair_pre_name_for_thread = pair_pre_name;
-        // W-281: pair_claimed_at + pair_release_notice の Arc を thread scope に capture。
-        let pair_claimed_at_for_thread = pair_claimed_at;
-        let pair_release_notice_for_thread = pair_release_notice;
-        // W-281 / C-3: self check 周期 (1 sec interval / Daisuke 確定 判断 3)。
-        // 毎 tick 100ms はコスト過大のため tick state 局所変数で last 時刻を保持。
-        let mut pair_self_check = PairSelfCheckState::new(Instant::now());
+        let mut observation = PostObservation::new(
+            Arc::clone(&instance_id),
+            Arc::clone(&project_hash),
+            Arc::clone(&daw_session_id_arc),
+            Arc::clone(&record_sm),
+            Arc::clone(&post_result),
+            delta_result,
+            Arc::clone(&signal_state),
+            is_playing,
+            Arc::clone(&paired_pre_target),
+            pair_pre_name,
+            pair_binding_generation,
+            release_pair_binding_if_current,
+            pair_claimed_at,
+            pair_release_notice,
+            pair_owner,
+            Arc::clone(&latched_pre),
+            spectrum,
+            meter_history,
+            Instant::now(),
+        );
 
         let mut recording: Option<RecordingCtx> = None;
         let mut control_polls = PostControlPolls::new(Instant::now());
-        let mut reservation_lease_refresh = ReservationLeaseRefresh::new(Instant::now());
         let mut closed_drop_recovery = ClosedDropRecovery::new(Instant::now());
-        let mut discovery = PostDiscoveryState::new();
-        let mut watch_lease = crate::watch_snapshot_lease::WatchSnapshotLease::new();
-        let mut owned_pair_claim: Option<crate::pair_claim_index::PairClaim> = None;
-        let mut next_pair_claim_publish = Instant::now();
         // B-243: Record idle auto-stop は「10分以上無音」の正当停止理由。Active 信号 /
         // 非Record で基点更新し、Record 中に連続無Active がしきい値を超えたら graceful 停止。
         let idle_timeout = record_idle_timeout();
@@ -359,174 +321,9 @@ pub fn spawn_io_thread_post(
                 break;
             }
 
-            // B-022 段階 1: tick 開始時に instance_id を lazy-read。
-            // `Arc<RwLock<String>>` は plugin params と同実体を共有するため、
-            // `set_state_inner` 経由で chunk-restored 値が書かれた直後でも
-            // 次 tick からは新値を拾う。
-            // §4-5 Step 1: 同位相で project_hash も毎 tick lazy-read。editor() と
-            // initialize() の snapshot timing 差で生じていた divergence を構造的に解消。
-            let instance_id_owned = read_instance_id_arc(&instance_id);
-            let instance_id_ref = instance_id_owned.as_str();
-            let project_hash_owned = read_project_hash_arc(&project_hash);
-            let project_hash_ref = project_hash_owned.as_str();
-            let daw_session_id_owned = read_daw_session_id_arc(&daw_session_id_arc);
-            let daw_session_id_ref = daw_session_id_owned.as_str();
-
-            // Reservation liveness is one exact inode, refreshed by its POST owner. Failure is
-            // non-authoritative and never stops an active Record.
-            reservation_lease_refresh.service(
-                Instant::now(),
-                record_sm.is_recording(),
-                &paired_pre_target,
-                project_hash_ref,
-                instance_id_ref,
-            );
-            // B-128 (G-115-370): within-base wall。POST post.json は inline writer ゆえ builder 関数を
-            // 通らない。spawn 時 normalize_observation_cell に加え、ここでも guard して PRE(io_dir 毎回
-            // guard)との DiD parity を取る（cell が spawn 後に path-unsafe 化しても base 内に留める）。
-            let ph_guard = crate::path_identity::guard_path_component(
-                project_hash_ref,
-                "io_thread_post.post_json.project_hash",
-            );
-            let iid_guard = crate::path_identity::guard_path_component(
-                instance_id_ref,
-                "io_thread_post.post_json.instance_id",
-            );
-            let project_dir_hint = kirin_root.join(&*ph_guard);
-            let instance_dir = project_dir_hint.join(&*iid_guard);
-            let post_file = instance_dir.join("post.json");
-            if let Err(e) = watch_lease.bind(&instance_dir) {
-                log::warn!("[IOThread POST] watch lease bind error: {}", e);
-            }
-
-            // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name snapshot per tick。
-            // RwLock read guard 寿命を tick 内に閉じる (closure スコープから外で
-            // guard を保持しない)。poison error 時は空文字 fallback (旧 schema 互換)。
-            let pair_pre_name_snapshot = snapshot_pair_pre_name(&pair_pre_name_for_thread);
-            let paired_pre_instance_id_snapshot = crate::paired_pre_instance_id(&latched_pre);
-            let pair_binding_generation_snapshot = (pair_binding_generation)();
-            // W-281: pair_claimed_at snapshot per tick (同位相 / poison は 0.0 fallback)。
-            let pair_claimed_at_snapshot =
-                pair_claimed_at_for_thread.read().map(|g| *g).unwrap_or(0.0);
-
-            // W-281 / C-3: 1 sec interval で固定所有権の競合 self check を発火。
-            // PRE 固有の1本の claim と、その所有 POST lease だけを直接確認する。project 配下の
-            // POST 列挙は行わない。exact PRE が未確定なら競合を断定できないため release しない。
-            // 解放対象 → C-4 経路で pair_pre_name="" / pair_claimed_at=0.0 + Toast 通知。
-            // W-284 / G-115-252: Record 中は self_check を skip。Record 中に self_check
-            // が release を発火すると pair_pre_name="" + delta_result clear (W-282)
-            // + pair_label 切替で Record 継続が破綻する (Daisuke 2026-05-17 報告)。
-            // Record 開始時点で確定した pair は Stop まで保持する仕様。
-            // B-253: 再生/バウンス中は pair を外さない。
-            // SignalState::Active は無音 gap で Inactive になり得るため、transport.playing も
-            // self-check release の gate に含める。名前で結ばれた pair は transport が
-            // 動いている間は保持し、競合による選択解除は停止中のみ許容する。
-            pair_self_check.service(
-                Instant::now(),
-                &kirin_root,
-                &record_sm,
-                &is_playing,
-                &signal_state,
-                paired_pre_instance_id_snapshot.as_deref(),
-                &pair_pre_name_snapshot,
-                pair_binding_generation_snapshot,
-                project_hash_ref,
-                instance_id_ref,
-                pair_owner.owner_id(),
-                pair_claimed_at_snapshot,
-                &release_pair_binding_if_current,
-                &pair_claimed_at_for_thread,
-                &pair_release_notice_for_thread,
-                &delta_result,
-            );
-
-            // C-4 直後 / 通常 tick: 解放後の最新値を再 snapshot して run_tick へ渡す
-            // (1 tick 内に解放 → 書込まで完結 / 次 tick 待ちでの一過性矛盾を排除)。
-            let pair_pre_name_snapshot = snapshot_pair_pre_name(&pair_pre_name_for_thread);
-            let pair_claimed_at_snapshot =
-                pair_claimed_at_for_thread.read().map(|g| *g).unwrap_or(0.0);
-            let record_generation_before_tick = record_sm.generation();
-            let recording_for_tick = record_sm.is_recording();
-            let record_generation_after_tick = record_sm.generation();
-            let stable_record_generation = (recording_for_tick
-                && record_generation_before_tick == record_generation_after_tick)
-                .then_some(record_generation_after_tick);
-
-            let post_snapshot_written = match run_tick(
-                &project_dir_hint,
-                &kirin_root,
-                &mut discovery,
-                &instance_dir,
-                &post_file,
-                instance_id_ref,
-                watch_lease.owner_id(),
-                &post_result,
-                &delta_result,
-                &signal_state,
-                &pair_pre_name_snapshot,
-                pair_claimed_at_snapshot,
-                project_hash_ref,
-                daw_session_id_ref,
-                // B-108: Record 中はラッチ凍結（W-284 self_check-skip と同型）。latched は共有実体。
-                recording_for_tick,
-                &latched_pre,
-            ) {
-                Ok(()) => true,
-                Err(e) => {
-                    log::warn!("[IOThread POST] tick error: {}", e);
-                    false
-                }
-            };
-            if post_snapshot_written {
-                if let Some(generation) = stable_record_generation {
-                    let delta = crate::sync_recovery::lock_recover(
-                        &delta_result,
-                        "POST Record display delta",
-                    )
-                    .clone();
-                    record_sm.publish_record_display_delta(
-                        generation,
-                        delta,
-                        crate::paired_pre_instance_id(&latched_pre),
-                    );
-                }
-            }
-
-            service_post_analysis_endpoints(
-                spectrum.as_ref(),
-                meter_history.as_ref(),
-                &latched_pre,
-                instance_id_ref,
-                &pair_pre_name_snapshot,
-            );
-
-            // The exact PRE ownership index is published only after this POST's atomic snapshot
-            // already contains the same binding generation. A PRE UI and a competing POST read
-            // one fixed claim, then one fixed post.json; neither path enumerates a directory.
-            let current_pre = crate::paired_pre_instance_id(&latched_pre);
-            let current_claimed_at = pair_claimed_at_for_thread
-                .read()
-                .map(|value| *value)
-                .unwrap_or(0.0);
-            service_pair_claim(
-                &kirin_root,
-                &instance_dir,
-                post_snapshot_written,
-                current_pre.as_deref(),
-                project_hash_ref,
-                instance_id_ref,
-                current_claimed_at,
-                &pair_owner,
-                &mut owned_pair_claim,
-                &mut next_pair_claim_publish,
-                |expected_pre, expected_claimed_at| {
-                    crate::paired_pre_instance_id(&latched_pre).as_deref() == expected_pre
-                        && pair_claimed_at_for_thread
-                            .read()
-                            .map(|value| value.to_bits() == expected_claimed_at.to_bits())
-                            .unwrap_or(false)
-                },
-            );
+            let observation_tick = observation.service();
+            let project_hash_ref = observation_tick.project_hash.as_str();
+            let instance_id_ref = observation_tick.instance_id.as_str();
 
             // Drop はKirin OSが開始時に捕捉したexact session commitだけを受理する。
             // 一時的不在・破損・capture不一致はR-28に従い無言で次tickへ委ねる。
@@ -542,7 +339,7 @@ pub fn spawn_io_thread_post(
                 sample_rate,
                 project_hash_ref,
                 instance_id_ref,
-                &pair_pre_name_snapshot,
+                &observation_tick.pair_pre_name,
                 &paired_pre_target,
                 &post_result,
                 &mut recording,
