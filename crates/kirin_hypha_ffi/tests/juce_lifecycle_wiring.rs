@@ -222,18 +222,13 @@ fn paired_pre_off_is_absolute_while_inactive_and_stale_preserve_delta_layout() {
     assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_BYPASSED"));
     assert!(editor.contains("Paired PRE is off. Showing POST absolute values."));
     assert!(editor.contains("COL_SPECTRUM_POST"));
-
-    let producer = [
-        read_repo("crates/kirin_measure/src/io_thread_post_tick.rs"),
-        read_repo("crates/kirin_measure/src/io_thread_post_delta.rs"),
-    ]
-    .join("\n");
+    let producer = read_repo("crates/kirin_measure/src/io_thread_post_tick.rs")
+        + &read_repo("crates/kirin_measure/src/io_thread_post_delta.rs");
     assert!(producer.contains("mode: DeltaMode::PreInactive"));
     assert!(producer.contains("Some(SignalState::Inactive) => DeltaMode::PreInactive"));
     assert!(producer.contains("POST absolute until it resumes"));
     assert!(!producer.contains("idle はラッチ維持で Stale"));
 }
-
 #[test]
 fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
