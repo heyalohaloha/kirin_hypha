@@ -102,6 +102,10 @@ pub(crate) use identity::read_instance_id_arc;
 mod pair_claim;
 use pair_claim::service_pair_claim;
 
+#[path = "io_thread_post_analysis.rs"]
+mod analysis;
+use analysis::service_post_analysis_endpoints;
+
 #[path = "io_thread_post_broadcast.rs"]
 mod broadcast;
 use broadcast::poll_post_broadcasts;
@@ -522,35 +526,13 @@ pub fn spawn_io_thread_post(
                 }
             }
 
-            let spectrum_target = latched_pre
-                .lock()
-                .ok()
-                .and_then(|latched| latched.clone())
-                .filter(|latched| latched.readiness == crate::LatchedPreReadiness::Confirmed)
-                .and_then(|latched| {
-                    crate::SpectrumTarget::from_pre_json(latched.instance_id, &latched.pre_json)
-                });
-            if let Some(spectrum) = spectrum.as_ref() {
-                spectrum.service_post_endpoint(
-                    instance_id_ref,
-                    spectrum_target,
-                    &pair_pre_name_snapshot,
-                );
-            }
-            if let Some(meter_history) = meter_history.as_ref() {
-                let meter_target = latched_pre
-                    .lock()
-                    .ok()
-                    .and_then(|latched| latched.clone())
-                    .filter(|latched| latched.readiness == crate::LatchedPreReadiness::Confirmed)
-                    .and_then(|latched| {
-                        crate::MeterHistoryTarget::from_pre_json(
-                            latched.instance_id,
-                            &latched.pre_json,
-                        )
-                    });
-                meter_history.service_post_endpoint(meter_target);
-            }
+            service_post_analysis_endpoints(
+                spectrum.as_ref(),
+                meter_history.as_ref(),
+                &latched_pre,
+                instance_id_ref,
+                &pair_pre_name_snapshot,
+            );
 
             // The exact PRE ownership index is published only after this POST's atomic snapshot
             // already contains the same binding generation. A PRE UI and a competing POST read
