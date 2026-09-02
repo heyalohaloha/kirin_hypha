@@ -747,18 +747,18 @@ bool kirin_hypha_poll_analysis_owners(KirinHypha* handle, KirinAnalysisOwners* o
 /* Spectrum optional workerの検証カウンタを取得。 */
 bool kirin_hypha_spectrum_stats(KirinHypha* handle, KirinSpectrumStats* out);
 
-/* ATTACK DRUM内部検証専用。POSTだけが有効化可能で、既定OFF・state保存なし。 */
+/* ATTACK DRUM製品導線。POSTだけが有効化可能で、画面非表示時は停止・state保存なし。 */
 bool kirin_hypha_set_attack_enabled(KirinHypha* handle, bool enabled);
 bool kirin_hypha_poll_attack_batch(KirinHypha* handle, KirinAttackBatch* out);
 bool kirin_hypha_poll_attack_events(KirinHypha* handle, KirinAttackEventBatch* out);
 bool kirin_hypha_poll_attack_waveform(KirinHypha* handle, KirinAttackWaveformBatch* out);
 bool kirin_hypha_poll_attack_details(KirinHypha* handle, KirinAttackDetailBatch* out);
 bool kirin_hypha_poll_attack_pre_waveform(KirinHypha* handle,
-                                                    KirinAttackWaveformBatch* out);
+                                          KirinAttackWaveformBatch* out);
 bool kirin_hypha_poll_attack_pre_details(KirinHypha* handle,
-                                                   KirinAttackDetailBatch* out);
+                                         KirinAttackDetailBatch* out);
 bool kirin_hypha_poll_attack_pair_events(KirinHypha* handle,
-                                                   KirinAttackPairEventBatch* out);
+                                         KirinAttackPairEventBatch* out);
 bool kirin_hypha_attack_stats(KirinHypha* handle, KirinAttackStats* out);
 
 /* Keep/Record表示を1スナップショットで取得. UI Thread専用・ロック競合時false. */
