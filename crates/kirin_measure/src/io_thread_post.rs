@@ -25,7 +25,6 @@ use std::thread::{self, JoinHandle};
 use std::time::SystemTime;
 use std::time::{Duration, Instant};
 
-use crate::cleanup::exit_record_preserve_pair;
 #[cfg(test)]
 use crate::delta::DeltaSnapshot;
 use crate::delta::{DeltaMode, DeltaResult};
@@ -43,6 +42,7 @@ use crate::pre_discovery::PostDiscoveryState;
 #[cfg(test)]
 use crate::pre_discovery::DISCOVERY_STALE_SECS;
 use crate::record::RecordStateMachine;
+#[cfg(test)]
 use crate::record_signal;
 #[cfg(test)]
 use crate::record_signal::{SignalStatus, SIGNALS_SUBDIR};
@@ -69,10 +69,7 @@ pub use liveness::format_pair_label;
 use liveness::{
     find_pre_json_mtime, poll_ack_timeout_with_base, poll_pre_liveness, poll_pre_liveness_at,
 };
-use liveness::{
-    poll_ack_timeout, poll_latched_pre_liveness, reconcile_closed_drop_target,
-    release_record_reservation,
-};
+use liveness::{poll_ack_timeout, poll_latched_pre_liveness, reconcile_closed_drop_target};
 
 #[path = "io_thread_post_delta.rs"]
 mod delta_resolution;
@@ -114,6 +111,10 @@ use reservation::ReservationLeaseRefresh;
 mod idle;
 use idle::IdleRecordStop;
 
+#[path = "io_thread_post_drop.rs"]
+mod drop_commit;
+use drop_commit::service_open_drop_commit;
+
 #[path = "io_thread_post_broadcast.rs"]
 mod broadcast;
 use broadcast::poll_post_broadcasts;
@@ -139,11 +140,12 @@ use tick::run_tick;
 
 #[path = "io_thread_post_policy.rs"]
 mod policy;
-use policy::{drop_commit_matches_observed_capture, record_idle_timeout};
+use policy::record_idle_timeout;
 #[cfg(test)]
 use policy::{
-    idle_autostop_due, keep_broadcast_blocked_by_stop, parse_idle_timeout,
-    remember_latest_started_at, SelfCheckReleaseGate, SELF_CHECK_RELEASE_CONFIRMATIONS,
+    drop_commit_matches_observed_capture, idle_autostop_due, keep_broadcast_blocked_by_stop,
+    parse_idle_timeout, remember_latest_started_at, SelfCheckReleaseGate,
+    SELF_CHECK_RELEASE_CONFIRMATIONS,
 };
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
@@ -575,64 +577,15 @@ pub fn spawn_io_thread_post(
             let pair_pre_name_for_writer = pair_pre_name_snapshot.clone();
             let pair_name_resolver = move || Some(pair_name_for_writer);
             let pair_pre_name_resolver = move || Some(pair_pre_name_for_writer);
-            // Drop は project broadcast ではなく、Kirin OS が Drop 開始時点で捕捉した
-            // exact session_id の commit file だけを停止根拠にする。metadata を lifecycle
-            // markerへ先に固定し、PREへ reason 付き Released を公開してから両 writerを閉じる。
-            if record_sm.is_recording() {
-                if let (Ok(paths), Some(session_id)) = (
-                    StoragePaths::default_platform(),
-                    record_sm.record_session_id(),
-                ) {
-                    let base = paths.plugin_data_dir();
-                    match crate::record_drop_commit::inspect_drop_commit_for_open_session(
-                        &base,
-                        project_hash_ref,
-                        &session_id,
-                    ) {
-                        Ok(Some(expected)) => {
-                            let capture_matches_drop = drop_commit_matches_observed_capture(
-                                &expected,
-                                &record_take_tracker,
-                                record_sm.generation(),
-                            );
-                            if capture_matches_drop {
-                                if let Ok(Some(expected)) =
-                                    crate::record_drop_commit::bind_drop_commit_for_open_session(
-                                        &base,
-                                        project_hash_ref,
-                                        &session_id,
-                                    )
-                                {
-                                    release_record_reservation(
-                                        &base,
-                                        project_hash_ref,
-                                        instance_id_ref,
-                                        &paired_pre_target,
-                                        "drop_committed",
-                                    );
-                                    let _ = record_signal::mark_released_with_reason(
-                                        &base,
-                                        project_hash_ref,
-                                        instance_id_ref,
-                                        record_signal::ReleaseReason::DropCommitted,
-                                    );
-                                    log::info!(
-                                        "[IOThread POST] Drop committed exact session: session={} bounce={} post_iid={}",
-                                        session_id,
-                                        expected.bounce_id,
-                                        instance_id_ref
-                                    );
-                                    exit_record_preserve_pair(&record_sm);
-                                }
-                            }
-                        }
-                        Ok(None) => {}
-                        // 内部 commit の一時的不在・破損は停止せず、次 tick へ委ねる。
-                        // 利用者操作と結び付かないため R-28 に従い無言で skip する。
-                        Err(_) => {}
-                    }
-                }
-            }
+            // Drop はKirin OSが開始時に捕捉したexact session commitだけを受理する。
+            // 一時的不在・破損・capture不一致はR-28に従い無言で次tickへ委ねる。
+            service_open_drop_commit(
+                &record_sm,
+                &record_take_tracker,
+                &paired_pre_target,
+                project_hash_ref,
+                instance_id_ref,
+            );
             let record_session_id = record_sm.record_session_id();
             if let Err(e) = run_record_tick_with_pair_names_require_session_and_marks(
                 &record_sm,
