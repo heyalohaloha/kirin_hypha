@@ -87,14 +87,17 @@ use kirin_measure::{
 };
 
 mod attack_ffi;
+mod identity_ffi;
 mod identity_registry;
 mod legacy_nih_state;
 mod pair_binding;
 
 pub use attack_ffi::*;
+pub use identity_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
 pub use identity_registry::__reset_shared_ids_for_tests;
 pub use legacy_nih_state::{kirin_hypha_decode_legacy_nih_state, KirinLegacyNihState};
 
+use identity_ffi::IdentityState;
 use identity_registry::{
     clear_role_scoped_cells, read_shared_id, resolve_post_identity, resolve_pre_identity,
     store_resolved_identity_cells,
@@ -168,18 +171,6 @@ mod keep_phase_contract_tests {
             "closed-session Drop polling must retain its deterministic PRE address"
         );
     }
-}
-
-/// state chunk 往復する識別子（方式A: JUCE が chunk bytes を所有・FFI は文字列 get/set のみ）。
-/// `project_hash` は派生値（= 確定後の `project_uuid` / B-106 共有セル解決値）で永続対象外。
-#[derive(Default, Clone)]
-struct IdentityState {
-    instance_id: String,
-    project_uuid: String,
-    daw_session_uuid: String,
-    name: String,
-    /// enable 時に確定する派生 project_hash（= project_uuid）。add_annotation の path に使う。
-    project_hash: String,
 }
 
 fn supported_channel_count(num_channels: u32) -> usize {
@@ -2791,57 +2782,6 @@ impl KirinHyphaEngine {
             .collect()
     }
 
-    /// state chunk から復元した識別子を設定する（方式A / B-058 3c）。
-    /// **`enable_pre_writes` の前**に呼ぶこと（復元順: create→set_license→set_identity→enable）。
-    /// 空文字を渡したキーは `enable_pre_writes` で生成される（instance_id / project_uuid）。
-    ///
-    /// B-128 (G-115-371): restore 受領の**単一 materialize 点**。`self.identity` に格納する前に
-    /// `materialize_restore_field` を通し、path-unsafe な値（絶対/`..`/区切り/制御文字/overlength/
-    /// 予約 marker）を fresh new_v4 に差し替える（safe / empty は不変）。これにより keep / record /
-    /// 永続化(get_identity) / enable→io_thread が**全て同一 materialize 済 self.identity** を読み、
-    /// family 間分裂（raw 第二源）と uncounted-Record-bypass が構造的に消える。kirin_measure の
-    /// path builder wall は DiD backstop として維持。invalid 時は invalid-identity event を surface。
-    pub fn set_identity(
-        &self,
-        instance_id: String,
-        project_uuid: String,
-        daw_session_uuid: String,
-        name: String,
-    ) {
-        if let Ok(mut id) = self.identity.lock() {
-            // B-128 (G-115-373 / D3): instance_id を先に materialize し、その結果を tag に project_uuid /
-            // daw の anomaly を per-instance routing する（当該 instance の editor が drain → UI へ）。
-            // instance_id 自体の anomaly は確定前ゆえ tag なし（global wall 扱い・honest）。
-            let iid = kirin_measure::materialize_restore_field(
-                &instance_id,
-                "ffi.set_identity.instance_id",
-                None,
-            );
-            let tag = if iid.is_empty() {
-                None
-            } else {
-                Some(iid.as_str())
-            };
-            id.project_uuid = kirin_measure::materialize_restore_field(
-                &project_uuid,
-                "ffi.set_identity.project_uuid",
-                tag,
-            );
-            id.daw_session_uuid = kirin_measure::materialize_restore_field(
-                &daw_session_uuid,
-                "ffi.set_identity.daw_session_uuid",
-                tag,
-            );
-            id.instance_id = iid;
-            id.name = name; // name は path component でない（traversal 非該当・scope 外）。
-        }
-    }
-
-    /// 現在の識別子スナップショット（JUCE が getStateInformation で chunk へ保存）。
-    fn identity_snapshot(&self) -> IdentityState {
-        self.identity.lock().map(|g| g.clone()).unwrap_or_default()
-    }
-
     /// Record中の最新producer sample境界へ固定タグMARKを追加する。
     pub fn add_mark(&self, tag: String) -> bool {
         if !can_write_plugin_data(self.current_license())
@@ -3448,18 +3388,6 @@ pub struct KirinMeterHistoryEntry {
     pub true_peak: KirinMeterHistoryRange,
     pub correlation: KirinMeterHistoryRange,
     pub plr: KirinMeterHistoryRange,
-}
-
-/// `KirinIdentity` — state chunk 往復する識別子（C struct / 方式A）。
-/// 各フィールドは null 終端 C 文字列（最大 63 文字 + null）。`project_hash` は派生値の
-/// ため含めない（JUCE は instance_id / project_uuid / daw_session_uuid / name の 4 キーを
-/// chunk に保存する）。
-#[repr(C)]
-pub struct KirinIdentity {
-    pub instance_id: [c_char; ID_BUF_LEN],
-    pub project_uuid: [c_char; ID_BUF_LEN],
-    pub daw_session_uuid: [c_char; ID_BUF_LEN],
-    pub name: [c_char; ID_BUF_LEN],
 }
 
 /// `KirinPreCandidate` — pair 候補 1 件（C struct / B-102 ドロップダウン用）。
@@ -6139,54 +6067,6 @@ pub unsafe extern "C" fn kirin_hypha_poll_record_display(
         true
     }))
     .unwrap_or(false)
-}
-
-/// state chunk から復元した識別子を設定する（方式A / 3c）。**`enable_pre_writes` の前**に呼ぶ。
-/// 各引数は null 終端 C 文字列（null 可＝空文字扱い）。空のキーは enable 時に生成される。
-///
-/// # Safety
-/// `handle` は有効なハンドル。各文字列ポインタは null か有効な null 終端 C 文字列であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_set_identity(
-    handle: *mut KirinHyphaEngine,
-    instance_id: *const c_char,
-    project_uuid: *const c_char,
-    daw_session_uuid: *const c_char,
-    name: *const c_char,
-) {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return;
-        }
-        let iid = unsafe { read_c_str(instance_id) };
-        let puid = unsafe { read_c_str(project_uuid) };
-        let dsid = unsafe { read_c_str(daw_session_uuid) };
-        let nm = unsafe { read_c_str(name) };
-        unsafe { (*handle).set_identity(iid, puid, dsid, nm) };
-    }));
-}
-
-/// 現在の識別子を `out` に書く（JUCE が getStateInformation で chunk へ保存）。
-/// 各フィールドは null 終端 C 文字列（最大 63 文字）。
-///
-/// # Safety
-/// `handle`/`out` は有効。`out` は書込可能な `KirinIdentity`。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_get_identity(
-    handle: *mut KirinHyphaEngine,
-    out: *mut KirinIdentity,
-) {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() {
-            return;
-        }
-        let id = unsafe { (*handle).identity_snapshot() };
-        let out = unsafe { &mut *out };
-        write_c_buf(&mut out.instance_id, &id.instance_id);
-        write_c_buf(&mut out.project_uuid, &id.project_uuid);
-        write_c_buf(&mut out.daw_session_uuid, &id.daw_session_uuid);
-        write_c_buf(&mut out.name, &id.name);
-    }));
 }
 
 /// B-128 (G-115-373 / D3): restore identity の anomaly を **当該 instance の分だけ** 1 件 `out` に drain
