@@ -51,8 +51,7 @@ use crate::record_signal::{SignalStatus, SIGNALS_SUBDIR};
 #[cfg(test)]
 use crate::record_writer::parse_iso8601_to_epoch_ms;
 use crate::record_writer::{
-    apply_record_take_snapshot, run_record_tick_with_pair_names_require_session_and_marks,
-    take_session_summary, writer_close_with_summary_and_marks, RecordingCtx,
+    run_record_tick_with_pair_names_require_session_and_marks, RecordingCtx,
 };
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTakeTracker, RecordTraceQueue, SignalState};
@@ -104,6 +103,10 @@ pub(crate) use identity::read_instance_id_arc;
 #[path = "io_thread_post_pair_claim.rs"]
 mod pair_claim;
 use pair_claim::service_pair_claim;
+
+#[path = "io_thread_post_shutdown.rs"]
+mod shutdown;
+use shutdown::shutdown_post_io;
 
 #[path = "io_thread_post_tick.rs"]
 mod tick;
@@ -1084,116 +1087,18 @@ pub fn spawn_io_thread_post(
             thread::sleep(LOOP_SLEEP);
         }
 
-        // Do not release the exact claim here. The IO worker is restartable and does not own the
-        // relationship. The engine-held pair lease makes this claim invalid automatically when the
-        // POST instance is actually destroyed; a restarted worker adopts the same fixed claim.
-        // 終了処理: 直近 tick の instance_id でクリーンアップ。
-        // `set_state` 復元後に instance_id が切り替わった場合は旧 instance dir
-        // (Default UUID) の post.json が残骸として残るが、次回起動時の同関数で
-        // 同じ Default UUID を踏むことは無いため自然消失する (R-28 機能的沈黙)。
-        // B-043: Record 中に thread shutdown された場合も Measure Thread の最新
-        // session_summary を取り出して JSON に焼き込む (Daisuke 抜去シナリオ救済)。
-        if let Some(mut ctx) = recording.take() {
-            // B-132 (G-115-382): shutdown-during-record（抜去 / アンロード）。Measure Thread は自身の
-            // teardown 中（shutdown フラグで loop 冒頭 break）で seal を進めないため instant check
-            // （wait なし = bounded 0 / teardown deadlock 無縁）。seal 未前進 = graceful な
-            // Record→Watch tight-drain を経ていない＝ tail 不確定 → 不完全と記録（共通B / R-28）。
-            let sealed = record_sm.seal() > ctx.seal_at_start;
-            let summary = take_session_summary(&session_summary);
-            ctx.writer.add_integrity_reason("lifecycle_shutdown");
-            if !sealed {
-                ctx.writer.mark_integrity_degraded();
-            }
-            apply_record_take_snapshot(&mut ctx, Some(&record_take_tracker));
-            writer_close_with_summary_and_marks(ctx, summary, &record_mark_queue);
-        }
-
-        // §4-5 Step 1: 終了処理時も project_hash を lazy-read で確定。
-        let final_iid = read_instance_id_arc(&instance_id);
-        let final_project_hash = read_project_hash_arc(&project_hash);
-        // Do not delete post.json, temp siblings, or the instance directory here.
-        // pluginval and some DAWs can tear down and recreate the same restored
-        // instance_id in quick succession; an old IO thread deleting this path
-        // can remove the next IO thread's live write and create transient missing
-        // POST/PRE pairing. Dropping this thread's unique WatchSnapshotLease
-        // makes the old snapshot immediately invisible to new readers, while
-        // legacy readers/snapshots keep the mtime expiry path.
-
-        // B-244: IO Thread terminate 終端でも record_signal は削除せず Released にする。
-        // PRE は missing では止めないため、shutdown/watchdog restart/drop の lifecycle 終了も
-        // 明示 Stop として伝播させる。
-        // 失敗時 warn のみ (設計判断 #8): IO Thread terminate 内 panic は thread
-        // crash の連鎖のため避ける。NotFound は no signal として扱う。
-        match StoragePaths::default_platform() {
-            Ok(paths) => {
-                release_record_reservation(
-                    &paths.plugin_data_dir(),
-                    &final_project_hash,
-                    &final_iid,
-                    &paired_pre_target,
-                    "cleanup #4",
-                );
-                let base = paths.plugin_data_dir();
-                let owned_session = record_sm
-                    .record_session_id()
-                    .or_else(|| record_sm.last_closed_session_id());
-                let release_result =
-                    record_signal::read_signal(&base, &final_project_hash, &final_iid)
-                        .filter(|signal| {
-                            owned_session.as_deref() == Some(signal.session_id.as_str())
-                        })
-                        .map_or(Ok(false), |expected| {
-                            record_signal::mark_released_if_current(
-                                &base,
-                                &final_project_hash,
-                                &final_iid,
-                                &expected,
-                            )
-                        });
-                match release_result {
-                    Ok(true) => log::info!("[POST cleanup #4] mark_released ok"),
-                    Ok(false) => log::info!("[POST cleanup #4] no signal to release"),
-                    Err(e) => log::warn!("[POST cleanup #4] mark_released failed: {:?}", e),
-                }
-
-                // Step 12-C 統合点 #4 broadcast: originator として配置した
-                // all_keep_signal/{POST_iid}.json を削除。delete_broadcast は冪等
-                // (NotFound→Ok)。統合点 #2/#3 と重複呼出されても安全。失敗時 warn のみ。
-                match all_keep_signal::delete_broadcast(
-                    &paths.plugin_data_dir(),
-                    &final_project_hash,
-                    &final_iid,
-                ) {
-                    Ok(()) => log::info!(
-                        "[POST shutdown #4 broadcast] delete_broadcast succeeded: instance={}",
-                        final_iid
-                    ),
-                    Err(e) => log::warn!(
-                        "[POST shutdown #4 broadcast] delete_broadcast failed: {:?}",
-                        e
-                    ),
-                }
-
-                // α-7' All Stop: own all_stop_signal/{POST_iid}.json も並列削除。
-                match all_stop_signal::delete_stop_broadcast(
-                    &paths.plugin_data_dir(),
-                    &final_project_hash,
-                    &final_iid,
-                ) {
-                    Ok(()) => log::info!(
-                        "[POST shutdown #4 stop_broadcast] delete_stop_broadcast succeeded: instance={}",
-                        final_iid
-                    ),
-                    Err(e) => log::warn!(
-                        "[POST shutdown #4 stop_broadcast] delete_stop_broadcast failed: {:?}",
-                        e
-                    ),
-                }
-            }
-            Err(e) => log::warn!("[POST cleanup #4] StoragePaths error: {:?}", e),
-        }
-
-        log::info!("[IOThread POST] terminated");
+        // The restartable worker does not release the engine-owned exact claim. It only closes its
+        // own Record and broadcast lifecycle before this closure drops the unique watch lease.
+        shutdown_post_io(
+            recording,
+            &record_sm,
+            &session_summary,
+            &record_take_tracker,
+            &record_mark_queue,
+            &instance_id,
+            &project_hash,
+            &paired_pre_target,
+        );
     })
 }
 
