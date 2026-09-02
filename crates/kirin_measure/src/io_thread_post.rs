@@ -88,167 +88,17 @@ use post_json::{
     serialize_post_json_with_daw_owner_and_pair_instance,
 };
 
+#[path = "io_thread_post_policy.rs"]
+mod policy;
+use policy::{
+    drop_commit_matches_observed_capture, generation_stop_authorizes_post, idle_autostop_due,
+    keep_broadcast_blocked_by_stop, record_idle_timeout, remember_latest_started_at,
+    SelfCheckReleaseGate,
+};
+#[cfg(test)]
+use policy::{parse_idle_timeout, SELF_CHECK_RELEASE_CONFIRMATIONS};
+
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
-
-/// B-206/B-225/B-243: Record idle auto-stop の既定しきい値（秒）。
-/// Record 中に 10 分以上 Active が無ければ、利用者の Stop 漏れ相当として graceful 停止する。
-const RECORD_IDLE_TIMEOUT_DEFAULT_SECS: u64 = 600; // 10 min
-const SELF_CHECK_RELEASE_CONFIRMATIONS: u8 = 3;
-
-#[derive(Debug, Default)]
-struct SelfCheckReleaseGate {
-    candidate: Option<SelfCheckReleaseCandidate>,
-}
-
-#[derive(Debug)]
-struct SelfCheckReleaseCandidate {
-    pair_key: String,
-    pair_claimed_at: f64,
-    confirmations: u8,
-}
-
-impl SelfCheckReleaseGate {
-    fn reset(&mut self) {
-        self.candidate = None;
-    }
-
-    fn observe_conflict(&mut self, pair_key: &str, pair_claimed_at: f64) -> bool {
-        if pair_key.is_empty() {
-            self.reset();
-            return false;
-        }
-
-        match self.candidate.as_mut() {
-            Some(candidate)
-                if candidate.pair_key == pair_key
-                    && candidate.pair_claimed_at == pair_claimed_at =>
-            {
-                candidate.confirmations = candidate.confirmations.saturating_add(1);
-                candidate.confirmations >= SELF_CHECK_RELEASE_CONFIRMATIONS
-            }
-            _ => {
-                self.candidate = Some(SelfCheckReleaseCandidate {
-                    pair_key: pair_key.to_string(),
-                    pair_claimed_at,
-                    confirmations: 1,
-                });
-                false
-            }
-        }
-    }
-}
-
-/// B-206: idle timeout を解決する（env override 対応 / pure・テスト用に分離）。
-/// `KIRIN_RECORD_IDLE_TIMEOUT_SECS` が有効な整数（>= 5）なら採用、それ以外は既定 600s。
-/// 下限 5s は暴発防止。テスト/チューニング用途（DAW では `launchctl setenv ...` 後に起動）。
-fn parse_idle_timeout(raw: Option<String>) -> Duration {
-    let secs = raw
-        .and_then(|s| s.trim().parse::<u64>().ok())
-        .filter(|&s| s >= 5)
-        .unwrap_or(RECORD_IDLE_TIMEOUT_DEFAULT_SECS);
-    Duration::from_secs(secs)
-}
-
-/// B-243: io thread spawn 時に一度だけ idle timeout を確定する。
-fn record_idle_timeout() -> Option<Duration> {
-    Some(parse_idle_timeout(
-        std::env::var("KIRIN_RECORD_IDLE_TIMEOUT_SECS").ok(),
-    ))
-}
-
-/// B-206: idle auto-stop すべきか（pure 判定 / テスト容易性のため分離）。
-/// Record 中 かつ 非Active かつ idle 経過がしきい値以上 → true。Active 信号が来ている間は
-/// 呼出側が経過をリセットするため、録音継続中は決して true にならない。
-#[inline]
-fn idle_autostop_due(
-    is_recording: bool,
-    is_active: bool,
-    idle_elapsed: Duration,
-    timeout: Option<Duration>,
-) -> bool {
-    timeout.is_some_and(|timeout| is_recording && !is_active && idle_elapsed >= timeout)
-}
-
-fn drop_commit_matches_observed_capture(
-    expected: &crate::record_expected::ExpectedWavMetadata,
-    tracker: &RecordTakeTracker,
-    generation: u64,
-) -> bool {
-    let bwf_matches = expected
-        .wav_time_reference_samples
-        .and_then(|start| {
-            let start = i64::try_from(start).ok()?;
-            let duration = i64::try_from(expected.expected_duration_samples).ok()?;
-            Some((start, start.checked_add(duration)?))
-        })
-        .is_some_and(|(start, end)| tracker.observed_content_range(start, end));
-    if bwf_matches {
-        return true;
-    }
-    // Non-BWF WAVs have no absolute timeline origin. The host's bounded offline-render epoch is
-    // still an exact producer fact: only the Keep generation that rendered this exact native
-    // sample count may consume the Drop transaction. Unrelated or stale Keeps remain armed.
-    expected.wav_time_reference_samples.is_none()
-        && tracker.snapshot(generation).is_some_and(|snapshot| {
-            snapshot.generation == generation
-                && snapshot.duration_samples == expected.expected_duration_samples
-                && snapshot
-                    .host_start_position_samples
-                    .zip(snapshot.host_end_position_samples)
-                    .and_then(|(start, end)| end.checked_sub(start))
-                    == i64::try_from(expected.expected_duration_samples).ok()
-        })
-}
-
-/// All Stop is a filesystem-level barrier for older All Keep broadcasts.
-///
-/// Studio One can re-initialize plugins during offline bounce. That restarts the
-/// IO thread and clears the in-memory "processed keep broadcast" cache, while
-/// the old all_keep_signal file can still be fresh. A fresh all_stop_signal with
-/// a later/equal `started_at` must therefore suppress that older Keep, otherwise
-/// POST instances can re-enter Record after Stop.
-#[inline]
-fn keep_broadcast_blocked_by_stop(
-    keep_started_at: &str,
-    latest_stop_started_at: Option<&str>,
-) -> bool {
-    latest_stop_started_at.is_some_and(|stop_started_at| keep_started_at <= stop_started_at)
-}
-
-#[inline]
-fn remember_latest_started_at(latest: &mut Option<String>, candidate: &str) {
-    if latest
-        .as_deref()
-        .map(|existing| candidate > existing)
-        .unwrap_or(true)
-    {
-        *latest = Some(candidate.to_string());
-    }
-}
-
-fn generation_stop_authorizes_post(
-    base_dir: &Path,
-    project_hash: &str,
-    post_instance_id: &str,
-    broadcast: &all_stop_signal::AllStopBroadcast,
-) -> bool {
-    if !broadcast.has_generation() {
-        return true;
-    }
-    let terminal = crate::capture_generation_lifecycle::read_generation_terminal(
-        base_dir,
-        &broadcast.capture_generation_id,
-        broadcast.generation_started_at_ms,
-    );
-    if !matches!(terminal, Ok(Some(_))) {
-        return false;
-    }
-    record_signal::read_signal(base_dir, project_hash, post_instance_id).is_some_and(|signal| {
-        signal.status != SignalStatus::Released
-            && signal.capture_generation_id == broadcast.capture_generation_id
-            && signal.generation_started_at_ms == broadcast.generation_started_at_ms
-    })
-}
 
 /// PRE ファイルが Active とみなされる最大経過時間（秒）
 const STALE_SECS: i64 = 5; // B-046: 2→5 (fs I/O backpressure 吸収 / G-115-246)
