@@ -49,9 +49,9 @@ acquires a slot only after one owner returns to METERS or closes. Switching FREQ
 the same slot.
 
 macOS 12 or later is supported as signed and notarized VST3 and Audio Unit plug-ins. Windows 10/11
-64-bit is supported as VST3 and distributed as a manual ZIP. The Windows build passes CI and
-pluginval and is validated in Studio One Pro on a dedicated Windows machine; a signed Windows
-installer is not currently provided.
+64-bit is supported as VST3. The current v1.1.48 Windows release is a manually installed PRE/POST
+ZIP. The next release will move to one Authenticode-signed installer after the selected source commit
+passes CI, dedicated-machine DAW validation, repeat-install, and isolated-uninstall gates.
 
 ---
 
@@ -309,10 +309,11 @@ xattr -d com.apple.quarantine "Kirin-Hypha-<version>-macOS-Universal.pkg"
 
 The installer package has companion `.pkg.sha256` and artifact JSON assets on the Releases page. Older zip archives are manual-install fallback artifacts.
 
-The Windows 10/11 64-bit VST3 release is a supported manual PRE/POST ZIP package. It is built from the
-same release commit as macOS, passes the Windows CI and pluginval gates, and has completed Studio One
-Pro validation on a dedicated Windows machine. The ZIP does not include an installer or Authenticode
-signature. [`docs/windows_external_validation.md`](docs/windows_external_validation.md) remains the
+The current v1.1.48 Windows 10/11 64-bit VST3 release is a supported manual PRE/POST ZIP package. It
+was built from the same release commit as macOS and passed Windows CI, pluginval, and Studio One Pro
+validation on the dedicated Windows machine. The next validated release will use a single installer
+EXE whose plug-in binaries, installer, and generated uninstaller all have valid Authenticode
+signatures. [`docs/windows_external_validation.md`](docs/windows_external_validation.md) is the
 repeatable real-machine regression checklist.
 
 ### Release provenance
@@ -335,6 +336,9 @@ Published artifacts are immutable. If repository maintenance changes a public co
 5. Insert **POST Kirin Hypha** after your processing chain.
 
 ### Windows
+
+The current v1.1.48 release uses the manual ZIP installation below. Do not use the installer procedure
+until a later signed installer has completed all release gates and is published on the Releases page.
 
 1. Download the latest `Kirin-Hypha-<version>-Windows-VST3-<build>-<commit>.zip` from the
    [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
@@ -428,8 +432,8 @@ Kirin OS is available now. More at [kirinmastering.com](https://kirinmastering.c
 - Windows 10 or 11, 64-bit
 - VST3-compatible DAW, or an Audio Unit-compatible DAW on macOS
 
-Validated on macOS 14 (Sonoma) and Windows with Studio One Pro. Windows is VST3-only and uses a
-manual ZIP package; a signed Windows installer is not currently provided.
+Validated on macOS 14 (Sonoma) and Windows with Studio One Pro. Windows is VST3-only. The current
+v1.1.48 release uses a manual ZIP; a signed installer is required for the next validated release.
 
 **Not currently supported:** Linux · CLAP
 
@@ -474,7 +478,14 @@ KIRIN_SKIP_PKG_SIGN=1 KIRIN_SKIP_PKG_NOTARIZE=1 \
   node scripts/ls_release/build_kirin_hypha_pkg.mjs
 ```
 
-The legacy manual-install zip can still be built with:
+The next signed Windows installer will be built only on `windows-latest`. The eSigner secrets stay in the
+private Kirin release-control repository rather than this public GPL repository. Its manual Hypha
+signing factory accepts only a full source commit and the successful Hypha CI run ID for that exact
+commit, then signs both VST3 binaries plus the generated installer and uninstaller and performs the
+repeat-install and isolated-uninstall checks. This repository's own `windows_signing=signed` input is
+also fail-closed and becomes usable only if equivalent repository secrets are deliberately added.
+
+The legacy manual-install zip can still be built as a fallback with:
 
 ```bash
 cargo run --package xtask -- release-package

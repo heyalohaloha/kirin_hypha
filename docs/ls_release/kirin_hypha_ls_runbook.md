@@ -10,7 +10,9 @@ Kirin Hypha ships through three release surfaces. Updating only one leaves the o
 
 1. **Lemon Squeezy (paid)** — the signed/notarized installer `.pkg`, delivered inside the existing Kirin OS / Kirin Sense products. Phases 0–7 below.
 2. **HP free download** — `kirinmastering.com/hypha` → "Download for macOS — Free", which links to a GitHub Release `.zip` on `heyalohaloha/kirin_hypha`. See **"HP Free Download Channel"** below. If skipped, free-download users stay on the old (buggy) version.
-3. **Windows VST3** — a manual PRE/POST VST3 `.zip` built from the green `windows-latest` artifact. It is not a Windows installer and is not Authenticode-signed. See **"Windows VST3 Channel"** below.
+3. **Windows VST3** — one Authenticode-signed Inno Setup `.exe` containing PRE and POST, built and
+   installed/uninstalled on `windows-latest`. The manual `.zip` is fallback-only. See
+   **"Windows VST3 Channel"** below.
 
 The macOS paid/free channels reuse the SAME signed+notarized universal bundles from Phase 1 (the `.pkg` and the `.zip` are two packagings of the same bundles). Windows uses the JUCE VST3 output from the Windows CI job.
 
@@ -22,7 +24,9 @@ The macOS paid/free channels reuse the SAME signed+notarized universal bundles f
 - Build script: `scripts/ls_release/build_kirin_hypha_pkg.mjs`
 - Dry-run script: `scripts/ls_release/kirin_hypha_ls_dry_run.mjs`
 - Full release set script: `scripts/ls_release/build_kirin_hypha_release_set.mjs`
-- Windows VST3 package script: `scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs`
+- Windows installer build: `scripts/windows/build-installer.mjs`
+- Windows installer verification: `scripts/windows/verify-installer.ps1`
+- Windows fallback ZIP: `scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs`
 
 ## Boundaries
 
@@ -33,7 +37,32 @@ The macOS paid/free channels reuse the SAME signed+notarized universal bundles f
 - Kirin Hypha is delivered through configured existing products, not through a new standalone product unless the distribution policy changes.
 - Product IDs, variant IDs, admin URLs, upload readiness, and operator notes belong only in the ignored local state file.
 - The release operator builds and verifies the package, provides the Apple `Developer ID Installer` certificate when needed, and performs the browser upload if no authenticated automation is available.
-- Windows is part of the release set. If the current Windows artifact is not present, the release is blocked instead of silently shipping macOS only.
+- Windows is part of the release set. If the current signed installer artifact, all four valid
+  Authenticode surfaces, CI install/uninstall result, or external DAW validation is missing, the
+  release is blocked instead of silently shipping macOS only.
+
+## Validation-first source order
+
+Do not select a version, build release artifacts, sign, notarize, upload, tag, or publish while the
+product commit is still under validation. Use this order for every release:
+
+1. Record the candidate product branch and its exact 40-character commit. Treat a later commit as a
+   new candidate that must repeat the preliminary product gates.
+2. Validate that product commit locally before starting release integration. Do not reuse evidence
+   from an older product commit.
+3. Integrate the distribution-procedure commit into the validated product line, choose the next
+   unused version, and assign the integration commit its unique B number. The integration is required
+   because the pinned signing factory executes `scripts/windows/build-installer.mjs` from the checked-out
+   Hypha source. If any of the four trusted distribution files changed, review them and update the
+   private factory's SHA-256 allowlist in the same integration step.
+4. Record the resulting integration commit as the release candidate. Run the complete local suites,
+   macOS/AU CI, Windows CI/pluginval, and dedicated-machine Windows DAW validation for that exact
+   commit and version. This commit, not its pre-integration parent, owns the release evidence.
+5. Only after every release-candidate gate is green, build, sign, notarize, package, and publish all
+   three distribution channels from that same commit. Do not change source or version after validation.
+
+If any exact commit, CI run ID, external-validation receipt, or artifact hash differs between steps,
+stop and restart from the affected validation step. Never advance a release by branch name alone.
 
 ## Immutable Release Provenance
 
@@ -49,15 +78,16 @@ Do not rename, regenerate, or re-upload an existing artifact merely to make its 
 
 ## One Script Release Set
 
-After the macOS source bundles are built/notarized and the latest green Windows CI artifact `kirin-hypha-windows-vst3` has been downloaded, run:
+After the macOS source bundles are built/notarized and the latest green CI artifact
+`KirinHypha-Windows-signed-full` has been downloaded, run:
 
 ```bash
 node scripts/ls_release/build_kirin_hypha_release_set.mjs \
-  --windows-artifact-dir dist/WINDOWS_CI/kirin-hypha-windows-vst3 \
-  --windows-external-validation complete
+  --windows-installer-dir dist/WINDOWS_CI/KirinHypha-Windows-signed-full
 ```
 
-This runs Windows readiness/preflight, builds the Windows VST3 zip/state, builds the macOS LS `.pkg`, and builds the macOS HP `.zip`.
+This verifies the downloaded signed Windows installer and its sidecars, runs Windows static gates,
+builds the macOS LS `.pkg`, and builds the macOS HP `.zip`.
 
 If the Windows artifact is missing, the script fails before reporting release ready. Do not use `--skip-windows-package` for a public release.
 
@@ -231,44 +261,51 @@ Use the website repository's authorized production deployment workflow.
 
 ## Windows VST3 Channel
 
-The Windows package is built from the GitHub Actions artifact `kirin-hypha-windows-vst3` after the Windows job has passed build, artifact verification, and pluginval.
+The primary Windows package is `Kirin-Hypha-X.Y.Z-Windows-x64-Setup.exe`. It installs PRE and POST
+to Steinberg's standard per-user VST3 directory by default, supports an explicit all-users choice,
+and registers one product uninstaller without owning the shared VST3 root.
 
-### WIN-1: CI package artifact
+### WIN-1: CI build and signing
 
-The Windows CI job now also runs:
+First dispatch this repository's `.github/workflows/ci.yml` with
+`windows_signing=unsigned`. Record the completed green run ID and its exact 40-character commit.
+Then dispatch `hypha-windows-signing.yml` in the private Kirin release-control repository with:
 
-```bash
-node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs \
-  --artifact-dir juce_shell/build-windows \
-  --output-dir dist/WINDOWS_CI \
-  --release-kind ci \
-  --external-validation pending
+```text
+hypha_commit=<exact 40-character commit>
+hypha_ci_run_id=<green Hypha CI run ID>
+external_validation=complete
 ```
 
-It uploads:
+Use `complete` only when `docs/windows_external_validation.md` is green for the source. The factory
+rejects a CI run whose commit or conclusion does not match, keeps the four `ESIGNER_*` secrets out of
+this public GPL repository, requires all three complete Hypha CI jobs, rejects distribution scripts
+outside its private SHA-256 allowlist, downloads pinned CodeSignTool bytes, uses a verified immutable
+Inno Setup release, and signs:
 
-- `kirin-hypha-windows-vst3` — raw PRE/POST VST3 bundles
-- `kirin-hypha-windows-vst3-ls-package` — packaged Windows VST3 zip + `.sha256` + `.json`
+- PRE VST3 PE binary
+- POST VST3 PE binary
+- generated uninstaller
+- Setup EXE
 
-### WIN-2: Local LS candidate from downloaded artifact
+It then installs the EXE twice for the current user, compares installed payload hashes, verifies all
+signatures, silently uninstalls, checks registry cleanup, and proves an unrelated VST3 sentinel was
+not removed.
 
-Download/extract `kirin-hypha-windows-vst3` to `dist/WINDOWS_CI/kirin-hypha-windows-vst3`, then run:
+### WIN-2: Required artifacts
 
-```bash
-node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs \
-  --artifact-dir dist/WINDOWS_CI/kirin-hypha-windows-vst3 \
-  --release-kind ls \
-  --external-validation complete
-```
+Download `KirinHypha-Windows-signed-full`. It must contain exactly:
 
-This writes:
+- `Kirin-Hypha-X.Y.Z-Windows-x64-Setup.exe`
+- matching `.exe.sha256`
+- matching `.exe.json`
 
-- `dist/WINDOWS_LS/Kirin-Hypha-X.Y.Z-Windows-VST3-BNNN-<commit>.zip`
-- `dist/WINDOWS_LS/Kirin-Hypha-X.Y.Z-Windows-VST3-BNNN-<commit>.zip.sha256`
-- `dist/WINDOWS_LS/Kirin-Hypha-X.Y.Z-Windows-VST3-BNNN-<commit>.zip.json`
-- `release_state/kirin_hypha_X.Y.Z_windows_ls_bNNN.state.json` (ignored local workflow state)
+The JSON must report signing `valid`, CI validation `passed`, external validation `complete`, and
+`distribution.public_ready=true`. The one-script release set rejects any weaker state.
 
-The public `.zip.json` uses schema `kirin-hypha-windows-vst3-artifact-v2` and contains artifact identity, hashes, source commit, limitations, and validation facts. Schema v2 removes the operator-only `release_status` and `ls_upload` fields from legacy schema v1 and uses `complete` or `pending` for external validation. Upload readiness exists only in the ignored local state. If Windows external validation is not complete, use `--external-validation pending`; the local state will be generated as a blocker and must not be reported as LS-ready.
+The `kirin-hypha-windows-vst3-ls-package` artifact is a fallback-only manual ZIP. Its schema is
+`kirin-hypha-windows-vst3-fallback-artifact-v3`; neither complete external validation nor signed
+embedded binaries promote the ZIP to the primary distribution.
 
 ## Phase 7: Report
 

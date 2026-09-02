@@ -228,25 +228,47 @@ fn preflight_requires_windows_artifact_upload_error_on_missing_files() {
 #[test]
 fn preflight_requires_windows_release_package_script() {
     let bad = CI_WORKFLOW.replace(
-        "node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs",
-        "Write-Host skip-windows-package",
+        "node scripts/windows/build-installer.mjs",
+        "Write-Host skip-windows-installer",
     );
     let err = verify_windows_ci_job(&bad).unwrap_err();
     assert!(err
         .to_string()
-        .contains("must run the Windows VST3 release package script"));
+        .contains("must run the Windows installer build script"));
 }
 
 #[test]
 fn preflight_requires_windows_release_package_upload() {
     let bad = CI_WORKFLOW.replace(
-        "name: kirin-hypha-windows-vst3-ls-package",
+        "name: kirin-hypha-windows-installer",
         "name: kirin-hypha-windows-vst3-only",
     );
     let err = verify_windows_ci_job(&bad).unwrap_err();
     assert!(err
         .to_string()
-        .contains("package artifact must use a stable artifact name"));
+        .contains("primary installer must use a stable artifact name"));
+}
+
+#[test]
+fn preflight_requires_installer_post_install_verification() {
+    let bad = CI_WORKFLOW.replace(
+        "scripts/windows/verify-installer.ps1",
+        "Write-Host skip-installer-verification",
+    );
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("must run the installer verification script"));
+}
+
+#[test]
+fn preflight_requires_fail_closed_esigner_secret_route() {
+    let bad = CI_WORKFLOW.replace(
+        "ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}",
+        "ESIGNER_TOTP_SECRET: hardcoded",
+    );
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err.to_string().contains("only from repository secrets"));
 }
 
 #[test]

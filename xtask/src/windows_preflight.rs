@@ -36,7 +36,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
     verify_cmake_platform_split(JUCE_CMAKE)?;
     verify_windows_ci_job(CI_WORKFLOW)?;
     verify_ffi_staticlib_docs(FFI_HEADER, FFI_README, FFI_CARGO_TOML)?;
-    eprintln!("[windows-preflight] OK: Windows VST3 path is separated from macOS release gates.");
+    eprintln!("[windows-preflight] OK: Windows VST3 build, installer, signing, and verification gates are present.");
     Ok(())
 }
 
@@ -44,8 +44,8 @@ fn print_usage() {
     eprintln!(
         "Usage: cargo run -p xtask -- windows-preflight\n\n\
          Static preflight for starting Windows VST3 work. It verifies that JUCE CMake\n\
-         and GitHub Actions keep macOS AU/codesign-era assumptions away from the\n\
-         Windows path that builds VST3 only with the MSVC staticlib name."
+         and GitHub Actions keep Apple release assumptions away from the Windows\n\
+         VST3 path while requiring installer, Authenticode, and uninstall gates."
     );
 }
 
@@ -243,33 +243,53 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
     )?;
     require(
         job_code,
-        "Package Windows VST3 LS candidate",
-        "Windows preflight job must package a release-candidate Windows VST3 zip",
+        "Build Windows installer and sign all executable surfaces",
+        "Windows preflight job must build the primary Windows installer",
     )?;
     require(
         job_code,
-        "node scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs",
-        "Windows preflight job must run the Windows VST3 release package script",
+        "node scripts/windows/build-installer.mjs",
+        "Windows preflight job must run the Windows installer build script",
     )?;
     require(
         job_code,
-        "--release-kind ci",
-        "Windows preflight job must mark CI-produced Windows packages as CI artifacts",
+        "--signing $env:WINDOWS_SIGNING",
+        "Windows installer build must select signed or unsigned mode explicitly",
     )?;
     require(
         job_code,
-        "Upload Windows VST3 LS package",
-        "Windows preflight job must upload the packaged Windows VST3 zip",
+        "Verify Windows installer install, upgrade, signatures, and uninstall",
+        "Windows preflight job must verify the installed payload and uninstaller",
     )?;
     require(
         job_code,
-        "name: kirin-hypha-windows-vst3-ls-package",
-        "Windows preflight package artifact must use a stable artifact name",
+        "scripts/windows/verify-installer.ps1",
+        "Windows preflight job must run the installer verification script",
     )?;
     require(
         job_code,
-        "dist/WINDOWS_CI/Kirin-Hypha-*-Windows-VST3-*.zip",
-        "Windows preflight package artifact must include the Windows VST3 zip",
+        "name: kirin-hypha-windows-installer",
+        "Windows primary installer must use a stable artifact name",
+    )?;
+    require(
+        job_code,
+        "dist/WINDOWS_CI/Kirin-Hypha-*-Windows-x64-Setup.exe",
+        "Windows primary artifact must include the Setup executable",
+    )?;
+    require(
+        job_code,
+        "ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}",
+        "signed Windows builds must obtain eSigner credentials only from repository secrets",
+    )?;
+    require(
+        job_code,
+        "Package fallback Windows VST3 ZIP",
+        "Windows preflight job must retain the recovery ZIP as a fallback",
+    )?;
+    require(
+        job_code,
+        "--payload-signing $env:WINDOWS_SIGNING",
+        "fallback ZIP must record whether its embedded payload is signed",
     )?;
     verify_ci_uses_layout_artifact_paths(job_code)?;
     require(
@@ -292,7 +312,6 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
         "auval",
         "notarize",
         "notarytool",
-        "codesign",
         "xcrun",
         "stapler",
         ".component",
