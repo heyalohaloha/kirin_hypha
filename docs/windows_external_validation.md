@@ -15,8 +15,9 @@ must stay blocked until these gates are complete for that commit.
 - Next-release procedure: GitHub Actions builds PRE/POST Windows VST3, validates them with pluginval,
   signs their PE binaries, and packages both roles in one Inno Setup installer.
 - Planned primary packaging: `scripts/windows/build-installer.mjs` creates the Setup EXE, SHA-256,
-  and manifest. `scripts/windows/verify-installer.ps1` gates repeat install, installed hashes and
-  signatures, uninstaller signature, cleanup, and preservation of unrelated VST3 files.
+  and manifest. `scripts/windows/verify-installer.ps1` gates install, same-version reinstall,
+  installed hashes and signatures, uninstaller signature, cleanup, and preservation of unrelated
+  VST3 files.
 - Fallback packaging: `scripts/ls_release/build_kirin_hypha_windows_vst3_zip.mjs` creates a manual
   recovery ZIP. It never replaces the primary installer.
 - Per-release validation gate: real Windows DAW load, PRE/POST discovery, Keep, Record, offline
@@ -71,6 +72,14 @@ Close the DAW before installing.
 Open `Kirin-Hypha-<version>-Windows-x64-Setup.exe` and select **Current user** for the first pass.
 Repeat the installer once before DAW testing to exercise same-version update behavior. Both passes
 must complete without manual VST3 folder selection.
+
+For an upgrade test, begin separately from the preceding public Windows release. For the first
+installer release, install the v1.1.48 PRE/POST manual ZIP into its documented user VST3 location;
+for later releases, install the preceding signed installer. Open and save one DAW session containing
+both roles, close the DAW, then run the candidate installer. Reopen that session and confirm that the
+candidate replaces both owned bundles, preserves the session identities and pair selection, and does
+not alter unrelated VST3 files. Record the old and new versions and both payload hashes in the
+external-validation report. Same-version reinstall does not substitute for this upgrade test.
 
 Expected installed paths:
 

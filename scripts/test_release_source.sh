@@ -41,6 +41,8 @@ assert_ignored_count() {
 # pairing, TRACE publication, and error-path integration tests without treating the retired
 # nih-plug editors as the AU/VST3 release shell.
 run cargo fmt --all -- --check
+run node --test scripts/public_history.test.mjs
+run node scripts/check_public_history.mjs --tip HEAD
 run bash scripts/test_source_line_budget.sh
 run bash scripts/check_source_line_budget.sh
 run node --test scripts/ls_release/release_metadata.test.mjs

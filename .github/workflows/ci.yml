@@ -325,7 +325,7 @@ jobs:
           --signing $env:WINDOWS_SIGNING
           --external-validation $env:WINDOWS_EXTERNAL_VALIDATION
 
-      - name: Verify Windows installer install, upgrade, signatures, and uninstall
+      - name: Verify Windows installer install, same-version reinstall, signatures, and uninstall
         shell: pwsh
         env:
           WINDOWS_SIGNING: ${{ inputs.windows_signing || 'unsigned' }}

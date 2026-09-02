@@ -355,7 +355,7 @@ export function artifactManifestFor(opts, packageBase, zipPath, packageRoot, bun
         'Upload Windows VST3 artifacts',
         'Validate Windows VST3 with pluginval',
         'Build Windows installer and sign all executable surfaces',
-        'Verify Windows installer install, upgrade, signatures, and uninstall',
+        'Verify Windows installer install, same-version reinstall, signatures, and uninstall',
         'Upload primary Windows installer',
         'Package fallback Windows VST3 ZIP',
         'Upload fallback Windows VST3 ZIP',

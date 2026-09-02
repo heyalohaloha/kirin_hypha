@@ -59,13 +59,15 @@ Each metric keeps an independent fixed scale, and the current values update at a
 SPACE shows three-second MID/SIDE density, L/R balance, and correlation. It stays absolute because
 Hypha does not invent PRE/POST subtraction for correlation or the stereo field.
 
-Two POST optional analyzers may stay active, supporting a mix bus plus one working track. A third
-identifies the owners and waits until one returns to **LEVEL**, **TIME / HISTORY**, or **SPACE**, or closes.
+Two POST optional analyzers may stay active: one can remain on the 2MIX while the other follows the
+working track. A third identifies the owners and waits until one returns to **LEVEL**, **TIME /
+HISTORY**, or **SPACE**, or closes.
 
 macOS 12 or later is supported as signed and notarized VST3 and Audio Unit plug-ins. Windows 10/11
 64-bit is supported as VST3. The current v1.1.48 Windows release is a manually installed PRE/POST
 ZIP. The next release will move to one Authenticode-signed installer after the selected source commit
-passes CI, dedicated-machine DAW validation, repeat-install, and isolated-uninstall gates.
+passes CI, dedicated-machine DAW validation, same-version reinstall, upgrade from the preceding
+public version, and isolated-uninstall gates.
 
 ## Design
 
@@ -74,6 +76,12 @@ Kirin Hypha is built to **observe, not to advise**.
 It produces measurement data. It does not generate, modify, or attenuate audio. The same input file produces the same output, every time. Numbers are reported as captured — no interpretation, no scoring, no recommendation.
 
 Every metric is backed by a known-signal golden test: the expected values are derived independently from the signal definition and the ITU-R BS.1770 filter coefficients, not asserted by hand. The measurement layer demonstrates its precision rather than claiming it.
+
+The public [BS.1770-5 / EBU R 128 v5 measurement audit](docs/hypha_bs1770_5_r128_v5_audit_20260831.md)
+records the verified scope: BS.1770-5 Annex 1/2 for mono and stereo, all 70 assets in the EBU
+Loudness Test Set v05, the source archive SHA-256, and comparison of the Hypha wrapper with the
+pinned `ebur128` reference. Decoding the 5.0/5.1 test assets does not extend Hypha's mono/stereo
+product contract. Hypha does not claim EBU Mode conformance and does not use the EBU logo.
 
 ## Modes
 
@@ -92,8 +100,8 @@ Kirin Hypha is free and fully functional as a standalone plugin. Record mode req
 
 | Metric | Window / Unit | Standard |
 |---|---|---|
-| LUFS-M / LUFS-S | Selectable Momentary (400 ms) or Short-term (3 s) loudness (LUFS) | ITU-R BS.1770-4 |
-| True Peak | Recent peak, last 400 ms (dBTP) | ITU-R BS.1770-4 |
+| LUFS-M / LUFS-S | Selectable Momentary (400 ms) or Short-term (3 s) loudness (LUFS) | ITU-R BS.1770 |
+| True Peak | Recent peak, last 400 ms (dBTP) | ITU-R BS.1770 |
 | Crest Factor | Peak − RMS, 400 ms (dB) | — |
 
 PRE displays absolute values. POST displays Δ values relative to the paired PRE. If that exact PRE
@@ -268,9 +276,9 @@ views keeps ownership; only a non-analysis domain or editor close releases it.
 
 | Metric | Window / Unit | Standard |
 |---|---|---|
-| LUFS-M / LUFS-S | Selectable Momentary (400 ms) or Short-term (3 s) loudness (LUFS) | ITU-R BS.1770-4 |
-| Integrated Loudness | Current Keep session (LUFS) | ITU-R BS.1770-4 |
-| Max True Peak | Current Keep session maximum (dBTP) | ITU-R BS.1770-4 |
+| LUFS-M / LUFS-S | Selectable Momentary (400 ms) or Short-term (3 s) loudness (LUFS) | ITU-R BS.1770 |
+| Integrated Loudness | Current Keep session (LUFS) | ITU-R BS.1770 |
+| Max True Peak | Current Keep session maximum (dBTP) | ITU-R BS.1770 |
 | Crest Factor | Peak − RMS, 400 ms (dB) | — |
 | PSR | Peak-to-Short-term Ratio, 3 s (dB) | — |
 | Sharpness | acum, independent-channel arithmetic mean | DIN 45692 |
@@ -321,6 +329,9 @@ repeatable real-machine regression checklist.
 ### Release provenance
 
 Published artifacts are immutable. If repository maintenance changes a public commit ID after a release, the commit recorded in that artifact remains its original build commit. [`docs/release_commit_map.json`](docs/release_commit_map.json) maps an affected artifact commit to the commit currently referenced by its release tag and records the verified source-equivalence scope.
+
+Maintainers use the [public history identity contract](docs/public_history_identity.md): full commit
+SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are supplemental labels.
 
 ## Installation
 
@@ -465,8 +476,9 @@ The next signed Windows installer will be built only on `windows-latest`. The eS
 private Kirin release-control repository rather than this public GPL repository. Its manual Hypha
 signing factory accepts only a full source commit and the successful Hypha CI run ID for that exact
 commit, then signs both VST3 binaries plus the generated installer and uninstaller and performs the
-repeat-install and isolated-uninstall checks. This repository's own `windows_signing=signed` input is
-also fail-closed and becomes usable only if equivalent repository secrets are deliberately added.
+same-version reinstall and isolated-uninstall checks. Upgrade from the preceding public version is a
+separate dedicated-machine release gate. This repository's own `windows_signing=signed` input is also
+fail-closed and becomes usable only if equivalent repository secrets are deliberately added.
 
 The legacy manual-install zip can still be built as a fallback with:
 

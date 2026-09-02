@@ -97,7 +97,7 @@ test('Inno recipe owns only Kirin bundle paths and signs generated uninstall sur
   assert.doesNotMatch(source, /Type:\s*filesandordirs;\s*Name:\s*"\{autocf\}\\VST3"/);
 });
 
-test('installer verifier gates repeat install, signed uninstaller, and unrelated VST3 preservation', () => {
+test('installer verifier gates same-version reinstall, signed uninstaller, and unrelated VST3 preservation', () => {
   const source = fs.readFileSync(path.join(scriptDir, 'verify-installer.ps1'), 'utf8');
   assert.match(source, /foreach \(\$installPass in 1\.\.2\)/);
   assert.match(source, /installed uninstaller/);

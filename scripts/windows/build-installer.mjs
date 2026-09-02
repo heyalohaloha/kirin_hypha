@@ -214,7 +214,7 @@ function manifestFor({ opts, installer, payloadRecords }) {
       status: 'pending_installer_verification',
       required: [
         'silent install',
-        'repeat install upgrade',
+        'same-version reinstall',
         'PRE/POST payload hash equality',
         'Authenticode surfaces when signed',
         'silent uninstall',

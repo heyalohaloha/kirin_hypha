@@ -21,7 +21,8 @@ Hyphaの公開リリースは、以下の3チャネルを同じバージョン�
 2. HP無料配布: signed / notarized済みmacOS Universal `.zip` + GitHub Release + 英日HPリンク
 3. Windows: 同一コミットのgreenな`windows-latest` CI artifactから作る、PRE/POST同梱・
    Authenticode署名済みInno Setup `.exe`（payload / installer / uninstallerの全署名と
-   install → 同版upgrade → uninstall検証がgreenであること）。手動VST3 `.zip`は診断・復旧用fallbackのみ
+   install → 同版再install → 旧公開版からのupgrade → uninstall検証がgreenであること）。
+   手動VST3 `.zip`は診断・復旧用fallbackのみ
 
 Windows版を暗黙に外すこと、macOSだけを先に公開してリリース完了とすることは禁止。
 同一コミットの署名済みWindows installer artifactが無い、CI / pluginval / installer実動検証が未完了、
