@@ -8,7 +8,7 @@ crates/kirin_hypha_ffi/src/lib.rs	7389
 crates/kirin_hypha_ffi/tests/juce_lifecycle_wiring.rs	664
 crates/kirin_hypha_ffi/tests/parity.rs	3007
 crates/kirin_measure/src/capture_generation_tx_tests.rs	710
-crates/kirin_measure/src/io_thread_post.rs	2710
+crates/kirin_measure/src/io_thread_post.rs	2511
 crates/kirin_measure/src/io_thread_pre.rs	5042
 crates/kirin_measure/src/lib.rs	990
 crates/kirin_measure/src/measure_thread.rs	3528
