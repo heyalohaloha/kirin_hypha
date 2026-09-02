@@ -55,14 +55,14 @@ use kirin_measure::{
     current_host_process_id, enqueue_record_mark,
     enumerate_ready_post_pair_candidates_for_operation_group, identity_instance_attach,
     identity_instance_detach, latch_selected_pre, live_window, load_license_safe,
-    load_signal_state, mark_generation_terminal, mark_released_if_current,
-    mark_released_with_reason, mark_released_with_reason_if_current, new_record_mark_queue,
-    new_record_take_tracker, new_record_trace_queue, pair_owner_instance_dir, pair_status_for_pre,
+    mark_generation_terminal, mark_released_if_current, mark_released_with_reason,
+    mark_released_with_reason_if_current, new_record_mark_queue, new_record_take_tracker,
+    new_record_trace_queue, pair_owner_instance_dir, pair_status_for_pre,
     pair_status_from_owned_binding_with_intent, pair_status_or_last_known, paired_pre_instance_id,
     read_signal, record_ring_capacity_samples, resolve_arm_target_for_post_project_in_session,
     sanitize_name, select_live_pre_pair_choice_by_instance_for_post_project_in_session,
     set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre,
-    spawn_measure_thread, spawn_watchdog, store_signal_state, watch_ring_capacity_samples,
+    spawn_measure_thread, spawn_watchdog, watch_ring_capacity_samples,
     write_broadcast_for_generation, write_pending_claiming_expected_and_clock_for_generation,
     write_stop_broadcast, write_stop_broadcast_for_generation, AnalysisViewMode, BalanceState,
     CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
@@ -90,6 +90,7 @@ mod identity_registry;
 mod legacy_nih_state;
 mod pair_binding;
 mod pair_candidates_ffi;
+mod signal_state_ffi;
 
 pub use attack_ffi::*;
 pub use identity_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
@@ -98,6 +99,10 @@ pub use legacy_nih_state::{kirin_hypha_decode_legacy_nih_state, KirinLegacyNihSt
 pub use pair_candidates_ffi::{
     kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
     kirin_hypha_enumerate_pre_candidates, KirinPostPairClaim, KirinPreCandidate,
+};
+pub use signal_state_ffi::{
+    kirin_hypha_get_signal_state, kirin_hypha_set_host_component_active,
+    kirin_hypha_set_signal_state,
 };
 
 use identity_ffi::IdentityState;
@@ -967,17 +972,6 @@ fn clear_keep_action_notice(keep_action_notice: &RwLock<Option<String>>) {
     }
 }
 
-/// 内部 `SignalState` を C ABI コード（0=Inactive 1=Active 2=Bypassed）へ写像する。
-/// `set_signal_state` の逆。純粋関数（Measure Thread 非依存）なので決定的にテストできる（B-113）。
-#[inline]
-fn signal_state_to_abi(state: SignalState) -> u8 {
-    match state {
-        SignalState::Inactive => 0,
-        SignalState::Active => 1,
-        SignalState::Bypassed => 2,
-    }
-}
-
 impl KirinHyphaEngine {
     /// ランタイムを生成し Measure Thread を起動する。
     ///
@@ -1192,40 +1186,6 @@ impl KirinHyphaEngine {
             preset_available: Arc::new(AtomicBool::new(false)),
             // B-108: 未ラッチで起動。enable_post_writes で io_thread_post と Arc 共有する。
         }
-    }
-
-    /// 信号状態を設定する。引数は **C ABI コード**（0=Inactive 1=Active 2=Bypassed）。
-    /// 内部 `SignalState` enum（Active=0/Bypassed=1/Inactive=2）へ翻訳する。
-    pub fn set_signal_state(&self, abi_state: u8) {
-        let s = match abi_state {
-            1 => SignalState::Active,
-            2 => SignalState::Bypassed,
-            _ => SignalState::Inactive,
-        };
-        store_signal_state(&self.signal_state, s);
-    }
-
-    /// VST3 host の component activation を通知する。
-    ///
-    /// `active=false` を直ちに Bypassed へ変換しない。短い再構成や offline render の前後でも
-    /// setActive(false/true) は使われるため、共通 LivenessEvaluator の heartbeat が既に stale
-    /// の場合だけ停止理由を反映する。継続停止は Measure Thread が同じ契約で確定する。
-    pub fn set_host_component_active(&self, active: bool) {
-        self.liveness.set_host_component_active(active);
-        if !self.liveness.is_live() {
-            store_signal_state(
-                &self.signal_state,
-                kirin_measure::stalled_signal_state(active),
-            );
-        }
-    }
-
-    /// 現在の信号状態を **C ABI コード**（0=Inactive 1=Active 2=Bypassed）で返す。
-    /// `set_signal_state` の逆写像（写像本体は純粋関数 `signal_state_to_abi`）。`self.signal_state` は
-    /// Measure Thread が heartbeat 停止検出時に `Inactive` へ上書きするため、processBlock 停止後は
-    /// stale な Active を返さない（B-113）。
-    pub fn signal_state_abi(&self) -> u8 {
-        signal_state_to_abi(load_signal_state(&self.signal_state))
     }
 
     /// ライセンスを設定（C ABI コード: 0=Os 1=Sense 2=Unknown / 未知は Unknown）。
@@ -4944,58 +4904,6 @@ pub extern "C" fn kirin_hypha_create(sample_rate: u32, num_channels: u32) -> *mu
     .unwrap_or(std::ptr::null_mut())
 }
 
-/// 信号状態を設定（0=Inactive 1=Active 2=Bypassed）。
-///
-/// # Safety
-/// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_set_signal_state(handle: *mut KirinHyphaEngine, state: u8) {
-    // panic 捕捉時は no-op（音声経路に影響させない）。
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return;
-        }
-        unsafe { (*handle).set_signal_state(state) };
-    }));
-}
-
-/// VST3 component activation を通知する（true=active / false=host deactivated）。
-/// transport停止・無音・通常の bypass parameter とは別経路。短い host 再構成は heartbeat
-/// grace 内で無視し、継続した deactivation だけを Bypassed として公開する。
-///
-/// # Safety
-/// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_set_host_component_active(
-    handle: *mut KirinHyphaEngine,
-    active: bool,
-) {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return;
-        }
-        unsafe { (*handle).set_host_component_active(active) };
-    }));
-}
-
-/// 現在の信号状態を読む（0=Inactive 1=Active 2=Bypassed）。LED poller 系（read-only）。
-/// Measure Thread の heartbeat 停止検出で `Inactive` へ上書きされた値も反映する（B-113）。
-/// 殻 editor はこの値で表示分岐し、processBlock 停止後に stale な Active を表示しない。
-///
-/// # Safety
-/// `handle` は `kirin_hypha_create` の戻り値（非 null・未解放）であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_get_signal_state(handle: *mut KirinHyphaEngine) -> u8 {
-    // panic / null は 0=Inactive（安全側＝表示は `---`）。
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return 0u8;
-        }
-        unsafe { (*handle).signal_state_abi() }
-    }))
-    .unwrap_or(0)
-}
-
 /// identity.json からライセンスコードを読む（0=Os 1=Sense 2=Unknown）。ハンドル不要。
 /// `~/Library/Application Support/Kirin OS/identity.json` の `"license"` を loose 抽出する
 /// `kirin_measure::load_license_safe` を包む。ファイル不在・parse 失敗・$HOME 不在は 2=Unknown
@@ -6501,33 +6409,6 @@ mod admission_contract_tests {
         assert!(!engine.push_samples_transaction(&block, 2));
         assert_eq!(engine.overflow_count(), block.len() as u64);
         assert_eq!(engine.record_take_tracker.captured_frames_total(), 0);
-    }
-}
-
-#[cfg(test)]
-mod b113_signal_state_tests {
-    //! B-113: editor の表示状態源を Rust の signal_state 直読に統一する getter
-    //! （`kirin_hypha_get_signal_state` → `signal_state_abi` → `signal_state_to_abi`）の
-    //! 写像不変条件を決定的に検証する。`signal_state_to_abi` は純粋関数（Measure Thread の
-    //! heartbeat 上書きと独立）なので、engine を構築せずに `set_signal_state` の逆写像である
-    //! ことを確認できる（heartbeat 停止 → Inactive 上書きの反映そのものは DAW 実測 / kirin_measure
-    //! 側 load_signal_state テストで担保）。
-    use super::{signal_state_to_abi, SignalState};
-
-    #[test]
-    fn signal_state_to_abi_is_inverse_of_set_signal_state() {
-        // set_signal_state の写像: 1→Active / 2→Bypassed / _→Inactive。その厳密な逆。
-        assert_eq!(
-            signal_state_to_abi(SignalState::Inactive),
-            0,
-            "Inactive → 0"
-        );
-        assert_eq!(signal_state_to_abi(SignalState::Active), 1, "Active → 1");
-        assert_eq!(
-            signal_state_to_abi(SignalState::Bypassed),
-            2,
-            "Bypassed → 2"
-        );
     }
 }
 
