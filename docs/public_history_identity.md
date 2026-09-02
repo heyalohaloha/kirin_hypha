@@ -35,3 +35,14 @@ allowlist fails the release-source contract. Past subjects and tags remain uncha
 Every strict public tag matching `vMAJOR.MINOR.PATCH` must be reachable from the candidate main tip.
 The pull request gate checks the complete would-be-main history. After merge, the same command is run
 against `origin/main`, making reachability a property of the actual public default branch.
+
+## Main enforcement
+
+- Every change to `main` goes through a pull request, including changes made by repository admins.
+- `public history identity`, `release source contract (macos)`, `auval arm64 (AU validation)`, and
+  `windows VST3 preflight` are required checks against the current `main` tip.
+- The lightweight public-history job has no event condition, so it also runs after an ordinary
+  `main` push. Expensive build jobs retain their workflow-dispatch, pull-request, or `[ci full]` gate.
+- Merge commits are the only enabled pull-request merge method. Squash and rebase merges are disabled
+  because they discard the source-branch ancestry this contract preserves.
+- Force pushes and branch deletion are disabled for `main`.
