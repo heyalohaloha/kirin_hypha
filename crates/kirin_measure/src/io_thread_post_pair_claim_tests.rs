@@ -87,3 +87,73 @@ fn claim_timestamp_comparison_is_bit_exact() {
         0.0,
     ));
 }
+
+#[test]
+fn service_publishes_only_after_the_same_binding_snapshot_is_revalidated() {
+    let temp = tempfile::tempdir().unwrap();
+    let instance_dir = temp.path().join("project").join("post-1");
+    fs::create_dir_all(&instance_dir).unwrap();
+    let pair_owner = crate::PairOwnershipLease::new();
+    let mut owned = None;
+    let mut next_publish = Instant::now() - Duration::from_secs(1);
+
+    service_pair_claim(
+        temp.path(),
+        &instance_dir,
+        true,
+        Some("pre-1"),
+        "project",
+        "post-1",
+        1.0,
+        &pair_owner,
+        &mut owned,
+        &mut next_publish,
+        |expected_pre, expected_claimed_at| {
+            expected_pre == Some("pre-1") && expected_claimed_at.to_bits() == 1.0f64.to_bits()
+        },
+    );
+
+    let published = owned.expect("exact binding must publish one owned claim");
+    assert!(pair_claim_matches_desired_binding(
+        &published,
+        Some("pre-1"),
+        "project",
+        "post-1",
+        pair_owner.owner_id(),
+        1.0,
+    ));
+}
+
+#[test]
+fn service_does_not_publish_before_post_snapshot_or_after_binding_changes() {
+    for (post_snapshot_written, validation_result) in [(false, true), (true, false)] {
+        let temp = tempfile::tempdir().unwrap();
+        let instance_dir = temp.path().join("project").join("post-1");
+        fs::create_dir_all(&instance_dir).unwrap();
+        let pair_owner = crate::PairOwnershipLease::new();
+        let mut owned = None;
+        let mut next_publish = Instant::now() - Duration::from_secs(1);
+
+        service_pair_claim(
+            temp.path(),
+            &instance_dir,
+            post_snapshot_written,
+            Some("pre-1"),
+            "project",
+            "post-1",
+            1.0,
+            &pair_owner,
+            &mut owned,
+            &mut next_publish,
+            |_, _| validation_result,
+        );
+
+        assert!(owned.is_none());
+        assert!(crate::pair_claim_index::read_pair_claim(
+            temp.path(),
+            crate::post_candidates::current_host_process_id(),
+            "pre-1",
+        )
+        .is_none());
+    }
+}

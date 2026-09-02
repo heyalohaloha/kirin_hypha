@@ -101,11 +101,17 @@ use post_json::{
 mod identity;
 pub(crate) use identity::read_instance_id_arc;
 
+#[path = "io_thread_post_pair_claim.rs"]
+mod pair_claim;
+use pair_claim::service_pair_claim;
+
 #[path = "io_thread_post_tick.rs"]
 mod tick;
+#[cfg(test)]
+use identity::pair_claim_matches_desired_binding;
 use identity::{
-    broadcast_scope_or_same_project_host_matches, pair_claim_matches_desired_binding,
-    read_daw_session_id_arc, read_project_hash_arc, snapshot_pair_pre_name,
+    broadcast_scope_or_same_project_host_matches, read_daw_session_id_arc, read_project_hash_arc,
+    snapshot_pair_pre_name,
 };
 #[cfg(test)]
 use tick::compute_latched_display;
@@ -586,82 +592,25 @@ pub fn spawn_io_thread_post(
                 .read()
                 .map(|value| *value)
                 .unwrap_or(0.0);
-            if let Some(owned) = owned_pair_claim.as_ref() {
-                if Instant::now() >= next_pair_claim_publish {
-                    let current = crate::pair_claim_index::read_pair_claim(
-                        &kirin_root,
-                        owned.host_process_id,
-                        &owned.pre_instance_id,
-                    );
-                    if current.as_ref() != Some(owned)
-                        || !crate::pair_claim_index::pair_claim_is_owned(&kirin_root, owned)
-                    {
-                        owned_pair_claim = None;
-                    }
-                    next_pair_claim_publish = Instant::now() + Duration::from_secs(1);
-                }
-            }
-            let desired_matches_owned = owned_pair_claim.as_ref().is_some_and(|owned| {
-                pair_claim_matches_desired_binding(
-                    owned,
-                    current_pre.as_deref(),
-                    project_hash_ref,
-                    instance_id_ref,
-                    pair_owner.owner_id(),
-                    current_claimed_at,
-                )
-            });
-            if owned_pair_claim.is_some() && !desired_matches_owned {
-                owned_pair_claim = None;
-                next_pair_claim_publish = Instant::now();
-            }
-            if owned_pair_claim.is_none() && Instant::now() >= next_pair_claim_publish {
-                let valid_binding = post_snapshot_written
-                    && current_pre.is_some()
-                    && current_claimed_at.is_finite()
-                    && current_claimed_at > 0.0;
-                let desired_pre = valid_binding.then(|| current_pre.clone()).flatten();
-                let expected_pre = desired_pre.clone();
-                let expected_claimed_at = if desired_pre.is_some() {
-                    current_claimed_at
-                } else {
-                    0.0
-                };
-                let committed = pair_owner.commit_claimed_binding_if(
-                    &kirin_root,
-                    Some(&instance_dir),
-                    desired_pre.as_deref(),
-                    project_hash_ref,
-                    instance_id_ref,
-                    expected_claimed_at,
-                    || {
-                        crate::paired_pre_instance_id(&latched_pre) == expected_pre
-                            && pair_claimed_at_for_thread
-                                .read()
-                                .map(|value| value.to_bits() == expected_claimed_at.to_bits())
-                                .unwrap_or(false)
-                    },
-                    || Some(()),
-                );
-                match committed {
-                    Ok(Some(())) => {
-                        owned_pair_claim = desired_pre.as_deref().and_then(|pre_instance_id| {
-                            crate::pair_claim_index::read_pair_claim(
-                                &kirin_root,
-                                crate::post_candidates::current_host_process_id(),
-                                pre_instance_id,
-                            )
-                        });
-                    }
-                    Ok(None) => {}
-                    Err(error) => log::debug!(
-                        "[POST pair claim] atomic commit deferred: instance_id={} error={}",
-                        instance_id_ref,
-                        error
-                    ),
-                }
-                next_pair_claim_publish = Instant::now() + Duration::from_secs(1);
-            }
+            service_pair_claim(
+                &kirin_root,
+                &instance_dir,
+                post_snapshot_written,
+                current_pre.as_deref(),
+                project_hash_ref,
+                instance_id_ref,
+                current_claimed_at,
+                &pair_owner,
+                &mut owned_pair_claim,
+                &mut next_pair_claim_publish,
+                |expected_pre, expected_claimed_at| {
+                    crate::paired_pre_instance_id(&latched_pre).as_deref() == expected_pre
+                        && pair_claimed_at_for_thread
+                            .read()
+                            .map(|value| value.to_bits() == expected_claimed_at.to_bits())
+                            .unwrap_or(false)
+                },
+            );
 
             // plugin_data/.../post/*.json ライフサイクル
             // POST は自身の signal_path から started_at を resolve
