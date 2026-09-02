@@ -106,7 +106,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-D5 | pre.json 実消滅でアンラッチ、同名 fresh 再出現で自動再ラッチ | `latch_delete_then_relatch` |
 | INV-D6 | ラッチ先 t > TTL(10s)だけではpairを外さず、同exact instanceの一時停止として扱う | `latch_stale_beyond_ttl_keeps_pair_latched` |
 | INV-D7 | pair 未指定で instance 1件は pass-through、2件以上は曖昧で NoPre | `single_instance_pass_through_when_no_pair` / `no_pre_dir_returns_no_pre_mode` |
-| INV-D8 | 非 Active state では Delta=default(NoPre) + 最小 post.json | 要追加（`run_tick` の `state != Active` 分岐に直接の単体テストなし） |
+| INV-D8 | POST非Active時は計測fieldを含まない最小post.jsonだけを書く。Inactive + exact pairはpairと直前ΔをStale保持し、Inactive + pairなし／BypassedはDelta=default(NoPre)へ消去する | `inv_d8_inactive_exact_pair_retains_frozen_delta_and_writes_minimal_json` / `inv_d8_inactive_without_pair_clears_delta_and_writes_minimal_json` / `inv_d8_bypassed_clears_delta_and_writes_minimal_json` |
 | INV-D9 | POST Perceptual Δは同一schema/sample rate/100ms aperture/state epoch/channel定義/channel数/output-presentation endpointのPRE/POST Sharpnessだけを差分化する。Phase Dとresamplerは共通epochで一度だけresetし、以後は連続状態を保つ。欠測を補間せず、raw Δをclipしない | `exact_endpoint_epoch_and_aperture_are_required_for_difference` / `perceptual_pair_arms_one_future_epoch_and_joins_only_continuous_state` / `perceptual_discontinuity_clears_history_and_requires_a_new_shared_epoch` / `continuous_post_minus_pre_matches_mosqito_at_every_100ms_endpoint` |
 | INV-D10 | paired PREの確定`Bypassed`だけがpairを保持したままPOST絶対値へ戻し、右上を淡い紫のASCII `ABS`にする。`PreInactive` / Stale / NoPre / poll失敗ではOFFを推測しない | `paired_pre_off_is_absolute_while_inactive_and_stale_preserve_delta_layout` / `juce_shell/tests/ui_contract_test.cpp` / `juce_shell/tests/ui_render_contract_test.cpp` |
 
@@ -195,5 +195,5 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | FFI ignored（個別） | `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1` ＋ `--test pairing_candidates` | INV-P6 / INV-I1 / INV-R3,R4 / INV-A4（20件+5件を実測固定） |
 | clippy（個別） | `cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings` | 出荷owned code品質基準 |
 
-> 未紐づけ（要追加）: INV-D8。新しい pairing/表示の不具合を直すときは、本表に行を足し、
-> 対応テストを同時に書く（テスト名が決まらない修正は不変条件が曖昧なサイン）。
+> 新しい pairing/表示の不具合を直すときは、本表に行を足し、対応テストを同時に書く
+> （テスト名が決まらない修正は不変条件が曖昧なサイン）。
