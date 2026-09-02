@@ -34,13 +34,12 @@
 //! が毎回 `heartbeat.fetch_add(1)`
 //! していた(hypha_pre.rs:390)。本 FFI では **`push_samples` が heartbeat を進める**。
 
-use std::collections::HashMap;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -88,12 +87,18 @@ use kirin_measure::{
 };
 
 mod attack_ffi;
+mod identity_registry;
 mod legacy_nih_state;
 mod pair_binding;
 
 pub use attack_ffi::*;
+pub use identity_registry::__reset_shared_ids_for_tests;
 pub use legacy_nih_state::{kirin_hypha_decode_legacy_nih_state, KirinLegacyNihState};
 
+use identity_registry::{
+    clear_role_scoped_cells, read_shared_id, resolve_post_identity, resolve_pre_identity,
+    store_resolved_identity_cells,
+};
 use pair_binding::{PairBinding, PairTargetTransition};
 
 pub const KIRIN_SIGNAL_STATE_INACTIVE: u8 = 0;
@@ -502,165 +507,6 @@ unsafe impl Sync for KirinHyphaEngine {}
 // SAFETY: 内部状態はスレッド間移動可能（Producer/Arc は Send）。
 unsafe impl Send for KirinHyphaEngine {}
 
-// ── B-106/B-301: FFI dylib 内の role fallback と saved-document identity group ──
-//
-// 空/legacy の `daw_session_uuid` は「明示 document identity なし」として runtime には空のまま
-// 流し、host_process_id の legacy bridge に委ねる。一方、保存済み DAW document で非空
-// `daw_session_uuid` がある場合は、その UUID を key に role 内 group を分ける。Studio One の
-// ように同一 host process で複数 Song/Project を開ける DAW で、後発 document が先発 document
-// の棚へ吸われるのを防ぐため。
-//
-// `spawn_io_thread_post` は `Arc<RwLock<String>>` を受け、io_thread が毎 tick
-// `read_project_hash_arc` / `read_daw_session_id_arc` で deref する。B-301 では各 engine が
-// 解決済み identity cell を持ち、空/legacy は project のみ role fallback・daw は空、
-// 保存済み document は daw-session group と同値を live-read する。
-//
-// **PRE / POST で別セル**（role-scoped）にする理由: 本番では PRE と POST は別 cdylib
-// （KirinHyphaPRE.dylib / KirinHyphaPOST.dylib / juce_shell CMakeLists.txt）として linkage され、
-// 各々が staticlib の statics を 1 部ずつ持つ = dylib 境界 ⇔ role 境界。よって PRE 群は PRE 値に、
-// POST 群は POST 値に独立収束し、PRE↔POST は別値のまま filesystem discovery（B-021/B-022 /
-// PRE が POST の signal の project_hash を adopt）で橋渡しされる。role でセルを分けることで
-// 単一テストバイナリ（parity.rs に PRE+POST 同居）でもこの本番境界を忠実に再現する。
-
-fn shared_pre_project_hash_cell() -> &'static Arc<RwLock<String>> {
-    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
-    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
-}
-
-fn shared_pre_daw_session_id_cell() -> &'static Arc<RwLock<String>> {
-    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
-    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
-}
-
-fn shared_post_project_hash_cell() -> &'static Arc<RwLock<String>> {
-    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
-    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
-}
-
-fn shared_post_daw_session_id_cell() -> &'static Arc<RwLock<String>> {
-    static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
-    CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
-}
-
-type IdentityCellPair = (Arc<RwLock<String>>, Arc<RwLock<String>>);
-type IdentityGroups = Mutex<HashMap<String, IdentityCellPair>>;
-
-fn shared_pre_identity_groups() -> &'static IdentityGroups {
-    static GROUPS: OnceLock<IdentityGroups> = OnceLock::new();
-    GROUPS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn shared_post_identity_groups() -> &'static IdentityGroups {
-    static GROUPS: OnceLock<IdentityGroups> = OnceLock::new();
-    GROUPS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// 共有セルを **first-wins** で解決する（egui の lazy-once seeding と同位相）。
-///
-/// - 共有セルが空: `candidate`（chunk 復元値）が非空ならそれで seed、空なら新規生成して seed。
-/// - 共有セルが既に非空: その値を採用（**上書きしない** = 毎回生成・上書きの全廃）。
-///
-/// 戻り値 = 採用された共有値。これが broadcast の write 棚パスであり、`spawn_io_thread_*` に
-/// 渡す共有 Arc が live-read する scan 棚パスでもある（両者は同一実体なので恒等的に一致）。
-fn resolve_shared_id(cell: &Arc<RwLock<String>>, candidate: &str) -> String {
-    match cell.write() {
-        Ok(mut g) => {
-            if g.is_empty() {
-                *g = if candidate.is_empty() {
-                    Uuid::new_v4().to_string()
-                } else {
-                    candidate.to_string()
-                };
-            }
-            g.clone()
-        }
-        // poison fallback（R-28 機能的沈黙）: 収束は諦め candidate/生成値で前進する。
-        Err(_) => {
-            if candidate.is_empty() {
-                Uuid::new_v4().to_string()
-            } else {
-                candidate.to_string()
-            }
-        }
-    }
-}
-
-/// 共有セルの現在値を読む（panic-safe / poison は空文字 fallback）。
-fn read_shared_id(cell: &Arc<RwLock<String>>) -> String {
-    cell.read().map(|g| g.clone()).unwrap_or_default()
-}
-
-fn resolve_role_identity(
-    fallback_project_cell: &Arc<RwLock<String>>,
-    _fallback_daw_cell: &Arc<RwLock<String>>,
-    grouped_cells: &IdentityGroups,
-    project_candidate: &str,
-    daw_candidate: &str,
-) -> (String, String) {
-    if daw_candidate.is_empty() {
-        return (
-            resolve_shared_id(fallback_project_cell, project_candidate),
-            String::new(),
-        );
-    }
-
-    let (project_cell, daw_cell) = {
-        let mut groups = grouped_cells.lock().unwrap_or_else(|e| e.into_inner());
-        groups
-            .entry(daw_candidate.to_string())
-            .or_insert_with(|| {
-                (
-                    Arc::new(RwLock::new(String::new())),
-                    Arc::new(RwLock::new(String::new())),
-                )
-            })
-            .clone()
-    };
-
-    (
-        resolve_shared_id(&project_cell, project_candidate),
-        resolve_shared_id(&daw_cell, daw_candidate),
-    )
-}
-
-fn store_resolved_identity_cells(
-    project_cell: &Arc<RwLock<String>>,
-    daw_cell: &Arc<RwLock<String>>,
-    project_hash: &str,
-    daw_session_id: &str,
-) {
-    if let Ok(mut g) = project_cell.write() {
-        *g = project_hash.to_string();
-    }
-    if let Ok(mut g) = daw_cell.write() {
-        *g = daw_session_id.to_string();
-    }
-}
-
-/// role-scoped 共有セル 4 つ（PRE/POST × project_hash/daw_session_id）の内側 `String` を空にする。
-///
-/// セル handle（`Arc<RwLock<String>>`）は不変のまま中身だけ空にするため、`spawn_io_thread_*` に
-/// 渡した Arc clone の live-read 契約を壊さない。B-110 の refcount 0 detach（io_thread join 後）と、
-/// テスト隔離（`__reset_shared_ids_for_tests`）の両方から使う。
-fn clear_role_scoped_cells() {
-    for cell in [
-        shared_pre_project_hash_cell(),
-        shared_pre_daw_session_id_cell(),
-        shared_post_project_hash_cell(),
-        shared_post_daw_session_id_cell(),
-    ] {
-        if let Ok(mut g) = cell.write() {
-            g.clear();
-        }
-    }
-    if let Ok(mut groups) = shared_pre_identity_groups().lock() {
-        groups.clear();
-    }
-    if let Ok(mut groups) = shared_post_identity_groups().lock() {
-        groups.clear();
-    }
-}
-
 fn restored_pair_latch(
     kirin_root: &Path,
     project_hash: &str,
@@ -747,18 +593,6 @@ mod restored_pair_latch_tests {
         )
         .is_none());
     }
-}
-
-/// テスト専用: role-scoped 共有セルを全クリアして first-wins 状態を初期化する。
-///
-/// 本番は単一 DAW プロセス = 単一セッションで「最初の 1 回だけ seed」が正しいが、統合テスト
-/// （`tests/parity.rs`）は 1 バイナリで多数のシナリオを連続実行し、各々が独自の project_uuid を
-/// 期待する。旧実装は enable 毎に `set_project_uuid` で**上書き**していたため各テストが隔離されて
-/// いたが、B-106 は first-wins（上書き廃止）に変えたため、テストは開始時に本関数で共有セルを
-/// reset して隔離する（kirin_measure cell は enable 内の `set_*` が毎回上書きするので別途 reset 不要）。
-#[doc(hidden)]
-pub fn __reset_shared_ids_for_tests() {
-    clear_role_scoped_cells();
 }
 
 /// B-102: keep の解決本体（`keep()` と broadcast 受信 closure が共有する単一実装）。
@@ -1793,13 +1627,8 @@ impl KirinHyphaEngine {
             // B-106/B-301/B-302: chunk 復元値（id.*）を candidate に渡し、空/legacy session は
             // runtime daw を空にして host fallback、非空 session は saved-document group で解決する。
             // 解決値を identity に書き戻して chunk 永続。kirin_measure cell への反映（set_*）は現状維持。
-            let (resolved_project, resolved_daw) = resolve_role_identity(
-                shared_pre_project_hash_cell(),
-                shared_pre_daw_session_id_cell(),
-                shared_pre_identity_groups(),
-                &id.project_uuid,
-                &id.daw_session_uuid,
-            );
+            let (resolved_project, resolved_daw) =
+                resolve_pre_identity(&id.project_uuid, &id.daw_session_uuid);
             id.project_uuid = resolved_project.clone();
             id.project_hash = resolved_project.clone();
             id.daw_session_uuid = resolved_daw.clone();
@@ -1932,13 +1761,8 @@ impl KirinHyphaEngine {
             }
             // B-106/B-301/B-302: enable_pre_writes と同一規約。空/legacy session は runtime daw
             // を空にして host fallback、非空 session は saved-document group で解決する。
-            let (resolved_project, resolved_daw) = resolve_role_identity(
-                shared_post_project_hash_cell(),
-                shared_post_daw_session_id_cell(),
-                shared_post_identity_groups(),
-                &id.project_uuid,
-                &id.daw_session_uuid,
-            );
+            let (resolved_project, resolved_daw) =
+                resolve_post_identity(&id.project_uuid, &id.daw_session_uuid);
             id.project_uuid = resolved_project.clone();
             id.project_hash = resolved_project.clone();
             id.daw_session_uuid = resolved_daw.clone();
@@ -6969,126 +6793,6 @@ mod admission_contract_tests {
         assert!(!engine.push_samples_transaction(&block, 2));
         assert_eq!(engine.overflow_count(), block.len() as u64);
         assert_eq!(engine.record_take_tracker.captured_frames_total(), 0);
-    }
-}
-
-#[cfg(test)]
-mod b106_shared_id_tests {
-    //! B-106/B-301: 空/legacy session の「role fallback・first-wins・live-read」と、
-    //! 保存済み document の「非空 daw_session_uuid ごとの identity group」を確認する。
-    //! `resolve_shared_id` / `resolve_role_identity` はセルを引数で受けるため、モジュール global
-    //! static を触らずに 2 インスタンス相当の収束/分離を検証できる。
-    use super::{read_shared_id, resolve_role_identity, resolve_shared_id, IdentityGroups};
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex, RwLock};
-
-    #[test]
-    fn second_instance_adopts_shared_value_never_overwrites() {
-        let cell = Arc::new(RwLock::new(String::new()));
-        // instance A enable: 自分の chunk uuid で seed。
-        let a = resolve_shared_id(&cell, "proj-A");
-        // instance B enable: 別 chunk uuid を渡しても上書きせず A の値を採用。
-        let b = resolve_shared_id(&cell, "proj-B");
-        assert_eq!(a, "proj-A");
-        assert_eq!(
-            b, "proj-A",
-            "2 つ目は共有値を採用（毎回生成・上書きの全廃）"
-        );
-        assert_eq!(read_shared_id(&cell), "proj-A");
-    }
-
-    #[test]
-    fn write_shelf_equals_all_io_thread_scan_shelves_even_when_overwritten_midway() {
-        let cell = Arc::new(RwLock::new(String::new()));
-        // spawn 相当: 各 io_thread は共有 Arc の clone を持ち、毎 tick live-read する。
-        let scan_clone_a = Arc::clone(&cell);
-        let scan_clone_b = Arc::clone(&cell);
-        // A enable → broadcast write 棚（keep_all が live-read する値と同一経路）。
-        let write_shelf = resolve_shared_id(&cell, "proj-1");
-        // B enable が「途中で値を変える」（2 つ目が別 candidate）。
-        let _ = resolve_shared_id(&cell, "proj-2");
-        // write 棚 == 全 io_thread scan 棚 が一致し続ける（同一実体 = 恒等）。
-        assert_eq!(write_shelf, "proj-1");
-        assert_eq!(read_shared_id(&scan_clone_a), write_shelf);
-        assert_eq!(read_shared_id(&scan_clone_b), write_shelf);
-        assert_eq!(read_shared_id(&cell), write_shelf);
-    }
-
-    #[test]
-    fn empty_candidate_generates_once_then_all_share() {
-        let cell = Arc::new(RwLock::new(String::new()));
-        // 空ソング / 新規: chunk 空 → 生成して seed。
-        let a = resolve_shared_id(&cell, "");
-        assert!(!a.is_empty(), "空 candidate は生成して seed する");
-        // 2 つ目も chunk 空だが、生成済み共有値を採用（毎回生成しない）。
-        let b = resolve_shared_id(&cell, "");
-        assert_eq!(a, b, "2 つ目は生成済み共有値を採用");
-        // 別 io_thread の scan 棚とも一致。
-        let scan = Arc::clone(&cell);
-        assert_eq!(read_shared_id(&scan), a);
-    }
-
-    #[test]
-    fn empty_cell_seeds_from_nonempty_chunk_candidate() {
-        // chunk 復元値（非空）があれば、それで seed する（生成しない）。
-        let cell = Arc::new(RwLock::new(String::new()));
-        let resolved = resolve_shared_id(&cell, "restored-uuid");
-        assert_eq!(resolved, "restored-uuid");
-        assert_eq!(read_shared_id(&cell), "restored-uuid");
-    }
-
-    #[test]
-    fn distinct_nonempty_daw_sessions_do_not_share_role_identity() {
-        let fallback_project = Arc::new(RwLock::new(String::new()));
-        let fallback_daw = Arc::new(RwLock::new(String::new()));
-        let groups: IdentityGroups = Mutex::new(HashMap::new());
-
-        let first = resolve_role_identity(
-            &fallback_project,
-            &fallback_daw,
-            &groups,
-            "project-mastering",
-            "daw-mastering",
-        );
-        let second = resolve_role_identity(
-            &fallback_project,
-            &fallback_daw,
-            &groups,
-            "project-song",
-            "daw-song",
-        );
-
-        assert_eq!(first, ("project-mastering".into(), "daw-mastering".into()));
-        assert_eq!(second, ("project-song".into(), "daw-song".into()));
-        assert!(
-            read_shared_id(&fallback_project).is_empty(),
-            "saved-document grouping must not seed the legacy fallback cell"
-        );
-    }
-
-    #[test]
-    fn empty_daw_session_remains_empty_for_runtime_legacy_bridge() {
-        let fallback_project = Arc::new(RwLock::new(String::new()));
-        let fallback_daw = Arc::new(RwLock::new(String::new()));
-        let groups: IdentityGroups = Mutex::new(HashMap::new());
-
-        let resolved = resolve_role_identity(
-            &fallback_project,
-            &fallback_daw,
-            &groups,
-            "project-legacy",
-            "",
-        );
-
-        assert_eq!(resolved.0, "project-legacy");
-        assert_eq!(
-            resolved.1, "",
-            "empty/legacy daw_session_uuid is not an explicit document identity"
-        );
-        assert!(
-            read_shared_id(&fallback_daw).is_empty(),
-            "legacy daw fallback cell must not fabricate an explicit DAW session"
-        );
     }
 }
 
