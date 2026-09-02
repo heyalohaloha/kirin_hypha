@@ -80,6 +80,33 @@ test('only strict public SemVer tags must reach candidate main', () => {
   assert.deepEqual(unreachableSemverTags(tags, (tag) => tag === 'v1.1.48'), ['v1.1.47']);
 });
 
+test('CI runs the public history contract without an event condition', () => {
+  const workflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+  const start = workflow.indexOf('  public-history:\n');
+  const end = workflow.indexOf('\n  test:\n', start);
+  assert.ok(start >= 0 && end > start, 'public-history job must precede the release-source job');
+  const job = workflow.slice(start, end);
+  assert.match(job, /name: public history identity/);
+  assert.match(job, /fetch-depth: 0/);
+  assert.match(job, /node --test scripts\/public_history\.test\.mjs/);
+  assert.match(job, /node scripts\/check_public_history\.mjs --tip HEAD/);
+  assert.doesNotMatch(job, /^\s+if:/m);
+});
+
+test('the public history policy names the protected main checks and merge method', () => {
+  const policy = fs.readFileSync(path.join(repoRoot, 'docs', 'public_history_identity.md'), 'utf8');
+  for (const check of [
+    'public history identity',
+    'release source contract (macos)',
+    'auval arm64 (AU validation)',
+    'windows VST3 preflight',
+  ]) {
+    assert.match(policy, new RegExp(check.replace(/[()]/g, '\\$&')));
+  }
+  assert.match(policy, /Merge commits are the only enabled pull-request merge method/);
+  assert.match(policy, /Force pushes and branch deletion are disabled/);
+});
+
 test('public measurement claims retain the audited scope and neutral standard label', () => {
   const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
   const audit = fs.readFileSync(

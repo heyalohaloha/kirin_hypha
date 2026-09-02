@@ -46,6 +46,7 @@ run node scripts/check_public_history.mjs --tip HEAD
 run bash scripts/test_source_line_budget.sh
 run bash scripts/check_source_line_budget.sh
 run node --test scripts/ls_release/release_metadata.test.mjs
+run node --test scripts/windows/windows_installer.test.mjs
 
 # Pure C++ contract used by the common AU/VST3 editor. This deliberately runs before any JUCE
 # bundle build and blocks mismatched dimensions, bounds, fonts, colours, metric ordering, or MAX

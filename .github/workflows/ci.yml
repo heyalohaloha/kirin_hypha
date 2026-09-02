@@ -29,6 +29,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  public-history:
+    name: public history identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Tag reachability and duplicate-label checks require the complete
+          # candidate-main history on every event, including ordinary main pushes.
+          fetch-depth: 0
+
+      - name: Test public history contract
+        run: |
+          node --test scripts/public_history.test.mjs
+          node scripts/check_public_history.mjs --tip HEAD
+
   test:
     name: release source contract (macos)
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}

@@ -93,6 +93,9 @@ test('Inno recipe owns only Kirin bundle paths and signs generated uninstall sur
   assert.match(source, /SignTool=kirin_esigner/);
   assert.match(source, /CloseApplications=yes/);
   assert.match(source, /RestartApplications=no/);
+  assert.match(source, /^ArchitecturesAllowed=x64os$/m);
+  assert.match(source, /^ArchitecturesInstallIn64BitMode=x64os$/m);
+  assert.doesNotMatch(source, /^Architectures(?:Allowed|InstallIn64BitMode)=x64$/m);
   assert.equal((source.match(/Type: filesandordirs/g) || []).length, 2);
   assert.doesNotMatch(source, /Type:\s*filesandordirs;\s*Name:\s*"\{autocf\}\\VST3"/);
 });

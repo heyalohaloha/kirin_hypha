@@ -270,11 +270,12 @@ fn readiness_checks() -> Vec<Check> {
         ),
         check_all(
             "ci-usage",
-            "full CI cannot resume consuming runner minutes on plain push",
+            "public history is always checked while expensive CI stays gated",
             &[(
                 CI_USAGE_GUARD,
                 &[
-                    "ci_workflow_gates_all_runner_jobs",
+                    "ci_workflow_keeps_history_always_on_and_gates_expensive_runner_jobs",
+                    "PUBLIC_HISTORY_JOB",
                     "github.event_name == 'workflow_dispatch'",
                     "contains(github.event.head_commit.message, '[ci full]')",
                 ][..],

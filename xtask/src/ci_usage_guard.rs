@@ -5,6 +5,7 @@ const CI_WORKFLOW: &str = include_str!(concat!(
     "/../.github/workflows/ci.yml"
 ));
 const FULL_CI_JOB_IF: &str = "if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}";
+const PUBLIC_HISTORY_JOB: &str = "public-history";
 
 pub fn run(args: Vec<String>) -> Result<()> {
     match args.as_slice() {
@@ -18,16 +19,18 @@ pub fn run(args: Vec<String>) -> Result<()> {
     }
 
     verify_ci_usage_gate(CI_WORKFLOW)?;
-    eprintln!("[ci-usage-guard] OK: full CI is gated behind workflow_dispatch, PR, or [ci full].");
+    eprintln!(
+        "[ci-usage-guard] OK: public history is always checked; full CI is gated behind workflow_dispatch, PR, or [ci full]."
+    );
     Ok(())
 }
 
 fn print_usage() {
     eprintln!(
         "Usage: cargo run -p xtask -- ci-usage-guard\n\n\
-         Static guard for GitHub Actions usage. It verifies that runner jobs in\n\
-         .github/workflows/ci.yml do not run on every push unless the commit\n\
-         message explicitly contains [ci full]."
+         Static guard for GitHub Actions usage. It verifies that one lightweight\n\
+         public-history job runs on every event while expensive runner jobs require\n\
+         workflow_dispatch, PR, or a commit message containing [ci full]."
     );
 }
 
@@ -54,14 +57,49 @@ fn verify_ci_usage_gate(source: &str) -> Result<()> {
         bail!("CI workflow has no jobs");
     }
 
+    let mut public_history_jobs = 0usize;
     for (name, body) in jobs {
         if !body.contains("runs-on:") {
             continue;
         }
-        require_exact_job_usage_gate(&name, body)?;
+        if name == PUBLIC_HISTORY_JOB {
+            public_history_jobs += 1;
+            require_unconditional_public_history_job(body)?;
+        } else {
+            require_exact_job_usage_gate(&name, body)?;
+        }
+    }
+    if public_history_jobs != 1 {
+        bail!("CI workflow must contain exactly one `{PUBLIC_HISTORY_JOB}` runner job");
     }
 
     Ok(())
+}
+
+fn require_unconditional_public_history_job(body: &str) -> Result<()> {
+    let if_lines: Vec<_> = body
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| line.starts_with("    if:"))
+        .collect();
+    if !if_lines.is_empty() {
+        bail!("job `{PUBLIC_HISTORY_JOB}` must remain unconditional on every configured event");
+    }
+    require(
+        body,
+        "    name: public history identity\n",
+        "public history job must keep its required check name",
+    )?;
+    require(
+        body,
+        "          fetch-depth: 0\n",
+        "public history job must fetch complete tag and commit history",
+    )?;
+    require(
+        body,
+        "          node scripts/check_public_history.mjs --tip HEAD\n",
+        "public history job must execute the repository history checker",
+    )
 }
 
 fn require_exact_job_usage_gate(name: &str, body: &str) -> Result<()> {
@@ -135,7 +173,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ci_workflow_gates_all_runner_jobs() {
+    fn ci_workflow_keeps_history_always_on_and_gates_expensive_runner_jobs() {
         verify_ci_usage_gate(CI_WORKFLOW).unwrap();
     }
 
@@ -170,6 +208,28 @@ mod tests {
             "",
             1,
         );
+        assert!(verify_ci_usage_gate(&bad)
+            .unwrap_err()
+            .to_string()
+            .contains("exact top-level usage gate"));
+    }
+
+    #[test]
+    fn guard_rejects_a_condition_on_the_public_history_job() {
+        let bad = CI_WORKFLOW.replacen(
+            "    name: public history identity\n",
+            "    name: public history identity\n    if: ${{ github.event_name == 'pull_request' }}\n",
+            1,
+        );
+        assert!(verify_ci_usage_gate(&bad)
+            .unwrap_err()
+            .to_string()
+            .contains("must remain unconditional"));
+    }
+
+    #[test]
+    fn guard_rejects_a_missing_public_history_job() {
+        let bad = CI_WORKFLOW.replacen("  public-history:\n", "  history-disabled:\n", 1);
         assert!(verify_ci_usage_gate(&bad)
             .unwrap_err()
             .to_string()
