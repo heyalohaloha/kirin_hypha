@@ -413,11 +413,10 @@ void KirinHyphaEditor::resized()
     const auto viewport = hypha::observatory::displayViewport (getWidth(), getHeight());
     scaleRoot.setTransform (juce::AffineTransform());
     scaleRoot.setBounds (0, 0, viewport.width, viewport.height);
-    // Above 200%, JUCE otherwise transforms each invalidated child directly into the host peer.
-    // Studio Pro on Windows can expose those partial updates as flicker. Its retained component
-    // image is invalidated by child repaint() calls and presents the complete scaled hierarchy in
-    // one draw, while sizes up to 200% keep the direct native path.
-    scaleRoot.setBufferedToImage (viewport.scale > 1.0f);
+    // Inspection remains a retained native-resolution surface. Studio Pro on Windows can expose
+    // partial child updates at this size; one root image presents the completed 900 x 600 frame
+    // without reducing it to a magnified 600 x 400 anatomy.
+    scaleRoot.setBufferedToImage (getWidth() > 600);
     scaleRoot.setTransform (juce::AffineTransform::scale (viewport.scale));
     observatoryView.setDisplayedEditorSize (getWidth(), getHeight());
     observatoryView.setBounds (scaleRoot.getLocalBounds());

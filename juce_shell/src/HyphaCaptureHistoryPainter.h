@@ -10,6 +10,19 @@
 
 namespace hypha::capture_history
 {
+constexpr double absoluteLoudnessMinimum = -36.0;
+constexpr double absoluteLoudnessMaximum = 0.0;
+constexpr double deltaLoudnessMinimum = -12.0;
+constexpr double deltaLoudnessMaximum = 12.0;
+
+constexpr double normalizedLoudness (double value, bool delta) noexcept
+{
+    const auto minimum = delta ? deltaLoudnessMinimum : absoluteLoudnessMinimum;
+    const auto maximum = delta ? deltaLoudnessMaximum : absoluteLoudnessMaximum;
+    const auto normalized = (value - minimum) / (maximum - minimum);
+    return normalized < 0.0 ? 0.0 : normalized > 1.0 ? 1.0 : normalized;
+}
+
 struct TruePeakSummary
 {
     bool available = false;

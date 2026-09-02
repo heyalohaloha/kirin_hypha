@@ -73,6 +73,10 @@ int changedPixels (const juce::Image& first, const juce::Image& second)
 
 void verifyCaptureHistoryContract()
 {
+    static_assert (capture_history::normalizedLoudness (-36.0, false) == 0.0);
+    static_assert (capture_history::normalizedLoudness (-18.0, false) == 0.5);
+    static_assert (capture_history::normalizedLoudness (0.0, false) == 1.0);
+    static_assert (capture_history::normalizedLoudness (-48.0, false) == 0.0);
     const auto history = fixture();
     const auto summary = capture_history::analyseTruePeak (history, 48'000.0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (summary.available);

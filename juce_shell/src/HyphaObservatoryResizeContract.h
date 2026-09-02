@@ -43,14 +43,12 @@ struct EditorSize
     int height = 0;
 };
 
-// Above 200%, render the proven 200% anatomy at one continuous scale. This keeps every domain,
-// analysis page, label, hit target, and decorative asset legible together. Sizes at and below
-// 200% remain one logical pixel per editor pixel and retain their responsive density modes.
+// Every physical editor pixel is part of the layout contract. In particular, 900 x 600 is the
+// Inspection View rather than a magnified 600 x 400 Observatory: the extra area must be available
+// to histories, axes, channel strips, and each analysis surface.
 constexpr DisplayViewport displayViewport (int width, int height) noexcept
 {
-    return width > 600
-        ? DisplayViewport { 600, 400, static_cast<float> (width) / 600.0f }
-        : DisplayViewport { width, height, 1.0f };
+    return { width, height, 1.0f };
 }
 
 constexpr DisplayViewport displayViewport (SizePreset preset) noexcept
@@ -100,10 +98,10 @@ static_assert (sizePresets[3].width == 600 && sizePresets[3].height == 400);
 static_assert (sizePresets[4].width == 900 && sizePresets[4].height == 600);
 static_assert (displayViewport (sizePresets[3]).width == 600
                && displayViewport (sizePresets[3]).height == 400);
-static_assert (displayViewport (sizePresets[4]).width == 600
-               && displayViewport (sizePresets[4]).height == 400);
-static_assert (displayViewport (720, 480).width == 600
-               && displayViewport (720, 480).height == 400);
+static_assert (displayViewport (sizePresets[4]).width == 900
+               && displayViewport (sizePresets[4]).height == 600);
+static_assert (displayViewport (720, 480).width == 720
+               && displayViewport (720, 480).height == 480);
 static_assert (validEditorSize (300, 200));
 static_assert (validEditorSize (500, 333));
 static_assert (validEditorSize (720, 480));

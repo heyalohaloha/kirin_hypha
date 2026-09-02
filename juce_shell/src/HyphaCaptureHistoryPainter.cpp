@@ -25,7 +25,7 @@ Layout layoutFor (juce::Rectangle<int> area)
     const auto inspection = area.getWidth() >= 700;
     Layout result;
     result.legend = area.removeFromTop (inspection ? 20 : 15);
-    result.loudnessLabels = area.removeFromLeft (inspection ? 32 : 25);
+    result.loudnessLabels = area.removeFromLeft (inspection ? 54 : 40);
     result.truePeakLabels = area.removeFromRight (inspection ? 38 : 31);
     result.timeLabels = area.removeFromBottom (inspection ? 12 : 10);
     result.sharedPlot = area.reduced (2, 2).toFloat();
@@ -33,10 +33,43 @@ Layout layoutFor (juce::Rectangle<int> area)
 }
 float yForLoudness (juce::Rectangle<float> plot, double value, bool delta) noexcept
 {
-    const auto minimum = delta ? -12.0 : -48.0;
-    const auto maximum = delta ? 12.0 : 0.0;
-    const auto normalized = juce::jlimit (0.0, 1.0, (value - minimum) / (maximum - minimum));
+    const auto normalized = normalizedLoudness (value, delta);
     return plot.getBottom() - static_cast<float> (normalized) * plot.getHeight();
+}
+
+void paintCurrentLoudness (juce::Graphics& g,
+                           juce::Rectangle<float> plot,
+                           const std::vector<KirinMeterHistoryEntry>& history,
+                           bool delta)
+{
+    if (history.empty())
+        return;
+    const auto value = history.back().lufs_m.mean;
+    if (! std::isfinite (value))
+        return;
+    const auto y = yForLoudness (plot, value, delta);
+    const auto inspection = plot.getWidth() >= 650.0f;
+    const auto belowFloor = ! delta && value < absoluteLoudnessMinimum;
+    const auto valueText = belowFloor
+        ? juce::String ("< -36")
+        : (delta && value >= 0.0 ? "+" : "") + juce::String (value, 1);
+    const auto text = juce::String ("NOW  ") + valueText;
+    const auto labelHeight = inspection ? 18.0f : 15.0f;
+    const auto labelWidth = inspection ? 88.0f : 72.0f;
+    auto label = juce::Rectangle<float> (
+        plot.getRight() - labelWidth - 4.0f,
+        juce::jlimit (plot.getY() + 2.0f,
+                      plot.getBottom() - labelHeight - 2.0f,
+                      y - labelHeight * 0.5f),
+        labelWidth, labelHeight);
+    g.setColour (BG.withAlpha (0.88f));
+    g.fillRoundedRectangle (label, 3.0f);
+    g.setColour (COL_SPECTRUM_POST.withAlpha (0.48f));
+    g.drawRoundedRectangle (label, 3.0f, 0.7f);
+    g.setColour (COL_OBSERVATORY_VALUE);
+    g.setFont (monoFont (inspection ? 10.0f : 8.2f));
+    g.drawText (text, label.toNearestInt().reduced (3, 0),
+                juce::Justification::centredRight);
 }
 float yForTruePeak (juce::Rectangle<float> plot, double value) noexcept
 {
@@ -440,22 +473,32 @@ void paint (juce::Graphics& g,
         return;
     }
 
-    constexpr std::array<double, 5> absoluteTicks { 0.0, -12.0, -24.0, -36.0, -48.0 };
+    constexpr std::array<double, 7> absoluteTicks {
+        0.0, -6.0, -12.0, -18.0, -24.0, -30.0, -36.0
+    };
     constexpr std::array<double, 5> deltaTicks { 12.0, 6.0, 0.0, -6.0, -12.0 };
-    const auto& ticks = delta ? deltaTicks : absoluteTicks;
-    g.setFont (monoFont (6.5f));
-    for (const auto tick : ticks)
+    g.setFont (monoFont (layout.loudnessLabels.getWidth() >= 50 ? 10.0f : 8.2f));
+    const auto paintLoudnessTicks = [&] (const auto& ticks)
     {
-        const auto y = juce::roundToInt (yForLoudness (layout.sharedPlot, tick, delta));
-        const bool zero = delta && tick == 0.0;
-        g.setColour ((zero ? COL_FLORA_BR : COL_MUTED).withAlpha (zero ? 0.38f : 0.18f));
-        g.drawHorizontalLine (y, layout.sharedPlot.getX(), layout.sharedPlot.getRight());
-        g.setColour (COL_MUTED.withAlpha (0.68f));
-        const auto label = (delta && tick > 0.0 ? "+" : "") + juce::String (tick, 0);
-        g.drawText (label, layout.loudnessLabels.getX(), y - 4,
-                    layout.loudnessLabels.getWidth() - 3, 8,
-                    juce::Justification::centredRight);
-    }
+        for (const auto tick : ticks)
+        {
+            const auto y = juce::roundToInt (yForLoudness (layout.sharedPlot, tick, delta));
+            const bool zero = delta && tick == 0.0;
+            g.setColour ((zero ? COL_FLORA_BR : COL_MUTED).withAlpha (
+                zero ? 0.42f : 0.25f));
+            g.drawHorizontalLine (y, layout.sharedPlot.getX(), layout.sharedPlot.getRight());
+            g.setColour (COL_MUTED.brighter (0.20f).withAlpha (0.86f));
+            const auto label = (delta && tick > 0.0 ? "+" : "")
+                             + juce::String (tick, 0);
+            g.drawText (label, layout.loudnessLabels.getX(), y - 4,
+                        layout.loudnessLabels.getWidth() - 3, 8,
+                        juce::Justification::centredRight);
+        }
+    };
+    if (delta)
+        paintLoudnessTicks (deltaTicks);
+    else
+        paintLoudnessTicks (absoluteTicks);
     if (! delta)
     {
         constexpr std::array<double, 5> truePeakTicks { 6.0, 0.0, -6.0, -12.0, -24.0 };
@@ -488,6 +531,7 @@ void paint (juce::Graphics& g,
                COL_SPECTRUM_POST, 0.96f, 1.20f, sampleRate);
     if (! delta)
         paintTruePeakEvents (g, layout.sharedPlot, history, axis, peakSummary, sampleRate);
+    paintCurrentLoudness (g, layout.sharedPlot, history, delta);
     g.setColour (COL_MUTED.withAlpha (0.64f));
     g.setFont (monoFont (5.8f));
     g.drawText ("-60", layout.timeLabels.withWidth (24), juce::Justification::centredLeft);

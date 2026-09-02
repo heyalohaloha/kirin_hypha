@@ -78,11 +78,11 @@ int main()
     const auto threeHundredViewport = observatory::displayViewport (observatory::sizePresets[4]);
     assert (twoHundredViewport.width == 600 && twoHundredViewport.height == 400);
     assert (std::abs (twoHundredViewport.scale - 1.0f) < 0.0001f);
-    assert (threeHundredViewport.width == 600 && threeHundredViewport.height == 400);
-    assert (std::abs (threeHundredViewport.scale - 1.5f) < 0.0001f);
+    assert (threeHundredViewport.width == 900 && threeHundredViewport.height == 600);
+    assert (std::abs (threeHundredViewport.scale - 1.0f) < 0.0001f);
     const auto freeResizeViewport = observatory::displayViewport (720, 480);
-    assert (freeResizeViewport.width == 600 && freeResizeViewport.height == 400);
-    assert (std::abs (freeResizeViewport.scale - 1.2f) < 0.0001f);
+    assert (freeResizeViewport.width == 720 && freeResizeViewport.height == 480);
+    assert (std::abs (freeResizeViewport.scale - 1.0f) < 0.0001f);
     assert (observatory::validEditorSize (300, 200));
     assert (observatory::validEditorSize (500, 333));
     assert (observatory::validEditorSize (720, 480));
@@ -102,6 +102,11 @@ int main()
         observatory::GuidePresence::absent);
     assert (observatoryHeader.connectionStatus.width >= 140);
     assert (observatoryHeader.domainNavigation.width >= 300);
+    const auto inspection = observatory::shellLayout (
+        observatory::Role::post, observatory::sizePresets[4],
+        observatory::GuidePresence::absent);
+    assert (inspection.body.width > observatoryHeader.body.width);
+    assert (inspection.body.height > observatoryHeader.body.height);
 
     for (const auto preset : observatory::sizePresets)
     {

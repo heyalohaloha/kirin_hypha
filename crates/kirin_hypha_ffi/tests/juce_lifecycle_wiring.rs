@@ -426,6 +426,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     let observatory_editor = read_repo("juce_shell/src/PluginEditorObservatory.cpp");
+    let resize_contract = read_repo("juce_shell/src/HyphaObservatoryResizeContract.h");
     let time_navigation = read_repo("juce_shell/src/HyphaTimePageNavigation.cpp");
     let time_navigation_header = read_repo("juce_shell/src/HyphaTimePageNavigation.h");
     let analysis_navigation = read_repo("juce_shell/src/HyphaAnalysisNavigation.h");
@@ -451,7 +452,8 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(editor.contains("setFixedAspectRatio (1.5)"));
     assert!(editor.contains("displayViewport (getWidth(), getHeight())"));
     assert!(editor.contains("scaleRoot.setOpaque (true)"));
-    assert!(editor.contains("scaleRoot.setBufferedToImage (viewport.scale > 1.0f)"));
+    assert!(editor.contains("scaleRoot.setBufferedToImage (getWidth() > 600)"));
+    assert!(resize_contract.contains("return { width, height, 1.0f };"));
     assert!(observatory_editor.contains("observatoryEditorSizePreference"));
     assert!(observatory_editor
         .contains("setSize (restoredEditorSize.width, restoredEditorSize.height)"));
