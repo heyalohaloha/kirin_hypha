@@ -258,7 +258,7 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
     )?;
     require(
         job_code,
-        "Verify Windows installer install, upgrade, signatures, and uninstall",
+        "Verify Windows installer install, same-version reinstall, signatures, and uninstall",
         "Windows preflight job must verify the installed payload and uninstaller",
     )?;
     require(
