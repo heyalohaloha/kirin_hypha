@@ -223,7 +223,11 @@ fn paired_pre_off_is_absolute_while_inactive_and_stale_preserve_delta_layout() {
     assert!(editor.contains("Paired PRE is off. Showing POST absolute values."));
     assert!(editor.contains("COL_SPECTRUM_POST"));
 
-    let producer = read_repo("crates/kirin_measure/src/io_thread_post.rs");
+    let producer = [
+        read_repo("crates/kirin_measure/src/io_thread_post_tick.rs"),
+        read_repo("crates/kirin_measure/src/io_thread_post_delta.rs"),
+    ]
+    .join("\n");
     assert!(producer.contains("mode: DeltaMode::PreInactive"));
     assert!(producer.contains("Some(SignalState::Inactive) => DeltaMode::PreInactive"));
     assert!(producer.contains("POST absolute until it resumes"));
@@ -259,7 +263,7 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     assert!(!editor.contains("fillAbs (3, V (m.n_prime_total)"));
 
     let pre_json = read_repo("crates/kirin_measure/src/io_thread_pre.rs");
-    let post_json = read_repo("crates/kirin_measure/src/io_thread_post.rs");
+    let post_json = read_repo("crates/kirin_measure/src/io_thread_post_json.rs");
     assert!(pre_json.contains("\"lufs_s\""));
     assert!(post_json.contains("\"lufs_s\""));
     let plugin_data = read_repo("crates/kirin_measure/src/plugin_data.rs");
@@ -600,9 +604,9 @@ fn io_thread_shutdown_paths_mark_lifecycle_shutdown() {
             "writer_close_with_summary(ctx, summary);",
         ),
         (
-            "crates/kirin_measure/src/io_thread_post.rs",
-            "if let Some(mut ctx) = recording.take()",
-            "writer_close_with_summary_and_marks(ctx, summary, &record_mark_queue);",
+            "crates/kirin_measure/src/io_thread_post_shutdown.rs",
+            "if let Some(mut ctx) = recording",
+            "writer_close_with_summary_and_marks(ctx, summary, record_mark_queue);",
         ),
     ] {
         let src = read_repo(path);
@@ -627,7 +631,7 @@ fn io_thread_shutdown_paths_mark_lifecycle_shutdown() {
             reason < close,
             "{path} must tag lifecycle shutdown before closing the writer"
         );
-        if path.ends_with("io_thread_post.rs") {
+        if close_marker.contains("and_marks") {
             assert!(
                 close_marker.contains("and_marks"),
                 "POST lifecycle close must final-drain accepted MARKs"
