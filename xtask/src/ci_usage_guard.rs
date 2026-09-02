@@ -35,8 +35,18 @@ fn verify_ci_usage_gate(source: &str) -> Result<()> {
     let source = normalize_newlines(source);
     require(
         &source,
-        "on:\n  workflow_dispatch:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n",
-        "workflow triggers must stay manual/PR/main-push scoped",
+        "on:\n  workflow_dispatch:\n",
+        "workflow triggers must keep the manual route",
+    )?;
+    require(
+        &source,
+        "  push:\n    branches: [main]\n",
+        "workflow triggers must keep pushes scoped to main",
+    )?;
+    require(
+        &source,
+        "  pull_request:\n    branches: [main]\n",
+        "workflow triggers must keep pull requests scoped to main",
     )?;
 
     let jobs = job_blocks(&source)?;

@@ -9,6 +9,10 @@ import { fileURLToPath } from 'node:url';
 
 import { parseArgs as parseDryRunArgs } from './kirin_hypha_ls_dry_run.mjs';
 import {
+  parseArgs as parseReleaseSetArgs,
+  requireWindowsInstaller,
+} from './build_kirin_hypha_release_set.mjs';
+import {
   artifactManifestFor,
   commitReceiptFor,
   localReleaseStateFor,
@@ -225,7 +229,9 @@ test('README opens with current analysis, exact pairing, and supported Windows f
   );
   assert.match(entrance, /choose that exact PRE under \*\*Pair choices\*\*/);
   assert.match(entrance, /Names are optional labels/);
-  assert.match(readme, /Windows 10\/11 64-bit VST3 release is a supported manual PRE\/POST ZIP/);
+  assert.match(readme, /current v1\.1\.48 Windows 10\/11 64-bit VST3 release is a supported manual PRE\/POST ZIP/);
+  assert.match(readme, /The next validated release will use a single installer\s+EXE/);
+  assert.match(readme, /signed installer is required for the next validated release/);
   assert.doesNotMatch(readme, /supported release is currently macOS-only/);
   assert.doesNotMatch(readme, /Windows validation candidate/);
   assert.doesNotMatch(readme, /External validation is pending/);
@@ -339,7 +345,90 @@ test('LS dry run requires an explicit local state path', () => {
   assert.equal(parseDryRunArgs(['--state', 'release_state/local.state.json']).state, 'release_state/local.state.json');
 });
 
-test('Windows public manifest excludes operator workflow state', (context) => {
+test('full release set accepts only a signed, verified, externally validated Windows installer', (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-windows-primary-'));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const installer = path.join(root, 'Kirin-Hypha-1.2.3-Windows-x64-Setup.exe');
+  fs.writeFileSync(installer, 'signed installer fixture');
+  const digest = sha256File(installer);
+  const preDigest = '1'.repeat(64);
+  const postDigest = '2'.repeat(64);
+  const uninstallerDigest = '3'.repeat(64);
+  const identity = { version: '1.2.3', commit: '0'.repeat(40), bNumber: 'B-123' };
+  fs.writeFileSync(`${installer}.sha256`, `${digest}  ${path.basename(installer)}\n`);
+  const signatureTarget = (role, targetDigest) => ({
+    role,
+    file_name: `${role}.exe`,
+    status: 'Valid',
+    sha256: targetDigest,
+    signer_subject: 'CN=Kirin fixture',
+    signer_thumbprint: 'A'.repeat(40),
+    timestamp_subject: 'CN=Timestamp fixture',
+    timestamp_thumbprint: 'B'.repeat(40),
+  });
+  const manifest = {
+    schema: 'kirin-hypha-windows-installer-v1',
+    product: { name: 'Kirin Hypha', version: identity.version, platform: 'windows-x64', format: 'VST3' },
+    source: {
+      commit: identity.commit,
+      b_number: identity.bNumber,
+      github_actions_run: 'https://github.com/heyalohaloha/kirin_hypha/actions/runs/123',
+    },
+    installer: {
+      sha256: digest,
+      payload: [
+        { role: 'PRE', binary_sha256: preDigest },
+        { role: 'POST', binary_sha256: postDigest },
+      ],
+    },
+    signing: {
+      status: 'valid',
+      workflow_run: 'https://github.com/heyalohaloha/kirin_sense_lens/actions/runs/456',
+      verification: {
+        targets: [
+          signatureTarget('installer', digest),
+          signatureTarget('installed PRE VST3 binary', preDigest),
+          signatureTarget('installed POST VST3 binary', postDigest),
+          signatureTarget('installed uninstaller', uninstallerDigest),
+        ],
+      },
+    },
+    ci_validation: { status: 'passed' },
+    external_validation: { status: 'complete' },
+    distribution: { primary: true, public_ready: true },
+  };
+  fs.writeFileSync(`${installer}.json`, JSON.stringify(manifest));
+
+  assert.equal(requireWindowsInstaller(root, identity), installer);
+  assert.equal(
+    parseReleaseSetArgs(['--windows-artifact-dir', root]).windowsInstallerDir,
+    root,
+  );
+  fs.writeFileSync(`${installer}.json`, JSON.stringify({
+    ...manifest,
+    signing: { status: 'verified_unsigned_ci_candidate' },
+  }));
+  assert.throws(() => requireWindowsInstaller(root, identity), /not Authenticode-ready/);
+  fs.writeFileSync(`${installer}.json`, JSON.stringify({
+    ...manifest,
+    source: { ...manifest.source, commit: 'f'.repeat(40) },
+  }));
+  assert.throws(() => requireWindowsInstaller(root, identity), /source commit or B number/);
+  fs.writeFileSync(`${installer}.json`, JSON.stringify({
+    ...manifest,
+    signing: {
+      ...manifest.signing,
+      verification: {
+        targets: manifest.signing.verification.targets.map((target) => (
+          target.role === 'installed uninstaller' ? { ...target, status: 'NotSigned' } : target
+        )),
+      },
+    },
+  }));
+  assert.throws(() => requireWindowsInstaller(root, identity), /installed uninstaller/);
+});
+
+test('Windows fallback ZIP manifest excludes operator workflow state', (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-release-metadata-'));
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -357,6 +446,7 @@ test('Windows public manifest excludes operator workflow state', (context) => {
   const opts = {
     releaseKind: 'ls',
     externalValidation: 'complete',
+    payloadSigning: 'signed',
     artifactName: 'kirin-hypha-windows-vst3',
     runUrl: 'https://github.com/example/project/actions/runs/1',
     commit: '0123456789abcdef',
@@ -385,7 +475,16 @@ test('Windows public manifest excludes operator workflow state', (context) => {
   assertExactKeys(manifest.product, ['name', 'version'], 'Windows public product');
   assertExactKeys(
     manifest.package,
-    ['name', 'path', 'size_bytes', 'sha256', 'format', 'contains_top_level_folder'],
+    [
+      'name',
+      'path',
+      'size_bytes',
+      'sha256',
+      'format',
+      'contains_top_level_folder',
+      'distribution_role',
+      'payload_signing',
+    ],
     'Windows public package',
   );
   assertExactKeys(
@@ -418,8 +517,8 @@ test('Windows public manifest excludes operator workflow state', (context) => {
   for (const binary of manifest.validation.binaries) {
     assertExactKeys(binary, ['label', 'path', 'sha256'], `Windows public binary ${binary.label}`);
   }
-  assert.equal(manifest.schema, 'kirin-hypha-windows-vst3-artifact-v2');
-  assert.equal(manifest.schema_version, 2);
+  assert.equal(manifest.schema, 'kirin-hypha-windows-vst3-fallback-artifact-v3');
+  assert.equal(manifest.schema_version, 3);
   assert.equal(manifest.external_validation.status, 'complete');
   assert.equal(manifest.package.name, 'Kirin-Hypha-test.zip');
   assert.equal(manifest.binary_artifact.commit, opts.commit);
@@ -435,8 +534,11 @@ test('Windows public manifest excludes operator workflow state', (context) => {
     'Verify Windows VST3 artifacts',
     'Upload Windows VST3 artifacts',
     'Validate Windows VST3 with pluginval',
-    'Package Windows VST3 LS candidate',
-    'Upload Windows VST3 LS package',
+    'Build Windows installer and sign all executable surfaces',
+    'Verify Windows installer install, upgrade, signatures, and uninstall',
+    'Upload primary Windows installer',
+    'Package fallback Windows VST3 ZIP',
+    'Upload fallback Windows VST3 ZIP',
   ]);
   const receipt = commitReceiptFor(opts);
   assert.match(receipt, /CI gates: Analysis contract, UI render, exact audio transparency,/);
@@ -449,7 +551,7 @@ test('Windows public manifest excludes operator workflow state', (context) => {
   assert.equal(manifest.contents.length, 2);
 
   const localState = localReleaseStateFor(opts, manifest);
-  assert.equal(localState.lsUpload, 'ready_manual_zip_after_external_validation');
+  assert.equal(localState.lsUpload, 'skip_primary_installer_required');
   assert.equal(localState.artifact, manifest);
 
   const pendingOpts = { ...opts, externalValidation: 'pending' };
@@ -461,7 +563,7 @@ test('Windows public manifest excludes operator workflow state', (context) => {
     bundles,
   );
   const pendingState = localReleaseStateFor(pendingOpts, pendingManifest);
-  assert.equal(pendingState.lsUpload, 'blocker_pending_external_validation');
+  assert.equal(pendingState.lsUpload, 'skip_primary_installer_required');
   assert.equal(pendingState.artifact.external_validation.status, 'pending');
   assert.throws(
     () => localReleaseStateFor(opts, pendingManifest),
@@ -484,5 +586,9 @@ test('Windows package arguments reject unsupported validation states', () => {
   assert.throws(
     () => parseWindowsArgs(['--external-validation', 'reported_complete_by_daisuke']),
     /must be complete or pending/,
+  );
+  assert.throws(
+    () => parseWindowsArgs(['--payload-signing', 'targeted']),
+    /must be signed or unsigned/,
   );
 });

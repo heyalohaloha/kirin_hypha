@@ -23,6 +23,7 @@ Options:
   --output-dir <dir>            Output dir. Default: dist/WINDOWS_LS
   --release-kind <ls|ci|beta>   Package intent. Default: ls
   --external-validation <state> complete|pending. Default: pending
+  --payload-signing <state>     signed|unsigned. Default: unsigned
   --b-number <B-000>            Release B number. Default: inferred from HEAD subject.
   --commit <sha>                Source commit. Default: git rev-parse HEAD.
   --run-url <url>               GitHub Actions run URL.
@@ -38,6 +39,7 @@ export function parseArgs(argv) {
     outputDir: 'dist/WINDOWS_LS',
     releaseKind: 'ls',
     externalValidation: process.env.KIRIN_WINDOWS_EXTERNAL_VALIDATION || 'pending',
+    payloadSigning: process.env.KIRIN_WINDOWS_PAYLOAD_SIGNING || 'unsigned',
     bNumber: process.env.KIRIN_B_NUMBER || '',
     commit: process.env.KIRIN_COMMIT || '',
     runUrl: process.env.KIRIN_GITHUB_RUN_URL || inferRunUrl(),
@@ -53,6 +55,8 @@ export function parseArgs(argv) {
       opts.releaseKind = requireValue(argv, ++i, arg);
     } else if (arg === '--external-validation') {
       opts.externalValidation = requireValue(argv, ++i, arg);
+    } else if (arg === '--payload-signing') {
+      opts.payloadSigning = requireValue(argv, ++i, arg);
     } else if (arg === '--b-number') {
       opts.bNumber = requireValue(argv, ++i, arg);
     } else if (arg === '--commit') {
@@ -70,6 +74,9 @@ export function parseArgs(argv) {
   }
   if (!['complete', 'pending'].includes(opts.externalValidation)) {
     throw new Error(`--external-validation must be complete or pending: ${opts.externalValidation}`);
+  }
+  if (!['signed', 'unsigned'].includes(opts.payloadSigning)) {
+    throw new Error(`--payload-signing must be signed or unsigned: ${opts.payloadSigning}`);
   }
   if (!opts.bNumber) opts.bNumber = inferBNumber();
   if (!opts.commit) opts.commit = git(['rev-parse', 'HEAD'], 'unknown');
@@ -188,11 +195,13 @@ function copyRequired(src, dst) {
   fs.copyFileSync(src, dst);
 }
 
-function writeReadme(filePath, version) {
+function writeReadme(filePath, version, payloadSigning) {
   fs.writeFileSync(filePath, `Kirin Hypha ${version} Windows VST3
 
-This package contains the PRE and POST Windows VST3 bundles.
-It is a manual VST3 install package. It is not a Windows installer and is not Authenticode-signed.
+This fallback package contains the PRE and POST Windows VST3 bundles.
+For normal installation, use Kirin-Hypha-${version}-Windows-x64-Setup.exe.
+This ZIP is retained for diagnostics and recovery, not as the primary distribution.
+Payload Authenticode state: ${payloadSigning}
 
 Install target:
 %LOCALAPPDATA%\\Programs\\Common\\VST3
@@ -302,8 +311,8 @@ export function artifactManifestFor(opts, packageBase, zipPath, packageRoot, bun
     sha256: sha256Hex(item),
   }));
   return {
-    schema: 'kirin-hypha-windows-vst3-artifact-v2',
-    schema_version: 2,
+    schema: 'kirin-hypha-windows-vst3-fallback-artifact-v3',
+    schema_version: 3,
     product: {
       name: 'Kirin Hypha',
       version: VERSION,
@@ -311,9 +320,9 @@ export function artifactManifestFor(opts, packageBase, zipPath, packageRoot, bun
     generated_at: new Date().toISOString(),
     purpose: artifactPurposeFor(opts.releaseKind),
     known_limitations: [
-      'Windows installer is not implemented; package is a manual VST3 zip.',
-      'Authenticode signing is not implemented for this Windows VST3 zip.',
-      'Upload as a Windows VST3 zip, not as a macOS installer package.',
+      'Fallback manual package; the Inno Setup EXE is the primary Windows distribution.',
+      'The ZIP container itself has no Authenticode surface; inspect the embedded VST3 binaries.',
+      'Do not replace the primary Windows installer with this recovery artifact.',
     ],
     package: {
       name: `${packageBase}.zip`,
@@ -322,6 +331,8 @@ export function artifactManifestFor(opts, packageBase, zipPath, packageRoot, bun
       sha256: sha256Hex(zipPath),
       format: 'zip',
       contains_top_level_folder: true,
+      distribution_role: 'fallback_only',
+      payload_signing: opts.payloadSigning,
     },
     binary_artifact: {
       source: 'GitHub Actions artifact or windows-latest build output',
@@ -343,8 +354,11 @@ export function artifactManifestFor(opts, packageBase, zipPath, packageRoot, bun
         'Verify Windows VST3 artifacts',
         'Upload Windows VST3 artifacts',
         'Validate Windows VST3 with pluginval',
-        'Package Windows VST3 LS candidate',
-        'Upload Windows VST3 LS package',
+        'Build Windows installer and sign all executable surfaces',
+        'Verify Windows installer install, upgrade, signatures, and uninstall',
+        'Upload primary Windows installer',
+        'Package fallback Windows VST3 ZIP',
+        'Upload fallback Windows VST3 ZIP',
       ],
     },
     external_validation: {
@@ -382,17 +396,12 @@ export function localReleaseStateFor(opts, artifactManifest) {
       `artifact validation does not match release state: expected ${opts.externalValidation}, got ${artifactValidation}`,
     );
   }
-  const ready = opts.releaseKind === 'ls' && artifactValidation === 'complete';
   return {
     schema: 'kirin-hypha-windows-release-state-v1',
     generatedAt: new Date().toISOString(),
     releaseKind: opts.releaseKind,
-    releaseStatus: ready
-      ? 'ls_candidate_manual_vst3_zip'
-      : 'blocked_pending_external_validation',
-    lsUpload: ready
-      ? 'ready_manual_zip_after_external_validation'
-      : 'blocker_pending_external_validation',
+    releaseStatus: 'fallback_only_primary_installer_required',
+    lsUpload: 'skip_primary_installer_required',
     artifact: artifactManifest,
   };
 }
@@ -445,7 +454,7 @@ function runMain() {
     fs.cpSync(bundle.dir, path.join(packageRoot, bundle.fileName), { recursive: true });
   }
   copyRequired(path.join(ROOT, 'docs/windows_external_validation.md'), path.join(packageRoot, 'WINDOWS_EXTERNAL_VALIDATION.md'));
-  writeReadme(path.join(packageRoot, 'README_FIRST.txt'), VERSION);
+  writeReadme(path.join(packageRoot, 'README_FIRST.txt'), VERSION, opts.payloadSigning);
   writeCommit(path.join(packageRoot, 'COMMIT.txt'), opts);
   writeShaSums(packageRoot);
   zipPackage(packageRoot, zipPath);
