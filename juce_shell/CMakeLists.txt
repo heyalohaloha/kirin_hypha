@@ -169,6 +169,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginEditorCapture.cpp
         src/CaptureWorkAttachment.cpp
         src/HyphaObservatoryCapture.cpp
+        src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
@@ -338,6 +339,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/TimeHistoryContractTest.cpp
         tests/TimePageNavigationContractTest.cpp
         src/HyphaObservatoryCapture.cpp
+        src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp

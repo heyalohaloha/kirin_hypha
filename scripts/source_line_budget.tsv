@@ -19,7 +19,6 @@ crates/kirin_measure/src/pairing_scope.rs	1013
 crates/kirin_measure/src/pairing_scope/tests.rs	1573
 crates/kirin_measure/src/path_identity.rs	543
 crates/kirin_measure/src/phase_d/stream.rs	860
-crates/kirin_measure/src/phase_d/tables.rs	504
 crates/kirin_measure/src/plugin_data.rs	9325
 crates/kirin_measure/src/post_candidates.rs	563
 crates/kirin_measure/src/pre_discovery.rs	581
@@ -41,7 +40,6 @@ crates/kirin_measure/src/spectrum_exchange_tests.rs	506
 crates/kirin_measure/src/storage.rs	962
 crates/kirin_measure/src/trace_clock_resolution.rs	765
 crates/kirin_measure/src/trace_content_clock.rs	1652
-juce_shell/src/HyphaCaptureHistoryPainter.cpp	523
 juce_shell/src/PluginEditor.cpp	1374
 juce_shell/src/PluginProcessor.cpp	1593
 juce_shell/src/pre_display/PreDisplayProtocol.cpp	583
