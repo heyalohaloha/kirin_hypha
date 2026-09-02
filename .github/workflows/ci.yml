@@ -272,21 +272,24 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $downloadDir = Join-Path $env:RUNNER_TEMP 'inno-download'
           $installDir = Join-Path $env:RUNNER_TEMP 'Inno Setup 6'
+          $installLog = Join-Path $env:RUNNER_TEMP 'inno-setup-install.log'
           New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
           Push-Location $downloadDir
           try {
             gh release download is-6_7_3 --repo jrsoftware/issrc --pattern 'innosetup-6.7.3.exe'
             gh release verify-asset is-6_7_3 'innosetup-6.7.3.exe' --repo jrsoftware/issrc
             $installer = Join-Path $downloadDir 'innosetup-6.7.3.exe'
-            $process = Start-Process -FilePath $installer -ArgumentList @(
-              '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$installDir"
-            ) -Wait -PassThru
+            $arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /PORTABLE=1 /DIR=`"$installDir`" /LOG=`"$installLog`""
+            $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
             if ($process.ExitCode -ne 0) { throw "Inno Setup install failed with exit $($process.ExitCode)" }
           } finally {
             Pop-Location
           }
           $iscc = Join-Path $installDir 'ISCC.exe'
-          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) { throw 'verified ISCC.exe not found' }
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) {
+            if (Test-Path -LiteralPath $installLog -PathType Leaf) { Get-Content -LiteralPath $installLog }
+            throw 'verified ISCC.exe not found'
+          }
           "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Download pinned CodeSignTool

@@ -250,6 +250,18 @@ fn preflight_requires_pinned_inno_release_attestation() {
 }
 
 #[test]
+fn preflight_requires_quoted_portable_inno_install() {
+    let bad = CI_WORKFLOW.replace(
+        r#"/PORTABLE=1 /DIR=`"$installDir`" /LOG=`"$installLog`""#,
+        "/DIR=$installDir",
+    );
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("must quote the pinned Inno Setup destination"));
+}
+
+#[test]
 fn preflight_requires_windows_release_package_upload() {
     let bad = CI_WORKFLOW.replace(
         "name: kirin-hypha-windows-installer",

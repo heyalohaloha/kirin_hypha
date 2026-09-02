@@ -248,6 +248,11 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
     )?;
     require(
         job_code,
+        r#"/PORTABLE=1 /DIR=`"$installDir`" /LOG=`"$installLog`""#,
+        "Windows preflight job must quote the pinned Inno Setup destination and retain its install log",
+    )?;
+    require(
+        job_code,
         "Build Windows installer and sign all executable surfaces",
         "Windows preflight job must build the primary Windows installer",
     )?;
