@@ -25,8 +25,6 @@ use std::thread::{self, JoinHandle};
 use std::time::SystemTime;
 use std::time::{Duration, Instant};
 
-use crate::all_keep_signal::{self, ALL_KEEP_BROADCAST_STALE_SECS};
-use crate::all_stop_signal::{self, ALL_STOP_BROADCAST_STALE_SECS};
 use crate::cleanup::exit_record_preserve_pair;
 #[cfg(test)]
 use crate::delta::DeltaSnapshot;
@@ -104,6 +102,10 @@ pub(crate) use identity::read_instance_id_arc;
 mod pair_claim;
 use pair_claim::service_pair_claim;
 
+#[path = "io_thread_post_broadcast.rs"]
+mod broadcast;
+use broadcast::poll_post_broadcasts;
+
 #[path = "io_thread_post_shutdown.rs"]
 mod shutdown;
 use shutdown::shutdown_post_io;
@@ -115,23 +117,22 @@ use self_check::PairSelfCheckState;
 #[path = "io_thread_post_tick.rs"]
 mod tick;
 #[cfg(test)]
+use identity::broadcast_scope_or_same_project_host_matches;
+#[cfg(test)]
 use identity::pair_claim_matches_desired_binding;
-use identity::{
-    broadcast_scope_or_same_project_host_matches, read_daw_session_id_arc, read_project_hash_arc,
-    snapshot_pair_pre_name,
-};
+use identity::{read_daw_session_id_arc, read_project_hash_arc, snapshot_pair_pre_name};
 #[cfg(test)]
 use tick::compute_latched_display;
 use tick::run_tick;
 
 #[path = "io_thread_post_policy.rs"]
 mod policy;
-use policy::{
-    drop_commit_matches_observed_capture, generation_stop_authorizes_post, idle_autostop_due,
-    keep_broadcast_blocked_by_stop, record_idle_timeout, remember_latest_started_at,
-};
+use policy::{drop_commit_matches_observed_capture, idle_autostop_due, record_idle_timeout};
 #[cfg(test)]
-use policy::{parse_idle_timeout, SelfCheckReleaseGate, SELF_CHECK_RELEASE_CONFIRMATIONS};
+use policy::{
+    keep_broadcast_blocked_by_stop, parse_idle_timeout, remember_latest_started_at,
+    SelfCheckReleaseGate, SELF_CHECK_RELEASE_CONFIRMATIONS,
+};
 
 const LOOP_SLEEP: Duration = Duration::from_millis(100);
 
@@ -813,218 +814,20 @@ pub fn spawn_io_thread_post(
                 next_pre_liveness_poll = Instant::now() + PRE_LIVENESS_POLL_INTERVAL;
             }
 
-            // α-7' All Stop: Stop broadcast 受信 sub-tick (Keep より先に処理 / Stop 優先)。
-            // 1 秒 throttle で `plugin_data/{ph}/all_stop_signal/current.json` だけを読み、
-            // 新 broadcast を `processed_stop_broadcasts` cache に登録 + `trigger_stop_resolution`
-            // closure 発火。Keep と並列の同型ロジック (cross-process filter / self skip /
-            // 既処理 skip / stale fallback / GC)。
-            let mut latest_fresh_stop_started_at: Option<String> = None;
             if Instant::now() >= next_all_keep_poll {
                 if let Ok(paths) = StoragePaths::default_platform() {
                     let base_dir = paths.plugin_data_dir();
-                    let now_chrono = chrono::Utc::now();
-                    let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_arc);
-                    let host_process_id_snapshot = crate::current_host_process_id();
-                    let stop_broadcasts =
-                        all_stop_signal::read_current_stop_broadcast(&base_dir, project_hash_ref);
-                    for (originator_iid, broadcast) in stop_broadcasts.into_iter().take(1) {
-                        let stop_key = if broadcast.has_generation() {
-                            broadcast.capture_generation_id.clone()
-                        } else {
-                            format!("legacy:{}", broadcast.started_at)
-                        };
-                        if !broadcast_scope_or_same_project_host_matches(
-                            &daw_session_id_snapshot,
-                            host_process_id_snapshot,
-                            &broadcast.daw_session_id,
-                            broadcast.host_process_id,
-                        ) {
-                            continue;
-                        }
-                        if broadcast.has_generation()
-                            && !generation_stop_authorizes_post(
-                                &base_dir,
-                                project_hash_ref,
-                                instance_id_ref,
-                                &broadcast,
-                            )
-                        {
-                            continue;
-                        }
-                        if !broadcast.has_generation()
-                            && all_stop_signal::is_stop_broadcast_stale(
-                                &broadcast,
-                                now_chrono,
-                                ALL_STOP_BROADCAST_STALE_SECS,
-                            )
-                        {
-                            processed_stop_broadcasts.remember(&originator_iid, &stop_key);
-                            log::debug!(
-                                "[all_stop] stale broadcast cached without fire: originator={}",
-                                originator_iid
-                            );
-                            continue;
-                        }
-                        if !broadcast.has_generation() {
-                            remember_latest_started_at(
-                                &mut latest_fresh_stop_started_at,
-                                &broadcast.started_at,
-                            );
-                        }
-                        if originator_iid == instance_id_ref {
-                            continue;
-                        }
-                        if processed_stop_broadcasts.contains(&originator_iid, &stop_key) {
-                            continue;
-                        }
-                        processed_stop_broadcasts.remember(&originator_iid, &stop_key);
-                        let scan_dir =
-                            all_stop_signal::stop_signals_dir(&base_dir, project_hash_ref);
-                        log::info!(
-                            "[all_stop] new broadcast detected: originator={} started_at={} scan_dir={}",
-                            originator_iid,
-                            broadcast.started_at,
-                            scan_dir.display()
-                        );
-                        (trigger_stop_resolution)(&originator_iid, &broadcast.started_at);
-                    }
-                }
-                // 注: next_all_keep_poll は Keep sub-tick 末でresetされるため、StopはKeepと
-                // 同じ100ms IO cadence・同frameで動く。
-            }
-
-            // B-027 段階 3-B α-7-4-C / Step 10: all_keep_signal broadcast 受信 sub-tick。
-            // 100ms IO cadenceで`plugin_data/{ph}/all_keep_signal/current.json`だけを読み、
-            // 新 broadcast を `processed_broadcasts` cache に登録する (検出 + cache + log
-            // のみ / `trigger_keep_internal` 発火は Step 11 で本箇所に追加予定)。
-            //
-            //  1. cross-process 防壁: daw_session_id / host_process_id scope 外は skip
-            //  2. self skip: `originator_iid == self_instance_id` skip (#16 (iii))
-            //  3. 既処理 skip: cache 内の immutable generation id と一致 → 同 broadcast skip
-            //  4. stale fallback: legacy または未commit generationだけ cache 登録
-            //  5. commit済 generation: arm成功まで再試行し、成功後だけ cache 更新
-            // Cache entries do not expire: a new Keep always has a new generation UUID/session and
-            // therefore replaces the key explicitly. Elapsed time never recreates an edge.
-            if Instant::now() >= next_all_keep_poll {
-                if let Ok(paths) = StoragePaths::default_platform() {
-                    let base_dir = paths.plugin_data_dir();
-                    let now_chrono = chrono::Utc::now();
-                    // §4-5 Step 1: cross-process 防壁用 daw_session_id を per-tick lazy-read。
-                    // editor() snapshot との divergence を是正 (§4-4 R-9 主因 b)。
-                    let daw_session_id_snapshot = read_daw_session_id_arc(&daw_session_id_arc);
-                    let host_process_id_snapshot = crate::current_host_process_id();
-                    let broadcasts =
-                        all_keep_signal::read_current_broadcast(&base_dir, project_hash_ref);
-                    for (originator_iid, broadcast) in broadcasts.into_iter().take(1) {
-                        let broadcast_key = if broadcast.capture_generation_id.trim().is_empty() {
-                            format!("legacy:{}", broadcast.started_at)
-                        } else {
-                            broadcast.capture_generation_id.clone()
-                        };
-                        // 1. cross-process 防壁
-                        if !broadcast_scope_or_same_project_host_matches(
-                            &daw_session_id_snapshot,
-                            host_process_id_snapshot,
-                            &broadcast.daw_session_id,
-                            broadcast.host_process_id,
-                        ) {
-                            continue;
-                        }
-                        // 2. self skip
-                        if originator_iid == instance_id_ref {
-                            processed_broadcasts.remember(&originator_iid, &broadcast_key);
-                            continue;
-                        }
-                        // 3. 既処理 skip
-                        if processed_broadcasts.contains(&originator_iid, &broadcast_key) {
-                            continue;
-                        }
-                        let broadcast_is_stale = all_keep_signal::is_broadcast_stale(
-                            &broadcast,
-                            now_chrono,
-                            ALL_KEEP_BROADCAST_STALE_SECS,
-                        );
-                        // Legacy messages have no immutable transaction owner, so time remains
-                        // their only compatibility bound. A generation message is handled below:
-                        // committed generations remain retryable for their full lifetime.
-                        if broadcast_is_stale && broadcast.capture_generation_id.trim().is_empty() {
-                            processed_broadcasts.remember(&originator_iid, &broadcast_key);
-                            log::debug!(
-                                "[all_keep] stale broadcast cached without fire: originator={}, started_at={}",
-                                originator_iid,
-                                broadcast.started_at
-                            );
-                            continue;
-                        }
-                        if keep_broadcast_blocked_by_stop(
-                            &broadcast.started_at,
-                            latest_fresh_stop_started_at.as_deref(),
-                        ) {
-                            processed_broadcasts.remember(&originator_iid, &broadcast_key);
-                            log::info!(
-                                "[all_keep] keep broadcast suppressed by newer/equal all_stop: originator={} keep_started_at={} stop_started_at={}",
-                                originator_iid,
-                                broadcast.started_at,
-                                latest_fresh_stop_started_at.as_deref().unwrap_or("")
-                            );
-                            continue;
-                        }
-                        // v1 broadcasts have no generation and cannot safely arm a new
-                        // transaction: selecting them would re-introduce time-based grouping.
-                        if broadcast.capture_generation_id.trim().is_empty()
-                            || broadcast.generation_started_at_ms <= 0
-                        {
-                            processed_broadcasts.remember(&originator_iid, &broadcast_key);
-                            log::debug!(
-                                "[all_keep] legacy broadcast skipped without generation: originator={}",
-                                originator_iid
-                            );
-                            continue;
-                        }
-                        // Workers may arm from the producer-only preparation barrier. Kirin OS
-                        // still sees only the active pointer, which is promoted after every exact
-                        // PRE/POST writer claim exists. A mismatch is transient and is not cached.
-                        let generation =
-                            match crate::capture_generation::read_producer_authorized_generation(
-                                &base_dir,
-                                project_hash_ref,
-                                &broadcast.capture_generation_id,
-                                broadcast.generation_started_at_ms,
-                            ) {
-                                Ok(Some(project_generation))
-                                    if project_generation
-                                        .member(project_hash_ref, instance_id_ref)
-                                        .is_some() =>
-                                {
-                                    project_generation
-                                }
-                                _ if broadcast_is_stale => {
-                                    // A stale staged/aborted generation that never became active is
-                                    // permanently non-authoritative and may now be cached.
-                                    processed_broadcasts.remember(&originator_iid, &broadcast_key);
-                                    continue;
-                                }
-                                _ => continue,
-                            };
-                        let entered = (trigger_pair_resolution)(
-                            &originator_iid,
-                            &broadcast.started_at,
-                            &generation,
-                        );
-                        // Cache only a successful arm (or an IO restart that observes the same
-                        // instance already recording). Transient selection/license/IO failures
-                        // remain retryable instead of permanently dropping one All Keep member.
-                        if entered || record_sm.is_recording() {
-                            if entered {
-                                log::info!(
-                                    "[all_keep] generation member armed: originator={} generation={}",
-                                    originator_iid,
-                                    generation.capture_generation_id
-                                );
-                            }
-                            processed_broadcasts.remember(&originator_iid, &broadcast_key);
-                        }
-                    }
+                    poll_post_broadcasts(
+                        &base_dir,
+                        project_hash_ref,
+                        instance_id_ref,
+                        &daw_session_id_arc,
+                        &record_sm,
+                        &mut processed_broadcasts,
+                        &mut processed_stop_broadcasts,
+                        &trigger_pair_resolution,
+                        &trigger_stop_resolution,
+                    );
                 } else {
                     log::warn!("[all_keep] StoragePaths::default_platform() failed; skipping tick");
                 }
@@ -1072,6 +875,10 @@ mod self_check_service_tests;
 #[cfg(test)]
 #[path = "io_thread_post_stop_keep_barrier_tests.rs"]
 mod b222_all_stop_keep_barrier_tests;
+
+#[cfg(test)]
+#[path = "io_thread_post_broadcast_tests.rs"]
+mod broadcast_receiver_tests;
 
 #[cfg(test)]
 #[path = "io_thread_post_compute_delta_tests.rs"]
