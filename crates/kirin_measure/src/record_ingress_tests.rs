@@ -455,7 +455,7 @@ fn durable_entry_claim_is_never_taken_before_record_lane_preparation() {
             "fn enter_pre_record_if_barrier_ready",
         ),
         (
-            include_str!("io_thread_post.rs"),
+            include_str!("io_thread_post_record_ack.rs"),
             "fn poll_record_signal_ack_with_base",
         ),
     ] {
