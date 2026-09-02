@@ -32,7 +32,6 @@ use crate::engine::SessionSummary;
 use crate::pairing_scope::{
     read_pre_at, select_target_pre_for_arm_for_post_project_in_session, LatchedPre,
 };
-use crate::plugin_data::Role as PluginDataRole;
 #[cfg(test)]
 use crate::post_candidates::{
     discover_active_post_dirs, enumerate_active_post_pair_candidates, scan_post_candidates_in,
@@ -48,9 +47,7 @@ use crate::record_signal;
 use crate::record_signal::{SignalStatus, SIGNALS_SUBDIR};
 #[cfg(test)]
 use crate::record_writer::parse_iso8601_to_epoch_ms;
-use crate::record_writer::{
-    run_record_tick_with_pair_names_require_session_and_marks, RecordingCtx,
-};
+use crate::record_writer::RecordingCtx;
 use crate::storage::{PlatformPaths, StoragePaths};
 use crate::{load_signal_state, MeasureResult, RecordTakeTracker, RecordTraceQueue, SignalState};
 
@@ -118,6 +115,10 @@ use drop_commit::service_open_drop_commit;
 #[path = "io_thread_post_closed_drop.rs"]
 mod closed_drop;
 use closed_drop::ClosedDropRecovery;
+
+#[path = "io_thread_post_writer.rs"]
+mod writer;
+use writer::service_post_record_writer;
 
 #[path = "io_thread_post_broadcast.rs"]
 mod broadcast;
@@ -560,26 +561,6 @@ pub fn spawn_io_thread_post(
                 },
             );
 
-            // plugin_data/.../post/*.json ライフサイクル
-            // POST は自身の signal_path から started_at を resolve
-            // §4-5 Step 1: project_hash_ref は tick 開始時の lazy-read snapshot を流用。
-            let resolver = || match StoragePaths::default_platform() {
-                Ok(paths) => crate::record_writer::resolve_started_at_ms(
-                    &paths.plugin_data_dir(),
-                    project_hash_ref,
-                    instance_id_ref,
-                ),
-                Err(_) => crate::record_writer::now_epoch_ms(),
-            };
-            // v1.2 (a): POST 側は paired_pre_instance_id に trigger_keep が保存した
-            // target_id を渡す。paired_post は常に None（POST 自身が POST なので相手 POST は無い）。
-            let paired_pre_arc = Arc::clone(&paired_pre_target);
-            let paired_pre_resolver = move || paired_pre_arc.lock().ok().and_then(|g| g.clone());
-            let paired_post_resolver = || None::<String>;
-            let pair_name_for_writer = pair_pre_name_snapshot.clone();
-            let pair_pre_name_for_writer = pair_pre_name_snapshot.clone();
-            let pair_name_resolver = move || Some(pair_name_for_writer);
-            let pair_pre_name_resolver = move || Some(pair_pre_name_for_writer);
             // Drop はKirin OSが開始時に捕捉したexact session commitだけを受理する。
             // 一時的不在・破損・capture不一致はR-28に従い無言で次tickへ委ねる。
             service_open_drop_commit(
@@ -589,30 +570,22 @@ pub fn spawn_io_thread_post(
                 project_hash_ref,
                 instance_id_ref,
             );
-            let record_session_id = record_sm.record_session_id();
-            if let Err(e) = run_record_tick_with_pair_names_require_session_and_marks(
+            service_post_record_writer(
                 &record_sm,
-                PluginDataRole::Post,
                 sample_rate,
                 project_hash_ref,
                 instance_id_ref,
-                resolver,
-                paired_pre_resolver,
-                paired_post_resolver,
-                pair_name_resolver,
-                pair_pre_name_resolver,
-                move || record_session_id,
+                &pair_pre_name_snapshot,
+                &paired_pre_target,
                 &post_result,
                 &mut recording,
-                Some(&session_summary),
-                &overflow,       // B-076: per-Record dropped_samples 算出用
-                &oversized_drop, // B-125: per-Record oversized block drop 算出用
-                Some(&record_trace_queue),
-                Some(&record_take_tracker),
+                &session_summary,
+                &overflow,
+                &oversized_drop,
+                &record_trace_queue,
+                &record_take_tracker,
                 &record_mark_queue,
-            ) {
-                log::warn!("[writer] tick error: {}", e);
-            }
+            );
 
             closed_drop_recovery.service(
                 Instant::now(),
