@@ -53,8 +53,6 @@ use kirin_measure::{
 use kirin_measure::{
     append_annotation_to_latest, can_write_plugin_data, count_distinct_pairings,
     current_host_process_id, enqueue_record_mark,
-    enumerate_live_pre_pair_choices_for_post_project_in_session,
-    enumerate_owned_post_pair_candidates_for_operation_group,
     enumerate_ready_post_pair_candidates_for_operation_group, identity_instance_attach,
     identity_instance_detach, latch_selected_pre, live_window, load_license_safe,
     load_signal_state, mark_generation_terminal, mark_released_if_current,
@@ -91,11 +89,16 @@ mod identity_ffi;
 mod identity_registry;
 mod legacy_nih_state;
 mod pair_binding;
+mod pair_candidates_ffi;
 
 pub use attack_ffi::*;
 pub use identity_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
 pub use identity_registry::__reset_shared_ids_for_tests;
 pub use legacy_nih_state::{kirin_hypha_decode_legacy_nih_state, KirinLegacyNihState};
+pub use pair_candidates_ffi::{
+    kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
+    kirin_hypha_enumerate_pre_candidates, KirinPostPairClaim, KirinPreCandidate,
+};
 
 use identity_ffi::IdentityState;
 use identity_registry::{
@@ -2728,60 +2731,6 @@ impl KirinHyphaEngine {
         );
     }
 
-    /// pair 候補（Keep 可能な PRE）を列挙する（B-102 / GUI ドロップダウン用・read-only）。
-    /// `$TMPDIR/kirin/` 配下から現在の project/session 境界で arm できる PRE を走査し
-    /// (instance_id, name) で返す。
-    pub fn enumerate_pre_candidates(&self) -> Vec<(String, Option<String>)> {
-        let kirin_root = PlatformPaths::current_kirin_tmp_root();
-        let project_hash = read_shared_id(&self.project_hash_cell);
-        let daw = read_shared_id(&self.daw_session_id_cell);
-        enumerate_live_pre_pair_choices_for_post_project_in_session(
-            &kirin_root,
-            &project_hash,
-            &daw,
-        )
-        .into_iter()
-        .map(|c| (c.instance_id, c.name))
-        .collect()
-    }
-
-    /// All Keep の「N ready」= 同じexplicit-pair operation groupでpair設定済のActive POST数。
-    /// AU/VST3 が project_hash / DAW ID の両方で分裂してもexact PRE可視性で集約する。
-    pub fn count_keep_ready(&self) -> usize {
-        if self.current_license() != License::Os {
-            return 0;
-        }
-        let kirin_root = PlatformPaths::current_kirin_tmp_root();
-        let project_hash = read_shared_id(&self.project_hash_cell);
-        let daw = read_shared_id(&self.daw_session_id_cell);
-        let candidates = enumerate_ready_post_pair_candidates_for_operation_group(
-            &kirin_root,
-            &project_hash,
-            &daw,
-            current_host_process_id(),
-        );
-        candidates.len()
-    }
-
-    /// POST 側の pair claim 一覧（GUI dropdown の keepability 表示用）。
-    /// `count_keep_ready` と同じ explicit-pair operation group を使い、JUCE/egui の表示差を
-    /// 生まないための read-only C ABI surface。
-    pub fn enumerate_post_pair_claims(&self) -> Vec<(String, Option<String>, Option<String>)> {
-        let kirin_root = PlatformPaths::current_kirin_tmp_root();
-        let project_hash = read_shared_id(&self.project_hash_cell);
-        let daw = read_shared_id(&self.daw_session_id_cell);
-        let candidates = enumerate_owned_post_pair_candidates_for_operation_group(
-            &kirin_root,
-            &project_hash,
-            &daw,
-            current_host_process_id(),
-        );
-        candidates
-            .into_iter()
-            .map(|c| (c.instance_id, c.pair_pre_name, c.paired_pre_instance_id))
-            .collect()
-    }
-
     /// Record中の最新producer sample境界へ固定タグMARKを追加する。
     pub fn add_mark(&self, tag: String) -> bool {
         if !can_write_plugin_data(self.current_license())
@@ -3388,26 +3337,6 @@ pub struct KirinMeterHistoryEntry {
     pub true_peak: KirinMeterHistoryRange,
     pub correlation: KirinMeterHistoryRange,
     pub plr: KirinMeterHistoryRange,
-}
-
-/// `KirinPreCandidate` — pair 候補 1 件（C struct / B-102 ドロップダウン用）。
-/// `instance_id` は null 終端 C 文字列（最大 63 文字）。`name` は PRE 表示名（旧 schema /
-/// 未設定は `has_name=0` で `name` 内容は不定）。固定長 out-param で marshalling する。
-#[repr(C)]
-pub struct KirinPreCandidate {
-    pub instance_id: [c_char; ID_BUF_LEN],
-    pub name: [c_char; ID_BUF_LEN],
-    pub has_name: u8,
-}
-
-/// `KirinPostPairClaim` — POST pair claim 1 件（C struct / dropdown keepability 表示用）。
-#[repr(C)]
-pub struct KirinPostPairClaim {
-    pub instance_id: [c_char; ID_BUF_LEN],
-    pub pair_pre_name: [c_char; ID_BUF_LEN],
-    pub has_pair_pre_name: u8,
-    pub paired_pre_instance_id: [c_char; ID_BUF_LEN],
-    pub has_paired_pre_instance_id: u8,
 }
 
 /// `KirinDelta` — POST の Δ（C struct / B-061 3d-b）。各 double の「値なし」は NaN。
@@ -5687,107 +5616,6 @@ pub unsafe extern "C" fn kirin_hypha_stop_all(handle: *mut KirinHyphaEngine) {
         }
         unsafe { (*handle).stop_all() };
     }));
-}
-
-/// All Keep の「N ready」= pair 設定済の Active POST 数（B-102 / egui n_ready と同一・UI Thread）。
-/// null は 0。
-///
-/// # Safety
-/// `handle` は有効なハンドル。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_count_keep_ready(handle: *mut KirinHyphaEngine) -> usize {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return 0;
-        }
-        unsafe { (*handle).count_keep_ready() }
-    }))
-    .unwrap_or(0)
-}
-
-/// POST 側の pair claim を `out`（最大 `cap` 件）へ書き、書いた件数を返す（UI Thread）。
-/// GUI は PRE 候補名と照合して "Can Keep" / "Keep ready" / "In use" を表示する。
-///
-/// # Safety
-/// `handle` は有効なハンドル。`out` は `cap` 要素以上の書込可能 `KirinPostPairClaim` 配列。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_enumerate_post_pair_claims(
-    handle: *mut KirinHyphaEngine,
-    out: *mut KirinPostPairClaim,
-    cap: usize,
-) -> usize {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() || cap == 0 {
-            return 0;
-        }
-        let claims = unsafe { (*handle).enumerate_post_pair_claims() };
-        let n = claims.len().min(cap);
-        let slice = unsafe { std::slice::from_raw_parts_mut(out, n) };
-        for (dst, (iid, pair_pre_name, paired_pre_instance_id)) in
-            slice.iter_mut().zip(claims.into_iter().take(n))
-        {
-            write_c_buf(&mut dst.instance_id, &iid);
-            match pair_pre_name {
-                Some(name) => {
-                    write_c_buf(&mut dst.pair_pre_name, &name);
-                    dst.has_pair_pre_name = 1;
-                }
-                None => {
-                    write_c_buf(&mut dst.pair_pre_name, "");
-                    dst.has_pair_pre_name = 0;
-                }
-            }
-            match paired_pre_instance_id {
-                Some(instance_id) => {
-                    write_c_buf(&mut dst.paired_pre_instance_id, &instance_id);
-                    dst.has_paired_pre_instance_id = 1;
-                }
-                None => {
-                    write_c_buf(&mut dst.paired_pre_instance_id, "");
-                    dst.has_paired_pre_instance_id = 0;
-                }
-            }
-        }
-        n
-    }))
-    .unwrap_or(0)
-}
-
-/// pair 候補（Active な PRE）を `out`（最大 `cap` 件）へ書き、書いた件数を返す（B-102 / UI Thread）。
-/// `out` は呼び出し側が確保した `KirinPreCandidate[cap]`。`cap` を超える候補は切り捨てる。
-/// null / `cap==0` は 0。各 `instance_id` / `name` は null 終端（最大 63 文字 / `has_name` で名前有無）。
-///
-/// # Safety
-/// `handle` は有効なハンドル。`out` は `cap` 要素以上の書込可能 `KirinPreCandidate` 配列であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_enumerate_pre_candidates(
-    handle: *mut KirinHyphaEngine,
-    out: *mut KirinPreCandidate,
-    cap: usize,
-) -> usize {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() || cap == 0 {
-            return 0;
-        }
-        let cands = unsafe { (*handle).enumerate_pre_candidates() };
-        let n = cands.len().min(cap);
-        let slice = unsafe { std::slice::from_raw_parts_mut(out, n) };
-        for (dst, (iid, name)) in slice.iter_mut().zip(cands.into_iter().take(n)) {
-            write_c_buf(&mut dst.instance_id, &iid);
-            match name {
-                Some(nm) => {
-                    write_c_buf(&mut dst.name, &nm);
-                    dst.has_name = 1;
-                }
-                None => {
-                    write_c_buf(&mut dst.name, "");
-                    dst.has_name = 0;
-                }
-            }
-        }
-        n
-    }))
-    .unwrap_or(0)
 }
 
 /// POST の Δ を `out` に書く（3d-b / GUI 表示用）。値があれば true、競合/未計測なら false。
