@@ -18,7 +18,7 @@ POSTを2MIXの最終段に常設したとき、Hyphaだけで日常的なメー�
 
 既存の画面遷移を互換性のために温存せず、情報設計とvisual shellを根本から再構成する。
 
-ただし、音声非加工、計測式、exact endpoint、固定容量payload、解析資源制御は実装資産として保持する。
+ただし、通常のA経路の音声非加工、計測式、exact endpoint、固定容量payload、解析資源制御は実装資産として保持する。
 
 添付されたConcept C Hybrid Observatoryを、情報密度、階層、色、菌糸の抑制量を決める視覚基準にする。
 
@@ -46,13 +46,23 @@ ATTACKの完了commitはGitの三者マージでこのブランチへ統合し�
 
 R-12を維持する。
 
-音声信号を生成、変更、遅延しない。
+通常のPRE/POST計測では音声信号を生成、変更、減衰、遅延しない。
 
-Audio Threadは入力の読み取り、事前確保済みバッファへのコピー、atomic通知だけを行う。
+通常計測時のAudio Threadは入力の読み取り、事前確保済みバッファへのコピー、atomic通知だけを行う。
 
 FFT、履歴集計、画像生成、ファイル保存、UI描画はAudio Threadで行わない。
 
-メーター機能の追加後もレイテンシーは0 samples、PREとPOSTの音声差分はbit identicalを合格条件とする。
+メーター機能の追加後も、通常のA経路はレイテンシー0 samples、PREとPOSTの音声差分はbit identicalを
+合格条件とする。
+
+利用者が明示的に開始するReference比較試聴は、R-12で禁止する音声生成・加工には含めない。
+登録済みの不変なReferenceを試聴専用B経路で再生し、試聴コピーにだけ一時的なGain Matchを適用できる。
+Referenceファイル、通常のA経路、正本のPRE/POST測定・Recordは変更しない。
+
+B経路は接続、Reference読込、project復元だけでは有効化しない。offline render、Reference欠損、
+identity検証失敗時はA経路を維持する。Referenceのfile I/O、decode、検証、可変長準備は非RT側で行い、
+Audio Threadでは事前確保済みbufferのRT-safeな選択・出力だけを許可する。allocation、lock、
+blocking I/Oを持ち込まない。
 
 ### 3.2 Measurement boundary
 
@@ -476,7 +486,11 @@ Max Mは10 ms規格解析値を100 msのMeter Session snapshot境界へ固定し
 
 Audio Threadのallocation、lock、I/Oが0件であることをコードと計測で確認する。
 
-PREとPOSTのbit identical、0 samples latency、process CPU基準を再確認する。
+通常のA経路でPREとPOSTのbit identical、0 samples latency、process CPU基準を再確認する。
+
+Reference比較試聴を実装する場合は、明示操作前、project復元、offline render、Reference欠損、identity検証失敗で
+A経路が維持されること、B経路が正本のPRE/POST測定・Recordへ混入しないこと、Audio Threadへallocation、
+lock、blocking I/Oを追加しないことを検証する。
 
 Measure Thread panic、UI close/reopen、history欠落、sample rate変更を検証する。
 

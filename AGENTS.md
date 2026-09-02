@@ -55,7 +55,8 @@ node scripts/ls_release/kirin_hypha_ls_dry_run.mjs \
 は payload smoke test 用のみで、LSには絶対にアップロードしない。
 
 ## プロジェクト概要
-Kirin Hypha は Kirin OS の計測プラグイン。VST3。DAW内で音声を一切加工せず、計測のみ行う。
+Kirin Hypha は Kirin OS と連携する計測プラグイン。VST3。通常の計測経路ではDAW入力を加工せず、
+利用者が明示した比較試聴では登録済みReferenceを非破壊再生できる。
 PRE/POST の2バイナリでマスタリングチェインの前後を計測し、差分（Δ）を表示する。
 ライセンス: GPLv3（オープンソース公開）。Kirin OS本体（プロプライエタリ）とは完全分離。
 
@@ -70,15 +71,25 @@ PRE/POST の2バイナリでマスタリングチェインの前後を計測し�
 ## 絶対原則
 
 ### R-12 製造境界（不変）
-Kirin Hypha は音声信号を生成・加工しない。計測・分析・制御信号の送信のみ。
-Audio Thread（processBlock）は読み取り・コピー・通知のみを行う。信号の変更・生成・遅延導入は禁止。アロケーション・ロック・ブロッキング I/O も禁止（RT 安全）。
+通常のPRE/POST計測経路では、HyphaはDAW入力を生成・加工・減衰・遅延させない。A経路は0 samples latency、
+入出力bit identicalを維持し、元音源と正本のPRE/POST測定・Recordを書き換えない。
+
+利用者の明示操作によるReferenceの比較試聴は、この禁止対象に含めない。登録済みの不変なReferenceを
+試聴用B経路で再生し、試聴コピーにだけ一時的なGain Matchを適用できる。Referenceファイル、A経路、
+正本のPRE/POST測定・Recordは変更せず、接続、読込、復元だけでBへ自動切替しない。offline render、
+Reference欠損、検証失敗時はA経路を維持する。
+
+Audio Thread（processBlock）は通常計測では読み取り・コピー・通知だけを行う。比較試聴では、非RT側で
+検証・decode・準備した事前確保済みReference bufferの選択とRT-safeな出力だけを許可する。
+いずれもAudio Threadでのアロケーション、ロック、ブロッキングI/Oは禁止する。
 
 ### R-13（Hub & Spoke）
 `work.json`（schema: `work.schema.json`）が全システムの接続点。各モジュール間はこの接続点を通じて連携する。売り切り。サーバー・アカウント不要。
 
 ### 3層隔離
 ```
-Audio Thread   — 読み取り・コピー・通知のみ（変更/生成/遅延・alloc/lock/IO 禁止＝RT 安全）。絶対に落ちない
+Audio Thread   — 通常計測は読み取り・コピー・通知のみ。明示的な比較試聴は準備済みReference bufferの
+                 RT-safeな選択・出力だけを許可（alloc/lock/IO 禁止）。絶対に落ちない
 Measure Thread — 計測。クラッシュ → Audio Threadが検出 → 自動再起動
 IO Thread      — /tmp/ 書き込み。クラッシュ → Audio Threadが検出 → 自動再起動
 ```
@@ -218,7 +229,7 @@ user-level に古いバイナリが残ると Studio One が古い方を優先読
 必ず `cargo run --package xtask -- install --release` を経由すること。
 
 ### 合格基準（Step 1）
-- Audio Thread: テスト信号PRE/POST差分 = 0（ビット同一）
+- Audio Thread: 通常のA経路でテスト信号PRE/POST差分 = 0（ビット同一）
 - レイテンシー: 0 samples
 - LUFS-M: EBU R128テスト信号で ±0.1 LU以内
 - Crest: ±0.2 dB以内
