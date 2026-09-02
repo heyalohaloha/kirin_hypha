@@ -276,7 +276,7 @@ jobs:
           Push-Location $downloadDir
           try {
             gh release download is-6_7_3 --repo jrsoftware/issrc --pattern 'innosetup-6.7.3.exe'
-            gh release verify-asset 'innosetup-6.7.3.exe' --repo jrsoftware/issrc
+            gh release verify-asset is-6_7_3 'innosetup-6.7.3.exe' --repo jrsoftware/issrc
             $installer = Join-Path $downloadDir 'innosetup-6.7.3.exe'
             $process = Start-Process -FilePath $installer -ArgumentList @(
               '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$installDir"

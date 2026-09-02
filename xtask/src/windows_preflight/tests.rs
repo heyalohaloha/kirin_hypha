@@ -238,6 +238,18 @@ fn preflight_requires_windows_release_package_script() {
 }
 
 #[test]
+fn preflight_requires_pinned_inno_release_attestation() {
+    let bad = CI_WORKFLOW.replace(
+        "gh release verify-asset is-6_7_3 'innosetup-6.7.3.exe' --repo jrsoftware/issrc",
+        "gh release verify-asset 'innosetup-6.7.3.exe' --repo jrsoftware/issrc",
+    );
+    let err = verify_windows_ci_job(&bad).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("must verify Inno Setup against its pinned release attestation"));
+}
+
+#[test]
 fn preflight_requires_windows_release_package_upload() {
     let bad = CI_WORKFLOW.replace(
         "name: kirin-hypha-windows-installer",

@@ -243,6 +243,11 @@ fn verify_windows_ci_job(workflow: &str) -> Result<()> {
     )?;
     require(
         job_code,
+        "gh release verify-asset is-6_7_3 'innosetup-6.7.3.exe' --repo jrsoftware/issrc",
+        "Windows preflight job must verify Inno Setup against its pinned release attestation",
+    )?;
+    require(
+        job_code,
         "Build Windows installer and sign all executable surfaces",
         "Windows preflight job must build the primary Windows installer",
     )?;
