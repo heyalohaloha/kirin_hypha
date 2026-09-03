@@ -520,4 +520,21 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         juce::juce_recommended_warning_flags)
     add_test(NAME kirin_reference_audition_runtime
         COMMAND KirinReferenceAuditionRuntimeTests)
+
+    juce_add_console_app(KirinReferenceAudioPagesTests
+        PRODUCT_NAME "Kirin Reference Audio Page Tests")
+    target_sources(KirinReferenceAudioPagesTests PRIVATE
+        tests/reference_audio_pages_test.cpp
+        src/reference_audition/ReferenceAudioPages.cpp
+        src/reference_audition/ReferenceAuditionProtocol.cpp)
+    target_compile_definitions(KirinReferenceAudioPagesTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_compile_options(KirinReferenceAudioPagesTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinReferenceAudioPagesTests PRIVATE
+        juce::juce_audio_formats
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_reference_audio_pages COMMAND KirinReferenceAudioPagesTests)
 endif()
