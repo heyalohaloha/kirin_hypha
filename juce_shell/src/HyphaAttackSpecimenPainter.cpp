@@ -306,10 +306,49 @@ void drawFibres (juce::Graphics& g, const KirinAttackDetail& detail,
     }
 }
 
+void drawBioluminescentSweep (juce::Graphics& g, const KirinAttackDetail& detail,
+                              juce::Rectangle<int> area, FeatureAmounts amounts,
+                              float emissionPhase)
+{
+    const auto phase = juce::jlimit (0.0f, 1.0f, emissionPhase);
+    const auto energy = juce::jlimit (0.0f, 1.0f,
+        amounts.strength * 0.42f + amounts.brightness * 0.20f
+      + amounts.transient * 0.24f + amounts.texture * 0.14f);
+    if (energy <= 0.0f)
+        return;
+    const auto target = emissionTarget (area, 1.0f);
+    const auto head = target.getX() + target.getWidth() * phase;
+    const auto trail = target.getWidth() * (0.16f + amounts.texture * 0.24f);
+    const auto leading = target.getWidth() * (0.035f + amounts.transient * 0.055f);
+    const auto warm = strengthColour.interpolatedWith (
+        textureColour, juce::jlimit (0.0f, 1.0f, amounts.texture));
+    const auto cool = brightnessColour.interpolatedWith (
+        transientColour, juce::jlimit (0.0f, 1.0f, amounts.transient));
+    juce::ColourGradient gradient (
+        warm.withAlpha (0.0f), head - trail, target.getCentreY(),
+        cool.withAlpha (0.0f), head + leading, target.getCentreY(), false);
+    gradient.addColour (0.50, warm.withAlpha (0.10f + energy * 0.24f));
+    gradient.addColour (0.82, cool.withAlpha (0.18f + energy * 0.50f));
+    gradient.addColour (0.90, juce::Colour (0xffd8f8ff).withAlpha (0.18f + energy * 0.42f));
+    const auto pulse = std::sin (juce::MathConstants<float>::pi * phase);
+    g.setColour (warm.interpolatedWith (cool, phase)
+                      .withAlpha ((0.05f + energy * 0.18f) * pulse));
+    g.strokePath (specimenBody (detail, area, 0.98f + pulse * 0.10f,
+                                juce::jlimit (0.0f, 1.0f, amounts.transient)),
+                  juce::PathStrokeType (0.7f + pulse * 1.6f,
+                                        juce::PathStrokeType::curved));
+    juce::Graphics::ScopedSaveState saved (g);
+    g.reduceClipRegion (specimenBody (detail, area, 1.08f,
+                                      juce::jlimit (0.0f, 1.0f, amounts.transient)));
+    g.setGradientFill (gradient);
+    g.fillRect (target.expanded (2.0f));
+}
+
 }
 
 void drawAbsolute (juce::Graphics& g, const KirinAttackDetail& detail,
-                   juce::Rectangle<int> area, FeatureAmounts amounts)
+                   juce::Rectangle<int> area, FeatureAmounts amounts,
+                   float emissionPhase)
 {
     if (area.getWidth() < 4 || area.getHeight() < 4 || detail.shape_count < 2)
         return;
@@ -324,11 +363,13 @@ void drawAbsolute (juce::Graphics& g, const KirinAttackDetail& detail,
                    textureColour, amounts.texture * 1.25f);
     drawMembranes (g, detail, area, amounts.brightness, tail);
     drawFibres (g, detail, area, amounts);
+    drawBioluminescentSweep (g, detail, area, amounts, emissionPhase);
 }
 
 void drawComparison (juce::Graphics& g, const KirinAttackDetail& pre,
                      const KirinAttackDetail& post, juce::Rectangle<int> area,
-                     FeatureAmounts preAmounts, FeatureAmounts postAmounts)
+                     FeatureAmounts preAmounts, FeatureAmounts postAmounts,
+                     float emissionPhase)
 {
     if (area.getWidth() < 4 || area.getHeight() < 4
         || pre.shape_count < 2 || post.shape_count < 2)
@@ -353,6 +394,7 @@ void drawComparison (juce::Graphics& g, const KirinAttackDetail& pre,
                   postAmounts.brightness * 0.64f,
                   postAmounts.transient * 0.64f,
                   postAmounts.texture * 0.72f });
+    drawBioluminescentSweep (g, post, area, postAmounts, emissionPhase);
 }
 
 }

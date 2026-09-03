@@ -125,7 +125,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         processorRef.observatoryTargetPreference()));
     observatoryView.setTimeRange (hypha::observatory::timeRangeFromState (
         processorRef.observatoryTimeRangePreference()));
-    setResizable (true, false);
+    configureMeterContext(); setResizable (true, false);
     setResizeLimits (300, 200, 900, 600);
     if (auto* constrainer = getConstrainer())
         constrainer->setFixedAspectRatio (1.5);
@@ -166,11 +166,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
                 processorRef.setSpectrumSizePreference ((uint8_t) index);
             }
         setSize (preset.width, preset.height);
-    };
-    observatoryView.onReset = [this]
-    {
-        if (! processorRef.resetMeterSession())
-            showToast ("Meter Session could not be reset");
     };
     observatoryView.onCapture = [this] { beginObservatoryCapture(); };
     scaleRoot.addAndMakeVisible (observatoryView);
@@ -412,10 +407,8 @@ void KirinHyphaEditor::resized()
     const auto viewport = hypha::observatory::displayViewport (getWidth(), getHeight());
     scaleRoot.setTransform (juce::AffineTransform());
     scaleRoot.setBounds (0, 0, viewport.width, viewport.height);
-    // Inspection remains a retained native-resolution surface. Studio Pro on Windows can expose
-    // partial child updates at this size; one root image presents the completed 900 x 600 frame
-    // without reducing it to a magnified 600 x 400 anatomy.
-    scaleRoot.setBufferedToImage (getWidth() > 600);
+    // Keep the root live: Studio One may retain a stale cached peer surface after host resizing.
+    scaleRoot.setBufferedToImage (false);
     scaleRoot.setTransform (juce::AffineTransform::scale (viewport.scale));
     observatoryView.setDisplayedEditorSize (getWidth(), getHeight());
     observatoryView.setBounds (scaleRoot.getLocalBounds());
@@ -423,8 +416,11 @@ void KirinHyphaEditor::resized()
     auto connection = observatoryView.connectionBounds().reduced (4, 2);
     led.setBounds (connection.removeFromLeft (10).withSizeKeepingCentre (7, 7));
     if (isPost)
+    {
+        nameField.setPrefix (getWidth() < 450 ? "" : "PAIR ");
         pairDropdown.setBounds (connection.removeFromRight (18));
-    const bool showName = getWidth() >= hypha::observatory::sizePresets[1].width;
+    }
+    const bool showName = true;
     nameField.setVisible (showName);
     observatoryView.setExternalConnectionLabelVisible (showName);
     if (showName)
@@ -433,22 +429,11 @@ void KirinHyphaEditor::resized()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost)
     {
-        auto body = observatoryView.bodyBounds();
         spectrumToggle.setVisible (false);
         spectrumSizeToggle.setVisible (false);
         updateTimePageNavigation();
-        const bool directTimeNavigation = observatoryDomain == hypha::observatory::Domain::time
-            && observatoryView.experienceFamily()
-                == hypha::observatory::ExperienceFamily::observatory;
-        auto analysisBody = observatoryView.bodyBounds();
-        if (directTimeNavigation)
-        {
-            auto navigation = analysisBody.removeFromTop (24);
-            navigation.removeFromRight (juce::jmin (112, navigation.getWidth() / 3));
-            timePageNavigation.setBounds (navigation);
-        }
-        else
-            timePageNavigation.setBounds (body.removeFromTop (24).removeFromLeft (72));
+        auto analysisBody = observatoryView.analysisBodyBounds();
+        timePageNavigation.setBounds (observatoryView.timeNavigationBounds());
         spectrumView.setBounds (analysisBody);
         perceptualView.setBounds (analysisBody);
         absoluteView.setBounds (analysisBody);
@@ -488,6 +473,7 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     cachedAttackLatest = -1;
     cachedAttackRate = 0;
     cachedAttackGeneration = 0;
+    cachedAttackPairStatus = -1;
     // ATTACK / FREQ / SHARP / LIVE share the current Analysis lease. Their `true` edge changes
     // the isolated analyzer while post_visible remains set. Only METERS releases the slot.
     if (hypha::analysis_navigation::releasesSlot (previousPage, page))
@@ -502,6 +488,7 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
             processorRef.setAttackEnabled (false);
     }
     analysisPage = page;
+    observatoryView.setExternalAnalysisBodyActive (page != AnalysisPage::meters);
     const bool analysisOpen = page != AnalysisPage::meters;
     for (auto& cell : cells)
         cell.setVisible (false);
@@ -1068,95 +1055,8 @@ void KirinHyphaEditor::updatePost()
                           pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
 
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (analysisPage == AnalysisPage::attack)
-    {
-        KirinAttackStats stats {};
-        if (processorRef.attackStats (stats))
-            cachedAttackStats = stats;
-
-        KirinAttackEventBatch events {};
-        if (processorRef.pollAttackEvents (events))
-            cachedAttackEvents = events;
-
-        KirinAttackWaveformBatch waveform {};
-        if (processorRef.pollAttackWaveform (waveform))
-            cachedAttackWaveform = waveform;
-
-        KirinAttackDetailBatch details {};
-        if (processorRef.pollAttackDetails (details))
-            cachedAttackDetails = details;
-
-        KirinAttackWaveformBatch preWaveform {};
-        if (processorRef.pollAttackPreWaveform (preWaveform))
-            cachedAttackPreWaveform = preWaveform;
-
-        KirinAttackDetailBatch preDetails {};
-        if (processorRef.pollAttackPreDetails (preDetails))
-            cachedAttackPreDetails = preDetails;
-
-        KirinAttackPairEventBatch pairEvents {};
-        if (processorRef.pollAttackPairEvents (pairEvents))
-            cachedAttackPairEvents = pairEvents;
-
-        KirinAttackBatch raw {};
-        if (processorRef.pollAttackBatch (raw) && raw.count > 0)
-        {
-            const auto count = juce::jmin (
-                raw.count, static_cast<std::uint32_t> (KIRIN_ATTACK_BATCH_CAPACITY));
-            const auto& newest = raw.frames[count - 1];
-            cachedAttackLatest = newest.support_end_samples;
-            cachedAttackRate = newest.sample_rate;
-            cachedAttackGeneration = newest.generation;
-        }
-        attackView.setSnapshot (
-            cachedAttackEvents, cachedAttackWaveform, cachedAttackDetails,
-            cachedAttackPreWaveform, cachedAttackPreDetails, cachedAttackPairEvents,
-            cachedAttackLatest, cachedAttackRate, cachedAttackGeneration, cachedAttackStats);
-        attackView.presentationTick (sig == KIRIN_SIGNAL_STATE_ACTIVE);
-        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
+    if (refreshAnalysisViews (alive, sig, rec, armed, ack, preset, pairStatus))
         return;
-    }
-
-    juce::String analysisOwnerNames;
-    const bool haveAnalysisOwnerNames = analysisPage != AnalysisPage::meters
-        && processorRef.pollAnalysisOwnerNames (analysisOwnerNames);
-    if (analysisPage == AnalysisPage::spectrum)
-    {
-        spectrumView.setGuideFrequencyOverlay (
-            hypha::guide_frequency::fromGuidePresentation (
-                processorRef.guidePresentationSnapshot()));
-        if (haveAnalysisOwnerNames)
-            spectrumView.setAnalysisOwnerNames (analysisOwnerNames);
-        spectrumView.presentationTick();
-        KirinSpectrumBatch spectrum {};
-        if (processorRef.pollSpectrumBatch (spectrum))
-            spectrumView.setBatch (spectrum);
-        // Spectrum is presentation-only. Pair/Keep/feedback and the existing status LED remain
-        // live, while meter polling and smoothing are skipped for this page.
-        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
-        return;
-    }
-    if (analysisPage == AnalysisPage::perceptual)
-    {
-        if (haveAnalysisOwnerNames)
-            perceptualView.setAnalysisOwnerNames (analysisOwnerNames);
-        perceptualView.presentationTick();
-        KirinPerceptualBatch perceptual {};
-        if (processorRef.pollPerceptualBatch (perceptual))
-            perceptualView.setBatch (perceptual);
-        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
-        return;
-    }
-    if (analysisPage == AnalysisPage::absolute)
-    {
-        if (haveAnalysisOwnerNames)
-            absoluteView.setAnalysisOwnerNames (analysisOwnerNames);
-        KirinAbsoluteBatch absolute {};
-        if (processorRef.pollAbsoluteBatch (absolute))
-            absoluteView.setBatch (absolute);
-        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
-        return;
-    }
    #endif
 
     // ── display-branch tree: Record uses one generation-bound presentation snapshot, while

@@ -180,10 +180,6 @@ namespace
                            coreDiameter, coreDiameter);
             return;
         }
-        g.setColour (colour.withAlpha (0.16f));
-        g.strokePath (path, juce::PathStrokeType (3.2f * scale,
-                                                  juce::PathStrokeType::curved,
-                                                  juce::PathStrokeType::rounded));
         g.setColour (colour.withAlpha (0.94f));
         g.strokePath (path, juce::PathStrokeType (1.15f * scale,
                                                   juce::PathStrokeType::curved,

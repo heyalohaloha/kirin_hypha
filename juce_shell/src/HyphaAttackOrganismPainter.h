@@ -25,5 +25,6 @@ namespace hypha::attack_organism
     void drawFocus (juce::Graphics&,
                     const KirinAttackDetail* preDetail,
                     const KirinAttackDetail* postDetail,
-                    juce::Rectangle<int>);
+                    juce::Rectangle<int>,
+                    float emissionPhase);
 }

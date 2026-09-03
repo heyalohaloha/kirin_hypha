@@ -32,6 +32,38 @@ hypha::observatory::ConnectionState observatoryConnectionState (bool isPost, int
 }
 }
 
+void KirinHyphaEditor::configureMeterContext()
+{
+    observatoryView.setMeterContext (processorRef.meterContextPreference());
+    observatoryView.setScaleMode (processorRef.scaleModePreference());
+    observatoryView.onContextChange = [this] (hypha::meter_context::MeterContext context)
+    {
+        const auto scale = hypha::meter_context::initialScaleFor (context);
+        observatoryView.setMeterContext (context);
+        observatoryView.setScaleMode (scale);
+        processorRef.setMeterContextPreference (context);
+        processorRef.setScaleModePreference (scale);
+    };
+    observatoryView.onScaleChange = [this] (hypha::meter_context::ScaleMode scale)
+    {
+        observatoryView.setScaleMode (scale);
+        processorRef.setScaleModePreference (scale);
+    };
+    observatoryView.onReset = [this]
+    {
+        if (! processorRef.resetMeterSession())
+        {
+            showToast ("Meter Session could not be reset");
+            return;
+        }
+        watchMaximum = {};
+        observatoryWatchDisplay = {};
+        haveWatchMaximum = false;
+        haveObservatoryWatchDisplay = false;
+        observatoryView.setWatchDisplay ({}, false);
+    };
+}
+
 void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 {
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
@@ -77,6 +109,10 @@ void KirinHyphaEditor::refreshObservatory()
         processorRef.observatoryTimeRangePreference());
     if (restoredRange != observatoryView.selectedTimeRange())
         observatoryView.setTimeRange (restoredRange);
+    if (processorRef.meterContextPreference() != observatoryView.meterContext())
+        observatoryView.setMeterContext (processorRef.meterContextPreference());
+    if (processorRef.scaleModePreference() != observatoryView.scaleMode())
+        observatoryView.setScaleMode (processorRef.scaleModePreference());
     const auto restoredSize = juce::jmin (
         (size_t) processorRef.spectrumSizePreference(),
         hypha::observatory::sizePresets.size() - 1u);

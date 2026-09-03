@@ -34,18 +34,12 @@ const KirinAttackDetail* findDetail (const KirinAttackDetailBatch& batch,
 
 void drawSelectionArc (juce::Graphics& g, int x, juce::Rectangle<int> timeline)
 {
-    const auto y = static_cast<float> (timeline.getBottom() - 2);
-    juce::Path arc;
-    arc.startNewSubPath (static_cast<float> (x - 13), y);
-    arc.cubicTo (static_cast<float> (x - 7), y,
-                 static_cast<float> (x - 7), y - 7.0f,
-                 static_cast<float> (x), y - 7.0f);
-    arc.cubicTo (static_cast<float> (x + 7), y - 7.0f,
-                 static_cast<float> (x + 7), y,
-                 static_cast<float> (x + 13), y);
+    g.setColour (selectionColour.withAlpha (0.30f));
+    g.drawVerticalLine (x, static_cast<float> (timeline.getY() + 2),
+                        static_cast<float> (timeline.getBottom() - 2));
     g.setColour (selectionColour);
-    g.strokePath (arc, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved,
-                                             juce::PathStrokeType::rounded));
+    g.fillEllipse (static_cast<float> (x - 2), static_cast<float> (timeline.getBottom() - 5),
+                   4.0f, 4.0f);
 }
 }
 
@@ -91,10 +85,13 @@ void AttackComponent::presentationTick (bool signalActive)
 
 void AttackComponent::presentationTickAt (double nowMs)
 {
+    const auto previousLatest = latest;
+    const auto previousSelection = selectedEventSample;
     advancePresentation (nowMs);
     if (followLatest)
         selectBoundaryEvent (true);
-    repaint();
+    if (latest != previousLatest || selectedEventSample != previousSelection)
+        repaint();
 }
 
 void AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
@@ -222,6 +219,7 @@ const KirinAttackDetail* AttackComponent::selectedPreDetail() const noexcept
 void AttackComponent::paint (juce::Graphics& g)
 {
     auto bounds = getLocalBounds();
+    const auto textScale = attack_ui::textScale (getWidth(), getHeight());
     // ATTACK owns the Observatory body while selected. Keep the body opaque so the HISTORY
     // labels beneath this child cannot leak into its transparent header or capture composite.
     g.setColour (BG);
@@ -239,13 +237,13 @@ void AttackComponent::paint (juce::Graphics& g)
 
     auto titleRow = header.removeFromTop (16);
     auto viewButton = titleRow.removeFromRight (attack_ui::modeControlWidth (getWidth()));
-    g.setFont (monoFont (9.2f));
+    g.setFont (monoFont (9.2f * textScale));
     g.setColour (COL_NORMAL);
     g.drawText ("ATTACK  /  EVENT MATTER", titleRow, juce::Justification::centredLeft);
     g.setColour (waveformColour.withAlpha (0.10f));
     g.fillRoundedRectangle (viewButton.reduced (1).toFloat(), 3.0f);
     g.setColour (COL_NORMAL);
-    g.setFont (monoFont (7.2f));
+    g.setFont (monoFont (7.2f * textScale));
     g.drawText (overlayMode ? "VIEW  2 ROWS" : "VIEW  OVERLAY",
                 viewButton, juce::Justification::centred);
 
@@ -255,7 +253,7 @@ void AttackComponent::paint (juce::Graphics& g)
     const auto legend = [&] (juce::Colour colour, const juce::String& text, bool last)
     {
         g.setColour (colour);
-        g.setFont (monoFont (6.5f));
+        g.setFont (monoFont (6.5f * textScale));
         g.drawText (text, last ? header : header.removeFromLeft (legendWidth),
                     juce::Justification::centredLeft);
     };
@@ -266,7 +264,7 @@ void AttackComponent::paint (juce::Graphics& g)
     if (! state.isEmpty())
     {
         g.setColour (COL_MUTED);
-        g.setFont (monoFont (6.5f));
+        g.setFont (monoFont (6.5f * textScale));
         g.drawText (juce::String (paired ? "DRUM / " : "POST / ")
                         + (followLatest ? "LIVE" : "LOCK"),
                     state, juce::Justification::centredRight);
@@ -277,7 +275,7 @@ void AttackComponent::paint (juce::Graphics& g)
     if (! running || ! attack_ui::validTimeline (latest, rate))
     {
         g.setColour (COL_MUTED);
-        g.setFont (monoFont (8.0f));
+        g.setFont (monoFont (8.0f * textScale));
         g.drawText (runtimeStats.available == 0 ? "UNAVAILABLE" : "WARMING UP",
                     bounds, juce::Justification::centred);
         return;
@@ -310,7 +308,7 @@ void AttackComponent::paint (juce::Graphics& g)
         g.drawHorizontalLine (preLane.getBottom(), static_cast<float> (preLane.getX() + 3),
                               static_cast<float> (preLane.getRight() - 3));
         g.setColour (COL_MUTED);
-        g.setFont (monoFont (6.4f));
+        g.setFont (monoFont (6.4f * textScale));
         g.drawText ("PRE", preLane.reduced (5, 1), juce::Justification::topLeft);
         g.drawText ("POST", postLane.reduced (5, 1), juce::Justification::topLeft);
     }
@@ -355,14 +353,14 @@ void AttackComponent::paint (juce::Graphics& g)
     const auto markerArea = timelineBounds().reduced (1);
     const auto selectedX = attack_ui::eventX (
         selectedEventSample, latest, rate, markerArea.getWidth());
-    if (selectedX >= 0)
+    if (! metrics.isEmpty() && selectedX >= 0)
         drawSelectionArc (g, markerArea.getX() + selectedX, markerArea);
 
     const auto railY = scrub.getCentreY() - 2;
     g.setColour (waveformColour.withAlpha (0.28f));
     g.drawHorizontalLine (railY, static_cast<float> (scrub.getX() + 35),
                           static_cast<float> (scrub.getRight() - 35));
-    g.setFont (monoFont (6.8f));
+    g.setFont (monoFont (6.8f * textScale));
     g.setColour (COL_MUTED);
     g.drawText ("-6 s", scrub.removeFromLeft (35), juce::Justification::centredLeft);
     g.setColour (followLatest ? selectionColour : COL_MUTED);
@@ -384,7 +382,7 @@ void AttackComponent::paint (juce::Graphics& g)
     auto content = metrics.reduced (7, 3);
     auto focusHeader = content.removeFromTop (12);
     g.setColour (COL_MUTED);
-    g.setFont (monoFont (6.5f));
+    g.setFont (monoFont (6.5f * textScale));
     const auto beforeMs = postDetail->sample_rate > 0
         ? (postDetail->event_sample - postDetail->shape_start_sample) * 1'000
             / static_cast<std::int64_t> (postDetail->sample_rate) : 0;
@@ -432,11 +430,14 @@ void AttackComponent::paint (juce::Graphics& g)
 
     if (content.getWidth() >= 390 && content.getHeight() >= 65)
     {
-        const auto sideWidth = juce::jmin (112, content.getWidth() / 4);
+        const auto sideWidth = juce::jmin (textScale > 1.4f ? 178 : 112,
+                                           content.getWidth() / 4);
         auto left = content.removeFromLeft (sideWidth);
         auto right = content.removeFromRight (sideWidth);
         auto specimen = content.reduced (4, 1);
-        drawEventFocus (g, preDetail, postDetail, specimen);
+        const auto phase = rate > 0 ? juce::jlimit (0.0f, 1.0f,
+            static_cast<float> (latest - postDetail->event_sample) / (0.42f * rate)) : 1.0f;
+        drawEventFocus (g, preDetail, postDetail, specimen, phase);
         auto leftTop = left.removeFromTop (left.getHeight() / 2).reduced (1);
         auto leftBottom = left.reduced (1);
         auto rightTop = right.removeFromTop (right.getHeight() / 2).reduced (1);
@@ -452,7 +453,9 @@ void AttackComponent::paint (juce::Graphics& g)
     }
     else
     {
-        drawEventFocus (g, preDetail, postDetail, content.reduced (2, 1));
+        const auto phase = rate > 0 ? juce::jlimit (0.0f, 1.0f,
+            static_cast<float> (latest - postDetail->event_sample) / (0.42f * rate)) : 1.0f;
+        drawEventFocus (g, preDetail, postDetail, content.reduced (2, 1), phase);
         const auto width = content.getWidth() / 4;
         auto strength = content.removeFromLeft (width);
         auto brightness = content.removeFromLeft (width);

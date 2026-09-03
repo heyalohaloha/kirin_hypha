@@ -322,9 +322,10 @@ void drawWaveformDifferences (juce::Graphics& g,
 void drawEventFocus (juce::Graphics& g,
                      const KirinAttackDetail* preDetail,
                      const KirinAttackDetail* postDetail,
-                     juce::Rectangle<int> area)
+                     juce::Rectangle<int> area,
+                     float emissionPhase)
 {
-    attack_organism::drawFocus (g, preDetail, postDetail, area);
+    attack_organism::drawFocus (g, preDetail, postDetail, area, emissionPhase);
 }
 
 }

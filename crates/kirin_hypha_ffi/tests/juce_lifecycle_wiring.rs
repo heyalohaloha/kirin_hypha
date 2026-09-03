@@ -27,8 +27,9 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     ] {
         assert!(ffi_header.contains(symbol), "FFI must expose {symbol}");
     }
-
-    let juce_editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let juce_editor = read_repo("juce_shell/src/PluginEditor.cpp")
+        + &read_repo("juce_shell/src/PluginEditorObservatory.cpp")
+        + &read_repo("juce_shell/src/PluginEditorAnalysis.cpp");
     for text in ["PAIR —", "PAIR ◌", "PAIR ●"] {
         assert!(
             juce_editor.contains(text),
@@ -60,7 +61,6 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
             || juce_editor.contains("ui::postTitle : ui::preTitle")
     );
     assert!(!juce_editor.contains("setSize (300, 200)"));
-
     let observatory = read_repo("juce_shell/src/HyphaObservatoryContract.h");
     for required in [
         "enum class Domain",
@@ -80,7 +80,6 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     let observatory_resize = read_repo("juce_shell/src/HyphaObservatoryResizeContract.h");
     assert!(observatory_resize.contains("std::array<SizePreset, 5>"));
     assert!(observatory_resize.contains("validEditorSize"));
-
     let ui_contract = read_repo("juce_shell/src/HyphaUiContract.h");
     for required in [
         "constexpr int editorWidth  = 300",
@@ -99,7 +98,6 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
             "common UI contract missing {required}"
         );
     }
-
     let theme = read_repo("juce_shell/src/HyphaTheme.h");
     for required in [
         "ui_contract::background",
@@ -114,7 +112,6 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
             "theme bypasses UI contract: {required}"
         );
     }
-
     let juce_controls = read_repo("juce_shell/src/PostControls.cpp");
     assert!(juce_controls.contains("keepBtn  .setVisible (! keepActive && os)"));
     assert!(juce_controls.contains("keepBtn  .setEnabled (pairSelected)"));
@@ -123,7 +120,6 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     let juce_controls_header = read_repo("juce_shell/src/PostControls.h");
     assert!(juce_controls_header.contains("ui_contract::keepLabel"));
     assert!(juce_controls_header.contains("ui_contract::stopLabel"));
-
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     assert!(cmake.contains("set(KIRIN_PLUGIN_FORMATS AU VST3)"));
     assert!(cmake.contains("FORMATS ${KIRIN_PLUGIN_FORMATS}"));
@@ -152,9 +148,11 @@ fn direct_keep_feedback_is_a_consumable_edge_not_a_persistent_error() {
     assert!(ffi.contains("and_then(|mut notice| notice.take())"));
     assert!(ffi.contains("*message = Some(\"Another Keep is active\".to_string())"));
 
-    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
+        + &read_repo("juce_shell/src/PluginProcessorDisplayState.cpp");
     assert!(processor.contains("kirin_hypha_drain_keep_action_notice"));
-    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp")
+        + &read_repo("juce_shell/src/PluginEditorAnalysis.cpp");
     assert!(editor.contains("processorRef.drainKeepActionNotice()"));
     assert!(editor.contains("toastUntil = t + 3.0"));
 }
@@ -239,9 +237,9 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     assert!(processor.contains("xml.setAttribute (\"loudness_view\""));
     assert!(processor.contains("getStringAttribute (\"loudness_view\") == \"S\""));
-    assert!(processor.contains("xml.setAttribute (\"display_state_version\", 3)"));
-    assert!(processor.contains("observatory_time_range"));
-    assert!(processor.contains("observatory_size"));
+    assert!(processor.contains("xml.setAttribute (\"display_state_version\", 4)"));
+    assert!(processor.contains("meter_context"));
+    assert!(processor.contains("scale_mode"));
     assert!(processor.contains("observatory_width"));
     assert!(processor.contains("observatory_height"));
     assert!(processor.contains("withNonParameterStateChanged (true)"));
@@ -423,7 +421,8 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(processor_header.contains("preferredSpectrumSize { 0 }"));
     assert!(processor_header.contains("preferredEditorSize { (300u << 16u) | 200u }"));
 
-    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp")
+        + &read_repo("juce_shell/src/PluginEditorAnalysis.cpp");
     let observatory_editor = read_repo("juce_shell/src/PluginEditorObservatory.cpp");
     let resize_contract = read_repo("juce_shell/src/HyphaObservatoryResizeContract.h");
     let time_navigation = read_repo("juce_shell/src/HyphaTimePageNavigation.cpp");
@@ -451,7 +450,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(editor.contains("setFixedAspectRatio (1.5)"));
     assert!(editor.contains("displayViewport (getWidth(), getHeight())"));
     assert!(editor.contains("scaleRoot.setOpaque (true)"));
-    assert!(editor.contains("scaleRoot.setBufferedToImage (getWidth() > 600)"));
+    assert!(editor.contains("scaleRoot.setBufferedToImage (false)"));
     assert!(resize_contract.contains("return { width, height, 1.0f };"));
     assert!(observatory_editor.contains("observatoryEditorSizePreference"));
     assert!(observatory_editor
@@ -471,7 +470,8 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
         );
     }
 
-    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
+        + &read_repo("juce_shell/src/PluginProcessorDisplayState.cpp");
     assert!(processor.contains("setObservatoryEditorSizePreference"));
     assert!(processor.contains("editorSizeFromState"));
     assert!(processor.contains("packEditorSize"));

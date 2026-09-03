@@ -149,7 +149,8 @@ SizePreset View::currentPreset() const noexcept
             return preset;
     const auto density = getWidth() < 338 ? Density::compact
                        : getWidth() < 413 ? Density::focused
-                       : getWidth() < 525 ? Density::standard : Density::observatory;
+                       : getWidth() < 525 ? Density::standard
+                       : getWidth() < 750 ? Density::observatory : Density::inspection;
     return { getWidth(), getHeight(), density, "SIZE" };
 }
 
@@ -193,7 +194,7 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     g.setColour (COL_MUTED.withAlpha (0.34f));
     g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
     area.reduce (5, 5);
-    if (currentPreset().density == Density::observatory)
+    if (isFullDensity (currentPreset().density))
     {
         paintFullChannelStrips (g, area, meter, currentAvailable, cumulativeAvailable);
         return;

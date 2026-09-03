@@ -12,7 +12,8 @@ SizePreset capturePreset (int pixelWidth, int pixelHeight)
         1, juce::roundToInt ((float) pixelHeight / captureRenderScale));
     const auto density = width < 338 ? Density::compact
                        : width < 413 ? Density::focused
-                       : width < 525 ? Density::standard : Density::observatory;
+                       : width < 525 ? Density::standard
+                       : width < 750 ? Density::observatory : Density::inspection;
     return { width, height, density, "CAPTURE" };
 }
 

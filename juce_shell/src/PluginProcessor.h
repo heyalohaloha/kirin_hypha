@@ -7,6 +7,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "HyphaSignalStateContract.h"
+#include "HyphaMeterContext.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
  #include "CaptureWorkAttachment.h"
@@ -155,6 +156,18 @@ public:
     void setObservatoryDomainPreference (uint8_t value);
     void setObservatoryTargetPreference (uint8_t value);
     void setObservatoryTimeRangePreference (uint8_t value);
+    hypha::meter_context::MeterContext meterContextPreference() const
+    {
+        return hypha::meter_context::contextFromState (
+            preferredMeterContext.load (std::memory_order_acquire));
+    }
+    hypha::meter_context::ScaleMode scaleModePreference() const
+    {
+        return hypha::meter_context::scaleFromState (
+            preferredScaleMode.load (std::memory_order_acquire));
+    }
+    void setMeterContextPreference (hypha::meter_context::MeterContext value);
+    void setScaleModePreference (hypha::meter_context::ScaleMode value);
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
 
     // --- B-054: PRE live name + LED pollers (egui parity) --------------------------------
@@ -259,6 +272,10 @@ private:
     std::atomic<uint8_t> preferredObservatoryDomain { 0 }; // DisplayState v2; LEVEL
     std::atomic<uint8_t> preferredObservatoryTarget { 0 }; // DisplayState v2; absolute
     std::atomic<uint8_t> preferredObservatoryTimeRange { 0 }; // DisplayState v2; 30 s
+    std::atomic<uint8_t> preferredMeterContext {
+        hypha::meter_context::stateValue (hypha::meter_context::defaultContext) };
+    std::atomic<uint8_t> preferredScaleMode {
+        hypha::meter_context::stateValue (hypha::meter_context::defaultScale) };
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
 
 #if KIRIN_HYPHA_GUIDE_TRANSPORT

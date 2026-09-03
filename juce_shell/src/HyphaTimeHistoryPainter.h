@@ -4,6 +4,7 @@
 
 #include <juce_graphics/juce_graphics.h>
 
+#include "HyphaMeterContext.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::time_history
@@ -15,5 +16,6 @@ void paint (juce::Graphics&,
             const std::vector<KirinMeterHistoryEntry>&,
             const juce::String& rangeLabel,
             bool delta,
-            bool compactMeter);
+            bool compactMeter,
+            meter_context::ScaleMode scaleMode);
 }

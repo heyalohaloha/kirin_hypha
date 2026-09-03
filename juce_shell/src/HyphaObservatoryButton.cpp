@@ -33,7 +33,9 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
                           : selected ? COL_FLORA_BR
                           : highlighted ? COL_NORMAL.withAlpha (0.82f) : COL_MUTED;
     g.setColour (textColour);
-    g.setFont (labelFont (juce::jlimit (7.0f, tab ? 11.0f : 10.0f,
+    const auto maximum = getHeight() >= 38 ? 15.0f : getHeight() >= 30 ? 12.5f
+                                                    : tab ? 11.0f : 10.0f;
+    g.setFont (labelFont (juce::jlimit (7.0f, maximum,
                                         static_cast<float> (getHeight()) * 0.38f)));
     g.drawFittedText (getButtonText(), getLocalBounds().reduced (3, 1),
                       juce::Justification::centred, 1, 0.78f);

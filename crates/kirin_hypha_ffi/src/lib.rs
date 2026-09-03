@@ -3064,15 +3064,19 @@ impl KirinHyphaEngine {
     }
 
     /// 利用者操作だけが常設セッションを破棄できる。UI/control thread専用。
-    /// Measure workerとの競合時は待たずにfalseを返し、呼び出し側が操作失敗を通知する。
+    /// Measure workerの短い更新と直列化し、再生中のクリックも取りこぼさない。
     pub fn reset_meter_session(&self) -> bool {
         let Some(session) = self.meter_session.as_ref() else {
             return false;
         };
-        let Ok(mut session) = session.try_lock() else {
+        let Ok(mut session) = session.lock() else {
+            return false;
+        };
+        let Ok(mut watch_max) = self.watch_max.lock() else {
             return false;
         };
         session.reset();
+        watch_max.reset();
         let snapshot = session.snapshot();
         drop(session);
         if let Some(publication) = self.meter_session_publication.as_ref() {
@@ -3084,15 +3088,11 @@ impl KirinHyphaEngine {
         true
     }
 
-    /// ring 満杯で drop した push 数（§8 RT-safety 検証用）。
     pub fn overflow_count(&self) -> u64 {
         self.push_overflow.load(Ordering::Relaxed)
     }
 
-    /// B-125: oversized block drop を計上する（Audio Thread から呼ばれる）。
-    /// `kirin_hypha_note_oversized_drop` C-ABI の本体。`dropped_samples` は当該 block の
-    /// interleaved sample 数（= num_frames * num_channels）。RT 安全のため `fetch_add` のみ
-    /// （alloc/lock/syscall なし）。push_overflow とは別カウンタ（混ぜない）。
+    /// B-125: oversized block drop count; Audio Thread remains fetch_add-only.
     pub fn note_oversized_drop(&self, dropped_samples: u64) {
         self.oversized_drop
             .fetch_add(dropped_samples, Ordering::Relaxed);

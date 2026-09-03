@@ -25,8 +25,8 @@ crates/kirin_measure/src/record_writer.rs	8169
 crates/kirin_measure/src/record_writer_claim.rs	659
 crates/kirin_measure/src/spectrum_exchange_recovery_tests.rs	665
 crates/kirin_measure/src/trace_content_clock.rs	1652
-juce_shell/src/PluginEditor.cpp	1374
-juce_shell/src/PluginProcessor.cpp	1566
+juce_shell/src/PluginEditor.cpp	1274
+juce_shell/src/PluginProcessor.cpp	1549
 juce_shell/src/pre_display/PreDisplayProtocol.cpp	583
 juce_shell/tests/pre_display_runtime_test.cpp	1171
 juce_shell/tests/ui_contract_test.cpp	559

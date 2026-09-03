@@ -7,6 +7,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaCaptureContract.h"
+#include "HyphaMeterContext.h"
 #include "HyphaObservatoryContract.h"
 #include "HyphaObservatoryPresentation.h"
 #include "HyphaObservatoryWorld.h"
@@ -36,6 +37,8 @@ public:
     std::function<void (TimeRange)> onTimeRangeChange;
     std::function<void (SizePreset)> onSizeChange;
     std::function<void (bool)> onLoudnessChange;
+    std::function<void (meter_context::MeterContext)> onContextChange;
+    std::function<void (meter_context::ScaleMode)> onScaleChange;
     std::function<void()> onReset;
     std::function<void()> onCapture;
 
@@ -47,7 +50,7 @@ public:
     }
     bool fullCockpit() const noexcept
     {
-        return currentPreset().density == Density::observatory;
+        return isFullDensity (currentPreset().density);
     }
     PresentationContract presentation() const noexcept
     {
@@ -69,6 +72,11 @@ public:
     bool shortTermLoudness() const noexcept { return selectedShortTermLoudness; }
     void setCompactMaximum (bool);
     bool compactMaximum() const noexcept { return compactShowsMaximum; }
+    void setMeterContext (meter_context::MeterContext);
+    meter_context::MeterContext meterContext() const noexcept { return selectedMeterContext; }
+    void setScaleMode (meter_context::ScaleMode);
+    meter_context::ScaleMode scaleMode() const noexcept { return selectedScaleMode; }
+    void setExternalAnalysisBodyActive (bool);
     void setConnection (juce::String text, juce::Colour colour, ConnectionState state);
     void setExternalConnectionLabelVisible (bool visible);
     ConnectionState connection() const noexcept { return connectionState; }
@@ -97,6 +105,8 @@ public:
     juce::Rectangle<int> captureBodyBounds (int pixelWidth, int pixelHeight,
                                             bool includeGuide = false) const;
     juce::Rectangle<int> bodyBounds() const noexcept { return bodyArea; }
+    juce::Rectangle<int> analysisBodyBounds() const noexcept;
+    juce::Rectangle<int> timeNavigationBounds() const noexcept;
     juce::Rectangle<int> connectionBounds() const noexcept { return connectionArea; }
     juce::Rectangle<int> guideBounds() const noexcept { return guideArea; }
     juce::Rectangle<int> sessionBounds() const noexcept { return sessionArea; }
@@ -145,6 +155,9 @@ private:
     bool watchDisplayAvailable = false;
     bool selectedShortTermLoudness = false;
     bool compactShowsMaximum = false;
+    meter_context::MeterContext selectedMeterContext = meter_context::defaultContext;
+    meter_context::ScaleMode selectedScaleMode = meter_context::defaultScale;
+    bool externalAnalysisBodyActive = false;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;
     ConnectionState connectionState = ConnectionState::unpaired;
@@ -179,6 +192,8 @@ private:
     Button timeRangeButton { {}, false };
     Button compactLoudnessButton { {}, false };
     Button compactRangeButton { {}, false };
+    Button contextButton { {}, false };
+    Button scaleButton { {}, false };
     Button sizeButton { {}, false };
     Button resetButton { "RESET", false };
     Button captureButton { "CAPTURE", false };

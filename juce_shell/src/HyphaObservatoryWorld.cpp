@@ -102,7 +102,7 @@ void paintFrequencyRoots (juce::Graphics& g, juce::Rectangle<float> area, const 
         g.setColour ((route % 2 == 0 ? COL_SPECTRUM_PRE : COL_FLORA)
                          .withAlpha ((0.026f + (state.active ? 0.018f : 0.0f)) * scale));
         g.strokePath (root, juce::PathStrokeType (0.55f + 0.12f * route));
-        if (state.density == observatory::Density::observatory && route > 0 && route < 5)
+        if (observatory::isFullDensity (state.density) && route > 0 && route < 5)
         {
             const float nodeX = area.getX() + area.getWidth() * (0.18f + 0.15f * route);
             const float nodeY = startY + (endY - startY) * (0.22f + 0.10f * route);
@@ -213,7 +213,7 @@ void Backdrop::drawLevelCorners (juce::Graphics& g,
                                  const State& state) const
 {
     if (state.domain != observatory::Domain::level
-        || state.density != observatory::Density::observatory
+        || ! observatory::isFullDensity (state.density)
         || ! levelCorners.isValid()
         || area.isEmpty())
         return;
@@ -231,9 +231,9 @@ void Backdrop::drawHyphaSpecimen (juce::Graphics& g,
 {
     const bool levelSignature = state.domain == observatory::Domain::level
                              && (state.capture
-                                 || state.density == observatory::Density::observatory);
+                                 || observatory::isFullDensity (state.density));
     const bool referenceSignature = state.domain == observatory::Domain::reference
-                                 && state.density == observatory::Density::observatory;
+                                 && observatory::isFullDensity (state.density);
     if ((state.domain != observatory::Domain::time && ! levelSignature && ! referenceSignature)
         || ! hyphaSpecimen.isValid()
         || area.isEmpty())
@@ -264,7 +264,7 @@ void paintDomainBed (juce::Graphics& g, juce::Rectangle<int> area, const State& 
         paintTimeStrata (g, field, state);
     else if (state.domain == observatory::Domain::level
              && (state.capture
-                 || state.density == observatory::Density::observatory))
+                 || observatory::isFullDensity (state.density)))
     {
         const auto historyFraction = field.getWidth() > field.getHeight() ? 0.40f : 0.32f;
         paintTimeStrata (g, field.removeFromBottom (

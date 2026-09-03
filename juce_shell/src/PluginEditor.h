@@ -68,6 +68,7 @@ private:
     void updatePre();
     void updatePost();
     void refreshObservatory();
+    void configureMeterContext();
     void setObservatoryDomain (hypha::observatory::Domain domain);
     void beginObservatoryCapture();
     void chooseObservatoryCapture (int width, int height);
@@ -86,6 +87,9 @@ private:
     void configureReferenceAudition();
     void layoutReferenceAudition (juce::Rectangle<int>);
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
+    bool refreshAnalysisViews (bool alive, int signalState, bool recording,
+                               bool armed, bool acknowledged, bool presetAvailable,
+                               int pairStatus);
 #endif
 
     // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
@@ -151,6 +155,7 @@ private:
     std::int64_t cachedAttackLatest = -1;
     std::uint32_t cachedAttackRate = 0;
     std::uint64_t cachedAttackGeneration = 0;
+    int cachedAttackPairStatus = -1;
 #endif
     int    metricTop   = 0;       // y of the first metric row (set in resized())
     int    floraY      = 0;       // y of the flora separator line

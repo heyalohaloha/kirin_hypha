@@ -75,7 +75,7 @@ juce::Rectangle<int> glyphBounds (std::int64_t eventSample,
         eventSample, first, latest, area.getWidth());
     if (localX < 0)
         return {};
-    const auto idealWidth = juce::jlimit (20, 50, area.getWidth() / 12);
+    const auto idealWidth = juce::jlimit (20, 88, area.getWidth() / 10);
     const auto width = juce::jmin (idealWidth, area.getWidth() - localX);
     const auto height = juce::jmin (
         area.getHeight() - 2,
@@ -128,17 +128,18 @@ void drawDifferenceOverview (juce::Graphics& g, const KirinAttackDetailBatch& pr
 }
 
 void drawFocus (juce::Graphics& g, const KirinAttackDetail* pre,
-                const KirinAttackDetail* post, juce::Rectangle<int> area)
+                const KirinAttackDetail* post, juce::Rectangle<int> area,
+                float emissionPhase)
 {
     if (post == nullptr || area.getWidth() < 2 || area.getHeight() < 2)
         return;
     const auto postAmounts = amounts (absoluteTint (*post));
     if (pre == nullptr)
     {
-        attack_specimen::drawAbsolute (g, *post, area, postAmounts);
+        attack_specimen::drawAbsolute (g, *post, area, postAmounts, emissionPhase);
         return;
     }
     attack_specimen::drawComparison (
-        g, *pre, *post, area, amounts (absoluteTint (*pre)), postAmounts);
+        g, *pre, *post, area, amounts (absoluteTint (*pre)), postAmounts, emissionPhase);
 }
 }

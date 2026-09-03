@@ -164,9 +164,11 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
 
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp
+        src/PluginProcessorDisplayState.cpp
         src/PluginProcessorGuideTransport.cpp
         src/PluginEditor.cpp
         src/PluginEditorObservatory.cpp
+        src/PluginEditorAnalysis.cpp
         src/PluginEditorCapture.cpp
         src/CaptureWorkAttachment.cpp
         src/HyphaObservatoryCapture.cpp
@@ -174,6 +176,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
@@ -353,6 +356,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp

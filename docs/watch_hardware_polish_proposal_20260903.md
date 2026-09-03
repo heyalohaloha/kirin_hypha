@@ -4,9 +4,9 @@
 **実機対象**: Kirin Hypha 1.1.49
 **公開基準**: `origin/main` / commit `5261c25`
 **UI基準**: tag `v1.1.49` / commit `c9e458d` / B-688
-**最新開発基準**: PR #17 / commit `3c8697c` / B-692
+**最新開発基準**: PR #17 / commit `6f551f0` / B-693
 **位置づけ**: 現状監査、決定済み製品仕様、依存順を固定した実行計画
-**実装状態**: Gate A実施中。Watch本体は未実装
+**実装状態**: Gate BからFを実装済み。Gate Gの自動検証を実施し、Studio One実機受入を残す
 
 ## 結論
 
@@ -24,9 +24,24 @@
 
 安定性が成立した後に、文字、情報階層、スケール、ATTACKの生物発光を整える。
 
-実装は進行中のPR #17がmainへ収束した後、その確定mainから新しい作業branchを作って開始する。
+実装はPR #17のB-693を基準に、同じ作業branch上で完了させた。
 
-現在開いている`codex/hypha-windows-distribution`は1.1.48の`f0d3a79`であり、実装開始点には使わない。
+公開releaseは行っていないため、今回の実装を1.1.49の既存配布物へ反映したとは扱わない。
+
+## 実装結果
+
+- `Meter Context`を導入し、新規は`2MIX`と`FOCUS`、保存済みインスタンスはContext、Scale、表示サイズをstateから復元する。
+- LEVELをContext別に再編し、TRACK/STEMはM、S、CRESTとPSR先頭、2MIXはM、S、Iを主表示にした。
+- TIMEへ`WIDE`と`FOCUS`の固定軸、正側を含むTrue Peak軸、独立したPLRとCORRレーンを実装した。
+- PRE名入力を全倍率で表示し、POST小型表示は接頭辞を省略して実名を優先し、footerへ実versionを表示した。
+- RESETをMeter SessionとWatch MAXの同期resetへ統合し、再生中も旧True Peak MAXが復活しないようにした。
+- Focus Trailの表示専用平滑化とgap保持、6秒FIELDの固定age bucket、増分peak holdを実装した。
+- 300%を独立したInspection密度にし、footer、補助文字、グリフ、ATTACK下部標本の物理サイズを拡大した。
+- ATTACK下部へ、実イベントの強度と特徴量に同期する左から右への生物発光、膨張、収縮、残光、配色混合を追加した。無入力時の自律アニメーションは追加していない。
+- ATTACKの重いsnapshotコピーは新規eventまたはpair状態変更時だけ行い、描画更新も状態変化時へ制限した。
+- rootの画像cacheを廃止し、ホストresize後に古い描画面が残る経路を除いた。
+
+Studio One実機では、5倍率の往復、close到達、DAW再読込後のContext、Scale、サイズ復元、30分連続再生時のATTACKとFIELD、黒枠再発有無を最終受入する。
 
 ## 0. 現時点の基準線
 
@@ -550,6 +565,16 @@ Studio Oneのhost chromeはnative render testでは代替せず、独立した�
 | サイズ別の省略順位 | Gate E | 指標名、値、単位、状態、補助説明の順を完成画面fixtureで確認する |
 | ATTACKの伝播時間と残光 | Gate F | event時刻との一致とCE 2226の見え方を実機で確認する |
 | A/Bのlive、Capture、session範囲 | Watch後 | PR #17のReference契約と混同しない独立仕様として決める |
+
+### 9.1 REF Blind候補
+
+REFのBlindは、Referenceが`READY`で、Aの測定、音源identity検証、形式互換、実時間再生がすべて成立した時だけ入口を表示する。
+
+開始後はA/Bの割当、選択色、名称、状態文から正体を推測できないようにし、利用者が回答を確定した後だけ割当を開示する。
+
+現行REFには安全なA/B試聴経路はあるが、ランダム割当、回答固定、開示、次試行の契約がないため、表示だけを先行追加しない。
+
+BlindはWatch表示改修ではなく、独立したREF比較契約として設計、実装、検証する。
 
 ## 10. Watch release後の順番
 

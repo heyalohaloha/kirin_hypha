@@ -649,40 +649,6 @@ void KirinHyphaProcessorBase::setUseShortTermLoudness (bool shortTerm)
     updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
 
-void KirinHyphaProcessorBase::setObservatoryDomainPreference (uint8_t value)
-{
-    const uint8_t bounded = value < 5u ? value : uint8_t { 0 };
-    if (preferredObservatoryDomain.exchange (bounded, std::memory_order_acq_rel) != bounded)
-        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
-}
-
-void KirinHyphaProcessorBase::setObservatoryTargetPreference (uint8_t value)
-{
-    const uint8_t bounded = value < 2u ? value : uint8_t { 0 };
-    if (preferredObservatoryTarget.exchange (bounded, std::memory_order_acq_rel) != bounded)
-        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
-}
-
-void KirinHyphaProcessorBase::setObservatoryTimeRangePreference (uint8_t value)
-{
-    const uint8_t bounded = value < 5u ? value : uint8_t { 0 };
-    if (preferredObservatoryTimeRange.exchange (bounded, std::memory_order_acq_rel) != bounded)
-        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
-}
-
-bool KirinHyphaProcessorBase::setObservatoryEditorSizePreference (int width, int height)
-{
-    if (! hypha::observatory::validEditorSize (width, height))
-        return false;
-    const auto packed = hypha::observatory::packEditorSize ({ width, height });
-    return preferredEditorSize.exchange (packed, std::memory_order_acq_rel) != packed;
-}
-
-void KirinHyphaProcessorBase::notifyObservatoryEditorSizeChanged()
-{
-    updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
-}
-
 // --- B-072: POST pairing surface ---------------------------------------------------------
 
 bool KirinHyphaProcessorBase::isRecording() const
@@ -1286,7 +1252,7 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("paired_pre_project_hash", persistPairProjectHash);
     xml.setAttribute ("loudness_view",
                       persistShortTermLoudness.load (std::memory_order_acquire) ? "S" : "M");
-    xml.setAttribute ("display_state_version", 3);
+    xml.setAttribute ("display_state_version", 4);
     xml.setAttribute ("observatory_domain", (int) observatoryDomainPreference());
     xml.setAttribute ("observatory_target", (int) observatoryTargetPreference());
     xml.setAttribute ("observatory_time_range", (int) observatoryTimeRangePreference());
@@ -1295,6 +1261,10 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
         observatoryEditorSizePreference());
     xml.setAttribute ("observatory_width", editorSize.width);
     xml.setAttribute ("observatory_height", editorSize.height);
+    xml.setAttribute ("meter_context", (int) hypha::meter_context::stateValue (
+        meterContextPreference()));
+    xml.setAttribute ("scale_mode", (int) hypha::meter_context::stateValue (
+        scaleModePreference()));
     copyXmlToBinary (xml, destData);
 }
 
@@ -1314,6 +1284,8 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     uint8_t restoredObservatorySize = 0;
     int restoredEditorWidth = 300;
     int restoredEditorHeight = 200;
+    auto restoredMeterContext = hypha::meter_context::defaultContext;
+    auto restoredScaleMode = hypha::meter_context::defaultScale;
     bool restored = false;
 
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
@@ -1347,6 +1319,13 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
                     xml->getIntAttribute ("observatory_height", preset.height));
                 restoredEditorWidth = restoredEditorSize.width;
                 restoredEditorHeight = restoredEditorSize.height;
+            }
+            if (displayStateVersion >= 4)
+            {
+                restoredMeterContext = hypha::meter_context::contextFromState (
+                    (uint8_t) xml->getIntAttribute ("meter_context", 1));
+                restoredScaleMode = hypha::meter_context::scaleFromState (
+                    (uint8_t) xml->getIntAttribute ("scale_mode", 1));
             }
             restored = true;
         }
@@ -1382,6 +1361,10 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         preferredSpectrumSize.store (restoredObservatorySize, std::memory_order_release);
         preferredEditorSize.store (hypha::observatory::packEditorSize (
             { restoredEditorWidth, restoredEditorHeight }), std::memory_order_release);
+        preferredMeterContext.store (
+            hypha::meter_context::stateValue (restoredMeterContext), std::memory_order_release);
+        preferredScaleMode.store (
+            hypha::meter_context::stateValue (restoredScaleMode), std::memory_order_release);
         // Once writes are enabled, the io_thread has already snapshotted path identity. Only the
         // live-editable name/pair fields may be applied at that point; the exact-path writer stays
         // coherent with its established identity.

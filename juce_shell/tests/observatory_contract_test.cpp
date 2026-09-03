@@ -1,4 +1,5 @@
 #include "../src/HyphaObservatoryContract.h"
+#include "../src/HyphaMeterContext.h"
 
 #include <array>
 #include <cassert>
@@ -6,6 +7,7 @@
 #include <cstring>
 
 namespace observatory = hypha::observatory;
+namespace meter_context = hypha::meter_context;
 
 namespace
 {
@@ -102,11 +104,11 @@ int main()
         observatory::GuidePresence::absent);
     assert (observatoryHeader.connectionStatus.width >= 140);
     assert (observatoryHeader.domainNavigation.width >= 300);
-    const auto inspection = observatory::shellLayout (
+    const auto inspectionLayout = observatory::shellLayout (
         observatory::Role::post, observatory::sizePresets[4],
         observatory::GuidePresence::absent);
-    assert (inspection.body.width > observatoryHeader.body.width);
-    assert (inspection.body.height > observatoryHeader.body.height);
+    assert (inspectionLayout.body.width > observatoryHeader.body.width);
+    assert (inspectionLayout.body.height > observatoryHeader.body.height);
 
     for (const auto preset : observatory::sizePresets)
     {
@@ -180,6 +182,16 @@ int main()
     assert (! pre.capture);
     assert (pre.guideRail);
 
+    const auto inspection = observatory::visibleContent (
+        observatory::Role::post,
+        observatory::Density::inspection,
+        observatory::GuidePresence::present);
+    assert (inspection.domainTabs);
+    assert (inspection.capture);
+    static_assert (observatory::footerHeight (observatory::Density::inspection) == 40);
+    static_assert (observatory::timeNavigationHeight (
+        observatory::Density::inspection) == 38);
+
     static_assert (observatory::targetAllowed (
         observatory::Role::pre, observatory::ObservationTarget::absolute));
     static_assert (! observatory::targetAllowed (
@@ -205,6 +217,14 @@ int main()
         == observatory::Domain::reference);
     static_assert (observatory::timeRangeFromState (99u)
         == observatory::TimeRange::seconds30);
+    static_assert (meter_context::contextFromState (99u)
+        == meter_context::MeterContext::twoMix);
+    static_assert (meter_context::scaleFromState (99u)
+        == meter_context::ScaleMode::focus);
+    static_assert (meter_context::initialScaleFor (meter_context::MeterContext::trackStem)
+        == meter_context::ScaleMode::wide);
+    static_assert (meter_context::loudnessFloor (meter_context::ScaleMode::wide) == -60.0);
+    static_assert (meter_context::loudnessFloor (meter_context::ScaleMode::focus) == -36.0);
 
     for (const auto domain : {
              observatory::Domain::level,

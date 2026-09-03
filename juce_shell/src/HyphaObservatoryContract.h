@@ -96,6 +96,7 @@ constexpr int shellMargin (Density density) noexcept
         case Density::focused:     return 6;
         case Density::standard:    return 8;
         case Density::observatory: return 10;
+        case Density::inspection:  return 14;
     }
     return 4;
 }
@@ -108,6 +109,7 @@ constexpr int headerHeight (Density density) noexcept
         case Density::focused:     return 36;
         case Density::standard:    return 42;
         case Density::observatory: return 50;
+        case Density::inspection:  return 64;
     }
     return 30;
 }
@@ -123,8 +125,34 @@ constexpr int footerHeight (Density density) noexcept
         // 40 px returns meaningful vertical area to LEVEL/TIME history without shrinking only
         // the CAPTURE button.
         case Density::observatory: return 24;
+        case Density::inspection:  return 40;
     }
     return 24;
+}
+
+constexpr int timeNavigationHeight (Density density) noexcept
+{
+    switch (density)
+    {
+        case Density::compact:     return 24;
+        case Density::focused:     return 26;
+        case Density::standard:    return 28;
+        case Density::observatory: return 30;
+        case Density::inspection:  return 38;
+    }
+    return 24;
+}
+
+constexpr int timeScaleWidth (Density density) noexcept
+{
+    return density == Density::compact ? 60 : density == Density::focused ? 68
+         : density == Density::inspection ? 100 : 76;
+}
+
+constexpr int timeRangeWidth (Density density) noexcept
+{
+    return density == Density::inspection ? 144
+         : density == Density::observatory ? 112 : density == Density::standard ? 96 : 0;
 }
 
 /// LEVEL's upper-three plus middle-five plate is deliberately subordinate to its 60 s history.
@@ -148,6 +176,7 @@ constexpr int guideRailHeight (Density density, GuidePresence presence) noexcept
         case Density::focused:     return 20;
         case Density::standard:    return 22;
         case Density::observatory: return 24;
+        case Density::inspection:  return 30;
     }
     return 18;
 }
@@ -179,10 +208,12 @@ constexpr ShellLayout shellLayout (Role role,
     const Rect header { margin, margin, preset.width - 2 * margin, headerH };
     const int titleWidth = preset.density == Density::compact ? 74
                          : preset.density == Density::focused ? 92
-                         : preset.density == Density::standard ? 108 : 128;
+                         : preset.density == Density::standard ? 108
+                         : preset.density == Density::inspection ? 176 : 128;
     // Observatory reserves a real text field plus an independent menu hit target. The previous
     // 104 px slot forced "PAIR <name>" underneath the arrow on Windows.
-    const int statusWidth = preset.density == Density::compact ? 64
+    const int statusWidth = preset.density == Density::compact ? 92
+                          : preset.density == Density::inspection ? 210
                           : preset.density == Density::observatory ? 140 : 104;
     const Rect roleTitle { header.x, header.y, titleWidth, header.height };
     const Rect connectionStatus {
@@ -216,10 +247,12 @@ constexpr ShellLayout shellLayout (Role role,
 
     const int targetWidth = role == Role::post
         ? (preset.density == Density::compact ? 58
+           : preset.density == Density::inspection ? 210
            : preset.density == Density::observatory ? 150 : 76) : 0;
     const int actionWidth = preset.density == Density::compact ? 54
                           : preset.density == Density::focused ? 92
-                          : preset.density == Density::standard ? 120 : 180;
+                          : preset.density == Density::standard ? 120
+                          : preset.density == Density::inspection ? 260 : 180;
     const Rect observationTarget {
         footer.x, footer.y, targetWidth, footer.height
     };
@@ -269,8 +302,8 @@ constexpr VisibleContent visibleContent (Role role,
     const bool compactMeter = density == Density::compact || density == Density::focused;
     const bool singleDomainControl = compactMeter;
     const bool visual = density == Density::standard
-                     || density == Density::observatory;
-    const bool full = density == Density::observatory;
+                     || isFullDensity (density);
+    const bool full = isFullDensity (density);
     return {
         ! singleDomainControl,
         singleDomainControl,
