@@ -496,3 +496,28 @@ if(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS)
         juce::juce_recommended_warning_flags)
     add_test(NAME kirin_capture_work_attachment COMMAND KirinCaptureWorkAttachmentTests)
 endif()
+
+option(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS
+    "Build the Kirin OS to Hypha Reference audition contract tests" OFF)
+if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
+    enable_testing()
+    juce_add_console_app(KirinReferenceAuditionRuntimeTests
+        PRODUCT_NAME "Kirin Reference Audition Runtime Tests")
+    target_sources(KirinReferenceAuditionRuntimeTests PRIVATE
+        tests/reference_audition_runtime_test.cpp
+        src/reference_audition/ReferenceAuditionLease.cpp
+        src/reference_audition/ReferenceAuditionProtocol.cpp
+        src/reference_audition/ReferenceAuditionRepository.cpp)
+    target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_compile_options(KirinReferenceAuditionRuntimeTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinReferenceAuditionRuntimeTests PRIVATE
+        juce::juce_core
+        juce::juce_cryptography
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_reference_audition_runtime
+        COMMAND KirinReferenceAuditionRuntimeTests)
+endif()
