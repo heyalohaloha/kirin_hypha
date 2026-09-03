@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <memory>
 
 #include <juce_core/juce_core.h>
@@ -43,7 +44,10 @@ namespace hypha::reference_audition
     class Controller final : private juce::Thread
     {
     public:
-        explicit Controller (juce::File transportRootIn = Repository::transportRoot());
+        using SelectionGate = std::function<bool(bool)>;
+
+        explicit Controller (juce::File transportRootIn = Repository::transportRoot(),
+                             SelectionGate = {});
         ~Controller() override;
 
         void configure (RuntimeIdentity, double hostSampleRate, int hostChannels);
@@ -73,6 +77,7 @@ namespace hypha::reference_audition
         std::int64_t mappedSourcePosition (std::int64_t hostPosition) const noexcept;
 
         const juce::File root;
+        const SelectionGate selectionGate;
         Repository repository;
         AudioPages pages;
         mutable juce::CriticalSection configurationLock;

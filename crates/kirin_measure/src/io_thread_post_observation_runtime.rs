@@ -20,6 +20,7 @@ pub(in crate::io_thread_post) struct PostObservationRuntime {
     pub(in crate::io_thread_post) delta_result: Arc<Mutex<DeltaResult>>,
     pub(in crate::io_thread_post) signal_state: Arc<AtomicU8>,
     pub(in crate::io_thread_post) is_playing: Arc<AtomicBool>,
+    pub(in crate::io_thread_post) reference_audition_active: Arc<AtomicBool>,
 }
 
 pub(super) struct PostObservationIdentity {

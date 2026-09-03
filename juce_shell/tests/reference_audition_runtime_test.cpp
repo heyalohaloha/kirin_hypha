@@ -274,7 +274,12 @@ int main()
                         makePreparation (source, wavHash, wavReceiptHash, wavReceipt.getSize())),
              "decodable preparation must be written");
     {
-        ref::Controller controller (root);
+        bool comparisonSuspended = false;
+        ref::Controller controller (root, [&comparisonSuspended] (bool bSelected)
+        {
+            comparisonSuspended = bSelected;
+            return true;
+        });
         controller.observeTransport (128, true, true);
         controller.configure (identity, 48'000.0, 2);
         for (int attempt = 0; attempt < 300
@@ -288,6 +293,8 @@ int main()
                  "only a decoded source may receive an accepted acknowledgement");
         require (controller.selectB (-14.0, -2.0),
                  "explicit B selection must succeed when ready");
+        require (comparisonSuspended,
+                 "B selection must suspend the normal PRE comparison through its gate");
         juce::AudioBuffer<float> audition (2, 256);
         audition.clear();
         require (controller.renderSelectedB (audition, 128, true),
@@ -295,6 +302,8 @@ int main()
         require (std::abs (audition.getSample (0, 1)) > 0.001f,
                  "rendered B must contain the prepared Reference audio");
         controller.selectA();
+        require (! comparisonSuspended,
+                 "A return must resume the normal PRE comparison through its gate");
         audition.clear();
         audition.setSample (0, 0, 0.75f);
         require (! controller.renderSelectedB (audition, 384, true)

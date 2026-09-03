@@ -266,6 +266,7 @@ private:
     std::unique_ptr<hypha::pre_display::Controller> preDisplayController;
     std::unique_ptr<hypha::capture::WorkAttachmentController> captureWorkAttachmentController;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    void createReferenceAuditionController();
     std::unique_ptr<hypha::reference_audition::Controller> referenceAuditionController;
    #endif
 #endif

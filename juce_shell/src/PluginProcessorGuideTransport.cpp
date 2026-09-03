@@ -107,4 +107,17 @@ void KirinHyphaProcessorBase::selectReferenceA()
    #endif
 }
 
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+void KirinHyphaProcessorBase::createReferenceAuditionController()
+{
+    referenceAuditionController = std::make_unique<hypha::reference_audition::Controller> (
+        hypha::reference_audition::Repository::transportRoot(), [this] (bool active)
+        {
+            const juce::ScopedLock gateLock (handleLock);
+            return hyphaHandle != nullptr
+                && kirin_hypha_set_reference_audition_active (hyphaHandle, active);
+        });
+}
+#endif
+
 #endif

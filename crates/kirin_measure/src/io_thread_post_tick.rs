@@ -255,6 +255,7 @@ pub(super) fn run_tick(
     // keep/Arm が共有する単一ラッチ（io_thread が毎 tick 維持、keep が resolve_arm_target で読む）。
     recording: bool,
     latched: &Mutex<Option<LatchedPre>>,
+    reference_audition_active: bool,
 ) -> Result<(), String> {
     let state = load_signal_state(signal_state_atom);
 
@@ -293,29 +294,37 @@ pub(super) fn run_tick(
 
     // B-108: ラッチ意味論で表示Δを決める（select_target_pre 直呼びを廃止）。一度成立した結合は
     // 無音/停止/一時鮮度揺らぎ/同名2台目では NoPre に落とさず、解除は名前変更/クリアと PRE 実消滅のみ。
-    let needs_resolution = !pair_pre_name.is_empty()
-        && latched
-            .lock()
-            .map(|binding| binding.is_none())
-            .unwrap_or(true);
-    let resolution_now = Instant::now();
-    let allow_unlatched_resolution = !needs_resolution || discovery.should_rescan(resolution_now);
-    if needs_resolution && allow_unlatched_resolution {
-        // Record the bounded discovery attempt even when no PRE exists. Otherwise an unresolved
-        // selector would walk the live registry on every 100 ms IO tick.
-        discovery.record_scan(resolution_now, None);
-    }
-    let (new_delta, store_directly, pre_signal_state) = compute_latched_display_for_post_project(
-        kirin_root,
-        pair_pre_name,
-        post_project_hash,
-        daw_session_id,
-        &post,
-        pair_opt,
-        recording,
-        allow_unlatched_resolution,
-        latched,
-    )?;
+    let (new_delta, store_directly, pre_signal_state) = if reference_audition_active {
+        // B audio is deliberately excluded from the canonical A measurement path. While the
+        // user listens to B, expose no held PRE delta and perform no PRE discovery/read/join.
+        // The exact pair latch remains untouched so A resumes without another setup step.
+        (DeltaResult::default(), true, None)
+    } else {
+        let needs_resolution = !pair_pre_name.is_empty()
+            && latched
+                .lock()
+                .map(|binding| binding.is_none())
+                .unwrap_or(true);
+        let resolution_now = Instant::now();
+        let allow_unlatched_resolution =
+            !needs_resolution || discovery.should_rescan(resolution_now);
+        if needs_resolution && allow_unlatched_resolution {
+            // Record the bounded discovery attempt even when no PRE exists. Otherwise an
+            // unresolved selector would walk the live registry on every 100 ms IO tick.
+            discovery.record_scan(resolution_now, None);
+        }
+        compute_latched_display_for_post_project(
+            kirin_root,
+            pair_pre_name,
+            post_project_hash,
+            daw_session_id,
+            &post,
+            pair_opt,
+            recording,
+            allow_unlatched_resolution,
+            latched,
+        )?
+    };
 
     // last_active 規律:
     // - store_directly（latched-idle / PRE bypassed / PRE inactive）→ そのまま格納し、

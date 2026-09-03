@@ -1,4 +1,4 @@
-use super::confirmed_analysis_targets;
+use super::{active_analysis_targets, confirmed_analysis_targets};
 use crate::pairing_scope::{LatchedPre, LatchedPreReadiness};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -27,6 +27,15 @@ fn confirmed_latch_builds_spectrum_and_history_targets_from_one_exact_pre() {
     assert_eq!(history.pre_instance_id, "pre-exact");
     assert_eq!(spectrum.instance_dir, history.instance_dir);
     assert_eq!(history.pre_json, pre_json);
+}
+
+#[test]
+fn reference_b_feeds_neither_pre_derived_analysis_endpoint() {
+    let pre_json = PathBuf::from("/tmp/kirin/project/pre-exact/pre.json");
+    let exact = latch(LatchedPreReadiness::Confirmed, pre_json);
+    assert!(active_analysis_targets(&exact, false).0.is_some());
+    let targets = active_analysis_targets(&exact, true);
+    assert_eq!(targets, (None, None));
 }
 
 #[test]

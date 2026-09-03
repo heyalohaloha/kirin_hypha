@@ -134,10 +134,8 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     // Record. The maximumExpectedSamplesPerBlock may change for render, but the user-visible
     // Record state must not be thrown away. Reuse the Rust engine when the audio format is the same.
     //
-    // B-334: sample-rate / channel-count reprepare is also not Stop authority while Record is
-    // armed. Destroying the Rust engine here closes the PRE writer through Drop/shutdown before
-    // POST All Stop, which presents as "PRE detached mid-KEEP". Defer incompatible rebuilds until
-    // the host calls prepareToPlay outside Record.
+    // B-334: incompatible reprepare is not Stop authority while Record is armed; defer it rather
+    // than destroying the writer before POST All Stop.
     const bool needsNewHandle = hyphaHandle == nullptr
                              || std::abs (preparedSampleRate - sampleRate) > 0.001
                              || preparedInputChannels != numCh;
@@ -146,6 +144,8 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
 
     if (hyphaHandle != nullptr && kirin_hypha_is_recording (hyphaHandle))
         return;
+
+    selectReferenceA(); // A is mandatory before replacing the comparison-suspension owner.
 
     lastProcessPositionValid = false;
     lastProcessHadPosition = false;
@@ -1524,8 +1524,7 @@ void KirinHyphaProcessorBase::enableWritesNow()
             std::make_unique<hypha::capture::WorkAttachmentController>();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (role == Role::Post && referenceAuditionController == nullptr)
-        referenceAuditionController =
-            std::make_unique<hypha::reference_audition::Controller>();
+        createReferenceAuditionController();
    #endif
     hypha::pre_display::RuntimeIdentity displayIdentity;
     displayIdentity.role = role == Role::Post ? hypha::pre_display::GuideTargetRole::post

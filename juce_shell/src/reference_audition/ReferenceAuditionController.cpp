@@ -32,9 +32,10 @@ namespace hypha::reference_audition
 
     }
 
-    Controller::Controller (juce::File transportRootIn)
+    Controller::Controller (juce::File transportRootIn, SelectionGate selectionGateIn)
         : juce::Thread ("Kirin Reference audition"),
           root (std::move (transportRootIn)),
+          selectionGate (std::move (selectionGateIn)),
           repository (root)
     {
         startThread (juce::Thread::Priority::low);
@@ -139,6 +140,8 @@ namespace hypha::reference_audition
         pages.request (sourcePosition);
         if (! pages.readyAt (sourcePosition, 1))
             return false;
+        if (selectionGate && ! selectionGate (true))
+            return false;
         bSelected.store (true, std::memory_order_release);
         {
             const juce::ScopedLock lock (snapshotLock);
@@ -161,7 +164,8 @@ namespace hypha::reference_audition
 
     void Controller::selectA() noexcept
     {
-        bSelected.store (false, std::memory_order_release);
+        if (bSelected.exchange (false, std::memory_order_acq_rel) && selectionGate)
+            selectionGate (false);
     }
 
     std::int64_t Controller::mappedSourcePosition (std::int64_t hostPosition) const noexcept

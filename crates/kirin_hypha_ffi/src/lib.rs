@@ -90,6 +90,7 @@ mod identity_registry;
 mod legacy_nih_state;
 mod pair_binding;
 mod pair_candidates_ffi;
+mod reference_audition_ffi;
 mod signal_state_ffi;
 
 pub use attack_ffi::*;
@@ -100,6 +101,7 @@ pub use pair_candidates_ffi::{
     kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
     kirin_hypha_enumerate_pre_candidates, KirinPostPairClaim, KirinPreCandidate,
 };
+pub use reference_audition_ffi::kirin_hypha_set_reference_audition_active;
 pub use signal_state_ffi::{
     kirin_hypha_get_signal_state, kirin_hypha_set_host_component_active,
     kirin_hypha_set_signal_state,
@@ -321,6 +323,8 @@ pub struct KirinHyphaEngine {
     /// POST の Δ 結果（B-060 3d-a）。POST io_thread の run_tick が select_target_pre で
     /// 選んだ PRE との差分を書き、`poll_delta` が読む（GUI 表示用）。PRE では未更新。
     delta_result: Arc<Mutex<DeltaResult>>,
+    /// Explicit Reference B stops PRE-derived comparisons but preserves canonical A measurement.
+    reference_audition_active: Arc<AtomicBool>,
     /// Optional POST-requested Spectrum path. The bounded SPSC producer is always allocated at
     /// prepare time, but its worker remains absent and its audio ingress returns after one atomic
     /// read until the POST Spectrum page is visible (or an exact PRE is serving that request).
@@ -990,6 +994,7 @@ impl KirinHyphaEngine {
 
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
+        let reference_audition_active = Arc::new(AtomicBool::new(false));
         let attack_runtime = kirin_measure::AttackRuntime::new(sample_rate, num_channels).ok();
         let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
         let spectrum = SpectrumCoordinator::new_with_attack(
@@ -1104,6 +1109,7 @@ impl KirinHyphaEngine {
             record_ingress,
             measure_result,
             delta_result,
+            reference_audition_active,
             spectrum_runtime,
             attack_runtime,
             spectrum,
@@ -1857,6 +1863,7 @@ impl KirinHyphaEngine {
             let latched_pre = self.pair_binding.latched_pre();
             let spectrum = Arc::clone(&self.spectrum);
             let meter_delta_history = self.meter_delta_history.as_ref().map(Arc::clone);
+            let reference_audition_active = Arc::clone(&self.reference_audition_active);
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -1894,6 +1901,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
                     Some(Arc::clone(&spectrum)),
                     meter_delta_history.as_ref().map(Arc::clone),
+                    Arc::clone(&reference_audition_active),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -6520,23 +6528,5 @@ mod post_controls_parity_tests {
 }
 
 #[cfg(test)]
-mod keep_action_notice_tests {
-    use super::*;
-
-    #[test]
-    fn user_action_notice_is_one_shot_and_never_pollutes_persistent_io_error() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
-        *engine
-            .keep_action_notice
-            .write()
-            .expect("keep action notice lock") = Some("Another Keep is active".to_string());
-
-        assert_eq!(engine.record_error_message(), None);
-        assert_eq!(
-            engine.drain_keep_action_notice().as_deref(),
-            Some("Another Keep is active")
-        );
-        assert_eq!(engine.drain_keep_action_notice(), None);
-        assert_eq!(engine.record_error_message(), None);
-    }
-}
+#[path = "keep_action_notice_tests.rs"]
+mod keep_action_notice_tests;
