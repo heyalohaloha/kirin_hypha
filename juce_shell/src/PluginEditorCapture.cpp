@@ -12,6 +12,7 @@ const char* captureDomainName (hypha::observatory::Domain domain)
         case hypha::observatory::Domain::time:      return "TIME";
         case hypha::observatory::Domain::frequency: return "FREQ";
         case hypha::observatory::Domain::space:     return "SPACE";
+        case hypha::observatory::Domain::reference: return "REF";
     }
     return "LEVEL";
 }
@@ -24,6 +25,7 @@ juce::String captureDomainId (hypha::observatory::Domain domain)
         case hypha::observatory::Domain::time:      return "time";
         case hypha::observatory::Domain::frequency: return "frequency";
         case hypha::observatory::Domain::space:     return "space";
+        case hypha::observatory::Domain::reference: return "reference";
     }
     return "level";
 }

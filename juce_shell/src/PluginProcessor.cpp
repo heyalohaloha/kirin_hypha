@@ -651,7 +651,7 @@ void KirinHyphaProcessorBase::setUseShortTermLoudness (bool shortTerm)
 
 void KirinHyphaProcessorBase::setObservatoryDomainPreference (uint8_t value)
 {
-    const uint8_t bounded = value < 4u ? value : uint8_t { 0 };
+    const uint8_t bounded = value < 5u ? value : uint8_t { 0 };
     if (preferredObservatoryDomain.exchange (bounded, std::memory_order_acq_rel) != bounded)
         updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
@@ -1332,7 +1332,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             if (displayStateVersion >= 2)
             {
                 restoredObservatoryDomain = (uint8_t) juce::jlimit (
-                    0, 3, xml->getIntAttribute ("observatory_domain", 0));
+                    0, 4, xml->getIntAttribute ("observatory_domain", 0));
                 restoredObservatoryTarget = (uint8_t) juce::jlimit (
                     0, 1, xml->getIntAttribute ("observatory_target", 0));
                 restoredObservatoryTimeRange = (uint8_t) juce::jlimit (

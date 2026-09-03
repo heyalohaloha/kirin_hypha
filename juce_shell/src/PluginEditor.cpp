@@ -110,9 +110,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     tooltip.setLookAndFeel (&tooltipLookAndFeel);
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
-    // ObservatoryView covers the complete logical surface. Declaring the scale root opaque lets
-    // Windows present one finished frame instead of compositing it over an intermediate editor
-    // background while a transformed child hierarchy is being refreshed.
+    // One opaque Observatory root lets Windows present a completed frame instead of compositing
+    // intermediate transformed children.
     scaleRoot.setOpaque (true);
     addAndMakeVisible (scaleRoot);
     observatorySizeIndex = juce::jmin (
@@ -291,6 +290,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         scaleRoot.addChildComponent (perceptualView);
         scaleRoot.addChildComponent (absoluteView);
         scaleRoot.addChildComponent (attackView);
+        configureReferenceAudition();
        #endif
     }
     else
@@ -301,9 +301,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setFallback (instanceId8());
     }
 
-    // A single role-independent slot prevents the old banner/toast/error rows from painting over
-    // one another. updateFeedback() owns both priority and colour, while this component owns the
-    // only bottom-row rectangle in the AU/VST3 contract.
+    // One role-independent slot owns feedback priority and the only bottom-row rectangle.
     feedbackLabel.setFont (hypha::monoFont (ui::feedbackFontHeight));
     feedbackLabel.setJustificationType (juce::Justification::centredLeft);
     feedbackLabel.setMinimumHorizontalScale (1.0f);
@@ -355,6 +353,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
     tooltip.setLookAndFeel (nullptr);
     if (isPost)
     {
+        processorRef.selectReferenceA();
         processorRef.setSpectrumVisible (false);
         processorRef.setPerceptualVisible (false);
         processorRef.setAbsoluteVisible (false);
@@ -454,6 +453,7 @@ void KirinHyphaEditor::resized()
         perceptualView.setBounds (analysisBody);
         absoluteView.setBounds (analysisBody);
         attackView.setBounds (analysisBody);
+        layoutReferenceAudition (analysisBody);
         timePageNavigation.toFront (false);
     }
    #endif

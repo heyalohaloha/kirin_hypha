@@ -20,6 +20,7 @@ const char* domainName (Domain domain)
         case Domain::time:      return "TIME";
         case Domain::frequency: return "FREQ";
         case Domain::space:     return "SPACE";
+        case Domain::reference: return "REF";
     }
     return "LEVEL";
 }
@@ -44,6 +45,7 @@ View::View (Role roleIn) : role (roleIn)
 {
     setOpaque (true);
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
+                          &referenceButton,
                           &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton,
                           &compactLoudnessButton, &compactRangeButton,
                           &sizeButton, &resetButton, &captureButton })
@@ -55,6 +57,7 @@ View::View (Role roleIn) : role (roleIn)
     timeButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::time); };
     frequencyButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::frequency); };
     spaceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::space); };
+    referenceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::reference); };
     domainCycleButton.onClick = [this] { cycleDomain(); };
     targetButton.onClick = [this]
     {
@@ -246,6 +249,8 @@ void View::updateControls()
     timeButton.setToggleState (selectedDomain == Domain::time, juce::dontSendNotification);
     frequencyButton.setToggleState (selectedDomain == Domain::frequency, juce::dontSendNotification);
     spaceButton.setToggleState (selectedDomain == Domain::space, juce::dontSendNotification);
+    referenceButton.setToggleState (selectedDomain == Domain::reference,
+                                    juce::dontSendNotification);
     domainCycleButton.setToggleState (true, juce::dontSendNotification);
     domainCycleButton.setButtonText (domainName (selectedDomain));
     const bool fullCockpit = currentPreset().density == Density::observatory;
@@ -256,10 +261,12 @@ void View::updateControls()
         fullCockpit ? target() == ObservationTarget::absolute
                     : target() == ObservationTarget::delta,
         juce::dontSendNotification);
-    targetButton.setEnabled (selectedDomain != Domain::space);
+    targetButton.setEnabled (selectedDomain != Domain::space
+                             && selectedDomain != Domain::reference);
     deltaButton.setToggleState (target() == ObservationTarget::delta,
                                 juce::dontSendNotification);
-    deltaButton.setEnabled (selectedDomain != Domain::space);
+    deltaButton.setEnabled (selectedDomain != Domain::space
+                            && selectedDomain != Domain::reference);
     timeRangeButton.setButtonText (historyRequest().label);
     compactLoudnessButton.setButtonText (
         selectedShortTermLoudness ? "LOUDNESS S" : "LOUDNESS M");
@@ -295,24 +302,29 @@ void View::resized()
     frequencyButton.setVisible (! singleDomainControl
                                 && domainCapabilities (role).frequency);
     spaceButton.setVisible (! singleDomainControl);
+    referenceButton.setVisible (! singleDomainControl
+                                && domainCapabilities (role).reference);
     if (singleDomainControl)
         domainCycleButton.setBounds (navigation);
     else
     {
         auto remaining = navigation;
-        const auto domainCount = domainCapabilities (role).frequency ? 4 : 3;
+        const auto domainCount = domainCapabilities (role).reference ? 5 : 3;
         const auto width = remaining.getWidth() / domainCount;
         levelButton.setBounds (remaining.removeFromLeft (width));
         timeButton.setBounds (remaining.removeFromLeft (width));
         if (domainCapabilities (role).frequency)
             frequencyButton.setBounds (remaining.removeFromLeft (width));
-        spaceButton.setBounds (remaining);
+        spaceButton.setBounds (remaining.removeFromLeft (width));
+        if (domainCapabilities (role).reference)
+            referenceButton.setBounds (remaining);
     }
 
     const bool splitTargets = role == Role::post
                            && preset.density == Density::observatory;
-    targetButton.setVisible (role == Role::post);
-    deltaButton.setVisible (splitTargets);
+    const bool reference = selectedDomain == Domain::reference;
+    targetButton.setVisible (role == Role::post && ! reference);
+    deltaButton.setVisible (splitTargets && ! reference);
     auto targetArea = toJuce (layout.observationTarget);
     if (splitTargets)
     {
@@ -355,8 +367,8 @@ void View::resized()
         sizeButton.setBounds (sessionArea.removeFromRight (sizeWidth).reduced (1, 2));
     }
     const auto actions = toJuce (layout.actions);
-    const bool full = captureEntryAvailable (role, preset);
-    resetButton.setVisible (! captureFrame);
+    const bool full = captureEntryAvailable (role, preset) && ! reference;
+    resetButton.setVisible (! captureFrame && ! reference);
     captureButton.setVisible (full && ! captureFrame);
     if (full && ! captureFrame)
     {
@@ -364,7 +376,7 @@ void View::resized()
         resetButton.setBounds (split.removeFromLeft (split.getWidth() / 2).reduced (1, 2));
         captureButton.setBounds (split.reduced (1, 2));
     }
-    else if (! captureFrame)
+    else if (! captureFrame && ! reference)
         resetButton.setBounds (actions.reduced (1, 2));
 }
 

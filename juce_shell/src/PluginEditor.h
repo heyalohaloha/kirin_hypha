@@ -20,6 +20,7 @@
  #include "HyphaPerceptualComponent.h"
  #include "HyphaAbsoluteComponent.h"
  #include "HyphaAttackComponent.h"
+ #include "HyphaReferenceComponent.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -82,6 +83,9 @@ private:
     void updateTimePageNavigation();
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();
+    void configureReferenceAudition();
+    void layoutReferenceAudition (juce::Rectangle<int>);
+    void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
 #endif
 
     // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
@@ -126,6 +130,7 @@ private:
     hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
     hypha::AttackComponent attackView;         // POST ATTACK product view
+    hypha::reference_ui::Component referenceView; // POST-only Kirin OS prepared A/B
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help

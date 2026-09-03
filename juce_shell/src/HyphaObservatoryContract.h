@@ -25,6 +25,7 @@ enum class Domain
     time,
     frequency,
     space,
+    reference,
 };
 
 enum class ObservationTarget
@@ -288,13 +289,12 @@ constexpr bool targetAllowed (Role role, ObservationTarget target) noexcept
     return role == Role::post || target == ObservationTarget::absolute;
 }
 
-// SPACE currently has only factual POST meaning. Correlation and field subtraction are not
-// defined product facts, so selecting SPACE temporarily projects POST without destroying the
-// user's preferred target for LEVEL, TIME, and FREQ.
+// SPACE and REF own their own factual comparison models. Neither reuses POST/PRE subtraction.
 constexpr bool targetAllowed (Role role, Domain domain, ObservationTarget target) noexcept
 {
     return targetAllowed (role, target)
-        && (domain != Domain::space || target == ObservationTarget::absolute);
+        && ((domain != Domain::space && domain != Domain::reference)
+            || target == ObservationTarget::absolute);
 }
 
 constexpr ObservationTarget effectiveTarget (Role role,
@@ -311,6 +311,7 @@ struct DomainCapabilities
     bool time = true;
     bool frequency = false;
     bool space = true;
+    bool reference = false;
 
     constexpr bool allows (Domain domain) const noexcept
     {
@@ -320,6 +321,7 @@ struct DomainCapabilities
             case Domain::time:      return time;
             case Domain::frequency: return frequency;
             case Domain::space:     return space;
+            case Domain::reference: return reference;
         }
         return false;
     }
@@ -327,7 +329,7 @@ struct DomainCapabilities
 
 constexpr DomainCapabilities domainCapabilities (Role role) noexcept
 {
-    return { true, true, role == Role::post, true };
+    return { true, true, role == Role::post, true, role == Role::post };
 }
 
 constexpr Domain sanitizeDomain (Role role, Domain requested) noexcept
@@ -338,11 +340,12 @@ constexpr Domain sanitizeDomain (Role role, Domain requested) noexcept
 constexpr Domain nextDomain (Role role, Domain current) noexcept
 {
     auto candidate = current;
-    for (int attempts = 0; attempts < 4; ++attempts)
+    for (int attempts = 0; attempts < 5; ++attempts)
     {
         candidate = candidate == Domain::level ? Domain::time
                   : candidate == Domain::time ? Domain::frequency
-                  : candidate == Domain::frequency ? Domain::space : Domain::level;
+                  : candidate == Domain::frequency ? Domain::space
+                  : candidate == Domain::space ? Domain::reference : Domain::level;
         if (domainCapabilities (role).allows (candidate))
             return candidate;
     }
@@ -366,7 +369,7 @@ constexpr std::uint8_t stateValue (TimeRange value) noexcept
 
 constexpr Domain domainFromState (Role role, std::uint8_t value) noexcept
 {
-    const auto decoded = value <= stateValue (Domain::space)
+    const auto decoded = value <= stateValue (Domain::reference)
         ? static_cast<Domain> (value) : Domain::level;
     return sanitizeDomain (role, decoded);
 }
@@ -407,9 +410,12 @@ static_assert (hasArea (shellLayout (Role::post, sizePresets[0],
 static_assert (! targetAllowed (Role::pre, ObservationTarget::delta));
 static_assert (targetAllowed (Role::post, ObservationTarget::delta));
 static_assert (! targetAllowed (Role::post, Domain::space, ObservationTarget::delta));
+static_assert (! targetAllowed (Role::post, Domain::reference, ObservationTarget::delta));
 static_assert (effectiveTarget (Role::post, Domain::space, ObservationTarget::delta)
                == ObservationTarget::absolute);
 static_assert (! domainCapabilities (Role::pre).allows (Domain::frequency));
 static_assert (domainCapabilities (Role::post).allows (Domain::frequency));
+static_assert (! domainCapabilities (Role::pre).allows (Domain::reference));
+static_assert (domainCapabilities (Role::post).allows (Domain::reference));
 static_assert (nextDomain (Role::pre, Domain::time) == Domain::space);
 }

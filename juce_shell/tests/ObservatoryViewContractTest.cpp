@@ -174,7 +174,8 @@ void verifyRoleAtEverySize (observatory::Role role,
         view.setHistory (history);
         for (const auto domain : {
                  observatory::Domain::level, observatory::Domain::time,
-                 observatory::Domain::frequency, observatory::Domain::space })
+                 observatory::Domain::frequency, observatory::Domain::space,
+                 observatory::Domain::reference })
         {
             view.setDomain (domain);
             const auto body = view.bodyBounds();
@@ -323,6 +324,8 @@ void verifyObservatoryViewContract()
     KIRIN_OBSERVATORY_REQUIRE (pre.target() == observatory::ObservationTarget::absolute);
     pre.setDomain (observatory::Domain::frequency);
     KIRIN_OBSERVATORY_REQUIRE (pre.domain() == observatory::Domain::level);
+    pre.setDomain (observatory::Domain::reference);
+    KIRIN_OBSERVATORY_REQUIRE (pre.domain() == observatory::Domain::level);
     KIRIN_OBSERVATORY_REQUIRE (! pre.bodyOwnedByExternalAnalysis());
 
     observatory::View post (observatory::Role::post);
@@ -444,6 +447,9 @@ void verifyObservatoryViewContract()
     KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::absolute);
     post.setTarget (observatory::ObservationTarget::delta);
     KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::absolute);
+    post.setDomain (observatory::Domain::reference);
+    KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::absolute);
+    KIRIN_OBSERVATORY_REQUIRE (post.bodyOwnedByExternalAnalysis());
     post.setDomain (observatory::Domain::level);
     KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::delta);
     post.setDomain (observatory::Domain::time);

@@ -36,6 +36,11 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 {
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
     domain = hypha::observatory::sanitizeDomain (role, domain);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (observatoryDomain == hypha::observatory::Domain::reference
+        && domain != hypha::observatory::Domain::reference)
+        processorRef.selectReferenceA();
+   #endif
     observatoryDomain = domain;
     processorRef.setObservatoryDomainPreference (hypha::observatory::stateValue (domain));
     observatoryView.setDomain (domain);
@@ -87,9 +92,14 @@ void KirinHyphaEditor::refreshObservatory()
     }
 
     KirinObservatoryFrame frame {};
-    observatoryView.setObservatoryFrame (frame, processorRef.pollObservatoryFrame (frame));
+    const bool frameAvailable = processorRef.pollObservatoryFrame (frame);
+    observatoryView.setObservatoryFrame (frame, frameAvailable);
     observatoryView.setWatchDisplay (observatoryWatchDisplay, haveObservatoryWatchDisplay);
     observatoryView.setShortTermLoudness (processorRef.useShortTermLoudness());
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (isPost)
+        refreshReferenceAudition (frame, frameAvailable);
+   #endif
 
     const auto pairStatus = processorRef.pairStatus();
 

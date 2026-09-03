@@ -106,7 +106,8 @@ public:
     }
     bool bodyOwnedByExternalAnalysis() const noexcept
     {
-        return role == Role::post && selectedDomain == Domain::frequency;
+        return role == Role::post
+            && (selectedDomain == Domain::frequency || selectedDomain == Domain::reference);
     }
 
     void paint (juce::Graphics&) override;
@@ -171,6 +172,7 @@ private:
     Button timeButton { "TIME", true };
     Button frequencyButton { "FREQ", true };
     Button spaceButton { "SPACE", true };
+    Button referenceButton { "REF", true };
     Button domainCycleButton { {}, true };
     Button targetButton { {}, false };
     Button deltaButton { hypha::delta(), false };

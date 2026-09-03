@@ -188,10 +188,21 @@ int main()
         observatory::Role::post, observatory::ObservationTarget::delta));
     static_assert (! observatory::domainCapabilities (
         observatory::Role::pre).allows (observatory::Domain::frequency));
+    static_assert (! observatory::domainCapabilities (
+        observatory::Role::pre).allows (observatory::Domain::reference));
+    static_assert (observatory::domainCapabilities (
+        observatory::Role::post).allows (observatory::Domain::reference));
     static_assert (observatory::domainFromState (
         observatory::Role::pre,
         observatory::stateValue (observatory::Domain::frequency))
         == observatory::Domain::level);
+    static_assert (observatory::domainFromState (
+        observatory::Role::pre,
+        observatory::stateValue (observatory::Domain::reference))
+        == observatory::Domain::level);
+    static_assert (observatory::nextDomain (
+        observatory::Role::post, observatory::Domain::space)
+        == observatory::Domain::reference);
     static_assert (observatory::timeRangeFromState (99u)
         == observatory::TimeRange::seconds30);
 
@@ -199,7 +210,8 @@ int main()
              observatory::Domain::level,
              observatory::Domain::time,
              observatory::Domain::frequency,
-             observatory::Domain::space })
+             observatory::Domain::space,
+             observatory::Domain::reference })
     {
         for (const auto target : {
                  observatory::ObservationTarget::absolute,

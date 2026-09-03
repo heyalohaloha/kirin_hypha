@@ -295,6 +295,10 @@ int main()
                  "explicit B selection must succeed when ready");
         require (comparisonSuspended,
                  "B selection must suspend the normal PRE comparison through its gate");
+        const auto matchedSnapshot = controller.snapshot();
+        require (std::abs (matchedSnapshot.loudnessDeltaBMinusA) < 1.0e-9
+                 && std::abs (matchedSnapshot.truePeakDeltaBMinusA + 1.0) < 1.0e-9,
+                 "B deltas must report adjusted B minus the frozen A measurement");
         juce::AudioBuffer<float> audition (2, 256);
         audition.clear();
         require (controller.renderSelectedB (audition, 128, true),
@@ -304,6 +308,15 @@ int main()
         controller.selectA();
         require (! comparisonSuspended,
                  "A return must resume the normal PRE comparison through its gate");
+        require (controller.selectB (-11.0, -2.0),
+                 "safe gain-limited B selection must remain available");
+        const auto limitedSnapshot = controller.snapshot();
+        require (limitedSnapshot.gainLimited
+                 && std::abs (limitedSnapshot.appliedGainDb - 2.0) < 1.0e-9
+                 && std::abs (limitedSnapshot.loudnessDeltaBMinusA + 1.0) < 1.0e-9
+                 && std::abs (limitedSnapshot.adjustedBMaximumTruePeakDbtp + 1.0) < 1.0e-9,
+                 "B delta must expose a TP-limited loudness mismatch instead of hiding it");
+        controller.selectA();
         audition.clear();
         audition.setSample (0, 0, 0.75f);
         require (! controller.renderSelectedB (audition, 384, true)
