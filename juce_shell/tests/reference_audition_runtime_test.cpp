@@ -274,26 +274,32 @@ int main()
                         makePreparation (source, wavHash, wavReceiptHash, wavReceipt.getSize())),
              "decodable preparation must be written");
     {
-        bool comparisonSuspended = false;
+        std::atomic<bool> comparisonSuspended { false };
         ref::Controller controller (root, [&comparisonSuspended] (bool bSelected)
         {
-            comparisonSuspended = bSelected;
+            comparisonSuspended.store (bSelected);
             return true;
-        });
+        }, [] { return true; }); // deterministic fixture: stimulus 1 is B
         controller.observeTransport (128, true, true);
         controller.configure (identity, 48'000.0, 2);
         for (int attempt = 0; attempt < 300
              && controller.snapshot().state != ref::RuntimeState::ready; ++attempt)
             juce::Thread::sleep (10);
-        require (controller.snapshot().state == ref::RuntimeState::ready,
+        require (controller.snapshot().state == ref::RuntimeState::ready
+                 && controller.snapshot().auditionBuffered,
                  "verified and decoded preparation must become ready");
+        controller.observeTransport (128, true, false);
+        require (! controller.startBlind (-14.0, -2.0)
+                 && controller.snapshot().blindPhase == ref::BlindPhase::inactive,
+                 "Blind Compare must remain unavailable while transport is stopped");
+        controller.observeTransport (128, true, true);
         const auto liveAck = juce::JSON::parse (files.acknowledgement);
         require (liveAck.getDynamicObject() != nullptr
                  && liveAck.getDynamicObject()->getProperty ("receipt_status") == "accepted",
                  "only a decoded source may receive an accepted acknowledgement");
         require (controller.selectB (-14.0, -2.0),
                  "explicit B selection must succeed when ready");
-        require (comparisonSuspended,
+        require (comparisonSuspended.load(),
                  "B selection must suspend the normal PRE comparison through its gate");
         const auto matchedSnapshot = controller.snapshot();
         require (std::abs (matchedSnapshot.loudnessDeltaBMinusA) < 1.0e-9
@@ -306,7 +312,7 @@ int main()
         require (std::abs (audition.getSample (0, 1)) > 0.001f,
                  "rendered B must contain the prepared Reference audio");
         controller.selectA();
-        require (! comparisonSuspended,
+        require (! comparisonSuspended.load(),
                  "A return must resume the normal PRE comparison through its gate");
         require (controller.selectB (-11.0, -2.0),
                  "safe gain-limited B selection must remain available");
@@ -322,9 +328,152 @@ int main()
         require (! controller.renderSelectedB (audition, 384, true)
                  && audition.getSample (0, 0) == 0.75f,
                  "A selection must leave the DAW buffer untouched");
+
+        require (controller.startBlind (-14.0, -2.0),
+                 "Blind Compare must start only from a ready realtime A/B condition");
+        auto blind = controller.snapshot();
+        require (blind.blindPhase == ref::BlindPhase::active
+                 && blind.activeBlindStimulus == 0
+                 && blind.pendingBlindStimulus == 0
+                 && blind.blindReveal.isEmpty()
+                 && ! blind.bSelected,
+                 "Blind start must hide assignment and remain on live A");
+        require (! controller.selectBlindStimulus (0)
+                 && ! controller.selectBlindStimulus (3),
+                 "only anonymous stimulus 1 or 2 may be selected");
+        juce::Thread::sleep (650);
+        blind = controller.snapshot();
+        require (std::abs (blind.aIntegratedLoudness + 14.0) < 1.0e-9
+                 && std::abs (blind.aMaximumTruePeakDbtp + 2.0) < 1.0e-9,
+                 "background preparation refresh must preserve the frozen blind A facts");
+        require (controller.selectBlindStimulus (1),
+                 "blind stimulus 1 request must be accepted");
+        blind = controller.snapshot();
+        require (blind.activeBlindStimulus == 0
+                 && blind.pendingBlindStimulus == 1
+                 && blind.blindReveal.isEmpty(),
+                 "requested blind source must not appear active before an audio callback receipt");
+        audition.clear();
+        require (controller.renderSelectedB (audition, 512, true),
+                 "deterministic blind stimulus 1 must render B");
+        blind = controller.snapshot();
+        require (blind.activeBlindStimulus == 1
+                 && blind.pendingBlindStimulus == 0
+                 && blind.blindReveal.isEmpty(),
+                 "audio callback receipt must confirm only the anonymous stimulus");
+        controller.loseAudibleConfirmation();
+        blind = controller.snapshot();
+        require (blind.activeBlindStimulus == 0 && blind.pendingBlindStimulus == 1,
+                 "lost audio heartbeat must withdraw the audible confirmation");
+        audition.clear();
+        require (controller.renderSelectedB (audition, 576, true)
+                 && controller.snapshot().activeBlindStimulus == 1,
+                 "a later real callback may confirm the requested source again");
+        require (controller.selectBlindStimulus (2),
+                 "blind stimulus 2 request must be accepted");
+        blind = controller.snapshot();
+        require (blind.activeBlindStimulus == 0 && blind.pendingBlindStimulus == 2,
+                 "A request must also wait for the audio callback receipt");
+        audition.clear();
+        audition.setSample (0, 0, 0.5f);
+        require (! controller.renderSelectedB (audition, 640, true)
+                 && audition.getSample (0, 0) == 0.5f,
+                 "blind A must preserve the live DAW buffer");
+        blind = controller.snapshot();
+        require (blind.activeBlindStimulus == 2 && blind.blindReveal.isEmpty(),
+                 "confirmed blind A must still expose no source assignment");
+        require (controller.revealBlind(), "Blind Compare must reveal only by explicit action");
+        blind = controller.snapshot();
+        require (blind.blindPhase == ref::BlindPhase::revealed
+                 && blind.blindReveal == "1 = B  /  2 = A",
+                 "reveal must expose the deterministic assignment together");
+        controller.endBlind();
+        blind = controller.snapshot();
+        require (blind.blindPhase == ref::BlindPhase::inactive
+                 && blind.blindReveal.isEmpty() && ! blind.bSelected,
+                 "ending Blind Compare must clear assignment and return to A");
+
+        require (controller.startBlind (-14.0, -2.0),
+                 "a fresh Blind Compare must be restartable");
+        require (controller.selectBlindStimulus (1),
+                 "offline fail-close fixture must select its B stimulus");
+        audition.clear();
+        require (! controller.renderSelectedB (audition, 768, true, false),
+                 "offline or bypass processing must never render Reference B");
+        blind = controller.snapshot();
+        require (blind.blindPhase == ref::BlindPhase::invalidated
+                 && blind.blindReveal.isEmpty() && ! blind.bSelected,
+                 "an unavailable audio route must invalidate Blind without revealing assignment");
+        for (int attempt = 0; attempt < 100 && comparisonSuspended.load(); ++attempt)
+            juce::Thread::sleep (10);
+        require (! comparisonSuspended.load(),
+                 "audio-thread fail-close must release PRE comparison from the worker thread");
+
+        require (controller.startBlind (-14.0, -2.0),
+                 "Blind Compare must restart after a fail-closed trial");
+        controller.configure ({ runtimeId, workId, 42 }, 48'000.0, 2);
+        blind = controller.snapshot();
+        require (blind.blindPhase == ref::BlindPhase::invalidated
+                 && blind.blindReveal.isEmpty() && ! blind.bSelected,
+                 "route reconfiguration must invalidate without revealing assignment");
     }
     require (! files.capability.exists() && ! files.acknowledgement.exists(),
              "controller teardown must remove only its own runtime receipts");
+
+    {
+        ref::Controller deniedController (root, [] (bool bSelected)
+        {
+            return ! bSelected;
+        }, [] { return true; });
+        deniedController.observeTransport (128, true, true);
+        deniedController.configure (identity, 48'000.0, 2);
+        for (int attempt = 0; attempt < 300
+             && deniedController.snapshot().state != ref::RuntimeState::ready; ++attempt)
+            juce::Thread::sleep (10);
+        require (deniedController.snapshot().state == ref::RuntimeState::ready,
+                 "denied-switch fixture must still prepare its immutable source");
+        require (deniedController.startBlind (-14.0, -2.0),
+                 "Blind may start before an output-side switch is requested");
+        require (! deniedController.selectBlindStimulus (1),
+                 "a rejected output-side switch must fail the explicit Blind action");
+        const auto denied = deniedController.snapshot();
+        require (denied.activeBlindStimulus == 0 && denied.pendingBlindStimulus == 0
+                 && ! denied.bSelected && denied.blindReveal.isEmpty(),
+                 "failed switching must clear pending state without leaking the assignment");
+    }
+    require (! files.capability.exists() && ! files.acknowledgement.exists(),
+             "failed-switch teardown must remove its runtime receipts");
+
+    {
+        std::atomic<bool> comparisonSuspended { false };
+        ref::Controller staleController (root, [&comparisonSuspended] (bool bSelected)
+        {
+            comparisonSuspended.store (bSelected);
+            return true;
+        }, [] { return true; });
+        staleController.observeTransport (128, true, true);
+        staleController.configure (identity, 48'000.0, 2);
+        for (int attempt = 0; attempt < 300
+             && staleController.snapshot().state != ref::RuntimeState::ready; ++attempt)
+            juce::Thread::sleep (10);
+        require (staleController.startBlind (-14.0, -2.0)
+                 && staleController.selectBlindStimulus (1),
+                 "stale-callback fixture must begin a B-side anonymous request");
+        for (int attempt = 0; attempt < 400
+             && staleController.snapshot().blindPhase != ref::BlindPhase::invalidated; ++attempt)
+            juce::Thread::sleep (10);
+        for (int attempt = 0; attempt < 100 && comparisonSuspended.load(); ++attempt)
+            juce::Thread::sleep (10);
+        const auto stale = staleController.snapshot();
+        require (stale.blindPhase == ref::BlindPhase::invalidated,
+                 "missing audio callbacks must invalidate Blind");
+        require (stale.blindReveal.isEmpty(),
+                 "stale-callback invalidation must not disclose the assignment");
+        require (! stale.bSelected && ! comparisonSuspended.load(),
+                 "missing audio callbacks must return both output gates to A");
+    }
+    require (! files.capability.exists() && ! files.acknowledgement.exists(),
+             "stale-callback teardown must remove its runtime receipts");
 
     require (sandbox.deleteRecursively(), "sandbox must be removed");
     std::cout << "Reference audition runtime contract tests passed\n";

@@ -64,6 +64,12 @@ identity検証失敗時はA経路を維持する。Referenceのfile I/O、decode
 Audio Threadでは事前確保済みbufferのRT-safeな選択・出力だけを許可する。allocation、lock、
 blocking I/Oを持ち込まない。
 
+Reference Blind Compareは、Bが`READY`で、Aの測定値、transport再生、project位置、Bの事前読込が
+すべて成立した時だけ入口を表示する。割当はOS CSPRNGで生成して非公開runtime stateに保持し、開示前は音源名、source種別、
+測定値、delta、gain、alignmentを表示またはaccessibility情報へ出さない。`1 / 2`の選択表示は、
+Audio Threadが要求sourceを実際に出力したcallback receiptの後だけ更新する。明示Revealまたは終了まで
+自動開示せず、Referenceまたはruntime条件の変更時は割当を開示せずAへ戻す。
+
 ### 3.2 Measurement boundary
 
 現行のM、S、recent TP、Crest、PSR、Sharpness、I、LRA、MaxTPと、10 ms規格解析から公開するMax Mを別の意味へ読み替えない。

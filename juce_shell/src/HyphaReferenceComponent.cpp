@@ -115,22 +115,61 @@ Component::Component()
     setOpaque (false);
     aButton.setComponentID ("reference-a");
     bButton.setComponentID ("reference-b");
+    blindButton.setComponentID ("reference-blind");
+    oneButton.setComponentID ("reference-blind-1");
+    twoButton.setComponentID ("reference-blind-2");
+    revealButton.setComponentID ("reference-blind-reveal");
+    endBlindButton.setComponentID ("reference-blind-end");
     aButton.setTitle ("Audition A");
     bButton.setTitle ("Audition B");
+    blindButton.setTitle ("Start Blind Compare");
+    oneButton.setTitle ("Audition blind source 1");
+    twoButton.setTitle ("Audition blind source 2");
+    revealButton.setTitle ("Reveal blind sources");
+    endBlindButton.setTitle ("End Blind Compare");
     aButton.setTooltip ("Return to the live DAW mix (A).");
     bButton.setTooltip ("Audition the Kirin OS prepared Reference (B).");
+    blindButton.setTooltip ("Hide the A/B assignment and compare as source 1 and 2.");
+    oneButton.setTooltip ("Audition source 1. Its identity remains hidden.");
+    twoButton.setTooltip ("Audition source 2. Its identity remains hidden.");
+    revealButton.setTooltip ("Reveal which source is A and which source is B.");
+    endBlindButton.setTooltip ("End Blind Compare and return to live A.");
     aButton.onClick = [this] { if (onSelectA) onSelectA(); };
     bButton.onClick = [this] { if (onSelectB) onSelectB(); };
+    blindButton.onClick = [this] { if (onStartBlind) onStartBlind(); };
+    oneButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (1); };
+    twoButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (2); };
+    revealButton.onClick = [this] { if (onRevealBlind) onRevealBlind(); };
+    endBlindButton.onClick = [this] { if (onEndBlind) onEndBlind(); };
     addAndMakeVisible (aButton);
     addAndMakeVisible (bButton);
+    addChildComponent (blindButton);
+    addChildComponent (oneButton);
+    addChildComponent (twoButton);
+    addChildComponent (revealButton);
+    addChildComponent (endBlindButton);
 }
 
 void Component::setState (State next)
 {
     current = std::move (next);
+    const bool blindRunning = current.blindPhase == BlindPhase::active
+                           || current.blindPhase == BlindPhase::revealed;
     aButton.setToggleState (! current.bSelected, juce::dontSendNotification);
     bButton.setToggleState (current.bSelected, juce::dontSendNotification);
     bButton.setEnabled (canSelectB (current));
+    aButton.setVisible (! blindRunning);
+    bButton.setVisible (! blindRunning);
+    blindButton.setVisible (! blindRunning && canStartBlind (current));
+    oneButton.setVisible (blindRunning);
+    twoButton.setVisible (blindRunning);
+    revealButton.setVisible (current.blindPhase == BlindPhase::active);
+    endBlindButton.setVisible (blindRunning);
+    oneButton.setToggleState (current.activeBlindStimulus == 1, juce::dontSendNotification);
+    twoButton.setToggleState (current.activeBlindStimulus == 2, juce::dontSendNotification);
+    oneButton.setEnabled (current.pendingBlindStimulus != 1);
+    twoButton.setEnabled (current.pendingBlindStimulus != 2);
+    resized();
     repaint();
 }
 
@@ -144,16 +183,74 @@ void Component::resized()
     auto area = getLocalBounds().reduced (6);
     auto header = area.removeFromTop (detailedLayout() ? 42 : 34);
     const int buttonWidth = detailedLayout() ? 62 : 48;
-    bButton.setBounds (header.removeFromRight (buttonWidth));
-    header.removeFromRight (3);
-    aButton.setBounds (header.removeFromRight (buttonWidth));
+    const auto place = [&header] (juce::Component& button, int width)
+    {
+        button.setBounds (header.removeFromRight (width));
+        header.removeFromRight (3);
+    };
+    if (current.blindPhase == BlindPhase::active
+        || current.blindPhase == BlindPhase::revealed)
+    {
+        place (endBlindButton, buttonWidth);
+        if (revealButton.isVisible())
+            place (revealButton, detailedLayout() ? 78 : 62);
+        place (twoButton, buttonWidth);
+        place (oneButton, buttonWidth);
+    }
+    else
+    {
+        if (blindButton.isVisible())
+            place (blindButton, detailedLayout() ? 78 : 62);
+        place (bButton, buttonWidth);
+        place (aButton, buttonWidth);
+    }
 }
 
 void Component::paint (juce::Graphics& g)
 {
     auto area = getLocalBounds().reduced (6);
     auto header = area.removeFromTop (detailedLayout() ? 42 : 34);
-    header.removeFromRight ((detailedLayout() ? 62 : 48) * 2 + 3);
+    const bool blindActive = current.blindPhase == BlindPhase::active;
+    const bool blindRevealed = current.blindPhase == BlindPhase::revealed;
+    int controlsWidth = (detailedLayout() ? 62 : 48) * 2 + 3;
+    if (blindActive)
+        controlsWidth += (detailedLayout() ? 78 : 62) + (detailedLayout() ? 62 : 48) + 6;
+    else if (blindRevealed)
+        controlsWidth += (detailedLayout() ? 62 : 48) + 3;
+    else if (blindButton.isVisible())
+        controlsWidth += (detailedLayout() ? 78 : 62) + 3;
+    header.removeFromRight (controlsWidth);
+    if (blindActive)
+    {
+        g.setColour (COL_FLORA.withAlpha (0.86f));
+        g.setFont (labelFont (detailedLayout() ? 10.5f : 8.5f));
+        g.drawFittedText ("REFERENCE / BLIND COMPARE", header.removeFromTop (14),
+                          juce::Justification::centredLeft, 1, 0.72f);
+        g.setColour (COL_OBSERVATORY_VALUE);
+        g.setFont (labelFont (detailedLayout() ? 15.0f : 11.0f));
+        g.drawFittedText ("SOURCE IDENTITY HIDDEN", header,
+                          juce::Justification::centredLeft, 1, 0.72f);
+
+        area.removeFromTop (4);
+        auto statusArea = area.removeFromBottom (detailedLayout() ? 24 : 18);
+        juce::String status = "SELECT 1 OR 2";
+        if (current.pendingBlindStimulus != 0)
+            status = "SWITCHING TO " + juce::String (current.pendingBlindStimulus);
+        else if (current.activeBlindStimulus != 0)
+            status = "AUDIBLE SOURCE " + juce::String (current.activeBlindStimulus)
+                   + " / CONFIRMED";
+        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.92f));
+        g.setFont (labelFont (detailedLayout() ? 11.0f : 8.5f));
+        g.drawFittedText (status, statusArea.reduced (4, 0),
+                          juce::Justification::centredLeft, 1, 0.78f);
+        drawPanel (g, area.toFloat(), 0.72f);
+        drawComparisonRoots (g, area.toFloat());
+        g.setColour (COL_NORMAL.withAlpha (0.9f));
+        g.setFont (monoFont (detailedLayout() ? 23.0f : 15.0f));
+        g.drawFittedText ("1      2", area.toNearestInt(),
+                          juce::Justification::centred, 1, 0.9f);
+        return;
+    }
     const auto source = current.sourceLabel.isNotEmpty() ? current.sourceLabel : "KIRIN OS";
     g.setColour (COL_FLORA.withAlpha (0.86f));
     g.setFont (labelFont (detailedLayout() ? 10.5f : 8.5f));
@@ -170,7 +267,8 @@ void Component::paint (juce::Graphics& g)
         ? COL_LED_YELLOW : current.bSelected ? COL_SPECTRUM_DELTA_BR : COL_MUTED;
     g.setColour (statusColour.withAlpha (0.92f));
     g.setFont (labelFont (detailedLayout() ? 11.0f : 8.5f));
-    auto statusText = current.status;
+    auto statusText = blindRevealed && current.blindReveal.isNotEmpty()
+        ? "REVEALED / " + current.blindReveal : current.status;
     if (detailedLayout() && current.alignmentLabel.isNotEmpty())
         statusText += (statusText.isNotEmpty() ? "  /  " : "") + current.alignmentLabel;
     auto primaryStatusArea = statusArea;

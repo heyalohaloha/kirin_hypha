@@ -17,6 +17,15 @@ enum class Readiness
     rejected,
 };
 
+enum class BlindPhase
+{
+    unavailable,
+    available,
+    active,
+    revealed,
+    invalidated,
+};
+
 inline double unavailableValue() noexcept
 {
     return std::numeric_limits<double>::quiet_NaN();
@@ -39,6 +48,10 @@ struct State
     bool aAvailable = false;
     bool gainLimited = false;
     bool bSelected = false;
+    BlindPhase blindPhase = BlindPhase::unavailable;
+    int activeBlindStimulus = 0;
+    int pendingBlindStimulus = 0;
+    juce::String blindReveal;
 };
 
 inline bool canSelectB (const State& state) noexcept
@@ -49,6 +62,13 @@ inline bool canSelectB (const State& state) noexcept
         && std::isfinite (state.aMaximumTruePeakDbtp);
 }
 
+inline bool canStartBlind (const State& state) noexcept
+{
+    return (state.blindPhase == BlindPhase::available
+            || state.blindPhase == BlindPhase::invalidated)
+        && canSelectB (state);
+}
+
 class Component final : public juce::Component
 {
 public:
@@ -56,6 +76,10 @@ public:
 
     std::function<void()> onSelectA;
     std::function<void()> onSelectB;
+    std::function<void()> onStartBlind;
+    std::function<void(int)> onSelectBlindStimulus;
+    std::function<void()> onRevealBlind;
+    std::function<void()> onEndBlind;
 
     void setState (State);
     const State& state() const noexcept { return current; }
@@ -75,6 +99,11 @@ private:
     State current;
     SideButton aButton { "A" };
     SideButton bButton { "B" };
+    SideButton blindButton { "BLIND" };
+    SideButton oneButton { "1" };
+    SideButton twoButton { "2" };
+    SideButton revealButton { "REVEAL" };
+    SideButton endBlindButton { "END" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Component)
 };

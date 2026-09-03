@@ -107,6 +107,48 @@ void KirinHyphaProcessorBase::selectReferenceA()
    #endif
 }
 
+bool KirinHyphaProcessorBase::startReferenceBlind (double aIntegratedLoudness,
+                                                   double aMaximumTruePeakDbtp)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController != nullptr
+        && referenceAuditionController->startBlind (
+            aIntegratedLoudness, aMaximumTruePeakDbtp);
+   #else
+    juce::ignoreUnused (aIntegratedLoudness, aMaximumTruePeakDbtp);
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::selectReferenceBlindStimulus (int stimulus)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController != nullptr
+        && referenceAuditionController->selectBlindStimulus (stimulus);
+   #else
+    juce::ignoreUnused (stimulus);
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::revealReferenceBlind()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return referenceAuditionController != nullptr
+        && referenceAuditionController->revealBlind();
+   #else
+    return false;
+   #endif
+}
+
+void KirinHyphaProcessorBase::endReferenceBlind()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController != nullptr)
+        referenceAuditionController->endBlind();
+   #endif
+}
+
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void KirinHyphaProcessorBase::createReferenceAuditionController()
 {

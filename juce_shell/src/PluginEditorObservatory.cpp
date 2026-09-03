@@ -71,7 +71,7 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (observatoryDomain == hypha::observatory::Domain::reference
         && domain != hypha::observatory::Domain::reference)
-        processorRef.selectReferenceA();
+        processorRef.endReferenceBlind();
    #endif
     observatoryDomain = domain;
     processorRef.setObservatoryDomainPreference (hypha::observatory::stateValue (domain));

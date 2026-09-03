@@ -512,9 +512,9 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     // Explicit B is an output-only audition copy. A has already been measured above. Offline
     // render, bypass, missing project time, cache miss, and every consumer failure keep A intact.
-    if (role == Role::Post && referenceAuditionController != nullptr
-        && ! bypassed && ! nonRealtimeMode)
-        referenceAuditionController->renderSelectedB (buffer, positionSamples, hasPosition);
+    if (role == Role::Post && referenceAuditionController != nullptr)
+        referenceAuditionController->renderSelectedB (buffer, positionSamples, hasPosition,
+                                                       ! bypassed && ! nonRealtimeMode);
    #endif
 #endif
 }

@@ -7,6 +7,7 @@
 #include <juce_core/juce_core.h>
 
 #include "ReferenceAudioPages.h"
+#include "ReferenceBlindSession.h"
 #include "ReferenceAuditionLease.h"
 #include "ReferenceAuditionRepository.h"
 
@@ -39,15 +40,23 @@ namespace hypha::reference_audition
         double truePeakDeltaBMinusA = 0.0;
         bool gainLimited = false;
         bool bSelected = false;
+        bool transportPlaying = false;
+        bool transportPositionValid = false;
+        bool auditionBuffered = false;
+        BlindPhase blindPhase = BlindPhase::inactive;
+        int activeBlindStimulus = 0;
+        int pendingBlindStimulus = 0;
+        juce::String blindReveal;
     };
 
     class Controller final : private juce::Thread
     {
     public:
         using SelectionGate = std::function<bool(bool)>;
+        using RandomBit = std::function<bool()>;
 
         explicit Controller (juce::File transportRootIn = Repository::transportRoot(),
-                             SelectionGate = {});
+                             SelectionGate = {}, RandomBit = {});
         ~Controller() override;
 
         void configure (RuntimeIdentity, double hostSampleRate, int hostChannels);
@@ -58,8 +67,13 @@ namespace hypha::reference_audition
                                bool playing) noexcept;
         bool selectB (double aIntegratedLoudness, double aMaximumTruePeakDbtp) noexcept;
         void selectA() noexcept;
+        bool startBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp) noexcept;
+        bool selectBlindStimulus (int stimulus) noexcept;
+        bool revealBlind() noexcept;
+        void endBlind() noexcept;
         bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t hostPosition,
-                              bool positionValid) noexcept;
+                              bool positionValid, bool auditionAllowed = true) noexcept;
+        void loseAudibleConfirmation() noexcept;
 
     private:
         struct Configuration
@@ -75,11 +89,19 @@ namespace hypha::reference_audition
         void refreshPreparation (const Configuration&, std::int64_t nowMs);
         void publish (Snapshot);
         std::int64_t mappedSourcePosition (std::int64_t hostPosition) const noexcept;
+        bool prepareReferenceGain (double aIntegratedLoudness,
+                                   double aMaximumTruePeakDbtp) noexcept;
+        bool activatePreparedB() noexcept;
+        void selectAOutput() noexcept;
+        void failClosedToA() noexcept;
+        void invalidateBlind() noexcept;
 
         const juce::File root;
         const SelectionGate selectionGate;
+        const RandomBit randomBit;
         Repository repository;
         AudioPages pages;
+        BlindSession blindSession;
         mutable juce::CriticalSection configurationLock;
         Configuration requestedConfiguration;
         std::uint64_t appliedConfigurationGeneration = 0;
@@ -97,5 +119,7 @@ namespace hypha::reference_audition
         std::atomic<std::int64_t> latestHostPosition { 0 };
         std::atomic<bool> latestPositionValid { false };
         std::atomic<bool> latestPlaying { false };
+        std::atomic<std::uint64_t> audioCallbackSequence { 0 };
+        std::atomic<bool> gateReleasePending { false };
     };
 }

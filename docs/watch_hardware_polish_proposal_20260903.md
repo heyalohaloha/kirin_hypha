@@ -570,11 +570,15 @@ Studio Oneのhost chromeはnative render testでは代替せず、独立した�
 
 REFのBlindは、Referenceが`READY`で、Aの測定、音源identity検証、形式互換、実時間再生がすべて成立した時だけ入口を表示する。
 
-開始後はA/Bの割当、選択色、名称、状態文から正体を推測できないようにし、利用者が回答を確定した後だけ割当を開示する。
+開始後はA/Bの割当、選択色、名称、状態文から正体を推測できないようにし、利用者が明示的にRevealした後だけ割当を開示する。Kirin OSと同じく、Blind Compareでの事前assessmentは必須にしない。
 
-現行REFには安全なA/B試聴経路はあるが、ランダム割当、回答固定、開示、次試行の契約がないため、表示だけを先行追加しない。
+Kirin OSの既存Blind Compareを振る舞いの正本とする。HyphaはGPLv3分離を維持し、コードを共有せず、同じ境界をReference runtimeへ独立実装する。
 
-BlindはWatch表示改修ではなく、独立したREF比較契約として設計、実装、検証する。
+割当はHyphaの非公開runtime stateだけに保持する。画面には`1 / 2`だけを出し、実際のAudio Thread callbackがAまたはBを出力した後に限って選択表示を更新する。
+
+開示前は音源名、source種別、測定値、delta、gain、alignmentを描画、tooltip、accessible nameへ出さない。明示Reveal後に割当と各事実を同時に戻す。
+
+Reference変更、runtime再構成、画面終了、REF画面からの移動ではAへ戻す。条件変更による終了は割当を開示しない。
 
 ## 10. Watch release後の順番
 

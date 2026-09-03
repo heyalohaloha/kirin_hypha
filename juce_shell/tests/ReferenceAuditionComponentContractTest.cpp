@@ -29,6 +29,15 @@ juce::Image render (reference_ui::Component& component)
     return image;
 }
 
+void writeImageIfRequested (const juce::Image& image, const char* variable)
+{
+    const auto path = juce::SystemStats::getEnvironmentVariable (variable, {});
+    if (path.isEmpty())
+        return;
+    juce::FileOutputStream stream { juce::File { path } };
+    KIRIN_REF_REQUIRE (juce::PNGImageFormat().writeImageToStream (image, stream));
+}
+
 int differentPixels (const juce::Image& left, const juce::Image& right)
 {
     KIRIN_REF_REQUIRE (left.getBounds() == right.getBounds());
@@ -48,6 +57,7 @@ reference_ui::State readyState()
     state.sourceLabel = "WORK VERSION";
     state.status = "READY / B FOLLOWS A";
     state.alignmentLabel = "PROJECT TIMELINE";
+    state.blindPhase = reference_ui::BlindPhase::available;
     state.aAvailable = true;
     state.aIntegratedLoudness = -14.0;
     state.aMaximumTruePeakDbtp = -1.8;
@@ -59,8 +69,10 @@ void verifyReferenceAuditionComponentContract()
 {
     auto state = readyState();
     KIRIN_REF_REQUIRE (reference_ui::canSelectB (state));
+    KIRIN_REF_REQUIRE (reference_ui::canStartBlind (state));
     state.readiness = reference_ui::Readiness::waiting;
     KIRIN_REF_REQUIRE (! reference_ui::canSelectB (state));
+    KIRIN_REF_REQUIRE (! reference_ui::canStartBlind (state));
     state = readyState();
     state.aAvailable = false;
     KIRIN_REF_REQUIRE (! reference_ui::canSelectB (state));
@@ -79,14 +91,84 @@ void verifyReferenceAuditionComponentContract()
 
     bool requestedA = false;
     bool requestedB = false;
+    bool requestedBlind = false;
+    bool requestedReveal = false;
+    bool requestedEnd = false;
+    int requestedStimulus = 0;
     component.onSelectA = [&requestedA] { requestedA = true; };
     component.onSelectB = [&requestedB] { requestedB = true; };
+    component.onStartBlind = [&requestedBlind] { requestedBlind = true; };
+    component.onSelectBlindStimulus = [&requestedStimulus] (int value) {
+        requestedStimulus = value;
+    };
+    component.onRevealBlind = [&requestedReveal] { requestedReveal = true; };
+    component.onEndBlind = [&requestedEnd] { requestedEnd = true; };
     auto* a = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-a"));
     auto* b = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-b"));
-    KIRIN_REF_REQUIRE (a != nullptr && b != nullptr && b->isEnabled());
+    auto* startBlind = dynamic_cast<juce::TextButton*> (
+        component.findChildWithID ("reference-blind"));
+    auto* one = dynamic_cast<juce::TextButton*> (
+        component.findChildWithID ("reference-blind-1"));
+    auto* two = dynamic_cast<juce::TextButton*> (
+        component.findChildWithID ("reference-blind-2"));
+    auto* reveal = dynamic_cast<juce::TextButton*> (
+        component.findChildWithID ("reference-blind-reveal"));
+    auto* endBlind = dynamic_cast<juce::TextButton*> (
+        component.findChildWithID ("reference-blind-end"));
+    KIRIN_REF_REQUIRE (a != nullptr && b != nullptr && b->isEnabled()
+                       && startBlind != nullptr && startBlind->isVisible()
+                       && one != nullptr && two != nullptr && reveal != nullptr
+                       && endBlind != nullptr);
+    auto unavailableBlind = readyState();
+    unavailableBlind.blindPhase = reference_ui::BlindPhase::unavailable;
+    component.setState (unavailableBlind);
+    KIRIN_REF_REQUIRE (! startBlind->isVisible() && a->isVisible() && b->isVisible());
+    component.setState (readyState());
     a->onClick();
     b->onClick();
-    KIRIN_REF_REQUIRE (requestedA && requestedB);
+    startBlind->onClick();
+    KIRIN_REF_REQUIRE (requestedA && requestedB && requestedBlind);
+
+    auto blindState = readyState();
+    blindState.blindPhase = reference_ui::BlindPhase::active;
+    blindState.activeBlindStimulus = 1;
+    blindState.pendingBlindStimulus = 2;
+    component.setState (blindState);
+    KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible()
+                       && one->isVisible() && two->isVisible() && reveal->isVisible()
+                       && endBlind->isVisible() && one->isEnabled() && ! two->isEnabled());
+    blindState.pendingBlindStimulus = 0;
+    component.setState (blindState);
+    one->onClick();
+    two->onClick();
+    reveal->onClick();
+    endBlind->onClick();
+    KIRIN_REF_REQUIRE (requestedStimulus == 2 && requestedReveal && requestedEnd);
+    const auto concealedA = render (component);
+    writeImageIfRequested (concealedA, "KIRIN_REFERENCE_UI_BLIND_OUTPUT");
+    blindState.title = "Identity must not affect blind pixels";
+    blindState.sourceLabel = "CATALOG";
+    blindState.status = "B AUDITION / PRE DELTA PAUSED";
+    blindState.alignmentLabel = "REFERENCE CUE";
+    blindState.aIntegratedLoudness = -3.0;
+    blindState.aMaximumTruePeakDbtp = 1.5;
+    blindState.adjustedBIntegratedLoudness = -28.0;
+    blindState.adjustedBMaximumTruePeakDbtp = -12.0;
+    blindState.loudnessDeltaBMinusA = 25.0;
+    blindState.truePeakDeltaBMinusA = 13.5;
+    blindState.appliedGainDb = -14.0;
+    blindState.bSelected = true;
+    component.setState (blindState);
+    const auto concealedB = render (component);
+    KIRIN_REF_REQUIRE (differentPixels (concealedA, concealedB) == 0);
+
+    blindState.blindPhase = reference_ui::BlindPhase::revealed;
+    blindState.blindReveal = "1 = B  /  2 = A";
+    component.setState (blindState);
+    const auto revealed = render (component);
+    writeImageIfRequested (revealed, "KIRIN_REFERENCE_UI_REVEALED_OUTPUT");
+    KIRIN_REF_REQUIRE (! reveal->isVisible()
+                       && differentPixels (concealedB, revealed) > 100);
 
     auto selected = readyState();
     selected.bSelected = true;
@@ -100,26 +182,14 @@ void verifyReferenceAuditionComponentContract()
     component.setState (selected);
     const auto compactB = render (component);
     KIRIN_REF_REQUIRE (differentPixels (compactA, compactB) > 100);
-    const auto compactOutput = juce::SystemStats::getEnvironmentVariable (
-        "KIRIN_REFERENCE_UI_COMPACT_OUTPUT", {});
-    if (compactOutput.isNotEmpty())
-    {
-        juce::FileOutputStream stream { juce::File { compactOutput } };
-        KIRIN_REF_REQUIRE (juce::PNGImageFormat().writeImageToStream (compactB, stream));
-    }
+    writeImageIfRequested (compactB, "KIRIN_REFERENCE_UI_COMPACT_OUTPUT");
 
     component.setSize (888, 470);
     KIRIN_REF_REQUIRE (component.detailedLayout());
     const auto detailed = render (component);
     KIRIN_REF_REQUIRE (detailed.getPixelAt (
         detailed.getWidth() / 4, detailed.getHeight() / 2).getAlpha() != 0);
-    const auto outputPath = juce::SystemStats::getEnvironmentVariable (
-        "KIRIN_REFERENCE_UI_OUTPUT", {});
-    if (outputPath.isNotEmpty())
-    {
-        juce::FileOutputStream stream { juce::File { outputPath } };
-        KIRIN_REF_REQUIRE (juce::PNGImageFormat().writeImageToStream (detailed, stream));
-    }
+    writeImageIfRequested (detailed, "KIRIN_REFERENCE_UI_OUTPUT");
 
     const auto compositePath = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_REFERENCE_UI_COMPOSITE_OUTPUT", {});

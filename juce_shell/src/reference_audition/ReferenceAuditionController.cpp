@@ -15,6 +15,7 @@ namespace hypha::reference_audition
     {
         constexpr int workerPollMs = 10;
         constexpr int preparationPolls = 50;
+        constexpr double auditionStaleMs = 3'000.0;
 
         float gainFromDecibels (double gainDb)
         {
@@ -32,10 +33,12 @@ namespace hypha::reference_audition
 
     }
 
-    Controller::Controller (juce::File transportRootIn, SelectionGate selectionGateIn)
+    Controller::Controller (juce::File transportRootIn, SelectionGate selectionGateIn,
+                            RandomBit randomBitIn)
         : juce::Thread ("Kirin Reference audition"),
           root (std::move (transportRootIn)),
           selectionGate (std::move (selectionGateIn)),
+          randomBit (randomBitIn ? std::move (randomBitIn) : RandomBit { secureRandomBit }),
           repository (root)
     {
         startThread (juce::Thread::Priority::low);
@@ -43,7 +46,7 @@ namespace hypha::reference_audition
 
     Controller::~Controller()
     {
-        selectA();
+        endBlind();
         signalThreadShouldExit();
         notify();
         if (! stopThread (-1))
@@ -62,7 +65,7 @@ namespace hypha::reference_audition
             requestedConfiguration.channels = hostChannels;
             ++requestedConfiguration.generation;
         }
-        selectA();
+        invalidateBlind();
         notify();
     }
 
@@ -76,6 +79,20 @@ namespace hypha::reference_audition
         const juce::ScopedLock lock (snapshotLock);
         auto result = currentSnapshot;
         result.bSelected = bSelected.load (std::memory_order_acquire);
+        result.transportPlaying = latestPlaying.load (std::memory_order_acquire);
+        result.transportPositionValid = latestPositionValid.load (std::memory_order_acquire);
+        result.auditionBuffered = result.transportPositionValid
+            && ready.load (std::memory_order_acquire)
+            && pages.readyAt (mappedSourcePosition (latestHostPosition.load()), 1);
+        const auto blind = blindSession.publicState();
+        result.blindPhase = blind.phase;
+        result.activeBlindStimulus = blind.activeStimulus;
+        result.pendingBlindStimulus = blind.pendingStimulus;
+        if (blind.phase == BlindPhase::revealed)
+            result.blindReveal = blind.revealedStimulusOneSide == static_cast<int> (BlindSide::b)
+                ? "1 = B  /  2 = A" : "1 = A  /  2 = B";
+        else
+            result.blindReveal.clear();
         return result;
     }
 
@@ -83,7 +100,7 @@ namespace hypha::reference_audition
     {
         const juce::ScopedLock lock (snapshotLock);
         next.bSelected = bSelected.load (std::memory_order_acquire);
-        if (next.bSelected)
+        if (next.bSelected || blindSession.ongoing())
         {
             next.appliedGainDb = currentSnapshot.appliedGainDb;
             next.gainLimited = currentSnapshot.gainLimited;
@@ -110,8 +127,8 @@ namespace hypha::reference_audition
             pages.request (sourcePosition);
     }
 
-    bool Controller::selectB (double aIntegratedLoudness,
-                              double aMaximumTruePeakDbtp) noexcept
+    bool Controller::prepareReferenceGain (double aIntegratedLoudness,
+                                           double aMaximumTruePeakDbtp) noexcept
     {
         if (! ready.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire)
@@ -140,9 +157,6 @@ namespace hypha::reference_audition
         pages.request (sourcePosition);
         if (! pages.readyAt (sourcePosition, 1))
             return false;
-        if (selectionGate && ! selectionGate (true))
-            return false;
-        bSelected.store (true, std::memory_order_release);
         {
             const juce::ScopedLock lock (snapshotLock);
             currentSnapshot.appliedGainDb = appliedGain;
@@ -157,15 +171,108 @@ namespace hypha::reference_audition
                 currentSnapshot.adjustedBIntegratedLoudness - aIntegratedLoudness;
             currentSnapshot.truePeakDeltaBMinusA =
                 currentSnapshot.adjustedBMaximumTruePeakDbtp - aMaximumTruePeakDbtp;
-            currentSnapshot.bSelected = true;
         }
         return true;
     }
 
-    void Controller::selectA() noexcept
+    bool Controller::activatePreparedB() noexcept
+    {
+        if (! ready.load (std::memory_order_acquire)
+            || ! latestPositionValid.load (std::memory_order_acquire))
+            return false;
+        const auto sourcePosition = mappedSourcePosition (
+            latestHostPosition.load (std::memory_order_acquire));
+        pages.request (sourcePosition);
+        if (! pages.readyAt (sourcePosition, 1))
+            return false;
+        if (selectionGate && ! selectionGate (true))
+            return false;
+        bSelected.store (true, std::memory_order_release);
+        return true;
+    }
+
+    bool Controller::selectB (double aIntegratedLoudness,
+                              double aMaximumTruePeakDbtp) noexcept
+    {
+        if (blindSession.ongoing()
+            || ! prepareReferenceGain (aIntegratedLoudness, aMaximumTruePeakDbtp))
+            return false;
+        return activatePreparedB();
+    }
+
+    void Controller::selectAOutput() noexcept
     {
         if (bSelected.exchange (false, std::memory_order_acq_rel) && selectionGate)
             selectionGate (false);
+    }
+
+    void Controller::failClosedToA() noexcept
+    {
+        blindSession.invalidate();
+        if (bSelected.exchange (false, std::memory_order_acq_rel))
+            gateReleasePending.store (true, std::memory_order_release);
+    }
+
+    void Controller::selectA() noexcept
+    {
+        endBlind();
+    }
+
+    bool Controller::startBlind (double aIntegratedLoudness,
+                                 double aMaximumTruePeakDbtp) noexcept
+    {
+        if (blindSession.ongoing()
+            || ! latestPlaying.load (std::memory_order_acquire)
+            || ! prepareReferenceGain (aIntegratedLoudness, aMaximumTruePeakDbtp))
+            return false;
+        selectAOutput();
+        bool stimulusOneUsesB = false;
+        try
+        {
+            stimulusOneUsesB = randomBit();
+        }
+        catch (...)
+        {
+            return false;
+        }
+        blindSession.begin (stimulusOneUsesB);
+        return true;
+    }
+
+    bool Controller::selectBlindStimulus (int stimulus) noexcept
+    {
+        if (! latestPlaying.load (std::memory_order_acquire)
+            || ! latestPositionValid.load (std::memory_order_acquire))
+            return false;
+        BlindSide side = BlindSide::a;
+        if (! blindSession.request (stimulus, side))
+            return false;
+        if (side == BlindSide::b)
+        {
+            if (activatePreparedB())
+                return true;
+            blindSession.cancelPendingRequest();
+            return false;
+        }
+        selectAOutput();
+        return true;
+    }
+
+    bool Controller::revealBlind() noexcept
+    {
+        return blindSession.reveal();
+    }
+
+    void Controller::endBlind() noexcept
+    {
+        blindSession.end();
+        selectAOutput();
+    }
+
+    void Controller::invalidateBlind() noexcept
+    {
+        blindSession.invalidate();
+        selectAOutput();
     }
 
     std::int64_t Controller::mappedSourcePosition (std::int64_t hostPosition) const noexcept
@@ -179,20 +286,45 @@ namespace hypha::reference_audition
 
     bool Controller::renderSelectedB (juce::AudioBuffer<float>& buffer,
                                       std::int64_t hostPosition,
-                                      bool positionValid) noexcept
+                                      bool positionValid,
+                                      bool auditionAllowed) noexcept
     {
-        if (! bSelected.load (std::memory_order_acquire) || ! positionValid
-            || ! ready.load (std::memory_order_acquire))
+        audioCallbackSequence.fetch_add (1, std::memory_order_relaxed);
+        if (! auditionAllowed || ! latestPlaying.load (std::memory_order_acquire)
+            || ! positionValid)
+        {
+            failClosedToA();
             return false;
+        }
+        if (! bSelected.load (std::memory_order_acquire))
+        {
+            blindSession.confirmAudible (BlindSide::a);
+            return false;
+        }
+        if (! ready.load (std::memory_order_acquire))
+        {
+            failClosedToA();
+            return false;
+        }
         const auto sourcePosition = mappedSourcePosition (hostPosition);
         pages.request (sourcePosition);
-        return pages.render (buffer, sourcePosition,
-                             bLinearGain.load (std::memory_order_acquire));
+        const bool rendered = pages.render (buffer, sourcePosition,
+                                            bLinearGain.load (std::memory_order_acquire));
+        if (rendered)
+            blindSession.confirmAudible (BlindSide::b);
+        else
+            failClosedToA();
+        return rendered;
+    }
+
+    void Controller::loseAudibleConfirmation() noexcept
+    {
+        blindSession.loseAudibleConfirmation();
     }
 
     void Controller::applyConfiguration (const Configuration& configuration)
     {
-        selectA();
+        invalidateBlind();
         ready.store (false, std::memory_order_release);
         removeRuntimeFiles (activeRuntimeFiles);
         activeRuntimeFiles = {};
@@ -228,7 +360,7 @@ namespace hypha::reference_audition
                 activeRuntimeFiles.acknowledgement.deleteFile();
             if (activePreparation.valid())
             {
-                selectA();
+                invalidateBlind();
                 ready.store (false, std::memory_order_release);
                 pages.close();
                 const juce::ScopedLock lock (snapshotLock);
@@ -242,7 +374,7 @@ namespace hypha::reference_audition
         }
         if (! loaded.accepted())
         {
-            selectA();
+            invalidateBlind();
             ready.store (false, std::memory_order_release);
             if (loaded.preparation.valid())
                 writeAcknowledgement (root, configuration.identity, loaded.preparation,
@@ -259,7 +391,7 @@ namespace hypha::reference_audition
         const bool changed = loaded.preparation.preparationId != activePreparation.preparationId;
         if (changed)
         {
-            selectA();
+            invalidateBlind();
             ready.store (false, std::memory_order_release);
             Snapshot verifying;
             verifying.state = RuntimeState::verifying;
@@ -325,8 +457,26 @@ namespace hypha::reference_audition
     void Controller::run()
     {
         int untilPreparationPoll = 0;
+        bool monitoringAudio = false;
+        auto previousAudioSequence = audioCallbackSequence.load (std::memory_order_acquire);
+        double lastAudioActivityMs = juce::Time::getMillisecondCounterHiRes();
         while (! threadShouldExit())
         {
+            const auto audioSequence = audioCallbackSequence.load (std::memory_order_acquire);
+            const bool shouldMonitor = bSelected.load (std::memory_order_acquire)
+                                    || blindSession.ongoing();
+            const double nowMs = juce::Time::getMillisecondCounterHiRes();
+            if (shouldMonitor && monitoringAudio && audioSequence == previousAudioSequence)
+            {
+                if (nowMs - lastAudioActivityMs >= auditionStaleMs)
+                    failClosedToA();
+            }
+            else if (shouldMonitor)
+                lastAudioActivityMs = nowMs;
+            monitoringAudio = shouldMonitor;
+            previousAudioSequence = audioSequence;
+            if (gateReleasePending.exchange (false, std::memory_order_acq_rel) && selectionGate)
+                selectionGate (false);
             Configuration configuration;
             {
                 const juce::ScopedLock lock (configurationLock);

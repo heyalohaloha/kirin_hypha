@@ -81,6 +81,10 @@ public:
     hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
     bool selectReferenceB (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     void selectReferenceA();
+    bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
+    bool selectReferenceBlindStimulus (int stimulus);
+    bool revealReferenceBlind();
+    void endReferenceBlind();
 #endif
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------

@@ -348,7 +348,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
     tooltip.setLookAndFeel (nullptr);
     if (isPost)
     {
-        processorRef.selectReferenceA();
+        processorRef.endReferenceBlind();
         processorRef.setSpectrumVisible (false);
         processorRef.setPerceptualVisible (false);
         processorRef.setAbsoluteVisible (false);
