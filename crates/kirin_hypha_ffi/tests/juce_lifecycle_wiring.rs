@@ -479,7 +479,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     let post_only_branch = slice_between(
         &cmake,
-        "else()\n        target_sources(${TARGET} PRIVATE\n            src/HyphaAbsoluteComponent.cpp",
+        "else()\n        target_sources(${TARGET} PRIVATE",
         "endif()",
     );
     assert!(post_only_branch.contains("src/HyphaPerceptualPainter.cpp"));
