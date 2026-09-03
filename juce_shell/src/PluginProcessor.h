@@ -12,6 +12,7 @@
  #include "CaptureWorkAttachment.h"
  #include "pre_display/PreDisplayClock.h"
  #include "pre_display/PreDisplayController.h"
+ #include "reference_audition/ReferenceAuditionController.h"
 #endif
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
@@ -76,6 +77,9 @@ public:
         juce::MemoryBlock pngBytes,
         hypha::capture::WorkAttachmentDescriptor descriptor);
     hypha::capture::WorkAttachmentResult takeCaptureWorkAttachmentResult();
+    hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
+    bool selectReferenceB (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
+    void selectReferenceA();
 #endif
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
@@ -261,6 +265,9 @@ private:
     hypha::pre_display::ClockTap preDisplayClock;
     std::unique_ptr<hypha::pre_display::Controller> preDisplayController;
     std::unique_ptr<hypha::capture::WorkAttachmentController> captureWorkAttachmentController;
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    std::unique_ptr<hypha::reference_audition::Controller> referenceAuditionController;
+   #endif
 #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)

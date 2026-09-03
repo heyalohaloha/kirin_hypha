@@ -164,6 +164,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
 
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp
+        src/PluginProcessorGuideTransport.cpp
         src/PluginEditor.cpp
         src/PluginEditorObservatory.cpp
         src/PluginEditorCapture.cpp
@@ -220,7 +221,13 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaSpectrumChromePainter.cpp
             src/HyphaSpectrumFocusTrail.cpp
             src/HyphaSpectrumFocusTrailPainter.cpp
-            src/HyphaSpectrumPainter.cpp)
+            src/HyphaSpectrumPainter.cpp
+            src/reference_audition/ReferenceAudioPages.cpp
+            src/reference_audition/ReferenceAuditionController.cpp
+            src/reference_audition/ReferenceAuditionLease.cpp
+            src/reference_audition/ReferenceAuditionProtocol.cpp
+            src/reference_audition/ReferenceAuditionRepository.cpp)
+        target_link_libraries(${TARGET} PRIVATE juce::juce_audio_formats)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=0)
     endif()
 
@@ -505,6 +512,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         PRODUCT_NAME "Kirin Reference Audition Runtime Tests")
     target_sources(KirinReferenceAuditionRuntimeTests PRIVATE
         tests/reference_audition_runtime_test.cpp
+        src/reference_audition/ReferenceAudioPages.cpp
+        src/reference_audition/ReferenceAuditionController.cpp
         src/reference_audition/ReferenceAuditionLease.cpp
         src/reference_audition/ReferenceAuditionProtocol.cpp
         src/reference_audition/ReferenceAuditionRepository.cpp)
@@ -514,6 +523,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
     target_compile_options(KirinReferenceAuditionRuntimeTests PRIVATE
         ${KIRIN_SOURCE_ENCODING_ARGS})
     target_link_libraries(KirinReferenceAuditionRuntimeTests PRIVATE
+        juce::juce_audio_formats
         juce::juce_core
         juce::juce_cryptography
         juce::juce_recommended_config_flags

@@ -90,6 +90,9 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 {
     stopTimer(); // B-126: stop the non-RT enable poll before teardown (was cancelPendingUpdate / B-070).
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    referenceAuditionController.reset();
+   #endif
     preDisplayController.reset();
 #endif
     const juce::ScopedLock sl (handleLock);
@@ -237,8 +240,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const int numOut    = getTotalNumOutputChannels();
     const int numFrames = buffer.getNumSamples();
 
-    // R-12: read-only passthrough. Never write to signal channels; only clear surplus
-    // output channels with no matching input (no-op when in == out).
+    // R-12 A path: read-only passthrough. Explicit POST Reference B, if selected, is rendered
+    // only after the canonical A measurement transaction at the end of this callback.
     for (int ch = numCh; ch < numOut; ++ch)
         buffer.clear (ch, 0, numFrames);
 
@@ -320,6 +323,10 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     preDisplayClock.publish (positionSamples, preparedSampleRate,
                              static_cast<std::uint32_t> (juce::jmax (0, numFrames)), playing,
                              static_cast<hypha::pre_display::ClockSource> (clockSource));
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController != nullptr)
+        referenceAuditionController->observeTransport (positionSamples, hasPosition, playing);
+   #endif
 #endif
     const bool positionChanged = hasPosition && lastProcessPositionValid
                               && positionSamples != lastProcessPositionSamples;
@@ -500,6 +507,16 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     {
         kirin_hypha_push_samples (hyphaHandle, nullptr, 0, (uint32_t) numCh);
     }
+
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    // Explicit B is an output-only audition copy. A has already been measured above. Offline
+    // render, bypass, missing project time, cache miss, and every consumer failure keep A intact.
+    if (role == Role::Post && referenceAuditionController != nullptr
+        && ! bypassed && ! nonRealtimeMode)
+        referenceAuditionController->renderSelectedB (buffer, positionSamples, hasPosition);
+   #endif
+#endif
 }
 
 bool KirinHyphaProcessorBase::bufferIsSilent (const juce::AudioBuffer<float>& buffer)
@@ -665,68 +682,6 @@ void KirinHyphaProcessorBase::notifyObservatoryEditorSizeChanged()
 {
     updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
-
-#if KIRIN_HYPHA_GUIDE_TRANSPORT
-hypha::pre_display::DisplaySnapshot KirinHyphaProcessorBase::preDisplaySnapshot() const
-{
-    return preDisplayController != nullptr
-        ? preDisplayController->displaySnapshot()
-        : hypha::pre_display::DisplaySnapshot {};
-}
-
-hypha::pre_display::GuidePresentationSnapshot
-KirinHyphaProcessorBase::guidePresentationSnapshot() const
-{
-    return preDisplayController != nullptr
-        ? preDisplayController->guidePresentationSnapshot()
-        : hypha::pre_display::GuidePresentationSnapshot {};
-}
-
-hypha::pre_display::ConnectionRequest KirinHyphaProcessorBase::pendingPreDisplayConnection() const
-{
-    return preDisplayController != nullptr
-        ? preDisplayController->pendingConnection()
-        : hypha::pre_display::ConnectionRequest {};
-}
-
-bool KirinHyphaProcessorBase::acceptPreDisplayConnection()
-{
-    return preDisplayController != nullptr && preDisplayController->acceptPendingConnection();
-}
-
-hypha::pre_display::WorkReference KirinHyphaProcessorBase::connectedWorkReference() const
-{
-    return preDisplayController != nullptr
-        ? preDisplayController->connectedWorkReference()
-        : hypha::pre_display::WorkReference {};
-}
-
-juce::String KirinHyphaProcessorBase::connectedWorkTitle() const
-{
-    return preDisplayController != nullptr
-        ? preDisplayController->connectedWorkTitle() : juce::String {};
-}
-
-hypha::capture::WorkAttachmentSubmit KirinHyphaProcessorBase::attachCaptureToWork (
-    const hypha::pre_display::WorkReference& expectedWork,
-    juce::MemoryBlock pngBytes,
-    hypha::capture::WorkAttachmentDescriptor descriptor)
-{
-    if (preDisplayController == nullptr || captureWorkAttachmentController == nullptr
-        || ! connectedWorkReference().sameAuthority (expectedWork))
-        return hypha::capture::WorkAttachmentSubmit::invalidReference;
-    return captureWorkAttachmentController->submit (
-        expectedWork, std::move (pngBytes), std::move (descriptor));
-}
-
-hypha::capture::WorkAttachmentResult
-KirinHyphaProcessorBase::takeCaptureWorkAttachmentResult()
-{
-    return captureWorkAttachmentController != nullptr
-        ? captureWorkAttachmentController->takeResult()
-        : hypha::capture::WorkAttachmentResult {};
-}
-#endif
 
 // --- B-072: POST pairing surface ---------------------------------------------------------
 
@@ -1567,6 +1522,11 @@ void KirinHyphaProcessorBase::enableWritesNow()
     if (role == Role::Post && captureWorkAttachmentController == nullptr)
         captureWorkAttachmentController =
             std::make_unique<hypha::capture::WorkAttachmentController>();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (role == Role::Post && referenceAuditionController == nullptr)
+        referenceAuditionController =
+            std::make_unique<hypha::reference_audition::Controller>();
+   #endif
     hypha::pre_display::RuntimeIdentity displayIdentity;
     displayIdentity.role = role == Role::Post ? hypha::pre_display::GuideTargetRole::post
                                               : hypha::pre_display::GuideTargetRole::pre;
@@ -1587,6 +1547,20 @@ void KirinHyphaProcessorBase::enableWritesNow()
     displayIdentity.architecture = "x86_64";
        #endif
     preDisplayController->configureAndStart (std::move (displayIdentity));
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (role == Role::Post && referenceAuditionController != nullptr)
+    {
+        const auto work = preDisplayController->connectedWorkReference();
+        if (work.valid())
+        {
+            hypha::reference_audition::RuntimeIdentity referenceIdentity;
+            referenceIdentity.runtimeInstanceId = work.runtimeInstanceId;
+            referenceIdentity.workId = work.workId;
+            referenceAuditionController->configure (
+                std::move (referenceIdentity), preparedSampleRate, preparedInputChannels);
+        }
+    }
+   #endif
 #endif
 
     writesEnabled.store (true, std::memory_order_release);

@@ -1,11 +1,14 @@
 #include "../src/reference_audition/ReferenceAuditionLease.h"
+#include "../src/reference_audition/ReferenceAuditionController.h"
 #include "../src/reference_audition/ReferenceAuditionProtocol.h"
 #include "../src/reference_audition/ReferenceAuditionRepository.h"
 
 #include <cstdlib>
+#include <cmath>
 #include <iostream>
 
 #include <juce_cryptography/juce_cryptography.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 
 namespace ref = hypha::reference_audition;
 
@@ -158,6 +161,27 @@ namespace
                 return false;
         return true;
     }
+
+    bool writeStereoWav (const juce::File& file)
+    {
+        auto stream = file.createOutputStream();
+        if (stream == nullptr)
+            return false;
+        juce::WavAudioFormat format;
+        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (
+            stream.release(), 48'000.0, 2, 24, {}, 0));
+        if (writer == nullptr)
+            return false;
+        juce::AudioBuffer<float> audio (2, 96'000);
+        for (int frame = 0; frame < audio.getNumSamples(); ++frame)
+        {
+            const auto sample = static_cast<float> (
+                0.25 * std::sin (juce::MathConstants<double>::twoPi * 440.0 * frame / 48'000.0));
+            audio.setSample (0, frame, sample);
+            audio.setSample (1, frame, sample * 0.75f);
+        }
+        return writer->writeFromAudioSampleBuffer (audio, 0, audio.getNumSamples());
+    }
 }
 
 int main()
@@ -237,6 +261,48 @@ int main()
     ref::removeRuntimeFiles (files);
     require (! files.capability.exists() && ! files.acknowledgement.exists(),
              "runtime owner must remove its own lease files");
+
+    require (source.deleteFile() && writeStereoWav (source),
+             "decodable Reference fixture must be written");
+    const auto wavHash = juce::SHA256 (source).toHexString();
+    require (writeJson (receiptFile, makeSourceReceipt (source, wavHash)),
+             "decodable receipt must be staged");
+    const auto wavReceiptHash = juce::SHA256 (receiptFile).toHexString();
+    const auto wavReceipt = receiptFile.getSiblingFile (wavReceiptHash + ".json");
+    require (receiptFile.moveFileTo (wavReceipt), "decodable receipt must be content-addressed");
+    require (writeJson (preparationFile,
+                        makePreparation (source, wavHash, wavReceiptHash, wavReceipt.getSize())),
+             "decodable preparation must be written");
+    {
+        ref::Controller controller (root);
+        controller.observeTransport (128, true, true);
+        controller.configure (identity, 48'000.0, 2);
+        for (int attempt = 0; attempt < 300
+             && controller.snapshot().state != ref::RuntimeState::ready; ++attempt)
+            juce::Thread::sleep (10);
+        require (controller.snapshot().state == ref::RuntimeState::ready,
+                 "verified and decoded preparation must become ready");
+        const auto liveAck = juce::JSON::parse (files.acknowledgement);
+        require (liveAck.getDynamicObject() != nullptr
+                 && liveAck.getDynamicObject()->getProperty ("receipt_status") == "accepted",
+                 "only a decoded source may receive an accepted acknowledgement");
+        require (controller.selectB (-14.0, -2.0),
+                 "explicit B selection must succeed when ready");
+        juce::AudioBuffer<float> audition (2, 256);
+        audition.clear();
+        require (controller.renderSelectedB (audition, 128, true),
+                 "selected B must render from the exact host position");
+        require (std::abs (audition.getSample (0, 1)) > 0.001f,
+                 "rendered B must contain the prepared Reference audio");
+        controller.selectA();
+        audition.clear();
+        audition.setSample (0, 0, 0.75f);
+        require (! controller.renderSelectedB (audition, 384, true)
+                 && audition.getSample (0, 0) == 0.75f,
+                 "A selection must leave the DAW buffer untouched");
+    }
+    require (! files.capability.exists() && ! files.acknowledgement.exists(),
+             "controller teardown must remove only its own runtime receipts");
 
     require (sandbox.deleteRecursively(), "sandbox must be removed");
     std::cout << "Reference audition runtime contract tests passed\n";
