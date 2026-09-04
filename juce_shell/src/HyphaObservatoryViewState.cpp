@@ -28,6 +28,14 @@ void View::setExternalAnalysisBodyActive (bool active)
     repaint (bodyArea);
 }
 
+void View::setRunSummaryMode (bool active)
+{
+    if (showRunSummary == active)
+        return;
+    showRunSummary = active;
+    repaint (bodyArea);
+}
+
 juce::Rectangle<int> View::analysisBodyBounds() const noexcept
 {
     auto area = bodyArea;

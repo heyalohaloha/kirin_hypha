@@ -53,12 +53,14 @@ int visiblePixels (const juce::Image& image)
 void verifyTimePageNavigationContract()
 {
     using Page = analysis_navigation::Page;
-    KIRIN_TIME_NAV_REQUIRE (analysis_navigation::timePages.size() == 4u);
-    for (const auto page : { Page::meters, Page::attack, Page::perceptual, Page::absolute })
+    KIRIN_TIME_NAV_REQUIRE (analysis_navigation::timePages.size() == 5u);
+    for (const auto page : { Page::meters, Page::run, Page::attack,
+                             Page::perceptual, Page::absolute })
         KIRIN_TIME_NAV_REQUIRE (analysis_navigation::isTimePage (page));
     KIRIN_TIME_NAV_REQUIRE (! analysis_navigation::isTimePage (Page::spectrum));
     auto page = Page::meters;
-    for (const auto expected : { Page::attack, Page::perceptual, Page::absolute, Page::meters })
+    for (const auto expected : { Page::run, Page::attack, Page::perceptual,
+                                 Page::absolute, Page::meters })
     {
         page = analysis_navigation::nextTimePage (page);
         KIRIN_TIME_NAV_REQUIRE (page == expected);
@@ -70,6 +72,8 @@ void verifyTimePageNavigationContract()
     navigation.setSize (322, 24);
     navigation.setDirect (true);
     KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 4);
+    navigation.setRunAvailable (true);
+    KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 5);
     navigation.setPage (Page::attack);
     const auto attack = render (navigation);
     navigation.setPage (Page::perceptual);

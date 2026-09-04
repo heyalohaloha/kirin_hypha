@@ -24,6 +24,7 @@ public:
     void setPage (Page);
     Page page() const noexcept { return selectedPage; }
     void setDirect (bool);
+    void setRunAvailable (bool);
     bool isDirect() const noexcept { return direct; }
     int visibleDirectTabCount() const noexcept;
     void resized() override;
@@ -34,8 +35,10 @@ private:
 
     Page selectedPage = Page::meters;
     bool direct = false;
+    bool runAvailable = false;
     juce::TextButton compactCycle;
     observatory::Button historyButton { "HISTORY", true };
+    observatory::Button runButton { "RUN", true };
     observatory::Button attackButton { "ATTACK", true };
     observatory::Button sharpButton { "SHARP", true };
     observatory::Button liveButton { "LIVE", true };

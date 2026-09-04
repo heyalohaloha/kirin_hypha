@@ -146,6 +146,11 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     };
     observatoryView.onTargetChange = [this] (hypha::observatory::ObservationTarget target)
     {
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (target == hypha::observatory::ObservationTarget::delta
+            && analysisPage == AnalysisPage::run)
+            setAnalysisPage (AnalysisPage::meters);
+       #endif
         observatoryView.setTarget (target);
         processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (target));
        #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -455,79 +460,6 @@ void KirinHyphaEditor::layoutMetrics (bool)
 }
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
-{
-    if (! isPost || analysisPage == page)
-        return;
-    const auto previousPage = analysisPage;
-    spectrumView.clearSnapshot();
-    perceptualView.clearSnapshot();
-    absoluteView.clearSnapshot();
-    attackView.clearSnapshot();
-    cachedAttackEvents = {};
-    cachedAttackWaveform = {};
-    cachedAttackDetails = {};
-    cachedAttackPreWaveform = {};
-    cachedAttackPreDetails = {};
-    cachedAttackPairEvents = {};
-    cachedAttackStats = {};
-    cachedAttackLatest = -1;
-    cachedAttackRate = 0;
-    cachedAttackGeneration = 0;
-    cachedAttackPairStatus = -1;
-    // ATTACK / FREQ / SHARP / LIVE share the current Analysis lease. Their `true` edge changes
-    // the isolated analyzer while post_visible remains set. Only METERS releases the slot.
-    if (hypha::analysis_navigation::releasesSlot (previousPage, page))
-    {
-        if (previousPage == AnalysisPage::spectrum)
-            processorRef.setSpectrumVisible (false);
-        else if (previousPage == AnalysisPage::perceptual)
-            processorRef.setPerceptualVisible (false);
-        else if (previousPage == AnalysisPage::absolute)
-            processorRef.setAbsoluteVisible (false);
-        else if (previousPage == AnalysisPage::attack)
-            processorRef.setAttackEnabled (false);
-    }
-    analysisPage = page;
-    observatoryView.setExternalAnalysisBodyActive (page != AnalysisPage::meters);
-    const bool analysisOpen = page != AnalysisPage::meters;
-    for (auto& cell : cells)
-        cell.setVisible (false);
-    loudnessSelector.setVisible (false);
-    spectrumView.setVisible (page == AnalysisPage::spectrum);
-    perceptualView.setVisible (page == AnalysisPage::perceptual);
-    absoluteView.setVisible (page == AnalysisPage::absolute);
-    attackView.setVisible (page == AnalysisPage::attack);
-    spectrumSizeToggle.setVisible (false);
-    spectrumToggle.setVisible (false);
-    timePageNavigation.setPage (page);
-    updateTimePageNavigation();
-    startTimerHz (page == AnalysisPage::absolute
-                    ? ui::absoluteTimelineSourceHz
-                    : analysisOpen ? ui::spectrumPresentationHz
-                                   : ui::preDisplayPresentationHz);
-    resized();
-    repaint();
-    if (page == AnalysisPage::attack)
-        processorRef.setAttackEnabled (true);
-    else if (page == AnalysisPage::spectrum)
-        processorRef.setSpectrumVisible (true);
-    else if (page == AnalysisPage::perceptual)
-        processorRef.setPerceptualVisible (true);
-    else if (page == AnalysisPage::absolute)
-        processorRef.setAbsoluteVisible (true);
-}
-
-void KirinHyphaEditor::updateTimePageNavigation()
-{
-    const bool time = observatoryDomain == hypha::observatory::Domain::time;
-    const bool direct = time && observatoryView.experienceFamily()
-        == hypha::observatory::ExperienceFamily::observatory;
-    timePageNavigation.setDirect (direct);
-    timePageNavigation.setPage (analysisPage);
-    timePageNavigation.setVisible (time);
-}
-
 void KirinHyphaEditor::cycleSpectrumSize()
 {
     if (analysisPage == AnalysisPage::meters)

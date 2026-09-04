@@ -192,7 +192,16 @@ void KirinHyphaEditor::refreshObservatory()
             : processorRef.pollMeterDeltaHistory (request.resolution, history, request.maxEntries,
                                                   request.maxOutputEntries);
         if (historyReady)
+        {
             observatoryView.setHistory (std::move (history));
+           #if ! KIRIN_HYPHA_PRE_DISPLAY
+            if (analysisPage == AnalysisPage::run
+                && ! observatoryView.runSummaryAvailable())
+                setAnalysisPage (AnalysisPage::meters);
+            else
+                updateTimePageNavigation();
+           #endif
+        }
     }
     else if (observatoryDomain == hypha::observatory::Domain::level
              && observatoryView.fullCockpit())

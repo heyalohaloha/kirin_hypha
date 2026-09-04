@@ -3,6 +3,8 @@
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 namespace
 {
+namespace ui = hypha::ui_contract;
+
 bool sameStats (const KirinAttackStats& left, const KirinAttackStats& right) noexcept
 {
     return left.available == right.available && left.enabled == right.enabled
@@ -13,11 +15,94 @@ bool sameStats (const KirinAttackStats& left, const KirinAttackStats& right) noe
 }
 }
 
+void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
+{
+    if (! isPost || analysisPage == page)
+        return;
+    const auto previousPage = analysisPage;
+    spectrumView.clearSnapshot();
+    perceptualView.clearSnapshot();
+    absoluteView.clearSnapshot();
+    attackView.clearSnapshot();
+    cachedAttackEvents = {};
+    cachedAttackWaveform = {};
+    cachedAttackDetails = {};
+    cachedAttackPreWaveform = {};
+    cachedAttackPreDetails = {};
+    cachedAttackPairEvents = {};
+    cachedAttackStats = {};
+    cachedAttackLatest = -1;
+    cachedAttackRate = 0;
+    cachedAttackGeneration = 0;
+    cachedAttackPairStatus = -1;
+    // ATTACK / FREQ / SHARP / LIVE share the current Analysis lease. HISTORY and RUN are
+    // read-only meter projections and release it.
+    if (hypha::analysis_navigation::releasesSlot (previousPage, page))
+    {
+        if (previousPage == AnalysisPage::spectrum)
+            processorRef.setSpectrumVisible (false);
+        else if (previousPage == AnalysisPage::perceptual)
+            processorRef.setPerceptualVisible (false);
+        else if (previousPage == AnalysisPage::absolute)
+            processorRef.setAbsoluteVisible (false);
+        else if (previousPage == AnalysisPage::attack)
+            processorRef.setAttackEnabled (false);
+    }
+    if (page == AnalysisPage::run
+        && observatoryView.target() == hypha::observatory::ObservationTarget::delta)
+    {
+        observatoryView.setTarget (hypha::observatory::ObservationTarget::absolute);
+        processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (
+            hypha::observatory::ObservationTarget::absolute));
+        spectrumView.setAbsoluteObservation (true);
+    }
+    analysisPage = page;
+    const bool analysisOpen = hypha::analysis_navigation::isAnalysis (page);
+    observatoryView.setRunSummaryMode (page == AnalysisPage::run);
+    observatoryView.setExternalAnalysisBodyActive (analysisOpen);
+    for (auto& cell : cells)
+        cell.setVisible (false);
+    loudnessSelector.setVisible (false);
+    spectrumView.setVisible (page == AnalysisPage::spectrum);
+    perceptualView.setVisible (page == AnalysisPage::perceptual);
+    absoluteView.setVisible (page == AnalysisPage::absolute);
+    attackView.setVisible (page == AnalysisPage::attack);
+    spectrumSizeToggle.setVisible (false);
+    spectrumToggle.setVisible (false);
+    timePageNavigation.setPage (page);
+    updateTimePageNavigation();
+    startTimerHz (page == AnalysisPage::absolute
+                    ? ui::absoluteTimelineSourceHz
+                    : analysisOpen ? ui::spectrumPresentationHz
+                                   : ui::preDisplayPresentationHz);
+    resized();
+    repaint();
+    if (page == AnalysisPage::attack)
+        processorRef.setAttackEnabled (true);
+    else if (page == AnalysisPage::spectrum)
+        processorRef.setSpectrumVisible (true);
+    else if (page == AnalysisPage::perceptual)
+        processorRef.setPerceptualVisible (true);
+    else if (page == AnalysisPage::absolute)
+        processorRef.setAbsoluteVisible (true);
+}
+
+void KirinHyphaEditor::updateTimePageNavigation()
+{
+    const bool time = observatoryDomain == hypha::observatory::Domain::time;
+    const bool direct = time && observatoryView.experienceFamily()
+        == hypha::observatory::ExperienceFamily::observatory;
+    timePageNavigation.setDirect (direct);
+    timePageNavigation.setRunAvailable (observatoryView.runSummaryAvailable());
+    timePageNavigation.setPage (analysisPage);
+    timePageNavigation.setVisible (time);
+}
+
 bool KirinHyphaEditor::refreshAnalysisViews (
     bool alive, int signalState, bool recording, bool armed,
     bool acknowledged, bool presetAvailable, int pairStatus)
 {
-    if (analysisPage == AnalysisPage::meters)
+    if (! hypha::analysis_navigation::isAnalysis (analysisPage))
         return false;
 
     const auto updateLed = [this, alive, signalState, recording, armed,

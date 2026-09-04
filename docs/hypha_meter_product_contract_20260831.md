@@ -218,7 +218,7 @@ PREはpair側の測定sensorであり、POSTと同じ機能数を無理に持た
 | Domain | Default surface | Existing capability absorbed | Optional subview |
 |---|---|---|---|
 | LEVEL | M、Max M、S、I、recent TP、MaxTP、LRA、PLR、Crest、L/R meter | 現行Watch、Record、LIVEの現在値 | session facts |
-| TIME | M、S、TPの履歴 | LIVE timeline、SHARP timeline、ATTACK event timeline | LOUDNESS、SHARP、ATTACK |
+| TIME | M、S、TPの履歴、playback run単位の事実集計 | LIVE timeline、SHARP timeline、ATTACK event timeline | HISTORY、RUN、SHARP、ATTACK、LIVE |
 | FREQ | Spectrum | 現行FREQのPRE、POST、Δ、LR、MID、SIDE、probe、MARK、Focus Trail | SPECTRUM |
 | SPACE | correlation、L/R balance、goniometer density | なし | FIELD |
 
@@ -355,6 +355,8 @@ L/R同時clipは各チャンネルの独立eventとして数え、総数へ暗�
 
 M、S、TP、PLR、CORRを10 Hzで10分、1 Hzで2時間、0.1 Hzで24時間保持する。
 
+RUNは選択中のTIME resolutionだけを`generation + run_id`で集約し、別の履歴や永続化を作らない。表示範囲内の経過時間、M min/max、Max TP、L/R clip数を出す。DAW sample endpointが全点で成立する時は`RUNS IN VIEW`、clock不明のホストでは捏造した区切りを足さず`SESSION RUN`として1本を表示する。resolution混在、不完全なsample endpoint、非単調sample位置は表示しない。PRE/POST間でrun_idを同一識別子として扱わず、RUNのΔは初期契約に含めない。
+
 10 Hz層は既存Watch snapshotのexact sample endpointを保持する。
 
 低rate層はbucketのmin、max、mean、first endpoint、last endpointを保持し、exact値と同じ線として描かない。
@@ -407,7 +409,7 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 900×600（300%）は600×400を置換せず、LEVEL、TIME、FREQ、SPACEとTIME配下の解析を同じ操作体系のまま高解像度で読むInspection Viewとする。LEVELは履歴面積、channel strip、数値階層を拡張するが、未合意の新指標は追加しない。将来Session Atlasを載せる場合は別途表示内容を確定する。
 
-LEVELの60秒Historyは固定時間軸とし、M主線、S副線、run別2秒最大TP event、L/R別sample clip event、`60 S MAX TP`と相対時刻を表示する。TP専用railは作らず、M/Sが全面を使う同じ横軸の下部へ、右側`+6〜-24 dBTP`軸と下から立ち上がるstemを重ねる。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。
+LEVELの60秒Historyは固定時間軸とし、M主線、run別2秒最大TP event、L/R別sample clip event、`60 S MAX TP`と相対時刻を表示する。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`+6〜-24 dBTP`軸と下から立ち上がるstemを重ねる。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。
 
 600×400以上のLEVELは、上段3と中段5の合計高を従来割当の約60%へ圧縮し、残りをHistoryへ渡す。FooterもCAPTUREボタン単体ではなく操作段全体を40 pxから24 pxへ縮め、測定履歴を画面の主面積にする。
 
@@ -469,7 +471,7 @@ PRE名は利用者が設定したpair表示名、POST名はホストが明示提
 
 画像は表示中のUIを拡大せず、shellとATTACK、SHARPNESS、FREQ、LIVEを含む表示中の観測面を一回の同期read boundaryで固定し、同じimmutable snapshotから専用layoutで描く。
 
-LEVELのObservation Plateは主値、M内のMax M補助値、その他の補助値、channel stripに加え、Capture操作時に固定した直近60秒のM/S Historyを含める。
+LEVELのObservation Plateは主値、M内のMax M補助値、その他の補助値、channel stripに加え、Capture操作時に固定した直近60秒のM History、TP event、L/R clip eventを含める。
 
 60秒Historyは600×400以上のLEVELとLEVEL保存構図だけに置き、TIMEのrange切替や全機能は重複させない。SpectrumはLEVELへ重複搭載せずFREQを正規入口にする。
 

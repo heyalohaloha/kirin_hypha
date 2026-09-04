@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaRunSummary.h"
 #include "HyphaTimeHistoryPainter.h"
 
 namespace hypha::observatory
@@ -101,7 +102,11 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
     const bool compact = experienceFamily() == ExperienceFamily::compactMeter;
     area.removeFromTop (timeNavigationHeight (currentPreset().density));
-    time_history::paint (g, area, history, compact ? historyRequest().label : "",
-                         target() == ObservationTarget::delta, compact, selectedScaleMode);
+    if (showRunSummary && target() == ObservationTarget::absolute)
+        run_summary::paint (g, area, runSummary,
+                            frameAvailable ? observatoryFrame.meter.sample_rate : 0.0);
+    else
+        time_history::paint (g, area, history, compact ? historyRequest().label : "",
+                             target() == ObservationTarget::delta, compact, selectedScaleMode);
 }
 }

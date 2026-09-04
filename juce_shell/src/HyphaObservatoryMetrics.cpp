@@ -1,6 +1,7 @@
 #include "HyphaObservatoryView.h"
 
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaLevelMetricContract.h"
 
 #include <array>
 #include <cmath>
@@ -198,6 +199,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         return;
     }
     const bool trackStem = selectedMeterContext == meter_context::MeterContext::trackStem;
+    const auto metricLayout = level_metrics::layoutFor (trackStem);
     const std::array<double, 3> mainValues {
         meter.lufs_m, meter.lufs_s,
         trackStem ? watchDisplay.current.crest : meter.lufs_i
@@ -205,9 +207,6 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     const std::array<bool, 3> mainAvailable {
         currentAvailable, currentAvailable,
         trackStem ? currentAvailable && watchDisplayAvailable : cumulativeAvailable
-    };
-    const std::array<const char*, 3> mainLabels {
-        "M", "S", trackStem ? "CREST" : "I"
     };
     const std::array<const char*, 3> mainUnits {
         "LUFS", "LUFS", trackStem ? "dB" : "LUFS"
@@ -220,7 +219,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     for (int index = 0; index < mainCount; ++index)
     {
         drawMetric (g, main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
-                    mainLabels[(size_t) index],
+                    level_metrics::label (metricLayout.main[(size_t) index]),
                     optionValue (mainValues[(size_t) index], mainAvailable[(size_t) index]),
                     mainUnits[(size_t) index], mainValueHeight, family,
                     false, 1, {}, isFullDensity (density) ? 0.42f : -1.0f,
@@ -243,13 +242,6 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         trackStem ? cumulativeAvailable && observatoryFrame.lra_state == KIRIN_LRA_READY
                   : currentAvailable && watchDisplayAvailable
     };
-    const std::array<const char*, 5> supportLabels {
-        trackStem ? "PSR" : "TP",
-        trackStem ? "TP" : "MAX TP",
-        trackStem ? "MAX TP" : "LRA",
-        trackStem ? "I" : "PLR",
-        trackStem ? "LRA" : "CREST"
-    };
     const std::array<const char*, 5> supportUnits {
         trackStem ? "dB" : "dBTP",
         "dBTP",
@@ -268,7 +260,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
             : juce::String();
         drawMetric (g, area.removeFromLeft (
                         area.getWidth() / (supportCount - index)).reduced (2),
-                    supportLabels[(size_t) index],
+                    level_metrics::label (metricLayout.support[(size_t) index]),
                     optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
                     supportUnits[(size_t) index], getWidth() >= 900 ? 24.0f : 18.0f, family,
                     false, 1, warmingText,

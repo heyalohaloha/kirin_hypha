@@ -11,6 +11,7 @@
 #include "HyphaObservatoryContract.h"
 #include "HyphaObservatoryPresentation.h"
 #include "HyphaObservatoryWorld.h"
+#include "HyphaRunSummary.h"
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
 #include "kirin_hypha_ffi.h"
@@ -78,6 +79,8 @@ public:
     void setScaleMode (meter_context::ScaleMode);
     meter_context::ScaleMode scaleMode() const noexcept { return selectedScaleMode; }
     void setExternalAnalysisBodyActive (bool);
+    void setRunSummaryMode (bool);
+    bool runSummaryAvailable() const noexcept { return runSummary.available(); }
     void setReferenceEnabled (bool enabled)
     {
         referenceEnabled = enabled;
@@ -173,6 +176,7 @@ private:
     meter_context::MeterContext selectedMeterContext = meter_context::defaultContext;
     meter_context::ScaleMode selectedScaleMode = meter_context::defaultScale;
     bool externalAnalysisBodyActive = false;
+    bool showRunSummary = false;
     bool referenceEnabled = true;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;
@@ -186,6 +190,7 @@ private:
     juce::String captureVersion;
     capture::DisplayMetadata captureMetadata;
     std::vector<KirinMeterHistoryEntry> history;
+    run_summary::Result runSummary;
     juce::Rectangle<int> bodyArea;
     juce::Rectangle<int> connectionArea;
     juce::Rectangle<int> guideArea;

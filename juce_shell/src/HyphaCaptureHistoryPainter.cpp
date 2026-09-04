@@ -87,11 +87,6 @@ juce::Rectangle<float> truePeakOverlayFor (juce::Rectangle<float> sharedPlot) no
     return sharedPlot.withTop (sharedPlot.getBottom() - height);
 }
 
-double meanFor (const KirinMeterHistoryEntry& entry, bool shortTerm) noexcept
-{
-    return shortTerm ? entry.lufs_s.mean : entry.lufs_m.mean;
-}
-
 double secondsBeforeEnd (const std::vector<KirinMeterHistoryEntry>& history,
                          std::size_t index,
                          double sampleRate) noexcept
@@ -141,7 +136,6 @@ void paintPath (juce::Graphics& g,
                 juce::Rectangle<float> plot,
                 const std::vector<KirinMeterHistoryEntry>& history,
                 const time_history::HistoryAxis& axis,
-                bool shortTerm,
                 bool delta,
                 juce::Colour colour,
                 float alpha,
@@ -157,7 +151,7 @@ void paintPath (juce::Graphics& g,
     for (std::size_t index = 0; index < history.size(); ++index)
     {
         const auto& entry = history[index];
-        const auto value = meanFor (entry, shortTerm);
+        const auto value = entry.lufs_m.mean;
         if (! std::isfinite (value))
         {
             open = false;
@@ -188,7 +182,7 @@ void paintPath (juce::Graphics& g,
     g.strokePath (path, juce::PathStrokeType (width,
                                                juce::PathStrokeType::curved,
                                                juce::PathStrokeType::rounded));
-    if (haveEndpoint && ! shortTerm)
+    if (haveEndpoint)
     {
         g.setColour (COL_LED_BLUE.withAlpha (0.18f));
         g.fillEllipse (endpoint.x - 5.0f, endpoint.y - 5.0f, 10.0f, 10.0f);
@@ -276,14 +270,10 @@ void paintHover (juce::Graphics& g,
     g.setColour (COL_LED_BLUE.withAlpha (0.34f));
     g.drawVerticalLine (juce::roundToInt (x), layout.sharedPlot.getY(),
                         layout.sharedPlot.getBottom());
-    for (const auto fact : {
-             std::pair { entry.lufs_s.mean, COL_NORMAL.withAlpha (0.58f) },
-             std::pair { entry.lufs_m.mean, COL_SPECTRUM_POST } })
+    if (std::isfinite (entry.lufs_m.mean))
     {
-        if (! std::isfinite (fact.first))
-            continue;
-        const auto y = yForLoudness (layout.sharedPlot, fact.first, delta);
-        g.setColour (fact.second);
+        const auto y = yForLoudness (layout.sharedPlot, entry.lufs_m.mean, delta);
+        g.setColour (COL_SPECTRUM_POST);
         g.fillEllipse (x - 2.0f, y - 2.0f, 4.0f, 4.0f);
     }
     if (! delta && std::isfinite (entry.true_peak.max))
@@ -352,8 +342,7 @@ void paint (juce::Graphics& g,
     {
         const auto& entry = history[*hoveredIndex];
         detail = relativeTimeText (secondsBeforeEnd (history, *hoveredIndex, sampleRate))
-               + "   M " + measuredText (entry.lufs_m.mean, delta)
-               + "   S " + measuredText (entry.lufs_s.mean, delta);
+               + "   M " + measuredText (entry.lufs_m.mean, delta);
         if (! delta)
             detail += "   TP " + measuredText (entry.true_peak.max) + " dBTP";
         if (! delta && (entry.clip_event_count[0] > 0u || entry.clip_event_count[1] > 0u))
@@ -366,7 +355,7 @@ void paint (juce::Graphics& g,
                + " @ " + relativeTimeText (peakSummary.secondsBeforeEnd);
     }
     else
-        detail = delta ? juce::String ("M / S   |   60 S / 10 HZ")
+        detail = delta ? juce::String ("M   |   60 S / 10 HZ")
                        : juce::String ("TP ") + emDash() + "   |   60 S / 10 HZ";
     if (contextFact.isNotEmpty())
         detail = contextFact + "   |   " + detail;
@@ -433,9 +422,7 @@ void paint (juce::Graphics& g,
     }
 
     const auto axis = time_history::selectAxis (history);
-    paintPath (g, layout.sharedPlot, history, axis, true, delta,
-               COL_NORMAL, 0.30f, 0.70f, sampleRate);
-    paintPath (g, layout.sharedPlot, history, axis, false, delta,
+    paintPath (g, layout.sharedPlot, history, axis, delta,
                COL_SPECTRUM_POST, 0.96f, 1.20f, sampleRate);
     if (! delta)
         paintTruePeakEvents (g, layout.sharedPlot, history, axis, peakSummary, sampleRate);

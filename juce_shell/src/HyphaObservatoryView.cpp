@@ -117,6 +117,7 @@ void View::setTimeRange (TimeRange value)
         return;
     timeRange = value;
     history.clear();
+    runSummary = {};
     levelHistoryPointer.reset();
     hoveredLevelHistoryIndex.reset();
     updateControls();
@@ -129,6 +130,7 @@ void View::setTarget (ObservationTarget value)
         return;
     selectedTarget = value;
     history.clear();
+    runSummary = {};
     levelHistoryPointer.reset();
     hoveredLevelHistoryIndex.reset();
     updateControls();
@@ -203,6 +205,8 @@ void View::clearGuide()
 void View::setHistory (std::vector<KirinMeterHistoryEntry> entries)
 {
     history = std::move (entries);
+    runSummary = target() == ObservationTarget::absolute
+        ? run_summary::summarize (history) : run_summary::Result {};
     refreshLevelHistoryHover();
     if (selectedDomain == Domain::time
         || (selectedDomain == Domain::level && fullCockpit()))
@@ -247,6 +251,7 @@ void View::cycleTimeRange()
         onTimeRangeChange (timeRange);
     updateControls();
     history.clear();
+    runSummary = {};
     repaint (bodyArea);
 }
 

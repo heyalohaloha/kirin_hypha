@@ -16,6 +16,7 @@
 #include "CaptureHistoryContractTest.h"
 #include "TimeHistoryContractTest.h"
 #include "TimePageNavigationContractTest.h"
+#include "RunSummaryContractTest.h"
 #include "SpaceFieldContractTest.h"
 #include "ReferenceAuditionComponentContractTest.h"
 #include "OsAccessUiContractTest.h"
@@ -43,7 +44,6 @@ namespace
     {
         return static_cast<int> (std::ceil (font.getStringWidthFloat (text))) <= width;
     }
-
     bool hasGlyph (const juce::Font& font, juce::juce_wchar codepoint)
     {
         juce::Array<int> glyphs;
@@ -205,7 +205,6 @@ namespace
         return result;
     }
 }
-
 int main()
 {
     hypha::tests::verifyPerceptualHistoryContract();
@@ -213,6 +212,7 @@ int main()
     hypha::tests::verifySpectrumFocusTrailContract();
     hypha::tests::verifySpectrumPresentationContract();
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    hypha::tests::verifyRunSummaryContract();
     hypha::tests::verifyGuideFrequencyOverlayContract();
     hypha::tests::verifyAbsoluteTimelineContract();
     hypha::tests::verifyAbsoluteSpectrumContract();
