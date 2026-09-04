@@ -185,6 +185,7 @@ public:
     bool recordAcknowledged() const;// FFI kirin_hypha_record_acknowledged (PRE Keeping banner / RecordActive LED)
     bool presetAvailable() const;   // FFI kirin_hypha_preset_available (PresetAvailable LED)
     bool addMark (const juce::String& tag); // FFI kirin_hypha_add_mark (POST Mark → Good/Fix/Hold)
+    bool addNote (const juce::String& memo); // sample-exact POST NOTE during Record
 
     // --- B-102: POST broadcast (All Keep / All Stop) + candidate enumeration (new↔new) -----
     struct PreCandidate { juce::String instanceId; juce::String name; bool hasName = false; };

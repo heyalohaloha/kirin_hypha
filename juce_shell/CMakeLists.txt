@@ -166,6 +166,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessor.cpp
         src/PluginProcessorDisplayState.cpp
         src/PluginProcessorGuideTransport.cpp
+        src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
         src/PluginEditorObservatory.cpp
         src/PluginEditorAnalysis.cpp
@@ -220,8 +221,10 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaGuideFrequencyOverlay.cpp
             src/HyphaPerceptualComponent.cpp
             src/HyphaPerceptualPainter.cpp
+            src/HyphaPsbPainter.cpp
             src/HyphaReferenceComponent.cpp
             src/HyphaSpectrumComponent.cpp
+            src/HyphaSpectrumPsb.cpp
             src/HyphaSpectrumTooltip.cpp
             src/HyphaSpectrumChromePainter.cpp
             src/HyphaSpectrumFocusTrail.cpp
@@ -384,7 +387,9 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaPerceptualPainter.cpp
         src/HyphaReferenceComponent.cpp
         src/PostControls.cpp
+        src/HyphaPsbPainter.cpp
         src/HyphaSpectrumComponent.cpp
+        src/HyphaSpectrumPsb.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
         src/HyphaSpectrumFocusTrail.cpp
@@ -417,7 +422,9 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_sources(KirinGuideFrequencyOverlayContractTests PRIVATE
         tests/GuideFrequencyOverlayContractTest.cpp
         src/HyphaGuideFrequencyOverlay.cpp
+        src/HyphaPsbPainter.cpp
         src/HyphaSpectrumComponent.cpp
+        src/HyphaSpectrumPsb.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
         src/HyphaSpectrumFocusTrail.cpp

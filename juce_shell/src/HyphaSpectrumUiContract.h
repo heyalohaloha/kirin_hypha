@@ -111,6 +111,8 @@ namespace hypha::ui_contract
     constexpr int spectrumLegendAfterChannelModes = 84;
     constexpr int spectrumMarkWidth = 42;
     constexpr int spectrumMarkClearWidth = 11;
+    constexpr int spectrumSubviewWidth = 48;
+    constexpr int spectrumSubviewGap = 4;
     // MARK is one frozen full-band reference. It must remain visibly distinct from PRE/POST
     // while staying below the live 2.15 px Δ curve, which also owns fill and glow.
     constexpr float spectrumMarkCurveAlpha = 0.88f;

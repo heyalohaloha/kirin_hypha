@@ -4,11 +4,11 @@ crates/hypha_post/tests/gui_wiring_test.rs	1001
 crates/hypha_pre/src/editor.rs	661
 crates/hypha_pre/src/lib.rs	1259
 crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h	839
-crates/kirin_hypha_ffi/src/lib.rs	6523
+crates/kirin_hypha_ffi/src/lib.rs	6435
 crates/kirin_hypha_ffi/tests/juce_lifecycle_wiring.rs	663
 crates/kirin_hypha_ffi/tests/parity.rs	3007
 crates/kirin_measure/src/capture_generation_tx_tests.rs	710
-crates/kirin_measure/src/io_thread_pre.rs	5042
+crates/kirin_measure/src/io_thread_pre.rs	5027
 crates/kirin_measure/src/lib.rs	990
 crates/kirin_measure/src/measure_thread.rs	3528
 crates/kirin_measure/src/pairing_scope.rs	1013

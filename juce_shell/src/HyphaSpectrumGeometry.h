@@ -111,9 +111,22 @@ namespace hypha::spectrum_geometry
     inline juce::Rectangle<float> markBoundsFor (juce::Rectangle<float> outerPlot,
                                                   float scale) noexcept
     {
-        return { outerPlot.getRight() - (float) ui_contract::spectrumMarkWidth * scale,
+        return { outerPlot.getRight()
+                    - (float) ui_contract::spectrumMarkWidth * scale,
                  outerPlot.getY() + (float) ui_contract::spectrumChannelModeTop * scale,
                  (float) ui_contract::spectrumMarkWidth * scale,
+                 (float) ui_contract::spectrumChannelModeHeight * scale };
+    }
+
+    inline juce::Rectangle<float> subviewBoundsFor (juce::Rectangle<float> outerPlot,
+                                                     float scale) noexcept
+    {
+        return { outerPlot.getRight()
+                    - (float) (ui_contract::spectrumMarkWidth
+                             + ui_contract::spectrumSubviewGap
+                             + ui_contract::spectrumSubviewWidth) * scale,
+                 outerPlot.getY() + (float) ui_contract::spectrumChannelModeTop * scale,
+                 (float) ui_contract::spectrumSubviewWidth * scale,
                  (float) ui_contract::spectrumChannelModeHeight * scale };
     }
 

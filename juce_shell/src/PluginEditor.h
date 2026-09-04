@@ -69,6 +69,7 @@ private:
     void updatePost();
     void refreshObservatory();
     void configureMeterContext();
+    void showNoteDialog();
     void setObservatoryDomain (hypha::observatory::Domain domain);
     void beginObservatoryCapture();
     void chooseObservatoryCapture (int width, int height);
@@ -124,6 +125,7 @@ private:
     juce::TextButton          guideConnectButton;          // role-neutral explicit Work/session connect
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     std::unique_ptr<juce::FileChooser> captureChooser;
+    std::unique_ptr<juce::AlertWindow> noteDialog;
     hypha::capture::PrivacyOptions capturePrivacy;         // editor-lifetime, private by default
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY

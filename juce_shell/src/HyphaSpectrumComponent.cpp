@@ -1,6 +1,5 @@
 #include "HyphaSpectrumComponent.h"
 
-#include "HyphaSpectrumChromePainter.h"
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumPresentation.h"
 
@@ -79,6 +78,11 @@ SpectrumComponent::SpectrumComponent()
 {
     setInterceptsMouseClicks (true, false);
     setAccessible (false);
+}
+
+bool SpectrumComponent::currentSnapshotValid() const noexcept
+{
+    return haveSnapshot && validSnapshot (snapshot, absoluteObservation);
 }
 
 void SpectrumComponent::setAnalysisOwnerNames (const juce::String& names)
@@ -378,6 +382,17 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
     const auto bounds = getLocalBounds().toFloat();
     const float scale = spectrum_geometry::visualScaleFor (bounds);
     const auto outerPlot = spectrum_geometry::plotBoundsFor (bounds);
+    if (spectrum_geometry::subviewBoundsFor (outerPlot, scale).contains (event.position))
+    {
+        psbObservation = ! psbObservation;
+        psbHoverBand = -1;
+        hoverNormalisedX = -1.0f;
+        setTooltip (psbObservation ? "PSB: perceptual share by Bark band"
+                                   : "Spectrum: frequency level and difference");
+        repaint();
+        return;
+    }
+    if (psbObservation) return;
     const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds);
     for (size_t index = 0; index < ui_contract::spectrumChannelModeWidths.size(); ++index)
     {
@@ -474,17 +489,4 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
     repaint();
 }
 
-void SpectrumComponent::paint (juce::Graphics& g)
-{
-    const spectrum_chrome::PaintState state {
-        snapshot, displayedPre, displayedPost, displayedDelta,
-        readoutPre, readoutPost, readoutDelta, markedDelta,
-        focusTrail.get(), modeActionNotice, analysisOwnerNames,
-        guideOverlay,
-        &absoluteHistory, absoluteHistory.peakHold(), absoluteObservation,
-        haveSnapshot, haveSnapshot && validSnapshot (snapshot, absoluteObservation),
-        haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels
-    };
-    spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);
-}
 }

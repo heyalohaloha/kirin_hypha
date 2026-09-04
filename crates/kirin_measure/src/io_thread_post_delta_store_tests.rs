@@ -9,6 +9,7 @@ fn snap(lufs: f64) -> DeltaSnapshot {
         n_prime_total: None,
         crest: None,
         sharpness: None,
+        psb_bark: None,
     }
 }
 

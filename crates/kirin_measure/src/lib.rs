@@ -2,7 +2,6 @@
 //!
 //! napi-rs 依存を持たない純粋な Rust ライブラリ。
 //! nih-plug の Audio Thread から独立した Measure Thread / IO Thread で使用する。
-
 mod absolute_level;
 pub mod absolute_timeline;
 pub mod all_keep_signal;
@@ -30,6 +29,7 @@ pub mod ingest_contract;
 pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
+mod measure_json;
 pub mod measure_thread;
 mod meter_clock;
 pub mod meter_delta_history;
@@ -270,8 +270,8 @@ pub use record_expected::{
 };
 pub use record_ingress::RecordIngress;
 pub use record_mark::{
-    enqueue_record_mark, new_record_mark_queue, PendingRecordMark, RecordMarkError,
-    RecordMarkQueue, RECORD_MARK_BASIS,
+    enqueue_record_mark, enqueue_record_note, new_record_mark_queue, PendingRecordMark,
+    RecordMarkError, RecordMarkQueue, RECORD_MARK_BASIS,
 };
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_acknowledged_with_name_if_current,

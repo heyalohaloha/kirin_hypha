@@ -135,6 +135,29 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     const float controlY = markBounds.getCentreY();
     const float markX = markBounds.getCentreX();
 
+    KirinMeasureResult psbCurrent {};
+    KirinDelta psbDelta {};
+    for (size_t index = 0; index < 20; ++index)
+    {
+        psbCurrent.psb_bark[index] = 0.05;
+        psbDelta.psb_bark[index] = index % 2 == 0 ? 0.01 : -0.01;
+    }
+    spectrum.setAbsoluteObservation (true);
+    spectrum.setPsbSnapshot (psbCurrent, psbDelta, true);
+    const auto psbToggle = spectrum_geometry::subviewBoundsFor (outerPlot, scale);
+    juce::Image spectrumImage (juce::Image::ARGB, width, height, true);
+    { juce::Graphics graphics (spectrumImage); spectrum.paintEntireComponent (graphics, true); }
+    spectrum.mouseDown (mouseEvent (
+        spectrum, psbToggle.getCentreX(), psbToggle.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (spectrum.isPsbObservationForTest());
+    juce::Image psbImage (juce::Image::ARGB, width, height, true);
+    { juce::Graphics graphics (psbImage); spectrum.paintEntireComponent (graphics, true); }
+    KIRIN_INTERACTION_REQUIRE (countDifferentPixels (spectrumImage, psbImage) > 100);
+    spectrum.mouseDown (mouseEvent (
+        spectrum, psbToggle.getCentreX(), psbToggle.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (! spectrum.isPsbObservationForTest());
+    spectrum.setAbsoluteObservation (false);
+
     SpectrumComponent bandMappingSpectrum;
     bandMappingSpectrum.setSize (width, height);
     bandMappingSpectrum.setSnapshot (snapshot);

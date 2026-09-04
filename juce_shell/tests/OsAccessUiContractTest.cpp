@@ -29,6 +29,15 @@ void verifyOsAccessUiContract()
     KIRIN_OS_ACCESS_REQUIRE (! observatory.isReferenceEnabled());
     observatory.setReferenceEnabled (true);
     KIRIN_OS_ACCESS_REQUIRE (observatory.isReferenceEnabled());
+    observatory.setSize (300, 200);
+    auto* note = observatory.findChildWithID ("observatory-note");
+    KIRIN_OS_ACCESS_REQUIRE (note != nullptr && note->isVisible());
+    observatory.setNoteAvailability (false, false);
+    KIRIN_OS_ACCESS_REQUIRE (! note->isEnabled());
+    observatory.setNoteAvailability (true, false);
+    KIRIN_OS_ACCESS_REQUIRE (! note->isEnabled());
+    observatory.setNoteAvailability (true, true);
+    KIRIN_OS_ACCESS_REQUIRE (note->isEnabled());
 
     PostControls controls;
     controls.setSize (300, 28);

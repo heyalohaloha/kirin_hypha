@@ -32,6 +32,7 @@ public:
     void setAnalysisOwnerNames (const juce::String& names);
     void setGuideFrequencyOverlay (const guide_frequency::Overlay& next);
     void setAbsoluteObservation (bool absolute);
+    void setPsbSnapshot (const KirinMeasureResult&, const KirinDelta&, bool deltaAvailable);
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -54,6 +55,7 @@ public:
         return index < readoutDelta.size() ? readoutDelta[index] : 0.0f;
     }
     bool isAbsoluteObservationForTest() const noexcept { return absoluteObservation; }
+    bool isPsbObservationForTest() const noexcept { return psbObservation; }
     size_t absoluteHistorySizeForTest() const noexcept { return absoluteHistory.size(); }
     float absolutePeakHoldForTest (size_t index) const noexcept
     {
@@ -65,6 +67,7 @@ public:
 
 private:
     void clearInteractionState() noexcept;
+    bool currentSnapshotValid() const noexcept;
 
     KirinSpectrumView snapshot {};
     KirinSpectrumView pendingSnapshot {};
@@ -95,6 +98,12 @@ private:
     guide_frequency::Overlay guideOverlay;
     absolute_spectrum::History absoluteHistory;
     bool absoluteObservation = false;
+    std::array<double, 20> absolutePsb {};
+    std::array<double, 20> deltaPsb {};
+    bool absolutePsbAvailable = false;
+    bool deltaPsbAvailable = false;
+    bool psbObservation = false;
+    int psbHoverBand = -1;
     double modeActionNoticeUntilMs = 0.0;
     bool hoverNeedsRepaint = false;
     double lastCurvePresentationMs = 0.0;

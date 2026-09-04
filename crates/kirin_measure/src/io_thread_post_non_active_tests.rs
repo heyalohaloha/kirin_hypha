@@ -15,6 +15,7 @@ fn inactive_with_pair_keeps_last_active_as_stale() {
             n_prime_total: Some(5.0),
             crest: Some(3.0),
             sharpness: Some(6.0),
+            psb_bark: None,
         }),
         ..Default::default()
     };
@@ -95,6 +96,7 @@ fn active_delta_fixture() -> DeltaResult {
         n_prime_total: Some(5.0),
         crest: Some(3.0),
         sharpness: Some(6.0),
+        psb_bark: None,
         last_active: Some(DeltaSnapshot {
             lufs: Some(1.0),
             lufs_s: Some(1.5),
@@ -103,6 +105,7 @@ fn active_delta_fixture() -> DeltaResult {
             n_prime_total: Some(5.0),
             crest: Some(3.0),
             sharpness: Some(6.0),
+            psb_bark: None,
         }),
     }
 }

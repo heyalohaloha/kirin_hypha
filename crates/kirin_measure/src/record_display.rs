@@ -210,6 +210,7 @@ fn delta_from_snapshot(snapshot: DeltaSnapshot, mode: DeltaMode) -> DeltaResult 
         n_prime_total: snapshot.n_prime_total,
         crest: snapshot.crest,
         sharpness: snapshot.sharpness,
+        psb_bark: snapshot.psb_bark,
         mode,
         last_active: Some(snapshot),
     }

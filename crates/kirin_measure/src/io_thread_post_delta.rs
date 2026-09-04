@@ -47,6 +47,7 @@ pub fn merge_last_active(
                 n_prime_total: new_delta.n_prime_total,
                 crest: new_delta.crest,
                 sharpness: new_delta.sharpness,
+                psb_bark: new_delta.psb_bark,
             };
             DeltaResult {
                 last_active: Some(snapshot),
@@ -69,6 +70,7 @@ fn snapshot_from_delta(d: &DeltaResult) -> Option<DeltaSnapshot> {
         && d.n_prime_total.is_none()
         && d.crest.is_none()
         && d.sharpness.is_none()
+        && d.psb_bark.is_none()
     {
         None
     } else {
@@ -80,6 +82,7 @@ fn snapshot_from_delta(d: &DeltaResult) -> Option<DeltaSnapshot> {
             n_prime_total: d.n_prime_total,
             crest: d.crest,
             sharpness: d.sharpness,
+            psb_bark: d.psb_bark,
         })
     }
 }
@@ -251,6 +254,7 @@ pub(super) fn compute_delta_for_pre_file(
                 n_prime_total: None,
                 crest: None,
                 sharpness: None,
+                psb_bark: None,
                 mode: match pre_signal_state {
                     Some(SignalState::Bypassed) => DeltaMode::Bypassed,
                     Some(SignalState::Inactive) => DeltaMode::PreInactive,
@@ -282,6 +286,7 @@ pub(super) fn compute_delta_for_pre_file(
     let pre_n_prime_total = parsed["n_prime_total"].as_f64();
     let pre_crest = parsed["crest"].as_f64();
     let pre_sharpness = parsed["sharpness"].as_f64();
+    let pre_psb = parse_psb_bark(&parsed["psb_bark"]);
 
     let delta_lufs = post.lufs_m.zip(pre_lufs).map(|(p, r)| p - r);
     let delta_lufs_s = post.lufs_s.zip(pre_lufs_s).map(|(p, r)| p - r);
@@ -293,6 +298,10 @@ pub(super) fn compute_delta_for_pre_file(
         .map(|(p, r)| p - r);
     let delta_crest = post.crest.zip(pre_crest).map(|(p, r)| p - r);
     let delta_sharpness = post.sharpness.zip(pre_sharpness).map(|(p, r)| p - r);
+    let delta_psb = post
+        .psb_bark
+        .zip(pre_psb)
+        .map(|(post, pre)| std::array::from_fn(|index| post[index] - pre[index]));
 
     Ok((
         DeltaResult {
@@ -303,11 +312,28 @@ pub(super) fn compute_delta_for_pre_file(
             n_prime_total: delta_n,
             crest: delta_crest,
             sharpness: delta_sharpness,
+            psb_bark: delta_psb,
             mode,
             last_active: None, // B-048 §4-2: run_tick で merge する責務分業
         },
         pre_signal_state,
     ))
+}
+
+fn parse_psb_bark(value: &serde_json::Value) -> Option<[f64; 20]> {
+    let values = value.as_array()?;
+    if values.len() != 20 {
+        return None;
+    }
+    let mut out = [0.0; 20];
+    for (target, value) in out.iter_mut().zip(values) {
+        *target = value.as_f64()?;
+        if !target.is_finite() || *target < 0.0 {
+            return None;
+        }
+    }
+    let sum: f64 = out.iter().sum();
+    (sum > 0.98 && sum < 1.02).then_some(out)
 }
 
 /// pre.json リストから最新 `t` フィールドを持つファイルを返す。
@@ -376,4 +402,22 @@ fn freshness_mode(parsed: &serde_json::Value) -> Result<DeltaMode, String> {
     }
 
     Ok(mode)
+}
+
+#[cfg(test)]
+mod psb_tests {
+    use super::parse_psb_bark;
+
+    #[test]
+    fn psb_requires_twenty_finite_normalized_shares() {
+        let valid = serde_json::to_value(vec![0.05; 20]).unwrap();
+        assert_eq!(parse_psb_bark(&valid).unwrap().iter().sum::<f64>(), 1.0);
+        assert!(parse_psb_bark(&serde_json::to_value(vec![0.05; 19]).unwrap()).is_none());
+        assert!(parse_psb_bark(&serde_json::to_value(vec![0.5; 20]).unwrap()).is_none());
+        assert!(parse_psb_bark(&serde_json::json!([
+            -0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05,
+            0.05, 0.05, 0.05, 0.05, 0.05, 0.10
+        ]))
+        .is_none());
+    }
 }

@@ -44,7 +44,7 @@ View::View (Role roleIn) : role (roleIn)
                           &referenceButton,
                           &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton,
                           &compactLoudnessButton, &compactRangeButton,
-                          &contextButton, &scaleButton, &sizeButton, &resetButton, &captureButton })
+                          &contextButton, &scaleButton, &sizeButton, &resetButton, &noteButton, &captureButton })
     {
         styleButton (*button);
         addAndMakeVisible (*button);
@@ -91,6 +91,8 @@ View::View (Role roleIn) : role (roleIn)
     contextButton.setTooltip ("Switch TRACK/STEM / 2MIX meter context"); scaleButton.setTooltip ("Switch WIDE / FOCUS loudness scale");
     sizeButton.onClick = [this] { cycleSize(); };
     resetButton.onClick = [this] { if (onReset) onReset(); };
+    noteButton.onClick = [this] { if (onNote) onNote(); };
+    noteButton.setComponentID ("observatory-note");
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
     updateControls();
 }
@@ -391,18 +393,7 @@ void View::resized()
         const auto sizeWidth = compact ? 42 : 52;
         sizeButton.setBounds (sessionArea.removeFromRight (sizeWidth).reduced (1, 2));
     }
-    const auto actions = toJuce (layout.actions);
-    const bool full = captureEntryAvailable (role, preset) && ! reference;
-    resetButton.setVisible (! captureFrame && ! reference);
-    captureButton.setVisible (full && ! captureFrame);
-    if (full && ! captureFrame)
-    {
-        auto split = actions;
-        resetButton.setBounds (split.removeFromLeft (split.getWidth() / 2).reduced (1, 2));
-        captureButton.setBounds (split.reduced (1, 2));
-    }
-    else if (! captureFrame && ! reference)
-        resetButton.setBounds (actions.reduced (1, 2));
+    layoutFooterActions (toJuce (layout.actions));
 }
 
 void View::paint (juce::Graphics& g)

@@ -38,6 +38,8 @@ pub struct DeltaSnapshot {
     pub n_prime_total: Option<f64>,
     pub crest: Option<f64>,
     pub sharpness: Option<f64>,
+    /// Perceptual Spectral Balance share difference, POST − PRE.
+    pub psb_bark: Option<[f64; 20]>,
 }
 
 /// POST − PRE の差分結果。
@@ -71,6 +73,9 @@ pub struct DeltaResult {
     /// Δ Sharpness = POST_sharpness − PRE_sharpness [acum]。PRE/POST どちらかが None → None。
     pub sharpness: Option<f64>,
 
+    /// Δ PSB share per Bark band. A valid array sums approximately to zero.
+    pub psb_bark: Option<[f64; 20]>,
+
     /// PREファイルの鮮度状態。Active 以外は全 Δ フィールドを表示しない。
     pub mode: DeltaMode,
 
@@ -99,6 +104,7 @@ mod tests {
         assert!(snap.n_prime_total.is_none());
         assert!(snap.crest.is_none());
         assert!(snap.sharpness.is_none());
+        assert!(snap.psb_bark.is_none());
     }
 
     /// B-048 / G-115-245: `DeltaResult::default()` で `last_active = None`。
@@ -114,6 +120,7 @@ mod tests {
         assert!(result.n_prime_total.is_none());
         assert!(result.crest.is_none());
         assert!(result.sharpness.is_none());
+        assert!(result.psb_bark.is_none());
         assert_eq!(result.mode, DeltaMode::NoPre);
     }
 }

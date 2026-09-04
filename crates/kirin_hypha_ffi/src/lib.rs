@@ -51,8 +51,7 @@ use kirin_measure::{
     add_watch_ring_cursor_samples, publish_watch_playback_pass_boundary, reset_watch_ring_cursor,
 };
 use kirin_measure::{
-    append_annotation_to_latest, can_write_plugin_data, count_distinct_pairings,
-    current_host_process_id, enqueue_record_mark,
+    count_distinct_pairings, current_host_process_id,
     enumerate_ready_post_pair_candidates_for_operation_group, identity_instance_attach,
     identity_instance_detach, latch_selected_pre, live_window, load_license_safe,
     mark_generation_terminal, mark_released_if_current, mark_released_with_reason,
@@ -90,9 +89,9 @@ mod identity_registry;
 mod legacy_nih_state;
 mod pair_binding;
 mod pair_candidates_ffi;
+mod record_note_ffi;
 mod reference_audition_ffi;
 mod signal_state_ffi;
-
 pub use attack_ffi::*;
 pub use identity_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
 pub use identity_registry::__reset_shared_ids_for_tests;
@@ -101,6 +100,7 @@ pub use pair_candidates_ffi::{
     kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
     kirin_hypha_enumerate_pre_candidates, KirinPostPairClaim, KirinPreCandidate,
 };
+pub use record_note_ffi::*;
 pub use reference_audition_ffi::kirin_hypha_set_reference_audition_active;
 pub use signal_state_ffi::{
     kirin_hypha_get_signal_state, kirin_hypha_set_host_component_active,
@@ -2699,60 +2699,6 @@ impl KirinHyphaEngine {
         );
     }
 
-    /// Record中の最新producer sample境界へ固定タグMARKを追加する。
-    pub fn add_mark(&self, tag: String) -> bool {
-        if !can_write_plugin_data(self.current_license())
-            || self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post)
-        {
-            return false;
-        }
-        enqueue_record_mark(
-            &self.record_sm,
-            &self.record_take_tracker,
-            &self.record_mark_queue,
-            &tag,
-        )
-        .is_ok()
-    }
-
-    /// Record の最新 plugin_data .json に利用者メモ（Annotation）を追記する（Note / 方式A）。
-    ///
-    /// gate: `License::Os`（`can_write_plugin_data`）のみ通る。`enable_pre_writes` 後で
-    /// 対象 .json が存在するとき `true`。それ以外（非 Os / 未 enable / .json 不在）は `false`。
-    /// filesystem 操作は `kirin_measure::append_annotation_to_latest` に委譲（FFI は呼ぶだけ）。
-    ///
-    /// 注意（3c）: active record 中は io_thread の writer が 30s flush で .json を上書きする
-    /// ため、確実なのは Record close 後の最新 .json への追記。
-    pub fn add_annotation(&self, memo: String) -> bool {
-        if !can_write_plugin_data(self.current_license()) {
-            return false; // 二重 gate: Os 以外は不可（license.rs:88）。
-        }
-        // B-067/F3: 書込 role はこの engine の有効化時に確定（PRE/POST）。未 enable は no-op。
-        // ハードコード ::Pre をやめ、保持 role に書く（POST engine は POST role に追記）。
-        let role = match self.write_role.lock() {
-            Ok(g) => match *g {
-                Some(r) => r, // Role は Copy（plugin_data.rs:54）。
-                None => return false,
-            },
-            Err(_) => return false,
-        };
-        let (project_hash, instance_id) = {
-            let id = match self.identity.lock() {
-                Ok(g) => g,
-                Err(_) => return false,
-            };
-            if id.project_hash.is_empty() || id.instance_id.is_empty() {
-                return false; // 未 enable。
-            }
-            (id.project_hash.clone(), id.instance_id.clone())
-        };
-        let base = match StoragePaths::default_platform() {
-            Ok(p) => p.plugin_data_dir(),
-            Err(_) => return false,
-        };
-        append_annotation_to_latest(&base, &project_hash, &instance_id, role, memo).unwrap_or(false)
-    }
-
     /// interleaved f32 サンプルを供給する（Audio Thread 単独・RT-safe）。
     ///
     /// 責務はこの 2 つのみ:
@@ -3320,6 +3266,8 @@ pub struct KirinDelta {
     pub sharpness: f64,
     // Δ LUFS-S は既存 ABI offset を変えないよう末尾追加。
     pub lufs_s: f64,
+    /// POST − PRE PSB share for each Bark band; unavailable is all NaN.
+    pub psb_bark: [f64; 20],
 }
 
 /// Observatory表示が一度に受け取る非RTスナップショット。
@@ -3634,12 +3582,13 @@ fn to_c_delta(d: &DeltaResult) -> KirinDelta {
         n_prime_total: opt_f64(d.n_prime_total),
         sharpness: opt_f64(d.sharpness),
         lufs_s: opt_f64(d.lufs_s),
+        psb_bark: opt_arr20(d.psb_bark),
     }
 }
 
 fn delta_has_finite_fact(delta: &KirinDelta) -> bool {
     delta.mode == KIRIN_DELTA_MODE_ACTIVE
-        && [
+        && ([
             delta.lufs,
             delta.lufs_s,
             delta.true_peak,
@@ -3650,6 +3599,7 @@ fn delta_has_finite_fact(delta: &KirinDelta) -> bool {
         ]
         .into_iter()
         .any(f64::is_finite)
+            || delta.psb_bark.into_iter().all(f64::is_finite))
 }
 
 fn lra_readiness(snapshot: &MeterSessionSnapshot) -> (u8, f64) {
@@ -4037,7 +3987,7 @@ mod meter_session_abi_tests {
         assert_eq!(std::mem::offset_of!(KirinMeterSession, max_lufs_m), 832);
         assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
         assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 184);
-        assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 920);
+        assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 1080);
         let current = MeasureResult {
             lufs_m: Some(-14.2),
             lufs_s: Some(-14.8),
@@ -4183,6 +4133,7 @@ mod meter_session_abi_tests {
             n_prime_total: f64::NAN,
             sharpness: f64::NAN,
             lufs_s: f64::NAN,
+            psb_bark: [f64::NAN; 20],
         };
         assert!(delta_has_finite_fact(&delta));
         delta.mode = delta_mode_to_abi(&DeltaMode::Stale);
@@ -5852,45 +5803,6 @@ pub unsafe extern "C" fn kirin_hypha_drain_path_event(
             }
             None => false,
         }
-    }))
-    .unwrap_or(false)
-}
-
-/// Record の最新 plugin_data .json に利用者メモを追記する（Note / 方式A）。
-/// `License::Os` かつ enable 済かつ対象 .json 存在のとき `true`、それ以外 `false`。
-///
-/// # Safety
-/// `handle` は有効なハンドル。`memo` は null か有効な null 終端 C 文字列であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_add_annotation(
-    handle: *mut KirinHyphaEngine,
-    memo: *const c_char,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return false;
-        }
-        let memo = unsafe { read_c_str(memo) };
-        unsafe { (*handle).add_annotation(memo) }
-    }))
-    .unwrap_or(false)
-}
-
-/// Record中の最新producer sample境界へ Good/Fix/Hold MARKを追加する。
-///
-/// # Safety
-/// `handle` は有効なハンドル。`tag` は null か有効な null 終端 C 文字列であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_add_mark(
-    handle: *mut KirinHyphaEngine,
-    tag: *const c_char,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return false;
-        }
-        let tag = unsafe { read_c_str(tag) };
-        unsafe { (*handle).add_mark(tag) }
     }))
     .unwrap_or(false)
 }

@@ -41,6 +41,7 @@ public:
     std::function<void (meter_context::ScaleMode)> onScaleChange;
     std::function<void()> onReset;
     std::function<void()> onCapture;
+    std::function<void()> onNote;
 
     void setDomain (Domain);
     Domain domain() const noexcept { return selectedDomain; }
@@ -98,6 +99,7 @@ public:
     // The editor may render a physical preset through a scaled logical viewport. This affects
     // only the size label/cycle identity; measurement and shell layout keep using local bounds.
     void setDisplayedEditorSize (int width, int height);
+    void setNoteAvailability (bool osOwned, bool recording);
 
     struct HistoryRequest
     {
@@ -147,6 +149,7 @@ private:
     void paintHeader (juce::Graphics&, const ShellLayout&);
     void paintGuide (juce::Graphics&, const ShellLayout&);
     void paintFooter (juce::Graphics&, const ShellLayout&);
+    void layoutFooterActions (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
     void paintLevelWithHistory (juce::Graphics&, juce::Rectangle<int>);
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
@@ -209,6 +212,7 @@ private:
     Button scaleButton { {}, false };
     Button sizeButton { {}, false };
     Button resetButton { "RESET", false };
+    Button noteButton { "NOTE", false };
     Button captureButton { "CAPTURE", false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (View)

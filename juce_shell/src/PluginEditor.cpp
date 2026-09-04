@@ -983,10 +983,10 @@ void KirinHyphaEditor::updatePost()
     const bool preparing = keepPhase == (int) KIRIN_KEEP_PHASE_PREPARING;
     const bool armed = keepPhase == (int) KIRIN_KEEP_PHASE_ARMED;
     const bool keepActive = rec || preparing || armed;
+    observatoryView.setNoteAvailability (processorRef.licenseIsOs(), rec);
     const bool ack    = processorRef.recordAcknowledged(); // POST: always false (egui parity)
     const bool preset = processorRef.presetAvailable();
     const bool playing = processorRef.isPlaying();
-    // B-115: lock only when playing AND live (processBlock running) — false-release prevention.
     const bool pairLocked = playing && processorRef.heartbeatLive();
 
     const juce::String pairName = processorRef.pairName();

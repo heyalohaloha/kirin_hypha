@@ -109,9 +109,9 @@ typedef struct {
   double psr;           /* PSR = peak_dBFS - LUFS-S(3s) */
   double n_prime_total; /* Zwicker N (ISO 532-1) [sone] */
   double sharpness;     /* DIN 45692 Sharpness [acum] */
-  double psb_low;       /* Perceptual Spectral Balance low  [dB] */
-  double psb_mid;       /* Perceptual Spectral Balance mid  [dB] */
-  double psb_high;      /* Perceptual Spectral Balance high [dB] */
+  double psb_low;       /* Perceptual Spectral Balance low share */
+  double psb_mid;       /* Perceptual Spectral Balance mid share */
+  double psb_high;      /* Perceptual Spectral Balance high share */
   double n_prime[20];   /* 20-Bark aggregated specific loudness [sone/Bark] */
   double psb_bark[20];  /* 20-band PSB (psb) */
   double tp_session_max;/* tp_session_max: init 以降の inter-sample running max [dBTP]
@@ -228,6 +228,7 @@ typedef struct {
   double n_prime_total;
   double sharpness;
   double lufs_s;        /* Δ LUFS-S (末尾追加で既存 offset 不変) */
+  double psb_bark[20];  /* POST - PRE PSB share per Bark band */
 } KirinDelta;
 
 /* Observatoryが1回のUI pollで受け取るversion付き正本。
@@ -764,9 +765,8 @@ bool kirin_hypha_attack_stats(KirinHypha* handle, KirinAttackStats* out);
 /* Keep/Record表示を1スナップショットで取得. UI Thread専用・ロック競合時false. */
 bool kirin_hypha_poll_record_display(KirinHypha* handle, KirinRecordDisplay* out);
 
-/* Record の最新 plugin_data .json に利用者メモを追記する（Note / 方式A）.
- * 書込先はこの engine の役割（enable_pre_writes=PRE / enable_post_writes=POST）の .json.
- * Os かつ enable 済（role 確定）かつ対象 .json 存在のとき true / それ以外（未 enable 含む）false. */
+/* NOTE: sample-exact active Record API, followed by closed-file compatibility API. */
+bool kirin_hypha_add_note(KirinHypha* handle, const char* memo);
 bool kirin_hypha_add_annotation(KirinHypha* handle, const char* memo);
 
 /* Record中の最新producer sample境界へ Good/Fix/Hold MARKを追加する. */

@@ -1,6 +1,7 @@
 #include "HyphaSpectrumComponent.h"
 
 #include "HyphaAnalysisUiText.h"
+#include "HyphaPsbPainter.h"
 #include "HyphaSpectrumGeometry.h"
 
 namespace hypha
@@ -26,6 +27,17 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
     const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds);
     const auto position = event.position;
     juce::String tip;
+
+    if (spectrum_geometry::subviewBoundsFor (outer, scale).contains (position))
+        tip = psbObservation ? "Return to Spectrum" : "Show perceptual spectral balance";
+    if (psbObservation)
+    {
+        const int nextBand = psb_painter::bandAt (bounds, position);
+        if (nextBand >= 0) tip = "Bark band " + juce::String (nextBand + 1);
+        if (tip != getTooltip()) setTooltip (tip);
+        if (psbHoverBand != nextBand) { psbHoverBand = nextBand; repaint(); }
+        return;
+    }
 
     for (size_t index = 0; index < ui_contract::spectrumChannelModeWidths.size(); ++index)
         if (spectrum_geometry::channelModeBoundsFor (index, outer, scale).contains (position))
@@ -103,5 +115,6 @@ void SpectrumComponent::mouseExit (const juce::MouseEvent&)
         hoverNormalisedX = -1.0f;
         hoverNeedsRepaint = true;
     }
+    if (psbHoverBand >= 0) { psbHoverBand = -1; repaint(); }
 }
 }

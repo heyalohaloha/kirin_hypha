@@ -62,6 +62,37 @@ void KirinHyphaEditor::configureMeterContext()
         haveObservatoryWatchDisplay = false;
         observatoryView.setWatchDisplay ({}, false);
     };
+    observatoryView.onNote = [this] { showNoteDialog(); };
+}
+
+void KirinHyphaEditor::showNoteDialog()
+{
+    if (! isPost || noteDialog != nullptr) return;
+    noteDialog = std::make_unique<juce::AlertWindow> (
+        "NOTE", "Attach a note to the current sample position.",
+        juce::MessageBoxIconType::NoIcon, this);
+    noteDialog->addTextEditor ("memo", {}, "NOTE");
+    if (auto* editor = noteDialog->getTextEditor ("memo"))
+        editor->setInputRestrictions (240);
+    noteDialog->addButton ("ADD", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    noteDialog->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    noteDialog->centreAroundComponent (this, 360, 170);
+    const juce::Component::SafePointer<KirinHyphaEditor> safe (this);
+    noteDialog->enterModalState (true, juce::ModalCallbackFunction::create (
+        [safe] (int result)
+        {
+            auto* owner = safe.getComponent();
+            if (owner == nullptr || owner->noteDialog == nullptr) return;
+            const auto memo = owner->noteDialog->getTextEditorContents ("memo").trim();
+            if (result == 1)
+            {
+                if (memo.isEmpty()) owner->showToast ("NOTE is empty");
+                else if (owner->processorRef.addNote (memo))
+                    owner->showToast ("NOTE added at current sample");
+                else owner->showToast ("NOTE requires an active Keep");
+            }
+            owner->noteDialog.reset();
+        }), false);
 }
 
 void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
@@ -140,6 +171,10 @@ void KirinHyphaEditor::refreshObservatory()
     observatoryView.setWatchDisplay (observatoryWatchDisplay, haveObservatoryWatchDisplay);
     observatoryView.setShortTermLoudness (processorRef.useShortTermLoudness());
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (isPost)
+        spectrumView.setPsbSnapshot (
+            haveObservatoryWatchDisplay ? observatoryWatchDisplay.current : KirinMeasureResult {},
+            frame.delta, frameAvailable && frame.delta_available != 0);
     if (isPost)
         refreshReferenceAudition (frame, frameAvailable);
    #endif

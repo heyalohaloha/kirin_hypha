@@ -21,6 +21,33 @@ void drawPanel (juce::Graphics& g, juce::Rectangle<int> area,
 }
 }
 
+void View::setNoteAvailability (bool osOwned, bool recording)
+{
+    const auto help = ! osOwned ? juce::String ("NOTE requires Kirin OS")
+                    : ! recording ? juce::String ("NOTE requires an active Keep")
+                                  : juce::String ("Add a note at the current sample position");
+    noteButton.setEnabled (osOwned && recording);
+    noteButton.setTitle (help);
+    noteButton.setDescription (help);
+    noteButton.setTooltip (help);
+}
+
+void View::layoutFooterActions (juce::Rectangle<int> actions)
+{
+    const bool reference = selectedDomain == Domain::reference;
+    const bool full = captureEntryAvailable (role, currentPreset()) && ! reference;
+    resetButton.setVisible (! captureFrame && ! reference);
+    noteButton.setVisible (role == Role::post && ! captureFrame && ! reference);
+    captureButton.setVisible (full && ! captureFrame);
+    juce::Array<juce::Button*> visible;
+    for (auto* button : { &resetButton, &noteButton, &captureButton })
+        if (button->isVisible()) visible.add (button);
+    const int width = visible.isEmpty() ? 0 : actions.getWidth() / visible.size();
+    for (int index = 0; index < visible.size(); ++index)
+        visible[index]->setBounds ((index + 1 == visible.size()
+            ? actions : actions.removeFromLeft (width)).reduced (1, 2));
+}
+
 void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
 {
     drawPanel (g, toJuce (layout.footer), experienceFamily(), 4.0f);
