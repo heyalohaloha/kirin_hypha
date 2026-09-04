@@ -89,7 +89,7 @@ void KirinHyphaEditor::showNoteDialog()
                 if (memo.isEmpty()) owner->showToast ("NOTE is empty");
                 else if (owner->processorRef.addNote (memo))
                     owner->showToast ("NOTE added at current sample");
-                else owner->showToast ("NOTE requires an active Keep");
+                else owner->showToast ("NOTE could not be added at current sample");
             }
             owner->noteDialog.reset();
         }), false);

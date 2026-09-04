@@ -50,6 +50,7 @@ struct Result
 Result summarize (const std::vector<KirinMeterHistoryEntry>& history);
 
 int visibleRowCount (int width) noexcept;
+double durationSeconds (const Summary&, double sampleRate) noexcept;
 
 void paint (juce::Graphics&, juce::Rectangle<int>, const Result&, double sampleRate);
 }

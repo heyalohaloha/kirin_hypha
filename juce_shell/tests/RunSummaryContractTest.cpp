@@ -30,9 +30,9 @@ KirinMeterHistoryEntry point (std::uint64_t generation, std::uint64_t run,
     entry.generation = generation;
     entry.run_id = run;
     entry.first_observed_frames = observed;
-    entry.last_observed_frames = observed + 4'799u;
+    entry.last_observed_frames = observed + static_cast<std::uint64_t> (count - 1u) * 4'800u;
     entry.first_timeline_endpoint_samples = static_cast<std::int64_t> (observed);
-    entry.last_timeline_endpoint_samples = static_cast<std::int64_t> (observed + 4'799u);
+    entry.last_timeline_endpoint_samples = static_cast<std::int64_t> (entry.last_observed_frames);
     entry.observation_count = count;
     entry.resolution = KIRIN_METER_HISTORY_10_HZ;
     entry.lufs_m = { momentary - 1.0, momentary + 1.0, momentary };
@@ -47,10 +47,10 @@ KirinMeterHistoryEntry point (std::uint64_t generation, std::uint64_t run,
 void verifyRunSummaryContract()
 {
     std::vector<KirinMeterHistoryEntry> history {
-        point (4, 1, 0, -20.0, -4.0, 1),
-        point (4, 1, 4'800, -10.0, -2.0, 3),
-        point (4, 2, 9'600, -16.0, -1.0, 1),
-        point (5, 1, 14'400, -14.0, -3.0, 1),
+        point (4, 1, 4'800, -20.0, -4.0, 1),
+        point (4, 1, 9'600, -10.0, -2.0, 3),
+        point (4, 2, 24'000, -16.0, -1.0, 1),
+        point (5, 1, 28'800, -14.0, -3.0, 1),
     };
     history[1].clip_event_count[0] = 2;
     history[2].clip_event_count[1] = 1;
@@ -65,6 +65,13 @@ void verifyRunSummaryContract()
     KIRIN_RUN_REQUIRE (std::abs (result.runs[0].momentary.minimum - -21.0) < 1.0e-12);
     KIRIN_RUN_REQUIRE (std::abs (result.runs[0].momentary.maximum - -9.0) < 1.0e-12);
     KIRIN_RUN_REQUIRE (std::abs (result.runs[0].maximumTruePeak - -2.0) < 1.0e-12);
+    KIRIN_RUN_REQUIRE (std::abs (run_summary::durationSeconds (result.runs[0], 48'000.0)
+                                 - 0.4) < 1.0e-12);
+    run_summary::Summary oneSecond;
+    oneSecond.firstObservedFrames = 4'800;
+    oneSecond.lastObservedFrames = 48'000;
+    KIRIN_RUN_REQUIRE (std::abs (run_summary::durationSeconds (oneSecond, 48'000.0)
+                                 - 1.0) < 1.0e-12);
 
     auto unknown = history;
     for (auto& entry : unknown)

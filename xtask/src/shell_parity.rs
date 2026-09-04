@@ -568,9 +568,13 @@ mod tests {
         );
         assert!(!timer.contains("kirin_hypha_load_license"));
         assert!(PLUGIN_PROCESSOR_CPP
-            .contains("const int effective = observed == 2 && cached != 2 ? cached : observed;"));
+            .contains("cachedLicenseCode.store (observed, std::memory_order_release);"));
         assert!(PLUGIN_PROCESSOR_CPP
-            .contains("kirin_hypha_set_license (hyphaHandle, (uint8_t) effective);"));
+            .contains("kirin_hypha_set_license (hyphaHandle, (uint8_t) observed);"));
+        assert!(
+            !PLUGIN_PROCESSOR_CPP.contains("observed == 2"),
+            "Unknown entitlement must revoke cached OS access instead of falling back"
+        );
         assert!(PLUGIN_PROCESSOR_CPP
             .contains("cachedLicenseCode.load (std::memory_order_acquire) == 0"));
         assert!(PLUGIN_EDITOR_CPP.contains("Record requires Kirin OS license"));

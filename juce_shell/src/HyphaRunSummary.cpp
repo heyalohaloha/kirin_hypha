@@ -98,11 +98,9 @@ juce::String number (double value, int decimals = 1)
 
 juce::String durationText (const Summary& run, double sampleRate)
 {
-    if (! std::isfinite (sampleRate) || sampleRate <= 0.0
-        || run.lastObservedFrames < run.firstObservedFrames)
+    const auto seconds = durationSeconds (run, sampleRate);
+    if (! std::isfinite (seconds))
         return "--:--";
-    const auto seconds = static_cast<double> (
-        run.lastObservedFrames - run.firstObservedFrames + 1u) / sampleRate;
     const auto whole = juce::jmax (0, static_cast<int> (std::floor (seconds)));
     return juce::String (whole / 60).paddedLeft ('0', 2) + ":"
          + juce::String (whole % 60).paddedLeft ('0', 2);
@@ -117,26 +115,59 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
     g.drawHorizontalLine (row.getBottom() - 1, static_cast<float> (row.getX()),
                           static_cast<float> (row.getRight()));
 
-    const auto runWidth = expanded ? 92 : 62;
+    if (! expanded)
+    {
+        auto upper = row.removeFromTop (juce::jmax (18, row.getHeight() / 2));
+        auto identity = upper.removeFromLeft (juce::jmin (94, upper.getWidth() / 2)).reduced (5, 0);
+        g.setColour (latest ? COL_LED_BLUE : COL_NORMAL);
+        g.setFont (monoFont (9.0f));
+        g.drawFittedText ("RUN " + juce::String (run.runId)
+                          + (latest ? "  LATEST" : ""), identity,
+                          juce::Justification::centredLeft, 1, 0.78f);
+        auto clips = upper.removeFromRight (58).reduced (3, 0);
+        g.setColour ((run.clipEvents[0] + run.clipEvents[1] > 0 ? COL_SPECTRUM_POST : COL_MUTED)
+                         .withAlpha (0.90f));
+        g.drawFittedText ("L" + juce::String (run.clipEvents[0])
+                          + " R" + juce::String (run.clipEvents[1]), clips,
+                          juce::Justification::centredRight, 1, 0.78f);
+        g.setColour (COL_MUTED.brighter (0.22f));
+        g.drawText (durationText (run, sampleRate), upper.reduced (3, 0),
+                    juce::Justification::centredRight);
+
+        auto peak = row.removeFromRight (84).reduced (3, 0);
+        g.setColour (COL_FLORA_BR.withAlpha (0.92f));
+        g.drawFittedText ("TP " + (run.truePeakAvailable
+                            ? number (run.maximumTruePeak) : juce::String ("---")), peak,
+                          juce::Justification::centredRight, 1, 0.78f);
+        const auto loudness = run.momentary.available
+            ? "M " + number (run.momentary.minimum) + ".." + number (run.momentary.maximum)
+            : juce::String ("M ---");
+        g.setColour (COL_SPECTRUM_POST.withAlpha (0.95f));
+        g.drawFittedText (loudness, row.reduced (5, 0), juce::Justification::centredLeft,
+                          1, 0.78f);
+        return;
+    }
+
+    constexpr auto runWidth = 92;
     auto identity = row.removeFromLeft (runWidth).reduced (5, 0);
     g.setColour (latest ? COL_LED_BLUE : COL_NORMAL);
-    g.setFont (monoFont (expanded ? 10.0f : 8.5f));
+    g.setFont (monoFont (10.0f));
     g.drawFittedText ("RUN " + juce::String (run.runId)
                       + (latest ? "  LATEST" : ""), identity,
                       juce::Justification::centredLeft, 1, 0.72f);
 
-    auto duration = row.removeFromLeft (expanded ? 62 : 45).reduced (3, 0);
+    auto duration = row.removeFromLeft (62).reduced (3, 0);
     g.setColour (COL_MUTED.brighter (0.22f));
     g.drawText (durationText (run, sampleRate), duration, juce::Justification::centredLeft);
 
     const auto clipText = "L" + juce::String (run.clipEvents[0])
                         + " R" + juce::String (run.clipEvents[1]);
-    auto clips = row.removeFromRight (expanded ? 78 : 58).reduced (3, 0);
+    auto clips = row.removeFromRight (78).reduced (3, 0);
     g.setColour ((run.clipEvents[0] + run.clipEvents[1] > 0 ? COL_SPECTRUM_POST : COL_MUTED)
                      .withAlpha (0.90f));
     g.drawFittedText (clipText, clips, juce::Justification::centredRight, 1, 0.72f);
 
-    auto peak = row.removeFromRight (expanded ? 106 : 80).reduced (3, 0);
+    auto peak = row.removeFromRight (106).reduced (3, 0);
     g.setColour (COL_FLORA_BR.withAlpha (0.92f));
     g.drawFittedText ("TP " + (run.truePeakAvailable
                         ? number (run.maximumTruePeak) : juce::String ("---")), peak,
@@ -147,8 +178,19 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
         : juce::String ("M ---");
     g.setColour (COL_SPECTRUM_POST.withAlpha (0.95f));
     g.drawFittedText (loudness, row.reduced (3, 0), juce::Justification::centredLeft,
-                      1, expanded ? 0.76f : 0.62f);
+                      1, 0.76f);
 }
+}
+
+double durationSeconds (const Summary& run, double sampleRate) noexcept
+{
+    if (! std::isfinite (sampleRate) || sampleRate <= 0.0
+        || run.lastObservedFrames < run.firstObservedFrames)
+        return std::numeric_limits<double>::quiet_NaN();
+    // History positions are cumulative 10 Hz observation endpoints, not inclusive sample bounds.
+    // Add the first 100 ms observation that endpoint subtraction alone would omit.
+    return (static_cast<double> (run.lastObservedFrames - run.firstObservedFrames)
+            + sampleRate / 10.0) / sampleRate;
 }
 
 Result summarize (const std::vector<KirinMeterHistoryEntry>& history)
