@@ -90,6 +90,9 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 {
     stopTimer(); // B-126: stop the non-RT enable poll before teardown (was cancelPendingUpdate / B-070).
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    referenceAuditionController.reset();
+   #endif
     preDisplayController.reset();
 #endif
     const juce::ScopedLock sl (handleLock);
@@ -131,10 +134,8 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     // Record. The maximumExpectedSamplesPerBlock may change for render, but the user-visible
     // Record state must not be thrown away. Reuse the Rust engine when the audio format is the same.
     //
-    // B-334: sample-rate / channel-count reprepare is also not Stop authority while Record is
-    // armed. Destroying the Rust engine here closes the PRE writer through Drop/shutdown before
-    // POST All Stop, which presents as "PRE detached mid-KEEP". Defer incompatible rebuilds until
-    // the host calls prepareToPlay outside Record.
+    // B-334: incompatible reprepare is not Stop authority while Record is armed; defer it rather
+    // than destroying the writer before POST All Stop.
     const bool needsNewHandle = hyphaHandle == nullptr
                              || std::abs (preparedSampleRate - sampleRate) > 0.001
                              || preparedInputChannels != numCh;
@@ -143,6 +144,8 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
 
     if (hyphaHandle != nullptr && kirin_hypha_is_recording (hyphaHandle))
         return;
+
+    selectReferenceA(); // A is mandatory before replacing the comparison-suspension owner.
 
     lastProcessPositionValid = false;
     lastProcessHadPosition = false;
@@ -237,8 +240,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const int numOut    = getTotalNumOutputChannels();
     const int numFrames = buffer.getNumSamples();
 
-    // R-12: read-only passthrough. Never write to signal channels; only clear surplus
-    // output channels with no matching input (no-op when in == out).
+    // R-12 A path: read-only passthrough. Explicit POST Reference B, if selected, is rendered
+    // only after the canonical A measurement transaction at the end of this callback.
     for (int ch = numCh; ch < numOut; ++ch)
         buffer.clear (ch, 0, numFrames);
 
@@ -320,6 +323,10 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     preDisplayClock.publish (positionSamples, preparedSampleRate,
                              static_cast<std::uint32_t> (juce::jmax (0, numFrames)), playing,
                              static_cast<hypha::pre_display::ClockSource> (clockSource));
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController != nullptr)
+        referenceAuditionController->observeTransport (positionSamples, hasPosition, playing);
+   #endif
 #endif
     const bool positionChanged = hasPosition && lastProcessPositionValid
                               && positionSamples != lastProcessPositionSamples;
@@ -500,6 +507,16 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     {
         kirin_hypha_push_samples (hyphaHandle, nullptr, 0, (uint32_t) numCh);
     }
+
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    // Explicit B is an output-only audition copy. A has already been measured above. Offline
+    // render, bypass, missing project time, cache miss, and every consumer failure keep A intact.
+    if (role == Role::Post && referenceAuditionController != nullptr)
+        referenceAuditionController->renderSelectedB (
+            buffer, positionSamples, hasPosition, ! bypassed && ! nonRealtimeMode && licenseIsOs());
+   #endif
+#endif
 }
 
 bool KirinHyphaProcessorBase::bufferIsSilent (const juce::AudioBuffer<float>& buffer)
@@ -631,102 +648,6 @@ void KirinHyphaProcessorBase::setUseShortTermLoudness (bool shortTerm)
         return;
     updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
-
-void KirinHyphaProcessorBase::setObservatoryDomainPreference (uint8_t value)
-{
-    const uint8_t bounded = value < 4u ? value : uint8_t { 0 };
-    if (preferredObservatoryDomain.exchange (bounded, std::memory_order_acq_rel) != bounded)
-        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
-}
-
-void KirinHyphaProcessorBase::setObservatoryTargetPreference (uint8_t value)
-{
-    const uint8_t bounded = value < 2u ? value : uint8_t { 0 };
-    if (preferredObservatoryTarget.exchange (bounded, std::memory_order_acq_rel) != bounded)
-        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
-}
-
-void KirinHyphaProcessorBase::setObservatoryTimeRangePreference (uint8_t value)
-{
-    const uint8_t bounded = value < 5u ? value : uint8_t { 0 };
-    if (preferredObservatoryTimeRange.exchange (bounded, std::memory_order_acq_rel) != bounded)
-        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
-}
-
-bool KirinHyphaProcessorBase::setObservatoryEditorSizePreference (int width, int height)
-{
-    if (! hypha::observatory::validEditorSize (width, height))
-        return false;
-    const auto packed = hypha::observatory::packEditorSize ({ width, height });
-    return preferredEditorSize.exchange (packed, std::memory_order_acq_rel) != packed;
-}
-
-void KirinHyphaProcessorBase::notifyObservatoryEditorSizeChanged()
-{
-    updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
-}
-
-#if KIRIN_HYPHA_GUIDE_TRANSPORT
-hypha::pre_display::DisplaySnapshot KirinHyphaProcessorBase::preDisplaySnapshot() const
-{
-    return preDisplayController != nullptr
-        ? preDisplayController->displaySnapshot()
-        : hypha::pre_display::DisplaySnapshot {};
-}
-
-hypha::pre_display::GuidePresentationSnapshot
-KirinHyphaProcessorBase::guidePresentationSnapshot() const
-{
-    return preDisplayController != nullptr
-        ? preDisplayController->guidePresentationSnapshot()
-        : hypha::pre_display::GuidePresentationSnapshot {};
-}
-
-hypha::pre_display::ConnectionRequest KirinHyphaProcessorBase::pendingPreDisplayConnection() const
-{
-    return preDisplayController != nullptr
-        ? preDisplayController->pendingConnection()
-        : hypha::pre_display::ConnectionRequest {};
-}
-
-bool KirinHyphaProcessorBase::acceptPreDisplayConnection()
-{
-    return preDisplayController != nullptr && preDisplayController->acceptPendingConnection();
-}
-
-hypha::pre_display::WorkReference KirinHyphaProcessorBase::connectedWorkReference() const
-{
-    return preDisplayController != nullptr
-        ? preDisplayController->connectedWorkReference()
-        : hypha::pre_display::WorkReference {};
-}
-
-juce::String KirinHyphaProcessorBase::connectedWorkTitle() const
-{
-    return preDisplayController != nullptr
-        ? preDisplayController->connectedWorkTitle() : juce::String {};
-}
-
-hypha::capture::WorkAttachmentSubmit KirinHyphaProcessorBase::attachCaptureToWork (
-    const hypha::pre_display::WorkReference& expectedWork,
-    juce::MemoryBlock pngBytes,
-    hypha::capture::WorkAttachmentDescriptor descriptor)
-{
-    if (preDisplayController == nullptr || captureWorkAttachmentController == nullptr
-        || ! connectedWorkReference().sameAuthority (expectedWork))
-        return hypha::capture::WorkAttachmentSubmit::invalidReference;
-    return captureWorkAttachmentController->submit (
-        expectedWork, std::move (pngBytes), std::move (descriptor));
-}
-
-hypha::capture::WorkAttachmentResult
-KirinHyphaProcessorBase::takeCaptureWorkAttachmentResult()
-{
-    return captureWorkAttachmentController != nullptr
-        ? captureWorkAttachmentController->takeResult()
-        : hypha::capture::WorkAttachmentResult {};
-}
-#endif
 
 // --- B-072: POST pairing surface ---------------------------------------------------------
 
@@ -867,7 +788,6 @@ juce::String KirinHyphaProcessorBase::pathAnomalyMessage() const
         return juce::String::fromUTF8 (buf);
     return {};
 }
-
 bool KirinHyphaProcessorBase::licenseIsOs() const
 {
     return cachedLicenseCode.load (std::memory_order_acquire) == 0;
@@ -876,12 +796,13 @@ bool KirinHyphaProcessorBase::licenseIsOs() const
 void KirinHyphaProcessorBase::refreshLicenseForUserAction()
 {
     const int observed = (int) kirin_hypha_load_license();
-    cachedLicenseCode.store (observed, std::memory_order_release);
+    const int cached = cachedLicenseCode.load (std::memory_order_acquire);
+    const int effective = observed == 2 && cached != 2 ? cached : observed;
+    cachedLicenseCode.store (effective, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
-        kirin_hypha_set_license (hyphaHandle, (uint8_t) observed);
+        kirin_hypha_set_license (hyphaHandle, (uint8_t) effective);
 }
-
 void KirinHyphaProcessorBase::stopPair()
 {
     const juce::ScopedLock sl (handleLock);
@@ -1331,7 +1252,7 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("paired_pre_project_hash", persistPairProjectHash);
     xml.setAttribute ("loudness_view",
                       persistShortTermLoudness.load (std::memory_order_acquire) ? "S" : "M");
-    xml.setAttribute ("display_state_version", 3);
+    xml.setAttribute ("display_state_version", 4);
     xml.setAttribute ("observatory_domain", (int) observatoryDomainPreference());
     xml.setAttribute ("observatory_target", (int) observatoryTargetPreference());
     xml.setAttribute ("observatory_time_range", (int) observatoryTimeRangePreference());
@@ -1340,6 +1261,10 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
         observatoryEditorSizePreference());
     xml.setAttribute ("observatory_width", editorSize.width);
     xml.setAttribute ("observatory_height", editorSize.height);
+    xml.setAttribute ("meter_context", (int) hypha::meter_context::stateValue (
+        meterContextPreference()));
+    xml.setAttribute ("scale_mode", (int) hypha::meter_context::stateValue (
+        scaleModePreference()));
     copyXmlToBinary (xml, destData);
 }
 
@@ -1359,6 +1284,8 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     uint8_t restoredObservatorySize = 0;
     int restoredEditorWidth = 300;
     int restoredEditorHeight = 200;
+    auto restoredMeterContext = hypha::meter_context::defaultContext;
+    auto restoredScaleMode = hypha::meter_context::defaultScale;
     bool restored = false;
 
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
@@ -1377,7 +1304,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             if (displayStateVersion >= 2)
             {
                 restoredObservatoryDomain = (uint8_t) juce::jlimit (
-                    0, 3, xml->getIntAttribute ("observatory_domain", 0));
+                    0, 4, xml->getIntAttribute ("observatory_domain", 0));
                 restoredObservatoryTarget = (uint8_t) juce::jlimit (
                     0, 1, xml->getIntAttribute ("observatory_target", 0));
                 restoredObservatoryTimeRange = (uint8_t) juce::jlimit (
@@ -1392,6 +1319,13 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
                     xml->getIntAttribute ("observatory_height", preset.height));
                 restoredEditorWidth = restoredEditorSize.width;
                 restoredEditorHeight = restoredEditorSize.height;
+            }
+            if (displayStateVersion >= 4)
+            {
+                restoredMeterContext = hypha::meter_context::contextFromState (
+                    (uint8_t) xml->getIntAttribute ("meter_context", 1));
+                restoredScaleMode = hypha::meter_context::scaleFromState (
+                    (uint8_t) xml->getIntAttribute ("scale_mode", 1));
             }
             restored = true;
         }
@@ -1427,6 +1361,10 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         preferredSpectrumSize.store (restoredObservatorySize, std::memory_order_release);
         preferredEditorSize.store (hypha::observatory::packEditorSize (
             { restoredEditorWidth, restoredEditorHeight }), std::memory_order_release);
+        preferredMeterContext.store (
+            hypha::meter_context::stateValue (restoredMeterContext), std::memory_order_release);
+        preferredScaleMode.store (
+            hypha::meter_context::stateValue (restoredScaleMode), std::memory_order_release);
         // Once writes are enabled, the io_thread has already snapshotted path identity. Only the
         // live-editable name/pair fields may be applied at that point; the exact-path writer stays
         // coherent with its established identity.
@@ -1567,6 +1505,10 @@ void KirinHyphaProcessorBase::enableWritesNow()
     if (role == Role::Post && captureWorkAttachmentController == nullptr)
         captureWorkAttachmentController =
             std::make_unique<hypha::capture::WorkAttachmentController>();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (role == Role::Post && referenceAuditionController == nullptr)
+        createReferenceAuditionController();
+   #endif
     hypha::pre_display::RuntimeIdentity displayIdentity;
     displayIdentity.role = role == Role::Post ? hypha::pre_display::GuideTargetRole::post
                                               : hypha::pre_display::GuideTargetRole::pre;
@@ -1587,6 +1529,20 @@ void KirinHyphaProcessorBase::enableWritesNow()
     displayIdentity.architecture = "x86_64";
        #endif
     preDisplayController->configureAndStart (std::move (displayIdentity));
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (role == Role::Post && referenceAuditionController != nullptr)
+    {
+        const auto work = preDisplayController->connectedWorkReference();
+        if (work.valid())
+        {
+            hypha::reference_audition::RuntimeIdentity referenceIdentity;
+            referenceIdentity.runtimeInstanceId = work.runtimeInstanceId;
+            referenceIdentity.workId = work.workId;
+            referenceAuditionController->configure (
+                std::move (referenceIdentity), preparedSampleRate, preparedInputChannels);
+        }
+    }
+   #endif
 #endif
 
     writesEnabled.store (true, std::memory_order_release);

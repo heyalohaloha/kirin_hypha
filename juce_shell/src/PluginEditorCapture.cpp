@@ -12,6 +12,7 @@ const char* captureDomainName (hypha::observatory::Domain domain)
         case hypha::observatory::Domain::time:      return "TIME";
         case hypha::observatory::Domain::frequency: return "FREQ";
         case hypha::observatory::Domain::space:     return "SPACE";
+        case hypha::observatory::Domain::reference: return "REF";
     }
     return "LEVEL";
 }
@@ -24,6 +25,7 @@ juce::String captureDomainId (hypha::observatory::Domain domain)
         case hypha::observatory::Domain::time:      return "time";
         case hypha::observatory::Domain::frequency: return "frequency";
         case hypha::observatory::Domain::space:     return "space";
+        case hypha::observatory::Domain::reference: return "reference";
     }
     return "level";
 }
@@ -31,6 +33,9 @@ juce::String captureDomainId (hypha::observatory::Domain domain)
 
 void KirinHyphaEditor::beginObservatoryCapture()
 {
+    processorRef.refreshLicenseForUserAction();
+    const bool osOwned = processorRef.licenseIsOs();
+    bool guideAvailable = false;
     const auto metadata = availableCaptureMetadata().normalized();
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
@@ -39,8 +44,9 @@ void KirinHyphaEditor::beginObservatoryCapture()
     menu.addItem (2, "1080 x 1080  Square");
     menu.addItem (3, "1080 x 1350  Portrait");
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
+    guideAvailable = processorRef.guidePresentationSnapshot().guideAvailable;
     const auto workReference = processorRef.connectedWorkReference();
-    if (isPost && workReference.valid()
+    if (isPost && osOwned && workReference.valid()
         && workReference.targetRole == hypha::pre_display::GuideTargetRole::post)
     {
         juce::PopupMenu attachmentMenu;
@@ -51,12 +57,15 @@ void KirinHyphaEditor::beginObservatoryCapture()
             ? workReference.displayTitle.substring (0, 36) : juce::String ("Connected Work");
         menu.addSubMenu ("Attach to Work - " + title, attachmentMenu);
     }
-    else if (isPost)
+    else if (isPost && osOwned)
         menu.addItem (20, "Attach to Work - connect from Kirin OS", false, false);
+    else if (isPost)
+        menu.addItem (20, "Attach to Work - Kirin OS required", false, false);
 #endif
     menu.addSeparator();
     menu.addSectionHeader ("Privacy - private by default");
-    menu.addItem (10, "Include OS Guide", true, capturePrivacy.includeGuide);
+    menu.addItem (10, "Include OS Guide", osOwned && guideAvailable,
+                  osOwned && guideAvailable && capturePrivacy.includeGuide);
     menu.addItem (11, "Include PRE name", metadata.preName.isNotEmpty(),
                   capturePrivacy.includePreName);
     menu.addItem (12, "Include POST name", metadata.postName.isNotEmpty(),
@@ -139,6 +148,13 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
     snapshot.capturedAtMs = now.toMilliseconds();
     snapshot.pixelWidth = width;
     snapshot.pixelHeight = height;
+   #if KIRIN_HYPHA_GUIDE_TRANSPORT
+    const bool includeOsGuide = processorRef.licenseIsOs()
+        && processorRef.guidePresentationSnapshot().guideAvailable
+        && capturePrivacy.includeGuide;
+   #else
+    const bool includeOsGuide = false;
+   #endif
     const auto metadata = availableCaptureMetadata().applying (capturePrivacy);
     std::vector<KirinMeterHistoryEntry> levelHistory;
     const std::vector<KirinMeterHistoryEntry>* historySnapshot = nullptr;
@@ -159,7 +175,7 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
         historySnapshot = &levelHistory;
     }
     snapshot.image = observatoryView.createCaptureImage (
-        width, height, capturePrivacy.includeGuide, snapshot.capturedAt,
+        width, height, includeOsGuide, snapshot.capturedAt,
         JucePlugin_VersionString, metadata, historySnapshot);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::Component* external = nullptr;
@@ -174,7 +190,7 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
     if (external != nullptr && ! external->getLocalBounds().isEmpty())
     {
         const auto body = observatoryView.captureBodyBounds (
-            width, height, capturePrivacy.includeGuide);
+            width, height, includeOsGuide);
         const auto originalBounds = external->getBounds();
         external->setSize (
             juce::roundToInt ((float) body.getWidth()
@@ -225,7 +241,9 @@ void KirinHyphaEditor::attachObservatoryCapture (
     else if (submitted == hypha::capture::WorkAttachmentSubmit::busy)
         showToast ("Another Work attachment is still in progress");
     else if (submitted == hypha::capture::WorkAttachmentSubmit::invalidReference)
-        showToast ("Work connection changed; Capture was not attached");
+        showToast (processorRef.licenseIsOs()
+            ? "Work connection changed; Capture was not attached"
+            : "Kirin OS is required to attach Capture to Work");
     else
         showToast ("Capture could not be prepared");
 }

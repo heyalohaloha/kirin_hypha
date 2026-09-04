@@ -164,8 +164,11 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
 
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp
+        src/PluginProcessorDisplayState.cpp
+        src/PluginProcessorGuideTransport.cpp
         src/PluginEditor.cpp
         src/PluginEditorObservatory.cpp
+        src/PluginEditorAnalysis.cpp
         src/PluginEditorCapture.cpp
         src/CaptureWorkAttachment.cpp
         src/HyphaObservatoryCapture.cpp
@@ -173,6 +176,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
@@ -203,6 +207,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=1)
     else()
         target_sources(${TARGET} PRIVATE
+            src/PluginEditorReference.cpp
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
             src/HyphaAttackComponent.cpp
@@ -215,12 +220,20 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaGuideFrequencyOverlay.cpp
             src/HyphaPerceptualComponent.cpp
             src/HyphaPerceptualPainter.cpp
+            src/HyphaReferenceComponent.cpp
             src/HyphaSpectrumComponent.cpp
             src/HyphaSpectrumTooltip.cpp
             src/HyphaSpectrumChromePainter.cpp
             src/HyphaSpectrumFocusTrail.cpp
             src/HyphaSpectrumFocusTrailPainter.cpp
-            src/HyphaSpectrumPainter.cpp)
+            src/HyphaSpectrumPainter.cpp
+            src/reference_audition/ReferenceAudioPages.cpp
+            src/reference_audition/ReferenceBlindSession.cpp
+            src/reference_audition/ReferenceAuditionController.cpp
+            src/reference_audition/ReferenceAuditionLease.cpp
+            src/reference_audition/ReferenceAuditionProtocol.cpp
+            src/reference_audition/ReferenceAuditionRepository.cpp)
+        target_link_libraries(${TARGET} PRIVATE juce::juce_audio_formats)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=0)
     endif()
 
@@ -338,11 +351,14 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpaceFieldContractTest.cpp
         tests/TimeHistoryContractTest.cpp
         tests/TimePageNavigationContractTest.cpp
+        tests/ReferenceAuditionComponentContractTest.cpp
+        tests/OsAccessUiContractTest.cpp
         src/HyphaObservatoryCapture.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
@@ -366,6 +382,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaAttackSpecimenPainter.cpp
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
+        src/HyphaReferenceComponent.cpp
+        src/PostControls.cpp
         src/HyphaSpectrumComponent.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
@@ -495,4 +513,88 @@ if(KIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS)
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
     add_test(NAME kirin_capture_work_attachment COMMAND KirinCaptureWorkAttachmentTests)
+endif()
+
+option(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS
+    "Build the Kirin OS to Hypha Reference audition contract tests" OFF)
+if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
+    enable_testing()
+    juce_add_console_app(KirinReferenceAuditionRuntimeTests
+        PRODUCT_NAME "Kirin Reference Audition Runtime Tests")
+    target_sources(KirinReferenceAuditionRuntimeTests PRIVATE
+        tests/reference_audition_runtime_test.cpp
+        src/reference_audition/ReferenceAudioPages.cpp
+        src/reference_audition/ReferenceBlindSession.cpp
+        src/reference_audition/ReferenceAuditionController.cpp
+        src/reference_audition/ReferenceAuditionLease.cpp
+        src/reference_audition/ReferenceAuditionProtocol.cpp
+        src/reference_audition/ReferenceAuditionRepository.cpp)
+    target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_compile_options(KirinReferenceAuditionRuntimeTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinReferenceAuditionRuntimeTests PRIVATE
+        juce::juce_audio_formats
+        juce::juce_core
+        juce::juce_cryptography
+        ${KIRIN_RUST_NATIVE_LIBS}
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_reference_audition_runtime
+        COMMAND KirinReferenceAuditionRuntimeTests)
+
+    juce_add_console_app(KirinReferenceAudioPagesTests
+        PRODUCT_NAME "Kirin Reference Audio Page Tests")
+    target_sources(KirinReferenceAudioPagesTests PRIVATE
+        tests/reference_audio_pages_test.cpp
+        src/reference_audition/ReferenceAudioPages.cpp
+        src/reference_audition/ReferenceAuditionProtocol.cpp)
+    target_compile_definitions(KirinReferenceAudioPagesTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_compile_options(KirinReferenceAudioPagesTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinReferenceAudioPagesTests PRIVATE
+        juce::juce_audio_formats
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_reference_audio_pages COMMAND KirinReferenceAudioPagesTests)
+
+    juce_add_console_app(KirinReferenceAuditionComponentTests
+        PRODUCT_NAME "Kirin Reference Audition Component Tests")
+    target_sources(KirinReferenceAuditionComponentTests PRIVATE
+        tests/reference_audition_component_test_main.cpp
+        tests/ReferenceAuditionComponentContractTest.cpp
+        src/HyphaCaptureHistoryAnalysis.cpp
+        src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaReferenceComponent.cpp
+        src/HyphaObservatoryButton.cpp
+        src/HyphaObservatoryFrame.cpp
+        src/HyphaObservatoryHistoryInteraction.cpp
+        src/HyphaObservatoryLevelStrips.cpp
+        src/HyphaObservatoryMetrics.cpp
+        src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryViewState.cpp
+        src/HyphaObservatoryWorld.cpp
+        src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryPainter.cpp
+        src/HyphaTypography.cpp
+        ${KIRIN_HYPHA_WIDGETS_SOURCE})
+    target_compile_definitions(KirinReferenceAuditionComponentTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_compile_options(KirinReferenceAuditionComponentTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_include_directories(KirinReferenceAuditionComponentTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
+    target_link_libraries(KirinReferenceAuditionComponentTests PRIVATE
+        KirinHyphaData
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_reference_audition_component
+        COMMAND KirinReferenceAuditionComponentTests)
 endif()

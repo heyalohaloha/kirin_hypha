@@ -217,12 +217,29 @@ void paintAbsolute (juce::Graphics& g,
     if (! history.empty())
     {
         const auto& newest = history.at (history.size() - 1u);
-        const size_t rowStride = std::max<size_t> (1u, history.size() / 32u);
         constexpr size_t frequencyColumns = 64u;
-        const float cellWidth = plot.getWidth() / (float) frequencyColumns;
-        const float rowHeight = std::max (1.0f, plot.getHeight() / 40.0f);
-        for (size_t frameIndex = 0u; frameIndex < history.size(); frameIndex += rowStride)
+        constexpr size_t timeRows = 40u;
+        std::array<int, timeRows> frameForRow {};
+        frameForRow.fill (-1);
+        for (size_t frameIndex = 0u; frameIndex < history.size(); ++frameIndex)
         {
+            const auto& frame = history.at (frameIndex);
+            const double ageSeconds = frame.sampleRate > 0u
+                ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate
+                : absolute_spectrum::historySeconds;
+            if (ageSeconds < 0.0 || ageSeconds > absolute_spectrum::historySeconds)
+                continue;
+            const auto row = juce::jlimit (0, (int) timeRows - 1,
+                (int) std::floor (ageSeconds / absolute_spectrum::historySeconds * timeRows));
+            frameForRow[(size_t) row] = (int) frameIndex;
+        }
+        const float cellWidth = plot.getWidth() / (float) frequencyColumns;
+        const float rowHeight = std::max (1.0f, plot.getHeight() / (float) timeRows);
+        for (size_t row = 0u; row < timeRows; ++row)
+        {
+            if (frameForRow[row] < 0)
+                continue;
+            const auto frameIndex = (size_t) frameForRow[row];
             const auto& frame = history.at (frameIndex);
             const double ageSeconds = frame.sampleRate > 0u
                 ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate

@@ -69,7 +69,8 @@ inline bool verifyNoMetricLeaderCorridors (const juce::Image& image)
     content.removeFromTop (12);
     if (content.getHeight() < 65)
         return true;
-    const auto sideWidth = juce::jmin (112, content.getWidth() / 4);
+    const auto scale = attack_ui::textScale (image.getWidth(), image.getHeight());
+    const auto sideWidth = juce::jmin (scale > 1.4f ? 178 : 112, content.getWidth() / 4);
     const auto left = juce::Rectangle<int> (
         content.getX() + sideWidth, content.getY(), 4, content.getHeight());
     const auto right = juce::Rectangle<int> (

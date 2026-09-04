@@ -70,7 +70,9 @@ impl WatchMaxTracker {
         self.last_sequence = raw.measure_sequence;
         self.max.lufs_m = max_option(self.max.lufs_m, raw.lufs_m);
         self.max.lufs_s = max_option(self.max.lufs_s, raw.lufs_s);
-        self.max.true_peak = max_option(self.max.true_peak, raw.tp_session_max.or(raw.true_peak));
+        // Accumulate the recent 400 ms peak here. Using the engine-lifetime tp_session_max would
+        // immediately resurrect a pre-RESET peak and make the explicit Watch RESET ineffective.
+        self.max.true_peak = max_option(self.max.true_peak, raw.true_peak);
         self.max.crest = max_option(self.max.crest, raw.crest);
         self.max.clone()
     }
@@ -146,12 +148,12 @@ mod tests {
     }
 
     #[test]
-    fn true_peak_uses_running_session_peak() {
+    fn true_peak_reset_boundary_does_not_import_engine_lifetime_peak() {
         let mut raw = measure(1, 1, -14.0, -12.0, 7.0);
         raw.tp_session_max = Some(-0.8);
         let mut tracker = WatchMaxTracker::default();
         let max = tracker.update(&raw, true, 1, false);
-        assert_eq!(max.true_peak, Some(-0.8));
+        assert_eq!(max.true_peak, Some(-12.0));
     }
 
     #[test]
@@ -182,6 +184,17 @@ mod tests {
         assert_eq!(max.lufs_s, Some(-16.0));
         assert_eq!(max.true_peak, Some(-2.0));
         assert_eq!(max.crest, Some(7.0));
+    }
+
+    #[test]
+    fn explicit_reset_starts_a_fresh_maximum_inside_the_same_pass() {
+        let mut tracker = WatchMaxTracker::default();
+        tracker.update(&measure(1, 1, -8.0, 0.8, 12.0), true, 1, false);
+        tracker.reset();
+        let max = tracker.update(&measure(2, 1, -20.0, -7.0, 4.0), true, 1, false);
+        assert_eq!(max.lufs_m, Some(-20.0));
+        assert_eq!(max.true_peak, Some(-7.0));
+        assert_eq!(max.crest, Some(4.0));
     }
 
     #[test]

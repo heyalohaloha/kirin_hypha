@@ -25,6 +25,7 @@ enum class Domain
     time,
     frequency,
     space,
+    reference,
 };
 
 enum class ObservationTarget
@@ -95,6 +96,7 @@ constexpr int shellMargin (Density density) noexcept
         case Density::focused:     return 6;
         case Density::standard:    return 8;
         case Density::observatory: return 10;
+        case Density::inspection:  return 14;
     }
     return 4;
 }
@@ -107,6 +109,7 @@ constexpr int headerHeight (Density density) noexcept
         case Density::focused:     return 36;
         case Density::standard:    return 42;
         case Density::observatory: return 50;
+        case Density::inspection:  return 64;
     }
     return 30;
 }
@@ -122,8 +125,34 @@ constexpr int footerHeight (Density density) noexcept
         // 40 px returns meaningful vertical area to LEVEL/TIME history without shrinking only
         // the CAPTURE button.
         case Density::observatory: return 24;
+        case Density::inspection:  return 40;
     }
     return 24;
+}
+
+constexpr int timeNavigationHeight (Density density) noexcept
+{
+    switch (density)
+    {
+        case Density::compact:     return 24;
+        case Density::focused:     return 26;
+        case Density::standard:    return 28;
+        case Density::observatory: return 30;
+        case Density::inspection:  return 38;
+    }
+    return 24;
+}
+
+constexpr int timeScaleWidth (Density density) noexcept
+{
+    return density == Density::compact ? 60 : density == Density::focused ? 68
+         : density == Density::inspection ? 100 : 76;
+}
+
+constexpr int timeRangeWidth (Density density) noexcept
+{
+    return density == Density::inspection ? 144
+         : density == Density::observatory ? 112 : density == Density::standard ? 96 : 0;
 }
 
 /// LEVEL's upper-three plus middle-five plate is deliberately subordinate to its 60 s history.
@@ -147,6 +176,7 @@ constexpr int guideRailHeight (Density density, GuidePresence presence) noexcept
         case Density::focused:     return 20;
         case Density::standard:    return 22;
         case Density::observatory: return 24;
+        case Density::inspection:  return 30;
     }
     return 18;
 }
@@ -178,10 +208,12 @@ constexpr ShellLayout shellLayout (Role role,
     const Rect header { margin, margin, preset.width - 2 * margin, headerH };
     const int titleWidth = preset.density == Density::compact ? 74
                          : preset.density == Density::focused ? 92
-                         : preset.density == Density::standard ? 108 : 128;
+                         : preset.density == Density::standard ? 108
+                         : preset.density == Density::inspection ? 176 : 128;
     // Observatory reserves a real text field plus an independent menu hit target. The previous
     // 104 px slot forced "PAIR <name>" underneath the arrow on Windows.
-    const int statusWidth = preset.density == Density::compact ? 64
+    const int statusWidth = preset.density == Density::compact ? 92
+                          : preset.density == Density::inspection ? 210
                           : preset.density == Density::observatory ? 140 : 104;
     const Rect roleTitle { header.x, header.y, titleWidth, header.height };
     const Rect connectionStatus {
@@ -215,10 +247,12 @@ constexpr ShellLayout shellLayout (Role role,
 
     const int targetWidth = role == Role::post
         ? (preset.density == Density::compact ? 58
+           : preset.density == Density::inspection ? 210
            : preset.density == Density::observatory ? 150 : 76) : 0;
     const int actionWidth = preset.density == Density::compact ? 54
                           : preset.density == Density::focused ? 92
-                          : preset.density == Density::standard ? 120 : 180;
+                          : preset.density == Density::standard ? 120
+                          : preset.density == Density::inspection ? 260 : 180;
     const Rect observationTarget {
         footer.x, footer.y, targetWidth, footer.height
     };
@@ -268,8 +302,8 @@ constexpr VisibleContent visibleContent (Role role,
     const bool compactMeter = density == Density::compact || density == Density::focused;
     const bool singleDomainControl = compactMeter;
     const bool visual = density == Density::standard
-                     || density == Density::observatory;
-    const bool full = density == Density::observatory;
+                     || isFullDensity (density);
+    const bool full = isFullDensity (density);
     return {
         ! singleDomainControl,
         singleDomainControl,
@@ -288,13 +322,12 @@ constexpr bool targetAllowed (Role role, ObservationTarget target) noexcept
     return role == Role::post || target == ObservationTarget::absolute;
 }
 
-// SPACE currently has only factual POST meaning. Correlation and field subtraction are not
-// defined product facts, so selecting SPACE temporarily projects POST without destroying the
-// user's preferred target for LEVEL, TIME, and FREQ.
+// SPACE and REF own their own factual comparison models. Neither reuses POST/PRE subtraction.
 constexpr bool targetAllowed (Role role, Domain domain, ObservationTarget target) noexcept
 {
     return targetAllowed (role, target)
-        && (domain != Domain::space || target == ObservationTarget::absolute);
+        && ((domain != Domain::space && domain != Domain::reference)
+            || target == ObservationTarget::absolute);
 }
 
 constexpr ObservationTarget effectiveTarget (Role role,
@@ -311,6 +344,7 @@ struct DomainCapabilities
     bool time = true;
     bool frequency = false;
     bool space = true;
+    bool reference = false;
 
     constexpr bool allows (Domain domain) const noexcept
     {
@@ -320,6 +354,7 @@ struct DomainCapabilities
             case Domain::time:      return time;
             case Domain::frequency: return frequency;
             case Domain::space:     return space;
+            case Domain::reference: return reference;
         }
         return false;
     }
@@ -327,7 +362,7 @@ struct DomainCapabilities
 
 constexpr DomainCapabilities domainCapabilities (Role role) noexcept
 {
-    return { true, true, role == Role::post, true };
+    return { true, true, role == Role::post, true, role == Role::post };
 }
 
 constexpr Domain sanitizeDomain (Role role, Domain requested) noexcept
@@ -338,11 +373,12 @@ constexpr Domain sanitizeDomain (Role role, Domain requested) noexcept
 constexpr Domain nextDomain (Role role, Domain current) noexcept
 {
     auto candidate = current;
-    for (int attempts = 0; attempts < 4; ++attempts)
+    for (int attempts = 0; attempts < 5; ++attempts)
     {
         candidate = candidate == Domain::level ? Domain::time
                   : candidate == Domain::time ? Domain::frequency
-                  : candidate == Domain::frequency ? Domain::space : Domain::level;
+                  : candidate == Domain::frequency ? Domain::space
+                  : candidate == Domain::space ? Domain::reference : Domain::level;
         if (domainCapabilities (role).allows (candidate))
             return candidate;
     }
@@ -366,7 +402,7 @@ constexpr std::uint8_t stateValue (TimeRange value) noexcept
 
 constexpr Domain domainFromState (Role role, std::uint8_t value) noexcept
 {
-    const auto decoded = value <= stateValue (Domain::space)
+    const auto decoded = value <= stateValue (Domain::reference)
         ? static_cast<Domain> (value) : Domain::level;
     return sanitizeDomain (role, decoded);
 }
@@ -407,9 +443,12 @@ static_assert (hasArea (shellLayout (Role::post, sizePresets[0],
 static_assert (! targetAllowed (Role::pre, ObservationTarget::delta));
 static_assert (targetAllowed (Role::post, ObservationTarget::delta));
 static_assert (! targetAllowed (Role::post, Domain::space, ObservationTarget::delta));
+static_assert (! targetAllowed (Role::post, Domain::reference, ObservationTarget::delta));
 static_assert (effectiveTarget (Role::post, Domain::space, ObservationTarget::delta)
                == ObservationTarget::absolute);
 static_assert (! domainCapabilities (Role::pre).allows (Domain::frequency));
 static_assert (domainCapabilities (Role::post).allows (Domain::frequency));
+static_assert (! domainCapabilities (Role::pre).allows (Domain::reference));
+static_assert (domainCapabilities (Role::post).allows (Domain::reference));
 static_assert (nextDomain (Role::pre, Domain::time) == Domain::space);
 }

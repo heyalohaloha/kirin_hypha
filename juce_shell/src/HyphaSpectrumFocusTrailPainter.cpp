@@ -82,8 +82,21 @@ void paint (juce::Graphics& g,
                     0.45f * strokeScale);
     }
 
+    const auto displayY = [&] (size_t index)
+    {
+        auto value = history.valueAt (index, normalisedBand);
+        if (index > 0u && index + 1u < history.size()
+            && ! history.hasGapBetween (index - 1u, index)
+            && ! history.hasGapBetween (index, index + 1u))
+        {
+            value = 0.25f * history.valueAt (index - 1u, normalisedBand)
+                  + 0.50f * value
+                  + 0.25f * history.valueAt (index + 1u, normalisedBand);
+        }
+        return yForDelta (value, plot);
+    };
     const float firstX = xForAge (history.ageSecondsAt (0u), plot);
-    const float firstY = yForDelta (history.valueAt (0u, normalisedBand), plot);
+    const float firstY = displayY (0u);
     juce::Path stroke;
     stroke.startNewSubPath (firstX, firstY);
     juce::Path recentGlow;
@@ -102,38 +115,42 @@ void paint (juce::Graphics& g,
         const float currentX = xForAge (currentAge, plot);
         if (currentX <= previousX)
             continue;
-        const float previousY = yForDelta (
-            history.valueAt (previousIndex, normalisedBand), plot);
-        const float currentY = yForDelta (
-            history.valueAt (index, normalisedBand), plot);
-        // Missing presentation endpoints remain recorded in FocusTrailHistory. The work surface
-        // joins the surrounding exact observations visually so a delayed Windows UI tick does not
-        // turn into a broken user-facing curve; it does not create or persist measured samples.
-        stroke.lineTo (currentX, currentY);
+        const float previousY = displayY (previousIndex);
+        const float currentY = displayY (index);
+        const bool gap = history.hasGapBetween (previousIndex, index);
+        if (gap)
+            stroke.startNewSubPath (currentX, currentY);
+        else
+            stroke.lineTo (currentX, currentY);
         if (previousAge <= 1.5)
         {
-            if (! glowStarted)
+            if (! glowStarted || gap)
             {
-                recentGlow.startNewSubPath (previousX, previousY);
+                recentGlow.startNewSubPath (gap ? currentX : previousX,
+                                            gap ? currentY : previousY);
                 glowStarted = true;
             }
-            recentGlow.lineTo (currentX, currentY);
+            if (! gap)
+                recentGlow.lineTo (currentX, currentY);
         }
         previousIndex = index;
     }
     const size_t newest = history.size() - 1u;
     const float newestX = xForAge (history.ageSecondsAt (newest), plot);
-    const float newestY = yForDelta (history.valueAt (newest, normalisedBand), plot);
+    const float newestY = displayY (newest);
     if (previousIndex != newest)
     {
-        stroke.lineTo (newestX, newestY);
+        const bool gap = history.hasGapBetween (previousIndex, newest);
+        if (gap) stroke.startNewSubPath (newestX, newestY);
+        else stroke.lineTo (newestX, newestY);
         if (history.ageSecondsAt (previousIndex) <= 1.5)
         {
-            if (! glowStarted)
+            if (! glowStarted || gap)
                 recentGlow.startNewSubPath (
-                    xForAge (history.ageSecondsAt (previousIndex), plot),
-                    yForDelta (history.valueAt (previousIndex, normalisedBand), plot));
-            recentGlow.lineTo (newestX, newestY);
+                    gap ? newestX : xForAge (history.ageSecondsAt (previousIndex), plot),
+                    gap ? newestY : displayY (previousIndex));
+            if (! gap)
+                recentGlow.lineTo (newestX, newestY);
         }
     }
     if (! compact && ! recentGlow.isEmpty())

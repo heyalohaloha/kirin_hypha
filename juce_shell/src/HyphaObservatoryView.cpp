@@ -11,7 +11,6 @@ juce::Rectangle<int> toJuce (Rect value)
 {
     return { value.x, value.y, value.width, value.height };
 }
-
 const char* domainName (Domain domain)
 {
     switch (domain)
@@ -20,20 +19,18 @@ const char* domainName (Domain domain)
         case Domain::time:      return "TIME";
         case Domain::frequency: return "FREQ";
         case Domain::space:     return "SPACE";
+        case Domain::reference: return "REF";
     }
     return "LEVEL";
 }
-
 void drawPanel (juce::Graphics& g, juce::Rectangle<int> area,
                 ExperienceFamily family, float corner = 4.0f)
 {
     const auto opacity = family == ExperienceFamily::compactMeter ? 0.96f : 0.76f;
     g.setColour (BG.withAlpha (opacity));
     g.fillRoundedRectangle (area.toFloat(), corner);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), corner, 1.0f);
+    g.setColour (COL_MUTED.withAlpha (0.34f)); g.drawRoundedRectangle (area.toFloat().reduced (0.5f), corner, 1.0f);
 }
-
 void styleButton (juce::TextButton& button)
 {
     button.setMouseCursor (juce::MouseCursor::PointingHandCursor);
@@ -44,9 +41,10 @@ View::View (Role roleIn) : role (roleIn)
 {
     setOpaque (true);
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
+                          &referenceButton,
                           &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton,
                           &compactLoudnessButton, &compactRangeButton,
-                          &sizeButton, &resetButton, &captureButton })
+                          &contextButton, &scaleButton, &sizeButton, &resetButton, &captureButton })
     {
         styleButton (*button);
         addAndMakeVisible (*button);
@@ -55,10 +53,11 @@ View::View (Role roleIn) : role (roleIn)
     timeButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::time); };
     frequencyButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::frequency); };
     spaceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::space); };
+    referenceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::reference); };
     domainCycleButton.onClick = [this] { cycleDomain(); };
     targetButton.onClick = [this]
     {
-        if (currentPreset().density == Density::observatory)
+        if (isFullDensity (currentPreset().density))
         {
             if (onTargetChange) onTargetChange (ObservationTarget::absolute);
             return;
@@ -78,8 +77,18 @@ View::View (Role roleIn) : role (roleIn)
         if (onLoudnessChange) onLoudnessChange (next); else setShortTermLoudness (next);
     };
     compactRangeButton.onClick = [this] { setCompactMaximum (! compactShowsMaximum); };
-    compactLoudnessButton.setTooltip ("Switch Momentary / Short-term loudness");
-    compactRangeButton.setTooltip ("Switch current / session maximum values");
+    contextButton.onClick = [this]
+    {
+        const auto next = meter_context::nextContext (selectedMeterContext);
+        if (onContextChange) onContextChange (next); else setMeterContext (next);
+    };
+    scaleButton.onClick = [this]
+    {
+        const auto next = meter_context::nextScale (selectedScaleMode);
+        if (onScaleChange) onScaleChange (next); else setScaleMode (next);
+    };
+    compactLoudnessButton.setTooltip ("Switch Momentary / Short-term loudness"); compactRangeButton.setTooltip ("Switch current / session maximum values");
+    contextButton.setTooltip ("Switch TRACK/STEM / 2MIX meter context"); scaleButton.setTooltip ("Switch WIDE / FOCUS loudness scale");
     sizeButton.onClick = [this] { cycleSize(); };
     resetButton.onClick = [this] { if (onReset) onReset(); };
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
@@ -143,10 +152,8 @@ void View::setExternalConnectionLabelVisible (bool visible)
 
 void View::setWatchDisplay (const KirinWatchDisplay& display, bool available)
 {
-    if (! available)
-        return;
     watchDisplay = display;
-    watchDisplayAvailable = true;
+    watchDisplayAvailable = available;
     if (selectedDomain == Domain::level)
         repaint (bodyArea);
 }
@@ -223,7 +230,8 @@ GuidePresence View::guidePresence() const noexcept
 
 void View::cycleDomain()
 {
-    const auto next = nextDomain (role, selectedDomain);
+    auto next = nextDomain (role, selectedDomain);
+    if (! referenceEnabled && next == Domain::reference) next = nextDomain (role, next);
     if (onDomainChange) onDomainChange (next);
 }
 
@@ -246,9 +254,10 @@ void View::updateControls()
     timeButton.setToggleState (selectedDomain == Domain::time, juce::dontSendNotification);
     frequencyButton.setToggleState (selectedDomain == Domain::frequency, juce::dontSendNotification);
     spaceButton.setToggleState (selectedDomain == Domain::space, juce::dontSendNotification);
+    referenceButton.setToggleState (selectedDomain == Domain::reference, juce::dontSendNotification);
     domainCycleButton.setToggleState (true, juce::dontSendNotification);
     domainCycleButton.setButtonText (domainName (selectedDomain));
-    const bool fullCockpit = currentPreset().density == Density::observatory;
+    const bool fullCockpit = isFullDensity (currentPreset().density);
     targetButton.setButtonText (
         fullCockpit ? "POST"
                     : target() == ObservationTarget::absolute ? "POST" : hypha::delta());
@@ -256,16 +265,24 @@ void View::updateControls()
         fullCockpit ? target() == ObservationTarget::absolute
                     : target() == ObservationTarget::delta,
         juce::dontSendNotification);
-    targetButton.setEnabled (selectedDomain != Domain::space);
+    targetButton.setEnabled (selectedDomain != Domain::space
+                             && selectedDomain != Domain::reference);
     deltaButton.setToggleState (target() == ObservationTarget::delta,
                                 juce::dontSendNotification);
-    deltaButton.setEnabled (selectedDomain != Domain::space);
+    deltaButton.setEnabled (selectedDomain != Domain::space
+                            && selectedDomain != Domain::reference);
     timeRangeButton.setButtonText (historyRequest().label);
     compactLoudnessButton.setButtonText (
         selectedShortTermLoudness ? "LOUDNESS S" : "LOUDNESS M");
     compactLoudnessButton.setToggleState (true, juce::dontSendNotification);
     compactRangeButton.setButtonText (compactShowsMaximum ? "MAX" : "CURRENT");
     compactRangeButton.setToggleState (true, juce::dontSendNotification);
+    contextButton.setButtonText (selectedMeterContext == meter_context::MeterContext::trackStem
+        ? (currentPreset().density == Density::compact ? "TRACK" : "TRACK/STEM") : "2MIX");
+    contextButton.setToggleState (true, juce::dontSendNotification);
+    scaleButton.setButtonText (
+        selectedScaleMode == meter_context::ScaleMode::wide ? "WIDE" : "FOCUS");
+    scaleButton.setToggleState (true, juce::dontSendNotification);
     sizeButton.setButtonText (
         displayedEditorWidth > 0 ? displayedSizeLabel : currentPreset().label);
 }
@@ -288,31 +305,45 @@ void View::resized()
     const auto contract = presentationContract (preset);
     const auto compact = contract.family == ExperienceFamily::compactMeter;
     const auto singleDomainControl = ! contract.domainTabs;
-    const auto navigation = toJuce (layout.domainNavigation);
+    auto navigation = toJuce (layout.domainNavigation);
+    contextButton.setVisible (! captureFrame);
+    if (contextButton.isVisible())
+    {
+        const auto contextWidth = preset.density == Density::compact ? 60
+                                : preset.density == Density::focused ? 82 : 94;
+        contextButton.setBounds (navigation.removeFromRight (
+            juce::jmin (contextWidth, navigation.getWidth() / 2)).reduced (1, 2));
+        navigation.removeFromRight (preset.density == Density::compact ? 1 : 3);
+    }
     domainCycleButton.setVisible (singleDomainControl);
     levelButton.setVisible (! singleDomainControl);
     timeButton.setVisible (! singleDomainControl);
     frequencyButton.setVisible (! singleDomainControl
                                 && domainCapabilities (role).frequency);
     spaceButton.setVisible (! singleDomainControl);
+    referenceButton.setVisible (! singleDomainControl
+                                && domainCapabilities (role).reference);
     if (singleDomainControl)
         domainCycleButton.setBounds (navigation);
     else
     {
         auto remaining = navigation;
-        const auto domainCount = domainCapabilities (role).frequency ? 4 : 3;
+        const auto domainCount = domainCapabilities (role).reference ? 5 : 3;
         const auto width = remaining.getWidth() / domainCount;
         levelButton.setBounds (remaining.removeFromLeft (width));
         timeButton.setBounds (remaining.removeFromLeft (width));
         if (domainCapabilities (role).frequency)
             frequencyButton.setBounds (remaining.removeFromLeft (width));
-        spaceButton.setBounds (remaining);
+        spaceButton.setBounds (remaining.removeFromLeft (width));
+        if (domainCapabilities (role).reference)
+            referenceButton.setBounds (remaining);
     }
 
     const bool splitTargets = role == Role::post
-                           && preset.density == Density::observatory;
-    targetButton.setVisible (role == Role::post);
-    deltaButton.setVisible (splitTargets);
+                           && isFullDensity (preset.density);
+    const bool reference = selectedDomain == Domain::reference;
+    targetButton.setVisible (role == Role::post && ! reference);
+    deltaButton.setVisible (splitTargets && ! reference);
     auto targetArea = toJuce (layout.observationTarget);
     if (splitTargets)
     {
@@ -325,24 +356,30 @@ void View::resized()
     else
         targetButton.setBounds (targetArea.reduced (0, 2));
     timeRangeButton.setVisible (selectedDomain == Domain::time && contract.detailedAxes);
+    scaleButton.setVisible (selectedDomain == Domain::time && ! captureFrame);
+    if (scaleButton.isVisible())
+    {
+        const auto density = preset.density;
+        auto available = bodyArea; auto controls = available.removeFromTop (timeNavigationHeight (density));
+        scaleButton.setBounds (
+            controls.removeFromRight (timeScaleWidth (density)).reduced (2, 2));
+    }
     if (timeRangeButton.isVisible())
     {
-        auto timeRangeArea = bodyArea;
+        const auto density = preset.density;
+        auto available = bodyArea; auto controls = available.removeFromTop (timeNavigationHeight (density));
+        controls.removeFromRight (timeScaleWidth (density));
         timeRangeButton.setBounds (
-            timeRangeArea.removeFromTop (juce::jmin (22, timeRangeArea.getHeight() / 5))
-                         .removeFromRight (juce::jmin (110, timeRangeArea.getWidth() / 2)));
+            controls.removeFromRight (timeRangeWidth (density)).reduced (2, 2));
     }
     const bool compactLevel = compact && selectedDomain == Domain::level;
-    compactLoudnessButton.setVisible (compactLevel);
+    compactLoudnessButton.setVisible (false);
     compactRangeButton.setVisible (
         compactLevel && target() == ObservationTarget::absolute);
     if (compactLevel)
     {
         auto compactBody = bodyArea;
         auto compactControls = compactBody.removeFromTop (20);
-        compactLoudnessButton.setBounds (
-            compactControls.removeFromLeft (juce::jmin (82, compactControls.getWidth() / 2))
-                           .reduced (2, 1));
         if (compactRangeButton.isVisible())
             compactRangeButton.setBounds (
                 compactControls.removeFromRight (
@@ -355,8 +392,8 @@ void View::resized()
         sizeButton.setBounds (sessionArea.removeFromRight (sizeWidth).reduced (1, 2));
     }
     const auto actions = toJuce (layout.actions);
-    const bool full = captureEntryAvailable (role, preset);
-    resetButton.setVisible (! captureFrame);
+    const bool full = captureEntryAvailable (role, preset) && ! reference;
+    resetButton.setVisible (! captureFrame && ! reference);
     captureButton.setVisible (full && ! captureFrame);
     if (full && ! captureFrame)
     {
@@ -364,7 +401,7 @@ void View::resized()
         resetButton.setBounds (split.removeFromLeft (split.getWidth() / 2).reduced (1, 2));
         captureButton.setBounds (split.reduced (1, 2));
     }
-    else if (! captureFrame)
+    else if (! captureFrame && ! reference)
         resetButton.setBounds (actions.reduced (1, 2));
 }
 
@@ -390,7 +427,8 @@ void View::paint (juce::Graphics& g)
     if (selectedDomain == Domain::level && (captureFrame || fullCockpit()))
         paintLevelWithHistory (g, bodyArea);
     else if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
-    else if (selectedDomain == Domain::time) paintTime (g, bodyArea);
+    else if (selectedDomain == Domain::time && ! externalAnalysisBodyActive)
+        paintTime (g, bodyArea);
     else if (selectedDomain == Domain::space)
         space_field::paint (g, bodyArea, observatoryFrame.meter,
                             currentFactsAvailable(),
@@ -413,7 +451,8 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
     const auto density = currentPreset().density;
     const auto titleHeight = density == Density::compact ? 12.0f
                            : density == Density::focused ? 14.0f
-                           : density == Density::standard ? 16.0f : 18.0f;
+                           : density == Density::standard ? 16.0f
+                           : density == Density::inspection ? 23.0f : 18.0f;
     auto titleArea = toJuce (layout.roleTitle).reduced (6, 0);
     const auto productFont = labelFont (titleHeight);
     const auto productWidth = juce::jmin (
@@ -432,7 +471,8 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
     if (! externalConnectionLabelVisible || captureFrame)
     {
         g.setColour (connectionColour);
-        g.setFont (monoFont (currentPreset().density == Density::compact ? 9.0f : 11.0f));
+        g.setFont (monoFont (density == Density::compact ? 9.0f
+                           : density == Density::inspection ? 16.0f : 11.0f));
         if (contract.hyphaAperture)
             statusArea.removeFromLeft (22);
         g.drawText (connectionText, statusArea.reduced (4, 0),

@@ -20,6 +20,7 @@
  #include "HyphaPerceptualComponent.h"
  #include "HyphaAbsoluteComponent.h"
  #include "HyphaAttackComponent.h"
+ #include "HyphaReferenceComponent.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -67,6 +68,7 @@ private:
     void updatePre();
     void updatePost();
     void refreshObservatory();
+    void configureMeterContext();
     void setObservatoryDomain (hypha::observatory::Domain domain);
     void beginObservatoryCapture();
     void chooseObservatoryCapture (int width, int height);
@@ -82,6 +84,12 @@ private:
     void updateTimePageNavigation();
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();
+    void configureReferenceAudition();
+    void layoutReferenceAudition (juce::Rectangle<int>);
+    void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
+    bool refreshAnalysisViews (bool alive, int signalState, bool recording,
+                               bool armed, bool acknowledged, bool presetAvailable,
+                               int pairStatus);
 #endif
 
     // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
@@ -126,6 +134,7 @@ private:
     hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
     hypha::AttackComponent attackView;         // POST ATTACK product view
+    hypha::reference_ui::Component referenceView; // POST-only Kirin OS prepared A/B
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help
@@ -146,6 +155,7 @@ private:
     std::int64_t cachedAttackLatest = -1;
     std::uint32_t cachedAttackRate = 0;
     std::uint64_t cachedAttackGeneration = 0;
+    int cachedAttackPairStatus = -1;
 #endif
     int    metricTop   = 0;       // y of the first metric row (set in resized())
     int    floraY      = 0;       // y of the flora separator line

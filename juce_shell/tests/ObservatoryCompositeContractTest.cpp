@@ -271,6 +271,7 @@ void verifyObservatoryCompositeContract()
     sharpness.setSnapshot (sharpnessView);
     sharpness.presentationTickAt (1'000.0);
     shell.setDomain (observatory::Domain::time);
+    shell.setExternalAnalysisBodyActive (true);
     requireExternalComposite (shell, sharpness);
 
     AbsoluteComponent live;

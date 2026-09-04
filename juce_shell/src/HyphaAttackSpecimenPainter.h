@@ -17,13 +17,15 @@ namespace hypha::attack_specimen
     void drawAbsolute (juce::Graphics&,
                        const KirinAttackDetail&,
                        juce::Rectangle<int>,
-                       FeatureAmounts);
+                       FeatureAmounts,
+                       float emissionPhase = 1.0f);
 
     void drawComparison (juce::Graphics&,
                          const KirinAttackDetail& pre,
                          const KirinAttackDetail& post,
                          juce::Rectangle<int>,
                          FeatureAmounts preAmounts,
-                         FeatureAmounts postAmounts);
+                         FeatureAmounts postAmounts,
+                         float emissionPhase = 1.0f);
 
 }

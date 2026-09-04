@@ -38,17 +38,23 @@ const KirinMeterHistoryRange& rangeFor (const KirinMeterHistoryEntry& entry,
     return entry.lufs_m;
 }
 
-float normalizedMagnitude (Metric metric, double value, bool delta) noexcept
+float normalizedMagnitude (Metric metric, double value, bool delta,
+                           meter_context::ScaleMode scaleMode) noexcept
 {
     if (delta)
         return (float) juce::jlimit (0.0, 1.0, (12.0 - value) / 24.0);
-    const double floor = metric == Metric::truePeak ? -24.0 : -48.0;
-    return 1.0f - (float) juce::jlimit (0.0, 1.0, (value - floor) / -floor);
+    const double floor = metric == Metric::truePeak ? -24.0
+                                                    : meter_context::loudnessFloor (scaleMode);
+    const double ceiling = metric == Metric::truePeak ? 6.0 : 0.0;
+    return 1.0f - (float) juce::jlimit (
+        0.0, 1.0, (value - floor) / (ceiling - floor));
 }
 
-float yFor (juce::Rectangle<float> plot, Metric metric, double value, bool delta) noexcept
+float yFor (juce::Rectangle<float> plot, Metric metric, double value, bool delta,
+            meter_context::ScaleMode scaleMode) noexcept
 {
-    return plot.getY() + normalizedMagnitude (metric, value, delta) * plot.getHeight();
+    return plot.getY()
+         + normalizedMagnitude (metric, value, delta, scaleMode) * plot.getHeight();
 }
 
 float xFor (juce::Rectangle<float> plot,
@@ -145,15 +151,14 @@ void paintAuxLane (juce::Graphics& g,
 }
 
 void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta,
-                bool detailedAxes)
+                bool detailedAxes, meter_context::ScaleMode scaleMode)
 {
-    constexpr std::array<const char*, 5> loudness { "0", "-12", "-24", "-36", "-48" };
-    constexpr std::array<const char*, 5> peak { "0", "-6", "-12", "-18", "-24" };
     constexpr std::array<const char*, 5> difference { "+12", "+6", "0", "-6", "-12" };
+    const auto floor = meter_context::loudnessFloor (scaleMode);
     g.setFont (monoFont (8.0f));
-    for (size_t index = 0u; index < loudness.size(); ++index)
+    for (size_t index = 0u; index < difference.size(); ++index)
     {
-        const float proportion = (float) index / (float) (loudness.size() - 1u);
+        const float proportion = (float) index / (float) (difference.size() - 1u);
         const int y = juce::roundToInt (plot.getY() + proportion * plot.getHeight());
         const bool zero = delta && index == 2u;
         g.setColour ((zero ? COL_FLORA_BR : COL_MUTED)
@@ -163,13 +168,26 @@ void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta,
         if (detailedAxes)
         {
             g.setColour (COL_MUTED.withAlpha (0.78f));
-            g.drawText (delta ? difference[index] : loudness[index],
+            const auto loudness = juce::String (floor * (double) index / 4.0, 0);
+            g.drawText (delta ? juce::String (difference[index]) : loudness,
                         juce::roundToInt (plot.getX()) - 27, y - 5,
                         23, 10, juce::Justification::centredRight);
-            g.drawText (delta ? difference[index] : peak[index],
-                        juce::roundToInt (plot.getRight()) + 4, y - 5,
-                        23, 10, juce::Justification::centredLeft);
+            if (delta)
+                g.drawText (difference[index], juce::roundToInt (plot.getRight()) + 4,
+                            y - 5, 23, 10, juce::Justification::centredLeft);
         }
+    }
+    if (! detailedAxes || delta)
+        return;
+    constexpr std::array<double, 6> peakTicks { 6.0, 0.0, -6.0, -12.0, -18.0, -24.0 };
+    for (const auto value : peakTicks)
+    {
+        const auto y = juce::roundToInt (
+            yFor (plot, Metric::truePeak, value, false, scaleMode));
+        g.setColour ((value == 0.0 ? COL_FLORA_BR : COL_MUTED).withAlpha (0.78f));
+        const auto label = juce::String (value > 0.0 ? "+" : "") + juce::String (value, 0);
+        g.drawText (label, juce::roundToInt (plot.getRight()) + 4, y - 5,
+                    23, 10, juce::Justification::centredLeft);
     }
 }
 
@@ -178,7 +196,8 @@ void paintMetric (juce::Graphics& g,
                   const std::vector<KirinMeterHistoryEntry>& history,
                   const MetricVisual& visual,
                   const HistoryAxis& axis,
-                  bool delta)
+                  bool delta,
+                  meter_context::ScaleMode scaleMode)
 {
     juce::Path mean;
     juce::Path ranges;
@@ -197,8 +216,8 @@ void paintMetric (juce::Graphics& g,
         if (entry.observation_count > 1u
             && std::isfinite (range.min) && std::isfinite (range.max))
         {
-            const auto top = yFor (plot, visual.metric, range.max, delta);
-            const auto bottom = yFor (plot, visual.metric, range.min, delta);
+            const auto top = yFor (plot, visual.metric, range.max, delta, scaleMode);
+            const auto bottom = yFor (plot, visual.metric, range.min, delta, scaleMode);
             if (top < bottom)
                 ranges.addRectangle ((float) juce::roundToInt (x), top, 1.0f, bottom - top);
         }
@@ -207,7 +226,7 @@ void paintMetric (juce::Graphics& g,
             open = false;
             continue;
         }
-        const float y = yFor (plot, visual.metric, range.mean, delta);
+        const float y = yFor (plot, visual.metric, range.mean, delta, scaleMode);
         const bool newRun = ! open || entry.generation != previousGeneration
                          || entry.run_id != previousRun;
         if (newRun)
@@ -239,6 +258,14 @@ void paintMetric (juce::Graphics& g,
         g.fillEllipse (lastX - 4.5f, lastY - 4.5f, 9.0f, 9.0f);
         g.setColour (visual.colour);
         g.fillEllipse (lastX - 1.7f, lastY - 1.7f, 3.4f, 3.4f);
+        if (plot.getHeight() >= 100.0f && visual.metric != Metric::truePeak)
+        {
+            const auto offset = visual.metric == Metric::momentary ? -12 : 3;
+            g.setFont (monoFont (7.5f));
+            g.drawText (visual.label, juce::roundToInt (lastX) - 22,
+                        juce::roundToInt (lastY) + offset, 18, 10,
+                        juce::Justification::centredRight);
+        }
     }
 }
 
@@ -278,7 +305,8 @@ void paint (juce::Graphics& g,
             const std::vector<KirinMeterHistoryEntry>& history,
             const juce::String& rangeLabel,
             bool delta,
-            bool compactMeter)
+            bool compactMeter,
+            meter_context::ScaleMode scaleMode)
 {
     g.setColour (BG.withAlpha (compactMeter ? 0.96f : 0.76f));
     g.fillRoundedRectangle (area.toFloat(), 4.0f);
@@ -309,7 +337,7 @@ void paint (juce::Graphics& g,
     juce::Rectangle<int> correlationArea;
     if (! compactMeter)
     {
-        const auto auxLaneHeight = juce::jlimit (13, 22, plotArea.getHeight() / 7);
+        const auto auxLaneHeight = juce::jlimit (30, 72, plotArea.getHeight() / 5);
         auto auxArea = plotArea.removeFromBottom (auxLaneHeight * 2 + 2);
         plrArea = auxArea.removeFromTop (auxLaneHeight);
         auxArea.removeFromTop (2);
@@ -317,10 +345,10 @@ void paint (juce::Graphics& g,
     }
     auto plot = plotArea.reduced (compactMeter ? 4 : 27, 2).toFloat();
     plot.removeFromBottom (3.0f);
-    paintAxes (g, plot, delta, ! compactMeter);
+    paintAxes (g, plot, delta, ! compactMeter, scaleMode);
 
     for (const auto& visual : visuals)
-        paintMetric (g, plot, history, visual, axis, delta);
+        paintMetric (g, plot, history, visual, axis, delta, scaleMode);
     if (! compactMeter)
     {
         paintAuxLane (g, plrArea, history, Metric::plr, "PLR", COL_GUIDE_BR,

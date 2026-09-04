@@ -32,10 +32,49 @@ hypha::observatory::ConnectionState observatoryConnectionState (bool isPost, int
 }
 }
 
+void KirinHyphaEditor::configureMeterContext()
+{
+    observatoryView.setMeterContext (processorRef.meterContextPreference());
+    observatoryView.setScaleMode (processorRef.scaleModePreference());
+    observatoryView.onContextChange = [this] (hypha::meter_context::MeterContext context)
+    {
+        const auto scale = hypha::meter_context::initialScaleFor (context);
+        observatoryView.setMeterContext (context);
+        observatoryView.setScaleMode (scale);
+        processorRef.setMeterContextPreference (context);
+        processorRef.setScaleModePreference (scale);
+    };
+    observatoryView.onScaleChange = [this] (hypha::meter_context::ScaleMode scale)
+    {
+        observatoryView.setScaleMode (scale);
+        processorRef.setScaleModePreference (scale);
+    };
+    observatoryView.onReset = [this]
+    {
+        if (! processorRef.resetMeterSession())
+        {
+            showToast ("Meter Session could not be reset");
+            return;
+        }
+        watchMaximum = {};
+        observatoryWatchDisplay = {};
+        haveWatchMaximum = false;
+        haveObservatoryWatchDisplay = false;
+        observatoryView.setWatchDisplay ({}, false);
+    };
+}
+
 void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 {
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
     domain = hypha::observatory::sanitizeDomain (role, domain);
+    if (domain == hypha::observatory::Domain::reference && ! processorRef.licenseIsOs())
+        domain = hypha::observatory::Domain::level;
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (observatoryDomain == hypha::observatory::Domain::reference
+        && domain != hypha::observatory::Domain::reference)
+        processorRef.endReferenceBlind();
+   #endif
     observatoryDomain = domain;
     processorRef.setObservatoryDomainPreference (hypha::observatory::stateValue (domain));
     observatoryView.setDomain (domain);
@@ -54,8 +93,13 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 void KirinHyphaEditor::refreshObservatory()
 {
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
-    const auto restoredDomain = hypha::observatory::domainFromState (
+    const bool referenceEnabled = isPost && processorRef.licenseIsOs();
+    if (observatoryView.isReferenceEnabled() != referenceEnabled)
+        observatoryView.setReferenceEnabled (referenceEnabled);
+    auto restoredDomain = hypha::observatory::domainFromState (
         role, processorRef.observatoryDomainPreference());
+    if (! referenceEnabled && restoredDomain == hypha::observatory::Domain::reference)
+        restoredDomain = hypha::observatory::Domain::level;
     if (restoredDomain != observatoryDomain)
         setObservatoryDomain (restoredDomain);
     const auto restoredTarget = hypha::observatory::targetFromState (
@@ -72,6 +116,10 @@ void KirinHyphaEditor::refreshObservatory()
         processorRef.observatoryTimeRangePreference());
     if (restoredRange != observatoryView.selectedTimeRange())
         observatoryView.setTimeRange (restoredRange);
+    if (processorRef.meterContextPreference() != observatoryView.meterContext())
+        observatoryView.setMeterContext (processorRef.meterContextPreference());
+    if (processorRef.scaleModePreference() != observatoryView.scaleMode())
+        observatoryView.setScaleMode (processorRef.scaleModePreference());
     const auto restoredSize = juce::jmin (
         (size_t) processorRef.spectrumSizePreference(),
         hypha::observatory::sizePresets.size() - 1u);
@@ -87,9 +135,14 @@ void KirinHyphaEditor::refreshObservatory()
     }
 
     KirinObservatoryFrame frame {};
-    observatoryView.setObservatoryFrame (frame, processorRef.pollObservatoryFrame (frame));
+    const bool frameAvailable = processorRef.pollObservatoryFrame (frame);
+    observatoryView.setObservatoryFrame (frame, frameAvailable);
     observatoryView.setWatchDisplay (observatoryWatchDisplay, haveObservatoryWatchDisplay);
     observatoryView.setShortTermLoudness (processorRef.useShortTermLoudness());
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (isPost)
+        refreshReferenceAudition (frame, frameAvailable);
+   #endif
 
     const auto pairStatus = processorRef.pairStatus();
 

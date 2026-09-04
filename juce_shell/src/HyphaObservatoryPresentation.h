@@ -49,7 +49,7 @@ constexpr PresentationContract presentationContract (SizePreset preset) noexcept
 {
     const auto family = experienceFamily (preset);
     const bool detailed = family == ExperienceFamily::observatory;
-    const bool full = preset.density == Density::observatory;
+    const bool full = isFullDensity (preset.density);
     return {
         family,
         full,
@@ -69,7 +69,7 @@ constexpr bool isCompactMeter (SizePreset preset) noexcept
 
 constexpr bool captureEntryAvailable (Role role, SizePreset preset) noexcept
 {
-    return role == Role::post && preset.density == Density::observatory;
+    return role == Role::post && isFullDensity (preset.density);
 }
 
 static_assert (experienceFamily (sizePresets[0]) == ExperienceFamily::compactMeter);
@@ -91,6 +91,7 @@ static_assert (! presentationContract (sizePresets[3]).hyphaAperture);
 static_assert (presentationContract (sizePresets[4]).worldBackdrop);
 static_assert (presentationContract (sizePresets[4]).domainWorld);
 static_assert (! presentationContract (sizePresets[4]).hyphaAperture);
+static_assert (sizePresets[4].density == Density::inspection);
 static_assert (! captureEntryAvailable (Role::post, sizePresets[0]));
 static_assert (! captureEntryAvailable (Role::post, sizePresets[1]));
 static_assert (! captureEntryAvailable (Role::post, sizePresets[2]));

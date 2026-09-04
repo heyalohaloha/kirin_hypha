@@ -359,7 +359,7 @@ mod tests {
         assert!(body.contains("\"Preparing pairs...\""));
         assert!(body.contains("\"Ready to bounce\""));
         assert!(body.contains("postControls->update (keepActive"));
-        assert!(POST_CONTROLS_CPP.contains("stopBtn  .setVisible (keepActive && os);"));
+        assert!(POST_CONTROLS_CPP.contains("stopBtn  .setVisible (keepActive);"));
     }
 
     #[test]
@@ -411,17 +411,13 @@ mod tests {
         assert!(POST_CONTROLS_CPP.contains(
             "void PostControls::update (bool keepActive, int license, bool pairSelected)"
         ));
-        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setVisible (! keepActive && os);"));
-        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setEnabled (pairSelected);"));
+        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setVisible (! keepActive);"));
+        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setEnabled (os && pairSelected);"));
         assert!(!POST_CONTROLS_CPP
             .contains("keepBtn  .setVisible (! keepActive && os && pairSelected);"));
     }
 
-    /// B-195 (Step3 監査ギャップ): PostControls::update の可視性式を **全行** 固定する。
-    /// これにより kirin_hypha_ffi の値レベル parity replica
-    /// (post_controls_parity_tests::post_controls_visibility_matches_rust_license_helpers) が
-    /// C++ ソースと一致したままであることを保証する。C++ の os/sense マッピングや
-    /// 各ボタン行が変われば本テストが落ち、replica を同時更新する必要があると分かる。
+    /// Visibility and entitlement are separate: unavailable OS features remain discoverable.
     #[test]
     fn post_controls_update_visibility_formula_is_pinned() {
         let body = between(
@@ -429,12 +425,11 @@ mod tests {
             "void PostControls::update (bool keepActive, int license, bool pairSelected)",
             "void PostControls::resized()",
         );
-        assert!(body.contains("const bool os    = (license == 0);"));
-        assert!(body.contains("const bool sense = (license == 1);"));
-        assert!(body.contains("keepBtn  .setVisible (! keepActive && os);"));
-        assert!(body.contains("keepBtn  .setEnabled (pairSelected);"));
-        assert!(body.contains("senseBtn .setVisible (! keepActive && sense);"));
-        assert!(body.contains("stopBtn  .setVisible (keepActive && os);"));
+        assert!(body.contains("const bool os = license == 0;"));
+        assert!(body.contains("keepBtn  .setVisible (! keepActive);"));
+        assert!(body.contains("keepBtn  .setEnabled (os && pairSelected);"));
+        assert!(body.contains("senseBtn .setVisible (! keepActive && ! os);"));
+        assert!(body.contains("stopBtn  .setVisible (keepActive);"));
         assert!(!body.contains("markBtn"));
         assert!(!body.contains("markPickerOpen"));
     }
@@ -470,8 +465,9 @@ mod tests {
         assert!(body.contains("labelChecked.add (keepReady && ! inUse);"));
         assert!(body.contains("const int nReady = processorRef.keepReadyCount();"));
         assert!(body.contains("processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE"));
-        assert!(body.contains("if (! keepActive && processorRef.licenseIsOs() && nReady >= 1)"));
-        assert!(body.contains("menu.addItem (1, allKeepMenuLabel (nReady));"));
+        assert!(body.contains("const bool osOwned = processorRef.licenseIsOs();"));
+        assert!(body.contains("osOwned && nReady >= 1"));
+        assert!(body.contains("All Keep: Kirin OS required"));
         assert!(body.contains("menu.addItem (2, \"All Stop: active POSTs\");"));
         assert!(body.contains("menu.addSectionHeader (\"Pair choices (not Keep targets)\");"));
         assert!(body.contains("menu.addItem (3, \"No pair choices\", false, false);"));
@@ -572,7 +568,9 @@ mod tests {
         );
         assert!(!timer.contains("kirin_hypha_load_license"));
         assert!(PLUGIN_PROCESSOR_CPP
-            .contains("kirin_hypha_set_license (hyphaHandle, (uint8_t) observed);"));
+            .contains("const int effective = observed == 2 && cached != 2 ? cached : observed;"));
+        assert!(PLUGIN_PROCESSOR_CPP
+            .contains("kirin_hypha_set_license (hyphaHandle, (uint8_t) effective);"));
         assert!(PLUGIN_PROCESSOR_CPP
             .contains("cachedLicenseCode.load (std::memory_order_acquire) == 0"));
         assert!(PLUGIN_EDITOR_CPP.contains("Record requires Kirin OS license"));

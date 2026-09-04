@@ -35,7 +35,8 @@ namespace hypha::attack_painter
     void drawEventFocus (juce::Graphics&,
                          const KirinAttackDetail* preDetail,
                          const KirinAttackDetail* postDetail,
-                         juce::Rectangle<int>);
+                         juce::Rectangle<int>,
+                         float emissionPhase);
     void drawMetricFact (juce::Graphics&,
                          juce::Rectangle<int>,
                          const juce::String& title,

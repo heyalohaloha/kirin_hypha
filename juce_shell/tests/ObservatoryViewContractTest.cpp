@@ -174,7 +174,8 @@ void verifyRoleAtEverySize (observatory::Role role,
         view.setHistory (history);
         for (const auto domain : {
                  observatory::Domain::level, observatory::Domain::time,
-                 observatory::Domain::frequency, observatory::Domain::space })
+                 observatory::Domain::frequency, observatory::Domain::space,
+                 observatory::Domain::reference })
         {
             view.setDomain (domain);
             const auto body = view.bodyBounds();
@@ -196,19 +197,16 @@ void verifyRoleAtEverySize (observatory::Role role,
                 view.setMeterSnapshot (meter, true);
                 auto alternateWatch = activeWatch();
                 if (observatory::isCompactMeter (preset))
-                    alternateWatch.current.true_peak -= 6.0;
+                    alternateWatch.current.lufs_m -= 6.0;
                 else
                     alternateWatch.current.crest += 5.0;
                 view.setWatchDisplay (alternateWatch, true);
                 KIRIN_OBSERVATORY_REQUIRE (differentPixels (image, render (view)) > 8);
                 view.setWatchDisplay (activeWatch(), true);
-                auto alternateMaximumMomentary = meter;
-                alternateMaximumMomentary.max_lufs_m = -6.4;
-                view.setMeterSnapshot (alternateMaximumMomentary, true);
-                const auto maximumMomentaryPixels = differentPixels (image, render (view));
-                KIRIN_OBSERVATORY_REQUIRE (
-                    preset.density == observatory::Density::observatory
-                        ? maximumMomentaryPixels > 8 : maximumMomentaryPixels == 0);
+                auto alternateIntegrated = meter;
+                alternateIntegrated.lufs_i = -6.4;
+                view.setMeterSnapshot (alternateIntegrated, true);
+                KIRIN_OBSERVATORY_REQUIRE (differentPixels (image, render (view)) > 8);
                 view.setMeterSnapshot (meter, true);
             }
         }
@@ -323,6 +321,8 @@ void verifyObservatoryViewContract()
     KIRIN_OBSERVATORY_REQUIRE (pre.target() == observatory::ObservationTarget::absolute);
     pre.setDomain (observatory::Domain::frequency);
     KIRIN_OBSERVATORY_REQUIRE (pre.domain() == observatory::Domain::level);
+    pre.setDomain (observatory::Domain::reference);
+    KIRIN_OBSERVATORY_REQUIRE (pre.domain() == observatory::Domain::level);
     KIRIN_OBSERVATORY_REQUIRE (! pre.bodyOwnedByExternalAnalysis());
 
     observatory::View post (observatory::Role::post);
@@ -372,7 +372,7 @@ void verifyObservatoryViewContract()
         differentPixels (compactCurrentMomentary, compactMaximumMomentary) > 100);
     post.setShortTermLoudness (true);
     KIRIN_OBSERVATORY_REQUIRE (
-        differentPixels (compactMaximumMomentary, render (post)) > 30);
+        differentPixels (compactMaximumMomentary, render (post)) == 0);
     post.setCompactMaximum (false);
     post.setTarget (observatory::ObservationTarget::delta);
     const auto compactDelta = render (post);
@@ -388,6 +388,8 @@ void verifyObservatoryViewContract()
     post.setObservatoryFrame ({}, false);
     KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, render (post)) == 0);
     post.setWatchDisplay ({}, false);
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, render (post)) > 20);
+    post.setWatchDisplay (activeWatch(), true);
     KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, render (post)) == 0);
     auto noClipsMeter = meter;
     noClipsMeter.clip_events[0] = 0;
@@ -444,6 +446,9 @@ void verifyObservatoryViewContract()
     KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::absolute);
     post.setTarget (observatory::ObservationTarget::delta);
     KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::absolute);
+    post.setDomain (observatory::Domain::reference);
+    KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::absolute);
+    KIRIN_OBSERVATORY_REQUIRE (post.bodyOwnedByExternalAnalysis());
     post.setDomain (observatory::Domain::level);
     KIRIN_OBSERVATORY_REQUIRE (post.target() == observatory::ObservationTarget::delta);
     post.setDomain (observatory::Domain::time);

@@ -57,7 +57,6 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_DELTA_MODE_NO_PRE 2u
 #define KIRIN_DELTA_MODE_BYPASSED 3u
 #define KIRIN_DELTA_MODE_PRE_INACTIVE 4u
-
 #define KIRIN_SPECTRUM_BAND_COUNT 256u
 #define KIRIN_SPECTRUM_DISPLAY_RANGE_DB 24.0f
 #define KIRIN_SPECTRUM_HIDDEN 0u
@@ -714,9 +713,10 @@ size_t kirin_hypha_count_keep_ready(KirinHypha* handle);
  * GUI は PRE候補名と照合して "Can Keep" / "Keep ready" / "In use" を表示する. */
 size_t kirin_hypha_enumerate_post_pair_claims(KirinHypha* handle, KirinPostPairClaim* out, size_t cap);
 
-/* POST の Δ を out へ（3d-b / GUI 表示用）. 値あり=true / 競合・未計測=false（UI Thread）.
- * post.json には Δ でなく POST 生メトリクスが入る（Δ はこの API で公開）. */
+/* POSTのΔをoutへ。値あり=true、競合/未計測=false。post.jsonはPOST生メトリクス。 */
 bool kirin_hypha_poll_delta(KirinHypha* handle, KirinDelta* out);
+/* Reference B suspends PRE comparisons while A stays measured. */
+bool kirin_hypha_set_reference_audition_active(KirinHypha* handle, bool active);
 
 /* POST Spectrumページの表示edge。PRE/未enableはfalse。filesystem処理はIO threadへ遅延する。 */
 bool kirin_hypha_set_spectrum_visible(KirinHypha* handle, bool visible);

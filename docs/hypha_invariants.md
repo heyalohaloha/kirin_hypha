@@ -155,9 +155,10 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 
 | ID | 不変条件 | 紐づくテスト |
 |----|----------|--------------|
-| INV-L1 | Record/plugin_data/preset/Keep/Stop は License::Os のみ。Sense/Unknown 不可（Unknown 安全側）。SpectrumのMARKは表示専用で、音声・Record・license状態を変更しない | `os_enables_record_features` / `sense_blocks_record_features` / `unknown_defaults_to_safe_side` / `verifySpectrumInteractionContract` |
-| INV-L2 | GUI ボタン可視性は Rust license ヘルパと C++ `PostControls::update` が値レベルで一致（os=(code==0)） | `post_controls_visibility_matches_rust_license_helpers`（B-195） / `sense_hint_visibility_is_sense_only_and_exclusive_with_keep` / `post_controls_update_visibility_formula_is_pinned` |
-| INV-L3 | KeepはAU/VST3共通の固定スロットに表示し、pair未選択時は非表示化せずdisabledにする | `shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract` |
+| INV-L1 | Record/plugin_data/preset/Keep開始は License::Os のみ。Sense/Unknown 不可（Unknown 安全側）。開始後にentitlementが変わってもStopは消さず、利用者が処理を終了できる。SpectrumのMARKは表示専用で、音声・Record・license状態を変更しない | `os_enables_record_features` / `sense_blocks_record_features` / `unknown_defaults_to_safe_side` / `verifySpectrumInteractionContract` |
+| INV-L2 | GUIは可視性と実行可否を分離する。Keep／All KeepはOS未所有またはpair未選択でも消さずdisabled表示とし、実行時はRust license gateを再確認する | `post_controls_visibility_matches_rust_license_helpers` / `os_information_is_visible_for_every_unowned_license` / `post_controls_update_visibility_formula_is_pinned` / `verifyOsAccessUiContract` |
+| INV-L3 | KeepはAU/VST3共通の固定スロットに表示し、pairまたはOS entitlement未成立時は非表示化せずdisabledにする | `shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract` / `verifyOsAccessUiContract` |
+| INV-L4 | Kirin OS連携は未所有／所有未接続／接続済み未準備／準備完了を区別する。未所有ではREF tab全体をdisabledにする。REFのB／BlindはUI、利用者操作、Audio Thread出力で二重以上にgateし、Guide／Work接続／Capture Work添付は内部処理でもgateする。LEVEL／TIME／FREQ／SPACE、通常解析、ローカルCaptureは制限しない | `reference_has_ui_action_and_audio_thread_entitlement_gates` / `guide_and_work_capture_are_entitlement_gated_without_limiting_local_capture` / `verifyReferenceAuditionComponentContract` / `verifyOsAccessUiContract` |
 
 ---
 

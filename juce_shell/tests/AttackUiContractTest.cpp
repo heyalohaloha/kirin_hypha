@@ -369,7 +369,7 @@ int main()
         juce::Image focus (juce::Image::ARGB, focusWidth, focusHeight, true);
         juce::Graphics graphics (focus);
         hypha::attack_painter::drawEventFocus (
-            graphics, nullptr, &focusDetail, focus.getBounds());
+            graphics, nullptr, &focusDetail, focus.getBounds(), 0.0f);
         return focus;
     };
     const auto thresholdImage = renderFocus (thresholdDetails.details[1]);

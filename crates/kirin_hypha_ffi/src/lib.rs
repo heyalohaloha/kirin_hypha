@@ -90,6 +90,7 @@ mod identity_registry;
 mod legacy_nih_state;
 mod pair_binding;
 mod pair_candidates_ffi;
+mod reference_audition_ffi;
 mod signal_state_ffi;
 
 pub use attack_ffi::*;
@@ -100,6 +101,7 @@ pub use pair_candidates_ffi::{
     kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
     kirin_hypha_enumerate_pre_candidates, KirinPostPairClaim, KirinPreCandidate,
 };
+pub use reference_audition_ffi::kirin_hypha_set_reference_audition_active;
 pub use signal_state_ffi::{
     kirin_hypha_get_signal_state, kirin_hypha_set_host_component_active,
     kirin_hypha_set_signal_state,
@@ -321,6 +323,8 @@ pub struct KirinHyphaEngine {
     /// POST の Δ 結果（B-060 3d-a）。POST io_thread の run_tick が select_target_pre で
     /// 選んだ PRE との差分を書き、`poll_delta` が読む（GUI 表示用）。PRE では未更新。
     delta_result: Arc<Mutex<DeltaResult>>,
+    /// Explicit Reference B stops PRE-derived comparisons but preserves canonical A measurement.
+    reference_audition_active: Arc<AtomicBool>,
     /// Optional POST-requested Spectrum path. The bounded SPSC producer is always allocated at
     /// prepare time, but its worker remains absent and its audio ingress returns after one atomic
     /// read until the POST Spectrum page is visible (or an exact PRE is serving that request).
@@ -990,6 +994,7 @@ impl KirinHyphaEngine {
 
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
+        let reference_audition_active = Arc::new(AtomicBool::new(false));
         let attack_runtime = kirin_measure::AttackRuntime::new(sample_rate, num_channels).ok();
         let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
         let spectrum = SpectrumCoordinator::new_with_attack(
@@ -1104,6 +1109,7 @@ impl KirinHyphaEngine {
             record_ingress,
             measure_result,
             delta_result,
+            reference_audition_active,
             spectrum_runtime,
             attack_runtime,
             spectrum,
@@ -1857,6 +1863,7 @@ impl KirinHyphaEngine {
             let latched_pre = self.pair_binding.latched_pre();
             let spectrum = Arc::clone(&self.spectrum);
             let meter_delta_history = self.meter_delta_history.as_ref().map(Arc::clone);
+            let reference_audition_active = Arc::clone(&self.reference_audition_active);
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -1894,6 +1901,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
                     Some(Arc::clone(&spectrum)),
                     meter_delta_history.as_ref().map(Arc::clone),
+                    Arc::clone(&reference_audition_active),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -3056,15 +3064,19 @@ impl KirinHyphaEngine {
     }
 
     /// 利用者操作だけが常設セッションを破棄できる。UI/control thread専用。
-    /// Measure workerとの競合時は待たずにfalseを返し、呼び出し側が操作失敗を通知する。
+    /// Measure workerの短い更新と直列化し、再生中のクリックも取りこぼさない。
     pub fn reset_meter_session(&self) -> bool {
         let Some(session) = self.meter_session.as_ref() else {
             return false;
         };
-        let Ok(mut session) = session.try_lock() else {
+        let Ok(mut session) = session.lock() else {
+            return false;
+        };
+        let Ok(mut watch_max) = self.watch_max.lock() else {
             return false;
         };
         session.reset();
+        watch_max.reset();
         let snapshot = session.snapshot();
         drop(session);
         if let Some(publication) = self.meter_session_publication.as_ref() {
@@ -3076,15 +3088,11 @@ impl KirinHyphaEngine {
         true
     }
 
-    /// ring 満杯で drop した push 数（§8 RT-safety 検証用）。
     pub fn overflow_count(&self) -> u64 {
         self.push_overflow.load(Ordering::Relaxed)
     }
 
-    /// B-125: oversized block drop を計上する（Audio Thread から呼ばれる）。
-    /// `kirin_hypha_note_oversized_drop` C-ABI の本体。`dropped_samples` は当該 block の
-    /// interleaved sample 数（= num_frames * num_channels）。RT 安全のため `fetch_add` のみ
-    /// （alloc/lock/syscall なし）。push_overflow とは別カウンタ（混ぜない）。
+    /// B-125: oversized block drop count; Audio Thread remains fetch_add-only.
     pub fn note_oversized_drop(&self, dropped_samples: u64) {
         self.oversized_drop
             .fetch_add(dropped_samples, Ordering::Relaxed);
@@ -6435,21 +6443,17 @@ mod b474_watch_restart_tests {
 #[cfg(test)]
 mod post_controls_parity_tests {
     use super::*;
-    use kirin_measure::license::{show_note_button, show_save_button, show_stop_record_button};
+    use kirin_measure::license::{show_note_button, show_save_button};
 
-    /// juce_shell/src/PostControls.cpp `PostControls::update` のボタン可視性を Rust に写した replica。
-    /// 実 C++ ソースへの忠実性は xtask/src/shell_parity.rs::post_controls_update_visibility_formula_is_pinned
-    /// が文字列ゲートで固定する。本 replica は os ゲートを Rust license ヘルパと値レベルで突合するためのもの。
+    /// PostControls visibility and enabled state replica. Source parity is pinned by xtask.
     struct PostVis {
-        keep: bool,
-        sense: bool,
+        keep_visible: bool,
+        keep_enabled: bool,
+        os_info: bool,
         stop: bool,
         mark: bool,
     }
 
-    /// PostControls.cpp:73-91 のうち keep/sense/stop/mark の os/sense ゲートのみを Rust に写す
-    /// （picker 4 ボタンと markPickerOpen reset は対象外＝string-gate
-    /// post_controls_update_visibility_formula_is_pinned で固定）。os=(code==0) / sense=(code==1)。
     fn cpp_post_controls_update(
         recording: bool,
         license_code: u8,
@@ -6457,19 +6461,15 @@ mod post_controls_parity_tests {
         mark_picker_open: bool,
     ) -> PostVis {
         let os = license_code == 0;
-        let sense = license_code == 1;
         PostVis {
-            keep: !recording && os && pair_non_empty,
-            sense: !recording && sense,
-            stop: recording && os && !mark_picker_open,
+            keep_visible: !recording,
+            keep_enabled: !recording && os && pair_non_empty,
+            os_info: !recording && !os,
+            stop: recording && !mark_picker_open,
             mark: recording && os && !mark_picker_open,
         }
     }
 
-    /// B-195 (Step3 監査ギャップ): 値レベル parity — C++ PostControls::update の os ゲートが
-    /// Rust license ヘルパ (show_save_button / show_stop_record_button / show_note_button) と
-    /// 全 (license × recording × pairNonEmpty × markPickerOpen) で一致する。実 License→abi
-    /// マッピング (license_to_abi) を経由するので、int マッピングかヘルパのどちらが乖離しても捕捉する。
     #[test]
     fn post_controls_visibility_matches_rust_license_helpers() {
         for license in [License::Os, License::Sense, License::Unknown] {
@@ -6478,14 +6478,15 @@ mod post_controls_parity_tests {
                 for &pair in &[false, true] {
                     for &picker_open in &[false, true] {
                         let v = cpp_post_controls_update(recording, code, pair, picker_open);
+                        assert_eq!(v.keep_visible, !recording);
                         assert_eq!(
-                            v.keep,
+                            v.keep_enabled,
                             !recording && show_save_button(license) && pair,
                             "keep parity: {license:?} rec={recording} pair={pair}"
                         );
                         assert_eq!(
                             v.stop,
-                            recording && show_stop_record_button(license) && !picker_open,
+                            recording && !picker_open,
                             "stop parity: {license:?} rec={recording} picker={picker_open}"
                         );
                         assert_eq!(
@@ -6499,44 +6500,24 @@ mod post_controls_parity_tests {
         }
     }
 
-    /// Sense ヒントは license==Sense かつ非 recording のときだけ表示され、Keep(Os) とは
-    /// 相互排他（同時に出ない）であることを値レベルで固定する。
     #[test]
-    fn sense_hint_visibility_is_sense_only_and_exclusive_with_keep() {
+    fn os_information_is_visible_for_every_unowned_license() {
         for license in [License::Os, License::Sense, License::Unknown] {
             let code = license_to_abi(license);
             let v = cpp_post_controls_update(false, code, true, false);
             assert_eq!(
-                v.sense,
-                license == License::Sense,
-                "sense-hint は Sense のときだけ: {license:?}"
+                v.os_info,
+                license != License::Os,
+                "OS information visibility: {license:?}"
             );
             assert!(
-                !(v.keep && v.sense),
-                "Keep と Sense ヒントは同時に出ない: {license:?}"
+                !(v.keep_enabled && v.os_info),
+                "enabled Keep and OS requirement must be exclusive: {license:?}"
             );
         }
     }
 }
 
 #[cfg(test)]
-mod keep_action_notice_tests {
-    use super::*;
-
-    #[test]
-    fn user_action_notice_is_one_shot_and_never_pollutes_persistent_io_error() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
-        *engine
-            .keep_action_notice
-            .write()
-            .expect("keep action notice lock") = Some("Another Keep is active".to_string());
-
-        assert_eq!(engine.record_error_message(), None);
-        assert_eq!(
-            engine.drain_keep_action_notice().as_deref(),
-            Some("Another Keep is active")
-        );
-        assert_eq!(engine.drain_keep_action_notice(), None);
-        assert_eq!(engine.record_error_message(), None);
-    }
-}
+#[path = "keep_action_notice_tests.rs"]
+mod keep_action_notice_tests;

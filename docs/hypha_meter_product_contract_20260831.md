@@ -18,7 +18,7 @@ POSTを2MIXの最終段に常設したとき、Hyphaだけで日常的なメー�
 
 既存の画面遷移を互換性のために温存せず、情報設計とvisual shellを根本から再構成する。
 
-ただし、音声非加工、計測式、exact endpoint、固定容量payload、解析資源制御は実装資産として保持する。
+ただし、通常のA経路の音声非加工、計測式、exact endpoint、固定容量payload、解析資源制御は実装資産として保持する。
 
 添付されたConcept C Hybrid Observatoryを、情報密度、階層、色、菌糸の抑制量を決める視覚基準にする。
 
@@ -46,13 +46,42 @@ ATTACKの完了commitはGitの三者マージでこのブランチへ統合し�
 
 R-12を維持する。
 
-音声信号を生成、変更、遅延しない。
+通常のPRE/POST計測では音声信号を生成、変更、減衰、遅延しない。
 
-Audio Threadは入力の読み取り、事前確保済みバッファへのコピー、atomic通知だけを行う。
+通常計測時のAudio Threadは入力の読み取り、事前確保済みバッファへのコピー、atomic通知だけを行う。
 
 FFT、履歴集計、画像生成、ファイル保存、UI描画はAudio Threadで行わない。
 
-メーター機能の追加後もレイテンシーは0 samples、PREとPOSTの音声差分はbit identicalを合格条件とする。
+メーター機能の追加後も、通常のA経路はレイテンシー0 samples、PREとPOSTの音声差分はbit identicalを
+合格条件とする。
+
+利用者が明示的に開始するReference比較試聴は、R-12で禁止する音声生成・加工には含めない。
+登録済みの不変なReferenceを試聴専用B経路で再生し、試聴コピーにだけ一時的なGain Matchを適用できる。
+Referenceファイル、通常のA経路、正本のPRE/POST測定・Recordは変更しない。
+
+B経路は接続、Reference読込、project復元だけでは有効化しない。offline render、Reference欠損、
+identity検証失敗時はA経路を維持する。Referenceのfile I/O、decode、検証、可変長準備は非RT側で行い、
+Audio Threadでは事前確保済みbufferのRT-safeな選択・出力だけを許可する。allocation、lock、
+blocking I/Oを持ち込まない。
+
+Reference Blind Compareは、Bが`READY`で、Aの測定値、transport再生、project位置、Bの事前読込が
+すべて成立した時だけ入口を表示する。割当はOS CSPRNGで生成して非公開runtime stateに保持し、開示前は音源名、source種別、
+測定値、delta、gain、alignmentを表示またはaccessibility情報へ出さない。`1 / 2`の選択表示は、
+Audio Threadが要求sourceを実際に出力したcallback receiptの後だけ更新する。明示Revealまたは終了まで
+自動開示せず、Referenceまたはruntime条件の変更時は割当を開示せずAへ戻す。
+
+### 3.1.1 Kirin OS access boundary
+
+Kirin OS連携は`OS未所有`、`OS所有・未接続`、`接続済み・準備不足`、`準備完了`の四状態を区別する。
+
+OS未所有ではREF tab全体をdisabled表示にし、Keep／All Keepは消さずdisabled表示にする。
+OS所有・未接続ではREF tabを開けるがBを無効にし、Kirin OSの`Open in Hypha`を案内する。
+接続済み・準備不足では不足している前提に関係する操作だけを無効にし、準備完了時だけBとBlindを許可する。
+
+REFはUIだけでなく、利用者操作の入口とAudio ThreadのB出力条件でもOS entitlementを再確認する。
+Keep／Record開始は既存のRust側license gateを正本とし、UI状態だけで許可を推測しない。
+Guide rail、TIME上のGuide時刻、FREQ上のGuide帯域、WorkへのCapture添付、Work名、CaptureへのGuide包含はOS所有時だけ利用できる。
+LEVEL、TIME、FREQ、SPACE、通常のPRE/POST差分と解析、ローカル高解像度Capture、自由リサイズは制限しない。
 
 ### 3.2 Measurement boundary
 
@@ -233,6 +262,9 @@ ATTACKは現在の契約どおり、pair時はexact PRE/POST、未接続時はPO
 ### 7.4 OS Guide layer
 
 Kirin OSのINSPECTとMASKINGは、POSTの第五domainではなく全domainへ作用できるGuide layerとする。
+
+Guide layerの取得・接続承認・表示snapshotはKirin OS entitlementで制限する。
+OS未所有でも各domain自体は使用でき、Guide由来のrail、時刻、帯域だけを表示しない。
 
 Guideの実装計画は`docs/hypha_post_os_guide_integration_plan_20260831.md`を正本とする。
 
@@ -423,6 +455,8 @@ Font Software本体はGPLソースへ含めず、Kirin Hyphaを対象にしたAp
 
 Captureは利用者の明示操作で現在の測定snapshotを画像に保存する。
 
+ローカル保存はKirin OS entitlementに依存しない。Workへの添付、Work表示名、OS Guide包含だけをOS連携機能として制限する。
+
 出力presetは1200×630、1080×1080、1080×1350とする。
 
 画像には製品名、POSTまたはΔ、主要値と単位、ABS/Δ、Session elapsed、測定標準、capture時刻、Hypha versionを含める。
@@ -476,7 +510,11 @@ Max Mは10 ms規格解析値を100 msのMeter Session snapshot境界へ固定し
 
 Audio Threadのallocation、lock、I/Oが0件であることをコードと計測で確認する。
 
-PREとPOSTのbit identical、0 samples latency、process CPU基準を再確認する。
+通常のA経路でPREとPOSTのbit identical、0 samples latency、process CPU基準を再確認する。
+
+Reference比較試聴を実装する場合は、明示操作前、project復元、offline render、Reference欠損、identity検証失敗で
+A経路が維持されること、B経路が正本のPRE/POST測定・Recordへ混入しないこと、Audio Threadへallocation、
+lock、blocking I/Oを追加しないことを検証する。
 
 Measure Thread panic、UI close/reopen、history欠落、sample rate変更を検証する。
 

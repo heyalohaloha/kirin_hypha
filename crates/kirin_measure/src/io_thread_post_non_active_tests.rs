@@ -147,6 +147,7 @@ fn run_non_active_tick(
         "daw",
         false,
         &latched,
+        false,
     )
     .expect("INV-D8 non-active tick must publish a minimal snapshot");
 
@@ -208,4 +209,74 @@ fn inv_d8_bypassed_clears_delta_and_writes_minimal_json() {
     assert_eq!(delta.mode, DeltaMode::NoPre);
     assert!(delta.last_active.is_none());
     assert_minimal_post_json(&json, "bypassed", "Drum");
+}
+
+#[test]
+fn reference_b_clears_pre_delta_without_releasing_exact_pair() {
+    let root = std::env::temp_dir().join(format!(
+        "kirin_reference_suspend_{}_{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let project_dir = root.join("project");
+    let instance_dir = project_dir.join("post-instance");
+    let post_file = instance_dir.join("post.json");
+    let post_result = Arc::new(Mutex::new(MeasureResult {
+        lufs_m: Some(-13.0),
+        true_peak: Some(-1.4),
+        ..Default::default()
+    }));
+    let delta_result = Arc::new(Mutex::new(DeltaResult {
+        lufs: Some(2.0),
+        mode: DeltaMode::Active,
+        ..Default::default()
+    }));
+    let signal_state = Arc::new(AtomicU8::new(SignalState::Active as u8));
+    let latched = Mutex::new(Some(LatchedPre {
+        name: "Mix".to_string(),
+        instance_id: "pre-exact".to_string(),
+        project_dir: project_dir.clone(),
+        pre_json: project_dir.join("pre-exact").join("missing-pre.json"),
+        daw_session_id: Some("daw".to_string()),
+        host_process_id: Some(crate::current_host_process_id()),
+        readiness: crate::LatchedPreReadiness::Confirmed,
+    }));
+
+    run_tick(
+        &project_dir,
+        &root,
+        &mut PostDiscoveryState::new(),
+        &instance_dir,
+        &post_file,
+        "post-instance",
+        "owner",
+        &post_result,
+        &delta_result,
+        &signal_state,
+        "Mix",
+        10.0,
+        "project",
+        "daw",
+        false,
+        &latched,
+        true,
+    )
+    .expect("Reference B must publish POST without reading PRE");
+
+    let delta = delta_result.lock().unwrap().clone();
+    assert_eq!(delta.mode, DeltaMode::NoPre);
+    assert!(delta.lufs.is_none());
+    assert!(delta.last_active.is_none());
+    assert_eq!(
+        latched
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|pair| pair.instance_id.as_str()),
+        Some("pre-exact")
+    );
+    let json: serde_json::Value = serde_json::from_slice(&fs::read(&post_file).unwrap()).unwrap();
+    assert_eq!(json["paired_pre_instance_id"], "pre-exact");
+    assert_eq!(json["lufs_m"], -13.0);
+    fs::remove_dir_all(root).unwrap();
 }

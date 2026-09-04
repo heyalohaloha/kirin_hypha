@@ -38,9 +38,16 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     g.setColour (frameAvailable ? COL_MUTED.brighter (0.25f) : COL_MUTED);
     if (! captureFrame)
     {
-        g.setFont (monoFont (currentPreset().density == Density::compact ? 8.5f : 10.5f));
-        g.drawText (state + juce::String (seconds, 1) + " S", session,
-                    juce::Justification::centred);
+        const auto density = currentPreset().density;
+        g.setFont (monoFont (density == Density::compact ? 8.5f
+                           : density == Density::inspection ? 14.0f : 10.5f));
+       #if defined(JucePlugin_VersionString)
+        const auto version = juce::String ("  |  v") + JucePlugin_VersionString;
+       #else
+        const auto version = juce::String ("  |  development");
+       #endif
+        g.drawFittedText (state + juce::String (seconds, 1) + " S" + version, session,
+                          juce::Justification::centred, 1, 0.80f);
         return;
     }
 
@@ -66,16 +73,8 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
 void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
     const bool compact = experienceFamily() == ExperienceFamily::compactMeter;
-    if (! compact)
-    {
-        auto context = area.removeFromTop (22);
-        g.setColour (COL_MUTED.withAlpha (0.78f));
-        g.setFont (monoFont (8.0f));
-        g.drawText ("SESSION HISTORY", context.reduced (6, 0),
-                    juce::Justification::centredLeft);
-        area.removeFromTop (2);
-    }
+    area.removeFromTop (timeNavigationHeight (currentPreset().density));
     time_history::paint (g, area, history, compact ? historyRequest().label : "",
-                         target() == ObservationTarget::delta, compact);
+                         target() == ObservationTarget::delta, compact, selectedScaleMode);
 }
 }
