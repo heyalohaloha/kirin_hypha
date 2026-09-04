@@ -7,6 +7,8 @@ mod macos_codesign;
 mod macos_pluginval_gate;
 mod notarize;
 #[cfg(test)]
+mod os_access;
+#[cfg(test)]
 mod plugin_display_names;
 mod release_gate;
 mod release_package;

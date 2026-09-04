@@ -352,6 +352,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/TimeHistoryContractTest.cpp
         tests/TimePageNavigationContractTest.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
+        tests/OsAccessUiContractTest.cpp
         src/HyphaObservatoryCapture.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
@@ -382,6 +383,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
         src/HyphaReferenceComponent.cpp
+        src/PostControls.cpp
         src/HyphaSpectrumComponent.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp

@@ -77,6 +77,18 @@ public:
     void setScaleMode (meter_context::ScaleMode);
     meter_context::ScaleMode scaleMode() const noexcept { return selectedScaleMode; }
     void setExternalAnalysisBodyActive (bool);
+    void setReferenceEnabled (bool enabled)
+    {
+        referenceEnabled = enabled;
+        referenceButton.setEnabled (enabled);
+        referenceButton.setTitle (enabled ? "Reference"
+                                          : "Reference - Kirin OS required");
+        referenceButton.setDescription (enabled ? "Open Reference audition"
+                                                : "REF requires Kirin OS ownership");
+        referenceButton.setTooltip (referenceButton.getDescription());
+        repaint();
+    }
+    bool isReferenceEnabled() const noexcept { return referenceButton.isEnabled(); }
     void setConnection (juce::String text, juce::Colour colour, ConnectionState state);
     void setExternalConnectionLabelVisible (bool visible);
     ConnectionState connection() const noexcept { return connectionState; }
@@ -158,6 +170,7 @@ private:
     meter_context::MeterContext selectedMeterContext = meter_context::defaultContext;
     meter_context::ScaleMode selectedScaleMode = meter_context::defaultScale;
     bool externalAnalysisBodyActive = false;
+    bool referenceEnabled = true;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;
     ConnectionState connectionState = ConnectionState::unpaired;

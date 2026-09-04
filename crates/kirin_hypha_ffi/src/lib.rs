@@ -6443,21 +6443,17 @@ mod b474_watch_restart_tests {
 #[cfg(test)]
 mod post_controls_parity_tests {
     use super::*;
-    use kirin_measure::license::{show_note_button, show_save_button, show_stop_record_button};
+    use kirin_measure::license::{show_note_button, show_save_button};
 
-    /// juce_shell/src/PostControls.cpp `PostControls::update` のボタン可視性を Rust に写した replica。
-    /// 実 C++ ソースへの忠実性は xtask/src/shell_parity.rs::post_controls_update_visibility_formula_is_pinned
-    /// が文字列ゲートで固定する。本 replica は os ゲートを Rust license ヘルパと値レベルで突合するためのもの。
+    /// PostControls visibility and enabled state replica. Source parity is pinned by xtask.
     struct PostVis {
-        keep: bool,
-        sense: bool,
+        keep_visible: bool,
+        keep_enabled: bool,
+        os_info: bool,
         stop: bool,
         mark: bool,
     }
 
-    /// PostControls.cpp:73-91 のうち keep/sense/stop/mark の os/sense ゲートのみを Rust に写す
-    /// （picker 4 ボタンと markPickerOpen reset は対象外＝string-gate
-    /// post_controls_update_visibility_formula_is_pinned で固定）。os=(code==0) / sense=(code==1)。
     fn cpp_post_controls_update(
         recording: bool,
         license_code: u8,
@@ -6465,19 +6461,15 @@ mod post_controls_parity_tests {
         mark_picker_open: bool,
     ) -> PostVis {
         let os = license_code == 0;
-        let sense = license_code == 1;
         PostVis {
-            keep: !recording && os && pair_non_empty,
-            sense: !recording && sense,
-            stop: recording && os && !mark_picker_open,
+            keep_visible: !recording,
+            keep_enabled: !recording && os && pair_non_empty,
+            os_info: !recording && !os,
+            stop: recording && !mark_picker_open,
             mark: recording && os && !mark_picker_open,
         }
     }
 
-    /// B-195 (Step3 監査ギャップ): 値レベル parity — C++ PostControls::update の os ゲートが
-    /// Rust license ヘルパ (show_save_button / show_stop_record_button / show_note_button) と
-    /// 全 (license × recording × pairNonEmpty × markPickerOpen) で一致する。実 License→abi
-    /// マッピング (license_to_abi) を経由するので、int マッピングかヘルパのどちらが乖離しても捕捉する。
     #[test]
     fn post_controls_visibility_matches_rust_license_helpers() {
         for license in [License::Os, License::Sense, License::Unknown] {
@@ -6486,14 +6478,15 @@ mod post_controls_parity_tests {
                 for &pair in &[false, true] {
                     for &picker_open in &[false, true] {
                         let v = cpp_post_controls_update(recording, code, pair, picker_open);
+                        assert_eq!(v.keep_visible, !recording);
                         assert_eq!(
-                            v.keep,
+                            v.keep_enabled,
                             !recording && show_save_button(license) && pair,
                             "keep parity: {license:?} rec={recording} pair={pair}"
                         );
                         assert_eq!(
                             v.stop,
-                            recording && show_stop_record_button(license) && !picker_open,
+                            recording && !picker_open,
                             "stop parity: {license:?} rec={recording} picker={picker_open}"
                         );
                         assert_eq!(
@@ -6507,21 +6500,19 @@ mod post_controls_parity_tests {
         }
     }
 
-    /// Sense ヒントは license==Sense かつ非 recording のときだけ表示され、Keep(Os) とは
-    /// 相互排他（同時に出ない）であることを値レベルで固定する。
     #[test]
-    fn sense_hint_visibility_is_sense_only_and_exclusive_with_keep() {
+    fn os_information_is_visible_for_every_unowned_license() {
         for license in [License::Os, License::Sense, License::Unknown] {
             let code = license_to_abi(license);
             let v = cpp_post_controls_update(false, code, true, false);
             assert_eq!(
-                v.sense,
-                license == License::Sense,
-                "sense-hint は Sense のときだけ: {license:?}"
+                v.os_info,
+                license != License::Os,
+                "OS information visibility: {license:?}"
             );
             assert!(
-                !(v.keep && v.sense),
-                "Keep と Sense ヒントは同時に出ない: {license:?}"
+                !(v.keep_enabled && v.os_info),
+                "enabled Keep and OS requirement must be exclusive: {license:?}"
             );
         }
     }

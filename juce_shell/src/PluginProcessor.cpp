@@ -513,8 +513,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     // Explicit B is an output-only audition copy. A has already been measured above. Offline
     // render, bypass, missing project time, cache miss, and every consumer failure keep A intact.
     if (role == Role::Post && referenceAuditionController != nullptr)
-        referenceAuditionController->renderSelectedB (buffer, positionSamples, hasPosition,
-                                                       ! bypassed && ! nonRealtimeMode);
+        referenceAuditionController->renderSelectedB (
+            buffer, positionSamples, hasPosition, ! bypassed && ! nonRealtimeMode && licenseIsOs());
    #endif
 #endif
 }
@@ -788,7 +788,6 @@ juce::String KirinHyphaProcessorBase::pathAnomalyMessage() const
         return juce::String::fromUTF8 (buf);
     return {};
 }
-
 bool KirinHyphaProcessorBase::licenseIsOs() const
 {
     return cachedLicenseCode.load (std::memory_order_acquire) == 0;
@@ -797,12 +796,13 @@ bool KirinHyphaProcessorBase::licenseIsOs() const
 void KirinHyphaProcessorBase::refreshLicenseForUserAction()
 {
     const int observed = (int) kirin_hypha_load_license();
-    cachedLicenseCode.store (observed, std::memory_order_release);
+    const int cached = cachedLicenseCode.load (std::memory_order_acquire);
+    const int effective = observed == 2 && cached != 2 ? cached : observed;
+    cachedLicenseCode.store (effective, std::memory_order_release);
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle != nullptr)
-        kirin_hypha_set_license (hyphaHandle, (uint8_t) observed);
+        kirin_hypha_set_license (hyphaHandle, (uint8_t) effective);
 }
-
 void KirinHyphaProcessorBase::stopPair()
 {
     const juce::ScopedLock sl (handleLock);

@@ -57,6 +57,8 @@ reference_ui::State readyState()
     state.sourceLabel = "WORK VERSION";
     state.status = "READY / B FOLLOWS A";
     state.alignmentLabel = "PROJECT TIMELINE";
+    state.osAccess = os_access::State::ready;
+    state.auditionBuffered = true;
     state.blindPhase = reference_ui::BlindPhase::available;
     state.aAvailable = true;
     state.aIntegratedLoudness = -14.0;
@@ -75,6 +77,16 @@ void verifyReferenceAuditionComponentContract()
     KIRIN_REF_REQUIRE (! reference_ui::canStartBlind (state));
     state = readyState();
     state.aAvailable = false;
+    KIRIN_REF_REQUIRE (! reference_ui::canSelectB (state));
+    state = readyState();
+    state.osAccess = os_access::State::unowned;
+    KIRIN_REF_REQUIRE (! reference_ui::canSelectB (state));
+    state.osAccess = os_access::State::ownedDisconnected;
+    KIRIN_REF_REQUIRE (! reference_ui::canSelectB (state));
+    state.osAccess = os_access::State::connectedUnprepared;
+    KIRIN_REF_REQUIRE (! reference_ui::canSelectB (state));
+    state = readyState();
+    state.auditionBuffered = false;
     KIRIN_REF_REQUIRE (! reference_ui::canSelectB (state));
     state = readyState();
     state.aIntegratedLoudness = reference_ui::unavailableValue();

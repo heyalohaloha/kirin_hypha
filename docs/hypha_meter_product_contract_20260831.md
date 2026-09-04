@@ -70,6 +70,19 @@ Reference Blind Compareは、Bが`READY`で、Aの測定値、transport再生、
 Audio Threadが要求sourceを実際に出力したcallback receiptの後だけ更新する。明示Revealまたは終了まで
 自動開示せず、Referenceまたはruntime条件の変更時は割当を開示せずAへ戻す。
 
+### 3.1.1 Kirin OS access boundary
+
+Kirin OS連携は`OS未所有`、`OS所有・未接続`、`接続済み・準備不足`、`準備完了`の四状態を区別する。
+
+OS未所有ではREF tab全体をdisabled表示にし、Keep／All Keepは消さずdisabled表示にする。
+OS所有・未接続ではREF tabを開けるがBを無効にし、Kirin OSの`Open in Hypha`を案内する。
+接続済み・準備不足では不足している前提に関係する操作だけを無効にし、準備完了時だけBとBlindを許可する。
+
+REFはUIだけでなく、利用者操作の入口とAudio ThreadのB出力条件でもOS entitlementを再確認する。
+Keep／Record開始は既存のRust側license gateを正本とし、UI状態だけで許可を推測しない。
+Guide rail、TIME上のGuide時刻、FREQ上のGuide帯域、WorkへのCapture添付、Work名、CaptureへのGuide包含はOS所有時だけ利用できる。
+LEVEL、TIME、FREQ、SPACE、通常のPRE/POST差分と解析、ローカル高解像度Capture、自由リサイズは制限しない。
+
 ### 3.2 Measurement boundary
 
 現行のM、S、recent TP、Crest、PSR、Sharpness、I、LRA、MaxTPと、10 ms規格解析から公開するMax Mを別の意味へ読み替えない。
@@ -249,6 +262,9 @@ ATTACKは現在の契約どおり、pair時はexact PRE/POST、未接続時はPO
 ### 7.4 OS Guide layer
 
 Kirin OSのINSPECTとMASKINGは、POSTの第五domainではなく全domainへ作用できるGuide layerとする。
+
+Guide layerの取得・接続承認・表示snapshotはKirin OS entitlementで制限する。
+OS未所有でも各domain自体は使用でき、Guide由来のrail、時刻、帯域だけを表示しない。
 
 Guideの実装計画は`docs/hypha_post_os_guide_integration_plan_20260831.md`を正本とする。
 
@@ -438,6 +454,8 @@ Font Software本体はGPLソースへ含めず、Kirin Hyphaを対象にしたAp
 ## 13. Capture contract
 
 Captureは利用者の明示操作で現在の測定snapshotを画像に保存する。
+
+ローカル保存はKirin OS entitlementに依存しない。Workへの添付、Work表示名、OS Guide包含だけをOS連携機能として制限する。
 
 出力presetは1200×630、1080×1080、1080×1350とする。
 

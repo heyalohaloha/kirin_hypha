@@ -6,6 +6,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "HyphaOsAccess.h"
+
 namespace hypha::reference_ui
 {
 enum class Readiness
@@ -48,6 +50,8 @@ struct State
     bool aAvailable = false;
     bool gainLimited = false;
     bool bSelected = false;
+    bool auditionBuffered = false;
+    os_access::State osAccess = os_access::State::unowned;
     BlindPhase blindPhase = BlindPhase::unavailable;
     int activeBlindStimulus = 0;
     int pendingBlindStimulus = 0;
@@ -56,7 +60,8 @@ struct State
 
 inline bool canSelectB (const State& state) noexcept
 {
-    return state.readiness == Readiness::ready
+    return os_access::featureReady (state.osAccess)
+        && state.readiness == Readiness::ready && state.auditionBuffered
         && state.aAvailable
         && std::isfinite (state.aIntegratedLoudness)
         && std::isfinite (state.aMaximumTruePeakDbtp);

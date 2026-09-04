@@ -108,6 +108,15 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     }
     hypha::reference_ui::State state;
     state.readiness = referenceReadiness (runtime.state);
+    bool connected = false;
+   #if KIRIN_HYPHA_GUIDE_TRANSPORT
+    connected = processorRef.connectedWorkReference().valid();
+   #endif
+    state.osAccess = hypha::os_access::classify (
+        processorRef.licenseIsOs(), connected,
+        runtime.state == hypha::reference_audition::RuntimeState::ready);
+    state.auditionBuffered = callbackLive && runtime.transportPlaying
+        && runtime.transportPositionValid && runtime.auditionBuffered;
     state.title = runtime.title;
     state.sourceLabel = sourceLabel (runtime.sourceKind);
     state.alignmentLabel = runtime.alignmentMode
@@ -132,11 +141,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.aMaximumTruePeakDbtp = runtime.bSelected || frozenBlindA
         ? runtime.aMaximumTruePeakDbtp
         : liveA ? frame.meter.max_true_peak : hypha::reference_ui::unavailableValue();
-    const bool blindAvailable = runtime.state == hypha::reference_audition::RuntimeState::ready
-        && callbackLive && runtime.transportPlaying && runtime.transportPositionValid
-        && runtime.auditionBuffered
-        && state.aAvailable && std::isfinite (state.aIntegratedLoudness)
-        && std::isfinite (state.aMaximumTruePeakDbtp);
+    const bool blindAvailable = callbackLive && hypha::reference_ui::canSelectB (state);
     state.blindPhase = referenceBlindPhase (runtime.blindPhase, blindAvailable);
 
     if (runtime.bSelected
@@ -150,7 +155,12 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     }
 
     using Runtime = hypha::reference_audition::RuntimeState;
-    if (runtime.blindPhase == hypha::reference_audition::BlindPhase::invalidated)
+    using Access = hypha::os_access::State;
+    if (state.osAccess == Access::unowned)
+        state.status = "REF REQUIRES KIRIN OS";
+    else if (state.osAccess == Access::ownedDisconnected)
+        state.status = "OPEN IN HYPHA FROM KIRIN OS";
+    else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::invalidated)
         state.status = "BLIND ENDED / CONDITION CHANGED";
     else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::active)
         state.status = "BLIND / SOURCE IDENTITY HIDDEN";
@@ -159,13 +169,14 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     else if (runtime.bSelected)
         state.status = "B AUDITION / PRE DELTA PAUSED";
     else if (runtime.state == Runtime::ready)
-        state.status = liveA ? "READY / B FOLLOWS A" : "PLAY A TO MEASURE";
+        state.status = state.auditionBuffered && liveA
+            ? "READY / B FOLLOWS A" : "PLAY A TO ENABLE B";
     else if (runtime.state == Runtime::verifying)
         state.status = "VERIFYING SOURCE";
     else if (runtime.state == Runtime::rejected)
         state.status = rejectedStatus (runtime.rejectionCode);
     else if (runtime.state == Runtime::waiting)
-        state.status = "OPEN IN HYPHA FROM KIRIN OS";
+        state.status = "WAITING FOR KIRIN OS REFERENCE";
     else
         state.status = "CONNECT TO A KIRIN OS WORK";
     referenceView.setState (std::move (state));

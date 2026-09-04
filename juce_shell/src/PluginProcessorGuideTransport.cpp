@@ -4,7 +4,7 @@
 
 hypha::pre_display::DisplaySnapshot KirinHyphaProcessorBase::preDisplaySnapshot() const
 {
-    return preDisplayController != nullptr
+    return licenseIsOs() && preDisplayController != nullptr
         ? preDisplayController->displaySnapshot()
         : hypha::pre_display::DisplaySnapshot {};
 }
@@ -12,21 +12,23 @@ hypha::pre_display::DisplaySnapshot KirinHyphaProcessorBase::preDisplaySnapshot(
 hypha::pre_display::GuidePresentationSnapshot
 KirinHyphaProcessorBase::guidePresentationSnapshot() const
 {
-    return preDisplayController != nullptr
+    return licenseIsOs() && preDisplayController != nullptr
         ? preDisplayController->guidePresentationSnapshot()
         : hypha::pre_display::GuidePresentationSnapshot {};
 }
 
 hypha::pre_display::ConnectionRequest KirinHyphaProcessorBase::pendingPreDisplayConnection() const
 {
-    return preDisplayController != nullptr
+    return licenseIsOs() && preDisplayController != nullptr
         ? preDisplayController->pendingConnection()
         : hypha::pre_display::ConnectionRequest {};
 }
 
 bool KirinHyphaProcessorBase::acceptPreDisplayConnection()
 {
-    if (preDisplayController == nullptr || ! preDisplayController->acceptPendingConnection())
+    refreshLicenseForUserAction();
+    if (! licenseIsOs() || preDisplayController == nullptr
+        || ! preDisplayController->acceptPendingConnection())
         return false;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (referenceAuditionController != nullptr)
@@ -44,14 +46,14 @@ bool KirinHyphaProcessorBase::acceptPreDisplayConnection()
 
 hypha::pre_display::WorkReference KirinHyphaProcessorBase::connectedWorkReference() const
 {
-    return preDisplayController != nullptr
+    return licenseIsOs() && preDisplayController != nullptr
         ? preDisplayController->connectedWorkReference()
         : hypha::pre_display::WorkReference {};
 }
 
 juce::String KirinHyphaProcessorBase::connectedWorkTitle() const
 {
-    return preDisplayController != nullptr
+    return licenseIsOs() && preDisplayController != nullptr
         ? preDisplayController->connectedWorkTitle() : juce::String {};
 }
 
@@ -60,7 +62,9 @@ hypha::capture::WorkAttachmentSubmit KirinHyphaProcessorBase::attachCaptureToWor
     juce::MemoryBlock pngBytes,
     hypha::capture::WorkAttachmentDescriptor descriptor)
 {
-    if (preDisplayController == nullptr || captureWorkAttachmentController == nullptr
+    refreshLicenseForUserAction();
+    if (! licenseIsOs() || preDisplayController == nullptr
+        || captureWorkAttachmentController == nullptr
         || ! connectedWorkReference().sameAuthority (expectedWork))
         return hypha::capture::WorkAttachmentSubmit::invalidReference;
     return captureWorkAttachmentController->submit (
@@ -78,7 +82,7 @@ KirinHyphaProcessorBase::takeCaptureWorkAttachmentResult()
 hypha::reference_audition::Snapshot KirinHyphaProcessorBase::referenceAuditionSnapshot() const
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return referenceAuditionController != nullptr
+    return licenseIsOs() && referenceAuditionController != nullptr
         ? referenceAuditionController->snapshot()
         : hypha::reference_audition::Snapshot {};
    #else
@@ -89,7 +93,14 @@ hypha::reference_audition::Snapshot KirinHyphaProcessorBase::referenceAuditionSn
 bool KirinHyphaProcessorBase::selectReferenceB (double aIntegratedLoudness,
                                                 double aMaximumTruePeakDbtp)
 {
+    refreshLicenseForUserAction();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (! licenseIsOs())
+    {
+        if (referenceAuditionController != nullptr)
+            referenceAuditionController->selectA();
+        return false;
+    }
     return referenceAuditionController != nullptr
         && referenceAuditionController->selectB (
             aIntegratedLoudness, aMaximumTruePeakDbtp);
@@ -110,7 +121,14 @@ void KirinHyphaProcessorBase::selectReferenceA()
 bool KirinHyphaProcessorBase::startReferenceBlind (double aIntegratedLoudness,
                                                    double aMaximumTruePeakDbtp)
 {
+    refreshLicenseForUserAction();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (! licenseIsOs())
+    {
+        if (referenceAuditionController != nullptr)
+            referenceAuditionController->endBlind();
+        return false;
+    }
     return referenceAuditionController != nullptr
         && referenceAuditionController->startBlind (
             aIntegratedLoudness, aMaximumTruePeakDbtp);
@@ -122,7 +140,14 @@ bool KirinHyphaProcessorBase::startReferenceBlind (double aIntegratedLoudness,
 
 bool KirinHyphaProcessorBase::selectReferenceBlindStimulus (int stimulus)
 {
+    refreshLicenseForUserAction();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (! licenseIsOs())
+    {
+        if (referenceAuditionController != nullptr)
+            referenceAuditionController->endBlind();
+        return false;
+    }
     return referenceAuditionController != nullptr
         && referenceAuditionController->selectBlindStimulus (stimulus);
    #else
@@ -133,7 +158,14 @@ bool KirinHyphaProcessorBase::selectReferenceBlindStimulus (int stimulus)
 
 bool KirinHyphaProcessorBase::revealReferenceBlind()
 {
+    refreshLicenseForUserAction();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (! licenseIsOs())
+    {
+        if (referenceAuditionController != nullptr)
+            referenceAuditionController->endBlind();
+        return false;
+    }
     return referenceAuditionController != nullptr
         && referenceAuditionController->revealBlind();
    #else

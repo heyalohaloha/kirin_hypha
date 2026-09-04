@@ -18,6 +18,7 @@
 #include "TimePageNavigationContractTest.h"
 #include "SpaceFieldContractTest.h"
 #include "ReferenceAuditionComponentContractTest.h"
+#include "OsAccessUiContractTest.h"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -37,7 +38,6 @@ namespace
                   << ": " << expression << '\n';
         std::exit (EXIT_FAILURE);
     }
-
 #define KIRIN_REQUIRE(expression) require ((expression), #expression, __LINE__)
     bool fits (const juce::Font& font, const juce::String& text, int width)
     {
@@ -222,7 +222,7 @@ int main()
     hypha::tests::verifyCaptureHistoryContract();
     hypha::tests::verifyTimeHistoryContract();
     hypha::tests::verifySpaceFieldContract();
-    hypha::tests::verifyReferenceAuditionComponentContract();
+    hypha::tests::verifyReferenceAuditionComponentContract(); hypha::tests::verifyOsAccessUiContract();
     const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);
     KIRIN_REQUIRE (preferenceDirectory.createDirectory().wasOk());

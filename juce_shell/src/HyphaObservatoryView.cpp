@@ -230,7 +230,8 @@ GuidePresence View::guidePresence() const noexcept
 
 void View::cycleDomain()
 {
-    const auto next = nextDomain (role, selectedDomain);
+    auto next = nextDomain (role, selectedDomain);
+    if (! referenceEnabled && next == Domain::reference) next = nextDomain (role, next);
     if (onDomainChange) onDomainChange (next);
 }
 
@@ -253,8 +254,7 @@ void View::updateControls()
     timeButton.setToggleState (selectedDomain == Domain::time, juce::dontSendNotification);
     frequencyButton.setToggleState (selectedDomain == Domain::frequency, juce::dontSendNotification);
     spaceButton.setToggleState (selectedDomain == Domain::space, juce::dontSendNotification);
-    referenceButton.setToggleState (selectedDomain == Domain::reference,
-                                    juce::dontSendNotification);
+    referenceButton.setToggleState (selectedDomain == Domain::reference, juce::dontSendNotification);
     domainCycleButton.setToggleState (true, juce::dontSendNotification);
     domainCycleButton.setButtonText (domainName (selectedDomain));
     const bool fullCockpit = isFullDensity (currentPreset().density);

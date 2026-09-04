@@ -310,7 +310,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     guideConnectButton.onClick = [this]
     {
         if (! processorRef.acceptPreDisplayConnection())
-            showToast ("Connection request is no longer available");
+            showToast (processorRef.licenseIsOs() ? "Connection request is no longer available"
+                                                  : "Kirin OS is required for Work connection");
     };
     scaleRoot.addChildComponent (guideConnectButton);
 
@@ -647,11 +648,8 @@ void KirinHyphaEditor::updateFeedback (
 void KirinHyphaEditor::showCandidateMenu()
 {
     processorRef.refreshLicenseForUserAction();
-    // B-102: egui draw_pair_pre_combo parity (scope = new↔new). Built on click (no per-tick FFI):
-    //   [All Keep: N ready POST(s)] (Watch, N>=1) / [All Stop: recording POSTs] (Record) /
-    //   candidate rows ("Can Keep/Keep ready/In use: name-or-id8").
-    // Every live PRE is offered, including unnamed instances. Selection commits its exact
-    // instance_id; the name remains only the convenient persisted display/search value.
+    // B-102: built on click; every live PRE remains independently selectable by exact identity.
+    // Keep operations stay visible while their license/pair prerequisites control availability.
     const bool rec = processorRef.isRecording();
     const bool keepActive = rec
         || processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE;
@@ -692,6 +690,7 @@ void KirinHyphaEditor::showCandidateMenu()
     // count — the All Keep broadcast acts on POSTs (hypha_post editor.rs:938-944). Candidate rows
     // below are exact PRE rows, matching egui's separate pre_candidates source.
     const int nReady = processorRef.keepReadyCount();
+    const bool osOwned = processorRef.licenseIsOs();
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader ("Display");
@@ -699,12 +698,13 @@ void KirinHyphaEditor::showCandidateMenu()
                   hypha::HoverHelpPreference::shared().isEnabled());
     menu.addSeparator();
     const bool pairSelected = processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED;
-    if (! keepActive && pairSelected)
-        menu.addItem (4, "Keep selected pair", processorRef.licenseIsOs());
+    if (! keepActive)
+        menu.addItem (4, "Keep selected pair", osOwned && pairSelected);
     if (keepActive)
         menu.addItem (5, "Stop selected pair");
-    if (! keepActive && processorRef.licenseIsOs() && nReady >= 1)
-        menu.addItem (1, allKeepMenuLabel (nReady));
+    if (! keepActive)
+        menu.addItem (1, osOwned ? allKeepMenuLabel (nReady) : "All Keep: Kirin OS required",
+                      osOwned && nReady >= 1);
     if (keepActive)
         menu.addItem (2, "All Stop: active POSTs");
     if (menu.getNumItems() > 0)

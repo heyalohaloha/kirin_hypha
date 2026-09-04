@@ -11,6 +11,12 @@ The Kirin OS integration is three explicit gates, not a shared mutable mode.
 Guide receipt alone never triggers Capture, Work storage, a meter mode change, Reset, Record,
 Keep, pairing, transport, or an audio operation. CAPTURE never changes `work.json` directly.
 
+Access distinguishes four states: OS unowned, OS owned but disconnected, connected but unprepared,
+and ready. Unowned disables OS-derived Guide and Work actions without disabling LEVEL, TIME, FREQ,
+SPACE, normal analysis, or local CAPTURE. Owned but disconnected keeps the connection entry visible;
+connected but unprepared disables only the action whose verified input is missing. UI availability is
+not authority: connection acceptance and Work attachment refresh and verify entitlement again.
+
 ## Work Reference
 
 Accepting a Kirin OS connection freezes an immutable Work Reference:
@@ -35,6 +41,10 @@ Local Save and Work attachment remain separate commands. On a connected POST, CA
 one item freezes the same authoritative snapshot used by local Save, encodes its PNG in memory, and
 submits exactly one Work attachment request. There is no sticky attachment preference and no
 automatic retry against another Work.
+
+Local Save and all three image formats remain available without Kirin OS. `Attach to Work`, Work
+title embedding, and `Include OS Guide` require OS ownership and their corresponding verified
+connection or Guide snapshot.
 
 The producer runs on a low-priority thread and uses the separate machine-local
 `plugin_data/hypha_capture/v1` transport. It writes the immutable PNG before atomically publishing
