@@ -11,6 +11,8 @@
 
 namespace hypha::reference_audition
 {
+    struct RuntimeSource;
+
     class AudioPages final
     {
     public:
@@ -18,8 +20,11 @@ namespace hypha::reference_audition
         ~AudioPages();
 
         juce::String open (const SourceReceipt&, double hostSampleRate, int hostChannels);
+        juce::String open (const RuntimeSource&, double hostSampleRate, int hostChannels,
+                           bool sampleRateConversionApproved);
         juce::String installReaderForTest (std::unique_ptr<juce::AudioFormatReader>,
-                                           double hostSampleRate, int hostChannels);
+                                           double hostSampleRate, int hostChannels,
+                                           bool sampleRateConversionApproved = false);
         void close();
 
         void request (std::int64_t sourcePosition) noexcept;
@@ -29,8 +34,14 @@ namespace hypha::reference_audition
                      std::int64_t sourcePosition, float linearGain) noexcept;
 
         bool sourceOpen() const noexcept { return openState.load (std::memory_order_acquire); }
-        std::int64_t lengthInSamples() const noexcept { return sourceLength; }
-        int cachedPageFrames() const noexcept { return pageFrames; }
+        std::int64_t lengthInSamples() const noexcept
+        {
+            return sourceLength.load (std::memory_order_acquire);
+        }
+        int cachedPageFrames() const noexcept
+        {
+            return pageFrames.load (std::memory_order_acquire);
+        }
 
     private:
         enum PageState : std::uint8_t { empty, loading, ready, inUse };
@@ -44,8 +55,10 @@ namespace hypha::reference_audition
         };
 
         juce::String installReader (std::unique_ptr<juce::AudioFormatReader>,
-                                    double hostSampleRate, int hostChannels);
+                                    double hostSampleRate, int hostChannels,
+                                    bool sampleRateConversionApproved);
         bool fill (std::int64_t pageStart);
+        bool fillConverted (Page&, std::int64_t pageStart);
         Page* acquire (std::int64_t pageStart, std::uint64_t expectedGeneration) const noexcept;
         bool containsReady (std::int64_t pageStart, std::uint64_t expectedGeneration) const noexcept;
         void release (Page*) const noexcept;
@@ -55,11 +68,15 @@ namespace hypha::reference_audition
         mutable std::array<Page, pageCount> pages;
         juce::AudioFormatManager formats;
         std::unique_ptr<juce::AudioFormatReader> reader;
+        juce::AudioBuffer<float> conversionInput;
         std::atomic<bool> openState { false };
         std::atomic<std::int64_t> requestedPosition { 0 };
         std::atomic<std::uint64_t> activeGeneration { 0 };
-        std::int64_t sourceLength = 0;
-        int sourceChannels = 0;
-        int pageFrames = 0;
+        std::atomic<std::int64_t> sourceLength { 0 };
+        std::atomic<int> sourceChannels { 0 };
+        std::atomic<int> pageFrames { 0 };
+        double sourceSampleRate = 0.0;
+        double outputSampleRate = 0.0;
+        bool sampleRateConversion = false;
     };
 }

@@ -113,9 +113,9 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         );
     }
     let juce_controls = read_repo("juce_shell/src/PostControls.cpp");
-    assert!(juce_controls.contains("keepBtn  .setVisible (! keepActive && os)"));
-    assert!(juce_controls.contains("keepBtn  .setEnabled (pairSelected)"));
-    assert!(juce_controls.contains("stopBtn  .setVisible (keepActive && os)"));
+    assert!(juce_controls.contains("keepBtn  .setVisible (! keepActive)"));
+    assert!(juce_controls.contains("keepBtn  .setEnabled (os && pairSelected)"));
+    assert!(juce_controls.contains("stopBtn  .setVisible (keepActive)"));
     assert!(!juce_controls.contains("markBtn"));
     let juce_controls_header = read_repo("juce_shell/src/PostControls.h");
     assert!(juce_controls_header.contains("ui_contract::keepLabel"));
@@ -435,7 +435,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
         assert!(time_navigation.contains(label) || time_navigation_header.contains(label));
     }
     assert!(analysis_navigation
-        .contains("Page::meters, Page::attack, Page::perceptual, Page::absolute"));
+        .contains("Page::meters, Page::run, Page::attack, Page::perceptual, Page::absolute"));
     assert!(observatory_editor.contains("? AnalysisPage::spectrum : AnalysisPage::meters"));
     assert!(editor.contains("processorRef.setSpectrumVisible (false)"));
     assert!(editor.contains("processorRef.setPerceptualVisible (false)"));

@@ -63,6 +63,18 @@ reference_ui::State readyState()
     state.aAvailable = true;
     state.aIntegratedLoudness = -14.0;
     state.aMaximumTruePeakDbtp = -1.8;
+    state.presetId = "preset-a";
+    state.checkId = "check-a";
+    state.candidateId = "reference-a";
+    state.cueId = "cue-a";
+    state.presetName = "Mix Reference";
+    state.checkLabel = "Low End";
+    state.candidateName = "Mix v4";
+    state.cueLabel = "Full Track";
+    state.presets = { { "preset-a", "Mix Reference" }, { "preset-b", "Mastering" } };
+    state.checks = { { "check-a", "Low End" }, { "check-b", "Dynamics" } };
+    state.candidates = { { "reference-a", "Mix v4" }, { "reference-b", "Mix v3" } };
+    state.cues = { { "cue-a", "Full Track" }, { "cue-b", "Chorus" } };
     return state;
 }
 }
@@ -90,10 +102,12 @@ void verifyReferenceAuditionComponentContract()
     KIRIN_REF_REQUIRE (! reference_ui::canSelectB (state));
     state = readyState();
     state.aIntegratedLoudness = reference_ui::unavailableValue();
-    KIRIN_REF_REQUIRE (! reference_ui::canSelectB (state));
+    KIRIN_REF_REQUIRE (reference_ui::canSelectB (state));
+    KIRIN_REF_REQUIRE (reference_ui::canStartBlind (state));
     state = readyState();
     state.aMaximumTruePeakDbtp = reference_ui::unavailableValue();
-    KIRIN_REF_REQUIRE (! reference_ui::canSelectB (state));
+    KIRIN_REF_REQUIRE (reference_ui::canSelectB (state));
+    KIRIN_REF_REQUIRE (reference_ui::canStartBlind (state));
 
     reference_ui::Component component;
     component.setSize (288, 136);
@@ -104,17 +118,39 @@ void verifyReferenceAuditionComponentContract()
     bool requestedA = false;
     bool requestedB = false;
     bool requestedBlind = false;
+    int requestedAnswer = 0;
     bool requestedReveal = false;
     bool requestedEnd = false;
+    bool requestedAction = false;
     int requestedStimulus = 0;
+    juce::String requestedPreset;
+    juce::String requestedCheck;
+    juce::String requestedCandidate;
+    juce::String requestedCue;
     component.onSelectA = [&requestedA] { requestedA = true; };
     component.onSelectB = [&requestedB] { requestedB = true; };
     component.onStartBlind = [&requestedBlind] { requestedBlind = true; };
     component.onSelectBlindStimulus = [&requestedStimulus] (int value) {
         requestedStimulus = value;
     };
+    component.onAnswerBlind = [&requestedAnswer] (int value) {
+        requestedAnswer = value;
+    };
     component.onRevealBlind = [&requestedReveal] { requestedReveal = true; };
     component.onEndBlind = [&requestedEnd] { requestedEnd = true; };
+    component.onSelectPreset = [&requestedPreset] (const juce::String& id) {
+        requestedPreset = id;
+    };
+    component.onSelectCheck = [&requestedCheck] (const juce::String& id) {
+        requestedCheck = id;
+    };
+    component.onSelectCandidate = [&requestedCandidate] (const juce::String& id) {
+        requestedCandidate = id;
+    };
+    component.onSelectCue = [&requestedCue] (const juce::String& id) {
+        requestedCue = id;
+    };
+    component.onAction = [&requestedAction] { requestedAction = true; };
     auto* a = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-a"));
     auto* b = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-b"));
     auto* startBlind = dynamic_cast<juce::TextButton*> (
@@ -123,13 +159,16 @@ void verifyReferenceAuditionComponentContract()
         component.findChildWithID ("reference-blind-1"));
     auto* two = dynamic_cast<juce::TextButton*> (
         component.findChildWithID ("reference-blind-2"));
+    auto* answer = dynamic_cast<juce::TextButton*> (
+        component.findChildWithID ("reference-blind-answer"));
     auto* reveal = dynamic_cast<juce::TextButton*> (
         component.findChildWithID ("reference-blind-reveal"));
     auto* endBlind = dynamic_cast<juce::TextButton*> (
         component.findChildWithID ("reference-blind-end"));
     KIRIN_REF_REQUIRE (a != nullptr && b != nullptr && b->isEnabled()
                        && startBlind != nullptr && startBlind->isVisible()
-                       && one != nullptr && two != nullptr && reveal != nullptr
+                       && one != nullptr && two != nullptr && answer != nullptr
+                       && reveal != nullptr
                        && endBlind != nullptr);
     auto unavailableBlind = readyState();
     unavailableBlind.blindPhase = reference_ui::BlindPhase::unavailable;
@@ -147,12 +186,24 @@ void verifyReferenceAuditionComponentContract()
     blindState.pendingBlindStimulus = 2;
     component.setState (blindState);
     KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible()
-                       && one->isVisible() && two->isVisible() && reveal->isVisible()
+                       && one->isVisible() && two->isVisible() && ! answer->isVisible()
+                       && ! reveal->isVisible()
                        && endBlind->isVisible() && one->isEnabled() && ! two->isEnabled());
     blindState.pendingBlindStimulus = 0;
     component.setState (blindState);
     one->onClick();
     two->onClick();
+    KIRIN_REF_REQUIRE (! answer->isVisible() && ! reveal->isVisible());
+    blindState.activeBlindStimulus = 2;
+    blindState.blindStimulusOneHeard = true;
+    blindState.blindStimulusTwoHeard = true;
+    component.setState (blindState);
+    KIRIN_REF_REQUIRE (answer->isVisible() && ! reveal->isVisible());
+    answer->onClick();
+    KIRIN_REF_REQUIRE (requestedAnswer == 2);
+    blindState.answeredBlindStimulus = 2;
+    component.setState (blindState);
+    KIRIN_REF_REQUIRE (answer->isVisible() && reveal->isVisible());
     reveal->onClick();
     endBlind->onClick();
     KIRIN_REF_REQUIRE (requestedStimulus == 2 && requestedReveal && requestedEnd);
@@ -173,6 +224,23 @@ void verifyReferenceAuditionComponentContract()
     component.setState (blindState);
     const auto concealedB = render (component);
     KIRIN_REF_REQUIRE (differentPixels (concealedA, concealedB) == 0);
+
+    auto invalidated = blindState;
+    invalidated.blindPhase = reference_ui::BlindPhase::invalidated;
+    invalidated.blindRequiredAAttenuationDb = 4.2;
+    invalidated.status = "BLIND STOPPED / A HELD -4.2 dB / RETURN A EXPLICITLY";
+    component.setState (invalidated);
+    const auto invalidatedA = render (component);
+    invalidated.title = "Must remain concealed after invalidation";
+    invalidated.sourceLabel = "WORK VERSION";
+    invalidated.adjustedBIntegratedLoudness = 12.0;
+    component.setState (invalidated);
+    const auto invalidatedB = render (component);
+    KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible()
+                       && ! one->isVisible() && ! two->isVisible()
+                       && endBlind->isVisible()
+                       && endBlind->getButtonText().contains ("+4.2 dB")
+                       && differentPixels (invalidatedA, invalidatedB) == 0);
 
     blindState.blindPhase = reference_ui::BlindPhase::revealed;
     blindState.blindReveal = "1 = B  /  2 = A";
@@ -198,6 +266,41 @@ void verifyReferenceAuditionComponentContract()
 
     component.setSize (888, 470);
     KIRIN_REF_REQUIRE (component.detailedLayout());
+    component.setState (selected);
+    auto* preset = dynamic_cast<juce::ComboBox*> (
+        component.findChildWithID ("reference-preset"));
+    auto* check = dynamic_cast<juce::ComboBox*> (
+        component.findChildWithID ("reference-check"));
+    auto* candidate = dynamic_cast<juce::ComboBox*> (
+        component.findChildWithID ("reference-candidate"));
+    auto* cue = dynamic_cast<juce::ComboBox*> (
+        component.findChildWithID ("reference-cue"));
+    KIRIN_REF_REQUIRE (preset != nullptr && check != nullptr && candidate != nullptr
+                       && cue != nullptr && preset->isVisible() && check->isVisible()
+                       && candidate->isVisible() && cue->isVisible());
+    preset->setSelectedId (2, juce::sendNotificationSync);
+    check->setSelectedId (2, juce::sendNotificationSync);
+    candidate->setSelectedId (2, juce::sendNotificationSync);
+    cue->setSelectedId (2, juce::sendNotificationSync);
+    KIRIN_REF_REQUIRE (requestedPreset == "preset-b" && requestedCheck == "check-b"
+                       && requestedCandidate == "reference-b" && requestedCue == "cue-b");
+    auto approval = selected;
+    approval.sampleRateApprovalRequired = true;
+    approval.actionText = "USE 44.1 TO 48.0 kHz";
+    component.setState (approval);
+    auto* action = dynamic_cast<juce::TextButton*> (
+        component.findChildWithID ("reference-action"));
+    KIRIN_REF_REQUIRE (action != nullptr && action->isVisible());
+    action->onClick();
+    KIRIN_REF_REQUIRE (requestedAction);
+    auto visual = selected;
+    visual.viewBindings = { "spectrum_low", "loudness", "stereo" };
+    visual.liveSpectrumMinimumHz = 20.0f;
+    visual.liveSpectrumMaximumHz = 20'000.0f;
+    visual.liveSpectrumDbfs.resize (256);
+    for (size_t index = 0; index < visual.liveSpectrumDbfs.size(); ++index)
+        visual.liveSpectrumDbfs[index] = -54.0f + static_cast<float> (index % 19) * 0.7f;
+    component.setState (visual);
     const auto detailed = render (component);
     KIRIN_REF_REQUIRE (detailed.getPixelAt (
         detailed.getWidth() / 4, detailed.getHeight() / 2).getAlpha() != 0);

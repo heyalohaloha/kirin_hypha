@@ -10,6 +10,8 @@
 #include "ReferenceBlindSession.h"
 #include "ReferenceAuditionLease.h"
 #include "ReferenceAuditionRepository.h"
+#include "ReferenceRuntimeV2Measurement.h"
+#include "ReferenceRuntimeV2Profile.h"
 
 namespace hypha::reference_audition
 {
@@ -20,6 +22,12 @@ namespace hypha::reference_audition
         verifying,
         ready,
         rejected,
+    };
+
+    struct RuntimeSelectionOption
+    {
+        juce::String id;
+        juce::String label;
     };
 
     struct Snapshot
@@ -39,14 +47,47 @@ namespace hypha::reference_audition
         double loudnessDeltaBMinusA = 0.0;
         double truePeakDeltaBMinusA = 0.0;
         bool gainLimited = false;
+        bool comparisonFallbackOriginal = false;
         bool bSelected = false;
         bool transportPlaying = false;
         bool transportPositionValid = false;
         bool auditionBuffered = false;
+        bool blindEligible = false;
         BlindPhase blindPhase = BlindPhase::inactive;
         int activeBlindStimulus = 0;
         int pendingBlindStimulus = 0;
+        int answeredBlindStimulus = 0;
+        bool blindStimulusOneHeard = false;
+        bool blindStimulusTwoHeard = false;
         juce::String blindReveal;
+        bool blindLowerAApprovalRequired = false;
+        double blindRequiredAAttenuationDb = 0.0;
+        juce::String presetId;
+        juce::String checkId;
+        juce::String candidateId;
+        juce::String cueId;
+        juce::String presetName;
+        juce::String checkLabel;
+        juce::String candidateName;
+        juce::String cueLabel;
+        juce::String comparisonMode;
+        juce::String presentationLayout { "auto" };
+        std::vector<juce::String> viewBindings;
+        std::vector<RuntimeSelectionOption> presets;
+        std::vector<RuntimeSelectionOption> checks;
+        std::vector<RuntimeSelectionOption> candidates;
+        std::vector<RuntimeSelectionOption> cues;
+        std::shared_ptr<const RuntimeDetailedMeasurement> detailedMeasurement;
+        std::vector<std::shared_ptr<const RuntimeProfile>> profiles;
+        bool sampleRateApprovalRequired = false;
+        std::int64_t sourceSampleRateHz = 0;
+        std::int64_t hostSampleRateHz = 0;
+        bool measurementAvailable = false;
+        bool alignmentPrepared = false;
+        bool aBindingAvailable = false;
+        juce::String aRecordingId;
+        bool aCaptureAvailable = false;
+        juce::String recoveryStatus;
     };
 
     class Controller final : private juce::Thread

@@ -1,11 +1,13 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 
 namespace hypha::reference_audition
 {
     bool secureRandomBit();
+    void secureRandomBytes (void* destination, std::size_t byteCount);
 
     enum class BlindSide : int
     {

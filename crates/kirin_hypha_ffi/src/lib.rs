@@ -43,8 +43,6 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use uuid::Uuid;
-
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reservation
 use kirin_measure::{
@@ -82,6 +80,7 @@ use kirin_measure::{
     SPECTRUM_BAND_COUNT, SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS,
     STEREO_FIELD_SIZE,
 };
+use uuid::Uuid;
 
 mod attack_ffi;
 mod identity_ffi;
@@ -91,6 +90,7 @@ mod pair_binding;
 mod pair_candidates_ffi;
 mod record_note_ffi;
 mod reference_audition_ffi;
+mod reference_gain_ffi;
 mod signal_state_ffi;
 pub use attack_ffi::*;
 pub use identity_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};

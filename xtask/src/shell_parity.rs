@@ -98,18 +98,15 @@ mod tests {
             .ok()
             .map(|source| source.replace("\r\n", "\n"))
     }
-
     fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         let start_index = source.find(start).expect(start) + start.len();
         let tail = &source[start_index..];
         let end_index = tail.find(end).expect(end);
         &tail[..end_index]
     }
-
     fn count_occurrences(source: &str, needle: &str) -> usize {
         source.match_indices(needle).count()
     }
-
     #[test]
     fn readme_record_controls_match_shipped_post_ui() {
         let record_mode = README
@@ -127,7 +124,6 @@ mod tests {
         assert!(!POST_CONTROLS_H.contains("markBtn"));
         assert!(!POST_CONTROLS_CPP.contains("onMark"));
     }
-
     #[test]
     fn common_juce_shell_owns_watch_max_for_both_formats_and_roles() {
         assert!(FFI_HEADER.contains("KirinMeasureResult current;"));

@@ -118,6 +118,72 @@ void KirinHyphaProcessorBase::selectReferenceA()
    #endif
 }
 
+bool KirinHyphaProcessorBase::selectReferencePreset (const juce::String& id)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->selectPreset (id);
+   #else
+    juce::ignoreUnused (id);
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::selectReferenceCheck (const juce::String& id)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->selectCheck (id);
+   #else
+    juce::ignoreUnused (id);
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::selectReferenceCandidate (const juce::String& id)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->selectCandidate (id);
+   #else
+    juce::ignoreUnused (id);
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::selectReferenceCue (const juce::String& id)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->selectCue (id);
+   #else
+    juce::ignoreUnused (id);
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::approveReferenceSampleRateConversion()
+{
+    refreshLicenseForUserAction();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->approveSampleRateConversion();
+   #else
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::requestReferenceRecovery()
+{
+    refreshLicenseForUserAction();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->requestRecovery();
+   #else
+    return false;
+   #endif
+}
+
 bool KirinHyphaProcessorBase::startReferenceBlind (double aIntegratedLoudness,
                                                    double aMaximumTruePeakDbtp)
 {
@@ -156,6 +222,32 @@ bool KirinHyphaProcessorBase::selectReferenceBlindStimulus (int stimulus)
    #endif
 }
 
+bool KirinHyphaProcessorBase::approveReferenceBlindLowerA (
+    double aIntegratedLoudness, double aMaximumTruePeakDbtp)
+{
+    refreshLicenseForUserAction();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->approveBlindLowerAAndStart (
+            aIntegratedLoudness, aMaximumTruePeakDbtp);
+   #else
+    juce::ignoreUnused (aIntegratedLoudness, aMaximumTruePeakDbtp);
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::answerReferenceBlind (int stimulus)
+{
+    refreshLicenseForUserAction();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->answerBlind (stimulus);
+   #else
+    juce::ignoreUnused (stimulus);
+    return false;
+   #endif
+}
+
 bool KirinHyphaProcessorBase::revealReferenceBlind()
 {
     refreshLicenseForUserAction();
@@ -184,8 +276,8 @@ void KirinHyphaProcessorBase::endReferenceBlind()
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void KirinHyphaProcessorBase::createReferenceAuditionController()
 {
-    referenceAuditionController = std::make_unique<hypha::reference_audition::Controller> (
-        hypha::reference_audition::Repository::transportRoot(), [this] (bool active)
+    referenceAuditionController = std::make_unique<hypha::reference_audition::RuntimeV2Controller> (
+        hypha::reference_audition::RuntimeV2Repository::transportRoot(), [this] (bool active)
         {
             const juce::ScopedLock gateLock (handleLock);
             return hyphaHandle != nullptr

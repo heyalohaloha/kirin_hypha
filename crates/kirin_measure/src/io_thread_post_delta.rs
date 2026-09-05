@@ -411,7 +411,8 @@ mod psb_tests {
     #[test]
     fn psb_requires_twenty_finite_normalized_shares() {
         let valid = serde_json::to_value(vec![0.05; 20]).unwrap();
-        assert_eq!(parse_psb_bark(&valid).unwrap().iter().sum::<f64>(), 1.0);
+        let sum = parse_psb_bark(&valid).unwrap().iter().sum::<f64>();
+        assert!((sum - 1.0).abs() < 1e-9);
         assert!(parse_psb_bark(&serde_json::to_value(vec![0.05; 19]).unwrap()).is_none());
         assert!(parse_psb_bark(&serde_json::to_value(vec![0.5; 20]).unwrap()).is_none());
         assert!(parse_psb_bark(&serde_json::json!([

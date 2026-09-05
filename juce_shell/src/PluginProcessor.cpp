@@ -21,11 +21,9 @@ namespace
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::audioRenderTimeline)
                        == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE);
 #endif
-
     // Logic stopped-state fix: expose Inactive PRE/POST presence without waiting for the first audio callback.
     // The 50 ms Timer grants a bounded state-restore window before enabling from prepareToPlay.
     constexpr int kPrepareEnableDelayTicks = 10;
-
     // B-125 (b): prealloc-max headroom (frames). The interleave scratch is sized in
     // prepareToPlay to max(maximumExpectedSamplesPerBlock, this) frames so that realistic
     // variable / offline-render blocks larger than the realtime-declared block are still
@@ -58,7 +56,6 @@ namespace
             return 1;
         return 0;
     }
-
     bool shouldCaptureBufferForMeasurement (uint8_t stateCode,
                                             bool bypassed,
                                             bool recording,
@@ -69,7 +66,6 @@ namespace
         return ! bypassed
             && (stateCode == 1 || (recording && (playing || positionChanged || nonRealtime)));
     }
-
 }
 
 KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
@@ -510,6 +506,10 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
 
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (role == Role::Post && referenceAuditionController != nullptr)
+        referenceAuditionController->observeAInput (
+            buffer, positionSamples, hasPosition, playing,
+            ! bypassed && ! nonRealtimeMode && licenseIsOs());
     // Explicit B is an output-only audition copy. A has already been measured above. Offline
     // render, bypass, missing project time, cache miss, and every consumer failure keep A intact.
     if (role == Role::Post && referenceAuditionController != nullptr)

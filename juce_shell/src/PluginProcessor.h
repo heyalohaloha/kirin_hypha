@@ -13,7 +13,7 @@
  #include "CaptureWorkAttachment.h"
  #include "pre_display/PreDisplayClock.h"
  #include "pre_display/PreDisplayController.h"
- #include "reference_audition/ReferenceAuditionController.h"
+ #include "reference_audition/ReferenceRuntimeV2Controller.h"
 #endif
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
@@ -81,8 +81,17 @@ public:
     hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
     bool selectReferenceB (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     void selectReferenceA();
+    bool selectReferencePreset (const juce::String&);
+    bool selectReferenceCheck (const juce::String&);
+    bool selectReferenceCandidate (const juce::String&);
+    bool selectReferenceCue (const juce::String&);
+    bool approveReferenceSampleRateConversion();
+    bool requestReferenceRecovery();
     bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
+    bool approveReferenceBlindLowerA (double aIntegratedLoudness,
+                                      double aMaximumTruePeakDbtp);
     bool selectReferenceBlindStimulus (int stimulus);
+    bool answerReferenceBlind (int stimulus);
     bool revealReferenceBlind();
     void endReferenceBlind();
 #endif
@@ -289,7 +298,7 @@ private:
     std::unique_ptr<hypha::capture::WorkAttachmentController> captureWorkAttachmentController;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     void createReferenceAuditionController();
-    std::unique_ptr<hypha::reference_audition::Controller> referenceAuditionController;
+    std::unique_ptr<hypha::reference_audition::RuntimeV2Controller> referenceAuditionController;
    #endif
 #endif
 

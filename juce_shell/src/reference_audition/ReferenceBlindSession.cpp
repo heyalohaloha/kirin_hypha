@@ -1,6 +1,7 @@
 #include "ReferenceBlindSession.h"
 
 #include <cstdint>
+#include <limits>
 #include <random>
 #include <stdexcept>
 
@@ -21,20 +22,31 @@ namespace hypha::reference_audition
         }
     }
 
-    bool secureRandomBit()
+    void secureRandomBytes (void* destination, std::size_t byteCount)
     {
-        std::uint8_t value = 0;
+        if (destination == nullptr || byteCount == 0)
+            throw std::runtime_error ("invalid random destination");
        #if defined(_WIN32)
-        if (::BCryptGenRandom (nullptr, &value, sizeof (value),
+        if (byteCount > std::numeric_limits<ULONG>::max()
+            || ::BCryptGenRandom (nullptr, static_cast<PUCHAR> (destination),
+                                  static_cast<ULONG> (byteCount),
                                BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
             throw std::runtime_error ("system random unavailable");
        #elif defined(__APPLE__)
-        if (::SecRandomCopyBytes (kSecRandomDefault, sizeof (value), &value) != errSecSuccess)
+        if (::SecRandomCopyBytes (kSecRandomDefault, byteCount, destination) != errSecSuccess)
             throw std::runtime_error ("system random unavailable");
        #else
         std::random_device source;
-        value = static_cast<std::uint8_t> (source());
+        auto* bytes = static_cast<std::uint8_t*> (destination);
+        for (std::size_t index = 0; index < byteCount; ++index)
+            bytes[index] = static_cast<std::uint8_t> (source());
        #endif
+    }
+
+    bool secureRandomBit()
+    {
+        std::uint8_t value = 0;
+        secureRandomBytes (&value, sizeof (value));
         return (value & 1u) != 0u;
     }
 

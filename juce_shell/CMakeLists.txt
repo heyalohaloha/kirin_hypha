@@ -132,6 +132,31 @@ juce_add_binary_data(KirinHyphaData SOURCES ${KIRIN_HYPHA_DATA_SOURCES})
 target_compile_definitions(KirinHyphaData INTERFACE
     KIRIN_HYPHA_KIMERA_EMBEDDED=${KIRIN_HYPHA_KIMERA_EMBEDDED})
 set(KIRIN_HYPHA_WIDGETS_SOURCE src/HyphaWidgets.cpp)
+set(KIRIN_REFERENCE_AUDITION_SOURCES
+    src/reference_audition/ReferenceAudioPages.cpp
+    src/reference_audition/ReferenceBlindSession.cpp
+    src/reference_audition/ReferenceAuditionController.cpp
+    src/reference_audition/ReferenceAuditionLease.cpp
+    src/reference_audition/ReferenceAuditionProtocol.cpp
+    src/reference_audition/ReferenceAuditionRepository.cpp
+    src/reference_audition/ReferenceRecoveryTransport.cpp
+    src/reference_audition/ReferenceRuntimeEventTransport.cpp
+    src/reference_audition/ReferenceRuntimeABinding.cpp
+    src/reference_audition/ReferenceRuntimeACapture.cpp
+    src/reference_audition/ReferenceRuntimeV2Repository.cpp
+    src/reference_audition/ReferenceRuntimeV2Controller.cpp
+    src/reference_audition/ReferenceRuntimeV2Lifecycle.cpp
+    src/reference_audition/ReferenceRuntimeV2Events.cpp
+    src/reference_audition/ReferenceRuntimeV2Selection.cpp
+    src/reference_audition/ReferenceRuntimeV2Realtime.cpp
+    src/reference_audition/ReferenceRuntimeV2Alignment.cpp
+    src/reference_audition/ReferenceRuntimeV2Blind.cpp
+    src/reference_audition/ReferenceRuntimeV2BlindRealtime.cpp
+    src/reference_audition/ReferenceRuntimeV2BlindState.cpp
+    src/reference_audition/ReferenceRuntimeV2Measurement.cpp
+    src/reference_audition/ReferenceRuntimeV2Profile.cpp
+    src/reference_audition/ReferenceRuntimeV2Presentation.cpp
+    src/reference_audition/ReferenceRuntimeV2Source.cpp)
 
 # B-070: PRE and POST are two plugin targets sharing one role-parameterized base
 # (KirinHyphaProcessorBase). They link the same kirin_hypha_ffi staticlib and compile the
@@ -231,12 +256,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaSpectrumFocusTrail.cpp
             src/HyphaSpectrumFocusTrailPainter.cpp
             src/HyphaSpectrumPainter.cpp
-            src/reference_audition/ReferenceAudioPages.cpp
-            src/reference_audition/ReferenceBlindSession.cpp
-            src/reference_audition/ReferenceAuditionController.cpp
-            src/reference_audition/ReferenceAuditionLease.cpp
-            src/reference_audition/ReferenceAuditionProtocol.cpp
-            src/reference_audition/ReferenceAuditionRepository.cpp)
+            ${KIRIN_REFERENCE_AUDITION_SOURCES})
         target_link_libraries(${TARGET} PRIVATE juce::juce_audio_formats)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=0)
     endif()
@@ -389,6 +409,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
         src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceVisuals.cpp
         src/PostControls.cpp
         src/HyphaPsbPainter.cpp
         src/HyphaSpectrumComponent.cpp
@@ -533,18 +554,20 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         PRODUCT_NAME "Kirin Reference Audition Runtime Tests")
     target_sources(KirinReferenceAuditionRuntimeTests PRIVATE
         tests/reference_audition_runtime_test.cpp
-        src/reference_audition/ReferenceAudioPages.cpp
-        src/reference_audition/ReferenceBlindSession.cpp
-        src/reference_audition/ReferenceAuditionController.cpp
-        src/reference_audition/ReferenceAuditionLease.cpp
-        src/reference_audition/ReferenceAuditionProtocol.cpp
-        src/reference_audition/ReferenceAuditionRepository.cpp)
+        tests/reference_runtime_v2_workspace_test.cpp
+        ${KIRIN_REFERENCE_AUDITION_SOURCES})
     target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0)
     target_compile_options(KirinReferenceAuditionRuntimeTests PRIVATE
         ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_include_directories(KirinReferenceAuditionRuntimeTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
+    if(TARGET KirinHyphaRustFFI)
+        add_dependencies(KirinReferenceAuditionRuntimeTests KirinHyphaRustFFI)
+    endif()
     target_link_libraries(KirinReferenceAuditionRuntimeTests PRIVATE
+        ${KIRIN_FFI_LIB}
         juce::juce_audio_formats
         juce::juce_core
         juce::juce_cryptography
@@ -579,6 +602,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceVisuals.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp

@@ -31,11 +31,11 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "kirin_hypha_reference_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 /* 不透明ハンドル. */
 typedef struct KirinHypha KirinHypha;
 

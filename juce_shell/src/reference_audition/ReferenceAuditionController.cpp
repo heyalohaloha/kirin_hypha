@@ -21,7 +21,6 @@ namespace hypha::reference_audition
         {
             return static_cast<float> (std::pow (10.0, gainDb / 20.0));
         }
-
         std::uint32_t currentProcessId() noexcept
         {
            #if JUCE_WINDOWS
@@ -30,7 +29,6 @@ namespace hypha::reference_audition
             return static_cast<std::uint32_t> (::getpid());
            #endif
         }
-
     }
 
     Controller::Controller (juce::File transportRootIn, SelectionGate selectionGateIn,
@@ -387,7 +385,6 @@ namespace hypha::reference_audition
             publish (std::move (next));
             return;
         }
-
         const bool changed = loaded.preparation.preparationId != activePreparation.preparationId;
         if (changed)
         {
@@ -451,6 +448,9 @@ namespace hypha::reference_audition
         next.alignmentMode = activePreparation.alignmentMode;
         next.sourceIntegratedLoudness = activeReceipt.integratedLoudness;
         next.sourceMaximumTruePeakDbtp = activeReceipt.maximumTruePeakDbtp;
+        next.blindEligible = activePreparation.sourceKind == "work_version"
+            && activePreparation.sourceWorkId == configuration.identity.workId
+            && activePreparation.versionId.isNotEmpty();
         publish (std::move (next));
     }
 
