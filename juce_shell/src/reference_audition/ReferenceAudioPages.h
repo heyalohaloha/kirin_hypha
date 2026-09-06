@@ -64,6 +64,7 @@ namespace hypha::reference_audition
             juce::AudioBuffer<float> audio;
             std::atomic<std::int64_t> start { 0 };
             std::atomic<std::uint64_t> generation { 0 };
+            std::atomic<std::uint64_t> publicationSequence { 0 };
         };
 
         juce::String installReader (std::unique_ptr<juce::AudioFormatReader>,

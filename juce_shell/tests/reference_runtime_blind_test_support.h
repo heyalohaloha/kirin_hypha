@@ -4,6 +4,19 @@
 
 namespace
 {
+    void completeBlindNormalReturn (ref::RuntimeV2Blind& blind,
+                                    juce::AudioBuffer<float>& output)
+    {
+        blind.end();
+        if (! blind.ongoing())
+            return;
+        output.clear();
+        require (blind.renderInvalidatedA (output, true),
+                 "normal return must be confirmed by one eligible audio callback");
+        require (blind.completeNormalReturn(),
+                 "non-RT control must consume the exact normal-return receipt");
+    }
+
     [[maybe_unused]] juce::String canonicalPcmHash (const std::vector<float>& interleaved)
     {
         juce::MemoryBlock canonical (interleaved.size() * 4, true);
@@ -232,7 +245,7 @@ namespace
         require (juce::SHA256 (committed).toHexString()
                     == state.assignmentCommitmentSha256,
                  "revealed assignment and nonce must verify the immutable Start commitment");
-        blind.end();
+        completeBlindNormalReturn (blind, output);
         state = blind.snapshot();
         require (! blind.ongoing() && state.phase == ref::BlindPhase::inactive
                  && state.trialId.isEmpty()
@@ -247,7 +260,7 @@ namespace
         require (! blind.render (output, a->startSample + a->frameCount - 128, true)
                  && std::abs (output.getSample (0, 0) - beforeEnd) < 1.0e-9f,
                  "non-loop Blind must return to unchanged A when a callback crosses Cue end");
-        blind.end();
+        completeBlindNormalReturn (blind, output);
 
         auto negativeA = std::make_shared<ref::RuntimeACaptureAudio> (*a);
         negativeA->startSample = -384'000;
@@ -258,7 +271,7 @@ namespace
         output.clear();
         require (negativePositionBlind.render (output, negativeA->startSample, true),
                  "Blind must render a valid negative DAW pre-roll position without signed overflow");
-        negativePositionBlind.end();
+        completeBlindNormalReturn (negativePositionBlind, output);
 
         const auto limitedBFile = sandbox.getChildFile ("blind-b-limited.wav");
         require (writeBlindB (limitedBFile, *a, true),
@@ -280,13 +293,13 @@ namespace
         const auto unattenuated = output.getSample (0, 0);
         approvalBlind.invalidate();
         require (! approvalBlind.renderInvalidatedA (output, true)
-                 && output.getSample (0, 0) == unattenuated,
+                 && std::abs (output.getSample (0, 0) - unattenuated) < 1.0e-9f,
                  "approval without audible output must leave A unchanged after interruption");
-        approvalBlind.end();
+        completeBlindNormalReturn (approvalBlind, output);
         state = approvalBlind.snapshot();
         require (state.lowerAApprovalRequired && std::abs (state.aGainDb) < 1.0e-9
                  && ! approvalBlind.start(),
-                 "ending a lower-A trial must restore A and require approval again");
+                 "ending a silent lower-A trial must restore A and require approval again");
 
         require (approvalBlind.start (true),
                  "a repeated lower-A trial must accept a new explicit approval");
@@ -296,6 +309,12 @@ namespace
                  "approved lower-A trial must produce one confirmed audio callback");
         output.clear();
         output.setSample (0, 0, 0.5f);
+        require (! approvalBlind.renderInvalidatedA (output, true)
+                 && std::abs (output.getSample (0, 0) - 0.5f) < 1.0e-9f,
+                 "active Blind must never be intercepted by the invalidated-A route");
+        audibleOutput.clear();
+        require (approvalBlind.render (audibleOutput, a->startSample + 128, true),
+                 "active lower-A Blind must keep dispatching frozen stimuli across callbacks");
         approvalBlind.invalidate();
         require (approvalBlind.renderInvalidatedA (output, true)
                  && std::abs (output.getSample (0, 0)
@@ -304,10 +323,19 @@ namespace
                     < 1.0e-6f,
                  "an interrupted approved trial must hold lowered A until explicit return");
         approvalBlind.end();
+        require (approvalBlind.holdingAttenuation()
+                 && ! approvalBlind.completeNormalReturn(),
+                 "a return request alone must not release approved A attenuation");
+        output.clear();
+        output.setSample (0, 0, 0.5f);
+        require (approvalBlind.renderInvalidatedA (output, true)
+                 && std::abs (output.getSample (0, 0) - 0.5f) < 1.0e-9f
+                 && approvalBlind.completeNormalReturn(),
+                 "one unchanged-A callback must confirm the return before attenuation is released");
         state = approvalBlind.snapshot();
         require (state.lowerAApprovalRequired && std::abs (state.aGainDb) < 1.0e-9
                  && ! approvalBlind.start(),
-                 "ending a lower-A trial must restore A and require approval again");
+                 "ending an audible lower-A trial must restore A and require approval again");
         require (approvalBlind.start (true),
                  "a repeated lower-A trial must accept a new explicit approval");
         audibleOutput.clear();
@@ -325,6 +353,10 @@ namespace
                         static_cast<float> (approved.aGainDb / 20.0))) < 1.0e-6f,
                  "binding loss must preserve approved A attenuation after Blind data is cleared");
         approvalBlind.end();
+        output.clear();
+        require (approvalBlind.renderInvalidatedA (output, true)
+                 && approvalBlind.completeNormalReturn(),
+                 "lost Blind context must still require a real normal-output receipt");
         state = approvalBlind.snapshot();
         require (! approvalBlind.ongoing()
                  && state.phase == ref::BlindPhase::inactive

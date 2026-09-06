@@ -1,5 +1,6 @@
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "reference_runtime_v2_preset_test_support.h"
+#include "reference_runtime_v2_transaction_test_support.h"
 
 void testRuntimeV2Workspace (const juce::File& sandbox);
 
@@ -236,6 +237,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
         {
             std::atomic<bool> comparisonSuspended { false };
             std::atomic<bool> gateReleasedOnCallingThread { false };
+            std::function<void()> beforeGateActivation;
             const auto callingThread = std::this_thread::get_id();
             const auto controllerNow = juce::Time::currentTimeMillis();
             require (writeJson (aBindingFile, makeRuntimeABinding (
@@ -243,8 +245,11 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                          controllerNow, controllerNow + 9'000)),
                      "live controller A binding must be staged");
             ref::RuntimeV2Controller controller (v2Root,
-                [&comparisonSuspended, &gateReleasedOnCallingThread, callingThread] (bool bSelected)
+                [&comparisonSuspended, &gateReleasedOnCallingThread,
+                 &beforeGateActivation, callingThread] (bool bSelected)
                 {
+                    if (bSelected && beforeGateActivation)
+                        beforeGateActivation();
                     if (! bSelected && std::this_thread::get_id() == callingThread)
                         gateReleasedOnCallingThread.store (true);
                     comparisonSuspended.store (bSelected);
@@ -372,6 +377,11 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                      && std::abs (runtime.loudnessDeltaBMinusA) < 1.0e-9,
                      "normal A/B must preserve the louder existing source ceiling instead of imposing -1 dBTP");
             controller.selectA();
+
+            verifyPublicationChangeRevokesGain (
+                controller, beforeGateActivation, comparisonSuspended,
+                presetFile, manifestFile, measuredPreset, presetId, revisionId);
+
             gateReleasedOnCallingThread.store (false);
             require (controller.selectB (-11.0, -2.0),
                      "audio-thread fail-close fixture must enter B first");
@@ -392,7 +402,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             const auto alignedBFile = sandbox.getChildFile ("controller-b-trimmed.wav");
             constexpr std::int64_t alignedBTailFrames = 48'000;
             const auto alignedBFrames = alignedA->frameCount + alignedBTailFrames;
-            require (writeBlindB (alignedBFile, *alignedA, false,
+            require (writeBlindB (alignedBFile, *alignedA, true,
                                   static_cast<int> (alignedBTailFrames)),
                      "controller content-alignment B fixture must be written");
             const auto alignedBFileHash = juce::SHA256 (alignedBFile).toHexString();
@@ -409,7 +419,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             require (writeJson (presetFile, alignedPreset)
                      && writeJson (manifestFile,
                                    makeRuntimeV2Manifest (
-                                       presetId, revisionId, presetFile, 6)),
+                                       presetId, revisionId, presetFile, 7)),
                      "same-recording Work Version must publish before alignment testing");
             const auto alignmentNow = juce::Time::currentTimeMillis();
             require (writeJson (aBindingFile, makeRuntimeABinding (
@@ -450,8 +460,11 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             for (int attempt = 0; attempt < 400
                  && ! controller.snapshot().blindEligible; ++attempt)
                 juce::Thread::sleep (10);
-            require (controller.snapshot().blindEligible,
+            const auto alignedSnapshot = controller.snapshot();
+            require (alignedSnapshot.blindEligible,
                      "DAW content at bar five must establish the shared normal/Blind alignment");
+            require (alignedSnapshot.blindLowerAApprovalRequired,
+                     "the high-peak alignment fixture must require explicit lower-A approval");
             controller.observeTransport (alignedA->startSample + 1, true, true);
             for (int attempt = 0; attempt < 200
                  && ! controller.snapshot().auditionBuffered; ++attempt)
@@ -466,6 +479,12 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                                   - alignedA->interleaved[2] * 0.5f) < 1.0e-5f,
                      "normal B must map bar-five DAW content to the matched trimmed-file sample");
             controller.selectA();
+
+            verifyBlindSourceReplacementReturn (
+                controller, beforeGateActivation, comparisonSuspended,
+                v2Root, presetFile, manifestFile,
+                alignedBFile, alignedBFileHash, alignedBPcmHash, recordingId,
+                presetId, revisionId, alignedBFrames, alignedA->startSample + 1, output);
         }
 
         require (source.replaceWithText ("changed after receipt")

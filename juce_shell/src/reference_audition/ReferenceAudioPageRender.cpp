@@ -22,21 +22,19 @@ namespace hypha::reference_audition
     {
         for (auto& page : pages)
         {
-            if (page.start.load (std::memory_order_relaxed) != pageStart
-                || page.generation.load (std::memory_order_relaxed) != expectedGeneration)
+            const auto before = page.publicationSequence.load (std::memory_order_acquire);
+            if ((before & 1u) != 0)
                 continue;
-            std::uint8_t expected = ready;
-            if (! page.state.compare_exchange_strong (
-                    expected, inUse, std::memory_order_acq_rel))
-            {
-                if (expected == inUse)
-                    return true;
+
+            const auto state = page.state.load (std::memory_order_acquire);
+            if (state != ready && state != inUse)
                 continue;
-            }
-            const bool matches = page.start.load (std::memory_order_relaxed) == pageStart
-                && page.generation.load (std::memory_order_relaxed) == expectedGeneration;
-            page.state.store (ready, std::memory_order_release);
-            if (matches)
+
+            const auto observedStart = page.start.load (std::memory_order_relaxed);
+            const auto observedGeneration = page.generation.load (std::memory_order_relaxed);
+            const auto after = page.publicationSequence.load (std::memory_order_acquire);
+            if (before == after && observedStart == pageStart
+                && observedGeneration == expectedGeneration)
                 return true;
         }
         return false;

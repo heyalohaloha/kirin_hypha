@@ -88,10 +88,13 @@ namespace hypha::reference_audition
         void clear() noexcept;
 
         bool start (bool approveLowerA = false) noexcept;
+        bool cancelUnheardStart() noexcept;
         bool requestStimulus (int) noexcept;
         bool answer (int) noexcept;
         bool reveal() noexcept;
         void end() noexcept;
+        bool completeNormalReturn() noexcept;
+        void forceClearAfterAudioStopped() noexcept;
         void loseAudibleConfirmation() noexcept;
         bool render (juce::AudioBuffer<float>&, std::int64_t hostPosition,
                      bool positionValid) noexcept;
@@ -99,6 +102,8 @@ namespace hypha::reference_audition
                                  bool auditionAllowed) noexcept;
         RuntimeV2BlindSnapshot snapshot() const;
         bool ongoing() const noexcept;
+        bool listening() const noexcept;
+        bool holdingAttenuation() const noexcept;
 
     private:
         enum Lifecycle : int
@@ -110,9 +115,12 @@ namespace hypha::reference_audition
             active = 4,
             revealed = 5,
             invalidated = 6,
+            returnRequested = 7,
+            normalConfirmed = 8,
         };
 
         bool enterPreparation() noexcept;
+        void restorePreparedGain() noexcept;
         void resetSession() noexcept;
         int sideForStimulus (int stimulus) const noexcept;
         static BlindPhase publicPhase (int lifecycle) noexcept;
@@ -144,9 +152,11 @@ namespace hypha::reference_audition
         juce::String assignmentNonceHex;
 
         std::atomic<int> lifecycle { unavailable };
+        std::atomic<int> returnLifecycle { unavailable };
         std::atomic<int> callbacksInFlight { 0 };
         mutable std::atomic<int> snapshotReadersInFlight { 0 };
         std::atomic<bool> attenuationHoldActive { false };
+        std::atomic<bool> normalReturnRequired { false };
         std::atomic<float> heldALinearGain { 1.0f };
         std::atomic<bool> stimulusOneIsB { false };
         std::atomic<int> requestedStimulus { 0 };

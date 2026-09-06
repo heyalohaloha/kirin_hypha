@@ -4,10 +4,20 @@ namespace hypha::reference_audition
 {
     void RuntimeV2Controller::serviceDeferredAudioThreadActions()
     {
+        if (blind.completeNormalReturn())
+        {
+            activeAuditionEpoch.store (0, std::memory_order_release);
+            releaseActiveOutputGate();
+        }
         if (auditionReturnPending.exchange (false, std::memory_order_acq_rel))
             requestAuditionReturnEvent (aAudibleConfirmations.load (std::memory_order_acquire));
-        if (gateReleasePending.exchange (false, std::memory_order_acq_rel) && selectionGate)
-            selectionGate (false);
+        const auto pendingGateRelease = gateReleasePendingToken.exchange (
+            0, std::memory_order_acq_rel);
+        if (pendingGateRelease != 0)
+        {
+            blind.cancelUnheardStart();
+            releaseOutputGate (pendingGateRelease);
+        }
     }
 
     bool RuntimeV2Controller::renderSelectedB (juce::AudioBuffer<float>& buffer,
@@ -18,10 +28,16 @@ namespace hypha::reference_audition
         const bool activeTransport = auditionAllowed
                                   && latestPlaying.load (std::memory_order_acquire)
                                   && positionValid;
+        if (blind.listening()
+            && activeAuditionEpoch.load (std::memory_order_acquire)
+                != auditionEpoch.load (std::memory_order_acquire))
+            invalidateBlindFromAudioThread();
         if (blind.renderInvalidatedA (buffer, activeTransport))
             return true;
         if (blind.ongoing())
         {
+            if (! blind.listening())
+                return false;
             if (! activeTransport || ! ready.load (std::memory_order_acquire)
                 || ! blind.render (buffer, hostPosition, positionValid))
             {
@@ -32,7 +48,9 @@ namespace hypha::reference_audition
         }
         if (! auditionAllowed || ! latestPlaying.load (std::memory_order_acquire)
             || ! positionValid || ! bSelected.load (std::memory_order_acquire)
-            || ! ready.load (std::memory_order_acquire))
+            || ! ready.load (std::memory_order_acquire)
+            || activeAuditionEpoch.load (std::memory_order_acquire)
+                   != auditionEpoch.load (std::memory_order_acquire))
         {
             if (bSelected.load (std::memory_order_acquire))
                 failClosedToAFromAudioThread();

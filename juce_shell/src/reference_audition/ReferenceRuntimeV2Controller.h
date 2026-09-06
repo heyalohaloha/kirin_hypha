@@ -104,6 +104,23 @@ namespace hypha::reference_audition
             bool completionPending = false;
         };
 
+        struct PreparedNormalSelection
+        {
+            std::uint64_t auditionEpoch = 0;
+            std::uint64_t selectionGeneration = 0;
+            float linearGain = 1.0f;
+            double appliedGainDb = 0.0;
+            double aIntegratedLoudness = 0.0;
+            double aMaximumTruePeakDbtp = 0.0;
+            double adjustedBIntegratedLoudness = 0.0;
+            double adjustedBMaximumTruePeakDbtp = 0.0;
+            double loudnessDeltaBMinusA = 0.0;
+            double truePeakDeltaBMinusA = 0.0;
+            bool gainLimited = false;
+            bool comparisonFallbackOriginal = false;
+            bool valid = false;
+        };
+
         void run() override;
         void applyConfiguration (const Configuration&);
         void refreshWorkspace (const Configuration&, std::int64_t nowMs);
@@ -114,8 +131,14 @@ namespace hypha::reference_audition
         bool requestSelection (const juce::String& kind, const juce::String& id);
         std::int64_t mappedSourcePosition (std::int64_t hostPosition) const noexcept;
         bool prepareReferenceGain (double aIntegratedLoudness,
-                                   double aMaximumTruePeakDbtp) noexcept;
-        bool activatePreparedB() noexcept;
+                                   double aMaximumTruePeakDbtp,
+                                   std::uint64_t selectionGeneration) noexcept;
+        bool activatePreparedB (std::uint64_t selectionGeneration) noexcept;
+        bool startBlindWithApproval (double aIntegratedLoudness,
+                                     bool approveLowerA) noexcept;
+        std::uint64_t acquireOutputGate() noexcept;
+        void releaseOutputGate (std::uint64_t token) noexcept;
+        void releaseActiveOutputGate() noexcept;
         void beginAuditionEventSession (std::uint64_t bBaseline) noexcept;
         void requestAuditionReturnEvent (std::uint64_t aBaseline) noexcept;
         void beginBlindEventSession (const RuntimeV2BlindSnapshot&) noexcept;
@@ -124,6 +147,7 @@ namespace hypha::reference_audition
         void serviceRecoveryAcknowledgement();
         void servicePresetSelectionAcknowledgement();
         void serviceDeferredAudioThreadActions();
+        void revokeAuditionPublication() noexcept;
         void failClosedToA() noexcept;
         void invalidateBlind() noexcept;
         void failClosedToAFromAudioThread() noexcept;
@@ -146,6 +170,7 @@ namespace hypha::reference_audition
         AudioPages pages;
         RuntimeV2Blind blind;
         mutable juce::CriticalSection stateLock;
+        juce::CriticalSection outputGateLock;
         Configuration requestedConfiguration;
         RequestedSelection requestedSelection;
         std::uint64_t appliedConfigurationGeneration = 0;
@@ -165,6 +190,7 @@ namespace hypha::reference_audition
         juce::String blindPreparationKey;
         juce::String activePresetAdoptionKey;
         Snapshot currentSnapshot;
+        PreparedNormalSelection preparedNormalSelection;
         RuntimeEventContext activeEventContext;
         RuntimeCandidate activeEventCandidate;
         RuntimeCue activeEventCue;
@@ -181,6 +207,9 @@ namespace hypha::reference_audition
         std::atomic<bool> ready { false };
         std::atomic<bool> bSelected { false };
         std::atomic<float> bLinearGain { 1.0f };
+        std::atomic<std::uint64_t> auditionEpoch { 1 };
+        std::atomic<std::uint64_t> activeAuditionEpoch { 0 };
+        std::atomic<std::uint64_t> normalSelectionGeneration { 1 };
         std::atomic<std::int64_t> latestHostPosition { 0 };
         std::atomic<bool> latestPositionValid { false };
         std::atomic<bool> latestPlaying { false };
@@ -193,7 +222,9 @@ namespace hypha::reference_audition
         std::atomic<std::uint64_t> aAudibleConfirmations { 0 };
         std::atomic<std::int64_t> bHostAnchor { 0 };
         std::atomic<std::int64_t> bSourceAnchor { 0 };
-        std::atomic<bool> gateReleasePending { false };
+        std::atomic<std::uint64_t> nextOutputGateToken { 1 };
+        std::atomic<std::uint64_t> activeOutputGateToken { 0 };
+        std::atomic<std::uint64_t> gateReleasePendingToken { 0 };
         std::atomic<bool> auditionReturnPending { false };
     };
 }

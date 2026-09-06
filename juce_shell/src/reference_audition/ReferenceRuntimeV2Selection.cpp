@@ -1,22 +1,11 @@
 #include "ReferenceRuntimeV2Controller.h"
 
-#include <cmath>
 #include <limits>
 
 namespace hypha::reference_audition
 {
     namespace
     {
-        float gainFromDecibels (double gainDb)
-        {
-            return static_cast<float> (std::pow (10.0, gainDb / 20.0));
-        }
-
-        double unavailable() noexcept
-        {
-            return std::numeric_limits<double>::quiet_NaN();
-        }
-
         bool checkedAdd (std::int64_t left, std::int64_t right,
                          std::int64_t& result) noexcept
         {
@@ -138,232 +127,86 @@ namespace hypha::reference_audition
         return -1;
     }
 
-    bool RuntimeV2Controller::prepareReferenceGain (double aIntegratedLoudness,
-                                                    double aMaximumTruePeakDbtp) noexcept
-    {
-        if (! ready.load (std::memory_order_acquire)
-            || ! latestPositionValid.load (std::memory_order_acquire))
-            return false;
-        juce::String comparisonMode;
-        std::shared_ptr<const RuntimeSource> source;
-        {
-            const juce::ScopedLock lock (stateLock);
-            if (! ready.load (std::memory_order_acquire))
-                return false;
-            comparisonMode = currentSnapshot.comparisonMode;
-            source = publishedSource;
-        }
-        if (source == nullptr)
-            return false;
-        double requiredGain = 0.0;
-        bool fallbackOriginal = false;
-        if (comparisonMode == "loudness_match")
-        {
-            if (! std::isfinite (aIntegratedLoudness)
-                || ! source->measurementSummary
-                || ! source->measurementSummary->loudnessLufsI)
-                fallbackOriginal = true;
-            else
-                requiredGain = aIntegratedLoudness
-                             - *source->measurementSummary->loudnessLufsI;
-        }
-        else if (comparisonMode == "peak_match")
-        {
-            if (! std::isfinite (aMaximumTruePeakDbtp)
-                || ! source->measurementSummary
-                || ! source->measurementSummary->maximumTruePeakDbtp)
-                fallbackOriginal = true;
-            else
-                requiredGain = aMaximumTruePeakDbtp
-                             - *source->measurementSummary->maximumTruePeakDbtp;
-        }
-        else if (comparisonMode != "original")
-            return false;
-        if (! std::isfinite (requiredGain) || requiredGain < -100.0 || requiredGain > 100.0)
-            return false;
-
-        double appliedGain = requiredGain;
-        bool limited = false;
-        if (requiredGain > 0.0)
-        {
-            if (! source->measurementSummary
-                || ! source->measurementSummary->maximumTruePeakDbtp)
-            {
-                appliedGain = 0.0;
-                fallbackOriginal = true;
-            }
-            else
-            {
-                const auto ceiling = juce::jmax (
-                    -1.0,
-                    std::isfinite (aMaximumTruePeakDbtp) ? aMaximumTruePeakDbtp : -1.0,
-                    *source->measurementSummary->maximumTruePeakDbtp);
-                const auto availableGain = juce::jmax (
-                    0.0,
-                    ceiling - *source->measurementSummary->maximumTruePeakDbtp);
-                if (availableGain + 1.0e-9 < requiredGain)
-                {
-                    // Normal A/B never applies a partial match. Keep A unchanged and
-                    // play B at its original level; Blind owns the explicit lower-A
-                    // approval flow when an exact comparison needs more headroom.
-                    appliedGain = 0.0;
-                    fallbackOriginal = true;
-                }
-            }
-            limited = appliedGain + 1.0e-9 < requiredGain;
-        }
-        bLinearGain.store (gainFromDecibels (appliedGain), std::memory_order_release);
-        const auto sourceLoudness = source->measurementSummary
-            && source->measurementSummary->loudnessLufsI
-            ? *source->measurementSummary->loudnessLufsI : unavailable();
-        const auto sourcePeak = source->measurementSummary
-            && source->measurementSummary->maximumTruePeakDbtp
-            ? *source->measurementSummary->maximumTruePeakDbtp : unavailable();
-        {
-            const juce::ScopedLock lock (stateLock);
-            currentSnapshot.appliedGainDb = appliedGain;
-            currentSnapshot.gainLimited = limited;
-            currentSnapshot.comparisonFallbackOriginal = fallbackOriginal;
-            currentSnapshot.aIntegratedLoudness = aIntegratedLoudness;
-            currentSnapshot.aMaximumTruePeakDbtp = aMaximumTruePeakDbtp;
-            currentSnapshot.adjustedBIntegratedLoudness = std::isfinite (sourceLoudness)
-                ? sourceLoudness + appliedGain : unavailable();
-            currentSnapshot.adjustedBMaximumTruePeakDbtp = std::isfinite (sourcePeak)
-                ? sourcePeak + appliedGain : unavailable();
-            currentSnapshot.loudnessDeltaBMinusA = std::isfinite (aIntegratedLoudness)
-                && std::isfinite (currentSnapshot.adjustedBIntegratedLoudness)
-                ? currentSnapshot.adjustedBIntegratedLoudness - aIntegratedLoudness : unavailable();
-            currentSnapshot.truePeakDeltaBMinusA = std::isfinite (aMaximumTruePeakDbtp)
-                && std::isfinite (currentSnapshot.adjustedBMaximumTruePeakDbtp)
-                ? currentSnapshot.adjustedBMaximumTruePeakDbtp - aMaximumTruePeakDbtp : unavailable();
-        }
-        return true;
-    }
-
-    bool RuntimeV2Controller::activatePreparedB() noexcept
-    {
-        if (! ready.load (std::memory_order_acquire)
-            || ! latestPlaying.load (std::memory_order_acquire)
-            || ! latestPositionValid.load (std::memory_order_acquire))
-            return false;
-        const auto sourcePosition = mappedSourcePosition (latestHostPosition.load());
-        pages.request (sourcePosition);
-        if (! pages.readyAt (sourcePosition, 1)
-            || (selectionGate && ! selectionGate (true)))
-            return false;
-        if (! ready.load (std::memory_order_acquire))
-        {
-            if (selectionGate) selectionGate (false);
-            return false;
-        }
-        bSelected.store (true, std::memory_order_release);
-        if (! ready.load (std::memory_order_acquire))
-        {
-            bSelected.store (false, std::memory_order_release);
-            if (selectionGate) selectionGate (false);
-            return false;
-        }
-        return true;
-    }
-
-    bool RuntimeV2Controller::selectB (double aIntegratedLoudness,
-                                       double aMaximumTruePeakDbtp) noexcept
-    {
-        if (blind.ongoing())
-            return false;
-        const bool alreadySelected = bSelected.load (std::memory_order_acquire);
-        const auto bBaseline = bAudibleConfirmations.load (std::memory_order_acquire);
-        const bool selected = prepareReferenceGain (aIntegratedLoudness, aMaximumTruePeakDbtp)
-                           && activatePreparedB();
-        if (selected && ! alreadySelected)
-            beginAuditionEventSession (bBaseline);
-        return selected;
-    }
-
-    void RuntimeV2Controller::selectA() noexcept
-    {
-        if (blind.ongoing())
-        {
-            endBlind();
-            return;
-        }
-        const auto aBaseline = aAudibleConfirmations.load (std::memory_order_acquire);
-        const bool wasSelected = bSelected.exchange (false, std::memory_order_acq_rel);
-        const bool deferredReturn = auditionReturnPending.exchange (
-            false, std::memory_order_acq_rel);
-        const bool deferredRelease = gateReleasePending.exchange (
-            false, std::memory_order_acq_rel);
-        if (wasSelected || deferredReturn)
-            requestAuditionReturnEvent (aBaseline);
-        if ((wasSelected || deferredRelease) && selectionGate)
-            selectionGate (false);
-    }
-
     bool RuntimeV2Controller::startBlind (double aIntegratedLoudness,
                                           double aMaximumTruePeakDbtp) noexcept
     {
         juce::ignoreUnused (aMaximumTruePeakDbtp);
-        if (! ready.load (std::memory_order_acquire)
-            || ! latestPlaying.load (std::memory_order_acquire)
-            || ! latestPositionValid.load (std::memory_order_acquire)
-            || blind.ongoing() || ! blind.start())
-            return false;
-        if (! ready.load (std::memory_order_acquire))
-        {
-            blind.end();
-            return false;
-        }
-        if (selectionGate && ! selectionGate (true))
-        {
-            blind.end();
-            return false;
-        }
-        bSelected.store (false, std::memory_order_release);
-        const auto facts = blind.snapshot();
-        beginBlindEventSession (facts);
-        const juce::ScopedLock lock (stateLock);
-        currentSnapshot.aIntegratedLoudness = aIntegratedLoudness + facts.aGainDb;
-        currentSnapshot.aMaximumTruePeakDbtp = facts.aCueTruePeakDbtp + facts.aGainDb;
-        currentSnapshot.appliedGainDb = facts.bGainDb;
-        currentSnapshot.adjustedBIntegratedLoudness = currentSnapshot.aIntegratedLoudness;
-        currentSnapshot.adjustedBMaximumTruePeakDbtp = facts.bCueTruePeakDbtp + facts.bGainDb;
-        currentSnapshot.loudnessDeltaBMinusA = 0.0;
-        currentSnapshot.truePeakDeltaBMinusA = currentSnapshot.adjustedBMaximumTruePeakDbtp
-                                             - currentSnapshot.aMaximumTruePeakDbtp;
-        return true;
+        return startBlindWithApproval (aIntegratedLoudness, false);
     }
 
     bool RuntimeV2Controller::approveBlindLowerAAndStart (
         double aIntegratedLoudness, double aMaximumTruePeakDbtp) noexcept
     {
         juce::ignoreUnused (aMaximumTruePeakDbtp);
+        return startBlindWithApproval (aIntegratedLoudness, true);
+    }
+
+    bool RuntimeV2Controller::startBlindWithApproval (
+        double aIntegratedLoudness, bool approveLowerA) noexcept
+    {
+        normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
         if (! ready.load (std::memory_order_acquire)
             || ! latestPlaying.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire)
-            || blind.ongoing() || ! blind.start (true))
+            || blind.ongoing())
             return false;
-        if (! ready.load (std::memory_order_acquire))
+        const auto epoch = auditionEpoch.load (std::memory_order_acquire);
+        const auto gateToken = acquireOutputGate();
+        if (gateToken == 0)
+            return false;
+        if (! ready.load (std::memory_order_acquire)
+            || auditionEpoch.load (std::memory_order_acquire) != epoch
+            || ! blind.start (approveLowerA))
         {
-            blind.end();
+            releaseOutputGate (gateToken);
             return false;
         }
-        if (selectionGate && ! selectionGate (true))
+        activeAuditionEpoch.store (epoch, std::memory_order_release);
+        if (! ready.load (std::memory_order_acquire)
+            || auditionEpoch.load (std::memory_order_acquire) != epoch)
         {
-            blind.end();
+            blind.invalidate();
+            if (blind.cancelUnheardStart())
+            {
+                activeAuditionEpoch.store (0, std::memory_order_release);
+                releaseOutputGate (gateToken);
+            }
+            else
+                blind.end();
             return false;
         }
         bSelected.store (false, std::memory_order_release);
         const auto facts = blind.snapshot();
+        bool publicationStillValid = false;
+        {
+            const juce::ScopedLock lock (stateLock);
+            publicationStillValid = ready.load (std::memory_order_acquire)
+                && auditionEpoch.load (std::memory_order_acquire) == epoch;
+            if (publicationStillValid)
+            {
+                currentSnapshot.aIntegratedLoudness = aIntegratedLoudness + facts.aGainDb;
+                currentSnapshot.aMaximumTruePeakDbtp = facts.aCueTruePeakDbtp + facts.aGainDb;
+                currentSnapshot.appliedGainDb = facts.bGainDb;
+                currentSnapshot.adjustedBIntegratedLoudness = currentSnapshot.aIntegratedLoudness;
+                currentSnapshot.adjustedBMaximumTruePeakDbtp = facts.bCueTruePeakDbtp + facts.bGainDb;
+                currentSnapshot.loudnessDeltaBMinusA = 0.0;
+                currentSnapshot.truePeakDeltaBMinusA = currentSnapshot.adjustedBMaximumTruePeakDbtp
+                                                     - currentSnapshot.aMaximumTruePeakDbtp;
+            }
+        }
+        if (! publicationStillValid)
+        {
+            blind.invalidate();
+            if (blind.cancelUnheardStart())
+            {
+                activeAuditionEpoch.store (0, std::memory_order_release);
+                releaseOutputGate (gateToken);
+            }
+            else
+                blind.end();
+            return false;
+        }
         beginBlindEventSession (facts);
-        const juce::ScopedLock lock (stateLock);
-        currentSnapshot.aIntegratedLoudness = aIntegratedLoudness + facts.aGainDb;
-        currentSnapshot.aMaximumTruePeakDbtp = facts.aCueTruePeakDbtp + facts.aGainDb;
-        currentSnapshot.appliedGainDb = facts.bGainDb;
-        currentSnapshot.adjustedBIntegratedLoudness = currentSnapshot.aIntegratedLoudness;
-        currentSnapshot.adjustedBMaximumTruePeakDbtp = facts.bCueTruePeakDbtp + facts.bGainDb;
-        currentSnapshot.loudnessDeltaBMinusA = 0.0;
-        currentSnapshot.truePeakDeltaBMinusA = currentSnapshot.adjustedBMaximumTruePeakDbtp
-                                             - currentSnapshot.aMaximumTruePeakDbtp;
         return true;
     }
 
@@ -388,13 +231,8 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::endBlind() noexcept
     {
-        const bool wasOngoing = blind.ongoing();
         blind.end();
         bSelected.store (false, std::memory_order_release);
-        const bool deferredRelease = gateReleasePending.exchange (
-            false, std::memory_order_acq_rel);
-        if ((wasOngoing || deferredRelease) && selectionGate)
-            selectionGate (false);
     }
 
     void RuntimeV2Controller::loseAudibleConfirmation() noexcept
@@ -407,13 +245,16 @@ namespace hypha::reference_audition
         const bool wasOngoing = blind.ongoing();
         blind.invalidate();
         bSelected.store (false, std::memory_order_release);
-        if (wasOngoing && selectionGate)
-            selectionGate (false);
+        if (wasOngoing && blind.cancelUnheardStart())
+        {
+            activeAuditionEpoch.store (0, std::memory_order_release);
+            releaseActiveOutputGate();
+        }
     }
 
     void RuntimeV2Controller::failClosedToA() noexcept
     {
-        ready.store (false, std::memory_order_release);
+        revokeAuditionPublication();
         if (blind.ongoing())
             invalidateBlind();
         else
@@ -425,21 +266,31 @@ namespace hypha::reference_audition
         const bool wasOngoing = blind.ongoing();
         blind.invalidate();
         bSelected.store (false, std::memory_order_release);
-        if (wasOngoing)
-            gateReleasePending.store (true, std::memory_order_release);
+        if (wasOngoing && ! blind.ongoing())
+        {
+            activeAuditionEpoch.store (0, std::memory_order_release);
+            gateReleasePendingToken.store (
+                activeOutputGateToken.load (std::memory_order_acquire),
+                std::memory_order_release);
+        }
     }
 
     void RuntimeV2Controller::failClosedToAFromAudioThread() noexcept
     {
-        ready.store (false, std::memory_order_release);
+        revokeAuditionPublication();
         if (blind.ongoing())
         {
             invalidateBlindFromAudioThread();
         }
-        else if (bSelected.exchange (false, std::memory_order_acq_rel))
+        else
         {
-            auditionReturnPending.store (true, std::memory_order_release);
-            gateReleasePending.store (true, std::memory_order_release);
+            const auto gateToken = activeOutputGateToken.load (std::memory_order_acquire);
+            if (bSelected.exchange (false, std::memory_order_acq_rel))
+            {
+                activeAuditionEpoch.store (0, std::memory_order_release);
+                auditionReturnPending.store (true, std::memory_order_release);
+                gateReleasePendingToken.store (gateToken, std::memory_order_release);
+            }
         }
     }
 

@@ -175,6 +175,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeV2Lifecycle.cpp
     src/reference_audition/ReferenceRuntimeV2Events.cpp
     src/reference_audition/ReferenceRuntimeV2Selection.cpp
+    src/reference_audition/ReferenceRuntimeV2NormalSelection.cpp
     src/reference_audition/ReferenceRuntimeV2Realtime.cpp
     src/reference_audition/ReferenceRuntimeV2Alignment.cpp
     src/reference_audition/ReferenceRuntimeV2Blind.cpp

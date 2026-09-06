@@ -52,6 +52,8 @@ namespace hypha::reference_audition
         notify();
         if (! stopThread (-1))
             jassertfalse;
+        blind.forceClearAfterAudioStopped();
+        releaseActiveOutputGate();
         aCapture.disconnect();
         removeRuntimeFiles (activeRuntimeFiles);
     }
@@ -70,7 +72,7 @@ namespace hypha::reference_audition
             requestedSelection = {};
             pendingApprovalKey.clear();
             currentSnapshot.sampleRateApprovalRequired = false;
-            ready.store (false, std::memory_order_release);
+            revokeAuditionPublication();
         }
         if (blind.ongoing())
             invalidateBlind();
@@ -141,8 +143,48 @@ namespace hypha::reference_audition
         const juce::ScopedLock lock (stateLock);
         pendingApprovalKey = approvalKey;
         publishedSource.reset();
-        ready.store (false, std::memory_order_release);
+        revokeAuditionPublication();
         publishLocked (std::move (next));
+    }
+
+    void RuntimeV2Controller::revokeAuditionPublication() noexcept
+    {
+        ready.store (false, std::memory_order_release);
+        auditionEpoch.fetch_add (1, std::memory_order_acq_rel);
+        normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
+    }
+
+    std::uint64_t RuntimeV2Controller::acquireOutputGate() noexcept
+    {
+        const juce::ScopedLock lock (outputGateLock);
+        auto token = nextOutputGateToken.fetch_add (1, std::memory_order_acq_rel);
+        if (token == 0)
+            token = nextOutputGateToken.fetch_add (1, std::memory_order_acq_rel);
+        const auto previous = activeOutputGateToken.exchange (
+            token, std::memory_order_acq_rel);
+        if (selectionGate && ! selectionGate (true))
+        {
+            activeOutputGateToken.store (previous, std::memory_order_release);
+            return 0;
+        }
+        return token;
+    }
+
+    void RuntimeV2Controller::releaseOutputGate (std::uint64_t token) noexcept
+    {
+        if (token == 0)
+            return;
+        const juce::ScopedLock lock (outputGateLock);
+        if (activeOutputGateToken.load (std::memory_order_acquire) != token)
+            return;
+        activeOutputGateToken.store (0, std::memory_order_release);
+        if (selectionGate)
+            selectionGate (false);
+    }
+
+    void RuntimeV2Controller::releaseActiveOutputGate() noexcept
+    {
+        releaseOutputGate (activeOutputGateToken.load (std::memory_order_acquire));
     }
 
     void RuntimeV2Controller::publishLocked (Snapshot next)

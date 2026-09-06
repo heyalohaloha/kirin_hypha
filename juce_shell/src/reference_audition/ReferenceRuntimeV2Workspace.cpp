@@ -222,7 +222,7 @@ namespace hypha::reference_audition
             + next.cueId + ":" + next.comparisonMode;
         if (publicationKey != activePublishedSelectionKey)
         {
-            ready.store (false, std::memory_order_release);
+            revokeAuditionPublication();
             if (blind.ongoing())
                 invalidateBlind();
             else
@@ -282,8 +282,11 @@ namespace hypha::reference_audition
             + (rateDiffers ? "converted" : "native");
         if (sourceKey != activeSourceKey || ! pages.sourceOpen())
         {
-            ready.store (false, std::memory_order_release);
-            selectA();
+            revokeAuditionPublication();
+            if (blind.ongoing())
+                invalidateBlind();
+            else
+                selectA();
             pages.close();
             const auto openFailure = pages.open (*selectedSource, configuration.sampleRate,
                                                  configuration.channels, rateApproved);

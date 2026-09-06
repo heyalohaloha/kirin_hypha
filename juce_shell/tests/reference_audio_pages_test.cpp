@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <thread>
 
 namespace ref = hypha::reference_audition;
 
@@ -122,6 +123,23 @@ int main()
     require (closeEnough (output.getSample (0, 0), TestReader::valueAt (0, 100) * 0.5f)
              && closeEnough (output.getSample (1, 511), TestReader::valueAt (1, 611) * 0.5f),
              "render must preserve channel, position, and B-only gain");
+
+    std::atomic<bool> observe { true };
+    std::thread observer ([&]
+    {
+        while (observe.load (std::memory_order_acquire))
+            require (pages.readyAt (100, 1),
+                     "non-owning readiness observation must remain stable");
+    });
+    juce::AudioBuffer<float> observedOutput (2, 1);
+    int observationFailures = 0;
+    for (int attempt = 0; attempt < 100'000; ++attempt)
+        if (! pages.render (observedOutput, 100, 1.0f))
+            ++observationFailures;
+    observe.store (false, std::memory_order_release);
+    observer.join();
+    require (observationFailures == 0,
+             "readiness observation must never consume the audio page lease");
 
     ref::AudioPages::setAcquireOwnershipHookForTest (replaceAnotherPageAfterOwnership);
     output.clear();

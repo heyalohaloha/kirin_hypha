@@ -247,6 +247,7 @@ namespace hypha::reference_audition
         if (selected == nullptr)
             return false;
 
+        selected->publicationSequence.fetch_add (1, std::memory_order_acq_rel);
         selected->audio.clear();
         const bool readOk = sampleRateConversion
             ? fillConverted (*selected, pageStart)
@@ -254,11 +255,13 @@ namespace hypha::reference_audition
                             pageStart, true, channels > 1);
         if (! readOk || generation != activeGeneration.load (std::memory_order_acquire))
         {
+            selected->publicationSequence.fetch_add (1, std::memory_order_release);
             selected->state.store (empty, std::memory_order_release);
             return false;
         }
         selected->start.store (pageStart, std::memory_order_relaxed);
         selected->generation.store (generation, std::memory_order_relaxed);
+        selected->publicationSequence.fetch_add (1, std::memory_order_release);
         selected->state.store (ready, std::memory_order_release);
         return true;
     }

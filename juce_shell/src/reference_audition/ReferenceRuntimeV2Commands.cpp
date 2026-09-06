@@ -24,7 +24,7 @@ namespace hypha::reference_audition
             requestedSelection.sampleRateApprovalKey.clear();
             pendingApprovalKey.clear();
             currentSnapshot.sampleRateApprovalRequired = false;
-            ready.store (false, std::memory_order_release);
+            revokeAuditionPublication();
         }
         selectA();
         notify();
@@ -106,7 +106,7 @@ namespace hypha::reference_audition
             presetSelectionStatusExpiresAtMs = 0;
             pendingApprovalKey.clear();
             currentSnapshot.sampleRateApprovalRequired = false;
-            ready.store (false, std::memory_order_release);
+            revokeAuditionPublication();
         }
         selectA();
         notify();

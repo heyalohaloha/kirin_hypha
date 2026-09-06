@@ -19,7 +19,7 @@ namespace hypha::reference_audition
             selectA();
         removeRuntimeFiles (activeRuntimeFiles);
         activeRuntimeFiles = {};
-        ready.store (false, std::memory_order_release);
+        revokeAuditionPublication();
         pages.close();
         aCapture.disconnect();
         workspace.reset();

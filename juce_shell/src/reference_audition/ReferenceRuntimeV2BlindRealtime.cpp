@@ -70,7 +70,7 @@ namespace hypha::reference_audition
             callbacksInFlight.fetch_sub (1, std::memory_order_release);
             return false;
         }
-        if (aGainDb < 0.0)
+        if (aGainDb < 0.0 && buffer.getNumSamples() > 0)
         {
             heldALinearGain.store (linearGain (aGainDb), std::memory_order_relaxed);
             attenuationHoldActive.store (true, std::memory_order_release);
@@ -96,6 +96,7 @@ namespace hypha::reference_audition
             (stimulus == 1 ? stimulusOneSwitches : stimulusTwoSwitches)
                 .fetch_add (1, std::memory_order_relaxed);
         activeStimulus.store (stimulus, std::memory_order_release);
+        normalReturnRequired.store (true, std::memory_order_release);
         callbacksInFlight.fetch_sub (1, std::memory_order_release);
         return true;
     }
@@ -103,10 +104,26 @@ namespace hypha::reference_audition
     bool RuntimeV2Blind::renderInvalidatedA (juce::AudioBuffer<float>& buffer,
                                              bool auditionAllowed) noexcept
     {
-        if (! auditionAllowed
-            || ! attenuationHoldActive.load (std::memory_order_acquire))
+        auto state = lifecycle.load (std::memory_order_acquire);
+        if (! auditionAllowed || buffer.getNumSamples() <= 0
+            || (state != invalidated && state != returnRequested
+                && state != normalConfirmed))
             return false;
         callbacksInFlight.fetch_add (1, std::memory_order_acq_rel);
+        state = lifecycle.load (std::memory_order_acquire);
+        if (state == returnRequested)
+        {
+            int expected = returnRequested;
+            lifecycle.compare_exchange_strong (expected, normalConfirmed,
+                                                std::memory_order_acq_rel);
+            callbacksInFlight.fetch_sub (1, std::memory_order_release);
+            return true;
+        }
+        if (state == normalConfirmed)
+        {
+            callbacksInFlight.fetch_sub (1, std::memory_order_release);
+            return true;
+        }
         if (! attenuationHoldActive.load (std::memory_order_acquire))
         {
             callbacksInFlight.fetch_sub (1, std::memory_order_release);
