@@ -30,4 +30,4 @@ juce_shell/src/pre_display/PreDisplayProtocol.cpp	583
 juce_shell/tests/pre_display_runtime_test.cpp	1171
 juce_shell/tests/ui_contract_test.cpp	559
 juce_shell/tests/ui_render_contract_test.cpp	603
-xtask/src/shell_parity.rs	622
+xtask/src/shell_parity.rs	516
