@@ -23,10 +23,18 @@ void KirinHyphaProcessorBase::setObservatoryTimeRangePreference (uint8_t value)
 }
 
 void KirinHyphaProcessorBase::setMeterContextPreference (
-    hypha::meter_context::MeterContext value)
+    hypha::meter_context::MeterContext value, bool notifyHost)
 {
     const auto encoded = hypha::meter_context::stateValue (value);
-    if (preferredMeterContext.exchange (encoded, std::memory_order_acq_rel) != encoded)
+    bool changed;
+    {
+        const juce::ScopedLock sl (handleLock);
+        if (! hypha::meter_context::drumAttackAvailable (value)
+            && attackRequested.load (std::memory_order_acquire))
+            setAttackEnabled (false);
+        changed = preferredMeterContext.exchange (encoded, std::memory_order_acq_rel) != encoded;
+    }
+    if (changed && notifyHost)
         updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
 

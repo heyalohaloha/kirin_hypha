@@ -5,7 +5,8 @@
 
 // ATTACK product presentation. It maps confirmed event samples onto a fixed six-second axis
 // and never attempts to infer an instrument from a waveform or expose an editable threshold. The
-// environment variable remains only as a direct-open validation shortcut.
+// environment variable remains a direct-open shortcut within TRACK/STEM; it never changes the
+// saved meter context to bypass the DRUM admission rule.
 namespace hypha::attack_ui
 {
     constexpr int presentationSeconds = 6;

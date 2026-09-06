@@ -14,7 +14,11 @@ pub fn read_repo(path: &str) -> String {
     // Keep assertions on the actual common shell implementation after responsibility
     // extraction. Individual tests still name their primary translation unit.
     let extracted: &[&str] = match path {
-        "juce_shell/src/PluginEditor.cpp" => &["juce_shell/src/PluginEditorMeter.cpp"],
+        "juce_shell/src/PluginEditor.cpp" => &[
+            "juce_shell/src/PluginEditorMeter.cpp",
+            "juce_shell/src/PluginEditorMenu.cpp",
+            "juce_shell/src/PluginEditorInformation.cpp",
+        ],
         "juce_shell/src/PluginProcessor.cpp" => &[
             "juce_shell/src/PluginProcessorAnalysis.cpp",
             "juce_shell/src/PluginProcessorMeter.cpp",

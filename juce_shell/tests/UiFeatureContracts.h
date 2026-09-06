@@ -16,15 +16,28 @@
 #include "SpaceFieldContractTest.h"
 #include "ReferenceAuditionComponentContractTest.h"
 #include "OsAccessUiContractTest.h"
+#include "HyphaInformationContractTest.h"
 
 namespace hypha::tests
 {
-inline void verifyUiFeatureContracts()
+inline bool verifyUiFeatureContracts (int argc, char** argv)
 {
+    const bool entryOnly = argc == 2 && std::string_view (argv[1]) == "--product-entry-only";
+    if (argc != 1 && ! entryOnly)
+    {
+        std::cerr << "Usage: KirinUiRenderContractTests [--product-entry-only]\n";
+        std::exit (EXIT_FAILURE);
+    }
+    verifyInformationContract();
+    verifyTimePageNavigationContract();
+    if (entryOnly)
+    {
+        std::cout << "Product entry: PASS (82 role/size layouts, update dispatch, DRUM navigation)\n";
+        return true;
+    }
     verifyObservationPageContract();
     verifyObservatoryCompositeContract();
     verifyPerceptualHistoryContract();
-    verifyTimePageNavigationContract();
     verifySpectrumFocusTrailContract();
     verifySpectrumPresentationContract();
     verifyRunSummaryContract();
@@ -37,5 +50,6 @@ inline void verifyUiFeatureContracts()
     verifyTimeHistoryContract();
     verifySpaceFieldContract();
     verifyReferenceAuditionComponentContract(); verifyOsAccessUiContract();
+    return false;
 }
 }

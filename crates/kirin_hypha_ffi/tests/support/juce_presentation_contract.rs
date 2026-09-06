@@ -214,7 +214,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(editor.contains("#if ! KIRIN_HYPHA_PRE_DISPLAY"));
     assert!(editor.contains("setAnalysisPage (analysisPage == AnalysisPage::meters"));
     assert!(editor.contains("timePageNavigation.onPageChange"));
-    for label in ["HISTORY", "ATTACK", "SHARP", "LIVE"] {
+    for label in ["HISTORY", "RUN", "DRUM", "SHARP", "LIVE"] {
         assert!(time_navigation.contains(label) || time_navigation_header.contains(label));
     }
     assert!(analysis_navigation

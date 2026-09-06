@@ -183,7 +183,7 @@ public:
         return hypha::meter_context::scaleFromState (
             preferredScaleMode.load (std::memory_order_acquire));
     }
-    void setMeterContextPreference (hypha::meter_context::MeterContext value);
+    void setMeterContextPreference (hypha::meter_context::MeterContext value, bool notifyHost = true);
     void setScaleModePreference (hypha::meter_context::ScaleMode value);
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
 

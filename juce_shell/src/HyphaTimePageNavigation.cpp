@@ -9,13 +9,15 @@ TimePageNavigation::TimePageNavigation()
 {
     compactCycle.setTitle ("TIME detail");
     compactCycle.setDescription (
-        "Cycle History, Run facts, Attack, Sharpness Delta, and POST live facts");
+        "Cycle History, Run facts, Drum Attack, Sharpness Delta, and POST live facts");
     compactCycle.setColour (juce::TextButton::buttonColourId, kFieldFill);
     compactCycle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
     compactCycle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
     compactCycle.onClick = [this]
     {
         auto next = analysis_navigation::nextTimePage (selectedPage);
+        if (! drumAvailable && next == Page::attack)
+            next = analysis_navigation::nextTimePage (next);
         choose (next);
     };
     for (auto* button : { &historyButton, &runButton, &attackButton, &sharpButton, &liveButton })
@@ -23,7 +25,9 @@ TimePageNavigation::TimePageNavigation()
     addAndMakeVisible (compactCycle);
     historyButton.setTooltip ("Session history. Direct Observatory view.");
     runButton.setTooltip ("Absolute facts grouped by playback run within the selected history; not a transport control.");
-    attackButton.setTooltip ("PRE/POST transient event facts and differences.");
+    attackButton.setTitle ("DRUM Attack");
+    attackButton.setDescription ("Drum transient event facts. Not a 2MIX onset detector.");
+    attackButton.setTooltip (attackButton.getDescription());
     sharpButton.setTooltip ("Sharpness Delta history. Unit: acum.");
     liveButton.setTooltip ("Absolute POST facts on fixed scales.");
     historyButton.onClick = [this] { choose (Page::meters); };
@@ -45,6 +49,7 @@ void TimePageNavigation::setRunAvailable (bool value)
 
 void TimePageNavigation::setPage (Page value)
 {
+    if (value == Page::attack && ! drumAvailable) value = Page::meters;
     value = analysis_navigation::isTimePage (value) ? value : Page::meters;
     if (selectedPage == value)
         return;
@@ -57,6 +62,15 @@ void TimePageNavigation::setDirect (bool value)
     if (direct == value)
         return;
     direct = value;
+    updateControls();
+    resized();
+}
+
+void TimePageNavigation::setDrumAvailable (bool value)
+{
+    if (drumAvailable == value) return;
+    drumAvailable = value;
+    if (! value && selectedPage == Page::attack) selectedPage = Page::meters;
     updateControls();
     resized();
 }
@@ -80,7 +94,8 @@ void TimePageNavigation::resized()
     auto remaining = getLocalBounds();
     juce::Array<juce::Button*> visible { &historyButton };
     visible.add (&runButton);
-    visible.add (&attackButton); visible.add (&sharpButton); visible.add (&liveButton);
+    if (drumAvailable) visible.add (&attackButton);
+    visible.add (&sharpButton); visible.add (&liveButton);
     for (int index = 0; index < visible.size(); ++index)
         visible[index]->setBounds (index + 1 == visible.size()
             ? remaining : remaining.removeFromLeft (remaining.getWidth()
@@ -96,6 +111,9 @@ void TimePageNavigation::choose (Page value)
 
 void TimePageNavigation::updateControls()
 {
+    compactCycle.setDescription (drumAvailable
+        ? "Cycle History, Run facts, Drum Attack, Sharpness Delta, and POST live facts"
+        : "Cycle History, Run facts, Sharpness Delta, and POST live facts");
     compactCycle.setVisible (! direct);
     compactCycle.setButtonText (analysis_navigation::timePageLabel (selectedPage));
     compactCycle.setTooltip (selectedPage == Page::meters
@@ -103,13 +121,14 @@ void TimePageNavigation::updateControls()
         : selectedPage == Page::run
             ? "Measured facts grouped by playback run"
         : selectedPage == Page::attack
-            ? analysis_ui::switchViewTooltip ("Attack")
+            ? analysis_ui::switchViewTooltip ("Drum Attack")
         : selectedPage == Page::perceptual
             ? analysis_ui::switchViewTooltip ("Sharpness Delta")
             : analysis_ui::switchViewTooltip ("POST live facts"));
     for (auto* button : { &historyButton, &runButton, &attackButton, &sharpButton, &liveButton })
         button->setVisible (direct);
     runButton.setVisible (direct);
+    attackButton.setVisible (direct && drumAvailable);
     historyButton.setToggleState (selectedPage == Page::meters, juce::dontSendNotification);
     runButton.setToggleState (selectedPage == Page::run, juce::dontSendNotification);
     attackButton.setToggleState (selectedPage == Page::attack, juce::dontSendNotification);

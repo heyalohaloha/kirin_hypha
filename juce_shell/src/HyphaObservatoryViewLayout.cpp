@@ -11,6 +11,8 @@ void View::resized()
     hoveredLevelHistoryIndex.reset();
     const auto preset = currentPreset();
     const auto layout = shellLayout (role, preset, guidePresence());
+    informationButton.setVisible (! captureFrame);
+    informationButton.setBounds (toJuce (layout.roleTitle));
     sizeButton.setButtonText (preset.label);
     bodyArea = toJuce (layout.body);
     connectionArea = toJuce (layout.connectionStatus);

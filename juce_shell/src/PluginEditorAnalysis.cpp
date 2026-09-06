@@ -9,6 +9,9 @@ namespace ui = hypha::ui_contract;
 
 void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
 {
+    if (page == AnalysisPage::attack
+        && ! hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()))
+        page = AnalysisPage::meters;
     if (! isPost || analysisPage == page)
         return;
     const auto previousPage = analysisPage;
@@ -77,6 +80,8 @@ void KirinHyphaEditor::updateTimePageNavigation()
     const bool direct = time && observatoryView.experienceFamily()
         == hypha::observatory::ExperienceFamily::observatory;
     timePageNavigation.setDirect (direct);
+    timePageNavigation.setDrumAvailable (
+        hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()));
     timePageNavigation.setRunAvailable (true);
     timePageNavigation.setPage (analysisPage);
     timePageNavigation.setVisible (time);

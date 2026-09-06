@@ -147,10 +147,10 @@ namespace
 
 }
 using hypha::tests::renderSpectrumAtSize;
-int main()
+int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    hypha::tests::verifyUiFeatureContracts();
+    if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
     const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);
     KIRIN_REQUIRE (preferenceDirectory.createDirectory().wasOk());

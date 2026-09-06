@@ -40,6 +40,8 @@ void styleButton (juce::TextButton& button)
 View::View (Role roleIn) : role (roleIn)
 {
     setOpaque (true);
+    addAndMakeVisible (informationButton);
+    informationButton.onClick = [this] { if (onInformation) onInformation(); };
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                           &referenceButton,
                           &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton,

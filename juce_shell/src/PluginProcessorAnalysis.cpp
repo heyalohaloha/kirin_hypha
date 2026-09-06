@@ -2,7 +2,9 @@
 
 bool KirinHyphaProcessorBase::setAttackEnabled (bool enabled)
 {
-    if (role != Role::Post)
+    const juce::ScopedLock sl (handleLock);
+    if (role != Role::Post || (enabled
+        && ! hypha::meter_context::drumAttackAvailable (meterContextPreference())))
         return false;
     if (enabled)
     {
@@ -11,7 +13,6 @@ bool KirinHyphaProcessorBase::setAttackEnabled (bool enabled)
     }
     spectrumVisibleRequested.store (enabled, std::memory_order_release);
     attackRequested.store (enabled, std::memory_order_release);
-    const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
         && kirin_hypha_set_attack_enabled (hyphaHandle, enabled);
 }

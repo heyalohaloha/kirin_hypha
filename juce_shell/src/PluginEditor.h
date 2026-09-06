@@ -100,6 +100,9 @@ private:
     void configureForKind (Kind);
     void layoutMetrics (bool six);
     void showCandidateMenu();          // B-102: POST pair dropdown (All Keep/All Stop/candidates)
+    void showInformationMenu();
+    void handleInformationMenu (int result);
+    bool informationBlockedByBlind() const;
     void handleCandidateMenu (int result,
                               const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates);
     static PairMenuLookAndFeel& pairMenuLookAndFeel();

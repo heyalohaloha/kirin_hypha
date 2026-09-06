@@ -2,6 +2,13 @@
 
 Status: implemented development baseline; release conformance and licensed Kimera artifact pending
 
+2026-09-06 A0 差分: 既存 ATTACK の製品表示は DRUM とし、TRACK/STEM の入口に限定する。
+2MIX では DRUM を表示せず、文脈の変更・復元時に DRUM の解析要求を終了する。
+これは既存検出器の適用範囲の明示であり、2MIX 専用 ATTACK の完成ではない。
+全サイズの PRE／POST に共通情報メニューと手動の更新情報・ダウンロード入口を設ける。
+SPACE DECAY とローカル PRE/POST Blind は研究中で、以下の既存 FIELD／登録 Reference 契約を置き換えていない。
+承認範囲と 2 枠の Blind 方針は [実装承認記録](hypha_implementation_approval_20260906.md) を参照する。
+
 Date: 2026-08-31
 
 Branch: `codex/hypha-meter`

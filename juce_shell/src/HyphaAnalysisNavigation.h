@@ -44,7 +44,7 @@ constexpr const char* timePageLabel (Page page) noexcept
 {
     return page == Page::meters ? "HISTORY"
          : page == Page::run ? "RUN"
-         : page == Page::attack ? "ATTACK"
+         : page == Page::attack ? "DRUM"
          : page == Page::perceptual ? "SHARP"
          : page == Page::absolute ? "LIVE" : "";
 }

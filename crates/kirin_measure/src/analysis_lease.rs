@@ -10,6 +10,12 @@
 //! prevents a late release from clearing a replacement owner; an unknown owner fails closed to the
 //! name-free UI status.
 
+// Admission research uses the real kernel slots but is not a product start route. Record scope,
+// output receipts, and the return-level state must be integrated before exposing local Blind.
+#[cfg(test)]
+#[path = "analysis_blind_admission_probe.rs"]
+mod blind_admission_probe;
+
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io;

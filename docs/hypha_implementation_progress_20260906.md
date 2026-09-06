@@ -1,0 +1,96 @@
+# Hypha A0 実装と G1／Blind 実証の記録
+
+日付: 2026-09-06。
+承認: [推奨方針と 2 枠の使用条件](hypha_implementation_approval_20260906.md)。
+状態: 開発コードと研究用試作。公開候補ではない。
+
+## 今回実装したもの
+
+現行 ATTACK の表示を DRUM に変え、TRACK/STEM の入口に限定した。
+2MIX では直接タブと小型画面の巡回先から外し、画面操作と DAW state 復元の双方で解析要求を終了する。
+文脈判定と開始要求は既存の非 RT ロックで直列化する。
+検出器の係数、C ABI、通常の音声 callback は変更していない。
+DRUM という名前は自動の楽器判別を意味せず、2MIX 専用 ATTACK の完成を意味しない。
+
+HYPHA PRE／POST のタイトルを共通情報メニューの入口にした。
+小さな footer 記号は増やさず、元のタイトル領域を鍵盤操作できるボタンとして使う。
+ロード中の version、role、format、platform、build 時点の source ID と変更の有無を表示する。
+同じ SemVer の開発版を「公式最新版」と表示せず、公式配布物との同一性は未確認と明記する。
+Git 不在時は unknown／unverified に戻し、誤った clean 表示を作らない。
+
+英日 HP、公開リリース一覧、公式 URL のコピーは利用者の明示操作だけで実行する。
+現行 GUI に言語設定はないため、存在しない設定を仮定せず英語と日本語の入口を併記した。
+通信 client、自動確認、自動インストールは追加していない。
+固定 HTTPS の URL だけを扱い、pair、音声、Work、license、instance ID は URL に含めない。
+既存 Reference Blind の実行中は、この POST の情報表示と外部ページの起動を止め、操作確定時にも状態を再確認する。
+この局所判定を、未実装の PRE/POST Blind の participant scope 全体の遮蔽と扱わない。
+ブラウザーの起動に失敗した場合は、失敗表示と該当 URL のコピー操作を同じメニューに出す。
+PRE からも共通の hover help 設定を変更できる。
+
+## 2 枠の扱いと、まだ接続していないもの
+
+既存の 2 枠は大きいウィンドウの数ではなく、`AnalysisLease` の所有者数である。
+新しい Blind の条件は「対応する大きな表示 ＋ 既存枠の所有 ＋ 単一試聴予約」とする。
+POST が 1 枠を所有し、その PRE のために別枠を消費しない。
+もう一方の解析枠は維持するが、Blind を同時開始できない。
+
+実際の 2 枠を使った予約試験を `cfg(test)` の範囲に追加した。
+3 番目の枠を作らないこと、同時開始の勝者が 1 つであること、拒否・ファイル障害で他方の解析を解放しないことを試験する。
+予約の寿命中は基になる解析枠を可変借用するため、試験上は先に解析枠を解放できない。
+失敗が起きても競合試験の相手を barrier に置き去りにしない。
+
+これは製品の開始ボタン、PCM 転送、PDC、Record 排他、出力確認、減衰保持からの復帰には接続していない。
+新しい Blind は現時点では利用できず、既存 Reference の権限も変えていない。
+特に TRACK の試聴は下流の測定へ届くため、単一プロセス内の予約試験だけでは安全性を証明できない。
+
+## SPACE の固定区間試作
+
+`space_decay_probe` は Float32 WAV の明示区間を扱う、プラグインへリンクしない研究用コマンドである。
+mono／stereo、8〜768 kHz を受理し、リサンプルやゼロ埋めはしない。
+入力は実読込量で 256 MiB、fit 区間は 6 秒に制限する。
+区間境界は毎回起点から丸め、端数 hop の累積を避ける。
+EARLY は最初の 80 ms と続く 170 ms のエネルギー比であり、窓長で正規化した平均同士の比ではない。
+10 ms 区間の平均パワーを回帰し、10 点以上かつ観測した低下が 20 dB 以上の場合だけ 20 dB 相当時間を算出する。
+R²、再上昇、floor、区間選択の採否条件はまだ凍結せず、出力にも `product_qualified: false` を付ける。
+
+実物として `test_signals/S-1_1kHz_sine_m6dBFS_10s.wav` の stereo／48 kHz／Float32、10 秒を確認した。
+PCM は 3,840,000 bytes、ファイルの SHA-256 は `5e526afe85549fe7daeace8824696f6b1adf7238273cd30e7132f87c8ea77a1d`。
+起点 0、fit 0〜1,000 ms、floor −90 dB の結果は EARLY −3.2735893439 dB、100 点、観測低下 0 dB、減衰時間 null だった。
+一定音から存在しない減衰時間を作っていない。
+既知の −40 dB/s の試験入力では、6 種の sample rate で 0.5 秒に対する誤差が 1 µs 未満だった。
+この結果は計算器の検証であり、実楽曲の自動区間選択や 2MIX event 検出の合格証拠ではない。
+
+## 更新先 HP の準備
+
+別リポジトリ `kirin_hp` の `1d2d3cf`／W-2943 で、英日 HP の更新説明とリンク検査を揃えた。
+公開済み v1.1.49 の version、公開日、PRE／POST 同梱、変更内容、PKG への補助導線を追加した。
+保存→DAW 終了→両方を導入→再起動／rescan→ロードした両方の版確認を案内する。
+再購入を求めず、重複した配置場所と安全な公式導入手順に触れる。
+既存の macOS ZIP／Windows Setup EXE の版と主導線は維持し、未出荷の SPACE／Blind を宣伝していない。
+静的 build と 209 試験は pass。外部公開と push は行っていない。
+
+## 検証台帳
+
+最終状態と commit は検証終了時に追記する。
+ログ名の B 番号は実行開始時の接頭辞であり、最終 commit の名称ではない。
+
+| 要求 | 実装・試作 | 確認範囲 |
+| --- | --- | --- |
+| A0／DRUM | navigation、processor admission、state restore | 2MIX の 4 タブ、TRACK/STEM の 5 タブ、DRUM からの遷移、復元の source contract |
+| UP-01 | 共通情報入口、固定 URL dispatch | PRE／POST × 41 サイズ、鍵盤入口、重なり、Blind 中の外部副作用 0、ブラウザー失敗時のコピー先 |
+| UP-02 | build-time source identity | Git ありの modified source と Git 不在の unknown fallback |
+| SA-02／SA-03 | 固定窓 EARLY／回帰 | 既知解、無音、floor、欠けた窓、非有限値、stereo 逆相、一定 gain、端数 SR |
+| BL-04 の一部 | test-only slot reservation | 2 枠・1 予約、同時開始、明示 retry、ファイル障害。他の BL-04 条件は未完了 |
+
+## 継続に必要な証拠
+
+- 2MIX ATTACK: 使用権と隔離履歴のある開発用／holdout 素材、各 20 本の 30 秒抜粋、二人の独立した人の注釈。AI のラベルで代用しない。
+- SPACE: 別の素材台帳と区間注釈、R²／再上昇／floor 余裕／区間選択条件の実測と凍結。固定区間の式だけで自動解析を有効化しない。
+- Blind: 同一区間の取得・PDC・短い TRACK の固定 Gain Match、実際の DAW participant scope、Keep／All Keep との相互排他、下流の正本保護、RT 出力確認後の解放、減衰保持と明示復帰。
+- 共通: 旧版との組合せ、macOS AU／VST3 と Windows VST3、DPI・モニター移動、実ホストでの browser／コピー操作、表示と聴取の検証。
+
+Windows は引き続き操作しない。
+Notion 書込み、インストール、notarize、公開、push は実施していない。
+既存の JUCE ローカル差分と別件の未追跡 handoff は変更・取り込みしていない。
+LS と公開パッケージの準備は今回の作業範囲外であり、3 チャネルの公開完了とは報告しない。
+未完了を Phase 2 へ移していない。

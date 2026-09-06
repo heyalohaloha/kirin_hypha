@@ -165,6 +165,16 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 
 ## 8. Shell parity / RT 安全（INV-S）
 
+2026-09-06 の A0 実装では、以下を INV-S7／S13／S14 の現行表示・入口契約に優先する。
+TIME の直接タブは `HISTORY / RUN / DRUM / SHARP / LIVE` で、2MIX では DRUM を除く 4 項目とする。
+DRUM は既存 ATTACK 検出器の識別名であり、2MIX 用検出器や楽器の自動分類ではない。
+TRACK/STEM から 2MIX への変更は、画面操作と DAW state 復元の双方で解析要求を終了する。
+共通の HYPHA PRE／POST タイトルから情報メニューを開き、両 role で hover help を変更できる。
+手動更新入口は固定 HTTPS の外部ページを明示操作で開くもので、自動の最新版判定ではない。
+新しい PRE/POST Blind は未接続であり、単一 Blind／既存 2 枠の予約試験を製品の排他保証と扱わない。
+対応試験は `verifyInformationContract`、`verifyTimePageNavigationContract`、`attack_vst_wiring`、`analysis_blind_admission_probe`。
+承認範囲は [実装承認記録](hypha_implementation_approval_20260906.md) を参照する。
+
 | ID | 不変条件 | 紐づくテスト |
 |----|----------|--------------|
 | INV-S1 | 候補メニューは pair 名非依存で PRE 候補を列挙 | `candidate_menu_enumerates_pre_candidates_independent_of_current_pair` |

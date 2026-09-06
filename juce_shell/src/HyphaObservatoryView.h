@@ -8,6 +8,7 @@
 
 #include "HyphaCaptureContract.h"
 #include "HyphaMeterContext.h"
+#include "HyphaInformationButton.h"
 #include "HyphaObservatoryContract.h"
 #include "HyphaObservationPageContract.h"
 #include "HyphaObservatoryPresentation.h"
@@ -44,6 +45,8 @@ public:
     std::function<void()> onReset;
     std::function<void()> onCapture;
     std::function<void()> onNote;
+    std::function<void()> onInformation;
+    juce::Component& informationAnchor() noexcept { return informationButton; }
 
     void setDomain (Domain);
     Domain domain() const noexcept { return selectedDomain; }
@@ -229,6 +232,7 @@ private:
     Button resetButton { "RESET", false };
     Button noteButton { "NOTE", false };
     Button captureButton { "CAPTURE", false };
+    InformationButton informationButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (View)
 };

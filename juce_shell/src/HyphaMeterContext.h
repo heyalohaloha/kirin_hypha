@@ -19,6 +19,11 @@ enum class ScaleMode : std::uint8_t
 constexpr MeterContext defaultContext = MeterContext::twoMix;
 constexpr ScaleMode defaultScale = ScaleMode::focus;
 
+constexpr bool drumAttackAvailable (MeterContext context) noexcept
+{
+    return context == MeterContext::trackStem;
+}
+
 constexpr std::uint8_t stateValue (MeterContext value) noexcept
 {
     return static_cast<std::uint8_t> (value);

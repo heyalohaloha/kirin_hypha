@@ -4,7 +4,6 @@ use sources::read_repo;
 #[path = "support/juce_presentation_contract.rs"]
 mod presentation;
 
-
 #[test]
 fn direct_keep_feedback_is_a_consumable_edge_not_a_persistent_error() {
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
@@ -134,7 +133,6 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     );
 }
 
-
 #[test]
 fn saved_daw_state_restores_the_exact_pre_without_registry_rescan() {
     let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
@@ -208,7 +206,6 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
     assert!(cmake.contains("set(KIRIN_PLUGIN_FORMATS AU VST3)"));
     assert!(cmake.contains("FORMATS ${KIRIN_PLUGIN_FORMATS}"));
 }
-
 
 fn slice_between<'a>(src: &'a str, start_marker: &str, end_marker: &str) -> &'a str {
     let start = src.find(start_marker).expect("start marker must exist");

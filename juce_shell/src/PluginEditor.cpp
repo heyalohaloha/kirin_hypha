@@ -116,6 +116,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         setSize (preset.width, preset.height);
     };
     observatoryView.onCapture = [this] { beginObservatoryCapture(); };
+    observatoryView.onInformation = [this] { showInformationMenu(); };
     scaleRoot.addAndMakeVisible (observatoryView);
 
     scaleRoot.addAndMakeVisible (led);
@@ -365,8 +366,7 @@ void KirinHyphaEditor::resized()
         nameField.setPrefix (getWidth() < 450 ? "" : "PAIR ");
         pairDropdown.setBounds (connection.removeFromRight (18));
     }
-    const bool showName = true;
-    nameField.setVisible (showName);
+    const bool showName = true; nameField.setVisible (showName);
     observatoryView.setExternalConnectionLabelVisible (showName);
     if (showName)
         nameField.setBounds (connection);

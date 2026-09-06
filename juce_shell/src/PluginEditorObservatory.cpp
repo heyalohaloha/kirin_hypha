@@ -43,6 +43,12 @@ void KirinHyphaEditor::configureMeterContext()
         observatoryView.setScaleMode (scale);
         processorRef.setMeterContextPreference (context);
         processorRef.setScaleModePreference (scale);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (analysisPage == AnalysisPage::attack
+            && ! hypha::meter_context::drumAttackAvailable (context))
+            setAnalysisPage (AnalysisPage::meters);
+        updateTimePageNavigation();
+       #endif
     };
     observatoryView.onScaleChange = [this] (hypha::meter_context::ScaleMode scale)
     {
@@ -149,7 +155,15 @@ void KirinHyphaEditor::refreshObservatory()
     if (restoredRange != observatoryView.selectedTimeRange())
         observatoryView.setTimeRange (restoredRange);
     if (processorRef.meterContextPreference() != observatoryView.meterContext())
+    {
         observatoryView.setMeterContext (processorRef.meterContextPreference());
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (analysisPage == AnalysisPage::attack
+            && ! hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()))
+            setAnalysisPage (AnalysisPage::meters);
+        updateTimePageNavigation();
+       #endif
+    }
     if (processorRef.scaleModePreference() != observatoryView.scaleMode())
         observatoryView.setScaleMode (processorRef.scaleModePreference());
     const auto restoredSize = juce::jmin (

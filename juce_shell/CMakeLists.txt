@@ -21,6 +21,14 @@ if(NOT CMAKE_MATCH_1)
 endif()
 project(KirinHypha VERSION ${CMAKE_MATCH_1} LANGUAGES C CXX)
 
+add_custom_target(HyphaBuildIdentity
+    COMMAND ${CMAKE_COMMAND}
+        "-DHYPHA_SOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/.."
+        "-DHYPHA_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/generated"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/HyphaBuildIdentity.cmake"
+    BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/generated/HyphaBuildIdentity.h"
+    VERBATIM)
+
 if(APPLE)
     # B-082: arch は cache 変数化（FORCE 撤去）。dev は x86_64 単独（既存 build dir / 高速）、
     # 出荷は -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" で universal（scripts/build_juce_universal.sh）。
@@ -194,6 +202,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
         src/PluginEditorMenu.cpp
+        src/PluginEditorInformation.cpp
         src/PluginEditorMeter.cpp
         src/PluginProcessorAnalysis.cpp
         src/PluginProcessorMeter.cpp
@@ -306,6 +315,9 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     target_compile_options(${TARGET} PUBLIC
         ${KIRIN_FORCE_INCLUDE_ARGS}
         ${KIRIN_SOURCE_ENCODING_ARGS})
+
+    add_dependencies(${TARGET} HyphaBuildIdentity)
+    target_include_directories(${TARGET} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
     # B-130 (G-115-373): juce_audio_utils（AudioThumbnail/CD/DeviceSelector 用・実使用 grep 0）を
     # plugin に必要な最小モジュールへ差し替え。これで juce_audio_utils 由来の DiscRecording.framework
@@ -452,6 +464,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         target_link_options(KirinUiRenderContractTests PRIVATE "/STACK:8388608")
     endif()
     add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
+    add_test(NAME kirin_product_entry_contract
+        COMMAND KirinUiRenderContractTests --product-entry-only)
 
     juce_add_console_app(KirinGuideFrequencyOverlayContractTests
         PRODUCT_NAME "Kirin Guide Frequency Overlay Contract Tests")

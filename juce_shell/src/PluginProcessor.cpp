@@ -1020,8 +1020,8 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         preferredSpectrumSize.store (restoredObservatorySize, std::memory_order_release);
         preferredEditorSize.store (hypha::observatory::packEditorSize (
             { restoredEditorWidth, restoredEditorHeight }), std::memory_order_release);
-        preferredMeterContext.store (
-            hypha::meter_context::stateValue (restoredMeterContext), std::memory_order_release);
+        // Restore shares DRUM admission, without writing a host change notification back.
+        setMeterContextPreference (restoredMeterContext, false);
         preferredScaleMode.store (
             hypha::meter_context::stateValue (restoredScaleMode), std::memory_order_release);
         // Once writes are enabled, the io_thread has already snapshotted path identity. Only the

@@ -8,6 +8,8 @@ namespace hypha
 {
 AttackComponent::AttackComponent()
 {
+    setTitle ("DRUM Attack");
+    setDescription ("Drum transient facts for TRACK/STEM; not a 2MIX onset detector.");
     setWantsKeyboardFocus (true);
 }
 

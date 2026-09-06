@@ -232,7 +232,7 @@ void AttackComponent::paint (juce::Graphics& g)
         if (bounds.getHeight() >= 78)
         {
             g.setColour (COL_MUTED); g.setFont (monoFont (11.0f));
-            g.drawText (followLatest ? "LATEST EVENT / enlarge for timeline" : "LOCKED EVENT / arrows to browse",
+            g.drawText (followLatest ? "DRUM / latest event" : "DRUM / locked event",
                         bounds.removeFromTop (18), juce::Justification::centredLeft);
         }
         g.setColour (juce::Colours::black); g.fillRect (bounds);
@@ -254,7 +254,7 @@ void AttackComponent::paint (juce::Graphics& g)
     auto viewButton = titleRow.removeFromRight (attack_ui::modeControlWidth (getWidth()));
     g.setFont (monoFont (9.2f * textScale));
     g.setColour (COL_NORMAL);
-    g.drawText ("ATTACK / EVENTS", titleRow, juce::Justification::centredLeft);
+    g.drawText ("DRUM / ATTACK", titleRow, juce::Justification::centredLeft);
     g.setColour (waveformColour.withAlpha (0.10f));
     g.fillRoundedRectangle (viewButton.reduced (1).toFloat(), 3.0f);
     g.setColour (COL_NORMAL);
@@ -280,7 +280,7 @@ void AttackComponent::paint (juce::Graphics& g)
     {
         g.setColour (COL_MUTED);
         g.setFont (monoFont (6.5f * textScale));
-        g.drawText (juce::String (paired ? "DRUM / " : "POST / ")
+        g.drawText (juce::String (paired ? "PAIR / " : "POST / ")
                         + (followLatest ? "LIVE" : "LOCK"),
                     state, juce::Justification::centredRight);
     }
