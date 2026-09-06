@@ -92,6 +92,8 @@ mod record_note_ffi;
 mod reference_audition_ffi;
 mod reference_gain_ffi;
 mod signal_state_ffi;
+mod watch_display_ffi;
+pub use watch_display_ffi::kirin_hypha_poll_watch_display;
 pub use attack_ffi::*;
 pub use identity_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
 pub use identity_registry::__reset_shared_ids_for_tests;
@@ -1530,17 +1532,6 @@ impl KirinHyphaEngine {
         }
     }
 
-    pub fn poll_watch_display(&self, playing: bool) -> Option<(MeasureResult, MeasureResult)> {
-        let raw = self.poll_result()?;
-        let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
-        let maximum = self.watch_max.try_lock().ok()?.update(
-            &raw,
-            playing,
-            pass_id,
-            self.record_sm.is_recording(),
-        );
-        Some((raw, maximum))
-    }
 
     /// PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（B-057 3b）。
     ///
@@ -5886,36 +5877,6 @@ pub unsafe extern "C" fn kirin_hypha_poll_result(
             }
             None => false,
         }
-    }))
-    .unwrap_or(false)
-}
-
-/// Current Watch values and current-playback-pass maxima from one Rust
-/// snapshot. UI thread only.
-///
-/// # Safety
-/// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
-/// `out` must be null or point to writable storage for one [`KirinWatchDisplay`].
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_watch_display(
-    handle: *mut KirinHyphaEngine,
-    playing: bool,
-    out: *mut KirinWatchDisplay,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() {
-            return false;
-        }
-        let Some((current, maximum)) = (unsafe { &*handle }).poll_watch_display(playing) else {
-            return false;
-        };
-        unsafe {
-            *out = KirinWatchDisplay {
-                current: to_c_result(&current),
-                maximum: to_c_result(&maximum),
-            };
-        }
-        true
     }))
     .unwrap_or(false)
 }
