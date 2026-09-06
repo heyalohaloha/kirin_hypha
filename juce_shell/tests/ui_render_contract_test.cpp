@@ -23,6 +23,7 @@
 #include "SpaceFieldContractTest.h"
 #include "ReferenceAuditionComponentContractTest.h"
 #include "OsAccessUiContractTest.h"
+#include "UiFeatureContracts.h"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -149,22 +150,7 @@ using hypha::tests::renderSpectrumAtSize;
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    hypha::tests::verifyObservationPageContract();
-    hypha::tests::verifyObservatoryCompositeContract();
-    hypha::tests::verifyPerceptualHistoryContract();
-    hypha::tests::verifyTimePageNavigationContract();
-    hypha::tests::verifySpectrumFocusTrailContract();
-    hypha::tests::verifySpectrumPresentationContract();
-    hypha::tests::verifyRunSummaryContract();
-    hypha::tests::verifyGuideFrequencyOverlayContract();
-    hypha::tests::verifyAbsoluteTimelineContract();
-    hypha::tests::verifyAbsoluteSpectrumContract();
-    hypha::tests::verifyPerceptualRenderingContract();
-    hypha::tests::verifyObservatoryViewContract();
-    hypha::tests::verifyCaptureHistoryContract();
-    hypha::tests::verifyTimeHistoryContract();
-    hypha::tests::verifySpaceFieldContract();
-    hypha::tests::verifyReferenceAuditionComponentContract(); hypha::tests::verifyOsAccessUiContract();
+    hypha::tests::verifyUiFeatureContracts();
     const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);
     KIRIN_REQUIRE (preferenceDirectory.createDirectory().wasOk());
