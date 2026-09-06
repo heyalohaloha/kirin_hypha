@@ -504,19 +504,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
         kirin_hypha_push_samples (hyphaHandle, nullptr, 0, (uint32_t) numCh);
     }
 
-#if KIRIN_HYPHA_GUIDE_TRANSPORT
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (role == Role::Post && referenceAuditionController != nullptr)
-        referenceAuditionController->observeAInput (
-            buffer, positionSamples, hasPosition, playing,
-            ! bypassed && ! nonRealtimeMode && licenseIsOs());
-    // Explicit B is an output-only audition copy. A has already been measured above. Offline
-    // render, bypass, missing project time, cache miss, and every consumer failure keep A intact.
-    if (role == Role::Post && referenceAuditionController != nullptr)
-        referenceAuditionController->renderSelectedB (
-            buffer, positionSamples, hasPosition, ! bypassed && ! nonRealtimeMode && licenseIsOs());
-   #endif
-#endif
+    renderComparisonOutputs (buffer, positionSamples, hasPosition, playing,
+                             bypassed, nonRealtimeMode);
 }
 
 juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor()

@@ -196,7 +196,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         COPY_PLUGIN_AFTER_BUILD FALSE)
 
     target_sources(${TARGET} PRIVATE
-        src/PluginProcessor.cpp
+        src/PluginProcessor.cpp src/PluginProcessorAudition.cpp
         src/PluginProcessorDisplayState.cpp
         src/PluginProcessorGuideTransport.cpp
         src/PluginProcessorNote.cpp

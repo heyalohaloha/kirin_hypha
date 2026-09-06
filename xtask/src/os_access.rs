@@ -34,7 +34,9 @@ mod tests {
             "void KirinHyphaProcessorBase::processBlock",
             "void KirinHyphaProcessorBase::getStateInformation",
         );
-        assert!(process.contains("! nonRealtimeMode && licenseIsOs()"));
+        assert!(process.contains("renderComparisonOutputs (buffer"));
+        let output = include_str!("../../juce_shell/src/PluginProcessorAudition.cpp");
+        assert!(output.contains("! nonRealtimeMode && licenseIsOs()"));
         for (start, end) in [
             (
                 "bool KirinHyphaProcessorBase::selectReferenceB",

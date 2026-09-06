@@ -243,6 +243,8 @@ private:
     // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
+    void renderComparisonOutputs (juce::AudioBuffer<float>&, int64_t positionSamples,
+                                  bool hasPosition, bool playing, bool bypassed, bool nonRealtimeMode);
 
     const Role role;                                   // Pre or Post (selects enable + display name)
 
