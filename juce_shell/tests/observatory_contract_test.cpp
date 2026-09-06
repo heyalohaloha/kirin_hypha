@@ -188,7 +188,7 @@ int main()
         observatory::GuidePresence::present);
     assert (inspection.domainTabs);
     assert (inspection.capture);
-    static_assert (observatory::footerHeight (observatory::Density::inspection) == 40);
+    static_assert (observatory::footerHeight (observatory::Density::inspection) == 64);
     static_assert (observatory::timeNavigationHeight (
         observatory::Density::inspection) == 38);
 
