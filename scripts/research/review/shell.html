@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src 'self' file: blob:; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Hypha｜音の判定 01</title>
+  <style>/* REVIEW_STYLE */</style>
+</head>
+<body>
+  <header class="masthead">
+    <div><div class="eyebrow">KIRIN HYPHA / LISTENING STUDY 01</div><h1>音を聴いて、印を残す。</h1>
+      <p>SPACE 3件 + 2MIX ATTACK 3件。途中で閉じて、後から続けられます。</p></div>
+    <div class="export-actions"><button id="export-json" class="primary">回答JSONを保存</button>
+      <button id="import-button">回答を読み込む</button><input type="file" id="import-file" accept=".json,application/json" hidden>
+      <button id="export-tsv">TSVを保存</button></div>
+  </header>
+  <div class="statusbar"><span id="progress">0 / 6 回答済み</span><span id="save-status" role="status">保存状態を確認中</span></div>
+  <div id="notice" class="notice" role="alert" hidden></div>
+  <noscript><p class="notice">再生と回答にはJavaScriptが必要です。Chromeで開いてください。</p></noscript>
+  <div class="workspace">
+    <aside>
+      <label for="reviewer">判定者名（任意）</label><input id="reviewer" maxlength="80" placeholder="名前 / イニシャル">
+      <nav id="tasks" aria-label="判定する6件"></nav>
+      <p class="side-note">途中でも「回答JSONを保存」で書き出し、そのファイルをCodexへ添付してください。</p>
+      <details><summary>この判定について</summary><p>開発用の初回判定です。正解を当てる試験ではありません。解析候補は表示しません。</p>
+        <p>音源は原本から切り出した30秒のコピーです。中央の10秒が判定対象で、前後は文脈確認用です。機能の最終精度やBlindの実動検証とは別です。</p>
+        <p>保存はこのブラウザ内です。ファイル移動やブラウザ変更の前にJSONを保存してください。通信や音源の送信は行いません。</p>
+      </details>
+    </aside>
+    <main id="review-card">
+      <div class="card-heading"><div><div id="task-kind" class="eyebrow"></div><h2 id="task-title"></h2></div><span id="task-status" class="tag"></span></div>
+      <p id="question" class="question"></p>
+      <p id="guide" class="muted"></p>
+      <section class="listen" aria-label="試聴と波形">
+        <div class="listen-controls"><button id="play-preview" class="primary">判定する10秒を再生</button>
+          <button id="stop">停止</button><button id="play-context">前後を含む30秒を再生</button></div>
+        <audio id="audio" controls preload="metadata"></audio>
+        <p id="audio-error" role="alert" class="warning" hidden></p>
+        <div class="volume"><label for="volume">試聴音量 <span id="volume-value">35%</span></label>
+          <input type="range" id="volume" min="0" max="100" value="35"><span class="muted">小さめから調整してください。自動補正はありません。</span></div>
+        <div class="wave-toolbar"><span id="wave-range"></span><div class="button-row">
+          <button id="view-preview">判定区間</button><button id="zoom-in">拡大</button><button id="zoom-out">縮小</button><button id="view-all">全30秒</button></div></div>
+        <canvas id="wave" height="190" tabindex="0" role="img" aria-label="左右の振幅範囲。クリックで位置を指定。矢印キーで微調整。" aria-describedby="wave-help"></canvas>
+        <p id="wave-help" class="muted">波形をクリックして位置を選択 → 下のボタンで印を追加。← → は2 ms、Shift併用で20 ms移動。</p>
+        <div class="mark-controls">
+          <label for="cursor">選択位置（抜粋内の秒）<input id="cursor" type="number" min="0" max="29.999" step="0.001" value="10.000"></label>
+          <button id="play-cursor">この位置から試聴</button>
+          <button id="add-point">立ち上がりの印を追加</button>
+          <div id="interval-controls" class="button-row"><button id="set-start">区間の始点にする</button><button id="set-end">区間の終点にする</button>
+            <button id="add-interval" disabled>区間を追加</button></div>
+        </div>
+        <p id="draft-range" class="muted"></p>
+        <ul id="marks" aria-label="追加した印"></ul>
+        <details><summary>音源情報</summary><p id="source-info"></p><p>波形は左右の振幅範囲を表示用に集約しています。音声の値は変更していません。ブラウザと再生機器によって再生時のsample rateは変わります。</p></details>
+      </section>
+      <section class="answer" aria-label="判定を記録">
+        <fieldset id="decisions"><legend>判定</legend>
+          <label><input type="radio" name="decision" value="present"><span id="present-label"></span></label>
+          <label><input type="radio" name="decision" value="none"><span id="none-label"></span></label>
+          <label><input type="radio" name="decision" value="uncertain">混ざっていて判断できない</label>
+          <label><input type="radio" name="decision" value="unavailable">再生できない</label>
+        </fieldset>
+        <div class="answer-fields"><label for="confidence">確信度<select id="confidence"><option value="">選択してください</option>
+          <option value="1">1 / 低い</option><option value="2">2</option><option value="3">3 / 中くらい</option><option value="4">4</option><option value="5">5 / 高い</option></select></label>
+          <label for="note">気づいたこと（任意）<textarea id="note" rows="2" maxlength="4000" placeholder="例：次の音と重なって終わりが分からない"></textarea></label></div>
+        <p id="validation" role="alert" class="warning"></p>
+        <div class="footer-actions"><button id="previous">前の項目</button><button id="next">未回答のまま次へ</button><button id="complete" class="primary">この回答を確定して次へ</button></div>
+      </section>
+    </main>
+  </div>
+  <footer>LOCAL ONLY / 原音は変更せず、回答は手元に保存。6件すべてを一度に終える必要はありません。</footer>
+  <!-- REVIEW_DATA -->
+  <script>/* REVIEW_SCRIPTS */</script>
+</body>
+</html>
