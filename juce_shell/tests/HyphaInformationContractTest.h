@@ -23,7 +23,7 @@ inline void verifyInformationContract()
         return true;
     };
     const auto copy = [&] (std::string_view) { ++copied; };
-    for (const auto action : { Action::downloadsEnglish, Action::downloadsJapanese,
+    for (const auto action : { Action::hoverHelp, Action::downloadsEnglish, Action::downloadsJapanese,
                               Action::changes, Action::copyEnglish, Action::copyJapanese,
                               Action::copyChanges })
     {
@@ -31,6 +31,8 @@ inline void verifyInformationContract()
         require (launched == 0 && copied == 0, "blocked action has no external side effect");
     }
     require (dispatch (Action::none, false, launch, copy) == Outcome::ignored, "cancel");
+    require (dispatch (Action::hoverHelp, false, launch, copy) == Outcome::hoverHelpRequested,
+             "hover help remains explicit and is also blocked if Blind starts after opening");
     require (dispatch (static_cast<Action> (99), false, launch, copy) == Outcome::ignored,
              "unknown action cannot become a URL");
     require (dispatch (Action::downloadsEnglish, false, launch, copy) == Outcome::opened, "open");

@@ -83,13 +83,14 @@ void KirinHyphaEditor::handleInformationMenu (int result)
 {
     if (result == 0) return;
     const bool busy = informationBlockedByBlind();
-    if (result == 10 && ! busy) { handleCandidateMenu (10, {}); return; }
     const auto outcome = update::dispatch (static_cast<update::Action> (result), busy,
         [] (std::string_view destination)
         { return juce::URL (toString (destination)).launchInDefaultBrowser(); },
         [] (std::string_view destination)
         { juce::SystemClipboard::copyTextToClipboard (toString (destination)); });
-    if (outcome == update::Outcome::blocked)
+    if (outcome == update::Outcome::hoverHelpRequested)
+        handleCandidateMenu (10, {});
+    else if (outcome == update::Outcome::blocked)
         showToast ("Available after Blind Compare");
     else if (outcome == update::Outcome::openFailed)
     {

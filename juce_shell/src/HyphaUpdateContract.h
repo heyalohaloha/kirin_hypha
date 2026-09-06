@@ -4,9 +4,9 @@
 
 namespace hypha::update_information
 {
-enum class Action : int { none = 0, downloadsEnglish = 21, downloadsJapanese,
+enum class Action : int { none = 0, hoverHelp = 10, downloadsEnglish = 21, downloadsJapanese,
                          changes, copyEnglish, copyJapanese, copyChanges };
-enum class Outcome { ignored, blocked, opened, openFailed, copied };
+enum class Outcome { ignored, blocked, opened, openFailed, copied, hoverHelpRequested };
 
 constexpr std::string_view url (Action action) noexcept
 {
@@ -18,7 +18,8 @@ constexpr std::string_view url (Action action) noexcept
         case Action::copyJapanese: return "https://kirinmastering.com/ja/hypha";
         case Action::changes:
         case Action::copyChanges: return "https://github.com/heyalohaloha/kirin_hypha/releases";
-        case Action::none: return {};
+        case Action::none:
+        case Action::hoverHelp: return {};
     }
     return {};
 }
@@ -40,6 +41,8 @@ constexpr Action copyAction (Action action) noexcept
 template <typename Launch, typename Copy>
 Outcome dispatch (Action action, bool blindBusy, Launch launch, Copy copy)
 {
+    if (action == Action::hoverHelp)
+        return blindBusy ? Outcome::blocked : Outcome::hoverHelpRequested;
     const auto destination = url (action);
     if (destination.empty()) return Outcome::ignored;
     if (blindBusy) return Outcome::blocked;
