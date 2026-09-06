@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 
 namespace hypha::absolute_painter
 {
@@ -79,8 +80,9 @@ namespace
     {
         const auto third = area.getWidth() / 3.0f;
         g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
-        const auto latest = state.haveNumericSnapshot ? state.numericSnapshot
-                                                       : KirinAbsoluteView {};
+        auto latest = state.numericSnapshot;
+        if (! state.haveNumericSnapshot)
+            latest.lufs_m = latest.true_peak = latest.sharpness = std::numeric_limits<double>::quiet_NaN();
         const std::array<juce::Colour, 3> colours {
             COL_SPECTRUM_DELTA, COL_SPECTRUM_POST, COL_FLORA
         };
@@ -195,11 +197,13 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
     paintHeader (g, header, scale, state);
     auto plot = outer;
     plot.removeFromBottom (10.0f * scale);
+    g.setColour (juce::Colours::black);
+    g.fillRect (plot);
     paintAxes (g, plot, scale);
 
-    if (! state.haveBatch || state.batch.count == 0u)
+    if (! state.signalActive || ! state.haveBatch || state.batch.count == 0u)
     {
-        const auto status = state.haveBatch
+        const auto status = ! state.signalActive ? juce::String ("INACTIVE / POST ABSOLUTE") : state.haveBatch
                               ? statusText (state.batch.latest.status,
                                             state.analysisOwnerNames)
                                             : juce::String ("OBSERVE --");

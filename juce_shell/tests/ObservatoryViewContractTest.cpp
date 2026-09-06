@@ -182,6 +182,17 @@ void verifyRoleAtEverySize (observatory::Role role,
             KIRIN_OBSERVATORY_REQUIRE (! body.isEmpty());
             KIRIN_OBSERVATORY_REQUIRE (view.getLocalBounds().contains (body));
             const auto image = render (view);
+            const auto previewPath = juce::SystemStats::getEnvironmentVariable (
+                "KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+            if (previewPath.isNotEmpty())
+            {
+                auto output = juce::File (previewPath).getChildFile (
+                    juce::String (role == observatory::Role::pre ? "pre" : "post")
+                    + "-domain-" + juce::String (static_cast<int> (domain))
+                    + "-" + juce::String (preset.width) + ".png").createOutputStream();
+                KIRIN_OBSERVATORY_REQUIRE (output != nullptr);
+                KIRIN_OBSERVATORY_REQUIRE (juce::PNGImageFormat().writeImageToStream (image, *output));
+            }
             KIRIN_OBSERVATORY_REQUIRE (image.getPixelAt (0, 0).getAlpha() != 0);
             KIRIN_OBSERVATORY_REQUIRE (image.getPixelAt (
                 body.getCentreX(), body.getCentreY()).getAlpha() != 0);
@@ -214,6 +225,11 @@ void verifyRoleAtEverySize (observatory::Role role,
 }
 }
 
+}
+#include "ObservatoryBackdropContract.h"
+#include "ObservatoryDomainBedContract.h"
+namespace hypha::tests
+{
 void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
 {
     const auto outputPath = juce::SystemStats::getEnvironmentVariable (
@@ -232,6 +248,7 @@ void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
     shell.paintEntireComponent (composedGraphics, true);
 
     SpectrumComponent frequencyBody;
+    frequencyBody.setSignalActive (true);
     const auto body = shell.bodyBounds();
     frequencyBody.setSize (body.getWidth(), body.getHeight());
     frequencyBody.setAbsoluteObservation (true);
@@ -257,6 +274,8 @@ void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
 
 void verifyObservatoryViewContract()
 {
+    verifyObservatoryBackdropContract();
+    verifyObservatoryDomainBedContract();
     const auto meter = activeMeter();
     const auto delta = activeDelta();
     const auto watch = activeWatch();

@@ -50,22 +50,37 @@ bool samePsb (const std::array<double, 20>& left,
 }
 }
 
-void SpectrumComponent::setPsbSnapshot (
-    const KirinMeasureResult& current, const KirinDelta& delta, bool deltaAvailable)
+void SpectrumComponent::setPsbSnapshot (const KirinPsbView& frame)
 {
-    const auto nextAbsolute = copyPsb (current.psb_bark);
-    const auto nextDelta = copyPsb (delta.psb_bark);
-    const bool nextAbsoluteAvailable = validAbsolutePsb (nextAbsolute);
-    const bool nextDeltaAvailable = deltaAvailable && validDeltaPsb (nextDelta);
+    const auto values = copyPsb (frame.shares);
+    const auto nextAbsolute = frame.is_delta == 0 ? values : std::array<double, 20> {};
+    const auto nextDelta = frame.is_delta != 0 ? values : std::array<double, 20> {};
+    const bool ready = frame.status == KIRIN_SPECTRUM_ACTIVE && frame.has_data == 1
+        && frame.is_delta <= 1 && frame.channels >= 1 && frame.channels <= 2
+        && frame.sample_rate >= 8'000 && frame.sample_rate <= 384'000 && frame.sample_rate % 10 == 0
+        && frame.aperture_samples == frame.sample_rate / 10
+        && frame.presentation_end_samples > frame.state_epoch_samples
+        && frame.presentation_end_samples % frame.aperture_samples == 0
+        && frame.state_epoch_samples % frame.aperture_samples == 0;
+    const bool nextAbsoluteAvailable = ready && frame.is_delta == 0 && validAbsolutePsb (nextAbsolute);
+    const bool nextDeltaAvailable = ready && frame.is_delta != 0 && validDeltaPsb (nextDelta);
     if (samePsb (absolutePsb, nextAbsolute) && samePsb (deltaPsb, nextDelta)
         && absolutePsbAvailable == nextAbsoluteAvailable
-        && deltaPsbAvailable == nextDeltaAvailable)
+        && deltaPsbAvailable == nextDeltaAvailable && psbStatus == frame.status)
         return;
     absolutePsb = nextAbsolute;
     deltaPsb = nextDelta;
     absolutePsbAvailable = nextAbsoluteAvailable;
     deltaPsbAvailable = nextDeltaAvailable;
+    psbStatus = frame.status;
     if (psbObservation) repaint();
+}
+
+void SpectrumComponent::setSignalActive (bool active)
+{
+    if (signalActive == active) return;
+    signalActive = active;
+    repaint();
 }
 
 void SpectrumComponent::paint (juce::Graphics& g)
@@ -73,9 +88,13 @@ void SpectrumComponent::paint (juce::Graphics& g)
     if (psbObservation)
     {
         const auto& values = absoluteObservation ? absolutePsb : deltaPsb;
+        const auto status = psbStatus == KIRIN_SPECTRUM_IN_USE ? "ANALYSIS SLOTS IN USE"
+            : psbStatus == KIRIN_SPECTRUM_NO_PAIR ? "PRE REQUIRED FOR DELTA"
+            : ! signalActive ? "INACTIVE"
+            : psbStatus == KIRIN_SPECTRUM_UNAVAILABLE ? "PSB UNAVAILABLE" : "PSB WARMING";
         psb_painter::paint (g, getLocalBounds().toFloat(), {
-            values, absoluteObservation ? absolutePsbAvailable : deltaPsbAvailable,
-            ! absoluteObservation, psbHoverBand });
+            values, signalActive && (absoluteObservation ? absolutePsbAvailable : deltaPsbAvailable),
+            ! absoluteObservation, psbHoverBand, status });
     }
     else
     {
@@ -84,8 +103,8 @@ void SpectrumComponent::paint (juce::Graphics& g)
             readoutPre, readoutPost, readoutDelta, markedDelta,
             focusTrail.get(), modeActionNotice, analysisOwnerNames, guideOverlay,
             &absoluteHistory, absoluteHistory.peakHold(), absoluteObservation,
-            haveSnapshot, currentSnapshotValid(),
-            haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels
+            haveSnapshot, signalActive && currentSnapshotValid(),
+            haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels, signalActive
         };
         spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);
     }

@@ -340,8 +340,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
         lastProcessNumFrames = (uint64_t) juce::jmax (0, numFrames);
     }
     lastProcessHadPosition = hasPosition;
-
     const bool silent = bufferIsSilent (buffer);
+    liveInputPresent.store (! silent, std::memory_order_relaxed);
     const bool recording = kirin_hypha_is_recording (hyphaHandle);
     if (! recording)
     {
@@ -1222,7 +1222,7 @@ void KirinHyphaProcessorBase::enableWritesNow()
         {
             kirin_hypha_set_spectrum_channel_mode (
                 hyphaHandle,
-                preferredSpectrumChannelMode.load (std::memory_order_acquire));
+                requestedAnalysisChannelMode());
             if (absoluteAnalysisRequested.load (std::memory_order_acquire))
                 kirin_hypha_set_absolute_visible (hyphaHandle, true);
             else if (perceptualAnalysisRequested.load (std::memory_order_acquire))

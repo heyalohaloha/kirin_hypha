@@ -1,18 +1,6 @@
-use std::fs;
-use std::path::PathBuf;
-
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("crate lives under crates/")
-        .to_path_buf()
-}
-
-fn read_repo(path: &str) -> String {
-    let path = repo_root().join(path);
-    fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
-}
+#[path = "support/juce_lifecycle_sources.rs"]
+mod sources;
+use sources::read_repo;
 
 #[test]
 fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() {

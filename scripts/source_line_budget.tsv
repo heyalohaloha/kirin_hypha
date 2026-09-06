@@ -5,7 +5,7 @@ crates/hypha_pre/src/editor.rs	661
 crates/hypha_pre/src/lib.rs	1259
 crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h	839
 crates/kirin_hypha_ffi/src/lib.rs	5515
-crates/kirin_hypha_ffi/tests/juce_lifecycle_wiring.rs	663
+crates/kirin_hypha_ffi/tests/juce_lifecycle_wiring.rs	651
 crates/kirin_hypha_ffi/tests/parity.rs	3007
 crates/kirin_measure/src/capture_generation_tx_tests.rs	710
 crates/kirin_measure/src/io_thread_pre.rs	5027
@@ -25,10 +25,10 @@ crates/kirin_measure/src/record_writer.rs	8169
 crates/kirin_measure/src/record_writer_claim.rs	659
 crates/kirin_measure/src/spectrum_exchange_recovery_tests.rs	665
 crates/kirin_measure/src/trace_content_clock.rs	1652
-juce_shell/src/PluginEditor.cpp	747
+juce_shell/src/PluginEditor.cpp	744
 juce_shell/src/PluginProcessor.cpp	1295
 juce_shell/src/pre_display/PreDisplayProtocol.cpp	583
 juce_shell/tests/pre_display_runtime_test.cpp	1171
 juce_shell/tests/ui_contract_test.cpp	559
-juce_shell/tests/ui_render_contract_test.cpp	675
+juce_shell/tests/ui_render_contract_test.cpp	617
 xtask/src/shell_parity.rs	622

@@ -9,6 +9,11 @@ use crate::perceptual::{
 use crate::spectrum::{difference_post_minus_pre, SpectrumDifference};
 use crate::spectrum_runtime::{PerceptualHistory, SpectrumHistory};
 
+#[cfg(test)]
+#[path = "spectrum_exchange_batch_tests.rs"]
+mod batch_tests;
+
+#[cfg(test)]
 pub(super) fn newest_exact_difference(
     post: &SpectrumHistory,
     pre: &SpectrumHistory,
@@ -17,6 +22,21 @@ pub(super) fn newest_exact_difference(
         pre.matching_presentation_end(post_frame.presentation_end_samples)
             .and_then(|pre_frame| difference_post_minus_pre(post_frame, pre_frame))
     })
+}
+
+pub(super) fn exact_spectrum_differences(
+    post: &SpectrumHistory,
+    pre: &SpectrumHistory,
+) -> Vec<SpectrumDifference> {
+    let pre = current_run(pre.frames(), |frame| frame.presentation_end_samples);
+    current_run(post.frames(), |frame| frame.presentation_end_samples)
+        .into_iter()
+        .filter_map(|post_frame| {
+            pre.iter()
+                .find(|frame| frame.presentation_end_samples == post_frame.presentation_end_samples)
+                .and_then(|pre_frame| difference_post_minus_pre(post_frame, pre_frame))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -34,12 +54,38 @@ pub(super) fn exact_perceptual_differences(
     post: &PerceptualHistory,
     pre: &PerceptualHistory,
 ) -> Vec<PerceptualDifference> {
-    post.frames()
+    let pre = current_run(pre.frames(), |frame| frame.presentation_end_samples);
+    current_run(post.frames(), |frame| frame.presentation_end_samples)
+        .into_iter()
         .filter_map(|post_frame| {
-            pre.matching_presentation_end(post_frame.presentation_end_samples)
+            pre.iter()
+                .find(|frame| frame.presentation_end_samples == post_frame.presentation_end_samples)
                 .and_then(|pre_frame| perceptual_difference_post_minus_pre(post_frame, pre_frame))
         })
         .collect()
+}
+
+fn current_run<'a, T: 'a>(
+    frames: impl DoubleEndedIterator<Item = &'a T>,
+    endpoint: impl Fn(&T) -> i64,
+) -> Vec<&'a T> {
+    // Worker retention is acquisition-ordered and can span a backwards seek. Recover only
+    // the newest run on EACH side, never reinsert an old high endpoint ahead of new facts.
+    let mut result = Vec::new();
+    let mut newer = None;
+    for frame in frames.rev() {
+        let end = endpoint(frame);
+        if newer.is_some_and(|value| end > value) {
+            break;
+        }
+        if newer == Some(end) {
+            continue;
+        }
+        newer = Some(end);
+        result.push(frame);
+    }
+    result.reverse();
+    result
 }
 
 fn joined_status<T>(
@@ -67,10 +113,10 @@ pub(super) fn store_joined_spectrum(
     local: Option<&SpectrumHistory>,
     remote: Option<&SpectrumHistory>,
 ) {
-    if let Some(difference) = local
-        .zip(remote)
-        .and_then(|(post, pre)| newest_exact_difference(post, pre))
-    {
+    let differences = local.zip(remote).map_or_else(Vec::new, |(post, pre)| {
+        exact_spectrum_differences(post, pre)
+    });
+    if let Some(difference) = differences.last() {
         let endpoint = difference.presentation_end_samples;
         let latest_endpoints = local
             .and_then(|history| history.newest())
@@ -93,13 +139,9 @@ pub(super) fn store_joined_spectrum(
                 .zip(latest_endpoints)
                 .is_some_and(|(previous, (post, pre))| post < previous && pre < previous);
             if moved_backwards && both_sides_moved_backwards {
-                coordinator.store_spectrum_boundary(difference, local);
+                coordinator.store_spectrum_sequence(&differences, local, true);
             } else if !moved_backwards {
-                coordinator.store_spectrum_view(
-                    SpectrumViewStatus::Active,
-                    Some(difference),
-                    local,
-                );
+                coordinator.store_spectrum_sequence(&differences, local, false);
             } else {
                 // Keep the prior exact fact only for the bounded presentation lease. If the
                 // second side never crosses the boundary, normal unavailable handling below

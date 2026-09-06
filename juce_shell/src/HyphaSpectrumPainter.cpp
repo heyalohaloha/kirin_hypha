@@ -261,7 +261,7 @@ void paintAbsolute (juce::Graphics& g,
                     (magnitude - kMagnitudeFloorDbfs) / -kMagnitudeFloorDbfs);
                 if (intensity <= 0.015f)
                     continue;
-                g.setColour (COL_SPECTRUM_POST.withAlpha (0.018f + 0.13f * intensity));
+                g.setColour (COL_SPECTRUM_POST.withAlpha (0.06f + 0.34f * intensity));
                 g.fillRect (plot.getX() + (float) column * cellWidth,
                             y - rowHeight * 0.5f, cellWidth + 0.5f, rowHeight);
             }
@@ -282,6 +282,12 @@ void paintAbsolute (juce::Graphics& g,
     }
     const auto current = makeCurve (x, currentY);
     const auto hold = makeCurve (x, holdY);
+    g.setFont (monoFont (11.0f));
+    g.setColour (COL_NORMAL.withAlpha (0.82f));
+    g.drawText ("-6s", plot.withLeft (plot.getRight() - 36).withHeight (14).toNearestInt(),
+                juce::Justification::centredRight);
+    g.drawText ("NOW", plot.withLeft (plot.getRight() - 36).withTop (plot.getBottom() - 14).toNearestInt(),
+                juce::Justification::centredRight);
 
     juce::Path fill;
     fill.startNewSubPath (x.front(), plot.getBottom());

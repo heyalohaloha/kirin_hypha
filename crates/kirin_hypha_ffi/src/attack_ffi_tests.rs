@@ -100,18 +100,31 @@ fn feed_shipping_audio(engine: &KirinHyphaEngine, with_presentation: bool) {
     }
 }
 
-fn wait_for_event(engine: &KirinHyphaEngine) {
+fn wait_for_event(
+    engine: &KirinHyphaEngine,
+) -> (
+    KirinAttackBatch,
+    KirinAttackEventBatch,
+    KirinAttackWaveformBatch,
+    KirinAttackDetailBatch,
+) {
     let deadline = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < deadline
-        && (engine
-            .poll_attack_events()
-            .is_none_or(|batch| batch.count == 0)
-            || engine
-                .poll_attack_details()
-                .is_none_or(|batch| batch.count == 0))
-    {
+    while Instant::now() < deadline {
+        // Polls deliberately use try_read. Consume the successful observations instead of
+        // discarding them and unwrapping another poll while the producer owns the lock.
+        if let (Some(raw), Some(events), Some(waveform), Some(details)) = (
+            engine.poll_attack_batch(),
+            engine.poll_attack_events(),
+            engine.poll_attack_waveform(),
+            engine.poll_attack_details(),
+        ) {
+            if raw.count > 0 && events.count > 0 && waveform.count > 0 && details.count > 0 {
+                return (raw, events, waveform, details);
+            }
+        }
         thread::sleep(Duration::from_millis(5));
     }
+    panic!("ATTACK observations did not become available within two seconds");
 }
 
 #[test]
@@ -120,9 +133,7 @@ fn shipping_vst_clock_and_audio_transaction_reaches_attack_worker() {
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     assert!(engine.set_attack_enabled(true));
     feed_shipping_audio(&engine, true);
-    wait_for_event(&engine);
-
-    let batch = engine.poll_attack_batch().unwrap();
+    let (batch, events, waveform, details) = wait_for_event(&engine);
     assert!(batch.count > 0);
     assert!(batch.count as usize <= KIRIN_ATTACK_BATCH_CAPACITY);
     let frames = &batch.frames[..batch.count as usize];
@@ -131,17 +142,14 @@ fn shipping_vst_clock_and_audio_transaction_reaches_attack_worker() {
     assert!(frames.iter().all(|frame| frame.window_samples == 2_048));
     assert!(frames.iter().all(|frame| frame.hop_samples == 256));
     assert!(frames.iter().any(|frame| frame.value > 0.0));
-    let events = engine.poll_attack_events().unwrap();
     assert!(events.count > 0);
     assert!(events.events[..events.count as usize]
         .iter()
         .all(|event| event.decision_sample > event.event_sample));
-    let waveform = engine.poll_attack_waveform().unwrap();
     assert!(waveform.count > 0);
     assert!(waveform.points[..waveform.count as usize]
         .windows(2)
         .all(|pair| pair[0].end_sample == pair[1].start_sample));
-    let details = engine.poll_attack_details().unwrap();
     assert!(details.count > 0);
     let detail = details.details[details.count as usize - 1];
     assert_eq!(detail.shape_count as usize, KIRIN_ATTACK_SHAPE_CAPACITY);
@@ -154,14 +162,12 @@ fn studio_project_clock_without_optional_presentation_callback_reaches_attack_wo
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     assert!(engine.set_attack_enabled(true));
     feed_shipping_audio(&engine, false);
-    wait_for_event(&engine);
-
-    let frames = engine.poll_attack_batch().unwrap();
+    let (frames, events, _, _) = wait_for_event(&engine);
     assert!(frames.count > 0);
     assert!(frames.frames[..frames.count as usize]
         .iter()
         .any(|frame| frame.value > 0.0));
-    assert!(engine.poll_attack_events().unwrap().count > 0);
+    assert!(events.count > 0);
 }
 
 #[test]

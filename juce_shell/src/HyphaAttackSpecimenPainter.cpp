@@ -330,7 +330,7 @@ void drawBioluminescentSweep (juce::Graphics& g, const KirinAttackDetail& detail
     gradient.addColour (0.50, warm.withAlpha (0.10f + energy * 0.24f));
     gradient.addColour (0.82, cool.withAlpha (0.18f + energy * 0.50f));
     gradient.addColour (0.90, juce::Colour (0xffd8f8ff).withAlpha (0.18f + energy * 0.42f));
-    const auto pulse = std::sin (juce::MathConstants<float>::pi * phase);
+    const auto pulse = juce::jmax (0.0f, std::sin (juce::MathConstants<float>::pi * phase));
     g.setColour (warm.interpolatedWith (cool, phase)
                       .withAlpha ((0.05f + energy * 0.18f) * pulse));
     g.strokePath (specimenBody (detail, area, 0.98f + pulse * 0.10f,

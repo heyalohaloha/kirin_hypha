@@ -103,7 +103,7 @@ void AbsoluteComponent::setBatchAt (const KirinAbsoluteBatch& next, double nowMs
     havePendingBatch = true;
     bool needsRepaint = firstPresentation || definitionChanged;
     if (firstPresentation || definitionChanged
-        || nowMs - lastCurvePresentationMs >= 200.0)
+        || nowMs - lastCurvePresentationMs >= 100.0)
     {
         batch = pendingBatch;
         haveBatch = true;
@@ -179,7 +179,7 @@ void AbsoluteComponent::mouseExit (const juce::MouseEvent&)
 void AbsoluteComponent::paint (juce::Graphics& g)
 {
     absolute_painter::paint (g, getLocalBounds().toFloat(), {
-        batch, numericSnapshot, analysisOwnerNames, haveBatch, haveNumericSnapshot
+        batch, numericSnapshot, analysisOwnerNames, haveBatch, haveNumericSnapshot && signalActive, signalActive
     });
 }
 }

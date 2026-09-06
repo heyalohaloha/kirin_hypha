@@ -35,6 +35,7 @@ inline bool verifyNoSelectionBar (const juce::Image& image)
 
 inline bool verifyContinuousScrubRail (const juce::Image& image)
 {
+    if (image.getHeight() < 145) return true; // Compact view has no scrub rail.
     const auto scrubTop = attack_ui::headerHeight
                         + attack_ui::timelineHeight (image.getHeight());
     const auto railY = scrubTop + attack_ui::axisLabelHeight / 2 - 2;
@@ -66,7 +67,7 @@ inline bool verifyNoMetricLeaderCorridors (const juce::Image& image)
     auto metrics = juce::Rectangle<int> (
         0, image.getHeight() - height, image.getWidth(), height).reduced (1);
     auto content = metrics.reduced (7, 3);
-    content.removeFromTop (12);
+    content.removeFromTop (18);
     if (content.getHeight() < 65)
         return true;
     const auto scale = attack_ui::textScale (image.getWidth(), image.getHeight());

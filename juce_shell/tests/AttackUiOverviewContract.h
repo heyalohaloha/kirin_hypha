@@ -117,6 +117,9 @@ inline juce::Image renderOverviewComparison (const KirinAttackDetail& pre,
     pairs.events[0].post_event_sample = post.event_sample;
     pairs.events[0].pre_available = 1;
     pairs.events[0].post_available = 1;
+    pairs.events[0].sample_rate = post.sample_rate;
+    pairs.events[0].pre_generation = pre.generation;
+    pairs.events[0].post_generation = post.generation;
     juce::Image image (juce::Image::ARGB, width, height, true);
     juce::Graphics graphics (image);
     attack_painter::drawWaveformDifferences (

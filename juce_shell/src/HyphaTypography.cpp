@@ -73,6 +73,7 @@ bool usingKimeraTypography() noexcept
 
 juce::Font labelFont (float height)
 {
+    height = juce::jmax (11.0f, height);
     if (const auto typeface = kimeraTypeface())
         return juce::Font (typeface).withHeight (height);
     return fallbackFont (nativeFallbackLabelFontFamily(), height);
@@ -80,6 +81,7 @@ juce::Font labelFont (float height)
 
 juce::Font monoFont (float height)
 {
+    height = juce::jmax (11.0f, height);
     if (const auto typeface = kimeraTypeface())
         return juce::Font (typeface).withHeight (height);
     return fallbackFont (nativeFallbackMonoFontFamily(), height);

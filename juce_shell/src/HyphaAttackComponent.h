@@ -28,6 +28,7 @@ namespace hypha
         void setOverlayMode (bool shouldOverlay);
         void presentationTick (bool signalActive);
         void presentationTickAt (double nowMs);
+        bool pairedObservation() const noexcept { return pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE; }
         void paint (juce::Graphics&) override;
         void mouseDown (const juce::MouseEvent&) override;
         void mouseDrag (const juce::MouseEvent&) override;
@@ -50,6 +51,7 @@ namespace hypha
         std::int64_t selectedEventSample = -1;
         bool overlayMode = true;
         bool followLatest = true;
+        bool liveSignalActive = true;
 
         const KirinAttackPairEvent* selectedPairEvent() const noexcept;
         const KirinAttackDetail* selectedPostDetail() const noexcept;
@@ -60,6 +62,7 @@ namespace hypha
         void selectBoundaryEvent (bool selectLast) noexcept;
         void selectAdjacentEvent (bool moveRight) noexcept;
         void advancePresentation (double nowMs) noexcept;
+        void paintSelectedEvent (juce::Graphics&, juce::Rectangle<int>);
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AttackComponent)
     };

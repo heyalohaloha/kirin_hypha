@@ -67,6 +67,13 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     if (! captureFrame)
     {
         const auto density = currentPreset().density;
+        if (feedbackText.isNotEmpty())
+        {
+            g.setFont (monoFont (density == Density::inspection ? 14.0f : 11.0f));
+            g.setColour (COL_NORMAL);
+            g.drawText (feedbackText, session, juce::Justification::centredLeft);
+            return;
+        }
         g.setFont (monoFont (density == Density::compact ? 8.5f
                            : density == Density::inspection ? 14.0f : 10.5f));
        #if defined(JucePlugin_VersionString)
@@ -74,8 +81,9 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
        #else
         const auto version = juce::String ("  |  development");
        #endif
-        g.drawFittedText (state + juce::String (seconds, 1) + " S" + version, session,
-                          juce::Justification::centred, 1, 0.80f);
+        g.drawText (state + juce::String (seconds, 1) + " S"
+                    + (session.getWidth() >= 290 ? version : juce::String {}), session,
+                    juce::Justification::centred);
         return;
     }
 
@@ -101,7 +109,7 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
 void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
 {
     const bool compact = experienceFamily() == ExperienceFamily::compactMeter;
-    area.removeFromTop (timeNavigationHeight (currentPreset().density));
+    area.removeFromTop (timeControlsHeight());
     if (showRunSummary && target() == ObservationTarget::absolute)
         run_summary::paint (g, area, runSummary,
                             frameAvailable ? observatoryFrame.meter.sample_rate : 0.0);

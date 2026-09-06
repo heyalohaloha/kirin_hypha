@@ -13,6 +13,7 @@ struct State
     bool available = false;
     bool delta = false;
     int hoverBand = -1;
+    juce::String unavailableText = "PSB WARMING";
 };
 
 void paint (juce::Graphics&, juce::Rectangle<float>, const State&);

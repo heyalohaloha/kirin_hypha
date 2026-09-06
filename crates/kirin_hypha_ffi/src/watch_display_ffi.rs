@@ -1,5 +1,31 @@
 use super::*;
 
+/// One complete producer-owned Session observation, independent of editor polling and Record.
+/// # Safety
+/// `handle` must be null or live; `out` must be null or writable for one KirinWatchDisplay.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_meter_display(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinWatchDisplay,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).poll_meter_session() else {
+            return false;
+        };
+        unsafe {
+            *out = KirinWatchDisplay {
+                current: to_c_result(&snapshot.current),
+                maximum: to_c_result(&snapshot.maximum),
+            };
+        }
+        true
+    }))
+    .unwrap_or(false)
+}
+
 impl KirinHyphaEngine {
     pub fn poll_watch_display(&self, playing: bool) -> Option<(MeasureResult, MeasureResult)> {
         let raw = self.poll_result()?;
@@ -12,7 +38,6 @@ impl KirinHyphaEngine {
         );
         Some((raw, maximum))
     }
-
 }
 
 /// Current Watch values and current-playback-pass maxima from one Rust

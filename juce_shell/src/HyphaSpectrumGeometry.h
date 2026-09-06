@@ -49,9 +49,9 @@ namespace hypha::spectrum_geometry
     {
         const float scale = visualScaleFor (bounds);
         auto plot = plotBoundsFor (bounds);
+        plot.removeFromTop (juce::jmax (32.0f, 30.0f * scale));
         if (scale > 1.1f)
         {
-            plot.removeFromTop (18.0f * scale);
             plot.removeFromBottom (
                 ui_contract::spectrumFocusTrailHeight (scale)
                 + ui_contract::spectrumFocusTrailAxisGap * scale);
@@ -83,7 +83,7 @@ namespace hypha::spectrum_geometry
                                : focusLocked ? ui_contract::spectrumFocusReadoutWidth
                                              : ui_contract::spectrumHoverReadoutWidth;
         return { plot.getRight() - (float) logicalWidth * scale,
-                 plot.getY() + (float) ui_contract::spectrumHoverReadoutInset * scale,
+                 plot.getY() + 17.0f * scale,
                  (float) logicalWidth * scale,
                  (float) ui_contract::spectrumHoverReadoutHeight * scale };
     }

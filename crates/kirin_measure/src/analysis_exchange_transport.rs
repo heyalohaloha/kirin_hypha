@@ -95,7 +95,7 @@ mod windows {
     const REQUEST_CAPACITY: usize = 2_048;
     const READY_CAPACITY: usize = 2_048;
     const SPECTRUM_CAPACITY: usize = 16_384;
-    const PERCEPTUAL_CAPACITY: usize = 1_280;
+    const PERCEPTUAL_CAPACITY: usize = 4_096;
     const ATTACK_CAPACITY: usize = 196_608;
     const MAX_READ_RETRIES: usize = 3;
 
@@ -309,7 +309,7 @@ mod windows {
             .replace('\\', "/")
             .to_ascii_lowercase();
         let digest = Sha256::digest(normalized.as_bytes());
-        format!("Local\\KirinHyphaAnalysis-v1-{}", hex::encode(digest))
+        format!("Local\\KirinHyphaAnalysis-v2-{}", hex::encode(digest))
     }
 
     fn mapping(instance_dir: &Path) -> io::Result<Arc<Mapping>> {

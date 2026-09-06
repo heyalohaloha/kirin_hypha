@@ -33,7 +33,8 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
     if (psbObservation)
     {
         const int nextBand = psb_painter::bandAt (bounds, position);
-        if (nextBand >= 0) tip = "Bark band " + juce::String (nextBand + 1);
+        if (nextBand >= 0) tip = juce::String (nextBand * 1.2, 1) + "-"
+            + juce::String ((nextBand + 1) * 1.2, 1) + " Bark / LR specific-loudness share";
         if (tip != getTooltip()) setTooltip (tip);
         if (psbHoverBand != nextBand) { psbHoverBand = nextBand; repaint(); }
         return;

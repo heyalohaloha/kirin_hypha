@@ -5,7 +5,6 @@
 #endif
 
 #include <cmath>
-#include <limits>
 
 using hypha::COL_FLORA;
 using hypha::COL_FLORA_BR;
@@ -18,7 +17,6 @@ namespace
 {
     namespace ui = hypha::ui_contract;
     namespace display = hypha::display_contract;
-    const double    kNaN = std::numeric_limits<double>::quiet_NaN();
 
     juce::Rectangle<int> juceRect (ui::Rect rect)
     {
@@ -123,16 +121,13 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     };
     observatoryView.onTargetChange = [this] (hypha::observatory::ObservationTarget target)
     {
-       #if ! KIRIN_HYPHA_PRE_DISPLAY
-        if (target == hypha::observatory::ObservationTarget::delta
-            && analysisPage == AnalysisPage::run)
-            setAnalysisPage (AnalysisPage::meters);
-       #endif
+        if (! observatoryView.capabilities().targetSelectable) return;
         observatoryView.setTarget (target);
         processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (target));
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         spectrumView.setAbsoluteObservation (
             target == hypha::observatory::ObservationTarget::absolute);
+        if (analysisPage == AnalysisPage::spectrum) configureSpectrumAnalysis();
        #endif
     };
     observatoryView.onTimeRangeChange = [this] (hypha::observatory::TimeRange range)
@@ -256,6 +251,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         {
             return processorRef.setSpectrumChannelMode (channelMode);
         };
+        spectrumView.onSubviewChange = [this] { configureSpectrumAnalysis(); };
         perceptualView.onChannelModeChange = [this] (uint8_t channelMode)
         {
             return processorRef.setSpectrumChannelMode (channelMode);
@@ -546,7 +542,8 @@ void KirinHyphaEditor::updateFeedback (
     if (now >= toastUntil)
         toastText.clear();
 
-    feedbackLabel.setVisible (text.isNotEmpty());
+    observatoryView.setFeedback (text);
+    feedbackLabel.setVisible (false);
     if (text.isNotEmpty())
     {
         feedbackLabel.setText (text, juce::dontSendNotification);

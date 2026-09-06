@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "kirin_hypha_display_ffi.h"
 #include <algorithm>
 
 bool KirinHyphaProcessorBase::pollWatchDisplay (KirinWatchDisplay& out) const
@@ -6,10 +7,7 @@ bool KirinHyphaProcessorBase::pollWatchDisplay (KirinWatchDisplay& out) const
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr)
         return false;
-    return kirin_hypha_poll_watch_display (
-        hyphaHandle,
-        lastMeasurementTimelineActive.load (std::memory_order_acquire),
-        &out);
+    return kirin_hypha_poll_meter_display (hyphaHandle, &out);
 }
 
 bool KirinHyphaProcessorBase::pollRecordDisplay (KirinRecordDisplay& out) const

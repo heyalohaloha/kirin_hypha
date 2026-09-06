@@ -9,10 +9,10 @@ mod tests {
         "/../juce_shell/src/PostControls.h"
     ));
     const README: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../README.md"));
-    const PLUGIN_EDITOR_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PluginEditor.cpp"
-    ));
+    const PLUGIN_EDITOR_CPP: &str = concat!(
+        include_str!("../../juce_shell/src/PluginEditor.cpp"),
+        include_str!("../../juce_shell/src/PluginEditorMeter.cpp"),
+    );
     const PLUGIN_EDITOR_H: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginEditor.h"

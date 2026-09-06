@@ -1,4 +1,5 @@
 #pragma once
+#include "kirin_hypha_display_ffi.h"
 
 #include <atomic>
 #include <cstdint>
@@ -118,6 +119,7 @@ public:
 
     // --- B-073: POST Δ readout (editor display branching) --------------------------------
     int  signalStateLive() const;                      // B-113: FFI kirin_hypha_get_signal_state (heartbeat-aware, no stale Active)
+    bool hasLiveInput() const noexcept { return liveInputPresent.load (std::memory_order_relaxed); }
     bool pollDelta (KirinDelta& out) const;            // FFI kirin_hypha_poll_delta (mode + Δ values)
     bool setSpectrumVisible (bool visible);             // POST-only; request work stays on IO thread
     bool setPerceptualVisible (bool visible);           // POST-only exact-aperture Sharpness page
@@ -128,6 +130,8 @@ public:
     bool pollPerceptual (KirinPerceptualView& out) const;
     bool pollPerceptualBatch (KirinPerceptualBatch& out) const;
     bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;
+    bool pollPsb (KirinPsbView& out) const;
+    bool setPsbVisible (bool delta);
     bool pollAnalysisOwnerNames (juce::String& out) const;
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
     bool setAttackEnabled (bool enabled);       // POST ATTACK page; never DAW state
@@ -229,6 +233,7 @@ public:
 
 private:
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)
+    std::atomic<bool> liveInputPresent { false }; // Display only; never changes Watch continuity.
 
     // B-070/B-126 + Logic stopped-state fix: enable plugin_data writes exactly once, on the message thread, after
     // prepareToPlay (create + set_license). processBlock only sets lock-free flags; it no longer
@@ -279,6 +284,9 @@ private:
     std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
     std::atomic<bool> perceptualAnalysisRequested { false }; // restores the visible analyzer after engine recreation
     std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
+    std::atomic<bool> psbAnalysisRequested { false }; // transient LR display source, not a saved preference
+    uint8_t requestedAnalysisChannelMode() const noexcept
+    { return psbAnalysisRequested.load() ? KIRIN_SPECTRUM_CHANNEL_LR : preferredSpectrumChannelMode.load(); }
     std::atomic<bool> attackRequested { false }; // ATTACK is inactive while its page is hidden
     std::atomic<uint8_t> preferredSpectrumSize { 0 };      // legacy/default state opens at 100%
     // Packed into one atomic so a concurrent host state read can never persist mismatched axes.

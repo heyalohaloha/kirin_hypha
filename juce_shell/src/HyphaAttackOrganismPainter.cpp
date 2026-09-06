@@ -19,12 +19,15 @@ struct FeatureTint
 };
 
 const KirinAttackDetail* findDetail (const KirinAttackDetailBatch& batch,
-                                     std::int64_t eventSample) noexcept
+                                     std::int64_t eventSample, std::uint64_t generation,
+                                     std::uint32_t sampleRate) noexcept
 {
     const auto count = juce::jmin (
         batch.count, static_cast<std::uint32_t> (KIRIN_ATTACK_DETAIL_BATCH_CAPACITY));
     for (std::uint32_t index = 0; index < count; ++index)
-        if (batch.details[index].event_sample == eventSample)
+        if (batch.details[index].event_sample == eventSample
+            && batch.details[index].generation == generation
+            && batch.details[index].sample_rate == sampleRate)
             return &batch.details[index];
     return nullptr;
 }
@@ -115,9 +118,9 @@ void drawDifferenceOverview (juce::Graphics& g, const KirinAttackDetailBatch& pr
     {
         const auto& pair = pairs.events[index];
         const auto* pre = pair.pre_available != 0
-            ? findDetail (preDetails, pair.pre_event_sample) : nullptr;
+            ? findDetail (preDetails, pair.pre_event_sample, pair.pre_generation, pair.sample_rate) : nullptr;
         const auto* post = pair.post_available != 0
-            ? findDetail (postDetails, pair.post_event_sample) : nullptr;
+            ? findDetail (postDetails, pair.post_event_sample, pair.post_generation, pair.sample_rate) : nullptr;
         if (pre == nullptr || post == nullptr
             || pre->sample_rate != rate || post->sample_rate != rate)
             continue;

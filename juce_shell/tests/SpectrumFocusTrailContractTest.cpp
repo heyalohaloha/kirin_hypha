@@ -148,6 +148,7 @@ namespace
                                 double trailBudgetMs)
     {
         SpectrumComponent component;
+        component.setSignalActive (true);
         const auto componentBounds = ui_contract::spectrumPlotBounds (
             preset.width, preset.height);
         component.setSize (componentBounds.width, componentBounds.height);

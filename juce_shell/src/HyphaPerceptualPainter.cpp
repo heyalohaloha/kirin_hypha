@@ -23,7 +23,7 @@ namespace
 
     juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
     {
-        if (status == KIRIN_SPECTRUM_NO_PAIR) return juce::CharPointer_UTF8 ("PAIR —");
+        if (status == KIRIN_SPECTRUM_NO_PAIR) return "PRE required for SHARPNESS difference";
         if (status == KIRIN_SPECTRUM_WARMING_UP) return juce::CharPointer_UTF8 ("SYNC ◌");
         if (status == KIRIN_SPECTRUM_UNAVAILABLE) return juce::CharPointer_UTF8 ("DATA —");
         if (status == KIRIN_SPECTRUM_IN_USE)
@@ -296,11 +296,13 @@ void paint (juce::Graphics& g,
     const auto plot = historyPlot (outer, scale);
     paintMode (g, outer, scale, state);
     paintHeader (g, outer, scale, state);
+    g.setColour (juce::Colours::black);
+    g.fillRect (plot);
     paintAxes (g, plot, scale);
 
     if (! state.snapshotValid || state.history.empty())
     {
-        const auto text = state.haveSnapshot
+        const auto text = ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot
                             ? statusText (state.snapshot.status, state.analysisOwnerNames)
                                              : juce::String ("SYNC");
         if (text.isNotEmpty())

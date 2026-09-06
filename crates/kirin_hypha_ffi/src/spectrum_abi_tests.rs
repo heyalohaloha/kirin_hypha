@@ -140,6 +140,8 @@ fn perceptual_view_preserves_signed_raw_sharpness_and_exact_endpoint() {
         pre_sharpness: 1.25,
         post_sharpness: 0.85,
         delta_sharpness: -0.40,
+        pre_psb: None,
+        post_psb: None,
     };
     let mut perceptual_timeline = kirin_measure::PerceptualDifferenceTimeline::default();
     perceptual_timeline.push(difference);
@@ -198,6 +200,7 @@ fn absolute_batch_preserves_exact_post_facts_without_delta() {
         lufs_m: Some(-18.5),
         true_peak: Some(-2.0),
         sharpness: Some(1.25),
+        psb: None,
     }));
     let batch = to_c_absolute_batch(SpectrumViewSnapshot {
         status: SpectrumViewStatus::Active,

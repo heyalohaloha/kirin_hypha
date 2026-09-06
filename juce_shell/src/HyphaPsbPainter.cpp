@@ -36,8 +36,8 @@ juce::Rectangle<float> dataBounds (juce::Rectangle<float> bounds)
 {
     const auto scale = visualScale (bounds);
     return spectrum_geometry::plotBoundsFor (bounds)
-        .withTrimmedTop (20.0f * scale)
-        .withTrimmedBottom (8.0f * scale);
+        .withTrimmedTop (juce::jmax (32.0f, 30.0f * scale))
+        .withTrimmedBottom (14.0f * scale);
 }
 
 int bandAt (juce::Rectangle<float> bounds, juce::Point<float> point) noexcept
@@ -60,8 +60,8 @@ void paintSubviewToggle (juce::Graphics& g, juce::Rectangle<float> bounds, bool 
         psbSelected ? 0.88f : 0.48f));
     g.drawRoundedRectangle (button, 3.0f * scale, 0.75f * scale);
     g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (scale)));
-    g.drawFittedText (psbSelected ? "SPECTRUM" : "PSB", button.toNearestInt(),
-                      juce::Justification::centred, 1, 0.65f);
+    g.drawText (psbSelected ? "SPECTRUM" : "PSB", button.toNearestInt(),
+                juce::Justification::centred);
 }
 
 void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state)
@@ -74,12 +74,13 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
 
     g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
     g.setColour (COL_NORMAL.withAlpha (0.86f));
-    g.drawText (state.delta ? "PSB / POST - PRE SHARE" : "PSB / POST SHARE",
-                outer.withHeight (18.0f * scale).toNearestInt(), juce::Justification::centredLeft);
+    g.drawText (state.delta ? "PSB / delta pp" : "PSB / POST %",
+                outer.withHeight (18.0f * scale).withTrimmedRight (100.0f * scale).toNearestInt(),
+                juce::Justification::centredLeft);
     if (! state.available)
     {
         g.setColour (COL_MUTED.withAlpha (0.72f));
-        g.drawText ("PSB -- WARMING", plot.toNearestInt(), juce::Justification::centred);
+        g.drawText (state.unavailableText, plot.toNearestInt(), juce::Justification::centred);
         return;
     }
 
@@ -113,24 +114,29 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
     }
 
     g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (scale)));
-    g.setColour (COL_MUTED.withAlpha (0.68f));
+    g.setColour (COL_NORMAL.withAlpha (0.78f));
+    const auto axisLegend = outer.withTrimmedTop (17.0f * scale)
+                                 .withHeight (13.0f * scale);
+    g.drawText ("0-24 Bark | LR", axisLegend.withTrimmedRight (90.0f * scale).toNearestInt(),
+                juce::Justification::centredLeft);
     g.drawText (state.delta ? "+/- " + juce::String (ceiling * 100.0f, 0) + " PP"
                             : "0 - " + juce::String (ceiling * 100.0f, 0) + "%",
-                outer.withTrimmedTop (18.0f * scale).withHeight (12.0f * scale).toNearestInt(),
+                axisLegend.toNearestInt(),
                 juce::Justification::centredRight);
     for (const int band : { 1, 5, 10, 15, 20 })
     {
         const auto x = plot.getX() + slot * ((float) band - 0.5f);
-        g.drawText (juce::String (band), juce::Rectangle<float> (x - 12.0f * scale,
-                    plot.getBottom(), 24.0f * scale, 10.0f * scale).toNearestInt(),
+        g.drawText (juce::String ((band - 0.5) * 1.2, 1), juce::Rectangle<float> (x - 12.0f * scale,
+                    plot.getBottom(), 24.0f * scale, 14.0f * scale).toNearestInt(),
                     juce::Justification::centred);
     }
     if (state.hoverBand >= 0 && state.hoverBand < (int) bandCount)
     {
-        const auto text = juce::String ("B") + juce::String (state.hoverBand + 1) + "  "
+        const auto text = juce::String (state.hoverBand * 1.2, 1) + "-"
+                        + juce::String ((state.hoverBand + 1) * 1.2, 1) + " Bark  "
                         + valueText (state.values[(std::size_t) state.hoverBand], state.delta);
         auto readout = plot;
-        readout = readout.removeFromTop (18.0f * scale).removeFromRight (100.0f * scale);
+        readout = readout.removeFromTop (18.0f * scale).removeFromRight (juce::jmin (plot.getWidth(), 210.0f));
         g.setColour (BG.brighter (0.1f).withAlpha (0.96f));
         g.fillRoundedRectangle (readout, 3.0f * scale);
         g.setColour (colour);

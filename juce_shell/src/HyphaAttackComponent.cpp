@@ -16,35 +16,28 @@ const auto textureColour = juce::Colour (attack_ui::textureColour);
 const auto selectionColour = juce::Colour (attack_ui::selectionColour);
 const auto panelColour = juce::Colour (0xff0d1620);
 
-juce::String signedValue (float value, int decimals = 1)
-{
-    return (value >= 0.0f ? "+" : "") + juce::String (value, decimals);
-}
-
 const KirinAttackDetail* findDetail (const KirinAttackDetailBatch& batch,
-                                     std::int64_t eventSample) noexcept
+                                     std::int64_t eventSample, std::uint64_t generation,
+                                     std::uint32_t sampleRate) noexcept
 {
     const auto count = juce::jmin (
         batch.count, static_cast<std::uint32_t> (KIRIN_ATTACK_DETAIL_BATCH_CAPACITY));
     for (std::uint32_t index = 0; index < count; ++index)
-        if (batch.details[index].event_sample == eventSample)
+        if (batch.details[index].event_sample == eventSample
+            && batch.details[index].generation == generation
+            && batch.details[index].sample_rate == sampleRate)
             return &batch.details[index];
     return nullptr;
 }
 
 void drawSelectionArc (juce::Graphics& g, int x, juce::Rectangle<int> timeline)
 {
-    g.setColour (selectionColour.withAlpha (0.30f));
-    g.drawVerticalLine (x, static_cast<float> (timeline.getY() + 2),
-                        static_cast<float> (timeline.getBottom() - 2));
     g.setColour (selectionColour);
     g.fillEllipse (static_cast<float> (x - 2), static_cast<float> (timeline.getBottom() - 5),
                    4.0f, 4.0f);
 }
 }
 
-using attack_painter::drawEventFocus;
-using attack_painter::drawMetricFact;
 using attack_painter::drawWaveform;
 using attack_painter::drawWaveformDifferences;
 using attack_painter::WaveformStyle;
@@ -70,6 +63,7 @@ void AttackComponent::advancePresentation (double nowMs) noexcept
 
 void AttackComponent::presentationTick (bool signalActive)
 {
+    liveSignalActive = signalActive;
     if (! signalActive)
     {
         latest = presentationTargetLatest;
@@ -116,6 +110,25 @@ void AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
     preWaveformBatch = preWaveform;
     preDetailBatch = preDetails;
     pairEventBatch = pairEvents;
+    // UI polls can straddle a worker restart. Never paint a prior generation at a reused sample.
+    const auto retainCurrent = [generation, sampleRate] (auto& batch, auto& items)
+    {
+        const auto count = juce::jmin (batch.count, static_cast<std::uint32_t> (std::size (items)));
+        batch.count = static_cast<std::uint32_t> (std::remove_if (items, items + count,
+            [generation, sampleRate] (const auto& item)
+            { return item.generation != generation || item.sample_rate != sampleRate; }) - items);
+    };
+    retainCurrent (eventBatch, eventBatch.events);
+    retainCurrent (waveformBatch, waveformBatch.points);
+    retainCurrent (detailBatch, detailBatch.details);
+    const auto pairCount = juce::jmin (pairEventBatch.count,
+        static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
+    auto* pairs = pairEventBatch.events;
+    pairEventBatch.count = static_cast<std::uint32_t> (std::remove_if (pairs, pairs + pairCount,
+        [generation, sampleRate] (const auto& pair) { return pair.sample_rate != sampleRate
+            || (pair.post_available != 0 && pair.post_generation != generation); }) - pairs);
+    if (pairCount != 0 && pairEventBatch.count == 0)
+        pairEventBatch.status = KIRIN_SPECTRUM_WARMING_UP;
     runtimeStats = stats;
     if (resetPresentation)
     {
@@ -137,20 +150,6 @@ void AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
     {
         selectedEventSample = -1;
         selectBoundaryEvent (true);
-    }
-    else if (pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE && selectedPairEvent() == nullptr)
-    {
-        const auto count = juce::jmin (
-            pairEventBatch.count,
-            static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
-        selectedEventSample = count > 0 ? pairEventBatch.events[count - 1].event_sample : -1;
-    }
-    else if (pairEventBatch.status != KIRIN_SPECTRUM_ACTIVE
-             && selectedPostDetail() == nullptr)
-    {
-        const auto count = juce::jmin (
-            detailBatch.count, static_cast<std::uint32_t> (KIRIN_ATTACK_DETAIL_BATCH_CAPACITY));
-        selectedEventSample = count > 0 ? detailBatch.details[count - 1].event_sample : -1;
     }
     repaint();
 }
@@ -193,6 +192,7 @@ juce::Rectangle<int> AttackComponent::scrubBounds() const noexcept
 
 const KirinAttackPairEvent* AttackComponent::selectedPairEvent() const noexcept
 {
+    if (! pairedObservation()) return nullptr;
     const auto count = juce::jmin (
         pairEventBatch.count,
         static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
@@ -205,14 +205,15 @@ const KirinAttackPairEvent* AttackComponent::selectedPairEvent() const noexcept
 const KirinAttackDetail* AttackComponent::selectedPostDetail() const noexcept
 {
     if (const auto* pair = selectedPairEvent(); pair != nullptr && pair->post_available != 0)
-        return findDetail (detailBatch, pair->post_event_sample);
-    return findDetail (detailBatch, selectedEventSample);
+        return findDetail (detailBatch, pair->post_event_sample, pair->post_generation, pair->sample_rate);
+    if (selectedPairEvent() != nullptr) return nullptr;
+    return findDetail (detailBatch, selectedEventSample, currentGeneration, rate);
 }
 
 const KirinAttackDetail* AttackComponent::selectedPreDetail() const noexcept
 {
     if (const auto* pair = selectedPairEvent(); pair != nullptr && pair->pre_available != 0)
-        return findDetail (preDetailBatch, pair->pre_event_sample);
+        return findDetail (preDetailBatch, pair->pre_event_sample, pair->pre_generation, pair->sample_rate);
     return nullptr;
 }
 
@@ -224,6 +225,20 @@ void AttackComponent::paint (juce::Graphics& g)
     // labels beneath this child cannot leak into its transparent header or capture composite.
     g.setColour (BG);
     g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
+    const bool running = runtimeStats.available != 0 && runtimeStats.enabled != 0
+                      && runtimeStats.worker_running != 0;
+    if (getHeight() < 145)
+    {
+        if (bounds.getHeight() >= 78)
+        {
+            g.setColour (COL_MUTED); g.setFont (monoFont (11.0f));
+            g.drawText (followLatest ? "LATEST EVENT / enlarge for timeline" : "LOCKED EVENT / arrows to browse",
+                        bounds.removeFromTop (18), juce::Justification::centredLeft);
+        }
+        g.setColour (juce::Colours::black); g.fillRect (bounds);
+        if (running && (liveSignalActive || ! followLatest)) paintSelectedEvent (g, bounds);
+        return;
+    }
     auto header = bounds.removeFromTop (attack_ui::headerHeight);
     auto metrics = bounds.removeFromBottom (attack_ui::metricsHeight (getHeight()));
     auto timeline = bounds.removeFromTop (attack_ui::timelineHeight (getHeight()));
@@ -235,11 +250,11 @@ void AttackComponent::paint (juce::Graphics& g)
         g.fillRoundedRectangle (metrics.reduced (1).toFloat(), 4.0f);
     }
 
-    auto titleRow = header.removeFromTop (16);
+    auto titleRow = header.removeFromTop (20);
     auto viewButton = titleRow.removeFromRight (attack_ui::modeControlWidth (getWidth()));
     g.setFont (monoFont (9.2f * textScale));
     g.setColour (COL_NORMAL);
-    g.drawText ("ATTACK  /  EVENT MATTER", titleRow, juce::Justification::centredLeft);
+    g.drawText ("ATTACK / EVENTS", titleRow, juce::Justification::centredLeft);
     g.setColour (waveformColour.withAlpha (0.10f));
     g.fillRoundedRectangle (viewButton.reduced (1).toFloat(), 3.0f);
     g.setColour (COL_NORMAL);
@@ -270,8 +285,12 @@ void AttackComponent::paint (juce::Graphics& g)
                     state, juce::Justification::centredRight);
     }
 
-    const bool running = runtimeStats.available != 0 && runtimeStats.enabled != 0
-                      && runtimeStats.worker_running != 0;
+    if (! liveSignalActive && followLatest)
+    {
+        g.setColour (juce::Colours::black);
+        g.fillRect (getLocalBounds().withTrimmedTop (attack_ui::headerHeight));
+        return;
+    }
     if (! running || ! attack_ui::validTimeline (latest, rate))
     {
         g.setColour (COL_MUTED);
@@ -370,100 +389,6 @@ void AttackComponent::paint (juce::Graphics& g)
                     + (followLatest ? " EVENTS  /  LIVE" : " EVENTS  /  LOCK"),
                 scrub, juce::Justification::centred);
 
-    const auto* preDetail = selectedPreDetail();
-    const auto* postDetail = selectedPostDetail();
-    if (metrics.isEmpty() || postDetail == nullptr)
-        return;
-
-    metrics = metrics.reduced (1);
-    g.setColour (selectionColour.withAlpha (0.16f));
-    g.drawRoundedRectangle (metrics.toFloat(), 4.0f, 0.75f);
-
-    auto content = metrics.reduced (7, 3);
-    auto focusHeader = content.removeFromTop (12);
-    g.setColour (COL_MUTED);
-    g.setFont (monoFont (6.5f * textScale));
-    const auto beforeMs = postDetail->sample_rate > 0
-        ? (postDetail->event_sample - postDetail->shape_start_sample) * 1'000
-            / static_cast<std::int64_t> (postDetail->sample_rate) : 0;
-    const auto afterMs = postDetail->sample_rate > 0
-        ? (postDetail->shape_end_sample - postDetail->event_sample) * 1'000
-            / static_cast<std::int64_t> (postDetail->sample_rate) : 0;
-    g.drawText ("SELECTED EVENT  /  -" + juce::String (beforeMs)
-                    + "  +" + juce::String (afterMs) + " ms  /  "
-                    + (preDetail != nullptr ? "POST - PRE" : "POST ABSOLUTE"),
-                focusHeader, juce::Justification::centred);
-
-    const auto pairedDetail = preDetail != nullptr;
-    const auto strengthValue = pairedDetail
-        ? signedValue (postDetail->attack_rms_dbfs - preDetail->attack_rms_dbfs) + " dB"
-        : juce::String (postDetail->attack_rms_dbfs, 1) + " dBFS";
-    const auto strengthContext = pairedDetail
-        ? "PRE " + juce::String (preDetail->attack_rms_dbfs, 1)
-            + "  POST " + juce::String (postDetail->attack_rms_dbfs, 1)
-        : "30 ms ATTACK RMS";
-    const auto edge = pairedDetail
-        ? postDetail->sample_edge_ratio_db - preDetail->sample_edge_ratio_db
-        : postDetail->sample_edge_ratio_db;
-    const auto crest = pairedDetail ? postDetail->crest_db - preDetail->crest_db
-                                    : postDetail->crest_db;
-    const auto plateau = pairedDetail
-        ? postDetail->peak_plateau_ms - preDetail->peak_plateau_ms
-        : postDetail->peak_plateau_ms;
-    const auto textureValue = (pairedDetail ? signedValue (edge) : juce::String (edge, 1))
-                            + " dB";
-    const auto textureContext = "CREST " + (pairedDetail ? signedValue (crest)
-                                                        : juce::String (crest, 1))
-                              + "  PLAT " + (pairedDetail ? signedValue (plateau, 2)
-                                                          : juce::String (plateau, 2));
-    const bool brightnessAvailable = postDetail->sharpness_available != 0
-        && (! pairedDetail || preDetail->sharpness_available != 0);
-    const auto brightnessValue = brightnessAvailable
-        ? (pairedDetail ? signedValue (postDetail->sharpness_acum - preDetail->sharpness_acum, 2)
-                        : juce::String (postDetail->sharpness_acum, 2)) + " acum"
-        : "---";
-    const auto brightnessContext = pairedDetail ? "SHARPNESS DIFFERENCE" : "100 ms SHARPNESS";
-    const auto transientValue = pairedDetail
-        ? signedValue (postDetail->contrast_db - preDetail->contrast_db) + " dB"
-        : juce::String (postDetail->contrast_db, 1) + " dB";
-    const auto transientContext = pairedDetail ? "CONTRAST DIFFERENCE" : "LOCAL CONTRAST";
-
-    if (content.getWidth() >= 390 && content.getHeight() >= 65)
-    {
-        const auto sideWidth = juce::jmin (textScale > 1.4f ? 178 : 112,
-                                           content.getWidth() / 4);
-        auto left = content.removeFromLeft (sideWidth);
-        auto right = content.removeFromRight (sideWidth);
-        auto specimen = content.reduced (4, 1);
-        const auto phase = rate > 0 ? juce::jlimit (0.0f, 1.0f,
-            static_cast<float> (latest - postDetail->event_sample) / (0.42f * rate)) : 1.0f;
-        drawEventFocus (g, preDetail, postDetail, specimen, phase);
-        auto leftTop = left.removeFromTop (left.getHeight() / 2).reduced (1);
-        auto leftBottom = left.reduced (1);
-        auto rightTop = right.removeFromTop (right.getHeight() / 2).reduced (1);
-        auto rightBottom = right.reduced (1);
-        drawMetricFact (g, leftTop, "STRENGTH", strengthValue, strengthContext,
-                  strengthColour, false);
-        drawMetricFact (g, leftBottom, "BRIGHTNESS", brightnessValue, brightnessContext,
-                  brightnessColour, false);
-        drawMetricFact (g, rightTop, "TEXTURE", textureValue, textureContext,
-                  textureColour, true);
-        drawMetricFact (g, rightBottom, "TRANSIENT", transientValue, transientContext,
-                  transientColour, true);
-    }
-    else
-    {
-        const auto phase = rate > 0 ? juce::jlimit (0.0f, 1.0f,
-            static_cast<float> (latest - postDetail->event_sample) / (0.42f * rate)) : 1.0f;
-        drawEventFocus (g, preDetail, postDetail, content.reduced (2, 1), phase);
-        const auto width = content.getWidth() / 4;
-        auto strength = content.removeFromLeft (width);
-        auto brightness = content.removeFromLeft (width);
-        auto texture = content.removeFromLeft (width);
-        drawMetricFact (g, strength, "STRENGTH", strengthValue, {}, strengthColour, false);
-        drawMetricFact (g, brightness, "BRIGHT", brightnessValue, {}, brightnessColour, false);
-        drawMetricFact (g, texture, "TEXTURE", textureValue, {}, textureColour, true);
-        drawMetricFact (g, content, "TRANSIENT", transientValue, {}, transientColour, true);
-    }
+    paintSelectedEvent (g, metrics);
 }
 }

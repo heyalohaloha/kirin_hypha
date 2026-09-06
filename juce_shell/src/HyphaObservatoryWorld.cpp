@@ -5,6 +5,7 @@
 #include "HyphaTheme.h"
 
 #include <array>
+#include <cmath>
 
 namespace hypha::observatory_world
 {
@@ -200,12 +201,33 @@ void Backdrop::draw (juce::Graphics& g, juce::Rectangle<int> area, const State& 
 {
     g.setColour (BG);
     g.fillRect (area);
-    if (! image.isValid())
+    if (! image.isValid() || area.isEmpty())
         return;
 
     juce::Graphics::ScopedSaveState saved (g);
     g.setOpacity (juce::jlimit (0.0f, 1.0f, backdropOpacity (state)));
-    drawAspectFill (g, image, area);
+    const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+    const double pixels = static_cast<double> (area.getWidth()) * area.getHeight()
+                        * scale * scale;
+    if (! std::isfinite (scale) || scale <= 0.0f || pixels > 16'777'216.0)
+    {
+        drawAspectFill (g, image, area);
+        return;
+    }
+    const juce::Point<int> logicalSize (area.getWidth(), area.getHeight());
+    if (! scaledBackdrop.isValid() || scaledBackdropLogicalSize != logicalSize
+        || std::abs (scaledBackdropPixelScale - scale) > 1.0e-6f)
+    {
+        scaledBackdrop = juce::Image (juce::Image::ARGB,
+            juce::jmax (1, juce::roundToInt (area.getWidth() * scale)),
+            juce::jmax (1, juce::roundToInt (area.getHeight() * scale)), true);
+        juce::Graphics textureGraphics (scaledBackdrop);
+        textureGraphics.addTransform (juce::AffineTransform::scale (scale));
+        drawAspectFill (textureGraphics, image, area.withPosition (0, 0));
+        scaledBackdropLogicalSize = logicalSize;
+        scaledBackdropPixelScale = scale;
+    }
+    g.drawImage (scaledBackdrop, area.toFloat());
 }
 
 void Backdrop::drawLevelCorners (juce::Graphics& g,
@@ -223,6 +245,43 @@ void Backdrop::drawLevelCorners (juce::Graphics& g,
     const float signalOpacity = state.active ? 0.86f : 0.58f;
     g.setOpacity (roleOpacity * signalOpacity);
     drawAspectFill (g, levelCorners, area);
+}
+
+void Backdrop::drawDomainBed (juce::Graphics& g, juce::Rectangle<int> area,
+                              const State& state) const
+{
+    if (area.isEmpty()) return;
+    const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+    const auto rasterArea = area.expanded (4);
+    const double pixels = static_cast<double> (rasterArea.getWidth())
+                        * rasterArea.getHeight() * scale * scale;
+    if (! std::isfinite (scale) || scale <= 0.0f || pixels > 16'777'216.0)
+    {
+        paintDomainBed (g, area, state);
+        return;
+    }
+    const juce::Point<int> size (rasterArea.getWidth(), rasterArea.getHeight());
+    const bool sameState = state.domain == domainBedState.domain
+        && state.density == domainBedState.density && state.active == domainBedState.active
+        && state.capture == domainBedState.capture
+        && std::abs (state.energy - domainBedState.energy) <= 0.0f
+        && std::abs (state.direction - domainBedState.direction) <= 0.0f;
+    if (! domainBed.isValid() || domainBedSize != size || ! sameState
+        || std::abs (domainBedPixelScale - scale) > 1.0e-6f)
+    {
+        domainBed = juce::Image (juce::Image::ARGB,
+            juce::jmax (1, juce::roundToInt (size.x * scale)),
+            juce::jmax (1, juce::roundToInt (size.y * scale)), true);
+        juce::Graphics layer (domainBed);
+        layer.addTransform (juce::AffineTransform::scale (scale));
+        paintDomainBed (layer, area.withPosition (4, 4), state);
+        domainBedSize = size;
+        domainBedPixelScale = scale;
+        domainBedState = state;
+    }
+    juce::Graphics::ScopedSaveState saved (g);
+    g.setOpacity (1.0f);
+    g.drawImage (domainBed, rasterArea.toFloat());
 }
 
 void Backdrop::drawHyphaSpecimen (juce::Graphics& g,

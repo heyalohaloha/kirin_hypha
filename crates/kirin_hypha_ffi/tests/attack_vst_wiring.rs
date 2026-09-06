@@ -30,7 +30,7 @@ fn vst_audio_callback_reaches_the_on_demand_attack_lane() {
     let callback = slice_between(
         &processor,
         "void KirinHyphaProcessorBase::processBlock",
-        "bool KirinHyphaProcessorBase::bufferIsSilent",
+        "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
     );
     let clock = callback
         .find("kirin_hypha_note_capture_window")
@@ -96,7 +96,11 @@ fn attack_abi_stays_compatible_and_the_product_view_has_a_navigation_route() {
     assert!(time_navigation_header.contains("attackButton { \"ATTACK\""));
     assert!(time_navigation.contains("choose (Page::attack)"));
     assert!(editor_analysis.contains("processorRef.setAttackEnabled (true)"));
-    assert!(processor.contains("kirin_hypha_set_attack_enabled"));
+    assert!(
+        processor.contains("kirin_hypha_set_attack_enabled")
+            || read_repo("juce_shell/src/PluginProcessorAnalysis.cpp")
+                .contains("kirin_hypha_set_attack_enabled")
+    );
     assert!(navigation.contains("attack"));
     assert!(navigation.contains("ATTACK"));
 }

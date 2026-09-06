@@ -40,6 +40,13 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     frame.selectedDomain = selectedDomain;
     frame.selectedTarget = selectedTarget;
     frame.timeRange = timeRange;
+    frame.analysisPage = analysisPage;
+    frame.attackPaired = attackPaired;
+    frame.selectedMeterContext = selectedMeterContext;
+    frame.selectedScaleMode = selectedScaleMode;
+    frame.externalAnalysisBodyActive = externalAnalysisBodyActive;
+    frame.showRunSummary = showRunSummary;
+    frame.runSummary = runSummary;
     frame.observatoryFrame = observatoryFrame;
     frame.frameAvailable = frameAvailable;
     frame.watchDisplay = watchDisplay;

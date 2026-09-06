@@ -92,6 +92,8 @@ mod tests {
             pre_sharpness: 1.0,
             post_sharpness: 1.2,
             delta_sharpness: 0.2,
+            pre_psb: None,
+            post_psb: None,
         }
     }
 

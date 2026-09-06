@@ -1,5 +1,99 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "analysis_display_ffi_tests.rs"]
+mod tests;
+
+/// Additive display-only ABI; existing Spectrum/Sharpness/LIVE and Record layouts stay stable.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KirinPsbView {
+    pub status: u8,
+    pub has_data: u8,
+    pub is_delta: u8,
+    pub channels: u8,
+    pub sample_rate: u32,
+    pub aperture_samples: u32,
+    pub reserved: u32,
+    pub presentation_end_samples: i64,
+    pub state_epoch_samples: i64,
+    /// Absolute fractions, or signed POST-minus-PRE fractions (display as percentage points).
+    pub shares: [f64; 20],
+}
+
+fn to_c_psb(snapshot: SpectrumViewSnapshot) -> KirinPsbView {
+    use kirin_measure::phase_d::display::valid_shares;
+    let mut out = KirinPsbView {
+        status: spectrum_status_to_abi(snapshot.status),
+        has_data: 0,
+        is_delta: u8::from(snapshot.analysis_mode == AnalysisViewMode::Perceptual),
+        channels: snapshot.channels,
+        sample_rate: 0,
+        aperture_samples: 0,
+        reserved: 0,
+        presentation_end_samples: 0,
+        state_epoch_samples: 0,
+        shares: [f64::NAN; 20],
+    };
+    if snapshot.status != SpectrumViewStatus::Active {
+        return out;
+    }
+    if snapshot.analysis_mode == AnalysisViewMode::Absolute {
+        if let Some(frame) = snapshot.absolute_timeline.newest() {
+            if let Some(shares) = frame.psb.filter(valid_shares) {
+                out.has_data = 1;
+                out.shares = shares;
+                out.sample_rate = frame.sample_rate;
+                out.aperture_samples = frame.aperture_samples;
+                out.presentation_end_samples = frame.presentation_end_samples;
+                out.state_epoch_samples = frame.state_epoch_samples;
+            }
+        }
+    } else if snapshot.analysis_mode == AnalysisViewMode::Perceptual {
+        if let Some(frame) = snapshot.perceptual_difference {
+            if frame.channel_mode != SpectrumChannelMode::Lr {
+                return out;
+            }
+            if let Some((pre, post)) = frame
+                .pre_psb
+                .filter(valid_shares)
+                .zip(frame.post_psb.filter(valid_shares))
+            {
+                out.has_data = 1;
+                out.shares = std::array::from_fn(|i| post[i] - pre[i]);
+                out.sample_rate = frame.sample_rate;
+                out.aperture_samples = frame.aperture_samples;
+                out.presentation_end_samples = frame.presentation_end_samples;
+                out.state_epoch_samples = frame.state_epoch_samples;
+            }
+        }
+    }
+    out
+}
+
+/// Poll the currently requested absolute/delta PSB observation; never starts a worker.
+/// # Safety
+/// `handle` must be null or live; `out` must be null or writable for one KirinPsbView.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_psb(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinPsbView,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(snapshot) = (unsafe { &*handle }).spectrum.try_view() else {
+            return false;
+        };
+        unsafe {
+            *out = to_c_psb(snapshot);
+        }
+        true
+    }))
+    .unwrap_or(false)
+}
+
 pub(super) fn to_c_perceptual(snapshot: SpectrumViewSnapshot) -> KirinPerceptualView {
     let difference = (snapshot.analysis_mode == AnalysisViewMode::Perceptual)
         .then_some(snapshot.perceptual_difference)

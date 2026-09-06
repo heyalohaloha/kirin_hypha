@@ -16,15 +16,13 @@ TimePageNavigation::TimePageNavigation()
     compactCycle.onClick = [this]
     {
         auto next = analysis_navigation::nextTimePage (selectedPage);
-        if (! runAvailable && next == Page::run)
-            next = analysis_navigation::nextTimePage (next);
         choose (next);
     };
     for (auto* button : { &historyButton, &runButton, &attackButton, &sharpButton, &liveButton })
         addChildComponent (button);
     addAndMakeVisible (compactCycle);
     historyButton.setTooltip ("Session history. Direct Observatory view.");
-    runButton.setTooltip ("Measured facts grouped by playback run.");
+    runButton.setTooltip ("Absolute facts grouped by playback run within the selected history; not a transport control.");
     attackButton.setTooltip ("PRE/POST transient event facts and differences.");
     sharpButton.setTooltip ("Sharpness Delta history. Unit: acum.");
     liveButton.setTooltip ("Absolute POST facts on fixed scales.");
@@ -81,7 +79,7 @@ void TimePageNavigation::resized()
     }
     auto remaining = getLocalBounds();
     juce::Array<juce::Button*> visible { &historyButton };
-    if (runAvailable) visible.add (&runButton);
+    visible.add (&runButton);
     visible.add (&attackButton); visible.add (&sharpButton); visible.add (&liveButton);
     for (int index = 0; index < visible.size(); ++index)
         visible[index]->setBounds (index + 1 == visible.size()
@@ -111,7 +109,7 @@ void TimePageNavigation::updateControls()
             : analysis_ui::switchViewTooltip ("POST live facts"));
     for (auto* button : { &historyButton, &runButton, &attackButton, &sharpButton, &liveButton })
         button->setVisible (direct);
-    runButton.setVisible (direct && runAvailable);
+    runButton.setVisible (direct);
     historyButton.setToggleState (selectedPage == Page::meters, juce::dontSendNotification);
     runButton.setToggleState (selectedPage == Page::run, juce::dontSendNotification);
     attackButton.setToggleState (selectedPage == Page::attack, juce::dontSendNotification);

@@ -200,22 +200,17 @@ namespace
         if (showProbe)
             return;
 
-        const int legendOffset = scaledInt (ui_contract::spectrumLegendAfterChannelModes);
+        const int legendOffset = 0;
         const float legendTop = outerPlot.getY()
-                              + scaled ((float) ui_contract::spectrumLegendTop);
+                              + scaled (17.0f);
         g.setFont (monoFont (ui_contract::spectrumLegendFontHeight
                              * ui_contract::analysisTextScale (scale)));
         if (state.absoluteObservation)
         {
             g.setColour (COL_SPECTRUM_POST.withAlpha (0.96f));
-            g.drawText ("POST ABS", juce::roundToInt (outerPlot.getX()) + legendOffset,
-                        juce::roundToInt (legendTop), scaledInt (48),
-                        scaledInt (ui_contract::spectrumLegendHeight),
-                        juce::Justification::centredLeft);
-            g.setColour (COL_FLORA_BR.withAlpha (0.64f));
-            g.drawText ("6 S FIELD  HOLD",
-                        juce::roundToInt (outerPlot.getX()) + legendOffset + scaledInt (52),
-                        juce::roundToInt (legendTop), scaledInt (92),
+            g.drawText (scale > 1.4f ? "POST dBFS / 6s field / peak hold" : "POST dBFS / 6s",
+                        juce::roundToInt (outerPlot.getX()),
+                        juce::roundToInt (legendTop), juce::roundToInt (outerPlot.getWidth()),
                         scaledInt (ui_contract::spectrumLegendHeight),
                         juce::Justification::centredLeft);
             return;
@@ -357,7 +352,7 @@ namespace
                       expanded ? ui_contract::spectrumExpandedFrequencyWidth
                                : ui_contract::spectrumHoverFrequencyWidth,
                       juce::Justification::centredLeft);
-            drawText ("POST " + juce::String (postDbfs, 1),
+            drawText ((expanded ? "POST " : "") + juce::String (postDbfs, 1),
                       COL_SPECTRUM_POST.withAlpha (0.98f),
                       expanded ? ui_contract::spectrumExpandedPostX
                                : ui_contract::spectrumHoverDeltaX,
@@ -447,6 +442,8 @@ void paint (juce::Graphics& g,
                 state.focusFrequencyHz, minimumHz, maximumHz))
         : -1.0f;
 
+    g.setColour (juce::Colours::black);
+    g.fillRect (plot);
     paintAxes (g, plot, scale, minimumHz, maximumHz, state.absoluteObservation);
     const bool expandedReadout = scale > 1.1f && probeNormalisedX >= 0.0f;
     const float reservedReadoutWidth = probeNormalisedX >= 0.0f
@@ -460,7 +457,7 @@ void paint (juce::Graphics& g,
 
     if (! state.snapshotValid)
     {
-        const auto text = state.haveSnapshot
+        const auto text = ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot
                             ? statusText (state.snapshot.status, state.analysisOwnerNames)
                                              : juce::String ("SYNC");
         if (text.isNotEmpty())

@@ -122,14 +122,14 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
         g.setColour (latest ? COL_LED_BLUE : COL_NORMAL);
         g.setFont (monoFont (9.0f));
         g.drawFittedText ("RUN " + juce::String (run.runId)
-                          + (latest ? "  LATEST" : ""), identity,
-                          juce::Justification::centredLeft, 1, 0.78f);
+                          + (latest ? " *" : ""), identity,
+                          juce::Justification::centredLeft, 1, 1.0f);
         auto clips = upper.removeFromRight (58).reduced (3, 0);
         g.setColour ((run.clipEvents[0] + run.clipEvents[1] > 0 ? COL_SPECTRUM_POST : COL_MUTED)
                          .withAlpha (0.90f));
         g.drawFittedText ("L" + juce::String (run.clipEvents[0])
                           + " R" + juce::String (run.clipEvents[1]), clips,
-                          juce::Justification::centredRight, 1, 0.78f);
+                          juce::Justification::centredRight, 1, 1.0f);
         g.setColour (COL_MUTED.brighter (0.22f));
         g.drawText (durationText (run, sampleRate), upper.reduced (3, 0),
                     juce::Justification::centredRight);
@@ -138,13 +138,13 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
         g.setColour (COL_FLORA_BR.withAlpha (0.92f));
         g.drawFittedText ("TP " + (run.truePeakAvailable
                             ? number (run.maximumTruePeak) : juce::String ("---")), peak,
-                          juce::Justification::centredRight, 1, 0.78f);
+                          juce::Justification::centredRight, 1, 1.0f);
         const auto loudness = run.momentary.available
             ? "M " + number (run.momentary.minimum) + ".." + number (run.momentary.maximum)
             : juce::String ("M ---");
         g.setColour (COL_SPECTRUM_POST.withAlpha (0.95f));
         g.drawFittedText (loudness, row.reduced (5, 0), juce::Justification::centredLeft,
-                          1, 0.78f);
+                          1, 1.0f);
         return;
     }
 
@@ -153,8 +153,8 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
     g.setColour (latest ? COL_LED_BLUE : COL_NORMAL);
     g.setFont (monoFont (10.0f));
     g.drawFittedText ("RUN " + juce::String (run.runId)
-                      + (latest ? "  LATEST" : ""), identity,
-                      juce::Justification::centredLeft, 1, 0.72f);
+                      + (latest ? " *" : ""), identity,
+                      juce::Justification::centredLeft, 1, 1.0f);
 
     auto duration = row.removeFromLeft (62).reduced (3, 0);
     g.setColour (COL_MUTED.brighter (0.22f));
@@ -165,20 +165,20 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
     auto clips = row.removeFromRight (78).reduced (3, 0);
     g.setColour ((run.clipEvents[0] + run.clipEvents[1] > 0 ? COL_SPECTRUM_POST : COL_MUTED)
                      .withAlpha (0.90f));
-    g.drawFittedText (clipText, clips, juce::Justification::centredRight, 1, 0.72f);
+    g.drawFittedText (clipText, clips, juce::Justification::centredRight, 1, 1.0f);
 
     auto peak = row.removeFromRight (106).reduced (3, 0);
     g.setColour (COL_FLORA_BR.withAlpha (0.92f));
     g.drawFittedText ("TP " + (run.truePeakAvailable
                         ? number (run.maximumTruePeak) : juce::String ("---")), peak,
-                      juce::Justification::centredRight, 1, 0.72f);
+                      juce::Justification::centredRight, 1, 1.0f);
 
     const auto loudness = run.momentary.available
         ? "M " + number (run.momentary.minimum) + ".." + number (run.momentary.maximum)
         : juce::String ("M ---");
     g.setColour (COL_SPECTRUM_POST.withAlpha (0.95f));
     g.drawFittedText (loudness, row.reduced (3, 0), juce::Justification::centredLeft,
-                      1, 0.76f);
+                      1, 1.0f);
 }
 }
 
@@ -245,7 +245,7 @@ Result summarize (const std::vector<KirinMeterHistoryEntry>& history)
 
 int visibleRowCount (int width) noexcept
 {
-    return width <= 450 ? 1 : width < 900 ? 3 : 6;
+    return width <= 450 ? 1 : width < 820 ? 3 : 6;
 }
 
 void paint (juce::Graphics& g, juce::Rectangle<int> area, const Result& result,
@@ -262,8 +262,14 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const Result& result,
     g.drawText (result.exactTimeline ? "RUNS IN VIEW" : "SESSION RUN", heading,
                 juce::Justification::centredLeft);
     g.setColour (COL_MUTED);
-    g.drawText ("POST FACTS", heading, juce::Justification::centredRight);
-    if (result.runs.empty()) return;
+    g.drawText ("* LATEST / POST", heading, juce::Justification::centredRight);
+    if (result.runs.empty())
+    {
+        g.setFont (monoFont (12.0f));
+        g.drawFittedText ("Play audio to collect run facts in this history range", area,
+                          juce::Justification::centred, 2, 1.0f);
+        return;
+    }
 
     const auto rows = juce::jmin (visibleRowCount (area.getWidth()),
                                   static_cast<int> (result.runs.size()));

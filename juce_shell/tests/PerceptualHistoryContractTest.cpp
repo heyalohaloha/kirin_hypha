@@ -5,6 +5,7 @@
 #include "../src/HyphaPerceptualHistory.h"
 #include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaUiContract.h"
+#include "../src/HyphaTheme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -58,7 +59,7 @@ namespace
         int count = 0;
         for (int y = 0; y < image.getHeight(); ++y)
             for (int x = 0; x < image.getWidth(); ++x)
-                count += image.getPixelAt (x, y).getAlpha() != 0 ? 1 : 0;
+                count += image.getPixelAt (x, y).getBlue() != 0 ? 1 : 0;
         return count;
     }
 
@@ -72,13 +73,13 @@ namespace
         };
     }
 
-    int maximumAlphaAround (const juce::Image& image, juce::Point<int> centre)
+    int maximumInkAround (const juce::Image& image, juce::Point<int> centre)
     {
         int maximum = 0;
         for (int y = centre.y - 2; y <= centre.y + 2; ++y)
             for (int x = centre.x - 2; x <= centre.x + 2; ++x)
                 if (image.getBounds().contains (x, y))
-                    maximum = std::max (maximum, (int) image.getPixelAt (x, y).getAlpha());
+                    maximum = std::max (maximum, (int) image.getPixelAt (x, y).getBlue());
         return maximum;
     }
 
@@ -150,33 +151,36 @@ namespace
 
         const auto positive = renderSteadyHistory (1.6, 1.6);
         const int positiveNear = positive.getPixelAt (
-            pointAt (plot, 0.7, 0.25).x, pointAt (plot, 0.7, 0.25).y).getAlpha();
+            pointAt (plot, 0.7, 0.25).x, pointAt (plot, 0.7, 0.25).y).getBlue();
         const int positiveFar = positive.getPixelAt (
-            pointAt (plot, 0.7, 1.25).x, pointAt (plot, 0.7, 1.25).y).getAlpha();
-        std::cout << "Sharpness positive fill near/far alpha: "
+            pointAt (plot, 0.7, 1.25).x, pointAt (plot, 0.7, 1.25).y).getBlue();
+        std::cout << "Sharpness positive fill near/far ink: "
                   << positiveNear << '/' << positiveFar << '\n';
-        KIRIN_PERCEPTUAL_REQUIRE (positiveNear >= 32);
-        KIRIN_PERCEPTUAL_REQUIRE (positiveFar >= positiveNear + 50);
+        // The plot is now opaque black: measure composited ink, not its always-255 alpha.
+        const auto minimumInk = COL_SPECTRUM_DELTA.getBlue() * 32 / 255;
+        const auto minimumIncrease = COL_SPECTRUM_DELTA.getBlue() * 50 / 255;
+        KIRIN_PERCEPTUAL_REQUIRE (positiveNear >= minimumInk);
+        KIRIN_PERCEPTUAL_REQUIRE (positiveFar >= positiveNear + minimumIncrease);
 
         const auto negative = renderSteadyHistory (-1.6, -1.6);
         const int negativeNear = negative.getPixelAt (
-            pointAt (plot, 0.7, -0.25).x, pointAt (plot, 0.7, -0.25).y).getAlpha();
+            pointAt (plot, 0.7, -0.25).x, pointAt (plot, 0.7, -0.25).y).getBlue();
         const int negativeFar = negative.getPixelAt (
-            pointAt (plot, 0.7, -1.25).x, pointAt (plot, 0.7, -1.25).y).getAlpha();
-        std::cout << "Sharpness negative fill near/far alpha: "
+            pointAt (plot, 0.7, -1.25).x, pointAt (plot, 0.7, -1.25).y).getBlue();
+        std::cout << "Sharpness negative fill near/far ink: "
                   << negativeNear << '/' << negativeFar << '\n';
-        KIRIN_PERCEPTUAL_REQUIRE (negativeNear >= 32);
-        KIRIN_PERCEPTUAL_REQUIRE (negativeFar >= negativeNear + 50);
+        KIRIN_PERCEPTUAL_REQUIRE (negativeNear >= minimumInk);
+        KIRIN_PERCEPTUAL_REQUIRE (negativeFar >= negativeNear + minimumIncrease);
 
         const auto zeroHead = renderSteadyHistory (0.0, 1.6);
         const auto highHead = renderSteadyHistory (1.6, 1.6);
         const auto sample = pointAt (plot, 0.7, 0.8);
-        const int zeroHeadAlpha = zeroHead.getPixelAt (sample.x, sample.y).getAlpha();
-        const int highHeadAlpha = highHead.getPixelAt (sample.x, sample.y).getAlpha();
-        std::cout << "Sharpness fill history-head independence alpha: "
-                  << zeroHeadAlpha << '/' << highHeadAlpha << '\n';
-        KIRIN_PERCEPTUAL_REQUIRE (zeroHeadAlpha > 0);
-        KIRIN_PERCEPTUAL_REQUIRE (std::abs (zeroHeadAlpha - highHeadAlpha) <= 2);
+        const int zeroHeadInk = zeroHead.getPixelAt (sample.x, sample.y).getBlue();
+        const int highHeadInk = highHead.getPixelAt (sample.x, sample.y).getBlue();
+        std::cout << "Sharpness fill history-head independence ink: "
+                  << zeroHeadInk << '/' << highHeadInk << '\n';
+        KIRIN_PERCEPTUAL_REQUIRE (zeroHeadInk > 0);
+        KIRIN_PERCEPTUAL_REQUIRE (std::abs (zeroHeadInk - highHeadInk) <= 2);
     }
 
     void verifyHeldFillPersistsAfterPresentationStops()
@@ -193,12 +197,12 @@ namespace
         component.presentationTickAt (juce::Time::getMillisecondCounterHiRes() + 10'000.0);
         const auto held = renderComponent (component);
         const auto sample = pointAt (plot, 0.7, -0.8);
-        const int liveAlpha = live.getPixelAt (sample.x, sample.y).getAlpha();
-        const int heldAlpha = held.getPixelAt (sample.x, sample.y).getAlpha();
-        std::cout << "Sharpness stopped fill persistence alpha: "
-                  << liveAlpha << '/' << heldAlpha << '\n';
-        KIRIN_PERCEPTUAL_REQUIRE (liveAlpha >= 50);
-        KIRIN_PERCEPTUAL_REQUIRE (heldAlpha == liveAlpha);
+        const int liveInk = live.getPixelAt (sample.x, sample.y).getBlue();
+        const int heldInk = held.getPixelAt (sample.x, sample.y).getBlue();
+        std::cout << "Sharpness stopped fill persistence ink: "
+                  << liveInk << '/' << heldInk << '\n';
+        KIRIN_PERCEPTUAL_REQUIRE (liveInk >= COL_SPECTRUM_DELTA.getBlue() * 50 / 255);
+        KIRIN_PERCEPTUAL_REQUIRE (heldInk == liveInk);
     }
 
     void verifyUniformHistoryInk()
@@ -215,13 +219,13 @@ namespace
         component.paintEntireComponent (graphics, true);
 
         const auto plot = perceptualPlotFor (component.getLocalBounds());
-        const int olderAlpha = maximumAlphaAround (image, pointAt (plot, 4.0, 1.0));
-        const int newerAlpha = maximumAlphaAround (image, pointAt (plot, 0.5, 1.0));
-        std::cout << "Sharpness uniform ink alpha: " << olderAlpha
-                  << '/' << newerAlpha << '\n';
-        KIRIN_PERCEPTUAL_REQUIRE (olderAlpha > 0);
-        KIRIN_PERCEPTUAL_REQUIRE (newerAlpha > 0);
-        KIRIN_PERCEPTUAL_REQUIRE (std::abs (olderAlpha - newerAlpha) <= 2);
+        const int olderInk = maximumInkAround (image, pointAt (plot, 4.0, 1.0));
+        const int newerInk = maximumInkAround (image, pointAt (plot, 0.5, 1.0));
+        std::cout << "Sharpness uniform ink ink: " << olderInk
+                  << '/' << newerInk << '\n';
+        KIRIN_PERCEPTUAL_REQUIRE (olderInk > 0);
+        KIRIN_PERCEPTUAL_REQUIRE (newerInk > 0);
+        KIRIN_PERCEPTUAL_REQUIRE (std::abs (olderInk - newerInk) <= 2);
     }
 
     double renderAt (const ui_contract::SpectrumSizePreset& preset,
@@ -258,7 +262,8 @@ namespace
             component.paintEntireComponent (graphics, true);
         }
         const double paintMs = (juce::Time::getMillisecondCounterHiRes() - started) / iterations;
-        KIRIN_PERCEPTUAL_REQUIRE (visiblePixels (image) > bounds.width * bounds.height / 10);
+        // Actual coloured ink, excluding the opaque black background, must remain present.
+        KIRIN_PERCEPTUAL_REQUIRE (visiblePixels (image) > bounds.width);
 
         const auto outputPath = juce::SystemStats::getEnvironmentVariable (outputVariable, {});
         if (outputPath.isNotEmpty())

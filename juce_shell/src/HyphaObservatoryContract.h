@@ -105,29 +105,27 @@ constexpr int headerHeight (Density density) noexcept
 {
     switch (density)
     {
-        case Density::compact:     return 30;
-        case Density::focused:     return 36;
-        case Density::standard:    return 42;
-        case Density::observatory: return 50;
-        case Density::inspection:  return 64;
+        case Density::compact:     return 46;
+        case Density::focused:     return 50;
+        case Density::standard:    return 56;
+        case Density::observatory: return 64;
+        case Density::inspection:  return 80;
     }
     return 30;
 }
 
 constexpr int footerHeight (Density density) noexcept
 {
+    // Actions and session/Keep feedback have separate rows at every size.
     switch (density)
     {
-        case Density::compact:     return 24;
-        case Density::focused:     return 28;
-        case Density::standard:    return 32;
-        // The full-width action row is supporting chrome. Keeping it at 60% of the original
-        // 40 px returns meaningful vertical area to LEVEL/TIME history without shrinking only
-        // the CAPTURE button.
-        case Density::observatory: return 24;
-        case Density::inspection:  return 40;
+        case Density::compact: return 44;
+        case Density::focused: return 48;
+        case Density::standard: return 48;
+        case Density::observatory: return 52;
+        case Density::inspection: return 64;
     }
-    return 24;
+    return 44;
 }
 
 constexpr int timeNavigationHeight (Density density) noexcept
@@ -162,7 +160,7 @@ constexpr int compressedLevelMetricsHeight (int previousHeight) noexcept
     return (previousHeight * 3 + 2) / 5;
 }
 
-static_assert (footerHeight (Density::observatory) == 24);
+static_assert (footerHeight (Density::observatory) == 52);
 static_assert (compressedLevelMetricsHeight (150) == 90);
 
 constexpr int guideRailHeight (Density density, GuidePresence presence) noexcept
@@ -187,6 +185,7 @@ struct ShellLayout
     Rect header;
     Rect roleTitle;
     Rect domainNavigation;
+    Rect contextSelector;
     Rect connectionStatus;
     Rect guideRail;
     Rect body;
@@ -206,25 +205,25 @@ constexpr ShellLayout shellLayout (Role role,
     const int footerH = footerHeight (preset.density);
     const int railH = guideRailHeight (preset.density, guide);
     const Rect header { margin, margin, preset.width - 2 * margin, headerH };
-    const int titleWidth = preset.density == Density::compact ? 74
-                         : preset.density == Density::focused ? 92
-                         : preset.density == Density::standard ? 108
-                         : preset.density == Density::inspection ? 176 : 128;
+    const int titleWidth = preset.density == Density::compact ? 100
+                         : preset.density == Density::focused ? 116
+                         : preset.density == Density::standard ? 132
+                         : preset.density == Density::inspection ? 190 : 148;
     // Observatory reserves a real text field plus an independent menu hit target. The previous
     // 104 px slot forced "PAIR <name>" underneath the arrow on Windows.
     const int statusWidth = preset.density == Density::compact ? 92
                           : preset.density == Density::inspection ? 210
                           : preset.density == Density::observatory ? 140 : 104;
-    const Rect roleTitle { header.x, header.y, titleWidth, header.height };
+    const int rowHeight = header.height / 2;
+    const Rect roleTitle { header.x, header.y, titleWidth, rowHeight };
     const Rect connectionStatus {
-        right (header) - statusWidth, header.y, statusWidth, header.height
+        right (header) - statusWidth, header.y, statusWidth, rowHeight
     };
     const Rect domainNavigation {
-        right (roleTitle) + gap,
-        header.y,
-        connectionStatus.x - gap - (right (roleTitle) + gap),
-        header.height
+        header.x, header.y + rowHeight, header.width, header.height - rowHeight
     };
+    const Rect contextSelector { right (roleTitle) + gap, header.y,
+        connectionStatus.x - gap - (right (roleTitle) + gap), rowHeight };
 
     const int contextTop = bottom (header) + gap;
     const Rect guideRail = guide == GuidePresence::present
@@ -249,22 +248,21 @@ constexpr ShellLayout shellLayout (Role role,
         ? (preset.density == Density::compact ? 58
            : preset.density == Density::inspection ? 210
            : preset.density == Density::observatory ? 150 : 76) : 0;
-    const int actionWidth = preset.density == Density::compact ? 54
-                          : preset.density == Density::focused ? 92
+    const int actionWidth = preset.density == Density::compact ? 104
+                          : preset.density == Density::focused ? 112
                           : preset.density == Density::standard ? 120
                           : preset.density == Density::inspection ? 260 : 180;
     const Rect observationTarget {
-        footer.x, footer.y, targetWidth, footer.height
+        footer.x, footer.y, targetWidth, footer.height / 2
     };
     const Rect actions {
-        right (footer) - actionWidth, footer.y, actionWidth, footer.height
+        right (footer) - actionWidth, footer.y, actionWidth, footer.height / 2
     };
-    const int sessionX = targetWidth > 0 ? right (observationTarget) + gap : footer.x;
     const Rect session {
-        sessionX,
-        footer.y,
-        actions.x - gap - sessionX,
-        footer.height
+        footer.x,
+        footer.y + footer.height / 2,
+        footer.width,
+        footer.height - footer.height / 2
     };
 
     return {
@@ -272,6 +270,7 @@ constexpr ShellLayout shellLayout (Role role,
         header,
         roleTitle,
         domainNavigation,
+        contextSelector,
         connectionStatus,
         guideRail,
         body,

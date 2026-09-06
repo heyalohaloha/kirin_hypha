@@ -264,7 +264,8 @@ fn exact_pair_resumes_after_a_staggered_backwards_seek_end_to_end() {
             .frames()
             .map(|frame| frame.presentation_end_samples)
             .collect::<Vec<_>>(),
-        vec![8_000]
+        // Recover every exact frame of the new run, never the retained 489,600 endpoint.
+        vec![4_800, 6_400, 8_000]
     );
 
     pre.shutdown();

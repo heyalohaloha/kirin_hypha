@@ -24,10 +24,10 @@ Layout layoutFor (juce::Rectangle<int> area)
     area.reduce (7, 5);
     const auto inspection = area.getWidth() >= 700;
     Layout result;
-    result.legend = area.removeFromTop (inspection ? 20 : 15);
+    result.legend = area.removeFromTop (inspection ? 36 : 30);
     result.loudnessLabels = area.removeFromLeft (inspection ? 54 : 40);
     result.truePeakLabels = area.removeFromRight (inspection ? 38 : 31);
-    result.timeLabels = area.removeFromBottom (inspection ? 12 : 10);
+    result.timeLabels = area.removeFromBottom (inspection ? 16 : 14);
     result.sharedPlot = area.reduced (2, 2).toFloat();
     return result;
 }
@@ -333,10 +333,19 @@ void paint (juce::Graphics& g,
     const auto layout = layoutFor (area);
     const auto peakSummary = delta ? TruePeakSummary {} : analyseTruePeak (history, sampleRate);
 
-    g.setFont (monoFont (8.0f));
-    g.setColour (COL_MUTED.withAlpha (0.88f));
-    g.drawText (delta ? "60 SECOND DELTA HISTORY" : "60 SECOND HISTORY",
-                layout.legend, juce::Justification::centredLeft);
+    auto legend = layout.legend;
+    auto meanings = legend.removeFromTop (legend.getHeight() / 2);
+    g.setFont (monoFont (layout.sharedPlot.getWidth() >= 650.0f ? 13.0f : 11.0f));
+    g.setColour (COL_SPECTRUM_POST);
+    auto loudnessLegend = meanings.removeFromLeft (delta ? meanings.getWidth() : meanings.getWidth() / 2);
+    g.drawText (delta ? "M: POST - PRE (LU) / 60s" : "M: momentary LUFS",
+                loudnessLegend, juce::Justification::centredLeft);
+    if (! delta)
+    {
+        g.setColour (COL_FLORA_BR);
+        g.drawText ("TP: 2s peaks (dBTP)", meanings, juce::Justification::centredRight);
+    }
+    g.setColour (COL_MUTED.brighter (0.15f));
     juce::String detail;
     if (hoveredIndex.has_value() && *hoveredIndex < history.size())
     {
@@ -359,7 +368,7 @@ void paint (juce::Graphics& g,
                        : juce::String ("TP ") + emDash() + "   |   60 S / 10 HZ";
     if (contextFact.isNotEmpty())
         detail = contextFact + "   |   " + detail;
-    g.drawFittedText (detail, layout.legend, juce::Justification::centredRight, 1, 0.70f);
+    g.drawText (detail, legend, juce::Justification::centredLeft);
 
     if (history.empty())
     {
@@ -377,8 +386,12 @@ void paint (juce::Graphics& g,
     g.setFont (monoFont (layout.loudnessLabels.getWidth() >= 50 ? 10.0f : 8.2f));
     const auto paintLoudnessTicks = [&] (const auto& ticks)
     {
-        for (const auto tick : ticks)
+        for (size_t index = 0; index < ticks.size(); ++index)
         {
+            if (layout.sharedPlot.getHeight() < 110.0f
+                && index != 0 && index != ticks.size() / 2 && index != ticks.size() - 1)
+                continue;
+            const auto tick = ticks[index];
             const auto y = juce::roundToInt (yForLoudness (layout.sharedPlot, tick, delta));
             const bool zero = delta && tick == 0.0;
             g.setColour ((zero ? COL_FLORA_BR : COL_MUTED).withAlpha (
@@ -387,8 +400,8 @@ void paint (juce::Graphics& g,
             g.setColour (COL_MUTED.brighter (0.20f).withAlpha (0.86f));
             const auto label = (delta && tick > 0.0 ? "+" : "")
                              + juce::String (tick, 0);
-            g.drawText (label, layout.loudnessLabels.getX(), y - 4,
-                        layout.loudnessLabels.getWidth() - 3, 8,
+            g.drawText (label, layout.loudnessLabels.getX(), y - 7,
+                        layout.loudnessLabels.getWidth() - 3, 14,
                         juce::Justification::centredRight);
         }
     };
@@ -403,11 +416,13 @@ void paint (juce::Graphics& g,
         g.setFont (monoFont (6.2f));
         g.setColour (COL_FLORA.withAlpha (0.72f));
         g.drawText ("TP", layout.truePeakLabels.getX(),
-                    juce::roundToInt (overlay.getY()) - 10,
-                    layout.truePeakLabels.getWidth(), 8,
+                    juce::roundToInt (overlay.getY()) - 16,
+                    layout.truePeakLabels.getWidth(), 14,
                     juce::Justification::centredLeft);
         for (const auto tick : truePeakTicks)
         {
+            if (overlay.getHeight() < 100.0f && std::abs (tick) > 0.01 && tick > -23.99)
+                continue;
             const auto y = juce::roundToInt (yForTruePeak (overlay, tick));
             g.setColour (COL_FLORA.withAlpha (tick == 0.0 ? 0.28f : 0.16f));
             g.drawHorizontalLine (y, layout.sharedPlot.getRight() - 5.0f,
@@ -415,8 +430,8 @@ void paint (juce::Graphics& g,
             g.setColour (COL_MUTED.withAlpha (0.72f));
             const auto label = tick > 0.0 ? "+" + juce::String (tick, 0)
                                          : juce::String (tick, 0);
-            g.drawText (label, layout.truePeakLabels.getX(), y - 4,
-                        layout.truePeakLabels.getWidth(), 8,
+            g.drawText (label, layout.truePeakLabels.getX(), y - 7,
+                        layout.truePeakLabels.getWidth(), 14,
                         juce::Justification::centredLeft);
         }
     }

@@ -142,14 +142,10 @@ void KirinHyphaEditor::updatePre()
     else if (! displayRecord && sig == KIRIN_SIGNAL_STATE_BYPASSED)
     {
         displaySmoother.reset();
-        haveObservatoryWatchDisplay = false;
-        haveWatchMaximum = false;
     }
     auto V = [&] (double x) { return have ? x : kNaN; };
 
-    const int ledSig = (! displayRecord && sig == KIRIN_SIGNAL_STATE_INACTIVE && have && ! muted)
-        ? KIRIN_SIGNAL_STATE_ACTIVE : sig;
-    led.setState (hypha::deriveLedState (alive, ledSig, rec, ack, preset));
+    led.setState (hypha::deriveLedState (alive, sig, rec, ack, preset));
 
     const auto selected = [useShortTerm] (const KirinMeasureResult& value)
     {
@@ -256,10 +252,6 @@ void KirinHyphaEditor::updatePost()
     postControls->update (keepActive, processorRef.licenseCode(),
                           pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
 
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (refreshAnalysisViews (alive, sig, rec, armed, ack, preset, pairStatus))
-        return;
-   #endif
 
     // ── display-branch tree: Record uses one generation-bound presentation snapshot, while
     //    paired Watch keeps the delta grid through short PRE idle/stale gaps.
@@ -277,6 +269,11 @@ void KirinHyphaEditor::updatePost()
         watchMaximum = watch.maximum;
         haveWatchMaximum = true;
     }
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (refreshAnalysisViews (alive, sig, rec, armed, ack, preset, pairStatus))
+        return;
+   #endif
+
     const bool haveWatch = polledWatch && sig == KIRIN_SIGNAL_STATE_ACTIVE;
     if (displayRecord)
     {
@@ -313,11 +310,8 @@ void KirinHyphaEditor::updatePost()
     else if (! displayRecord && sig == KIRIN_SIGNAL_STATE_BYPASSED)
     {
         displaySmoother.reset();
-        haveObservatoryWatchDisplay = false;
-        haveWatchMaximum = false;
     }
     const bool tpWarn = ! mutedM && hypha::tpOver (haveM ? m.true_peak : kNaN);
-    bool watchHeldNormal = false;
     const auto selectedMeasure = [useShortTerm] (const KirinMeasureResult& value)
     {
         return useShortTerm ? value.lufs_s : value.lufs_m;
@@ -385,7 +379,6 @@ void KirinHyphaEditor::updatePost()
             if (currentKind != Kind::WatchDelta6) configureForKind (Kind::WatchDelta6);
             const bool unavailable = ! haveHeldD;
             const juce::Colour base = mutedHeldD || unavailable ? COL_MUTED : COL_NORMAL;
-            watchHeldNormal = haveHeldD && ! mutedHeldD;
             fillDelta (0, haveHeldD ? selectedDelta (heldD) : kNaN,
                        false, base, false, mutedHeldD || unavailable);
             fillAbs (1, haveWatchMaximum ? selectedMeasure (watchMaximum) : kNaN, false, true);
@@ -399,7 +392,6 @@ void KirinHyphaEditor::updatePost()
         else
         {
             if (currentKind != Kind::WatchAbs6) configureForKind (Kind::WatchAbs6);
-            watchHeldNormal = haveM && ! mutedM;
             fillAbs (0, haveM ? selectedMeasure (m) : kNaN, false, mutedM);
             fillAbs (1, haveWatchMaximum ? selectedMeasure (watchMaximum) : kNaN, false, true);
             fillAbs (2, haveM ? m.true_peak : kNaN, true, mutedM);
@@ -468,9 +460,7 @@ void KirinHyphaEditor::updatePost()
         }
     }
 
-    const int ledSig = (! displayRecord && sig == KIRIN_SIGNAL_STATE_INACTIVE && watchHeldNormal)
-        ? KIRIN_SIGNAL_STATE_ACTIVE : sig;
     // PREPARING is intentionally not shown as an active Record light. The producer becomes
     // user-ready only after every generation member has crossed the shared Armed barrier.
-    led.setState (hypha::deriveLedState (alive, ledSig, rec && armed, ack, preset));
+    led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
 }

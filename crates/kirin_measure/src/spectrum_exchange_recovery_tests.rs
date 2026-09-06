@@ -4,7 +4,6 @@ use crate::spectrum::{
     SPECTRUM_WINDOW_SIZE,
 };
 use std::thread;
-
 fn frame(end: i64, value: f32) -> SpectrumFrame {
     SpectrumFrame {
         schema_version: SPECTRUM_SCHEMA_VERSION,
@@ -33,6 +32,7 @@ fn perceptual_frame(end: i64, value: f64) -> crate::PerceptualFrame {
         channel_mode: SpectrumChannelMode::Lr,
         channels: 2,
         sharpness: value,
+        psb: None,
     }
 }
 

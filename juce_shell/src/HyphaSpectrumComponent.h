@@ -11,6 +11,7 @@
 #include "HyphaGuideFrequencyOverlay.h"
 #include "HyphaSpectrumFocusTrail.h"
 #include "kirin_hypha_ffi.h"
+#include "kirin_hypha_display_ffi.h"
 
 namespace hypha
 {
@@ -32,7 +33,10 @@ public:
     void setAnalysisOwnerNames (const juce::String& names);
     void setGuideFrequencyOverlay (const guide_frequency::Overlay& next);
     void setAbsoluteObservation (bool absolute);
-    void setPsbSnapshot (const KirinMeasureResult&, const KirinDelta&, bool deltaAvailable);
+    void setPsbSnapshot (const KirinPsbView&);
+    bool isPsbObservation() const noexcept { return psbObservation; }
+    std::function<void()> onSubviewChange;
+    void setSignalActive (bool active);
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -103,6 +107,8 @@ private:
     bool absolutePsbAvailable = false;
     bool deltaPsbAvailable = false;
     bool psbObservation = false;
+    bool signalActive = false;
+    uint8_t psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     int psbHoverBand = -1;
     double modeActionNoticeUntilMs = 0.0;
     bool hoverNeedsRepaint = false;

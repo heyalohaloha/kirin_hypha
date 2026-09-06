@@ -64,7 +64,7 @@ void paint (juce::Graphics& g,
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.68f));
         g.drawText (juce::String (juce::CharPointer_UTF8 (
                         "\xCE\x94 \xC2\xB7 6s \xC2\xB7 \xC2\xB1\x31\x32")),
-                    plot.removeFromTop (6.5f * visualScale),
+                    plot.removeFromTop (juce::jmax (14.0f, 7.0f * visualScale)),
                     juce::Justification::centredLeft);
     }
     if (plot.getHeight() < 3.0f)
@@ -161,10 +161,10 @@ void paint (juce::Graphics& g,
             juce::PathStrokeType::rounded));
     }
     juce::ColourGradient strokeGradient (
-        COL_SPECTRUM_DELTA.withAlpha (0.10f), plot.getX(), zeroY,
+        COL_SPECTRUM_DELTA.withAlpha (0.55f), plot.getX(), zeroY,
         COL_SPECTRUM_DELTA_BR.withAlpha (0.98f), plot.getRight(), zeroY, false);
-    strokeGradient.addColour (0.42, COL_SPECTRUM_DELTA.withAlpha (0.22f));
-    strokeGradient.addColour (0.68, COL_SPECTRUM_DELTA.withAlpha (0.48f));
+    strokeGradient.addColour (0.42, COL_SPECTRUM_DELTA.withAlpha (0.62f));
+    strokeGradient.addColour (0.68, COL_SPECTRUM_DELTA.withAlpha (0.70f));
     strokeGradient.addColour (0.86, COL_SPECTRUM_DELTA_BR.withAlpha (0.74f));
     strokeGradient.addColour (0.95, COL_SPECTRUM_DELTA_BR.withAlpha (0.90f));
     g.setGradientFill (strokeGradient);

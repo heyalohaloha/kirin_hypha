@@ -141,6 +141,7 @@ void KirinHyphaEditor::refreshObservatory()
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         spectrumView.setAbsoluteObservation (
             restoredTarget == hypha::observatory::ObservationTarget::absolute);
+        if (analysisPage == AnalysisPage::spectrum) configureSpectrumAnalysis();
        #endif
     }
     const auto restoredRange = hypha::observatory::timeRangeFromState (
@@ -172,16 +173,13 @@ void KirinHyphaEditor::refreshObservatory()
     observatoryView.setShortTermLoudness (processorRef.useShortTermLoudness());
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost)
-        spectrumView.setPsbSnapshot (
-            haveObservatoryWatchDisplay ? observatoryWatchDisplay.current : KirinMeasureResult {},
-            frame.delta, frameAvailable && frame.delta_available != 0);
-    if (isPost)
         refreshReferenceAudition (frame, frameAvailable);
    #endif
 
     const auto pairStatus = processorRef.pairStatus();
 
-    if (observatoryDomain == hypha::observatory::Domain::time)
+    if (observatoryDomain == hypha::observatory::Domain::time
+        && observatoryView.capabilities().historyRange)
     {
         const auto request = observatoryView.historyRequest();
         std::vector<KirinMeterHistoryEntry> history;
@@ -195,11 +193,7 @@ void KirinHyphaEditor::refreshObservatory()
         {
             observatoryView.setHistory (std::move (history));
            #if ! KIRIN_HYPHA_PRE_DISPLAY
-            if (analysisPage == AnalysisPage::run
-                && ! observatoryView.runSummaryAvailable())
-                setAnalysisPage (AnalysisPage::meters);
-            else
-                updateTimePageNavigation();
+            updateTimePageNavigation();
            #endif
         }
     }

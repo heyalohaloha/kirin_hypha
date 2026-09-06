@@ -49,12 +49,12 @@ void drawMetric (juce::Graphics& g,
     drawPanel (g, area, family, panelOpacity);
     if (verticalStack)
     {
-        const auto labelHeight = juce::jlimit (11, 16, area.getHeight() / 4);
-        const auto unitHeight = juce::jlimit (9, 13, area.getHeight() / 5);
+        const auto labelHeight = juce::jlimit (14, 18, area.getHeight() / 4);
+        const auto unitHeight = juce::jlimit (14, 16, area.getHeight() / 5);
         const auto labelArea = area.removeFromTop (labelHeight);
         const auto unitArea = area.removeFromBottom (unitHeight);
         g.setColour (COL_MUTED.brighter (0.08f));
-        g.setFont (labelFont (juce::jlimit (8.0f, 11.0f, valueHeight * 0.25f)));
+        g.setFont (labelFont (area.getWidth() >= 135 ? 14.0f : 11.0f));
         g.drawText (label, labelArea.reduced (4, 0), juce::Justification::centred);
         g.setColour (std::isfinite (value) && textOverride.isEmpty()
                          ? COL_OBSERVATORY_VALUE : COL_MUTED);
@@ -64,7 +64,7 @@ void drawMetric (juce::Graphics& g,
                                                    : valueText (value, decimals, signedValue),
                          area.reduced (4, 0).toFloat(), juce::Justification::centred);
         g.setColour (COL_MUTED.brighter (0.04f));
-        g.setFont (labelFont (juce::jlimit (7.0f, 9.5f, valueHeight * 0.23f)));
+        g.setFont (labelFont (area.getWidth() >= 135 ? 12.0f : 11.0f));
         g.drawText (unit, unitArea.reduced (3, 0), juce::Justification::centred);
         return;
     }
@@ -171,7 +171,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         area = main;
         const auto& watch = compactShowsMaximum
             ? watchDisplay.maximum : watchDisplay.current;
-        const auto compactFactsAvailable = watchDisplayAvailable && currentFactsAvailable();
+        const auto compactFactsAvailable = watchDisplayAvailable
+            && (compactShowsMaximum ? cumulativeFactsAvailable() : currentFactsAvailable());
         const bool trackStem = selectedMeterContext
                             == meter_context::MeterContext::trackStem;
         const std::array<double, 3> compactValues {
@@ -265,7 +266,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                     supportUnits[(size_t) index], getWidth() >= 900 ? 24.0f : 18.0f, family,
                     false, 1, warmingText,
                     isFullDensity (density) ? 0.54f : -1.0f, {},
-                    isFullDensity (density));
+                    true);
     }
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
@@ -276,7 +277,7 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
     const auto inspection = getWidth() >= 900;
     juce::Rectangle<int> channelStrips;
     if (target() == ObservationTarget::absolute)
-        channelStrips = area.removeFromRight (inspection ? 110 : 76).reduced (2);
+        channelStrips = area.removeFromRight (inspection ? 126 : 116).reduced (2);
 
     const auto landscape = area.getWidth() > area.getHeight();
     const auto previousHistoryHeight = juce::jlimit (
@@ -285,7 +286,8 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
                           * (inspection ? 0.46f : landscape ? 0.40f : 0.32f)));
     const auto previousMetricsHeight = juce::jmax (
         1, area.getHeight() - previousHistoryHeight - 4);
-    const auto metricsHeight = compressedLevelMetricsHeight (previousMetricsHeight);
+    const auto metricsHeight = juce::jmin (area.getHeight() - 92,
+        juce::jmax (inspection ? 162 : 134, compressedLevelMetricsHeight (previousMetricsHeight)));
     auto metricsArea = area.removeFromTop (metricsHeight);
     area.removeFromTop (4);
     auto historyArea = area;

@@ -9,6 +9,7 @@
 #include "HyphaCaptureContract.h"
 #include "HyphaMeterContext.h"
 #include "HyphaObservatoryContract.h"
+#include "HyphaObservationPageContract.h"
 #include "HyphaObservatoryPresentation.h"
 #include "HyphaObservatoryWorld.h"
 #include "HyphaRunSummary.h"
@@ -28,7 +29,7 @@ private:
     bool tab = false;
 };
 
-class View final : public juce::Component
+class View final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit View (Role roleIn);
@@ -61,9 +62,15 @@ public:
     void setTarget (ObservationTarget);
     ObservationTarget target() const noexcept
     {
-        return effectiveTarget (role, selectedDomain, selectedTarget);
+        return capabilities().target;
     }
     ObservationTarget preferredTarget() const noexcept { return selectedTarget; }
+    PageCapabilities capabilities() const noexcept
+    { return pageCapabilities (role, selectedDomain, analysisPage, selectedTarget, attackPaired); }
+    void setAnalysisPage (analysis_navigation::Page);
+    void setAttackPaired (bool);
+    void setFeedback (juce::String text);
+    int timeControlsHeight() const noexcept;
     void setTimeRange (TimeRange);
     TimeRange selectedTimeRange() const noexcept { return timeRange; }
     void setMeterSnapshot (const KirinMeterSession&, bool available);
@@ -177,6 +184,9 @@ private:
     meter_context::ScaleMode selectedScaleMode = meter_context::defaultScale;
     bool externalAnalysisBodyActive = false;
     bool showRunSummary = false;
+    analysis_navigation::Page analysisPage = analysis_navigation::Page::meters;
+    bool attackPaired = false;
+    juce::String feedbackText;
     bool referenceEnabled = true;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;

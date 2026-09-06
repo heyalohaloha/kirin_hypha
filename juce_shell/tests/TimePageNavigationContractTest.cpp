@@ -71,7 +71,7 @@ void verifyTimePageNavigationContract()
     TimePageNavigation navigation;
     navigation.setSize (322, 24);
     navigation.setDirect (true);
-    KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 4);
+    KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 5);
     navigation.setRunAvailable (true);
     KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 5);
     navigation.setPage (Page::attack);

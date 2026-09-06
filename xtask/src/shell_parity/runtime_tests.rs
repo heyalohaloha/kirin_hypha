@@ -52,7 +52,7 @@
         let body = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::processBlock",
-            "bool KirinHyphaProcessorBase::bufferIsSilent",
+            "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
         );
 
         assert!(
@@ -118,7 +118,7 @@
         let body = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::processBlock",
-            "bool KirinHyphaProcessorBase::bufferIsSilent",
+            "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
         );
         assert!(body.contains(
             "wrapperType == juce::AudioProcessor::wrapperType_AudioUnit\n                    && hypha::clock_source_contract::audioUnitV2UsesRenderTimeline ("
@@ -160,7 +160,7 @@
         let process = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::processBlock",
-            "bool KirinHyphaProcessorBase::bufferIsSilent",
+            "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
         );
         assert!(
             process.contains("needed <= scratchCapacitySamples")
@@ -194,7 +194,7 @@
         let body = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::processBlock",
-            "bool KirinHyphaProcessorBase::bufferIsSilent",
+            "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
         );
 
         assert!(body.contains(
@@ -294,21 +294,16 @@
     }
 
     #[test]
-    fn juce_post_led_follows_display_mute_boundary() {
+    fn juce_post_led_follows_signal_state_not_retained_history() {
         let start = PLUGIN_EDITOR_CPP
             .find("void KirinHyphaEditor::updatePost()")
             .expect("updatePost");
         let body = &PLUGIN_EDITOR_CPP[start..];
 
         assert!(
-            body.contains("bool watchHeldNormal = false;")
-                && body.contains("watchHeldNormal = haveHeldD && ! mutedHeldD;")
-                && body.contains("watchHeldNormal = haveM && ! mutedM;")
-                && body.contains(
-                    "const int ledSig = (! displayRecord && sig == KIRIN_SIGNAL_STATE_INACTIVE && watchHeldNormal)"
-                )
-                && body.contains("? KIRIN_SIGNAL_STATE_ACTIVE : sig;"),
-            "JUCE POST Watch LED must remain active only while the displayed held values are not muted"
+            body.contains("deriveLedState (alive, sig, rec && armed, ack, preset)")
+                && !body.contains("watchHeldNormal"),
+            "retained history must never relight the inactive live signal LED"
         );
     }
     #[test]

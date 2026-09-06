@@ -206,6 +206,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryFrame.cpp
@@ -242,6 +243,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
             src/HyphaAttackComponent.cpp
+            src/HyphaAttackDetailView.cpp
             src/HyphaAttackInteraction.cpp
             src/HyphaAttackMetricPainter.cpp
             src/HyphaAttackOverviewGlyphPainter.cpp
@@ -253,6 +255,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaPerceptualPainter.cpp
             src/HyphaPsbPainter.cpp
             src/HyphaReferenceComponent.cpp
+            src/HyphaReferenceVisuals.cpp
             src/HyphaSpectrumComponent.cpp
             src/HyphaSpectrumPsb.cpp
             src/HyphaSpectrumTooltip.cpp
@@ -365,6 +368,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin UI Render Contract Tests")
     target_sources(KirinUiRenderContractTests PRIVATE
         tests/ui_render_contract_test.cpp
+        tests/SpectrumRenderTest.cpp
         tests/AbsoluteTimelineContractTest.cpp
         tests/AbsoluteSpectrumContractTest.cpp
         tests/PerceptualHistoryContractTest.cpp
@@ -375,6 +379,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/ObservatoryViewContractTest.cpp
         tests/ObservatoryCaptureContractTest.cpp
         tests/ObservatoryCompositeContractTest.cpp
+        tests/ObservationPageContractTest.cpp
         tests/CaptureHistoryContractTest.cpp
         tests/SpaceFieldContractTest.cpp
         tests/TimeHistoryContractTest.cpp
@@ -387,6 +392,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryFrame.cpp
@@ -404,6 +410,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaAbsoluteComponent.cpp
         src/HyphaAbsolutePainter.cpp
         src/HyphaAttackComponent.cpp
+        src/HyphaAttackDetailView.cpp
         src/HyphaAttackInteraction.cpp
         src/HyphaAttackMetricPainter.cpp
         src/HyphaAttackOverviewGlyphPainter.cpp
@@ -481,6 +488,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     target_sources(KirinAttackUiContractTests PRIVATE
         tests/AttackUiContractTest.cpp
         src/HyphaAttackComponent.cpp
+        src/HyphaAttackDetailView.cpp
         src/HyphaAttackInteraction.cpp
         src/HyphaAttackMetricPainter.cpp
         src/HyphaAttackOverviewGlyphPainter.cpp
@@ -613,6 +621,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryMetrics.cpp
         src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryWorld.cpp

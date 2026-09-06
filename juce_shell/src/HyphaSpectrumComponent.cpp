@@ -107,6 +107,8 @@ void SpectrumComponent::setAbsoluteObservation (bool absolute)
     if (absoluteObservation == absolute)
         return;
     absoluteObservation = absolute;
+    absolutePsbAvailable = deltaPsbAvailable = false;
+    psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     clearInteractionState();
     if (haveSnapshot)
     {
@@ -291,6 +293,8 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
 
 void SpectrumComponent::clearSnapshot()
 {
+    absolutePsbAvailable = deltaPsbAvailable = false;
+    psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     snapshot = {};
     pendingSnapshot = {};
     displayedPre.fill (0.0f);
@@ -385,6 +389,10 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
     if (spectrum_geometry::subviewBoundsFor (outerPlot, scale).contains (event.position))
     {
         psbObservation = ! psbObservation;
+        clearSnapshot();
+        absolutePsbAvailable = deltaPsbAvailable = false;
+        psbStatus = KIRIN_SPECTRUM_WARMING_UP;
+        if (onSubviewChange) onSubviewChange();
         psbHoverBand = -1;
         hoverNormalisedX = -1.0f;
         setTooltip (psbObservation ? "PSB: perceptual share by Bark band"

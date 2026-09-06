@@ -6,6 +6,7 @@
 #include "AttackUiComparisonContract.h"
 #include "AttackUiOverviewContract.h"
 #include "AttackUiSizeContract.h"
+#include "AttackUiLifecycleContract.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -167,7 +168,6 @@ namespace
         };
     }
 }
-
 int main()
 {
     static_assert (sizeof (KirinAttackWaveformPoint) == 40);
@@ -296,6 +296,8 @@ int main()
         pairEvents.events[index].event_sample = events.events[index].event_sample;
         pairEvents.events[index].pre_event_sample = events.events[index].event_sample;
         pairEvents.events[index].post_event_sample = events.events[index].event_sample;
+        pairEvents.events[index].sample_rate = 48'000;
+        pairEvents.events[index].pre_generation = pairEvents.events[index].post_generation = 7;
     }
     pairEvents.events[1].pre_available = 1;
     pairEvents.events[1].post_available = 1;
@@ -307,6 +309,7 @@ int main()
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
                            288'000, 48'000, 7, stats);
     component.setOverlayMode (false);
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyDetailLifecycle (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (hypha::attack_ui_test::verifySignedComparisonSpecimen());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyNoPreOnsetFeatureInk());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyAsymmetricMeasuredFlow());
@@ -364,7 +367,7 @@ int main()
     }
     constexpr int focusWidth = 240;
     constexpr int focusHeight = 90;
-    const auto renderFocus = [] (const KirinAttackDetail& focusDetail)
+    const auto renderFocus = [=] (const KirinAttackDetail& focusDetail)
     {
         juce::Image focus (juce::Image::ARGB, focusWidth, focusHeight, true);
         juce::Graphics graphics (focus);
@@ -426,6 +429,7 @@ int main()
 
     auto laterPairEvents = pairEvents;
     laterPairEvents.count = 4;
+    laterPairEvents.events[3] = pairEvents.events[2];
     laterPairEvents.events[3].event_sample = 320'000;
     laterPairEvents.events[3].pre_event_sample = 320'000;
     laterPairEvents.events[3].post_event_sample = 320'000;
@@ -450,15 +454,15 @@ int main()
 
     auto newestPairEvents = laterPairEvents;
     newestPairEvents.count = 5;
+    newestPairEvents.events[4] = laterPairEvents.events[3];
     newestPairEvents.events[4].event_sample = 370'000;
     newestPairEvents.events[4].pre_event_sample = 370'000;
     newestPairEvents.events[4].post_event_sample = 370'000;
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, newestPairEvents,
                            384'000, 48'000, 7, stats);
     component.presentationTick (false); // Inactive transport snaps and then remains still.
-    const auto newestX = hypha::attack_ui::eventX (
-        newestPairEvents.events[4].event_sample, 384'000, 48'000, image.getWidth());
-    KIRIN_REQUIRE (hasColourNear (render (component), newestX, selectionColour));
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyDormantSpecimenBlack (render (component)));
+    component.presentationTick (true);
     KIRIN_REQUIRE (! component.keyPressed (juce::KeyPress ('x')));
 
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
@@ -484,7 +488,6 @@ int main()
     KIRIN_REQUIRE (countAreaDifferences (identityOverlay, overlay, overlayTimeline) > 0);
     writePreview ("KIRIN_ATTACK_UI_OVERLAY_PREVIEW_PATH", overlay);
     KIRIN_REQUIRE (hypha::attack_ui_test::verifySupportedSizes (component));
-
     stats.worker_running = 0;
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
                            288'000, 48'000, 7, stats);

@@ -27,7 +27,7 @@ namespace hypha::reference_audition
         if (destination == nullptr || byteCount == 0)
             throw std::runtime_error ("invalid random destination");
        #if defined(_WIN32)
-        if (byteCount > std::numeric_limits<ULONG>::max()
+        if (byteCount > (std::numeric_limits<ULONG>::max)()
             || ::BCryptGenRandom (nullptr, static_cast<PUCHAR> (destination),
                                   static_cast<ULONG> (byteCount),
                                BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)

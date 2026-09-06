@@ -22,6 +22,7 @@ fn snapshot_layout_and_mapping_are_stable() {
         observed_frames: 96_000,
         current,
         max_lufs_m: Some(-10.6),
+        maximum: MeasureResult::default(),
         summary: SessionSummary {
             lufs_i: Some(-15.0),
             lra: Some(4.2),
@@ -113,6 +114,7 @@ fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
         observed_frames: 48_000 * 59,
         current: MeasureResult::default(),
         max_lufs_m: Some(-11.0),
+        maximum: MeasureResult::default(),
         summary: SessionSummary {
             lufs_i: Some(-14.0),
             lra: Some(0.0),
@@ -282,8 +284,7 @@ fn live_measure_worker_advances_pauses_and_resets_independent_session() {
     engine.set_signal_state(KIRIN_SIGNAL_STATE_ACTIVE);
     let mut samples = Vec::with_capacity(48_000 * 2);
     for frame in 0..48_000 {
-        let sample =
-            (2.0 * std::f32::consts::PI * 1_000.0 * frame as f32 / 48_000.0).sin() * 0.25;
+        let sample = (2.0 * std::f32::consts::PI * 1_000.0 * frame as f32 / 48_000.0).sin() * 0.25;
         samples.extend_from_slice(&[sample, sample]);
     }
     for (index, chunk) in samples.chunks(480 * 2).enumerate() {

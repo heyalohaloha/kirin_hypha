@@ -5,14 +5,6 @@ namespace
 {
 namespace ui = hypha::ui_contract;
 
-bool sameStats (const KirinAttackStats& left, const KirinAttackStats& right) noexcept
-{
-    return left.available == right.available && left.enabled == right.enabled
-        && left.worker_running == right.worker_running && left.channels == right.channels
-        && left.pushed_blocks == right.pushed_blocks
-        && left.dropped_blocks == right.dropped_blocks
-        && left.analyzed_frames == right.analyzed_frames;
-}
 }
 
 void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
@@ -34,7 +26,6 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     cachedAttackLatest = -1;
     cachedAttackRate = 0;
     cachedAttackGeneration = 0;
-    cachedAttackPairStatus = -1;
     // ATTACK / FREQ / SHARP / LIVE share the current Analysis lease. HISTORY and RUN are
     // read-only meter projections and release it.
     if (hypha::analysis_navigation::releasesSlot (previousPage, page))
@@ -48,15 +39,8 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
         else if (previousPage == AnalysisPage::attack)
             processorRef.setAttackEnabled (false);
     }
-    if (page == AnalysisPage::run
-        && observatoryView.target() == hypha::observatory::ObservationTarget::delta)
-    {
-        observatoryView.setTarget (hypha::observatory::ObservationTarget::absolute);
-        processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (
-            hypha::observatory::ObservationTarget::absolute));
-        spectrumView.setAbsoluteObservation (true);
-    }
     analysisPage = page;
+    observatoryView.setAnalysisPage (page);
     const bool analysisOpen = hypha::analysis_navigation::isAnalysis (page);
     observatoryView.setRunSummaryMode (page == AnalysisPage::run);
     observatoryView.setExternalAnalysisBodyActive (analysisOpen);
@@ -80,7 +64,7 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     if (page == AnalysisPage::attack)
         processorRef.setAttackEnabled (true);
     else if (page == AnalysisPage::spectrum)
-        processorRef.setSpectrumVisible (true);
+        configureSpectrumAnalysis();
     else if (page == AnalysisPage::perceptual)
         processorRef.setPerceptualVisible (true);
     else if (page == AnalysisPage::absolute)
@@ -93,17 +77,28 @@ void KirinHyphaEditor::updateTimePageNavigation()
     const bool direct = time && observatoryView.experienceFamily()
         == hypha::observatory::ExperienceFamily::observatory;
     timePageNavigation.setDirect (direct);
-    timePageNavigation.setRunAvailable (observatoryView.runSummaryAvailable());
+    timePageNavigation.setRunAvailable (true);
     timePageNavigation.setPage (analysisPage);
     timePageNavigation.setVisible (time);
 }
 
+void KirinHyphaEditor::configureSpectrumAnalysis()
+{
+    if (analysisPage != AnalysisPage::spectrum) return;
+    const bool absolute = observatoryView.target() == hypha::observatory::ObservationTarget::absolute;
+    spectrumView.setAbsoluteObservation (absolute);
+    if (spectrumView.isPsbObservation()) processorRef.setPsbVisible (! absolute);
+    else processorRef.setSpectrumVisible (true);
+}
+
 bool KirinHyphaEditor::refreshAnalysisViews (
     bool alive, int signalState, bool recording, bool armed,
-    bool acknowledged, bool presetAvailable, int pairStatus)
+    bool acknowledged, bool presetAvailable, int /*pairStatus*/)
 {
     if (! hypha::analysis_navigation::isAnalysis (analysisPage))
         return false;
+
+    const bool liveInput = signalState == KIRIN_SIGNAL_STATE_ACTIVE && processorRef.hasLiveInput();
 
     const auto updateLed = [this, alive, signalState, recording, armed,
                             acknowledged, presetAvailable]
@@ -115,12 +110,10 @@ bool KirinHyphaEditor::refreshAnalysisViews (
     {
         KirinAttackStats stats {};
         const bool statsReady = processorRef.attackStats (stats);
-        const bool statsChanged = statsReady && ! sameStats (stats, cachedAttackStats);
         if (statsReady)
             cachedAttackStats = stats;
 
         KirinAttackBatch raw {};
-        bool endpointChanged = false;
         if (processorRef.pollAttackBatch (raw))
         {
             if (raw.count > 0)
@@ -128,9 +121,6 @@ bool KirinHyphaEditor::refreshAnalysisViews (
                 const auto count = juce::jmin (
                     raw.count, static_cast<std::uint32_t> (KIRIN_ATTACK_BATCH_CAPACITY));
                 const auto& newest = raw.frames[count - 1];
-                endpointChanged = newest.support_end_samples != cachedAttackLatest
-                    || newest.sample_rate != cachedAttackRate
-                    || newest.generation != cachedAttackGeneration;
                 cachedAttackLatest = newest.support_end_samples;
                 cachedAttackRate = newest.sample_rate;
                 cachedAttackGeneration = newest.generation;
@@ -140,13 +130,10 @@ bool KirinHyphaEditor::refreshAnalysisViews (
                 cachedAttackLatest = -1;
                 cachedAttackRate = 0;
                 cachedAttackGeneration = 0;
-                endpointChanged = true;
             }
         }
-        const bool pairChanged = pairStatus != cachedAttackPairStatus;
-        if (pairChanged)
-            cachedAttackPairStatus = pairStatus;
-        if (endpointChanged || pairChanged)
+        // Event detail is published after its raw endpoint. Poll every bounded presentation tick;
+        // endpoint-only gating loses late detail whenever transport stops on that endpoint.
         {
             KirinAttackEventBatch events {};
             KirinAttackWaveformBatch waveform {}, preWaveform {};
@@ -162,12 +149,12 @@ bool KirinHyphaEditor::refreshAnalysisViews (
             if (processorRef.pollAttackPairEvents (pairEvents))
                 cachedAttackPairEvents = pairEvents;
         }
-        if (endpointChanged || pairChanged || statsChanged)
-            attackView.setSnapshot (
+        attackView.setSnapshot (
                 cachedAttackEvents, cachedAttackWaveform, cachedAttackDetails,
                 cachedAttackPreWaveform, cachedAttackPreDetails, cachedAttackPairEvents,
                 cachedAttackLatest, cachedAttackRate, cachedAttackGeneration, cachedAttackStats);
-        attackView.presentationTick (signalState == KIRIN_SIGNAL_STATE_ACTIVE);
+        observatoryView.setAttackPaired (attackView.pairedObservation());
+        attackView.presentationTick (liveInput);
         updateLed();
         return true;
     }
@@ -180,11 +167,21 @@ bool KirinHyphaEditor::refreshAnalysisViews (
             processorRef.guidePresentationSnapshot()));
         if (haveOwners) spectrumView.setAnalysisOwnerNames (ownerNames);
         spectrumView.presentationTick();
-        KirinSpectrumBatch batch {};
-        if (processorRef.pollSpectrumBatch (batch)) spectrumView.setBatch (batch);
+        spectrumView.setSignalActive (liveInput);
+        if (spectrumView.isPsbObservation())
+        {
+            KirinPsbView frame {};
+            if (processorRef.pollPsb (frame)) spectrumView.setPsbSnapshot (frame);
+        }
+        else
+        {
+            KirinSpectrumBatch batch {};
+            if (processorRef.pollSpectrumBatch (batch)) spectrumView.setBatch (batch);
+        }
     }
     else if (analysisPage == AnalysisPage::perceptual)
     {
+        perceptualView.setSignalActive (liveInput);
         if (haveOwners) perceptualView.setAnalysisOwnerNames (ownerNames);
         perceptualView.presentationTick();
         KirinPerceptualBatch batch {};
@@ -192,6 +189,7 @@ bool KirinHyphaEditor::refreshAnalysisViews (
     }
     else if (analysisPage == AnalysisPage::absolute)
     {
+        absoluteView.setSignalActive (liveInput);
         if (haveOwners) absoluteView.setAnalysisOwnerNames (ownerNames);
         KirinAbsoluteBatch batch {};
         if (processorRef.pollAbsoluteBatch (batch)) absoluteView.setBatch (batch);

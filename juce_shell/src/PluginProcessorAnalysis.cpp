@@ -1,7 +1,32 @@
 #include "PluginProcessor.h"
 
+bool KirinHyphaProcessorBase::setPsbVisible (bool delta)
+{
+    if (role != Role::Post) return false;
+    // Retain the single Analysis lease and restore its LR definition after engine recreation.
+    // Neither this choice nor its fixed LR source changes the saved Spectrum/SHARP mode.
+    psbAnalysisRequested.store (true);
+    perceptualAnalysisRequested.store (delta);
+    absoluteAnalysisRequested.store (! delta);
+    attackRequested.store (false);
+    spectrumVisibleRequested.store (true);
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle == nullptr || ! writesEnabled.load()) return false;
+    if (! kirin_hypha_set_spectrum_channel_mode (hyphaHandle, KIRIN_SPECTRUM_CHANNEL_LR)) return false;
+    return delta ? kirin_hypha_set_perceptual_visible (hyphaHandle, true)
+                 : kirin_hypha_set_absolute_visible (hyphaHandle, true);
+}
+
+bool KirinHyphaProcessorBase::pollPsb (KirinPsbView& out) const
+{
+    const juce::ScopedLock sl (handleLock);
+    return role == Role::Post && hyphaHandle != nullptr
+        && kirin_hypha_poll_psb (hyphaHandle, &out);
+}
+
 bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
 {
+    psbAnalysisRequested.store (false);
     if (role != Role::Post)
         return false;
     if (visible)
@@ -23,6 +48,7 @@ bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
 
 bool KirinHyphaProcessorBase::setPerceptualVisible (bool visible)
 {
+    psbAnalysisRequested.store (false);
     if (role != Role::Post)
         return false;
     if (visible)
@@ -48,6 +74,7 @@ bool KirinHyphaProcessorBase::setPerceptualVisible (bool visible)
 
 bool KirinHyphaProcessorBase::setAbsoluteVisible (bool visible)
 {
+    psbAnalysisRequested.store (false);
     if (role != Role::Post)
         return false;
     if (visible)
