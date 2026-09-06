@@ -2,6 +2,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const skippedDirectoryNames = new Set([
@@ -39,13 +40,43 @@ export function aaxSdkReason(relativePath, kind = 'file') {
 }
 
 export function findAaxSdkEntries(root) {
-  const findings = [];
+  const absoluteRoot = path.resolve(root);
+  const findings = new Map();
+
+  function record(relative, kind = 'file') {
+    const normalized = relative.split(path.sep).join('/');
+    const reason = aaxSdkReason(normalized, kind);
+    if (reason && !findings.has(normalized)) {
+      findings.set(normalized, { path: normalized, reason });
+    }
+  }
+
+  const repository = spawnSync(
+    'git', ['-C', absoluteRoot, 'rev-parse', '--show-toplevel'],
+    { encoding: 'utf8' },
+  );
+  const gitMetadata = path.join(absoluteRoot, '.git');
+  if (repository.status !== 0 && fs.existsSync(gitMetadata)) {
+    throw new Error(`failed to identify repository root: ${repository.stderr?.trim() ?? ''}`);
+  }
+  if (repository.status === 0
+      && fs.realpathSync(repository.stdout.trim()) === fs.realpathSync(absoluteRoot)) {
+    const tracked = spawnSync(
+      'git', ['-C', absoluteRoot, 'ls-files', '--cached', '-z'],
+      { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+    );
+    if (tracked.status !== 0) {
+      throw new Error(`failed to enumerate tracked repository paths: ${tracked.stderr.trim()}`);
+    }
+    for (const relative of tracked.stdout.split('\0')) {
+      if (relative) record(relative);
+    }
+  }
 
   function visit(absoluteDirectory, relativeDirectory) {
     for (const entry of fs.readdirSync(absoluteDirectory, { withFileTypes: true })) {
       const relative = relativeDirectory ? path.join(relativeDirectory, entry.name) : entry.name;
-      const reason = aaxSdkReason(relative, entry.isDirectory() ? 'directory' : 'file');
-      if (reason) findings.push({ path: relative.split(path.sep).join('/'), reason });
+      record(relative, entry.isDirectory() ? 'directory' : 'file');
 
       if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
       if (skippedDirectoryNames.has(entry.name) || isBuildDirectory(entry.name)) continue;
@@ -53,8 +84,8 @@ export function findAaxSdkEntries(root) {
     }
   }
 
-  visit(path.resolve(root), '');
-  return findings;
+  visit(absoluteRoot, '');
+  return [...findings.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function main() {
@@ -62,7 +93,7 @@ function main() {
   const root = process.argv[2] ? path.resolve(process.argv[2]) : path.resolve(scriptDirectory, '..');
   const findings = findAaxSdkEntries(root);
   if (findings.length === 0) {
-    console.log('AAX SDK absence check passed');
+    console.log('AAX SDK absence check passed (Git index when present + worktree/distribution walk)');
     return;
   }
 

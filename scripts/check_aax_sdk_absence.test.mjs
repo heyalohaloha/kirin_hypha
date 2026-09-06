@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -39,4 +40,39 @@ test('SDK-style header is found without relying on its parent directory', () => 
     path: 'third_party/AAX_CEffectParameters.h',
     reason: 'AAX SDK-style source/header name',
   }]);
+}));
+
+test('tracked SDK-style header is found inside an ignored build directory', () => withFixture((root) => {
+  execFileSync('git', ['init', '--quiet', root]);
+  fs.writeFileSync(path.join(root, '.gitignore'), 'build/\n');
+  const directory = path.join(root, 'build', 'generated');
+  fs.mkdirSync(directory, { recursive: true });
+  const header = path.join(directory, 'AAX_CEffectParameters.h');
+  fs.writeFileSync(header, '// licensed header\n');
+  execFileSync('git', ['-C', root, 'add', '--force', 'build/generated/AAX_CEffectParameters.h']);
+
+  assert.deepEqual(findAaxSdkEntries(root), [{
+    path: 'build/generated/AAX_CEffectParameters.h',
+    reason: 'AAX SDK-style source/header name',
+  }]);
+}));
+
+test('all tracked generated-directory forms bypass walk exclusions', () => withFixture((root) => {
+  execFileSync('git', ['init', '--quiet', root]);
+  fs.writeFileSync(path.join(root, '.gitignore'), 'build-*\ndist/\n');
+  const paths = [
+    'build-generated/AAX_CHostProcessor.h',
+    'dist/Avid-AAX-SDK.tgz',
+  ];
+  for (const relative of paths) {
+    fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+    fs.writeFileSync(path.join(root, relative), 'licensed material\n');
+    execFileSync('git', ['-C', root, 'add', '--force', relative]);
+  }
+  assert.deepEqual(findAaxSdkEntries(root).map(finding => finding.path), paths);
+}));
+
+test('broken Git metadata fails instead of becoming an empty tracked set', () => withFixture((root) => {
+  fs.mkdirSync(path.join(root, '.git'));
+  assert.throws(() => findAaxSdkEntries(root), /failed to identify repository root/);
 }));
