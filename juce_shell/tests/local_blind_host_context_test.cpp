@@ -1,4 +1,5 @@
 #include "../src/local_blind/HostContext.h"
+#include "../src/local_blind/HostClockProbe.h"
 #include <pluginterfaces/vst/ivsthostapplication.h>
 #include <juce_audio_processors/format_types/pslextensions/ipslcontextinfo.h>
 
@@ -156,10 +157,55 @@ void notificationsAndLifetime()
     notification->notifyContextInfoChange(); notification2->notifyContextInfoChange ("documentID");
     REQUIRE (notification->release() == 1); REQUIRE (notification2->release() == 0);
 }
+
+void coherentClockProbe()
+{
+    HostClockProbe probe;
+    HostClockProbeSnapshot snapshot;
+    snapshot.callback = 999;
+    REQUIRE (! probe.read (snapshot) && snapshot.callback == 0);
+    hypha::HostProcessClock clock;
+    clock.positionSamples = -512;
+    probe.publish (clock, 48000, 512, 2);
+    REQUIRE (probe.read (snapshot) && snapshot.position == -512);
+    REQUIRE (! snapshot.hasPosition && ! snapshot.hasInputLatency && ! snapshot.hasOutputLatency);
+    clock.hasPosition = clock.inputPresentationValid = clock.outputPresentationValid = true;
+    probe.publish (clock, 48000, 512, 2);
+    REQUIRE (probe.read (snapshot) && snapshot.inputLatency == 0 && snapshot.hasInputLatency);
+    REQUIRE (snapshot.outputLatency == 0 && snapshot.hasOutputLatency); // 0 remains raw/ambiguous.
+    std::atomic<bool> finished { false };
+    std::thread producer ([&] {
+        for (std::uint32_t i = 1; i <= 10000; ++i)
+        {
+            hypha::HostProcessClock next;
+            next.positionSamples = i;
+            next.inputPresentationSamples = i;
+            next.outputPresentationSamples = i + 1;
+            next.playing = next.hasPosition = next.inputPresentationValid = true;
+            next.clockSource = next.presentationSource = 1;
+            probe.publish (next, 48000 + i, i, i % 2 + 1);
+        }
+        finished.store (true);
+    });
+    do
+    {
+        if (probe.read (snapshot) && snapshot.callback > 2)
+        {
+            const auto value = static_cast<std::uint32_t> (snapshot.position);
+            REQUIRE (snapshot.frames == value && snapshot.channels == value % 2 + 1);
+            REQUIRE (snapshot.rate == 48000 + value && snapshot.inputLatency == value);
+            REQUIRE (snapshot.outputLatency == value + 1 && ! snapshot.hasOutputLatency);
+            REQUIRE (snapshot.playing && snapshot.hasPosition && snapshot.hasInputLatency);
+            REQUIRE (snapshot.source == 1 && snapshot.presentationSource == 1);
+        }
+    } while (! finished.load());
+    producer.join();
+    REQUIRE (probe.read (snapshot) && snapshot.callback == 10002 && snapshot.position == 10000);
+}
 }
 
 int main()
 {
-    factsAndFailureCases(); notificationsAndLifetime();
+    factsAndFailureCases(); notificationsAndLifetime(); coherentClockProbe();
     std::cout << "Host context: identity, missing/malformed/inactive/replaced host, revision and retained notification PASS\n";
 }

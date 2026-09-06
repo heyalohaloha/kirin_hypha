@@ -59,8 +59,14 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
     // JUCE exposes loop points in PPQ, not the exact exported WAV sample range. Do not
     // promote those values to wav_clock_native; render span remains a lower-trust fallback
     // until a host-supplied native sample range exists.
-    return { playing, hasPosition, clockSource, positionSamples, hasClockEnd,
+    const hypha::HostProcessClock clock { playing, hasPosition, clockSource, positionSamples, hasClockEnd,
              clockStartSamples, clockEndSamples, presentationSource,
              inputPresentationValid, inputPresentationSamples,
              outputPresentationValid, outputPresentationSamples };
+   #if JUCE_DEBUG
+    hostClockProbe.publish (clock, preparedSampleRate,
+        static_cast<std::uint32_t> (getBlockSize()),
+        static_cast<std::uint32_t> (getTotalNumInputChannels()));
+   #endif
+    return clock;
 }

@@ -50,6 +50,13 @@ void KirinHyphaEditor::showInformationMenu()
     menu.addItem (3, juce::String ("Source ") + HYPHA_SOURCE_ID + " / "
                       + HYPHA_SOURCE_STATE, false);
     menu.addItem (4, "Official release identity not verified", false);
+   #if JUCE_DEBUG
+    juce::PopupMenu validation;
+    int diagnosticId = 1000;
+    for (const auto& fact : processorRef.localValidationFacts())
+        validation.addItem (diagnosticId++, fact, false);
+    menu.addSubMenu ("Validation facts (read-only)", validation);
+   #endif
     menu.addSeparator();
     const auto add = [&] (update::Action action, const juce::String& text)
     { menu.addItem (static_cast<int> (action), text); };

@@ -3,6 +3,7 @@
 #include "local_blind/LocalBlindSlot.h"
 #include "local_blind/LocalBlindEpochSnapshot.h"
 #include "local_blind/VST3HostContext.h"
+#include "local_blind/HostClockProbe.h"
 #include "kirin_hypha_display_ffi.h"
 
 #include <atomic>
@@ -51,6 +52,9 @@ public:
         return nativeHostContext.context.readNonRealtime();
     }
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
+#if JUCE_DEBUG
+    juce::StringArray localValidationFacts() const;
+#endif
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -260,6 +264,9 @@ private:
 
     const Role role;                                   // Pre or Post (selects enable + display name)
     hypha::local_blind::VST3HostContext nativeHostContext;
+#if JUCE_DEBUG
+    mutable hypha::local_blind::HostClockProbe hostClockProbe;
+#endif
     hypha::local_blind::LocalBlindSlot localBlindOutput;
     hypha::local_blind::LocalBlindEpochSnapshot localBlindEpochs;
 

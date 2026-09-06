@@ -199,6 +199,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessor.cpp src/PluginProcessorAudition.cpp src/local_blind/LocalBlindTrial.cpp
         src/local_blind/HostContext.cpp
         src/PluginProcessorHostClock.cpp
+        src/PluginProcessorValidation.cpp
         src/PluginProcessorDisplayState.cpp
         src/PluginProcessorGuideTransport.cpp
         src/PluginProcessorNote.cpp

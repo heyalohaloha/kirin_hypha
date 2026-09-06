@@ -1,4 +1,5 @@
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "WindowsCpuObservation.h"
 
 #include <array>
 #include <cstdint>
@@ -23,42 +24,50 @@ constexpr std::array<int, 6> blockSizes { 1, 17, 64, 255, 512, maximumBlockSize 
     std::exit (EXIT_FAILURE);
 }
 
-class LocalAppDataSandbox
+class ValidationStorageSandbox
 {
 public:
-    LocalAppDataSandbox()
+    ValidationStorageSandbox()
     {
-        char* current = nullptr;
-        size_t currentLength = 0;
-        if (::_dupenv_s (&current, &currentLength, "LOCALAPPDATA") == 0 && current != nullptr)
-        {
-            hadPreviousValue = true;
-            previousValue = current;
-            std::free (current);
-        }
-
         root = juce::File::getSpecialLocation (juce::File::tempDirectory)
-                   .getChildFile ("kirin-hypha-audio-transparency-"
-                                  + juce::String (::_getpid()));
-        root.deleteRecursively();
+                   .getNonexistentChildFile ("kirin-hypha-audio-transparency-"
+                                             + juce::String (::_getpid()), {}, false);
         const auto result = root.createDirectory();
         if (result.failed())
-            fail ("could not create isolated LOCALAPPDATA: " + result.getErrorMessage().toStdString());
-
-        if (::_putenv_s ("LOCALAPPDATA", root.getFullPathName().toRawUTF8()) != 0)
-            fail ("could not redirect LOCALAPPDATA");
+            fail ("could not create isolated storage: " + result.getErrorMessage().toStdString());
+        // Windows Watch snapshots use TEMP, identity uses APPDATA, Record uses
+        // LOCALAPPDATA. Isolating only the latter leaves discovery in the user's tree.
+        for (const auto* name : { "LOCALAPPDATA", "APPDATA", "TEMP", "TMP" })
+        {
+            SavedVariable saved { name, {}, false };
+            char* current = nullptr;
+            size_t length = 0;
+            if (::_dupenv_s (&current, &length, name) == 0 && current != nullptr)
+            {
+                saved.value = current;
+                saved.present = true;
+                std::free (current);
+            }
+            variables.push_back (std::move (saved));
+            const auto destination = root.getChildFile (
+                juce::String (name) == "TMP" ? "TEMP" : name);
+            if (destination.createDirectory().failed()
+                || ::_putenv_s (name, destination.getFullPathName().toRawUTF8()) != 0)
+                fail ("could not redirect validation storage");
+        }
     }
 
-    ~LocalAppDataSandbox()
+    ~ValidationStorageSandbox()
     {
-        ::_putenv_s ("LOCALAPPDATA", hadPreviousValue ? previousValue.c_str() : "");
+        for (const auto& saved : variables)
+            ::_putenv_s (saved.name.c_str(), saved.present ? saved.value.c_str() : "");
         root.deleteRecursively();
     }
 
 private:
+    struct SavedVariable { std::string name, value; bool present; };
     juce::File root;
-    std::string previousValue;
-    bool hadPreviousValue = false;
+    std::vector<SavedVariable> variables;
 };
 
 class ContractPlayHead final : public juce::AudioPlayHead
@@ -221,11 +230,27 @@ void verifyBundle (const juce::String& path)
 
 int main (int argc, char* argv[])
 {
-    if (argc != 3)
-        fail ("usage: KirinAudioTransparencyContractTests <PRE.vst3> <POST.vst3>");
+    if (argc != 3 && argc != 5)
+        fail ("usage: KirinAudioTransparencyContractTests <PRE.vst3> <POST.vst3> [--cpu-observation PAIRS]");
 
-    LocalAppDataSandbox sandbox;
+    ValidationStorageSandbox sandbox;
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    if (argc == 5)
+    {
+        if (std::string (argv[3]) != "--cpu-observation")
+            fail ("unknown diagnostic option");
+        try
+        {
+            const std::string count (argv[4]);
+            size_t consumed = 0;
+            const int pairs = std::stoi (count, &consumed);
+            if (consumed != count.size()) fail ("invalid diagnostic pair count");
+            hypha::validation::runCpuObservation (
+                juce::String::fromUTF8 (argv[1]), juce::String::fromUTF8 (argv[2]), pairs);
+        }
+        catch (const std::exception& error) { fail (error.what()); }
+        return EXIT_SUCCESS;
+    }
     verifyBundle (juce::String::fromUTF8 (argv[1]));
     verifyBundle (juce::String::fromUTF8 (argv[2]));
     std::cout << "PASS PRE/POST VST3 audio transparency contract\n";
