@@ -194,6 +194,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
         src/PluginEditorMeter.cpp
+        src/PluginProcessorAnalysis.cpp
+        src/PluginProcessorMeter.cpp
         src/PluginEditorObservatory.cpp
         src/PluginEditorAnalysis.cpp
         src/PluginEditorCapture.cpp
