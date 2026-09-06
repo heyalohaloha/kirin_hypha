@@ -71,7 +71,8 @@ PCM は 3,840,000 bytes、ファイルの SHA-256 は `5e526afe85549fe7daeace882
 
 ## 検証台帳
 
-最終状態と commit は検証終了時に追記する。
+製品入口と研究用試作は `0d549c1`／B-714。
+責務の先行抽出は B-710〜B-713 に分けた。
 ログ名の B 番号は実行開始時の接頭辞であり、最終 commit の名称ではない。
 
 | 要求 | 実装・試作 | 確認範囲 |
@@ -81,6 +82,38 @@ PCM は 3,840,000 bytes、ファイルの SHA-256 は `5e526afe85549fe7daeace882
 | UP-02 | build-time source identity | Git ありの modified source と Git 不在の unknown fallback |
 | SA-02／SA-03 | 固定窓 EARLY／回帰 | 既知解、無音、floor、欠けた窓、非有限値、stereo 逆相、一定 gain、端数 SR |
 | BL-04 の一部 | test-only slot reservation | 2 枠・1 予約、同時開始、明示 retry、ファイル障害。他の BL-04 条件は未完了 |
+
+### 試験中に見つかった競合
+
+計測コアの並行試験で `materialize_preserves_safe_and_news_up_unsafe` が一度失敗した。
+結果は 1,410 pass／1 fail／9 ignored で、失敗内容は empty 入力の通知キューが空ではないことだった。
+原因を追うと、`fresh_events` が process 全体のキューを drain する一方、別の path 試験が同じキューへ通知を追加できた。
+同じコードの別実行では 1,411 pass となったが、再実行で成功したことだけで閉じていない。
+
+通知の内容を検査する 6 試験に、明示的な試験用キューの所有を追加した。
+通常ビルドの通知先は従来の global sink のままである。
+テスト用の差し替え、thread-local の保持、RAII の復帰は `cfg(test)` の範囲に置いた。
+並行 capture が互いの通知を drain しない試験と、panic 後に外側のキューへ戻る試験を追加した。
+修正後の計測コアは 1,413 pass／0 fail／9 ignored、26.95 秒だった。
+ログ: `/tmp/hypha-b714-measure-core.log`、`/tmp/hypha-b715-measure-core.log`。
+
+### 現時点の自動試験
+
+- SPACE 固定窓: 6 pass。`/tmp/hypha-b713-space-tests.log`。
+- Analysis 枠関連: 10 pass。このうち新しい Blind 予約は 4 件。`/tmp/hypha-b713-blind-slots-final.log`。
+- 共通情報・DRUM 入口: pass、82 role／size 条件。`/tmp/hypha-b714-native-ui.log`。
+- native 全体描画: pass、24.49 秒。`/tmp/hypha-b714-native-ui-warm.log`。
+- DRUM native UI: pass。`/tmp/hypha-b713-ui-diagnostic.log`。
+- PRE／POST × AU／VST3 の Debug build: 4 target pass。`/tmp/hypha-b714-wrappers.log`。
+- build identity: modified source と Git 不在 fallback の 2 条件 pass。
+- 行数予算: 33 個の既存負債を exact ratchet として維持し、新規 owned source は 500 行以下。予算検査とその self-test は pass。
+- 英日 HP: 209 pass。`/tmp/hypha-b712-hp-build.log`。
+
+描画試験は初回にコンパイルとの同時負荷で既存 SPECTRUM の 12 ms 上限を超えた。
+また、macOS の executable 起動で `_dyld_start + 0` の待機を採取し、テスト開始前の timeout も記録した。
+性能上限は変更していない。
+入口試験を個別にも起動できる形にした後、入口と全体描画をそれぞれ通した。
+この結果は実 DAW の DPI／モニター移動や主観的な読みやすさの検証を代替しない。
 
 ## 継続に必要な証拠
 
