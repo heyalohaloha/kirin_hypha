@@ -5,6 +5,8 @@
 状態: 採否判断用。実装承認ではない。
 対象: PRE/POST 比較。SPACE と ATTACK の計画から独立した提案。
 利用範囲: 2MIX と TRACK/STEM。2026-09-06 の追加指示を反映。
+再点検: 2026-09-06、B-708 の作業木を照合。§11 の安全条件を追加し、実装仕様の凍結前であることを明示。
+共通の採否表と最新版の導線は [両計画の再点検と更新案内](hypha_plans_review_and_update_path_20260906.md) を参照。
 
 ## 1. 結論
 
@@ -136,6 +138,8 @@ Audio Thread では事前確保済み領域への bounded copy と通知だけ�
 POST コピーをもう一度 PRE と POST の間のチェインへ入れず、処理後の音を二重処理しない。
 元の PRE/POST 計測と Record は引き続き実入力を扱い、試聴コピーの値で上書きしない。
 計測に使う入力を取得した後に試聴出力を選択する既存順序は維持する。
+ただし、この順序が保護するのは試聴する POST 自身の入力であり、下流の別ペアの入力ではない。
+TRACK 試聴の出力は下流の bus や 2MIX へ届くため、正本 Record の保護には §11.1 の共通排他が別に必要になる。
 
 Reference 再生と PRE/POST Blind が同時に出力を所有しない、単一の試聴状態管理が必要である。
 別の試聴、ペア変更、インスタンス破棄、SR 変更、channel 変更、再取得では同じ Trial を継続しない。
@@ -159,6 +163,9 @@ PRE/POST 双方が準備完了を返してから取得範囲を確定し、片�
 
 PDC の補正を一度だけ適用し、既に補正された時刻へ二重に offset を足さない。
 transport jump、loop の別周回、停止再開、動的 PDC 変更、片側の欠落を継ぎ合わせない。
+これは取得時の連続性条件である。
+取得後の試聴では、同じ承認済み範囲を DAW が正確に loop する動作と、範囲外への seek を区別する。
+正確な loop 一周ごとに取得失敗として Trial を捨てる設計にはせず、再生時の世代と取得 PCM の世代を分離する。
 host 時刻があっても、block 内 loop 境界の通知精度まで仮定しない。
 [Steinberg: ProcessContext](https://steinbergmedia.github.io/vst3_doc/vstinterfaces/structSteinberg_1_1Vst_1_1ProcessContext.html)
 
@@ -262,7 +269,7 @@ float32 の PRE/POST 2 音源を保持する生 PCM の容量は、`秒数 × sa
 
 | 対象 | 判定に必要な証拠 |
 | --- | --- |
-| 通常経路 | 未使用、取得中、準備中、失敗後で入出力 bit identical、追加 latency 0 samples |
+| 通常経路 | 未使用、取得中、準備中、通常復帰完了後で入出力 bit identical、追加 latency 0 samples。承認済み減衰の復帰待ちは別状態として検証 |
 | RT 安全性 | allocation / lock / I/O が Audio Thread にないこと。小 block、高 SR、worker 停滞時の callback 分布と deadline 超過を計測 |
 | 対応時刻 | 既知の純遅延で残差 0 sample。block サイズ変更、loop、seek、動的 PDC で誤った組を受理しない |
 | PCM 完全性 | 全範囲の連続性、hash、両側の取得完了、有限値。片側欠落や古い世代を拒否 |
@@ -303,7 +310,91 @@ GPLv3 の Hypha 内の再利用に留め、Kirin OS の非公開コードを共�
 TRACK/STEM 対応は本計画の対象として確定し、その具体的な安全条件と実装採否が未決定である。
 常時ライブ転送、DAW 全体の routing 自動制御、書き出し処理への介入まで必要なら、本提案の境界を越えるため改めて採否を決める。
 
-## 11. 調査範囲と根拠
+## 11. 再点検で追加した安全条件と仕様凍結
+
+### 11.1 下流を含む Record と試聴の排他
+
+トラックの POST が PRE コピーを出力すれば、下流の 2MIX の PRE/POST はその音を入力として計測する。
+これは routing から生じる影響で、対象 POST 内で計測を先に行うだけでは防げない。
+本提案の当初版にある「正本を変更しない」を、DAW 内の全計測値が影響を受けないという保証へ広げない。
+
+推奨する保護単位は、routing を推測しない、同一 DAW の確認済み Hypha participant scope 全体である。
+その scope 内では、Reference を含む試聴出力の所有者を一つにし、Record の準備中、armed、記録中、finalize 中との同時開始を許可しない。
+対象ペア以外の Keep と All Keep も、共通の予約処理で相互排他にする。
+既に動いている Record や試聴を勝手に停止し、新しい操作を通してはならない。
+明示操作を断った理由と、利用者が先に終了させる対象を示す。
+
+開始前の一度の状態確認だけでは race が残るため、participant の確認、試聴 lease の確定、Record 予約が同じ排他契約に従う必要がある。
+両操作を同時要求するテストでは、一方だけが成立し、他方は出力も Record 作成も開始しないことを確認する。
+新しい protocol を理解しない旧 participant、期限切れ lease、確認できない別 process 構成を、排他確認済みとして扱わない。
+複数 DAW、別 project、同名 bus を混同しない scope 定義を契約担当と固定する。
+安全な scope を構成できない場合は Blind を開始せず、既存の通常計測を維持する。
+
+試聴中の live meter が下流入力の変化を読むことはあり得る。
+試聴期間の source provenance を持たせ、通常の作業結果として自動 Capture や比較集計へ混入させない設計を決める。
+既存 Meter Session の RESET や過去の Record 書換えで帳尻を合わせない。
+混在を隔離する変更が既存メーター契約を越える場合も、R-12 とともに採否判断へ戻す。
+
+試聴後の下流 compressor や reverb の内部状態まで、Hypha は巻き戻せない。
+通常 A に戻ったことと、チェイン全体が取得前の状態に戻ったことを同一視しない。
+正本 Record の再開は通常復帰の明示確認を経て行い、下流の残留音を含む pre-roll の必要性も実プロジェクトで検証する。
+この制約を説明できないまま「試聴はセッションに一切影響しない」と公開しない。
+
+### 11.2 出力復帰と callback 境界
+
+次の表は、基準コピーを減衰しない通常案の状態契約である。
+承認済み減衰を採用する場合は、別の復帰待ち状態を R-12 に合意してから表を拡張する。
+
+| 状態または操作 | 出力とデータの扱い |
+| --- | --- |
+| 準備中、取得失敗 | 通常 A のみ。Trial の割当や成功結果を作らない |
+| 準備完了 | 通常 A のまま。開始操作が必要 |
+| Blind 中 | 同一時計の固定コピーのみ。実出力 receipt の確認後に選択表示を変更 |
+| 正確な DAW loop | 検証済み Cue 内の対応位置を再生し、同じ割当を維持 |
+| 範囲外 seek、停止、pair 変更 | 割当を開示せず中断。通常 A への復帰と Trial 失効を分けて記録 |
+| offline render、host bypass、復元 | 最初の該当 callback から試聴コピーを出さない。再開時に自動で Blind へ戻らない |
+| editor を閉じる | 初期案では試聴を終了する。画面のないままコピーや一時 gain を残さない |
+| 回答と Reveal | 両刺激の必要な出力確認と回答の成立後にのみ割当を表示。終了しても元 PCM は不変 |
+
+Cue 終端が block の途中に来る場合を必須テストにする。
+block 全体を無条件に modulo 再生したり、足りない部分へ前回の buffer を残したりしない。
+正確な split ができる場合のコピー範囲、通常復帰部分、receipt の frame 数を定義し、判断不能ならコピーを出す前にその block を通常 A へ戻す。
+loop、最初の再生、最後の再生、素早い連打で無音長やクリックが刺激の割当と結び付かないことを確認する。
+
+固定コピーの再生も DAW の callback が来る範囲でしか動作できない。
+DAW 停止中に独立再生する機能や、DAW を自動で再生開始させる機能は含めない。
+PRE/POST の整列だけでなく、TRACK と残りの mix の対応時刻を synthetic impulse と実音源の両方で確認する。
+
+### 11.3 所有権と情報非開示
+
+非 RT worker が PCM を準備してから、世代付きの immutable 所有権を Audio Thread へ公開する。
+取消、再取得、editor 破棄、worker 再起動中に callback が参照している PCM を解放しない。
+Audio Thread で最後の参照が外れたときに巨大 buffer の destructor が走らないよう、非 RT 回収の境界も設計する。
+キュー上限、取得 timeout、最大 seconds と bytes は sample rate と participant 数を含めた計算表にする。
+
+Blind の非開示対象には、新しい SPACE と ATTACK、PRE の別ウィンドウ、履歴、Capture、copy-to-clipboard、通常ログを含める。
+更新バッジや外部ブラウザへの誘導も Trial 中は出さず、試聴を中断させる新しい overlay を作らない。
+ローカルの診断 artifact を含めた検査と、通常の UI で隠す対象を分け、DAW や外部 debugger まで情報隠蔽できるとは主張しない。
+結果保存に失敗した場合は、回答が保存されたように見せず、音声の通常復帰を保存成功待ちにしない。
+
+### 11.4 製品実装へ渡す凍結表
+
+| 要求 ID | 実装前に固定するもの | 合格証拠 |
+| --- | --- | --- |
+| BL-01 | ローカル source identity、scope、pair、取得と試聴それぞれの世代 | 別 project、旧版、途中切替、重複通知で混線しない |
+| BL-02 | 取得開始 barrier、範囲、時刻写像、PDC 根拠、再生 loop | 既知遅延の 0 sample 残差、mix 内同期、block 終端試験 |
+| BL-03 | 短い TRACK を含む固定 Gain policy と headroom、復帰方針 | 純 gain 既知差、無音、疎な音、強い EQ、clip 境界、人による確認 |
+| BL-04 | 試聴 lease と Keep / All Keep の共通排他 | 同時要求、nested pairs、下流 Record、復元、期限切れ、通常復帰 |
+| BL-05 | PCM の上限、所有権、cancel、非 RT 回収 | allocation 失敗、timeout、破損、worker 停滞、SR 変更で A が継続 |
+| BL-06 | 切替、最小試聴量、回答、Reveal、非開示対象 | 両刺激 receipt、同一 PCM 対照、連打、初回刺激、Capture と accessibility |
+| BL-07 | 単体か OS entitlement か、保存先と寿命、旧版互換 | 権限 truth table、offline、Work 不在、旧 PRE、新 POST、結果保存失敗 |
+| BL-08 | 2MIX と TRACK/STEM の体験と性能予算 | 両 OS、mono / stereo、短い音、mix 内、複数配置、画面倍率別の実機確認 |
+
+未確定値を実装者が推測で埋めず、採否担当、実験入力、期待値、変更する契約、対応テストを台帳へ記録する。
+現時点では BL-03 と BL-04 を含む仕様の承認と実証が未完了であり、正式な製品実装の開始条件は満たしていない。
+計画に検証項目を書いたことを、音声安全性や Review 0 件の達成証拠にはしない。
+
+## 12. 調査範囲と根拠
 
 今回はコードと契約の読解、一次資料の照合、容量計算、文書の作成だけを行った。
 音声実装、Windows 操作、build、install、release は行っていない。
