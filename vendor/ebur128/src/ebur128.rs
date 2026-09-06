@@ -148,6 +148,9 @@ pub enum Channel {
     Bm045,
 }
 
+#[path = "cached_window.rs"]
+mod cached_window;
+
 /// EBU R128 loudness analyzer.
 pub struct EbuR128 {
     /// The current mode.
@@ -161,6 +164,8 @@ pub struct EbuR128 {
     audio_data: Box<[f64]>,
     /// Current index for audio_data.
     audio_data_index: usize,
+    // Hypha: opt-in readout cache, not a replacement for canonical I/LRA history.
+    energy_cache: Option<cached_window::EnergyCache>,
 
     /// How many frames are needed for a gating block. Will correspond to 400ms
     /// of audio at initialization, and 100ms after the first block (75% overlap
@@ -337,6 +342,7 @@ impl EbuR128 {
             channels,
             audio_data,
             audio_data_index,
+            energy_cache: None,
             needed_frames,
             channel_map: channel_map.into_boxed_slice(),
             samples_in_100ms,
@@ -449,6 +455,7 @@ impl EbuR128 {
         }
 
         self.audio_data = Self::allocate_audio_data(channels, rate, self.window)?;
+        self.rebuild_energy_cache(channels);
 
         if self.channels != channels {
             self.channels = channels;
@@ -498,6 +505,7 @@ impl EbuR128 {
         }
 
         self.audio_data = Self::allocate_audio_data(self.channels, self.rate, window as usize)?;
+        self.rebuild_energy_cache(self.channels);
         self.window = window as usize;
 
         // the first block needs 400ms of audio data
@@ -546,6 +554,7 @@ impl EbuR128 {
     /// Resets the current state.
     pub fn reset(&mut self) {
         self.audio_data.fill(0.0);
+        if let Some(cache) = self.energy_cache.as_mut() { cache.clear(); }
 
         // the first block needs 400ms of audio data
         self.needed_frames = self.samples_in_100ms * 4;
@@ -592,6 +601,9 @@ impl EbuR128 {
                 );
 
                 src = next;
+                if let Some(cache) = self.energy_cache.as_mut() {
+                    cache.refresh(&self.audio_data, self.audio_data_index, self.needed_frames);
+                }
                 self.audio_data_index += self.needed_frames;
 
                 if self.mode.contains(Mode::I) {
@@ -629,6 +641,9 @@ impl EbuR128 {
                     &self.channel_map,
                 );
 
+                if let Some(cache) = self.energy_cache.as_mut() {
+                    cache.refresh(&self.audio_data, self.audio_data_index, num_frames);
+                }
                 self.audio_data_index += num_frames;
                 if self.mode.contains(Mode::LRA) {
                     self.short_term_frame_counter += num_frames;

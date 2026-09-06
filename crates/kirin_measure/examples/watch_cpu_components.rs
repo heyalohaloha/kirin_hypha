@@ -104,6 +104,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ebu_case(&input, "ebu_full_MS_every_10ms", full, 3, 1);
     ebu_case(&input, "ebu_full_MS_every_100ms", full, 3, 10);
 
+    measure(
+        "ebu_cached_MS_every_10ms",
+        &input,
+        input.rate as usize / 100,
+        || {
+            let mut ebu = EbuR128::new(input.channels as u32, input.rate, full).unwrap();
+            ebu.enable_cached_window_queries();
+            Box::new(move |chunk, _| {
+                ebu.add_frames_f64(chunk).unwrap();
+                black_box(ebu.loudness_momentary_cached().unwrap());
+                black_box(ebu.loudness_shortterm_cached().unwrap());
+            })
+        },
+    );
+
     let frames = input.rate as usize / 10;
     measure("watch_measure_engine", &input, frames, || {
         let mut engine = MeasureEngine::new(input.rate, input.channels).unwrap();

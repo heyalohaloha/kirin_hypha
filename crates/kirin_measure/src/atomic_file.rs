@@ -24,10 +24,9 @@ static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     #[cfg(all(test, not(windows)))]
     pause_atomic_write_if_requested(path);
-    if let Some(parent) = path.parent() {
-        create_private_dir_all(parent)?;
-    }
-
+    // The steady-state write proves the directory exists. Avoid a recursive directory
+    // operation on every 100 ms heartbeat; recreate once only if the open reports absence.
+    let mut retried_parent = false;
     let mut last_exists: Option<io::Error> = None;
     for _ in 0..16 {
         let tmp = unique_tmp_path(path)?;
@@ -50,6 +49,13 @@ pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
             }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                 last_exists = Some(e);
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound && !retried_parent => {
+                let Some(parent) = path.parent() else {
+                    return Err(e);
+                };
+                create_private_dir_all(parent)?;
+                retried_parent = true;
             }
             Err(e) => return Err(e),
         }
@@ -294,6 +300,39 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&path).unwrap(), r#"{"ok":true}"#);
         assert!(tmp_entries(path.parent().unwrap()).is_empty());
+    }
+
+    #[test]
+    fn atomic_write_recreates_a_removed_parent_without_cached_existence() {
+        let root = tempfile::tempdir().unwrap();
+        let parent = root.path().join("instance");
+        let path = parent.join("watch.json");
+        write_bytes_atomic(&path, b"first").unwrap();
+        fs::remove_file(&path).unwrap();
+        fs::remove_dir(&parent).unwrap();
+        write_bytes_atomic(&path, b"second").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"second");
+        assert!(tmp_entries(&parent).is_empty());
+    }
+
+    #[test]
+    fn atomic_write_parent_file_error_never_replaces_the_file() {
+        let root = tempfile::tempdir().unwrap();
+        let parent = root.path().join("not-a-directory");
+        fs::write(&parent, b"user data").unwrap();
+        assert!(write_bytes_atomic(&parent.join("watch.json"), b"new").is_err());
+        assert_eq!(fs::read(&parent).unwrap(), b"user data");
+        assert!(tmp_entries(root.path()).is_empty());
+    }
+
+    #[test]
+    fn failed_rename_leaves_target_directory_and_no_temporary_file() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("watch.json");
+        fs::create_dir(&path).unwrap();
+        assert!(write_bytes_atomic(&path, b"new").is_err());
+        assert!(path.is_dir());
+        assert!(tmp_entries(root.path()).is_empty());
     }
 
     #[test]

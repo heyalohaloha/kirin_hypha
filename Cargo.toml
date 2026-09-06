@@ -40,3 +40,7 @@ egui-baseview = { path = "vendor/egui-baseview" }
 
 [patch."https://github.com/robbert-vdh/nih-plug.git"]
 nih_plug = { path = "vendor/nih-plug-presentation" }
+
+# Opt-in bounded M/S readout cache; upstream scalar queries remain the numeric oracle.
+[patch.crates-io]
+ebur128 = { path = "vendor/ebur128" }

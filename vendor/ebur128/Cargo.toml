@@ -50,6 +50,9 @@ filename = "libebur128"
 name = "libebur128"
 version = "1.2.6"
 
+# Hypha: standalone upstream/oracle tests; not a product workspace member.
+[workspace]
+
 [profile.dev]
 opt-level = 1
 
