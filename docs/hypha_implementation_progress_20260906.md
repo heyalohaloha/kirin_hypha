@@ -73,6 +73,7 @@ PCM は 3,840,000 bytes、ファイルの SHA-256 は `5e526afe85549fe7daeace882
 
 製品入口と研究用試作は `0d549c1`／B-714。
 責務の先行抽出は B-710〜B-713 に分けた。
+通知試験の隔離は `048a7bd`／B-715、メニュー操作後の Blind 再判定の統一は `85f2c88`／B-716。
 ログ名の B 番号は実行開始時の接頭辞であり、最終 commit の名称ではない。
 
 | 要求 | 実装・試作 | 確認範囲 |
@@ -101,13 +102,26 @@ PCM は 3,840,000 bytes、ファイルの SHA-256 は `5e526afe85549fe7daeace882
 
 - SPACE 固定窓: 6 pass。`/tmp/hypha-b713-space-tests.log`。
 - Analysis 枠関連: 10 pass。このうち新しい Blind 予約は 4 件。`/tmp/hypha-b713-blind-slots-final.log`。
-- 共通情報・DRUM 入口: pass、82 role／size 条件。`/tmp/hypha-b714-native-ui.log`。
-- native 全体描画: pass、24.49 秒。`/tmp/hypha-b714-native-ui-warm.log`。
+- 共通情報・DRUM 入口: pass、82 role／size 条件。最終版は `/tmp/hypha-b716-product-entry.log`。
+- native 全体描画: pass、28.83 秒。最終版は `/tmp/hypha-b716-native-ui.log`。
 - DRUM native UI: pass。`/tmp/hypha-b713-ui-diagnostic.log`。
-- PRE／POST × AU／VST3 の Debug build: 4 target pass。`/tmp/hypha-b714-wrappers.log`。
+- PRE／POST × AU／VST3 の Debug build: 4 target pass。最終版は `/tmp/hypha-b716-wrappers.log`。JUCE の自動 ad-hoc 処理を含む開発用 build であり、配布用署名ではない。
+- FFI ignored parity: 20 pass、135.03 秒。pairing_candidates: 5 pass、3.01 秒。`/tmp/hypha-b715-parity.log` と `/tmp/hypha-b715-pairing.log`。件数は `: test` で終わる列挙行から実測した。
+- Clippy: workspace／all-targets pass。本体の Clippy 警告は 0、vendor の既存 3 警告は除外。`/tmp/hypha-b715-clippy.log`。
+- `cargo fmt --all -- --check` と `git diff --check`: pass。
 - build identity: modified source と Git 不在 fallback の 2 条件 pass。
 - 行数予算: 33 個の既存負債を exact ratchet として維持し、新規 owned source は 500 行以下。予算検査とその self-test は pass。
 - 英日 HP: 209 pass。`/tmp/hypha-b712-hp-build.log`。
+
+`cargo test --workspace` は完走していない。
+B-714 の試作を含む実行は 19 suite／1,669 pass／0 fail／35 ignored まで進んだが、`io_thread_post_cleanup_wiring_test` の起動前待機が 6 分を超えた。
+2026-09-06 14:22 JST に採取した sample は footprint 12 KiB、`_dyld_start + 0` のままで、テスト本体の出力はなかった。
+通常起動に加えて `--list` の事前読込も試し、別の executable では 300 秒の起動 timeout を記録した。
+約 56 分時点でこの実行と当方の事前読込プロセスを終了し、全 workspace の合格とはしていない。
+ログ: `/tmp/hypha-b713-workspace-test.log`、`/tmp/hypha-b716-workspace-startup-block.txt`、`/tmp/hypha-b716-list-only-startup.log`。
+上の 1,669 件には通知試験の隔離前の計測コア 1,411 件が含まれるため、修正後の 1,413 件を加算した合計を作らない。
+最終 Rust 修正後のコア、FFI ignored 25 件、Clippy は個別実行で pass を確認した。
+EBU v05 の全 70 WAV の検証は別途供給される公式音源が必要であり、今回の合格には含めない。
 
 描画試験は初回にコンパイルとの同時負荷で既存 SPECTRUM の 12 ms 上限を超えた。
 また、macOS の executable 起動で `_dyld_start + 0` の待機を採取し、テスト開始前の timeout も記録した。
@@ -121,9 +135,18 @@ PCM は 3,840,000 bytes、ファイルの SHA-256 は `5e526afe85549fe7daeace882
 - SPACE: 別の素材台帳と区間注釈、R²／再上昇／floor 余裕／区間選択条件の実測と凍結。固定区間の式だけで自動解析を有効化しない。
 - Blind: 同一区間の取得・PDC・短い TRACK の固定 Gain Match、実際の DAW participant scope、Keep／All Keep との相互排他、下流の正本保護、RT 出力確認後の解放、減衰保持と明示復帰。
 - 共通: 旧版との組合せ、macOS AU／VST3 と Windows VST3、DPI・モニター移動、実ホストでの browser／コピー操作、表示と聴取の検証。
+- 自動試験: macOS の実行前待機が解消した環境で、最終 source の `cargo test --workspace` を完走させる。今回の個別 pass や一覧取得で代替しない。
 
 Windows は引き続き操作しない。
 Notion 書込み、インストール、notarize、公開、push は実施していない。
 既存の JUCE ローカル差分と別件の未追跡 handoff は変更・取り込みしていない。
 LS と公開パッケージの準備は今回の作業範囲外であり、3 チャネルの公開完了とは報告しない。
 未完了を Phase 2 へ移していない。
+
+## 配置と公開の状態
+
+LS アップ用: skip。
+HP アップ用配布物: macOS skip／Windows skip。
+HP の英日案内コードは準備済みだが、外部公開していない。
+Windows 検証機と実 DAW への配置は未実施。
+全 workspace の完走、実機試験、新機能の未完了 gate、3 チャネルの配布準備を残しているため、公開 ready や独立レビュー指摘 0 件とは報告しない。
