@@ -279,6 +279,24 @@ namespace
         output.setSample (0, 0, 0.5f);
         const auto unattenuated = output.getSample (0, 0);
         approvalBlind.invalidate();
+        require (! approvalBlind.renderInvalidatedA (output, true)
+                 && output.getSample (0, 0) == unattenuated,
+                 "approval without audible output must leave A unchanged after interruption");
+        approvalBlind.end();
+        state = approvalBlind.snapshot();
+        require (state.lowerAApprovalRequired && std::abs (state.aGainDb) < 1.0e-9
+                 && ! approvalBlind.start(),
+                 "ending a lower-A trial must restore A and require approval again");
+
+        require (approvalBlind.start (true),
+                 "a repeated lower-A trial must accept a new explicit approval");
+        juce::AudioBuffer<float> audibleOutput (a->channels, 128);
+        audibleOutput.clear();
+        require (approvalBlind.render (audibleOutput, a->startSample, true),
+                 "approved lower-A trial must produce one confirmed audio callback");
+        output.clear();
+        output.setSample (0, 0, 0.5f);
+        approvalBlind.invalidate();
         require (approvalBlind.renderInvalidatedA (output, true)
                  && std::abs (output.getSample (0, 0)
                     - unattenuated * std::pow (10.0f,
@@ -290,6 +308,28 @@ namespace
         require (state.lowerAApprovalRequired && std::abs (state.aGainDb) < 1.0e-9
                  && ! approvalBlind.start(),
                  "ending a lower-A trial must restore A and require approval again");
+        require (approvalBlind.start (true),
+                 "a repeated lower-A trial must accept a new explicit approval");
+        audibleOutput.clear();
+        require (approvalBlind.render (audibleOutput, a->startSample, true),
+                 "binding-loss fixture must first produce approved comparison audio");
+        approvalBlind.invalidate();
+        approvalBlind.clear();
+        state = approvalBlind.snapshot();
+        output.clear();
+        output.setSample (0, 0, 0.5f);
+        require (state.phase == ref::BlindPhase::invalidated
+                 && approvalBlind.renderInvalidatedA (output, true)
+                 && std::abs (output.getSample (0, 0)
+                    - 0.5f * std::pow (10.0f,
+                        static_cast<float> (approved.aGainDb / 20.0))) < 1.0e-6f,
+                 "binding loss must preserve approved A attenuation after Blind data is cleared");
+        approvalBlind.end();
+        state = approvalBlind.snapshot();
+        require (! approvalBlind.ongoing()
+                 && state.phase == ref::BlindPhase::inactive
+                 && ! approvalBlind.start (true),
+                 "explicit return must release held A attenuation without reviving lost context");
     }
 
 }

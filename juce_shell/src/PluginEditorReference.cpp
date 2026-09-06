@@ -117,7 +117,9 @@ void KirinHyphaEditor::configureReferenceAudition()
             : state.blindLowerAApprovalRequired
                 ? processorRef.approveReferenceBlindLowerA (
                     state.aIntegratedLoudness, state.aMaximumTruePeakDbtp)
-                : processorRef.requestReferenceRecovery();
+                : state.presetSelectionAction == "retry"
+                    ? processorRef.retryReferencePresetSelection()
+                    : processorRef.requestReferenceRecovery();
         if (! accepted) showToast ("Kirin OS could not receive the request");
     };
     referenceView.onStartBlind = [this]
@@ -236,7 +238,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     const bool blindAvailable = callbackLive && runtime.blindEligible
         && hypha::reference_ui::canSelectB (state);
     state.blindPhase = referenceBlindPhase (runtime.blindPhase, blindAvailable);
-    state.presetId = runtime.presetId;
+    state.presetId = runtime.presetSelectionTargetId.isNotEmpty()
+        ? runtime.presetSelectionTargetId : runtime.presetId;
     state.checkId = runtime.checkId;
     state.candidateId = runtime.candidateId;
     state.cueId = runtime.cueId;
@@ -256,6 +259,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.sampleRateApprovalRequired = runtime.sampleRateApprovalRequired;
     state.sourceSampleRateHz = runtime.sourceSampleRateHz;
     state.hostSampleRateHz = runtime.hostSampleRateHz;
+    state.presetSelectionAction = runtime.presetSelectionAction;
     if (observatoryDomain == hypha::observatory::Domain::reference)
     {
         KirinSpectrumView spectrum {};
@@ -311,7 +315,50 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         state.status = "WAITING FOR KIRIN OS REFERENCE";
     else
         state.status = "CONNECT TO A KIRIN OS WORK";
-    if (runtime.recoveryStatus == "pending")
+    if (runtime.presetSelectionStatus == "pending")
+    {
+        state.status = "PREPARING PRESET IN KIRIN OS / A REMAINS LIVE";
+        state.actionText.clear();
+    }
+    else if (runtime.presetSelectionStatus == "prepared")
+    {
+        state.status = "PRESET READY / A REMAINS LIVE";
+        state.actionText.clear();
+    }
+    else if (runtime.presetSelectionStatus == "timed_out")
+    {
+        state.status = "KIRIN OS NEEDS MORE TIME / A REMAINS LIVE";
+        state.actionText = "RETRY PREPARATION";
+    }
+    else if (runtime.presetSelectionStatus == "preset_setup_required")
+    {
+        state.status = "CHOOSE A REFERENCE IN KIRIN OS / A REMAINS LIVE";
+        state.actionText = "OPEN REFERENCE";
+    }
+    else if (runtime.presetSelectionStatus == "source_unavailable")
+    {
+        state.status = "REFERENCE SOURCE NEEDS ATTENTION / A REMAINS LIVE";
+        state.actionText = "CHOOSE SOURCE";
+    }
+    else if (runtime.presetSelectionStatus == "measurement_required")
+    {
+        state.status = "MEASURE THE REFERENCE SOURCE IN KIRIN OS / A REMAINS LIVE";
+        state.actionText = "MEASURE SOURCE";
+    }
+    else if (runtime.presetSelectionStatus == "request_stale"
+             || runtime.presetSelectionStatus == "storage_unavailable"
+             || runtime.presetSelectionStatus == "publication_failed")
+    {
+        state.status = "PRESET WAS NOT REFRESHED / A REMAINS LIVE";
+        state.actionText = "RETRY PREPARATION";
+    }
+    else if (runtime.presetSelectionStatus == "work_unavailable"
+             || runtime.presetSelectionStatus == "request_invalid")
+    {
+        state.status = "REFERENCE SETUP NEEDS ATTENTION / A REMAINS LIVE";
+        state.actionText = "OPEN REFERENCE";
+    }
+    else if (runtime.recoveryStatus == "pending")
     {
         state.status = "OPENING REFERENCE IN KIRIN OS";
         state.actionText.clear();

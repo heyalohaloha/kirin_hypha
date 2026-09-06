@@ -251,23 +251,6 @@ namespace hypha::reference_audition
         }
     }
 
-    bool RuntimeV2Blind::enterPreparation() noexcept
-    {
-        auto current = lifecycle.load (std::memory_order_acquire);
-        while (current != active && current != revealed && current != preparing)
-        {
-            if (lifecycle.compare_exchange_weak (current, preparing,
-                                                 std::memory_order_acq_rel))
-            {
-                while (callbacksInFlight.load (std::memory_order_acquire) != 0
-                       || snapshotReadersInFlight.load (std::memory_order_acquire) != 0)
-                    juce::Thread::yield();
-                return true;
-            }
-        }
-        return false;
-    }
-
     void RuntimeV2Blind::prepare (
         const std::shared_ptr<const RuntimeACaptureAudio>& a,
         const RuntimeCandidate& candidate, const RuntimeCue& cue,
@@ -286,7 +269,9 @@ namespace hypha::reference_audition
         const auto reject = [this] (const juce::String& code)
         {
             rejectionCode = code;
-            lifecycle.store (unavailable, std::memory_order_release);
+            int expected = preparing;
+            lifecycle.compare_exchange_strong (expected, unavailable,
+                                                std::memory_order_acq_rel);
         };
         if (a == nullptr || source == nullptr || candidate.sourceKind != "work_version"
             || candidate.sourceWorkId.isEmpty() || candidate.sourceRecordingId.isEmpty()
@@ -361,38 +346,14 @@ namespace hypha::reference_audition
         if (gainPlan.lowerAApprovalRequired)
         {
             requiredAAttenuationDb = bGainDb;
-            lifecycle.store (approvalRequired, std::memory_order_release);
+            int expected = preparing;
+            lifecycle.compare_exchange_strong (expected, approvalRequired,
+                                                std::memory_order_acq_rel);
             return;
         }
-        lifecycle.store (prepared, std::memory_order_release);
-    }
-
-    bool RuntimeV2Blind::start (bool approveLowerA) noexcept
-    {
-        int expected = approveLowerA ? approvalRequired : prepared;
-        if (! lifecycle.compare_exchange_strong (expected, preparing, std::memory_order_acq_rel))
-            return false;
-        while (snapshotReadersInFlight.load (std::memory_order_acquire) != 0)
-            juce::Thread::yield();
-        if (approveLowerA)
-        {
-            aGainDb = -requiredAAttenuationDb;
-            bGainDb = 0.0;
-        }
-        resetSession();
-        try
-        {
-            const auto commitment = createRuntimeV2BlindCommitment();
-            trialId = commitment.trialId;
-            assignmentNonceHex = commitment.nonceHex;
-            assignmentCommitmentSha256 = commitment.commitmentSha256;
-            stimulusOneIsB.store (commitment.stimulusOneIsB, std::memory_order_relaxed);
-        }
-        catch (...) { lifecycle.store (expected, std::memory_order_release); return false; }
-        requestedStimulus.store (1, std::memory_order_relaxed);
-        requestSequence.store (1, std::memory_order_release);
-        lifecycle.store (active, std::memory_order_release);
-        return true;
+        int expected = preparing;
+        lifecycle.compare_exchange_strong (expected, prepared,
+                                            std::memory_order_acq_rel);
     }
 
     int RuntimeV2Blind::sideForStimulus (int stimulus) const noexcept
@@ -428,46 +389,6 @@ namespace hypha::reference_audition
         int expected = active;
         return lifecycle.compare_exchange_strong (expected, revealed,
                                                    std::memory_order_acq_rel);
-    }
-
-    void RuntimeV2Blind::end() noexcept
-    {
-        const auto state = lifecycle.load (std::memory_order_acquire);
-        if (state == active || state == revealed || state == invalidated)
-        {
-            lifecycle.store (preparing, std::memory_order_release);
-            while (callbacksInFlight.load (std::memory_order_acquire) != 0
-                   || snapshotReadersInFlight.load (std::memory_order_acquire) != 0)
-                juce::Thread::yield();
-            if (requiredAAttenuationDb > 0.0)
-            {
-                aGainDb = 0.0;
-                bGainDb = requiredAAttenuationDb;
-                lifecycle.store (approvalRequired, std::memory_order_release);
-            }
-            else
-                lifecycle.store (prepared, std::memory_order_release);
-        }
-        resetSession();
-    }
-
-    void RuntimeV2Blind::invalidate() noexcept
-    {
-        const auto state = lifecycle.load (std::memory_order_acquire);
-        if (state == active || state == revealed)
-            lifecycle.store (invalidated, std::memory_order_release);
-    }
-
-    void RuntimeV2Blind::clear() noexcept
-    {
-        lifecycle.store (unavailable, std::memory_order_release);
-        resetSession();
-    }
-
-    void RuntimeV2Blind::loseAudibleConfirmation() noexcept
-    {
-        activeStimulus.store (0, std::memory_order_release);
-        confirmedSequence.store (0, std::memory_order_release);
     }
 
 }

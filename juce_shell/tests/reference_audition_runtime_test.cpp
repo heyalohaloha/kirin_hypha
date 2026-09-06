@@ -152,6 +152,90 @@ int main()
                  {}, now, requestId).has_value(),
              "Work binding recovery must remain available before a Work exists");
 
+    ref::PresetSelectionTransport presetSelection (recoveryRoot);
+    const ref::RuntimeGlobalPresetCatalogEntry selectedGlobalPreset {
+        "55555555-5555-4555-8555-555555555555",
+        "66666666-6666-4666-8666-666666666666",
+        "MIX / balance, position, and space",
+        "user",
+    };
+    const auto presetSelectionRequest = presetSelection.writeRequest (
+        identity, 7, selectedGlobalPreset, now, requestId);
+    require (presetSelectionRequest.has_value(),
+             "exact immutable Preset selection request must write atomically");
+    const auto presetSelectionFile = presetSelection.requestFile (runtimeId, requestId);
+    const auto presetSelectionJson = juce::JSON::parse (presetSelectionFile);
+    const auto* presetSelectionObject = presetSelectionJson.getDynamicObject();
+    const auto* selectedPresetObject = presetSelectionObject == nullptr ? nullptr
+        : presetSelectionObject->getProperty ("selected_preset").getDynamicObject();
+    require (presetSelectionObject != nullptr
+             && hasExactKeys (*presetSelectionObject, {
+                 "format", "version", "request_id", "runtime_instance_id",
+                 "host_process_id", "work_id", "manifest_revision",
+                 "requested_at_ms", "selected_preset" })
+             && selectedPresetObject != nullptr
+             && hasExactKeys (*selectedPresetObject, { "preset_id", "revision_id" })
+             && presetSelectionObject->getProperty ("format")
+                 == "kirin_hypha_reference_preset_selection_request"
+             && static_cast<juce::int64> (
+                 presetSelectionObject->getProperty ("manifest_revision")) == 7
+             && selectedPresetObject->getProperty ("preset_id")
+                 == selectedGlobalPreset.presetId
+             && selectedPresetObject->getProperty ("revision_id")
+                 == selectedGlobalPreset.revisionId
+             && presetSelectionFile.getSize() <= ref::maximumPresetSelectionRequestBytes,
+             "Preset selection request must match the approved bounded schema");
+    require (presetSelection.writeRequest (
+                 identity, 7, selectedGlobalPreset, now, requestId).has_value(),
+             "the same immutable request retry must be idempotent");
+    auto conflictingPreset = selectedGlobalPreset;
+    conflictingPreset.revisionId = "77777777-7777-4777-8777-777777777777";
+    require (! presetSelection.writeRequest (
+                 identity, 7, conflictingPreset, now, requestId).has_value(),
+             "an existing request ID must reject different content");
+    require (! presetSelection.writeRequest (
+                 identity, 0, selectedGlobalPreset, now, requestId).has_value()
+             && presetSelection.requestFile ("../escape", requestId) == juce::File(),
+             "invalid manifest authority and paths must fail closed");
+    auto preparedPreset = new juce::DynamicObject();
+    preparedPreset->setProperty ("preset_id", "88888888-8888-4888-8888-888888888888");
+    preparedPreset->setProperty ("revision_id", "99999999-9999-4999-8999-999999999999");
+    auto presetSelectionAck = new juce::DynamicObject();
+    presetSelectionAck->setProperty (
+        "format", "kirin_hypha_reference_preset_selection_acknowledgement");
+    presetSelectionAck->setProperty ("version", "1.0");
+    presetSelectionAck->setProperty ("request_id", requestId);
+    presetSelectionAck->setProperty ("runtime_instance_id", runtimeId);
+    presetSelectionAck->setProperty ("host_process_id", static_cast<juce::int64> (42));
+    presetSelectionAck->setProperty ("work_id", workId);
+    presetSelectionAck->setProperty ("handled_at_ms", now + 1);
+    presetSelectionAck->setProperty ("outcome", "prepared");
+    presetSelectionAck->setProperty ("prepared_preset", juce::var (preparedPreset));
+    presetSelectionAck->setProperty ("recovery", juce::var());
+    juce::var presetSelectionAckValue (presetSelectionAck);
+    const auto presetSelectionAckFile = presetSelection.acknowledgementFile (
+        runtimeId, requestId);
+    require (writeJson (presetSelectionAckFile, presetSelectionAckValue)
+             && presetSelectionAckFile.getSize()
+                    <= ref::maximumPresetSelectionAcknowledgementBytes,
+             "Preset selection acknowledgement fixture must be bounded");
+    const auto acceptedPresetSelection = presetSelection.loadAcknowledgement (
+        *presetSelectionRequest);
+    require (acceptedPresetSelection.has_value()
+             && acceptedPresetSelection->outcome == ref::PresetSelectionOutcome::prepared
+             && acceptedPresetSelection->preparedPreset
+             && acceptedPresetSelection->preparedPreset->presetId
+                    == "88888888-8888-4888-8888-888888888888",
+             "Hypha must accept only the acknowledgement bound to its exact request");
+    presetSelectionAck->setProperty ("internal_message", "must stay private");
+    require (writeJson (presetSelectionAckFile, presetSelectionAckValue)
+             && ! presetSelection.loadAcknowledgement (*presetSelectionRequest).has_value(),
+             "expanded Preset selection acknowledgements must fail closed");
+    require (presetSelection.removeExchange (*presetSelectionRequest)
+             && ! presetSelectionFile.exists()
+             && ! presetSelectionAckFile.exists(),
+             "Hypha must remove only its consumed immutable exchange files");
+
     require (source.deleteFile() && writeStereoWav (source),
              "decodable Reference fixture must be written");
     const auto wavHash = juce::SHA256 (source).toHexString();
@@ -205,13 +289,14 @@ int main()
         require (! comparisonSuspended.load(),
                  "A return must resume the normal PRE comparison through its gate");
         require (controller.selectB (-11.0, -2.0),
-                 "safe gain-limited B selection must remain available");
+                 "original-level B selection must remain available when exact gain lacks headroom");
         const auto limitedSnapshot = controller.snapshot();
         require (limitedSnapshot.gainLimited
-                 && std::abs (limitedSnapshot.appliedGainDb - 2.0) < 1.0e-9
-                 && std::abs (limitedSnapshot.loudnessDeltaBMinusA + 1.0) < 1.0e-9
-                 && std::abs (limitedSnapshot.adjustedBMaximumTruePeakDbtp + 1.0) < 1.0e-9,
-                 "B delta must expose a TP-limited loudness mismatch instead of hiding it");
+                 && limitedSnapshot.comparisonFallbackOriginal
+                 && std::abs (limitedSnapshot.appliedGainDb) < 1.0e-9
+                 && std::abs (limitedSnapshot.loudnessDeltaBMinusA + 3.0) < 1.0e-9
+                 && std::abs (limitedSnapshot.adjustedBMaximumTruePeakDbtp + 3.0) < 1.0e-9,
+                 "normal A/B must forbid partial matching and expose original-level B facts");
         controller.selectA();
         audition.clear();
         audition.setSample (0, 0, 0.75f);

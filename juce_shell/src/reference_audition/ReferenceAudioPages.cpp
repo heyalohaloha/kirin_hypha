@@ -9,6 +9,7 @@ namespace hypha::reference_audition
 {
     static_assert (std::atomic<std::uint8_t>::is_always_lock_free);
     static_assert (std::atomic<std::int64_t>::is_always_lock_free);
+    static_assert (std::atomic<float>::is_always_lock_free);
 
     AudioPages::AudioPages()
     {
@@ -62,6 +63,9 @@ namespace hypha::reference_audition
         reader.reset();
         sourceLength = 0;
         sourceChannels = 0;
+        pinnedCueStart = 0;
+        pinnedCueEnd = 0;
+        pinnedCueLoops = false;
         if (nextReader == nullptr || ! std::isfinite (hostSampleRate) || hostSampleRate <= 0.0
             || (hostChannels != 1 && hostChannels != 2))
             return "runtime_format_invalid";
@@ -111,6 +115,9 @@ namespace hypha::reference_audition
             sourceSampleRate = 0.0;
             outputSampleRate = 0.0;
             sampleRateConversion = false;
+            pinnedCueStart = 0;
+            pinnedCueEnd = 0;
+            pinnedCueLoops = false;
         }
     }
 
@@ -118,12 +125,26 @@ namespace hypha::reference_audition
     {
         for (auto& page : pages)
         {
-            for (int attempt = 0; attempt < 200
-                 && page.state.load (std::memory_order_acquire) == inUse; ++attempt)
+            bool retired = false;
+            for (int attempt = 0; attempt < 200 && ! retired; ++attempt)
+            {
+                auto state = page.state.load (std::memory_order_acquire);
+                if (state == empty)
+                {
+                    retired = true;
+                    break;
+                }
+                if (state == ready
+                    && page.state.compare_exchange_strong (
+                        state, empty, std::memory_order_acq_rel))
+                {
+                    retired = true;
+                    break;
+                }
                 juce::Thread::sleep (1);
-            if (page.state.load (std::memory_order_acquire) == inUse)
+            }
+            if (! retired)
                 return false;
-            page.state.store (empty, std::memory_order_release);
         }
         return true;
     }
@@ -134,6 +155,15 @@ namespace hypha::reference_audition
             requestedPosition.store (sourcePosition, std::memory_order_release);
     }
 
+    void AudioPages::setPinnedCue (std::int64_t cueStart,
+                                   std::int64_t cueEnd,
+                                   bool loopEnabled) noexcept
+    {
+        pinnedCueStart = cueStart;
+        pinnedCueEnd = cueEnd;
+        pinnedCueLoops = loopEnabled && cueStart >= 0 && cueEnd > cueStart;
+    }
+
     void AudioPages::service()
     {
         const auto framesPerPage = pageFrames.load (std::memory_order_acquire);
@@ -142,17 +172,42 @@ namespace hypha::reference_audition
         const auto position = juce::jmax<std::int64_t> (
             0, requestedPosition.load (std::memory_order_acquire));
         const auto current = (position / framesPerPage) * framesPerPage;
-        fill (current);
-        fill (current + framesPerPage);
-        if (current >= framesPerPage)
-            fill (current - framesPerPage);
+        const auto generation = activeGeneration.load (std::memory_order_acquire);
+        const auto length = sourceLength.load (std::memory_order_acquire);
+        std::array<std::int64_t, pageCount> protectedStarts {};
+        size_t protectedCount = 0;
+        const auto protect = [&] (std::int64_t start)
+        {
+            if (start < 0 || start >= length)
+                return;
+            for (size_t index = 0; index < protectedCount; ++index)
+                if (protectedStarts[index] == start)
+                    return;
+            if (protectedCount < protectedStarts.size())
+                protectedStarts[protectedCount++] = start;
+        };
+        protect (current);
+        protect (current + framesPerPage);
+        protect (current - framesPerPage);
+        if (pinnedCueLoops)
+        {
+            protect ((pinnedCueStart / framesPerPage) * framesPerPage);
+            protect (((pinnedCueEnd - 1) / framesPerPage) * framesPerPage);
+        }
+        for (size_t index = 0; index < protectedCount; ++index)
+            fill (protectedStarts[index], protectedStarts, protectedCount, generation);
     }
 
-    bool AudioPages::fill (std::int64_t pageStart)
+    bool AudioPages::fill (
+        std::int64_t pageStart,
+        const std::array<std::int64_t, pageCount>& protectedStarts,
+        size_t protectedCount, std::uint64_t generation)
     {
         const auto framesPerPage = pageFrames.load (std::memory_order_acquire);
         const auto channels = sourceChannels.load (std::memory_order_acquire);
-        const auto generation = activeGeneration.load (std::memory_order_acquire);
+        const auto length = sourceLength.load (std::memory_order_acquire);
+        if (pageStart < 0 || pageStart >= length)
+            return false;
         if (containsReady (pageStart, generation))
             return true;
 
@@ -171,6 +226,15 @@ namespace hypha::reference_audition
         {
             for (auto& page : pages)
             {
+                const auto existingStart = page.start.load (std::memory_order_relaxed);
+                bool protectedPage = false;
+                if (page.generation.load (std::memory_order_relaxed) == generation)
+                    for (size_t index = 0; index < protectedCount; ++index)
+                        protectedPage = protectedPage
+                            || existingStart == protectedStarts[index];
+                if (protectedPage)
+                    continue;
+
                 std::uint8_t expected = ready;
                 if (page.state.compare_exchange_strong (expected, loading,
                                                         std::memory_order_acq_rel))
@@ -262,116 +326,4 @@ namespace hypha::reference_audition
         return true;
     }
 
-    bool AudioPages::containsReady (std::int64_t pageStart,
-                                    std::uint64_t expectedGeneration) const noexcept
-    {
-        for (const auto& page : pages)
-        {
-            const auto state = page.state.load (std::memory_order_acquire);
-            if ((state == ready || state == inUse)
-                && page.start.load (std::memory_order_relaxed) == pageStart
-                && page.generation.load (std::memory_order_relaxed) == expectedGeneration)
-                return true;
-        }
-        return false;
-    }
-
-    AudioPages::Page* AudioPages::acquire (
-        std::int64_t pageStart, std::uint64_t expectedGeneration) const noexcept
-    {
-        for (auto& page : pages)
-        {
-            std::uint8_t expected = ready;
-            if (page.start.load (std::memory_order_relaxed) == pageStart
-                && page.generation.load (std::memory_order_relaxed) == expectedGeneration
-                && page.state.compare_exchange_strong (expected, inUse,
-                                                       std::memory_order_acq_rel))
-                return &page;
-        }
-        return nullptr;
-    }
-
-    void AudioPages::release (Page* page) const noexcept
-    {
-        if (page != nullptr)
-            page->state.store (ready, std::memory_order_release);
-    }
-
-    bool AudioPages::readyAt (std::int64_t sourcePosition, int frames) const noexcept
-    {
-        const auto framesPerPage = pageFrames.load (std::memory_order_acquire);
-        const auto sourceFrames = sourceLength.load (std::memory_order_acquire);
-        if (! openState.load (std::memory_order_acquire) || sourcePosition < 0
-            || frames < 0 || framesPerPage <= 0 || sourcePosition >= sourceFrames)
-            return false;
-        const auto tailFrames = static_cast<std::int64_t> (juce::jmax (0, frames - 1));
-        if (tailFrames > sourceFrames - 1 - sourcePosition)
-            return false;
-        const auto generation = activeGeneration.load (std::memory_order_acquire);
-        const auto first = (sourcePosition / framesPerPage) * framesPerPage;
-        const auto lastPosition = sourcePosition + tailFrames;
-        const auto last = (lastPosition / framesPerPage) * framesPerPage;
-        return containsReady (first, generation)
-            && (first == last || containsReady (last, generation));
-    }
-
-    bool AudioPages::render (juce::AudioBuffer<float>& destination,
-                             std::int64_t sourcePosition, float linearGain) noexcept
-    {
-        const int frames = destination.getNumSamples();
-        const auto framesPerPage = pageFrames.load (std::memory_order_acquire);
-        const auto channels = sourceChannels.load (std::memory_order_acquire);
-        if (! std::isfinite (linearGain) || linearGain < 0.0f
-            || framesPerPage <= 0 || ! readyAt (sourcePosition, frames))
-            return false;
-        request (sourcePosition);
-        const auto generation = activeGeneration.load (std::memory_order_acquire);
-        const auto firstStart = (sourcePosition / framesPerPage) * framesPerPage;
-        const auto lastPosition = sourcePosition
-            + static_cast<std::int64_t> (juce::jmax (0, frames - 1));
-        const auto lastStart = (lastPosition / framesPerPage) * framesPerPage;
-        auto* first = acquire (firstStart, generation);
-        if (first == nullptr)
-            return false;
-        auto* last = first;
-        if (lastStart != firstStart)
-        {
-            last = acquire (lastStart, generation);
-            if (last == nullptr)
-            {
-                release (first);
-                return false;
-            }
-        }
-        if (generation != activeGeneration.load (std::memory_order_acquire)
-            || destination.getNumChannels() != channels)
-        {
-            if (last != first)
-                release (last);
-            release (first);
-            return false;
-        }
-
-        int destinationOffset = 0;
-        while (destinationOffset < frames)
-        {
-            auto* page = destinationOffset == 0 ? first : last;
-            const auto absolutePosition = sourcePosition + destinationOffset;
-            const int pageOffset = static_cast<int> (
-                absolutePosition - page->start.load (std::memory_order_relaxed));
-            const int count = juce::jmin (frames - destinationOffset, framesPerPage - pageOffset);
-            for (int channel = 0; channel < channels; ++channel)
-            {
-                const auto* input = page->audio.getReadPointer (channel, pageOffset);
-                auto* output = destination.getWritePointer (channel, destinationOffset);
-                for (int sample = 0; sample < count; ++sample)
-                    output[sample] = input[sample] * linearGain;
-            }
-            destinationOffset += count;
-        }
-        if (last != first)
-            release (last);
-        release (first);
-        return true;
-    }
 }

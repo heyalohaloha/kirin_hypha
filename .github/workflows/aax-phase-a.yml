@@ -1,0 +1,99 @@
+name: AAX Phase A
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_with_external_sdk:
+        description: 'Build AAX on SDK-equipped self-hosted macOS and Windows runners.'
+        required: true
+        default: false
+        type: boolean
+      aax_sdk_license_confirmed:
+        description: 'Confirm the external SDK is used under an appropriate Avid license.'
+        required: true
+        default: false
+        type: boolean
+      aax_sdk_path_macos:
+        description: 'Absolute external SDK path on the SDK-equipped macOS runner.'
+        required: false
+        type: string
+      aax_sdk_path_windows:
+        description: 'Absolute external SDK path on the SDK-equipped Windows runner.'
+        required: false
+        type: string
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  sdk-absence:
+    name: licensed AAX SDK absence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Test and enforce SDK absence
+        run: |
+          node scripts/test_aax_cmake_gate.mjs
+          node --test scripts/check_aax_sdk_absence.test.mjs
+          node scripts/check_aax_sdk_absence.mjs
+
+  aax-sdk-build:
+    name: AAX external SDK build (${{ matrix.runner_os }})
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_with_external_sdk }}
+    needs: sdk-absence
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner_os: macOS
+            ffi_library: target/release/libkirin_hypha_ffi.a
+          - runner_os: Windows
+            ffi_library: target/release/kirin_hypha_ffi.lib
+    runs-on: [self-hosted, aax-sdk, "${{ matrix.runner_os }}"]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build FFI and apply the tracked JUCE patch stack
+        run: |
+          cargo build --release -p kirin_hypha_ffi --locked
+          bash scripts/apply_juce_patches.sh
+
+      - name: Configure the explicit external-SDK AAX build
+        env:
+          AAX_SDK_PATH_MACOS: ${{ inputs.aax_sdk_path_macos }}
+          AAX_SDK_PATH_WINDOWS: ${{ inputs.aax_sdk_path_windows }}
+          AAX_LICENSE_CONFIRMED: ${{ inputs.aax_sdk_license_confirmed }}
+        run: |
+          if [ "${{ matrix.runner_os }}" = "macOS" ]; then
+            AAX_SDK_PATH="$AAX_SDK_PATH_MACOS"
+          else
+            AAX_SDK_PATH="$AAX_SDK_PATH_WINDOWS"
+          fi
+          cmake -S juce_shell -B juce_shell/build-aax \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DKIRIN_FFI_LIB="${{ github.workspace }}/${{ matrix.ffi_library }}" \
+            -DKIRIN_HYPHA_AAX_SDK_PATH="$AAX_SDK_PATH" \
+            -DKIRIN_HYPHA_AAX_SDK_LICENSE_CONFIRMED="$AAX_LICENSE_CONFIRMED" \
+            -DKIRIN_HYPHA_REQUIRE_AAX=ON
+
+      - name: Build PRE and POST AAX targets
+        run: >
+          cmake --build juce_shell/build-aax --config Release
+          --target KirinHyphaPRE_AAX KirinHyphaPOST_AAX
+          --parallel 2

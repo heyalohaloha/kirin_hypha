@@ -1,4 +1,5 @@
 #include "reference_runtime_v2_analysis_test_support.h"
+#include "reference_runtime_v2_preset_test_support.h"
 
 void testRuntimeV2Workspace (const juce::File& sandbox);
 
@@ -23,7 +24,14 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
         const auto first = v2Repository.refresh (workId);
         require (first.state == ref::RuntimeWorkspaceLoadState::updated && first.usable()
                  && first.workspace->manifest.revision == 1
+                 && first.workspace->globalPresetCatalog.presets.size() == 6
+                 && first.workspace->globalPresetCatalog.presets[0].origin == "factory"
+                 && first.workspace->globalPresetCatalog.presets[5].presetId == presetId
+                 && first.workspace->globalPresetCatalog.presets[5].revisionId
+                      == runtimeTemplateRevisionId
                  && first.workspace->presets.size() == 1
+                 && first.workspace->presets[0].sourceTemplateArtifact.revisionId
+                      == runtimeTemplateRevisionId
                  && first.workspace->presets[0].checks.size() == 1
                  && first.workspace->presets[0].checks[0].candidates[0].displayName
                       == "Reference Mix",
@@ -196,8 +204,9 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                  && rejectedProfile.rejectionCode == "reference_profile_contract_rejected",
                  "a Profile must not show quantiles when fewer than three sources contributed");
 
-        const auto controllerPreset = bindRuntimeV2PresetToSource (
+        auto controllerPreset = bindRuntimeV2PresetToSource (
             presetId, revisionId, sourceCandidate.sourceArtifact, exactFileHash, pcmHash);
+        controllerPreset.getDynamicObject()->setProperty ("name", "Factory 1");
         const auto presentationFile = v2Root.getChildFile ("presentations")
                                             .getChildFile (workId + ".json");
         auto presentation = new juce::DynamicObject();
@@ -256,12 +265,16 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                      && runtime.auditionBuffered
                      && runtime.aBindingAvailable
                      && runtime.aRecordingId == recordingId
-                     && runtime.presetName == "Mix Reference"
+                     && runtime.presetName == "Factory 1"
                      && runtime.checkLabel == juce::String::fromUTF8 ("低音")
                      && runtime.candidateName == "Reference Mix"
                      && runtime.cueLabel == "Chorus"
                      && runtime.presentationLayout == "main",
                      "active Preset, first Check, first comparison track, and default Cue must become ready without an open action");
+            verifyRuntimeV2PresetSelection (
+                controller, v2Root, v2Identity, 4,
+                first.workspace->presets[0].sourcePresetArtifact,
+                runtimeTemplateRevisionId, revisionId, runtime);
             const auto v2RuntimeFiles = ref::runtimeFiles (v2Root, v2Identity);
             const auto v2Capability = juce::JSON::parse (v2RuntimeFiles.capability);
             require (v2Capability.getDynamicObject() != nullptr
@@ -341,14 +354,14 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                 juce::Thread::sleep (10);
             }
             require (controller.selectB (-11.0, -2.0),
-                     "v2 loudness match must remain audible when positive B gain is headroom-limited");
+                     "v2 normal A/B must keep original-level B audible when an exact match lacks headroom");
             runtime = controller.snapshot();
             require (runtime.gainLimited
-                     && ! runtime.comparisonFallbackOriginal
-                     && std::abs (runtime.appliedGainDb - 2.0) < 1.0e-9
-                     && std::abs (runtime.adjustedBMaximumTruePeakDbtp + 1.0) < 1.0e-9
-                     && std::abs (runtime.loudnessDeltaBMinusA + 1.0) < 1.0e-9,
-                     "v2 normal A/B must cap B at -1 dBTP and expose the remaining mismatch instead of rejecting it");
+                     && runtime.comparisonFallbackOriginal
+                     && std::abs (runtime.appliedGainDb) < 1.0e-9
+                     && std::abs (runtime.adjustedBMaximumTruePeakDbtp + 3.0) < 1.0e-9
+                     && std::abs (runtime.loudnessDeltaBMinusA + 3.0) < 1.0e-9,
+                     "v2 normal A/B must forbid partial matching and expose original-level B facts");
             controller.selectA();
             require (controller.selectB (-11.0, 0.2),
                      "a pre-existing A peak above -1 dBTP must not make a safe exact match unavailable");

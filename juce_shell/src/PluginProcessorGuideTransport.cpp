@@ -129,6 +129,16 @@ bool KirinHyphaProcessorBase::selectReferencePreset (const juce::String& id)
    #endif
 }
 
+bool KirinHyphaProcessorBase::retryReferencePresetSelection()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->retryPresetSelection();
+   #else
+    return false;
+   #endif
+}
+
 bool KirinHyphaProcessorBase::selectReferenceCheck (const juce::String& id)
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY

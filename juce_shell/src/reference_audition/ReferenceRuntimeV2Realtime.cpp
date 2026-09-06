@@ -22,7 +22,8 @@ namespace hypha::reference_audition
             return true;
         if (blind.ongoing())
         {
-            if (! activeTransport || ! blind.render (buffer, hostPosition, positionValid))
+            if (! activeTransport || ! ready.load (std::memory_order_acquire)
+                || ! blind.render (buffer, hostPosition, positionValid))
             {
                 invalidateBlindFromAudioThread();
                 return blind.renderInvalidatedA (buffer, activeTransport);
@@ -37,9 +38,24 @@ namespace hypha::reference_audition
                 failClosedToAFromAudioThread();
             return false;
         }
-        const auto sourcePosition = mappedSourcePosition (hostPosition);
-        if (! pages.render (buffer, sourcePosition,
-                            bLinearGain.load (std::memory_order_acquire)))
+        bool rendered = false;
+        for (int attempt = 0; attempt < 3 && ! rendered; ++attempt)
+        {
+            const auto generation = mappingGeneration.load (std::memory_order_acquire);
+            if ((generation & 1u) != 0)
+                continue;
+            const auto sourcePosition = mappedSourcePosition (hostPosition);
+            const auto start = cueStart.load (std::memory_order_relaxed);
+            const auto end = cueEnd.load (std::memory_order_relaxed);
+            const auto loops = cueLoops.load (std::memory_order_relaxed);
+            if (sourcePosition < 0
+                || mappingGeneration.load (std::memory_order_acquire) != generation)
+                continue;
+            rendered = pages.renderCue (
+                buffer, sourcePosition, start, end, loops,
+                bLinearGain.load (std::memory_order_acquire));
+        }
+        if (! rendered)
         {
             failClosedToAFromAudioThread();
             return false;

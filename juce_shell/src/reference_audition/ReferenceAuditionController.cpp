@@ -17,10 +17,6 @@ namespace hypha::reference_audition
         constexpr int preparationPolls = 50;
         constexpr double auditionStaleMs = 3'000.0;
 
-        float gainFromDecibels (double gainDb)
-        {
-            return static_cast<float> (std::pow (10.0, gainDb / 20.0));
-        }
         std::uint32_t currentProcessId() noexcept
         {
            #if JUCE_WINDOWS
@@ -123,54 +119,6 @@ namespace hypha::reference_audition
         const auto sourcePosition = mappedSourcePosition (hostPosition);
         if (sourcePosition >= 0)
             pages.request (sourcePosition);
-    }
-
-    bool Controller::prepareReferenceGain (double aIntegratedLoudness,
-                                           double aMaximumTruePeakDbtp) noexcept
-    {
-        if (! ready.load (std::memory_order_acquire)
-            || ! latestPositionValid.load (std::memory_order_acquire)
-            || ! std::isfinite (aIntegratedLoudness)
-            || ! std::isfinite (aMaximumTruePeakDbtp))
-            return false;
-        Preparation preparation;
-        SourceReceipt receipt;
-        {
-            const juce::ScopedLock lock (snapshotLock);
-            preparation = activePreparation;
-            receipt = activeReceipt;
-        }
-        if (! preparation.valid() || ! receipt.valid())
-            return false;
-        const double requiredGain = aIntegratedLoudness - receipt.integratedLoudness;
-        const double appliedGain = requiredGain > 0.0
-            ? juce::jmin (requiredGain, preparation.maxSafePositiveGainDb)
-            : juce::jmax (-100.0, requiredGain);
-        if (receipt.maximumTruePeakDbtp + appliedGain > -1.0 + 1.0e-9)
-            return false;
-        const auto hostPosition = latestHostPosition.load (std::memory_order_acquire);
-        bHostAnchor.store (hostPosition, std::memory_order_release);
-        bLinearGain.store (gainFromDecibels (appliedGain), std::memory_order_release);
-        const auto sourcePosition = mappedSourcePosition (hostPosition);
-        pages.request (sourcePosition);
-        if (! pages.readyAt (sourcePosition, 1))
-            return false;
-        {
-            const juce::ScopedLock lock (snapshotLock);
-            currentSnapshot.appliedGainDb = appliedGain;
-            currentSnapshot.gainLimited = requiredGain > appliedGain + 1.0e-9;
-            currentSnapshot.aIntegratedLoudness = aIntegratedLoudness;
-            currentSnapshot.aMaximumTruePeakDbtp = aMaximumTruePeakDbtp;
-            currentSnapshot.adjustedBIntegratedLoudness =
-                receipt.integratedLoudness + appliedGain;
-            currentSnapshot.adjustedBMaximumTruePeakDbtp =
-                receipt.maximumTruePeakDbtp + appliedGain;
-            currentSnapshot.loudnessDeltaBMinusA =
-                currentSnapshot.adjustedBIntegratedLoudness - aIntegratedLoudness;
-            currentSnapshot.truePeakDeltaBMinusA =
-                currentSnapshot.adjustedBMaximumTruePeakDbtp - aMaximumTruePeakDbtp;
-        }
-        return true;
     }
 
     bool Controller::activatePreparedB() noexcept

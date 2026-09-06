@@ -10,6 +10,16 @@ namespace ref = hypha::reference_audition;
 
 namespace
 {
+    bool ownershipHookCalled = false;
+
+    void replaceAnotherPageAfterOwnership (ref::AudioPages& pages)
+    {
+        ownershipHookCalled = true;
+        ref::AudioPages::setAcquireOwnershipHookForTest (nullptr);
+        pages.request (336'000);
+        pages.service();
+    }
+
     void require (bool condition, const char* message)
     {
         if (! condition)
@@ -113,6 +123,12 @@ int main()
              && closeEnough (output.getSample (1, 511), TestReader::valueAt (1, 611) * 0.5f),
              "render must preserve channel, position, and B-only gain");
 
+    ref::AudioPages::setAcquireOwnershipHookForTest (replaceAnotherPageAfterOwnership);
+    output.clear();
+    require (pages.render (output, 100, 1.0f) && ownershipHookCalled
+             && closeEnough (output.getSample (0, 0), TestReader::valueAt (0, 100)),
+             "a page owned by the audio thread must keep its identity while the worker fills");
+
     const auto boundary = static_cast<std::int64_t> (pages.cachedPageFrames() - 2);
     pages.request (boundary);
     pages.service();
@@ -130,14 +146,47 @@ int main()
     miss.addFrom (0, 0, output, 0, 0, 32);
     miss.addFrom (1, 0, output, 1, 0, 32);
     const auto before = miss.getSample (0, 0);
-    require (! pages.render (miss, 300'000, 1.0f),
+    require (! pages.render (miss, 200'000, 1.0f),
              "uncached transport jump must fail closed to caller-owned A");
     require (closeEnough (miss.getSample (0, 0), before),
              "cache miss must not partially overwrite A");
-    pages.request (300'000);
+    pages.request (200'000);
     pages.service();
-    require (pages.render (miss, 300'000, 1.0f),
+    require (pages.render (miss, 200'000, 1.0f),
              "non-RT service must make the requested jump available");
+
+    ref::AudioPages continuity;
+    require (continuity.installReaderForTest (
+                 std::make_unique<TestReader> (48'000.0, 2, 480'000), 48'000.0, 2).isEmpty(),
+             "continuity source must open");
+    for (std::int64_t second = 0; second < 9; ++second)
+    {
+        const auto position = second * 48'000;
+        continuity.request (position);
+        continuity.service();
+        juce::AudioBuffer<float> continuousOutput (2, 512);
+        continuousOutput.clear();
+        require (continuity.readyAt (position, continuousOutput.getNumSamples())
+                 && continuity.render (continuousOutput, position, 1.0f),
+                 "cache lookahead must not evict the current page after one cache rotation");
+    }
+
+    continuity.setPinnedCue (100, 1'000, true);
+    continuity.request (999);
+    continuity.service();
+    juce::AudioBuffer<float> cueLoop (2, 8);
+    cueLoop.clear();
+    require (continuity.renderCue (cueLoop, 999, 100, 1'000, true, 1.0f),
+             "a callback crossing a looping cue end must render atomically");
+    require (closeEnough (cueLoop.getSample (0, 0), TestReader::valueAt (0, 999))
+             && closeEnough (cueLoop.getSample (0, 1), TestReader::valueAt (0, 100)),
+             "a looping cue must wrap inside the callback without reading outside the cue");
+    juce::AudioBuffer<float> noLoop (2, 8);
+    noLoop.clear();
+    noLoop.setSample (0, 0, 0.75f);
+    require (! continuity.renderCue (noLoop, 999, 100, 1'000, false, 1.0f)
+             && noLoop.getSample (0, 0) == 0.75f,
+             "a non-looping cue crossing must leave the complete A buffer untouched");
 
     juce::AudioBuffer<float> beyondEnd (2, 512);
     beyondEnd.clear();

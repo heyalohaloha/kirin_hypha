@@ -4,6 +4,69 @@
 
 namespace
 {
+    const juce::String runtimeTemplateRevisionId =
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+    [[maybe_unused]] juce::var makeRuntimeV3GlobalPresetCatalog (
+        const juce::String& presetId, const juce::String& revisionId)
+    {
+        auto root = new juce::DynamicObject();
+        root->setProperty ("format", "kirin_hypha_reference_global_preset_catalog");
+        root->setProperty ("version", "1.0");
+        juce::Array<juce::var> presets;
+        for (int index = 0; index < 5; ++index)
+        {
+            auto entry = new juce::DynamicObject();
+            entry->setProperty ("preset_id", "00000000-0000-4000-8000-"
+                + juce::String (100 + index).paddedLeft ('0', 12));
+            entry->setProperty ("revision_id", "00000000-0000-4000-8000-"
+                + juce::String (200 + index).paddedLeft ('0', 12));
+            entry->setProperty ("name_snapshot", "Factory " + juce::String (index + 1));
+            entry->setProperty ("origin", "factory");
+            presets.add (juce::var (entry));
+        }
+        auto user = new juce::DynamicObject();
+        user->setProperty ("preset_id", presetId);
+        user->setProperty ("revision_id", revisionId);
+        user->setProperty ("name_snapshot", "Mix Reference");
+        user->setProperty ("origin", "user");
+        presets.add (juce::var (user));
+        root->setProperty ("presets", juce::var (presets));
+        return juce::var (root);
+    }
+
+    [[maybe_unused]] juce::var stageRuntimeV3GlobalPresetCatalog (
+        const juce::File& transportRoot, const juce::String& presetId,
+        const juce::String& revisionId)
+    {
+        const auto directory = transportRoot.getChildFile ("global_preset_catalogs");
+        const auto temporary = directory.getChildFile ("catalog.pending.json");
+        require (writeJson (temporary,
+                            makeRuntimeV3GlobalPresetCatalog (presetId, revisionId)),
+                 "v3 Global Preset catalog fixture must be written");
+        const auto hash = juce::SHA256 (temporary).toHexString();
+        const auto target = directory.getChildFile (hash + ".json");
+        if (target.existsAsFile())
+        {
+            require (juce::SHA256 (target).toHexString() == hash,
+                     "existing v3 Global Preset catalog fixture must match");
+            require (temporary.deleteFile(),
+                     "duplicate v3 Global Preset catalog staging file must be removed");
+        }
+        else
+        {
+            require (temporary.moveFileTo (target),
+                     "v3 Global Preset catalog fixture must become content addressed");
+        }
+        auto receipt = new juce::DynamicObject();
+        receipt->setProperty ("relative_path",
+                              "plugin_data/reference/v2/global_preset_catalogs/"
+                                  + hash + ".json");
+        receipt->setProperty ("sha256", hash);
+        receipt->setProperty ("bytes", target.getSize());
+        return juce::var (receipt);
+    }
+
     [[maybe_unused]] juce::var makeRuntimeV2Preset (const juce::String& presetId,
                                    const juce::String& revisionId)
     {
@@ -11,6 +74,15 @@ namespace
         root->setProperty ("format", "kirin_hypha_reference_preset");
         root->setProperty ("version", "2.0");
         root->setProperty ("work_id", workId);
+        auto sourceTemplate = new juce::DynamicObject();
+        sourceTemplate->setProperty ("preset_id", presetId);
+        sourceTemplate->setProperty ("revision_id", runtimeTemplateRevisionId);
+        sourceTemplate->setProperty ("relative_path", "reference/presets/" + presetId
+                                                       + "/" + runtimeTemplateRevisionId
+                                                       + ".v1.json");
+        sourceTemplate->setProperty ("sha256", juce::String::repeatedString ("b", 64));
+        sourceTemplate->setProperty ("bytes", static_cast<juce::int64> (1024));
+        root->setProperty ("source_template_artifact", juce::var (sourceTemplate));
         auto sourcePreset = new juce::DynamicObject();
         sourcePreset->setProperty ("preset_id", presetId);
         sourcePreset->setProperty ("revision_id", revisionId);
@@ -73,7 +145,7 @@ namespace
     {
         auto root = new juce::DynamicObject();
         root->setProperty ("format", "kirin_hypha_reference_manifest");
-        root->setProperty ("version", "2.0");
+        root->setProperty ("version", "3.0");
         root->setProperty ("work_id", workId);
         root->setProperty ("revision", revision);
         auto state = new juce::DynamicObject();
@@ -82,6 +154,11 @@ namespace
         state->setProperty ("sha256", stateHash);
         state->setProperty ("bytes", static_cast<juce::int64> (2048));
         root->setProperty ("source_state_artifact", juce::var (state));
+        const auto transportRoot = presetFile.getParentDirectory().getParentDirectory()
+                                         .getParentDirectory();
+        root->setProperty ("global_preset_catalog_artifact",
+                           stageRuntimeV3GlobalPresetCatalog (
+                               transportRoot, presetId, runtimeTemplateRevisionId));
         auto active = new juce::DynamicObject();
         active->setProperty ("preset_id", presetId);
         active->setProperty ("revision_id", revisionId);

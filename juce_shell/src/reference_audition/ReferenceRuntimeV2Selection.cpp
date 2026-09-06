@@ -55,90 +55,6 @@ namespace hypha::reference_audition
         }
     }
 
-    bool RuntimeV2Controller::requestSelection (const juce::String& kind,
-                                                const juce::String& id)
-    {
-        if (id.isEmpty())
-            return false;
-        {
-            const juce::ScopedLock lock (stateLock);
-            if (kind == "preset") requestedSelection.presetId = id;
-            else if (kind == "check") requestedSelection.checkId = id;
-            else if (kind == "candidate") requestedSelection.candidateId = id;
-            else if (kind == "cue") requestedSelection.cueId = id;
-            else return false;
-            ++requestedSelection.generation;
-            requestedSelection.sampleRateApprovalKey.clear();
-        }
-        selectA();
-        notify();
-        return true;
-    }
-
-    bool RuntimeV2Controller::selectPreset (const juce::String& id)
-    {
-        return requestSelection ("preset", id);
-    }
-
-    bool RuntimeV2Controller::selectCheck (const juce::String& id)
-    {
-        return requestSelection ("check", id);
-    }
-
-    bool RuntimeV2Controller::selectCandidate (const juce::String& id)
-    {
-        return requestSelection ("candidate", id);
-    }
-
-    bool RuntimeV2Controller::selectCue (const juce::String& id)
-    {
-        return requestSelection ("cue", id);
-    }
-
-    bool RuntimeV2Controller::approveSampleRateConversion()
-    {
-        const juce::ScopedLock lock (stateLock);
-        if (pendingApprovalKey.isEmpty())
-            return false;
-        requestedSelection.sampleRateApprovalKey = pendingApprovalKey;
-        ++requestedSelection.generation;
-        notify();
-        return true;
-    }
-
-    bool RuntimeV2Controller::requestRecovery()
-    {
-        RecoveryAuthority authority;
-        RecoveryContext context;
-        RecoveryDestination destination = RecoveryDestination::reference;
-        {
-            const juce::ScopedLock lock (stateLock);
-            if (pendingRecoveryRequest.has_value()) return true;
-            authority.runtimeInstanceId = requestedConfiguration.identity.runtimeInstanceId;
-            authority.hostProcessId = requestedConfiguration.identity.hostProcessId;
-            authority.workId = requestedConfiguration.identity.workId;
-            context = { currentSnapshot.presetId, currentSnapshot.checkId,
-                        currentSnapshot.candidateId };
-            if (currentSnapshot.rejectionCode.contains ("source"))
-                destination = RecoveryDestination::candidateSource;
-            else if (! currentSnapshot.measurementAvailable
-                     && ! currentSnapshot.viewBindings.empty()
-                     && currentSnapshot.candidateId.isNotEmpty())
-                destination = RecoveryDestination::candidateMeasurement;
-        }
-        const auto request = recoveryTransport.writeRequest (
-            authority, destination, context, juce::Time::currentTimeMillis());
-        if (! request) return false;
-        {
-            const juce::ScopedLock lock (stateLock);
-            pendingRecoveryRequest = request;
-            currentSnapshot.recoveryStatus = "pending";
-            recoveryStatusExpiresAtMs = 0;
-        }
-        notify();
-        return true;
-    }
-
     void RuntimeV2Controller::observeTransport (std::int64_t hostPosition,
                                                 bool positionValid,
                                                 bool playing) noexcept
@@ -232,8 +148,10 @@ namespace hypha::reference_audition
         std::shared_ptr<const RuntimeSource> source;
         {
             const juce::ScopedLock lock (stateLock);
+            if (! ready.load (std::memory_order_acquire))
+                return false;
             comparisonMode = currentSnapshot.comparisonMode;
-            source = activeSource;
+            source = publishedSource;
         }
         if (source == nullptr)
             return false;
@@ -280,9 +198,17 @@ namespace hypha::reference_audition
                     -1.0,
                     std::isfinite (aMaximumTruePeakDbtp) ? aMaximumTruePeakDbtp : -1.0,
                     *source->measurementSummary->maximumTruePeakDbtp);
-                appliedGain = juce::jmax (0.0, juce::jmin (
-                    requiredGain,
-                    ceiling - *source->measurementSummary->maximumTruePeakDbtp));
+                const auto availableGain = juce::jmax (
+                    0.0,
+                    ceiling - *source->measurementSummary->maximumTruePeakDbtp);
+                if (availableGain + 1.0e-9 < requiredGain)
+                {
+                    // Normal A/B never applies a partial match. Keep A unchanged and
+                    // play B at its original level; Blind owns the explicit lower-A
+                    // approval flow when an exact comparison needs more headroom.
+                    appliedGain = 0.0;
+                    fallbackOriginal = true;
+                }
             }
             limited = appliedGain + 1.0e-9 < requiredGain;
         }
@@ -322,9 +248,21 @@ namespace hypha::reference_audition
             return false;
         const auto sourcePosition = mappedSourcePosition (latestHostPosition.load());
         pages.request (sourcePosition);
-        if (! pages.readyAt (sourcePosition, 1) || (selectionGate && ! selectionGate (true)))
+        if (! pages.readyAt (sourcePosition, 1)
+            || (selectionGate && ! selectionGate (true)))
             return false;
+        if (! ready.load (std::memory_order_acquire))
+        {
+            if (selectionGate) selectionGate (false);
+            return false;
+        }
         bSelected.store (true, std::memory_order_release);
+        if (! ready.load (std::memory_order_acquire))
+        {
+            bSelected.store (false, std::memory_order_release);
+            if (selectionGate) selectionGate (false);
+            return false;
+        }
         return true;
     }
 
@@ -365,10 +303,16 @@ namespace hypha::reference_audition
                                           double aMaximumTruePeakDbtp) noexcept
     {
         juce::ignoreUnused (aMaximumTruePeakDbtp);
-        if (! latestPlaying.load (std::memory_order_acquire)
+        if (! ready.load (std::memory_order_acquire)
+            || ! latestPlaying.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire)
             || blind.ongoing() || ! blind.start())
             return false;
+        if (! ready.load (std::memory_order_acquire))
+        {
+            blind.end();
+            return false;
+        }
         if (selectionGate && ! selectionGate (true))
         {
             blind.end();
@@ -393,10 +337,16 @@ namespace hypha::reference_audition
         double aIntegratedLoudness, double aMaximumTruePeakDbtp) noexcept
     {
         juce::ignoreUnused (aMaximumTruePeakDbtp);
-        if (! latestPlaying.load (std::memory_order_acquire)
+        if (! ready.load (std::memory_order_acquire)
+            || ! latestPlaying.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire)
             || blind.ongoing() || ! blind.start (true))
             return false;
+        if (! ready.load (std::memory_order_acquire))
+        {
+            blind.end();
+            return false;
+        }
         if (selectionGate && ! selectionGate (true))
         {
             blind.end();
@@ -463,11 +413,11 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::failClosedToA() noexcept
     {
+        ready.store (false, std::memory_order_release);
         if (blind.ongoing())
             invalidateBlind();
         else
             selectA();
-        ready.store (false, std::memory_order_release);
     }
 
     void RuntimeV2Controller::invalidateBlindFromAudioThread() noexcept

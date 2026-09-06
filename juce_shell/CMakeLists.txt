@@ -46,6 +46,12 @@ endif()
 set(KIRIN_FFI_LIB "${_KIRIN_FFI_DEFAULT}"
     CACHE FILEPATH "Path to the kirin_hypha_ffi staticlib (.a on macOS/Linux, .lib on Windows/MSVC)")
 
+# AAX is disabled unless a separately licensed SDK is supplied from outside this repository.
+# The gate runs before format selection so a rejected configuration cannot create a partial AAX
+# target. JUCE's SDK registration function is called below after JUCE has defined it.
+include(cmake/KirinHyphaAax.cmake)
+kirin_hypha_configure_aax(KIRIN_HYPHA_AAX_ENABLED)
+
 # B-376: The C ABI symbol name does not encode its argument list, so an old staticlib can link
 # successfully against a newer header and fail only at runtime. For the default local path on every
 # platform, always ask Cargo to refresh the release staticlib before JUCE compiles or links. Cargo's
@@ -76,6 +82,9 @@ elseif(WIN32)
 else()
     set(KIRIN_PLUGIN_FORMATS VST3)
 endif()
+if(KIRIN_HYPHA_AAX_ENABLED)
+    list(APPEND KIRIN_PLUGIN_FORMATS AAX)
+endif()
 
 if(MSVC)
     set(KIRIN_FORCE_INCLUDE_ARGS "/FI${CMAKE_CURRENT_LIST_DIR}/src/KirinJucePluginConfig.h")
@@ -96,6 +105,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # JUCE 7.0.12 (GPLv3 option), pinned as submodule. Does not touch crates/ or xtask.
 add_subdirectory(JUCE)
+if(KIRIN_HYPHA_AAX_ENABLED)
+    juce_set_aax_sdk_path("${KIRIN_HYPHA_AAX_SDK_PATH}")
+endif()
 
 # B-054: embed the mycelium background PNG (the same GPLv3 asset egui uses:
 # crates/hypha_gui/assets/bg_mycelium.png, 300×200, brightness ~15%) as BinaryData so the
@@ -142,23 +154,31 @@ target_compile_definitions(KirinHyphaData INTERFACE
 set(KIRIN_HYPHA_WIDGETS_SOURCE src/HyphaWidgets.cpp)
 set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceAudioPages.cpp
+    src/reference_audition/ReferenceAudioPageRender.cpp
     src/reference_audition/ReferenceBlindSession.cpp
     src/reference_audition/ReferenceAuditionController.cpp
+    src/reference_audition/ReferenceAuditionGain.cpp
     src/reference_audition/ReferenceAuditionLease.cpp
     src/reference_audition/ReferenceAuditionProtocol.cpp
     src/reference_audition/ReferenceAuditionRepository.cpp
+    src/reference_audition/ReferencePresetAdoptionTransport.cpp
+    src/reference_audition/ReferencePresetSelectionTransport.cpp
     src/reference_audition/ReferenceRecoveryTransport.cpp
     src/reference_audition/ReferenceRuntimeEventTransport.cpp
     src/reference_audition/ReferenceRuntimeABinding.cpp
     src/reference_audition/ReferenceRuntimeACapture.cpp
     src/reference_audition/ReferenceRuntimeV2Repository.cpp
+    src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
+    src/reference_audition/ReferenceRuntimeV2Commands.cpp
+    src/reference_audition/ReferenceRuntimeV2Workspace.cpp
     src/reference_audition/ReferenceRuntimeV2Lifecycle.cpp
     src/reference_audition/ReferenceRuntimeV2Events.cpp
     src/reference_audition/ReferenceRuntimeV2Selection.cpp
     src/reference_audition/ReferenceRuntimeV2Realtime.cpp
     src/reference_audition/ReferenceRuntimeV2Alignment.cpp
     src/reference_audition/ReferenceRuntimeV2Blind.cpp
+    src/reference_audition/ReferenceRuntimeV2BlindLifecycle.cpp
     src/reference_audition/ReferenceRuntimeV2BlindRealtime.cpp
     src/reference_audition/ReferenceRuntimeV2BlindState.cpp
     src/reference_audition/ReferenceRuntimeV2Measurement.cpp
@@ -174,6 +194,15 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
 # matching the published v1.0.0 — set explicitly so it is not the JUCE default com.<company>.<target>.
 # AU identity (PLUGIN_MANUFACTURER_CODE Kirn / PLUGIN_CODE Khpr|Khpo / AU_MAIN_TYPE aufx) is unchanged.
 function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
+    set(_KIRIN_AAX_PLUGIN_ARGS)
+    if(KIRIN_HYPHA_AAX_ENABLED)
+        # Keep the established PRE/POST bundle IDs as the AAX identifiers. None is JUCE's default
+        # non-synth category; confirm the final category in Pro Tools before public AAX release.
+        list(APPEND _KIRIN_AAX_PLUGIN_ARGS
+            AAX_IDENTIFIER ${BUNDLE_ID}
+            AAX_CATEGORY ePlugInCategory_None)
+    endif()
+
     juce_add_plugin(${TARGET}
         PLUGIN_MANUFACTURER_CODE Kirn          # newly assigned (>=1 uppercase)
         PLUGIN_CODE ${CODE}                    # Khpr (PRE) / Khpo (POST); exactly 1 uppercase
@@ -184,6 +213,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         BUNDLE_ID ${BUNDLE_ID}                 # B-094: canonical com.kirinmastering.hypha.{pre,post}
         AU_MAIN_TYPE kAudioUnitType_Effect
         VST3_CATEGORIES Fx Analyzer
+        ${_KIRIN_AAX_PLUGIN_ARGS}
         IS_SYNTH FALSE
         NEEDS_MIDI_INPUT FALSE
         NEEDS_MIDI_OUTPUT FALSE
@@ -380,6 +410,53 @@ endif()
 option(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS
     "Build the native-font and fixed-geometry UI render contract test" OFF)
 include(cmake/LocalBlind.cmake)
+option(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER
+    "Build the display-only Reference preview renderer used by Kirin OS" ON)
+if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
+    enable_testing()
+    juce_add_console_app(KirinHyphaReferencePreviewRenderer
+        PRODUCT_NAME "Kirin Hypha Reference Preview Renderer")
+    target_sources(KirinHyphaReferencePreviewRenderer PRIVATE
+        tools/ReferencePreviewRenderer.cpp
+        src/HyphaCaptureHistoryAnalysis.cpp
+        src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceVisuals.cpp
+        src/HyphaObservatoryButton.cpp
+        src/HyphaObservatoryFrame.cpp
+        src/HyphaObservatoryHistoryInteraction.cpp
+        src/HyphaObservatoryLevelStrips.cpp
+        src/HyphaObservatoryMetrics.cpp
+        src/HyphaObservatoryView.cpp
+        src/HyphaObservatoryViewLayout.cpp
+        src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryViewState.cpp
+        src/HyphaObservatoryWorld.cpp
+        src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryPainter.cpp
+        src/HyphaRunSummary.cpp
+        src/HyphaTypography.cpp
+        ${KIRIN_HYPHA_WIDGETS_SOURCE})
+    target_compile_definitions(KirinHyphaReferencePreviewRenderer PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_compile_options(KirinHyphaReferencePreviewRenderer PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_include_directories(KirinHyphaReferencePreviewRenderer PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
+    target_link_libraries(KirinHyphaReferencePreviewRenderer PRIVATE
+        KirinHyphaData
+        juce::juce_gui_basics
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_hypha_reference_preview_renderer
+        COMMAND KirinHyphaReferencePreviewRenderer
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/reference_preview_request.v1.json
+            ${CMAKE_CURRENT_BINARY_DIR}/reference_preview_contract.png)
+    set_tests_properties(kirin_hypha_reference_preview_renderer PROPERTIES
+        PASS_REGULAR_EXPRESSION "renderer_version")
+endif()
 if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     enable_testing()
     juce_add_console_app(KirinUiRenderContractTests
@@ -614,8 +691,10 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
     target_sources(KirinReferenceAudioPagesTests PRIVATE
         tests/reference_audio_pages_test.cpp
         src/reference_audition/ReferenceAudioPages.cpp
+        src/reference_audition/ReferenceAudioPageRender.cpp
         src/reference_audition/ReferenceAuditionProtocol.cpp)
     target_compile_definitions(KirinReferenceAudioPagesTests PRIVATE
+        KIRIN_REFERENCE_AUDIO_PAGES_TEST_HOOK=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0)
     target_compile_options(KirinReferenceAudioPagesTests PRIVATE

@@ -13,7 +13,10 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::applyConfiguration (const Configuration& configuration)
     {
-        selectA();
+        if (blind.ongoing())
+            invalidateBlind();
+        else
+            selectA();
         removeRuntimeFiles (activeRuntimeFiles);
         activeRuntimeFiles = {};
         ready.store (false, std::memory_order_release);
@@ -21,11 +24,12 @@ namespace hypha::reference_audition
         aCapture.disconnect();
         workspace.reset();
         activeABinding.reset();
-        activeSource.reset();
         activeSourceArtifactSha256.clear();
         activeSourceKey.clear();
         activeMappingKey.clear();
         activeContentMappingKey.clear();
+        activePublishedSelectionKey.clear();
+        workerSource.reset();
         mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
         cueStart.store (0, std::memory_order_relaxed);
         cueEnd.store (0, std::memory_order_relaxed);
@@ -34,21 +38,30 @@ namespace hypha::reference_audition
         bHostAnchor.store (0, std::memory_order_relaxed);
         bSourceAnchor.store (0, std::memory_order_relaxed);
         mappingGeneration.fetch_add (1, std::memory_order_release);
-        pendingApprovalKey.clear();
         blindContextKey.clear();
         blindPreparationKey.clear();
+        activePresetAdoptionKey.clear();
         blind.clear();
         {
             const juce::ScopedLock lock (stateLock);
+            publishedSource.reset();
+            pendingApprovalKey.clear();
             auditionEventSessions.clear();
             blindEventSession.reset();
             pendingRecoveryRequest.reset();
+            if (pendingPresetSelectionRequest)
+                presetSelectionTransport.removeExchange (*pendingPresetSelectionRequest);
+            pendingPresetSelectionRequest.reset();
+            pendingPresetSelectionTarget.reset();
+            failedPresetSelectionTarget.reset();
             activeEventContext = {};
             activeEventCandidate = {};
             activeEventCue = {};
             activeEventSource.reset();
             currentSnapshot.recoveryStatus.clear();
             recoveryStatusExpiresAtMs = 0;
+            presetSelectionWaitingSinceMs = 0;
+            presetSelectionStatusExpiresAtMs = 0;
         }
         appliedConfigurationGeneration = configuration.generation;
         appliedSelectionGeneration = 0;
@@ -95,6 +108,7 @@ namespace hypha::reference_audition
             serviceDeferredAudioThreadActions();
             serviceRuntimeEvents();
             serviceRecoveryAcknowledgement();
+            servicePresetSelectionAcknowledgement();
             if (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0)
             {
                 refreshWorkspace (configuration, juce::Time::currentTimeMillis());

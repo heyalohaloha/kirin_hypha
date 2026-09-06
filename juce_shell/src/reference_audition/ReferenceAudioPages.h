@@ -28,10 +28,21 @@ namespace hypha::reference_audition
         void close();
 
         void request (std::int64_t sourcePosition) noexcept;
+        void setPinnedCue (std::int64_t cueStart, std::int64_t cueEnd,
+                           bool loopEnabled) noexcept;
         void service();
         bool readyAt (std::int64_t sourcePosition, int frames) const noexcept;
         bool render (juce::AudioBuffer<float>& destination,
                      std::int64_t sourcePosition, float linearGain) noexcept;
+        bool renderCue (juce::AudioBuffer<float>& destination,
+                        std::int64_t sourcePosition,
+                        std::int64_t cueStart, std::int64_t cueEnd,
+                        bool loopEnabled, float linearGain) noexcept;
+
+       #if defined(KIRIN_REFERENCE_AUDIO_PAGES_TEST_HOOK)
+        using AcquireOwnershipHook = void (*) (AudioPages&);
+        static void setAcquireOwnershipHookForTest (AcquireOwnershipHook) noexcept;
+       #endif
 
         bool sourceOpen() const noexcept { return openState.load (std::memory_order_acquire); }
         std::int64_t lengthInSamples() const noexcept
@@ -45,6 +56,7 @@ namespace hypha::reference_audition
 
     private:
         enum PageState : std::uint8_t { empty, loading, ready, inUse };
+        static constexpr size_t pageCount = 6;
 
         struct Page
         {
@@ -57,14 +69,19 @@ namespace hypha::reference_audition
         juce::String installReader (std::unique_ptr<juce::AudioFormatReader>,
                                     double hostSampleRate, int hostChannels,
                                     bool sampleRateConversionApproved);
-        bool fill (std::int64_t pageStart);
+        bool fill (std::int64_t pageStart,
+                   const std::array<std::int64_t, pageCount>& protectedStarts,
+                   size_t protectedCount, std::uint64_t generation);
         bool fillConverted (Page&, std::int64_t pageStart);
         Page* acquire (std::int64_t pageStart, std::uint64_t expectedGeneration) const noexcept;
         bool containsReady (std::int64_t pageStart, std::uint64_t expectedGeneration) const noexcept;
         void release (Page*) const noexcept;
+        bool renderRegion (juce::AudioBuffer<float>& destination,
+                           std::int64_t sourcePosition,
+                           std::int64_t regionStart, std::int64_t regionEnd,
+                           bool loopEnabled, float linearGain) noexcept;
         bool retirePages();
 
-        static constexpr size_t pageCount = 6;
         mutable std::array<Page, pageCount> pages;
         juce::AudioFormatManager formats;
         std::unique_ptr<juce::AudioFormatReader> reader;
@@ -78,5 +95,8 @@ namespace hypha::reference_audition
         double sourceSampleRate = 0.0;
         double outputSampleRate = 0.0;
         bool sampleRateConversion = false;
+        std::int64_t pinnedCueStart = 0;
+        std::int64_t pinnedCueEnd = 0;
+        bool pinnedCueLoops = false;
     };
 }

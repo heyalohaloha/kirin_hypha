@@ -128,7 +128,9 @@ namespace hypha::reference_audition
             snapshotReadersInFlight.fetch_sub (1, std::memory_order_release);
             return result;
         }
-        result.phase = publicPhase (state);
+        result.phase = attenuationHoldActive.load (std::memory_order_acquire)
+            && state != active && state != revealed
+            ? BlindPhase::invalidated : publicPhase (state);
         result.eligible = state == prepared || state == approvalRequired
                        || state == active || state == revealed;
         result.lowerAApprovalRequired = state == approvalRequired;
@@ -176,6 +178,7 @@ namespace hypha::reference_audition
     bool RuntimeV2Blind::ongoing() const noexcept
     {
         const auto state = lifecycle.load (std::memory_order_acquire);
-        return state == active || state == revealed;
+        return state == active || state == revealed
+            || attenuationHoldActive.load (std::memory_order_acquire);
     }
 }

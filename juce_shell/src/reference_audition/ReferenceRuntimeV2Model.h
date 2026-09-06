@@ -26,6 +26,19 @@ namespace hypha::reference_audition
 
     struct RuntimePresetReceipt : RuntimeSourcePresetReceipt {};
 
+    struct RuntimeGlobalPresetCatalogEntry
+    {
+        juce::String presetId;
+        juce::String revisionId;
+        juce::String nameSnapshot;
+        juce::String origin;
+    };
+
+    struct RuntimeGlobalPresetCatalog
+    {
+        std::vector<RuntimeGlobalPresetCatalogEntry> presets;
+    };
+
     struct RuntimeCue
     {
         juce::String cueId;
@@ -70,6 +83,7 @@ namespace hypha::reference_audition
     struct RuntimePreset
     {
         juce::String workId;
+        RuntimeSourcePresetReceipt sourceTemplateArtifact;
         RuntimeSourcePresetReceipt sourcePresetArtifact;
         juce::String name;
         std::vector<RuntimeCheck> checks;
@@ -80,6 +94,7 @@ namespace hypha::reference_audition
         juce::String workId;
         std::int64_t revision = 0;
         RuntimeContentReceipt sourceStateArtifact;
+        RuntimeContentReceipt globalPresetCatalogArtifact;
         juce::String activePresetId;
         juce::String activePresetRevisionId;
         std::vector<RuntimePresetReceipt> presetArtifacts;
@@ -88,6 +103,7 @@ namespace hypha::reference_audition
     struct RuntimeWorkspace
     {
         RuntimeManifest manifest;
+        RuntimeGlobalPresetCatalog globalPresetCatalog;
         std::vector<RuntimePreset> presets;
     };
 

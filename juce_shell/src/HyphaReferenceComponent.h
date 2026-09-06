@@ -95,6 +95,7 @@ struct State
     bool sampleRateApprovalRequired = false;
     std::int64_t sourceSampleRateHz = 0;
     std::int64_t hostSampleRateHz = 0;
+    juce::String presetSelectionAction;
     juce::String actionText;
 };
 

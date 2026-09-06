@@ -81,6 +81,13 @@ reference_ui::State readyState()
 
 void verifyReferenceAuditionComponentContract()
 {
+    KIRIN_REF_REQUIRE (! requiresNativeTextFont ("Mix Reference"));
+    KIRIN_REF_REQUIRE (requiresNativeTextFont (juce::String::fromUTF8 ("全工程｜基本5項目")));
+    KIRIN_REF_REQUIRE (displayTextFont (juce::String::fromUTF8 ("低域"), 13.0f)
+                           .getTypefaceName()
+                       != labelFont (13.0f).getTypefaceName()
+                       || ! usingKimeraTypography());
+
     auto state = readyState();
     KIRIN_REF_REQUIRE (reference_ui::canSelectB (state));
     KIRIN_REF_REQUIRE (reference_ui::canStartBlind (state));

@@ -1,5 +1,6 @@
 #include "HyphaReferenceComponent.h"
 
+#include "HyphaReferenceSelectorLookAndFeel.h"
 #include "HyphaReferenceVisuals.h"
 #include "HyphaTheme.h"
 
@@ -99,6 +100,7 @@ void configureSelector (juce::ComboBox& box, const juce::String& componentId,
     box.setColour (juce::ComboBox::textColourId, COL_NORMAL);
     box.setColour (juce::ComboBox::arrowColourId, COL_FLORA.withAlpha (0.84f));
 }
+
 }
 
 Component::SideButton::SideButton (const juce::String& text) : juce::TextButton (text)
@@ -126,6 +128,10 @@ void Component::SideButton::paintButton (juce::Graphics& g, bool highlighted, bo
 Component::Component()
 {
     setOpaque (false);
+    presetBox.setLookAndFeel (&referenceSelectorLookAndFeel());
+    checkBox.setLookAndFeel (&referenceSelectorLookAndFeel());
+    candidateBox.setLookAndFeel (&referenceSelectorLookAndFeel());
+    cueBox.setLookAndFeel (&referenceSelectorLookAndFeel());
     configureSelector (presetBox, "reference-preset", "Choose a Kirin OS Reference Preset.");
     configureSelector (checkBox, "reference-check", "Choose what you want to check.");
     configureSelector (candidateBox, "reference-candidate", "Choose the comparison track.");
@@ -424,8 +430,9 @@ void Component::paint (juce::Graphics& g)
     g.drawFittedText ("REFERENCE / " + source, header.removeFromTop (14),
                       juce::Justification::centredLeft, 1, 0.72f);
     g.setColour (COL_OBSERVATORY_VALUE);
-    g.setFont (labelFont (detailedLayout() ? 16.0f : 12.0f));
-    g.drawFittedText (current.title.isNotEmpty() ? current.title : "REFERENCE",
+    const auto title = current.title.isNotEmpty() ? current.title : juce::String { "REFERENCE" };
+    g.setFont (displayTextFont (title, detailedLayout() ? 16.0f : 12.0f));
+    g.drawFittedText (title,
                       header, juce::Justification::centredLeft, 1, 0.68f);
 
     area.removeFromTop (4);
@@ -465,7 +472,9 @@ void Component::paint (juce::Graphics& g)
         if (current.bSelected && std::isfinite (current.appliedGainDb))
         {
             const auto gain = "B GAIN " + fmtDelta (current.appliedGainDb) + " dB  /  "
-                + (current.comparisonFallbackOriginal ? "ORIGINAL / FACT UNAVAILABLE"
+                + (current.comparisonFallbackOriginal
+                       ? (current.gainLimited ? "ORIGINAL / MATCH UNAVAILABLE"
+                                              : "ORIGINAL / FACT UNAVAILABLE")
                    : current.gainLimited ? "MATCH LIMITED" : "MATCH APPLIED")
                 + "  /  NO LIMITER / SOURCE PEAK CEILING";
             g.setColour ((current.gainLimited ? COL_FLORA_BR : COL_MUTED).withAlpha (0.9f));

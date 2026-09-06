@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Repository.h"
+#include "ReferenceRuntimeV2PresetParsing.h"
 
 #include <limits>
 #include <regex>
@@ -12,6 +13,7 @@ namespace hypha::reference_audition
     namespace
     {
         constexpr std::int64_t maximumManifestBytes = 64 * 1024;
+        constexpr std::int64_t maximumGlobalPresetCatalogBytes = 64 * 1024;
         constexpr std::int64_t maximumPresetBytes = 2 * 1024 * 1024;
         constexpr std::int64_t maximumSourceStateBytes = 1024 * 1024;
         constexpr std::int64_t maximumSourcePresetBytes = 8 * 1024 * 1024;
@@ -117,55 +119,15 @@ namespace hypha::reference_audition
             return true;
         }
 
-        bool parseSourcePresetReceipt (const juce::var& value,
-                                       RuntimeSourcePresetReceipt& result)
-        {
-            const auto* object = value.getDynamicObject();
-            if (object == nullptr || ! exactProperties (*object, {
-                    "preset_id", "revision_id", "relative_path", "sha256", "bytes" })
-                || ! exactString (object->getProperty ("preset_id"), result.presetId)
-                || ! exactString (object->getProperty ("revision_id"), result.revisionId)
-                || ! exactString (object->getProperty ("relative_path"), result.relativePath)
-                || ! exactString (object->getProperty ("sha256"), result.sha256)
-                || ! uuidV4 (result.presetId) || ! uuidV4 (result.revisionId)
-                || ! sha256 (result.sha256)
-                || result.relativePath != "reference/presets/" + result.presetId + "/"
-                                             + result.revisionId + ".v1.json"
-                || ! exactInteger (object->getProperty ("bytes"), 1,
-                                   maximumSourcePresetBytes, result.bytes))
-                return false;
-            return true;
-        }
-
-        bool parsePresetReceipt (const juce::var& value, const juce::String& workId,
-                                 RuntimePresetReceipt& result)
-        {
-            const auto* object = value.getDynamicObject();
-            if (object == nullptr || ! exactProperties (*object, {
-                    "preset_id", "revision_id", "relative_path", "sha256", "bytes" })
-                || ! exactString (object->getProperty ("preset_id"), result.presetId)
-                || ! exactString (object->getProperty ("revision_id"), result.revisionId)
-                || ! exactString (object->getProperty ("relative_path"), result.relativePath)
-                || ! exactString (object->getProperty ("sha256"), result.sha256)
-                || ! uuidV4 (result.presetId) || ! uuidV4 (result.revisionId)
-                || ! sha256 (result.sha256)
-                || result.relativePath != "plugin_data/reference/v2/presets/" + workId
-                                              + "/" + result.presetId + ".json"
-                || ! exactInteger (object->getProperty ("bytes"), 1,
-                                   maximumPresetBytes, result.bytes))
-                return false;
-            return true;
-        }
-
         bool parseManifest (const juce::var& value, const juce::String& expectedWorkId,
                             RuntimeManifest& result)
         {
             const auto* object = value.getDynamicObject();
             if (object == nullptr || ! exactProperties (*object, {
                     "format", "version", "work_id", "revision", "source_state_artifact",
-                    "active_preset", "preset_artifacts" })
+                    "global_preset_catalog_artifact", "active_preset", "preset_artifacts" })
                 || object->getProperty ("format") != "kirin_hypha_reference_manifest"
-                || object->getProperty ("version") != "2.0"
+                || object->getProperty ("version") != "3.0"
                 || ! exactString (object->getProperty ("work_id"), result.workId)
                 || ! workUuid (result.workId) || result.workId != expectedWorkId
                 || ! exactInteger (object->getProperty ("revision"), 1,
@@ -182,6 +144,11 @@ namespace hypha::reference_audition
                 || ! exactInteger (stateObject->getProperty ("bytes"), 1,
                                    maximumSourceStateBytes, result.sourceStateArtifact.bytes))
                 return false;
+            if (! parseContentReceipt (
+                    object->getProperty ("global_preset_catalog_artifact"),
+                    "global_preset_catalogs", maximumGlobalPresetCatalogBytes,
+                    result.globalPresetCatalogArtifact))
+                return false;
 
             const auto* presets = object->getProperty ("preset_artifacts").getArray();
             if (presets == nullptr || presets->size() > 128)
@@ -190,7 +157,7 @@ namespace hypha::reference_audition
             for (const auto& item : *presets)
             {
                 RuntimePresetReceipt receipt;
-                if (! parsePresetReceipt (item, result.workId, receipt)
+                if (! runtime_v2_parsing::parsePresetReceipt (item, result.workId, receipt)
                     || ! presetIds.emplace (receipt.presetId.toStdString()).second
                     || ! revisionIds.emplace (receipt.revisionId.toStdString()).second
                     || ! paths.emplace (receipt.relativePath.toStdString()).second)
@@ -385,13 +352,22 @@ namespace hypha::reference_audition
         {
             const auto* object = value.getDynamicObject();
             if (object == nullptr || ! exactProperties (*object, {
-                    "format", "version", "work_id", "source_preset_artifact", "name", "checks" })
+                    "format", "version", "work_id", "source_template_artifact",
+                    "source_preset_artifact", "name", "checks" })
                 || object->getProperty ("format") != "kirin_hypha_reference_preset"
                 || object->getProperty ("version") != "2.0"
                 || ! exactString (object->getProperty ("work_id"), result.workId)
                 || result.workId != workId
-                || ! parseSourcePresetReceipt (object->getProperty ("source_preset_artifact"),
-                                              result.sourcePresetArtifact)
+                || ! runtime_v2_parsing::parseSourcePresetReceipt (
+                    object->getProperty ("source_template_artifact"),
+                    result.sourceTemplateArtifact)
+                || ! runtime_v2_parsing::parseSourcePresetReceipt (
+                    object->getProperty ("source_preset_artifact"),
+                    result.sourcePresetArtifact)
+                || result.sourceTemplateArtifact.presetId
+                       != result.sourcePresetArtifact.presetId
+                || result.sourceTemplateArtifact.revisionId
+                       == result.sourcePresetArtifact.revisionId
                 || result.sourcePresetArtifact.presetId != expected.presetId
                 || result.sourcePresetArtifact.revisionId != expected.revisionId
                 || ! displayText (object->getProperty ("name"), 80, result.name))
@@ -473,6 +449,21 @@ namespace hypha::reference_audition
 
         auto workspace = std::make_shared<RuntimeWorkspace>();
         workspace->manifest = manifest;
+        const auto catalogFile = root.getChildFile ("global_preset_catalogs")
+                                   .getChildFile (
+                                       manifest.globalPresetCatalogArtifact.sha256 + ".json");
+        juce::MemoryBlock catalogBytes;
+        juce::var catalogJson;
+        if (! readJson (catalogFile, maximumGlobalPresetCatalogBytes,
+                        catalogBytes, catalogJson)
+            || catalogBytes.getSize()
+                   != static_cast<size_t> (manifest.globalPresetCatalogArtifact.bytes)
+            || juce::SHA256 (catalogBytes).toHexString()
+                   != manifest.globalPresetCatalogArtifact.sha256
+            || ! runtime_v2_parsing::parseGlobalPresetCatalog (
+                    catalogJson, workspace->globalPresetCatalog))
+            return failure ("reference_global_preset_catalog_rejected",
+                            std::move (previous));
         for (const auto& receipt : manifest.presetArtifacts)
         {
             const auto file = root.getChildFile ("presets").getChildFile (workId)

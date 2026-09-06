@@ -4,6 +4,7 @@
 #include "../src/reference_audition/ReferenceAuditionController.h"
 #include "../src/reference_audition/ReferenceAuditionProtocol.h"
 #include "../src/reference_audition/ReferenceAuditionRepository.h"
+#include "../src/reference_audition/ReferencePresetSelectionTransport.h"
 #include "../src/reference_audition/ReferenceRecoveryTransport.h"
 #include "../src/reference_audition/ReferenceRuntimeEventTransport.h"
 #include "../src/reference_audition/ReferenceRuntimeABinding.h"

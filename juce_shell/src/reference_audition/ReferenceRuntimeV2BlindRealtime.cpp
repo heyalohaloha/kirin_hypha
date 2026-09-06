@@ -70,6 +70,11 @@ namespace hypha::reference_audition
             callbacksInFlight.fetch_sub (1, std::memory_order_release);
             return false;
         }
+        if (aGainDb < 0.0)
+        {
+            heldALinearGain.store (linearGain (aGainDb), std::memory_order_relaxed);
+            attenuationHoldActive.store (true, std::memory_order_release);
+        }
         for (int frame = 0; frame < buffer.getNumSamples(); ++frame)
         {
             const auto sourceFrame = (offset + frame) % frameCount;
@@ -99,21 +104,15 @@ namespace hypha::reference_audition
                                              bool auditionAllowed) noexcept
     {
         if (! auditionAllowed
-            || lifecycle.load (std::memory_order_acquire) != invalidated)
+            || ! attenuationHoldActive.load (std::memory_order_acquire))
             return false;
         callbacksInFlight.fetch_add (1, std::memory_order_acq_rel);
-        if (lifecycle.load (std::memory_order_acquire) != invalidated)
+        if (! attenuationHoldActive.load (std::memory_order_acquire))
         {
             callbacksInFlight.fetch_sub (1, std::memory_order_release);
             return false;
         }
-        const auto gainDb = aGainDb;
-        if (gainDb >= 0.0)
-        {
-            callbacksInFlight.fetch_sub (1, std::memory_order_release);
-            return false;
-        }
-        buffer.applyGain (linearGain (gainDb));
+        buffer.applyGain (heldALinearGain.load (std::memory_order_acquire));
         callbacksInFlight.fetch_sub (1, std::memory_order_release);
         return true;
     }

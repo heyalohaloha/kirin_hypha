@@ -146,6 +146,8 @@ namespace hypha::reference_audition
         std::atomic<int> lifecycle { unavailable };
         std::atomic<int> callbacksInFlight { 0 };
         mutable std::atomic<int> snapshotReadersInFlight { 0 };
+        std::atomic<bool> attenuationHoldActive { false };
+        std::atomic<float> heldALinearGain { 1.0f };
         std::atomic<bool> stimulusOneIsB { false };
         std::atomic<int> requestedStimulus { 0 };
         std::atomic<int> activeStimulus { 0 };

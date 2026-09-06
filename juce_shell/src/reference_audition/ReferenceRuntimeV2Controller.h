@@ -6,6 +6,8 @@
 
 #include "ReferenceAuditionController.h"
 #include "ReferenceAudioPages.h"
+#include "ReferencePresetAdoptionTransport.h"
+#include "ReferencePresetSelectionTransport.h"
 #include "ReferenceRecoveryTransport.h"
 #include "ReferenceRuntimeV2Alignment.h"
 #include "ReferenceRuntimeV2Blind.h"
@@ -34,6 +36,7 @@ namespace hypha::reference_audition
         bool selectCheck (const juce::String&);
         bool selectCandidate (const juce::String&);
         bool selectCue (const juce::String&);
+        bool retryPresetSelection();
         bool approveSampleRateConversion();
         bool requestRecovery();
 
@@ -105,6 +108,9 @@ namespace hypha::reference_audition
         void applyConfiguration (const Configuration&);
         void refreshWorkspace (const Configuration&, std::int64_t nowMs);
         void publish (Snapshot);
+        void publishReady (Snapshot, std::shared_ptr<const RuntimeSource>);
+        void publishApprovalRequired (Snapshot, const juce::String& approvalKey);
+        void publishLocked (Snapshot);
         bool requestSelection (const juce::String& kind, const juce::String& id);
         std::int64_t mappedSourcePosition (std::int64_t hostPosition) const noexcept;
         bool prepareReferenceGain (double aIntegratedLoudness,
@@ -116,6 +122,7 @@ namespace hypha::reference_audition
         void completeBlindEventSession (const RuntimeV2BlindSnapshot&) noexcept;
         void serviceRuntimeEvents();
         void serviceRecoveryAcknowledgement();
+        void servicePresetSelectionAcknowledgement();
         void serviceDeferredAudioThreadActions();
         void failClosedToA() noexcept;
         void invalidateBlind() noexcept;
@@ -133,6 +140,8 @@ namespace hypha::reference_audition
         RuntimeV2ProfileRepository profileRepository;
         RuntimeV2PresentationRepository presentationRepository;
         RecoveryTransport recoveryTransport;
+        PresetSelectionTransport presetSelectionTransport;
+        PresetAdoptionTransport presetAdoptionTransport;
         RuntimeEventTransport eventTransport;
         AudioPages pages;
         RuntimeV2Blind blind;
@@ -144,14 +153,17 @@ namespace hypha::reference_audition
         std::shared_ptr<const RuntimeWorkspace> workspace;
         std::optional<RuntimeABinding> activeABinding;
         RuntimeFiles activeRuntimeFiles;
-        std::shared_ptr<const RuntimeSource> activeSource;
+        std::shared_ptr<const RuntimeSource> workerSource;
+        std::shared_ptr<const RuntimeSource> publishedSource;
         juce::String activeSourceArtifactSha256;
         juce::String activeSourceKey;
         juce::String activeMappingKey;
         juce::String activeContentMappingKey;
+        juce::String activePublishedSelectionKey;
         juce::String pendingApprovalKey;
         juce::String blindContextKey;
         juce::String blindPreparationKey;
+        juce::String activePresetAdoptionKey;
         Snapshot currentSnapshot;
         RuntimeEventContext activeEventContext;
         RuntimeCandidate activeEventCandidate;
@@ -160,7 +172,12 @@ namespace hypha::reference_audition
         std::deque<AuditionEventSession> auditionEventSessions;
         std::optional<BlindEventSession> blindEventSession;
         std::optional<RecoveryRequest> pendingRecoveryRequest;
+        std::optional<PresetSelectionRequest> pendingPresetSelectionRequest;
+        std::optional<RuntimeGlobalPresetCatalogEntry> pendingPresetSelectionTarget;
+        std::optional<RuntimeGlobalPresetCatalogEntry> failedPresetSelectionTarget;
         std::int64_t recoveryStatusExpiresAtMs = 0;
+        std::int64_t presetSelectionWaitingSinceMs = 0;
+        std::int64_t presetSelectionStatusExpiresAtMs = 0;
         std::atomic<bool> ready { false };
         std::atomic<bool> bSelected { false };
         std::atomic<float> bLinearGain { 1.0f };

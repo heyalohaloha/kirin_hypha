@@ -28,6 +28,8 @@ namespace hypha::reference_audition
     {
         juce::String id;
         juce::String label;
+        juce::String revisionId;
+        bool requiresPreparation = false;
     };
 
     struct Snapshot
@@ -88,6 +90,10 @@ namespace hypha::reference_audition
         juce::String aRecordingId;
         bool aCaptureAvailable = false;
         juce::String recoveryStatus;
+        juce::String presetSelectionStatus;
+        juce::String presetSelectionAction;
+        juce::String presetSelectionTargetId;
+        std::int64_t manifestRevision = 0;
     };
 
     class Controller final : private juce::Thread

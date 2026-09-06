@@ -1,6 +1,6 @@
 # Reference runtime v2 実装ハンドオフ
 
-Status: implementation started in Kirin OS / Hypha runtime awaits schema fixtures
+Status: runtime v2 implemented / Kirin OS automatic preparation and actual Hypha preview connected
 
 Date: 2026-09-05
 
@@ -854,4 +854,34 @@ positive B gainは採用済みであり、Kirin OSのR-12へ反映されてい�
 
 追加fixtureが必要なreaderは、対応するKirin OS schema／domain testと同じexact fields、上限、nullable規則を確認してから実装する。
 
-現在のunrelated変更`juce_shell/JUCE`と未追跡handoff文書には触れない。
+## 17. Kirin OSのHypha Preview
+
+Kirin OSのReference設定画面は、Hypha本体の`HyphaReferenceComponent`と共通描画部品を使う表示専用rendererを別プロセスで起動する。
+
+rendererは900 × 600 pxの固定表示要求を読み、NormalまたはBlindのPNGとrenderer versionだけを返す。
+
+要求はPreset、Check、比較する曲、Cue、比較方法、表示bindingの表示例に閉じ、Work ID、音源path、hash、runtime commandを受け取らない。
+
+このrendererはaudio device、DAW transport、Reference audition controller、History保存、runtime publicationへ接続しない。
+
+Kirin OSのmacOSとWindows配布物はrendererをOS本体と別実行ファイルのまま同梱し、CPU architecture、GPLv3 license、対応するHyphaの完全commit SHAを検証する。
+
+macOSのKirin OS配布前には、cleanなHypha source revisionからarm64／x86_64のUniversal rendererを生成する。
+
+配布後gateは両architectureとsource receiptを検証し、build hostと同じarchitectureでは同梱rendererのPNG生成も検証する。
+
+Kirin Senseには同梱しない。
+
+HyphaのmacOS arm64 CIとWindows CIは同じfixtureを描画し、PNG生成が失敗した変更を通さない。
+
+## 18. HyphaからのGlobal Preset選択
+
+Workにsnapshotがない場合は、Kirin OSが通常Presetから最初のimmutable Work snapshotを自動生成する。
+
+HyphaのPreset欄には、現在のWork snapshotとKirin OSのGlobal Preset catalogを同じ選択欄に表示する。現在のWorkにまだないGlobal Presetを選ぶと、Hyphaはimmutable selection requestを発行し、Kirin OSがWork snapshotを生成してruntimeを再公開する。
+
+Kirin OSは要求ごとのimmutable acknowledgementで`prepared | action_required | rejected`を返す。Hyphaは`prepared_preset`のidentityを検証するまでAを維持し、manifest更新だけから成功を推測しない。このacknowledgementはOS側の準備完了であり、Hyphaでの採用完了は別のadoption receiptで証明する。
+
+Hyphaは検証済みruntimeが`ready`になった時点で、`preset_adoptions/<runtime_instance_id>/<work_id>.<manifest_revision>.<source_preset_revision_id>.json`へ9項目だけのimmutable receiptを保存する。音声やPreset本文を複製せず、runtime、Work、manifest、共通Preset receipt、Work snapshot receipt、採用時刻だけを返す。
+
+準備中は別画面を要求せず、Preset欄の近くに状態を示す。成立しない場合は内部理由を表示せず、再試行、Kirin OSのReferenceを開く、音源を選ぶ、測定する、のうちacknowledgementが指定した一つの出口を示す。

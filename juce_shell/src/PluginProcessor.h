@@ -98,6 +98,7 @@ public:
     bool selectReferenceB (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     void selectReferenceA();
     bool selectReferencePreset (const juce::String&);
+    bool retryReferencePresetSelection();
     bool selectReferenceCheck (const juce::String&);
     bool selectReferenceCandidate (const juce::String&);
     bool selectReferenceCue (const juce::String&);
