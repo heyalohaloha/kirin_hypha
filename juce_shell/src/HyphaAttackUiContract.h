@@ -63,7 +63,7 @@ namespace hypha::attack_ui
     {
         return totalHeight >= 320 ? 170
              : totalHeight >= 250 ? detailMetricsHeight
-             : totalHeight >= 190 ? 86
+             : totalHeight >= 190 ? 100
              : totalHeight >= 145 ? 62 : 0;
     }
 

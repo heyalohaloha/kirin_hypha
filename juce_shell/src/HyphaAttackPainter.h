@@ -5,6 +5,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "kirin_hypha_ffi.h"
+#include "HyphaAttackFanModel.h"
+#include "HyphaAttackOverviewGlyphPainter.h"
 
 namespace hypha::attack_painter
 {
@@ -23,7 +25,7 @@ namespace hypha::attack_painter
                        std::uint32_t sampleRate,
                        WaveformStyle,
                        bool colourAbsoluteFeatures,
-                       float alpha);
+                       float alpha, attack_overview_glyph::Cache* = nullptr);
     void drawWaveformDifferences (juce::Graphics&,
                                   const KirinAttackDetailBatch& preDetails,
                                   const KirinAttackDetailBatch& postDetails,
@@ -31,12 +33,12 @@ namespace hypha::attack_painter
                                   juce::Rectangle<int>,
                                   std::int64_t firstSample,
                                   std::int64_t latestSample,
-                                  std::uint32_t sampleRate);
+                                  std::uint32_t sampleRate, attack_overview_glyph::Cache* = nullptr);
     void drawEventFocus (juce::Graphics&,
                          const KirinAttackDetail* preDetail,
                          const KirinAttackDetail* postDetail,
                          juce::Rectangle<int>,
-                         float emissionPhase);
+                         const attack_fan::Motion& = {}, attack_overview_glyph::Cache* = nullptr);
     void drawMetricFact (juce::Graphics&,
                          juce::Rectangle<int>,
                          const juce::String& title,

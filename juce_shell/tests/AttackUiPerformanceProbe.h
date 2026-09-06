@@ -16,6 +16,8 @@ inline void profileDenseAttackIfRequested()
         return;
     const bool layers = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_ATTACK_PAINT_PROFILE_LAYERS", {}).isNotEmpty();
+    const auto dpi = juce::jlimit (1.0f, 4.0f, juce::SystemStats::getEnvironmentVariable (
+        "KIRIN_ATTACK_PAINT_PROFILE_DPI", "1").getFloatValue());
     std::cout << std::unitbuf;
     constexpr std::int64_t latest = 288'000;
     constexpr std::uint32_t rate = 48'000;
@@ -67,7 +69,8 @@ inline void profileDenseAttackIfRequested()
         component->setSnapshot (*events, *waveform, *details, *waveform, *details,
                                 *pairs, latest, rate, 7, stats);
         component->presentationTick (true);
-        juce::Image image (juce::Image::ARGB, component->getWidth(), component->getHeight(), true);
+        juce::Image image (juce::Image::ARGB, static_cast<int> (std::ceil (component->getWidth() * dpi)),
+                            static_cast<int> (std::ceil (component->getHeight() * dpi)), true);
         // Separate the expensive draw responsibilities without modifying production rendering.
         // The full fixture is synthetic, not the recorded audio or the user's event magnitudes.
         auto emptyEvents = std::make_unique<KirinAttackEventBatch>();
@@ -87,6 +90,7 @@ inline void profileDenseAttackIfRequested()
             component->setOverlayMode (overlay);
             const auto draw = [&] {
                 juce::Graphics graphics (image);
+                graphics.addTransform (juce::AffineTransform::scale (dpi));
                 component->paintEntireComponent (graphics, true);
             };
             const auto cold = juce::Time::getMillisecondCounterHiRes();
@@ -105,6 +109,7 @@ inline void profileDenseAttackIfRequested()
             std::cout << "DRUM paint diagnostic: events=" << count
                       << " overlay=" << overlay << " size=" << component->getWidth()
                       << "x" << component->getHeight() << " first_ms=" << firstMs
+                      << " dpi=" << dpi
                       << " warm_median_ms=" << samples[1] << " layer=" << layerNames[layer]
                       << " repeats=" << repeats << '\n';
         }

@@ -1,144 +1,108 @@
 #include "HyphaAttackOverviewGlyphPainter.h"
-
 #include <cmath>
-
-#include "HyphaAttackUiContract.h"
+#include <functional>
 
 namespace hypha::attack_overview_glyph
 {
+juce::Image Cache::lookup (attack_specimen::FeatureAmounts pre, attack_specimen::FeatureAmounts post,
+                           bool paired, int width, int height, float scale, bool miniature,
+                           const attack_fan::Motion* motion)
+{
+    if (! std::isfinite (scale) || scale <= 0 || scale > 4 || width < 4 || height < 4
+        || width > 512 || height > 256) return {};
+    if (motion != nullptr && std::any_of (motion->bend.begin(), motion->bend.end(),
+        [] (float value) { return ! std::isfinite (value); })) return {};
+    using attack_fan::unit;
+    // Feature values are exact; only presentation curvature has the bounded tolerance below.
+    // Generation/sample-rate changes with identical visual inputs may safely share the image.
+    const std::array<float, 8> key { unit (pre.strength), unit (pre.brightness), unit (pre.transient),
+        unit (pre.texture), unit (post.strength), unit (post.brightness), unit (post.transient), unit (post.texture) };
+    const auto sameCurvature = [=] (const Entry& entry) {
+        if (entry.animatedFocus != (motion != nullptr)) return false;
+        if (motion == nullptr) return true;
+        // All Bezier control-point displacements are <= 0.487 * height * max bend delta.
+        // Reuse only below 0.05 PHYSICAL pixels; measured feature extents remain exact.
+        const auto tolerance = .1f / (height * scale);
+        for (std::size_t i = 0; i < motion->bend.size(); ++i)
+            if (! std::isfinite (motion->bend[i])
+                || std::abs (motion->bend[i] - entry.motion.bend[i]) > tolerance) return false;
+        return true;
+    };
+    for (auto& entry : entries)
+        if (entry.image.isValid() && entry.width == width && entry.height == height && entry.paired == paired
+            && entry.miniature == miniature
+            && std::equal_to<float> {} (entry.scale, scale) && entry.amounts == key && sameCurvature (entry))
+        { entry.use = ++clock; return entry.image; }
+    const auto pixelsWide = static_cast<int> (std::ceil (width * scale));
+    const auto pixelsHigh = static_cast<int> (std::ceil (height * scale));
+    const auto bytes = static_cast<std::size_t> (pixelsWide) * static_cast<std::size_t> (pixelsHigh) * 4;
+    if (bytes > byteBudget) return {};
+    const auto discard = [this] (Entry& entry) {
+        usedBytes -= static_cast<std::size_t> (entry.image.getWidth())
+                   * static_cast<std::size_t> (entry.image.getHeight()) * 4;
+        entry = {}; };
+    const auto oldest = [this] {
+        return std::min_element (entries.begin(), entries.end(),
+            [] (const auto& a, const auto& b) { return a.use < b.use; }); };
+    while (usedBytes + bytes > byteBudget)
+    {
+        auto victim = std::min_element (entries.begin(), entries.end(), [] (const auto& a, const auto& b) {
+            return (a.image.isValid() ? a.use : UINT64_MAX) < (b.image.isValid() ? b.use : UINT64_MAX); });
+        discard (*victim);
+    }
+    auto& slot = *oldest();
+    if (slot.image.isValid()) discard (slot);
+    slot.image = juce::Image (juce::Image::ARGB, pixelsWide, pixelsHigh, true);
+    if (! slot.image.isValid()) return {};
+    {
+        juce::Graphics raster (slot.image);
+        raster.addTransform (juce::AffineTransform::scale (scale));
+        const auto bend = motion != nullptr ? *motion : attack_fan::Motion {};
+        if (paired) attack_specimen::drawFan (raster, { 0, 0, width, height }, pre, bend, true, miniature);
+        attack_specimen::drawFan (raster, { 0, 0, width, height }, post, bend, false, miniature);
+    }
+    slot.amounts = key; slot.width = width; slot.height = height; slot.scale = scale;
+    slot.paired = paired; slot.miniature = miniature;
+    slot.animatedFocus = motion != nullptr; slot.motion = motion != nullptr ? *motion : attack_fan::Motion {};
+    slot.use = ++clock; usedBytes += bytes; ++buildCount;
+    return slot.image;
+}
 namespace
 {
-const auto strengthColour = juce::Colour (attack_ui::strengthColour);
-const auto brightnessColour = juce::Colour (attack_ui::brightnessColour);
-const auto transientColour = juce::Colour (attack_ui::transientColour);
-const auto textureColour = juce::Colour (attack_ui::textureColour);
-
-float visibleAmount (float amount) noexcept
+bool cached (juce::Graphics& g, juce::Rectangle<int> area, attack_specimen::FeatureAmounts pre,
+             attack_specimen::FeatureAmounts post, bool paired, Cache* cache, bool miniature = true,
+             const attack_fan::Motion* motion = nullptr)
 {
-    return std::sqrt (juce::jlimit (0.0f, 1.0f, amount));
-}
-
-juce::Path membrane (juce::Rectangle<int> area, float radius, float reach, float bias)
-{
-    const auto x = static_cast<float> (area.getX());
-    const auto y = static_cast<float> (area.getCentreY());
-    const auto width = static_cast<float> (area.getWidth());
-    const auto height = static_cast<float> (area.getHeight());
-    const auto tip = x + width * reach;
-    const auto spread = height * radius;
-    juce::Path path;
-    path.startNewSubPath (x, y + spread * 0.02f);
-    path.cubicTo (x + width * 0.10f, y - spread * (0.28f + bias),
-                  x + width * 0.18f, y - spread,
-                  x + width * 0.34f, y - spread * 0.94f);
-    path.cubicTo (x + width * 0.54f, y - spread * 0.70f,
-                  tip - width * 0.10f, y - spread * 0.15f, tip, y);
-    path.cubicTo (tip - width * 0.12f, y + spread * 0.12f,
-                  x + width * 0.55f, y + spread * 0.63f,
-                  x + width * 0.33f, y + spread * 0.88f);
-    path.cubicTo (x + width * 0.17f, y + spread * (0.82f - bias),
-                  x + width * 0.08f, y + spread * 0.22f, x, y + spread * 0.02f);
-    path.closeSubPath();
-    return path;
-}
-
-void fillLayer (juce::Graphics& g, juce::Rectangle<int> area,
-                float amount, float opacity, float radius, float reach,
-                juce::Colour colour)
-{
-    const auto visible = visibleAmount (amount);
-    if (visible <= 0.0f)
-        return;
-    constexpr int feathers = 4;
-    for (int index = 0; index < feathers; ++index)
-    {
-        const auto progress = static_cast<float> (index) / static_cast<float> (feathers - 1);
-        g.setColour (colour.withAlpha (
-            opacity * visible * (0.025f + progress * 0.052f)));
-        g.fillPath (membrane (area,
-                              radius * visible * (1.12f - progress * 0.20f),
-                              reach * (0.94f + progress * 0.06f),
-                              (progress - 0.5f) * 0.08f));
-    }
-}
-
-void strokeMembranes (juce::Graphics& g, juce::Rectangle<int> area,
-                      float amount, float opacity, float radius, float reach,
-                      juce::Colour colour)
-{
-    const auto visible = visibleAmount (amount);
-    if (visible <= 0.0f)
-        return;
-    for (int index = 0; index < 4; ++index)
-    {
-        const auto progress = static_cast<float> (index) / 3.0f;
-        g.setColour (colour.withAlpha (opacity * visible * (0.10f + progress * 0.15f)));
-        g.strokePath (membrane (area,
-                                radius * visible * (0.72f + progress * 0.28f),
-                                reach * (0.90f + progress * 0.10f),
-                                (progress - 0.55f) * 0.10f),
-                      juce::PathStrokeType (index == 3 ? 0.88f : 0.50f,
-                                            juce::PathStrokeType::curved));
-    }
-}
-
-void drawFibres (juce::Graphics& g, juce::Rectangle<int> area,
-                 float amount, float opacity, float radius, float reach,
-                 juce::Colour colour, int count)
-{
-    const auto visible = visibleAmount (amount);
-    if (visible <= 0.0f)
-        return;
-    const auto x = static_cast<float> (area.getX());
-    const auto y = static_cast<float> (area.getCentreY());
-    const auto width = static_cast<float> (area.getWidth());
-    const auto height = static_cast<float> (area.getHeight());
-    for (int index = 0; index < count; ++index)
-    {
-        const auto phase = static_cast<float> (index + 1) / static_cast<float> (count + 1);
-        const auto offset = (phase - 0.5f) * height * radius * visible;
-        const auto curl = std::sin (phase * 3.7f * juce::MathConstants<float>::pi)
-                        * height * radius * 0.18f * visible;
-        juce::Path fibre;
-        fibre.startNewSubPath (x + width * (0.015f + phase * 0.025f), y + offset * 0.12f);
-        fibre.cubicTo (x + width * 0.20f, y + offset + curl,
-                       x + width * 0.48f, y + offset * 0.58f - curl * 0.45f,
-                       x + width * reach, y + offset * 0.08f);
-        g.setColour (colour.withAlpha (opacity * visible
-            * (index % 3 == 0 ? 0.24f : 0.14f)));
-        g.strokePath (fibre, juce::PathStrokeType (index % 3 == 0 ? 0.62f : 0.38f,
-                                                   juce::PathStrokeType::curved,
-                                                   juce::PathStrokeType::rounded));
-    }
-}
-
-void drawLayers (juce::Graphics& g, juce::Rectangle<int> area,
-                 attack_specimen::FeatureAmounts amounts, float opacity)
-{
-    strokeMembranes (g, area, amounts.transient, opacity, 0.47f, 1.00f, transientColour);
-    strokeMembranes (g, area, amounts.brightness, opacity, 0.40f, 0.86f, brightnessColour);
-    fillLayer (g, area, amounts.texture, opacity, 0.31f, 0.74f, textureColour);
-    drawFibres (g, area, amounts.texture, opacity, 0.31f, 0.74f, textureColour, 8);
-    fillLayer (g, area, amounts.strength, opacity, 0.20f, 0.57f, strengthColour);
-    drawFibres (g, area, amounts.strength, opacity, 0.19f, 0.60f, strengthColour, 5);
+    if (cache == nullptr) return false;
+    const auto image = cache->lookup (pre, post, paired, area.getWidth(), area.getHeight(),
+                                     g.getInternalContext().getPhysicalPixelScaleFactor(), miniature, motion);
+    if (! image.isValid()) return false;
+    juce::Graphics::ScopedSaveState saved (g);
+    g.setOpacity (1.0f);
+    g.drawImage (image, area.toFloat());
+    return true;
 }
 }
-
 void drawAbsolute (juce::Graphics& g, juce::Rectangle<int> area,
-                   attack_specimen::FeatureAmounts amounts)
+                   attack_specimen::FeatureAmounts amounts, Cache* cache)
 {
-    if (area.getWidth() >= 4 && area.getHeight() >= 4)
-        drawLayers (g, area, amounts, 1.0f);
+    if (cached (g, area, {}, amounts, false, cache)) return;
+    attack_specimen::drawFan (g, area, amounts, {}, false, true);
 }
-
 void drawComparison (juce::Graphics& g, juce::Rectangle<int> area,
                      attack_specimen::FeatureAmounts preAmounts,
-                     attack_specimen::FeatureAmounts postAmounts)
+                     attack_specimen::FeatureAmounts postAmounts, Cache* cache)
 {
-    if (area.getWidth() < 4 || area.getHeight() < 4)
-        return;
-    drawLayers (g, area, preAmounts, 0.30f);
-    drawLayers (g, area, postAmounts, 0.86f);
-    drawLayers (g, area, preAmounts, 0.08f);
+    if (cached (g, area, preAmounts, postAmounts, true, cache)) return;
+    attack_specimen::drawFan (g, area, preAmounts, {}, true, true);
+    attack_specimen::drawFan (g, area, postAmounts, {}, false, true);
+}
+void drawFocus (juce::Graphics& g, juce::Rectangle<int> area,
+                 attack_specimen::FeatureAmounts pre, attack_specimen::FeatureAmounts post,
+                 bool paired, const attack_fan::Motion& motion, Cache* cache)
+{
+    if (cached (g, area, pre, post, paired, cache, false, &motion)) return;
+    if (paired) attack_specimen::drawFan (g, area, pre, motion, true);
+    attack_specimen::drawFan (g, area, post, motion);
 }
 }

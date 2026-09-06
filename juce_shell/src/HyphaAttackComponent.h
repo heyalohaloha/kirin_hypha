@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "kirin_hypha_ffi.h"
+#include "HyphaAttackOverviewGlyphPainter.h"
 
 namespace hypha
 {
@@ -14,7 +15,7 @@ namespace hypha
     {
     public:
         AttackComponent();
-        void setSnapshot (const KirinAttackEventBatch& events,
+        bool setSnapshot (const KirinAttackEventBatch& events,
                           const KirinAttackWaveformBatch& waveform,
                           const KirinAttackDetailBatch& details,
                           const KirinAttackWaveformBatch& preWaveform,
@@ -35,6 +36,7 @@ namespace hypha
         bool keyPressed (const juce::KeyPress&) override;
 
     private:
+        attack_overview_glyph::Cache glyphCache;
         KirinAttackEventBatch eventBatch {};
         KirinAttackWaveformBatch waveformBatch {};
         KirinAttackDetailBatch detailBatch {};

@@ -19,7 +19,7 @@ void drawMetricFact (juce::Graphics& g, juce::Rectangle<int> area,
     g.setFont (monoFont (inspection ? 18.0f : area.getHeight() >= 28 && area.getWidth() >= 76 ? 12.4f : 11.0f));
     g.drawText (value, area.removeFromTop (juce::jmin (inspection ? 27 : 19,
                                                        area.getHeight())), justification);
-    if (! area.isEmpty())
+    if (area.getHeight() >= 11 && context.isNotEmpty())
     {
         g.setColour (COL_MUTED);
         g.setFont (monoFont (inspection ? 12.0f : 11.0f));

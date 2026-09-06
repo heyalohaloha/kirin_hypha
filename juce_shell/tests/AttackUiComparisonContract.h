@@ -76,13 +76,13 @@ inline void setComparisonFeature (KirinAttackDetail& detail,
 
 inline juce::Image renderComparison (const KirinAttackDetail& pre,
                                      const KirinAttackDetail& post,
-                                     float emissionPhase = 0.0f)
+                                     const attack_fan::Motion& motion = {})
 {
     juce::Image image (juce::Image::ARGB, 300, 100, true);
     juce::Graphics graphics (image);
     graphics.fillAll (juce::Colours::black);
     attack_painter::drawEventFocus (
-        graphics, &pre, &post, image.getBounds(), emissionPhase);
+        graphics, &pre, &post, image.getBounds(), motion);
     return image;
 }
 
@@ -163,7 +163,9 @@ inline bool verifySignedComparisonSpecimen()
     const auto mixedImage = renderComparison (mixedPre, mixedPost);
     if (specimenDifferences (identityImage, mixedImage) < 100)
         return false;
-    if (specimenDifferences (mixedImage, renderComparison (mixedPre, mixedPost, 0.5f)) < 100)
+    attack_fan::Motion motion;
+    motion.bend.fill (0.24f);
+    if (specimenDifferences (mixedImage, renderComparison (mixedPre, mixedPost, motion)) < 100)
         return false;
     if (! writeComparisonPreview (mixedImage, "mixed", "signed")
         || ! writeComparisonPreview (identityImage, "identity", "zero"))

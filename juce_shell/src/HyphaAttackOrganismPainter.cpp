@@ -72,14 +72,14 @@ attack_specimen::FeatureAmounts amounts (FeatureTint tint) noexcept
 juce::Rectangle<int> glyphBounds (std::int64_t eventSample,
                                   juce::Rectangle<int> area,
                                   std::int64_t first,
-                                  std::int64_t latest)
+                                  std::int64_t latest, int visibleEvents)
 {
     const auto localX = attack_ui::sampleX (
         eventSample, first, latest, area.getWidth());
     if (localX < 0)
         return {};
-    const auto idealWidth = juce::jlimit (20, 88, area.getWidth() / 10);
-    const auto width = juce::jmin (idealWidth, area.getWidth() - localX);
+    const auto idealWidth = juce::jlimit (20, 88, area.getWidth() / juce::jmax (10, visibleEvents));
+    const auto width = idealWidth; // Clip the moving plate; never squash it at NOW.
     const auto height = juce::jmin (
         area.getHeight() - 2,
         juce::jmax (8, static_cast<int> (std::lround (idealWidth / 2.15f))));
@@ -91,18 +91,22 @@ juce::Rectangle<int> glyphBounds (std::int64_t eventSample,
 
 void drawAbsoluteOverview (juce::Graphics& g, const KirinAttackDetailBatch& details,
                            juce::Rectangle<int> area, std::int64_t first,
-                           std::int64_t latest, std::uint32_t rate)
+                           std::int64_t latest, std::uint32_t rate, attack_overview_glyph::Cache* cache)
 {
+    juce::Graphics::ScopedSaveState saved (g);
+    g.reduceClipRegion (area);
     const auto count = juce::jmin (
         details.count, static_cast<std::uint32_t> (KIRIN_ATTACK_DETAIL_BATCH_CAPACITY));
+    const auto visible = static_cast<int> (std::count_if (details.details, details.details + count,
+        [=] (const auto& d) { return d.sample_rate == rate && d.event_sample >= first && d.event_sample <= latest; }));
     for (std::uint32_t index = 0; index < count; ++index)
     {
         const auto& detail = details.details[index];
         if (detail.sample_rate != rate)
             continue;
         attack_overview_glyph::drawAbsolute (
-            g, glyphBounds (detail.event_sample, area, first, latest),
-            amounts (absoluteTint (detail)));
+            g, glyphBounds (detail.event_sample, area, first, latest, visible),
+            amounts (absoluteTint (detail)), cache);
     }
 }
 
@@ -110,10 +114,14 @@ void drawDifferenceOverview (juce::Graphics& g, const KirinAttackDetailBatch& pr
                              const KirinAttackDetailBatch& postDetails,
                              const KirinAttackPairEventBatch& pairs,
                              juce::Rectangle<int> area, std::int64_t first,
-                             std::int64_t latest, std::uint32_t rate)
+                             std::int64_t latest, std::uint32_t rate, attack_overview_glyph::Cache* cache)
 {
+    juce::Graphics::ScopedSaveState saved (g);
+    g.reduceClipRegion (area);
     const auto count = juce::jmin (
         pairs.count, static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
+    const auto visible = static_cast<int> (std::count_if (pairs.events, pairs.events + count,
+        [=] (const auto& p) { return p.sample_rate == rate && p.event_sample >= first && p.event_sample <= latest; }));
     for (std::uint32_t index = 0; index < count; ++index)
     {
         const auto& pair = pairs.events[index];
@@ -125,24 +133,21 @@ void drawDifferenceOverview (juce::Graphics& g, const KirinAttackDetailBatch& pr
             || pre->sample_rate != rate || post->sample_rate != rate)
             continue;
         attack_overview_glyph::drawComparison (
-            g, glyphBounds (pair.event_sample, area, first, latest),
-            amounts (absoluteTint (*pre)), amounts (absoluteTint (*post)));
+            g, glyphBounds (pair.event_sample, area, first, latest, visible),
+            amounts (absoluteTint (*pre)), amounts (absoluteTint (*post)), cache);
     }
 }
 
 void drawFocus (juce::Graphics& g, const KirinAttackDetail* pre,
                 const KirinAttackDetail* post, juce::Rectangle<int> area,
-                float emissionPhase)
+                const attack_fan::Motion& motion, attack_overview_glyph::Cache* cache)
 {
-    if (post == nullptr || area.getWidth() < 2 || area.getHeight() < 2)
+    if (post == nullptr || post->shape_count < 2 || (pre != nullptr && pre->shape_count < 2)
+        || area.getWidth() < 2 || area.getHeight() < 2)
         return;
     const auto postAmounts = amounts (absoluteTint (*post));
-    if (pre == nullptr)
-    {
-        attack_specimen::drawAbsolute (g, *post, area, postAmounts, emissionPhase);
-        return;
-    }
-    attack_specimen::drawComparison (
-        g, *pre, *post, area, amounts (absoluteTint (*pre)), postAmounts, emissionPhase);
+    attack_overview_glyph::drawFocus (g, area,
+        pre != nullptr ? amounts (absoluteTint (*pre)) : attack_specimen::FeatureAmounts {},
+        postAmounts, pre != nullptr, motion, cache);
 }
 }

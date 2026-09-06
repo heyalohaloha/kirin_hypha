@@ -40,17 +40,11 @@ void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int
     auto content = metrics.reduced (7, 3);
     auto focusHeader = content.getHeight() >= 60 ? content.removeFromTop (18) : juce::Rectangle<int> {};
     g.setColour (COL_MUTED);
-    g.setFont (monoFont (6.5f * textScale));
-    const auto beforeMs = postDetail->sample_rate > 0
-        ? (postDetail->event_sample - postDetail->shape_start_sample) * 1'000
-            / static_cast<std::int64_t> (postDetail->sample_rate) : 0;
-    const auto afterMs = postDetail->sample_rate > 0
-        ? (postDetail->shape_end_sample - postDetail->event_sample) * 1'000
-            / static_cast<std::int64_t> (postDetail->sample_rate) : 0;
-    const auto target = juce::String (preDetail != nullptr ? "POST - PRE" : "POST ABSOLUTE");
+    g.setFont (monoFont (juce::jmax (11.0f, 6.5f * textScale)));
+    const auto target = juce::String (preDetail != nullptr ? "DELTA: POST - PRE" : "POST ABSOLUTE");
     g.drawText (getWidth() < 430 ? target
-                : (followLatest ? "LATEST / -" : "LOCKED / -") + juce::String (beforeMs)
-                    + "..+" + juce::String (afterMs) + " ms / " + target,
+                : (followLatest ? "LATEST EVENT / " : "LOCKED EVENT / ") + target
+                    + (preDetail != nullptr ? " / PRE faint" : ""),
                 focusHeader, juce::Justification::centred);
 
     const auto pairedDetail = preDetail != nullptr;
@@ -94,9 +88,17 @@ void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int
         auto left = content.removeFromLeft (sideWidth);
         auto right = content.removeFromRight (sideWidth);
         auto specimen = content.reduced (4, 1);
-        const auto phase = rate > 0 ? juce::jlimit (0.0f, 1.0f,
-            static_cast<float> (latest - postDetail->event_sample) / (0.42f * rate)) : 1.0f;
-        drawEventFocus (g, preDetail, postDetail, specimen, phase);
+        auto direction = specimen.removeFromBottom (14);
+        const auto motion = followLatest && liveSignalActive
+            ? attack_fan::measuredMotion (waveformBatch, latest, rate, currentGeneration)
+            : attack_fan::Motion {};
+        drawEventFocus (g, preDetail, postDetail, specimen, motion, &glyphCache);
+        g.setFont (monoFont (11.0f));
+        g.setColour (COL_MUTED);
+        g.drawText ("REAR", direction.removeFromLeft (
+            direction.getWidth() / 2), juce::Justification::centredLeft);
+        g.setColour (transientColour);
+        g.drawText ("FRONT >", direction, juce::Justification::centredRight);
         auto leftTop = left.removeFromTop (left.getHeight() / 2).reduced (1);
         auto leftBottom = left.reduced (1);
         auto rightTop = right.removeFromTop (right.getHeight() / 2).reduced (1);

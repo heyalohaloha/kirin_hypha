@@ -2,6 +2,7 @@
 
 #include "HyphaAttackPainter.h"
 #include "HyphaAttackUiContract.h"
+#include "HyphaAttackSnapshotEquality.h"
 #include "HyphaTheme.h"
 
 namespace hypha
@@ -44,6 +45,7 @@ using attack_painter::WaveformStyle;
 
 void AttackComponent::setOverlayMode (bool shouldOverlay)
 {
+    if (overlayMode == shouldOverlay) return;
     overlayMode = shouldOverlay;
     repaint();
 }
@@ -63,18 +65,23 @@ void AttackComponent::advancePresentation (double nowMs) noexcept
 
 void AttackComponent::presentationTick (bool signalActive)
 {
+    const bool stateChanged = liveSignalActive != signalActive;
     liveSignalActive = signalActive;
     if (! signalActive)
     {
+        const auto previousLatest = latest;
+        const auto previousSelection = selectedEventSample;
         latest = presentationTargetLatest;
         presentationStartLatest = presentationTargetLatest;
         presentationStartMs = juce::Time::getMillisecondCounterHiRes();
         if (followLatest)
             selectBoundaryEvent (true);
-        repaint();
+        if (stateChanged || latest != previousLatest || selectedEventSample != previousSelection)
+            repaint();
         return;
     }
     presentationTickAt (juce::Time::getMillisecondCounterHiRes());
+    if (stateChanged) repaint();
 }
 
 void AttackComponent::presentationTickAt (double nowMs)
@@ -88,7 +95,7 @@ void AttackComponent::presentationTickAt (double nowMs)
         repaint();
 }
 
-void AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
+bool AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
                                            const KirinAttackWaveformBatch& waveform,
                                            const KirinAttackDetailBatch& details,
                                            const KirinAttackWaveformBatch& preWaveform,
@@ -99,6 +106,26 @@ void AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
                                            std::uint64_t generation,
                                            const KirinAttackStats& stats)
 {
+    const auto current = [generation, sampleRate] (const auto& item) {
+        return item.generation == generation && item.sample_rate == sampleRate; };
+    const auto any = [] (const auto&) { return true; };
+    const auto paired = [generation, sampleRate] (const auto& p) {
+        return p.sample_rate == sampleRate && (p.post_available == 0 || p.post_generation == generation); };
+    const auto incomingPairCount = juce::jmin (pairEvents.count,
+        static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
+    const auto validPairs = std::count_if (pairEvents.events, pairEvents.events + incomingPairCount, paired);
+    const auto pairStatus = incomingPairCount != 0 && validPairs == 0
+        ? KIRIN_SPECTRUM_WARMING_UP : pairEvents.status;
+    using attack_equality::retained;
+    if (generation == currentGeneration && sampleRate == rate && latestSample == presentationTargetLatest
+        && attack_equality::same (runtimeStats, stats) && pairEventBatch.status == pairStatus
+        && retained (eventBatch.events, eventBatch.count, events.events, events.count, current)
+        && retained (waveformBatch.points, waveformBatch.count, waveform.points, waveform.count, current)
+        && retained (detailBatch.details, detailBatch.count, details.details, details.count, current)
+        && retained (preWaveformBatch.points, preWaveformBatch.count, preWaveform.points, preWaveform.count, any)
+        && retained (preDetailBatch.details, preDetailBatch.count, preDetails.details, preDetails.count, any)
+        && retained (pairEventBatch.events, pairEventBatch.count, pairEvents.events, pairEvents.count, paired))
+        return false;
     const auto nowMs = juce::Time::getMillisecondCounterHiRes();
     const bool resetPresentation = currentGeneration == 0 || generation != currentGeneration
                                 || sampleRate != rate || latestSample < presentationTargetLatest;
@@ -152,6 +179,7 @@ void AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
         selectBoundaryEvent (true);
     }
     repaint();
+    return true;
 }
 
 void AttackComponent::clearSnapshot()
@@ -252,30 +280,30 @@ void AttackComponent::paint (juce::Graphics& g)
 
     auto titleRow = header.removeFromTop (20);
     auto viewButton = titleRow.removeFromRight (attack_ui::modeControlWidth (getWidth()));
-    g.setFont (monoFont (9.2f * textScale));
+    g.setFont (monoFont (juce::jmax (12.0f, 9.2f * textScale)));
     g.setColour (COL_NORMAL);
     g.drawText ("DRUM / ATTACK", titleRow, juce::Justification::centredLeft);
     g.setColour (waveformColour.withAlpha (0.10f));
     g.fillRoundedRectangle (viewButton.reduced (1).toFloat(), 3.0f);
     g.setColour (COL_NORMAL);
-    g.setFont (monoFont (7.2f * textScale));
+    g.setFont (monoFont (juce::jmax (11.0f, 7.2f * textScale)));
     g.drawText (overlayMode ? "VIEW  2 ROWS" : "VIEW  OVERLAY",
                 viewButton, juce::Justification::centred);
 
     auto state = getWidth() >= 470 ? header.removeFromRight (84) : juce::Rectangle<int> {};
     const auto legendWidth = header.getWidth() / 4;
-    const auto compact = getWidth() < 430;
+    const auto compact = getWidth() < 780;
     const auto legend = [&] (juce::Colour colour, const juce::String& text, bool last)
     {
         g.setColour (colour);
-        g.setFont (monoFont (6.5f * textScale));
+        g.setFont (monoFont (juce::jmax (11.0f, 6.5f * textScale)));
         g.drawText (text, last ? header : header.removeFromLeft (legendWidth),
                     juce::Justification::centredLeft);
     };
-    legend (strengthColour, compact ? "CORE" : "CORE  STRENGTH", false);
-    legend (textureColour, compact ? "FIBRE" : "FIBRE  TEXTURE", false);
-    legend (brightnessColour, compact ? "MEMBRANE" : "MEMBRANE  BRIGHT", false);
-    legend (transientColour, compact ? "TAIL" : "TAIL  TRANSIENT", true);
+    legend (strengthColour, compact ? "ROOT" : "ROOT / STRENGTH", false);
+    legend (textureColour, compact ? "BRANCH" : "BRANCH / TEXTURE", false);
+    legend (brightnessColour, compact ? "FAN" : "FAN / BRIGHT", false);
+    legend (transientColour, compact ? "FRONT >" : "FRONT / TRANSIENT", true);
     if (! state.isEmpty())
     {
         g.setColour (COL_MUTED);
@@ -320,9 +348,9 @@ void AttackComponent::paint (juce::Graphics& g)
         auto preLane = timeline.removeFromTop (laneHeight);
         auto postLane = timeline.removeFromTop (laneHeight);
         drawWaveform (g, preWaveformBatch, preDetailBatch, preLane.reduced (0, 4),
-                      first, latest, rate, WaveformStyle::continuous, true, 0.90f);
+                      first, latest, rate, WaveformStyle::continuous, true, 0.90f, &glyphCache);
         drawWaveform (g, waveformBatch, detailBatch, postLane.reduced (0, 4),
-                      first, latest, rate, WaveformStyle::continuous, true, 0.90f);
+                      first, latest, rate, WaveformStyle::continuous, true, 0.90f, &glyphCache);
         g.setColour (waveformColour.withAlpha (0.075f));
         g.drawHorizontalLine (preLane.getBottom(), static_cast<float> (preLane.getX() + 3),
                               static_cast<float> (preLane.getRight() - 3));
@@ -337,14 +365,14 @@ void AttackComponent::paint (juce::Graphics& g)
         drawWaveform (g, preWaveformBatch, preDetailBatch, waveArea,
                       first, latest, rate, WaveformStyle::trace, false, 0.64f);
         drawWaveform (g, waveformBatch, detailBatch, waveArea,
-                      first, latest, rate, WaveformStyle::continuous, false, 0.94f);
+                      first, latest, rate, WaveformStyle::continuous, false, 0.94f, &glyphCache);
         drawWaveformDifferences (g, preDetailBatch, detailBatch,
-                                 pairEventBatch, waveArea, first, latest, rate);
+                                 pairEventBatch, waveArea, first, latest, rate, &glyphCache);
     }
     else
     {
         drawWaveform (g, waveformBatch, detailBatch, timeline.reduced (0, 7),
-                      first, latest, rate, WaveformStyle::continuous, true, 0.94f);
+                      first, latest, rate, WaveformStyle::continuous, true, 0.94f, &glyphCache);
     }
 
     std::uint32_t visibleCount = 0;
