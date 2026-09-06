@@ -1,7 +1,7 @@
 # Hyphaの軽量化とWindows再検証
 
 状態: 作業中。
-対象: B-725で保存したebur128原版と、その後のローカル変更。
+対象: B-725で保存したebur128原版、B-726の計測改善、その後のローカル変更。
 PSBとPRE/POST Blindの完成記録ではない。
 
 ## 計測を間引かないM/S窓の再利用
@@ -76,14 +76,34 @@ C:\Users\hello\OneDrive\ドキュメント\Studio Pro\Songs\Peach_Hypha_Demo(13)
 - xtask: 136 pass。workspace clippyは完了し、既存vendorの警告のみ。
 - Windows検証用VST3: PRE/POSTのstereo realtime、stereo offline、mono realtime、計299,680 samplesがbit identical、報告latency 0 samples。
 - 表示フィールド比較と幾何簡約の専用試験: pass。Mac UI全体は通過した回もあるが、Focus Trail描画時間の上限超過も再現しており、安定合格とは扱わない。
+- 追加後のmacOS workspace lib: 1,585 pass、9 ignored。Windows kirin_measure lib: 1,417 pass、9 ignored。両方のclippyは完了。
+- 最新の全UI試験: fail。100% Focus Trailは静止4.37104 ms、毎frame更新4.54509 msで、更新時が4.5 msの上限を超えた。幾何と操作の試験はpassだが、以降の倍率はこの実行では未到達。
+
+## 同じ曲で確認できたPSBと操作の中断
+
+Peach_Hypha_Demo(13)の150%表示で、停止中はPSBがINACTIVEとなり、再生するとPOSTの20帯域バーが現れた。
+20:07と20:09の画像では値が更新されている。
+POSTからΔへの切替後は、外部処理をbypassしたメインPRE/POSTでゼロ付近の線を確認した。
+非ゼロΔ、停止後の消去、再起動後の再現は、まだ合格としていない。
+画像は`/tmp/hypha-b726-psb-stopped.png`、`/tmp/hypha-b726-psb-playing.png`、`/tmp/hypha-b726-delta-requested.png`に残した。
+
+POST単体Spectrumでも差分専用のFocus Trail領域を予約しており、表示が低く潰れる原因になっていた。
+単体表示ではこの予約を外し、描画、click、hoverが同じ領域を使う変更を追加した。
+全5倍率とGuide有無の実レイアウト試験はpassだが、この変更をWindowsのDAWへ配置した確認は未実施である。
+
+20:23に、こちらの操作外で300%、TRACK/STEM、DRUMへ変わり、ChorusとTricompが追加されたことを画面で確認した。
+操作担当の確認を依頼し、DAW操作と追加配置を停止した。
+外部操作の変更を取り消したり、その状態で性能値を採用したりしていない。
+共有領域の競合対策は別途[Windows Analysis共有領域の排他と再開](hypha_windows_exchange_safety_20260906.md)に記録した。
 
 ## ログと未完了の範囲
 
 部品測定は`/tmp/hypha-b726-components-opt2.log`、独立ホストは`/tmp/hypha-b726-whole-plugin-cpu.log`に記録した。
 回帰試験は`/tmp/hypha-b726-upstream-tests.log`、`/tmp/hypha-b726-measure-tests.log`、`/tmp/hypha-b726-parity.log`、`/tmp/hypha-b726-pairing.log`、`/tmp/hypha-b726-clippy-final.log`に残した。
 描画全体の通過回は`/tmp/hypha-b726-ui-profile.log`で、Focus単独の上限超過は`/tmp/hypha-b726-focus-profile2.log`に残した。
+毎frame更新も含む最新の不合格ログは`/tmp/hypha-b727-ui-full-test.log`、実レイアウトと下部操作の合格ログは`/tmp/hypha-b727-ui-geometry-test2.log`である。
 プロファイラーを同時実行した回の時間は性能比較から除外する。
 
-未完了は、PSB実機データの追跡、停止中と複数配置の残余負荷、描画の安定した予算内収束、Blindの同区間取得から試聴と復帰までの接続である。
+未完了は、PSBの非ゼロ差分と停止・再起動確認、停止中と複数配置の残余負荷、描画の安定した予算内収束、Blindの同区間取得から試聴と復帰までの接続である。
 Blindの部品試験を製品の完成に読み替えない。
 LS、macOS HP、Windows HPはいずれも公開検証未完了のためreadyではない。
