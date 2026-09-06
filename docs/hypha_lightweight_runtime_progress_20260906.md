@@ -96,6 +96,12 @@ POST単体Spectrumでも差分専用のFocus Trail領域を予約しており、
 外部操作の変更を取り消したり、その状態で性能値を採用したりしていない。
 共有領域の競合対策は別途[Windows Analysis共有領域の排他と再開](hypha_windows_exchange_safety_20260906.md)に記録した。
 
+その後、Daisukeの操作停止と検証委任を受けて、同じ曲でTRACKのDRUMを検証した。
+最適化した単独描画試験でも、31件の合成イベントで全体に362〜446 ms、流線だけで227〜338 msを要した。
+停止後の実機editorにも残余負荷があり、描画と停止時更新を分けて修正する必要がある。
+測定条件と修正対象は[DRUMの描画負荷の検証](hypha_drum_render_diagnosis_20260906.md)に記録した。
+現時点では曲を停止し、Hypha editorを閉じている。追加配置は行っていない。
+
 ## ログと未完了の範囲
 
 部品測定は`/tmp/hypha-b726-components-opt2.log`、独立ホストは`/tmp/hypha-b726-whole-plugin-cpu.log`に記録した。

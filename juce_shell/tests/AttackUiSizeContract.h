@@ -1,4 +1,5 @@
 #pragma once
+#include "AttackUiPerformanceProbe.h"
 
 #include <array>
 #include <cmath>
@@ -111,6 +112,7 @@ inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform,
 
 inline bool verifySupportedSizes (AttackComponent& component)
 {
+    profileDenseAttackIfRequested();
     constexpr std::array<const char*, 5> splitPreviewVariables {{
         "KIRIN_ATTACK_UI_100_SPLIT_PREVIEW_PATH",
         "KIRIN_ATTACK_UI_125_SPLIT_PREVIEW_PATH",

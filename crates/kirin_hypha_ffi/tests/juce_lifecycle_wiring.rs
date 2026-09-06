@@ -196,13 +196,16 @@ fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
     }
 
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
-    assert!(processor.contains("getKirinInputPresentationLatencySamples"));
-    assert!(processor.contains("getKirinOutputPresentationLatencySamples"));
-    assert!(processor.contains("getKirinPresentationLatencySource"));
+    let host_clock = read_repo("juce_shell/src/PluginProcessorHostClock.cpp");
+    assert!(processor.contains("readHostProcessClock()"));
+    assert!(host_clock.contains("getKirinInputPresentationLatencySamples"));
+    assert!(host_clock.contains("getKirinOutputPresentationLatencySamples"));
+    assert!(host_clock.contains("getKirinPresentationLatencySource"));
     assert!(processor.contains("kirin_hypha_note_capture_window"));
 
     // Both shipped formats now compile this processor and the same patched JUCE host adapter.
     let cmake = read_repo("juce_shell/CMakeLists.txt");
+    assert!(cmake.contains("src/PluginProcessorHostClock.cpp"));
     assert!(cmake.contains("set(KIRIN_PLUGIN_FORMATS AU VST3)"));
     assert!(cmake.contains("FORMATS ${KIRIN_PLUGIN_FORMATS}"));
 }
