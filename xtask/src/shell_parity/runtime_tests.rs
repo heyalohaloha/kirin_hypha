@@ -120,10 +120,13 @@
             "void KirinHyphaProcessorBase::processBlock",
             "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
         );
-        assert!(body.contains(
+        let clock = cpp_body(PLUGIN_PROCESSOR_CLOCK_CPP,
+                             "KirinHyphaProcessorBase::readHostProcessClock");
+        assert!(body.contains("= readHostProcessClock();"));
+        assert!(clock.contains(
             "wrapperType == juce::AudioProcessor::wrapperType_AudioUnit\n                    && hypha::clock_source_contract::audioUnitV2UsesRenderTimeline ("
         ));
-        assert!(!body.contains("#if JucePlugin_Build_AU && KIRIN_HYPHA_AU_CLOCK_PROVENANCE"));
+        assert!(!clock.contains("#if JucePlugin_Build_AU && KIRIN_HYPHA_AU_CLOCK_PROVENANCE"));
         assert!(body.contains("KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE"));
         assert!(body.contains(
             "const bool measurementTimelineActive = playing\n                                        || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;"

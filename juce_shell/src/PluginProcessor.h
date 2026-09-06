@@ -1,4 +1,5 @@
 #pragma once
+#include "HostProcessClock.h"
 #include "local_blind/LocalBlindSlot.h"
 #include "local_blind/LocalBlindEpochSnapshot.h"
 #include "local_blind/VST3HostContext.h"
@@ -242,6 +243,7 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
 private:
+    hypha::HostProcessClock readHostProcessClock() const;
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)
     std::atomic<bool> liveInputPresent { false }; // Display only; never changes Watch continuity.
 
