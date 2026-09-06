@@ -6,7 +6,7 @@
 #include <limits>
 #include "kirin_hypha_ffi.h"
 
-namespace hypha::attack_fan
+namespace hypha::attack_motion
 {
 struct Motion { std::array<float, 7> bend {}; };
 inline float unit (float value) noexcept
@@ -41,8 +41,10 @@ inline Motion measuredMotion (const KirinAttackWaveformBatch& batch,
                 && batch.points[i - 1].channels == p.channels && batch.points[i - 1].end_sample == p.start_sample)
             {
                 const auto previous = unit ((batch.points[i - 1].rms_dbfs + 72.0f) / 72.0f);
-                const auto fraction = static_cast<float> ((static_cast<long double> (sample) - p.start_sample)
-                    / (static_cast<long double> (p.end_sample) - p.start_sample));
+                const auto offset = static_cast<std::uint64_t> (sample) - static_cast<std::uint64_t> (p.start_sample);
+                const auto duration = static_cast<std::uint64_t> (p.end_sample) - static_cast<std::uint64_t> (p.start_sample);
+                const auto fraction = static_cast<float> (static_cast<long double> (offset)
+                    / static_cast<long double> (duration));
                 envelope[tap] = previous + (envelope[tap] - previous) * fraction;
             }
             valid[tap] = true;

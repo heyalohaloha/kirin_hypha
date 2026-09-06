@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include "../src/HyphaAttackEnvelopeGeometry.h"
 #include <cstdint>
 
 namespace hypha::attack_ui_test
@@ -30,123 +31,118 @@ inline KirinAttackDetail overviewDetail()
     return detail;
 }
 
-inline bool verifyNoPreOnsetFeatureInk()
+inline bool verifyMeasuredEnvelope()
 {
-    constexpr int width = 600;
-    constexpr int height = 100;
-    constexpr std::int64_t latest = 288'000;
-    constexpr std::uint32_t rate = 48'000;
-    KirinAttackWaveformBatch waveform {};
-    KirinAttackDetailBatch details {};
-    details.capacity = KIRIN_ATTACK_DETAIL_BATCH_CAPACITY;
-    details.count = 1;
-    details.details[0] = overviewDetail();
-    juce::Image image (juce::Image::ARGB, width, height, true);
-    juce::Graphics graphics (image);
-    attack_painter::drawWaveform (
-        graphics, waveform, details, image.getBounds(), 0, latest, rate,
-        attack_painter::WaveformStyle::continuous, true, 1.0f);
-    const auto onset = attack_ui::eventX (
-        details.details[0].event_sample, latest, rate, width);
-    int before = 0;
-    int after = 0;
-    for (int y = 0; y < height; ++y)
-        for (int x = 0; x < width; ++x)
-        {
-            if (image.getPixelAt (x, y).getAlpha() == 0)
-                continue;
-            if (x < onset - 1)
-                ++before;
-            else if (x > onset)
-                ++after;
-        }
-    return onset > 0 && before == 0 && after > 0;
-}
-
-inline bool verifyAsymmetricMeasuredFlow()
-{
-    constexpr int width = 600;
-    constexpr int height = 100;
-    constexpr std::int64_t latest = 288'000;
-    constexpr std::uint32_t rate = 48'000;
-    KirinAttackWaveformBatch waveform {};
-    waveform.capacity = KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY;
-    waveform.count = 300;
-    for (std::uint32_t index = 0; index < waveform.count; ++index)
-    {
-        auto& point = waveform.points[index];
-        point.sample_rate = rate;
-        point.start_sample = static_cast<std::int64_t> (index) * 960;
-        point.end_sample = point.start_sample + 960;
-        point.rms_dbfs = -18.0f + 3.0f * std::sin (static_cast<float> (index) * 0.071f);
+    KirinAttackWaveformBatch batch {}; batch.count=6;
+    for (std::uint32_t i=0;i<batch.count;++i) {
+        auto& p=batch.points[i]; p.start_sample=48000+i*480;p.end_sample=p.start_sample+480;
+        p.sample_rate=48000;p.channels=2;p.generation=7;p.rms_dbfs=i==2?-18.0f:-36.0f;
     }
-    KirinAttackDetailBatch details {};
-    juce::Image image (juce::Image::ARGB, width, height, true);
-    juce::Graphics graphics (image);
-    attack_painter::drawWaveform (
-        graphics, waveform, details, image.getBounds(), 0, latest, rate,
-        attack_painter::WaveformStyle::continuous, false, 1.0f);
-    int visible = 0;
-    int mirroredDifferences = 0;
-    for (int y = 0; y < height / 2; ++y)
-        for (int x = 0; x < width; ++x)
-        {
-            const auto top = image.getPixelAt (x, y);
-            const auto bottom = image.getPixelAt (x, height - 1 - y);
-            visible += top.getAlpha() > 0 || bottom.getAlpha() > 0;
-            mirroredDifferences += top != bottom;
-        }
-    return visible > 100 && mirroredDifferences > visible / 3;
+    const juce::Rectangle<float> area {0,0,600,100};
+    const auto base=attack_envelope::geometry (batch,area,0,288000,48000);
+    const auto bounds=base.body.getBounds();
+    if (std::abs (bounds.getX()-100)>0.001f || std::abs (bounds.getRight()-106)>0.001f
+        || std::abs (bounds.getHeight()-73.5f)>0.001f) return false;
+    batch.points[3].start_sample+=240;
+    const auto gap=attack_envelope::geometry (batch,area,0,288000,48000);
+    if (gap.body.contains (103.25f,50) || ! gap.body.contains (104.5f,50)) return false;
+    batch.points[3].start_sample-=240;
+    batch.points[3].rms_dbfs=std::numeric_limits<float>::quiet_NaN();
+    if (attack_envelope::geometry (batch,area,0,288000,48000).body.contains (103.5f,50)) return false;
+    for (auto& p:batch.points)p.rms_dbfs=-120;
+    if (! attack_envelope::geometry (batch,area,0,288000,48000).body.isEmpty()) return false;
+    for (auto& p:batch.points)p.rms_dbfs=-36;
+    if (! attack_envelope::geometry (batch,area,0,288000,44100).body.isEmpty()) return false;
+    const auto clipped=attack_envelope::geometry (batch,area,48240,49200,48000).body.getBounds();
+    if (std::abs (clipped.getX())>.001f || std::abs (clipped.getRight()-600)>.001f) return false;
+    const auto original=attack_envelope::geometry (batch,area,0,288000,48000);
+    constexpr auto huge=INT64_C(9007199254740993);
+    for (auto& p:batch.points){p.start_sample+=huge;p.end_sample+=huge;}
+    return original.body == attack_envelope::geometry (batch,area,huge,huge+288000,48000).body;
 }
-
-inline juce::Image renderOverviewComparison (const KirinAttackDetail& pre,
-                                             const KirinAttackDetail& post)
+inline bool verifyUpperFeatureIsolation (const KirinAttackEventBatch& events,
+    const KirinAttackWaveformBatch& waveform, const KirinAttackDetailBatch& details,
+    const KirinAttackPairEventBatch& pairs, const KirinAttackStats& stats)
 {
-    constexpr int width = 600;
-    constexpr int height = 100;
-    KirinAttackDetailBatch preDetails {};
-    KirinAttackDetailBatch postDetails {};
-    preDetails.count = 1;
-    postDetails.count = 1;
-    preDetails.details[0] = pre;
-    postDetails.details[0] = post;
-    KirinAttackPairEventBatch pairs {};
-    pairs.count = 1;
-    pairs.events[0].event_sample = post.event_sample;
-    pairs.events[0].pre_event_sample = pre.event_sample;
-    pairs.events[0].post_event_sample = post.event_sample;
-    pairs.events[0].pre_available = 1;
-    pairs.events[0].post_available = 1;
-    pairs.events[0].sample_rate = post.sample_rate;
-    pairs.events[0].pre_generation = pre.generation;
-    pairs.events[0].post_generation = post.generation;
-    juce::Image image (juce::Image::ARGB, width, height, true);
-    juce::Graphics graphics (image);
-    attack_painter::drawWaveformDifferences (
-        graphics, preDetails, postDetails, pairs, image.getBounds(),
-        0, 288'000, 48'000);
-    return image;
-}
-
-inline bool verifySignedOverviewGlyph()
-{
-    auto pre = comparisonDetail();
-    auto positive = comparisonDetail();
-    auto negative = comparisonDetail();
-    for (const auto feature : { ComparisonFeature::strength,
-                                ComparisonFeature::brightness,
-                                ComparisonFeature::transient,
-                                ComparisonFeature::texture })
-    {
-        setComparisonFeature (pre, feature, 0.50f);
-        setComparisonFeature (positive, feature, 0.75f);
-        setComparisonFeature (negative, feature, 0.25f);
+    auto component=std::make_unique<AttackComponent>();
+    auto changed=std::make_unique<KirinAttackDetailBatch> (details);
+    component->setSize (880,480);
+    const auto draw=[&] {
+        component->setSnapshot (events,waveform,*changed,waveform,details,pairs,288000,48000,7,stats);
+        juce::Image image (juce::Image::ARGB,880,480,true);juce::Graphics g (image);
+        component->paintEntireComponent (g,true);
+        return image;
+    };
+    const auto before=draw();
+    for (std::uint32_t i=0;i<changed->count;++i) {
+        auto& d=changed->details[i]; d.sharpness_acum=0;d.attack_rms_dbfs=-70;
+        d.contrast_db=0;d.sample_edge_ratio_db=-24;
     }
-    const auto identity = renderOverviewComparison (pre, pre);
-    const auto positiveImage = renderOverviewComparison (pre, positive);
-    const auto negativeImage = renderOverviewComparison (pre, negative);
-    return specimenLight (identity) > 0
-        && specimenLight (positiveImage) > specimenLight (negativeImage)
-        && specimenDifferences (positiveImage, negativeImage) > 100;
+    const auto after=draw();
+    for (int y=0;y<480-attack_ui::metricsHeight (480);++y)
+        for (int x=0;x<880;++x)
+            if (before.getPixelAt (x,y)!=after.getPixelAt (x,y)) return false;
+    return specimenDifferences (before,after)>100;
+}
+inline bool verifyEnvelopeSimplificationBound()
+{
+    KirinAttackWaveformBatch batch {};batch.count=600;
+    for (std::uint32_t i=0;i<batch.count;++i) {
+        auto& p=batch.points[i];p.start_sample=i*480;p.end_sample=p.start_sample+480;
+        p.sample_rate=48000;p.channels=2;p.rms_dbfs=-36+20*std::sin (static_cast<float> (i)*.08f);
+    }
+    for (const auto dpi:{1.0f,1.25f,2.0f,4.0f}) {
+        const auto shape=attack_envelope::geometry (batch,{0,0,900,180},0,288000,48000,.05f/dpi);
+        for (std::uint32_t i=0;i<batch.count;++i) {
+            const juce::Point<float> measured {(static_cast<float> (i)+.5f)*1.5f,
+                90-(batch.points[i].rms_dbfs+72)/72*89};
+            juce::Point<float> previous;
+            float closest=10000;
+            juce::Path::Iterator path (shape.edge);
+            while (path.next()) {
+                const juce::Point<float> point {path.x1,path.y1};
+                if (path.elementType==juce::Path::Iterator::lineTo) {
+                    const auto direction=point-previous;
+                    const auto length=direction.getDistanceSquaredFromOrigin();
+                    const auto v=measured-previous;
+                    const auto fraction=length>0?juce::jlimit (0.0f,1.0f,(v.x*direction.x+v.y*direction.y)/length):0;
+                    closest=std::min (closest,measured.getDistanceFrom (previous+direction*fraction));
+                }
+                previous=point;
+            }
+            if (closest*dpi>.0502f)return false;
+        }
+    }
+    return true;
+}
+inline bool verifyEnvelopeRaster()
+{
+    KirinAttackWaveformBatch batch {}; batch.count=10;
+    for (std::uint32_t i=0; i<batch.count; ++i) {
+        auto& point=batch.points[i];point.start_sample=i*480;point.end_sample=point.start_sample+480;
+        point.sample_rate=48000;point.channels=2;point.rms_dbfs=-18;
+    }
+    batch.points[4].rms_dbfs=std::numeric_limits<float>::quiet_NaN();
+    // Odd dimensions exercise fractional-DPI padding; the large width exercises vector fallback.
+    for (auto width : {203,4097}) for (auto dpi : {1.0f,1.25f,2.0f,4.0f}) {
+        const juce::Rectangle<int> area {4,4,width,width==203?101:12};
+        const auto draw=[&] (float inheritedOpacity, bool empty) {
+            juce::Image image (juce::Image::ARGB,static_cast<int> (std::ceil ((width+8)*dpi)),
+                              static_cast<int> (std::ceil ((area.getHeight()+8)*dpi)),true);
+            juce::Graphics g (image);g.addTransform (juce::AffineTransform::scale (dpi));
+            g.setOpacity (inheritedOpacity);
+            attack_painter::drawEnvelope (g,empty?KirinAttackWaveformBatch{}:batch,area,0,4800,48000,
+                attack_painter::WaveformStyle::continuous,1);
+            return image;
+        };
+        const auto full=draw (1,false), inherited=draw (.02f,false), empty=draw (1,true);
+        if (specimenDifferences (full,inherited)!=0 || specimenLight (empty)!=0) return false;
+        const auto y=static_cast<int> ((area.getY()+area.getHeight()*.35f)*dpi);
+        const auto at=[&] (float fraction) {
+            return full.getPixelAt (static_cast<int> ((area.getX()+width*fraction)*dpi),y).getAlpha(); };
+        if (at (.25f)==0 || at (.45f)!=0 || at (.65f)==0
+            || full.getPixelAt (0,y).getAlpha()!=0) return false;
+    }
+    return true;
 }
 }

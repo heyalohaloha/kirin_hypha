@@ -10,10 +10,6 @@ namespace hypha
 namespace
 {
 const auto waveformColour = juce::Colour (attack_ui::waveformColour);
-const auto strengthColour = juce::Colour (attack_ui::strengthColour);
-const auto brightnessColour = juce::Colour (attack_ui::brightnessColour);
-const auto transientColour = juce::Colour (attack_ui::transientColour);
-const auto textureColour = juce::Colour (attack_ui::textureColour);
 const auto selectionColour = juce::Colour (attack_ui::selectionColour);
 const auto panelColour = juce::Colour (0xff0d1620);
 
@@ -39,8 +35,7 @@ void drawSelectionArc (juce::Graphics& g, int x, juce::Rectangle<int> timeline)
 }
 }
 
-using attack_painter::drawWaveform;
-using attack_painter::drawWaveformDifferences;
+using attack_painter::drawEnvelope;
 using attack_painter::WaveformStyle;
 
 void AttackComponent::setOverlayMode (bool shouldOverlay)
@@ -57,10 +52,9 @@ void AttackComponent::advancePresentation (double nowMs) noexcept
     constexpr double durationMs = 1'000.0 / attack_ui::presentationHz;
     const auto linear = juce::jlimit (
         0.0, 1.0, (nowMs - presentationStartMs) / durationMs);
-    const auto eased = linear * linear * (3.0 - 2.0 * linear);
     const auto distance = presentationTargetLatest - presentationStartLatest;
     latest = presentationStartLatest + static_cast<std::int64_t> (
-        static_cast<long double> (distance) * eased);
+        static_cast<long double> (distance) * linear); // Time must not ease in/out every 100 ms.
 }
 
 void AttackComponent::presentationTick (bool signalActive)
@@ -291,23 +285,13 @@ void AttackComponent::paint (juce::Graphics& g)
                 viewButton, juce::Justification::centred);
 
     auto state = getWidth() >= 470 ? header.removeFromRight (84) : juce::Rectangle<int> {};
-    const auto legendWidth = header.getWidth() / 4;
-    const auto compact = getWidth() < 780;
-    const auto legend = [&] (juce::Colour colour, const juce::String& text, bool last)
-    {
-        g.setColour (colour);
-        g.setFont (monoFont (juce::jmax (11.0f, 6.5f * textScale)));
-        g.drawText (text, last ? header : header.removeFromLeft (legendWidth),
-                    juce::Justification::centredLeft);
-    };
-    legend (strengthColour, compact ? "ROOT" : "ROOT / STRENGTH", false);
-    legend (textureColour, compact ? "BRANCH" : "BRANCH / TEXTURE", false);
-    legend (brightnessColour, compact ? "FAN" : "FAN / BRIGHT", false);
-    legend (transientColour, compact ? "FRONT >" : "FRONT / TRANSIENT", true);
+    g.setColour (COL_MUTED); g.setFont (monoFont (11.0f));
+    g.drawText (getWidth() < 470 ? "RMS / 6 S" : "10 ms RMS / 6 S / -72..0 dBFS",
+                header, juce::Justification::centredLeft);
     if (! state.isEmpty())
     {
         g.setColour (COL_MUTED);
-        g.setFont (monoFont (6.5f * textScale));
+        g.setFont (monoFont (11.0f));
         g.drawText (juce::String (paired ? "PAIR / " : "POST / ")
                         + (followLatest ? "LIVE" : "LOCK"),
                     state, juce::Justification::centredRight);
@@ -322,9 +306,9 @@ void AttackComponent::paint (juce::Graphics& g)
     if (! running || ! attack_ui::validTimeline (latest, rate))
     {
         g.setColour (COL_MUTED);
-        g.setFont (monoFont (8.0f * textScale));
+        g.setFont (monoFont (juce::jmax (11.0f, 8.0f * textScale)));
         g.drawText (runtimeStats.available == 0 ? "UNAVAILABLE" : "WARMING UP",
-                    bounds, juce::Justification::centred);
+                    timeline, juce::Justification::centred);
         return;
     }
 
@@ -347,32 +331,30 @@ void AttackComponent::paint (juce::Graphics& g)
         const auto laneHeight = timeline.getHeight() / 2;
         auto preLane = timeline.removeFromTop (laneHeight);
         auto postLane = timeline.removeFromTop (laneHeight);
-        drawWaveform (g, preWaveformBatch, preDetailBatch, preLane.reduced (0, 4),
-                      first, latest, rate, WaveformStyle::continuous, true, 0.90f, &glyphCache);
-        drawWaveform (g, waveformBatch, detailBatch, postLane.reduced (0, 4),
-                      first, latest, rate, WaveformStyle::continuous, true, 0.90f, &glyphCache);
+        drawEnvelope (g, preWaveformBatch, preLane.reduced (0, 4),
+                      first, latest, rate, WaveformStyle::continuous, 0.90f);
+        drawEnvelope (g, waveformBatch, postLane.reduced (0, 4),
+                      first, latest, rate, WaveformStyle::continuous, 0.90f);
         g.setColour (waveformColour.withAlpha (0.075f));
         g.drawHorizontalLine (preLane.getBottom(), static_cast<float> (preLane.getX() + 3),
                               static_cast<float> (preLane.getRight() - 3));
         g.setColour (COL_MUTED);
-        g.setFont (monoFont (6.4f * textScale));
+        g.setFont (monoFont (11.0f));
         g.drawText ("PRE", preLane.reduced (5, 1), juce::Justification::topLeft);
         g.drawText ("POST", postLane.reduced (5, 1), juce::Justification::topLeft);
     }
     else if (paired)
     {
         const auto waveArea = timeline.reduced (0, 7);
-        drawWaveform (g, preWaveformBatch, preDetailBatch, waveArea,
-                      first, latest, rate, WaveformStyle::trace, false, 0.64f);
-        drawWaveform (g, waveformBatch, detailBatch, waveArea,
-                      first, latest, rate, WaveformStyle::continuous, false, 0.94f, &glyphCache);
-        drawWaveformDifferences (g, preDetailBatch, detailBatch,
-                                 pairEventBatch, waveArea, first, latest, rate, &glyphCache);
+        drawEnvelope (g, preWaveformBatch, waveArea,
+                      first, latest, rate, WaveformStyle::trace, 0.64f);
+        drawEnvelope (g, waveformBatch, waveArea,
+                      first, latest, rate, WaveformStyle::continuous, 0.94f);
     }
     else
     {
-        drawWaveform (g, waveformBatch, detailBatch, timeline.reduced (0, 7),
-                      first, latest, rate, WaveformStyle::continuous, true, 0.94f, &glyphCache);
+        drawEnvelope (g, waveformBatch, timeline.reduced (0, 7),
+                      first, latest, rate, WaveformStyle::continuous, 0.94f);
     }
 
     std::uint32_t visibleCount = 0;
@@ -407,7 +389,7 @@ void AttackComponent::paint (juce::Graphics& g)
     g.setColour (waveformColour.withAlpha (0.28f));
     g.drawHorizontalLine (railY, static_cast<float> (scrub.getX() + 35),
                           static_cast<float> (scrub.getRight() - 35));
-    g.setFont (monoFont (6.8f * textScale));
+    g.setFont (monoFont (11.0f));
     g.setColour (COL_MUTED);
     g.drawText ("-6 s", scrub.removeFromLeft (35), juce::Justification::centredLeft);
     g.setColour (followLatest ? selectionColour : COL_MUTED);

@@ -7,7 +7,7 @@
 #include "AttackUiOverviewContract.h"
 #include "AttackUiSizeContract.h"
 #include "AttackUiLifecycleContract.h"
-#include "AttackUiFanContract.h"
+#include "AttackUiMembraneContract.h"
 #include "AttackUiRuntimeContract.h"
 #include "AttackUiFrameBudget.h"
 #include "PolylineGeometryContractTest.h"
@@ -47,15 +47,6 @@ namespace
         for (int y = area.getY(); y < area.getBottom(); ++y)
             for (int x = area.getX(); x < area.getRight(); ++x)
                 count += first.getPixelAt (x, y) != second.getPixelAt (x, y);
-        return count;
-    }
-
-    int countVisiblePixels (const juce::Image& image)
-    {
-        int count = 0;
-        for (int y = 0; y < image.getHeight(); ++y)
-            for (int x = 0; x < image.getWidth(); ++x)
-                count += image.getPixelAt (x, y).getAlpha() > 0;
         return count;
     }
 
@@ -287,9 +278,10 @@ int main()
     component.setOverlayMode (false);
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyDetailLifecycle (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (hypha::attack_ui_test::verifySignedComparisonSpecimen());
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyNoPreOnsetFeatureInk());
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyAsymmetricMeasuredFlow());
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifySignedOverviewGlyph());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyMeasuredEnvelope());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyEnvelopeSimplificationBound());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyEnvelopeRaster());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyUpperFeatureIsolation (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyContinuousTrace (waveform, details));
     const auto image = render (component);
     writePreview ("KIRIN_ATTACK_UI_PREVIEW_PATH", image);
@@ -323,16 +315,9 @@ int main()
         events.events[2].event_sample, 288'000, 48'000, image.getWidth());
     identityComponent.setOverlayMode (true);
     const auto identityOverlay = render (identityComponent);
-    juce::Image identityDifferenceLayer (
-        juce::Image::ARGB, image.getWidth(), timelineHeight, true);
-    juce::Graphics identityDifferenceGraphics (identityDifferenceLayer);
-    hypha::attack_painter::drawWaveformDifferences (
-        identityDifferenceGraphics, details, details, pairEvents,
-        identityDifferenceLayer.getBounds(), 0, 288'000, 48'000);
-    KIRIN_REQUIRE (countVisiblePixels (identityDifferenceLayer) > 0);
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyFanContract());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyMembraneContract());
     hypha::tests::verifyPolylineGeometryContract();
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyFanCache());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyFocusCache());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyRedrawContract (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::leftKey)));
     KIRIN_REQUIRE (hasColourNear (render (component), middleEventX, selectionColour));
@@ -351,6 +336,10 @@ int main()
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, laterPairEvents,
                            336'000, 48'000, 7, stats);
     KIRIN_REQUIRE (hasColourNear (render (component), middleEventX, selectionColour));
+    component.presentationTickAt (transitionStart + 25.0);
+    const auto quarterTransitionX = hypha::attack_ui::eventX (
+        events.events[1].event_sample, 300'000, 48'000, image.getWidth());
+    KIRIN_REQUIRE (hasColourNear (render (component), quarterTransitionX, selectionColour));
     component.presentationTickAt (transitionStart + 50.0);
     const auto halfTransitionX = hypha::attack_ui::eventX (
         events.events[1].event_sample, 312'000, 48'000, image.getWidth());

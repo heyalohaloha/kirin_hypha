@@ -86,13 +86,13 @@ inline bool verifyNoMetricLeaderCorridors (const juce::Image& image)
 }
 
 inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform,
-                                   const KirinAttackDetailBatch& details)
+                                   const KirinAttackDetailBatch&)
 {
     juce::Image image (juce::Image::ARGB, 360, 80, true);
     juce::Graphics graphics (image);
-    attack_painter::drawWaveform (
-        graphics, waveform, details, image.getBounds(), 0, 288'000, 48'000,
-        attack_painter::WaveformStyle::trace, false, 1.0f);
+    attack_painter::drawEnvelope (
+        graphics, waveform, image.getBounds(), 0, 288'000, 48'000,
+        attack_painter::WaveformStyle::trace, 1.0f);
     bool started = false;
     bool ended = false;
     for (int x = 0; x < image.getWidth(); ++x)

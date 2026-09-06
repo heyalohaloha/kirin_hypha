@@ -76,7 +76,7 @@ inline void setComparisonFeature (KirinAttackDetail& detail,
 
 inline juce::Image renderComparison (const KirinAttackDetail& pre,
                                      const KirinAttackDetail& post,
-                                     const attack_fan::Motion& motion = {})
+                                     const attack_motion::Motion& motion = {})
 {
     juce::Image image (juce::Image::ARGB, 300, 100, true);
     juce::Graphics graphics (image);
@@ -163,7 +163,7 @@ inline bool verifySignedComparisonSpecimen()
     const auto mixedImage = renderComparison (mixedPre, mixedPost);
     if (specimenDifferences (identityImage, mixedImage) < 100)
         return false;
-    attack_fan::Motion motion;
+    attack_motion::Motion motion;
     motion.bend.fill (0.24f);
     if (specimenDifferences (mixedImage, renderComparison (mixedPre, mixedPost, motion)) < 100)
         return false;

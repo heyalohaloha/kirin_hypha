@@ -32,82 +32,49 @@ inline bool verifyRedrawContract (const KirinAttackEventBatch& events,
     return ! attack_equality::same (a, b);
 }
 
-inline bool verifyFanCache()
+inline bool verifyFocusCache()
 {
-    auto cache = std::make_unique<attack_overview_glyph::Cache>();
-    const attack_specimen::FeatureAmounts pre { .2f, .4f, .6f, .8f }, post { .8f, .6f, .4f, .2f };
-    const auto first = cache->lookup (pre, post, true, 88, 40, 1.0f);
-    if (! first.isValid() || cache->builds() != 1 || cache->bytes() != 88 * 40 * 4) return false;
-    cache->lookup (pre, post, true, 88, 40, 1.0f);
-    if (cache->builds() != 1) return false;
-    for (float dpi : { 1.25f, 1.5f, 2.0f })
-        if (! cache->lookup (pre, post, true, 88, 40, dpi).isValid()) return false;
-    if (cache->builds() != 4) return false;
-    // Cached compositing must keep the gradient, including when the caller left a faint fill.
-    for (const auto dpi : { 1.0f, 2.0f })
-    for (const bool focus : { false, true })
-    {
-        const auto render = [&] (attack_overview_glyph::Cache* retained) {
-            juce::Image image (juce::Image::ARGB, static_cast<int> (88 * dpi),
-                                static_cast<int> (40 * dpi), true);
-            { juce::Graphics g (image); g.addTransform (juce::AffineTransform::scale (dpi));
-              g.setOpacity (.05f);
-              if (focus) {
-                  attack_fan::Motion motion; motion.bend.fill (.18f);
-                  attack_overview_glyph::drawFocus (g, { 0, 0, 88, 40 }, pre, post, true, motion, retained);
-              } else attack_overview_glyph::drawComparison (g, { 0, 0, 88, 40 }, pre, post, retained); }
-            return image;
-        };
-        const auto direct = render (nullptr), cached = render (cache.get());
-        std::uint64_t difference = 0, ink = 0, colourError = 0, colourInk = 0;
-        for (int y = 0; y < direct.getHeight(); ++y)
-            for (int x = 0; x < direct.getWidth(); ++x)
-            {
-                const auto a = direct.getPixelAt (x, y), b = cached.getPixelAt (x, y);
-                difference += static_cast<unsigned> (std::abs (a.getAlpha() - b.getAlpha()));
-                ink += a.getAlpha();
-                const std::array<int, 3> ac { a.getRed(), a.getGreen(), a.getBlue() };
-                const std::array<int, 3> bc { b.getRed(), b.getGreen(), b.getBlue() };
-                for (std::size_t c = 0; c < ac.size(); ++c)
-                {
-                    colourError += static_cast<unsigned> (std::abs (ac[c] * a.getAlpha() - bc[c] * b.getAlpha()));
-                    colourInk += static_cast<unsigned> (ac[c] * a.getAlpha());
-                }
-            }
-        if (ink == 0 || difference > ink / 20 || colourError > colourInk / 20) return false;
-    }
-    if (cache->lookup (pre, post, true, 88, 40, std::numeric_limits<float>::quiet_NaN()).isValid())
-        return false;
-    for (int i = 0; i < 540; ++i)
-    {
-        auto varied = post; varied.strength = static_cast<float> (i) / 540;
-        if (! cache->lookup (pre, varied, true, 30, 12, 1.25f).isValid()
-            || cache->bytes() > attack_overview_glyph::Cache::byteBudget) return false;
-    }
-    for (int i = 0; i < 12; ++i)
-    {
-        auto varied = post; varied.texture = static_cast<float> (i) / 12;
-        if (! cache->lookup (pre, varied, true, 200, 100, 4.0f).isValid()
-            || cache->bytes() > attack_overview_glyph::Cache::byteBudget) return false;
-    }
-    if (cache->bytes() == 0) return false;
-    auto focusCache = std::make_unique<attack_overview_glyph::Cache>();
-    attack_fan::Motion still, tiny, changed;
+    auto cache = std::make_unique<attack_focus::Cache>();
+    const attack_specimen::FeatureAmounts pre {.2f,.4f,.6f,.8f}, post {.8f,.6f,.4f,.2f};
+    attack_motion::Motion still, tiny, changed;
     tiny.bend.fill (.0001f); changed.bend.fill (.03f);
-    if (! focusCache->lookup (pre, post, true, 400, 100, 2, false, &still).isValid()
-        || ! focusCache->lookup (pre, post, true, 400, 100, 2, false, &tiny).isValid()
-        || focusCache->builds() != 1
-        || ! focusCache->lookup (pre, post, true, 400, 100, 2, false, &changed).isValid()
-        || focusCache->builds() != 2) return false;
-    changed.bend[0] = std::numeric_limits<float>::quiet_NaN();
-    if (focusCache->lookup (pre, post, true, 400, 100, 2, false, &changed).isValid()) return false;
-    auto twoLanes = std::make_unique<attack_overview_glyph::Cache>();
-    for (int pass = 0; pass < 2; ++pass)
-        for (int i = 0; i < 480; ++i)
-        {
-            auto varied = post; varied.strength = static_cast<float> (i) / 480;
-            if (! twoLanes->lookup ({}, varied, false, 20, 9, 2).isValid()) return false;
+    if (! cache->lookup (pre,post,true,400,100,2,still).isValid()
+        || ! cache->lookup (pre,post,true,400,100,2,tiny).isValid() || cache->builds()!=1
+        || ! cache->lookup (pre,post,true,400,100,2,changed).isValid() || cache->builds()!=2) return false;
+    for (auto dpi : {1.0f,1.25f,2.0f,4.0f}) {
+        const auto result=cache->lookup (pre,post,true,200,100,dpi,still);
+        if (! result.isValid() || cache->bytes()!=static_cast<std::size_t> (result.getWidth()*result.getHeight()*4))
+            return false;
+    }
+    for (int i=0;i<120;++i) {
+        auto varied=post;varied.strength=static_cast<float> (i)/120;
+        if (! cache->lookup (pre,varied,true,400,120,2,still).isValid()
+            || cache->bytes()!=400*120*4*4) return false;
+    }
+    for (auto dpi : {1.0f,1.25f,2.0f,4.0f}) {
+        juce::Image direct (juce::Image::ARGB,static_cast<int> (std::ceil (203*dpi)),static_cast<int> (std::ceil (101*dpi)),true);
+        juce::Image cached=direct.createCopy();
+        {juce::Graphics g (direct);g.addTransform (juce::AffineTransform::scale (dpi));g.setOpacity (.05f);
+         attack_focus::drawFocus (g,{0,0,203,101},pre,post,true,changed);}
+        {juce::Graphics g (cached);g.addTransform (juce::AffineTransform::scale (dpi));g.setOpacity (.05f);
+         attack_focus::drawFocus (g,{0,0,203,101},pre,post,true,changed,cache.get());}
+        std::uint64_t error=0,ink=0;
+        for (int y=0;y<direct.getHeight();++y) for (int x=0;x<direct.getWidth();++x) {
+            const auto a=direct.getPixelAt (x,y),b=cached.getPixelAt (x,y);
+            for (auto pair : {std::pair{a.getRed(),b.getRed()},std::pair{a.getGreen(),b.getGreen()},
+                              std::pair{a.getBlue(),b.getBlue()},std::pair{a.getAlpha(),b.getAlpha()}}) {
+                error+=static_cast<unsigned> (std::abs (pair.first*a.getAlpha()-pair.second*b.getAlpha()));
+                ink+=static_cast<unsigned> (pair.first*a.getAlpha());
+            }
         }
-    return twoLanes->builds() == 480 && twoLanes->bytes() <= attack_overview_glyph::Cache::byteBudget;
+        if (ink==0 || error>ink/20) return false;
+    }
+    const auto nan=std::numeric_limits<float>::quiet_NaN();
+    changed.bend[0]=nan;
+    return ! cache->lookup (pre,post,true,400,100,2,changed).isValid()
+        && ! cache->lookup (pre,post,true,400,100,nan,still).isValid()
+        && ! cache->lookup (pre,post,true,1024,512,4,still).isValid()
+        && ! cache->lookup (pre,post,true,0,100,1,still).isValid()
+        && cache->bytes()<=attack_focus::Cache::byteBudget;
 }
 }

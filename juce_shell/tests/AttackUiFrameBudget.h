@@ -44,6 +44,7 @@ inline bool verifyAttackFrameBudget()
             pre.contrast_db *= .65f; pre.sample_edge_ratio_db -= 3.7f;
         }
         waveform->count = preWaveform->count = KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY;
+        for (int instances : { 1, 2 })
         for (auto dpi : { 1.0f, 1.25f, 2.0f })
         for (bool overlay : { false, true })
         for (const auto& preset : observatory::sizePresets)
@@ -54,6 +55,8 @@ inline bool verifyAttackFrameBudget()
             const auto height = layout.body.height - observatory::timeNavigationHeight (preset.density);
             auto component = std::make_unique<AttackComponent>(); component->setSize (width, height);
             component->setOverlayMode (overlay);
+            auto second = std::make_unique<AttackComponent>(); second->setSize (width, height);
+            second->setOverlayMode (overlay);
             juce::Image image (juce::Image::ARGB, static_cast<int> (std::ceil (width * dpi)),
                                 static_cast<int> (std::ceil (height * dpi)), true);
             const auto frame = [&] (int frameIndex) {
@@ -74,6 +77,12 @@ inline bool verifyAttackFrameBudget()
                 component->presentationTickAt (now + 101);
                 juce::Graphics g (image); g.addTransform (juce::AffineTransform::scale (dpi));
                 component->paintEntireComponent (g, true);
+                if (instances == 2) {
+                    second->setSnapshot (*events, *waveform, *preDetails, *preWaveform, *details,
+                                         *pairs, 288000 + offset, 48000, 7, stats);
+                    second->presentationTickAt (now + 101);
+                    second->paintEntireComponent (g, true);
+                }
             };
             const auto coldStart = juce::Time::getMillisecondCounterHiRes(); frame (0);
             const auto cold = juce::Time::getMillisecondCounterHiRes() - coldStart;
@@ -85,10 +94,10 @@ inline bool verifyAttackFrameBudget()
             }
             std::sort (samples.begin(), samples.end());
             std::cout << "DRUM changing frame: size=" << width << 'x' << height << " dpi=" << dpi
-                      << " events=" << count << " overlay=" << overlay << " cold_ms=" << cold
+                      << " instances=" << instances << " events=" << count << " overlay=" << overlay << " cold_ms=" << cold
                       << " median_ms=" << samples[2] << " max_ms=" << samples[4] << '\n';
 #if ! JUCE_DEBUG
-            withinBudget = withinBudget && samples[2] <= 12.0 && samples[4] <= 24.0 && cold <= 80.0;
+            withinBudget = withinBudget && samples[2] <= (instances == 1 ? 12.0 : 16.0) && samples[4] <= 24.0 && cold <= 80.0;
 #endif
         }
     }

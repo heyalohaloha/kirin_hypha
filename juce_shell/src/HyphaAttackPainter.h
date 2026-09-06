@@ -5,7 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "kirin_hypha_ffi.h"
-#include "HyphaAttackFanModel.h"
+#include "HyphaAttackMotion.h"
 #include "HyphaAttackOverviewGlyphPainter.h"
 
 namespace hypha::attack_painter
@@ -16,29 +16,19 @@ namespace hypha::attack_painter
         trace
     };
 
-    void drawWaveform (juce::Graphics&,
+    void drawEnvelope (juce::Graphics&,
                        const KirinAttackWaveformBatch&,
-                       const KirinAttackDetailBatch&,
                        juce::Rectangle<int>,
                        std::int64_t firstSample,
                        std::int64_t latestSample,
                        std::uint32_t sampleRate,
                        WaveformStyle,
-                       bool colourAbsoluteFeatures,
-                       float alpha, attack_overview_glyph::Cache* = nullptr);
-    void drawWaveformDifferences (juce::Graphics&,
-                                  const KirinAttackDetailBatch& preDetails,
-                                  const KirinAttackDetailBatch& postDetails,
-                                  const KirinAttackPairEventBatch& pairs,
-                                  juce::Rectangle<int>,
-                                  std::int64_t firstSample,
-                                  std::int64_t latestSample,
-                                  std::uint32_t sampleRate, attack_overview_glyph::Cache* = nullptr);
+                       float alpha);
     void drawEventFocus (juce::Graphics&,
                          const KirinAttackDetail* preDetail,
                          const KirinAttackDetail* postDetail,
                          juce::Rectangle<int>,
-                         const attack_fan::Motion& = {}, attack_overview_glyph::Cache* = nullptr);
+                         const attack_motion::Motion& = {}, attack_focus::Cache* = nullptr);
     void drawMetricFact (juce::Graphics&,
                          juce::Rectangle<int>,
                          const juce::String& title,

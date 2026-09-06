@@ -90,8 +90,8 @@ void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int
         auto specimen = content.reduced (4, 1);
         auto direction = specimen.removeFromBottom (14);
         const auto motion = followLatest && liveSignalActive
-            ? attack_fan::measuredMotion (waveformBatch, latest, rate, currentGeneration)
-            : attack_fan::Motion {};
+            ? attack_motion::measuredMotion (waveformBatch, latest, rate, currentGeneration)
+            : attack_motion::Motion {};
         drawEventFocus (g, preDetail, postDetail, specimen, motion, &glyphCache);
         g.setFont (monoFont (11.0f));
         g.setColour (COL_MUTED);

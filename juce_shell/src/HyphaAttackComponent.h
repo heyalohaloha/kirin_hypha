@@ -36,7 +36,7 @@ namespace hypha
         bool keyPressed (const juce::KeyPress&) override;
 
     private:
-        attack_overview_glyph::Cache glyphCache;
+        attack_focus::Cache glyphCache;
         KirinAttackEventBatch eventBatch {};
         KirinAttackWaveformBatch waveformBatch {};
         KirinAttackDetailBatch detailBatch {};
