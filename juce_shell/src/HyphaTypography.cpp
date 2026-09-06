@@ -46,6 +46,26 @@ juce::Font fallbackFont (const char* family, float height)
 {
     return juce::Font (family, height, juce::Font::plain);
 }
+
+juce::String nativeTextFontFamily()
+{
+    static const auto family = []
+    {
+        const auto installed = juce::Font::findAllTypefaceNames();
+#if JUCE_WINDOWS
+        const std::array candidates { "Yu Gothic UI", "Meiryo UI", "Segoe UI" };
+#elif JUCE_MAC
+        const std::array candidates { ".Hiragino Kaku Gothic Interface", "Hiragino Sans" };
+#else
+        const std::array candidates { "Noto Sans CJK JP", "Noto Sans", "DejaVu Sans" };
+#endif
+        for (const auto* candidate : candidates)
+            if (installed.contains (candidate, true))
+                return juce::String { candidate };
+        return juce::Font::getDefaultSansSerifFontName();
+    }();
+    return family;
+}
 }
 
 const char* nativeFallbackLabelFontFamily() noexcept
@@ -85,6 +105,24 @@ juce::Font monoFont (float height)
     if (const auto typeface = kimeraTypeface())
         return juce::Font (typeface).withHeight (height);
     return fallbackFont (nativeFallbackMonoFontFamily(), height);
+}
+
+bool requiresNativeTextFont (const juce::String& text) noexcept
+{
+    for (auto cursor = text.getCharPointer(); ! cursor.isEmpty(); ++cursor)
+        if (*cursor > static_cast<juce::juce_wchar> (0x024f))
+            return true;
+    return false;
+}
+
+juce::Font nativeTextFont (float height)
+{
+    return juce::Font (nativeTextFontFamily(), juce::jmax (11.0f, height), juce::Font::plain);
+}
+
+juce::Font displayTextFont (const juce::String& text, float height)
+{
+    return requiresNativeTextFont (text) ? nativeTextFont (height) : labelFont (height);
 }
 
 float tabularTextWidth (const juce::Font& font, const juce::String& text)

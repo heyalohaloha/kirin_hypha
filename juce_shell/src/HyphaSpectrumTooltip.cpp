@@ -24,7 +24,7 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
     const auto bounds = getLocalBounds().toFloat();
     const float scale = spectrum_geometry::visualScaleFor (bounds);
     const auto outer = spectrum_geometry::plotBoundsFor (bounds);
-    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds);
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, ! absoluteObservation);
     const auto position = event.position;
     juce::String tip;
 

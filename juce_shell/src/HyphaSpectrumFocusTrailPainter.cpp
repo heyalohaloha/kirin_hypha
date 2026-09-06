@@ -2,6 +2,7 @@
 
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
+#include "HyphaPolylineGeometry.h"
 
 #include <algorithm>
 
@@ -95,64 +96,41 @@ void paint (juce::Graphics& g,
         }
         return yForDelta (value, plot);
     };
-    const float firstX = xForAge (history.ageSecondsAt (0u), plot);
-    const float firstY = displayY (0u);
-    juce::Path stroke;
-    stroke.startNewSubPath (firstX, firstY);
-    juce::Path recentGlow;
-    bool glowStarted = false;
-    // At 100% the lane is narrower than the 180 retained points. Painting every third exact
-    // observation preserves more points than there are useful horizontal pixels while avoiding
-    // redundant anti-aliased segments on Windows' software renderer. Storage and endpoints stay
-    // exact; this is pixel-aware presentation decimation, not smoothing or interpolation.
-    const size_t paintStride = compact ? 3u : 1u;
-    size_t previousIndex = 0u;
-    for (size_t index = paintStride; index < history.size(); index += paintStride)
+    std::array<float, spectrum_focus::focusTrailCapacity> x {}, y {};
+    std::array<double, spectrum_focus::focusTrailCapacity> age {};
+    for (size_t i = 0; i < history.size(); ++i)
     {
-        const double previousAge = history.ageSecondsAt (previousIndex);
-        const double currentAge = history.ageSecondsAt (index);
-        const float previousX = xForAge (previousAge, plot);
-        const float currentX = xForAge (currentAge, plot);
-        if (currentX <= previousX)
-            continue;
-        const float previousY = displayY (previousIndex);
-        const float currentY = displayY (index);
-        const bool gap = history.hasGapBetween (previousIndex, index);
-        if (gap)
-            stroke.startNewSubPath (currentX, currentY);
-        else
-            stroke.lineTo (currentX, currentY);
-        if (previousAge <= 1.5)
+        age[i] = history.ageSecondsAt (i);
+        x[i] = xForAge (age[i], plot);
+        y[i] = displayY (i);
+    }
+    juce::Path stroke, recentGlow;
+    const auto appendRun = [&] (juce::Path& path, size_t first, size_t last)
+    {
+        const auto keep = polyline_geometry::retainedVertices (x, y, first, last);
+        path.startNewSubPath (x[first], y[first]);
+        for (size_t i = first + 1; i <= last; ++i)
+            if (keep[i]) path.lineTo (x[i], y[i]);
+    };
+    // Simplify only within continuous runs, at a bounded subpixel error. Unlike a fixed stride,
+    // this keeps narrow excursions and the two sides of every missing-data gap at every size.
+    for (size_t first = 0; first < history.size();)
+    {
+        size_t last = first;
+        while (last + 1 < history.size() && x[last + 1] > x[last]
+               && ! history.hasGapBetween (last, last + 1))
+            ++last;
+        appendRun (stroke, first, last);
+        if (! compact)
         {
-            if (! glowStarted || gap)
-            {
-                recentGlow.startNewSubPath (gap ? currentX : previousX,
-                                            gap ? currentY : previousY);
-                glowStarted = true;
-            }
-            if (! gap)
-                recentGlow.lineTo (currentX, currentY);
+            size_t recent = first;
+            while (recent <= last && age[recent] > 1.5) ++recent;
+            if (recent <= last) appendRun (recentGlow, recent, last);
         }
-        previousIndex = index;
+        first = last + 1;
     }
     const size_t newest = history.size() - 1u;
-    const float newestX = xForAge (history.ageSecondsAt (newest), plot);
-    const float newestY = displayY (newest);
-    if (previousIndex != newest)
-    {
-        const bool gap = history.hasGapBetween (previousIndex, newest);
-        if (gap) stroke.startNewSubPath (newestX, newestY);
-        else stroke.lineTo (newestX, newestY);
-        if (history.ageSecondsAt (previousIndex) <= 1.5)
-        {
-            if (! glowStarted || gap)
-                recentGlow.startNewSubPath (
-                    gap ? newestX : xForAge (history.ageSecondsAt (previousIndex), plot),
-                    gap ? newestY : displayY (previousIndex));
-            if (! gap)
-                recentGlow.lineTo (newestX, newestY);
-        }
-    }
+    const float newestX = x[newest], newestY = y[newest];
     if (! compact && ! recentGlow.isEmpty())
     {
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.09f));

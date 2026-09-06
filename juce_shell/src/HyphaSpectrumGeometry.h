@@ -45,12 +45,13 @@ namespace hypha::spectrum_geometry
                      .withTrimmedBottom ((float) ui_contract::spectrumPlotBottomInset * scale);
     }
 
-    inline juce::Rectangle<float> dataPlotBoundsFor (juce::Rectangle<float> bounds) noexcept
+    inline juce::Rectangle<float> dataPlotBoundsFor (juce::Rectangle<float> bounds,
+                                                    bool reserveFocusTrail = true) noexcept
     {
         const float scale = visualScaleFor (bounds);
         auto plot = plotBoundsFor (bounds);
         plot.removeFromTop (juce::jmax (32.0f, 30.0f * scale));
-        if (scale > 1.1f)
+        if (reserveFocusTrail && scale > 1.1f)
         {
             plot.removeFromBottom (
                 ui_contract::spectrumFocusTrailHeight (scale)

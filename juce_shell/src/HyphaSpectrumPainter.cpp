@@ -3,6 +3,7 @@
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
+#include "HyphaPolylineGeometry.h"
 
 #include <algorithm>
 #include <array>
@@ -34,9 +35,10 @@ namespace
     {
         juce::Path curve;
         curve.preallocateSpace (static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 3u));
+        const auto keep = polyline_geometry::retainedVertices (x, y);
         curve.startNewSubPath (x.front(), y.front());
         for (size_t index = 1; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
-            curve.lineTo (x[index], y[index]);
+            if (keep[index]) curve.lineTo (x[index], y[index]);
         return curve;
     }
 }
@@ -95,27 +97,38 @@ void paintCurves (juce::Graphics& g,
         const float innerDb = std::copysign (magnitudeDb - tipDepthDb, db);
         return yForDeltaDb (innerDb, plot);
     };
-    for (size_t index = 1; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+    const auto bucketForSegment = [&delta] (size_t index) {
+        const float magnitude = 0.5f * (std::abs (delta[index - 1]) + std::abs (delta[index]));
+        return std::min (intensityLevelCount - 1u,
+                         static_cast<size_t> (magnitude / intensityStepDb));
+    };
+    // Consecutive segments of one colour form one ribbon and one highlight. Retained vertices
+    // bound the error to 0.05 logical pixels; shared edges and internal rounded caps disappear.
+    // This bounds stroke tessellation by colour runs instead of by individual FFT bands.
+    for (size_t first = 1; first < KIRIN_SPECTRUM_BAND_COUNT;)
     {
-        const float magnitude = 0.5f * (std::abs (delta[index - 1])
-                                      + std::abs (delta[index]));
-        const size_t bucket = std::min (intensityLevelCount - 1u,
-                                        static_cast<size_t> (magnitude / intensityStepDb));
+        const size_t bucket = bucketForSegment (first);
+        size_t last = first;
+        while (last + 1 < KIRIN_SPECTRUM_BAND_COUNT && bucketForSegment (last + 1) == bucket)
+            ++last;
+        const auto keep = polyline_geometry::retainedVertices (x, deltaY, first - 1, last);
         if (bucket > 0u)
         {
             for (size_t layer = 0; layer < tipDepthCoverage.size(); ++layer)
             {
                 auto& tip = intensityTips[layer][bucket];
-                tip.startNewSubPath (x[index - 1], deltaY[index - 1]);
-                tip.lineTo (x[index], deltaY[index]);
-                tip.lineTo (x[index], innerTipY (delta[index], tipDepthCoverage[layer]));
-                tip.lineTo (x[index - 1], innerTipY (delta[index - 1],
-                                                      tipDepthCoverage[layer]));
+                tip.startNewSubPath (x[first - 1], deltaY[first - 1]);
+                for (size_t index = first; index <= last; ++index)
+                    if (keep[index]) tip.lineTo (x[index], deltaY[index]);
+                for (size_t index = last + 1; index-- > first - 1;)
+                    tip.lineTo (x[index], innerTipY (delta[index], tipDepthCoverage[layer]));
                 tip.closeSubPath();
             }
         }
-        highlights[bucket].startNewSubPath (x[index - 1], deltaY[index - 1]);
-        highlights[bucket].lineTo (x[index], deltaY[index]);
+        highlights[bucket].startNewSubPath (x[first - 1], deltaY[first - 1]);
+        for (size_t index = first; index <= last; ++index)
+            if (keep[index]) highlights[bucket].lineTo (x[index], deltaY[index]);
+        first = last + 1;
     }
 
     g.setColour (COL_SPECTRUM_PRE.withAlpha (ui_contract::spectrumPreCurveAlpha));

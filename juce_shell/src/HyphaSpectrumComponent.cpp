@@ -401,7 +401,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
     if (psbObservation) return;
-    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds);
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, ! absoluteObservation);
     for (size_t index = 0; index < ui_contract::spectrumChannelModeWidths.size(); ++index)
     {
         if (! spectrum_geometry::channelModeBoundsFor (

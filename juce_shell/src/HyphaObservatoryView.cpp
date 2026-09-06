@@ -1,6 +1,7 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaSpacePainter.h"
 #include "HyphaTimeHistoryPainter.h"
+#include "HyphaObservationEquality.h"
 #include <utility>
 
 namespace hypha::observatory
@@ -144,6 +145,8 @@ void View::setTarget (ObservationTarget value)
 
 void View::setConnection (juce::String text, juce::Colour colour, ConnectionState state)
 {
+    if (connectionText == text && connectionColour == colour && connectionState == state)
+        return;
     connectionText = std::move (text);
     connectionColour = colour;
     connectionState = state;
@@ -160,6 +163,8 @@ void View::setExternalConnectionLabelVisible (bool visible)
 
 void View::setWatchDisplay (const KirinWatchDisplay& display, bool available)
 {
+    if (watchDisplayAvailable == available && observation_equality::same (watchDisplay, display))
+        return;
     watchDisplay = display;
     watchDisplayAvailable = available;
     if (selectedDomain == Domain::level)
@@ -186,7 +191,10 @@ void View::setCompactMaximum (bool maximum)
 
 void View::setGuide (juce::String primary, juce::String detail, bool emphasized)
 {
-    const bool changedPresence = guidePrimary.isEmpty() && primary.isNotEmpty();
+    if (guidePrimary == primary && guideDetail == detail && guideEmphasized == emphasized)
+        return;
+    const bool changedPresence = (guidePrimary.isNotEmpty() || guideDetail.isNotEmpty())
+        != (primary.isNotEmpty() || detail.isNotEmpty());
     guidePrimary = std::move (primary);
     guideDetail = std::move (detail);
     guideEmphasized = emphasized;
@@ -208,6 +216,10 @@ void View::clearGuide()
 
 void View::setHistory (std::vector<KirinMeterHistoryEntry> entries)
 {
+    if (history.size() == entries.size()
+        && std::equal (history.begin(), history.end(), entries.begin(),
+                       [] (const auto& a, const auto& b) { return observation_equality::same (a, b); }))
+        return;
     history = std::move (entries);
     runSummary = target() == ObservationTarget::absolute
         ? run_summary::summarize (history) : run_summary::Result {};
