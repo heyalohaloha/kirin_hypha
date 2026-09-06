@@ -25,10 +25,12 @@ void require (bool condition, const char* expression, int line)
 void verifyOsAccessUiContract()
 {
     observatory::View observatory (observatory::Role::post);
-    observatory.setReferenceEnabled (false);
-    KIRIN_OS_ACCESS_REQUIRE (! observatory.isReferenceEnabled());
-    observatory.setReferenceEnabled (true);
-    KIRIN_OS_ACCESS_REQUIRE (observatory.isReferenceEnabled());
+    observatory.setReferenceOwned (false);
+    KIRIN_OS_ACCESS_REQUIRE (! observatory.isReferenceOwned());
+    auto* reference = observatory.findChildWithID ("observatory-reference");
+    KIRIN_OS_ACCESS_REQUIRE (reference != nullptr && reference->isEnabled());
+    observatory.setReferenceOwned (true);
+    KIRIN_OS_ACCESS_REQUIRE (observatory.isReferenceOwned());
     observatory.setSize (300, 200);
     auto* note = observatory.findChildWithID ("observatory-note");
     KIRIN_OS_ACCESS_REQUIRE (note != nullptr && note->isVisible());

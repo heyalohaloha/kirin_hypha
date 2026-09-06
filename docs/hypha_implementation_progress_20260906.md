@@ -4,6 +4,9 @@
 承認: [推奨方針と 2 枠の使用条件](hypha_implementation_approval_20260906.md)。
 状態: 開発コードと研究用試作。公開候補ではない。
 
+後続作業のReference案内、同一区間capture部品、実音源32本の開発検証は[追加実装と実音源検証](hypha_reference_and_audio_research_20260906.md)に記録する。
+以下の試験結果はB-717までの記録であり、後続変更の全体合格を意味しない。
+
 ## 今回実装したもの
 
 現行 ATTACK の表示を DRUM に変え、TRACK/STEM の入口に限定した。

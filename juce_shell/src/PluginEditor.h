@@ -21,6 +21,7 @@
  #include "HyphaAbsoluteComponent.h"
  #include "HyphaAttackComponent.h"
  #include "HyphaReferenceComponent.h"
+ #include "HyphaReferenceAccessPanel.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -87,6 +88,7 @@ private:
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();
     void configureReferenceAudition();
+    void showReferenceInformationMenu();
     void layoutReferenceAudition (juce::Rectangle<int>);
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
@@ -141,6 +143,7 @@ private:
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
     hypha::AttackComponent attackView;         // POST ATTACK product view
     hypha::reference_ui::Component referenceView; // POST-only Kirin OS prepared A/B
+    hypha::reference_ui::AccessPanel referenceAccessView;
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help

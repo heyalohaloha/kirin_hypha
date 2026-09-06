@@ -17,9 +17,9 @@ constexpr State classify (bool osOwned, bool connected, bool prepared) noexcept
          : prepared ? State::ready : State::connectedUnprepared;
 }
 
-constexpr bool tabEnabled (State state) noexcept
+constexpr bool tabEnabled (State) noexcept
 {
-    return state != State::unowned;
+    return true; // The POST entry also opens discovery/help, not just audition.
 }
 
 constexpr bool featureReady (State state) noexcept
@@ -32,7 +32,7 @@ static_assert (classify (false, true, true) == State::unowned);
 static_assert (classify (true, false, false) == State::ownedDisconnected);
 static_assert (classify (true, true, false) == State::connectedUnprepared);
 static_assert (classify (true, true, true) == State::ready);
-static_assert (! tabEnabled (State::unowned));
+static_assert (tabEnabled (State::unowned));
 static_assert (tabEnabled (State::ownedDisconnected));
 static_assert (! featureReady (State::connectedUnprepared));
 static_assert (featureReady (State::ready));

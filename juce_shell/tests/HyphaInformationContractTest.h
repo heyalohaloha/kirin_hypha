@@ -25,7 +25,8 @@ inline void verifyInformationContract()
     const auto copy = [&] (std::string_view) { ++copied; };
     for (const auto action : { Action::hoverHelp, Action::downloadsEnglish, Action::downloadsJapanese,
                               Action::changes, Action::copyEnglish, Action::copyJapanese,
-                              Action::copyChanges })
+                              Action::copyChanges, Action::osEnglish, Action::osJapanese,
+                              Action::copyOsEnglish, Action::copyOsJapanese })
     {
         require (dispatch (action, true, launch, copy) == Outcome::blocked, "Blind blocks dispatch");
         require (launched == 0 && copied == 0, "blocked action has no external side effect");
@@ -41,7 +42,8 @@ inline void verifyInformationContract()
     require (dispatch (Action::changes, false, [] (std::string_view) { return false; }, copy)
                  == Outcome::openFailed, "browser failure is not update success");
     require (url (Action::copyJapanese) == url (Action::downloadsJapanese), "same fallback URL");
-    for (const auto action : { Action::downloadsEnglish, Action::downloadsJapanese, Action::changes })
+    for (const auto action : { Action::downloadsEnglish, Action::downloadsJapanese, Action::changes,
+                              Action::osEnglish, Action::osJapanese })
         require (copies (copyAction (action)) && url (copyAction (action)) == url (action),
                  "browser failure offers the exact requested URL");
 
@@ -50,7 +52,7 @@ inline void verifyInformationContract()
         {
             observatory::View view (role);
             view.setSize (width, width * 2 / 3);
-            view.setReferenceEnabled (false);
+            view.setReferenceOwned (false);
             auto& anchor = view.informationAnchor();
             require (anchor.isVisible() && anchor.isEnabled(), "all sizes / no license / no pair");
             require (anchor.getWantsKeyboardFocus(), "keyboard entry");

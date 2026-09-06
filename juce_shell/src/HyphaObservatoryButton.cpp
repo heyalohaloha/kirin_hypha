@@ -31,6 +31,8 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
 
     const auto textColour = ! isEnabled() ? COL_MUTED.brighter (0.20f)
                           : selected ? COL_FLORA_BR
+                          : isColourSpecified (juce::TextButton::textColourOffId)
+                              ? findColour (juce::TextButton::textColourOffId)
                           : highlighted ? COL_NORMAL.withAlpha (0.82f) : COL_MUTED;
     g.setColour (textColour);
     g.setFont (labelFont (getHeight() >= 38 ? 15.0f : getHeight() >= 28 ? 13.0f : 11.0f));

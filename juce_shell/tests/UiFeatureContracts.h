@@ -17,6 +17,7 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "OsAccessUiContractTest.h"
 #include "HyphaInformationContractTest.h"
+#include "ReferenceAccessPanelContractTest.h"
 
 namespace hypha::tests
 {
@@ -29,10 +30,13 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         std::exit (EXIT_FAILURE);
     }
     verifyInformationContract();
+    verifyReferenceAccessPanelContract();
+    verifyReferenceAuditionComponentContract();
+    verifyOsAccessUiContract();
     verifyTimePageNavigationContract();
     if (entryOnly)
     {
-        std::cout << "Product entry: PASS (82 role/size layouts, update dispatch, DRUM navigation)\n";
+        std::cout << "Product entry: PASS (82 role/size layouts, 41 Reference layouts, update dispatch, DRUM navigation)\n";
         return true;
     }
     verifyObservationPageContract();
@@ -49,7 +53,6 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyCaptureHistoryContract();
     verifyTimeHistoryContract();
     verifySpaceFieldContract();
-    verifyReferenceAuditionComponentContract(); verifyOsAccessUiContract();
     return false;
 }
 }

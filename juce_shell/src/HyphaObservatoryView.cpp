@@ -56,6 +56,8 @@ View::View (Role roleIn) : role (roleIn)
     frequencyButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::frequency); };
     spaceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::space); };
     referenceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::reference); };
+    referenceButton.setComponentID ("observatory-reference");
+    setReferenceOwned (false);
     domainCycleButton.onClick = [this] { cycleDomain(); };
     targetButton.onClick = [this]
     {
@@ -238,8 +240,7 @@ GuidePresence View::guidePresence() const noexcept
 
 void View::cycleDomain()
 {
-    auto next = nextDomain (role, selectedDomain);
-    if (! referenceEnabled && next == Domain::reference) next = nextDomain (role, next);
+    const auto next = nextDomain (role, selectedDomain);
     if (onDomainChange) onDomainChange (next);
 }
 

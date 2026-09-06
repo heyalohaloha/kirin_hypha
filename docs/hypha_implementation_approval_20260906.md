@@ -12,6 +12,7 @@
 3. 管理対象の同一 DAW participant scope で Blind と Keep / All Keep を相互排他にする。既存 Record を自動停止しない。
 4. ローカル PRE/POST Blind は Hypha 単体で使用できる。2MIX と TRACK/STEM、mono と stereo を含む。登録 Reference の Kirin OS 権限は変更しない。
 5. 今回は共通情報メニューから公式更新情報とダウンロードへ進む手動導線を作る。自動通信、最新版の自動検知、自動インストールは追加しない。
+6. Reference押下時にKirin OSの説明と公式製品ページへの入口を設ける。購入は利用者が外部ページで判断する。権限を確認できない所有者のために接続案内と明示再確認を用意し、PRE/POST Blindの権限とは分離する。
 
 現行 ATTACK を DRUM と明示して TRACK/STEM 側へ区別する方針も採用する。
 2MIX 専用検出器が検証を通るまで DRUM を 2MIX 用として代用せず、文脈変更で DRUM の解析要求を終了する。
@@ -59,3 +60,10 @@ Notion への書込み、別タスクの作成、他担当へのメッセージ�
 既存の JUCE ローカル差分と未追跡の別件 handoff は保存する。
 
 関連文書: [SPACE / ATTACK 計画](hypha_space_attack_plan_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)、[更新導線と検証条件](hypha_plans_review_and_update_path_20260906.md)。
+
+## 実音源の追加指定
+
+Daisukeは同日にDev、ALOHA、およびミュージック内のQobuzを検証素材の所在として指定した。
+原本を変更せず、ローカルの開発検証に限って使用する。
+この指定を再配布、外部送信、リポジトリへの音源追加の許可とは扱わない。
+素材の所在確認と使用許可は、独立した人の注釈や未使用holdoutの証明を代替しない。

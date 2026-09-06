@@ -105,8 +105,6 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 {
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
     domain = hypha::observatory::sanitizeDomain (role, domain);
-    if (domain == hypha::observatory::Domain::reference && ! processorRef.licenseIsOs())
-        domain = hypha::observatory::Domain::level;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (observatoryDomain == hypha::observatory::Domain::reference
         && domain != hypha::observatory::Domain::reference)
@@ -130,13 +128,11 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 void KirinHyphaEditor::refreshObservatory()
 {
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
-    const bool referenceEnabled = isPost && processorRef.licenseIsOs();
-    if (observatoryView.isReferenceEnabled() != referenceEnabled)
-        observatoryView.setReferenceEnabled (referenceEnabled);
+    const bool referenceOwned = isPost && processorRef.licenseIsOs();
+    if (observatoryView.isReferenceOwned() != referenceOwned)
+        observatoryView.setReferenceOwned (referenceOwned);
     auto restoredDomain = hypha::observatory::domainFromState (
         role, processorRef.observatoryDomainPreference());
-    if (! referenceEnabled && restoredDomain == hypha::observatory::Domain::reference)
-        restoredDomain = hypha::observatory::Domain::level;
     if (restoredDomain != observatoryDomain)
         setObservatoryDomain (restoredDomain);
     const auto restoredTarget = hypha::observatory::targetFromState (

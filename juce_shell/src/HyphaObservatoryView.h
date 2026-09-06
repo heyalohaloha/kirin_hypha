@@ -91,18 +91,17 @@ public:
     void setExternalAnalysisBodyActive (bool);
     void setRunSummaryMode (bool);
     bool runSummaryAvailable() const noexcept { return runSummary.available(); }
-    void setReferenceEnabled (bool enabled)
+    void setReferenceOwned (bool owned)
     {
-        referenceEnabled = enabled;
-        referenceButton.setEnabled (enabled);
-        referenceButton.setTitle (enabled ? "Reference"
-                                          : "Reference - Kirin OS required");
-        referenceButton.setDescription (enabled ? "Open Reference audition"
-                                                : "REF requires Kirin OS ownership");
+        referenceOwned = owned;
+        referenceButton.setEnabled (role == Role::post);
+        referenceButton.setTitle (owned ? "Reference" : "Reference - About Kirin OS");
+        referenceButton.setDescription (owned ? "Open Reference audition"
+                                             : "Open Kirin OS information and connection help");
         referenceButton.setTooltip (referenceButton.getDescription());
         repaint();
     }
-    bool isReferenceEnabled() const noexcept { return referenceButton.isEnabled(); }
+    bool isReferenceOwned() const noexcept { return referenceOwned; }
     void setConnection (juce::String text, juce::Colour colour, ConnectionState state);
     void setExternalConnectionLabelVisible (bool visible);
     ConnectionState connection() const noexcept { return connectionState; }
@@ -190,7 +189,7 @@ private:
     analysis_navigation::Page analysisPage = analysis_navigation::Page::meters;
     bool attackPaired = false;
     juce::String feedbackText;
-    bool referenceEnabled = true;
+    bool referenceOwned = false;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;
     ConnectionState connectionState = ConnectionState::unpaired;

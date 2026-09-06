@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <iterator>
+#include "HyphaUpdateContract.h"
 
 namespace
 {
@@ -71,6 +72,15 @@ hypha::reference_ui::BlindPhase referenceBlindPhase (
 
 void KirinHyphaEditor::configureReferenceAudition()
 {
+    referenceAccessView.onAbout = [this] { showReferenceInformationMenu(); };
+    referenceAccessView.onRecheck = [this]
+    {
+        if (informationBlockedByBlind()) return;
+        processorRef.refreshLicenseForUserAction();
+        referenceAccessView.setOwned (processorRef.licenseIsOs());
+        referenceAccessView.setRecheckUnconfirmed (! processorRef.licenseIsOs());
+    };
+    scaleRoot.addChildComponent (referenceAccessView);
     referenceView.onSelectA = [this] { processorRef.selectReferenceA(); };
     referenceView.onSelectB = [this]
     {
@@ -138,9 +148,33 @@ void KirinHyphaEditor::configureReferenceAudition()
 
 void KirinHyphaEditor::layoutReferenceAudition (juce::Rectangle<int> body)
 {
+    const bool reference = observatoryDomain == hypha::observatory::Domain::reference;
+    const bool access = hypha::reference_ui::needsAccessPanel (referenceView.state());
     referenceView.setBounds (body);
-    referenceView.setVisible (observatoryDomain == hypha::observatory::Domain::reference);
+    referenceView.setVisible (reference && ! access);
     referenceView.toFront (false);
+    referenceAccessView.setBounds (body);
+    referenceAccessView.setVisible (reference && access);
+    if (referenceAccessView.isVisible()) referenceAccessView.toFront (false);
+}
+
+void KirinHyphaEditor::showReferenceInformationMenu()
+{
+    if (informationBlockedByBlind()) return;
+    using Action = hypha::update_information::Action;
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&pairMenuLookAndFeel());
+    menu.addSectionHeader ("Kirin OS / Product, trial and purchase");
+    menu.addItem (static_cast<int> (Action::osEnglish), "About Kirin OS (English)");
+    menu.addItem (static_cast<int> (Action::osJapanese),
+                  juce::String::fromUTF8 ("Kirin OSについて（日本語）"));
+    menu.addSeparator();
+    menu.addItem (static_cast<int> (Action::copyOsEnglish), "Copy official URL (English)");
+    menu.addItem (static_cast<int> (Action::copyOsJapanese), "Copy official URL (Japanese)");
+    const juce::Component::SafePointer<KirinHyphaEditor> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&referenceAccessView)
+        .withDeletionCheck (*this).withMinimumWidth (360).withStandardItemHeight (28),
+        [safe] (int selected) { if (safe != nullptr) safe->handleInformationMenu (selected); });
 }
 
 void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& frame,
@@ -323,6 +357,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
              && ! runtime.measurementAvailable && ! runtime.viewBindings.empty())
         state.actionText = "PREPARE VISUALS";
     referenceView.setState (std::move (state));
+    referenceAccessView.setOwned (processorRef.licenseIsOs());
+    layoutReferenceAudition (referenceView.getBounds());
 }
 
 #endif

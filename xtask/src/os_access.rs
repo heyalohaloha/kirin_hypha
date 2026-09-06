@@ -57,10 +57,12 @@ mod tests {
             assert!(action.contains("refreshLicenseForUserAction();"));
             assert!(action.contains("if (! licenseIsOs())"));
         }
-        assert!(
-            EDITOR_OBSERVATORY.contains("observatoryView.setReferenceEnabled (referenceEnabled)")
-        );
-        assert!(EDITOR_OBSERVATORY.contains("Domain::reference && ! processorRef.licenseIsOs()"));
+        assert!(EDITOR_OBSERVATORY.contains("observatoryView.setReferenceOwned (referenceOwned)"));
+        assert!(!EDITOR_OBSERVATORY.contains("Domain::reference && ! processorRef.licenseIsOs()"));
+        let reference = include_str!("../../juce_shell/src/PluginEditorReference.cpp");
+        assert!(reference.contains("hypha::reference_ui::needsAccessPanel (referenceView.state())"));
+        assert!(reference.contains("processorRef.refreshLicenseForUserAction();"));
+        assert!(reference.contains("safe->handleInformationMenu (selected)"));
     }
 
     #[test]

@@ -81,11 +81,17 @@ Audio Threadが要求sourceを実際に出力したcallback receiptの後だけ�
 
 Kirin OS連携は`OS未所有`、`OS所有・未接続`、`接続済み・準備不足`、`準備完了`の四状態を区別する。
 
-OS未所有ではREF tab全体をdisabled表示にし、Keep／All Keepは消さずdisabled表示にする。
-OS所有・未接続ではREF tabを開けるがBを無効にし、Kirin OSの`Open in Hypha`を案内する。
+POSTのREF入口はOS権限を確認できない状態でも開け、Referenceの説明、公式製品ページ、所有者向け接続案内を表示する。
+公式製品ページは英語と日本語の明示選択で開き、購入処理や外部通信を自動開始しない。
+所有者向け案内ではローカルlicenseの明示再確認を提供し、確認できないことを「未購入」と断定しない。
+Keep／All Keepは消さずdisabled表示にする。
+OS所有・未接続では購入案内を表示せず、Bを無効にしてKirin OSの`Open in Hypha`を案内する。
 接続済み・準備不足では不足している前提に関係する操作だけを無効にし、準備完了時だけBとBlindを許可する。
 
-REFはUIだけでなく、利用者操作の入口とAudio ThreadのB出力条件でもOS entitlementを再確認する。
+REFの案内画面は試聴の許可ではない。
+登録ReferenceのB／BlindはUIだけでなく、利用者操作の入口とAudio ThreadのB出力条件でもOS entitlementを再確認する。
+進行中の比較や減衰保持からの復帰操作を案内画面で覆わない。
+ローカルPRE/POST BlindはHypha単体機能として承認済みだが、このReference案内の実装では音声経路へ接続しない。
 Keep／Record開始は既存のRust側license gateを正本とし、UI状態だけで許可を推測しない。
 Guide rail、TIME上のGuide時刻、FREQ上のGuide帯域、WorkへのCapture添付、Work名、CaptureへのGuide包含はOS所有時だけ利用できる。
 LEVEL、TIME、FREQ、SPACE、通常のPRE/POST差分と解析、ローカル高解像度Capture、自由リサイズは制限しない。
