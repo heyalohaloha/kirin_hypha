@@ -196,7 +196,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         COPY_PLUGIN_AFTER_BUILD FALSE)
 
     target_sources(${TARGET} PRIVATE
-        src/PluginProcessor.cpp src/PluginProcessorAudition.cpp
+        src/PluginProcessor.cpp src/PluginProcessorAudition.cpp src/local_blind/LocalBlindTrial.cpp
         src/PluginProcessorDisplayState.cpp
         src/PluginProcessorGuideTransport.cpp
         src/PluginProcessorNote.cpp
@@ -375,6 +375,7 @@ endif()
 
 option(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS
     "Build the native-font and fixed-geometry UI render contract test" OFF)
+include(cmake/LocalBlind.cmake)
 if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     enable_testing()
     juce_add_console_app(KirinUiRenderContractTests

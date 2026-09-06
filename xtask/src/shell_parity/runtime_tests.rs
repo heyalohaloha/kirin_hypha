@@ -134,8 +134,16 @@
         assert!(body.contains("windowPositionSamples, windowNumFrames, clockSource"));
         assert!(body
             .contains("kirin_hypha_note_transport_block (hyphaHandle, measurementTimelineActive"));
-        assert!(PLUGIN_PROCESSOR_CPP
-            .contains("lastMeasurementTimelineActive.load (std::memory_order_acquire)"));
+        // The Session producer, not editor polling, now owns measurement/MAX time (B-705).
+        let display = cpp_body(PLUGIN_PROCESSOR_METER_CPP,
+                               "bool KirinHyphaProcessorBase::pollWatchDisplay");
+        assert!(display.contains("kirin_hypha_poll_meter_display (hyphaHandle, &out)"));
+        assert!(!display.contains("lastMeasurementTimelineActive.load"));
+        let ffi = between(WATCH_DISPLAY_FFI_RS, "fn kirin_hypha_poll_meter_display(",
+                          "impl KirinHyphaEngine");
+        assert!(ffi.contains(".poll_meter_session()"));
+        assert!(ffi.contains("current: to_c_result(&snapshot.current)")
+            && ffi.contains("maximum: to_c_result(&snapshot.maximum)"));
     }
 
     #[test]

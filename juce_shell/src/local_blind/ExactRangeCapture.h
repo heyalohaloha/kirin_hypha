@@ -106,9 +106,9 @@ private:
         if (range.generation == 0 || range.sampleRate < 8'000 || range.sampleRate > 768'000
             || (range.channels != 1 && range.channels != 2) || range.frames < 1
             || range.start > std::numeric_limits<std::int64_t>::max() - range.frames
-            || static_cast<std::uint64_t> (range.frames) > budget / sizeof (float) / range.channels)
+            || static_cast<std::uint64_t> (range.frames) > budget / sizeof (float) / static_cast<std::size_t> (range.channels))
             throw std::invalid_argument ("Invalid capture range or capacity");
-        return static_cast<std::size_t> (range.frames) * range.channels;
+        return static_cast<std::size_t> (range.frames) * static_cast<std::size_t> (range.channels);
     }
 };
 }

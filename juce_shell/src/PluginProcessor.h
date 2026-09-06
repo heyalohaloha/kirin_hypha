@@ -1,4 +1,6 @@
 #pragma once
+#include "local_blind/LocalBlindSlot.h"
+#include "local_blind/LocalBlindEpochSnapshot.h"
 #include "kirin_hypha_display_ffi.h"
 
 #include <atomic>
@@ -247,6 +249,8 @@ private:
                                   bool hasPosition, bool playing, bool bypassed, bool nonRealtimeMode);
 
     const Role role;                                   // Pre or Post (selects enable + display name)
+    hypha::local_blind::LocalBlindSlot localBlindOutput;
+    hypha::local_blind::LocalBlindEpochSnapshot localBlindEpochs;
 
     juce::AudioParameterBool* bypassParam = nullptr;   // owned by AudioProcessor (addParameter)
     std::vector<float> interleaveScratch;              // pre-allocated in prepareToPlay (RT-safe; no alloc in processBlock)

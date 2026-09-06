@@ -22,6 +22,13 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/pre_display/PreDisplayClock.h"
     ));
+    const AUDITION_OUTPUT_CPP: &str =
+        include_str!("../../juce_shell/src/PluginProcessorAudition.cpp");
+    const LOCAL_TRIAL_CPP: &str =
+        include_str!("../../juce_shell/src/local_blind/LocalBlindTrial.cpp");
+    const LOCAL_SLOT_H: &str = include_str!("../../juce_shell/src/local_blind/LocalBlindSlot.h");
+    const LOCAL_EPOCH_H: &str =
+        include_str!("../../juce_shell/src/local_blind/LocalBlindEpochSnapshot.h");
 
     fn strip_line_comments(source: &str) -> String {
         source
@@ -72,7 +79,11 @@ mod tests {
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::processBlock",
         );
-        let calls = ffi_calls(&body);
+        let mut calls = ffi_calls(&body);
+        calls.extend(ffi_calls(&function_body(
+            AUDITION_OUTPUT_CPP,
+            "void KirinHyphaProcessorBase::renderComparisonOutputs",
+        )));
         let expected = BTreeSet::from([
             "kirin_hypha_get_signal_state".to_string(),
             "kirin_hypha_is_recording".to_string(),
@@ -85,6 +96,95 @@ mod tests {
         ]);
 
         assert_eq!(calls, expected);
+    }
+
+    #[test]
+    fn local_blind_output_is_after_measurement_and_exclusive_of_reference() {
+        let body = function_body(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::processBlock",
+        );
+        assert!(
+            body.find("kirin_hypha_push_samples").unwrap()
+                < body.find("renderComparisonOutputs (buffer").unwrap()
+        );
+        let output = function_body(
+            AUDITION_OUTPUT_CPP,
+            "void KirinHyphaProcessorBase::renderComparisonOutputs",
+        );
+        assert!(output.contains("block.epochs = localBlindEpochs.read()"));
+        assert!(output.contains("role == Role::Post && localBlindOutput.hasPublishedRealtime()"));
+        assert!(output.contains("buffer.getNumSamples(), block)) return;"));
+        assert!(
+            output.find("localBlindOutput.render").unwrap()
+                < output
+                    .find("referenceAuditionController->observeAInput")
+                    .unwrap()
+        );
+        assert!(!output.contains("exactLoopRangeValid = true"));
+    }
+
+    #[test]
+    fn extracted_output_and_local_blind_rt_callees_avoid_blocking_work() {
+        for (source, signature) in [
+            (
+                AUDITION_OUTPUT_CPP,
+                "void KirinHyphaProcessorBase::renderComparisonOutputs",
+            ),
+            (LOCAL_TRIAL_CPP, "TrialOutput LocalBlindTrial::render"),
+            (LOCAL_TRIAL_CPP, "TrialOutput LocalBlindTrial::hold"),
+            (LOCAL_TRIAL_CPP, "bool LocalBlindTrial::inputLayout"),
+            (LOCAL_TRIAL_CPP, "void LocalBlindTrial::invalidate"),
+            (LOCAL_SLOT_H, "bool render ("),
+            (LOCAL_SLOT_H, "bool hasPublishedRealtime()"),
+            (LOCAL_EPOCH_H, "TrialEpochs read()"),
+        ] {
+            let body = function_body(source, signature);
+            for forbidden in [
+                "ScopedLock",
+                "mutex",
+                ".lock(",
+                ".lock (",
+                ".resize",
+                ".reserve",
+                ".assign",
+                "new ",
+                "delete ",
+                "malloc",
+                "calloc",
+                "realloc",
+                "free(",
+                "reset(",
+                "reset (",
+                "juce::File",
+                "std::filesystem",
+                "fstream",
+                "std::thread",
+                "sleep",
+                "wait",
+                "triggerAsyncUpdate",
+                "positiveModuloDifference",
+            ] {
+                assert!(
+                    !body.contains(forbidden),
+                    "{signature} must not contain {forbidden}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn local_blind_tests_are_registered_in_windows_ci() {
+        let ci = include_str!("../../.github/workflows/ci.yml");
+        let cmake = include_str!("../../juce_shell/cmake/LocalBlind.cmake");
+        for target in [
+            "KirinLocalBlindCaptureTests",
+            "KirinLocalBlindTrialTests",
+            "KirinLocalBlindPreparationTests",
+        ] {
+            assert!(ci.contains(target) && cmake.contains(target));
+        }
+        assert!(ci.contains("-R '^kirin_local_blind_'"));
     }
 
     #[test]

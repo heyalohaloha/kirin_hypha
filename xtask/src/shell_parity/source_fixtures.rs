@@ -10,6 +10,7 @@
     const PLUGIN_EDITOR_CPP: &str = concat!(
         include_str!("../../../juce_shell/src/PluginEditor.cpp"),
         include_str!("../../../juce_shell/src/PluginEditorMeter.cpp"),
+        include_str!("../../../juce_shell/src/PluginEditorMenu.cpp"),
     );
     const PLUGIN_EDITOR_H: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -27,6 +28,8 @@
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
     ));
+    const PLUGIN_PROCESSOR_METER_CPP: &str = include_str!("../../../juce_shell/src/PluginProcessorMeter.cpp");
+    const WATCH_DISPLAY_FFI_RS: &str = include_str!("../../../crates/kirin_hypha_ffi/src/watch_display_ffi.rs");
     const PLUGIN_PROCESSOR_H: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.h"
@@ -104,4 +107,22 @@
     }
     fn count_occurrences(source: &str, needle: &str) -> usize {
         source.match_indices(needle).count()
+    }
+
+    // Function scope, independent of the next method's location after a responsibility extraction.
+    fn cpp_body<'a>(source: &'a str, signature: &str) -> &'a str {
+        let tail = &source[source.find(signature).expect(signature)..];
+        let open = tail.find('{').expect(signature);
+        let mut depth = 0usize;
+        for (index, c) in tail[open..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 { return &tail[open + 1..open + index]; }
+                }
+                _ => {}
+            }
+        }
+        panic!("function body not closed: {signature}");
     }

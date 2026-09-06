@@ -235,11 +235,7 @@ mod tests {
 
     #[test]
     fn keep_preparing_and_armed_are_visible_and_stoppable_before_record_ack() {
-        let body = between(
-            PLUGIN_EDITOR_CPP,
-            "void KirinHyphaEditor::updatePost()",
-            "const int ledSig",
-        );
+        let body = cpp_body(PLUGIN_EDITOR_CPP, "void KirinHyphaEditor::updatePost()");
         assert!(FFI_HEADER.contains("#define KIRIN_KEEP_PHASE_IDLE 0u"));
         assert!(FFI_HEADER.contains("#define KIRIN_KEEP_PHASE_PREPARING 1u"));
         assert!(FFI_HEADER.contains("#define KIRIN_KEEP_PHASE_ARMED 2u"));
@@ -391,10 +387,9 @@ mod tests {
 
     #[test]
     fn candidate_selection_commits_exact_instance_and_updates_display_field() {
-        let body = between(
+        let body = cpp_body(
             PLUGIN_EDITOR_CPP,
             "void KirinHyphaEditor::handleCandidateMenu (",
-            "void KirinHyphaEditor::timerCallback()",
         );
 
         assert!(body.contains("processorRef.setPairCandidate (candidate.instanceId, name)"));
@@ -424,10 +419,9 @@ mod tests {
 
     #[test]
     fn juce_all_keep_uses_authoritative_engine_result() {
-        let body = between(
+        let body = cpp_body(
             PLUGIN_EDITOR_CPP,
             "void KirinHyphaEditor::handleCandidateMenu (",
-            "void KirinHyphaEditor::timerCallback()",
         );
         let all_keep_body = between(body, "if (result == 1)", "else if (result == 2)");
 

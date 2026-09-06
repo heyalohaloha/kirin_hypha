@@ -8,6 +8,8 @@
 再点検: 2026-09-06、B-708 の作業木を照合。§11 の安全条件を追加し、実装仕様の凍結前であることを明示。
 共通の採否表と最新版の導線は [両計画の再点検と更新案内](hypha_plans_review_and_update_path_20260906.md) を参照。
 最新の承認内容と「既存 2 枠内、Blind は同時 1 枠」の制約は [実装承認記録](hypha_implementation_approval_20260906.md) を正本とする。
+実装と試験の進捗は [PRE/POST Blind の実装状況](hypha_local_blind_runtime_progress_20260906.md) を参照。
+以下は計画時点の調査記録であり、製品機能の完成を示すものではない。
 
 ## 1. 結論
 
