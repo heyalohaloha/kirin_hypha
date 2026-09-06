@@ -5,7 +5,6 @@ crates/hypha_pre/src/editor.rs	661
 crates/hypha_pre/src/lib.rs	1259
 crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h	839
 crates/kirin_hypha_ffi/src/lib.rs	5515
-crates/kirin_hypha_ffi/tests/juce_lifecycle_wiring.rs	651
 crates/kirin_hypha_ffi/tests/parity.rs	3007
 crates/kirin_measure/src/capture_generation_tx_tests.rs	710
 crates/kirin_measure/src/io_thread_pre.rs	5027
