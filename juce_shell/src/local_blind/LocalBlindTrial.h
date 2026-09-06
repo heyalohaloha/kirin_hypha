@@ -45,7 +45,7 @@ struct TrialGain
     bool requiresLowerPostApproval = false;
 };
 
-enum class TrialPhase { ready, listening, revealed, returnPending, returned };
+enum class TrialPhase { ready, armed, listening, revealed, returnPending, returned };
 enum class TrialAnswer : unsigned char { none, one, two, noPreference, cannotDistinguish };
 enum class TrialOutput { untouched, copy, heldAttenuation };
 enum class TrialFailure : unsigned char { none, format, transport, epochs, discontinuity, range };
@@ -71,6 +71,8 @@ public:
     LocalBlindTrial& operator= (const LocalBlindTrial&) = delete;
 
     // Single non-RT control owner; RT only consumes atomic commands and publishes receipts.
+    // Explicitly arm. Stopped callbacks leave A untouched; the first playing callback must
+    // begin at the captured range start. Preparation, seek, or resume alone never arms it.
     bool start (bool approveLowerPost = false) noexcept;
     bool select (int stimulus) noexcept;
     bool answer (TrialAnswer) noexcept;
@@ -93,7 +95,7 @@ private:
     std::atomic<std::uint64_t> command { ready }, receipt { 0 }, returnReceipt { 0 };
     std::atomic<std::uint64_t> heardOne { 0 }, heardTwo { 0 };
     std::atomic<TrialFailure> failed { TrialFailure::none };
-    std::atomic<bool> lowerApproved { false }, revealed { false };
+    std::atomic<bool> lowerApproved { false }, lowerApplied { false }, revealed { false };
     std::atomic<TrialAnswer> answered { TrialAnswer::none };
     std::int64_t previousEnd = 0; // RT-owned
     bool hasPrevious = false; // RT-owned, capture and playback epochs remain separate

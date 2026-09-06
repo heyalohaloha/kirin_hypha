@@ -94,7 +94,7 @@ bool LocalBlindTrial::inputLayout (float* const* data, int channels, int frames)
 TrialOutput LocalBlindTrial::hold (float* const* data, int channels, int frames, const TrialBlock& block) const noexcept
 {
     // Offline/bypass is never modified. The pending attenuation survives as state for realtime return.
-    if (! lowerApproved.load (std::memory_order_acquire) || ! block.realtime || block.bypassed
+    if (! lowerApplied.load (std::memory_order_acquire) || ! block.realtime || block.bypassed
         || ! inputLayout (data, channels, frames)) return TrialOutput::untouched;
     for (int c = 0; c < channels; ++c)
         for (int f = 0; f < frames; ++f) data[c][f] *= gain.lowerPost;
@@ -116,10 +116,16 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
         return hold (data, channels, frames, block);
     if (! inputLayout (data, channels, frames) || channels != format.channels || block.sampleRate != format.sampleRate)
         invalidate (TrialFailure::format);
-    else if (! block.positionValid || ! block.playing || ! block.realtime || block.bypassed)
+    else if (! block.realtime || block.bypassed)
         invalidate (TrialFailure::transport);
     else if (! (block.epochs == format.epochs))
         invalidate (TrialFailure::epochs);
+    else if (! hasPrevious && ! block.playing)
+        return TrialOutput::untouched; // Explicitly armed, not yet heard. No approval-only attenuation.
+    else if (! block.positionValid || ! block.playing)
+        invalidate (TrialFailure::transport);
+    else if (! hasPrevious && block.position != format.start)
+        invalidate (TrialFailure::range); // No partial first pass or guessed restart position.
     else if (block.position < format.start || block.position >= format.start + format.frames
              || frames > format.start + format.frames - block.position)
         invalidate (TrialFailure::range);
@@ -134,6 +140,7 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
     const bool pre = (mode == one) == oneIsPre;
     const auto& source = pre ? frozenPre : frozenPost;
     const bool lower = lowerApproved.load (std::memory_order_relaxed);
+    if (lower) lowerApplied.store (true, std::memory_order_release);
     const float multiplier = lower ? (pre ? 1.0f : gain.lowerPost) : (pre ? gain.fixedPre : 1.0f);
     const auto offset = static_cast<std::size_t> (block.position - format.start);
     for (int c = 0; c < channels; ++c)
@@ -170,7 +177,8 @@ TrialView LocalBlindTrial::view() const noexcept
         && heardOne.load (std::memory_order_acquire) >= format.minimumHeardFrames
         && heardTwo.load (std::memory_order_acquire) >= format.minimumHeardFrames;
     result.answer = answered.load (std::memory_order_acquire);
-    result.phase = isRevealed ? TrialPhase::revealed : TrialPhase::listening;
+    result.phase = isRevealed ? TrialPhase::revealed
+                             : (confirmed == 0 ? TrialPhase::armed : TrialPhase::listening);
     if (result.phase == TrialPhase::revealed) result.revealedOneSide = oneIsPre ? 1 : 0;
     return result;
 }

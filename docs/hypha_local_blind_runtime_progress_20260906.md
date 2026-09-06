@@ -1,7 +1,7 @@
 # PRE/POST Blind の実装状況
 
 更新日: 2026-09-06
-対象: B-719、B-720、B-721
+対象: B-719、B-720、B-721、B-722
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 ## 現在の到達点
@@ -12,8 +12,57 @@ B-718 の同一区間取得部品に、固定 Gain Match の準備、比較コ�
 本体には開始操作、取得要求、入場許可を発行する処理がまだなく、追加した出力は起動しない。
 
 日本語技術文書の規範に沿い、部品試験、本体への接続、DAW 実機での確認を分けて記録する。
-今回 Windows 検証機は操作していない。
+B-719〜B-721 では Windows 検証機を操作していない。
+B-722 では使用許可を受け、隔離した場所で Windows のビルドと試験を実施した。
 インストール、公開リリース、Kirin OS への変更、Notion 書き込みも行っていない。
+
+## B-722 の本体接続と開始待ちの修正
+
+VST3 のホスト識別情報を読む処理を PRE/POST 両方の本体へ接続した。
+JUCE の公開された client extension を使い、ホスト名、document ID、active document ID、channel ID をホストから読む。
+保存済みの Hypha session UUID、Work identity、PID を代用しない。
+AU にはこの VST3 の情報を捏造せず、未取得のままにする。
+読取り入口は message thread に限定し、音声 callback ではホストへの問い合わせを行わない。
+
+ホスト変更通知は revision を失効させるだけで、新しい開始許可を発行しない。
+未対応、未通知、空文字、壊れた UTF-16、終端なし、buffer 上限に達した切詰めの疑い、非 active document、読取り中の変更は識別不能とする。
+ホストが通知 interface を processor の破棄後まで保持した場合にも、破棄済み processor を参照しない。
+これらの事実を取得できても、全参加インスタンス、旧版の混在、ルーティング、PDC が証明されたことにはならない。
+参照した公式定義は [PreSonus Context Information Interface](https://github.com/fenderdigital/presonus-plugin-extensions/blob/main/ipslcontextinfo.h) である。
+
+試聴出力には、停止中の開始要求が即失効する不具合があった。
+明示要求後の **開始待ち** を追加し、停止中の位置移動では通常入力を変更しない。
+最初の再生 callback が取得区間の先頭に一致した時点でコピーを出力し、その確認後に試聴中へ移る。
+途中の位置からの開始、失効後の自動再開、準備完了だけでの再生は認めない。
+
+音量変更の承認と、変更済みの出力も分離した。
+承認を受けても最初のコピーを出す前に失敗した場合、後続 callback の入力を減衰させない。
+実際に承認済みの音量で出力した後は、従来どおり中断時の減衰保持と別操作による通常復帰を維持する。
+
+これらは開始 UI、同一区間の取得 barrier、共通の Analysis/Record 入場許可の完成を意味しない。
+本体のローカル Blind 出力スロットは引き続き未公開であり、DAW で比較を開始できる状態ではない。
+特に、保存済みの Windows Record JSON を新しい順に 60 件調べた範囲では presentation latency の記録を得られず、現在の Studio Pro の時刻対応を確定できなかった。
+この結果を「Studio Pro が通知しない」という証明には使わない。
+
+## B-722 の検証区分
+
+Windows では通常の設置場所を変更せず、専用の `validation_staging/hypha_blind_b722_20260906` 配下を使用した。
+既存の Windows/Mac の JUCE 差分、別件の未追跡 handoff、常設 SSH/RustDesk、起動中の Kirin OS は変更していない。
+確認時に Studio Pro は起動しておらず、この作業では起動していない。
+
+- Mac：PRE/POST × AU/VST3 の Debug ビルドと、取得、試聴、固定 Gain 準備、ホスト情報の 4 試験が pass。
+- Windows：PRE/POST VST3 の Debug ビルドと、同じ 4 試験が pass。
+- Windows 実 VST3：PRE/POST それぞれの stereo realtime、stereo offline、mono realtime で計 299,680 samples がビット一致、報告 latency は 0 samples。
+- ホスト情報と試聴出力：AddressSanitizer/UndefinedBehaviorSanitizer が pass。試聴出力の ThreadSanitizer も pass。
+- Rust：`cargo test --workspace --lib` は 1,582 pass、9 ignored。`cargo test -p xtask` は 136 pass。clippy は pass し、既存 vendor 警告と既知の build 通知だけだった。
+
+Windows の実 VST3 試験は検証用ホストによる通常経路の試験であり、Studio Pro の PDC、Blind 操作、音の切替、他トラックとの同期を確認した結果ではない。
+FFI の Rust source は変更していないため、Record/pairing の ignored suite は今回再実行していない。
+全 UI の描画性能、実 DAW の操作確認、短く疎な TRACK の Gain policy も未完了である。
+以前の「インストールを含めない」という操作境界が残っているため、実機確認用の一時差し替えを確認中である。
+
+検証ログ：`/tmp/hypha-b722-windows-verified.log`、`/tmp/hypha-b722-macos-verified-build.log`、`/tmp/hypha-b722-macos-verified-tests.log`、`/tmp/hypha-b722-xtask-final.log`、`/tmp/hypha-b722-rust-tests.log`、`/tmp/hypha-b722-clippy.log`。
+LS アップ用と HP アップ用は両 OS とも skip。
 
 ## 実装した責務
 
@@ -33,7 +82,8 @@ B-721 の新規 owned source はそれぞれ 500 行以下に収めた。
 ## 出力と復帰の条件
 
 試聴用 PCM は POST と PRE の同じフレーム数を持ち、試聴中は変更しない。
-開始は明示要求だけで行い、準備完了、条件復旧、再生再開から自動で始めない。
+開始は明示要求だけで行い、準備完了、条件復旧、失効後の再生再開から自動で始めない。
+B-722 の開始待ちは、利用者の明示要求後に最初の正しい再生 callback を待つ状態である。
 各 callback は native sample 位置に対応するコピーを出力する。
 範囲末尾をまたぐ callback は全体を拒否し、modulo による別周回の混入や末尾の継ぎ足しを行わない。
 
@@ -88,7 +138,7 @@ mono 試験では同じ左右の片側を使用した。
 4. **製品の固定 Gain policy**：現行の連続 3 秒条件に入らない短音と疎な TRACK を別途評価する。既存 policy の条件を同名のまま緩めない。強い EQ、limiter、tail、clip 境界も含める。
 5. **開始から終了までの画面**：対象選択、取得待ち、音量変更への承認、1 / 2、回答、Reveal、減衰保持、通常復帰を接続する。他方の大きな表示、小さな表示、別ウインドウ、Capture、tooltip、accessibility にも非開示条件を適用する。
 6. **所有権と復元**：OS の安全な乱数による割当を単一の準備所有者へ接続する。編集画面を閉じた場合や host の再初期化、instance 削除、worker 停止、旧版との混在、結果保存失敗を扱う。再読込で試聴や承認済み減衰を自動再開しない。
-7. **実機と性能**：両 OS、2MIX / TRACK / STEM、mono / stereo、125% / 150% / 200% 表示、重い session、CPU、準備時間、総 peak RAM、切替音を検証する。Windows は他作業の使用終了後に共通 runbook を読んで実施する。
+7. **実機と性能**：両 OS、2MIX / TRACK / STEM、mono / stereo、125% / 150% / 200% 表示、重い session、CPU、準備時間、総 peak RAM、切替音を検証する。Windows の使用許可と共通 runbook の確認は B-722 で完了した。検証版の一時差し替えと Studio Pro の操作確認は未実施である。
 
 これらは未完了作業であり、後段へ移すという採否変更ではない。
 今回の部品実装を「Review 0 件」や完成の証拠にはしない。

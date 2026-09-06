@@ -197,6 +197,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
 
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp src/PluginProcessorAudition.cpp src/local_blind/LocalBlindTrial.cpp
+        src/local_blind/HostContext.cpp
         src/PluginProcessorDisplayState.cpp
         src/PluginProcessorGuideTransport.cpp
         src/PluginProcessorNote.cpp
@@ -284,6 +285,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
 
     # kirin_hypha_ffi: C ABI header + Rust staticlib (B-052 boundary, unchanged).
     target_include_directories(${TARGET} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/JUCE/modules/juce_audio_processors/format_types/VST3_SDK
         ${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include)
 
     # B-054: link the embedded mycelium PNG (provides BinaryData.h to the editor).

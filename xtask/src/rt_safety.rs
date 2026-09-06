@@ -177,14 +177,39 @@ mod tests {
     fn local_blind_tests_are_registered_in_windows_ci() {
         let ci = include_str!("../../.github/workflows/ci.yml");
         let cmake = include_str!("../../juce_shell/cmake/LocalBlind.cmake");
+        let portable = include_str!("../../juce_shell/cmake/LocalBlindPortable.cmake");
+        assert!(cmake.contains("include(${CMAKE_CURRENT_LIST_DIR}/LocalBlindPortable.cmake)"));
+        assert!(cmake.contains("kirin_add_local_blind_portable_contracts"));
         for target in [
             "KirinLocalBlindCaptureTests",
             "KirinLocalBlindTrialTests",
             "KirinLocalBlindPreparationTests",
+            "KirinLocalBlindHostContextTests",
         ] {
-            assert!(ci.contains(target) && cmake.contains(target));
+            assert!(ci.contains(target) && (cmake.contains(target) || portable.contains(target)));
         }
         assert!(ci.contains("-R '^kirin_local_blind_'"));
+    }
+
+    #[test]
+    fn native_host_facts_use_the_client_extension_without_audio_thread_queries() {
+        let header = include_str!("../../juce_shell/src/PluginProcessor.h");
+        let adapter = include_str!("../../juce_shell/src/local_blind/VST3HostContext.h");
+        let facts = include_str!("../../juce_shell/src/local_blind/HostContext.cpp");
+        assert!(
+            header.contains("getVST3ClientExtensions() override { return &nativeHostContext; }")
+        );
+        assert!(adapter.contains("setIComponentHandler"));
+        assert!(facts.contains("Presonus::IContextInfoProvider_iid"));
+        assert!(facts.contains("Presonus::ContextInfo::kDocumentID"));
+        assert!(!facts.contains("setContextInfo"));
+        assert!(!facts.contains("persistDawSessionUuid"));
+        let callback = function_body(
+            PLUGIN_PROCESSOR_CPP,
+            "void KirinHyphaProcessorBase::processBlock",
+        );
+        assert!(!callback.contains("localBlindHostFacts"));
+        assert!(!callback.contains("readNonRealtime"));
     }
 
     #[test]

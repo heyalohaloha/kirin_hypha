@@ -54,9 +54,11 @@ G1 と BL 実証の結果なしに性能閾値や音声の安全性を成立済�
 
 ## 現在維持する操作境界
 
-Windows は他作業の占有中のため触らない。
+Windows の占有による保留は、同日の「Windows検証機は使用して問題ありません」で解除された。
+検証用の隔離ディレクトリでのビルドと試験を行う。
 Notion への書込み、別タスクの作成、他担当へのメッセージ送信は行わない。
 インストール、署名、notarize、公開、push は今回の着手に含めない。
+DAW 実機確認に必要な検証版への一時差し替えは、既存バイナリのバックアップを前提に別途確認中である。
 既存の JUCE ローカル差分と未追跡の別件 handoff は保存する。
 
 関連文書: [SPACE / ATTACK 計画](hypha_space_attack_plan_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)、[更新導線と検証条件](hypha_plans_review_and_update_path_20260906.md)。

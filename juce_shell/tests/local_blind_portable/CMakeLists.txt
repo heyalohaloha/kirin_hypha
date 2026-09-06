@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.22)
+project(KirinLocalBlindPortableContracts LANGUAGES CXX)
+enable_testing()
+get_filename_component(KIRIN_SHELL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+include("${KIRIN_SHELL_ROOT}/cmake/LocalBlindPortable.cmake")
+kirin_add_local_blind_portable_contracts("${KIRIN_SHELL_ROOT}")

@@ -127,6 +127,54 @@ static void timeAndFailures()
     }
 }
 
+static void explicitlyArmedTransport()
+{
+    for (bool lower : { false, true })
+    {
+        auto t = trial (false, lower ? TrialGain { 2.0f, 0.5f, true } : TrialGain {});
+        Buffer buffer;
+        auto stopped = block (192); // Capture has finished; DAW has not yet returned to the cue.
+        stopped.playing = false;
+        buffer.fill();
+        require (buffer.render (*t, stopped) == TrialOutput::untouched && buffer.original(), "ready stays A");
+        require (t->start (lower) && t->view().phase == TrialPhase::armed, "start arms, not heard");
+        for (int position : { 192, 0, -64 })
+        {
+            stopped.position = position;
+            buffer.fill();
+            require (buffer.render (*t, stopped) == TrialOutput::untouched && buffer.original(),
+                     "stopped positioning does not emit copies or apply a never-heard level change");
+            require (t->view().phase == TrialPhase::armed && t->view().activeStimulus == 0
+                         && ! t->answer (TrialAnswer::one), "waiting is not a playback receipt");
+        }
+        require (buffer.render (*t, block()) == TrialOutput::copy, "first exact native callback starts audition");
+        require (t->view().phase == TrialPhase::listening && t->view().activeStimulus == 1, "heard after callback");
+        stopped.position = 0;
+        buffer.fill();
+        require (buffer.render (*t, stopped) == (lower ? TrialOutput::heldAttenuation : TrialOutput::untouched),
+                 "stop after audition retains only an actually applied approved level");
+        require (t->view().phase == TrialPhase::returnPending, "played trial cannot rearm on transport resume");
+        require (buffer.render (*t, block()) != TrialOutput::copy, "resume is not explicit restart");
+    }
+    for (int failure = 0; failure < 5; ++failure)
+    {
+        auto t = trial (false, { 2.0f, 0.5f, true });
+        t->start (true);
+        auto first = block();
+        if (failure == 0) first.position = 0;
+        if (failure == 1) first.epochs.scope = 0;
+        if (failure == 2) first.bypassed = true;
+        if (failure == 3) first.realtime = false;
+        if (failure == 4) first.sampleRate = 96000;
+        Buffer buffer;
+        buffer.fill();
+        require (buffer.render (*t, first) == TrialOutput::untouched && buffer.original(), "failed arm is transparent");
+        require (t->view().phase == TrialPhase::returnPending, "invalid first callback fails closed");
+        require (buffer.render (*t, block()) == TrialOutput::untouched && buffer.original(),
+                 "unheard approval must not attenuate on later realtime callbacks");
+    }
+}
+
 static void heldLevelAndRetirement()
 {
     LocalBlindSlot slot;
@@ -254,6 +302,7 @@ int main()
 {
     selectionAndAnswers();
     timeAndFailures();
+    explicitlyArmedTransport();
     heldLevelAndRetirement();
     validation();
     concurrentRetirement();

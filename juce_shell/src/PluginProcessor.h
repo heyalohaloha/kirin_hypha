@@ -1,6 +1,7 @@
 #pragma once
 #include "local_blind/LocalBlindSlot.h"
 #include "local_blind/LocalBlindEpochSnapshot.h"
+#include "local_blind/VST3HostContext.h"
 #include "kirin_hypha_display_ffi.h"
 
 #include <atomic>
@@ -41,6 +42,13 @@ public:
     void releaseResources() override;
     void hostComponentActivationChanged (bool active) override;
     void updateTrackProperties (const TrackProperties& properties) override;
+    juce::VST3ClientExtensions* getVST3ClientExtensions() override { return &nativeHostContext; }
+    hypha::local_blind::HostContextFacts localBlindHostFacts() const
+    {
+        const auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
+        if (messageManager == nullptr || ! messageManager->isThisTheMessageThread()) return {};
+        return nativeHostContext.context.readNonRealtime();
+    }
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -249,6 +257,7 @@ private:
                                   bool hasPosition, bool playing, bool bypassed, bool nonRealtimeMode);
 
     const Role role;                                   // Pre or Post (selects enable + display name)
+    hypha::local_blind::VST3HostContext nativeHostContext;
     hypha::local_blind::LocalBlindSlot localBlindOutput;
     hypha::local_blind::LocalBlindEpochSnapshot localBlindEpochs;
 
