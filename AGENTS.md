@@ -163,45 +163,46 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 
 ## Kirin Hypha 固有
 
-### Watch計測項目（G-52-02）
-| 項目 | 計測 | 表示 | 有効桁 |
-|------|------|------|--------|
-| LUFS-M | ✅ 常時 | ✅ | 小数1桁 |
-| True Peak | ✅ 常時 | ✅ | 小数1桁 |
-| Crest Factor | ✅ 常時 | ✅ | 小数1桁 |
-| PSR | ✅ 常時 | ❌ Watch非表示 | 小数1桁 |
+### 現行製品面の正本
 
-4項目常時計測。表示は3項目。PSRはRecord版で表示。
+固定した項目数、画面寸法、テスト件数をこのファイルへ複製しない。
+現行の利用者向け機能は`README.md`、不変条件は`docs/hypha_invariants.md`、表示契約は
+`docs/hypha_meter_product_contract_20260831.md`と各実装計画を正本とする。
 
-### /tmp/ 通信
-```
-PRE: /tmp/kirin/{project_hash}/{bus}/pre_{instance_id}.json
-POST: 同ディレクトリのPREファイルを読む → Δ算出
-```
-100ms間隔。アトミック書き込み（tmp → rename）。
+- 上位domainはLEVEL / TIME / FREQ / SPACE。TIMEにはHISTORY / ATTACK / SHARP / LIVEがある。
+- PREは絶対観測、POSTは検証済みの同時刻PREがある場合だけ差分を表示する。PRE不在時もPOSTの
+  絶対観測を捏造せず維持する。
+- 通常経路はmono / stereo限定。サラウンド対応を計測coreの引数だけから推定しない。
+- macOSのPRE表示共有はatomic file、Windowsはpagefile-backed共有メモリを使う。platformごとの
+  transport正本を確認し、`/tmp/`だけを全platform共通仕様として扱わない。
+- Reference比較試聴と承認済みのローカルBlindは通常A経路とは別の明示操作である。
+  Preference Listening TrialをABX識別検定や音質改善の証明と呼ばない。
 
 ### PRE/POST別バイナリ
 同一コードベースから role 定数（PRE/POST）でビルド時に分岐。
 利用者がDAWで「Kirin Hypha PRE」「Kirin Hypha POST」を別々に選ぶ。
 
-### GUI（最小版）
-300×200px付近。暗い菌糸テクスチャ背景（静的PNG 1枚）。
-3数値 + Δ値 + Watch LED（青・静的）。
-菌糸脈動アニメーション・flora_color連動は後段。
+### GUI
+
+JUCE共通shellが出荷面であり、PRE / POSTとAU / VST3は同じeditor実装を使う。
+300×200から900×600まで3:2固定比でリサイズし、LEVEL / TIME / FREQ / SPACEとReferenceを表示する。
+外観変更は`docs/hypha_ce2226_jungle_visual_system_20260901.md`と実画面を両方確認する。
 
 ### Lensエンジンからの流用
 Lens側の既存Rustエンジン（symphonia + ebur128 + napi-rs）から計測コアを切り出す。
 napi-rs依存を外し、純粋なRustライブラリとして抽出。
 
-### [未検証] 項目（公式確認してから実装）
-- U-1: nih-plugでPRE/POST別バイナリが作れるか
-- U-2: processメソッドでバッファコピーだけすれば素通しになるか
-- U-3: nih-plugからDAWプロジェクトパスが取得できるか
-- U-4: GUIで300×200pxカスタム描画ができるか
-- U-5: 別スレッドをnih-plugのVST3ランタイム内で安全に起動できるか
-- U-6: ebur128クレートがVST3コンテキストで動くか
-- U-7: /tmp/ への書き込みがmacOSサンドボックス内で許可されるか
-- U-8: CE 2226フォントアセット（PNG）をGUIで描画できるか
+### AAX境界
+
+AAX Phase AはSDK非依存の準備だけが完了している。
+既定OFFのCMake、外部SDK path、license確認、混入検査、手動CI骨格が存在するが、AAX製品対応を
+意味しない。実SDKでのmacOS / Windows build、Pro Tools、category、PACE署名と配布は未完了。
+`docs/aax_phase_a_readiness_20260907.md`を正本とする。
+
+### 解決済みの初期調査
+
+旧U-1〜U-8は初期prototypeの調査項目であり、現行実装の未検証一覧ではない。
+新しい変更で外部APIやformat仕様を使う場合だけ、その変更に必要な公式資料を改めて確認する。
 
 ### Studio One テスト前チェック
 - チャンネル設定が **Stereo** であることを確認する（Mono だと -3dB/ch 適用され計測値がずれる）
@@ -288,4 +289,7 @@ BoolParam bypass は残存（対応 DAW では即時 Bypassed 検出に使える
 非Active → Active 遷移時に `engine.reset()` で ebur128 FIR 遅延ライン / tp_window / window_400ms をクリア。前セッションの残留データによる汚染を防ぐ。
 
 ### テスト
-30テスト全通過、clippy clean。
+
+固定件数を完了根拠にしない。
+通常suite、対象native試験、source契約、clippyに加え、`kirin_hypha_ffi`変更時は上記の
+ignored parity / pairing_candidatesの一覧件数を実測して全件実行する。
