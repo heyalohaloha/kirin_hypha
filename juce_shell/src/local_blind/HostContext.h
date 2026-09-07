@@ -13,6 +13,14 @@ enum class HostContextIssue
     none, unavailable, malformed, inactiveDocument, changedDuringRead
 };
 
+// Where observation failed, not permission to use partially obtained identity.
+enum class HostContextReadStage
+{
+    none, contextProvider, hostApplication, hostName, document, activeDocument, channel,
+    activeDocumentMatch, revision
+};
+const char* hostContextReadStageName (HostContextReadStage) noexcept;
+
 // These are host observations, NOT an admission token. In particular they do not prove
 // routing, PDC, all participants, or compatibility with an older plug-in in the document.
 struct HostContextFacts
@@ -20,6 +28,7 @@ struct HostContextFacts
     std::u16string host, document, activeDocument, channel;
     std::uint64_t revision = 0;
     HostContextIssue issue = HostContextIssue::unavailable;
+    HostContextReadStage failedAt = HostContextReadStage::contextProvider;
     bool hasActiveIdentity() const noexcept { return issue == HostContextIssue::none; }
 };
 

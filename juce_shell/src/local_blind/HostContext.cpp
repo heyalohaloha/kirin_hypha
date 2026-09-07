@@ -106,6 +106,23 @@ HostContextIssue readString (Presonus::IContextInfoProvider& provider, FIDString
 }
 }
 
+const char* hostContextReadStageName (HostContextReadStage stage) noexcept
+{
+    switch (stage)
+    {
+        case HostContextReadStage::none: return "none";
+        case HostContextReadStage::contextProvider: return "context provider";
+        case HostContextReadStage::hostApplication: return "host application";
+        case HostContextReadStage::hostName: return "host name";
+        case HostContextReadStage::document: return "document ID";
+        case HostContextReadStage::activeDocument: return "active document ID";
+        case HostContextReadStage::channel: return "channel ID";
+        case HostContextReadStage::activeDocumentMatch: return "active document match";
+        case HostContextReadStage::revision: return "read revision";
+    }
+    return "unknown";
+}
+
 struct HostContext::Impl
 {
     std::shared_ptr<Revision> revision = std::make_shared<Revision>();
@@ -149,26 +166,39 @@ HostContextFacts HostContext::readNonRealtime() const
     }
     auto provider = query<Presonus::IContextInfoProvider> (component.ptr, Presonus::IContextInfoProvider_iid);
     auto host = query<Steinberg::Vst::IHostApplication> (application.ptr, Steinberg::Vst::IHostApplication_iid);
+    if (provider.ptr != nullptr) result.failedAt = HostContextReadStage::hostApplication;
     if (provider.ptr != nullptr && host.ptr != nullptr)
     {
+        result.failedAt = HostContextReadStage::hostName;
         std::array<Steinberg::Vst::TChar, 128> name;
         name.fill (static_cast<Steinberg::Vst::TChar> (0xffff));
         if (host.ptr->getName (name.data()) == Steinberg::kResultOk)
         {
             result.issue = decode (name, result.host) ? HostContextIssue::none : HostContextIssue::malformed;
-            const std::pair<Steinberg::FIDString, std::u16string*> fields[] {
-                { Presonus::ContextInfo::kDocumentID, &result.document },
-                { Presonus::ContextInfo::kActiveDocumentID, &result.activeDocument },
-                { Presonus::ContextInfo::kID, &result.channel }
+            struct Field { Steinberg::FIDString id; std::u16string& value; HostContextReadStage stage; };
+            const Field fields[] {
+                { Presonus::ContextInfo::kDocumentID, result.document, HostContextReadStage::document },
+                { Presonus::ContextInfo::kActiveDocumentID, result.activeDocument, HostContextReadStage::activeDocument },
+                { Presonus::ContextInfo::kID, result.channel, HostContextReadStage::channel }
             };
             for (const auto& field : fields)
                 if (result.issue == HostContextIssue::none)
-                    result.issue = readString (*provider.ptr, field.first, *field.second);
+                {
+                    result.failedAt = field.stage;
+                    result.issue = readString (*provider.ptr, field.id, field.value);
+                }
             if (result.issue == HostContextIssue::none && result.document != result.activeDocument)
+            {
+                result.failedAt = HostContextReadStage::activeDocumentMatch;
                 result.issue = HostContextIssue::inactiveDocument;
+            }
         }
     }
-    if (result.revision != revisionRealtime()) result.issue = HostContextIssue::changedDuringRead;
+    if (result.revision != revisionRealtime())
+    {
+        result.failedAt = HostContextReadStage::revision;
+        result.issue = HostContextIssue::changedDuringRead;
+    }
     // Never leave a partially read identity available for accidental fallback.
     if (! result.hasActiveIdentity())
     {
@@ -177,6 +207,7 @@ HostContextFacts HostContext::readNonRealtime() const
         result.activeDocument.clear();
         result.channel.clear();
     }
+    else result.failedAt = HostContextReadStage::none;
     return result;
 }
 }

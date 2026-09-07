@@ -23,6 +23,8 @@ public:
     std::atomic<uint32> refs { 1 };
     bool providerAvailable = true, nameAvailable = true, fieldAvailable = true;
     bool unterminated = false, capacityPrefix = false, changeWhileReading = false;
+    bool applicationAvailable = true;
+    const char* unavailableField = nullptr;
     std::u16string document = u"document-α", active = document, channel = u"channel-1";
     Presonus::IContextInfoHandler* observer = nullptr;
     int reads = 0, integerReads = 0;
@@ -33,7 +35,7 @@ public:
         *out = nullptr;
         if (same (iid, Presonus::IContextInfoProvider_iid) && providerAvailable)
             *out = static_cast<Presonus::IContextInfoProvider*> (this);
-        else if (same (iid, Vst::IHostApplication_iid))
+        else if (same (iid, Vst::IHostApplication_iid) && applicationAvailable)
             *out = static_cast<Vst::IHostApplication*> (this);
         if (*out == nullptr) return kNoInterface;
         addRef(); return kResultOk;
@@ -55,6 +57,7 @@ public:
         ++reads;
         if (changeWhileReading && observer != nullptr) observer->notifyContextInfoChange();
         if (! fieldAvailable) return kResultFalse;
+        if (unavailableField != nullptr && std::strcmp (field, unavailableField) == 0) return kResultFalse;
         if (unterminated) { std::fill (out, out + capacity, u'x'); return kResultOk; }
         if (capacityPrefix) { std::fill (out, out + capacity - 1, u'x'); out[capacity - 1] = 0; return kResultOk; }
         const auto* value = std::strcmp (field, Presonus::ContextInfo::kDocumentID) == 0 ? &document
@@ -158,6 +161,55 @@ void notificationsAndLifetime()
     REQUIRE (notification->release() == 1); REQUIRE (notification2->release() == 0);
 }
 
+void failureStagesKeepIdentityAbsent()
+{
+    FakeHost host;
+    HostContext context;
+    const auto failed = [&] (HostContextIssue issue, HostContextReadStage stage)
+    {
+        const auto facts = context.readNonRealtime();
+        requireAbsent (facts, issue);
+        REQUIRE (facts.failedAt == stage);
+        REQUIRE (std::strcmp (hostContextReadStageName (stage), "unknown") != 0);
+        REQUIRE (std::strcmp (hostContextReadStageName (stage), "none") != 0);
+    };
+    failed (HostContextIssue::unavailable, HostContextReadStage::contextProvider);
+    context.setComponentHandler (host.unknown());
+    failed (HostContextIssue::unavailable, HostContextReadStage::hostApplication);
+    context.setHostApplication (host.unknown());
+    host.applicationAvailable = false;
+    failed (HostContextIssue::unavailable, HostContextReadStage::hostApplication);
+    host.applicationAvailable = true;
+    host.nameAvailable = false;
+    failed (HostContextIssue::unavailable, HostContextReadStage::hostName);
+    host.nameAvailable = true;
+    const std::pair<const char*, HostContextReadStage> fields[] {
+        { Presonus::ContextInfo::kDocumentID, HostContextReadStage::document },
+        { Presonus::ContextInfo::kActiveDocumentID, HostContextReadStage::activeDocument },
+        { Presonus::ContextInfo::kID, HostContextReadStage::channel }
+    };
+    for (const auto& field : fields)
+    {
+        host.unavailableField = field.first;
+        failed (HostContextIssue::unavailable, field.second);
+    }
+    host.unavailableField = nullptr;
+    host.channel.clear();
+    failed (HostContextIssue::malformed, HostContextReadStage::channel);
+    host.channel = u"valid"; host.active = u"another";
+    failed (HostContextIssue::inactiveDocument, HostContextReadStage::activeDocumentMatch);
+    host.active = host.document;
+    void* observer = nullptr;
+    REQUIRE (context.queryEditController (Presonus::IContextInfoHandler_iid, &observer) == kResultOk);
+    host.observer = static_cast<Presonus::IContextInfoHandler*> (observer);
+    host.changeWhileReading = true;
+    failed (HostContextIssue::changedDuringRead, HostContextReadStage::revision);
+    host.observer->release(); host.observer = nullptr; host.changeWhileReading = false;
+    const auto restored = context.readNonRealtime();
+    REQUIRE (restored.hasActiveIdentity() && restored.failedAt == HostContextReadStage::none);
+    REQUIRE (std::strcmp (hostContextReadStageName (restored.failedAt), "none") == 0);
+}
+
 void coherentClockProbe()
 {
     HostClockProbe probe;
@@ -206,6 +258,6 @@ void coherentClockProbe()
 
 int main()
 {
-    factsAndFailureCases(); notificationsAndLifetime(); coherentClockProbe();
+    factsAndFailureCases(); notificationsAndLifetime(); failureStagesKeepIdentityAbsent(); coherentClockProbe();
     std::cout << "Host context: identity, missing/malformed/inactive/replaced host, revision and retained notification PASS\n";
 }
