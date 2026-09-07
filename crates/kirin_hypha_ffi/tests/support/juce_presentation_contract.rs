@@ -99,9 +99,6 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         );
     }
     let juce_controls = read_repo("juce_shell/src/PostControls.cpp");
-    assert!(juce_controls.contains("keepBtn  .setVisible (! keepActive)"));
-    assert!(juce_controls.contains("keepBtn  .setEnabled (os && pairSelected)"));
-    assert!(juce_controls.contains("stopBtn  .setVisible (keepActive)"));
     assert!(!juce_controls.contains("markBtn"));
     let juce_controls_header = read_repo("juce_shell/src/PostControls.h");
     assert!(juce_controls_header.contains("ui_contract::keepLabel"));
@@ -111,6 +108,9 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     assert!(cmake.contains("FORMATS ${KIRIN_PLUGIN_FORMATS}"));
     assert!(cmake.contains("src/PluginProcessor.cpp"));
     assert!(cmake.contains("src/PluginEditor.cpp"));
+    assert!(cmake.contains("src/PostControls.cpp"));
+    assert!(cmake.contains("tests/OsAccessUiContractTest.cpp"));
+    assert!(cmake.contains("add_test(NAME kirin_ui_render_contract"));
     assert!(cmake.contains("add_kirin_plugin(KirinHyphaPRE"));
     assert!(cmake.contains("add_kirin_plugin(KirinHyphaPOST"));
 
