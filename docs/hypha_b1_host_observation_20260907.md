@@ -100,9 +100,10 @@ OneDriveの容量100%通知も表示されたが、アカウントや同期設�
 
 ## 次に閉じる条件
 
-1. 明示選択したPREのinstance ID、locator、pair generationを一つの不変な取得要求へ束ねる。
-   同名候補、未命名候補、選択後のrename、instance再生成で別PREへ付け替えない。
-2. PREとPOSTへ同じcapture generationとbarrierを配り、sample rate、layout、連続したnative sample範囲を照合する。
+1. B-743とB-744で、明示選択したPREのinstance ID、locator、pair generation、owner claimを一つの不変な取得要求へ束ねた。
+   同名候補、未命名候補、選択後のrename、instance再生成で別PREへ付け替えず、pair解放後は配信済み要求もarmed応答も無効にする。
+2. B-744のprotocolをJUCEの非RT所有者へ接続し、PREとPOSTへ同じcapture generationとbarrierを配る。
+   sample rate、layout、連続したnative sample範囲を照合する。
    optionalなhost通知がなくても内部事実で対応区間を証明できれば受理し、証明できない取得だけを開始不可にする。
 3. Blind、Reference、Keep / All Keep、Recordの競合はHypha自身の共有leaseで調停する。
    DAWのtrack名、PID、host固有IDからroutingや未知の参加者を推測しない。

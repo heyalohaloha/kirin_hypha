@@ -14,6 +14,8 @@ pub(super) enum AnalysisSlot {
     Spectrum,
     Perceptual,
     Attack,
+    LocalBlindRequest,
+    LocalBlindArmed,
 }
 
 pub(super) fn write(

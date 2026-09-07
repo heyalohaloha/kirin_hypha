@@ -43,32 +43,36 @@ enum class PairCaptureFailure : unsigned char { none, stalePair, receipt };
 struct CaptureReceipt
 {
     ExactPairBinding pair;
+    std::uint64_t clockGeneration = 0;
     CaptureSide side = CaptureSide::pre;
     CaptureRange range;
     CaptureState state = CaptureState::pending;
     CaptureFailure failure = CaptureFailure::none;
 };
 
-// Single non-RT owner. It binds one capture generation to one explicit pair and two native ranges.
-// Any pair change, partial/error receipt, guessed format or mismatched range invalidates the whole
-// request; a caller must issue a fresh explicit request rather than repairing or retargeting it.
+// Single non-RT owner. It binds one capture and clock generation to one explicit pair and two
+// native ranges. Any pair change, partial/error receipt, guessed format or mismatched range
+// invalidates the whole request; a caller must issue a fresh request rather than retargeting it.
 class PairCaptureBarrier final
 {
 public:
     PairCaptureBarrier (ExactPairBinding exactPair, std::uint64_t captureGeneration,
-                        std::uint32_t sampleRate, int channels, std::int64_t preStart,
-                        std::int64_t postStart, std::int64_t frames)
+                        std::uint64_t clockGeneration, std::uint32_t sampleRate, int channels,
+                        std::int64_t preStart, std::int64_t postStart, std::int64_t frames)
         : pair (std::move (exactPair)),
+          clock (clockGeneration),
           pre ({ captureGeneration, sampleRate, channels, preStart, frames }),
           post ({ captureGeneration, sampleRate, channels, postStart, frames })
     {
-        if (! pair.valid() || captureGeneration == 0 || sampleRate < 8'000 || sampleRate > 768'000
+        if (! pair.valid() || captureGeneration == 0 || clockGeneration == 0
+            || sampleRate < 8'000 || sampleRate > 768'000
             || (channels != 1 && channels != 2) || frames < 1
             || overflows (preStart, frames) || overflows (postStart, frames))
             throw std::invalid_argument ("Invalid exact pair capture request");
     }
 
     const ExactPairBinding& binding() const noexcept { return pair; }
+    std::uint64_t clockGeneration() const noexcept { return clock; }
     const CaptureRange& range (CaptureSide side) const noexcept
     {
         return side == CaptureSide::pre ? pre : post;
@@ -98,6 +102,7 @@ public:
 
 private:
     const ExactPairBinding pair;
+    const std::uint64_t clock;
     const CaptureRange pre;
     const CaptureRange post;
     bool preComplete = false;
@@ -116,7 +121,8 @@ private:
     }
     bool matches (const CaptureReceipt& receipt) const noexcept
     {
-        return receipt.pair == pair && sameRange (receipt.range, range (receipt.side));
+        return receipt.pair == pair && receipt.clockGeneration == clock
+            && sameRange (receipt.range, range (receipt.side));
     }
     void invalidate (PairCaptureFailure value) noexcept
     {

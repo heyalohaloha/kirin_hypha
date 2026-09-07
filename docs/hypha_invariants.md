@@ -177,7 +177,9 @@ TRACK/STEM から 2MIX への変更は、画面操作と DAW state 復元の双�
 名前なしPREもexact latch自体をselection intentとして保持し、内部解放後のWaitingと明示解除を区別する。
 開始時は選択済みinstance、locator、pair／capture generation、対応sample範囲、共有leaseを検証する。
 PRE／POSTの取得受領は同じexact pairとcapture generationへ固定し、不一致とpair変更では完了後も失効する。
-対応試験は `unnamed_exact_pair_has_a_coherent_snapshot_until_explicit_clear`、`kirin_local_blind_capture`、`local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name`、`analysis_blind_admission_probe`。
+取得要求はpair owner、canonical claim、pair／capture／clock generation、両側native範囲、形式、期限を一体で運ぶ。
+PREのarmed応答は要求全体のdigestへ固定し、pair claim解放後は配信済み要求と応答を受理しない。
+対応試験は `unnamed_exact_pair_has_a_coherent_snapshot_until_explicit_clear`、`local_blind_capture_protocol`、`kirin_local_blind_capture`、`local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name`、`analysis_blind_admission_probe`。
 承認範囲は [実装承認記録](hypha_implementation_approval_20260906.md) を参照する。
 
 | ID | 不変条件 | 紐づくテスト |

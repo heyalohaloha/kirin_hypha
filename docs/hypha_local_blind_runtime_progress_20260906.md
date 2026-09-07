@@ -1,7 +1,7 @@
 # PRE/POST Blind の実装状況
 
 更新日: 2026-09-07
-対象: B-719、B-720、B-721、B-722、B-723、B-724、B-743
+対象: B-719、B-720、B-721、B-722、B-723、B-724、B-743、B-744
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
@@ -14,6 +14,13 @@ POSTが明示選択したPREのinstance ID、locator、pair generationを一つ�
 取得受領のbarrierは、同じpair generation、capture generation、sample rate、channel layout、frames、各native startを要求する。
 pair変更と不一致受領は、完了後を含めて要求全体を失効させる。
 PREへの要求配信、時刻対応、PCM回収、開始排他、開始UIは未接続である。
+
+B-744は、exact pairに固定した取得要求とPREのarmed応答を、既存解析payloadとは別のslotで定義した。
+要求にはpair ownerとcanonical claim、pair／capture／clock generation、PRE／POSTのnative範囲、形式、4秒上限、15秒以下の期限を含める。
+PREは自分のlocatorと形式に加えて現在のpair ownershipを照合し、応答は要求全体のSHA-256を返す。
+pair解放、期限切れ、旧世代、別PRE、形式違い、範囲overflowでは無言で受理しない。
+macOSはatomic file、Windowsはpagefile-backed v4の専用request／armed slotを使い、異なる共有memory layoutの旧版とは接続しない。
+このprotocolをJUCEの非RT開始所有者とAudio Thread captureへ接続する処理はまだない。
 
 ## 現在の到達点
 

@@ -47,6 +47,13 @@ optionalなhost情報がなくても成立できる構造にして、AUを含む
 pair generation、locator、capture generation、形式、範囲、完了状態のいずれかが異なる受領結果は要求全体を失効させる。
 この変更はpair authorityの受け渡しを成立させたが、PREへの取得要求配信、時刻対応、PCM回収、開始排他はまだ接続していないため、B1は未完了である。
 
+2026-09-07のB-744では、PRE宛ての取得要求とarmed応答を独立した非RTプロトコルにした。
+要求はexact pairのowner、claim時刻、pair／capture／clock generation、PRE／POSTのnative範囲、形式、期限を一体で持つ。
+PREは現在のcanonical pair claimと自分のlocator／形式が一致する場合だけ受理し、armed応答は要求全体のSHA-256へ固定する。
+pair解放後は配信済み要求も応答も無効となり、名前、track位置、host固有IDから取得元を補完しない。
+macOSはatomic file、Windowsは旧layoutと混在しないpagefile-backed v4の専用slotを使う。
+この段階ではprotocolを製品の開始操作へ接続せず、Audio Threadへのcapture publication、PCM回収、PDCの実証、開始排他は未完了である。
+
 実機で見つかった日本語メニューの代替字形は、共通menu fontを`nativeTextFont()`へ変更して修正した。
 Windowsでの表示確認は、現行ソース全体から作るV工程の候補で行う。
 

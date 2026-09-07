@@ -26,12 +26,16 @@ const READY_CAPACITY: usize = 2_048;
 const SPECTRUM_CAPACITY: usize = 16_384;
 const PERCEPTUAL_CAPACITY: usize = 4_096;
 const ATTACK_CAPACITY: usize = 196_608;
-const SLOTS: [AnalysisSlot; 5] = [
+const LOCAL_BLIND_REQUEST_CAPACITY: usize = 4_096;
+const LOCAL_BLIND_ARMED_CAPACITY: usize = 2_048;
+const SLOTS: [AnalysisSlot; 7] = [
     AnalysisSlot::Request,
     AnalysisSlot::Ready,
     AnalysisSlot::Spectrum,
     AnalysisSlot::Perceptual,
     AnalysisSlot::Attack,
+    AnalysisSlot::LocalBlindRequest,
+    AnalysisSlot::LocalBlindArmed,
 ];
 
 #[repr(C, align(64))]
@@ -81,6 +85,8 @@ struct SharedExchange {
     spectrum: SharedSlot<SPECTRUM_CAPACITY>,
     perceptual: SharedSlot<PERCEPTUAL_CAPACITY>,
     attack: SharedSlot<ATTACK_CAPACITY>,
+    local_blind_request: SharedSlot<LOCAL_BLIND_REQUEST_CAPACITY>,
+    local_blind_armed: SharedSlot<LOCAL_BLIND_ARMED_CAPACITY>,
 }
 
 struct Mapping {
@@ -111,6 +117,10 @@ impl Claim<'_> {
             AnalysisSlot::Spectrum => SlotRef::Spectrum(&exchange.spectrum),
             AnalysisSlot::Perceptual => SlotRef::Perceptual(&exchange.perceptual),
             AnalysisSlot::Attack => SlotRef::Attack(&exchange.attack),
+            AnalysisSlot::LocalBlindRequest => {
+                SlotRef::LocalBlindRequest(&exchange.local_blind_request)
+            }
+            AnalysisSlot::LocalBlindArmed => SlotRef::LocalBlindArmed(&exchange.local_blind_armed),
         }
     }
 }
@@ -222,6 +232,8 @@ enum SlotRef<'a> {
     Spectrum(&'a SharedSlot<SPECTRUM_CAPACITY>),
     Perceptual(&'a SharedSlot<PERCEPTUAL_CAPACITY>),
     Attack(&'a SharedSlot<ATTACK_CAPACITY>),
+    LocalBlindRequest(&'a SharedSlot<LOCAL_BLIND_REQUEST_CAPACITY>),
+    LocalBlindArmed(&'a SharedSlot<LOCAL_BLIND_ARMED_CAPACITY>),
 }
 impl SlotRef<'_> {
     fn write(&self, bytes: &[u8]) -> io::Result<()> {
@@ -231,6 +243,8 @@ impl SlotRef<'_> {
             Self::Spectrum(s) => s.write(bytes),
             Self::Perceptual(s) => s.write(bytes),
             Self::Attack(s) => s.write(bytes),
+            Self::LocalBlindRequest(s) => s.write(bytes),
+            Self::LocalBlindArmed(s) => s.write(bytes),
         }
     }
     fn read(&self, maximum: u64) -> Option<Vec<u8>> {
@@ -240,6 +254,8 @@ impl SlotRef<'_> {
             Self::Spectrum(s) => s.read(maximum),
             Self::Perceptual(s) => s.read(maximum),
             Self::Attack(s) => s.read(maximum),
+            Self::LocalBlindRequest(s) => s.read(maximum),
+            Self::LocalBlindArmed(s) => s.read(maximum),
         }
     }
 }
@@ -249,9 +265,10 @@ fn mapping_name(instance_dir: &Path) -> String {
         .to_string_lossy()
         .replace('\\', "/")
         .to_ascii_lowercase();
-    // v2 has unsynchronised readers. Never let an older binary join this mutex-protected layout.
+    // v2 has unsynchronised readers, while v3 has no Local Blind control slots. Never let an
+    // older binary join a different mapped layout.
     format!(
-        "Local\\KirinHyphaAnalysis-v3-{}",
+        "Local\\KirinHyphaAnalysis-v4-{}",
         hex::encode(Sha256::digest(normalized.as_bytes()))
     )
 }

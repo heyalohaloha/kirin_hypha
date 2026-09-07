@@ -1,7 +1,6 @@
 //! kirin_measure — Kirin Hypha 共通計測ライブラリ。
 //!
-//! napi-rs 依存を持たない純粋な Rust ライブラリ。
-//! nih-plug の Audio Thread から独立した Measure Thread / IO Thread で使用する。
+//! napi-rsに依存せず、nih-plugのAudio Threadから独立したMeasure Thread／IO Threadで使う。
 mod absolute_level;
 pub mod absolute_timeline;
 pub mod all_keep_signal;
@@ -29,6 +28,7 @@ pub mod ingest_contract;
 pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
+pub mod local_blind_capture_protocol;
 mod measure_json;
 pub mod measure_thread;
 mod meter_clock;

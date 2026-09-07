@@ -28,6 +28,11 @@ fn capacity_and_distinct_layout_are_explicit() {
         (AnalysisSlot::Spectrum, SPECTRUM_CAPACITY),
         (AnalysisSlot::Perceptual, PERCEPTUAL_CAPACITY),
         (AnalysisSlot::Attack, ATTACK_CAPACITY),
+        (
+            AnalysisSlot::LocalBlindRequest,
+            LOCAL_BLIND_REQUEST_CAPACITY,
+        ),
+        (AnalysisSlot::LocalBlindArmed, LOCAL_BLIND_ARMED_CAPACITY),
     ] {
         let exact = vec![0x57; cap];
         write(temp.path(), slot, &exact).unwrap();
@@ -40,10 +45,10 @@ fn capacity_and_distinct_layout_are_explicit() {
         assert_eq!(read(temp.path(), slot, u64::MAX), Some(exact));
     }
     let name = mapping_name(temp.path());
-    assert!(name.starts_with("Local\\KirinHyphaAnalysis-v3-"));
-    assert_ne!(name, name.replace("-v3-", "-v2-"));
+    assert!(name.starts_with("Local\\KirinHyphaAnalysis-v4-"));
+    assert_ne!(name, name.replace("-v4-", "-v3-"));
     // Fixed bounds: one copy per slot, not two megabyte-sized queues per reader.
-    assert!(std::mem::size_of::<SharedExchange>() < 224 * 1024);
+    assert!(std::mem::size_of::<SharedExchange>() < 232 * 1024);
 }
 
 #[test]

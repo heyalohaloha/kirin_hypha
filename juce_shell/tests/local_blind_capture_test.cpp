@@ -89,15 +89,15 @@ int main()
     // One name-independent exact pair and capture generation bind both native ranges.
     {
         const ExactPairBinding pair { 11, "project-a", "pre-unnamed" };
-        PairCaptureBarrier barrier (pair, 22, 48000, 1, 0, 31, 12);
+        PairCaptureBarrier barrier (pair, 22, 33, 48000, 1, 0, 31, 12);
         ExactRangeCapture pre (barrier.range (CaptureSide::pre), 48);
         ExactRangeCapture post (barrier.range (CaptureSide::post), 48);
         const float* pointers[] = { input.data() };
         pre.push (pointers, 1, 12, 0, 22, true, 48000);
         post.push (pointers, 1, 12, 31, 22, true, 48000);
-        require (barrier.accept ({ pair, CaptureSide::pre, pre.range(), pre.state(), pre.failure() }));
+        require (barrier.accept ({ pair, 33, CaptureSide::pre, pre.range(), pre.state(), pre.failure() }));
         require (barrier.state() == PairCaptureState::pending);
-        require (barrier.accept ({ pair, CaptureSide::post, post.range(), post.state(), post.failure() }));
+        require (barrier.accept ({ pair, 33, CaptureSide::post, post.range(), post.state(), post.failure() }));
         require (barrier.state() == PairCaptureState::complete);
         require (*pre.completedPcm() == *post.completedPcm());
         barrier.invalidateIfPairChanged ({ 12, "project-a", "pre-unnamed" });
@@ -106,38 +106,41 @@ int main()
     }
     // A pair transition invalidates an unfinished request even when the human label is unchanged.
     {
-        PairCaptureBarrier barrier ({ 11, "project-a", "pre-a" }, 22, 48000, 2, 0, 0, 12);
+        PairCaptureBarrier barrier ({ 11, "project-a", "pre-a" }, 22, 33, 48000, 2, 0, 0, 12);
         barrier.invalidateIfPairChanged ({ 12, "project-a", "pre-a" });
         require (barrier.state() == PairCaptureState::invalid);
         require (barrier.failure() == PairCaptureFailure::stalePair);
     }
-    for (int variant = 0; variant < 7; ++variant)
+    for (int variant = 0; variant < 8; ++variant)
     {
         const ExactPairBinding pair { 11, "project-a", "pre-a" };
-        PairCaptureBarrier barrier (pair, 22, 48000, 1, 0, 31, 12);
-        CaptureReceipt receipt { pair, CaptureSide::pre, barrier.range (CaptureSide::pre),
+        PairCaptureBarrier barrier (pair, 22, 33, 48000, 1, 0, 31, 12);
+        CaptureReceipt receipt { pair, 33, CaptureSide::pre, barrier.range (CaptureSide::pre),
                                  CaptureState::complete, CaptureFailure::none };
         if (variant == 0) receipt.pair.generation++;
         if (variant == 1) receipt.pair.projectHash = "project-b";
         if (variant == 2) receipt.pair.preInstanceId = "pre-b";
-        if (variant == 3) receipt.range.generation++;
-        if (variant == 4) receipt.range.start++;
-        if (variant == 5) receipt.state = CaptureState::pending;
-        if (variant == 6) receipt.failure = CaptureFailure::format;
+        if (variant == 3) receipt.clockGeneration++;
+        if (variant == 4) receipt.range.generation++;
+        if (variant == 5) receipt.range.start++;
+        if (variant == 6) receipt.state = CaptureState::pending;
+        if (variant == 7) receipt.failure = CaptureFailure::format;
         require (! barrier.accept (receipt));
         require (barrier.state() == PairCaptureState::invalid);
         require (barrier.failure() == PairCaptureFailure::receipt);
     }
-    for (int variant = 0; variant < 3; ++variant)
+    for (int variant = 0; variant < 4; ++variant)
     {
         ExactPairBinding pair { 11, "project-a", "pre-a" };
         auto generation = std::uint64_t { 22 };
+        auto clock = std::uint64_t { 33 };
         auto frames = std::int64_t { 12 };
         if (variant == 0) pair.preInstanceId.clear();
         if (variant == 1) generation = 0;
         if (variant == 2) frames = 0;
+        if (variant == 3) clock = 0;
         bool refused = false;
-        try { PairCaptureBarrier barrier (pair, generation, 48000, 1, 0, 0, frames); }
+        try { PairCaptureBarrier barrier (pair, generation, clock, 48000, 1, 0, 0, frames); }
         catch (const std::invalid_argument&) { refused = true; }
         require (refused);
     }
