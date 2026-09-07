@@ -1,5 +1,12 @@
 # Hypha ATTACK perceptual visual contract
 
+## 2026-09-06の表示契約更新
+
+DaisukeのB案採用により、下記の旧表示設計のうち、固定PNG、core/shell/aura構造、420 ms走査、下部の時間軸を連想させる表現は置き換え対象となった。
+現在の表示設計と実装検証の正本は [DRUM B案の実装と軽量化検証](hypha_drum_fan_b_implementation_20260906.md) とする。
+以下は旧設計の経緯として残し、観測窓、固定閾値、算出式、差分の符号は引き続き維持する。
+新表示はmacOS高DPI性能とDAW実動確認が未完了であり、公開済みとは扱わない。
+
 ## Decision
 
 ATTACKは波形から楽器を推測する画面にしない。

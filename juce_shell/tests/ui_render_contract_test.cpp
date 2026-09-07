@@ -3,6 +3,7 @@
 #include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaHoverHelpPreference.h"
 #include "../src/HyphaSpectrumComponent.h"
+#include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaTooltipLookAndFeel.h"
 #include "PerceptualHistoryContractTest.h"
 #include "AbsoluteTimelineContractTest.h"
@@ -13,10 +14,16 @@
 #include "GuideFrequencyOverlayContractTest.h"
 #include "ObservatoryViewContractTest.h"
 #include "ObservatoryCompositeContractTest.h"
+#include "ObservationPageContractTest.h"
+#include "SpectrumRenderTest.h"
 #include "CaptureHistoryContractTest.h"
 #include "TimeHistoryContractTest.h"
 #include "TimePageNavigationContractTest.h"
+#include "RunSummaryContractTest.h"
 #include "SpaceFieldContractTest.h"
+#include "ReferenceAuditionComponentContractTest.h"
+#include "OsAccessUiContractTest.h"
+#include "UiFeatureContracts.h"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -24,7 +31,7 @@ namespace ui = hypha::ui_contract;
 static_assert (sizeof (KirinSpectrumView) == 3'112, "Spectrum view ABI size must remain exact");
 static_assert (sizeof (KirinSpectrumBatch) == 28'016, "Spectrum batch ABI size must remain exact");
 static_assert (sizeof (KirinMeterSession) == 840u, "Meter Session ABI size must remain exact");
-static_assert (sizeof (KirinObservatoryFrame) == 920u, "Observatory frame ABI size must remain exact");
+static_assert (sizeof (KirinObservatoryFrame) == 1'080u, "Observatory frame ABI size must remain exact");
 static_assert (sizeof (KirinMeterHistoryEntry) == 184u, "Meter history ABI size must remain exact");
 namespace
 {
@@ -36,14 +43,11 @@ namespace
                   << ": " << expression << '\n';
         std::exit (EXIT_FAILURE);
     }
-
 #define KIRIN_REQUIRE(expression) require ((expression), #expression, __LINE__)
-
     bool fits (const juce::Font& font, const juce::String& text, int width)
     {
         return static_cast<int> (std::ceil (font.getStringWidthFloat (text))) <= width;
     }
-
     bool hasGlyph (const juce::Font& font, juce::juce_wchar codepoint)
     {
         juce::Array<int> glyphs;
@@ -76,11 +80,7 @@ namespace
 
     bool nearRgb (juce::Colour pixel, juce::Colour target)
     {
-        constexpr int tolerance = 12;
-        return pixel.getAlpha() > 16
-            && std::abs ((int) pixel.getRed() - (int) target.getRed()) <= tolerance
-            && std::abs ((int) pixel.getGreen() - (int) target.getGreen()) <= tolerance
-            && std::abs ((int) pixel.getBlue() - (int) target.getBlue()) <= tolerance;
+        return hypha::tests::isReferenceCurveInk (pixel, target);
     }
 
     int countColourRunsAcross (const juce::Image& image,
@@ -144,85 +144,13 @@ namespace
              + hypha::labelFont (ui::metricUnitFontHeight).getStringWidthFloat (unit);
     }
 
-    struct SpectrumRenderResult
-    {
-        juce::Image image;
-        double paintMs = 0.0;
-    };
 
-    SpectrumRenderResult renderSpectrumAtSize (
-        const KirinSpectrumView& snapshot,
-        const ui::SpectrumSizePreset& preset,
-        const char* outputEnvironmentVariable)
-    {
-        hypha::SpectrumComponent component;
-        const auto bounds = ui::spectrumPlotBounds (preset.width, preset.height);
-        component.setSize (bounds.width, bounds.height);
-        component.setSnapshot (snapshot);
-        hypha::guide_frequency::Overlay guideOverlay;
-        guideOverlay.count = 1;
-        guideOverlay.bands[0].emphasis = hypha::guide_frequency::Emphasis::active;
-        guideOverlay.bands[0].lowHz = 3'150.0;
-        guideOverlay.bands[0].highHz = 3'700.0;
-        component.setGuideFrequencyOverlay (guideOverlay);
-
-        const float scale = ui::spectrumVisualScale (bounds.width);
-        const float leftInset = (float) ui::spectrumPlotLeftInset * scale;
-        const float rightInset = (float) ui::spectrumPlotRightInset * scale;
-        const float hoverX = leftInset + 0.70f * ((float) bounds.width
-                                                 - leftInset - rightInset);
-        const float hoverY = (float) ui::spectrumPlotTopInset * scale + 20.0f * scale;
-        const auto eventTime = juce::Time::getCurrentTime();
-        const juce::MouseEvent hoverEvent (
-            juce::Desktop::getInstance().getMainMouseSource(),
-            { hoverX, hoverY }, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-            &component, &component, eventTime,
-            { hoverX, hoverY }, eventTime, 0, false);
-        component.mouseMove (hoverEvent);
-        component.presentationTick();
-
-        SpectrumRenderResult result {
-            juce::Image (juce::Image::ARGB, bounds.width, bounds.height, true), 0.0
-        };
-        constexpr int paintIterations = 200;
-        const double startedMs = juce::Time::getMillisecondCounterHiRes();
-        for (int iteration = 0; iteration < paintIterations; ++iteration)
-        {
-            result.image.clear (result.image.getBounds(), hypha::BG);
-            juce::Graphics graphics (result.image);
-            component.paintEntireComponent (graphics, true);
-        }
-        result.paintMs = (juce::Time::getMillisecondCounterHiRes() - startedMs)
-                       / paintIterations;
-        const auto outputPath = juce::SystemStats::getEnvironmentVariable (
-            outputEnvironmentVariable, {});
-        if (outputPath.isNotEmpty())
-        {
-            auto output = juce::File (outputPath).createOutputStream();
-            KIRIN_REQUIRE (output != nullptr);
-            KIRIN_REQUIRE (juce::PNGImageFormat().writeImageToStream (result.image, *output));
-        }
-        return result;
-    }
 }
-
-int main()
+using hypha::tests::renderSpectrumAtSize;
+int main (int argc, char** argv)
 {
-    hypha::tests::verifyPerceptualHistoryContract();
-    hypha::tests::verifyTimePageNavigationContract();
-    hypha::tests::verifySpectrumFocusTrailContract();
-    hypha::tests::verifySpectrumPresentationContract();
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    hypha::tests::verifyGuideFrequencyOverlayContract();
-    hypha::tests::verifyAbsoluteTimelineContract();
-    hypha::tests::verifyAbsoluteSpectrumContract();
-    hypha::tests::verifyPerceptualRenderingContract();
-    hypha::tests::verifyObservatoryViewContract();
-    hypha::tests::verifyObservatoryCompositeContract();
-    hypha::tests::verifyCaptureHistoryContract();
-    hypha::tests::verifyTimeHistoryContract();
-    hypha::tests::verifySpaceFieldContract();
-
+    if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
     const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);
     KIRIN_REQUIRE (preferenceDirectory.createDirectory().wasOk());
@@ -297,8 +225,8 @@ int main()
                                   (juce::juce_wchar) 0x25CC, // ◌
                                   (juce::juce_wchar) 0x2014 }) // —
         KIRIN_REQUIRE (hasGlyph (mono, codepoint));
-    KIRIN_REQUIRE (hasGlyph (hypha::labelFont (ui::menuFontHeight),
-                             (juce::juce_wchar) 0x00B7)); // ·
+    KIRIN_REQUIRE (hasGlyph (hypha::labelFont (ui::menuFontHeight), (juce::juce_wchar) 0x00B7)
+                   && hasGlyph (hypha::nativeTextFont (ui::menuFontHeight), (juce::juce_wchar) 0x66F4)); // · / 更
 
     KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR ●"), ui::pairStatusWidth));
     KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR ◌"), ui::pairStatusWidth));
@@ -462,6 +390,7 @@ int main()
     KIRIN_REQUIRE (arrowPixels >= 8);
 
     hypha::SpectrumComponent spectrum;
+    spectrum.setSignalActive (true);
     const auto spectrumBounds = ui::spectrumPlotBounds();
     spectrum.setSize (spectrumBounds.width, spectrumBounds.height);
     juce::Image warmingSpectrumImage (
@@ -497,11 +426,9 @@ int main()
                                            + spectrumSnapshot.display_db[index];
     }
     spectrum.setSnapshot (spectrumSnapshot);
-    const float previewHoverX = (float) ui::spectrumPlotLeftInset
-                              + 0.70f * (float) (spectrumBounds.width
-                                               - ui::spectrumPlotLeftInset
-                                               - ui::spectrumPlotRightInset);
-    const float previewHoverY = (float) ui::spectrumPlotTopInset + 20.0f;
+    const auto previewPlot = hypha::spectrum_geometry::dataPlotBoundsFor (spectrum.getLocalBounds().toFloat());
+    const float previewHoverX = previewPlot.getX() + 0.70f * previewPlot.getWidth();
+    const float previewHoverY = previewPlot.getCentreY();
     const auto eventTime = juce::Time::getCurrentTime();
     const juce::MouseEvent hoverEvent (
         juce::Desktop::getInstance().getMainMouseSource(),
@@ -543,7 +470,7 @@ int main()
     KIRIN_REQUIRE (countDifferentPixels (spectrumWithoutHover, spectrumWithFocusLock) > 30);
     const float clearX = (float) spectrumBounds.width
                        - (float) ui::spectrumPlotRightInset - 3.0f;
-    const float clearY = (float) ui::spectrumPlotTopInset + 8.0f;
+    const float clearY = (float) ui::spectrumPlotTopInset + 24.0f;
     const juce::MouseEvent clearEvent (
         juce::Desktop::getInstance().getMainMouseSource(),
         { clearX, clearY }, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
@@ -554,6 +481,7 @@ int main()
     for (const auto& preset : ui::spectrumSizePresets)
     {
         hypha::SpectrumComponent markSpectrum;
+        markSpectrum.setSignalActive (true);
         const auto markSpectrumBounds = ui::spectrumPlotBounds (preset.width, preset.height);
         markSpectrum.setSize (markSpectrumBounds.width, markSpectrumBounds.height);
         markSpectrum.setSnapshot (spectrumSnapshot);
@@ -564,6 +492,7 @@ int main()
     // Keep the performance-sensitive trail gate after all five MARK size contracts.
     hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);
     hypha::SpectrumComponent lineEncodingSpectrum;
+    lineEncodingSpectrum.setSignalActive (true);
     lineEncodingSpectrum.setSize (spectrumBounds.width, spectrumBounds.height);
     KirinSpectrumView lineEncodingSnapshot = spectrumSnapshot;
     for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
@@ -579,14 +508,13 @@ int main()
         juce::Graphics graphics (lineEncodingImage);
         lineEncodingSpectrum.paintEntireComponent (graphics, true);
     }
-    const int innerPlotWidth = spectrumBounds.width - ui::spectrumPlotLeftInset
-                            - ui::spectrumPlotRightInset;
-    const int innerPlotHeight = spectrumBounds.height - ui::spectrumPlotTopInset
-                             - ui::spectrumPlotBottomInset;
-    const int preCurveY = ui::spectrumPlotTopInset
-                        + juce::roundToInt ((32.0f / 96.0f) * (float) innerPlotHeight);
-    const int postCurveY = ui::spectrumPlotTopInset
-                         + juce::roundToInt ((72.0f / 96.0f) * (float) innerPlotHeight);
+    const auto referencePlot = hypha::spectrum_geometry::dataPlotBoundsFor (
+        lineEncodingSpectrum.getLocalBounds().toFloat());
+    const int innerPlotWidth = juce::roundToInt (referencePlot.getWidth());
+    const int preCurveY = juce::roundToInt (
+        referencePlot.getY() + (32.0f / 96.0f) * referencePlot.getHeight());
+    const int postCurveY = juce::roundToInt (
+        referencePlot.getY() + (72.0f / 96.0f) * referencePlot.getHeight());
     const juce::Rectangle<int> curveProbe (
         ui::spectrumPlotLeftInset, preCurveY - 2, innerPlotWidth, 5);
     const juce::Rectangle<int> postCurveProbe (

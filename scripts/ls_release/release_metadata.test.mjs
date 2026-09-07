@@ -229,9 +229,9 @@ test('README opens with current analysis, exact pairing, and supported Windows f
   );
   assert.match(entrance, /choose that exact PRE under \*\*Pair choices\*\*/);
   assert.match(entrance, /Names are optional labels/);
-  assert.match(readme, /current v1\.1\.48 Windows 10\/11 64-bit VST3 release is a supported manual PRE\/POST ZIP/);
-  assert.match(readme, /The next validated release will use a single installer\s+EXE/);
-  assert.match(readme, /signed installer is required for the next validated release/);
+  assert.match(readme, /current v1\.1\.49 Windows 10\/11 64-bit VST3 release is distributed as one signed installer EXE/);
+  assert.match(readme, /payloads, installer, and generated uninstaller passed signature/);
+  assert.match(readme, /current\s+v1\.1\.49 release uses an Authenticode-signed installer containing both PRE and POST/);
   assert.doesNotMatch(readme, /supported release is currently macOS-only/);
   assert.doesNotMatch(readme, /Windows validation candidate/);
   assert.doesNotMatch(readme, /External validation is pending/);

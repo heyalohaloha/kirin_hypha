@@ -1,0 +1,16 @@
+{
+  "purpose": "development_only",
+  "reference_window": 2048,
+  "bands_per_octave": 24,
+  "maximum_filter_radius": 1,
+  "reference_dbfs": -70,
+  "peak_delta": 0.02,
+  "pre_max_hops": 3,
+  "pre_mean_hops": 24,
+  "refractory_ms": 30,
+  "floor_db": -90,
+  "floor_margin_db": 6,
+  "maximum_rise_db": 1,
+  "minimum_r_squared": 0.98,
+  "peak_search_ms": 80
+}

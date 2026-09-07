@@ -2,19 +2,20 @@
 
 Purpose: validate every Windows JUCE VST3 release on a real Windows DAW before public upload.
 
-Status: Windows 10/11 64-bit VST3 is supported. The v1.1.48 release records Windows validation as
-complete after CI, pluginval, and Studio One Pro checks on the dedicated Windows validation machine.
-This document remains the required regression checklist for later release commits; a new package
-must stay blocked until these gates are complete for that commit.
+Status: Windows 10/11 64-bit VST3 is supported. The v1.1.49 release is the first published signed
+installer and records CI, pluginval, Studio One Pro, Authenticode, same-version reinstall, v1.1.48
+upgrade, and isolated-uninstall validation as complete. This document remains the required regression
+checklist for later release commits; a new package must stay blocked until these gates are complete
+for that commit.
 
 ## Current Boundary
 
 - Windows delivery target: JUCE VST3, PRE and POST.
-- Current published state: v1.1.48 is a supported, validated manual PRE/POST ZIP without an installer
-  or Authenticode signatures.
-- Next-release procedure: GitHub Actions builds PRE/POST Windows VST3, validates them with pluginval,
+- Current published state: v1.1.49 is one Authenticode-signed installer containing PRE and POST.
+  The payload binaries, Setup EXE, and generated uninstaller have valid signatures.
+- Per-release procedure: GitHub Actions builds PRE/POST Windows VST3, validates them with pluginval,
   signs their PE binaries, and packages both roles in one Inno Setup installer.
-- Planned primary packaging: `scripts/windows/build-installer.mjs` creates the Setup EXE, SHA-256,
+- Primary packaging: `scripts/windows/build-installer.mjs` creates the Setup EXE, SHA-256,
   and manifest. `scripts/windows/verify-installer.ps1` gates install, same-version reinstall,
   installed hashes and signatures, uninstaller signature, cleanup, and preservation of unrelated
   VST3 files.
@@ -22,12 +23,12 @@ must stay blocked until these gates are complete for that commit.
   recovery ZIP. It never replaces the primary installer.
 - Per-release validation gate: real Windows DAW load, PRE/POST discovery, Keep, Record, offline
   bounce, and audio transparency must be complete before LS-ready.
-- Next-release Authenticode scope: PRE binary, POST binary, Setup EXE, and generated uninstaller must
-  all be Valid before the installer can replace the manual ZIP.
+- Authenticode scope: PRE binary, POST binary, Setup EXE, and generated uninstaller must all be Valid
+  before an installer can be published.
 
 ## Artifact To Send
 
-For the next release, first validate the unsigned installer candidate named
+For each later release, first validate the unsigned installer candidate named
 `kirin-hypha-windows-installer` from the complete green Hypha CI run. Its manifest must identify the
 same exact release-candidate commit and version. After this checklist is green, the private signing
 factory may rebuild that exact source commit with `external_validation=complete`; it then verifies the
@@ -73,9 +74,8 @@ Open `Kirin-Hypha-<version>-Windows-x64-Setup.exe` and select **Current user** f
 Repeat the installer once before DAW testing to exercise same-version update behavior. Both passes
 must complete without manual VST3 folder selection.
 
-For an upgrade test, begin separately from the preceding public Windows release. For the first
-installer release, install the v1.1.48 PRE/POST manual ZIP into its documented user VST3 location;
-for later releases, install the preceding signed installer. Open and save one DAW session containing
+For an upgrade test, begin separately from the preceding public Windows release by installing its
+signed installer. Open and save one DAW session containing
 both roles, close the DAW, then run the candidate installer. Reopen that session and confirm that the
 candidate replaces both owned bundles, preserves the session identities and pair selection, and does
 not alter unrelated VST3 files. Record the old and new versions and both payload hashes in the

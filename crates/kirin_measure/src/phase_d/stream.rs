@@ -147,11 +147,19 @@ impl PhaseDStream {
     /// This is reserved for a dedicated Perceptual Delta stream. Do not alternate it with
     /// [`Self::push`] on one instance: the ISO 532-1 state advances here, while the independent
     /// high-band STFT state intentionally does not.
-    pub(crate) fn push_sharpness_only(&mut self, mono_48k: &[f64]) -> Option<f64> {
+    pub(crate) fn push_display_only(
+        &mut self,
+        mono_48k: &[f64],
+    ) -> Option<super::display::DisplayObservation> {
         let (slopes, filtered) = self.push_iso_core(mono_48k)?;
-        sharpness::compute(&slopes.n_specific[..filtered.len()], &filtered)
-            .last()
-            .copied()
+        let specific = slopes.n_specific.get(filtered.len().checked_sub(1)?)?;
+        Some(super::display::DisplayObservation {
+            sharpness: *sharpness::compute(&slopes.n_specific[..filtered.len()], &filtered)
+                .last()?,
+            specific: std::array::from_fn(|group| {
+                specific[group * 12..(group + 1) * 12].iter().sum()
+            }),
+        })
     }
 
     fn push_iso_core(&mut self, mono_48k: &[f64]) -> Option<(calc_slopes::SlopesResult, Vec<f64>)> {

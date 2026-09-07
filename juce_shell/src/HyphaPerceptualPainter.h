@@ -17,6 +17,7 @@ namespace hypha::perceptual_painter
         bool snapshotValid;
         uint8_t channelMode;
         uint8_t inputChannels;
+        bool signalActive = true;
     };
 
     void paint (juce::Graphics& graphics,

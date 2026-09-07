@@ -34,6 +34,7 @@ fn perceptual_frame(end: i64, value: f64) -> crate::PerceptualFrame {
         channel_mode: SpectrumChannelMode::Lr,
         channels: 2,
         sharpness: value,
+        psb: Some([0.05; 20]),
     }
 }
 

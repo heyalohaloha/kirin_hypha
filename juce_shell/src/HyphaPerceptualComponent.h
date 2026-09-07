@@ -18,6 +18,7 @@ public:
     void setSnapshot (const KirinPerceptualView& next);
     void setBatch (const KirinPerceptualBatch& next);
     void clearSnapshot();
+    void setSignalActive (bool active) { if (signalActive != active) { signalActive = active; repaint(); } }
     void presentationTick();
     void presentationTickAt (double nowMs);
     void setAnalysisOwnerNames (const juce::String& names);
@@ -46,6 +47,7 @@ private:
     KirinPerceptualView pendingSnapshot {};
     perceptual_history::History history;
     bool haveSnapshot = false;
+    bool signalActive = true;
     bool havePendingSnapshot = false;
     bool curveDirty = false;
     bool numericDirty = false;

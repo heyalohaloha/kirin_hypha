@@ -1,6 +1,7 @@
 #include "HyphaObservatoryView.h"
 
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaLevelMetricContract.h"
 
 #include <array>
 #include <cmath>
@@ -48,12 +49,12 @@ void drawMetric (juce::Graphics& g,
     drawPanel (g, area, family, panelOpacity);
     if (verticalStack)
     {
-        const auto labelHeight = juce::jlimit (11, 16, area.getHeight() / 4);
-        const auto unitHeight = juce::jlimit (9, 13, area.getHeight() / 5);
+        const auto labelHeight = juce::jlimit (14, 18, area.getHeight() / 4);
+        const auto unitHeight = juce::jlimit (14, 16, area.getHeight() / 5);
         const auto labelArea = area.removeFromTop (labelHeight);
         const auto unitArea = area.removeFromBottom (unitHeight);
         g.setColour (COL_MUTED.brighter (0.08f));
-        g.setFont (labelFont (juce::jlimit (8.0f, 11.0f, valueHeight * 0.25f)));
+        g.setFont (labelFont (area.getWidth() >= 135 ? 14.0f : 11.0f));
         g.drawText (label, labelArea.reduced (4, 0), juce::Justification::centred);
         g.setColour (std::isfinite (value) && textOverride.isEmpty()
                          ? COL_OBSERVATORY_VALUE : COL_MUTED);
@@ -63,7 +64,7 @@ void drawMetric (juce::Graphics& g,
                                                    : valueText (value, decimals, signedValue),
                          area.reduced (4, 0).toFloat(), juce::Justification::centred);
         g.setColour (COL_MUTED.brighter (0.04f));
-        g.setFont (labelFont (juce::jlimit (7.0f, 9.5f, valueHeight * 0.23f)));
+        g.setFont (labelFont (area.getWidth() >= 135 ? 12.0f : 11.0f));
         g.drawText (unit, unitArea.reduced (3, 0), juce::Justification::centred);
         return;
     }
@@ -123,9 +124,9 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     const auto compact = family == ExperienceFamily::compactMeter;
     juce::Rectangle<int> channelStrips;
     if (includeChannelStrips && target() == ObservationTarget::absolute
-        && (density == Density::standard || density == Density::observatory))
+        && (density == Density::standard || isFullDensity (density)))
         channelStrips = area.removeFromRight (
-            density == Density::observatory ? 112 : 62).reduced (2);
+            density == Density::inspection ? 156 : density == Density::observatory ? 112 : 62).reduced (2);
     if (compact)
         area.removeFromTop (20);
     if (target() == ObservationTarget::delta)
@@ -170,74 +171,102 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         area = main;
         const auto& watch = compactShowsMaximum
             ? watchDisplay.maximum : watchDisplay.current;
-        const auto compactFactsAvailable = watchDisplayAvailable && currentFactsAvailable();
+        const auto compactFactsAvailable = watchDisplayAvailable
+            && (compactShowsMaximum ? cumulativeFactsAvailable() : currentFactsAvailable());
+        const bool trackStem = selectedMeterContext
+                            == meter_context::MeterContext::trackStem;
         const std::array<double, 3> compactValues {
-            selectedShortTermLoudness ? watch.lufs_s : watch.lufs_m,
-            watch.true_peak,
-            watch.crest
+            watch.lufs_m,
+            watch.lufs_s,
+            trackStem ? watch.crest : meter.lufs_i
+        };
+        const std::array<bool, 3> compactAvailable {
+            compactFactsAvailable,
+            compactFactsAvailable,
+            trackStem ? compactFactsAvailable : cumulativeAvailable
         };
         const std::array<const char*, 3> compactLabels {
-            selectedShortTermLoudness ? "S" : "M", "TP", "CREST"
+            "M", "S", trackStem ? "CREST" : "I"
         };
-        const std::array<const char*, 3> compactUnits { "LUFS", "dBTP", "dB" };
+        const std::array<const char*, 3> compactUnits {
+            "LUFS", "LUFS", trackStem ? "dB" : "LUFS"
+        };
         for (int index = 0; index < 3; ++index)
             drawMetric (g, area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
                         compactLabels[(size_t) index],
-                        optionValue (compactValues[(size_t) index], compactFactsAvailable),
+                        optionValue (compactValues[(size_t) index],
+                                     compactAvailable[(size_t) index]),
                         compactUnits[(size_t) index], 25.0f, family);
         return;
     }
-    const std::array<double, 4> mainValues {
-        meter.lufs_m, meter.lufs_s, meter.lufs_i, watchDisplay.current.crest
+    const bool trackStem = selectedMeterContext == meter_context::MeterContext::trackStem;
+    const auto metricLayout = level_metrics::layoutFor (trackStem);
+    const std::array<double, 3> mainValues {
+        meter.lufs_m, meter.lufs_s,
+        trackStem ? watchDisplay.current.crest : meter.lufs_i
     };
-    const std::array<bool, 4> mainAvailable {
-        currentAvailable, currentAvailable, cumulativeAvailable,
-        currentAvailable && watchDisplayAvailable
+    const std::array<bool, 3> mainAvailable {
+        currentAvailable, currentAvailable,
+        trackStem ? currentAvailable && watchDisplayAvailable : cumulativeAvailable
     };
-    const std::array<const char*, 4> mainLabels { "M", "S", "I", "CREST" };
-    const std::array<const char*, 4> mainUnits { "LUFS", "LUFS", "LUFS", "dB" };
+    const std::array<const char*, 3> mainUnits {
+        "LUFS", "LUFS", trackStem ? "dB" : "LUFS"
+    };
     const auto mainValueHeight = density == Density::standard ? 28.0f
                                : getWidth() >= 900 ? 58.0f : 42.0f;
-    const int mainCount = density == Density::observatory ? 3 : 4;
-    if (density == Density::observatory)
+    constexpr int mainCount = 3;
+    if (isFullDensity (density))
         background.drawLevelCorners (g, main, worldState());
     for (int index = 0; index < mainCount; ++index)
     {
         drawMetric (g, main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
-                    mainLabels[(size_t) index],
+                    level_metrics::label (metricLayout.main[(size_t) index]),
                     optionValue (mainValues[(size_t) index], mainAvailable[(size_t) index]),
                     mainUnits[(size_t) index], mainValueHeight, family,
-                    false, 1, {}, density == Density::observatory ? 0.42f : -1.0f,
-                    {}, density == Density::observatory);
+                    false, 1, {}, isFullDensity (density) ? 0.42f : -1.0f,
+                    {}, isFullDensity (density));
     }
 
     const std::array<double, 5> supportValues {
-        meter.true_peak, meter.max_true_peak, meter.lra, meter.plr,
-        watchDisplay.current.crest
+        trackStem ? watchDisplay.current.psr : meter.true_peak,
+        trackStem ? meter.true_peak : meter.max_true_peak,
+        trackStem ? meter.max_true_peak : meter.lra,
+        trackStem ? meter.lufs_i : meter.plr,
+        trackStem ? meter.lra : watchDisplay.current.crest
     };
     const std::array<bool, 5> supportAvailable {
-        currentAvailable, cumulativeAvailable,
-        cumulativeAvailable && observatoryFrame.lra_state == KIRIN_LRA_READY,
-        cumulativeAvailable, currentAvailable && watchDisplayAvailable
+        trackStem ? currentAvailable && watchDisplayAvailable : currentAvailable,
+        trackStem ? currentAvailable : cumulativeAvailable,
+        trackStem ? cumulativeAvailable
+                  : cumulativeAvailable && observatoryFrame.lra_state == KIRIN_LRA_READY,
+        cumulativeAvailable,
+        trackStem ? cumulativeAvailable && observatoryFrame.lra_state == KIRIN_LRA_READY
+                  : currentAvailable && watchDisplayAvailable
     };
-    const std::array<const char*, 5> supportLabels { "TP", "MAX TP", "LRA", "PLR", "CREST" };
-    const std::array<const char*, 5> supportUnits { "dBTP", "dBTP", "LU", "dB", "dB" };
-    const int supportCount = density == Density::observatory ? 5 : 4;
+    const std::array<const char*, 5> supportUnits {
+        trackStem ? "dB" : "dBTP",
+        "dBTP",
+        trackStem ? "dBTP" : "LU",
+        trackStem ? "LUFS" : "dB",
+        trackStem ? "LU" : "dB"
+    };
+    constexpr int supportCount = 5;
     for (int index = 0; index < supportCount; ++index)
     {
-        const auto warming = index == 2 && cumulativeAvailable
+        const auto lraIndex = trackStem ? 4 : 2;
+        const auto warming = index == lraIndex && cumulativeAvailable
                           && observatoryFrame.lra_state == KIRIN_LRA_WARMING;
         const auto warmingText = warming
             ? "WARM " + juce::String ((int) std::floor (observatoryFrame.lra_elapsed_seconds)) + "S"
             : juce::String();
         drawMetric (g, area.removeFromLeft (
                         area.getWidth() / (supportCount - index)).reduced (2),
-                    supportLabels[(size_t) index],
+                    level_metrics::label (metricLayout.support[(size_t) index]),
                     optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
                     supportUnits[(size_t) index], getWidth() >= 900 ? 24.0f : 18.0f, family,
                     false, 1, warmingText,
-                    density == Density::observatory ? 0.54f : -1.0f, {},
-                    density == Density::observatory);
+                    isFullDensity (density) ? 0.54f : -1.0f, {},
+                    true);
     }
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
@@ -248,7 +277,7 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
     const auto inspection = getWidth() >= 900;
     juce::Rectangle<int> channelStrips;
     if (target() == ObservationTarget::absolute)
-        channelStrips = area.removeFromRight (inspection ? 110 : 76).reduced (2);
+        channelStrips = area.removeFromRight (inspection ? 126 : 116).reduced (2);
 
     const auto landscape = area.getWidth() > area.getHeight();
     const auto previousHistoryHeight = juce::jlimit (
@@ -257,7 +286,8 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
                           * (inspection ? 0.46f : landscape ? 0.40f : 0.32f)));
     const auto previousMetricsHeight = juce::jmax (
         1, area.getHeight() - previousHistoryHeight - 4);
-    const auto metricsHeight = compressedLevelMetricsHeight (previousMetricsHeight);
+    const auto metricsHeight = juce::jmin (area.getHeight() - 92,
+        juce::jmax (inspection ? 162 : 134, compressedLevelMetricsHeight (previousMetricsHeight)));
     auto metricsArea = area.removeFromTop (metricsHeight);
     area.removeFromTop (4);
     auto historyArea = area;

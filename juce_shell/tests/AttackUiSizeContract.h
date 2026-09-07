@@ -1,4 +1,5 @@
 #pragma once
+#include "AttackUiPerformanceProbe.h"
 
 #include <array>
 #include <cmath>
@@ -35,6 +36,7 @@ inline bool verifyNoSelectionBar (const juce::Image& image)
 
 inline bool verifyContinuousScrubRail (const juce::Image& image)
 {
+    if (image.getHeight() < 145) return true; // Compact view has no scrub rail.
     const auto scrubTop = attack_ui::headerHeight
                         + attack_ui::timelineHeight (image.getHeight());
     const auto railY = scrubTop + attack_ui::axisLabelHeight / 2 - 2;
@@ -66,10 +68,11 @@ inline bool verifyNoMetricLeaderCorridors (const juce::Image& image)
     auto metrics = juce::Rectangle<int> (
         0, image.getHeight() - height, image.getWidth(), height).reduced (1);
     auto content = metrics.reduced (7, 3);
-    content.removeFromTop (12);
+    content.removeFromTop (18);
     if (content.getHeight() < 65)
         return true;
-    const auto sideWidth = juce::jmin (112, content.getWidth() / 4);
+    const auto scale = attack_ui::textScale (image.getWidth(), image.getHeight());
+    const auto sideWidth = juce::jmin (scale > 1.4f ? 178 : 112, content.getWidth() / 4);
     const auto left = juce::Rectangle<int> (
         content.getX() + sideWidth, content.getY(), 4, content.getHeight());
     const auto right = juce::Rectangle<int> (
@@ -83,13 +86,13 @@ inline bool verifyNoMetricLeaderCorridors (const juce::Image& image)
 }
 
 inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform,
-                                   const KirinAttackDetailBatch& details)
+                                   const KirinAttackDetailBatch&)
 {
     juce::Image image (juce::Image::ARGB, 360, 80, true);
     juce::Graphics graphics (image);
-    attack_painter::drawWaveform (
-        graphics, waveform, details, image.getBounds(), 0, 288'000, 48'000,
-        attack_painter::WaveformStyle::trace, false, 1.0f);
+    attack_painter::drawEnvelope (
+        graphics, waveform, image.getBounds(), 0, 288'000, 48'000,
+        attack_painter::WaveformStyle::trace, 1.0f);
     bool started = false;
     bool ended = false;
     for (int x = 0; x < image.getWidth(); ++x)
@@ -109,6 +112,7 @@ inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform,
 
 inline bool verifySupportedSizes (AttackComponent& component)
 {
+    profileDenseAttackIfRequested();
     constexpr std::array<const char*, 5> splitPreviewVariables {{
         "KIRIN_ATTACK_UI_100_SPLIT_PREVIEW_PATH",
         "KIRIN_ATTACK_UI_125_SPLIT_PREVIEW_PATH",

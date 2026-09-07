@@ -35,7 +35,7 @@ void paintFullChannelStrips (juce::Graphics& g,
 {
     auto labels = area.removeFromTop (18);
     auto readouts = area.removeFromTop (46);
-    auto clips = area.removeFromBottom (23);
+    auto clips = area.removeFromBottom (28);
     constexpr int scaleWidth = 22;
     constexpr int columnGap = 4;
     const int columnWidth = (area.getWidth() - scaleWidth - 2 * columnGap) / 2;
@@ -87,7 +87,7 @@ void paintFullChannelStrips (juce::Graphics& g,
         for (const auto column : columns)
             g.drawHorizontalLine (y, (float) column.getX(), (float) column.getRight());
         g.setColour (COL_MUTED.withAlpha (0.82f));
-        g.drawText (juce::String (db), scaleColumn.withY (y - 5).withHeight (10),
+        g.drawText (juce::String (db), scaleColumn.withY (y - 7).withHeight (14),
                     juce::Justification::centred);
     }
 
@@ -134,7 +134,7 @@ void paintFullChannelStrips (juce::Graphics& g,
     g.drawHorizontalLine (clips.getY(), (float) clips.getX(), (float) clips.getRight());
     g.setColour (COL_MUTED);
     g.setFont (labelFont (7.0f));
-    g.drawText ("CLIP", clips.removeFromTop (10), juce::Justification::centred);
+    g.drawText ("CLIP", clips.removeFromTop (14), juce::Justification::centred);
     paintClipCount (g, clips.withX (leftColumn.getX()).withWidth (columnWidth),
                     "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0);
     paintClipCount (g, clips.withX (rightColumn.getX()).withWidth (columnWidth),
@@ -149,7 +149,8 @@ SizePreset View::currentPreset() const noexcept
             return preset;
     const auto density = getWidth() < 338 ? Density::compact
                        : getWidth() < 413 ? Density::focused
-                       : getWidth() < 525 ? Density::standard : Density::observatory;
+                       : getWidth() < 525 ? Density::standard
+                       : getWidth() < 750 ? Density::observatory : Density::inspection;
     return { getWidth(), getHeight(), density, "SIZE" };
 }
 
@@ -193,13 +194,13 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     g.setColour (COL_MUTED.withAlpha (0.34f));
     g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
     area.reduce (5, 5);
-    if (currentPreset().density == Density::observatory)
+    if (isFullDensity (currentPreset().density))
     {
         paintFullChannelStrips (g, area, meter, currentAvailable, cumulativeAvailable);
         return;
     }
     auto labels = area.removeFromTop (15);
-    auto clips = area.removeFromBottom (23);
+    auto clips = area.removeFromBottom (28);
     const auto columnGap = 4;
     const auto columnWidth = (area.getWidth() - columnGap) / 2;
     const auto mapY = [&area] (double value)
@@ -253,7 +254,7 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     g.drawHorizontalLine (clips.getY(), (float) clips.getX(), (float) clips.getRight());
     g.setColour (COL_MUTED);
     g.setFont (labelFont (7.0f));
-    g.drawText ("CLIP", clips.removeFromTop (10), juce::Justification::centred);
+    g.drawText ("CLIP", clips.removeFromTop (14), juce::Justification::centred);
     const auto left = clips.removeFromLeft (columnWidth);
     clips.removeFromLeft (columnGap);
     paintClipCount (g, left, "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0);

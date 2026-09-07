@@ -155,13 +155,38 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 
 | ID | 不変条件 | 紐づくテスト |
 |----|----------|--------------|
-| INV-L1 | Record/plugin_data/preset/Keep/Stop は License::Os のみ。Sense/Unknown 不可（Unknown 安全側）。SpectrumのMARKは表示専用で、音声・Record・license状態を変更しない | `os_enables_record_features` / `sense_blocks_record_features` / `unknown_defaults_to_safe_side` / `verifySpectrumInteractionContract` |
-| INV-L2 | GUI ボタン可視性は Rust license ヘルパと C++ `PostControls::update` が値レベルで一致（os=(code==0)） | `post_controls_visibility_matches_rust_license_helpers`（B-195） / `sense_hint_visibility_is_sense_only_and_exclusive_with_keep` / `post_controls_update_visibility_formula_is_pinned` |
-| INV-L3 | KeepはAU/VST3共通の固定スロットに表示し、pair未選択時は非表示化せずdisabledにする | `shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract` |
+| INV-L1 | Record/plugin_data/preset/Keep開始は License::Os のみ。Sense/Unknown 不可（Unknown 安全側）。開始後にentitlementが変わってもStopは消さず、利用者が処理を終了できる。SpectrumのMARKは表示専用で、音声・Record・license状態を変更しない | `os_enables_record_features` / `sense_blocks_record_features` / `unknown_defaults_to_safe_side` / `verifySpectrumInteractionContract` |
+| INV-L2 | GUIは可視性と実行可否を分離する。Keep／All KeepはOS未所有またはpair未選択でも消さずdisabled表示とし、実行時はRust license gateを再確認する | `post_controls_visibility_matches_rust_license_helpers` / `os_information_is_visible_for_every_unowned_license` / `post_controls_update_visibility_formula_is_pinned` / `verifyOsAccessUiContract` |
+| INV-L3 | KeepはAU/VST3共通の固定スロットに表示し、pairまたはOS entitlement未成立時は非表示化せずdisabledにする | `shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract` / `verifyOsAccessUiContract` |
+| INV-L4 | Kirin OS連携は権限未確認／所有未接続／接続済み未準備／準備完了を区別する。POSTのREF案内入口は開けるが試聴許可にはしない。公式製品ページとlocal license再確認は明示操作に限り、認識済み所有者へ再購入を案内せず、比較終了と減衰保持からの復帰操作を覆わない。登録REFのB／BlindはUI、利用者操作、Audio Thread出力で二重以上にgateし、Guide／Work接続／Capture Work添付は内部処理でもgateする。LEVEL／TIME／FREQ／SPACE、通常解析、ローカルCaptureは制限しない | `reference_has_ui_action_and_audio_thread_entitlement_gates` / `guide_and_work_capture_are_entitlement_gated_without_limiting_local_capture` / `verifyReferenceAuditionComponentContract` / `verifyOsAccessUiContract` / `verifyReferenceAccessPanelContract` |
+| INV-L5 | NOTEはPOST footerに常設し、Kirin OS未所有またはactive Keep不成立時も隠さずdisabledにする。受理時は自由文を240文字以内に制限し、MARKと同じproducer sample境界へ`record_note.v1`として記録する。旧wall-clock annotation APIと固定Good/Fix/Hold MARKは別契約のまま維持する | `record_annotations_denied_without_os` / `note_is_sample_exact_bounded_and_distinct_from_fixed_mark` / `verifyOsAccessUiContract` |
 
 ---
 
 ## 8. Shell parity / RT 安全（INV-S）
+
+2026-09-06 の A0 実装では、以下を INV-S7／S13／S14 の現行表示・入口契約に優先する。
+TIME の直接タブは `HISTORY / RUN / DRUM / SHARP / LIVE` で、2MIX では DRUM を除く 4 項目とする。
+DRUM は既存 ATTACK 検出器の識別名であり、2MIX 用検出器や楽器の自動分類ではない。
+TRACK/STEM から 2MIX への変更は、画面操作と DAW state 復元の双方で解析要求を終了する。
+共通の HYPHA PRE／POST タイトルから情報メニューを開き、両 role で hover help を変更できる。
+手動更新入口は固定 HTTPS の外部ページを明示操作で開くもので、自動の最新版判定ではない。
+新しい PRE/POST Blind は未接続であり、単一 Blind／既存 2 枠の予約試験を製品の排他保証と扱わない。
+ローカルBlindのpair authorityは通常pairingと同じ明示PRE選択である。
+名前は任意の表示ラベルとし、host固有IDは補助診断に限定する。
+名前なしPREもexact latch自体をselection intentとして保持し、内部解放後のWaitingと明示解除を区別する。
+開始時は選択済みinstance、locator、pair／capture generation、対応sample範囲、共有leaseを検証する。
+PRE／POSTの取得受領は同じexact pairとcapture generationへ固定し、不一致とpair変更では完了後も失効する。
+取得要求はpair owner、canonical claim、pair／capture／clock generation、両側native範囲、形式、期限を一体で運ぶ。
+PREのarmed応答は要求全体のdigestへ固定し、pair claim解放後は配信済み要求と応答を受理しない。
+C ABIとJUCEの非RTshellはPOST発行、PRE受信／応答、POST確認をroleごとに分け、失敗時の出力を変更しない。
+JUCEの要求envelopeはcanonical request ID、exact pair、全世代、mono／stereo、4秒以下のnative範囲、期限をまとめて検証するが、それ自体をAudio Thread capture公開や開始許可の証拠にはしない。
+role別の取得slotは非RTで事前確保した単一captureだけをAudio Threadへ公開し、reader退場前にPCMを破棄しない。
+取得slotは入力を変更せず、AnalysisLease、PRE／POST間transport、試聴出力用slot、開始許可の代用にしない。
+role別laneはrequestの期限と実prepare形式を照合し、PRE／POSTで指定された側のnative範囲だけを取得する。
+Audio Threadの取得入口は正本計測後かつ出力切替前とし、position不明、timeline停止、bypass、offlineでは当該取得を失効させる。
+対応試験は `unnamed_exact_pair_has_a_coherent_snapshot_until_explicit_clear`、`local_blind_capture_protocol`、`exact_unnamed_pair_completes_the_local_blind_request_handshake`、`kirin_local_blind_capture`、`local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name`、`analysis_blind_admission_probe`。
+承認範囲は [実装承認記録](hypha_implementation_approval_20260906.md) を参照する。
 
 | ID | 不変条件 | 紐づくテスト |
 |----|----------|--------------|
@@ -183,6 +208,8 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | INV-S16 | TIME履歴はM／S／TP／PLR／CORRの同一100ms事実を10Hz=10分、1Hz=2時間、0.1Hz=24時間の固定容量で保持する。I／MaxTPから作るPLRも各100ms境界で確定する。10Hzはexact値、低rateはmin／max／meanとfirst／last endpointを持つ集約値として区別する。DAW presentation sample endpointとrun IDを保持し、一観測がtransport jumpをまたぐ場合は虚偽の時刻を付けずそのhistory点だけskipする。host座標不在でもsession相対履歴は継続する | `product_capacities_match_ten_minutes_two_hours_and_twenty_four_hours` / `one_second_bucket_keeps_min_max_mean_and_exact_endpoints` / `run_change_flushes_partial_bucket_instead_of_joining_a_seek` / `arbitrary_callback_chunks_map_one_exact_observation_endpoint` / `observation_crossing_a_transport_jump_is_not_given_a_false_endpoint` / `history_retains_exact_and_multi_resolution_facts_while_editor_is_absent` / `verifyTimeHistoryContract` |
 | INV-S17 | TIME Δはexact PREの現runtime ownerと専用`meter_history.json`を照合し、同一sample rate・presentation source・一意sample endpointの100ms点だけをPOST−PREする。PRE直近32点／POST直近64点の固定窓、pair/runtime/reset境界で履歴を破棄し、欠測・重複endpoint・transport jumpを補間せず別runにする。集約はexact Δの後に行い、PRE/POST集約値同士を減算しない。Audio Threadは変更しない | `atomic_publication_and_exact_target_join_work_end_to_end` / `joins_only_the_same_unique_presentation_endpoint` / `repeated_or_missing_endpoints_never_create_a_delta_fact` / `pair_change_discards_history_instead_of_blending_sources` / `delta_history_abi_is_post_only_and_empty_is_a_valid_fact` / `verifyTimeHistoryContract` |
 | INV-S18 | Observatory UIはlive MeterSession計算lockを直接pollせず、Measure Threadが100ms完了境界後に独立publicationへ置いたimmutable snapshotだけを読む。publicationまたはWatchの一時poll missでは直前の完全frame/Crestを保持し、`---`へ書き換えない。Inactive、Bypassed、明示Reset/Emptyの成立snapshotだけが表示状態を変える | `publication_exposes_only_complete_replacements_and_never_waits_for_writer` / `live_measure_worker_advances_pauses_and_resets_independent_session` / `verifyObservatoryViewContract` |
+| INV-S19 | FREQのPSB subviewは既存Phase Dの20 Bark shareだけを読み、POST絶対値は合計約1、Δはexact pairのPOST−PREで合計約0となる場合だけ表示する。単位は割合／percentage pointでありdBではない。追加解析、補間、評価、Audio Thread処理を持たず、SPECTRUMとの手動排他切替とする | `psb_requires_twenty_finite_normalized_shares` / `verifySpectrumInteractionContract` |
+| INV-S20 | ローカルBlindは候補一覧で利用者が明示選択したexact PREを正本とし、名前一致、track位置、PID、host固有document／channel IDからpairを推測しない。名前は重複・未設定を許す表示ラベルであり、選択後はinstance ID、locator、pair generationを固定する。同名の別instance、rename、再生成へ自動で付け替えない。host contextはDebug診断だけに使い、入場条件へ接続しない | `explicit_pair_choice_selects_one_exact_instance_among_duplicate_names` / `published_exact_claim_never_retargets_to_a_same_name_replacement` / `same_name_can_move_to_an_explicit_second_instance` / `native_host_facts_use_the_client_extension_without_audio_thread_queries` |
 
 ---
 
@@ -190,9 +217,9 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 
 | ゲート | コマンド | 対象不変条件 |
 |--------|----------|--------------|
-| 出荷source正本 | `bash scripts/test_release_source.sh` | `kirin_measure` / FFI / 共通JUCE殻静的契約 / ignored 20+5件 / release-owned clippy |
+| 出荷source正本 | `bash scripts/test_release_source.sh` | `kirin_measure` / FFI / 共通JUCE殻静的契約 / ignored 20+6件 / release-owned clippy |
 | workspace互換 | `cargo test --workspace` | 旧nih-plug殻を含む非出荷workspaceの退行確認（出荷AU/VST3 parityの根拠には使わない） |
-| FFI ignored（個別） | `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1` ＋ `--test pairing_candidates` | INV-P6 / INV-I1 / INV-R3,R4 / INV-A4（20件+5件を実測固定） |
+| FFI ignored（個別） | `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1` ＋ `--test pairing_candidates` | INV-P6 / INV-I1 / INV-R3,R4 / INV-A4（20件+6件を実測固定） |
 | clippy（個別） | `cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings` | 出荷owned code品質基準 |
 
 > 新しい pairing/表示の不具合を直すときは、本表に行を足し、対応テストを同時に書く

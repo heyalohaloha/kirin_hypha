@@ -43,6 +43,9 @@ namespace hypha
     // fixed cells because JUCE 7 cannot request the font's OpenType `tnum` feature directly.
     juce::Font labelFont (float h);
     juce::Font monoFont (float h);
+    juce::Font nativeTextFont (float h);
+    juce::Font displayTextFont (const juce::String& text, float h);
+    bool requiresNativeTextFont (const juce::String& text) noexcept;
     bool usingKimeraTypography() noexcept;
     const char* nativeFallbackLabelFontFamily() noexcept;
     const char* nativeFallbackMonoFontFamily() noexcept;

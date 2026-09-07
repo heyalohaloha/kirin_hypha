@@ -20,6 +20,8 @@
  #include "HyphaPerceptualComponent.h"
  #include "HyphaAbsoluteComponent.h"
  #include "HyphaAttackComponent.h"
+ #include "HyphaReferenceComponent.h"
+ #include "HyphaReferenceAccessPanel.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -59,7 +61,8 @@ private:
         }
         juce::Font getPopupMenuFont() override
         {
-            return hypha::monoFont (hypha::ui_contract::menuFontHeight);
+            // Menus contain localized product text and user-provided project/channel names.
+            return hypha::nativeTextFont (hypha::ui_contract::menuFontHeight);
         }
     };
 
@@ -67,6 +70,8 @@ private:
     void updatePre();
     void updatePost();
     void refreshObservatory();
+    void configureMeterContext();
+    void showNoteDialog();
     void setObservatoryDomain (hypha::observatory::Domain domain);
     void beginObservatoryCapture();
     void chooseObservatoryCapture (int width, int height);
@@ -79,9 +84,17 @@ private:
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     using AnalysisPage = hypha::analysis_navigation::Page;
     void setAnalysisPage (AnalysisPage page);
+    void configureSpectrumAnalysis();
     void updateTimePageNavigation();
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();
+    void configureReferenceAudition();
+    void showReferenceInformationMenu();
+    void layoutReferenceAudition (juce::Rectangle<int>);
+    void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
+    bool refreshAnalysisViews (bool alive, int signalState, bool recording,
+                               bool armed, bool acknowledged, bool presetAvailable,
+                               int pairStatus);
 #endif
 
     // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
@@ -90,6 +103,9 @@ private:
     void configureForKind (Kind);
     void layoutMetrics (bool six);
     void showCandidateMenu();          // B-102: POST pair dropdown (All Keep/All Stop/candidates)
+    void showInformationMenu();
+    void handleInformationMenu (int result);
+    bool informationBlockedByBlind() const;
     void handleCandidateMenu (int result,
                               const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates);
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
@@ -116,6 +132,7 @@ private:
     juce::TextButton          guideConnectButton;          // role-neutral explicit Work/session connect
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     std::unique_ptr<juce::FileChooser> captureChooser;
+    std::unique_ptr<juce::AlertWindow> noteDialog;
     hypha::capture::PrivacyOptions capturePrivacy;         // editor-lifetime, private by default
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -126,6 +143,8 @@ private:
     hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
     hypha::AttackComponent attackView;         // POST ATTACK product view
+    hypha::reference_ui::Component referenceView; // POST-only Kirin OS prepared A/B
+    hypha::reference_ui::AccessPanel referenceAccessView;
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help

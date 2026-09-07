@@ -1,4 +1,14 @@
     #[test]
+    fn localized_juce_menus_use_the_native_text_font() {
+        assert!(PLUGIN_EDITOR_H.contains(
+            "return hypha::nativeTextFont (hypha::ui_contract::menuFontHeight);"
+        ));
+        assert!(!PLUGIN_EDITOR_H.contains(
+            "return hypha::monoFont (hypha::ui_contract::menuFontHeight);"
+        ));
+    }
+
+    #[test]
     fn juce_offline_lifecycle_does_not_stop_record() {
         let prepare = between(
             PLUGIN_PROCESSOR_CPP,
@@ -52,7 +62,7 @@
         let body = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::processBlock",
-            "bool KirinHyphaProcessorBase::bufferIsSilent",
+            "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
         );
 
         assert!(
@@ -118,12 +128,15 @@
         let body = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::processBlock",
-            "bool KirinHyphaProcessorBase::bufferIsSilent",
+            "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
         );
-        assert!(body.contains(
+        let clock = cpp_body(PLUGIN_PROCESSOR_CLOCK_CPP,
+                             "KirinHyphaProcessorBase::readHostProcessClock");
+        assert!(body.contains("= readHostProcessClock();"));
+        assert!(clock.contains(
             "wrapperType == juce::AudioProcessor::wrapperType_AudioUnit\n                    && hypha::clock_source_contract::audioUnitV2UsesRenderTimeline ("
         ));
-        assert!(!body.contains("#if JucePlugin_Build_AU && KIRIN_HYPHA_AU_CLOCK_PROVENANCE"));
+        assert!(!clock.contains("#if JucePlugin_Build_AU && KIRIN_HYPHA_AU_CLOCK_PROVENANCE"));
         assert!(body.contains("KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE"));
         assert!(body.contains(
             "const bool measurementTimelineActive = playing\n                                        || clockSource == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE;"
@@ -134,8 +147,16 @@
         assert!(body.contains("windowPositionSamples, windowNumFrames, clockSource"));
         assert!(body
             .contains("kirin_hypha_note_transport_block (hyphaHandle, measurementTimelineActive"));
-        assert!(PLUGIN_PROCESSOR_CPP
-            .contains("lastMeasurementTimelineActive.load (std::memory_order_acquire)"));
+        // The Session producer, not editor polling, now owns measurement/MAX time (B-705).
+        let display = cpp_body(PLUGIN_PROCESSOR_METER_CPP,
+                               "bool KirinHyphaProcessorBase::pollWatchDisplay");
+        assert!(display.contains("kirin_hypha_poll_meter_display (hyphaHandle, &out)"));
+        assert!(!display.contains("lastMeasurementTimelineActive.load"));
+        let ffi = between(WATCH_DISPLAY_FFI_RS, "fn kirin_hypha_poll_meter_display(",
+                          "impl KirinHyphaEngine");
+        assert!(ffi.contains(".poll_meter_session()"));
+        assert!(ffi.contains("current: to_c_result(&snapshot.current)")
+            && ffi.contains("maximum: to_c_result(&snapshot.maximum)"));
     }
 
     #[test]
@@ -160,7 +181,7 @@
         let process = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::processBlock",
-            "bool KirinHyphaProcessorBase::bufferIsSilent",
+            "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
         );
         assert!(
             process.contains("needed <= scratchCapacitySamples")
@@ -194,7 +215,7 @@
         let body = between(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::processBlock",
-            "bool KirinHyphaProcessorBase::bufferIsSilent",
+            "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
         );
 
         assert!(body.contains(
@@ -294,21 +315,16 @@
     }
 
     #[test]
-    fn juce_post_led_follows_display_mute_boundary() {
+    fn juce_post_led_follows_signal_state_not_retained_history() {
         let start = PLUGIN_EDITOR_CPP
             .find("void KirinHyphaEditor::updatePost()")
             .expect("updatePost");
         let body = &PLUGIN_EDITOR_CPP[start..];
 
         assert!(
-            body.contains("bool watchHeldNormal = false;")
-                && body.contains("watchHeldNormal = haveHeldD && ! mutedHeldD;")
-                && body.contains("watchHeldNormal = haveM && ! mutedM;")
-                && body.contains(
-                    "const int ledSig = (! displayRecord && sig == KIRIN_SIGNAL_STATE_INACTIVE && watchHeldNormal)"
-                )
-                && body.contains("? KIRIN_SIGNAL_STATE_ACTIVE : sig;"),
-            "JUCE POST Watch LED must remain active only while the displayed held values are not muted"
+            body.contains("deriveLedState (alive, sig, rec && armed, ack, preset)")
+                && !body.contains("watchHeldNormal"),
+            "retained history must never relight the inactive live signal LED"
         );
     }
     #[test]

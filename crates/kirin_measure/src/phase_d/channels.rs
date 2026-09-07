@@ -4,6 +4,7 @@
 //! the nonlinear loudness pipeline would make anti-correlated stereo cancel to
 //! silence even though both channels contain measurable audio.
 
+use super::display::DisplayObservation;
 use super::stream::{PhaseDResult, PhaseDStream};
 use super::tables::{FieldType, N_BARK, N_SPEC_BINS};
 
@@ -37,6 +38,11 @@ impl PhaseDSharpnessChannelStream {
     }
 
     pub fn push_interleaved_slot(&mut self, input: &[f64]) -> Option<f64> {
+        self.push_display_slot(input)
+            .map(|observation| observation.sharpness)
+    }
+
+    pub fn push_display_slot(&mut self, input: &[f64]) -> Option<DisplayObservation> {
         let n_channels = self.streams.len();
         if input.is_empty() || !input.len().is_multiple_of(n_channels) {
             return None;
@@ -51,11 +57,19 @@ impl PhaseDSharpnessChannelStream {
                 self.channel_samples[channel].push(sample);
             }
         }
-        let mut sum = 0.0;
+        let mut combined = DisplayObservation {
+            sharpness: 0.0,
+            specific: [0.0; N_BARK],
+        };
         for (stream, samples) in self.streams.iter_mut().zip(&self.channel_samples) {
-            sum += stream.push_sharpness_only(samples)?;
+            let observation = stream.push_display_only(samples)?;
+            combined.sharpness += observation.sharpness;
+            for (target, value) in combined.specific.iter_mut().zip(observation.specific) {
+                *target += value / n_channels as f64;
+            }
         }
-        Some(sum / n_channels as f64)
+        combined.sharpness /= n_channels as f64;
+        Some(combined)
     }
 
     pub fn reset(&mut self) {

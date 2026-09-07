@@ -31,11 +31,11 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "kirin_hypha_reference_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 /* 不透明ハンドル. */
 typedef struct KirinHypha KirinHypha;
 
@@ -57,7 +57,6 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_DELTA_MODE_NO_PRE 2u
 #define KIRIN_DELTA_MODE_BYPASSED 3u
 #define KIRIN_DELTA_MODE_PRE_INACTIVE 4u
-
 #define KIRIN_SPECTRUM_BAND_COUNT 256u
 #define KIRIN_SPECTRUM_DISPLAY_RANGE_DB 24.0f
 #define KIRIN_SPECTRUM_HIDDEN 0u
@@ -110,9 +109,9 @@ typedef struct {
   double psr;           /* PSR = peak_dBFS - LUFS-S(3s) */
   double n_prime_total; /* Zwicker N (ISO 532-1) [sone] */
   double sharpness;     /* DIN 45692 Sharpness [acum] */
-  double psb_low;       /* Perceptual Spectral Balance low  [dB] */
-  double psb_mid;       /* Perceptual Spectral Balance mid  [dB] */
-  double psb_high;      /* Perceptual Spectral Balance high [dB] */
+  double psb_low;       /* Perceptual Spectral Balance low share */
+  double psb_mid;       /* Perceptual Spectral Balance mid share */
+  double psb_high;      /* Perceptual Spectral Balance high share */
   double n_prime[20];   /* 20-Bark aggregated specific loudness [sone/Bark] */
   double psb_bark[20];  /* 20-band PSB (psb) */
   double tp_session_max;/* tp_session_max: init 以降の inter-sample running max [dBTP]
@@ -229,6 +228,7 @@ typedef struct {
   double n_prime_total;
   double sharpness;
   double lufs_s;        /* Δ LUFS-S (末尾追加で既存 offset 不変) */
+  double psb_bark[20];  /* POST - PRE PSB share per Bark band */
 } KirinDelta;
 
 /* Observatoryが1回のUI pollで受け取るversion付き正本。
@@ -714,9 +714,10 @@ size_t kirin_hypha_count_keep_ready(KirinHypha* handle);
  * GUI は PRE候補名と照合して "Can Keep" / "Keep ready" / "In use" を表示する. */
 size_t kirin_hypha_enumerate_post_pair_claims(KirinHypha* handle, KirinPostPairClaim* out, size_t cap);
 
-/* POST の Δ を out へ（3d-b / GUI 表示用）. 値あり=true / 競合・未計測=false（UI Thread）.
- * post.json には Δ でなく POST 生メトリクスが入る（Δ はこの API で公開）. */
+/* POSTのΔをoutへ。値あり=true、競合/未計測=false。post.jsonはPOST生メトリクス。 */
 bool kirin_hypha_poll_delta(KirinHypha* handle, KirinDelta* out);
+/* Reference B suspends PRE comparisons while A stays measured. */
+bool kirin_hypha_set_reference_audition_active(KirinHypha* handle, bool active);
 
 /* POST Spectrumページの表示edge。PRE/未enableはfalse。filesystem処理はIO threadへ遅延する。 */
 bool kirin_hypha_set_spectrum_visible(KirinHypha* handle, bool visible);
@@ -764,9 +765,8 @@ bool kirin_hypha_attack_stats(KirinHypha* handle, KirinAttackStats* out);
 /* Keep/Record表示を1スナップショットで取得. UI Thread専用・ロック競合時false. */
 bool kirin_hypha_poll_record_display(KirinHypha* handle, KirinRecordDisplay* out);
 
-/* Record の最新 plugin_data .json に利用者メモを追記する（Note / 方式A）.
- * 書込先はこの engine の役割（enable_pre_writes=PRE / enable_post_writes=POST）の .json.
- * Os かつ enable 済（role 確定）かつ対象 .json 存在のとき true / それ以外（未 enable 含む）false. */
+/* NOTE: sample-exact active Record API, followed by closed-file compatibility API. */
+bool kirin_hypha_add_note(KirinHypha* handle, const char* memo);
 bool kirin_hypha_add_annotation(KirinHypha* handle, const char* memo);
 
 /* Record中の最新producer sample境界へ Good/Fix/Hold MARKを追加する. */

@@ -1144,21 +1144,21 @@ fn set_identity_materializes_unsafe_restore_value() {
 
 /// add_annotation は Os 以外（既定 Unknown / Sense）で false（二重 gate / can_write_plugin_data）。
 #[test]
-fn add_annotation_denied_without_os() {
+fn record_annotations_denied_without_os() {
     let engine = KirinHyphaEngine::new(SR, 2);
     assert!(
         !engine.add_annotation("x".to_string()),
         "既定 Unknown では false"
     );
     assert!(
-        !engine.add_mark("Good".to_string()),
-        "既定 Unknown では MARK false"
+        !engine.add_mark("Good".to_string()) && !engine.add_note("x".to_string()),
+        "既定 Unknown では MARK/NOTE false"
     );
     engine.set_license(1); // Sense
     assert!(!engine.add_annotation("x".to_string()), "Sense でも false");
     assert!(
-        !engine.add_mark("Good".to_string()),
-        "Sense でも MARK false"
+        !engine.add_mark("Good".to_string()) && !engine.add_note("x".to_string()),
+        "Sense でも MARK/NOTE false"
     );
 }
 
@@ -1909,8 +1909,8 @@ fn add_annotation_noop_without_role() {
         "未 enable（role None）は add_annotation=false（既定 ::Pre で勝手に書かない）"
     );
     assert!(
-        !engine.add_mark("Good".into()),
-        "未 enable は MARK も false"
+        !engine.add_mark("Good".into()) && !engine.add_note("x".into()),
+        "未 enable は MARK/NOTE も false"
     );
 }
 

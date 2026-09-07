@@ -29,14 +29,15 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
         g.fillRoundedRectangle (area, 2.0f);
     }
 
-    const auto textColour = ! isEnabled() ? COL_MUTED.withAlpha (0.32f)
+    const auto textColour = ! isEnabled() ? COL_MUTED.brighter (0.20f)
                           : selected ? COL_FLORA_BR
+                          : isColourSpecified (juce::TextButton::textColourOffId)
+                              ? findColour (juce::TextButton::textColourOffId)
                           : highlighted ? COL_NORMAL.withAlpha (0.82f) : COL_MUTED;
     g.setColour (textColour);
-    g.setFont (labelFont (juce::jlimit (7.0f, tab ? 11.0f : 10.0f,
-                                        static_cast<float> (getHeight()) * 0.38f)));
+    g.setFont (labelFont (getHeight() >= 38 ? 15.0f : getHeight() >= 28 ? 13.0f : 11.0f));
     g.drawFittedText (getButtonText(), getLocalBounds().reduced (3, 1),
-                      juce::Justification::centred, 1, 0.78f);
+                      juce::Justification::centred, 1, 1.0f);
     if (tab && selected)
     {
         const float width = juce::jmin (area.getWidth() * 0.66f, 34.0f);

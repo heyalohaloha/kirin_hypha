@@ -60,6 +60,7 @@ fn active_watch_tick_recovers_poisoned_result_locks() {
         "daw",
         false,
         &latched,
+        false,
     )
     .expect("poisoned result locks must not stop Watch JSON");
 

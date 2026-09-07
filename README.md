@@ -64,10 +64,10 @@ working track. A third identifies the owners and waits until one returns to **LE
 HISTORY**, or **SPACE**, or closes.
 
 macOS 12 or later is supported as signed and notarized VST3 and Audio Unit plug-ins. Windows 10/11
-64-bit is supported as VST3. The current v1.1.48 Windows release is a manually installed PRE/POST
-ZIP. The next release will move to one Authenticode-signed installer after the selected source commit
-passes CI, dedicated-machine DAW validation, same-version reinstall, upgrade from the preceding
-public version, and isolated-uninstall gates.
+64-bit is supported as VST3. The current v1.1.49 Windows release uses one Authenticode-signed
+installer for PRE and POST. Its payloads, installer, and generated uninstaller passed signature,
+pluginval, dedicated-machine DAW, same-version reinstall, v1.1.48 upgrade, and isolated-uninstall
+gates.
 
 ## Design
 
@@ -319,12 +319,12 @@ xattr -d com.apple.quarantine "Kirin-Hypha-<version>-macOS-Universal.pkg"
 
 The installer package has companion `.pkg.sha256` and artifact JSON assets on the Releases page. Older zip archives are manual-install fallback artifacts.
 
-The current v1.1.48 Windows 10/11 64-bit VST3 release is a supported manual PRE/POST ZIP package. It
-was built from the same release commit as macOS and passed Windows CI, pluginval, and Studio One Pro
-validation on the dedicated Windows machine. The next validated release will use a single installer
-EXE whose plug-in binaries, installer, and generated uninstaller all have valid Authenticode
-signatures. [`docs/windows_external_validation.md`](docs/windows_external_validation.md) is the
-repeatable real-machine regression checklist.
+The current v1.1.49 Windows 10/11 64-bit VST3 release is distributed as one signed installer EXE for
+PRE and POST. It was built from the same release commit as macOS and passed Windows CI, pluginval,
+Studio One Pro validation, same-version reinstall, upgrade from v1.1.48, and isolated uninstall on
+the dedicated Windows machine. Its plug-in binaries, installer, and generated uninstaller all have
+valid Authenticode signatures. [`docs/windows_external_validation.md`](docs/windows_external_validation.md)
+is the repeatable real-machine regression checklist.
 
 ### Release provenance
 
@@ -348,15 +348,14 @@ SHAs, SemVer tags, and PR numbers are authoritative; historical B numbers are su
 
 ### Windows
 
-The current v1.1.48 release uses the manual ZIP installation below. Do not use the installer procedure
-until a later signed installer has completed all release gates and is published on the Releases page.
-
-1. Download the latest `Kirin-Hypha-<version>-Windows-VST3-<build>-<commit>.zip` from the
-   [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
-2. Close the DAW and extract both VST3 folders to:
-   `%LOCALAPPDATA%\Programs\Common\VST3\`
+1. Download the latest `Kirin-Hypha-<version>-Windows-x64-Setup.exe` and its `.sha256` companion
+   from the [Releases page](https://github.com/heyalohaloha/kirin_hypha/releases).
+2. Close the DAW and run the installer. Select **Current user** unless you specifically need the
+   elevated all-users installation.
 3. Start the DAW and rescan VST3 plug-ins if needed.
 4. Insert **PRE Kirin Hypha** before your processing chain and **POST Kirin Hypha** after it.
+
+The manual VST3 ZIP is a diagnostic and recovery fallback, not the normal installation path.
 
 ## Sandbox & privacy (Audio Unit)
 
@@ -429,7 +428,7 @@ Kirin OS is available now. More at [kirinmastering.com](https://kirinmastering.c
 - VST3-compatible DAW, or an Audio Unit-compatible DAW on macOS
 
 Validated on macOS 14 (Sonoma) and Windows with Studio One Pro. Windows is VST3-only. The current
-v1.1.48 release uses a manual ZIP; a signed installer is required for the next validated release.
+v1.1.49 release uses an Authenticode-signed installer containing both PRE and POST.
 
 **Not currently supported:** Linux · CLAP
 
@@ -472,7 +471,7 @@ KIRIN_SKIP_PKG_SIGN=1 KIRIN_SKIP_PKG_NOTARIZE=1 \
   node scripts/ls_release/build_kirin_hypha_pkg.mjs
 ```
 
-The next signed Windows installer will be built only on `windows-latest`. The eSigner secrets stay in the
+Each signed Windows installer is built only on `windows-latest`. The eSigner secrets stay in the
 private Kirin release-control repository rather than this public GPL repository. Its manual Hypha
 signing factory accepts only a full source commit and the successful Hypha CI run ID for that exact
 commit, then signs both VST3 binaries plus the generated installer and uninstaller and performs the

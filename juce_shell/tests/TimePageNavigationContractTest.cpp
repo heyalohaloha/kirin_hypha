@@ -53,12 +53,15 @@ int visiblePixels (const juce::Image& image)
 void verifyTimePageNavigationContract()
 {
     using Page = analysis_navigation::Page;
-    KIRIN_TIME_NAV_REQUIRE (analysis_navigation::timePages.size() == 4u);
-    for (const auto page : { Page::meters, Page::attack, Page::perceptual, Page::absolute })
+    KIRIN_TIME_NAV_REQUIRE (analysis_navigation::timePages.size() == 5u);
+    for (const auto page : { Page::meters, Page::run, Page::attack,
+                             Page::perceptual, Page::absolute })
         KIRIN_TIME_NAV_REQUIRE (analysis_navigation::isTimePage (page));
     KIRIN_TIME_NAV_REQUIRE (! analysis_navigation::isTimePage (Page::spectrum));
+    KIRIN_TIME_NAV_REQUIRE (juce::String (analysis_navigation::timePageLabel (Page::attack)) == "DRUM");
     auto page = Page::meters;
-    for (const auto expected : { Page::attack, Page::perceptual, Page::absolute, Page::meters })
+    for (const auto expected : { Page::run, Page::attack, Page::perceptual,
+                                 Page::absolute, Page::meters })
     {
         page = analysis_navigation::nextTimePage (page);
         KIRIN_TIME_NAV_REQUIRE (page == expected);
@@ -69,7 +72,9 @@ void verifyTimePageNavigationContract()
     TimePageNavigation navigation;
     navigation.setSize (322, 24);
     navigation.setDirect (true);
-    KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 4);
+    KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 5);
+    navigation.setRunAvailable (true);
+    KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 5);
     navigation.setPage (Page::attack);
     const auto attack = render (navigation);
     navigation.setPage (Page::perceptual);
@@ -88,5 +93,17 @@ void verifyTimePageNavigationContract()
     navigation.setSize (72, 24);
     KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 0);
     KIRIN_TIME_NAV_REQUIRE (visiblePixels (render (navigation)) > 50);
+    navigation.setDirect (true);
+    navigation.setDrumAvailable (false);
+    KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 4);
+    navigation.setPage (Page::attack);
+    KIRIN_TIME_NAV_REQUIRE (navigation.page() == Page::meters);
+    navigation.setDrumAvailable (true);
+    KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 5);
+    navigation.setPage (Page::attack);
+    navigation.setDrumAvailable (false);
+    KIRIN_TIME_NAV_REQUIRE (navigation.page() == Page::meters);
+    KIRIN_TIME_NAV_REQUIRE (meter_context::drumAttackAvailable (meter_context::MeterContext::trackStem));
+    KIRIN_TIME_NAV_REQUIRE (! meter_context::drumAttackAvailable (meter_context::MeterContext::twoMix));
 }
 }

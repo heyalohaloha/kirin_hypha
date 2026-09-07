@@ -43,31 +43,28 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use uuid::Uuid;
-
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reservation
 use kirin_measure::{
     add_watch_ring_cursor_samples, publish_watch_playback_pass_boundary, reset_watch_ring_cursor,
 };
 use kirin_measure::{
-    append_annotation_to_latest, can_write_plugin_data, count_distinct_pairings,
-    current_host_process_id, enqueue_record_mark,
+    count_distinct_pairings, current_host_process_id,
     enumerate_ready_post_pair_candidates_for_operation_group, identity_instance_attach,
     identity_instance_detach, latch_selected_pre, live_window, load_license_safe,
     mark_generation_terminal, mark_released_if_current, mark_released_with_reason,
     mark_released_with_reason_if_current, new_record_mark_queue, new_record_take_tracker,
     new_record_trace_queue, pair_owner_instance_dir, pair_status_for_pre,
-    pair_status_from_owned_binding_with_intent, pair_status_or_last_known, paired_pre_instance_id,
-    read_signal, record_ring_capacity_samples, resolve_arm_target_for_post_project_in_session,
-    sanitize_name, select_live_pre_pair_choice_by_instance_for_post_project_in_session,
-    set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre,
-    spawn_measure_thread, spawn_watchdog, watch_ring_capacity_samples,
-    write_broadcast_for_generation, write_pending_claiming_expected_and_clock_for_generation,
-    write_stop_broadcast, write_stop_broadcast_for_generation, AnalysisViewMode, BalanceState,
-    CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
-    DeltaMode, DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License,
-    LiveLicense, LivenessEvaluator, MeasureResult, MeterDeltaHistoryExchange, MeterHistoryEntry,
+    pair_status_from_owned_binding_with_intent, pair_status_or_last_known, read_signal,
+    record_ring_capacity_samples, resolve_arm_target_for_post_project_in_session, sanitize_name,
+    select_live_pre_pair_choice_by_instance_for_post_project_in_session, set_daw_session_id,
+    set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
+    spawn_watchdog, watch_ring_capacity_samples, write_broadcast_for_generation,
+    write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
+    write_stop_broadcast_for_generation, AnalysisViewMode, BalanceState, CaptureClockSource,
+    CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode,
+    DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License, LiveLicense,
+    LivenessEvaluator, MeasureResult, MeterDeltaHistoryExchange, MeterHistoryEntry,
     MeterHistoryRange, MeterHistoryResolution, MeterSession, MeterSessionPublication,
     MeterSessionSnapshot, MeterSessionState, PairOwnershipBinding, PairOwnershipLease, PairStatus,
     PlatformPaths, PluginDataRole, PrePairStatusObserver, PresentationLatencySamples,
@@ -83,15 +80,22 @@ use kirin_measure::{
     SPECTRUM_BAND_COUNT, SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS,
     STEREO_FIELD_SIZE,
 };
+use uuid::Uuid;
 
+mod analysis_display_ffi;
 mod attack_ffi;
 mod identity_ffi;
 mod identity_registry;
 mod legacy_nih_state;
 mod pair_binding;
 mod pair_candidates_ffi;
+mod pair_snapshot_ffi;
+mod record_note_ffi;
+mod reference_audition_ffi;
+mod reference_gain_ffi;
 mod signal_state_ffi;
-
+mod watch_display_ffi;
+use analysis_display_ffi::{to_c_absolute_batch, to_c_perceptual, to_c_perceptual_batch};
 pub use attack_ffi::*;
 pub use identity_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
 pub use identity_registry::__reset_shared_ids_for_tests;
@@ -100,10 +104,14 @@ pub use pair_candidates_ffi::{
     kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
     kirin_hypha_enumerate_pre_candidates, KirinPostPairClaim, KirinPreCandidate,
 };
+pub use pair_snapshot_ffi::*;
+pub use record_note_ffi::*;
+pub use reference_audition_ffi::kirin_hypha_set_reference_audition_active;
 pub use signal_state_ffi::{
     kirin_hypha_get_signal_state, kirin_hypha_set_host_component_active,
     kirin_hypha_set_signal_state,
 };
+pub use watch_display_ffi::kirin_hypha_poll_watch_display;
 
 use identity_ffi::IdentityState;
 use identity_registry::{
@@ -321,6 +329,8 @@ pub struct KirinHyphaEngine {
     /// POST の Δ 結果（B-060 3d-a）。POST io_thread の run_tick が select_target_pre で
     /// 選んだ PRE との差分を書き、`poll_delta` が読む（GUI 表示用）。PRE では未更新。
     delta_result: Arc<Mutex<DeltaResult>>,
+    /// Explicit Reference B stops PRE-derived comparisons but preserves canonical A measurement.
+    reference_audition_active: Arc<AtomicBool>,
     /// Optional POST-requested Spectrum path. The bounded SPSC producer is always allocated at
     /// prepare time, but its worker remains absent and its audio ingress returns after one atomic
     /// read until the POST Spectrum page is visible (or an exact PRE is serving that request).
@@ -990,6 +1000,7 @@ impl KirinHyphaEngine {
 
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
+        let reference_audition_active = Arc::new(AtomicBool::new(false));
         let attack_runtime = kirin_measure::AttackRuntime::new(sample_rate, num_channels).ok();
         let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
         let spectrum = SpectrumCoordinator::new_with_attack(
@@ -1104,6 +1115,7 @@ impl KirinHyphaEngine {
             record_ingress,
             measure_result,
             delta_result,
+            reference_audition_active,
             spectrum_runtime,
             attack_runtime,
             spectrum,
@@ -1524,18 +1536,6 @@ impl KirinHyphaEngine {
         }
     }
 
-    pub fn poll_watch_display(&self, playing: bool) -> Option<(MeasureResult, MeasureResult)> {
-        let raw = self.poll_result()?;
-        let pass_id = self.watch_playback_pass_id.load(Ordering::Acquire);
-        let maximum = self.watch_max.try_lock().ok()?.update(
-            &raw,
-            playing,
-            pass_id,
-            self.record_sm.is_recording(),
-        );
-        Some((raw, maximum))
-    }
-
     /// PRE の plugin_data 書込（Watch pre.json + Record frames/PSB）を有効化する（B-057 3b）。
     ///
     /// `kirin_measure::spawn_io_thread_pre`（io_thread_pre.rs:179）を engine 既存の共有
@@ -1857,6 +1857,7 @@ impl KirinHyphaEngine {
             let latched_pre = self.pair_binding.latched_pre();
             let spectrum = Arc::clone(&self.spectrum);
             let meter_delta_history = self.meter_delta_history.as_ref().map(Arc::clone);
+            let reference_audition_active = Arc::clone(&self.reference_audition_active);
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -1894,6 +1895,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
                     Some(Arc::clone(&spectrum)),
                     meter_delta_history.as_ref().map(Arc::clone),
+                    Arc::clone(&reference_audition_active),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -2100,14 +2102,7 @@ impl KirinHyphaEngine {
         // 単一情報源（kirin_measure::sanitize_name）。select_target_pre は sanitized な PRE 名と
         // 照合するため、pair target も同じ正規化を通す。
         let sanitized = sanitize_name(&name);
-        let desired_name = self.pair_binding.desired_name();
-        let current_name = desired_name
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone();
-        if current_name == sanitized
-            && (!sanitized.is_empty() || self.paired_pre_instance_id().is_none())
-        {
+        if !self.pair_binding.name_change_required(&sanitized) {
             return;
         }
 
@@ -2274,25 +2269,6 @@ impl KirinHyphaEngine {
             }
             None => PairStatus::Unpaired,
         }
-    }
-
-    pub fn paired_pre_instance_id(&self) -> Option<String> {
-        paired_pre_instance_id(&self.pair_binding.latched_pre())
-    }
-
-    pub fn paired_pre_locator(&self) -> Option<(String, String)> {
-        let binding = self.pair_binding.latched_pre();
-        let binding = binding
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let pre = binding.as_ref()?;
-        let project_hash = pre.project_dir.file_name()?.to_str()?;
-        if !kirin_measure::is_path_safe_component(project_hash)
-            || !kirin_measure::is_path_safe_component(&pre.instance_id)
-        {
-            return None;
-        }
-        Some((project_hash.to_string(), pre.instance_id.clone()))
     }
 
     /// PRE の自名を設定する（B-054 / `set_pair_target` と完全対称）。
@@ -2691,60 +2667,6 @@ impl KirinHyphaEngine {
         );
     }
 
-    /// Record中の最新producer sample境界へ固定タグMARKを追加する。
-    pub fn add_mark(&self, tag: String) -> bool {
-        if !can_write_plugin_data(self.current_license())
-            || self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post)
-        {
-            return false;
-        }
-        enqueue_record_mark(
-            &self.record_sm,
-            &self.record_take_tracker,
-            &self.record_mark_queue,
-            &tag,
-        )
-        .is_ok()
-    }
-
-    /// Record の最新 plugin_data .json に利用者メモ（Annotation）を追記する（Note / 方式A）。
-    ///
-    /// gate: `License::Os`（`can_write_plugin_data`）のみ通る。`enable_pre_writes` 後で
-    /// 対象 .json が存在するとき `true`。それ以外（非 Os / 未 enable / .json 不在）は `false`。
-    /// filesystem 操作は `kirin_measure::append_annotation_to_latest` に委譲（FFI は呼ぶだけ）。
-    ///
-    /// 注意（3c）: active record 中は io_thread の writer が 30s flush で .json を上書きする
-    /// ため、確実なのは Record close 後の最新 .json への追記。
-    pub fn add_annotation(&self, memo: String) -> bool {
-        if !can_write_plugin_data(self.current_license()) {
-            return false; // 二重 gate: Os 以外は不可（license.rs:88）。
-        }
-        // B-067/F3: 書込 role はこの engine の有効化時に確定（PRE/POST）。未 enable は no-op。
-        // ハードコード ::Pre をやめ、保持 role に書く（POST engine は POST role に追記）。
-        let role = match self.write_role.lock() {
-            Ok(g) => match *g {
-                Some(r) => r, // Role は Copy（plugin_data.rs:54）。
-                None => return false,
-            },
-            Err(_) => return false,
-        };
-        let (project_hash, instance_id) = {
-            let id = match self.identity.lock() {
-                Ok(g) => g,
-                Err(_) => return false,
-            };
-            if id.project_hash.is_empty() || id.instance_id.is_empty() {
-                return false; // 未 enable。
-            }
-            (id.project_hash.clone(), id.instance_id.clone())
-        };
-        let base = match StoragePaths::default_platform() {
-            Ok(p) => p.plugin_data_dir(),
-            Err(_) => return false,
-        };
-        append_annotation_to_latest(&base, &project_hash, &instance_id, role, memo).unwrap_or(false)
-    }
-
     /// interleaved f32 サンプルを供給する（Audio Thread 単独・RT-safe）。
     ///
     /// 責務はこの 2 つのみ:
@@ -3056,15 +2978,19 @@ impl KirinHyphaEngine {
     }
 
     /// 利用者操作だけが常設セッションを破棄できる。UI/control thread専用。
-    /// Measure workerとの競合時は待たずにfalseを返し、呼び出し側が操作失敗を通知する。
+    /// Measure workerの短い更新と直列化し、再生中のクリックも取りこぼさない。
     pub fn reset_meter_session(&self) -> bool {
         let Some(session) = self.meter_session.as_ref() else {
             return false;
         };
-        let Ok(mut session) = session.try_lock() else {
+        let Ok(mut session) = session.lock() else {
+            return false;
+        };
+        let Ok(mut watch_max) = self.watch_max.lock() else {
             return false;
         };
         session.reset();
+        watch_max.reset();
         let snapshot = session.snapshot();
         drop(session);
         if let Some(publication) = self.meter_session_publication.as_ref() {
@@ -3076,15 +3002,11 @@ impl KirinHyphaEngine {
         true
     }
 
-    /// ring 満杯で drop した push 数（§8 RT-safety 検証用）。
     pub fn overflow_count(&self) -> u64 {
         self.push_overflow.load(Ordering::Relaxed)
     }
 
-    /// B-125: oversized block drop を計上する（Audio Thread から呼ばれる）。
-    /// `kirin_hypha_note_oversized_drop` C-ABI の本体。`dropped_samples` は当該 block の
-    /// interleaved sample 数（= num_frames * num_channels）。RT 安全のため `fetch_add` のみ
-    /// （alloc/lock/syscall なし）。push_overflow とは別カウンタ（混ぜない）。
+    /// B-125: oversized block drop count; Audio Thread remains fetch_add-only.
     pub fn note_oversized_drop(&self, dropped_samples: u64) {
         self.oversized_drop
             .fetch_add(dropped_samples, Ordering::Relaxed);
@@ -3312,6 +3234,8 @@ pub struct KirinDelta {
     pub sharpness: f64,
     // Δ LUFS-S は既存 ABI offset を変えないよう末尾追加。
     pub lufs_s: f64,
+    /// POST − PRE PSB share for each Bark band; unavailable is all NaN.
+    pub psb_bark: [f64; 20],
 }
 
 /// Observatory表示が一度に受け取る非RTスナップショット。
@@ -3626,12 +3550,13 @@ fn to_c_delta(d: &DeltaResult) -> KirinDelta {
         n_prime_total: opt_f64(d.n_prime_total),
         sharpness: opt_f64(d.sharpness),
         lufs_s: opt_f64(d.lufs_s),
+        psb_bark: opt_arr20(d.psb_bark),
     }
 }
 
 fn delta_has_finite_fact(delta: &KirinDelta) -> bool {
     delta.mode == KIRIN_DELTA_MODE_ACTIVE
-        && [
+        && ([
             delta.lufs,
             delta.lufs_s,
             delta.true_peak,
@@ -3642,6 +3567,7 @@ fn delta_has_finite_fact(delta: &KirinDelta) -> bool {
         ]
         .into_iter()
         .any(f64::is_finite)
+            || delta.psb_bark.into_iter().all(f64::is_finite))
 }
 
 fn lra_readiness(snapshot: &MeterSessionSnapshot) -> (u8, f64) {
@@ -3824,141 +3750,6 @@ fn to_c_spectrum_batch(snapshot: SpectrumViewSnapshot) -> KirinSpectrumBatch {
     }
 }
 
-fn to_c_perceptual(snapshot: SpectrumViewSnapshot) -> KirinPerceptualView {
-    let difference = (snapshot.analysis_mode == AnalysisViewMode::Perceptual)
-        .then_some(snapshot.perceptual_difference)
-        .flatten();
-    let has_data = difference.is_some() as u8;
-    let (sample_rate, aperture_samples, pre, post, delta, presentation_end_samples, state_epoch) =
-        difference.map_or((0, 0, f64::NAN, f64::NAN, f64::NAN, 0, 0), |difference| {
-            (
-                difference.sample_rate,
-                difference.aperture_samples,
-                difference.pre_sharpness,
-                difference.post_sharpness,
-                difference.delta_sharpness,
-                difference.presentation_end_samples,
-                difference.state_epoch_samples,
-            )
-        });
-    KirinPerceptualView {
-        status: spectrum_status_to_abi(snapshot.status),
-        has_data,
-        channel_mode: snapshot.channel_mode as u8,
-        channels: snapshot.channels,
-        sample_rate,
-        aperture_samples,
-        pre_sharpness: pre,
-        post_sharpness: post,
-        delta_sharpness: delta,
-        presentation_end_samples,
-        state_epoch_samples: state_epoch,
-    }
-}
-
-fn empty_c_perceptual() -> KirinPerceptualView {
-    KirinPerceptualView {
-        status: KIRIN_SPECTRUM_HIDDEN,
-        has_data: 0,
-        channel_mode: KIRIN_SPECTRUM_CHANNEL_LR,
-        channels: 0,
-        sample_rate: 0,
-        aperture_samples: 0,
-        pre_sharpness: f64::NAN,
-        post_sharpness: f64::NAN,
-        delta_sharpness: f64::NAN,
-        presentation_end_samples: 0,
-        state_epoch_samples: 0,
-    }
-}
-
-fn to_c_perceptual_batch(snapshot: SpectrumViewSnapshot) -> KirinPerceptualBatch {
-    let latest = to_c_perceptual(snapshot.clone());
-    let mut frames = [empty_c_perceptual(); PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY];
-    let mut count = 0usize;
-    if snapshot.status == SpectrumViewStatus::Active
-        && snapshot.analysis_mode == AnalysisViewMode::Perceptual
-    {
-        for difference in snapshot.perceptual_timeline.frames() {
-            frames[count] = KirinPerceptualView {
-                status: KIRIN_SPECTRUM_ACTIVE,
-                has_data: 1,
-                channel_mode: difference.channel_mode as u8,
-                channels: difference.channels,
-                sample_rate: difference.sample_rate,
-                aperture_samples: difference.aperture_samples,
-                pre_sharpness: difference.pre_sharpness,
-                post_sharpness: difference.post_sharpness,
-                delta_sharpness: difference.delta_sharpness,
-                presentation_end_samples: difference.presentation_end_samples,
-                state_epoch_samples: difference.state_epoch_samples,
-            };
-            count += 1;
-        }
-    }
-    KirinPerceptualBatch {
-        latest,
-        count: count as u32,
-        reserved: 0,
-        frames,
-    }
-}
-
-fn empty_c_absolute() -> KirinAbsoluteView {
-    KirinAbsoluteView {
-        status: KIRIN_SPECTRUM_HIDDEN,
-        has_data: 0,
-        channels: 0,
-        reserved: 0,
-        sample_rate: 0,
-        aperture_samples: 0,
-        lufs_m: f64::NAN,
-        true_peak: f64::NAN,
-        sharpness: f64::NAN,
-        presentation_end_samples: 0,
-        state_epoch_samples: 0,
-        generation: 0,
-    }
-}
-
-fn to_c_absolute_batch(snapshot: SpectrumViewSnapshot) -> KirinAbsoluteBatch {
-    let mut latest = empty_c_absolute();
-    latest.status = spectrum_status_to_abi(snapshot.status);
-    latest.channels = snapshot.channels;
-    let mut frames = [empty_c_absolute(); ABSOLUTE_TIMELINE_CAPACITY];
-    let mut count = 0usize;
-    if snapshot.status == SpectrumViewStatus::Active
-        && snapshot.analysis_mode == AnalysisViewMode::Absolute
-    {
-        for frame in snapshot.absolute_timeline.frames() {
-            frames[count] = KirinAbsoluteView {
-                status: KIRIN_SPECTRUM_ACTIVE,
-                has_data: 1,
-                channels: frame.channels,
-                reserved: 0,
-                sample_rate: frame.sample_rate,
-                aperture_samples: frame.aperture_samples,
-                lufs_m: opt_f64(frame.lufs_m),
-                true_peak: opt_f64(frame.true_peak),
-                sharpness: opt_f64(frame.sharpness),
-                presentation_end_samples: frame.presentation_end_samples,
-                state_epoch_samples: frame.state_epoch_samples,
-                generation: frame.generation,
-            };
-            count += 1;
-        }
-        if count > 0 {
-            latest = frames[count - 1];
-        }
-    }
-    KirinAbsoluteBatch {
-        latest,
-        count: count as u32,
-        reserved: 0,
-        frames,
-    }
-}
-
 fn to_c_spectrum_stats(stats: SpectrumRuntimeStats) -> KirinSpectrumStats {
     KirinSpectrumStats {
         enabled: stats.enabled as u8,
@@ -4019,400 +3810,8 @@ fn to_c_record_display(
 }
 
 #[cfg(test)]
-mod meter_session_abi_tests {
-    use super::*;
-
-    #[test]
-    fn snapshot_layout_and_mapping_are_stable() {
-        assert_eq!(std::mem::size_of::<KirinMeterSession>(), 840);
-        assert_eq!(std::mem::offset_of!(KirinMeterSession, field_density), 200);
-        assert_eq!(std::mem::offset_of!(KirinMeterSession, max_lufs_m), 832);
-        assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
-        assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 184);
-        assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 920);
-        let current = MeasureResult {
-            lufs_m: Some(-14.2),
-            lufs_s: Some(-14.8),
-            true_peak: Some(-1.1),
-            ..MeasureResult::default()
-        };
-        let snapshot = MeterSessionSnapshot {
-            generation: 3,
-            state: MeterSessionState::Paused,
-            sample_rate: 48_000,
-            active_frames: 96_123,
-            observed_frames: 96_000,
-            current,
-            max_lufs_m: Some(-10.6),
-            summary: SessionSummary {
-                lufs_i: Some(-15.0),
-                lra: Some(4.2),
-                max_true_peak: Some(-0.8),
-            },
-            plr: Some(14.2),
-            stereo: kirin_measure::StereoMeterSnapshot {
-                channels: 2,
-                sample_peak_dbfs: [Some(-1.0), Some(-2.0)],
-                sample_peak_hold_dbfs: [Some(-0.5), Some(-1.5)],
-                true_peak_dbtp: [Some(-0.8), Some(-1.8)],
-                max_true_peak_dbtp: [Some(-0.3), Some(-1.3)],
-                clip_events: [2, 1],
-                balance_db: Some(0.75),
-                balance_state: BalanceState::Numeric,
-                correlation: Some(0.91),
-                field_density: {
-                    let mut density = [0; STEREO_FIELD_BINS];
-                    density[312] = 211;
-                    density
-                },
-                field_observation_count: 30,
-            },
-        };
-        let mapped = to_c_meter_session(&snapshot);
-        assert_eq!(mapped.state, KIRIN_METER_SESSION_PAUSED);
-        assert_eq!(mapped.active_frames, 96_123);
-        assert_eq!(mapped.observed_frames, 96_000);
-        assert_eq!(mapped.lufs_m, -14.2);
-        assert_eq!(mapped.max_lufs_m, -10.6);
-        assert_eq!(mapped.lufs_s, -14.8);
-        assert_eq!(mapped.lufs_i, -15.0);
-        assert_eq!(mapped.lra, 4.2);
-        assert_eq!(mapped.true_peak, -1.1);
-        assert_eq!(mapped.max_true_peak, -0.8);
-        assert_eq!(mapped.plr, 14.2);
-        assert_eq!(mapped.channels, 2);
-        assert_eq!(mapped.balance_state, KIRIN_BALANCE_NUMERIC);
-        assert_eq!(mapped.sample_peak_dbfs, [-1.0, -2.0]);
-        assert_eq!(mapped.clip_events, [2, 1]);
-        assert_eq!(mapped.balance_db, 0.75);
-        assert_eq!(mapped.correlation, 0.91);
-        assert_eq!(mapped.field_size, KIRIN_STEREO_FIELD_SIZE);
-        assert_eq!(mapped.field_observation_count, 30);
-        assert_eq!(mapped.field_density[312], 211);
-
-        let history = to_c_history_entry(MeterHistoryEntry {
-            resolution: MeterHistoryResolution::Hz1,
-            generation: 3,
-            run_id: 7,
-            observation_count: 10,
-            first_observed_frames: 4_800,
-            last_observed_frames: 48_000,
-            first_timeline_endpoint_samples: Some(104_800),
-            last_timeline_endpoint_samples: None,
-            timeline_source: CaptureClockSource::ProjectTimeline,
-            clip_event_count: [3, 1],
-            lufs_m: MeterHistoryRange {
-                min: Some(-16.0),
-                max: Some(-13.0),
-                mean: Some(-14.5),
-            },
-            lufs_s: MeterHistoryRange::default(),
-            true_peak: MeterHistoryRange::default(),
-            correlation: MeterHistoryRange::default(),
-            plr: MeterHistoryRange {
-                min: Some(12.0),
-                max: Some(14.0),
-                mean: Some(13.0),
-            },
-        });
-        assert_eq!(history.resolution, KIRIN_METER_HISTORY_1_HZ);
-        assert_eq!(history.observation_count, 10);
-        assert_eq!(history.clip_event_count, [3, 1]);
-        assert_eq!(history.first_timeline_endpoint_samples, 104_800);
-        assert_eq!(history.plr.mean, 13.0);
-        assert_eq!(history.last_timeline_endpoint_samples, i64::MIN);
-        assert_eq!(history.lufs_m.min, -16.0);
-        assert!(history.lufs_s.mean.is_nan());
-    }
-
-    #[test]
-    fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
-        let mut snapshot = MeterSessionSnapshot {
-            generation: 1,
-            state: MeterSessionState::Active,
-            sample_rate: 48_000,
-            active_frames: 48_000 * 59,
-            observed_frames: 48_000 * 59,
-            current: MeasureResult::default(),
-            max_lufs_m: Some(-11.0),
-            summary: SessionSummary {
-                lufs_i: Some(-14.0),
-                lra: Some(0.0),
-                max_true_peak: Some(-1.0),
-            },
-            plr: Some(13.0),
-            stereo: kirin_measure::StereoMeterSnapshot {
-                channels: 2,
-                sample_peak_dbfs: [None; 2],
-                sample_peak_hold_dbfs: [None; 2],
-                true_peak_dbtp: [None; 2],
-                max_true_peak_dbtp: [None; 2],
-                clip_events: [0; 2],
-                balance_db: None,
-                balance_state: BalanceState::Unavailable,
-                correlation: None,
-                field_density: [0; STEREO_FIELD_BINS],
-                field_observation_count: 0,
-            },
-        };
-        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_WARMING);
-        snapshot.active_frames = 48_000 * 60;
-        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_READY);
-        snapshot.summary.lra = None;
-        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_UNAVAILABLE);
-        snapshot.state = MeterSessionState::Empty;
-        assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_UNAVAILABLE);
-    }
-
-    #[test]
-    fn observatory_delta_requires_active_freshness_even_when_stale_values_are_finite() {
-        let mut delta = KirinDelta {
-            mode: KIRIN_DELTA_MODE_ACTIVE,
-            lufs: 1.0,
-            true_peak: f64::NAN,
-            crest: f64::NAN,
-            psr: f64::NAN,
-            n_prime_total: f64::NAN,
-            sharpness: f64::NAN,
-            lufs_s: f64::NAN,
-        };
-        assert!(delta_has_finite_fact(&delta));
-        delta.mode = delta_mode_to_abi(&DeltaMode::Stale);
-        assert!(!delta_has_finite_fact(&delta));
-    }
-
-    #[test]
-    fn null_meter_session_calls_fail_closed_without_touching_output() {
-        let mut frame: KirinObservatoryFrame = unsafe { std::mem::zeroed() };
-        frame.version = 41;
-        assert!(!unsafe { kirin_hypha_poll_observatory_frame(std::ptr::null_mut(), &mut frame) });
-        assert_eq!(frame.version, 41);
-        let mut out = KirinMeterSession {
-            generation: 41,
-            active_frames: 0,
-            observed_frames: 0,
-            sample_rate: 0,
-            state: 0,
-            reserved: [0; 3],
-            lufs_m: 0.0,
-            lufs_s: 0.0,
-            lufs_i: 0.0,
-            lra: 0.0,
-            true_peak: 0.0,
-            max_true_peak: 0.0,
-            plr: 0.0,
-            channels: 0,
-            balance_state: 0,
-            stereo_reserved: [0; 6],
-            sample_peak_dbfs: [0.0; 2],
-            sample_peak_hold_dbfs: [0.0; 2],
-            channel_true_peak_dbtp: [0.0; 2],
-            channel_max_true_peak_dbtp: [0.0; 2],
-            clip_events: [0; 2],
-            balance_db: 0.0,
-            correlation: 0.0,
-            field_size: 0,
-            field_observation_count: 0,
-            field_reserved: [0; 6],
-            field_density: [0; KIRIN_STEREO_FIELD_BINS],
-            max_lufs_m: 0.0,
-        };
-        assert!(!unsafe { kirin_hypha_poll_meter_session(std::ptr::null_mut(), &mut out) });
-        let mut history_count = 41_u32;
-        assert!(!unsafe {
-            kirin_hypha_poll_meter_history(
-                std::ptr::null_mut(),
-                KIRIN_METER_HISTORY_10_HZ,
-                std::ptr::null_mut(),
-                0,
-                &mut history_count,
-            )
-        });
-        assert_eq!(history_count, 41);
-        assert!(!unsafe {
-            kirin_hypha_poll_meter_history_decimated(
-                std::ptr::null_mut(),
-                KIRIN_METER_HISTORY_10_HZ,
-                300,
-                std::ptr::null_mut(),
-                0,
-                &mut history_count,
-            )
-        });
-        assert_eq!(history_count, 41);
-        assert!(!unsafe {
-            kirin_hypha_poll_meter_delta_history(
-                std::ptr::null_mut(),
-                KIRIN_METER_HISTORY_10_HZ,
-                std::ptr::null_mut(),
-                0,
-                &mut history_count,
-            )
-        });
-        assert_eq!(history_count, 41);
-        assert!(!unsafe { kirin_hypha_reset_meter_session(std::ptr::null_mut()) });
-        assert_eq!(out.generation, 41);
-    }
-
-    #[test]
-    fn meter_poll_reads_completed_publication_while_live_session_is_locked() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
-        let live_session = engine.meter_session.as_ref().unwrap();
-        let _live_guard = live_session.lock().unwrap();
-
-        let published = engine.poll_meter_session().unwrap();
-
-        assert_eq!(published.state, MeterSessionState::Empty);
-        assert_eq!(published.sample_rate, 48_000);
-        assert_eq!(published.active_frames, 0);
-    }
-
-    #[test]
-    fn delta_history_abi_is_post_only_and_empty_is_a_valid_fact() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
-        assert!(engine
-            .poll_meter_delta_history(MeterHistoryResolution::Hz10, 10)
-            .is_none());
-        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
-        assert!(engine
-            .poll_meter_delta_history(MeterHistoryResolution::Hz10, 10)
-            .is_none());
-        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
-        assert_eq!(
-            engine
-                .poll_meter_delta_history(MeterHistoryResolution::Hz10, 10)
-                .unwrap(),
-            Vec::<MeterHistoryEntry>::new()
-        );
-        let mut count = 41_u32;
-        assert!(unsafe {
-            kirin_hypha_poll_meter_delta_history(
-                std::ptr::from_ref(&engine).cast_mut(),
-                KIRIN_METER_HISTORY_10_HZ,
-                std::ptr::null_mut(),
-                0,
-                &mut count,
-            )
-        });
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn live_measure_worker_advances_pauses_and_resets_independent_session() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
-        engine.set_signal_state(KIRIN_SIGNAL_STATE_ACTIVE);
-        let mut samples = Vec::with_capacity(48_000 * 2);
-        for frame in 0..48_000 {
-            let sample =
-                (2.0 * std::f32::consts::PI * 1_000.0 * frame as f32 / 48_000.0).sin() * 0.25;
-            samples.extend_from_slice(&[sample, sample]);
-        }
-        for (index, chunk) in samples.chunks(480 * 2).enumerate() {
-            let deadline = std::time::Instant::now() + Duration::from_secs(1);
-            loop {
-                engine.note_capture_window(
-                    true,
-                    (index * 480) as i64,
-                    480,
-                    CaptureClockSource::ProjectTimeline,
-                );
-                if engine.push_samples_transaction(chunk, 2) {
-                    break;
-                }
-                assert!(std::time::Instant::now() < deadline);
-                std::thread::sleep(Duration::from_millis(1));
-            }
-        }
-
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        let active = loop {
-            if let Some(snapshot) = engine
-                .poll_meter_session()
-                .filter(|snapshot| snapshot.active_frames == 48_000)
-            {
-                break snapshot;
-            }
-            assert!(std::time::Instant::now() < deadline);
-            std::thread::sleep(Duration::from_millis(5));
-        };
-        assert_eq!(active.state, MeterSessionState::Active);
-        assert_eq!(active.observed_frames, 48_000);
-        assert!(active.current.lufs_m.is_some());
-        assert!(active.summary.lufs_i.is_some());
-        assert_eq!(active.stereo.channels, 2);
-        assert!(active.stereo.sample_peak_dbfs.iter().all(Option::is_some));
-        assert!(active
-            .stereo
-            .sample_peak_hold_dbfs
-            .iter()
-            .all(Option::is_some));
-        assert!(active.stereo.true_peak_dbtp.iter().all(Option::is_some));
-        assert!(active.stereo.correlation.is_none());
-        let history = engine
-            .poll_meter_history(MeterHistoryResolution::Hz10, 20)
-            .unwrap();
-        assert_eq!(history.len(), 10);
-        assert_eq!(history[0].last_timeline_endpoint_samples, Some(4_800));
-        assert_eq!(history[9].last_timeline_endpoint_samples, Some(48_000));
-        let one_second = engine
-            .poll_meter_history(MeterHistoryResolution::Hz1, 20)
-            .unwrap();
-        assert_eq!(one_second.len(), 1);
-        assert_eq!(one_second[0].observation_count, 10);
-
-        let mut ffi_entries: Vec<std::mem::MaybeUninit<KirinMeterHistoryEntry>> =
-            std::iter::repeat_with(std::mem::MaybeUninit::uninit)
-                .take(12)
-                .collect();
-        let mut ffi_count = 0_u32;
-        assert!(unsafe {
-            kirin_hypha_poll_meter_history(
-                std::ptr::from_ref(&engine).cast_mut(),
-                KIRIN_METER_HISTORY_10_HZ,
-                ffi_entries.as_mut_ptr().cast(),
-                12,
-                &mut ffi_count,
-            )
-        });
-        assert_eq!(ffi_count, 10);
-        let ffi_last = unsafe { ffi_entries[9].assume_init_ref() };
-        assert_eq!(ffi_last.resolution, KIRIN_METER_HISTORY_10_HZ);
-        assert_eq!(ffi_last.last_timeline_endpoint_samples, 48_000);
-
-        ffi_count = 77;
-        assert!(!unsafe {
-            kirin_hypha_poll_meter_history(
-                std::ptr::from_ref(&engine).cast_mut(),
-                99,
-                ffi_entries.as_mut_ptr().cast(),
-                12,
-                &mut ffi_count,
-            )
-        });
-        assert_eq!(ffi_count, 77);
-
-        engine.set_signal_state(KIRIN_SIGNAL_STATE_INACTIVE);
-        let deadline = std::time::Instant::now() + Duration::from_secs(1);
-        loop {
-            if engine
-                .poll_meter_session()
-                .is_some_and(|snapshot| snapshot.state == MeterSessionState::Paused)
-            {
-                break;
-            }
-            assert!(std::time::Instant::now() < deadline);
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        while !engine.reset_meter_session() {
-            assert!(std::time::Instant::now() < deadline);
-            std::thread::yield_now();
-        }
-        let reset = engine.poll_meter_session().unwrap();
-        assert_eq!(reset.state, MeterSessionState::Empty);
-        assert_eq!(reset.generation, active.generation + 1);
-        assert_eq!(reset.active_frames, 0);
-    }
-}
+#[path = "meter_session_abi_tests.rs"]
+mod meter_session_abi_tests;
 
 #[cfg(test)]
 mod delta_mode_abi_tests {
@@ -4429,362 +3828,8 @@ mod delta_mode_abi_tests {
 }
 
 #[cfg(test)]
-mod spectrum_abi_tests {
-    use super::*;
-    use kirin_measure::spectrum::SpectrumDifference;
-
-    #[test]
-    fn spectrum_status_and_signed_display_values_have_stable_c_mapping() {
-        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_112);
-        assert_eq!(
-            std::mem::offset_of!(KirinSpectrumView, presentation_end_samples),
-            3_088
-        );
-        assert_eq!(
-            std::mem::offset_of!(KirinSpectrumView, aperture_samples),
-            3_096
-        );
-        assert_eq!(std::mem::offset_of!(KirinSpectrumView, fft_size), 3_100);
-        assert_eq!(
-            std::mem::offset_of!(KirinSpectrumView, approximate_below_hz),
-            3_104
-        );
-        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Hidden), 0);
-        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::NoPair), 1);
-        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::WarmingUp), 2);
-        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Active), 3);
-        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Unavailable), 4);
-        assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::InUse), 5);
-
-        let difference = SpectrumDifference {
-            presentation_end_samples: 48_000,
-            sample_rate: 48_000,
-            aperture_samples: 4_096,
-            fft_size: 8_192,
-            approximate_below_hz: 35.15625,
-            min_hz: 10.0,
-            max_hz: 22_000.0,
-            channel_mode: SpectrumChannelMode::Side,
-            channels: 2,
-            pre_dbfs: [-42.0; SPECTRUM_BAND_COUNT],
-            post_dbfs: [-45.5; SPECTRUM_BAND_COUNT],
-            raw_db: [15.0; SPECTRUM_BAND_COUNT],
-            display_db: [-3.5; SPECTRUM_BAND_COUNT],
-        };
-        let mut spectrum_timeline = kirin_measure::SpectrumDifferenceTimeline::default();
-        spectrum_timeline.push(&difference);
-        let snapshot = SpectrumViewSnapshot {
-            status: SpectrumViewStatus::Active,
-            analysis_mode: AnalysisViewMode::Spectrum,
-            channel_mode: SpectrumChannelMode::Side,
-            channels: 2,
-            difference: Some(difference),
-            spectrum_timeline,
-            post_spectrum: None,
-            post_spectrum_history: Default::default(),
-            perceptual_difference: None,
-            perceptual_timeline: Default::default(),
-            absolute_timeline: Default::default(),
-            analysis_owner_names: Default::default(),
-        };
-        let out = to_c_spectrum(snapshot.clone());
-        assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
-        assert_eq!(out.has_data, 1);
-        assert_eq!(out.post_has_data, 1);
-        assert_eq!(out.sample_rate, 48_000);
-        assert_eq!(out.channel_mode, KIRIN_SPECTRUM_CHANNEL_SIDE);
-        assert_eq!(out.channels, 2);
-        assert_eq!(out.pre_dbfs[0], -42.0);
-        assert_eq!(out.post_dbfs[SPECTRUM_BAND_COUNT - 1], -45.5);
-        assert_eq!(out.display_db[0], -3.5);
-        assert_eq!(out.display_db[SPECTRUM_BAND_COUNT - 1], -3.5);
-        assert_eq!(out.presentation_end_samples, 48_000);
-        assert_eq!(out.aperture_samples, 4_096);
-        assert_eq!(out.fft_size, 8_192);
-        assert_eq!(out.approximate_below_hz, 35.15625);
-        let batch = to_c_spectrum_batch(snapshot);
-        // The four-byte POST-presence tail occupies the struct's former alignment padding.
-        assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_112);
-        assert_eq!(std::mem::size_of::<KirinSpectrumBatch>(), 28_016);
-        assert_eq!(batch.count, 1);
-        assert_eq!(batch.latest.presentation_end_samples, 48_000);
-        assert_eq!(batch.frames[0].presentation_end_samples, 48_000);
-        assert_eq!(batch.frames[0].display_db[0], -3.5);
-    }
-
-    #[test]
-    fn unpaired_post_spectrum_is_distinct_from_exact_delta_at_the_abi() {
-        let snapshot = SpectrumViewSnapshot {
-            status: SpectrumViewStatus::NoPair,
-            analysis_mode: AnalysisViewMode::Spectrum,
-            channel_mode: SpectrumChannelMode::Lr,
-            channels: 2,
-            difference: None,
-            spectrum_timeline: Default::default(),
-            post_spectrum: Some(SpectrumFrame {
-                schema_version: kirin_measure::SPECTRUM_SCHEMA_VERSION,
-                sample_rate: 48_000,
-                aperture_samples: 4_096,
-                fft_size: 8_192,
-                band_count: SPECTRUM_BAND_COUNT as u16,
-                presentation_end_samples: 9_600,
-                generation: 4,
-                channel_mode: SpectrumChannelMode::Lr,
-                channels: 2,
-                min_hz: 10.0,
-                max_hz: 22_000.0,
-                dbfs: [-27.5; SPECTRUM_BAND_COUNT],
-            }),
-            post_spectrum_history: Default::default(),
-            perceptual_difference: None,
-            perceptual_timeline: Default::default(),
-            absolute_timeline: Default::default(),
-            analysis_owner_names: Default::default(),
-        };
-        let out = to_c_spectrum(snapshot);
-        assert_eq!(out.status, KIRIN_SPECTRUM_NO_PAIR);
-        assert_eq!(out.has_data, 0);
-        assert_eq!(out.post_has_data, 1);
-        assert_eq!(out.post_dbfs[0], -27.5);
-        assert_eq!(out.presentation_end_samples, 9_600);
-        assert_eq!(out.pre_dbfs, [0.0; SPECTRUM_BAND_COUNT]);
-        assert_eq!(out.display_db, [0.0; SPECTRUM_BAND_COUNT]);
-    }
-
-    #[test]
-    fn perceptual_view_preserves_signed_raw_sharpness_and_exact_endpoint() {
-        assert_eq!(std::mem::size_of::<KirinPerceptualView>(), 56);
-        assert_eq!(
-            std::mem::offset_of!(KirinPerceptualView, presentation_end_samples),
-            40
-        );
-        assert_eq!(
-            std::mem::offset_of!(KirinPerceptualView, state_epoch_samples),
-            48
-        );
-        let difference = kirin_measure::PerceptualDifference {
-            presentation_end_samples: 96_000,
-            state_epoch_samples: 0,
-            sample_rate: 48_000,
-            aperture_samples: 4_800,
-            channel_mode: SpectrumChannelMode::Mid,
-            channels: 2,
-            pre_sharpness: 1.25,
-            post_sharpness: 0.85,
-            delta_sharpness: -0.40,
-        };
-        let mut perceptual_timeline = kirin_measure::PerceptualDifferenceTimeline::default();
-        perceptual_timeline.push(difference);
-        let snapshot = SpectrumViewSnapshot {
-            status: SpectrumViewStatus::Active,
-            analysis_mode: AnalysisViewMode::Perceptual,
-            channel_mode: SpectrumChannelMode::Mid,
-            channels: 2,
-            difference: None,
-            spectrum_timeline: Default::default(),
-            post_spectrum: None,
-            post_spectrum_history: Default::default(),
-            perceptual_difference: Some(difference),
-            perceptual_timeline,
-            absolute_timeline: Default::default(),
-            analysis_owner_names: Default::default(),
-        };
-        let out = to_c_perceptual(snapshot.clone());
-        assert_eq!(out.status, KIRIN_SPECTRUM_ACTIVE);
-        assert_eq!(out.has_data, 1);
-        assert_eq!(out.channel_mode, KIRIN_SPECTRUM_CHANNEL_MID);
-        assert_eq!(out.aperture_samples, 4_800);
-        assert_eq!(out.pre_sharpness, 1.25);
-        assert_eq!(out.post_sharpness, 0.85);
-        assert_eq!(out.delta_sharpness, -0.40);
-        assert_eq!(out.presentation_end_samples, 96_000);
-        assert_eq!(out.state_epoch_samples, 0);
-
-        let batch = to_c_perceptual_batch(snapshot.clone());
-        assert_eq!(std::mem::size_of::<KirinPerceptualBatch>(), 3_648);
-        assert_eq!(batch.count, 1);
-        assert_eq!(batch.latest.presentation_end_samples, 96_000);
-        assert_eq!(batch.frames[0].presentation_end_samples, 96_000);
-        assert_eq!(batch.frames[0].delta_sharpness, -0.40);
-
-        let mut wrong_mode = snapshot;
-        wrong_mode.analysis_mode = AnalysisViewMode::Spectrum;
-        let hidden = to_c_perceptual(wrong_mode);
-        assert_eq!(hidden.has_data, 0);
-        assert!(hidden.delta_sharpness.is_nan());
-    }
-
-    #[test]
-    fn absolute_batch_preserves_exact_post_facts_without_delta() {
-        assert_eq!(std::mem::size_of::<KirinAbsoluteView>(), 64);
-        assert_eq!(std::mem::size_of::<KirinAbsoluteBatch>(), 4_168);
-        let mut absolute_timeline = kirin_measure::AbsoluteTimeline::default();
-        assert!(absolute_timeline.push(kirin_measure::AbsoluteFrame {
-            schema_version: kirin_measure::ABSOLUTE_SCHEMA_VERSION,
-            sample_rate: 48_000,
-            aperture_samples: 4_800,
-            presentation_end_samples: 9_600,
-            state_epoch_samples: 0,
-            generation: 7,
-            channels: 2,
-            lufs_m: Some(-18.5),
-            true_peak: Some(-2.0),
-            sharpness: Some(1.25),
-        }));
-        let batch = to_c_absolute_batch(SpectrumViewSnapshot {
-            status: SpectrumViewStatus::Active,
-            analysis_mode: AnalysisViewMode::Absolute,
-            channel_mode: SpectrumChannelMode::Lr,
-            channels: 2,
-            difference: None,
-            spectrum_timeline: Default::default(),
-            post_spectrum: None,
-            post_spectrum_history: Default::default(),
-            perceptual_difference: None,
-            perceptual_timeline: Default::default(),
-            absolute_timeline,
-            analysis_owner_names: Default::default(),
-        });
-        assert_eq!(batch.count, 1);
-        assert_eq!(batch.latest.lufs_m, -18.5);
-        assert_eq!(batch.latest.true_peak, -2.0);
-        assert_eq!(batch.latest.sharpness, 1.25);
-        assert_eq!(batch.latest.presentation_end_samples, 9_600);
-        assert_eq!(batch.latest.generation, 7);
-    }
-
-    #[test]
-    fn analysis_owner_names_are_bounded_utf8_and_null_terminated() {
-        assert_eq!(std::mem::size_of::<KirinAnalysisOwners>(), 138);
-        let owners = to_c_analysis_owners(["Mix".to_string(), "Vocal".to_string()]);
-        assert_eq!(owners.count, 2);
-        assert_eq!(&owners.names[0][..4], b"Mix\0");
-        assert_eq!(&owners.names[1][..6], b"Vocal\0");
-        assert!(owners.names[0][4..].iter().all(|byte| *byte == 0));
-        assert!(owners.names[1][6..].iter().all(|byte| *byte == 0));
-
-        let unicode = to_c_analysis_owners(["ボーカル".to_string(), String::new()]);
-        assert_eq!(unicode.count, 1);
-        let nul = unicode.names[0].iter().position(|byte| *byte == 0).unwrap();
-        assert_eq!(
-            std::str::from_utf8(&unicode.names[0][..nul]).unwrap(),
-            "ボーカル"
-        );
-    }
-
-    #[test]
-    fn presentation_alignment_requires_known_wrapper_output_latency() {
-        let exact = PendingCaptureWindow {
-            position_valid: true,
-            position_samples: 9_600,
-            num_frames: 480,
-            clock_source: CaptureClockSource::ProjectTimeline,
-            presentation_latency: PresentationLatencySamples {
-                source: PresentationLatencySource::Vst3,
-                input: Some(0),
-                output: Some(2_048),
-            },
-            force_new_epoch: false,
-        };
-        assert_eq!(spectrum_presentation_start(exact), Some(11_648));
-        assert_eq!(
-            spectrum_presentation_start(PendingCaptureWindow {
-                presentation_latency: PresentationLatencySamples::default(),
-                ..exact
-            }),
-            None
-        );
-        assert_eq!(
-            spectrum_presentation_start(PendingCaptureWindow {
-                position_valid: false,
-                ..exact
-            }),
-            None
-        );
-    }
-
-    #[test]
-    fn attack_uses_exact_project_clock_when_presentation_callback_is_absent() {
-        let exact = PendingCaptureWindow {
-            position_valid: true,
-            position_samples: 9_600,
-            num_frames: 480,
-            clock_source: CaptureClockSource::ProjectTimeline,
-            presentation_latency: PresentationLatencySamples {
-                source: PresentationLatencySource::Vst3,
-                input: Some(0),
-                output: Some(2_048),
-            },
-            force_new_epoch: false,
-        };
-        assert_eq!(attack_timeline_start(exact), Some(11_648));
-        assert_eq!(
-            attack_timeline_start(PendingCaptureWindow {
-                presentation_latency: PresentationLatencySamples::default(),
-                ..exact
-            }),
-            Some(9_600)
-        );
-        assert_eq!(
-            attack_timeline_start(PendingCaptureWindow {
-                clock_source: CaptureClockSource::AudioRenderTimeline,
-                presentation_latency: PresentationLatencySamples::default(),
-                ..exact
-            }),
-            Some(9_600)
-        );
-        assert_eq!(
-            attack_timeline_start(PendingCaptureWindow {
-                position_valid: false,
-                presentation_latency: PresentationLatencySamples::default(),
-                ..exact
-            }),
-            None
-        );
-        assert_eq!(
-            attack_timeline_start(PendingCaptureWindow {
-                clock_source: CaptureClockSource::Unknown,
-                presentation_latency: PresentationLatencySamples::default(),
-                ..exact
-            }),
-            None
-        );
-    }
-
-    #[test]
-    fn pre_role_cannot_expose_the_post_spectrum_page() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
-        assert!(!engine.set_spectrum_visible(true));
-        assert!(!engine.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
-        *engine.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
-        assert!(!engine.set_spectrum_visible(true));
-        assert!(!engine.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
-        assert!(!engine.spectrum_stats().enabled);
-    }
-
-    #[test]
-    fn post_channel_mode_is_single_select_and_side_requires_stereo() {
-        let stereo = KirinHyphaEngine::new(48_000, 2);
-        *stereo.write_role.lock().unwrap() = Some(PluginDataRole::Post);
-        assert!(stereo.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
-        assert_eq!(
-            stereo.spectrum_stats().channel_mode,
-            SpectrumChannelMode::Mid
-        );
-        assert!(stereo.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_SIDE));
-        assert_eq!(
-            stereo.spectrum_stats().channel_mode,
-            SpectrumChannelMode::Side
-        );
-        assert!(!stereo.set_spectrum_channel_mode(3));
-
-        let mono = KirinHyphaEngine::new(48_000, 1);
-        *mono.write_role.lock().unwrap() = Some(PluginDataRole::Post);
-        assert!(mono.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
-        assert!(!mono.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_SIDE));
-        assert_eq!(mono.spectrum_stats().channel_mode, SpectrumChannelMode::Mid);
-    }
-}
+#[path = "spectrum_abi_tests.rs"]
+mod spectrum_abi_tests;
 
 #[cfg(test)]
 mod record_display_abi_tests {
@@ -5054,77 +4099,6 @@ pub unsafe extern "C" fn kirin_hypha_pair_status(handle: *mut KirinHyphaEngine) 
         unsafe { (*handle).pair_status() as u8 }
     }))
     .unwrap_or(PairStatus::Unpaired as u8)
-}
-
-/// Return the exact PRE instance currently latched by a POST.
-///
-/// # Safety
-/// A non-null `handle` must be a live pointer returned by `kirin_hypha_create`. When `out` is
-/// non-null and `out_len > 0`, it must reference a writable buffer of at least `out_len` bytes.
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_get_paired_pre_instance_id(
-    handle: *mut KirinHyphaEngine,
-    out: *mut c_char,
-    out_len: usize,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() || out_len == 0 {
-            return false;
-        }
-        let Some(instance_id) = (unsafe { (*handle).paired_pre_instance_id() }) else {
-            return false;
-        };
-        let bytes = instance_id.as_bytes();
-        let n = bytes.len().min(out_len - 1);
-        let dst = unsafe { std::slice::from_raw_parts_mut(out as *mut u8, out_len) };
-        dst[..n].copy_from_slice(&bytes[..n]);
-        dst[n] = 0;
-        true
-    }))
-    .unwrap_or(false)
-}
-
-/// Return the project shelf and instance ID of the exact PRE from one binding snapshot.
-///
-/// # Safety
-/// A non-null `handle` must be a live pointer returned by `kirin_hypha_create`. Each non-null
-/// output pointer must reference a writable buffer at least as large as its corresponding length.
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_get_paired_pre_locator(
-    handle: *mut KirinHyphaEngine,
-    project_out: *mut c_char,
-    project_out_len: usize,
-    instance_out: *mut c_char,
-    instance_out_len: usize,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null()
-            || project_out.is_null()
-            || project_out_len == 0
-            || instance_out.is_null()
-            || instance_out_len == 0
-        {
-            return false;
-        }
-        let Some((project_hash, instance_id)) = (unsafe { (*handle).paired_pre_locator() }) else {
-            return false;
-        };
-        let project_bytes = project_hash.as_bytes();
-        let project_n = project_bytes.len().min(project_out_len - 1);
-        let project_dst =
-            unsafe { std::slice::from_raw_parts_mut(project_out as *mut u8, project_out_len) };
-        project_dst[..project_n].copy_from_slice(&project_bytes[..project_n]);
-        project_dst[project_n] = 0;
-
-        let instance_bytes = instance_id.as_bytes();
-        let instance_n = instance_bytes.len().min(instance_out_len - 1);
-        let instance_dst =
-            unsafe { std::slice::from_raw_parts_mut(instance_out as *mut u8, instance_out_len) };
-        instance_dst[..instance_n].copy_from_slice(&instance_bytes[..instance_n]);
-        instance_dst[instance_n] = 0;
-        true
-    }))
-    .unwrap_or(false)
 }
 
 /// PRE の自名（pre name）を設定する（B-054 / set_pair_target と完全対称）。
@@ -5848,45 +4822,6 @@ pub unsafe extern "C" fn kirin_hypha_drain_path_event(
     .unwrap_or(false)
 }
 
-/// Record の最新 plugin_data .json に利用者メモを追記する（Note / 方式A）。
-/// `License::Os` かつ enable 済かつ対象 .json 存在のとき `true`、それ以外 `false`。
-///
-/// # Safety
-/// `handle` は有効なハンドル。`memo` は null か有効な null 終端 C 文字列であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_add_annotation(
-    handle: *mut KirinHyphaEngine,
-    memo: *const c_char,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return false;
-        }
-        let memo = unsafe { read_c_str(memo) };
-        unsafe { (*handle).add_annotation(memo) }
-    }))
-    .unwrap_or(false)
-}
-
-/// Record中の最新producer sample境界へ Good/Fix/Hold MARKを追加する。
-///
-/// # Safety
-/// `handle` は有効なハンドル。`tag` は null か有効な null 終端 C 文字列であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_add_mark(
-    handle: *mut KirinHyphaEngine,
-    tag: *const c_char,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return false;
-        }
-        let tag = unsafe { read_c_str(tag) };
-        unsafe { (*handle).add_mark(tag) }
-    }))
-    .unwrap_or(false)
-}
-
 /// interleaved f32 サンプルを供給（Audio Thread 単独・RT-safe）。
 ///
 /// # Safety
@@ -5966,36 +4901,6 @@ pub unsafe extern "C" fn kirin_hypha_poll_result(
             }
             None => false,
         }
-    }))
-    .unwrap_or(false)
-}
-
-/// Current Watch values and current-playback-pass maxima from one Rust
-/// snapshot. UI thread only.
-///
-/// # Safety
-/// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
-/// `out` must be null or point to writable storage for one [`KirinWatchDisplay`].
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_watch_display(
-    handle: *mut KirinHyphaEngine,
-    playing: bool,
-    out: *mut KirinWatchDisplay,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() {
-            return false;
-        }
-        let Some((current, maximum)) = (unsafe { &*handle }).poll_watch_display(playing) else {
-            return false;
-        };
-        unsafe {
-            *out = KirinWatchDisplay {
-                current: to_c_result(&current),
-                maximum: to_c_result(&maximum),
-            };
-        }
-        true
     }))
     .unwrap_or(false)
 }
@@ -6435,21 +5340,17 @@ mod b474_watch_restart_tests {
 #[cfg(test)]
 mod post_controls_parity_tests {
     use super::*;
-    use kirin_measure::license::{show_note_button, show_save_button, show_stop_record_button};
+    use kirin_measure::license::{show_note_button, show_save_button};
 
-    /// juce_shell/src/PostControls.cpp `PostControls::update` のボタン可視性を Rust に写した replica。
-    /// 実 C++ ソースへの忠実性は xtask/src/shell_parity.rs::post_controls_update_visibility_formula_is_pinned
-    /// が文字列ゲートで固定する。本 replica は os ゲートを Rust license ヘルパと値レベルで突合するためのもの。
+    /// PostControls visibility and enabled state replica. Source parity is pinned by xtask.
     struct PostVis {
-        keep: bool,
-        sense: bool,
+        keep_visible: bool,
+        keep_enabled: bool,
+        os_info: bool,
         stop: bool,
         mark: bool,
     }
 
-    /// PostControls.cpp:73-91 のうち keep/sense/stop/mark の os/sense ゲートのみを Rust に写す
-    /// （picker 4 ボタンと markPickerOpen reset は対象外＝string-gate
-    /// post_controls_update_visibility_formula_is_pinned で固定）。os=(code==0) / sense=(code==1)。
     fn cpp_post_controls_update(
         recording: bool,
         license_code: u8,
@@ -6457,19 +5358,15 @@ mod post_controls_parity_tests {
         mark_picker_open: bool,
     ) -> PostVis {
         let os = license_code == 0;
-        let sense = license_code == 1;
         PostVis {
-            keep: !recording && os && pair_non_empty,
-            sense: !recording && sense,
-            stop: recording && os && !mark_picker_open,
+            keep_visible: !recording,
+            keep_enabled: !recording && os && pair_non_empty,
+            os_info: !recording && !os,
+            stop: recording && !mark_picker_open,
             mark: recording && os && !mark_picker_open,
         }
     }
 
-    /// B-195 (Step3 監査ギャップ): 値レベル parity — C++ PostControls::update の os ゲートが
-    /// Rust license ヘルパ (show_save_button / show_stop_record_button / show_note_button) と
-    /// 全 (license × recording × pairNonEmpty × markPickerOpen) で一致する。実 License→abi
-    /// マッピング (license_to_abi) を経由するので、int マッピングかヘルパのどちらが乖離しても捕捉する。
     #[test]
     fn post_controls_visibility_matches_rust_license_helpers() {
         for license in [License::Os, License::Sense, License::Unknown] {
@@ -6478,14 +5375,15 @@ mod post_controls_parity_tests {
                 for &pair in &[false, true] {
                     for &picker_open in &[false, true] {
                         let v = cpp_post_controls_update(recording, code, pair, picker_open);
+                        assert_eq!(v.keep_visible, !recording);
                         assert_eq!(
-                            v.keep,
+                            v.keep_enabled,
                             !recording && show_save_button(license) && pair,
                             "keep parity: {license:?} rec={recording} pair={pair}"
                         );
                         assert_eq!(
                             v.stop,
-                            recording && show_stop_record_button(license) && !picker_open,
+                            recording && !picker_open,
                             "stop parity: {license:?} rec={recording} picker={picker_open}"
                         );
                         assert_eq!(
@@ -6499,44 +5397,24 @@ mod post_controls_parity_tests {
         }
     }
 
-    /// Sense ヒントは license==Sense かつ非 recording のときだけ表示され、Keep(Os) とは
-    /// 相互排他（同時に出ない）であることを値レベルで固定する。
     #[test]
-    fn sense_hint_visibility_is_sense_only_and_exclusive_with_keep() {
+    fn os_information_is_visible_for_every_unowned_license() {
         for license in [License::Os, License::Sense, License::Unknown] {
             let code = license_to_abi(license);
             let v = cpp_post_controls_update(false, code, true, false);
             assert_eq!(
-                v.sense,
-                license == License::Sense,
-                "sense-hint は Sense のときだけ: {license:?}"
+                v.os_info,
+                license != License::Os,
+                "OS information visibility: {license:?}"
             );
             assert!(
-                !(v.keep && v.sense),
-                "Keep と Sense ヒントは同時に出ない: {license:?}"
+                !(v.keep_enabled && v.os_info),
+                "enabled Keep and OS requirement must be exclusive: {license:?}"
             );
         }
     }
 }
 
 #[cfg(test)]
-mod keep_action_notice_tests {
-    use super::*;
-
-    #[test]
-    fn user_action_notice_is_one_shot_and_never_pollutes_persistent_io_error() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
-        *engine
-            .keep_action_notice
-            .write()
-            .expect("keep action notice lock") = Some("Another Keep is active".to_string());
-
-        assert_eq!(engine.record_error_message(), None);
-        assert_eq!(
-            engine.drain_keep_action_notice().as_deref(),
-            Some("Another Keep is active")
-        );
-        assert_eq!(engine.drain_keep_action_notice(), None);
-        assert_eq!(engine.record_error_message(), None);
-    }
-}
+#[path = "keep_action_notice_tests.rs"]
+mod keep_action_notice_tests;

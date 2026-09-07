@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaObservationEquality.h"
 
 #include <cmath>
 
@@ -6,6 +7,8 @@ namespace hypha::observatory
 {
 void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
 {
+    const auto previous = observatoryFrame;
+    const auto previouslyAvailable = frameAvailable;
     observatoryFrame.version = KIRIN_OBSERVATORY_FRAME_VERSION;
     observatoryFrame.meter = value;
     observatoryFrame.signal_state = value.state == KIRIN_METER_SESSION_ACTIVE
@@ -18,11 +21,15 @@ void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
         : elapsed < 60.0 ? KIRIN_LRA_WARMING
                          : std::isfinite (value.lra) ? KIRIN_LRA_READY : KIRIN_LRA_UNAVAILABLE;
     frameAvailable = available;
-    repaint (bodyArea);
+    if (previouslyAvailable != available || ! observation_equality::same (previous, observatoryFrame))
+        repaint (bodyArea);
 }
 
 void View::setDeltaSnapshot (const KirinDelta& value, bool available)
 {
+    if ((observatoryFrame.delta_available != 0u) == available
+        && observation_equality::same (observatoryFrame.delta, value))
+        return;
     observatoryFrame.delta = value;
     observatoryFrame.delta_available = available ? 1u : 0u;
     repaint (bodyArea);
@@ -31,6 +38,8 @@ void View::setDeltaSnapshot (const KirinDelta& value, bool available)
 void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool available)
 {
     if (! available || value.version != KIRIN_OBSERVATORY_FRAME_VERSION)
+        return;
+    if (frameAvailable && observation_equality::same (observatoryFrame, value))
         return;
     observatoryFrame = value;
     frameAvailable = true;

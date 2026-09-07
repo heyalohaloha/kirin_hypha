@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 pub const RECORD_MARK_BASIS: &str = "producer_content_samples_v1";
+pub const RECORD_NOTE_SCHEMA_VERSION: &str = "record_note.v1";
+pub const RECORD_NOTE_MAX_CHARS: usize = 240;
 const RECORD_MARK_QUEUE_CAPACITY: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +28,7 @@ pub type RecordMarkQueue = Arc<Mutex<VecDeque<PendingRecordMark>>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordMarkError {
     InvalidTag,
+    InvalidNote,
     NotRecording,
     ClockUnavailable,
     QueueFull,
@@ -36,6 +39,7 @@ impl RecordMarkError {
     pub fn ui_message(self) -> &'static str {
         match self {
             Self::InvalidTag => "Mark unavailable",
+            Self::InvalidNote => "Note is empty or too long",
             Self::NotRecording => "Mark requires Record",
             Self::ClockUnavailable => "Mark waiting for audio",
             Self::QueueFull | Self::QueueUnavailable => "Mark unavailable",
@@ -65,6 +69,30 @@ pub fn enqueue_record_mark(
     if !is_record_mark_tag(tag) {
         return Err(RecordMarkError::InvalidTag);
     }
+    enqueue_record_annotation(record_sm, tracker, queue, tag, "record_mark.v1")
+}
+
+/// Capture a bounded free-text NOTE at the same producer sample boundary as MARK.
+pub fn enqueue_record_note(
+    record_sm: &RecordStateMachine,
+    tracker: &RecordTakeTracker,
+    queue: &RecordMarkQueue,
+    memo: &str,
+) -> Result<PendingRecordMark, RecordMarkError> {
+    let memo = memo.trim();
+    if memo.is_empty() || memo.chars().count() > RECORD_NOTE_MAX_CHARS {
+        return Err(RecordMarkError::InvalidNote);
+    }
+    enqueue_record_annotation(record_sm, tracker, queue, memo, RECORD_NOTE_SCHEMA_VERSION)
+}
+
+fn enqueue_record_annotation(
+    record_sm: &RecordStateMachine,
+    tracker: &RecordTakeTracker,
+    queue: &RecordMarkQueue,
+    memo: &str,
+    schema_version: &str,
+) -> Result<PendingRecordMark, RecordMarkError> {
     if !record_sm.is_recording() {
         return Err(RecordMarkError::NotRecording);
     }
@@ -91,9 +119,9 @@ pub fn enqueue_record_mark(
         generation,
         annotation: Annotation {
             t: Utc::now().to_rfc3339(),
-            memo: tag.to_string(),
+            memo: memo.to_string(),
             mark: Some(AnnotationMark {
-                schema_version: "record_mark.v1".to_string(),
+                schema_version: schema_version.to_string(),
                 id: Uuid::new_v4().to_string(),
                 basis: RECORD_MARK_BASIS.to_string(),
                 producer_position_samples: point.position_samples,
@@ -194,6 +222,35 @@ mod tests {
         assert_eq!(mark.producer_position_samples, 48_256);
         assert_eq!(mark.clock_source, "project_timeline");
         assert!(mark.wav_position_samples.is_none());
+    }
+
+    #[test]
+    fn note_is_sample_exact_bounded_and_distinct_from_fixed_mark() {
+        let sm = RecordStateMachine::new();
+        let tracker = RecordTakeTracker::new();
+        let queue = new_record_mark_queue();
+        sm.try_enter_record(License::Os).unwrap();
+        publish_record_point(&sm, &tracker);
+
+        let note = enqueue_record_note(&sm, &tracker, &queue, "  Chorus edge  ").unwrap();
+        assert_eq!(note.annotation.memo, "Chorus edge");
+        let identity = note.annotation.mark.unwrap();
+        assert_eq!(identity.schema_version, RECORD_NOTE_SCHEMA_VERSION);
+        assert_eq!(identity.producer_position_samples, 48_256);
+        assert!(identity.wav_position_samples.is_none());
+        assert_eq!(
+            enqueue_record_note(&sm, &tracker, &queue, "   "),
+            Err(RecordMarkError::InvalidNote)
+        );
+        assert_eq!(
+            enqueue_record_note(
+                &sm,
+                &tracker,
+                &queue,
+                &"x".repeat(RECORD_NOTE_MAX_CHARS + 1)
+            ),
+            Err(RecordMarkError::InvalidNote)
+        );
     }
 
     #[test]

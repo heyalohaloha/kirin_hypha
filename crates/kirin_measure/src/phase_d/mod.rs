@@ -20,6 +20,7 @@
 pub mod calc_slopes;
 pub mod channels;
 pub mod core_loudness;
+pub mod display;
 pub mod filter_bank;
 pub mod nonlinear_decay;
 pub mod sharpness;

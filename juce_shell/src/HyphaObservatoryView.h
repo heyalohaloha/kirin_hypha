@@ -7,9 +7,13 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaCaptureContract.h"
+#include "HyphaMeterContext.h"
+#include "HyphaInformationButton.h"
 #include "HyphaObservatoryContract.h"
+#include "HyphaObservationPageContract.h"
 #include "HyphaObservatoryPresentation.h"
 #include "HyphaObservatoryWorld.h"
+#include "HyphaRunSummary.h"
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
 #include "kirin_hypha_ffi.h"
@@ -26,7 +30,7 @@ private:
     bool tab = false;
 };
 
-class View final : public juce::Component
+class View final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit View (Role roleIn);
@@ -36,8 +40,13 @@ public:
     std::function<void (TimeRange)> onTimeRangeChange;
     std::function<void (SizePreset)> onSizeChange;
     std::function<void (bool)> onLoudnessChange;
+    std::function<void (meter_context::MeterContext)> onContextChange;
+    std::function<void (meter_context::ScaleMode)> onScaleChange;
     std::function<void()> onReset;
     std::function<void()> onCapture;
+    std::function<void()> onNote;
+    std::function<void()> onInformation;
+    juce::Component& informationAnchor() noexcept { return informationButton; }
 
     void setDomain (Domain);
     Domain domain() const noexcept { return selectedDomain; }
@@ -47,7 +56,7 @@ public:
     }
     bool fullCockpit() const noexcept
     {
-        return currentPreset().density == Density::observatory;
+        return isFullDensity (currentPreset().density);
     }
     PresentationContract presentation() const noexcept
     {
@@ -56,9 +65,15 @@ public:
     void setTarget (ObservationTarget);
     ObservationTarget target() const noexcept
     {
-        return effectiveTarget (role, selectedDomain, selectedTarget);
+        return capabilities().target;
     }
     ObservationTarget preferredTarget() const noexcept { return selectedTarget; }
+    PageCapabilities capabilities() const noexcept
+    { return pageCapabilities (role, selectedDomain, analysisPage, selectedTarget, attackPaired); }
+    void setAnalysisPage (analysis_navigation::Page);
+    void setAttackPaired (bool);
+    void setFeedback (juce::String text);
+    int timeControlsHeight() const noexcept;
     void setTimeRange (TimeRange);
     TimeRange selectedTimeRange() const noexcept { return timeRange; }
     void setMeterSnapshot (const KirinMeterSession&, bool available);
@@ -69,6 +84,24 @@ public:
     bool shortTermLoudness() const noexcept { return selectedShortTermLoudness; }
     void setCompactMaximum (bool);
     bool compactMaximum() const noexcept { return compactShowsMaximum; }
+    void setMeterContext (meter_context::MeterContext);
+    meter_context::MeterContext meterContext() const noexcept { return selectedMeterContext; }
+    void setScaleMode (meter_context::ScaleMode);
+    meter_context::ScaleMode scaleMode() const noexcept { return selectedScaleMode; }
+    void setExternalAnalysisBodyActive (bool);
+    void setRunSummaryMode (bool);
+    bool runSummaryAvailable() const noexcept { return runSummary.available(); }
+    void setReferenceOwned (bool owned)
+    {
+        referenceOwned = owned;
+        referenceButton.setEnabled (role == Role::post);
+        referenceButton.setTitle (owned ? "Reference" : "Reference - About Kirin OS");
+        referenceButton.setDescription (owned ? "Open Reference audition"
+                                             : "Open Kirin OS information and connection help");
+        referenceButton.setTooltip (referenceButton.getDescription());
+        repaint();
+    }
+    bool isReferenceOwned() const noexcept { return referenceOwned; }
     void setConnection (juce::String text, juce::Colour colour, ConnectionState state);
     void setExternalConnectionLabelVisible (bool visible);
     ConnectionState connection() const noexcept { return connectionState; }
@@ -78,6 +111,7 @@ public:
     // The editor may render a physical preset through a scaled logical viewport. This affects
     // only the size label/cycle identity; measurement and shell layout keep using local bounds.
     void setDisplayedEditorSize (int width, int height);
+    void setNoteAvailability (bool osOwned, bool recording);
 
     struct HistoryRequest
     {
@@ -97,6 +131,8 @@ public:
     juce::Rectangle<int> captureBodyBounds (int pixelWidth, int pixelHeight,
                                             bool includeGuide = false) const;
     juce::Rectangle<int> bodyBounds() const noexcept { return bodyArea; }
+    juce::Rectangle<int> analysisBodyBounds() const noexcept;
+    juce::Rectangle<int> timeNavigationBounds() const noexcept;
     juce::Rectangle<int> connectionBounds() const noexcept { return connectionArea; }
     juce::Rectangle<int> guideBounds() const noexcept { return guideArea; }
     juce::Rectangle<int> sessionBounds() const noexcept { return sessionArea; }
@@ -106,7 +142,8 @@ public:
     }
     bool bodyOwnedByExternalAnalysis() const noexcept
     {
-        return role == Role::post && selectedDomain == Domain::frequency;
+        return role == Role::post
+            && (selectedDomain == Domain::frequency || selectedDomain == Domain::reference);
     }
 
     void paint (juce::Graphics&) override;
@@ -124,6 +161,7 @@ private:
     void paintHeader (juce::Graphics&, const ShellLayout&);
     void paintGuide (juce::Graphics&, const ShellLayout&);
     void paintFooter (juce::Graphics&, const ShellLayout&);
+    void layoutFooterActions (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
     void paintLevelWithHistory (juce::Graphics&, juce::Rectangle<int>);
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
@@ -144,6 +182,14 @@ private:
     bool watchDisplayAvailable = false;
     bool selectedShortTermLoudness = false;
     bool compactShowsMaximum = false;
+    meter_context::MeterContext selectedMeterContext = meter_context::defaultContext;
+    meter_context::ScaleMode selectedScaleMode = meter_context::defaultScale;
+    bool externalAnalysisBodyActive = false;
+    bool showRunSummary = false;
+    analysis_navigation::Page analysisPage = analysis_navigation::Page::meters;
+    bool attackPaired = false;
+    juce::String feedbackText;
+    bool referenceOwned = false;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;
     ConnectionState connectionState = ConnectionState::unpaired;
@@ -156,6 +202,7 @@ private:
     juce::String captureVersion;
     capture::DisplayMetadata captureMetadata;
     std::vector<KirinMeterHistoryEntry> history;
+    run_summary::Result runSummary;
     juce::Rectangle<int> bodyArea;
     juce::Rectangle<int> connectionArea;
     juce::Rectangle<int> guideArea;
@@ -171,15 +218,20 @@ private:
     Button timeButton { "TIME", true };
     Button frequencyButton { "FREQ", true };
     Button spaceButton { "SPACE", true };
+    Button referenceButton { "REF", true };
     Button domainCycleButton { {}, true };
     Button targetButton { {}, false };
     Button deltaButton { hypha::delta(), false };
     Button timeRangeButton { {}, false };
     Button compactLoudnessButton { {}, false };
     Button compactRangeButton { {}, false };
+    Button contextButton { {}, false };
+    Button scaleButton { {}, false };
     Button sizeButton { {}, false };
     Button resetButton { "RESET", false };
+    Button noteButton { "NOTE", false };
     Button captureButton { "CAPTURE", false };
+    InformationButton informationButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (View)
 };

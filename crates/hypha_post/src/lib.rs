@@ -846,11 +846,8 @@ impl Plugin for HyphaPost {
             Arc::clone(&self.paired_pre_target),
             Arc::clone(&self.io_shutdown),
             Arc::clone(&pair_label_arc),
-            // B-027 段階 3-B α-7-4-D / Step 11: license 引数撤去 (Q-11-C 案 (i)) /
-            // 末尾 trigger_pair_resolution 追加 (Q-11-D 案 (a)) / 引数 count = 14 不変。
-            // §4-5 Step 1: project_hash / daw_session_id 引数を Arc<RwLock<String>>
-            // 化 (B-022 段階 1 instance_id 同位相 / per-tick lazy-read で divergence
-            // 是正)。
+            // Identity cells remain live across restore; restart shares these same Arcs.
+            // Trigger callbacks preserve the legacy egui POST ownership boundary.
             Arc::clone(&daw_session_id_arc),
             Arc::clone(&self.params.pair_pre_name),
             Arc::clone(&trigger_pair_resolution),
@@ -873,8 +870,9 @@ impl Plugin for HyphaPost {
             Arc::clone(&oversized_drop), // B-125: egui は常に 0（per-sample で overflow に計上済）
             Arc::clone(&pair_owner),    // exact pair survives IO worker restart
             Arc::clone(&self.latched_pre), // B-108: display/keep 共有ラッチ
-            None, // Spectrum is JUCE-shell-only; preserve the legacy egui IO surface.
-            None, // Observatory Meter History exchange is JUCE-shell-only.
+            None,
+            None,
+            Arc::new(AtomicBool::new(false)), // JUCE-only analysis/REF gates.
         );
 
         // ── Watchdog Thread 起動 ──────────────────────────────────────
@@ -950,8 +948,9 @@ impl Plugin for HyphaPost {
                     Arc::clone(&oversized_drop), // B-125: egui は常に 0
                     Arc::clone(&pair_owner), // exact pair survives IO worker restart
                     Arc::clone(&latched_pre), // B-108: display/keep 共有ラッチ
-                    None, // Spectrum is JUCE-shell-only; preserve the legacy egui IO surface.
-                    None, // Observatory Meter History exchange is JUCE-shell-only.
+                    None,
+                    None,
+                    Arc::new(AtomicBool::new(false)), // JUCE-only analysis/REF gates.
                 )
             }
         };

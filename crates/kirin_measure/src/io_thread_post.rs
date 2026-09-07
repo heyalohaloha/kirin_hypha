@@ -171,8 +171,7 @@ const STALE_SECS: i64 = 5; // B-046: 2→5 (fs I/O backpressure 吸収 / G-115-2
 /// B-059: `pairing_scope::select_target_pre` の freshness gate でも単一ソースとして参照。
 pub(crate) const NO_PRE_SECS: i64 = 10;
 
-/// 60 秒以上 mtime 更新が無い (or pre.json 不在) 場合の診断しきい値。
-/// B-243 以降、stale/missing 自体は Stop 権限を持たず Record は維持する。
+/// 60 秒以上のstale/missingは診断だけに使い、B-243以降Stop権限を持たない。
 const PRE_LIVENESS_STALE_SECS: u64 = 60;
 
 /// B-027 段階 3-B α-7-4-D / Step 11: IO Thread broadcast 受信時に発火する trigger
@@ -183,13 +182,11 @@ const PRE_LIVENESS_STALE_SECS: u64 = 60;
 pub type TriggerPairResolutionFn =
     Arc<dyn Fn(&str, &str, &crate::capture_generation::CaptureGeneration) -> bool + Send + Sync>;
 
-/// α-7' All Stop: broadcast 受信時に発火する Stop trigger closure 型。
-/// `TriggerPairResolutionFn` と同シグネチャ (`(originator_iid, started_at)`) で
+/// α-7' All Stop trigger。Keepと同じ `(originator_iid, started_at)` を受け、
 /// hypha_post::editor::trigger_stop_internal を toast=None で呼出す。
 pub type TriggerStopResolutionFn = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
-/// PairBinding の世代snapshot/releaseを所有層へ戻す。IO Threadは古いself-check判定を
-/// generationなしで現在のbindingへ適用してはならない。
+/// PairBindingの世代snapshot/releaseを所有層へ戻し、古いself-check適用を防ぐ。
 pub type PairBindingGenerationFn = Arc<dyn Fn() -> u64 + Send + Sync>;
 pub type ReleasePairBindingIfCurrentFn = Arc<dyn Fn(&str, u64) -> bool + Send + Sync>;
 
@@ -280,6 +277,7 @@ pub fn spawn_io_thread_post(
     spectrum: Option<Arc<crate::SpectrumCoordinator>>,
     // JUCE Observatory exact TIME join. Legacy shells pass None.
     meter_history: Option<Arc<crate::MeterDeltaHistoryExchange>>,
+    reference_audition_active: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         let daw_session_id_arc = daw_session_id;
@@ -293,6 +291,7 @@ pub fn spawn_io_thread_post(
                 delta_result,
                 signal_state: Arc::clone(&signal_state),
                 is_playing,
+                reference_audition_active,
             },
             PostPairObservationDeps {
                 paired_pre_target: Arc::clone(&paired_pre_target),

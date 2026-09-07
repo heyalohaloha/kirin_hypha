@@ -8,13 +8,18 @@
 //! (2) 正常系が壊れていない、ことを確認する。
 
 use kirin_hypha_ffi::{
-    kirin_hypha_create, kirin_hypha_decode_legacy_nih_state, kirin_hypha_destroy,
-    kirin_hypha_enumerate_post_pair_claims, kirin_hypha_get_paired_pre_instance_id,
-    kirin_hypha_get_paired_pre_locator, kirin_hypha_pair_status, kirin_hypha_poll_record_display,
-    kirin_hypha_poll_result, kirin_hypha_poll_session, kirin_hypha_push_samples,
-    kirin_hypha_restore_pair_candidate, kirin_hypha_select_pair_candidate,
-    kirin_hypha_set_host_component_active, kirin_hypha_set_signal_state, KirinLegacyNihState,
-    KirinMeasureResult, KirinPostPairClaim, KirinRecordDisplay, KirinSessionSummary,
+    kirin_hypha_ack_local_blind_capture_request, kirin_hypha_create,
+    kirin_hypha_decode_legacy_nih_state, kirin_hypha_destroy,
+    kirin_hypha_enumerate_post_pair_claims, kirin_hypha_get_local_blind_pair_binding,
+    kirin_hypha_get_paired_pre_instance_id, kirin_hypha_get_paired_pre_locator,
+    kirin_hypha_issue_local_blind_capture_request, kirin_hypha_local_blind_capture_is_armed,
+    kirin_hypha_pair_status, kirin_hypha_poll_local_blind_capture_request,
+    kirin_hypha_poll_record_display, kirin_hypha_poll_result, kirin_hypha_poll_session,
+    kirin_hypha_push_samples, kirin_hypha_restore_pair_candidate,
+    kirin_hypha_select_pair_candidate, kirin_hypha_set_host_component_active,
+    kirin_hypha_set_signal_state, KirinExactPairBinding, KirinLegacyNihState,
+    KirinLocalBlindCaptureRequest, KirinMeasureResult, KirinPostPairClaim, KirinRecordDisplay,
+    KirinSessionSummary,
 };
 
 #[test]
@@ -85,6 +90,59 @@ fn null_handle_calls_are_safe_noops() {
             paired.as_mut_ptr(),
             paired.len()
         ));
+        let mut exact = KirinExactPairBinding {
+            pair_generation: 91,
+            ..KirinExactPairBinding::default()
+        };
+        assert!(!kirin_hypha_get_local_blind_pair_binding(
+            std::ptr::null_mut(),
+            &mut exact
+        ));
+        assert_eq!(
+            exact.pair_generation, 91,
+            "failed read must leave output unchanged"
+        );
+        assert!(!kirin_hypha_get_local_blind_pair_binding(
+            std::ptr::null_mut(),
+            std::ptr::null_mut()
+        ));
+        let mut capture_request = KirinLocalBlindCaptureRequest {
+            pair_generation: 91,
+            ..KirinLocalBlindCaptureRequest::default()
+        };
+        assert!(!kirin_hypha_issue_local_blind_capture_request(
+            std::ptr::null_mut(),
+            1,
+            1,
+            0,
+            0,
+            1,
+            &mut capture_request,
+        ));
+        assert_eq!(
+            capture_request.pair_generation, 91,
+            "failed issue must leave output unchanged"
+        );
+        assert!(!kirin_hypha_poll_local_blind_capture_request(
+            std::ptr::null_mut(),
+            &mut capture_request,
+        ));
+        assert_eq!(
+            capture_request.pair_generation, 91,
+            "failed poll must leave output unchanged"
+        );
+        assert!(!kirin_hypha_poll_local_blind_capture_request(
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        ));
+        assert!(!kirin_hypha_ack_local_blind_capture_request(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        ));
+        assert!(!kirin_hypha_local_blind_capture_is_armed(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        ));
 
         let mut legacy = std::mem::zeroed::<KirinLegacyNihState>();
         assert!(!kirin_hypha_decode_legacy_nih_state(
@@ -122,6 +180,28 @@ fn normal_lifecycle_intact_through_c_abi() {
     assert!(!h.is_null(), "normal create must return non-null");
 
     unsafe {
+        let mut capture_request = KirinLocalBlindCaptureRequest::default();
+        assert!(!kirin_hypha_issue_local_blind_capture_request(
+            h,
+            1,
+            1,
+            0,
+            0,
+            1,
+            &mut capture_request,
+        ));
+        assert!(!kirin_hypha_poll_local_blind_capture_request(
+            h,
+            std::ptr::null_mut(),
+        ));
+        assert!(!kirin_hypha_ack_local_blind_capture_request(
+            h,
+            std::ptr::null(),
+        ));
+        assert!(!kirin_hypha_local_blind_capture_is_armed(
+            h,
+            std::ptr::null(),
+        ));
         kirin_hypha_set_signal_state(h, 1); // Active
         kirin_hypha_push_samples(h, std::ptr::null(), 0, 2); // 0-frame keepalive
 

@@ -1,8 +1,6 @@
 //! kirin_measure — Kirin Hypha 共通計測ライブラリ。
 //!
-//! napi-rs 依存を持たない純粋な Rust ライブラリ。
-//! nih-plug の Audio Thread から独立した Measure Thread / IO Thread で使用する。
-
+//! napi-rsに依存せず、nih-plugのAudio Threadから独立したMeasure Thread／IO Threadで使う。
 mod absolute_level;
 pub mod absolute_timeline;
 pub mod all_keep_signal;
@@ -30,6 +28,8 @@ pub mod ingest_contract;
 pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
+pub mod local_blind_capture_protocol;
+mod measure_json;
 pub mod measure_thread;
 mod meter_clock;
 pub mod meter_delta_history;
@@ -68,6 +68,7 @@ mod record_spool;
 pub mod record_take;
 pub mod record_writer;
 mod record_writer_claim;
+pub mod reference_gain;
 pub mod resampler;
 pub mod reservation;
 pub mod spectrum;
@@ -270,8 +271,8 @@ pub use record_expected::{
 };
 pub use record_ingress::RecordIngress;
 pub use record_mark::{
-    enqueue_record_mark, new_record_mark_queue, PendingRecordMark, RecordMarkError,
-    RecordMarkQueue, RECORD_MARK_BASIS,
+    enqueue_record_mark, enqueue_record_note, new_record_mark_queue, PendingRecordMark,
+    RecordMarkError, RecordMarkQueue, RECORD_MARK_BASIS,
 };
 pub use record_signal::{
     delete_signal, is_timed_out, mark_acknowledged, mark_acknowledged_with_name_if_current,
@@ -291,6 +292,7 @@ pub use record_take::{
 pub use record_writer::{
     new_record_trace_queue, RecordTraceKind, RecordTraceQueue, RecordTraceSample,
 };
+pub use reference_gain::{analyze_reference_gain, ReferenceGainFacts, MINIMUM_PAIRED_BLOCKS};
 pub use spectrum::{
     difference_post_minus_pre, AnalysisViewMode, SpectrumAnalyzer, SpectrumChannelMode,
     SpectrumDifference, SpectrumError, SpectrumFrame, SpectrumLayout, SPECTRUM_APPROXIMATE_CYCLES,
@@ -347,21 +349,20 @@ pub use watch_playback_pass::{
 pub use watchdog::{spawn_watchdog, IoThreadHandle, RestartIoFn, WatchdogIo, WatchdogParams};
 pub use watchdog_handoff::WatchProducerHandoff;
 
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{
+    atomic::{AtomicU8, AtomicUsize, Ordering},
+    Arc, Mutex, OnceLock, RwLock,
+};
 
 // ── B-027 段階 2: PRE/POST 共通の Name 正規化 ────────────────────────────
 
 /// Name 入力値を正規化 (R-28 機能的沈黙)。最大 16 文字。
-///
 /// B-077: 非 ASCII（日本語等 UTF-8 印字可能文字）を **保持**する。実害のある文字＝
 /// 制御文字（`char::is_control`: 0x00-0x1F / 0x7F-0x9F 等）のみ除去し、先頭末尾の
 /// 空白を trim する。`/` `\` `:` `"` 等は保持する: name はファイルシステムパスに
 /// 使われず（pre.json 内容 + editor 表示のみ / WriterPaths は instance_id で構築）、
 /// JSON 出力は `serialize_pre_json` が serde で escape するため安全。
-///
 /// chunk restore 時 / GUI 入力時の両方で使う。違反値は無言で正規化し UI エラーは出さない。
-///
 /// 用途:
 /// - PRE 側 `params.name` (B-023 段階 1)
 /// - POST 側 `params.pair_pre_name` (B-027 段階 2)
@@ -372,7 +373,6 @@ pub fn sanitize_name(raw: &str) -> String {
     let cleaned: String = raw.chars().filter(|c| !c.is_control()).collect();
     cleaned.trim().chars().take(16).collect()
 }
-
 // ── 共有定数 ────────────────────────────────────────────────────────────────
 
 /// Audio Thread → Measure Thread リングバッファの保持長（秒）。

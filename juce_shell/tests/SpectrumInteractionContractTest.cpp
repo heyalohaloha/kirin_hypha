@@ -135,7 +135,39 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     const float controlY = markBounds.getCentreY();
     const float markX = markBounds.getCentreX();
 
+    KirinPsbView psbCurrent {};
+    psbCurrent.status = KIRIN_SPECTRUM_ACTIVE;
+    psbCurrent.has_data = 1;
+    psbCurrent.channels = 2;
+    psbCurrent.sample_rate = 48'000;
+    psbCurrent.aperture_samples = 4'800;
+    psbCurrent.presentation_end_samples = 4'800;
+    for (size_t index = 0; index < 20; ++index)
+    {
+        psbCurrent.shares[index] = 0.05;
+    }
+    spectrum.setAbsoluteObservation (true);
+    spectrum.setSignalActive (true);
+    const auto psbToggle = spectrum_geometry::subviewBoundsFor (outerPlot, scale);
+    juce::Image spectrumImage (juce::Image::ARGB, width, height, true);
+    { juce::Graphics graphics (spectrumImage); spectrum.paintEntireComponent (graphics, true); }
+    spectrum.mouseDown (mouseEvent (
+        spectrum, psbToggle.getCentreX(), psbToggle.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (spectrum.isPsbObservationForTest());
+    spectrum.setPsbSnapshot (psbCurrent);
+    juce::Image psbImage (juce::Image::ARGB, width, height, true);
+    { juce::Graphics graphics (psbImage); spectrum.paintEntireComponent (graphics, true); }
+    KIRIN_INTERACTION_REQUIRE (countDifferentPixels (spectrumImage, psbImage) > 100);
+    spectrum.mouseDown (mouseEvent (
+        spectrum, psbToggle.getCentreX(), psbToggle.getCentreY(), eventTime));
+    KIRIN_INTERACTION_REQUIRE (! spectrum.isPsbObservationForTest());
+    spectrum.setAbsoluteObservation (false);
+    spectrum.mouseDown (mouseEvent (spectrum, markX, controlY, eventTime));
+    KIRIN_INTERACTION_REQUIRE (! spectrum.hasMark()); // Switched worker has not published yet.
+    spectrum.setSnapshot (snapshot);
+
     SpectrumComponent bandMappingSpectrum;
+    bandMappingSpectrum.setSignalActive (true);
     bandMappingSpectrum.setSize (width, height);
     bandMappingSpectrum.setSnapshot (snapshot);
     const auto mappingPlot = spectrum_geometry::dataPlotBoundsFor (componentBounds);
@@ -174,6 +206,7 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     KirinSpectrumView invalidLayout = snapshot;
     --invalidLayout.aperture_samples;
     SpectrumComponent failClosedSpectrum;
+    failClosedSpectrum.setSignalActive (true);
     failClosedSpectrum.setSize (width, height);
     failClosedSpectrum.setSnapshot (invalidLayout);
     KIRIN_INTERACTION_REQUIRE (failClosedSpectrum.focusTrailSizeForTest() == 0u);
@@ -219,9 +252,9 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     KIRIN_INTERACTION_REQUIRE (countWarmPixels (afterMarkClear, markButton) > 8);
     spectrum.mouseDown (mouseEvent (spectrum, markX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (spectrum.hasMark());
-    const float retainedFocusX = dataPlot.getCentreX();
+    const float retainedFocusX = static_cast<float> (dataPlot.getCentreX());
     spectrum.mouseDown (mouseEvent (
-        spectrum, retainedFocusX, dataPlot.getCentreY(), eventTime));
+        spectrum, retainedFocusX, static_cast<float> (dataPlot.getCentreY()), eventTime));
     KIRIN_INTERACTION_REQUIRE (spectrum.hasFocusLock());
     const float retainedFrequency = spectrum.focusLockFrequencyHz();
     const size_t retainedTrailSize = spectrum.focusTrailSizeForTest();
@@ -250,6 +283,7 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     KIRIN_INTERACTION_REQUIRE (spectrum.focusTrailSizeForTest() == 3u);
 
     SpectrumComponent recoveredSpectrum;
+    recoveredSpectrum.setSignalActive (true);
     recoveredSpectrum.setSize (width, height);
     KirinSpectrumBatch recovery {};
     recovery.count = 4u;
@@ -335,6 +369,7 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
                                && spectrum.focusTrailSizeForTest() == 0u);
 
     SpectrumComponent monoSpectrum;
+    monoSpectrum.setSignalActive (true);
     monoSpectrum.setSize (width, height);
     KirinSpectrumView monoSnapshot = snapshot;
     monoSnapshot.channels = 1u;
@@ -352,6 +387,7 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         monoSpectrum.channelModeForTest() == KIRIN_SPECTRUM_CHANNEL_LR);
 
     SpectrumComponent pacedSpectrum;
+    pacedSpectrum.setSignalActive (true);
     pacedSpectrum.setSize (width, height);
     pacedSpectrum.setSnapshot (snapshot);
     KirinSpectrumView queuedSnapshot = snapshot;

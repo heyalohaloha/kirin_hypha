@@ -36,6 +36,7 @@ namespace hypha::spectrum_chrome
         float focusFrequencyHz;
         uint8_t channelMode;
         uint8_t inputChannels;
+        bool signalActive = true;
     };
 
     void paint (juce::Graphics& graphics,

@@ -43,8 +43,8 @@ namespace hypha::ui_contract
     // size. This is presentation-only and never changes the analysis cadence or values.
     constexpr float analysisTextScale (float visualScale) noexcept
     {
-        const float proportional = visualScale * 1.08f;
-        return proportional < 1.25f ? 1.25f : proportional;
+        const float proportional = 1.5f + (visualScale - 1.0f) * 0.25f;
+        return proportional < 1.5f ? 1.5f : proportional > 2.0f ? 2.0f : proportional;
     }
 
     // LIVE uses one shared time field, but its three unrelated units must not collapse into the
@@ -84,23 +84,23 @@ namespace hypha::ui_contract
     constexpr float spectrumDeltaLegendAlpha = 0.98f;
     constexpr float spectrumPreLegendAlpha = 0.92f;
     constexpr float spectrumPostLegendAlpha = 0.90f;
-    constexpr int spectrumHoverReadoutWidth = 96;
-    constexpr int spectrumFocusReadoutWidth = 108;
-    constexpr int spectrumExpandedReadoutWidth = 198;
+    constexpr int spectrumHoverReadoutWidth = 130;
+    constexpr int spectrumFocusReadoutWidth = 142;
+    constexpr int spectrumExpandedReadoutWidth = 242;
     constexpr int spectrumHoverReadoutHeight = 15;
     constexpr int spectrumHoverReadoutInset = 2;
     constexpr int spectrumHoverFrequencyX = 6;
-    constexpr int spectrumHoverFrequencyWidth = 52;
-    constexpr int spectrumHoverDeltaX = 58;
-    constexpr int spectrumHoverDeltaWidth = 34;
+    constexpr int spectrumHoverFrequencyWidth = 60;
+    constexpr int spectrumHoverDeltaX = 68;
+    constexpr int spectrumHoverDeltaWidth = 52;
     constexpr int spectrumExpandedFrequencyX = 6;
-    constexpr int spectrumExpandedFrequencyWidth = 46;
-    constexpr int spectrumExpandedPreX = 54;
-    constexpr int spectrumExpandedPreWidth = 45;
-    constexpr int spectrumExpandedPostX = 101;
-    constexpr int spectrumExpandedPostWidth = 49;
-    constexpr int spectrumExpandedDeltaX = 152;
-    constexpr int spectrumExpandedDeltaWidth = 34;
+    constexpr int spectrumExpandedFrequencyWidth = 52;
+    constexpr int spectrumExpandedPreX = 60;
+    constexpr int spectrumExpandedPreWidth = 60;
+    constexpr int spectrumExpandedPostX = 122;
+    constexpr int spectrumExpandedPostWidth = 66;
+    constexpr int spectrumExpandedDeltaX = 190;
+    constexpr int spectrumExpandedDeltaWidth = 40;
     constexpr float spectrumHoverReadoutRadius = 4.5f;
     constexpr float spectrumHoverLineWidth = 0.75f;
     constexpr int spectrumFocusClearWidth = 12;
@@ -111,6 +111,8 @@ namespace hypha::ui_contract
     constexpr int spectrumLegendAfterChannelModes = 84;
     constexpr int spectrumMarkWidth = 42;
     constexpr int spectrumMarkClearWidth = 11;
+    constexpr int spectrumSubviewWidth = 64;
+    constexpr int spectrumSubviewGap = 4;
     // MARK is one frozen full-band reference. It must remain visibly distinct from PRE/POST
     // while staying below the live 2.15 px Δ curve, which also owns fill and glow.
     constexpr float spectrumMarkCurveAlpha = 0.88f;

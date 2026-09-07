@@ -5,6 +5,7 @@
 #include "HyphaTheme.h"
 
 #include <array>
+#include <cmath>
 
 namespace hypha::observatory_world
 {
@@ -102,7 +103,7 @@ void paintFrequencyRoots (juce::Graphics& g, juce::Rectangle<float> area, const 
         g.setColour ((route % 2 == 0 ? COL_SPECTRUM_PRE : COL_FLORA)
                          .withAlpha ((0.026f + (state.active ? 0.018f : 0.0f)) * scale));
         g.strokePath (root, juce::PathStrokeType (0.55f + 0.12f * route));
-        if (state.density == observatory::Density::observatory && route > 0 && route < 5)
+        if (observatory::isFullDensity (state.density) && route > 0 && route < 5)
         {
             const float nodeX = area.getX() + area.getWidth() * (0.18f + 0.15f * route);
             const float nodeY = startY + (endY - startY) * (0.22f + 0.10f * route);
@@ -132,6 +133,26 @@ void paintSpaceMembrane (juce::Graphics& g, juce::Rectangle<float> area, const S
         g.setColour ((layer % 2 == 0 ? COL_SPECTRUM_POST : COL_FLORA)
                          .withAlpha (0.025f + state.energy * 0.025f));
         g.strokePath (shell, juce::PathStrokeType (0.7f + layer * 0.18f));
+    }
+}
+
+void paintReferenceBridge (juce::Graphics& g, juce::Rectangle<float> area, const State& state)
+{
+    const float alpha = state.active ? 0.11f : 0.055f;
+    for (int strand = 0; strand < 4; ++strand)
+    {
+        const float offset = (static_cast<float> (strand) - 1.5f) * area.getHeight() * 0.055f;
+        juce::Path path;
+        path.startNewSubPath (area.getX() + area.getWidth() * 0.12f,
+                              area.getCentreY() + offset);
+        path.cubicTo (area.getX() + area.getWidth() * 0.36f,
+                      area.getCentreY() - offset * 1.8f,
+                      area.getX() + area.getWidth() * 0.64f,
+                      area.getCentreY() + offset * 1.8f,
+                      area.getRight() - area.getWidth() * 0.12f,
+                      area.getCentreY() - offset);
+        g.setColour ((strand % 2 == 0 ? COL_FLORA : COL_SPECTRUM_POST).withAlpha (alpha));
+        g.strokePath (path, juce::PathStrokeType (0.55f + 0.12f * strand));
     }
 }
 }
@@ -180,12 +201,33 @@ void Backdrop::draw (juce::Graphics& g, juce::Rectangle<int> area, const State& 
 {
     g.setColour (BG);
     g.fillRect (area);
-    if (! image.isValid())
+    if (! image.isValid() || area.isEmpty())
         return;
 
     juce::Graphics::ScopedSaveState saved (g);
     g.setOpacity (juce::jlimit (0.0f, 1.0f, backdropOpacity (state)));
-    drawAspectFill (g, image, area);
+    const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+    const double pixels = static_cast<double> (area.getWidth()) * area.getHeight()
+                        * scale * scale;
+    if (! std::isfinite (scale) || scale <= 0.0f || pixels > 16'777'216.0)
+    {
+        drawAspectFill (g, image, area);
+        return;
+    }
+    const juce::Point<int> logicalSize (area.getWidth(), area.getHeight());
+    if (! scaledBackdrop.isValid() || scaledBackdropLogicalSize != logicalSize
+        || std::abs (scaledBackdropPixelScale - scale) > 1.0e-6f)
+    {
+        scaledBackdrop = juce::Image (juce::Image::ARGB,
+            juce::jmax (1, juce::roundToInt (area.getWidth() * scale)),
+            juce::jmax (1, juce::roundToInt (area.getHeight() * scale)), true);
+        juce::Graphics textureGraphics (scaledBackdrop);
+        textureGraphics.addTransform (juce::AffineTransform::scale (scale));
+        drawAspectFill (textureGraphics, image, area.withPosition (0, 0));
+        scaledBackdropLogicalSize = logicalSize;
+        scaledBackdropPixelScale = scale;
+    }
+    g.drawImage (scaledBackdrop, area.toFloat());
 }
 
 void Backdrop::drawLevelCorners (juce::Graphics& g,
@@ -193,7 +235,7 @@ void Backdrop::drawLevelCorners (juce::Graphics& g,
                                  const State& state) const
 {
     if (state.domain != observatory::Domain::level
-        || state.density != observatory::Density::observatory
+        || ! observatory::isFullDensity (state.density)
         || ! levelCorners.isValid()
         || area.isEmpty())
         return;
@@ -205,14 +247,53 @@ void Backdrop::drawLevelCorners (juce::Graphics& g,
     drawAspectFill (g, levelCorners, area);
 }
 
+void Backdrop::drawDomainBed (juce::Graphics& g, juce::Rectangle<int> area,
+                              const State& state) const
+{
+    if (area.isEmpty()) return;
+    const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+    const auto rasterArea = area.expanded (4);
+    const double pixels = static_cast<double> (rasterArea.getWidth())
+                        * rasterArea.getHeight() * scale * scale;
+    if (! std::isfinite (scale) || scale <= 0.0f || pixels > 16'777'216.0)
+    {
+        paintDomainBed (g, area, state);
+        return;
+    }
+    const juce::Point<int> size (rasterArea.getWidth(), rasterArea.getHeight());
+    const bool sameState = state.domain == domainBedState.domain
+        && state.density == domainBedState.density && state.active == domainBedState.active
+        && state.capture == domainBedState.capture
+        && std::abs (state.energy - domainBedState.energy) <= 0.0f
+        && std::abs (state.direction - domainBedState.direction) <= 0.0f;
+    if (! domainBed.isValid() || domainBedSize != size || ! sameState
+        || std::abs (domainBedPixelScale - scale) > 1.0e-6f)
+    {
+        domainBed = juce::Image (juce::Image::ARGB,
+            juce::jmax (1, juce::roundToInt (size.x * scale)),
+            juce::jmax (1, juce::roundToInt (size.y * scale)), true);
+        juce::Graphics layer (domainBed);
+        layer.addTransform (juce::AffineTransform::scale (scale));
+        paintDomainBed (layer, area.withPosition (4, 4), state);
+        domainBedSize = size;
+        domainBedPixelScale = scale;
+        domainBedState = state;
+    }
+    juce::Graphics::ScopedSaveState saved (g);
+    g.setOpacity (1.0f);
+    g.drawImage (domainBed, rasterArea.toFloat());
+}
+
 void Backdrop::drawHyphaSpecimen (juce::Graphics& g,
                                   juce::Rectangle<int> area,
                                   const State& state) const
 {
     const bool levelSignature = state.domain == observatory::Domain::level
                              && (state.capture
-                                 || state.density == observatory::Density::observatory);
-    if ((state.domain != observatory::Domain::time && ! levelSignature)
+                                 || observatory::isFullDensity (state.density));
+    const bool referenceSignature = state.domain == observatory::Domain::reference
+                                 && observatory::isFullDensity (state.density);
+    if ((state.domain != observatory::Domain::time && ! levelSignature && ! referenceSignature)
         || ! hyphaSpecimen.isValid()
         || area.isEmpty())
         return;
@@ -242,7 +323,7 @@ void paintDomainBed (juce::Graphics& g, juce::Rectangle<int> area, const State& 
         paintTimeStrata (g, field, state);
     else if (state.domain == observatory::Domain::level
              && (state.capture
-                 || state.density == observatory::Density::observatory))
+                 || observatory::isFullDensity (state.density)))
     {
         const auto historyFraction = field.getWidth() > field.getHeight() ? 0.40f : 0.32f;
         paintTimeStrata (g, field.removeFromBottom (
@@ -252,6 +333,8 @@ void paintDomainBed (juce::Graphics& g, juce::Rectangle<int> area, const State& 
         paintFrequencyRoots (g, field, state);
     else if (state.domain == observatory::Domain::space)
         paintSpaceMembrane (g, field, state);
+    else if (state.domain == observatory::Domain::reference)
+        paintReferenceBridge (g, field, state);
 }
 
 void paintPlateFrame (juce::Graphics& g, juce::Rectangle<int> area, const State& state)

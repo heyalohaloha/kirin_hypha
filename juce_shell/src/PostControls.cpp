@@ -52,6 +52,9 @@ namespace hypha
         };
         for (auto* b : { &keepBtn, &stopBtn })
             styleButton (*b);
+        keepBtn.setComponentID ("post-keep");
+        stopBtn.setComponentID ("post-stop");
+        senseBtn.setComponentID ("post-os-info");
         keepBtn.setTooltip ("Start a Keep session for this PRE and POST pair.");
         stopBtn.setTooltip ("Stop the current Keep session.");
 
@@ -69,16 +72,21 @@ namespace hypha
 
     void PostControls::update (bool keepActive, int license, bool pairSelected)
     {
-        const bool os    = (license == 0);
-        const bool sense = (license == 1);
+        const bool os = license == 0;
 
         // Keep owns a fixed layout slot in both AU and VST3. Pair state changes availability, not
         // geometry, so opening or losing a pair never moves controls or metrics around the panel.
-        keepBtn  .setVisible (! keepActive && os);
-        keepBtn  .setEnabled (pairSelected);
-        senseBtn .setVisible (! keepActive && sense);
+        keepBtn  .setVisible (! keepActive);
+        keepBtn  .setEnabled (os && pairSelected);
+        senseBtn .setVisible (! keepActive && ! os);
+        const auto keepHelp = ! os ? juce::String ("Keep and Record require Kirin OS.")
+                            : ! pairSelected ? juce::String ("Pair a PRE before starting Keep.")
+                                             : juce::String ("Start Keep for this PRE/POST pair.");
+        keepBtn.setTitle (keepHelp);
+        keepBtn.setDescription (keepHelp);
+        keepBtn.setTooltip (keepHelp);
 
-        stopBtn  .setVisible (keepActive && os);
+        stopBtn  .setVisible (keepActive);
 
         layoutVisible();
     }

@@ -1,8 +1,8 @@
 use super::*;
 use std::path::Path; // B-133: absolute 検査を production から外したため test 局所 import に移動
 
-fn fresh_events() {
-    let _ = drain_path_events();
+fn fresh_events() -> test_scope::Capture {
+    test_scope::capture()
 }
 
 // ── wall: path-safety 判定 ───────────────────────────────────────────────
@@ -156,7 +156,7 @@ fn quarantine_is_deterministic() {
 // ── materialize: 観測 family ─────────────────────────────────────────────
 #[test]
 fn materialize_preserves_safe_and_news_up_unsafe() {
-    fresh_events();
+    let _events = fresh_events();
     // empty → silent new_v4（event なし）。
     let m = materialize_observation_id("", "t");
     assert!(Uuid::parse_str(&m).is_ok(), "empty → valid new uuid");
@@ -205,7 +205,7 @@ fn d4_overlength_and_control_chars_rejected() {
 // ── restore 受領点 materialize（empty 保持）──────────────────────────────
 #[test]
 fn materialize_restore_field_preserves_empty_and_safe() {
-    fresh_events();
+    let _events = fresh_events();
     // empty は空のまま（「未設定→enable 生成」契約）。event なし。
     assert_eq!(materialize_restore_field("", "t", None), "");
     assert!(drain_path_events().is_empty(), "empty は silent");
@@ -223,7 +223,7 @@ fn materialize_restore_field_preserves_empty_and_safe() {
 
 #[test]
 fn normalize_restore_cell_materializes_unsafe_preserves_safe_empty() {
-    fresh_events();
+    let _events = fresh_events();
     // unsafe → new_v4 を書き戻し + event。
     let unsafe_cell = RwLock::new("/tmp/x".to_string());
     normalize_restore_cell(&unsafe_cell, "t", None);
@@ -244,7 +244,7 @@ fn normalize_restore_cell_materializes_unsafe_preserves_safe_empty() {
 
 #[test]
 fn take_path_event_pops_one() {
-    fresh_events();
+    let _events = fresh_events();
     surface_path_event("e1"); // global (instance=None)
     surface_path_event("e2");
     assert_eq!(take_path_event(None).as_deref(), Some("e1"));
@@ -255,7 +255,7 @@ fn take_path_event_pops_one() {
 // ── D3: per-instance routing（materialize event は当該 instance のみ・wall は global）──────
 #[test]
 fn take_path_event_routes_per_instance() {
-    fresh_events();
+    let _events = fresh_events();
     surface_path_event_for(Some("inst-A"), "materialize-A"); // A の materialize event
     surface_path_event_for(Some("inst-B"), "materialize-B"); // B の materialize event
     surface_path_event("wall-global"); // wall event（instance=None）
@@ -281,7 +281,7 @@ fn take_path_event_routes_per_instance() {
 
 #[test]
 fn normalize_cell_rewrites_only_unsafe() {
-    fresh_events();
+    let _events = fresh_events();
     let safe = RwLock::new("iid-b058-fixed".to_string());
     normalize_observation_cell(&safe, "t");
     assert_eq!(

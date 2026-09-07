@@ -17,6 +17,7 @@ fn release_clears_delta_result_when_self_check_releases() {
         n_prime_total: Some(0.1),
         crest: Some(3.0),
         sharpness: Some(0.8),
+        psb_bark: None,
         mode: DeltaMode::Active,
         last_active: Some(DeltaSnapshot {
             lufs: Some(-2.0),
@@ -26,6 +27,7 @@ fn release_clears_delta_result_when_self_check_releases() {
             n_prime_total: Some(0.1),
             crest: Some(3.0),
             sharpness: Some(0.8),
+            psb_bark: None,
         }),
     }));
 

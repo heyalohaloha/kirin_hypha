@@ -5,7 +5,8 @@
 
 // ATTACK product presentation. It maps confirmed event samples onto a fixed six-second axis
 // and never attempts to infer an instrument from a waveform or expose an editable threshold. The
-// environment variable remains only as a direct-open validation shortcut.
+// environment variable remains a direct-open shortcut within TRACK/STEM; it never changes the
+// saved meter context to bypass the DRUM admission rule.
 namespace hypha::attack_ui
 {
     constexpr int presentationSeconds = 6;
@@ -13,10 +14,15 @@ namespace hypha::attack_ui
     constexpr const char* activationEnvironmentVariable = "KIRIN_HYPHA_OPEN_ATTACK";
     constexpr const char* activationValue = "1";
     constexpr int minimumPlotWidth = 1;
-    constexpr int headerHeight = 30;
+    constexpr int headerHeight = 38;
     constexpr int axisLabelHeight = 18;
     constexpr int detailMetricsHeight = 120;
     constexpr int modeControlMaximumWidth = 112;
+
+    constexpr float textScale (int width, int /*height*/) noexcept
+    {
+        return width >= 780 ? 1.55f : width >= 520 ? 1.22f : 1.0f;
+    }
     constexpr float absoluteFloorDb = -72.0f;
     constexpr float strengthGlowOnDbfs = -42.0f;
     constexpr float strengthGlowFullDbfs = -6.0f;
@@ -55,8 +61,9 @@ namespace hypha::attack_ui
 
     constexpr int metricsHeight (int totalHeight) noexcept
     {
-        return totalHeight >= 250 ? detailMetricsHeight
-             : totalHeight >= 190 ? 86
+        return totalHeight >= 320 ? 170
+             : totalHeight >= 250 ? detailMetricsHeight
+             : totalHeight >= 190 ? 100
              : totalHeight >= 145 ? 62 : 0;
     }
 

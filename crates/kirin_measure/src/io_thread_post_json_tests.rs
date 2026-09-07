@@ -194,6 +194,7 @@ fn deserialize_active_with_phase_d_fields() {
             mid: 0.20,
             high: 0.30,
         }),
+        psb_bark: Some([0.05; 20]),
         ..Default::default()
     };
     let json = serialize_post_json(
@@ -213,6 +214,10 @@ fn deserialize_active_with_phase_d_fields() {
     assert!((psb.low - 0.10).abs() < 1e-6);
     assert!((psb.mid - 0.20).abs() < 1e-6);
     assert!((psb.high - 0.30).abs() < 1e-6);
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let bark = value["psb_bark"].as_array().expect("20 Bark shares");
+    assert_eq!(bark.len(), 20);
+    assert!((bark.iter().filter_map(|v| v.as_f64()).sum::<f64>() - 1.0).abs() < 1e-9);
 }
 
 /// signal_state や instance_id 等 必須 field 不在 → deserialize エラー。

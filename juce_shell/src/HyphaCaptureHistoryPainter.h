@@ -49,9 +49,9 @@ std::optional<std::size_t> hitTest (juce::Rectangle<int> area,
                                     juce::Point<float> position,
                                     double sampleRate);
 
-// A shared 60-second LEVEL plot. M is primary, S is secondary, sparse TP events use the right
-// +6..-24 dBTP axis, and channel clip runs remain timestamped pips. No separate rail takes height
-// away from either history.
+// A shared 60-second LEVEL context plot. M is the only loudness path; sparse TP events use the
+// right +6..-24 dBTP axis, and channel clip runs remain timestamped pips. Detailed M/S/TP history
+// belongs to TIME, so LEVEL does not duplicate its secondary S path.
 void paint (juce::Graphics&,
             juce::Rectangle<int>,
             const std::vector<KirinMeterHistoryEntry>&,

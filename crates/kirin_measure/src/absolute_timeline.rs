@@ -29,6 +29,7 @@ pub struct AbsoluteFrame {
     pub lufs_m: Option<f64>,
     pub true_peak: Option<f64>,
     pub sharpness: Option<f64>,
+    pub psb: Option<crate::phase_d::display::PsbShares>,
 }
 
 impl AbsoluteFrame {
@@ -254,6 +255,7 @@ impl AbsoluteContinuousAnalyzer {
                 lufs_m: core.lufs_m,
                 true_peak: core.true_peak,
                 sharpness: Some(sharp.sharpness),
+                psb: sharp.psb,
             });
         }
         while self.pending_core.front().is_some_and(|(endpoint, _)| {
@@ -315,6 +317,7 @@ mod tests {
             lufs_m: Some(-20.0),
             true_peak: Some(-3.0),
             sharpness: Some(1.0),
+            psb: None,
         };
         assert!(timeline.push(frame(4_800, 0, 1)));
         assert!(!timeline.push(frame(4_800, 0, 1)));
@@ -344,6 +347,7 @@ mod tests {
             lufs_m: Some(-20.0),
             true_peak: Some(-3.0),
             sharpness: Some(1.0),
+            psb: None,
         };
         assert!(timeline.push(frame(48_000, 0, 1)));
         assert!(timeline.push(frame(52_800, 0, 1)));

@@ -30,7 +30,7 @@ fn vst_audio_callback_reaches_the_on_demand_attack_lane() {
     let callback = slice_between(
         &processor,
         "void KirinHyphaProcessorBase::processBlock",
-        "bool KirinHyphaProcessorBase::bufferIsSilent",
+        "juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor",
     );
     let clock = callback
         .find("kirin_hypha_note_capture_window")
@@ -85,6 +85,7 @@ fn attack_abi_stays_compatible_and_the_product_view_has_a_navigation_route() {
     }
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let editor_analysis = read_repo("juce_shell/src/PluginEditorAnalysis.cpp");
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     let navigation = read_repo("juce_shell/src/HyphaAnalysisNavigation.h");
     let time_navigation = read_repo("juce_shell/src/HyphaTimePageNavigation.cpp");
@@ -92,10 +93,21 @@ fn attack_abi_stays_compatible_and_the_product_view_has_a_navigation_route() {
     assert!(editor.contains("activationEnvironmentVariable"));
     assert!(editor.contains("? AnalysisPage::attack : AnalysisPage::meters"));
     assert!(editor.contains("timePageNavigation.onPageChange"));
-    assert!(time_navigation_header.contains("attackButton { \"ATTACK\""));
+    assert!(time_navigation_header.contains("attackButton { \"DRUM\""));
+    assert!(editor_analysis.contains("drumAttackAvailable"));
+    assert!(read_repo("juce_shell/src/PluginProcessorAnalysis.cpp").contains("drumAttackAvailable"));
+    assert!(processor.contains("setMeterContextPreference (restoredMeterContext, false)"));
+    assert!(!processor.contains("preferredMeterContext.store"));
+    let display_state = read_repo("juce_shell/src/PluginProcessorDisplayState.cpp");
+    assert!(display_state.contains("setAttackEnabled (false)"));
+    assert!(display_state.contains("if (changed && notifyHost)"));
     assert!(time_navigation.contains("choose (Page::attack)"));
-    assert!(editor.contains("processorRef.setAttackEnabled (true)"));
-    assert!(processor.contains("kirin_hypha_set_attack_enabled"));
+    assert!(editor_analysis.contains("processorRef.setAttackEnabled (true)"));
+    assert!(
+        processor.contains("kirin_hypha_set_attack_enabled")
+            || read_repo("juce_shell/src/PluginProcessorAnalysis.cpp")
+                .contains("kirin_hypha_set_attack_enabled")
+    );
     assert!(navigation.contains("attack"));
     assert!(navigation.contains("ATTACK"));
 }

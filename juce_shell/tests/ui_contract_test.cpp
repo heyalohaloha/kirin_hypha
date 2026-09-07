@@ -332,10 +332,11 @@ int main()
     assert (std::strcmp (ui::spectrumSizePresets[2].buttonText, "150%") == 0);
     assert (std::strcmp (ui::spectrumSizePresets[3].buttonText, "200%") == 0);
     assert (std::strcmp (ui::spectrumSizePresets[4].buttonText, "300%") == 0);
-    assert (std::abs (ui::analysisTextScale (1.0f) - 1.25f) < 0.0001f);
-    assert (std::abs (ui::analysisTextScale (1.25f) - 1.35f) < 0.0001f);
-    assert (std::abs (ui::analysisTextScale (1.5f) - 1.62f) < 0.0001f);
-    assert (std::abs (ui::analysisTextScale (2.0f) - 2.16f) < 0.0001f);
+    assert (std::abs (ui::analysisTextScale (1.0f) - 1.5f) < 0.0001f);
+    assert (std::abs (ui::analysisTextScale (1.25f) - 1.5625f) < 0.0001f);
+    assert (std::abs (ui::analysisTextScale (1.5f) - 1.625f) < 0.0001f);
+    assert (std::abs (ui::analysisTextScale (2.0f) - 1.75f) < 0.0001f);
+    assert (std::abs (ui::analysisTextScale (3.0f) - 2.0f) < 0.0001f);
     static_assert (ui::absoluteLufsBandTop < ui::absoluteLufsBandBottom
                    && ui::absoluteLufsBandBottom > ui::absolutePeakBandTop
                    && ui::absolutePeakBandBottom > ui::absoluteSharpnessBandTop
@@ -553,7 +554,6 @@ int main()
     assert (ui::recordMetrics[3].metric == M::integrated);
     assert (ui::recordMetrics[4].metric == M::crest);
     assert (ui::recordMetrics[5].metric == M::sharpness);
-    assert (! ui::recordMetrics[2].deltaEligible);
-    assert (! ui::recordMetrics[3].deltaEligible);
+    assert (! ui::recordMetrics[2].deltaEligible && ! ui::recordMetrics[3].deltaEligible);
     return 0;
 }

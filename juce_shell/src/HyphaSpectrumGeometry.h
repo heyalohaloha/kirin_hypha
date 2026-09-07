@@ -45,13 +45,14 @@ namespace hypha::spectrum_geometry
                      .withTrimmedBottom ((float) ui_contract::spectrumPlotBottomInset * scale);
     }
 
-    inline juce::Rectangle<float> dataPlotBoundsFor (juce::Rectangle<float> bounds) noexcept
+    inline juce::Rectangle<float> dataPlotBoundsFor (juce::Rectangle<float> bounds,
+                                                    bool reserveFocusTrail = true) noexcept
     {
         const float scale = visualScaleFor (bounds);
         auto plot = plotBoundsFor (bounds);
-        if (scale > 1.1f)
+        plot.removeFromTop (juce::jmax (32.0f, 30.0f * scale));
+        if (reserveFocusTrail && scale > 1.1f)
         {
-            plot.removeFromTop (18.0f * scale);
             plot.removeFromBottom (
                 ui_contract::spectrumFocusTrailHeight (scale)
                 + ui_contract::spectrumFocusTrailAxisGap * scale);
@@ -83,7 +84,7 @@ namespace hypha::spectrum_geometry
                                : focusLocked ? ui_contract::spectrumFocusReadoutWidth
                                              : ui_contract::spectrumHoverReadoutWidth;
         return { plot.getRight() - (float) logicalWidth * scale,
-                 plot.getY() + (float) ui_contract::spectrumHoverReadoutInset * scale,
+                 plot.getY() + 17.0f * scale,
                  (float) logicalWidth * scale,
                  (float) ui_contract::spectrumHoverReadoutHeight * scale };
     }
@@ -111,9 +112,22 @@ namespace hypha::spectrum_geometry
     inline juce::Rectangle<float> markBoundsFor (juce::Rectangle<float> outerPlot,
                                                   float scale) noexcept
     {
-        return { outerPlot.getRight() - (float) ui_contract::spectrumMarkWidth * scale,
+        return { outerPlot.getRight()
+                    - (float) ui_contract::spectrumMarkWidth * scale,
                  outerPlot.getY() + (float) ui_contract::spectrumChannelModeTop * scale,
                  (float) ui_contract::spectrumMarkWidth * scale,
+                 (float) ui_contract::spectrumChannelModeHeight * scale };
+    }
+
+    inline juce::Rectangle<float> subviewBoundsFor (juce::Rectangle<float> outerPlot,
+                                                     float scale) noexcept
+    {
+        return { outerPlot.getRight()
+                    - (float) (ui_contract::spectrumMarkWidth
+                             + ui_contract::spectrumSubviewGap
+                             + ui_contract::spectrumSubviewWidth) * scale,
+                 outerPlot.getY() + (float) ui_contract::spectrumChannelModeTop * scale,
+                 (float) ui_contract::spectrumSubviewWidth * scale,
                  (float) ui_contract::spectrumChannelModeHeight * scale };
     }
 

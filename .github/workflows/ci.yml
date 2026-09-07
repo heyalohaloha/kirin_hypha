@@ -104,6 +104,9 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64
           cmake --build juce_shell/build-arm64 --config Release
 
+      - name: Validate Kirin OS Reference preview renderer (arm64)
+        run: ctest --test-dir juce_shell/build-arm64 -C Release --output-on-failure -R '^kirin_hypha_reference_preview_renderer$'
+
       # Recreate and validate the exact role-first installed VST3 layout before any
       # Studio One/manual loop. auval below validates the other format from the same source.
       - name: Validate macOS ship-set VST3 with pluginval
@@ -186,12 +189,28 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           -DKIRIN_HYPHA_BUILD_UI_RENDER_TESTS=ON
           -DKIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS=ON
+          -DKIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS=ON
           -DKIRIN_FFI_LIB="${{ github.workspace }}\target\release\kirin_hypha_ffi.lib"
 
       - name: Validate Windows UI render contract
         run: |
           cmake --build juce_shell/build-windows --config Release --target KirinUiRenderContractTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_ui_render_contract$'
+
+      - name: Validate Kirin OS Reference preview renderer (Windows)
+        run: |
+          cmake --build juce_shell/build-windows --config Release --target KirinHyphaReferencePreviewRenderer
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_hypha_reference_preview_renderer$'
+
+      - name: Validate local PRE/POST Blind building blocks
+        run: |
+          cmake --build juce_shell/build-windows --config Release --target KirinLocalBlindCaptureTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests KirinLocalBlindHostContextTests
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_local_blind_'
+
+      - name: Validate Reference audition session contract
+        run: |
+          cmake --build juce_shell/build-windows --config Release --target KirinReferenceAuditionRuntimeTests
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_reference_audition_runtime$'
 
       - name: Build JUCE VST3 shell (Windows)
         run: >

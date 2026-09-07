@@ -323,6 +323,9 @@ namespace hypha
     void EditableName::setModelName (const juce::String& raw)
     {
         rawName = raw;
+        const auto value = rawName.isEmpty() ? fallback : rawName;
+        setTooltip ((editingEnabled ? enabledTooltip : lockedTooltip)
+                    + (value.isNotEmpty() ? "\n" + prefix + value : juce::String {}));
         if (! editing)
             repaint();
     }

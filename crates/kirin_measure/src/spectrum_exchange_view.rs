@@ -6,6 +6,54 @@ use crate::spectrum_runtime::SpectrumHistory;
 use std::sync::TryLockError;
 
 impl SpectrumCoordinator {
+    /// Publish every retained exact match under one UI publication lock. Never synthesize missing
+    /// points, or expose an older intermediate endpoint while recovering a delayed exchange tick.
+    pub(super) fn store_spectrum_sequence(
+        &self,
+        differences: &[SpectrumDifference],
+        post_history: Option<&SpectrumHistory>,
+        reset: bool,
+    ) {
+        let mut view = self.view.lock().unwrap_or_else(|p| p.into_inner());
+        let continuing = !reset
+            && view.status == SpectrumViewStatus::Active
+            && view.analysis_mode == AnalysisViewMode::Spectrum;
+        let mut timeline = if continuing {
+            std::mem::take(&mut view.spectrum_timeline)
+        } else {
+            Default::default()
+        };
+        let mut newest = if continuing {
+            view.difference.take()
+        } else {
+            None
+        };
+        for difference in differences {
+            if matches!(
+                timeline.push(difference),
+                crate::SpectrumTimelinePushResult::Appended
+                    | crate::SpectrumTimelinePushResult::DefinitionReset
+            ) {
+                newest = Some(difference.clone());
+            }
+        }
+        let post_spectrum_history = post_history.cloned().unwrap_or_default();
+        *view = SpectrumViewSnapshot {
+            status: SpectrumViewStatus::Active,
+            analysis_mode: AnalysisViewMode::Spectrum,
+            channel_mode: self.runtime.channel_mode(),
+            channels: self.runtime.num_channels() as u8,
+            difference: newest,
+            spectrum_timeline: timeline,
+            post_spectrum: post_spectrum_history.newest().cloned(),
+            post_spectrum_history,
+            perceptual_difference: None,
+            perceptual_timeline: Default::default(),
+            absolute_timeline: Default::default(),
+            analysis_owner_names: Default::default(),
+        };
+    }
+
     pub fn try_view(&self) -> Option<SpectrumViewSnapshot> {
         match self.view.try_lock() {
             Ok(view) => Some(view.clone()),
@@ -40,26 +88,6 @@ impl SpectrumCoordinator {
         post_history: Option<&SpectrumHistory>,
     ) {
         self.store_view_with_post_spectrum(status, difference, None, false, post_history);
-    }
-
-    /// Replaces the short UI-recovery timeline at one confirmed transport boundary.
-    ///
-    /// A lower presentation endpoint can be either a late worker result or a real backwards
-    /// transport move. The join layer calls this path only after the newest verified PRE and POST
-    /// endpoints have both crossed below the last published endpoint. They may be one cadence
-    /// apart; the boundary itself still starts on an exact shared endpoint.
-    pub(super) fn store_spectrum_boundary(
-        &self,
-        difference: SpectrumDifference,
-        post_history: Option<&SpectrumHistory>,
-    ) {
-        self.store_view_with_post_spectrum(
-            SpectrumViewStatus::Active,
-            Some(difference),
-            None,
-            true,
-            post_history,
-        );
     }
 
     fn store_view_with_spectrum_boundary(

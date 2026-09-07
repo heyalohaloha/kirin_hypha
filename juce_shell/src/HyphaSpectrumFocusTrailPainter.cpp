@@ -2,6 +2,7 @@
 
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
+#include "HyphaPolylineGeometry.h"
 
 #include <algorithm>
 
@@ -64,7 +65,7 @@ void paint (juce::Graphics& g,
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.68f));
         g.drawText (juce::String (juce::CharPointer_UTF8 (
                         "\xCE\x94 \xC2\xB7 6s \xC2\xB7 \xC2\xB1\x31\x32")),
-                    plot.removeFromTop (6.5f * visualScale),
+                    plot.removeFromTop (juce::jmax (14.0f, 7.0f * visualScale)),
                     juce::Justification::centredLeft);
     }
     if (plot.getHeight() < 3.0f)
@@ -82,60 +83,54 @@ void paint (juce::Graphics& g,
                     0.45f * strokeScale);
     }
 
-    const float firstX = xForAge (history.ageSecondsAt (0u), plot);
-    const float firstY = yForDelta (history.valueAt (0u, normalisedBand), plot);
-    juce::Path stroke;
-    stroke.startNewSubPath (firstX, firstY);
-    juce::Path recentGlow;
-    bool glowStarted = false;
-    // At 100% the lane is narrower than the 180 retained points. Painting every third exact
-    // observation preserves more points than there are useful horizontal pixels while avoiding
-    // redundant anti-aliased segments on Windows' software renderer. Storage and endpoints stay
-    // exact; this is pixel-aware presentation decimation, not smoothing or interpolation.
-    const size_t paintStride = compact ? 3u : 1u;
-    size_t previousIndex = 0u;
-    for (size_t index = paintStride; index < history.size(); index += paintStride)
+    const auto displayY = [&] (size_t index)
     {
-        const double previousAge = history.ageSecondsAt (previousIndex);
-        const double currentAge = history.ageSecondsAt (index);
-        const float previousX = xForAge (previousAge, plot);
-        const float currentX = xForAge (currentAge, plot);
-        if (currentX <= previousX)
-            continue;
-        const float previousY = yForDelta (
-            history.valueAt (previousIndex, normalisedBand), plot);
-        const float currentY = yForDelta (
-            history.valueAt (index, normalisedBand), plot);
-        // Missing presentation endpoints remain recorded in FocusTrailHistory. The work surface
-        // joins the surrounding exact observations visually so a delayed Windows UI tick does not
-        // turn into a broken user-facing curve; it does not create or persist measured samples.
-        stroke.lineTo (currentX, currentY);
-        if (previousAge <= 1.5)
+        auto value = history.valueAt (index, normalisedBand);
+        if (index > 0u && index + 1u < history.size()
+            && ! history.hasGapBetween (index - 1u, index)
+            && ! history.hasGapBetween (index, index + 1u))
         {
-            if (! glowStarted)
-            {
-                recentGlow.startNewSubPath (previousX, previousY);
-                glowStarted = true;
-            }
-            recentGlow.lineTo (currentX, currentY);
+            value = 0.25f * history.valueAt (index - 1u, normalisedBand)
+                  + 0.50f * value
+                  + 0.25f * history.valueAt (index + 1u, normalisedBand);
         }
-        previousIndex = index;
+        return yForDelta (value, plot);
+    };
+    std::array<float, spectrum_focus::focusTrailCapacity> x {}, y {};
+    std::array<double, spectrum_focus::focusTrailCapacity> age {};
+    for (size_t i = 0; i < history.size(); ++i)
+    {
+        age[i] = history.ageSecondsAt (i);
+        x[i] = xForAge (age[i], plot);
+        y[i] = displayY (i);
+    }
+    juce::Path stroke, recentGlow;
+    const auto appendRun = [&] (juce::Path& path, size_t first, size_t last)
+    {
+        const auto keep = polyline_geometry::retainedVertices (x, y, first, last);
+        path.startNewSubPath (x[first], y[first]);
+        for (size_t i = first + 1; i <= last; ++i)
+            if (keep[i]) path.lineTo (x[i], y[i]);
+    };
+    // Simplify only within continuous runs, at a bounded subpixel error. Unlike a fixed stride,
+    // this keeps narrow excursions and the two sides of every missing-data gap at every size.
+    for (size_t first = 0; first < history.size();)
+    {
+        size_t last = first;
+        while (last + 1 < history.size() && x[last + 1] > x[last]
+               && ! history.hasGapBetween (last, last + 1))
+            ++last;
+        appendRun (stroke, first, last);
+        if (! compact)
+        {
+            size_t recent = first;
+            while (recent <= last && age[recent] > 1.5) ++recent;
+            if (recent <= last) appendRun (recentGlow, recent, last);
+        }
+        first = last + 1;
     }
     const size_t newest = history.size() - 1u;
-    const float newestX = xForAge (history.ageSecondsAt (newest), plot);
-    const float newestY = yForDelta (history.valueAt (newest, normalisedBand), plot);
-    if (previousIndex != newest)
-    {
-        stroke.lineTo (newestX, newestY);
-        if (history.ageSecondsAt (previousIndex) <= 1.5)
-        {
-            if (! glowStarted)
-                recentGlow.startNewSubPath (
-                    xForAge (history.ageSecondsAt (previousIndex), plot),
-                    yForDelta (history.valueAt (previousIndex, normalisedBand), plot));
-            recentGlow.lineTo (newestX, newestY);
-        }
-    }
+    const float newestX = x[newest], newestY = y[newest];
     if (! compact && ! recentGlow.isEmpty())
     {
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.09f));
@@ -144,10 +139,10 @@ void paint (juce::Graphics& g,
             juce::PathStrokeType::rounded));
     }
     juce::ColourGradient strokeGradient (
-        COL_SPECTRUM_DELTA.withAlpha (0.10f), plot.getX(), zeroY,
+        COL_SPECTRUM_DELTA.withAlpha (0.55f), plot.getX(), zeroY,
         COL_SPECTRUM_DELTA_BR.withAlpha (0.98f), plot.getRight(), zeroY, false);
-    strokeGradient.addColour (0.42, COL_SPECTRUM_DELTA.withAlpha (0.22f));
-    strokeGradient.addColour (0.68, COL_SPECTRUM_DELTA.withAlpha (0.48f));
+    strokeGradient.addColour (0.42, COL_SPECTRUM_DELTA.withAlpha (0.62f));
+    strokeGradient.addColour (0.68, COL_SPECTRUM_DELTA.withAlpha (0.70f));
     strokeGradient.addColour (0.86, COL_SPECTRUM_DELTA_BR.withAlpha (0.74f));
     strokeGradient.addColour (0.95, COL_SPECTRUM_DELTA_BR.withAlpha (0.90f));
     g.setGradientFill (strokeGradient);

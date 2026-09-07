@@ -6,6 +6,11 @@
 #include "AttackUiComparisonContract.h"
 #include "AttackUiOverviewContract.h"
 #include "AttackUiSizeContract.h"
+#include "AttackUiLifecycleContract.h"
+#include "AttackUiMembraneContract.h"
+#include "AttackUiRuntimeContract.h"
+#include "AttackUiFrameBudget.h"
+#include "PolylineGeometryContractTest.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -32,14 +37,6 @@ namespace
             && std::abs ((int) pixel.getBlue() - (int) target.getBlue()) <= tolerance;
     }
 
-    enum class VisualComponent
-    {
-        strength,
-        brightness,
-        transient,
-        texture
-    };
-
     int countAreaDifferences (const juce::Image& first,
                               const juce::Image& second,
                               juce::Rectangle<int> requested)
@@ -50,35 +47,6 @@ namespace
         for (int y = area.getY(); y < area.getBottom(); ++y)
             for (int x = area.getX(); x < area.getRight(); ++x)
                 count += first.getPixelAt (x, y) != second.getPixelAt (x, y);
-        return count;
-    }
-
-    float meanDifferenceRadius (const juce::Image& baseline,
-                                const juce::Image& variant,
-                                int centreX,
-                                int centreY,
-                                juce::Rectangle<int> lane)
-    {
-        const auto area = juce::Rectangle<int> (centreX - 5, lane.getY(), 11, lane.getHeight())
-                              .getIntersection (baseline.getBounds());
-        float total = 0.0f;
-        int count = 0;
-        for (int y = area.getY(); y < area.getBottom(); ++y)
-            for (int x = area.getX(); x < area.getRight(); ++x)
-                if (baseline.getPixelAt (x, y) != variant.getPixelAt (x, y))
-                {
-                    total += std::abs (static_cast<float> (y - centreY));
-                    ++count;
-                }
-        return count > 0 ? total / static_cast<float> (count) : -1.0f;
-    }
-
-    int countVisiblePixels (const juce::Image& image)
-    {
-        int count = 0;
-        for (int y = 0; y < image.getHeight(); ++y)
-            for (int x = 0; x < image.getWidth(); ++x)
-                count += image.getPixelAt (x, y).getAlpha() > 0;
         return count;
     }
 
@@ -167,7 +135,6 @@ namespace
         };
     }
 }
-
 int main()
 {
     static_assert (sizeof (KirinAttackWaveformPoint) == 40);
@@ -296,6 +263,8 @@ int main()
         pairEvents.events[index].event_sample = events.events[index].event_sample;
         pairEvents.events[index].pre_event_sample = events.events[index].event_sample;
         pairEvents.events[index].post_event_sample = events.events[index].event_sample;
+        pairEvents.events[index].sample_rate = 48'000;
+        pairEvents.events[index].pre_generation = pairEvents.events[index].post_generation = 7;
     }
     pairEvents.events[1].pre_available = 1;
     pairEvents.events[1].post_available = 1;
@@ -307,10 +276,12 @@ int main()
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
                            288'000, 48'000, 7, stats);
     component.setOverlayMode (false);
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyDetailLifecycle (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (hypha::attack_ui_test::verifySignedComparisonSpecimen());
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyNoPreOnsetFeatureInk());
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyAsymmetricMeasuredFlow());
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifySignedOverviewGlyph());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyMeasuredEnvelope());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyEnvelopeSimplificationBound());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyEnvelopeRaster());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyUpperFeatureIsolation (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyContinuousTrace (waveform, details));
     const auto image = render (component);
     writePreview ("KIRIN_ATTACK_UI_PREVIEW_PATH", image);
@@ -344,79 +315,10 @@ int main()
         events.events[2].event_sample, 288'000, 48'000, image.getWidth());
     identityComponent.setOverlayMode (true);
     const auto identityOverlay = render (identityComponent);
-    juce::Image identityDifferenceLayer (
-        juce::Image::ARGB, image.getWidth(), timelineHeight, true);
-    juce::Graphics identityDifferenceGraphics (identityDifferenceLayer);
-    hypha::attack_painter::drawWaveformDifferences (
-        identityDifferenceGraphics, details, details, pairEvents,
-        identityDifferenceLayer.getBounds(), 0, 288'000, 48'000);
-    KIRIN_REQUIRE (countVisiblePixels (identityDifferenceLayer) > 0);
-    auto thresholdDetailsStorage = std::make_unique<KirinAttackDetailBatch> (details);
-    auto& thresholdDetails = *thresholdDetailsStorage;
-    for (std::uint32_t index = 0; index < thresholdDetails.count; ++index)
-    {
-        thresholdDetails.details[index].attack_rms_dbfs = hypha::attack_ui::strengthGlowOnDbfs;
-        thresholdDetails.details[index].sharpness_acum = hypha::attack_ui::brightnessGlowOnAcum;
-        thresholdDetails.details[index].contrast_db = hypha::attack_ui::transientGlowOnDb;
-        thresholdDetails.details[index].sample_edge_ratio_db = -24.0f;
-        thresholdDetails.details[index].crest_db = 12.0f;
-        thresholdDetails.details[index].peak_plateau_ms = 0.0f;
-    }
-    constexpr int focusWidth = 240;
-    constexpr int focusHeight = 90;
-    const auto renderFocus = [] (const KirinAttackDetail& focusDetail)
-    {
-        juce::Image focus (juce::Image::ARGB, focusWidth, focusHeight, true);
-        juce::Graphics graphics (focus);
-        hypha::attack_painter::drawEventFocus (
-            graphics, nullptr, &focusDetail, focus.getBounds());
-        return focus;
-    };
-    const auto thresholdImage = renderFocus (thresholdDetails.details[1]);
-    auto strengthRadius = -1.0f;
-    auto textureRadius = -1.0f;
-    auto brightnessRadius = -1.0f;
-    auto transientRadius = -1.0f;
-    for (const auto visual : { VisualComponent::strength, VisualComponent::brightness,
-                               VisualComponent::transient, VisualComponent::texture })
-    {
-        auto feature = thresholdDetails.details[1];
-        switch (visual)
-        {
-            case VisualComponent::strength:
-                feature.attack_rms_dbfs = hypha::attack_ui::strengthGlowFullDbfs;
-                break;
-            case VisualComponent::brightness:
-                feature.sharpness_acum = hypha::attack_ui::brightnessGlowFullAcum;
-                break;
-            case VisualComponent::transient:
-                feature.contrast_db = hypha::attack_ui::transientGlowFullDb;
-                break;
-            case VisualComponent::texture:
-                feature.sample_edge_ratio_db = 0.0f;
-                feature.crest_db = 0.0f;
-                feature.peak_plateau_ms = hypha::attack_ui::textureGlowFull * 4.0f;
-                break;
-        }
-        const auto featureImage = renderFocus (feature);
-        KIRIN_REQUIRE (countAreaDifferences (
-            thresholdImage, featureImage, featureImage.getBounds()) > 0);
-        const auto specimenCoreX = focusWidth * 43 / 100;
-        const auto radius = meanDifferenceRadius (
-            thresholdImage, featureImage, specimenCoreX, focusHeight / 2,
-            featureImage.getBounds());
-        if (visual == VisualComponent::strength)
-            strengthRadius = radius;
-        else if (visual == VisualComponent::texture)
-            textureRadius = radius;
-        else if (visual == VisualComponent::brightness)
-            brightnessRadius = radius;
-        else
-            transientRadius = radius;
-    }
-    KIRIN_REQUIRE (strengthRadius > 0.0f && strengthRadius < textureRadius);
-    KIRIN_REQUIRE (textureRadius < brightnessRadius);
-    KIRIN_REQUIRE (brightnessRadius < transientRadius);
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyMembraneContract());
+    hypha::tests::verifyPolylineGeometryContract();
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyFocusCache());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyRedrawContract (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::leftKey)));
     KIRIN_REQUIRE (hasColourNear (render (component), middleEventX, selectionColour));
     KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::homeKey)));
@@ -426,6 +328,7 @@ int main()
 
     auto laterPairEvents = pairEvents;
     laterPairEvents.count = 4;
+    laterPairEvents.events[3] = pairEvents.events[2];
     laterPairEvents.events[3].event_sample = 320'000;
     laterPairEvents.events[3].pre_event_sample = 320'000;
     laterPairEvents.events[3].post_event_sample = 320'000;
@@ -433,6 +336,10 @@ int main()
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, laterPairEvents,
                            336'000, 48'000, 7, stats);
     KIRIN_REQUIRE (hasColourNear (render (component), middleEventX, selectionColour));
+    component.presentationTickAt (transitionStart + 25.0);
+    const auto quarterTransitionX = hypha::attack_ui::eventX (
+        events.events[1].event_sample, 300'000, 48'000, image.getWidth());
+    KIRIN_REQUIRE (hasColourNear (render (component), quarterTransitionX, selectionColour));
     component.presentationTickAt (transitionStart + 50.0);
     const auto halfTransitionX = hypha::attack_ui::eventX (
         events.events[1].event_sample, 312'000, 48'000, image.getWidth());
@@ -450,15 +357,15 @@ int main()
 
     auto newestPairEvents = laterPairEvents;
     newestPairEvents.count = 5;
+    newestPairEvents.events[4] = laterPairEvents.events[3];
     newestPairEvents.events[4].event_sample = 370'000;
     newestPairEvents.events[4].pre_event_sample = 370'000;
     newestPairEvents.events[4].post_event_sample = 370'000;
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, newestPairEvents,
                            384'000, 48'000, 7, stats);
     component.presentationTick (false); // Inactive transport snaps and then remains still.
-    const auto newestX = hypha::attack_ui::eventX (
-        newestPairEvents.events[4].event_sample, 384'000, 48'000, image.getWidth());
-    KIRIN_REQUIRE (hasColourNear (render (component), newestX, selectionColour));
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyDormantSpecimenBlack (render (component)));
+    component.presentationTick (true);
     KIRIN_REQUIRE (! component.keyPressed (juce::KeyPress ('x')));
 
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
@@ -484,7 +391,7 @@ int main()
     KIRIN_REQUIRE (countAreaDifferences (identityOverlay, overlay, overlayTimeline) > 0);
     writePreview ("KIRIN_ATTACK_UI_OVERLAY_PREVIEW_PATH", overlay);
     KIRIN_REQUIRE (hypha::attack_ui_test::verifySupportedSizes (component));
-
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyAttackFrameBudget());
     stats.worker_running = 0;
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
                            288'000, 48'000, 7, stats);

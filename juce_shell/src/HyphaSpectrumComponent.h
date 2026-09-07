@@ -11,6 +11,7 @@
 #include "HyphaGuideFrequencyOverlay.h"
 #include "HyphaSpectrumFocusTrail.h"
 #include "kirin_hypha_ffi.h"
+#include "kirin_hypha_display_ffi.h"
 
 namespace hypha
 {
@@ -32,6 +33,10 @@ public:
     void setAnalysisOwnerNames (const juce::String& names);
     void setGuideFrequencyOverlay (const guide_frequency::Overlay& next);
     void setAbsoluteObservation (bool absolute);
+    void setPsbSnapshot (const KirinPsbView&);
+    bool isPsbObservation() const noexcept { return psbObservation; }
+    std::function<void()> onSubviewChange;
+    void setSignalActive (bool active);
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
@@ -54,6 +59,7 @@ public:
         return index < readoutDelta.size() ? readoutDelta[index] : 0.0f;
     }
     bool isAbsoluteObservationForTest() const noexcept { return absoluteObservation; }
+    bool isPsbObservationForTest() const noexcept { return psbObservation; }
     size_t absoluteHistorySizeForTest() const noexcept { return absoluteHistory.size(); }
     float absolutePeakHoldForTest (size_t index) const noexcept
     {
@@ -65,6 +71,7 @@ public:
 
 private:
     void clearInteractionState() noexcept;
+    bool currentSnapshotValid() const noexcept;
 
     KirinSpectrumView snapshot {};
     KirinSpectrumView pendingSnapshot {};
@@ -95,6 +102,14 @@ private:
     guide_frequency::Overlay guideOverlay;
     absolute_spectrum::History absoluteHistory;
     bool absoluteObservation = false;
+    std::array<double, 20> absolutePsb {};
+    std::array<double, 20> deltaPsb {};
+    bool absolutePsbAvailable = false;
+    bool deltaPsbAvailable = false;
+    bool psbObservation = false;
+    bool signalActive = false;
+    uint8_t psbStatus = KIRIN_SPECTRUM_WARMING_UP;
+    int psbHoverBand = -1;
     double modeActionNoticeUntilMs = 0.0;
     bool hoverNeedsRepaint = false;
     double lastCurvePresentationMs = 0.0;

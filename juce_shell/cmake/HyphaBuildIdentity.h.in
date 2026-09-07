@@ -1,0 +1,3 @@
+#pragma once
+#define HYPHA_SOURCE_ID "@HYPHA_SOURCE_ID@"
+#define HYPHA_SOURCE_STATE "@HYPHA_SOURCE_STATE@"

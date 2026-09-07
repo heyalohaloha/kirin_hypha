@@ -37,6 +37,7 @@ public:
     void draw (juce::Graphics&, juce::Rectangle<int>, const State&) const;
     void drawLevelCorners (juce::Graphics&, juce::Rectangle<int>, const State&) const;
     void drawHyphaSpecimen (juce::Graphics&, juce::Rectangle<int>, const State&) const;
+    void drawDomainBed (juce::Graphics&, juce::Rectangle<int>, const State&) const;
     bool isValid() const noexcept
     {
         return image.isValid() && levelCorners.isValid() && hyphaSpecimen.isValid();
@@ -46,6 +47,14 @@ private:
     juce::Image image;
     juce::Image levelCorners;
     juce::Image hyphaSpecimen;
+    // Only the immutable texture is cached; state-dependent opacity remains live.
+    mutable juce::Image scaledBackdrop;
+    mutable juce::Point<int> scaledBackdropLogicalSize;
+    mutable float scaledBackdropPixelScale = 0.0f;
+    mutable juce::Image domainBed;
+    mutable juce::Point<int> domainBedSize;
+    mutable float domainBedPixelScale = 0.0f;
+    mutable State domainBedState;
 };
 
 juce::Rectangle<float> aspectFillSourceBounds (int sourceWidth, int sourceHeight,

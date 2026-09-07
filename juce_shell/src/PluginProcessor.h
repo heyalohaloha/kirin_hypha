@@ -1,4 +1,12 @@
 #pragma once
+#include "HostProcessClock.h"
+#include "local_blind/LocalBlindSlot.h"
+#include "local_blind/LocalBlindCaptureLane.h"
+#include "local_blind/LocalBlindEpochSnapshot.h"
+#include "local_blind/PairCaptureBarrier.h"
+#include "local_blind/VST3HostContext.h"
+#include "local_blind/HostClockProbe.h"
+#include "kirin_hypha_display_ffi.h"
 
 #include <atomic>
 #include <cstdint>
@@ -7,11 +15,13 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "HyphaSignalStateContract.h"
+#include "HyphaMeterContext.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
  #include "CaptureWorkAttachment.h"
  #include "pre_display/PreDisplayClock.h"
  #include "pre_display/PreDisplayController.h"
+ #include "reference_audition/ReferenceRuntimeV2Controller.h"
 #endif
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
@@ -36,7 +46,17 @@ public:
     void releaseResources() override;
     void hostComponentActivationChanged (bool active) override;
     void updateTrackProperties (const TrackProperties& properties) override;
+    juce::VST3ClientExtensions* getVST3ClientExtensions() override { return &nativeHostContext; }
+    hypha::local_blind::HostContextFacts localBlindHostFacts() const
+    {
+        const auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
+        if (messageManager == nullptr || ! messageManager->isThisTheMessageThread()) return {};
+        return nativeHostContext.context.readNonRealtime();
+    }
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
+#if JUCE_DEBUG
+    juce::StringArray localValidationFacts() const;
+#endif
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -76,6 +96,23 @@ public:
         juce::MemoryBlock pngBytes,
         hypha::capture::WorkAttachmentDescriptor descriptor);
     hypha::capture::WorkAttachmentResult takeCaptureWorkAttachmentResult();
+    hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
+    bool selectReferenceB (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
+    void selectReferenceA();
+    bool selectReferencePreset (const juce::String&);
+    bool retryReferencePresetSelection();
+    bool selectReferenceCheck (const juce::String&);
+    bool selectReferenceCandidate (const juce::String&);
+    bool selectReferenceCue (const juce::String&);
+    bool approveReferenceSampleRateConversion();
+    bool requestReferenceRecovery();
+    bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
+    bool approveReferenceBlindLowerA (double aIntegratedLoudness,
+                                      double aMaximumTruePeakDbtp);
+    bool selectReferenceBlindStimulus (int stimulus);
+    bool answerReferenceBlind (int stimulus);
+    bool revealReferenceBlind();
+    void endReferenceBlind();
 #endif
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
@@ -90,6 +127,16 @@ public:
     int pairStatus() const;                            // 0=Unpaired 1=Waiting 2=Paired
     juce::String pairedPreInstanceId() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
+    bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
+    // Non-RT control handshake only. These methods neither capture PCM nor start an audition.
+    bool issueLocalBlindCaptureRequest (std::uint64_t captureGeneration,
+                                        std::uint64_t clockGeneration,
+                                        std::int64_t preStart, std::int64_t postStart,
+                                        std::int64_t frames,
+                                        hypha::local_blind::ExactCaptureRequest& out) const;
+    bool pollLocalBlindCaptureRequest (hypha::local_blind::ExactCaptureRequest& out) const;
+    bool acknowledgeLocalBlindCaptureRequest (const std::string& requestId) const;
+    bool localBlindCaptureIsArmed (const std::string& requestId) const;
     bool keepPair();                                    // kirin_hypha_keep (Os + unique PRE)
     bool recordExclusionConflict() const;               // B-118 (②): kirin_hypha_record_exclusion_conflict (advisory only)
     juce::String recordErrorMessage() const;            // B-118 (③): kirin_hypha_record_error_message (io fail status / G-115-29)
@@ -100,6 +147,7 @@ public:
 
     // --- B-073: POST Δ readout (editor display branching) --------------------------------
     int  signalStateLive() const;                      // B-113: FFI kirin_hypha_get_signal_state (heartbeat-aware, no stale Active)
+    bool hasLiveInput() const noexcept { return liveInputPresent.load (std::memory_order_relaxed); }
     bool pollDelta (KirinDelta& out) const;            // FFI kirin_hypha_poll_delta (mode + Δ values)
     bool setSpectrumVisible (bool visible);             // POST-only; request work stays on IO thread
     bool setPerceptualVisible (bool visible);           // POST-only exact-aperture Sharpness page
@@ -110,6 +158,8 @@ public:
     bool pollPerceptual (KirinPerceptualView& out) const;
     bool pollPerceptualBatch (KirinPerceptualBatch& out) const;
     bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;
+    bool pollPsb (KirinPsbView& out) const;
+    bool setPsbVisible (bool delta);
     bool pollAnalysisOwnerNames (juce::String& out) const;
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
     bool setAttackEnabled (bool enabled);       // POST ATTACK page; never DAW state
@@ -151,6 +201,18 @@ public:
     void setObservatoryDomainPreference (uint8_t value);
     void setObservatoryTargetPreference (uint8_t value);
     void setObservatoryTimeRangePreference (uint8_t value);
+    hypha::meter_context::MeterContext meterContextPreference() const
+    {
+        return hypha::meter_context::contextFromState (
+            preferredMeterContext.load (std::memory_order_acquire));
+    }
+    hypha::meter_context::ScaleMode scaleModePreference() const
+    {
+        return hypha::meter_context::scaleFromState (
+            preferredScaleMode.load (std::memory_order_acquire));
+    }
+    void setMeterContextPreference (hypha::meter_context::MeterContext value, bool notifyHost = true);
+    void setScaleModePreference (hypha::meter_context::ScaleMode value);
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
 
     // --- B-054: PRE live name + LED pollers (egui parity) --------------------------------
@@ -164,6 +226,7 @@ public:
     bool recordAcknowledged() const;// FFI kirin_hypha_record_acknowledged (PRE Keeping banner / RecordActive LED)
     bool presetAvailable() const;   // FFI kirin_hypha_preset_available (PresetAvailable LED)
     bool addMark (const juce::String& tag); // FFI kirin_hypha_add_mark (POST Mark → Good/Fix/Hold)
+    bool addNote (const juce::String& memo); // sample-exact POST NOTE during Record
 
     // --- B-102: POST broadcast (All Keep / All Stop) + candidate enumeration (new↔new) -----
     struct PreCandidate { juce::String instanceId; juce::String name; bool hasName = false; };
@@ -197,7 +260,9 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
 private:
+    hypha::HostProcessClock readHostProcessClock() const;
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)
+    std::atomic<bool> liveInputPresent { false }; // Display only; never changes Watch continuity.
 
     // B-070/B-126 + Logic stopped-state fix: enable plugin_data writes exactly once, on the message thread, after
     // prepareToPlay (create + set_license). processBlock only sets lock-free flags; it no longer
@@ -207,8 +272,18 @@ private:
     // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
+    void processComparisonPaths (juce::AudioBuffer<float>&, int64_t positionSamples,
+                                 bool hasPosition, bool playing, bool timelineActive,
+                                 bool bypassed, bool nonRealtimeMode);
 
     const Role role;                                   // Pre or Post (selects enable + display name)
+    hypha::local_blind::VST3HostContext nativeHostContext;
+#if JUCE_DEBUG
+    mutable hypha::local_blind::HostClockProbe hostClockProbe;
+#endif
+    hypha::local_blind::LocalBlindSlot localBlindOutput;
+    hypha::local_blind::LocalBlindEpochSnapshot localBlindEpochs;
+    hypha::local_blind::LocalBlindCaptureLane localBlindCapture;
 
     juce::AudioParameterBool* bypassParam = nullptr;   // owned by AudioProcessor (addParameter)
     std::vector<float> interleaveScratch;              // pre-allocated in prepareToPlay (RT-safe; no alloc in processBlock)
@@ -248,6 +323,9 @@ private:
     std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
     std::atomic<bool> perceptualAnalysisRequested { false }; // restores the visible analyzer after engine recreation
     std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
+    std::atomic<bool> psbAnalysisRequested { false }; // transient LR display source, not a saved preference
+    uint8_t requestedAnalysisChannelMode() const noexcept
+    { return psbAnalysisRequested.load() ? KIRIN_SPECTRUM_CHANNEL_LR : preferredSpectrumChannelMode.load(); }
     std::atomic<bool> attackRequested { false }; // ATTACK is inactive while its page is hidden
     std::atomic<uint8_t> preferredSpectrumSize { 0 };      // legacy/default state opens at 100%
     // Packed into one atomic so a concurrent host state read can never persist mismatched axes.
@@ -255,12 +333,20 @@ private:
     std::atomic<uint8_t> preferredObservatoryDomain { 0 }; // DisplayState v2; LEVEL
     std::atomic<uint8_t> preferredObservatoryTarget { 0 }; // DisplayState v2; absolute
     std::atomic<uint8_t> preferredObservatoryTimeRange { 0 }; // DisplayState v2; 30 s
+    std::atomic<uint8_t> preferredMeterContext {
+        hypha::meter_context::stateValue (hypha::meter_context::defaultContext) };
+    std::atomic<uint8_t> preferredScaleMode {
+        hypha::meter_context::stateValue (hypha::meter_context::defaultScale) };
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
 
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     hypha::pre_display::ClockTap preDisplayClock;
     std::unique_ptr<hypha::pre_display::Controller> preDisplayController;
     std::unique_ptr<hypha::capture::WorkAttachmentController> captureWorkAttachmentController;
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    void createReferenceAuditionController();
+    std::unique_ptr<hypha::reference_audition::RuntimeV2Controller> referenceAuditionController;
+   #endif
 #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)

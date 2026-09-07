@@ -87,7 +87,7 @@ namespace
         return image;
     }
 
-    double meanPaintMs (SpectrumComponent& component)
+    double meanPaintMs (SpectrumComponent& component, const KirinSpectrumView* changing = nullptr)
     {
         constexpr int iterations = 100;
         juce::Image image (
@@ -101,6 +101,20 @@ namespace
             const double started = juce::Time::getMillisecondCounterHiRes();
             for (int iteration = 0; iteration < iterations; ++iteration)
             {
+                if (changing != nullptr)
+                {
+                    auto frame = *changing;
+                    frame.presentation_end_samples = component.presentedEndpointForTest()
+                        + frame.sample_rate / ui_contract::spectrumPresentationHz;
+                    for (size_t i = 0; i < KIRIN_SPECTRUM_BAND_COUNT; ++i)
+                    {
+                        const float movement = 1.5f * std::sin (static_cast<float> (
+                            frame.presentation_end_samples) / 5000.0f + static_cast<float> (i) * 0.02f);
+                        frame.display_db[i] += movement;
+                        frame.post_dbfs[i] += movement;
+                    }
+                    component.setSnapshot (frame);
+                }
                 image.clear (image.getBounds(), BG);
                 juce::Graphics graphics (image);
                 component.paintEntireComponent (graphics, true);
@@ -148,6 +162,7 @@ namespace
                                 double trailBudgetMs)
     {
         SpectrumComponent component;
+        component.setSignalActive (true);
         const auto componentBounds = ui_contract::spectrumPlotBounds (
             preset.width, preset.height);
         component.setSize (componentBounds.width, componentBounds.height);
@@ -221,11 +236,14 @@ namespace
         const double trailOnlyPaintMs = meanTrailPaintMs (
             directHistory, trailBounds.toFloat(),
             spectrum_geometry::visualScaleFor (bounds));
+        const double changingPaintMs = meanPaintMs (component, &source);
         std::cout << "Focus Trail paint " << preset.buttonText << ": "
                   << unlockedPaintMs << " -> " << focusedPaintMs
-                  << " ms/frame, trail-only=" << trailOnlyPaintMs << " ms\n";
+                  << " ms/frame, trail-only=" << trailOnlyPaintMs
+                  << " ms, changing=" << changingPaintMs << " ms\n";
         KIRIN_FOCUS_REQUIRE (differentPixels (unlocked, focused, trailBounds) > 30);
         KIRIN_FOCUS_REQUIRE (focusedPaintMs < totalBudgetMs);
+        KIRIN_FOCUS_REQUIRE (changingPaintMs < totalBudgetMs);
         // The expanded lanes contain more physical pixels and Windows' software
         // renderer pays a larger anti-aliasing cost for their curved gradient path.
         // Keep a strict size-aware ceiling while retaining the independent total

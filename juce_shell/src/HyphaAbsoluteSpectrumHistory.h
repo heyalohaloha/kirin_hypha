@@ -24,6 +24,8 @@ struct Frame
 class History
 {
 public:
+    History() noexcept { peak.fill (-std::numeric_limits<float>::infinity()); }
+
     bool append (const KirinSpectrumView& view) noexcept
     {
         if (view.post_has_data == 0 || view.sample_rate < 8'000u
@@ -42,8 +44,11 @@ public:
                 clear();
         }
 
+        const bool replacing = count == historyCapacity;
         const size_t destination = count < historyCapacity
             ? (start + count) % historyCapacity : start;
+        const auto evicted = replacing ? frames[destination].postDbfs
+                                       : std::array<float, KIRIN_SPECTRUM_BAND_COUNT> {};
         frames[destination] = {
             view.presentation_end_samples,
             view.sample_rate,
@@ -55,7 +60,14 @@ public:
             ++count;
         else
             start = (start + 1u) % historyCapacity;
-        recomputePeakHold();
+        for (size_t band = 0u; band < peak.size(); ++band)
+        {
+            const auto incoming = view.post_dbfs[band];
+            if (! replacing || incoming >= peak[band])
+                peak[band] = std::max (peak[band], incoming);
+            else if (evicted[band] >= peak[band])
+                recomputePeakBand (band);
+        }
         return true;
     }
 
@@ -81,12 +93,11 @@ public:
     }
 
 private:
-    void recomputePeakHold() noexcept
+    void recomputePeakBand (size_t band) noexcept
     {
-        peak.fill (-std::numeric_limits<float>::infinity());
+        peak[band] = -std::numeric_limits<float>::infinity();
         for (size_t frameIndex = 0u; frameIndex < count; ++frameIndex)
-            for (size_t band = 0u; band < peak.size(); ++band)
-                peak[band] = std::max (peak[band], at (frameIndex).postDbfs[band]);
+            peak[band] = std::max (peak[band], at (frameIndex).postDbfs[band]);
     }
 
     std::array<Frame, historyCapacity> frames {};

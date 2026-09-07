@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "kirin_hypha_ffi.h"
+#include "HyphaAttackMotion.h"
 
 namespace hypha::attack_specimen
 {
@@ -17,13 +18,18 @@ namespace hypha::attack_specimen
     void drawAbsolute (juce::Graphics&,
                        const KirinAttackDetail&,
                        juce::Rectangle<int>,
-                       FeatureAmounts);
+                       FeatureAmounts,
+                       const attack_motion::Motion& = {});
 
     void drawComparison (juce::Graphics&,
                          const KirinAttackDetail& pre,
                          const KirinAttackDetail& post,
                          juce::Rectangle<int>,
                          FeatureAmounts preAmounts,
-                         FeatureAmounts postAmounts);
+                         FeatureAmounts postAmounts,
+                         const attack_motion::Motion& = {});
+
+    void drawMembrane (juce::Graphics&, juce::Rectangle<int>, FeatureAmounts,
+                       const attack_motion::Motion& = {}, bool reference = false);
 
 }

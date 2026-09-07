@@ -184,7 +184,7 @@ fn readiness_checks() -> Vec<Check> {
                     RELEASE_SOURCE_GATE,
                     &[
                         "assert_ignored_count parity 20",
-                        "assert_ignored_count pairing_candidates 5",
+                        "assert_ignored_count pairing_candidates 6",
                         "cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1",
                         "cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignored --test-threads=1",
                     ][..],

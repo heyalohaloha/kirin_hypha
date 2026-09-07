@@ -43,6 +43,10 @@ assert_ignored_count() {
 run cargo fmt --all -- --check
 run node --test scripts/public_history.test.mjs
 run node scripts/check_public_history.mjs --tip HEAD
+run node --test scripts/check_aax_sdk_absence.test.mjs
+run node scripts/check_aax_sdk_absence.mjs
+run node --test scripts/research/review/review.test.mjs
+run node --test scripts/research/review/evaluate_review_answers.test.mjs
 run bash scripts/test_source_line_budget.sh
 run bash scripts/check_source_line_budget.sh
 run node --test scripts/ls_release/release_metadata.test.mjs
@@ -74,6 +78,7 @@ PRE_DISPLAY_CMAKE_ARGS=(
   -B "$PRE_DISPLAY_BUILD"
   -DKIRIN_HYPHA_BUILD_PRE_DISPLAY_TESTS=ON
   -DKIRIN_HYPHA_BUILD_UI_RENDER_TESTS=ON
+  -DKIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS=ON
   -DCMAKE_BUILD_TYPE=Release
 )
 if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -81,9 +86,11 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 run cmake "${PRE_DISPLAY_CMAKE_ARGS[@]}"
 run cmake --build "$PRE_DISPLAY_BUILD" \
-  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests KirinAttackUiContractTests --config Release
+  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests \
+  KirinAttackUiContractTests KirinReferenceAuditionRuntimeTests --config Release
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
-  --output-on-failure -R '^(kirin_pre_display_runtime|kirin_ui_render_contract|kirin_attack_ui_contract)$'
+  --output-on-failure \
+  -R '^(kirin_pre_display_runtime|kirin_ui_render_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime)$'
 
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked
@@ -118,7 +125,7 @@ run cargo test -p xtask --locked
 # These real-time filesystem suites are deliberately ignored by the normal cargo test command.
 # Pin the inventory before running it so a renamed/deleted blocker test cannot disappear silently.
 assert_ignored_count parity 20
-assert_ignored_count pairing_candidates 5
+assert_ignored_count pairing_candidates 6
 run cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1
 run cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignored --test-threads=1
 

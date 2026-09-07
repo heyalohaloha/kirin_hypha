@@ -8,6 +8,7 @@
 #include <iostream>
 #include <utility>
 #include <vector>
+#include "TimeHistoryPaintProfile.h"
 
 namespace hypha::tests
 {
@@ -89,6 +90,16 @@ public:
         view.paintEntireComponent (graphics, true);
     }
 
+    void changeMeter (int tick)
+    {
+        KirinMeterSession meter {};
+        meter.state = KIRIN_METER_SESSION_ACTIVE;
+        meter.sample_rate = 48'000;
+        meter.lufs_m = -18.0 + std::sin (tick * 0.3) * 6.0;
+        meter.balance_db = std::cos (tick * 0.2) * 3.0;
+        view.setMeterSnapshot (meter, true);
+    }
+
 private:
     observatory::View view;
     juce::Image image;
@@ -108,6 +119,7 @@ int changedPixels (const juce::Image& left, const juce::Image& right)
 void verifyTimeHistoryContract()
 {
     const auto normal = fixture (false);
+    profileTimeHistoryPaint (normal);
     KIRIN_TIME_HISTORY_REQUIRE (
         time_history::selectAxis (normal).mode == time_history::AxisMode::sessionWithDawRuns);
     auto dawAxisFixture = normal;
@@ -203,6 +215,16 @@ void verifyTimeHistoryContract()
     // from the Windows software renderer's sub-millisecond scheduling variation.
     KIRIN_TIME_HISTORY_REQUIRE (paintMs < 12.5);
     KIRIN_TIME_HISTORY_REQUIRE (twoSlotPaintMs < 25.0);
+    const double changingStart = juce::Time::getMillisecondCounterHiRes();
+    for (int index = 0; index < paintIterations; ++index)
+    {
+        firstSlot.changeMeter (index);
+        firstSlot.paint();
+    }
+    const double changingMs = (juce::Time::getMillisecondCounterHiRes() - changingStart)
+                            / paintIterations;
+    std::cout << "TIME changing live state: " << changingMs << " ms/tick\n";
+    KIRIN_TIME_HISTORY_REQUIRE (changingMs < 12.5);
 
     const auto outputPath = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_HYPHA_TIME_TEST_PNG", {});

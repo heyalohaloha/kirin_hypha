@@ -12,6 +12,7 @@ enum class Density
     focused,
     standard,
     observatory,
+    inspection,
 };
 
 struct SizePreset
@@ -27,8 +28,13 @@ constexpr std::array<SizePreset, 5> sizePresets {{
     { 375, 250, Density::focused, "125%" },
     { 450, 300, Density::standard, "150%" },
     { 600, 400, Density::observatory, "200%" },
-    { 900, 600, Density::observatory, "300%" },
+    { 900, 600, Density::inspection, "300%" },
 }};
+
+constexpr bool isFullDensity (Density density) noexcept
+{
+    return density == Density::observatory || density == Density::inspection;
+}
 
 struct DisplayViewport
 {
@@ -96,6 +102,7 @@ static_assert (sizePresets[1].width == 375 && sizePresets[1].height == 250);
 static_assert (sizePresets[2].width == 450 && sizePresets[2].height == 300);
 static_assert (sizePresets[3].width == 600 && sizePresets[3].height == 400);
 static_assert (sizePresets[4].width == 900 && sizePresets[4].height == 600);
+static_assert (sizePresets[4].density == Density::inspection);
 static_assert (displayViewport (sizePresets[3]).width == 600
                && displayViewport (sizePresets[3]).height == 400);
 static_assert (displayViewport (sizePresets[4]).width == 900

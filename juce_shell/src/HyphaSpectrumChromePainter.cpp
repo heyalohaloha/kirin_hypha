@@ -2,6 +2,7 @@
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumMagnitudeChrome.h"
+#include "HyphaSpectrumAxisPainter.h"
 #include "HyphaAnalysisUiText.h"
 #include "HyphaSpectrumFocusTrailPainter.h"
 #include "HyphaSpectrumUiContract.h"
@@ -39,108 +40,6 @@ namespace
             return analysis_ui::slotsInUse (analysisOwnerNames);
         return {};
     }
-
-    juce::String axisFrequencyText (float hz)
-    {
-        if (hz < 1'000.0f)
-            return juce::String (juce::roundToInt (hz));
-        const float khz = hz / 1'000.0f;
-        const float rounded = std::round (khz);
-        return std::abs (khz - rounded) < 0.05f
-                 ? juce::String (juce::roundToInt (rounded)) + "k"
-                 : juce::String (khz, 1) + "k";
-    }
-
-    void paintAxes (juce::Graphics& g,
-                    juce::Rectangle<float> plot,
-                    float scale,
-                    float minimumHz,
-                    float maximumHz,
-                    bool absoluteObservation)
-    {
-        const auto scaled = [scale] (float value) { return value * scale; };
-        const auto scaledInt = [scale] (int value) {
-            return juce::roundToInt ((float) value * scale);
-        };
-        g.setFont (monoFont (8.5f * ui_contract::analysisTextScale (scale)));
-        g.setColour (COL_MUTED.withAlpha (0.86f));
-        if (absoluteObservation)
-            spectrum_magnitude_chrome::paintAxis (g, plot, scale, true, true);
-        else
-        {
-            const float zeroY = spectrum_geometry::yForDeltaDb (0.0f, plot);
-            g.drawText ("+24", 0, juce::roundToInt (plot.getY()) - scaledInt (4),
-                        scaledInt (21), scaledInt (10), juce::Justification::centredRight);
-            g.drawText ("0", 0, juce::roundToInt (zeroY) - scaledInt (5),
-                        scaledInt (21), scaledInt (10), juce::Justification::centredRight);
-            g.drawText ("-24", 0, juce::roundToInt (plot.getBottom()) - scaledInt (6),
-                        scaledInt (21), scaledInt (10), juce::Justification::centredRight);
-            for (float db : { -12.0f, -6.0f, 6.0f, 12.0f })
-            {
-                const float y = spectrum_geometry::yForDeltaDb (db, plot);
-                g.setColour (COL_MUTED.withAlpha (0.18f));
-                g.drawHorizontalLine (juce::roundToInt (y), plot.getX(), plot.getRight());
-            }
-            spectrum_magnitude_chrome::paintAxis (g, plot, scale, false, false);
-        }
-        for (float hz : { 100.0f, 1'000.0f, 10'000.0f })
-        {
-            if (hz <= minimumHz || hz >= maximumHz)
-                continue;
-            const float x = spectrum_geometry::xForFrequency (
-                hz, minimumHz, maximumHz, plot);
-            g.setColour (COL_MUTED.withAlpha (0.13f));
-            g.drawVerticalLine (juce::roundToInt (x), plot.getY(), plot.getBottom());
-        }
-        if (scale > 1.375f)
-        {
-            g.setColour (COL_MUTED.withAlpha (0.20f));
-            const float tickLength = scaled (3.0f);
-            for (float hz : { 20.0f, 50.0f, 200.0f, 500.0f,
-                              2'000.0f, 5'000.0f, 20'000.0f })
-            {
-                if (hz <= minimumHz || hz >= maximumHz)
-                    continue;
-                const float x = spectrum_geometry::xForFrequency (
-                    hz, minimumHz, maximumHz, plot);
-                g.drawLine (x, plot.getY(), x, plot.getY() + tickLength, 1.0f);
-                g.drawLine (x, plot.getBottom() - tickLength, x, plot.getBottom(), 1.0f);
-            }
-        }
-
-        g.setColour (COL_MUTED.withAlpha (0.9f));
-        g.drawText (axisFrequencyText (minimumHz), juce::roundToInt (plot.getX()),
-                    juce::roundToInt (plot.getBottom()) + scaledInt (1),
-                    scaledInt (30), scaledInt (10), juce::Justification::centredLeft);
-        if (minimumHz < 1'000.0f && maximumHz > 1'000.0f)
-        {
-            const float oneKhzX = spectrum_geometry::xForFrequency (
-                1'000.0f, minimumHz, maximumHz, plot);
-            g.drawText ("1k", juce::roundToInt (oneKhzX) - scaledInt (15),
-                        juce::roundToInt (plot.getBottom()) + scaledInt (1),
-                        scaledInt (30), scaledInt (10), juce::Justification::centred);
-        }
-        g.drawText (axisFrequencyText (maximumHz),
-                    juce::roundToInt (plot.getRight()) - scaledInt (30),
-                    juce::roundToInt (plot.getBottom()) + scaledInt (1),
-                    scaledInt (30), scaledInt (10), juce::Justification::centredRight);
-        if (scale > 1.125f)
-        {
-            g.setColour (COL_MUTED.withAlpha (0.72f));
-            for (float hz : { 100.0f, 10'000.0f })
-            {
-                if (hz <= minimumHz || hz >= maximumHz)
-                    continue;
-                const float x = spectrum_geometry::xForFrequency (
-                    hz, minimumHz, maximumHz, plot);
-                g.drawText (axisFrequencyText (hz),
-                            juce::roundToInt (x) - scaledInt (15),
-                            juce::roundToInt (plot.getBottom()) + scaledInt (1),
-                            scaledInt (30), scaledInt (10), juce::Justification::centred);
-            }
-        }
-    }
-
     void paintModeAndLegend (juce::Graphics& g,
                              juce::Rectangle<float> outerPlot,
                              float scale,
@@ -200,22 +99,17 @@ namespace
         if (showProbe)
             return;
 
-        const int legendOffset = scaledInt (ui_contract::spectrumLegendAfterChannelModes);
+        const int legendOffset = 0;
         const float legendTop = outerPlot.getY()
-                              + scaled ((float) ui_contract::spectrumLegendTop);
+                              + scaled (17.0f);
         g.setFont (monoFont (ui_contract::spectrumLegendFontHeight
                              * ui_contract::analysisTextScale (scale)));
         if (state.absoluteObservation)
         {
             g.setColour (COL_SPECTRUM_POST.withAlpha (0.96f));
-            g.drawText ("POST ABS", juce::roundToInt (outerPlot.getX()) + legendOffset,
-                        juce::roundToInt (legendTop), scaledInt (48),
-                        scaledInt (ui_contract::spectrumLegendHeight),
-                        juce::Justification::centredLeft);
-            g.setColour (COL_FLORA_BR.withAlpha (0.64f));
-            g.drawText ("6 S FIELD  HOLD",
-                        juce::roundToInt (outerPlot.getX()) + legendOffset + scaledInt (52),
-                        juce::roundToInt (legendTop), scaledInt (92),
+            g.drawText (scale > 1.4f ? "POST dBFS / 6s field / peak hold" : "POST dBFS / 6s",
+                        juce::roundToInt (outerPlot.getX()),
+                        juce::roundToInt (legendTop), juce::roundToInt (outerPlot.getWidth()),
                         scaledInt (ui_contract::spectrumLegendHeight),
                         juce::Justification::centredLeft);
             return;
@@ -357,7 +251,7 @@ namespace
                       expanded ? ui_contract::spectrumExpandedFrequencyWidth
                                : ui_contract::spectrumHoverFrequencyWidth,
                       juce::Justification::centredLeft);
-            drawText ("POST " + juce::String (postDbfs, 1),
+            drawText ((expanded ? "POST " : "") + juce::String (postDbfs, 1),
                       COL_SPECTRUM_POST.withAlpha (0.98f),
                       expanded ? ui_contract::spectrumExpandedPostX
                                : ui_contract::spectrumHoverDeltaX,
@@ -429,7 +323,7 @@ void paint (juce::Graphics& g,
 {
     const float scale = spectrum_geometry::visualScaleFor (bounds);
     const auto outerPlot = spectrum_geometry::plotBoundsFor (bounds);
-    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds);
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, ! state.absoluteObservation);
     const float minimumHz = state.haveSnapshot && state.snapshot.min_hz > 0.0f
                           ? state.snapshot.min_hz : 10.0f;
     const float maximumHz = state.haveSnapshot && state.snapshot.max_hz > minimumHz
@@ -447,7 +341,9 @@ void paint (juce::Graphics& g,
                 state.focusFrequencyHz, minimumHz, maximumHz))
         : -1.0f;
 
-    paintAxes (g, plot, scale, minimumHz, maximumHz, state.absoluteObservation);
+    g.setColour (juce::Colours::black);
+    g.fillRect (plot);
+    spectrum_axes::paintAxes (g, plot, scale, minimumHz, maximumHz, state.absoluteObservation);
     const bool expandedReadout = scale > 1.1f && probeNormalisedX >= 0.0f;
     const float reservedReadoutWidth = probeNormalisedX >= 0.0f
         ? (float) (scale > 1.1f ? ui_contract::spectrumExpandedReadoutWidth
@@ -460,7 +356,7 @@ void paint (juce::Graphics& g,
 
     if (! state.snapshotValid)
     {
-        const auto text = state.haveSnapshot
+        const auto text = ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot
                             ? statusText (state.snapshot.status, state.analysisOwnerNames)
                                              : juce::String ("SYNC");
         if (text.isNotEmpty())

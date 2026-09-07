@@ -8,8 +8,9 @@
 
 // B-054: POST button row, element-for-element with hypha_post draw_button_row.
 // States (license-gated; Os = license code 0, Sense = 1):
-//   Watch  (not recording): [Keep] (Os, fixed slot; disabled only while Unpaired) | Sense hint (Sense) | nothing (Unknown)
-//   Record (recording):     [Stop] (Os)
+//   Watch  (not recording): [Keep] always visible; enabled only for Os + paired PRE.
+//                            Non-Os also sees the short Kirin OS explanation.
+//   Record (recording):     [Stop] remains visible even if entitlement changes mid-session.
 // The playback pair-lock does NOT affect these (約束 5 #5: Stop/Keep stay available); only
 // the pair-name field is locked during playback (handled in the editor). All actions are routed
 // back to the processor via the callbacks; no measurement logic lives here (R-12 / R-22).

@@ -9,11 +9,12 @@ use std::collections::VecDeque;
 use std::fmt;
 
 use crate::phase_d::channels::PhaseDSharpnessChannelStream;
+use crate::phase_d::display::{DisplayObservation, PsbShares};
 use crate::phase_d::tables::FieldType;
 use crate::resampler::ResamplerTo48k;
 use crate::spectrum::SpectrumChannelMode;
 
-pub const PERCEPTUAL_SCHEMA_VERSION: u16 = 2;
+pub const PERCEPTUAL_SCHEMA_VERSION: u16 = 3;
 pub const PERCEPTUAL_PRESENTATION_HZ: u32 = 10;
 const PHASE_D_APERTURE_FRAMES: usize = 48_000 / PERCEPTUAL_PRESENTATION_HZ as usize;
 
@@ -30,6 +31,7 @@ pub struct PerceptualFrame {
     pub channels: u8,
     /// DIN 45692:2009 Widmann sharpness at this exact continuous-state endpoint [acum].
     pub sharpness: f64,
+    pub psb: Option<PsbShares>,
 }
 
 impl PerceptualFrame {
@@ -58,6 +60,8 @@ pub struct PerceptualDifference {
     pub post_sharpness: f64,
     /// Signed POST - PRE sharpness [acum]. This fact is never clipped.
     pub delta_sharpness: f64,
+    pub pre_psb: Option<PsbShares>,
+    pub post_psb: Option<PsbShares>,
 }
 
 pub fn difference_post_minus_pre(
@@ -77,6 +81,8 @@ pub fn difference_post_minus_pre(
         pre_sharpness: pre.sharpness,
         post_sharpness: post.sharpness,
         delta_sharpness: post.sharpness - pre.sharpness,
+        pre_psb: pre.psb,
+        post_psb: post.psb,
     })
 }
 
@@ -247,7 +253,7 @@ impl SharpnessContinuousAnalyzer {
         } else {
             let sharpness = self
                 .lr_stream
-                .push_interleaved_slot(&self.lr_samples)
+                .push_display_slot(&self.lr_samples)
                 .ok_or(PerceptualError::AnalysisUnavailable)?;
             self.publish_next(sharpness, generation)
         }
@@ -285,7 +291,7 @@ impl SharpnessContinuousAnalyzer {
         } else {
             let sharpness = self
                 .mono_stream
-                .push_interleaved_slot(&self.mono_samples)
+                .push_display_slot(&self.mono_samples)
                 .ok_or(PerceptualError::AnalysisUnavailable)?;
             self.publish_next(sharpness, generation)
         }
@@ -296,7 +302,7 @@ impl SharpnessContinuousAnalyzer {
         while self.resampled_lr.len() >= slot_samples {
             let sharpness = self
                 .lr_stream
-                .push_interleaved_slot(&self.resampled_lr[..slot_samples])
+                .push_display_slot(&self.resampled_lr[..slot_samples])
                 .ok_or(PerceptualError::AnalysisUnavailable)?;
             self.resampled_lr.drain(..slot_samples);
             self.publish_next(sharpness, generation)?;
@@ -308,7 +314,7 @@ impl SharpnessContinuousAnalyzer {
         while self.resampled_mono.len() >= PHASE_D_APERTURE_FRAMES {
             let sharpness = self
                 .mono_stream
-                .push_interleaved_slot(&self.resampled_mono[..PHASE_D_APERTURE_FRAMES])
+                .push_display_slot(&self.resampled_mono[..PHASE_D_APERTURE_FRAMES])
                 .ok_or(PerceptualError::AnalysisUnavailable)?;
             self.resampled_mono.drain(..PHASE_D_APERTURE_FRAMES);
             self.publish_next(sharpness, generation)?;
@@ -316,7 +322,11 @@ impl SharpnessContinuousAnalyzer {
         Ok(())
     }
 
-    fn publish_next(&mut self, sharpness: f64, generation: u64) -> Result<(), PerceptualError> {
+    fn publish_next(
+        &mut self,
+        observation: DisplayObservation,
+        generation: u64,
+    ) -> Result<(), PerceptualError> {
         let presentation_end_samples = self
             .pending_endpoints
             .pop_front()
@@ -332,7 +342,8 @@ impl SharpnessContinuousAnalyzer {
             generation,
             channel_mode: self.active_mode.ok_or(PerceptualError::DefinitionChanged)?,
             channels: self.input_channels as u8,
-            sharpness,
+            sharpness: observation.sharpness,
+            psb: observation.shares(),
         });
         Ok(())
     }
@@ -341,3 +352,7 @@ impl SharpnessContinuousAnalyzer {
 #[cfg(test)]
 #[path = "perceptual_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "psb_display_tests.rs"]
+mod psb_tests;

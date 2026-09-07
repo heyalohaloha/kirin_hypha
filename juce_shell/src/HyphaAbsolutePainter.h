@@ -13,6 +13,7 @@ struct PaintState
     const juce::String& analysisOwnerNames;
     bool haveBatch;
     bool haveNumericSnapshot;
+    bool signalActive = true;
 };
 
 // LIVE keeps the measurement fact unavailable (NaN) while presenting it at the fixed scale's

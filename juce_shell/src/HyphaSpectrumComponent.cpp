@@ -1,6 +1,5 @@
 #include "HyphaSpectrumComponent.h"
 
-#include "HyphaSpectrumChromePainter.h"
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumPresentation.h"
 
@@ -81,6 +80,11 @@ SpectrumComponent::SpectrumComponent()
     setAccessible (false);
 }
 
+bool SpectrumComponent::currentSnapshotValid() const noexcept
+{
+    return haveSnapshot && validSnapshot (snapshot, absoluteObservation);
+}
+
 void SpectrumComponent::setAnalysisOwnerNames (const juce::String& names)
 {
     if (analysisOwnerNames == names)
@@ -103,6 +107,8 @@ void SpectrumComponent::setAbsoluteObservation (bool absolute)
     if (absoluteObservation == absolute)
         return;
     absoluteObservation = absolute;
+    absolutePsbAvailable = deltaPsbAvailable = false;
+    psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     clearInteractionState();
     if (haveSnapshot)
     {
@@ -287,6 +293,8 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
 
 void SpectrumComponent::clearSnapshot()
 {
+    absolutePsbAvailable = deltaPsbAvailable = false;
+    psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     snapshot = {};
     pendingSnapshot = {};
     displayedPre.fill (0.0f);
@@ -378,7 +386,22 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
     const auto bounds = getLocalBounds().toFloat();
     const float scale = spectrum_geometry::visualScaleFor (bounds);
     const auto outerPlot = spectrum_geometry::plotBoundsFor (bounds);
-    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds);
+    if (spectrum_geometry::subviewBoundsFor (outerPlot, scale).contains (event.position))
+    {
+        psbObservation = ! psbObservation;
+        clearSnapshot();
+        absolutePsbAvailable = deltaPsbAvailable = false;
+        psbStatus = KIRIN_SPECTRUM_WARMING_UP;
+        if (onSubviewChange) onSubviewChange();
+        psbHoverBand = -1;
+        hoverNormalisedX = -1.0f;
+        setTooltip (psbObservation ? "PSB: perceptual share by Bark band"
+                                   : "Spectrum: frequency level and difference");
+        repaint();
+        return;
+    }
+    if (psbObservation) return;
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, ! absoluteObservation);
     for (size_t index = 0; index < ui_contract::spectrumChannelModeWidths.size(); ++index)
     {
         if (! spectrum_geometry::channelModeBoundsFor (
@@ -474,17 +497,4 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
     repaint();
 }
 
-void SpectrumComponent::paint (juce::Graphics& g)
-{
-    const spectrum_chrome::PaintState state {
-        snapshot, displayedPre, displayedPost, displayedDelta,
-        readoutPre, readoutPost, readoutDelta, markedDelta,
-        focusTrail.get(), modeActionNotice, analysisOwnerNames,
-        guideOverlay,
-        &absoluteHistory, absoluteHistory.peakHold(), absoluteObservation,
-        haveSnapshot, haveSnapshot && validSnapshot (snapshot, absoluteObservation),
-        haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels
-    };
-    spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);
-}
 }

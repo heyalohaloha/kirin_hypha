@@ -44,6 +44,7 @@ fn exact_endpoint_epoch_and_aperture_are_required_for_difference() {
         channel_mode: SpectrumChannelMode::Lr,
         channels: 2,
         sharpness: 1.25,
+        psb: Some([0.05; 20]),
     };
     let mut post = frame.clone();
     post.sharpness = 1.55;

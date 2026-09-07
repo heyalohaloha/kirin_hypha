@@ -1,115 +1,6 @@
 #[cfg(test)]
 mod tests {
-    const POST_CONTROLS_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PostControls.cpp"
-    ));
-    const POST_CONTROLS_H: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PostControls.h"
-    ));
-    const README: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../README.md"));
-    const PLUGIN_EDITOR_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PluginEditor.cpp"
-    ));
-    const PLUGIN_EDITOR_H: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PluginEditor.h"
-    ));
-    const PLUGIN_EDITOR_OBSERVATORY_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PluginEditorObservatory.cpp"
-    ));
-    const PLUGIN_EDITOR_CAPTURE_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PluginEditorCapture.cpp"
-    ));
-    const PLUGIN_PROCESSOR_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PluginProcessor.cpp"
-    ));
-    const PLUGIN_PROCESSOR_H: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PluginProcessor.h"
-    ));
-    const JUCE_PLUGIN_CONFIG: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/KirinJucePluginConfig.h"
-    ));
-    const JUCE_CMAKE: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/CMakeLists.txt"
-    ));
-    const FFI_HEADER: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h"
-    ));
-    const HYPHA_THEME_H: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/HyphaTheme.h"
-    ));
-    const HYPHA_TYPOGRAPHY_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/HyphaTypography.cpp"
-    ));
-    const HYPHA_UI_CONTRACT_H: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/HyphaUiContract.h"
-    ));
-    const HYPHA_OBSERVATORY_VIEW_H: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/HyphaObservatoryView.h"
-    ));
-    const HYPHA_DISPLAY_CONTRACT_H: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/HyphaDisplayContract.h"
-    ));
-    const PRE_DISPLAY_CONTROLLER_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/pre_display/PreDisplayController.cpp"
-    ));
-    const PRE_DISPLAY_CONTROLLER_CONNECTION_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/pre_display/PreDisplayControllerConnection.cpp"
-    ));
-    const PRE_DISPLAY_REPOSITORY_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/pre_display/PreDisplayRepository.cpp"
-    ));
-    const PRE_DISPLAY_PROTOCOL_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/pre_display/PreDisplayProtocol.cpp"
-    ));
-    const PRE_DISPLAY_PROTOCOL_TIME_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/pre_display/PreDisplayProtocolTime.cpp"
-    ));
-    const PRE_DISPLAY_TRANSPORT_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/pre_display/PreDisplayTransport.cpp"
-    ));
-
-    fn read_juce_au_wrapper() -> Option<String> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../juce_shell/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm",
-        );
-        std::fs::read_to_string(path)
-            .ok()
-            .map(|source| source.replace("\r\n", "\n"))
-    }
-
-    fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
-        let start_index = source.find(start).expect(start) + start.len();
-        let tail = &source[start_index..];
-        let end_index = tail.find(end).expect(end);
-        &tail[..end_index]
-    }
-
-    fn count_occurrences(source: &str, needle: &str) -> usize {
-        source.match_indices(needle).count()
-    }
-
+    include!("shell_parity/source_fixtures.rs");
     #[test]
     fn readme_record_controls_match_shipped_post_ui() {
         let record_mode = README
@@ -127,7 +18,6 @@ mod tests {
         assert!(!POST_CONTROLS_H.contains("markBtn"));
         assert!(!POST_CONTROLS_CPP.contains("onMark"));
     }
-
     #[test]
     fn common_juce_shell_owns_watch_max_for_both_formats_and_roles() {
         assert!(FFI_HEADER.contains("KirinMeasureResult current;"));
@@ -229,9 +119,9 @@ mod tests {
     #[test]
     fn au_and_vst3_compile_the_same_editor_without_format_specific_ui_branches() {
         assert!(JUCE_CMAKE.contains("set(KIRIN_PLUGIN_FORMATS AU VST3)"));
-        assert_eq!(count_occurrences(JUCE_CMAKE, "src/PluginEditor.cpp"), 1);
+        assert!(JUCE_CMAKE.contains("\n        src/PluginEditor.cpp\n"));
         assert_eq!(count_occurrences(JUCE_CMAKE, "src/HyphaWidgets.cpp"), 1);
-        assert_eq!(count_occurrences(JUCE_CMAKE, "src/PostControls.cpp"), 1);
+        assert!(JUCE_CMAKE.contains("src/PostControls.cpp"));
         for forbidden in [
             "JucePlugin_Build_AU",
             "JucePlugin_Build_VST3",
@@ -345,11 +235,7 @@ mod tests {
 
     #[test]
     fn keep_preparing_and_armed_are_visible_and_stoppable_before_record_ack() {
-        let body = between(
-            PLUGIN_EDITOR_CPP,
-            "void KirinHyphaEditor::updatePost()",
-            "const int ledSig",
-        );
+        let body = cpp_body(PLUGIN_EDITOR_CPP, "void KirinHyphaEditor::updatePost()");
         assert!(FFI_HEADER.contains("#define KIRIN_KEEP_PHASE_IDLE 0u"));
         assert!(FFI_HEADER.contains("#define KIRIN_KEEP_PHASE_PREPARING 1u"));
         assert!(FFI_HEADER.contains("#define KIRIN_KEEP_PHASE_ARMED 2u"));
@@ -359,7 +245,7 @@ mod tests {
         assert!(body.contains("\"Preparing pairs...\""));
         assert!(body.contains("\"Ready to bounce\""));
         assert!(body.contains("postControls->update (keepActive"));
-        assert!(POST_CONTROLS_CPP.contains("stopBtn  .setVisible (keepActive && os);"));
+        assert!(POST_CONTROLS_CPP.contains("stopBtn  .setVisible (keepActive);"));
     }
 
     #[test]
@@ -411,17 +297,13 @@ mod tests {
         assert!(POST_CONTROLS_CPP.contains(
             "void PostControls::update (bool keepActive, int license, bool pairSelected)"
         ));
-        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setVisible (! keepActive && os);"));
-        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setEnabled (pairSelected);"));
+        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setVisible (! keepActive);"));
+        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setEnabled (os && pairSelected);"));
         assert!(!POST_CONTROLS_CPP
             .contains("keepBtn  .setVisible (! keepActive && os && pairSelected);"));
     }
 
-    /// B-195 (Step3 監査ギャップ): PostControls::update の可視性式を **全行** 固定する。
-    /// これにより kirin_hypha_ffi の値レベル parity replica
-    /// (post_controls_parity_tests::post_controls_visibility_matches_rust_license_helpers) が
-    /// C++ ソースと一致したままであることを保証する。C++ の os/sense マッピングや
-    /// 各ボタン行が変われば本テストが落ち、replica を同時更新する必要があると分かる。
+    /// Visibility and entitlement are separate: unavailable OS features remain discoverable.
     #[test]
     fn post_controls_update_visibility_formula_is_pinned() {
         let body = between(
@@ -429,12 +311,11 @@ mod tests {
             "void PostControls::update (bool keepActive, int license, bool pairSelected)",
             "void PostControls::resized()",
         );
-        assert!(body.contains("const bool os    = (license == 0);"));
-        assert!(body.contains("const bool sense = (license == 1);"));
-        assert!(body.contains("keepBtn  .setVisible (! keepActive && os);"));
-        assert!(body.contains("keepBtn  .setEnabled (pairSelected);"));
-        assert!(body.contains("senseBtn .setVisible (! keepActive && sense);"));
-        assert!(body.contains("stopBtn  .setVisible (keepActive && os);"));
+        assert!(body.contains("const bool os = license == 0;"));
+        assert!(body.contains("keepBtn  .setVisible (! keepActive);"));
+        assert!(body.contains("keepBtn  .setEnabled (os && pairSelected);"));
+        assert!(body.contains("senseBtn .setVisible (! keepActive && ! os);"));
+        assert!(body.contains("stopBtn  .setVisible (keepActive);"));
         assert!(!body.contains("markBtn"));
         assert!(!body.contains("markPickerOpen"));
     }
@@ -470,8 +351,9 @@ mod tests {
         assert!(body.contains("labelChecked.add (keepReady && ! inUse);"));
         assert!(body.contains("const int nReady = processorRef.keepReadyCount();"));
         assert!(body.contains("processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE"));
-        assert!(body.contains("if (! keepActive && processorRef.licenseIsOs() && nReady >= 1)"));
-        assert!(body.contains("menu.addItem (1, allKeepMenuLabel (nReady));"));
+        assert!(body.contains("const bool osOwned = processorRef.licenseIsOs();"));
+        assert!(body.contains("osOwned && nReady >= 1"));
+        assert!(body.contains("All Keep: Kirin OS required"));
         assert!(body.contains("menu.addItem (2, \"All Stop: active POSTs\");"));
         assert!(body.contains("menu.addSectionHeader (\"Pair choices (not Keep targets)\");"));
         assert!(body.contains("menu.addItem (3, \"No pair choices\", false, false);"));
@@ -505,10 +387,9 @@ mod tests {
 
     #[test]
     fn candidate_selection_commits_exact_instance_and_updates_display_field() {
-        let body = between(
+        let body = cpp_body(
             PLUGIN_EDITOR_CPP,
             "void KirinHyphaEditor::handleCandidateMenu (",
-            "void KirinHyphaEditor::timerCallback()",
         );
 
         assert!(body.contains("processorRef.setPairCandidate (candidate.instanceId, name)"));
@@ -538,10 +419,9 @@ mod tests {
 
     #[test]
     fn juce_all_keep_uses_authoritative_engine_result() {
-        let body = between(
+        let body = cpp_body(
             PLUGIN_EDITOR_CPP,
             "void KirinHyphaEditor::handleCandidateMenu (",
-            "void KirinHyphaEditor::timerCallback()",
         );
         let all_keep_body = between(body, "if (result == 1)", "else if (result == 2)");
 
@@ -572,7 +452,13 @@ mod tests {
         );
         assert!(!timer.contains("kirin_hypha_load_license"));
         assert!(PLUGIN_PROCESSOR_CPP
+            .contains("cachedLicenseCode.store (observed, std::memory_order_release);"));
+        assert!(PLUGIN_PROCESSOR_CPP
             .contains("kirin_hypha_set_license (hyphaHandle, (uint8_t) observed);"));
+        assert!(
+            !PLUGIN_PROCESSOR_CPP.contains("observed == 2"),
+            "Unknown entitlement must revoke cached OS access instead of falling back"
+        );
         assert!(PLUGIN_PROCESSOR_CPP
             .contains("cachedLicenseCode.load (std::memory_order_acquire) == 0"));
         assert!(PLUGIN_EDITOR_CPP.contains("Record requires Kirin OS license"));

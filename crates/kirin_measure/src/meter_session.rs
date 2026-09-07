@@ -30,6 +30,8 @@ pub struct MeterSessionSnapshot {
     pub observed_frames: u64,
     /// Latest complete 100 ms observation from the same engine as `summary`.
     pub current: MeasureResult,
+    /// Producer-owned Session maxima. S/Crest are observed at 100 ms, M at 10 ms.
+    pub maximum: MeasureResult,
     /// EBU Mode Maximum Momentary through the same complete 100 ms observation boundary.
     pub max_lufs_m: Option<f64>,
     pub summary: SessionSummary,
@@ -88,6 +90,7 @@ pub struct MeterSession {
     active_frames: u64,
     state: MeterSessionState,
     current: MeasureResult,
+    maximum: MeasureResult,
     max_lufs_m: Option<f64>,
     summary: SessionSummary,
     observed_frames: u64,
@@ -108,6 +111,7 @@ impl MeterSession {
             active_frames: 0,
             state: MeterSessionState::Empty,
             current: MeasureResult::default(),
+            maximum: MeasureResult::default(),
             max_lufs_m: None,
             summary: SessionSummary::default(),
             observed_frames: 0,
@@ -154,6 +158,16 @@ impl MeterSession {
                 });
                 self.current = current.clone();
                 self.max_lufs_m = max_lufs_m;
+                self.maximum.lufs_m = max_lufs_m;
+                self.maximum.true_peak = current.tp_session_max;
+                for (maximum, value) in [
+                    (&mut self.maximum.lufs_s, current.lufs_s),
+                    (&mut self.maximum.crest, current.crest),
+                ] {
+                    if let Some(value) = value.filter(|v| v.is_finite()) {
+                        *maximum = Some(maximum.map_or(value, |old| old.max(value)));
+                    }
+                }
                 self.observed_frames = self
                     .observed_frames
                     .saturating_add((observed_samples.len() / self.n_channels) as u64);
@@ -214,6 +228,7 @@ impl MeterSession {
         self.active_frames = 0;
         self.state = MeterSessionState::Empty;
         self.current = MeasureResult::default();
+        self.maximum = MeasureResult::default();
         self.max_lufs_m = None;
         self.summary = SessionSummary::default();
         self.observed_frames = 0;
@@ -230,6 +245,7 @@ impl MeterSession {
             active_frames: self.active_frames,
             observed_frames: self.observed_frames,
             current: self.current.clone(),
+            maximum: self.maximum.clone(),
             max_lufs_m: self.max_lufs_m,
             summary: self.summary,
             plr: self
@@ -246,3 +262,7 @@ impl MeterSession {
 #[cfg(test)]
 #[path = "meter_session_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "meter_session_maximum_tests.rs"]
+mod maximum_tests;

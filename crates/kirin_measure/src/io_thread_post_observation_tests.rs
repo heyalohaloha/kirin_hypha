@@ -91,6 +91,7 @@ fn confirmed_self_check_release_is_published_in_the_same_observation_tick() {
             delta_result,
             signal_state,
             is_playing,
+            reference_audition_active: Arc::new(AtomicBool::new(false)),
         },
         PostPairObservationDeps {
             paired_pre_target,

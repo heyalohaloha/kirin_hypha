@@ -5,7 +5,6 @@
 #endif
 
 #include <cmath>
-#include <limits>
 
 using hypha::COL_FLORA;
 using hypha::COL_FLORA_BR;
@@ -18,7 +17,6 @@ namespace
 {
     namespace ui = hypha::ui_contract;
     namespace display = hypha::display_contract;
-    const double    kNaN = std::numeric_limits<double>::quiet_NaN();
 
     juce::Rectangle<int> juceRect (ui::Rect rect)
     {
@@ -40,59 +38,7 @@ namespace
         return {};
     }
 
-    juce::String allKeepMenuLabel (int nReady)
-    {
-        return juce::String ("All Keep: ") + juce::String (nReady) + " ready POST"
-             + (nReady == 1 ? "" : "s");
-    }
 
-    bool claimedByOtherPost (const KirinHyphaProcessorBase::PreCandidate& candidate,
-                             const juce::String& ownInstanceId,
-                             const juce::Array<KirinHyphaProcessorBase::PostPairClaim>& claims)
-    {
-        for (const auto& c : claims)
-            if (c.instanceId != ownInstanceId
-                && ((c.hasPairedPreInstanceId && c.pairedPreInstanceId == candidate.instanceId)
-                    || (! c.hasPairedPreInstanceId && c.hasPairPreName && candidate.hasName
-                        && candidate.name.isNotEmpty() && c.pairPreName == candidate.name)))
-                return true;
-        return false;
-    }
-
-    juce::String resolvedOwnPreInstanceId (
-        const juce::String& ownInstanceId,
-        const juce::String& latchedPreInstanceId,
-        const juce::Array<KirinHyphaProcessorBase::PostPairClaim>& claims)
-    {
-        for (const auto& claim : claims)
-            if (claim.instanceId == ownInstanceId && claim.hasPairedPreInstanceId)
-                return claim.pairedPreInstanceId;
-        return latchedPreInstanceId;
-    }
-
-    juce::String pairStatusText (int status, bool postAbsolute = false)
-    {
-        if (postAbsolute) return "ABS";
-        if (status == KIRIN_PAIR_STATUS_PAIRED) return juce::CharPointer_UTF8 ("PAIR ●");
-        if (status == KIRIN_PAIR_STATUS_WAITING) return juce::CharPointer_UTF8 ("PAIR ◌");
-        return juce::CharPointer_UTF8 ("PAIR —");
-    }
-
-    juce::Colour pairStatusColour (int status, bool postAbsolute = false)
-    {
-        if (postAbsolute) return COL_SPECTRUM_POST;
-        if (status == KIRIN_PAIR_STATUS_PAIRED) return hypha::COL_LED_BLUE;
-        if (status == KIRIN_PAIR_STATUS_WAITING) return COL_FLORA;
-        return COL_MUTED;
-    }
-
-    juce::String pairStatusHelp (int status, bool postAbsolute = false)
-    {
-        if (postAbsolute) return "Paired PRE is off. Showing POST absolute values.";
-        if (status == KIRIN_PAIR_STATUS_PAIRED) return "PRE and POST are paired.";
-        if (status == KIRIN_PAIR_STATUS_WAITING) return "Waiting for the selected PRE.";
-        return "No PRE pair is selected.";
-    }
 
 }
 
@@ -110,9 +56,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     tooltip.setLookAndFeel (&tooltipLookAndFeel);
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
-    // ObservatoryView covers the complete logical surface. Declaring the scale root opaque lets
-    // Windows present one finished frame instead of compositing it over an intermediate editor
-    // background while a transformed child hierarchy is being refreshed.
+    // One opaque Observatory root lets Windows present a completed frame instead of compositing
+    // intermediate transformed children.
     scaleRoot.setOpaque (true);
     addAndMakeVisible (scaleRoot);
     observatorySizeIndex = juce::jmin (
@@ -126,7 +71,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         processorRef.observatoryTargetPreference()));
     observatoryView.setTimeRange (hypha::observatory::timeRangeFromState (
         processorRef.observatoryTimeRangePreference()));
-    setResizable (true, false);
+    configureMeterContext(); setResizable (true, false);
     setResizeLimits (300, 200, 900, 600);
     if (auto* constrainer = getConstrainer())
         constrainer->setFixedAspectRatio (1.5);
@@ -147,11 +92,13 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     };
     observatoryView.onTargetChange = [this] (hypha::observatory::ObservationTarget target)
     {
+        if (! observatoryView.capabilities().targetSelectable) return;
         observatoryView.setTarget (target);
         processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (target));
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         spectrumView.setAbsoluteObservation (
             target == hypha::observatory::ObservationTarget::absolute);
+        if (analysisPage == AnalysisPage::spectrum) configureSpectrumAnalysis();
        #endif
     };
     observatoryView.onTimeRangeChange = [this] (hypha::observatory::TimeRange range)
@@ -168,12 +115,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
             }
         setSize (preset.width, preset.height);
     };
-    observatoryView.onReset = [this]
-    {
-        if (! processorRef.resetMeterSession())
-            showToast ("Meter Session could not be reset");
-    };
     observatoryView.onCapture = [this] { beginObservatoryCapture(); };
+    observatoryView.onInformation = [this] { showInformationMenu(); };
     scaleRoot.addAndMakeVisible (observatoryView);
 
     scaleRoot.addAndMakeVisible (led);
@@ -280,6 +223,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         {
             return processorRef.setSpectrumChannelMode (channelMode);
         };
+        spectrumView.onSubviewChange = [this] { configureSpectrumAnalysis(); };
         perceptualView.onChannelModeChange = [this] (uint8_t channelMode)
         {
             return processorRef.setSpectrumChannelMode (channelMode);
@@ -291,6 +235,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         scaleRoot.addChildComponent (perceptualView);
         scaleRoot.addChildComponent (absoluteView);
         scaleRoot.addChildComponent (attackView);
+        configureReferenceAudition();
        #endif
     }
     else
@@ -301,9 +246,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setFallback (instanceId8());
     }
 
-    // A single role-independent slot prevents the old banner/toast/error rows from painting over
-    // one another. updateFeedback() owns both priority and colour, while this component owns the
-    // only bottom-row rectangle in the AU/VST3 contract.
+    // One role-independent slot owns feedback priority and the only bottom-row rectangle.
     feedbackLabel.setFont (hypha::monoFont (ui::feedbackFontHeight));
     feedbackLabel.setJustificationType (juce::Justification::centredLeft);
     feedbackLabel.setMinimumHorizontalScale (1.0f);
@@ -317,7 +260,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     guideConnectButton.onClick = [this]
     {
         if (! processorRef.acceptPreDisplayConnection())
-            showToast ("Connection request is no longer available");
+            showToast (processorRef.licenseIsOs() ? "Connection request is no longer available"
+                                                  : "Kirin OS is required for Work connection");
     };
     scaleRoot.addChildComponent (guideConnectButton);
 
@@ -355,6 +299,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
     tooltip.setLookAndFeel (nullptr);
     if (isPost)
     {
+        processorRef.endReferenceBlind();
         processorRef.setSpectrumVisible (false);
         processorRef.setPerceptualVisible (false);
         processorRef.setAbsoluteVisible (false);
@@ -364,11 +309,6 @@ KirinHyphaEditor::~KirinHyphaEditor()
     }
 }
 
-KirinHyphaEditor::PairMenuLookAndFeel& KirinHyphaEditor::pairMenuLookAndFeel()
-{
-    static PairMenuLookAndFeel lookAndFeel;
-    return lookAndFeel;
-}
 
 juce::String KirinHyphaEditor::instanceId8() const
 {
@@ -413,10 +353,8 @@ void KirinHyphaEditor::resized()
     const auto viewport = hypha::observatory::displayViewport (getWidth(), getHeight());
     scaleRoot.setTransform (juce::AffineTransform());
     scaleRoot.setBounds (0, 0, viewport.width, viewport.height);
-    // Inspection remains a retained native-resolution surface. Studio Pro on Windows can expose
-    // partial child updates at this size; one root image presents the completed 900 x 600 frame
-    // without reducing it to a magnified 600 x 400 anatomy.
-    scaleRoot.setBufferedToImage (getWidth() > 600);
+    // Keep the root live: Studio One may retain a stale cached peer surface after host resizing.
+    scaleRoot.setBufferedToImage (false);
     scaleRoot.setTransform (juce::AffineTransform::scale (viewport.scale));
     observatoryView.setDisplayedEditorSize (getWidth(), getHeight());
     observatoryView.setBounds (scaleRoot.getLocalBounds());
@@ -424,9 +362,11 @@ void KirinHyphaEditor::resized()
     auto connection = observatoryView.connectionBounds().reduced (4, 2);
     led.setBounds (connection.removeFromLeft (10).withSizeKeepingCentre (7, 7));
     if (isPost)
+    {
+        nameField.setPrefix (getWidth() < 450 ? "" : "PAIR ");
         pairDropdown.setBounds (connection.removeFromRight (18));
-    const bool showName = getWidth() >= hypha::observatory::sizePresets[1].width;
-    nameField.setVisible (showName);
+    }
+    const bool showName = true; nameField.setVisible (showName);
     observatoryView.setExternalConnectionLabelVisible (showName);
     if (showName)
         nameField.setBounds (connection);
@@ -434,26 +374,16 @@ void KirinHyphaEditor::resized()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost)
     {
-        auto body = observatoryView.bodyBounds();
         spectrumToggle.setVisible (false);
         spectrumSizeToggle.setVisible (false);
         updateTimePageNavigation();
-        const bool directTimeNavigation = observatoryDomain == hypha::observatory::Domain::time
-            && observatoryView.experienceFamily()
-                == hypha::observatory::ExperienceFamily::observatory;
-        auto analysisBody = observatoryView.bodyBounds();
-        if (directTimeNavigation)
-        {
-            auto navigation = analysisBody.removeFromTop (24);
-            navigation.removeFromRight (juce::jmin (112, navigation.getWidth() / 3));
-            timePageNavigation.setBounds (navigation);
-        }
-        else
-            timePageNavigation.setBounds (body.removeFromTop (24).removeFromLeft (72));
+        auto analysisBody = observatoryView.analysisBodyBounds();
+        timePageNavigation.setBounds (observatoryView.timeNavigationBounds());
         spectrumView.setBounds (analysisBody);
         perceptualView.setBounds (analysisBody);
         absoluteView.setBounds (analysisBody);
         attackView.setBounds (analysisBody);
+        layoutReferenceAudition (analysisBody);
         timePageNavigation.toFront (false);
     }
    #endif
@@ -469,77 +399,6 @@ void KirinHyphaEditor::layoutMetrics (bool)
 }
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
-{
-    if (! isPost || analysisPage == page)
-        return;
-    const auto previousPage = analysisPage;
-    spectrumView.clearSnapshot();
-    perceptualView.clearSnapshot();
-    absoluteView.clearSnapshot();
-    attackView.clearSnapshot();
-    cachedAttackEvents = {};
-    cachedAttackWaveform = {};
-    cachedAttackDetails = {};
-    cachedAttackPreWaveform = {};
-    cachedAttackPreDetails = {};
-    cachedAttackPairEvents = {};
-    cachedAttackStats = {};
-    cachedAttackLatest = -1;
-    cachedAttackRate = 0;
-    cachedAttackGeneration = 0;
-    // ATTACK / FREQ / SHARP / LIVE share the current Analysis lease. Their `true` edge changes
-    // the isolated analyzer while post_visible remains set. Only METERS releases the slot.
-    if (hypha::analysis_navigation::releasesSlot (previousPage, page))
-    {
-        if (previousPage == AnalysisPage::spectrum)
-            processorRef.setSpectrumVisible (false);
-        else if (previousPage == AnalysisPage::perceptual)
-            processorRef.setPerceptualVisible (false);
-        else if (previousPage == AnalysisPage::absolute)
-            processorRef.setAbsoluteVisible (false);
-        else if (previousPage == AnalysisPage::attack)
-            processorRef.setAttackEnabled (false);
-    }
-    analysisPage = page;
-    const bool analysisOpen = page != AnalysisPage::meters;
-    for (auto& cell : cells)
-        cell.setVisible (false);
-    loudnessSelector.setVisible (false);
-    spectrumView.setVisible (page == AnalysisPage::spectrum);
-    perceptualView.setVisible (page == AnalysisPage::perceptual);
-    absoluteView.setVisible (page == AnalysisPage::absolute);
-    attackView.setVisible (page == AnalysisPage::attack);
-    spectrumSizeToggle.setVisible (false);
-    spectrumToggle.setVisible (false);
-    timePageNavigation.setPage (page);
-    updateTimePageNavigation();
-    startTimerHz (page == AnalysisPage::absolute
-                    ? ui::absoluteTimelineSourceHz
-                    : analysisOpen ? ui::spectrumPresentationHz
-                                   : ui::preDisplayPresentationHz);
-    resized();
-    repaint();
-    if (page == AnalysisPage::attack)
-        processorRef.setAttackEnabled (true);
-    else if (page == AnalysisPage::spectrum)
-        processorRef.setSpectrumVisible (true);
-    else if (page == AnalysisPage::perceptual)
-        processorRef.setPerceptualVisible (true);
-    else if (page == AnalysisPage::absolute)
-        processorRef.setAbsoluteVisible (true);
-}
-
-void KirinHyphaEditor::updateTimePageNavigation()
-{
-    const bool time = observatoryDomain == hypha::observatory::Domain::time;
-    const bool direct = time && observatoryView.experienceFamily()
-        == hypha::observatory::ExperienceFamily::observatory;
-    timePageNavigation.setDirect (direct);
-    timePageNavigation.setPage (analysisPage);
-    timePageNavigation.setVisible (time);
-}
-
 void KirinHyphaEditor::cycleSpectrumSize()
 {
     if (analysisPage == AnalysisPage::meters)
@@ -649,7 +508,8 @@ void KirinHyphaEditor::updateFeedback (
     if (now >= toastUntil)
         toastText.clear();
 
-    feedbackLabel.setVisible (text.isNotEmpty());
+    observatoryView.setFeedback (text);
+    feedbackLabel.setVisible (false);
     if (text.isNotEmpty())
     {
         feedbackLabel.setText (text, juce::dontSendNotification);
@@ -657,158 +517,6 @@ void KirinHyphaEditor::updateFeedback (
     }
 }
 
-void KirinHyphaEditor::showCandidateMenu()
-{
-    processorRef.refreshLicenseForUserAction();
-    // B-102: egui draw_pair_pre_combo parity (scope = new↔new). Built on click (no per-tick FFI):
-    //   [All Keep: N ready POST(s)] (Watch, N>=1) / [All Stop: recording POSTs] (Record) /
-    //   candidate rows ("Can Keep/Keep ready/In use: name-or-id8").
-    // Every live PRE is offered, including unnamed instances. Selection commits its exact
-    // instance_id; the name remains only the convenient persisted display/search value.
-    const bool rec = processorRef.isRecording();
-    const bool keepActive = rec
-        || processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE;
-    const bool playing = processorRef.isPlaying(); // W-280: pair change locked during playback
-    // B-115: lock only when playing AND live (processBlock running). A frozen `playing` with a
-    // stalled heartbeat does not lock (false-release prevention; signal_state is silence-conflated).
-    const bool pairLocked = playing && processorRef.heartbeatLive();
-    const auto cands = processorRef.enumeratePreCandidates();
-    const auto claims = processorRef.enumeratePostPairClaims();
-    const juce::String ownInstanceId = processorRef.instanceId();
-
-    juce::StringArray labels;
-    juce::Array<bool> labelEnabled;
-    juce::Array<bool> labelChecked;
-    const juce::String currentPreInstanceId = resolvedOwnPreInstanceId (
-        ownInstanceId, processorRef.pairedPreInstanceId(), claims);
-    for (const auto& c : cands)
-    {
-        const bool keepReady = currentPreInstanceId.isNotEmpty()
-                                 && c.instanceId == currentPreInstanceId;
-        const bool inUse = claimedByOtherPost (c, ownInstanceId, claims);
-        int sameNameCount = 0;
-        if (c.hasName && c.name.isNotEmpty())
-            for (const auto& other : cands)
-                if (other.hasName && other.name == c.name)
-                    ++sameNameCount;
-        const juce::String shown = c.hasName && c.name.isNotEmpty()
-                                     ? c.name + (sameNameCount > 1
-                                                     ? " · " + c.instanceId.substring (0, 8)
-                                                     : juce::String())
-                                     : c.instanceId.substring (0, 8);
-        labels.add ((inUse ? "In use: " : (keepReady ? "Keep ready: " : "Can Keep: ")) + shown);
-        labelEnabled.add (! inUse);
-        labelChecked.add (keepReady && ! inUse);
-    }
-
-    // egui parity: "N ready" = pair-set POST instances (keepReadyCount), NOT the PRE candidate
-    // count — the All Keep broadcast acts on POSTs (hypha_post editor.rs:938-944). Candidate rows
-    // below are exact PRE rows, matching egui's separate pre_candidates source.
-    const int nReady = processorRef.keepReadyCount();
-    juce::PopupMenu menu;
-    menu.setLookAndFeel (&pairMenuLookAndFeel());
-    menu.addSectionHeader ("Display");
-    menu.addItem (10, "Show hover help", true,
-                  hypha::HoverHelpPreference::shared().isEnabled());
-    menu.addSeparator();
-    const bool pairSelected = processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED;
-    if (! keepActive && pairSelected)
-        menu.addItem (4, "Keep selected pair", processorRef.licenseIsOs());
-    if (keepActive)
-        menu.addItem (5, "Stop selected pair");
-    if (! keepActive && processorRef.licenseIsOs() && nReady >= 1)
-        menu.addItem (1, allKeepMenuLabel (nReady));
-    if (keepActive)
-        menu.addItem (2, "All Stop: active POSTs");
-    if (menu.getNumItems() > 0)
-        menu.addSeparator();
-    menu.addSectionHeader ("Pair choices (not Keep targets)");
-    if (cands.isEmpty())
-        menu.addItem (3, "No pair choices", false, false); // disabled (R-26: silent when nothing)
-    else
-        for (int i = 0; i < labels.size(); ++i)
-            menu.addItem (100 + i, labels[i], ! pairLocked && labelEnabled[i], labelChecked[i]);
-
-    const auto options = juce::PopupMenu::Options()
-                             .withTargetComponent (&pairDropdown)
-                             .withDeletionCheck (*this)
-                             .withMinimumWidth (ui::pairMenuMinimumWidth)
-                             .withMaximumNumColumns (ui::pairMenuMaximumColumns)
-                             .withStandardItemHeight (ui::pairMenuItemHeight);
-    juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);
-    menu.showMenuAsync (options, [safeThis, candidates = cands] (int result)
-    {
-        if (safeThis != nullptr)
-            safeThis->handleCandidateMenu (result, candidates);
-    });
-}
-
-void KirinHyphaEditor::handleCandidateMenu (
-    int result, const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates)
-{
-    if (result == 1)
-    {
-        if (! processorRef.keepAll())
-        {
-            const juce::String notice = processorRef.drainKeepActionNotice();
-            if (notice.isNotEmpty()) { showToast (notice); return; }
-            const juce::String err = processorRef.recordErrorMessage();
-            if (err.isNotEmpty()) { showToast (err); return; }
-            showToast (processorRef.licenseIsOs() ? "No PRE Paired" : "Record requires Kirin OS license");
-        }
-    }
-    else if (result == 2)
-        processorRef.stopAll();
-    else if (result == 4)
-    {
-        if (! processorRef.keepPair())
-        {
-            const juce::String notice = processorRef.drainKeepActionNotice();
-            if (notice.isNotEmpty()) { showToast (notice); return; }
-            const juce::String err = processorRef.recordErrorMessage();
-            if (err.isNotEmpty()) { showToast (err); return; }
-            showToast (processorRef.licenseIsOs()
-                           ? "No PRE Paired" : "Record requires Kirin OS license");
-        }
-    }
-    else if (result == 5)
-        processorRef.stopPair();
-    else if (result == 10)
-    {
-        auto& preference = hypha::HoverHelpPreference::shared();
-        const bool enabled = ! preference.isEnabled();
-        const bool persisted = preference.setEnabled (enabled);
-        if (! enabled)
-            tooltip.hideTip();
-        if (! persisted)
-            showToast ("Hover help changed for this session only");
-    }
-    else if (result >= 100)
-    {
-        const int idx = result - 100;
-        if (idx >= 0 && idx < candidates.size())
-        {
-            const auto candidate = candidates.getReference (idx);
-            const juce::String name = candidate.hasName ? candidate.name : juce::String();
-            if (processorRef.setPairCandidate (candidate.instanceId, name))
-            {
-                pairedPreExplicitlyBypassed = false;
-               #if ! KIRIN_HYPHA_PRE_DISPLAY
-                spectrumView.clearSnapshot();
-                perceptualView.clearSnapshot();
-               #endif
-                nameField.setModelName (name);
-                nameField.setFallback (name.isEmpty() ? candidate.instanceId.substring (0, 8)
-                                                      : juce::String ("___"));
-            }
-            else
-            {
-                const juce::String notice = processorRef.drainKeepActionNotice();
-                showToast (notice.isNotEmpty() ? notice : juce::String ("PRE no longer available"));
-            }
-        }
-    }
-}
 
 void KirinHyphaEditor::timerCallback()
 {
@@ -848,527 +556,4 @@ void KirinHyphaEditor::commitEditorSizeStateIfSettled (bool force)
         return;
     editorSizeStateDirty = false;
     processorRef.notifyObservatoryEditorSizeChanged();
-}
-
-void KirinHyphaEditor::updatePre()
-{
-    const bool alive  = processorRef.measureAlive();
-    const int  sig    = processorRef.signalStateLive(); // 0=Inactive 1=Active 2=Bypassed (B-113: heartbeat-aware)
-    const bool rec    = processorRef.isRecording();    // record_sm (PRE autonomous record too)
-    const bool ack    = processorRef.recordAcknowledged();
-    const bool preset = processorRef.presetAvailable(); // PRE: always false
-    const int pairStatus = processorRef.pairStatus();
-    pairStatusLabel.setText (pairStatusText (pairStatus), juce::dontSendNotification);
-    pairStatusLabel.setColour (juce::Label::textColourId, pairStatusColour (pairStatus));
-    pairStatusLabel.setTooltip (pairStatusHelp (pairStatus));
-
-    nameField.setModelName (processorRef.preName());
-    nameField.setFallback (instanceId8());
-
-    // Keeping banner: 3s on the false→true ack edge (PRE acked a POST's record signal).
-    const double t = nowSecs();
-    if (ack && ! prevAck)
-        bannerUntil = t + 3.0; // RECORD_BANNER_DURATION_SECS
-    prevAck = ack;
-
-    KirinRecordDisplay observedRecord {};
-    if (processorRef.pollRecordDisplay (observedRecord))
-    {
-        cachedRecordDisplay = observedRecord;
-        haveRecordDisplay = true;
-    }
-    const uint8_t recordPhase = haveRecordDisplay
-                                  ? cachedRecordDisplay.phase
-                                  : (uint8_t) KIRIN_RECORD_DISPLAY_WATCH;
-    const bool displayRecord = rec || recordPhase != KIRIN_RECORD_DISPLAY_WATCH;
-    const bool finalUnavailable = recordPhase == KIRIN_RECORD_DISPLAY_UNAVAILABLE;
-    const bool useShortTerm = processorRef.useShortTermLoudness();
-    loudnessSelector.setShortTerm (useShortTerm);
-
-    // B-128 (G-115-371 D3): restore identity anomaly を drain して 5s latch（toast 相当の寿命）。
-    const juce::String anomaly = processorRef.pathAnomalyMessage();
-    if (anomaly.isNotEmpty()) { pathAnomalyText = anomaly; pathAnomalyUntil = t + 5.0; }
-    const bool anomalyActive = (t < pathAnomalyUntil) && pathAnomalyText.isNotEmpty();
-
-    // PRE and POST share one prioritized feedback row. A path anomaly supersedes the persistent
-    // I/O status; direct user toasts (POST only) are prioritized inside updateFeedback().
-    const juce::String recErr = processorRef.recordErrorMessage();
-    const juce::String status = anomalyActive ? pathAnomalyText
-                              : recErr.isNotEmpty() ? recErr
-                              : finalUnavailable ? juce::String ("Final measurement unavailable")
-                              : juce::String();
-    updateFeedback (t, t < bannerUntil, status);
-
-    const Kind want = displayRecord ? Kind::Abs6 : Kind::WatchAbs6;
-    if (want != currentKind)
-        configureForKind (want);
-
-    KirinMeasureResult r {};
-    bool have = false;
-    bool muted = false;
-    KirinSessionSummary summary {};
-    bool haveSummary = false;
-    KirinWatchDisplay watch {};
-    const bool polledWatch = processorRef.pollWatchDisplay (watch);
-    if (polledWatch)
-    {
-        observatoryWatchDisplay = watch;
-        haveObservatoryWatchDisplay = true;
-        watchMaximum = watch.maximum;
-        haveWatchMaximum = true;
-    }
-    const bool haveWatch = polledWatch && sig == KIRIN_SIGNAL_STATE_ACTIVE;
-    if (displayRecord)
-    {
-        if (haveRecordDisplay && cachedRecordDisplay.has_measure != 0)
-        {
-            const auto raw = cachedRecordDisplay.measure;
-            r = recordPhase == KIRIN_RECORD_DISPLAY_LIVE
-                    && sig == KIRIN_SIGNAL_STATE_ACTIVE
-                  ? displaySmoother.smoothMeasure (raw, t)
-                  : raw;
-            have = true;
-        }
-        if (haveRecordDisplay && cachedRecordDisplay.has_session != 0)
-        {
-            summary = cachedRecordDisplay.session;
-            haveSummary = true;
-        }
-    }
-    else if (haveWatch)
-    {
-        r = displaySmoother.smoothMeasure (watch.current, t);
-        have = true;
-    }
-    else if (sig == KIRIN_SIGNAL_STATE_INACTIVE)
-    {
-        hypha::DisplaySmoother::HeldDisplay<KirinMeasureResult> held {};
-        if (displaySmoother.heldMeasureDisplay (held, t))
-        {
-            r = held.value;
-            have = true;
-            muted = held.muted;
-        }
-    }
-    else if (! displayRecord && sig == KIRIN_SIGNAL_STATE_BYPASSED)
-    {
-        displaySmoother.reset();
-        haveObservatoryWatchDisplay = false;
-        haveWatchMaximum = false;
-    }
-    auto V = [&] (double x) { return have ? x : kNaN; };
-
-    const int ledSig = (! displayRecord && sig == KIRIN_SIGNAL_STATE_INACTIVE && have && ! muted)
-        ? KIRIN_SIGNAL_STATE_ACTIVE : sig;
-    led.setState (hypha::deriveLedState (alive, ledSig, rec, ack, preset));
-
-    const auto selected = [useShortTerm] (const KirinMeasureResult& value)
-    {
-        return useShortTerm ? value.lufs_s : value.lufs_m;
-    };
-
-    if (displayRecord)
-    {
-        fillAbs (0, V (selected (r)), false, muted);
-        fillAbs (1, V (r.psr), false, muted);
-        fillAbs (2, haveSummary ? summary.max_true_peak : kNaN, true, muted);
-        fillAbs (3, haveSummary ? summary.lufs_i : kNaN, false, muted);
-        fillAbs (4, V (r.crest), false, muted);
-        fillAbs (5, V (r.sharpness), false, muted);
-    }
-    else
-    {
-        fillAbs (0, V (selected (r)), false, muted);
-        fillAbs (1, haveWatchMaximum ? selected (watchMaximum) : kNaN, false, muted);
-        fillAbs (2, V (r.true_peak), true, muted);
-        fillAbs (3, haveWatchMaximum ? watchMaximum.true_peak : kNaN, true, muted);
-        fillAbs (4, V (r.crest), false, muted);
-        fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, muted);
-    }
-}
-
-void KirinHyphaEditor::updatePost()
-{
-    const bool alive  = processorRef.measureAlive();
-    const int  sig    = processorRef.signalStateLive(); // B-113: heartbeat-aware (no stale Active)
-    const bool rec    = processorRef.isRecording();
-    const int keepPhase = processorRef.keepPhase();
-    const bool preparing = keepPhase == (int) KIRIN_KEEP_PHASE_PREPARING;
-    const bool armed = keepPhase == (int) KIRIN_KEEP_PHASE_ARMED;
-    const bool keepActive = rec || preparing || armed;
-    const bool ack    = processorRef.recordAcknowledged(); // POST: always false (egui parity)
-    const bool preset = processorRef.presetAvailable();
-    const bool playing = processorRef.isPlaying();
-    // B-115: lock only when playing AND live (processBlock running) — false-release prevention.
-    const bool pairLocked = playing && processorRef.heartbeatLive();
-
-    const juce::String pairName = processorRef.pairName();
-    const int pairStatus = processorRef.pairStatus();
-    const bool pairSelected = pairStatus != KIRIN_PAIR_STATUS_UNPAIRED;
-    KirinDelta observedDelta {};
-    const bool haveObservedDelta = pairSelected && processorRef.pollDelta (observedDelta);
-    if (pairStatus != KIRIN_PAIR_STATUS_PAIRED)
-        pairedPreExplicitlyBypassed = false;
-    else if (haveObservedDelta)
-        pairedPreExplicitlyBypassed = display::pairedPreIsExplicitlyBypassed (
-            true, true, observedDelta.mode);
-    const bool postAbsolute = pairStatus == KIRIN_PAIR_STATUS_PAIRED
-                           && pairedPreExplicitlyBypassed;
-    pairStatusLabel.setText (pairStatusText (pairStatus, postAbsolute),
-                             juce::dontSendNotification);
-    pairStatusLabel.setColour (juce::Label::textColourId,
-                               pairStatusColour (pairStatus, postAbsolute));
-    pairStatusLabel.setTooltip (pairStatusHelp (pairStatus, postAbsolute));
-
-    nameField.setModelName (pairName);
-    nameField.setEditingEnabled (! pairLocked); // W-280 + B-115 playback pair lock (playing AND live)
-
-    const double t = nowSecs();
-    if (ack && ! prevAck) bannerUntil = t + 3.0; // harmless (POST ack never true)
-    prevAck = ack;
-
-    KirinRecordDisplay observedRecord {};
-    if (processorRef.pollRecordDisplay (observedRecord))
-    {
-        cachedRecordDisplay = observedRecord;
-        haveRecordDisplay = true;
-    }
-    const uint8_t recordPhase = haveRecordDisplay
-                                  ? cachedRecordDisplay.phase
-                                  : (uint8_t) KIRIN_RECORD_DISPLAY_WATCH;
-    const bool displayRecord = rec || recordPhase != KIRIN_RECORD_DISPLAY_WATCH;
-    const bool finalUnavailable = recordPhase == KIRIN_RECORD_DISPLAY_UNAVAILABLE;
-    const bool useShortTerm = processorRef.useShortTermLoudness();
-    loudnessSelector.setShortTerm (useShortTerm);
-
-    // B-128 (G-115-371 D3): restore identity anomaly を drain して 5s latch。
-    const juce::String anomaly = processorRef.pathAnomalyMessage();
-    if (anomaly.isNotEmpty()) { pathAnomalyText = anomaly; pathAnomalyUntil = t + 5.0; }
-    const bool anomalyActive = (t < pathAnomalyUntil) && pathAnomalyText.isNotEmpty();
-
-    const juce::String keepNotice = processorRef.drainKeepActionNotice();
-    if (keepNotice.isNotEmpty())
-    {
-        toastText = keepNotice;
-        toastUntil = t + 3.0;
-    }
-
-    // The shared slot keeps persistent errors distinct from direct user-action toasts without
-    // letting independent labels overlap at the bottom of the fixed-size editor.
-    const juce::String recErr = processorRef.recordErrorMessage();
-    const juce::String status = anomalyActive ? pathAnomalyText
-                              : recErr.isNotEmpty() ? recErr
-                              : finalUnavailable ? juce::String ("Final measurement unavailable")
-                              : preparing ? juce::String ("Preparing pairs...")
-                              : armed ? juce::String ("Ready to bounce")
-                              : juce::String();
-    updateFeedback (t, t < bannerUntil, status);
-
-    postControls->update (keepActive, processorRef.licenseCode(),
-                          pairStatus != KIRIN_PAIR_STATUS_UNPAIRED);
-
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (analysisPage == AnalysisPage::attack)
-    {
-        KirinAttackStats stats {};
-        if (processorRef.attackStats (stats))
-            cachedAttackStats = stats;
-
-        KirinAttackEventBatch events {};
-        if (processorRef.pollAttackEvents (events))
-            cachedAttackEvents = events;
-
-        KirinAttackWaveformBatch waveform {};
-        if (processorRef.pollAttackWaveform (waveform))
-            cachedAttackWaveform = waveform;
-
-        KirinAttackDetailBatch details {};
-        if (processorRef.pollAttackDetails (details))
-            cachedAttackDetails = details;
-
-        KirinAttackWaveformBatch preWaveform {};
-        if (processorRef.pollAttackPreWaveform (preWaveform))
-            cachedAttackPreWaveform = preWaveform;
-
-        KirinAttackDetailBatch preDetails {};
-        if (processorRef.pollAttackPreDetails (preDetails))
-            cachedAttackPreDetails = preDetails;
-
-        KirinAttackPairEventBatch pairEvents {};
-        if (processorRef.pollAttackPairEvents (pairEvents))
-            cachedAttackPairEvents = pairEvents;
-
-        KirinAttackBatch raw {};
-        if (processorRef.pollAttackBatch (raw) && raw.count > 0)
-        {
-            const auto count = juce::jmin (
-                raw.count, static_cast<std::uint32_t> (KIRIN_ATTACK_BATCH_CAPACITY));
-            const auto& newest = raw.frames[count - 1];
-            cachedAttackLatest = newest.support_end_samples;
-            cachedAttackRate = newest.sample_rate;
-            cachedAttackGeneration = newest.generation;
-        }
-        attackView.setSnapshot (
-            cachedAttackEvents, cachedAttackWaveform, cachedAttackDetails,
-            cachedAttackPreWaveform, cachedAttackPreDetails, cachedAttackPairEvents,
-            cachedAttackLatest, cachedAttackRate, cachedAttackGeneration, cachedAttackStats);
-        attackView.presentationTick (sig == KIRIN_SIGNAL_STATE_ACTIVE);
-        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
-        return;
-    }
-
-    juce::String analysisOwnerNames;
-    const bool haveAnalysisOwnerNames = analysisPage != AnalysisPage::meters
-        && processorRef.pollAnalysisOwnerNames (analysisOwnerNames);
-    if (analysisPage == AnalysisPage::spectrum)
-    {
-        spectrumView.setGuideFrequencyOverlay (
-            hypha::guide_frequency::fromGuidePresentation (
-                processorRef.guidePresentationSnapshot()));
-        if (haveAnalysisOwnerNames)
-            spectrumView.setAnalysisOwnerNames (analysisOwnerNames);
-        spectrumView.presentationTick();
-        KirinSpectrumBatch spectrum {};
-        if (processorRef.pollSpectrumBatch (spectrum))
-            spectrumView.setBatch (spectrum);
-        // Spectrum is presentation-only. Pair/Keep/feedback and the existing status LED remain
-        // live, while meter polling and smoothing are skipped for this page.
-        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
-        return;
-    }
-    if (analysisPage == AnalysisPage::perceptual)
-    {
-        if (haveAnalysisOwnerNames)
-            perceptualView.setAnalysisOwnerNames (analysisOwnerNames);
-        perceptualView.presentationTick();
-        KirinPerceptualBatch perceptual {};
-        if (processorRef.pollPerceptualBatch (perceptual))
-            perceptualView.setBatch (perceptual);
-        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
-        return;
-    }
-    if (analysisPage == AnalysisPage::absolute)
-    {
-        if (haveAnalysisOwnerNames)
-            absoluteView.setAnalysisOwnerNames (analysisOwnerNames);
-        KirinAbsoluteBatch absolute {};
-        if (processorRef.pollAbsoluteBatch (absolute))
-            absoluteView.setBatch (absolute);
-        led.setState (hypha::deriveLedState (alive, sig, rec && armed, ack, preset));
-        return;
-    }
-   #endif
-
-    // ── display-branch tree: Record uses one generation-bound presentation snapshot, while
-    //    paired Watch keeps the delta grid through short PRE idle/stale gaps.
-    KirinMeasureResult m {};
-    bool haveM = false;
-    bool mutedM = false;
-    KirinSessionSummary summary {};
-    bool haveSummary = false;
-    KirinWatchDisplay watch {};
-    const bool polledWatch = processorRef.pollWatchDisplay (watch);
-    if (polledWatch)
-    {
-        observatoryWatchDisplay = watch;
-        haveObservatoryWatchDisplay = true;
-        watchMaximum = watch.maximum;
-        haveWatchMaximum = true;
-    }
-    const bool haveWatch = polledWatch && sig == KIRIN_SIGNAL_STATE_ACTIVE;
-    if (displayRecord)
-    {
-        if (haveRecordDisplay && cachedRecordDisplay.has_measure != 0)
-        {
-            const auto raw = cachedRecordDisplay.measure;
-            m = recordPhase == KIRIN_RECORD_DISPLAY_LIVE
-                    && sig == KIRIN_SIGNAL_STATE_ACTIVE
-                  ? displaySmoother.smoothMeasure (raw, t)
-                  : raw;
-            haveM = true;
-        }
-        if (haveRecordDisplay && cachedRecordDisplay.has_session != 0)
-        {
-            summary = cachedRecordDisplay.session;
-            haveSummary = true;
-        }
-    }
-    else if (haveWatch)
-    {
-        m = displaySmoother.smoothMeasure (watch.current, t);
-        haveM = true;
-    }
-    else if (sig == KIRIN_SIGNAL_STATE_INACTIVE)
-    {
-        hypha::DisplaySmoother::HeldDisplay<KirinMeasureResult> held {};
-        if (displaySmoother.heldMeasureDisplay (held, t))
-        {
-            m = held.value;
-            haveM = true;
-            mutedM = held.muted;
-        }
-    }
-    else if (! displayRecord && sig == KIRIN_SIGNAL_STATE_BYPASSED)
-    {
-        displaySmoother.reset();
-        haveObservatoryWatchDisplay = false;
-        haveWatchMaximum = false;
-    }
-    const bool tpWarn = ! mutedM && hypha::tpOver (haveM ? m.true_peak : kNaN);
-    bool watchHeldNormal = false;
-    const auto selectedMeasure = [useShortTerm] (const KirinMeasureResult& value)
-    {
-        return useShortTerm ? value.lufs_s : value.lufs_m;
-    };
-    const auto selectedDelta = [useShortTerm] (const KirinDelta& value)
-    {
-        return useShortTerm ? value.lufs_s : value.lufs;
-    };
-
-    if (displayRecord)
-    {
-        KirinDelta d {};
-        const bool haveD = haveRecordDisplay && cachedRecordDisplay.has_delta != 0;
-        if (haveD)
-            d = cachedRecordDisplay.delta;
-        const bool mutedD = recordPhase == KIRIN_RECORD_DISPLAY_LIVE
-                         && haveD && display::deltaIsStale (d.mode);
-        const bool recordPairSelected = display::recordPairContext (
-            rec, pairSelected, haveD,
-            haveRecordDisplay && cachedRecordDisplay.pair_matches_current != 0);
-
-        if ((postAbsolute ? display::MetricMode::absolute
-                          : display::recordMetricMode (recordPairSelected, haveD, d.mode))
-            == display::MetricMode::absolute)
-        {
-            if (currentKind != Kind::Abs6) configureForKind (Kind::Abs6);
-            auto V = [&] (double x) { return haveM ? x : kNaN; };
-            fillAbs (0, V (selectedMeasure (m)), false, mutedM);
-            fillAbs (1, V (m.psr), false, mutedM);
-            fillAbs (2, haveSummary ? summary.max_true_peak : kNaN, true, mutedM);
-            fillAbs (3, haveSummary ? summary.lufs_i : kNaN, false, mutedM);
-            fillAbs (4, V (m.crest), false, mutedM);
-            fillAbs (5, V (m.sharpness), false, mutedM);
-        }
-        else
-        {
-            if (currentKind != Kind::Delta6) configureForKind (Kind::Delta6);
-            const juce::Colour base = mutedD ? COL_MUTED : COL_NORMAL;
-            auto D = [&] (double x) { return haveD ? x : kNaN; };
-            fillDelta (0, D (selectedDelta (d)), false, base, false, mutedD);
-            fillDelta (1, D (d.psr),             false, base, false, mutedD);
-            fillAbs   (2, haveSummary ? summary.max_true_peak : kNaN, true, mutedM);
-            fillAbs   (3, haveSummary ? summary.lufs_i : kNaN, false, mutedM);
-            fillDelta (4, D (d.crest),           false, base, false, mutedD);
-            fillDelta (5, D (d.sharpness),       false, base, false, mutedD);
-        }
-    }
-    else if (sig != KIRIN_SIGNAL_STATE_ACTIVE) // Bypassed / Inactive -> "---"
-    {
-        KirinDelta heldD {};
-        bool haveHeldD = false;
-        bool mutedHeldD = false;
-        if (sig == KIRIN_SIGNAL_STATE_INACTIVE && pairSelected)
-        {
-            hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
-            if (displaySmoother.heldDeltaDisplay (held, t))
-            {
-                heldD = held.value;
-                haveHeldD = true;
-                mutedHeldD = held.muted;
-            }
-        }
-        if (pairSelected)
-        {
-            if (currentKind != Kind::WatchDelta6) configureForKind (Kind::WatchDelta6);
-            const bool unavailable = ! haveHeldD;
-            const juce::Colour base = mutedHeldD || unavailable ? COL_MUTED : COL_NORMAL;
-            watchHeldNormal = haveHeldD && ! mutedHeldD;
-            fillDelta (0, haveHeldD ? selectedDelta (heldD) : kNaN,
-                       false, base, false, mutedHeldD || unavailable);
-            fillAbs (1, haveWatchMaximum ? selectedMeasure (watchMaximum) : kNaN, false, true);
-            fillDelta (2, haveHeldD ? heldD.true_peak : kNaN,
-                       true, base, false, mutedHeldD || unavailable);
-            fillAbs (3, haveWatchMaximum ? watchMaximum.true_peak : kNaN, true, true);
-            fillDelta (4, haveHeldD ? heldD.crest : kNaN,
-                       false, base, false, mutedHeldD || unavailable);
-            fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, true);
-        }
-        else
-        {
-            if (currentKind != Kind::WatchAbs6) configureForKind (Kind::WatchAbs6);
-            watchHeldNormal = haveM && ! mutedM;
-            fillAbs (0, haveM ? selectedMeasure (m) : kNaN, false, mutedM);
-            fillAbs (1, haveWatchMaximum ? selectedMeasure (watchMaximum) : kNaN, false, true);
-            fillAbs (2, haveM ? m.true_peak : kNaN, true, mutedM);
-            fillAbs (3, haveWatchMaximum ? watchMaximum.true_peak : kNaN, true, true);
-            fillAbs (4, haveM ? m.crest : kNaN, false, mutedM);
-            fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, true);
-        }
-    }
-    else // Active + Watch
-    {
-        KirinDelta rawD = observedDelta;
-        KirinDelta d {};
-        const bool haveRawD = haveObservedDelta;
-        const bool preUnavailable = haveRawD && display::preUnavailableForDelta (rawD.mode);
-        bool haveD = false;
-        bool mutedD = false;
-        if (haveRawD && display::deltaIsActive (rawD.mode))
-        {
-            d = displaySmoother.smoothDelta (rawD, t);
-            haveD = true;
-        }
-        else if (! preUnavailable && pairSelected)
-        {
-            hypha::DisplaySmoother::HeldDisplay<KirinDelta> held {};
-            if (displaySmoother.heldDeltaDisplay (held, t))
-            {
-                d = held.value;
-                haveD = true;
-                mutedD = held.muted;
-            }
-        }
-        else if (haveRawD)
-        {
-            d = rawD;
-            haveD = true;
-            mutedD = true;
-        }
-
-        const bool effectiveHaveD = haveRawD || postAbsolute;
-        const uint8_t effectiveMode = haveRawD ? rawD.mode
-                                               : (uint8_t) KIRIN_DELTA_MODE_BYPASSED;
-        if (display::watchMetricMode (pairSelected, effectiveHaveD, effectiveMode)
-            == display::MetricMode::delta)
-        {
-            if (currentKind != Kind::WatchDelta6) configureForKind (Kind::WatchDelta6);
-            const bool liveDelta = haveD && display::deltaIsActive (d.mode) && ! mutedD;
-            const juce::Colour base = liveDelta ? COL_NORMAL : COL_MUTED;
-            const bool warn = liveDelta ? tpWarn : false;
-            fillDelta (0, haveD ? selectedDelta (d) : kNaN, false, base, warn, ! liveDelta);
-            fillAbs (1, haveWatchMaximum ? selectedMeasure (watchMaximum) : kNaN, false, ! liveDelta);
-            fillDelta (2, haveD ? d.true_peak : kNaN, true,  base, warn, ! liveDelta);
-            fillAbs (3, haveWatchMaximum ? watchMaximum.true_peak : kNaN, true, ! liveDelta);
-            fillDelta (4, haveD ? d.crest     : kNaN, false, base, warn, ! liveDelta);
-            fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false, ! liveDelta);
-        }
-        else // no selected pair, or paired PRE explicitly bypassed -> POST absolute
-        {
-            if (currentKind != Kind::WatchAbs6) configureForKind (Kind::WatchAbs6);
-            auto V = [&] (double x) { return haveM ? x : kNaN; };
-            fillAbs (0, V (selectedMeasure (m)), false);
-            fillAbs (1, haveWatchMaximum ? selectedMeasure (watchMaximum) : kNaN, false);
-            fillAbs (2, V (m.true_peak), true);
-            fillAbs (3, haveWatchMaximum ? watchMaximum.true_peak : kNaN, true);
-            fillAbs (4, V (m.crest), false);
-            fillAbs (5, haveWatchMaximum ? watchMaximum.crest : kNaN, false);
-        }
-    }
-
-    const int ledSig = (! displayRecord && sig == KIRIN_SIGNAL_STATE_INACTIVE && watchHeldNormal)
-        ? KIRIN_SIGNAL_STATE_ACTIVE : sig;
-    // PREPARING is intentionally not shown as an active Record light. The producer becomes
-    // user-ready only after every generation member has crossed the shared Armed barrier.
-    led.setState (hypha::deriveLedState (alive, ledSig, rec && armed, ack, preset));
 }

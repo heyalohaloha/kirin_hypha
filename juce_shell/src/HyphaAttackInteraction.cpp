@@ -8,12 +8,15 @@ namespace hypha
 {
 AttackComponent::AttackComponent()
 {
+    setTitle ("DRUM Attack");
+    setDescription ("Drum transient facts for TRACK/STEM; not a 2MIX onset detector.");
     setWantsKeyboardFocus (true);
 }
 
 void AttackComponent::mouseDown (const juce::MouseEvent& event)
 {
-    grabKeyboardFocus();
+    if (isShowing()) grabKeyboardFocus();
+    if (getHeight() < 145) return;
     if (event.y < attack_ui::headerHeight
         && event.x > getWidth() - attack_ui::modeControlWidth (getWidth()))
     {
@@ -40,6 +43,7 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
 
 void AttackComponent::mouseDrag (const juce::MouseEvent& event)
 {
+    if (getHeight() < 145) return;
     if ((! timelineBounds().contains (event.getPosition())
          && ! scrubBounds().contains (event.getPosition()))
         || ! attack_ui::validTimeline (latest, rate))

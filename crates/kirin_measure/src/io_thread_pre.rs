@@ -1772,22 +1772,7 @@ fn opt_f64(v: Option<f64>) -> String {
     }
 }
 
-fn phase_d_fragment(result: &MeasureResult) -> String {
-    let mut s = String::new();
-    if let Some(n) = result.n_prime_total {
-        s.push_str(&format!(r#","n_prime_total":{:.3}"#, n));
-    }
-    if let Some(sh) = result.sharpness {
-        s.push_str(&format!(r#","sharpness":{:.3}"#, sh));
-    }
-    if let Some(ref psb) = result.psb_summary {
-        s.push_str(&format!(
-            r#","psb_summary":{{"low":{:.3},"mid":{:.3},"high":{:.3}}}"#,
-            psb.low, psb.mid, psb.high
-        ));
-    }
-    s
-}
+use crate::measure_json::phase_d_fragment;
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 

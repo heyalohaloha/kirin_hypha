@@ -214,14 +214,14 @@ void verifyAbsoluteTimelineContract()
     KIRIN_ABSOLUTE_REQUIRE (gated.curvePresentationCountForTest() == 1u);
     KIRIN_ABSOLUTE_REQUIRE (gated.numericPresentationCountForTest() == 1u);
     gated.setBatchAt (batch (1, 2), 100.0);
-    KIRIN_ABSOLUTE_REQUIRE (gated.curvePresentationCountForTest() == 1u);
+    KIRIN_ABSOLUTE_REQUIRE (gated.curvePresentationCountForTest() == 2u);
     KIRIN_ABSOLUTE_REQUIRE (gated.numericPresentationCountForTest() == 1u);
     gated.setBatchAt (batch (1, 3), 200.0);
-    KIRIN_ABSOLUTE_REQUIRE (gated.curvePresentationCountForTest() == 2u);
+    KIRIN_ABSOLUTE_REQUIRE (gated.curvePresentationCountForTest() == 3u);
     gated.setBatchAt (batch (1, 4), 400.0);
-    KIRIN_ABSOLUTE_REQUIRE (gated.curvePresentationCountForTest() == 3u);
+    KIRIN_ABSOLUTE_REQUIRE (gated.curvePresentationCountForTest() == 4u);
     gated.setBatchAt (batch (1, 5), 500.0);
-    KIRIN_ABSOLUTE_REQUIRE (gated.curvePresentationCountForTest() == 3u);
+    KIRIN_ABSOLUTE_REQUIRE (gated.curvePresentationCountForTest() == 5u);
     KIRIN_ABSOLUTE_REQUIRE (gated.numericPresentationCountForTest() == 2u);
     KIRIN_ABSOLUTE_REQUIRE (ui_contract::absoluteTimelineSourceHz == 10);
 

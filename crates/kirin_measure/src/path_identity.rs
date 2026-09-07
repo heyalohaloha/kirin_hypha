@@ -50,6 +50,18 @@ fn event_sink() -> &'static Mutex<Vec<PathEvent>> {
     SINK.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+fn with_event_sink<T>(action: impl FnOnce(&Mutex<Vec<PathEvent>>) -> T) -> T {
+    #[cfg(test)]
+    if let Some(sink) = test_scope::active_sink() {
+        return action(&sink);
+    }
+    action(event_sink())
+}
+
+#[cfg(test)]
+#[path = "path_identity_test_scope.rs"]
+mod test_scope;
+
 /// instance context **なし**の anomaly（wall event 等）を **global** に surface する。
 /// global event は最初に drain した editor（同 role の任意 instance）が surface する
 /// （honest under-specify: 特定 instance を偽らない・R-28 silent swap 禁止）。
@@ -65,20 +77,23 @@ pub fn surface_path_event_for(instance: Option<&str>, msg: impl Into<String>) {
         Some(id) => log::warn!("[path-identity instance={id}] {msg}"),
         None => log::warn!("[path-identity] {msg}"),
     }
-    if let Ok(mut g) = event_sink().lock() {
-        g.push(PathEvent {
-            instance: instance.map(str::to_string),
-            msg,
-        });
-    }
+    with_event_sink(|sink| {
+        if let Ok(mut g) = sink.lock() {
+            g.push(PathEvent {
+                instance: instance.map(str::to_string),
+                msg,
+            });
+        }
+    });
 }
 
 /// surface 済み event を全て drain する（テスト検証用・instance 問わず msg のみ）。
 pub fn drain_path_events() -> Vec<String> {
-    event_sink()
-        .lock()
-        .map(|mut g| std::mem::take(&mut *g).into_iter().map(|e| e.msg).collect())
-        .unwrap_or_default()
+    with_event_sink(|sink| {
+        sink.lock()
+            .map(|mut g| std::mem::take(&mut *g).into_iter().map(|e| e.msg).collect())
+            .unwrap_or_default()
+    })
 }
 
 /// surface 済み event を 1 件 pop する（殻 UI 用 / D3 per-instance routing）。
@@ -86,15 +101,17 @@ pub fn drain_path_events() -> Vec<String> {
 /// （`instance==None`）の最初の 1 件。`my_instance=None`: wall event（global）のみ。
 /// **他 instance の tagged event は返さない**（false instance attribution 防止）。
 pub fn take_path_event(my_instance: Option<&str>) -> Option<String> {
-    let mut g = event_sink().lock().ok()?;
-    let pos = g
-        .iter()
-        .position(|e| match (e.instance.as_deref(), my_instance) {
-            (None, _) => true,                    // global wall event は誰でも surface
-            (Some(ev), Some(mine)) => ev == mine, // 自 instance の materialize event
-            (Some(_), None) => false,             // 他 instance 専用 → None caller には返さない
-        })?;
-    Some(g.remove(pos).msg)
+    with_event_sink(|sink| {
+        let mut g = sink.lock().ok()?;
+        let pos = g
+            .iter()
+            .position(|e| match (e.instance.as_deref(), my_instance) {
+                (None, _) => true,                    // global wall event は誰でも surface
+                (Some(ev), Some(mine)) => ev == mine, // 自 instance の materialize event
+                (Some(_), None) => false,             // 他 instance 専用 → None caller には返さない
+            })?;
+        Some(g.remove(pos).msg)
+    })
 }
 
 /// canonical path-component char policy（**単一定義** / B-133 G-115-383）: ASCII 英数字 + `-`。

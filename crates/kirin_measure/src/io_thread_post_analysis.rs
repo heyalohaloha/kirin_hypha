@@ -26,6 +26,7 @@ impl PostAnalysisEndpoints {
         latched_pre: &Arc<Mutex<Option<LatchedPre>>>,
         post_instance_id: &str,
         pair_pre_name: &str,
+        reference_audition_active: bool,
     ) {
         service_post_analysis_endpoints(
             self.spectrum.as_ref(),
@@ -33,6 +34,7 @@ impl PostAnalysisEndpoints {
             latched_pre,
             post_instance_id,
             pair_pre_name,
+            reference_audition_active,
         );
     }
 }
@@ -54,14 +56,27 @@ fn confirmed_analysis_targets(
     (spectrum, meter_history)
 }
 
+fn active_analysis_targets(
+    latched_pre: &Arc<Mutex<Option<LatchedPre>>>,
+    reference_audition_active: bool,
+) -> (Option<SpectrumTarget>, Option<MeterHistoryTarget>) {
+    if reference_audition_active {
+        (None, None)
+    } else {
+        confirmed_analysis_targets(latched_pre)
+    }
+}
+
 pub(super) fn service_post_analysis_endpoints(
     spectrum: Option<&Arc<SpectrumCoordinator>>,
     meter_history: Option<&Arc<MeterDeltaHistoryExchange>>,
     latched_pre: &Arc<Mutex<Option<LatchedPre>>>,
     post_instance_id: &str,
     pair_pre_name: &str,
+    reference_audition_active: bool,
 ) {
-    let (spectrum_target, meter_history_target) = confirmed_analysis_targets(latched_pre);
+    let (spectrum_target, meter_history_target) =
+        active_analysis_targets(latched_pre, reference_audition_active);
     if let Some(spectrum) = spectrum {
         spectrum.service_post_endpoint(post_instance_id, spectrum_target, pair_pre_name);
     }

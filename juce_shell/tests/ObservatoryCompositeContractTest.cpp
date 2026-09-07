@@ -5,6 +5,8 @@
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaPerceptualComponent.h"
 #include "../src/HyphaSpectrumComponent.h"
+#include "../src/HyphaSpectrumGeometry.h"
+#include "../src/HyphaTimePageNavigation.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -99,7 +101,20 @@ void paintIntoBody (juce::Image& destination, juce::Component& body,
 juce::Image compose (observatory::View& shell, juce::Component& body)
 {
     auto image = render (shell);
-    paintIntoBody (image, body, shell.bodyBounds());
+    if (shell.domain() == observatory::Domain::time)
+    {
+        TimePageNavigation navigation;
+        navigation.setDirect (shell.getWidth() >= 450);
+        const auto page = dynamic_cast<AttackComponent*> (&body) ? analysis_navigation::Page::attack
+            : dynamic_cast<AbsoluteComponent*> (&body) ? analysis_navigation::Page::absolute
+            : analysis_navigation::Page::perceptual;
+        shell.setAnalysisPage (page);
+        if (auto* attack = dynamic_cast<AttackComponent*> (&body)) shell.setAttackPaired (attack->pairedObservation());
+        navigation.setPage (page);
+        image = render (shell);
+        paintIntoBody (image, navigation, shell.timeNavigationBounds());
+    }
+    paintIntoBody (image, body, shell.analysisBodyBounds());
     return image;
 }
 
@@ -127,6 +142,7 @@ KirinSpectrumView spectrumFixture()
     view.sample_rate = 48'000u;
     view.aperture_samples = 4'096u;
     view.fft_size = 8'192u;
+    view.approximate_below_hz = 3.0f * 48'000.0f / 4'096.0f;
     view.min_hz = 10.0f;
     view.max_hz = 22'000.0f;
     view.presentation_end_samples = 288'000;
@@ -138,6 +154,45 @@ KirinSpectrumView spectrumFixture()
         view.post_dbfs[index] = view.pre_dbfs[index] + view.display_db[index];
     }
     return view;
+}
+
+void verifyPsbComposites (observatory::View& shell)
+{
+    shell.setDomain (observatory::Domain::frequency);
+    for (const auto preset : observatory::sizePresets)
+        for (const bool delta : { false, true })
+        {
+            shell.setSize (preset.width, preset.height);
+            shell.setTarget (delta ? observatory::ObservationTarget::delta : observatory::ObservationTarget::absolute);
+            SpectrumComponent component;
+            component.setSignalActive (true);
+            component.setAbsoluteObservation (! delta);
+            component.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
+            const auto bounds = component.getLocalBounds().toFloat();
+            const auto scale = spectrum_geometry::visualScaleFor (bounds);
+            const auto toggle = spectrum_geometry::subviewBoundsFor (spectrum_geometry::plotBoundsFor (bounds), scale);
+            const auto now = juce::Time::getCurrentTime();
+            component.mouseDown ({ juce::Desktop::getInstance().getMainMouseSource(),
+                toggle.getCentre(), {}, 0, 0, 0, 0, 0, &component, &component, now,
+                toggle.getCentre(), now, 0, false });
+            KIRIN_COMPOSITE_REQUIRE (component.isPsbObservation());
+            KIRIN_COMPOSITE_REQUIRE (monoFont (7.0f * ui_contract::analysisTextScale (scale))
+                .getStringWidthFloat ("SPECTRUM") < toggle.getWidth());
+            const auto missing = compose (shell, component);
+            KirinPsbView value {};
+            value.status = KIRIN_SPECTRUM_ACTIVE;
+            value.has_data = 1; value.is_delta = delta ? 1 : 0; value.channels = 2;
+            value.sample_rate = 48'000; value.aperture_samples = 4'800;
+            value.presentation_end_samples = 4'800;
+            for (std::size_t i = 0; i < 20; ++i)
+                value.shares[i] = delta ? (static_cast<double> (i) - 9.5) * 0.003
+                                       : (static_cast<double> (i) + 1.0) / 210.0;
+            component.setPsbSnapshot (value);
+            const auto image = compose (shell, component);
+            KIRIN_COMPOSITE_REQUIRE (differentPixels (missing, image, shell.analysisBodyBounds()) > 100);
+            writeCompositePreview ("post-psb-" + juce::String (delta ? "delta-" : "absolute-")
+                + juce::String (preset.width) + ".png", image);
+        }
 }
 
 std::unique_ptr<AttackComponent> attackFixture()
@@ -201,6 +256,8 @@ std::unique_ptr<AttackComponent> attackFixture()
     pairs.events[0].post_event_sample = 288'000;
     pairs.events[0].pre_available = 1u;
     pairs.events[0].post_available = 1u;
+    pairs.events[0].pre_generation = pairs.events[0].post_generation = 11;
+    pairs.events[0].sample_rate = 48'000;
     KirinAttackStats stats {};
     stats.available = 1u;
     stats.enabled = 1u;
@@ -253,6 +310,7 @@ void verifyObservatoryCompositeContract()
     shell.setGuide ("OS GUIDE  MASKING 03:18", "3150-3700 HZ", true);
 
     SpectrumComponent spectrum;
+    spectrum.setSignalActive (true);
     spectrum.setSnapshot (spectrumFixture());
     shell.setDomain (observatory::Domain::frequency);
     requireExternalComposite (shell, spectrum);
@@ -271,6 +329,7 @@ void verifyObservatoryCompositeContract()
     sharpness.setSnapshot (sharpnessView);
     sharpness.presentationTickAt (1'000.0);
     shell.setDomain (observatory::Domain::time);
+    shell.setExternalAnalysisBodyActive (true);
     requireExternalComposite (shell, sharpness);
 
     AbsoluteComponent live;
@@ -285,8 +344,10 @@ void verifyObservatoryCompositeContract()
     liveBatch.frames[0].true_peak = -3.6;
     liveBatch.frames[0].sharpness = 1.6;
     liveBatch.frames[0].presentation_end_samples = 288'000;
+    liveBatch.frames[0].generation = 11;
     liveBatch.latest = liveBatch.frames[0];
     live.setBatchAt (liveBatch, 1'000.0);
+    KIRIN_COMPOSITE_REQUIRE (live.frameCountForTest() == 1);
     requireExternalComposite (shell, live);
 
     auto attack = attackFixture();
@@ -341,5 +402,6 @@ void verifyObservatoryCompositeContract()
     KIRIN_COMPOSITE_REQUIRE (
         captureInk > captureBody.getWidth() * captureBody.getHeight() / 500);
     writeCompositePreview ("capture-attack-1200x630.png", captureComposite);
+    verifyPsbComposites (shell);
 }
 }
