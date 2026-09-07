@@ -3,6 +3,8 @@
 #include "kirin_hypha_local_blind_capture_ffi.h"
 #include "kirin_hypha_pair_snapshot_ffi.h"
 
+#include <cmath>
+
 namespace
 {
 bool decodeCaptureRequest (const KirinLocalBlindCaptureRequest& source,
@@ -24,6 +26,51 @@ bool decodeCaptureRequest (const KirinLocalBlindCaptureRequest& source,
     out = std::move (decoded);
     return true;
 }
+}
+
+hypha::local_blind::CaptureSide
+KirinHyphaProcessorBase::localBlindCaptureSide (Role selectedRole) noexcept
+{
+    return selectedRole == Role::Pre ? hypha::local_blind::CaptureSide::pre
+                                     : hypha::local_blind::CaptureSide::post;
+}
+
+hypha::local_blind::CaptureServiceHooks
+KirinHyphaProcessorBase::localBlindCaptureHooks (KirinHyphaProcessorBase& processor)
+{
+    return {
+        [&processor] (hypha::local_blind::ExactCaptureRequest& request)
+            { return processor.pollLocalBlindCaptureRequest (request); },
+        [&processor] (const std::string& requestId)
+            { return processor.acknowledgeLocalBlindCaptureRequest (requestId); },
+        [&processor] (const std::string& requestId)
+            { return processor.localBlindCaptureIsArmed (requestId); },
+        [&processor] (hypha::local_blind::ExactPairBinding& pair)
+            { return processor.localBlindPairBinding (pair); }
+    };
+}
+
+void KirinHyphaProcessorBase::stopLocalBlindCaptureForFormatChange (
+    double sampleRate, int channels)
+{
+    bool shouldStop = false;
+    {
+        const juce::ScopedLock lock (handleLock);
+        shouldStop = hyphaHandle == nullptr
+                  || std::abs (preparedSampleRate - sampleRate) > 0.001
+                  || preparedInputChannels != channels;
+        if (shouldStop && hyphaHandle != nullptr && kirin_hypha_is_recording (hyphaHandle))
+            shouldStop = false;
+    }
+    if (shouldStop)
+        localBlindCapture.stop();
+}
+
+void KirinHyphaProcessorBase::startLocalBlindCaptureForPreparedFormat()
+{
+    if (! localBlindCapture.running() && hyphaHandle != nullptr)
+        localBlindCapture.start (static_cast<std::uint32_t> (preparedSampleRate),
+                                 preparedInputChannels);
 }
 
 bool KirinHyphaProcessorBase::localBlindPairBinding (
@@ -51,16 +98,29 @@ bool KirinHyphaProcessorBase::localBlindPairBinding (
 bool KirinHyphaProcessorBase::issueLocalBlindCaptureRequest (
     std::uint64_t captureGeneration, std::uint64_t clockGeneration,
     std::int64_t preStart, std::int64_t postStart, std::int64_t frames,
-    hypha::local_blind::ExactCaptureRequest& out) const
+    hypha::local_blind::ExactCaptureRequest& out)
 {
+    if (! localBlindCapture.reservePostRequest())
+        return false;
     const juce::ScopedLock lock (handleLock);
     if (role != Role::Post || hyphaHandle == nullptr)
+    {
+        localBlindCapture.abandonPostRequest();
         return false;
+    }
     KirinLocalBlindCaptureRequest request {};
-    return kirin_hypha_issue_local_blind_capture_request (
-               hyphaHandle, captureGeneration, clockGeneration,
-               preStart, postStart, frames, &request)
-        && decodeCaptureRequest (request, out);
+    hypha::local_blind::ExactCaptureRequest decoded;
+    if (! kirin_hypha_issue_local_blind_capture_request (
+            hyphaHandle, captureGeneration, clockGeneration,
+            preStart, postStart, frames, &request)
+        || ! decodeCaptureRequest (request, decoded)
+        || ! localBlindCapture.commitPostRequest (decoded))
+    {
+        localBlindCapture.abandonPostRequest();
+        return false;
+    }
+    out = std::move (decoded);
+    return true;
 }
 
 bool KirinHyphaProcessorBase::pollLocalBlindCaptureRequest (

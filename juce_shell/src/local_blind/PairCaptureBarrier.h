@@ -73,6 +73,20 @@ struct ExactCaptureRequest
             && preStart <= std::numeric_limits<std::int64_t>::max() - frames
             && postStart <= std::numeric_limits<std::int64_t>::max() - frames;
     }
+
+    friend bool operator== (const ExactCaptureRequest& a, const ExactCaptureRequest& b) noexcept
+    {
+        return a.requestId == b.requestId && a.pair == b.pair
+            && a.captureGeneration == b.captureGeneration
+            && a.clockGeneration == b.clockGeneration && a.sampleRate == b.sampleRate
+            && a.channels == b.channels && a.preStart == b.preStart
+            && a.postStart == b.postStart && a.frames == b.frames
+            && a.expiresAtUnixMs == b.expiresAtUnixMs;
+    }
+    friend bool operator!= (const ExactCaptureRequest& a, const ExactCaptureRequest& b) noexcept
+    {
+        return ! (a == b);
+    }
 };
 
 enum class CaptureSide : unsigned char { pre, post };

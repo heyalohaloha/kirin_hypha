@@ -1,0 +1,70 @@
+#pragma once
+
+#include "LocalBlindCaptureOwner.h"
+
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <optional>
+
+#include <juce_core/juce_core.h>
+
+namespace hypha::local_blind
+{
+struct CaptureServiceHooks
+{
+    std::function<bool (ExactCaptureRequest&)> pollPreRequest;
+    std::function<bool (const std::string&)> acknowledgePreRequest;
+    std::function<bool (const std::string&)> postPeerArmed;
+    std::function<bool (ExactPairBinding&)> currentPostPair;
+};
+
+// All instances in one plugin module share one sleeping scheduler thread. Idle PRE discovery is
+// bounded and slow; an explicit POST request wakes its client and active handshakes poll faster.
+// Only this callback changes its capture owner.
+class LocalBlindCaptureService final : private juce::TimeSliceClient
+{
+public:
+    LocalBlindCaptureService (CaptureSide, CaptureServiceHooks);
+    ~LocalBlindCaptureService() override;
+
+    void start (std::uint32_t sampleRate, int channels);
+    void stop();
+    bool running() const noexcept { return registered.load (std::memory_order_acquire); }
+
+    bool reservePostRequest() noexcept;
+    bool commitPostRequest (ExactCaptureRequest);
+    void abandonPostRequest() noexcept;
+    void requestReset() noexcept;
+
+    bool process (const float* const* input, int channels, int frames, std::int64_t position,
+                  bool positionValid, bool timelineActive, bool bypassed, bool realtime,
+                  std::uint32_t sampleRate) noexcept
+    {
+        return owner.process (input, channels, frames, position, positionValid, timelineActive,
+                              bypassed, realtime, sampleRate);
+    }
+
+    CaptureOwnerView view() const noexcept { return owner.view(); }
+
+private:
+    struct Scheduler;
+    int useTimeSlice() override;
+    void wake();
+
+    const CaptureSide side;
+    const CaptureServiceHooks hooks;
+    LocalBlindCaptureOwner owner;
+    std::uint32_t preparedSampleRate = 0;
+    int preparedChannels = 0;
+    juce::CriticalSection schedulerLock;
+    juce::CriticalSection submissionLock;
+    std::optional<ExactCaptureRequest> submittedPostRequest;
+    std::atomic<bool> postRequestOccupied { false };
+    std::atomic<bool> resetRequested { false };
+    std::atomic<bool> registered { false };
+    std::unique_ptr<juce::SharedResourcePointer<Scheduler>> scheduler;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LocalBlindCaptureService)
+};
+}

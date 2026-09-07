@@ -1,7 +1,7 @@
 #pragma once
 #include "HostProcessClock.h"
 #include "local_blind/LocalBlindSlot.h"
-#include "local_blind/LocalBlindCaptureLane.h"
+#include "local_blind/LocalBlindCaptureService.h"
 #include "local_blind/LocalBlindEpochSnapshot.h"
 #include "local_blind/PairCaptureBarrier.h"
 #include "local_blind/VST3HostContext.h"
@@ -133,7 +133,7 @@ public:
                                         std::uint64_t clockGeneration,
                                         std::int64_t preStart, std::int64_t postStart,
                                         std::int64_t frames,
-                                        hypha::local_blind::ExactCaptureRequest& out) const;
+                                        hypha::local_blind::ExactCaptureRequest& out);
     bool pollLocalBlindCaptureRequest (hypha::local_blind::ExactCaptureRequest& out) const;
     bool acknowledgeLocalBlindCaptureRequest (const std::string& requestId) const;
     bool localBlindCaptureIsArmed (const std::string& requestId) const;
@@ -272,6 +272,10 @@ private:
     // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
+    static hypha::local_blind::CaptureSide localBlindCaptureSide (Role) noexcept;
+    static hypha::local_blind::CaptureServiceHooks localBlindCaptureHooks (KirinHyphaProcessorBase&);
+    void stopLocalBlindCaptureForFormatChange (double sampleRate, int channels);
+    void startLocalBlindCaptureForPreparedFormat();
     void processComparisonPaths (juce::AudioBuffer<float>&, int64_t positionSamples,
                                  bool hasPosition, bool playing, bool timelineActive,
                                  bool bypassed, bool nonRealtimeMode);
@@ -283,7 +287,7 @@ private:
 #endif
     hypha::local_blind::LocalBlindSlot localBlindOutput;
     hypha::local_blind::LocalBlindEpochSnapshot localBlindEpochs;
-    hypha::local_blind::LocalBlindCaptureLane localBlindCapture;
+    hypha::local_blind::LocalBlindCaptureService localBlindCapture;
 
     juce::AudioParameterBool* bypassParam = nullptr;   // owned by AudioProcessor (addParameter)
     std::vector<float> interleaveScratch;              // pre-allocated in prepareToPlay (RT-safe; no alloc in processBlock)

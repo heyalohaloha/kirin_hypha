@@ -204,7 +204,7 @@ jobs:
 
       - name: Validate local PRE/POST Blind building blocks
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinLocalBlindCaptureTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests KirinLocalBlindHostContextTests
+          cmake --build juce_shell/build-windows --config Release --target KirinLocalBlindCaptureTests KirinLocalBlindCaptureServiceTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests KirinLocalBlindHostContextTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_local_blind_'
 
       - name: Validate Reference audition session contract

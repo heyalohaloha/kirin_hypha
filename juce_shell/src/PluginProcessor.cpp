@@ -70,19 +70,17 @@ KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
           .withInput  ("Input",  juce::AudioChannelSet::mono(), true)
           .withOutput ("Output", juce::AudioChannelSet::mono(), true)),
       role (roleIn),
-      localBlindCapture (roleIn == Role::Pre ? hypha::local_blind::CaptureSide::pre
-                                            : hypha::local_blind::CaptureSide::post)
+      localBlindCapture (localBlindCaptureSide (roleIn), localBlindCaptureHooks (*this))
 {
     // Host bypass routed through this parameter; processBlock reads it to set the
     // Bypassed signal state while still passing audio through (parity with hypha_pre).
     addParameter (bypassParam = new juce::AudioParameterBool ({ "bypass", 1 }, "Bypass", false));
-    // The non-RT enable timer starts only after prepareToPlay creates a fresh engine and stops as
-    // soon as writes are enabled. An instantiated-but-never-prepared plugin owns no periodic work.
 }
 
 KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 {
     stopTimer(); // B-126: stop the non-RT enable poll before teardown (was cancelPendingUpdate / B-070).
+    localBlindCapture.stop();
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     referenceAuditionController.reset();
@@ -123,6 +121,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     // fallback fires only for blocks beyond this) without re-deriving from samplesPerBlock.
     scratchCapacitySamples = interleaveScratch.size();
 
+    stopLocalBlindCaptureForFormatChange (sampleRate, numCh);
     const juce::ScopedLock sl (handleLock);
     // B-141: Studio One offline bounce can call prepareToPlay again after All Keep has entered
     // Record. The maximumExpectedSamplesPerBlock may change for render, but the user-visible
@@ -135,7 +134,6 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
                              || preparedInputChannels != numCh;
     if (! needsNewHandle)
         return;
-
     if (hyphaHandle != nullptr && kirin_hypha_is_recording (hyphaHandle))
         return;
 
@@ -1141,4 +1139,5 @@ void KirinHyphaProcessorBase::enableWritesNow()
 #endif
 
     writesEnabled.store (true, std::memory_order_release);
+    startLocalBlindCaptureForPreparedFormat();
 }

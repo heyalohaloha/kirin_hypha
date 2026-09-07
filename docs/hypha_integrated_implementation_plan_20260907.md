@@ -1,12 +1,12 @@
 **Hyphaのレビュー修正と完成へ進む実装計画**
 
-**2026-09-07 / B-747レビュー後の改訂**
+**2026-09-08 / B-751実装時の改訂**
 
 Referenceの開始・失効・減衰保持・通常復帰と関連RT検証ゲートは、[Referenceセッション構造修正計画](hypha_reference_session_repair_plan_20260907.md)に従って修正する。
 再現済みの音量復帰・開始競合と既存テスト4件の失敗を閉じ、所有者分離の実装と旧入口の削除を確認してから、ローカルPRE/POST Blindの未接続部分へ戻る。
 以下のB-738までの合格記録は履歴として残し、B-747の合格根拠にはしない。
-2026-09-08のB-748実装候補でSR1〜SR3を修正し、対象native・静的契約・ASan・TSan・最終sourceゲートはpassした。
-Windows CI実行と実DAW確認は未完了としてReference計画に残している。
+2026-09-08のB-748でSR1〜SR3を修正し、対象native・静的契約・ASan・TSan・最終sourceゲートはpassした。
+B-749、B-750を含むmainのCIはmacOS / Windowsともgreenである。実DAW確認は未完了としてReference計画に残している。
 
 **2026-09-07 / B-733後の改訂**
 
@@ -77,6 +77,12 @@ readerが残る間はretired PCMを破棄せず、slotはAnalysisLease、PRE／P
 PREはrequestのPRE範囲、POSTはPOST範囲だけを使い、position不明、timeline停止、bypass、offlineはその取得だけを失効させる。
 laneはまだdormantであり、protocolをpollしてarmする非RT所有者、PRE PCM transport、pair barrier完了、試聴開始は未接続である。
 
+2026-09-08のB-751では、plugin module内で一つの低優先度schedulerを共有する`LocalBlindCaptureOwner`を接続した。
+PREは有効なexact requestをpollし、事前確保したrole-local laneを公開した後にだけarmed応答を返す。
+POSTは要求発行前に所有枠を予約し、同じrequest IDの応答と現在のexact pairを再確認してからPOST laneを公開する。
+pair変更、要求消失、期限切れ、応答失敗、形式不一致、取得失敗はその要求だけを破棄し、自動再発行や試聴開始を行わない。
+PRE PCM transport、両receiptのpair barrier、clock / PDC実証、Analysis / Recordとの開始排他、開始UIは引き続き未接続である。
+
 実機で見つかった日本語メニューの代替字形は、共通menu fontを`nativeTextFont()`へ変更して修正した。
 Windowsでの表示確認は、現行ソース全体から作るV工程の候補で行う。
 
@@ -109,10 +115,10 @@ ReferenceAudioPagesとReferenceRuntimeV2Realtimeは、計画作成時点でもB-
 ControllerとSelectionには未コミット変更があるが、指摘した共有sourceへのアクセスとBlindのclearに相当する箇所は残っている。
 この観察は現行差分での再現試験を代替しない。
 
-CIは2026-09-07にGitHubから読取り確認した。
-[PR #17](https://github.com/heyalohaloha/kirin_hypha/pull/17)のheadはB-696の`f23db958`で、release source contractとWindows VST3 preflightがfailure、public historyとauvalがsuccessだった。
-B-730のcommit指定によるrun照会は0件だった。
-AAX文書の古いCI状況を現在の候補の合否として引き継がず、実装対象の同一コミットで再検証する。
+CIは2026-09-08にGitHubから読取り確認した。
+[PR #17](https://github.com/heyalohaloha/kirin_hypha/pull/17)はB-750まで更新し、release source、AU、Windows VST3 preflightを含む同一候補の全jobがgreenになった後、mainへmergeした。
+B-751はローカル対象試験後に同じCI面で検証する。
+AAX文書の古いCI状況を現在の候補の合否として引き継がない。
 
 **2. 実装順序と依存関係**
 
