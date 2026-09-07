@@ -1,4 +1,5 @@
 #include "../src/local_blind/PairCaptureBarrier.h"
+#include "../src/local_blind/ExactRangeCaptureSlot.h"
 #include <array>
 #include <cstdlib>
 #include <cstring>
@@ -179,5 +180,24 @@ int main()
     producer.join(); // storage retirement, independently of PCM publication
     capture.cancel();
     require (capture.completedPcm() == nullptr);
-    std::cout << "Exact range capture: PASS (ranges, exact pair barrier, failures, bounds, retirement)\n";
+    // A role-local publication slot keeps allocation and reclamation off the Audio Thread.
+    {
+        ExactRangeCaptureSlot slot;
+        require (slot.publish (std::make_unique<ExactRangeCapture> (
+            CaptureRange { 44, 48000, 1, 0, 12 }, 48)));
+        require (! slot.publish (std::make_unique<ExactRangeCapture> (
+            CaptureRange { 45, 48000, 1, 0, 12 }, 48)));
+        const float* pointers[] = { input.data() };
+        require (slot.push (pointers, 1, 12, 0, 44, true, 48000));
+        require (slot.control() != nullptr && slot.control()->completedPcm() != nullptr);
+        require (slot.retireCompleted());
+        require (! slot.hasPublishedRealtime() && ! slot.hasStorage());
+        require (! slot.push (pointers, 1, 12, 0, 44, true, 48000));
+
+        require (slot.publish (std::make_unique<ExactRangeCapture> (
+            CaptureRange { 46, 48000, 1, 0, 12 }, 48)));
+        require (slot.cancelAndRetire());
+        require (! slot.hasPublishedRealtime() && ! slot.hasStorage());
+    }
+    std::cout << "Exact range capture: PASS (ranges, pair barrier, publication slot, bounds, retirement)\n";
 }

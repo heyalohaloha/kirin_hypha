@@ -60,6 +60,11 @@ C ABIの出力は失敗時に変更せず、JUCEはrequest ID、pair／capture�
 名前なしPREを使ったC ABI往復でも、canonical claim公開前の要求拒否、要求受信、armed応答、pair解除後の失効を確認した。
 非RT開始所有者、Audio Threadへのcapture object公開、PCM回収、PDCの実証、開始排他、開始UIはまだ接続していない。
 
+2026-09-07のB-746では、各roleで事前確保した`ExactRangeCapture`を単一Audio Threadへ渡す専用slotを追加した。
+非RTの単一所有者だけが公開、完了確認、取消、回収を行い、Audio Threadはatomic pointerとreader countを通して入力を不変bufferへコピーする。
+readerが残る間はretired PCMを破棄せず、slotはAnalysisLease、PRE／POST間のPCM transport、試聴開始許可を兼ねない。
+この段階ではprocessor本体へslotを所有させず、取得protocolからの公開、実callbackでの入力、PRE PCMの受け渡しは未接続である。
+
 実機で見つかった日本語メニューの代替字形は、共通menu fontを`nativeTextFont()`へ変更して修正した。
 Windowsでの表示確認は、現行ソース全体から作るV工程の候補で行う。
 

@@ -1,6 +1,6 @@
 # B1 ホスト実機観測と取得失敗の診断
 
-更新日：2026-09-07。B-741、B-743〜B-745追記。
+更新日：2026-09-07。B-741、B-743〜B-746追記。
 
 ローカルPRE/POST BlindのB1は、同一区間取得と時刻整列が未実証のため未成立である。
 Windows Studio Proの保存済み検証曲では、ホストがJUCEのclient extension hookを呼び、context変更も通知した。
@@ -103,7 +103,8 @@ OneDriveの容量100%通知も表示されたが、アカウントや同期設�
 1. B-743とB-744で、明示選択したPREのinstance ID、locator、pair generation、owner claimを一つの不変な取得要求へ束ねた。
    同名候補、未命名候補、選択後のrename、instance再生成で別PREへ付け替えず、pair解放後は配信済み要求もarmed応答も無効にする。
 2. B-745でprotocolのRust C ABIとJUCE非RT操作は接続した。
-   次は単一の非RT所有者がこの操作を使ってPREとPOSTのcapture objectを公開し、同じcapture generationとbarrierでsample rate、layout、連続したnative sample範囲を照合する。
+   B-746でrole別capture publication slotを追加したため、次は単一の非RT所有者がこの操作とslotを結び、PREとPOSTへcapture objectを公開する。
+   同じcapture generationとbarrierでsample rate、layout、連続したnative sample範囲を照合する。
    optionalなhost通知がなくても内部事実で対応区間を証明できれば受理し、証明できない取得だけを開始不可にする。
 3. Blind、Reference、Keep / All Keep、Recordの競合はHypha自身の共有leaseで調停する。
    DAWのtrack名、PID、host固有IDからroutingや未知の参加者を推測しない。
