@@ -2,6 +2,7 @@
 #include "HostProcessClock.h"
 #include "local_blind/LocalBlindSlot.h"
 #include "local_blind/LocalBlindEpochSnapshot.h"
+#include "local_blind/PairCaptureBarrier.h"
 #include "local_blind/VST3HostContext.h"
 #include "local_blind/HostClockProbe.h"
 #include "kirin_hypha_display_ffi.h"
@@ -125,6 +126,7 @@ public:
     int pairStatus() const;                            // 0=Unpaired 1=Waiting 2=Paired
     juce::String pairedPreInstanceId() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
+    bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
     bool keepPair();                                    // kirin_hypha_keep (Os + unique PRE)
     bool recordExclusionConflict() const;               // B-118 (②): kirin_hypha_record_exclusion_conflict (advisory only)
     juce::String recordErrorMessage() const;            // B-118 (③): kirin_hypha_record_error_message (io fail status / G-115-29)

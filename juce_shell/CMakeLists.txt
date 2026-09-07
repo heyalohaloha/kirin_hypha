@@ -227,7 +227,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         COPY_PLUGIN_AFTER_BUILD FALSE)
 
     target_sources(${TARGET} PRIVATE
-        src/PluginProcessor.cpp src/PluginProcessorAudition.cpp src/local_blind/LocalBlindTrial.cpp
+        src/PluginProcessor.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
+        src/local_blind/LocalBlindTrial.cpp
         src/local_blind/HostContext.cpp
         src/PluginProcessorHostClock.cpp
         src/PluginProcessorValidation.cpp

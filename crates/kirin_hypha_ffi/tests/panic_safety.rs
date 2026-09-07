@@ -9,12 +9,13 @@
 
 use kirin_hypha_ffi::{
     kirin_hypha_create, kirin_hypha_decode_legacy_nih_state, kirin_hypha_destroy,
-    kirin_hypha_enumerate_post_pair_claims, kirin_hypha_get_paired_pre_instance_id,
-    kirin_hypha_get_paired_pre_locator, kirin_hypha_pair_status, kirin_hypha_poll_record_display,
-    kirin_hypha_poll_result, kirin_hypha_poll_session, kirin_hypha_push_samples,
-    kirin_hypha_restore_pair_candidate, kirin_hypha_select_pair_candidate,
-    kirin_hypha_set_host_component_active, kirin_hypha_set_signal_state, KirinLegacyNihState,
-    KirinMeasureResult, KirinPostPairClaim, KirinRecordDisplay, KirinSessionSummary,
+    kirin_hypha_enumerate_post_pair_claims, kirin_hypha_get_local_blind_pair_binding,
+    kirin_hypha_get_paired_pre_instance_id, kirin_hypha_get_paired_pre_locator,
+    kirin_hypha_pair_status, kirin_hypha_poll_record_display, kirin_hypha_poll_result,
+    kirin_hypha_poll_session, kirin_hypha_push_samples, kirin_hypha_restore_pair_candidate,
+    kirin_hypha_select_pair_candidate, kirin_hypha_set_host_component_active,
+    kirin_hypha_set_signal_state, KirinExactPairBinding, KirinLegacyNihState, KirinMeasureResult,
+    KirinPostPairClaim, KirinRecordDisplay, KirinSessionSummary,
 };
 
 #[test]
@@ -84,6 +85,22 @@ fn null_handle_calls_are_safe_noops() {
             project.len(),
             paired.as_mut_ptr(),
             paired.len()
+        ));
+        let mut exact = KirinExactPairBinding {
+            pair_generation: 91,
+            ..KirinExactPairBinding::default()
+        };
+        assert!(!kirin_hypha_get_local_blind_pair_binding(
+            std::ptr::null_mut(),
+            &mut exact
+        ));
+        assert_eq!(
+            exact.pair_generation, 91,
+            "failed read must leave output unchanged"
+        );
+        assert!(!kirin_hypha_get_local_blind_pair_binding(
+            std::ptr::null_mut(),
+            std::ptr::null_mut()
         ));
 
         let mut legacy = std::mem::zeroed::<KirinLegacyNihState>();

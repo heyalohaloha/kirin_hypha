@@ -41,6 +41,12 @@ PREは利用者が候補から明示選択し、instance ID、locator、pair gen
 host contextは補助診断へ限定し、同一区間はHypha自身のcapture generation、barrier、native sample範囲で証明する。
 optionalなhost情報がなくても成立できる構造にして、AUを含む他DAWへの移植性を維持する。
 
+2026-09-07のB-743では、通常pairingが保持するexact PREのinstance ID、locator、pair generationを一つのsnapshotとしてC ABIへ公開した。
+名前なしPREの明示選択もselection intentとして保持し、内部解放後のWaitingと利用者による選択解除を区別する。
+ローカルBlindのcapture barrierは、このsnapshotと一つのcapture generationをPRE／POSTのnative sample範囲へ固定する。
+pair generation、locator、capture generation、形式、範囲、完了状態のいずれかが異なる受領結果は要求全体を失効させる。
+この変更はpair authorityの受け渡しを成立させたが、PREへの取得要求配信、時刻対応、PCM回収、開始排他はまだ接続していないため、B1は未完了である。
+
 実機で見つかった日本語メニューの代替字形は、共通menu fontを`nativeTextFont()`へ変更して修正した。
 Windowsでの表示確認は、現行ソース全体から作るV工程の候補で行う。
 

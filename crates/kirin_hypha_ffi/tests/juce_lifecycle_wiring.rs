@@ -154,17 +154,45 @@ fn saved_daw_state_restores_the_exact_pre_without_registry_rescan() {
     assert!(processor.contains("kirin_hypha_restore_pair_candidate ("));
 
     let ffi = read_repo("crates/kirin_hypha_ffi/src/lib.rs");
+    let pair_snapshot = read_repo("crates/kirin_hypha_ffi/src/pair_snapshot_ffi.rs");
     let restore = slice_between(&ffi, "pub fn restore_pair_candidate", "pub fn pair_status");
     assert!(restore.contains("restored_pair_latch("));
     assert!(!restore.contains("enumerate_live_pre_pair_choices"));
     assert!(!restore.contains("select_live_pre_pair_choice"));
     assert!(ffi.contains("project_dir.join(pre_instance_id).join(\"pre.json\")"));
     assert!(ffi.contains("LatchedPreReadiness::RestoredWaiting"));
-    assert!(ffi.contains("pub fn paired_pre_locator(&self) -> Option<(String, String)>"));
+    assert!(pair_snapshot.contains("pub fn paired_pre_locator(&self) -> Option<(String, String)>"));
 
     let pairing = read_repo("crates/kirin_measure/src/pairing_scope.rs");
     assert!(pairing.contains("confirm_restored_latch_runtime"));
     assert!(pairing.contains("LatchedTarget::RestoredWaiting => return None"));
+}
+
+#[test]
+fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() {
+    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_pair_snapshot_ffi.h");
+    assert!(ffi_header.contains("KirinExactPairBinding"));
+    assert!(ffi_header.contains("pair_generation"));
+    assert!(ffi_header.contains("project_hash"));
+    assert!(ffi_header.contains("pre_instance_id"));
+    assert!(ffi_header.contains("kirin_hypha_get_local_blind_pair_binding"));
+
+    let binding = read_repo("crates/kirin_hypha_ffi/src/pair_binding.rs");
+    assert!(binding.contains("selection_intent: AtomicBool"));
+    assert!(binding.contains("pub(crate) fn exact_snapshot"));
+    assert!(binding.contains("self.selection_intent.store(true, Ordering::Release)"));
+
+    let capture = read_repo("juce_shell/src/local_blind/PairCaptureBarrier.h");
+    assert!(capture.contains("struct ExactPairBinding"));
+    assert!(capture.contains("class PairCaptureBarrier"));
+    assert!(capture.contains("receipt.pair == pair"));
+    assert!(capture.contains("sameRange (receipt.range, range (receipt.side))"));
+
+    let processor = read_repo("juce_shell/src/PluginProcessorPairing.cpp");
+    assert!(processor.contains("kirin_hypha_get_local_blind_pair_binding"));
+    assert!(processor.contains("binding.pair_generation"));
+    let cmake = read_repo("juce_shell/CMakeLists.txt");
+    assert!(cmake.contains("src/PluginProcessorPairing.cpp"));
 }
 
 #[test]

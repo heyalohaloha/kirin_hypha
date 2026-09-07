@@ -174,8 +174,10 @@ TRACK/STEM から 2MIX への変更は、画面操作と DAW state 復元の双�
 新しい PRE/POST Blind は未接続であり、単一 Blind／既存 2 枠の予約試験を製品の排他保証と扱わない。
 ローカルBlindのpair authorityは通常pairingと同じ明示PRE選択である。
 名前は任意の表示ラベルとし、host固有IDは補助診断に限定する。
+名前なしPREもexact latch自体をselection intentとして保持し、内部解放後のWaitingと明示解除を区別する。
 開始時は選択済みinstance、locator、pair／capture generation、対応sample範囲、共有leaseを検証する。
-対応試験は `verifyInformationContract`、`verifyTimePageNavigationContract`、`attack_vst_wiring`、`analysis_blind_admission_probe`。
+PRE／POSTの取得受領は同じexact pairとcapture generationへ固定し、不一致とpair変更では完了後も失効する。
+対応試験は `unnamed_exact_pair_has_a_coherent_snapshot_until_explicit_clear`、`kirin_local_blind_capture`、`local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name`、`analysis_blind_admission_probe`。
 承認範囲は [実装承認記録](hypha_implementation_approval_20260906.md) を参照する。
 
 | ID | 不変条件 | 紐づくテスト |

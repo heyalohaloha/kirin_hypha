@@ -55,16 +55,16 @@ use kirin_measure::{
     mark_generation_terminal, mark_released_if_current, mark_released_with_reason,
     mark_released_with_reason_if_current, new_record_mark_queue, new_record_take_tracker,
     new_record_trace_queue, pair_owner_instance_dir, pair_status_for_pre,
-    pair_status_from_owned_binding_with_intent, pair_status_or_last_known, paired_pre_instance_id,
-    read_signal, record_ring_capacity_samples, resolve_arm_target_for_post_project_in_session,
-    sanitize_name, select_live_pre_pair_choice_by_instance_for_post_project_in_session,
-    set_daw_session_id, set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre,
-    spawn_measure_thread, spawn_watchdog, watch_ring_capacity_samples,
-    write_broadcast_for_generation, write_pending_claiming_expected_and_clock_for_generation,
-    write_stop_broadcast, write_stop_broadcast_for_generation, AnalysisViewMode, BalanceState,
-    CaptureClockSource, CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction,
-    DeltaMode, DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License,
-    LiveLicense, LivenessEvaluator, MeasureResult, MeterDeltaHistoryExchange, MeterHistoryEntry,
+    pair_status_from_owned_binding_with_intent, pair_status_or_last_known, read_signal,
+    record_ring_capacity_samples, resolve_arm_target_for_post_project_in_session, sanitize_name,
+    select_live_pre_pair_choice_by_instance_for_post_project_in_session, set_daw_session_id,
+    set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
+    spawn_watchdog, watch_ring_capacity_samples, write_broadcast_for_generation,
+    write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
+    write_stop_broadcast_for_generation, AnalysisViewMode, BalanceState, CaptureClockSource,
+    CaptureGeneration, CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode,
+    DeltaResult, GenerationTerminalReason, IoThreadHandle, LatchedPre, License, LiveLicense,
+    LivenessEvaluator, MeasureResult, MeterDeltaHistoryExchange, MeterHistoryEntry,
     MeterHistoryRange, MeterHistoryResolution, MeterSession, MeterSessionPublication,
     MeterSessionSnapshot, MeterSessionState, PairOwnershipBinding, PairOwnershipLease, PairStatus,
     PlatformPaths, PluginDataRole, PrePairStatusObserver, PresentationLatencySamples,
@@ -89,6 +89,7 @@ mod identity_registry;
 mod legacy_nih_state;
 mod pair_binding;
 mod pair_candidates_ffi;
+mod pair_snapshot_ffi;
 mod record_note_ffi;
 mod reference_audition_ffi;
 mod reference_gain_ffi;
@@ -102,6 +103,10 @@ pub use legacy_nih_state::{kirin_hypha_decode_legacy_nih_state, KirinLegacyNihSt
 pub use pair_candidates_ffi::{
     kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
     kirin_hypha_enumerate_pre_candidates, KirinPostPairClaim, KirinPreCandidate,
+};
+pub use pair_snapshot_ffi::{
+    kirin_hypha_get_local_blind_pair_binding, kirin_hypha_get_paired_pre_instance_id,
+    kirin_hypha_get_paired_pre_locator, KirinExactPairBinding,
 };
 pub use record_note_ffi::*;
 pub use reference_audition_ffi::kirin_hypha_set_reference_audition_active;
@@ -2100,14 +2105,7 @@ impl KirinHyphaEngine {
         // 単一情報源（kirin_measure::sanitize_name）。select_target_pre は sanitized な PRE 名と
         // 照合するため、pair target も同じ正規化を通す。
         let sanitized = sanitize_name(&name);
-        let desired_name = self.pair_binding.desired_name();
-        let current_name = desired_name
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone();
-        if current_name == sanitized
-            && (!sanitized.is_empty() || self.paired_pre_instance_id().is_none())
-        {
+        if !self.pair_binding.name_change_required(&sanitized) {
             return;
         }
 
@@ -2274,25 +2272,6 @@ impl KirinHyphaEngine {
             }
             None => PairStatus::Unpaired,
         }
-    }
-
-    pub fn paired_pre_instance_id(&self) -> Option<String> {
-        paired_pre_instance_id(&self.pair_binding.latched_pre())
-    }
-
-    pub fn paired_pre_locator(&self) -> Option<(String, String)> {
-        let binding = self.pair_binding.latched_pre();
-        let binding = binding
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let pre = binding.as_ref()?;
-        let project_hash = pre.project_dir.file_name()?.to_str()?;
-        if !kirin_measure::is_path_safe_component(project_hash)
-            || !kirin_measure::is_path_safe_component(&pre.instance_id)
-        {
-            return None;
-        }
-        Some((project_hash.to_string(), pre.instance_id.clone()))
     }
 
     /// PRE の自名を設定する（B-054 / `set_pair_target` と完全対称）。
@@ -4123,77 +4102,6 @@ pub unsafe extern "C" fn kirin_hypha_pair_status(handle: *mut KirinHyphaEngine) 
         unsafe { (*handle).pair_status() as u8 }
     }))
     .unwrap_or(PairStatus::Unpaired as u8)
-}
-
-/// Return the exact PRE instance currently latched by a POST.
-///
-/// # Safety
-/// A non-null `handle` must be a live pointer returned by `kirin_hypha_create`. When `out` is
-/// non-null and `out_len > 0`, it must reference a writable buffer of at least `out_len` bytes.
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_get_paired_pre_instance_id(
-    handle: *mut KirinHyphaEngine,
-    out: *mut c_char,
-    out_len: usize,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() || out_len == 0 {
-            return false;
-        }
-        let Some(instance_id) = (unsafe { (*handle).paired_pre_instance_id() }) else {
-            return false;
-        };
-        let bytes = instance_id.as_bytes();
-        let n = bytes.len().min(out_len - 1);
-        let dst = unsafe { std::slice::from_raw_parts_mut(out as *mut u8, out_len) };
-        dst[..n].copy_from_slice(&bytes[..n]);
-        dst[n] = 0;
-        true
-    }))
-    .unwrap_or(false)
-}
-
-/// Return the project shelf and instance ID of the exact PRE from one binding snapshot.
-///
-/// # Safety
-/// A non-null `handle` must be a live pointer returned by `kirin_hypha_create`. Each non-null
-/// output pointer must reference a writable buffer at least as large as its corresponding length.
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_get_paired_pre_locator(
-    handle: *mut KirinHyphaEngine,
-    project_out: *mut c_char,
-    project_out_len: usize,
-    instance_out: *mut c_char,
-    instance_out_len: usize,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null()
-            || project_out.is_null()
-            || project_out_len == 0
-            || instance_out.is_null()
-            || instance_out_len == 0
-        {
-            return false;
-        }
-        let Some((project_hash, instance_id)) = (unsafe { (*handle).paired_pre_locator() }) else {
-            return false;
-        };
-        let project_bytes = project_hash.as_bytes();
-        let project_n = project_bytes.len().min(project_out_len - 1);
-        let project_dst =
-            unsafe { std::slice::from_raw_parts_mut(project_out as *mut u8, project_out_len) };
-        project_dst[..project_n].copy_from_slice(&project_bytes[..project_n]);
-        project_dst[project_n] = 0;
-
-        let instance_bytes = instance_id.as_bytes();
-        let instance_n = instance_bytes.len().min(instance_out_len - 1);
-        let instance_dst =
-            unsafe { std::slice::from_raw_parts_mut(instance_out as *mut u8, instance_out_len) };
-        instance_dst[..instance_n].copy_from_slice(&instance_bytes[..instance_n]);
-        instance_dst[instance_n] = 0;
-        true
-    }))
-    .unwrap_or(false)
 }
 
 /// PRE の自名（pre name）を設定する（B-054 / set_pair_target と完全対称）。

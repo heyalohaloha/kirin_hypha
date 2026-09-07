@@ -1,19 +1,26 @@
 # PRE/POST Blind の実装状況
 
-更新日: 2026-09-06
-対象: B-719、B-720、B-721、B-722、B-723、B-724
+更新日: 2026-09-07
+対象: B-719、B-720、B-721、B-722、B-723、B-724、B-743
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
 利用者が選んだexact PREをinstance ID、locator、generationで固定し、名前は任意の表示ラベルとして扱う。
 以下はB-724までの履歴であり、現在の完成条件は [統合実装計画](hypha_integrated_implementation_plan_20260907.md) を正本とする。
 
+B-743は、通常pairingからローカルBlindへexact pair authorityを渡す境界を追加した。
+POSTが明示選択したPREのinstance ID、locator、pair generationを一つのsnapshotとして読み、名前やhost固有IDを含めない。
+名前なしPREも選択済みとして保持し、内部解放後のWaitingと利用者による選択解除を分離した。
+取得受領のbarrierは、同じpair generation、capture generation、sample rate、channel layout、frames、各native startを要求する。
+pair変更と不一致受領は、完了後を含めて要求全体を失効させる。
+PREへの要求配信、時刻対応、PCM回収、開始排他、開始UIは未接続である。
+
 ## 現在の到達点
 
 **PRE/POST Blind は、まだ利用者が DAW で開始できる状態ではない。**
 B-718 の同一区間取得部品に、固定 Gain Match の準備、比較コピーの出力、回答と Reveal、中断後の減衰保持、通常復帰の確認、PCM 回収を追加した。
 これらを独立試験で検証し、本体の計測後に試聴出力を選ぶ入口を設けた。
-本体には開始操作、取得要求、入場許可を発行する処理がまだなく、追加した出力は起動しない。
+本体には開始操作、PREへの取得要求、入場許可を発行する処理がまだなく、追加した出力は起動しない。
 
 B-723 以降は Windows で B-722 検証版を一時配置し、Studio Pro で確認した。
 PSB の欠落と高い CPU 使用率の指摘を受け、性能の切り分けを優先している。
