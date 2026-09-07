@@ -2,7 +2,8 @@
 
 更新日：2026-09-07。基準：`7746173c7853eabc923b6eb53ad45192155daef2` / B-733。
 2026-09-07に本計画のS0〜S4とM0を実装した。
-SGは対象試験まで完了し、最終候補に対する全体ゲートを1回だけ実行する段階にある。
+SGのsource内検証は完了した。
+全体ゲートは1回実行し、そこで検出したPRE shelfの一時ファイル競合を修正したうえで、影響範囲と未実行分を個別に完走した。
 ホスト配置と公開は実施していない。
 本書を、既存統合計画のReference修正・RG・AAX混入検査・初回回答取込みについての現行計画とする。
 ローカルBlind、軽量化、SPACE / ATTACK本体接続、両OS検証、配布3チャネルの既存範囲は維持する。
@@ -262,9 +263,27 @@ FFIを変更した場合はparityとpairing_candidatesのignored件数を実測�
 
 **11. 実装結果**
 
-S0〜S4とM0は実装済みである。
-Reference対象native試験、review Node試験15件、AAX混入検査試験6件、実リポジトリのAAX走査、source line budget、diff checkはpassした。
-全体ゲートは最終commit後に`scripts/test_release_source.sh`を1回だけ実行し、その結果を本節へ追記する。
+S0〜S4とM0はB-734〜B-736で実装した。
+B-734はReferenceのページ観測、通常Bのadmission、Blindの保持・明示復帰・予約tokenを一つの遷移契約へ揃えた。
+B-735はAAX混入検査の入力集合をGit追跡対象へ変更した。
+B-736は回答原本・訂正・素材identityを検証する評価器と、追加SPACEパック生成器を接続した。
+
+`scripts/test_release_source.sh`は最終候補に対して1回実行した。
+Node / static契約、UI、ATTACK、Referenceまではpassしたが、PREの`retain the same runtime identity when the open PRE instance is prepared again`で停止したため、一度の実行ではgreenになっていない。
+原因はatomic writeに使う`juce::TemporaryFile(target)`が一時leaseにも`.json`拡張子を与え、完了済みpresenceを列挙する処理から見分けられなかったことだった。
+B-737で同じディレクトリの隠し`.json.tmp`へ変更し、未使用定数による所有sourceのRelease警告も除去した。
+修正後のPRE display Release試験と、影響を共有するReference Release試験はpassした。
+全体scriptは省エネ方針に従って繰り返さず、停止時点より後ろの未実行suiteを個別に続行した。
+
+最終確認では、`kirin_measure`通常試験、`kirin_hypha_ffi`通常試験、RT handoff、C ABI 3シンボル、xtask 136件がpassした。
+Release負荷試験の実測は、可視PRE / POST 1組が10.558%、POST解析2本が10.699%だった。
+ignored対象はparity 20件、pairing_candidates 5件と実測で固定し、単一threadで全25件がpassした。
+clippyは対象3crateを`-D warnings`でpassした。
+review Node試験16件、AAX混入検査試験6件、実リポジトリのAAX走査、public history、source line budget、diff checkもpassした。
+
+外部EBU v05 archiveを別途供給する試験は、素材がないため明示ignoreのままである。
+ASan / TSanは今回の省エネ範囲では実行していない。
+したがってsource内の修正と必須回帰はgreenだが、sanitizer、実ホスト、AAX実SDKによる外部検証まで完了した意味ではない。
 新しいプラグイン配置、署名、外部公開は実施していない。
 LSアップ用：skip。HPアップ用：macOS skip / Windows skip。
 未処理申し送り：追加SPACE HTMLへの人による回答、ATTACKの網羅注釈と独立した二人目、実ホスト、sanitizer、AAX実SDK、配布条件。
