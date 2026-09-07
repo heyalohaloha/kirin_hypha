@@ -15,6 +15,9 @@ namespace
 {
     constexpr float kDeltaRangeDb = KIRIN_SPECTRUM_DISPLAY_RANGE_DB;
     constexpr float kIntensityReferenceDb = 18.0f;
+    constexpr size_t kIntensityLevelCount = ui_contract::spectrumTipAlpha.size();
+    constexpr float kIntensityStepDb = kIntensityReferenceDb
+                                     / (float) (kIntensityLevelCount - 1u);
     constexpr float kMagnitudeFloorDbfs = -96.0f;
 
     float yForDeltaDb (float db, juce::Rectangle<float> plot) noexcept
@@ -77,20 +80,17 @@ void paintCurves (juce::Graphics& g,
     const juce::Path deltaCurve = makeCurve (x, deltaY);
     const juce::Path markCurve = mark != nullptr ? makeCurve (x, markY) : juce::Path {};
 
-    constexpr size_t intensityLevelCount = ui_contract::spectrumTipAlpha.size();
     // The wider ±24 dB geometry must not make ordinary 1–6 dB work look dimmer. Brightness keeps
     // the proven ±18 dB response and simply reaches its maximum before the new display edge.
-    constexpr float intensityStepDb = kIntensityReferenceDb
-                                    / (float) (intensityLevelCount - 1u);
     constexpr std::array<float, 6> tipDepthCoverage {
         1.00f, 0.79f, 0.60f, 0.43f, 0.28f, 0.14f
     };
     constexpr std::array<float, tipDepthCoverage.size()> tipAlphaShare {
         0.055f, 0.080f, 0.130f, 0.200f, 0.310f, 0.480f
     };
-    std::array<std::array<juce::Path, intensityLevelCount>, tipDepthCoverage.size()>
+    std::array<std::array<juce::Path, kIntensityLevelCount>, tipDepthCoverage.size()>
         intensityTips;
-    std::array<juce::Path, intensityLevelCount> highlights;
+    std::array<juce::Path, kIntensityLevelCount> highlights;
     const auto innerTipY = [&plot] (float db, float coverage) {
         const float magnitudeDb = std::abs (db);
         const float tipDepthDb = std::min (3.0f, magnitudeDb * 0.38f) * coverage;
@@ -99,8 +99,8 @@ void paintCurves (juce::Graphics& g,
     };
     const auto bucketForSegment = [&delta] (size_t index) {
         const float magnitude = 0.5f * (std::abs (delta[index - 1]) + std::abs (delta[index]));
-        return std::min (intensityLevelCount - 1u,
-                         static_cast<size_t> (magnitude / intensityStepDb));
+        return std::min (kIntensityLevelCount - 1u,
+                         static_cast<size_t> (magnitude / kIntensityStepDb));
     };
     // Consecutive segments of one colour form one ribbon and one highlight. Retained vertices
     // bound the error to 0.05 logical pixels; shared edges and internal rounded caps disappear.
@@ -203,7 +203,7 @@ void paintCurves (juce::Graphics& g,
                                                     juce::PathStrokeType::curved,
                                                     juce::PathStrokeType::rounded));
 
-    constexpr std::array<float, intensityLevelCount> highlightAlpha {
+    constexpr std::array<float, kIntensityLevelCount> highlightAlpha {
         0.10f, 0.13f, 0.16f, 0.19f, 0.22f, 0.255f, 0.29f,
         0.325f, 0.36f, 0.40f, 0.44f, 0.48f, 0.52f,
         0.56f, 0.60f, 0.64f, 0.68f, 0.715f, 0.75f,
