@@ -16,7 +16,6 @@ namespace hypha::reference_audition
         constexpr std::int64_t maximumGlobalPresetCatalogBytes = 64 * 1024;
         constexpr std::int64_t maximumPresetBytes = 2 * 1024 * 1024;
         constexpr std::int64_t maximumSourceStateBytes = 1024 * 1024;
-        constexpr std::int64_t maximumSourcePresetBytes = 8 * 1024 * 1024;
         constexpr std::int64_t maximumSafeInteger = 9'007'199'254'740'991;
 
         bool matches (const juce::String& value, const char* expression)

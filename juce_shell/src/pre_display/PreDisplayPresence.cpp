@@ -99,7 +99,9 @@ namespace hypha::pre_display
         {
             if (! target.getParentDirectory().createDirectory())
                 return false;
-            juce::TemporaryFile temporary (target);
+            const auto temporaryPath = target.getSiblingFile (
+                "." + target.getFileName() + ".tmp").getNonexistentSibling (false);
+            juce::TemporaryFile temporary (target, temporaryPath);
             {
                 auto stream = temporary.getFile().createOutputStream();
                 if (stream == nullptr || ! stream->openedOk())
