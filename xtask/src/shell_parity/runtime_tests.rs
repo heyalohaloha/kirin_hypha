@@ -1,4 +1,14 @@
     #[test]
+    fn localized_juce_menus_use_the_native_text_font() {
+        assert!(PLUGIN_EDITOR_H.contains(
+            "return hypha::nativeTextFont (hypha::ui_contract::menuFontHeight);"
+        ));
+        assert!(!PLUGIN_EDITOR_H.contains(
+            "return hypha::monoFont (hypha::ui_contract::menuFontHeight);"
+        ));
+    }
+
+    #[test]
     fn juce_offline_lifecycle_does_not_stop_record() {
         let prepare = between(
             PLUGIN_PROCESSOR_CPP,

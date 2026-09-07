@@ -25,9 +25,16 @@ juce::StringArray KirinHyphaProcessorBase::localValidationFacts() const
     lines.add ("Host identity: " + juce::String (issues[static_cast<int> (host.issue)]));
     if (! host.hasActiveIdentity())
         lines.add ("Unavailable at: " + juce::String (hypha::local_blind::hostContextReadStageName (host.failedAt)));
+    lines.add ("Context provider API: "
+               + juce::String (hypha::local_blind::hostContextProviderApiName (host.providerApi)));
     lines.add ("Document hash: " + fingerprint (host.document));
     lines.add ("Channel hash: " + fingerprint (host.channel));
     lines.add ("Host revision: " + number (host.revision));
+    lines.add ("Host hooks: component " + number (host.componentHandlerSets)
+               + " / application " + number (host.hostApplicationSets));
+    lines.add ("Host queries: all " + number (host.editControllerQueries)
+               + " / context " + number (host.handlerInterfaceQueries));
+    lines.add ("Host context notifications: " + number (host.notifications));
     hypha::local_blind::HostClockProbeSnapshot clock;
     if (hostClockProbe.read (clock))
     {

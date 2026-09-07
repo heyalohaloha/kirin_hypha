@@ -61,7 +61,8 @@ private:
         }
         juce::Font getPopupMenuFont() override
         {
-            return hypha::monoFont (hypha::ui_contract::menuFontHeight);
+            // Menus contain localized product text and user-provided project/channel names.
+            return hypha::nativeTextFont (hypha::ui_contract::menuFontHeight);
         }
     };
 

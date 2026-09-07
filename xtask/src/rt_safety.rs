@@ -200,7 +200,13 @@ mod tests {
             header.contains("getVST3ClientExtensions() override { return &nativeHostContext; }")
         );
         assert!(adapter.contains("setIComponentHandler"));
+        assert!(facts.contains("query<ContextInfoProvider3>"));
+        assert!(facts.contains("query<Presonus::IContextInfoProvider2>"));
         assert!(facts.contains("Presonus::IContextInfoProvider_iid"));
+        assert!(
+            facts.find("query<ContextInfoProvider3>")
+                < facts.find("query<Presonus::IContextInfoProvider2>")
+        );
         assert!(facts.contains("Presonus::ContextInfo::kDocumentID"));
         assert!(!facts.contains("setContextInfo"));
         assert!(!facts.contains("persistDawSessionUuid"));

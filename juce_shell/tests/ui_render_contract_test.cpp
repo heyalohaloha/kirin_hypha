@@ -225,8 +225,8 @@ int main (int argc, char** argv)
                                   (juce::juce_wchar) 0x25CC, // ◌
                                   (juce::juce_wchar) 0x2014 }) // —
         KIRIN_REQUIRE (hasGlyph (mono, codepoint));
-    KIRIN_REQUIRE (hasGlyph (hypha::labelFont (ui::menuFontHeight),
-                             (juce::juce_wchar) 0x00B7)); // ·
+    KIRIN_REQUIRE (hasGlyph (hypha::labelFont (ui::menuFontHeight), (juce::juce_wchar) 0x00B7)
+                   && hasGlyph (hypha::nativeTextFont (ui::menuFontHeight), (juce::juce_wchar) 0x66F4)); // · / 更
 
     KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR ●"), ui::pairStatusWidth));
     KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR ◌"), ui::pairStatusWidth));

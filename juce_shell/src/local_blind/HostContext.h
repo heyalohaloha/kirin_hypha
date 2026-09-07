@@ -21,12 +21,21 @@ enum class HostContextReadStage
 };
 const char* hostContextReadStageName (HostContextReadStage) noexcept;
 
+enum class HostContextProviderApi { none, v1, v2, v3 };
+const char* hostContextProviderApiName (HostContextProviderApi) noexcept;
+
 // These are host observations, NOT an admission token. In particular they do not prove
 // routing, PDC, all participants, or compatibility with an older plug-in in the document.
 struct HostContextFacts
 {
     std::u16string host, document, activeDocument, channel;
     std::uint64_t revision = 0;
+    std::uint64_t componentHandlerSets = 0;
+    std::uint64_t hostApplicationSets = 0;
+    std::uint64_t editControllerQueries = 0;
+    std::uint64_t handlerInterfaceQueries = 0;
+    std::uint64_t notifications = 0;
+    HostContextProviderApi providerApi = HostContextProviderApi::none;
     HostContextIssue issue = HostContextIssue::unavailable;
     HostContextReadStage failedAt = HostContextReadStage::contextProvider;
     bool hasActiveIdentity() const noexcept { return issue == HostContextIssue::none; }

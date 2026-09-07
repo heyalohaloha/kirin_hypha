@@ -30,17 +30,20 @@ HTML回答は6 / 6受領・検証済み。補足後のSPACEは3件とも「追�
 この整理を今後へ強制するため、`AGENTS.md`の旧Watch表、最小GUI、U-1〜U-8、固定テスト件数を
 現行正本への参照へ置き換えた。
 
-2026-09-07のB-740では、[B1の実ホスト観測と診断](hypha_b1_host_observation_20260907.md)を追加した。
-Windowsの既存B-726配置で、PRE/POSTともhost identity取得不可、入力presentation latency未通知を確認した。
-PREの出力96 samples、POSTの出力0だけでは時刻対応を確定せず、B1は未成立のまま維持する。
-現行ソースには取得失敗箇所の診断を追加し、両OSの対象native試験がpassした。
-次はこの診断を含む候補で不足するAPI段階を確定し、participant scopeと既知遅延の検証へ進む。
-実機で観測した日本語メニューの代替字形は、U工程の共通メニュー確認へ追加する。
-この観測をB2の開始許可や、対応形式の削減へ読み替えない。
+2026-09-07のB-740とB-741では、[B1の実ホスト観測と診断](hypha_b1_host_observation_20260907.md)を追加した。
+Windowsの同じ保存済み曲で、PREとPOSTの両方がPreSonus/Fender context providerをv3、v2、v1のどの世代でも取得できなかった。
+一方、JUCEのcomponent/application hookは各1回呼ばれ、hostはcontext handlerを2回照会して4回通知した。
+したがって、不足箇所はclient extension hook全体ではなく、識別情報を読むproviderである。
+入力presentation latencyも未通知であり、PREの出力96 samplesとPOSTの出力0だけでは時刻対応を確定できない。
+B1は未成立のままとし、別の公式host契約でparticipant scopeとexact PRE ownerを検証できるか確認する。
+PID、保存UUID、表示名で不足を埋めず、成立条件がない間はB2の開始機能を有効にしない。
+
+実機で見つかった日本語メニューの代替字形は、共通menu fontを`nativeTextFont()`へ変更して修正した。
+Windowsでの表示確認は、現行ソース全体から作るV工程の候補で行う。
 
 作成日：2026-09-07。
 基準：B-730、`eaeee6a4a2572e255e1a26a0a63eabab1ad16487`と、計画作成時に確認した未コミット差分。
-今回の依頼は実装計画の作成であり、添付文書にある実装依頼や過去の操作許可を、このセッションで実装、検証機操作、署名、公開を開始する指示としては扱わない。
+当初は実装計画の作成までを範囲とした。その後の明示指示に基づいて実装と検証機観測を進めたが、署名と公開は行っていない。
 本書は機能の完成記録ではない。
 
 **Referenceの5件を修正してから、同じ試聴基盤を使うローカルPRE/POST Blindを接続する。**
@@ -60,8 +63,8 @@ SPACEとATTACKの回答待ちを、他の実装の開始条件にはしない。
 
 HTMLの回答形式は`hypha.review.answers.v1`で、pack ID、manifest hash、protocol、判定者、候補閲覧の有無、整数sampleの印を持つ。
 SPACEの区間とATTACKの時点を記録できるため、解析側でこの出力を受け取る。
-回答の提出済み件数は今回確認していない。
-6件の初回パックを、最終精度評価の標本数として数えない。
+初回6件の回答は受領済みで、追加判定用HTMLも入力済みである。
+初回パックだけを最終精度評価の標本数として数えない。
 
 ReferenceAudioPagesとReferenceRuntimeV2Realtimeは、計画作成時点でもB-730と同じだった。
 ControllerとSelectionには未コミット変更があるが、指摘した共有sourceへのアクセスとBlindのclearに相当する箇所は残っている。

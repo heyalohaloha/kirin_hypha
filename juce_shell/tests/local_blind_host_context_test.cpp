@@ -1,5 +1,6 @@
 #include "../src/local_blind/HostContext.h"
 #include "../src/local_blind/HostClockProbe.h"
+#include "../src/local_blind/PresonusContextInfoProvider3.h"
 #include <pluginterfaces/vst/ivsthostapplication.h>
 #include <juce_audio_processors/format_types/pslextensions/ipslcontextinfo.h>
 
@@ -17,11 +18,12 @@ using namespace hypha::local_blind;
 namespace
 {
 bool same (const TUID a, const TUID b) { return std::memcmp (a, b, 16) == 0; }
-class FakeHost final : public Presonus::IContextInfoProvider, public Vst::IHostApplication
+class FakeHost final : public ContextInfoProvider3, public Vst::IHostApplication
 {
 public:
     std::atomic<uint32> refs { 1 };
-    bool providerAvailable = true, nameAvailable = true, fieldAvailable = true;
+    bool providerAvailable = true, provider2Available = false, provider3Available = false;
+    bool nameAvailable = true, fieldAvailable = true;
     bool unterminated = false, capacityPrefix = false, changeWhileReading = false;
     bool applicationAvailable = true;
     const char* unavailableField = nullptr;
@@ -33,7 +35,11 @@ public:
     {
         if (out == nullptr) return kInvalidArgument;
         *out = nullptr;
-        if (same (iid, Presonus::IContextInfoProvider_iid) && providerAvailable)
+        if (same (iid, ContextInfoProvider3_iid) && provider3Available)
+            *out = static_cast<ContextInfoProvider3*> (this);
+        else if (same (iid, Presonus::IContextInfoProvider2_iid) && provider2Available)
+            *out = static_cast<Presonus::IContextInfoProvider2*> (this);
+        else if (same (iid, Presonus::IContextInfoProvider_iid) && providerAvailable)
             *out = static_cast<Presonus::IContextInfoProvider*> (this);
         else if (same (iid, Vst::IHostApplication_iid) && applicationAvailable)
             *out = static_cast<Vst::IHostApplication*> (this);
@@ -52,6 +58,12 @@ public:
     tresult PLUGIN_API createInstance (TUID, TUID, void**) override { std::abort(); }
     tresult PLUGIN_API getContextInfoValue (int32&, FIDString) override
     { ++integerReads; return kResultFalse; }
+    tresult PLUGIN_API getContextInfoValue (double&, FIDString) override { return kResultFalse; }
+    tresult PLUGIN_API setContextInfoValue (FIDString, double) override { return kResultFalse; }
+    tresult PLUGIN_API setContextInfoValue (FIDString, int32) override { return kResultFalse; }
+    tresult PLUGIN_API setContextInfoString (FIDString, Vst::TChar*) override { return kResultFalse; }
+    tresult PLUGIN_API beginEditContextInfoValue (FIDString) override { return kResultFalse; }
+    tresult PLUGIN_API endEditContextInfoValue (FIDString) override { return kResultFalse; }
     tresult PLUGIN_API getContextInfoString (Vst::TChar* out, int32 capacity, FIDString field) override
     {
         ++reads;
@@ -88,8 +100,12 @@ void factsAndFailureCases()
         REQUIRE (host.refs == 3);
         const auto facts = context.readNonRealtime();
         REQUIRE (facts.hasActiveIdentity() && facts.host == u"Test Host");
+        REQUIRE (facts.providerApi == HostContextProviderApi::v1);
         REQUIRE (facts.document == host.document && facts.activeDocument == host.active && facts.channel == host.channel);
         REQUIRE (facts.revision == context.revisionRealtime() && host.refs == 3);
+        REQUIRE (facts.componentHandlerSets == 1 && facts.hostApplicationSets == 1);
+        REQUIRE (facts.editControllerQueries == 0 && facts.handlerInterfaceQueries == 0
+                 && facts.notifications == 0);
         host.active = u"another document";
         requireAbsent (context.readNonRealtime(), HostContextIssue::inactiveDocument);
         host.active = host.document;
@@ -125,6 +141,27 @@ void factsAndFailureCases()
     REQUIRE (host.refs == 1);
 }
 
+void providerVersionFallbacks()
+{
+    FakeHost host;
+    HostContext context;
+    context.setHostApplication (host.unknown()); context.setComponentHandler (host.unknown());
+    host.provider2Available = true;
+    host.provider3Available = true;
+    auto facts = context.readNonRealtime();
+    REQUIRE (facts.hasActiveIdentity() && facts.providerApi == HostContextProviderApi::v3);
+    host.provider3Available = false;
+    facts = context.readNonRealtime();
+    REQUIRE (facts.hasActiveIdentity() && facts.providerApi == HostContextProviderApi::v2);
+    host.provider2Available = false;
+    facts = context.readNonRealtime();
+    REQUIRE (facts.hasActiveIdentity() && facts.providerApi == HostContextProviderApi::v1);
+    host.providerAvailable = false;
+    facts = context.readNonRealtime();
+    requireAbsent (facts, HostContextIssue::unavailable);
+    REQUIRE (facts.providerApi == HostContextProviderApi::none);
+}
+
 void notificationsAndLifetime()
 {
     FakeHost host;
@@ -150,6 +187,10 @@ void notificationsAndLifetime()
         std::thread callback ([&] { for (int i = 0; i < 10000; ++i) notification2->notifyContextInfoChange (nullptr); });
         callback.join();
         REQUIRE (context.revisionRealtime() == revision + 10000 && host.reads == reads);
+        const auto activity = context.readNonRealtime();
+        REQUIRE (activity.componentHandlerSets == 1 && activity.hostApplicationSets == 1);
+        REQUIRE (activity.editControllerQueries == 4);
+        REQUIRE (activity.handlerInterfaceQueries == 3 && activity.notifications == 10000);
         host.changeWhileReading = true;
         requireAbsent (context.readNonRealtime(), HostContextIssue::changedDuringRead);
         host.changeWhileReading = false;
@@ -258,6 +299,7 @@ void coherentClockProbe()
 
 int main()
 {
-    factsAndFailureCases(); notificationsAndLifetime(); failureStagesKeepIdentityAbsent(); coherentClockProbe();
+    factsAndFailureCases(); providerVersionFallbacks(); notificationsAndLifetime();
+    failureStagesKeepIdentityAbsent(); coherentClockProbe();
     std::cout << "Host context: identity, missing/malformed/inactive/replaced host, revision and retained notification PASS\n";
 }

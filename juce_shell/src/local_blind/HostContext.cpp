@@ -1,4 +1,5 @@
 #include "HostContext.h"
+#include "PresonusContextInfoProvider3.h"
 
 #include <pluginterfaces/vst/ivsthostapplication.h>
 #include <juce_audio_processors/format_types/pslextensions/ipslcontextinfo.h>
@@ -17,16 +18,21 @@ namespace
 using namespace Steinberg;
 bool matches (const TUID a, const TUID b) noexcept { return std::memcmp (a, b, sizeof (TUID)) == 0; }
 
-struct Revision
+struct Activity
 {
     std::atomic<std::uint64_t> value { 1 };
+    std::atomic<std::uint64_t> componentHandlerSets { 0 };
+    std::atomic<std::uint64_t> hostApplicationSets { 0 };
+    std::atomic<std::uint64_t> editControllerQueries { 0 };
+    std::atomic<std::uint64_t> handlerInterfaceQueries { 0 };
+    std::atomic<std::uint64_t> notifications { 0 };
     static_assert (std::atomic<std::uint64_t>::is_always_lock_free);
 };
 
 class Notification final : public Presonus::IContextInfoHandler, public Presonus::IContextInfoHandler2
 {
 public:
-    explicit Notification (std::shared_ptr<Revision> v) : revision (std::move (v)) {}
+    explicit Notification (std::shared_ptr<Activity> v) : activity (std::move (v)) {}
     tresult PLUGIN_API queryInterface (const TUID iid, void** out) override
     {
         if (out == nullptr) return kInvalidArgument;
@@ -49,9 +55,13 @@ public:
     void PLUGIN_API notifyContextInfoChange() override { revoke(); }
     void PLUGIN_API notifyContextInfoChange (FIDString) override { revoke(); }
 private:
-    void revoke() noexcept { revision->value.fetch_add (1, std::memory_order_seq_cst); }
+    void revoke() noexcept
+    {
+        activity->notifications.fetch_add (1, std::memory_order_relaxed);
+        activity->value.fetch_add (1, std::memory_order_seq_cst);
+    }
     std::atomic<uint32> refs { 1 };
-    std::shared_ptr<Revision> revision;
+    std::shared_ptr<Activity> activity;
 };
 
 template <class T> struct Retained
@@ -123,10 +133,22 @@ const char* hostContextReadStageName (HostContextReadStage stage) noexcept
     return "unknown";
 }
 
+const char* hostContextProviderApiName (HostContextProviderApi api) noexcept
+{
+    switch (api)
+    {
+        case HostContextProviderApi::none: return "none";
+        case HostContextProviderApi::v1: return "v1";
+        case HostContextProviderApi::v2: return "v2";
+        case HostContextProviderApi::v3: return "v3";
+    }
+    return "unknown";
+}
+
 struct HostContext::Impl
 {
-    std::shared_ptr<Revision> revision = std::make_shared<Revision>();
-    Notification* notification = new Notification (revision);
+    std::shared_ptr<Activity> activity = std::make_shared<Activity>();
+    Notification* notification = new Notification (activity);
     mutable std::mutex mutex;
     Retained<Steinberg::FUnknown> component, application;
     ~Impl() { notification->release(); }
@@ -136,22 +158,34 @@ struct HostContext::Impl
         {
             const std::lock_guard<std::mutex> guard (mutex);
             slot = std::move (next);
-            revision->value.fetch_add (1, std::memory_order_seq_cst);
+            activity->value.fetch_add (1, std::memory_order_seq_cst);
         } // Release the previous interface outside our mutex (host callbacks may re-enter).
     }
 };
 
 HostContext::HostContext() : impl (std::make_unique<Impl>()) {}
 HostContext::~HostContext() = default;
-void HostContext::setComponentHandler (Steinberg::FUnknown* value) { impl->replace (impl->component, value); }
-void HostContext::setHostApplication (Steinberg::FUnknown* value) { impl->replace (impl->application, value); }
+void HostContext::setComponentHandler (Steinberg::FUnknown* value)
+{
+    impl->activity->componentHandlerSets.fetch_add (1, std::memory_order_relaxed);
+    impl->replace (impl->component, value);
+}
+void HostContext::setHostApplication (Steinberg::FUnknown* value)
+{
+    impl->activity->hostApplicationSets.fetch_add (1, std::memory_order_relaxed);
+    impl->replace (impl->application, value);
+}
 std::int32_t HostContext::queryEditController (const Steinberg::TUID iid, void** out)
 {
+    impl->activity->editControllerQueries.fetch_add (1, std::memory_order_relaxed);
+    if (matches (iid, Presonus::IContextInfoHandler_iid)
+        || matches (iid, Presonus::IContextInfoHandler2_iid))
+        impl->activity->handlerInterfaceQueries.fetch_add (1, std::memory_order_relaxed);
     return impl->notification->queryInterface (iid, out);
 }
 std::uint64_t HostContext::revisionRealtime() const noexcept
 {
-    return impl->revision->value.load (std::memory_order_seq_cst);
+    return impl->activity->value.load (std::memory_order_seq_cst);
 }
 
 HostContextFacts HostContext::readNonRealtime() const
@@ -164,10 +198,32 @@ HostContextFacts HostContext::readNonRealtime() const
         component = Retained<Steinberg::FUnknown> (impl->component.ptr);
         application = Retained<Steinberg::FUnknown> (impl->application.ptr);
     }
-    auto provider = query<Presonus::IContextInfoProvider> (component.ptr, Presonus::IContextInfoProvider_iid);
+    auto provider3 = query<ContextInfoProvider3> (component.ptr, ContextInfoProvider3_iid);
+    auto provider2 = provider3.ptr == nullptr
+        ? query<Presonus::IContextInfoProvider2> (component.ptr, Presonus::IContextInfoProvider2_iid)
+        : Retained<Presonus::IContextInfoProvider2> {};
+    auto provider1 = provider3.ptr == nullptr && provider2.ptr == nullptr
+        ? query<Presonus::IContextInfoProvider> (component.ptr, Presonus::IContextInfoProvider_iid)
+        : Retained<Presonus::IContextInfoProvider> {};
+    Presonus::IContextInfoProvider* provider = nullptr;
+    if (provider3.ptr != nullptr)
+    {
+        provider = provider3.ptr;
+        result.providerApi = HostContextProviderApi::v3;
+    }
+    else if (provider2.ptr != nullptr)
+    {
+        provider = provider2.ptr;
+        result.providerApi = HostContextProviderApi::v2;
+    }
+    else if (provider1.ptr != nullptr)
+    {
+        provider = provider1.ptr;
+        result.providerApi = HostContextProviderApi::v1;
+    }
     auto host = query<Steinberg::Vst::IHostApplication> (application.ptr, Steinberg::Vst::IHostApplication_iid);
-    if (provider.ptr != nullptr) result.failedAt = HostContextReadStage::hostApplication;
-    if (provider.ptr != nullptr && host.ptr != nullptr)
+    if (provider != nullptr) result.failedAt = HostContextReadStage::hostApplication;
+    if (provider != nullptr && host.ptr != nullptr)
     {
         result.failedAt = HostContextReadStage::hostName;
         std::array<Steinberg::Vst::TChar, 128> name;
@@ -185,7 +241,7 @@ HostContextFacts HostContext::readNonRealtime() const
                 if (result.issue == HostContextIssue::none)
                 {
                     result.failedAt = field.stage;
-                    result.issue = readString (*provider.ptr, field.id, field.value);
+                    result.issue = readString (*provider, field.id, field.value);
                 }
             if (result.issue == HostContextIssue::none && result.document != result.activeDocument)
             {
@@ -199,6 +255,11 @@ HostContextFacts HostContext::readNonRealtime() const
         result.failedAt = HostContextReadStage::revision;
         result.issue = HostContextIssue::changedDuringRead;
     }
+    result.componentHandlerSets = impl->activity->componentHandlerSets.load (std::memory_order_relaxed);
+    result.hostApplicationSets = impl->activity->hostApplicationSets.load (std::memory_order_relaxed);
+    result.editControllerQueries = impl->activity->editControllerQueries.load (std::memory_order_relaxed);
+    result.handlerInterfaceQueries = impl->activity->handlerInterfaceQueries.load (std::memory_order_relaxed);
+    result.notifications = impl->activity->notifications.load (std::memory_order_relaxed);
     // Never leave a partially read identity available for accidental fallback.
     if (! result.hasActiveIdentity())
     {
