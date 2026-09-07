@@ -33,6 +33,10 @@ mod tests {
         include_str!("../../juce_shell/src/local_blind/LocalBlindEpochSnapshot.h");
     const LOCAL_CAPTURE_LANE_H: &str =
         include_str!("../../juce_shell/src/local_blind/LocalBlindCaptureLane.h");
+    const LOCAL_CAPTURE_OWNER_H: &str =
+        include_str!("../../juce_shell/src/local_blind/LocalBlindCaptureOwner.h");
+    const LOCAL_CAPTURE_SERVICE_H: &str =
+        include_str!("../../juce_shell/src/local_blind/LocalBlindCaptureService.h");
     const EXACT_CAPTURE_SLOT_H: &str =
         include_str!("../../juce_shell/src/local_blind/ExactRangeCaptureSlot.h");
     const RT_PUBLICATION_SLOT_H: &str =
@@ -146,6 +150,8 @@ mod tests {
             (LOCAL_SLOT_H, "bool render ("),
             (LOCAL_SLOT_H, "bool hasPublishedRealtime()"),
             (LOCAL_EPOCH_H, "TrialEpochs read()"),
+            (LOCAL_CAPTURE_SERVICE_H, "bool process ("),
+            (LOCAL_CAPTURE_OWNER_H, "bool process ("),
             (LOCAL_CAPTURE_LANE_H, "bool process ("),
             (EXACT_CAPTURE_SLOT_H, "bool process ("),
             (RT_PUBLICATION_SLOT_H, "bool withRealtime ("),
@@ -213,6 +219,7 @@ mod tests {
         assert!(cmake.contains("kirin_add_local_blind_portable_contracts"));
         for target in [
             "KirinLocalBlindCaptureTests",
+            "KirinLocalBlindCaptureServiceTests",
             "KirinLocalBlindTrialTests",
             "KirinLocalBlindPreparationTests",
             "KirinLocalBlindHostContextTests",

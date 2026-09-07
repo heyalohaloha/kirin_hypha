@@ -1,6 +1,7 @@
 #include "../src/local_blind/PairCaptureBarrier.h"
 #include "../src/local_blind/ExactRangeCaptureSlot.h"
 #include "../src/local_blind/LocalBlindCaptureLane.h"
+#include "../src/local_blind/LocalBlindCaptureOwner.h"
 #include <array>
 #include <cstdlib>
 #include <cstring>
@@ -245,6 +246,71 @@ int main()
                                                       : CaptureFailure::transport));
             require (preLane.retireFinal());
         }
+    }
+    // The non-RT owner installs PRE before acknowledging it and installs POST only after the
+    // matching peer response. One exact request remains the authority through completion.
+    {
+        const ExactCaptureRequest request {
+            "12345678-1234-4234-8234-123456789abc",
+            { 51, "project-a", "pre-unnamed" }, 52, 53, 48000, 1,
+            0, 31, 12, 2000
+        };
+        LocalBlindCaptureOwner pre (CaptureSide::pre);
+        require (pre.beginPre (request, 48000, 1, 1000));
+        require (pre.view().phase == CaptureOwnerPhase::capturing);
+        pre.confirmPreAcknowledgement (false);
+        require (pre.view().phase == CaptureOwnerPhase::failed);
+        require (pre.view().failure == CaptureOwnerFailure::peerRejected);
+        pre.reset();
+
+        require (pre.beginPre (request, 48000, 1, 1000));
+        pre.confirmPreAcknowledgement (true);
+        const float* pointers[] = { input.data() };
+        require (pre.process (pointers, 1, 12, 0, true, true, false, true, 48000));
+        pre.servicePre (&request, 1001);
+        require (pre.view().phase == CaptureOwnerPhase::complete);
+        require (pre.completedCapture() != nullptr);
+        auto changed = request;
+        changed.pair.generation++;
+        require (changed != request);
+        pre.servicePre (&changed, 1002);
+        require (pre.view().phase == CaptureOwnerPhase::failed);
+        require (pre.view().failure == CaptureOwnerFailure::stalePair);
+        require (pre.completedCapture() == nullptr);
+        pre.reset();
+
+        LocalBlindCaptureOwner post (CaptureSide::post);
+        require (post.beginPost (request));
+        const auto pair = request.pair;
+        post.servicePost (false, &pair, 48000, 1, 1000);
+        require (post.view().phase == CaptureOwnerPhase::awaitingPeer);
+        auto wrongPair = pair;
+        wrongPair.preInstanceId = "another-pre";
+        post.servicePost (true, &wrongPair, 48000, 1, 1001);
+        require (post.view().phase == CaptureOwnerPhase::failed);
+        require (post.view().failure == CaptureOwnerFailure::stalePair);
+        post.reset();
+
+        require (post.beginPost (request));
+        post.servicePost (true, &pair, 48000, 1, 1000);
+        require (post.view().phase == CaptureOwnerPhase::capturing);
+        require (post.process (pointers, 1, 12, 31, true, true, false, true, 48000));
+        post.servicePost (true, &pair, 48000, 1, 1001);
+        require (post.view().phase == CaptureOwnerPhase::complete);
+        CaptureReceipt receipt;
+        require (post.receipt (receipt));
+        require (receipt.side == CaptureSide::post && receipt.range.start == 31);
+        post.servicePost (false, &pair, 48000, 1, 1002);
+        require (post.view().failure == CaptureOwnerFailure::peerRejected);
+        post.reset();
+
+        require (post.beginPost (request));
+        post.servicePost (true, &pair, 48000, 1, 2001);
+        require (post.view().failure == CaptureOwnerFailure::expired);
+        post.reset();
+        require (post.beginPost (request));
+        post.servicePost (true, &pair, 44100, 1, 1000);
+        require (post.view().failure == CaptureOwnerFailure::armRejected);
     }
     std::cout << "Exact range capture: PASS (ranges, pair barrier, role lane, bounds, retirement)\n";
 }

@@ -1,7 +1,7 @@
 # PRE/POST Blind の実装状況
 
-更新日: 2026-09-07
-対象: B-719、B-720、B-721、B-722、B-723、B-724、B-743、B-744、B-745、B-746、B-747
+更新日: 2026-09-08
+対象: B-719、B-720、B-721、B-722、B-723、B-724、B-743〜B-747、B-751
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
@@ -38,12 +38,21 @@ B-747は、requestの期限、実prepare形式、role別native範囲を一つの
 position不明、timeline停止、bypass、offlineは取得を失効させ、通常の音声出力は変更しない。
 非RT開始所有者がlaneをarmする経路はまだないため、この接続はdormantである。
 
+B-751は、要求protocolとrole別laneの間に`LocalBlindCaptureOwner`を置いた。
+PREは現在も有効なexact requestをpollし、実prepare形式でlaneを公開できた後にだけarmed応答を返す。
+POSTは同じrequest IDの応答と現在のexact pairを再確認してからlaneを公開する。
+各instanceに個別threadを増やさず、準備済みinstanceはplugin module内で一つの低優先度schedulerを共有する。
+pair変更、要求消失、期限切れ、応答失敗、形式不一致、Audio Threadでの取得失敗はその要求だけを破棄する。
+POSTの要求予約を先に確保するため、protocolへ発行したのにPOST側が所有しない孤立要求を作らない。
+この段階では両laneのPCMはrole-localのままであり、PRE PCM transport、両receiptのpair barrier、PDC実証、開始排他、開始UIは未接続である。
+
 ## 現在の到達点
 
 **PRE/POST Blind は、まだ利用者が DAW で開始できる状態ではない。**
 B-718 の同一区間取得部品に、固定 Gain Match の準備、比較コピーの出力、回答と Reveal、中断後の減衰保持、通常復帰の確認、PCM 回収を追加した。
 これらを独立試験で検証し、本体の計測後に試聴出力を選ぶ入口を設けた。
-本体には取得要求の非RT C ABIがあるが、その要求からcapture objectをAudio Threadへ公開する開始所有者と入場許可はまだなく、追加した出力は起動しない。
+本体の非RT所有者は要求からcapture objectをAudio Threadへ公開できる。
+一方、製品の開始操作、PRE PCM transport、両側完了後の入場許可はまだないため、試聴出力は起動しない。
 
 B-723 以降は Windows で B-722 検証版を一時配置し、Studio Pro で確認した。
 PSB の欠落と高い CPU 使用率の指摘を受け、性能の切り分けを優先している。
@@ -172,7 +181,7 @@ mono 試験では同じ左右の片側を使用した。
 ## 未接続の製品機能
 
 1. **参加範囲と開始排他**：同じ DAW の検証済み participant scope を定め、既存 AnalysisLease の 2 枠と単一 Blind 所有者へ接続する。Reference、Keep、All Keep、下流 Record の準備から finalize までを共通の開始判定に通す。別 process の存在を PID だけでは除外しない。ローカル source の識別、Trial ID、content hash、取得世代、失効条件を製品契約に追加し、承認済みの比較試聴を R-12 に明記する。
-2. **同一区間の取得**：接続済みの要求envelopeからB-747のrole別laneを非RTでarmし、同じ取得世代と開始barrierでPCMの受け渡しを完了する。試聴出力用スロットと取得用スロットを混同しない。
+2. **同一区間の取得**：B-751で同じ要求envelopeからB-747のrole別laneを非RTでarmした。次はPRE PCMと完了receiptをPOSTへ運び、POSTのrole-local PCMと同じpair barrierで照合する。試聴出力用スロットと取得用スロットを混同しない。
 3. **時刻対応**：host の事実から PRE 範囲と POST 範囲の対応を一度だけ確定する。PDC 不明、動的変更、別周回、seek、停止再開、片側欠落は開始不可にする。既知遅延による残差 0 sample と、他トラックとの同期を実機で確認する。
 4. **製品の固定 Gain policy**：現行の連続 3 秒条件に入らない短音と疎な TRACK を別途評価する。既存 policy の条件を同名のまま緩めない。強い EQ、limiter、tail、clip 境界も含める。
 5. **開始から終了までの画面**：対象選択、取得待ち、音量変更への承認、1 / 2、回答、Reveal、減衰保持、通常復帰を接続する。他方の大きな表示、小さな表示、別ウインドウ、Capture、tooltip、accessibility にも非開示条件を適用する。

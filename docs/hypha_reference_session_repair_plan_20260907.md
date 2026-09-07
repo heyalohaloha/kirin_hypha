@@ -2,7 +2,7 @@
 
 作成日：2026-09-07。
 基準：`65740249d72c682fde381037f9429d299783a561` / B-747。
-状態：2026-09-08のB-748実装候補でSR1〜SR3を構造修正済み。対象native・静的契約・ASan・TSan・最終sourceゲートはpass。Windows実行と実DAW確認は未実施。
+状態：2026-09-08のB-748でSR1〜SR3を構造修正済み。対象native・静的契約・ASan・TSan・最終sourceゲートと、B-750までを含むWindows CIはpass。実DAW確認は未実施。
 対象レビュー：B-734〜B-747の14コミット、85ファイル（+5,765 / −726）。
 
 本書を、Referenceの開始・失効・保持・通常復帰と関連するRT検証ゲートの現行計画とする。
@@ -304,5 +304,6 @@ ASanはmacOSで非対応のLeakSanitizerだけを無効にし、AddressSanitizer
 session sequenceをidentityのpublication markerとして最後に公開し、128回の入替と並行読取をnative / TSanで確認した。
 稼働中fixtureのJSON直接上書きも製品契約と同じatomic置換へ直し、遅いsanitizer実行中はA bindingを更新するようにした。
 最終差分でReference runtime / component native、ASan、TSan、POST VST3増分build、権限表示契約、行数、fmtを再確認し、すべてpassした。
-Windows CIの実行結果とStudio Oneでの開始・自動中断・停止再開・明示通常復帰は未確認なので、両OS・実DAWの完了判定には含めない。
+B-750までを含むWindows CIで同じReference native targetとVST3 shell buildはpassした。
+Studio Oneでの開始・自動中断・停止再開・明示通常復帰は未確認なので、実DAWの完了判定には含めない。
 配置、署名、notarize、公開は行っていない。

@@ -24,4 +24,18 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav")
     set_tests_properties(kirin_local_blind_preparation
         PROPERTIES TIMEOUT 120)
+
+    juce_add_console_app(KirinLocalBlindCaptureServiceTests
+        PRODUCT_NAME "Kirin Local Blind Capture Service Tests")
+    target_sources(KirinLocalBlindCaptureServiceTests PRIVATE
+        tests/local_blind_capture_service_test.cpp
+        src/local_blind/LocalBlindCaptureService.cpp)
+    target_compile_definitions(KirinLocalBlindCaptureServiceTests PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(KirinLocalBlindCaptureServiceTests PRIVATE
+        juce::juce_core Threads::Threads
+        juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_local_blind_capture_service
+        COMMAND KirinLocalBlindCaptureServiceTests)
+    set_tests_properties(kirin_local_blind_capture_service PROPERTIES TIMEOUT 120)
 endif()
