@@ -1,6 +1,7 @@
 #pragma once
 #include "HostProcessClock.h"
 #include "local_blind/LocalBlindSlot.h"
+#include "local_blind/LocalBlindCaptureLane.h"
 #include "local_blind/LocalBlindEpochSnapshot.h"
 #include "local_blind/PairCaptureBarrier.h"
 #include "local_blind/VST3HostContext.h"
@@ -271,8 +272,9 @@ private:
     // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
-    void renderComparisonOutputs (juce::AudioBuffer<float>&, int64_t positionSamples,
-                                  bool hasPosition, bool playing, bool bypassed, bool nonRealtimeMode);
+    void processComparisonPaths (juce::AudioBuffer<float>&, int64_t positionSamples,
+                                 bool hasPosition, bool playing, bool timelineActive,
+                                 bool bypassed, bool nonRealtimeMode);
 
     const Role role;                                   // Pre or Post (selects enable + display name)
     hypha::local_blind::VST3HostContext nativeHostContext;
@@ -281,6 +283,7 @@ private:
 #endif
     hypha::local_blind::LocalBlindSlot localBlindOutput;
     hypha::local_blind::LocalBlindEpochSnapshot localBlindEpochs;
+    hypha::local_blind::LocalBlindCaptureLane localBlindCapture;
 
     juce::AudioParameterBool* bypassParam = nullptr;   // owned by AudioProcessor (addParameter)
     std::vector<float> interleaveScratch;              // pre-allocated in prepareToPlay (RT-safe; no alloc in processBlock)

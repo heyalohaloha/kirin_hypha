@@ -1,7 +1,7 @@
 # PRE/POST Blind の実装状況
 
 更新日: 2026-09-07
-対象: B-719、B-720、B-721、B-722、B-723、B-724、B-743、B-744、B-745、B-746
+対象: B-719、B-720、B-721、B-722、B-723、B-724、B-743、B-744、B-745、B-746、B-747
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
@@ -32,6 +32,11 @@ B-746は、各roleの取得用PCMを非RT所有者から単一Audio Threadへ渡
 事前確保したcaptureだけを公開し、Audio Threadは入力を変更せずにコピーする。
 取消と完了後の回収では先に公開pointerを外し、Audio Threadのreaderが残る間はstorageを保持する。
 このslotは既存2解析枠、PRE／POST間のPCM transport、試聴出力用`LocalBlindSlot`とは別責務であり、まだprocessor本体へ接続していない。
+
+B-747は、requestの期限、実prepare形式、role別native範囲を一つの`LocalBlindCaptureLane`へ固定した。
+共通processorは正本計測の完了後、ReferenceやBlindの出力切替前に同laneへA入力を渡す。
+position不明、timeline停止、bypass、offlineは取得を失効させ、通常の音声出力は変更しない。
+非RT開始所有者がlaneをarmする経路はまだないため、この接続はdormantである。
 
 ## 現在の到達点
 
@@ -167,7 +172,7 @@ mono 試験では同じ左右の片側を使用した。
 ## 未接続の製品機能
 
 1. **参加範囲と開始排他**：同じ DAW の検証済み participant scope を定め、既存 AnalysisLease の 2 枠と単一 Blind 所有者へ接続する。Reference、Keep、All Keep、下流 Record の準備から finalize までを共通の開始判定に通す。別 process の存在を PID だけでは除外しない。ローカル source の識別、Trial ID、content hash、取得世代、失効条件を製品契約に追加し、承認済みの比較試聴を R-12 に明記する。
-2. **同一区間の取得**：接続済みの要求envelopeからB-746のrole別capture slotへobjectを公開し、同じ取得世代と開始barrierでPCMの受け渡しを非RT完了する。試聴出力用スロットと取得用スロットを混同しない。
+2. **同一区間の取得**：接続済みの要求envelopeからB-747のrole別laneを非RTでarmし、同じ取得世代と開始barrierでPCMの受け渡しを完了する。試聴出力用スロットと取得用スロットを混同しない。
 3. **時刻対応**：host の事実から PRE 範囲と POST 範囲の対応を一度だけ確定する。PDC 不明、動的変更、別周回、seek、停止再開、片側欠落は開始不可にする。既知遅延による残差 0 sample と、他トラックとの同期を実機で確認する。
 4. **製品の固定 Gain policy**：現行の連続 3 秒条件に入らない短音と疎な TRACK を別途評価する。既存 policy の条件を同名のまま緩めない。強い EQ、limiter、tail、clip 境界も含める。
 5. **開始から終了までの画面**：対象選択、取得待ち、音量変更への承認、1 / 2、回答、Reveal、減衰保持、通常復帰を接続する。他方の大きな表示、小さな表示、別ウインドウ、Capture、tooltip、accessibility にも非開示条件を適用する。

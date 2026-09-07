@@ -183,6 +183,8 @@ C ABIとJUCEの非RTshellはPOST発行、PRE受信／応答、POST確認をrole�
 JUCEの要求envelopeはcanonical request ID、exact pair、全世代、mono／stereo、4秒以下のnative範囲、期限をまとめて検証するが、それ自体をAudio Thread capture公開や開始許可の証拠にはしない。
 role別の取得slotは非RTで事前確保した単一captureだけをAudio Threadへ公開し、reader退場前にPCMを破棄しない。
 取得slotは入力を変更せず、AnalysisLease、PRE／POST間transport、試聴出力用slot、開始許可の代用にしない。
+role別laneはrequestの期限と実prepare形式を照合し、PRE／POSTで指定された側のnative範囲だけを取得する。
+Audio Threadの取得入口は正本計測後かつ出力切替前とし、position不明、timeline停止、bypass、offlineでは当該取得を失効させる。
 対応試験は `unnamed_exact_pair_has_a_coherent_snapshot_until_explicit_clear`、`local_blind_capture_protocol`、`exact_unnamed_pair_completes_the_local_blind_request_handshake`、`kirin_local_blind_capture`、`local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name`、`analysis_blind_admission_probe`。
 承認範囲は [実装承認記録](hypha_implementation_approval_20260906.md) を参照する。
 

@@ -2,7 +2,6 @@
 #include "PluginEditor.h"
 #include <algorithm>
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
-
 namespace
 {
     static_assert (sizeof (KirinMeterSession) == 840u,
@@ -70,12 +69,13 @@ KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
     : juce::AudioProcessor (BusesProperties()
           .withInput  ("Input",  juce::AudioChannelSet::mono(), true)
           .withOutput ("Output", juce::AudioChannelSet::mono(), true)),
-      role (roleIn)
+      role (roleIn),
+      localBlindCapture (roleIn == Role::Pre ? hypha::local_blind::CaptureSide::pre
+                                            : hypha::local_blind::CaptureSide::post)
 {
     // Host bypass routed through this parameter; processBlock reads it to set the
     // Bypassed signal state while still passing audio through (parity with hypha_pre).
     addParameter (bypassParam = new juce::AudioParameterBool ({ "bypass", 1 }, "Bypass", false));
-
     // The non-RT enable timer starts only after prepareToPlay creates a fresh engine and stops as
     // soon as writes are enabled. An instantiated-but-never-prepared plugin owns no periodic work.
 }
@@ -451,8 +451,8 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
         kirin_hypha_push_samples (hyphaHandle, nullptr, 0, (uint32_t) numCh);
     }
 
-    renderComparisonOutputs (buffer, positionSamples, hasPosition, playing,
-                             bypassed, nonRealtimeMode);
+    processComparisonPaths (buffer, positionSamples, hasPosition, playing,
+                            measurementTimelineActive, bypassed, nonRealtimeMode);
 }
 
 juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor()

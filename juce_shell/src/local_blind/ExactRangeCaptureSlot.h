@@ -28,6 +28,22 @@ public:
         });
     }
 
+    // Audio Thread only. The immutable published range supplies the control generation; transport
+    // facts decide whether this exact attempt may continue before any PCM is accepted.
+    bool process (const float* const* input, int channels, int frames, std::int64_t position,
+                  bool positionValid, bool timelineActive, bool bypassed, bool realtime,
+                  std::uint32_t sampleRate) noexcept
+    {
+        return storage.withRealtime ([&] (ExactRangeCapture& capture)
+        {
+            if (! positionValid || ! timelineActive || bypassed)
+                capture.invalidateFromProducer (CaptureFailure::transport);
+            else
+                capture.push (input, channels, frames, position, capture.range().generation,
+                              realtime, sampleRate);
+        });
+    }
+
     ExactRangeCapture* control() noexcept { return storage.control(); }
     const ExactRangeCapture* control() const noexcept { return storage.control(); }
     bool hasPublishedRealtime() const noexcept { return storage.hasPublishedRealtime(); }

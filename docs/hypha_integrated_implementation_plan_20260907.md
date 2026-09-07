@@ -65,6 +65,10 @@ C ABIの出力は失敗時に変更せず、JUCEはrequest ID、pair／capture�
 readerが残る間はretired PCMを破棄せず、slotはAnalysisLease、PRE／POST間のPCM transport、試聴開始許可を兼ねない。
 この段階ではprocessor本体へslotを所有させず、取得protocolからの公開、実callbackでの入力、PRE PCMの受け渡しは未接続である。
 
+2026-09-07のB-747では、slotをrequest、role、期限、実prepare形式へ固定する`LocalBlindCaptureLane`を追加し、共通processorの正本計測後、出力切替前にA入力を渡した。
+PREはrequestのPRE範囲、POSTはPOST範囲だけを使い、position不明、timeline停止、bypass、offlineはその取得だけを失効させる。
+laneはまだdormantであり、protocolをpollしてarmする非RT所有者、PRE PCM transport、pair barrier完了、試聴開始は未接続である。
+
 実機で見つかった日本語メニューの代替字形は、共通menu fontを`nativeTextFont()`へ変更して修正した。
 Windowsでの表示確認は、現行ソース全体から作るV工程の候補で行う。
 

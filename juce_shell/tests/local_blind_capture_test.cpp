@@ -1,5 +1,6 @@
 #include "../src/local_blind/PairCaptureBarrier.h"
 #include "../src/local_blind/ExactRangeCaptureSlot.h"
+#include "../src/local_blind/LocalBlindCaptureLane.h"
 #include <array>
 #include <cstdlib>
 #include <cstring>
@@ -199,5 +200,51 @@ int main()
         require (slot.cancelAndRetire());
         require (! slot.hasPublishedRealtime() && ! slot.hasStorage());
     }
-    std::cout << "Exact range capture: PASS (ranges, pair barrier, publication slot, bounds, retirement)\n";
+    // The role-local lane binds request expiry, prepared format and the correct PRE/POST range.
+    {
+        const ExactCaptureRequest request {
+            "12345678-1234-4234-8234-123456789abc",
+            { 51, "project-a", "pre-unnamed" }, 52, 53, 48000, 1,
+            0, 31, 12, 2000
+        };
+        LocalBlindCaptureLane preLane (CaptureSide::pre);
+        LocalBlindCaptureLane postLane (CaptureSide::post);
+        require (! preLane.arm (request, 44100, 1, 1000, 48));
+        require (! preLane.arm (request, 48000, 1, 2001, 48));
+        require (preLane.arm (request, 48000, 1, 1000, 48));
+        require (! preLane.arm (request, 48000, 1, 1000, 48));
+        const float* pointers[] = { input.data() };
+        require (preLane.process (pointers, 1, 12, 0, true, true, false, true, 48000));
+        CaptureReceipt receipt;
+        require (preLane.receipt (receipt));
+        require (receipt.side == CaptureSide::pre && receipt.range.start == 0);
+        require (receipt.state == CaptureState::complete);
+        require (preLane.process (pointers, 1, 12, 12, false, false, true, false, 44100));
+        require (preLane.receipt (receipt) && receipt.state == CaptureState::complete);
+        require (preLane.completedCapture() != nullptr);
+        require (preLane.retireFinal() && ! preLane.hasActiveRequest());
+
+        require (postLane.arm (request, 48000, 1, 1000, 48));
+        require (postLane.process (pointers, 1, 12, 31, true, true, false, true, 48000));
+        require (postLane.receipt (receipt));
+        require (receipt.side == CaptureSide::post && receipt.range.start == 31);
+        require (receipt.state == CaptureState::complete && postLane.retireFinal());
+
+        for (int variant = 0; variant < 4; ++variant)
+        {
+            require (preLane.arm (request, 48000, 1, 1000, 48));
+            const bool positionValid = variant != 0;
+            const bool timelineActive = variant != 1;
+            const bool bypassed = variant == 2;
+            const bool realtime = variant != 3;
+            require (preLane.process (pointers, 1, 12, 0, positionValid, timelineActive,
+                                      bypassed, realtime, 48000));
+            require (preLane.receipt (receipt));
+            require (receipt.state == CaptureState::invalid);
+            require (receipt.failure == (variant == 3 ? CaptureFailure::nonRealtime
+                                                      : CaptureFailure::transport));
+            require (preLane.retireFinal());
+        }
+    }
+    std::cout << "Exact range capture: PASS (ranges, pair barrier, role lane, bounds, retirement)\n";
 }

@@ -24,7 +24,16 @@ struct CaptureRange
 };
 
 enum class CaptureState : unsigned char { pending, complete, invalid };
-enum class CaptureFailure : unsigned char { none, discontinuity, format, generation, nonRealtime, nonFinite };
+enum class CaptureFailure : unsigned char
+{
+    none,
+    discontinuity,
+    format,
+    generation,
+    nonRealtime,
+    nonFinite,
+    transport
+};
 
 class ExactRangeCapture final
 {
@@ -76,6 +85,13 @@ public:
     }
 
     void cancel() noexcept { cancelled.store (true, std::memory_order_release); }
+    // Producer-side host facts can invalidate a published range without asking the Audio Thread
+    // to allocate or report. Non-RT cancellation remains a separate lifetime operation.
+    void invalidateFromProducer (CaptureFailure value) noexcept
+    {
+        if (value != CaptureFailure::none && state() == CaptureState::pending)
+            fail (value);
+    }
     CaptureState state() const noexcept
     { return cancelled.load (std::memory_order_acquire) ? CaptureState::invalid
                                                        : status.load (std::memory_order_acquire); }

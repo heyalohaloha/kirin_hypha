@@ -1,10 +1,17 @@
 #include "PluginProcessor.h"
 
-// RT output selection stays after the canonical input measurement transaction.
-void KirinHyphaProcessorBase::renderComparisonOutputs (
+// Explicit comparison paths stay after the canonical input measurement transaction.
+void KirinHyphaProcessorBase::processComparisonPaths (
     juce::AudioBuffer<float>& buffer, int64_t positionSamples, bool hasPosition,
-    bool playing, bool bypassed, bool nonRealtimeMode)
+    bool playing, bool timelineActive, bool bypassed, bool nonRealtimeMode)
 {
+    // A dormant lane is one atomic null-pointer check. Once a non-RT owner arms it, the exact
+    // role-local A input is copied before any audition path can replace the output buffer.
+    localBlindCapture.process (
+        buffer.getArrayOfReadPointers(), getTotalNumInputChannels(), buffer.getNumSamples(),
+        positionSamples, hasPosition, timelineActive, bypassed,
+        ! nonRealtimeMode, static_cast<std::uint32_t> (preparedSampleRate));
+
     // Default closed: no production admission owner publishes PCM/epochs yet. No new button,
     // fake PDC, local-PID scope assumption, or third Analysis slot is enabled by this hook.
     if (role == Role::Post && localBlindOutput.hasPublishedRealtime())
