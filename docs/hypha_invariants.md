@@ -172,6 +172,9 @@ TRACK/STEM から 2MIX への変更は、画面操作と DAW state 復元の双�
 共通の HYPHA PRE／POST タイトルから情報メニューを開き、両 role で hover help を変更できる。
 手動更新入口は固定 HTTPS の外部ページを明示操作で開くもので、自動の最新版判定ではない。
 新しい PRE/POST Blind は未接続であり、単一 Blind／既存 2 枠の予約試験を製品の排他保証と扱わない。
+ローカルBlindのpair authorityは通常pairingと同じ明示PRE選択である。
+名前は任意の表示ラベルとし、host固有IDは補助診断に限定する。
+開始時は選択済みinstance、locator、pair／capture generation、対応sample範囲、共有leaseを検証する。
 対応試験は `verifyInformationContract`、`verifyTimePageNavigationContract`、`attack_vst_wiring`、`analysis_blind_admission_probe`。
 承認範囲は [実装承認記録](hypha_implementation_approval_20260906.md) を参照する。
 
@@ -196,6 +199,7 @@ TRACK/STEM から 2MIX への変更は、画面操作と DAW state 復元の双�
 | INV-S17 | TIME Δはexact PREの現runtime ownerと専用`meter_history.json`を照合し、同一sample rate・presentation source・一意sample endpointの100ms点だけをPOST−PREする。PRE直近32点／POST直近64点の固定窓、pair/runtime/reset境界で履歴を破棄し、欠測・重複endpoint・transport jumpを補間せず別runにする。集約はexact Δの後に行い、PRE/POST集約値同士を減算しない。Audio Threadは変更しない | `atomic_publication_and_exact_target_join_work_end_to_end` / `joins_only_the_same_unique_presentation_endpoint` / `repeated_or_missing_endpoints_never_create_a_delta_fact` / `pair_change_discards_history_instead_of_blending_sources` / `delta_history_abi_is_post_only_and_empty_is_a_valid_fact` / `verifyTimeHistoryContract` |
 | INV-S18 | Observatory UIはlive MeterSession計算lockを直接pollせず、Measure Threadが100ms完了境界後に独立publicationへ置いたimmutable snapshotだけを読む。publicationまたはWatchの一時poll missでは直前の完全frame/Crestを保持し、`---`へ書き換えない。Inactive、Bypassed、明示Reset/Emptyの成立snapshotだけが表示状態を変える | `publication_exposes_only_complete_replacements_and_never_waits_for_writer` / `live_measure_worker_advances_pauses_and_resets_independent_session` / `verifyObservatoryViewContract` |
 | INV-S19 | FREQのPSB subviewは既存Phase Dの20 Bark shareだけを読み、POST絶対値は合計約1、Δはexact pairのPOST−PREで合計約0となる場合だけ表示する。単位は割合／percentage pointでありdBではない。追加解析、補間、評価、Audio Thread処理を持たず、SPECTRUMとの手動排他切替とする | `psb_requires_twenty_finite_normalized_shares` / `verifySpectrumInteractionContract` |
+| INV-S20 | ローカルBlindは候補一覧で利用者が明示選択したexact PREを正本とし、名前一致、track位置、PID、host固有document／channel IDからpairを推測しない。名前は重複・未設定を許す表示ラベルであり、選択後はinstance ID、locator、pair generationを固定する。同名の別instance、rename、再生成へ自動で付け替えない。host contextはDebug診断だけに使い、入場条件へ接続しない | `explicit_pair_choice_selects_one_exact_instance_among_duplicate_names` / `published_exact_claim_never_retargets_to_a_same_name_replacement` / `same_name_can_move_to_an_explicit_second_instance` / `native_host_facts_use_the_client_extension_without_audio_thread_queries` |
 
 ---
 

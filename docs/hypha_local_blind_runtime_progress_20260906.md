@@ -4,6 +4,10 @@
 対象: B-719、B-720、B-721、B-722、B-723、B-724
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
+2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
+利用者が選んだexact PREをinstance ID、locator、generationで固定し、名前は任意の表示ラベルとして扱う。
+以下はB-724までの履歴であり、現在の完成条件は [統合実装計画](hypha_integrated_implementation_plan_20260907.md) を正本とする。
+
 ## 現在の到達点
 
 **PRE/POST Blind は、まだ利用者が DAW で開始できる状態ではない。**

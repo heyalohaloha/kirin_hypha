@@ -35,8 +35,11 @@ Windowsの同じ保存済み曲で、PREとPOSTの両方がPreSonus/Fender conte
 一方、JUCEのcomponent/application hookは各1回呼ばれ、hostはcontext handlerを2回照会して4回通知した。
 したがって、不足箇所はclient extension hook全体ではなく、識別情報を読むproviderである。
 入力presentation latencyも未通知であり、PREの出力96 samplesとPOSTの出力0だけでは時刻対応を確定できない。
-B1は未成立のままとし、別の公式host契約でparticipant scopeとexact PRE ownerを検証できるか確認する。
-PID、保存UUID、表示名で不足を埋めず、成立条件がない間はB2の開始機能を有効にしない。
+B1は未成立のままだが、host固有IDの取得を完成条件から外す。
+PREは利用者が候補から明示選択し、instance ID、locator、pair generationで固定する。
+名前は任意の表示ラベルとし、同名一致、track位置、PID、保存UUIDから自動選択しない。
+host contextは補助診断へ限定し、同一区間はHypha自身のcapture generation、barrier、native sample範囲で証明する。
+optionalなhost情報がなくても成立できる構造にして、AUを含む他DAWへの移植性を維持する。
 
 実機で見つかった日本語メニューの代替字形は、共通menu fontを`nativeTextFont()`へ変更して修正した。
 Windowsでの表示確認は、現行ソース全体から作るV工程の候補で行う。
@@ -85,7 +88,7 @@ AAX文書の古いCI状況を現在の候補の合否として引き継がず、
 | R3 | Blind中断後の減衰保持と通常復帰を分離 | R2 | binding失効に耐える保持状態とRT出力確認 |
 | R4 | Cue境界をまたぐ通常Bの出力を修正 | R1、R2 | loop、非loop、短いCueで範囲外PCMを出さない出力 |
 | RG | 5件の回帰試験とReference全体の再検証 | R1からR4 | 5件ごとの合否、RT安全性、既存Referenceの回帰結果 |
-| B1 | ローカルBlindの参加範囲とPDCを実ホストで実証 | RG | 対応形式ごとのhost事実と既知遅延の残差 |
+| B1 | 明示pairの同一区間取得とPDCをhost非依存の事実で実証 | RG | exact instance、capture generation、対応sample範囲、既知遅延の残差 |
 | B2 | ローカルBlindの取得、開始排他、操作一巡を接続 | B1の成立条件 | 開始から通常復帰まで使える製品経路 |
 | U | DRUM、Spectrum、Focus Trail、PSB、停止負荷を収束 | G0。共有ファイルの変更を順番に統合 | 既存予算と全画面の回帰表を満たす候補 |
 | M | HTML回答の取込み、SPACEとATTACKを別々に評価して接続 | 評価器はG0後。定義確定は各対象の回答が必要 | 定義ID、固定した候補、独立評価、PRE/POST実出力 |
@@ -98,7 +101,7 @@ U、M、XはB1や人の回答を待つ間にも進められる。
 同じController、CMake、CIを別々の作業から同時に書き換えない。
 既知の安全性不具合を残したままB2の開始機能を有効にしない。
 
-G0とRGで修正の規模を測り、B1でホストごとの成立条件を確認した後に残りの所要時間を見積もる。
+G0とRGで修正の規模を測り、B1で対応形式ごとの同一区間条件を確認した後に残りの所要時間を見積もる。
 SDK到着日、注釈の提出日、未実証のPDCを仮定して完成日を置かない。
 
 **3. G0で固定するソースと基準**
@@ -157,11 +160,15 @@ RGではASan/UBSan、競合を制御した再現、対象経路のTSan、RT確�
 
 **5. ローカルPRE/POST Blindの本体接続**
 
-B1では、まず出力を切り替えない検証で、participant scope、exact PRE owner、host clock、PDCの情報が取れるかを確かめる。
-Windows Studio Proの既存検証曲を使い、macOS VST3とAUも形式ごとに結果を残す。
-既知遅延を挿入し、PREとPOSTの共通区間に対応付けた後の残差が0 sampleであることと、他トラックとの同期を確認する。
-PID、保存済みUUID、PPQの推測だけで対応済みにしない。
-成立しない形式は具体的な不足を報告し、対応範囲の削減を勝手に決めない。
+B1では、通常pairingと同じ候補一覧から利用者が選んだexact PREを取得元にする。
+名前は任意の表示ラベルであり、同名候補が複数あってもinstance IDとlocatorで一台に固定する。
+hostのdocument／channel IDは開始許可に使わず、取得できる形式でだけ補助診断として残す。
+
+出力を切り替えない検証で、同じcapture generationと開始barrierをPRE／POSTへ配る。
+sample rate、channel layout、連続したnative sample範囲、取得世代を照合し、既知遅延を挿入した対応後の残差0 sampleを確認する。
+optionalなpresentation latencyがない場合も、それ自体を一律blockerにせず、Hyphaの取得事実で区間を証明できるかを形式ごとに判定する。
+証明できない取得、seek、別周回、動的遅延変更、片側欠落は、その要求だけを開始不可にする。
+Windows Studio Proの既存検証曲を使い、macOS VST3とAUも同じ合格条件で結果を残す。
 
 B2は次の順に既存部品へ接続する。
 
@@ -177,7 +184,8 @@ B2は次の順に既存部品へ接続する。
 5. PRE、別の解析枠、tooltip、accessibility、Capture、clipboard、更新案内から回答前の対応が漏れないことを確認する。
    同一PCM対照、純gain差、加工差で、クリックや応答時間が割当の手掛かりになるかを検証する。
 
-主な対象は`juce_shell/src/local_blind/`、PluginProcessorAudition、processor/editorの開始操作、host contextとclock、`crates/kirin_measure/src/analysis_lease.rs`、Record lifecycle、必要なFFIである。
+主な対象は`juce_shell/src/local_blind/`、PluginProcessorAudition、processor/editorの開始操作、pair bindingとcapture clock、`crates/kirin_measure/src/analysis_lease.rs`、Record lifecycle、必要なFFIである。
+host contextは診断境界に留め、pair authorityやadmissionへ接続しない。
 現行のLocalBlindSlotは試聴出力用なので、同一区間の取得要求と混同しない。
 製品契約とR-12に承認済みローカル比較コピーの境界を明記してから、開始操作を有効にする。
 登録Referenceの権限と、Hypha単体で使えるローカルBlindの権限は維持する。
@@ -293,7 +301,7 @@ SDK実ビルド、PACE署名、Pro Tools、AAX配布は入手後の別工程と�
 | Rustとソース | `cargo test --workspace --locked`、Clippy本体警告ゼロ、行数予算、public history、RT safety、shell parity、release source contract。FFI変更時はignored parityとpairing_candidatesを実測件数で全件実行 |
 | 数値と音声 | 通常Aのbit identityと0 samples latency、測定精度、offline、bypass、sample rate変更、worker障害と再起動、欠損ファイル。EBU cache変更時は依存crate単独の試験も実行 |
 | Reference | F1からF5を全件閉じたログ、長時間とseek、減衰保持、通常復帰、プリセット更新、旧版混在、出力確認 |
-| ローカルBlind | 形式別のPDCと参加範囲、Record排他、2枠制約、短音、mono、操作一巡、非開示、実音の切替 |
+| ローカルBlind | 明示選択したexact pair、capture世代、形式別PDC、Record排他、2枠制約、短音、mono、操作一巡、非開示、実音の切替 |
 | SPACEとATTACK | 独立評価、固定した定義と素材、PRE/POST対応、欠測、容量上限、評価への漏洩がない記録 |
 | 描画と性能 | 製品フォント、全画面、全倍率、PSB、DRUM、Focus Trail、停止と復帰、CPUとメモリ、音と表示の時刻差 |
 | 実機 | 同一候補のmacOS AU/VST3とWindows VST3。PRE/POSTの読込みbuild IDとbinary hashを記録した実ホスト結果 |

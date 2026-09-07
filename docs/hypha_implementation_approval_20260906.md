@@ -1,6 +1,6 @@
 # Hypha 推奨方針の実装承認記録
 
-日付: 2026-09-06。
+日付: 2026-09-06。pairing境界は2026-09-07の追加決定で更新。
 根拠: Daisuke の「推奨で良いです」と、Blind を既存 2 枠のうち 1 枠に限定する追加指示。
 これは実装着手の承認記録であり、測定精度、RT 安全性、実機試験、公開準備の合格記録ではない。
 実装済み・研究用試作・検証待ちの最新区分は [実装と検証の記録](hypha_implementation_progress_20260906.md) を参照する。
@@ -9,7 +9,7 @@
 
 1. SPACE は広帯域 EARLY と 20 dB 相当減衰時間を扱う。奥行きや RT60 と呼ばない。DEPTH、REPEAT、帯域別は今回の実装範囲に含めない。
 2. PRE/POST Blind は同じ再生区間の不変コピーと固定 Gain Match を使う。通常計測と正本 Record は変更しない。必要な基準側減衰は開始前に明示承認を受け、中断後に急な音量復帰を行わず、減衰保持からの復帰を別操作にする。
-3. 管理対象の同一 DAW participant scope で Blind と Keep / All Keep を相互排他にする。既存 Record を自動停止しない。
+3. 利用者が候補から明示選択したexact PREとPOSTをBlindのsetとし、Hypha自身の共有leaseでBlindとKeep / All Keepを相互排他にする。既存Recordを自動停止しない。名前は任意の表示ラベルであり、同名一致やtrack位置からpairを推測しない。
 4. ローカル PRE/POST Blind は Hypha 単体で使用できる。2MIX と TRACK/STEM、mono と stereo を含む。登録 Reference の Kirin OS 権限は変更しない。
 5. 今回は共通情報メニューから公式更新情報とダウンロードへ進む手動導線を作る。自動通信、最新版の自動検知、自動インストールは追加しない。
 6. Reference押下時にKirin OSの説明と公式製品ページへの入口を設ける。購入は利用者が外部ページで判断する。権限を確認できない所有者のために接続案内と明示再確認を用意し、PRE/POST Blindの権限とは分離する。
@@ -39,7 +39,10 @@ Reference Blind と PRE/POST Blind を独立した試聴枠として動かさな
 終了、縮小、editor 閉鎖、ペア変更、prepare、停止、seek、offline render、worker 再起動では試聴を中断し、RT の出力確認後に予約を解放する。
 承認済み減衰を保持している間は、別の Blind と Record を開始できない。
 単に UI が閉じたことや予約の timeout だけで、音量復帰や Record 許可を行わない。
-プロセス分離ホストで参加範囲を確認できない場合は、ローカル PID の排他だけで安全と判断せず、新機能を開始しない。
+host固有のdocument／channel IDは入場条件にしない。
+プロセス分離ホストでも、pairは利用者の明示選択とHyphaのinstance ID、locator、generationで固定する。
+競合調停はHypha自身の共有leaseを正本とし、PIDだけで安全範囲を狭めたり、host情報の欠落だけで全機能を停止したりしない。
+共有lease、同一区間、Record競合のいずれかを検証できない個別要求は開始不可にする。
 
 ## 実装と検証の順序
 

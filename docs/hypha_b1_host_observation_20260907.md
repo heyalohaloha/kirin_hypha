@@ -2,10 +2,10 @@
 
 更新日：2026-09-07。B-741。
 
-ローカルPRE/POST BlindのB1は未成立である。
+ローカルPRE/POST BlindのB1は、同一区間取得と時刻整列が未実証のため未成立である。
 Windows Studio Proの保存済み検証曲では、ホストがJUCEのclient extension hookを呼び、context変更も通知した。
 しかし、PreSonus/Fenderの`IContextInfoProvider`はv3、v2、v1のいずれも取得できなかった。
-入力presentation latencyも通知されていないため、participant scope、exact PRE owner、既知遅延を使う同期検証の前提が不足している。
+入力presentation latencyも通知されていないため、このhost APIだけから時刻対応を確定することはできなかった。
 
 ## 検証対象
 
@@ -45,6 +45,11 @@ hostは`IContextInfoHandler`と`IContextInfoHandler2`を照会し、両plug-in�
 この結果が示す範囲は、今回のStudio Pro、保存済み曲、VST3候補に限られる。
 Studio Proの全状態や将来版でproviderが常に存在しないとは断定しない。
 ただし、現在のB1をこのproviderだけで成立させることはできない。
+
+2026-09-07の追加決定により、host固有のdocument／channel IDはpairingやBlind開始の必須条件にしない。
+利用者が候補から明示選択したPREを正本とし、Hypha内部ではそのinstance ID、locator、pair generationを固定する。
+名前は候補を見分ける任意の表示ラベルであり、同名一致から自動選択しない。
+host contextは取得できた場合の補助診断に限定する。
 
 ## host clockの観測
 
@@ -95,12 +100,14 @@ OneDriveの容量100%通知も表示されたが、アカウントや同期設�
 
 ## 次に閉じる条件
 
-1. Studio Proでparticipant scopeとexact PRE ownerを取得できる別の公式host契約があるか確認する。
-   PID、保存UUID、表示名からscopeを推測しない。
-2. scopeを検証できる場合だけ、既知遅延と共通区間を使って他トラックを含む残差0 sampleを実測する。
-   入力presentation未通知の扱いも同じ検証で確定する。
-3. macOS VST3とAUでも、形式ごとのhost identity、参加範囲、clock、PDCを同じ成立条件で確認する。
-4. B1成立後にB2の開始排他と取得barrierを接続する。
+1. 明示選択したPREのinstance ID、locator、pair generationを一つの不変な取得要求へ束ねる。
+   同名候補、未命名候補、選択後のrename、instance再生成で別PREへ付け替えない。
+2. PREとPOSTへ同じcapture generationとbarrierを配り、sample rate、layout、連続したnative sample範囲を照合する。
+   optionalなhost通知がなくても内部事実で対応区間を証明できれば受理し、証明できない取得だけを開始不可にする。
+3. Blind、Reference、Keep / All Keep、Recordの競合はHypha自身の共有leaseで調停する。
+   DAWのtrack名、PID、host固有IDからroutingや未知の参加者を推測しない。
+4. macOS VST3／AUとWindows VST3で、明示pair、同一区間、既知遅延の残差0 sampleを同じ条件で確認する。
+5. B1成立後にB2の開始排他と取得barrierを接続する。
    B1の未成立中はBlind開始機能を有効にせず、依存しないU工程とM工程を進める。
 
 LSアップ用：skip。
