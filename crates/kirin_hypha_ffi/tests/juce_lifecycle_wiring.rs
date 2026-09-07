@@ -212,6 +212,28 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
             "capture ABI missing {required}"
         );
     }
+    let result_header =
+        read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_local_blind_result_ffi.h");
+    let transport = read_repo("juce_shell/src/PluginProcessorLocalBlindTransport.cpp");
+    for required in [
+        "KirinLocalBlindPreCaptureReceipt",
+        "kirin_hypha_publish_local_blind_pre_capture",
+        "kirin_hypha_read_local_blind_pre_capture",
+        "kirin_hypha_ack_local_blind_pre_capture",
+        "kirin_hypha_local_blind_pre_capture_was_consumed",
+        "kirin_hypha_retire_local_blind_pre_capture",
+    ] {
+        assert!(
+            result_header.contains(required),
+            "result ABI missing {required}"
+        );
+        assert!(
+            transport.contains(required),
+            "JUCE result wiring missing {required}"
+        );
+    }
+    assert!(transport.contains("receiptMatchesRequest (localReceipt, request)"));
+    assert!(transport.contains("ExactRangeCapture::fromCompletedInterleaved"));
     for required in [
         "decodeCaptureRequest",
         "source.pair_generation",
@@ -231,6 +253,10 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
     }
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     assert!(cmake.contains("src/PluginProcessorPairing.cpp"));
+    assert!(cmake.contains("src/PluginProcessorLocalBlindTransport.cpp"));
+    let audio_callback = read_repo("juce_shell/src/PluginProcessor.cpp");
+    assert!(!audio_callback.contains("kirin_hypha_publish_local_blind_pre_capture"));
+    assert!(!audio_callback.contains("kirin_hypha_read_local_blind_pre_capture"));
 }
 
 #[test]

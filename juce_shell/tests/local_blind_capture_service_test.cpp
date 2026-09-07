@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <functional>
 #include <iostream>
+#include <mutex>
+#include <optional>
 #include <thread>
 
 using namespace hypha::local_blind;
@@ -23,67 +25,129 @@ static bool waitUntil (const std::function<bool()>& predicate)
     return predicate();
 }
 
+struct MockPreTransport
+{
+    std::mutex lock;
+    std::optional<CaptureReceipt> receipt;
+    std::vector<float> pcm;
+    const std::string sha256 = std::string (64, 'a');
+    std::atomic<bool> consumed { false };
+    std::atomic<bool> retired { false };
+};
+
 int main()
 {
     const auto now = juce::Time::currentTimeMillis();
-    const ExactCaptureRequest preRequest {
+    const ExactCaptureRequest request {
         "12345678-1234-4234-8234-123456789abc",
         { 51, "project-a", "pre-unnamed" }, 52, 53, 48000, 1,
         0, 31, 12, now + 5'000
     };
     std::atomic<bool> preRequestAvailable { true };
     std::atomic<bool> preAcknowledged { false };
+    std::atomic<std::uint64_t> pairGeneration { request.pair.generation };
+    MockPreTransport transport;
+
     LocalBlindCaptureService pre (
         CaptureSide::pre,
         { [&] (ExactCaptureRequest& out)
               {
                   if (! preRequestAvailable.load()) return false;
-                  out = preRequest;
+                  out = request;
                   return true;
               },
           [&] (const std::string& requestId)
               {
-                  const bool matches = requestId == preRequest.requestId;
+                  const bool matches = requestId == request.requestId;
                   preAcknowledged.store (matches);
                   return matches;
               },
-          {}, {} });
-    pre.start (48000, 1);
-    require (waitUntil ([&] { return preAcknowledged.load(); }));
-    require (pre.view().phase == CaptureOwnerPhase::capturing);
+          {}, {},
+          [&] (const ExactCaptureRequest& exact, const CaptureReceipt& receipt,
+               const std::vector<float>& pcm, std::string& sha256)
+              {
+                  std::lock_guard<std::mutex> guard (transport.lock);
+                  if (exact != request || receipt.side != CaptureSide::pre)
+                      return false;
+                  transport.receipt = receipt;
+                  transport.pcm = pcm;
+                  sha256 = transport.sha256;
+                  return true;
+              },
+          {}, {},
+          [&] (const ExactCaptureRequest& exact, const std::string& sha256)
+              { return exact == request && sha256 == transport.sha256
+                    && transport.consumed.load(); },
+          [&] (const ExactCaptureRequest& exact)
+              { transport.retired.store (exact == request); } });
 
-    std::array<float, 12> input { 0, 0.1f, 0.2f, 0.3f, 0.4f, 0.5f,
-                                 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, -1.0f };
-    const float* pointers[] = { input.data() };
-    require (pre.process (pointers, 1, 12, 0, true, true, false, true, 48000));
-    require (waitUntil ([&] { return pre.view().phase == CaptureOwnerPhase::complete; }));
-    preRequestAvailable.store (false);
-    require (waitUntil ([&] { return pre.view().phase == CaptureOwnerPhase::idle; }));
-
-    const ExactCaptureRequest postRequest {
-        "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", preRequest.pair, 54, 55, 48000, 1,
-        0, 31, 12, juce::Time::currentTimeMillis() + 5'000
-    };
-    std::atomic<bool> peerArmed { false };
     LocalBlindCaptureService post (
         CaptureSide::post,
         { {}, {},
           [&] (const std::string& requestId)
-              { return peerArmed.load() && requestId == postRequest.requestId; },
+              { return preAcknowledged.load() && requestId == request.requestId; },
           [&] (ExactPairBinding& out)
               {
-                  out = postRequest.pair;
+                  out = request.pair;
+                  out.generation = pairGeneration.load();
                   return true;
-              } });
+              },
+          {},
+          [&] (const ExactCaptureRequest& exact,
+               CaptureServiceHooks::ImportedPreCapture& imported)
+              {
+                  std::lock_guard<std::mutex> guard (transport.lock);
+                  if (exact != request || ! transport.receipt)
+                      return false;
+                  imported.receipt = *transport.receipt;
+                  imported.capture = ExactRangeCapture::fromCompletedInterleaved (
+                      imported.receipt.range, transport.pcm,
+                      transport.pcm.size() * sizeof (float));
+                  imported.pcmSha256 = transport.sha256;
+                  return imported.capture != nullptr;
+              },
+          [&] (const ExactCaptureRequest& exact, const std::string& sha256)
+              {
+                  const bool matches = exact == request && sha256 == transport.sha256;
+                  transport.consumed.store (matches);
+                  return matches;
+              },
+          {}, {} });
+
+    pre.start (48000, 1);
     post.start (48000, 1);
+    require (waitUntil ([&] { return preAcknowledged.load(); }));
+    require (pre.view().phase == CaptureOwnerPhase::capturing);
     require (post.reservePostRequest());
     require (! post.reservePostRequest());
-    require (post.commitPostRequest (postRequest));
-    require (waitUntil ([&] { return post.view().phase == CaptureOwnerPhase::awaitingPeer; }));
-    peerArmed.store (true);
+    require (post.commitPostRequest (request));
     require (waitUntil ([&] { return post.view().phase == CaptureOwnerPhase::capturing; }));
-    require (post.process (pointers, 1, 12, 31, true, true, false, true, 48000));
-    require (waitUntil ([&] { return post.view().phase == CaptureOwnerPhase::complete; }));
+
+    std::array<float, 12> preInput { 0, 0.1f, 0.2f, 0.3f, 0.4f, 0.5f,
+                                    0.6f, 0.7f, 0.8f, 0.9f, 1.0f, -1.0f };
+    std::array<float, 12> postInput { -0.4f, 0.3f, 0.2f, -0.1f, 0.0f, 0.1f,
+                                     0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f };
+    const float* prePointers[] = { preInput.data() };
+    const float* postPointers[] = { postInput.data() };
+    require (pre.process (prePointers, 1, 12, 0, true, true, false, true, 48000));
+    require (post.process (postPointers, 1, 12, 31, true, true, false, true, 48000));
+    require (waitUntil ([&] { return post.capturePairReady(); }));
+    require (post.view().phase == CaptureOwnerPhase::paired);
+    require (waitUntil ([&] { return pre.view().phase == CaptureOwnerPhase::retired; }));
+    require (transport.consumed.load() && transport.retired.load());
+    {
+        std::lock_guard<std::mutex> guard (transport.lock);
+        require (transport.pcm == std::vector<float> (preInput.begin(), preInput.end()));
+    }
+
+    // Completion remains bound to the exact pair. A later generation invalidates it and releases
+    // the one-request owner rather than silently re-targeting the captured PCM.
+    pairGeneration.fetch_add (1);
+    preRequestAvailable.store (false);
+    require (waitUntil ([&] { return ! post.capturePairReady(); }));
+    require (waitUntil ([&] { return post.view().phase == CaptureOwnerPhase::idle; }));
+    require (post.reservePostRequest());
+    post.abandonPostRequest();
 
     std::atomic<bool> wakeRunning { true };
     std::thread concurrentWake ([&]
@@ -96,5 +160,64 @@ int main()
     concurrentWake.join();
     pre.stop();
     require (! post.running() && ! pre.running());
-    std::cout << "Local Blind capture service: PASS (shared scheduler, PRE ack, POST arm, stop race)\n";
+
+    const ExactCaptureRequest rejectedRequest {
+        "abcdefab-1234-4234-8234-123456789abc",
+        { 61, "project-a", "pre-unnamed" }, 62, 63, 48000, 1,
+        0, 41, 12, juce::Time::currentTimeMillis() + 5'000
+    };
+    std::atomic<bool> badReceiptRead { false };
+    std::atomic<bool> badReceiptAcknowledged { false };
+    LocalBlindCaptureService rejectingPost (
+        CaptureSide::post,
+        { {}, {},
+          [&] (const std::string& requestId)
+              { return requestId == rejectedRequest.requestId; },
+          [&] (ExactPairBinding& out)
+              {
+                  out = rejectedRequest.pair;
+                  return true;
+              },
+          {},
+          [&] (const ExactCaptureRequest& exact,
+               CaptureServiceHooks::ImportedPreCapture& imported)
+              {
+                  if (exact != rejectedRequest)
+                      return false;
+                  imported.receipt = {
+                      exact.pair, exact.clockGeneration + 1, CaptureSide::pre,
+                      { exact.captureGeneration, exact.sampleRate, exact.channels,
+                        exact.preStart, exact.frames },
+                      CaptureState::complete, CaptureFailure::none
+                  };
+                  imported.capture = ExactRangeCapture::fromCompletedInterleaved (
+                      imported.receipt.range, std::vector<float> (12, 0.25f),
+                      12 * sizeof (float));
+                  imported.pcmSha256 = std::string (64, 'b');
+                  badReceiptRead.store (true);
+                  return imported.capture != nullptr;
+              },
+          [&] (const ExactCaptureRequest&, const std::string&)
+              {
+                  badReceiptAcknowledged.store (true);
+                  return true;
+              },
+          {}, {} });
+    rejectingPost.start (48000, 1);
+    require (rejectingPost.reservePostRequest());
+    require (rejectingPost.commitPostRequest (rejectedRequest));
+    require (waitUntil ([&]
+    {
+        return rejectingPost.view().phase == CaptureOwnerPhase::capturing;
+    }));
+    require (rejectingPost.process (postPointers, 1, 12, 41, true, true,
+                                    false, true, 48000));
+    require (waitUntil ([&] { return badReceiptRead.load(); }));
+    require (waitUntil ([&] { return rejectingPost.view().phase == CaptureOwnerPhase::idle; }));
+    require (! rejectingPost.capturePairReady() && ! badReceiptAcknowledged.load());
+    require (rejectingPost.reservePostRequest());
+    rejectingPost.abandonPostRequest();
+    rejectingPost.stop();
+
+    std::cout << "Local Blind capture service: PASS (exact PRE transfer, pair barrier, rejection, retirement, stop race)\n";
 }

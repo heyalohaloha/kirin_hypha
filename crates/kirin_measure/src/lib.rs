@@ -29,6 +29,7 @@ pub mod io_thread_post;
 pub mod io_thread_pre;
 pub mod license;
 pub mod local_blind_capture_protocol;
+pub mod local_blind_capture_result;
 mod measure_json;
 pub mod measure_thread;
 mod meter_clock;
@@ -91,7 +92,6 @@ pub mod watch_playback_pass;
 mod watch_snapshot_lease;
 pub mod watchdog;
 mod watchdog_handoff;
-
 pub use absolute_timeline::{
     AbsoluteContinuousAnalyzer, AbsoluteError, AbsoluteFrame, AbsoluteTimeline,
     ABSOLUTE_PRESENTATION_HZ, ABSOLUTE_SCHEMA_VERSION, ABSOLUTE_TIMELINE_CAPACITY,

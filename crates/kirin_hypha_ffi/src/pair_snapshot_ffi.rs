@@ -10,7 +10,10 @@ const LOCATOR_CAPACITY: usize = 64;
 
 #[path = "local_blind_capture_ffi.rs"]
 mod local_blind_capture_ffi;
+#[path = "local_blind_result_ffi.rs"]
+mod local_blind_result_ffi;
 pub use local_blind_capture_ffi::*;
+pub use local_blind_result_ffi::*;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
