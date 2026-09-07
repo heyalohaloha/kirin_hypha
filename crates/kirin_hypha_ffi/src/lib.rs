@@ -104,10 +104,7 @@ pub use pair_candidates_ffi::{
     kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
     kirin_hypha_enumerate_pre_candidates, KirinPostPairClaim, KirinPreCandidate,
 };
-pub use pair_snapshot_ffi::{
-    kirin_hypha_get_local_blind_pair_binding, kirin_hypha_get_paired_pre_instance_id,
-    kirin_hypha_get_paired_pre_locator, KirinExactPairBinding,
-};
+pub use pair_snapshot_ffi::*;
 pub use record_note_ffi::*;
 pub use reference_audition_ffi::kirin_hypha_set_reference_audition_active;
 pub use signal_state_ffi::{

@@ -34,6 +34,47 @@ struct ExactPairBinding
     }
 };
 
+struct ExactCaptureRequest
+{
+    std::string requestId;
+    ExactPairBinding pair;
+    std::uint64_t captureGeneration = 0;
+    std::uint64_t clockGeneration = 0;
+    std::uint32_t sampleRate = 0;
+    int channels = 0;
+    std::int64_t preStart = 0;
+    std::int64_t postStart = 0;
+    std::int64_t frames = 0;
+    std::int64_t expiresAtUnixMs = 0;
+
+    static bool canonicalRequestId (const std::string& value) noexcept
+    {
+        if (value.size() != 36)
+            return false;
+        for (std::size_t index = 0; index < value.size(); ++index)
+        {
+            if (index == 8 || index == 13 || index == 18 || index == 23)
+            {
+                if (value[index] != '-') return false;
+            }
+            else if (! ((value[index] >= '0' && value[index] <= '9')
+                        || (value[index] >= 'a' && value[index] <= 'f')))
+                return false;
+        }
+        return true;
+    }
+
+    bool valid() const noexcept
+    {
+        return canonicalRequestId (requestId) && pair.valid() && captureGeneration != 0
+            && clockGeneration != 0 && sampleRate >= 8'000 && sampleRate <= 768'000
+            && (channels == 1 || channels == 2) && frames > 0 && expiresAtUnixMs > 0
+            && frames <= static_cast<std::int64_t> (sampleRate) * 4
+            && preStart <= std::numeric_limits<std::int64_t>::max() - frames
+            && postStart <= std::numeric_limits<std::int64_t>::max() - frames;
+    }
+};
+
 enum class CaptureSide : unsigned char { pre, post };
 enum class PairCaptureState : unsigned char { pending, complete, invalid };
 enum class PairCaptureFailure : unsigned char { none, stalePair, receipt };
@@ -56,6 +97,15 @@ struct CaptureReceipt
 class PairCaptureBarrier final
 {
 public:
+    explicit PairCaptureBarrier (const ExactCaptureRequest& request)
+        : PairCaptureBarrier (request.pair, request.captureGeneration, request.clockGeneration,
+                              request.sampleRate, request.channels, request.preStart,
+                              request.postStart, request.frames)
+    {
+        if (! request.valid())
+            throw std::invalid_argument ("Invalid exact capture request envelope");
+    }
+
     PairCaptureBarrier (ExactPairBinding exactPair, std::uint64_t captureGeneration,
                         std::uint64_t clockGeneration, std::uint32_t sampleRate, int channels,
                         std::int64_t preStart, std::int64_t postStart, std::int64_t frames)

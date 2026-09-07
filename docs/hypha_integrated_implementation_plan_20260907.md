@@ -54,6 +54,12 @@ pair解放後は配信済み要求も応答も無効となり、名前、track�
 macOSはatomic file、Windowsは旧layoutと混在しないpagefile-backed v4の専用slotを使う。
 この段階ではprotocolを製品の開始操作へ接続せず、Audio Threadへのcapture publication、PCM回収、PDCの実証、開始排他は未完了である。
 
+2026-09-07のB-745では、このprotocolをRust C ABIとJUCE共通shellの非RT操作へ接続した。
+POSTだけが現在のexact pairから要求を発行し、宛先のPREだけが要求をpollしてcapture準備後のarmed応答を返し、POSTだけが同じrequest IDの応答を確認できる。
+C ABIの出力は失敗時に変更せず、JUCEはrequest ID、pair／capture／clock generation、両側native範囲、形式、期限を一つのenvelopeとして検証する。
+名前なしPREを使ったC ABI往復でも、canonical claim公開前の要求拒否、要求受信、armed応答、pair解除後の失効を確認した。
+非RT開始所有者、Audio Threadへのcapture object公開、PCM回収、PDCの実証、開始排他、開始UIはまだ接続していない。
+
 実機で見つかった日本語メニューの代替字形は、共通menu fontを`nativeTextFont()`へ変更して修正した。
 Windowsでの表示確認は、現行ソース全体から作るV工程の候補で行う。
 

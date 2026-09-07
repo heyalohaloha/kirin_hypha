@@ -127,6 +127,15 @@ public:
     juce::String pairedPreInstanceId() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
+    // Non-RT control handshake only. These methods neither capture PCM nor start an audition.
+    bool issueLocalBlindCaptureRequest (std::uint64_t captureGeneration,
+                                        std::uint64_t clockGeneration,
+                                        std::int64_t preStart, std::int64_t postStart,
+                                        std::int64_t frames,
+                                        hypha::local_blind::ExactCaptureRequest& out) const;
+    bool pollLocalBlindCaptureRequest (hypha::local_blind::ExactCaptureRequest& out) const;
+    bool acknowledgeLocalBlindCaptureRequest (const std::string& requestId) const;
+    bool localBlindCaptureIsArmed (const std::string& requestId) const;
     bool keepPair();                                    // kirin_hypha_keep (Os + unique PRE)
     bool recordExclusionConflict() const;               // B-118 (②): kirin_hypha_record_exclusion_conflict (advisory only)
     juce::String recordErrorMessage() const;            // B-118 (③): kirin_hypha_record_error_message (io fail status / G-115-29)

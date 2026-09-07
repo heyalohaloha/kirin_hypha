@@ -184,6 +184,7 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
 
     let capture = read_repo("juce_shell/src/local_blind/PairCaptureBarrier.h");
     assert!(capture.contains("struct ExactPairBinding"));
+    assert!(capture.contains("struct ExactCaptureRequest"));
     assert!(capture.contains("class PairCaptureBarrier"));
     assert!(capture.contains("receipt.pair == pair"));
     assert!(capture.contains("sameRange (receipt.range, range (receipt.side))"));
@@ -191,6 +192,43 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
     let processor = read_repo("juce_shell/src/PluginProcessorPairing.cpp");
     assert!(processor.contains("kirin_hypha_get_local_blind_pair_binding"));
     assert!(processor.contains("binding.pair_generation"));
+    let request_header =
+        read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_local_blind_capture_ffi.h");
+    for required in [
+        "KirinLocalBlindCaptureRequest",
+        "pair_generation",
+        "capture_generation",
+        "clock_generation",
+        "pre_start",
+        "post_start",
+        "expires_at_unix_ms",
+        "kirin_hypha_issue_local_blind_capture_request",
+        "kirin_hypha_poll_local_blind_capture_request",
+        "kirin_hypha_ack_local_blind_capture_request",
+        "kirin_hypha_local_blind_capture_is_armed",
+    ] {
+        assert!(
+            request_header.contains(required),
+            "capture ABI missing {required}"
+        );
+    }
+    for required in [
+        "decodeCaptureRequest",
+        "source.pair_generation",
+        "source.capture_generation",
+        "source.clock_generation",
+        "source.pre_start",
+        "source.post_start",
+        "kirin_hypha_issue_local_blind_capture_request",
+        "kirin_hypha_poll_local_blind_capture_request",
+        "kirin_hypha_ack_local_blind_capture_request",
+        "kirin_hypha_local_blind_capture_is_armed",
+    ] {
+        assert!(
+            processor.contains(required),
+            "JUCE capture wiring missing {required}"
+        );
+    }
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     assert!(cmake.contains("src/PluginProcessorPairing.cpp"));
 }

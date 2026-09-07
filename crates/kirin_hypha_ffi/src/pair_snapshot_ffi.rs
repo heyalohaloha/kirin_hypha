@@ -8,6 +8,10 @@ use super::KirinHyphaEngine;
 
 const LOCATOR_CAPACITY: usize = 64;
 
+#[path = "local_blind_capture_ffi.rs"]
+mod local_blind_capture_ffi;
+pub use local_blind_capture_ffi::*;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct KirinExactPairBinding {
@@ -56,9 +60,9 @@ fn copy_truncated(value: &str, out: *mut c_char, out_len: usize) {
     destination[count] = 0;
 }
 
-fn copy_exact(value: &str, out: &mut [c_char; LOCATOR_CAPACITY]) -> bool {
+fn copy_exact<const CAPACITY: usize>(value: &str, out: &mut [c_char; CAPACITY]) -> bool {
     let bytes = value.as_bytes();
-    if bytes.is_empty() || bytes.len() >= LOCATOR_CAPACITY {
+    if bytes.is_empty() || bytes.len() >= CAPACITY {
         return false;
     }
     for (destination, source) in out.iter_mut().zip(bytes) {

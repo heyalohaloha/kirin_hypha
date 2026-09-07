@@ -13,6 +13,9 @@ use kirin_hypha_ffi::{
     KIRIN_KEEP_PHASE_ARMED,
 };
 
+#[path = "support/pairing_candidates_local_blind.rs"]
+mod local_blind_handshake;
+
 const SR: u32 = 48_000;
 
 fn wait_until_stopped(engine: &KirinHyphaEngine, label: &str) {

@@ -89,7 +89,11 @@ int main()
     // One name-independent exact pair and capture generation bind both native ranges.
     {
         const ExactPairBinding pair { 11, "project-a", "pre-unnamed" };
-        PairCaptureBarrier barrier (pair, 22, 33, 48000, 1, 0, 31, 12);
+        const ExactCaptureRequest request {
+            "12345678-1234-4234-8234-123456789abc", pair, 22, 33, 48000, 1,
+            0, 31, 12, 1000
+        };
+        PairCaptureBarrier barrier (request);
         ExactRangeCapture pre (barrier.range (CaptureSide::pre), 48);
         ExactRangeCapture post (barrier.range (CaptureSide::post), 48);
         const float* pointers[] = { input.data() };
@@ -103,6 +107,25 @@ int main()
         barrier.invalidateIfPairChanged ({ 12, "project-a", "pre-unnamed" });
         require (barrier.state() == PairCaptureState::invalid);
         require (barrier.failure() == PairCaptureFailure::stalePair);
+    }
+    // The C ABI envelope is rejected before it can authorize a capture barrier.
+    for (int variant = 0; variant < 7; ++variant)
+    {
+        ExactCaptureRequest request {
+            "12345678-1234-4234-8234-123456789abc",
+            { 11, "project-a", "pre-a" }, 22, 33, 48000, 1, 0, 31, 12, 1000
+        };
+        if (variant == 0) request.requestId = "short";
+        if (variant == 1) request.requestId = std::string (36, 'x');
+        if (variant == 2) request.captureGeneration = 0;
+        if (variant == 3) request.clockGeneration = 0;
+        if (variant == 4) request.frames = 0;
+        if (variant == 5) request.frames = 192001;
+        if (variant == 6) request.expiresAtUnixMs = 0;
+        bool refused = false;
+        try { PairCaptureBarrier barrier (request); }
+        catch (const std::invalid_argument&) { refused = true; }
+        require (refused);
     }
     // A pair transition invalidates an unfinished request even when the human label is unchanged.
     {

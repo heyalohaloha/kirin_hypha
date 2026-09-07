@@ -179,7 +179,9 @@ TRACK/STEM から 2MIX への変更は、画面操作と DAW state 復元の双�
 PRE／POSTの取得受領は同じexact pairとcapture generationへ固定し、不一致とpair変更では完了後も失効する。
 取得要求はpair owner、canonical claim、pair／capture／clock generation、両側native範囲、形式、期限を一体で運ぶ。
 PREのarmed応答は要求全体のdigestへ固定し、pair claim解放後は配信済み要求と応答を受理しない。
-対応試験は `unnamed_exact_pair_has_a_coherent_snapshot_until_explicit_clear`、`local_blind_capture_protocol`、`kirin_local_blind_capture`、`local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name`、`analysis_blind_admission_probe`。
+C ABIとJUCEの非RTshellはPOST発行、PRE受信／応答、POST確認をroleごとに分け、失敗時の出力を変更しない。
+JUCEの要求envelopeはcanonical request ID、exact pair、全世代、mono／stereo、4秒以下のnative範囲、期限をまとめて検証するが、それ自体をAudio Thread capture公開や開始許可の証拠にはしない。
+対応試験は `unnamed_exact_pair_has_a_coherent_snapshot_until_explicit_clear`、`local_blind_capture_protocol`、`exact_unnamed_pair_completes_the_local_blind_request_handshake`、`kirin_local_blind_capture`、`local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name`、`analysis_blind_admission_probe`。
 承認範囲は [実装承認記録](hypha_implementation_approval_20260906.md) を参照する。
 
 | ID | 不変条件 | 紐づくテスト |

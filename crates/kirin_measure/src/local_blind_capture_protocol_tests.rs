@@ -185,7 +185,7 @@ fn malformed_expired_and_misdirected_requests_fail_closed() {
         0,
         1,
         1_000,
-        MAX_LEASE_MS + 1,
+        LOCAL_BLIND_CAPTURE_LEASE_MS + 1,
     )
     .is_none());
 }

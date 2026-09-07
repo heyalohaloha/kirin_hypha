@@ -16,7 +16,7 @@ const REQUEST_SCHEMA: &str = "kirin_hypha_local_blind_capture_request_v1";
 const ARMED_SCHEMA: &str = "kirin_hypha_local_blind_capture_armed_v1";
 const REQUEST_MAX_BYTES: u64 = 4_096;
 const ARMED_MAX_BYTES: u64 = 2_048;
-const MAX_LEASE_MS: i64 = 15_000;
+pub const LOCAL_BLIND_CAPTURE_LEASE_MS: i64 = 15_000;
 const MAX_CAPTURE_SECONDS: i64 = 4;
 
 #[derive(Clone, Copy)]
@@ -155,7 +155,7 @@ impl LocalBlindCaptureRequest {
             && self.issued_at_unix_ms <= now_unix_ms
             && self.expires_at_unix_ms >= now_unix_ms
             && self.expires_at_unix_ms > self.issued_at_unix_ms
-            && self.expires_at_unix_ms - self.issued_at_unix_ms <= MAX_LEASE_MS
+            && self.expires_at_unix_ms - self.issued_at_unix_ms <= LOCAL_BLIND_CAPTURE_LEASE_MS
     }
 
     fn digest(&self) -> Option<String> {
