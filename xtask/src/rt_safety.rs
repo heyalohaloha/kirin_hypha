@@ -2,6 +2,8 @@
 mod tests {
     use std::collections::BTreeSet;
 
+    use crate::rt_contract_surface::{PROCESS_COMPARISON_CALL, PROCESS_COMPARISON_SIGNATURE};
+
     const FFI_LIB_RS: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_hypha_ffi/src/lib.rs"
@@ -29,6 +31,18 @@ mod tests {
     const LOCAL_SLOT_H: &str = include_str!("../../juce_shell/src/local_blind/LocalBlindSlot.h");
     const LOCAL_EPOCH_H: &str =
         include_str!("../../juce_shell/src/local_blind/LocalBlindEpochSnapshot.h");
+    const LOCAL_CAPTURE_LANE_H: &str =
+        include_str!("../../juce_shell/src/local_blind/LocalBlindCaptureLane.h");
+    const EXACT_CAPTURE_SLOT_H: &str =
+        include_str!("../../juce_shell/src/local_blind/ExactRangeCaptureSlot.h");
+    const RT_PUBLICATION_SLOT_H: &str =
+        include_str!("../../juce_shell/src/local_blind/RtPublicationSlot.h");
+    const REFERENCE_BLIND_RT_CPP: &str =
+        include_str!("../../juce_shell/src/reference_audition/ReferenceRuntimeV2BlindRealtime.cpp");
+    const REFERENCE_EVENTS_CPP: &str =
+        include_str!("../../juce_shell/src/reference_audition/ReferenceRuntimeV2Events.cpp");
+    const REFERENCE_LIFECYCLE_CPP: &str =
+        include_str!("../../juce_shell/src/reference_audition/ReferenceRuntimeV2Lifecycle.cpp");
 
     fn strip_line_comments(source: &str) -> String {
         source
@@ -82,7 +96,7 @@ mod tests {
         let mut calls = ffi_calls(&body);
         calls.extend(ffi_calls(&function_body(
             AUDITION_OUTPUT_CPP,
-            "void KirinHyphaProcessorBase::renderComparisonOutputs",
+            PROCESS_COMPARISON_SIGNATURE,
         )));
         let expected = BTreeSet::from([
             "kirin_hypha_get_signal_state".to_string(),
@@ -106,12 +120,9 @@ mod tests {
         );
         assert!(
             body.find("kirin_hypha_push_samples").unwrap()
-                < body.find("renderComparisonOutputs (buffer").unwrap()
+                < body.find(PROCESS_COMPARISON_CALL).unwrap()
         );
-        let output = function_body(
-            AUDITION_OUTPUT_CPP,
-            "void KirinHyphaProcessorBase::renderComparisonOutputs",
-        );
+        let output = function_body(AUDITION_OUTPUT_CPP, PROCESS_COMPARISON_SIGNATURE);
         assert!(output.contains("block.epochs = localBlindEpochs.read()"));
         assert!(output.contains("role == Role::Post && localBlindOutput.hasPublishedRealtime()"));
         assert!(output.contains("buffer.getNumSamples(), block)) return;"));
@@ -127,10 +138,7 @@ mod tests {
     #[test]
     fn extracted_output_and_local_blind_rt_callees_avoid_blocking_work() {
         for (source, signature) in [
-            (
-                AUDITION_OUTPUT_CPP,
-                "void KirinHyphaProcessorBase::renderComparisonOutputs",
-            ),
+            (AUDITION_OUTPUT_CPP, PROCESS_COMPARISON_SIGNATURE),
             (LOCAL_TRIAL_CPP, "TrialOutput LocalBlindTrial::render"),
             (LOCAL_TRIAL_CPP, "TrialOutput LocalBlindTrial::hold"),
             (LOCAL_TRIAL_CPP, "bool LocalBlindTrial::inputLayout"),
@@ -138,6 +146,14 @@ mod tests {
             (LOCAL_SLOT_H, "bool render ("),
             (LOCAL_SLOT_H, "bool hasPublishedRealtime()"),
             (LOCAL_EPOCH_H, "TrialEpochs read()"),
+            (LOCAL_CAPTURE_LANE_H, "bool process ("),
+            (EXACT_CAPTURE_SLOT_H, "bool process ("),
+            (RT_PUBLICATION_SLOT_H, "bool withRealtime ("),
+            (REFERENCE_BLIND_RT_CPP, "bool RuntimeV2Blind::render ("),
+            (
+                REFERENCE_BLIND_RT_CPP,
+                "bool RuntimeV2Blind::renderInvalidatedA (",
+            ),
         ] {
             let body = function_body(source, signature);
             for forbidden in [
@@ -163,7 +179,6 @@ mod tests {
                 "sleep",
                 "wait",
                 "triggerAsyncUpdate",
-                "positiveModuloDifference",
             ] {
                 assert!(
                     !body.contains(forbidden),
@@ -171,6 +186,22 @@ mod tests {
                 );
             }
         }
+        assert!(
+            !function_body(LOCAL_TRIAL_CPP, "TrialOutput LocalBlindTrial::render")
+                .contains("positiveModuloDifference")
+        );
+    }
+
+    #[test]
+    fn reference_blind_history_waits_for_the_audible_session_receipt() {
+        assert!(REFERENCE_EVENTS_CPP
+            .contains("blindFacts.sessionSequence == blindEventSession->sessionSequence"));
+        assert!(REFERENCE_EVENTS_CPP.contains("blindFacts.firstCallbackSequence != 0"));
+        let run = function_body(REFERENCE_LIFECYCLE_CPP, "void RuntimeV2Controller::run()");
+        assert!(
+            run.find("serviceRuntimeEvents();").unwrap()
+                < run.find("serviceDeferredAudioThreadActions();").unwrap()
+        );
     }
 
     #[test]
@@ -189,6 +220,8 @@ mod tests {
             assert!(ci.contains(target) && (cmake.contains(target) || portable.contains(target)));
         }
         assert!(ci.contains("-R '^kirin_local_blind_'"));
+        assert!(ci.contains("KirinReferenceAuditionRuntimeTests"));
+        assert!(ci.contains("-R '^kirin_reference_audition_runtime$'"));
     }
 
     #[test]

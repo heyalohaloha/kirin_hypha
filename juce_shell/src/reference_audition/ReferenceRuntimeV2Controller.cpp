@@ -109,7 +109,7 @@ namespace hypha::reference_audition
             && blindState.stimulusTwoConfirmedSwitches > 0;
         result.blindLowerAApprovalRequired = result.blindEligible
             && blindState.lowerAApprovalRequired;
-        result.blindRequiredAAttenuationDb = result.blindEligible
+        result.blindRequiredAAttenuationDb = result.blindEligible || blindState.attenuationHeld
             ? blindState.requiredAAttenuationDb : 0.0;
         if (result.presetSelectionStatus.isNotEmpty())
             result.auditionBuffered = false;
@@ -157,16 +157,14 @@ namespace hypha::reference_audition
     std::uint64_t RuntimeV2Controller::acquireOutputGate() noexcept
     {
         const juce::ScopedLock lock (outputGateLock);
+        if (activeOutputGateToken.load (std::memory_order_acquire) != 0)
+            return 0;
         auto token = nextOutputGateToken.fetch_add (1, std::memory_order_acq_rel);
         if (token == 0)
             token = nextOutputGateToken.fetch_add (1, std::memory_order_acq_rel);
-        const auto previous = activeOutputGateToken.exchange (
-            token, std::memory_order_acq_rel);
         if (selectionGate && ! selectionGate (true))
-        {
-            activeOutputGateToken.store (previous, std::memory_order_release);
             return 0;
-        }
+        activeOutputGateToken.store (token, std::memory_order_release);
         return token;
     }
 

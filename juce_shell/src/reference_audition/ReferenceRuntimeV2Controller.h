@@ -55,8 +55,12 @@ namespace hypha::reference_audition
         bool answerBlind (int) noexcept;
         bool revealBlind() noexcept;
         void endBlind() noexcept;
+        void suspendAudition() noexcept;
         bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t hostPosition,
                               bool positionValid, bool auditionAllowed = true) noexcept;
+        bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t hostPosition,
+                              bool positionValid, bool auditionAllowed,
+                              bool normalReturnAllowed) noexcept;
         void loseAudibleConfirmation() noexcept;
 
     private:
@@ -93,6 +97,7 @@ namespace hypha::reference_audition
         struct BlindEventSession
         {
             RuntimeEventContext context;
+            std::uint64_t sessionSequence = 0;
             juce::String startedEventId;
             juce::String completedEventId;
             std::int64_t startedAtMs = 0;
@@ -213,6 +218,7 @@ namespace hypha::reference_audition
         std::atomic<std::int64_t> latestHostPosition { 0 };
         std::atomic<bool> latestPositionValid { false };
         std::atomic<bool> latestPlaying { false };
+        std::atomic<std::uint64_t> transportHeartbeat { 0 };
         std::atomic<std::int64_t> cueStart { 0 };
         std::atomic<std::int64_t> cueEnd { 0 };
         std::atomic<bool> cueLoops { false };
@@ -224,7 +230,8 @@ namespace hypha::reference_audition
         std::atomic<std::int64_t> bSourceAnchor { 0 };
         std::atomic<std::uint64_t> nextOutputGateToken { 1 };
         std::atomic<std::uint64_t> activeOutputGateToken { 0 };
-        std::atomic<std::uint64_t> gateReleasePendingToken { 0 };
+        std::atomic<std::uint64_t> normalGateReleasePendingToken { 0 };
+        std::atomic<std::uint64_t> blindGateReleasePendingToken { 0 };
         std::atomic<bool> auditionReturnPending { false };
     };
 }

@@ -12,6 +12,8 @@ mod os_access;
 mod plugin_display_names;
 mod release_gate;
 mod release_package;
+#[cfg(test)]
+mod rt_contract_surface;
 mod rt_safety;
 mod shell_parity;
 mod ship_bundle;

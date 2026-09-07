@@ -112,6 +112,7 @@ namespace hypha::reference_audition
 
     BlindPhase RuntimeV2Blind::publicPhase (int state) noexcept
     {
+        if (state == armed) return BlindPhase::starting;
         if (state == active) return BlindPhase::active;
         if (state == revealed) return BlindPhase::revealed;
         if (state == invalidated) return BlindPhase::invalidated;
@@ -129,16 +130,18 @@ namespace hypha::reference_audition
             return result;
         }
         result.phase = (attenuationHoldActive.load (std::memory_order_acquire)
-                        && state != active && state != revealed)
+                        && state != armed && state != active && state != revealed)
             || state == returnRequested || state == normalConfirmed
             ? BlindPhase::invalidated : publicPhase (state);
-        result.eligible = state == prepared || state == approvalRequired
+        result.eligible = state == prepared || state == approvalRequired || state == armed
                        || state == active || state == revealed;
         result.lowerAApprovalRequired = state == approvalRequired;
+        result.attenuationHeld = attenuationHoldActive.load (std::memory_order_acquire);
         result.requiredAAttenuationDb = requiredAAttenuationDb;
         result.activeStimulus = activeStimulus.load (std::memory_order_acquire);
         const auto requested = requestedStimulus.load (std::memory_order_acquire);
-        result.pendingStimulus = result.activeStimulus == requested ? 0 : requested;
+        result.pendingStimulus = state == armed || result.activeStimulus == requested
+            ? 0 : requested;
         result.answeredStimulus = answeredStimulus.load (std::memory_order_acquire);
         result.revealedStimulusOneSide = state == revealed ? sideForStimulus (1) : -1;
         result.aGainDb = aGainDb;
@@ -164,7 +167,11 @@ namespace hypha::reference_audition
         result.stimulusTwoConfirmedSwitches = stimulusTwoSwitches.load (std::memory_order_acquire);
         result.firstCallbackSequence = firstCallbackSequence.load (std::memory_order_acquire);
         result.lastCallbackSequence = lastCallbackSequence.load (std::memory_order_acquire);
-        if (state == active || state == revealed)
+        if (state == armed || state == active || state == revealed
+            || state == invalidated || state == returnRequested
+            || state == normalConfirmed)
+            result.sessionSequence = sessionSequence.load (std::memory_order_acquire);
+        if (state == armed || state == active || state == revealed)
         {
             result.trialId = trialId;
             result.assignmentCommitmentSha256 = assignmentCommitmentSha256;
@@ -179,7 +186,7 @@ namespace hypha::reference_audition
     bool RuntimeV2Blind::ongoing() const noexcept
     {
         const auto state = lifecycle.load (std::memory_order_acquire);
-        return state == active || state == revealed
+        return state == armed || state == active || state == revealed
             || state == returnRequested || state == normalConfirmed
             || normalReturnRequired.load (std::memory_order_acquire)
             || attenuationHoldActive.load (std::memory_order_acquire);
@@ -189,6 +196,43 @@ namespace hypha::reference_audition
     {
         const auto state = lifecycle.load (std::memory_order_acquire);
         return state == active || state == revealed;
+    }
+
+    bool RuntimeV2Blind::auditioning() const noexcept
+    {
+        const auto state = lifecycle.load (std::memory_order_acquire);
+        return state == armed || state == active || state == revealed;
+    }
+
+    bool RuntimeV2Blind::matchesAuditionEpoch (std::uint64_t epoch) const noexcept
+    {
+        const auto identity = activeSessionIdentity();
+        return identity.valid() && identity.auditionEpoch == epoch;
+    }
+
+    std::uint64_t RuntimeV2Blind::activeOutputGateToken() const noexcept
+    {
+        return activeSessionIdentity().outputGateToken;
+    }
+
+    ReferenceSessionIdentity RuntimeV2Blind::activeSessionIdentity() const noexcept
+    {
+        const auto state = lifecycle.load (std::memory_order_acquire);
+        if (state != armed && state != active && state != revealed
+            && state != invalidated && state != returnRequested
+            && state != normalConfirmed)
+            return {};
+
+        ReferenceSessionIdentity identity;
+        identity.sequence = sessionSequence.load (std::memory_order_acquire);
+        if (identity.sequence == 0)
+            return {};
+        identity.auditionEpoch = sessionAuditionEpoch.load (std::memory_order_relaxed);
+        identity.outputGateToken = sessionOutputGateToken.load (std::memory_order_relaxed);
+        if (sessionSequence.load (std::memory_order_acquire) != identity.sequence
+            || lifecycle.load (std::memory_order_acquire) != state)
+            return {};
+        return identity;
     }
 
     bool RuntimeV2Blind::holdingAttenuation() const noexcept

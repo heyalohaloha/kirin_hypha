@@ -50,7 +50,9 @@ namespace
         runtime = controller.snapshot();
         require (std::abs (runtime.appliedGainDb) < 1.0e-9,
                  "replacement original mode must not inherit the previous loudness-match gain");
-        controller.selectA();
+        controller.suspendAudition();
+        require (! controller.snapshot().bSelected && ! comparisonSuspended.load(),
+                 "automatic suspension must release a normal-B reservation");
     }
 
     void verifyBlindSourceReplacementReturn (

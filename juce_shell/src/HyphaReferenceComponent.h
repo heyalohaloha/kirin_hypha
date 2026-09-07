@@ -27,10 +27,22 @@ enum class BlindPhase
 {
     unavailable,
     available,
+    starting,
     active,
     revealed,
     invalidated,
 };
+
+inline bool isBlindSession (BlindPhase phase) noexcept
+{
+    return phase == BlindPhase::starting || phase == BlindPhase::active
+        || phase == BlindPhase::revealed || phase == BlindPhase::invalidated;
+}
+
+inline bool isBlindAudition (BlindPhase phase) noexcept
+{
+    return phase == BlindPhase::active || phase == BlindPhase::revealed;
+}
 
 inline double unavailableValue() noexcept
 {
@@ -108,8 +120,7 @@ inline bool canSelectB (const State& state) noexcept
 
 inline bool canStartBlind (const State& state) noexcept
 {
-    return (state.blindPhase == BlindPhase::available
-            || state.blindPhase == BlindPhase::invalidated)
+    return state.blindPhase == BlindPhase::available
         && ! state.blindLowerAApprovalRequired && canSelectB (state);
 }
 

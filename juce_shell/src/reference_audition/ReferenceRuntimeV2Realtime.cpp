@@ -4,19 +4,25 @@ namespace hypha::reference_audition
 {
     void RuntimeV2Controller::serviceDeferredAudioThreadActions()
     {
-        if (blind.completeNormalReturn())
+        ReferenceSessionRetirement retirement;
+        if (blind.completeNormalReturn (retirement))
         {
-            activeAuditionEpoch.store (0, std::memory_order_release);
-            releaseActiveOutputGate();
+            releaseOutputGate (retirement.outputGateToken);
         }
         if (auditionReturnPending.exchange (false, std::memory_order_acq_rel))
             requestAuditionReturnEvent (aAudibleConfirmations.load (std::memory_order_acquire));
-        const auto pendingGateRelease = gateReleasePendingToken.exchange (
+        const auto pendingNormalGateRelease = normalGateReleasePendingToken.exchange (
             0, std::memory_order_acq_rel);
-        if (pendingGateRelease != 0)
+        if (pendingNormalGateRelease != 0)
+            releaseOutputGate (pendingNormalGateRelease);
+        const auto pendingBlindGateRelease = blindGateReleasePendingToken.exchange (
+            0, std::memory_order_acq_rel);
+        if (pendingBlindGateRelease != 0)
         {
-            blind.cancelUnheardStart();
-            releaseOutputGate (pendingGateRelease);
+            ReferenceSessionRetirement cancelled;
+            if (blind.cancelUnheardStart (cancelled)
+                && cancelled.outputGateToken == pendingBlindGateRelease)
+                releaseOutputGate (pendingBlindGateRelease);
         }
     }
 
@@ -25,24 +31,37 @@ namespace hypha::reference_audition
                                                bool positionValid,
                                                bool auditionAllowed) noexcept
     {
+        return renderSelectedB (buffer, hostPosition, positionValid,
+                                auditionAllowed, auditionAllowed);
+    }
+
+    bool RuntimeV2Controller::renderSelectedB (juce::AudioBuffer<float>& buffer,
+                                               std::int64_t hostPosition,
+                                               bool positionValid,
+                                               bool auditionAllowed,
+                                               bool normalReturnAllowed) noexcept
+    {
         const bool activeTransport = auditionAllowed
                                   && latestPlaying.load (std::memory_order_acquire)
                                   && positionValid;
-        if (blind.listening()
-            && activeAuditionEpoch.load (std::memory_order_acquire)
-                != auditionEpoch.load (std::memory_order_acquire))
+        const bool normalReturnTransport = normalReturnAllowed
+                                        && latestPlaying.load (std::memory_order_acquire)
+                                        && positionValid;
+        if (blind.auditioning()
+            && ! blind.matchesAuditionEpoch (
+                auditionEpoch.load (std::memory_order_acquire)))
             invalidateBlindFromAudioThread();
-        if (blind.renderInvalidatedA (buffer, activeTransport))
+        if (blind.renderInvalidatedA (buffer, normalReturnTransport))
             return true;
         if (blind.ongoing())
         {
-            if (! blind.listening())
+            if (! blind.auditioning())
                 return false;
             if (! activeTransport || ! ready.load (std::memory_order_acquire)
                 || ! blind.render (buffer, hostPosition, positionValid))
             {
                 invalidateBlindFromAudioThread();
-                return blind.renderInvalidatedA (buffer, activeTransport);
+                return blind.renderInvalidatedA (buffer, normalReturnTransport);
             }
             return true;
         }

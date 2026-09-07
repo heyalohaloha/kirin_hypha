@@ -50,6 +50,7 @@ namespace hypha::reference_audition
     {
         latestPlaying.store (playing, std::memory_order_release);
         latestPositionValid.store (positionValid, std::memory_order_release);
+        transportHeartbeat.fetch_add (1, std::memory_order_release);
         if (! positionValid)
             return;
         latestHostPosition.store (hostPosition, std::memory_order_release);
@@ -148,7 +149,7 @@ namespace hypha::reference_audition
         if (! ready.load (std::memory_order_acquire)
             || ! latestPlaying.load (std::memory_order_acquire)
             || ! latestPositionValid.load (std::memory_order_acquire)
-            || blind.ongoing())
+            || bSelected.load (std::memory_order_acquire) || blind.ongoing())
             return false;
         const auto epoch = auditionEpoch.load (std::memory_order_acquire);
         const auto gateToken = acquireOutputGate();
@@ -156,23 +157,20 @@ namespace hypha::reference_audition
             return false;
         if (! ready.load (std::memory_order_acquire)
             || auditionEpoch.load (std::memory_order_acquire) != epoch
-            || ! blind.start (approveLowerA))
+            || ! blind.startSession (approveLowerA, epoch, gateToken))
         {
             releaseOutputGate (gateToken);
             return false;
         }
-        activeAuditionEpoch.store (epoch, std::memory_order_release);
         if (! ready.load (std::memory_order_acquire)
             || auditionEpoch.load (std::memory_order_acquire) != epoch)
         {
             blind.invalidate();
-            if (blind.cancelUnheardStart())
+            ReferenceSessionRetirement retirement;
+            if (blind.cancelUnheardStart (retirement))
             {
-                activeAuditionEpoch.store (0, std::memory_order_release);
-                releaseOutputGate (gateToken);
+                releaseOutputGate (retirement.outputGateToken);
             }
-            else
-                blind.end();
             return false;
         }
         bSelected.store (false, std::memory_order_release);
@@ -197,13 +195,11 @@ namespace hypha::reference_audition
         if (! publicationStillValid)
         {
             blind.invalidate();
-            if (blind.cancelUnheardStart())
+            ReferenceSessionRetirement retirement;
+            if (blind.cancelUnheardStart (retirement))
             {
-                activeAuditionEpoch.store (0, std::memory_order_release);
-                releaseOutputGate (gateToken);
+                releaseOutputGate (retirement.outputGateToken);
             }
-            else
-                blind.end();
             return false;
         }
         beginBlindEventSession (facts);
@@ -231,8 +227,20 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::endBlind() noexcept
     {
-        blind.end();
+        ReferenceSessionRetirement cancelled;
+        if (blind.cancelUnheardStart (cancelled))
+            releaseOutputGate (cancelled.outputGateToken);
+        else
+            blind.end();
         bSelected.store (false, std::memory_order_release);
+    }
+
+    void RuntimeV2Controller::suspendAudition() noexcept
+    {
+        if (blind.ongoing())
+            invalidateBlind();
+        else
+            selectA();
     }
 
     void RuntimeV2Controller::loseAudibleConfirmation() noexcept
@@ -245,10 +253,10 @@ namespace hypha::reference_audition
         const bool wasOngoing = blind.ongoing();
         blind.invalidate();
         bSelected.store (false, std::memory_order_release);
-        if (wasOngoing && blind.cancelUnheardStart())
+        ReferenceSessionRetirement retirement;
+        if (wasOngoing && blind.cancelUnheardStart (retirement))
         {
-            activeAuditionEpoch.store (0, std::memory_order_release);
-            releaseActiveOutputGate();
+            releaseOutputGate (retirement.outputGateToken);
         }
     }
 
@@ -268,9 +276,8 @@ namespace hypha::reference_audition
         bSelected.store (false, std::memory_order_release);
         if (wasOngoing && ! blind.ongoing())
         {
-            activeAuditionEpoch.store (0, std::memory_order_release);
-            gateReleasePendingToken.store (
-                activeOutputGateToken.load (std::memory_order_acquire),
+            blindGateReleasePendingToken.store (
+                blind.activeOutputGateToken(),
                 std::memory_order_release);
         }
     }
@@ -289,7 +296,7 @@ namespace hypha::reference_audition
             {
                 activeAuditionEpoch.store (0, std::memory_order_release);
                 auditionReturnPending.store (true, std::memory_order_release);
-                gateReleasePendingToken.store (gateToken, std::memory_order_release);
+                normalGateReleasePendingToken.store (gateToken, std::memory_order_release);
             }
         }
     }

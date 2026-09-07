@@ -82,7 +82,7 @@ KirinHyphaProcessorBase::takeCaptureWorkAttachmentResult()
 hypha::reference_audition::Snapshot KirinHyphaProcessorBase::referenceAuditionSnapshot() const
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
+    return referenceAuditionController != nullptr
         ? referenceAuditionController->snapshot()
         : hypha::reference_audition::Snapshot {};
    #else
@@ -98,7 +98,7 @@ bool KirinHyphaProcessorBase::selectReferenceB (double aIntegratedLoudness,
     if (! licenseIsOs())
     {
         if (referenceAuditionController != nullptr)
-            referenceAuditionController->selectA();
+            referenceAuditionController->suspendAudition();
         return false;
     }
     return referenceAuditionController != nullptr
@@ -202,7 +202,7 @@ bool KirinHyphaProcessorBase::startReferenceBlind (double aIntegratedLoudness,
     if (! licenseIsOs())
     {
         if (referenceAuditionController != nullptr)
-            referenceAuditionController->endBlind();
+            referenceAuditionController->suspendAudition();
         return false;
     }
     return referenceAuditionController != nullptr
@@ -221,7 +221,7 @@ bool KirinHyphaProcessorBase::selectReferenceBlindStimulus (int stimulus)
     if (! licenseIsOs())
     {
         if (referenceAuditionController != nullptr)
-            referenceAuditionController->endBlind();
+            referenceAuditionController->suspendAudition();
         return false;
     }
     return referenceAuditionController != nullptr
@@ -237,7 +237,13 @@ bool KirinHyphaProcessorBase::approveReferenceBlindLowerA (
 {
     refreshLicenseForUserAction();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
+    if (! licenseIsOs())
+    {
+        if (referenceAuditionController != nullptr)
+            referenceAuditionController->suspendAudition();
+        return false;
+    }
+    return referenceAuditionController != nullptr
         && referenceAuditionController->approveBlindLowerAAndStart (
             aIntegratedLoudness, aMaximumTruePeakDbtp);
    #else
@@ -250,7 +256,13 @@ bool KirinHyphaProcessorBase::answerReferenceBlind (int stimulus)
 {
     refreshLicenseForUserAction();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
+    if (! licenseIsOs())
+    {
+        if (referenceAuditionController != nullptr)
+            referenceAuditionController->suspendAudition();
+        return false;
+    }
+    return referenceAuditionController != nullptr
         && referenceAuditionController->answerBlind (stimulus);
    #else
     juce::ignoreUnused (stimulus);
@@ -265,7 +277,7 @@ bool KirinHyphaProcessorBase::revealReferenceBlind()
     if (! licenseIsOs())
     {
         if (referenceAuditionController != nullptr)
-            referenceAuditionController->endBlind();
+            referenceAuditionController->suspendAudition();
         return false;
     }
     return referenceAuditionController != nullptr

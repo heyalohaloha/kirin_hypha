@@ -85,6 +85,8 @@ namespace hypha::reference_audition
     void RuntimeV2Controller::run()
     {
         int untilPoll = 0;
+        auto observedTransportHeartbeat = transportHeartbeat.load (std::memory_order_acquire);
+        int missedTransportCallbacks = 0;
         while (! threadShouldExit())
         {
             Configuration configuration;
@@ -105,10 +107,33 @@ namespace hypha::reference_audition
                 static_cast<std::int64_t> (std::llround (configuration.sampleRate)),
                 configuration.channels,
                 juce::Time::currentTimeMillis());
-            serviceDeferredAudioThreadActions();
             serviceRuntimeEvents();
+            serviceDeferredAudioThreadActions();
             serviceRecoveryAcknowledgement();
             servicePresetSelectionAcknowledgement();
+            const auto currentTransportHeartbeat = transportHeartbeat.load (
+                std::memory_order_acquire);
+            if (! blind.auditioning())
+            {
+                observedTransportHeartbeat = currentTransportHeartbeat;
+                missedTransportCallbacks = 0;
+            }
+            else if (! latestPlaying.load (std::memory_order_acquire)
+                     || ! latestPositionValid.load (std::memory_order_acquire))
+            {
+                invalidateBlind();
+                missedTransportCallbacks = 0;
+            }
+            else if (currentTransportHeartbeat != observedTransportHeartbeat)
+            {
+                observedTransportHeartbeat = currentTransportHeartbeat;
+                missedTransportCallbacks = 0;
+            }
+            else if (++missedTransportCallbacks >= workspacePolls)
+            {
+                invalidateBlind();
+                missedTransportCallbacks = 0;
+            }
             if (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0)
             {
                 refreshWorkspace (configuration, juce::Time::currentTimeMillis());

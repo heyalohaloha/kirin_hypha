@@ -125,7 +125,7 @@ run cargo test -p xtask --locked
 # These real-time filesystem suites are deliberately ignored by the normal cargo test command.
 # Pin the inventory before running it so a renamed/deleted blocker test cannot disappear silently.
 assert_ignored_count parity 20
-assert_ignored_count pairing_candidates 5
+assert_ignored_count pairing_candidates 6
 run cargo test -p kirin_hypha_ffi --test parity --locked -- --ignored --test-threads=1
 run cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignored --test-threads=1
 

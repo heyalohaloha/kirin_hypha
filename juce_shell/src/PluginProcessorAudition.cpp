@@ -37,7 +37,9 @@ void KirinHyphaProcessorBase::processComparisonPaths (
     // render, bypass, missing project time, cache miss, and every consumer failure keep A intact.
     if (role == Role::Post && referenceAuditionController != nullptr)
         referenceAuditionController->renderSelectedB (
-            buffer, positionSamples, hasPosition, ! bypassed && ! nonRealtimeMode && licenseIsOs());
+            buffer, positionSamples, hasPosition,
+            ! bypassed && ! nonRealtimeMode && licenseIsOs(),
+            ! bypassed && ! nonRealtimeMode);
 #else
     juce::ignoreUnused (buffer, positionSamples, hasPosition, playing, bypassed, nonRealtimeMode);
 #endif

@@ -217,9 +217,9 @@ Audio Threadの取得入口は正本計測後かつ出力切替前とし、posit
 
 | ゲート | コマンド | 対象不変条件 |
 |--------|----------|--------------|
-| 出荷source正本 | `bash scripts/test_release_source.sh` | `kirin_measure` / FFI / 共通JUCE殻静的契約 / ignored 20+5件 / release-owned clippy |
+| 出荷source正本 | `bash scripts/test_release_source.sh` | `kirin_measure` / FFI / 共通JUCE殻静的契約 / ignored 20+6件 / release-owned clippy |
 | workspace互換 | `cargo test --workspace` | 旧nih-plug殻を含む非出荷workspaceの退行確認（出荷AU/VST3 parityの根拠には使わない） |
-| FFI ignored（個別） | `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1` ＋ `--test pairing_candidates` | INV-P6 / INV-I1 / INV-R3,R4 / INV-A4（20件+5件を実測固定） |
+| FFI ignored（個別） | `cargo test -p kirin_hypha_ffi --test parity -- --ignored --test-threads=1` ＋ `--test pairing_candidates` | INV-P6 / INV-I1 / INV-R3,R4 / INV-A4（20件+6件を実測固定） |
 | clippy（個別） | `cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings` | 出荷owned code品質基準 |
 
 > 新しい pairing/表示の不具合を直すときは、本表に行を足し、対応テストを同時に書く

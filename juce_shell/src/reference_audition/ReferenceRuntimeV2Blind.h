@@ -9,6 +9,7 @@
 
 #include "ReferenceAuditionController.h"
 #include "ReferenceRuntimeACapture.h"
+#include "ReferenceSessionTypes.h"
 #include "ReferenceRuntimeV2Source.h"
 
 namespace hypha::reference_audition
@@ -41,6 +42,7 @@ namespace hypha::reference_audition
         BlindPhase phase = BlindPhase::inactive;
         bool eligible = false;
         bool lowerAApprovalRequired = false;
+        bool attenuationHeld = false;
         double requiredAAttenuationDb = 0.0;
         int activeStimulus = 0;
         int pendingStimulus = 0;
@@ -69,6 +71,7 @@ namespace hypha::reference_audition
         std::uint64_t stimulusTwoConfirmedSwitches = 0;
         std::uint64_t firstCallbackSequence = 0;
         std::uint64_t lastCallbackSequence = 0;
+        std::uint64_t sessionSequence = 0;
         juce::String trialId;
         juce::String assignmentCommitmentSha256;
         juce::String revealedNonceHex;
@@ -80,7 +83,7 @@ namespace hypha::reference_audition
     public:
         RuntimeV2Blind() = default;
 
-        void prepare (const std::shared_ptr<const RuntimeACaptureAudio>&,
+        bool prepare (const std::shared_ptr<const RuntimeACaptureAudio>&,
                       const RuntimeCandidate&, const RuntimeCue&,
                       const std::shared_ptr<const RuntimeSource>&,
                       bool sampleRateConversionApproved);
@@ -88,12 +91,16 @@ namespace hypha::reference_audition
         void clear() noexcept;
 
         bool start (bool approveLowerA = false) noexcept;
+        bool startSession (bool approveLowerA, std::uint64_t auditionEpoch,
+                           std::uint64_t outputGateToken) noexcept;
         bool cancelUnheardStart() noexcept;
+        bool cancelUnheardStart (ReferenceSessionRetirement&) noexcept;
         bool requestStimulus (int) noexcept;
         bool answer (int) noexcept;
         bool reveal() noexcept;
         void end() noexcept;
         bool completeNormalReturn() noexcept;
+        bool completeNormalReturn (ReferenceSessionRetirement&) noexcept;
         void forceClearAfterAudioStopped() noexcept;
         void loseAudibleConfirmation() noexcept;
         bool render (juce::AudioBuffer<float>&, std::int64_t hostPosition,
@@ -103,6 +110,10 @@ namespace hypha::reference_audition
         RuntimeV2BlindSnapshot snapshot() const;
         bool ongoing() const noexcept;
         bool listening() const noexcept;
+        bool auditioning() const noexcept;
+        ReferenceSessionIdentity activeSessionIdentity() const noexcept;
+        bool matchesAuditionEpoch (std::uint64_t) const noexcept;
+        std::uint64_t activeOutputGateToken() const noexcept;
         bool holdingAttenuation() const noexcept;
 
     private:
@@ -112,11 +123,12 @@ namespace hypha::reference_audition
             preparing = 1,
             prepared = 2,
             approvalRequired = 3,
-            active = 4,
-            revealed = 5,
-            invalidated = 6,
-            returnRequested = 7,
-            normalConfirmed = 8,
+            armed = 4,
+            active = 5,
+            revealed = 6,
+            invalidated = 7,
+            returnRequested = 8,
+            normalConfirmed = 9,
         };
 
         bool enterPreparation() noexcept;
@@ -153,6 +165,10 @@ namespace hypha::reference_audition
 
         std::atomic<int> lifecycle { unavailable };
         std::atomic<int> returnLifecycle { unavailable };
+        std::atomic<std::uint64_t> nextSessionSequence { 1 };
+        std::atomic<std::uint64_t> sessionSequence { 0 };
+        std::atomic<std::uint64_t> sessionAuditionEpoch { 0 };
+        std::atomic<std::uint64_t> sessionOutputGateToken { 0 };
         std::atomic<int> callbacksInFlight { 0 };
         mutable std::atomic<int> snapshotReadersInFlight { 0 };
         std::atomic<bool> attenuationHoldActive { false };

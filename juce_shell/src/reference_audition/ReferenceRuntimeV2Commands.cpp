@@ -26,7 +26,8 @@ namespace hypha::reference_audition
             currentSnapshot.sampleRateApprovalRequired = false;
             revokeAuditionPublication();
         }
-        selectA();
+        if (blind.ongoing()) invalidateBlind();
+        else selectA();
         notify();
         return true;
     }
@@ -108,7 +109,8 @@ namespace hypha::reference_audition
             currentSnapshot.sampleRateApprovalRequired = false;
             revokeAuditionPublication();
         }
-        selectA();
+        if (blind.ongoing()) invalidateBlind();
+        else selectA();
         notify();
         return true;
     }

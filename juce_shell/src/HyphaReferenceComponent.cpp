@@ -242,11 +242,8 @@ juce::String Component::selectedOptionId (const juce::ComboBox& box,
 void Component::setState (State next)
 {
     current = std::move (next);
-    const bool blindSession = current.blindPhase == BlindPhase::active
-                           || current.blindPhase == BlindPhase::revealed
-                           || current.blindPhase == BlindPhase::invalidated;
-    const bool blindAudition = current.blindPhase == BlindPhase::active
-                            || current.blindPhase == BlindPhase::revealed;
+    const bool blindSession = isBlindSession (current.blindPhase);
+    const bool blindAudition = isBlindAudition (current.blindPhase);
     aButton.setToggleState (! current.bSelected, juce::dontSendNotification);
     bButton.setToggleState (current.bSelected, juce::dontSendNotification);
     bButton.setEnabled (canSelectB (current));
@@ -306,9 +303,7 @@ void Component::resized()
         button.setBounds (header.removeFromRight (width));
         header.removeFromRight (3);
     };
-    if (current.blindPhase == BlindPhase::active
-        || current.blindPhase == BlindPhase::revealed
-        || current.blindPhase == BlindPhase::invalidated)
+    if (isBlindSession (current.blindPhase))
     {
         place (endBlindButton, current.blindPhase == BlindPhase::invalidated
             ? (detailedLayout() ? 132 : 94) : buttonWidth);
@@ -326,9 +321,7 @@ void Component::resized()
         place (bButton, buttonWidth);
         place (aButton, buttonWidth);
     }
-    const bool blindSession = current.blindPhase == BlindPhase::active
-                           || current.blindPhase == BlindPhase::revealed
-                           || current.blindPhase == BlindPhase::invalidated;
+    const bool blindSession = isBlindSession (current.blindPhase);
     if (detailedLayout() && ! blindSession)
     {
         area.removeFromTop (4);
@@ -353,9 +346,11 @@ void Component::paint (juce::Graphics& g)
     auto area = getLocalBounds().reduced (6);
     auto header = area.removeFromTop (detailedLayout() ? 42 : 34);
     const bool blindActive = current.blindPhase == BlindPhase::active;
+    const bool blindStarting = current.blindPhase == BlindPhase::starting;
     const bool blindInvalidated = current.blindPhase == BlindPhase::invalidated;
     const bool blindRevealed = current.blindPhase == BlindPhase::revealed;
-    if (detailedLayout() && ! blindActive && ! blindInvalidated && ! blindRevealed)
+    if (detailedLayout() && ! blindStarting && ! blindActive
+        && ! blindInvalidated && ! blindRevealed)
     {
         auto selectors = area.removeFromTop (50);
         const int gap = 5;
@@ -389,7 +384,7 @@ void Component::paint (juce::Graphics& g)
     else if (blindButton.isVisible())
         controlsWidth += (detailedLayout() ? 78 : 62) + 3;
     header.removeFromRight (controlsWidth);
-    if (blindActive || blindInvalidated)
+    if (blindStarting || blindActive || blindInvalidated)
     {
         g.setColour (COL_FLORA.withAlpha (0.86f));
         g.setFont (labelFont (detailedLayout() ? 10.5f : 8.5f));
@@ -402,7 +397,8 @@ void Component::paint (juce::Graphics& g)
 
         area.removeFromTop (4);
         auto statusArea = area.removeFromBottom (detailedLayout() ? 24 : 18);
-        juce::String status = blindInvalidated ? current.status : "SELECT 1 OR 2";
+        juce::String status = blindInvalidated || blindStarting
+            ? current.status : "SELECT 1 OR 2";
         if (! blindInvalidated && current.pendingBlindStimulus != 0)
             status = "SWITCHING TO " + juce::String (current.pendingBlindStimulus);
         else if (! blindInvalidated && current.activeBlindStimulus != 0)
@@ -419,7 +415,8 @@ void Component::paint (juce::Graphics& g)
         drawComparisonRoots (g, area.toFloat());
         g.setColour (COL_NORMAL.withAlpha (0.9f));
         g.setFont (monoFont (detailedLayout() ? 23.0f : 15.0f));
-        g.drawFittedText (blindInvalidated ? "NO COMPARISON SHOWN" : "1      2",
+        g.drawFittedText (blindInvalidated || blindStarting
+                              ? "NO COMPARISON SHOWN" : "1      2",
                           area.toNearestInt(),
                           juce::Justification::centred, 1, 0.9f);
         return;

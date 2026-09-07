@@ -272,6 +272,7 @@ namespace hypha::reference_audition
                 return;
             BlindEventSession session;
             session.context = activeEventContext;
+            session.sessionSequence = facts.sessionSequence;
             session.startedEventId = RuntimeEventTransport::uuidV4();
             session.completedEventId = RuntimeEventTransport::uuidV4();
             session.startedAtMs = juce::Time::currentTimeMillis();
@@ -369,12 +370,18 @@ namespace hypha::reference_audition
             if (current != auditionEventSessions.end()) auditionEventSessions.erase (current);
         }
 
+        const auto blindFacts = blind.snapshot();
         std::optional<BlindEventSession> blindStart;
         std::optional<BlindEventSession> blindCompletion;
         {
             const juce::ScopedLock lock (stateLock);
-            if (blindEventSession && ! blindEventSession->startWritten)
+            if (blindEventSession && ! blindEventSession->startWritten
+                && blindFacts.sessionSequence == blindEventSession->sessionSequence
+                && blindFacts.firstCallbackSequence != 0)
                 blindStart = blindEventSession;
+            else if (blindEventSession && ! blindEventSession->startWritten
+                     && blindFacts.sessionSequence != blindEventSession->sessionSequence)
+                blindEventSession.reset();
             else if (blindEventSession && blindEventSession->completionPending)
                 blindCompletion = blindEventSession;
         }

@@ -46,12 +46,12 @@ namespace hypha::reference_audition
                                  bool positionValid) noexcept
     {
         auto state = lifecycle.load (std::memory_order_acquire);
-        if ((state != active && state != revealed) || ! positionValid
-            || frameCount < 1 || buffer.getNumChannels() != channels)
+        if ((state != armed && state != active && state != revealed) || ! positionValid)
             return false;
         callbacksInFlight.fetch_add (1, std::memory_order_acq_rel);
         state = lifecycle.load (std::memory_order_acquire);
-        if (state != active && state != revealed)
+        if ((state != armed && state != active && state != revealed)
+            || frameCount < 1 || buffer.getNumChannels() != channels)
         {
             callbacksInFlight.fetch_sub (1, std::memory_order_release);
             return false;
@@ -97,6 +97,9 @@ namespace hypha::reference_audition
                 .fetch_add (1, std::memory_order_relaxed);
         activeStimulus.store (stimulus, std::memory_order_release);
         normalReturnRequired.store (true, std::memory_order_release);
+        int armedState = armed;
+        lifecycle.compare_exchange_strong (armedState, active,
+                                            std::memory_order_acq_rel);
         callbacksInFlight.fetch_sub (1, std::memory_order_release);
         return true;
     }

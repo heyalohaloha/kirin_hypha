@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use crate::rt_contract_surface::PROCESS_COMPARISON_CALL;
+
     const PROCESSOR: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
@@ -34,9 +36,15 @@ mod tests {
             "void KirinHyphaProcessorBase::processBlock",
             "void KirinHyphaProcessorBase::getStateInformation",
         );
-        assert!(process.contains("renderComparisonOutputs (buffer"));
+        assert!(process.contains(PROCESS_COMPARISON_CALL));
         let output = include_str!("../../juce_shell/src/PluginProcessorAudition.cpp");
         assert!(output.contains("! nonRealtimeMode && licenseIsOs()"));
+        let snapshot = body(
+            GUIDE,
+            "KirinHyphaProcessorBase::referenceAuditionSnapshot",
+            "bool KirinHyphaProcessorBase::selectReferenceB",
+        );
+        assert!(!snapshot.contains("licenseIsOs()"));
         for (start, end) in [
             (
                 "bool KirinHyphaProcessorBase::selectReferenceB",
@@ -48,6 +56,14 @@ mod tests {
             ),
             (
                 "bool KirinHyphaProcessorBase::selectReferenceBlindStimulus",
+                "bool KirinHyphaProcessorBase::approveReferenceBlindLowerA",
+            ),
+            (
+                "bool KirinHyphaProcessorBase::approveReferenceBlindLowerA",
+                "bool KirinHyphaProcessorBase::answerReferenceBlind",
+            ),
+            (
+                "bool KirinHyphaProcessorBase::answerReferenceBlind",
                 "bool KirinHyphaProcessorBase::revealReferenceBlind",
             ),
             (
@@ -58,6 +74,7 @@ mod tests {
             let action = body(GUIDE, start, end);
             assert!(action.contains("refreshLicenseForUserAction();"));
             assert!(action.contains("if (! licenseIsOs())"));
+            assert!(action.contains("suspendAudition();"));
         }
         assert!(EDITOR_OBSERVATORY.contains("observatoryView.setReferenceOwned (referenceOwned)"));
         assert!(!EDITOR_OBSERVATORY.contains("Domain::reference && ! processorRef.licenseIsOs()"));
@@ -65,6 +82,16 @@ mod tests {
         assert!(reference.contains("hypha::reference_ui::needsAccessPanel (referenceView.state())"));
         assert!(reference.contains("processorRef.refreshLicenseForUserAction();"));
         assert!(reference.contains("safe->handleInformationMenu (selected)"));
+        let status = body(
+            reference,
+            "using Runtime = hypha::reference_audition::RuntimeState;",
+            "if (runtime.presetSelectionStatus == \"pending\")",
+        );
+        assert!(
+            status.find("BlindPhase::invalidated").unwrap()
+                < status.find("state.osAccess == Access::unowned").unwrap(),
+            "an active return contract must outrank the access status"
+        );
     }
 
     #[test]

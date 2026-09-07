@@ -381,8 +381,8 @@ namespace hypha::reference_audition
         {
             if (blind.ongoing())
                 invalidateBlind();
-            blind.prepare (capturedA, *candidate, *cue, selectedSource, rateApproved);
-            blindPreparationKey = nextBlindKey;
+            if (blind.prepare (capturedA, *candidate, *cue, selectedSource, rateApproved))
+                blindPreparationKey = nextBlindKey;
         }
         const auto blindState = blind.snapshot();
         const auto nextContentMappingKey = blindState.eligible

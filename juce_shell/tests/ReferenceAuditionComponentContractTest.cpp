@@ -187,6 +187,15 @@ void verifyReferenceAuditionComponentContract()
     startBlind->onClick();
     KIRIN_REF_REQUIRE (requestedA && requestedB && requestedBlind);
 
+    auto startingState = readyState();
+    startingState.blindPhase = reference_ui::BlindPhase::starting;
+    startingState.status = "BLIND / WAITING FOR FIRST AUDIBLE BLOCK";
+    component.setState (startingState);
+    KIRIN_REF_REQUIRE (! a->isVisible() && ! b->isVisible() && ! startBlind->isVisible()
+                       && ! one->isVisible() && ! two->isVisible()
+                       && ! answer->isVisible() && ! reveal->isVisible()
+                       && endBlind->isVisible());
+
     auto blindState = readyState();
     blindState.blindPhase = reference_ui::BlindPhase::active;
     blindState.activeBlindStimulus = 1;

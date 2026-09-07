@@ -175,8 +175,20 @@ namespace
 
     [[maybe_unused]] bool writeJson (const juce::File& file, const juce::var& value)
     {
-        return file.getParentDirectory().createDirectory()
-            && file.replaceWithText (juce::JSON::toString (value, true) + "\n");
+        if (! file.getParentDirectory().createDirectory())
+            return false;
+        juce::TemporaryFile temporary (file);
+        {
+            auto stream = temporary.getFile().createOutputStream();
+            if (stream == nullptr || ! stream->openedOk()
+                || ! stream->writeText (juce::JSON::toString (value, true) + "\n",
+                                        false, false, "\n"))
+                return false;
+            stream->flush();
+            if (stream->getStatus().failed())
+                return false;
+        }
+        return temporary.overwriteTargetFileWithTemporary();
     }
 
     [[maybe_unused]] juce::var makeRuntimeABinding (const ref::RuntimeIdentity& identity,
@@ -196,6 +208,14 @@ namespace
         object->setProperty ("issued_at_ms", issuedAtMs);
         object->setProperty ("lease_expires_at_ms", leaseExpiresAtMs);
         return juce::var (object);
+    }
+
+    [[maybe_unused]] bool renewRuntimeABinding (
+        const juce::File& file, const ref::RuntimeIdentity& identity,
+        const juce::String& recordingId)
+    {
+        const auto now = juce::Time::currentTimeMillis();
+        return writeJson (file, makeRuntimeABinding (identity, recordingId, now, now + 9'000));
     }
 
     [[maybe_unused]] bool hasExactKeys (const juce::DynamicObject& object,

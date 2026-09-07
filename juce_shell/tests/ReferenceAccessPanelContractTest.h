@@ -19,7 +19,8 @@ inline void verifyReferenceAccessPanelContract()
     {
         state.osAccess = access;
         require (needsAccessPanel (state) && ! canSelectB (state), "help is not B permission");
-        for (auto phase : { BlindPhase::active, BlindPhase::revealed, BlindPhase::invalidated })
+        for (auto phase : { BlindPhase::starting, BlindPhase::active,
+                            BlindPhase::revealed, BlindPhase::invalidated })
         {
             state.blindPhase = phase;
             require (! needsAccessPanel (state), "return-level UI must stay reachable");

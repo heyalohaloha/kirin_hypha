@@ -245,7 +245,7 @@ namespace hypha::reference_audition
         activeAuditionEpoch.store (0, std::memory_order_release);
         const bool deferredReturn = auditionReturnPending.exchange (
             false, std::memory_order_acq_rel);
-        const auto deferredRelease = gateReleasePendingToken.exchange (
+        const auto deferredRelease = normalGateReleasePendingToken.exchange (
             0, std::memory_order_acq_rel);
         if (wasSelected || deferredReturn)
             requestAuditionReturnEvent (aBaseline);

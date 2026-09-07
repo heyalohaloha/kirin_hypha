@@ -1,5 +1,13 @@
 **Hyphaのレビュー修正と完成へ進む実装計画**
 
+**2026-09-07 / B-747レビュー後の改訂**
+
+Referenceの開始・失効・減衰保持・通常復帰と関連RT検証ゲートは、[Referenceセッション構造修正計画](hypha_reference_session_repair_plan_20260907.md)に従って修正する。
+再現済みの音量復帰・開始競合と既存テスト4件の失敗を閉じ、所有者分離の実装と旧入口の削除を確認してから、ローカルPRE/POST Blindの未接続部分へ戻る。
+以下のB-738までの合格記録は履歴として残し、B-747の合格根拠にはしない。
+2026-09-08のB-748実装候補でSR1〜SR3を修正し、対象native・静的契約・ASan・TSan・最終sourceゲートはpassした。
+Windows CI実行と実DAW確認は未完了としてReference計画に残している。
+
 **2026-09-07 / B-733後の改訂**
 
 Reference修正・RG・AAX混入検査・初回回答取込みの現行計画は、[構造修正計画](hypha_structural_repair_plan_20260907.md)とする。

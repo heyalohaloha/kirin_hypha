@@ -21,6 +21,7 @@ namespace hypha::reference_audition
         active = 1,
         revealed = 2,
         invalidated = 3,
+        starting = 4,
     };
 
     struct BlindPublicState

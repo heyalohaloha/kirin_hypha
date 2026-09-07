@@ -10,9 +10,7 @@ inline bool needsAccessPanel (const State& state) noexcept
 {
     return (state.osAccess == os_access::State::unowned
             || state.osAccess == os_access::State::ownedDisconnected)
-        && ! state.bSelected && state.blindPhase != BlindPhase::active
-        && state.blindPhase != BlindPhase::revealed
-        && state.blindPhase != BlindPhase::invalidated;
+        && ! state.bSelected && ! isBlindSession (state.blindPhase);
 }
 
 class AccessPanel final : public juce::Component

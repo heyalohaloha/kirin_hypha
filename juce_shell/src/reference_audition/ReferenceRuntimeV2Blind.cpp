@@ -251,14 +251,14 @@ namespace hypha::reference_audition
         }
     }
 
-    void RuntimeV2Blind::prepare (
+    bool RuntimeV2Blind::prepare (
         const std::shared_ptr<const RuntimeACaptureAudio>& a,
         const RuntimeCandidate& candidate, const RuntimeCue& cue,
         const std::shared_ptr<const RuntimeSource>& source,
         bool sampleRateConversionApproved)
     {
         if (! enterPreparation())
-            return;
+            return false;
         frozenA.clear();
         frozenB.clear();
         dawRevisionId.clear();
@@ -281,7 +281,7 @@ namespace hypha::reference_audition
             || a->interleaved.size() != static_cast<size_t> (a->frameCount * a->channels))
         {
             reject ("reference_blind_identity_unavailable");
-            return;
+            return false;
         }
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
@@ -292,7 +292,7 @@ namespace hypha::reference_audition
                 && ! sampleRateConversionApproved))
         {
             reject ("reference_blind_source_unavailable");
-            return;
+            return false;
         }
         const auto cueStart = juce::jlimit<std::int64_t> (
             0, reader->lengthInSamples, cue.startSample);
@@ -303,14 +303,14 @@ namespace hypha::reference_audition
                                         static_cast<int> (a->sampleRateHz), a->channels, frozenB))
         {
             reject ("reference_blind_alignment_unavailable");
-            return;
+            return false;
         }
         frozenA = a->interleaved;
         const auto frozenBHash = pcmHash (frozenB);
         if (frozenBHash == a->cuePcmSha256)
         {
             reject ("reference_blind_same_revision");
-            return;
+            return false;
         }
         KirinReferenceGainFacts facts {};
         if (! kirin_hypha_analyze_reference_gain (
@@ -319,7 +319,7 @@ namespace hypha::reference_audition
                 static_cast<std::uint32_t> (a->channels), &facts))
         {
             reject ("reference_blind_gain_unavailable");
-            return;
+            return false;
         }
         aStartSample = a->startSample;
         frameCount = a->frameCount;
@@ -349,11 +349,12 @@ namespace hypha::reference_audition
             int expected = preparing;
             lifecycle.compare_exchange_strong (expected, approvalRequired,
                                                 std::memory_order_acq_rel);
-            return;
+            return true;
         }
         int expected = preparing;
         lifecycle.compare_exchange_strong (expected, prepared,
                                             std::memory_order_acq_rel);
+        return true;
     }
 
     int RuntimeV2Blind::sideForStimulus (int stimulus) const noexcept

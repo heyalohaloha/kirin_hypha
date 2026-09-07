@@ -4,17 +4,19 @@
 
 namespace
 {
-    void completeBlindNormalReturn (ref::RuntimeV2Blind& blind,
-                                    juce::AudioBuffer<float>& output)
+    ref::ReferenceSessionRetirement completeBlindNormalReturn (
+        ref::RuntimeV2Blind& blind, juce::AudioBuffer<float>& output)
     {
         blind.end();
         if (! blind.ongoing())
-            return;
+            return {};
         output.clear();
         require (blind.renderInvalidatedA (output, true),
                  "normal return must be confirmed by one eligible audio callback");
-        require (blind.completeNormalReturn(),
+        ref::ReferenceSessionRetirement retirement;
+        require (blind.completeNormalReturn (retirement),
                  "non-RT control must consume the exact normal-return receipt");
+        return retirement;
     }
 
     [[maybe_unused]] juce::String canonicalPcmHash (const std::vector<float>& interleaved)
@@ -196,19 +198,29 @@ namespace
                  && state.aCuePcmSha256 == a->cuePcmSha256
                  && state.bCuePcmSha256.length() == 64,
                  "four-bar DAW pre-roll must align automatically to a trimmed same-recording B");
-        require (blind.start() && blind.ongoing(),
+        require (blind.startSession (false, 77, 41) && blind.ongoing(),
                  "prepared immutable A/B must start Blind without another OS action");
         state = blind.snapshot();
-        require (state.trialId.length() == 36 && state.trialId[14] == '4'
+        const auto firstSessionSequence = state.sessionSequence;
+        require (state.phase == ref::BlindPhase::starting
+                 && state.sessionSequence != 0
+                 && blind.matchesAuditionEpoch (77)
+                 && blind.activeOutputGateToken() == 41
+                 && state.trialId.length() == 36 && state.trialId[14] == '4'
                  && (state.trialId[19] == '8' || state.trialId[19] == '9'
                      || state.trialId[19] == 'a' || state.trialId[19] == 'b')
                  && state.assignmentCommitmentSha256.length() == 64
                  && state.revealedNonceHex.isEmpty(),
                  "Blind start must publish a UUIDv4 commitment without revealing its nonce");
+        require (! blind.prepare (a, candidate, cue, source, false)
+                 && blind.snapshot().sessionSequence == firstSessionSequence,
+                 "background preparation must not replace an armed immutable session");
         juce::AudioBuffer<float> output (2, 256);
         output.clear();
         require (blind.render (output, a->startSample, true),
                  "Blind stimulus 1 must render from frozen PCM at the DAW content sample");
+        require (blind.snapshot().phase == ref::BlindPhase::active,
+                 "only the first real audio callback may advance Blind from starting to active");
         require (! blind.reveal(), "Blind reveal must require an explicit answer");
         require (blind.requestStimulus (2), "Blind stimulus 2 must be selectable");
         output.clear();
@@ -245,13 +257,66 @@ namespace
         require (juce::SHA256 (committed).toHexString()
                     == state.assignmentCommitmentSha256,
                  "revealed assignment and nonce must verify the immutable Start commitment");
-        completeBlindNormalReturn (blind, output);
+        const auto firstRetirement = completeBlindNormalReturn (blind, output);
+        require (firstRetirement.sequence != 0
+                 && firstRetirement.outputGateToken == 41,
+                 "normal return must retire the exact session reservation token");
         state = blind.snapshot();
         require (! blind.ongoing() && state.phase == ref::BlindPhase::inactive
                  && state.trialId.isEmpty()
                  && state.assignmentCommitmentSha256.isEmpty()
                  && state.revealedNonceHex.isEmpty(),
                  "ending Blind must return to live A without retaining a public assignment");
+
+        std::atomic<bool> identityReadStop { false };
+        std::atomic<bool> mixedIdentityObserved { false };
+        std::thread identityReader ([&]
+        {
+            while (! identityReadStop.load (std::memory_order_acquire))
+            {
+                const auto identity = blind.activeSessionIdentity();
+                if (identity.valid()
+                    && identity.outputGateToken != identity.auditionEpoch + 1'000)
+                    mixedIdentityObserved.store (true, std::memory_order_release);
+            }
+        });
+        for (std::uint64_t attempt = 1; attempt <= 128; ++attempt)
+        {
+            require (blind.startSession (false, 100 + attempt, 1'100 + attempt),
+                     "prepared Blind must publish each replacement session");
+            ref::ReferenceSessionRetirement cancelled;
+            require (blind.cancelUnheardStart (cancelled),
+                     "an unheard replacement session must retire without output");
+        }
+        identityReadStop.store (true, std::memory_order_release);
+        identityReader.join();
+        require (! mixedIdentityObserved.load (std::memory_order_acquire),
+                 "concurrent identity reads must never mix two retired sessions");
+
+        juce::AudioBuffer<float> concurrentOutput (2, 128);
+        std::atomic<bool> concurrentRendered { false };
+        std::atomic<bool> startAttemptComplete { false };
+        std::thread callback ([&]
+        {
+            while (! blind.auditioning()
+                   && ! startAttemptComplete.load (std::memory_order_acquire))
+                std::this_thread::yield();
+            if (! blind.auditioning())
+                return;
+            concurrentOutput.clear();
+            concurrentRendered.store (
+                blind.render (concurrentOutput, a->startSample, true),
+                std::memory_order_release);
+        });
+        const bool concurrentStarted = blind.startSession (false, 88, 42);
+        startAttemptComplete.store (true, std::memory_order_release);
+        callback.join();
+        state = blind.snapshot();
+        require (concurrentStarted && concurrentRendered.load (std::memory_order_acquire)
+                 && state.phase == ref::BlindPhase::active
+                 && state.sessionSequence != 0 && blind.matchesAuditionEpoch (88),
+                 "an audio callback racing session publication must adopt one complete identity");
+        completeBlindNormalReturn (blind, concurrentOutput);
 
         require (blind.start(), "prepared Blind must be reusable as a new independent trial");
         output.clear();
@@ -347,16 +412,20 @@ namespace
         output.clear();
         output.setSample (0, 0, 0.5f);
         require (state.phase == ref::BlindPhase::invalidated
+                 && state.attenuationHeld
+                 && std::abs (state.requiredAAttenuationDb
+                              - approved.requiredAAttenuationDb) < 1.0e-9
                  && approvalBlind.renderInvalidatedA (output, true)
                  && std::abs (output.getSample (0, 0)
                     - 0.5f * std::pow (10.0f,
                         static_cast<float> (approved.aGainDb / 20.0))) < 1.0e-6f,
                  "binding loss must preserve approved A attenuation after Blind data is cleared");
         approvalBlind.end();
+        approvalBlind.invalidate();
         output.clear();
         require (approvalBlind.renderInvalidatedA (output, true)
                  && approvalBlind.completeNormalReturn(),
-                 "lost Blind context must still require a real normal-output receipt");
+                 "a repeated automatic invalidation must not erase or retarget a pending return");
         state = approvalBlind.snapshot();
         require (! approvalBlind.ongoing()
                  && state.phase == ref::BlindPhase::inactive

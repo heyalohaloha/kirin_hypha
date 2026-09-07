@@ -457,9 +457,13 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
                 controller.observeAInput (input, hostPosition, true, true, true);
                 juce::Thread::sleep (12);
             }
-            for (int attempt = 0; attempt < 400
-                 && ! controller.snapshot().blindEligible; ++attempt)
+            for (int attempt = 0; attempt < 1'200 && ! controller.snapshot().blindEligible; ++attempt)
+            {
+                if (attempt % 200 == 0)
+                    require (renewRuntimeABinding (aBindingFile, v2Identity, recordingId),
+                             "live A binding must renew while the captured cue is prepared");
                 juce::Thread::sleep (10);
+            }
             const auto alignedSnapshot = controller.snapshot();
             require (alignedSnapshot.blindEligible,
                      "DAW content at bar five must establish the shared normal/Blind alignment");

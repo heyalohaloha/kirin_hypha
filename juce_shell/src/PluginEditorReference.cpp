@@ -64,6 +64,7 @@ hypha::reference_ui::BlindPhase referenceBlindPhase (
         case Input::active:      return Output::active;
         case Input::revealed:    return Output::revealed;
         case Input::invalidated: return Output::invalidated;
+        case Input::starting:    return Output::starting;
         case Input::inactive:    return available ? Output::available : Output::unavailable;
     }
     return Output::unavailable;
@@ -184,15 +185,6 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
 {
     auto runtime = processorRef.referenceAuditionSnapshot();
     const bool callbackLive = processorRef.heartbeatLive();
-    const bool blindRunning = runtime.blindPhase
-            == hypha::reference_audition::BlindPhase::active
-        || runtime.blindPhase == hypha::reference_audition::BlindPhase::revealed;
-    if (blindRunning && (! callbackLive || ! runtime.transportPlaying
-                         || ! runtime.transportPositionValid))
-    {
-        processorRef.endReferenceBlind();
-        runtime = processorRef.referenceAuditionSnapshot();
-    }
     hypha::reference_ui::State state;
     state.readiness = referenceReadiness (runtime.state);
     bool connected = false;
@@ -284,16 +276,14 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
 
     using Runtime = hypha::reference_audition::RuntimeState;
     using Access = hypha::os_access::State;
-    if (state.osAccess == Access::unowned)
-        state.status = "REF REQUIRES KIRIN OS";
-    else if (state.osAccess == Access::ownedDisconnected)
-        state.status = "WAITING FOR KIRIN OS REFERENCE";
-    else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::invalidated)
+    if (runtime.blindPhase == hypha::reference_audition::BlindPhase::invalidated)
         state.status = runtime.blindRequiredAAttenuationDb > 0.0
             ? "BLIND STOPPED / A HELD -"
                 + juce::String (runtime.blindRequiredAAttenuationDb, 1)
                 + " dB / RETURN A EXPLICITLY"
-            : "BLIND ENDED / A LIVE / CONDITION CHANGED";
+            : "BLIND STOPPED / RETURN A EXPLICITLY";
+    else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::starting)
+        state.status = "BLIND / WAITING FOR FIRST AUDIBLE BLOCK";
     else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::active)
         state.status = runtime.blindRequiredAAttenuationDb > 0.0
             ? "BLIND / A LOWERED "
@@ -304,6 +294,10 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         state.status = "BLIND / REVEALED";
     else if (runtime.bSelected)
         state.status = "B AUDITION / PRE DELTA PAUSED";
+    else if (state.osAccess == Access::unowned)
+        state.status = "REF REQUIRES KIRIN OS";
+    else if (state.osAccess == Access::ownedDisconnected)
+        state.status = "WAITING FOR KIRIN OS REFERENCE";
     else if (runtime.state == Runtime::ready)
         state.status = state.auditionBuffered && liveA
             ? "READY / B FOLLOWS A" : "PLAY A TO ENABLE B";
