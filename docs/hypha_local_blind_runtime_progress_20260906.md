@@ -1,7 +1,7 @@
 # PRE/POST Blind の実装状況
 
 更新日: 2026-09-08
-対象: B-719、B-720、B-721、B-722、B-723、B-724、B-743〜B-747、B-751
+対象: B-719、B-720、B-721、B-722、B-723、B-724、B-743〜B-747、B-751、B-752
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
@@ -46,13 +46,22 @@ pair変更、要求消失、期限切れ、応答失敗、形式不一致、Audi
 POSTの要求予約を先に確保するため、protocolへ発行したのにPOST側が所有しない孤立要求を作らない。
 この段階では両laneのPCMはrole-localのままであり、PRE PCM transport、両receiptのpair barrier、PDC実証、開始排他、開始UIは未接続である。
 
+B-752は、完了したPRE PCMをrequest IDごとの不変artifactとしてPOSTへ運び、role-local POST PCMとのpair barrierを成立させた。
+PRE receiptはrequest digest、pair／capture／clock generation、native範囲、形式、期限、PCM全体のSHA-256を持つ。
+POSTは現在のexact pairを再確認し、artifact全体を検証して自分のstorageへコピーした後だけPRE／POST両receiptを受理する。
+短いbuffer、欠損、改変、非有限値、旧pair、別generation、別範囲は出力を変更せず拒否する。
+POSTの消費応答は同じrequestとPCM hashへ固定し、PREは応答確認とAudio Thread reader退場後にlocal captureとartifactを破棄する。
+pair変更はbarrier成立後も保持結果を失効させる。
+request／armedのWindows共有memory契約は変更せず、大容量で一回限りのPCMだけを両OS共通の不変fileへ分離した。
+
 ## 現在の到達点
 
 **PRE/POST Blind は、まだ利用者が DAW で開始できる状態ではない。**
 B-718 の同一区間取得部品に、固定 Gain Match の準備、比較コピーの出力、回答と Reveal、中断後の減衰保持、通常復帰の確認、PCM 回収を追加した。
 これらを独立試験で検証し、本体の計測後に試聴出力を選ぶ入口を設けた。
 本体の非RT所有者は要求からcapture objectをAudio Threadへ公開できる。
-一方、製品の開始操作、PRE PCM transport、両側完了後の入場許可はまだないため、試聴出力は起動しない。
+PRE PCMのPOST取込みと両側完了barrierまでは成立した。
+一方、PDCを含む時刻対応、開始排他、製品の開始操作はまだないため、試聴出力は起動しない。
 
 B-723 以降は Windows で B-722 検証版を一時配置し、Studio Pro で確認した。
 PSB の欠落と高い CPU 使用率の指摘を受け、性能の切り分けを優先している。
@@ -181,7 +190,7 @@ mono 試験では同じ左右の片側を使用した。
 ## 未接続の製品機能
 
 1. **参加範囲と開始排他**：同じ DAW の検証済み participant scope を定め、既存 AnalysisLease の 2 枠と単一 Blind 所有者へ接続する。Reference、Keep、All Keep、下流 Record の準備から finalize までを共通の開始判定に通す。別 process の存在を PID だけでは除外しない。ローカル source の識別、Trial ID、content hash、取得世代、失効条件を製品契約に追加し、承認済みの比較試聴を R-12 に明記する。
-2. **同一区間の取得**：B-751で同じ要求envelopeからB-747のrole別laneを非RTでarmした。次はPRE PCMと完了receiptをPOSTへ運び、POSTのrole-local PCMと同じpair barrierで照合する。試聴出力用スロットと取得用スロットを混同しない。
+2. **同一区間の取得**：B-751で同じ要求envelopeからB-747のrole別laneを非RTでarmし、B-752でPRE PCMをPOSTへ運んで両receiptを一つのpair barrierで照合した。次は取得要求へ与えるPRE／POST native範囲をhost clockとPDCの事実から確定し、既知遅延の残差0 sampleを実証する。試聴出力用スロットと取得用スロットを混同しない。
 3. **時刻対応**：host の事実から PRE 範囲と POST 範囲の対応を一度だけ確定する。PDC 不明、動的変更、別周回、seek、停止再開、片側欠落は開始不可にする。既知遅延による残差 0 sample と、他トラックとの同期を実機で確認する。
 4. **製品の固定 Gain policy**：現行の連続 3 秒条件に入らない短音と疎な TRACK を別途評価する。既存 policy の条件を同名のまま緩めない。強い EQ、limiter、tail、clip 境界も含める。
 5. **開始から終了までの画面**：対象選択、取得待ち、音量変更への承認、1 / 2、回答、Reveal、減衰保持、通常復帰を接続する。他方の大きな表示、小さな表示、別ウインドウ、Capture、tooltip、accessibility にも非開示条件を適用する。
@@ -208,7 +217,7 @@ cargo fmt --all --check
 bash scripts/check_source_line_budget.sh
 ```
 
-本体の Debug PRE/POST × AU/VST3 と上記 3 テストをビルド対象にした。
+B-724までの前回検証では、本体の Debug PRE/POST × AU/VST3 と上記 3 テストをビルド対象にした。
 3 テストは全件 pass、本体 4 ターゲットの build も pass した。
 比較出力部品に対する AddressSanitizer / UndefinedBehaviorSanitizer と ThreadSanitizer の試験も pass した。
 Rust の本体単体テストは 1,582 件 pass、9 件 ignored、xtask は 135 件 pass した。
@@ -217,7 +226,17 @@ xtask の初回全実行では 8 件失敗したため、B-703/B-705 以後の�
 `cargo clippy --workspace --all-targets --no-deps` は pass し、警告は既存 vendor と既知の build 通知だけだった。
 試験更新後の xtask clippy、fmt、ソース行数上限も pass した。
 Windows CI には 3 テストの build と実行を登録したが、この作業では CI を起動していない。
-FFI の Rust source を変更していないため、今回 parity と pairing_candidates の ignored suite は再実行していない。
+この前回検証ではFFIのRust sourceを変更していないため、parityとpairing_candidatesのignored suiteは再実行していない。
+
+2026-09-08のB-752/B-753候補では、release source contractを一度だけ実行した。
+通常の`kirin_measure`、`kirin_hypha_ffi`前半、native UI／Reference、source contractは通過したが、通常parityのPhase D 1件が並列負荷下で失敗した。
+製品コードは各audio callbackでActiveを再通知する一方、試験は開始時の一度しか通知せず、3秒のwatchdog失効後にPhase Dを消去し得る差だった。
+B-753で試験駆動を出荷JUCE callbackと同じにし、Record遷移を空ringで観測してから音声を投入するよう修正した。
+修正後は通常parity 16件、残りのRT handoff 1件、性能2件、xtask 138件、実測inventory 20件／6件のignored suite、Clippyがすべてpassした。
+新規local Blind C ABI 5本をstatic archiveの定義symbol gateにも追加し、既存3本と合わせて全8本を確認した。
+利用者指定に従ってrelease source contract全体はローカル再実行せず、単一コマンドとしての最終passはCIで確認する。
+最初のCIはparity sourceの行数ratchetを検出したため、追加コードを保ったまま同じ範囲の説明を整理してbaseline 3007行へ戻した。
+次のCIはRust 1.98の`chunks_exact_to_as_chunks`を検出したため、長さとhash確認後のPCM decodeを固定4byte arrayの走査へ置き換えた。
 
 LS アップ用: skip。
 HP アップ用: macOS skip、Windows skip。

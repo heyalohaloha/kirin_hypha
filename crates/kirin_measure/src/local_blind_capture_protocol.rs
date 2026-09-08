@@ -138,6 +138,25 @@ impl LocalBlindCaptureRequest {
             && self.authority.matches_current_claim(target.kirin_root)
     }
 
+    pub(crate) fn valid_for_pre_instance(
+        &self,
+        kirin_root: &Path,
+        instance_dir: &Path,
+        now_unix_ms: i64,
+    ) -> bool {
+        self.valid_for_target(
+            CaptureTarget {
+                kirin_root,
+                instance_dir,
+                pre_project_hash: &self.authority.pre_project_hash,
+                pre_instance_id: &self.authority.pre_instance_id,
+                sample_rate: self.sample_rate,
+                channels: self.channels,
+            },
+            now_unix_ms,
+        )
+    }
+
     fn valid_shape_at(&self, now_unix_ms: i64) -> bool {
         let max_frames = i64::from(self.sample_rate).checked_mul(MAX_CAPTURE_SECONDS);
         self.schema == REQUEST_SCHEMA
@@ -158,7 +177,7 @@ impl LocalBlindCaptureRequest {
             && self.expires_at_unix_ms - self.issued_at_unix_ms <= LOCAL_BLIND_CAPTURE_LEASE_MS
     }
 
-    fn digest(&self) -> Option<String> {
+    pub(crate) fn digest(&self) -> Option<String> {
         let bytes = serde_json::to_vec(self).ok()?;
         Some(hex::encode(Sha256::digest(bytes)))
     }
@@ -354,6 +373,10 @@ fn armed_path(instance_dir: &Path) -> PathBuf {
 
 fn canonical_uuid(value: &str) -> bool {
     Uuid::parse_str(value).is_ok_and(|parsed| parsed.to_string() == value)
+}
+
+pub(crate) fn canonical_request_id(value: &str) -> bool {
+    canonical_uuid(value)
 }
 
 fn valid_component(value: &str) -> bool {

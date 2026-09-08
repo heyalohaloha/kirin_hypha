@@ -228,6 +228,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
 
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
+        src/PluginProcessorLocalBlindTransport.cpp
         src/local_blind/LocalBlindCaptureService.cpp
         src/local_blind/LocalBlindTrial.cpp
         src/local_blind/HostContext.cpp

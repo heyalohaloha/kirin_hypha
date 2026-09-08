@@ -52,14 +52,14 @@ impl Default for KirinLocalBlindCaptureRequest {
 }
 
 impl KirinHyphaEngine {
-    fn is_local_blind_role(&self, expected: PluginDataRole) -> bool {
+    pub(crate) fn is_local_blind_role(&self, expected: PluginDataRole) -> bool {
         self.write_role
             .lock()
             .map(|role| *role == Some(expected))
             .unwrap_or(false)
     }
 
-    fn local_blind_pair_authority(&self) -> Option<LocalBlindPairAuthority> {
+    pub(crate) fn local_blind_pair_authority(&self) -> Option<LocalBlindPairAuthority> {
         if !self.is_local_blind_role(PluginDataRole::Post) {
             return None;
         }
@@ -123,7 +123,9 @@ impl KirinHyphaEngine {
         (self.local_blind_pair_authority().as_ref() == Some(&request.authority)).then_some(request)
     }
 
-    fn read_local_blind_capture_request_for_pre(&self) -> Option<LocalBlindCaptureRequest> {
+    pub(crate) fn read_local_blind_capture_request_for_pre(
+        &self,
+    ) -> Option<LocalBlindCaptureRequest> {
         if !self.is_local_blind_role(PluginDataRole::Pre) {
             return None;
         }
@@ -221,7 +223,7 @@ fn encode_request(request: &LocalBlindCaptureRequest) -> Option<KirinLocalBlindC
     Some(encoded)
 }
 
-fn unix_ms_now() -> Option<i64> {
+pub(crate) fn unix_ms_now() -> Option<i64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .ok()

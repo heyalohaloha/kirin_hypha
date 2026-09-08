@@ -9,7 +9,10 @@
 
 namespace hypha::local_blind
 {
-enum class CaptureOwnerPhase : unsigned char { idle, awaitingPeer, capturing, complete, failed };
+enum class CaptureOwnerPhase : unsigned char
+{
+    idle, awaitingPeer, capturing, complete, retired, paired, failed
+};
 enum class CaptureOwnerFailure : unsigned char
 {
     none,
@@ -18,7 +21,8 @@ enum class CaptureOwnerFailure : unsigned char
     peerRejected,
     stalePair,
     armRejected,
-    captureFailed
+    captureFailed,
+    receiptRejected
 };
 
 struct CaptureOwnerView
@@ -67,7 +71,8 @@ public:
     {
         if (side != CaptureSide::pre || ! request
             || (currentPhase() != CaptureOwnerPhase::capturing
-                && currentPhase() != CaptureOwnerPhase::complete))
+                && currentPhase() != CaptureOwnerPhase::complete
+                && currentPhase() != CaptureOwnerPhase::retired))
             return;
         if (expired (nowUnixMs)) { fail (CaptureOwnerFailure::expired); return; }
         if (liveRequest == nullptr || *liveRequest != *request)
@@ -84,8 +89,15 @@ public:
         const auto current = currentPhase();
         if (current != CaptureOwnerPhase::awaitingPeer
             && current != CaptureOwnerPhase::capturing
-            && current != CaptureOwnerPhase::complete)
+            && current != CaptureOwnerPhase::complete
+            && current != CaptureOwnerPhase::paired)
             return;
+        if (current == CaptureOwnerPhase::paired)
+        {
+            if (livePair == nullptr || *livePair != request->pair)
+                fail (CaptureOwnerFailure::stalePair);
+            return;
+        }
         if (expired (nowUnixMs)) { fail (CaptureOwnerFailure::expired); return; }
         if (livePair == nullptr || *livePair != request->pair)
         { fail (CaptureOwnerFailure::stalePair); return; }
@@ -120,6 +132,25 @@ public:
     const ExactCaptureRequest* activeRequest() const noexcept { return request ? &*request : nullptr; }
     const ExactRangeCapture* completedCapture() const noexcept { return lane.completedCapture(); }
     bool receipt (CaptureReceipt& out) const { return lane.receipt (out); }
+
+    bool retireCompletedPre() noexcept
+    {
+        if (side != CaptureSide::pre || currentPhase() != CaptureOwnerPhase::complete
+            || ! lane.retireFinal())
+            return false;
+        phase.store (CaptureOwnerPhase::retired, std::memory_order_release);
+        return true;
+    }
+
+    bool sealCompletedPost() noexcept
+    {
+        if (side != CaptureSide::post || currentPhase() != CaptureOwnerPhase::complete)
+            return false;
+        phase.store (CaptureOwnerPhase::paired, std::memory_order_release);
+        return true;
+    }
+
+    void rejectReceipt() noexcept { fail (CaptureOwnerFailure::receiptRejected); }
 
     void reset() noexcept
     {

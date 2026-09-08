@@ -8,18 +8,20 @@
 //! (2) 正常系が壊れていない、ことを確認する。
 
 use kirin_hypha_ffi::{
-    kirin_hypha_ack_local_blind_capture_request, kirin_hypha_create,
-    kirin_hypha_decode_legacy_nih_state, kirin_hypha_destroy,
+    kirin_hypha_ack_local_blind_capture_request, kirin_hypha_ack_local_blind_pre_capture,
+    kirin_hypha_create, kirin_hypha_decode_legacy_nih_state, kirin_hypha_destroy,
     kirin_hypha_enumerate_post_pair_claims, kirin_hypha_get_local_blind_pair_binding,
     kirin_hypha_get_paired_pre_instance_id, kirin_hypha_get_paired_pre_locator,
     kirin_hypha_issue_local_blind_capture_request, kirin_hypha_local_blind_capture_is_armed,
-    kirin_hypha_pair_status, kirin_hypha_poll_local_blind_capture_request,
-    kirin_hypha_poll_record_display, kirin_hypha_poll_result, kirin_hypha_poll_session,
-    kirin_hypha_push_samples, kirin_hypha_restore_pair_candidate,
+    kirin_hypha_local_blind_pre_capture_was_consumed, kirin_hypha_pair_status,
+    kirin_hypha_poll_local_blind_capture_request, kirin_hypha_poll_record_display,
+    kirin_hypha_poll_result, kirin_hypha_poll_session, kirin_hypha_publish_local_blind_pre_capture,
+    kirin_hypha_push_samples, kirin_hypha_read_local_blind_pre_capture,
+    kirin_hypha_restore_pair_candidate, kirin_hypha_retire_local_blind_pre_capture,
     kirin_hypha_select_pair_candidate, kirin_hypha_set_host_component_active,
     kirin_hypha_set_signal_state, KirinExactPairBinding, KirinLegacyNihState,
-    KirinLocalBlindCaptureRequest, KirinMeasureResult, KirinPostPairClaim, KirinRecordDisplay,
-    KirinSessionSummary,
+    KirinLocalBlindCaptureRequest, KirinLocalBlindPreCaptureReceipt, KirinMeasureResult,
+    KirinPostPairClaim, KirinRecordDisplay, KirinSessionSummary,
 };
 
 #[test]
@@ -143,6 +145,39 @@ fn null_handle_calls_are_safe_noops() {
             std::ptr::null_mut(),
             std::ptr::null(),
         ));
+        let mut capture_receipt = KirinLocalBlindPreCaptureReceipt {
+            pair_generation: 91,
+            ..KirinLocalBlindPreCaptureReceipt::default()
+        };
+        let mut sample = 123.0f32;
+        assert!(!kirin_hypha_publish_local_blind_pre_capture(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            &sample,
+            1,
+            &mut capture_receipt,
+        ));
+        assert!(!kirin_hypha_read_local_blind_pre_capture(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            &mut sample,
+            1,
+            &mut capture_receipt,
+        ));
+        assert_eq!(sample.to_bits(), 123.0f32.to_bits());
+        assert_eq!(capture_receipt.pair_generation, 91);
+        assert!(!kirin_hypha_ack_local_blind_pre_capture(
+            std::ptr::null_mut(),
+            &capture_receipt,
+        ));
+        assert!(!kirin_hypha_local_blind_pre_capture_was_consumed(
+            std::ptr::null_mut(),
+            &capture_receipt,
+        ));
+        assert!(!kirin_hypha_retire_local_blind_pre_capture(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        ));
 
         let mut legacy = std::mem::zeroed::<KirinLegacyNihState>();
         assert!(!kirin_hypha_decode_legacy_nih_state(
@@ -201,6 +236,16 @@ fn normal_lifecycle_intact_through_c_abi() {
         assert!(!kirin_hypha_local_blind_capture_is_armed(
             h,
             std::ptr::null(),
+        ));
+        let unterminated = KirinLocalBlindPreCaptureReceipt {
+            request_id: [b'a' as _; 37],
+            pcm_sha256: [b'a' as _; 65],
+            ..KirinLocalBlindPreCaptureReceipt::default()
+        };
+        assert!(!kirin_hypha_ack_local_blind_pre_capture(h, &unterminated));
+        assert!(!kirin_hypha_local_blind_pre_capture_was_consumed(
+            h,
+            &unterminated,
         ));
         kirin_hypha_set_signal_state(h, 1); // Active
         kirin_hypha_push_samples(h, std::ptr::null(), 0, 2); // 0-frame keepalive

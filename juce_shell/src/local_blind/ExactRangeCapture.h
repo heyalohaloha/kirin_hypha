@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -42,6 +43,26 @@ public:
     // cancel is not that acknowledgement. No reset/reallocation while a producer can reference this.
     ExactRangeCapture (CaptureRange range, std::size_t byteBudget)
         : expected (range), samples (checkedSamples (range, byteBudget), 0.0f) {}
+
+    // Rebuild an immutable capture after a non-RT transport has verified and copied every sample.
+    // This never publishes to an Audio Thread; the caller still owns the returned object.
+    static std::unique_ptr<ExactRangeCapture> fromCompletedInterleaved (
+        CaptureRange range, std::vector<float> interleaved, std::size_t byteBudget) noexcept
+    {
+        try
+        {
+            if (checkedSamples (range, byteBudget) != interleaved.size()
+                || std::any_of (interleaved.begin(), interleaved.end(),
+                                [] (float value) { return ! std::isfinite (value); }))
+                return {};
+            return std::unique_ptr<ExactRangeCapture> (
+                new ExactRangeCapture (range, std::move (interleaved), CompletedTag {}));
+        }
+        catch (...)
+        {
+            return {};
+        }
+    }
 
     ExactRangeCapture (const ExactRangeCapture&) = delete;
     ExactRangeCapture& operator= (const ExactRangeCapture&) = delete;
@@ -102,6 +123,7 @@ public:
     { return state() == CaptureState::complete ? &samples : nullptr; }
 
 private:
+    struct CompletedTag {};
     const CaptureRange expected;
     std::vector<float> samples;
     std::int64_t captured = 0; // producer-owned; consumers only access after complete
@@ -111,6 +133,10 @@ private:
     static_assert (std::atomic<CaptureState>::is_always_lock_free);
     static_assert (std::atomic<CaptureFailure>::is_always_lock_free);
     static_assert (std::atomic<bool>::is_always_lock_free);
+
+    ExactRangeCapture (CaptureRange range, std::vector<float> interleaved, CompletedTag) noexcept
+        : expected (range), samples (std::move (interleaved)), captured (expected.frames),
+          status (CaptureState::complete) {}
 
     void fail (CaptureFailure value) noexcept
     {

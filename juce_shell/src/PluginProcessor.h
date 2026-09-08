@@ -128,7 +128,7 @@ public:
     juce::String pairedPreInstanceId() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
-    // Non-RT control handshake only. These methods neither capture PCM nor start an audition.
+    // Non-RT exact capture control and PRE result transport. None starts an audition.
     bool issueLocalBlindCaptureRequest (std::uint64_t captureGeneration,
                                         std::uint64_t clockGeneration,
                                         std::int64_t preStart, std::int64_t postStart,
@@ -137,6 +137,18 @@ public:
     bool pollLocalBlindCaptureRequest (hypha::local_blind::ExactCaptureRequest& out) const;
     bool acknowledgeLocalBlindCaptureRequest (const std::string& requestId) const;
     bool localBlindCaptureIsArmed (const std::string& requestId) const;
+    bool publishLocalBlindPreCapture (
+        const hypha::local_blind::ExactCaptureRequest&,
+        const hypha::local_blind::CaptureReceipt&, const std::vector<float>&,
+        std::string& pcmSha256) const;
+    bool readLocalBlindPreCapture (
+        const hypha::local_blind::ExactCaptureRequest&,
+        hypha::local_blind::CaptureServiceHooks::ImportedPreCapture&) const;
+    bool acknowledgeLocalBlindPreCapture (
+        const hypha::local_blind::ExactCaptureRequest&, const std::string& pcmSha256) const;
+    bool localBlindPreCaptureWasConsumed (
+        const hypha::local_blind::ExactCaptureRequest&, const std::string& pcmSha256) const;
+    void retireLocalBlindPreCapture (const hypha::local_blind::ExactCaptureRequest&) const;
     bool keepPair();                                    // kirin_hypha_keep (Os + unique PRE)
     bool recordExclusionConflict() const;               // B-118 (②): kirin_hypha_record_exclusion_conflict (advisory only)
     juce::String recordErrorMessage() const;            // B-118 (③): kirin_hypha_record_error_message (io fail status / G-115-29)

@@ -46,7 +46,18 @@ KirinHyphaProcessorBase::localBlindCaptureHooks (KirinHyphaProcessorBase& proces
         [&processor] (const std::string& requestId)
             { return processor.localBlindCaptureIsArmed (requestId); },
         [&processor] (hypha::local_blind::ExactPairBinding& pair)
-            { return processor.localBlindPairBinding (pair); }
+            { return processor.localBlindPairBinding (pair); },
+        [&processor] (const auto& request, const auto& receipt, const auto& pcm,
+                      std::string& sha256)
+            { return processor.publishLocalBlindPreCapture (request, receipt, pcm, sha256); },
+        [&processor] (const auto& request, auto& imported)
+            { return processor.readLocalBlindPreCapture (request, imported); },
+        [&processor] (const auto& request, const std::string& sha256)
+            { return processor.acknowledgeLocalBlindPreCapture (request, sha256); },
+        [&processor] (const auto& request, const std::string& sha256)
+            { return processor.localBlindPreCaptureWasConsumed (request, sha256); },
+        [&processor] (const auto& request)
+            { processor.retireLocalBlindPreCapture (request); }
     };
 }
 

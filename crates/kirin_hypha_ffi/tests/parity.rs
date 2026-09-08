@@ -379,7 +379,7 @@ fn select_direct_tail_frame<'a>(
         .find(|(_, direct)| phase_d_result_matches_direct_tail(res, direct))
 }
 
-/// FFI を駆動して、drain 後に direct publish 候補と一致する phase_d publish を取得する。
+/// 出荷callback同様にActiveを再通知し、drain後にdirect候補と一致するPhase Dを取得する。
 fn drive_ffi(
     stereo_f32: &[f32],
     direct_candidates: &[PhaseDResult],
@@ -391,24 +391,28 @@ fn drive_ffi(
         engine.enter_record(),
         "Phase D is produced only inside Record"
     );
-
-    // 0.1s ブロックを実時間より少し遅く投入する。workspace test の並列実行中でも
-    // 2s ring を超えず、Phase D steady-state parity のサンプル列を落とさない。
+    for _ in 0..6 {
+        engine.set_signal_state(1);
+        engine.push_samples(&[], 2);
+        sleep(Duration::from_millis(40));
+    }
+    // 並列実行中も2s ringを超えないよう、0.1s blockを実時間より少し遅く投入する。
     let block_frames = SR as usize / 10; // 0.1s
     let block_len = block_frames * 2; // stereo
     let mut i = 0;
     while i < stereo_f32.len() {
         let end = (i + block_len).min(stereo_f32.len());
+        engine.set_signal_state(1);
         engine.push_samples(&stereo_f32[i..end], 2);
         i = end;
         sleep(Duration::from_millis(PHASE_D_PARITY_BLOCK_SLEEP_MS));
     }
 
-    // keepalive（heartbeat を進めて Active 維持）しつつ、ring 全消費後の publish を読む。
-    // 値のプラトーではなく ring の実 drain を barrier にする（session parity と同じ考え方）。
+    // Activeを維持し、値のプラトーでなくringの実drainをbarrierにする。
     let mut last_complete: Option<kirin_measure::MeasureResult> = None;
     let mut drained_streak = 0u32;
     for _ in 0..240 {
+        engine.set_signal_state(1);
         engine.push_samples(&[], 2); // 0-frame keepalive
         sleep(Duration::from_millis(50));
         if engine.__ring_drained_for_test() && engine.overflow_count() == 0 {
@@ -460,13 +464,9 @@ fn drive_ffi(
 fn parity_phase_d_metrics_ffi_vs_direct() {
     let signal = gen_stereo_f32(PHASE_D_PARITY_SECONDS);
 
-    // direct 参照。FFI 側は ring-drain barrier 後の最新 publish を読むが、publish は
-    // MeasureEngine の 100ms 結果に Phase D の chunk-last frame を merge する cadenced snapshot。
-    // 並列 workspace test では最後の publish 候補ではなく直近候補が残ることがあるため、
-    // 同一サンプル列・同一0.1s producer block境界の tail 候補から strict tolerance で一致を選ぶ。
+    // FFIの100ms publishにはPhase Dのchunk-last frameをmergeする。
+    // 並列実行で残り得る直近tailを、同じsample列とproducer block境界から選ぶ。
     let direct_candidates = direct_phase_d_publish_candidates(&signal);
-
-    // FFI 経由
     let (res, direct_index, overflow) = drive_ffi(&signal, &direct_candidates);
 
     // パリティ駆動でサンプルが落ちていない（= 同一サンプル列を処理した）ことを確認。

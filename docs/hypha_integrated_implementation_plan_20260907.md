@@ -1,6 +1,6 @@
 **Hyphaのレビュー修正と完成へ進む実装計画**
 
-**2026-09-08 / B-751実装時の改訂**
+**2026-09-08 / B-752実装時の改訂**
 
 Referenceの開始・失効・減衰保持・通常復帰と関連RT検証ゲートは、[Referenceセッション構造修正計画](hypha_reference_session_repair_plan_20260907.md)に従って修正する。
 再現済みの音量復帰・開始競合と既存テスト4件の失敗を閉じ、所有者分離の実装と旧入口の削除を確認してから、ローカルPRE/POST Blindの未接続部分へ戻る。
@@ -81,7 +81,14 @@ laneはまだdormantであり、protocolをpollしてarmする非RT所有者、P
 PREは有効なexact requestをpollし、事前確保したrole-local laneを公開した後にだけarmed応答を返す。
 POSTは要求発行前に所有枠を予約し、同じrequest IDの応答と現在のexact pairを再確認してからPOST laneを公開する。
 pair変更、要求消失、期限切れ、応答失敗、形式不一致、取得失敗はその要求だけを破棄し、自動再発行や試聴開始を行わない。
-PRE PCM transport、両receiptのpair barrier、clock / PDC実証、Analysis / Recordとの開始排他、開始UIは引き続き未接続である。
+
+2026-09-08のB-752では、PREの完了PCMとreceiptをrequest IDごとの不変artifactとして非RTで公開し、POSTが全体を検証して自分のstorageへコピーする境界を接続した。
+artifactはrequest全体のdigest、pair／capture／clock generation、PRE native範囲、形式、PCM全体のSHA-256、期限へ固定する。
+POSTはrole-local POST receiptと取込み済みPRE receiptを一つの`PairCaptureBarrier`へ通し、両方が完全一致した後だけ消費応答を返す。
+PREはその応答を同じrequestとPCM hashで確認してからAudio Thread readerの退場を待ってlocal captureを回収し、artifactを削除する。
+制御頻度の高いrequest／armedは従来どおりmacOS atomic file／Windows pagefile-backed slotを使い、最大4秒の一回限りのPCMは両OSとも不変fileで運ぶ。
+pair変更と不一致receiptは完了後もbarrierを失効させる。
+この完了状態は試聴開始許可へ未接続であり、clock / PDC実証、Analysis / Recordとの開始排他、開始UIは引き続き未完了である。
 
 実機で見つかった日本語メニューの代替字形は、共通menu fontを`nativeTextFont()`へ変更して修正した。
 Windowsでの表示確認は、現行ソース全体から作るV工程の候補で行う。
@@ -117,7 +124,8 @@ ControllerとSelectionには未コミット変更があるが、指摘した共�
 
 CIは2026-09-08にGitHubから読取り確認した。
 [PR #17](https://github.com/heyalohaloha/kirin_hypha/pull/17)はB-750まで更新し、release source、AU、Windows VST3 preflightを含む同一候補の全jobがgreenになった後、mainへmergeした。
-B-751はローカル対象試験後に同じCI面で検証する。
+B-751は[PR #18](https://github.com/heyalohaloha/kirin_hypha/pull/18)の同じCI面でgreenを確認してmainへmergeした。
+B-752はローカル対象試験後に同じCI面で検証する。
 AAX文書の古いCI状況を現在の候補の合否として引き継がない。
 
 **2. 実装順序と依存関係**
@@ -219,6 +227,8 @@ B2は次の順に既存部品へ接続する。
    予約の取得順序を固定し、失敗時はその要求が新たに取得した予約だけを返す。
 2. PREとPOSTへ同じ取得世代と開始barrierを配り、4秒の不変コピーを非RTで準備する。
    seek、別周回、PDC変更、片側欠落、旧世代、旧版混在は受理しない。
+   B-752でrole別PCMの回収、PREからPOSTへの全体hash付き不変transport、両receiptのbarrier、消費確認後のPRE回収まで接続した。
+   次はhost clockとPDCの対応を固定し、seek、別周回、動的遅延変更を実データで拒否する。
 3. 固定Gain Matchを接続する。
    mono/stereoと2MIX、TRACK/STEMを含め、連続3秒条件を満たさない短音と疎な音は別policyとして検証し、既存policyを同名のまま緩めない。
 4. 明示開始、開始待ち、1 / 2切替、実出力確認、回答、Reveal、中断、減衰保持、通常復帰を一巡させる。

@@ -112,7 +112,12 @@ FFI_ARCHIVE="${CARGO_TARGET_DIR:-target}/debug/libkirin_hypha_ffi.a"
 # crate; discard those diagnostic-only failures and require our entries to be defined (`T`).
 FFI_SYMBOLS="$(nm -g "$FFI_ARCHIVE" 2>/dev/null || true)"
 for symbol in kirin_hypha_restore_pair_candidate kirin_hypha_get_paired_pre_locator \
-              kirin_hypha_poll_record_display; do
+              kirin_hypha_poll_record_display \
+              kirin_hypha_publish_local_blind_pre_capture \
+              kirin_hypha_read_local_blind_pre_capture \
+              kirin_hypha_ack_local_blind_pre_capture \
+              kirin_hypha_local_blind_pre_capture_was_consumed \
+              kirin_hypha_retire_local_blind_pre_capture; do
   if ! grep -Eq "[[:space:]]T[[:space:]]_?${symbol}$" <<<"$FFI_SYMBOLS"; then
     echo "release gate missing defined C ABI symbol: $symbol" >&2
     exit 1
