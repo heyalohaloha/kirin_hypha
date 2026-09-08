@@ -17,7 +17,10 @@ struct HostClockProbeSnapshot
     bool playing = false, hasPosition = false, hasInputLatency = false, hasOutputLatency = false;
 };
 
-class HostClockProbe
+// Keep the Audio Thread writer away from adjacent processor state when a non-RT diagnostic or
+// capture action reads the snapshot. 128-byte alignment covers the wider supported host cache
+// line without changing the snapshot protocol.
+class alignas (128) HostClockProbe
 {
 public:
     // One audio producer. No allocation, lock, retry, host call or I/O.
@@ -73,4 +76,5 @@ private:
     std::atomic<std::uint64_t> sequence { 0 }, rate { 0 }, format { 0 }, latency { 0 }, flags { 0 };
     std::atomic<std::int64_t> position { 0 };
 };
+static_assert (alignof (HostClockProbe) >= 128);
 }
