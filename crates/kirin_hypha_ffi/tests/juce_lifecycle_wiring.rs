@@ -194,6 +194,12 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
     assert!(processor.contains("binding.pair_generation"));
     assert!(processor.contains("hostClockProbe.read (clock)"));
     assert!(processor.contains("const auto nativeStart = clock.position + sampleRate"));
+    let processor_clock = read_repo("juce_shell/src/PluginProcessorHostClock.cpp");
+    assert!(processor_clock.contains("const bool publishClockProbe = role == Role::Post"));
+    assert!(processor_clock.contains("#if JUCE_DEBUG"));
+    assert!(processor_clock.contains("if (publishClockProbe)"));
+    let clock_probe = read_repo("juce_shell/src/local_blind/HostClockProbe.h");
+    assert!(clock_probe.contains("class alignas (128) HostClockProbe"));
     let request_header =
         read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_local_blind_capture_ffi.h");
     for required in [

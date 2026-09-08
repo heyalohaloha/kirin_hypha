@@ -1,6 +1,6 @@
 # B1 ホスト実機観測と取得失敗の診断
 
-更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754追記。
+更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754、B-755追記。
 
 ローカルPRE/POST BlindのB1は、同一区間取得と時刻整列が未実証のため未成立である。
 Windows Studio Proの保存済み検証曲では、ホストがJUCEのclient extension hookを呼び、context変更も通知した。
@@ -110,6 +110,7 @@ OneDriveの容量100%通知も表示されたが、アカウントや同期設�
    B-754で要求schemaをv2へ進め、POSTのlive host clockから一つの将来native範囲を作り、発行位置とともにPRE／POSTへ同値で配る境界へ変更した。
    呼出側が別々の開始位置や推定PDC offsetを注入する入口は廃止した。各roleは最初のcallbackを発行位置から取得開始までに限定し、以後のclock source、連続位置、optional presentation通知を固定する。発行後の巻戻し、seek、loop、late arm、通知変更は当該要求だけで拒否する。
    これは構造上のfail-closed化であり、Windows VST3、macOS VST3／AUのPDC残差0 sampleは引き続き実機未証明である。
+   B-755で出荷Releaseのclock probe常時書込みを要求発行者のPOSTだけに限定し、Debugでは両roleの診断を維持した。probeは128-byte境界へ分離し、非RT読取り時に隣接processor状態とcache lineを共有しにくい配置にした。
    次は既知遅延の残差0 sampleを実証する。optionalなhost通知がなくても内部事実で対応区間を証明できれば受理し、証明できない取得だけを開始不可にする。
 3. Blind、Reference、Keep / All Keep、Recordの競合はHypha自身の共有leaseで調停する。
    DAWのtrack名、PID、host固有IDからroutingや未知の参加者を推測しない。

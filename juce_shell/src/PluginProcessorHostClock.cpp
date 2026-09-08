@@ -63,8 +63,16 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
              clockStartSamples, clockEndSamples, presentationSource,
              inputPresentationValid, inputPresentationSamples,
              outputPresentationValid, outputPresentationSamples };
-    hostClockProbe.publish (clock, preparedSampleRate,
-        static_cast<std::uint32_t> (getBlockSize()),
-        static_cast<std::uint32_t> (getTotalNumInputChannels()));
+    // Release PRE never issues a capture request. Keep its Audio Thread free of an otherwise
+    // unused snapshot write while retaining both-role clock diagnostics in Debug validation.
+   #if JUCE_DEBUG
+    const bool publishClockProbe = true;
+   #else
+    const bool publishClockProbe = role == Role::Post;
+   #endif
+    if (publishClockProbe)
+        hostClockProbe.publish (clock, preparedSampleRate,
+            static_cast<std::uint32_t> (getBlockSize()),
+            static_cast<std::uint32_t> (getTotalNumInputChannels()));
     return clock;
 }
