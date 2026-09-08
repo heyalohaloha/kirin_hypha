@@ -11,6 +11,11 @@
 using namespace hypha::local_blind;
 static void require (bool value) { if (! value) std::abort(); }
 
+static CaptureClockObservation clockAt (std::int64_t position, int frames)
+{
+    return { position, frames, 1, 1, 0, 96, true, true, false, true, false, true };
+}
+
 int main()
 {
     // Exact native ranges include negative host positions, silence, and a partial last callback.
@@ -36,15 +41,14 @@ int main()
                 }
             require (capture.allocatedBytes() == 8u * channels * sizeof (float));
         }
-    // The caller supplies separately proven native-coordinate ranges, applying a delay once.
-    // This fixture proves the capture primitive; it does not prove a DAW's PDC metadata.
-    for (int delay : { 0, 1, 31, 8192 })
+    // A pair request uses one host-native range. A host-specific PDC offset is never injected.
+    for (int start : { -8192, -1, 0, 8192 })
     {
-        ExactRangeCapture pre ({ 2, 48000, 1, 0, 12 }, 48);
-        ExactRangeCapture post ({ 2, 48000, 1, delay, 12 }, 48);
+        ExactRangeCapture pre ({ 2, 48000, 1, start, 12 }, 48);
+        ExactRangeCapture post ({ 2, 48000, 1, start, 12 }, 48);
         const float* pointers[] = { input.data() };
-        pre.push (pointers, 1, 12, 0, 2, true, 48000);
-        post.push (pointers, 1, 12, delay, 2, true, 48000);
+        pre.push (pointers, 1, 12, start, 2, true, 48000);
+        post.push (pointers, 1, 12, start, 2, true, 48000);
         require (*pre.completedPcm() == *post.completedPcm());
     }
     // An all-zero range is complete data, not an empty/non-silent capture failure.
@@ -89,19 +93,19 @@ int main()
         catch (const std::invalid_argument&) { refused = true; }
         require (refused);
     }
-    // One name-independent exact pair and capture generation bind both native ranges.
+    // One name-independent exact pair and capture generation bind one shared native range.
     {
         const ExactPairBinding pair { 11, "project-a", "pre-unnamed" };
         const ExactCaptureRequest request {
-            "12345678-1234-4234-8234-123456789abc", pair, 22, 33, 48000, 1,
-            0, 31, 12, 1000
+            "12345678-1234-4234-8234-123456789abc", pair, 22, 33, 1, 0, 48000, 1,
+            0, 12, 1000
         };
         PairCaptureBarrier barrier (request);
         ExactRangeCapture pre (barrier.range (CaptureSide::pre), 48);
         ExactRangeCapture post (barrier.range (CaptureSide::post), 48);
         const float* pointers[] = { input.data() };
         pre.push (pointers, 1, 12, 0, 22, true, 48000);
-        post.push (pointers, 1, 12, 31, 22, true, 48000);
+        post.push (pointers, 1, 12, 0, 22, true, 48000);
         require (barrier.accept ({ pair, 33, CaptureSide::pre, pre.range(), pre.state(), pre.failure() }));
         require (barrier.state() == PairCaptureState::pending);
         require (barrier.accept ({ pair, 33, CaptureSide::post, post.range(), post.state(), post.failure() }));
@@ -112,19 +116,21 @@ int main()
         require (barrier.failure() == PairCaptureFailure::stalePair);
     }
     // The C ABI envelope is rejected before it can authorize a capture barrier.
-    for (int variant = 0; variant < 7; ++variant)
+    for (int variant = 0; variant < 9; ++variant)
     {
         ExactCaptureRequest request {
             "12345678-1234-4234-8234-123456789abc",
-            { 11, "project-a", "pre-a" }, 22, 33, 48000, 1, 0, 31, 12, 1000
+            { 11, "project-a", "pre-a" }, 22, 33, 1, 0, 48000, 1, 0, 12, 1000
         };
         if (variant == 0) request.requestId = "short";
         if (variant == 1) request.requestId = std::string (36, 'x');
         if (variant == 2) request.captureGeneration = 0;
         if (variant == 3) request.clockGeneration = 0;
-        if (variant == 4) request.frames = 0;
-        if (variant == 5) request.frames = 192001;
-        if (variant == 6) request.expiresAtUnixMs = 0;
+        if (variant == 4) request.clockSource = 0;
+        if (variant == 5) request.clockPositionAtIssue = 1;
+        if (variant == 6) request.frames = 0;
+        if (variant == 7) request.frames = 192001;
+        if (variant == 8) request.expiresAtUnixMs = 0;
         bool refused = false;
         try { PairCaptureBarrier barrier (request); }
         catch (const std::invalid_argument&) { refused = true; }
@@ -132,7 +138,7 @@ int main()
     }
     // A pair transition invalidates an unfinished request even when the human label is unchanged.
     {
-        PairCaptureBarrier barrier ({ 11, "project-a", "pre-a" }, 22, 33, 48000, 2, 0, 0, 12);
+        PairCaptureBarrier barrier ({ 11, "project-a", "pre-a" }, 22, 33, 1, 48000, 2, 0, 12);
         barrier.invalidateIfPairChanged ({ 12, "project-a", "pre-a" });
         require (barrier.state() == PairCaptureState::invalid);
         require (barrier.failure() == PairCaptureFailure::stalePair);
@@ -140,7 +146,7 @@ int main()
     for (int variant = 0; variant < 8; ++variant)
     {
         const ExactPairBinding pair { 11, "project-a", "pre-a" };
-        PairCaptureBarrier barrier (pair, 22, 33, 48000, 1, 0, 31, 12);
+        PairCaptureBarrier barrier (pair, 22, 33, 1, 48000, 1, 0, 12);
         CaptureReceipt receipt { pair, 33, CaptureSide::pre, barrier.range (CaptureSide::pre),
                                  CaptureState::complete, CaptureFailure::none };
         if (variant == 0) receipt.pair.generation++;
@@ -155,18 +161,20 @@ int main()
         require (barrier.state() == PairCaptureState::invalid);
         require (barrier.failure() == PairCaptureFailure::receipt);
     }
-    for (int variant = 0; variant < 4; ++variant)
+    for (int variant = 0; variant < 5; ++variant)
     {
         ExactPairBinding pair { 11, "project-a", "pre-a" };
         auto generation = std::uint64_t { 22 };
         auto clock = std::uint64_t { 33 };
+        auto source = std::uint8_t { 1 };
         auto frames = std::int64_t { 12 };
         if (variant == 0) pair.preInstanceId.clear();
         if (variant == 1) generation = 0;
         if (variant == 2) frames = 0;
         if (variant == 3) clock = 0;
+        if (variant == 4) source = 0;
         bool refused = false;
-        try { PairCaptureBarrier barrier (pair, generation, clock, 48000, 1, 0, 0, frames); }
+        try { PairCaptureBarrier barrier (pair, generation, clock, source, 48000, 1, 0, frames); }
         catch (const std::invalid_argument&) { refused = true; }
         require (refused);
     }
@@ -186,18 +194,20 @@ int main()
     {
         ExactRangeCaptureSlot slot;
         require (slot.publish (std::make_unique<ExactRangeCapture> (
-            CaptureRange { 44, 48000, 1, 0, 12 }, 48)));
+            CaptureRange { 44, 48000, 1, 0, 12 }, 48), 1, 0, 0));
         require (! slot.publish (std::make_unique<ExactRangeCapture> (
-            CaptureRange { 45, 48000, 1, 0, 12 }, 48)));
+            CaptureRange { 45, 48000, 1, 1, 12 }, 48), 1, 0, 0));
+        require (! slot.publish (std::make_unique<ExactRangeCapture> (
+            CaptureRange { 45, 48000, 1, 0, 12 }, 48), 1, 1, 0));
         const float* pointers[] = { input.data() };
-        require (slot.push (pointers, 1, 12, 0, 44, true, 48000));
+        require (slot.process (pointers, 1, clockAt (0, 12), 48000));
         require (slot.control() != nullptr && slot.control()->completedPcm() != nullptr);
         require (slot.retireCompleted());
         require (! slot.hasPublishedRealtime() && ! slot.hasStorage());
-        require (! slot.push (pointers, 1, 12, 0, 44, true, 48000));
+        require (! slot.process (pointers, 1, clockAt (0, 12), 48000));
 
         require (slot.publish (std::make_unique<ExactRangeCapture> (
-            CaptureRange { 46, 48000, 1, 0, 12 }, 48)));
+            CaptureRange { 46, 48000, 1, 0, 12 }, 48), 1, 0, 0));
         require (slot.cancelAndRetire());
         require (! slot.hasPublishedRealtime() && ! slot.hasStorage());
     }
@@ -205,8 +215,8 @@ int main()
     {
         const ExactCaptureRequest request {
             "12345678-1234-4234-8234-123456789abc",
-            { 51, "project-a", "pre-unnamed" }, 52, 53, 48000, 1,
-            0, 31, 12, 2000
+            { 51, "project-a", "pre-unnamed" }, 52, 53, 1, 0, 48000, 1,
+            0, 12, 2000
         };
         LocalBlindCaptureLane preLane (CaptureSide::pre);
         LocalBlindCaptureLane postLane (CaptureSide::post);
@@ -215,20 +225,24 @@ int main()
         require (preLane.arm (request, 48000, 1, 1000, 48));
         require (! preLane.arm (request, 48000, 1, 1000, 48));
         const float* pointers[] = { input.data() };
-        require (preLane.process (pointers, 1, 12, 0, true, true, false, true, 48000));
+        require (preLane.process (pointers, 1, clockAt (0, 12), 48000));
         CaptureReceipt receipt;
         require (preLane.receipt (receipt));
         require (receipt.side == CaptureSide::pre && receipt.range.start == 0);
         require (receipt.state == CaptureState::complete);
-        require (preLane.process (pointers, 1, 12, 12, false, false, true, false, 44100));
+        auto ignoredAfterComplete = clockAt (12, 12);
+        ignoredAfterComplete.positionValid = ignoredAfterComplete.timelineActive = false;
+        ignoredAfterComplete.bypassed = true;
+        ignoredAfterComplete.realtime = false;
+        require (preLane.process (pointers, 1, ignoredAfterComplete, 44100));
         require (preLane.receipt (receipt) && receipt.state == CaptureState::complete);
         require (preLane.completedCapture() != nullptr);
         require (preLane.retireFinal() && ! preLane.hasActiveRequest());
 
         require (postLane.arm (request, 48000, 1, 1000, 48));
-        require (postLane.process (pointers, 1, 12, 31, true, true, false, true, 48000));
+        require (postLane.process (pointers, 1, clockAt (0, 12), 48000));
         require (postLane.receipt (receipt));
-        require (receipt.side == CaptureSide::post && receipt.range.start == 31);
+        require (receipt.side == CaptureSide::post && receipt.range.start == 0);
         require (receipt.state == CaptureState::complete && postLane.retireFinal());
 
         for (int variant = 0; variant < 4; ++variant)
@@ -238,22 +252,56 @@ int main()
             const bool timelineActive = variant != 1;
             const bool bypassed = variant == 2;
             const bool realtime = variant != 3;
-            require (preLane.process (pointers, 1, 12, 0, positionValid, timelineActive,
-                                      bypassed, realtime, 48000));
+            auto invalidClock = clockAt (0, 12);
+            invalidClock.positionValid = positionValid;
+            invalidClock.timelineActive = timelineActive;
+            invalidClock.bypassed = bypassed;
+            invalidClock.realtime = realtime;
+            require (preLane.process (pointers, 1, invalidClock, 48000));
             require (preLane.receipt (receipt));
             require (receipt.state == CaptureState::invalid);
             require (receipt.failure == (variant == 3 ? CaptureFailure::nonRealtime
                                                       : CaptureFailure::transport));
             require (preLane.retireFinal());
         }
+
+        // Once armed, the role's own callbacks must stay on one continuous clock and keep the
+        // same optional presentation facts. These values detect change; they never shift PCM.
+        auto guarded = request;
+        guarded.nativeStart = 12;
+        for (int variant = 0; variant < 5; ++variant)
+        {
+            require (preLane.arm (guarded, 48000, 1, 1000, 48));
+            require (preLane.process (pointers, 1, clockAt (0, 6), 48000));
+            auto changedClock = clockAt (6, 6);
+            if (variant == 0) changedClock.position = 0;          // seek or loop wrap
+            if (variant == 1) changedClock.source = 2;
+            if (variant == 2) changedClock.outputLatency = 97;
+            if (variant == 3) changedClock.hasOutputLatency = false;
+            if (variant == 4) changedClock.presentationSource = 2;
+            require (preLane.process (pointers, 1, changedClock, 48000));
+            require (preLane.receipt (receipt) && receipt.state == CaptureState::invalid);
+            require (receipt.failure == CaptureFailure::clock);
+            require (preLane.retireFinal());
+        }
+        require (preLane.arm (guarded, 48000, 1, 1000, 48));
+        require (preLane.process (pointers, 1, clockAt (13, 6), 48000));
+        require (preLane.receipt (receipt) && receipt.failure == CaptureFailure::clock);
+        require (preLane.retireFinal());
+        auto rewoundBeforeFirstCallback = guarded;
+        rewoundBeforeFirstCallback.clockPositionAtIssue = 6;
+        require (preLane.arm (rewoundBeforeFirstCallback, 48000, 1, 1000, 48));
+        require (preLane.process (pointers, 1, clockAt (0, 6), 48000));
+        require (preLane.receipt (receipt) && receipt.failure == CaptureFailure::clock);
+        require (preLane.retireFinal());
     }
     // The non-RT owner installs PRE before acknowledging it and installs POST only after the
     // matching peer response. One exact request remains the authority through completion.
     {
         const ExactCaptureRequest request {
             "12345678-1234-4234-8234-123456789abc",
-            { 51, "project-a", "pre-unnamed" }, 52, 53, 48000, 1,
-            0, 31, 12, 2000
+            { 51, "project-a", "pre-unnamed" }, 52, 53, 1, 0, 48000, 1,
+            0, 12, 2000
         };
         LocalBlindCaptureOwner pre (CaptureSide::pre);
         require (pre.beginPre (request, 48000, 1, 1000));
@@ -266,7 +314,7 @@ int main()
         require (pre.beginPre (request, 48000, 1, 1000));
         pre.confirmPreAcknowledgement (true);
         const float* pointers[] = { input.data() };
-        require (pre.process (pointers, 1, 12, 0, true, true, false, true, 48000));
+        require (pre.process (pointers, 1, clockAt (0, 12), 48000));
         pre.servicePre (&request, 1001);
         require (pre.view().phase == CaptureOwnerPhase::complete);
         require (pre.completedCapture() != nullptr);
@@ -294,12 +342,12 @@ int main()
         require (post.beginPost (request));
         post.servicePost (true, &pair, 48000, 1, 1000);
         require (post.view().phase == CaptureOwnerPhase::capturing);
-        require (post.process (pointers, 1, 12, 31, true, true, false, true, 48000));
+        require (post.process (pointers, 1, clockAt (0, 12), 48000));
         post.servicePost (true, &pair, 48000, 1, 1001);
         require (post.view().phase == CaptureOwnerPhase::complete);
         CaptureReceipt receipt;
         require (post.receipt (receipt));
-        require (receipt.side == CaptureSide::post && receipt.range.start == 31);
+        require (receipt.side == CaptureSide::post && receipt.range.start == 0);
         post.servicePost (false, &pair, 48000, 1, 1002);
         require (post.view().failure == CaptureOwnerFailure::peerRejected);
         post.reset();

@@ -36,7 +36,8 @@ fn exact_unnamed_pair_completes_the_local_blind_request_handshake() {
                 post_handle,
                 22,
                 33,
-                -96,
+                1,
+                0,
                 0,
                 192_000,
                 &mut issued,
@@ -56,12 +57,13 @@ fn exact_unnamed_pair_completes_the_local_blind_request_handshake() {
     assert_ne!(issued.pair_generation, 0);
     assert_eq!(issued.capture_generation, 22);
     assert_eq!(issued.clock_generation, 33);
+    assert_eq!(issued.clock_source, 1);
+    assert_eq!(issued.clock_position_at_issue, 0);
 
     let mut received = KirinLocalBlindCaptureRequest::default();
     assert!(unsafe { kirin_hypha_poll_local_blind_capture_request(pre_handle, &mut received) });
     assert_eq!(received.request_id, issued.request_id);
-    assert_eq!(received.pre_start, -96);
-    assert_eq!(received.post_start, 0);
+    assert_eq!(received.native_start, 0);
     assert_eq!(received.frames, 192_000);
     assert!(unsafe {
         kirin_hypha_ack_local_blind_capture_request(pre_handle, received.request_id.as_ptr())

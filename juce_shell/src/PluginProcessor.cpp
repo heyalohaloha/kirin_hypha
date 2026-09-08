@@ -255,10 +255,11 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     // --- Signal state derivation (parity: hypha_pre.rs:397-403) -------------------
     const bool bypassed = (bypassParam != nullptr && bypassParam->get());
 
+    const auto processClock = readHostProcessClock();
     const auto [playing, hasPosition, clockSource, positionSamples, hasClockEnd,
           clockStartSamples, clockEndSamples, presentationSource,
           inputPresentationValid, inputPresentationSamples,
-          outputPresentationValid, outputPresentationSamples] = readHostProcessClock();
+          outputPresentationValid, outputPresentationSamples] = processClock;
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     preDisplayClock.publish (positionSamples, preparedSampleRate,
@@ -449,8 +450,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
         kirin_hypha_push_samples (hyphaHandle, nullptr, 0, (uint32_t) numCh);
     }
 
-    processComparisonPaths (buffer, positionSamples, hasPosition, playing,
-                            measurementTimelineActive, bypassed, nonRealtimeMode);
+    processComparisonPaths (buffer, processClock, measurementTimelineActive, bypassed, nonRealtimeMode);
 }
 
 juce::AudioProcessorEditor* KirinHyphaProcessorBase::createEditor()

@@ -53,9 +53,10 @@ impl Fixture {
             self.authority.clone(),
             22,
             33,
+            1,
+            0,
             48_000,
             2,
-            -96,
             0,
             192_000,
             1_000,
@@ -160,17 +161,19 @@ fn released_pair_invalidates_an_already_published_request() {
 fn malformed_expired_and_misdirected_requests_fail_closed() {
     let fixture = Fixture::new();
     let valid = fixture.request();
-    for variant in 0..8 {
+    for variant in 0..10 {
         let mut request = valid.clone();
         match variant {
             0 => request.authority.pair_generation = 0,
             1 => request.capture_generation = 0,
             2 => request.clock_generation = 0,
-            3 => request.channels = 6,
-            4 => request.frames = 192_001,
-            5 => request.pre_start = i64::MAX,
-            6 => request.authority.pre_instance_id = "other-pre".into(),
-            7 => request.expires_at_unix_ms = 1_000,
+            3 => request.clock_source = 0,
+            4 => request.clock_position_at_issue = 1,
+            5 => request.channels = 6,
+            6 => request.frames = 192_001,
+            7 => request.native_start = i64::MAX,
+            8 => request.authority.pre_instance_id = "other-pre".into(),
+            9 => request.expires_at_unix_ms = 1_000,
             _ => unreachable!(),
         }
         assert!(!request.valid_for_target(fixture.target(), 1_001));
@@ -179,9 +182,10 @@ fn malformed_expired_and_misdirected_requests_fail_closed() {
         fixture.authority,
         22,
         33,
+        1,
+        0,
         48_000,
         2,
-        0,
         0,
         1,
         1_000,
@@ -195,13 +199,14 @@ fn armed_echo_is_bound_to_every_request_generation_and_digest() {
     let fixture = Fixture::new();
     let request = fixture.request();
     let armed = LocalBlindCaptureArmed::for_request(&request, 1_001).unwrap();
-    for variant in 0..4 {
+    for variant in 0..5 {
         let mut changed = request.clone();
         match variant {
             0 => changed.request_id = Uuid::new_v4().to_string(),
             1 => changed.capture_generation += 1,
             2 => changed.clock_generation += 1,
-            3 => changed.pre_start += 1,
+            3 => changed.native_start += 1,
+            4 => changed.clock_position_at_issue -= 1,
             _ => unreachable!(),
         }
         assert!(!armed.matches_request(&changed, 1_001));

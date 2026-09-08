@@ -130,8 +130,6 @@ public:
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
     // Non-RT exact capture control and PRE result transport. None starts an audition.
     bool issueLocalBlindCaptureRequest (std::uint64_t captureGeneration,
-                                        std::uint64_t clockGeneration,
-                                        std::int64_t preStart, std::int64_t postStart,
                                         std::int64_t frames,
                                         hypha::local_blind::ExactCaptureRequest& out);
     bool pollLocalBlindCaptureRequest (hypha::local_blind::ExactCaptureRequest& out) const;
@@ -288,15 +286,13 @@ private:
     static hypha::local_blind::CaptureServiceHooks localBlindCaptureHooks (KirinHyphaProcessorBase&);
     void stopLocalBlindCaptureForFormatChange (double sampleRate, int channels);
     void startLocalBlindCaptureForPreparedFormat();
-    void processComparisonPaths (juce::AudioBuffer<float>&, int64_t positionSamples,
-                                 bool hasPosition, bool playing, bool timelineActive,
+    void processComparisonPaths (juce::AudioBuffer<float>&, const hypha::HostProcessClock&,
+                                 bool timelineActive,
                                  bool bypassed, bool nonRealtimeMode);
 
     const Role role;                                   // Pre or Post (selects enable + display name)
     hypha::local_blind::VST3HostContext nativeHostContext;
-#if JUCE_DEBUG
     mutable hypha::local_blind::HostClockProbe hostClockProbe;
-#endif
     hypha::local_blind::LocalBlindSlot localBlindOutput;
     hypha::local_blind::LocalBlindEpochSnapshot localBlindEpochs;
     hypha::local_blind::LocalBlindCaptureService localBlindCapture;

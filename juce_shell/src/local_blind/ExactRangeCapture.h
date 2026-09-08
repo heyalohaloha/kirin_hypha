@@ -33,7 +33,8 @@ enum class CaptureFailure : unsigned char
     generation,
     nonRealtime,
     nonFinite,
-    transport
+    transport,
+    clock
 };
 
 class ExactRangeCapture final

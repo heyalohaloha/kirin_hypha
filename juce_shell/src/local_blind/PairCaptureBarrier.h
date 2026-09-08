@@ -40,10 +40,11 @@ struct ExactCaptureRequest
     ExactPairBinding pair;
     std::uint64_t captureGeneration = 0;
     std::uint64_t clockGeneration = 0;
+    std::uint8_t clockSource = 0;
+    std::int64_t clockPositionAtIssue = 0;
     std::uint32_t sampleRate = 0;
     int channels = 0;
-    std::int64_t preStart = 0;
-    std::int64_t postStart = 0;
+    std::int64_t nativeStart = 0;
     std::int64_t frames = 0;
     std::int64_t expiresAtUnixMs = 0;
 
@@ -67,20 +68,22 @@ struct ExactCaptureRequest
     bool valid() const noexcept
     {
         return canonicalRequestId (requestId) && pair.valid() && captureGeneration != 0
-            && clockGeneration != 0 && sampleRate >= 8'000 && sampleRate <= 768'000
+            && clockGeneration != 0 && (clockSource == 1 || clockSource == 2)
+            && clockPositionAtIssue <= nativeStart
+            && sampleRate >= 8'000 && sampleRate <= 768'000
             && (channels == 1 || channels == 2) && frames > 0 && expiresAtUnixMs > 0
             && frames <= static_cast<std::int64_t> (sampleRate) * 4
-            && preStart <= std::numeric_limits<std::int64_t>::max() - frames
-            && postStart <= std::numeric_limits<std::int64_t>::max() - frames;
+            && nativeStart <= std::numeric_limits<std::int64_t>::max() - frames;
     }
 
     friend bool operator== (const ExactCaptureRequest& a, const ExactCaptureRequest& b) noexcept
     {
         return a.requestId == b.requestId && a.pair == b.pair
             && a.captureGeneration == b.captureGeneration
-            && a.clockGeneration == b.clockGeneration && a.sampleRate == b.sampleRate
-            && a.channels == b.channels && a.preStart == b.preStart
-            && a.postStart == b.postStart && a.frames == b.frames
+            && a.clockGeneration == b.clockGeneration && a.clockSource == b.clockSource
+            && a.clockPositionAtIssue == b.clockPositionAtIssue
+            && a.sampleRate == b.sampleRate && a.channels == b.channels
+            && a.nativeStart == b.nativeStart && a.frames == b.frames
             && a.expiresAtUnixMs == b.expiresAtUnixMs;
     }
     friend bool operator!= (const ExactCaptureRequest& a, const ExactCaptureRequest& b) noexcept
@@ -113,25 +116,27 @@ class PairCaptureBarrier final
 public:
     explicit PairCaptureBarrier (const ExactCaptureRequest& request)
         : PairCaptureBarrier (request.pair, request.captureGeneration, request.clockGeneration,
-                              request.sampleRate, request.channels, request.preStart,
-                              request.postStart, request.frames)
+                              request.clockSource, request.sampleRate, request.channels,
+                              request.nativeStart, request.frames)
     {
         if (! request.valid())
             throw std::invalid_argument ("Invalid exact capture request envelope");
     }
 
     PairCaptureBarrier (ExactPairBinding exactPair, std::uint64_t captureGeneration,
-                        std::uint64_t clockGeneration, std::uint32_t sampleRate, int channels,
-                        std::int64_t preStart, std::int64_t postStart, std::int64_t frames)
+                        std::uint64_t clockGeneration, std::uint8_t clockSource,
+                        std::uint32_t sampleRate, int channels,
+                        std::int64_t nativeStart, std::int64_t frames)
         : pair (std::move (exactPair)),
           clock (clockGeneration),
-          pre ({ captureGeneration, sampleRate, channels, preStart, frames }),
-          post ({ captureGeneration, sampleRate, channels, postStart, frames })
+          pre ({ captureGeneration, sampleRate, channels, nativeStart, frames }),
+          post ({ captureGeneration, sampleRate, channels, nativeStart, frames })
     {
         if (! pair.valid() || captureGeneration == 0 || clockGeneration == 0
+            || (clockSource != 1 && clockSource != 2)
             || sampleRate < 8'000 || sampleRate > 768'000
             || (channels != 1 && channels != 2) || frames < 1
-            || overflows (preStart, frames) || overflows (postStart, frames))
+            || overflows (nativeStart, frames))
             throw std::invalid_argument ("Invalid exact pair capture request");
     }
 

@@ -48,7 +48,7 @@ bool receiptMatchesRequest (const CaptureReceipt& receipt,
         && range.generation == request.captureGeneration
         && range.sampleRate == request.sampleRate
         && range.channels == request.channels
-        && range.start == request.preStart
+        && range.start == request.nativeStart
         && range.frames == request.frames
         && receipt.state == CaptureState::complete
         && receipt.failure == CaptureFailure::none;
@@ -68,12 +68,12 @@ bool decodeReceipt (const KirinLocalBlindPreCaptureReceipt& source,
         || source.clock_generation != request.clockGeneration
         || source.sample_rate != request.sampleRate
         || source.channels != static_cast<std::uint32_t> (request.channels)
-        || source.start != request.preStart || source.frames != request.frames
+        || source.start != request.nativeStart || source.frames != request.frames
         || source.sample_count != expectedSamples)
         return false;
     out = { request.pair, request.clockGeneration, CaptureSide::pre,
             { request.captureGeneration, request.sampleRate, request.channels,
-              request.preStart, request.frames },
+              request.nativeStart, request.frames },
             CaptureState::complete, CaptureFailure::none };
     pcmSha256 = sha256;
     return true;
@@ -93,7 +93,7 @@ KirinLocalBlindPreCaptureReceipt encodeReceipt (
     receipt.clock_generation = request.clockGeneration;
     receipt.sample_rate = request.sampleRate;
     receipt.channels = static_cast<std::uint32_t> (request.channels);
-    receipt.start = request.preStart;
+    receipt.start = request.nativeStart;
     receipt.frames = request.frames;
     receipt.sample_count = samples;
     return receipt;

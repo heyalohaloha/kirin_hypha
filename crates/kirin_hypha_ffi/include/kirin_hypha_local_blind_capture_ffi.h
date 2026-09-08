@@ -12,10 +12,11 @@ typedef struct {
   uint64_t pair_generation;
   uint64_t capture_generation;
   uint64_t clock_generation;
+  uint8_t clock_source;
+  int64_t clock_position_at_issue;
   uint32_t sample_rate;
   uint32_t channels;
-  int64_t pre_start;
-  int64_t post_start;
+  int64_t native_start;
   int64_t frames;
   int64_t expires_at_unix_ms;
   char pre_project_hash[64];
@@ -24,7 +25,8 @@ typedef struct {
 
 bool kirin_hypha_issue_local_blind_capture_request(
     KirinHypha* handle, uint64_t capture_generation, uint64_t clock_generation,
-    int64_t pre_start, int64_t post_start, int64_t frames,
+    uint8_t clock_source, int64_t clock_position_at_issue,
+    int64_t native_start, int64_t frames,
     KirinLocalBlindCaptureRequest* out);
 bool kirin_hypha_poll_local_blind_capture_request(
     KirinHypha* handle, KirinLocalBlindCaptureRequest* out);

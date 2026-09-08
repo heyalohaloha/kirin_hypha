@@ -12,8 +12,8 @@ use uuid::Uuid;
 use crate::analysis_exchange_transport::{self, AnalysisSlot};
 use crate::pair_claim_index::StablePairClaimObservation;
 
-const REQUEST_SCHEMA: &str = "kirin_hypha_local_blind_capture_request_v1";
-const ARMED_SCHEMA: &str = "kirin_hypha_local_blind_capture_armed_v1";
+const REQUEST_SCHEMA: &str = "kirin_hypha_local_blind_capture_request_v2";
+const ARMED_SCHEMA: &str = "kirin_hypha_local_blind_capture_armed_v2";
 const REQUEST_MAX_BYTES: u64 = 4_096;
 const ARMED_MAX_BYTES: u64 = 2_048;
 pub const LOCAL_BLIND_CAPTURE_LEASE_MS: i64 = 15_000;
@@ -83,10 +83,11 @@ pub struct LocalBlindCaptureRequest {
     pub authority: LocalBlindPairAuthority,
     pub capture_generation: u64,
     pub clock_generation: u64,
+    pub clock_source: u8,
+    pub clock_position_at_issue: i64,
     pub sample_rate: u32,
     pub channels: u8,
-    pub pre_start: i64,
-    pub post_start: i64,
+    pub native_start: i64,
     pub frames: i64,
     pub issued_at_unix_ms: i64,
     pub expires_at_unix_ms: i64,
@@ -98,10 +99,11 @@ impl LocalBlindCaptureRequest {
         authority: LocalBlindPairAuthority,
         capture_generation: u64,
         clock_generation: u64,
+        clock_source: u8,
+        clock_position_at_issue: i64,
         sample_rate: u32,
         channels: u8,
-        pre_start: i64,
-        post_start: i64,
+        native_start: i64,
         frames: i64,
         issued_at_unix_ms: i64,
         lease_ms: i64,
@@ -112,10 +114,11 @@ impl LocalBlindCaptureRequest {
             authority,
             capture_generation,
             clock_generation,
+            clock_source,
+            clock_position_at_issue,
             sample_rate,
             channels,
-            pre_start,
-            post_start,
+            native_start,
             frames,
             issued_at_unix_ms,
             expires_at_unix_ms: issued_at_unix_ms.checked_add(lease_ms)?,
@@ -164,12 +167,13 @@ impl LocalBlindCaptureRequest {
             && self.authority.valid_shape()
             && self.capture_generation != 0
             && self.clock_generation != 0
+            && matches!(self.clock_source, 1 | 2)
+            && self.clock_position_at_issue <= self.native_start
             && (8_000..=768_000).contains(&self.sample_rate)
             && matches!(self.channels, 1 | 2)
             && self.frames > 0
             && max_frames.is_some_and(|limit| self.frames <= limit)
-            && self.pre_start.checked_add(self.frames).is_some()
-            && self.post_start.checked_add(self.frames).is_some()
+            && self.native_start.checked_add(self.frames).is_some()
             && self.issued_at_unix_ms > 0
             && self.issued_at_unix_ms <= now_unix_ms
             && self.expires_at_unix_ms >= now_unix_ms

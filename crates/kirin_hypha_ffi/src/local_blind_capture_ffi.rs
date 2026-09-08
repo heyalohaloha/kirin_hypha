@@ -22,10 +22,11 @@ pub struct KirinLocalBlindCaptureRequest {
     pub pair_generation: u64,
     pub capture_generation: u64,
     pub clock_generation: u64,
+    pub clock_source: u8,
+    pub clock_position_at_issue: i64,
     pub sample_rate: u32,
     pub channels: u32,
-    pub pre_start: i64,
-    pub post_start: i64,
+    pub native_start: i64,
     pub frames: i64,
     pub expires_at_unix_ms: i64,
     pub pre_project_hash: [c_char; LOCATOR_CAPACITY],
@@ -39,10 +40,11 @@ impl Default for KirinLocalBlindCaptureRequest {
             pair_generation: 0,
             capture_generation: 0,
             clock_generation: 0,
+            clock_source: 0,
+            clock_position_at_issue: 0,
             sample_rate: 0,
             channels: 0,
-            pre_start: 0,
-            post_start: 0,
+            native_start: 0,
             frames: 0,
             expires_at_unix_ms: 0,
             pre_project_hash: [0; LOCATOR_CAPACITY],
@@ -98,8 +100,9 @@ impl KirinHyphaEngine {
         &self,
         capture_generation: u64,
         clock_generation: u64,
-        pre_start: i64,
-        post_start: i64,
+        clock_source: u8,
+        clock_position_at_issue: i64,
+        native_start: i64,
         frames: i64,
     ) -> Option<LocalBlindCaptureRequest> {
         let authority = self.local_blind_pair_authority()?;
@@ -111,10 +114,11 @@ impl KirinHyphaEngine {
             authority,
             capture_generation,
             clock_generation,
+            clock_source,
+            clock_position_at_issue,
             self.sample_rate,
             u8::try_from(self.num_channels).ok()?,
-            pre_start,
-            post_start,
+            native_start,
             frames,
             unix_ms_now()?,
             LOCAL_BLIND_CAPTURE_LEASE_MS,
@@ -200,10 +204,11 @@ fn encode_request(request: &LocalBlindCaptureRequest) -> Option<KirinLocalBlindC
         pair_generation: request.authority.pair_generation,
         capture_generation: request.capture_generation,
         clock_generation: request.clock_generation,
+        clock_source: request.clock_source,
+        clock_position_at_issue: request.clock_position_at_issue,
         sample_rate: request.sample_rate,
         channels: u32::from(request.channels),
-        pre_start: request.pre_start,
-        post_start: request.post_start,
+        native_start: request.native_start,
         frames: request.frames,
         expires_at_unix_ms: request.expires_at_unix_ms,
         ..KirinLocalBlindCaptureRequest::default()
@@ -241,8 +246,9 @@ pub unsafe extern "C" fn kirin_hypha_issue_local_blind_capture_request(
     handle: *mut KirinHyphaEngine,
     capture_generation: u64,
     clock_generation: u64,
-    pre_start: i64,
-    post_start: i64,
+    clock_source: u8,
+    clock_position_at_issue: i64,
+    native_start: i64,
     frames: i64,
     out: *mut KirinLocalBlindCaptureRequest,
 ) -> bool {
@@ -254,8 +260,9 @@ pub unsafe extern "C" fn kirin_hypha_issue_local_blind_capture_request(
             (*handle).issue_local_blind_capture_request(
                 capture_generation,
                 clock_generation,
-                pre_start,
-                post_start,
+                clock_source,
+                clock_position_at_issue,
+                native_start,
                 frames,
             )
         }) else {
@@ -360,9 +367,10 @@ mod tests {
             authority.clone(),
             22,
             33,
+            1,
+            0,
             48_000,
             2,
-            -96,
             0,
             192_000,
             1_000,
@@ -374,11 +382,12 @@ mod tests {
         assert_eq!(encoded.pre_project_hash[11], 0);
         assert_eq!(encoded.pre_instance_id[5], 0);
         assert_eq!(encoded.clock_generation, 33);
+        assert_eq!(encoded.clock_position_at_issue, 0);
 
         let mut too_long = authority;
         too_long.pre_project_hash = "x".repeat(LOCATOR_CAPACITY);
         let request =
-            LocalBlindCaptureRequest::new(too_long, 22, 33, 48_000, 2, 0, 0, 1, 1_000, 10_000)
+            LocalBlindCaptureRequest::new(too_long, 22, 33, 1, 0, 48_000, 2, 0, 1, 1_000, 10_000)
                 .unwrap();
         assert!(encode_request(&request).is_none());
     }
