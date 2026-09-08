@@ -251,8 +251,8 @@ fn decode_blob(request: &LocalBlindCaptureRequest, blob: &[u8]) -> Option<LocalB
         return None;
     }
     let mut interleaved = Vec::with_capacity(receipt.sample_count as usize);
-    for chunk in pcm_bytes.chunks_exact(size_of::<f32>()) {
-        let value = f32::from_bits(u32::from_le_bytes(chunk.try_into().ok()?));
+    for &chunk in pcm_bytes.as_chunks::<4>().0 {
+        let value = f32::from_bits(u32::from_le_bytes(chunk));
         if !value.is_finite() {
             return None;
         }

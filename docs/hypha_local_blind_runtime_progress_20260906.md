@@ -217,7 +217,7 @@ cargo fmt --all --check
 bash scripts/check_source_line_budget.sh
 ```
 
-本体の Debug PRE/POST × AU/VST3 と上記 3 テストをビルド対象にした。
+B-724までの前回検証では、本体の Debug PRE/POST × AU/VST3 と上記 3 テストをビルド対象にした。
 3 テストは全件 pass、本体 4 ターゲットの build も pass した。
 比較出力部品に対する AddressSanitizer / UndefinedBehaviorSanitizer と ThreadSanitizer の試験も pass した。
 Rust の本体単体テストは 1,582 件 pass、9 件 ignored、xtask は 135 件 pass した。
@@ -226,7 +226,17 @@ xtask の初回全実行では 8 件失敗したため、B-703/B-705 以後の�
 `cargo clippy --workspace --all-targets --no-deps` は pass し、警告は既存 vendor と既知の build 通知だけだった。
 試験更新後の xtask clippy、fmt、ソース行数上限も pass した。
 Windows CI には 3 テストの build と実行を登録したが、この作業では CI を起動していない。
-FFI の Rust source を変更していないため、今回 parity と pairing_candidates の ignored suite は再実行していない。
+この前回検証ではFFIのRust sourceを変更していないため、parityとpairing_candidatesのignored suiteは再実行していない。
+
+2026-09-08のB-752/B-753候補では、release source contractを一度だけ実行した。
+通常の`kirin_measure`、`kirin_hypha_ffi`前半、native UI／Reference、source contractは通過したが、通常parityのPhase D 1件が並列負荷下で失敗した。
+製品コードは各audio callbackでActiveを再通知する一方、試験は開始時の一度しか通知せず、3秒のwatchdog失効後にPhase Dを消去し得る差だった。
+B-753で試験駆動を出荷JUCE callbackと同じにし、Record遷移を空ringで観測してから音声を投入するよう修正した。
+修正後は通常parity 16件、残りのRT handoff 1件、性能2件、xtask 138件、実測inventory 20件／6件のignored suite、Clippyがすべてpassした。
+新規local Blind C ABI 5本をstatic archiveの定義symbol gateにも追加し、既存3本と合わせて全8本を確認した。
+利用者指定に従ってrelease source contract全体はローカル再実行せず、単一コマンドとしての最終passはCIで確認する。
+最初のCIはparity sourceの行数ratchetを検出したため、追加コードを保ったまま同じ範囲の説明を整理してbaseline 3007行へ戻した。
+次のCIはRust 1.98の`chunks_exact_to_as_chunks`を検出したため、長さとhash確認後のPCM decodeを固定4byte arrayの走査へ置き換えた。
 
 LS アップ用: skip。
 HP アップ用: macOS skip、Windows skip。
