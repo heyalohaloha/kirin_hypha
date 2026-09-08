@@ -125,6 +125,7 @@ option(KIRIN_HYPHA_REQUIRE_KIMERA_FONT
 
 set(KIRIN_HYPHA_DATA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hybrid_vu_chassis.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/observatory_understory.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hypha_level_corners.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/attack_specimen_emission.png)
@@ -260,6 +261,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
+        src/HyphaHybridVuPainter.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryWorld.cpp
         src/HyphaTimePageNavigation.cpp
@@ -465,6 +467,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryMetrics.cpp
+        src/HyphaHybridVuPainter.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
@@ -509,6 +512,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpectrumFocusTrailContractTest.cpp
         tests/SpectrumPresentationContractTest.cpp
         tests/GuideFrequencyOverlayContractTest.cpp
+        tests/HybridVuContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
         tests/ObservatoryCaptureContractTest.cpp
         tests/ObservatoryCompositeContractTest.cpp
@@ -531,6 +535,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
+        src/HyphaHybridVuPainter.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryWorld.cpp
         src/HyphaTimePageNavigation.cpp
@@ -757,6 +762,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryMetrics.cpp
+        src/HyphaHybridVuPainter.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp

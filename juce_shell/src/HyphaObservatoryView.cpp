@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaHybridVuPainter.h"
 #include "HyphaSpacePainter.h"
 #include "HyphaTimeHistoryPainter.h"
 #include "HyphaObservationEquality.h"
@@ -314,6 +315,15 @@ void View::updateControls()
 
 void View::paint (juce::Graphics& g)
 {
+    if (hybridVuVisible())
+    {
+        hybrid_vu::paint (g, getLocalBounds(), {
+            role, observatoryFrame.meter, watchDisplay,
+            currentFactsAvailable(), cumulativeFactsAvailable(), watchDisplayAvailable,
+            selectedShortTermLoudness, connectionText, connectionColour
+        });
+        return;
+    }
     const auto state = worldState();
     const auto contract = presentation();
     if (contract.worldBackdrop)

@@ -5,10 +5,11 @@ using hypha::COL_MUTED;
 
 namespace
 {
-juce::String observatoryPairText (bool isPost, int status)
+juce::String observatoryPairText (bool isPost, int status, const juce::String& name)
 {
-    if (! isPost) return "SOURCE";
-    if (status == KIRIN_PAIR_STATUS_PAIRED) return juce::CharPointer_UTF8 ("PAIR ●");
+    if (! isPost) return name.isNotEmpty() ? "SOURCE " + name : juce::String ("SOURCE");
+    if (status == KIRIN_PAIR_STATUS_PAIRED)
+        return name.isNotEmpty() ? "PAIR " + name : juce::String (juce::CharPointer_UTF8 ("PAIR ●"));
     if (status == KIRIN_PAIR_STATUS_WAITING) return juce::CharPointer_UTF8 ("PAIR ◌");
     return juce::CharPointer_UTF8 ("PAIR —");
 }
@@ -125,8 +126,32 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
     repaint();
 }
 
+void KirinHyphaEditor::visibilityChanged()
+{
+    // Some hosts snapshot non-parameter state when the editor becomes hidden, before destroying
+    // it. Mark the already-updated exact dimensions dirty at that boundary as well as in dtor.
+    if (! isVisible())
+        commitEditorSizeStateIfSettled (true);
+}
+
 void KirinHyphaEditor::refreshObservatory()
 {
+    const auto presentationNow = nowSecs();
+    const auto hostHeartbeat = processorRef.hostProcessHeartbeatValue();
+    if (hostHeartbeat != observedHostProcessHeartbeat)
+    {
+        observedHostProcessHeartbeat = hostHeartbeat;
+        observedHostProcessHeartbeatAt = presentationNow;
+    }
+    constexpr double hostRecordingStaleSeconds = 0.35;
+    const bool hostRecording = hostHeartbeat != 0u && processorRef.isHostRecording()
+        && presentationNow - observedHostProcessHeartbeatAt <= hostRecordingStaleSeconds;
+    if (observatoryView.setHostRecording (hostRecording))
+    {
+        resized();
+        if (observatoryView.hybridVuVisible())
+            observatoryView.toFront (false);
+    }
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
     const bool referenceOwned = isPost && processorRef.licenseIsOs();
     if (observatoryView.isReferenceOwned() != referenceOwned)
@@ -224,7 +249,8 @@ void KirinHyphaEditor::refreshObservatory()
             observatoryView.setHistory (std::move (history));
     }
 
-    observatoryView.setConnection (observatoryPairText (isPost, pairStatus),
+    const auto sourceName = isPost ? processorRef.pairName() : processorRef.preName();
+    observatoryView.setConnection (observatoryPairText (isPost, pairStatus, sourceName),
                                    observatoryPairColour (isPost, pairStatus),
                                    observatoryConnectionState (isPost, pairStatus));
 
@@ -257,7 +283,7 @@ void KirinHyphaEditor::refreshObservatory()
         else
             observatoryView.clearGuide();
     }
-    guideConnectButton.setVisible (connectionPending);
+    guideConnectButton.setVisible (connectionPending && ! observatoryView.hybridVuVisible());
 #else
     observatoryView.clearGuide();
     guideConnectButton.setVisible (false);

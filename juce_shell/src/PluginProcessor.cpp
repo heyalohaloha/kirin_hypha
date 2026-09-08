@@ -4,9 +4,9 @@
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
 namespace
 {
-    static_assert (sizeof (KirinMeterSession) == 840u,
+    static_assert (sizeof (KirinMeterSession) == 872u,
                    "Rust/C++ Meter Session ABI size must remain exact");
-    static_assert (sizeof (KirinObservatoryFrame) == 1'080u,
+    static_assert (sizeof (KirinObservatoryFrame) == 1'112u,
                    "Rust/C++ Observatory frame ABI size must remain exact");
     static_assert (sizeof (KirinMeterHistoryEntry) == 184u,
                    "Rust/C++ Meter history ABI size must remain exact");

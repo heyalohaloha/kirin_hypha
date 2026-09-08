@@ -82,6 +82,8 @@ public:
     void setWatchDisplay (const KirinWatchDisplay&, bool available);
     void setShortTermLoudness (bool);
     bool shortTermLoudness() const noexcept { return selectedShortTermLoudness; }
+    bool setHostRecording (bool recording);
+    bool hybridVuVisible() const noexcept { return hostRecording && ! captureFrame; }
     void setCompactMaximum (bool);
     bool compactMaximum() const noexcept { return compactShowsMaximum; }
     void setMeterContext (meter_context::MeterContext);
@@ -181,6 +183,7 @@ private:
     KirinWatchDisplay watchDisplay {};
     bool watchDisplayAvailable = false;
     bool selectedShortTermLoudness = false;
+    bool hostRecording = false;
     bool compactShowsMaximum = false;
     meter_context::MeterContext selectedMeterContext = meter_context::defaultContext;
     meter_context::ScaleMode selectedScaleMode = meter_context::defaultScale;

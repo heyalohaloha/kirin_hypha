@@ -337,6 +337,8 @@ I/LRAのgating履歴を完全保存せず累積値だけ復元すると、reload
 | PLR | dB | MAX TP − I | 0.1 dB |
 | L/R SP | dBFS | current block and hold | 0.1 dB |
 | L/R TP | dBTP | recent 400 ms | 0.1 dB |
+| L/R VU | VU / dBFS | full-wave average、sine校正、直近300 ms、0 VU = -18 dBFS | 針 |
+| L/R INSTANT TP | dBTP | 最新のexact 100 ms観測 | 1 dB segment |
 | BAL | dB | 3 sのL/R energy差 | 0.1 dB |
 | CORR | unitless | 3 s energy-normalized correlation | 0.01 |
 
@@ -421,6 +423,11 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 600×400は二つのトラック比較、および2MIXと単体トラックの二面比較を成立させる主力Observatoryとして維持する。
 
 900×600（300%）は600×400を置換せず、LEVEL、TIME、FREQ、SPACEとTIME配下の解析を同じ操作体系のまま高解像度で読むInspection Viewとする。LEVELは履歴面積、channel strip、数値階層を拡張するが、未合意の新指標は追加しない。将来Session Atlasを載せる場合は別途表示内容を確定する。
+
+DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更せず、一時的なHybrid VU面を全sizeで前面表示する。
+停止後はRecord前の画面へ復帰する。
+Hybrid VUは左右300 ms平均応答の針、左右100 ms True Peak rail、Session最大TP marker、clip事実、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。
+host callbackが350 ms以上停止した場合はRecord通知を失効させ、古いREC表示を保持しない。
 
 LEVELの60秒Historyは固定時間軸とし、M主線、run別2秒最大TP event、L/R別sample clip event、`60 S MAX TP`と相対時刻を表示する。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`+6〜-24 dBTP`軸と下から立ち上がるstemを重ねる。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。
 

@@ -231,6 +231,14 @@ public:
     void setMeterContextPreference (hypha::meter_context::MeterContext value, bool notifyHost = true);
     void setScaleModePreference (hypha::meter_context::ScaleMode value);
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
+    bool isHostRecording() const noexcept
+    {
+        return lastHostRecording.load (std::memory_order_acquire);
+    }
+    std::uint64_t hostProcessHeartbeatValue() const noexcept
+    {
+        return hostProcessHeartbeat.load (std::memory_order_acquire);
+    }
 
     // --- B-054: PRE live name + LED pollers (egui parity) --------------------------------
     juce::String preName() const   { return persistName; }       // PRE self name (= identity.name)
@@ -338,6 +346,8 @@ private:
 
     std::atomic<int>  cachedLicenseCode { 2 };         // live non-RT entitlement cache (0=Os)
     std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)
+    mutable std::atomic<bool> lastHostRecording { false }; // DAW record flag; display-only
+    mutable std::atomic<std::uint64_t> hostProcessHeartbeat { 0 }; // rejects stale flags
     std::atomic<bool> lastMeasurementTimelineActive { false }; // Watch MAX pass clock (AU render fallback)
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
     std::atomic<bool> enablePending { false };         // B-126: set by prepare/processBlock, observed by the Timer

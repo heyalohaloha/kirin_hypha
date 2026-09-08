@@ -12,8 +12,8 @@ namespace hypha::observation_equality
 // Compare facts, not ABI padding. Repeated unavailable NaNs are unchanged; integer clocks
 // retain all 64 bits. Any ABI extension must explicitly extend these semantic comparisons.
 static_assert (sizeof (KirinMeasureResult) == 416 && sizeof (KirinWatchDisplay) == 832);
-static_assert (sizeof (KirinMeterSession) == 840 && sizeof (KirinDelta) == 224);
-static_assert (sizeof (KirinObservatoryFrame) == 1080 && sizeof (KirinMeterHistoryEntry) == 184);
+static_assert (sizeof (KirinMeterSession) == 872 && sizeof (KirinDelta) == 224);
+static_assert (sizeof (KirinObservatoryFrame) == 1112 && sizeof (KirinMeterHistoryEntry) == 184);
 
 template <typename T> bool field (const T& a, const T& b) noexcept
 {
@@ -55,7 +55,8 @@ inline auto key (const KirinMeterSession& v) noexcept
         v.channels, v.balance_state, v.sample_peak_dbfs, v.sample_peak_hold_dbfs,
         v.channel_true_peak_dbtp, v.channel_max_true_peak_dbtp, v.clip_events,
         v.balance_db, v.correlation, v.field_size, v.field_observation_count,
-        v.field_density, v.max_lufs_m);
+        v.field_density, v.max_lufs_m, v.channel_vu_dbfs,
+        v.channel_instant_true_peak_dbtp);
 }
 inline auto key (const KirinMeterHistoryRange& v) noexcept
 {

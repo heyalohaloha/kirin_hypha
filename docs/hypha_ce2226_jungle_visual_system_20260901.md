@@ -126,6 +126,12 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 
 300×200と375×250は同じgeometry規則を使用し、375専用の第三の表示思想を作らない。
 
+DAW Record中だけはCompactの常設面をHybrid VUへ一時置換する。
+この面は選択domainを変更せず、停止時に元の画面へ戻る。
+左右の針は0 VU = -18 dBFSの300 ms平均応答、上段cyan railは左右100 ms True Peak、amber markerはSession最大TPとし、異なる時間尺度を一つの針へ混ぜない。
+下段は選択M/S、TP、Crestの三値を維持し、音種別の推奨帯や品質色を追加しない。
+Record面の低明度菌糸はmeter face下端と外周だけに置き、目盛り、針、数値の負空間を侵食しない。
+
 ### Standard: 450×300 / Full cockpit: 600×400
 
 450×300は詳細な計測面、600×400はCE2226地下観測所のfull cockpitである。
@@ -163,6 +169,10 @@ Mを主線、Sを低彩度の副線とし、TPは連続線を重ねず、runご�
 各100 ms History点はL/R別の新規sample clip run数を保持し、shared plot下端にchannel別pipを置く。hoverでは同じ観測点の相対時刻とL/R件数を表示し、右stripのSession累積値とは範囲を混同しない。
 
 900×600は四domain共通のInspection Viewとし、LEVELではHistory、channel strip、数値階層へ追加面積を与える。TIME、FREQ、SPACEとTIME配下解析も既存の測定事実と操作を変えず高解像度化し、未合意の新指標は載せない。
+
+Hybrid VUは300×200から900×600まで同じ3:2構図を保つ。
+300×200と375×250では補助目盛りを間引き、450×300以上ではVUとTrue Peakの全補助目盛りを出す。
+大サイズは低解像度面のbitmap拡大ではなく、native path、文字、線幅、余白を実boundsから再計算する。
 
 PREとの差分ではΔM、ΔS、ΔTP、ΔCrestを同じ四列geometryで比較する。
 

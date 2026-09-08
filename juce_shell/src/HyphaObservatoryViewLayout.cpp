@@ -19,6 +19,21 @@ void View::resized()
     guideArea = toJuce (layout.guideRail);
     sessionArea = toJuce (layout.session);
     updateControls();
+    if (hybridVuVisible())
+    {
+        bodyArea = getLocalBounds();
+        connectionArea = {};
+        guideArea = {};
+        sessionArea = {};
+        informationButton.setVisible (false);
+        for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
+                              &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
+                              &timeRangeButton, &compactLoudnessButton, &compactRangeButton,
+                              &contextButton, &scaleButton, &sizeButton, &resetButton,
+                              &noteButton, &captureButton })
+            button->setVisible (false);
+        return;
+    }
     if (captureFrame)
         sessionArea.setRight (toJuce (layout.footer).getRight());
     const auto contract = presentationContract (preset);

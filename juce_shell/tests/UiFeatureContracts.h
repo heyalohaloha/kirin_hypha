@@ -17,6 +17,7 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "OsAccessUiContractTest.h"
 #include "HyphaInformationContractTest.h"
+#include "HybridVuContractTest.h"
 #include "ReferenceAccessPanelContractTest.h"
 #include "ObservationEqualityContractTest.h"
 #include "PolylineGeometryContractTest.h"
@@ -30,15 +31,22 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     const bool entryOnly = argc == 2 && std::string_view (argv[1]) == "--product-entry-only";
     const bool updatesOnly = argc == 2 && std::string_view (argv[1]) == "--observation-update-only";
     const bool focusOnly = argc == 2 && std::string_view (argv[1]) == "--spectrum-focus-only";
-    if (argc != 1 && ! entryOnly && ! updatesOnly && ! focusOnly)
+    const bool hybridVuOnly = argc == 2 && std::string_view (argv[1]) == "--hybrid-vu-only";
+    if (argc != 1 && ! entryOnly && ! updatesOnly && ! focusOnly && ! hybridVuOnly)
     {
-        std::cerr << "Usage: KirinUiRenderContractTests [--product-entry-only|--observation-update-only|--spectrum-focus-only]\n";
+        std::cerr << "Usage: KirinUiRenderContractTests [--product-entry-only|"
+                     "--observation-update-only|--spectrum-focus-only|--hybrid-vu-only]\n";
         std::exit (EXIT_FAILURE);
     }
     observation_equality_contract::verify();
     verifyPolylineGeometryContract();
     verifySpectrumResponsiveGeometry();
     if (updatesOnly) return true;
+    if (hybridVuOnly)
+    {
+        verifyHybridVuContract();
+        return true;
+    }
     if (focusOnly)
     {
         std::cout << std::unitbuf << "Starting focused Spectrum contracts\n";
@@ -66,6 +74,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyAbsoluteTimelineContract();
     verifyAbsoluteSpectrumContract();
     verifyPerceptualRenderingContract();
+    verifyHybridVuContract();
     verifyObservatoryViewContract();
     verifyCaptureHistoryContract();
     verifyTimeHistoryContract();

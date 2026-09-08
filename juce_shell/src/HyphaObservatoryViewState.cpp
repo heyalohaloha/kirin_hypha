@@ -26,6 +26,16 @@ void View::setFeedback (juce::String text)
     repaint (sessionArea);
 }
 
+bool View::setHostRecording (bool recording)
+{
+    if (hostRecording == recording)
+        return false;
+    hostRecording = recording;
+    resized();
+    repaint();
+    return true;
+}
+
 int View::timeControlsHeight() const noexcept
 {
     if (selectedDomain != Domain::time) return 0;

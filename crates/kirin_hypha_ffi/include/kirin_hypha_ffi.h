@@ -96,7 +96,7 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_METER_HISTORY_0_1_HZ_CAPACITY 8640u
 #define KIRIN_METER_HISTORY_MAX_ENTRIES 8640u
 
-#define KIRIN_OBSERVATORY_FRAME_VERSION 2u
+#define KIRIN_OBSERVATORY_FRAME_VERSION 3u
 #define KIRIN_LRA_UNAVAILABLE 0u
 #define KIRIN_LRA_WARMING 1u
 #define KIRIN_LRA_READY 2u
@@ -162,9 +162,9 @@ typedef struct {
   uint8_t field_size; /* 0=unavailable, otherwise KIRIN_STEREO_FIELD_SIZE */
   uint8_t field_observation_count; /* rolling 100 ms observations, maximum 30 */
   uint8_t field_reserved[6];
-  /* rolling 3 s MID/SIDE density; row-major top-left, shape-normalized 0..255 */
-  uint8_t field_density[KIRIN_STEREO_FIELD_BINS];
+  uint8_t field_density[KIRIN_STEREO_FIELD_BINS]; /* rolling 3 s MID/SIDE density */
   double max_lufs_m; /* EBU Mode Maximum Momentary through observed_frames */
+  double channel_vu_dbfs[2], channel_instant_true_peak_dbtp[2]; /* 300 ms VU; 100 ms TP */
 } KirinMeterSession;
 
 typedef struct {

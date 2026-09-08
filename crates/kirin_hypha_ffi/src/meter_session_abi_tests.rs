@@ -1,13 +1,22 @@
 use super::*;
+use kirin_measure::BalanceState;
 
 #[test]
 fn snapshot_layout_and_mapping_are_stable() {
-    assert_eq!(std::mem::size_of::<KirinMeterSession>(), 840);
+    assert_eq!(std::mem::size_of::<KirinMeterSession>(), 872);
     assert_eq!(std::mem::offset_of!(KirinMeterSession, field_density), 200);
     assert_eq!(std::mem::offset_of!(KirinMeterSession, max_lufs_m), 832);
+    assert_eq!(
+        std::mem::offset_of!(KirinMeterSession, channel_vu_dbfs),
+        840
+    );
+    assert_eq!(
+        std::mem::offset_of!(KirinMeterSession, channel_instant_true_peak_dbtp),
+        856
+    );
     assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
     assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 184);
-    assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 1080);
+    assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 1112);
     let current = MeasureResult {
         lufs_m: Some(-14.2),
         lufs_s: Some(-14.8),
@@ -34,7 +43,9 @@ fn snapshot_layout_and_mapping_are_stable() {
             sample_peak_dbfs: [Some(-1.0), Some(-2.0)],
             sample_peak_hold_dbfs: [Some(-0.5), Some(-1.5)],
             true_peak_dbtp: [Some(-0.8), Some(-1.8)],
+            instant_true_peak_dbtp: [Some(-0.9), Some(-1.9)],
             max_true_peak_dbtp: [Some(-0.3), Some(-1.3)],
+            vu_dbfs: [Some(-18.0), Some(-20.0)],
             clip_events: [2, 1],
             balance_db: Some(0.75),
             balance_state: BalanceState::Numeric,
@@ -62,6 +73,8 @@ fn snapshot_layout_and_mapping_are_stable() {
     assert_eq!(mapped.channels, 2);
     assert_eq!(mapped.balance_state, KIRIN_BALANCE_NUMERIC);
     assert_eq!(mapped.sample_peak_dbfs, [-1.0, -2.0]);
+    assert_eq!(mapped.channel_vu_dbfs, [-18.0, -20.0]);
+    assert_eq!(mapped.channel_instant_true_peak_dbtp, [-0.9, -1.9]);
     assert_eq!(mapped.clip_events, [2, 1]);
     assert_eq!(mapped.balance_db, 0.75);
     assert_eq!(mapped.correlation, 0.91);
@@ -126,7 +139,9 @@ fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
             sample_peak_dbfs: [None; 2],
             sample_peak_hold_dbfs: [None; 2],
             true_peak_dbtp: [None; 2],
+            instant_true_peak_dbtp: [None; 2],
             max_true_peak_dbtp: [None; 2],
+            vu_dbfs: [None; 2],
             clip_events: [0; 2],
             balance_db: None,
             balance_state: BalanceState::Unavailable,
@@ -197,6 +212,8 @@ fn null_meter_session_calls_fail_closed_without_touching_output() {
         field_reserved: [0; 6],
         field_density: [0; KIRIN_STEREO_FIELD_BINS],
         max_lufs_m: 0.0,
+        channel_vu_dbfs: [0.0; 2],
+        channel_instant_true_peak_dbtp: [0.0; 2],
     };
     assert!(!unsafe { kirin_hypha_poll_meter_session(std::ptr::null_mut(), &mut out) });
     let mut history_count = 41_u32;

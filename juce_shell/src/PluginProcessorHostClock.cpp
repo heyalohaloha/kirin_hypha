@@ -2,9 +2,14 @@
 #include "HyphaClockSourceContract.h"
 #include <limits>
 
+static_assert (std::atomic<bool>::is_always_lock_free
+               && std::atomic<std::uint64_t>::is_always_lock_free,
+               "Audio Thread host-state notifications must remain lock-free");
+
 hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
 {
     bool playing = false;
+    bool recording = false;
     bool hasPosition = false;
     uint8_t clockSource = KIRIN_HYPHA_CLOCK_UNKNOWN;
     int64_t positionSamples = 0;
@@ -20,6 +25,7 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
         if (const auto pos = ph->getPosition())
         {
             playing = pos->getIsPlaying();
+            recording = pos->getIsRecording();
             if (const auto timeSamples = pos->getTimeInSamples())
             {
                 hasPosition = true;
@@ -56,6 +62,8 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
                                      outputPresentationValid, outputPresentationSamples);
            #endif
         }
+    lastHostRecording.store (recording, std::memory_order_release);
+    hostProcessHeartbeat.fetch_add (1u, std::memory_order_release);
     // JUCE exposes loop points in PPQ, not the exact exported WAV sample range. Do not
     // promote those values to wav_clock_native; render span remains a lower-trust fallback
     // until a host-supplied native sample range exists.

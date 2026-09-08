@@ -45,6 +45,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void visibilityChanged() override;
 
 private:
     class PairMenuLookAndFeel final : public juce::LookAndFeel_V4
@@ -186,6 +187,8 @@ private:
     bool pairedPreExplicitlyBypassed = false; // updated only from a successful exact delta poll
     KirinRecordDisplay cachedRecordDisplay {};
     bool haveRecordDisplay = false;
+    std::uint64_t observedHostProcessHeartbeat = 0;
+    double observedHostProcessHeartbeatAt = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaEditor)
 };

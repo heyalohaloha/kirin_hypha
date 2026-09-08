@@ -390,8 +390,8 @@ void KirinHyphaEditor::resized()
     guideConnectButton.setBounds (observatoryView.guideBounds());
     feedbackLabel.setBounds (observatoryView.sessionBounds());
     feedbackLabel.toFront (false);
+    if (observatoryView.hybridVuVisible()) observatoryView.toFront (false);
 }
-
 void KirinHyphaEditor::layoutMetrics (bool)
 {
     for (int i = 0; i < 6; ++i)

@@ -286,6 +286,10 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(processor.contains("setObservatoryEditorSizePreference"));
     assert!(processor.contains("editorSizeFromState"));
     assert!(processor.contains("packEditorSize"));
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp")
+        + &read_repo("juce_shell/src/PluginEditorObservatory.cpp");
+    assert!(editor.contains("void KirinHyphaEditor::visibilityChanged()"));
+    assert!(editor.contains("commitEditorSizeStateIfSettled (true)"));
 
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     let post_only_branch = slice_between(
