@@ -18,13 +18,7 @@ fn sine_observation(left_peak: f64, right_peak: f64) -> Vec<f64> {
 }
 
 fn phase_observation(inverse: bool) -> Vec<f64> {
-    let mut result = sine_observation(0.5, 0.5);
-    if inverse {
-        for frame in result.chunks_exact_mut(2) {
-            frame[1] = -frame[1];
-        }
-    }
-    result
+    sine_observation(0.5, if inverse { -0.5 } else { 0.5 })
 }
 
 #[test]
