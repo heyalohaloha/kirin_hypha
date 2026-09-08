@@ -1,7 +1,7 @@
 # PRE/POST Blind の実装状況
 
 更新日: 2026-09-08
-対象: B-719〜B-724、B-743〜B-747、B-751〜B-758
+対象: B-719〜B-724、B-743〜B-747、B-751〜B-759
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
@@ -252,6 +252,13 @@ B-758では、Local Blind要求の引数列を変更しても旧Rust staticlib�
 これらのcounterと4秒取得はDebug限定である。
 PRE／POSTの製品名から開く通常の情報入口は、version、format／OS、source state、公式更新先、release notes、hover helpを両format共通で常設する。
 macOS VST3の96 kHz実測曲は準備したが、同一区間比較の結果はまだ取得していないためB1成立の証拠には数えない。
+
+同曲の初回取得では、短い再生は`lane transport`、再試行は十分なAudio Thread callback後に`expired`で終了した。
+比較前の失敗であり、PDC残差の結果ではない。
+B-759では15秒leaseを新規ownerの受付／armだけに適用し、期限前のPRE armed証拠と現pair claimへ固定された完了PCMは、低優先度serviceが期限後に観測してもfinalizeできるようにした。
+期限後の新規arm、未完了capture、arm証拠なし、pair変更は引き続き拒否する。
+対象Rust 8件、C++ capture／service 2件、FFI clippy、source line budgetはpassした。
+macOS VST3の最終比較はB-759候補を再配置して実測するまで未完了である。
 
 LS アップ用: skip。
 HP アップ用: macOS skip、Windows skip。

@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::local_blind_capture_protocol::LocalBlindCaptureRequest;
+use crate::local_blind_capture_protocol::{
+    active_capture_result_was_armed, LocalBlindCaptureRequest,
+};
 
 const BLOB_MAGIC: &[u8; 16] = b"KIRINLBPCMv1\0\0\0\0";
 const HEADER_LENGTH_BYTES: usize = 4;
@@ -106,7 +108,7 @@ pub fn publish_local_blind_pre_capture(
     interleaved: &[f32],
     now_unix_ms: i64,
 ) -> io::Result<LocalBlindPreCaptureReceipt> {
-    if !request.valid_for_pre_instance(kirin_root, instance_dir, now_unix_ms) {
+    if !active_capture_result_was_armed(kirin_root, instance_dir, request, now_unix_ms) {
         return Err(invalid("Local Blind PRE capture lost exact pair authority"));
     }
     let sample_count = expected_sample_count(request)
@@ -160,7 +162,7 @@ pub fn read_local_blind_pre_capture(
     request: &LocalBlindCaptureRequest,
     now_unix_ms: i64,
 ) -> Option<LocalBlindPreCapture> {
-    if !request.valid_for_pre_instance(kirin_root, instance_dir, now_unix_ms) {
+    if !active_capture_result_was_armed(kirin_root, instance_dir, request, now_unix_ms) {
         return None;
     }
     let expected_pcm_bytes = usize::try_from(expected_sample_count(request)?)
@@ -184,7 +186,7 @@ pub fn publish_local_blind_pre_capture_consumed(
     pcm_sha256: &str,
     now_unix_ms: i64,
 ) -> io::Result<()> {
-    if !request.valid_for_pre_instance(kirin_root, instance_dir, now_unix_ms) {
+    if !active_capture_result_was_armed(kirin_root, instance_dir, request, now_unix_ms) {
         return Err(invalid(
             "Local Blind PRE acknowledgement lost exact pair authority",
         ));
@@ -202,7 +204,7 @@ pub fn local_blind_pre_capture_was_consumed(
     pcm_sha256: &str,
     now_unix_ms: i64,
 ) -> bool {
-    if !request.valid_for_pre_instance(kirin_root, instance_dir, now_unix_ms) {
+    if !active_capture_result_was_armed(kirin_root, instance_dir, request, now_unix_ms) {
         return false;
     }
     read_bounded(&consumed_path(instance_dir, request), HEADER_MAX_BYTES)

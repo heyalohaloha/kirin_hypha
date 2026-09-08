@@ -5,7 +5,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
 
 use kirin_measure::local_blind_capture_protocol::{
-    read_validated_local_blind_capture_request, LocalBlindCaptureRequest,
+    read_validated_local_blind_capture_request_for_active_result, LocalBlindCaptureRequest,
 };
 use kirin_measure::local_blind_capture_result::{
     local_blind_pre_capture_was_consumed, publish_local_blind_pre_capture,
@@ -69,7 +69,7 @@ impl KirinHyphaEngine {
         let instance_dir = root
             .join(&authority.pre_project_hash)
             .join(&authority.pre_instance_id);
-        let request = read_validated_local_blind_capture_request(
+        let request = read_validated_local_blind_capture_request_for_active_result(
             &root,
             &instance_dir,
             &authority.pre_project_hash,
@@ -176,7 +176,8 @@ pub unsafe extern "C" fn kirin_hypha_publish_local_blind_pre_capture(
             return false;
         }
         let request_id = unsafe { crate::read_c_str(request_id) };
-        let Some(request) = (unsafe { &*handle }).read_local_blind_capture_request_for_pre() else {
+        let Some(request) = (unsafe { &*handle }).read_local_blind_capture_request_for_active_pre()
+        else {
             return false;
         };
         if request.request_id != request_id {
@@ -317,7 +318,7 @@ pub unsafe extern "C" fn kirin_hypha_local_blind_pre_capture_was_consumed(
             return false;
         };
         let engine = unsafe { &*handle };
-        let Some(request) = engine.read_local_blind_capture_request_for_pre() else {
+        let Some(request) = engine.read_local_blind_capture_request_for_active_pre() else {
             return false;
         };
         if request.request_id != request_id {

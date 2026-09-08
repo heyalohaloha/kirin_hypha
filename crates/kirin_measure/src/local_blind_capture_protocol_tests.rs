@@ -109,6 +109,35 @@ fn exact_pair_request_and_armed_echo_round_trip_without_names_or_host_context() 
     assert_eq!(armed.capture_generation, 22);
     assert_eq!(armed.clock_generation, 33);
     assert_eq!(armed.request_sha256.len(), 64);
+
+    assert!(read_validated_local_blind_capture_request(
+        fixture.root.path(),
+        &fixture.pre_dir,
+        "pre-project",
+        "pre-a",
+        48_000,
+        2,
+        11_001,
+    )
+    .is_none());
+    assert_eq!(
+        read_validated_local_blind_capture_request_for_active_result(
+            fixture.root.path(),
+            &fixture.pre_dir,
+            "pre-project",
+            "pre-a",
+            48_000,
+            2,
+            11_001,
+        ),
+        Some(request)
+    );
+    assert!(active_capture_result_was_armed(
+        fixture.root.path(),
+        &fixture.pre_dir,
+        &read,
+        11_001,
+    ));
 }
 
 #[test]
@@ -155,6 +184,12 @@ fn released_pair_invalidates_an_already_published_request() {
         1_002,
     )
     .is_none());
+    assert!(!active_capture_result_was_armed(
+        fixture.root.path(),
+        &fixture.pre_dir,
+        &request,
+        11_001,
+    ));
 }
 
 #[test]

@@ -76,10 +76,16 @@ public:
                 && currentPhase() != CaptureOwnerPhase::complete
                 && currentPhase() != CaptureOwnerPhase::retired))
             return;
-        if (expired (nowUnixMs)) { fail (CaptureOwnerFailure::expired); return; }
+        // Observe the Audio Thread's terminal fact before applying the admission deadline. A
+        // completed exact range remains valid for non-RT finalization after that deadline.
+        if (currentPhase() == CaptureOwnerPhase::capturing)
+            observeCapture();
+        if (currentPhase() == CaptureOwnerPhase::failed)
+            return;
+        if (currentPhase() == CaptureOwnerPhase::capturing && expired (nowUnixMs))
+        { fail (CaptureOwnerFailure::expired); return; }
         if (liveRequest == nullptr || *liveRequest != *request)
         { fail (CaptureOwnerFailure::stalePair); return; }
-        observeCapture();
     }
 
     void servicePost (bool peerArmed, const ExactPairBinding* livePair,
@@ -88,7 +94,7 @@ public:
     {
         if (side != CaptureSide::post || ! request)
             return;
-        const auto current = currentPhase();
+        auto current = currentPhase();
         if (current != CaptureOwnerPhase::awaitingPeer
             && current != CaptureOwnerPhase::capturing
             && current != CaptureOwnerPhase::complete
@@ -100,19 +106,26 @@ public:
                 fail (CaptureOwnerFailure::stalePair);
             return;
         }
-        if (expired (nowUnixMs)) { fail (CaptureOwnerFailure::expired); return; }
+        if (current == CaptureOwnerPhase::capturing)
+        {
+            observeCapture();
+            current = currentPhase();
+        }
+        if (current == CaptureOwnerPhase::failed)
+            return;
         if (livePair == nullptr || *livePair != request->pair)
         { fail (CaptureOwnerFailure::stalePair); return; }
-        if (current != CaptureOwnerPhase::awaitingPeer && ! peerArmed)
-        { fail (CaptureOwnerFailure::peerRejected); return; }
         if (current == CaptureOwnerPhase::awaitingPeer)
         {
+            if (expired (nowUnixMs)) { fail (CaptureOwnerFailure::expired); return; }
             if (! peerArmed)
                 return;
             if (! lane.arm (*request, sampleRate, channels, nowUnixMs, byteBudget (*request)))
             { fail (CaptureOwnerFailure::armRejected); return; }
             phase.store (CaptureOwnerPhase::capturing, std::memory_order_release);
         }
+        else if (current == CaptureOwnerPhase::capturing && expired (nowUnixMs))
+        { fail (CaptureOwnerFailure::expired); return; }
         observeCapture();
     }
 

@@ -1,6 +1,6 @@
 # B1 ホスト実機観測と取得失敗の診断
 
-更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754〜B-758追記。
+更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754〜B-759追記。
 
 ローカルPRE/POST Blindは、Windows Studio ProのVST3についてB1の同一区間取得と時刻整列を実証した。
 4096 samplesの既知遅延を挟んだ4秒の取得でPRE／POST PCMがbit一致し、推定残差は0 samplesだった。
@@ -110,6 +110,16 @@ crash reportは`Downloads/Hypha_PDC_Evidence_20260908/macos-vst3/Studio One-2026
 通常buildのAudio Threadにはこの診断counterを含めず、PRE／POST製品名から開くversion、format、source、公式更新先、release notes、hover helpの情報入口だけを常設する。
 4秒取得、host clock、callback回数、PDC比較は引き続きDebugの明示操作に限定する。
 
+macOS Studio Pro 8.1.2、VST3、96 kHz、stereo、nominal block 2048でPRE、4096-sample validation delay、POSTを同一trackへ挿入し、POSTからexact PREを明示選択した。
+最初の取得は停止時に`capture failed / lane transport`となり、POST所有callback 215、最終所有位置49,920 samplesで、4秒範囲の完了前だった。
+再試行ではPOST所有callbackが累計909、最終所有位置1,815,296 samplesまで進んだが、非RT serviceが`expired / lane none`を保持した。
+この段階では比較結果が生成されていないため、PDC不一致とは判定しない。
+
+B-759で、15秒のwall-clock leaseを新しいownerの受付／arm期限として限定した。
+Audio Threadがexact native範囲を完了している場合は、そのterminal factを期限判定より先に回収し、期限前のPRE armed証拠、request digest、現pair claim、全世代、範囲、形式、PCM hashが一致する間だけ非RT finalizationを続ける。
+未完了のcaptureは期限後に失敗し、pair変更、transport停止、clock変更、不正receiptも従来どおり失敗する。
+これにより期限を延ばさず、受付前の古いrequestから新規captureを開始させず、完了済みPCMだけをscheduler遅延から保護する。
+
 同じ保存済みchainをB-757のDebug PRE／POSTで再読込みし、Studio Pro上で実行した結果は次のとおりだった。
 
 | 観測項目 | 結果 |
@@ -134,6 +144,7 @@ crash reportは`Downloads/Hypha_PDC_Evidence_20260908/macos-vst3/Studio One-2026
 - Windows実機：PREとPOSTの両方でprovider `none`、hooks 1 / 1、query 15 / context 2、通知4を確認した。
 - Windows Studio Pro PDC実機：4096-sample validation delayを挟んだ192,000-frame stereo取得がbit一致し、推定残差0 samples、zero RMS error 0だった。
 - 失敗保持の対象native試験：macOSとWindowsでpass。POSTの`stalePair`と`receiptRejected`が明示resetまで失われないことを確認した。
+- B-759期限境界の対象試験：完了済みPRE／POSTは受付期限後も同一pairへfinalizeでき、未完了capture、PRE arm証拠なし、pair解放はfail-closedになることを確認した。
 - Windows復旧：Studio Proを終了し、B-726のPRE／POST配置と検証曲を元のhashへ戻した。validation delay、一時task、補助scriptが残っていないことも確認した。
 - source行数制限と`git diff --check`：pass。
 - release source contract：1回実行してpass。native表示4件、`kirin_measure`、`kirin_hypha_ffi` 73件、`xtask` 137件、owned clippyを含む。
@@ -159,7 +170,8 @@ OneDriveの容量100%通知も表示されたが、アカウントや同期設�
    B-756でDebugだけの明示取得、完成後比較、既知4096-sample遅延VST3を用意した。
    B-757でWindows Studio ProのVST3は、既知4096-sample遅延を挟んだ同一4秒範囲のbit一致と残差0 sampleを実証した。
    optionalなhost通知がなくても内部事実で対応区間を証明できることを確認した。
-   次は同じハーネスでmacOS VST3／AUを確認し、証明できない取得だけを開始不可にする。
+   macOS VST3の初回実測で完了後の非RT回収が受付期限に負ける境界を特定し、B-759で受付期限とfinalizationを分離した。
+   次はB-759のDebug VST3を同じ保存済み96 kHz曲で再確認し、その後AUを確認する。証明できない取得だけを開始不可にする。
 3. Blind、Reference、Keep / All Keep、Recordの競合はHypha自身の共有leaseで調停する。
    DAWのtrack名、PID、host固有IDからroutingや未知の参加者を推測しない。
 4. Windows VST3の確認済み条件を正本とし、macOS VST3／AUで明示pair、同一区間、既知遅延の残差0 sampleを同じ条件で確認する。

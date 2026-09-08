@@ -7,7 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kirin_measure::local_blind_capture_protocol::{
     publish_local_blind_capture_armed, publish_local_blind_capture_request,
     read_matching_local_blind_capture_armed, read_validated_local_blind_capture_request,
-    LocalBlindCaptureRequest, LocalBlindPairAuthority, LOCAL_BLIND_CAPTURE_LEASE_MS,
+    read_validated_local_blind_capture_request_for_active_result, LocalBlindCaptureRequest,
+    LocalBlindPairAuthority, LOCAL_BLIND_CAPTURE_LEASE_MS,
 };
 use kirin_measure::{PlatformPaths, PluginDataRole};
 
@@ -149,6 +150,28 @@ impl KirinHyphaEngine {
         )
     }
 
+    pub(crate) fn read_local_blind_capture_request_for_active_pre(
+        &self,
+    ) -> Option<LocalBlindCaptureRequest> {
+        if !self.is_local_blind_role(PluginDataRole::Pre) {
+            return None;
+        }
+        let identity = self.identity_snapshot();
+        let root = PlatformPaths::current_kirin_tmp_root();
+        let instance_dir = root
+            .join(&identity.project_hash)
+            .join(&identity.instance_id);
+        read_validated_local_blind_capture_request_for_active_result(
+            &root,
+            &instance_dir,
+            &identity.project_hash,
+            &identity.instance_id,
+            self.sample_rate,
+            u8::try_from(self.num_channels).ok()?,
+            unix_ms_now()?,
+        )
+    }
+
     fn acknowledge_local_blind_capture_request(&self, request_id: &str) -> bool {
         let Some(now_unix_ms) = unix_ms_now() else {
             return false;
@@ -277,7 +300,8 @@ pub unsafe extern "C" fn kirin_hypha_issue_local_blind_capture_request_v2(
     .unwrap_or(false)
 }
 
-/// Read the currently valid request addressed to this exact PRE.
+/// Read the immutable request addressed to this exact PRE. The C++ owner applies the admission
+/// deadline before arming and retains this identity only while finalizing that accepted capture.
 ///
 /// # Safety
 ///
@@ -292,7 +316,8 @@ pub unsafe extern "C" fn kirin_hypha_poll_local_blind_capture_request(
         if handle.is_null() || out.is_null() {
             return false;
         }
-        let Some(request) = (unsafe { (*handle).read_local_blind_capture_request_for_pre() })
+        let Some(request) =
+            (unsafe { (*handle).read_local_blind_capture_request_for_active_pre() })
         else {
             return false;
         };

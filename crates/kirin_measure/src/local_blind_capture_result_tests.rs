@@ -1,5 +1,8 @@
 use super::*;
-use crate::local_blind_capture_protocol::{LocalBlindCaptureRequest, LocalBlindPairAuthority};
+use crate::local_blind_capture_protocol::{
+    publish_local_blind_capture_armed, publish_local_blind_capture_request,
+    LocalBlindCaptureRequest, LocalBlindPairAuthority,
+};
 use crate::PairOwnershipLease;
 
 struct Fixture {
@@ -11,6 +14,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::new_with_armed(true)
+    }
+
+    fn new_with_armed(armed: bool) -> Self {
         let root = tempfile::tempdir().unwrap();
         let pre_dir = root.path().join("pre-project").join("pre-a");
         std::fs::create_dir_all(&pre_dir).unwrap();
@@ -52,6 +59,10 @@ impl Fixture {
             10_000,
         )
         .unwrap();
+        publish_local_blind_capture_request(root.path(), &pre_dir, &request).unwrap();
+        if armed {
+            publish_local_blind_capture_armed(root.path(), &pre_dir, &request, 1_001).unwrap();
+        }
         Self {
             root,
             pre_dir,
@@ -59,6 +70,19 @@ impl Fixture {
             _lease: lease,
         }
     }
+}
+
+#[test]
+fn result_transport_requires_the_exact_pre_arm_proof() {
+    let fixture = Fixture::new_with_armed(false);
+    assert!(publish_local_blind_pre_capture(
+        fixture.root.path(),
+        &fixture.pre_dir,
+        &fixture.request,
+        &pcm(),
+        11_001,
+    )
+    .is_err());
 }
 
 fn pcm() -> Vec<f32> {
@@ -181,7 +205,7 @@ fn immutable_identity_rejects_different_pcm_and_tampering() {
 }
 
 #[test]
-fn malformed_missing_expired_and_stale_pair_results_fail_closed() {
+fn malformed_missing_and_stale_pair_results_fail_closed_after_admission() {
     let fixture = Fixture::new();
     let source = pcm();
     for invalid_source in [source[..source.len() - 1].to_vec(), {
@@ -218,14 +242,22 @@ fn malformed_missing_expired_and_stale_pair_results_fail_closed() {
     )
     .is_none());
     std::fs::remove_file(oversized_path).unwrap();
-    assert!(publish_local_blind_pre_capture(
+    let completed_after_admission = publish_local_blind_pre_capture(
         fixture.root.path(),
         &fixture.pre_dir,
         &fixture.request,
         &source,
         11_001,
     )
-    .is_err());
+    .expect("an admitted exact capture may finalize after its admission deadline");
+    assert!(read_local_blind_pre_capture(
+        fixture.root.path(),
+        &fixture.pre_dir,
+        &fixture.request,
+        11_002,
+    )
+    .is_some());
+    assert!(canonical_sha256(&completed_after_admission.pcm_sha256));
 
     fixture
         ._lease
