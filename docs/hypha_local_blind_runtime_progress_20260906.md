@@ -1,7 +1,7 @@
 # PRE/POST Blind の実装状況
 
-更新日: 2026-09-08
-対象: B-719〜B-724、B-743〜B-747、B-751〜B-759
+更新日: 2026-09-09
+対象: B-719〜B-724、B-743〜B-747、B-751〜B-760
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
@@ -258,7 +258,10 @@ macOS VST3の96 kHz実測曲は準備したが、同一区間比較の結果は�
 B-759では15秒leaseを新規ownerの受付／armだけに適用し、期限前のPRE armed証拠と現pair claimへ固定された完了PCMは、低優先度serviceが期限後に観測してもfinalizeできるようにした。
 期限後の新規arm、未完了capture、arm証拠なし、pair変更は引き続き拒否する。
 対象Rust 8件、C++ capture／service 2件、FFI clippy、source line budgetはpassした。
-macOS VST3の最終比較はB-759候補を再配置して実測するまで未完了である。
+B-759のmacOS再実測ではPOSTの384,000-frame取得は完了したが、PREの成功PCMも失敗理由も届かず、比較前の`complete`で待機した。
+B-760はPRE lane失敗をexact requestに固定したterminal artifactで返し、完成PCMの公開も20回の連続失敗でterminal化する。
+POSTはこの失敗を読み取って待機を終え、PREが結果を一切返さない場合もcapture完了から30秒の独立したfinalization期限で失敗を確定し、明示resetまで理由を保持する。
+macOS VST3の最終比較はB-760候補の一度の再実測でPRE側の具体的な失敗理由を回収し、その原因を解消するまで未完了である。
 
 LS アップ用: skip。
 HP アップ用: macOS skip、Windows skip。

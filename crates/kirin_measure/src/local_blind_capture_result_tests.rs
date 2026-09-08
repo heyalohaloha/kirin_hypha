@@ -85,6 +85,107 @@ fn result_transport_requires_the_exact_pre_arm_proof() {
     .is_err());
 }
 
+#[test]
+fn exact_pre_failure_round_trips_after_admission_deadline() {
+    let fixture = Fixture::new();
+    publish_local_blind_pre_capture_failure(
+        fixture.root.path(),
+        &fixture.pre_dir,
+        &fixture.request,
+        6,
+        7,
+        11_001,
+    )
+    .unwrap();
+    let failure = read_local_blind_pre_capture_failure(
+        fixture.root.path(),
+        &fixture.pre_dir,
+        &fixture.request,
+        11_002,
+    )
+    .expect("matching terminal PRE failure");
+    assert_eq!(failure.request_id, fixture.request.request_id);
+    assert_eq!(failure.owner_failure, 6);
+    assert_eq!(failure.capture_failure, 7);
+}
+
+#[test]
+fn pre_failure_rejects_unarmed_invalid_and_mismatched_requests() {
+    let unarmed = Fixture::new_with_armed(false);
+    assert!(publish_local_blind_pre_capture_failure(
+        unarmed.root.path(),
+        &unarmed.pre_dir,
+        &unarmed.request,
+        6,
+        1,
+        1_002,
+    )
+    .is_err());
+
+    let fixture = Fixture::new();
+    for (owner, lane) in [(0, 0), (8, 0), (2, 1), (6, 8)] {
+        assert!(publish_local_blind_pre_capture_failure(
+            fixture.root.path(),
+            &fixture.pre_dir,
+            &fixture.request,
+            owner,
+            lane,
+            1_002,
+        )
+        .is_err());
+    }
+    let mut changed = fixture.request.clone();
+    changed.capture_generation += 1;
+    assert!(read_local_blind_pre_capture_failure(
+        fixture.root.path(),
+        &fixture.pre_dir,
+        &changed,
+        1_003,
+    )
+    .is_none());
+}
+
+#[test]
+fn one_request_cannot_publish_both_terminal_results() {
+    let failed = Fixture::new();
+    publish_local_blind_pre_capture_failure(
+        failed.root.path(),
+        &failed.pre_dir,
+        &failed.request,
+        6,
+        7,
+        1_002,
+    )
+    .unwrap();
+    assert!(publish_local_blind_pre_capture(
+        failed.root.path(),
+        &failed.pre_dir,
+        &failed.request,
+        &pcm(),
+        1_003,
+    )
+    .is_err());
+
+    let completed = Fixture::new();
+    publish_local_blind_pre_capture(
+        completed.root.path(),
+        &completed.pre_dir,
+        &completed.request,
+        &pcm(),
+        1_002,
+    )
+    .unwrap();
+    assert!(publish_local_blind_pre_capture_failure(
+        completed.root.path(),
+        &completed.pre_dir,
+        &completed.request,
+        6,
+        7,
+        1_003,
+    )
+    .is_err());
+}
+
 fn pcm() -> Vec<f32> {
     vec![
         0.0, -0.0, 0.25, -0.75, 1.0, -1.0, 0.125, 0.5, -0.1, 0.2, 0.3, -0.4,

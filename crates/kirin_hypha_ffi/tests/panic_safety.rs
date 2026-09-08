@@ -16,12 +16,14 @@ use kirin_hypha_ffi::{
     kirin_hypha_local_blind_pre_capture_was_consumed, kirin_hypha_pair_status,
     kirin_hypha_poll_local_blind_capture_request, kirin_hypha_poll_record_display,
     kirin_hypha_poll_result, kirin_hypha_poll_session, kirin_hypha_publish_local_blind_pre_capture,
-    kirin_hypha_push_samples, kirin_hypha_read_local_blind_pre_capture,
+    kirin_hypha_publish_local_blind_pre_capture_failure, kirin_hypha_push_samples,
+    kirin_hypha_read_local_blind_pre_capture, kirin_hypha_read_local_blind_pre_capture_failure,
     kirin_hypha_restore_pair_candidate, kirin_hypha_retire_local_blind_pre_capture,
     kirin_hypha_select_pair_candidate, kirin_hypha_set_host_component_active,
     kirin_hypha_set_signal_state, KirinExactPairBinding, KirinLegacyNihState,
-    KirinLocalBlindCaptureRequest, KirinLocalBlindPreCaptureReceipt, KirinMeasureResult,
-    KirinPostPairClaim, KirinRecordDisplay, KirinSessionSummary,
+    KirinLocalBlindCaptureRequest, KirinLocalBlindPreCaptureFailure,
+    KirinLocalBlindPreCaptureReceipt, KirinMeasureResult, KirinPostPairClaim, KirinRecordDisplay,
+    KirinSessionSummary,
 };
 
 #[test]
@@ -167,6 +169,23 @@ fn null_handle_calls_are_safe_noops() {
         ));
         assert_eq!(sample.to_bits(), 123.0f32.to_bits());
         assert_eq!(capture_receipt.pair_generation, 91);
+        let mut capture_failure = KirinLocalBlindPreCaptureFailure {
+            owner_failure: 91,
+            capture_failure: 92,
+        };
+        assert!(!kirin_hypha_publish_local_blind_pre_capture_failure(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            6,
+            7,
+        ));
+        assert!(!kirin_hypha_read_local_blind_pre_capture_failure(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            &mut capture_failure,
+        ));
+        assert_eq!(capture_failure.owner_failure, 91);
+        assert_eq!(capture_failure.capture_failure, 92);
         assert!(!kirin_hypha_ack_local_blind_pre_capture(
             std::ptr::null_mut(),
             &capture_receipt,

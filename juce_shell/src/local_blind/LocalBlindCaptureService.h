@@ -20,6 +20,7 @@ struct CaptureServiceHooks
     std::function<bool (ExactPairBinding&)> currentPostPair;
     std::function<bool (const ExactCaptureRequest&, const CaptureReceipt&,
                         const std::vector<float>&, std::string&)> publishPreCapture;
+    std::function<bool (const ExactCaptureRequest&, CaptureOwnerView)> publishPreFailure;
     struct ImportedPreCapture
     {
         CaptureReceipt receipt;
@@ -27,6 +28,7 @@ struct CaptureServiceHooks
         std::string pcmSha256;
     };
     std::function<bool (const ExactCaptureRequest&, ImportedPreCapture&)> readPreCapture;
+    std::function<bool (const ExactCaptureRequest&, CaptureOwnerView&)> readPreFailure;
     std::function<bool (const ExactCaptureRequest&, const std::string&)> acknowledgePreCapture;
     std::function<bool (const ExactCaptureRequest&, const std::string&)> preCaptureConsumed;
     std::function<void (const ExactCaptureRequest&)> retirePreCapture;
@@ -38,7 +40,8 @@ struct CaptureServiceHooks
 class LocalBlindCaptureService final : private juce::TimeSliceClient
 {
 public:
-    LocalBlindCaptureService (CaptureSide, CaptureServiceHooks);
+    LocalBlindCaptureService (CaptureSide, CaptureServiceHooks,
+                              std::int64_t finalizationTimeoutMs = 30'000);
     ~LocalBlindCaptureService() override;
 
     void start (std::uint32_t sampleRate, int channels);
@@ -89,6 +92,7 @@ private:
 
     const CaptureSide side;
     const CaptureServiceHooks hooks;
+    const std::int64_t finalizationTimeoutMs;
     LocalBlindCaptureOwner owner;
     std::uint32_t preparedSampleRate = 0;
     int preparedChannels = 0;
@@ -106,6 +110,9 @@ private:
     bool preReceiptAccepted = false;
     bool preAcknowledged = false;
     bool prePublished = false;
+    bool preFailurePublished = false;
+    unsigned int prePublishFailures = 0;
+    std::int64_t postCompletedAtUnixMs = 0;
     std::string prePublishedSha256;
 #if JUCE_DEBUG
     mutable juce::CriticalSection comparisonLock;

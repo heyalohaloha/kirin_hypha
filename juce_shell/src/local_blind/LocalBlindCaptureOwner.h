@@ -15,14 +15,14 @@ enum class CaptureOwnerPhase : unsigned char
 };
 enum class CaptureOwnerFailure : unsigned char
 {
-    none,
-    invalidRequest,
-    expired,
-    peerRejected,
-    stalePair,
-    armRejected,
-    captureFailed,
-    receiptRejected
+    none = 0,
+    invalidRequest = 1,
+    expired = 2,
+    peerRejected = 3,
+    stalePair = 4,
+    armRejected = 5,
+    captureFailed = 6,
+    receiptRejected = 7
 };
 
 struct CaptureOwnerView
@@ -163,6 +163,18 @@ public:
             return false;
         phase.store (CaptureOwnerPhase::paired, std::memory_order_release);
         return true;
+    }
+
+    void rejectPreFailure (CaptureOwnerFailure peerFailure,
+                           CaptureFailure peerCaptureFailure) noexcept
+    {
+        if (side != CaptureSide::post || currentPhase() == CaptureOwnerPhase::paired
+            || peerFailure == CaptureOwnerFailure::none)
+            return;
+        captureFailure.store (peerCaptureFailure, std::memory_order_relaxed);
+        fail (peerFailure == CaptureOwnerFailure::captureFailed
+                  ? CaptureOwnerFailure::captureFailed
+                  : CaptureOwnerFailure::peerRejected);
     }
 
     void rejectReceipt() noexcept { fail (CaptureOwnerFailure::receiptRejected); }

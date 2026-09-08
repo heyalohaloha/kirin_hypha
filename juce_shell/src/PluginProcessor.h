@@ -140,9 +140,15 @@ public:
         const hypha::local_blind::ExactCaptureRequest&,
         const hypha::local_blind::CaptureReceipt&, const std::vector<float>&,
         std::string& pcmSha256) const;
+    bool publishLocalBlindPreFailure (
+        const hypha::local_blind::ExactCaptureRequest&,
+        hypha::local_blind::CaptureOwnerView) const;
     bool readLocalBlindPreCapture (
         const hypha::local_blind::ExactCaptureRequest&,
         hypha::local_blind::CaptureServiceHooks::ImportedPreCapture&) const;
+    bool readLocalBlindPreFailure (
+        const hypha::local_blind::ExactCaptureRequest&,
+        hypha::local_blind::CaptureOwnerView&) const;
     bool acknowledgeLocalBlindPreCapture (
         const hypha::local_blind::ExactCaptureRequest&, const std::string& pcmSha256) const;
     bool localBlindPreCaptureWasConsumed (

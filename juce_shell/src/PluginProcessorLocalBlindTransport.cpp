@@ -9,6 +9,10 @@
 namespace
 {
 using namespace hypha::local_blind;
+static_assert (sizeof (KirinLocalBlindPreCaptureFailure) == 2);
+static_assert (static_cast<unsigned char> (CaptureOwnerFailure::captureFailed) == 6);
+static_assert (static_cast<unsigned char> (CaptureOwnerFailure::receiptRejected) == 7);
+static_assert (static_cast<unsigned char> (CaptureFailure::clock) == 7);
 
 template <std::size_t Capacity>
 std::string fixedString (const char (&source)[Capacity])
@@ -124,6 +128,22 @@ bool KirinHyphaProcessorBase::publishLocalBlindPreCapture (
     return true;
 }
 
+bool KirinHyphaProcessorBase::publishLocalBlindPreFailure (
+    const hypha::local_blind::ExactCaptureRequest& request,
+    hypha::local_blind::CaptureOwnerView failure) const
+{
+    using namespace hypha::local_blind;
+    if (failure.phase != CaptureOwnerPhase::failed
+        || failure.failure == CaptureOwnerFailure::none)
+        return false;
+    const juce::ScopedLock lock (handleLock);
+    return role == Role::Pre && hyphaHandle != nullptr
+        && kirin_hypha_publish_local_blind_pre_capture_failure (
+            hyphaHandle, request.requestId.c_str(),
+            static_cast<std::uint8_t> (failure.failure),
+            static_cast<std::uint8_t> (failure.captureFailure));
+}
+
 bool KirinHyphaProcessorBase::readLocalBlindPreCapture (
     const hypha::local_blind::ExactCaptureRequest& request,
     hypha::local_blind::CaptureServiceHooks::ImportedPreCapture& imported) const
@@ -151,6 +171,31 @@ bool KirinHyphaProcessorBase::readLocalBlindPreCapture (
     imported.receipt = decoded;
     imported.capture = std::move (capture);
     imported.pcmSha256 = std::move (sha256);
+    return true;
+}
+
+bool KirinHyphaProcessorBase::readLocalBlindPreFailure (
+    const hypha::local_blind::ExactCaptureRequest& request,
+    hypha::local_blind::CaptureOwnerView& failure) const
+{
+    using namespace hypha::local_blind;
+    KirinLocalBlindPreCaptureFailure encoded {};
+    {
+        const juce::ScopedLock lock (handleLock);
+        if (role != Role::Post || hyphaHandle == nullptr
+            || ! kirin_hypha_read_local_blind_pre_capture_failure (
+                hyphaHandle, request.requestId.c_str(), &encoded))
+            return false;
+    }
+    if (encoded.owner_failure < static_cast<std::uint8_t> (CaptureOwnerFailure::invalidRequest)
+        || encoded.owner_failure > static_cast<std::uint8_t> (CaptureOwnerFailure::receiptRejected)
+        || encoded.capture_failure > static_cast<std::uint8_t> (CaptureFailure::clock)
+        || (encoded.owner_failure != static_cast<std::uint8_t> (CaptureOwnerFailure::captureFailed)
+            && encoded.capture_failure != static_cast<std::uint8_t> (CaptureFailure::none)))
+        return false;
+    failure = { CaptureOwnerPhase::failed,
+                static_cast<CaptureOwnerFailure> (encoded.owner_failure),
+                static_cast<CaptureFailure> (encoded.capture_failure) };
     return true;
 }
 

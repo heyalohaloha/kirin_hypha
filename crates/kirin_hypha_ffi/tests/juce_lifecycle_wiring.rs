@@ -247,8 +247,11 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
     let transport = read_repo("juce_shell/src/PluginProcessorLocalBlindTransport.cpp");
     for required in [
         "KirinLocalBlindPreCaptureReceipt",
+        "KirinLocalBlindPreCaptureFailure",
         "kirin_hypha_publish_local_blind_pre_capture",
         "kirin_hypha_read_local_blind_pre_capture",
+        "kirin_hypha_publish_local_blind_pre_capture_failure",
+        "kirin_hypha_read_local_blind_pre_capture_failure",
         "kirin_hypha_ack_local_blind_pre_capture",
         "kirin_hypha_local_blind_pre_capture_was_consumed",
         "kirin_hypha_retire_local_blind_pre_capture",

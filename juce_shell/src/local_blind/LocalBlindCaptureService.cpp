@@ -9,6 +9,7 @@ namespace
 constexpr int activeServiceIntervalMs = 50;
 constexpr int idlePreServiceIntervalMs = 500;
 constexpr int idlePostServiceIntervalMs = 5'000;
+constexpr unsigned int maximumPrePublishFailures = 20;
 }
 
 struct LocalBlindCaptureService::Scheduler
@@ -24,8 +25,11 @@ struct LocalBlindCaptureService::Scheduler
     juce::TimeSliceThread thread;
 };
 
-LocalBlindCaptureService::LocalBlindCaptureService (CaptureSide sideIn, CaptureServiceHooks hooksIn)
-    : side (sideIn), hooks (std::move (hooksIn)), owner (sideIn)
+LocalBlindCaptureService::LocalBlindCaptureService (
+    CaptureSide sideIn, CaptureServiceHooks hooksIn, std::int64_t finalizationTimeoutMsIn)
+    : side (sideIn), hooks (std::move (hooksIn)),
+      finalizationTimeoutMs (finalizationTimeoutMsIn > 0 ? finalizationTimeoutMsIn : 30'000),
+      owner (sideIn)
 {
 }
 
@@ -177,15 +181,22 @@ void LocalBlindCaptureService::servicePre (std::int64_t now)
         const auto* capture = owner.completedCapture();
         const auto* pcm = capture != nullptr ? capture->completedPcm() : nullptr;
         std::string sha256;
-        if (pcm != nullptr && owner.receipt (receipt) && hooks.publishPreCapture
+        const bool published = pcm != nullptr && owner.receipt (receipt)
+            && hooks.publishPreCapture
             && hooks.publishPreCapture (*owner.activeRequest(), receipt, *pcm, sha256)
-            && ! sha256.empty())
+            && ! sha256.empty();
+        if (published)
         {
             prePublished = true;
             prePublishedSha256 = std::move (sha256);
         }
+        else if (++prePublishFailures >= maximumPrePublishFailures)
+            owner.rejectReceipt();
     }
     const auto* request = owner.activeRequest();
+    if (owner.view().phase == CaptureOwnerPhase::failed && ! preFailurePublished
+        && request != nullptr && hooks.publishPreFailure)
+        preFailurePublished = hooks.publishPreFailure (*request, owner.view());
     if (prePublished && request != nullptr && hooks.preCaptureConsumed
         && hooks.preCaptureConsumed (*request, prePublishedSha256)
         && owner.retireCompletedPre())
@@ -195,8 +206,6 @@ void LocalBlindCaptureService::servicePre (std::int64_t now)
         prePublished = false;
         prePublishedSha256.clear();
     }
-    if (owner.view().phase == CaptureOwnerPhase::failed)
-        clearAttemptState();
 }
 
 void LocalBlindCaptureService::servicePost (std::int64_t now)
@@ -231,6 +240,16 @@ void LocalBlindCaptureService::servicePost (std::int64_t now)
         || (hooks.postPeerArmed && hooks.postPeerArmed (request->requestId));
     owner.servicePost (peerArmed, hasPair ? &pair : nullptr,
                        preparedSampleRate, preparedChannels, now);
+
+    if (owner.view().phase == CaptureOwnerPhase::complete && postCompletedAtUnixMs == 0)
+        postCompletedAtUnixMs = now;
+
+    if (owner.view().phase != CaptureOwnerPhase::paired && hooks.readPreFailure)
+    {
+        CaptureOwnerView peerFailure;
+        if (hooks.readPreFailure (*request, peerFailure))
+            owner.rejectPreFailure (peerFailure.failure, peerFailure.captureFailure);
+    }
 
     if (owner.view().phase == CaptureOwnerPhase::complete && pairBarrier)
     {
@@ -287,6 +306,12 @@ void LocalBlindCaptureService::servicePost (std::int64_t now)
             pairReady.store (true, std::memory_order_release);
         }
     }
+    // Admission expiry cannot discard PCM that already completed on the audio timeline. A
+    // separate finalization deadline bounds a vanished PRE or unavailable result transport.
+    if (owner.view().phase == CaptureOwnerPhase::complete && postCompletedAtUnixMs > 0
+        && now >= postCompletedAtUnixMs
+        && now - postCompletedAtUnixMs >= finalizationTimeoutMs)
+        owner.rejectReceipt();
     if (owner.view().phase == CaptureOwnerPhase::failed)
     {
         clearAttemptState();
@@ -297,10 +322,13 @@ void LocalBlindCaptureService::servicePost (std::int64_t now)
 void LocalBlindCaptureService::clearAttemptState()
 {
     const auto* request = owner.activeRequest();
-    if (side == CaptureSide::pre && prePublished && request != nullptr
+    if (side == CaptureSide::pre && (prePublished || preFailurePublished) && request != nullptr
         && hooks.retirePreCapture)
         hooks.retirePreCapture (*request);
     prePublished = false;
+    preFailurePublished = false;
+    prePublishFailures = 0;
+    postCompletedAtUnixMs = 0;
     prePublishedSha256.clear();
     pairReady.store (false, std::memory_order_release);
     pairBarrier.reset();

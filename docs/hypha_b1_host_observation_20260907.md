@@ -1,6 +1,6 @@
 # B1 ホスト実機観測と取得失敗の診断
 
-更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754〜B-759追記。
+更新日：2026-09-09。B-741、B-743〜B-747、B-751、B-752、B-754〜B-760追記。
 
 ローカルPRE/POST Blindは、Windows Studio ProのVST3についてB1の同一区間取得と時刻整列を実証した。
 4096 samplesの既知遅延を挟んだ4秒の取得でPRE／POST PCMがbit一致し、推定残差は0 samplesだった。
@@ -120,6 +120,20 @@ Audio Threadがexact native範囲を完了している場合は、そのterminal
 未完了のcaptureは期限後に失敗し、pair変更、transport停止、clock変更、不正receiptも従来どおり失敗する。
 これにより期限を延ばさず、受付前の古いrequestから新規captureを開始させず、完了済みPCMだけをscheduler遅延から保護する。
 
+B-759候補をmacOS Studio Pro 8.1.2、VST3、96 kHz、stereoで再実行した。
+POSTは要求`69a2540d-c4e7-4a50-93e6-03bb753d85f4`の384,000 framesを`complete / none`まで取得した。
+要求はposition 339,968で発行され、native startは435,968だった。
+PREのarmed証拠は要求発行から約56 ms後に保存されており、開始より96,000 samples前にarmが成立している。
+一方、PREの成功PCM、失敗応答、POSTの消費応答は一つも生成されず、POSTは比較結果のない`complete`で待ち続けた。
+したがって、この実測はPOSTの4秒取得完了とPRE結果の欠落を示すが、PDC一致／不一致の結果ではない。
+
+B-760では、PREの成功PCMだけだった一方向transportへ、exact request digest、pair／capture／clock generationに固定したterminal失敗artifactを追加した。
+PRE laneの失敗理由をPOSTが受領し、PCMを待ち続けず同じ要求を失敗として確定する。
+完成PCMの不変artifactを20回連続で公開できない場合もterminal失敗へ移し、無期限の再試行を止める。
+PREが終了するなど成功／失敗のどちらも返らない場合は、POSTのcapture完了から30秒の独立したfinalization期限で失敗を確定する。
+この期限は15秒の受付／arm期限とは別であり、完了済みPCMを受付期限で捨てる動作には戻さない。
+成功artifactと失敗artifactはAudio Threadでは扱わず、従来の低優先度service threadだけで読み書きする。
+
 同じ保存済みchainをB-757のDebug PRE／POSTで再読込みし、Studio Pro上で実行した結果は次のとおりだった。
 
 | 観測項目 | 結果 |
@@ -145,6 +159,7 @@ Audio Threadがexact native範囲を完了している場合は、そのterminal
 - Windows Studio Pro PDC実機：4096-sample validation delayを挟んだ192,000-frame stereo取得がbit一致し、推定残差0 samples、zero RMS error 0だった。
 - 失敗保持の対象native試験：macOSとWindowsでpass。POSTの`stalePair`と`receiptRejected`が明示resetまで失われないことを確認した。
 - B-759期限境界の対象試験：完了済みPRE／POSTは受付期限後も同一pairへfinalizeでき、未完了capture、PRE arm証拠なし、pair解放はfail-closedになることを確認した。
+- B-760 terminal結果の対象試験：PRE lane失敗とPCM公開失敗がexact requestに固定した失敗artifactとなり、PREが結果を返さない場合も独立したfinalization期限でPOSTが待機を終了して理由を保持することを確認した。
 - Windows復旧：Studio Proを終了し、B-726のPRE／POST配置と検証曲を元のhashへ戻した。validation delay、一時task、補助scriptが残っていないことも確認した。
 - source行数制限と`git diff --check`：pass。
 - release source contract：1回実行してpass。native表示4件、`kirin_measure`、`kirin_hypha_ffi` 73件、`xtask` 137件、owned clippyを含む。
@@ -171,7 +186,9 @@ OneDriveの容量100%通知も表示されたが、アカウントや同期設�
    B-757でWindows Studio ProのVST3は、既知4096-sample遅延を挟んだ同一4秒範囲のbit一致と残差0 sampleを実証した。
    optionalなhost通知がなくても内部事実で対応区間を証明できることを確認した。
    macOS VST3の初回実測で完了後の非RT回収が受付期限に負ける境界を特定し、B-759で受付期限とfinalizationを分離した。
-   次はB-759のDebug VST3を同じ保存済み96 kHz曲で再確認し、その後AUを確認する。証明できない取得だけを開始不可にする。
+   B-759再実測ではPOSTが全範囲を完了した一方、PREが成功PCMも失敗理由も返さず待機が終わらないprotocol欠陥を特定した。
+   B-760でPREのterminal失敗応答とPCM公開再試行の上限を追加した。
+   次はB-760のDebug VST3を同じ保存済み96 kHz曲で一度だけ実測し、得られたPRE理由をコード側で解消してからAUを確認する。証明できない取得だけを開始不可にする。
 3. Blind、Reference、Keep / All Keep、Recordの競合はHypha自身の共有leaseで調停する。
    DAWのtrack名、PID、host固有IDからroutingや未知の参加者を推測しない。
 4. Windows VST3の確認済み条件を正本とし、macOS VST3／AUで明示pair、同一区間、既知遅延の残差0 sampleを同じ条件で確認する。
