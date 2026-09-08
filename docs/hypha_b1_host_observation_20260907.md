@@ -1,8 +1,10 @@
 # B1 ホスト実機観測と取得失敗の診断
 
-更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754〜B-756追記。
+更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754〜B-757追記。
 
-ローカルPRE/POST BlindのB1は、同一区間取得と時刻整列が未実証のため未成立である。
+ローカルPRE/POST Blindは、Windows Studio ProのVST3についてB1の同一区間取得と時刻整列を実証した。
+4096 samplesの既知遅延を挟んだ4秒の取得でPRE／POST PCMがbit一致し、推定残差は0 samplesだった。
+macOS VST3／AUと他の対象条件は未実証であるため、製品のBlind開始機能は引き続き無効のままとする。
 Windows Studio Proの保存済み検証曲では、ホストがJUCEのclient extension hookを呼び、context変更も通知した。
 しかし、PreSonus/Fenderの`IContextInfoProvider`はv3、v2、v1のいずれも取得できなかった。
 入力presentation latencyも通知されていないため、このhost APIだけから時刻対応を確定することはできなかった。
@@ -18,6 +20,7 @@ Windows Studio Proの保存済み検証曲では、ホストがJUCEのclient ext
 | 失敗段階診断 | `DE021BB14352342DDABCF4A382E4121DE7A2505C9E457114129F84A49E9CE18D` | `76FA506CC2ED7CBAB1B5BBB3B67D190FE54399B834096C3ECDFBFE9286FFA958` | 取得処理が停止したAPI段階 |
 | hook活動診断 | `BCA0CF1BE42545E83AC70758D084D22B3F775E61730DFC428381FF7A63EB154E` | `D3FAE7BB96C54A29E4E6E496014665646A57B6E38B47243C8189064CDE12F196` | component、application、query、notificationの回数 |
 | provider世代診断 | `C1E9F591ABF357FF0E450E964CC396337B091098615A7C7138D42BAF56897AEA` | `1B1B948B8CB7CDB30046F17D22C47176C9F34D876A5DF1580E1EBB80CE22F897` | v3からv1までの順序付き取得 |
+| B-757 PDC実証 | `B6CA70CF410B6C68F4955C61348537AC56B2317865E91BECC0559015FD53628A` | `940BC1EDE652EC7EF70425C5FF88E220CBDCF9DB36A57F005399B24AF1DA3ACC` | 既知4096-sample遅延を挟んだ同一4秒範囲のbit一致と残差 |
 
 最後の診断候補はPRE 31,255,552 bytes、POST 35,208,192 bytesだった。
 検証後はStudio Proを保存せず閉じ、B-726の両bundleと検証用build artifactを上表のhashへ戻した。
@@ -92,17 +95,42 @@ B-756では実機試験を再現可能にするため、Debug POSTから一つ�
 可変block境界、mono／stereo、reset、不正形式は純粋C++試験で固定した。
 ハーネスの実装と部品試験はPDC残差0 sampleの実機証明ではない。
 
+B-756を最初にStudio Proで動かした際、POST所有者は一度`complete`へ進んだ後、比較結果を保持せず`idle`へ戻った。
+POST serviceは失敗時に試行状態を消すだけでなく所有者まで即座にresetしていたため、失敗理由も同時に失われていた。
+B-757では、POSTの失敗状態と理由を明示resetまで保持し、`stalePair`と`receiptRejected`の両経路をnative試験で固定した。
+初回取得が失敗した直接原因は保存されておらず、推測で確定しない。
+
+同じ保存済みchainをB-757のDebug PRE／POSTで再読込みし、Studio Pro上で実行した結果は次のとおりだった。
+
+| 観測項目 | 結果 |
+| --- | --- |
+| 挿入順 | PRE → bypass済み既存insert → PDC Validation Delay 4096 → POST |
+| validation delay SHA-256 | `46CB2E6E7F8ACE7386E42368DE809CBF0FE1076A7B55E0764B220AC43B1C1578` |
+| native範囲 | start 9,367,592 / 192,000 frames / 48,000 Hz / stereo |
+| capture | paired / failure none |
+| bit一致 | yes |
+| 推定残差 | 0 samples |
+| 相関 | zero 1.00000000 / best 1.00000000 / margin 0.00000000 |
+| 正規化zero RMS誤差 | 0.00000000 |
+
+成功時のoptional output presentationは`0 (ambiguous)`であり、補正根拠には使っていない。
+実際にロードされた別identityのvalidation delay moduleのhash、同moduleの4096-sample遅延部品試験、同一native範囲のPCM比較を証拠とする。
+この結果は今回のWindows 11、Studio Pro、VST3、保存済みroutingに限り、他DAWやmacOS形式へ一般化しない。
+
 ## 検証
 
 - macOSのHostContext対象native試験：pass。provider優先順位、世代fallback、欠落、不正ID、inactive document、競合通知、復旧を確認した。
 - Windowsの隔離したHostContext対象native試験：pass。provider世代診断のPRE/POST VST3もbuildできた。
 - Windows実機：PREとPOSTの両方でprovider `none`、hooks 1 / 1、query 15 / context 2、通知4を確認した。
-- Windows復旧：B-726の配置とbuild artifact、検証ソース、song hash、Studio Pro終了、一時task削除を確認した。
+- Windows Studio Pro PDC実機：4096-sample validation delayを挟んだ192,000-frame stereo取得がbit一致し、推定残差0 samples、zero RMS error 0だった。
+- 失敗保持の対象native試験：macOSとWindowsでpass。POSTの`stalePair`と`receiptRejected`が明示resetまで失われないことを確認した。
+- Windows復旧：Studio Proを終了し、B-726のPRE／POST配置と検証曲を元のhashへ戻した。validation delay、一時task、補助scriptが残っていないことも確認した。
 - source行数制限と`git diff --check`：pass。
 - release source contract：1回実行してpass。native表示4件、`kirin_measure`、`kirin_hypha_ffi` 73件、`xtask` 137件、owned clippyを含む。
 - FFIの必須ignored suite：一覧を実測し、parity 20 / 20件、pairing candidates 5 / 5件を単一threadでpass。
 
 画面、buildと配置のhash台帳、復旧結果、公式headerの比較結果は、ローカルの`Downloads/Hypha_B1_Host_Evidence_20260907/`へ保存した。
+B-757のPDC画面、比較値、build、配置、曲backup、復旧結果は、ローカルの`Downloads/Hypha_PDC_Evidence_20260908/`へ保存した。
 OneDriveの容量100%通知も表示されたが、アカウントや同期設定は変更していない。
 
 ## 次に閉じる条件
@@ -116,13 +144,15 @@ OneDriveの容量100%通知も表示されたが、アカウントや同期設�
    同じcapture generation、clock generation、sample rate、layout、両側の連続native範囲が一致し、POSTの消費応答をPREが確認した場合だけ取得を保持する。
    B-754で要求schemaをv2へ進め、POSTのlive host clockから一つの将来native範囲を作り、発行位置とともにPRE／POSTへ同値で配る境界へ変更した。
    呼出側が別々の開始位置や推定PDC offsetを注入する入口は廃止した。各roleは最初のcallbackを発行位置から取得開始までに限定し、以後のclock source、連続位置、optional presentation通知を固定する。発行後の巻戻し、seek、loop、late arm、通知変更は当該要求だけで拒否する。
-   これは構造上のfail-closed化であり、Windows VST3、macOS VST3／AUのPDC残差0 sampleは引き続き実機未証明である。
+   これは構造上のfail-closed化である。
    B-755で出荷Releaseのclock probe常時書込みを要求発行者のPOSTだけに限定し、Debugでは両roleの診断を維持した。probeは128-byte境界へ分離し、非RT読取り時に隣接processor状態とcache lineを共有しにくい配置にした。
    B-756でDebugだけの明示取得、完成後比較、既知4096-sample遅延VST3を用意した。
-   次はこの同じハーネスで既知遅延の残差0 sampleを実証する。optionalなhost通知がなくても内部事実で対応区間を証明できれば受理し、証明できない取得だけを開始不可にする。
+   B-757でWindows Studio ProのVST3は、既知4096-sample遅延を挟んだ同一4秒範囲のbit一致と残差0 sampleを実証した。
+   optionalなhost通知がなくても内部事実で対応区間を証明できることを確認した。
+   次は同じハーネスでmacOS VST3／AUを確認し、証明できない取得だけを開始不可にする。
 3. Blind、Reference、Keep / All Keep、Recordの競合はHypha自身の共有leaseで調停する。
    DAWのtrack名、PID、host固有IDからroutingや未知の参加者を推測しない。
-4. macOS VST3／AUとWindows VST3で、明示pair、同一区間、既知遅延の残差0 sampleを同じ条件で確認する。
+4. Windows VST3の確認済み条件を正本とし、macOS VST3／AUで明示pair、同一区間、既知遅延の残差0 sampleを同じ条件で確認する。
 5. B1成立後にB2の開始排他と取得barrierを接続する。
    B1の未成立中はBlind開始機能を有効にせず、依存しないU工程とM工程を進める。
 

@@ -290,7 +290,6 @@ void LocalBlindCaptureService::servicePost (std::int64_t now)
     if (owner.view().phase == CaptureOwnerPhase::failed)
     {
         clearAttemptState();
-        owner.reset();
         postRequestOccupied.store (false, std::memory_order_release);
     }
 }

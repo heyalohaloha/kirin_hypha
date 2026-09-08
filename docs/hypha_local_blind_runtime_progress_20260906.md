@@ -1,7 +1,7 @@
 # PRE/POST Blind の実装状況
 
 更新日: 2026-09-08
-対象: B-719〜B-724、B-743〜B-747、B-751〜B-756
+対象: B-719〜B-724、B-743〜B-747、B-751〜B-757
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
@@ -59,6 +59,8 @@ B-755は、出荷Releaseのclock probe常時書込みをPOSTだけに限定し�
 B-756は、Debug POSTの明示操作から4秒の同一範囲を一回取得し、完成後のPRE／POST PCMを非RTで比較する診断面を追加した。
 既知遅延には通常buildから既定OFFの別identity VST3を使い、4096 samplesの実遅延とhost報告値を一致させた。
 bit一致と残差推定は観測値に限定し、取得範囲の補正、Blind開始、試聴出力を行わない。
+B-757は、POSTの取得失敗状態と理由を明示resetまで保持し、診断前に`idle`へ消える経路を閉じた。
+Windows Studio Proでは、PREとPOSTの間に4096-sample validation delayを挿した192,000-frame stereo取得がbit一致し、推定残差0 samplesだった。
 
 ## 現在の到達点
 
@@ -67,7 +69,7 @@ B-718 の同一区間取得部品に、固定 Gain Match の準備、比較コ�
 これらを独立試験で検証し、本体の計測後に試聴出力を選ぶ入口を設けた。
 本体の非RT所有者は要求からcapture objectをAudio Threadへ公開できる。
 PRE PCMのPOST取込み、両側完了barrier、実機用の明示取得と診断表示までは成立した。
-一方、形式別のPDC実証、開始排他、製品の開始操作はまだないため、試聴出力は起動しない。
+一方、macOS VST3／AUのPDC実証、開始排他、製品の開始操作はまだないため、試聴出力は起動しない。
 
 B-723 以降は Windows で B-722 検証版を一時配置し、Studio Pro で確認した。
 PSB の欠落と高い CPU 使用率の指摘を受け、性能の切り分けを優先している。
@@ -197,7 +199,7 @@ mono 試験では同じ左右の片側を使用した。
 
 1. **参加範囲と開始排他**：同じ DAW の検証済み participant scope を定め、既存 AnalysisLease の 2 枠と単一 Blind 所有者へ接続する。Reference、Keep、All Keep、下流 Record の準備から finalize までを共通の開始判定に通す。別 process の存在を PID だけでは除外しない。ローカル source の識別、Trial ID、content hash、取得世代、失効条件を製品契約に追加し、承認済みの比較試聴を R-12 に明記する。
 2. **同一区間の取得**：B-751で同じ要求envelopeからB-747のrole別laneを非RTでarmし、B-752でPRE PCMをPOSTへ運んで両receiptを一つのpair barrierで照合した。B-754で任意のPRE／POST開始位置を廃止し、POSTのlive host clockから作る単一native範囲を両roleへ配るv2要求へ移行した。試聴出力用スロットと取得用スロットを混同しない。
-3. **時刻対応**：B-754で要求発行時のhost positionを将来の取得範囲とともに固定した。各roleは最初のcallbackをその区間内に限定し、以後のclock source、連続sample位置、optional presentation通知を固定する。発行後の巻戻し、late arm、動的変更、別周回、seek、停止callbackは当該要求だけで拒否し、presentation通知をPDC offsetとして足し引きしない。B-756でDebugだけの明示取得、完成後比較、既知4096-sample遅延VST3を用意した。既知遅延による残差 0 sample と、他トラックとの同期は形式別の実機確認が未完了である。
+3. **時刻対応**：B-754で要求発行時のhost positionを将来の取得範囲とともに固定した。各roleは最初のcallbackをその区間内に限定し、以後のclock source、連続sample位置、optional presentation通知を固定する。発行後の巻戻し、late arm、動的変更、別周回、seek、停止callbackは当該要求だけで拒否し、presentation通知をPDC offsetとして足し引きしない。B-756でDebugだけの明示取得、完成後比較、既知4096-sample遅延VST3を用意した。B-757でWindows Studio ProのVST3は既知遅延を挟んだ残差0 sampleを実証した。macOS VST3／AUと他トラックとの同期は未確認である。
 4. **製品の固定 Gain policy**：現行の連続 3 秒条件に入らない短音と疎な TRACK を別途評価する。既存 policy の条件を同名のまま緩めない。強い EQ、limiter、tail、clip 境界も含める。
 5. **開始から終了までの画面**：対象選択、取得待ち、音量変更への承認、1 / 2、回答、Reveal、減衰保持、通常復帰を接続する。他方の大きな表示、小さな表示、別ウインドウ、Capture、tooltip、accessibility にも非開示条件を適用する。
 6. **所有権と復元**：OS の安全な乱数による割当を単一の準備所有者へ接続する。編集画面を閉じた場合や host の再初期化、instance 削除、worker 停止、旧版との混在、結果保存失敗を扱う。再読込で試聴や承認済み減衰を自動再開しない。

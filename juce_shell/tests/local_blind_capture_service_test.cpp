@@ -157,6 +157,9 @@ int main()
     pairGeneration.fetch_add (1);
     preRequestAvailable.store (false);
     require (waitUntil ([&] { return ! post.capturePairReady(); }));
+    require (waitUntil ([&] { return post.view().phase == CaptureOwnerPhase::failed; }));
+    require (post.view().failure == CaptureOwnerFailure::stalePair);
+    post.requestReset();
     require (waitUntil ([&] { return post.view().phase == CaptureOwnerPhase::idle; }));
     require (post.reservePostRequest());
     post.abandonPostRequest();
@@ -224,8 +227,11 @@ int main()
     }));
     require (rejectingPost.process (postPointers, 1, clockAt (41, 12), 48000));
     require (waitUntil ([&] { return badReceiptRead.load(); }));
-    require (waitUntil ([&] { return rejectingPost.view().phase == CaptureOwnerPhase::idle; }));
+    require (waitUntil ([&] { return rejectingPost.view().phase == CaptureOwnerPhase::failed; }));
+    require (rejectingPost.view().failure == CaptureOwnerFailure::receiptRejected);
     require (! rejectingPost.capturePairReady() && ! badReceiptAcknowledged.load());
+    rejectingPost.requestReset();
+    require (waitUntil ([&] { return rejectingPost.view().phase == CaptureOwnerPhase::idle; }));
     require (rejectingPost.reservePostRequest());
     rejectingPost.abandonPostRequest();
     rejectingPost.stop();
