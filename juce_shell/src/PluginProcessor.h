@@ -56,6 +56,7 @@ public:
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
 #if JUCE_DEBUG
     juce::StringArray localValidationFacts() const;
+    bool startLocalBlindPdcValidation();
 #endif
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -296,6 +297,10 @@ private:
     hypha::local_blind::LocalBlindSlot localBlindOutput;
     hypha::local_blind::LocalBlindEpochSnapshot localBlindEpochs;
     hypha::local_blind::LocalBlindCaptureService localBlindCapture;
+#if JUCE_DEBUG
+    std::atomic<std::uint64_t> localBlindPdcValidationSerial { 0 };
+    std::atomic<int> localBlindPdcValidationIssue { 0 };
+#endif
 
     juce::AudioParameterBool* bypassParam = nullptr;   // owned by AudioProcessor (addParameter)
     std::vector<float> interleaveScratch;              // pre-allocated in prepareToPlay (RT-safe; no alloc in processBlock)

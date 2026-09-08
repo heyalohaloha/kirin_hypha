@@ -230,6 +230,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessor.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/local_blind/LocalBlindCaptureService.cpp
+        src/local_blind/CapturePairComparison.cpp
         src/local_blind/LocalBlindTrial.cpp
         src/local_blind/HostContext.cpp
         src/PluginProcessorHostClock.cpp
@@ -385,6 +386,39 @@ endfunction()
 
 add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  "PRE Kirin Hypha"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")
 add_kirin_plugin(KirinHyphaPOST Khpo "Kirin Hypha POST" "POST Kirin Hypha" src/PluginMainPOST.cpp "com.kirinmastering.hypha.post")
+
+# A separately identified, non-shipping VST3 used only to prove host PDC against one exact,
+# declared latency. It is absent from normal configure/build/install/release targets.
+option(KIRIN_HYPHA_BUILD_PDC_VALIDATION_DELAY
+    "Build the 4096-sample host PDC validation VST3" OFF)
+if(KIRIN_HYPHA_BUILD_PDC_VALIDATION_DELAY)
+    juce_add_plugin(KirinHyphaPdcValidationDelay
+        PLUGIN_MANUFACTURER_CODE Kirn
+        PLUGIN_CODE Khpd
+        FORMATS VST3
+        PRODUCT_NAME "Kirin Hypha PDC Validation Delay 4096"
+        COMPANY_NAME "Kirin"
+        BUNDLE_ID "com.kirinmastering.hypha.pdc-validation-delay"
+        VST3_CATEGORIES Fx Tools
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT FALSE
+        NEEDS_MIDI_OUTPUT FALSE
+        IS_MIDI_EFFECT FALSE
+        COPY_PLUGIN_AFTER_BUILD FALSE)
+    target_sources(KirinHyphaPdcValidationDelay PRIVATE
+        tests/pdc_validation_delay/PluginProcessor.cpp)
+    target_compile_definitions(KirinHyphaPdcValidationDelay PUBLIC
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_compile_options(KirinHyphaPdcValidationDelay PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinHyphaPdcValidationDelay PRIVATE
+        juce::juce_audio_processors
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+endif()
 
 option(KIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS
     "Build the Windows VST3 in-place bit-transparency host contract" OFF)

@@ -29,7 +29,8 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin Local Blind Capture Service Tests")
     target_sources(KirinLocalBlindCaptureServiceTests PRIVATE
         tests/local_blind_capture_service_test.cpp
-        src/local_blind/LocalBlindCaptureService.cpp)
+        src/local_blind/LocalBlindCaptureService.cpp
+        src/local_blind/CapturePairComparison.cpp)
     target_compile_definitions(KirinLocalBlindCaptureServiceTests PRIVATE
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
     target_link_libraries(KirinLocalBlindCaptureServiceTests PRIVATE
@@ -38,4 +39,21 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     add_test(NAME kirin_local_blind_capture_service
         COMMAND KirinLocalBlindCaptureServiceTests)
     set_tests_properties(kirin_local_blind_capture_service PROPERTIES TIMEOUT 120)
+
+    add_executable(KirinLocalBlindCapturePairComparisonTests
+        tests/capture_pair_comparison_test.cpp
+        src/local_blind/CapturePairComparison.cpp)
+    target_compile_features(KirinLocalBlindCapturePairComparisonTests PRIVATE cxx_std_17)
+    target_compile_options(KirinLocalBlindCapturePairComparisonTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+    add_test(NAME kirin_local_blind_capture_pair_comparison
+        COMMAND KirinLocalBlindCapturePairComparisonTests)
+    set_tests_properties(kirin_local_blind_capture_pair_comparison PROPERTIES TIMEOUT 120)
+
+    add_executable(KirinLocalBlindPdcValidationDelayTests
+        tests/pdc_validation_delay/fixed_validation_delay_test.cpp)
+    target_compile_features(KirinLocalBlindPdcValidationDelayTests PRIVATE cxx_std_17)
+    target_compile_options(KirinLocalBlindPdcValidationDelayTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+    add_test(NAME kirin_local_blind_pdc_validation_delay
+        COMMAND KirinLocalBlindPdcValidationDelayTests)
+    set_tests_properties(kirin_local_blind_pdc_validation_delay PROPERTIES TIMEOUT 120)
 endif()

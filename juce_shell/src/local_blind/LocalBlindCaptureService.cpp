@@ -108,6 +108,14 @@ void LocalBlindCaptureService::requestReset() noexcept
     wake();
 }
 
+#if JUCE_DEBUG
+CapturePairComparison LocalBlindCaptureService::capturePairComparison() const
+{
+    const juce::ScopedLock lock (comparisonLock);
+    return comparison;
+}
+#endif
+
 void LocalBlindCaptureService::wake()
 {
     const juce::ScopedLock lock (schedulerLock);
@@ -263,7 +271,21 @@ void LocalBlindCaptureService::servicePost (std::int64_t now)
             preAcknowledged = hooks.acknowledgePreCapture (
                 *request, importedPre.pcmSha256);
         if (preAcknowledged && owner.sealCompletedPost())
+        {
+#if JUCE_DEBUG
+            CapturePairComparison next;
+            const auto* postCapture = owner.completedCapture();
+            const auto* prePcm = importedPre.capture != nullptr
+                ? importedPre.capture->completedPcm() : nullptr;
+            const auto* postPcm = postCapture != nullptr
+                ? postCapture->completedPcm() : nullptr;
+            if (postCapture != nullptr && prePcm != nullptr && postPcm != nullptr)
+                next = compareCapturePair (postCapture->range(), *prePcm, *postPcm);
+            const juce::ScopedLock lock (comparisonLock);
+            comparison = next;
+#endif
             pairReady.store (true, std::memory_order_release);
+        }
     }
     if (owner.view().phase == CaptureOwnerPhase::failed)
     {
@@ -287,5 +309,9 @@ void LocalBlindCaptureService::clearAttemptState()
     postReceiptAccepted = false;
     preReceiptAccepted = false;
     preAcknowledged = false;
+#if JUCE_DEBUG
+    const juce::ScopedLock lock (comparisonLock);
+    comparison = {};
+#endif
 }
 }

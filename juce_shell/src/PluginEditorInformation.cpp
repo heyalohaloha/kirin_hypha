@@ -5,6 +5,7 @@
 namespace
 {
 namespace update = hypha::update_information;
+constexpr int pdcValidationAction = 900;
 juce::String toString (std::string_view value)
 {
     return juce::String::fromUTF8 (value.data(), static_cast<int> (value.size()));
@@ -56,6 +57,12 @@ void KirinHyphaEditor::showInformationMenu()
     for (const auto& fact : processorRef.localValidationFacts())
         validation.addItem (diagnosticId++, fact, false);
     menu.addSubMenu ("Validation facts (read-only)", validation);
+    if (isPost)
+    {
+        menu.addSectionHeader ("Local Blind host validation");
+        menu.addItem (pdcValidationAction, "Capture one exact 4 s PRE/POST range",
+                      processorRef.isPlaying());
+    }
    #endif
     menu.addSeparator();
     const auto add = [&] (update::Action action, const juce::String& text)
@@ -89,6 +96,16 @@ void KirinHyphaEditor::showInformationMenu()
 void KirinHyphaEditor::handleInformationMenu (int result)
 {
     if (result == 0) return;
+   #if JUCE_DEBUG
+    if (result == pdcValidationAction)
+    {
+        if (processorRef.startLocalBlindPdcValidation())
+            showToast ("Capture scheduled; keep playback running for 5 seconds");
+        else
+            showToast ("Capture not scheduled; reopen Validation facts for the exact reason");
+        return;
+    }
+   #endif
     const bool busy = informationBlockedByBlind();
     const auto outcome = update::dispatch (static_cast<update::Action> (result), busy,
         [] (std::string_view destination)

@@ -138,6 +138,13 @@ int main()
     require (post.process (postPointers, 1, clockAt (0, 12), 48000));
     require (waitUntil ([&] { return post.capturePairReady(); }));
     require (post.view().phase == CaptureOwnerPhase::paired);
+#if JUCE_DEBUG
+    const auto comparison = post.capturePairComparison();
+    require (comparison.valid && ! comparison.exactAtZero
+             && comparison.generation == request.captureGeneration
+             && comparison.start == request.nativeStart
+             && comparison.frames == request.frames);
+#endif
     require (waitUntil ([&] { return pre.view().phase == CaptureOwnerPhase::retired; }));
     require (transport.consumed.load() && transport.retired.load());
     {

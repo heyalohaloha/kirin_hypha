@@ -200,6 +200,27 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
     assert!(processor_clock.contains("if (publishClockProbe)"));
     let clock_probe = read_repo("juce_shell/src/local_blind/HostClockProbe.h");
     assert!(clock_probe.contains("class alignas (128) HostClockProbe"));
+    let capture_service = read_repo("juce_shell/src/local_blind/LocalBlindCaptureService.cpp");
+    assert!(
+        capture_service.contains("compareCapturePair (postCapture->range(), *prePcm, *postPcm)")
+    );
+    let validation = read_repo("juce_shell/src/PluginProcessorValidation.cpp");
+    assert!(validation.contains("startLocalBlindPdcValidation"));
+    assert!(validation.contains("PDC residual:"));
+    assert!(validation.contains("PDC normalized zero RMS error:"));
+    let information = read_repo("juce_shell/src/PluginEditorInformation.cpp");
+    assert!(information.contains("Capture one exact 4 s PRE/POST range"));
+    let cmake = read_repo("juce_shell/CMakeLists.txt");
+    assert!(cmake.contains("KIRIN_HYPHA_BUILD_PDC_VALIDATION_DELAY"));
+    assert!(cmake.contains("Kirin Hypha PDC Validation Delay 4096"));
+    let validation_delay =
+        read_repo("juce_shell/tests/pdc_validation_delay/FixedValidationDelay.h");
+    assert!(validation_delay.contains("static constexpr int latencySamples = 4'096"));
+    let validation_processor =
+        read_repo("juce_shell/tests/pdc_validation_delay/PluginProcessor.cpp");
+    assert!(
+        validation_processor.contains("setLatencySamples (FixedValidationDelay::latencySamples)")
+    );
     let request_header =
         read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_local_blind_capture_ffi.h");
     for required in [

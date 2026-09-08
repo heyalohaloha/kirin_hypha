@@ -1,6 +1,7 @@
 #pragma once
 
 #include "LocalBlindCaptureOwner.h"
+#include "CapturePairComparison.h"
 
 #include <atomic>
 #include <functional>
@@ -59,6 +60,9 @@ public:
     CaptureOwnerView view() const noexcept { return owner.view(); }
     bool capturePairReady() const noexcept
     { return pairReady.load (std::memory_order_acquire); }
+#if JUCE_DEBUG
+    CapturePairComparison capturePairComparison() const;
+#endif
 
 private:
     struct Scheduler;
@@ -88,6 +92,10 @@ private:
     bool preAcknowledged = false;
     bool prePublished = false;
     std::string prePublishedSha256;
+#if JUCE_DEBUG
+    mutable juce::CriticalSection comparisonLock;
+    CapturePairComparison comparison;
+#endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LocalBlindCaptureService)
 };

@@ -1,6 +1,6 @@
 # B1 ホスト実機観測と取得失敗の診断
 
-更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754、B-755追記。
+更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754〜B-756追記。
 
 ローカルPRE/POST BlindのB1は、同一区間取得と時刻整列が未実証のため未成立である。
 Windows Studio Proの保存済み検証曲では、ホストがJUCEのclient extension hookを呼び、context変更も通知した。
@@ -85,6 +85,13 @@ Windows実機では、日本語の更新情報メニューが四角い代替字�
 provider世代診断は古い隔離ステージングから作ったため、このfont修正をWindowsへ一緒に配置していない。
 Windowsでの表示確認は、現行ソース全体から作るV工程の候補に残る。
 
+B-756では実機試験を再現可能にするため、Debug POSTから一つの4秒取得要求を明示発行し、完成したPRE／POST PCMを低優先度service threadで比較する診断面を追加した。
+比較結果はbit一致、推定残差sample、0位置と最良位置の相関、取得native範囲だけを示し、範囲の補正、Blind開始、試聴出力には接続しない。
+既知遅延は通常buildに含まれない別identityの`Kirin Hypha PDC Validation Delay 4096` VST3で与える。
+このVST3は4096 samplesの固定遅延を非RTで事前確保し、同じ4096 samplesをhostへ報告する。
+可変block境界、mono／stereo、reset、不正形式は純粋C++試験で固定した。
+ハーネスの実装と部品試験はPDC残差0 sampleの実機証明ではない。
+
 ## 検証
 
 - macOSのHostContext対象native試験：pass。provider優先順位、世代fallback、欠落、不正ID、inactive document、競合通知、復旧を確認した。
@@ -111,7 +118,8 @@ OneDriveの容量100%通知も表示されたが、アカウントや同期設�
    呼出側が別々の開始位置や推定PDC offsetを注入する入口は廃止した。各roleは最初のcallbackを発行位置から取得開始までに限定し、以後のclock source、連続位置、optional presentation通知を固定する。発行後の巻戻し、seek、loop、late arm、通知変更は当該要求だけで拒否する。
    これは構造上のfail-closed化であり、Windows VST3、macOS VST3／AUのPDC残差0 sampleは引き続き実機未証明である。
    B-755で出荷Releaseのclock probe常時書込みを要求発行者のPOSTだけに限定し、Debugでは両roleの診断を維持した。probeは128-byte境界へ分離し、非RT読取り時に隣接processor状態とcache lineを共有しにくい配置にした。
-   次は既知遅延の残差0 sampleを実証する。optionalなhost通知がなくても内部事実で対応区間を証明できれば受理し、証明できない取得だけを開始不可にする。
+   B-756でDebugだけの明示取得、完成後比較、既知4096-sample遅延VST3を用意した。
+   次はこの同じハーネスで既知遅延の残差0 sampleを実証する。optionalなhost通知がなくても内部事実で対応区間を証明できれば受理し、証明できない取得だけを開始不可にする。
 3. Blind、Reference、Keep / All Keep、Recordの競合はHypha自身の共有leaseで調停する。
    DAWのtrack名、PID、host固有IDからroutingや未知の参加者を推測しない。
 4. macOS VST3／AUとWindows VST3で、明示pair、同一区間、既知遅延の残差0 sampleを同じ条件で確認する。
