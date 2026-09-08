@@ -137,7 +137,7 @@ bool KirinHyphaProcessorBase::issueLocalBlindCaptureRequest (
     }
     KirinLocalBlindCaptureRequest request {};
     hypha::local_blind::ExactCaptureRequest decoded;
-    if (! kirin_hypha_issue_local_blind_capture_request (
+    if (! kirin_hypha_issue_local_blind_capture_request_v2 (
             hyphaHandle, captureGeneration, clock.callback, clock.source,
             clock.position, nativeStart, frames, &request)
         || ! decodeCaptureRequest (request, decoded)

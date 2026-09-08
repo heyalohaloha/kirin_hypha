@@ -1,7 +1,7 @@
 use super::*;
 use kirin_hypha_ffi::{
     kirin_hypha_ack_local_blind_capture_request, kirin_hypha_ack_local_blind_pre_capture,
-    kirin_hypha_issue_local_blind_capture_request, kirin_hypha_local_blind_capture_is_armed,
+    kirin_hypha_issue_local_blind_capture_request_v2, kirin_hypha_local_blind_capture_is_armed,
     kirin_hypha_local_blind_pre_capture_was_consumed, kirin_hypha_poll_local_blind_capture_request,
     kirin_hypha_publish_local_blind_pre_capture, kirin_hypha_read_local_blind_pre_capture,
     kirin_hypha_retire_local_blind_pre_capture, KirinLocalBlindCaptureRequest,
@@ -32,7 +32,7 @@ fn exact_unnamed_pair_completes_the_local_blind_request_handshake() {
     let claim_deadline = Instant::now() + Duration::from_secs(4);
     while Instant::now() < claim_deadline {
         issued_after_claim = unsafe {
-            kirin_hypha_issue_local_blind_capture_request(
+            kirin_hypha_issue_local_blind_capture_request_v2(
                 post_handle,
                 22,
                 33,

@@ -143,6 +143,34 @@ fn hover_help_is_one_user_preference_without_touching_measurement_state() {
 }
 
 #[test]
+fn hypha_title_information_is_shipped_while_capture_validation_stays_debug_only() {
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let information = read_repo("juce_shell/src/PluginEditorInformation.cpp");
+
+    assert!(editor.contains("observatoryView.onInformation = [this] { showInformationMenu(); }"));
+    let (shipped_before_debug, debug_and_after) = information
+        .split_once("#if JUCE_DEBUG")
+        .expect("information menu must isolate host validation from shipped information");
+    let (_, shipped_after_debug) = debug_and_after
+        .split_once("#endif")
+        .expect("information menu debug isolation must be closed");
+    let shipped_information = format!("{shipped_before_debug}{shipped_after_debug}");
+    for required in [
+        "Loaded v",
+        "Official release identity not verified",
+        "Update information and downloads (English)",
+        "Release notes",
+        "Show hover help",
+    ] {
+        assert!(
+            shipped_information.contains(required),
+            "shipped HYPHA PRE/POST information menu missing {required}"
+        );
+    }
+    assert!(!shipped_information.contains("Capture one exact 4 s PRE/POST range"));
+}
+
+#[test]
 fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas() {
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     for required in [

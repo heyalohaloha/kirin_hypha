@@ -29,6 +29,7 @@ struct CaptureOwnerView
 {
     CaptureOwnerPhase phase = CaptureOwnerPhase::idle;
     CaptureOwnerFailure failure = CaptureOwnerFailure::none;
+    CaptureFailure captureFailure = CaptureFailure::none;
 };
 
 // One non-RT owner for one role-local lane. The PRE owner arms before acknowledging the exact
@@ -63,6 +64,7 @@ public:
             return false;
         request = next;
         failure.store (CaptureOwnerFailure::none, std::memory_order_relaxed);
+        captureFailure.store (CaptureFailure::none, std::memory_order_relaxed);
         phase.store (CaptureOwnerPhase::awaitingPeer, std::memory_order_release);
         return true;
     }
@@ -124,7 +126,8 @@ public:
     CaptureOwnerView view() const noexcept
     {
         return { phase.load (std::memory_order_acquire),
-                 failure.load (std::memory_order_acquire) };
+                 failure.load (std::memory_order_acquire),
+                 captureFailure.load (std::memory_order_acquire) };
     }
     bool matches (const ExactCaptureRequest& candidate) const noexcept
     { return request && *request == candidate; }
@@ -158,6 +161,7 @@ public:
         lane.collect();
         request.reset();
         failure.store (CaptureOwnerFailure::none, std::memory_order_relaxed);
+        captureFailure.store (CaptureFailure::none, std::memory_order_relaxed);
         phase.store (CaptureOwnerPhase::idle, std::memory_order_release);
     }
 
@@ -167,8 +171,10 @@ private:
     std::optional<ExactCaptureRequest> request;
     std::atomic<CaptureOwnerPhase> phase { CaptureOwnerPhase::idle };
     std::atomic<CaptureOwnerFailure> failure { CaptureOwnerFailure::none };
+    std::atomic<CaptureFailure> captureFailure { CaptureFailure::none };
     static_assert (std::atomic<CaptureOwnerPhase>::is_always_lock_free);
     static_assert (std::atomic<CaptureOwnerFailure>::is_always_lock_free);
+    static_assert (std::atomic<CaptureFailure>::is_always_lock_free);
 
     CaptureOwnerPhase currentPhase() const noexcept
     { return phase.load (std::memory_order_acquire); }
@@ -204,6 +210,7 @@ private:
         }
         request = next;
         failure.store (CaptureOwnerFailure::none, std::memory_order_relaxed);
+        captureFailure.store (CaptureFailure::none, std::memory_order_relaxed);
         return true;
     }
 
@@ -220,7 +227,10 @@ private:
         if (current.state == CaptureState::complete && current.failure == CaptureFailure::none)
             phase.store (CaptureOwnerPhase::complete, std::memory_order_release);
         else
+        {
+            captureFailure.store (current.failure, std::memory_order_relaxed);
             fail (CaptureOwnerFailure::captureFailed);
+        }
     }
 
     void fail (CaptureOwnerFailure reason) noexcept

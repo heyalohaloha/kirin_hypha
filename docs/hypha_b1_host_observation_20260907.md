@@ -1,6 +1,6 @@
 # B1 ホスト実機観測と取得失敗の診断
 
-更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754〜B-757追記。
+更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754〜B-758追記。
 
 ローカルPRE/POST Blindは、Windows Studio ProのVST3についてB1の同一区間取得と時刻整列を実証した。
 4096 samplesの既知遅延を挟んだ4秒の取得でPRE／POST PCMがbit一致し、推定残差は0 samplesだった。
@@ -99,6 +99,16 @@ B-756を最初にStudio Proで動かした際、POST所有者は一度`complete`
 POST serviceは失敗時に試行状態を消すだけでなく所有者まで即座にresetしていたため、失敗理由も同時に失われていた。
 B-757では、POSTの失敗状態と理由を明示resetまで保持し、`stalePair`と`receiptRejected`の両経路をnative試験で固定した。
 初回取得が失敗した直接原因は保存されておらず、推測で確定しない。
+
+B-758のmacOS候補を最初にbuildした際、C headerが要求発行関数の新しい引数列を宣言している一方、CMakeが以前の同名symbolを持つRust staticlibを参照してもlinkが成立した。
+同名C ABIの型はlinkerが検証しないため、旧calleeが整数引数を出力pointerとして解釈し、Studio Pro 8.1.2のhost process内で異常終了した。
+要求発行symbolを`kirin_hypha_issue_local_blind_capture_request_v2`へ更新し、手書きC structの240-byte layoutをRustのsize、alignment、全padding境界とC++ `static_assert`で固定した。
+旧staticlibとの意図的なlink試験はundefined symbolで失敗し、ABI不一致をhost起動前に止めることを確認した。
+crash reportは`Downloads/Hypha_PDC_Evidence_20260908/macos-vst3/Studio One-2026-09-08-173644.ips`へ保存した。
+
+取得laneの詳細な失敗理由もownerのlock-free atomicへ退避し、lane回収後も明示resetまでDebug情報から読めるようにした。
+通常buildのAudio Threadにはこの診断counterを含めず、PRE／POST製品名から開くversion、format、source、公式更新先、release notes、hover helpの情報入口だけを常設する。
+4秒取得、host clock、callback回数、PDC比較は引き続きDebugの明示操作に限定する。
 
 同じ保存済みchainをB-757のDebug PRE／POSTで再読込みし、Studio Pro上で実行した結果は次のとおりだった。
 

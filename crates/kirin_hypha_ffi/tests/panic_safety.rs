@@ -12,7 +12,7 @@ use kirin_hypha_ffi::{
     kirin_hypha_create, kirin_hypha_decode_legacy_nih_state, kirin_hypha_destroy,
     kirin_hypha_enumerate_post_pair_claims, kirin_hypha_get_local_blind_pair_binding,
     kirin_hypha_get_paired_pre_instance_id, kirin_hypha_get_paired_pre_locator,
-    kirin_hypha_issue_local_blind_capture_request, kirin_hypha_local_blind_capture_is_armed,
+    kirin_hypha_issue_local_blind_capture_request_v2, kirin_hypha_local_blind_capture_is_armed,
     kirin_hypha_local_blind_pre_capture_was_consumed, kirin_hypha_pair_status,
     kirin_hypha_poll_local_blind_capture_request, kirin_hypha_poll_record_display,
     kirin_hypha_poll_result, kirin_hypha_poll_session, kirin_hypha_publish_local_blind_pre_capture,
@@ -112,7 +112,7 @@ fn null_handle_calls_are_safe_noops() {
             pair_generation: 91,
             ..KirinLocalBlindCaptureRequest::default()
         };
-        assert!(!kirin_hypha_issue_local_blind_capture_request(
+        assert!(!kirin_hypha_issue_local_blind_capture_request_v2(
             std::ptr::null_mut(),
             1,
             1,
@@ -217,7 +217,7 @@ fn normal_lifecycle_intact_through_c_abi() {
 
     unsafe {
         let mut capture_request = KirinLocalBlindCaptureRequest::default();
-        assert!(!kirin_hypha_issue_local_blind_capture_request(
+        assert!(!kirin_hypha_issue_local_blind_capture_request_v2(
             h,
             1,
             1,

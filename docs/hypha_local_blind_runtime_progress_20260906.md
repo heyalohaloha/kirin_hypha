@@ -1,7 +1,7 @@
 # PRE/POST Blind の実装状況
 
 更新日: 2026-09-08
-対象: B-719〜B-724、B-743〜B-747、B-751〜B-757
+対象: B-719〜B-724、B-743〜B-747、B-751〜B-758
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
@@ -245,6 +245,13 @@ B-753で試験駆動を出荷JUCE callbackと同じにし、Record遷移を空ri
 利用者指定に従ってrelease source contract全体はローカル再実行せず、単一コマンドとしての最終passはCIで確認する。
 最初のCIはparity sourceの行数ratchetを検出したため、追加コードを保ったまま同じ範囲の説明を整理してbaseline 3007行へ戻した。
 次のCIはRust 1.98の`chunks_exact_to_as_chunks`を検出したため、長さとhash確認後のPCM decodeを固定4byte arrayの走査へ置き換えた。
+
+B-758では、Local Blind要求の引数列を変更しても旧Rust staticlibの同名C symbolとlinkできるABI欠陥をmacOS Studio Pro 8.1.2の異常終了から特定した。
+要求発行symbolをv2へ進め、C struct layoutをRust／C++双方で固定したため、旧archiveはhostへ入る前のlinkで拒否される。
+取得laneの詳細失敗理由はownerが明示resetまで保持し、Debug情報には全callback数、取得所有callback数、最後の取得位置も表示する。
+これらのcounterと4秒取得はDebug限定である。
+PRE／POSTの製品名から開く通常の情報入口は、version、format／OS、source state、公式更新先、release notes、hover helpを両format共通で常設する。
+macOS VST3の96 kHz実測曲は準備したが、同一区間比較の結果はまだ取得していないためB1成立の証拠には数えない。
 
 LS アップ用: skip。
 HP アップ用: macOS skip、Windows skip。

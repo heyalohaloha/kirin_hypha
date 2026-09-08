@@ -242,7 +242,7 @@ pub(crate) fn unix_ms_now() -> Option<i64> {
 /// `handle` must be null or point to a live `KirinHyphaEngine`. When `out` is non-null,
 /// it must point to writable storage for one `KirinLocalBlindCaptureRequest`.
 #[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_issue_local_blind_capture_request(
+pub unsafe extern "C" fn kirin_hypha_issue_local_blind_capture_request_v2(
     handle: *mut KirinHyphaEngine,
     capture_generation: u64,
     clock_generation: u64,
@@ -350,6 +350,44 @@ pub unsafe extern "C" fn kirin_hypha_local_blind_capture_is_armed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn c_request_layout_matches_the_handwritten_header() {
+        assert_eq!(std::mem::size_of::<KirinLocalBlindCaptureRequest>(), 240);
+        assert_eq!(std::mem::align_of::<KirinLocalBlindCaptureRequest>(), 8);
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, request_id),
+            0
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, pair_generation),
+            40
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, clock_source),
+            64
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, clock_position_at_issue),
+            72
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, native_start),
+            88
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, frames),
+            96
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, pre_project_hash),
+            112
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, pre_instance_id),
+            176
+        );
+    }
 
     #[test]
     fn c_request_encoding_is_exact_and_rejects_locator_truncation() {

@@ -54,7 +54,16 @@ public:
                   const CaptureClockObservation& clock,
                   std::uint32_t sampleRate) noexcept
     {
-        return owner.process (input, channels, clock, sampleRate);
+        const auto owned = owner.process (input, channels, clock, sampleRate);
+#if JUCE_DEBUG
+        debugProcessCallbacks.fetch_add (1, std::memory_order_relaxed);
+        if (owned)
+        {
+            debugOwnedCallbacks.fetch_add (1, std::memory_order_relaxed);
+            debugLastOwnedPosition.store (clock.position, std::memory_order_relaxed);
+        }
+#endif
+        return owned;
     }
 
     CaptureOwnerView view() const noexcept { return owner.view(); }
@@ -62,6 +71,12 @@ public:
     { return pairReady.load (std::memory_order_acquire); }
 #if JUCE_DEBUG
     CapturePairComparison capturePairComparison() const;
+    std::uint64_t debugProcessCount() const noexcept
+    { return debugProcessCallbacks.load (std::memory_order_relaxed); }
+    std::uint64_t debugOwnedCount() const noexcept
+    { return debugOwnedCallbacks.load (std::memory_order_relaxed); }
+    std::int64_t debugLastPosition() const noexcept
+    { return debugLastOwnedPosition.load (std::memory_order_relaxed); }
 #endif
 
 private:
@@ -95,6 +110,9 @@ private:
 #if JUCE_DEBUG
     mutable juce::CriticalSection comparisonLock;
     CapturePairComparison comparison;
+    std::atomic<std::uint64_t> debugProcessCallbacks { 0 };
+    std::atomic<std::uint64_t> debugOwnedCallbacks { 0 };
+    std::atomic<std::int64_t> debugLastOwnedPosition { 0 };
 #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LocalBlindCaptureService)

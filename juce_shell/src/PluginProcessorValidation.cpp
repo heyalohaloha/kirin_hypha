@@ -105,14 +105,22 @@ juce::StringArray KirinHyphaProcessorBase::localValidationFacts() const
             "none", "invalid request", "expired", "PRE rejected", "pair changed",
             "arm rejected", "capture failed", "receipt rejected"
         };
+        const char* laneFailures[] {
+            "none", "discontinuity", "format", "generation", "non-realtime",
+            "non-finite", "transport", "clock"
+        };
         const auto issue = std::clamp (localBlindPdcValidationIssue.load (std::memory_order_acquire), 0, 6);
         const auto capture = localBlindCapture.view();
         const auto phase = std::clamp (static_cast<int> (capture.phase), 0, 6);
         const auto failure = std::clamp (static_cast<int> (capture.failure), 0, 7);
+        const auto laneFailure = std::clamp (static_cast<int> (capture.captureFailure), 0, 7);
         lines.add ("PDC validation issue: " + juce::String (validationIssues[issue]));
         lines.add ("PDC capture: "
             + juce::String (capturePhases[phase]) + " / "
-            + captureFailures[failure]);
+            + captureFailures[failure] + " / lane " + laneFailures[laneFailure]);
+        lines.add ("PDC callbacks: all " + number (localBlindCapture.debugProcessCount())
+            + " / owned " + number (localBlindCapture.debugOwnedCount())
+            + " / last " + number (localBlindCapture.debugLastPosition()));
         const auto comparison = localBlindCapture.capturePairComparison();
         if (comparison.valid)
         {
@@ -147,6 +155,29 @@ juce::StringArray KirinHyphaProcessorBase::localValidationFacts() const
             lines.add ("PSB epoch: " + number (psb.state_epoch_samples)
                        + " / end: " + number (psb.presentation_end_samples));
         }
+    }
+    else
+    {
+        const char* capturePhases[] {
+            "idle", "awaiting PRE", "capturing", "complete", "retired", "paired", "failed"
+        };
+        const char* captureFailures[] {
+            "none", "invalid request", "expired", "PRE rejected", "pair changed",
+            "arm rejected", "capture failed", "receipt rejected"
+        };
+        const char* laneFailures[] {
+            "none", "discontinuity", "format", "generation", "non-realtime",
+            "non-finite", "transport", "clock"
+        };
+        const auto capture = localBlindCapture.view();
+        const auto phase = std::clamp (static_cast<int> (capture.phase), 0, 6);
+        const auto failure = std::clamp (static_cast<int> (capture.failure), 0, 7);
+        const auto laneFailure = std::clamp (static_cast<int> (capture.captureFailure), 0, 7);
+        lines.add ("PRE capture: " + juce::String (capturePhases[phase])
+            + " / " + captureFailures[failure] + " / lane " + laneFailures[laneFailure]);
+        lines.add ("PRE callbacks: all " + number (localBlindCapture.debugProcessCount())
+            + " / owned " + number (localBlindCapture.debugOwnedCount())
+            + " / last " + number (localBlindCapture.debugLastPosition()));
     }
     lines.add ("Observations only; Blind admission not qualified");
     return lines;

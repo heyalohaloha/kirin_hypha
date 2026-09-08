@@ -359,6 +359,20 @@ int main()
         require (post.beginPost (request));
         post.servicePost (true, &pair, 44100, 1, 1000);
         require (post.view().failure == CaptureOwnerFailure::armRejected);
+        post.reset();
+
+        require (post.beginPost (request));
+        post.servicePost (true, &pair, 48000, 1, 1000);
+        require (post.process (pointers, 1, clockAt (0, 6), 48000));
+        require (post.process (pointers, 1, clockAt (7, 5), 48000));
+        post.servicePost (true, &pair, 48000, 1, 1001);
+        require (post.view().phase == CaptureOwnerPhase::failed);
+        require (post.view().failure == CaptureOwnerFailure::captureFailed);
+        // The clock guard rejects the transport gap before PCM ingress can classify it as a
+        // range discontinuity; preserve that exact producer-side reason across retirement.
+        require (post.view().captureFailure == CaptureFailure::clock);
+        post.reset();
+        require (post.view().captureFailure == CaptureFailure::none);
     }
     std::cout << "Exact range capture: PASS (ranges, pair barrier, role lane, bounds, retirement)\n";
 }
