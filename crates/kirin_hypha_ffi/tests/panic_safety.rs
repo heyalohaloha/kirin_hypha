@@ -116,6 +116,7 @@ fn null_handle_calls_are_safe_noops() {
             std::ptr::null_mut(),
             1,
             1,
+            1,
             0,
             0,
             1,
@@ -218,6 +219,7 @@ fn normal_lifecycle_intact_through_c_abi() {
         let mut capture_request = KirinLocalBlindCaptureRequest::default();
         assert!(!kirin_hypha_issue_local_blind_capture_request(
             h,
+            1,
             1,
             1,
             0,

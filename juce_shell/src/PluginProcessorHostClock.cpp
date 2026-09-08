@@ -63,10 +63,8 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
              clockStartSamples, clockEndSamples, presentationSource,
              inputPresentationValid, inputPresentationSamples,
              outputPresentationValid, outputPresentationSamples };
-   #if JUCE_DEBUG
     hostClockProbe.publish (clock, preparedSampleRate,
         static_cast<std::uint32_t> (getBlockSize()),
         static_cast<std::uint32_t> (getTotalNumInputChannels()));
-   #endif
     return clock;
 }

@@ -1,6 +1,6 @@
 # B1 ホスト実機観測と取得失敗の診断
 
-更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752追記。
+更新日：2026-09-08。B-741、B-743〜B-747、B-751、B-752、B-754追記。
 
 ローカルPRE/POST BlindのB1は、同一区間取得と時刻整列が未実証のため未成立である。
 Windows Studio Proの保存済み検証曲では、ホストがJUCEのclient extension hookを呼び、context変更も通知した。
@@ -107,8 +107,10 @@ OneDriveの容量100%通知も表示されたが、アカウントや同期設�
    B-751で、共有する低優先度scheduler上の単一非RT所有者が要求protocolをpollし、PREはlane公開後に応答、POSTは応答とexact pairの再確認後にlaneをarmする境界を接続した。
    B-752で、PRE PCMと全体hash付き完了receiptを不変artifactでPOSTへ運び、role-local POST receiptと一つのpair barrierで照合した。
    同じcapture generation、clock generation、sample rate、layout、両側の連続native範囲が一致し、POSTの消費応答をPREが確認した場合だけ取得を保持する。
-   次はbarrierへ渡すPRE／POST native範囲をhost clockとPDCの事実から確定し、既知遅延の残差0 sampleを実証する。
-   optionalなhost通知がなくても内部事実で対応区間を証明できれば受理し、証明できない取得だけを開始不可にする。
+   B-754で要求schemaをv2へ進め、POSTのlive host clockから一つの将来native範囲を作り、発行位置とともにPRE／POSTへ同値で配る境界へ変更した。
+   呼出側が別々の開始位置や推定PDC offsetを注入する入口は廃止した。各roleは最初のcallbackを発行位置から取得開始までに限定し、以後のclock source、連続位置、optional presentation通知を固定する。発行後の巻戻し、seek、loop、late arm、通知変更は当該要求だけで拒否する。
+   これは構造上のfail-closed化であり、Windows VST3、macOS VST3／AUのPDC残差0 sampleは引き続き実機未証明である。
+   次は既知遅延の残差0 sampleを実証する。optionalなhost通知がなくても内部事実で対応区間を証明できれば受理し、証明できない取得だけを開始不可にする。
 3. Blind、Reference、Keep / All Keep、Recordの競合はHypha自身の共有leaseで調停する。
    DAWのtrack名、PID、host固有IDからroutingや未知の参加者を推測しない。
 4. macOS VST3／AUとWindows VST3で、明示pair、同一区間、既知遅延の残差0 sampleを同じ条件で確認する。

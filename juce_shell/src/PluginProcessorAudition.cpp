@@ -2,15 +2,19 @@
 
 // Explicit comparison paths stay after the canonical input measurement transaction.
 void KirinHyphaProcessorBase::processComparisonPaths (
-    juce::AudioBuffer<float>& buffer, int64_t positionSamples, bool hasPosition,
-    bool playing, bool timelineActive, bool bypassed, bool nonRealtimeMode)
+    juce::AudioBuffer<float>& buffer, const hypha::HostProcessClock& clock,
+    bool timelineActive, bool bypassed, bool nonRealtimeMode)
 {
     // A dormant lane is one atomic null-pointer check. Once a non-RT owner arms it, the exact
     // role-local A input is copied before any audition path can replace the output buffer.
-    localBlindCapture.process (
-        buffer.getArrayOfReadPointers(), getTotalNumInputChannels(), buffer.getNumSamples(),
-        positionSamples, hasPosition, timelineActive, bypassed,
-        ! nonRealtimeMode, static_cast<std::uint32_t> (preparedSampleRate));
+    const hypha::local_blind::CaptureClockObservation captureClock {
+        clock.positionSamples, buffer.getNumSamples(), clock.clockSource,
+        clock.presentationSource, clock.inputPresentationSamples,
+        clock.outputPresentationSamples, clock.hasPosition, timelineActive, bypassed,
+        ! nonRealtimeMode, clock.inputPresentationValid, clock.outputPresentationValid
+    };
+    localBlindCapture.process (buffer.getArrayOfReadPointers(), getTotalNumInputChannels(),
+                               captureClock, static_cast<std::uint32_t> (preparedSampleRate));
 
     // Default closed: no production admission owner publishes PCM/epochs yet. No new button,
     // fake PDC, local-PID scope assumption, or third Analysis slot is enabled by this hook.
@@ -19,9 +23,9 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         hypha::local_blind::TrialBlock block;
         block.epochs = localBlindEpochs.read();
         block.sampleRate = static_cast<std::uint32_t> (preparedSampleRate);
-        block.position = positionSamples;
-        block.positionValid = hasPosition;
-        block.playing = playing;
+        block.position = clock.positionSamples;
+        block.positionValid = clock.hasPosition;
+        block.playing = clock.playing;
         block.realtime = ! nonRealtimeMode;
         block.bypassed = bypassed;
         // JUCE PPQ loop points do not prove native sample-exact loop boundaries.
@@ -31,16 +35,16 @@ void KirinHyphaProcessorBase::processComparisonPaths (
 #if KIRIN_HYPHA_GUIDE_TRANSPORT && ! KIRIN_HYPHA_PRE_DISPLAY
     if (role == Role::Post && referenceAuditionController != nullptr)
         referenceAuditionController->observeAInput (
-            buffer, positionSamples, hasPosition, playing,
+            buffer, clock.positionSamples, clock.hasPosition, clock.playing,
             ! bypassed && ! nonRealtimeMode && licenseIsOs());
     // Explicit B is an output-only audition copy. A has already been measured. Offline
     // render, bypass, missing project time, cache miss, and every consumer failure keep A intact.
     if (role == Role::Post && referenceAuditionController != nullptr)
         referenceAuditionController->renderSelectedB (
-            buffer, positionSamples, hasPosition,
+            buffer, clock.positionSamples, clock.hasPosition,
             ! bypassed && ! nonRealtimeMode && licenseIsOs(),
             ! bypassed && ! nonRealtimeMode);
 #else
-    juce::ignoreUnused (buffer, positionSamples, hasPosition, playing, bypassed, nonRealtimeMode);
+    juce::ignoreUnused (buffer, clock, bypassed, nonRealtimeMode);
 #endif
 }

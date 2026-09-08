@@ -4,6 +4,7 @@
 #include "kirin_hypha_pair_snapshot_ffi.h"
 
 #include <cmath>
+#include <limits>
 
 namespace
 {
@@ -15,10 +16,11 @@ bool decodeCaptureRequest (const KirinLocalBlindCaptureRequest& source,
     decoded.pair = { source.pair_generation, source.pre_project_hash, source.pre_instance_id };
     decoded.captureGeneration = source.capture_generation;
     decoded.clockGeneration = source.clock_generation;
+    decoded.clockSource = source.clock_source;
+    decoded.clockPositionAtIssue = source.clock_position_at_issue;
     decoded.sampleRate = source.sample_rate;
     decoded.channels = static_cast<int> (source.channels);
-    decoded.preStart = source.pre_start;
-    decoded.postStart = source.post_start;
+    decoded.nativeStart = source.native_start;
     decoded.frames = source.frames;
     decoded.expiresAtUnixMs = source.expires_at_unix_ms;
     if (! decoded.valid())
@@ -107,14 +109,28 @@ bool KirinHyphaProcessorBase::localBlindPairBinding (
 }
 
 bool KirinHyphaProcessorBase::issueLocalBlindCaptureRequest (
-    std::uint64_t captureGeneration, std::uint64_t clockGeneration,
-    std::int64_t preStart, std::int64_t postStart, std::int64_t frames,
+    std::uint64_t captureGeneration, std::int64_t frames,
     hypha::local_blind::ExactCaptureRequest& out)
 {
+    hypha::local_blind::HostClockProbeSnapshot clock;
+    if (! hostClockProbe.read (clock) || ! clock.hasPosition
+        || (clock.source != KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE
+            && clock.source != KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE)
+        || (! clock.playing && clock.source != KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE)
+        || clock.callback == 0 || ! std::isfinite (clock.rate)
+        || clock.rate < 8'000.0 || clock.rate > 768'000.0 || frames < 1)
+        return false;
+    const auto sampleRate = static_cast<std::int64_t> (std::llround (clock.rate));
+    if (std::abs (clock.rate - static_cast<double> (sampleRate)) > 0.001
+        || clock.position > std::numeric_limits<std::int64_t>::max() - sampleRate)
+        return false;
+    const auto nativeStart = clock.position + sampleRate;
     if (! localBlindCapture.reservePostRequest())
         return false;
     const juce::ScopedLock lock (handleLock);
-    if (role != Role::Post || hyphaHandle == nullptr)
+    if (role != Role::Post || hyphaHandle == nullptr
+        || std::abs (clock.rate - preparedSampleRate) > 0.001
+        || clock.channels != static_cast<std::uint32_t> (preparedInputChannels))
     {
         localBlindCapture.abandonPostRequest();
         return false;
@@ -122,8 +138,8 @@ bool KirinHyphaProcessorBase::issueLocalBlindCaptureRequest (
     KirinLocalBlindCaptureRequest request {};
     hypha::local_blind::ExactCaptureRequest decoded;
     if (! kirin_hypha_issue_local_blind_capture_request (
-            hyphaHandle, captureGeneration, clockGeneration,
-            preStart, postStart, frames, &request)
+            hyphaHandle, captureGeneration, clock.callback, clock.source,
+            clock.position, nativeStart, frames, &request)
         || ! decodeCaptureRequest (request, decoded)
         || ! localBlindCapture.commitPostRequest (decoded))
     {

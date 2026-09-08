@@ -192,6 +192,8 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
     let processor = read_repo("juce_shell/src/PluginProcessorPairing.cpp");
     assert!(processor.contains("kirin_hypha_get_local_blind_pair_binding"));
     assert!(processor.contains("binding.pair_generation"));
+    assert!(processor.contains("hostClockProbe.read (clock)"));
+    assert!(processor.contains("const auto nativeStart = clock.position + sampleRate"));
     let request_header =
         read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_local_blind_capture_ffi.h");
     for required in [
@@ -199,8 +201,9 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
         "pair_generation",
         "capture_generation",
         "clock_generation",
-        "pre_start",
-        "post_start",
+        "clock_source",
+        "clock_position_at_issue",
+        "native_start",
         "expires_at_unix_ms",
         "kirin_hypha_issue_local_blind_capture_request",
         "kirin_hypha_poll_local_blind_capture_request",
@@ -239,8 +242,9 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
         "source.pair_generation",
         "source.capture_generation",
         "source.clock_generation",
-        "source.pre_start",
-        "source.post_start",
+        "source.clock_source",
+        "source.clock_position_at_issue",
+        "source.native_start",
         "kirin_hypha_issue_local_blind_capture_request",
         "kirin_hypha_poll_local_blind_capture_request",
         "kirin_hypha_ack_local_blind_capture_request",

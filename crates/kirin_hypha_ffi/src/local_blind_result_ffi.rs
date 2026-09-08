@@ -149,7 +149,7 @@ fn c_receipt_matches_request(
         && receipt.clock_generation == request.clock_generation
         && receipt.sample_rate == request.sample_rate
         && receipt.channels == u32::from(request.channels)
-        && receipt.start == request.pre_start
+        && receipt.start == request.native_start
         && receipt.frames == request.frames
         && Some(receipt.sample_count) == expected_samples
 }

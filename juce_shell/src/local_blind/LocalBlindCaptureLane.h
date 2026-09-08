@@ -31,7 +31,9 @@ public:
             auto requestCopy = request;
             auto capture = std::make_unique<ExactRangeCapture> (rangeFor (request), byteBudget);
             activeRequest.emplace (std::move (requestCopy));
-            if (! slot.publish (std::move (capture)))
+            if (! slot.publish (std::move (capture), request.clockSource,
+                                request.clockPositionAtIssue,
+                                request.nativeStart))
             {
                 activeRequest.reset();
                 return false;
@@ -46,12 +48,11 @@ public:
     }
 
     // Audio Thread only. Returns whether a capture object owned this callback observation.
-    bool process (const float* const* input, int channels, int frames, std::int64_t position,
-                  bool positionValid, bool timelineActive, bool bypassed, bool realtime,
+    bool process (const float* const* input, int channels,
+                  const CaptureClockObservation& clock,
                   std::uint32_t sampleRate) noexcept
     {
-        return slot.process (input, channels, frames, position, positionValid, timelineActive,
-                             bypassed, realtime, sampleRate);
+        return slot.process (input, channels, clock, sampleRate);
     }
 
     bool receipt (CaptureReceipt& out) const
@@ -98,8 +99,7 @@ private:
     CaptureRange rangeFor (const ExactCaptureRequest& request) const noexcept
     {
         return { request.captureGeneration, request.sampleRate, request.channels,
-                 side == CaptureSide::pre ? request.preStart : request.postStart,
-                 request.frames };
+                 request.nativeStart, request.frames };
     }
 
     const CaptureSide side;

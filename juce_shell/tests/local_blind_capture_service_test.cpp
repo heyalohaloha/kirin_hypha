@@ -13,6 +13,11 @@
 using namespace hypha::local_blind;
 static void require (bool value) { if (! value) std::abort(); }
 
+static CaptureClockObservation clockAt (std::int64_t position, int frames)
+{
+    return { position, frames, 1, 1, 0, 96, true, true, false, true, false, true };
+}
+
 static bool waitUntil (const std::function<bool()>& predicate)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (2);
@@ -40,8 +45,8 @@ int main()
     const auto now = juce::Time::currentTimeMillis();
     const ExactCaptureRequest request {
         "12345678-1234-4234-8234-123456789abc",
-        { 51, "project-a", "pre-unnamed" }, 52, 53, 48000, 1,
-        0, 31, 12, now + 5'000
+        { 51, "project-a", "pre-unnamed" }, 52, 53, 1, 0, 48000, 1,
+        0, 12, now + 5'000
     };
     std::atomic<bool> preRequestAvailable { true };
     std::atomic<bool> preAcknowledged { false };
@@ -129,8 +134,8 @@ int main()
                                      0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f };
     const float* prePointers[] = { preInput.data() };
     const float* postPointers[] = { postInput.data() };
-    require (pre.process (prePointers, 1, 12, 0, true, true, false, true, 48000));
-    require (post.process (postPointers, 1, 12, 31, true, true, false, true, 48000));
+    require (pre.process (prePointers, 1, clockAt (0, 12), 48000));
+    require (post.process (postPointers, 1, clockAt (0, 12), 48000));
     require (waitUntil ([&] { return post.capturePairReady(); }));
     require (post.view().phase == CaptureOwnerPhase::paired);
     require (waitUntil ([&] { return pre.view().phase == CaptureOwnerPhase::retired; }));
@@ -163,8 +168,8 @@ int main()
 
     const ExactCaptureRequest rejectedRequest {
         "abcdefab-1234-4234-8234-123456789abc",
-        { 61, "project-a", "pre-unnamed" }, 62, 63, 48000, 1,
-        0, 41, 12, juce::Time::currentTimeMillis() + 5'000
+        { 61, "project-a", "pre-unnamed" }, 62, 63, 1, 41, 48000, 1,
+        41, 12, juce::Time::currentTimeMillis() + 5'000
     };
     std::atomic<bool> badReceiptRead { false };
     std::atomic<bool> badReceiptAcknowledged { false };
@@ -187,7 +192,7 @@ int main()
                   imported.receipt = {
                       exact.pair, exact.clockGeneration + 1, CaptureSide::pre,
                       { exact.captureGeneration, exact.sampleRate, exact.channels,
-                        exact.preStart, exact.frames },
+                        exact.nativeStart, exact.frames },
                       CaptureState::complete, CaptureFailure::none
                   };
                   imported.capture = ExactRangeCapture::fromCompletedInterleaved (
@@ -210,8 +215,7 @@ int main()
     {
         return rejectingPost.view().phase == CaptureOwnerPhase::capturing;
     }));
-    require (rejectingPost.process (postPointers, 1, 12, 41, true, true,
-                                    false, true, 48000));
+    require (rejectingPost.process (postPointers, 1, clockAt (41, 12), 48000));
     require (waitUntil ([&] { return badReceiptRead.load(); }));
     require (waitUntil ([&] { return rejectingPost.view().phase == CaptureOwnerPhase::idle; }));
     require (! rejectingPost.capturePairReady() && ! badReceiptAcknowledged.load());

@@ -114,12 +114,11 @@ public:
         observeCapture();
     }
 
-    bool process (const float* const* input, int channels, int frames, std::int64_t position,
-                  bool positionValid, bool timelineActive, bool bypassed, bool realtime,
+    bool process (const float* const* input, int channels,
+                  const CaptureClockObservation& clock,
                   std::uint32_t sampleRate) noexcept
     {
-        return lane.process (input, channels, frames, position, positionValid, timelineActive,
-                             bypassed, realtime, sampleRate);
+        return lane.process (input, channels, clock, sampleRate);
     }
 
     CaptureOwnerView view() const noexcept

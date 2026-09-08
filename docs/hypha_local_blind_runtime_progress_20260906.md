@@ -190,8 +190,8 @@ mono 試験では同じ左右の片側を使用した。
 ## 未接続の製品機能
 
 1. **参加範囲と開始排他**：同じ DAW の検証済み participant scope を定め、既存 AnalysisLease の 2 枠と単一 Blind 所有者へ接続する。Reference、Keep、All Keep、下流 Record の準備から finalize までを共通の開始判定に通す。別 process の存在を PID だけでは除外しない。ローカル source の識別、Trial ID、content hash、取得世代、失効条件を製品契約に追加し、承認済みの比較試聴を R-12 に明記する。
-2. **同一区間の取得**：B-751で同じ要求envelopeからB-747のrole別laneを非RTでarmし、B-752でPRE PCMをPOSTへ運んで両receiptを一つのpair barrierで照合した。次は取得要求へ与えるPRE／POST native範囲をhost clockとPDCの事実から確定し、既知遅延の残差0 sampleを実証する。試聴出力用スロットと取得用スロットを混同しない。
-3. **時刻対応**：host の事実から PRE 範囲と POST 範囲の対応を一度だけ確定する。PDC 不明、動的変更、別周回、seek、停止再開、片側欠落は開始不可にする。既知遅延による残差 0 sample と、他トラックとの同期を実機で確認する。
+2. **同一区間の取得**：B-751で同じ要求envelopeからB-747のrole別laneを非RTでarmし、B-752でPRE PCMをPOSTへ運んで両receiptを一つのpair barrierで照合した。B-754で任意のPRE／POST開始位置を廃止し、POSTのlive host clockから作る単一native範囲を両roleへ配るv2要求へ移行した。試聴出力用スロットと取得用スロットを混同しない。
+3. **時刻対応**：B-754で要求発行時のhost positionを将来の取得範囲とともに固定した。各roleは最初のcallbackをその区間内に限定し、以後のclock source、連続sample位置、optional presentation通知を固定する。発行後の巻戻し、late arm、動的変更、別周回、seek、停止callbackは当該要求だけで拒否し、presentation通知をPDC offsetとして足し引きしない。既知遅延による残差 0 sample と、他トラックとの同期は形式別の実機確認が未完了である。
 4. **製品の固定 Gain policy**：現行の連続 3 秒条件に入らない短音と疎な TRACK を別途評価する。既存 policy の条件を同名のまま緩めない。強い EQ、limiter、tail、clip 境界も含める。
 5. **開始から終了までの画面**：対象選択、取得待ち、音量変更への承認、1 / 2、回答、Reveal、減衰保持、通常復帰を接続する。他方の大きな表示、小さな表示、別ウインドウ、Capture、tooltip、accessibility にも非開示条件を適用する。
 6. **所有権と復元**：OS の安全な乱数による割当を単一の準備所有者へ接続する。編集画面を閉じた場合や host の再初期化、instance 削除、worker 停止、旧版との混在、結果保存失敗を扱う。再読込で試聴や承認済み減衰を自動再開しない。

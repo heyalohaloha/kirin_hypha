@@ -177,14 +177,14 @@ TRACK/STEM から 2MIX への変更は、画面操作と DAW state 復元の双�
 名前なしPREもexact latch自体をselection intentとして保持し、内部解放後のWaitingと明示解除を区別する。
 開始時は選択済みinstance、locator、pair／capture generation、対応sample範囲、共有leaseを検証する。
 PRE／POSTの取得受領は同じexact pairとcapture generationへ固定し、不一致とpair変更では完了後も失効する。
-取得要求はpair owner、canonical claim、pair／capture／clock generation、両側native範囲、形式、期限を一体で運ぶ。
+取得要求はpair owner、canonical claim、pair／capture／clock generation、clock source、要求発行時のhost position、単一のhost-native範囲、形式、期限を一体で運ぶ。
 PREのarmed応答は要求全体のdigestへ固定し、pair claim解放後は配信済み要求と応答を受理しない。
 C ABIとJUCEの非RTshellはPOST発行、PRE受信／応答、POST確認をroleごとに分け、失敗時の出力を変更しない。
 JUCEの要求envelopeはcanonical request ID、exact pair、全世代、mono／stereo、4秒以下のnative範囲、期限をまとめて検証するが、それ自体をAudio Thread capture公開や開始許可の証拠にはしない。
 role別の取得slotは非RTで事前確保した単一captureだけをAudio Threadへ公開し、reader退場前にPCMを破棄しない。
 取得slotは入力を変更せず、AnalysisLease、PRE／POST間transport、試聴出力用slot、開始許可の代用にしない。
-role別laneはrequestの期限と実prepare形式を照合し、PRE／POSTで指定された側のnative範囲だけを取得する。
-Audio Threadの取得入口は正本計測後かつ出力切替前とし、position不明、timeline停止、bypass、offlineでは当該取得を失効させる。
+role別laneはrequestの期限と実prepare形式を照合し、PRE／POSTとも同じhost-native範囲だけを取得する。
+Audio Threadの取得入口は正本計測後かつ出力切替前とし、position不明、timeline停止、bypass、offlineでは当該取得を失効させる。arm後は各roleがclock source、連続sample位置、optional presentation通知の有無と値を固定し、seek、loop、通知変更を検出した要求だけを失効させる。optional通知値をoffsetへ変換しない。
 対応試験は `unnamed_exact_pair_has_a_coherent_snapshot_until_explicit_clear`、`local_blind_capture_protocol`、`exact_unnamed_pair_completes_the_local_blind_request_handshake`、`kirin_local_blind_capture`、`local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name`、`analysis_blind_admission_probe`。
 承認範囲は [実装承認記録](hypha_implementation_approval_20260906.md) を参照する。
 
@@ -211,6 +211,7 @@ Audio Threadの取得入口は正本計測後かつ出力切替前とし、posit
 | INV-S19 | FREQのPSB subviewは既存Phase Dの20 Bark shareだけを読み、POST絶対値は合計約1、Δはexact pairのPOST−PREで合計約0となる場合だけ表示する。単位は割合／percentage pointでありdBではない。追加解析、補間、評価、Audio Thread処理を持たず、SPECTRUMとの手動排他切替とする | `psb_requires_twenty_finite_normalized_shares` / `verifySpectrumInteractionContract` |
 | INV-S20 | ローカルBlindは候補一覧で利用者が明示選択したexact PREを正本とし、名前一致、track位置、PID、host固有document／channel IDからpairを推測しない。名前は重複・未設定を許す表示ラベルであり、選択後はinstance ID、locator、pair generationを固定する。同名の別instance、rename、再生成へ自動で付け替えない。host contextはDebug診断だけに使い、入場条件へ接続しない | `explicit_pair_choice_selects_one_exact_instance_among_duplicate_names` / `published_exact_claim_never_retargets_to_a_same_name_replacement` / `same_name_can_move_to_an_explicit_second_instance` / `native_host_facts_use_the_client_extension_without_audio_thread_queries` |
 | INV-S21 | ローカルBlindのPRE PCMは、exact request全体のdigest、pair／capture／clock generation、PRE native範囲、形式、期限、PCM全体のSHA-256へ固定した一回限りの不変artifactとして非RTで運ぶ。POSTは全artifactを検証してPOST所有storageへコピーし、role-local POST receiptと同じpair barrierが完成した後だけexactな消費応答を返す。PREはその応答とAudio Thread reader退場の両方を確認してからlocal PCMとartifactを破棄する。欠損、改変、短いbuffer、非有限値、旧pair、世代／範囲不一致は出力無変更で拒否し、pair変更はbarrier完成後も保持結果を失効させる。このbarrier単体では試聴を開始しない | `exact_pre_pcm_and_receipt_round_trip_before_consumption` / `immutable_identity_rejects_different_pcm_and_tampering` / `malformed_missing_expired_and_stale_pair_results_fail_closed` / `exact_unnamed_pair_completes_the_local_blind_request_handshake` / `juce_shell/tests/local_blind_capture_service_test.cpp` / `local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name` |
+| INV-S22 | ローカルBlindの取得範囲はPOSTのlive host clockから一度だけ将来の単一native範囲として作り、発行位置とともにPRE／POSTへ同じ値を配る。presentation latencyを足し引きして別範囲を捏造しない。各roleのAudio Threadは最初のcallbackを発行位置から取得開始までに限定し、以後の位置連続性、clock source、optional presentation通知を固定する。late arm、発行後の巻戻し、seek、loop、clock／latency変更、timeline停止callback、bypass、offlineは当該要求だけの失敗にする。この構造試験はDAWのPDC残差0 sampleを証明せず、形式別の既知遅延実機試験が完了するまでBlind開始を有効にしない | `kirin_local_blind_capture` clock continuity cases / `local_blind_capture_protocol` v2 shared native range / `juce_shell/tests/local_blind_capture_service_test.cpp` |
 
 ---
 

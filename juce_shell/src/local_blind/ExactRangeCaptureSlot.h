@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CaptureClockGuard.h"
 #include "ExactRangeCapture.h"
 #include "RtPublicationSlot.h"
 
@@ -11,57 +12,71 @@ namespace hypha::local_blind
 class ExactRangeCaptureSlot final
 {
 public:
-    bool publish (std::unique_ptr<ExactRangeCapture> capture) noexcept
+    bool publish (std::unique_ptr<ExactRangeCapture> capture,
+                  std::uint8_t clockSource, std::int64_t clockPositionAtIssue,
+                  std::int64_t nativeStart) noexcept
     {
-        return storage.publish (std::move (capture));
-    }
-
-    // Audio Thread only. Input is copied into preallocated storage and is never modified.
-    bool push (const float* const* input, int channels, int frames, std::int64_t position,
-               std::uint64_t captureGeneration, bool realtime,
-               std::uint32_t sampleRate) noexcept
-    {
-        return storage.withRealtime ([&] (ExactRangeCapture& capture)
+        if (capture == nullptr || (clockSource != 1 && clockSource != 2)
+            || clockPositionAtIssue > nativeStart
+            || capture->range().start != nativeStart)
+            return false;
+        try
         {
-            capture.push (input, channels, frames, position, captureGeneration,
-                          realtime, sampleRate);
-        });
+            return storage.publish (std::make_unique<ClockBoundCapture> (
+                std::move (capture), clockSource, clockPositionAtIssue, nativeStart));
+        }
+        catch (...)
+        {
+            return false;
+        }
     }
 
     // Audio Thread only. The immutable published range supplies the control generation; transport
     // facts decide whether this exact attempt may continue before any PCM is accepted.
-    bool process (const float* const* input, int channels, int frames, std::int64_t position,
-                  bool positionValid, bool timelineActive, bool bypassed, bool realtime,
-                  std::uint32_t sampleRate) noexcept
+    bool process (const float* const* input, int channels,
+                  const CaptureClockObservation& clock, std::uint32_t sampleRate) noexcept
     {
-        return storage.withRealtime ([&] (ExactRangeCapture& capture)
+        return storage.withRealtime ([&] (ClockBoundCapture& value)
         {
-            if (! positionValid || ! timelineActive || bypassed)
-                capture.invalidateFromProducer (CaptureFailure::transport);
+            if (! clock.positionValid || ! clock.timelineActive || clock.bypassed)
+                value.capture->invalidateFromProducer (CaptureFailure::transport);
+            else if (! clock.realtime)
+                value.capture->invalidateFromProducer (CaptureFailure::nonRealtime);
+            else if (! value.clock.accept (clock))
+                value.capture->invalidateFromProducer (CaptureFailure::clock);
             else
-                capture.push (input, channels, frames, position, capture.range().generation,
-                              realtime, sampleRate);
+                value.capture->push (input, channels, clock.frames, clock.position,
+                                     value.capture->range().generation,
+                                     clock.realtime, sampleRate);
         });
     }
 
-    ExactRangeCapture* control() noexcept { return storage.control(); }
-    const ExactRangeCapture* control() const noexcept { return storage.control(); }
+    ExactRangeCapture* control() noexcept
+    {
+        auto* value = storage.control();
+        return value != nullptr ? value->capture.get() : nullptr;
+    }
+    const ExactRangeCapture* control() const noexcept
+    {
+        const auto* value = storage.control();
+        return value != nullptr ? value->capture.get() : nullptr;
+    }
     bool hasPublishedRealtime() const noexcept { return storage.hasPublishedRealtime(); }
 
     // The non-RT consumer may retain completed PCM through control() until preparation finishes.
     bool retireCompleted() noexcept
     {
-        auto* capture = storage.control();
-        return capture != nullptr && capture->state() == CaptureState::complete
+        const auto* value = storage.control();
+        return value != nullptr && value->capture->state() == CaptureState::complete
             && storage.retire();
     }
 
     bool cancelAndRetire() noexcept
     {
-        auto* capture = storage.control();
-        if (capture == nullptr)
+        auto* value = storage.control();
+        if (value == nullptr)
             return false;
-        capture->cancel();
+        value->capture->cancel();
         return storage.retire();
     }
 
@@ -69,6 +84,15 @@ public:
     bool hasStorage() const noexcept { return storage.hasStorage(); }
 
 private:
-    RtPublicationSlot<ExactRangeCapture> storage;
+    struct ClockBoundCapture
+    {
+        ClockBoundCapture (std::unique_ptr<ExactRangeCapture> captureIn,
+                           std::uint8_t source, std::int64_t positionAtIssue,
+                           std::int64_t start) noexcept
+            : capture (std::move (captureIn)), clock (source, positionAtIssue, start) {}
+        std::unique_ptr<ExactRangeCapture> capture;
+        CaptureClockGuard clock;
+    };
+    RtPublicationSlot<ClockBoundCapture> storage;
 };
 }

@@ -16,8 +16,8 @@ use crate::local_blind_capture_protocol::LocalBlindCaptureRequest;
 const BLOB_MAGIC: &[u8; 16] = b"KIRINLBPCMv1\0\0\0\0";
 const HEADER_LENGTH_BYTES: usize = 4;
 const HEADER_MAX_BYTES: usize = 4_096;
-const RECEIPT_SCHEMA: &str = "kirin_hypha_local_blind_pre_capture_v1";
-const CONSUMED_SCHEMA: &str = "kirin_hypha_local_blind_pre_capture_consumed_v1";
+const RECEIPT_SCHEMA: &str = "kirin_hypha_local_blind_pre_capture_v2";
+const CONSUMED_SCHEMA: &str = "kirin_hypha_local_blind_pre_capture_consumed_v2";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -49,7 +49,7 @@ impl LocalBlindPreCaptureReceipt {
             && self.clock_generation == request.clock_generation
             && self.sample_rate == request.sample_rate
             && self.channels == request.channels
-            && self.start == request.pre_start
+            && self.start == request.native_start
             && self.frames == request.frames
             && expected_samples == Some(self.sample_count)
             && canonical_sha256(&self.pcm_sha256)
@@ -133,7 +133,7 @@ pub fn publish_local_blind_pre_capture(
         clock_generation: request.clock_generation,
         sample_rate: request.sample_rate,
         channels: request.channels,
-        start: request.pre_start,
+        start: request.native_start,
         frames: request.frames,
         sample_count: sample_count as u64,
         pcm_sha256: hex::encode(Sha256::digest(&pcm_bytes)),

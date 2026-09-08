@@ -5,7 +5,8 @@
 
 namespace hypha::local_blind
 {
-// Diagnostic observations only: not a freshness claim, PDC proof, or Blind admission token.
+// Atomic callback facts for diagnostics and non-RT capture planning. A snapshot is not by itself
+// a PDC proof or Blind admission token; the role-local capture guard verifies later continuity.
 struct HostClockProbeSnapshot
 {
     std::uint64_t callback = 0;
