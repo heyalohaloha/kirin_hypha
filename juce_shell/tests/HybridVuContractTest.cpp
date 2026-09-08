@@ -72,10 +72,12 @@ void verifyHybridVuContract()
     KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-38.0) < 0.08f);
     KIRIN_HYBRID_VU_REQUIRE (
         std::abs (hybrid_vu::vuNormalized (-15.0) - 1.0f) < 1.0e-6f);
-    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-18.0) > 0.70f);
-    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-18.0) < 0.72f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-18.0) > 0.77f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-18.0) < 0.79f);
     KIRIN_HYBRID_VU_REQUIRE (
-        std::abs (hybrid_vu::truePeakNormalized (-24.0)) < 1.0e-6f);
+        std::abs (hybrid_vu::truePeakNormalized (-28.0)) < 1.0e-6f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::truePeakNormalized (-24.0) > 0.14f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::truePeakNormalized (-24.0) < 0.15f);
     KIRIN_HYBRID_VU_REQUIRE (
         std::abs (hybrid_vu::truePeakNormalized (0.0) - 1.0f) < 1.0e-6f);
 
