@@ -13,9 +13,11 @@ namespace hypha::hybrid_vu
 namespace
 {
 constexpr float pi = juce::MathConstants<float>::pi;
-constexpr std::array<int, 12> vuTicks {
-    -20, -15, -10, -7, -5, -3, -2, -1, 0, 1, 2, 3
+constexpr std::array<int, 18> vuTickHalves {
+    -40, -35, -30, -25, -20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 2, 4, 6
 };
+
+const auto meterIvory = COL_FLORA_BR.interpolatedWith (COL_NORMAL, 0.34f);
 
 const juce::Image& chassisImage()
 {
@@ -28,18 +30,6 @@ const juce::Image& chassisImage()
 float scaled (float value, float width, float minimum = 0.7f) noexcept
 {
     return juce::jmax (minimum, value * width / 900.0f);
-}
-
-juce::Point<float> polar (juce::Point<float> centre, float radius, float angle) noexcept
-{
-    return centre + juce::Point<float> (std::cos (angle), std::sin (angle)) * radius;
-}
-
-float dialAngle (double dbfs) noexcept
-{
-    constexpr float start = -2.48f;
-    constexpr float end = -0.66f;
-    return start + (end - start) * vuNormalized (dbfs);
 }
 
 void drawText (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,
@@ -60,14 +50,15 @@ void drawText (juce::Graphics& g, const juce::String& text, juce::Rectangle<floa
 void paintHeader (juce::Graphics& g, juce::Rectangle<float> area, const State& state)
 {
     const auto width = area.getWidth();
-    auto title = area.reduced (scaled (28.0f, width, 8.0f), 0.0f);
+    auto title = area.reduced (scaled (25.0f, width, 6.5f), 0.0f);
     const auto titleWidth = title.getWidth() * 0.36f;
     auto titleArea = title.removeFromLeft (titleWidth);
-    const auto fontHeight = juce::jlimit (10.0f, 38.0f, width * 0.041f);
+    const auto fontHeight = juce::jlimit (10.0f, 38.0f, width * 0.039f);
     const auto hyphaWidth = titleArea.getWidth() * 0.44f;
     drawText (g, width >= 450.0f ? "H Y P H A" : "HYPHA",
               titleArea.removeFromLeft (hyphaWidth), fontHeight,
               COL_NORMAL, juce::Justification::centredLeft);
+    titleArea.removeFromLeft (scaled (10.0f, width, 2.0f));
     drawText (g, state.role == observatory::Role::post ? "POST" : "PRE", titleArea,
               fontHeight * 0.87f, COL_MUTED.brighter (0.18f),
               juce::Justification::centredLeft);
@@ -84,7 +75,7 @@ void paintHeader (juce::Graphics& g, juce::Rectangle<float> area, const State& s
     g.setColour (state.connectionColour);
     g.fillEllipse (connectionDot.x - dot * 0.45f, connectionDot.y - dot * 0.45f,
                    dot * 0.9f, dot * 0.9f);
-    connection.removeFromLeft (dot * 2.5f);
+    connection.removeFromLeft (dot * 3.4f);
     drawText (g, state.connectionText, connection.reduced (0.0f, area.getHeight() * 0.15f),
               fontHeight * 0.66f, state.connectionColour,
               juce::Justification::centredLeft);
@@ -93,25 +84,25 @@ void paintHeader (juce::Graphics& g, juce::Rectangle<float> area, const State& s
     g.drawVerticalLine (juce::roundToInt (record.getX()),
                         record.getY() + area.getHeight() * 0.24f,
                         record.getBottom() - area.getHeight() * 0.24f);
-    const auto recordDot = juce::Point<float> (record.getX() + record.getWidth() * 0.27f,
+    const auto recordDot = juce::Point<float> (record.getX() + record.getWidth() * 0.45f,
                                                 record.getCentreY());
     g.setColour (COL_FLORA_BR.withAlpha (0.11f));
     g.fillEllipse (recordDot.x - dot, recordDot.y - dot, dot * 2.0f, dot * 2.0f);
     g.setColour (COL_FLORA_BR);
     g.fillEllipse (recordDot.x - dot * 0.48f, recordDot.y - dot * 0.48f,
                    dot * 0.96f, dot * 0.96f);
-    record.removeFromLeft (record.getWidth() * 0.40f);
+    record.removeFromLeft (record.getWidth() * 0.62f);
     drawText (g, "REC", record, fontHeight * 0.68f, COL_NORMAL.withAlpha (0.88f),
               juce::Justification::centredLeft);
 }
 
 juce::Point<float> peakRailPoint (juce::Rectangle<float> face, int channel, float amount)
 {
-    const auto inner = channel == 0 ? 0.468f : 0.532f;
+    const auto inner = channel == 0 ? 0.390f : 0.610f;
     const auto outer = channel == 0 ? 0.075f : 0.925f;
     const auto x = face.getX() + face.getWidth() * juce::jmap (amount, outer, inner);
     const auto y = face.getY() + face.getHeight()
-        * (0.225f - 0.085f * std::sin (amount * pi * 0.5f));
+        * (0.225f - 0.060f * std::sin (amount * pi * 0.5f));
     return { x, y };
 }
 
@@ -122,25 +113,26 @@ void paintPeakRail (juce::Graphics& g, juce::Rectangle<float> face, const State&
         && std::isfinite (state.meter.channel_instant_true_peak_dbtp[channel]);
     const auto progress = available
         ? truePeakNormalized (state.meter.channel_instant_true_peak_dbtp[channel]) : 0.0f;
-    const int segments = compact ? 15 : 33;
+    const int segments = compact ? 17 : 43;
     const auto width = face.getWidth();
     for (int index = 0; index < segments; ++index)
     {
         const auto amount = static_cast<float> (index) / static_cast<float> (segments - 1);
         const auto point = peakRailPoint (face, channel, amount);
         const auto lit = amount <= progress;
-        const auto height = scaled (index % (compact ? 3 : 6) == 0 ? 12.0f : 8.0f,
+        const auto emphasized = lit && amount >= 0.07f;
+        const auto height = scaled (index % (compact ? 3 : 6) == 0 ? 10.0f : 7.0f,
                                     width, compact ? 2.0f : 3.0f);
-        if (lit)
+        if (emphasized)
         {
-            const auto segmentWidth = scaled (compact ? 4.5f : 7.0f, width, 1.3f);
+            const auto segmentWidth = scaled (compact ? 4.0f : 5.2f, width, 1.3f);
             g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.96f));
             g.fillRoundedRectangle (point.x - segmentWidth * 0.5f, point.y - height * 0.5f,
                                     segmentWidth, height, segmentWidth * 0.28f);
         }
         else
         {
-            g.setColour (COL_MUTED.withAlpha (0.42f));
+            g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.66f));
             g.drawVerticalLine (juce::roundToInt (point.x), point.y - height * 0.5f,
                                 point.y + height * 0.5f);
         }
@@ -160,10 +152,7 @@ void paintPeakRail (juce::Graphics& g, juce::Rectangle<float> face, const State&
     const std::array<int, 5> labels { -24, -18, -12, -6, 0 };
     for (const auto value : labels)
     {
-        // The two 0 dBTP endpoints converge on the centred scale title. Repeating the same
-        // endpoint value on both sides makes the compact face read as "0 TP 0" and overlaps
-        // the full title at large sizes, so the illuminated rail itself owns that endpoint.
-        if (value == 0 || (compact && value != -24))
+        if (compact && value != -24)
             continue;
         const auto point = peakRailPoint (face, channel, truePeakNormalized (value));
         const auto labelWidth = scaled (34.0f, width, 14.0f);
@@ -194,75 +183,116 @@ void paintClipStatus (juce::Graphics& g, juce::Rectangle<float> face, const Stat
                        scaled (1.0f, width));
     }
     if (! compact)
+    {
+        const auto dashHalfGap = scaled (53.0f, width);
+        const auto dashOuter = scaled (74.0f, width);
+        g.setColour (COL_MUTED.withAlpha (0.72f));
+        g.drawHorizontalLine (juce::roundToInt (centre.y), centre.x - dashOuter,
+                              centre.x - dashHalfGap);
+        g.drawHorizontalLine (juce::roundToInt (centre.y), centre.x + dashHalfGap,
+                              centre.x + dashOuter);
         drawText (g, "CLIP", { centre.x - scaled (29.0f, width),
                                 centre.y - scaled (11.0f, width), scaled (58.0f, width),
                                 scaled (22.0f, width) },
                   scaled (11.0f, width, 5.2f), COL_MUTED,
                   juce::Justification::centred);
+    }
+}
+
+struct DialGeometry
+{
+    juce::Point<float> pivot;
+    float radiusX;
+    float topRise;
+    float edgeFall;
+};
+
+DialGeometry dialGeometry (juce::Rectangle<float> face, int channel)
+{
+    const auto half = face.getWidth() * 0.5f;
+    return {
+        { face.getX() + half * (channel == 0 ? 0.52f : 1.48f),
+          face.getY() + face.getHeight() * 0.86f },
+        juce::jmin (half * 0.438f, face.getHeight() * 0.59f),
+        face.getHeight() * 0.483f,
+        face.getHeight() * 0.136f
+    };
+}
+
+juce::Point<float> dialPoint (const DialGeometry& dial, float normalized)
+{
+    const auto angle = juce::jmap (normalized, -2.48f, -0.74f);
+    const auto edge = std::abs (normalized * 2.0f - 1.0f);
+    return { dial.pivot.x + std::cos (angle) * dial.radiusX,
+             dial.pivot.y - dial.topRise + dial.edgeFall * std::pow (edge, 1.72f) };
 }
 
 void paintDial (juce::Graphics& g, juce::Rectangle<float> face, const State& state,
                 int channel, bool compact)
 {
     const auto width = face.getWidth();
-    const auto half = face.getWidth() * 0.5f;
-    const auto pivot = juce::Point<float> (
-        face.getX() + half * (channel == 0 ? 0.52f : 1.48f),
-        face.getY() + face.getHeight() * 0.86f);
-    const auto radius = juce::jmin (half * 0.385f, face.getHeight() * 0.52f);
+    const auto dial = dialGeometry (face, channel);
+    const auto pivot = dial.pivot;
     juce::Path arc;
     for (int step = 0; step <= 80; ++step)
     {
-        const auto angle = juce::jmap (step / 80.0f, -2.48f, -0.66f);
-        const auto point = polar (pivot, radius, angle);
+        const auto point = dialPoint (dial, step / 80.0f);
         if (step == 0) arc.startNewSubPath (point); else arc.lineTo (point);
     }
-    g.setColour (COL_FLORA_BR.withAlpha (0.76f));
+    g.setColour (meterIvory.withAlpha (0.86f));
     g.strokePath (arc, juce::PathStrokeType (scaled (1.9f, width)));
 
-    for (size_t index = 0; index < vuTicks.size(); ++index)
+    for (const auto halfVu : vuTickHalves)
     {
-        const auto vu = vuTicks[index];
-        const auto angle = dialAngle (vu + referenceDbfs);
-        const bool major = vu == -20 || vu == -10 || vu == -7 || vu == -5
-                        || vu == -3 || vu == -1 || vu == 0 || vu == 1 || vu == 3;
-        const auto outer = polar (pivot, radius * 1.015f, angle);
-        const auto inner = polar (pivot, radius * (major ? 0.86f : 0.91f), angle);
-        g.setColour (COL_FLORA_BR.withAlpha (major ? 0.93f : 0.60f));
-        g.drawLine ({ inner, outer }, scaled (major ? 2.7f : 1.2f, width));
-        const bool show = major && (! compact || vu == -20 || vu == -10 || vu == -3
-                                    || vu == 0 || vu == 3);
+        const auto vu = static_cast<float> (halfVu) * 0.5f;
+        const auto normalized = vuNormalized (vu + referenceDbfs);
+        const bool major = halfVu == -40 || halfVu == -20 || halfVu == -14
+                        || halfVu == -10 || halfVu == -6 || halfVu == -2
+                        || halfVu == 0 || halfVu == 2 || halfVu == 6;
+        if (compact && ! major)
+            continue;
+        const auto inner = dialPoint (dial, normalized);
+        const auto tickScale = major ? 1.13f : 1.065f;
+        const auto outer = pivot + (inner - pivot) * tickScale;
+        g.setColour (meterIvory.withAlpha (major ? 0.96f : 0.72f));
+        g.drawLine ({ inner, outer }, scaled (major ? 2.3f : 1.1f, width));
+        const bool show = major && (! compact || halfVu == -40 || halfVu == -20
+                                    || halfVu == -6 || halfVu == 0 || halfVu == 6);
         if (show)
         {
-            const auto point = polar (pivot, radius * 1.16f, angle);
-            drawText (g, vu > 0.0 ? "+" + juce::String ((int) vu) : juce::String ((int) vu),
+            const auto point = juce::Point<float> (
+                pivot.x + (inner.x - pivot.x) * 1.14f,
+                pivot.y + (inner.y - pivot.y) * 1.19f);
+            drawText (g, vu > 0.0f ? "+" + juce::String ((int) vu) : juce::String ((int) vu),
                       { point.x - scaled (26.0f, width, 9.0f),
                         point.y - scaled (10.0f, width, 4.0f),
                         scaled (52.0f, width, 18.0f), scaled (20.0f, width, 8.0f) },
-                      scaled (13.0f, width, 5.6f), COL_NORMAL.withAlpha (0.88f),
+                      scaled (14.5f, width, 5.6f), COL_NORMAL.withAlpha (0.88f),
                       juce::Justification::centred, true);
         }
     }
 
     const auto channelAvailable = state.currentAvailable && channel < state.meter.channels
         && std::isfinite (state.meter.channel_vu_dbfs[channel]);
-    const auto angle = dialAngle (channelAvailable ? state.meter.channel_vu_dbfs[channel]
-                                                    : referenceDbfs - 20.0);
-    const auto needleEnd = polar (pivot, radius * 0.97f, angle);
+    const auto normalized = vuNormalized (channelAvailable ? state.meter.channel_vu_dbfs[channel]
+                                                            : referenceDbfs - 40.0);
+    const auto scalePoint = dialPoint (dial, normalized);
+    const auto needleEnd = pivot + (scalePoint - pivot) * 1.11f;
     g.setColour (COL_FLORA_BR.withAlpha (0.22f));
-    g.drawLine ({ pivot, needleEnd }, scaled (7.0f, width, 1.7f));
-    g.setColour (COL_FLORA_BR.brighter (0.10f));
-    g.drawLine ({ pivot, needleEnd }, scaled (2.4f, width, 1.0f));
+    g.drawLine ({ pivot, needleEnd }, scaled (5.5f, width, 1.5f));
+    g.setColour (meterIvory.brighter (0.06f));
+    g.drawLine ({ pivot, needleEnd }, scaled (2.0f, width, 0.9f));
 
     if (! compact)
-        drawText (g, "VU", { pivot.x - radius * 0.33f, pivot.y - radius * 0.70f,
-                              radius * 0.66f, scaled (28.0f, width, 10.0f) },
-                  scaled (17.0f, width, 7.0f), COL_FLORA_BR.withAlpha (0.88f),
+        drawText (g, "VU", { pivot.x - dial.radiusX * 0.31f,
+                              pivot.y - face.getHeight() * 0.405f,
+                              dial.radiusX * 0.62f, scaled (28.0f, width, 10.0f) },
+                  scaled (19.0f, width, 7.0f), meterIvory.withAlpha (0.92f),
                   juce::Justification::centred);
     drawText (g, channel == 0 ? "L" : (state.meter.channels > 1 ? "R" : hypha::emDash()),
-              { pivot.x - radius * 0.28f, pivot.y - radius * 0.49f,
-                radius * 0.56f, scaled (42.0f, width, 14.0f) },
-              scaled (25.0f, width, 9.0f), COL_MUTED.brighter (0.22f),
+              { pivot.x - dial.radiusX * 0.28f, pivot.y - face.getHeight() * 0.285f,
+                dial.radiusX * 0.56f, scaled (42.0f, width, 14.0f) },
+              scaled (29.0f, width, 9.0f), COL_MUTED.brighter (0.22f),
               juce::Justification::centred);
 }
 
@@ -275,7 +305,7 @@ void paintMeterFace (juce::Graphics& g, juce::Rectangle<float> face, const State
     paintPeakRail (g, inner, state, 1, compact);
     drawText (g, compact ? "TP" : "TRUE PEAK (dBTP)",
               { inner.getCentreX() - inner.getWidth() * 0.16f,
-                inner.getY() + inner.getHeight() * 0.035f,
+                inner.getY() + inner.getHeight() * 0.005f,
                 inner.getWidth() * 0.32f, inner.getHeight() * 0.11f },
               scaled (15.0f, width, 5.2f), COL_MUTED.brighter (0.18f),
               juce::Justification::centred);
@@ -287,21 +317,26 @@ void paintMeterFace (juce::Graphics& g, juce::Rectangle<float> face, const State
 void paintMetric (juce::Graphics& g, juce::Rectangle<float> area, const char* label,
                   double value, const char* unit, bool emphasized)
 {
-    auto content = area.reduced (area.getWidth() * 0.055f, area.getHeight() * 0.10f);
-    auto labelArea = content.removeFromLeft (content.getWidth() * 0.24f);
-    auto unitArea = content.removeFromRight (content.getWidth() * 0.25f);
+    auto content = area.reduced (0.0f, area.getHeight() * 0.10f);
+    const auto wideLabel = juce::String (label) == "CREST";
+    const auto labelFraction = wideLabel ? 0.40f : (juce::String (label) == "TP" ? 0.28f : 0.245f);
+    auto labelArea = content.removeFromLeft (area.getWidth() * labelFraction);
+    auto unitArea = content.removeFromRight (
+        area.getWidth() * (wideLabel ? 0.18f : (juce::String (label) == "TP" ? 0.31f : 0.28f)));
     drawText (g, label, labelArea, juce::jlimit (7.0f, 20.0f, area.getHeight() * 0.27f),
               COL_MUTED.brighter (0.12f), juce::Justification::centred);
     g.setColour (COL_MUTED.withAlpha (0.40f));
     g.drawVerticalLine (juce::roundToInt (labelArea.getRight()), content.getY(), content.getBottom());
-    drawText (g, std::isfinite (value) ? juce::String (value, 1) : juce::String ("---"),
-              content.reduced (area.getWidth() * 0.02f, 0.0f),
-              juce::jlimit (13.0f, 50.0f, area.getHeight() * 0.60f),
-              std::isfinite (value)
-                  ? (emphasized ? COL_FLORA_BR
-                                : COL_FLORA_BR.interpolatedWith (COL_NORMAL, 0.42f))
-                  : COL_MUTED,
-              juce::Justification::centred, true);
+    g.setColour (std::isfinite (value)
+                     ? (emphasized ? COL_FLORA_BR
+                                   : COL_FLORA_BR.interpolatedWith (COL_NORMAL, 0.42f))
+                     : COL_MUTED);
+    drawTabularText (g,
+                     monoFont (juce::jlimit (13.0f, 50.0f, area.getHeight() * 0.60f))
+                         .withHorizontalScale (0.82f),
+                     std::isfinite (value) ? juce::String (value, 1) : juce::String ("---"),
+                     content.reduced (area.getWidth() * 0.01f, 0.0f),
+                     juce::Justification::centred);
     drawText (g, unit, unitArea, juce::jlimit (6.5f, 18.0f, area.getHeight() * 0.25f),
               COL_MUTED.brighter (0.12f), juce::Justification::centredLeft);
 }
@@ -310,10 +345,10 @@ void paintMetric (juce::Graphics& g, juce::Rectangle<float> area, const char* la
 float vuNormalized (double dbfs) noexcept
 {
     if (! std::isfinite (dbfs)) return 0.0f;
+    if (dbfs < referenceDbfs - 20.0) return 0.0f;
     const auto vu = juce::jlimit (-20.0, 3.0, dbfs - referenceDbfs);
-    const auto minimum = std::pow (10.0, -20.0 / 20.0);
     const auto maximum = std::pow (10.0, 3.0 / 20.0);
-    return static_cast<float> ((std::pow (10.0, vu / 20.0) - minimum) / (maximum - minimum));
+    return static_cast<float> (std::pow (10.0, vu / 20.0) / maximum);
 }
 
 float truePeakNormalized (double dbtp) noexcept

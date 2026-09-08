@@ -28,12 +28,12 @@ KirinMeterSession meterFixture()
     meter.channels = 2;
     meter.true_peak = -3.2;
     meter.max_true_peak = -1.2;
-    meter.channel_vu_dbfs[0] = -26.0;
-    meter.channel_vu_dbfs[1] = -25.0;
-    meter.channel_instant_true_peak_dbtp[0] = -3.2;
-    meter.channel_instant_true_peak_dbtp[1] = -4.7;
-    meter.channel_max_true_peak_dbtp[0] = -1.2;
-    meter.channel_max_true_peak_dbtp[1] = -1.5;
+    meter.channel_vu_dbfs[0] = -28.0;
+    meter.channel_vu_dbfs[1] = -27.0;
+    meter.channel_instant_true_peak_dbtp[0] = -18.0;
+    meter.channel_instant_true_peak_dbtp[1] = -17.0;
+    meter.channel_max_true_peak_dbtp[0] = -3.2;
+    meter.channel_max_true_peak_dbtp[1] = -4.7;
     return meter;
 }
 
@@ -68,10 +68,12 @@ int differentPixels (const juce::Image& left, const juce::Image& right)
 
 void verifyHybridVuContract()
 {
-    KIRIN_HYBRID_VU_REQUIRE (std::abs (hybrid_vu::vuNormalized (-38.0)) < 1.0e-6f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-38.0) > 0.06f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-38.0) < 0.08f);
     KIRIN_HYBRID_VU_REQUIRE (
         std::abs (hybrid_vu::vuNormalized (-15.0) - 1.0f) < 1.0e-6f);
-    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-18.0) > 0.60f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-18.0) > 0.70f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-18.0) < 0.72f);
     KIRIN_HYBRID_VU_REQUIRE (
         std::abs (hybrid_vu::truePeakNormalized (-24.0)) < 1.0e-6f);
     KIRIN_HYBRID_VU_REQUIRE (
