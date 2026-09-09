@@ -18,8 +18,8 @@ inline void verifyLocalBlindUiContract()
             std::exit (EXIT_FAILURE);
         }
     };
-    require (! local_blind_ui::productEntryEnabled,
-             "product entry stays closed until macOS AU exact PDC proof");
+    require (local_blind_ui::productEntryEnabled,
+             "product entry opens after the macOS AU exact PDC proof");
 
     observatory::View post (observatory::Role::post);
     observatory::View pre (observatory::Role::pre);

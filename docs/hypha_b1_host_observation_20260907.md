@@ -1,10 +1,10 @@
 # B1 ホスト実機観測と取得失敗の診断
 
-更新日：2026-09-09。B-741、B-743〜B-747、B-751、B-752、B-754〜B-760、B-764、B-765追記。
+更新日：2026-09-09。B-741、B-743〜B-747、B-751、B-752、B-754〜B-760、B-764、B-765、B-773、B-774追記。
 
-ローカルPRE/POST Blindは、Windows Studio ProとmacOS Studio Pro 8のVST3についてB1の同一区間取得と時刻整列を実証した。
-両環境とも4096 samplesの既知遅延を挟んだ4秒の取得でPRE／POST PCMがbit一致し、推定残差は0 samplesだった。
-macOS AUと他の対象条件は未実証であるため、製品のBlind開始機能は引き続き無効のままとする。
+ローカルPRE/POST Blindは、Windows Studio ProのVST3、macOS Studio Pro 8のVST3とAUについてB1の同一区間取得と時刻整列を実証した。
+各条件で4096 samplesの既知遅延を挟んだ4秒の取得でPRE／POST PCMがbit一致し、推定残差は0 samplesだった。
+三形式の実証完了を根拠に、製品のBlind開始機能を有効にする。
 Windows Studio Proの保存済み検証曲では、ホストがJUCEのclient extension hookを呼び、context変更も通知した。
 しかし、PreSonus/Fenderの`IContextInfoProvider`はv3、v2、v1のいずれも取得できなかった。
 入力presentation latencyも通知されていないため、このhost APIだけから時刻対応を確定することはできなかった。
@@ -166,6 +166,23 @@ B-765候補を同じmacOS Studio Pro 8.1.2、VST3、96 kHz、stereo、nominal bl
 macOSのVST3条件についてB1の実機証明は成立した。
 AUや他DAWへは一般化しない。
 
+B-773候補をmacOS Studio Pro 8.1.2、AU、96 kHz、stereo、nominal block 2048で実測した。
+PRE → PDC Validation Delay 4096 → POSTの順に挿入し、明示選択したPRE instance `ce2c67ce`と同じnative範囲を取得した。
+
+| 観測項目 | 結果 |
+| --- | --- |
+| 形式 / host | AU / macOS Studio Pro 8.1.2 |
+| 取得範囲 | start 370,432 / 384,000 frames / 96,000 Hz / stereo |
+| capture | paired / failure none |
+| bit一致 | yes |
+| 推定残差 | 0 samples |
+| 相関 | zero 1.00000000 / best 1.00000000 / margin 0.00000000 |
+| 正規化zero RMS誤差 | 0.00000000 |
+
+この結果はmacOS AUでも、同一の将来native範囲と別identityの4096-sample validation delayがStudio ProのPDC後に完全一致することを示す。
+Windows VST3、macOS VST3、macOS AUのB1実証が揃ったため、POSTの大画面にある製品Blind入口の単一gateを開く。
+実測後は曲を保存せず閉じ、Studio Proの再生／録音デバイスをMT VAD、96 kHzへ戻した。
+
 同じ実測中、MT VADを音声デバイスにした状態では、全insertをbypassしてもStudio Proのtransport位置が進まなかった。
 macOS内蔵出力へ切り替えるとcallbackとtransportが進み、上記取得が成立したため、この停止はHyphaのAudio Threadではなく当該デバイス状態に依存する。
 検証後はStudio Proを保存せず終了し、再生／録音デバイスをMT VADへ戻した。
@@ -202,6 +219,7 @@ trackのrecord armは有効にせず、音声eventは作成していない。
 - B-760 terminal結果の対象試験：PRE lane失敗とPCM公開失敗がexact requestに固定した失敗artifactとなり、PREが結果を返さない場合も独立したfinalization期限でPOSTが待機を終了して理由を保持することを確認した。
 - B-765 pair競合の対象試験：pair claim lockの競合を安定した不在／変更から分離し、受理済み要求を競合中だけ保持して解消後に同じpairへ戻ることを確認した。C++ serviceでは競合中の取得継続と、その後の安定したpair喪失によるfail-closedを確認した。
 - macOS Studio Pro 8 VST3 PDC実機：96 kHz、stereoで4096-sample validation delayを挟んだ384,000-frame取得がbit一致し、推定残差0 samples、相関1.00000000、zero RMS error 0だった。
+- macOS Studio Pro 8 AU PDC実機：96 kHz、stereoで4096-sample validation delayを挟んだ384,000-frame取得がbit一致し、推定残差0 samples、相関1.00000000、zero RMS error 0だった。
 - macOS Hybrid VU実機：record状態で大型VUとLUFS／True Peak／Crestの追従を確認した。record armは無効で、曲は保存していない。
 - macOS復旧：Studio Proを保存せず終了し、再生／録音デバイスをMT VAD、利用者level VST3を検証前のB-764 hashへ戻した。
 - Windows復旧：Studio Proを終了し、B-726のPRE／POST配置と検証曲を元のhashへ戻した。validation delay、一時task、補助scriptが残っていないことも確認した。
@@ -236,10 +254,11 @@ OneDriveの容量100%通知も表示されたが、アカウントや同期設�
    B-760でPREのterminal失敗応答とPCM公開再試行の上限を追加した。
    B-764のmacOS実測でPREのpair claim読取り競合を安定した不一致と混同する欠陥を特定し、B-765で三状態の再確認へ変更した。
    B-765のDebug VST3はmacOS Studio Pro 8、96 kHzで同一4秒範囲のbit一致と残差0 sampleを実証した。
-   次は同じ条件をmacOS AUで確認する。証明できない取得だけを開始不可にする。
+   B-773候補のmacOS AUも同条件でbit一致、残差0 sampleを実証した。
+   三形式の実証が揃ったため、製品開始gateを開く。
 3. Blind、Reference、Keep / All Keep、Recordの競合はHypha自身の共有leaseで調停する。
    DAWのtrack名、PID、host固有IDからroutingや未知の参加者を推測しない。
-4. Windows VST3とmacOS VST3の確認済み条件を正本とし、macOS AUで明示pair、同一区間、既知遅延の残差0 sampleを同じ条件で確認する。
+4. Windows VST3、macOS VST3、macOS AUの確認済み条件をB1の正本とし、後続の製品UI操作一巡と性能検証で保持する。
 5. B1成立後にB2の開始排他と取得barrierを接続する。
    B1の未成立中はBlind開始機能を有効にせず、依存しないU工程とM工程を進める。
 

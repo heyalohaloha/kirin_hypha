@@ -4,9 +4,9 @@
 
 namespace hypha::local_blind_ui
 {
-// C1 product entry remains closed until the same exact-range PDC proof passes in macOS AU.
-// The complete UI is compiled and tested now; changing this one fact opens the large-frame entry.
-inline constexpr bool productEntryEnabled = false;
+// C1 host proof is complete for Windows VST3, macOS VST3, and macOS AU.
+// Keep one shared fact for the POST large-frame product entry; PRE never exposes a second entry.
+inline constexpr bool productEntryEnabled = true;
 
 inline bool blocksDisclosure (const local_blind::ProductSessionView& state) noexcept
 {
