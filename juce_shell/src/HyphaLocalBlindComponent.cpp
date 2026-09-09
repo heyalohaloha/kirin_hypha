@@ -11,12 +11,6 @@ using Phase = local_blind::ProductSessionPhase;
 using Failure = local_blind::ProductSessionFailure;
 using Answer = local_blind::TrialAnswer;
 
-bool trialActive (Phase phase) noexcept
-{
-    return phase == Phase::armed || phase == Phase::listening
-        || phase == Phase::revealed || phase == Phase::returnPending;
-}
-
 juce::String timeline (std::int64_t sample, std::uint32_t sampleRate)
 {
     if (sample < 0 || sampleRate == 0)
@@ -78,17 +72,6 @@ juce::String answerText (Answer answer)
     if (answer == Answer::cannotDistinguish) return "ANSWER: CANNOT TELL";
     return {};
 }
-}
-
-bool blocksDisclosure (const local_blind::ProductSessionView& state) noexcept
-{
-    return state.phase == Phase::capturing || state.phase == Phase::preparing
-        || state.phase == Phase::ready || trialActive (state.phase);
-}
-
-bool needsRecoveryScreen (const local_blind::ProductSessionView& state) noexcept
-{
-    return blocksDisclosure (state);
 }
 
 Component::Component()

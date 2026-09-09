@@ -1,6 +1,6 @@
 #include "PluginEditor.h"
 #include "HyphaBuildIdentity.h"
-#include "HyphaLocalBlindComponent.h"
+#include "HyphaLocalBlindUiContract.h"
 #include "HyphaUpdateContract.h"
 
 namespace

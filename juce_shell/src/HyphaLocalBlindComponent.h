@@ -4,18 +4,11 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "HyphaLocalBlindUiContract.h"
 #include "PostControls.h"
-#include "local_blind/LocalBlindProductSession.h"
 
 namespace hypha::local_blind_ui
 {
-// C1 product entry remains closed until the same exact-range PDC proof passes in macOS AU.
-// The complete UI is compiled and tested now; changing this one fact opens the large-frame entry.
-inline constexpr bool productEntryEnabled = false;
-
-bool blocksDisclosure (const local_blind::ProductSessionView&) noexcept;
-bool needsRecoveryScreen (const local_blind::ProductSessionView&) noexcept;
-
 class Component final : public juce::Component
 {
 public:
