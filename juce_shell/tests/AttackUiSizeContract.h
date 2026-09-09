@@ -36,7 +36,7 @@ inline bool verifyNoSelectionBar (const juce::Image& image)
 
 inline bool verifyContinuousScrubRail (const juce::Image& image)
 {
-    if (image.getHeight() < 145) return true; // Compact view has no scrub rail.
+    if (attack_ui::axisHeight (image.getHeight()) == 0) return true;
     const auto scrubTop = attack_ui::headerHeight
                         + attack_ui::timelineHeight (image.getHeight());
     const auto railY = scrubTop + attack_ui::axisLabelHeight / 2 - 2;
@@ -60,29 +60,12 @@ inline bool verifyDormantSpecimenBlack (const juce::Image& image)
     return true;
 }
 
-inline bool verifyNoMetricLeaderCorridors (const juce::Image& image)
+inline bool verifySectionLayout (const juce::Image& image)
 {
-    const auto height = attack_ui::metricsHeight (image.getHeight());
-    if (height == 0 || image.getWidth() < 390)
-        return true;
-    auto metrics = juce::Rectangle<int> (
-        0, image.getHeight() - height, image.getWidth(), height).reduced (1);
-    auto content = metrics.reduced (7, 3);
-    content.removeFromTop (18);
-    if (content.getHeight() < 65)
-        return true;
-    const auto scale = attack_ui::textScale (image.getWidth(), image.getHeight());
-    const auto sideWidth = juce::jmin (scale > 1.4f ? 178 : 112, content.getWidth() / 4);
-    const auto left = juce::Rectangle<int> (
-        content.getX() + sideWidth, content.getY(), 4, content.getHeight());
-    const auto right = juce::Rectangle<int> (
-        content.getRight() - sideWidth - 4, content.getY(), 4, content.getHeight());
-    for (const auto corridor : { left, right })
-        for (int y = corridor.getY(); y < corridor.getBottom(); ++y)
-            for (int x = corridor.getX(); x < corridor.getRight(); ++x)
-                if (image.getPixelAt (x, y) != juce::Colours::black)
-                    return false;
-    return true;
+    return attack_ui::headerHeight + attack_ui::timelineHeight (image.getHeight())
+         + attack_ui::axisHeight (image.getHeight())
+         + attack_ui::transientHeight (image.getHeight())
+         + attack_ui::metricsHeight (image.getHeight()) == image.getHeight();
 }
 
 inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform,
@@ -144,7 +127,7 @@ inline bool verifySupportedSizes (AttackComponent& component)
             if (image.getWidth() != bounds.width || image.getHeight() != bounds.height)
                 return false;
             if (! verifyNoSelectionBar (image) || ! verifyContinuousScrubRail (image)
-                || ! verifyNoMetricLeaderCorridors (image))
+                || ! verifySectionLayout (image))
                 return false;
             if (const auto* path = std::getenv (variables[index]))
             {

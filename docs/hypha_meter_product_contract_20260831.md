@@ -272,7 +272,9 @@ MIDは`(L+R)/2`、SIDEは`(L-R)/2`とし、25×25の固定fieldへ各観測最�
 30観測未満は実際の観測数を`WARMING n/30`として表示し、mono、無音、未成立を数値で装わない。
 correlationとL/R balanceも同じrolling 3秒窓を参照し、SPACEの発光やcell色は品質判定へ使わない。
 
-ATTACKは現在の契約どおり、pair時はexact PRE/POST、未接続時はPOST absoluteを表示する。
+ATTACKはTRACK／STEMのDRUMに限定する。pair時のHISTORYとTRANSIENTはexact PRE/POSTを比較し、
+中央標本はpair状態にかかわらず選択POSTのStrength／Texture／Sharpness絶対値だけを表示する。
+PRE未接続時はPOST absoluteを維持し、PREと差分を生成しない。
 
 ### 7.4 OS Guide layer
 

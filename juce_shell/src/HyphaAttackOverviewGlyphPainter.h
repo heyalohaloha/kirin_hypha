@@ -1,5 +1,6 @@
 #pragma once
 #include "HyphaAttackSpecimenPainter.h"
+#include "HyphaAttackMotion.h"
 #include <array>
 
 // Historical filename retained to avoid the shared build manifest. This cache is focus-only.
@@ -14,12 +15,10 @@ public:
     std::size_t bytes() const noexcept { return usedBytes; }
     std::uint64_t builds() const noexcept { return buildCount; }
 private:
-    std::array<float, 8> amounts {};
+    std::array<float, 3> amounts {};
     juce::Image image;
     int width = 0, height = 0;
     float scale = 0;
-    bool paired = false;
-    attack_motion::Motion motion;
     std::size_t usedBytes = 0;
     std::uint64_t buildCount = 0;
 };

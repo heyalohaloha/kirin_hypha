@@ -1,78 +1,76 @@
 #include "HyphaAttackSpecimenPainter.h"
+
 #include "HyphaAttackMembraneGeometry.h"
 #include "HyphaAttackUiContract.h"
 
 namespace hypha::attack_specimen
 {
-void drawMembrane (juce::Graphics& g, juce::Rectangle<int> area, FeatureAmounts raw,
-                   const attack_motion::Motion& motion, bool reference)
+void drawSpecimen (juce::Graphics& g, juce::Rectangle<int> area, FeatureAmounts raw)
 {
-    using attack_motion::unit;
-    const FeatureAmounts a { unit (raw.strength), unit (raw.brightness),
-                              unit (raw.transient), unit (raw.texture) };
-    if (area.getWidth() < 4 || area.getHeight() < 4
-        || (a.strength <= 0 && a.brightness <= 0 && a.transient <= 0 && a.texture <= 0)) return;
+    using attack_specimen_geometry::unit;
+    const FeatureAmounts amounts { unit (raw.strength), unit (raw.texture), unit (raw.sharpness) };
+    if (area.getWidth() < 8 || area.getHeight() < 8)
+        return;
+    const auto geometry = attack_specimen_geometry::geometry (area.toFloat().reduced (2), amounts);
+    if (geometry.outline.isEmpty())
+        return;
+
     juce::Graphics::ScopedSaveState saved (g);
     g.reduceClipRegion (area);
-    const auto shape = attack_membrane::geometry (area.toFloat().reduced (1), a, motion);
-    const auto colour = [reference] (std::uint32_t rgb) {
-        return reference ? juce::Colour (0xffa3b3b9) : juce::Colour (rgb); };
-    const auto alphaScale = reference ? .32f : 1.0f;
-    const auto light = [&] (const attack_membrane::Sheet& sheet, juce::Colour tint, float alpha)
+    const auto cyan = juce::Colour (attack_ui::sharpnessColour);
+    const auto copper = juce::Colour (attack_ui::textureColour);
+    const auto gold = juce::Colour (attack_ui::strengthColour);
+
+    const auto sharpnessAlpha = .05f + amounts.sharpness * .55f;
+    g.setColour (cyan.withAlpha (sharpnessAlpha * .30f));
+    for (const auto& arc : geometry.sharpnessArcs)
+        g.strokePath (arc, juce::PathStrokeType (1.5f + amounts.sharpness * 4.0f,
+            juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour (cyan.withAlpha (juce::jmin (.75f, sharpnessAlpha * 1.40f)));
+    for (const auto& arc : geometry.sharpnessArcs)
+        g.strokePath (arc, juce::PathStrokeType (.75f + amounts.sharpness,
+            juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+    juce::ColourGradient body (
+        juce::Colour (0xff101f24).withAlpha (.86f), geometry.bounds.getTopLeft(),
+        juce::Colour (0xff061115).withAlpha (.94f), geometry.bounds.getBottomRight(), false);
+    body.addColour (.24, juce::Colour (0xff173036).withAlpha (.88f));
+    body.addColour (.58, juce::Colour (0xff0b1a1d).withAlpha (.92f));
+    g.setGradientFill (body);
+    g.fillPath (geometry.outline);
+
+    constexpr std::array<float, 3> tissueAlpha { .09f, .065f, .05f };
+    for (std::size_t index = 0; index < geometry.tissue.size(); ++index)
     {
-        juce::ColourGradient gradient (tint.withAlpha (0.0f), sheet.lightStart,
-                                       tint.withAlpha (0.0f), sheet.lightEnd, false);
-        gradient.addColour (.23, tint.darker (.35f).withAlpha (alpha * .42f));
-        gradient.addColour (.49, tint.withAlpha (alpha * .82f));
-        gradient.addColour (.59, tint.darker (.3f).withAlpha (alpha * .30f));
-        gradient.addColour (.82, tint.withAlpha (alpha * .26f));
-        g.setGradientFill (gradient);
-    };
-    const auto longitudinal = [&] (juce::Colour tint, float alpha)
-    {
-        juce::ColourGradient gradient (tint.withAlpha (0.0f), area.toFloat().getBottomLeft(),
-            tint.withAlpha (alpha * .45f), area.toFloat().getTopRight(), false);
-        gradient.addColour (.38, tint.withAlpha (alpha * .55f));
-        gradient.addColour (.68, tint.withAlpha (alpha));
-        g.setGradientFill (gradient);
-    };
-    const std::array<float, 4> amounts { a.brightness, a.strength, a.brightness, a.texture };
-    const std::array<std::uint32_t, 4> tints { attack_ui::brightnessColour, attack_ui::strengthColour,
-                                             attack_ui::brightnessColour, attack_ui::textureColour };
-    for (std::size_t i = 0; i < shape.sheets.size(); ++i)
-    {
-        if (amounts[i] <= 0) continue;
-        const auto& sheet = shape.sheets[i];
-        const auto tint = colour (tints[i]);
-        const auto alpha = amounts[i] * alphaScale;
-        light (sheet, tint, alpha); g.fillPath (sheet.fills[0]);
-        longitudinal (tint, alpha * .15f); g.fillPath (sheet.fills[1]);
-        light (sheet, tint, alpha * .44f); g.fillPath (sheet.fills[2]);
-        longitudinal (tint, alpha * .49f); g.fillPath (sheet.fills[3]);
-        longitudinal (tint, alpha * .15f); g.fillPath (sheet.fills[4]);
+        const auto direction = index == 1 ? geometry.bounds.getBottomLeft()
+                                          : geometry.bounds.getTopLeft();
+        juce::ColourGradient density (
+            copper.darker (.65f).withAlpha (.015f), direction,
+            gold.withAlpha (tissueAlpha[index]), geometry.bounds.getCentre(), false);
+        density.addColour (.62, copper.withAlpha (tissueAlpha[index] * .55f));
+        g.setGradientFill (density);
+        g.fillPath (geometry.tissue[index]);
     }
-    if (a.transient > 0)
+
+    const auto fibreWidth = .45f + amounts.texture * .75f;
     {
-        const auto tint = colour (attack_ui::transientColour);
-        const auto front = shape.front.getBounds();
-        juce::ColourGradient gradient (tint.withAlpha (0.0f), front.getTopLeft(),
-            tint.withAlpha (a.transient * alphaScale * .70f), front.getTopRight(), false);
-        g.setGradientFill (gradient);
-        g.fillPath (shape.front);
+        juce::Graphics::ScopedSaveState fibreClip (g);
+        g.reduceClipRegion (geometry.outline);
+        const auto fibreAlpha = 1.10f
+            / (static_cast<float> (geometry.fibreCount) * fibreWidth);
+        g.setColour (copper.withAlpha (juce::jmin (.82f, fibreAlpha)));
+        for (std::size_t index = 0; index < geometry.fibreCount; ++index)
+            g.strokePath (geometry.fibres[index], juce::PathStrokeType (
+                fibreWidth, juce::PathStrokeType::curved,
+                juce::PathStrokeType::rounded));
+        g.setColour (gold.withAlpha (.60f / static_cast<float> (geometry.fibreCount)));
+        for (std::size_t index = 0; index < geometry.fibreCount; index += 2)
+            g.strokePath (geometry.fibres[index], juce::PathStrokeType (
+                .45f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
-}
-void drawAbsolute (juce::Graphics& g, const KirinAttackDetail& detail,
-                   juce::Rectangle<int> area, FeatureAmounts amounts, const attack_motion::Motion& motion)
-{
-    if (detail.shape_count >= 2) drawMembrane (g, area, amounts, motion);
-}
-void drawComparison (juce::Graphics& g, const KirinAttackDetail& pre,
-                     const KirinAttackDetail& post, juce::Rectangle<int> area,
-                     FeatureAmounts preAmounts, FeatureAmounts postAmounts,
-                     const attack_motion::Motion& motion)
-{
-    if (pre.shape_count < 2 || post.shape_count < 2) return;
-    drawMembrane (g, area, preAmounts, motion, true);
-    drawMembrane (g, area, postAmounts, motion);
+
+    g.setColour (copper.withAlpha (.20f));
+    g.strokePath (geometry.outline, juce::PathStrokeType (.55f,
+        juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 }
 }

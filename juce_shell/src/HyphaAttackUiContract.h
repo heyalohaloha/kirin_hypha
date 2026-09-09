@@ -16,7 +16,7 @@ namespace hypha::attack_ui
     constexpr int minimumPlotWidth = 1;
     constexpr int headerHeight = 38;
     constexpr int axisLabelHeight = 18;
-    constexpr int detailMetricsHeight = 120;
+    constexpr int transientRowMaximumHeight = 52;
     constexpr int modeControlMaximumWidth = 112;
 
     constexpr float textScale (int width, int /*height*/) noexcept
@@ -26,17 +26,17 @@ namespace hypha::attack_ui
     constexpr float absoluteFloorDb = -72.0f;
     constexpr float strengthGlowOnDbfs = -42.0f;
     constexpr float strengthGlowFullDbfs = -6.0f;
-    constexpr float brightnessGlowOnAcum = 0.60f;
-    constexpr float brightnessGlowFullAcum = 2.50f;
+    constexpr float sharpnessGlowOnAcum = 0.60f;
+    constexpr float sharpnessGlowFullAcum = 2.50f;
     constexpr float transientGlowOnDb = 3.0f;
     constexpr float transientGlowFullDb = 15.0f;
     constexpr float textureGlowOn = 0.10f;
     constexpr float textureGlowFull = 0.65f;
-    // A colour-vision-resilient gold/cyan family. Fixed radial bands retain each observation's
-    // chroma; magnitude is carried by lightness, opacity and thickness, never by hue movement.
-    constexpr std::uint32_t waveformColour = 0xff789db7;
+    // A colour-vision-resilient gold/cyan family. Labels and geometry remain the primary
+    // identifiers; magnitude never depends on hue movement alone.
+    constexpr std::uint32_t waveformColour = 0xff32ced7;
     constexpr std::uint32_t strengthColour = 0xffefc977;
-    constexpr std::uint32_t brightnessColour = 0xffa9dcf3;
+    constexpr std::uint32_t sharpnessColour = 0xffa9dcf3;
     constexpr std::uint32_t transientColour = 0xff59d6d0;
     constexpr std::uint32_t textureColour = 0xffdd8b54;
     constexpr std::uint32_t selectionColour = 0xffffe6ad;
@@ -55,29 +55,41 @@ namespace hypha::attack_ui
 
     static_assert (rgbChromaRange (waveformColour) >= 56);
     static_assert (rgbChromaRange (strengthColour) >= 56);
-    static_assert (rgbChromaRange (brightnessColour) >= 56);
+    static_assert (rgbChromaRange (sharpnessColour) >= 56);
     static_assert (rgbChromaRange (transientColour) >= 56);
     static_assert (rgbChromaRange (textureColour) >= 56);
 
+    constexpr int timelineHeight (int totalHeight) noexcept
+    {
+        return totalHeight >= 400 ? 90
+             : totalHeight >= 260 ? 70
+             : totalHeight >= 170 ? 48 : 0;
+    }
+
+    constexpr int transientHeight (int totalHeight) noexcept
+    {
+        return totalHeight >= 400 ? transientRowMaximumHeight
+             : totalHeight >= 260 ? 40
+             : totalHeight >= 170 ? 30
+             : totalHeight >= 115 ? 24 : 0;
+    }
+
+    constexpr int axisHeight (int totalHeight) noexcept
+    {
+        return timelineHeight (totalHeight) > 0 ? axisLabelHeight : 0;
+    }
+
     constexpr int metricsHeight (int totalHeight) noexcept
     {
-        return totalHeight >= 320 ? 170
-             : totalHeight >= 250 ? detailMetricsHeight
-             : totalHeight >= 190 ? 100
-             : totalHeight >= 145 ? 62 : 0;
+        const int available = totalHeight - headerHeight - axisHeight (totalHeight)
+                            - timelineHeight (totalHeight) - transientHeight (totalHeight);
+        return available > 0 ? available : 0;
     }
 
     constexpr int modeControlWidth (int totalWidth) noexcept
     {
         return totalWidth >= modeControlMaximumWidth * 2
             ? modeControlMaximumWidth : totalWidth / 2;
-    }
-
-    constexpr int timelineHeight (int totalHeight) noexcept
-    {
-        const int available = totalHeight - headerHeight - axisLabelHeight
-                            - metricsHeight (totalHeight);
-        return available > 0 ? available : 0;
     }
 
     constexpr std::int64_t windowSamples (std::uint32_t sampleRate) noexcept

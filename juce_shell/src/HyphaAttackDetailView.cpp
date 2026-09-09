@@ -1,4 +1,9 @@
 #include "HyphaAttackComponent.h"
+
+#include <cmath>
+#include <limits>
+
+#include "HyphaAttackOrganismPainter.h"
 #include "HyphaAttackPainter.h"
 #include "HyphaAttackUiContract.h"
 #include "HyphaTheme.h"
@@ -9,119 +14,149 @@ namespace
 {
 const auto strengthColour = juce::Colour (attack_ui::strengthColour);
 const auto textureColour = juce::Colour (attack_ui::textureColour);
-const auto brightnessColour = juce::Colour (attack_ui::brightnessColour);
+const auto sharpnessColour = juce::Colour (attack_ui::sharpnessColour);
 const auto transientColour = juce::Colour (attack_ui::transientColour);
 const auto selectionColour = juce::Colour (attack_ui::selectionColour);
+
 juce::String signedValue (float value, int decimals = 1)
-{ return (value >= 0.0f ? "+" : "") + juce::String (value, decimals); }
+{
+    return (value >= 0.0f ? "+" : "") + juce::String (value, decimals);
 }
-void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int> metrics)
+
+void drawTransientBar (juce::Graphics& g, juce::Rectangle<int> area,
+                       const juce::String& label, const juce::String& value,
+                       float contrast, juce::Colour colour)
+{
+    area = area.reduced (4, 0);
+    const bool compact = area.getWidth() < 120;
+    const auto labelWidth = juce::jmin (compact ? 28 : 46, area.getWidth() / 3);
+    g.setFont (monoFont (11.0f));
+    g.setColour (COL_MUTED);
+    g.drawText (label, area.removeFromLeft (labelWidth), juce::Justification::centredLeft);
+    const auto valueWidth = juce::jmin (compact ? 42 : 68, area.getWidth() / 3);
+    auto valueArea = area.removeFromRight (valueWidth);
+    auto rail = area.reduced (3, juce::jmax (3, area.getHeight() / 3));
+    g.setColour (colour.withAlpha (0.14f));
+    g.fillRoundedRectangle (rail.toFloat(), 2.0f);
+    if (std::isfinite (contrast))
+    {
+        const auto fraction = juce::jlimit (0.0f, 1.0f, contrast / 18.0f);
+        rail.setWidth (static_cast<int> (std::lround (rail.getWidth() * fraction)));
+        g.setColour (colour.withAlpha (0.86f));
+        g.fillRoundedRectangle (rail.toFloat(), 2.0f);
+    }
+    g.setColour (colour);
+    g.drawText (value, valueArea, juce::Justification::centredRight);
+}
+}
+
+void AttackComponent::paintTransientComparison (juce::Graphics& g,
+                                                 juce::Rectangle<int> area)
+{
+    if (area.isEmpty()) return;
+    const auto* pre = selectedPreDetail();
+    const auto* post = selectedPostDetail();
+    area = area.reduced (7, 2);
+    auto title = area.removeFromLeft (juce::jmin (88, area.getWidth() / 5));
+    g.setColour (COL_NORMAL);
+    g.setFont (monoFont (11.0f));
+    g.drawText (getWidth() < 500 ? "TRANSIENT dB" : "TRANSIENT",
+                title, juce::Justification::centredLeft);
+    const auto sectionWidth = juce::jmax (1, area.getWidth() / 3);
+    auto preArea = area.removeFromLeft (sectionWidth);
+    auto postArea = area.removeFromLeft (sectionWidth);
+    auto deltaArea = area;
+    const auto missing = std::numeric_limits<float>::quiet_NaN();
+    const auto preValue = pre != nullptr ? pre->contrast_db : missing;
+    const auto postValue = post != nullptr ? post->contrast_db : missing;
+    const auto delta = pre != nullptr && post != nullptr ? postValue - preValue : missing;
+    const bool showUnits = getWidth() >= 500;
+    const auto unit = showUnits ? " dB" : "";
+    drawTransientBar (g, preArea, "PRE", std::isfinite (preValue)
+        ? juce::String (preValue, 1) + unit : "--", preValue, COL_NORMAL);
+    drawTransientBar (g, postArea, "POST", std::isfinite (postValue)
+        ? juce::String (postValue, 1) + unit : "--", postValue, transientColour);
+    drawTransientBar (g, deltaArea, getWidth() >= 700 ? "DELTA" : "D",
+        std::isfinite (delta) ? signedValue (delta) + unit : "--",
+        std::abs (delta), selectionColour);
+}
+
+void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int> area)
 {
     using attack_painter::drawEventFocus;
     using attack_painter::drawMetricFact;
-    const auto textScale = attack_ui::textScale (getWidth(), getHeight());
-    const auto* preDetail = selectedPreDetail();
-    const auto* postDetail = selectedPostDetail();
-    if (metrics.isEmpty())
-        return;
-    if (postDetail == nullptr)
+    if (area.isEmpty()) return;
+    const auto* post = selectedPostDetail();
+    if (post == nullptr)
     {
-        g.setColour (COL_NORMAL); g.setFont (monoFont (12.0f));
-        g.drawText (preDetail != nullptr ? "PRE-only event / no matching POST"
-            : followLatest ? "Waiting for event detail" : "Locked event is outside retained detail",
-            metrics, juce::Justification::centred);
+        g.setColour (COL_NORMAL);
+        g.setFont (monoFont (12.0f));
+        g.drawText (selectedPreDetail() != nullptr ? "PRE event / matching POST unavailable"
+            : followLatest ? "Waiting for POST event" : "Locked event is outside retained detail",
+            area, juce::Justification::centred);
         return;
     }
 
-    metrics = metrics.reduced (1);
-    g.setColour (selectionColour.withAlpha (0.16f));
-    g.drawRoundedRectangle (metrics.toFloat(), 4.0f, 0.75f);
-
-    auto content = metrics.reduced (7, 3);
-    auto focusHeader = content.getHeight() >= 60 ? content.removeFromTop (18) : juce::Rectangle<int> {};
-    g.setColour (COL_MUTED);
-    g.setFont (monoFont (juce::jmax (11.0f, 6.5f * textScale)));
-    const auto target = juce::String (preDetail != nullptr ? "DELTA: POST - PRE" : "POST ABSOLUTE");
-    g.drawText (getWidth() < 430 ? target
-                : (followLatest ? "LATEST EVENT / " : "LOCKED EVENT / ") + target
-                    + (preDetail != nullptr ? " / PRE faint" : ""),
-                focusHeader, juce::Justification::centred);
-
-    const auto pairedDetail = preDetail != nullptr;
-    const auto strengthValue = pairedDetail
-        ? signedValue (postDetail->attack_rms_dbfs - preDetail->attack_rms_dbfs) + " dB"
-        : juce::String (postDetail->attack_rms_dbfs, 1) + " dBFS";
-    const auto strengthContext = pairedDetail
-        ? "PRE " + juce::String (preDetail->attack_rms_dbfs, 1)
-            + "  POST " + juce::String (postDetail->attack_rms_dbfs, 1)
-        : "30 ms ATTACK RMS";
-    const auto edge = pairedDetail
-        ? postDetail->sample_edge_ratio_db - preDetail->sample_edge_ratio_db
-        : postDetail->sample_edge_ratio_db;
-    const auto crest = pairedDetail ? postDetail->crest_db - preDetail->crest_db
-                                    : postDetail->crest_db;
-    const auto plateau = pairedDetail
-        ? postDetail->peak_plateau_ms - preDetail->peak_plateau_ms
-        : postDetail->peak_plateau_ms;
-    const auto textureValue = (pairedDetail ? signedValue (edge) : juce::String (edge, 1))
-                            + " dB";
-    const auto textureContext = "CREST " + (pairedDetail ? signedValue (crest)
-                                                        : juce::String (crest, 1))
-                              + "  PLAT " + (pairedDetail ? signedValue (plateau, 2)
-                                                          : juce::String (plateau, 2));
-    const bool brightnessAvailable = postDetail->sharpness_available != 0
-        && (! pairedDetail || preDetail->sharpness_available != 0);
-    const auto brightnessValue = brightnessAvailable
-        ? (pairedDetail ? signedValue (postDetail->sharpness_acum - preDetail->sharpness_acum, 2)
-                        : juce::String (postDetail->sharpness_acum, 2)) + " acum"
-        : "---";
-    const auto brightnessContext = pairedDetail ? "SHARPNESS DIFFERENCE" : "100 ms SHARPNESS";
-    const auto transientValue = pairedDetail
-        ? signedValue (postDetail->contrast_db - preDetail->contrast_db) + " dB"
-        : juce::String (postDetail->contrast_db, 1) + " dB";
-    const auto transientContext = pairedDetail ? "CONTRAST DIFFERENCE" : "LOCAL CONTRAST";
-
-    if (content.getWidth() >= 390 && content.getHeight() >= 65)
+    if (area.getHeight() < 30)
     {
-        const auto sideWidth = juce::jmin (textScale > 1.4f ? 178 : 112,
-                                           content.getWidth() / 4);
-        auto left = content.removeFromLeft (sideWidth);
-        auto right = content.removeFromRight (sideWidth);
-        auto specimen = content.reduced (4, 1);
-        auto direction = specimen.removeFromBottom (14);
-        const auto motion = followLatest && liveSignalActive
-            ? attack_motion::measuredMotion (waveformBatch, latest, rate, currentGeneration)
-            : attack_motion::Motion {};
-        drawEventFocus (g, preDetail, postDetail, specimen, motion, &glyphCache);
+        const auto texture = attack_organism::textureAmount (*post);
+        const auto width = juce::jmax (1, area.getWidth() / 3);
         g.setFont (monoFont (11.0f));
-        g.setColour (COL_MUTED);
-        g.drawText ("REAR", direction.removeFromLeft (
-            direction.getWidth() / 2), juce::Justification::centredLeft);
-        g.setColour (transientColour);
-        g.drawText ("FRONT >", direction, juce::Justification::centredRight);
-        auto leftTop = left.removeFromTop (left.getHeight() / 2).reduced (1);
-        auto leftBottom = left.reduced (1);
-        auto rightTop = right.removeFromTop (right.getHeight() / 2).reduced (1);
-        auto rightBottom = right.reduced (1);
-        drawMetricFact (g, leftTop, "STRENGTH", strengthValue, strengthContext,
-                  strengthColour, false);
-        drawMetricFact (g, leftBottom, "BRIGHTNESS", brightnessValue, brightnessContext,
-                  brightnessColour, false);
-        drawMetricFact (g, rightTop, "TEXTURE", textureValue, textureContext,
-                  textureColour, true);
-        drawMetricFact (g, rightBottom, "TRANSIENT", transientValue, transientContext,
-                  transientColour, true);
+        g.setColour (strengthColour);
+        g.drawText (std::isfinite (post->attack_rms_dbfs)
+                        ? juce::String (post->attack_rms_dbfs, 1) + " dBFS" : "---",
+                    area.removeFromLeft (width),
+                    juce::Justification::centred);
+        g.setColour (textureColour);
+        g.drawText (attack_organism::textureAvailable (*post)
+                        ? juce::String (texture, 2) : "---",
+                    area.removeFromLeft (width),
+                    juce::Justification::centred);
+        g.setColour (sharpnessColour);
+        g.drawText (post->sharpness_available != 0 && std::isfinite (post->sharpness_acum)
+                        ? juce::String (post->sharpness_acum, 2) + " acum" : "---",
+                    area, juce::Justification::centred);
+        return;
     }
-    else
+
+    area = area.reduced (1);
+    g.setColour (selectionColour.withAlpha (0.16f));
+    g.drawRoundedRectangle (area.toFloat(), 4.0f, 0.75f);
+    auto content = area.reduced (7, 3);
+    const bool canShowHeader = content.getHeight() >= 72;
+    if (canShowHeader)
     {
-        const auto width = content.getWidth() / 4;
-        auto strength = content.removeFromLeft (width);
-        auto brightness = content.removeFromLeft (width);
-        auto texture = content.removeFromLeft (width);
-        drawMetricFact (g, strength, "STRENGTH", strengthValue, {}, strengthColour, false);
-        drawMetricFact (g, brightness, "BRIGHT", brightnessValue, {}, brightnessColour, false);
-        drawMetricFact (g, texture, "TEXTURE", textureValue, {}, textureColour, true);
-        drawMetricFact (g, content, "TRANSIENT", transientValue, {}, transientColour, true);
+        auto focusHeader = content.removeFromTop (18);
+        g.setColour (COL_MUTED);
+        g.setFont (monoFont (11.0f));
+        g.drawText ((followLatest ? "LATEST / " : "LOCKED / ")
+                       + juce::String ("POST SPECIMEN"),
+                    focusHeader, juce::Justification::centred);
     }
+
+    const auto strengthValue = std::isfinite (post->attack_rms_dbfs)
+        ? juce::String (post->attack_rms_dbfs, 1) + " dBFS" : "---";
+    const auto texture = attack_organism::textureAmount (*post);
+    const auto textureValue = attack_organism::textureAvailable (*post)
+        ? juce::String (texture, 2) : "---";
+    const auto sharpnessValue = post->sharpness_available != 0
+        && std::isfinite (post->sharpness_acum)
+        ? juce::String (post->sharpness_acum, 2) + " acum" : "---";
+
+    const auto metricHeight = content.getHeight() >= 88 ? 48 : content.getHeight();
+    auto metricRow = content.removeFromBottom (metricHeight);
+    if (content.getHeight() >= 34 && content.getWidth() >= 150)
+        drawEventFocus (g, nullptr, post, content.reduced (4, 1), {}, &glyphCache);
+
+    const auto width = juce::jmax (1, metricRow.getWidth() / 3);
+    auto strength = metricRow.removeFromLeft (width).reduced (3, 0);
+    auto textureArea = metricRow.removeFromLeft (width).reduced (3, 0);
+    auto sharpness = metricRow.reduced (3, 0);
+    drawMetricFact (g, strength, "STRENGTH", strengthValue,
+                    canShowHeader ? "30 ms ATTACK RMS" : "", strengthColour, false);
+    drawMetricFact (g, textureArea, "TEXTURE", textureValue,
+                    canShowHeader ? "EDGE / CREST / PLATEAU" : "", textureColour, false);
+    drawMetricFact (g, sharpness, "SHARPNESS", sharpnessValue,
+                    canShowHeader ? "100 ms ACUM" : "", sharpnessColour, true);
 }
 }

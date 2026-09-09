@@ -9,8 +9,8 @@
 
 namespace hypha
 {
-    // POST-only DRUM ATTACK view. It presents factual absolute PRE/POST shapes and deltas;
-    // no confidence score, instrument inference, or quality judgement is introduced.
+    // TRACK/STEM DRUM ATTACK view. HISTORY and TRANSIENT compare PRE/POST; the specimen is
+    // the selected POST observation only. No quality judgement or instrument inference.
     class AttackComponent final : public juce::Component
     {
     public:
@@ -64,6 +64,7 @@ namespace hypha
         void selectBoundaryEvent (bool selectLast) noexcept;
         void selectAdjacentEvent (bool moveRight) noexcept;
         void advancePresentation (double nowMs) noexcept;
+        void paintTransientComparison (juce::Graphics&, juce::Rectangle<int>);
         void paintSelectedEvent (juce::Graphics&, juce::Rectangle<int>);
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AttackComponent)

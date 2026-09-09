@@ -10,6 +10,9 @@
 
 namespace hypha::attack_organism
 {
+    bool textureAvailable (const KirinAttackDetail&) noexcept;
+    float textureAmount (const KirinAttackDetail&) noexcept;
+
     void drawFocus (juce::Graphics&,
                     const KirinAttackDetail* preDetail,
                     const KirinAttackDetail* postDetail,

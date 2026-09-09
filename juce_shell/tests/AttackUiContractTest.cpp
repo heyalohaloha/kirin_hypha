@@ -87,8 +87,8 @@ namespace
     {
         const auto area = juce::Rectangle<int> (
             centreX - 2, hypha::attack_ui::headerHeight, 5,
-            image.getHeight() - hypha::attack_ui::headerHeight
-                - hypha::attack_ui::axisLabelHeight).getIntersection (image.getBounds());
+            hypha::attack_ui::timelineHeight (image.getHeight()))
+                .getIntersection (image.getBounds());
         for (int x = area.getX(); x < area.getRight(); ++x)
             for (int y = area.getY(); y < area.getBottom(); ++y)
                 if (nearRgb (image.getPixelAt (x, y), target))
@@ -277,11 +277,12 @@ int main()
                            288'000, 48'000, 7, stats);
     component.setOverlayMode (false);
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyDetailLifecycle (events, waveform, details, pairEvents, stats));
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifySignedComparisonSpecimen());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyPostAbsoluteSpecimen());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyMeasuredEnvelope());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyEnvelopeSimplificationBound());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyEnvelopeRaster());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyUpperFeatureIsolation (events, waveform, details, pairEvents, stats));
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyTransientIsolation (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyContinuousTrace (waveform, details));
     const auto image = render (component);
     writePreview ("KIRIN_ATTACK_UI_PREVIEW_PATH", image);
@@ -399,6 +400,6 @@ int main()
     KIRIN_REQUIRE (countRuns (warming, { 0, 20, warming.getWidth(), 150 },
                               selectionColour) == 0
                    && hypha::attack_ui_test::verifyDormantSpecimenBlack (warming));
-    std::cout << "ATTACK UI contract passed: split PRE/POST, scrub, factual deltas\n";
+    std::cout << "ATTACK UI contract passed: HISTORY, TRANSIENT comparison, POST specimen\n";
     return EXIT_SUCCESS;
 }

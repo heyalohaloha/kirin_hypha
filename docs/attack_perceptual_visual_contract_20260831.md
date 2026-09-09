@@ -1,5 +1,21 @@
 # Hypha ATTACK perceptual visual contract
 
+## 2026-09-09 TRACK / STEM表示の採用差分
+
+この節を、以下に残す旧四膜／PAIR重畳の記述より優先する。旧記述は変更前の根拠を追跡するために残す。
+
+- 上段HISTORYは六秒のPRE traceとPOST bodyを同じ固定尺度へ描く。
+- 選択eventのTRANSIENTは局所contrastをPRE、POST、符号付き`POST−PRE`の一行へ分離する。
+- 中央の`POST SPECIMEN`は選択POSTのStrength、Texture、Sharpness絶対値だけを描く。
+- PRE値、Transient、六秒waveform、表示用motionは中央標本を変えない。
+- 表示名は測定名と一致する`SHARPNESS`とし、旧`BRIGHTNESS`を使わない。
+- Strengthは主に高さ、Textureは繊維密度と折れ、Sharpnessは外周の二つか三つの短い冷色光へ写す。
+- 停止／無音では中央標本を黒にし、LOCKした標本は静止する。
+- 2MIX用ATTACKとBODY／TAIL測定はこの契約に含めない。
+
+数値条件、状態表、fixture、完成条件の正本は
+[`hypha_attack_visual_completion_proposal_20260909.md`](hypha_attack_visual_completion_proposal_20260909.md)とする。
+
 ## 2026-09-06の表示契約更新
 
 DaisukeのB案採用により、下記の旧表示設計のうち、固定PNG、core/shell/aura構造、420 ms走査、下部の時間軸を連想させる表現は置き換え対象となった。
