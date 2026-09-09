@@ -6,7 +6,7 @@ get_filename_component(HYPHA_SHELL "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(HYPHA_JUCE_SOURCE "${HYPHA_SHELL}/JUCE" CACHE PATH "Read-only JUCE 7.0.12 source")
 add_subdirectory("${HYPHA_JUCE_SOURCE}" JUCE)
 juce_add_binary_data(KirinAttackValidationData SOURCES
-    ${HYPHA_SHELL}/../crates/hypha_gui/assets/attack_specimen_body_v2.png)
+    ${HYPHA_SHELL}/../crates/hypha_gui/assets/attack_specimen_body_v3.png)
 juce_add_console_app(KirinAttackUiContractTests PRODUCT_NAME "Hypha Attack Validation")
 target_sources(KirinAttackUiContractTests PRIVATE
     ../AttackUiContractTest.cpp

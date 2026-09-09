@@ -630,7 +630,7 @@ B-778では次の境界を固定する。
 - 無音またはtransport停止では、最後に完成した標本と数値を保持し、状態だけを`HOLD`へ変える。
 - PAIRと対応するPOST詳細が揃ったイベントだけを選択候補にする。
 - 微小な測定値変化を48段階へ量子化し、同じ見た目の画像を毎回再構築しない。
-- `attack_specimen_body_v2.png`をnative描画の正本とし、Strengthを高さ中心の大きさ、Textureを暖色繊維、Sharpnessを外周の限定された冷色光へ割り当てる。
+- `attack_specimen_body_v3.png`をnative描画の正本とし、水中を漂う半透明の傘状膜と短い推進流へ更新する。Strengthを高さ中心の大きさ、Textureを暖色の生体発光脈、Sharpnessを外周の限定された冷色光へ割り当てる。
 - HISTORYとTransientの高さを抑え、中央標本へ利用可能な高さを渡す。
 
 B-782では、旧素材の長い尾と製品契約に反する横長表示を廃止した。

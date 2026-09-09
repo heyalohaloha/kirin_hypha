@@ -38,18 +38,23 @@ void drawMetric (juce::Graphics& g,
                  bool compact)
 {
     drawPanel (g, area, compact);
-    area.reduce (compact ? 5 : 9, compact ? 4 : 7);
+    area.reduce (compact ? 5 : 9, compact ? 3 : 7);
     g.setColour (COL_MUTED.brighter (0.16f));
     g.setFont (labelFont (compact ? 8.0f : 10.0f));
-    g.drawText (label, area.removeFromTop (compact ? 12 : 16),
+    g.drawText (label, area.removeFromTop (compact ? 10 : 16),
                 juce::Justification::centredLeft);
-    const auto unitArea = area.removeFromBottom (compact ? 11 : 14);
+    auto unitArea = juce::Rectangle<int> {};
+    if (! compact && juce::String (unit).isNotEmpty())
+        unitArea = area.removeFromBottom (14);
     g.setColour (value == "---" ? COL_MUTED : COL_NORMAL);
-    drawTabularText (g, monoFont (compact ? 18.0f : 29.0f), value,
+    drawTabularText (g, monoFont (compact ? 14.0f : 29.0f), value,
                      area.toFloat(), juce::Justification::centred);
-    g.setColour (COL_MUTED);
-    g.setFont (labelFont (compact ? 7.0f : 9.0f));
-    g.drawText (unit, unitArea, juce::Justification::centred);
+    if (! unitArea.isEmpty())
+    {
+        g.setColour (COL_MUTED);
+        g.setFont (labelFont (9.0f));
+        g.drawText (unit, unitArea, juce::Justification::centred);
+    }
 }
 
 void drawFieldAxes (juce::Graphics& g, juce::Rectangle<float> plot)
@@ -95,15 +100,19 @@ void drawDensity (juce::Graphics& g,
     }
 }
 
-void drawAxisLabels (juce::Graphics& g, juce::Rectangle<int> plot)
+void drawAxisLabels (juce::Graphics& g, juce::Rectangle<int> plot, bool compact)
 {
     g.setColour (COL_MUTED.withAlpha (0.82f));
-    g.setFont (monoFont (plot.getWidth() < 130 ? 6.5f : 8.0f));
-    g.drawText ("MID +", plot.withHeight (11), juce::Justification::centred);
-    g.drawText ("MID -", plot.withY (plot.getBottom() - 11).withHeight (11),
+    g.setFont (monoFont (compact ? 6.5f : 8.0f));
+    g.drawText (compact ? "M+" : "MID +", plot.withHeight (11),
                 juce::Justification::centred);
-    g.drawText ("SIDE -", plot.withWidth (40), juce::Justification::centredLeft);
-    g.drawText ("SIDE +", plot.withX (plot.getRight() - 40).withWidth (40),
+    g.drawText (compact ? "M-" : "MID -",
+                plot.withY (plot.getBottom() - 11).withHeight (11),
+                juce::Justification::centred);
+    g.drawText (compact ? "S-" : "SIDE -", plot.withWidth (40),
+                juce::Justification::centredLeft);
+    g.drawText (compact ? "S+" : "SIDE +",
+                plot.withX (plot.getRight() - 40).withWidth (40),
                 juce::Justification::centredRight);
 }
 }
@@ -120,7 +129,8 @@ void paint (juce::Graphics& g,
     auto title = area.removeFromTop (compact ? 14 : 18);
     g.setColour (COL_MUTED.brighter (0.18f));
     g.setFont (monoFont (compact ? 7.5f : 9.0f));
-    g.drawText ("3 S MID / SIDE DENSITY", title, juce::Justification::centredLeft);
+    g.drawText (compact ? "3 S FIELD" : "3 S MID / SIDE DENSITY",
+                title, juce::Justification::centredLeft);
     const bool fieldAvailable = available && meter.channels == 2
                              && meter.field_size == KIRIN_STEREO_FIELD_SIZE
                              && meter.field_observation_count > 0u;
@@ -129,8 +139,14 @@ void paint (juce::Graphics& g,
                           : meter.field_observation_count < 30u
                               ? "WARMING " + juce::String (meter.field_observation_count) + "/30"
                               : juce::String ("30/30");
+    const auto compactFieldState = ! available ? hypha::emDash()
+                                 : meter.channels != 2 ? juce::String ("MONO")
+                                 : meter.field_observation_count < 30u
+                                     ? juce::String (meter.field_observation_count) + "/30"
+                                     : juce::String ("30/30");
     g.setColour (fieldAvailable ? COL_SPECTRUM_POST : COL_MUTED);
-    g.drawText (fieldState, title, juce::Justification::centredRight);
+    g.drawText (compact ? compactFieldState : fieldState,
+                title, juce::Justification::centredRight);
 
     const int gap = compact ? 5 : 8;
     const int metricWidth = juce::jlimit (82, compact ? 102 : 168,
@@ -144,8 +160,8 @@ void paint (juce::Graphics& g,
     drawFieldAxes (g, plot);
     if (fieldAvailable)
         drawDensity (g, plot, meter);
-    drawAxisLabels (g, plot.getSmallestIntegerContainer());
-    if (! fieldAvailable)
+    drawAxisLabels (g, plot.getSmallestIntegerContainer(), compact);
+    if (! fieldAvailable && ! compact)
     {
         g.setColour (COL_MUTED);
         g.setFont (monoFont (compact ? 9.0f : 11.0f));
@@ -155,9 +171,10 @@ void paint (juce::Graphics& g,
 
     auto balance = metrics.removeFromTop ((metrics.getHeight() - gap) / 2);
     metrics.removeFromTop (gap);
-    drawMetric (g, balance, "L/R BALANCE", balanceText (meter, available), "dB L/R", compact);
+    drawMetric (g, balance, compact ? "BAL" : "L/R BALANCE",
+                balanceText (meter, available), "dB L/R", compact);
     const auto correlation = available && std::isfinite (meter.correlation)
         ? juce::String (meter.correlation, 2) : juce::String ("---");
-    drawMetric (g, metrics, "CORRELATION", correlation, "3 S", compact);
+    drawMetric (g, metrics, compact ? "CORR" : "CORRELATION", correlation, "3 S", compact);
 }
 }

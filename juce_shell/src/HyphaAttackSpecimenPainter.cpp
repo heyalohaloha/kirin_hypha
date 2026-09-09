@@ -25,13 +25,13 @@ struct EmissionLayers
     juce::Image textureCore;
     juce::Image textureDetail;
     juce::Image sharpness;
-    float aspect = 1.30f;
+    float aspect = 1.26f;
 
     EmissionLayers()
     {
         const auto decoded = juce::ImageFileFormat::loadFrom (
-            BinaryData::attack_specimen_body_v2_png,
-            static_cast<std::size_t> (BinaryData::attack_specimen_body_v2_pngSize));
+            BinaryData::attack_specimen_body_v3_png,
+            static_cast<std::size_t> (BinaryData::attack_specimen_body_v3_pngSize));
         if (! decoded.isValid())
             return;
         const auto source = decoded.getClippedImage (contentBounds (decoded));
@@ -40,9 +40,6 @@ struct EmissionLayers
         textureCore = transparentLike (source);
         textureDetail = transparentLike (source);
         sharpness = transparentLike (source);
-        aspect = static_cast<float> (source.getWidth())
-               / static_cast<float> (source.getHeight());
-
         for (int y = 0; y < source.getHeight(); ++y)
             for (int x = 0; x < source.getWidth(); ++x)
             {

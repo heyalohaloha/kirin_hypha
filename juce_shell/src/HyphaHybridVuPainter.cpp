@@ -58,16 +58,23 @@ void paintHeader (juce::Graphics& g, juce::Rectangle<float> area, const State& s
 {
     const auto width = area.getWidth();
     auto title = area.reduced (scaled (25.0f, width, 6.5f), 0.0f);
-    const auto titleWidth = title.getWidth() * 0.36f;
+    // The title engraving in the chassis occupies the left 22.5% of this inset header.
+    // Keep both words inside that physical frame at every supported scale.
+    const auto titleWidth = title.getWidth() * 0.225f;
     auto titleArea = title.removeFromLeft (titleWidth);
-    const auto fontHeight = juce::jlimit (10.0f, 38.0f, width * 0.039f);
-    const auto roleWidth = titleArea.getWidth() * (width < 450.0f ? 0.38f : 0.30f);
-    drawText (g, state.role == observatory::Role::post ? "POST" : "PRE",
+    const auto fontHeight = juce::jlimit (9.0f, 28.0f, width * 0.030f);
+    const auto roleText = state.role == observatory::Role::post ? juce::String ("POST")
+                                                                : juce::String ("PRE");
+    const auto roleFont = labelFont (fontHeight).withExtraKerningFactor (0.12f);
+    const auto roleWidth = juce::jmin (
+        titleArea.getWidth() * 0.45f,
+        roleFont.getStringWidthFloat (roleText) + scaled (3.0f, width, 1.0f));
+    drawText (g, roleText,
               titleArea.removeFromLeft (roleWidth), fontHeight,
               state.role == observatory::Role::post ? COL_FLORA : COL_LED_BLUE,
               juce::Justification::centredLeft, false, 0.12f);
     titleArea.removeFromLeft (scaled (5.0f, width, 1.0f));
-    drawText (g, width >= 450.0f ? "H Y P H A" : "HYPHA", titleArea,
+    drawText (g, width >= 700.0f ? "H Y P H A" : "HYPHA", titleArea,
               fontHeight * 0.87f, COL_NORMAL, juce::Justification::centredLeft);
 
     auto record = title.removeFromRight (title.getWidth() * (width < 450.0f ? 0.28f : 0.205f));
