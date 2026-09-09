@@ -1,76 +1,136 @@
 #include "HyphaAttackSpecimenPainter.h"
 
-#include "HyphaAttackMembraneGeometry.h"
-#include "HyphaAttackUiContract.h"
+#include <cmath>
+
+#include <BinaryData.h>
 
 namespace hypha::attack_specimen
 {
+namespace
+{
+float unit (float value) noexcept
+{
+    return std::isfinite (value) ? juce::jlimit (0.0f, 1.0f, value) : 0.0f;
+}
+
+float stableAmount (float value) noexcept
+{
+    constexpr float steps = 48.0f;
+    return std::round (unit (value) * steps) / steps;
+}
+
+struct EmissionLayers
+{
+    juce::Image base;
+    juce::Image strength;
+    juce::Image texture;
+    juce::Image sharpness;
+
+    EmissionLayers()
+    {
+        const auto decoded = juce::ImageFileFormat::loadFrom (
+            BinaryData::attack_specimen_emission_png,
+            static_cast<std::size_t> (BinaryData::attack_specimen_emission_pngSize));
+        if (! decoded.isValid())
+            return;
+        // The approved source includes a diagnostic tail. ATTACK's central specimen uses the
+        // membrane body and the first part of that tail so it reads at 600x400 and below.
+        const auto source = decoded.getClippedImage ({ 0, 0,
+            juce::jmin (600, decoded.getWidth()), decoded.getHeight() });
+
+        base = transparentLike (source);
+        strength = transparentLike (source);
+        texture = transparentLike (source);
+        sharpness = transparentLike (source);
+
+        for (int y = 0; y < source.getHeight(); ++y)
+            for (int x = 0; x < source.getWidth(); ++x)
+            {
+                const auto pixel = source.getPixelAt (x, y);
+                const auto level = pixel.getPerceivedBrightness();
+                if (level <= 0.012f)
+                    continue;
+
+                const auto alpha = juce::jlimit (0.0f, 1.0f, (level - 0.012f) / 0.46f);
+                const auto red = static_cast<float> (pixel.getRed());
+                const auto green = static_cast<float> (pixel.getGreen());
+                const auto blue = static_cast<float> (pixel.getBlue());
+                const bool warm = red > blue * 1.10f && red > green * 1.025f;
+                const bool cool = blue > red * 1.06f || green > red * 1.08f;
+                const auto horizontal = static_cast<float> (x)
+                                      / static_cast<float> (source.getWidth());
+
+                base.setPixelAt (x, y, pixel.withAlpha (alpha));
+                if (warm && horizontal > 0.16f && horizontal < 0.52f && level > 0.28f)
+                    strength.setPixelAt (x, y, pixel.withAlpha (alpha));
+                if (warm)
+                    texture.setPixelAt (x, y, pixel.withAlpha (alpha));
+                if (cool)
+                    sharpness.setPixelAt (x, y, pixel.withAlpha (alpha));
+            }
+    }
+
+    bool valid() const noexcept
+    {
+        return base.isValid() && strength.isValid()
+            && texture.isValid() && sharpness.isValid();
+    }
+
+private:
+    static juce::Image transparentLike (const juce::Image& source)
+    {
+        return { juce::Image::ARGB, source.getWidth(), source.getHeight(), true };
+    }
+};
+
+const EmissionLayers& emissionLayers()
+{
+    static const EmissionLayers layers;
+    return layers;
+}
+
+juce::Rectangle<float> specimenBounds (juce::Rectangle<int> area, float strength)
+{
+    const auto available = area.toFloat().reduced (2.0f);
+    // Compact DAW panes are much wider than their remaining ATTACK detail height. The approved
+    // emission is deliberately presented as a broad specimen rather than collapsing to a glyph.
+    auto height = available.getHeight();
+    auto width = juce::jmin (available.getWidth() * 0.72f, height * 3.20f);
+    const auto growth = 0.82f + unit (strength) * 0.18f;
+    width *= growth;
+    height *= growth;
+    return { available.getCentreX() - width * 0.5f,
+             available.getCentreY() - height * 0.5f, width, height };
+}
+
+void drawLayer (juce::Graphics& g, const juce::Image& image,
+                juce::Rectangle<float> target, float opacity)
+{
+    if (! image.isValid() || opacity <= 0.0f)
+        return;
+    juce::Graphics::ScopedSaveState saved (g);
+    g.setOpacity (juce::jlimit (0.0f, 1.0f, opacity));
+    g.setImageResamplingQuality (juce::Graphics::mediumResamplingQuality);
+    g.drawImage (image, target);
+}
+}
+
 void drawSpecimen (juce::Graphics& g, juce::Rectangle<int> area, FeatureAmounts raw)
 {
-    using attack_specimen_geometry::unit;
-    const FeatureAmounts amounts { unit (raw.strength), unit (raw.texture), unit (raw.sharpness) };
     if (area.getWidth() < 8 || area.getHeight() < 8)
         return;
-    const auto geometry = attack_specimen_geometry::geometry (area.toFloat().reduced (2), amounts);
-    if (geometry.outline.isEmpty())
+    const FeatureAmounts amounts { stableAmount (raw.strength), stableAmount (raw.texture),
+                                   stableAmount (raw.sharpness) };
+    const auto& layers = emissionLayers();
+    if (! layers.valid())
         return;
 
     juce::Graphics::ScopedSaveState saved (g);
     g.reduceClipRegion (area);
-    const auto cyan = juce::Colour (attack_ui::sharpnessColour);
-    const auto copper = juce::Colour (attack_ui::textureColour);
-    const auto gold = juce::Colour (attack_ui::strengthColour);
-
-    const auto sharpnessAlpha = .05f + amounts.sharpness * .55f;
-    g.setColour (cyan.withAlpha (sharpnessAlpha * .30f));
-    for (const auto& arc : geometry.sharpnessArcs)
-        g.strokePath (arc, juce::PathStrokeType (1.5f + amounts.sharpness * 4.0f,
-            juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    g.setColour (cyan.withAlpha (juce::jmin (.75f, sharpnessAlpha * 1.40f)));
-    for (const auto& arc : geometry.sharpnessArcs)
-        g.strokePath (arc, juce::PathStrokeType (.75f + amounts.sharpness,
-            juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    juce::ColourGradient body (
-        juce::Colour (0xff101f24).withAlpha (.86f), geometry.bounds.getTopLeft(),
-        juce::Colour (0xff061115).withAlpha (.94f), geometry.bounds.getBottomRight(), false);
-    body.addColour (.24, juce::Colour (0xff173036).withAlpha (.88f));
-    body.addColour (.58, juce::Colour (0xff0b1a1d).withAlpha (.92f));
-    g.setGradientFill (body);
-    g.fillPath (geometry.outline);
-
-    constexpr std::array<float, 3> tissueAlpha { .09f, .065f, .05f };
-    for (std::size_t index = 0; index < geometry.tissue.size(); ++index)
-    {
-        const auto direction = index == 1 ? geometry.bounds.getBottomLeft()
-                                          : geometry.bounds.getTopLeft();
-        juce::ColourGradient density (
-            copper.darker (.65f).withAlpha (.015f), direction,
-            gold.withAlpha (tissueAlpha[index]), geometry.bounds.getCentre(), false);
-        density.addColour (.62, copper.withAlpha (tissueAlpha[index] * .55f));
-        g.setGradientFill (density);
-        g.fillPath (geometry.tissue[index]);
-    }
-
-    const auto fibreWidth = .45f + amounts.texture * .75f;
-    {
-        juce::Graphics::ScopedSaveState fibreClip (g);
-        g.reduceClipRegion (geometry.outline);
-        const auto fibreAlpha = 1.10f
-            / (static_cast<float> (geometry.fibreCount) * fibreWidth);
-        g.setColour (copper.withAlpha (juce::jmin (.82f, fibreAlpha)));
-        for (std::size_t index = 0; index < geometry.fibreCount; ++index)
-            g.strokePath (geometry.fibres[index], juce::PathStrokeType (
-                fibreWidth, juce::PathStrokeType::curved,
-                juce::PathStrokeType::rounded));
-        g.setColour (gold.withAlpha (.60f / static_cast<float> (geometry.fibreCount)));
-        for (std::size_t index = 0; index < geometry.fibreCount; index += 2)
-            g.strokePath (geometry.fibres[index], juce::PathStrokeType (
-                .45f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    }
-
-    g.setColour (copper.withAlpha (.20f));
-    g.strokePath (geometry.outline, juce::PathStrokeType (.55f,
-        juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    const auto target = specimenBounds (area, amounts.strength);
+    drawLayer (g, layers.base, target, 0.88f);
+    drawLayer (g, layers.strength, target, 0.08f + 0.52f * std::sqrt (amounts.strength));
+    drawLayer (g, layers.texture, target, 0.05f + 0.55f * std::sqrt (amounts.texture));
+    drawLayer (g, layers.sharpness, target, 0.06f + 0.54f * std::sqrt (amounts.sharpness));
 }
 }

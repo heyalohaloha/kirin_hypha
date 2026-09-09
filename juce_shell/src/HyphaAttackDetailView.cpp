@@ -143,7 +143,7 @@ void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int
         && std::isfinite (post->sharpness_acum)
         ? juce::String (post->sharpness_acum, 2) + " acum" : "---";
 
-    const auto metricHeight = content.getHeight() >= 88 ? 48 : content.getHeight();
+    const auto metricHeight = content.getHeight() >= 88 ? 40 : content.getHeight();
     auto metricRow = content.removeFromBottom (metricHeight);
     if (content.getHeight() >= 34 && content.getWidth() >= 150)
         drawEventFocus (g, nullptr, post, content.reduced (4, 1), {}, &glyphCache);

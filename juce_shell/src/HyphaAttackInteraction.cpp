@@ -78,7 +78,8 @@ void AttackComponent::selectNearestEventAtX (int x) noexcept
             pairEventBatch.count,
             static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
         for (std::uint32_t index = 0; index < count; ++index)
-            consider (pairEventBatch.events[index].event_sample);
+            if (pairHasPostDetail (pairEventBatch.events[index]))
+                consider (pairEventBatch.events[index].event_sample);
     }
     else
     {
@@ -106,7 +107,8 @@ void AttackComponent::selectBoundaryEvent (bool selectLast) noexcept
             pairEventBatch.count,
             static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
         for (std::uint32_t index = 0; index < count; ++index)
-            consider (pairEventBatch.events[index].event_sample);
+            if (pairHasPostDetail (pairEventBatch.events[index]))
+                consider (pairEventBatch.events[index].event_sample);
     }
     else
     {
@@ -139,7 +141,8 @@ void AttackComponent::selectAdjacentEvent (bool moveRight) noexcept
             pairEventBatch.count,
             static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
         for (std::uint32_t index = 0; index < count; ++index)
-            consider (pairEventBatch.events[index].event_sample);
+            if (pairHasPostDetail (pairEventBatch.events[index]))
+                consider (pairEventBatch.events[index].event_sample);
     }
     else
     {

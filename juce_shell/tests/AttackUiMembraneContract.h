@@ -1,23 +1,14 @@
 #pragma once
 
-#include "../src/HyphaAttackMembraneGeometry.h"
 #include "../src/HyphaAttackOrganismPainter.h"
+#include <cmath>
 #include <iostream>
 #include <limits>
 
 namespace hypha::attack_ui_test
 {
-inline std::uint64_t opaquePixels (const juce::Image& image)
-{
-    std::uint64_t pixels = 0;
-    for (int y = 0; y < image.getHeight(); ++y)
-        for (int x = 0; x < image.getWidth(); ++x)
-            pixels += image.getPixelAt (x, y).getAlpha() > 8;
-    return pixels;
-}
-
 inline juce::Image renderSpecimen (attack_specimen::FeatureAmounts amounts,
-                                   int width = 400, int height = 124)
+                                   int width = 500, int height = 180)
 {
     juce::Image image (juce::Image::ARGB, width, height, true);
     juce::Graphics graphics (image);
@@ -25,79 +16,57 @@ inline juce::Image renderSpecimen (attack_specimen::FeatureAmounts amounts,
     return image;
 }
 
+inline juce::Rectangle<int> visibleBounds (const juce::Image& image)
+{
+    auto left = image.getWidth(), top = image.getHeight(), right = -1, bottom = -1;
+    for (int y = 0; y < image.getHeight(); ++y)
+        for (int x = 0; x < image.getWidth(); ++x)
+            if (image.getPixelAt (x, y).getAlpha() > 8)
+            {
+                left = juce::jmin (left, x); top = juce::jmin (top, y);
+                right = juce::jmax (right, x); bottom = juce::jmax (bottom, y);
+            }
+    return right >= left && bottom >= top
+        ? juce::Rectangle<int> (left, top, right - left + 1, bottom - top + 1)
+        : juce::Rectangle<int> {};
+}
+
 inline bool verifyMembraneContract()
 {
-    using attack_specimen_geometry::geometry;
-    const juce::Rectangle<float> area { 0, 0, 400, 124 };
-    const auto base = geometry (area, { .5f, .5f, .5f });
-    if (base.outline.isEmpty() || base.fibreCount < 4 || base.fibreCount > 12)
-        { std::cerr << "membrane: base\n"; return false; }
-    const auto ratio = base.bounds.getWidth() / base.bounds.getHeight();
-    if (ratio < 1.22f || ratio > 1.38f) { std::cerr << "membrane: ratio " << ratio << "\n"; return false; }
+    const auto base = renderSpecimen ({ 0.0f, 0.0f, 0.0f });
+    const auto strong = renderSpecimen ({ 1.0f, 0.0f, 0.0f });
+    const auto smooth = renderSpecimen ({ 0.5f, 0.0f, 0.5f });
+    const auto textured = renderSpecimen ({ 0.5f, 1.0f, 0.5f });
+    const auto soft = renderSpecimen ({ 0.5f, 0.5f, 0.0f });
+    const auto sharp = renderSpecimen ({ 0.5f, 0.5f, 1.0f });
 
-    for (int mask = 0; mask < 8; ++mask)
-    {
-        const auto shape = geometry (area,
-            { float (mask & 1), float ((mask >> 1) & 1), float ((mask >> 2) & 1) });
-        if (shape.outline.isEmpty() || ! area.contains (shape.outline.getBounds())) { std::cerr << "membrane: outline bounds\n"; return false; }
-        for (const auto& tissue : shape.tissue)
-            if (tissue.isEmpty() || ! area.contains (tissue.getBounds())) { std::cerr << "membrane: tissue bounds\n"; return false; }
-        for (const auto& arc : shape.sharpnessArcs)
-            if (arc.isEmpty() || ! area.contains (arc.getBounds())) { std::cerr << "membrane: arc bounds\n"; return false; }
-    }
-
-    const auto weak = geometry (area, { 0.0f, .5f, .5f });
-    const auto strong = geometry (area, { 1.0f, .5f, .5f });
-    const auto heightDelta = strong.bounds.getHeight() - weak.bounds.getHeight();
-    const auto widthDelta = strong.bounds.getWidth() - weak.bounds.getWidth();
-    if (heightDelta < 8.0f || widthDelta > heightDelta / 3.0f + .05f
-        || weak.outline == strong.outline)
-        { std::cerr << "membrane: strength " << heightDelta << " " << widthDelta << "\n"; return false; }
-
-    const auto smooth = geometry (area, { .5f, 0.0f, .5f });
-    const auto textured = geometry (area, { .5f, 1.0f, .5f });
-    if (smooth.outline != textured.outline || smooth.bounds != textured.bounds
-        || smooth.fibreCount >= textured.fibreCount)
-        { std::cerr << "membrane: texture geometry\n"; return false; }
-
-    const auto soft = geometry (area, { .5f, .5f, 0.0f });
-    const auto sharp = geometry (area, { .5f, .5f, 1.0f });
-    if (soft.outline != sharp.outline || soft.bounds != sharp.bounds
-        || sharp.sharpnessReach > sharp.bounds.getHeight() * .08f)
-        { std::cerr << "membrane: sharpness geometry\n"; return false; }
+    const auto baseBounds = visibleBounds (base);
+    const auto strongBounds = visibleBounds (strong);
+    if (baseBounds.isEmpty() || strongBounds.isEmpty()
+        || strongBounds.getWidth() - baseBounds.getWidth() < 30
+        || strongBounds.getHeight() - baseBounds.getHeight() < 10)
+        { std::cerr << "specimen asset: strength footprint\n"; return false; }
+    if (specimenDifferences (smooth, textured) < 500
+        || visibleBounds (smooth).getCentre().getDistanceFrom (
+               visibleBounds (textured).getCentre()) > 2.0f)
+        { std::cerr << "specimen asset: texture layer\n"; return false; }
+    if (specimenDifferences (soft, sharp) < 500
+        || visibleBounds (soft).getCentre().getDistanceFrom (
+               visibleBounds (sharp).getCentre()) > 2.0f)
+        { std::cerr << "specimen asset: sharpness layer\n"; return false; }
 
     const auto invalid = std::numeric_limits<float>::quiet_NaN();
-    const auto safe = geometry (area, { invalid, invalid, invalid });
-    const auto zero = geometry (area, {});
-    if (safe.outline != zero.outline || safe.fibreCount != zero.fibreCount
-        || ! std::equal_to<float> {} (safe.sharpnessReach, zero.sharpnessReach))
-        { std::cerr << "membrane: invalid\n"; return false; }
+    if (specimenDifferences (base, renderSpecimen ({ invalid, invalid, invalid })) != 0)
+        { std::cerr << "specimen asset: invalid values\n"; return false; }
 
-    for (const auto size : { juce::Point<int> { 180, 65 }, { 400, 124 }, { 600, 180 } })
-        if (specimenLight (renderSpecimen ({}, size.x, size.y)) == 0
-            || specimenLight (renderSpecimen ({ 1, 1, 1 }, size.x, size.y)) == 0)
-            { std::cerr << "membrane: visible sizes\n"; return false; }
-
-    const auto lowTexture = renderSpecimen ({ .5f, 0.0f, .5f });
-    const auto highTexture = renderSpecimen ({ .5f, 1.0f, .5f });
-    const auto lowTextureLight = static_cast<double> (specimenLight (lowTexture));
-    const auto highTextureLight = static_cast<double> (specimenLight (highTexture));
-    if (specimenDifferences (lowTexture, highTexture) < 80
-        || std::abs (highTextureLight - lowTextureLight)
-            / juce::jmax (1.0, lowTextureLight) > .05)
-        { std::cerr << "membrane: texture light " << lowTextureLight << " " << highTextureLight << " diff " << specimenDifferences (lowTexture, highTexture) << "\n"; return false; }
-
-    const auto lowSharpness = renderSpecimen ({ .5f, .5f, 0.0f });
-    const auto highSharpness = renderSpecimen ({ .5f, .5f, 1.0f });
-    const juce::Rectangle<int> centre { 120, 37, 160, 50 };
-    const auto lowCentre = static_cast<double> (specimenLight (lowSharpness, centre));
-    const auto highCentre = static_cast<double> (specimenLight (highSharpness, centre));
-    const auto lowArea = static_cast<double> (opaquePixels (lowSharpness));
-    const auto highArea = static_cast<double> (opaquePixels (highSharpness));
-    if (specimenDifferences (lowSharpness, highSharpness) < 40
-        || std::abs (highCentre - lowCentre) / juce::jmax (1.0, lowCentre) > .03
-        || (highArea - lowArea) / juce::jmax (1.0, lowArea) > .07)
-        { std::cerr << "membrane: sharpness light " << lowCentre << " " << highCentre << " area " << lowArea << " " << highArea << " diff " << specimenDifferences (lowSharpness, highSharpness) << "\n"; return false; }
+    for (const auto size : { juce::Point<int> { 180, 65 }, { 500, 180 }, { 800, 260 } })
+    {
+        const auto image = renderSpecimen ({ 1.0f, 1.0f, 1.0f }, size.x, size.y);
+        const auto bounds = visibleBounds (image);
+        if (bounds.isEmpty() || specimenLight (image) == 0
+            || bounds.getWidth() < size.x / 3 || bounds.getHeight() < size.y / 2)
+            { std::cerr << "specimen asset: responsive visibility\n"; return false; }
+    }
 
     // Missing one source field makes TEXTURE unavailable, never a fabricated partial value.
     for (int field = 0; field < 3; ++field)

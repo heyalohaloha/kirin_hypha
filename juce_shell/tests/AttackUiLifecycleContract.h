@@ -39,28 +39,37 @@ inline bool verifyDetailLifecycle (const KirinAttackEventBatch& events,
         const auto original = paint();
         snapshot (*changed);
         const auto updated = paint();
-        if (specimenDifferences (original, updated) < 5) return false;
+        if (specimenDifferences (original, updated) < 5)
+            { std::cerr << "detail lifecycle: unchanged size " << size.x << 'x' << size.y << '\n'; return false; }
     }
     component->setSize (580, 228);
     snapshot (details);
     const auto complete = paint();
     snapshot (*missing);
-    if (specimenDifferences (complete, paint()) < 10) return false;
+    if (specimenDifferences (complete, paint()) < 10)
+        { std::cerr << "detail lifecycle: missing detail\n"; return false; }
     snapshot (details); // Late detail at an unchanged raw endpoint must appear.
-    if (specimenDifferences (complete, paint()) != 0) return false;
+    if (specimenDifferences (complete, paint()) != 0)
+        { std::cerr << "detail lifecycle: late detail mismatch\n"; return false; }
     component->presentationTick (false);
-    auto inactive = paint();
-    for (int y = attack_ui::headerHeight; y < inactive.getHeight(); ++y)
-        for (int x = 0; x < inactive.getWidth(); ++x)
-            if (inactive.getPixelAt (x, y) != juce::Colours::black) return false;
+    const auto inactive = paint();
+    const auto retainedHeight = attack_ui::metricsHeight (inactive.getHeight());
+    const juce::Rectangle<int> retainedSpecimen {
+        0, inactive.getHeight() - retainedHeight, inactive.getWidth(), retainedHeight };
+    if (specimenDifferences (complete, inactive, retainedSpecimen) != 0
+        || specimenDifferences (complete, inactive) == 0)
+        { std::cerr << "detail lifecycle: hold changed specimen\n"; return false; }
     component->keyPressed (juce::KeyPress (juce::KeyPress::homeKey));
-    if (specimenDifferences (inactive, paint()) < 10) return false; // Explicit lock survives silence.
+    if (specimenDifferences (inactive, paint()) < 10)
+        { std::cerr << "detail lifecycle: lock did not change\n"; return false; }
     component->presentationTick (true);
     component->keyPressed (juce::KeyPress (juce::KeyPress::endKey));
     snapshot (*missing);
     const auto awaiting = paint();
     for (std::uint32_t i = 0; i < changed->count; ++i) changed->details[i].generation = 6;
     snapshot (*changed);
-    return specimenDifferences (awaiting, paint()) == 0; // Reused sample is not reused identity.
+    const auto stable = specimenDifferences (awaiting, paint()) == 0;
+    if (! stable) std::cerr << "detail lifecycle: stale generation changed frame\n";
+    return stable; // Reused sample is not reused identity.
 }
 }

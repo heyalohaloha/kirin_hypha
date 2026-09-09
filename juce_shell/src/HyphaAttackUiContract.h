@@ -14,9 +14,9 @@ namespace hypha::attack_ui
     constexpr const char* activationEnvironmentVariable = "KIRIN_HYPHA_OPEN_ATTACK";
     constexpr const char* activationValue = "1";
     constexpr int minimumPlotWidth = 1;
-    constexpr int headerHeight = 38;
-    constexpr int axisLabelHeight = 18;
-    constexpr int transientRowMaximumHeight = 52;
+    constexpr int headerHeight = 28;
+    constexpr int axisLabelHeight = 14;
+    constexpr int transientRowMaximumHeight = 44;
     constexpr int modeControlMaximumWidth = 112;
 
     constexpr float textScale (int width, int /*height*/) noexcept
@@ -61,16 +61,16 @@ namespace hypha::attack_ui
 
     constexpr int timelineHeight (int totalHeight) noexcept
     {
-        return totalHeight >= 400 ? 90
-             : totalHeight >= 260 ? 70
-             : totalHeight >= 170 ? 48 : 0;
+        return totalHeight >= 400 ? 64
+             : totalHeight >= 260 ? 42
+             : totalHeight >= 170 ? 36 : 0;
     }
 
     constexpr int transientHeight (int totalHeight) noexcept
     {
         return totalHeight >= 400 ? transientRowMaximumHeight
-             : totalHeight >= 260 ? 40
-             : totalHeight >= 170 ? 30
+             : totalHeight >= 260 ? 30
+             : totalHeight >= 170 ? 26
              : totalHeight >= 115 ? 24 : 0;
     }
 

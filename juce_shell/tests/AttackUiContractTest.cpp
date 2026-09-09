@@ -350,11 +350,14 @@ int main()
         events.events[1].event_sample, 336'000, 48'000, image.getWidth());
     const auto newLastX = hypha::attack_ui::eventX (
         laterPairEvents.events[3].event_sample, 336'000, 48'000, image.getWidth());
+    const auto lastCompleteX = hypha::attack_ui::eventX (
+        laterPairEvents.events[2].event_sample, 336'000, 48'000, image.getWidth());
     KIRIN_REQUIRE (hasColourNear (render (component), lockedMiddleX, selectionColour));
     KIRIN_REQUIRE (! hasColourNear (render (component), newLastX, selectionColour));
 
     KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::endKey)));
-    KIRIN_REQUIRE (hasColourNear (render (component), newLastX, selectionColour));
+    KIRIN_REQUIRE (hasColourNear (render (component), lastCompleteX, selectionColour));
+    KIRIN_REQUIRE (! hasColourNear (render (component), newLastX, selectionColour));
 
     auto newestPairEvents = laterPairEvents;
     newestPairEvents.count = 5;
@@ -364,8 +367,15 @@ int main()
     newestPairEvents.events[4].post_event_sample = 370'000;
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, newestPairEvents,
                            384'000, 48'000, 7, stats);
-    component.presentationTick (false); // Inactive transport snaps and then remains still.
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyDormantSpecimenBlack (render (component)));
+    const auto beforeHold = render (component);
+    component.presentationTick (false); // Silence/stop holds the last complete specimen.
+    const auto held = render (component);
+    const auto heldMetricsHeight = hypha::attack_ui::metricsHeight (held.getHeight());
+    const juce::Rectangle<int> heldSpecimen {
+        0, held.getHeight() - heldMetricsHeight, held.getWidth(), heldMetricsHeight };
+    KIRIN_REQUIRE (hypha::attack_ui_test::specimenDifferences (
+                       beforeHold, held, heldSpecimen) == 0
+                   && hypha::attack_ui_test::specimenDifferences (beforeHold, held) > 0);
     component.presentationTick (true);
     KIRIN_REQUIRE (! component.keyPressed (juce::KeyPress ('x')));
 

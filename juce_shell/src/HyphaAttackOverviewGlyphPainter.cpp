@@ -4,15 +4,23 @@
 
 namespace hypha::attack_focus
 {
+namespace
+{
+float stableAmount (float value) noexcept
+{
+    constexpr float steps = 48.0f;
+    return std::round (attack_motion::unit (value) * steps) / steps;
+}
+}
+
 juce::Image Cache::lookup (attack_specimen::FeatureAmounts pre, attack_specimen::FeatureAmounts post,
                            bool isPaired, int w, int h, float dpi, const attack_motion::Motion& bend)
 {
     if (! std::isfinite (dpi) || dpi <= 0 || dpi > 4 || w < 4 || h < 4 || w > 1024 || h > 512)
         return {};
-    using attack_motion::unit;
     juce::ignoreUnused (pre, isPaired, bend);
     const std::array<float, 3> key {
-        unit (post.strength), unit (post.texture), unit (post.sharpness) };
+        stableAmount (post.strength), stableAmount (post.texture), stableAmount (post.sharpness) };
     if (image.isValid() && width == w && height == h && std::equal_to<float> {} (scale, dpi)
         && amounts == key) return image;
     const auto pw = static_cast<int> (std::ceil (w * dpi)), ph = static_cast<int> (std::ceil (h * dpi));
@@ -25,7 +33,7 @@ juce::Image Cache::lookup (attack_specimen::FeatureAmounts pre, attack_specimen:
     {
         juce::Graphics raster (next);
         raster.addTransform (juce::AffineTransform::scale (dpi));
-        attack_specimen::drawSpecimen (raster, { 0, 0, w, h }, post);
+        attack_specimen::drawSpecimen (raster, { 0, 0, w, h }, { key[0], key[1], key[2] });
     }
     image = next; width = w; height = h; scale = dpi; amounts = key;
     usedBytes = bytesNeeded; ++buildCount;

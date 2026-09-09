@@ -56,6 +56,7 @@ namespace hypha
         bool liveSignalActive = true;
 
         const KirinAttackPairEvent* selectedPairEvent() const noexcept;
+        bool pairHasPostDetail (const KirinAttackPairEvent&) const noexcept;
         const KirinAttackDetail* selectedPostDetail() const noexcept;
         const KirinAttackDetail* selectedPreDetail() const noexcept;
         juce::Rectangle<int> timelineBounds() const noexcept;

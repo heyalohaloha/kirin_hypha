@@ -222,6 +222,13 @@ const KirinAttackPairEvent* AttackComponent::selectedPairEvent() const noexcept
     return nullptr;
 }
 
+bool AttackComponent::pairHasPostDetail (const KirinAttackPairEvent& pair) const noexcept
+{
+    return pair.post_available != 0
+        && findDetail (detailBatch, pair.post_event_sample,
+                       pair.post_generation, pair.sample_rate) != nullptr;
+}
+
 const KirinAttackDetail* AttackComponent::selectedPostDetail() const noexcept
 {
     if (const auto* pair = selectedPairEvent(); pair != nullptr && pair->post_available != 0)
@@ -285,15 +292,8 @@ void AttackComponent::paint (juce::Graphics& g)
         g.setColour (COL_MUTED);
         g.setFont (monoFont (11.0f));
         g.drawText (juce::String (paired ? "PAIR / " : "POST / ")
-                        + (followLatest ? "LIVE" : "LOCK"),
+                        + (followLatest ? (liveSignalActive ? "LIVE" : "HOLD") : "LOCK"),
                     state, juce::Justification::centredRight);
-    }
-
-    if (! liveSignalActive && followLatest)
-    {
-        g.setColour (juce::Colours::black);
-        g.fillRect (getLocalBounds().withTrimmedTop (attack_ui::headerHeight));
-        return;
     }
     if (! running || ! attack_ui::validTimeline (latest, rate))
     {

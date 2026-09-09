@@ -42,6 +42,19 @@ fn wait_for_frames(runtime: &AttackRuntime, minimum: usize) -> AttackHistory {
     panic!("ATTACK worker did not publish {minimum} frames");
 }
 
+fn wait_for_frames_and_waveform(runtime: &AttackRuntime, minimum: usize) -> AttackHistory {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if let Some(history) = runtime.try_history().filter(|history| {
+            history.frames().len() >= minimum && history.waveform().len() >= minimum
+        }) {
+            return history;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    panic!("ATTACK worker did not publish {minimum} frames and waveform points");
+}
+
 #[test]
 fn runtime_is_default_off_and_rejects_unsupported_topology() {
     assert!(AttackRuntime::new(48_000, 0).is_err());
@@ -82,7 +95,7 @@ fn selected_drum_superflux_runs_on_source_zero_grid() {
     let runtime = AttackRuntime::new(48_000, 2).unwrap();
     assert!(runtime.set_enabled(true));
     feed(&runtime, 5_000, 256, Some(3_000));
-    let history = wait_for_frames(&runtime, 8);
+    let history = wait_for_frames_and_waveform(&runtime, 8);
     let frames = history.frames().copied().collect::<Vec<_>>();
     assert_eq!(frames[0].window_samples, 2_048);
     assert_eq!(frames[0].hop_samples, 256);
