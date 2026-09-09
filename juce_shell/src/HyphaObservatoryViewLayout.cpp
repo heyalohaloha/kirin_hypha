@@ -29,7 +29,7 @@ void View::resized()
                               &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
                               &timeRangeButton, &compactLoudnessButton, &compactRangeButton,
                               &contextButton, &scaleButton, &sizeButton, &resetButton,
-                              &noteButton, &captureButton })
+                              &noteButton, &captureButton, &localBlindButton })
             button->setVisible (false);
         return;
     }

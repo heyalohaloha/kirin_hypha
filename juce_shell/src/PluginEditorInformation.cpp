@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "HyphaBuildIdentity.h"
+#include "HyphaLocalBlindComponent.h"
 #include "HyphaUpdateContract.h"
 
 namespace
@@ -30,8 +31,9 @@ const char* formatName (juce::AudioProcessor::WrapperType type)
 
 bool KirinHyphaEditor::informationBlockedByBlind() const
 {
-    return isPost && processorRef.referenceAuditionSnapshot().blindPhase
-        != hypha::reference_audition::BlindPhase::inactive;
+    return isPost && (processorRef.referenceAuditionSnapshot().blindPhase
+        != hypha::reference_audition::BlindPhase::inactive
+        || hypha::local_blind_ui::blocksDisclosure (processorRef.localBlindProductView()));
 }
 
 void KirinHyphaEditor::showInformationMenu()

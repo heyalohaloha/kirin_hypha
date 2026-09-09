@@ -137,6 +137,7 @@ public:
     bool answerLocalBlindProductTrial (hypha::local_blind::TrialAnswer);
     bool revealLocalBlindProductTrial();
     void stopLocalBlindProductTrial();
+    void cancelLocalBlindProductSession();
     void requestLocalBlindNormalReturn();
     // Non-RT exact capture control and PRE result transport. None starts an audition.
     bool issueLocalBlindCaptureRequest (std::uint64_t captureGeneration,

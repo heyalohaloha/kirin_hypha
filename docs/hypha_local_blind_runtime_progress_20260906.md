@@ -1,7 +1,7 @@
 # PRE/POST Blind の実装状況
 
 更新日: 2026-09-09
-対象: B-719〜B-724、B-743〜B-770
+対象: B-719〜B-724、B-743〜B-772
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
@@ -68,6 +68,10 @@ B-769は、製品の4秒取得から固定Gain準備、試聴、回答、Reveal�
 B-770は、2MIXの`alignedActiveBlocksV1`を変更せず、TRACK/STEM専用の`exactTrackEventEnergyV1`を追加した。
 後者はexact 4秒を非重複20 ms窓で読み、各側の最大eventから40 dB以内にある対応窓を3個以上要求する。長い低レベルnoiseで短音の差を上書きせず、短音を反復しない。無音、片側欠落、非有限値、範囲違いは開始不可とする。
 取得開始時のMeter Contextでpolicyを固定し、途中の文脈変更では準備済みTrialを継続しない。
+B-771は、既存の500行超`PluginEditor.cpp`からeditor lifecycleを独立sourceへ移し、製品UIを追加できる境界へ収束させた。
+B-772は、POSTの大画面に単一のBlind入口と、取得、準備、必要な固定減衰の承認、Source 1／2試聴、回答、Reveal、中断、通常復帰を一つの全画面UIとして接続した。
+試聴中は既存の計測、pair、Capture、Reference、情報操作を表示と入力とaccessibility treeから隔離する。Reveal前はSource 1／2と回答だけを表示し、PRE／POSTの割当は明示Reveal後だけ表示する。
+UIは300×200まで操作が画面外へ出ない。製品入口の単一gateはmacOS AUのexact 4秒PDC実証が完了するまで既定OFFのままにしている。
 
 ## 現在の到達点
 
@@ -78,7 +82,8 @@ B-718 の同一区間取得部品に、固定 Gain Match の準備、比較コ�
 PRE PCMのPOST取込み、両側完了barrier、実機用の明示取得と診断表示までは成立した。
 Windows VST3とmacOS VST3では、既知遅延を含むexact 4秒取得のbit一致とPDC残差0 sampleを確認した。
 macOS AUは通常の読込validationまで通ったが、同じexact 4秒のPDC実証は残る。
-製品の開始UIと回答前の全画面非開示は未接続なので、利用者向けの試聴入口はまだ有効にしない。
+製品の開始UIと回答前の全画面非開示は本体へ接続済みである。
+ただし、macOS AUの実証完了までは単一gateを閉じ、利用者向けの試聴入口を表示しない。
 
 B-723 以降は Windows で B-722 検証版を一時配置し、Studio Pro で確認した。
 PSB の欠落と高い CPU 使用率の指摘を受け、性能の切り分けを優先している。
@@ -174,7 +179,8 @@ offline と bypass の出力は加工しないが、それだけで保持状態�
 選択要求と出力済み番号は分離している。
 連打で後から届いた要求を、先行 callback が出力済みと誤認しないよう、要求番号と刺激番号を一つの atomic command に格納した。
 両側の出力量が指定された最低量に達するまで回答できず、回答後の明示 Reveal まで PRE/POST の対応を返さない。
-UI、tooltip、accessibility、他のウインドウからの漏洩防止はまだ接続していない。
+製品UIは試聴中に全画面を所有し、背後のtooltip、操作、accessibility情報を隔離する。
+DAWが所有する外側のウインドウ名は変更しないが、ランダムなSource 1／2の割当は明示Revealまで表示しない。
 
 ## 部品試験の証拠
 
@@ -205,15 +211,15 @@ mono 試験では同じ左右の片側を使用した。
 クリックや応答時間が割当の手掛かりにならないという知覚検証は未完了である。
 部品試験の最小試聴量は試験入力であり、製品の秒数を新たに決定したものではない。
 
-## 未接続の製品機能
+## 残る製品完成条件
 
 1. **参加範囲と開始排他**：B-768で既存AnalysisLeaseの2枠、単一試聴所有者、Reference、Keep、All Keep、下流Recordを共通の開始判定へ接続した。製品UIからの競合操作と、別processを含む実ホスト試験は残る。
 2. **同一区間の取得**：B-751で同じ要求envelopeからB-747のrole別laneを非RTでarmし、B-752でPRE PCMをPOSTへ運んで両receiptを一つのpair barrierで照合した。B-754で任意のPRE／POST開始位置を廃止し、POSTのlive host clockから作る単一native範囲を両roleへ配るv2要求へ移行した。試聴出力用スロットと取得用スロットを混同しない。
 3. **時刻対応**：B-754で要求発行時のhost positionを将来の取得範囲とともに固定した。各roleは最初のcallbackをその区間内に限定し、以後のclock source、連続sample位置、optional presentation通知を固定する。発行後の巻戻し、late arm、動的変更、別周回、seek、停止callbackは当該要求だけで拒否し、presentation通知をPDC offsetとして足し引きしない。Windows VST3とmacOS VST3は既知遅延を挟んだ残差0 sampleを実証した。macOS AUと他トラックとの同期は未確認である。
 4. **製品の固定 Gain policy**：B-770で2MIXの連続3秒条件を維持し、短音と疎なTRACK/STEMを別policyへ分離した。強いEQ、limiter、tail、clip境界の実音確認と人による音量差確認は残る。
-5. **開始から終了までの画面**：対象選択、取得待ち、音量変更への承認、1 / 2、回答、Reveal、減衰保持、通常復帰を接続する。他方の大きな表示、小さな表示、別ウインドウ、Capture、tooltip、accessibility にも非開示条件を適用する。
-6. **所有権と復元**：OS の安全な乱数による割当を単一の準備所有者へ接続する。編集画面を閉じた場合や host の再初期化、instance 削除、worker 停止、旧版との混在、結果保存失敗を扱う。再読込で試聴や承認済み減衰を自動再開しない。
-7. **実機と性能**：両 OS、2MIX / TRACK / STEM、mono / stereo、125% / 150% / 200% 表示、重い session、CPU、準備時間、総 peak RAM、切替音を検証する。Windows の使用許可と共通 runbook の確認は B-722 で完了した。検証版の一時差し替えと Studio Pro の操作確認は未実施である。
+5. **開始から終了までの画面**：B-772で対象選択後の取得待ち、音量変更への承認、1 / 2、回答、Reveal、減衰保持、通常復帰を接続し、背後の表示、Capture、tooltip、accessibilityにも非開示条件を適用した。公開対象形式の実ホストで一巡し、表示と操作を確認する作業は残る。
+6. **所有権と復元**：OSの安全な乱数による割当は単一の準備所有者へ接続済みである。editorを閉じた場合は試聴を失効させ、再表示時は通常復帰が必要な状態だけを全画面で回収する。hostの再初期化、instance削除、worker停止、旧版との混在、結果保存失敗の実ホスト確認は残る。再読込で試聴や承認済み減衰を自動再開しない。
+7. **実機と性能**：両OS、2MIX / TRACK / STEM、mono / stereo、125% / 150% / 200%表示、重いsession、CPU、準備時間、総peak RAM、切替音を検証する。WindowsとmacOSのStudio Pro VST3では既知遅延を含む取得を確認済みである。macOS AUと公開UIの操作一巡は未完了である。
 
 これらは未完了作業であり、後段へ移すという採否変更ではない。
 今回の部品実装を「Review 0 件」や完成の証拠にはしない。

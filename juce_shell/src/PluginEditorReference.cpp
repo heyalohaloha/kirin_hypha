@@ -159,6 +159,7 @@ void KirinHyphaEditor::layoutReferenceAudition (juce::Rectangle<int> body)
     referenceAccessView.setBounds (body);
     referenceAccessView.setVisible (reference && access);
     if (referenceAccessView.isVisible()) referenceAccessView.toFront (false);
+    layoutLocalBlindProduct();
 }
 
 void KirinHyphaEditor::showReferenceInformationMenu()

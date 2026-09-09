@@ -174,6 +174,9 @@ void KirinHyphaEditor::updatePre()
 
 void KirinHyphaEditor::updatePost()
 {
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (localBlindOpen) return;
+   #endif
     const bool alive  = processorRef.measureAlive();
     const int  sig    = processorRef.signalStateLive(); // B-113: heartbeat-aware (no stale Active)
     const bool rec    = processorRef.isRecording();

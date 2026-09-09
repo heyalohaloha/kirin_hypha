@@ -147,6 +147,13 @@ bool KirinHyphaProcessorBase::revealLocalBlindProductTrial()
 void KirinHyphaProcessorBase::stopLocalBlindProductTrial()
 { localBlindProductSession.stop(); }
 
+void KirinHyphaProcessorBase::cancelLocalBlindProductSession()
+{
+    localBlindProductSession.invalidate();
+    localBlindCapture.requestReset();
+    startTimer (50);
+}
+
 void KirinHyphaProcessorBase::requestLocalBlindNormalReturn()
 {
     localBlindProductSession.requestNormalReturn();

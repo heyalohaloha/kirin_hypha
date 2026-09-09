@@ -104,6 +104,9 @@ void KirinHyphaEditor::showNoteDialog()
 
 void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 {
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (localBlindOpen) return;
+   #endif
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
     domain = hypha::observatory::sanitizeDomain (role, domain);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -131,11 +134,23 @@ void KirinHyphaEditor::visibilityChanged()
     // Some hosts snapshot non-parameter state when the editor becomes hidden, before destroying
     // it. Mark the already-updated exact dimensions dirty at that boundary as well as in dtor.
     if (! isVisible())
+    {
         commitEditorSizeStateIfSettled (true);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
+       #endif
+    }
 }
 
 void KirinHyphaEditor::refreshObservatory()
 {
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (localBlindOpen)
+    {
+        refreshLocalBlindProduct();
+        return;
+    }
+   #endif
     const auto presentationNow = nowSecs();
     const auto hostHeartbeat = processorRef.hostProcessHeartbeatValue();
     if (hostHeartbeat != observedHostProcessHeartbeat)

@@ -292,6 +292,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=1)
     else()
         target_sources(${TARGET} PRIVATE
+            src/PluginEditorLocalBlind.cpp
+            src/HyphaLocalBlindComponent.cpp
             src/PluginEditorReference.cpp
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
@@ -526,6 +528,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/TimePageNavigationContractTest.cpp
         tests/RunSummaryContractTest.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
+        src/HyphaLocalBlindComponent.cpp
         tests/OsAccessUiContractTest.cpp
         src/HyphaObservatoryCapture.cpp
         src/HyphaCaptureHistoryAnalysis.cpp

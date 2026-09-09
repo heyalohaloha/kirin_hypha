@@ -18,6 +18,7 @@
 #include "OsAccessUiContractTest.h"
 #include "HyphaInformationContractTest.h"
 #include "HybridVuContractTest.h"
+#include "LocalBlindUiContractTest.h"
 #include "ReferenceAccessPanelContractTest.h"
 #include "ObservationEqualityContractTest.h"
 #include "PolylineGeometryContractTest.h"
@@ -59,6 +60,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyReferenceAuditionComponentContract();
     verifyOsAccessUiContract();
     verifyTimePageNavigationContract();
+    verifyLocalBlindUiContract();
     if (entryOnly)
     {
         std::cout << "Product entry: PASS (82 role/size layouts, 41 Reference layouts, update dispatch, DRUM navigation)\n";

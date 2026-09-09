@@ -226,6 +226,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         scaleRoot.addChildComponent (absoluteView);
         scaleRoot.addChildComponent (attackView);
         configureReferenceAudition();
+        configureLocalBlindProduct();
        #endif
     }
     else
@@ -364,6 +365,9 @@ void KirinHyphaEditor::resized()
     feedbackLabel.setBounds (observatoryView.sessionBounds());
     feedbackLabel.toFront (false);
     if (observatoryView.hybridVuVisible()) observatoryView.toFront (false);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (isPost) layoutLocalBlindProduct();
+   #endif
 }
 void KirinHyphaEditor::layoutMetrics (bool)
 {

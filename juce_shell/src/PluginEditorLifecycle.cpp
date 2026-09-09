@@ -7,6 +7,9 @@ KirinHyphaEditor::~KirinHyphaEditor()
     tooltip.setLookAndFeel (nullptr);
     if (isPost)
     {
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
+       #endif
         processorRef.endReferenceBlind();
         processorRef.setSpectrumVisible (false);
         processorRef.setPerceptualVisible (false);

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <memory>
+#include <vector>
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -22,6 +23,7 @@
  #include "HyphaAttackComponent.h"
  #include "HyphaReferenceComponent.h"
  #include "HyphaReferenceAccessPanel.h"
+ #include "HyphaLocalBlindComponent.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -93,6 +95,12 @@ private:
     void showReferenceInformationMenu();
     void layoutReferenceAudition (juce::Rectangle<int>);
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
+    void configureLocalBlindProduct();
+    void openLocalBlindProduct();
+    void closeLocalBlindProduct();
+    void refreshLocalBlindProduct();
+    void layoutLocalBlindProduct();
+    void setLocalBlindIsolation (bool active);
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,
                                int pairStatus);
@@ -146,6 +154,7 @@ private:
     hypha::AttackComponent attackView;         // POST ATTACK product view
     hypha::reference_ui::Component referenceView; // POST-only Kirin OS prepared A/B
     hypha::reference_ui::AccessPanel referenceAccessView;
+    hypha::local_blind_ui::Component localBlindView;
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help
@@ -166,6 +175,14 @@ private:
     std::int64_t cachedAttackLatest = -1;
     std::uint32_t cachedAttackRate = 0;
     std::uint64_t cachedAttackGeneration = 0;
+    bool localBlindOpen = false;
+    struct LocalBlindUnderlyingState
+    {
+        juce::Component* component = nullptr;
+        bool accessible = true;
+        bool enabled = true;
+    };
+    std::vector<LocalBlindUnderlyingState> localBlindUnderlyingStates;
 #endif
     int    metricTop   = 0;       // y of the first metric row (set in resized())
     int    floraY      = 0;       // y of the flora separator line

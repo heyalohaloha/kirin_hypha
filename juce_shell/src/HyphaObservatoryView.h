@@ -46,6 +46,7 @@ public:
     std::function<void()> onCapture;
     std::function<void()> onNote;
     std::function<void()> onInformation;
+    std::function<void()> onLocalBlind;
     juce::Component& informationAnchor() noexcept { return informationButton; }
 
     void setDomain (Domain);
@@ -120,6 +121,12 @@ public:
     // only the size label/cycle identity; measurement and shell layout keep using local bounds.
     void setDisplayedEditorSize (int width, int height);
     void setNoteAvailability (bool osOwned, bool recording);
+    void setLocalBlindEntryEnabled (bool enabled)
+    {
+        if (localBlindEntryEnabled == enabled) return;
+        localBlindEntryEnabled = enabled;
+        resized();
+    }
 
     struct HistoryRequest
     {
@@ -201,6 +208,7 @@ private:
     bool attackPaired = false;
     juce::String feedbackText;
     bool referenceOwned = false;
+    bool localBlindEntryEnabled = false;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;
     ConnectionState connectionState = ConnectionState::unpaired;
@@ -242,6 +250,7 @@ private:
     Button resetButton { "RESET", false };
     Button noteButton { "NOTE", false };
     Button captureButton { "CAPTURE", false };
+    Button localBlindButton { "BLIND", false };
     InformationButton informationButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (View)

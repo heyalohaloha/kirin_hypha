@@ -171,7 +171,8 @@ DRUM は既存 ATTACK 検出器の識別名であり、2MIX 用検出器や楽�
 TRACK/STEM から 2MIX への変更は、画面操作と DAW state 復元の双方で解析要求を終了する。
 共通の HYPHA PRE／POST タイトルから情報メニューを開き、両 role で hover help を変更できる。
 手動更新入口は固定 HTTPS の外部ページを明示操作で開くもので、自動の最新版判定ではない。
-PRE/POST Blindの製品セッションと共通入場判定は接続済みだが、開始UIと全画面非開示は未接続である。
+PRE/POST Blindの製品セッション、共通入場判定、開始から通常復帰までの全画面UIは接続済みである。
+macOS AUのexact 4秒PDC実証が完了するまでは単一の製品入口gateを閉じる。
 部品試験だけを公開形式の実ホスト排他保証と扱わない。
 ローカルBlindのpair authorityは通常pairingと同じ明示PRE選択である。
 名前は任意の表示ラベルとし、host固有IDは補助診断に限定する。
@@ -215,6 +216,7 @@ Audio Threadの取得入口は正本計測後かつ出力切替前とし、posit
 | INV-S22 | ローカルBlindの取得範囲はPOSTのlive host clockから一度だけ将来の単一native範囲として作り、発行位置とともにPRE／POSTへ同じ値を配る。presentation latencyを足し引きして別範囲を捏造しない。各roleのAudio Threadは最初のcallbackを発行位置から取得開始までに限定し、以後の位置連続性、clock source、optional presentation通知を固定する。late arm、発行後の巻戻し、seek、loop、clock／latency変更、timeline停止callback、bypass、offlineは当該要求だけの失敗にし、失敗状態と理由は明示resetまで保持する。出荷Releaseで要求計画用clock probeを常時書込むのはPOSTだけとし、Debug診断は両roleを観測できる。Debugの明示取得は完成PCMを非RTで比較するだけで、範囲補正、開始許可、試聴出力へ接続しない。既定OFFの検証VST3は別identityで4096 samplesの実遅延とhost報告値を一致させる。Windows Studio ProとmacOS Studio ProのVST3では4秒のstereo取得がbit一致しPDC残差0 sampleを確認済みだが、macOS AUの同条件が完了するまでBlind開始UIを有効にしない | `kirin_local_blind_capture` clock continuity cases / `local_blind_capture_protocol` v2 shared native range / `juce_shell/tests/local_blind_capture_service_test.cpp` / `kirin_local_blind_capture_pair_comparison` / `kirin_local_blind_pdc_validation_delay` / `docs/hypha_b1_host_observation_20260907.md` |
 | INV-S23 | PRE／POSTの製品名は通常buildでも情報入口として常設し、読込version、format／OS、source state、公式更新先、release notes、hover helpを同じ共通shellから表示する。exact 4秒取得、host clock、callback回数、PDC比較はDebugの明示診断に隔離し、通常buildのAudio Thread仕事と開始条件を増やさない | `hypha_title_information_is_shipped_while_capture_validation_stays_debug_only` / `process_block_calls_only_rt_safe_ffi_surface` |
 | INV-S24 | ローカルBlindのGain Matchは取得開始時の利用者指定Meter Contextで固定する。2MIXは`alignedActiveBlocksV1`の400 ms／100 ms hop、27連続active blockを変更しない。TRACK/STEMの`exactTrackEventEnergyV1`はexact 4秒を非重複20 ms窓で読み、各側最大eventから40 dB以内の対応窓を3個以上要求してenergy差の中央値を固定する。長い低レベルnoiseで短音を上書きせず、loop padding、無音、片側欠落、非有限値、範囲違い、未補正fallbackを認めない。context変更時は準備済みまたは試聴中のTrialを継続せず、通常復帰契約を維持する | `exact_track_event_policy_matches_short_and_sparse_gain` / `track_event_policy_rejects_wrong_duration_silence_and_one_sided_evidence` / `juce_shell/tests/local_blind_preparation_test.cpp` |
+| INV-S25 | ローカルBlindの製品UIはPOSTの大画面で一つだけ入口を持ち、PREは別の解析枠を消費しない。取得、準備、固定減衰の明示承認、Source 1／2の完全試聴、回答、Reveal、中断、Audio Thread確認後の通常復帰を同じ全画面UIで進める。Reveal前は割当を表示せず、背後のmeter、pair、Capture、Reference、情報操作をmouse、keyboard、accessibilityから隔離する。回答は両側の完全な一巡後だけ許可する。300×200への縮小、editor再表示、途中終了でも操作を失わず、自動再生、自動Reveal、自動通常復帰を行わない。macOS AUのexact 4秒PDC実証までは単一gateを既定OFFにする | `verifyLocalBlindUiContract` / `kirin_product_entry_contract` / `juce_shell/src/PluginEditorLocalBlind.cpp` |
 
 ---
 
