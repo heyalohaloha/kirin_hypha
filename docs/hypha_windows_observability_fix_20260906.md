@@ -111,7 +111,7 @@ The baseline version string is insufficient to establish its source commit.
 | 150% items beside 2MIX unreadable | Context owns the first header row; domain navigation owns the second. |
 | LEVEL purple / orange meanings unclear | Colored M momentary LUFS and TP two-second peak dBTP legends; readable axes and supporting facts. |
 | MAX text too small | Shared font floor and larger label bounds; maxima originate in the producer and survive editor closure until explicit RESET. |
-| SHARPNESS seems unavailable with POST alone | Explicit PRE-required difference definition; do not relabel absolute POST as delta. |
+| SHARPNESS seems unavailable with POST alone | SHARP shows local POST Sharpness on its 0..3 acum scale until an exact pair exists, then switches the same page to signed POST-minus-PRE without relabelling either value. |
 | LIVE seems unrelated to delta | Fixed POST absolute target, disabled target switching, explanatory help and consistent capture metadata. |
 | PRE / common small text | Apply common typography, geometry, maxima and capture fixes to PRE and POST, keeping PRE's existing page boundary. |
 

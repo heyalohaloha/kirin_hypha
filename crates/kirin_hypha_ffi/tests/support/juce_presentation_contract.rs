@@ -273,6 +273,9 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(editor.contains("processorRef.setPerceptualVisible (false)"));
     assert!(editor.contains("AnalysisPage::perceptual"));
     assert!(editor.contains("AnalysisPage::absolute"));
+    assert!(editor.contains("sharpnessUsesAbsolute"));
+    assert!(editor.contains("pairStatus != KIRIN_PAIR_STATUS_PAIRED"));
+    assert!(editor.contains("absoluteView.setSharpnessOnly (sharpnessUsesAbsolute)"));
     assert!(editor.contains("processorRef.pollAbsoluteBatch"));
     assert!(editor.contains("observatorySizeIndex + 1u"));
     assert!(editor.contains("ui::spectrumSizePresets[observatorySizeIndex]"));

@@ -14,6 +14,7 @@ struct PaintState
     bool haveBatch;
     bool haveNumericSnapshot;
     bool signalActive = true;
+    bool sharpnessOnly = false;
 };
 
 // LIVE keeps the measurement fact unavailable (NaN) while presenting it at the fixed scale's

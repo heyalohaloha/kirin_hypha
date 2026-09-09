@@ -36,13 +36,19 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
         if (previousPage == AnalysisPage::spectrum)
             processorRef.setSpectrumVisible (false);
         else if (previousPage == AnalysisPage::perceptual)
-            processorRef.setPerceptualVisible (false);
+        {
+            if (sharpnessUsesAbsolute) processorRef.setAbsoluteVisible (false);
+            else processorRef.setPerceptualVisible (false);
+        }
         else if (previousPage == AnalysisPage::absolute)
             processorRef.setAbsoluteVisible (false);
         else if (previousPage == AnalysisPage::attack)
             processorRef.setAttackEnabled (false);
     }
     analysisPage = page;
+    sharpnessUsesAbsolute = page == AnalysisPage::perceptual
+        && processorRef.pairStatus() != KIRIN_PAIR_STATUS_PAIRED;
+    absoluteView.setSharpnessOnly (sharpnessUsesAbsolute);
     observatoryView.setAnalysisPage (page);
     const bool analysisOpen = hypha::analysis_navigation::isAnalysis (page);
     observatoryView.setRunSummaryMode (page == AnalysisPage::run);
@@ -51,14 +57,14 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
         cell.setVisible (false);
     loudnessSelector.setVisible (false);
     spectrumView.setVisible (page == AnalysisPage::spectrum);
-    perceptualView.setVisible (page == AnalysisPage::perceptual);
-    absoluteView.setVisible (page == AnalysisPage::absolute);
+    perceptualView.setVisible (page == AnalysisPage::perceptual && ! sharpnessUsesAbsolute);
+    absoluteView.setVisible (page == AnalysisPage::absolute || sharpnessUsesAbsolute);
     attackView.setVisible (page == AnalysisPage::attack);
     spectrumSizeToggle.setVisible (false);
     spectrumToggle.setVisible (false);
     timePageNavigation.setPage (page);
     updateTimePageNavigation();
-    startTimerHz (page == AnalysisPage::absolute
+    startTimerHz (page == AnalysisPage::absolute || sharpnessUsesAbsolute
                     ? ui::absoluteTimelineSourceHz
                     : analysisOpen ? ui::spectrumPresentationHz
                                    : ui::preDisplayPresentationHz);
@@ -69,9 +75,35 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     else if (page == AnalysisPage::spectrum)
         configureSpectrumAnalysis();
     else if (page == AnalysisPage::perceptual)
-        processorRef.setPerceptualVisible (true);
+    {
+        if (sharpnessUsesAbsolute) processorRef.setAbsoluteVisible (true);
+        else processorRef.setPerceptualVisible (true);
+    }
     else if (page == AnalysisPage::absolute)
         processorRef.setAbsoluteVisible (true);
+}
+
+void KirinHyphaEditor::configureSharpnessAnalysis (int pairStatus)
+{
+    if (analysisPage != AnalysisPage::perceptual)
+        return;
+    const bool useAbsolute = pairStatus != KIRIN_PAIR_STATUS_PAIRED;
+    if (useAbsolute == sharpnessUsesAbsolute)
+        return;
+
+    if (sharpnessUsesAbsolute) processorRef.setAbsoluteVisible (false);
+    else processorRef.setPerceptualVisible (false);
+    sharpnessUsesAbsolute = useAbsolute;
+    perceptualView.clearSnapshot();
+    absoluteView.clearSnapshot();
+    absoluteView.setSharpnessOnly (sharpnessUsesAbsolute);
+    perceptualView.setVisible (! sharpnessUsesAbsolute);
+    absoluteView.setVisible (sharpnessUsesAbsolute);
+    if (sharpnessUsesAbsolute) processorRef.setAbsoluteVisible (true);
+    else processorRef.setPerceptualVisible (true);
+    startTimerHz (sharpnessUsesAbsolute ? ui::absoluteTimelineSourceHz
+                                        : ui::spectrumPresentationHz);
+    repaint();
 }
 
 void KirinHyphaEditor::updateTimePageNavigation()
@@ -98,12 +130,13 @@ void KirinHyphaEditor::configureSpectrumAnalysis()
 
 bool KirinHyphaEditor::refreshAnalysisViews (
     bool alive, int signalState, bool recording, bool armed,
-    bool acknowledged, bool presetAvailable, int /*pairStatus*/)
+    bool acknowledged, bool presetAvailable, int pairStatus)
 {
     if (! hypha::analysis_navigation::isAnalysis (analysisPage))
         return false;
 
     const bool liveInput = signalState == KIRIN_SIGNAL_STATE_ACTIVE && processorRef.hasLiveInput();
+    configureSharpnessAnalysis (pairStatus);
 
     const auto updateLed = [this, alive, signalState, recording, armed,
                             acknowledged, presetAvailable]
@@ -186,11 +219,21 @@ bool KirinHyphaEditor::refreshAnalysisViews (
     }
     else if (analysisPage == AnalysisPage::perceptual)
     {
-        perceptualView.setSignalActive (liveInput);
-        if (haveOwners) perceptualView.setAnalysisOwnerNames (ownerNames);
-        perceptualView.presentationTick();
-        KirinPerceptualBatch batch {};
-        if (processorRef.pollPerceptualBatch (batch)) perceptualView.setBatch (batch);
+        if (sharpnessUsesAbsolute)
+        {
+            absoluteView.setSignalActive (liveInput);
+            if (haveOwners) absoluteView.setAnalysisOwnerNames (ownerNames);
+            KirinAbsoluteBatch batch {};
+            if (processorRef.pollAbsoluteBatch (batch)) absoluteView.setBatch (batch);
+        }
+        else
+        {
+            perceptualView.setSignalActive (liveInput);
+            if (haveOwners) perceptualView.setAnalysisOwnerNames (ownerNames);
+            perceptualView.presentationTick();
+            KirinPerceptualBatch batch {};
+            if (processorRef.pollPerceptualBatch (batch)) perceptualView.setBatch (batch);
+        }
     }
     else if (analysisPage == AnalysisPage::absolute)
     {

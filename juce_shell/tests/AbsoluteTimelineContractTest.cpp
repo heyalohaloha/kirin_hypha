@@ -209,6 +209,31 @@ void verifyAbsoluteTimelineContract()
     KIRIN_ABSOLUTE_REQUIRE (
         countNearColour (multiPointImage, historyInterior, COL_FLORA) > 8);
 
+    // SHARP reuses the same exact POST timeline when there is no pair, but presents only the
+    // Sharpness fact at its full 0..3 acum scale.
+    AbsoluteComponent postSharpness;
+    postSharpness.setSharpnessOnly (true);
+    postSharpness.setSize (compactBounds.width, compactBounds.height);
+    postSharpness.setBatchAt (batch (1, 60), 0.0);
+    juce::Image postSharpnessImage (juce::Image::ARGB,
+                                    compactBounds.width, compactBounds.height, true);
+    postSharpnessImage.clear (postSharpnessImage.getBounds(), BG);
+    {
+        juce::Graphics graphics (postSharpnessImage);
+        postSharpness.paintEntireComponent (graphics, true);
+    }
+    KIRIN_ABSOLUTE_REQUIRE (
+        countNearColour (postSharpnessImage, historyInterior, COL_SPECTRUM_POST) > 8);
+    KIRIN_ABSOLUTE_REQUIRE (
+        countNearColour (postSharpnessImage, historyInterior, COL_SPECTRUM_DELTA) == 0);
+    KIRIN_ABSOLUTE_REQUIRE (
+        countNearColour (postSharpnessImage, historyInterior, COL_FLORA) == 0);
+    postSharpness.mouseMove (mouseEvent (
+        postSharpness, (float) compactBounds.width * 0.5f,
+        (float) compactBounds.height * 0.5f));
+    KIRIN_ABSOLUTE_REQUIRE (
+        postSharpness.getTooltip() == analysis_ui::liveMetricTooltip (2u));
+
     AbsoluteComponent gated;
     gated.setBatchAt (batch (1, 1), 0.0);
     KIRIN_ABSOLUTE_REQUIRE (gated.curvePresentationCountForTest() == 1u);

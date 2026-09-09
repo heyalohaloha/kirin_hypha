@@ -23,7 +23,8 @@ namespace
 
     juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
     {
-        if (status == KIRIN_SPECTRUM_NO_PAIR) return "PRE required for SHARPNESS difference";
+        if (status == KIRIN_SPECTRUM_NO_PAIR)
+            return "PAIR PRE TO VIEW DIFFERENCE\nPOST SHARPNESS IS IN LIVE";
         if (status == KIRIN_SPECTRUM_WARMING_UP) return juce::CharPointer_UTF8 ("SYNC ◌");
         if (status == KIRIN_SPECTRUM_UNAVAILABLE) return juce::CharPointer_UTF8 ("DATA —");
         if (status == KIRIN_SPECTRUM_IN_USE)

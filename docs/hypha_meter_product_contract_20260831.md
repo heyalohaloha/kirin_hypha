@@ -239,7 +239,8 @@ PREはpair側の測定sensorであり、POSTと同じ機能数を無理に持た
 
 LIVEのM、TP、SharpnessはLEVELの現在値とTIMEの履歴へ吸収する。
 
-`SHARP`は時間変化を主表示とするためTIMEのsubviewに置く。
+`SHARP`は時間変化を主表示とするためTIMEのsubviewに置く。exact pair成立時はPOST−PRE、
+未成立時はPOST単体のSharpnessを同じ画面に表示し、見出しと固定scaleを切り替える。
 
 `ATTACK`もeventの六秒scrubを主表示とするためTIMEのsubviewに置く。
 
@@ -396,7 +397,8 @@ UIを閉じても履歴計測を継続し、再表示時に直前の文脈を復
 
 FREQは画面を開いたときだけ既存Spectrum解析を取得する。
 
-TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠を取得する。
+TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠を取得する。SHARPはpair未成立時に
+既存のPOST absolute timelineを使い、PRE exchange requestを生成しない。
 
 POST FREQは既存Spectrum解析の同じ実測frameから、現在Spectrum、6秒固定長の時間周波数field、rolling peak holdを生成する。
 

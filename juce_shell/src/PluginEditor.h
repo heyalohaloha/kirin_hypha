@@ -87,6 +87,7 @@ private:
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     using AnalysisPage = hypha::analysis_navigation::Page;
     void setAnalysisPage (AnalysisPage page);
+    void configureSharpnessAnalysis (int pairStatus);
     void configureSpectrumAnalysis();
     void updateTimePageNavigation();
     void cycleSpectrumSize();
@@ -149,7 +150,7 @@ private:
     hypha::TimePageNavigation timePageNavigation;            // Compact cycle / Observatory tabs
     juce::TextButton          spectrumSizeToggle;           // POST Analysis: 100/125/150/200/300 percent
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
-    hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
+    hypha::PerceptualComponent perceptualView;               // paired POST-minus-PRE Sharpness
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
     hypha::AttackComponent attackView;         // POST ATTACK product view
     hypha::reference_ui::Component referenceView; // POST-only Kirin OS prepared A/B
@@ -165,6 +166,7 @@ private:
     size_t observatorySizeIndex = 0;
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     AnalysisPage analysisPage = AnalysisPage::meters;
+    bool sharpnessUsesAbsolute = false;
     KirinAttackEventBatch cachedAttackEvents {};
     KirinAttackWaveformBatch cachedAttackWaveform {};
     KirinAttackDetailBatch cachedAttackDetails {};

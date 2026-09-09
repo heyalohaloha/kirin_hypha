@@ -15,6 +15,10 @@ public:
     void setBatch (const KirinAbsoluteBatch& next);
     void setBatchAt (const KirinAbsoluteBatch& next, double nowMs);
     void clearSnapshot();
+    void setSharpnessOnly (bool value)
+    {
+        if (sharpnessOnly != value) { sharpnessOnly = value; repaint(); }
+    }
     void setSignalActive (bool active) { if (signalActive != active) { signalActive = active; repaint(); } }
     void setAnalysisOwnerNames (const juce::String& names);
     void paint (juce::Graphics&) override;
@@ -41,6 +45,7 @@ private:
     KirinAbsoluteView numericSnapshot {};
     bool haveBatch = false;
     bool signalActive = true;
+    bool sharpnessOnly = false;
     bool havePendingBatch = false;
     bool haveNumericSnapshot = false;
     juce::String analysisOwnerNames;

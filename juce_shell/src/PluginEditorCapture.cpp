@@ -182,7 +182,8 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
     if (analysisPage == AnalysisPage::spectrum)
         external = &spectrumView;
     else if (analysisPage == AnalysisPage::perceptual)
-        external = &perceptualView;
+        external = sharpnessUsesAbsolute ? static_cast<juce::Component*> (&absoluteView)
+                                         : static_cast<juce::Component*> (&perceptualView);
     else if (analysisPage == AnalysisPage::absolute)
         external = &absoluteView;
     else if (analysisPage == AnalysisPage::attack)
