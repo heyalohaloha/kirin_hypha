@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { readFloatWav } from './wav.mjs';
-import { inlineJson, selection } from './build_review_pack.mjs';
+import { buildPack, inlineJson, selection } from './build_review_pack.mjs';
 import { spaceFollowupSelection } from './build_space_followup_pack.mjs';
 
 const context = vm.createContext({});
@@ -22,6 +22,13 @@ function wav(samples = [.25, -.5, .125, -.125], options = {}) {
 test('pilot selects exactly 3 distinct development items per feature', () => {
   assert.equal(selection.length, 6); assert.equal(new Set(selection.map(String)).size, 6);
   assert.equal(selection.filter(([mode]) => mode === 'space').length, 3);
+});
+test('builder requires a separate non-nested private evidence directory', async () => {
+  await assert.rejects(() => buildPack('/missing', '/tmp/review'), /evidence directory is required/);
+  await assert.rejects(() => buildPack('/missing', '/tmp/review',
+    { evidenceOutput: '/tmp/review/evidence' }), /separate, non-nested/);
+  await assert.rejects(() => buildPack('/missing', '/tmp/evidence/review',
+    { evidenceOutput: '/tmp/evidence' }), /separate, non-nested/);
 });
 test('SPACE follow-up uses six unused development items without reserved audio', () => {
   const ids = spaceFollowupSelection.map(([mode, number]) => `${mode}_development-${number}`);
