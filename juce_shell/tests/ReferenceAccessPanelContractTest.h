@@ -92,6 +92,10 @@ inline void verifyReferenceAccessPanelContract()
         panel.setOwned (true);
         require (! panel.getDescription().contains ("License not confirmed"),
                  "external entitlement recognition clears stale recheck failure");
+        require (panel.getDescription().contains ("Kirin OS license confirmed"),
+                 "recognized owner sees explicit license confirmation");
+        require (! panel.getDescription().contains ("activate Kirin OS"),
+                 "recognized owner is not told to activate again");
         verifyLayout();
         require (! button ("reference-access-about")->isVisible(), "recognized owner sees no sales CTA");
         panel.setOwned (false);

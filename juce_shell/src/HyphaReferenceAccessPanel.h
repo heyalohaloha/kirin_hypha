@@ -99,12 +99,15 @@ private:
         const bool help = owned || ownerHelp;
         heading.setText (owned ? "CONNECT A REFERENCE" : "REFERENCE / KIRIN OS",
                          juce::dontSendNotification);
-        const auto text = help
-            ? (unconfirmed ? "License not confirmed. " : "")
-                + juce::String ("Activate Kirin OS, then Recheck License.\n"
-                                "Reference in OS: choose Open in Hypha.")
-            : juce::String ("Compare audio registered in Kirin OS.\n"
-                            "About: product, trial and purchase information.");
+        const auto text = owned
+            ? juce::String ("Kirin OS license confirmed.\n"
+                            "In Kirin OS, choose Open in Hypha for a Reference.")
+            : help
+                ? (unconfirmed ? "License not confirmed. " : "")
+                    + juce::String ("Open or activate Kirin OS, then Recheck License.\n"
+                                    "In Kirin OS, choose Open in Hypha for a Reference.")
+                : juce::String ("Compare audio registered in Kirin OS.\n"
+                                "About: product, trial and purchase information.");
         detail.setText (text, juce::dontSendNotification);
         setDescription (text);
         about.setVisible (! help);
