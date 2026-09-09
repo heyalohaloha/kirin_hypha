@@ -70,10 +70,10 @@ KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
           .withInput  ("Input",  juce::AudioChannelSet::mono(), true)
           .withOutput ("Output", juce::AudioChannelSet::mono(), true)),
       role (roleIn),
+      localBlindProductSession ([this] (std::uint64_t epoch) { return releaseLocalBlindProductScope (epoch); }),
       localBlindCapture (localBlindCaptureSide (roleIn), localBlindCaptureHooks (*this))
 {
-    // Host bypass routed through this parameter; processBlock reads it to set the
-    // Bypassed signal state while still passing audio through (parity with hypha_pre).
+    // Host bypass keeps audio unchanged while reporting the matching signal state.
     addParameter (bypassParam = new juce::AudioParameterBool ({ "bypass", 1 }, "Bypass", false));
 }
 
@@ -251,15 +251,14 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
             enableDelayTicks.store (0, std::memory_order_release);
         enablePending.store (true, std::memory_order_release);
     }
-
     // --- Signal state derivation (parity: hypha_pre.rs:397-403) -------------------
     const bool bypassed = (bypassParam != nullptr && bypassParam->get());
-
     const auto processClock = readHostProcessClock();
     const auto [playing, hasPosition, clockSource, positionSamples, hasClockEnd,
           clockStartSamples, clockEndSamples, presentationSource,
-          inputPresentationValid, inputPresentationSamples,
-          outputPresentationValid, outputPresentationSamples] = processClock;
+          inputPresentationValid, inputPresentationSamples, outputPresentationValid,
+          outputPresentationSamples, looping] = processClock;
+    juce::ignoreUnused (looping); // Used by the explicit local Blind output path below.
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     preDisplayClock.publish (positionSamples, preparedSampleRate,
@@ -968,7 +967,8 @@ void KirinHyphaProcessorBase::timerCallback()
         else
             enableWritesNow();
     }
-    if (writesEnabled.load (std::memory_order_acquire))
+    serviceLocalBlindProductSession();
+    if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService())
         stopTimer();
 }
 

@@ -2,6 +2,7 @@
 
 #include "kirin_hypha_local_blind_capture_ffi.h"
 #include "kirin_hypha_pair_snapshot_ffi.h"
+#include "reference_audition/ReferenceBlindSession.h"
 
 #include <cmath>
 #include <limits>
@@ -63,8 +64,109 @@ KirinHyphaProcessorBase::localBlindCaptureHooks (KirinHyphaProcessorBase& proces
         [&processor] (const auto& request, const std::string& sha256)
             { return processor.localBlindPreCaptureWasConsumed (request, sha256); },
         [&processor] (const auto& request)
-            { processor.retireLocalBlindPreCapture (request); }
+            { processor.retireLocalBlindPreCapture (request); },
+        [&processor] (const auto& request, const auto& post, const auto& pre)
+            { return processor.acceptLocalBlindProductPair (request, post, pre); }
     };
+}
+
+hypha::local_blind::ProductSessionView
+KirinHyphaProcessorBase::localBlindProductView() const
+{
+    return localBlindProductSession.view();
+}
+
+bool KirinHyphaProcessorBase::releaseLocalBlindProductScope (std::uint64_t epoch)
+{
+    const juce::ScopedLock lock (handleLock);
+    return role == Role::Post && hyphaHandle != nullptr
+        && kirin_hypha_end_local_blind (hyphaHandle, epoch);
+}
+
+bool KirinHyphaProcessorBase::acceptLocalBlindProductPair (
+    const hypha::local_blind::ExactCaptureRequest& request,
+    const hypha::local_blind::ExactRangeCapture& post,
+    const hypha::local_blind::ExactRangeCapture& pre)
+{
+    return localBlindProductSession.acceptCapturedPair (
+        request, post, pre, hypha::reference_audition::secureRandomBit);
+}
+
+bool KirinHyphaProcessorBase::requestLocalBlindProductCapture()
+{
+    if (role != Role::Post
+        || localBlindCapture.view().phase != hypha::local_blind::CaptureOwnerPhase::idle)
+        return false;
+    std::uint64_t scopeEpoch = 0;
+    {
+        const juce::ScopedLock lock (handleLock);
+        if (hyphaHandle == nullptr
+            || ! kirin_hypha_begin_local_blind (hyphaHandle, &scopeEpoch))
+            return false;
+    }
+    const auto serial = localBlindProductSerial.fetch_add (1, std::memory_order_acq_rel) + 1;
+    const auto now = static_cast<std::uint64_t> (juce::Time::currentTimeMillis());
+    const auto generation = (now << 16u) | (serial & 0xffffu);
+    if (generation == 0 || ! localBlindProductSession.beginCapture (scopeEpoch, generation))
+    {
+        releaseLocalBlindProductScope (scopeEpoch);
+        return false;
+    }
+    hypha::local_blind::HostClockProbeSnapshot clock;
+    hypha::local_blind::ExactCaptureRequest request;
+    if (! hostClockProbe.read (clock) || ! std::isfinite (clock.rate)
+        || clock.rate < 8'000.0 || clock.rate > 768'000.0
+        || ! issueLocalBlindCaptureRequest (
+            generation, static_cast<std::int64_t> (std::llround (clock.rate)) * 4, request))
+    {
+        localBlindProductSession.failCaptureRequest();
+        startTimer (50);
+        return false;
+    }
+    startTimer (50);
+    return true;
+}
+
+bool KirinHyphaProcessorBase::startLocalBlindProductTrial (bool approveLowerPost)
+{ return localBlindProductSession.start (approveLowerPost); }
+
+bool KirinHyphaProcessorBase::selectLocalBlindProductStimulus (int stimulus)
+{ return localBlindProductSession.select (stimulus); }
+
+bool KirinHyphaProcessorBase::answerLocalBlindProductTrial (
+    hypha::local_blind::TrialAnswer answer)
+{ return localBlindProductSession.answer (answer); }
+
+bool KirinHyphaProcessorBase::revealLocalBlindProductTrial()
+{ return localBlindProductSession.reveal(); }
+
+void KirinHyphaProcessorBase::stopLocalBlindProductTrial()
+{ localBlindProductSession.stop(); }
+
+void KirinHyphaProcessorBase::requestLocalBlindNormalReturn()
+{
+    localBlindProductSession.requestNormalReturn();
+    startTimer (50);
+}
+
+void KirinHyphaProcessorBase::serviceLocalBlindProductSession()
+{
+    const auto product = localBlindProductSession.view();
+    if (product.phase == hypha::local_blind::ProductSessionPhase::capturing
+        && localBlindCapture.view().phase == hypha::local_blind::CaptureOwnerPhase::failed)
+    {
+        localBlindProductSession.invalidate();
+        localBlindCapture.requestReset();
+    }
+    else if (product.phase == hypha::local_blind::ProductSessionPhase::ready
+             || product.phase == hypha::local_blind::ProductSessionPhase::armed
+             || product.phase == hypha::local_blind::ProductSessionPhase::listening
+             || product.phase == hypha::local_blind::ProductSessionPhase::revealed)
+    {
+        hypha::local_blind::ExactPairBinding current;
+        localBlindProductSession.validatePair (localBlindPairBinding (current) ? &current : nullptr);
+    }
+    localBlindProductSession.service();
 }
 
 void KirinHyphaProcessorBase::stopLocalBlindCaptureForFormatChange (
@@ -80,7 +182,10 @@ void KirinHyphaProcessorBase::stopLocalBlindCaptureForFormatChange (
             shouldStop = false;
     }
     if (shouldStop)
+    {
+        localBlindProductSession.invalidate();
         localBlindCapture.stop();
+    }
 }
 
 void KirinHyphaProcessorBase::startLocalBlindCaptureForPreparedFormat()

@@ -127,6 +127,33 @@ static void timeAndFailures()
     }
 }
 
+static void completePassCannotBeAssembledFromFragments()
+{
+    auto f = format();
+    f.minimumHeardFrames = static_cast<std::uint64_t> (f.frames);
+    auto t = std::make_unique<LocalBlindTrial> (
+        f, TrialGain {}, std::vector<float> (512, 0.25f),
+        std::vector<float> (512, -0.125f), false, 4096);
+    Buffer buffer;
+    require (t->start(), "full-pass fixture starts");
+    for (int position : { -64, 0 })
+        require (buffer.render (*t, block (position)) == TrialOutput::copy, "first half of side one");
+    require (t->select (2), "switch to side two halfway");
+    for (int position : { 64, 128, -64, 0 })
+        require (buffer.render (*t, block (position)) == TrialOutput::copy, "fragmented side two output");
+    require (t->select (1), "switch back to side one halfway");
+    for (int position : { 64, 128 })
+        require (buffer.render (*t, block (position)) == TrialOutput::copy, "fragmented side one output");
+    require (! t->answer (TrialAnswer::cannotDistinguish),
+             "two aggregate ranges assembled from fragments are not complete passes");
+    for (int position : { -64, 0, 64, 128 })
+        require (buffer.render (*t, block (position)) == TrialOutput::copy, "complete side-one pass");
+    require (t->select (2), "select side two for a complete pass");
+    for (int position : { -64, 0, 64, 128 })
+        require (buffer.render (*t, block (position)) == TrialOutput::copy, "complete side-two pass");
+    require (t->answer (TrialAnswer::cannotDistinguish), "two complete native passes permit answer");
+}
+
 static void explicitlyArmedTransport()
 {
     for (bool lower : { false, true })
@@ -302,6 +329,7 @@ int main()
 {
     selectionAndAnswers();
     timeAndFailures();
+    completePassCannotBeAssembledFromFragments();
     explicitlyArmedTransport();
     heldLevelAndRetirement();
     validation();

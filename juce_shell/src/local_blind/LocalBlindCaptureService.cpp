@@ -313,6 +313,17 @@ void LocalBlindCaptureService::servicePost (std::int64_t now)
 #endif
             pairReady.store (true, std::memory_order_release);
         }
+        if (pairReady.load (std::memory_order_acquire) && ! pairDelivered)
+        {
+            const auto* postCapture = owner.completedCapture();
+            const auto* preCapture = importedPre.capture.get();
+            const bool consumed = hooks.acceptCompletedPair && postCapture != nullptr
+                && preCapture != nullptr
+                && hooks.acceptCompletedPair (*request, *postCapture, *preCapture);
+            pairDelivered = true;
+            if (consumed)
+                resetRequested.store (true, std::memory_order_release);
+        }
     }
     // Admission expiry cannot discard PCM that already completed on the audio timeline. A
     // separate finalization deadline bounds a vanished PRE or unavailable result transport.
@@ -344,6 +355,7 @@ void LocalBlindCaptureService::clearAttemptState()
     postReceiptAccepted = false;
     preReceiptAccepted = false;
     preAcknowledged = false;
+    pairDelivered = false;
 #if JUCE_DEBUG
     const juce::ScopedLock lock (comparisonLock);
     comparison = {};

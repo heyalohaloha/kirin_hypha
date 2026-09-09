@@ -34,6 +34,10 @@ struct CaptureServiceHooks
     std::function<bool (const ExactCaptureRequest&, const std::string&)> acknowledgePreCapture;
     std::function<bool (const ExactCaptureRequest&, const std::string&)> preCaptureConsumed;
     std::function<void (const ExactCaptureRequest&)> retirePreCapture;
+    // Called once on the POST scheduler after the exact pair is sealed. True transfers the
+    // product responsibility to an immutable trial and lets this service retire its captures.
+    std::function<bool (const ExactCaptureRequest&, const ExactRangeCapture&,
+                        const ExactRangeCapture&)> acceptCompletedPair;
 };
 
 // All instances in one plugin module share one sleeping scheduler thread. Idle PRE discovery is
@@ -111,6 +115,7 @@ private:
     bool postReceiptAccepted = false;
     bool preReceiptAccepted = false;
     bool preAcknowledged = false;
+    bool pairDelivered = false;
     bool prePublished = false;
     bool preFailurePublished = false;
     unsigned int prePublishFailures = 0;

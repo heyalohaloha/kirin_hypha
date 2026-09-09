@@ -54,6 +54,7 @@ int main()
     std::atomic<bool> preRequestContended { false };
     std::atomic<bool> preAcknowledged { false };
     std::atomic<std::uint64_t> pairGeneration { request.pair.generation };
+    std::atomic<unsigned int> deliveredPairs { 0 };
     MockPreTransport transport;
 
     LocalBlindCaptureService pre (
@@ -96,7 +97,8 @@ int main()
               { return exact == request && sha256 == transport.sha256
                     && transport.consumed.load(); },
           [&] (const ExactCaptureRequest& exact)
-              { transport.retired.store (exact == request); } });
+              { transport.retired.store (exact == request); },
+          {} });
 
     LocalBlindCaptureService post (
         CaptureSide::post,
@@ -137,7 +139,16 @@ int main()
                   transport.consumed.store (matches);
                   return matches;
           },
-          {}, {} });
+          {}, {},
+          [&] (const ExactCaptureRequest& exact, const ExactRangeCapture& postCapture,
+               const ExactRangeCapture& preCapture)
+              {
+                  const bool exactPair = exact == request
+                      && postCapture.range().frames == request.frames
+                      && preCapture.range().frames == request.frames;
+                  if (exactPair) deliveredPairs.fetch_add (1);
+                  return false; // Debug evidence remains owned by the capture service.
+              } });
 
     pre.start (48000, 1);
     post.start (48000, 1);
@@ -160,6 +171,9 @@ int main()
     require (pre.process (prePointers, 1, clockAt (0, 12), 48000));
     require (post.process (postPointers, 1, clockAt (0, 12), 48000));
     require (waitUntil ([&] { return post.capturePairReady(); }));
+    require (waitUntil ([&] { return deliveredPairs.load() == 1; }));
+    std::this_thread::sleep_for (std::chrono::milliseconds (100));
+    require (deliveredPairs.load() == 1);
     require (post.view().phase == CaptureOwnerPhase::paired);
 #if JUCE_DEBUG
     const auto comparison = post.capturePairComparison();
@@ -242,7 +256,7 @@ int main()
                   badReceiptAcknowledged.store (true);
                   return true;
               },
-          {}, {} });
+          {}, {}, {} });
     rejectingPost.start (48000, 1);
     require (rejectingPost.reservePostRequest());
     require (rejectingPost.commitPostRequest (rejectedRequest));
@@ -273,7 +287,7 @@ int main()
         { {}, {},
           [&] (const std::string& id) { return id == absentPreRequest.requestId; },
           [&] (ExactPairBinding& out) { out = absentPreRequest.pair; return true; },
-          {}, {}, {}, {}, {}, {}, {} },
+          {}, {}, {}, {}, {}, {}, {}, {} },
         250);
     absentPrePost.start (48000, 1);
     require (absentPrePost.reservePostRequest());
@@ -309,7 +323,7 @@ int main()
                   publishedFailure = failure;
                   return true;
               },
-          {}, {}, {}, {}, {} });
+          {}, {}, {}, {}, {}, {} });
     failingPre.start (48000, 1);
     require (waitUntil ([&] { return failingPre.view().phase == CaptureOwnerPhase::capturing; }));
     require (failingPre.process (prePointers, 1, clockAt (0, 6), 48000));
@@ -333,7 +347,7 @@ int main()
                   failure = *publishedFailure;
                   return true;
               },
-          {}, {}, {} });
+          {}, {}, {}, {} });
     observingPost.start (48000, 1);
     require (observingPost.reservePostRequest());
     require (observingPost.commitPostRequest (failedRequest));
@@ -369,7 +383,7 @@ int main()
                   publicationFailurePublished.store (expected);
                   return expected;
               },
-          {}, {}, {}, {}, {} });
+          {}, {}, {}, {}, {}, {} });
     unpublishablePre.start (48000, 1);
     require (waitUntil ([&]
     {

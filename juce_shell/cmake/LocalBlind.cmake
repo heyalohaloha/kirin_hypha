@@ -7,7 +7,7 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     kirin_add_local_blind_portable_contracts("${CMAKE_CURRENT_SOURCE_DIR}")
     add_executable(KirinLocalBlindPreparationTests
         tests/local_blind_preparation_test.cpp src/local_blind/LocalBlindPreparation.cpp
-        src/local_blind/LocalBlindTrial.cpp)
+        src/local_blind/LocalBlindProductSession.cpp src/local_blind/LocalBlindTrial.cpp)
     target_compile_features(KirinLocalBlindPreparationTests PRIVATE cxx_std_17)
     target_compile_options(KirinLocalBlindPreparationTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
     target_link_libraries(KirinLocalBlindPreparationTests PRIVATE Threads::Threads)

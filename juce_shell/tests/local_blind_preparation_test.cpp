@@ -1,4 +1,4 @@
-#include "../src/local_blind/LocalBlindPreparation.h"
+#include "../src/local_blind/LocalBlindProductSession.h"
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -133,11 +133,89 @@ static void unavailableAndApproval (const std::vector<float>& source)
     require (! candidate.trial->start() && candidate.trial->start (true), "lower POST requires approval");
 }
 
+static ExactCaptureRequest productRequest (int channels, std::int64_t frames)
+{
+    return { "12345678-1234-1234-1234-123456789abc", { 2, "project", "pre" },
+             3, 4, 1, 0, 48000, channels, 8192, frames, 1'000'000 };
+}
+
+static void productLifecycle (const std::vector<float>& source)
+{
+    int releaseCalls = 0;
+    std::uint64_t releasedEpoch = 0;
+    LocalBlindProductSession session ([&] (std::uint64_t epoch)
+    {
+        ++releaseCalls;
+        releasedEpoch = epoch;
+        return true;
+    });
+    const auto request = productRequest (1, static_cast<std::int64_t> (source.size()));
+    auto post = capture (source, 1, request.nativeStart, request.captureGeneration);
+    auto pre = capture (source, 1, request.nativeStart, request.captureGeneration);
+    require (session.beginCapture (11, request.captureGeneration), "product admission binds capture generation");
+    require (session.needsService(), "capture admission keeps its failure observer alive");
+    require (session.acceptCapturedPair (request, *post, *pre, [] { return false; }),
+             "sealed exact pair is consumed once");
+    require (session.view().phase == ProductSessionPhase::ready
+                 && session.view().frames == request.frames
+                 && releaseCalls == 0,
+             "preparation publishes without starting or releasing scope");
+    require (session.start(), "product trial starts explicitly");
+
+    std::vector<float> output (257, 0.0f);
+    float* pointers[] = { output.data() };
+    const auto renderLap = [&] (bool loopWrap)
+    {
+        std::int64_t position = request.nativeStart;
+        while (position < request.nativeStart + request.frames)
+        {
+            const auto count = static_cast<int> (std::min<std::int64_t> (
+                static_cast<std::int64_t> (output.size()), request.nativeStart + request.frames - position));
+            TrialBlock block { {}, request.sampleRate, position, true, true, true, false,
+                               loopWrap && position == request.nativeStart,
+                               request.nativeStart, request.nativeStart + request.frames };
+            require (session.render (pointers, 1, count, block), "published trial owns product callback");
+            position += count;
+        }
+    };
+    renderLap (false);
+    require (! session.answer (TrialAnswer::one), "one full hidden side is insufficient");
+    require (session.select (2), "second hidden side can be requested");
+    renderLap (true);
+    require (session.answer (TrialAnswer::cannotDistinguish) && session.reveal(),
+             "two complete native passes permit answer and reveal");
+    auto differentPair = request.pair;
+    ++differentPair.generation;
+    session.validatePair (&differentPair);
+    session.service();
+    require (releaseCalls == 0 && session.view().phase == ProductSessionPhase::returnPending
+                 && session.view().failure == ProductSessionFailure::pairChanged,
+             "pair change stops output but cannot release admission before normal audio receipt");
+    session.requestNormalReturn();
+    TrialBlock normal { {}, request.sampleRate, 0, true, true, true, false };
+    std::fill (output.begin(), output.end(), 0.75f);
+    require (session.render (pointers, 1, static_cast<int> (output.size()), normal),
+             "normal-return callback is owned until receipt");
+    session.service();
+    require (releaseCalls == 1 && releasedEpoch == 11
+                 && session.view().phase == ProductSessionPhase::returned
+                 && ! session.hasPublishedRealtime(),
+             "only normal output receipt retires PCM and releases exact scope");
+
+    require (session.beginCapture (12, 9), "returned session can admit a fresh capture");
+    session.invalidate();
+    session.service();
+    require (releaseCalls == 2 && releasedEpoch == 12
+                 && session.view().phase == ProductSessionPhase::failed,
+             "asynchronous capture failure releases without waiting for an audio receipt");
+}
+
 int main (int argc, char** argv)
 {
     require (argc == 2, "pass the checked-in S-1 WAV path");
     const auto source = readFixture (argv[1]);
     matchedCopies (source);
     unavailableAndApproval (source);
-    std::cout << "Local Blind preparation: PASS (real S-1, mono/stereo, fixed gain, same-PCM, fail-closed match, lower POST)\n";
+    productLifecycle (source);
+    std::cout << "Local Blind preparation: PASS (real S-1, product capture-to-return, mono/stereo, fixed gain, same-PCM, fail-closed match, lower POST)\n";
 }

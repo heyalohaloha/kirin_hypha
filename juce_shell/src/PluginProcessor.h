@@ -1,8 +1,7 @@
 #pragma once
 #include "HostProcessClock.h"
-#include "local_blind/LocalBlindSlot.h"
 #include "local_blind/LocalBlindCaptureService.h"
-#include "local_blind/LocalBlindEpochSnapshot.h"
+#include "local_blind/LocalBlindProductSession.h"
 #include "local_blind/PairCaptureBarrier.h"
 #include "local_blind/VST3HostContext.h"
 #include "local_blind/HostClockProbe.h"
@@ -129,6 +128,16 @@ public:
     juce::String pairedPreInstanceId() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
+    // Product-session controls remain disconnected from the shipped UI until macOS AU has the
+    // same exact-range host proof as Windows/macOS VST3. They form the tested C1 lifecycle.
+    hypha::local_blind::ProductSessionView localBlindProductView() const;
+    bool requestLocalBlindProductCapture();
+    bool startLocalBlindProductTrial (bool approveLowerPost = false);
+    bool selectLocalBlindProductStimulus (int stimulus);
+    bool answerLocalBlindProductTrial (hypha::local_blind::TrialAnswer);
+    bool revealLocalBlindProductTrial();
+    void stopLocalBlindProductTrial();
+    void requestLocalBlindNormalReturn();
     // Non-RT exact capture control and PRE result transport. None starts an audition.
     bool issueLocalBlindCaptureRequest (std::uint64_t captureGeneration,
                                         std::int64_t frames,
@@ -306,6 +315,11 @@ private:
     void restorePersistedPairUnderHandleLock();
     static hypha::local_blind::CaptureSide localBlindCaptureSide (Role) noexcept;
     static hypha::local_blind::CaptureServiceHooks localBlindCaptureHooks (KirinHyphaProcessorBase&);
+    bool acceptLocalBlindProductPair (const hypha::local_blind::ExactCaptureRequest&,
+                                      const hypha::local_blind::ExactRangeCapture& post,
+                                      const hypha::local_blind::ExactRangeCapture& pre);
+    bool releaseLocalBlindProductScope (std::uint64_t scopeEpoch);
+    void serviceLocalBlindProductSession();
     void stopLocalBlindCaptureForFormatChange (double sampleRate, int channels);
     void startLocalBlindCaptureForPreparedFormat();
     void processComparisonPaths (juce::AudioBuffer<float>&, const hypha::HostProcessClock&,
@@ -315,9 +329,9 @@ private:
     const Role role;                                   // Pre or Post (selects enable + display name)
     hypha::local_blind::VST3HostContext nativeHostContext;
     mutable hypha::local_blind::HostClockProbe hostClockProbe;
-    hypha::local_blind::LocalBlindSlot localBlindOutput;
-    hypha::local_blind::LocalBlindEpochSnapshot localBlindEpochs;
+    hypha::local_blind::LocalBlindProductSession localBlindProductSession;
     hypha::local_blind::LocalBlindCaptureService localBlindCapture;
+    std::atomic<std::uint64_t> localBlindProductSerial { 0 };
 #if JUCE_DEBUG
     std::atomic<std::uint64_t> localBlindPdcValidationSerial { 0 };
     std::atomic<int> localBlindPdcValidationIssue { 0 };

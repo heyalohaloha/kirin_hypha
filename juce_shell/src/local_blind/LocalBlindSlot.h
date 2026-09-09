@@ -15,6 +15,7 @@ public:
         return storage.publish (std::move (trial));
     }
     LocalBlindTrial* control() noexcept { return storage.control(); } // non-RT owner only
+    const LocalBlindTrial* control() const noexcept { return storage.control(); }
     bool hasPublishedRealtime() const noexcept { return storage.hasPublishedRealtime(); }
 
     // True means this slot owned the callback, even if an invalidated trial kept the input intact.
