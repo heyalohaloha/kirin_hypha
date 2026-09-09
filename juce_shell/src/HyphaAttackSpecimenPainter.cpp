@@ -22,26 +22,26 @@ float stableAmount (float value) noexcept
 struct EmissionLayers
 {
     juce::Image base;
-    juce::Image strength;
-    juce::Image texture;
+    juce::Image textureCore;
+    juce::Image textureDetail;
     juce::Image sharpness;
+    float aspect = 1.30f;
 
     EmissionLayers()
     {
         const auto decoded = juce::ImageFileFormat::loadFrom (
-            BinaryData::attack_specimen_emission_png,
-            static_cast<std::size_t> (BinaryData::attack_specimen_emission_pngSize));
+            BinaryData::attack_specimen_body_v2_png,
+            static_cast<std::size_t> (BinaryData::attack_specimen_body_v2_pngSize));
         if (! decoded.isValid())
             return;
-        // The approved source includes a diagnostic tail. ATTACK's central specimen uses the
-        // membrane body and the first part of that tail so it reads at 600x400 and below.
-        const auto source = decoded.getClippedImage ({ 0, 0,
-            juce::jmin (600, decoded.getWidth()), decoded.getHeight() });
+        const auto source = decoded.getClippedImage (contentBounds (decoded));
 
         base = transparentLike (source);
-        strength = transparentLike (source);
-        texture = transparentLike (source);
+        textureCore = transparentLike (source);
+        textureDetail = transparentLike (source);
         sharpness = transparentLike (source);
+        aspect = static_cast<float> (source.getWidth())
+               / static_cast<float> (source.getHeight());
 
         for (int y = 0; y < source.getHeight(); ++y)
             for (int x = 0; x < source.getWidth(); ++x)
@@ -57,29 +57,68 @@ struct EmissionLayers
                 const auto blue = static_cast<float> (pixel.getBlue());
                 const bool warm = red > blue * 1.10f && red > green * 1.025f;
                 const bool cool = blue > red * 1.06f || green > red * 1.08f;
-                const auto horizontal = static_cast<float> (x)
-                                      / static_cast<float> (source.getWidth());
 
-                base.setPixelAt (x, y, pixel.withAlpha (alpha));
-                if (warm && horizontal > 0.16f && horizontal < 0.52f && level > 0.28f)
-                    strength.setPixelAt (x, y, pixel.withAlpha (alpha));
+                const auto baseAlpha = alpha * (warm ? 0.20f : cool ? 0.42f : 0.82f);
+                base.setPixelAt (x, y, pixel.withAlpha (baseAlpha));
                 if (warm)
-                    texture.setPixelAt (x, y, pixel.withAlpha (alpha));
-                if (cool)
+                {
+                    auto& layer = level >= 0.44f ? textureCore : textureDetail;
+                    layer.setPixelAt (x, y, pixel.withAlpha (alpha));
+                }
+                if (cool && isSharpnessArc (source, x, y))
                     sharpness.setPixelAt (x, y, pixel.withAlpha (alpha));
             }
     }
 
     bool valid() const noexcept
     {
-        return base.isValid() && strength.isValid()
-            && texture.isValid() && sharpness.isValid();
+        return base.isValid() && textureCore.isValid()
+            && textureDetail.isValid() && sharpness.isValid();
     }
 
 private:
     static juce::Image transparentLike (const juce::Image& source)
     {
         return { juce::Image::ARGB, source.getWidth(), source.getHeight(), true };
+    }
+
+    static bool foreground (const juce::Image& source, int x, int y)
+    {
+        return x >= 0 && y >= 0 && x < source.getWidth() && y < source.getHeight()
+            && source.getPixelAt (x, y).getPerceivedBrightness() > 0.012f;
+    }
+
+    static juce::Rectangle<int> contentBounds (const juce::Image& source)
+    {
+        int left = source.getWidth(), right = -1, top = source.getHeight(), bottom = -1;
+        for (int y = 0; y < source.getHeight(); ++y)
+            for (int x = 0; x < source.getWidth(); ++x)
+                if (foreground (source, x, y))
+                {
+                    left = juce::jmin (left, x); right = juce::jmax (right, x);
+                    top = juce::jmin (top, y); bottom = juce::jmax (bottom, y);
+                }
+        if (right < left || bottom < top)
+            return source.getBounds();
+        const auto padding = juce::jmax (4, juce::jmin (source.getWidth(), source.getHeight()) / 60);
+        return juce::Rectangle<int> (left, top, right - left + 1, bottom - top + 1)
+            .expanded (padding).getIntersection (source.getBounds());
+    }
+
+    static bool isSharpnessArc (const juce::Image& source, int x, int y)
+    {
+        const auto nx = 2.0f * static_cast<float> (x) / static_cast<float> (source.getWidth() - 1) - 1.0f;
+        const auto ny = 2.0f * static_cast<float> (y) / static_cast<float> (source.getHeight() - 1) - 1.0f;
+        const bool selectedArc = (ny < -0.34f && nx > -0.62f && nx < 0.18f)
+                              || (nx > 0.53f && ny > -0.22f && ny < 0.34f)
+                              || (ny > 0.46f && nx > -0.44f && nx < 0.12f);
+        if (! selectedArc)
+            return false;
+        const auto radius = juce::jmax (2, juce::jmin (source.getWidth(), source.getHeight()) / 48);
+        return ! foreground (source, x - radius, y)
+            || ! foreground (source, x + radius, y)
+            || ! foreground (source, x, y - radius)
+            || ! foreground (source, x, y + radius);
     }
 };
 
@@ -89,17 +128,16 @@ const EmissionLayers& emissionLayers()
     return layers;
 }
 
-juce::Rectangle<float> specimenBounds (juce::Rectangle<int> area, float strength)
+juce::Rectangle<float> specimenBounds (juce::Rectangle<int> area, float strength,
+                                       float sourceAspect)
 {
     const auto available = area.toFloat().reduced (2.0f);
-    // Compact DAW panes are much wider than their remaining ATTACK detail height. The approved
-    // emission is deliberately presented as a broad specimen rather than collapsing to a glyph.
-    auto height = available.getHeight();
-    auto width = juce::jmin (available.getWidth() * 0.72f, height * 3.20f);
-    const auto growth = 0.82f + unit (strength) * 0.18f;
-    width *= growth;
-    height *= growth;
-    return { available.getCentreX() - width * 0.5f,
+    const auto maximumHeight = juce::jmin (available.getHeight(),
+                                            available.getWidth() / sourceAspect);
+    const auto height = maximumHeight * (0.86f + unit (strength) * 0.14f);
+    const auto width = maximumHeight * sourceAspect * (0.97f + unit (strength) * 0.03f);
+    const auto fixedAttachmentX = available.getCentreX() - maximumHeight * sourceAspect * 0.5f;
+    return { fixedAttachmentX,
              available.getCentreY() - height * 0.5f, width, height };
 }
 
@@ -127,10 +165,13 @@ void drawSpecimen (juce::Graphics& g, juce::Rectangle<int> area, FeatureAmounts 
 
     juce::Graphics::ScopedSaveState saved (g);
     g.reduceClipRegion (area);
-    const auto target = specimenBounds (area, amounts.strength);
-    drawLayer (g, layers.base, target, 0.88f);
-    drawLayer (g, layers.strength, target, 0.08f + 0.52f * std::sqrt (amounts.strength));
-    drawLayer (g, layers.texture, target, 0.05f + 0.55f * std::sqrt (amounts.texture));
-    drawLayer (g, layers.sharpness, target, 0.06f + 0.54f * std::sqrt (amounts.sharpness));
+    const auto target = specimenBounds (area, amounts.strength, layers.aspect);
+    drawLayer (g, layers.base, target, 0.95f);
+    drawLayer (g, layers.textureCore, target,
+               0.40f - 0.18f * std::sqrt (amounts.texture));
+    drawLayer (g, layers.textureDetail, target,
+               0.02f + 0.48f * std::sqrt (amounts.texture));
+    drawLayer (g, layers.sharpness, target,
+               0.03f + 0.74f * std::sqrt (amounts.sharpness));
 }
 }

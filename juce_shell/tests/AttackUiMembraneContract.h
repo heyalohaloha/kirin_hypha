@@ -31,6 +31,26 @@ inline juce::Rectangle<int> visibleBounds (const juce::Image& image)
         : juce::Rectangle<int> {};
 }
 
+inline double averageLight (const juce::Image& image, juce::Rectangle<int> area)
+{
+    area = area.getIntersection (image.getBounds());
+    if (area.isEmpty()) return 0.0;
+    double sum = 0.0;
+    for (int y = area.getY(); y < area.getBottom(); ++y)
+        for (int x = area.getX(); x < area.getRight(); ++x)
+            sum += image.getPixelAt (x, y).getPerceivedBrightness();
+    return sum / static_cast<double> (area.getWidth() * area.getHeight());
+}
+
+inline int visibleArea (const juce::Image& image)
+{
+    int result = 0;
+    for (int y = 0; y < image.getHeight(); ++y)
+        for (int x = 0; x < image.getWidth(); ++x)
+            result += image.getPixelAt (x, y).getAlpha() > 12;
+    return result;
+}
+
 inline bool verifyMembraneContract()
 {
     const auto base = renderSpecimen ({ 0.0f, 0.0f, 0.0f });
@@ -43,17 +63,40 @@ inline bool verifyMembraneContract()
     const auto baseBounds = visibleBounds (base);
     const auto strongBounds = visibleBounds (strong);
     if (baseBounds.isEmpty() || strongBounds.isEmpty()
-        || strongBounds.getWidth() - baseBounds.getWidth() < 30
+        || strongBounds.getWidth() - baseBounds.getWidth() < 2
         || strongBounds.getHeight() - baseBounds.getHeight() < 10)
         { std::cerr << "specimen asset: strength footprint\n"; return false; }
+    const auto middleBounds = visibleBounds (renderSpecimen ({ 0.5f, 0.5f, 0.5f }));
+    const auto middleAspect = static_cast<float> (middleBounds.getWidth())
+                            / static_cast<float> (middleBounds.getHeight());
+    if (middleAspect < 1.22f || middleAspect > 1.38f
+        || std::abs (strongBounds.getX() - baseBounds.getX()) > 2
+        || 3 * (strongBounds.getWidth() - baseBounds.getWidth())
+             > strongBounds.getHeight() - baseBounds.getHeight() + 3)
+        { std::cerr << "specimen asset: compact anchored strength geometry\n"; return false; }
     if (specimenDifferences (smooth, textured) < 500
         || visibleBounds (smooth).getCentre().getDistanceFrom (
                visibleBounds (textured).getCentre()) > 2.0f)
         { std::cerr << "specimen asset: texture layer\n"; return false; }
+    const auto textureArea = visibleBounds (smooth).getUnion (visibleBounds (textured));
+    const auto smoothLight = averageLight (smooth, textureArea);
+    const auto texturedLight = averageLight (textured, textureArea);
+    if (smoothLight <= 0.0 || std::abs (texturedLight - smoothLight) / smoothLight > 0.05)
+        { std::cerr << "specimen asset: texture brightness conservation\n"; return false; }
     if (specimenDifferences (soft, sharp) < 500
         || visibleBounds (soft).getCentre().getDistanceFrom (
                visibleBounds (sharp).getCentre()) > 2.0f)
         { std::cerr << "specimen asset: sharpness layer\n"; return false; }
+    auto centre = visibleBounds (soft).withSizeKeepingCentre (
+        juce::jmax (1, visibleBounds (soft).getWidth() * 2 / 5),
+        juce::jmax (1, visibleBounds (soft).getHeight() * 2 / 5));
+    const auto softCentre = averageLight (soft, centre);
+    const auto sharpCentre = averageLight (sharp, centre);
+    const auto softArea = visibleArea (soft);
+    const auto sharpArea = visibleArea (sharp);
+    if (softCentre <= 0.0 || std::abs (sharpCentre - softCentre) / softCentre > 0.03
+        || softArea <= 0 || std::abs (sharpArea - softArea) * 100 > softArea * 7)
+        { std::cerr << "specimen asset: sharpness isolation\n"; return false; }
 
     const auto invalid = std::numeric_limits<float>::quiet_NaN();
     if (specimenDifferences (base, renderSpecimen ({ invalid, invalid, invalid })) != 0)

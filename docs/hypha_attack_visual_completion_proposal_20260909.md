@@ -2,7 +2,7 @@
 
 - **作成日**：2026-09-09
 - **更新日**：2026-09-09
-- **状態**：TRACK / STEM表示を修正中。B-777のMac実画面は視認性と点滅で不合格。B-778で原因を除去し、Windows実画面確認待ち。
+- **状態**：TRACK / STEM表示を修正中。B-777のMac実画面は視認性と点滅で不合格。B-778で点滅原因を除去し、B-782で中央標本の形・材質・三量分離を構造から置換。Windows実画面とMac作業終了後のMac実画面確認待ち。
 - **変更範囲**：表示契約、JUCE native描画、比較画像。測定coreとAudio Threadは変更しない。
 - **対象**：TRACK / STEMのDRUM ATTACK。
 - **対象外**：公開判断、2MIX用ATTACK、BODY / TAIL測定値の製品実装。
@@ -630,8 +630,14 @@ B-778では次の境界を固定する。
 - 無音またはtransport停止では、最後に完成した標本と数値を保持し、状態だけを`HOLD`へ変える。
 - PAIRと対応するPOST詳細が揃ったイベントだけを選択候補にする。
 - 微小な測定値変化を48段階へ量子化し、同じ見た目の画像を毎回再構築しない。
-- `attack_specimen_emission.png`をnative描画の正本へ戻し、Strengthを大きさ、Textureを暖色繊維、Sharpnessを冷色膜へ割り当てる。
+- `attack_specimen_body_v2.png`をnative描画の正本とし、Strengthを高さ中心の大きさ、Textureを暖色繊維、Sharpnessを外周の限定された冷色光へ割り当てる。
 - HISTORYとTransientの高さを抑え、中央標本へ利用可能な高さを渡す。
+
+B-782では、旧素材の長い尾と製品契約に反する横長表示を廃止した。
+
+中央標本は中間Strengthで幅高比1.22–1.38、Strength最小最大の高さ差10 px以上、横幅変化を高さ変化の三分の一以下としてnative testで固定する。
+
+Sharpnessは中央40%の平均輝度差3%以下、見かけ面積差7%以下、Textureは最小最大の平均輝度差5%以下として独立性を固定する。
 
 B-778の専用render契約と描画予算が通っても、製品合格とはしない。
 

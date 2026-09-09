@@ -98,7 +98,9 @@ FREQは時間detailへ埋めず一階層目に置き、`MARK`で現在の全帯�
 
 Captureは追加で1080×1080と1080×1350のbounds契約を検証する。
 
-ATTACKのbodyは既存の`attack_specimen_emission.png`とnative painterを使用し、親Shell側の背景を新しい地下観測所へ統一する。
+ATTACKのbodyは`attack_specimen_body_v2.png`とnative painterを使用し、親Shell側の背景を新しい地下観測所へ統一する。
+
+旧`attack_specimen_emission.png`は長い尾を持つ診断素材であり、製品ATTACKの中央標本には使用しない。
 
 ## 6. responsive契約
 
