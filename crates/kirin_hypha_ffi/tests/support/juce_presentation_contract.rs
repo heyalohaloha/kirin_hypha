@@ -161,6 +161,8 @@ fn hypha_title_information_is_shipped_while_capture_validation_stays_debug_only(
         "Update information and downloads (English)",
         "Release notes",
         "Show hover help",
+        "Show Hybrid VU while recording",
+        "Show selected view for this recording",
     ] {
         assert!(
             shipped_information.contains(required),

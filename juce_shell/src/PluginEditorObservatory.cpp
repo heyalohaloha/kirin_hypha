@@ -146,7 +146,10 @@ void KirinHyphaEditor::refreshObservatory()
     constexpr double hostRecordingStaleSeconds = 0.35;
     const bool hostRecording = hostHeartbeat != 0u && processorRef.isHostRecording()
         && presentationNow - observedHostProcessHeartbeatAt <= hostRecordingStaleSeconds;
-    if (observatoryView.setHostRecording (hostRecording))
+    const bool hybridPreferenceChanged = observatoryView.setHybridVuOnRecordEnabled (
+        processorRef.hybridVuOnRecordPreference());
+    const bool hostRecordingChanged = observatoryView.setHostRecording (hostRecording);
+    if (hybridPreferenceChanged || hostRecordingChanged)
     {
         resized();
         if (observatoryView.hybridVuVisible())

@@ -83,7 +83,13 @@ public:
     void setShortTermLoudness (bool);
     bool shortTermLoudness() const noexcept { return selectedShortTermLoudness; }
     bool setHostRecording (bool recording);
-    bool hybridVuVisible() const noexcept { return hostRecording && ! captureFrame; }
+    bool setHybridVuOnRecordEnabled (bool enabled);
+    bool dismissHybridVuForCurrentRecording();
+    bool hybridVuVisible() const noexcept
+    {
+        return hostRecording && hybridVuOnRecordEnabled
+            && ! hybridVuDismissedForCurrentRecording && ! captureFrame;
+    }
     void setCompactMaximum (bool);
     bool compactMaximum() const noexcept { return compactShowsMaximum; }
     void setMeterContext (meter_context::MeterContext);
@@ -184,6 +190,8 @@ private:
     bool watchDisplayAvailable = false;
     bool selectedShortTermLoudness = false;
     bool hostRecording = false;
+    bool hybridVuOnRecordEnabled = true;
+    bool hybridVuDismissedForCurrentRecording = false;
     bool compactShowsMaximum = false;
     meter_context::MeterContext selectedMeterContext = meter_context::defaultContext;
     meter_context::ScaleMode selectedScaleMode = meter_context::defaultScale;

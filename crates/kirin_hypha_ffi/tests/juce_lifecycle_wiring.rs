@@ -104,7 +104,9 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     assert!(processor.contains("xml.setAttribute (\"loudness_view\""));
     assert!(processor.contains("getStringAttribute (\"loudness_view\") == \"S\""));
-    assert!(processor.contains("xml.setAttribute (\"display_state_version\", 4)"));
+    assert!(processor.contains("xml.setAttribute (\"display_state_version\", 5)"));
+    assert!(processor.contains("xml.setAttribute (\"hybrid_vu_on_record\""));
+    assert!(processor.contains("getBoolAttribute (\"hybrid_vu_on_record\", true)"));
     assert!(processor.contains("meter_context"));
     assert!(processor.contains("scale_mode"));
     assert!(processor.contains("observatory_width"));

@@ -128,6 +128,7 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 
 DAW Record中だけはCompactの常設面をHybrid VUへ一時置換する。
 この面は選択domainを変更せず、停止時に元の画面へ戻る。
+既定ONの表示設定をOFFにした場合、またはHybrid VUの情報メニューから選択中のviewへ戻した場合は、自動置換を行わない。後者はそのRecord区間だけ有効とする。
 左右の針は0 VU = -18 dBFSの300 ms平均応答、上段cyan railは左右100 ms True Peak、amber markerはSession最大TPとし、異なる時間尺度を一つの針へ混ぜない。
 下段は選択M/S、TP、Crestの三値を維持し、音種別の推奨帯や品質色を追加しない。
 Record面の低明度菌糸はmeter face下端と外周だけに置き、目盛り、針、数値の負空間を侵食しない。

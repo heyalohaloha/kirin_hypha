@@ -95,8 +95,10 @@ void verifyHybridVuContract()
                                     : observatory::ConnectionState::source);
             view.setMeterSnapshot (meter, true);
             view.setWatchDisplay (watchFixture(), true);
+            KIRIN_HYBRID_VU_REQUIRE (! view.setHybridVuOnRecordEnabled (true));
             KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (true));
             KIRIN_HYBRID_VU_REQUIRE (view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (view.informationAnchor().isVisible());
             const auto image = render (view);
             const auto previewDirectory = juce::SystemStats::getEnvironmentVariable (
                 "KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
@@ -119,10 +121,21 @@ void verifyHybridVuContract()
             view.setMeterSnapshot (clipped, true);
             KIRIN_HYBRID_VU_REQUIRE (differentPixels (image, render (view)) > 8);
             view.setMeterSnapshot (meter, true);
+            KIRIN_HYBRID_VU_REQUIRE (view.dismissHybridVuForCurrentRecording());
+            KIRIN_HYBRID_VU_REQUIRE (! view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (! view.dismissHybridVuForCurrentRecording());
             KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (false));
             KIRIN_HYBRID_VU_REQUIRE (! view.hybridVuVisible());
             KIRIN_HYBRID_VU_REQUIRE (view.domain() == observatory::Domain::time);
+            KIRIN_HYBRID_VU_REQUIRE (view.setHybridVuOnRecordEnabled (false));
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (true));
+            KIRIN_HYBRID_VU_REQUIRE (! view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (false));
+            KIRIN_HYBRID_VU_REQUIRE (view.setHybridVuOnRecordEnabled (true));
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (true));
+            KIRIN_HYBRID_VU_REQUIRE (view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (false));
         }
-    std::cout << "Hybrid VU: PASS (PRE/POST, five exact sizes, needles, TP rails, restore)\n";
+    std::cout << "Hybrid VU: PASS (PRE/POST, five sizes, preference, manual override)\n";
 }
 }

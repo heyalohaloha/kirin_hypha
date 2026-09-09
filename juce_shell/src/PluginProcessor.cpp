@@ -819,11 +819,9 @@ int KirinHyphaProcessorBase::getCurrentProgram()         { return 0; }
 void KirinHyphaProcessorBase::setCurrentProgram (int)    {}
 const juce::String KirinHyphaProcessorBase::getProgramName (int) { return {}; }
 void KirinHyphaProcessorBase::changeProgramName (int, const juce::String&) {}
-
 void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
 {
-    // Persist both the human reconnect selector and the exact PRE instance. Hosts may restore PRE
-    // and POST in either order; the exact ID is reconstructed as a Waiting fixed-path latch.
+    // Hosts may restore PRE and POST in either order; exact ID becomes a Waiting fixed-path latch.
     juce::String livePairProjectHash, livePairInstanceId;
     if (pairedPreLocator (livePairProjectHash, livePairInstanceId))
     {
@@ -845,7 +843,7 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("paired_pre_project_hash", persistPairProjectHash);
     xml.setAttribute ("loudness_view",
                       persistShortTermLoudness.load (std::memory_order_acquire) ? "S" : "M");
-    xml.setAttribute ("display_state_version", 4);
+    xml.setAttribute ("display_state_version", 5);
     xml.setAttribute ("observatory_domain", (int) observatoryDomainPreference());
     xml.setAttribute ("observatory_target", (int) observatoryTargetPreference());
     xml.setAttribute ("observatory_time_range", (int) observatoryTimeRangePreference());
@@ -858,9 +856,9 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
         meterContextPreference()));
     xml.setAttribute ("scale_mode", (int) hypha::meter_context::stateValue (
         scaleModePreference()));
+    xml.setAttribute ("hybrid_vu_on_record", hybridVuOnRecordPreference());
     copyXmlToBinary (xml, destData);
 }
-
 void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInBytes)
 {
     // B-069/B-072: restore the 4 identity keys + pair target into the persist members. May
@@ -879,7 +877,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     int restoredEditorHeight = 200;
     auto restoredMeterContext = hypha::meter_context::defaultContext;
     auto restoredScaleMode = hypha::meter_context::defaultScale;
-    bool restored = false;
+    bool restoredHybridVuOnRecord = true, restored = false;
 
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
     {
@@ -920,6 +918,8 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
                 restoredScaleMode = hypha::meter_context::scaleFromState (
                     (uint8_t) xml->getIntAttribute ("scale_mode", 1));
             }
+            if (displayStateVersion >= 5) restoredHybridVuOnRecord =
+                xml->getBoolAttribute ("hybrid_vu_on_record", true);
             restored = true;
         }
     }
@@ -944,8 +944,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
     if (restored)
     {
-        // Additive display-only state. Old JUCE states, legacy nih-plug JSON, and invalid values
-        // all resolve to the established Momentary default without touching identity/pair fields.
+        // Additive display state keeps established defaults for older JUCE and nih-plug states.
         persistShortTermLoudness.store (restoredShortTermLoudness, std::memory_order_release);
         preferredObservatoryDomain.store (restoredObservatoryDomain, std::memory_order_release);
         preferredObservatoryTarget.store (restoredObservatoryTarget, std::memory_order_release);
@@ -958,6 +957,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         setMeterContextPreference (restoredMeterContext, false);
         preferredScaleMode.store (
             hypha::meter_context::stateValue (restoredScaleMode), std::memory_order_release);
+        preferredHybridVuOnRecord.store (restoredHybridVuOnRecord, std::memory_order_release);
         // Once writes are enabled, the io_thread has already snapshotted path identity. Only the
         // live-editable name/pair fields may be applied at that point; the exact-path writer stays
         // coherent with its established identity.

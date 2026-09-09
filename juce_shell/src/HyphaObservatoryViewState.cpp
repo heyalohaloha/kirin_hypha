@@ -31,6 +31,28 @@ bool View::setHostRecording (bool recording)
     if (hostRecording == recording)
         return false;
     hostRecording = recording;
+    hybridVuDismissedForCurrentRecording = false;
+    resized();
+    repaint();
+    return true;
+}
+
+bool View::setHybridVuOnRecordEnabled (bool enabled)
+{
+    if (hybridVuOnRecordEnabled == enabled)
+        return false;
+    hybridVuOnRecordEnabled = enabled;
+    resized();
+    repaint();
+    return true;
+}
+
+bool View::dismissHybridVuForCurrentRecording()
+{
+    if (! hostRecording || ! hybridVuOnRecordEnabled
+        || hybridVuDismissedForCurrentRecording)
+        return false;
+    hybridVuDismissedForCurrentRecording = true;
     resized();
     repaint();
     return true;

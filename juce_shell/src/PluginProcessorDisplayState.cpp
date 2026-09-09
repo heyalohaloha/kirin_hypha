@@ -46,6 +46,12 @@ void KirinHyphaProcessorBase::setScaleModePreference (
         updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }
 
+void KirinHyphaProcessorBase::setHybridVuOnRecordPreference (bool enabled)
+{
+    if (preferredHybridVuOnRecord.exchange (enabled, std::memory_order_acq_rel) != enabled)
+        updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
+}
+
 bool KirinHyphaProcessorBase::setObservatoryEditorSizePreference (int width, int height)
 {
     if (! hypha::observatory::validEditorSize (width, height))

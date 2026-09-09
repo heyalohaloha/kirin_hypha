@@ -39,7 +39,6 @@ namespace
     }
 
 
-
 }
 
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
@@ -86,8 +85,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         initialHeight = fallback.height;
     }
     setSize (initialWidth, initialHeight);
-    observatoryView.onDomainChange = [this] (hypha::observatory::Domain domain)
-    {
+    observatoryView.setHybridVuOnRecordEnabled (processorRef.hybridVuOnRecordPreference());
+    observatoryView.onDomainChange = [this] (hypha::observatory::Domain domain) {
+        if (observatoryView.dismissHybridVuForCurrentRecording()) resized();
         setObservatoryDomain (domain);
     };
     observatoryView.onTargetChange = [this] (hypha::observatory::ObservationTarget target)

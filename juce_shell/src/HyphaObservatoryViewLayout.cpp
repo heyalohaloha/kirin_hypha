@@ -25,7 +25,6 @@ void View::resized()
         connectionArea = {};
         guideArea = {};
         sessionArea = {};
-        informationButton.setVisible (false);
         for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                               &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
                               &timeRangeButton, &compactLoudnessButton, &compactRangeButton,

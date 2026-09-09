@@ -80,6 +80,11 @@ void KirinHyphaEditor::showInformationMenu()
     menu.addSectionHeader ("Updating PRE and POST together");
     menu.addItem (5, "Save work, close the DAW, then install both", false);
     menu.addItem (6, "Restart / rescan; check both loaded versions", false);
+    menu.addSectionHeader ("Display");
+    menu.addItem (11, "Show Hybrid VU while recording", true,
+                  processorRef.hybridVuOnRecordPreference());
+    if (observatoryView.hybridVuVisible())
+        menu.addItem (12, "Show selected view for this recording");
     menu.addItem (10, "Show hover help", true,
                   hypha::HoverHelpPreference::shared().isEnabled());
     const auto options = juce::PopupMenu::Options()
@@ -96,6 +101,19 @@ void KirinHyphaEditor::showInformationMenu()
 void KirinHyphaEditor::handleInformationMenu (int result)
 {
     if (result == 0) return;
+    if (result == 11)
+    {
+        const bool enabled = ! processorRef.hybridVuOnRecordPreference();
+        processorRef.setHybridVuOnRecordPreference (enabled);
+        if (observatoryView.setHybridVuOnRecordEnabled (enabled))
+            resized();
+        return;
+    }
+    if (result == 12)
+    {
+        if (observatoryView.dismissHybridVuForCurrentRecording()) resized();
+        return;
+    }
    #if JUCE_DEBUG
     if (result == pdcValidationAction)
     {

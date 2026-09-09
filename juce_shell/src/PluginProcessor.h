@@ -231,6 +231,11 @@ public:
     }
     void setMeterContextPreference (hypha::meter_context::MeterContext value, bool notifyHost = true);
     void setScaleModePreference (hypha::meter_context::ScaleMode value);
+    bool hybridVuOnRecordPreference() const noexcept
+    {
+        return preferredHybridVuOnRecord.load (std::memory_order_acquire);
+    }
+    void setHybridVuOnRecordPreference (bool enabled);
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
     bool isHostRecording() const noexcept
     {
@@ -371,6 +376,7 @@ private:
         hypha::meter_context::stateValue (hypha::meter_context::defaultContext) };
     std::atomic<uint8_t> preferredScaleMode {
         hypha::meter_context::stateValue (hypha::meter_context::defaultScale) };
+    std::atomic<bool> preferredHybridVuOnRecord { true }; // DisplayState v5; legacy default ON
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
 
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
