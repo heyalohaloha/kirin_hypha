@@ -41,6 +41,7 @@ struct ProductSessionView
 {
     ProductSessionPhase phase = ProductSessionPhase::idle;
     ProductSessionFailure failure = ProductSessionFailure::none;
+    GainMatchPolicy gainPolicy = GainMatchPolicy::alignedActiveBlocksV1;
     TrialView trial;
     std::uint32_t sampleRate = 0;
     int channels = 0;
@@ -48,7 +49,7 @@ struct ProductSessionView
     std::int64_t frames = 0;
     double fixedPreGainDb = 0.0;
     double lowerPostGainDb = 0.0;
-    std::uint64_t matchedBlocks = 0;
+    std::uint64_t matchedAnalysisUnits = 0;
 };
 
 // Owns one admitted product trial from exact capture through an audio-confirmed return to A.
@@ -62,7 +63,8 @@ public:
     explicit LocalBlindProductSession (ReleaseScope releaseScopeIn)
         : releaseScope (std::move (releaseScopeIn)) {}
 
-    bool beginCapture (std::uint64_t scopeEpoch, std::uint64_t captureGeneration) noexcept;
+    bool beginCapture (std::uint64_t scopeEpoch, std::uint64_t captureGeneration,
+                       GainMatchPolicy) noexcept;
     void failCaptureRequest() noexcept;
     bool acceptCapturedPair (const ExactCaptureRequest&, const ExactRangeCapture& post,
                              const ExactRangeCapture& pre,
@@ -101,6 +103,7 @@ private:
     ProductSessionFailure failure = ProductSessionFailure::none;
     std::uint64_t scopeEpoch = 0;
     std::uint64_t expectedCaptureGeneration = 0;
+    GainMatchPolicy gainPolicy = GainMatchPolicy::alignedActiveBlocksV1;
     ExactPairBinding capturedPair;
     bool releasePending = false;
     std::uint32_t sampleRate = 0;
@@ -109,6 +112,6 @@ private:
     std::int64_t frameCount = 0;
     double fixedPreGainDb = 0.0;
     double lowerPostGainDb = 0.0;
-    std::uint64_t matchedBlocks = 0;
+    std::uint64_t matchedAnalysisUnits = 0;
 };
 }

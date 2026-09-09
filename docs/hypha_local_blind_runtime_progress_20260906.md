@@ -1,7 +1,7 @@
 # PRE/POST Blind の実装状況
 
 更新日: 2026-09-09
-対象: B-719〜B-724、B-743〜B-747、B-751〜B-760
+対象: B-719〜B-724、B-743〜B-770
 前提: [実装承認記録](hypha_implementation_approval_20260906.md)、[Blind 計画](hypha_pre_post_blind_feasibility_20260906.md)
 
 2026-09-07追記：host固有のparticipant IDをpairingや開始許可の必須条件にしない。
@@ -62,6 +62,13 @@ bit一致と残差推定は観測値に限定し、取得範囲の補正、Blind
 B-757は、POSTの取得失敗状態と理由を明示resetまで保持し、診断前に`idle`へ消える経路を閉じた。
 Windows Studio Proでは、PREとPOSTの間に4096-sample validation delayを挿した192,000-frame stereo取得がbit一致し、推定残差0 samplesだった。
 
+B-767は、利用者が候補から選んだexact PREをinstance IDで固定し、名前を任意の表示ラベルとして維持した。
+B-768は、ローカルBlind、Reference、Record、Keepを同じ入場判定へ接続した。
+B-769は、製品の4秒取得から固定Gain準備、試聴、回答、Reveal、通常復帰、PCM回収までを一つの`LocalBlindProductSession`へ接続した。
+B-770は、2MIXの`alignedActiveBlocksV1`を変更せず、TRACK/STEM専用の`exactTrackEventEnergyV1`を追加した。
+後者はexact 4秒を非重複20 ms窓で読み、各側の最大eventから40 dB以内にある対応窓を3個以上要求する。長い低レベルnoiseで短音の差を上書きせず、短音を反復しない。無音、片側欠落、非有限値、範囲違いは開始不可とする。
+取得開始時のMeter Contextでpolicyを固定し、途中の文脈変更では準備済みTrialを継続しない。
+
 ## 現在の到達点
 
 **PRE/POST Blind は、まだ利用者が DAW で開始できる状態ではない。**
@@ -69,7 +76,9 @@ B-718 の同一区間取得部品に、固定 Gain Match の準備、比較コ�
 これらを独立試験で検証し、本体の計測後に試聴出力を選ぶ入口を設けた。
 本体の非RT所有者は要求からcapture objectをAudio Threadへ公開できる。
 PRE PCMのPOST取込み、両側完了barrier、実機用の明示取得と診断表示までは成立した。
-一方、macOS VST3／AUのPDC実証、開始排他、製品の開始操作はまだないため、試聴出力は起動しない。
+Windows VST3とmacOS VST3では、既知遅延を含むexact 4秒取得のbit一致とPDC残差0 sampleを確認した。
+macOS AUは通常の読込validationまで通ったが、同じexact 4秒のPDC実証は残る。
+製品の開始UIと回答前の全画面非開示は未接続なので、利用者向けの試聴入口はまだ有効にしない。
 
 B-723 以降は Windows で B-722 検証版を一時配置し、Studio Pro で確認した。
 PSB の欠落と高い CPU 使用率の指摘を受け、性能の切り分けを優先している。
@@ -134,7 +143,7 @@ LS アップ用と HP アップ用は両 OS とも skip。
 | 実装 | 行うこと | 行わないこと |
 | --- | --- | --- |
 | `PluginProcessorAudition.cpp` | 正本入力の計測後に試聴出力を選択する。ローカル Blind が出力を所有する callback では Reference を後から重ねない | 開始を許可しない。Reference の OS 権限を外さない |
-| `LocalBlindPreparation` | 完了した同世代の native PCM を既存 Gain policy で解析し、固定コピーを準備する。解析後とコピー後にも取消を確認する | PDC や参加範囲を証明しない。自動再生しない。PRE を架空の Work version にしない |
+| `LocalBlindPreparation` | 完了した同世代のnative PCMを、2MIXの連続block policyまたはTRACK/STEMのexact event policyで解析し、固定コピーを準備する。解析後とコピー後にも取消を確認する | PDCや参加範囲を証明しない。自動再生しない。PREを架空のWork versionにしない |
 | `LocalBlindTrial` | 1 / 2 の出力、要求番号付きの出力確認、最低試聴量、回答、Reveal、失効と通常復帰を扱う | 音声スレッドで割当抽選、解析、通信、メモリ確保をしない |
 | `LocalBlindSlot` | 非 RT 所有者が PCM を公開し、通常復帰の確認後に音声処理との参照競合を避けて回収する | 既存 AnalysisLease の代わりにならない。3 枠目を増設しない |
 | `LocalBlindEpochSnapshot` | 許可、pair、capture、clock の世代を一貫して読む。更新途中は許可なしを返す | PID や UI 選択から安全な DAW scope を作らない |
@@ -179,7 +188,8 @@ mono 試験では同じ左右の片側を使用した。
 | 0.5 / 1 / 2 倍の既知 gain、mono と stereo | 対応 block は各 37。補正は +6.021 / 0 / -6.021 dB。期待値との差は 0.002 dB 未満 |
 | 補正後 PCM | 最大 sample 誤差 0.000023067。同一 PCM の対照はビット一致 |
 | 試聴コピーの保持量 | 4 秒 mono は 1,536,000 bytes、stereo は 3,072,000 bytes。取得元や解析領域を含む総 peak RAM ではない |
-| 無音、1 秒の短音、疎なイベント | 現行 policy の計測条件を満たさず開始不可。TRACK 対応完了の証拠にはしない |
+| TRACK/STEMの1秒短音、疎なイベント | `exactTrackEventEnergyV1`で+6.021 / -6.021 dB。mono 48 kHzとstereo 44.1 kHzで期待値との差0.002 dB未満。相反する低レベルnoise bedを除外し、4秒の不変範囲を維持して音を反復しない |
+| TRACK/STEMの無音、片側欠落、4秒未満、非有限値 | Gain Match不成立として開始不可。未補正へfallbackしない |
 | 不正な範囲、世代、予算、取消、抽選失敗 | 準備失敗として扱い、未補正や固定割当へ fallback しない |
 | 停止、offline、bypass、sample rate 変更、世代変更、seek、範囲超過 | 試聴を失効させ、条件が戻っても自動再開しない |
 | 承認済みの減衰 | 中断後も保持し、mono/stereo の変更後にも明示復帰を待つ |
@@ -197,10 +207,10 @@ mono 試験では同じ左右の片側を使用した。
 
 ## 未接続の製品機能
 
-1. **参加範囲と開始排他**：同じ DAW の検証済み participant scope を定め、既存 AnalysisLease の 2 枠と単一 Blind 所有者へ接続する。Reference、Keep、All Keep、下流 Record の準備から finalize までを共通の開始判定に通す。別 process の存在を PID だけでは除外しない。ローカル source の識別、Trial ID、content hash、取得世代、失効条件を製品契約に追加し、承認済みの比較試聴を R-12 に明記する。
+1. **参加範囲と開始排他**：B-768で既存AnalysisLeaseの2枠、単一試聴所有者、Reference、Keep、All Keep、下流Recordを共通の開始判定へ接続した。製品UIからの競合操作と、別processを含む実ホスト試験は残る。
 2. **同一区間の取得**：B-751で同じ要求envelopeからB-747のrole別laneを非RTでarmし、B-752でPRE PCMをPOSTへ運んで両receiptを一つのpair barrierで照合した。B-754で任意のPRE／POST開始位置を廃止し、POSTのlive host clockから作る単一native範囲を両roleへ配るv2要求へ移行した。試聴出力用スロットと取得用スロットを混同しない。
-3. **時刻対応**：B-754で要求発行時のhost positionを将来の取得範囲とともに固定した。各roleは最初のcallbackをその区間内に限定し、以後のclock source、連続sample位置、optional presentation通知を固定する。発行後の巻戻し、late arm、動的変更、別周回、seek、停止callbackは当該要求だけで拒否し、presentation通知をPDC offsetとして足し引きしない。B-756でDebugだけの明示取得、完成後比較、既知4096-sample遅延VST3を用意した。B-757でWindows Studio ProのVST3は既知遅延を挟んだ残差0 sampleを実証した。macOS VST3／AUと他トラックとの同期は未確認である。
-4. **製品の固定 Gain policy**：現行の連続 3 秒条件に入らない短音と疎な TRACK を別途評価する。既存 policy の条件を同名のまま緩めない。強い EQ、limiter、tail、clip 境界も含める。
+3. **時刻対応**：B-754で要求発行時のhost positionを将来の取得範囲とともに固定した。各roleは最初のcallbackをその区間内に限定し、以後のclock source、連続sample位置、optional presentation通知を固定する。発行後の巻戻し、late arm、動的変更、別周回、seek、停止callbackは当該要求だけで拒否し、presentation通知をPDC offsetとして足し引きしない。Windows VST3とmacOS VST3は既知遅延を挟んだ残差0 sampleを実証した。macOS AUと他トラックとの同期は未確認である。
+4. **製品の固定 Gain policy**：B-770で2MIXの連続3秒条件を維持し、短音と疎なTRACK/STEMを別policyへ分離した。強いEQ、limiter、tail、clip境界の実音確認と人による音量差確認は残る。
 5. **開始から終了までの画面**：対象選択、取得待ち、音量変更への承認、1 / 2、回答、Reveal、減衰保持、通常復帰を接続する。他方の大きな表示、小さな表示、別ウインドウ、Capture、tooltip、accessibility にも非開示条件を適用する。
 6. **所有権と復元**：OS の安全な乱数による割当を単一の準備所有者へ接続する。編集画面を閉じた場合や host の再初期化、instance 削除、worker 停止、旧版との混在、結果保存失敗を扱う。再読込で試聴や承認済み減衰を自動再開しない。
 7. **実機と性能**：両 OS、2MIX / TRACK / STEM、mono / stereo、125% / 150% / 200% 表示、重い session、CPU、準備時間、総 peak RAM、切替音を検証する。Windows の使用許可と共通 runbook の確認は B-722 で完了した。検証版の一時差し替えと Studio Pro の操作確認は未実施である。

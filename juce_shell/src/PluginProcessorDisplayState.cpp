@@ -34,6 +34,14 @@ void KirinHyphaProcessorBase::setMeterContextPreference (
             setAttackEnabled (false);
         changed = preferredMeterContext.exchange (encoded, std::memory_order_acq_rel) != encoded;
     }
+    if (changed)
+    {
+        // The explicit context chooses the Blind gain policy. Never continue a prepared or active
+        // trial under a newly selected context.
+        localBlindProductSession.invalidate();
+        if (localBlindProductSession.needsService())
+            startTimer (50);
+    }
     if (changed && notifyHost)
         updateHostDisplay (ChangeDetails {}.withNonParameterStateChanged (true));
 }

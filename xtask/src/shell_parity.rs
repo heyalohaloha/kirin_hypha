@@ -277,7 +277,7 @@ mod tests {
         ));
         assert!(PLUGIN_PROCESSOR_CPP
             .contains("pairedPreLocator (livePairProjectHash, livePairInstanceId)"));
-        assert!(PLUGIN_PROCESSOR_CPP.contains("kirin_hypha_restore_pair_candidate ("));
+        assert!(PLUGIN_PROCESSOR_PAIRING_CPP.contains("kirin_hypha_restore_pair_candidate_v2 ("));
     }
 
     #[test]
@@ -393,8 +393,8 @@ mod tests {
         );
 
         assert!(body.contains("processorRef.setPairCandidate (candidate.instanceId, name)"));
-        assert!(body.contains("nameField.setModelName (name);"));
-        assert!(body.contains("candidate.instanceId.substring (0, 8)"));
+        assert!(body.contains("nameField.setModelName (processorRef.pairDisplayName());"));
+        assert!(PLUGIN_PROCESSOR_PAIRING_CPP.contains("persistPairInstanceId.substring (0, 8)"));
     }
 
     #[test]

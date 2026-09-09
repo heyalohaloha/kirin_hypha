@@ -1,4 +1,5 @@
 #include "../src/local_blind/LocalBlindProductSession.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -68,9 +69,13 @@ static void matchedCopies (const std::vector<float>& postPcm)
             const auto f = format (channels, postPcm.size());
             const auto budget = postPcm.size() * channels * 8;
             int randomCalls = 0;
-            auto candidate = prepareLocalBlindCandidate (*post, *pre, f, 0, budget, [&] { ++randomCalls; return true; });
+            auto candidate = prepareLocalBlindCandidate (
+                *post, *pre, f, 0, budget, GainMatchPolicy::alignedActiveBlocksV1,
+                [&] { ++randomCalls; return true; });
             require (candidate.trial && candidate.failure == PreparationFailure::none, "native pair prepares");
-            require (candidate.matchedBlocks >= 27 && randomCalls == 1, "gain policy and one random assignment");
+            require (candidate.gainPolicy == GainMatchPolicy::alignedActiveBlocksV1
+                         && candidate.matchedAnalysisUnits >= 27 && randomCalls == 1,
+                     "continuous policy and one random assignment");
             require (std::abs (candidate.fixedPreGainDb + 20 * std::log10 (ratio)) < 0.002,
                      "fixed match must agree within 0.002 dB");
             require (candidate.trial->pcmBytes() == budget, "bounded pair PCM size");
@@ -87,7 +92,7 @@ static void matchedCopies (const std::vector<float>& postPcm)
             if (ratio == 1) require (std::memcmp (left.data(), postPcm.data(), left.size() * sizeof (float)) == 0,
                                       "same-PCM control remains bit identical");
             std::cout << "channels=" << channels << " ratio=" << ratio << " match_db=" << candidate.fixedPreGainDb
-                      << " blocks=" << candidate.matchedBlocks << " pcm_bytes=" << budget
+                      << " blocks=" << candidate.matchedAnalysisUnits << " pcm_bytes=" << budget
                       << " max_error=" << maxError << '\n';
         }
 }
@@ -97,20 +102,28 @@ static void unavailableAndApproval (const std::vector<float>& source)
     auto post = capture (source, 1, 8192), pre = capture (source, 1, 0);
     auto f = format (1, source.size());
     const auto budget = source.size() * 8;
-    auto candidate = prepareLocalBlindCandidate (*post, *pre, f, 0, budget - 1, [] { return false; });
+    auto candidate = prepareLocalBlindCandidate (
+        *post, *pre, f, 0, budget - 1, GainMatchPolicy::alignedActiveBlocksV1, [] { return false; });
     require (! candidate.trial && candidate.failure == PreparationFailure::capacity, "budget refusal");
-    candidate = prepareLocalBlindCandidate (*post, *pre, f, 1, budget, [] { return false; });
+    candidate = prepareLocalBlindCandidate (
+        *post, *pre, f, 1, budget, GainMatchPolicy::alignedActiveBlocksV1, [] { return false; });
     require (! candidate.trial && candidate.failure == PreparationFailure::rangeMismatch, "unproven shifted range refused");
     ++f.epochs.capture;
-    candidate = prepareLocalBlindCandidate (*post, *pre, f, 0, budget, [] { return false; });
+    candidate = prepareLocalBlindCandidate (
+        *post, *pre, f, 0, budget, GainMatchPolicy::alignedActiveBlocksV1, [] { return false; });
     require (! candidate.trial && candidate.failure == PreparationFailure::rangeMismatch, "generation mismatch refused");
     --f.epochs.capture;
-    candidate = prepareLocalBlindCandidate (*post, *pre, f, 0, budget, [] () -> bool { throw std::runtime_error ("rng"); });
+    candidate = prepareLocalBlindCandidate (
+        *post, *pre, f, 0, budget, GainMatchPolicy::alignedActiveBlocksV1,
+        [] () -> bool { throw std::runtime_error ("rng"); });
     require (! candidate.trial && candidate.failure == PreparationFailure::preparationFailed, "no deterministic RNG fallback");
-    candidate = prepareLocalBlindCandidate (*post, *pre, f, 0, budget, [&] { pre->cancel(); return false; });
+    candidate = prepareLocalBlindCandidate (
+        *post, *pre, f, 0, budget, GainMatchPolicy::alignedActiveBlocksV1,
+        [&] { pre->cancel(); return false; });
     require (! candidate.trial && candidate.failure == PreparationFailure::incompleteCapture,
              "cancellation during preparation cannot publish a candidate");
-    candidate = prepareLocalBlindCandidate (*post, *pre, f, 0, budget, [] { return false; });
+    candidate = prepareLocalBlindCandidate (
+        *post, *pre, f, 0, budget, GainMatchPolicy::alignedActiveBlocksV1, [] { return false; });
     require (! candidate.trial && candidate.failure == PreparationFailure::incompleteCapture, "cancelled capture is unavailable");
     for (int variant : { 0, 1, 2 })
     {
@@ -120,17 +133,67 @@ static void unavailableAndApproval (const std::vector<float>& source)
         if (variant == 2) // sparse events without 27 contiguous active blocks
             for (std::size_t i = 0; i < pcm.size(); ++i) if (i % 48000 >= 1200) pcm[i] = 0;
         post = capture (pcm, 1, 8192); pre = capture (pcm, 1, 0);
-        candidate = prepareLocalBlindCandidate (*post, *pre, format (1, pcm.size()), 0, budget, [] { return false; });
+        candidate = prepareLocalBlindCandidate (
+            *post, *pre, format (1, pcm.size()), 0, budget,
+            GainMatchPolicy::alignedActiveBlocksV1, [] { return false; });
         require (! candidate.trial && candidate.failure == PreparationFailure::gainUnavailable, "unqualified match cannot audition raw");
     }
     auto transient = source;
     for (auto& sample : transient) sample *= 0.5f;
     transient[20000] = 0.95f;
     post = capture (source, 1, 8192); pre = capture (transient, 1, 0);
-    candidate = prepareLocalBlindCandidate (*post, *pre, f, 0, budget, [] { return false; });
+    candidate = prepareLocalBlindCandidate (
+        *post, *pre, f, 0, budget, GainMatchPolicy::alignedActiveBlocksV1, [] { return false; });
     require (candidate.trial && candidate.lowerPostGainDb < -6 && candidate.trial->view().lowerPostApprovalRequired,
              "crest-limited match proposes explicit lower POST");
     require (! candidate.trial->start() && candidate.trial->start (true), "lower POST requires approval");
+}
+
+static void exactTrackEvents (const std::vector<float>& source)
+{
+    std::vector<float> shortPost (source.size(), 0.0f);
+    std::copy_n (source.begin(), 48000, shortPost.begin());
+    auto shortPre = shortPost;
+    for (auto& sample : shortPre) sample *= 0.5f;
+    const auto budget = source.size() * 8;
+    auto post = capture (shortPost, 1, 8192), pre = capture (shortPre, 1, 0);
+    auto candidate = prepareLocalBlindCandidate (
+        *post, *pre, format (1, source.size()), 0, budget,
+        GainMatchPolicy::exactTrackEventEnergyV1, [] { return false; });
+    require (candidate.trial && candidate.gainPolicy == GainMatchPolicy::exactTrackEventEnergyV1
+                 && candidate.matchedAnalysisUnits == 50
+                 && std::abs (candidate.fixedPreGainDb - 6.021) < 0.002,
+             "one-second TRACK event uses the separate exact-range policy");
+
+    std::vector<float> sparsePost (source.size(), 0.0f);
+    for (std::size_t event : { 2'000u, 51'000u, 100'000u, 149'000u })
+        std::copy_n (source.begin(), 1'440, sparsePost.begin() + event);
+    auto sparsePre = sparsePost;
+    for (auto& sample : sparsePre) sample *= 2.0f;
+    post = capture (sparsePost, 1, 8192); pre = capture (sparsePre, 1, 0);
+    candidate = prepareLocalBlindCandidate (
+        *post, *pre, format (1, source.size()), 0, budget,
+        GainMatchPolicy::exactTrackEventEnergyV1, [] { return false; });
+    require (candidate.trial && candidate.matchedAnalysisUnits >= 3
+                 && std::abs (candidate.fixedPreGainDb + 6.021) < 0.002,
+             "sparse TRACK events match without loop padding");
+
+    std::vector<float> silence (source.size(), 0.0f);
+    post = capture (silence, 1, 8192); pre = capture (silence, 1, 0);
+    candidate = prepareLocalBlindCandidate (
+        *post, *pre, format (1, source.size()), 0, budget,
+        GainMatchPolicy::exactTrackEventEnergyV1, [] { return false; });
+    require (! candidate.trial && candidate.failure == PreparationFailure::gainUnavailable,
+             "silence remains unavailable under TRACK policy");
+
+    auto shortCapture = shortPost;
+    shortCapture.resize (48000);
+    post = capture (shortCapture, 1, 8192); pre = capture (shortCapture, 1, 0);
+    candidate = prepareLocalBlindCandidate (
+        *post, *pre, format (1, shortCapture.size()), 0, shortCapture.size() * 8,
+        GainMatchPolicy::exactTrackEventEnergyV1, [] { return false; });
+    require (! candidate.trial && candidate.failure == PreparationFailure::gainUnavailable,
+             "TRACK policy requires one exact four-second capture instead of padding");
 }
 
 static ExactCaptureRequest productRequest (int channels, std::int64_t frames)
@@ -152,12 +215,16 @@ static void productLifecycle (const std::vector<float>& source)
     const auto request = productRequest (1, static_cast<std::int64_t> (source.size()));
     auto post = capture (source, 1, request.nativeStart, request.captureGeneration);
     auto pre = capture (source, 1, request.nativeStart, request.captureGeneration);
-    require (session.beginCapture (11, request.captureGeneration), "product admission binds capture generation");
+    require (session.beginCapture (
+                 11, request.captureGeneration, GainMatchPolicy::alignedActiveBlocksV1),
+             "product admission binds capture generation and gain policy");
     require (session.needsService(), "capture admission keeps its failure observer alive");
     require (session.acceptCapturedPair (request, *post, *pre, [] { return false; }),
              "sealed exact pair is consumed once");
     require (session.view().phase == ProductSessionPhase::ready
                  && session.view().frames == request.frames
+                 && session.view().gainPolicy == GainMatchPolicy::alignedActiveBlocksV1
+                 && session.view().matchedAnalysisUnits >= 27
                  && releaseCalls == 0,
              "preparation publishes without starting or releasing scope");
     require (session.start(), "product trial starts explicitly");
@@ -202,10 +269,36 @@ static void productLifecycle (const std::vector<float>& source)
                  && ! session.hasPublishedRealtime(),
              "only normal output receipt retires PCM and releases exact scope");
 
-    require (session.beginCapture (12, 9), "returned session can admit a fresh capture");
+    auto trackRequest = productRequest (1, static_cast<std::int64_t> (source.size()));
+    trackRequest.captureGeneration = 9;
+    std::vector<float> shortPost (source.size(), 0.0f);
+    std::copy_n (source.begin(), 48'000, shortPost.begin());
+    auto shortPre = shortPost;
+    for (auto& sample : shortPre) sample *= 0.5f;
+    post = capture (shortPost, 1, trackRequest.nativeStart, trackRequest.captureGeneration);
+    pre = capture (shortPre, 1, trackRequest.nativeStart, trackRequest.captureGeneration);
+    require (session.beginCapture (12, trackRequest.captureGeneration,
+                                   GainMatchPolicy::exactTrackEventEnergyV1),
+             "returned session can admit a fresh capture with a new frozen policy");
+    require (session.acceptCapturedPair (trackRequest, *post, *pre, [] { return false; })
+                 && session.view().phase == ProductSessionPhase::ready
+                 && session.view().gainPolicy == GainMatchPolicy::exactTrackEventEnergyV1
+                 && session.view().matchedAnalysisUnits == 50,
+             "product session uses the frozen TRACK policy for short audio");
     session.invalidate();
+    session.requestNormalReturn();
+    require (session.render (pointers, 1, static_cast<int> (output.size()), normal),
+             "published TRACK trial returns through one normal callback");
     session.service();
     require (releaseCalls == 2 && releasedEpoch == 12
+                 && session.view().phase == ProductSessionPhase::returned,
+             "TRACK policy keeps the same audio-confirmed return contract");
+
+    require (session.beginCapture (13, 10, GainMatchPolicy::alignedActiveBlocksV1),
+             "returned session can admit another capture");
+    session.invalidate();
+    session.service();
+    require (releaseCalls == 3 && releasedEpoch == 13
                  && session.view().phase == ProductSessionPhase::failed,
              "asynchronous capture failure releases without waiting for an audio receipt");
 }
@@ -216,6 +309,7 @@ int main (int argc, char** argv)
     const auto source = readFixture (argv[1]);
     matchedCopies (source);
     unavailableAndApproval (source);
+    exactTrackEvents (source);
     productLifecycle (source);
     std::cout << "Local Blind preparation: PASS (real S-1, product capture-to-return, mono/stereo, fixed gain, same-PCM, fail-closed match, lower POST)\n";
 }

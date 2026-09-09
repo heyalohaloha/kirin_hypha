@@ -29,6 +29,8 @@ mod tests {
     const LOCAL_TRIAL_CPP: &str =
         include_str!("../../juce_shell/src/local_blind/LocalBlindTrial.cpp");
     const LOCAL_SLOT_H: &str = include_str!("../../juce_shell/src/local_blind/LocalBlindSlot.h");
+    const LOCAL_PRODUCT_SESSION_H: &str =
+        include_str!("../../juce_shell/src/local_blind/LocalBlindProductSession.h");
     const LOCAL_EPOCH_H: &str =
         include_str!("../../juce_shell/src/local_blind/LocalBlindEpochSnapshot.h");
     const LOCAL_CAPTURE_LANE_H: &str =
@@ -127,11 +129,12 @@ mod tests {
                 < body.find(PROCESS_COMPARISON_CALL).unwrap()
         );
         let output = function_body(AUDITION_OUTPUT_CPP, PROCESS_COMPARISON_SIGNATURE);
-        assert!(output.contains("block.epochs = localBlindEpochs.read()"));
-        assert!(output.contains("role == Role::Post && localBlindOutput.hasPublishedRealtime()"));
+        assert!(LOCAL_PRODUCT_SESSION_H.contains("block.epochs = epochs.read()"));
+        assert!(output
+            .contains("role == Role::Post && localBlindProductSession.hasPublishedRealtime()"));
         assert!(output.contains("buffer.getNumSamples(), block)) return;"));
         assert!(
-            output.find("localBlindOutput.render").unwrap()
+            output.find("localBlindProductSession.render").unwrap()
                 < output
                     .find("referenceAuditionController->observeAInput")
                     .unwrap()

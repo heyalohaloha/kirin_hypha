@@ -7,6 +7,9 @@ const MAXIMUM_SAMPLE_RATE: u32 = 768_000;
 const ACTIVE_FLOOR_LUFS: f64 = -100.0;
 const MAXIMUM_LEVEL_DB: f64 = 24.0;
 pub const MINIMUM_PAIRED_BLOCKS: usize = 27;
+pub const TRACK_EVENT_WINDOW_MS: u32 = 20;
+pub const MINIMUM_PAIRED_EVENT_WINDOWS: usize = 3;
+const TRACK_EVENT_RELATIVE_POWER_FLOOR: f64 = 1.0e-4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReferenceGainFacts {
@@ -14,6 +17,14 @@ pub struct ReferenceGainFacts {
     pub paired_loudness_delta_median_millilu: i64,
     pub a_cue_true_peak_millidbtp: i64,
     pub b_cue_true_peak_millidbtp: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrackEventGainFacts {
+    pub paired_window_count: u64,
+    pub paired_energy_delta_millidb: i64,
+    pub post_cue_true_peak_millidbtp: i64,
+    pub pre_cue_true_peak_millidbtp: i64,
 }
 
 fn checked_level_milli(value: f64) -> Option<i64> {
@@ -42,6 +53,101 @@ fn cue_true_peak(samples: &[f32], sample_rate: u32, channels: usize) -> Option<i
     (linear > 0.0)
         .then(|| 20.0 * linear.log10())
         .and_then(checked_level_milli)
+}
+
+fn checked_gain_delta_milli(value: f64) -> Option<i64> {
+    (value.is_finite() && value.abs() <= MAXIMUM_LEVEL_DB).then(|| (value * 1_000.0).round() as i64)
+}
+
+fn window_power(samples: &[f32]) -> f64 {
+    samples
+        .iter()
+        .map(|sample| f64::from(*sample) * f64::from(*sample))
+        .sum::<f64>()
+        / samples.len() as f64
+}
+
+/// Fixed gain facts for an exact four-second TRACK/STEM capture containing short or sparse events.
+///
+/// This is deliberately a separate policy from `analyze_reference_gain`: it uses non-overlapping
+/// 20 ms energy windows and requires three paired active windows. It never pads or repeats a short
+/// event, and it never treats capture absence as source silence.
+pub fn analyze_track_event_gain(
+    post: &[f32],
+    pre: &[f32],
+    sample_rate: u32,
+    channels: usize,
+) -> Result<TrackEventGainFacts, &'static str> {
+    if !(MINIMUM_SAMPLE_RATE..=MAXIMUM_SAMPLE_RATE).contains(&sample_rate)
+        || !matches!(channels, 1 | 2)
+        || post.len() != pre.len()
+        || post.is_empty()
+        || !post.len().is_multiple_of(channels)
+        || post.iter().chain(pre).any(|sample| !sample.is_finite())
+    {
+        return Err("track_event_gain_input_invalid");
+    }
+
+    let frame_count = post.len() / channels;
+    let exact_frames = usize::try_from(sample_rate)
+        .ok()
+        .and_then(|rate| rate.checked_mul(4))
+        .ok_or("track_event_gain_duration_invalid")?;
+    if frame_count != exact_frames {
+        return Err("track_event_gain_duration_invalid");
+    }
+    let window_count = 4_000usize / TRACK_EVENT_WINDOW_MS as usize;
+    if window_count == 0 || frame_count < window_count {
+        return Err("track_event_gain_window_invalid");
+    }
+
+    // Require activity on both exact sides. The -100 dBFS absolute floor rejects digital silence;
+    // the per-side -40 dB relative floor prevents long noise beds from outvoting short events.
+    const ACTIVE_POWER_FLOOR: f64 = 1.0e-10;
+    let mut powers = Vec::with_capacity(window_count);
+    let mut post_peak_power = 0.0f64;
+    let mut pre_peak_power = 0.0f64;
+    for window in 0..window_count {
+        // Integer boundaries cover the exact range once even at unusual integral sample rates.
+        let start = frame_count * window / window_count * channels;
+        let end = frame_count * (window + 1) / window_count * channels;
+        let post_power = window_power(&post[start..end]);
+        let pre_power = window_power(&pre[start..end]);
+        post_peak_power = post_peak_power.max(post_power);
+        pre_peak_power = pre_peak_power.max(pre_power);
+        powers.push((post_power, pre_power));
+    }
+    let post_floor = ACTIVE_POWER_FLOOR.max(post_peak_power * TRACK_EVENT_RELATIVE_POWER_FLOOR);
+    let pre_floor = ACTIVE_POWER_FLOOR.max(pre_peak_power * TRACK_EVENT_RELATIVE_POWER_FLOOR);
+    let mut deltas = Vec::with_capacity(window_count);
+    for (post_power, pre_power) in powers {
+        if post_power > post_floor && pre_power > pre_floor {
+            deltas.push(
+                checked_gain_delta_milli(10.0 * (post_power / pre_power).log10())
+                    .ok_or("track_event_gain_delta_invalid")?,
+            );
+        }
+    }
+    if deltas.len() < MINIMUM_PAIRED_EVENT_WINDOWS {
+        return Err("track_event_gain_evidence_insufficient");
+    }
+    deltas.sort_unstable();
+    let median = if deltas.len().is_multiple_of(2) {
+        let high = deltas[deltas.len() / 2];
+        let low = deltas[deltas.len() / 2 - 1];
+        (low + high) / 2
+    } else {
+        deltas[deltas.len() / 2]
+    };
+
+    Ok(TrackEventGainFacts {
+        paired_window_count: deltas.len() as u64,
+        paired_energy_delta_millidb: median,
+        post_cue_true_peak_millidbtp: cue_true_peak(post, sample_rate, channels)
+            .ok_or("track_event_gain_post_true_peak_unavailable")?,
+        pre_cue_true_peak_millidbtp: cue_true_peak(pre, sample_rate, channels)
+            .ok_or("track_event_gain_pre_true_peak_unavailable")?,
+    })
 }
 
 pub fn analyze_reference_gain(
@@ -164,6 +270,71 @@ mod tests {
         assert_eq!(
             analyze_reference_gain(&a, &b[..b.len() - 2], 48_000, 2),
             Err("reference_gain_input_invalid")
+        );
+    }
+
+    #[test]
+    fn exact_track_event_policy_matches_short_and_sparse_gain() {
+        let mut post = vec![0.0; 48_000 * 4];
+        let tone = stereo_tone(48_000, 1, 0.2);
+        for (target, source) in post.iter_mut().take(48_000).zip(tone.iter().step_by(2)) {
+            *target = *source;
+        }
+        let pre: Vec<f32> = post.iter().map(|sample| sample * 0.5).collect();
+        let facts = analyze_track_event_gain(&post, &pre, 48_000, 1).unwrap();
+        assert_eq!(facts.paired_window_count, 50);
+        assert!((6_019..=6_023).contains(&facts.paired_energy_delta_millidb));
+
+        let mut sparse_post = vec![0.0; 48_000 * 4];
+        for event in [2_000usize, 51_000, 100_000, 149_000] {
+            sparse_post[event..event + 1_440].copy_from_slice(&post[..1_440]);
+        }
+        let sparse_pre: Vec<f32> = sparse_post.iter().map(|sample| sample * 2.0).collect();
+        let sparse = analyze_track_event_gain(&sparse_post, &sparse_pre, 48_000, 1).unwrap();
+        assert!(sparse.paired_window_count >= MINIMUM_PAIRED_EVENT_WINDOWS as u64);
+        assert!((-6_023..=-6_019).contains(&sparse.paired_energy_delta_millidb));
+
+        let stereo_post = stereo_tone(44_100, 4, 0.2);
+        let stereo_pre: Vec<f32> = stereo_post.iter().map(|sample| sample * 0.5).collect();
+        let stereo = analyze_track_event_gain(&stereo_post, &stereo_pre, 44_100, 2).unwrap();
+        assert_eq!(stereo.paired_window_count, 200);
+        assert!((6_019..=6_023).contains(&stereo.paired_energy_delta_millidb));
+
+        let mut noisy_post = post.clone();
+        let mut noisy_pre = pre.clone();
+        for sample in noisy_post.iter_mut().skip(48_000) {
+            *sample = 0.0001;
+        }
+        for sample in noisy_pre.iter_mut().skip(48_000) {
+            *sample = 0.0002;
+        }
+        let noisy = analyze_track_event_gain(&noisy_post, &noisy_pre, 48_000, 1).unwrap();
+        assert_eq!(noisy.paired_window_count, 50);
+        assert!((6_019..=6_023).contains(&noisy.paired_energy_delta_millidb));
+    }
+
+    #[test]
+    fn track_event_policy_rejects_wrong_duration_silence_and_one_sided_evidence() {
+        let silence = vec![0.0; 48_000 * 4];
+        assert_eq!(
+            analyze_track_event_gain(&silence, &silence, 48_000, 1),
+            Err("track_event_gain_evidence_insufficient")
+        );
+        let one_second = vec![0.1; 48_000];
+        assert_eq!(
+            analyze_track_event_gain(&one_second, &one_second, 48_000, 1),
+            Err("track_event_gain_duration_invalid")
+        );
+        let post = vec![0.1; 48_000 * 4];
+        assert_eq!(
+            analyze_track_event_gain(&post, &silence, 48_000, 1),
+            Err("track_event_gain_evidence_insufficient")
+        );
+        let mut non_finite = post;
+        non_finite[0] = f32::NAN;
+        assert_eq!(
+            analyze_track_event_gain(&non_finite, &silence, 48_000, 1),
+            Err("track_event_gain_input_invalid")
         );
     }
 }

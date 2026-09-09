@@ -17,12 +17,26 @@ typedef struct {
   int64_t b_cue_true_peak_millidbtp;
 } KirinReferenceGainFacts;
 
+typedef struct {
+  uint64_t paired_window_count;
+  int64_t paired_energy_delta_millidb;
+  int64_t post_cue_true_peak_millidbtp;
+  int64_t pre_cue_true_peak_millidbtp;
+} KirinTrackEventGainFacts;
+
 /* 400ms / 100ms hopの連続active blockとCue True PeakをBS.1770核で解析する。
  * worker thread専用。A/Bは同一sample rate/channel/frame countのinterleaved f32。 */
 bool kirin_hypha_analyze_reference_gain(const float* a, const float* b,
                                         size_t num_frames, uint32_t sample_rate,
                                         uint32_t num_channels,
                                         KirinReferenceGainFacts* out);
+
+/* TRACK/STEMのexact 4秒PCMを20ms paired event energy windowで解析する別名policy。
+ * 各側最大eventの-40dB以内を使う。短音を反復せず、十分な実信号がなければfalse。 */
+bool kirin_hypha_analyze_track_event_gain(const float* post, const float* pre,
+                                          size_t num_frames, uint32_t sample_rate,
+                                          uint32_t num_channels,
+                                          KirinTrackEventGainFacts* out);
 
 #ifdef __cplusplus
 }

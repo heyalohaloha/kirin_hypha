@@ -107,7 +107,11 @@ bool KirinHyphaProcessorBase::requestLocalBlindProductCapture()
     const auto serial = localBlindProductSerial.fetch_add (1, std::memory_order_acq_rel) + 1;
     const auto now = static_cast<std::uint64_t> (juce::Time::currentTimeMillis());
     const auto generation = (now << 16u) | (serial & 0xffffu);
-    if (generation == 0 || ! localBlindProductSession.beginCapture (scopeEpoch, generation))
+    const auto gainPolicy = meterContextPreference() == hypha::meter_context::MeterContext::trackStem
+        ? hypha::local_blind::GainMatchPolicy::exactTrackEventEnergyV1
+        : hypha::local_blind::GainMatchPolicy::alignedActiveBlocksV1;
+    if (generation == 0 || ! localBlindProductSession.beginCapture (
+            scopeEpoch, generation, gainPolicy))
     {
         releaseLocalBlindProductScope (scopeEpoch);
         return false;

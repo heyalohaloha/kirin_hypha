@@ -5,7 +5,8 @@
 namespace hypha::local_blind
 {
 bool LocalBlindProductSession::beginCapture (
-    std::uint64_t nextScopeEpoch, std::uint64_t nextCaptureGeneration) noexcept
+    std::uint64_t nextScopeEpoch, std::uint64_t nextCaptureGeneration,
+    GainMatchPolicy nextGainPolicy) noexcept
 {
     const std::lock_guard<std::mutex> lock (controlLock);
     output.collect();
@@ -14,6 +15,7 @@ bool LocalBlindProductSession::beginCapture (
         return false;
     scopeEpoch = nextScopeEpoch;
     expectedCaptureGeneration = nextCaptureGeneration;
+    gainPolicy = nextGainPolicy;
     capturedPair = {};
     failure = ProductSessionFailure::none;
     basePhase = ProductSessionPhase::capturing;
@@ -23,7 +25,7 @@ bool LocalBlindProductSession::beginCapture (
     frameCount = 0;
     fixedPreGainDb = 0.0;
     lowerPostGainDb = 0.0;
-    matchedBlocks = 0;
+    matchedAnalysisUnits = 0;
     return true;
 }
 
@@ -47,6 +49,7 @@ bool LocalBlindProductSession::acceptCapturedPair (
     const ExactRangeCapture& pre, const std::function<bool()>& random) noexcept
 {
     std::uint64_t admittedScope = 0;
+    GainMatchPolicy admittedGainPolicy = GainMatchPolicy::alignedActiveBlocksV1;
     {
         const std::lock_guard<std::mutex> lock (controlLock);
         if (basePhase != ProductSessionPhase::capturing || scopeEpoch == 0
@@ -54,6 +57,7 @@ bool LocalBlindProductSession::acceptCapturedPair (
             return false;
         basePhase = ProductSessionPhase::preparing;
         admittedScope = scopeEpoch;
+        admittedGainPolicy = gainPolicy;
     }
 
     TrialFormat format;
@@ -79,7 +83,7 @@ bool LocalBlindProductSession::acceptCapturedPair (
     }
     const auto budget = static_cast<std::size_t> (frames * chans * sizeof (float) * 2u);
     auto prepared = prepareLocalBlindCandidate (
-        post, pre, format, request.nativeStart, budget, random);
+        post, pre, format, request.nativeStart, budget, admittedGainPolicy, random);
 
     const std::lock_guard<std::mutex> lock (controlLock);
     if (scopeEpoch != admittedScope || expectedCaptureGeneration != request.captureGeneration
@@ -104,7 +108,7 @@ bool LocalBlindProductSession::acceptCapturedPair (
     frameCount = request.frames;
     fixedPreGainDb = prepared.fixedPreGainDb;
     lowerPostGainDb = prepared.lowerPostGainDb;
-    matchedBlocks = prepared.matchedBlocks;
+    matchedAnalysisUnits = prepared.matchedAnalysisUnits;
     capturedPair = request.pair;
     expectedCaptureGeneration = 0;
     basePhase = ProductSessionPhase::ready;
@@ -186,13 +190,14 @@ ProductSessionView LocalBlindProductSession::viewUnderLock() const noexcept
     ProductSessionView result;
     result.phase = basePhase;
     result.failure = failure;
+    result.gainPolicy = gainPolicy;
     result.sampleRate = sampleRate;
     result.channels = channels;
     result.start = startSample;
     result.frames = frameCount;
     result.fixedPreGainDb = fixedPreGainDb;
     result.lowerPostGainDb = lowerPostGainDb;
-    result.matchedBlocks = matchedBlocks;
+    result.matchedAnalysisUnits = matchedAnalysisUnits;
     if (auto* trial = output.control())
     {
         result.trial = trial->view();
