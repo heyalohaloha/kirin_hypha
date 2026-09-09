@@ -87,6 +87,10 @@ inline void verifyReferenceAccessPanelContract()
         verifyLayout();
         require (! button ("reference-access-about")->isVisible(), "owner help is not repurchase");
         require (aboutCount == 1 && recheckCount == 0, "help does not activate or connect");
+        require (panel.getDescription().contains ("Connect Hypha POST"),
+                 "owner help identifies the current Work connection action");
+        require (! panel.getDescription().contains ("Open in Hypha"),
+                 "owner help never advertises the removed Reference action");
         button ("reference-access-recheck")->onClick();
         require (recheckCount == 1, "local recheck is explicit");
         panel.setOwned (true);
@@ -94,6 +98,10 @@ inline void verifyReferenceAccessPanelContract()
                  "external entitlement recognition clears stale recheck failure");
         require (panel.getDescription().contains ("Kirin OS license confirmed"),
                  "recognized owner sees explicit license confirmation");
+        require (panel.getDescription().contains ("Connect Hypha POST"),
+                 "recognized owner sees the current Work connection action");
+        require (! panel.getDescription().contains ("Open in Hypha"),
+                 "removed Reference action is never advertised");
         require (! panel.getDescription().contains ("activate Kirin OS"),
                  "recognized owner is not told to activate again");
         verifyLayout();

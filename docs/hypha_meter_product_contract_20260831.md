@@ -85,7 +85,9 @@ POSTのREF入口はOS権限を確認できない状態でも開け、Reference�
 公式製品ページは英語と日本語の明示選択で開き、購入処理や外部通信を自動開始しない。
 所有者向け案内ではローカルlicenseの明示再確認を提供し、確認できないことを「未購入」と断定しない。
 Keep／All Keepは消さずdisabled表示にする。
-OS所有・未接続では購入案内を表示せず、Bを無効にしてKirin OSの`Open in Hypha`を案内する。
+OS所有・未接続では購入案内を表示せず、Bを無効にする。保存済みWorkをKirin OSのINSPECTで開き、
+`Connect Hypha POST`から対象のPOSTへ接続する現在の入口を案内する。ReferenceはWork接続後に自動投影し、
+廃止した`Open in Hypha`操作を要求しない。
 接続済み・準備不足では不足している前提に関係する操作だけを無効にし、準備完了時だけBとBlindを許可する。
 
 REFの案内画面は試聴の許可ではない。
