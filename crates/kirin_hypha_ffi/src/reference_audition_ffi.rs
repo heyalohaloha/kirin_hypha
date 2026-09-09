@@ -1,33 +1,21 @@
 use super::*;
 
 impl KirinHyphaEngine {
-    /// Control-thread boundary coupled to explicit Reference A/B selection.
-    ///
-    /// The normal POST engine keeps measuring canonical A. Only PRE-derived comparisons are
-    /// suspended, and the exact pair latch remains owned by the POST for immediate A return.
+    /// Couple explicit Reference selection to the shared comparison admission owner.
     pub fn set_reference_audition_active(&self, active: bool) -> bool {
-        let is_post =
-            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
-        if !is_post {
-            return false;
-        }
-        self.reference_audition_active
-            .store(active, Ordering::Release);
         if active {
-            *self
-                .delta_result
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = DeltaResult::default();
-            if let Some(history) = self.meter_delta_history.as_ref() {
-                history.reset();
-            }
+            self.begin_audition(
+                super::audition_admission_ffi::AUDITION_REFERENCE,
+                "Reference",
+            )
+            .is_some()
+        } else {
+            self.end_audition(super::audition_admission_ffi::AUDITION_REFERENCE, None)
         }
-        true
     }
 }
 
 /// Couple explicit Reference A/B selection to the PRE-comparison suspension gate.
-/// Returns false for null, PRE, or not-yet-enabled engines.
 ///
 /// # Safety
 /// `handle` must be null or a live pointer returned by [`kirin_hypha_create`].
@@ -37,10 +25,7 @@ pub unsafe extern "C" fn kirin_hypha_set_reference_audition_active(
     active: bool,
 ) -> bool {
     catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return false;
-        }
-        unsafe { (*handle).set_reference_audition_active(active) }
+        !handle.is_null() && unsafe { (*handle).set_reference_audition_active(active) }
     }))
     .unwrap_or(false)
 }
@@ -50,10 +35,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn post_only_gate_clears_held_delta_and_is_reversible() {
+    fn reference_and_local_blind_share_one_owner() {
         let engine = KirinHyphaEngine::new(48_000, 2);
         assert!(!engine.set_reference_audition_active(true));
         *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
+        let mut identity = engine.identity.lock().unwrap();
+        identity.project_hash = format!("ffi-reference-{}", Uuid::new_v4());
+        identity.instance_id = Uuid::new_v4().to_string();
+        drop(identity);
         *engine.delta_result.lock().unwrap() = DeltaResult {
             lufs: Some(2.0),
             mode: DeltaMode::Active,
@@ -61,10 +50,12 @@ mod tests {
         };
 
         assert!(engine.set_reference_audition_active(true));
-        assert!(engine.reference_audition_active.load(Ordering::Acquire));
+        assert!(engine.audition.is_active());
         assert_eq!(engine.delta_result.lock().unwrap().mode, DeltaMode::NoPre);
+        assert_eq!(engine.begin_local_blind(), None);
+        assert!(!engine.end_local_blind(1));
         assert!(engine.set_reference_audition_active(false));
-        assert!(!engine.reference_audition_active.load(Ordering::Acquire));
+        assert!(!engine.audition.is_active());
     }
 
     #[test]

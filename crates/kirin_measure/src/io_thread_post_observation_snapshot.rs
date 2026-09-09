@@ -64,7 +64,7 @@ impl PostSnapshotPublisher {
         identity: &PostObservationIdentity,
         pair: &PostPairSnapshot,
         latched_pre: &std::sync::Arc<std::sync::Mutex<Option<crate::LatchedPre>>>,
-        reference_audition_active: bool,
+        comparison_audition_active: bool,
     ) -> bool {
         let (recording, stable_generation) = runtime.stable_record_generation();
         let written = match run_tick(
@@ -84,7 +84,7 @@ impl PostSnapshotPublisher {
             &identity.daw_session_id,
             recording,
             latched_pre,
-            reference_audition_active,
+            comparison_audition_active,
         ) {
             Ok(()) => true,
             Err(error) => {

@@ -255,7 +255,7 @@ pub(super) fn run_tick(
     // keep/Arm が共有する単一ラッチ（io_thread が毎 tick 維持、keep が resolve_arm_target で読む）。
     recording: bool,
     latched: &Mutex<Option<LatchedPre>>,
-    reference_audition_active: bool,
+    comparison_audition_active: bool,
 ) -> Result<(), String> {
     let state = load_signal_state(signal_state_atom);
 
@@ -294,7 +294,7 @@ pub(super) fn run_tick(
 
     // B-108: ラッチ意味論で表示Δを決める（select_target_pre 直呼びを廃止）。一度成立した結合は
     // 無音/停止/一時鮮度揺らぎ/同名2台目では NoPre に落とさず、解除は名前変更/クリアと PRE 実消滅のみ。
-    let (new_delta, store_directly, pre_signal_state) = if reference_audition_active {
+    let (new_delta, store_directly, pre_signal_state) = if comparison_audition_active {
         // B audio is deliberately excluded from the canonical A measurement path. While the
         // user listens to B, expose no held PRE delta and perform no PRE discovery/read/join.
         // The exact pair latch remains untouched so A resumes without another setup step.

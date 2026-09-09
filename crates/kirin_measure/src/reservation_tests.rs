@@ -310,6 +310,7 @@ fn concurrent_reserve_exactly_one_wins() {
                     already.fetch_add(1, Ordering::Relaxed);
                 }
                 Ok(ReserveOutcome::PreInUse) => {}
+                Ok(ReserveOutcome::AuditionInUse) => {}
                 Err(_) => {}
             })
         })
@@ -342,6 +343,7 @@ fn try_claim_via_gate(base: &Path, ph: &str, pre: &str, post: &str) -> bool {
         }
         Ok(ReserveOutcome::AlreadyReserved) => true,
         Ok(ReserveOutcome::PreInUse) => false,
+        Ok(ReserveOutcome::AuditionInUse) => false,
         Err(_) => false,
     }
 }

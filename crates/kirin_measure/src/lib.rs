@@ -1,5 +1,4 @@
 //! kirin_measure — Kirin Hypha 共通計測ライブラリ。
-//!
 //! napi-rsに依存せず、nih-plugのAudio Threadから独立したMeasure Thread／IO Threadで使う。
 mod absolute_level;
 pub mod absolute_timeline;
@@ -55,6 +54,7 @@ mod pre_pair_status;
 pub mod preset;
 pub mod preset_dispatch;
 pub mod preset_v2;
+mod project_audition_lease;
 mod raw_pre_roll;
 pub mod record;
 pub mod record_clock;
@@ -109,7 +109,7 @@ pub use all_stop_signal::{
     write_stop_broadcast_for_generation, write_stop_broadcast_signal, AllStopBroadcast,
     AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION, ALL_STOP_SIGNAL_SUBDIR,
 };
-pub use analysis_lease::{ANALYSIS_OWNER_NAME_MAX_BYTES, ANALYSIS_SLOT_COUNT};
+pub use analysis_lease::{AuditionAdmission, ANALYSIS_OWNER_NAME_MAX_BYTES, ANALYSIS_SLOT_COUNT};
 pub use attack_perception::{
     AttackPerceptionError, AttackPerceptualDelta, AttackPerceptualFeatures, ATTACK_CONTEXT_MICROS,
     ATTACK_DETAIL_MICROS, ATTACK_LEVEL_FLOOR_DBFS,

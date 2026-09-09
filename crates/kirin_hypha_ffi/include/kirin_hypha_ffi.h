@@ -716,9 +716,9 @@ size_t kirin_hypha_enumerate_post_pair_claims(KirinHypha* handle, KirinPostPairC
 
 /* POSTのΔをoutへ。値あり=true、競合/未計測=false。post.jsonはPOST生メトリクス。 */
 bool kirin_hypha_poll_delta(KirinHypha* handle, KirinDelta* out);
-/* Reference B suspends PRE comparisons while A stays measured. */
 bool kirin_hypha_set_reference_audition_active(KirinHypha* handle, bool active);
-
+bool kirin_hypha_begin_local_blind(KirinHypha* handle, uint64_t* out_scope_epoch);
+bool kirin_hypha_end_local_blind(KirinHypha* handle, uint64_t scope_epoch);
 /* POST Spectrumページの表示edge。PRE/未enableはfalse。filesystem処理はIO threadへ遅延する。 */
 bool kirin_hypha_set_spectrum_visible(KirinHypha* handle, bool visible);
 

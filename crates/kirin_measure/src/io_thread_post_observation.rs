@@ -54,9 +54,9 @@ impl PostObservation {
 
     fn service_at(&mut self, cycle_now: Instant) -> PostObservationTick {
         let identity = self.runtime.identity_snapshot();
-        let reference_audition_active = self
+        let comparison_audition_active = self
             .runtime
-            .reference_audition_active
+            .comparison_audition_active
             .load(Ordering::Acquire);
         self.pair
             .refresh_reservation(cycle_now, &self.runtime, &identity);
@@ -73,13 +73,13 @@ impl PostObservation {
             &identity,
             &pair,
             self.pair.latched_pre(),
-            reference_audition_active,
+            comparison_audition_active,
         );
         self.analysis.service(
             self.pair.latched_pre(),
             &identity.instance_id,
             &pair.name,
-            reference_audition_active,
+            comparison_audition_active,
         );
         self.pair.publish_claim(
             self.snapshot.kirin_root(),

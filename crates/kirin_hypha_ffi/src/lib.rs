@@ -1,38 +1,28 @@
 //! kirin_hypha_ffi — Kirin Hypha JUCE 移植の C ABI ラッパ。
 //!
-//! 方式 B2: 検証済み Rust ランタイム(`kirin_measure`)を **無変更** で C ABI に包む。
-//! C++/JUCE 側に DSP・計測ロジックを一切移さない（計測器は精度が製品そのもの）。
+//! 方式 B2: 検証済み Rust ランタイムを C ABI に包み、DSP・計測ロジックはC++へ移さない。
 //!
 //! # C ABI surface（すべて実装済み）
 //! - RT 計測: `create` / `set_signal_state` / `push_samples` / `poll_result` / `destroy`。
-//! - Record: `set_license` / `exit_record` と `poll_session`
-//!   (LUFS-I/LRA/max_true_peak)。SessionSummary は `engine.finalize()` 由来で Record 中にのみ
-//!   成立する量で、Measure Thread が **自律的に** finalize して `session_summary` を充填する
-//!   （measure_thread.rs:290-295）。FFI は RecordStateMachine を flip するだけ（exit で finalize
-//!   を呼ばない＝finalize は Measure Thread のみ / engine.rs:161）。`poll_session` は Record
-//!   finalize 後に値を返す（Record 前は false）。
+//! - Record: `set_license` / `exit_record` / `poll_session`。SessionSummary はMeasure Threadが
+//!   自律finalizeして充填し、FFIはRecordStateMachineだけを切り替える。値はfinalize後だけ返す。
 //! - state chunk 識別子: `set_identity` / `get_identity`（方式A）。
 //! - plugin_data IO: `enable_pre_writes`（PRE: Watch pre.json + Record frames/PSB）/
 //!   `enable_post_writes`（POST: post.json の生メトリクス + Δ を select_target_pre 経由で算出）。
 //!   filesystem 書込は kirin_measure の io_thread 内に閉じる（FFI は spawn と識別子注入のみ）。
-//! - PRE-POST ペアリング: `set_pair_target` / `keep` / `stop` / `poll_delta` /
-//!   `enumerate_post_pair_claims`
+//! - PRE-POST ペアリング: `set_pair_target` / `keep` / `stop` / `poll_delta` / `enumerate_post_pair_claims`
 //!   （POST Keep → PRE が record_signal を ack して自律的に Record に入る）。
 //! - Mark: `add_mark`（Record中のproducer sample位置へ Good/Fix/Hold を記録）。
 //!
 //! # スレッドモデル（本番 hypha_pre/post と同一の入口を使う）
-//! `create` は本番の実運用入口 `kirin_measure::spawn_measure_thread`(measure_thread.rs:59) で
-//! Measure Thread を起動し、B-118 で T-8 Watchdog を再採用する（Measure crash の自動再起動 +
-//! io は Lazy 監視 / B-056 opt-out 撤回）。IO Thread は enable_*_writes で後発 spawn する。
+//! `create` は本番入口でMeasure ThreadとWatchdogを起動し、IO Threadはenable_*_writesで後発spawnする。
 //! - `push_samples`: **Audio Thread 単独**。rtrb Producer への lock-free push + heartbeat++。
 //!   アロケーション/lock/syscall なし（RT-safe）。Record 中も読むだけ（R-12）。
 //! - `poll_result` / `poll_session` : **UI Thread**。`try_lock`（非ブロッキング）。
 //!
 //! ## heartbeat（必須配線）
-//! Measure Thread は heartbeat が ~3s 変化しないと（B-118/G-115-245: LivenessEvaluator の
-//! live window）signal_state を Inactive に上書きし結果を clear する。本番は host の `process()`
-//! が毎回 `heartbeat.fetch_add(1)`
-//! していた(hypha_pre.rs:390)。本 FFI では **`push_samples` が heartbeat を進める**。
+//! Measure Threadはheartbeatが約3秒止まるとInactiveへ移して結果をclearする。本FFIでは
+//! **`push_samples` が heartbeat を進める**。
 
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_void};
@@ -83,6 +73,7 @@ use uuid::Uuid;
 
 mod analysis_display_ffi;
 mod attack_ffi;
+mod audition_admission_ffi;
 mod identity_ffi;
 mod identity_registry;
 mod legacy_nih_state;
@@ -98,6 +89,7 @@ mod signal_state_ffi;
 mod watch_display_ffi;
 use analysis_display_ffi::{to_c_absolute_batch, to_c_perceptual, to_c_perceptual_batch};
 pub use attack_ffi::*;
+pub use audition_admission_ffi::{kirin_hypha_begin_local_blind, kirin_hypha_end_local_blind};
 pub use identity_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
 pub use identity_registry::__reset_shared_ids_for_tests;
 pub use legacy_nih_state::{kirin_hypha_decode_legacy_nih_state, KirinLegacyNihState};
@@ -330,8 +322,8 @@ pub struct KirinHyphaEngine {
     /// POST の Δ 結果（B-060 3d-a）。POST io_thread の run_tick が select_target_pre で
     /// 選んだ PRE との差分を書き、`poll_delta` が読む（GUI 表示用）。PRE では未更新。
     delta_result: Arc<Mutex<DeltaResult>>,
-    /// Explicit Reference B stops PRE-derived comparisons but preserves canonical A measurement.
-    reference_audition_active: Arc<AtomicBool>,
+    /// Shared admission for Reference and local Blind; canonical A measurement remains active.
+    audition: audition_admission_ffi::AuditionState,
     /// Optional POST-requested Spectrum path. The bounded SPSC producer is always allocated at
     /// prepare time, but its worker remains absent and its audio ingress returns after one atomic
     /// read until the POST Spectrum page is visible (or an exact PRE is serving that request).
@@ -667,9 +659,11 @@ fn resolve_and_enter_keep(
         match reservation::reserve_pairing(&base, project_hash, &target, post_iid) {
             Ok(reservation::ReserveOutcome::Created) => true,
             Ok(reservation::ReserveOutcome::AlreadyReserved) => false,
-            Ok(reservation::ReserveOutcome::PreInUse) => {
+            Ok(
+                reservation::ReserveOutcome::PreInUse | reservation::ReserveOutcome::AuditionInUse,
+            ) => {
                 if let Ok(mut g) = keep_action_notice.write() {
-                    *g = Some("PRE already in use".to_string());
+                    *g = Some("PRE or Blind Compare already in use".to_string());
                 }
                 return false;
             }
@@ -1001,7 +995,6 @@ impl KirinHyphaEngine {
 
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
-        let reference_audition_active = Arc::new(AtomicBool::new(false));
         let attack_runtime = kirin_measure::AttackRuntime::new(sample_rate, num_channels).ok();
         let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
         let spectrum = SpectrumCoordinator::new_with_attack(
@@ -1116,7 +1109,7 @@ impl KirinHyphaEngine {
             record_ingress,
             measure_result,
             delta_result,
-            reference_audition_active,
+            audition: audition_admission_ffi::AuditionState::new(),
             spectrum_runtime,
             attack_runtime,
             spectrum,
@@ -1231,6 +1224,9 @@ impl KirinHyphaEngine {
     /// integration test）が状態機械を直接検証するために呼ぶため。C ABI 経由でこの crate の
     /// 外（JUCE 側）から呼べる経路は存在しない。
     pub fn enter_record(&self) -> bool {
+        if self.audition.blocks_record() {
+            return false;
+        }
         let next_generation = self.record_sm.generation().saturating_add(1);
         if !self.record_ingress.prepare_for_generation(next_generation) {
             return false;
@@ -1858,7 +1854,7 @@ impl KirinHyphaEngine {
             let latched_pre = self.pair_binding.latched_pre();
             let spectrum = Arc::clone(&self.spectrum);
             let meter_delta_history = self.meter_delta_history.as_ref().map(Arc::clone);
-            let reference_audition_active = Arc::clone(&self.reference_audition_active);
+            let comparison_audition_active = self.audition.active_handle();
             let sample_rate = self.sample_rate;
             Box::new(move || {
                 let io_shutdown = Arc::new(AtomicBool::new(false));
@@ -1896,7 +1892,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&latched_pre),   // B-108: display/keep 共有ラッチ
                     Some(Arc::clone(&spectrum)),
                     meter_delta_history.as_ref().map(Arc::clone),
-                    Arc::clone(&reference_audition_active),
+                    Arc::clone(&comparison_audition_active),
                 );
                 IoThreadHandle {
                     shutdown: io_shutdown,
@@ -2429,6 +2425,9 @@ impl KirinHyphaEngine {
     /// 自 keep の結果（有効ペアありなら true）を返す。broadcast 書込失敗は best-effort（無視）。
     pub fn keep_all(&self) -> bool {
         clear_keep_action_notice(&self.keep_action_notice);
+        if self.audition.reject_keep(&self.keep_action_notice) {
+            return false;
+        }
         let post_iid = {
             let id = match self.identity.lock() {
                 Ok(g) => g,
