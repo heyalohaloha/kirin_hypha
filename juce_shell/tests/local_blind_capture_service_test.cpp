@@ -51,6 +51,7 @@ int main()
         0, 12, now + 5'000
     };
     std::atomic<bool> preRequestAvailable { true };
+    std::atomic<bool> preRequestContended { false };
     std::atomic<bool> preAcknowledged { false };
     std::atomic<std::uint64_t> pairGeneration { request.pair.generation };
     MockPreTransport transport;
@@ -59,9 +60,10 @@ int main()
         CaptureSide::pre,
         { [&] (ExactCaptureRequest& out)
               {
-                  if (! preRequestAvailable.load()) return false;
+                  if (preRequestContended.load()) return CaptureRequestPoll::contended;
+                  if (! preRequestAvailable.load()) return CaptureRequestPoll::unavailable;
                   out = request;
-                  return true;
+                  return CaptureRequestPoll::current;
               },
           [&] (const std::string& requestId)
               {
@@ -141,6 +143,9 @@ int main()
     post.start (48000, 1);
     require (waitUntil ([&] { return preAcknowledged.load(); }));
     require (pre.view().phase == CaptureOwnerPhase::capturing);
+    // A claim transaction may briefly own the filesystem lock after PRE admission. It must not be
+    // mistaken for a stable pair change while the exact captured request remains unchanged.
+    preRequestContended.store (true);
     require (post.reservePostRequest());
     require (! post.reservePostRequest());
     require (post.commitPostRequest (request));
@@ -173,6 +178,7 @@ int main()
     // Completion remains bound to the exact pair. A later generation invalidates it and releases
     // the one-request owner rather than silently re-targeting the captured PCM.
     pairGeneration.fetch_add (1);
+    preRequestContended.store (false);
     preRequestAvailable.store (false);
     require (waitUntil ([&] { return ! post.capturePairReady(); }));
     require (waitUntil ([&] { return post.view().phase == CaptureOwnerPhase::failed; }));
@@ -292,7 +298,8 @@ int main()
     std::optional<CaptureOwnerView> publishedFailure;
     LocalBlindCaptureService failingPre (
         CaptureSide::pre,
-        { [&] (ExactCaptureRequest& out) { out = failedRequest; return true; },
+        { [&] (ExactCaptureRequest& out)
+              { out = failedRequest; return CaptureRequestPoll::current; },
           [&] (const std::string& id) { return id == failedRequest.requestId; },
           {}, {}, {},
           [&] (const ExactCaptureRequest& exact, CaptureOwnerView failure)
@@ -347,7 +354,8 @@ int main()
     std::atomic<bool> publicationFailurePublished { false };
     LocalBlindCaptureService unpublishablePre (
         CaptureSide::pre,
-        { [&] (ExactCaptureRequest& out) { out = unpublishableRequest; return true; },
+        { [&] (ExactCaptureRequest& out)
+              { out = unpublishableRequest; return CaptureRequestPoll::current; },
           [&] (const std::string& id) { return id == unpublishableRequest.requestId; },
           {}, {},
           [&] (const ExactCaptureRequest&, const CaptureReceipt&,

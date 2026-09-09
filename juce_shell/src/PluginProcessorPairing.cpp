@@ -154,15 +154,22 @@ bool KirinHyphaProcessorBase::issueLocalBlindCaptureRequest (
     return true;
 }
 
-bool KirinHyphaProcessorBase::pollLocalBlindCaptureRequest (
+hypha::local_blind::CaptureRequestPoll KirinHyphaProcessorBase::pollLocalBlindCaptureRequest (
     hypha::local_blind::ExactCaptureRequest& out) const
 {
+    using hypha::local_blind::CaptureRequestPoll;
     const juce::ScopedLock lock (handleLock);
     if (role != Role::Pre || hyphaHandle == nullptr)
-        return false;
+        return CaptureRequestPoll::unavailable;
     KirinLocalBlindCaptureRequest request {};
-    return kirin_hypha_poll_local_blind_capture_request (hyphaHandle, &request)
-        && decodeCaptureRequest (request, out);
+    const auto status = kirin_hypha_poll_local_blind_capture_request_v2 (
+        hyphaHandle, &request);
+    if (status == KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_CONTENDED)
+        return CaptureRequestPoll::contended;
+    if (status != KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_CURRENT
+        || ! decodeCaptureRequest (request, out))
+        return CaptureRequestPoll::unavailable;
+    return CaptureRequestPoll::current;
 }
 
 bool KirinHyphaProcessorBase::acknowledgeLocalBlindCaptureRequest (

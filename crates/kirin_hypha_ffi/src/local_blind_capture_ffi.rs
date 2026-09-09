@@ -5,16 +5,20 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kirin_measure::local_blind_capture_protocol::{
+    poll_validated_local_blind_capture_request_for_active_result,
     publish_local_blind_capture_armed, publish_local_blind_capture_request,
     read_matching_local_blind_capture_armed, read_validated_local_blind_capture_request,
-    read_validated_local_blind_capture_request_for_active_result, LocalBlindCaptureRequest,
-    LocalBlindPairAuthority, LOCAL_BLIND_CAPTURE_LEASE_MS,
+    ActiveCaptureRequestPoll, LocalBlindCaptureRequest, LocalBlindPairAuthority,
+    LOCAL_BLIND_CAPTURE_LEASE_MS,
 };
 use kirin_measure::{PlatformPaths, PluginDataRole};
 
 use super::{copy_exact, KirinHyphaEngine, LOCATOR_CAPACITY};
 
 const REQUEST_ID_CAPACITY: usize = 37;
+const REQUEST_POLL_UNAVAILABLE: u8 = 0;
+const REQUEST_POLL_CURRENT: u8 = 1;
+const REQUEST_POLL_CONTENDED: u8 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -153,22 +157,35 @@ impl KirinHyphaEngine {
     pub(crate) fn read_local_blind_capture_request_for_active_pre(
         &self,
     ) -> Option<LocalBlindCaptureRequest> {
+        match self.poll_local_blind_capture_request_for_active_pre() {
+            ActiveCaptureRequestPoll::Current(request) => Some(request),
+            ActiveCaptureRequestPoll::Unavailable | ActiveCaptureRequestPoll::Contended => None,
+        }
+    }
+
+    fn poll_local_blind_capture_request_for_active_pre(&self) -> ActiveCaptureRequestPoll {
         if !self.is_local_blind_role(PluginDataRole::Pre) {
-            return None;
+            return ActiveCaptureRequestPoll::Unavailable;
         }
         let identity = self.identity_snapshot();
         let root = PlatformPaths::current_kirin_tmp_root();
         let instance_dir = root
             .join(&identity.project_hash)
             .join(&identity.instance_id);
-        read_validated_local_blind_capture_request_for_active_result(
+        let Ok(channels) = u8::try_from(self.num_channels) else {
+            return ActiveCaptureRequestPoll::Unavailable;
+        };
+        let Some(now_unix_ms) = unix_ms_now() else {
+            return ActiveCaptureRequestPoll::Unavailable;
+        };
+        poll_validated_local_blind_capture_request_for_active_result(
             &root,
             &instance_dir,
             &identity.project_hash,
             &identity.instance_id,
             self.sample_rate,
-            u8::try_from(self.num_channels).ok()?,
-            unix_ms_now()?,
+            channels,
+            now_unix_ms,
         )
     }
 
@@ -304,7 +321,6 @@ pub unsafe extern "C" fn kirin_hypha_issue_local_blind_capture_request_v2(
 /// deadline before arming and retains this identity only while finalizing that accepted capture.
 ///
 /// # Safety
-///
 /// `handle` must be null or point to a live `KirinHyphaEngine`. When `out` is non-null,
 /// it must point to writable storage for one `KirinLocalBlindCaptureRequest`.
 #[no_mangle]
@@ -330,10 +346,37 @@ pub unsafe extern "C" fn kirin_hypha_poll_local_blind_capture_request(
     .unwrap_or(false)
 }
 
+/// Poll an admitted request without collapsing pair-claim contention into pair loss.
+///
+/// # Safety
+/// `handle` must be null or live; `out` must be null or writable for one request.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_local_blind_capture_request_v2(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinLocalBlindCaptureRequest,
+) -> u8 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return REQUEST_POLL_UNAVAILABLE;
+        }
+        match unsafe { (*handle).poll_local_blind_capture_request_for_active_pre() } {
+            ActiveCaptureRequestPoll::Unavailable => REQUEST_POLL_UNAVAILABLE,
+            ActiveCaptureRequestPoll::Contended => REQUEST_POLL_CONTENDED,
+            ActiveCaptureRequestPoll::Current(request) => match encode_request(&request) {
+                Some(encoded) => {
+                    unsafe { out.write(encoded) };
+                    REQUEST_POLL_CURRENT
+                }
+                None => REQUEST_POLL_UNAVAILABLE,
+            },
+        }
+    }))
+    .unwrap_or(REQUEST_POLL_UNAVAILABLE)
+}
+
 /// Echo one request only after the PRE shell has installed its matching capture object.
 ///
 /// # Safety
-///
 /// `handle` must be null or point to a live `KirinHyphaEngine`. `request_id` must be null or
 /// point to a readable null-terminated string.
 #[no_mangle]

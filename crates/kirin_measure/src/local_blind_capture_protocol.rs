@@ -11,13 +11,18 @@ use uuid::Uuid;
 
 use crate::analysis_exchange_transport::{self, AnalysisSlot};
 use crate::pair_claim_index::StablePairClaimObservation;
-
 const REQUEST_SCHEMA: &str = "kirin_hypha_local_blind_capture_request_v2";
 const ARMED_SCHEMA: &str = "kirin_hypha_local_blind_capture_armed_v2";
 const REQUEST_MAX_BYTES: u64 = 4_096;
 const ARMED_MAX_BYTES: u64 = 2_048;
 pub const LOCAL_BLIND_CAPTURE_LEASE_MS: i64 = 15_000;
 const MAX_CAPTURE_SECONDS: i64 = 4;
+
+#[path = "local_blind_capture_active_poll.rs"]
+mod active_poll;
+pub use active_poll::{
+    poll_validated_local_blind_capture_request_for_active_result, ActiveCaptureRequestPoll,
+};
 
 #[derive(Clone, Copy)]
 struct CaptureTarget<'a> {
@@ -152,6 +157,11 @@ impl LocalBlindCaptureRequest {
     }
 
     fn matches_target(&self, target: CaptureTarget<'_>) -> bool {
+        self.matches_static_target(target)
+            && self.authority.matches_current_claim(target.kirin_root)
+    }
+
+    fn matches_static_target(&self, target: CaptureTarget<'_>) -> bool {
         self.authority.pre_project_hash == target.pre_project_hash
             && self.authority.pre_instance_id == target.pre_instance_id
             && self.sample_rate == target.sample_rate
@@ -162,7 +172,6 @@ impl LocalBlindCaptureRequest {
                     .join(target.pre_project_hash)
                     .join(target.pre_instance_id)
                     .as_path()
-            && self.authority.matches_current_claim(target.kirin_root)
     }
 
     fn valid_shape_at(&self, now_unix_ms: i64) -> bool {
@@ -314,19 +323,18 @@ pub fn read_validated_local_blind_capture_request_for_active_result(
     channels: u8,
     now_unix_ms: i64,
 ) -> Option<LocalBlindCaptureRequest> {
-    let request = read_capture_request(instance_dir)?;
-    let target = CaptureTarget {
+    match poll_validated_local_blind_capture_request_for_active_result(
         kirin_root,
         instance_dir,
         pre_project_hash,
         pre_instance_id,
         sample_rate,
         channels,
-    };
-    (request.valid_shape()
-        && request.issued_at_unix_ms <= now_unix_ms
-        && request.matches_target(target))
-    .then_some(request)
+        now_unix_ms,
+    ) {
+        ActiveCaptureRequestPoll::Current(request) => Some(request),
+        ActiveCaptureRequestPoll::Unavailable | ActiveCaptureRequestPoll::Contended => None,
+    }
 }
 
 fn read_capture_request(instance_dir: &Path) -> Option<LocalBlindCaptureRequest> {

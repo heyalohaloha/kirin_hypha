@@ -133,7 +133,8 @@ public:
     bool issueLocalBlindCaptureRequest (std::uint64_t captureGeneration,
                                         std::int64_t frames,
                                         hypha::local_blind::ExactCaptureRequest& out);
-    bool pollLocalBlindCaptureRequest (hypha::local_blind::ExactCaptureRequest& out) const;
+    hypha::local_blind::CaptureRequestPoll pollLocalBlindCaptureRequest (
+        hypha::local_blind::ExactCaptureRequest& out) const;
     bool acknowledgeLocalBlindCaptureRequest (const std::string& requestId) const;
     bool localBlindCaptureIsArmed (const std::string& requestId) const;
     bool publishLocalBlindPreCapture (

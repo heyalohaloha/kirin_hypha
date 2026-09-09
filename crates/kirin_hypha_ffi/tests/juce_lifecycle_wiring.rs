@@ -234,6 +234,8 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
         "expires_at_unix_ms",
         "kirin_hypha_issue_local_blind_capture_request_v2",
         "kirin_hypha_poll_local_blind_capture_request",
+        "kirin_hypha_poll_local_blind_capture_request_v2",
+        "KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_CONTENDED",
         "kirin_hypha_ack_local_blind_capture_request",
         "kirin_hypha_local_blind_capture_is_armed",
     ] {
@@ -276,7 +278,8 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
         "source.clock_position_at_issue",
         "source.native_start",
         "kirin_hypha_issue_local_blind_capture_request_v2",
-        "kirin_hypha_poll_local_blind_capture_request",
+        "kirin_hypha_poll_local_blind_capture_request_v2",
+        "KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_CONTENDED",
         "kirin_hypha_ack_local_blind_capture_request",
         "kirin_hypha_local_blind_capture_is_armed",
     ] {

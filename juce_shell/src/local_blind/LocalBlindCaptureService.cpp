@@ -153,9 +153,12 @@ int LocalBlindCaptureService::useTimeSlice()
 void LocalBlindCaptureService::servicePre (std::int64_t now)
 {
     ExactCaptureRequest live;
-    const bool hasLive = hooks.pollPreRequest && hooks.pollPreRequest (live);
+    const auto polled = hooks.pollPreRequest
+        ? hooks.pollPreRequest (live) : CaptureRequestPoll::unavailable;
+    const bool hasLive = polled == CaptureRequestPoll::current;
     const auto terminal = owner.view().phase;
     if ((terminal == CaptureOwnerPhase::failed || terminal == CaptureOwnerPhase::retired)
+        && polled != CaptureRequestPoll::contended
         && (! hasLive || ! owner.matches (live)))
     {
         clearAttemptState();
@@ -172,7 +175,12 @@ void LocalBlindCaptureService::servicePre (std::int64_t now)
              || owner.view().phase == CaptureOwnerPhase::complete
              || owner.view().phase == CaptureOwnerPhase::retired)
     {
-        owner.servicePre (hasLive ? &live : nullptr, now);
+        // A pair-claim writer temporarily owns the transaction lock. Retain the already-admitted
+        // immutable request for this observation; the next stable missing/changed read still
+        // invalidates the capture before any result can be accepted.
+        const auto* observed = hasLive ? &live
+            : polled == CaptureRequestPoll::contended ? owner.activeRequest() : nullptr;
+        owner.servicePre (observed, now);
     }
 
     if (owner.view().phase == CaptureOwnerPhase::complete && ! prePublished)

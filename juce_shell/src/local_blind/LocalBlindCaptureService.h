@@ -12,9 +12,11 @@
 
 namespace hypha::local_blind
 {
+enum class CaptureRequestPoll : unsigned char { unavailable, current, contended };
+
 struct CaptureServiceHooks
 {
-    std::function<bool (ExactCaptureRequest&)> pollPreRequest;
+    std::function<CaptureRequestPoll (ExactCaptureRequest&)> pollPreRequest;
     std::function<bool (const std::string&)> acknowledgePreRequest;
     std::function<bool (const std::string&)> postPeerArmed;
     std::function<bool (ExactPairBinding&)> currentPostPair;

@@ -35,6 +35,13 @@ bool kirin_hypha_issue_local_blind_capture_request_v2(
     KirinLocalBlindCaptureRequest* out);
 bool kirin_hypha_poll_local_blind_capture_request(
     KirinHypha* handle, KirinLocalBlindCaptureRequest* out);
+enum {
+  KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_UNAVAILABLE = 0,
+  KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_CURRENT = 1,
+  KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_CONTENDED = 2
+};
+uint8_t kirin_hypha_poll_local_blind_capture_request_v2(
+    KirinHypha* handle, KirinLocalBlindCaptureRequest* out);
 bool kirin_hypha_ack_local_blind_capture_request(
     KirinHypha* handle, const char* request_id);
 bool kirin_hypha_local_blind_capture_is_armed(
