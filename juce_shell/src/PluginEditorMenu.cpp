@@ -105,6 +105,7 @@ void KirinHyphaEditor::showCandidateMenu()
     if (menu.getNumItems() > 0)
         menu.addSeparator();
     menu.addSectionHeader ("Pair choices (not Keep targets)");
+    menu.addItem (11, "POST only (no PRE pair)", ! pairLocked, ! pairSelected);
     if (cands.isEmpty())
         menu.addItem (3, "No pair choices", false, false); // disabled (R-26: silent when nothing)
     else
@@ -165,6 +166,17 @@ void KirinHyphaEditor::handleCandidateMenu (
         if (! persisted)
             showToast ("Hover help changed for this session only");
     }
+    else if (result == 11)
+    {
+        processorRef.clearPairCandidate();
+        pairedPreExplicitlyBypassed = false;
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        spectrumView.clearSnapshot();
+        perceptualView.clearSnapshot();
+        absoluteView.clearSnapshot();
+       #endif
+        nameField.setModelName (processorRef.pairDisplayName());
+    }
     else if (result >= 100)
     {
         const int idx = result - 100;
@@ -178,6 +190,7 @@ void KirinHyphaEditor::handleCandidateMenu (
                #if ! KIRIN_HYPHA_PRE_DISPLAY
                 spectrumView.clearSnapshot();
                 perceptualView.clearSnapshot();
+                absoluteView.clearSnapshot();
                #endif
                 nameField.setModelName (processorRef.pairDisplayName());
             }

@@ -124,6 +124,7 @@ public:
     juce::String pairName() const { return persistPairName; }
     juce::String pairDisplayName() const;
     bool setPairCandidate (const juce::String& instanceId, const juce::String& name);
+    void clearPairCandidate();
     int pairStatus() const;                            // 0=Unpaired 1=Waiting 2=Paired
     juce::String pairedPreInstanceId() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;

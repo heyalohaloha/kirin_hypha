@@ -337,6 +337,18 @@ bool KirinHyphaProcessorBase::setPairCandidate (const juce::String& instanceId,
     return true;
 }
 
+void KirinHyphaProcessorBase::clearPairCandidate()
+{
+    {
+        const juce::ScopedLock lock (handleLock);
+        if (hyphaHandle != nullptr)
+            kirin_hypha_set_pair_target (hyphaHandle, "");
+    }
+    persistPairName.clear();
+    persistPairProjectHash.clear();
+    persistPairInstanceId.clear();
+}
+
 void KirinHyphaProcessorBase::restorePersistedPairUnderHandleLock()
 {
     const bool exact = persistPairProjectHash.isNotEmpty() && persistPairInstanceId.isNotEmpty();
