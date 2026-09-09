@@ -242,6 +242,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorGuideTransport.cpp
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
+        src/PluginEditorLifecycle.cpp
         src/PluginEditorMenu.cpp
         src/PluginEditorInformation.cpp
         src/PluginEditorMeter.cpp
