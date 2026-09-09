@@ -188,24 +188,36 @@ fn one_visible_pair_continuous_sharpness_worker_budget_is_quantified() {
     let samples = stereo_tone(48_000, 1_000.0, 1.0, 0);
     let mut analyzer = SharpnessContinuousAnalyzer::new(48_000, 2).unwrap();
     analyzer.reset_at_epoch(0).unwrap();
-    let iterations = 40;
-    let started = Instant::now();
-    for index in 0..iterations {
+    let mut endpoint = 0i64;
+    // Prime lazy CPU/runtime state before measuring the sustained worker. A single cold wall-clock
+    // window made this release gate depend on unrelated shared-runner scheduling.
+    for _ in 0..8 {
+        endpoint += 4_800;
         let result = analyzer
-            .analyze_aperture(
-                black_box(&samples),
-                SpectrumChannelMode::Lr,
-                (index + 1) as i64 * 4_800,
-                1,
-            )
+            .analyze_aperture(black_box(&samples), SpectrumChannelMode::Lr, endpoint, 1)
             .unwrap();
         black_box(result);
     }
-    let millis_per_aperture = started.elapsed().as_secs_f64() * 1_000.0 / iterations as f64;
-    let projected_pair_worker_percent = millis_per_aperture * 10.0 * 2.0 / 10.0;
+
+    let mut trial_percent = [0.0; 5];
+    for percent in &mut trial_percent {
+        let started = Instant::now();
+        for _ in 0..20 {
+            endpoint += 4_800;
+            let result = analyzer
+                .analyze_aperture(black_box(&samples), SpectrumChannelMode::Lr, endpoint, 1)
+                .unwrap();
+            black_box(result);
+        }
+        let millis_per_aperture = started.elapsed().as_secs_f64() * 1_000.0 / 20.0;
+        *percent = millis_per_aperture * 2.0;
+    }
+    trial_percent.sort_by(f64::total_cmp);
+    let projected_pair_worker_percent = trial_percent[trial_percent.len() / 2];
     eprintln!(
-        "48k continuous Perceptual Delta Sharpness: {millis_per_aperture:.3} ms/100ms aperture, \
-         projected one visible PRE+POST worker CPU {projected_pair_worker_percent:.3}%"
+        "48k continuous Perceptual Delta Sharpness: median projected one visible PRE+POST worker \
+         CPU {projected_pair_worker_percent:.3}%, worst {:.3}%",
+        trial_percent[trial_percent.len() - 1]
     );
     assert!(projected_pair_worker_percent < 18.0);
 }
