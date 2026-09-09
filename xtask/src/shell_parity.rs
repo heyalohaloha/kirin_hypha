@@ -399,11 +399,7 @@ mod tests {
 
     #[test]
     fn juce_keep_does_not_pre_reject_at_twelve_reservations() {
-        let ctor_body = between(
-            PLUGIN_EDITOR_CPP,
-            "KirinHyphaEditor::KirinHyphaEditor",
-            "KirinHyphaEditor::~KirinHyphaEditor",
-        );
+        let ctor_body = cpp_body(PLUGIN_EDITOR_CPP, "KirinHyphaEditor::KirinHyphaEditor");
         let keep_body = between(ctor_body, "postControls->onKeep = [this] {", "};");
 
         assert!(
