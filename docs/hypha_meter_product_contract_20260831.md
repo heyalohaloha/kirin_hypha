@@ -214,7 +214,7 @@ Hypha固有の差は、PREとPOSTのexactな差分を複数領域へ横断させ
 
 ### 7.1 Global shell
 
-Header左にroleを含む`HYPHA POST`または`HYPHA PRE`を置く。
+Header左にroleを先頭にした`POST HYPHA`または`PRE HYPHA`を置く。PREは青、POSTはflora amberのrole文字で区別し、製品名の`HYPHA`は共通色を保つ。
 
 Header中央に`LEVEL / TIME / FREQ / SPACE`を置く。
 
@@ -253,6 +253,8 @@ FREQは既存Spectrumの意味と操作を保ったまま、上位領域へ移�
 | Δ | POST − PRE | `NO PAIR`を表示し、値は`---` |
 
 ペア選択は入力データの接続状態だけを変える。
+
+POSTのpair欄は読取専用の候補選択とし、自由入力を持たない。PRE名は任意の表示ラベルであり、無名PREも候補に含める。選択とDAW state復元の権威はexact PRE locatorとし、名前一致による自動選択・再接続を行わない。同名PREは選択欄で短いinstance IDを併記する。
 
 POSTとΔの切替は利用者の観測視点だけを変える。
 

@@ -186,3 +186,52 @@ bool KirinHyphaProcessorBase::localBlindCaptureIsArmed (const std::string& reque
     return role == Role::Post && hyphaHandle != nullptr
         && kirin_hypha_local_blind_capture_is_armed (hyphaHandle, requestId.c_str());
 }
+
+juce::String KirinHyphaProcessorBase::pairDisplayName() const
+{
+    const auto shortId = persistPairInstanceId.substring (0, 8);
+    if (persistPairName.isEmpty())
+        return shortId;
+    return shortId.isEmpty() ? persistPairName : persistPairName + " · " + shortId;
+}
+
+bool KirinHyphaProcessorBase::setPairCandidate (const juce::String& instanceId,
+                                                const juce::String& name)
+{
+    {
+        const juce::ScopedLock lock (handleLock);
+        if (hyphaHandle == nullptr
+            || ! kirin_hypha_select_pair_candidate (hyphaHandle, instanceId.toRawUTF8()))
+            return false;
+    }
+    juce::String projectHash, selectedInstanceId;
+    if (! pairedPreLocator (projectHash, selectedInstanceId))
+    {
+        const juce::ScopedLock lock (handleLock);
+        if (hyphaHandle != nullptr)
+            kirin_hypha_set_pair_target (hyphaHandle, "");
+        persistPairName.clear();
+        persistPairProjectHash.clear();
+        persistPairInstanceId.clear();
+        return false;
+    }
+    persistPairName = name;
+    persistPairProjectHash = projectHash;
+    persistPairInstanceId = selectedInstanceId;
+    return true;
+}
+
+void KirinHyphaProcessorBase::restorePersistedPairUnderHandleLock()
+{
+    const bool exact = persistPairProjectHash.isNotEmpty() && persistPairInstanceId.isNotEmpty();
+    if (exact && kirin_hypha_restore_pair_candidate_v2 (
+                     hyphaHandle,
+                     persistPairProjectHash.toRawUTF8(),
+                     persistPairInstanceId.toRawUTF8(),
+                     persistPairName.toRawUTF8()))
+        return;
+    persistPairName.clear();
+    persistPairProjectHash.clear();
+    persistPairInstanceId.clear();
+    kirin_hypha_set_pair_target (hyphaHandle, "");
+}

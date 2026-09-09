@@ -492,44 +492,6 @@ bool KirinHyphaProcessorBase::isRecording() const
     return kirin_hypha_is_recording (hyphaHandle);
 }
 
-void KirinHyphaProcessorBase::setPairName (const juce::String& name)
-{
-    if (persistPairName != name)
-    {
-        persistPairInstanceId.clear();
-        persistPairProjectHash.clear();
-    }
-    persistPairName = name; // persisted; the FFI sanitizes its own copy (ASCII graphic + space, 16).
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle != nullptr)
-        kirin_hypha_set_pair_target (hyphaHandle, name.toRawUTF8());
-}
-
-bool KirinHyphaProcessorBase::setPairCandidate (const juce::String& instanceId,
-                                                const juce::String& name)
-{
-    bool selected = false;
-    {
-        const juce::ScopedLock sl (handleLock);
-        if (hyphaHandle == nullptr)
-            return false;
-        selected = kirin_hypha_select_pair_candidate (hyphaHandle, instanceId.toRawUTF8());
-    }
-    if (selected)
-    {
-        persistPairName = name;
-        persistPairProjectHash.clear();
-        persistPairInstanceId.clear();
-        juce::String projectHash, selectedInstanceId;
-        if (pairedPreLocator (projectHash, selectedInstanceId))
-        {
-            persistPairProjectHash = projectHash;
-            persistPairInstanceId = selectedInstanceId;
-        }
-    }
-    return selected;
-}
-
 int KirinHyphaProcessorBase::pairStatus() const
 {
     const juce::ScopedLock sl (handleLock);
@@ -971,20 +933,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             if (hyphaHandle != nullptr)
             {
                 if (role == Role::Post)
-                {
-                    kirin_hypha_set_pair_target (hyphaHandle, persistPairName.toRawUTF8());
-                    if (persistPairInstanceId.isNotEmpty() && persistPairProjectHash.isNotEmpty())
-                    {
-                        if (! kirin_hypha_restore_pair_candidate (
-                                hyphaHandle,
-                                persistPairProjectHash.toRawUTF8(),
-                                persistPairInstanceId.toRawUTF8()))
-                        {
-                            persistPairInstanceId.clear();
-                            persistPairProjectHash.clear();
-                        }
-                    }
-                }
+                    restorePersistedPairUnderHandleLock();
                 else
                     kirin_hypha_set_pre_name (hyphaHandle, persistName.toRawUTF8());
             }
@@ -1048,19 +997,7 @@ void KirinHyphaProcessorBase::enableWritesNow()
     if (role == Role::Post)
     {
         kirin_hypha_enable_post_writes (hyphaHandle);
-        // B-072: apply the restored/current pair target after enable (contract order).
-        kirin_hypha_set_pair_target (hyphaHandle, persistPairName.toRawUTF8());
-        if (persistPairInstanceId.isNotEmpty() && persistPairProjectHash.isNotEmpty())
-        {
-            if (! kirin_hypha_restore_pair_candidate (
-                    hyphaHandle,
-                    persistPairProjectHash.toRawUTF8(),
-                    persistPairInstanceId.toRawUTF8()))
-            {
-                persistPairInstanceId.clear();
-                persistPairProjectHash.clear();
-            }
-        }
+        restorePersistedPairUnderHandleLock();
         if (attackRequested.load (std::memory_order_acquire))
         {
             kirin_hypha_set_attack_enabled (hyphaHandle, true);

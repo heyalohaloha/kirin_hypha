@@ -14,7 +14,7 @@ difference between those two exact points. Hypha does not generate, modify, atte
 
 1. Insert **PRE Kirin Hypha** before the processing chain.
 2. Insert **POST Kirin Hypha** after the processing chain.
-3. Open POST's arrow menu and choose that exact PRE under **Pair choices**.
+3. Click POST's pair selector or arrow, then choose that exact PRE under **Pair choices**.
 4. Use the top-level **LEVEL**, **TIME**, **FREQ**, and **SPACE** domains. In **TIME**, choose
    **HISTORY**, **ATTACK**, **SHARP**, or **LIVE**.
 
@@ -367,13 +367,13 @@ Pairing is an explicit selection of one exact PRE instance. It is not inferred f
 matching names.
 
 1. Insert PRE before the processors and POST after them.
-2. In POST, open the arrow menu beside the pair field.
+2. In POST, click the read-only pair selector or its arrow.
 3. Under **Pair choices (not Keep targets)**, select the intended PRE.
 4. POST keeps that exact PRE identity and begins displaying Δ values.
 
 Giving PRE a name such as `Mix`, `Drum`, or `Vocal` makes the menu easier to scan, but naming is
 optional. UTF-8 labels, including Japanese, are supported. An unnamed PRE can still be selected by
-its exact instance identity.
+its exact instance identity. POST never accepts a typed pair name or retargets another PRE by name.
 
 Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per project).
 

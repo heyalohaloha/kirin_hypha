@@ -89,6 +89,7 @@ mod legacy_nih_state;
 mod meter_session_ffi;
 mod pair_binding;
 mod pair_candidates_ffi;
+mod pair_restore_ffi;
 mod pair_snapshot_ffi;
 mod record_note_ffi;
 mod reference_audition_ffi;
@@ -127,7 +128,6 @@ pub const KIRIN_SIGNAL_STATE_BYPASSED: u8 = 2;
 pub const KIRIN_KEEP_PHASE_IDLE: u8 = 0;
 pub const KIRIN_KEEP_PHASE_PREPARING: u8 = 1;
 pub const KIRIN_KEEP_PHASE_ARMED: u8 = 2;
-
 #[inline]
 fn keep_phase_is_closed(
     phase: u8,
@@ -2124,8 +2124,8 @@ impl KirinHyphaEngine {
         self.finish_pair_reselection(transition, &project_hash, &post_iid, claimed_at);
     }
 
-    /// Bind one exact PRE selected from the dropdown. Human name remains the reconnect selector;
-    /// the runtime instance latch is authoritative for this session.
+    /// Bind one exact PRE selected from the dropdown. The instance latch is the sole selection
+    /// authority; the human name is display metadata only.
     pub fn set_pair_candidate(&self, instance_id: &str) -> bool {
         let kirin_root = PlatformPaths::current_kirin_tmp_root();
         let project_hash = read_shared_id(&self.project_hash_cell);

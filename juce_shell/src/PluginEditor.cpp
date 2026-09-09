@@ -138,16 +138,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     scaleRoot.addAndMakeVisible (loudnessSelector);
 
     scaleRoot.addAndMakeVisible (nameField);
-    nameField.onCommit = [this] (const juce::String& n)
-    {
-        if (isPost)
-        {
-            pairedPreExplicitlyBypassed = false;
-            processorRef.setPairName (n);
-            if (n.isEmpty()) nameField.setFallback ("___");
-        }
-        else        processorRef.setPreName (n);
-    };
 
     pairStatusLabel.setFont (hypha::monoFont (ui::pairStatusFontHeight));
     pairStatusLabel.setJustificationType (juce::Justification::centredRight);
@@ -157,10 +147,11 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     if (isPost)
     {
         nameField.setPrefix ("PAIR ");
-        nameField.setFallback ("___");
+        nameField.setFallback ("SELECT PRE");
         nameField.setLockedTooltip (juce::CharPointer_UTF8 ("Pair selection is locked during playback"));
-        nameField.setEnabledTooltip ("Click to edit the PRE pair name.");
-        nameField.setModelName (processorRef.pairName());
+        nameField.setEnabledTooltip ("Click to choose one exact PRE.");
+        nameField.setModelName (processorRef.pairDisplayName());
+        nameField.onSelect = [this] { showCandidateMenu(); };
 
         postControls = std::make_unique<hypha::PostControls>();
         scaleRoot.addAndMakeVisible (*postControls);
@@ -181,7 +172,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         };
 
         // B-102/B-492: vector-arrow dropdown beside the pair field — All Keep / All Stop / candidates.
-        // The free-text pair field (nameField) is retained; this only adds the egui ComboBox.
         pairDropdown.setTitle ("Pair, Keep, and display menu");
         pairDropdown.setDescription (
             "Choose an exact PRE pair, control Keep, or change hover help");
@@ -240,6 +230,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     }
     else
     {
+        nameField.onCommit = [this] (const juce::String& n) { processorRef.setPreName (n); };
         nameField.setPrefix ("SOURCE ");
         nameField.setEnabledTooltip ("Click to edit this PRE name.");
         nameField.setModelName (processorRef.preName());

@@ -179,9 +179,7 @@ void KirinHyphaEditor::handleCandidateMenu (
                 spectrumView.clearSnapshot();
                 perceptualView.clearSnapshot();
                #endif
-                nameField.setModelName (name);
-                nameField.setFallback (name.isEmpty() ? candidate.instanceId.substring (0, 8)
-                                                      : juce::String ("___"));
+                nameField.setModelName (processorRef.pairDisplayName());
             }
             else
             {

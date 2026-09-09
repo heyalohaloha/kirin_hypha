@@ -378,6 +378,11 @@ namespace hypha
 
     void EditableName::mouseDown (const juce::MouseEvent&)
     {
+        if (onSelect)
+        {
+            onSelect();
+            return;
+        }
         if (! editing)
             startEditing();
     }

@@ -252,7 +252,7 @@ void KirinHyphaEditor::refreshObservatory()
             observatoryView.setHistory (std::move (history));
     }
 
-    const auto sourceName = isPost ? processorRef.pairName() : processorRef.preName();
+    const auto sourceName = isPost ? processorRef.pairDisplayName() : processorRef.preName();
     observatoryView.setConnection (observatoryPairText (isPost, pairStatus, sourceName),
                                    observatoryPairColour (isPost, pairStatus),
                                    observatoryConnectionState (isPost, pairStatus));

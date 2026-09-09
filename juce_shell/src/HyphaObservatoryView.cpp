@@ -371,19 +371,19 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
                            : density == Density::standard ? 16.0f
                            : density == Density::inspection ? 23.0f : 18.0f;
     auto titleArea = toJuce (layout.roleTitle).reduced (6, 0);
-    const auto productFont = labelFont (titleHeight);
-    const auto productWidth = juce::jmin (
+    const auto roleText = role == Role::post ? juce::String ("POST") : juce::String ("PRE");
+    const auto roleFont = labelFont (titleHeight);
+    const auto roleWidth = juce::jmin (
         titleArea.getWidth() - 20,
-        juce::roundToInt (productFont.getStringWidthFloat ("HYPHA")) + 2);
-    auto productArea = titleArea.removeFromLeft (juce::jmax (1, productWidth));
+        juce::roundToInt (roleFont.getStringWidthFloat (roleText)) + 2);
+    auto roleArea = titleArea.removeFromLeft (juce::jmax (1, roleWidth));
     titleArea.removeFromLeft (density == Density::compact ? 3 : 5);
-    g.setFont (productFont);
+    g.setFont (roleFont);
+    g.setColour (role == Role::post ? COL_FLORA : COL_LED_BLUE);
+    g.drawFittedText (roleText, roleArea, juce::Justification::centredLeft, 1, 0.82f);
     g.setColour (COL_NORMAL);
-    g.drawFittedText ("HYPHA", productArea, juce::Justification::centredLeft, 1, 0.82f);
-    g.setColour (COL_MUTED.brighter (0.18f));
     g.setFont (labelFont (titleHeight * 0.88f));
-    g.drawFittedText (role == Role::post ? "POST" : "PRE",
-                      titleArea.translated (0, density == Density::compact ? 1 : 0),
+    g.drawFittedText ("HYPHA", titleArea.translated (0, density == Density::compact ? 1 : 0),
                       juce::Justification::centredLeft, 1, 0.82f);
     if (! externalConnectionLabelVisible || captureFrame)
     {

@@ -578,10 +578,10 @@ void kirin_hypha_set_pair_target(KirinHypha* handle, const char* name);
 /* Dropdown で選んだ exact PRE instance を即時ラッチする. live/in-scope なら true. */
 bool kirin_hypha_select_pair_candidate(KirinHypha* handle, const char* instance_id);
 
-/* DAW state から復元した exact PRE locator を Waiting latch として再構成する。
- * live scan は行わず、保存済み PRE project + instance の固定 pre.json だけを待つ。 */
-bool kirin_hypha_restore_pair_candidate(KirinHypha* handle, const char* pre_project_hash,
-                                        const char* instance_id);
+/* DAW state の exact PRE locator を復元する。live scan / 名前探索は行わない。 */
+bool kirin_hypha_restore_pair_candidate(KirinHypha*, const char*, const char*);
+/* DAW state の exact locator + 任意表示名を復元する。名前探索は行わない。 */
+bool kirin_hypha_restore_pair_candidate_v2(KirinHypha*, const char*, const char*, const char*);
 
 /* Pair status は KIRIN_PAIR_STATUS_* のいずれか. KEEP/Record 状態とは独立. */
 uint8_t kirin_hypha_pair_status(KirinHypha* handle);

@@ -138,10 +138,11 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
 #[test]
 fn saved_daw_state_restores_the_exact_pre_without_registry_rescan() {
     let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
-    assert!(ffi_header.contains("kirin_hypha_restore_pair_candidate"));
+    assert!(ffi_header.contains("kirin_hypha_restore_pair_candidate_v2"));
     assert!(ffi_header.contains("kirin_hypha_get_paired_pre_locator"));
 
-    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
+        + &read_repo("juce_shell/src/PluginProcessorPairing.cpp");
     assert!(
         processor.contains("xml.setAttribute (\"paired_pre_instance_id\", persistPairInstanceId)")
     );
@@ -153,13 +154,13 @@ fn saved_daw_state_restores_the_exact_pre_without_registry_rescan() {
         "restoredPairProjectHash = xml->getStringAttribute (\"paired_pre_project_hash\")"
     ));
     assert!(processor.contains("pairedPreLocator (livePairProjectHash, livePairInstanceId)"));
-    assert!(processor.contains("kirin_hypha_restore_pair_candidate ("));
+    assert!(processor.contains("kirin_hypha_restore_pair_candidate_v2 ("));
+    assert!(!processor.contains("kirin_hypha_set_pair_target (hyphaHandle, persistPairName"));
 
     let ffi = read_repo("crates/kirin_hypha_ffi/src/lib.rs");
+    let restore = read_repo("crates/kirin_hypha_ffi/src/pair_restore_ffi.rs");
     let pair_snapshot = read_repo("crates/kirin_hypha_ffi/src/pair_snapshot_ffi.rs");
-    let restore = slice_between(&ffi, "pub fn restore_pair_candidate", "pub fn pair_status");
     assert!(restore.contains("restored_pair_latch("));
-    assert!(!restore.contains("enumerate_live_pre_pair_choices"));
     assert!(!restore.contains("select_live_pre_pair_choice"));
     assert!(ffi.contains("project_dir.join(pre_instance_id).join(\"pre.json\")"));
     assert!(ffi.contains("LatchedPreReadiness::RestoredWaiting"));

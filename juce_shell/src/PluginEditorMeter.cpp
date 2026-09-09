@@ -205,7 +205,7 @@ void KirinHyphaEditor::updatePost()
                                pairStatusColour (pairStatus, postAbsolute));
     pairStatusLabel.setTooltip (pairStatusHelp (pairStatus, postAbsolute));
 
-    nameField.setModelName (pairName);
+    nameField.setModelName (processorRef.pairDisplayName());
     nameField.setEditingEnabled (! pairLocked); // W-280 + B-115 playback pair lock (playing AND live)
 
     const double t = nowSecs();

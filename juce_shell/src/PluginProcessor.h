@@ -123,7 +123,7 @@ public:
     bool isRecording() const;                          // FFI kirin_hypha_is_recording (Watch/Record toggle)
     int keepPhase() const;                             // IDLE / PREPARING / ARMED transaction barrier
     juce::String pairName() const { return persistPairName; }
-    void setPairName (const juce::String& name);       // persist + set_pair_target (sanitized in FFI)
+    juce::String pairDisplayName() const;
     bool setPairCandidate (const juce::String& instanceId, const juce::String& name);
     int pairStatus() const;                            // 0=Unpaired 1=Waiting 2=Paired
     juce::String pairedPreInstanceId() const;
@@ -303,6 +303,7 @@ private:
     // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
+    void restorePersistedPairUnderHandleLock();
     static hypha::local_blind::CaptureSide localBlindCaptureSide (Role) noexcept;
     static hypha::local_blind::CaptureServiceHooks localBlindCaptureHooks (KirinHyphaProcessorBase&);
     void stopLocalBlindCaptureForFormatChange (double sampleRate, int channels);

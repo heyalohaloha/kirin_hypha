@@ -184,7 +184,7 @@ PREとの差分ではΔM、ΔS、ΔTP、ΔCrestを同じ四列geometryで比較�
 
 600×400のPOST FooterだけにPOSTとΔの独立ボタン、左右TP数値と0〜−48 dBTP目盛り、CAPTURE入口を置く。
 
-右端L/R meterは1 dBごとの48 blockを使い、300%でも粗い24段表示に見せない。左上の`HYPHA POST/PRE`は一体の静的titleとし、domain tabと同じ操作 affordanceを持たせない。runtimeのPAIR name fieldがあるサイズでは背景側のPAIR文字を重ねて描かない。
+右端L/R meterは1 dBごとの48 blockを使い、300%でも粗い24段表示に見せない。左上の静的titleは役割を先頭にした`PRE HYPHA`／`POST HYPHA`とし、PREは青、POSTはflora amberで即座に区別する。domain tabと同じ操作 affordanceは持たせない。runtimeのPAIR name fieldがあるサイズでは背景側のPAIR文字を重ねて描かない。
 
 450×300以下ではPOST/Δを一つの切替へ畳み、CAPTURE入口を出さない。
 

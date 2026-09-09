@@ -122,11 +122,11 @@ namespace hypha
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LoudnessSelector)
     };
 
-    // ── click-to-edit name (egui PRE name / POST pair name) ─────────────────────────────────
+    // ── editable PRE name / read-only POST exact-pair selector ──────────────────────────────
     // Shows display text (optional prefix + raw name, or a fallback when the name is empty) in
-    // COL_FLORA monospace; single click opens an inline editor seeded with the RAW name. Enter
-    // commits (onCommit, sanitized to ≤16 chars by the FFI), Escape / focus loss discards
-    // (parity: egui only writes on lost_focus+Enter). Editing can be locked (POST playback).
+    // COL_FLORA monospace. With onSelect, a click opens the exact selector; otherwise it opens
+    // an inline editor seeded with the RAW name. Enter commits (onCommit, sanitized to ≤16 chars
+    // by the FFI); Escape / focus loss discards. Editing can be locked (POST playback).
     class EditableName : public juce::Component,
                          public juce::SettableTooltipClient
     {
@@ -134,6 +134,7 @@ namespace hypha
         EditableName();
 
         std::function<void (const juce::String&)> onCommit; // called with the new raw name
+        std::function<void()> onSelect; // when present, click selects instead of editing
 
         void setPrefix (const juce::String& p)        { prefix = p; if (! editing) repaint(); }
         void setFallback (const juce::String& f)       { fallback = f; if (! editing) repaint(); }

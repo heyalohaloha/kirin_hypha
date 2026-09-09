@@ -143,6 +143,25 @@ fn hover_help_is_one_user_preference_without_touching_measurement_state() {
 }
 
 #[test]
+fn post_pair_surface_selects_an_exact_pre_without_free_text() {
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp")
+        + &read_repo("juce_shell/src/PluginEditorMeter.cpp")
+        + &read_repo("juce_shell/src/PluginEditorMenu.cpp");
+    let widgets = read_repo("juce_shell/src/HyphaWidgets.cpp");
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
+        + &read_repo("juce_shell/src/PluginProcessorPairing.cpp");
+
+    assert!(editor.contains("nameField.onSelect = [this] { showCandidateMenu(); }"));
+    assert!(editor.contains("Click to choose one exact PRE."));
+    assert!(editor.contains("processorRef.setPairCandidate"));
+    assert!(!editor.contains("processorRef.setPairName"));
+    assert!(widgets.contains("if (onSelect)"));
+    assert!(processor.contains("pairDisplayName() const"));
+    assert!(processor.contains("persistPairName + \" · \" + shortId"));
+    assert!(!processor.contains("setPairName ("));
+}
+
+#[test]
 fn hypha_title_information_is_shipped_while_capture_validation_stays_debug_only() {
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     let information = read_repo("juce_shell/src/PluginEditorInformation.cpp");
