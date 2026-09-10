@@ -1,10 +1,12 @@
 # Kirin Hypha
 
-**See what changed across a processing chain — without changing the audio.**
+**See what changed across a processing chain — while the measurement path stays transparent.**
 
 Kirin Hypha is a free, open-source pass-through measurement plug-in for macOS and Windows. Place
 **PRE** before the processors you want to inspect and **POST** after them. POST then shows the measured
-difference between those two exact points. Hypha does not generate, modify, attenuate, or delay audio.
+difference between those two exact points. Normal measurement does not generate, modify, attenuate,
+or delay audio. Only an explicit Reference or PRE/POST Blind audition temporarily replaces POST's
+audition output with a verified, immutable comparison copy.
 
 ![Kirin Hypha FREQ showing the signed POST minus PRE spectrum and a locked six-second Focus Trail](docs/media/kirin-hypha-freq.jpg)
 
@@ -73,7 +75,10 @@ gates.
 
 Kirin Hypha is built to **observe, not to advise**.
 
-It produces measurement data. It does not generate, modify, or attenuate audio. The same input file produces the same output, every time. Numbers are reported as captured — no interpretation, no scoring, no recommendation.
+It produces measurement data. During normal measurement, it does not generate, modify, attenuate,
+or delay audio: the same input produces the same output, every time. An explicit comparison audition
+is a separate output-only path; it never rewrites the input, the captured PRE/POST measurements, or
+Record data. Numbers are reported as captured — no interpretation, no scoring, no recommendation.
 
 Every metric is backed by a known-signal golden test: the expected values are derived independently from the signal definition and the ITU-R BS.1770 filter coefficients, not asserted by hand. The measurement layer demonstrates its precision rather than claiming it.
 
@@ -89,6 +94,7 @@ product contract. Hypha does not claim EBU Mode conformance and does not use the
 |---|---|---|
 | Watch mode | ✓ | ✓ |
 | POST on-demand ATTACK / FREQ / SHARP / LIVE | ✓ | ✓ |
+| Local PRE/POST Blind Compare | ✓ | ✓ |
 | Record mode | — | ✓ |
 | plugin_data output | — | ✓ |
 
@@ -377,6 +383,38 @@ its exact instance identity. POST never accepts a typed pair name or retargets a
 
 Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per project).
 
+## Local PRE/POST Blind Compare
+
+Local Blind Compare auditions immutable copies of one exact four-second PRE/POST range. It is a
+preference listening trial, not a score or proof that either side is better, and it does not require
+Kirin OS.
+
+1. In POST, select the exact PRE pair and set **Meter Context** to **2MIX** or **TRACK/STEM** before
+   capture. This selection fixes the Gain Match policy for that trial.
+2. Keep the DAW playing and press **BLIND** in POST's large view. Wait for both sides of the exact
+   four-second range to finish capture and preparation.
+3. Return the DAW to the displayed range and start the prepared comparison. Listen to one complete
+   pass of both **Source 1** and **Source 2** before answering.
+4. Answer, reveal the hidden assignment, end the comparison, and explicitly return to the live
+   signal.
+
+POST is the normal Gain Match reference: the frozen PRE audition copy receives one fixed gain so it
+matches the captured POST level. If raising PRE would exceed the comparison ceiling, Hypha does not
+clip or silently normalize both sides. It asks for explicit approval to leave PRE unchanged and lower
+POST by the inverse fixed amount instead. Gain does not follow the signal during the trial.
+
+Hypha does not change DAW Solo, Mute, faders, plug-in bypass, or routing. On a TRACK or STEM, only that
+POST output is replaced, so the rest of the project continues at the same DAW timeline and the user
+hears the change in mix context. On a 2MIX bus, the captured whole-bus PRE/POST copy is auditioned.
+Downstream processors still receive the selected copy and may react to it. Sends or parallel paths
+that branch before POST are not switched, so this is specifically a comparison between the chosen
+PRE and POST insertion points—not a claim about every route in the project.
+
+The current local trial length is four seconds. For long-form or whole-song comparison of finished
+versions, render and register immutable versions in Kirin OS and use the normal Reference audition
+with an appropriate Cue. The current Reference Blind flow is also based on a four-second live-A
+capture; registering a WAV does not turn it into a whole-song blind trial.
+
 ## Watch mode
 
 Real-time display of selectable LUFS-M / LUFS-S, True Peak (recent), and Crest Factor during
@@ -424,7 +462,8 @@ If measurement samples are ever dropped during a recording (for example, on a bu
 
 Kirin Hypha is one piece of a larger ecosystem. With Kirin OS, session data is written to `plugin_data` in a structured JSON schema and can be bundled with C2PA provenance into a tamper-evident `.kirin` file alongside the audio.
 
-Hypha itself remains **standalone and free** — Kirin OS is not required to use Watch mode.
+Hypha itself remains **standalone and free** — Kirin OS is not required to use Watch mode or local
+PRE/POST Blind Compare.
 
 Kirin OS is available now. More at [kirinmastering.com](https://kirinmastering.com).
 

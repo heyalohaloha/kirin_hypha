@@ -188,7 +188,8 @@ void Component::refreshPresentation()
         else
         {
             startButton.setButtonText ("START BLIND");
-            startButton.setTitle ("Start the prepared comparison");
+            startButton.setTitle (
+                "Start the prepared comparison. PRE is matched to POST with fixed gain; DAW Solo and routing stay unchanged");
             startButton.setDescription (startButton.getTitle());
             startButton.setTooltip (startButton.getTitle());
         }

@@ -70,6 +70,12 @@ inline void verifyLocalBlindUiContract()
     start->onClick();
     require (approved, "attenuation approval is explicit");
 
+    ready.trial.lowerPostApprovalRequired = false;
+    component.setState (ready);
+    require (start->getTitle().contains ("PRE is matched to POST with fixed gain")
+                 && start->getTitle().contains ("Solo and routing stay unchanged"),
+             "normal start describes the gain reference and preserves DAW mix context");
+
     local_blind::ProductSessionView listening = ready;
     listening.phase = local_blind::ProductSessionPhase::listening;
     listening.trial.phase = local_blind::TrialPhase::listening;
