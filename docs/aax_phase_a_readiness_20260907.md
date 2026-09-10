@@ -2,8 +2,9 @@
 
 Date: 2026-09-07
 
-This document records SDK-independent preparation only. It does not claim that Kirin Hypha has
-been built, signed, or tested as an AAX plug-in.
+This document records the SDK-independent Phase A preparation. Later macOS build and signing
+results are recorded separately in `docs/aax_macos_universal_build_20260910.md`; Phase A alone does
+not claim AAX product support.
 
 ## Build boundary
 
@@ -41,12 +42,16 @@ explicitly request the build, confirm the license, provide the external path, an
 self-hosted macOS and Windows runners. The two runner paths are separate workflow inputs because
 their filesystem syntax and SDK installation locations differ.
 
+The macOS self-hosted leg uses `scripts/build_aax_universal.sh` and builds both Apple architectures
+before linking PRE/POST. It deliberately does not sign in CI. PACE signing stays a release-operator
+step on the Mac holding the physical authorization device. The Windows leg remains host-x64.
+
 ## Remaining external gates
 
-- Obtain the licensed AAX SDK and confirm its exact version and supported toolchains.
-- Configure and build PRE/POST on SDK-equipped macOS and Windows hosts.
+- The external AAX SDK 2.9.0 and the macOS Universal PRE/POST build and signing path were verified
+  on 2026-09-10. Configure, build, sign, and install PRE/POST on the Windows host.
 - Verify identifiers, category, channel layouts, bypass, latency, state restore, and Offline Bounce
   in the supported Pro Tools versions.
-- Complete PACE signing requirements and installer/package validation.
+- Complete the Windows PACE/Authenticode signing order and Windows installer validation.
 - Re-run all three existing public distribution channels from the same release commit. AAX Phase A
   does not replace the required macOS Lemon Squeezy, macOS HP, or signed Windows installer outputs.

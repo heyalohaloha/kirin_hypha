@@ -125,6 +125,11 @@ The macOS source ship set is the JUCE common shell in both formats:
 - `juce_shell/build-universal/.../VST3/Kirin Hypha PRE.vst3`
 - `juce_shell/build-universal/.../VST3/Kirin Hypha POST.vst3`
 
+After the Pro Tools release gates are complete, the same macOS deliverables may also contain the
+separately built PRE/POST AAX bundles from `build-aax-universal/`. AAX remains opt-in so the normal
+GPL checkout does not require the external SDK or PACE tools. It is a format inside the existing
+macOS and Windows deliverables, not a fourth release channel.
+
 ## Phase 2: Build Installer Package
 
 Public release package:
@@ -133,9 +138,18 @@ Public release package:
 node scripts/ls_release/build_kirin_hypha_pkg.mjs
 ```
 
+Release candidate including AAX:
+
+```bash
+node scripts/ls_release/build_kirin_hypha_pkg.mjs --with-aax
+```
+
 The four source, installed, archive, executable, display-name, and VST3 CID contracts come from
 `config/hypha_macos_ship_bundles.json`. Before `pkgbuild`, the script verifies the exact payload
 layout—including the role-first VST3 outer names—against each bundle's `CFBundleExecutable`.
+With `--with-aax`, the separate AAX manifest requires exactly PRE and POST, verifies Universal,
+Apple, notarization, PACE signature, and PACE symlink integrity, then expands the finished pkg and
+verifies the copied bundles again. Every AAX directory copy uses `ditto`.
 
 This writes:
 
@@ -147,10 +161,11 @@ Unsigned smoke package, for payload testing only:
 
 ```bash
 KIRIN_SKIP_PKG_SIGN=1 KIRIN_SKIP_PKG_NOTARIZE=1 \
-  node scripts/ls_release/build_kirin_hypha_pkg.mjs
+  node scripts/ls_release/build_kirin_hypha_pkg.mjs --with-aax
 ```
 
 The smoke package is written under `/tmp/kirin_hypha_pkg_smoke/` and is named `UNSIGNED-DO-NOT-UPLOAD`.
+The outer smoke pkg is unsigned, but included AAX bundles must still pass both PACE and Apple gates.
 
 ## Phase 3: Update State
 
@@ -229,6 +244,14 @@ cargo run --package xtask -- release-package
 # -> dist/Kirin-Hypha-X.Y.Z-macOS-Universal.zip (+ .zip.sha256, release-manifest.json)
 # verify_sources refuses ad-hoc/unsigned bundles, so this only succeeds after `notarize`.
 ```
+
+After the Pro Tools and same-commit Windows AAX gates are complete, add `--with-aax`. The command
+uses `ditto` to stage and create the zip, extracts the completed zip, and re-runs the AAX signature
+and symlink checks against both extracted bundles.
+
+Do not publish a macOS AAX artifact while the matching Windows installer lacks PRE/POST AAX. When
+using `--with-aax`, add both AAX install paths to the ignored release state's `expectedPayloads` so
+the Lemon Squeezy dry run also checks the pkg payload listing.
 
 ### HP-2: Create the GitHub Release (the URL the HP links to)
 

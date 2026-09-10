@@ -7,7 +7,13 @@ pub struct BundleEntry {
     pub file: String,
 }
 
-pub fn install_text(version: &str) -> String {
+pub fn install_text(version: &str, with_aax: bool) -> String {
+    let aax = if with_aax {
+        "\nAAX:\n\
+         - Copy AAX/Kirin Hypha PRE.aaxplugin and AAX/Kirin Hypha POST.aaxplugin to /Library/Application Support/Avid/Audio/Plug-Ins/ (administrator access is required).\n"
+    } else {
+        ""
+    };
     format!(
         "Kirin Hypha {version}\n\n\
          Install either or both formats. Remove old Kirin Hypha PRE/POST copies from user-level and system-level plug-in folders first if your DAW still loads stale binaries.\n\n\
@@ -15,6 +21,7 @@ pub fn install_text(version: &str) -> String {
          - Copy VST3/PRE Kirin Hypha.vst3 and VST3/POST Kirin Hypha.vst3 to ~/Library/Audio/Plug-Ins/VST3/\n\n\
          Audio Unit:\n\
          - Copy Audio Unit/Kirin Hypha PRE.component and Audio Unit/Kirin Hypha POST.component to ~/Library/Audio/Plug-Ins/Components/\n\n\
+         {aax}\n\
          Restart or rescan your DAW after installation. If your DAW caches plug-ins, force a full plug-in rescan.\n"
     )
 }
@@ -25,6 +32,7 @@ pub fn manifest_json(
     sha256: &str,
     allow_unsigned: bool,
     git_dirty: &str,
+    with_aax: bool,
     bundles: &[BundleEntry],
 ) -> Result<String> {
     let commit = command_stdout(Command::new("git").args(["rev-parse", "HEAD"]))
@@ -45,7 +53,14 @@ pub fn manifest_json(
         "  \"unsigned_smoke_test\": {allow_unsigned},\n  \"git_dirty\": \"{}\",\n",
         json_escape(git_dirty)
     ));
-    s.push_str("  \"ship_set\": \"juce-common-shell\",\n  \"bundles\": [\n");
+    let ship_set = if with_aax {
+        "juce-common-shell+aax"
+    } else {
+        "juce-common-shell"
+    };
+    s.push_str(&format!(
+        "  \"ship_set\": \"{ship_set}\",\n  \"aax_included\": {with_aax},\n  \"bundles\": [\n"
+    ));
     for (index, bundle) in bundles.iter().enumerate() {
         let comma = if index + 1 == bundles.len() { "" } else { "," };
         s.push_str(&format!(

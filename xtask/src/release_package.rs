@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::aax_distribution;
 use crate::macos_codesign;
 use crate::release_gate::{git_dirty_for_manifest, verify_package_mode, UNSIGNED_SUFFIX};
 use crate::release_package_metadata::{self, BundleEntry};
@@ -22,6 +23,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
     let mut dist_dir = PathBuf::from(DIST_DIR);
     let mut dry_run = false;
     let mut allow_unsigned = false;
+    let mut with_aax = false;
 
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -31,6 +33,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
             }
             "--dry-run" => dry_run = true,
             "--allow-unsigned" => allow_unsigned = true,
+            "--with-aax" => with_aax = true,
             "-h" | "--help" => {
                 print_help();
                 return Ok(());
@@ -41,11 +44,19 @@ pub fn run(args: Vec<String>) -> Result<()> {
 
     let version = read_version()?;
     let bundles = ship_bundles()?;
+    let aax_bundles = if with_aax {
+        aax_distribution::bundles()?
+    } else {
+        Vec::new()
+    };
     verify_ship_set_shape(&bundles)?;
     if !dry_run {
         verify_package_mode(&dist_dir, allow_unsigned)?;
     }
     verify_sources(&bundles, &version, allow_unsigned || dry_run)?;
+    if with_aax {
+        aax_distribution::verify_sources(&aax_bundles, &version)?;
+    }
     let source_git_dirty = git_dirty_for_manifest();
 
     let package_leaf = package_leaf(&version, allow_unsigned);
@@ -76,6 +87,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
                 b.spec.archive_relative.display()
             );
         }
+        aax_distribution::print_dry_run(&aax_bundles);
         return Ok(());
     }
 
@@ -102,12 +114,15 @@ pub fn run(args: Vec<String>) -> Result<()> {
         ship_bundle::verify_bundle_contract(&dst, &b.spec)
             .with_context(|| format!("{} archive metadata mismatch", b.spec.label()))?;
     }
+    if with_aax {
+        aax_distribution::stage_archives(&aax_bundles, &package_root, &version)?;
+    }
 
     copy_required("README.md", &package_root.join("README.md"))?;
     copy_required("LICENSE", &package_root.join("LICENSE"))?;
     fs::write(
         package_root.join("INSTALL.txt"),
-        release_package_metadata::install_text(&version),
+        release_package_metadata::install_text(&version, with_aax),
     )
     .with_context(|| format!("write {}", package_root.join("INSTALL.txt").display()))?;
 
@@ -118,10 +133,15 @@ pub fn run(args: Vec<String>) -> Result<()> {
             .arg(&zip_path),
         "ditto zip release package",
     )?;
+    if with_aax {
+        aax_distribution::verify_zip(&aax_bundles, &zip_path, &package_root_name, &version)?;
+    }
     let sha = sha256_file(&zip_path)?;
     let zip_name = zip_path.file_name().unwrap().to_string_lossy();
     fs::write(&sha_path, format!("{sha}  {zip_name}\n"))
         .with_context(|| format!("write {}", sha_path.display()))?;
+    let mut entries = bundle_entries(&bundles)?;
+    entries.extend(aax_distribution::metadata_entries(&aax_bundles)?);
     fs::write(
         &manifest_path,
         release_package_metadata::manifest_json(
@@ -130,7 +150,8 @@ pub fn run(args: Vec<String>) -> Result<()> {
             &sha,
             allow_unsigned,
             &source_git_dirty,
-            &bundle_entries(&bundles)?,
+            with_aax,
+            &entries,
         )?,
     )
     .with_context(|| format!("write {}", manifest_path.display()))?;
@@ -142,8 +163,9 @@ pub fn run(args: Vec<String>) -> Result<()> {
 
 fn print_help() {
     eprintln!(
-        "Usage: cargo run -p xtask -- release-package [--dist-dir dist] [--dry-run] [--allow-unsigned]\n\n\
-         Builds the Lemon Squeezy upload zip from the JUCE common-shell AU + VST3 set.\n\
+        "Usage: cargo run -p xtask -- release-package [--dist-dir dist] [--dry-run] [--allow-unsigned] [--with-aax]\n\n\
+         Builds the HP download zip from the JUCE common-shell AU + VST3 set.\n\
+         --with-aax adds PACE + Developer-ID verified PRE/POST AAX bundles.\n\
          Default checks: clean source worktree, Developer-ID team {TEAM_ID}, notarized, universal,\n\
          version-matched, no WebKit/DiscRecording. --allow-unsigned is forced to /tmp and marks\n\
          the zip as {UNSIGNED_SUFFIX}."

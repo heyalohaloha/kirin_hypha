@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { verifyAaxBundle, verifyAaxBundleCopy } from './aax_bundle_verify.mjs';
+import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
 import { loadMacShipBundleManifest } from './kirin_hypha_ship_bundles.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -23,12 +25,17 @@ const PACKAGE_NAME = SKIP_SIGN ? `${PACKAGE_BASE}-UNSIGNED-DO-NOT-UPLOAD.pkg` : 
 const PACKAGE_PATH = path.join(RELEASE_DIR, PACKAGE_NAME);
 const COMPONENT_ID = 'com.kirinmastering.hypha.plugins';
 const PRODUCT_ID = 'com.kirinmastering.hypha.installer';
+const WITH_AAX = process.argv.includes('--with-aax');
 const shipManifest = loadMacShipBundleManifest({ root: ROOT });
-const bundles = shipManifest.bundles;
+const aaxManifest = WITH_AAX ? loadMacAaxBundleManifest({ root: ROOT }) : null;
+const bundles = [...shipManifest.bundles, ...(aaxManifest?.bundles || [])];
 
 function usage() {
   return `Usage:
-  node scripts/ls_release/build_kirin_hypha_pkg.mjs
+  node scripts/ls_release/build_kirin_hypha_pkg.mjs [--with-aax]
+
+Options:
+  --with-aax                     Include verified PRE/POST AAX bundles
 
 Environment:
   KIRIN_RELEASE_DIR=<dir>       Output dir. Default: dist/LS_UPLOAD; unsigned default: /tmp/kirin_hypha_pkg_smoke
@@ -106,8 +113,17 @@ function verifySourceBundle(bundle) {
     }
     if (usage.includes('network.client')) throw new Error(`${bundle.label} AU resourceUsage has network.client`);
   }
-  run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', source]);
-  run('codesign', ['--verify', '--deep', '--strict', '--check-notarization', '--verbose=2', source]);
+  if (bundle.kind === 'aax') {
+    verifyAaxBundle({
+      bundlePath: source,
+      executableName: bundle.executable_name,
+      bundleIdentifier: bundle.bundle_identifier,
+      version: VERSION,
+    });
+  } else {
+    run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', source]);
+    run('codesign', ['--verify', '--deep', '--strict', '--check-notarization', '--verbose=2', source]);
+  }
 }
 
 function verifyShipBundleContract(installedRoot) {
@@ -177,11 +193,55 @@ function formatMiB(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
+function findBundleDirectories(root, expectedNames) {
+  const matches = new Map(expectedNames.map((name) => [name, []]));
+  function visit(directory) {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory() && matches.has(entry.name)) {
+        matches.get(entry.name).push(absolute);
+      } else if (entry.isDirectory()) {
+        visit(absolute);
+      }
+    }
+  }
+  visit(root);
+  return matches;
+}
+
+function verifyPackagedAax(packagePath) {
+  if (!WITH_AAX) return;
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-pkg-expand-'));
+  const expanded = path.join(temporary, 'expanded');
+  try {
+    run('pkgutil', ['--expand-full', packagePath, expanded]);
+    const expectedNames = aaxManifest.bundles.map((bundle) => path.basename(bundle.install_relative));
+    const matches = findBundleDirectories(expanded, expectedNames);
+    for (const bundle of aaxManifest.bundles) {
+      const name = path.basename(bundle.install_relative);
+      const candidates = matches.get(name) || [];
+      if (candidates.length !== 1) {
+        throw new Error(`expanded pkg must contain exactly one ${name}; found ${candidates.length}`);
+      }
+      verifyAaxBundleCopy({
+        sourcePath: bundle.sourcePath,
+        destinationPath: candidates[0],
+        spec: bundle,
+        version: VERSION,
+      });
+    }
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+}
+
 function buildPackage() {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     console.log(usage());
     return;
   }
+  const unknown = process.argv.slice(2).filter((arg) => arg !== '--with-aax');
+  if (unknown.length > 0) throw new Error(`unknown option: ${unknown[0]}`);
 
   verifyShipBundleContract();
   for (const bundle of bundles) verifySourceBundle(bundle);
@@ -201,6 +261,14 @@ function buildPackage() {
     const destination = path.join(payloadRoot, bundle.install_relative);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     run('ditto', [bundle.sourcePath, destination]);
+    if (bundle.kind === 'aax') {
+      verifyAaxBundleCopy({
+        sourcePath: bundle.sourcePath,
+        destinationPath: destination,
+        spec: bundle,
+        version: VERSION,
+      });
+    }
   }
   verifyShipBundleContract(payloadRoot);
 
@@ -227,6 +295,7 @@ function buildPackage() {
   }
 
   run('pkgutil', ['--payload-files', PACKAGE_PATH], { capture: true });
+  verifyPackagedAax(PACKAGE_PATH);
   if (!SKIP_SIGN) {
     run('pkgutil', ['--check-signature', PACKAGE_PATH]);
     if (!SKIP_NOTARIZE) run('spctl', ['-a', '-vv', '-t', 'install', PACKAGE_PATH]);
@@ -245,6 +314,7 @@ function buildPackage() {
     lsDisplaySize: formatMiB(size),
     signed: !SKIP_SIGN,
     notarized: !SKIP_NOTARIZE,
+    aaxIncluded: WITH_AAX,
     generatedAt: new Date().toISOString(),
   };
   fs.writeFileSync(`${PACKAGE_PATH}.json`, `${JSON.stringify(sidecar, null, 2)}\n`);

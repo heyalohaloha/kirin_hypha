@@ -1,3 +1,4 @@
+mod aax_distribution;
 mod ci_usage_guard;
 mod diagnose_watch;
 mod gen_signals;
