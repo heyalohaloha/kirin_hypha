@@ -69,6 +69,11 @@ Common Files directory:
 Repeat install and uninstall verification checks both formats, both signature systems, exact hashes,
 and preservation of unrelated files. The ordinary VST3-only installer remains the default path.
 
+The latest public Windows installer and the current source version are both 1.1.49. A real
+prior-public-version upgrade can therefore run only after the next release version is assigned.
+`verify-installer.ps1` requires an explicit older installer for the AAX variant and rejects an equal
+or newer version, so a same-version reinstall cannot be mislabeled as an upgrade.
+
 ## Remaining release gates
 
 - Move the physical signing authorization to Windows and run the signing-order experiment once.

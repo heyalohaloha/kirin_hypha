@@ -153,6 +153,9 @@ test('Inno recipe owns only Kirin bundle paths and signs generated uninstall sur
 test('installer verifier gates same-version reinstall, signed uninstaller, and unrelated VST3 preservation', () => {
   const source = fs.readFileSync(path.join(scriptDir, 'verify-installer.ps1'), 'utf8');
   assert.match(source, /foreach \(\$installPass in 1\.\.2\)/);
+  assert.match(source, /-PreviousInstaller is required for AAX upgrade verification/);
+  assert.match(source, /Resolve-HyphaUninstaller/);
+  assert.match(source, /prior_public_upgrade/);
   assert.match(source, /installed uninstaller/);
   assert.match(source, /Get-AuthenticodeSignature/);
   assert.match(source, /Uninstaller removed an unrelated VST3 file/);

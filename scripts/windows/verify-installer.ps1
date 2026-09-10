@@ -12,7 +12,9 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$Manifest,
 
-  [string]$AaxWraptool = ""
+  [string]$AaxWraptool = "",
+
+  [string]$PreviousInstaller = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -101,6 +103,14 @@ function Wait-PathState([string]$PathValue, [bool]$Present, [string]$Label) {
   throw "Timed out waiting for ${Label}: $PathValue"
 }
 
+function Resolve-HyphaUninstaller([string]$Root) {
+  $uninstallers = @(Get-ChildItem -LiteralPath $Root -File -Filter "unins*.exe" -ErrorAction Stop)
+  if ($uninstallers.Count -ne 1) {
+    throw "Expected exactly one Kirin Hypha uninstaller, found $($uninstallers.Count)"
+  }
+  return $uninstallers[0].FullName
+}
+
 function Assert-Payload([string]$InstalledRoot, [string]$SourceRoot) {
   $records = @()
   foreach ($role in @("PRE", "POST")) {
@@ -144,6 +154,20 @@ $payloadPath = Resolve-RequiredDirectory $PayloadDir "installer payload"
 $manifestPath = Resolve-RequiredFile $Manifest "installer manifest"
 $manifestData = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $withAax = [bool]$manifestData.distribution.aax_included
+$previousInstallerPath = $null
+$previousVersion = $null
+if ($withAax) {
+  if ([string]::IsNullOrWhiteSpace($PreviousInstaller)) {
+    throw "-PreviousInstaller is required for AAX upgrade verification"
+  }
+  $previousInstallerPath = Resolve-RequiredFile $PreviousInstaller "previous public installer"
+  $previousVersion = [string](Get-Item -LiteralPath $previousInstallerPath).VersionInfo.FileVersion
+  $previousVersion = $previousVersion.Trim()
+  if ([string]::IsNullOrWhiteSpace($previousVersion) -or
+      [version]$previousVersion -ge [version]$manifestData.product.version) {
+    throw "Previous installer version must be older than $($manifestData.product.version): $previousVersion"
+  }
+}
 $vst3Root = if ($withAax) {
   Join-Path $env:CommonProgramFiles "VST3"
 } else {
@@ -182,6 +206,20 @@ $uninstallerPath = $null
 try {
   $records += Get-SignatureRecord "installer" $installerPath $Signing
   $installScope = if ($withAax) { "/ALLUSERS" } else { "/CURRENTUSER" }
+  if ($withAax) {
+    $previousInstall = Start-Process -FilePath $previousInstallerPath -ArgumentList @(
+      "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $installScope
+    ) -Wait -PassThru
+    if ($previousInstall.ExitCode -ne 0) {
+      throw "Previous installer failed with exit code $($previousInstall.ExitCode)"
+    }
+    Wait-PathState $preBundle $true "previous PRE bundle"
+    Wait-PathState $postBundle $true "previous POST bundle"
+    $uninstallerPath = Resolve-HyphaUninstaller $uninstallRoot
+    if (@(Find-HyphaUninstallEntries).Count -ne 1) {
+      throw "Expected one Kirin Hypha uninstall entry after previous-version install"
+    }
+  }
   foreach ($installPass in 1..2) {
     $process = Start-Process -FilePath $installerPath -ArgumentList @(
       "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $installScope
@@ -197,14 +235,10 @@ try {
       Wait-PathState $postAaxBundle $true "installed POST AAX bundle"
       $passRecords += @(Assert-AaxPayload $aaxRoot $payloadPath $resolvedWraptool)
     }
+    $uninstallerPath = Resolve-HyphaUninstaller $uninstallRoot
     if ($installPass -eq 2) { $records += $passRecords }
   }
 
-  $uninstallers = @(Get-ChildItem -LiteralPath $uninstallRoot -File -Filter "unins*.exe" -ErrorAction Stop)
-  if ($uninstallers.Count -ne 1) {
-    throw "Expected exactly one Kirin Hypha uninstaller, found $($uninstallers.Count)"
-  }
-  $uninstallerPath = $uninstallers[0].FullName
   $records += Get-SignatureRecord "installed uninstaller" $uninstallerPath $Signing
   if (@(Find-HyphaUninstallEntries).Count -ne 1) {
     throw "Expected exactly one Kirin Hypha uninstall registry entry after install"
@@ -245,6 +279,7 @@ try {
   $manifestData.ci_validation | Add-Member -NotePropertyName verified_at -NotePropertyValue ((Get-Date).ToUniversalTime().ToString("o")) -Force
   $facts = @(
     $(if ($withAax) { "all-users silent install passed" } else { "per-user silent install passed" }),
+    $(if ($withAax) { "upgrade from $previousVersion passed" }),
     "same-version repeat install passed",
     "installed PRE/POST hashes match packaged payload",
     $(if ($withAax) { "installed PRE/POST AAX passed Authenticode and PACE verification" }),
@@ -254,6 +289,13 @@ try {
     "uninstall registry entry was removed"
   ) | Where-Object { $null -ne $_ }
   $manifestData.ci_validation | Add-Member -NotePropertyName facts -NotePropertyValue $facts -Force
+  if ($withAax) {
+    $manifestData.ci_validation | Add-Member -NotePropertyName prior_public_upgrade -NotePropertyValue ([ordered]@{
+      installer = [System.IO.Path]::GetFileName($previousInstallerPath)
+      version = $previousVersion
+      status = "passed"
+    }) -Force
+  }
   $manifestData.distribution.public_ready = (
     $Signing -eq "signed" -and $manifestData.external_validation.status -eq "complete"
   )

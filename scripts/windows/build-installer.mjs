@@ -252,6 +252,7 @@ function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords }) {
       required: [
         'silent install',
         'same-version reinstall',
+        ...(aaxIncluded ? ['prior-public-version upgrade'] : []),
         'PRE/POST payload hash equality',
         ...(aaxIncluded ? ['PACE + Authenticode AAX payloads'] : []),
         'Authenticode surfaces when signed',
