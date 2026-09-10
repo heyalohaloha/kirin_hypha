@@ -84,6 +84,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         initialWidth = fallback.width;
         initialHeight = fallback.height;
     }
+    editorSizePersistenceReady = true;
     setSize (initialWidth, initialHeight);
     observatoryView.setHybridVuOnRecordEnabled (processorRef.hybridVuOnRecordPreference());
     observatoryView.setManualHybridVuVisible (processorRef.manualHybridVuSelection());
@@ -318,11 +319,14 @@ void KirinHyphaEditor::resized()
         if (getWidth() >= hypha::observatory::sizePresets[index].width)
             nearestPreset = index;
     observatorySizeIndex = nearestPreset;
-    processorRef.setSpectrumSizePreference ((uint8_t) nearestPreset);
-    if (processorRef.setObservatoryEditorSizePreference (getWidth(), getHeight()))
+    if (editorSizePersistenceReady)
     {
-        editorSizeStateDirty = true;
-        editorSizeLastChangedAt = nowSecs();
+        processorRef.setSpectrumSizePreference ((uint8_t) nearestPreset);
+        if (processorRef.setObservatoryEditorSizePreference (getWidth(), getHeight()))
+        {
+            editorSizeStateDirty = true;
+            editorSizeLastChangedAt = nowSecs();
+        }
     }
 
     const auto viewport = hypha::observatory::displayViewport (getWidth(), getHeight());

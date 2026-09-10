@@ -194,6 +194,7 @@ private:
     double bannerUntil = 0.0;
     double toastUntil  = 0.0;
     double editorSizeLastChangedAt = 0.0;
+    bool editorSizePersistenceReady = false;
     bool editorSizeStateDirty = false;
     juce::String toastText;
     double pathAnomalyUntil = 0.0;        // B-128 (G-115-371 D3): restore identity anomaly latch

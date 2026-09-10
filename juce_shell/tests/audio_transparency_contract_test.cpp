@@ -306,6 +306,25 @@ void verifyVst3HostStatePersistence (juce::AudioPluginFormat& format,
         || applied.plugin->getIntAttribute ("observatory_height", -1) != 436)
         fail (description.name.toStdString() + " rejected host-provided TRACK/STEM editor state");
 
+    auto* appliedEditor = source->createEditorIfNeeded();
+    if (appliedEditor == nullptr)
+        fail (description.name.toStdString() + " did not create its shipped VST3 editor");
+    if (appliedEditor->getWidth() != 654 || appliedEditor->getHeight() != 436)
+    {
+        const auto afterEditor = readVst3State (*source);
+        fail (description.name.toStdString() + " serialized size was not applied to the VST3 editor: "
+              + std::to_string (appliedEditor->getWidth()) + "x"
+              + std::to_string (appliedEditor->getHeight()) + " component-state="
+              + std::to_string (afterEditor.plugin->getIntAttribute ("observatory_width", -1))
+              + "x"
+              + std::to_string (afterEditor.plugin->getIntAttribute ("observatory_height", -1)));
+    }
+    const auto afterAppliedEditor = readVst3State (*source);
+    if (afterAppliedEditor.plugin->getIntAttribute ("meter_context", -1) != 0)
+        fail (description.name.toStdString()
+              + " editor creation replaced restored TRACK/STEM with 2MIX");
+    delete appliedEditor;
+
     juce::MemoryBlock saved;
     source->getStateInformation (saved);
     if (saved.isEmpty())
@@ -323,6 +342,19 @@ void verifyVst3HostStatePersistence (juce::AudioPluginFormat& format,
         || restoredState.plugin->getIntAttribute ("observatory_width", -1) != 654
         || restoredState.plugin->getIntAttribute ("observatory_height", -1) != 436)
         fail (description.name.toStdString() + " changed TRACK/STEM or editor size after host reload");
+
+    auto* restoredEditor = restored->createEditorIfNeeded();
+    if (restoredEditor == nullptr)
+        fail (description.name.toStdString() + " did not recreate its shipped VST3 editor");
+    if (restoredEditor->getWidth() != 654 || restoredEditor->getHeight() != 436)
+        fail (description.name.toStdString() + " did not restore the VST3 editor to 654x436: "
+              + std::to_string (restoredEditor->getWidth()) + "x"
+              + std::to_string (restoredEditor->getHeight()));
+    const auto afterRestoredEditor = readVst3State (*restored);
+    if (afterRestoredEditor.plugin->getIntAttribute ("meter_context", -1) != 0)
+        fail (description.name.toStdString()
+              + " reloaded editor replaced restored TRACK/STEM with 2MIX");
+    delete restoredEditor;
 
     std::cout << "PASS " << description.name
               << " VST3 host-state fresh=2MIX restored=TRACK/STEM size=654x436\n";

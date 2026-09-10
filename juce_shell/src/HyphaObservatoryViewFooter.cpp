@@ -2,6 +2,8 @@
 #include "HyphaRunSummary.h"
 #include "HyphaTimeHistoryPainter.h"
 
+#include <cmath>
+
 namespace hypha::observatory
 {
 namespace
@@ -47,10 +49,26 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     for (auto* button : { &hybridVuButton, &resetButton, &noteButton,
                           &captureButton, &localBlindButton })
         if (button->isVisible()) visible.add (button);
-    const int width = visible.isEmpty() ? 0 : actions.getWidth() / visible.size();
+    juce::Array<int> minimumWidths;
+    const auto fontHeight = actions.getHeight() >= 38 ? 15.0f
+                          : actions.getHeight() >= 28 ? 13.0f : 11.0f;
+    int minimumTotal = 0;
+    for (auto* button : visible)
+    {
+        const auto width = juce::roundToInt (
+            std::ceil (labelFont (fontHeight).getStringWidthFloat (button->getButtonText()) + 6.0f));
+        minimumWidths.add (width);
+        minimumTotal += width;
+    }
+    auto flexible = juce::jmax (0, actions.getWidth() - minimumTotal);
     for (int index = 0; index < visible.size(); ++index)
+    {
+        const auto remaining = visible.size() - index;
+        const auto width = minimumWidths[index] + flexible / remaining;
+        flexible -= flexible / remaining;
         visible[index]->setBounds ((index + 1 == visible.size()
             ? actions : actions.removeFromLeft (width)).reduced (1, 2));
+    }
 }
 
 void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)

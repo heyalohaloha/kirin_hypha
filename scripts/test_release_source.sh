@@ -6,11 +6,13 @@ cd "$ROOT"
 
 UI_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-ui-contract-$$"
 OBSERVATORY_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-observatory-contract-$$"
-PRE_DISPLAY_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/kirin-pre-display-test.XXXXXX")"
+# Keep native objects under the already-ignored Cargo target tree. Re-running this gate now
+# recompiles only changed JUCE sources; CI workspaces are fresh, so release verification remains
+# independent there. Set KIRIN_HYPHA_NATIVE_TEST_BUILD to isolate a diagnostic run if needed.
+PRE_DISPLAY_BUILD="${KIRIN_HYPHA_NATIVE_TEST_BUILD:-${CARGO_TARGET_DIR:-$ROOT/target}/hypha-release-native-tests}"
 cleanup() {
   cmake -E rm -f "$UI_CONTRACT_BIN"
   cmake -E rm -f "$OBSERVATORY_CONTRACT_BIN"
-  cmake -E remove_directory "$PRE_DISPLAY_BUILD"
 }
 trap cleanup EXIT
 
