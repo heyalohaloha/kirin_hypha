@@ -2977,31 +2977,6 @@ impl KirinHyphaEngine {
         })?
     }
 
-    /// 利用者操作だけが常設セッションを破棄できる。UI/control thread専用。
-    /// Measure workerの短い更新と直列化し、再生中のクリックも取りこぼさない。
-    pub fn reset_meter_session(&self) -> bool {
-        let Some(session) = self.meter_session.as_ref() else {
-            return false;
-        };
-        let Ok(mut session) = session.lock() else {
-            return false;
-        };
-        let Ok(mut watch_max) = self.watch_max.lock() else {
-            return false;
-        };
-        session.reset();
-        watch_max.reset();
-        let snapshot = session.snapshot();
-        drop(session);
-        if let Some(publication) = self.meter_session_publication.as_ref() {
-            publication.publish(snapshot);
-        }
-        if let Some(exchange) = self.meter_delta_history.as_ref() {
-            exchange.reset();
-        }
-        true
-    }
-
     pub fn overflow_count(&self) -> u64 {
         self.push_overflow.load(Ordering::Relaxed)
     }
@@ -5112,18 +5087,6 @@ pub unsafe extern "C" fn kirin_hypha_poll_meter_delta_history_decimated(
         }
         unsafe { *out_count = entries.len() as u32 };
         true
-    }))
-    .unwrap_or(false)
-}
-
-/// 利用者操作で常設メーターセッションを破棄する。競合・未生成時はfalse。
-///
-/// # Safety
-/// `handle` は有効。UI/control Threadから呼ぶこと。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_reset_meter_session(handle: *mut KirinHyphaEngine) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        !handle.is_null() && unsafe { (&*handle).reset_meter_session() }
     }))
     .unwrap_or(false)
 }

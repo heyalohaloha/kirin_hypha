@@ -1,10 +1,50 @@
 use kirin_measure::{BalanceState, MeterSessionSnapshot, MeterSessionState};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use super::{
-    opt_f64, KirinMeterSession, KIRIN_BALANCE_LEFT_ONLY, KIRIN_BALANCE_NUMERIC,
+    opt_f64, KirinHyphaEngine, KirinMeterSession, KIRIN_BALANCE_LEFT_ONLY, KIRIN_BALANCE_NUMERIC,
     KIRIN_BALANCE_RIGHT_ONLY, KIRIN_BALANCE_UNAVAILABLE, KIRIN_METER_SESSION_ACTIVE,
     KIRIN_METER_SESSION_EMPTY, KIRIN_METER_SESSION_PAUSED, KIRIN_STEREO_FIELD_SIZE,
 };
+
+impl KirinHyphaEngine {
+    /// Only an explicit user action may discard the always-on meter session.
+    /// Serializing with the Measure worker avoids losing an in-flight observation.
+    pub fn reset_meter_session(&self) -> bool {
+        let Some(session) = self.meter_session.as_ref() else {
+            return false;
+        };
+        let Ok(mut session) = session.lock() else {
+            return false;
+        };
+        let Ok(mut watch_max) = self.watch_max.lock() else {
+            return false;
+        };
+        session.reset();
+        watch_max.reset();
+        let snapshot = session.snapshot();
+        drop(session);
+        if let Some(publication) = self.meter_session_publication.as_ref() {
+            publication.publish(snapshot);
+        }
+        if let Some(exchange) = self.meter_delta_history.as_ref() {
+            exchange.reset();
+        }
+        true
+    }
+}
+
+/// Discards the always-on meter session after an explicit user action.
+///
+/// # Safety
+/// `handle` must either be null or point to a live engine. Call from the UI/control thread.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_reset_meter_session(handle: *mut KirinHyphaEngine) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        !handle.is_null() && unsafe { (&*handle).reset_meter_session() }
+    }))
+    .unwrap_or(false)
+}
 
 pub(super) fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterSession {
     let state = match snapshot.state {
