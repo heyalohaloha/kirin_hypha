@@ -1,5 +1,6 @@
 //! Offline development only; never registered as a plugin profile or a product SPACE route.
 //! Usage: mix_space_probe FLOAT32_WAV attack|space PARAMETERS_JSON
+use kirin_measure::space_decay::SPACE_DECAY_CALCULATOR_DEFINITION_ID;
 use sha2::{Digest, Sha256};
 use std::io::Read;
 #[path = "mix_space_probe/analysis.rs"]
@@ -49,6 +50,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         serde_json::to_string_pretty(&serde_json::json!({
             "schema": "hypha.mix-space.development-probe.v1", "mode": args[1],
             "product_qualified": false, "human_annotation_evaluated": false,
+            "calculator_definition_id": SPACE_DECAY_CALCULATOR_DEFINITION_ID,
             "input_sha256": hex::encode(Sha256::digest(&bytes)),
             "parameters_sha256": hex::encode(Sha256::digest(&config)),
             "odf_definition_sha256": odf_definition, "parameters": parameters,

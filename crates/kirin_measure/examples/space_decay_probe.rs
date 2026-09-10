@@ -2,6 +2,7 @@
 //! Usage: space_decay_probe FLOAT32_WAV ONSET_FRAME FIT_START_MS FIT_END_MS FLOOR_DB
 //! Fit selection and floor are explicit inputs; there is no automatic interval search.
 
+use kirin_measure::space_decay::SPACE_DECAY_CALCULATOR_DEFINITION_ID;
 use sha2::{Digest, Sha256};
 use std::io::Read;
 
@@ -67,6 +68,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         serde_json::to_string_pretty(&serde_json::json!({
             "schema": "hypha.space.fixed-window-research.v1",
             "product_qualified": false,
+            "calculator_definition_id": SPACE_DECAY_CALCULATOR_DEFINITION_ID,
             "input_sha256": hex::encode(Sha256::digest(&bytes)),
             "sample_rate": spec.sample_rate, "channels": channels,
             "onset_frame": onset, "captured_frames": pcm.len() / channels,

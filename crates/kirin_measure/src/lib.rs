@@ -1,5 +1,4 @@
-//! kirin_measure — Kirin Hypha 共通計測ライブラリ。
-//! napi-rsに依存せず、nih-plugのAudio Threadから独立したMeasure Thread／IO Threadで使う。
+//! kirin_measure — napi-rs非依存でAudio Threadから隔離したKirin Hypha共通計測ライブラリ。
 mod absolute_level;
 pub mod absolute_timeline;
 pub mod all_keep_signal;
@@ -72,6 +71,7 @@ mod record_writer_claim;
 pub mod reference_gain;
 pub mod resampler;
 pub mod reservation;
+pub mod space_decay;
 pub mod spectrum;
 mod spectrum_difference_timeline;
 pub mod spectrum_exchange;

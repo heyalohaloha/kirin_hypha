@@ -116,3 +116,17 @@ private evidenceはpack ID、review manifest hash、音声hash、結果hashで�
 2. SPACE DECAYは製品有効化を止め、FIELDなど既存の成立済み観測を壊さない。
 3. SPACEを再開する場合は、局所的な複数区間を追う定義と、単一直線D20を分けて設計する。
 4. 2MIX ATTACKは二人分の網羅注釈を用意できる別日に再開する。
+
+## 2026-09-10 計算core統合
+
+Daisukeの判断により、局所的な複数減衰を主観測とし、厳格なD20を成立時だけ補助表示する方向で完成工程へ進める。
+これは表示構造の承認であり、未評価の6 dB閾値や知覚精度の合格ではない。
+
+手動区間と自動解析が別々に持っていたEARLY、固定区間fit、局所episode計算を`kirin_measure::space_decay`へ統合した。
+定義IDは`hypha.space.broadband-fixed-window.v2`とし、probe結果にも同じIDを記録する。
+厳格D20は最低点数、20 dB実測低下、負の傾き、最大再上昇、最低R²を別々の棄却理由として返す。
+policyの暗黙defaultは置かず、評価結果なしに製品値を有効化できないようにした。
+
+既存の「追える減衰なし」4音源を30秒全体で再診断すると、6 dB条件の局所episodeは35、89、78、117件だった。
+したがって局所episodeの有無だけを知覚上のSPACE判定へ使わない。
+計算と残る製品gateは[SPACE DECAY実装定義](hypha_space_decay_definition_20260910.md)を正本とする。
