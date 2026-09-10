@@ -92,7 +92,7 @@ test('Windows AAX signing is one combined wraptool operation through a store cer
   assert.match(source, /"--signid", \$thumbprint/);
   assert.match(
     source,
-    /"--explicitsigningoptions=\/sha1 \$thumbprint \/fd sha256 \/tr http:\/\/ts\.ssl\.com \/td sha256"/,
+    /"--explicitsigningoptions=sign \/sha1 \$thumbprint \/fd sha256 \/tr http:\/\/ts\.ssl\.com \/td sha256"/,
   );
   assert.doesNotMatch(source, /--extrasigningoptions/);
   assert.match(source, /windows-aax-bundles\.mjs/);

@@ -123,7 +123,7 @@ foreach ($record in $records) {
     "--customernumber", $CustomerNumber,
     "--customername", $CustomerName,
     "--signid", $thumbprint,
-    "--explicitsigningoptions=/sha1 $thumbprint /fd sha256 /tr http://ts.ssl.com /td sha256"
+    "--explicitsigningoptions=sign /sha1 $thumbprint /fd sha256 /tr http://ts.ssl.com /td sha256"
   )
   if (![string]::IsNullOrWhiteSpace($SignTool)) {
     if (!(Test-Path -LiteralPath $SignTool -PathType Leaf)) {

@@ -100,9 +100,9 @@ or newer version, so a same-version reinstall cannot be mislabeled as an upgrade
 ## Remaining release gates
 
 - Run the combined PACE + eSigner CKA signing path once on the private self-hosted release runner.
-  Windows uses `--explicitsigningoptions` so the SHA-256 file digest and RFC 3161 timestamp
-  arguments precede the target passed to SignTool; PACE's default invocation does not supply the
-  now-required `/fd` argument.
+  Windows uses `--explicitsigningoptions` with the complete `sign` argument list so the SHA-256
+  file digest and RFC 3161 timestamp arguments precede the target passed to SignTool; PACE's
+  default invocation does not supply the now-required `/fd` argument.
 - Build the VST3+AAX installer and run install, same-version reinstall, prior-public-version upgrade,
   and uninstall validation.
 - Complete Pro Tools load, category, transparency, Offline Bounce, restore, mono/stereo, and pairing
