@@ -31,6 +31,23 @@ void View::resized()
                               &contextButton, &scaleButton, &sizeButton, &resetButton,
                               &noteButton, &captureButton, &localBlindButton })
             button->setVisible (false);
+        const auto bounds = getLocalBounds();
+        auto calibration = juce::Rectangle<int> (
+            juce::roundToInt (bounds.getWidth() * 0.021f),
+            juce::roundToInt (bounds.getHeight() * 0.880f),
+            juce::roundToInt (bounds.getWidth() * 0.958f),
+            juce::roundToInt (bounds.getHeight() * 0.095f));
+        const auto buttonHeight = juce::jlimit (14, 30, calibration.getHeight() - 2);
+        const auto vuWidth = juce::jlimit (42, 90,
+                                           juce::roundToInt (bounds.getWidth() * 0.10f));
+        const auto clearWidth = juce::jlimit (54, 112,
+                                              juce::roundToInt (bounds.getWidth() * 0.14f));
+        hybridVuButton.setVisible (true);
+        hybridVuButton.setBounds (calibration.removeFromLeft (vuWidth)
+                                      .withSizeKeepingCentre (vuWidth, buttonHeight));
+        clearPeakClipButton.setVisible (true);
+        clearPeakClipButton.setBounds (calibration.removeFromRight (clearWidth)
+                                          .withSizeKeepingCentre (clearWidth, buttonHeight));
         return;
     }
     if (captureFrame)

@@ -69,6 +69,18 @@ void KirinHyphaEditor::configureMeterContext()
         haveObservatoryWatchDisplay = false;
         observatoryView.setWatchDisplay ({}, false);
     };
+    observatoryView.onClearPeakClipHolds = [this]
+    {
+        if (! processorRef.clearMeterPeakClipHolds())
+            showToast ("TP / Clip CLEAR failed");
+    };
+    observatoryView.onHybridVuChange = [this] (bool visible)
+    {
+        processorRef.setManualHybridVuSelection (
+            observatoryView.manualHybridVuVisible());
+        resized();
+        if (visible) observatoryView.toFront (false);
+    };
     observatoryView.onNote = [this] { showNoteDialog(); };
 }
 

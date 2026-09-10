@@ -143,6 +143,37 @@ fn peak_hold_and_true_peak_are_per_channel_and_reset_only_explicitly() {
 }
 
 #[test]
+fn clear_peak_clip_holds_preserves_live_windows_and_relatches_continuing_clip() {
+    let mut meter = StereoMeter::new(SR, 2).unwrap();
+    for _ in 0..3 {
+        assert!(meter.push_observation(&observation(1.1, 0.4)));
+    }
+    let before = meter.snapshot();
+    assert_eq!(before.clip_events, [1, 0]);
+    assert_eq!(meter.session_clip_events(), [1, 0]);
+    assert!(before.max_true_peak_dbtp[0].is_some());
+
+    meter.clear_peak_clip_holds();
+    let cleared = meter.snapshot();
+    assert_eq!(cleared.clip_events, [0, 0]);
+    assert!(cleared.max_true_peak_dbtp.iter().all(Option::is_none));
+    assert_eq!(cleared.true_peak_dbtp, before.true_peak_dbtp);
+    assert_eq!(
+        cleared.instant_true_peak_dbtp,
+        before.instant_true_peak_dbtp
+    );
+    assert_eq!(cleared.vu_dbfs, before.vu_dbfs);
+    assert_eq!(cleared.sample_peak_hold_dbfs, before.sample_peak_hold_dbfs);
+    assert_eq!(meter.session_clip_events(), [1, 0]);
+
+    assert!(meter.push_observation(&observation(1.1, 0.4)));
+    let relatched = meter.snapshot();
+    assert_eq!(relatched.clip_events, [1, 0]);
+    assert_eq!(meter.session_clip_events(), [1, 0]);
+    assert!(relatched.max_true_peak_dbtp[0].is_some());
+}
+
+#[test]
 fn field_density_has_mid_side_orientation_and_an_exact_three_second_window() {
     const CENTRE: usize = STEREO_FIELD_SIZE / 2;
     let mut meter = StereoMeter::new(SR, 2).unwrap();

@@ -37,12 +37,15 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
 {
     const bool reference = selectedDomain == Domain::reference;
     const bool full = captureEntryAvailable (role, currentPreset()) && ! reference;
+    hybridVuButton.setVisible (! captureFrame);
+    clearPeakClipButton.setVisible (false);
     resetButton.setVisible (! captureFrame && ! reference);
     noteButton.setVisible (role == Role::post && ! captureFrame && ! reference);
     captureButton.setVisible (full && ! captureFrame);
     localBlindButton.setVisible (localBlindEntryEnabled && full && ! captureFrame);
     juce::Array<juce::Button*> visible;
-    for (auto* button : { &resetButton, &noteButton, &captureButton, &localBlindButton })
+    for (auto* button : { &hybridVuButton, &resetButton, &noteButton,
+                          &captureButton, &localBlindButton })
         if (button->isVisible()) visible.add (button);
     const int width = visible.isEmpty() ? 0 : actions.getWidth() / visible.size();
     for (int index = 0; index < visible.size(); ++index)

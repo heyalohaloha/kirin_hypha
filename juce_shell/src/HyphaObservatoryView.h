@@ -47,6 +47,8 @@ public:
     std::function<void()> onNote;
     std::function<void()> onInformation;
     std::function<void()> onLocalBlind;
+    std::function<void (bool)> onHybridVuChange;
+    std::function<void()> onClearPeakClipHolds;
     juce::Component& informationAnchor() noexcept { return informationButton; }
 
     void setDomain (Domain);
@@ -86,10 +88,15 @@ public:
     bool setHostRecording (bool recording);
     bool setHybridVuOnRecordEnabled (bool enabled);
     bool dismissHybridVuForCurrentRecording();
+    bool setManualHybridVuVisible (bool visible);
+    bool manualHybridVuVisible() const noexcept { return manualHybridVuSelected; }
+    bool hybridVuShownByRecording() const noexcept
+    {
+        return ! manualHybridVuSelected && recordingHybridVuRequested() && ! captureFrame;
+    }
     bool hybridVuVisible() const noexcept
     {
-        return hostRecording && hybridVuOnRecordEnabled
-            && ! hybridVuDismissedForCurrentRecording && ! captureFrame;
+        return (manualHybridVuSelected || recordingHybridVuRequested()) && ! captureFrame;
     }
     void setCompactMaximum (bool);
     bool compactMaximum() const noexcept { return compactShowsMaximum; }
@@ -170,6 +177,12 @@ private:
     void cycleDomain();
     void cycleTimeRange();
     void cycleSize();
+    void toggleHybridVu();
+    bool recordingHybridVuRequested() const noexcept
+    {
+        return hostRecording && hybridVuOnRecordEnabled
+            && ! hybridVuDismissedForCurrentRecording;
+    }
     void updateControls();
     SizePreset currentPreset() const noexcept;
     GuidePresence guidePresence() const noexcept;
@@ -199,6 +212,7 @@ private:
     bool hostRecording = false;
     bool hybridVuOnRecordEnabled = true;
     bool hybridVuDismissedForCurrentRecording = false;
+    bool manualHybridVuSelected = false;
     bool compactShowsMaximum = false;
     meter_context::MeterContext selectedMeterContext = meter_context::defaultContext;
     meter_context::ScaleMode selectedScaleMode = meter_context::defaultScale;
@@ -247,6 +261,8 @@ private:
     Button contextButton { {}, false };
     Button scaleButton { {}, false };
     Button sizeButton { {}, false };
+    Button hybridVuButton { "VU", false };
+    Button clearPeakClipButton { "CLEAR", false };
     Button resetButton { "RESET", false };
     Button noteButton { "NOTE", false };
     Button captureButton { "CAPTURE", false };

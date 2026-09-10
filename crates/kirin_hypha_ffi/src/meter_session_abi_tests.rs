@@ -1,3 +1,6 @@
+use super::meter_session_ffi::{
+    kirin_hypha_clear_meter_peak_clip_holds, kirin_hypha_reset_meter_session,
+};
 use super::*;
 use kirin_measure::BalanceState;
 
@@ -249,6 +252,7 @@ fn null_meter_session_calls_fail_closed_without_touching_output() {
     });
     assert_eq!(history_count, 41);
     assert!(!unsafe { kirin_hypha_reset_meter_session(std::ptr::null_mut()) });
+    assert!(!unsafe { kirin_hypha_clear_meter_peak_clip_holds(std::ptr::null_mut()) });
     assert_eq!(out.generation, 41);
 }
 
@@ -344,6 +348,7 @@ fn live_measure_worker_advances_pauses_and_resets_independent_session() {
         .iter()
         .all(Option::is_some));
     assert!(active.stereo.true_peak_dbtp.iter().all(Option::is_some));
+    assert!(active.stereo.max_true_peak_dbtp.iter().all(Option::is_some));
     assert!(active.stereo.correlation.is_none());
     let history = engine
         .poll_meter_history(MeterHistoryResolution::Hz10, 20)
@@ -356,6 +361,23 @@ fn live_measure_worker_advances_pauses_and_resets_independent_session() {
         .unwrap();
     assert_eq!(one_second.len(), 1);
     assert_eq!(one_second[0].observation_count, 10);
+
+    assert!(unsafe {
+        kirin_hypha_clear_meter_peak_clip_holds(std::ptr::from_ref(&engine).cast_mut())
+    });
+    let cleared = engine.poll_meter_session().unwrap();
+    assert_eq!(cleared.generation, active.generation);
+    assert_eq!(cleared.active_frames, active.active_frames);
+    assert_eq!(cleared.observed_frames, active.observed_frames);
+    assert_eq!(cleared.summary.lufs_i, active.summary.lufs_i);
+    assert_eq!(cleared.summary.lra, active.summary.lra);
+    assert_eq!(cleared.summary.max_true_peak, active.summary.max_true_peak);
+    assert_eq!(cleared.stereo.clip_events, [0, 0]);
+    assert!(cleared
+        .stereo
+        .max_true_peak_dbtp
+        .iter()
+        .all(Option::is_none));
 
     let mut ffi_entries: Vec<std::mem::MaybeUninit<KirinMeterHistoryEntry>> =
         std::iter::repeat_with(std::mem::MaybeUninit::uninit)

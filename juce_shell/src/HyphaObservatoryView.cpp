@@ -48,7 +48,8 @@ View::View (Role roleIn) : role (roleIn)
                           &referenceButton,
                           &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton,
                           &compactLoudnessButton, &compactRangeButton,
-                          &contextButton, &scaleButton, &sizeButton, &resetButton, &noteButton, &captureButton })
+                          &contextButton, &scaleButton, &sizeButton, &hybridVuButton,
+                          &clearPeakClipButton, &resetButton, &noteButton, &captureButton })
     {
         styleButton (*button);
         addAndMakeVisible (*button);
@@ -96,6 +97,24 @@ View::View (Role roleIn) : role (roleIn)
     compactLoudnessButton.setTooltip ("Switch Momentary / Short-term loudness"); compactRangeButton.setTooltip ("Switch current / session maximum values");
     contextButton.setTooltip ("Switch TRACK/STEM / 2MIX meter context"); scaleButton.setTooltip ("Switch WIDE / FOCUS loudness scale");
     sizeButton.onClick = [this] { cycleSize(); };
+    hybridVuButton.setComponentID ("observatory-hybrid-vu");
+    hybridVuButton.setTitle ("Hybrid VU");
+    hybridVuButton.setDescription ("Show or hide the Hybrid VU without changing measurement");
+    hybridVuButton.setTooltip (hybridVuButton.getDescription());
+    hybridVuButton.onClick = [this]
+    {
+        toggleHybridVu();
+        if (onHybridVuChange) onHybridVuChange (hybridVuVisible());
+    };
+    clearPeakClipButton.setComponentID ("observatory-clear-peak-clip");
+    clearPeakClipButton.setTitle ("Clear True Peak and Clip holds");
+    clearPeakClipButton.setDescription (
+        "Clear held channel True Peak and Clip indicators; keep current values and history");
+    clearPeakClipButton.setTooltip (clearPeakClipButton.getDescription());
+    clearPeakClipButton.onClick = [this]
+    {
+        if (onClearPeakClipHolds) onClearPeakClipHolds();
+    };
     resetButton.onClick = [this] { if (onReset) onReset(); };
     noteButton.onClick = [this] { if (onNote) onNote(); };
     noteButton.setComponentID ("observatory-note");
@@ -317,6 +336,7 @@ void View::updateControls()
     scaleButton.setToggleState (true, juce::dontSendNotification);
     sizeButton.setButtonText (
         displayedEditorWidth > 0 ? displayedSizeLabel : currentPreset().label);
+    hybridVuButton.setToggleState (hybridVuVisible(), juce::dontSendNotification);
 }
 
 
@@ -329,6 +349,20 @@ void View::paint (juce::Graphics& g)
             currentFactsAvailable(), cumulativeFactsAvailable(), watchDisplayAvailable,
             selectedShortTermLoudness, connectionText, connectionColour
         });
+        if (feedbackText.isNotEmpty())
+        {
+            auto feedback = getLocalBounds();
+            feedback.setY (juce::roundToInt (getHeight() * 0.880f));
+            feedback.setHeight (juce::roundToInt (getHeight() * 0.095f));
+            feedback.removeFromLeft (juce::roundToInt (getWidth() * 0.18f));
+            feedback.removeFromRight (juce::roundToInt (getWidth() * 0.20f));
+            g.setColour (BG.withAlpha (0.92f));
+            g.fillRoundedRectangle (feedback.toFloat(), 3.0f);
+            g.setColour (COL_NORMAL);
+            g.setFont (monoFont (juce::jlimit (7.0f, 14.0f, feedback.getHeight() * 0.55f)));
+            g.drawFittedText (feedbackText, feedback.reduced (3, 0),
+                              juce::Justification::centred, 1, 0.70f);
+        }
         return;
     }
     const auto state = worldState();

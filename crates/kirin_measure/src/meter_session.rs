@@ -146,16 +146,21 @@ impl MeterSession {
             interleaved,
             |_, current, observed_samples, plr, max_lufs_m| {
                 const MAX_HISTORY_CLIP_EVENTS: u64 = u32::MAX as u64;
-                let previous_clip_events = self.stereo.clip_events();
+                let previous_clip_events = self.stereo.session_clip_events();
                 let stereo_advanced = self.stereo.push_observation(observed_samples);
                 let stereo_snapshot = stereo_advanced.then(|| self.stereo.snapshot());
-                let clip_event_count = stereo_snapshot.map_or([0; 2], |snapshot| {
-                    std::array::from_fn(|channel| {
-                        snapshot.clip_events[channel]
-                            .saturating_sub(previous_clip_events[channel])
-                            .min(MAX_HISTORY_CLIP_EVENTS) as u32
-                    })
-                });
+                let session_clip_events = self.stereo.session_clip_events();
+                let clip_event_count =
+                    stereo_advanced
+                        .then_some(session_clip_events)
+                        .map_or([0; 2], |events| {
+                            std::array::from_fn(|channel| {
+                                events[channel]
+                                    .saturating_sub(previous_clip_events[channel])
+                                    .min(MAX_HISTORY_CLIP_EVENTS)
+                                    as u32
+                            })
+                        });
                 self.current = current.clone();
                 self.max_lufs_m = max_lufs_m;
                 self.maximum.lufs_m = max_lufs_m;
@@ -235,6 +240,12 @@ impl MeterSession {
         self.stereo.reset();
         self.clock.reset();
         self.history.reset();
+    }
+
+    /// Clears the user-resettable Hybrid VU TP maximum and Clip latch without changing the
+    /// Meter Session, its history, or Record/Keep-independent cumulative facts.
+    pub fn clear_peak_clip_holds(&mut self) {
+        self.stereo.clear_peak_clip_holds();
     }
 
     pub fn snapshot(&self) -> MeterSessionSnapshot {

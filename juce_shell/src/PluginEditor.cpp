@@ -86,6 +86,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     }
     setSize (initialWidth, initialHeight);
     observatoryView.setHybridVuOnRecordEnabled (processorRef.hybridVuOnRecordPreference());
+    observatoryView.setManualHybridVuVisible (processorRef.manualHybridVuSelection());
     observatoryView.onDomainChange = [this] (hypha::observatory::Domain domain) {
         if (observatoryView.dismissHybridVuForCurrentRecording()) resized();
         setObservatoryDomain (domain);

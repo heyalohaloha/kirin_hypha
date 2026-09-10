@@ -828,7 +828,7 @@ bool kirin_hypha_poll_meter_delta_history_decimated(KirinHypha* handle,
 
 /* 利用者操作で常設メーターだけをReset。競合・未生成時はfalse。 */
 bool kirin_hypha_reset_meter_session(KirinHypha* handle);
-
+bool kirin_hypha_clear_meter_peak_clip_holds(KirinHypha* handle); /* TP/Clip holdのみ解除。現値・履歴・Recordは維持。 */
 /* 破棄（shutdown -> Measure Thread join）. */
 void kirin_hypha_destroy(KirinHypha* handle);
 

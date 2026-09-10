@@ -85,7 +85,7 @@ void KirinHyphaEditor::showInformationMenu()
     menu.addSectionHeader ("Display");
     menu.addItem (11, "Show Hybrid VU while recording", true,
                   processorRef.hybridVuOnRecordPreference());
-    if (observatoryView.hybridVuVisible())
+    if (observatoryView.hybridVuShownByRecording())
         menu.addItem (12, "Show selected view for this recording");
     menu.addItem (10, "Show hover help", true,
                   hypha::HoverHelpPreference::shared().isEnabled());

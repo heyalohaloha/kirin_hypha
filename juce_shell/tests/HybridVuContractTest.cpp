@@ -95,6 +95,38 @@ void verifyHybridVuContract()
                                     : observatory::ConnectionState::source);
             view.setMeterSnapshot (meter, true);
             view.setWatchDisplay (watchFixture(), true);
+            auto* vuButton = dynamic_cast<juce::Button*> (
+                view.findChildWithID ("observatory-hybrid-vu"));
+            auto* clearButton = dynamic_cast<juce::Button*> (
+                view.findChildWithID ("observatory-clear-peak-clip"));
+            KIRIN_HYBRID_VU_REQUIRE (vuButton != nullptr);
+            KIRIN_HYBRID_VU_REQUIRE (clearButton != nullptr);
+            KIRIN_HYBRID_VU_REQUIRE (vuButton->isVisible());
+            KIRIN_HYBRID_VU_REQUIRE (! clearButton->isVisible());
+            bool visibilityCallback = false;
+            bool clearCallback = false;
+            view.onHybridVuChange = [&visibilityCallback] (bool visible)
+            { visibilityCallback = visible; };
+            view.onClearPeakClipHolds = [&clearCallback] { clearCallback = true; };
+            vuButton->onClick();
+            KIRIN_HYBRID_VU_REQUIRE (visibilityCallback);
+            KIRIN_HYBRID_VU_REQUIRE (view.manualHybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (vuButton->isVisible());
+            KIRIN_HYBRID_VU_REQUIRE (clearButton->isVisible());
+            KIRIN_HYBRID_VU_REQUIRE (
+                view.getLocalBounds().contains (vuButton->getBounds()));
+            KIRIN_HYBRID_VU_REQUIRE (
+                view.getLocalBounds().contains (clearButton->getBounds()));
+            KIRIN_HYBRID_VU_REQUIRE (
+                ! vuButton->getBounds().intersects (clearButton->getBounds()));
+            clearButton->onClick();
+            KIRIN_HYBRID_VU_REQUIRE (clearCallback);
+            vuButton->onClick();
+            KIRIN_HYBRID_VU_REQUIRE (! view.manualHybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (! view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (vuButton->isVisible());
+            KIRIN_HYBRID_VU_REQUIRE (! clearButton->isVisible());
             KIRIN_HYBRID_VU_REQUIRE (! view.setHybridVuOnRecordEnabled (true));
             KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (true));
             KIRIN_HYBRID_VU_REQUIRE (view.hybridVuVisible());

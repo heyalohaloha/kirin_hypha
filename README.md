@@ -388,6 +388,13 @@ own slots, while a third identifies the owners and waits.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
+The existing **VU** button opens the same Hybrid VU during ordinary playback; it is not a separate
+measurement mode and does not alter the selected domain. The selection survives closing and reopening
+the editor while that plug-in instance remains loaded. In the Hybrid VU, **CLEAR** releases only the
+per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU needles, Meter Session
+statistics and history, and Record/Keep data remain intact. A signal that is still clipping lights the
+indicator again on the next 100 ms observation.
+
 ![Kirin Hypha PRE and POST showing Short-term Watch values and independent MAX values](docs/media/kirin-hypha-pre-post.jpg)
 
 [Watch PRE/POST with the M/S selector and independent Watch MAX values (32-second silent MP4)](docs/media/kirin-hypha-pre-post-demo.mp4)

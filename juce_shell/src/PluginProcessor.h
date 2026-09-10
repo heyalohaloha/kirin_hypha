@@ -79,6 +79,7 @@ public:
                                 size_t maxEntries,
                                 size_t maxOutputEntries) const;
     bool resetMeterSession();
+    bool clearMeterPeakClipHolds();
     bool useShortTermLoudness() const
     {
         return persistShortTermLoudness.load (std::memory_order_acquire);
@@ -247,6 +248,14 @@ public:
         return preferredHybridVuOnRecord.load (std::memory_order_acquire);
     }
     void setHybridVuOnRecordPreference (bool enabled);
+    bool manualHybridVuSelection() const noexcept
+    {
+        return manualHybridVuSelected.load (std::memory_order_acquire);
+    }
+    void setManualHybridVuSelection (bool visible) noexcept
+    {
+        manualHybridVuSelected.store (visible, std::memory_order_release);
+    }
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
     bool isHostRecording() const noexcept
     {
@@ -394,6 +403,8 @@ private:
     std::atomic<uint8_t> preferredScaleMode {
         hypha::meter_context::stateValue (hypha::meter_context::defaultScale) };
     std::atomic<bool> preferredHybridVuOnRecord { true }; // DisplayState v5; legacy default ON
+    // Retained across editor close/reopen for this loaded instance; not a DAW-saved preference.
+    std::atomic<bool> manualHybridVuSelected { false };
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
 
 #if KIRIN_HYPHA_GUIDE_TRANSPORT

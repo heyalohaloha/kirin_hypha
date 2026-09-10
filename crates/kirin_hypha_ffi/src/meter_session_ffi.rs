@@ -8,6 +8,23 @@ use super::{
 };
 
 impl KirinHyphaEngine {
+    /// Clears only the user-resettable Hybrid VU TP maximum and Clip latch.
+    pub fn clear_meter_peak_clip_holds(&self) -> bool {
+        let Some(session) = self.meter_session.as_ref() else {
+            return false;
+        };
+        let Ok(mut session) = session.lock() else {
+            return false;
+        };
+        session.clear_peak_clip_holds();
+        let snapshot = session.snapshot();
+        drop(session);
+        if let Some(publication) = self.meter_session_publication.as_ref() {
+            publication.publish(snapshot);
+        }
+        true
+    }
+
     /// Only an explicit user action may discard the always-on meter session.
     /// Serializing with the Measure worker avoids losing an in-flight observation.
     pub fn reset_meter_session(&self) -> bool {
@@ -32,6 +49,20 @@ impl KirinHyphaEngine {
         }
         true
     }
+}
+
+/// Clears only the Hybrid VU TP maximum and Clip latch after an explicit user action.
+///
+/// # Safety
+/// `handle` must either be null or point to a live engine. Call from the UI/control thread.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_clear_meter_peak_clip_holds(
+    handle: *mut KirinHyphaEngine,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        !handle.is_null() && unsafe { (&*handle).clear_meter_peak_clip_holds() }
+    }))
+    .unwrap_or(false)
 }
 
 /// Discards the always-on meter session after an explicit user action.

@@ -23,7 +23,7 @@ void View::setFeedback (juce::String text)
     feedbackText = std::move (text);
     setTooltip (feedbackText);
     setDescription (feedbackText);
-    repaint (sessionArea);
+    if (hybridVuVisible()) repaint(); else repaint (sessionArea);
 }
 
 bool View::setHostRecording (bool recording)
@@ -32,6 +32,7 @@ bool View::setHostRecording (bool recording)
         return false;
     hostRecording = recording;
     hybridVuDismissedForCurrentRecording = false;
+    updateControls();
     resized();
     repaint();
     return true;
@@ -42,6 +43,7 @@ bool View::setHybridVuOnRecordEnabled (bool enabled)
     if (hybridVuOnRecordEnabled == enabled)
         return false;
     hybridVuOnRecordEnabled = enabled;
+    updateControls();
     resized();
     repaint();
     return true;
@@ -53,9 +55,36 @@ bool View::dismissHybridVuForCurrentRecording()
         || hybridVuDismissedForCurrentRecording)
         return false;
     hybridVuDismissedForCurrentRecording = true;
+    updateControls();
     resized();
     repaint();
     return true;
+}
+
+bool View::setManualHybridVuVisible (bool visible)
+{
+    if (manualHybridVuSelected == visible)
+        return false;
+    manualHybridVuSelected = visible;
+    updateControls();
+    resized();
+    repaint();
+    return true;
+}
+
+void View::toggleHybridVu()
+{
+    if (hybridVuVisible())
+    {
+        manualHybridVuSelected = false;
+        if (recordingHybridVuRequested())
+            hybridVuDismissedForCurrentRecording = true;
+    }
+    else
+        manualHybridVuSelected = true;
+    updateControls();
+    resized();
+    repaint();
 }
 
 int View::timeControlsHeight() const noexcept

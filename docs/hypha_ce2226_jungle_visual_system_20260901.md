@@ -128,10 +128,11 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 
 300×200と375×250は同じgeometry規則を使用し、375専用の第三の表示思想を作らない。
 
-DAW Record中だけはCompactの常設面をHybrid VUへ一時置換する。
-この面は選択domainを変更せず、停止時に元の画面へ戻る。
+DAW Record中はCompactの常設面をHybrid VUへ一時置換する。通常時も既存Footerの`VU`ボタンから同じ面を開き、同じボタンで選択domainを変更せず元の画面へ戻る。
+Recordによる面は停止時に元の画面へ戻る。手動選択はRecord開始／停止と独立する。
 既定ONの表示設定をOFFにした場合、またはHybrid VUの情報メニューから選択中のviewへ戻した場合は、自動置換を行わない。後者はそのRecord区間だけ有効とする。
-左右の針は0 VU = -18 dBFSの300 ms平均応答、上段cyan railは左右100 ms True Peak、amber markerはSession最大TPとし、異なる時間尺度を一つの針へ混ぜない。
+左右の針は0 VU = -18 dBFSの300 ms平均応答、上段cyan railは左右100 ms True Peak、amber markerはSession開始または直近`CLEAR`以降の左右最大TPとし、異なる時間尺度を一つの針へ混ぜない。
+`CLEAR`はcalibration stripの既存button styleでTP markerとclip latchだけを解除し、現在値、Session正本、履歴、Record／Keepを変更しない。通常表示への復帰も同じ`VU`ボタンで行い、新しい画面階層を追加しない。
 下段は選択M/S、TP、Crestの三値を維持し、音種別の推奨帯や品質色を追加しない。
 Record面の低明度菌糸はmeter face下端と外周だけに置き、目盛り、針、数値の負空間を侵食しない。
 

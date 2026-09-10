@@ -70,10 +70,13 @@ pub struct StereoMeter {
     sample_peak: [f64; 2],
     sample_peak_hold: [f64; 2],
     true_peak_window: VecDeque<[f64; 2]>,
+    max_true_peak: [f64; 2],
     vu_window: VecDeque<VuObservation>,
     vu_sum: VuObservation,
     clip_events: [u64; 2],
     clip_open: [bool; 2],
+    session_clip_events: [u64; 2],
+    session_clip_open: [bool; 2],
     energy_window: VecDeque<EnergyObservation>,
     energy_sum: EnergyObservation,
     field_window: VecDeque<FieldObservation>,
@@ -93,10 +96,13 @@ impl StereoMeter {
             sample_peak: [0.0; 2],
             sample_peak_hold: [0.0; 2],
             true_peak_window: VecDeque::with_capacity(OBSERVATIONS_PER_TP_WINDOW + 1),
+            max_true_peak: [0.0; 2],
             vu_window: VecDeque::with_capacity(OBSERVATIONS_PER_VU_WINDOW + 1),
             vu_sum: VuObservation::default(),
             clip_events: [0; 2],
             clip_open: [false; 2],
+            session_clip_events: [0; 2],
+            session_clip_open: [false; 2],
             energy_window: VecDeque::with_capacity(OBSERVATIONS_PER_THREE_SECONDS + 1),
             energy_sum: EnergyObservation::default(),
             field_window: VecDeque::with_capacity(OBSERVATIONS_PER_THREE_SECONDS + 1),
@@ -120,6 +126,8 @@ impl StereoMeter {
         };
         let mut clip_events = self.clip_events;
         let mut clip_open = self.clip_open;
+        let mut session_clip_events = self.session_clip_events;
+        let mut session_clip_open = self.session_clip_open;
         let frame_count = interleaved.len() / self.channels;
         const MAX_POINTS: usize = FIELD_MAX_POINTS_PER_OBSERVATION;
         let field_point_count = frame_count.min(MAX_POINTS);
@@ -134,7 +142,11 @@ impl StereoMeter {
                 if clipped && !clip_open[channel] {
                     clip_events[channel] = clip_events[channel].saturating_add(1);
                 }
+                if clipped && !session_clip_open[channel] {
+                    session_clip_events[channel] = session_clip_events[channel].saturating_add(1);
+                }
                 clip_open[channel] = clipped;
+                session_clip_open[channel] = clipped;
             }
             if self.channels == 2 {
                 energy.left += frame[0] * frame[0];
@@ -155,6 +167,8 @@ impl StereoMeter {
         }
         self.clip_events = clip_events;
         self.clip_open = clip_open;
+        self.session_clip_events = session_clip_events;
+        self.session_clip_open = session_clip_open;
         self.sample_peak = peak;
         for (channel, value) in peak.iter().copied().enumerate().take(self.channels) {
             self.sample_peak_hold[channel] = self.sample_peak_hold[channel].max(value);
@@ -163,6 +177,7 @@ impl StereoMeter {
         let mut true_peak = [0.0; 2];
         for (channel, value) in true_peak.iter_mut().enumerate().take(self.channels) {
             *value = self.ebu.prev_true_peak(channel as u32).unwrap_or(0.0);
+            self.max_true_peak[channel] = self.max_true_peak[channel].max(*value);
         }
         self.true_peak_window.push_back(true_peak);
         while self.true_peak_window.len() > OBSERVATIONS_PER_TP_WINDOW {
@@ -217,18 +232,30 @@ impl StereoMeter {
         self.sample_peak = [0.0; 2];
         self.sample_peak_hold = [0.0; 2];
         self.true_peak_window.clear();
+        self.max_true_peak = [0.0; 2];
         self.vu_window.clear();
         self.vu_sum = VuObservation::default();
         self.clip_events = [0; 2];
         self.clip_open = [false; 2];
+        self.session_clip_events = [0; 2];
+        self.session_clip_open = [false; 2];
         self.energy_window.clear();
         self.energy_sum = EnergyObservation::default();
         self.field_window.clear();
         self.field_sum = [0; STEREO_FIELD_BINS];
     }
 
-    pub fn clip_events(&self) -> [u64; 2] {
-        self.clip_events
+    /// Clears only the Hybrid VU's user-resettable TP maximum and clip latch.
+    /// Current/recent TP, VU averaging, sample peak hold, and stereo windows remain continuous.
+    pub fn clear_peak_clip_holds(&mut self) {
+        self.max_true_peak = [0.0; 2];
+        self.clip_events = [0; 2];
+        // A signal that is still clipping becomes a new visible event on the next observation.
+        self.clip_open = [false; 2];
+    }
+
+    pub fn session_clip_events(&self) -> [u64; 2] {
+        self.session_clip_events
     }
 
     pub fn snapshot(&self) -> StereoMeterSnapshot {
@@ -246,11 +273,7 @@ impl StereoMeter {
             linear_to_db,
         );
         let vu_dbfs = self.vu_levels();
-        let mut max_true_peak = [0.0_f64; 2];
-        for (channel, value) in max_true_peak.iter_mut().enumerate().take(self.channels) {
-            *value = self.ebu.true_peak(channel as u32).unwrap_or(0.0);
-        }
-        let max_true_peak_dbtp = self.map_channels(max_true_peak, linear_to_db);
+        let max_true_peak_dbtp = self.map_channels(self.max_true_peak, linear_to_db);
         let (balance_db, balance_state, correlation) = self.stereo_window_facts();
         StereoMeterSnapshot {
             channels: self.channels as u8,
