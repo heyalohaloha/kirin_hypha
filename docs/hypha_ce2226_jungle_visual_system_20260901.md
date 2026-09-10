@@ -94,7 +94,7 @@ FREQは時間detailへ埋めず一階層目に置き、`MARK`で現在の全帯�
 5. PRE LEVEL 600×400
 6. Capture 1200×630
 
-各画面についてCompact 300×200と375×250、Observatory 450×300と600×400の二系統を確認する。
+各画面についてCompact 300×200と375×250、Observatory 450×300と600×400、Inspection 900×600の五つの基準寸法を確認する。表示思想はCompactとObservatoryの二系統であり、InspectionはObservatoryの高解像度表示である。
 
 Captureは追加で1080×1080と1080×1350のbounds契約を検証する。
 
@@ -104,7 +104,7 @@ ATTACKのbodyは`attack_specimen_body_v3.png`とnative painterを使用する。
 
 ## 6. responsive契約
 
-画面寸法は四段階を保持するが、利用者に提供する表示思想は二系統だけとする。
+画面寸法は300×200、375×250、450×300、600×400、900×600の五つを基準とするが、利用者に提供する表示思想はCompactとObservatoryの二系統だけとする。
 
 ### Compact meter: 300×200、375×250
 
@@ -305,7 +305,11 @@ native render testはPREとPOST、四domain、五size、POSTとDelta、Guide有�
 
 ATTACKはCompact、Observatory、1200×630 Captureの三経路でbodyが欠落しないことをpixel差分で確認する。
 
-300×200と375×250はCompact、450×300はStandard、600×400と900×600をfull cockpitとしてcompile-timeとruntimeの両方で固定する。
+300×200と375×250はCompact、450×300はStandard、600×400はfull cockpit、900×600はInspection Viewとしてcompile-timeとruntimeの両方で固定する。文字はこの五つを基準点として中間寸法を連続補間し、役割と構成は`HyphaTypographyContract.h`、画面対応は`HyphaSurfacePresentation.h`を正本とする。
+
+文字は一律拡大しない。LEVELのM/S/Iなど即読する主値を`primaryValue`、TP、MAX TP、LRA、PLR、Crestなど比較を補助する値を`secondaryValue`として、全基準寸法で主値を大きく保つ。ATTACKのStrength、Texture、Sharpnessは同じ観測階層として均等な三列に置き、label、value、contextの中央軸をそろえる。
+
+利用可能なlabel、unit、axis、legend、説明文には背景に対して4.5:1以上の可読色を使う。従来のmuted色は欠測値、無効な操作、非文字の補助線へ限定し、存在する情報を単に薄く見せる用途には使わない。PRESENCE overlayの既存値は変更しない。
 
 TIMEとSPACEの600×400描画は12 ms未満を維持し、900×600も独立の性能上限で検証する。
 

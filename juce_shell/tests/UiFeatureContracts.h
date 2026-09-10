@@ -24,6 +24,7 @@
 #include "PolylineGeometryContractTest.h"
 #include "SpectrumPerformanceFixture.h"
 #include "SpectrumResponsiveGeometryContractTest.h"
+#include "TypographyContractTest.h"
 
 namespace hypha::tests
 {
@@ -33,16 +34,29 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     const bool updatesOnly = argc == 2 && std::string_view (argv[1]) == "--observation-update-only";
     const bool focusOnly = argc == 2 && std::string_view (argv[1]) == "--spectrum-focus-only";
     const bool hybridVuOnly = argc == 2 && std::string_view (argv[1]) == "--hybrid-vu-only";
-    if (argc != 1 && ! entryOnly && ! updatesOnly && ! focusOnly && ! hybridVuOnly)
+    const bool typographyOnly = argc == 2 && std::string_view (argv[1]) == "--typography-only";
+    const bool typographyVisualOnly = argc == 2
+        && std::string_view (argv[1]) == "--typography-visual-only";
+    if (argc != 1 && ! entryOnly && ! updatesOnly && ! focusOnly && ! hybridVuOnly
+        && ! typographyOnly && ! typographyVisualOnly)
     {
         std::cerr << "Usage: KirinUiRenderContractTests [--product-entry-only|"
-                     "--observation-update-only|--spectrum-focus-only|--hybrid-vu-only]\n";
+                     "--observation-update-only|--spectrum-focus-only|--hybrid-vu-only|"
+                     "--typography-only|--typography-visual-only]\n";
         std::exit (EXIT_FAILURE);
     }
     observation_equality_contract::verify();
     verifyPolylineGeometryContract();
     verifySpectrumResponsiveGeometry();
     if (updatesOnly) return true;
+    verifyTypographyContract();
+    if (typographyOnly) return true;
+    if (typographyVisualOnly)
+    {
+        verifyObservatoryViewContract();
+        verifyObservatoryCompositeContract();
+        return true;
+    }
     if (hybridVuOnly)
     {
         verifyHybridVuContract();

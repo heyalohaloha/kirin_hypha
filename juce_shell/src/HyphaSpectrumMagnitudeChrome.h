@@ -13,14 +13,16 @@ inline void paintAxis (juce::Graphics& g,
                        juce::Rectangle<float> plot,
                        float scale,
                        bool left,
-                       bool grid)
+                       bool grid,
+                       presentation::Context presentation)
 {
     constexpr std::array<const char*, 3> labels { "0", "-48", "-96" };
     constexpr std::array<float, 3> positions { 0.0f, 0.5f, 1.0f };
     const auto scaled = [scale] (int value) {
         return juce::roundToInt ((float) value * scale);
     };
-    g.setFont (monoFont (8.5f * ui_contract::analysisTextScale (scale)));
+    g.setFont (monoFont (presentation, typography::TextRole::axis,
+                         typography::Composition::visualization));
     g.setColour (COL_MUTED.withAlpha (0.86f));
     for (size_t index = 0u; index < labels.size(); ++index)
     {

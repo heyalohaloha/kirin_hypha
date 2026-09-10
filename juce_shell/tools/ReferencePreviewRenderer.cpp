@@ -180,6 +180,8 @@ juce::Image render (hypha::reference_ui::State state)
     hypha::observatory::View shell { hypha::observatory::Role::post };
     hypha::reference_ui::Component reference;
     surface.setSize (900, 600);
+    reference.setPresentationContext (hypha::presentation::forOutput (
+        900, 600, hypha::presentation::OutputTarget::referencePreview));
     shell.setBounds (surface.getLocalBounds());
     shell.setDomain (hypha::observatory::Domain::reference);
     shell.setConnection ("KIRIN OS PREVIEW", hypha::COL_LED_BLUE,

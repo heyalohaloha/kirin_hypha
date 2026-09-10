@@ -83,6 +83,8 @@ namespace
     double renderAt (const ui_contract::SpectrumSizePreset& preset)
     {
         AbsoluteComponent component;
+        component.setPresentationContext (
+            presentation::forEditor (preset.width, preset.height));
         const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
         component.setSize (bounds.width, bounds.height);
         component.setBatch (batch (1, 60));
@@ -160,6 +162,9 @@ void verifyAbsoluteTimelineContract()
     KIRIN_ABSOLUTE_REQUIRE (gapTolerant.frameCountForTest() == 0u);
 
     AbsoluteComponent onePoint;
+    onePoint.setPresentationContext (presentation::forEditor (
+        ui_contract::spectrumSizePresets[0].width,
+        ui_contract::spectrumSizePresets[0].height));
     const auto compactBounds = ui_contract::spectrumPlotBounds (
         ui_contract::spectrumSizePresets[0].width,
         ui_contract::spectrumSizePresets[0].height);
@@ -190,6 +195,9 @@ void verifyAbsoluteTimelineContract()
     // A move-only JUCE Path still reports isEmpty(). Guard the real multi-point pixels rather
     // than only the one-point fallback, otherwise every frame can become an invisible moveTo.
     AbsoluteComponent multiPoint;
+    multiPoint.setPresentationContext (presentation::forEditor (
+        ui_contract::spectrumSizePresets[0].width,
+        ui_contract::spectrumSizePresets[0].height));
     multiPoint.setSize (compactBounds.width, compactBounds.height);
     multiPoint.setBatchAt (batch (1, 60), 0.0);
     juce::Image multiPointImage (juce::Image::ARGB,
@@ -212,6 +220,9 @@ void verifyAbsoluteTimelineContract()
     // SHARP reuses the same exact POST timeline when there is no pair, but presents only the
     // Sharpness fact at its full 0..3 acum scale.
     AbsoluteComponent postSharpness;
+    postSharpness.setPresentationContext (presentation::forEditor (
+        ui_contract::spectrumSizePresets[0].width,
+        ui_contract::spectrumSizePresets[0].height));
     postSharpness.setSharpnessOnly (true);
     postSharpness.setSize (compactBounds.width, compactBounds.height);
     postSharpness.setBatchAt (batch (1, 60), 0.0);

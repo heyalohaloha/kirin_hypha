@@ -29,6 +29,21 @@ juce::String captureDomainId (hypha::observatory::Domain domain)
     }
     return "level";
 }
+
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+void setAnalysisPresentationContext (juce::Component& component,
+                                     hypha::presentation::Context context)
+{
+    if (auto* spectrum = dynamic_cast<hypha::SpectrumComponent*> (&component))
+        spectrum->setPresentationContext (context);
+    else if (auto* perceptual = dynamic_cast<hypha::PerceptualComponent*> (&component))
+        perceptual->setPresentationContext (context);
+    else if (auto* absolute = dynamic_cast<hypha::AbsoluteComponent*> (&component))
+        absolute->setPresentationContext (context);
+    else if (auto* attack = dynamic_cast<hypha::AttackComponent*> (&component))
+        attack->setPresentationContext (context);
+}
+#endif
 }
 
 void KirinHyphaEditor::beginObservatoryCapture()
@@ -193,6 +208,13 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
         const auto body = observatoryView.captureBodyBounds (
             width, height, includeOsGuide);
         const auto originalBounds = external->getBounds();
+        const auto logicalCaptureWidth = juce::roundToInt (
+            (float) width / hypha::observatory::captureRenderScale);
+        const auto logicalCaptureHeight = juce::roundToInt (
+            (float) height / hypha::observatory::captureRenderScale);
+        setAnalysisPresentationContext (*external, hypha::presentation::forOutput (
+            logicalCaptureWidth, logicalCaptureHeight,
+            hypha::presentation::OutputTarget::capture));
         external->setSize (
             juce::roundToInt ((float) body.getWidth()
                               / hypha::observatory::captureRenderScale),
@@ -201,6 +223,8 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
         const auto analysis = external->createComponentSnapshot (
             external->getLocalBounds(), true, hypha::observatory::captureRenderScale);
         external->setBounds (originalBounds);
+        setAnalysisPresentationContext (*external,
+            hypha::presentation::forEditor (getWidth(), getHeight()));
         juce::Graphics graphics (snapshot.image);
         graphics.setColour (hypha::BG);
         graphics.fillRoundedRectangle (body.toFloat(), 4.0f);

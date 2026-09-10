@@ -6,6 +6,7 @@
 
 #include <juce_graphics/juce_graphics.h>
 
+#include "HyphaPresentationContext.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::capture_history
@@ -57,6 +58,7 @@ void paint (juce::Graphics&,
             const std::vector<KirinMeterHistoryEntry>&,
             bool delta,
             double sampleRate,
+            presentation::Context,
             std::optional<std::size_t> hoveredIndex = std::nullopt,
             juce::String contextFact = {});
 }

@@ -33,6 +33,30 @@ hypha::observatory::ConnectionState observatoryConnectionState (bool isPost, int
 }
 }
 
+void KirinHyphaEditor::applyPresentationContext()
+{
+    const auto context = hypha::presentation::forEditor (getWidth(), getHeight());
+    nameField.setPresentationContext (context);
+    loudnessSelector.setPresentationContext (context);
+    for (auto& cell : cells) cell.setPresentationContext (context);
+    pairStatusLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
+    feedbackLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
+    guideConnectButton.setPresentationContext (context);
+    if (postControls != nullptr) postControls->setPresentationContext (context);
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    spectrumView.setPresentationContext (context);
+    perceptualView.setPresentationContext (context);
+    absoluteView.setPresentationContext (context);
+    attackView.setPresentationContext (context);
+    referenceView.setPresentationContext (context);
+    referenceAccessView.setPresentationContext (context);
+    localBlindView.setPresentationContext (context);
+    timePageNavigation.setPresentationContext (context);
+    spectrumToggle.setPresentationContext (context);
+    spectrumSizeToggle.setPresentationContext (context);
+#endif
+}
+
 void KirinHyphaEditor::configureMeterContext()
 {
     observatoryView.setMeterContext (processorRef.meterContextPreference());

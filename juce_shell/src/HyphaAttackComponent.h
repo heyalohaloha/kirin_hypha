@@ -6,6 +6,7 @@
 
 #include "kirin_hypha_ffi.h"
 #include "HyphaAttackOverviewGlyphPainter.h"
+#include "HyphaPresentationContext.h"
 
 namespace hypha
 {
@@ -15,6 +16,12 @@ namespace hypha
     {
     public:
         AttackComponent();
+        void setPresentationContext (presentation::Context next)
+        {
+            if (presentationContext == next) return;
+            presentationContext = next;
+            repaint();
+        }
         bool setSnapshot (const KirinAttackEventBatch& events,
                           const KirinAttackWaveformBatch& waveform,
                           const KirinAttackDetailBatch& details,
@@ -54,6 +61,7 @@ namespace hypha
         bool overlayMode = true;
         bool followLatest = true;
         bool liveSignalActive = true;
+        presentation::Context presentationContext = presentation::defaultContext();
 
         const KirinAttackPairEvent* selectedPairEvent() const noexcept;
         bool pairHasPostDetail (const KirinAttackPairEvent&) const noexcept;
@@ -61,6 +69,8 @@ namespace hypha
         const KirinAttackDetail* selectedPreDetail() const noexcept;
         juce::Rectangle<int> timelineBounds() const noexcept;
         juce::Rectangle<int> scrubBounds() const noexcept;
+        int viewControlWidth() const;
+        int statusControlWidth() const;
         void selectNearestEventAtX (int x) noexcept;
         void selectBoundaryEvent (bool selectLast) noexcept;
         void selectAdjacentEvent (bool moveRight) noexcept;

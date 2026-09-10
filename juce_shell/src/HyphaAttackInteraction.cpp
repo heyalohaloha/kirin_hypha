@@ -17,8 +17,8 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
 {
     if (isShowing()) grabKeyboardFocus();
     if (getHeight() < 145) return;
-    if (event.y < attack_ui::headerHeight
-        && event.x > getWidth() - attack_ui::modeControlWidth (getWidth()))
+    if (event.y < attack_ui::titleRowHeight (presentationContext)
+        && event.x > getWidth() - viewControlWidth())
     {
         overlayMode = ! overlayMode;
         repaint();

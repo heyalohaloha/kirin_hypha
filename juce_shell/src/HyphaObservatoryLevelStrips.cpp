@@ -17,12 +17,16 @@ void paintClipCount (juce::Graphics& g,
                      juce::Rectangle<int> area,
                      const char* channel,
                      uint64_t count,
-                     bool available)
+                     bool available,
+                     presentation::Context presentation)
 {
-    g.setColour (available && count > 0 ? COL_FLORA_BR : COL_MUTED);
-    g.setFont (monoFont (area.getHeight() < 14 ? 7.0f : 8.0f));
+    g.setColour (! available ? COL_MUTED
+                             : count > 0 ? COL_FLORA_BR : COL_TEXT_TERTIARY);
+    g.setFont (monoFont (presentation, typography::TextRole::readout,
+                         typography::Composition::instrument));
     const auto value = available ? clipCountText (count) : hypha::emDash();
-    drawTabularText (g, monoFont (area.getHeight() < 14 ? 7.0f : 8.0f),
+    drawTabularText (g, monoFont (presentation, typography::TextRole::readout,
+                                  typography::Composition::instrument),
                      juce::String (channel) + " " + value,
                      area.toFloat(), juce::Justification::centred);
 }
@@ -31,7 +35,8 @@ void paintFullChannelStrips (juce::Graphics& g,
                              juce::Rectangle<int> area,
                              const KirinMeterSession& meter,
                              bool currentAvailable,
-                             bool cumulativeAvailable)
+                             bool cumulativeAvailable,
+                             presentation::Context presentation)
 {
     auto labels = area.removeFromTop (18);
     auto readouts = area.removeFromTop (46);
@@ -46,8 +51,9 @@ void paintFullChannelStrips (juce::Graphics& g,
                                  .withWidth (columnWidth);
     const std::array<juce::Rectangle<int>, 2> columns { leftColumn, rightColumn };
 
-    g.setColour (COL_MUTED);
-    g.setFont (monoFont (11.0f));
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (monoFont (presentation, typography::TextRole::legend,
+                         typography::Composition::instrument));
     g.drawText ("L", labels.withX (leftColumn.getX()).withWidth (columnWidth),
                 juce::Justification::centred);
     g.drawText (meter.channels > 1 ? juce::String ("R") : hypha::emDash(),
@@ -60,17 +66,20 @@ void paintFullChannelStrips (juce::Graphics& g,
                                .withWidth (columnWidth);
         const bool available = currentAvailable && channel < meter.channels
                             && std::isfinite (meter.channel_true_peak_dbtp[channel]);
-        g.setColour (COL_MUTED);
-        g.setFont (labelFont (8.0f));
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
+                              typography::Composition::instrument));
         g.drawText ("TP", readout.removeFromTop (12), juce::Justification::centred);
         g.setColour (available ? COL_NORMAL : COL_MUTED);
-        drawTabularText (g, monoFont (14.0f),
+        drawTabularText (g, monoFont (presentation, typography::TextRole::secondaryValue,
+                                      typography::Composition::instrument),
                          available ? juce::String (meter.channel_true_peak_dbtp[channel], 1)
                                    : juce::String ("---"),
                          readout.removeFromTop (21).toFloat(),
                          juce::Justification::centred);
-        g.setColour (COL_MUTED);
-        g.setFont (labelFont (7.0f));
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (labelFont (presentation, typography::TextRole::unit,
+                              typography::Composition::instrument));
         g.drawText ("dBTP", readout, juce::Justification::centred);
     }
 
@@ -79,15 +88,18 @@ void paintFullChannelStrips (juce::Graphics& g,
         const auto normalized = juce::jlimit (0.0, 1.0, (value + 48.0) / 48.0);
         return (float) area.getBottom() - (float) normalized * (float) area.getHeight();
     };
-    g.setFont (monoFont (7.0f));
+    g.setFont (monoFont (presentation, typography::TextRole::axis,
+                         typography::Composition::instrument));
     for (int db = 0; db >= -48; db -= 6)
     {
         const auto y = juce::roundToInt (mapY ((double) db));
         g.setColour (COL_MUTED.withAlpha (0.22f));
         for (const auto column : columns)
             g.drawHorizontalLine (y, (float) column.getX(), (float) column.getRight());
-        g.setColour (COL_MUTED.withAlpha (0.82f));
-        g.drawText (juce::String (db), scaleColumn.withY (y - 7).withHeight (14),
+        g.setColour (COL_TEXT_TERTIARY);
+        g.drawText (juce::String (db),
+                    juce::Rectangle<int> { scaleColumn.getX(), y - 7,
+                                           scaleColumn.getWidth(), 14 },
                     juce::Justification::centred);
     }
 
@@ -132,13 +144,16 @@ void paintFullChannelStrips (juce::Graphics& g,
 
     g.setColour (COL_MUTED.withAlpha (0.34f));
     g.drawHorizontalLine (clips.getY(), (float) clips.getX(), (float) clips.getRight());
-    g.setColour (COL_MUTED);
-    g.setFont (labelFont (7.0f));
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
+                          typography::Composition::instrument));
     g.drawText ("CLIP", clips.removeFromTop (14), juce::Justification::centred);
     paintClipCount (g, clips.withX (leftColumn.getX()).withWidth (columnWidth),
-                    "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0);
+                    "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0,
+                    presentation);
     paintClipCount (g, clips.withX (rightColumn.getX()).withWidth (columnWidth),
-                    "R", meter.clip_events[1], cumulativeAvailable && meter.channels > 1);
+                    "R", meter.clip_events[1], cumulativeAvailable && meter.channels > 1,
+                    presentation);
 }
 }
 
@@ -147,11 +162,7 @@ SizePreset View::currentPreset() const noexcept
     for (const auto preset : sizePresets)
         if (preset.width == getWidth() && preset.height == getHeight())
             return preset;
-    const auto density = getWidth() < 338 ? Density::compact
-                       : getWidth() < 413 ? Density::focused
-                       : getWidth() < 525 ? Density::standard
-                       : getWidth() < 750 ? Density::observatory : Density::inspection;
-    return { getWidth(), getHeight(), density, "SIZE" };
+    return { getWidth(), getHeight(), densityForWidth (getWidth()), "SIZE" };
 }
 
 void View::setDisplayedEditorSize (int width, int height)
@@ -196,7 +207,8 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     area.reduce (5, 5);
     if (isFullDensity (currentPreset().density))
     {
-        paintFullChannelStrips (g, area, meter, currentAvailable, cumulativeAvailable);
+        paintFullChannelStrips (g, area, meter, currentAvailable, cumulativeAvailable,
+                                presentationContext());
         return;
     }
     auto labels = area.removeFromTop (15);
@@ -209,8 +221,9 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
         return (float) area.getBottom() - (float) normalized * (float) area.getHeight();
     };
 
-    g.setFont (monoFont (9.0f));
-    g.setColour (COL_MUTED);
+    g.setFont (monoFont (presentationContext(), typography::TextRole::legend,
+                         typography::Composition::instrument));
+    g.setColour (COL_TEXT_TERTIARY);
     g.drawText ("L", labels.removeFromLeft (columnWidth), juce::Justification::centred);
     labels.removeFromLeft (columnGap);
     g.drawText (meter.channels > 1 ? juce::String ("R") : hypha::emDash(), labels,
@@ -252,13 +265,16 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
 
     g.setColour (COL_MUTED.withAlpha (0.34f));
     g.drawHorizontalLine (clips.getY(), (float) clips.getX(), (float) clips.getRight());
-    g.setColour (COL_MUTED);
-    g.setFont (labelFont (7.0f));
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (labelFont (presentationContext(), typography::TextRole::metricLabel,
+                          typography::Composition::instrument));
     g.drawText ("CLIP", clips.removeFromTop (14), juce::Justification::centred);
     const auto left = clips.removeFromLeft (columnWidth);
     clips.removeFromLeft (columnGap);
-    paintClipCount (g, left, "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0);
-    paintClipCount (g, clips, "R", meter.clip_events[1], cumulativeAvailable && meter.channels > 1);
+    paintClipCount (g, left, "L", meter.clip_events[0],
+                    cumulativeAvailable && meter.channels > 0, presentationContext());
+    paintClipCount (g, clips, "R", meter.clip_events[1],
+                    cumulativeAvailable && meter.channels > 1, presentationContext());
 }
 
 }

@@ -272,6 +272,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp
         src/HyphaHoverHelpPreference.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE} # B-054: LED / mycelium bg / metric cells / editable name
         src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
@@ -310,6 +311,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaPerceptualPainter.cpp
             src/HyphaPsbPainter.cpp
             src/HyphaReferenceComponent.cpp
+            src/HyphaReferenceMetricPainter.cpp
             src/HyphaReferenceVisuals.cpp
             src/HyphaSpectrumComponent.cpp
             src/HyphaSpectrumPsb.cpp
@@ -470,6 +472,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryFrame.cpp
@@ -486,6 +489,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinHyphaReferencePreviewRenderer PRIVATE
         JUCE_WEB_BROWSER=0
@@ -530,6 +534,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpaceFieldContractTest.cpp
         tests/TimeHistoryContractTest.cpp
         tests/TimePageNavigationContractTest.cpp
+        tests/TypographyContractTest.cpp
         tests/RunSummaryContractTest.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
         src/HyphaLocalBlindComponent.cpp
@@ -553,6 +558,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp
         src/HyphaHoverHelpPreference.cpp
         src/HyphaGuideFrequencyOverlay.cpp
         src/HyphaAbsoluteComponent.cpp
@@ -568,6 +574,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
         src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/PostControls.cpp
         src/HyphaPsbPainter.cpp
@@ -601,6 +608,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
     add_test(NAME kirin_product_entry_contract
         COMMAND KirinUiRenderContractTests --product-entry-only)
+    add_test(NAME kirin_ui_typography_contract
+        COMMAND KirinUiRenderContractTests --typography-only)
 
     juce_add_console_app(KirinGuideFrequencyOverlayContractTests
         PRODUCT_NAME "Kirin Guide Frequency Overlay Contract Tests")
@@ -615,7 +624,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
         src/HyphaSpectrumPainter.cpp
-        src/HyphaTypography.cpp)
+        src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp)
     target_compile_definitions(KirinGuideFrequencyOverlayContractTests PRIVATE
         KIRIN_GUIDE_OVERLAY_STANDALONE=1
         JUCE_WEB_BROWSER=0
@@ -645,7 +655,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaAttackOrganismPainter.cpp
         src/HyphaAttackPainter.cpp
         src/HyphaAttackSpecimenPainter.cpp
-        src/HyphaTypography.cpp)
+        src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp)
     target_compile_definitions(KirinAttackUiContractTests PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
@@ -767,6 +778,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryFrame.cpp
@@ -783,6 +795,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinReferenceAuditionComponentTests PRIVATE
         JUCE_WEB_BROWSER=0

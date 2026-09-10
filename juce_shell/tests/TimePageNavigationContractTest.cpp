@@ -70,6 +70,7 @@ void verifyTimePageNavigationContract()
         juce::String (analysis_navigation::timePageLabel (Page::spectrum)).isEmpty());
 
     TimePageNavigation navigation;
+    navigation.setPresentationContext (presentation::forEditor (600, 400));
     navigation.setSize (322, 24);
     navigation.setDirect (true);
     KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 5);
@@ -90,6 +91,7 @@ void verifyTimePageNavigationContract()
     }
 
     navigation.setDirect (false);
+    navigation.setPresentationContext (presentation::forEditor (300, 200));
     navigation.setSize (72, 24);
     KIRIN_TIME_NAV_REQUIRE (navigation.visibleDirectTabCount() == 0);
     KIRIN_TIME_NAV_REQUIRE (visiblePixels (render (navigation)) > 50);

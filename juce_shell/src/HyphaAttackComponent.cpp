@@ -4,6 +4,7 @@
 #include "HyphaAttackUiContract.h"
 #include "HyphaAttackSnapshotEquality.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 namespace hypha
 {
@@ -199,15 +200,39 @@ void AttackComponent::clearSnapshot()
 juce::Rectangle<int> AttackComponent::timelineBounds() const noexcept
 {
     auto bounds = getLocalBounds();
-    bounds.removeFromTop (attack_ui::headerHeight);
+    bounds.removeFromTop (attack_ui::headerHeightFor (presentationContext));
     return bounds.removeFromTop (attack_ui::timelineHeight (getHeight()));
 }
 
 juce::Rectangle<int> AttackComponent::scrubBounds() const noexcept
 {
     auto bounds = getLocalBounds();
-    bounds.removeFromTop (attack_ui::headerHeight + attack_ui::timelineHeight (getHeight()));
+    bounds.removeFromTop (attack_ui::headerHeightFor (presentationContext)
+                          + attack_ui::timelineHeight (getHeight()));
     return bounds.removeFromTop (attack_ui::axisHeight (getHeight()));
+}
+
+int AttackComponent::viewControlWidth() const
+{
+    const auto style = typography::resolve (
+        presentationContext, typography::TextRole::action,
+        typography::Composition::visualization);
+    const auto font = monoFont (presentationContext, typography::TextRole::action,
+                                typography::Composition::visualization);
+    const auto overlayWidth = text_style::requiredWidth (font, "VIEW  OVERLAY", style);
+    const auto rowsWidth = text_style::requiredWidth (font, "VIEW  2 ROWS", style);
+    return attack_ui::modeControlWidth (getWidth(), juce::jmax (overlayWidth, rowsWidth));
+}
+
+int AttackComponent::statusControlWidth() const
+{
+    const auto style = typography::resolve (
+        presentationContext, typography::TextRole::status,
+        typography::Composition::visualization);
+    const auto font = monoFont (presentationContext, typography::TextRole::status,
+                                typography::Composition::visualization);
+    return attack_ui::statusControlWidth (
+        getWidth(), text_style::requiredWidth (font, "PAIR / HOLD", style));
 }
 
 const KirinAttackPairEvent* AttackComponent::selectedPairEvent() const noexcept
@@ -247,14 +272,14 @@ const KirinAttackDetail* AttackComponent::selectedPreDetail() const noexcept
 void AttackComponent::paint (juce::Graphics& g)
 {
     auto bounds = getLocalBounds();
-    const auto textScale = attack_ui::textScale (getWidth(), getHeight());
     // ATTACK owns the Observatory body while selected. Keep the body opaque so the HISTORY
     // labels beneath this child cannot leak into its transparent header or capture composite.
     g.setColour (BG);
     g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
     const bool running = runtimeStats.available != 0 && runtimeStats.enabled != 0
                       && runtimeStats.worker_running != 0;
-    auto header = bounds.removeFromTop (attack_ui::headerHeight);
+    const auto responsiveHeaderHeight = attack_ui::headerHeightFor (presentationContext);
+    auto header = bounds.removeFromTop (responsiveHeaderHeight);
     auto timeline = bounds.removeFromTop (attack_ui::timelineHeight (getHeight()));
     auto scrub = bounds.removeFromTop (attack_ui::axisHeight (getHeight()));
     auto transient = bounds.removeFromTop (attack_ui::transientHeight (getHeight()));
@@ -267,21 +292,26 @@ void AttackComponent::paint (juce::Graphics& g)
         g.fillRoundedRectangle (area.reduced (1).toFloat(), 4.0f);
     }
 
-    auto titleRow = header.removeFromTop (20);
-    auto viewButton = titleRow.removeFromRight (attack_ui::modeControlWidth (getWidth()));
-    g.setFont (monoFont (juce::jmax (12.0f, 9.2f * textScale)));
+    auto titleRow = header.removeFromTop (attack_ui::titleRowHeight (presentationContext));
+    auto viewButton = titleRow.removeFromRight (viewControlWidth());
+    g.setFont (monoFont (presentationContext, typography::TextRole::sectionTitle,
+                         typography::Composition::visualization));
     g.setColour (COL_NORMAL);
     g.drawText (getWidth() < 430 ? "DRUM / ATTACK" : "DRUM / ATTACK SPECIMEN",
                 titleRow, juce::Justification::centredLeft);
     g.setColour (waveformColour.withAlpha (0.10f));
     g.fillRoundedRectangle (viewButton.reduced (1).toFloat(), 3.0f);
     g.setColour (COL_NORMAL);
-    g.setFont (monoFont (juce::jmax (11.0f, 7.2f * textScale)));
+    g.setFont (monoFont (presentationContext, typography::TextRole::action,
+                         typography::Composition::visualization));
     g.drawText (overlayMode ? "VIEW  2 ROWS" : "VIEW  OVERLAY",
                 viewButton, juce::Justification::centred);
 
-    auto state = getWidth() >= 470 ? header.removeFromRight (84) : juce::Rectangle<int> {};
-    g.setColour (COL_MUTED); g.setFont (monoFont (11.0f));
+    auto state = getWidth() >= 470 ? header.removeFromRight (statusControlWidth())
+                                   : juce::Rectangle<int> {};
+    g.setColour (COL_TEXT_SECONDARY);
+    g.setFont (monoFont (presentationContext, typography::TextRole::legend,
+                         typography::Composition::visualization));
     g.drawText (timeline.isEmpty() ? "POST FACTS"
                 : getWidth() < 470 ? "RMS / 6 S"
                 : getWidth() >= 700 ? "10 ms RMS / 6 S   PRE trace / POST body"
@@ -289,18 +319,20 @@ void AttackComponent::paint (juce::Graphics& g)
                 header, juce::Justification::centredLeft);
     if (! state.isEmpty())
     {
-        g.setColour (COL_MUTED);
-        g.setFont (monoFont (11.0f));
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (presentationContext, typography::TextRole::status,
+                             typography::Composition::visualization));
         g.drawText (juce::String (paired ? "PAIR / " : "POST / ")
                         + (followLatest ? (liveSignalActive ? "LIVE" : "HOLD") : "LOCK"),
                     state, juce::Justification::centredRight);
     }
     if (! running || ! attack_ui::validTimeline (latest, rate))
     {
-        g.setColour (COL_MUTED);
-        g.setFont (monoFont (juce::jmax (11.0f, 8.0f * textScale)));
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (presentationContext, typography::TextRole::status,
+                             typography::Composition::visualization));
         g.drawText (runtimeStats.available == 0 ? "UNAVAILABLE" : "WARMING UP",
-                    timeline.isEmpty() ? getLocalBounds().withTrimmedTop (attack_ui::headerHeight)
+                    timeline.isEmpty() ? getLocalBounds().withTrimmedTop (responsiveHeaderHeight)
                                        : timeline,
                     juce::Justification::centred);
         return;
@@ -334,8 +366,9 @@ void AttackComponent::paint (juce::Graphics& g)
             g.setColour (waveformColour.withAlpha (0.075f));
             g.drawHorizontalLine (preLane.getBottom(), static_cast<float> (preLane.getX() + 3),
                                   static_cast<float> (preLane.getRight() - 3));
-            g.setColour (COL_MUTED);
-            g.setFont (monoFont (11.0f));
+            g.setColour (COL_TEXT_TERTIARY);
+            g.setFont (monoFont (presentationContext, typography::TextRole::legend,
+                                 typography::Composition::visualization));
             g.drawText ("PRE", preLane.reduced (5, 1), juce::Justification::topLeft);
             g.drawText ("POST", postLane.reduced (5, 1), juce::Justification::topLeft);
         }
@@ -388,10 +421,11 @@ void AttackComponent::paint (juce::Graphics& g)
         g.setColour (waveformColour.withAlpha (0.28f));
         g.drawHorizontalLine (railY, static_cast<float> (scrub.getX() + 35),
                               static_cast<float> (scrub.getRight() - 35));
-        g.setFont (monoFont (11.0f));
-        g.setColour (COL_MUTED);
+        g.setFont (monoFont (presentationContext, typography::TextRole::axis,
+                             typography::Composition::visualization));
+        g.setColour (COL_TEXT_TERTIARY);
         g.drawText ("-6 s", scrub.removeFromLeft (35), juce::Justification::centredLeft);
-        g.setColour (followLatest ? selectionColour : COL_MUTED);
+        g.setColour (followLatest ? selectionColour : COL_TEXT_TERTIARY);
         g.drawText ("NOW", scrub.removeFromRight (35), juce::Justification::centredRight);
         g.setColour (COL_NORMAL);
         g.drawText (juce::String (visibleCount)

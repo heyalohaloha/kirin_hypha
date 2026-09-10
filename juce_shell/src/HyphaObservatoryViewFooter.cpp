@@ -1,6 +1,7 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaRunSummary.h"
 #include "HyphaTimeHistoryPainter.h"
+#include "HyphaTextStyle.h"
 
 #include <cmath>
 
@@ -50,13 +51,12 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
                           &captureButton, &localBlindButton })
         if (button->isVisible()) visible.add (button);
     juce::Array<int> minimumWidths;
-    const auto fontHeight = actions.getHeight() >= 38 ? 15.0f
-                          : actions.getHeight() >= 28 ? 13.0f : 11.0f;
+    const auto actionFont = labelFont (presentationContext(), typography::TextRole::action);
     int minimumTotal = 0;
     for (auto* button : visible)
     {
         const auto width = juce::roundToInt (
-            std::ceil (labelFont (fontHeight).getStringWidthFloat (button->getButtonText()) + 6.0f));
+            std::ceil (actionFont.getStringWidthFloat (button->getButtonText()) + 6.0f));
         minimumWidths.add (width);
         minimumTotal += width;
     }
@@ -85,19 +85,17 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
                      : juce::String ("ACTIVE  ");
     const auto seconds = frameAvailable && meter.sample_rate > 0
         ? static_cast<double> (meter.active_frames) / static_cast<double> (meter.sample_rate) : 0.0;
-    g.setColour (frameAvailable ? COL_MUTED.brighter (0.25f) : COL_MUTED);
+    g.setColour (frameAvailable ? COL_TEXT_SECONDARY : COL_MUTED);
     if (! captureFrame)
     {
-        const auto density = currentPreset().density;
         if (feedbackText.isNotEmpty())
         {
-            g.setFont (monoFont (density == Density::inspection ? 14.0f : 11.0f));
+            g.setFont (monoFont (presentationContext(), typography::TextRole::status));
             g.setColour (COL_NORMAL);
             g.drawText (feedbackText, session, juce::Justification::centredLeft);
             return;
         }
-        g.setFont (monoFont (density == Density::compact ? 8.5f
-                           : density == Density::inspection ? 14.0f : 10.5f));
+        g.setFont (monoFont (presentationContext(), typography::TextRole::status));
        #if defined(JucePlugin_VersionString)
         const auto version = juce::String ("  |  v") + JucePlugin_VersionString;
        #else
@@ -114,17 +112,22 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     auto provenance = captureTimestamp;
     if (captureVersion.isNotEmpty())
         provenance += "  |  v" + captureVersion;
-    g.setFont (monoFont (8.0f));
+    g.setFont (monoFont (presentationContext(), typography::TextRole::captureMetadata));
     auto statusArea = upper.removeFromLeft (juce::roundToInt (upper.getWidth() * 0.55f));
-    g.drawFittedText (state + juce::String (seconds, 1) + " S  |  ITU-R BS.1770",
-                      statusArea, juce::Justification::centredLeft, 1, 0.78f);
-    g.drawFittedText (provenance, upper, juce::Justification::centredRight, 1, 0.72f);
+    text_style::draw (g, state + juce::String (seconds, 1) + " S  |  ITU-R BS.1770",
+                      statusArea, presentationContext(), typography::TextRole::captureMetadata,
+                      juce::Justification::centredLeft);
+    text_style::draw (g, provenance, upper, presentationContext(),
+                      typography::TextRole::captureMetadata,
+                      juce::Justification::centredRight);
     const auto metadata = captureMetadata.footerLine();
     if (metadata.isNotEmpty())
     {
         g.setColour (COL_FLORA.withAlpha (0.82f));
-        g.setFont (monoFont (7.5f));
-        g.drawFittedText (metadata, lower, juce::Justification::centredLeft, 1, 0.70f);
+        g.setFont (monoFont (presentationContext(), typography::TextRole::captureMetadata));
+        text_style::draw (g, metadata, lower, presentationContext(),
+                          typography::TextRole::captureMetadata,
+                          juce::Justification::centredLeft);
     }
 }
 
@@ -134,9 +137,11 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
     area.removeFromTop (timeControlsHeight());
     if (showRunSummary && target() == ObservationTarget::absolute)
         run_summary::paint (g, area, runSummary,
-                            frameAvailable ? observatoryFrame.meter.sample_rate : 0.0);
+                            frameAvailable ? observatoryFrame.meter.sample_rate : 0.0,
+                            presentationContext());
     else
         time_history::paint (g, area, history, compact ? historyRequest().label : "",
-                             target() == ObservationTarget::delta, compact, selectedScaleMode);
+                             target() == ObservationTarget::delta, compact, selectedScaleMode,
+                             presentationContext());
 }
 }

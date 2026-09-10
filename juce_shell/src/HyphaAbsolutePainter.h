@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "HyphaPresentationContext.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::absolute_painter
@@ -15,6 +16,7 @@ struct PaintState
     bool haveNumericSnapshot;
     bool signalActive = true;
     bool sharpnessOnly = false;
+    presentation::Context presentation = presentation::defaultContext();
 };
 
 // LIVE keeps the measurement fact unavailable (NaN) while presenting it at the fixed scale's

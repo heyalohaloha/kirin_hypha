@@ -38,6 +38,7 @@ inline void verifyReferenceAccessPanelContract()
         view.setSize (width, width * 2 / 3);
         view.setDomain (observatory::Domain::reference);
         AccessPanel panel;
+        panel.setPresentationContext (presentation::forEditor (width, width * 2 / 3));
         panel.setBounds (view.bodyBounds());
         int aboutCount = 0, recheckCount = 0;
         panel.onAbout = [&] { ++aboutCount; };
@@ -63,12 +64,27 @@ inline void verifyReferenceAccessPanelContract()
                              "enabled / keyboard / hit target");
                     require (b->findColour (juce::TextButton::textColourOffId) == COL_NORMAL,
                              "active action labels must not look disabled");
-                    require (labelFont (b->getHeight() >= 28 ? 13 : 11).getStringWidthFloat (b->getButtonText())
+                    require (labelFont (presentation::forEditor (width, width * 2 / 3),
+                                        typography::TextRole::action,
+                                        typography::Composition::information).getStringWidthFloat (b->getButtonText())
                                  <= b->getWidth() - 6, "small text fits without compression");
+                    if (auto* styled = dynamic_cast<observatory::Button*> (b))
+                        require (std::abs (styled->fontHeightForTest()
+                                          - labelFont (presentation::forEditor (
+                                                width, width * 2 / 3),
+                                                typography::TextRole::action).getHeight()) < 0.001f,
+                                 "parent context reaches every action button");
                 }
                 if (auto* label = dynamic_cast<juce::Label*> (child))
                 {
-                    require (label->getFont().getHeight() >= 12.0f, "font floor");
+                    const auto role = label->getComponentID() == "reference-access-heading"
+                        ? typography::TextRole::sectionTitle : typography::TextRole::body;
+                    const auto expected = labelFont (
+                        presentation::forEditor (width, width * 2 / 3), role,
+                        typography::Composition::information).getHeight();
+                    require (std::abs (label->getFont().getHeight() - expected) < 0.001f,
+                             "parent context reaches each label role");
+                    require (label->getFont().getHeight() >= 11.0f, "font floor");
                     require (label->getMinimumHorizontalScale() == 1.0f, "no horizontal compression");
                     juce::AttributedString text;
                     text.append (label->getText(), label->getFont(), COL_NORMAL);

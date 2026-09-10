@@ -2,6 +2,7 @@
 #include "HyphaTimeAxisContract.h"
 
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <array>
@@ -11,6 +12,29 @@
 
 namespace hypha::time_history
 {
+int auxLabelWidth (presentation::Context presentation, bool plr, bool delta,
+                   int availableWidth)
+{
+    const auto readoutStyle = typography::resolve (
+        presentation, typography::TextRole::readout,
+        typography::Composition::visualization);
+    const auto readoutFont = monoFont (presentation, typography::TextRole::readout,
+                                       typography::Composition::visualization);
+    auto required = text_style::requiredWidth (
+        readoutFont, plr ? "PLR -100.0 dB" : "CORR +1.00", readoutStyle);
+    if (plr)
+    {
+        const auto bodyStyle = typography::resolve (
+            presentation, typography::TextRole::body,
+            typography::Composition::visualization);
+        const auto bodyFont = monoFont (presentation, typography::TextRole::body,
+                                        typography::Composition::visualization);
+        required = juce::jmax (required, text_style::requiredWidth (
+            bodyFont, delta ? "Difference of PLR" : "Session max TP - I", bodyStyle));
+    }
+    return juce::jmin (required, availableWidth / 2);
+}
+
 namespace
 {
 enum class Metric { momentary, shortTerm, truePeak, plr, correlation };
@@ -96,20 +120,24 @@ void paintAuxLane (juce::Graphics& g,
                    const char* label,
                    juce::Colour colour,
                    const HistoryAxis& axis,
-                   bool delta)
+                   bool delta,
+                   presentation::Context presentation)
 {
     g.setColour (COL_MUTED.withAlpha (0.16f));
     g.fillRoundedRectangle (area.toFloat(), 2.0f);
-    auto labelArea = area.removeFromLeft (metric == Metric::plr ? 136 : 108);
+    auto labelArea = area.removeFromLeft (auxLabelWidth (
+        presentation, metric == Metric::plr, delta, area.getWidth()));
     g.setColour (colour.withAlpha (0.90f));
-    g.setFont (monoFont (area.getHeight() >= 42 ? 14.0f : 11.0f));
+    g.setFont (monoFont (presentation, typography::TextRole::readout,
+                         typography::Composition::visualization));
     const auto labelText = juce::String (label) + " "
                          + latestText (history, metric, delta) + (metric == Metric::plr ? " dB" : "");
     if (metric == Metric::plr)
     {
         g.drawText (labelText, labelArea.removeFromTop (labelArea.getHeight() / 2),
                     juce::Justification::centredLeft);
-        g.setFont (monoFont (11.0f));
+        g.setFont (monoFont (presentation, typography::TextRole::body,
+                             typography::Composition::visualization));
         g.drawText (delta ? "Difference of PLR" : "Session max TP - I", labelArea,
                     juce::Justification::centredLeft);
     }
@@ -148,8 +176,9 @@ void paintAuxLane (juce::Graphics& g,
     g.setColour (colour.withAlpha (0.88f));
     g.strokePath (path, juce::PathStrokeType (1.0f));
 
-    g.setColour (COL_MUTED.withAlpha (0.72f));
-    g.setFont (monoFont (11.0f));
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (monoFont (presentation, typography::TextRole::axis,
+                         typography::Composition::visualization));
     const auto top = metric == Metric::plr ? (delta ? "+12" : "24")
                                             : (delta ? "+2" : "+1");
     const auto bottom = metric == Metric::plr ? (delta ? "-12" : "0")
@@ -160,11 +189,13 @@ void paintAuxLane (juce::Graphics& g,
 }
 
 void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta,
-                bool detailedAxes, meter_context::ScaleMode scaleMode)
+                bool detailedAxes, meter_context::ScaleMode scaleMode,
+                presentation::Context presentation)
 {
     constexpr std::array<const char*, 5> difference { "+12", "+6", "0", "-6", "-12" };
     const auto floor = meter_context::loudnessFloor (scaleMode);
-    g.setFont (monoFont (8.0f));
+    g.setFont (monoFont (presentation, typography::TextRole::axis,
+                         typography::Composition::visualization));
     for (size_t index = 0u; index < difference.size(); ++index)
     {
         if (plot.getHeight() < 100.0f && index % 2u != 0u) continue;
@@ -177,7 +208,7 @@ void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta,
         g.drawHorizontalLine (y, plot.getX(), plot.getRight());
         if (detailedAxes)
         {
-            g.setColour (COL_MUTED.withAlpha (0.78f));
+            g.setColour (COL_TEXT_TERTIARY);
             const auto loudness = juce::String (floor * (double) index / 4.0, 0);
             g.drawText (delta ? juce::String (difference[index]) : loudness,
                         juce::roundToInt (plot.getX()) - 32, y - 7,
@@ -208,7 +239,8 @@ void paintMetric (juce::Graphics& g,
                   const MetricVisual& visual,
                   const HistoryAxis& axis,
                   bool delta,
-                  meter_context::ScaleMode scaleMode)
+                 meter_context::ScaleMode scaleMode,
+                 presentation::Context presentation)
 {
     juce::Path mean;
     juce::Path ranges;
@@ -272,7 +304,8 @@ void paintMetric (juce::Graphics& g,
         if (plot.getHeight() >= 100.0f && visual.metric != Metric::truePeak)
         {
             const auto offset = visual.metric == Metric::momentary ? -12 : 3;
-            g.setFont (monoFont (7.5f));
+            g.setFont (monoFont (presentation, typography::TextRole::legend,
+                                 typography::Composition::visualization));
             g.drawText (visual.label, juce::roundToInt (lastX) - 22,
                         juce::roundToInt (lastY) + offset, 18, 10,
                         juce::Justification::centredRight);
@@ -287,12 +320,14 @@ void paintLegend (juce::Graphics& g,
                   const std::array<MetricVisual, 3>& visuals,
                   const HistoryAxis& axis,
                   bool delta,
-                  bool compact)
+                  bool compact,
+                  presentation::Context presentation)
 {
     auto left = area;
     const auto range = left.removeFromRight (compact ? 94 : 184);
     const int metricWidth = compact ? 42 : juce::jmin (72, left.getWidth() / 3);
-    g.setFont (monoFont (compact ? 8.0f : 9.0f));
+    g.setFont (monoFont (presentation, typography::TextRole::legend,
+                         typography::Composition::visualization));
     for (const auto& visual : visuals)
     {
         auto cell = left.removeFromLeft (metricWidth);
@@ -302,7 +337,7 @@ void paintLegend (juce::Graphics& g,
                                       + latestText (history, visual.metric, delta);
         g.drawText (text, cell, juce::Justification::centredLeft);
     }
-    g.setColour (COL_MUTED.withAlpha (0.82f));
+    g.setColour (COL_TEXT_TERTIARY);
     const auto basis = delta
         ? juce::String ("  EXACT ") + hypha::delta() + " / " + axisLabel (axis.mode)
         : juce::String ("  ") + axisLabel (axis.mode);
@@ -317,7 +352,8 @@ void paint (juce::Graphics& g,
             const juce::String& rangeLabel,
             bool delta,
             bool compactMeter,
-            meter_context::ScaleMode scaleMode)
+            meter_context::ScaleMode scaleMode,
+            presentation::Context presentation)
 {
     g.setColour (BG.withAlpha (compactMeter ? 0.96f : 0.76f));
     g.fillRoundedRectangle (area.toFloat(), 4.0f);
@@ -326,8 +362,9 @@ void paint (juce::Graphics& g,
     area.reduce (7, 6);
     if (history.empty())
     {
-        g.setColour (COL_MUTED);
-        g.setFont (monoFont (12.0f));
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (presentation, typography::TextRole::status,
+                             typography::Composition::visualization));
         const auto emptyText = delta
             ? juce::String ("EXACT ") + hypha::delta() + " HISTORY " + hypha::emDash()
             : juce::String ("HISTORY ") + hypha::emDash();
@@ -342,7 +379,7 @@ void paint (juce::Graphics& g,
     }};
     const auto axis = selectAxis (history);
     paintLegend (g, area.removeFromTop (16), history, rangeLabel,
-                 visuals, axis, delta, compactMeter);
+                 visuals, axis, delta, compactMeter, presentation);
     auto plotArea = area;
     juce::Rectangle<int> plrArea;
     juce::Rectangle<int> correlationArea;
@@ -366,22 +403,24 @@ void paint (juce::Graphics& g,
     }
     auto plot = plotArea.reduced (compactMeter ? 4 : 32, 7).toFloat();
     plot.removeFromBottom (3.0f);
-    paintAxes (g, plot, delta, ! compactMeter && plot.getHeight() >= 55.0f, scaleMode);
+    paintAxes (g, plot, delta, ! compactMeter && plot.getHeight() >= 55.0f, scaleMode,
+               presentation);
 
     for (const auto& visual : visuals)
-        paintMetric (g, plot, history, visual, axis, delta, scaleMode);
+        paintMetric (g, plot, history, visual, axis, delta, scaleMode, presentation);
     if (! compactMeter)
     {
         paintAuxLane (g, plrArea, history, Metric::plr, "PLR", COL_GUIDE_BR,
-                      axis, delta);
+                      axis, delta, presentation);
         paintAuxLane (g, correlationArea, history, Metric::correlation, "CORR",
-                      COL_SPECTRUM_DELTA_BR, axis, delta);
+                      COL_SPECTRUM_DELTA_BR, axis, delta, presentation);
     }
 
     if (! compactMeter && plot.getHeight() >= 55.0f)
     {
-        g.setColour (COL_MUTED.withAlpha (0.62f));
-        g.setFont (labelFont (7.5f));
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (labelFont (presentation, typography::TextRole::unit,
+                              typography::Composition::visualization));
         g.drawText (delta ? "LU" : "LUFS", juce::roundToInt (plot.getX()) - 27,
                     juce::roundToInt (plot.getBottom()) - 8, 28, 14,
                     juce::Justification::centredRight);

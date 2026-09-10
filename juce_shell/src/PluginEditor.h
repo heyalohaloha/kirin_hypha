@@ -64,8 +64,9 @@ private:
         }
         juce::Font getPopupMenuFont() override
         {
-            // Menus contain localized product text and user-provided project/channel names.
-            return hypha::nativeTextFont (hypha::ui_contract::menuFontHeight);
+            return hypha::nativeTextFont (hypha::presentation::forOutput (
+                450, 300, hypha::presentation::OutputTarget::popup),
+                hypha::typography::TextRole::menu);
         }
     };
 
@@ -73,6 +74,7 @@ private:
     void updatePre();
     void updatePost();
     void refreshObservatory();
+    void applyPresentationContext();
     void configureMeterContext();
     void showNoteDialog();
     void setObservatoryDomain (hypha::observatory::Domain domain);
@@ -139,16 +141,16 @@ private:
     std::array<hypha::MetricCell, 6> cells;
     hypha::LoudnessSelector   loudnessSelector;           // occupies cell 0's existing label column
     juce::Label               feedbackLabel;              // toast > persistent error > Keeping
-    juce::TextButton          guideConnectButton;          // role-neutral explicit Work/session connect
+    hypha::HyphaTextButton    guideConnectButton { "" };   // role-neutral explicit Work/session connect
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     std::unique_ptr<juce::FileChooser> captureChooser;
     std::unique_ptr<juce::AlertWindow> noteDialog;
     hypha::capture::PrivacyOptions capturePrivacy;         // editor-lifetime, private by default
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-    juce::TextButton          spectrumToggle;               // POST: meters / Analysis page
+    hypha::HyphaTextButton    spectrumToggle { "" };        // POST: meters / Analysis page
     hypha::TimePageNavigation timePageNavigation;            // Compact cycle / Observatory tabs
-    juce::TextButton          spectrumSizeToggle;           // POST Analysis: 100/125/150/200/300 percent
+    hypha::HyphaTextButton    spectrumSizeToggle { "" };    // POST Analysis: 100/125/150/200/300 percent
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
     hypha::PerceptualComponent perceptualView;               // paired POST-minus-PRE Sharpness
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline

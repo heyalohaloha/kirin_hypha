@@ -40,7 +40,8 @@ float yForLoudness (juce::Rectangle<float> plot, double value, bool delta) noexc
 void paintCurrentLoudness (juce::Graphics& g,
                            juce::Rectangle<float> plot,
                            const std::vector<KirinMeterHistoryEntry>& history,
-                           bool delta)
+                           bool delta,
+                           presentation::Context presentation)
 {
     if (history.empty())
         return;
@@ -67,7 +68,8 @@ void paintCurrentLoudness (juce::Graphics& g,
     g.setColour (COL_SPECTRUM_POST.withAlpha (0.48f));
     g.drawRoundedRectangle (label, 3.0f, 0.7f);
     g.setColour (COL_OBSERVATORY_VALUE);
-    g.setFont (monoFont (inspection ? 10.0f : 8.2f));
+    g.setFont (monoFont (presentation, typography::TextRole::readout,
+                         typography::Composition::visualization));
     g.drawText (text, label.toNearestInt().reduced (3, 0),
                 juce::Justification::centredRight);
 }
@@ -323,6 +325,7 @@ void paint (juce::Graphics& g,
             const std::vector<KirinMeterHistoryEntry>& history,
             bool delta,
             double sampleRate,
+            presentation::Context presentation,
             std::optional<std::size_t> hoveredIndex,
             juce::String contextFact)
 {
@@ -335,7 +338,8 @@ void paint (juce::Graphics& g,
 
     auto legend = layout.legend;
     auto meanings = legend.removeFromTop (legend.getHeight() / 2);
-    g.setFont (monoFont (layout.sharedPlot.getWidth() >= 650.0f ? 13.0f : 11.0f));
+    g.setFont (monoFont (presentation, typography::TextRole::legend,
+                         typography::Composition::visualization));
     g.setColour (COL_SPECTRUM_POST);
     auto loudnessLegend = meanings.removeFromLeft (delta ? meanings.getWidth() : meanings.getWidth() / 2);
     g.drawText (delta ? "M: POST - PRE (LU) / 60s" : "M: momentary LUFS",
@@ -373,7 +377,8 @@ void paint (juce::Graphics& g,
     if (history.empty())
     {
         g.setColour (COL_MUTED);
-        g.setFont (monoFont (11.0f));
+        g.setFont (monoFont (presentation, typography::TextRole::status,
+                             typography::Composition::visualization));
         g.drawText (juce::String ("HISTORY ") + emDash(),
                     layout.sharedPlot.toNearestInt(), juce::Justification::centred);
         return;
@@ -383,7 +388,8 @@ void paint (juce::Graphics& g,
         0.0, -6.0, -12.0, -18.0, -24.0, -30.0, -36.0
     };
     constexpr std::array<double, 5> deltaTicks { 12.0, 6.0, 0.0, -6.0, -12.0 };
-    g.setFont (monoFont (layout.loudnessLabels.getWidth() >= 50 ? 10.0f : 8.2f));
+    g.setFont (monoFont (presentation, typography::TextRole::axis,
+                         typography::Composition::visualization));
     const auto paintLoudnessTicks = [&] (const auto& ticks)
     {
         for (size_t index = 0; index < ticks.size(); ++index)
@@ -413,7 +419,8 @@ void paint (juce::Graphics& g,
     {
         constexpr std::array<double, 5> truePeakTicks { 6.0, 0.0, -6.0, -12.0, -24.0 };
         const auto overlay = truePeakOverlayFor (layout.sharedPlot);
-        g.setFont (monoFont (6.2f));
+        g.setFont (monoFont (presentation, typography::TextRole::axis,
+                             typography::Composition::visualization));
         g.setColour (COL_FLORA.withAlpha (0.72f));
         g.drawText ("TP", layout.truePeakLabels.getX(),
                     juce::roundToInt (overlay.getY()) - 16,
@@ -441,9 +448,10 @@ void paint (juce::Graphics& g,
                COL_SPECTRUM_POST, 0.96f, 1.20f, sampleRate);
     if (! delta)
         paintTruePeakEvents (g, layout.sharedPlot, history, axis, peakSummary, sampleRate);
-    paintCurrentLoudness (g, layout.sharedPlot, history, delta);
+    paintCurrentLoudness (g, layout.sharedPlot, history, delta, presentation);
     g.setColour (COL_MUTED.withAlpha (0.64f));
-    g.setFont (monoFont (5.8f));
+    g.setFont (monoFont (presentation, typography::TextRole::axis,
+                         typography::Composition::visualization));
     g.drawText ("-60", layout.timeLabels.withWidth (24), juce::Justification::centredLeft);
     g.drawText ("-30", layout.timeLabels.withSizeKeepingCentre (30, layout.timeLabels.getHeight()),
                 juce::Justification::centred);

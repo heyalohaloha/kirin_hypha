@@ -64,6 +64,23 @@ int differentPixels (const juce::Image& left, const juce::Image& right)
             count += left.getPixelAt (x, y).getARGB() != right.getPixelAt (x, y).getARGB();
     return count;
 }
+
+void writePreview (const juce::Image& image,
+                   observatory::Role role,
+                   const juce::String& state,
+                   int width)
+{
+    const auto previewDirectory = juce::SystemStats::getEnvironmentVariable (
+        "KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+    if (previewDirectory.isEmpty())
+        return;
+
+    auto output = juce::File (previewDirectory).getChildFile (
+        juce::String (role == observatory::Role::pre ? "pre" : "post")
+        + "-hybrid-vu-" + state + "-" + juce::String (width) + ".png").createOutputStream();
+    KIRIN_HYBRID_VU_REQUIRE (output != nullptr);
+    KIRIN_HYBRID_VU_REQUIRE (juce::PNGImageFormat().writeImageToStream (image, *output));
+}
 }
 
 void verifyHybridVuContract()
@@ -120,6 +137,14 @@ void verifyHybridVuContract()
                 view.getLocalBounds().contains (clearButton->getBounds()));
             KIRIN_HYBRID_VU_REQUIRE (
                 ! vuButton->getBounds().intersects (clearButton->getBounds()));
+            const auto manualImage = render (view);
+            writePreview (manualImage, role, "manual", preset.width);
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (true));
+            const auto recordingImage = render (view);
+            writePreview (recordingImage, role, "recording", preset.width);
+            KIRIN_HYBRID_VU_REQUIRE (differentPixels (manualImage, recordingImage) > 12);
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (false));
+            KIRIN_HYBRID_VU_REQUIRE (differentPixels (manualImage, render (view)) == 0);
             clearButton->onClick();
             KIRIN_HYBRID_VU_REQUIRE (clearCallback);
             observatory::View reopened (role);
@@ -138,17 +163,6 @@ void verifyHybridVuContract()
             KIRIN_HYBRID_VU_REQUIRE (view.hybridVuVisible());
             KIRIN_HYBRID_VU_REQUIRE (view.informationAnchor().isVisible());
             const auto image = render (view);
-            const auto previewDirectory = juce::SystemStats::getEnvironmentVariable (
-                "KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
-            if (previewDirectory.isNotEmpty())
-            {
-                auto output = juce::File (previewDirectory).getChildFile (
-                    juce::String (role == observatory::Role::pre ? "pre" : "post")
-                    + "-hybrid-vu-" + juce::String (preset.width) + ".png").createOutputStream();
-                KIRIN_HYBRID_VU_REQUIRE (output != nullptr);
-                KIRIN_HYBRID_VU_REQUIRE (
-                    juce::PNGImageFormat().writeImageToStream (image, *output));
-            }
             auto alternate = meter;
             alternate.channel_vu_dbfs[0] = -25.0;
             alternate.channel_instant_true_peak_dbtp[1] = -11.0;

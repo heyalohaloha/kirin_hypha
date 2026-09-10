@@ -24,10 +24,20 @@ class Button final : public juce::TextButton
 {
 public:
     Button (juce::String text, bool tabIn);
+    void setPresentationContext (presentation::Context next) noexcept
+    {
+        presentationContext = next;
+        repaint();
+    }
+    float fontHeightForTest() const
+    {
+        return labelFont (presentationContext, typography::TextRole::action).getHeight();
+    }
     void paintButton (juce::Graphics&, bool highlighted, bool down) override;
 
 private:
     bool tab = false;
+    presentation::Context presentationContext = presentation::defaultContext();
 };
 
 class View final : public juce::Component, public juce::SettableTooltipClient
@@ -64,6 +74,10 @@ public:
     PresentationContract presentation() const noexcept
     {
         return presentationContract (currentPreset());
+    }
+    presentation::Context presentationContext() const noexcept
+    {
+        return presentation::forOutput (getWidth(), getHeight(), presentationOutput);
     }
     void setTarget (ObservationTarget);
     ObservationTarget target() const noexcept
@@ -231,6 +245,7 @@ private:
     juce::String guideDetail;
     bool guideEmphasized = false;
     bool captureFrame = false;
+    presentation::OutputTarget presentationOutput = presentation::OutputTarget::editor;
     juce::String captureTimestamp;
     juce::String captureVersion;
     capture::DisplayMetadata captureMetadata;

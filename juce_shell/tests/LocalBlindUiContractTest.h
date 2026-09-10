@@ -40,6 +40,7 @@ inline void verifyLocalBlindUiContract()
     }
 
     local_blind_ui::Component component;
+    component.setPresentationContext (presentation::forEditor (600, 400));
     component.setSize (600, 400);
     const auto button = [&] (const char* id)
     {
@@ -89,6 +90,7 @@ inline void verifyLocalBlindUiContract()
     require (! button ("local-blind-answer-1")->isEnabled()
                  && ! button ("local-blind-reveal")->isEnabled(),
              "answer and reveal wait for both complete passes");
+    component.setPresentationContext (presentation::forEditor (300, 200));
     component.setSize (300, 200);
     for (int index = 0; index < component.getNumChildComponents(); ++index)
     {

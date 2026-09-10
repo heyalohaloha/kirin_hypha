@@ -37,14 +37,15 @@ void drawMetric (juce::Graphics& g,
                  const juce::String& label,
                  double value,
                  const juce::String& unit,
-                 float valueHeight,
                  ExperienceFamily family,
+                 presentation::Context presentation,
                  bool signedValue = false,
                  int decimals = 1,
                  const juce::String& textOverride = {},
                  float panelOpacity = -1.0f,
                  const juce::String& auxiliaryText = {},
-                 bool verticalStack = false)
+                 bool verticalStack = false,
+                 typography::TextRole valueRole = typography::TextRole::primaryValue)
 {
     drawPanel (g, area, family, panelOpacity);
     if (verticalStack)
@@ -53,41 +54,46 @@ void drawMetric (juce::Graphics& g,
         const auto unitHeight = juce::jlimit (14, 16, area.getHeight() / 5);
         const auto labelArea = area.removeFromTop (labelHeight);
         const auto unitArea = area.removeFromBottom (unitHeight);
-        g.setColour (COL_MUTED.brighter (0.08f));
-        g.setFont (labelFont (area.getWidth() >= 135 ? 14.0f : 11.0f));
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
+                              typography::Composition::facts));
         g.drawText (label, labelArea.reduced (4, 0), juce::Justification::centred);
         g.setColour (std::isfinite (value) && textOverride.isEmpty()
                          ? COL_OBSERVATORY_VALUE : COL_MUTED);
-        valueHeight = juce::jmin (valueHeight, (float) area.getHeight() * 0.84f);
-        drawTabularText (g, monoFont (valueHeight),
+        drawTabularText (g, monoFont (presentation, valueRole,
+                                      typography::Composition::facts),
                          textOverride.isNotEmpty() ? textOverride
                                                    : valueText (value, decimals, signedValue),
                          area.reduced (4, 0).toFloat(), juce::Justification::centred);
-        g.setColour (COL_MUTED.brighter (0.04f));
-        g.setFont (labelFont (area.getWidth() >= 135 ? 12.0f : 11.0f));
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (labelFont (presentation, typography::TextRole::unit,
+                              typography::Composition::facts));
         g.drawText (unit, unitArea.reduced (3, 0), juce::Justification::centred);
         return;
     }
     const auto labelArea = area.removeFromTop (juce::jmax (14, area.getHeight() / 4));
-    g.setColour (COL_MUTED);
-    g.setFont (labelFont (juce::jlimit (9.0f, 12.0f, valueHeight * 0.32f)));
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
+                          typography::Composition::facts));
     g.drawText (label, labelArea.reduced (6, 1), juce::Justification::centredLeft);
     if (auxiliaryText.isNotEmpty())
     {
         const auto auxiliaryHeight = juce::jlimit (10, 14, area.getHeight() / 3);
         const auto auxiliaryArea = area.removeFromBottom (auxiliaryHeight);
-        g.setColour (COL_MUTED.withAlpha (0.92f));
-        g.setFont (labelFont (juce::jlimit (8.0f, 10.0f, valueHeight * 0.22f)));
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (labelFont (presentation, typography::TextRole::status,
+                              typography::Composition::facts));
         g.drawText (auxiliaryText, auxiliaryArea.reduced (6, 0),
                     juce::Justification::centredRight);
     }
-    valueHeight = juce::jmin (valueHeight, (float) area.getHeight() * 0.92f);
     if (area.getWidth() < 180)
     {
-        g.setFont (labelFont (juce::jlimit (7.0f, 10.0f, valueHeight * 0.23f)));
+        g.setFont (labelFont (presentation, typography::TextRole::unit,
+                              typography::Composition::facts));
         g.drawText (unit, labelArea.reduced (6, 1), juce::Justification::centredRight);
         g.setColour (std::isfinite (value) && textOverride.isEmpty() ? COL_NORMAL : COL_MUTED);
-        drawTabularText (g, monoFont (valueHeight),
+        drawTabularText (g, monoFont (presentation, valueRole,
+                                      typography::Composition::facts),
                          textOverride.isNotEmpty() ? textOverride
                                                    : valueText (value, decimals, signedValue),
                          area.reduced (5, 0).toFloat(), juce::Justification::centred);
@@ -96,12 +102,14 @@ void drawMetric (juce::Graphics& g,
     const auto unitWidth = juce::jmin (46, area.getWidth() / 3);
     const auto unitArea = area.removeFromRight (unitWidth);
     g.setColour (std::isfinite (value) && textOverride.isEmpty() ? COL_NORMAL : COL_MUTED);
-    drawTabularText (g, monoFont (valueHeight),
+    drawTabularText (g, monoFont (presentation, valueRole,
+                                  typography::Composition::facts),
                      textOverride.isNotEmpty() ? textOverride
                                                : valueText (value, decimals, signedValue),
                      area.reduced (5, 0).toFloat(), juce::Justification::centredRight);
-    g.setColour (COL_MUTED);
-    g.setFont (labelFont (juce::jlimit (8.0f, 11.0f, valueHeight * 0.28f)));
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (labelFont (presentation, typography::TextRole::unit,
+                          typography::Composition::facts));
     g.drawText (unit, unitArea.reduced (2, 0), juce::Justification::centredLeft);
 }
 
@@ -120,6 +128,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     const bool currentAvailable = currentFactsAvailable();
     const bool cumulativeAvailable = cumulativeFactsAvailable();
     const auto density = currentPreset().density;
+    const auto context = presentationContext();
     const auto family = experienceFamily();
     const auto compact = family == ExperienceFamily::compactMeter;
     juce::Rectangle<int> channelStrips;
@@ -146,7 +155,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                 drawMetric (g, area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
                             hypha::delta() + labels[(size_t) index],
                             optionValue (values[(size_t) index], deltaFactsAvailable()),
-                            units[(size_t) index], 27.0f, family, true);
+                            units[(size_t) index], family, context, true);
             return;
         }
         const std::array<double, 4> values {
@@ -154,12 +163,11 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         };
         const std::array<const char*, 4> labels { "M", "S", "TP", "CREST" };
         const std::array<const char*, 4> units { "LU", "LU", "dB", "dB" };
-        const auto valueHeight = density == Density::standard ? 30.0f : 36.0f;
         for (int index = 0; index < 4; ++index)
             drawMetric (g, area.removeFromLeft (area.getWidth() / (4 - index)).reduced (2),
                         hypha::delta() + labels[(size_t) index],
                         optionValue (values[(size_t) index], deltaFactsAvailable()),
-                        units[(size_t) index], valueHeight, family, true);
+                        units[(size_t) index], family, context, true);
         return;
     }
 
@@ -196,7 +204,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                         compactLabels[(size_t) index],
                         optionValue (compactValues[(size_t) index],
                                      compactAvailable[(size_t) index]),
-                        compactUnits[(size_t) index], 25.0f, family);
+                        compactUnits[(size_t) index], family, context);
         return;
     }
     const bool trackStem = selectedMeterContext == meter_context::MeterContext::trackStem;
@@ -212,8 +220,6 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     const std::array<const char*, 3> mainUnits {
         "LUFS", "LUFS", trackStem ? "dB" : "LUFS"
     };
-    const auto mainValueHeight = density == Density::standard ? 28.0f
-                               : getWidth() >= 900 ? 58.0f : 42.0f;
     constexpr int mainCount = 3;
     if (isFullDensity (density))
         background.drawLevelCorners (g, main, worldState());
@@ -222,7 +228,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         drawMetric (g, main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
                     level_metrics::label (metricLayout.main[(size_t) index]),
                     optionValue (mainValues[(size_t) index], mainAvailable[(size_t) index]),
-                    mainUnits[(size_t) index], mainValueHeight, family,
+                    mainUnits[(size_t) index], family, context,
                     false, 1, {}, isFullDensity (density) ? 0.42f : -1.0f,
                     {}, isFullDensity (density));
     }
@@ -263,10 +269,10 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                         area.getWidth() / (supportCount - index)).reduced (2),
                     level_metrics::label (metricLayout.support[(size_t) index]),
                     optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
-                    supportUnits[(size_t) index], getWidth() >= 900 ? 24.0f : 18.0f, family,
+                    supportUnits[(size_t) index], family, context,
                     false, 1, warmingText,
                     isFullDensity (density) ? 0.54f : -1.0f, {},
-                    true);
+                    true, typography::TextRole::secondaryValue);
     }
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
@@ -301,6 +307,7 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
     capture_history::paint (g, levelHistoryArea, history,
                             target() == ObservationTarget::delta,
                             static_cast<double> (observatoryFrame.meter.sample_rate),
+                            presentationContext(),
                             captureFrame ? std::nullopt : hoveredLevelHistoryIndex,
                             maximumMomentary);
     if (! channelStrips.isEmpty())

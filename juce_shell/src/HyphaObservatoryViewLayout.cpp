@@ -10,6 +10,14 @@ void View::resized()
     levelHistoryPointer.reset();
     hoveredLevelHistoryIndex.reset();
     const auto preset = currentPreset();
+    const auto context = presentationContext();
+    for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
+                          &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
+                          &timeRangeButton, &compactLoudnessButton, &compactRangeButton,
+                          &contextButton, &scaleButton, &sizeButton, &hybridVuButton,
+                          &clearPeakClipButton, &resetButton, &noteButton, &captureButton,
+                          &localBlindButton })
+        button->setPresentationContext (context);
     const auto layout = shellLayout (role, preset, guidePresence());
     informationButton.setVisible (! captureFrame);
     informationButton.setBounds (toJuce (layout.roleTitle));
@@ -59,9 +67,10 @@ void View::resized()
     contextButton.setVisible (! captureFrame);
     if (contextButton.isVisible())
     {
-        auto context = toJuce (layout.contextSelector);
-        contextButton.setBounds (context.withSizeKeepingCentre (
-            juce::jmin (94, context.getWidth()), context.getHeight()).reduced (1, 2));
+        auto contextSelectorBounds = toJuce (layout.contextSelector);
+        contextButton.setBounds (contextSelectorBounds.withSizeKeepingCentre (
+            juce::jmin (94, contextSelectorBounds.getWidth()),
+            contextSelectorBounds.getHeight()).reduced (1, 2));
     }
     domainCycleButton.setVisible (singleDomainControl);
     levelButton.setVisible (! singleDomainControl);

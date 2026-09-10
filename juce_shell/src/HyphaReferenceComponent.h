@@ -9,6 +9,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaOsAccess.h"
+#include "HyphaPresentationContext.h"
+#include "HyphaReferenceSelectorLookAndFeel.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
 #include "reference_audition/ReferenceRuntimeV2Profile.h"
 
@@ -129,6 +131,18 @@ class Component final : public juce::Component
 public:
     Component();
 
+    void setPresentationContext (presentation::Context next)
+    {
+        if (presentationContext == next) return;
+        presentationContext = next;
+        selectorLookAndFeel.setPresentationContext (next);
+        for (auto* button : { &aButton, &bButton, &blindButton, &oneButton, &twoButton,
+                              &answerButton, &revealButton, &endBlindButton, &actionButton })
+            button->setPresentationContext (next);
+        resized();
+        repaint();
+    }
+
     std::function<void()> onSelectA;
     std::function<void()> onSelectB;
     std::function<void(const juce::String&)> onSelectPreset;
@@ -154,10 +168,19 @@ private:
     {
     public:
         explicit SideButton (const juce::String& text);
+        void setPresentationContext (presentation::Context next) noexcept
+        {
+            presentationContext = next;
+        }
         void paintButton (juce::Graphics&, bool highlighted, bool down) override;
+
+    private:
+        presentation::Context presentationContext = presentation::defaultContext();
     };
 
     State current;
+    presentation::Context presentationContext = presentation::defaultContext();
+    ReferenceSelectorLookAndFeel selectorLookAndFeel;
     juce::ComboBox presetBox;
     juce::ComboBox checkBox;
     juce::ComboBox candidateBox;

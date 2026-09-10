@@ -3,6 +3,7 @@
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <array>
@@ -53,7 +54,8 @@ namespace
                     float scale,
                     const PaintState& state)
     {
-        g.setFont (monoFont (7.5f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (state.presentation, typography::TextRole::navigation,
+                             typography::Composition::visualization));
         if (state.actionNotice.isNotEmpty())
         {
             g.setColour (COL_MUTED.withAlpha (0.90f));
@@ -91,7 +93,8 @@ namespace
     {
         const float left = outer.getX() + 84.0f * scale;
         const float right = outer.getRight();
-        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (state.presentation, typography::TextRole::readout,
+                             typography::Composition::visualization));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.96f));
         g.drawText (juce::CharPointer_UTF8 ("Δ SHARPNESS"),
                     juce::Rectangle<float> (left, outer.getY(), 76.0f * scale, 13.0f * scale),
@@ -110,7 +113,8 @@ namespace
 
         if (scale > 1.1f)
         {
-            g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (scale)));
+            g.setFont (monoFont (state.presentation, typography::TextRole::legend,
+                                 typography::Composition::visualization));
             g.setColour (COL_SPECTRUM_PRE.withAlpha (0.88f));
             const auto text = "PRE " + juce::String (state.snapshot.pre_sharpness, 2)
                             + "   POST " + juce::String (state.snapshot.post_sharpness, 2);
@@ -121,10 +125,12 @@ namespace
         }
     }
 
-    void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, float scale)
+    void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, float scale,
+                    presentation::Context presentation)
     {
         const float zeroY = yForValue (0.0, plot);
-        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (presentation, typography::TextRole::axis,
+                             typography::Composition::visualization));
         g.setColour (COL_MUTED.withAlpha (0.86f));
         const int labelWidth = juce::roundToInt (21.0f * scale);
         const int labelHeight = juce::roundToInt (10.0f * scale);
@@ -299,7 +305,7 @@ void paint (juce::Graphics& g,
     paintHeader (g, outer, scale, state);
     g.setColour (juce::Colours::black);
     g.fillRect (plot);
-    paintAxes (g, plot, scale);
+    paintAxes (g, plot, scale, state.presentation);
 
     if (! state.snapshotValid || state.history.empty())
     {
@@ -309,9 +315,11 @@ void paint (juce::Graphics& g,
         if (text.isNotEmpty())
         {
             g.setColour (COL_MUTED);
-            g.setFont (monoFont (13.0f * scale));
-            g.drawFittedText (text, plot.toNearestInt(), juce::Justification::centred,
-                              2, 0.72f);
+            g.setFont (monoFont (state.presentation, typography::TextRole::status,
+                                 typography::Composition::visualization));
+            text_style::draw (g, text, plot.toNearestInt(), state.presentation,
+                              typography::TextRole::status, juce::Justification::centred,
+                              2, typography::Composition::visualization);
         }
         return;
     }

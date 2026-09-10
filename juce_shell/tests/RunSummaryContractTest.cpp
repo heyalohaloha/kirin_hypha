@@ -101,7 +101,8 @@ void verifyRunSummaryContract()
     juce::Image image (juce::Image::ARGB, 600, 300, true);
     image.clear (image.getBounds(), BG);
     juce::Graphics graphics (image);
-    run_summary::paint (graphics, image.getBounds(), result, 48'000.0);
+    run_summary::paint (graphics, image.getBounds(), result, 48'000.0,
+                        presentation::forEditor (600, 400));
     int changed = 0;
     for (int y = 0; y < image.getHeight(); ++y)
         for (int x = 0; x < image.getWidth(); ++x)

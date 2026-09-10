@@ -225,7 +225,8 @@ void paintAbsolute (juce::Graphics& g,
                     float visualScale,
                     const SpectrumBins& post,
                     const SpectrumBins& peakHold,
-                    const absolute_spectrum::History& history)
+                    const absolute_spectrum::History& history,
+                    presentation::Context presentation)
 {
     if (! history.empty())
     {
@@ -295,9 +296,11 @@ void paintAbsolute (juce::Graphics& g,
     }
     const auto current = makeCurve (x, currentY);
     const auto hold = makeCurve (x, holdY);
-    g.setFont (monoFont (11.0f));
+    g.setFont (monoFont (presentation, typography::TextRole::axis,
+                         typography::Composition::visualization));
     g.setColour (COL_NORMAL.withAlpha (0.82f));
-    g.drawText ("-6s", plot.withLeft (plot.getRight() - 36).withHeight (14).toNearestInt(),
+    g.drawText ("-6s", juce::Rectangle<float> { plot.getRight() - 36.0f, plot.getY(),
+                                                36.0f, 14.0f }.toNearestInt(),
                 juce::Justification::centredRight);
     g.drawText ("NOW", plot.withLeft (plot.getRight() - 36).withTop (plot.getBottom() - 14).toNearestInt(),
                 juce::Justification::centredRight);

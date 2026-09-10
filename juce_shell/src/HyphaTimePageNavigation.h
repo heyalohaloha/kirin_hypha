@@ -26,6 +26,13 @@ public:
     void setDirect (bool);
     void setRunAvailable (bool);
     void setDrumAvailable (bool);
+    void setPresentationContext (presentation::Context next)
+    {
+        presentationContext = next;
+        for (auto* button : { &compactCycle, &historyButton, &runButton, &attackButton,
+                              &sharpButton, &liveButton })
+            button->setPresentationContext (next);
+    }
     bool isDirect() const noexcept { return direct; }
     int visibleDirectTabCount() const noexcept;
     void resized() override;
@@ -38,7 +45,8 @@ private:
     bool direct = false;
     bool runAvailable = false;
     bool drumAvailable = true;
-    juce::TextButton compactCycle;
+    presentation::Context presentationContext = presentation::defaultContext();
+    observatory::Button compactCycle { {}, false };
     observatory::Button historyButton { "HISTORY", true };
     observatory::Button runButton { "RUN", true };
     observatory::Button attackButton { "DRUM", true };

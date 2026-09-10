@@ -81,11 +81,15 @@ reference_ui::State readyState()
 
 void verifyReferenceAuditionComponentContract()
 {
+    constexpr auto presentationContext = presentation::forEditor (450, 300);
     KIRIN_REF_REQUIRE (! requiresNativeTextFont ("Mix Reference"));
     KIRIN_REF_REQUIRE (requiresNativeTextFont (juce::String::fromUTF8 ("全工程｜基本5項目")));
-    KIRIN_REF_REQUIRE (displayTextFont (juce::String::fromUTF8 ("低域"), 13.0f)
+    KIRIN_REF_REQUIRE (displayTextFont (juce::String::fromUTF8 ("低域"), presentationContext,
+                                       typography::TextRole::selector,
+                                       typography::Composition::information)
                            .getTypefaceName()
-                       != labelFont (13.0f).getTypefaceName()
+                       != labelFont (presentationContext, typography::TextRole::selector,
+                                     typography::Composition::information).getTypefaceName()
                        || ! usingKimeraTypography());
 
     auto state = readyState();
@@ -117,6 +121,7 @@ void verifyReferenceAuditionComponentContract()
     KIRIN_REF_REQUIRE (reference_ui::canStartBlind (state));
 
     reference_ui::Component component;
+    component.setPresentationContext (presentation::forEditor (300, 200));
     component.setSize (288, 136);
     component.setState (readyState());
     KIRIN_REF_REQUIRE (! component.detailedLayout());
@@ -280,6 +285,7 @@ void verifyReferenceAuditionComponentContract()
     KIRIN_REF_REQUIRE (differentPixels (compactA, compactB) > 100);
     writeImageIfRequested (compactB, "KIRIN_REFERENCE_UI_COMPACT_OUTPUT");
 
+    component.setPresentationContext (presentation::forEditor (900, 600));
     component.setSize (888, 470);
     KIRIN_REF_REQUIRE (component.detailedLayout());
     component.setState (selected);

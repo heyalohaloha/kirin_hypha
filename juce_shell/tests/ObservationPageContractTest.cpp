@@ -23,7 +23,9 @@ void verifyButtons (juce::Component& component)
         if (auto* button = dynamic_cast<observatory::Button*> (child))
         {
             const auto height = button->getHeight();
-            const auto font = labelFont (height >= 38 ? 15.0f : height >= 28 ? 13.0f : 11.0f);
+            const auto font = labelFont (
+                presentation::forEditor (component.getWidth(), component.getHeight()),
+                typography::TextRole::action);
             require (font.getStringWidthFloat (button->getButtonText()) <= button->getWidth() - 6.0f,
                 button->getButtonText() + " cannot fit " + juce::String (button->getWidth()) + "px");
             require (height >= font.getHeight() + 2.0f, "text vertically clipped");
@@ -58,6 +60,8 @@ void verifyObservationPageContract()
                 if (role == Role::post)
                 {
                     TimePageNavigation tabs;
+                    tabs.setPresentationContext (
+                        presentation::forEditor (preset.width, preset.height));
                     tabs.setDirect (preset.width >= 450);
                     tabs.setPage (page);
                     tabs.setSize (view.timeNavigationBounds().getWidth(), view.timeNavigationBounds().getHeight());

@@ -7,6 +7,7 @@
 #include "HyphaSpectrumFocusTrailPainter.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <cmath>
@@ -52,7 +53,8 @@ namespace
         const auto scaledInt = [scale] (int value) {
             return juce::roundToInt ((float) value * scale);
         };
-        g.setFont (monoFont (7.5f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (state.presentation, typography::TextRole::navigation,
+                             typography::Composition::visualization));
         if (state.actionNotice.isNotEmpty())
         {
             g.setColour (COL_MUTED.withAlpha (0.90f));
@@ -102,8 +104,8 @@ namespace
         const int legendOffset = 0;
         const float legendTop = outerPlot.getY()
                               + scaled (17.0f);
-        g.setFont (monoFont (ui_contract::spectrumLegendFontHeight
-                             * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (state.presentation, typography::TextRole::legend,
+                             typography::Composition::visualization));
         if (state.absoluteObservation)
         {
             g.setColour (COL_SPECTRUM_POST.withAlpha (0.96f));
@@ -148,7 +150,8 @@ namespace
             state.haveMark ? ui_contract::spectrumMarkButtonActiveBorderAlpha
                            : ui_contract::spectrumMarkButtonInactiveBorderAlpha));
         g.drawRoundedRectangle (mark, scaled (3.0f), scaled (0.75f));
-        g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (state.presentation, typography::TextRole::action,
+                             typography::Composition::visualization));
         g.setColour (state.snapshotValid
                          ? (state.haveMark ? COL_FLORA_BR : COL_FLORA).withAlpha (
                                state.haveMark
@@ -230,8 +233,8 @@ namespace
         const auto deltaText = juce::String (deltaDb >= 0.0f ? "+" : "")
                              + juce::String (deltaDb, 1);
         const int textY = juce::roundToInt (readout.getY());
-        g.setFont (monoFont ((expanded ? 8.0f : 8.5f)
-                             * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (state.presentation, typography::TextRole::readout,
+                             typography::Composition::visualization));
         const auto drawText = [&] (const juce::String& text, juce::Colour colour,
                                     int logicalX, int logicalWidth,
                                     juce::Justification justification)
@@ -343,7 +346,8 @@ void paint (juce::Graphics& g,
 
     g.setColour (juce::Colours::black);
     g.fillRect (plot);
-    spectrum_axes::paintAxes (g, plot, scale, minimumHz, maximumHz, state.absoluteObservation);
+    spectrum_axes::paintAxes (g, plot, scale, minimumHz, maximumHz,
+                              state.absoluteObservation, state.presentation);
     const bool expandedReadout = scale > 1.1f && probeNormalisedX >= 0.0f;
     const float reservedReadoutWidth = probeNormalisedX >= 0.0f
         ? (float) (scale > 1.1f ? ui_contract::spectrumExpandedReadoutWidth
@@ -362,9 +366,11 @@ void paint (juce::Graphics& g,
         if (text.isNotEmpty())
         {
             g.setColour (COL_MUTED);
-            g.setFont (monoFont (13.0f * scale));
-            g.drawFittedText (text, plot.toNearestInt(), juce::Justification::centred,
-                              2, 0.72f);
+            g.setFont (monoFont (state.presentation, typography::TextRole::status,
+                                 typography::Composition::visualization));
+            text_style::draw (g, text, plot.toNearestInt(), state.presentation,
+                              typography::TextRole::status, juce::Justification::centred,
+                              2, typography::Composition::visualization);
         }
         return;
     }
@@ -375,7 +381,7 @@ void paint (juce::Graphics& g,
     if (state.absoluteObservation && state.absoluteHistory != nullptr)
         spectrum_painter::paintAbsolute (g, plot, scale, state.post,
                                          state.absolutePeakHold,
-                                         *state.absoluteHistory);
+                                         *state.absoluteHistory, state.presentation);
     else
         spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                        state.delta, state.haveMark ? &state.mark : nullptr);
@@ -384,11 +390,11 @@ void paint (juce::Graphics& g,
     {
         spectrum_focus_painter::paint (
             g, spectrum_geometry::focusTrailBoundsFor (bounds), scale,
-            *state.focusTrail, focusNormalisedX, scale <= 1.1f);
+            *state.focusTrail, focusNormalisedX, scale <= 1.1f, state.presentation);
     }
     else if (! state.absoluteObservation && scale > 1.1f && focusNormalisedX < 0.0f)
         spectrum_focus_painter::paintEmptyPrompt (
-            g, spectrum_geometry::focusTrailBoundsFor (bounds), scale);
+            g, spectrum_geometry::focusTrailBoundsFor (bounds), state.presentation);
     if (probeNormalisedX >= 0.0f)
         paintProbe (g, outerPlot, plot, scale, probeNormalisedX,
                     minimumHz, maximumHz, state);

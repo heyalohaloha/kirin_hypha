@@ -3,6 +3,7 @@
 #include "HyphaSpacePainter.h"
 #include "HyphaTimeHistoryPainter.h"
 #include "HyphaObservationEquality.h"
+#include "HyphaTextStyle.h"
 #include <utility>
 
 namespace hypha::observatory
@@ -347,21 +348,23 @@ void View::paint (juce::Graphics& g)
         hybrid_vu::paint (g, getLocalBounds(), {
             role, observatoryFrame.meter, watchDisplay,
             currentFactsAvailable(), cumulativeFactsAvailable(), watchDisplayAvailable,
-            selectedShortTermLoudness, connectionText, connectionColour
+            selectedShortTermLoudness, hostRecording, connectionText, connectionColour,
+            presentationContext()
         });
         if (feedbackText.isNotEmpty())
         {
             auto feedback = getLocalBounds();
-            feedback.setY (juce::roundToInt (getHeight() * 0.880f));
-            feedback.setHeight (juce::roundToInt (getHeight() * 0.095f));
+            feedback = { feedback.getX(), juce::roundToInt (getHeight() * 0.880f),
+                         feedback.getWidth(), juce::roundToInt (getHeight() * 0.095f) };
             feedback.removeFromLeft (juce::roundToInt (getWidth() * 0.18f));
             feedback.removeFromRight (juce::roundToInt (getWidth() * 0.20f));
             g.setColour (BG.withAlpha (0.92f));
             g.fillRoundedRectangle (feedback.toFloat(), 3.0f);
             g.setColour (COL_NORMAL);
-            g.setFont (monoFont (juce::jlimit (7.0f, 14.0f, feedback.getHeight() * 0.55f)));
-            g.drawFittedText (feedbackText, feedback.reduced (3, 0),
-                              juce::Justification::centred, 1, 0.70f);
+            g.setFont (monoFont (presentationContext(), typography::TextRole::status));
+            text_style::draw (g, feedbackText, feedback.reduced (3, 0),
+                              presentationContext(), typography::TextRole::status,
+                              juce::Justification::centred);
         }
         return;
     }
@@ -390,7 +393,8 @@ void View::paint (juce::Graphics& g)
     else if (selectedDomain == Domain::space)
         space_field::paint (g, bodyArea, observatoryFrame.meter,
                             currentFactsAvailable(),
-                            contract.family == ExperienceFamily::compactMeter);
+                            contract.family == ExperienceFamily::compactMeter,
+                            presentationContext());
     else drawPanel (g, bodyArea, contract.family);
     paintFooter (g, layout);
     observatory_world::paintPlateFrame (g, getLocalBounds(), state);
@@ -407,30 +411,28 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
     else
         observatory_world::paintPairRoot (g, statusArea, state, connectionColour);
     const auto density = currentPreset().density;
-    const auto titleHeight = density == Density::compact ? 12.0f
-                           : density == Density::focused ? 14.0f
-                           : density == Density::standard ? 16.0f
-                           : density == Density::inspection ? 23.0f : 18.0f;
+    const auto context = presentationContext();
     auto titleArea = toJuce (layout.roleTitle).reduced (6, 0);
     const auto roleText = role == Role::post ? juce::String ("POST") : juce::String ("PRE");
-    const auto roleFont = labelFont (titleHeight);
+    const auto roleFont = labelFont (context, typography::TextRole::shellTitle);
     const auto roleWidth = juce::jmin (
         titleArea.getWidth() - 20,
         juce::roundToInt (roleFont.getStringWidthFloat (roleText)) + 2);
     auto roleArea = titleArea.removeFromLeft (juce::jmax (1, roleWidth));
     titleArea.removeFromLeft (density == Density::compact ? 3 : 5);
-    g.setFont (roleFont);
+    g.setFont (labelFont (context, typography::TextRole::shellTitle));
     g.setColour (role == Role::post ? COL_FLORA : COL_LED_BLUE);
-    g.drawFittedText (roleText, roleArea, juce::Justification::centredLeft, 1, 0.82f);
+    text_style::draw (g, roleText, roleArea, context, typography::TextRole::shellTitle,
+                      juce::Justification::centredLeft);
     g.setColour (COL_NORMAL);
-    g.setFont (labelFont (titleHeight * 0.88f));
-    g.drawFittedText ("HYPHA", titleArea.translated (0, density == Density::compact ? 1 : 0),
-                      juce::Justification::centredLeft, 1, 0.82f);
+    g.setFont (labelFont (context, typography::TextRole::shellTitle));
+    text_style::draw (g, "HYPHA",
+                      titleArea.translated (0, density == Density::compact ? 1 : 0), context,
+                      typography::TextRole::shellTitle, juce::Justification::centredLeft);
     if (! externalConnectionLabelVisible || captureFrame)
     {
         g.setColour (connectionColour);
-        g.setFont (monoFont (density == Density::compact ? 9.0f
-                           : density == Density::inspection ? 16.0f : 11.0f));
+        g.setFont (monoFont (context, typography::TextRole::status));
         if (contract.hyphaAperture)
             statusArea.removeFromLeft (22);
         g.drawText (connectionText, statusArea.reduced (4, 0),
@@ -447,7 +449,7 @@ void View::paintGuide (juce::Graphics& g, const ShellLayout& layout)
     g.fillRoundedRectangle (area.toFloat(), 3.0f);
     g.setColour (guideEmphasized ? COL_GUIDE_BR : COL_GUIDE);
     g.fillRect (area.removeFromLeft (2));
-    g.setFont (monoFont (9.5f));
+    g.setFont (monoFont (presentationContext(), typography::TextRole::body));
     g.drawText (guidePrimary, area.removeFromLeft (juce::roundToInt (area.getWidth() * 0.58f))
                                   .reduced (6, 0), juce::Justification::centredLeft);
     g.setColour (COL_GUIDE.withAlpha (0.78f));

@@ -137,6 +137,8 @@ namespace
         const auto& preset = ui_contract::spectrumSizePresets[2];
         const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
         PerceptualComponent component;
+        component.setPresentationContext (
+            presentation::forEditor (preset.width, preset.height));
         component.setSize (bounds.width, bounds.height);
         setSteadyHistory (component, firstDelta, steadyDelta);
         return renderComponent (component);
@@ -190,6 +192,8 @@ namespace
         const auto plot = perceptualPlotFor (
             juce::Rectangle<int> (0, 0, bounds.width, bounds.height));
         PerceptualComponent component;
+        component.setPresentationContext (
+            presentation::forEditor (preset.width, preset.height));
         component.setSize (bounds.width, bounds.height);
         setSteadyHistory (component, 0.0, -1.6);
 
@@ -210,6 +214,8 @@ namespace
         const auto& preset = ui_contract::spectrumSizePresets[2];
         const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
         PerceptualComponent component;
+        component.setPresentationContext (
+            presentation::forEditor (preset.width, preset.height));
         component.setSize (bounds.width, bounds.height);
         for (int index = 1; index <= 60; ++index)
             component.setSnapshot (snapshot ((int64_t) index * 4'800, 1.0));
@@ -232,6 +238,8 @@ namespace
                      const char* outputVariable)
     {
         PerceptualComponent component;
+        component.setPresentationContext (
+            presentation::forEditor (preset.width, preset.height));
         const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
         component.setSize (bounds.width, bounds.height);
         for (int index = 1; index <= 60; ++index)

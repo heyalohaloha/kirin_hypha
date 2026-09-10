@@ -82,20 +82,25 @@ Component::Component()
     setComponentID ("local-blind-screen");
 
     const auto configureLabel = [this] (juce::Label& label, const juce::String& id,
-                                         float height, juce::Colour colour)
+                                         typography::TextRole role, juce::Colour colour)
     {
         label.setComponentID (id);
         label.setJustificationType (juce::Justification::centred);
-        label.setFont (labelFont (height));
+        label.setFont (labelFont (presentationContext, role,
+                                  typography::Composition::information));
         label.setColour (juce::Label::textColourId, colour);
         addAndMakeVisible (label);
     };
-    configureLabel (titleLabel, "local-blind-title", 18.0f, COL_NORMAL);
-    configureLabel (statusLabel, "local-blind-status", 24.0f, COL_FLORA_BR);
-    configureLabel (detailLabel, "local-blind-detail", 12.0f, COL_MUTED.brighter (0.25f));
-    configureLabel (resultLabel, "local-blind-result", 13.0f, COL_NORMAL);
-    detailLabel.setMinimumHorizontalScale (0.72f);
-    resultLabel.setMinimumHorizontalScale (0.72f);
+    configureLabel (titleLabel, "local-blind-title", typography::TextRole::sectionTitle,
+                    COL_NORMAL);
+    configureLabel (statusLabel, "local-blind-status", typography::TextRole::status,
+                    COL_FLORA_BR);
+    configureLabel (detailLabel, "local-blind-detail", typography::TextRole::body,
+                    COL_MUTED.brighter (0.25f));
+    configureLabel (resultLabel, "local-blind-result", typography::TextRole::secondaryValue,
+                    COL_NORMAL);
+    detailLabel.setMinimumHorizontalScale (1.0f);
+    resultLabel.setMinimumHorizontalScale (1.0f);
 
     styleButton (sourceOne, "local-blind-source-1", "Listen to hidden source 1");
     styleButton (sourceTwo, "local-blind-source-2", "Listen to hidden source 2");
@@ -309,8 +314,9 @@ void Component::layoutRow (juce::Rectangle<int> area,
 
 void Component::resized()
 {
-    const bool compact = getHeight() < 300;
-    const bool medium = ! compact && getHeight() < 480;
+    const bool compact = presentation::densityIndex (presentationContext.density) <= 1;
+    const bool medium = ! compact
+                     && presentationContext.density != observatory::Density::inspection;
     const auto margin = compact ? 8 : medium ? 15 : juce::jmax (18, getWidth() / 24);
     const auto titleHeight = compact ? 20 : medium ? 30 : 42;
     const auto statusHeight = compact ? 24 : medium ? 34 : 48;
@@ -320,10 +326,14 @@ void Component::resized()
     const auto answerHeight = compact ? 26 : medium ? 32 : 42;
     const auto actionHeight = compact ? 28 : medium ? 36 : 48;
     const auto gap = compact ? 2 : medium ? 4 : 6;
-    titleLabel.setFont (labelFont (compact ? 12.5f : medium ? 15.0f : 18.0f));
-    statusLabel.setFont (labelFont (compact ? 13.0f : medium ? 18.0f : 24.0f));
-    detailLabel.setFont (labelFont (compact ? 9.0f : medium ? 10.5f : 12.0f));
-    resultLabel.setFont (labelFont (compact ? 9.0f : medium ? 11.0f : 13.0f));
+    titleLabel.setFont (labelFont (presentationContext, typography::TextRole::sectionTitle,
+                                   typography::Composition::information));
+    statusLabel.setFont (labelFont (presentationContext, typography::TextRole::status,
+                                    typography::Composition::information));
+    detailLabel.setFont (labelFont (presentationContext, typography::TextRole::body,
+                                    typography::Composition::information));
+    resultLabel.setFont (labelFont (presentationContext, typography::TextRole::secondaryValue,
+                                    typography::Composition::information));
 
     auto area = getLocalBounds().reduced (margin);
     titleLabel.setBounds (area.removeFromTop (titleHeight));

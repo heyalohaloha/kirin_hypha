@@ -1,4 +1,5 @@
 #include "PostControls.h"
+#include "HyphaTextStyle.h"
 
 namespace hypha
 {
@@ -35,10 +36,10 @@ namespace hypha
         }
 
         g.setColour (isEnabled() ? textColour : COL_MUTED);
-        g.setFont (monoFont (framed ? ui_contract::framedButtonFontHeight
-                                    : ui_contract::framelessButtonFontHeight));
-        g.drawFittedText (getButtonText(), getLocalBounds().reduced (6, 2),
-                          juce::Justification::centred, 1, 0.85f);
+        g.setFont (monoFont (presentationContext, typography::TextRole::action));
+        text_style::draw (g, getButtonText(), getLocalBounds().reduced (6, 2),
+                          presentationContext, typography::TextRole::action,
+                          juce::Justification::centred);
     }
 
     PostControls::PostControls()

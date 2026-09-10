@@ -22,6 +22,8 @@ namespace ui = ui_contract;
         const char* outputEnvironmentVariable)
     {
         hypha::SpectrumComponent component;
+        component.setPresentationContext (
+            hypha::presentation::forEditor (preset.width, preset.height));
         component.setSignalActive (true);
         const auto bounds = ui::spectrumPlotBounds (preset.width, preset.height);
         component.setSize (bounds.width, bounds.height);

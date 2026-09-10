@@ -7,6 +7,7 @@
 #include "HyphaAttackPainter.h"
 #include "HyphaAttackUiContract.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 namespace hypha
 {
@@ -25,15 +26,23 @@ juce::String signedValue (float value, int decimals = 1)
 
 void drawTransientBar (juce::Graphics& g, juce::Rectangle<int> area,
                        const juce::String& label, const juce::String& value,
-                       float contrast, juce::Colour colour)
+                       float contrast, juce::Colour colour,
+                       presentation::Context presentation)
 {
     area = area.reduced (4, 0);
-    const bool compact = area.getWidth() < 120;
-    const auto labelWidth = juce::jmin (compact ? 28 : 46, area.getWidth() / 3);
-    g.setFont (monoFont (11.0f));
-    g.setColour (COL_MUTED);
+    const auto style = typography::resolve (
+        presentation, typography::TextRole::readout,
+        typography::Composition::visualization);
+    const auto font = monoFont (presentation, typography::TextRole::readout,
+                                typography::Composition::visualization);
+    const auto labelWidth = juce::jmin (
+        text_style::requiredWidth (font, label, style), area.getWidth());
+    g.setFont (monoFont (presentation, typography::TextRole::readout,
+                         typography::Composition::visualization));
+    g.setColour (COL_TEXT_SECONDARY);
     g.drawText (label, area.removeFromLeft (labelWidth), juce::Justification::centredLeft);
-    const auto valueWidth = juce::jmin (compact ? 42 : 68, area.getWidth() / 3);
+    const auto valueWidth = juce::jmin (
+        text_style::requiredWidth (font, value, style), area.getWidth());
     auto valueArea = area.removeFromRight (valueWidth);
     auto rail = area.reduced (3, juce::jmax (3, area.getHeight() / 3));
     g.setColour (colour.withAlpha (0.14f));
@@ -57,11 +66,19 @@ void AttackComponent::paintTransientComparison (juce::Graphics& g,
     const auto* pre = selectedPreDetail();
     const auto* post = selectedPostDetail();
     area = area.reduced (7, 2);
-    auto title = area.removeFromLeft (juce::jmin (88, area.getWidth() / 5));
+    const auto titleText = juce::String (attack_ui::transientTitle (presentationContext));
+    const auto titleStyle = typography::resolve (
+        presentationContext, typography::TextRole::sectionTitle,
+        typography::Composition::visualization);
+    const auto titleFont = monoFont (
+        presentationContext, typography::TextRole::sectionTitle,
+        typography::Composition::visualization);
+    auto title = area.removeFromLeft (attack_ui::transientTitleWidth (
+        area.getWidth(), text_style::requiredWidth (titleFont, titleText, titleStyle)));
     g.setColour (COL_NORMAL);
-    g.setFont (monoFont (11.0f));
-    g.drawText (getWidth() < 500 ? "TRANSIENT dB" : "TRANSIENT",
-                title, juce::Justification::centredLeft);
+    g.setFont (monoFont (presentationContext, typography::TextRole::sectionTitle,
+                         typography::Composition::visualization));
+    g.drawText (titleText, title, juce::Justification::centredLeft);
     const auto sectionWidth = juce::jmax (1, area.getWidth() / 3);
     auto preArea = area.removeFromLeft (sectionWidth);
     auto postArea = area.removeFromLeft (sectionWidth);
@@ -70,15 +87,15 @@ void AttackComponent::paintTransientComparison (juce::Graphics& g,
     const auto preValue = pre != nullptr ? pre->contrast_db : missing;
     const auto postValue = post != nullptr ? post->contrast_db : missing;
     const auto delta = pre != nullptr && post != nullptr ? postValue - preValue : missing;
-    const bool showUnits = getWidth() >= 500;
-    const auto unit = showUnits ? " dB" : "";
     drawTransientBar (g, preArea, "PRE", std::isfinite (preValue)
-        ? juce::String (preValue, 1) + unit : "--", preValue, COL_NORMAL);
+        ? juce::String (preValue, 1) : "--", preValue, COL_NORMAL,
+        presentationContext);
     drawTransientBar (g, postArea, "POST", std::isfinite (postValue)
-        ? juce::String (postValue, 1) + unit : "--", postValue, transientColour);
+        ? juce::String (postValue, 1) : "--", postValue, transientColour,
+        presentationContext);
     drawTransientBar (g, deltaArea, getWidth() >= 700 ? "DELTA" : "D",
-        std::isfinite (delta) ? signedValue (delta) + unit : "--",
-        std::abs (delta), selectionColour);
+        std::isfinite (delta) ? signedValue (delta) : "--",
+        std::abs (delta), selectionColour, presentationContext);
 }
 
 void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int> area)
@@ -90,7 +107,8 @@ void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int
     if (post == nullptr)
     {
         g.setColour (COL_NORMAL);
-        g.setFont (monoFont (12.0f));
+        g.setFont (monoFont (presentationContext, typography::TextRole::status,
+                             typography::Composition::visualization));
         g.drawText (selectedPreDetail() != nullptr ? "PRE event / matching POST unavailable"
             : followLatest ? "Waiting for POST event" : "Locked event is outside retained detail",
             area, juce::Justification::centred);
@@ -101,7 +119,8 @@ void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int
     {
         const auto texture = attack_organism::textureAmount (*post);
         const auto width = juce::jmax (1, area.getWidth() / 3);
-        g.setFont (monoFont (11.0f));
+        g.setFont (monoFont (presentationContext, typography::TextRole::readout,
+                             typography::Composition::visualization));
         g.setColour (strengthColour);
         g.drawText (std::isfinite (post->attack_rms_dbfs)
                         ? juce::String (post->attack_rms_dbfs, 1) + " dBFS" : "---",
@@ -126,9 +145,13 @@ void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int
     const bool canShowHeader = content.getHeight() >= 72;
     if (canShowHeader)
     {
-        auto focusHeader = content.removeFromTop (18);
-        g.setColour (COL_MUTED);
-        g.setFont (monoFont (11.0f));
+        const auto focusHeaderHeight = text_style::requiredLineHeight (typography::resolve (
+            presentationContext, typography::TextRole::legend,
+            typography::Composition::visualization));
+        auto focusHeader = content.removeFromTop (focusHeaderHeight);
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (presentationContext, typography::TextRole::legend,
+                             typography::Composition::visualization));
         g.drawText ((followLatest ? "LATEST / " : "LOCKED / ")
                        + juce::String ("POST SPECIMEN"),
                     focusHeader, juce::Justification::centred);
@@ -143,7 +166,19 @@ void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int
         && std::isfinite (post->sharpness_acum)
         ? juce::String (post->sharpness_acum, 2) + " acum" : "---";
 
-    const auto metricHeight = content.getHeight() >= 88 ? 40 : content.getHeight();
+    const auto labelHeight = text_style::requiredLineHeight (typography::resolve (
+        presentationContext, typography::TextRole::metricLabel,
+        typography::Composition::visualization));
+    const auto valueHeight = text_style::requiredLineHeight (typography::resolve (
+        presentationContext, typography::TextRole::primaryValue,
+        typography::Composition::visualization));
+    const auto contextHeight = canShowHeader
+        ? text_style::requiredLineHeight (typography::resolve (
+              presentationContext, typography::TextRole::body,
+              typography::Composition::visualization))
+        : 0;
+    const auto metricHeight = juce::jmin (
+        content.getHeight(), labelHeight + valueHeight + contextHeight);
     auto metricRow = content.removeFromBottom (metricHeight);
     if (content.getHeight() >= 34 && content.getWidth() >= 150)
         drawEventFocus (g, nullptr, post, content.reduced (4, 1), {}, &glyphCache);
@@ -153,10 +188,13 @@ void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int
     auto textureArea = metricRow.removeFromLeft (width).reduced (3, 0);
     auto sharpness = metricRow.reduced (3, 0);
     drawMetricFact (g, strength, "STRENGTH", strengthValue,
-                    canShowHeader ? "30 ms ATTACK RMS" : "", strengthColour, false);
+                    canShowHeader ? "30 ms ATTACK RMS" : "", strengthColour,
+                    presentationContext);
     drawMetricFact (g, textureArea, "TEXTURE", textureValue,
-                    canShowHeader ? "EDGE / CREST / PLATEAU" : "", textureColour, false);
+                    canShowHeader ? "EDGE / CREST / PLATEAU" : "", textureColour,
+                    presentationContext);
     drawMetricFact (g, sharpness, "SHARPNESS", sharpnessValue,
-                    canShowHeader ? "100 ms ACUM" : "", sharpnessColour, true);
+                    canShowHeader ? "100 ms ACUM" : "", sharpnessColour,
+                    presentationContext);
 }
 }

@@ -3,6 +3,7 @@
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <array>
 #include <cmath>
@@ -84,14 +85,16 @@ namespace
                 ? state.numericSnapshot.sharpness
                 : std::numeric_limits<double>::quiet_NaN();
             const auto label = scale > 1.1f ? "POST SHARPNESS " : "POST SH ";
-            g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
+            g.setFont (monoFont (state.presentation, typography::TextRole::readout,
+                                 typography::Composition::visualization));
             g.setColour (COL_SPECTRUM_POST.withAlpha (0.98f));
             g.drawText (juce::String (label) + factValueText (value, 2) + " acum",
                         area, juce::Justification::centred);
             return;
         }
         const auto third = area.getWidth() / 3.0f;
-        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (state.presentation, typography::TextRole::readout,
+                             typography::Composition::visualization));
         auto latest = state.numericSnapshot;
         if (! state.haveNumericSnapshot)
             latest.lufs_m = latest.true_peak = latest.sharpness = std::numeric_limits<double>::quiet_NaN();
@@ -114,7 +117,7 @@ namespace
     }
 
     void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, float scale,
-                    bool sharpnessOnly)
+                    bool sharpnessOnly, presentation::Context presentation)
     {
         for (float proportion : { 0.25f, 0.5f, 0.75f })
         {
@@ -129,7 +132,8 @@ namespace
             g.setColour (COL_MUTED.withAlpha (0.14f));
             g.drawVerticalLine (juce::roundToInt (x), plot.getY(), plot.getBottom());
         }
-        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (presentation, typography::TextRole::axis,
+                             typography::Composition::visualization));
         g.setColour (COL_MUTED.withAlpha (0.82f));
         const int y = juce::roundToInt (plot.getBottom());
         const int labelWidth = juce::roundToInt (30.0f * scale);
@@ -224,7 +228,7 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
     plot.removeFromBottom (10.0f * scale);
     g.setColour (juce::Colours::black);
     g.fillRect (plot);
-    paintAxes (g, plot, scale, state.sharpnessOnly);
+    paintAxes (g, plot, scale, state.sharpnessOnly, state.presentation);
 
     if (! state.signalActive || ! state.haveBatch || state.batch.count == 0u)
     {
@@ -234,10 +238,12 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
                               ? statusText (state.batch.latest.status,
                                             state.analysisOwnerNames)
                                             : juce::String ("OBSERVE --");
-        g.setFont (monoFont (10.0f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (state.presentation, typography::TextRole::status,
+                             typography::Composition::visualization));
         g.setColour (COL_MUTED.withAlpha (0.84f));
-        g.drawFittedText (status, plot.toNearestInt(), juce::Justification::centred,
-                          2, 0.72f);
+        text_style::draw (g, status, plot.toNearestInt(), state.presentation,
+                          typography::TextRole::status, juce::Justification::centred,
+                          2, typography::Composition::visualization);
         return;
     }
 

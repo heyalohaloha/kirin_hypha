@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaTextStyle.h"
 
 #include <utility>
 
@@ -29,15 +30,16 @@ void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)
         g.fillRoundedRectangle (area, 2.0f);
     }
 
-    const auto textColour = ! isEnabled() ? COL_MUTED.brighter (0.20f)
+    const auto textColour = ! isEnabled() ? COL_MUTED
                           : selected ? COL_FLORA_BR
                           : isColourSpecified (juce::TextButton::textColourOffId)
                               ? findColour (juce::TextButton::textColourOffId)
-                          : highlighted ? COL_NORMAL.withAlpha (0.82f) : COL_MUTED;
+                          : highlighted ? COL_NORMAL.withAlpha (0.82f) : COL_TEXT_TERTIARY;
     g.setColour (textColour);
-    g.setFont (labelFont (getHeight() >= 38 ? 15.0f : getHeight() >= 28 ? 13.0f : 11.0f));
-    g.drawFittedText (getButtonText(), getLocalBounds().reduced (3, 1),
-                      juce::Justification::centred, 1, 1.0f);
+    g.setFont (labelFont (presentationContext, typography::TextRole::action));
+    text_style::draw (g, getButtonText(), getLocalBounds().reduced (3, 1),
+                      presentationContext, typography::TextRole::action,
+                      juce::Justification::centred);
     if (tab && selected)
     {
         const float width = juce::jmin (area.getWidth() * 0.66f, 34.0f);

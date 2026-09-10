@@ -61,6 +61,8 @@ run node --test scripts/public_history.test.mjs
 run node scripts/check_public_history.mjs --tip HEAD
 run node --test scripts/check_aax_sdk_absence.test.mjs
 run node scripts/check_aax_sdk_absence.mjs
+run node --test scripts/check_typography_source.test.mjs
+run node scripts/check_typography_source.mjs
 run node --test scripts/research/review/review.test.mjs
 run node --test scripts/research/review/evaluate_review_answers.test.mjs
 run bash scripts/test_source_line_budget.sh

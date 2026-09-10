@@ -6,6 +6,7 @@
 
 #include "kirin_hypha_ffi.h"
 #include "HyphaAbsoluteSpectrumHistory.h"
+#include "HyphaPresentationContext.h"
 
 namespace hypha::spectrum_painter
 {
@@ -25,5 +26,6 @@ namespace hypha::spectrum_painter
                         float visualScale,
                         const SpectrumBins& post,
                         const SpectrumBins& peakHold,
-                        const absolute_spectrum::History& history);
+                        const absolute_spectrum::History& history,
+                        presentation::Context);
 }

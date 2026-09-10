@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaLocalBlindUiContract.h"
+#include "HyphaPresentationContext.h"
 #include "PostControls.h"
 
 namespace hypha::local_blind_ui
@@ -13,6 +14,18 @@ class Component final : public juce::Component
 {
 public:
     Component();
+
+    void setPresentationContext (presentation::Context next)
+    {
+        if (presentationContext == next) return;
+        presentationContext = next;
+        for (auto* button : { &sourceOne, &sourceTwo, &answerOne, &answerTwo,
+                              &noPreference, &cannotDistinguish, &startButton, &revealButton,
+                              &stopButton, &returnButton, &closeButton })
+            button->setPresentationContext (next);
+        resized();
+        repaint();
+    }
 
     std::function<void (bool approveLowerPost)> onStart;
     std::function<void (int stimulus)> onSelectStimulus;
@@ -35,6 +48,7 @@ private:
     void layoutRow (juce::Rectangle<int>, std::initializer_list<juce::Button*>);
 
     local_blind::ProductSessionView current;
+    presentation::Context presentationContext = presentation::defaultContext();
     juce::Label titleLabel;
     juce::Label statusLabel;
     juce::Label detailLabel;

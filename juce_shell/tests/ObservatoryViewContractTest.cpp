@@ -248,6 +248,7 @@ void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
     shell.paintEntireComponent (composedGraphics, true);
 
     SpectrumComponent frequencyBody;
+    frequencyBody.setPresentationContext (presentation::forEditor (600, 400));
     frequencyBody.setSignalActive (true);
     const auto body = shell.bodyBounds();
     frequencyBody.setSize (body.getWidth(), body.getHeight());

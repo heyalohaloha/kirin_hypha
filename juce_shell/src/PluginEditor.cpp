@@ -141,7 +141,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
 
     scaleRoot.addAndMakeVisible (nameField);
 
-    pairStatusLabel.setFont (hypha::monoFont (ui::pairStatusFontHeight));
+    pairStatusLabel.setFont (hypha::monoFont (
+        hypha::presentation::defaultContext(), hypha::typography::TextRole::status));
     pairStatusLabel.setJustificationType (juce::Justification::centredRight);
     pairStatusLabel.setInterceptsMouseClicks (true, false);
     scaleRoot.addAndMakeVisible (pairStatusLabel);
@@ -241,7 +242,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     }
 
     // One role-independent slot owns feedback priority and the only bottom-row rectangle.
-    feedbackLabel.setFont (hypha::monoFont (ui::feedbackFontHeight));
+    feedbackLabel.setFont (hypha::monoFont (
+        hypha::presentation::defaultContext(), hypha::typography::TextRole::status));
     feedbackLabel.setJustificationType (juce::Justification::centredLeft);
     feedbackLabel.setMinimumHorizontalScale (1.0f);
     feedbackLabel.setInterceptsMouseClicks (false, false);
@@ -296,7 +298,8 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
     bg.draw (g, getLocalBounds()); // mycelium PNG over BG (R-12: pure chrome)
 
     g.setColour (COL_NORMAL);
-    g.setFont (hypha::labelFont (ui::titleFontHeight));
+    g.setFont (hypha::labelFont (hypha::presentation::forEditor (getWidth(), getHeight()),
+                                 hypha::typography::TextRole::shellTitle));
     g.drawText (isPost ? ui::postTitle : ui::preTitle,
                 titleArea,
                 juce::Justification::centredLeft);
@@ -332,12 +335,12 @@ void KirinHyphaEditor::resized()
     const auto viewport = hypha::observatory::displayViewport (getWidth(), getHeight());
     scaleRoot.setTransform (juce::AffineTransform());
     scaleRoot.setBounds (0, 0, viewport.width, viewport.height);
-    // Keep the root live: Studio One may retain a stale cached peer surface after host resizing.
     scaleRoot.setBufferedToImage (false);
     scaleRoot.setTransform (juce::AffineTransform::scale (viewport.scale));
     observatoryView.setDisplayedEditorSize (getWidth(), getHeight());
     observatoryView.setBounds (scaleRoot.getLocalBounds());
     observatoryView.toBack();
+    applyPresentationContext();
     auto connection = observatoryView.connectionBounds().reduced (4, 2);
     led.setBounds (connection.removeFromLeft (10).withSizeKeepingCentre (7, 7));
     if (isPost)
@@ -423,11 +426,7 @@ void KirinHyphaEditor::configureForKind (Kind k)
                             && processorRef.useShortTermLoudness()
                               ? hypha::helpLufsS()
                               : metricHelp (spec.metric);
-        cells[(size_t) i].configure (label, unit, help,
-                                     ui::metricLabelFontHeight,
-                                     ui::metricValueFontHeight,
-                                     ui::metricUnitFontHeight,
-                                     ui::metricMinimumLabelWidth);
+        cells[(size_t) i].configure (label, unit, help, ui::metricMinimumLabelWidth);
         cells[(size_t) i].setVisible (false);
     }
     currentKind = k;

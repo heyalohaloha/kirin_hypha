@@ -16,10 +16,11 @@ inline bool nearColour (juce::Colour pixel, juce::Colour target)
         && std::abs ((int) pixel.getBlue() - (int) target.getBlue()) <= tolerance;
 }
 
-inline bool verifyNoSelectionBar (const juce::Image& image)
+inline bool verifyNoSelectionBar (const juce::Image& image,
+                                  presentation::Context presentation)
 {
     const auto target = juce::Colour (attack_ui::selectionColour);
-    const auto top = attack_ui::headerHeight;
+    const auto top = attack_ui::headerHeightFor (presentation);
     const auto height = attack_ui::timelineHeight (image.getHeight());
     for (int x = 0; x < image.getWidth(); ++x)
     {
@@ -34,10 +35,11 @@ inline bool verifyNoSelectionBar (const juce::Image& image)
     return true;
 }
 
-inline bool verifyContinuousScrubRail (const juce::Image& image)
+inline bool verifyContinuousScrubRail (const juce::Image& image,
+                                       presentation::Context presentation)
 {
     if (attack_ui::axisHeight (image.getHeight()) == 0) return true;
-    const auto scrubTop = attack_ui::headerHeight
+    const auto scrubTop = attack_ui::headerHeightFor (presentation)
                         + attack_ui::timelineHeight (image.getHeight());
     const auto railY = scrubTop + attack_ui::axisLabelHeight / 2 - 2;
     for (int x = 35; x < image.getWidth() - 35; ++x)
@@ -46,9 +48,11 @@ inline bool verifyContinuousScrubRail (const juce::Image& image)
     return true;
 }
 
-inline bool verifyDormantSpecimenBlack (const juce::Image& image)
+inline bool verifyDormantSpecimenBlack (
+    const juce::Image& image,
+    presentation::Context presentation = presentation::defaultContext())
 {
-    const auto height = attack_ui::metricsHeight (image.getHeight());
+    const auto height = attack_ui::metricsHeightFor (image.getHeight(), presentation);
     if (height == 0)
         return true;
     const auto area = juce::Rectangle<int> (0, image.getHeight() - height,
@@ -60,12 +64,14 @@ inline bool verifyDormantSpecimenBlack (const juce::Image& image)
     return true;
 }
 
-inline bool verifySectionLayout (const juce::Image& image)
+inline bool verifySectionLayout (const juce::Image& image,
+                                 presentation::Context presentation)
 {
-    return attack_ui::headerHeight + attack_ui::timelineHeight (image.getHeight())
+    return attack_ui::headerHeightFor (presentation)
+         + attack_ui::timelineHeight (image.getHeight())
          + attack_ui::axisHeight (image.getHeight())
          + attack_ui::transientHeight (image.getHeight())
-         + attack_ui::metricsHeight (image.getHeight()) == image.getHeight();
+         + attack_ui::metricsHeightFor (image.getHeight(), presentation) == image.getHeight();
 }
 
 inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform,
@@ -120,14 +126,17 @@ inline bool verifySupportedSizes (AttackComponent& component)
         {
             const auto& preset = ui_contract::spectrumSizePresets[index];
             const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
+            const auto context = presentation::forEditor (preset.width, preset.height);
+            component.setPresentationContext (context);
             component.setSize (bounds.width, bounds.height);
             juce::Image image (juce::Image::ARGB, bounds.width, bounds.height, true);
             juce::Graphics graphics (image);
             component.paintEntireComponent (graphics, true);
             if (image.getWidth() != bounds.width || image.getHeight() != bounds.height)
                 return false;
-            if (! verifyNoSelectionBar (image) || ! verifyContinuousScrubRail (image)
-                || ! verifySectionLayout (image))
+            if (! verifyNoSelectionBar (image, context)
+                || ! verifyContinuousScrubRail (image, context)
+                || ! verifySectionLayout (image, context))
                 return false;
             if (const auto* path = std::getenv (variables[index]))
             {
@@ -139,6 +148,7 @@ inline bool verifySupportedSizes (AttackComponent& component)
         }
     }
     component.setSize (originalWidth, originalHeight);
+    component.setPresentationContext (presentation::defaultContext());
     component.setOverlayMode (true);
     return true;
 }

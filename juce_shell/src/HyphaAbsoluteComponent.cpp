@@ -186,7 +186,7 @@ void AbsoluteComponent::paint (juce::Graphics& g)
 {
     absolute_painter::paint (g, getLocalBounds().toFloat(), {
         batch, numericSnapshot, analysisOwnerNames, haveBatch,
-        haveNumericSnapshot && signalActive, signalActive, sharpnessOnly
+        haveNumericSnapshot && signalActive, signalActive, sharpnessOnly, presentationContext
     });
 }
 }

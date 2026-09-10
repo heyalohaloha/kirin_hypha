@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <limits>
 
+#include "HyphaTypographyContract.h"
+
 // ATTACK product presentation. It maps confirmed event samples onto a fixed six-second axis
 // and never attempts to infer an instrument from a waveform or expose an editable threshold. The
 // environment variable remains a direct-open shortcut within TRACK/STEM; it never changes the
@@ -17,11 +19,42 @@ namespace hypha::attack_ui
     constexpr int headerHeight = 28;
     constexpr int axisLabelHeight = 14;
     constexpr int transientRowMaximumHeight = 44;
-    constexpr int modeControlMaximumWidth = 112;
+    constexpr int modeControlMinimumWidth = 112;
+    constexpr int statusControlMinimumWidth = 84;
 
-    constexpr float textScale (int width, int /*height*/) noexcept
+    constexpr int ceilPixels (float value) noexcept
     {
-        return width >= 780 ? 1.55f : width >= 520 ? 1.22f : 1.0f;
+        const auto whole = static_cast<int> (value);
+        return whole + (value > static_cast<float> (whole) ? 1 : 0);
+    }
+
+    constexpr int roundPixels (float value) noexcept
+    {
+        return static_cast<int> (value + 0.5f);
+    }
+
+    constexpr int titleRowHeight (const presentation::Context& context) noexcept
+    {
+        return roundPixels (typography::resolve (
+            context, typography::TextRole::sectionTitle,
+            typography::Composition::visualization).lineHeight);
+    }
+
+    constexpr int statusRowHeight (const presentation::Context& context) noexcept
+    {
+        const auto legend = typography::resolve (
+            context, typography::TextRole::legend,
+            typography::Composition::visualization).lineHeight;
+        const auto status = typography::resolve (
+            context, typography::TextRole::status,
+            typography::Composition::visualization).lineHeight;
+        return roundPixels (legend > status ? legend : status);
+    }
+
+    constexpr int headerHeightFor (const presentation::Context& context) noexcept
+    {
+        const auto required = titleRowHeight (context) + statusRowHeight (context);
+        return required > headerHeight ? required : headerHeight;
     }
     constexpr float absoluteFloorDb = -72.0f;
     constexpr float strengthGlowOnDbfs = -42.0f;
@@ -86,10 +119,41 @@ namespace hypha::attack_ui
         return available > 0 ? available : 0;
     }
 
-    constexpr int modeControlWidth (int totalWidth) noexcept
+    constexpr int metricsHeightFor (int totalHeight,
+                                    const presentation::Context& context) noexcept
     {
-        return totalWidth >= modeControlMaximumWidth * 2
-            ? modeControlMaximumWidth : totalWidth / 2;
+        const int available = totalHeight - headerHeightFor (context)
+                            - axisHeight (totalHeight) - timelineHeight (totalHeight)
+                            - transientHeight (totalHeight);
+        return available > 0 ? available : 0;
+    }
+
+    constexpr int modeControlWidth (int totalWidth,
+                                    int requiredWidth = modeControlMinimumWidth) noexcept
+    {
+        const auto desired = requiredWidth > modeControlMinimumWidth
+            ? requiredWidth : modeControlMinimumWidth;
+        return desired < totalWidth / 2 ? desired : totalWidth / 2;
+    }
+
+    constexpr int statusControlWidth (int totalWidth, int requiredWidth) noexcept
+    {
+        const auto desired = requiredWidth > statusControlMinimumWidth
+            ? requiredWidth : statusControlMinimumWidth;
+        return desired < totalWidth / 3 ? desired : totalWidth / 3;
+    }
+
+    constexpr const char* transientTitle (const presentation::Context& context) noexcept
+    {
+        return context.density == observatory::Density::compact ? "TR dB"
+             : context.density == observatory::Density::focused ? "TRANS dB"
+                                                                : "TRANSIENT dB";
+    }
+
+    constexpr int transientTitleWidth (int totalWidth, int requiredWidth) noexcept
+    {
+        const auto maximum = totalWidth / 4;
+        return requiredWidth < maximum ? requiredWidth : maximum;
     }
 
     constexpr std::int64_t windowSamples (std::uint32_t sampleRate) noexcept

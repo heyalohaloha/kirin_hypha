@@ -98,12 +98,28 @@ void paintIntoBody (juce::Image& destination, juce::Component& body,
     body.paintEntireComponent (graphics, true);
 }
 
+void applyEditorPresentationContext (juce::Component& component, int width, int height)
+{
+    const auto context = presentation::forEditor (width, height);
+    if (auto* attack = dynamic_cast<AttackComponent*> (&component))
+        attack->setPresentationContext (context);
+    else if (auto* absolute = dynamic_cast<AbsoluteComponent*> (&component))
+        absolute->setPresentationContext (context);
+    else if (auto* perceptual = dynamic_cast<PerceptualComponent*> (&component))
+        perceptual->setPresentationContext (context);
+    else if (auto* spectrum = dynamic_cast<SpectrumComponent*> (&component))
+        spectrum->setPresentationContext (context);
+}
+
 juce::Image compose (observatory::View& shell, juce::Component& body)
 {
+    applyEditorPresentationContext (body, shell.getWidth(), shell.getHeight());
     auto image = render (shell);
     if (shell.domain() == observatory::Domain::time)
     {
         TimePageNavigation navigation;
+        navigation.setPresentationContext (
+            presentation::forEditor (shell.getWidth(), shell.getHeight()));
         navigation.setDirect (shell.getWidth() >= 450);
         const auto page = dynamic_cast<AttackComponent*> (&body) ? analysis_navigation::Page::attack
             : dynamic_cast<AbsoluteComponent*> (&body) ? analysis_navigation::Page::absolute
@@ -165,6 +181,7 @@ void verifyPsbComposites (observatory::View& shell)
             shell.setSize (preset.width, preset.height);
             shell.setTarget (delta ? observatory::ObservationTarget::delta : observatory::ObservationTarget::absolute);
             SpectrumComponent component;
+            component.setPresentationContext (presentation::forEditor (preset.width, preset.height));
             component.setSignalActive (true);
             component.setAbsoluteObservation (! delta);
             component.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
@@ -176,7 +193,9 @@ void verifyPsbComposites (observatory::View& shell)
                 toggle.getCentre(), {}, 0, 0, 0, 0, 0, &component, &component, now,
                 toggle.getCentre(), now, 0, false });
             KIRIN_COMPOSITE_REQUIRE (component.isPsbObservation());
-            KIRIN_COMPOSITE_REQUIRE (monoFont (7.0f * ui_contract::analysisTextScale (scale))
+            KIRIN_COMPOSITE_REQUIRE (monoFont (presentation::forEditor (preset.width, preset.height),
+                                               typography::TextRole::action,
+                                               typography::Composition::visualization)
                 .getStringWidthFloat ("SPECTRUM") < toggle.getWidth());
             const auto missing = compose (shell, component);
             KirinPsbView value {};
@@ -381,6 +400,10 @@ void verifyObservatoryCompositeContract()
         1'200, 630, false, "2026-09-01 00:00:00", "0.1.0");
     auto captureComposite = captureBase.createCopy();
     const auto captureBody = shell.captureBodyBounds (1'200, 630, false);
+    attack->setPresentationContext (presentation::forOutput (
+        juce::roundToInt (1'200.0f / observatory::captureRenderScale),
+        juce::roundToInt (630.0f / observatory::captureRenderScale),
+        presentation::OutputTarget::capture));
     attack->setSize (
         juce::roundToInt ((float) captureBody.getWidth()
                           / observatory::captureRenderScale),

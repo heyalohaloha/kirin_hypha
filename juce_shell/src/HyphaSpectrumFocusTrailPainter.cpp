@@ -33,10 +33,11 @@ namespace
 
 void paintEmptyPrompt (juce::Graphics& g,
                        juce::Rectangle<float> bounds,
-                       float visualScale)
+                       presentation::Context presentation)
 {
     g.setColour (COL_MUTED.brighter (0.10f).withAlpha (0.64f));
-    g.setFont (monoFont (7.5f * ui_contract::analysisTextScale (visualScale)));
+    g.setFont (monoFont (presentation, typography::TextRole::status,
+                         typography::Composition::visualization));
     g.drawText ("FOCUS TRAIL  /  CLICK A BAND", bounds.toNearestInt(),
                 juce::Justification::centred);
 }
@@ -46,7 +47,8 @@ void paint (juce::Graphics& g,
             float visualScale,
             const spectrum_focus::FocusTrailHistory& history,
             float normalisedBand,
-            bool compact)
+            bool compact,
+            presentation::Context presentation)
 {
     if (history.empty() || bounds.isEmpty())
         return;
@@ -61,7 +63,8 @@ void paint (juce::Graphics& g,
     auto plot = bounds.reduced (3.0f * strokeScale, 2.0f * strokeScale);
     if (! compact)
     {
-        g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (visualScale)));
+        g.setFont (monoFont (presentation, typography::TextRole::legend,
+                             typography::Composition::visualization));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.68f));
         g.drawText (juce::String (juce::CharPointer_UTF8 (
                         "\xCE\x94 \xC2\xB7 6s \xC2\xB7 \xC2\xB1\x31\x32")),

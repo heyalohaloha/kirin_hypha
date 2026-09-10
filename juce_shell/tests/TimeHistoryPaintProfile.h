@@ -31,7 +31,8 @@ inline void profileTimeHistoryPaint (const std::vector<KirinMeterHistoryEntry>& 
     measure ("specimen", [&] { backdrop.drawHyphaSpecimen (graphics, view.bodyBounds(), state); });
     measure ("domain", [&] { observatory_world::paintDomainBed (graphics, view.bodyBounds(), state); });
     measure ("graph", [&] { time_history::paint (graphics, graph, history, "", false, false,
-                                                meter_context::ScaleMode::wide); });
+                                                meter_context::ScaleMode::wide,
+                                                presentation::forEditor (900, 600)); });
     measure ("shell", [&] { view.paint (graphics); });
     measure ("children", [&] { view.paintEntireComponent (graphics, true); });
 }

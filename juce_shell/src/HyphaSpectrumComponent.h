@@ -24,6 +24,13 @@ class SpectrumComponent final : public juce::Component,
 public:
     SpectrumComponent();
 
+    void setPresentationContext (presentation::Context next)
+    {
+        if (presentationContext == next) return;
+        presentationContext = next;
+        repaint();
+    }
+
     void setSnapshot (const KirinSpectrumView& next);
     void setBatch (const KirinSpectrumBatch& batch);
     void queueSnapshot (const KirinSpectrumView& next);
@@ -112,6 +119,7 @@ private:
     int psbHoverBand = -1;
     double modeActionNoticeUntilMs = 0.0;
     bool hoverNeedsRepaint = false;
+    presentation::Context presentationContext = presentation::defaultContext();
     double lastCurvePresentationMs = 0.0;
     double lastNumericPresentationMs = 0.0;
 

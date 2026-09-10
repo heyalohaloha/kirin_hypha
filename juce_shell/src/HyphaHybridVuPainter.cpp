@@ -3,6 +3,7 @@
 #include <BinaryData.h>
 
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <array>
 #include <cmath>
@@ -39,18 +40,23 @@ float scaled (float value, float width, float minimum = 0.7f) noexcept
 }
 
 void drawText (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,
-               float fontHeight, juce::Colour colour, juce::Justification justification,
+               presentation::Context presentation, typography::TextRole role,
+               typography::Composition composition, juce::Colour colour,
+               juce::Justification justification,
                bool tabular = false, float tracking = 0.0f)
 {
-    const auto font = (tabular ? monoFont (fontHeight) : labelFont (fontHeight))
+    const auto font = (tabular ? monoFont (presentation, role, composition)
+                               : labelFont (presentation, role, composition))
                           .withExtraKerningFactor (tracking);
     g.setColour (colour);
     if (tabular)
         drawTabularText (g, font, text, area, justification);
     else
     {
-        g.setFont (font);
-        g.drawFittedText (text, area.toNearestInt(), justification, 1, 0.72f);
+        g.setFont (labelFont (presentation, role, composition)
+                       .withExtraKerningFactor (tracking));
+        text_style::draw (g, text, area.toNearestInt(), presentation, role,
+                          justification, 1, composition);
     }
 }
 
@@ -62,20 +68,22 @@ void paintHeader (juce::Graphics& g, juce::Rectangle<float> area, const State& s
     // Keep both words inside that physical frame at every supported scale.
     const auto titleWidth = title.getWidth() * 0.225f;
     auto titleArea = title.removeFromLeft (titleWidth);
-    const auto fontHeight = juce::jlimit (9.0f, 28.0f, width * 0.030f);
     const auto roleText = state.role == observatory::Role::post ? juce::String ("POST")
                                                                 : juce::String ("PRE");
-    const auto roleFont = labelFont (fontHeight).withExtraKerningFactor (0.12f);
+    const auto roleFont = labelFont (state.presentation, typography::TextRole::shellTitle)
+                              .withExtraKerningFactor (0.12f);
     const auto roleWidth = juce::jmin (
         titleArea.getWidth() * 0.45f,
         roleFont.getStringWidthFloat (roleText) + scaled (3.0f, width, 1.0f));
     drawText (g, roleText,
-              titleArea.removeFromLeft (roleWidth), fontHeight,
+              titleArea.removeFromLeft (roleWidth), state.presentation,
+              typography::TextRole::shellTitle, typography::Composition::shell,
               state.role == observatory::Role::post ? COL_FLORA : COL_LED_BLUE,
               juce::Justification::centredLeft, false, 0.12f);
     titleArea.removeFromLeft (scaled (5.0f, width, 1.0f));
     drawText (g, width >= 700.0f ? "H Y P H A" : "HYPHA", titleArea,
-              fontHeight * 0.87f, COL_NORMAL, juce::Justification::centredLeft);
+              state.presentation, typography::TextRole::shellTitle,
+              typography::Composition::shell, COL_NORMAL, juce::Justification::centredLeft);
 
     auto record = title.removeFromRight (title.getWidth() * (width < 450.0f ? 0.28f : 0.205f));
     auto connection = title;
@@ -93,24 +101,29 @@ void paintHeader (juce::Graphics& g, juce::Rectangle<float> area, const State& s
                    dot * 0.9f, dot * 0.9f);
     connection.removeFromLeft (dot * 3.4f);
     drawText (g, state.connectionText, connection.reduced (0.0f, area.getHeight() * 0.15f),
-              fontHeight * 0.66f, brightConnection,
+              state.presentation, typography::TextRole::status, typography::Composition::shell,
+              brightConnection,
               juce::Justification::centredLeft);
 
-    g.setColour (COL_MUTED.withAlpha (0.46f));
-    g.drawVerticalLine (juce::roundToInt (record.getX()),
-                        record.getY() + area.getHeight() * 0.24f,
-                        record.getBottom() - area.getHeight() * 0.24f);
-    const auto recordDot = juce::Point<float> (record.getX() + record.getWidth() * 0.42f,
-                                                record.getCentreY());
-    const auto recordColour = COL_MUTED.brighter (0.30f);
-    g.setColour (recordColour.withAlpha (0.11f));
-    g.fillEllipse (recordDot.x - dot, recordDot.y - dot, dot * 2.0f, dot * 2.0f);
-    g.setColour (recordColour);
-    g.fillEllipse (recordDot.x - dot * 0.48f, recordDot.y - dot * 0.48f,
-                   dot * 0.96f, dot * 0.96f);
-    record.removeFromLeft (record.getWidth() * 0.60f);
-    drawText (g, "REC", record, fontHeight * 0.68f, recordColour,
-              juce::Justification::centredLeft, false, 0.10f);
+    if (state.recording)
+    {
+        g.setColour (COL_TEXT_TERTIARY);
+        g.drawVerticalLine (juce::roundToInt (record.getX()),
+                            record.getY() + area.getHeight() * 0.24f,
+                            record.getBottom() - area.getHeight() * 0.24f);
+        const auto recordDot = juce::Point<float> (
+            record.getX() + record.getWidth() * 0.42f, record.getCentreY());
+        const auto recordColour = COL_TEXT_SECONDARY;
+        g.setColour (recordColour.withAlpha (0.11f));
+        g.fillEllipse (recordDot.x - dot, recordDot.y - dot, dot * 2.0f, dot * 2.0f);
+        g.setColour (recordColour);
+        g.fillEllipse (recordDot.x - dot * 0.48f, recordDot.y - dot * 0.48f,
+                       dot * 0.96f, dot * 0.96f);
+        record.removeFromLeft (record.getWidth() * 0.60f);
+        drawText (g, "REC", record, state.presentation, typography::TextRole::status,
+                  typography::Composition::shell, recordColour,
+                  juce::Justification::centredLeft, false, 0.10f);
+    }
 }
 
 juce::Point<float> peakRailPoint (juce::Rectangle<float> face, int channel, float amount)
@@ -186,7 +199,8 @@ void paintPeakRail (juce::Graphics& g, juce::Rectangle<float> face, const State&
         drawText (g, juce::String (value),
                   { point.x - labelWidth * 0.5f, point.y - scaled (28.0f, width, 11.0f),
                     labelWidth, scaled (17.0f, width, 7.0f) },
-                  scaled (14.0f, width, 5.4f), COL_NORMAL.withAlpha (0.82f),
+                  state.presentation, typography::TextRole::axis,
+                  typography::Composition::instrument, COL_NORMAL.withAlpha (0.82f),
                   juce::Justification::centred, true);
     }
 }
@@ -224,7 +238,8 @@ void paintClipStatus (juce::Graphics& g, juce::Rectangle<float> face, const Stat
         drawText (g, "CLIP", { centre.x - scaled (29.0f, width),
                                 centre.y - scaled (11.0f, width), scaled (58.0f, width),
                                 scaled (22.0f, width) },
-                  scaled (11.0f, width, 5.2f), COL_MUTED,
+                  state.presentation, typography::TextRole::metricLabel,
+                  typography::Composition::instrument, COL_MUTED,
                   juce::Justification::centred);
     }
 }
@@ -303,7 +318,8 @@ void paintDial (juce::Graphics& g, juce::Rectangle<float> face, const State& sta
                       { point.x - scaled (26.0f, width, 9.0f),
                         point.y - scaled (10.0f, width, 4.0f),
                         scaled (52.0f, width, 18.0f), scaled (20.0f, width, 8.0f) },
-                      scaled (14.5f, width, 5.6f), meterIvory.withAlpha (0.92f),
+                      state.presentation, typography::TextRole::axis,
+                      typography::Composition::instrument, meterIvory.withAlpha (0.92f),
                       juce::Justification::centred, true);
         }
     }
@@ -323,12 +339,14 @@ void paintDial (juce::Graphics& g, juce::Rectangle<float> face, const State& sta
         drawText (g, "VU", { pivot.x - dial.radiusX * 0.31f,
                               pivot.y - face.getHeight() * 0.405f,
                               dial.radiusX * 0.62f, scaled (28.0f, width, 10.0f) },
-                  scaled (20.5f, width, 7.0f), meterIvory.withAlpha (0.94f),
+                  state.presentation, typography::TextRole::sectionTitle,
+                  typography::Composition::instrument, meterIvory.withAlpha (0.94f),
                   juce::Justification::centred, false, 0.08f);
     drawText (g, channel == 0 ? "L" : (state.meter.channels > 1 ? "R" : hypha::emDash()),
               { pivot.x - dial.radiusX * 0.28f, pivot.y - face.getHeight() * 0.285f,
                 dial.radiusX * 0.56f, scaled (42.0f, width, 14.0f) },
-              scaled (30.5f, width, 9.0f), COL_MUTED.brighter (0.22f),
+              state.presentation, typography::TextRole::secondaryValue,
+              typography::Composition::instrument, COL_MUTED.brighter (0.22f),
               juce::Justification::centred);
 }
 
@@ -343,7 +361,8 @@ void paintMeterFace (juce::Graphics& g, juce::Rectangle<float> face, const State
               { inner.getCentreX() - inner.getWidth() * 0.16f,
                 inner.getY() + inner.getHeight() * 0.005f,
                 inner.getWidth() * 0.32f, inner.getHeight() * 0.11f },
-              scaled (15.0f, width, 5.2f), COL_MUTED.brighter (0.18f),
+              state.presentation, typography::TextRole::metricLabel,
+              typography::Composition::instrument, COL_MUTED.brighter (0.18f),
               juce::Justification::centred, false, compact ? 0.0f : 0.15f);
     paintClipStatus (g, inner, state, compact);
     paintDial (g, inner, state, 0, compact);
@@ -351,7 +370,8 @@ void paintMeterFace (juce::Graphics& g, juce::Rectangle<float> face, const State
 }
 
 void paintMetric (juce::Graphics& g, juce::Rectangle<float> area, const char* label,
-                  double value, const char* unit, bool emphasized)
+                  double value, const char* unit, bool emphasized,
+                  presentation::Context presentation)
 {
     auto content = area.reduced (0.0f, area.getHeight() * 0.10f);
     const auto wideLabel = juce::String (label) == "CREST";
@@ -360,24 +380,25 @@ void paintMetric (juce::Graphics& g, juce::Rectangle<float> area, const char* la
     auto labelArea = content.removeFromLeft (area.getWidth() * labelFraction);
     auto unitArea = content.removeFromRight (
         area.getWidth() * (wideLabel ? 0.18f : (truePeakLabel ? 0.31f : 0.28f)));
-    drawText (g, label, labelArea, juce::jlimit (7.0f, 22.0f, area.getHeight() * 0.29f),
-              COL_MUTED.brighter (0.12f), juce::Justification::centred);
+    drawText (g, label, labelArea, presentation, typography::TextRole::metricLabel,
+              typography::Composition::instrument, COL_MUTED.brighter (0.12f),
+              juce::Justification::centred);
     g.setColour (COL_MUTED.withAlpha (0.40f));
     g.drawVerticalLine (juce::roundToInt (labelArea.getRight()), content.getY(), content.getBottom());
     g.setColour (std::isfinite (value)
                      ? (emphasized ? COL_FLORA_BR
                                    : COL_FLORA_BR.interpolatedWith (COL_NORMAL, 0.42f))
                      : COL_MUTED);
-    drawTabularText (g,
-                     monoFont (juce::jlimit (13.0f, 58.0f, area.getHeight() * 0.65f))
-                         .withHorizontalScale (wideLabel || truePeakLabel ? 0.66f : 0.68f),
+    drawTabularText (g, monoFont (presentation, typography::TextRole::primaryValue,
+                                  typography::Composition::instrument),
                      std::isfinite (value) ? juce::String (value, 1) : juce::String ("---"),
                      content.reduced (area.getWidth()
                                           * (truePeakLabel ? 0.030f : (wideLabel ? 0.033f : 0.040f)),
                                       0.0f),
                      juce::Justification::centredRight);
-    drawText (g, unit, unitArea, juce::jlimit (6.5f, 18.0f, area.getHeight() * 0.25f),
-              COL_MUTED.brighter (0.12f), juce::Justification::centredLeft);
+    drawText (g, unit, unitArea, presentation, typography::TextRole::unit,
+              typography::Composition::instrument, COL_MUTED.brighter (0.12f),
+              juce::Justification::centredLeft);
 }
 }
 
@@ -443,14 +464,16 @@ void paint (juce::Graphics& g, juce::Rectangle<int> requested, const State& stat
     const auto crest = state.currentAvailable && state.watchAvailable
         ? state.watch.current.crest : std::numeric_limits<double>::quiet_NaN();
     paintMetric (g, metrics.removeFromLeft (metricWidth),
-                 state.shortTermLoudness ? "S" : "M", loudness, "LUFS", false);
+                 state.shortTermLoudness ? "S" : "M", loudness, "LUFS", false,
+                 state.presentation);
     metrics.removeFromLeft (metricGap);
     paintMetric (g, metrics.removeFromLeft (metricWidth), "TP", truePeak, "dBTP",
-                 std::isfinite (truePeak) && truePeak > truePeakEmphasisThresholdDbtp);
+                 std::isfinite (truePeak) && truePeak > truePeakEmphasisThresholdDbtp,
+                 state.presentation);
     metrics.removeFromLeft (metricGap);
-    paintMetric (g, metrics, "CREST", crest, "dB", false);
-    drawText (g, "0 VU = -18 dBFS", calibration,
-              juce::jlimit (6.0f, 15.0f, calibration.getHeight() * 0.42f),
+    paintMetric (g, metrics, "CREST", crest, "dB", false, state.presentation);
+    drawText (g, "0 VU = -18 dBFS", calibration, state.presentation,
+              typography::TextRole::legend, typography::Composition::instrument,
               COL_MUTED.withAlpha (0.78f), juce::Justification::centred, true, 0.08f);
 }
 }

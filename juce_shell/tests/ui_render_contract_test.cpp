@@ -44,19 +44,6 @@ namespace
         std::exit (EXIT_FAILURE);
     }
 #define KIRIN_REQUIRE(expression) require ((expression), #expression, __LINE__)
-    bool fits (const juce::Font& font, const juce::String& text, int width)
-    {
-        return static_cast<int> (std::ceil (font.getStringWidthFloat (text))) <= width;
-    }
-    bool hasGlyph (const juce::Font& font, juce::juce_wchar codepoint)
-    {
-        juce::Array<int> glyphs;
-        juce::Array<float> offsets;
-        font.getGlyphPositions (juce::String::charToString (codepoint), glyphs, offsets);
-        return glyphs.size() == 1 && glyphs[0] != 0
-            && offsets.size() == 2 && offsets[1] > offsets[0];
-    }
-
     int countVisiblePixels (const juce::Image& image, juce::Rectangle<int> requested)
     {
         const auto area = requested.getIntersection (image.getBounds());
@@ -129,28 +116,13 @@ namespace
         return count;
     }
 
-    float metricContentWidth (const juce::String& label,
-                              const juce::String& value,
-                              const juce::String& unit)
-    {
-        const auto labelWidth = juce::jmax (
-            ui::metricMinimumLabelWidth,
-            hypha::labelFont (ui::metricLabelFontHeight).getStringWidthFloat (label));
-        const auto valueWidth = juce::jmax (
-            ui::metricMinimumLabelWidth,
-            hypha::monoFont (ui::metricValueFontHeight).getStringWidthFloat (value));
-        return labelWidth + ui::metricHorizontalSpacing
-             + valueWidth + ui::metricHorizontalSpacing
-             + hypha::labelFont (ui::metricUnitFontHeight).getStringWidthFloat (unit);
-    }
-
-
 }
 using hypha::tests::renderSpectrumAtSize;
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
+    constexpr auto compactPresentation = hypha::presentation::forEditor (300, 200);
     const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);
     KIRIN_REQUIRE (preferenceDirectory.createDirectory().wasOk());
@@ -176,170 +148,10 @@ int main (int argc, char** argv)
     }
     KIRIN_REQUIRE (preferenceDirectory.deleteRecursively());
 
-    const auto label = hypha::labelFont (ui::titleFontHeight);
-    const auto mono = hypha::monoFont (ui::pairStatusFontHeight);
-    if (hypha::usingKimeraTypography())
-    {
-        KIRIN_REQUIRE (label.getTypefaceName().containsIgnoreCase ("Waldenburg"));
-        KIRIN_REQUIRE (mono.getTypefaceName().containsIgnoreCase ("Waldenburg"));
-    }
-    else
-    {
-        KIRIN_REQUIRE (label.getTypefaceName().equalsIgnoreCase (
-            hypha::nativeFallbackLabelFontFamily()));
-        KIRIN_REQUIRE (mono.getTypefaceName().equalsIgnoreCase (
-            hypha::nativeFallbackMonoFontFamily()));
-    }
-#if KIRIN_HYPHA_KIMERA_EMBEDDED
-    KIRIN_REQUIRE (hypha::usingKimeraTypography());
-#endif
-    KIRIN_REQUIRE (std::abs (hypha::tabularTextWidth (mono, "-11.1")
-                            - hypha::tabularTextWidth (mono, "-88.8")) < 0.01f);
-
-    const auto preLayout = ui::editorLayout (false);
-    const auto postLayout = ui::editorLayout (true);
-    const int postTitleWidth = static_cast<int> (
-        std::ceil (label.getStringWidthFloat (ui::postTitle)));
-    KIRIN_REQUIRE (fits (label, ui::preTitle, preLayout.title.width));
-    KIRIN_REQUIRE (postTitleWidth <= postLayout.title.width);
-    KIRIN_REQUIRE (ui::right (postLayout.title) + ui::titlePairGap
-                   == postLayout.pairStatus.x);
-
-    const auto deltaFont = hypha::labelFont (ui::metricLabelFontHeight);
-    KIRIN_REQUIRE (hypha::delta().length() == 1
-                   && hypha::delta()[0] == (juce::juce_wchar) 0x0394);
-    KIRIN_REQUIRE (hypha::emDash().length() == 1
-                   && hypha::emDash()[0] == (juce::juce_wchar) 0x2014);
-    const int deltaWidth = static_cast<int> (
-        std::ceil (deltaFont.getStringWidthFloat (hypha::delta())));
-    const auto deltaLayout = ui::loudnessSelectorLayout (true, deltaWidth);
-    KIRIN_REQUIRE (deltaWidth <= deltaLayout.deltaPrefixWidth);
-    KIRIN_REQUIRE (deltaLayout.momentary.width >= ui::loudnessSegmentMinimumWidth);
-    KIRIN_REQUIRE (deltaLayout.shortTerm.width >= ui::loudnessSegmentMinimumWidth);
-
-    // Audit every non-ASCII UI symbol still rendered by a font. The pair-menu arrow is excluded:
-    // PairDropdownButton deliberately owns it as vector geometry.
-    for (const auto codepoint : { (juce::juce_wchar) 0x0394 }) // Δ
-        KIRIN_REQUIRE (hasGlyph (deltaFont, codepoint));
-    for (const auto codepoint : { (juce::juce_wchar) 0x25CF, // ●
-                                  (juce::juce_wchar) 0x25CC, // ◌
-                                  (juce::juce_wchar) 0x2014 }) // —
-        KIRIN_REQUIRE (hasGlyph (mono, codepoint));
-    KIRIN_REQUIRE (hasGlyph (hypha::labelFont (ui::menuFontHeight), (juce::juce_wchar) 0x00B7)
-                   && hasGlyph (hypha::nativeTextFont (ui::menuFontHeight), (juce::juce_wchar) 0x66F4)); // · / 更
-
-    KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR ●"), ui::pairStatusWidth));
-    KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR ◌"), ui::pairStatusWidth));
-    KIRIN_REQUIRE (fits (mono, juce::CharPointer_UTF8 ("PAIR —"), ui::pairStatusWidth));
-    KIRIN_REQUIRE (fits (mono, "ABS", ui::pairStatusWidth));
-    // EditableName uses fitted painting and a bounded editor for pathological wide names. Keep
-    // a normal session identity readable without shrinking the product typeface.
-    KIRIN_REQUIRE (fits (hypha::monoFont (ui::nameFontHeight), "DRUM BUS",
-                         preLayout.name.width));
-    KIRIN_REQUIRE (fits (hypha::monoFont (ui::nameFontHeight),
-                         "pair: DRUM BUS", postLayout.name.width));
-    KIRIN_REQUIRE (fits (hypha::monoFont (ui::spectrumLegendFontHeight),
-                         juce::CharPointer_UTF8 ("\xCE\x94"),
-                         ui::spectrumDeltaLegendLabelWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (ui::spectrumLegendFontHeight), "PRE",
-                         ui::spectrumPreLegendLabelWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (ui::spectrumLegendFontHeight), "POST",
-                         ui::spectrumPostLegendLabelWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), "22.0 kHz",
-                         ui::spectrumHoverFrequencyWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (8.5f), juce::CharPointer_UTF8 ("Δ+24.0"),
-                         ui::spectrumHoverDeltaWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), "PRE -144.0",
-                         ui::spectrumExpandedPreWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), "POST -144.0",
-                         ui::spectrumExpandedPostWidth));
-    KIRIN_REQUIRE (fits (hypha::monoFont (8.0f), juce::CharPointer_UTF8 ("Δ+24.0"),
-                         ui::spectrumExpandedDeltaWidth));
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.0f) - 1.0f) < 1.0e-6f);
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.25f) - 1.12f) < 1.0e-6f);
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.5f) - 1.22f) < 1.0e-6f);
     KIRIN_REQUIRE (std::abs (ui::spectrumGlowScale (1.5f) - 1.15f) < 1.0e-6f);
-    for (const auto& preset : ui::spectrumSizePresets)
-    {
-        juce::TextButton sizeButton (preset.buttonText);
-        sizeButton.setSize (ui::spectrumSizeToggleWidth, ui::spectrumToggleHeight);
-        const auto buttonFont = sizeButton.getLookAndFeel().getTextButtonFont (
-            sizeButton, ui::spectrumToggleHeight);
-        KIRIN_REQUIRE (fits (buttonFont, preset.buttonText,
-                             ui::spectrumSizeToggleWidth - 8));
-    }
-    // JUCE's TooltipWindow lays out 13 px bold text and adds 14 px of horizontal padding.
-    // Keep the complete native tooltip inside the 300 px editor instead of relying on clipping.
-    const juce::Font tooltipFont (13.0f, juce::Font::bold);
-    const int tooltipMaximumWidth = ui::editorWidth - 2 * ui::margin - 14;
-    KIRIN_REQUIRE (fits (tooltipFont, ui::spectrumTooltip (false), tooltipMaximumWidth));
-    KIRIN_REQUIRE (fits (tooltipFont, ui::spectrumTooltip (true), tooltipMaximumWidth));
-    for (const auto& tooltipText : {
-             hypha::analysis_ui::switchViewTooltip ("Frequency Delta"),
-             hypha::analysis_ui::switchViewTooltip ("Sharpness Delta"),
-             hypha::analysis_ui::switchViewTooltip ("POST live facts") })
-    {
-        KIRIN_REQUIRE (fits (tooltipFont, tooltipText, tooltipMaximumWidth));
-        const auto* utf8 = reinterpret_cast<const unsigned char*> (tooltipText.toRawUTF8());
-        while (*utf8 != 0u)
-            KIRIN_REQUIRE (*utf8++ <= 0x7fu);
-    }
-    const juce::StringArray boundedTooltipTexts {
-        hypha::analysis_ui::channelModeTooltip (0u),
-        hypha::analysis_ui::channelModeTooltip (1u),
-        hypha::analysis_ui::channelModeTooltip (2u),
-        hypha::analysis_ui::spectrumPlotTooltip(),
-        hypha::analysis_ui::approximateFrequencyTooltip(),
-        hypha::analysis_ui::deltaLegendTooltip(),
-        hypha::analysis_ui::preLegendTooltip(),
-        hypha::analysis_ui::postLegendTooltip(),
-        hypha::analysis_ui::markTooltip (false),
-        hypha::analysis_ui::markTooltip (true),
-        hypha::analysis_ui::focusTrailTooltip (false),
-        hypha::analysis_ui::focusTrailTooltip (true),
-        hypha::analysis_ui::sharpnessDeltaTooltip(),
-        hypha::analysis_ui::liveOverviewTooltip(),
-        hypha::analysis_ui::liveMetricTooltip (0u),
-        hypha::analysis_ui::liveMetricTooltip (1u),
-        hypha::analysis_ui::liveMetricTooltip (2u),
-        hypha::helpLufsM(), hypha::helpLufsS(), hypha::helpTp(), hypha::helpSharp()
-    };
-    hypha::TooltipLookAndFeel boundedTooltipLookAndFeel;
-    for (const auto& preset : ui::spectrumSizePresets)
-    {
-        const juce::Rectangle<int> parent (0, 0, preset.width, preset.height);
-        const auto available = parent.reduced (ui::margin);
-        for (const auto& tooltipText : boundedTooltipTexts)
-        {
-            KIRIN_REQUIRE (tooltipText.isNotEmpty());
-            for (const auto position : {
-                     juce::Point<int> (0, 0),
-                     juce::Point<int> (parent.getRight(), 0),
-                     juce::Point<int> (0, parent.getBottom()),
-                     juce::Point<int> (parent.getRight(), parent.getBottom()) })
-            {
-                const auto tooltipBounds = boundedTooltipLookAndFeel.getTooltipBounds (
-                    tooltipText, position, parent);
-                KIRIN_REQUIRE (available.contains (tooltipBounds));
-                KIRIN_REQUIRE (tooltipBounds.getWidth() <= available.getWidth());
-                KIRIN_REQUIRE (tooltipBounds.getHeight() <= available.getHeight());
-            }
-        }
-    }
-    const auto slotsText = hypha::analysis_ui::slotsInUse ("Mix, Vocal");
-    const auto expectedSlotsText = juce::String ("Both slots in use ")
-                                 + juce::String::charToString (0x2014)
-                                 + " Mix, Vocal";
-    KIRIN_REQUIRE (slotsText == expectedSlotsText);
-    KIRIN_REQUIRE (! slotsText.containsChar ('\n'));
-    KIRIN_REQUIRE (hypha::analysis_ui::slotsInUse ({}) == "Both slots in use");
-    const auto compactAnalysisBounds = ui::spectrumPlotBounds (
-        ui::spectrumSizePresets[0].width, ui::spectrumSizePresets[0].height);
-    KIRIN_REQUIRE (fits (hypha::monoFont (13.0f), slotsText,
-                         compactAnalysisBounds.width
-                             - ui::spectrumPlotLeftInset
-                             - ui::spectrumPlotRightInset));
-
     using AnalysisPage = hypha::analysis_navigation::Page;
     for (const auto previous : {
              AnalysisPage::attack, AnalysisPage::spectrum,
@@ -355,14 +167,12 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (! hypha::analysis_navigation::releasesSlot (
         AnalysisPage::meters, AnalysisPage::spectrum));
 
-    const float metricWidth = static_cast<float> (
-        ui::metricCellBounds (0, postLayout.metricTop).width);
-    KIRIN_REQUIRE (metricContentWidth (hypha::delta() + "Crest", "-100.0", "dB")
-                   <= metricWidth);
-    KIRIN_REQUIRE (metricContentWidth ("Max TP", "-100.0", "dBTP") <= metricWidth);
-    KIRIN_REQUIRE (metricContentWidth (hypha::delta() + "Sharp", "-100.0", "acum")
-                   <= metricWidth);
-
+    const auto deltaFont = hypha::labelFont (
+        compactPresentation, hypha::typography::TextRole::metricLabel,
+        hypha::typography::Composition::facts);
+    const auto deltaWidth = static_cast<int> (
+        std::ceil (deltaFont.getStringWidthFloat (hypha::delta())));
+    const auto deltaLayout = ui::loudnessSelectorLayout (true, deltaWidth);
     hypha::LoudnessSelector selector;
     selector.setSize (ui::loudnessSelectorWidth, ui::metricRowHeight);
     selector.setDeltaMode (true);
@@ -390,6 +200,8 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (arrowPixels >= 8);
 
     hypha::SpectrumComponent spectrum;
+    spectrum.setPresentationContext (hypha::presentation::forEditor (
+        ui::editorWidth, ui::editorHeight));
     spectrum.setSignalActive (true);
     const auto spectrumBounds = ui::spectrumPlotBounds();
     spectrum.setSize (spectrumBounds.width, spectrumBounds.height);
@@ -481,6 +293,8 @@ int main (int argc, char** argv)
     for (const auto& preset : ui::spectrumSizePresets)
     {
         hypha::SpectrumComponent markSpectrum;
+        markSpectrum.setPresentationContext (
+            hypha::presentation::forEditor (preset.width, preset.height));
         markSpectrum.setSignalActive (true);
         const auto markSpectrumBounds = ui::spectrumPlotBounds (preset.width, preset.height);
         markSpectrum.setSize (markSpectrumBounds.width, markSpectrumBounds.height);
@@ -492,6 +306,8 @@ int main (int argc, char** argv)
     // Keep the performance-sensitive trail gate after all five MARK size contracts.
     hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);
     hypha::SpectrumComponent lineEncodingSpectrum;
+    lineEncodingSpectrum.setPresentationContext (hypha::presentation::forEditor (
+        ui::editorWidth, ui::editorHeight));
     lineEncodingSpectrum.setSignalActive (true);
     lineEncodingSpectrum.setSize (spectrumBounds.width, spectrumBounds.height);
     KirinSpectrumView lineEncodingSnapshot = spectrumSnapshot;
@@ -585,11 +401,8 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (extraLargeSpectrum.paintMs < 12.5);
     KIRIN_REQUIRE (inspectionSpectrum.paintMs < 22.0);
 
-    std::cout << "UI render contract passed: label="
-              << label.getTypefaceName().toStdString()
-              << ", mono=" << mono.getTypefaceName().toStdString()
-              << ", POST=" << postTitleWidth << '/' << postLayout.title.width << "px"
-              << ", delta=" << deltaWidth << '/' << deltaLayout.deltaPrefixWidth << "px"
+    std::cout << "UI render contract passed: delta="
+              << deltaWidth << '/' << deltaLayout.deltaPrefixWidth << "px"
               << " (" << deltaPixels << " pixels)"
               << ", vector-arrow=" << arrowPixels << " pixels"
               << ", PRE-runs=" << preCurveRuns

@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaObservatoryContract.h"
+#include "HyphaPresentationContext.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::hybrid_vu
@@ -18,8 +19,10 @@ struct State
     bool cumulativeAvailable = false;
     bool watchAvailable = false;
     bool shortTermLoudness = false;
+    bool recording = false;
     juce::String connectionText;
     juce::Colour connectionColour;
+    presentation::Context presentation = presentation::defaultContext();
 };
 
 float vuNormalized (double dbfs) noexcept;

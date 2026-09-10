@@ -31,6 +31,7 @@ public:
         }
         heading.setComponentID ("reference-access-heading");
         detail.setComponentID ("reference-access-detail");
+        detail.setComponentID ("reference-access-detail");
         for (auto* button : { &about, &owner, &recheck })
         {
             addAndMakeVisible (*button);
@@ -47,6 +48,16 @@ public:
         owner.onClick = [this] { ownerHelp = ! ownerHelp; refresh(); };
         recheck.onClick = [this] { if (onRecheck) onRecheck(); };
         refresh();
+    }
+
+    void setPresentationContext (presentation::Context next)
+    {
+        if (presentationContext == next) return;
+        presentationContext = next;
+        for (auto* button : { &about, &owner, &recheck })
+            button->setPresentationContext (next);
+        resized();
+        repaint();
     }
 
     void setOwned (bool value)
@@ -68,9 +79,11 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (4);
-        const bool large = getWidth() >= 450;
-        heading.setFont (labelFont (large ? 15.0f : 12.0f));
-        detail.setFont (labelFont (large ? 14.0f : 12.0f));
+        const bool large = observatory::isFullDensity (presentationContext.density);
+        heading.setFont (labelFont (presentationContext, typography::TextRole::sectionTitle,
+                                    typography::Composition::information));
+        detail.setFont (labelFont (presentationContext, typography::TextRole::body,
+                                   typography::Composition::information));
         heading.setBounds (area.removeFromTop (large ? 24 : 20));
         auto actions = area.removeFromBottom (large ? 32 : 28);
         area.removeFromBottom (3);
@@ -89,6 +102,7 @@ public:
 
 private:
     bool owned = false, ownerHelp = false, unconfirmed = false;
+    presentation::Context presentationContext = presentation::defaultContext();
     juce::Label heading, detail;
     observatory::Button about { "ABOUT KIRIN OS", false };
     observatory::Button owner { "ALREADY OWN IT?", false };

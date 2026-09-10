@@ -163,6 +163,8 @@ void verifyGuideFrequencyOverlayContract()
             countPaintedPixels (renderOverlay (hidden, componentBounds)) == 0);
 
         SpectrumComponent component;
+        component.setPresentationContext (
+            presentation::forEditor (preset.width, preset.height));
         component.setSignalActive (true);
         component.setSize (area.width, area.height);
         component.setSnapshot (spectrumSnapshot());
@@ -247,6 +249,8 @@ void verifyGuideFrequencyOverlayContract()
     const auto maskingArea = ui_contract::spectrumPlotBounds (
         maskingPreset.width, maskingPreset.height);
     SpectrumComponent maskingComponent;
+    maskingComponent.setPresentationContext (
+        presentation::forEditor (maskingPreset.width, maskingPreset.height));
     maskingComponent.setSignalActive (true);
     maskingComponent.setSize (maskingArea.width, maskingArea.height);
     maskingComponent.setSnapshot (spectrumSnapshot());

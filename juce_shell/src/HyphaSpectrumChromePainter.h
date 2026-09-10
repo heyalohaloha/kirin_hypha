@@ -6,6 +6,7 @@
 #include "HyphaAbsoluteSpectrumHistory.h"
 #include "HyphaGuideFrequencyOverlay.h"
 #include "HyphaSpectrumFocusTrail.h"
+#include "HyphaPresentationContext.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha::spectrum_chrome
@@ -37,6 +38,7 @@ namespace hypha::spectrum_chrome
         uint8_t channelMode;
         uint8_t inputChannels;
         bool signalActive = true;
+        presentation::Context presentation = presentation::defaultContext();
     };
 
     void paint (juce::Graphics& graphics,

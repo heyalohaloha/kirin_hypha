@@ -64,6 +64,9 @@ inline void profileDenseAttackIfRequested()
         }
         KirinAttackStats stats {};
         stats.available = stats.enabled = stats.worker_running = 1;
+        component->setPresentationContext (presentation::forEditor (
+            observatory::sizePresets.back().width,
+            observatory::sizePresets.back().height));
         component->setSize (layout.body.width, layout.body.height
             - observatory::timeNavigationHeight (observatory::sizePresets.back().density));
         component->setSnapshot (*events, *waveform, *details, *waveform, *details,
