@@ -31,7 +31,10 @@ fn ship_set_is_juce_common_shell_only() {
 fn release_manifest_mentions_all_four_installed_files() {
     let bundles = ship_bundles().unwrap();
     let leaf = package_leaf("1.1.1", false);
-    let json = manifest_json("1.1.1", &leaf, "abc", false, "false", &bundles).unwrap();
+    let entries = bundle_entries(&bundles).unwrap();
+    let json =
+        release_package_metadata::manifest_json("1.1.1", &leaf, "abc", false, "false", &entries)
+            .unwrap();
     for file in [
         "Kirin Hypha PRE.component",
         "Kirin Hypha POST.component",
