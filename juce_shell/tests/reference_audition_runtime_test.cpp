@@ -1,10 +1,12 @@
 #include "reference_runtime_v2_analysis_test_support.h"
+#include "reference_runtime_os_fixture.h"
 
 void testRuntimeV2Workspace (const juce::File& sandbox);
 void testRuntimeV2SourceCache();
 
 int main()
 {
+    if (testRuntimeOsFixtureIfRequested()) return 0;
     require (ref::safeId (workId), "Work UUID must be a safe ID");
     require (! ref::safeId ("../escape"), "path separators must be rejected");
     require (ref::safeUuid (preparationId), "preparation UUID must validate");
