@@ -10,6 +10,7 @@ const ROOT = path.resolve(path.dirname(THIS_FILE), '..', '..');
 const SCHEMA = 'kirin-hypha-windows-aax-bundles-v1';
 const INSTALL_PARENT = 'Avid/Audio/Plug-Ins';
 const X64_MACHINE = 0x8664;
+const AUTHENTICODE_SUBJECT = 'CN=Daisuke Nishio';
 
 function fail(message) {
   throw new Error(`invalid Windows AAX bundle manifest: ${message}`);
@@ -150,13 +151,19 @@ export function verifyWindowsAaxRecord(record, version, options = {}) {
     '[Console]::Out.WriteLine($signature.Status)',
     '[Console]::Out.WriteLine($file.VersionInfo.FileVersion)',
     '[Console]::Out.WriteLine($file.VersionInfo.ProductVersion)',
+    '[Console]::Out.WriteLine([string]$signature.SignerCertificate.Subject)',
+    '[Console]::Out.WriteLine([string]$signature.TimeStamperCertificate.Subject)',
   ].join('; ');
   const output = run('powershell.exe', ['-NoProfile', '-Command', script], 'inspect AAX Authenticode', { capture: true });
-  const [status, fileVersion, productVersion] = output.trim().split(/\r?\n/);
+  const [status, fileVersion, productVersion, signerSubject, timestampSubject] = output.trim().split(/\r?\n/);
   if (status !== 'Valid') throw new Error(`${record.role} AAX Authenticode status is ${status}`);
   if (fileVersion !== version || productVersion !== version) {
     throw new Error(`${record.role} AAX version is ${fileVersion}/${productVersion}, expected ${version}`);
   }
+  if (!signerSubject?.includes(AUTHENTICODE_SUBJECT)) {
+    throw new Error(`${record.role} AAX Authenticode signer is not the Kirin publisher`);
+  }
+  if (!timestampSubject) throw new Error(`${record.role} AAX Authenticode timestamp is missing`);
   run(
     options.wraptool || resolveWraptool(options.env),
     ['verify', '--localonly', '--in', inspected.binary],
