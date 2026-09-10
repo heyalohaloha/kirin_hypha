@@ -307,7 +307,7 @@ HyphaはPreset projection内のpath fieldを受け付けない。
 
 unknown field、重複ID、循環参照、orphan receiptはrejectする。
 
-Manifest全体は64 KiBを超えない。
+Manifest v3全体は64 KiBを超えない。B-800／OS W-3025のv4では、未準備Presetの名前とimmutable設定receiptを`pending_presets`として加え、全体上限を256 KiBとする。ready＋pendingは合計128件以内。v3のunknown-field拒否と64 KiB上限は維持する。詳細は`docs/reference_lazy_presets_handoff_20260910.md`。
 
 Preset projection一件は2 MiBを超えない。
 

@@ -1,6 +1,7 @@
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "reference_runtime_os_fixture.h"
 #include "reference_runtime_v2_refresh_test_support.h"
+#include "reference_runtime_lazy_presets_test_support.h"
 
 void testRuntimeV2Workspace (const juce::File& sandbox);
 void testRuntimeV2SourceCache();
@@ -16,6 +17,12 @@ int main (int argc, char** argv)
     const auto sandbox = juce::File::getSpecialLocation (juce::File::tempDirectory)
                              .getNonexistentChildFile ("hypha-reference-audition", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
+    if (argc == 2 && juce::String (argv[1]) == "--lazy-presets-only")
+    {
+        verifyLazyPresets (sandbox);
+        require (sandbox.deleteRecursively(), "lazy Preset fixtures must be removed");
+        return 0;
+    }
     if (argc == 2 && juce::String (argv[1]) == "--blind-refresh-only")
     {
         verifyIsolatedBlindRefresh (sandbox);
@@ -30,6 +37,7 @@ int main (int argc, char** argv)
         std::cout << "Reference workspace runtime: pass\n";
         return 0;
     }
+    verifyLazyPresets (sandbox.getChildFile ("lazy-presets"));
     testRuntimeEventTransport (sandbox);
     testRuntimeV2Blind (sandbox);
     testRuntimeACapture (sandbox.getChildFile ("plugin_data").getChildFile ("reference")

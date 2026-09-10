@@ -35,7 +35,7 @@ W-3023でmainのReference publication transactionを抽出。W-3024で準備後�
 
 ## 次に残る作業
 
-1. active Preset／Bの先行準備・公開。今回の更新境界はその前提であり、全Preset／Candidate待ちはまだ残る。未準備候補を一覧から消さず、typed requestと準備状態をどう表すかをproducer／consumerで揃える。
+1. active B／Candidateの先行準備・公開。B-800／OS W-3025で全Preset待ちを分離し、未準備Presetは既存一覧とtyped requestで選べるようにした。選択Preset内の全Candidate待ちは残る。詳細は`docs/reference_lazy_presets_handoff_20260910.md`。
 2. Manifest読込で多数のCheck／候補を再検証する際の非RT負荷の計測と削減。特に繰り返し構築されるregexを確認する。今回CPU性能の改善は測定していない。
 3. OS所有のhost-rate試聴cache、同曲Version追加後の候補更新、PSR／chroma、実曲corpus、各サイズの実データ目視、macOS／WindowsのDAW実動。
 

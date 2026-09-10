@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iterator>
 #include "HyphaUpdateContract.h"
+#include "reference_audition/ReferenceRuntimePresetOptions.h"
 
 namespace
 {
@@ -231,8 +232,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     const bool blindAvailable = callbackLive && runtime.blindEligible
         && hypha::reference_ui::canSelectB (state);
     state.blindPhase = referenceBlindPhase (runtime.blindPhase, blindAvailable);
-    state.presetId = runtime.presetSelectionTargetId.isNotEmpty()
-        ? runtime.presetSelectionTargetId : runtime.presetId;
+    state.presetId = hypha::reference_audition::runtimePresetDisplaySelection (runtime);
     state.checkId = runtime.checkId;
     state.candidateId = runtime.candidateId;
     state.cueId = runtime.cueId;

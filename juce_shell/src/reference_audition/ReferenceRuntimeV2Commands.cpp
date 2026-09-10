@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceRuntimePendingPresets.h"
 
 #include <algorithm>
 
@@ -34,6 +35,7 @@ namespace hypha::reference_audition
 
     bool RuntimeV2Controller::selectPreset (const juce::String& id)
     {
+        const auto presetId = runtimePresetOptionIdentity (id);
         RuntimeSelectionOption option;
         RuntimeIdentity identity;
         std::optional<PresetSelectionRequest> cancelled;
@@ -58,7 +60,7 @@ namespace hypha::reference_audition
                 currentSnapshot.presetSelectionTargetId.clear();
                 presetSelectionWaitingSinceMs = 0;
                 presetSelectionStatusExpiresAtMs = 0;
-                restorePublishedSelection = id == currentSnapshot.presetId
+                restorePublishedSelection = presetId == currentSnapshot.presetId
                     && currentSnapshot.state == RuntimeState::ready
                     && publishedSource != nullptr;
                 manifestRevision = -1;
@@ -79,10 +81,10 @@ namespace hypha::reference_audition
                 ready.store (true, std::memory_order_release);
                 return true;
             }
-            return requestSelection ("preset", id);
+            return requestSelection ("preset", presetId);
         }
         RuntimeGlobalPresetCatalogEntry target;
-        target.presetId = option.id;
+        target.presetId = presetId;
         target.revisionId = option.revisionId;
         target.nameSnapshot = option.label;
         const auto request = presetSelectionTransport.writeRequest (
@@ -102,7 +104,7 @@ namespace hypha::reference_audition
             failedPresetSelectionTarget.reset();
             currentSnapshot.presetSelectionStatus = "pending";
             currentSnapshot.presetSelectionAction.clear();
-            currentSnapshot.presetSelectionTargetId = target.presetId;
+            currentSnapshot.presetSelectionTargetId = option.id;
             presetSelectionWaitingSinceMs = juce::Time::currentTimeMillis();
             presetSelectionStatusExpiresAtMs = 0;
             pendingApprovalKey.clear();
@@ -144,7 +146,11 @@ namespace hypha::reference_audition
             return true;
         }
         if (! failed) return false;
-        return selectPreset (failed->presetId);
+        const auto current = snapshot();
+        for (const auto& option : current.presets)
+            if (runtimePresetOptionIdentity (option.id) == failed->presetId
+                && option.revisionId == failed->revisionId) return selectPreset (option.id);
+        return false;
     }
 
     bool RuntimeV2Controller::selectCheck (const juce::String& id)
@@ -188,7 +194,7 @@ namespace hypha::reference_audition
             context = { currentSnapshot.presetId, currentSnapshot.checkId,
                         currentSnapshot.candidateId };
             if (currentSnapshot.presetSelectionTargetId.isNotEmpty())
-                context.presetId = currentSnapshot.presetSelectionTargetId;
+                context.presetId = runtimePresetOptionIdentity (currentSnapshot.presetSelectionTargetId);
             if (currentSnapshot.presetSelectionAction == "choose_source")
                 destination = RecoveryDestination::candidateSource;
             else if (currentSnapshot.presetSelectionAction == "measure_source")

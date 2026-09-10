@@ -1,5 +1,6 @@
 #include "ReferenceRuntimeV2Repository.h"
 #include "ReferenceRuntimeV2PresetParsing.h"
+#include "ReferenceRuntimePendingPresets.h"
 
 #include <limits>
 #include <regex>
@@ -12,7 +13,7 @@ namespace hypha::reference_audition
 {
     namespace
     {
-        constexpr std::int64_t maximumManifestBytes = 64 * 1024;
+        constexpr std::int64_t maximumManifestBytes = 256 * 1024;
         constexpr std::int64_t maximumGlobalPresetCatalogBytes = 64 * 1024;
         constexpr std::int64_t maximumPresetBytes = 2 * 1024 * 1024;
         constexpr std::int64_t maximumSourceStateBytes = 1024 * 1024;
@@ -122,11 +123,8 @@ namespace hypha::reference_audition
                             RuntimeManifest& result)
         {
             const auto* object = value.getDynamicObject();
-            if (object == nullptr || ! exactProperties (*object, {
-                    "format", "version", "work_id", "revision", "source_state_artifact",
-                    "global_preset_catalog_artifact", "active_preset", "preset_artifacts" })
+            if (object == nullptr || ! runtimeManifestKeys (*object)
                 || object->getProperty ("format") != "kirin_hypha_reference_manifest"
-                || object->getProperty ("version") != "3.0"
                 || ! exactString (object->getProperty ("work_id"), result.workId)
                 || ! workUuid (result.workId) || result.workId != expectedWorkId
                 || ! exactInteger (object->getProperty ("revision"), 1,
@@ -164,9 +162,10 @@ namespace hypha::reference_audition
                 result.presetArtifacts.push_back (std::move (receipt));
             }
 
+            if (! parseRuntimePendingPresets (*object, result)) return false;
             const auto active = object->getProperty ("active_preset");
             if (active.isVoid())
-                return presets->isEmpty();
+                return presets->isEmpty() && result.pendingPresets.empty();
             const auto* activeObject = active.getDynamicObject();
             if (activeObject == nullptr || ! exactProperties (*activeObject, { "preset_id", "revision_id" })
                 || ! exactString (activeObject->getProperty ("preset_id"), result.activePresetId)
@@ -177,6 +176,9 @@ namespace hypha::reference_audition
                 if (receipt.presetId == result.activePresetId
                     && receipt.revisionId == result.activePresetRevisionId)
                     return true;
+            for (const auto& pending : result.pendingPresets)
+                if (pending.sourcePresetArtifact.presetId == result.activePresetId
+                    && pending.sourcePresetArtifact.revisionId == result.activePresetRevisionId) return true;
             return false;
         }
 
@@ -436,6 +438,7 @@ namespace hypha::reference_audition
         juce::var manifestJson;
         RuntimeManifest manifest;
         if (! readJson (manifestFile, maximumManifestBytes, manifestBytes, manifestJson)
+            || (manifestBytes.getSize() > 64 * 1024 && manifestJson["version"] != "4.0")
             || ! parseManifest (manifestJson, workId, manifest))
             return failure ("reference_manifest_rejected", std::move (previous));
         if (previous != nullptr)

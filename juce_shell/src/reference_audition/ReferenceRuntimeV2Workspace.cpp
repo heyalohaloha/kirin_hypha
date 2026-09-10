@@ -1,9 +1,9 @@
 #include "ReferenceRuntimeV2Controller.h"
 #include "ReferenceRuntimeV2PlaybackIdentity.h"
+#include "ReferenceRuntimePresetOptions.h"
 
 #include <cmath>
 #include <limits>
-#include <set>
 
 namespace hypha::reference_audition
 {
@@ -20,47 +20,7 @@ namespace hypha::reference_audition
 
         void appendPresetOptions (Snapshot& snapshot, const RuntimeWorkspace& workspace)
         {
-            std::set<std::string> added;
-            for (const auto& global : workspace.globalPresetCatalog.presets)
-            {
-                const RuntimePreset* available = nullptr;
-                for (const auto& workPreset : workspace.presets)
-                {
-                    if (workPreset.sourceTemplateArtifact.presetId == global.presetId
-                        && workPreset.sourceTemplateArtifact.revisionId == global.revisionId)
-                    {
-                        available = &workPreset;
-                        break;
-                    }
-                }
-                if (available != nullptr)
-                {
-                    snapshot.presets.push_back ({
-                        global.presetId,
-                        global.nameSnapshot,
-                        global.revisionId,
-                        false,
-                    });
-                    added.insert (global.presetId.toStdString());
-                }
-                else
-                {
-                    snapshot.presets.push_back ({
-                        global.presetId, global.nameSnapshot, global.revisionId, true,
-                    });
-                    added.insert (global.presetId.toStdString());
-                }
-            }
-            for (const auto& item : workspace.presets)
-            {
-                if (added.insert (item.sourceTemplateArtifact.presetId.toStdString()).second)
-                    snapshot.presets.push_back ({
-                        item.sourceTemplateArtifact.presetId,
-                        item.name,
-                        item.sourceTemplateArtifact.revisionId,
-                        false,
-                    });
-            }
+            appendRuntimePresetOptions (snapshot, workspace);
         }
 
         const RuntimeCheck* findCheck (const RuntimePreset& preset, const juce::String& id)
