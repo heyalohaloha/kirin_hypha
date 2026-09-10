@@ -13,8 +13,8 @@ binaries were both machine type `0x8664` (`x64`):
 
 | Role | Binary size | File/Product version |
 |---|---:|---|
-| PRE | 15,474,176 bytes | 1.1.49 |
-| POST | 17,548,800 bytes | 1.1.49 |
+| PRE | 15,467,008 bytes | 1.1.49 |
+| POST | 17,541,120 bytes | 1.1.49 |
 
 This proves the external-SDK Windows build path. The binaries are not distribution-ready until
 PACE and Authenticode verification both pass.
@@ -34,24 +34,47 @@ configures the explicit AAX gate, builds only PRE/POST AAX, and checks both vers
 
 ## Signing boundary
 
-PACE AAX Code Signing Tools 6.0.1 are installed on the Windows validation host. The installed
-`wraptool` documentation confirms that Windows signing can use either a code-signing certificate
-thumbprint from a Windows certificate store or a PKCS12 key file. This host currently has neither;
-the existing Windows Authenticode route uses the separate remote eSigner workflow.
+PACE AAX Code Signing Tools 6.0.1 are installed on the Windows validation host. With the physical
+signing authorization attached, an unsigned binary reaches signature inspection and fails as
+unsigned instead of failing on authorization. This confirms the local authorization path without
+claiming that the artifact is signed.
+
+Two Windows signing experiments establish the operation boundary:
+
+- `wraptool sign` without `--signid` or `--keyfile` rejects the input because Windows platform
+  signing credentials are mandatory.
+- `wraptool sign --dsig off` is rejected because the `sign` operation does not permit disabling the
+  platform signature.
+
+PACE and Authenticode signing therefore cannot be split into two mutations of the binary on
+Windows. The prior candidate sequence (PACE first, eSigner second) is invalid.
+
+The supported route is one `wraptool sign` operation with a certificate thumbprint from the
+current user's Windows certificate store. SSL.com's eSigner CKA exposes the existing cloud-held
+certificate through the Windows CNG/KSP interface, allowing `signtool.exe` and callers such as
+`wraptool` to use the same certificate without exporting its private key. The private release
+factory owns eSigner credentials; they are not copied into this public GPL repository.
 
 Distribution verification uses `wraptool verify --localonly` so it never asks for or emits an iLok
 account password. The command still requires the physical `PACE Tools` authorization to be attached;
 without it, verification fails closed before inspecting a candidate.
 
-Therefore the release sequence is not declared complete yet. The candidate sequence is:
+The release sequence is:
 
-1. PACE-sign both AAX binaries using the physical signing authorization.
-2. Authenticode-sign those same binaries with the existing eSigner route.
-3. Re-run PACE `wraptool verify` after Authenticode signing.
-4. Reject the artifact if either PACE or Authenticode verification fails.
+1. Build PRE and POST on the SDK-equipped Windows host.
+2. Load the eSigner CKA certificate into that same user's certificate store.
+3. Run `scripts/windows/sign-aax-wraptool.ps1` once, passing the certificate thumbprint to
+   `wraptool`; the physical signing authorization must be attached.
+4. Verify PACE locally, Authenticode validity, Kirin publisher identity, secure timestamp, x64 PE,
+   version, and exact PRE/POST bundle structure before packaging.
 
-Step 3 is the deciding experiment. Do not encode the order as a release rule until it passes on the
-actual PRE and POST artifacts.
+The output directory must be new and separate from the unsigned build. Failed attempts never mutate
+the unsigned source artifacts.
+
+Official implementation references:
+
+- [SSL.com: eSigner CKA with SignTool](https://www.ssl.com/how-to/automate-ev-code-signing-with-signtool-or-certutil-esigner/)
+- [SSL.com: eSigner CKA CI/CD integration](https://www.ssl.com/how-to/how-to-integrate-esigner-cka-with-ci-cd-tools-for-automated-code-signing/)
 
 ## Installer boundary
 
@@ -76,7 +99,7 @@ or newer version, so a same-version reinstall cannot be mislabeled as an upgrade
 
 ## Remaining release gates
 
-- Move the physical signing authorization to Windows and run the signing-order experiment once.
+- Run the combined PACE + eSigner CKA signing path once on the private self-hosted release runner.
 - Build the VST3+AAX installer and run install, same-version reinstall, prior-public-version upgrade,
   and uninstall validation.
 - Complete Pro Tools load, category, transparency, Offline Bounce, restore, mono/stereo, and pairing

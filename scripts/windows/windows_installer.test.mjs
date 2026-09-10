@@ -87,6 +87,15 @@ test('Windows AAX manifest and PE gate require exact PRE/POST x64 bundles', (con
   assert.throws(() => inspectWindowsAaxRecord(post), /expected x64/);
 });
 
+test('Windows AAX signing is one combined wraptool operation through a store certificate', () => {
+  const source = fs.readFileSync(path.join(scriptDir, 'sign-aax-wraptool.ps1'), 'utf8');
+  assert.match(source, /"--signid", \$thumbprint/);
+  assert.match(source, /"--extrasigningoptions", "\/fd sha256 \/tr http:\/\/ts\.ssl\.com \/td sha256"/);
+  assert.match(source, /windows-aax-bundles\.mjs/);
+  assert.match(source, /OutputDir must not already exist/);
+  assert.doesNotMatch(source, /--dsig(?:\s|",\s*)off/);
+});
+
 test('bundle discovery requires one complete PRE and POST Windows bundle', (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-installer-bundles-'));
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
