@@ -326,6 +326,29 @@ void verifyReferenceAuditionComponentContract()
     cue->setSelectedId (2, juce::sendNotificationSync);
     KIRIN_REF_REQUIRE (requestedPreset == "preset-b" && requestedCheck == "check-b"
                        && requestedCandidate == "reference-b" && requestedCue == "cue-b");
+    auto pendingCandidate = selected;
+    pendingCandidate.bSelected = false;
+    pendingCandidate.auditionBuffered = false;
+    pendingCandidate.status = "KIRIN OS PREPARING REFERENCE / A REMAINS LIVE";
+    pendingCandidate.candidateId = "reference-b";
+    pendingCandidate.candidates[1].label = "Mix v3  /  PREPARE";
+    pendingCandidate.candidatePreparationPending = true;
+    component.setState (pendingCandidate);
+    KIRIN_REF_REQUIRE (candidate->isEnabled() && candidate->getSelectedId() == 2
+                       && candidate->getItemText (1).contains ("PREPARE")
+                       && ! cue->isEnabled() && ! b->isEnabled());
+    writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_PENDING_OUTPUT");
+    reference_ui::Component compactPendingComponent;
+    compactPendingComponent.setPresentationContext (presentation::forEditor (300, 200));
+    compactPendingComponent.setSize (288, 136);
+    compactPendingComponent.setState (pendingCandidate);
+    auto* compactPendingSelector = dynamic_cast<juce::ComboBox*> (
+        compactPendingComponent.findChildWithID ("reference-candidate"));
+    KIRIN_REF_REQUIRE (compactPendingSelector != nullptr
+                       && compactPendingSelector->isVisible()
+                       && compactPendingSelector->getSelectedId() == 2);
+    writeImageIfRequested (render (compactPendingComponent),
+                           "KIRIN_REFERENCE_UI_PENDING_COMPACT_OUTPUT");
     auto approval = selected;
     approval.sampleRateApprovalRequired = true;
     approval.actionText = "USE 44.1 TO 48.0 kHz";

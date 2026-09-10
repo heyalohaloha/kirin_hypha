@@ -19,6 +19,8 @@
 - Hypha focused runtime test: pending Candidate visibility, exact request, A safety, acknowledgement, selection restoration, and no duplicate Candidate row passed.
 - Kirin OS focused service tests: exact request/ack binding, live capability and Manifest validation, crash-recovered acknowledgement, one-Candidate preparation, unchanged dependency retention, malformed target rejection, publication rollback safety, and IPC routing passed.
 - Kirin OS changed-file ESLint and JSON Schema compilation passed.
+- Focused Reference component rendering passed at detailed and 300×200 compact sizes. The pending selector, live A state,
+  disabled B and stale Cue, and ASCII-safe `Mix v3 / PREPARE` label were visually inspected.
 - Hypha source line budget passed. Full suites were intentionally not repeated.
 
 ## Manual verification remaining

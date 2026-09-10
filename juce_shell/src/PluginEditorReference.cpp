@@ -51,7 +51,7 @@ std::vector<hypha::reference_ui::SelectionOption> selectionOptions (
     std::vector<hypha::reference_ui::SelectionOption> output;
     output.reserve (input.size());
     for (const auto& item : input) output.push_back ({
-        item.id, item.label + (item.requiresPreparation ? "  ·  PREPARE" : "") });
+        item.id, item.label + (item.requiresPreparation ? "  /  PREPARE" : "") });
     return output;
 }
 
