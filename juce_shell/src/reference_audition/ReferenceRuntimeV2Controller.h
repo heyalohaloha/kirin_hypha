@@ -6,6 +6,7 @@
 
 #include "ReferenceAuditionController.h"
 #include "ReferenceAudioPages.h"
+#include "ReferenceCandidatePreparationTransport.h"
 #include "ReferencePresetAdoptionTransport.h"
 #include "ReferencePresetSelectionTransport.h"
 #include "ReferenceRecoveryTransport.h"
@@ -38,6 +39,7 @@ namespace hypha::reference_audition
         bool selectCandidate (const juce::String&);
         bool selectCue (const juce::String&);
         bool retryPresetSelection();
+        bool retryCandidatePreparation();
         bool approveSampleRateConversion();
         bool requestRecovery();
 
@@ -152,6 +154,7 @@ namespace hypha::reference_audition
         void serviceRuntimeEvents();
         void serviceRecoveryAcknowledgement();
         void servicePresetSelectionAcknowledgement();
+        void serviceCandidatePreparationAcknowledgement();
         void serviceDeferredAudioThreadActions();
         void revokeAuditionPublication() noexcept;
         void failClosedToA() noexcept;
@@ -172,6 +175,7 @@ namespace hypha::reference_audition
         RuntimeV2PresentationRepository presentationRepository;
         RecoveryTransport recoveryTransport;
         PresetSelectionTransport presetSelectionTransport;
+        CandidatePreparationTransport candidatePreparationTransport;
         PresetAdoptionTransport presetAdoptionTransport;
         RuntimeEventTransport eventTransport;
         AudioPages pages;
@@ -207,9 +211,13 @@ namespace hypha::reference_audition
         std::optional<PresetSelectionRequest> pendingPresetSelectionRequest;
         std::optional<RuntimeGlobalPresetCatalogEntry> pendingPresetSelectionTarget;
         std::optional<RuntimeGlobalPresetCatalogEntry> failedPresetSelectionTarget;
+        std::optional<CandidatePreparationRequest> pendingCandidatePreparationRequest;
+        std::optional<CandidatePreparationTarget> failedCandidatePreparationTarget;
         std::int64_t recoveryStatusExpiresAtMs = 0;
         std::int64_t presetSelectionWaitingSinceMs = 0;
         std::int64_t presetSelectionStatusExpiresAtMs = 0;
+        std::int64_t candidatePreparationWaitingSinceMs = 0;
+        std::int64_t candidatePreparationStatusExpiresAtMs = 0;
         std::atomic<bool> ready { false };
         std::atomic<bool> bSelected { false };
         std::atomic<float> bLinearGain { 1.0f };

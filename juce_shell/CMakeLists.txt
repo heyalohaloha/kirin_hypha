@@ -161,6 +161,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceAuditionLease.cpp
     src/reference_audition/ReferenceAuditionProtocol.cpp
     src/reference_audition/ReferenceAuditionRepository.cpp
+    src/reference_audition/ReferenceCandidatePreparationTransport.cpp
     src/reference_audition/ReferencePresetAdoptionTransport.cpp
     src/reference_audition/ReferencePresetSelectionTransport.cpp
     src/reference_audition/ReferenceRecoveryTransport.cpp
@@ -171,6 +172,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
+    src/reference_audition/ReferenceRuntimeV2CandidatePreparation.cpp
     src/reference_audition/ReferenceRuntimeV2Workspace.cpp
     src/reference_audition/ReferenceRuntimeV2Lifecycle.cpp
     src/reference_audition/ReferenceRuntimeV2Events.cpp

@@ -2,6 +2,7 @@
 #include "reference_runtime_os_fixture.h"
 #include "reference_runtime_v2_refresh_test_support.h"
 #include "reference_runtime_lazy_presets_test_support.h"
+#include "reference_runtime_lazy_candidates_test_support.h"
 
 void testRuntimeV2Workspace (const juce::File& sandbox);
 void testRuntimeV2SourceCache();
@@ -23,6 +24,12 @@ int main (int argc, char** argv)
         require (sandbox.deleteRecursively(), "lazy Preset fixtures must be removed");
         return 0;
     }
+    if (argc == 2 && juce::String (argv[1]) == "--lazy-candidates-only")
+    {
+        verifyLazyCandidates (sandbox);
+        require (sandbox.deleteRecursively(), "lazy Candidate fixtures must be removed");
+        return 0;
+    }
     if (argc == 2 && juce::String (argv[1]) == "--blind-refresh-only")
     {
         verifyIsolatedBlindRefresh (sandbox);
@@ -38,6 +45,7 @@ int main (int argc, char** argv)
         return 0;
     }
     verifyLazyPresets (sandbox.getChildFile ("lazy-presets"));
+    verifyLazyCandidates (sandbox.getChildFile ("lazy-candidates"));
     testRuntimeEventTransport (sandbox);
     testRuntimeV2Blind (sandbox);
     testRuntimeACapture (sandbox.getChildFile ("plugin_data").getChildFile ("reference")

@@ -61,6 +61,7 @@ namespace hypha::reference_audition
         RuntimeContentReceipt sourceArtifact;
         std::vector<RuntimeCue> cues;
         juce::String defaultCueId;
+        bool prepared = true;
     };
 
     struct RuntimeProfileBinding

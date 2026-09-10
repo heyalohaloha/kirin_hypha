@@ -104,6 +104,7 @@ public:
     bool retryReferencePresetSelection();
     bool selectReferenceCheck (const juce::String&);
     bool selectReferenceCandidate (const juce::String&);
+    bool retryReferenceCandidatePreparation();
     bool selectReferenceCue (const juce::String&);
     bool approveReferenceSampleRateConversion();
     bool requestReferenceRecovery();

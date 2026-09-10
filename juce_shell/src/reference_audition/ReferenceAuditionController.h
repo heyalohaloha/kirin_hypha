@@ -93,6 +93,9 @@ namespace hypha::reference_audition
         juce::String presetSelectionStatus;
         juce::String presetSelectionAction;
         juce::String presetSelectionTargetId;
+        juce::String candidatePreparationStatus;
+        juce::String candidatePreparationAction;
+        juce::String candidatePreparationTargetId;
         std::int64_t manifestRevision = 0;
     };
 

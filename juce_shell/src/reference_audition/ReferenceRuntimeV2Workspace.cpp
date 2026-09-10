@@ -34,7 +34,7 @@ namespace hypha::reference_audition
         const RuntimeCandidate* findCandidate (const RuntimeCheck& check, const juce::String& id)
         {
             for (const auto& candidate : check.candidates)
-                if (candidate.candidateId == id)
+                if (candidate.prepared && (id.isEmpty() || candidate.candidateId == id))
                     return &candidate;
             return nullptr;
         }
@@ -129,7 +129,7 @@ namespace hypha::reference_audition
             return;
         }
         const RuntimeCandidate* candidate = findCandidate (*check, selection.candidateId);
-        if (candidate == nullptr) candidate = &check->candidates.front();
+        if (candidate == nullptr) candidate = findCandidate (*check, {});
         if (candidate->cues.empty())
         {
             failClosedToA();
@@ -149,7 +149,8 @@ namespace hypha::reference_audition
             for (const auto& item : preset->checks)
                 next.checks.push_back ({ item.checkId, item.label, {}, false });
             for (const auto& item : check->candidates)
-                next.candidates.push_back ({ item.candidateId, item.displayName, {}, false });
+                next.candidates.push_back ({ item.candidateId, item.displayName,
+                    preset->sourcePresetArtifact.revisionId, ! item.prepared });
             publish (std::move (next));
             return;
         }
@@ -192,7 +193,8 @@ namespace hypha::reference_audition
         for (const auto& item : preset->checks)
             next.checks.push_back ({ item.checkId, item.label, {}, false });
         for (const auto& item : check->candidates)
-            next.candidates.push_back ({ item.candidateId, item.displayName, {}, false });
+            next.candidates.push_back ({ item.candidateId, item.displayName,
+                preset->sourcePresetArtifact.revisionId, ! item.prepared });
         for (const auto& item : candidate->cues)
             next.cues.push_back ({ item.cueId, item.label, {}, false });
 

@@ -50,7 +50,8 @@ std::vector<hypha::reference_ui::SelectionOption> selectionOptions (
 {
     std::vector<hypha::reference_ui::SelectionOption> output;
     output.reserve (input.size());
-    for (const auto& item : input) output.push_back ({ item.id, item.label });
+    for (const auto& item : input) output.push_back ({
+        item.id, item.label + (item.requiresPreparation ? "  ·  PREPARE" : "") });
     return output;
 }
 
@@ -121,6 +122,8 @@ void KirinHyphaEditor::configureReferenceAudition()
                     state.aIntegratedLoudness, state.aMaximumTruePeakDbtp)
                 : state.presetSelectionAction == "retry"
                     ? processorRef.retryReferencePresetSelection()
+                    : state.candidatePreparationAction == "retry"
+                        ? processorRef.retryReferenceCandidatePreparation()
                     : processorRef.requestReferenceRecovery();
         if (! accepted) showToast ("Kirin OS could not receive the request");
     };
@@ -234,7 +237,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.blindPhase = referenceBlindPhase (runtime.blindPhase, blindAvailable);
     state.presetId = hypha::reference_audition::runtimePresetDisplaySelection (runtime);
     state.checkId = runtime.checkId;
-    state.candidateId = runtime.candidateId;
+    state.candidateId = runtime.candidatePreparationTargetId.isNotEmpty()
+        ? runtime.candidatePreparationTargetId : runtime.candidateId;
     state.cueId = runtime.cueId;
     state.presetName = runtime.presetName;
     state.checkLabel = runtime.checkLabel;
@@ -253,6 +257,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.sourceSampleRateHz = runtime.sourceSampleRateHz;
     state.hostSampleRateHz = runtime.hostSampleRateHz;
     state.presetSelectionAction = runtime.presetSelectionAction;
+    state.candidatePreparationAction = runtime.candidatePreparationAction;
+    state.candidatePreparationPending = runtime.candidatePreparationStatus == "pending";
     if (observatoryDomain == hypha::observatory::Domain::reference)
     {
         KirinSpectrumView spectrum {};
@@ -349,6 +355,43 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     }
     else if (runtime.presetSelectionStatus == "work_unavailable"
              || runtime.presetSelectionStatus == "request_invalid")
+    {
+        state.status = "REFERENCE SETUP NEEDS ATTENTION / A REMAINS LIVE";
+        state.actionText = "OPEN REFERENCE";
+    }
+    else if (runtime.candidatePreparationStatus == "pending")
+    {
+        state.status = "KIRIN OS PREPARING REFERENCE / A REMAINS LIVE";
+        state.actionText.clear();
+    }
+    else if (runtime.candidatePreparationStatus == "prepared")
+    {
+        state.status = "REFERENCE READY / A REMAINS LIVE";
+        state.actionText.clear();
+    }
+    else if (runtime.candidatePreparationStatus == "timed_out")
+    {
+        state.status = "KIRIN OS NEEDS MORE TIME / A REMAINS LIVE";
+        state.actionText = "RETRY PREPARATION";
+    }
+    else if (runtime.candidatePreparationStatus == "source_unavailable")
+    {
+        state.status = "REFERENCE SOURCE NEEDS ATTENTION / A REMAINS LIVE";
+        state.actionText = "CHOOSE SOURCE";
+    }
+    else if (runtime.candidatePreparationStatus == "measurement_required")
+    {
+        state.status = "MEASURE THE REFERENCE SOURCE IN KIRIN OS / A REMAINS LIVE";
+        state.actionText = "MEASURE SOURCE";
+    }
+    else if (runtime.candidatePreparationStatus == "request_stale"
+             || runtime.candidatePreparationStatus == "storage_unavailable"
+             || runtime.candidatePreparationStatus == "publication_failed")
+    {
+        state.status = "REFERENCE NOT REFRESHED / A REMAINS LIVE";
+        state.actionText = "RETRY PREPARATION";
+    }
+    else if (runtime.candidatePreparationStatus.isNotEmpty())
     {
         state.status = "REFERENCE SETUP NEEDS ATTENTION / A REMAINS LIVE";
         state.actionText = "OPEN REFERENCE";

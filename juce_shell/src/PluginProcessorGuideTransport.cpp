@@ -161,6 +161,16 @@ bool KirinHyphaProcessorBase::selectReferenceCandidate (const juce::String& id)
    #endif
 }
 
+bool KirinHyphaProcessorBase::retryReferenceCandidatePreparation()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->retryCandidatePreparation();
+   #else
+    return false;
+   #endif
+}
+
 bool KirinHyphaProcessorBase::selectReferenceCue (const juce::String& id)
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY

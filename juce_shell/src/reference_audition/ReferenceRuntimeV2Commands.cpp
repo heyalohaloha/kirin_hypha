@@ -39,6 +39,7 @@ namespace hypha::reference_audition
         RuntimeSelectionOption option;
         RuntimeIdentity identity;
         std::optional<PresetSelectionRequest> cancelled;
+        std::optional<CandidatePreparationRequest> cancelledCandidate;
         std::int64_t manifestRevision = 0;
         std::uint64_t configurationGeneration = 0;
         bool restorePublishedSelection = false;
@@ -49,6 +50,15 @@ namespace hypha::reference_audition
                 [&] (const auto& item) { return item.id == id; });
             if (found == currentSnapshot.presets.end()) return false;
             option = *found;
+            if (option.requiresPreparation && pendingPresetSelectionRequest) return false;
+            cancelledCandidate = pendingCandidatePreparationRequest;
+            pendingCandidatePreparationRequest.reset();
+            failedCandidatePreparationTarget.reset();
+            currentSnapshot.candidatePreparationStatus.clear();
+            currentSnapshot.candidatePreparationAction.clear();
+            currentSnapshot.candidatePreparationTargetId.clear();
+            candidatePreparationWaitingSinceMs = 0;
+            candidatePreparationStatusExpiresAtMs = 0;
             if (! option.requiresPreparation)
             {
                 cancelled = pendingPresetSelectionRequest;
@@ -67,12 +77,13 @@ namespace hypha::reference_audition
             }
             else
             {
-                if (pendingPresetSelectionRequest) return false;
                 identity = requestedConfiguration.identity;
                 configurationGeneration = requestedConfiguration.generation;
                 manifestRevision = currentSnapshot.manifestRevision;
             }
         }
+        if (cancelledCandidate)
+            candidatePreparationTransport.removeExchange (*cancelledCandidate);
         if (manifestRevision == -1)
         {
             if (cancelled) presetSelectionTransport.removeExchange (*cancelled);
@@ -155,12 +166,21 @@ namespace hypha::reference_audition
 
     bool RuntimeV2Controller::selectCheck (const juce::String& id)
     {
+        std::optional<CandidatePreparationRequest> cancelled;
+        {
+            const juce::ScopedLock lock (stateLock);
+            if (id == currentSnapshot.checkId) return true;
+            cancelled = pendingCandidatePreparationRequest;
+            pendingCandidatePreparationRequest.reset();
+            failedCandidatePreparationTarget.reset();
+            currentSnapshot.candidatePreparationStatus.clear();
+            currentSnapshot.candidatePreparationAction.clear();
+            currentSnapshot.candidatePreparationTargetId.clear();
+            candidatePreparationWaitingSinceMs = 0;
+            candidatePreparationStatusExpiresAtMs = 0;
+        }
+        if (cancelled) candidatePreparationTransport.removeExchange (*cancelled);
         return requestSelection ("check", id);
-    }
-
-    bool RuntimeV2Controller::selectCandidate (const juce::String& id)
-    {
-        return requestSelection ("candidate", id);
     }
 
     bool RuntimeV2Controller::selectCue (const juce::String& id)
@@ -195,9 +215,15 @@ namespace hypha::reference_audition
                         currentSnapshot.candidateId };
             if (currentSnapshot.presetSelectionTargetId.isNotEmpty())
                 context.presetId = runtimePresetOptionIdentity (currentSnapshot.presetSelectionTargetId);
+            if (currentSnapshot.candidatePreparationTargetId.isNotEmpty())
+                context.candidateId = currentSnapshot.candidatePreparationTargetId;
             if (currentSnapshot.presetSelectionAction == "choose_source")
                 destination = RecoveryDestination::candidateSource;
             else if (currentSnapshot.presetSelectionAction == "measure_source")
+                destination = RecoveryDestination::candidateMeasurement;
+            if (currentSnapshot.candidatePreparationAction == "choose_source")
+                destination = RecoveryDestination::candidateSource;
+            else if (currentSnapshot.candidatePreparationAction == "measure_source")
                 destination = RecoveryDestination::candidateMeasurement;
             if (currentSnapshot.rejectionCode.contains ("source"))
                 destination = RecoveryDestination::candidateSource;
@@ -222,6 +248,15 @@ namespace hypha::reference_audition
                 currentSnapshot.presetSelectionAction.clear();
                 currentSnapshot.presetSelectionTargetId.clear();
                 presetSelectionStatusExpiresAtMs = 0;
+            }
+            if (currentSnapshot.candidatePreparationAction.isNotEmpty()
+                && currentSnapshot.candidatePreparationAction != "retry")
+            {
+                failedCandidatePreparationTarget.reset();
+                currentSnapshot.candidatePreparationStatus.clear();
+                currentSnapshot.candidatePreparationAction.clear();
+                currentSnapshot.candidatePreparationTargetId.clear();
+                candidatePreparationStatusExpiresAtMs = 0;
             }
         }
         notify();

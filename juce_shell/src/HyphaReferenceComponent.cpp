@@ -185,6 +185,7 @@ void Component::setState (State next)
     syncSelectionControl (checkBox, current.checks, current.checkId);
     syncSelectionControl (candidateBox, current.candidates, current.candidateId);
     syncSelectionControl (cueBox, current.cues, current.cueId);
+    cueBox.setEnabled (cueBox.isEnabled() && ! current.candidatePreparationPending);
     const bool showDetailedSelectors = detailedLayout() && ! blindSession;
     presetBox.setVisible (showDetailedSelectors && ! current.presets.empty());
     checkBox.setVisible (! blindSession && ! current.checks.empty());
