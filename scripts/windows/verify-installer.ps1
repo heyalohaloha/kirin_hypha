@@ -10,7 +10,9 @@ param(
   [string]$Signing,
 
   [Parameter(Mandatory = $true)]
-  [string]$Manifest
+  [string]$Manifest,
+
+  [string]$AaxWraptool = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,6 +63,20 @@ function Get-SignatureRecord([string]$Role, [string]$FilePath, [string]$Expected
   return $record
 }
 
+function Resolve-AaxWraptool([string]$Requested) {
+  $candidates = @(
+    $Requested,
+    (Join-Path $env:ProgramFiles "PACEAntiPiracy\Eden\Fusion\Current\bin\wraptool.exe"),
+    (Join-Path $env:ProgramFiles "PACEAntiPiracy\Eden\Fusion\Versions\6\bin\wraptool.exe")
+  ) | Where-Object { $_ -ne "" }
+  foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+      return (Resolve-Path -LiteralPath $candidate).Path
+    }
+  }
+  throw "PACE wraptool.exe is required to verify an AAX installer"
+}
+
 function Find-HyphaUninstallEntries {
   $roots = @(
     "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -102,37 +118,85 @@ function Assert-Payload([string]$InstalledRoot, [string]$SourceRoot) {
   return $records
 }
 
+function Assert-AaxPayload([string]$InstalledRoot, [string]$SourceRoot, [string]$Wraptool) {
+  $records = @()
+  foreach ($role in @("PRE", "POST")) {
+    $bundleName = "Kirin Hypha ${role}.aaxplugin"
+    $relativeBinary = "Contents\x64\$bundleName"
+    $sourceBinary = Resolve-RequiredFile (Join-Path (Join-Path $SourceRoot $bundleName) $relativeBinary) "source $role AAX binary"
+    $installedBinary = Resolve-RequiredFile (Join-Path (Join-Path $InstalledRoot $bundleName) $relativeBinary) "installed $role AAX binary"
+    $sourceHash = Get-Sha256 $sourceBinary
+    $installedHash = Get-Sha256 $installedBinary
+    if ($sourceHash -ne $installedHash) {
+      throw "$role installed AAX hash mismatch: $installedHash != $sourceHash"
+    }
+    $records += Get-SignatureRecord "installed $role AAX binary" $installedBinary "signed"
+    & $Wraptool verify --localonly --in $installedBinary
+    if ($LASTEXITCODE -ne 0) {
+      throw "PACE verification failed for installed $role AAX binary"
+    }
+  }
+  return $records
+}
+
 $installerPath = Resolve-RequiredFile $Installer "installer"
 $payloadPath = Resolve-RequiredDirectory $PayloadDir "installer payload"
 $manifestPath = Resolve-RequiredFile $Manifest "installer manifest"
-$userVst3 = Join-Path $env:LOCALAPPDATA "Programs\Common\VST3"
-$uninstallRoot = Join-Path $env:LOCALAPPDATA "Programs\Kirin Mastering\Kirin Hypha"
-$preBundle = Join-Path $userVst3 "Kirin Hypha PRE.vst3"
-$postBundle = Join-Path $userVst3 "Kirin Hypha POST.vst3"
+$manifestData = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$withAax = [bool]$manifestData.distribution.aax_included
+$vst3Root = if ($withAax) {
+  Join-Path $env:CommonProgramFiles "VST3"
+} else {
+  Join-Path $env:LOCALAPPDATA "Programs\Common\VST3"
+}
+$uninstallRoot = if ($withAax) {
+  Join-Path $env:ProgramFiles "Kirin Mastering\Kirin Hypha"
+} else {
+  Join-Path $env:LOCALAPPDATA "Programs\Kirin Mastering\Kirin Hypha"
+}
+$aaxRoot = Join-Path $env:CommonProgramFiles "Avid\Audio\Plug-Ins"
+$preBundle = Join-Path $vst3Root "Kirin Hypha PRE.vst3"
+$postBundle = Join-Path $vst3Root "Kirin Hypha POST.vst3"
+$preAaxBundle = Join-Path $aaxRoot "Kirin Hypha PRE.aaxplugin"
+$postAaxBundle = Join-Path $aaxRoot "Kirin Hypha POST.aaxplugin"
+$resolvedWraptool = if ($withAax) { Resolve-AaxWraptool $AaxWraptool } else { "" }
 
 if ((Test-Path -LiteralPath $preBundle) -or (Test-Path -LiteralPath $postBundle) -or
+    ($withAax -and ((Test-Path -LiteralPath $preAaxBundle) -or (Test-Path -LiteralPath $postAaxBundle))) -or
     (Test-Path -LiteralPath $uninstallRoot) -or @(Find-HyphaUninstallEntries).Count -ne 0) {
   throw "Refusing installer verification because Kirin Hypha is already installed for this runner"
 }
 
-New-Item -ItemType Directory -Force -Path $userVst3 | Out-Null
-$sentinel = Join-Path $userVst3 ("kirin-hypha-preserve-" + [Guid]::NewGuid().ToString("N") + ".txt")
+New-Item -ItemType Directory -Force -Path $vst3Root | Out-Null
+$sentinel = Join-Path $vst3Root ("kirin-hypha-preserve-" + [Guid]::NewGuid().ToString("N") + ".txt")
 Set-Content -LiteralPath $sentinel -Value "unrelated VST3 sentinel" -Encoding utf8
+$aaxSentinel = $null
+if ($withAax) {
+  New-Item -ItemType Directory -Force -Path $aaxRoot | Out-Null
+  $aaxSentinel = Join-Path $aaxRoot ("kirin-hypha-preserve-" + [Guid]::NewGuid().ToString("N") + ".txt")
+  Set-Content -LiteralPath $aaxSentinel -Value "unrelated AAX sentinel" -Encoding utf8
+}
 $records = @()
 $uninstallerPath = $null
 
 try {
   $records += Get-SignatureRecord "installer" $installerPath $Signing
+  $installScope = if ($withAax) { "/ALLUSERS" } else { "/CURRENTUSER" }
   foreach ($installPass in 1..2) {
     $process = Start-Process -FilePath $installerPath -ArgumentList @(
-      "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER"
+      "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $installScope
     ) -Wait -PassThru
     if ($process.ExitCode -ne 0) {
       throw "Installer pass $installPass failed with exit code $($process.ExitCode)"
     }
     Wait-PathState $preBundle $true "installed PRE bundle"
     Wait-PathState $postBundle $true "installed POST bundle"
-    $passRecords = @(Assert-Payload $userVst3 $payloadPath)
+    $passRecords = @(Assert-Payload $vst3Root $payloadPath)
+    if ($withAax) {
+      Wait-PathState $preAaxBundle $true "installed PRE AAX bundle"
+      Wait-PathState $postAaxBundle $true "installed POST AAX bundle"
+      $passRecords += @(Assert-AaxPayload $aaxRoot $payloadPath $resolvedWraptool)
+    }
     if ($installPass -eq 2) { $records += $passRecords }
   }
 
@@ -154,14 +218,20 @@ try {
   }
   Wait-PathState $preBundle $false "PRE bundle removal"
   Wait-PathState $postBundle $false "POST bundle removal"
+  if ($withAax) {
+    Wait-PathState $preAaxBundle $false "PRE AAX bundle removal"
+    Wait-PathState $postAaxBundle $false "POST AAX bundle removal"
+  }
   if (!(Test-Path -LiteralPath $sentinel -PathType Leaf)) {
     throw "Uninstaller removed an unrelated VST3 file"
+  }
+  if ($withAax -and !(Test-Path -LiteralPath $aaxSentinel -PathType Leaf)) {
+    throw "Uninstaller removed an unrelated AAX file"
   }
   if (@(Find-HyphaUninstallEntries).Count -ne 0) {
     throw "Uninstaller left a Kirin Hypha registry entry"
   }
 
-  $manifestData = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
   $expectedInstallerHash = [string]$manifestData.installer.sha256
   if ((Get-Sha256 $installerPath) -ne $expectedInstallerHash) {
     throw "Installer no longer matches its build manifest"
@@ -173,14 +243,17 @@ try {
   }) -Force
   $manifestData.ci_validation.status = "passed"
   $manifestData.ci_validation | Add-Member -NotePropertyName verified_at -NotePropertyValue ((Get-Date).ToUniversalTime().ToString("o")) -Force
-  $manifestData.ci_validation | Add-Member -NotePropertyName facts -NotePropertyValue @(
-    "per-user silent install passed",
+  $facts = @(
+    $(if ($withAax) { "all-users silent install passed" } else { "per-user silent install passed" }),
     "same-version repeat install passed",
     "installed PRE/POST hashes match packaged payload",
+    $(if ($withAax) { "installed PRE/POST AAX passed Authenticode and PACE verification" }),
     "silent uninstall removed both owned bundles",
     "unrelated VST3 sentinel survived uninstall",
+    $(if ($withAax) { "unrelated AAX sentinel survived uninstall" }),
     "uninstall registry entry was removed"
-  ) -Force
+  ) | Where-Object { $null -ne $_ }
+  $manifestData.ci_validation | Add-Member -NotePropertyName facts -NotePropertyValue $facts -Force
   $manifestData.distribution.public_ready = (
     $Signing -eq "signed" -and $manifestData.external_validation.status -eq "complete"
   )
@@ -192,10 +265,15 @@ try {
       "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
     ) -Wait -ErrorAction SilentlyContinue | Out-Null
   }
-  foreach ($ownedPath in @($preBundle, $postBundle, $uninstallRoot)) {
+  $ownedPaths = @($preBundle, $postBundle, $uninstallRoot)
+  if ($withAax) { $ownedPaths += @($preAaxBundle, $postAaxBundle) }
+  foreach ($ownedPath in $ownedPaths) {
     if (Test-Path -LiteralPath $ownedPath) {
       Remove-Item -LiteralPath $ownedPath -Recurse -Force -ErrorAction SilentlyContinue
     }
   }
   Remove-Item -LiteralPath $sentinel -Force -ErrorAction SilentlyContinue
+  if ($null -ne $aaxSentinel) {
+    Remove-Item -LiteralPath $aaxSentinel -Force -ErrorAction SilentlyContinue
+  }
 }

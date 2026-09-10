@@ -48,8 +48,9 @@ step on the Mac holding the physical authorization device. The Windows leg remai
 
 ## Remaining external gates
 
-- The external AAX SDK 2.9.0 and the macOS Universal PRE/POST build and signing path were verified
-  on 2026-09-10. Configure, build, sign, and install PRE/POST on the Windows host.
+- The external AAX SDK 2.9.0, macOS Universal build/signing path, and Windows x64 PRE/POST build
+  path were verified on 2026-09-10. Windows PACE/Authenticode signing and installer validation
+  remain.
 - Verify identifiers, category, channel layouts, bypass, latency, state restore, and Offline Bounce
   in the supported Pro Tools versions.
 - Complete the Windows PACE/Authenticode signing order and Windows installer validation.

@@ -19,6 +19,11 @@ import {
   signingEnvironment,
   waitForFreshWindow,
 } from './sign-codesigntool.mjs';
+import {
+  inspectWindowsAaxRecord,
+  loadWindowsAaxBundleManifest,
+  readPeMachine,
+} from './windows-aax-bundles.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,11 +39,22 @@ function createBundle(root, role) {
   return bundle;
 }
 
+function createPeFixture(filePath, machine = 0x8664) {
+  const data = Buffer.alloc(256);
+  data.write('MZ', 0, 'ascii');
+  data.writeUInt32LE(0x80, 0x3c);
+  data.write('PE\0\0', 0x80, 'ascii');
+  data.writeUInt16LE(machine, 0x84);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, data);
+}
+
 test('Windows installer arguments default to unsigned fail-safe CI mode', () => {
   assert.deepEqual(
     parseBuildArgs([]),
     {
       artifactDir: 'juce_shell/build-windows',
+      aaxArtifactDir: '',
       outputDir: 'dist/WINDOWS_CI',
       signing: 'unsigned',
       externalValidation: 'pending',
@@ -49,8 +65,26 @@ test('Windows installer arguments default to unsigned fail-safe CI mode', () => 
     },
   );
   assert.equal(parseBuildArgs(['--signing', 'signed']).signing, 'signed');
+  assert.equal(parseBuildArgs(['--aax-artifact-dir', 'build-aax']).aaxArtifactDir, 'build-aax');
+  assert.throws(() => parseBuildArgs(['--aax-artifact-dir']), /requires a value/);
   assert.throws(() => parseBuildArgs(['--signing', 'targeted']), /unsigned or signed/);
   assert.throws(() => parseBuildArgs(['--external-validation', 'reported']), /pending or complete/);
+});
+
+test('Windows AAX manifest and PE gate require exact PRE/POST x64 bundles', (context) => {
+  const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-aax-bundles-'));
+  context.after(() => fs.rmSync(artifactRoot, { recursive: true, force: true }));
+  const manifest = loadWindowsAaxBundleManifest({ artifactRoot });
+  assert.deepEqual(manifest.bundles.map((record) => record.role), ['PRE', 'POST']);
+  for (const record of manifest.bundles) {
+    const binary = path.join(record.bundle, ...record.binaryRelative.split('/'));
+    createPeFixture(binary);
+    assert.equal(readPeMachine(binary), 0x8664);
+    assert.equal(inspectWindowsAaxRecord(record).role, record.role);
+  }
+  const post = manifest.bundles[1];
+  createPeFixture(path.join(post.bundle, ...post.binaryRelative.split('/')), 0x14c);
+  assert.throws(() => inspectWindowsAaxRecord(post), /expected x64/);
 });
 
 test('bundle discovery requires one complete PRE and POST Windows bundle', (context) => {
@@ -81,11 +115,25 @@ test('Inno compiler signed route uses the shared eSigner hook', () => {
   assert.ok(signed.includes('/DSignedBuild=1'));
   assert.ok(signed.some((arg) => arg.startsWith('/Skirin_esigner=')));
   assert.ok(signed.some((arg) => arg.endsWith('--input-file $f')));
+
+  const withAax = innoCompilerArgs({
+    outputDir: 'C:\\out',
+    payloadDir: 'C:\\payload',
+    signing: 'signed',
+    aaxRecords: [
+      { role: 'PRE', bundle: 'C:\\payload\\Kirin Hypha PRE.aaxplugin' },
+      { role: 'POST', bundle: 'C:\\payload\\Kirin Hypha POST.aaxplugin' },
+    ],
+  });
+  assert.ok(withAax.includes('/DWithAax=1'));
+  assert.ok(withAax.some((arg) => arg.startsWith('/DPreAaxBundle=')));
+  assert.ok(withAax.some((arg) => arg.startsWith('/DPostAaxBundle=')));
 });
 
 test('Inno recipe owns only Kirin bundle paths and signs generated uninstall surfaces', () => {
   const source = fs.readFileSync(path.join(scriptDir, 'kirin-hypha-installer.iss'), 'utf8');
   assert.match(source, /PrivilegesRequired=lowest/);
+  assert.match(source, /PrivilegesRequired=admin/);
   assert.match(source, /PrivilegesRequiredOverridesAllowed=commandline dialog/);
   assert.match(source, /DefaultDirName=\{autocf\}\\VST3/);
   assert.match(source, /UninstallFilesDir=\{autopf\}\\Kirin Mastering\\Kirin Hypha/);
@@ -96,8 +144,10 @@ test('Inno recipe owns only Kirin bundle paths and signs generated uninstall sur
   assert.match(source, /^ArchitecturesAllowed=x64os$/m);
   assert.match(source, /^ArchitecturesInstallIn64BitMode=x64os$/m);
   assert.doesNotMatch(source, /^Architectures(?:Allowed|InstallIn64BitMode)=x64$/m);
-  assert.equal((source.match(/Type: filesandordirs/g) || []).length, 2);
+  assert.equal((source.match(/Type: filesandordirs/g) || []).length, 4);
   assert.doesNotMatch(source, /Type:\s*filesandordirs;\s*Name:\s*"\{autocf\}\\VST3"/);
+  assert.match(source, /\{commoncf\}\\Avid\\Audio\\Plug-Ins\\Kirin Hypha PRE\.aaxplugin/);
+  assert.match(source, /\{commoncf\}\\Avid\\Audio\\Plug-Ins\\Kirin Hypha POST\.aaxplugin/);
 });
 
 test('installer verifier gates same-version reinstall, signed uninstaller, and unrelated VST3 preservation', () => {
@@ -106,6 +156,10 @@ test('installer verifier gates same-version reinstall, signed uninstaller, and u
   assert.match(source, /installed uninstaller/);
   assert.match(source, /Get-AuthenticodeSignature/);
   assert.match(source, /Uninstaller removed an unrelated VST3 file/);
+  assert.match(source, /Assert-AaxPayload/);
+  assert.match(source, /wraptool verify --localonly|\$Wraptool verify --localonly/);
+  assert.match(source, /PACE verification failed/);
+  assert.match(source, /Uninstaller removed an unrelated AAX file/);
   assert.match(source, /Find-HyphaUninstallEntries/);
   assert.match(source, /distribution\.public_ready/);
 });

@@ -58,3 +58,10 @@ test('self-hosted macOS AAX CI uses the Universal build entry point', () => {
   assert.match(workflow, /x86_64-apple-darwin aarch64-apple-darwin/);
   assert.doesNotMatch(workflow, /Build macOS Universal AAX[\s\S]*--sign/);
 });
+
+test('self-hosted Windows AAX CI uses the x64 build entry point without signing', () => {
+  const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/aax-phase-a.yml'), 'utf8');
+  assert.match(workflow, /scripts\/build_aax_windows\.ps1/);
+  assert.match(workflow, /-LicenseConfirmed/);
+  assert.doesNotMatch(workflow, /Build Windows x64 AAX without signing[\s\S]*wraptool/);
+});

@@ -1,0 +1,17 @@
+{
+  "schema": "kirin-hypha-windows-aax-bundles-v1",
+  "bundles": [
+    {
+      "role": "PRE",
+      "source_relative": "KirinHyphaPRE_artefacts/Release/AAX/Kirin Hypha PRE.aaxplugin",
+      "binary_relative": "Contents/x64/Kirin Hypha PRE.aaxplugin",
+      "install_relative": "Avid/Audio/Plug-Ins/Kirin Hypha PRE.aaxplugin"
+    },
+    {
+      "role": "POST",
+      "source_relative": "KirinHyphaPOST_artefacts/Release/AAX/Kirin Hypha POST.aaxplugin",
+      "binary_relative": "Contents/x64/Kirin Hypha POST.aaxplugin",
+      "install_relative": "Avid/Audio/Plug-Ins/Kirin Hypha POST.aaxplugin"
+    }
+  ]
+}
