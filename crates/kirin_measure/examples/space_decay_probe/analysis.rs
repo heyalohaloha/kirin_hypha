@@ -31,6 +31,24 @@ pub(crate) fn power(samples: &[f32], channels: usize) -> f64 {
         / channels as f64
 }
 
+pub(crate) fn validate_input(
+    pcm: &[f32],
+    rate: u32,
+    channels: usize,
+    floor_db: f64,
+) -> Result<(), &'static str> {
+    if !(8_000..=768_000).contains(&rate)
+        || !matches!(channels, 1 | 2)
+        || !pcm.len().is_multiple_of(channels)
+        || pcm.iter().any(|sample| !sample.is_finite())
+        || !floor_db.is_finite()
+        || !(-300.0..=0.0).contains(&floor_db)
+    {
+        return Err("invalid_input");
+    }
+    Ok(())
+}
+
 pub(crate) fn early(
     pcm: &[f32],
     rate: u32,
@@ -118,15 +136,7 @@ pub(crate) fn analyze(
     end_ms: u32,
     floor_db: f64,
 ) -> Result<Facts, &'static str> {
-    if !(8_000..=768_000).contains(&rate)
-        || !matches!(channels, 1 | 2)
-        || !pcm.len().is_multiple_of(channels)
-        || pcm.iter().any(|sample| !sample.is_finite())
-        || !floor_db.is_finite()
-        || !(-300.0..=0.0).contains(&floor_db)
-    {
-        return Err("invalid_input");
-    }
+    validate_input(pcm, rate, channels, floor_db)?;
     let floor = 10.0_f64.powf(floor_db / 10.0);
     let early = early(pcm, rate, channels, floor);
     let fit = fit(pcm, rate, channels, start_ms, end_ms, floor);

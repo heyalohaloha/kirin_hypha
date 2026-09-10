@@ -100,3 +100,87 @@ fn boundaries_round_from_origin_even_at_fractional_hop_rates() {
         .unwrap();
     assert!((fit.d20_seconds.unwrap() - 0.5).abs() < 1e-6);
 }
+
+fn levels(rate: u32, levels_db: &[f64]) -> Vec<f32> {
+    let frames = boundary(rate, 10).unwrap();
+    levels_db
+        .iter()
+        .flat_map(|db| std::iter::repeat_n(10.0_f64.powf(db / 20.0) as f32, frames))
+        .collect()
+}
+
+#[test]
+fn local_profile_keeps_multiple_decays_separate_from_single_interval_d20() {
+    let pcm = levels(
+        48_000,
+        &[0.0, -3.0, -6.0, -4.0, -7.0, -10.0, -5.0, -8.0, -12.0],
+    );
+    let profile = local_decay_profile(&pcm, 48_000, 1, 0, 90, -90.0, &[1.5, 6.0]).unwrap();
+    assert_eq!(profile.valid_bin_count, 9);
+    assert_eq!(profile.below_floor_bin_count, 0);
+    assert_eq!(profile.valid_span_count, 1);
+    assert_eq!(profile.thresholds[0].episodes.len(), 3);
+    assert_eq!(profile.thresholds[1].episodes.len(), 1);
+    for (episode, expected) in profile.thresholds[0].episodes.iter().zip([6.0, 6.0, 7.0]) {
+        assert!((episode.observed_fall_db - expected).abs() < 1e-5);
+        assert!(episode.slope_db_per_second < 0.0);
+    }
+    assert_eq!(profile.thresholds[0].episodes[0].end_reason, "recovery");
+    assert_eq!(profile.thresholds[0].episodes[2].end_reason, "interval_end");
+    assert!((profile.thresholds[1].episodes[0].observed_fall_db - 12.0).abs() < 1e-5);
+}
+
+#[test]
+fn floor_bins_split_local_spans_without_bridging_or_padding() {
+    let pcm = levels(48_000, &[0.0, -3.0, -100.0, -1.0, -5.0]);
+    let profile = local_decay_profile(&pcm, 48_000, 1, 0, 50, -90.0, &[2.0]).unwrap();
+    assert_eq!(profile.valid_bin_count, 4);
+    assert_eq!(profile.below_floor_bin_count, 1);
+    assert_eq!(profile.valid_span_count, 2);
+    assert_eq!(profile.thresholds[0].episodes.len(), 2);
+    assert_eq!(
+        profile.thresholds[0].episodes[0].end_reason,
+        "floor_boundary"
+    );
+    assert_eq!(profile.thresholds[0].episodes[1].end_reason, "interval_end");
+}
+
+#[test]
+fn local_profile_is_invariant_to_native_rate_stereo_antiphase_and_fixed_gain() {
+    for rate in [44_100, 48_000, 96_000] {
+        for gain_db in [0.0, -12.0] {
+            let shifted = [0.0, -3.0, -7.0, -1.0, -5.0, -9.0].map(|level| level + gain_db);
+            let mono = levels(rate, &shifted);
+            let stereo = mono
+                .iter()
+                .flat_map(|sample| [*sample, -*sample])
+                .collect::<Vec<_>>();
+            for (pcm, channels) in [(&mono, 1), (&stereo, 2)] {
+                let profile =
+                    local_decay_profile(pcm, rate, channels, 0, 60, -90.0, &[5.0]).unwrap();
+                let episodes = &profile.thresholds[0].episodes;
+                assert_eq!(episodes.len(), 2);
+                assert!((episodes[0].observed_fall_db - 7.0).abs() < 1e-5);
+                assert!((episodes[1].observed_fall_db - 8.0).abs() < 1e-5);
+                assert_eq!(
+                    episodes[0].trough_window_end_exclusive_sample
+                        - episodes[0].peak_window_start_sample,
+                    boundary(rate, 30).unwrap()
+                );
+                assert_eq!(episodes[0].end_reason, "recovery");
+                assert_eq!(episodes[1].end_reason, "interval_end");
+            }
+        }
+    }
+}
+
+#[test]
+fn local_profile_refuses_unordered_or_nonfinite_diagnostic_thresholds() {
+    let pcm = levels(48_000, &[0.0; 10]);
+    for thresholds in [&[][..], &[2.0, 1.0], &[f64::NAN], &[0.0]] {
+        assert_eq!(
+            local_decay_profile(&pcm, 48_000, 1, 0, 100, -90.0, thresholds).unwrap_err(),
+            "local_profile_parameters_invalid"
+        );
+    }
+}
