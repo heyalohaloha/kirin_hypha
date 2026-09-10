@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceRuntimeV2PlaybackIdentity.h"
 
 #include <cmath>
 #include <limits>
@@ -217,9 +218,8 @@ namespace hypha::reference_audition
         next.aRecordingId = activeABinding ? activeABinding->recordingId : juce::String {};
         next.aCaptureAvailable = aCapture.currentReceipt().has_value();
         next.manifestRevision = workspace->manifest.revision;
-        const auto publicationKey = juce::String (next.manifestRevision) + ":"
-            + next.presetId + ":" + next.checkId + ":" + next.candidateId + ":"
-            + next.cueId + ":" + next.comparisonMode;
+        const auto publicationKey = runtimeSelectionPlaybackIdentity (
+            *preset, *check, *candidate, *cue);
         if (publicationKey != activePublishedSelectionKey)
         {
             revokeAuditionPublication();
@@ -321,9 +321,8 @@ namespace hypha::reference_audition
             cue->startSample, cue->sampleRateHz, hostRate);
         const auto mappedCueEnd = outputSample (
             cue->endSample, cue->sampleRateHz, hostRate);
-        const auto mappingKey = activeSourceKey + ":" + cue->cueId + ":"
-            + juce::String (cue->startSample) + ":" + juce::String (cue->endSample)
-            + ":" + (cue->loopEnabled ? "loop" : "once");
+        const auto cueKey = runtimeCuePlaybackIdentity (*cue);
+        const auto mappingKey = activeSourceKey + ":" + cueKey;
         if (activeMappingKey != mappingKey)
         {
             mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
@@ -356,7 +355,7 @@ namespace hypha::reference_audition
             && candidate->sourceVersionId.isNotEmpty();
         const auto nextBlindContextKey = blindIdentityMatches
             ? activeABinding->bindingId + ":" + candidate->sourceArtifact.sha256 + ":"
-                + cue->cueId + ":" + juce::String (next.hostSampleRateHz)
+                + cueKey + ":" + juce::String (next.hostSampleRateHz)
             : juce::String {};
         if (nextBlindContextKey != blindContextKey)
         {
@@ -368,7 +367,7 @@ namespace hypha::reference_audition
         }
         const auto nextBlindKey = blindIdentityMatches && capturedA != nullptr
             ? capturedA->cuePcmSha256 + ":" + candidate->sourceArtifact.sha256 + ":"
-                + cue->cueId + ":" + juce::String (next.hostSampleRateHz)
+                + cueKey + ":" + juce::String (next.hostSampleRateHz)
             : juce::String {};
         if (nextBlindKey.isEmpty() && blindPreparationKey.isNotEmpty()
             && ! blind.ongoing())

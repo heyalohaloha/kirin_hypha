@@ -1,10 +1,11 @@
 #include "reference_runtime_v2_analysis_test_support.h"
 #include "reference_runtime_os_fixture.h"
+#include "reference_runtime_v2_refresh_test_support.h"
 
 void testRuntimeV2Workspace (const juce::File& sandbox);
 void testRuntimeV2SourceCache();
 
-int main()
+int main (int argc, char** argv)
 {
     if (testRuntimeOsFixtureIfRequested()) return 0;
     require (ref::safeId (workId), "Work UUID must be a safe ID");
@@ -15,6 +16,20 @@ int main()
     const auto sandbox = juce::File::getSpecialLocation (juce::File::tempDirectory)
                              .getNonexistentChildFile ("hypha-reference-audition", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
+    if (argc == 2 && juce::String (argv[1]) == "--blind-refresh-only")
+    {
+        verifyIsolatedBlindRefresh (sandbox);
+        require (sandbox.deleteRecursively(), "isolated Blind fixtures must be removed");
+        return 0;
+    }
+    if (argc == 2 && juce::String (argv[1]) == "--workspace-only")
+    {
+        require (writeStereoWav (sandbox.getChildFile ("version-a.wav")), "workspace source must exist");
+        testRuntimeV2Workspace (sandbox);
+        require (sandbox.deleteRecursively(), "temporary workspace fixtures must be removed");
+        std::cout << "Reference workspace runtime: pass\n";
+        return 0;
+    }
     testRuntimeEventTransport (sandbox);
     testRuntimeV2Blind (sandbox);
     testRuntimeACapture (sandbox.getChildFile ("plugin_data").getChildFile ("reference")

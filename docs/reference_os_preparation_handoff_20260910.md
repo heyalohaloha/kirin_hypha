@@ -18,3 +18,5 @@ OSの特徴artifact公開と、Hypha既存`blind.prepare`経路の自動照合�
 全体suite、release build、配布物作成、インストールは実行していない。Reference完成／公開readyではない。
 
 正本: OS `docs/reference_source_preparation_20260910.md` と `docs/reference_release_readiness_audit_20260910.md`。
+
+続き: B-799／W-3023–W-3024の更新境界と残項目は`reference_publication_refresh_handoff_20260910.md`。全Preset先行準備待ちを短縮する前に、試聴を不要に解除しないconsumerと、古い設定を公開しないproducerを実装した。

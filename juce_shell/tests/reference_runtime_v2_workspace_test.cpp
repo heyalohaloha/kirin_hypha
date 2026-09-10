@@ -419,7 +419,7 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             require (writeJson (presetFile, alignedPreset)
                      && writeJson (manifestFile,
                                    makeRuntimeV2Manifest (
-                                       presetId, revisionId, presetFile, 7)),
+                                       presetId, revisionId, presetFile, controller.snapshot().manifestRevision + 1)),
                      "same-recording Work Version must publish before alignment testing");
             const auto alignmentNow = juce::Time::currentTimeMillis();
             require (writeJson (aBindingFile, makeRuntimeABinding (
