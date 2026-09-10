@@ -2,6 +2,8 @@
 
 Status: runtime v2 implemented / Kirin OS automatic preparation and actual Hypha preview connected
 
+2026-09-10の全経路監査で、Factory初回自動準備、詳細測定／alignment／Profileのproduction公開、sample-rate変換のOS移管をリリース前blockerとして確認した。正本はKirin OSの`docs/reference_release_readiness_audit_20260910.md`とし、これらが未完了の間は上記Statusを実装骨格の到達状態としてのみ扱い、Reference完成または公開readyを意味しない。
+
 Date: 2026-09-05
 
 Consumer baseline: B-700 / `65b02b4`
@@ -15,6 +17,27 @@ Canonical cross-product contract: `kirin_sense_lens/docs/reference_product_contr
 Kirin OSでPresetを選んだ後に`Open in Hypha`を要求しない。
 
 HyphaはDAW内でPreset、Check、第1候補、第2候補、A/Bを短い操作で呼び出せるようにする。
+
+### 1.1 CheckとVersion Blindの作業境界（2026-09-10追記）
+
+CheckとVersion Blindは別の作業として扱う。
+
+- PresetはCheckの順序、候補、Cue、通常A/B方式、表示viewをまとめる`Check Preset`であり、BlindのPresetではない。
+- 通常面は`CHECK`を作業名、`CHECK PRESET`を選択名として表示し、A/Bは選択中Checkの通常試聴だけを操作する。
+- Version Blindは同一Recordingの異なるVersionを正体非表示で試聴する独立Trialであり、入口を通常A/B群と同一の操作群に見せない。
+- Version Blindは検証済みCandidateとCueを再利用できるが、Checkの`comparison_mode`、`view_bindings`、測定表示をTrial条件として継承しない。
+- Trial開始後はCheck Preset、Check名、Candidate名、Cue名、通常比較の数値と凡例をpaint、tooltip、accessibilityから隠す。
+- UI上に`Blind Preset`という概念を作らず、Preset変更をVersion Blindの条件設定として説明しない。
+- 通常Checkでは、Kirin OSが準備した同曲の過去VersionまたはReferenceを`B SOURCE`から選び、Aを維持したままBだけを入れ替えられる。これは正体を隠さない通常試聴であり、Version Blindの開始、randomize、回答、Revealを発生させない。
+- Bの入替は受信済みCandidateの一時選択であり、Check Presetの候補順やKirin OS正本を書き換えない。未準備sourceではAを維持し、Kirin OSの準備完了後だけBを有効にする。
+
+### 1.2 Kirin OSとHyphaの責務境界（2026-09-10追記）
+
+- Kirin OSはCheck Presetの作成、編集、保存、音源選択、identity検証、測定、表示view生成、runtime projection公開を所有する。
+- Hyphaは設定を作成、編集、保存、測定、推測、補修しない。Kirin OSが公開したbounded projectionを受け取り、DAW内の表示と利用者が明示した試聴だけを行う。
+- Hypha内のPreset、Check、Candidate、Cue切替は受信済みprojectionの一時的な呼び出しであり、Kirin OS正本を書き換えない。未準備Presetはtyped requestをKirin OSへ返し、準備中もAを維持する。
+- 信頼境界とR-12を守るため、Hyphaは受信artifactのbytes／hash／source revisionを再検証し、選択中source一件だけを非RT threadでopen、decode、page fillする。これは設定・測定・分析ではなく、安全な試聴に必要なbounded consumer処理とする。
+- Audio Threadは準備済みpageのRT-safeな読出しだけを行う。全Presetの先行decode、測定、JSON parse、hash、file I/O、allocation、lockを持ち込まない。
 
 Daisukeの2026-09-05判断により、日本語UIへ`Candidate`を表示しない。上部ラベルは「比較する曲」、先頭2件は「第1候補」「第2候補」、追加は「候補曲を追加」、3件目以後は「その他」とする。内部schema／code上の`candidate`は変更しない。
 

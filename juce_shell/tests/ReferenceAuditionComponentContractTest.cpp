@@ -167,6 +167,10 @@ void verifyReferenceAuditionComponentContract()
     auto* b = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-b"));
     auto* startBlind = dynamic_cast<juce::TextButton*> (
         component.findChildWithID ("reference-blind"));
+    auto* compactCandidate = dynamic_cast<juce::ComboBox*> (
+        component.findChildWithID ("reference-candidate"));
+    auto* compactCheck = dynamic_cast<juce::ComboBox*> (
+        component.findChildWithID ("reference-check"));
     auto* one = dynamic_cast<juce::TextButton*> (
         component.findChildWithID ("reference-blind-1"));
     auto* two = dynamic_cast<juce::TextButton*> (
@@ -182,6 +186,20 @@ void verifyReferenceAuditionComponentContract()
                        && one != nullptr && two != nullptr && answer != nullptr
                        && reveal != nullptr
                        && endBlind != nullptr);
+    KIRIN_REF_REQUIRE (startBlind->getButtonText() == "VERSION BLIND"
+                       && startBlind->getY() > b->getBottom());
+    KIRIN_REF_REQUIRE (compactCheck != nullptr && compactCheck->isVisible()
+                       && compactCandidate != nullptr && compactCandidate->isVisible()
+                       && compactCheck->getTitle() == "Check"
+                       && compactCandidate->getTitle() == "B Source"
+                       && compactCheck->getY() == compactCandidate->getY()
+                       && compactCheck->getRight() < compactCandidate->getX()
+                       && compactCandidate->getY() > b->getBottom()
+                       && compactCandidate->getBottom() < startBlind->getY());
+    compactCheck->setSelectedId (2, juce::sendNotificationSync);
+    compactCandidate->setSelectedId (2, juce::sendNotificationSync);
+    KIRIN_REF_REQUIRE (requestedCheck == "check-b"
+                       && requestedCandidate == "reference-b");
     auto unavailableBlind = readyState();
     unavailableBlind.blindPhase = reference_ui::BlindPhase::unavailable;
     component.setState (unavailableBlind);
@@ -300,6 +318,8 @@ void verifyReferenceAuditionComponentContract()
     KIRIN_REF_REQUIRE (preset != nullptr && check != nullptr && candidate != nullptr
                        && cue != nullptr && preset->isVisible() && check->isVisible()
                        && candidate->isVisible() && cue->isVisible());
+    KIRIN_REF_REQUIRE (candidate->getTooltip().contains ("Replace B")
+                       && candidate->getNumItems() == 2);
     preset->setSelectedId (2, juce::sendNotificationSync);
     check->setSelectedId (2, juce::sendNotificationSync);
     candidate->setSelectedId (2, juce::sendNotificationSync);

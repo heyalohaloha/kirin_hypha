@@ -1,12 +1,14 @@
 #include "reference_runtime_v2_analysis_test_support.h"
 
 void testRuntimeV2Workspace (const juce::File& sandbox);
+void testRuntimeV2SourceCache();
 
 int main()
 {
     require (ref::safeId (workId), "Work UUID must be a safe ID");
     require (! ref::safeId ("../escape"), "path separators must be rejected");
     require (ref::safeUuid (preparationId), "preparation UUID must validate");
+    testRuntimeV2SourceCache();
 
     const auto sandbox = juce::File::getSpecialLocation (juce::File::tempDirectory)
                              .getNonexistentChildFile ("hypha-reference-audition", {}, false);

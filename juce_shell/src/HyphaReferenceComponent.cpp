@@ -13,9 +13,11 @@ namespace hypha::reference_ui
 namespace
 {
 void configureSelector (juce::ComboBox& box, const juce::String& componentId,
-                        const juce::String& tooltip)
+                        const juce::String& title, const juce::String& tooltip)
 {
     box.setComponentID (componentId);
+    box.setTitle (title);
+    box.setDescription (tooltip);
     box.setTooltip (tooltip);
     box.setWantsKeyboardFocus (true);
     box.setColour (juce::ComboBox::backgroundColourId, kFieldFill.withAlpha (0.94f));
@@ -26,29 +28,6 @@ void configureSelector (juce::ComboBox& box, const juce::String& componentId,
 
 }
 
-Component::SideButton::SideButton (const juce::String& text) : juce::TextButton (text)
-{
-    setWantsKeyboardFocus (true);
-    setMouseCursor (juce::MouseCursor::PointingHandCursor);
-}
-
-void Component::SideButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
-{
-    const auto area = getLocalBounds().toFloat().reduced (1.0f);
-    const bool selected = getToggleState();
-    g.setColour ((selected ? COL_SPECTRUM_POST : kFieldFill)
-                     .withAlpha (selected ? 0.24f : highlighted ? 0.86f : 0.62f));
-    g.fillRoundedRectangle (area, 4.0f);
-    g.setColour ((selected ? COL_SPECTRUM_DELTA_BR : COL_MUTED)
-                     .withAlpha (isEnabled() ? (down ? 1.0f : 0.82f) : 0.28f));
-    g.drawRoundedRectangle (area.reduced (0.5f), 4.0f, selected ? 1.2f : 0.7f);
-    g.setColour (! isEnabled() ? COL_MUTED.withAlpha (0.32f)
-                               : selected ? COL_OBSERVATORY_VALUE : COL_NORMAL);
-    g.setFont (labelFont (presentationContext, typography::TextRole::action,
-                          typography::Composition::information));
-    g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
-}
-
 Component::Component()
 {
     setOpaque (false);
@@ -56,10 +35,14 @@ Component::Component()
     checkBox.setLookAndFeel (&selectorLookAndFeel);
     candidateBox.setLookAndFeel (&selectorLookAndFeel);
     cueBox.setLookAndFeel (&selectorLookAndFeel);
-    configureSelector (presetBox, "reference-preset", "Choose a Kirin OS Reference Preset.");
-    configureSelector (checkBox, "reference-check", "Choose what you want to check.");
-    configureSelector (candidateBox, "reference-candidate", "Choose the comparison track.");
-    configureSelector (cueBox, "reference-cue", "Choose the saved listening position.");
+    configureSelector (presetBox, "reference-preset", "Check Preset",
+                       "Temporarily call a Check Preset received from Kirin OS.");
+    configureSelector (checkBox, "reference-check", "Check",
+                       "Temporarily call a Check received from Kirin OS.");
+    configureSelector (candidateBox, "reference-candidate", "B Source",
+                       "Replace B with a prepared past Version or Reference for this audition.");
+    configureSelector (cueBox, "reference-cue", "Cue",
+                       "Choose a prepared listening position for this audition.");
     aButton.setComponentID ("reference-a");
     bButton.setComponentID ("reference-b");
     blindButton.setComponentID ("reference-blind");
@@ -71,7 +54,7 @@ Component::Component()
     actionButton.setComponentID ("reference-action");
     aButton.setTitle ("Audition A");
     bButton.setTitle ("Audition B");
-    blindButton.setTitle ("Start Blind Compare");
+    blindButton.setTitle ("Start Version Blind");
     oneButton.setTitle ("Audition blind source 1");
     twoButton.setTitle ("Audition blind source 2");
     answerButton.setTitle ("Choose the audible blind source as your answer");
@@ -79,7 +62,8 @@ Component::Component()
     endBlindButton.setTitle ("End Blind Compare");
     aButton.setTooltip ("Return to the live DAW mix (A).");
     bButton.setTooltip ("Audition the Kirin OS prepared Reference (B).");
-    blindButton.setTooltip ("Hide the A/B assignment and compare as source 1 and 2.");
+    blindButton.setTooltip (
+        "Start a separate Version Blind trial. Check Preset settings and facts are hidden.");
     oneButton.setTooltip ("Audition source 1. Its identity remains hidden.");
     twoButton.setTooltip ("Audition source 2. Its identity remains hidden.");
     answerButton.setTooltip ("Record the source you are hearing as your answer before reveal.");
@@ -201,11 +185,11 @@ void Component::setState (State next)
     syncSelectionControl (checkBox, current.checks, current.checkId);
     syncSelectionControl (candidateBox, current.candidates, current.candidateId);
     syncSelectionControl (cueBox, current.cues, current.cueId);
-    const bool showSelectors = detailedLayout() && ! blindSession;
-    presetBox.setVisible (showSelectors && ! current.presets.empty());
-    checkBox.setVisible (showSelectors && ! current.checks.empty());
-    candidateBox.setVisible (showSelectors && ! current.candidates.empty());
-    cueBox.setVisible (showSelectors && ! current.cues.empty());
+    const bool showDetailedSelectors = detailedLayout() && ! blindSession;
+    presetBox.setVisible (showDetailedSelectors && ! current.presets.empty());
+    checkBox.setVisible (! blindSession && ! current.checks.empty());
+    candidateBox.setVisible (! blindSession && ! current.candidates.empty());
+    cueBox.setVisible (showDetailedSelectors && ! current.cues.empty());
     actionButton.setButtonText (current.actionText);
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
     resized();
@@ -227,25 +211,17 @@ void Component::resized()
         button.setBounds (header.removeFromRight (width));
         header.removeFromRight (3);
     };
-    if (isBlindSession (current.blindPhase))
+    const bool blindSession = isBlindSession (current.blindPhase);
+    if (blindSession)
     {
         place (endBlindButton, current.blindPhase == BlindPhase::invalidated
             ? (detailedLayout() ? 132 : 94) : buttonWidth);
-        if (revealButton.isVisible())
-            place (revealButton, detailedLayout() ? 78 : 62);
-        if (answerButton.isVisible())
-            place (answerButton, detailedLayout() ? 88 : 70);
-        place (twoButton, buttonWidth);
-        place (oneButton, buttonWidth);
     }
     else
     {
-        if (blindButton.isVisible())
-            place (blindButton, detailedLayout() ? 78 : 62);
         place (bButton, buttonWidth);
         place (aButton, buttonWidth);
     }
-    const bool blindSession = isBlindSession (current.blindPhase);
     if (detailedLayout() && ! blindSession)
     {
         area.removeFromTop (4);
@@ -260,9 +236,56 @@ void Component::resized()
         selectors.removeFromLeft (gap);
         cueBox.setBounds (selectors.removeFromBottom (27));
     }
+    else if (! blindSession && (checkBox.isVisible() || candidateBox.isVisible()))
+    {
+        area.removeFromTop (4);
+        auto selector = area.removeFromTop (24);
+        constexpr int gap = 5;
+        if (checkBox.isVisible() && candidateBox.isVisible())
+        {
+            auto checkSelector = selector.removeFromLeft ((selector.getWidth() - gap) * 5 / 12);
+            selector.removeFromLeft (gap);
+            checkSelector.removeFromLeft (42);
+            selector.removeFromLeft (14);
+            checkBox.setBounds (checkSelector);
+            candidateBox.setBounds (selector);
+        }
+        else if (checkBox.isVisible())
+        {
+            selector.removeFromLeft (42);
+            checkBox.setBounds (selector);
+        }
+        else
+        {
+            selector.removeFromLeft (68);
+            candidateBox.setBounds (selector);
+        }
+    }
+    auto footer = area.removeFromBottom (detailedLayout() ? 24 : 18);
+    if (blindSession)
+    {
+        const auto placeLeft = [&footer] (juce::Component& button, int width)
+        {
+            button.setBounds (footer.removeFromLeft (width));
+            footer.removeFromLeft (3);
+        };
+        const auto placeRight = [&footer] (juce::Component& button, int width)
+        {
+            button.setBounds (footer.removeFromRight (width));
+            footer.removeFromRight (3);
+        };
+        if (oneButton.isVisible()) placeLeft (oneButton, buttonWidth);
+        if (twoButton.isVisible()) placeLeft (twoButton, buttonWidth);
+        if (revealButton.isVisible()) placeRight (revealButton, detailedLayout() ? 78 : 62);
+        if (answerButton.isVisible()) placeRight (answerButton, detailedLayout() ? 88 : 70);
+    }
+    else if (blindButton.isVisible())
+    {
+        blindButton.setBounds (footer.removeFromRight (detailedLayout() ? 112 : 84));
+        footer.removeFromRight (detailedLayout() ? 8 : 6);
+    }
     if (actionButton.isVisible())
-        actionButton.setBounds (area.removeFromBottom (detailedLayout() ? 24 : 18)
-                                    .removeFromRight (detailedLayout() ? 188 : 116));
+        actionButton.setBounds (footer.removeFromRight (detailedLayout() ? 188 : 116));
 }
 
 void Component::paint (juce::Graphics& g)
@@ -273,8 +296,8 @@ void Component::paint (juce::Graphics& g)
     const bool blindStarting = current.blindPhase == BlindPhase::starting;
     const bool blindInvalidated = current.blindPhase == BlindPhase::invalidated;
     const bool blindRevealed = current.blindPhase == BlindPhase::revealed;
-    if (detailedLayout() && ! blindStarting && ! blindActive
-        && ! blindInvalidated && ! blindRevealed)
+    const bool blindSession = isBlindSession (current.blindPhase);
+    if (detailedLayout() && ! blindSession)
     {
         auto selectors = area.removeFromTop (50);
         const int gap = 5;
@@ -287,27 +310,43 @@ void Component::paint (juce::Graphics& g)
                                   typography::Composition::information));
             g.drawText (text, cell.removeFromTop (15), juce::Justification::centredLeft);
         };
-        drawSelectorLabel (selectors.removeFromLeft (columnWidth), "PRESET");
+        drawSelectorLabel (selectors.removeFromLeft (columnWidth), "CHECK PRESET");
         selectors.removeFromLeft (gap);
         drawSelectorLabel (selectors.removeFromLeft (columnWidth), "CHECK");
         selectors.removeFromLeft (gap);
-        drawSelectorLabel (selectors.removeFromLeft (columnWidth), "REFERENCE");
+        drawSelectorLabel (selectors.removeFromLeft (columnWidth), "B SOURCE");
         selectors.removeFromLeft (gap);
         drawSelectorLabel (selectors, "CUE");
     }
-    int controlsWidth = (detailedLayout() ? 62 : 48) * 2 + 3;
-    if (blindInvalidated)
-        controlsWidth = detailedLayout() ? 132 : 94;
-    else if (blindActive)
+    else if (! detailedLayout() && ! blindSession
+             && (checkBox.isVisible() || candidateBox.isVisible()))
     {
-        controlsWidth += (detailedLayout() ? 62 : 48) + 6;
-        if (revealButton.isVisible()) controlsWidth += (detailedLayout() ? 78 : 62) + 3;
-        if (answerButton.isVisible()) controlsWidth += (detailedLayout() ? 88 : 70) + 3;
+        area.removeFromTop (4);
+        auto selector = area.removeFromTop (24);
+        g.setColour (COL_TEXT_TERTIARY.withAlpha (0.92f));
+        g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel,
+                              typography::Composition::information));
+        constexpr int gap = 5;
+        if (checkBox.isVisible() && candidateBox.isVisible())
+        {
+            auto checkSelector = selector.removeFromLeft ((selector.getWidth() - gap) * 5 / 12);
+            selector.removeFromLeft (gap);
+            text_style::drawEllipsized (g, "CHECK", checkSelector.removeFromLeft (38),
+                                        juce::Justification::centredLeft);
+            text_style::drawEllipsized (g, "B", selector.removeFromLeft (10),
+                                        juce::Justification::centredLeft);
+        }
+        else
+        {
+            text_style::drawEllipsized (g, checkBox.isVisible() ? "CHECK" : "B SOURCE",
+                                        selector.removeFromLeft (checkBox.isVisible() ? 38 : 64),
+                                        juce::Justification::centredLeft);
+        }
     }
-    else if (blindRevealed)
-        controlsWidth += (detailedLayout() ? 62 : 48) + 3;
-    else if (blindButton.isVisible())
-        controlsWidth += (detailedLayout() ? 78 : 62) + 3;
+    int controlsWidth = (detailedLayout() ? 62 : 48) * 2 + 3;
+    if (isBlindSession (current.blindPhase))
+        controlsWidth = blindInvalidated ? (detailedLayout() ? 132 : 94)
+                                         : (detailedLayout() ? 62 : 48);
     header.removeFromRight (controlsWidth);
     const auto navigationHeight = juce::roundToInt (typography::resolve (
         presentationContext, typography::TextRole::navigation,
@@ -317,19 +356,21 @@ void Component::paint (juce::Graphics& g)
         g.setColour (COL_FLORA.withAlpha (0.86f));
         g.setFont (labelFont (presentationContext, typography::TextRole::navigation,
                               typography::Composition::information));
-        text_style::draw (g, "REFERENCE / BLIND COMPARE",
+        text_style::draw (g, "REFERENCE / VERSION BLIND",
                           header.removeFromTop (navigationHeight), presentationContext,
                           typography::TextRole::navigation, juce::Justification::centredLeft,
                           1, typography::Composition::information);
         g.setColour (COL_OBSERVATORY_VALUE);
         g.setFont (labelFont (presentationContext, typography::TextRole::sectionTitle,
                               typography::Composition::information));
-        text_style::draw (g, "SOURCE IDENTITY HIDDEN", header, presentationContext,
-                          typography::TextRole::sectionTitle, juce::Justification::centredLeft,
-                          1, typography::Composition::information);
+        text_style::drawEllipsized (g, "SOURCE IDENTITY HIDDEN", header,
+                                    juce::Justification::centredLeft);
 
         area.removeFromTop (4);
-        auto statusArea = area.removeFromBottom (detailedLayout() ? 24 : 18);
+        const auto footerHeight = detailedLayout() ? 24 : 18;
+        if (blindActive) area.removeFromBottom (footerHeight);
+        auto statusArea = area.removeFromTop (footerHeight);
+        area.removeFromTop (2);
         juce::String status = blindInvalidated || blindStarting
             ? current.status : "SELECT 1 OR 2";
         if (! blindInvalidated && current.pendingBlindStimulus != 0)
@@ -343,9 +384,8 @@ void Component::paint (juce::Graphics& g)
         g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.92f));
         g.setFont (labelFont (presentationContext, typography::TextRole::status,
                               typography::Composition::information));
-        text_style::draw (g, status, statusArea.reduced (4, 0), presentationContext,
-                          typography::TextRole::status, juce::Justification::centredLeft,
-                          1, typography::Composition::information);
+        text_style::drawEllipsized (g, status, statusArea.reduced (4, 0),
+                                    juce::Justification::centredLeft);
         reference_metric_painter::paintPanel (g, area.toFloat(), 0.72f);
         reference_metric_painter::paintComparisonRoots (g, area.toFloat());
         g.setColour (COL_NORMAL.withAlpha (0.9f));
@@ -358,16 +398,17 @@ void Component::paint (juce::Graphics& g)
                           1, typography::Composition::information);
         return;
     }
-    const auto source = current.sourceLabel.isNotEmpty() ? current.sourceLabel : "KIRIN OS";
     g.setColour (COL_FLORA.withAlpha (0.86f));
     g.setFont (labelFont (presentationContext, typography::TextRole::navigation,
                           typography::Composition::information));
-    text_style::draw (g, "REFERENCE / " + source,
+    text_style::draw (g, "REFERENCE / CHECK",
                       header.removeFromTop (navigationHeight), presentationContext,
                       typography::TextRole::navigation, juce::Justification::centredLeft,
                       1, typography::Composition::information);
     g.setColour (COL_OBSERVATORY_VALUE);
-    const auto title = current.title.isNotEmpty() ? current.title : juce::String { "REFERENCE" };
+    auto title = current.checkLabel.isNotEmpty() ? current.checkLabel : juce::String { "CHECK" };
+    if (current.title.isNotEmpty())
+        title += "  /  B: " + current.title;
     g.setFont (displayTextFont (title, presentationContext,
                                 typography::TextRole::sectionTitle,
                                 typography::Composition::information));
@@ -382,17 +423,28 @@ void Component::paint (juce::Graphics& g)
                           typography::Composition::information));
     auto statusText = blindRevealed && current.blindReveal.isNotEmpty()
         ? "REVEALED / " + current.blindReveal : current.status;
-    if (detailedLayout() && current.alignmentLabel.isNotEmpty())
+    if (current.bSelected && ! blindRevealed)
+        statusText = detailedLayout()
+            ? juce::String { "B / " }
+                + (current.alignmentLabel == "PROJECT TIMELINE" ? "TIMELINE" : "CUE")
+                + " / PRE " + delta() + " PAUSED"
+            : juce::String { "B / PRE " } + delta() + " PAUSED";
+    else if (detailedLayout() && current.alignmentLabel.isNotEmpty())
         statusText += (statusText.isNotEmpty() ? "  /  " : "") + current.alignmentLabel;
-    auto primaryStatusArea = statusArea;
+    auto availableStatusArea = statusArea;
+    if (blindRevealed)
+        availableStatusArea.removeFromLeft ((detailedLayout() ? 62 : 48) * 2 + 6);
+    if (blindButton.isVisible())
+        availableStatusArea.removeFromRight (detailedLayout() ? 120 : 90);
     if (actionButton.isVisible())
-        primaryStatusArea.removeFromRight (detailedLayout() ? 194 : 122);
+        availableStatusArea.removeFromRight (detailedLayout() ? 194 : 122);
+    auto primaryStatusArea = availableStatusArea;
+    auto gainStatusArea = availableStatusArea;
     if (detailedLayout() && current.bSelected)
-        primaryStatusArea = statusArea.removeFromLeft (
-            juce::roundToInt (statusArea.getWidth() * 0.52f));
-    text_style::draw (g, statusText, primaryStatusArea.reduced (4, 0), presentationContext,
-                      typography::TextRole::status, juce::Justification::centredLeft,
-                      1, typography::Composition::information);
+        primaryStatusArea = gainStatusArea.removeFromLeft (
+            juce::roundToInt (gainStatusArea.getWidth() * 0.42f));
+    text_style::drawEllipsized (g, statusText, primaryStatusArea.reduced (4, 0),
+                                juce::Justification::centredLeft);
 
     if (detailedLayout())
     {
@@ -414,18 +466,17 @@ void Component::paint (juce::Graphics& g)
         }
         if (current.bSelected && std::isfinite (current.appliedGainDb))
         {
-            const auto gain = "B GAIN " + fmtDelta (current.appliedGainDb) + " dB  /  "
+            const auto gain = "B " + fmtDelta (current.appliedGainDb) + " dB  /  "
                 + (current.comparisonFallbackOriginal
                        ? (current.gainLimited ? "ORIGINAL / MATCH UNAVAILABLE"
                                               : "ORIGINAL / FACT UNAVAILABLE")
-                   : current.gainLimited ? "MATCH LIMITED" : "MATCH APPLIED")
-                + "  /  NO LIMITER / SOURCE PEAK CEILING";
+                   : current.gainLimited ? "LIMITED" : "MATCHED")
+                + "  /  NO LIMITER / PEAK CEILING";
             g.setColour ((current.gainLimited ? COL_FLORA_BR : COL_MUTED).withAlpha (0.9f));
             g.setFont (labelFont (presentationContext, typography::TextRole::status,
                                   typography::Composition::information));
-            text_style::draw (g, gain, statusArea.reduced (4, 0), presentationContext,
-                              typography::TextRole::status, juce::Justification::centredRight,
-                              1, typography::Composition::information);
+            text_style::drawEllipsized (g, gain, gainStatusArea.reduced (4, 0),
+                                        juce::Justification::centredRight);
         }
     }
     else

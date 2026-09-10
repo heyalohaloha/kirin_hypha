@@ -24,12 +24,12 @@ namespace hypha::reference_audition
         aCapture.disconnect();
         workspace.reset();
         activeABinding.reset();
-        activeSourceArtifactSha256.clear();
         activeSourceKey.clear();
         activeMappingKey.clear();
         activeContentMappingKey.clear();
         activePublishedSelectionKey.clear();
         workerSource.reset();
+        sourceCache.clear();
         mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
         cueStart.store (0, std::memory_order_relaxed);
         cueEnd.store (0, std::memory_order_relaxed);

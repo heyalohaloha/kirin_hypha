@@ -187,7 +187,7 @@ private:
     juce::ComboBox cueBox;
     SideButton aButton { "A" };
     SideButton bButton { "B" };
-    SideButton blindButton { "BLIND" };
+    SideButton blindButton { "VERSION BLIND" };
     SideButton oneButton { "1" };
     SideButton twoButton { "2" };
     SideButton answerButton { "CHOOSE" };

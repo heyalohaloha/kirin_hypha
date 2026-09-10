@@ -17,6 +17,7 @@
 #include "ReferenceRuntimeABinding.h"
 #include "ReferenceRuntimeACapture.h"
 #include "ReferenceRuntimeV2Source.h"
+#include "ReferenceRuntimeV2SourceCache.h"
 
 namespace hypha::reference_audition
 {
@@ -164,6 +165,7 @@ namespace hypha::reference_audition
         RuntimeABindingRepository aBindingRepository;
         RuntimeACapture aCapture;
         RuntimeV2SourceRepository sourceRepository;
+        RuntimeV2SourceCache sourceCache;
         RuntimeV2MeasurementRepository measurementRepository;
         RuntimeV2AlignmentRepository alignmentRepository;
         RuntimeV2ProfileRepository profileRepository;
@@ -185,7 +187,6 @@ namespace hypha::reference_audition
         RuntimeFiles activeRuntimeFiles;
         std::shared_ptr<const RuntimeSource> workerSource;
         std::shared_ptr<const RuntimeSource> publishedSource;
-        juce::String activeSourceArtifactSha256;
         juce::String activeSourceKey;
         juce::String activeMappingKey;
         juce::String activeContentMappingKey;

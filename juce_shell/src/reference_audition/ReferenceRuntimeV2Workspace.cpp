@@ -245,22 +245,24 @@ namespace hypha::reference_audition
             publish (std::move (next));
             return;
         }
-        auto selectedSource = sourceLoad.source;
-        const bool sourceArtifactChanged = workerSource == nullptr
-            || activeSourceArtifactSha256 != candidate->sourceArtifact.sha256;
-        const auto sourceFailure = sourceArtifactChanged
-            ? sourceRepository.verifySourceFile (*selectedSource)
-            : sourceRepository.verifySourceRevision (*workerSource);
+        auto selectedSource = sourceCache.find (candidate->sourceArtifact.sha256);
+        const bool previouslyVerified = selectedSource != nullptr;
+        if (! previouslyVerified)
+            selectedSource = sourceLoad.source;
+        const auto sourceFailure = previouslyVerified
+            ? sourceRepository.verifySourceRevision (*selectedSource)
+            : sourceRepository.verifySourceFile (*selectedSource);
         if (sourceFailure.isNotEmpty())
         {
+            sourceCache.forget (candidate->sourceArtifact.sha256);
             failClosedToA();
             next.state = RuntimeState::rejected;
             next.rejectionCode = sourceFailure;
             publish (std::move (next));
             return;
         }
-        if (! sourceArtifactChanged)
-            selectedSource = workerSource;
+        if (! previouslyVerified)
+            sourceCache.remember (candidate->sourceArtifact.sha256, selectedSource);
         next.sourceSampleRateHz = selectedSource->audio.sampleRateHz;
         const auto approvalKey = candidate->sourceArtifact.sha256 + ":"
             + juce::String (selectedSource->audio.sampleRateHz) + ":"
@@ -300,8 +302,6 @@ namespace hypha::reference_audition
             activeSourceKey = sourceKey;
         }
         workerSource = selectedSource;
-        activeSourceArtifactSha256 = candidate->sourceArtifact.sha256;
-
         const auto measurement = measurementRepository.load (*selectedSource);
         if (measurement.accepted())
         {

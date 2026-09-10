@@ -32,18 +32,19 @@ juce::Rectangle<float> chartArea (juce::Graphics& g, juce::Rectangle<float> area
 {
     panel (g, area);
     auto header = area.removeFromTop (28.0f);
-    g.setColour (COL_NORMAL.withAlpha (0.86f));
+    auto headerText = header.reduced (9.0f, 1.0f).toNearestInt();
+    auto headingArea = headerText.removeFromLeft (juce::roundToInt (
+        static_cast<float> (headerText.getWidth()) * 0.44f));
+    g.setColour (COL_NORMAL.withAlpha (0.92f));
     g.setFont (labelFont (presentation, typography::TextRole::sectionTitle,
                           typography::Composition::visualization));
-    text_style::draw (g, heading, header.reduced (9.0f, 1.0f).toNearestInt(), presentation,
-                      typography::TextRole::sectionTitle, juce::Justification::centredLeft,
-                      1, typography::Composition::visualization);
-    g.setColour (COL_MUTED.withAlpha (0.78f));
+    text_style::drawEllipsized (g, heading, headingArea,
+                                juce::Justification::centredLeft);
+    g.setColour (COL_TEXT_TERTIARY.withAlpha (0.92f));
     g.setFont (labelFont (presentation, typography::TextRole::legend,
                           typography::Composition::visualization));
-    text_style::draw (g, detail, header.reduced (9.0f, 1.0f).toNearestInt(), presentation,
-                      typography::TextRole::legend, juce::Justification::centredRight,
-                      1, typography::Composition::visualization);
+    text_style::drawEllipsized (g, detail, headerText,
+                                juce::Justification::centredRight);
     auto chart = area.reduced (10.0f, 8.0f);
     g.setColour (COL_MUTED.withAlpha (0.10f));
     for (int line = 1; line < 4; ++line)
@@ -57,13 +58,21 @@ juce::Rectangle<float> chartArea (juce::Graphics& g, juce::Rectangle<float> area
 void unavailable (juce::Graphics& g, juce::Rectangle<float> area,
                   presentation::Context presentation)
 {
-    g.setColour (COL_MUTED.withAlpha (0.82f));
+    g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
     g.setFont (labelFont (presentation, typography::TextRole::status,
                           typography::Composition::visualization));
-    text_style::draw (g, "REFERENCE FACTS NOT AVAILABLE / AUDIO REMAINS READY",
-                      area.toNearestInt(), presentation, typography::TextRole::status,
-                      juce::Justification::centred, 2,
-                      typography::Composition::visualization);
+    const auto lineHeight = juce::roundToInt (typography::resolve (
+        presentation, typography::TextRole::status,
+        typography::Composition::visualization).lineHeight);
+    auto textArea = area.toNearestInt().withSizeKeepingCentre (
+        area.toNearestInt().getWidth(), juce::jmin (area.toNearestInt().getHeight(),
+                                                   lineHeight * 2));
+    text_style::drawEllipsized (g,
+        area.getWidth() < 420.0f ? "FACTS UNAVAILABLE" : "REFERENCE FACTS NOT AVAILABLE",
+        textArea.removeFromTop (lineHeight), juce::Justification::centred);
+    text_style::drawEllipsized (g,
+        area.getWidth() < 420.0f ? "AUDIO READY" : "AUDIO REMAINS READY",
+        textArea.removeFromTop (lineHeight), juce::Justification::centred);
 }
 
 float dbY (double db, juce::Rectangle<float> area)
@@ -275,7 +284,7 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
     if (state.detailedMeasurement)
         series = timelineSeries (*state.detailedMeasurement, binding, title, seriesName,
                                  minimum, maximum);
-    auto area = chartArea (g, bounds, title, "B REFERENCE / SOURCE TIMELINE", presentation);
+    auto area = chartArea (g, bounds, title, "B REFERENCE / TIMELINE", presentation);
     if (series == nullptr || series->empty())
     {
         unavailable (g, area, presentation);

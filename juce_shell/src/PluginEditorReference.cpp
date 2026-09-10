@@ -93,7 +93,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onSelectPreset = [this] (const juce::String& id)
     {
         if (! processorRef.selectReferencePreset (id))
-            showToast ("Preset selection was not changed");
+            showToast ("Check Preset selection was not changed");
     };
     referenceView.onSelectCheck = [this] (const juce::String& id)
     {
@@ -312,12 +312,12 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         state.status = "CONNECT TO A KIRIN OS WORK";
     if (runtime.presetSelectionStatus == "pending")
     {
-        state.status = "PREPARING PRESET IN KIRIN OS / A REMAINS LIVE";
+        state.status = "KIRIN OS PREPARING CHECK PRESET / A REMAINS LIVE";
         state.actionText.clear();
     }
     else if (runtime.presetSelectionStatus == "prepared")
     {
-        state.status = "PRESET READY / A REMAINS LIVE";
+        state.status = "CHECK PRESET READY / A REMAINS LIVE";
         state.actionText.clear();
     }
     else if (runtime.presetSelectionStatus == "timed_out")
@@ -344,7 +344,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
              || runtime.presetSelectionStatus == "storage_unavailable"
              || runtime.presetSelectionStatus == "publication_failed")
     {
-        state.status = "PRESET WAS NOT REFRESHED / A REMAINS LIVE";
+        state.status = "CHECK PRESET NOT REFRESHED / A REMAINS LIVE";
         state.actionText = "RETRY PREPARATION";
     }
     else if (runtime.presetSelectionStatus == "work_unavailable"
