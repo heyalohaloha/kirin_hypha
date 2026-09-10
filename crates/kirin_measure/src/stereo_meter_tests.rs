@@ -155,7 +155,8 @@ fn clear_peak_clip_holds_preserves_live_windows_and_relatches_continuing_clip() 
 
     meter.clear_peak_clip_holds();
     let cleared = meter.snapshot();
-    assert_eq!(cleared.clip_events, [0, 0]);
+    assert_eq!(cleared.clip_events, [1, 0]);
+    assert_eq!(cleared.clip_latched, [false, false]);
     assert!(cleared.max_true_peak_dbtp.iter().all(Option::is_none));
     assert_eq!(cleared.true_peak_dbtp, before.true_peak_dbtp);
     assert_eq!(
@@ -169,6 +170,7 @@ fn clear_peak_clip_holds_preserves_live_windows_and_relatches_continuing_clip() 
     assert!(meter.push_observation(&observation(1.1, 0.4)));
     let relatched = meter.snapshot();
     assert_eq!(relatched.clip_events, [1, 0]);
+    assert_eq!(relatched.clip_latched, [true, false]);
     assert_eq!(meter.session_clip_events(), [1, 0]);
     assert!(relatched.max_true_peak_dbtp[0].is_some());
 }

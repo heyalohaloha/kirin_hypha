@@ -103,13 +103,13 @@ void verifyHybridVuContract()
             KIRIN_HYBRID_VU_REQUIRE (clearButton != nullptr);
             KIRIN_HYBRID_VU_REQUIRE (vuButton->isVisible());
             KIRIN_HYBRID_VU_REQUIRE (! clearButton->isVisible());
-            bool visibilityCallback = false;
+            bool retainedManualSelection = false;
             bool clearCallback = false;
-            view.onHybridVuChange = [&visibilityCallback] (bool visible)
-            { visibilityCallback = visible; };
+            view.onHybridVuChange = [&view, &retainedManualSelection] (bool)
+            { retainedManualSelection = view.manualHybridVuVisible(); };
             view.onClearPeakClipHolds = [&clearCallback] { clearCallback = true; };
             vuButton->onClick();
-            KIRIN_HYBRID_VU_REQUIRE (visibilityCallback);
+            KIRIN_HYBRID_VU_REQUIRE (retainedManualSelection);
             KIRIN_HYBRID_VU_REQUIRE (view.manualHybridVuVisible());
             KIRIN_HYBRID_VU_REQUIRE (view.hybridVuVisible());
             KIRIN_HYBRID_VU_REQUIRE (vuButton->isVisible());
@@ -122,7 +122,13 @@ void verifyHybridVuContract()
                 ! vuButton->getBounds().intersects (clearButton->getBounds()));
             clearButton->onClick();
             KIRIN_HYBRID_VU_REQUIRE (clearCallback);
+            observatory::View reopened (role);
+            reopened.setSize (preset.width, preset.height);
+            reopened.setManualHybridVuVisible (retainedManualSelection);
+            KIRIN_HYBRID_VU_REQUIRE (reopened.manualHybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (reopened.hybridVuVisible());
             vuButton->onClick();
+            KIRIN_HYBRID_VU_REQUIRE (! retainedManualSelection);
             KIRIN_HYBRID_VU_REQUIRE (! view.manualHybridVuVisible());
             KIRIN_HYBRID_VU_REQUIRE (! view.hybridVuVisible());
             KIRIN_HYBRID_VU_REQUIRE (vuButton->isVisible());
@@ -148,8 +154,12 @@ void verifyHybridVuContract()
             alternate.channel_instant_true_peak_dbtp[1] = -11.0;
             view.setMeterSnapshot (alternate, true);
             KIRIN_HYBRID_VU_REQUIRE (differentPixels (image, render (view)) > 24);
-            auto clipped = meter;
-            clipped.clip_events[0] = 1;
+            auto sessionClipOnly = meter;
+            sessionClipOnly.clip_events[0] = 1;
+            view.setMeterSnapshot (sessionClipOnly, true);
+            KIRIN_HYBRID_VU_REQUIRE (differentPixels (image, render (view)) == 0);
+            auto clipped = sessionClipOnly;
+            clipped.channel_clip_latched[0] = 1;
             view.setMeterSnapshot (clipped, true);
             KIRIN_HYBRID_VU_REQUIRE (differentPixels (image, render (view)) > 8);
             view.setMeterSnapshot (meter, true);

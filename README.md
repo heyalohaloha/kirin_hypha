@@ -388,7 +388,7 @@ own slots, while a third identifies the owners and waits.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
-The existing **VU** button opens the same Hybrid VU during ordinary playback; it is not a separate
+The **VU** button added to the existing footer opens the same Hybrid VU during ordinary playback; it is not a separate
 measurement mode and does not alter the selected domain. The selection survives closing and reopening
 the editor while that plug-in instance remains loaded. In the Hybrid VU, **CLEAR** releases only the
 per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU needles, Meter Session

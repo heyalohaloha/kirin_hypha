@@ -152,7 +152,8 @@ fn peak_clip_clear_does_not_discard_meter_session_truth() {
     assert_eq!(cleared.current.lufs_s, before.current.lufs_s);
     assert_eq!(cleared.current.true_peak, before.current.true_peak);
     assert_eq!(cleared.max_lufs_m, before.max_lufs_m);
-    assert_eq!(cleared.stereo.clip_events, [0, 0]);
+    assert_eq!(cleared.stereo.clip_events, before.stereo.clip_events);
+    assert_eq!(cleared.stereo.clip_latched, [false, false]);
     assert!(cleared
         .stereo
         .max_true_peak_dbtp
@@ -166,6 +167,7 @@ fn peak_clip_clear_does_not_discard_meter_session_truth() {
     assert!(session.push_active(&stereo_constant(1.1, 0.4)));
     let relatched = session.snapshot();
     assert_eq!(relatched.stereo.clip_events, [1, 0]);
+    assert_eq!(relatched.stereo.clip_latched, [true, false]);
     assert!(relatched.stereo.max_true_peak_dbtp[0].is_some());
     let history_after = session.recent_history(MeterHistoryResolution::Hz10, 20);
     let clip_event_totals = history_after.iter().fold([0_u32; 2], |mut totals, entry| {

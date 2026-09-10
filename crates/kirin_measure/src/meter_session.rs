@@ -51,10 +51,10 @@ impl MeterSessionSnapshot {
 
 /// A completed MeterSession observation published independently from the live calculation lock.
 ///
-/// The Measure Thread builds the snapshot while it owns `MeterSession`, then replaces this small
-/// immutable value after releasing the live calculation lock. UI readers never contend with EBU
-/// processing; a rare publication handoff collision is a silent skipped poll and the shell keeps
-/// displaying its last complete frame.
+/// Writers replace this small immutable value before releasing the `MeterSession` mutation lock,
+/// so an older observation cannot overtake a later user CLEAR or RESET. UI readers use only this
+/// independent lock and never contend with EBU processing; a rare publication handoff collision
+/// is a silent skipped poll and the shell keeps displaying its last complete frame.
 pub struct MeterSessionPublication {
     latest: RwLock<MeterSessionSnapshot>,
 }

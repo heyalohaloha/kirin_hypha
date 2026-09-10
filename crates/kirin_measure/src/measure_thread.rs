@@ -1729,14 +1729,12 @@ fn feed_meter_session(
         return;
     }
     if let Some(session) = meter_session {
-        let snapshot = {
-            let mut session =
-                crate::sync_recovery::lock_recover(session, "MeterSession active push");
-            let _ = session.push_active_at(direct_active_samples, clock);
-            session.snapshot()
-        };
+        let mut session = crate::sync_recovery::lock_recover(session, "MeterSession active push");
+        let _ = session.push_active_at(direct_active_samples, clock);
         if let Some(publication) = publication {
-            publication.publish(snapshot);
+            // Publish while the session mutation is still serialized. Otherwise an explicit
+            // CLEAR can publish its cleared holds and then be overwritten by this older frame.
+            publication.publish(session.snapshot());
         }
     }
 }
@@ -1746,13 +1744,10 @@ fn pause_meter_session(
     publication: Option<&Arc<MeterSessionPublication>>,
 ) {
     if let Some(session) = meter_session {
-        let snapshot = {
-            let mut session = crate::sync_recovery::lock_recover(session, "MeterSession pause");
-            session.pause();
-            session.snapshot()
-        };
+        let mut session = crate::sync_recovery::lock_recover(session, "MeterSession pause");
+        session.pause();
         if let Some(publication) = publication {
-            publication.publish(snapshot);
+            publication.publish(session.snapshot());
         }
     }
 }

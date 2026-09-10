@@ -324,7 +324,7 @@ UIを閉じてもプラグインinstanceが生存する限りSessionを保持す
 
 `RESET`だけが現在のSession統計、generation、履歴をまとめて明示的に破棄する。
 
-Hybrid VUの`CLEAR`はSession破棄ではない。左右の保持TPと現在のclip表示カウンタだけを0へ戻し、現在TP、VU平均、I、LRA、MaxTP、PLR、TIME履歴、Record／Keepを維持する。解除時点でもclipが続いている場合は、次の100 ms観測を新しいclip eventとして再表示する。
+Hybrid VUの`CLEAR`はSession破棄ではない。左右の保持TPとVU専用clip表示ラッチだけを解除し、現在TP、VU平均、I、LRA、MaxTP、PLR、LEVEL／CaptureのL/R Session累積clip event、TIME履歴、Record／Keepを維持する。解除時点でもclipが続いている場合は次の100 ms観測で表示だけ再点灯し、同じ連続runをSessionへ二重算入しない。
 
 Record、Keep、Kirin OS接続の状態はMeter Sessionに影響しない。
 
@@ -354,7 +354,7 @@ I/LRAのgating履歴を完全保存せず累積値だけ復元すると、reload
 
 L/R Sample Peakのhold markerはMeter Session開始後のチャンネル別最大値とし、時間で自動解除しない。
 
-L/R Sample Peakのhold markerは`RESET`だけが解除する。Hybrid VUのL/R HOLD TPとclip表示カウンタは`CLEAR`でも解除できるが、Sample Peak holdとMeter Session正本は変更しない。
+L/R Sample Peakのhold markerは`RESET`だけが解除する。Hybrid VUのL/R HOLD TPとVU専用clip表示ラッチは`CLEAR`でも解除できるが、Sample Peak holdとMeter Session正本のL/R累積clip eventは変更しない。
 
 `BAL`は`10 log10(E_L / E_R)`の符号付き値とし、正値をL、負値をRとしてラベルにも明示する。
 
@@ -435,11 +435,11 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 900×600（300%）は600×400を置換せず、LEVEL、TIME、FREQ、SPACEとTIME配下の解析を同じ操作体系のまま高解像度で読むInspection Viewとする。LEVELは履歴面積、channel strip、数値階層を拡張するが、未合意の新指標は追加しない。将来Session Atlasを載せる場合は別途表示内容を確定する。
 
-既存Footerの`VU`ボタンは通常時もHybrid VUを全sizeで前面表示し、同じボタンで選択domainを変更せず元の画面へ戻す。手動選択は読み込まれたplugin instanceのeditorを閉じて再表示しても保持するが、DAW project stateへは保存しない。
+既存Footerへ置く`VU`ボタンは通常時もHybrid VUを全sizeで前面表示し、同じボタンで選択domainを変更せず元の画面へ戻す。手動選択は読み込まれたplugin instanceのeditorを閉じて再表示しても保持するが、DAW project stateへは保存しない。
 DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更せず、一時的なHybrid VU面を全sizeで前面表示する。
 停止後はRecord前の画面へ復帰する。
 情報メニューの`Show Hybrid VU while recording`は既定ONとし、DAWのplugin stateへ保存する。OFFではRecord中も選択中のdomainを維持する。ONでもHybrid VUの役割表示から情報メニューを開き、`Show selected view for this recording`を選ぶと、そのRecord区間だけ自動表示を解除できる。次のRecord開始時には再びHybrid VUを表示する。
-Hybrid VUは左右300 ms平均応答の針、左右100 ms True Peak rail、Session開始または直近`CLEAR`以降の左右最大TP marker、clip事実、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。`CLEAR`は同じ面の既存button styleで置き、新しい画面を作らない。
+Hybrid VUは左右300 ms平均応答の針、左右100 ms True Peak rail、Session開始または直近`CLEAR`以降の左右最大TP marker、Session累積clip eventから独立した解除可能なclip indicator、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。`CLEAR`は同じ面の既存button styleで置き、新しい画面を作らない。
 host callbackが350 ms以上停止した場合はRecord通知を失効させ、古いREC表示を保持しない。
 
 LEVELの60秒Historyは固定時間軸とし、M主線、run別2秒最大TP event、L/R別sample clip event、`60 S MAX TP`と相対時刻を表示する。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`+6〜-24 dBTP`軸と下から立ち上がるstemを重ねる。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。

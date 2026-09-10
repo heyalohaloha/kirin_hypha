@@ -17,10 +17,8 @@ impl KirinHyphaEngine {
             return false;
         };
         session.clear_peak_clip_holds();
-        let snapshot = session.snapshot();
-        drop(session);
         if let Some(publication) = self.meter_session_publication.as_ref() {
-            publication.publish(snapshot);
+            publication.publish(session.snapshot());
         }
         true
     }
@@ -39,10 +37,8 @@ impl KirinHyphaEngine {
         };
         session.reset();
         watch_max.reset();
-        let snapshot = session.snapshot();
-        drop(session);
         if let Some(publication) = self.meter_session_publication.as_ref() {
-            publication.publish(snapshot);
+            publication.publish(session.snapshot());
         }
         if let Some(exchange) = self.meter_delta_history.as_ref() {
             exchange.reset();
@@ -105,7 +101,8 @@ pub(super) fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterS
         plr: opt_f64(snapshot.plr),
         channels: snapshot.stereo.channels,
         balance_state,
-        stereo_reserved: [0; 6],
+        channel_clip_latched: snapshot.stereo.clip_latched.map(u8::from),
+        stereo_reserved: [0; 4],
         sample_peak_dbfs: snapshot.stereo.sample_peak_dbfs.map(opt_f64),
         sample_peak_hold_dbfs: snapshot.stereo.sample_peak_hold_dbfs.map(opt_f64),
         channel_true_peak_dbtp: snapshot.stereo.true_peak_dbtp.map(opt_f64),

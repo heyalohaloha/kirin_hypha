@@ -151,7 +151,7 @@ typedef struct {
   double plr;
   uint8_t channels;
   uint8_t balance_state; /* KIRIN_BALANCE_* */
-  uint8_t stereo_reserved[6];
+  uint8_t channel_clip_latched[2], stereo_reserved[4]; /* VU表示のみ。Session clip_eventsとは独立 */
   double sample_peak_dbfs[2];
   double sample_peak_hold_dbfs[2];
   double channel_true_peak_dbtp[2];

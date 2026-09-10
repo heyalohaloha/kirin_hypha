@@ -3133,8 +3133,7 @@ pub const KIRIN_LRA_UNAVAILABLE: u8 = 0;
 pub const KIRIN_LRA_WARMING: u8 = 1;
 pub const KIRIN_LRA_READY: u8 = 2;
 
-/// Record/Keepから独立した常設メーターの一貫したスナップショット。
-/// current値とsession値は同じ`observed_frames`境界から生成され、値なしはNaNで表す。
+/// Record/Keepから独立した常設メーター。current/session値は同じ`observed_frames`境界、値なしはNaN。
 #[repr(C)]
 pub struct KirinMeterSession {
     pub generation: u64,
@@ -3152,7 +3151,8 @@ pub struct KirinMeterSession {
     pub plr: f64,
     pub channels: u8,
     pub balance_state: u8,
-    pub stereo_reserved: [u8; 6],
+    pub channel_clip_latched: [u8; 2],
+    pub stereo_reserved: [u8; 4],
     pub sample_peak_dbfs: [f64; 2],
     pub sample_peak_hold_dbfs: [f64; 2],
     pub channel_true_peak_dbtp: [f64; 2],

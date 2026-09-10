@@ -36,7 +36,10 @@ pub struct StereoMeterSnapshot {
     /// Sine-calibrated, full-wave average over the latest exact 300 ms. A sine whose peak is
     /// -18 dBFS therefore reads -18 dBFS and 0 VU at the UI's fixed reference.
     pub vu_dbfs: [Option<f64>; 2],
+    /// Session-cumulative contiguous sample-clip runs. Only a full Meter Session reset clears it.
     pub clip_events: [u64; 2],
+    /// User-clearable Hybrid VU indicators. These do not replace the cumulative clip facts.
+    pub clip_latched: [bool; 2],
     pub balance_db: Option<f64>,
     pub balance_state: BalanceState,
     pub correlation: Option<f64>,
@@ -73,8 +76,7 @@ pub struct StereoMeter {
     max_true_peak: [f64; 2],
     vu_window: VecDeque<VuObservation>,
     vu_sum: VuObservation,
-    clip_events: [u64; 2],
-    clip_open: [bool; 2],
+    clip_latched: [bool; 2],
     session_clip_events: [u64; 2],
     session_clip_open: [bool; 2],
     energy_window: VecDeque<EnergyObservation>,
@@ -99,8 +101,7 @@ impl StereoMeter {
             max_true_peak: [0.0; 2],
             vu_window: VecDeque::with_capacity(OBSERVATIONS_PER_VU_WINDOW + 1),
             vu_sum: VuObservation::default(),
-            clip_events: [0; 2],
-            clip_open: [false; 2],
+            clip_latched: [false; 2],
             session_clip_events: [0; 2],
             session_clip_open: [false; 2],
             energy_window: VecDeque::with_capacity(OBSERVATIONS_PER_THREE_SECONDS + 1),
@@ -124,8 +125,7 @@ impl StereoMeter {
         let mut field = FieldObservation {
             bins: [0; STEREO_FIELD_BINS],
         };
-        let mut clip_events = self.clip_events;
-        let mut clip_open = self.clip_open;
+        let mut clip_latched = self.clip_latched;
         let mut session_clip_events = self.session_clip_events;
         let mut session_clip_open = self.session_clip_open;
         let frame_count = interleaved.len() / self.channels;
@@ -139,13 +139,12 @@ impl StereoMeter {
                 peak[channel] = peak[channel].max(magnitude);
                 vu.rectified[channel] += magnitude;
                 let clipped = magnitude >= 1.0;
-                if clipped && !clip_open[channel] {
-                    clip_events[channel] = clip_events[channel].saturating_add(1);
+                if clipped {
+                    clip_latched[channel] = true;
                 }
                 if clipped && !session_clip_open[channel] {
                     session_clip_events[channel] = session_clip_events[channel].saturating_add(1);
                 }
-                clip_open[channel] = clipped;
                 session_clip_open[channel] = clipped;
             }
             if self.channels == 2 {
@@ -165,8 +164,7 @@ impl StereoMeter {
         if self.ebu.add_frames_f64(interleaved).is_err() {
             return false;
         }
-        self.clip_events = clip_events;
-        self.clip_open = clip_open;
+        self.clip_latched = clip_latched;
         self.session_clip_events = session_clip_events;
         self.session_clip_open = session_clip_open;
         self.sample_peak = peak;
@@ -235,8 +233,7 @@ impl StereoMeter {
         self.max_true_peak = [0.0; 2];
         self.vu_window.clear();
         self.vu_sum = VuObservation::default();
-        self.clip_events = [0; 2];
-        self.clip_open = [false; 2];
+        self.clip_latched = [false; 2];
         self.session_clip_events = [0; 2];
         self.session_clip_open = [false; 2];
         self.energy_window.clear();
@@ -249,9 +246,7 @@ impl StereoMeter {
     /// Current/recent TP, VU averaging, sample peak hold, and stereo windows remain continuous.
     pub fn clear_peak_clip_holds(&mut self) {
         self.max_true_peak = [0.0; 2];
-        self.clip_events = [0; 2];
-        // A signal that is still clipping becomes a new visible event on the next observation.
-        self.clip_open = [false; 2];
+        self.clip_latched = [false; 2];
     }
 
     pub fn session_clip_events(&self) -> [u64; 2] {
@@ -283,7 +278,8 @@ impl StereoMeter {
             instant_true_peak_dbtp,
             max_true_peak_dbtp,
             vu_dbfs,
-            clip_events: self.clip_events,
+            clip_events: self.session_clip_events,
+            clip_latched: self.clip_latched,
             balance_db,
             balance_state,
             correlation,

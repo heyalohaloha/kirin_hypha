@@ -202,7 +202,7 @@ void paintClipStatus (juce::Graphics& g, juce::Rectangle<float> face, const Stat
     {
         const auto x = centre.x + (channel == 0 ? -1.0f : 1.0f) * scaled (36.0f, width, 12.0f);
         const auto on = state.cumulativeAvailable && channel < state.meter.channels
-                     && state.meter.clip_events[channel] > 0;
+                     && state.meter.channel_clip_latched[channel] != 0;
         if (on)
         {
             g.setColour (COL_FLORA_BR.withAlpha (0.16f));

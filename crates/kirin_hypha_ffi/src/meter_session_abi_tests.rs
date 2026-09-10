@@ -7,6 +7,10 @@ use kirin_measure::BalanceState;
 #[test]
 fn snapshot_layout_and_mapping_are_stable() {
     assert_eq!(std::mem::size_of::<KirinMeterSession>(), 872);
+    assert_eq!(
+        std::mem::offset_of!(KirinMeterSession, channel_clip_latched),
+        90
+    );
     assert_eq!(std::mem::offset_of!(KirinMeterSession, field_density), 200);
     assert_eq!(std::mem::offset_of!(KirinMeterSession, max_lufs_m), 832);
     assert_eq!(
@@ -50,6 +54,7 @@ fn snapshot_layout_and_mapping_are_stable() {
             max_true_peak_dbtp: [Some(-0.3), Some(-1.3)],
             vu_dbfs: [Some(-18.0), Some(-20.0)],
             clip_events: [2, 1],
+            clip_latched: [true, false],
             balance_db: Some(0.75),
             balance_state: BalanceState::Numeric,
             correlation: Some(0.91),
@@ -79,6 +84,7 @@ fn snapshot_layout_and_mapping_are_stable() {
     assert_eq!(mapped.channel_vu_dbfs, [-18.0, -20.0]);
     assert_eq!(mapped.channel_instant_true_peak_dbtp, [-0.9, -1.9]);
     assert_eq!(mapped.clip_events, [2, 1]);
+    assert_eq!(mapped.channel_clip_latched, [1, 0]);
     assert_eq!(mapped.balance_db, 0.75);
     assert_eq!(mapped.correlation, 0.91);
     assert_eq!(mapped.field_size, KIRIN_STEREO_FIELD_SIZE);
@@ -146,6 +152,7 @@ fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
             max_true_peak_dbtp: [None; 2],
             vu_dbfs: [None; 2],
             clip_events: [0; 2],
+            clip_latched: [false; 2],
             balance_db: None,
             balance_state: BalanceState::Unavailable,
             correlation: None,
@@ -202,7 +209,8 @@ fn null_meter_session_calls_fail_closed_without_touching_output() {
         plr: 0.0,
         channels: 0,
         balance_state: 0,
-        stereo_reserved: [0; 6],
+        channel_clip_latched: [0; 2],
+        stereo_reserved: [0; 4],
         sample_peak_dbfs: [0.0; 2],
         sample_peak_hold_dbfs: [0.0; 2],
         channel_true_peak_dbtp: [0.0; 2],
@@ -305,7 +313,7 @@ fn live_measure_worker_advances_pauses_and_resets_independent_session() {
     engine.set_signal_state(KIRIN_SIGNAL_STATE_ACTIVE);
     let mut samples = Vec::with_capacity(48_000 * 2);
     for frame in 0..48_000 {
-        let sample = (2.0 * std::f32::consts::PI * 1_000.0 * frame as f32 / 48_000.0).sin() * 0.25;
+        let sample = (2.0 * std::f32::consts::PI * 1_000.0 * frame as f32 / 48_000.0).sin() * 1.1;
         samples.extend_from_slice(&[sample, sample]);
     }
     for (index, chunk) in samples.chunks(480 * 2).enumerate() {
@@ -349,6 +357,8 @@ fn live_measure_worker_advances_pauses_and_resets_independent_session() {
         .all(Option::is_some));
     assert!(active.stereo.true_peak_dbtp.iter().all(Option::is_some));
     assert!(active.stereo.max_true_peak_dbtp.iter().all(Option::is_some));
+    assert!(active.stereo.clip_events.iter().all(|count| *count > 0));
+    assert_eq!(active.stereo.clip_latched, [true, true]);
     assert!(active.stereo.correlation.is_none());
     let history = engine
         .poll_meter_history(MeterHistoryResolution::Hz10, 20)
@@ -372,12 +382,19 @@ fn live_measure_worker_advances_pauses_and_resets_independent_session() {
     assert_eq!(cleared.summary.lufs_i, active.summary.lufs_i);
     assert_eq!(cleared.summary.lra, active.summary.lra);
     assert_eq!(cleared.summary.max_true_peak, active.summary.max_true_peak);
-    assert_eq!(cleared.stereo.clip_events, [0, 0]);
+    assert_eq!(cleared.stereo.clip_events, active.stereo.clip_events);
+    assert_eq!(cleared.stereo.clip_latched, [false, false]);
     assert!(cleared
         .stereo
         .max_true_peak_dbtp
         .iter()
         .all(Option::is_none));
+    let mut ffi_cleared: KirinMeterSession = unsafe { std::mem::zeroed() };
+    assert!(unsafe {
+        kirin_hypha_poll_meter_session(std::ptr::from_ref(&engine).cast_mut(), &mut ffi_cleared)
+    });
+    assert_eq!(ffi_cleared.clip_events, active.stereo.clip_events);
+    assert_eq!(ffi_cleared.channel_clip_latched, [0, 0]);
 
     let mut ffi_entries: Vec<std::mem::MaybeUninit<KirinMeterHistoryEntry>> =
         std::iter::repeat_with(std::mem::MaybeUninit::uninit)
