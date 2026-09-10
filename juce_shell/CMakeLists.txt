@@ -428,11 +428,8 @@ if(KIRIN_HYPHA_BUILD_PDC_VALIDATION_DELAY)
 endif()
 
 option(KIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS
-    "Build the Windows VST3 in-place bit-transparency host contract" OFF)
+    "Build the in-place AU/VST3 bit-transparency host contract" OFF)
 if(KIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS)
-    if(NOT WIN32)
-        message(FATAL_ERROR "The VST3 audio transparency host contract currently supports Windows only")
-    endif()
     juce_add_console_app(KirinAudioTransparencyContractTests
         PRODUCT_NAME "Kirin Audio Transparency Contract Tests")
     target_sources(KirinAudioTransparencyContractTests PRIVATE
@@ -443,6 +440,13 @@ if(KIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS)
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0)
+    if(APPLE)
+        target_compile_definitions(KirinAudioTransparencyContractTests PRIVATE
+            JUCE_PLUGINHOST_AU=1)
+        target_link_libraries(KirinAudioTransparencyContractTests PRIVATE
+            "-framework CoreAudioKit"
+            "-framework AudioUnit")
+    endif()
     target_compile_options(KirinAudioTransparencyContractTests PRIVATE
         ${KIRIN_SOURCE_ENCODING_ARGS})
     target_link_libraries(KirinAudioTransparencyContractTests PRIVATE

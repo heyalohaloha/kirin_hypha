@@ -1,4 +1,8 @@
 #[cfg(test)]
+#[path = "rt_safety_platform_gate_tests.rs"]
+mod platform_gate_tests;
+
+#[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
@@ -211,27 +215,6 @@ mod tests {
             run.find("serviceRuntimeEvents();").unwrap()
                 < run.find("serviceDeferredAudioThreadActions();").unwrap()
         );
-    }
-
-    #[test]
-    fn local_blind_tests_are_registered_in_windows_ci() {
-        let ci = include_str!("../../.github/workflows/ci.yml");
-        let cmake = include_str!("../../juce_shell/cmake/LocalBlind.cmake");
-        let portable = include_str!("../../juce_shell/cmake/LocalBlindPortable.cmake");
-        assert!(cmake.contains("include(${CMAKE_CURRENT_LIST_DIR}/LocalBlindPortable.cmake)"));
-        assert!(cmake.contains("kirin_add_local_blind_portable_contracts"));
-        for target in [
-            "KirinLocalBlindCaptureTests",
-            "KirinLocalBlindCaptureServiceTests",
-            "KirinLocalBlindTrialTests",
-            "KirinLocalBlindPreparationTests",
-            "KirinLocalBlindHostContextTests",
-        ] {
-            assert!(ci.contains(target) && (cmake.contains(target) || portable.contains(target)));
-        }
-        assert!(ci.contains("-R '^kirin_local_blind_'"));
-        assert!(ci.contains("KirinReferenceAuditionRuntimeTests"));
-        assert!(ci.contains("-R '^kirin_reference_audition_runtime$'"));
     }
 
     #[test]

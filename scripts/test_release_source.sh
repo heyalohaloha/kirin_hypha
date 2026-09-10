@@ -37,6 +37,20 @@ assert_ignored_count() {
   fi
 }
 
+assert_ctest_inventory() {
+  local build_dir="$1"
+  local build_config="$2"
+  local test_regex="$3"
+  local expected="$4"
+  local actual
+  actual="$(ctest --test-dir "$build_dir" --build-config "$build_config" -N -R "$test_regex" \
+    | awk '/Total Tests:/ { print $3 }')"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "release gate CTest inventory mismatch: selected=$actual expected=$expected regex=$test_regex" >&2
+    exit 1
+  fi
+}
+
 # Shipping producer/consumer contract. This includes measurement, Record writer, generation,
 # pairing, TRACE publication, and error-path integration tests without treating the retired
 # nih-plug editors as the AU/VST3 release shell.
@@ -85,12 +99,26 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   PRE_DISPLAY_CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=$(uname -m)")
 fi
 run cmake "${PRE_DISPLAY_CMAKE_ARGS[@]}"
-run cmake --build "$PRE_DISPLAY_BUILD" \
-  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests \
-  KirinAttackUiContractTests KirinReferenceAuditionRuntimeTests --config Release
+JUCE_TEST_TARGETS=(
+  KirinPreDisplayRuntimeTests
+  KirinCaptureWorkAttachmentTests
+  KirinUiRenderContractTests
+  KirinAttackUiContractTests
+  KirinReferenceAuditionRuntimeTests
+  KirinReferenceAudioPagesTests
+  KirinLocalBlindCaptureTests
+  KirinLocalBlindTrialTests
+  KirinLocalBlindHostContextTests
+  KirinLocalBlindPreparationTests
+  KirinLocalBlindCaptureServiceTests
+  KirinLocalBlindCapturePairComparisonTests
+  KirinLocalBlindPdcValidationDelayTests
+)
+JUCE_TEST_REGEX='^(kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay)$'
+run cmake --build "$PRE_DISPLAY_BUILD" --target "${JUCE_TEST_TARGETS[@]}" --config Release
+assert_ctest_inventory "$PRE_DISPLAY_BUILD" Release "$JUCE_TEST_REGEX" "${#JUCE_TEST_TARGETS[@]}"
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
-  --output-on-failure \
-  -R '^(kirin_pre_display_runtime|kirin_ui_render_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime)$'
+  --output-on-failure --no-tests=error -R "$JUCE_TEST_REGEX"
 
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked
