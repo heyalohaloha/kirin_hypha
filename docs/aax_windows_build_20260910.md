@@ -16,8 +16,8 @@ binaries were both machine type `0x8664` (`x64`):
 | PRE | 15,467,008 bytes | 1.1.49 |
 | POST | 17,541,120 bytes | 1.1.49 |
 
-This proves the external-SDK Windows build path. The binaries are not distribution-ready until
-PACE and Authenticode verification both pass.
+This proves the external-SDK Windows build path. The same exact binaries subsequently passed both
+PACE and Authenticode verification through the combined signing path described below.
 
 ## Reproducible build
 
@@ -71,6 +71,24 @@ The release sequence is:
 The output directory must be new and separate from the unsigned build. Failed attempts never mutate
 the unsigned source artifacts.
 
+## Verified combined-signing result
+
+The private signing factory completed the combined Windows signing proof on 2026-09-11 (JST):
+
+- public signing-procedure commit: `910136e67d373b6b14b4ada96e78d176cd02a5af` (`B-810`)
+- unsigned PRE/POST handoff digest:
+  `sha256:e1da9b5c44e9dd514334060fef5929d133daa237144f1f515be18013fb95c62b`
+- signed PRE/POST proof digest:
+  `sha256:7ccb47dadc72bee245740bbe3480de0fe4c78e438a83a1ac0d557aa2b38a494c`
+
+Both bundles passed `wraptool verify --localonly`, Windows Authenticode validation, publisher and
+RFC 3161 timestamp checks, x64/version checks, and the exact PRE/POST structure gate. The signing
+job reused the immutable unsigned handoff and did not rebuild the binaries. Its cleanup removed the
+temporary CKA profile and unloaded the certificate; the ephemeral runner was then detached.
+
+This completes the Windows AAX build and standalone signing proof. It does not claim installer or
+Pro Tools validation.
+
 Official implementation references:
 
 - [SSL.com: eSigner CKA with SignTool](https://www.ssl.com/how-to/automate-ev-code-signing-with-signtool-or-certutil-esigner/)
@@ -99,10 +117,6 @@ or newer version, so a same-version reinstall cannot be mislabeled as an upgrade
 
 ## Remaining release gates
 
-- Run the combined PACE + eSigner CKA signing path once on the private self-hosted release runner.
-  Windows uses `--explicitsigningoptions` with the complete `sign` argument list so the SHA-256
-  file digest and RFC 3161 timestamp arguments precede the target passed to SignTool; PACE's
-  default invocation does not supply the now-required `/fd` argument.
 - Build the VST3+AAX installer and run install, same-version reinstall, prior-public-version upgrade,
   and uninstall validation.
 - Complete Pro Tools load, category, transparency, Offline Bounce, restore, mono/stereo, and pairing
