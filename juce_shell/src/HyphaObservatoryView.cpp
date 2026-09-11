@@ -88,6 +88,7 @@ View::View (Role roleIn) : role (roleIn)
     compactRangeButton.onClick = [this] { setCompactMaximum (! compactShowsMaximum); };
     contextButton.onClick = [this]
     {
+        if (onContextMenu) { onContextMenu(); return; }
         const auto next = meter_context::nextContext (selectedMeterContext);
         if (onContextChange) onContextChange (next); else setMeterContext (next);
     };
@@ -97,7 +98,8 @@ View::View (Role roleIn) : role (roleIn)
         if (onScaleChange) onScaleChange (next); else setScaleMode (next);
     };
     compactLoudnessButton.setTooltip ("Switch Momentary / Short-term loudness"); compactRangeButton.setTooltip ("Switch current / session maximum values");
-    contextButton.setTooltip ("Switch TRACK/STEM / 2MIX meter context"); scaleButton.setTooltip ("Switch WIDE / FOCUS loudness scale");
+    contextButton.setComponentID ("observatory-meter-context");
+    contextButton.setTooltip ("Choose whether this instance observes a mix bus or a track / stem"); scaleButton.setTooltip ("Switch WIDE / FOCUS loudness scale");
     sizeButton.onClick = [this] { if (onSizeMenu) onSizeMenu(); else cycleSize(); };
     sizeButton.setTooltip ("Choose an exact editor size");
     operationsButton.setTooltip ("Keep, measurement, and display controls");

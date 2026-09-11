@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaLocalBlindUiContract.h"
+#include "HyphaMeterContext.h"
 #include "HyphaPresentationContext.h"
 #include "PostControls.h"
 
@@ -21,13 +22,16 @@ public:
         presentationContext = next;
         for (auto* button : { &sourceOne, &sourceTwo, &answerOne, &answerTwo,
                               &noPreference, &cannotDistinguish, &startButton, &revealButton,
-                              &stopButton, &returnButton, &closeButton })
+                              &captureButton, &contextButton, &stopButton, &returnButton,
+                              &closeButton })
             button->setPresentationContext (next);
         resized();
         repaint();
     }
 
     std::function<void (bool approveLowerPost)> onStart;
+    std::function<void()> onCapture;
+    std::function<void()> onContextMenu;
     std::function<void (int stimulus)> onSelectStimulus;
     std::function<void (local_blind::TrialAnswer)> onAnswer;
     std::function<void()> onReveal;
@@ -36,7 +40,9 @@ public:
     std::function<void()> onClose;
 
     void setState (local_blind::ProductSessionView);
+    void setMeterContext (meter_context::MeterContext);
     const local_blind::ProductSessionView& state() const noexcept { return current; }
+    juce::Component& contextAnchor() noexcept { return contextButton; }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -61,9 +67,12 @@ private:
     HyphaTextButton cannotDistinguish { "CANNOT TELL" };
     HyphaTextButton startButton { "START BLIND" };
     HyphaTextButton revealButton { "REVEAL" };
+    HyphaTextButton captureButton { "CAPTURE 4 S" };
+    HyphaTextButton contextButton { "CHANGE CONTEXT" };
     HyphaTextButton stopButton { "STOP" };
     HyphaTextButton returnButton { "RETURN TO LIVE" };
     HyphaTextButton closeButton { "CLOSE" };
+    meter_context::MeterContext preflightContext = meter_context::defaultContext;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Component)
 };

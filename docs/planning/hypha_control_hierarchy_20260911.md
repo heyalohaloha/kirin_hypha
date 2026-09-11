@@ -34,6 +34,8 @@ DAW実機の今回の撮影ではない。View単体fixtureに含まれないedi
 
 1. 上部は2行を維持し、対象と画面選択を安定した場所に置く。
    1行目はrole/title・TRACK/STEM/2MIX・PAIR。
+   contextは即時toggleではなく、2MIXとTRACK/STEMの用途とBlind Gain Match根拠を説明する
+   直接選択menuを開く。信号やchannel構成から自動変更しない。
    2行目はdomainとPOST/Δ。測定対象をplotの近くへ移す。
    300/375はdomainを名前付きメニューから直接選ぶ。
    450以上はLEVEL/TIME/FREQ/SPACE/REFを直接選ぶtabを維持する。

@@ -51,6 +51,7 @@ public:
     std::function<void (SizePreset)> onSizeChange;
     std::function<void (bool)> onLoudnessChange;
     std::function<void (meter_context::MeterContext)> onContextChange;
+    std::function<void()> onContextMenu;
     std::function<void (meter_context::ScaleMode)> onScaleChange;
     std::function<void()> onReset;
     std::function<void()> onCapture;
@@ -67,6 +68,7 @@ public:
     std::function<void()> onClearPeakClipHolds;
     juce::Component& informationAnchor() noexcept { return informationButton; }
     juce::Component& domainMenuAnchor() noexcept { return domainCycleButton; }
+    juce::Component& contextMenuAnchor() noexcept { return contextButton; }
     juce::Component& sizeMenuAnchor() noexcept { return sizeButton; }
     juce::Component& operationsMenuAnchor() noexcept { return operationsButton; }
     juce::Component& guideDetailsAnchor() noexcept { return guideButton; }

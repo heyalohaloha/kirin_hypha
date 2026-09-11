@@ -109,6 +109,7 @@ private:
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
     void configureLocalBlindProduct();
     void openLocalBlindProduct();
+    void beginLocalBlindProductCapture();
     void closeLocalBlindProduct();
     void refreshLocalBlindProduct();
     void layoutLocalBlindProduct();
@@ -126,6 +127,8 @@ private:
     void layoutMetrics (bool six);
     void showCandidateMenu();
     void showOperationsMenu();
+    void showMeterContextMenu (juce::Component& anchor);
+    void applyMeterContextChoice (hypha::meter_context::MeterContext);
     void showDomainMenu();
     void showSizeMenu();
     void showGuideInformationMenu();
@@ -199,6 +202,7 @@ private:
     std::uint32_t cachedAttackRate = 0;
     std::uint64_t cachedAttackGeneration = 0;
     bool localBlindOpen = false;
+    bool localBlindPreflight = false;
     struct LocalBlindUnderlyingState
     {
         juce::Component* component = nullptr;

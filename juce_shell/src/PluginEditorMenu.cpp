@@ -32,6 +32,12 @@ namespace
                 return claim.pairedPreInstanceId;
         return latchedPreInstanceId;
     }
+
+    juce::String meterContextLabel (hypha::meter_context::MeterContext context)
+    {
+        return context == hypha::meter_context::MeterContext::trackStem
+            ? "TRACK / STEM" : "2MIX";
+    }
 }
 
 KirinHyphaEditor::PairMenuLookAndFeel& KirinHyphaEditor::pairMenuLookAndFeel()
@@ -138,7 +144,8 @@ void KirinHyphaEditor::showOperationsMenu()
         if (observatoryDomain != hypha::observatory::Domain::reference)
             menu.addItem (21, "Create Capture");
         if (observatoryView.localBlindEntryAvailable())
-            menu.addItem (23, "PRE / POST Blind Compare");
+            menu.addItem (23, "PRE / POST Blind Compare  ·  "
+                              + meterContextLabel (processorRef.meterContextPreference()));
     }
     menu.addSeparator();
     menu.addSectionHeader ("Display");
@@ -182,6 +189,48 @@ void KirinHyphaEditor::handleOperationsMenu (int result)
         handleInformationMenu (result);
     else
         handleCandidateMenu (result, {});
+}
+
+void KirinHyphaEditor::showMeterContextMenu (juce::Component& anchor)
+{
+    const auto current = processorRef.meterContextPreference();
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&pairMenuLookAndFeel());
+    menu.addSectionHeader ("Meter context");
+    menu.addItem (700, "2MIX  ·  Mix / master bus  ·  continuous active sections",
+                  true, current == hypha::meter_context::MeterContext::twoMix);
+    menu.addItem (701, "TRACK / STEM  ·  Individual / group bus  ·  short or sparse events",
+                  true, current == hypha::meter_context::MeterContext::trackStem);
+    const auto options = juce::PopupMenu::Options()
+        .withTargetComponent (&anchor).withDeletionCheck (*this)
+        .withMinimumWidth (juce::jlimit (300, 500, getWidth()))
+        .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight);
+    juce::Component::SafePointer<KirinHyphaEditor> safe (this);
+    menu.showMenuAsync (options, [safe] (int result)
+    {
+        if (safe == nullptr || (result != 700 && result != 701)) return;
+        safe->applyMeterContextChoice (result == 701
+            ? hypha::meter_context::MeterContext::trackStem
+            : hypha::meter_context::MeterContext::twoMix);
+    });
+}
+
+void KirinHyphaEditor::applyMeterContextChoice (hypha::meter_context::MeterContext context)
+{
+    if (processorRef.meterContextPreference() == context) return;
+    const auto scale = hypha::meter_context::initialScaleFor (context);
+    observatoryView.setMeterContext (context);
+    observatoryView.setScaleMode (scale);
+    processorRef.setMeterContextPreference (context);
+    processorRef.setScaleModePreference (scale);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    localBlindView.setMeterContext (context);
+    if (analysisPage == AnalysisPage::attack
+        && ! hypha::meter_context::drumAttackAvailable (context))
+        setAnalysisPage (AnalysisPage::meters);
+    updateTimePageNavigation();
+    if (localBlindOpen) refreshLocalBlindProduct();
+   #endif
 }
 
 void KirinHyphaEditor::showDomainMenu()

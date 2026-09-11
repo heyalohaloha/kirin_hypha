@@ -400,8 +400,9 @@ Kirin OS.
 
 1. In POST, select the exact PRE pair and set **Meter Context** to **2MIX** or **TRACK/STEM** before
    capture. This selection fixes the Gain Match policy for that trial.
-2. Keep the DAW playing and press **BLIND** in POST's large view. Wait for both sides of the exact
-   four-second range to finish capture and preparation.
+2. Open **PRE / POST Blind Compare** from POST's menu. The preflight shows the current context and
+   its Gain Match evidence before any capture begins. Change it if needed, keep the DAW playing,
+   then press **CAPTURE 4 S**. Wait for both sides of the exact range to finish preparation.
 3. Return the DAW to the displayed range and start the prepared comparison. Listen to one complete
    pass of both **Source 1** and **Source 2** before answering.
 4. Answer, reveal the hidden assignment, end the comparison, and explicitly return to the live
@@ -411,6 +412,11 @@ POST is the normal Gain Match reference: the frozen PRE audition copy receives o
 matches the captured POST level. If raising PRE would exceed the comparison ceiling, Hypha does not
 clip or silently normalize both sides. It asks for explicit approval to leave PRE unchanged and lower
 POST by the inverse fixed amount instead. Gain does not follow the signal during the trial.
+
+The normal header's Meter Context control opens a descriptive choice rather than switching on one
+click. **2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
+**TRACK/STEM** identifies an individual track or group bus and uses short or sparse event energy.
+Hypha never infers or changes this choice from channel count, names, routing, or signal level.
 
 Hypha does not change DAW Solo, Mute, faders, plug-in bypass, or routing. On a TRACK or STEM, only that
 POST output is replaced, so the rest of the project continues at the same DAW timeline and the user

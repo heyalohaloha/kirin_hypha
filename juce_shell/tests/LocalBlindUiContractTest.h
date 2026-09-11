@@ -40,6 +40,14 @@ inline void verifyLocalBlindUiContract()
     }
     require (post.localBlindEntryAvailable(),
              "POST Blind capability remains available to the operations menu");
+    auto* contextEntry = dynamic_cast<juce::Button*> (
+        post.findChildWithID ("observatory-meter-context"));
+    require (contextEntry != nullptr, "Meter Context control remains in the shared header");
+    bool contextMenuRequested = false;
+    post.onContextMenu = [&] { contextMenuRequested = true; };
+    contextEntry->onClick();
+    require (contextMenuRequested && post.meterContext() == meter_context::defaultContext,
+             "Meter Context opens an explanatory menu instead of changing immediately");
 
     local_blind_ui::Component component;
     component.setPresentationContext (presentation::forEditor (600, 400));
@@ -57,6 +65,55 @@ inline void verifyLocalBlindUiContract()
         return result->getText();
     };
 
+    local_blind::ProductSessionView idle;
+    component.setMeterContext (meter_context::MeterContext::twoMix);
+    component.setState (idle);
+    require (labelText ("local-blind-title").contains ("2MIX")
+                 && labelText ("local-blind-status").contains ("MIX / MASTER BUS")
+                 && labelText ("local-blind-detail").contains ("continuous active sections"),
+             "2MIX preflight states its use and Gain Match evidence");
+    bool captureRequested = false;
+    bool preflightContextRequested = false;
+    component.onCapture = [&] { captureRequested = true; };
+    component.onContextMenu = [&] { preflightContextRequested = true; };
+    button ("local-blind-capture")->onClick();
+    button ("local-blind-context")->onClick();
+    require (captureRequested && preflightContextRequested
+                 && button ("local-blind-close")->getButtonText() == "BACK",
+             "preflight requires an explicit capture and keeps a way back");
+    component.setMeterContext (meter_context::MeterContext::trackStem);
+    require (labelText ("local-blind-title").contains ("TRACK / STEM")
+                 && labelText ("local-blind-detail").contains ("short or sparse events"),
+             "TRACK / STEM preflight states its different Gain Match evidence");
+    for (const auto preset : observatory::sizePresets)
+    {
+        component.setPresentationContext (presentation::forEditor (preset.width, preset.height));
+        component.setSize (preset.width, preset.height);
+        for (int index = 0; index < component.getNumChildComponents(); ++index)
+        {
+            const auto* child = component.getChildComponent (index);
+            require (! child->isVisible() || (! child->getBounds().isEmpty()
+                        && component.getLocalBounds().contains (child->getBounds())),
+                     "preflight controls remain usable at every editor size");
+        }
+        const auto previewDirectory = juce::SystemStats::getEnvironmentVariable (
+            "KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+        if (previewDirectory.isNotEmpty())
+        {
+            juce::Image preview (juce::Image::ARGB, preset.width, preset.height, true);
+            juce::Graphics graphics (preview);
+            component.paintEntireComponent (graphics, true);
+            auto output = juce::File (previewDirectory).getChildFile (
+                "local-blind-preflight-" + juce::String (preset.width) + ".png")
+                              .createOutputStream();
+            require (output != nullptr
+                         && juce::PNGImageFormat().writeImageToStream (preview, *output),
+                     "preflight preview can be written for visual inspection");
+        }
+    }
+    component.setPresentationContext (presentation::forEditor (600, 400));
+    component.setSize (600, 400);
+
     local_blind::ProductSessionView ready;
     ready.phase = local_blind::ProductSessionPhase::ready;
     ready.sampleRate = 48'000;
@@ -64,6 +121,7 @@ inline void verifyLocalBlindUiContract()
     ready.frames = 192'000;
     ready.lowerPostGainDb = -5.5;
     ready.trial.lowerPostApprovalRequired = true;
+    ready.gainPolicy = local_blind::GainMatchPolicy::exactTrackEventEnergyV1;
     component.setState (ready);
     auto* start = button ("local-blind-start");
     require (start->isVisible() && start->getButtonText().contains ("5.5"),
@@ -84,6 +142,8 @@ inline void verifyLocalBlindUiContract()
     listening.trial.phase = local_blind::TrialPhase::listening;
     listening.trial.activeStimulus = 1;
     component.setState (listening);
+    require (labelText ("local-blind-title").contains ("TRACK / STEM"),
+             "captured context stays visible from the frozen Gain Match policy");
     require (! labelText ("local-blind-title").containsIgnoreCase ("PRE")
                  && ! labelText ("local-blind-title").containsIgnoreCase ("POST")
                  && ! labelText ("local-blind-status").containsIgnoreCase ("PRE")

@@ -446,6 +446,12 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 600×400は二つのトラック比較、および2MIXと単体トラックの二面比較を成立させる主力Observatoryとして維持する。
 
+共通HeaderのMeter Contextは即時toggleにせず、`2MIX`をmix／master busと連続active区間、
+`TRACK / STEM`をindividual／group busと短い・疎なeventとして説明する選択menuを開く。
+ローカルPRE／POST Blindは取得前の全画面preflightで現在contextとGain Match根拠を再表示し、
+利用者の`CAPTURE 4 S`操作後だけ取得を始める。取得後のtagは開始時に固定したpolicyから表示する。
+channel数、名前、routing、levelからcontextを推測または自動変更せず、通常画面の行も増やさない。
+
 900×600（300%）は600×400を置換せず、LEVEL、TIME、FREQ、SPACEとTIME配下の解析を同じ操作体系のまま高解像度で読むInspection Viewとする。LEVELは履歴面積、channel strip、数値階層を拡張するが、未合意の新指標は追加しない。将来Session Atlasを載せる場合は別途表示内容を確定する。
 
 既存Footerへ置く`VU`ボタンは通常時もHybrid VUを全sizeで前面表示し、同じボタンで選択domainを変更せず元の画面へ戻す。手動選択は読み込まれたplugin instanceのeditorを閉じて再表示しても保持するが、DAW project stateへは保存しない。

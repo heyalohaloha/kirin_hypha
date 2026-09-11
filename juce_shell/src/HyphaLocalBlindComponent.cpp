@@ -74,6 +74,16 @@ juce::String answerText (Answer answer)
     if (answer == Answer::cannotDistinguish) return "ANSWER: CANNOT TELL";
     return {};
 }
+
+bool trackStemPolicy (const local_blind::ProductSessionView& state) noexcept
+{
+    return state.gainPolicy == local_blind::GainMatchPolicy::exactTrackEventEnergyV1;
+}
+
+juce::String contextTag (bool trackStem)
+{
+    return trackStem ? "TRACK / STEM" : "2MIX";
+}
 }
 
 Component::Component()
@@ -112,6 +122,8 @@ Component::Component()
     styleButton (cannotDistinguish, "local-blind-answer-same", "Choose cannot tell apart");
     styleButton (startButton, "local-blind-start", "Start the prepared comparison");
     styleButton (revealButton, "local-blind-reveal", "Reveal the hidden source assignment");
+    styleButton (captureButton, "local-blind-capture", "Capture one exact four second range");
+    styleButton (contextButton, "local-blind-context", "Change Meter Context before capture");
     styleButton (stopButton, "local-blind-stop", "Stop the comparison safely");
     styleButton (returnButton, "local-blind-return", "Return explicitly to the live signal");
     styleButton (closeButton, "local-blind-close", "Close Blind Compare");
@@ -125,6 +137,8 @@ Component::Component()
     startButton.onClick = [this]
     { if (onStart) onStart (current.trial.lowerPostApprovalRequired); };
     revealButton.onClick = [this] { if (onReveal) onReveal(); };
+    captureButton.onClick = [this] { if (onCapture) onCapture(); };
+    contextButton.onClick = [this] { if (onContextMenu) onContextMenu(); };
     stopButton.onClick = [this] { if (onStop) onStop(); };
     returnButton.onClick = [this] { if (onReturn) onReturn(); };
     closeButton.onClick = [this] { if (onClose) onClose(); };
@@ -152,21 +166,38 @@ void Component::setState (local_blind::ProductSessionView next)
     repaint();
 }
 
+void Component::setMeterContext (meter_context::MeterContext next)
+{
+    if (preflightContext == next) return;
+    preflightContext = next;
+    if (current.phase == Phase::idle)
+    {
+        refreshPresentation();
+        repaint();
+    }
+}
+
 void Component::refreshPresentation()
 {
     const auto phase = current.phase;
     const bool hidden = phase == Phase::armed || phase == Phase::listening;
-    titleLabel.setText (hidden ? "BLIND COMPARE"
-                              : phase == Phase::revealed ? "BLIND RESULT"
-                                                        : "PRE / POST BLIND",
+    const bool trackStem = phase == Phase::idle
+        ? preflightContext == meter_context::MeterContext::trackStem
+        : trackStemPolicy (current);
+    const auto tag = contextTag (trackStem);
+    titleLabel.setText (juce::String (hidden ? "BLIND COMPARE"
+                                            : phase == Phase::revealed ? "BLIND RESULT"
+                                                                      : "PRE / POST BLIND")
+                           + "  ·  " + tag,
                         juce::dontSendNotification);
     juce::String status;
     juce::String detail;
     juce::String result;
     if (phase == Phase::idle)
     {
-        status = "READY TO CAPTURE";
-        detail = "Select one exact PRE pair and keep playback running.";
+        status = trackStem ? "INDIVIDUAL TRACK / GROUP BUS" : "MIX / MASTER BUS";
+        detail = trackStem ? "Gain Match reads short or sparse events."
+                           : "Gain Match reads continuous active sections.";
     }
     else if (phase == Phase::capturing)
     {
@@ -274,6 +305,8 @@ void Component::refreshPresentation()
                                       juce::dontSendNotification);
 
     startButton.setVisible (phase == Phase::ready);
+    captureButton.setVisible (phase == Phase::idle);
+    contextButton.setVisible (phase == Phase::idle);
     revealButton.setVisible (phase == Phase::listening);
     revealButton.setEnabled (current.trial.canAnswer && current.trial.answer != Answer::none);
     stopButton.setVisible (phase == Phase::capturing || phase == Phase::preparing
@@ -282,7 +315,9 @@ void Component::refreshPresentation()
     stopButton.setButtonText (phase == Phase::capturing || phase == Phase::preparing
                                 ? "CANCEL" : phase == Phase::revealed ? "END" : "STOP");
     returnButton.setVisible (phase == Phase::returnPending);
-    closeButton.setVisible (phase == Phase::returned || phase == Phase::failed);
+    closeButton.setVisible (phase == Phase::idle || phase == Phase::returned
+                            || phase == Phase::failed);
+    closeButton.setButtonText (phase == Phase::idle ? "BACK" : "CLOSE");
 }
 
 void Component::paint (juce::Graphics& g)
@@ -290,8 +325,6 @@ void Component::paint (juce::Graphics& g)
     g.fillAll (BG);
     const auto area = getLocalBounds().toFloat().reduced (10.0f);
     surface_material::paintPanel (g, area, 0.94f, 7.0f);
-    g.setColour (COL_FLORA.withAlpha (0.52f));
-    g.drawRoundedRectangle (area.reduced (0.5f), 7.0f, 1.0f);
     g.setColour (COL_LED_BLUE.withAlpha (0.34f));
     g.fillEllipse (area.getX() + 18.0f, area.getY() + 18.0f, 7.0f, 7.0f);
 }
@@ -350,6 +383,7 @@ void Component::resized()
                { &answerOne, &answerTwo, &noPreference, &cannotDistinguish });
     area.removeFromTop (compact ? 3 : medium ? 6 : 10);
     layoutRow (area.removeFromTop (actionHeight),
-               { &startButton, &revealButton, &stopButton, &returnButton, &closeButton });
+               { &contextButton, &captureButton, &startButton, &revealButton, &stopButton,
+                 &returnButton, &closeButton });
 }
 }

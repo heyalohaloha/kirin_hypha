@@ -62,19 +62,9 @@ void KirinHyphaEditor::configureMeterContext()
     observatoryView.setMeterContext (processorRef.meterContextPreference());
     observatoryView.setScaleMode (processorRef.scaleModePreference());
     observatoryView.onContextChange = [this] (hypha::meter_context::MeterContext context)
-    {
-        const auto scale = hypha::meter_context::initialScaleFor (context);
-        observatoryView.setMeterContext (context);
-        observatoryView.setScaleMode (scale);
-        processorRef.setMeterContextPreference (context);
-        processorRef.setScaleModePreference (scale);
-       #if ! KIRIN_HYPHA_PRE_DISPLAY
-        if (analysisPage == AnalysisPage::attack
-            && ! hypha::meter_context::drumAttackAvailable (context))
-            setAnalysisPage (AnalysisPage::meters);
-        updateTimePageNavigation();
-       #endif
-    };
+    { applyMeterContextChoice (context); };
+    observatoryView.onContextMenu = [this]
+    { showMeterContextMenu (observatoryView.contextMenuAnchor()); };
     observatoryView.onScaleChange = [this] (hypha::meter_context::ScaleMode scale)
     {
         observatoryView.setScaleMode (scale);
