@@ -144,7 +144,8 @@ public:
         jungleAppearance = enabled;
         repaint();
     }
-    bool jungleAppearanceEnabledForTest() const noexcept { return jungleAppearance; }
+    bool jungleAppearanceEnabled() const noexcept { return jungleAppearance; }
+    bool jungleAppearanceEnabledForTest() const noexcept { return jungleAppearanceEnabled(); }
     ConnectionState connection() const noexcept { return connectionState; }
     void setGuide (juce::String primary, juce::String detail, bool emphasized);
     void clearGuide();

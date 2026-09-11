@@ -469,6 +469,11 @@ Concept C Hybrid Observatoryをvisual baselineとする。
 
 [Kirin OS 1.0](https://kirinmastering.com/kirin-os-1-0)下部のJungle世界から、巨大な有機構造、湿度を感じる奥行き、暖色の生活光、疎なcyan signalを取り入れる。
 
+通常時からCE 2226の完成した計器として成立させ、Jungleでは同じ筐体の生命感だけを加速する。
+Kirin OSのJungle発動とMASKING GuideのHyphaへの送信成功が両方成立した場合だけ初回発動し、順序は問わない。
+連動ポップアップや由来badgeは表示せず、発動後だけ既存Displayメニューの`Jungle Mode`で独立してON／OFFする。
+選択は利用者dataとしてPRE／POST、DAW再起動、Project Folder、製品versionを跨いで保持する。
+
 細い蔓を画面へ貼り付けただけの装飾にはしない。
 
 ivoryの数字、cool cyanの実測線、低彩度amberのholdと居住光を基本とする。

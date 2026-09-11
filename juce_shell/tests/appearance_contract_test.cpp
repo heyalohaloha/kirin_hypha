@@ -167,6 +167,7 @@ void verifyService()
         Service service (root);
         service.refreshSynchronouslyForTest();
         KIRIN_APPEARANCE_REQUIRE (service.snapshot().enabled);
+        KIRIN_APPEARANCE_REQUIRE (service.snapshot().noticePending);
         const auto request = service.setChoice (Choice::off);
         KIRIN_APPEARANCE_REQUIRE (request.state == UserActionState::pending);
         for (int attempt = 0; attempt < 100
@@ -174,6 +175,21 @@ void verifyService()
             juce::Thread::sleep (5);
         KIRIN_APPEARANCE_REQUIRE (service.latestUserAction().state == UserActionState::persisted);
         KIRIN_APPEARANCE_REQUIRE (! service.snapshot().enabled);
+        KIRIN_APPEARANCE_REQUIRE (service.snapshot().persistent);
+        const auto stored = setup.readPreference();
+        KIRIN_APPEARANCE_REQUIRE (stored.value->choice == Choice::off);
+
+        FileLock blocker (setup.preferenceLockDirectory());
+        KIRIN_APPEARANCE_REQUIRE (blocker.tryAcquire());
+        const auto sessionOnly = service.setChoice (Choice::on);
+        KIRIN_APPEARANCE_REQUIRE (sessionOnly.state == UserActionState::pending);
+        for (int attempt = 0; attempt < 150
+             && service.latestUserAction().state == UserActionState::pending; ++attempt)
+            juce::Thread::sleep (5);
+        KIRIN_APPEARANCE_REQUIRE (service.latestUserAction().state == UserActionState::failed);
+        KIRIN_APPEARANCE_REQUIRE (service.snapshot().enabled);
+        KIRIN_APPEARANCE_REQUIRE (! service.snapshot().persistent);
+        KIRIN_APPEARANCE_REQUIRE (setup.readPreference().value->choice == Choice::off);
     }
     KIRIN_APPEARANCE_REQUIRE (root.deleteRecursively());
 }

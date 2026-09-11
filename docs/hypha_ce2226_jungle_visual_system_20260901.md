@@ -15,7 +15,8 @@ Hyphaは通常時からCE 2226であり、Jungle発動は同じ生態系の生�
 具体的な仕上げ、全5サイズ、連動、軽量性、検証は[改訂実装計画](hypha_jungle_activation_and_visual_plan_20260911.md)を参照する。
 通常版の共通surface、OSのJungle発動とMASKING送信をAND条件にしたpublisher、Hypha共有service、全5サイズ共通のJungle差分は実装済みである。
 Jungle差分は追加bitmapやanimationを使わず、VUのガラス下層と共通外周へnativeの連続菌糸と低明度の内部光だけを加える。
-初回通知は未実装である。
+初回の連動ポップアップや由来badgeは表示しない。
+発動後は既存Displayメニューの`Jungle Mode`だけで独立してON/OFFできる。
 以下の既存baselineを、未実装のJungle外観や連動まで達成済みだと読み替えない。
 VUの計測、構図、操作と既存の意味色を守り、破線、点線、自律的な装飾animationは追加しない。
 

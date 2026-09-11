@@ -1,7 +1,7 @@
 # Hypha通常版のCE 2226統一とJungle連動の実装計画
 
 更新日：2026-09-11。
-状態：通常版の質感統一とJungleによる生命感の加速、連動方針はDaisuke承認済み。P1の通常外観、OS側のAND条件publisher、Hypha共有service、P2の全5サイズ共通Jungle差分は実装済み。初回通知は未実装。
+状態：通常版の質感統一とJungleによる生命感の加速、連動方針はDaisuke承認済み。P1の通常外観、OS側のAND条件publisher、Hypha共有service、P2の全5サイズ共通Jungle差分、Displayメニューの独立ON/OFFは実装済み。初回の連動ポップアップと由来表示は2026-09-11の判断で採用しない。
 調査基準：Hypha `2908d601`（B-812）、Kirin OS `0bd9db7a8`（W-3045）。
 改訂理由：通常版を現状固定する計画から、現在のVUの品位を全画面へ広げ、その完成した通常版をJungleで深める計画へ変更した。
 
@@ -16,7 +16,7 @@ native UI contractはPRE/POSTと全5サイズを含めてpassした。
 同一機での変更前後の900×600 Spectrumは7.50887から7.53996 ms/frame、M/S Spectrumは1.82294から2.01299 ms/frameで、いずれも追加0.5 ms/frame以内だった。
 OS publisherはKirin OSのJungle発動と、MASKING GuideのHyphaへのpublish成功を別々に検証し、両方が成立した場合だけ発動証明を作る。
 Hypha共有serviceは可視editorの既存timerから最大1 Hzで起こし、filesystem、JSON、排他、保存を一個のbackground workerへ隔離した。
-初回通知、macOS/Windows実ホスト検証は次工程に残る。
+macOS/Windows実ホスト検証は次工程に残る。
 
 P2では追加bitmapを採用せず、通常版と同じnative描画へ連続した青緑／琥珀の菌糸と低明度の縁光を追加した。
 PRE／POST、5基準サイズ、全domain、Hybrid VU、Captureを同じ描画経路で比較し、OFF復帰は同一snapshotで画素差ゼロを確認した。
@@ -38,7 +38,7 @@ OFFで戻る先は質感を揃えた新しい通常版であり、旧外観を�
 
 軽さは完成条件に含める。
 静止素材と状態変化時の切替を基本とし、追加の音声解析、常時アニメーション、装飾用の独立描画タイマーは導入しない。
-OS連動、外観選択、初回通知を計測値、Record、Reference試聴から分離する。
+OS連動と外観選択を計測値、Record、Reference試聴から分離する。
 
 ## 2. 調査で確認した既存構造
 
@@ -119,7 +119,7 @@ VUの曲面ガラスを各グラフへ複製せず、グラフは平面の精密
 | SPACE | density fieldの窓とbalance/correlation panelを同じ筐体へ収める | 共通外周だけを深める。densityや残響のように読める架空の光を中央へ加えない |
 | Reference | 親shellに加え、A/B、selector、比較panel、接続案内の面と縁を揃える | 共通構造だけを継承。試聴状態、Bへの明示切替、Blindの開示境界は維持 |
 | popup、tooltip、dialog | Information、Pair、Referenceの操作に同じ静かな基材と輪郭を使う | 機能的な色、focus、文字のcontrastを維持。装飾画像は載せず、OS標準file dialogは対象外 |
-| Capture | 通常版の共通仕上げを出力frameと合成した解析bodyへ反映 | 開始時の外観を静止snapshotへ固定。表示名のopt-in、測定値、構図を維持し、初回通知は含めない |
+| Capture | 通常版の共通仕上げを出力frameと合成した解析bodyへ反映 | 開始時の外観を静止snapshotへ固定。表示名のopt-in、測定値、構図を維持 |
 
 素材は数値、axis、目盛り、針の可動範囲と重ならないmaskで制約する。
 利用可能なlabel、unit、説明文は背景との4.5:1以上の既存可読性契約を満たし、高級感のために薄くしない。
@@ -164,7 +164,7 @@ OSのプロプライエタリなコードや配布素材をGPLリポジトリへ
 | --- | --- | --- | --- |
 | `appearance/v1/os-hypha-masking-handoff.json` | OS mainのみ | OS main | MASKING GuideをHyphaへ一度正常送信した最小事実 |
 | `appearance/v1/os-jungle-activation.json` | OS mainのみ | OS main、Hypha | 正規のJungle発動とMASKING送信の両方が一度成立した証明 |
-| `appearance/v1/hypha-jungle-preference.json` | Hyphaの表示設定serviceのみ | 全Hypha | 初回受信、利用者の選択、通知の確認状態 |
+| `appearance/v1/hypha-jungle-preference.json` | Hyphaの表示設定serviceのみ | 全Hypha | 初回受信、利用者の選択、互換予約field |
 
 配置先は既存Hypha共有rootを使う。
 macOSは`~/Library/Application Support/Kirin OS/plugin_data/`、Windowsは`%LOCALAPPDATA%/Kirin OS/plugin_data/`である。
@@ -181,12 +181,13 @@ OSの発動記録は`schema_version`、`kind`、`activation_id`、`activated_at`
 利用開始日、解放までの日数、曲名、Work名、認証情報、素材pathは含めない。
 この記録は外観用であり、RecordやReferenceを解放する権限には使えない。
 
-Hyphaの保存値は`schema_version`、単調増加の`revision`、`activation_seen`、`first_activation_id`、`choice`、`notice_acknowledged`とする。
+Hyphaの保存値は`schema_version`、単調増加の`revision`、`activation_seen`、`first_activation_id`、`choice`、互換予約fieldの`notice_acknowledged`とする。
+`notice_acknowledged`は既存schemaを壊さないため保持するが、通知や由来表示の発生条件には使わない。
 `choice`は`unset / on / off`の三値で、UIはON/OFFの二値だけを見せる。
 受信前はOFF、初回受信後の`unset`はON、明示選択後はその選択を使う。
 保存された希望状態と各editorの実際の表示状態を分け、素材準備と安全な適用時点が揃うまで現在の表示を保つ。
 保留中のメニューは現在の表示と適用待ちを区別し、未適用を適用済みとして見せない。
-発動記録のIDが回復処理で変わっても、保存済みの選択と通知確認を初期化しない。
+発動記録のIDが回復処理で変わっても、保存済みの選択を初期化しない。
 
 既存の`ui-preferences.txt`にJungle項目を追記しない。
 現行hover help writerが未知の項目を消す実装なので、外観設定を別ファイルにすることで旧Hyphaとの共存を保つ。
@@ -229,7 +230,7 @@ UIとAudio Threadは待たず、遅いfilesystemでも直前のsnapshotで描画
 
 設定更新は明示的な操作として処理する。
 `setChoice(on/off)`と`acknowledgeNotice`を分け、排他取得後に最新ファイルを再読して必要なfieldだけ変更する。
-通知を閉じる操作が別インスタンスのOFFをONへ戻すような、古いsnapshotの全体上書きを禁止する。
+別インスタンスのOFFを古いsnapshotのONで戻すような、全体上書きを禁止する。
 同時に異なるON/OFFを選んだ場合は、保存transactionの確定順に最後の明示選択へ収束する。
 
 atomic replaceだけでは複数writerの取りこぼしを防げないため、短い更新transactionをOSレベルの排他で直列化する。
@@ -240,50 +241,21 @@ macOSのJUCE `InterProcessLock`は`fcntl`を使っているため、同一DAW内
 
 破損、部分書込、未知schema、読取不能は直前の検証済みsnapshotまたはbackupを保持する。
 未知schemaのprimaryを古い形式で上書きせず、その版では永続変更を行わない。
-初回に検証済み状態を得られない場合は通常外観とし、受信済みや通知確認済みを捏造しない。
+初回に検証済み状態を得られない場合は通常外観とし、受信済みを捏造しない。
 明示ON/OFFの保存失敗はそのHyphaでの一時変更と保存失敗を短く知らせ、全インスタンス共有や再起動後保持を成功扱いにしない。
 両方の設定ファイルとbackupを手動削除した場合の履歴回復までは保証せず、設定リセットとして扱う。
 
-## 7. 初回連動の知らせ方
+## 7. 連動表示と独立切替
 
-初回通知はInformation入口に対応する非モーダルの小窓とする。
-計器の外側の空きへ配置し、目盛り、数値、操作を覆わず、DAWのkeyboard focusと再生操作を奪わない。
-monitor端では位置を反転し、親editorの移動、閉鎖、非表示に追従する。
-通知のためにeditorの寸法や常設layoutを変えない。
-この配置がmacOS AU/VST3とWindows VST3で成立することをP0で先に確認する。
+初回ポップアップ、由来badge、外部状態を示す常設文言は表示しない。
+発動条件はKirin OSのJungle発動とMASKING Guide送信成功のANDのまま保持するが、その内部契約を計器面へ説明表示しない。
 
-表示条件は、前面で見えるeditorがあり、再生、録音、Blind、他の操作dialogが進行中でないこととする。
-安全に置ける空間がない間も確認済みにせず保留する。
-外観の初回受信は保存できるが、自動適用と通知は作業を妨げない表示時点で行う。
-利用者の明示ON/OFFは通常再生中も使えるが、Blind中は現在の表示を固定し、終了後に共有選択を反映する。
-
-本文案は日本語環境で次の二文とする。
-
-> Kirin OSでJungle Modeが発動しました。
-> Hyphaも連動しました。
-
-操作は「閉じる」と「HyphaではOFFにする」の二つとする。
-英語環境では`Jungle Mode was activated in Kirin OS.`、`Hypha has joined it.`、`Close`、`Turn off in Hypha`を使う。
-新しい言語設定は増やさず、OSの表示言語が日本語なら日本語、それ以外は英語を選ぶ。
-既存のnative text fontで折り返し、文字縮小やellipsisで本文と操作を削らない。
-
-通知は自動消去せず、明示的に閉じた時点で`notice_acknowledged`を保存する。
-「HyphaではOFFにする」はOFFと確認済みを同じtransactionで保存する。
-メニューから明示的にON/OFFを選んだ場合も、由来を読める操作として初回通知を確認済みにする。
-親editorを閉じた場合、非表示になった場合、表示途中でhostが落ちた場合は未確認のまま次の機会へ渡す。
-
-通知を所有する可視editorは利用者単位で一つに限定する。
-短い排他でowner tokenを登録し、表示中だけ更新する別の一時leaseでPRE/POST間の重複を防ぐ。
-親消滅時はleaseを解放し、process終了後は期限切れを検証して引き継ぐ。
-所有権を失ったeditorは通知を閉じ、再開時にもowner tokenを再確認する。
-leaseに壁時計だけを使った無期限占有を残さず、期限、owner生存、時計変更を異常系試験に含める。
-「一度だけ」は正常な永続化の下で確認操作が一度という意味であり、未確認の通知を表示回数だけで捨てない。
-
-発動後のDisplayメニューには`Jungle Mode`のチェック操作、設定範囲、初回の由来を置く。
-説明は「この端末のHypha全体の外観を切り替えます。」、由来は「初回発動：Kirin OSと連動」とする。
-由来は現在の接続状態を表さず、OSを閉じても残す。
+発動後だけ既存Displayメニューへ`Jungle Mode`のチェック操作を追加する。
+利用者がON/OFFを選ぶとPRE/POSTと全インスタンスで共有し、Blind中だけ現在の表示を固定する。
+明示操作は再生中も受け付け、保存に失敗した場合はそのセッションだけの変更であることを短く通知する。
+自動適用は再生、録音、Blind、他の操作dialog中を避け、作業を妨げない時点まで保留する。
 未発動時はJungleの項目、無効ボタン、解放条件を表示しない。
-hover helpをOFFにしていても、メニューの説明と初回通知は読めるようにする。
+hover helpをOFFにしていても、既存Displayメニューから切り替えられる。
 
 ## 8. 状態遷移の合格表
 
@@ -294,18 +266,17 @@ hover helpをOFFにしていても、メニューの説明と初回通知は読�
 | Jungle発動済み、MASKING未送信 | 通常外観を維持し、発動記録を作らない |
 | MASKING送信済み、Jungle未発動 | 通常外観を維持し、送信の最小事実だけを保持する |
 | 二条件成立、Hypha未起動 | 発動記録を残し、後日の起動で受け取る |
-| 発動時に複数Hyphaが表示中 | 表示可能な時点で外観を反映し、通知は一つ |
-| 再生中、録音中、Blind中 | 自動変化と通知は保留。終了後に再判定する |
-| 利用者がOFF、その後OSから再通知 | 新通常版を維持。初回通知を再発行しない |
-| OS終了、権限変更、Project Folder変更 | 保存済みの外観選択と由来を維持 |
+| 発動時に複数Hyphaが表示中 | 各editorが共有snapshotを読み、安全な時点で同じ外観へ収束する |
+| 再生中、録音中、Blind中 | 初回の自動変化を保留し、終了後に再判定する |
+| 利用者がOFF、その後OSから再通知 | 新通常版を維持し、利用者選択を上書きしない |
+| OS終了、権限変更、Project Folder変更 | 保存済みの外観選択を維持 |
 | 新しいPRE/POST instance、DAW再起動 | 保存済みの共有選択を読み、DAW stateから逆に上書きしない |
 | 旧Hyphaと新Hyphaの混在 | 旧版は通常表示。新しい外観設定を旧hover help writerから保護 |
 | UIを開かずoffline render | 外観serviceを起動せず、通常A経路を維持 |
-| 素材欠損またはdecode失敗 | 通常素材へfallback。実適用前に「連動しました」と表示しない。明示選択の失敗は通知 |
+| 素材欠損またはdecode失敗 | 通常素材へfallback。明示選択の保存失敗だけを通知 |
 | 発動記録欠損、読取失敗 | 保存済み選択を消さない。新規発動は確認できるまで待つ |
 | Capture中に別instanceで切替 | 一枚の中で外観を混在させず、Capture開始時のsnapshotを使う |
-| 通知closeと別instanceのOFFが競合 | 確認済みとOFFの両方を保持 |
-| 監視jobまたは通知ownerの終了 | 音声と計測は継続。次のeditorで読み直せる |
+| 監視jobの終了 | 音声と計測は継続。次のeditorで読み直せる |
 
 ## 9. 変更対象と分離順序
 
@@ -317,7 +288,6 @@ hover helpをOFFにしていても、メニューの説明と初回通知は読�
 | OSの判定共通化 | `src/App.jsx`、`src/utils/jungleOwnerOverride.cjs`、`src/hooks/useJungleDiscovery.js`周辺。既存発動条件を保持して共通の純粋判定へ寄せる |
 | OSのpathと回復 | `src/utils/platformPaths.cjs`、既存atomic writer、profile lifecycle試験。発動記録専用schema fixtureを追加 |
 | Hyphaの契約とservice | 新規`appearance/AppearanceContract.*`、`AppearanceService.*`、`AppearanceStorage.*`、小さいplatform排他adapter |
-| Hyphaの通知 | 新規`appearance/JungleActivationNotice.*`。lease、言語、close/OFFを分離 |
 | editorの配線 | `PluginEditor.h`、`PluginEditor.cpp`、`PluginEditorObservatory.cpp`。新規`PluginEditorAppearance.cpp`へcallbackとlifecycleをまとめる |
 | メニュー | `PluginEditorInformation.cpp`、`PluginEditorMenu.cpp`、Reference内のInformation入口。共通menu builderとactionを使用 |
 | 外観snapshot | `HyphaObservatoryView.*`、`HyphaObservatoryWorld.*`、`HyphaHybridVuPainter.*`、`HyphaObservatoryCapture.cpp`、`PluginEditorCapture.cpp` |
@@ -365,17 +335,17 @@ Jungle素材は共有sourceから必要な一寸法だけをcacheし、resizeで
 OFFでも再ONのため共有decode結果を保持できるが、最後のeditorが閉じたら追加画像cacheを解放する。
 decode失敗はcacheし、定期読取のたびに再試行しない。
 素材revisionの変更または利用者の明示再試行でのみ準備をやり直す。
-OS→Hyphaの外観通知を毎音声blockや既存PRE共有メモリへ載せない。
+OS→Hyphaの外観状態を毎音声blockや既存PRE共有メモリへ載せない。
 一画面、二画面、多数の閉じたinstance、停止中、10分連続再生で差分を測る。
 
 ## 11. 実装工程と検証
 
 | 工程 | 作業 | 出口 |
 | --- | --- | --- |
-| P0 | 現行commitの描画と性能baseline、保護maskを採取。VUを基準に新通常版のLEVEL 600、Compact 300、Reference 900とVUの比較を用意。保存契約、排他probe、全5サイズの通知配置も先に確かめる | 通常版の具体的な仕上げをDaisukeが確認。一回性、native通知、文字幅が成立する |
+| P0 | 現行commitの描画と性能baseline、保護maskを採取。VUを基準に新通常版のLEVEL 600、Compact 300、Reference 900とVUの比較を用意。保存契約と排他probeを先に確かめる | 通常版の具体的な仕上げをDaisukeが確認。5サイズの構図と保存境界が成立する |
 | P1 | 共通素材とframeを先行分離し、新通常版を全対象へ適用。OS publisher、MASKINGとのAND条件、既発動移行、Hypha共有serviceも分離実装 | 通常版だけで全画面の品位と機能が成立。二条件の順序逆転、OFF保持、破損、同時更新が対象試験でpass |
 | P2 | 仕上がった通常版と同じ構図からJungle差分を作り、VU、共通surface、Captureへ接続 | 新通常版とJungleを全5サイズで比較。同じ計器の生命感が増し、測定の読みやすさは維持 |
-| P3 | 初回通知とメニュー、保留条件、保存失敗表示を配線 | 気づき、即時OFF、未確認引継ぎ、Blind保護、重複通知防止がpass |
+| P3 | 連動表示を追加せず、既存Displayメニューの独立ON/OFF、保留条件、保存失敗表示を配線 | 即時切替、Blind保護、共有保存、再起動保持がpass |
 | P4 | 現行版、新通常版、Jungleの比較を同じfixtureと条件へ集約 | 本計画の状態表と合算の性能予算を全件満たす |
 | P5 | macOS/Windowsの実ホストでOS発動から独立切替まで確認 | 各製品のcommit/build ID、起動順、ON/OFF、再起動、5サイズの証跡を記録 |
 
@@ -390,7 +360,7 @@ native試験ではPRE/POST、AU/VST3共通shell、5基準サイズ、density境�
 測定線、数値、axis、状態色とhit領域は保護maskで比較し、文字の背景contrastも確認する。
 Jungleとの差分を素材の許可領域へ限定し、OFFで新通常版の同一snapshotへ戻ることを確認する。
 共通部の確認だけで終わらず、popup、tooltip、Referenceのselectorと接続案内、Captureまで仕上げの取り残しを確認する。
-通知とメニューだけでなく、外部analysis bodyを合成したLEVEL、TIME各面、FREQ、SPACE、Reference、Captureを確認する。
+メニューだけでなく、外部analysis bodyを合成したLEVEL、TIME各面、FREQ、SPACE、Reference、Captureを確認する。
 fixtureはActive、Inactive、Bypassed、Guide有無、Pair欠損、素材欠損を含める。
 
 競合試験はPRE/POST別module、AU/VST3混在、別processのON/OFF、closeとOFF、owner異常終了、時計変更を扱う。
@@ -404,16 +374,16 @@ Rustを変更しない限り、新たなFFI検証を増やさない。
 ## 12. 実装着手と完了の境界
 
 今回の到達点はHypha通常版の共通surface、Kirin OSの二条件publisher、Hyphaの共有外観service、全5サイズのJungle差分実装と対象native検証である。
-初回通知、実ホスト、配布はまだ変更していない。
+連動ポップアップは採用しない。実ホストと配布はまだ変更していない。
 既存のdirtyなJUCE submodule、別件handoff、既存build directoryの内容は変更対象に含めない。
 Notionへの書込みも行わない。
 
-実装完了には通常版全体の質感統一、両製品の互換契約、全5サイズの描画、初回通知と独立切替、合算の性能予算、macOS/Windowsの実ホスト証跡を揃える。
+実装完了には通常版全体の質感統一、両製品の互換契約、全5サイズの描画、独立切替、合算の性能予算、macOS/Windowsの実ホスト証跡を揃える。
 未実行を次工程へ送っただけでは完了扱いにしない。
 Windows操作前にはOS側`docs/windows_validation_remote_access.md`を読む。
 公開する場合は別途既存release runbookに従い、HyphaのLS PKG、macOS無料ZIPとGitHub Releaseと英日HP、同じ版の署名済みWindows installerを揃える。
 release build、公証、配置を行うセッションのLSパッケージ準備も省略しない。
 
-次の着手点はP3の初回通知とDisplayメニューである。
-通常版の共通surfaceとP2のJungle差分を固定し、気づき、即時OFF、未確認引継ぎ、Blind保護、重複通知防止を完成させる。
-追加の外観生成や全体testを大量に繰り返さず、変更した通知と保存責務の対象試験だけを実行する。
+次の着手点はP4の合算性能確認とP5の実ホスト検証である。
+通常版の共通surface、P2のJungle差分、Displayメニューの独立切替を固定し、同一fixtureで性能予算と復元を確認する。
+追加の外観生成や全体testを大量に繰り返さず、最終候補で必要なgateを一度だけ実行する。

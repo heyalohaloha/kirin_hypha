@@ -57,6 +57,8 @@ private:
     std::size_t visibleEditors = 0;
     std::uint64_t nextActionId = 1;
     std::uint64_t pendingActionId = 0;
+    std::optional<Choice> volatileChoice;
+    std::int64_t volatileAtRevision = 0;
     bool pendingAcknowledgement = false;
     bool refreshRequested = false;
     bool jobActive = false;

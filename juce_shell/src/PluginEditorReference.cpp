@@ -179,6 +179,13 @@ void KirinHyphaEditor::showReferenceInformationMenu()
     menu.addSeparator();
     menu.addItem (static_cast<int> (Action::copyOsEnglish), "Copy official URL (English)");
     menu.addItem (static_cast<int> (Action::copyOsJapanese), "Copy official URL (Japanese)");
+    if (appearanceSnapshot.activationSeen)
+    {
+        menu.addSeparator();
+        menu.addSectionHeader ("Display");
+        menu.addItem (jungleModeMenuAction, "Jungle Mode", true,
+                      observatoryView.jungleAppearanceEnabled());
+    }
     const juce::Component::SafePointer<KirinHyphaEditor> safe (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&referenceAccessView)
         .withDeletionCheck (*this).withMinimumWidth (360).withStandardItemHeight (28),

@@ -91,6 +91,11 @@ void KirinHyphaEditor::showCandidateMenu()
     menu.addSectionHeader ("Display");
     menu.addItem (10, "Show hover help", true,
                   hypha::HoverHelpPreference::shared().isEnabled());
+    if (appearanceSnapshot.activationSeen)
+    {
+        menu.addItem (jungleModeMenuAction, "Jungle Mode", true,
+                      observatoryView.jungleAppearanceEnabled());
+    }
     menu.addSeparator();
     const bool pairSelected = processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED;
     if (! keepActive)
@@ -166,6 +171,8 @@ void KirinHyphaEditor::handleCandidateMenu (
         if (! persisted)
             showToast ("Hover help changed for this session only");
     }
+    else if (result == jungleModeMenuAction)
+        requestJungleChoice (! observatoryView.jungleAppearanceEnabled());
     else if (result == 11)
     {
         processorRef.clearPairCandidate();

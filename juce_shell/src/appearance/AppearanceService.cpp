@@ -187,6 +187,31 @@ void Service::performWork (
     }
 
     const std::lock_guard<std::mutex> lock (stateMutex);
+    if (choice.has_value()
+        && attemptedTransaction
+        && (transaction.state == TransactionState::persisted
+            || transaction.state == TransactionState::unchanged))
+    {
+        volatileChoice.reset();
+    }
+    if (resolved.revision > volatileAtRevision)
+    {
+        volatileChoice.reset();
+    }
+    if (attemptedTransaction
+        && transaction.state != TransactionState::persisted
+        && transaction.state != TransactionState::unchanged
+        && transaction.state != TransactionState::unsupported)
+    {
+        volatileAtRevision = resolved.revision;
+        if (choice.has_value())
+            volatileChoice = choice;
+    }
+    if (volatileChoice.has_value() && resolved.activationSeen)
+    {
+        resolved.choice = *volatileChoice;
+        persistent = false;
+    }
     publishSnapshot (resolved, persistent);
     if (actionId != 0 && lastUserAction.id <= actionId)
         lastUserAction = { actionId, attemptedTransaction

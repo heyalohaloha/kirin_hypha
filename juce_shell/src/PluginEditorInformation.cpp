@@ -89,6 +89,11 @@ void KirinHyphaEditor::showInformationMenu()
         menu.addItem (12, "Show selected view for this recording");
     menu.addItem (10, "Show hover help", true,
                   hypha::HoverHelpPreference::shared().isEnabled());
+    if (appearanceSnapshot.activationSeen)
+    {
+        menu.addItem (jungleModeMenuAction, "Jungle Mode", true,
+                      observatoryView.jungleAppearanceEnabled());
+    }
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (observatoryView.informationAnchor())
         .withDeletionCheck (*this).withMinimumWidth (360)
@@ -114,6 +119,11 @@ void KirinHyphaEditor::handleInformationMenu (int result)
     if (result == 12)
     {
         if (observatoryView.dismissHybridVuForCurrentRecording()) resized();
+        return;
+    }
+    if (result == jungleModeMenuAction)
+    {
+        requestJungleChoice (! observatoryView.jungleAppearanceEnabled());
         return;
     }
    #if JUCE_DEBUG

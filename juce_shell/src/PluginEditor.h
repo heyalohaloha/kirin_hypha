@@ -121,6 +121,7 @@ private:
     // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
     // (LUFS-M/TP/…); Delta* uses Δ labels (ΔLUFS/…). Watch is current|MAX; Record is 2×3.
     enum class Kind { WatchAbs6, WatchDelta6, Abs6, Delta6 };
+    static constexpr int jungleModeMenuAction = 13;
     void configureForKind (Kind);
     void layoutMetrics (bool six);
     void showCandidateMenu();          // B-102: POST pair dropdown (All Keep/All Stop/candidates)
@@ -138,6 +139,7 @@ private:
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
     void commitEditorSizeStateIfSettled (bool force);
     void refreshAppearance();
+    void requestJungleChoice (bool enabled);
     void releaseAppearanceVisibility();
 
     KirinHyphaProcessorBase& processorRef;
@@ -224,6 +226,8 @@ private:
     double observedHostProcessHeartbeatAt = 0.0;
     hypha::appearance::Snapshot appearanceSnapshot;
     bool appearanceVisibleRegistered = false;
+    bool appearanceApplyPending = false;
+    std::uint64_t appearanceActionAwaited = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaEditor)
 };
