@@ -1,5 +1,7 @@
 #include "AppearanceContract.h"
 
+#include <array>
+
 namespace hypha::appearance
 {
 namespace
@@ -61,13 +63,34 @@ bool hasExactKeys (juce::DynamicObject& object, const std::initializer_list<cons
     return true;
 }
 
-int schemaMajor (const juce::var& document)
+std::optional<std::array<std::int64_t, 3>> schemaParts (const juce::String& text)
+{
+    juce::StringArray parts;
+    parts.addTokens (text, ".", {});
+    if (parts.size() != 3)
+        return std::nullopt;
+    std::array<std::int64_t, 3> result {};
+    for (int index = 0; index < 3; ++index)
+    {
+        if (parts[index].isEmpty()
+            || parts[index].containsAnyOf ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+-"))
+            return std::nullopt;
+        for (const auto character : parts[index])
+            if (character < '0' || character > '9')
+                return std::nullopt;
+        result[(size_t) index] = parts[index].getLargeIntValue();
+    }
+    return result;
+}
+
+bool hasFutureSchema (const juce::var& document, const char* supported)
 {
     auto* object = document.getDynamicObject();
     if (object == nullptr)
-        return 0;
-    const auto text = object->getProperty ("schema_version").toString();
-    return text.upToFirstOccurrenceOf (".", false, false).getIntValue();
+        return false;
+    const auto found = schemaParts (object->getProperty ("schema_version").toString());
+    const auto current = schemaParts (supported);
+    return found.has_value() && current.has_value() && *found > *current;
 }
 
 bool decodeBoolean (const juce::var& value, bool& output)
@@ -106,7 +129,7 @@ ActivationDecode decodeActivation (const juce::String& text)
     auto* object = document.getDynamicObject();
     if (object == nullptr)
         return {};
-    if (schemaMajor (document) > 1)
+    if (hasFutureSchema (document, activationSchemaVersion))
         return { DecodeState::futureSchema, std::nullopt };
     if (! hasExactKeys (*object,
             { "schema_version", "kind", "activation_id", "activated_at",
@@ -137,7 +160,7 @@ PreferenceDecode decodePreference (const juce::String& text)
     auto* object = document.getDynamicObject();
     if (object == nullptr)
         return {};
-    if (schemaMajor (document) > 1)
+    if (hasFutureSchema (document, preferenceSchemaVersion))
         return { DecodeState::futureSchema, std::nullopt };
     if (! hasExactKeys (*object, { "schema_version", "revision", "activation_seen",
                                   "first_activation_id", "choice", "notice_acknowledged" }))

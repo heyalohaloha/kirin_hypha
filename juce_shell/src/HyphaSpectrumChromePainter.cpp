@@ -69,9 +69,21 @@ namespace
                 || (mode == KIRIN_SPECTRUM_SELECTION_MID_SIDE
                     && (! state.absoluteObservation || state.inputChannels != 2u));
             if (selected)
-                surface_material::paintControl (
-                    g, segment, false, false, true, COL_SPECTRUM_DELTA_BR,
-                    scaled (3.0f));
+            {
+                // This selector is repainted with every live Spectrum frame. Keep the same
+                // graphite depth and continuous reflected edge as the shared material without
+                // paying for a nested multi-pass panel at four very small segments.
+                const auto radius = scaled (3.0f);
+                g.setColour (BG.brighter (0.10f).withAlpha (0.90f));
+                g.fillRoundedRectangle (segment, radius);
+                g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.58f));
+                g.drawRoundedRectangle (segment.reduced (0.35f), radius, scaled (0.65f));
+                const auto reflection = segment.reduced (radius + scaled (1.0f), 0.0f);
+                g.setColour (COL_NORMAL.withAlpha (0.055f));
+                g.drawLine (reflection.getX(), segment.getY() + scaled (0.55f),
+                            reflection.getRight(), segment.getY() + scaled (0.55f),
+                            scaled (0.55f));
+            }
             g.setColour (unavailable ? COL_MUTED.withAlpha (0.30f)
                                      : selected ? COL_SPECTRUM_DELTA_BR.withAlpha (0.98f)
                                                 : COL_TEXT_SECONDARY);

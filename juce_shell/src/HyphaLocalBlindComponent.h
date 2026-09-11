@@ -41,6 +41,8 @@ public:
 
     void setState (local_blind::ProductSessionView);
     void setMeterContext (meter_context::MeterContext);
+    void setActionNotice (juce::String);
+    void clearActionNotice();
     const local_blind::ProductSessionView& state() const noexcept { return current; }
     juce::Component& contextAnchor() noexcept { return contextButton; }
 
@@ -54,6 +56,7 @@ private:
     void layoutRow (juce::Rectangle<int>, std::initializer_list<juce::Button*>);
 
     local_blind::ProductSessionView current;
+    juce::String actionNotice;
     presentation::Context presentationContext = presentation::defaultContext();
     juce::Label titleLabel;
     juce::Label statusLabel;

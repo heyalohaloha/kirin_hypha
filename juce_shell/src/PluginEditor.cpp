@@ -97,8 +97,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         if (! observatoryView.capabilities().targetSelectable) return;
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (target == hypha::observatory::ObservationTarget::delta
-            && ! spectrumView.isPsbObservation()
-            && spectrumView.isMidSideObservation()) return;
+            && hypha::ui_contract::deltaBlockedByMidSide (
+                observatoryDomain == hypha::observatory::Domain::frequency,
+                spectrumView.isPsbObservation(), spectrumView.isMidSideObservation())) return;
        #endif
         observatoryView.setTarget (target);
         processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (target));

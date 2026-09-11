@@ -1,7 +1,6 @@
 #include "HyphaSpectrumFocusTrailPainter.h"
 
 #include "HyphaSpectrumUiContract.h"
-#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaPolylineGeometry.h"
 
@@ -56,9 +55,19 @@ void paint (juce::Graphics& g,
 
     const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
     const float radius = ui_contract::spectrumFocusTrailRadius * strokeScale;
-    surface_material::paintPanel (g, bounds, compact ? 0.84f : 0.72f, radius);
+    // Focus Trail is a live work surface. A dark solid well with two continuous material edges
+    // preserves the CE 2226 depth cue while avoiding the generic panel's multi-pass gradient on
+    // every Spectrum frame.
+    const auto well = bounds.reduced (0.5f);
+    g.setColour (BG.darker (0.18f).withAlpha (compact ? 0.84f : 0.72f));
+    g.fillRoundedRectangle (well, radius);
+    const auto reflection = well.reduced (radius + strokeScale, 0.0f);
+    g.setColour (COL_NORMAL.withAlpha (0.045f));
+    g.drawLine (reflection.getX(), well.getY() + 0.45f * strokeScale,
+                reflection.getRight(), well.getY() + 0.45f * strokeScale,
+                0.55f * strokeScale);
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (compact ? 0.13f : 0.17f));
-    g.drawRoundedRectangle (bounds, radius, 0.65f * strokeScale);
+    g.drawRoundedRectangle (well, radius, 0.65f * strokeScale);
 
     auto plot = bounds.reduced (3.0f * strokeScale, 2.0f * strokeScale);
     if (! compact)

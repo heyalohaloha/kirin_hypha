@@ -85,10 +85,17 @@ inline void verifyLocalBlindUiContract()
     require (labelText ("local-blind-title").contains ("TRACK / STEM")
                  && labelText ("local-blind-detail").contains ("short or sparse events"),
              "TRACK / STEM preflight states its different Gain Match evidence");
+    component.setActionNotice ("START PLAYBACK BEFORE CAPTURE");
+    require (labelText ("local-blind-result") == "START PLAYBACK BEFORE CAPTURE",
+             "preflight action failures remain visible inside the isolated screen");
+    component.clearActionNotice();
     for (const auto preset : observatory::sizePresets)
     {
         component.setPresentationContext (presentation::forEditor (preset.width, preset.height));
         component.setSize (preset.width, preset.height);
+        if (preset.width == 300)
+            require (button ("local-blind-context")->getButtonText() == "CONTEXT",
+                     "minimum-size context action uses its complete compact label");
         for (int index = 0; index < component.getNumChildComponents(); ++index)
         {
             const auto* child = component.getChildComponent (index);

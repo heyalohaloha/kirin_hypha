@@ -4,6 +4,15 @@
 
 namespace hypha::ui_contract
 {
+    constexpr bool deltaBlockedByMidSide (bool frequencyDomain,
+                                          bool psbObservation,
+                                          bool midSideObservation) noexcept
+    {
+        return frequencyDomain && ! psbObservation && midSideObservation;
+    }
+
+    static_assert (deltaBlockedByMidSide (true, false, true));
+    static_assert (! deltaBlockedByMidSide (false, false, true));
     constexpr int spectrumPresentationHz = 30;
     constexpr int spectrumCurvePresentationHz = 12;
     constexpr int perceptualCurvePresentationHz = 5;

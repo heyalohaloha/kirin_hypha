@@ -160,16 +160,32 @@ void Component::styleButton (juce::Button& button, const juce::String& id,
 
 void Component::setState (local_blind::ProductSessionView next)
 {
+    if (next.phase != current.phase)
+        actionNotice.clear();
     current = next;
     refreshPresentation();
     resized();
     repaint();
 }
 
+void Component::setActionNotice (juce::String next)
+{
+    if (actionNotice == next) return;
+    actionNotice = std::move (next);
+    refreshPresentation();
+    repaint();
+}
+
+void Component::clearActionNotice()
+{
+    setActionNotice ({});
+}
+
 void Component::setMeterContext (meter_context::MeterContext next)
 {
     if (preflightContext == next) return;
     preflightContext = next;
+    actionNotice.clear();
     if (current.phase == Phase::idle)
     {
         refreshPresentation();
@@ -276,6 +292,8 @@ void Component::refreshPresentation()
         status = "COMPARISON NOT PREPARED";
         detail = failureText (current);
     }
+    if (actionNotice.isNotEmpty())
+        result = actionNotice;
     statusLabel.setText (status, juce::dontSendNotification);
     detailLabel.setText (detail, juce::dontSendNotification);
     resultLabel.setText (result, juce::dontSendNotification);
@@ -360,6 +378,7 @@ void Component::resized()
     const auto answerHeight = compact ? 26 : medium ? 32 : 42;
     const auto actionHeight = compact ? 28 : medium ? 36 : 48;
     const auto gap = compact ? 2 : medium ? 4 : 6;
+    contextButton.setButtonText (compact ? "CONTEXT" : "CHANGE CONTEXT");
     titleLabel.setFont (labelFont (presentationContext, typography::TextRole::sectionTitle,
                                    typography::Composition::information));
     statusLabel.setFont (labelFont (presentationContext, typography::TextRole::status,

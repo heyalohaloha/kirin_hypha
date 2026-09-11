@@ -25,25 +25,25 @@ void KirinHyphaEditor::configureLocalBlindProduct()
     localBlindView.onStart = [this] (bool approveLowerPost)
     {
         if (! processorRef.startLocalBlindProductTrial (approveLowerPost))
-            showToast ("Blind Compare could not start from this state");
+            localBlindView.setActionNotice ("BLIND COMPARE COULD NOT START");
         refreshLocalBlindProduct();
     };
     localBlindView.onSelectStimulus = [this] (int stimulus)
     {
         if (! processorRef.selectLocalBlindProductStimulus (stimulus))
-            showToast ("The hidden source could not be selected");
+            localBlindView.setActionNotice ("SOURCE COULD NOT BE SELECTED");
         refreshLocalBlindProduct();
     };
     localBlindView.onAnswer = [this] (hypha::local_blind::TrialAnswer answer)
     {
         if (! processorRef.answerLocalBlindProductTrial (answer))
-            showToast ("Listen to one complete pass of both sources first");
+            localBlindView.setActionNotice ("LISTEN TO BOTH COMPLETE PASSES FIRST");
         refreshLocalBlindProduct();
     };
     localBlindView.onReveal = [this]
     {
         if (! processorRef.revealLocalBlindProductTrial())
-            showToast ("Choose an answer after hearing both complete passes");
+            localBlindView.setActionNotice ("CHOOSE AN ANSWER AFTER BOTH PASSES");
         refreshLocalBlindProduct();
     };
     localBlindView.onStop = [this]
@@ -94,6 +94,7 @@ void KirinHyphaEditor::openLocalBlindProduct()
     }
     localBlindPreflight = true;
     localBlindOpen = true;
+    localBlindView.clearActionNotice();
     refreshLocalBlindProduct();
     localBlindView.grabKeyboardFocus();
 }
@@ -103,23 +104,23 @@ void KirinHyphaEditor::beginLocalBlindProductCapture()
     if (! localBlindOpen || ! localBlindPreflight) return;
     if (processorRef.pairStatus() != KIRIN_PAIR_STATUS_PAIRED)
     {
-        showToast ("Select one exact PRE pair before Blind Compare");
+        localBlindView.setActionNotice ("PAIR CHANGED · RETURN AND REOPEN");
         return;
     }
     if (processorRef.isRecording() || processorRef.keepPhase() != KIRIN_KEEP_PHASE_IDLE)
     {
-        showToast ("Blind Compare is available after the current Keep or Record");
+        localBlindView.setActionNotice ("END KEEP / RECORD BEFORE CAPTURE");
         return;
     }
     if (! processorRef.isPlaying() || ! processorRef.heartbeatLive())
     {
-        showToast ("Start playback, then capture the exact four second range");
+        localBlindView.setActionNotice ("START PLAYBACK BEFORE CAPTURE");
         return;
     }
     if (processorRef.referenceAuditionSnapshot().blindPhase
         != hypha::reference_audition::BlindPhase::inactive)
     {
-        showToast ("End Reference Blind Compare before starting PRE / POST Blind");
+        localBlindView.setActionNotice ("END REFERENCE BLIND BEFORE CAPTURE");
         return;
     }
     const auto previousPhase = processorRef.localBlindProductView().phase;
@@ -128,7 +129,7 @@ void KirinHyphaEditor::beginLocalBlindProductCapture()
     else
     {
         localBlindPreflight = processorRef.localBlindProductView().phase == previousPhase;
-        showToast ("Blind Compare could not reserve an Analysis slot");
+        localBlindView.setActionNotice ("ANALYSIS SLOT NOT AVAILABLE");
     }
     refreshLocalBlindProduct();
 }

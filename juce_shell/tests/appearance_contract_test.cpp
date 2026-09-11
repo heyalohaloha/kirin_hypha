@@ -71,6 +71,8 @@ void verifyDecoding()
         == DecodeState::invalid);
     KIRIN_APPEARANCE_REQUIRE (decodeActivation (
         activationJson().replace ("1.1.0", "2.0.0")).state == DecodeState::futureSchema);
+    KIRIN_APPEARANCE_REQUIRE (decodeActivation (
+        activationJson().replace ("1.1.0", "1.2.0")).state == DecodeState::futureSchema);
 
     auto preference = defaultPreference();
     const auto encodedDefault = encodePreference (preference);
@@ -78,6 +80,8 @@ void verifyDecoding()
     const auto decodedDefault = decodePreference (encodedDefault);
     KIRIN_APPEARANCE_REQUIRE (decodedDefault.state == DecodeState::valid);
     KIRIN_APPEARANCE_REQUIRE (! makeSnapshot (*decodedDefault.value, true).enabled);
+    KIRIN_APPEARANCE_REQUIRE (decodePreference (
+        encodedDefault.replace ("1.0.0", "1.1.0")).state == DecodeState::futureSchema);
 
     preference.revision = 1;
     preference.activationSeen = true;
@@ -200,7 +204,7 @@ void verifyFuturePreferenceIsPreserved()
     const auto root = makeRoot();
     Storage setup (root);
     writeActivation (setup);
-    const auto future = juce::String ("{\n  \"schema_version\": \"2.0.0\",\n")
+    const auto future = juce::String ("{\n  \"schema_version\": \"1.1.0\",\n")
         + "  \"future\": true\n}\n";
     KIRIN_APPEARANCE_REQUIRE (
         setup.preferenceFile().getParentDirectory().createDirectory().wasOk());
