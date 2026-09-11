@@ -38,6 +38,12 @@ export function validateAaxBuildIdentity(actual, expected) {
   if (actual.sourceState !== expected.sourceState) {
     throw new Error(`AAX source state ${actual.sourceState} does not match ${expected.sourceState}`);
   }
+  if (expected.requireKimera && actual.aaxBuildMode !== 'release') {
+    throw new Error(`AAX release bundle build mode is ${actual.aaxBuildMode}`);
+  }
+  if (expected.requireDiagnostic && actual.aaxBuildMode !== 'diagnostic') {
+    throw new Error(`AAX diagnostic bundle build mode is ${actual.aaxBuildMode}`);
+  }
   if (expected.requireKimera && actual.kimeraEmbedded !== 'true') {
     throw new Error('AAX distribution bundle does not embed the licensed Kimera font');
   }
@@ -99,6 +105,7 @@ export function verifyAaxBundle({
   sourceState,
   requireKimera = false,
   requireNativeOnly = false,
+  requireDiagnostic = false,
 }) {
   if (!fs.statSync(bundlePath, { throwIfNoEntry: false })?.isDirectory()) {
     throw new Error(`AAX bundle missing: ${bundlePath}`);
@@ -121,17 +128,19 @@ export function verifyAaxBundle({
     const actual = plistValue(plist, key);
     if (actual !== value) throw new Error(`AAX ${key}=${actual}, expected ${value}`);
   }
-  if (sourceId || sourceState || requireKimera || requireNativeOnly) {
+  if (sourceId || sourceState || requireKimera || requireNativeOnly || requireDiagnostic) {
     validateAaxBuildIdentity({
       sourceId: plistValue(plist, 'KirinHyphaSourceID'),
       sourceState: plistValue(plist, 'KirinHyphaSourceState'),
       kimeraEmbedded: plistValue(plist, 'KirinHyphaKimeraEmbedded'),
       audioSuiteEnabled: plistValue(plist, 'KirinHyphaAudioSuiteEnabled'),
+      aaxBuildMode: plistValue(plist, 'KirinHyphaAaxBuildMode'),
     }, {
       sourceId,
       sourceState,
       requireKimera,
       requireNativeOnly,
+      requireDiagnostic,
     });
   }
 
@@ -166,6 +175,7 @@ export function verifyAaxBundleCopy({
   sourceState,
   requireKimera = false,
   requireNativeOnly = false,
+  requireDiagnostic = false,
 }) {
   const options = {
     executableName: spec.executable_name,
@@ -183,6 +193,7 @@ export function verifyAaxBundleCopy({
     sourceState,
     requireKimera,
     requireNativeOnly,
+    requireDiagnostic,
   });
   if (source.binarySha256 !== destination.binarySha256) {
     throw new Error(`AAX executable changed during copy: ${spec.role}`);
@@ -205,6 +216,7 @@ function parseArgs(argv) {
     else if (arg === '--source-state') options.sourceState = argv[++index];
     else if (arg === '--require-kimera') options.requireKimera = true;
     else if (arg === '--require-native-only') options.requireNativeOnly = true;
+    else if (arg === '--require-diagnostic') options.requireDiagnostic = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new Error(`unknown argument: ${arg}`);
   }
@@ -214,7 +226,7 @@ function parseArgs(argv) {
 function runCli(argv) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log('Usage: node aax_bundle_verify.mjs --bundle PATH --executable NAME --identifier ID --version VERSION [--source PATH] [--source-id ID --source-state STATE --require-kimera --require-native-only]');
+    console.log('Usage: node aax_bundle_verify.mjs --bundle PATH --executable NAME --identifier ID --version VERSION [--source PATH] [--source-id ID --source-state STATE --require-kimera --require-native-only --require-diagnostic]');
     return;
   }
   for (const key of ['bundlePath', 'executableName', 'bundleIdentifier', 'version']) {
@@ -235,6 +247,7 @@ function runCli(argv) {
       sourceState: options.sourceState,
       requireKimera: options.requireKimera,
       requireNativeOnly: options.requireNativeOnly,
+      requireDiagnostic: options.requireDiagnostic,
     });
   } else {
     verifyAaxBundle({
@@ -246,6 +259,7 @@ function runCli(argv) {
       sourceState: options.sourceState,
       requireKimera: options.requireKimera,
       requireNativeOnly: options.requireNativeOnly,
+      requireDiagnostic: options.requireDiagnostic,
     });
   }
   console.log(`[aax-bundle-verify] OK: ${options.bundlePath}`);

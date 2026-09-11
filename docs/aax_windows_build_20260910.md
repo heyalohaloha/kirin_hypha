@@ -36,7 +36,9 @@ requires a clean B-numbered source, configures the explicit AAX gate, builds onl
 checks both version resources, and writes `kirin-hypha-windows-aax-build.json`. The manifest pins the
 full source commit, source state, Kimera embedding state, Native-only/AudioSuite state, and exact
 PRE/POST hashes. Omitting the Kimera options is permitted for an unsigned diagnostic build, but the
-resulting manifest records `kimera_embedded: false` and release signing rejects it.
+resulting manifest records `kimera_embedded: false` and `mode: diagnostic`; release signing rejects
+it. Use that artifact only for a host that explicitly permits unsigned developer plug-ins. It must
+never be passed as `--aax-artifact-dir` to the public installer path.
 
 ## Signing boundary
 

@@ -79,8 +79,10 @@ function inspectBuildConfiguration(artifactRoot) {
     return fs.statSync(project, { throwIfNoEntry: false })?.isFile()
       && fs.readFileSync(project, 'utf8').includes('JucePlugin_AAXDisableAudioSuite=1');
   });
+  const kimeraEmbedded = font.length > 0 && licenseConfirmed && requireKimera;
   return {
-    kimera_embedded: font.length > 0 && licenseConfirmed && requireKimera,
+    mode: kimeraEmbedded ? 'release' : 'diagnostic',
+    kimera_embedded: kimeraEmbedded,
     native_only: nativeOnly,
     audio_suite_enabled: !nativeOnly,
   };
@@ -101,6 +103,9 @@ function validateRelease(release, requireReleaseReady) {
   }
   if (typeof release?.kimera_embedded !== 'boolean') {
     throw new Error('Windows AAX Kimera state is missing');
+  }
+  if (release.mode !== (release.kimera_embedded ? 'release' : 'diagnostic')) {
+    throw new Error('Windows AAX build mode does not match its Kimera state');
   }
   if (requireReleaseReady && release.kimera_embedded !== true) {
     throw new Error('Windows AAX release signing requires the licensed Kimera App font');

@@ -389,7 +389,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     if(APPLE AND KIRIN_HYPHA_AAX_ENABLED)
         # These keys are added before PACE/Developer-ID signing. Distribution verification reads
         # them from the signed Info.plist, preventing a version-equal stale AAX from entering a
-        # newer release set. The script also records the release-only Kimera and AudioSuite facts.
+        # newer release set. The script records whether this is a release (licensed Kimera) or
+        # diagnostic (system-font, never-for-distribution) build as well as the AudioSuite fact.
         add_custom_command(TARGET ${TARGET}_AAX POST_BUILD
             COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/stamp_aax_bundle_identity.sh"
                 "$<TARGET_BUNDLE_DIR:${TARGET}_AAX>"

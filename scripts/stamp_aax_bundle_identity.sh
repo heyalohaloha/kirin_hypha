@@ -32,3 +32,4 @@ done
 /usr/libexec/PlistBuddy -c "Add :KirinHyphaSourceState string $source_state" "$plist"
 /usr/libexec/PlistBuddy -c "Add :KirinHyphaKimeraEmbedded bool $([[ "$kimera_embedded" == 1 ]] && echo true || echo false)" "$plist"
 /usr/libexec/PlistBuddy -c "Add :KirinHyphaAudioSuiteEnabled bool false" "$plist"
+/usr/libexec/PlistBuddy -c "Add :KirinHyphaAaxBuildMode string $([[ "$kimera_embedded" == 1 ]] && echo release || echo diagnostic)" "$plist"

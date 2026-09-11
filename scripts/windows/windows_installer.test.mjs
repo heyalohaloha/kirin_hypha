@@ -124,6 +124,7 @@ test('Windows AAX build provenance pins source, licensed typography, surface, an
     requireReleaseReady: true,
   });
   assert.equal(verified.manifest.source.commit, source.commit);
+  assert.equal(verified.manifest.release.mode, 'release');
   assert.equal(verified.manifest.release.native_only, true);
   assert.equal(verified.manifest.release.audio_suite_enabled, false);
   const signedManifest = {
@@ -170,6 +171,10 @@ test('Windows AAX build provenance pins source, licensed typography, surface, an
   createPeFixture(postBinary);
   createAaxBuildConfiguration(artifactRoot, false);
   writeWindowsAaxBuildProvenance({ artifactRoot, version: VERSION, source });
+  assert.equal(
+    loadWindowsAaxBuildProvenance({ artifactRoot, version: VERSION }).manifest.release.mode,
+    'diagnostic',
+  );
   assert.throws(
     () => loadWindowsAaxBuildProvenance({ artifactRoot, version: VERSION, requireReleaseReady: true }),
     /licensed Kimera App font/,

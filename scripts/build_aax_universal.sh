@@ -8,17 +8,19 @@ KIRIN_ROOT="$PWD"
 AAX_SDK_PATH=""
 LICENSE_CONFIRMED=0
 SIGN_OUTPUT=0
+DIAGNOSTIC_OUTPUT=0
 KIMERA_FONT_FILE=""
 KIMERA_LICENSE_CONFIRMED=0
 
 usage() {
   cat <<'EOF'
-Usage: scripts/build_aax_universal.sh --sdk PATH --license-confirmed [--sign]
+Usage: scripts/build_aax_universal.sh --sdk PATH --license-confirmed [--diagnostic | --sign]
 
 Options:
   --sdk PATH             External AAX SDK root containing Interfaces/ACF
   --license-confirmed    Confirm that the external SDK may be used for this build
   --sign                 PACE + Developer ID sign PRE and POST after building
+  --diagnostic           Build an unsigned, explicitly non-distributable diagnostic artifact
   --kimera-font PATH     Licensed KMR Waldenburg Book OTF kept outside the repository
   --kimera-license-confirmed
                          Confirm the font is covered by the Kirin Hypha App License
@@ -51,6 +53,10 @@ while [[ $# -gt 0 ]]; do
       SIGN_OUTPUT=1
       shift
       ;;
+    --diagnostic)
+      DIAGNOSTIC_OUTPUT=1
+      shift
+      ;;
     --kimera-font)
       [[ $# -ge 2 ]] || fail "--kimera-font requires a path"
       KIMERA_FONT_FILE="$2"
@@ -67,6 +73,9 @@ while [[ $# -gt 0 ]]; do
     *) fail "unknown option: $1" ;;
   esac
 done
+
+[[ "$SIGN_OUTPUT" == 0 || "$DIAGNOSTIC_OUTPUT" == 0 ]] \
+  || fail "--sign and --diagnostic are mutually exclusive"
 
 [[ -n "$AAX_SDK_PATH" ]] || fail "--sdk is required"
 [[ "$LICENSE_CONFIRMED" == 1 ]] || fail "--license-confirmed is required"
@@ -85,6 +94,9 @@ if [[ -n "$KIMERA_FONT_FILE" ]]; then
   esac
 elif [[ "$KIMERA_LICENSE_CONFIRMED" == 1 ]]; then
   fail "--kimera-license-confirmed requires --kimera-font"
+fi
+if [[ "$DIAGNOSTIC_OUTPUT" == 1 && ( -n "$KIMERA_FONT_FILE" || "$KIMERA_LICENSE_CONFIRMED" == 1 ) ]]; then
+  fail "--diagnostic cannot include Kimera font or license confirmation"
 fi
 
 RELEASE_SOURCE_ID=""
@@ -177,6 +189,9 @@ if [[ "$SIGN_OUTPUT" == 1 ]]; then
       --require-native-only
   done
   echo "==> Universal AAX PRE/POST signed and verified"
+elif [[ "$DIAGNOSTIC_OUTPUT" == 1 ]]; then
+  node scripts/ls_release/aax_diagnostic_receipt.mjs --artifact-dir build-aax-universal
+  echo "==> Universal AAX PRE/POST diagnostic artifact written; never use for distribution"
 else
   echo "==> Universal AAX PRE/POST built but not distribution-ready; rerun with --sign"
 fi

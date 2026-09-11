@@ -65,6 +65,7 @@ test('AAX distribution identity requires the exact commit, clean source, Kimera,
     sourceState: expected.sourceState,
     kimeraEmbedded: 'true',
     audioSuiteEnabled: 'false',
+    aaxBuildMode: 'release',
   };
   assert.doesNotThrow(() => validateAaxBuildIdentity(actual, expected));
   assert.throws(
@@ -86,6 +87,31 @@ test('AAX distribution identity requires the exact commit, clean source, Kimera,
     () => validateAaxBuildIdentity({ ...actual, audioSuiteEnabled: 'true' }, expected),
     /AudioSuite/,
   );
+  assert.throws(
+    () => validateAaxBuildIdentity({ ...actual, aaxBuildMode: 'diagnostic' }, expected),
+    /build mode/,
+  );
+});
+
+test('AAX diagnostic identity requires an explicit diagnostic build marker', () => {
+  const expected = {
+    sourceId: '0123456789abcdef0123456789abcdef01234567',
+    sourceState: 'modified source',
+    requireDiagnostic: true,
+    requireNativeOnly: true,
+  };
+  const actual = {
+    sourceId: expected.sourceId,
+    sourceState: expected.sourceState,
+    kimeraEmbedded: 'false',
+    audioSuiteEnabled: 'false',
+    aaxBuildMode: 'diagnostic',
+  };
+  assert.doesNotThrow(() => validateAaxBuildIdentity(actual, expected));
+  assert.throws(
+    () => validateAaxBuildIdentity({ ...actual, aaxBuildMode: 'release' }, expected),
+    /diagnostic bundle build mode/,
+  );
 });
 
 test('release source identity resolves the current full commit and B number without treating JUCE patches as owned source', () => {
@@ -101,6 +127,10 @@ test('AAX target is Native-only and stamps signed build identity before distribu
   const cmake = fs.readFileSync(path.join(repoRoot, 'juce_shell/CMakeLists.txt'), 'utf8');
   const buildScript = fs.readFileSync(path.join(repoRoot, 'scripts/build_aax_universal.sh'), 'utf8');
   const stamp = fs.readFileSync(path.join(repoRoot, 'scripts/stamp_aax_bundle_identity.sh'), 'utf8');
+  const diagnosticReceipt = fs.readFileSync(
+    path.join(repoRoot, 'scripts/ls_release/aax_diagnostic_receipt.mjs'),
+    'utf8',
+  );
   assert.match(cmake, /target_compile_definitions\(\$\{TARGET\}_AAX PRIVATE JucePlugin_AAXDisableAudioSuite=1\)/);
   assert.match(cmake, /stamp_aax_bundle_identity\.sh/);
   assert.match(buildScript, /cmake -E remove_directory/);
@@ -108,6 +138,12 @@ test('AAX target is Native-only and stamps signed build identity before distribu
   assert.match(stamp, /HYPHA_SOURCE_COMMIT/);
   assert.match(stamp, /KirinHyphaKimeraEmbedded/);
   assert.match(stamp, /KirinHyphaAudioSuiteEnabled/);
+  assert.match(stamp, /KirinHyphaAaxBuildMode/);
+  assert.match(buildScript, /--diagnostic/);
+  assert.match(buildScript, /mutually exclusive/);
+  assert.match(buildScript, /cannot include Kimera/);
+  assert.match(diagnosticReceipt, /not_for_distribution: true/);
+  assert.match(diagnosticReceipt, /host_validation_target/);
 });
 
 test('self-hosted macOS AAX CI uses the Universal build entry point', () => {

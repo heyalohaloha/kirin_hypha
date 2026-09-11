@@ -36,15 +36,27 @@ built, signed, installed, and retested from its exact commit before release.
 
 ## Reproducible build
 
-Keep the SDK outside this GPL repository, then run:
+Keep the SDK outside this GPL repository, then run the explicit diagnostic build:
 
 ```bash
-# Unsigned diagnostic build
-scripts/build_aax_universal.sh \
-  --sdk /absolute/external/aax-sdk-root \
-  --license-confirmed
+bash scripts/build_aax_universal.sh \
+  --sdk "$HOME/SDKs/aax-sdk-2-9-0" \
+  --license-confirmed \
+  --diagnostic
+```
 
-# Distribution-signed build on the release operator's Mac
+When the Kimera App License is still pending, the AAX host surface can be validated without
+blocking on the licensed typeface. The command above selects this mode explicitly. It produces
+`build-aax-universal/kirin-hypha-macos-aax-diagnostic.json` beside the PRE/POST
+bundles. The receipt records the exact source commit/B number, Universal architectures, Native-only
+surface, and binary hashes. The bundles are intentionally unsigned and marked
+`not_for_distribution: true`; they are suitable only for an explicitly permitted diagnostic host
+(such as Pro Tools Developer). Do not copy them into a release package or replace a user's installed
+signed plug-in with them.
+
+For the eventual distribution build, run this separately on the release operator's Mac:
+
+```bash
 scripts/build_aax_universal.sh \
   --sdk /absolute/external/aax-sdk-root \
   --license-confirmed \
@@ -55,7 +67,8 @@ scripts/build_aax_universal.sh \
 
 This builds the Rust FFI for both Apple architectures, creates one Universal static library, and
 builds only the PRE/POST AAX targets under `build-aax-universal/`. Omitting the Kimera options is
-allowed only for an unsigned diagnostic build. `--sign` requires the licensed font, a clean source
+allowed only for an unsigned diagnostic build. `--diagnostic` makes that intent explicit and writes
+the non-distribution receipt. `--sign` requires the licensed font, a clean source
 commit with a B number, the exact tracked JUCE patch stack, and the documented PACE and Apple signing
 environment. The font, account identifiers, and signer values remain outside the repository and
 must not be written to logs.
