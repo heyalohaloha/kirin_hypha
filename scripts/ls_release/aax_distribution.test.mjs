@@ -133,7 +133,7 @@ test('Windows AAX provenance survives build, combined signing, installer, and re
     'utf8',
   );
   assert.match(build, /windows-aax-provenance\.mjs write-build/);
-  assert.match(build, /KIRIN_HYPHA_REQUIRE_KIMERA=ON/);
+  assert.match(build, /KIRIN_HYPHA_REQUIRE_KIMERA_FONT=ON/);
   assert.match(sign, /windows-aax-provenance\.mjs verify-build/);
   assert.match(sign, /--require-release-ready/);
   assert.match(sign, /windows-aax-provenance\.mjs write-signed/);

@@ -79,7 +79,7 @@ if ($kimeraPath -ne "") {
   $cmakeArguments += @(
     "-DKIRIN_HYPHA_KIMERA_FONT_FILE=$kimeraPath",
     "-DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=ON",
-    "-DKIRIN_HYPHA_REQUIRE_KIMERA=ON"
+    "-DKIRIN_HYPHA_REQUIRE_KIMERA_FONT=ON"
   )
 }
 Invoke-Checked "configure external-SDK AAX build" {

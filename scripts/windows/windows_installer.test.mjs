@@ -60,7 +60,7 @@ function createAaxBuildConfiguration(root, kimeraEmbedded) {
   fs.writeFileSync(path.join(root, 'CMakeCache.txt'), [
     `KIRIN_HYPHA_KIMERA_FONT_FILE:FILEPATH=${kimeraEmbedded ? 'C:/licensed/Kimera.otf' : ''}`,
     `KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED:BOOL=${kimeraEmbedded ? 'ON' : 'OFF'}`,
-    `KIRIN_HYPHA_REQUIRE_KIMERA:BOOL=${kimeraEmbedded ? 'ON' : 'OFF'}`,
+    `KIRIN_HYPHA_REQUIRE_KIMERA_FONT:BOOL=${kimeraEmbedded ? 'ON' : 'OFF'}`,
   ].join('\n'));
   for (const role of ['PRE', 'POST']) {
     fs.writeFileSync(

@@ -73,7 +73,7 @@ function inspectBuildConfiguration(artifactRoot) {
     cache,
     'KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED',
   ) === 'ON';
-  const requireKimera = cmakeCacheValue(cache, 'KIRIN_HYPHA_REQUIRE_KIMERA') === 'ON';
+  const requireKimera = cmakeCacheValue(cache, 'KIRIN_HYPHA_REQUIRE_KIMERA_FONT') === 'ON';
   const nativeOnly = ['PRE', 'POST'].every((role) => {
     const project = path.join(artifactRoot, `KirinHypha${role}_AAX.vcxproj`);
     return fs.statSync(project, { throwIfNoEntry: false })?.isFile()
