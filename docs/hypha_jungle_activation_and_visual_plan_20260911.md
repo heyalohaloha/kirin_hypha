@@ -1,7 +1,7 @@
 # Hypha通常版のCE 2226統一とJungle連動の実装計画
 
 更新日：2026-09-11。
-状態：通常版の質感統一とJungleによる生命感の加速、連動方針はDaisuke承認済み。P1の通常外観はnative共通素材として全対象へ適用済み。OS連動とJungle差分は未実装。
+状態：通常版の質感統一とJungleによる生命感の加速、連動方針はDaisuke承認済み。P1の通常外観、OS側のAND条件publisher、Hypha共有serviceは実装済み。Jungle差分と通知は未実装。
 調査基準：Hypha `2908d601`（B-812）、Kirin OS `0bd9db7a8`（W-3045）。
 改訂理由：通常版を現状固定する計画から、現在のVUの品位を全画面へ広げ、その完成した通常版をJungleで深める計画へ変更した。
 
@@ -14,11 +14,14 @@ bitmap、gradient、animation timer、追加解析、追加I/Oは導入してい
 
 native UI contractはPRE/POSTと全5サイズを含めてpassした。
 同一機での変更前後の900×600 Spectrumは7.50887から7.53996 ms/frame、M/S Spectrumは1.82294から2.01299 ms/frameで、いずれも追加0.5 ms/frame以内だった。
-OS publisher、Hypha共有service、初回通知、Jungle差分、macOS/Windows実ホスト検証は次工程に残る。
+OS publisherはKirin OSのJungle発動と、MASKING GuideのHyphaへのpublish成功を別々に検証し、両方が成立した場合だけ発動証明を作る。
+Hypha共有serviceは可視editorの既存timerから最大1 Hzで起こし、filesystem、JSON、排他、保存を一個のbackground workerへ隔離した。
+初回通知、Jungle差分、macOS/Windows実ホスト検証は次工程に残る。
 
 ## 1. 完成させる体験
 
-Kirin OSでJungle Modeが実際に発動すると、同じ端末の同じOS利用者で動くHyphaも初回だけJungle外観になる。
+Kirin OSでJungle Modeが実際に発動し、MASKING GuideをHyphaへ一度でも正常送信すると、同じ端末の同じOS利用者で動くHyphaも初回だけJungle外観になる。
+二条件の順序は問わず、両方が成立するまでは通常外観を維持する。
 発動後はHyphaのメニューでON/OFFを選べる。
 選択はPRE/POSTと全インスタンスで共有し、OS再起動、DAW再起動、Project Folder変更によって上書きしない。
 
@@ -42,6 +45,7 @@ OS連動、外観選択、初回通知を計測値、Record、Reference試聴か
 | OS `src/App.jsx`、`src/hooks/useJungleDiscovery.js` | 利用可能、発見済み、実際の発動は別状態。DOM属性やfeature flagだけを発動の根拠にしない |
 | OS `src/utils/studioProfileFirstUse.cjs` | 有効な発見日時がある場合だけ`jungle_mode_active`を成立させる |
 | OS `docs/jungle_studio_profile_lifecycle.md`、`main.cjs` | profileはProject Folderごと。検証、回復、保存はmain processが所有する |
+| OS `src/port/pre_display/ipcRouter.cjs`、`store.cjs` | MASKINGの送信成功はGuideの完全なpublication後にだけ成立する。失敗した送信やINSPECTを外観発動へ数えない |
 | OS `src/utils/platformPaths.cjs` | Hyphaの共有rootはmacOSのApplication Support、WindowsのLOCALAPPDATA。WindowsのRoamingと混同しない |
 | Hypha `HyphaHoverHelpPreference.*` | 利用者共通の表示設定とバイナリ単位のcacheがある。ただし当該ファイルはhover help専用に全内容を書き換える |
 | Hypha `PluginEditorInformation.cpp`、`PluginEditorMenu.cpp` | InformationとPOSTのPairメニューにDisplay入口がある。両方から同じ外観操作を呼ぶ |
@@ -148,13 +152,14 @@ OSのプロプライエタリなコードや配布素材をGPLリポジトリへ
 
 ## 4. 保存の正本と連動ファイル
 
-永続ファイルは次の二種類に分ける。
+永続ファイルは次の三種類に分ける。
 各ファイルは4 KiB以下のJSONとし、同一directory内の一時ファイルからatomic replaceする。
 最後に検証したbackupを各一個保持する。
 
 | ファイル案 | 書き手 | 読み手 | 意味 |
 | --- | --- | --- | --- |
-| `appearance/v1/os-jungle-activation.json` | OS mainのみ | OS main、Hypha | この端末で正規のJungle発動が一度成立した事実 |
+| `appearance/v1/os-hypha-masking-handoff.json` | OS mainのみ | OS main | MASKING GuideをHyphaへ一度正常送信した最小事実 |
+| `appearance/v1/os-jungle-activation.json` | OS mainのみ | OS main、Hypha | 正規のJungle発動とMASKING送信の両方が一度成立した証明 |
 | `appearance/v1/hypha-jungle-preference.json` | Hyphaの表示設定serviceのみ | 全Hypha | 初回受信、利用者の選択、通知の確認状態 |
 
 配置先は既存Hypha共有rootを使う。
@@ -162,10 +167,13 @@ macOSは`~/Library/Application Support/Kirin OS/plugin_data/`、Windowsは`%LOCA
 実装は既存のplatform path規則を参照し、developer/test用の明示root injectionも両製品で揃える。
 Project Folder、DAW state、ネットワーク共有、OSライセンスファイルへ外観設定を保存しない。
 
-OSの発動記録は`schema_version`、`kind`、`activation_id`、`activated_at`、`theme`を持つ。
+MASKING送信記録は`schema_version`、固定`kind`、検証済み`guide_id`、`sent_at`だけを持つ。
+Work ID、曲名、MASKING内容、対象帯域は含めず、最初の正常送信事実を更新で上書きしない。
+
+OSの発動記録は`schema_version`、`kind`、`activation_id`、`activated_at`、`jungle_activated_at`、`masking_guide_id`、`masking_sent_at`、`theme`を持つ。
 `kind`は`kirin_os_jungle_activation`、`theme`は`ce2226`に固定する。
 `theme`は連動素材の識別子であり、通常版がCE 2226ではないことを意味しない。
-`activation_id`は初回に一度発行し、日時は検証済みの発動事実から保存する。
+`activation_id`は初回に一度発行し、`activated_at`は二条件のうち後で成立した時刻と一致させる。
 利用開始日、解放までの日数、曲名、Work名、認証情報、素材pathは含めない。
 この記録は外観用であり、RecordやReferenceを解放する権限には使えない。
 
@@ -181,7 +189,9 @@ Hyphaの保存値は`schema_version`、単調増加の`revision`、`activation_s
 
 ## 5. Kirin OS側の発行条件
 
-main processが検証した有効なOS権限と、実際のJungle発動状態が揃った場合だけ発行する。
+main processが検証した有効なOS権限、実際のJungle発動状態、MASKING GuideのHyphaへのpublish成功が揃った場合だけ発行する。
+MASKING成功時は最小の送信記録を先にatomic保存し、現行profileを検証後に再読してAND条件を評価する。
+Jungleが後から発動した場合は保存済みの送信記録を検証して同じAND条件を評価するため、成立順序へ依存しない。
 通常の発見後発動、既存profileからの起動時復元、公開access操作、検証済みowner強制ONを同じ判定に通す。
 解放条件成立だけ、発見前、無権限、Sense、単なるDOM変更では発行しない。
 developer専用`FORCE_JUNGLE`は隔離test root以外へ発動記録を出さない。
@@ -277,7 +287,9 @@ hover helpをOFFにしていても、メニューの説明と初回通知は読�
 | --- | --- |
 | OS未導入、未発動、旧OS | 質感を統一した新通常版。Jungle入口を出さず通常計測を続ける |
 | 解放可能だが未発動 | Hyphaを切り替えない |
-| 正規発動、Hypha未起動 | 発動記録を残し、後日の起動で受け取る |
+| Jungle発動済み、MASKING未送信 | 通常外観を維持し、発動記録を作らない |
+| MASKING送信済み、Jungle未発動 | 通常外観を維持し、送信の最小事実だけを保持する |
+| 二条件成立、Hypha未起動 | 発動記録を残し、後日の起動で受け取る |
 | 発動時に複数Hyphaが表示中 | 表示可能な時点で外観を反映し、通知は一つ |
 | 再生中、録音中、Blind中 | 自動変化と通知は保留。終了後に再判定する |
 | 利用者がOFF、その後OSから再通知 | 新通常版を維持。初回通知を再発行しない |
@@ -297,7 +309,7 @@ hover helpをOFFにしていても、メニューの説明と初回通知は読�
 
 | 責務 | 対象 |
 | --- | --- |
-| OSの検証後投影 | `main.cjs`のprofile入口、起動後権限確定、owner設定入口。新規`src/utils/hyphaJungleProjection.cjs` |
+| OSの検証後投影 | `main.cjs`のprofile入口、起動後権限確定、owner設定入口、MASKING publish成功後。`src/utils/hyphaJungleProjection.cjs` |
 | OSの判定共通化 | `src/App.jsx`、`src/utils/jungleOwnerOverride.cjs`、`src/hooks/useJungleDiscovery.js`周辺。既存発動条件を保持して共通の純粋判定へ寄せる |
 | OSのpathと回復 | `src/utils/platformPaths.cjs`、既存atomic writer、profile lifecycle試験。発動記録専用schema fixtureを追加 |
 | Hyphaの契約とservice | 新規`appearance/AppearanceContract.*`、`AppearanceService.*`、`AppearanceStorage.*`、小さいplatform排他adapter |
@@ -357,7 +369,7 @@ OS→Hyphaの外観通知を毎音声blockや既存PRE共有メモリへ載せ�
 | 工程 | 作業 | 出口 |
 | --- | --- | --- |
 | P0 | 現行commitの描画と性能baseline、保護maskを採取。VUを基準に新通常版のLEVEL 600、Compact 300、Reference 900とVUの比較を用意。保存契約、排他probe、全5サイズの通知配置も先に確かめる | 通常版の具体的な仕上げをDaisukeが確認。一回性、native通知、文字幅が成立する |
-| P1 | 共通素材とframeを先行分離し、新通常版を全対象へ適用。OS publisher、既発動移行、Hypha共有serviceも分離実装 | 通常版だけで全画面の品位と機能が成立。起動順逆転、OFF保持、破損、同時更新が対象試験でpass |
+| P1 | 共通素材とframeを先行分離し、新通常版を全対象へ適用。OS publisher、MASKINGとのAND条件、既発動移行、Hypha共有serviceも分離実装 | 通常版だけで全画面の品位と機能が成立。二条件の順序逆転、OFF保持、破損、同時更新が対象試験でpass |
 | P2 | 仕上がった通常版と同じ構図からJungle差分を作り、VU、共通surface、Captureへ接続 | 新通常版とJungleを全5サイズで比較。同じ計器の生命感が増し、測定の読みやすさは維持 |
 | P3 | 初回通知とメニュー、保留条件、保存失敗表示を配線 | 気づき、即時OFF、未確認引継ぎ、Blind保護、重複通知防止がpass |
 | P4 | 現行版、新通常版、Jungleの比較を同じfixtureと条件へ集約 | 本計画の状態表と合算の性能予算を全件満たす |
@@ -387,8 +399,8 @@ Rustを変更しない限り、新たなFFI検証を増やさない。
 
 ## 12. 実装着手と完了の境界
 
-今回の到達点はHypha通常版の共通surface実装とnative検証である。
-Kirin OS側のコード、Jungle連動契約、Jungle差分、実ホスト、配布はまだ変更していない。
+今回の到達点はHypha通常版の共通surface、Kirin OSの二条件publisher、Hyphaの共有外観service実装と対象native検証である。
+Jungle差分、初回通知、実ホスト、配布はまだ変更していない。
 既存のdirtyなJUCE submodule、別件handoff、既存build directoryの内容は変更対象に含めない。
 Notionへの書込みも行わない。
 
@@ -398,6 +410,6 @@ Windows操作前にはOS側`docs/windows_validation_remote_access.md`を読む�
 公開する場合は別途既存release runbookに従い、HyphaのLS PKG、macOS無料ZIPとGitHub Releaseと英日HP、同じ版の署名済みWindows installerを揃える。
 release build、公証、配置を行うセッションのLSパッケージ準備も省略しない。
 
-次の着手点はP1のOS publisherとHypha共有serviceである。
+次の着手点はP2のJungle差分である。
 通常版の共通surfaceを戻り先として固定し、その同じ構造でJungleを完成させる。
 追加の外観生成や全体testを大量に繰り返さず、比較用に得た同じfixtureと素材を全サイズで再利用する。

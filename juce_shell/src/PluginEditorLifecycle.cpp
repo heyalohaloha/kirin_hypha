@@ -3,6 +3,7 @@
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    releaseAppearanceVisibility();
     commitEditorSizeStateIfSettled (true);
     tooltip.setLookAndFeel (nullptr);
     if (isPost)
@@ -22,6 +23,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
 
 void KirinHyphaEditor::timerCallback()
 {
+    refreshAppearance();
     commitEditorSizeStateIfSettled (false);
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     const auto attachment = processorRef.takeCaptureWorkAttachmentResult();

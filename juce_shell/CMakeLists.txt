@@ -246,6 +246,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
         src/PluginEditorLifecycle.cpp
+        src/PluginEditorAppearance.cpp
         src/PluginEditorMenu.cpp
         src/PluginEditorInformation.cpp
         src/PluginEditorMeter.cpp
@@ -277,6 +278,10 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp
         src/HyphaHoverHelpPreference.cpp
+        src/appearance/AppearanceContract.cpp
+        src/appearance/AppearanceFileLock.cpp
+        src/appearance/AppearanceStorage.cpp
+        src/appearance/AppearanceService.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE} # B-054: LED / mycelium bg / metric cells / editable name
         src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
         src/pre_display/PreDisplayController.cpp
@@ -620,6 +625,25 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         COMMAND KirinUiRenderContractTests --product-entry-only)
     add_test(NAME kirin_ui_typography_contract
         COMMAND KirinUiRenderContractTests --typography-only)
+
+    juce_add_console_app(KirinAppearanceContractTests
+        PRODUCT_NAME "Kirin Appearance Contract Tests")
+    target_sources(KirinAppearanceContractTests PRIVATE
+        tests/appearance_contract_test.cpp
+        src/appearance/AppearanceContract.cpp
+        src/appearance/AppearanceFileLock.cpp
+        src/appearance/AppearanceStorage.cpp
+        src/appearance/AppearanceService.cpp)
+    target_compile_definitions(KirinAppearanceContractTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_compile_options(KirinAppearanceContractTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinAppearanceContractTests PRIVATE
+        juce::juce_core
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_appearance_contract COMMAND KirinAppearanceContractTests)
 
     juce_add_console_app(KirinGuideFrequencyOverlayContractTests
         PRODUCT_NAME "Kirin Guide Frequency Overlay Contract Tests")

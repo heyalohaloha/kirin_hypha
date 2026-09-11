@@ -17,6 +17,7 @@
 #include "HyphaTooltipLookAndFeel.h"
 #include "HyphaWidgets.h"
 #include "PostControls.h"
+#include "appearance/AppearanceService.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaSpectrumComponent.h"
  #include "HyphaPerceptualComponent.h"
@@ -136,6 +137,8 @@ private:
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
     void commitEditorSizeStateIfSettled (bool force);
+    void refreshAppearance();
+    void releaseAppearanceVisibility();
 
     KirinHyphaProcessorBase& processorRef;
     const bool isPost;
@@ -219,6 +222,8 @@ private:
     bool haveRecordDisplay = false;
     std::uint64_t observedHostProcessHeartbeat = 0;
     double observedHostProcessHeartbeatAt = 0.0;
+    hypha::appearance::Snapshot appearanceSnapshot;
+    bool appearanceVisibleRegistered = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaEditor)
 };

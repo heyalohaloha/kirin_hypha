@@ -13,7 +13,8 @@ Baseline: `a29f50c5cf38fe29fad2bedc7db690c492c2f471`
 Hyphaは通常時からCE 2226であり、Jungle発動は同じ生態系の生命感が加速する状態として扱う。
 現在のVUの品位を通常版の全画面へ広げ、その通常版をJungleで深める方針が承認された。
 具体的な仕上げ、全5サイズ、連動、軽量性、検証は[改訂実装計画](hypha_jungle_activation_and_visual_plan_20260911.md)を参照する。
-通常版の共通surfaceは実装済みであり、OS連動とJungle差分は未実装である。
+通常版の共通surface、OSのJungle発動とMASKING送信をAND条件にしたpublisher、Hypha共有serviceは実装済みである。
+Jungle差分と初回通知は未実装である。
 以下の既存baselineを、未実装のJungle外観や連動まで達成済みだと読み替えない。
 VUの計測、構図、操作と既存の意味色を守り、破線、点線、自律的な装飾animationは追加しない。
 
