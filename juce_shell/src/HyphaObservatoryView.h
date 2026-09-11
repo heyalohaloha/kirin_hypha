@@ -80,6 +80,10 @@ public:
         return presentation::forOutput (getWidth(), getHeight(), presentationOutput);
     }
     void setTarget (ObservationTarget);
+    void setDeltaTargetEnabled (bool enabled);
+    bool deltaTargetEnabledForTest() const noexcept { return deltaTargetEnabled; }
+    bool deltaTargetControlEnabledForTest() const noexcept
+    { return fullCockpit() ? deltaButton.isEnabled() : targetButton.isEnabled(); }
     ObservationTarget target() const noexcept
     {
         return capabilities().target;
@@ -234,6 +238,7 @@ private:
     bool showRunSummary = false;
     analysis_navigation::Page analysisPage = analysis_navigation::Page::meters;
     bool attackPaired = false;
+    bool deltaTargetEnabled = true;
     juce::String feedbackText;
     bool referenceOwned = false;
     bool localBlindEntryEnabled = false;

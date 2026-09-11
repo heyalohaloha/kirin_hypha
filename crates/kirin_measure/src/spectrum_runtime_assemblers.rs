@@ -5,6 +5,7 @@ use crate::perceptual::{PerceptualFrame, SharpnessContinuousAnalyzer};
 use crate::spectrum::{
     SpectrumAnalyzer, SpectrumChannelMode, SpectrumFrame, SPECTRUM_PRESENTATION_HZ,
 };
+use crate::MidSideSpectrumFrame;
 
 pub(super) struct SpectrumAssembler {
     analyzer: SpectrumAnalyzer,
@@ -60,6 +61,52 @@ impl SpectrumAssembler {
         right: Option<f32>,
         channel_mode: SpectrumChannelMode,
     ) -> Option<SpectrumFrame> {
+        let end = self.push_sample(left, right)?;
+        let right = (self.channels == 2).then_some(self.ordered_right.as_slice());
+        self.analyzer
+            .analyze_mode(
+                &self.ordered_left,
+                right,
+                channel_mode,
+                end,
+                self.generation,
+            )
+            .ok()
+    }
+
+    pub(super) fn push_mid_side_frame(
+        &mut self,
+        left: f32,
+        right: Option<f32>,
+    ) -> Option<MidSideSpectrumFrame> {
+        let end = self.push_sample(left, right)?;
+        if self.channels != 2 {
+            return None;
+        }
+        let mid = self
+            .analyzer
+            .analyze_mode(
+                &self.ordered_left,
+                Some(&self.ordered_right),
+                SpectrumChannelMode::Mid,
+                end,
+                self.generation,
+            )
+            .ok()?;
+        let side = self
+            .analyzer
+            .analyze_mode(
+                &self.ordered_left,
+                Some(&self.ordered_right),
+                SpectrumChannelMode::Side,
+                end,
+                self.generation,
+            )
+            .ok()?;
+        MidSideSpectrumFrame::from_frames(mid, side)
+    }
+
+    fn push_sample(&mut self, left: f32, right: Option<f32>) -> Option<i64> {
         if !left.is_finite() || right.is_some_and(|value| !value.is_finite()) {
             self.reset();
             return None;
@@ -74,21 +121,10 @@ impl SpectrumAssembler {
             return None;
         }
         copy_ordered(&self.left, self.write_index, &mut self.ordered_left);
-        let right = if self.channels == 2 {
+        if self.channels == 2 {
             copy_ordered(&self.right, self.write_index, &mut self.ordered_right);
-            Some(self.ordered_right.as_slice())
-        } else {
-            None
-        };
-        self.analyzer
-            .analyze_mode(
-                &self.ordered_left,
-                right,
-                channel_mode,
-                end,
-                self.generation,
-            )
-            .ok()
+        }
+        Some(end)
     }
 
     pub(super) fn reset(&mut self) {
@@ -379,5 +415,41 @@ mod tests {
                 .is_none());
         }
         assert!(assembler.take_rearm_required());
+    }
+
+    #[test]
+    fn mid_side_uses_one_window_and_matches_the_single_channel_definitions() {
+        let mut assembler = SpectrumAssembler::new(SpectrumAnalyzer::new(48_000).unwrap(), 2);
+        assert!(assembler.begin_block(0, 11));
+        let mut output = None;
+        let mut left = Vec::with_capacity(4_800);
+        let mut right = Vec::with_capacity(4_800);
+        for index in 0..4_800 {
+            let phase = index as f32 * 0.021;
+            let l = phase.sin() * 0.5;
+            let r = (phase * 1.7).cos() * 0.25;
+            left.push(l);
+            right.push(r);
+            output = assembler.push_mid_side_frame(l, Some(r)).or(output);
+        }
+        let output = output.expect("one cadence-aligned Mid/Side frame");
+        let left = &left[704..];
+        let right = &right[704..];
+        let mut expected = SpectrumAnalyzer::new(48_000).unwrap();
+        let mid = expected
+            .analyze_mode(left, Some(right), SpectrumChannelMode::Mid, 4_800, 11)
+            .unwrap();
+        let side = expected
+            .analyze_mode(left, Some(right), SpectrumChannelMode::Side, 4_800, 11)
+            .unwrap();
+        assert_eq!(
+            output.mid.dbfs.map(f32::to_bits),
+            mid.dbfs.map(f32::to_bits)
+        );
+        assert_eq!(
+            output.side.dbfs.map(f32::to_bits),
+            side.dbfs.map(f32::to_bits)
+        );
+        assert_eq!(output.presentation_end_samples(), 4_800);
     }
 }

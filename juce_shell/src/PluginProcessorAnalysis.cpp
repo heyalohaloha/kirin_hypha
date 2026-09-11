@@ -1,5 +1,41 @@
 #include "PluginProcessor.h"
 
+void KirinHyphaProcessorBase::normalizeSpectrumSelectionForInputChannels (int channels) noexcept
+{
+    if (role != Role::Post || channels == 2)
+        return;
+    if (preferredSpectrumChannelMode.load (std::memory_order_acquire)
+            == KIRIN_SPECTRUM_CHANNEL_SIDE)
+        preferredSpectrumChannelMode.store (
+            KIRIN_SPECTRUM_CHANNEL_LR, std::memory_order_release);
+    if (preferredSpectrumDisplaySelection.load (std::memory_order_acquire)
+            == KIRIN_SPECTRUM_SELECTION_MID_SIDE)
+        preferredSpectrumDisplaySelection.store (
+            preferredSpectrumChannelMode.load (std::memory_order_acquire),
+            std::memory_order_release);
+}
+
+void KirinHyphaProcessorBase::restoreRequestedAnalysisUnderHandleLock()
+{
+    if (attackRequested.load (std::memory_order_acquire))
+    {
+        kirin_hypha_set_attack_enabled (hyphaHandle, true);
+        return;
+    }
+    if (! spectrumVisibleRequested.load (std::memory_order_acquire))
+        return;
+    kirin_hypha_set_spectrum_channel_mode (hyphaHandle, requestedAnalysisChannelMode());
+    if (absoluteAnalysisRequested.load (std::memory_order_acquire))
+        kirin_hypha_set_absolute_visible (hyphaHandle, true);
+    else if (perceptualAnalysisRequested.load (std::memory_order_acquire))
+        kirin_hypha_set_perceptual_visible (hyphaHandle, true);
+    else if (preferredSpectrumDisplaySelection.load (std::memory_order_acquire)
+                == KIRIN_SPECTRUM_SELECTION_MID_SIDE)
+        kirin_hypha_set_mid_side_spectrum_visible (hyphaHandle, true);
+    else
+        kirin_hypha_set_spectrum_visible (hyphaHandle, true);
+}
+
 bool KirinHyphaProcessorBase::setAttackEnabled (bool enabled)
 {
     const juce::ScopedLock sl (handleLock);
@@ -128,9 +164,11 @@ bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
     const juce::ScopedLock sl (handleLock);
     if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
         return false;
+    if (visible && preferredSpectrumDisplaySelection.load (std::memory_order_acquire)
+            == KIRIN_SPECTRUM_SELECTION_MID_SIDE)
+        return kirin_hypha_set_mid_side_spectrum_visible (hyphaHandle, true);
     if (visible && ! kirin_hypha_set_spectrum_channel_mode (
-            hyphaHandle,
-            preferredSpectrumChannelMode.load (std::memory_order_acquire)))
+            hyphaHandle, preferredSpectrumChannelMode.load (std::memory_order_acquire)))
         return false;
     return kirin_hypha_set_spectrum_visible (hyphaHandle, visible);
 }
@@ -202,6 +240,32 @@ bool KirinHyphaProcessorBase::setSpectrumChannelMode (uint8_t channelMode)
     return true;
 }
 
+bool KirinHyphaProcessorBase::setSpectrumDisplaySelection (
+    uint8_t selection, bool absoluteTarget)
+{
+    if (role != Role::Post || selection > KIRIN_SPECTRUM_SELECTION_MID_SIDE)
+        return false;
+    const bool midSide = selection == KIRIN_SPECTRUM_SELECTION_MID_SIDE;
+    const bool stereoOnly = selection == KIRIN_SPECTRUM_CHANNEL_SIDE || midSide;
+    if ((stereoOnly && getTotalNumInputChannels() != 2)
+        || (midSide && ! absoluteTarget))
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    if (hyphaHandle != nullptr && writesEnabled.load (std::memory_order_acquire))
+    {
+        const bool accepted = midSide
+            ? kirin_hypha_set_mid_side_spectrum_visible (hyphaHandle, true)
+            : kirin_hypha_set_spectrum_channel_mode (hyphaHandle, selection)
+                && kirin_hypha_set_spectrum_visible (hyphaHandle, true);
+        if (! accepted)
+            return false;
+    }
+    if (! midSide)
+        preferredSpectrumChannelMode.store (selection, std::memory_order_release);
+    preferredSpectrumDisplaySelection.store (selection, std::memory_order_release);
+    return true;
+}
+
 bool KirinHyphaProcessorBase::pollSpectrum (KirinSpectrumView& out) const
 {
     if (role != Role::Post)
@@ -216,6 +280,15 @@ bool KirinHyphaProcessorBase::pollSpectrumBatch (KirinSpectrumBatch& out) const
         return false;
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr && kirin_hypha_poll_spectrum_batch (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::pollMidSideSpectrum (KirinMidSideSpectrumView& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_mid_side_spectrum (hyphaHandle, &out);
 }
 
 bool KirinHyphaProcessorBase::pollPerceptual (KirinPerceptualView& out) const

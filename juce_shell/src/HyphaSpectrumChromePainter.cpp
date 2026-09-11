@@ -27,6 +27,7 @@ namespace
 {
     const char* channelModeText (uint8_t mode) noexcept
     {
+        if (mode == KIRIN_SPECTRUM_SELECTION_MID_SIDE) return "M/S";
         if (mode == KIRIN_SPECTRUM_CHANNEL_MID) return "MID";
         if (mode == KIRIN_SPECTRUM_CHANNEL_SIDE) return "SIDE";
         return "LR";
@@ -55,36 +56,17 @@ namespace
         };
         g.setFont (monoFont (state.presentation, typography::TextRole::navigation,
                              typography::Composition::visualization));
-        if (state.actionNotice.isNotEmpty())
-        {
-            g.setColour (COL_MUTED.withAlpha (0.90f));
-            g.drawText (state.actionNotice,
-                        juce::Rectangle<float> (
-                            outerPlot.getX(), outerPlot.getY(),
-                            outerPlot.getWidth() - reservedReadoutWidth - scaled (4.0f),
-                            scaled ((float) ui_contract::spectrumChannelModeHeight)),
-                        juce::Justification::centredLeft);
-            return;
-        }
-        if (expandedReadout)
-        {
-            g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.94f));
-            g.drawText (channelModeText (state.channelMode),
-                        juce::Rectangle<float> (
-                            outerPlot.getX(), outerPlot.getY(),
-                            outerPlot.getWidth() - reservedReadoutWidth - scaled (4.0f),
-                            scaled ((float) ui_contract::spectrumChannelModeHeight)),
-                        juce::Justification::centredLeft);
-            return;
-        }
-        for (size_t index = 0; index < ui_contract::spectrumChannelModeWidths.size(); ++index)
+        juce::ignoreUnused (reservedReadoutWidth, expandedReadout);
+        for (size_t index = 0; index < ui_contract::spectrumDisplayModeWidths.size(); ++index)
         {
             const auto mode = static_cast<uint8_t> (index);
-            const auto segment = spectrum_geometry::channelModeBoundsFor (
+            const auto segment = spectrum_geometry::displayModeBoundsFor (
                 index, outerPlot, scale);
             const bool selected = mode == state.channelMode;
-            const bool unavailable = mode == KIRIN_SPECTRUM_CHANNEL_SIDE
-                                  && state.inputChannels == 1u;
+            const bool unavailable = (mode == KIRIN_SPECTRUM_CHANNEL_SIDE
+                                   && state.inputChannels != 2u)
+                || (mode == KIRIN_SPECTRUM_SELECTION_MID_SIDE
+                    && (! state.absoluteObservation || state.inputChannels != 2u));
             if (selected)
             {
                 g.setColour (BG.brighter (0.14f).withAlpha (0.92f));
@@ -106,6 +88,28 @@ namespace
                               + scaled (17.0f);
         g.setFont (monoFont (state.presentation, typography::TextRole::legend,
                              typography::Composition::visualization));
+        if (state.actionNotice.isNotEmpty())
+        {
+            g.setColour (COL_MUTED.withAlpha (0.90f));
+            g.drawText (state.actionNotice,
+                        outerPlot.withTop (legendTop).withHeight (
+                            scaled ((float) ui_contract::spectrumLegendHeight)).toNearestInt(),
+                        juce::Justification::centredLeft);
+            return;
+        }
+        if (state.midSideObservation)
+        {
+            g.setColour (COL_SPECTRUM_MID.withAlpha (0.98f));
+            g.drawText ("MID", juce::Rectangle<float> { outerPlot.getX(), legendTop,
+                        scaled (36.0f), scaled ((float) ui_contract::spectrumLegendHeight) }
+                        .toNearestInt(), juce::Justification::centredLeft);
+            g.setColour (COL_SPECTRUM_SIDE.withAlpha (0.98f));
+            g.drawText ("SIDE", juce::Rectangle<float> { outerPlot.getX() + scaled (42.0f),
+                        legendTop, scaled (42.0f),
+                        scaled ((float) ui_contract::spectrumLegendHeight) }.toNearestInt(),
+                        juce::Justification::centredLeft);
+            return;
+        }
         if (state.absoluteObservation)
         {
             g.setColour (COL_SPECTRUM_POST.withAlpha (0.96f));
@@ -212,16 +216,20 @@ namespace
                         * ui_contract::spectrumHoverLineWidth);
         const auto pointColour = state.absoluteObservation
             ? COL_SPECTRUM_POST : COL_SPECTRUM_DELTA;
-        g.setColour (pointColour.withAlpha (0.18f));
-        g.fillEllipse (hoverX - scaled (3.5f), pointY - scaled (3.5f),
-                       scaled (7.0f), scaled (7.0f));
-        g.setColour ((state.absoluteObservation ? COL_SPECTRUM_POST.brighter (0.35f)
-                                                : COL_SPECTRUM_DELTA_BR).withAlpha (0.98f));
-        g.fillEllipse (hoverX - scaled (1.65f), pointY - scaled (1.65f),
-                       scaled (3.3f), scaled (3.3f));
+        if (! state.midSideObservation)
+        {
+            g.setColour (pointColour.withAlpha (0.18f));
+            g.fillEllipse (hoverX - scaled (3.5f), pointY - scaled (3.5f),
+                           scaled (7.0f), scaled (7.0f));
+            g.setColour ((state.absoluteObservation ? COL_SPECTRUM_POST.brighter (0.35f)
+                                                    : COL_SPECTRUM_DELTA_BR).withAlpha (0.98f));
+            g.fillEllipse (hoverX - scaled (1.65f), pointY - scaled (1.65f),
+                           scaled (3.3f), scaled (3.3f));
+        }
 
-        const auto readout = spectrum_geometry::readoutBoundsFor (
-            outerPlot, scale, expanded, focusLocked);
+        const auto readout = state.midSideObservation
+            ? spectrum_geometry::midSideReadoutBoundsFor (outerPlot, scale, expanded)
+            : spectrum_geometry::readoutBoundsFor (outerPlot, scale, expanded, focusLocked);
         g.setColour (BG.brighter (0.10f).withAlpha (0.96f));
         g.fillRoundedRectangle (readout, scaled (ui_contract::spectrumHoverReadoutRadius));
         g.setColour (pointColour.withAlpha (0.38f));
@@ -244,6 +252,26 @@ namespace
                         textY, scaledInt (logicalWidth),
                         scaledInt (ui_contract::spectrumHoverReadoutHeight), justification);
         };
+        if (state.midSideObservation)
+        {
+            drawText (frequencyReadoutText (frequency, state.snapshot.approximate_below_hz),
+                      COL_NORMAL.withAlpha (0.94f), 6, expanded ? 52 : 62,
+                      juce::Justification::centredLeft);
+            drawText ("M " + juce::String (preDbfs, 1), COL_SPECTRUM_MID.withAlpha (0.98f),
+                      expanded ? 58 : 72, expanded ? 84 : 72,
+                      juce::Justification::centredRight);
+            drawText ("S " + juce::String (postDbfs, 1), COL_SPECTRUM_SIDE.withAlpha (0.98f),
+                      expanded ? 144 : 148, expanded ? 84 : 70,
+                      juce::Justification::centredRight);
+            if (focusLocked)
+            {
+                g.setColour (COL_NORMAL.withAlpha (0.72f));
+                g.drawText (juce::CharPointer_UTF8 ("×"),
+                            spectrum_geometry::focusClearBoundsFor (readout, scale).toNearestInt(),
+                            juce::Justification::centred);
+            }
+            return;
+        }
         if (state.absoluteObservation)
         {
             drawText (frequencyReadoutText (
@@ -378,7 +406,9 @@ void paint (juce::Graphics& g,
     if (state.guideOverlay.visible())
         guide_frequency::paint (g, plot, scale, state.guideOverlay,
                                 minimumHz, maximumHz);
-    if (state.absoluteObservation && state.absoluteHistory != nullptr)
+    if (state.midSideObservation)
+        spectrum_painter::paintMidSide (g, plot, scale, state.pre, state.post);
+    else if (state.absoluteObservation && state.absoluteHistory != nullptr)
         spectrum_painter::paintAbsolute (g, plot, scale, state.post,
                                          state.absolutePeakHold,
                                          *state.absoluteHistory, state.presentation);

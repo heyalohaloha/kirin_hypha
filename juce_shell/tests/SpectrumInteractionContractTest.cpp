@@ -178,7 +178,7 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     bandMappingSpectrum.mouseExit (mouseEvent (
         bandMappingSpectrum, mappingPlot.getX(), mappingPlot.getCentreY(), eventTime));
     KIRIN_INTERACTION_REQUIRE (bandMappingSpectrum.getTooltip().isEmpty());
-    const auto midTooltipBounds = spectrum_geometry::channelModeBoundsFor (1u, outerPlot, scale);
+    const auto midTooltipBounds = spectrum_geometry::displayModeBoundsFor (1u, outerPlot, scale);
     bandMappingSpectrum.mouseMove (mouseEvent (
         bandMappingSpectrum, midTooltipBounds.getCentreX(), midTooltipBounds.getCentreY(),
         eventTime));
@@ -359,7 +359,7 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         requestedChannelMode = mode;
         return true;
     };
-    const float midX = spectrum_geometry::channelModeBoundsFor (
+    const float midX = spectrum_geometry::displayModeBoundsFor (
         1u, outerPlot, scale).getCentreX();
     spectrum.mouseDown (mouseEvent (spectrum, midX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (requestedChannelMode == KIRIN_SPECTRUM_CHANNEL_MID);
@@ -379,7 +379,7 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         ++monoModeCallbacks;
         return true;
     };
-    const float sideX = spectrum_geometry::channelModeBoundsFor (
+    const float sideX = spectrum_geometry::displayModeBoundsFor (
         2u, outerPlot, scale).getCentreX();
     monoSpectrum.mouseDown (mouseEvent (monoSpectrum, sideX, controlY, eventTime));
     KIRIN_INTERACTION_REQUIRE (monoModeCallbacks == 0);
@@ -411,5 +411,81 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     pacedSpectrum.presentationTickAt (now + 510.0);
     KIRIN_INTERACTION_REQUIRE (
         std::abs (pacedSpectrum.readoutDeltaForTest (0u) - heldDelta) > 0.1f);
+
+    KirinMidSideSpectrumView midSide {};
+    midSide.status = KIRIN_SPECTRUM_ACTIVE;
+    midSide.has_data = 1u;
+    midSide.channels = 2u;
+    midSide.sample_rate = snapshot.sample_rate;
+    midSide.aperture_samples = snapshot.aperture_samples;
+    midSide.fft_size = snapshot.fft_size;
+    midSide.approximate_below_hz = snapshot.approximate_below_hz;
+    midSide.presentation_end_samples = snapshot.presentation_end_samples;
+    midSide.min_hz = snapshot.min_hz;
+    midSide.max_hz = snapshot.max_hz;
+    for (size_t index = 0u; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+    {
+        midSide.mid_dbfs[index] = -24.0f - 8.0f * std::sin ((float) index * 0.07f);
+        midSide.side_dbfs[index] = -62.0f + 7.0f * std::cos ((float) index * 0.11f);
+    }
+    SpectrumComponent midSideSpectrum;
+    midSideSpectrum.setSignalActive (true);
+    midSideSpectrum.setSize (width, height);
+    midSideSpectrum.setAbsoluteObservation (true);
+    midSideSpectrum.setMidSideSnapshot (midSide);
+    KIRIN_INTERACTION_REQUIRE (midSideSpectrum.isMidSideObservation());
+    KIRIN_INTERACTION_REQUIRE (
+        midSideSpectrum.channelModeForTest() == KIRIN_SPECTRUM_SELECTION_MID_SIDE);
+    KIRIN_INTERACTION_REQUIRE (midSideSpectrum.absoluteHistorySizeForTest() == 0u);
+    KIRIN_INTERACTION_REQUIRE (midSideSpectrum.focusTrailSizeForTest() == 0u);
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (midSideSpectrum.readoutMidForTest (120u)
+                  - midSide.mid_dbfs[120u]) < 3.0f);
+    KIRIN_INTERACTION_REQUIRE (
+        std::abs (midSideSpectrum.readoutSideForTest (120u)
+                  - midSide.side_dbfs[120u]) < 3.0f);
+    juce::Image firstMidSideImage (juce::Image::ARGB, width, height, true);
+    { juce::Graphics graphics (firstMidSideImage);
+      midSideSpectrum.paintEntireComponent (graphics, true); }
+    auto movedSide = midSide;
+    movedSide.presentation_end_samples += 1'600;
+    for (auto& value : movedSide.side_dbfs) value += 28.0f;
+    midSideSpectrum.setMidSideSnapshot (movedSide);
+    midSideSpectrum.presentationTickAt (now + 620.0);
+    juce::Image movedSideImage (juce::Image::ARGB, width, height, true);
+    { juce::Graphics graphics (movedSideImage);
+      midSideSpectrum.paintEntireComponent (graphics, true); }
+    KIRIN_INTERACTION_REQUIRE (
+        countDifferentPixels (firstMidSideImage, movedSideImage) > width / 2);
+
+    SpectrumComponent deltaSelection;
+    deltaSelection.setSignalActive (true);
+    deltaSelection.setSize (width, height);
+    deltaSelection.setAbsoluteObservation (false);
+    deltaSelection.setSnapshot (snapshot);
+    int deltaMidSideCallbacks = 0;
+    deltaSelection.onChannelModeChange = [&deltaMidSideCallbacks] (uint8_t) {
+        ++deltaMidSideCallbacks;
+        return true;
+    };
+    const auto midSideButton = spectrum_geometry::displayModeBoundsFor (3u, outerPlot, scale);
+    deltaSelection.mouseMove (mouseEvent (
+        deltaSelection, midSideButton.getCentreX(), controlY, eventTime));
+    KIRIN_INTERACTION_REQUIRE (deltaSelection.getTooltip()
+        == analysis_ui::midSideModeTooltip (false, true));
+    deltaSelection.mouseDown (mouseEvent (
+        deltaSelection, midSideButton.getCentreX(), controlY, eventTime));
+    KIRIN_INTERACTION_REQUIRE (deltaMidSideCallbacks == 0);
+    KIRIN_INTERACTION_REQUIRE (
+        deltaSelection.channelModeForTest() == KIRIN_SPECTRUM_CHANNEL_LR);
+
+    monoSpectrum.setAbsoluteObservation (true);
+    monoSpectrum.mouseMove (mouseEvent (
+        monoSpectrum, midSideButton.getCentreX(), controlY, eventTime));
+    KIRIN_INTERACTION_REQUIRE (monoSpectrum.getTooltip()
+        == analysis_ui::midSideModeTooltip (true, false));
+    monoSpectrum.mouseDown (mouseEvent (
+        monoSpectrum, midSideButton.getCentreX(), controlY, eventTime));
+    KIRIN_INTERACTION_REQUIRE (monoModeCallbacks == 0);
 }
 }

@@ -81,6 +81,14 @@ ObservatoryのTIMEは`HISTORY / ATTACK / SHARP / LIVE`を常時見える二階�
 Compact Meterでは同じ四項目を一つのcycle controlへ畳み、常設UIを増やさない。
 FREQは時間detailへ埋めず一階層目に置き、`MARK`で現在の全帯域差分を固定し、`Focus Trail`で選択帯域の六秒差分を追跡する。
 
+POST targetのFREQでは`LR / MID / SIDE`の右に`M/S`を置き、同じapertureのMIDをcyan実線、SIDEをviolet実線で重ねる。
+曲線の識別に破線や点線を使わず、色、連続した輪郭、抑えた発光量で精密さを保つ。
+既存VUの暗部、細い光、端正な数値を質感の基準とし、VU自体の配色や挙動は変更しない。
+
+M/Sは二つの絶対測定を比較する観測面であり、PRE/POST差分、評価色、fill、glow、MARK、Focus Trailを混在させない。
+
+M/S中のΔとΔ中のM/Sは位置を残して低明度のdisabled表示とし、LR、MID、SIDEへ戻る経路を常に見せる。
+
 そのため、各解析面は同じ背景、外周、Header、Guide、Footer、Captureの文法を継承する。
 
 ## 5. 6画面の比較試作

@@ -86,6 +86,8 @@ namespace hypha::ui_contract
     constexpr std::uint32_t spectrumDeltaBright = 0xffcdeff5;
     constexpr std::uint32_t spectrumPre = 0xff74808f;
     constexpr std::uint32_t spectrumPost = 0xffa695d6;
+    constexpr std::uint32_t spectrumMid = 0xff75d6e8;
+    constexpr std::uint32_t spectrumSide = 0xffa695d6;
     constexpr std::uint32_t ledBlue    = 0xff4488cc;
     constexpr std::uint32_t ledGreen   = 0xff4cc07a;
     constexpr std::uint32_t ledYellow  = 0xffccaa44;

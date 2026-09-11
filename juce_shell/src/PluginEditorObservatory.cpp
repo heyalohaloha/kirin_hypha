@@ -154,6 +154,8 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
     processorRef.setObservatoryDomainPreference (hypha::observatory::stateValue (domain));
     observatoryView.setDomain (domain);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (domain != hypha::observatory::Domain::frequency)
+        observatoryView.setDeltaTargetEnabled (true);
     spectrumView.setAbsoluteObservation (
         observatoryView.target() == hypha::observatory::ObservationTarget::absolute);
     const auto page = domain == hypha::observatory::Domain::frequency

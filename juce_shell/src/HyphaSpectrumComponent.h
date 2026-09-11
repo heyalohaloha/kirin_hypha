@@ -32,6 +32,7 @@ public:
     }
 
     void setSnapshot (const KirinSpectrumView& next);
+    void setMidSideSnapshot (const KirinMidSideSpectrumView& next);
     void setBatch (const KirinSpectrumBatch& batch);
     void queueSnapshot (const KirinSpectrumView& next);
     void clearSnapshot();
@@ -40,8 +41,10 @@ public:
     void setAnalysisOwnerNames (const juce::String& names);
     void setGuideFrequencyOverlay (const guide_frequency::Overlay& next);
     void setAbsoluteObservation (bool absolute);
+    void setDisplaySelection (uint8_t selection);
     void setPsbSnapshot (const KirinPsbView&);
     bool isPsbObservation() const noexcept { return psbObservation; }
+    bool isMidSideObservation() const noexcept { return midSideObservation; }
     std::function<void()> onSubviewChange;
     void setSignalActive (bool active);
     void paint (juce::Graphics&) override;
@@ -65,6 +68,10 @@ public:
     {
         return index < readoutDelta.size() ? readoutDelta[index] : 0.0f;
     }
+    float readoutMidForTest (size_t index) const noexcept
+    { return index < readoutPre.size() ? readoutPre[index] : 0.0f; }
+    float readoutSideForTest (size_t index) const noexcept
+    { return index < readoutPost.size() ? readoutPost[index] : 0.0f; }
     bool isAbsoluteObservationForTest() const noexcept { return absoluteObservation; }
     bool isPsbObservationForTest() const noexcept { return psbObservation; }
     size_t absoluteHistorySizeForTest() const noexcept { return absoluteHistory.size(); }
@@ -81,6 +88,7 @@ private:
     bool currentSnapshotValid() const noexcept;
 
     KirinSpectrumView snapshot {};
+    KirinMidSideSpectrumView midSideSnapshot {};
     KirinSpectrumView pendingSnapshot {};
     KirinSpectrumView interactionDefinition {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPre {};
@@ -109,6 +117,8 @@ private:
     guide_frequency::Overlay guideOverlay;
     absolute_spectrum::History absoluteHistory;
     bool absoluteObservation = false;
+    bool midSideObservation = false;
+    bool midSideSnapshotValid = false;
     std::array<double, 20> absolutePsb {};
     std::array<double, 20> deltaPsb {};
     bool absolutePsbAvailable = false;

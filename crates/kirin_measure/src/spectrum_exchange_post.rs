@@ -38,6 +38,9 @@ impl SpectrumCoordinator {
                 return false;
             }
         }
+        if self.runtime.mid_side_enabled() {
+            return self.post_mid_side_tick();
+        }
         if self.runtime.analysis_mode() == AnalysisViewMode::Absolute {
             return self.post_absolute_tick();
         }

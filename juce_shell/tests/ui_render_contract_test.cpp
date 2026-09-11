@@ -30,6 +30,12 @@
 namespace ui = hypha::ui_contract;
 static_assert (sizeof (KirinSpectrumView) == 3'112, "Spectrum view ABI size must remain exact");
 static_assert (sizeof (KirinSpectrumBatch) == 28'016, "Spectrum batch ABI size must remain exact");
+static_assert (sizeof (KirinMidSideSpectrumView) == 2'088,
+               "Mid/Side Spectrum ABI size must remain exact");
+static_assert (alignof (KirinMidSideSpectrumView) == 8);
+static_assert (offsetof (KirinMidSideSpectrumView, mid_dbfs) == 16);
+static_assert (offsetof (KirinMidSideSpectrumView, side_dbfs) == 1'040);
+static_assert (offsetof (KirinMidSideSpectrumView, presentation_end_samples) == 2'064);
 static_assert (sizeof (KirinMeterSession) == 872u, "Meter Session ABI size must remain exact");
 static_assert (sizeof (KirinObservatoryFrame) == 1'112u, "Observatory frame ABI size must remain exact");
 static_assert (sizeof (KirinMeterHistoryEntry) == 184u, "Meter history ABI size must remain exact");
@@ -118,6 +124,7 @@ namespace
 
 }
 using hypha::tests::renderSpectrumAtSize;
+using hypha::tests::renderMidSideSpectrumAtSize;
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -237,6 +244,22 @@ int main (int argc, char** argv)
         spectrumSnapshot.post_dbfs[index] = spectrumSnapshot.pre_dbfs[index]
                                            + spectrumSnapshot.display_db[index];
     }
+    KirinMidSideSpectrumView midSideSnapshot {};
+    midSideSnapshot.status = KIRIN_SPECTRUM_ACTIVE;
+    midSideSnapshot.has_data = 1u;
+    midSideSnapshot.channels = 2u;
+    midSideSnapshot.sample_rate = spectrumSnapshot.sample_rate;
+    midSideSnapshot.min_hz = spectrumSnapshot.min_hz;
+    midSideSnapshot.max_hz = spectrumSnapshot.max_hz;
+    midSideSnapshot.presentation_end_samples = spectrumSnapshot.presentation_end_samples;
+    midSideSnapshot.aperture_samples = spectrumSnapshot.aperture_samples;
+    midSideSnapshot.fft_size = spectrumSnapshot.fft_size;
+    midSideSnapshot.approximate_below_hz = spectrumSnapshot.approximate_below_hz;
+    for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+    {
+        midSideSnapshot.mid_dbfs[index] = spectrumSnapshot.pre_dbfs[index];
+        midSideSnapshot.side_dbfs[index] = spectrumSnapshot.post_dbfs[index] - 18.0f;
+    }
     spectrum.setSnapshot (spectrumSnapshot);
     const auto previewPlot = hypha::spectrum_geometry::dataPlotBoundsFor (spectrum.getLocalBounds().toFloat());
     const float previewHoverX = previewPlot.getX() + 0.70f * previewPlot.getWidth();
@@ -293,12 +316,31 @@ int main (int argc, char** argv)
     for (const auto& preset : ui::spectrumSizePresets)
     {
         hypha::SpectrumComponent markSpectrum;
-        markSpectrum.setPresentationContext (
-            hypha::presentation::forEditor (preset.width, preset.height));
+        const auto presentation = hypha::presentation::forEditor (preset.width, preset.height);
+        markSpectrum.setPresentationContext (presentation);
         markSpectrum.setSignalActive (true);
         const auto markSpectrumBounds = ui::spectrumPlotBounds (preset.width, preset.height);
         markSpectrum.setSize (markSpectrumBounds.width, markSpectrumBounds.height);
         markSpectrum.setSnapshot (spectrumSnapshot);
+        const auto outer = hypha::spectrum_geometry::plotBoundsFor (
+            markSpectrum.getLocalBounds().toFloat());
+        const auto scale = hypha::spectrum_geometry::visualScaleFor (
+            markSpectrum.getLocalBounds().toFloat());
+        const auto modeFont = hypha::monoFont (
+            presentation, hypha::typography::TextRole::navigation,
+            hypha::typography::Composition::visualization);
+        constexpr std::array<const char*, 4> labels { "LR", "MID", "SIDE", "M/S" };
+        for (size_t index = 0u; index < labels.size(); ++index)
+            KIRIN_REQUIRE (hypha::spectrum_geometry::displayModeBoundsFor (
+                index, outer, scale).getWidth() >= std::ceil (
+                    modeFont.getStringWidthFloat (labels[index]) + modeFont.getHeight() * 0.5f));
+        const auto readoutFont = hypha::monoFont (
+            presentation, hypha::typography::TextRole::readout,
+            hypha::typography::Composition::visualization);
+        if (scale <= 1.1f)
+            KIRIN_REQUIRE (70.0f * scale >= std::ceil (
+                hypha::tabularTextWidth (readoutFont, "M -144.0")
+                + readoutFont.getHeight() * 0.5f));
         hypha::tests::verifySpectrumInteractionContract (
             markSpectrum, spectrumSnapshot,
             markSpectrumBounds.width, markSpectrumBounds.height, eventTime);
@@ -400,6 +442,25 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (largeSpectrum.paintMs < 8.5);
     KIRIN_REQUIRE (extraLargeSpectrum.paintMs < 12.5);
     KIRIN_REQUIRE (inspectionSpectrum.paintMs < 22.0);
+    std::array<hypha::tests::SpectrumRenderResult, 5> midSideRenders;
+    hypha::tests::verifyMidSideUsesSolidCurvesAtAllSizes();
+    constexpr std::array<const char*, 5> midSideOutputs {
+        "KIRIN_UI_MID_SIDE_OUTPUT", "KIRIN_UI_MID_SIDE_OUTPUT_MEDIUM",
+        "KIRIN_UI_MID_SIDE_OUTPUT_LARGE", "KIRIN_UI_MID_SIDE_OUTPUT_XLARGE",
+        "KIRIN_UI_MID_SIDE_OUTPUT_INSPECTION"
+    };
+    constexpr std::array<double, 5> midSideBudgets { 4.5, 6.5, 8.5, 12.5, 22.0 };
+    std::cout << "Mid/Side Spectrum paint samples:";
+    for (size_t index = 0; index < midSideRenders.size(); ++index)
+    {
+        midSideRenders[index] = renderMidSideSpectrumAtSize (
+            midSideSnapshot, ui::spectrumSizePresets[index], midSideOutputs[index]);
+        KIRIN_REQUIRE (midSideRenders[index].paintMs < midSideBudgets[index]);
+        KIRIN_REQUIRE (countVisiblePixels (
+            midSideRenders[index].image, midSideRenders[index].image.getBounds()) > 500);
+        std::cout << (index == 0u ? " " : "/") << midSideRenders[index].paintMs;
+    }
+    std::cout << " ms/frame\n";
 
     std::cout << "UI render contract passed: delta="
               << deltaWidth << '/' << deltaLayout.deltaPrefixWidth << "px"

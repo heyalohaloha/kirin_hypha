@@ -24,6 +24,7 @@ impl SpectrumCoordinator {
             self.disable_analysis_runtimes();
             self.release_analysis_lease();
             self.store_view(SpectrumViewStatus::Hidden, None, None);
+            self.store_mid_side_view(SpectrumViewStatus::Hidden, None);
             self.store_attack_view(AttackPairViewSnapshot::default());
         }
         self.exchange_worker.notify();
@@ -37,6 +38,9 @@ impl SpectrumCoordinator {
         };
         if session.is_none() && self.post_visible() {
             *session = Some(self.new_post_session());
+        }
+        if mode == AnalysisViewMode::Spectrum && !self.runtime.set_mid_side_enabled(false) {
+            return false;
         }
         if !self.runtime.set_analysis_mode(mode) {
             return false;
@@ -52,6 +56,33 @@ impl SpectrumCoordinator {
             status,
             ..Default::default()
         });
+        self.exchange_worker.notify();
+        true
+    }
+
+    /// UI/control thread only. Mid/Side is POST-local and never enters the PRE request protocol.
+    pub fn set_post_mid_side_enabled(&self, enabled: bool) -> bool {
+        let _session = match self.post_session.lock() {
+            Ok(session) => session,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if enabled
+            && self.runtime.analysis_mode() != AnalysisViewMode::Spectrum
+            && !self.runtime.set_analysis_mode(AnalysisViewMode::Spectrum)
+        {
+            return false;
+        }
+        if !self.runtime.set_mid_side_enabled(enabled) {
+            return false;
+        }
+        self.disable_analysis_runtimes();
+        let status = if self.post_visible() {
+            SpectrumViewStatus::WarmingUp
+        } else {
+            SpectrumViewStatus::Hidden
+        };
+        self.store_view(status, None, None);
+        self.store_mid_side_view(status, None);
         self.exchange_worker.notify();
         true
     }

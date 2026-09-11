@@ -324,6 +324,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaSpectrumFocusTrail.cpp
             src/HyphaSpectrumFocusTrailPainter.cpp
             src/HyphaSpectrumPainter.cpp
+            src/HyphaSpectrumMidSide.cpp
+            src/HyphaSpectrumMidSidePainter.cpp
             ${KIRIN_REFERENCE_AUDITION_SOURCES})
         target_link_libraries(${TARGET} PRIVATE juce::juce_audio_formats)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=0)
@@ -591,6 +593,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
         src/HyphaSpectrumPainter.cpp
+        src/HyphaSpectrumMidSide.cpp
+        src/HyphaSpectrumMidSidePainter.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinUiRenderContractTests PRIVATE
         JUCE_WEB_BROWSER=0
@@ -630,6 +634,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
         src/HyphaSpectrumPainter.cpp
+        src/HyphaSpectrumMidSide.cpp
+        src/HyphaSpectrumMidSidePainter.cpp
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp)
     target_compile_definitions(KirinGuideFrequencyOverlayContractTests PRIVATE

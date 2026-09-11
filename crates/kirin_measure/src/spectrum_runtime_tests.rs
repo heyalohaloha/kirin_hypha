@@ -81,6 +81,24 @@ fn wait_for_absolute_frame_at_or_after(
     panic!("Absolute timeline worker did not publish a frame");
 }
 
+fn wait_for_mid_side_frame_at_or_after(
+    runtime: &SpectrumRuntime,
+    expected_end: i64,
+) -> crate::MidSideSpectrumFrame {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if let Some(frame) = runtime
+            .try_mid_side_frame()
+            .flatten()
+            .filter(|frame| frame.presentation_end_samples() >= expected_end)
+        {
+            return frame;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    panic!("Spectrum worker did not publish a Mid/Side frame");
+}
+
 #[test]
 fn disabled_runtime_does_not_start_worker_or_accept_audio() {
     let runtime = SpectrumRuntime::new(48_000, 2);
@@ -96,6 +114,43 @@ fn disabled_runtime_does_not_start_worker_or_accept_audio() {
     assert_eq!(stats.analyzed_frames, 0);
     assert_eq!(stats.analyzed_perceptual_frames, 0);
     runtime.shutdown_and_join();
+}
+
+#[test]
+fn mid_side_is_stereo_only_exclusive_and_publishes_one_coherent_frame() {
+    let mono = SpectrumRuntime::new(48_000, 1);
+    assert!(!mono.set_mid_side_enabled(true));
+
+    let non_spectrum = SpectrumRuntime::new(48_000, 2);
+    assert!(non_spectrum.set_analysis_mode(AnalysisViewMode::Perceptual));
+    assert!(!non_spectrum.set_mid_side_enabled(true));
+
+    let runtime = SpectrumRuntime::new(48_000, 2);
+    assert!(runtime.set_mid_side_enabled(true));
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 48_000, 7_000, 256);
+    let frame = wait_for_mid_side_frame_at_or_after(&runtime, 6_400);
+    assert_eq!(frame.mid.channel_mode, SpectrumChannelMode::Mid);
+    assert_eq!(frame.side.channel_mode, SpectrumChannelMode::Side);
+    assert_eq!(
+        frame.mid.presentation_end_samples,
+        frame.side.presentation_end_samples
+    );
+    assert_eq!(frame.mid.generation, frame.side.generation);
+    assert!(frame.mid.dbfs.iter().all(|value| *value <= -95.0));
+    assert!(frame.side.dbfs.iter().any(|value| *value > -12.0));
+    assert!(runtime
+        .try_history()
+        .is_some_and(|history| history.newest().is_none()));
+    assert!(runtime.stats().analyzed_mid_side_frames > 0);
+
+    assert!(runtime.set_mid_side_enabled(false));
+    assert!(runtime
+        .try_mid_side_frame()
+        .is_some_and(|frame| frame.is_none()));
+    runtime.shutdown_and_join();
+    non_spectrum.shutdown_and_join();
+    mono.shutdown_and_join();
 }
 
 #[test]

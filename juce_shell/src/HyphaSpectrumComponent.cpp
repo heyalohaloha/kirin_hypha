@@ -82,7 +82,9 @@ SpectrumComponent::SpectrumComponent()
 
 bool SpectrumComponent::currentSnapshotValid() const noexcept
 {
-    return haveSnapshot && validSnapshot (snapshot, absoluteObservation);
+    return haveSnapshot && (midSideObservation
+        ? midSideSnapshotValid
+        : validSnapshot (snapshot, absoluteObservation));
 }
 
 void SpectrumComponent::setAnalysisOwnerNames (const juce::String& names)
@@ -102,25 +104,6 @@ void SpectrumComponent::setGuideFrequencyOverlay (
     repaint();
 }
 
-void SpectrumComponent::setAbsoluteObservation (bool absolute)
-{
-    if (absoluteObservation == absolute)
-        return;
-    absoluteObservation = absolute;
-    absolutePsbAvailable = deltaPsbAvailable = false;
-    psbStatus = KIRIN_SPECTRUM_WARMING_UP;
-    clearInteractionState();
-    if (haveSnapshot)
-    {
-        const auto retained = snapshot;
-        haveSnapshot = false;
-        havePendingSnapshot = false;
-        setSnapshot (retained);
-    }
-    else
-        repaint();
-}
-
 void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
 {
     if (haveSnapshot && std::memcmp (&snapshot, &next, sizeof (snapshot)) == 0)
@@ -131,6 +114,8 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     if (layoutChanged)
         clearInteractionState();
     snapshot = next;
+    midSideObservation = false;
+    midSideSnapshotValid = false;
     haveSnapshot = true;
     if (next.channel_mode <= KIRIN_SPECTRUM_CHANNEL_SIDE)
         channelMode = next.channel_mode;
@@ -296,6 +281,8 @@ void SpectrumComponent::clearSnapshot()
     absolutePsbAvailable = deltaPsbAvailable = false;
     psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     snapshot = {};
+    midSideSnapshot = {};
+    midSideSnapshotValid = false;
     pendingSnapshot = {};
     displayedPre.fill (0.0f);
     displayedPost.fill (0.0f);
@@ -402,21 +389,27 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
     }
     if (psbObservation) return;
     const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, ! absoluteObservation);
-    for (size_t index = 0; index < ui_contract::spectrumChannelModeWidths.size(); ++index)
+    for (size_t index = 0; index < ui_contract::spectrumDisplayModeWidths.size(); ++index)
     {
-        if (! spectrum_geometry::channelModeBoundsFor (
+        if (! spectrum_geometry::displayModeBoundsFor (
                 index, outerPlot, scale).contains (event.position))
             continue;
         const auto requestedMode = static_cast<uint8_t> (index);
         if (requestedMode == channelMode)
             return;
-        const bool monoSide = requestedMode == KIRIN_SPECTRUM_CHANNEL_SIDE
-                           && inputChannels == 1u;
-        const bool accepted = ! monoSide && onChannelModeChange
+        const bool stereoOnly = requestedMode == KIRIN_SPECTRUM_CHANNEL_SIDE
+                             || requestedMode == KIRIN_SPECTRUM_SELECTION_MID_SIDE;
+        const bool unavailable = (stereoOnly && inputChannels != 2u)
+                              || (requestedMode == KIRIN_SPECTRUM_SELECTION_MID_SIDE
+                                  && ! absoluteObservation);
+        const bool accepted = ! unavailable && onChannelModeChange
                            && onChannelModeChange (requestedMode);
         if (! accepted)
         {
-            modeActionNotice = monoSide ? "SIDE -- MONO" : "MODE --";
+            modeActionNotice = unavailable
+                ? requestedMode == KIRIN_SPECTRUM_SELECTION_MID_SIDE
+                    ? "M/S -- POST STEREO" : "SIDE -- STEREO"
+                : "MODE --";
             modeActionNoticeUntilMs = juce::Time::getMillisecondCounterHiRes() + 1'500.0;
             repaint();
             return;
@@ -438,6 +431,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         curveDirty = false;
         numericDirty = false;
         channelMode = requestedMode;
+        midSideObservation = requestedMode == KIRIN_SPECTRUM_SELECTION_MID_SIDE;
         repaint();
         return;
     }
@@ -467,13 +461,14 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
 
-    if (! haveSnapshot || ! validSnapshot (snapshot, absoluteObservation))
+    if (! currentSnapshotValid())
         return;
     const bool expanded = scale > 1.1f;
     if (focusFrequencyHz > 0.0f)
     {
-        auto readout = spectrum_geometry::readoutBoundsFor (
-            outerPlot, scale, expanded, true);
+        auto readout = midSideObservation
+            ? spectrum_geometry::midSideReadoutBoundsFor (outerPlot, scale, expanded)
+            : spectrum_geometry::readoutBoundsFor (outerPlot, scale, expanded, true);
         if (spectrum_geometry::focusClearBoundsFor (
                 readout, scale).contains (event.position))
         {

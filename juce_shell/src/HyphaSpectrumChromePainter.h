@@ -30,6 +30,7 @@ namespace hypha::spectrum_chrome
         const absolute_spectrum::History* absoluteHistory;
         const spectrum_painter::SpectrumBins& absolutePeakHold;
         bool absoluteObservation;
+        bool midSideObservation;
         bool haveSnapshot;
         bool snapshotValid;
         bool haveMark;

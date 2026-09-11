@@ -76,6 +76,7 @@ pub mod spectrum;
 mod spectrum_difference_timeline;
 pub mod spectrum_exchange;
 mod spectrum_exchange_worker;
+mod spectrum_mid_side;
 pub mod spectrum_runtime;
 pub mod stereo_meter;
 pub mod storage;
@@ -304,9 +305,10 @@ pub use spectrum_difference_timeline::{
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
 };
 pub use spectrum_exchange::{
-    AttackPairViewSnapshot, SpectrumCoordinator, SpectrumTarget, SpectrumViewSnapshot,
-    SpectrumViewStatus,
+    AttackPairViewSnapshot, MidSideSpectrumViewSnapshot, SpectrumCoordinator, SpectrumTarget,
+    SpectrumViewSnapshot, SpectrumViewStatus,
 };
+pub use spectrum_mid_side::MidSideSpectrumFrame;
 pub use spectrum_runtime::{
     PerceptualHistory, SpectrumHistory, SpectrumRuntime, SpectrumRuntimeStats,
     PERCEPTUAL_HISTORY_CAPACITY, SPECTRUM_HISTORY_CAPACITY,
@@ -971,9 +973,7 @@ mod b110_identity_reset_tests {
         set_daw_session_id("global-daw".to_string());
         assert_eq!(peek_project_uuid(), "global-proj");
         assert_eq!(daw_session_id_cell().read().unwrap().clone(), "global-daw");
-
         clear_shared_identity_cells();
-
         assert!(
             peek_project_uuid().is_empty(),
             "clear 後 project_uuid セルは空（次 seed で埋め直し）"

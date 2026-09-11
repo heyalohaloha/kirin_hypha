@@ -86,13 +86,21 @@ mod record_note_ffi;
 mod reference_audition_ffi;
 mod reference_gain_ffi;
 mod signal_state_ffi;
+mod spectrum_mid_side_ffi;
 mod watch_display_ffi;
 use analysis_display_ffi::{to_c_absolute_batch, to_c_perceptual, to_c_perceptual_batch};
 pub use attack_ffi::*;
 pub use audition_admission_ffi::{kirin_hypha_begin_local_blind, kirin_hypha_end_local_blind};
+use identity_ffi::IdentityState;
 pub use identity_ffi::{kirin_hypha_get_identity, kirin_hypha_set_identity, KirinIdentity};
 pub use identity_registry::__reset_shared_ids_for_tests;
+use identity_registry::{
+    clear_role_scoped_cells, read_shared_id, resolve_post_identity, resolve_pre_identity,
+    store_resolved_identity_cells,
+};
 pub use legacy_nih_state::{kirin_hypha_decode_legacy_nih_state, KirinLegacyNihState};
+use meter_session_ffi::to_c_meter_session;
+use pair_binding::{PairBinding, PairTargetTransition};
 pub use pair_candidates_ffi::{
     kirin_hypha_count_keep_ready, kirin_hypha_enumerate_post_pair_claims,
     kirin_hypha_enumerate_pre_candidates, KirinPostPairClaim, KirinPreCandidate,
@@ -104,16 +112,8 @@ pub use signal_state_ffi::{
     kirin_hypha_get_signal_state, kirin_hypha_set_host_component_active,
     kirin_hypha_set_signal_state,
 };
+pub use spectrum_mid_side_ffi::*;
 pub use watch_display_ffi::kirin_hypha_poll_watch_display;
-
-use identity_ffi::IdentityState;
-use identity_registry::{
-    clear_role_scoped_cells, read_shared_id, resolve_post_identity, resolve_pre_identity,
-    store_resolved_identity_cells,
-};
-use meter_session_ffi::to_c_meter_session;
-use pair_binding::{PairBinding, PairTargetTransition};
-
 pub const KIRIN_SIGNAL_STATE_INACTIVE: u8 = 0;
 pub const KIRIN_SIGNAL_STATE_ACTIVE: u8 = 1;
 pub const KIRIN_SIGNAL_STATE_BYPASSED: u8 = 2;

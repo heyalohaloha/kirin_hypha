@@ -172,6 +172,13 @@ void verifyRoleAtEverySize (observatory::Role role,
         view.setMeterSnapshot (meter, true);
         view.setWatchDisplay (activeWatch(), true);
         view.setHistory (history);
+        if (role == observatory::Role::post)
+        {
+            view.setDomain (observatory::Domain::frequency);
+            view.setDeltaTargetEnabled (false);
+            KIRIN_OBSERVATORY_REQUIRE (! view.deltaTargetControlEnabledForTest());
+            view.setDeltaTargetEnabled (true);
+        }
         for (const auto domain : {
                  observatory::Domain::level, observatory::Domain::time,
                  observatory::Domain::frequency, observatory::Domain::space,

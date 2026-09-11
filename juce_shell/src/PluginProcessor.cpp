@@ -103,13 +103,7 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     const int numCh = getTotalNumInputChannels();
-    if (role == Role::Post && numCh != 2
-        && preferredSpectrumChannelMode.load (std::memory_order_acquire)
-            == KIRIN_SPECTRUM_CHANNEL_SIDE)
-    {
-        preferredSpectrumChannelMode.store (
-            KIRIN_SPECTRUM_CHANNEL_LR, std::memory_order_release);
-    }
+    normalizeSpectrumSelectionForInputChannels (numCh);
 
     // Pre-allocate the interleave scratch so processBlock never allocates (RT-safe).
     // B-125 (b): prealloc-max — size to max(declared block, kOversizeHeadroomFrames) frames
@@ -998,22 +992,7 @@ void KirinHyphaProcessorBase::enableWritesNow()
     {
         kirin_hypha_enable_post_writes (hyphaHandle);
         restorePersistedPairUnderHandleLock();
-        if (attackRequested.load (std::memory_order_acquire))
-        {
-            kirin_hypha_set_attack_enabled (hyphaHandle, true);
-        }
-        else if (spectrumVisibleRequested.load (std::memory_order_acquire))
-        {
-            kirin_hypha_set_spectrum_channel_mode (
-                hyphaHandle,
-                requestedAnalysisChannelMode());
-            if (absoluteAnalysisRequested.load (std::memory_order_acquire))
-                kirin_hypha_set_absolute_visible (hyphaHandle, true);
-            else if (perceptualAnalysisRequested.load (std::memory_order_acquire))
-                kirin_hypha_set_perceptual_visible (hyphaHandle, true);
-            else
-                kirin_hypha_set_spectrum_visible (hyphaHandle, true);
-        }
+        restoreRequestedAnalysisUnderHandleLock();
     }
     else
     {

@@ -234,7 +234,7 @@ PREはpair側の測定sensorであり、POSTと同じ機能数を無理に持た
 |---|---|---|---|
 | LEVEL | M、Max M、S、I、recent TP、MaxTP、LRA、PLR、Crest、L/R meter | 現行Watch、Record、LIVEの現在値 | session facts |
 | TIME | M、S、TPの履歴、playback run単位の事実集計 | LIVE timeline、SHARP timeline、ATTACK event timeline | HISTORY、RUN、SHARP、ATTACK、LIVE |
-| FREQ | Spectrum | 現行FREQのPRE、POST、Δ、LR、MID、SIDE、probe、MARK、Focus Trail | SPECTRUM |
+| FREQ | Spectrum | 現行FREQのPRE、POST、Δ、LR、MID、SIDE、M/S同時表示、probe、MARK、Focus Trail | SPECTRUM |
 | SPACE | correlation、L/R balance、goniometer density | なし | FIELD |
 
 `LIVE`は独立ページとして残さない。
@@ -266,6 +266,12 @@ POSTとΔの切替は利用者の観測視点だけを変える。
 意味が固定できた領域だけにΔを提供する。
 
 LEVEL、TIME、FREQはPOSTとΔを持つ。
+
+FREQのM/SはPOST targetでだけ成立するstereo絶対観測であり、同じapertureのMIDとSIDEを同時表示する。
+
+M/S中はΔだけをdisabledにし、Δ中はM/Sだけをdisabledにする。
+
+LR、MID、SIDEへ戻ればΔを再び選択でき、targetやpairの状態を自動変更しない。
 
 SPACEはcorrelation差分の定義と知覚上の意味を固定するまでPOSTだけを持つ。
 SPACEの主表示は、同じ100 ms観測境界からMeasure Threadが生成するrolling 3秒のMID/SIDE densityとする。
@@ -406,6 +412,13 @@ TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠�
 既存のPOST absolute timelineを使い、PRE exchange requestを生成しない。
 
 POST FREQは既存Spectrum解析の同じ実測frameから、現在Spectrum、6秒固定長の時間周波数field、rolling peak holdを生成する。
+
+POST FREQのM/Sは同じstereo入力窓をMID、SIDEの順で解析し、一つの専用frameとして公開する。
+
+M/SはPOSTローカルであり、PRE要求、PRE/POST差分、6秒field、peak hold、MARK、Focus Trailを生成しない。
+
+表示は全5サイズで共通の0〜−96 dBFS軸を使い、MIDをcyan実線、SIDEをviolet実線として色で区別する。
+どちらの曲線にも破線や点線を用いない。
 
 このfieldのためにAudio Thread処理、FFT worker、解析slotを追加しない。
 

@@ -277,7 +277,7 @@ typedef struct {
   uint32_t reserved;
   KirinSpectrumView frames[KIRIN_SPECTRUM_BATCH_CAPACITY];
 } KirinSpectrumBatch;
-
+#include "kirin_hypha_spectrum_mid_side_ffi.h"
 /* POST専用Perceptual Delta表示. 同一100 ms aperture / presentation endpointで一致した
  * PRE/POST Sharpnessだけを公開する。delta_sharpnessは符号付きPOST-PREでclipしない。 */
 typedef struct {

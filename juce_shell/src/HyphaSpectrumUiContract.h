@@ -104,10 +104,13 @@ namespace hypha::ui_contract
     constexpr float spectrumHoverReadoutRadius = 4.5f;
     constexpr float spectrumHoverLineWidth = 0.75f;
     constexpr int spectrumFocusClearWidth = 12;
+    constexpr int spectrumMidSideCompactReadoutWidth = 224;
     constexpr int spectrumChannelModeTop = 1;
     constexpr int spectrumChannelModeHeight = 13;
     constexpr int spectrumChannelModeGap = 2;
     constexpr std::array<int, 3> spectrumChannelModeWidths { 20, 26, 30 };
+    constexpr std::array<int, 4> spectrumDisplayModeWidths { 20, 26, 30, 32 };
+    constexpr float spectrumMidSideStrokeWidth = 1.25f;
     constexpr int spectrumLegendAfterChannelModes = 84;
     constexpr int spectrumMarkWidth = 42;
     constexpr int spectrumMarkClearWidth = 11;

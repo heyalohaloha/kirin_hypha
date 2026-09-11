@@ -171,6 +171,14 @@ void View::setTarget (ObservationTarget value)
     repaint();
 }
 
+void View::setDeltaTargetEnabled (bool enabled)
+{
+    if (deltaTargetEnabled == enabled)
+        return;
+    deltaTargetEnabled = enabled;
+    updateControls();
+}
+
 void View::setConnection (juce::String text, juce::Colour colour, ConnectionState state)
 {
     if (connectionText == text && connectionColour == colour && connectionState == state)
@@ -317,12 +325,16 @@ void View::updateControls()
         juce::dontSendNotification);
     if (! capabilities().targetSelectable)
         targetButton.setButtonText (target() == ObservationTarget::absolute ? "POST" : hypha::delta());
-    targetButton.setEnabled (capabilities().targetSelectable);
-    targetButton.setTooltip (capabilities().help);
+    targetButton.setEnabled (capabilities().targetSelectable
+                             && (fullCockpit || deltaTargetEnabled));
+    targetButton.setTooltip (deltaTargetEnabled ? capabilities().help
+                                                : "Select LR, MID, or SIDE to view Delta");
     deltaButton.setToggleState (target() == ObservationTarget::delta,
                                 juce::dontSendNotification);
-    deltaButton.setEnabled (capabilities().targetSelectable);
-    deltaButton.setTooltip ("POST minus PRE; select POST to return to absolute values");
+    deltaButton.setEnabled (capabilities().targetSelectable && deltaTargetEnabled);
+    deltaButton.setTooltip (deltaTargetEnabled
+        ? "POST minus PRE; select POST to return to absolute values"
+        : "Select LR, MID, or SIDE to view Delta");
     timeRangeButton.setButtonText (historyRequest().label);
     compactLoudnessButton.setButtonText (
         selectedShortTermLoudness ? "LOUDNESS S" : "LOUDNESS M");

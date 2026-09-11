@@ -95,6 +95,11 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     observatoryView.onTargetChange = [this] (hypha::observatory::ObservationTarget target)
     {
         if (! observatoryView.capabilities().targetSelectable) return;
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (target == hypha::observatory::ObservationTarget::delta
+            && ! spectrumView.isPsbObservation()
+            && spectrumView.isMidSideObservation()) return;
+       #endif
         observatoryView.setTarget (target);
         processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (target));
        #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -212,11 +217,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         spectrumSizeToggle.setColour (juce::TextButton::textColourOnId, COL_SPECTRUM_DELTA);
         spectrumSizeToggle.setColour (juce::TextButton::textColourOffId, COL_SPECTRUM_DELTA);
         spectrumSizeToggle.onClick = [this] { cycleSpectrumSize(); };
-        spectrumView.onChannelModeChange = [this] (uint8_t channelMode)
-        {
-            return processorRef.setSpectrumChannelMode (channelMode);
-        };
-        spectrumView.onSubviewChange = [this] { configureSpectrumAnalysis(); };
+        configureSpectrumCallbacks();
         perceptualView.onChannelModeChange = [this] (uint8_t channelMode)
         {
             return processorRef.setSpectrumChannelMode (channelMode);

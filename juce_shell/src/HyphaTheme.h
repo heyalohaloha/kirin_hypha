@@ -34,6 +34,8 @@ namespace hypha
     inline const juce::Colour COL_SPECTRUM_DELTA_BR { ui_contract::spectrumDeltaBright };
     inline const juce::Colour COL_SPECTRUM_PRE { ui_contract::spectrumPre };
     inline const juce::Colour COL_SPECTRUM_POST { ui_contract::spectrumPost };
+    inline const juce::Colour COL_SPECTRUM_MID { ui_contract::spectrumMid };
+    inline const juce::Colour COL_SPECTRUM_SIDE { ui_contract::spectrumSide };
     inline const juce::Colour COL_LED_BLUE  { ui_contract::ledBlue }; // #4488CC WatchBreathing
     inline const juce::Colour COL_LED_GREEN { ui_contract::ledGreen }; // #4CC07A RecordStandby / RecordActive
     inline const juce::Colour COL_LED_YELLOW{ ui_contract::ledYellow }; // #CCAA44 Error (measure thread)

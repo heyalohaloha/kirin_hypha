@@ -28,4 +28,10 @@ namespace hypha::spectrum_painter
                         const SpectrumBins& peakHold,
                         const absolute_spectrum::History& history,
                         presentation::Context);
+
+    void paintMidSide (juce::Graphics& graphics,
+                       juce::Rectangle<float> plot,
+                       float visualScale,
+                       const SpectrumBins& mid,
+                       const SpectrumBins& side);
 }

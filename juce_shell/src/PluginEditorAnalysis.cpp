@@ -7,6 +7,26 @@ namespace ui = hypha::ui_contract;
 
 }
 
+void KirinHyphaEditor::configureSpectrumCallbacks()
+{
+    spectrumView.onChannelModeChange = [this] (uint8_t channelMode)
+    {
+        const bool accepted = processorRef.setSpectrumDisplaySelection (
+            channelMode,
+            observatoryView.target() == hypha::observatory::ObservationTarget::absolute);
+        if (accepted)
+            observatoryView.setDeltaTargetEnabled (
+                channelMode != KIRIN_SPECTRUM_SELECTION_MID_SIDE);
+        return accepted;
+    };
+    spectrumView.onSubviewChange = [this]
+    {
+        observatoryView.setDeltaTargetEnabled (spectrumView.isPsbObservation()
+            || processorRef.spectrumDisplaySelection() != KIRIN_SPECTRUM_SELECTION_MID_SIDE);
+        configureSpectrumAnalysis();
+    };
+}
+
 void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
 {
     if (page == AnalysisPage::attack
@@ -123,6 +143,18 @@ void KirinHyphaEditor::configureSpectrumAnalysis()
 {
     if (analysisPage != AnalysisPage::spectrum) return;
     const bool absolute = observatoryView.target() == hypha::observatory::ObservationTarget::absolute;
+    if (! spectrumView.isPsbObservation() && ! absolute
+        && processorRef.spectrumDisplaySelection() == KIRIN_SPECTRUM_SELECTION_MID_SIDE)
+    {
+        const auto single = processorRef.spectrumSingleChannelMode();
+        processorRef.setSpectrumDisplaySelection (single, false);
+        spectrumView.setDisplaySelection (single);
+    }
+    const bool midSide = ! spectrumView.isPsbObservation() && absolute
+        && processorRef.spectrumDisplaySelection() == KIRIN_SPECTRUM_SELECTION_MID_SIDE;
+    if (! spectrumView.isPsbObservation())
+        spectrumView.setDisplaySelection (processorRef.spectrumDisplaySelection());
+    observatoryView.setDeltaTargetEnabled (! midSide || spectrumView.isPsbObservation());
     spectrumView.setAbsoluteObservation (absolute);
     if (spectrumView.isPsbObservation()) processorRef.setPsbVisible (! absolute);
     else processorRef.setSpectrumVisible (true);
@@ -213,8 +245,17 @@ bool KirinHyphaEditor::refreshAnalysisViews (
         }
         else
         {
-            KirinSpectrumBatch batch {};
-            if (processorRef.pollSpectrumBatch (batch)) spectrumView.setBatch (batch);
+            if (processorRef.spectrumDisplaySelection() == KIRIN_SPECTRUM_SELECTION_MID_SIDE)
+            {
+                KirinMidSideSpectrumView frame {};
+                if (processorRef.pollMidSideSpectrum (frame))
+                    spectrumView.setMidSideSnapshot (frame);
+            }
+            else
+            {
+                KirinSpectrumBatch batch {};
+                if (processorRef.pollSpectrumBatch (batch)) spectrumView.setBatch (batch);
+            }
         }
     }
     else if (analysisPage == AnalysisPage::perceptual)

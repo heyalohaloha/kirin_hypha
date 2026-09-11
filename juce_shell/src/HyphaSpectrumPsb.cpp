@@ -103,6 +103,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
             readoutPre, readoutPost, readoutDelta, markedDelta,
             focusTrail.get(), modeActionNotice, analysisOwnerNames, guideOverlay,
             &absoluteHistory, absoluteHistory.peakHold(), absoluteObservation,
+            midSideObservation,
             haveSnapshot, signalActive && currentSnapshotValid(),
             haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels, signalActive,
             presentationContext

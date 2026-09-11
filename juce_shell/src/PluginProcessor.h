@@ -184,8 +184,14 @@ public:
     bool setPerceptualVisible (bool visible);           // POST-only exact-aperture Sharpness page
     bool setAbsoluteVisible (bool visible);             // POST-only LUFS-M / TP / Sharpness timeline
     bool setSpectrumChannelMode (uint8_t channelMode);  // LR/MID/SIDE; SIDE is stereo-only
+    bool setSpectrumDisplaySelection (uint8_t selection, bool absoluteTarget);
+    uint8_t spectrumDisplaySelection() const noexcept
+    { return preferredSpectrumDisplaySelection.load (std::memory_order_acquire); }
+    uint8_t spectrumSingleChannelMode() const noexcept
+    { return preferredSpectrumChannelMode.load (std::memory_order_acquire); }
     bool pollSpectrum (KirinSpectrumView& out) const;   // signed POST-PRE display snapshot
     bool pollSpectrumBatch (KirinSpectrumBatch& out) const;
+    bool pollMidSideSpectrum (KirinMidSideSpectrumView& out) const;
     bool pollPerceptual (KirinPerceptualView& out) const;
     bool pollPerceptualBatch (KirinPerceptualBatch& out) const;
     bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;
@@ -325,6 +331,8 @@ private:
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
     void restorePersistedPairUnderHandleLock();
+    void restoreRequestedAnalysisUnderHandleLock();
+    void normalizeSpectrumSelectionForInputChannels (int channels) noexcept;
     static hypha::local_blind::CaptureSide localBlindCaptureSide (Role) noexcept;
     static hypha::local_blind::CaptureServiceHooks localBlindCaptureHooks (KirinHyphaProcessorBase&);
     bool acceptLocalBlindProductPair (const hypha::local_blind::ExactCaptureRequest&,
@@ -407,6 +415,7 @@ private:
     // Retained across editor close/reopen for this loaded instance; not a DAW-saved preference.
     std::atomic<bool> manualHybridVuSelected { false };
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
+    std::atomic<uint8_t> preferredSpectrumDisplaySelection { KIRIN_SPECTRUM_CHANNEL_LR };
 
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     hypha::pre_display::ClockTap preDisplayClock;

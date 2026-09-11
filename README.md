@@ -131,6 +131,7 @@ output-presentation sample endpoint.
 | Control | Observation behavior |
 |---|---|
 | LR / MID / SIDE | Selects exactly one channel definition; the three analyzers never run in parallel |
+| M/S | Overlays the POST-local `(L+R)/2` Mid and `(L-R)/2` Side spectra from one stereo aperture; unavailable for mono or Δ |
 | Hover / click | Reads frequency and Δ; click locks the probe, shows its six-second Focus Trail, and × releases it |
 | MARK | Captures or replaces one temporary display-only Δ reference; × clears it |
 | Free resize / 100–300% presets | Keeps a fixed 3:2 aspect ratio from 300×200 through the native 900×600 Inspection View and remembers the exact loaded-instance size |
@@ -141,6 +142,14 @@ waveform. **SIDE** analyzes `(L−R)/2` and is available only for stereo input; 
 SIDE result. Switching LR / MID / SIDE clears the old frame and waits for an exact PRE/POST match in
 the newly selected mode. Record-mode N and Sharpness use their own independent-channel definition,
 described below, so they can differ from MID or SIDE Spectrum on wide or phase-opposed material.
+
+In the POST target, **M/S** is a fourth display choice beside LR / MID / SIDE. It overlays solid
+cyan Mid and violet Side curves calculated from the same aperture, with a shared
+0 to −96 dBFS scale and a two-value probe at every editor size. M/S is an absolute POST observation:
+the Δ target is disabled until LR, MID, or SIDE is selected, and M/S is disabled while Δ is active.
+M/S creates no PRE request, six-second field, peak hold, MARK, or Focus Trail, and its choice never
+leaks into SHARP. The loaded plug-in instance remembers the choice across editor close/reopen, but
+new instances and restored DAW sessions start from the existing LR default.
 
 Hovering the plot shows frequency and Δ; larger views also show PRE and POST values.
 Below the cycle-derived low-frequency confidence boundary (about 35 Hz), the frequency alone carries

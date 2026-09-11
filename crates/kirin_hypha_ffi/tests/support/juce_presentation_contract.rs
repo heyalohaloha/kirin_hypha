@@ -2,7 +2,8 @@ use super::{read_repo, slice_between};
 
 #[test]
 fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() {
-    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h")
+        + &read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_spectrum_mid_side_ffi.h");
     for symbol in [
         "kirin_hypha_select_pair_candidate",
         "kirin_hypha_pair_status",
@@ -10,12 +11,15 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         "kirin_hypha_drain_keep_action_notice",
         "kirin_hypha_poll_record_display",
         "kirin_hypha_poll_spectrum_batch",
+        "kirin_hypha_set_mid_side_spectrum_visible",
+        "kirin_hypha_poll_mid_side_spectrum",
     ] {
         assert!(ffi_header.contains(symbol), "FFI must expose {symbol}");
     }
     let juce_editor = read_repo("juce_shell/src/PluginEditor.cpp")
         + &read_repo("juce_shell/src/PluginEditorObservatory.cpp")
         + &read_repo("juce_shell/src/PluginEditorAnalysis.cpp");
+    let observatory_metrics = read_repo("juce_shell/src/HyphaObservatoryMetrics.cpp");
     for text in ["PAIR —", "PAIR ◌", "PAIR ●"] {
         assert!(
             juce_editor.contains(text),
@@ -29,9 +33,9 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     assert!(juce_editor.contains("observatoryView.bodyBounds()"));
     assert!(juce_editor.contains("ui::watchMetrics"));
     assert!(juce_editor.contains("ui::recordMetrics"));
-    assert!(juce_editor.contains("ui::metricLabelFontHeight"));
-    assert!(juce_editor.contains("ui::metricValueFontHeight"));
-    assert!(juce_editor.contains("ui::metricUnitFontHeight"));
+    assert!(observatory_metrics.contains("typography::TextRole::metricLabel"));
+    assert!(observatory_metrics.contains("typography::TextRole::primaryValue"));
+    assert!(observatory_metrics.contains("typography::TextRole::unit"));
     assert!(juce_editor.contains("ui::maximumLabel"));
     assert!(juce_editor.contains("cachedRecordDisplay.session"));
     assert!(juce_editor.contains("menu.addSectionHeader"));
@@ -109,6 +113,8 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     assert!(cmake.contains("src/PluginProcessor.cpp"));
     assert!(cmake.contains("src/PluginEditor.cpp"));
     assert!(cmake.contains("src/PostControls.cpp"));
+    assert!(cmake.contains("src/HyphaSpectrumMidSide.cpp"));
+    assert!(cmake.contains("src/HyphaSpectrumMidSidePainter.cpp"));
     assert!(cmake.contains("tests/OsAccessUiContractTest.cpp"));
     assert!(cmake.contains("add_test(NAME kirin_ui_render_contract"));
     assert!(cmake.contains("add_kirin_plugin(KirinHyphaPRE"));

@@ -20,6 +20,9 @@ pub(crate) mod codec;
 mod control;
 #[path = "spectrum_exchange_join.rs"]
 mod joining;
+#[path = "spectrum_exchange_mid_side.rs"]
+mod mid_side;
+pub use mid_side::MidSideSpectrumViewSnapshot;
 #[path = "perceptual_exchange_codec.rs"]
 mod perceptual_codec;
 #[path = "spectrum_exchange_post.rs"]
@@ -153,6 +156,7 @@ pub struct SpectrumCoordinator {
     post_session: Mutex<Option<PostSession>>,
     pre_session: Mutex<Option<PreSession>>,
     view: Mutex<SpectrumViewSnapshot>,
+    mid_side_view: Mutex<mid_side::MidSideSpectrumViewSnapshot>,
     attack_view: Mutex<AttackPairViewSnapshot>,
     analysis_lease: Mutex<AnalysisLease>,
     pub(crate) exchange_worker: SpectrumExchangeWorker,
@@ -222,6 +226,7 @@ impl SpectrumCoordinator {
             post_session: Mutex::new(None),
             pre_session: Mutex::new(None),
             view: Mutex::new(SpectrumViewSnapshot::default()),
+            mid_side_view: Mutex::new(Default::default()),
             attack_view: Mutex::new(AttackPairViewSnapshot::default()),
             analysis_lease: Mutex::new(analysis_lease),
             exchange_worker: SpectrumExchangeWorker::new(),
@@ -348,6 +353,9 @@ mod lease_tests;
 #[cfg(all(test, not(windows)))]
 #[path = "spectrum_exchange_lock_tests.rs"]
 mod lock_tests;
+#[cfg(test)]
+#[path = "spectrum_exchange_mid_side_tests.rs"]
+mod mid_side_tests;
 #[cfg(test)]
 #[path = "spectrum_exchange_recovery_tests.rs"]
 mod recovery_tests;

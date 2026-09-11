@@ -10,6 +10,7 @@ use super::{SpectrumConsumers, SpectrumRuntime};
 use crate::absolute_timeline::AbsoluteFrame;
 use crate::perceptual::PerceptualFrame;
 use crate::spectrum::{AnalysisViewMode, SpectrumAnalyzer, SpectrumFrame};
+use crate::MidSideSpectrumFrame;
 
 const WORKER_IDLE: Duration = Duration::from_millis(10);
 
@@ -119,7 +120,11 @@ impl SpectrumRuntime {
             };
             match mode {
                 AnalysisViewMode::Spectrum => {
-                    if let Some(frame) = spectrum.push_frame(left, right, channel_mode) {
+                    if self.mid_side_enabled() {
+                        if let Some(frame) = spectrum.push_mid_side_frame(left, right) {
+                            self.publish_mid_side(frame);
+                        }
+                    } else if let Some(frame) = spectrum.push_frame(left, right, channel_mode) {
                         self.publish_spectrum(frame);
                     }
                 }
@@ -161,6 +166,19 @@ impl SpectrumRuntime {
         }
     }
 
+    fn publish_mid_side(&self, frame: MidSideSpectrumFrame) {
+        if !self.mid_side_frame_is_current(&frame) {
+            return;
+        }
+        self.analyzed_mid_side_frames
+            .fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut latest) = self.latest_mid_side.lock() {
+            if self.mid_side_frame_is_current(&frame) {
+                *latest = Some(frame);
+            }
+        }
+    }
+
     fn publish_perceptual(&self, frame: &PerceptualFrame) {
         if !self.perceptual_frame_is_current(frame) {
             return;
@@ -198,10 +216,21 @@ impl SpectrumRuntime {
             });
         self.enabled.load(Ordering::Acquire)
             && self.analysis_mode() == AnalysisViewMode::Spectrum
+            && !self.mid_side_enabled()
             && layout_matches
             && frame.generation == self.generation.load(Ordering::Acquire)
             && frame.channel_mode == self.channel_mode()
             && frame.channels as usize == self.num_channels
+    }
+
+    fn mid_side_frame_is_current(&self, frame: &MidSideSpectrumFrame) -> bool {
+        self.enabled.load(Ordering::Acquire)
+            && self.analysis_mode() == AnalysisViewMode::Spectrum
+            && self.mid_side_enabled()
+            && frame.generation() == self.generation.load(Ordering::Acquire)
+            && frame.has_valid_layout()
+            && frame.mid.sample_rate == self.sample_rate
+            && frame.mid.channels as usize == self.num_channels
     }
 
     fn perceptual_frame_is_current(&self, frame: &PerceptualFrame) -> bool {

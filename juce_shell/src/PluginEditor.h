@@ -91,6 +91,7 @@ private:
     void setAnalysisPage (AnalysisPage page);
     void configureSharpnessAnalysis (int pairStatus);
     void configureSpectrumAnalysis();
+    void configureSpectrumCallbacks();
     void updateTimePageNavigation();
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();
