@@ -99,6 +99,8 @@ try {
   assert.match(result.output, /--customernumber \\<redacted\\>/);
   assert.match(result.output, /--customername \\<redacted\\>/);
   assert.match(result.output, /--signid \\<redacted\\>/);
+  assert.match(result.output, /aax_notarization_receipt\.mjs submit/);
+  assert.match(result.output, /--keychain-profile kirin-notarize/);
   assert.doesNotMatch(result.output, /fixture-account|fixture-customer-number|Fixture Signer/);
 
   result = run([
@@ -122,6 +124,7 @@ try {
   assert.match(result.output, /--account \\<redacted\\>/);
   assert.match(result.output, /signed for diagnostics/);
   assert.doesNotMatch(result.output, /--require-kimera/);
+  assert.doesNotMatch(result.output, /aax_notarization_receipt\.mjs submit/);
 
   result = run([
     '--sdk', sdkRoot,

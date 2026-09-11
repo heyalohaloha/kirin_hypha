@@ -146,6 +146,16 @@ separately built PRE/POST AAX bundles from `build-aax-universal/`. AAX remains o
 GPL checkout does not require the external SDK or PACE tools. It is a format inside the existing
 macOS and Windows deliverables, not a fourth release channel.
 
+The AAX release build must be created through `scripts/build_aax_universal.sh --sign`. That command
+requires the exact Kirin PACE and Developer ID identities, submits the signed PRE/POST pair to
+Apple, and writes `build-aax-universal/kirin-hypha-macos-aax-notarization.json` only after both
+`notarytool submit` and `notarytool info` report `Accepted`. A signature-only or diagnostic receipt
+is never accepted by either macOS packaging path.
+
+The HP zip also carries an exact copy of the accepted receipt at
+`AAX/kirin-hypha-macos-aax-notarization.json`. Post-extraction verification rejects a missing or
+different copy, so the public artifact retains the notarization submission and PRE/POST hash binding.
+
 ## Phase 2: Build Installer Package
 
 Public release package:
@@ -164,9 +174,12 @@ The four source, installed, archive, executable, display-name, and VST3 CID cont
 `config/hypha_macos_ship_bundles.json`. Before `pkgbuild`, the script verifies the exact payload
 layout—including the role-first VST3 outer names—against each bundle's `CFBundleExecutable`.
 With `--with-aax`, the separate AAX manifest requires exactly PRE and POST, verifies the exact source
-commit, clean-source/Kimera/Native-only stamps, Universal architecture, Apple notarization, PACE
-signature, and PACE symlink integrity, then expands the finished pkg and verifies the copied bundles
-again. Every AAX directory copy uses `ditto`.
+commit, clean-source/Kimera/Native-only stamps, Universal architecture, exact Apple and PACE signer
+identities, secure timestamp, accepted notarization receipt, and PACE symlink integrity. It then
+reconfirms the receipt online with `notarytool info`, expands the finished pkg, and verifies the
+copied bundles again. Every AAX directory copy uses
+`ditto`; the final pkg is separately submitted to Apple and stapled as the distributed outer
+container.
 
 This writes:
 
@@ -263,8 +276,8 @@ cargo run --package xtask -- release-package
 ```
 
 After the Pro Tools and same-commit Windows AAX gates are complete, add `--with-aax`. The command
-uses `ditto` to stage and create the zip, extracts the completed zip, and re-runs the AAX signature
-and symlink checks against both extracted bundles.
+uses `ditto` to stage and create the zip, extracts the completed zip, and re-runs the exact AAX
+signature, identity, hash, accepted-notarization-receipt, and symlink gates.
 
 Do not publish a macOS AAX artifact while the matching Windows installer lacks PRE/POST AAX. When
 using `--with-aax`, add both AAX install paths to the ignored release state's `expectedPayloads` so

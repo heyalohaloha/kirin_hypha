@@ -59,6 +59,9 @@ pub fn run(args: Vec<String>) -> Result<()> {
         verify_package_mode(&dist_dir, allow_unsigned)?;
     }
     verify_sources(&bundles, &version, allow_unsigned || dry_run)?;
+    if with_aax && !dry_run {
+        aax_distribution::verify_notarization_receipt()?;
+    }
     if with_aax {
         aax_distribution::verify_sources(&aax_bundles, &version, &aax_source_id)?;
     }

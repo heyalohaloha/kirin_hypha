@@ -6,7 +6,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
-const TEAM_ID = process.env.KIRIN_TEAM_ID || '7N8BSMA684';
+export const AAX_APPLE_AUTHORITY = 'Developer ID Application: daisuke nishio (7N8BSMA684)';
+export const AAX_APPLE_TEAM_ID = '7N8BSMA684';
+export const AAX_PACE_SIGNER_NAME = 'Kirin Mastering';
+export const AAX_PACE_PUBLISHER_ID = '0x488b4292';
 const DEFAULT_WRAPTOOL_PATHS = [
   '/Applications/PACEAntiPiracy/Eden/Fusion/Versions/6/bin/wraptool',
   '/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool',
@@ -18,10 +21,47 @@ function run(command, args, label) {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  if (result.error) throw new Error(`${label} could not start: ${result.error.message}`);
   if (result.status !== 0) {
     throw new Error(`${label} failed with status ${result.status}`);
   }
   return { stdout: result.stdout || '', stderr: result.stderr || '' };
+}
+
+export function parseAaxAppleSignature(output) {
+  const lines = String(output).split(/\r?\n/).map((line) => line.trim());
+  const authorities = lines
+    .filter((line) => line.startsWith('Authority='))
+    .map((line) => line.slice('Authority='.length));
+  const teamId = lines.find((line) => line.startsWith('TeamIdentifier='))
+    ?.slice('TeamIdentifier='.length);
+  const timestamp = lines.find((line) => line.startsWith('Timestamp='))
+    ?.slice('Timestamp='.length);
+  const cdhash = lines.find((line) => line.startsWith('CDHash='))?.slice('CDHash='.length);
+  if (authorities[0] !== AAX_APPLE_AUTHORITY) {
+    throw new Error(`AAX Apple authority is not ${AAX_APPLE_AUTHORITY}`);
+  }
+  if (teamId !== AAX_APPLE_TEAM_ID) {
+    throw new Error(`AAX bundle is not signed by required Apple team ${AAX_APPLE_TEAM_ID}`);
+  }
+  if (!timestamp) throw new Error('AAX secure timestamp is missing');
+  if (!/^[0-9a-f]+$/i.test(cdhash || '')) throw new Error('AAX Apple CDHash is missing');
+  return { authority: authorities[0], teamId, timestamp, cdhash: cdhash.toLowerCase() };
+}
+
+export function parseAaxPaceSignature(output) {
+  const text = String(output);
+  const signerName = text.match(/^\s*Signer name:\s*(.+?)\s*$/m)?.[1];
+  const signerGuid = text.match(/^\s*Signer GUID:\s*(.+?)\s*$/m)?.[1];
+  const publisherId = text.match(/^\s*Signer PublisherId:\s*(.+?)\s*$/m)?.[1];
+  if (signerName !== AAX_PACE_SIGNER_NAME) {
+    throw new Error(`AAX PACE signer is not ${AAX_PACE_SIGNER_NAME}`);
+  }
+  if (publisherId?.toLowerCase() !== AAX_PACE_PUBLISHER_ID.toLowerCase()) {
+    throw new Error(`AAX PACE PublisherId is not ${AAX_PACE_PUBLISHER_ID}`);
+  }
+  if (!signerGuid) throw new Error('AAX PACE signer GUID is missing');
+  return { signerName, signerGuid, publisherId: AAX_PACE_PUBLISHER_ID };
 }
 
 function plistValue(plist, key) {
@@ -106,7 +146,6 @@ export function verifyAaxBundle({
   requireKimera = false,
   requireNativeOnly = false,
   requireDiagnostic = false,
-  requireNotarization = true,
 }) {
   if (!fs.statSync(bundlePath, { throwIfNoEntry: false })?.isDirectory()) {
     throw new Error(`AAX bundle missing: ${bundlePath}`);
@@ -150,23 +189,15 @@ export function verifyAaxBundle({
     throw new Error(`AAX bundle is not universal: ${archs.join(' ')}`);
   }
   run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', bundlePath], 'AAX codesign verification');
-  if (requireNotarization) {
-    run(
-      'codesign',
-      ['--verify', '--deep', '--strict', '--check-notarization', '--verbose=2', bundlePath],
-      'AAX notarization verification',
-    );
-  }
-  const signing = run('codesign', ['-dvv', bundlePath], 'AAX signing identity inspection').stderr;
-  if (!signing.includes(`TeamIdentifier=${TEAM_ID}`)) {
-    throw new Error(`AAX bundle is not signed by required Apple team ${TEAM_ID}`);
-  }
+  const appleOutput = run('codesign', ['-dvvv', bundlePath], 'AAX signing identity inspection').stderr;
+  const apple = parseAaxAppleSignature(appleOutput);
   const links = symlinkInventory(bundlePath);
   if (!links.some((entry) => entry.startsWith(`${PACE_DSIG_LINK}\t`))) {
     throw new Error(`AAX PACE compatibility signature link missing: ${PACE_DSIG_LINK}`);
   }
-  run(resolveWraptool(), ['verify', '--in', bundlePath], 'AAX PACE signature verification');
-  return { binary, binarySha256: sha256(binary), symlinks: links };
+  const paceResult = run(resolveWraptool(), ['verify', '--in', bundlePath], 'AAX PACE signature verification');
+  const pace = parseAaxPaceSignature(`${paceResult.stdout}\n${paceResult.stderr}`);
+  return { binary, binarySha256: sha256(binary), symlinks: links, apple, pace };
 }
 
 export function verifyAaxBundleCopy({
@@ -179,17 +210,21 @@ export function verifyAaxBundleCopy({
   requireKimera = false,
   requireNativeOnly = false,
   requireDiagnostic = false,
-  requireNotarization = true,
 }) {
   const options = {
     executableName: spec.executable_name,
     bundleIdentifier: spec.bundle_identifier,
     version,
   };
-  const source = {
-    binarySha256: sha256(path.join(sourcePath, 'Contents/MacOS', spec.executable_name)),
-    symlinks: symlinkInventory(sourcePath),
-  };
+  const source = verifyAaxBundle({
+    bundlePath: sourcePath,
+    ...options,
+    sourceId,
+    sourceState,
+    requireKimera,
+    requireNativeOnly,
+    requireDiagnostic,
+  });
   const destination = verifyAaxBundle({
     bundlePath: destinationPath,
     ...options,
@@ -198,13 +233,15 @@ export function verifyAaxBundleCopy({
     requireKimera,
     requireNativeOnly,
     requireDiagnostic,
-    requireNotarization,
   });
   if (source.binarySha256 !== destination.binarySha256) {
     throw new Error(`AAX executable changed during copy: ${spec.role}`);
   }
   if (JSON.stringify(source.symlinks) !== JSON.stringify(destination.symlinks)) {
     throw new Error(`AAX symlink inventory changed during copy: ${spec.role}`);
+  }
+  if (source.apple.cdhash !== destination.apple.cdhash) {
+    throw new Error(`AAX Apple CDHash changed during copy: ${spec.role}`);
   }
 }
 
@@ -222,7 +259,6 @@ function parseArgs(argv) {
     else if (arg === '--require-kimera') options.requireKimera = true;
     else if (arg === '--require-native-only') options.requireNativeOnly = true;
     else if (arg === '--require-diagnostic') options.requireDiagnostic = true;
-    else if (arg === '--allow-unnotarized') options.requireNotarization = false;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new Error(`unknown argument: ${arg}`);
   }
@@ -232,7 +268,7 @@ function parseArgs(argv) {
 function runCli(argv) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log('Usage: node aax_bundle_verify.mjs --bundle PATH --executable NAME --identifier ID --version VERSION [--source PATH] [--source-id ID --source-state STATE --require-kimera --require-native-only --require-diagnostic --allow-unnotarized]');
+    console.log('Usage: node aax_bundle_verify.mjs --bundle PATH --executable NAME --identifier ID --version VERSION [--source PATH] [--source-id ID --source-state STATE --require-kimera --require-native-only --require-diagnostic]');
     return;
   }
   for (const key of ['bundlePath', 'executableName', 'bundleIdentifier', 'version']) {
@@ -254,7 +290,6 @@ function runCli(argv) {
       requireKimera: options.requireKimera,
       requireNativeOnly: options.requireNativeOnly,
       requireDiagnostic: options.requireDiagnostic,
-      requireNotarization: options.requireNotarization,
     });
   } else {
     verifyAaxBundle({
@@ -267,7 +302,6 @@ function runCli(argv) {
       requireKimera: options.requireKimera,
       requireNativeOnly: options.requireNativeOnly,
       requireDiagnostic: options.requireDiagnostic,
-      requireNotarization: options.requireNotarization,
     });
   }
   console.log(`[aax-bundle-verify] OK: ${options.bundlePath}`);

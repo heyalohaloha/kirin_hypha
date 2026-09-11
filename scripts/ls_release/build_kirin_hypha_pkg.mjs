@@ -6,6 +6,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyAaxBundle, verifyAaxBundleCopy } from './aax_bundle_verify.mjs';
+import {
+  parseNotarytoolAccepted,
+  verifyMacAaxNotarizationReceipt,
+} from './aax_notarization_receipt.mjs';
 import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
 import { loadMacShipBundleManifest } from './kirin_hypha_ship_bundles.mjs';
 import {
@@ -258,6 +262,14 @@ function buildPackage() {
   const releaseIdentity = SKIP_SIGN
     ? readReleaseSourceIdentity({ root: ROOT })
     : requireCleanReleaseSource({ root: ROOT });
+  const aaxNotarization = WITH_AAX
+    ? verifyMacAaxNotarizationReceipt({
+      root: ROOT,
+      artifactDir: aaxManifest.defaultBuildRoot,
+      keychainProfile: NOTARY_PROFILE,
+      online: true,
+    })
+    : null;
   verifyShipBundleContract();
   for (const bundle of bundles) verifySourceBundle(bundle, releaseIdentity);
   const identity = SKIP_SIGN ? null : findInstallerIdentity();
@@ -307,8 +319,24 @@ function buildPackage() {
   productArgs.push('--package', componentPkg, PACKAGE_PATH);
   run('productbuild', productArgs);
 
+  let pkgNotarization = null;
   if (!SKIP_NOTARIZE) {
-    run('xcrun', ['notarytool', 'submit', PACKAGE_PATH, '--keychain-profile', NOTARY_PROFILE, '--wait']);
+    const submitted = run('xcrun', [
+      'notarytool', 'submit', PACKAGE_PATH,
+      '--keychain-profile', NOTARY_PROFILE,
+      '--wait', '--output-format', 'json',
+    ], { capture: true });
+    pkgNotarization = parseNotarytoolAccepted(submitted, 'installer pkg notarytool submit');
+    const confirmed = run('xcrun', [
+      'notarytool', 'info', pkgNotarization.id,
+      '--keychain-profile', NOTARY_PROFILE,
+      '--output-format', 'json',
+    ], { capture: true });
+    const pkgConfirmation = parseNotarytoolAccepted(confirmed, 'installer pkg notarytool info');
+    if (pkgConfirmation.id !== pkgNotarization.id) {
+      throw new Error('installer pkg notarytool confirmation id changed');
+    }
+    pkgNotarization = pkgConfirmation;
     run('xcrun', ['stapler', 'staple', PACKAGE_PATH]);
     run('xcrun', ['stapler', 'validate', PACKAGE_PATH]);
   }
@@ -333,7 +361,16 @@ function buildPackage() {
     lsDisplaySize: formatMiB(size),
     signed: !SKIP_SIGN,
     notarized: !SKIP_NOTARIZE,
+    notarization: pkgNotarization ? {
+      submissionId: pkgNotarization.id,
+      status: pkgNotarization.status,
+    } : null,
     aaxIncluded: WITH_AAX,
+    aaxNotarization: aaxNotarization ? {
+      submissionId: aaxNotarization.receipt.submission.id,
+      status: aaxNotarization.receipt.submission.status,
+      receiptSha256: sha256Hex(aaxNotarization.receiptPath),
+    } : null,
     source: {
       commit: releaseIdentity.commit,
       bNumber: releaseIdentity.bNumber,

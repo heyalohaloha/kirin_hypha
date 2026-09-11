@@ -91,14 +91,22 @@ scripts/build_aax_universal.sh \
   --sign
 ```
 
+The release command performs three separate gates in order: exact PACE + Developer ID signing,
+Apple notary submission, and a receipt bound to the current PRE/POST binary hashes and
+Apple CDHashes. `notarytool submit --wait` and a subsequent `notarytool info` must both report
+`Accepted`. The accepted submission ID is written to
+`build-aax-universal/kirin-hypha-macos-aax-notarization.json`. A valid signature alone is not a
+notarization result and cannot satisfy the packaging gate.
+
 This builds the Rust FFI for both Apple architectures, creates one Universal static library, and
 builds only the PRE/POST AAX targets under `build-aax-universal/`. Omitting the Kimera options is
 allowed only for a diagnostic build. `--diagnostic` makes unsigned intent explicit, while
 `--diagnostic-sign` permits local PACE + Apple signing without Kimera and writes the same
 non-distribution receipt. `--sign` requires the licensed font, a clean source
-commit with a B number, the exact tracked JUCE patch stack, and the documented PACE and Apple signing
-environment. The font, account identifiers, and signer values remain outside the repository and
-must not be written to logs.
+commit with a B number, the exact tracked JUCE patch stack, the documented PACE and Apple signing
+environment, and a `notarytool` keychain profile (`KIRIN_NOTARY_PROFILE`, default
+`kirin-notarize`). The font, account identifiers, and signer values remain outside the repository
+and must not be written to logs.
 
 `--dry-run` performs the same argument, external-SDK path, signing-mode, and command-composition
 checks without invoking Cargo, CMake, lipo, wraptool, or macOS-only tools. It is safe to run in the
@@ -132,9 +140,13 @@ all of these checks pass:
 - expected bundle identifier, executable, version, and AAX package type;
 - exact source commit, `clean source` state, licensed Kimera embedding, and Native-only registration;
 - `x86_64 arm64` executable;
-- Developer ID seal and notarization check;
+- exact Developer ID Application authority/team, secure timestamp, and Apple CDHash;
+- exact PACE signer `Kirin Mastering` and PublisherId `0x488b4292`;
+- an `Accepted` Apple notarization receipt bound to the current commit and PRE/POST hashes;
+- a fresh online `notarytool info` confirmation of the recorded submission during packaging;
+- an exact copy of that receipt in the HP zip under `AAX/`, preserving the submission ID and
+  PRE/POST hash binding with the distributed artifact;
 - PACE compatibility signature symlink exists, resolves inside the bundle, and survives copying;
-- PACE `wraptool verify` succeeds;
 - the staged copy and the copy extracted back from the final pkg or zip still match the source.
 
 Every AAX directory copy and zip operation uses `ditto`. AAX package creation additionally expands

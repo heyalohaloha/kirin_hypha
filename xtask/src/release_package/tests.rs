@@ -68,6 +68,7 @@ fn aax_opt_in_adds_both_roles_to_metadata_and_install_text() {
     assert!(json.contains("\"aax_included\": true"));
     assert!(json.contains("Kirin Hypha PRE.aaxplugin"));
     assert!(json.contains("Kirin Hypha POST.aaxplugin"));
+    assert!(json.contains("kirin-hypha-macos-aax-notarization.json"));
 
     let install = release_package_metadata::install_text("1.1.1", true);
     assert!(install.contains("/Library/Application Support/Avid/Audio/Plug-Ins/"));

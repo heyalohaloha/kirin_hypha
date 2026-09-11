@@ -15,6 +15,8 @@ const MANIFEST_SCHEMA: &str = "kirin-hypha-macos-aax-bundles-v1";
 const INSTALL_PARENT: &str = "Library/Application Support/Avid/Audio/Plug-Ins";
 const ARCHIVE_PARENT: &str = "AAX";
 const VERIFY_SCRIPT: &str = "scripts/ls_release/aax_bundle_verify.mjs";
+const NOTARIZATION_SCRIPT: &str = "scripts/ls_release/aax_notarization_receipt.mjs";
+const NOTARIZATION_RECEIPT_NAME: &str = "kirin-hypha-macos-aax-notarization.json";
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct AaxBundleSpec {
@@ -171,6 +173,20 @@ pub fn verify_sources(bundles: &[AaxBundle], version: &str, source_id: &str) -> 
     Ok(())
 }
 
+pub fn verify_notarization_receipt() -> Result<()> {
+    let manifest: AaxManifest =
+        serde_json::from_str(MANIFEST_SOURCE).context("parse macOS AAX bundle manifest")?;
+    validate_manifest(&manifest)?;
+    run_status(
+        Command::new("node")
+            .arg(NOTARIZATION_SCRIPT)
+            .arg("verify")
+            .args(["--artifact-dir", path_text(&manifest.default_build_root)?])
+            .arg("--online"),
+        "verify accepted AAX notarization receipt",
+    )
+}
+
 pub fn stage_archives(
     bundles: &[AaxBundle],
     archive_root: &Path,
@@ -193,6 +209,19 @@ pub fn stage_archives(
         )
         .with_context(|| format!("{} staged archive verification failed", bundle.label()))?;
     }
+    let receipt_source = notarization_receipt_source()?;
+    let receipt_destination = archive_root
+        .join(ARCHIVE_PARENT)
+        .join(NOTARIZATION_RECEIPT_NAME);
+    fs::copy(&receipt_source, &receipt_destination).with_context(|| {
+        format!(
+            "copy AAX notarization receipt {} -> {}",
+            receipt_source.display(),
+            receipt_destination.display()
+        )
+    })?;
+    verify_file_copy(&receipt_source, &receipt_destination)
+        .context("staged AAX notarization receipt changed")?;
     Ok(())
 }
 
@@ -217,11 +246,18 @@ pub fn verify_zip(
         verify_bundle(bundle, &extracted, Some(&bundle.source), version, source_id)
             .with_context(|| format!("{} extracted zip verification failed", bundle.label()))?;
     }
+    verify_file_copy(
+        &notarization_receipt_source()?,
+        &archive_root
+            .join(ARCHIVE_PARENT)
+            .join(NOTARIZATION_RECEIPT_NAME),
+    )
+    .context("AAX notarization receipt is missing or changed in release zip")?;
     Ok(())
 }
 
 pub fn metadata_entries(bundles: &[AaxBundle]) -> Result<Vec<BundleEntry>> {
-    bundles
+    let mut entries: Vec<BundleEntry> = bundles
         .iter()
         .map(|bundle| {
             Ok(BundleEntry {
@@ -236,7 +272,15 @@ pub fn metadata_entries(bundles: &[AaxBundle]) -> Result<Vec<BundleEntry>> {
                     .to_string(),
             })
         })
-        .collect()
+        .collect::<Result<_>>()?;
+    if !bundles.is_empty() {
+        entries.push(BundleEntry {
+            label: "AAX Apple notarization receipt".to_string(),
+            format: ARCHIVE_PARENT.to_string(),
+            file: NOTARIZATION_RECEIPT_NAME.to_string(),
+        });
+    }
+    Ok(entries)
 }
 
 pub fn print_dry_run(bundles: &[AaxBundle]) {
@@ -247,6 +291,38 @@ pub fn print_dry_run(bundles: &[AaxBundle]) {
             bundle.spec.archive_relative.display()
         );
     }
+    if !bundles.is_empty() {
+        eprintln!(
+            "  include:      {} -> {}/{}",
+            notarization_receipt_source()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|_| NOTARIZATION_RECEIPT_NAME.to_string()),
+            ARCHIVE_PARENT,
+            NOTARIZATION_RECEIPT_NAME
+        );
+    }
+}
+
+fn notarization_receipt_source() -> Result<PathBuf> {
+    let manifest: AaxManifest =
+        serde_json::from_str(MANIFEST_SOURCE).context("parse macOS AAX bundle manifest")?;
+    validate_manifest(&manifest)?;
+    Ok(manifest.default_build_root.join(NOTARIZATION_RECEIPT_NAME))
+}
+
+fn verify_file_copy(source: &Path, destination: &Path) -> Result<()> {
+    let source_bytes =
+        fs::read(source).with_context(|| format!("read source proof {}", source.display()))?;
+    let destination_bytes = fs::read(destination)
+        .with_context(|| format!("read copied proof {}", destination.display()))?;
+    if source_bytes != destination_bytes {
+        bail!(
+            "proof copy differs: {} -> {}",
+            source.display(),
+            destination.display()
+        );
+    }
+    Ok(())
 }
 
 fn verify_bundle(

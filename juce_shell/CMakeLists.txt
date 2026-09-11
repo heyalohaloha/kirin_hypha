@@ -200,8 +200,8 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
 function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     set(_KIRIN_AAX_PLUGIN_ARGS)
     if(KIRIN_HYPHA_AAX_ENABLED)
-        # Keep the established PRE/POST bundle IDs as the AAX identifiers. None is JUCE's default
-        # non-synth category; confirm the final category in Pro Tools before public AAX release.
+        # Keep the established PRE/POST bundle IDs as the AAX identifiers. B-786 host evidence
+        # confirmed that None appears under Other; the SDK has no analyzer/meter category.
         list(APPEND _KIRIN_AAX_PLUGIN_ARGS
             AAX_IDENTIFIER ${BUNDLE_ID}
             AAX_CATEGORY ePlugInCategory_None)

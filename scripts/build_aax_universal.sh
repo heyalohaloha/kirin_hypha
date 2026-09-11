@@ -15,6 +15,7 @@ KIMERA_FONT_FILE=""
 KIMERA_LICENSE_CONFIRMED=0
 DEFAULT_WRAPTOOL="/Applications/PACEAntiPiracy/Eden/Fusion/Versions/6/bin/wraptool"
 FALLBACK_WRAPTOOL="/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool"
+NOTARY_PROFILE="${KIRIN_NOTARY_PROFILE:-kirin-notarize}"
 
 usage() {
   cat <<'EOF'
@@ -23,7 +24,7 @@ Usage: scripts/build_aax_universal.sh --sdk PATH --license-confirmed [--diagnost
 Options:
   --sdk PATH             External AAX SDK root containing Interfaces/ACF
   --license-confirmed    Confirm that the external SDK may be used for this build
-  --sign                 PACE + Developer ID sign PRE and POST after building
+  --sign                 PACE + Developer ID sign, notarize, and attest PRE and POST
   --diagnostic           Build an unsigned, explicitly non-distributable diagnostic artifact
   --diagnostic-sign      PACE + Developer ID sign a Kimera-free, unnotarized diagnostic artifact
   --dry-run              Validate and print the build/sign command plan without executing it
@@ -37,6 +38,7 @@ Signing environment (required with --sign or --diagnostic-sign):
   KIRIN_AAX_PACE_CUSTOMER_NAME
   KIRIN_AAX_APPLE_SIGN_IDENTITY
   KIRIN_AAX_WRAPTOOL             Optional wraptool executable override
+  KIRIN_NOTARY_PROFILE           notarytool keychain profile. Default: kirin-notarize
 EOF
 }
 
@@ -65,6 +67,35 @@ run() {
     return 0
   fi
   "$@"
+}
+
+run_sensitive() {
+  if [[ "$DRY_RUN" == 1 ]]; then
+    run "$@"
+    return
+  fi
+  local output
+  local status
+  if output="$("$@" 2>&1)"; then
+    status=0
+  else
+    status=$?
+  fi
+  local safe="$output"
+  local secret
+  for secret in \
+    "${KIRIN_AAX_PACE_ACCOUNT:-}" \
+    "${KIRIN_AAX_PACE_CUSTOMER_NUMBER:-}" \
+    "${KIRIN_AAX_PACE_CUSTOMER_NAME:-}" \
+    "${KIRIN_AAX_APPLE_SIGN_IDENTITY:-}"; do
+    if [[ -n "$secret" ]]; then
+      safe="${safe//"$secret"/<redacted>}"
+    fi
+  done
+  if [[ -n "$safe" ]]; then
+    printf '%s\n' "$safe"
+  fi
+  return "$status"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -218,6 +249,7 @@ for role in PRE POST; do
   run cmake -E remove_directory \
     "build-aax-universal/KirinHypha${role}_artefacts/Release/AAX/Kirin Hypha ${role}.aaxplugin"
 done
+run cmake -E rm -f build-aax-universal/kirin-hypha-macos-aax-notarization.json
 run cmake --build build-aax-universal --config Release \
   --target KirinHyphaPRE_AAX KirinHyphaPOST_AAX --parallel 2
 
@@ -237,7 +269,7 @@ if [[ "$SIGN_OUTPUT" == 1 || "$DIAGNOSTIC_SIGN_OUTPUT" == 1 ]]; then
   for role in PRE POST; do
     lower="$(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')"
     bundle="build-aax-universal/KirinHypha${role}_artefacts/Release/AAX/Kirin Hypha ${role}.aaxplugin"
-    run "$WRAPTOOL" "${WRAPTOOL_SIGN_ARGS[@]}" \
+    run_sensitive "$WRAPTOOL" "${WRAPTOOL_SIGN_ARGS[@]}" \
       --in "$bundle" \
       --customernumber "$KIRIN_AAX_PACE_CUSTOMER_NUMBER" \
       --customername "$KIRIN_AAX_PACE_CUSTOMER_NAME" \
@@ -245,18 +277,21 @@ if [[ "$SIGN_OUTPUT" == 1 || "$DIAGNOSTIC_SIGN_OUTPUT" == 1 ]]; then
       --dsig1-compat on
     if [[ "$SIGN_OUTPUT" == 1 ]]; then
       run node scripts/ls_release/aax_bundle_verify.mjs \
-      --bundle "$bundle" \
-      --executable "Kirin Hypha ${role}" \
-      --identifier "com.kirinmastering.hypha.${lower}" \
-      --version "$(sed -n 's/^version = "\([^"]*\)"/\1/p' crates/hypha_pre/Cargo.toml | head -1)" \
-      --source-id "$RELEASE_SOURCE_ID" \
-      --source-state "clean source" \
-      --require-kimera \
+        --bundle "$bundle" \
+        --executable "Kirin Hypha ${role}" \
+        --identifier "com.kirinmastering.hypha.${lower}" \
+        --version "$(sed -n 's/^version = "\([^"]*\)"/\1/p' crates/hypha_pre/Cargo.toml | head -1)" \
+        --source-id "$RELEASE_SOURCE_ID" \
+        --source-state "clean source" \
+        --require-kimera \
         --require-native-only
     fi
   done
   if [[ "$SIGN_OUTPUT" == 1 ]]; then
-    echo "==> Universal AAX PRE/POST signed and verified"
+    run node scripts/ls_release/aax_notarization_receipt.mjs submit \
+      --artifact-dir build-aax-universal \
+      --keychain-profile "$NOTARY_PROFILE"
+    echo "==> Universal AAX PRE/POST signed, notarized, and attested"
   else
     run node scripts/ls_release/aax_diagnostic_receipt.mjs \
       --artifact-dir build-aax-universal \

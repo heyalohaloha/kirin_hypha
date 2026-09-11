@@ -25,7 +25,12 @@ case "$source_state" in
   *) echo "invalid AAX source state: $source_state" >&2; exit 1 ;;
 esac
 
-for key in KirinHyphaSourceID KirinHyphaSourceState KirinHyphaKimeraEmbedded KirinHyphaAudioSuiteEnabled; do
+for key in \
+  KirinHyphaSourceID \
+  KirinHyphaSourceState \
+  KirinHyphaKimeraEmbedded \
+  KirinHyphaAudioSuiteEnabled \
+  KirinHyphaAaxBuildMode; do
   /usr/libexec/PlistBuddy -c "Delete :$key" "$plist" >/dev/null 2>&1 || true
 done
 /usr/libexec/PlistBuddy -c "Add :KirinHyphaSourceID string $source_id" "$plist"

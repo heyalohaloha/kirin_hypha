@@ -1,11 +1,26 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { validateAaxBuildIdentity, verifyAaxBundle } from './aax_bundle_verify.mjs';
+import {
+  AAX_APPLE_AUTHORITY,
+  AAX_APPLE_TEAM_ID,
+  AAX_PACE_PUBLISHER_ID,
+  AAX_PACE_SIGNER_NAME,
+  parseAaxAppleSignature,
+  parseAaxPaceSignature,
+  validateAaxBuildIdentity,
+  verifyAaxBundle,
+} from './aax_bundle_verify.mjs';
+import {
+  AAX_NOTARIZATION_SCHEMA,
+  parseNotarytoolAccepted,
+  validateAaxNotarizationReceipt,
+} from './aax_notarization_receipt.mjs';
 import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
 import { readReleaseSourceIdentity } from './release_source_identity.mjs';
 
@@ -114,6 +129,121 @@ test('AAX diagnostic identity requires an explicit diagnostic build marker', () 
   );
 });
 
+test('AAX signature parsers require the exact Apple and PACE release identities', () => {
+  const apple = [
+    `Authority=${AAX_APPLE_AUTHORITY}`,
+    'Authority=Developer ID Certification Authority',
+    'Authority=Apple Root CA',
+    'Timestamp=Sep 10, 2026 at 0:26:24',
+    `TeamIdentifier=${AAX_APPLE_TEAM_ID}`,
+    'CDHash=0123456789abcdef0123456789abcdef01234567',
+  ].join('\n');
+  assert.equal(parseAaxAppleSignature(apple).teamId, AAX_APPLE_TEAM_ID);
+  assert.throws(
+    () => parseAaxAppleSignature(apple.replace(AAX_APPLE_AUTHORITY, 'Apple Development: Someone')),
+    /Apple authority/,
+  );
+  assert.throws(
+    () => parseAaxAppleSignature(apple.replace(/^Timestamp=.*$/m, '')),
+    /timestamp is missing/,
+  );
+
+  const pace = [
+    `Signer name:            ${AAX_PACE_SIGNER_NAME}`,
+    'Signer GUID:            991BD2C1-1D2D-A27D-819E-E60035AB5695',
+    `Signer PublisherId:     ${AAX_PACE_PUBLISHER_ID}`,
+  ].join('\n');
+  assert.equal(parseAaxPaceSignature(pace).publisherId, AAX_PACE_PUBLISHER_ID);
+  assert.throws(
+    () => parseAaxPaceSignature(pace.replace(AAX_PACE_PUBLISHER_ID, '0x00000000')),
+    /PublisherId/,
+  );
+});
+
+test('AAX notarization receipt requires an Accepted submission bound to current signed hashes', () => {
+  const source = {
+    commit: '0123456789abcdef0123456789abcdef01234567',
+    bNumber: 'B-830',
+  };
+  const bundle = (role) => ({
+    role,
+    bundle: `Kirin Hypha ${role}.aaxplugin`,
+    binary_sha256: role === 'PRE' ? '1'.repeat(64) : '2'.repeat(64),
+    apple_cdhash: role === 'PRE' ? '3'.repeat(40) : '4'.repeat(40),
+    apple_authority: AAX_APPLE_AUTHORITY,
+    apple_team_id: AAX_APPLE_TEAM_ID,
+    pace_signer: AAX_PACE_SIGNER_NAME,
+    pace_signer_guid: '991BD2C1-1D2D-A27D-819E-E60035AB5695',
+    pace_publisher_id: AAX_PACE_PUBLISHER_ID,
+  });
+  const receipt = {
+    schema: AAX_NOTARIZATION_SCHEMA,
+    generated_at: '2026-09-12T00:00:00.000Z',
+    source: { commit: source.commit, b_number: source.bNumber, state: 'clean source' },
+    product: { name: 'Kirin Hypha', version: '1.1.49', platform: 'macos-universal', format: 'AAX' },
+    submission: { id: '12345678-1234-1234-1234-123456789abc', status: 'Accepted' },
+    archive: { file_name: 'Kirin-Hypha-1.1.49-macOS-AAX.zip', size_bytes: 123, sha256: '5'.repeat(64) },
+    bundles: [bundle('PRE'), bundle('POST')],
+  };
+  const expected = { source, version: '1.1.49', bundles: receipt.bundles };
+  assert.equal(parseNotarytoolAccepted(JSON.stringify(receipt.submission)).status, 'Accepted');
+  assert.doesNotThrow(() => validateAaxNotarizationReceipt(receipt, expected));
+  assert.throws(
+    () => validateAaxNotarizationReceipt({
+      ...receipt,
+      submission: { ...receipt.submission, status: 'Invalid' },
+    }, expected),
+    /expected Accepted/,
+  );
+  assert.throws(
+    () => validateAaxNotarizationReceipt({
+      ...receipt,
+      bundles: receipt.bundles.map((record) => (
+        record.role === 'POST' ? { ...record, apple_cdhash: '6'.repeat(40) } : record
+      )),
+    }, expected),
+    /POST AAX no longer matches/,
+  );
+  assert.throws(
+    () => validateAaxNotarizationReceipt({
+      ...receipt,
+      archive: { ...receipt.archive, file_name: 'unrelated.zip' },
+    }, expected),
+    /archive identity is invalid/,
+  );
+});
+
+test('AAX bundle identity stamp is idempotent on macOS', {
+  skip: process.platform !== 'darwin',
+}, (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-aax-stamp-'));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const bundle = path.join(root, 'Fixture.aaxplugin');
+  const plist = path.join(bundle, 'Contents', 'Info.plist');
+  const identity = path.join(root, 'HyphaBuildIdentity.h');
+  fs.mkdirSync(path.dirname(plist), { recursive: true });
+  fs.writeFileSync(plist, [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0"><dict></dict></plist>',
+    '',
+  ].join('\n'));
+  fs.writeFileSync(identity, [
+    '#define HYPHA_SOURCE_COMMIT "0123456789abcdef0123456789abcdef01234567"',
+    '#define HYPHA_SOURCE_STATE "clean source"',
+    '',
+  ].join('\n'));
+  const stamp = path.join(repoRoot, 'scripts/stamp_aax_bundle_identity.sh');
+  execFileSync('bash', [stamp, bundle, identity, '0']);
+  execFileSync('bash', [stamp, bundle, identity, '0']);
+  const mode = execFileSync(
+    '/usr/libexec/PlistBuddy',
+    ['-c', 'Print :KirinHyphaAaxBuildMode', plist],
+    { encoding: 'utf8' },
+  ).trim();
+  assert.equal(mode, 'diagnostic');
+});
+
 test('release source identity resolves the current full commit and B number without treating JUCE patches as owned source', () => {
   const identity = readReleaseSourceIdentity({ root: repoRoot });
   assert.match(identity.commit, /^[0-9a-f]{40}$/);
@@ -128,8 +258,20 @@ test('AAX target is Native-only and stamps signed build identity before distribu
   const buildScript = fs.readFileSync(path.join(repoRoot, 'scripts/build_aax_universal.sh'), 'utf8');
   const stamp = fs.readFileSync(path.join(repoRoot, 'scripts/stamp_aax_bundle_identity.sh'), 'utf8');
   const verifier = fs.readFileSync(path.join(repoRoot, 'scripts/ls_release/aax_bundle_verify.mjs'), 'utf8');
+  const notarization = fs.readFileSync(
+    path.join(repoRoot, 'scripts/ls_release/aax_notarization_receipt.mjs'),
+    'utf8',
+  );
   const diagnosticReceipt = fs.readFileSync(
     path.join(repoRoot, 'scripts/ls_release/aax_diagnostic_receipt.mjs'),
+    'utf8',
+  );
+  const packageBuild = fs.readFileSync(
+    path.join(repoRoot, 'scripts/ls_release/build_kirin_hypha_pkg.mjs'),
+    'utf8',
+  );
+  const releasePackage = fs.readFileSync(
+    path.join(repoRoot, 'xtask/src/release_package.rs'),
     'utf8',
   );
   assert.match(cmake, /target_compile_definitions\(\$\{TARGET\}_AAX PRIVATE JucePlugin_AAXDisableAudioSuite=1\)/);
@@ -154,8 +296,16 @@ test('AAX target is Native-only and stamps signed build identity before distribu
   assert.match(diagnosticReceipt, /--signed/);
   assert.match(diagnosticReceipt, /pace_verified: signed/);
   assert.match(buildScript, /unnotarized and never use for distribution/);
-  assert.match(verifier, /requireNotarization = true/);
-  assert.match(verifier, /--allow-unnotarized/);
+  assert.match(verifier, /AAX_APPLE_AUTHORITY/);
+  assert.match(verifier, /AAX_PACE_PUBLISHER_ID/);
+  assert.doesNotMatch(verifier, /--check-notarization/);
+  assert.match(notarization, /notarytool', 'submit/);
+  assert.match(notarization, /notarytool', 'info/);
+  assert.match(notarization, /status !== 'Accepted'/);
+  assert.match(packageBuild, /verifyMacAaxNotarizationReceipt/);
+  assert.match(packageBuild, /installer pkg notarytool submit/);
+  assert.match(packageBuild, /installer pkg notarytool info/);
+  assert.match(releasePackage, /verify_notarization_receipt/);
 });
 
 test('self-hosted macOS AAX CI uses the Universal build entry point', () => {

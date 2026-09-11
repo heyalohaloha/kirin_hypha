@@ -68,7 +68,6 @@ function inspectBundle(bundle, source, { version, signed }) {
       sourceState: source.sourceState,
       requireNativeOnly: true,
       requireDiagnostic: true,
-      requireNotarization: false,
     });
     binarySha256 = verified.binarySha256;
   }
