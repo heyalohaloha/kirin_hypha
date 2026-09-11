@@ -119,6 +119,7 @@ or newer version, so a same-version reinstall cannot be mislabeled as an upgrade
 
 - Build the VST3+AAX installer and run install, same-version reinstall, prior-public-version upgrade,
   and uninstall validation.
-- Complete Pro Tools load, category, transparency, Offline Bounce, restore, mono/stereo, and pairing
-  validation after the developer license is issued.
+- Complete Windows Pro Tools load, category, transparency, Offline Bounce, restore, mono/stereo,
+  and pairing validation. The macOS B-786 artifact has an Intel Pro Tools proof, but that evidence
+  neither covers Windows nor a later same-version source commit.
 - Produce all three public channels from the same release commit; AAX is not a fourth channel.

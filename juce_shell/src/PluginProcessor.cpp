@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "HyphaPluginFormat.h"
 #include <algorithm>
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
 namespace
@@ -64,7 +65,6 @@ namespace
             && (stateCode == 1 || (recording && (playing || positionChanged || nonRealtime)));
     }
 }
-
 KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
     : juce::AudioProcessor (BusesProperties()
           .withInput  ("Input",  juce::AudioChannelSet::mono(), true)
@@ -1026,7 +1026,7 @@ void KirinHyphaProcessorBase::enableWritesNow()
     displayIdentity.dawSessionUuid = persistDawSessionUuid;
     displayIdentity.name = persistName;
     displayIdentity.pluginVersion = JucePlugin_VersionString;
-    displayIdentity.pluginFormat = wrapperType == juce::AudioProcessor::wrapperType_AudioUnit ? "AU" : "VST3";
+    displayIdentity.pluginFormat = hypha::plugin_format::name (wrapperType);
        #if JUCE_WINDOWS
     displayIdentity.platform = "windows";
        #else

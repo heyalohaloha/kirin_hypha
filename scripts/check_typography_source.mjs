@@ -78,6 +78,33 @@ function recordMatches(violations, source, pattern, reason) {
     violations.push({ line: lineAt(source, match.index), reason });
 }
 
+function recordFontHeightMutations(violations, source) {
+  const fontVariables = new Set();
+  for (const match of source.matchAll(
+    /\b(?:const\s+)?(?:juce\s*::\s*)?Font\s*(?:const\s*)?[&*]?\s*([A-Za-z_]\w*)/g,
+  )) fontVariables.add(match[1]);
+  for (const match of source.matchAll(
+    /\b(?:auto|(?:juce\s*::\s*)?Font)\s+([A-Za-z_]\w*)\s*=\s*(?:labelFont|monoFont|nativeTextFont|displayTextFont)\s*\(/g,
+  )) fontVariables.add(match[1]);
+
+  for (const match of source.matchAll(
+    /\b([A-Za-z_]\w*)\s*\.\s*(?:withHeight|setHeight)\s*\(/g,
+  )) {
+    if (/font/i.test(match[1]) || fontVariables.has(match[1])) {
+      violations.push({
+        line: lineAt(source, match.index),
+        reason: 'direct height mutation bypasses the semantic typography contract',
+      });
+    }
+  }
+  recordMatches(
+    violations,
+    source,
+    /\b(?:labelFont|monoFont|nativeTextFont|displayTextFont)\s*\([^;]*?\)\s*\.\s*(?:withHeight|setHeight)\s*\(/g,
+    'direct height mutation bypasses the semantic typography contract',
+  );
+}
+
 export function findTypographyViolations(source, relativePath = 'fixture.cpp') {
   const clean = stripCommentsAndStrings(source);
   const violations = [];
@@ -87,8 +114,7 @@ export function findTypographyViolations(source, relativePath = 'fixture.cpp') {
       'direct juce::Font construction is restricted to HyphaTypography.cpp');
     recordMatches(violations, clean, /\b(?:juce\s*::\s*)?FontOptions\s*[({]/g,
       'direct FontOptions construction bypasses the semantic typography contract');
-    recordMatches(violations, clean, /\.\s*(?:withHeight|setHeight)\s*\(/g,
-      'direct height mutation bypasses the semantic typography contract');
+    recordFontHeightMutations(violations, clean);
   }
   recordMatches(violations, clean, /\.\s*withHorizontalScale\s*\(/g,
     'horizontal font compression is prohibited');

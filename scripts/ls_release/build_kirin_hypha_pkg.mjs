@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { verifyAaxBundle, verifyAaxBundleCopy } from './aax_bundle_verify.mjs';
 import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
 import { loadMacShipBundleManifest } from './kirin_hypha_ship_bundles.mjs';
+import {
+  readReleaseSourceIdentity,
+  requireCleanReleaseSource,
+} from './release_source_identity.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPT_DIR, '..', '..');
@@ -87,7 +91,7 @@ function plistValue(plist, key) {
   return run('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, plist], { capture: true }).trim();
 }
 
-function verifySourceBundle(bundle) {
+function verifySourceBundle(bundle, releaseIdentity) {
   const source = bundle.sourcePath;
   if (!fs.existsSync(source)) {
     throw new Error(`${bundle.label} missing: ${path.relative(ROOT, source)}`);
@@ -119,6 +123,10 @@ function verifySourceBundle(bundle) {
       executableName: bundle.executable_name,
       bundleIdentifier: bundle.bundle_identifier,
       version: VERSION,
+      sourceId: releaseIdentity.commit,
+      sourceState: 'clean source',
+      requireKimera: true,
+      requireNativeOnly: true,
     });
   } else {
     run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', source]);
@@ -209,7 +217,7 @@ function findBundleDirectories(root, expectedNames) {
   return matches;
 }
 
-function verifyPackagedAax(packagePath) {
+function verifyPackagedAax(packagePath, releaseIdentity) {
   if (!WITH_AAX) return;
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-pkg-expand-'));
   const expanded = path.join(temporary, 'expanded');
@@ -228,6 +236,10 @@ function verifyPackagedAax(packagePath) {
         destinationPath: candidates[0],
         spec: bundle,
         version: VERSION,
+        sourceId: releaseIdentity.commit,
+        sourceState: 'clean source',
+        requireKimera: true,
+        requireNativeOnly: true,
       });
     }
   } finally {
@@ -243,8 +255,11 @@ function buildPackage() {
   const unknown = process.argv.slice(2).filter((arg) => arg !== '--with-aax');
   if (unknown.length > 0) throw new Error(`unknown option: ${unknown[0]}`);
 
+  const releaseIdentity = SKIP_SIGN
+    ? readReleaseSourceIdentity({ root: ROOT })
+    : requireCleanReleaseSource({ root: ROOT });
   verifyShipBundleContract();
-  for (const bundle of bundles) verifySourceBundle(bundle);
+  for (const bundle of bundles) verifySourceBundle(bundle, releaseIdentity);
   const identity = SKIP_SIGN ? null : findInstallerIdentity();
   if (identity) log(`using Developer ID Installer identity ${identity}`);
   if (SKIP_SIGN) log('building unsigned smoke package; do not upload this file');
@@ -267,6 +282,10 @@ function buildPackage() {
         destinationPath: destination,
         spec: bundle,
         version: VERSION,
+        sourceId: releaseIdentity.commit,
+        sourceState: 'clean source',
+        requireKimera: true,
+        requireNativeOnly: true,
       });
     }
   }
@@ -295,7 +314,7 @@ function buildPackage() {
   }
 
   run('pkgutil', ['--payload-files', PACKAGE_PATH], { capture: true });
-  verifyPackagedAax(PACKAGE_PATH);
+  verifyPackagedAax(PACKAGE_PATH, releaseIdentity);
   if (!SKIP_SIGN) {
     run('pkgutil', ['--check-signature', PACKAGE_PATH]);
     if (!SKIP_NOTARIZE) run('spctl', ['-a', '-vv', '-t', 'install', PACKAGE_PATH]);
@@ -315,6 +334,10 @@ function buildPackage() {
     signed: !SKIP_SIGN,
     notarized: !SKIP_NOTARIZE,
     aaxIncluded: WITH_AAX,
+    source: {
+      commit: releaseIdentity.commit,
+      bNumber: releaseIdentity.bNumber,
+    },
     generatedAt: new Date().toISOString(),
   };
   fs.writeFileSync(`${PACKAGE_PATH}.json`, `${JSON.stringify(sidecar, null, 2)}\n`);

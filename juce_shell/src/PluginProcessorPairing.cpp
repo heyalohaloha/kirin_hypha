@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "HyphaPluginFormat.h"
 
 #include "kirin_hypha_local_blind_capture_ffi.h"
 #include "kirin_hypha_pair_snapshot_ffi.h"
@@ -76,6 +77,11 @@ KirinHyphaProcessorBase::localBlindProductView() const
     return localBlindProductSession.view();
 }
 
+bool KirinHyphaProcessorBase::localBlindProductSupported() const noexcept
+{
+    return hypha::plugin_format::supportsLocalBlindProduct (wrapperType);
+}
+
 bool KirinHyphaProcessorBase::releaseLocalBlindProductScope (std::uint64_t epoch)
 {
     const juce::ScopedLock lock (handleLock);
@@ -94,7 +100,8 @@ bool KirinHyphaProcessorBase::acceptLocalBlindProductPair (
 
 bool KirinHyphaProcessorBase::requestLocalBlindProductCapture()
 {
-    if (role != Role::Post
+    if (! localBlindProductSupported()
+        || role != Role::Post
         || localBlindCapture.view().phase != hypha::local_blind::CaptureOwnerPhase::idle)
         return false;
     std::uint64_t scopeEpoch = 0;
@@ -132,17 +139,17 @@ bool KirinHyphaProcessorBase::requestLocalBlindProductCapture()
 }
 
 bool KirinHyphaProcessorBase::startLocalBlindProductTrial (bool approveLowerPost)
-{ return localBlindProductSession.start (approveLowerPost); }
+{ return localBlindProductSupported() && localBlindProductSession.start (approveLowerPost); }
 
 bool KirinHyphaProcessorBase::selectLocalBlindProductStimulus (int stimulus)
-{ return localBlindProductSession.select (stimulus); }
+{ return localBlindProductSupported() && localBlindProductSession.select (stimulus); }
 
 bool KirinHyphaProcessorBase::answerLocalBlindProductTrial (
     hypha::local_blind::TrialAnswer answer)
-{ return localBlindProductSession.answer (answer); }
+{ return localBlindProductSupported() && localBlindProductSession.answer (answer); }
 
 bool KirinHyphaProcessorBase::revealLocalBlindProductTrial()
-{ return localBlindProductSession.reveal(); }
+{ return localBlindProductSupported() && localBlindProductSession.reveal(); }
 
 void KirinHyphaProcessorBase::stopLocalBlindProductTrial()
 { localBlindProductSession.stop(); }
@@ -162,6 +169,15 @@ void KirinHyphaProcessorBase::requestLocalBlindNormalReturn()
 
 void KirinHyphaProcessorBase::serviceLocalBlindProductSession()
 {
+    if (! localBlindProductSupported())
+    {
+        if (localBlindProductSession.view().phase != hypha::local_blind::ProductSessionPhase::idle)
+        {
+            localBlindProductSession.invalidate();
+            localBlindCapture.requestReset();
+        }
+        return;
+    }
     const auto product = localBlindProductSession.view();
     if (product.phase == hypha::local_blind::ProductSessionPhase::capturing
         && localBlindCapture.view().phase == hypha::local_blind::CaptureOwnerPhase::failed)
@@ -201,6 +217,10 @@ void KirinHyphaProcessorBase::stopLocalBlindCaptureForFormatChange (
 
 void KirinHyphaProcessorBase::startLocalBlindCaptureForPreparedFormat()
 {
+   #if ! JUCE_DEBUG
+    if (! localBlindProductSupported())
+        return;
+   #endif
     if (! localBlindCapture.running() && hyphaHandle != nullptr)
         localBlindCapture.start (static_cast<std::uint32_t> (preparedSampleRate),
                                  preparedInputChannels);

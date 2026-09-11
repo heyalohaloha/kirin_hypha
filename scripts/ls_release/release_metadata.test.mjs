@@ -368,7 +368,13 @@ test('full release set accepts only a signed, verified, externally validated Win
   });
   const manifest = {
     schema: 'kirin-hypha-windows-installer-v1',
-    product: { name: 'Kirin Hypha', version: identity.version, platform: 'windows-x64', format: 'VST3' },
+    product: {
+      name: 'Kirin Hypha',
+      version: identity.version,
+      platform: 'windows-x64',
+      format: 'VST3',
+      formats: ['VST3'],
+    },
     source: {
       commit: identity.commit,
       b_number: identity.bNumber,
@@ -395,7 +401,7 @@ test('full release set accepts only a signed, verified, externally validated Win
     },
     ci_validation: { status: 'passed' },
     external_validation: { status: 'complete' },
-    distribution: { primary: true, public_ready: true },
+    distribution: { primary: true, public_ready: true, aax_included: false },
   };
   fs.writeFileSync(`${installer}.json`, JSON.stringify(manifest));
 
@@ -404,6 +410,80 @@ test('full release set accepts only a signed, verified, externally validated Win
     parseReleaseSetArgs(['--windows-artifact-dir', root]).windowsInstallerDir,
     root,
   );
+  assert.equal(parseReleaseSetArgs(['--with-aax']).withAax, true);
+  assert.throws(
+    () => requireWindowsInstaller(root, identity, { requireAax: true }),
+    /format VST3 does not match VST3\+AAX/,
+  );
+
+  const preAaxDigest = '4'.repeat(64);
+  const postAaxDigest = '5'.repeat(64);
+  const aaxManifest = {
+    ...manifest,
+    product: { ...manifest.product, format: 'VST3+AAX', formats: ['VST3', 'AAX'] },
+    installer: {
+      ...manifest.installer,
+      aax_payload: [
+        {
+          role: 'PRE', format: 'AAX', binary_sha256: preAaxDigest,
+          pace_verified: true, authenticode_verified: true,
+        },
+        {
+          role: 'POST', format: 'AAX', binary_sha256: postAaxDigest,
+          pace_verified: true, authenticode_verified: true,
+        },
+      ],
+    },
+    signing: {
+      ...manifest.signing,
+      verification: {
+        targets: [
+          ...manifest.signing.verification.targets.slice(0, 3),
+          signatureTarget('installed PRE AAX binary', preAaxDigest),
+          signatureTarget('installed POST AAX binary', postAaxDigest),
+          manifest.signing.verification.targets[3],
+        ],
+      },
+    },
+    distribution: { ...manifest.distribution, aax_included: true },
+  };
+  fs.writeFileSync(`${installer}.json`, JSON.stringify(aaxManifest));
+  assert.equal(requireWindowsInstaller(root, identity, { requireAax: true }), installer);
+  assert.throws(
+    () => requireWindowsInstaller(root, identity),
+    /contains AAX.*did not select --with-aax/,
+  );
+  fs.writeFileSync(`${installer}.json`, JSON.stringify({
+    ...aaxManifest,
+    installer: {
+      ...aaxManifest.installer,
+      aax_payload: aaxManifest.installer.aax_payload.map((payload) => (
+        payload.role === 'POST' ? { ...payload, pace_verified: false } : payload
+      )),
+    },
+  }));
+  assert.throws(
+    () => requireWindowsInstaller(root, identity, { requireAax: true }),
+    /POST AAX payload is not fully verified/,
+  );
+  fs.writeFileSync(`${installer}.json`, JSON.stringify({
+    ...aaxManifest,
+    signing: {
+      ...aaxManifest.signing,
+      verification: {
+        targets: aaxManifest.signing.verification.targets.map((target) => (
+          target.role === 'installed PRE AAX binary'
+            ? { ...target, sha256: '6'.repeat(64) }
+            : target
+        )),
+      },
+    },
+  }));
+  assert.throws(
+    () => requireWindowsInstaller(root, identity, { requireAax: true }),
+    /PRE AAX payload is not fully verified/,
+  );
+
   fs.writeFileSync(`${installer}.json`, JSON.stringify({
     ...manifest,
     signing: { status: 'verified_unsigned_ci_candidate' },

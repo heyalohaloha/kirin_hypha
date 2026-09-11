@@ -10,9 +10,9 @@ Kirin Hypha ships through three release surfaces. Updating only one leaves the o
 
 1. **Lemon Squeezy (paid)** — the signed/notarized installer `.pkg`, delivered inside the existing Kirin OS / Kirin Sense products. Phases 0–7 below.
 2. **HP free download** — `kirinmastering.com/hypha` → "Download for macOS — Free", which links to a GitHub Release `.zip` on `heyalohaloha/kirin_hypha`. See **"HP Free Download Channel"** below. If skipped, free-download users stay on the old (buggy) version.
-3. **Windows VST3** — one Authenticode-signed Inno Setup `.exe` containing PRE and POST, built and
-   installed/uninstalled on `windows-latest`. The manual `.zip` is fallback-only. See
-   **"Windows VST3 Channel"** below.
+3. **Windows** — one Authenticode-signed Inno Setup `.exe` containing PRE and POST, built and
+   installed/uninstalled on `windows-latest`. AAX releases add verified PACE+Authenticode AAX to the
+   same installer; the manual VST3 `.zip` is fallback-only. See **"Windows VST3 Channel"** below.
 
 The macOS paid/free channels reuse the SAME signed+notarized universal bundles from Phase 1 (the `.pkg` and the `.zip` are two packagings of the same bundles). Windows uses the JUCE VST3 output from the Windows CI job.
 
@@ -37,9 +37,10 @@ The macOS paid/free channels reuse the SAME signed+notarized universal bundles f
 - Kirin Hypha is delivered through configured existing products, not through a new standalone product unless the distribution policy changes.
 - Product IDs, variant IDs, admin URLs, upload readiness, and operator notes belong only in the ignored local state file.
 - The release operator builds and verifies the package, provides the Apple `Developer ID Installer` certificate when needed, and performs the browser upload if no authenticated automation is available.
-- Windows is part of the release set. If the current signed installer artifact, all four valid
-  Authenticode surfaces, CI install/uninstall result, or external DAW validation is missing, the
-  release is blocked instead of silently shipping macOS only.
+- Windows is part of the release set. If the current signed installer artifact, all required signed
+  payload surfaces, CI install/uninstall result, or external DAW validation is missing, the release
+  is blocked instead of silently shipping macOS only. An AAX release requires PRE/POST AAX on both
+  operating systems from the same commit.
 
 ## Validation-first source order
 
@@ -90,6 +91,20 @@ This verifies the downloaded signed Windows installer and its sidecars, runs Win
 builds the macOS LS `.pkg`, and builds the macOS HP `.zip`.
 
 If the Windows artifact is missing, the script fails before reporting release ready. Do not use `--skip-windows-package` for a public release.
+
+For an AAX release, select the format at the top-level command so it is propagated to both macOS
+packages and enforced against the Windows manifest:
+
+```bash
+node scripts/ls_release/build_kirin_hypha_release_set.mjs \
+  --with-aax \
+  --windows-installer-dir dist/WINDOWS_CI/KirinHypha-Windows-signed-full
+```
+
+The command rejects a Windows AAX installer when `--with-aax` was omitted, and rejects a VST3-only
+installer when it was selected. AAX source bundles must carry the exact current commit, `clean
+source`, licensed Kimera, and Native-only stamps; same-version bundles from an older commit cannot
+be packaged.
 
 ## Phase 0: Read State
 
@@ -147,9 +162,10 @@ node scripts/ls_release/build_kirin_hypha_pkg.mjs --with-aax
 The four source, installed, archive, executable, display-name, and VST3 CID contracts come from
 `config/hypha_macos_ship_bundles.json`. Before `pkgbuild`, the script verifies the exact payload
 layout—including the role-first VST3 outer names—against each bundle's `CFBundleExecutable`.
-With `--with-aax`, the separate AAX manifest requires exactly PRE and POST, verifies Universal,
-Apple, notarization, PACE signature, and PACE symlink integrity, then expands the finished pkg and
-verifies the copied bundles again. Every AAX directory copy uses `ditto`.
+With `--with-aax`, the separate AAX manifest requires exactly PRE and POST, verifies the exact source
+commit, clean-source/Kimera/Native-only stamps, Universal architecture, Apple notarization, PACE
+signature, and PACE symlink integrity, then expands the finished pkg and verifies the copied bundles
+again. Every AAX directory copy uses `ditto`.
 
 This writes:
 

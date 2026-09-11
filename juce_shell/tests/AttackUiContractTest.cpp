@@ -408,8 +408,8 @@ int main()
                            288'000, 48'000, 7, stats);
     const auto warming = render (component);
     KIRIN_REQUIRE (countRuns (warming, { 0, 20, warming.getWidth(), 150 },
-                              selectionColour) == 0
-                   && hypha::attack_ui_test::verifyDormantSpecimenBlack (warming));
+                              selectionColour) == 0);
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyDormantSpecimenQuiet (warming));
     std::cout << "ATTACK UI contract passed: HISTORY, TRANSIENT comparison, POST specimen\n";
     return EXIT_SUCCESS;
 }

@@ -28,6 +28,24 @@ function plistValue(plist, key) {
   return run('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, plist], `read ${key}`).stdout.trim();
 }
 
+export function validateAaxBuildIdentity(actual, expected) {
+  if (!/^[0-9a-f]{40}$/.test(expected.sourceId || '')) {
+    throw new Error(`invalid expected AAX source commit: ${expected.sourceId || ''}`);
+  }
+  if (actual.sourceId !== expected.sourceId) {
+    throw new Error(`AAX source id ${actual.sourceId} does not match ${expected.sourceId}`);
+  }
+  if (actual.sourceState !== expected.sourceState) {
+    throw new Error(`AAX source state ${actual.sourceState} does not match ${expected.sourceState}`);
+  }
+  if (expected.requireKimera && actual.kimeraEmbedded !== 'true') {
+    throw new Error('AAX distribution bundle does not embed the licensed Kimera font');
+  }
+  if (expected.requireNativeOnly && actual.audioSuiteEnabled !== 'false') {
+    throw new Error('AAX distribution bundle still exposes AudioSuite');
+  }
+}
+
 function resolveWraptool() {
   const candidates = [process.env.KIRIN_AAX_WRAPTOOL, ...DEFAULT_WRAPTOOL_PATHS].filter(Boolean);
   const match = candidates.find((candidate) => {
@@ -72,7 +90,16 @@ function symlinkInventory(bundlePath) {
   return out.sort();
 }
 
-export function verifyAaxBundle({ bundlePath, executableName, bundleIdentifier, version }) {
+export function verifyAaxBundle({
+  bundlePath,
+  executableName,
+  bundleIdentifier,
+  version,
+  sourceId,
+  sourceState,
+  requireKimera = false,
+  requireNativeOnly = false,
+}) {
   if (!fs.statSync(bundlePath, { throwIfNoEntry: false })?.isDirectory()) {
     throw new Error(`AAX bundle missing: ${bundlePath}`);
   }
@@ -93,6 +120,19 @@ export function verifyAaxBundle({ bundlePath, executableName, bundleIdentifier, 
   for (const [key, value] of Object.entries(expected)) {
     const actual = plistValue(plist, key);
     if (actual !== value) throw new Error(`AAX ${key}=${actual}, expected ${value}`);
+  }
+  if (sourceId || sourceState || requireKimera || requireNativeOnly) {
+    validateAaxBuildIdentity({
+      sourceId: plistValue(plist, 'KirinHyphaSourceID'),
+      sourceState: plistValue(plist, 'KirinHyphaSourceState'),
+      kimeraEmbedded: plistValue(plist, 'KirinHyphaKimeraEmbedded'),
+      audioSuiteEnabled: plistValue(plist, 'KirinHyphaAudioSuiteEnabled'),
+    }, {
+      sourceId,
+      sourceState,
+      requireKimera,
+      requireNativeOnly,
+    });
   }
 
   const archs = run('lipo', ['-archs', binary], 'AAX lipo verification').stdout.trim().split(/\s+/);
@@ -117,7 +157,16 @@ export function verifyAaxBundle({ bundlePath, executableName, bundleIdentifier, 
   return { binary, binarySha256: sha256(binary), symlinks: links };
 }
 
-export function verifyAaxBundleCopy({ sourcePath, destinationPath, spec, version }) {
+export function verifyAaxBundleCopy({
+  sourcePath,
+  destinationPath,
+  spec,
+  version,
+  sourceId,
+  sourceState,
+  requireKimera = false,
+  requireNativeOnly = false,
+}) {
   const options = {
     executableName: spec.executable_name,
     bundleIdentifier: spec.bundle_identifier,
@@ -127,7 +176,14 @@ export function verifyAaxBundleCopy({ sourcePath, destinationPath, spec, version
     binarySha256: sha256(path.join(sourcePath, 'Contents/MacOS', spec.executable_name)),
     symlinks: symlinkInventory(sourcePath),
   };
-  const destination = verifyAaxBundle({ bundlePath: destinationPath, ...options });
+  const destination = verifyAaxBundle({
+    bundlePath: destinationPath,
+    ...options,
+    sourceId,
+    sourceState,
+    requireKimera,
+    requireNativeOnly,
+  });
   if (source.binarySha256 !== destination.binarySha256) {
     throw new Error(`AAX executable changed during copy: ${spec.role}`);
   }
@@ -145,6 +201,10 @@ function parseArgs(argv) {
     else if (arg === '--executable') options.executableName = argv[++index];
     else if (arg === '--identifier') options.bundleIdentifier = argv[++index];
     else if (arg === '--version') options.version = argv[++index];
+    else if (arg === '--source-id') options.sourceId = argv[++index];
+    else if (arg === '--source-state') options.sourceState = argv[++index];
+    else if (arg === '--require-kimera') options.requireKimera = true;
+    else if (arg === '--require-native-only') options.requireNativeOnly = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new Error(`unknown argument: ${arg}`);
   }
@@ -154,7 +214,7 @@ function parseArgs(argv) {
 function runCli(argv) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log('Usage: node aax_bundle_verify.mjs --bundle PATH --executable NAME --identifier ID --version VERSION [--source PATH]');
+    console.log('Usage: node aax_bundle_verify.mjs --bundle PATH --executable NAME --identifier ID --version VERSION [--source PATH] [--source-id ID --source-state STATE --require-kimera --require-native-only]');
     return;
   }
   for (const key of ['bundlePath', 'executableName', 'bundleIdentifier', 'version']) {
@@ -171,6 +231,10 @@ function runCli(argv) {
       destinationPath: options.bundlePath,
       spec,
       version: options.version,
+      sourceId: options.sourceId,
+      sourceState: options.sourceState,
+      requireKimera: options.requireKimera,
+      requireNativeOnly: options.requireNativeOnly,
     });
   } else {
     verifyAaxBundle({
@@ -178,6 +242,10 @@ function runCli(argv) {
       executableName: options.executableName,
       bundleIdentifier: options.bundleIdentifier,
       version: options.version,
+      sourceId: options.sourceId,
+      sourceState: options.sourceState,
+      requireKimera: options.requireKimera,
+      requireNativeOnly: options.requireNativeOnly,
     });
   }
   console.log(`[aax-bundle-verify] OK: ${options.bundlePath}`);

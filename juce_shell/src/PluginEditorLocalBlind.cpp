@@ -14,8 +14,9 @@ bool finished (Phase phase) noexcept
 
 void KirinHyphaEditor::configureLocalBlindProduct()
 {
+    const auto productSupported = processorRef.localBlindProductSupported();
     observatoryView.setLocalBlindEntryEnabled (
-        hypha::local_blind_ui::productEntryEnabled);
+        hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType));
     observatoryView.onLocalBlind = [this] { openLocalBlindProduct(); };
     localBlindView.setMeterContext (processorRef.meterContextPreference());
 
@@ -60,13 +61,15 @@ void KirinHyphaEditor::configureLocalBlindProduct()
     scaleRoot.addChildComponent (localBlindView);
 
     const auto current = processorRef.localBlindProductView();
-    localBlindOpen = hypha::local_blind_ui::needsRecoveryScreen (current);
+    localBlindOpen = productSupported
+        && hypha::local_blind_ui::needsRecoveryScreen (current);
     localBlindView.setState (current);
 }
 
 void KirinHyphaEditor::openLocalBlindProduct()
 {
-    if (! isPost || ! hypha::local_blind_ui::productEntryEnabled)
+    if (! isPost
+        || ! hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType))
         return;
     const auto existing = processorRef.localBlindProductView();
     if (hypha::local_blind_ui::needsRecoveryScreen (existing))
@@ -149,7 +152,8 @@ void KirinHyphaEditor::closeLocalBlindProduct()
 void KirinHyphaEditor::refreshLocalBlindProduct()
 {
     const auto current = processorRef.localBlindProductView();
-    if (! localBlindOpen && hypha::local_blind_ui::needsRecoveryScreen (current))
+    if (processorRef.localBlindProductSupported()
+        && ! localBlindOpen && hypha::local_blind_ui::needsRecoveryScreen (current))
         localBlindOpen = true;
     localBlindView.setMeterContext (processorRef.meterContextPreference());
     localBlindView.setState (localBlindPreflight

@@ -8,6 +8,8 @@ KIRIN_ROOT="$PWD"
 AAX_SDK_PATH=""
 LICENSE_CONFIRMED=0
 SIGN_OUTPUT=0
+KIMERA_FONT_FILE=""
+KIMERA_LICENSE_CONFIRMED=0
 
 usage() {
   cat <<'EOF'
@@ -17,6 +19,9 @@ Options:
   --sdk PATH             External AAX SDK root containing Interfaces/ACF
   --license-confirmed    Confirm that the external SDK may be used for this build
   --sign                 PACE + Developer ID sign PRE and POST after building
+  --kimera-font PATH     Licensed KMR Waldenburg Book OTF kept outside the repository
+  --kimera-license-confirmed
+                         Confirm the font is covered by the Kirin Hypha App License
 
 Signing environment (required with --sign):
   KIRIN_AAX_PACE_CUSTOMER_NUMBER
@@ -46,6 +51,15 @@ while [[ $# -gt 0 ]]; do
       SIGN_OUTPUT=1
       shift
       ;;
+    --kimera-font)
+      [[ $# -ge 2 ]] || fail "--kimera-font requires a path"
+      KIMERA_FONT_FILE="$2"
+      shift 2
+      ;;
+    --kimera-license-confirmed)
+      KIMERA_LICENSE_CONFIRMED=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -61,6 +75,37 @@ AAX_SDK_PATH="$(cd "$AAX_SDK_PATH" && pwd -P)"
 case "$AAX_SDK_PATH/" in
   "$KIRIN_ROOT/"*) fail "AAX SDK must remain outside the repository" ;;
 esac
+if [[ -n "$KIMERA_FONT_FILE" ]]; then
+  [[ "$KIMERA_LICENSE_CONFIRMED" == 1 ]] \
+    || fail "--kimera-font requires --kimera-license-confirmed"
+  [[ -f "$KIMERA_FONT_FILE" ]] || fail "Kimera font file does not exist"
+  KIMERA_FONT_FILE="$(cd "$(dirname "$KIMERA_FONT_FILE")" && pwd -P)/$(basename "$KIMERA_FONT_FILE")"
+  case "$KIMERA_FONT_FILE/" in
+    "$KIRIN_ROOT/"*) fail "licensed Kimera font must remain outside the repository" ;;
+  esac
+elif [[ "$KIMERA_LICENSE_CONFIRMED" == 1 ]]; then
+  fail "--kimera-license-confirmed requires --kimera-font"
+fi
+
+RELEASE_SOURCE_ID=""
+WRAPTOOL=""
+if [[ "$SIGN_OUTPUT" == 1 ]]; then
+  [[ -n "$KIMERA_FONT_FILE" ]] \
+    || fail "distribution signing requires --kimera-font and --kimera-license-confirmed"
+  : "${KIRIN_AAX_PACE_CUSTOMER_NUMBER:?required with --sign}"
+  : "${KIRIN_AAX_PACE_CUSTOMER_NAME:?required with --sign}"
+  : "${KIRIN_AAX_APPLE_SIGN_IDENTITY:?required with --sign}"
+  WRAPTOOL="${KIRIN_AAX_WRAPTOOL:-/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool}"
+  [[ -x "$WRAPTOOL" ]] || fail "wraptool is not executable; set KIRIN_AAX_WRAPTOOL"
+fi
+
+bash scripts/apply_juce_patches.sh
+bash scripts/verify_juce_patch_state.sh
+
+if [[ "$SIGN_OUTPUT" == 1 ]]; then
+  RELEASE_SOURCE_ID="$(node scripts/ls_release/release_source_identity.mjs \
+    --require-clean --field commit)"
+fi
 
 echo "==> build kirin_hypha_ffi for both Apple architectures"
 cargo build --release -p kirin_hypha_ffi --target x86_64-apple-darwin --locked
@@ -72,17 +117,34 @@ lipo -create \
   target/aarch64-apple-darwin/release/libkirin_hypha_ffi.a \
   -output target/universal/libkirin_hypha_ffi.a
 
-bash scripts/apply_juce_patches.sh
-bash scripts/verify_juce_patch_state.sh
-
 echo "==> configure external-SDK Universal AAX build"
-cmake -S juce_shell -B build-aax-universal \
+cmake_args=(
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
-  -DKIRIN_FFI_LIB="$KIRIN_ROOT/target/universal/libkirin_hypha_ffi.a" \
-  -DKIRIN_HYPHA_AAX_SDK_PATH="$AAX_SDK_PATH" \
+  '-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64' \
+  "-DKIRIN_FFI_LIB=$KIRIN_ROOT/target/universal/libkirin_hypha_ffi.a" \
+  "-DKIRIN_HYPHA_AAX_SDK_PATH=$AAX_SDK_PATH" \
   -DKIRIN_HYPHA_AAX_SDK_LICENSE_CONFIRMED=ON \
-  -DKIRIN_HYPHA_REQUIRE_AAX=ON
+  -DKIRIN_HYPHA_REQUIRE_AAX=ON)
+if [[ -n "$KIMERA_FONT_FILE" ]]; then
+  cmake_args+=(
+    "-DKIRIN_HYPHA_KIMERA_FONT_FILE=$KIMERA_FONT_FILE"
+    -DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=ON
+    -DKIRIN_HYPHA_REQUIRE_KIMERA_FONT=ON)
+else
+  cmake_args+=(
+    -DKIRIN_HYPHA_KIMERA_FONT_FILE=
+    -DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=OFF
+    -DKIRIN_HYPHA_REQUIRE_KIMERA_FONT=OFF)
+fi
+cmake -S juce_shell -B build-aax-universal "${cmake_args[@]}"
+
+# A prior signed bundle leaves PACE compatibility links and Apple signature resources in the
+# product directory. Remove only the two generated AAX products so an unsigned diagnostic build
+# cannot inherit stale signing material and a release signing pass always starts from fresh output.
+for role in PRE POST; do
+  cmake -E remove_directory \
+    "build-aax-universal/KirinHypha${role}_artefacts/Release/AAX/Kirin Hypha ${role}.aaxplugin"
+done
 cmake --build build-aax-universal --config Release \
   --target KirinHyphaPRE_AAX KirinHyphaPOST_AAX --parallel 2
 
@@ -95,11 +157,6 @@ for role in PRE POST; do
 done
 
 if [[ "$SIGN_OUTPUT" == 1 ]]; then
-  : "${KIRIN_AAX_PACE_CUSTOMER_NUMBER:?required with --sign}"
-  : "${KIRIN_AAX_PACE_CUSTOMER_NAME:?required with --sign}"
-  : "${KIRIN_AAX_APPLE_SIGN_IDENTITY:?required with --sign}"
-  WRAPTOOL="${KIRIN_AAX_WRAPTOOL:-/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool}"
-  [[ -x "$WRAPTOOL" ]] || fail "wraptool is not executable; set KIRIN_AAX_WRAPTOOL"
   for role in PRE POST; do
     lower="$(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')"
     bundle="build-aax-universal/KirinHypha${role}_artefacts/Release/AAX/Kirin Hypha ${role}.aaxplugin"
@@ -113,7 +170,11 @@ if [[ "$SIGN_OUTPUT" == 1 ]]; then
       --bundle "$bundle" \
       --executable "Kirin Hypha ${role}" \
       --identifier "com.kirinmastering.hypha.${lower}" \
-      --version "$(sed -n 's/^version = "\([^"]*\)"/\1/p' crates/hypha_pre/Cargo.toml | head -1)"
+      --version "$(sed -n 's/^version = "\([^"]*\)"/\1/p' crates/hypha_pre/Cargo.toml | head -1)" \
+      --source-id "$RELEASE_SOURCE_ID" \
+      --source-state "clean source" \
+      --require-kimera \
+      --require-native-only
   done
   echo "==> Universal AAX PRE/POST signed and verified"
 else

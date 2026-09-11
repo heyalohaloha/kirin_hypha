@@ -13,12 +13,19 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         clock.outputPresentationSamples, clock.hasPosition, timelineActive, bypassed,
         ! nonRealtimeMode, clock.inputPresentationValid, clock.outputPresentationValid
     };
-    localBlindCapture.process (buffer.getArrayOfReadPointers(), getTotalNumInputChannels(),
-                               captureClock, static_cast<std::uint32_t> (preparedSampleRate));
+   #if JUCE_DEBUG
+    constexpr bool diagnosticCaptureEnabled = true;
+   #else
+    const bool diagnosticCaptureEnabled = localBlindProductSupported();
+   #endif
+    if (diagnosticCaptureEnabled)
+        localBlindCapture.process (buffer.getArrayOfReadPointers(), getTotalNumInputChannels(),
+                                   captureClock, static_cast<std::uint32_t> (preparedSampleRate));
 
     // Default closed: no production admission owner publishes PCM/epochs yet. No new button,
     // fake PDC, local-PID scope assumption, or third Analysis slot is enabled by this hook.
-    if (role == Role::Post && localBlindProductSession.hasPublishedRealtime())
+    if (localBlindProductSupported()
+        && role == Role::Post && localBlindProductSession.hasPublishedRealtime())
     {
         hypha::local_blind::TrialBlock block;
         block.sampleRate = static_cast<std::uint32_t> (preparedSampleRate);

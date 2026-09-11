@@ -142,15 +142,41 @@ fn validate_component(value: &str, field: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn verify_sources(bundles: &[AaxBundle], version: &str) -> Result<()> {
+pub fn current_source_id() -> Result<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .context("resolve current source id for AAX distribution")?;
+    if !output.status.success() {
+        bail!(
+            "git rev-parse failed while resolving AAX source id: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let value = String::from_utf8(output.stdout)
+        .context("AAX source id is not UTF-8")?
+        .trim()
+        .to_string();
+    if value.len() != 40 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("invalid AAX source id: {value}");
+    }
+    Ok(value)
+}
+
+pub fn verify_sources(bundles: &[AaxBundle], version: &str, source_id: &str) -> Result<()> {
     for bundle in bundles {
-        verify_bundle(bundle, &bundle.source, None, version)
+        verify_bundle(bundle, &bundle.source, None, version, source_id)
             .with_context(|| format!("{} source verification failed", bundle.label()))?;
     }
     Ok(())
 }
 
-pub fn stage_archives(bundles: &[AaxBundle], archive_root: &Path, version: &str) -> Result<()> {
+pub fn stage_archives(
+    bundles: &[AaxBundle],
+    archive_root: &Path,
+    version: &str,
+    source_id: &str,
+) -> Result<()> {
     for bundle in bundles {
         let destination = bundle.archive_path(archive_root);
         fs::create_dir_all(destination.parent().context("AAX archive parent missing")?)?;
@@ -158,8 +184,14 @@ pub fn stage_archives(bundles: &[AaxBundle], archive_root: &Path, version: &str)
             Command::new("ditto").arg(&bundle.source).arg(&destination),
             "ditto AAX bundle into archive",
         )?;
-        verify_bundle(bundle, &destination, Some(&bundle.source), version)
-            .with_context(|| format!("{} staged archive verification failed", bundle.label()))?;
+        verify_bundle(
+            bundle,
+            &destination,
+            Some(&bundle.source),
+            version,
+            source_id,
+        )
+        .with_context(|| format!("{} staged archive verification failed", bundle.label()))?;
     }
     Ok(())
 }
@@ -169,6 +201,7 @@ pub fn verify_zip(
     zip_path: &Path,
     package_root_name: &str,
     version: &str,
+    source_id: &str,
 ) -> Result<()> {
     let temporary = TemporaryDirectory::create("kirin_hypha_aax_zip")?;
     run_status(
@@ -181,7 +214,7 @@ pub fn verify_zip(
     let archive_root = temporary.0.join(package_root_name);
     for bundle in bundles {
         let extracted = bundle.archive_path(&archive_root);
-        verify_bundle(bundle, &extracted, Some(&bundle.source), version)
+        verify_bundle(bundle, &extracted, Some(&bundle.source), version, source_id)
             .with_context(|| format!("{} extracted zip verification failed", bundle.label()))?;
     }
     Ok(())
@@ -221,6 +254,7 @@ fn verify_bundle(
     destination: &Path,
     source: Option<&Path>,
     version: &str,
+    source_id: &str,
 ) -> Result<()> {
     let mut command = Command::new("node");
     command
@@ -228,7 +262,11 @@ fn verify_bundle(
         .args(["--bundle", path_text(destination)?])
         .args(["--executable", &bundle.spec.executable_name])
         .args(["--identifier", &bundle.spec.bundle_identifier])
-        .args(["--version", version]);
+        .args(["--version", version])
+        .args(["--source-id", source_id])
+        .args(["--source-state", "clean source"])
+        .arg("--require-kimera")
+        .arg("--require-native-only");
     if let Some(source) = source {
         command.args(["--source", path_text(source)?]);
     }

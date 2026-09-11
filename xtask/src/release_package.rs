@@ -49,13 +49,18 @@ pub fn run(args: Vec<String>) -> Result<()> {
     } else {
         Vec::new()
     };
+    let aax_source_id = if with_aax {
+        aax_distribution::current_source_id()?
+    } else {
+        String::new()
+    };
     verify_ship_set_shape(&bundles)?;
     if !dry_run {
         verify_package_mode(&dist_dir, allow_unsigned)?;
     }
     verify_sources(&bundles, &version, allow_unsigned || dry_run)?;
     if with_aax {
-        aax_distribution::verify_sources(&aax_bundles, &version)?;
+        aax_distribution::verify_sources(&aax_bundles, &version, &aax_source_id)?;
     }
     let source_git_dirty = git_dirty_for_manifest();
 
@@ -115,7 +120,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
             .with_context(|| format!("{} archive metadata mismatch", b.spec.label()))?;
     }
     if with_aax {
-        aax_distribution::stage_archives(&aax_bundles, &package_root, &version)?;
+        aax_distribution::stage_archives(&aax_bundles, &package_root, &version, &aax_source_id)?;
     }
 
     copy_required("README.md", &package_root.join("README.md"))?;
@@ -134,7 +139,13 @@ pub fn run(args: Vec<String>) -> Result<()> {
         "ditto zip release package",
     )?;
     if with_aax {
-        aax_distribution::verify_zip(&aax_bundles, &zip_path, &package_root_name, &version)?;
+        aax_distribution::verify_zip(
+            &aax_bundles,
+            &zip_path,
+            &package_root_name,
+            &version,
+            &aax_source_id,
+        )?;
     }
     let sha = sha256_file(&zip_path)?;
     let zip_name = zip_path.file_name().unwrap().to_string_lossy();

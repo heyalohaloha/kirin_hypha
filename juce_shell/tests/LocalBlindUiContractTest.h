@@ -18,8 +18,16 @@ inline void verifyLocalBlindUiContract()
             std::exit (EXIT_FAILURE);
         }
     };
-    require (local_blind_ui::productEntryEnabled,
-             "product entry opens after the macOS AU exact PDC proof");
+    require (local_blind_ui::productEntryEnabled (
+                 juce::AudioProcessor::wrapperType_VST3)
+                 && local_blind_ui::productEntryEnabled (
+                     juce::AudioProcessor::wrapperType_AudioUnit),
+             "product entry opens only for wrappers with exact PDC proof");
+    require (! local_blind_ui::productEntryEnabled (
+                 juce::AudioProcessor::wrapperType_AAX)
+                 && ! local_blind_ui::productEntryEnabled (
+                     juce::AudioProcessor::wrapperType_Undefined),
+             "AAX and unknown wrappers fail closed until host proof exists");
 
     observatory::View post (observatory::Role::post);
     observatory::View pre (observatory::Role::pre);

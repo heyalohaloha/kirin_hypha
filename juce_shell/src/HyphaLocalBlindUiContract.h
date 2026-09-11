@@ -1,12 +1,16 @@
 #pragma once
 
+#include "HyphaPluginFormat.h"
 #include "local_blind/LocalBlindProductSession.h"
 
 namespace hypha::local_blind_ui
 {
-// C1 host proof is complete for Windows VST3, macOS VST3, and macOS AU.
-// Keep one shared fact for the POST large-frame product entry; PRE never exposes a second entry.
-inline constexpr bool productEntryEnabled = true;
+// Keep one shared wrapper-aware fact for the POST large-frame product entry; PRE never exposes a
+// second entry. AAX remains unavailable until its exact-range project clock and PDC proof is green.
+inline constexpr bool productEntryEnabled (juce::AudioProcessor::WrapperType wrapper) noexcept
+{
+    return plugin_format::supportsLocalBlindProduct (wrapper);
+}
 
 inline bool blocksDisclosure (const local_blind::ProductSessionView& state) noexcept
 {

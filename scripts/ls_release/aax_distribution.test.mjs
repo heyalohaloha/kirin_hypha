@@ -5,8 +5,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { verifyAaxBundle } from './aax_bundle_verify.mjs';
+import { validateAaxBuildIdentity, verifyAaxBundle } from './aax_bundle_verify.mjs';
 import { loadMacAaxBundleManifest } from './kirin_hypha_aax_bundles.mjs';
+import { readReleaseSourceIdentity } from './release_source_identity.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -50,6 +51,63 @@ test('AAX verifier fails closed when the requested bundle is missing', () => {
     }),
     /AAX bundle missing/,
   );
+});
+
+test('AAX distribution identity requires the exact commit, clean source, Kimera, and Native-only surface', () => {
+  const expected = {
+    sourceId: '0123456789abcdef0123456789abcdef01234567',
+    sourceState: 'clean source',
+    requireKimera: true,
+    requireNativeOnly: true,
+  };
+  const actual = {
+    sourceId: expected.sourceId,
+    sourceState: expected.sourceState,
+    kimeraEmbedded: 'true',
+    audioSuiteEnabled: 'false',
+  };
+  assert.doesNotThrow(() => validateAaxBuildIdentity(actual, expected));
+  assert.throws(
+    () => validateAaxBuildIdentity({
+      ...actual,
+      sourceId: 'abcdefabcdefabcdefabcdefabcdefabcdefabcd',
+    }, expected),
+    /source id/,
+  );
+  assert.throws(
+    () => validateAaxBuildIdentity({ ...actual, sourceState: 'modified source' }, expected),
+    /source state/,
+  );
+  assert.throws(
+    () => validateAaxBuildIdentity({ ...actual, kimeraEmbedded: 'false' }, expected),
+    /Kimera/,
+  );
+  assert.throws(
+    () => validateAaxBuildIdentity({ ...actual, audioSuiteEnabled: 'true' }, expected),
+    /AudioSuite/,
+  );
+});
+
+test('release source identity resolves the current full commit and B number without treating JUCE patches as owned source', () => {
+  const identity = readReleaseSourceIdentity({ root: repoRoot });
+  assert.match(identity.commit, /^[0-9a-f]{40}$/);
+  assert.equal(identity.shortCommit, identity.commit.slice(0, 12));
+  assert.match(identity.bNumber, /^B-\d+$/);
+  assert.ok(['clean source', 'modified source'].includes(identity.sourceState));
+  assert.ok(identity.dirtyEntries.every((entry) => !entry.endsWith('juce_shell/JUCE')));
+});
+
+test('AAX target is Native-only and stamps signed build identity before distribution', () => {
+  const cmake = fs.readFileSync(path.join(repoRoot, 'juce_shell/CMakeLists.txt'), 'utf8');
+  const buildScript = fs.readFileSync(path.join(repoRoot, 'scripts/build_aax_universal.sh'), 'utf8');
+  const stamp = fs.readFileSync(path.join(repoRoot, 'scripts/stamp_aax_bundle_identity.sh'), 'utf8');
+  assert.match(cmake, /target_compile_definitions\(\$\{TARGET\}_AAX PRIVATE JucePlugin_AAXDisableAudioSuite=1\)/);
+  assert.match(cmake, /stamp_aax_bundle_identity\.sh/);
+  assert.match(buildScript, /cmake -E remove_directory/);
+  assert.match(stamp, /KirinHyphaSourceID/);
+  assert.match(stamp, /HYPHA_SOURCE_COMMIT/);
+  assert.match(stamp, /KirinHyphaKimeraEmbedded/);
+  assert.match(stamp, /KirinHyphaAudioSuiteEnabled/);
 });
 
 test('self-hosted macOS AAX CI uses the Universal build entry point', () => {

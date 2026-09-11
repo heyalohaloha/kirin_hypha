@@ -184,7 +184,7 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 
 ### GUI
 
-JUCE共通shellが出荷面であり、PRE / POSTとAU / VST3は同じeditor実装を使う。
+JUCE共通shellが出荷面であり、PRE / POSTとAU / VST3 / AAXは同じeditor実装を使う。
 300×200から900×600まで3:2固定比でリサイズし、LEVEL / TIME / FREQ / SPACEとReferenceを表示する。
 外観変更は`docs/hypha_ce2226_jungle_visual_system_20260901.md`と実画面を両方確認する。
 
@@ -194,10 +194,13 @@ napi-rs依存を外し、純粋なRustライブラリとして抽出。
 
 ### AAX境界
 
-AAX Phase AはSDK非依存の準備だけが完了している。
-既定OFFのCMake、外部SDK path、license確認、混入検査、手動CI骨格が存在するが、AAX製品対応を
-意味しない。実SDKでのmacOS / Windows build、Pro Tools、category、PACE署名と配布は未完了。
-`docs/aax_phase_a_readiness_20260907.md`を正本とする。
+AAXは既定OFFで、SDKとPACEツールはリポジトリ外に保つ。macOS Universal build/PACE署名と
+Windows x64 build/PACE+Authenticode署名の単体経路は実証済み。B-786のIntel版Pro Tools実機では
+Native load、再open、stereo/multi-mono、pairing、0 sample表示、Offline Bounceを確認済みだが、
+後続commitへ証跡を流用しない。現在の配布候補にはexact commit、clean source、Kimera、Native-only
+stampを要求する。AAXのローカルPRE/POST Blindはexact-range clock/PDC実証までfail closed。
+macOSの正本は`docs/aax_macos_universal_build_20260910.md`、Windowsは
+`docs/aax_windows_build_20260910.md`、Phase A境界は`docs/aax_phase_a_readiness_20260907.md`とする。
 
 ### 解決済みの初期調査
 

@@ -79,9 +79,9 @@ namespace
         ack->setProperty ("outcome", "prepared");
         ack->setProperty ("prepared_candidate", juce::var (target));
         ack->setProperty ("recovery", juce::var());
-        const auto requestId = requestObject->getProperty ("request_id").toString();
+        const auto candidateRequestId = requestObject->getProperty ("request_id").toString();
         require (writeJson (ref::CandidatePreparationTransport (root).acknowledgementFile (
-                                runtimeId, requestId), juce::var (ack)),
+                                runtimeId, candidateRequestId), juce::var (ack)),
                  "simulated OS must acknowledge the exact Candidate request");
     }
 

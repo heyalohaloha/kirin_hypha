@@ -25,6 +25,22 @@ test('comments and strings do not create false positives', () => {
   assert.deepEqual(findTypographyViolations(source), []);
 });
 
+test('rectangle height changes are not mistaken for font mutations', () => {
+  const source = `
+    const auto band = inner.withY (42.0f).withHeight (inner.getHeight() * 0.12f);
+    plot.setHeight (availableHeight);
+  `;
+  assert.deepEqual(findTypographyViolations(source), []);
+});
+
+test('semantic font results remain protected even when the variable is not named font', () => {
+  const source = `
+    auto metric = monoFont (presentation, typography::TextRole::axis);
+    metric.setHeight (9.0f);
+  `;
+  assert.match(findTypographyViolations(source)[0]?.reason ?? '', /height mutation/);
+});
+
 for (const [name, source, reason] of [
   ['legacy numeric font', 'g.setFont (monoFont (8.0f));', /requires presentation context/],
   ['legacy variable font', 'g.setFont (labelFont (height));', /requires presentation context/],

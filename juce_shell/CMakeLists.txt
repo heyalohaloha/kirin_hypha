@@ -229,6 +229,13 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         SUPPRESS_AU_PLIST_RESOURCE_USAGE TRUE
         COPY_PLUGIN_AFTER_BUILD FALSE)
 
+    if(KIRIN_HYPHA_AAX_ENABLED)
+        # Hypha is a realtime meter. Offline Bounce still uses the Native component, while an
+        # AudioSuite registration would expose a second, destructive/render-selection workflow
+        # that has no meaningful meter lifetime. Keep mono/stereo and multi-mono Native support.
+        target_compile_definitions(${TARGET}_AAX PRIVATE JucePlugin_AAXDisableAudioSuite=1)
+    endif()
+
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
@@ -378,6 +385,18 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
 
     add_dependencies(${TARGET} HyphaBuildIdentity)
     target_include_directories(${TARGET} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+    if(APPLE AND KIRIN_HYPHA_AAX_ENABLED)
+        # These keys are added before PACE/Developer-ID signing. Distribution verification reads
+        # them from the signed Info.plist, preventing a version-equal stale AAX from entering a
+        # newer release set. The script also records the release-only Kimera and AudioSuite facts.
+        add_custom_command(TARGET ${TARGET}_AAX POST_BUILD
+            COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/stamp_aax_bundle_identity.sh"
+                "$<TARGET_BUNDLE_DIR:${TARGET}_AAX>"
+                "${CMAKE_CURRENT_BINARY_DIR}/generated/HyphaBuildIdentity.h"
+                "${KIRIN_HYPHA_KIMERA_EMBEDDED}"
+            VERBATIM)
+    endif()
 
     # B-130 (G-115-373): juce_audio_utils（AudioThumbnail/CD/DeviceSelector 用・実使用 grep 0）を
     # plugin に必要な最小モジュールへ差し替え。これで juce_audio_utils 由来の DiscRecording.framework

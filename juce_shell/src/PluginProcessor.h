@@ -131,8 +131,9 @@ public:
     juce::String pairedPreInstanceId() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
-    // Product-session controls remain disconnected from the shipped UI until macOS AU has the
-    // same exact-range host proof as Windows/macOS VST3. They form the tested C1 lifecycle.
+    // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until
+    // exact-range project-clock and PDC proof has been recorded for that host format.
+    bool localBlindProductSupported() const noexcept;
     hypha::local_blind::ProductSessionView localBlindProductView() const;
     bool requestLocalBlindProductCapture();
     bool startLocalBlindProductTrial (bool approveLowerPost = false);

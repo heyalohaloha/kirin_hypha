@@ -1,5 +1,22 @@
 use super::{read_repo, slice_between};
 
+fn without_juce_debug_blocks(source: &str) -> String {
+    let mut depth = 0usize;
+    let mut shipped = String::new();
+    for line in source.lines() {
+        let directive = line.trim();
+        if directive == "#if JUCE_DEBUG" {
+            depth += 1;
+        } else if directive == "#endif" && depth > 0 {
+            depth -= 1;
+        } else if depth == 0 {
+            shipped.push_str(line);
+            shipped.push('\n');
+        }
+    }
+    shipped
+}
+
 #[test]
 fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() {
     let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h")
@@ -172,33 +189,35 @@ fn post_pair_surface_selects_an_exact_pre_without_free_text() {
 }
 
 #[test]
-fn hypha_title_information_is_shipped_while_capture_validation_stays_debug_only() {
+fn hypha_information_and_display_actions_ship_while_capture_validation_stays_debug_only() {
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     let information = read_repo("juce_shell/src/PluginEditorInformation.cpp");
 
     assert!(editor.contains("observatoryView.onInformation = [this] { showInformationMenu(); }"));
-    let (shipped_before_debug, debug_and_after) = information
-        .split_once("#if JUCE_DEBUG")
-        .expect("information menu must isolate host validation from shipped information");
-    let (_, shipped_after_debug) = debug_and_after
-        .split_once("#endif")
-        .expect("information menu debug isolation must be closed");
-    let shipped_information = format!("{shipped_before_debug}{shipped_after_debug}");
+    let shipped_information = without_juce_debug_blocks(&information);
     for required in [
         "Loaded v",
         "Official release identity not verified",
         "Update information and downloads (English)",
         "Release notes",
-        "Show hover help",
-        "Show Hybrid VU while recording",
-        "Show selected view for this recording",
     ] {
         assert!(
             shipped_information.contains(required),
             "shipped HYPHA PRE/POST information menu missing {required}"
         );
     }
+    for required in [
+        "Show hover help",
+        "Show Hybrid VU while recording",
+        "Show selected view for this recording",
+    ] {
+        assert!(
+            editor.contains(required),
+            "shipped HYPHA PRE/POST operations menu missing {required}"
+        );
+    }
     assert!(!shipped_information.contains("Capture one exact 4 s PRE/POST range"));
+    assert!(information.contains("Capture one exact 4 s PRE/POST range"));
 }
 
 #[test]

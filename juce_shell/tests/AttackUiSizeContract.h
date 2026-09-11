@@ -48,7 +48,7 @@ inline bool verifyContinuousScrubRail (const juce::Image& image,
     return true;
 }
 
-inline bool verifyDormantSpecimenBlack (
+inline bool verifyDormantSpecimenQuiet (
     const juce::Image& image,
     presentation::Context presentation = presentation::defaultContext())
 {
@@ -57,10 +57,25 @@ inline bool verifyDormantSpecimenBlack (
         return true;
     const auto area = juce::Rectangle<int> (0, image.getHeight() - height,
                                             image.getWidth(), height).reduced (5);
+    const std::array semanticColours {
+        juce::Colour (attack_ui::selectionColour),
+        juce::Colour (attack_ui::strengthColour),
+        juce::Colour (attack_ui::textureColour),
+        juce::Colour (attack_ui::sharpnessColour),
+        juce::Colour (attack_ui::transientColour),
+    };
     for (int y = area.getY(); y < area.getBottom(); ++y)
         for (int x = area.getX(); x < area.getRight(); ++x)
-            if (image.getPixelAt (x, y) != juce::Colours::black)
+        {
+            const auto pixel = image.getPixelAt (x, y);
+            // A dormant specimen may retain the low-contrast CE 2226 surface material, but it
+            // must not expose a value, label, selection, or metric colour before data is valid.
+            if (juce::jmax (pixel.getRed(), pixel.getGreen(), pixel.getBlue()) > 48)
                 return false;
+            for (const auto colour : semanticColours)
+                if (nearColour (pixel, colour))
+                    return false;
+        }
     return true;
 }
 
