@@ -19,14 +19,14 @@ void paintValue (juce::Graphics& g, juce::Rectangle<float> area,
                  presentation::Context presentation)
 {
     auto label = area.removeFromTop (14.0f * scale);
-    g.setColour (COL_MUTED.withAlpha (0.92f));
+    g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                           typography::Composition::information));
     text_style::draw (g, heading, label.toNearestInt(), presentation,
                       typography::TextRole::metricLabel, juce::Justification::centred,
                       1, typography::Composition::information);
     auto unitArea = area.removeFromBottom (12.0f * scale);
-    g.setColour (COL_MUTED.withAlpha (0.84f));
+    g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::unit,
                           typography::Composition::information));
     g.drawText (unit, unitArea, juce::Justification::centred);

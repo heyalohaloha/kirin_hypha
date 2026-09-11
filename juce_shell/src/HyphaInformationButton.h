@@ -23,9 +23,17 @@ public:
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
         const bool focused = highlighted || hasKeyboardFocus (true);
-        surface_material::paintControl (
-            g, getLocalBounds().toFloat().reduced (1.0f), focused, down, false,
-            COL_FLORA_BR);
+        if (! focused && ! down)
+            return;
+
+        const auto area = getLocalBounds().toFloat().reduced (1.0f);
+        if (down)
+        {
+            g.setColour (kFieldFill.withAlpha (0.16f));
+            g.fillRoundedRectangle (area, 3.0f);
+        }
+        g.setColour (COL_FLORA_BR.withAlpha (down ? 0.48f : 0.30f));
+        g.drawRoundedRectangle (area, 3.0f, down ? 0.90f : 0.65f);
     }
 };
 }

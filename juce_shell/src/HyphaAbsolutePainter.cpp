@@ -2,6 +2,7 @@
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -226,8 +227,7 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
     paintHeader (g, header, scale, state);
     auto plot = outer;
     plot.removeFromBottom (10.0f * scale);
-    g.setColour (juce::Colours::black);
-    g.fillRect (plot);
+    surface_material::paintObservationWell (g, plot);
     paintAxes (g, plot, scale, state.sharpnessOnly, state.presentation);
 
     if (! state.signalActive || ! state.haveBatch || state.batch.count == 0u)

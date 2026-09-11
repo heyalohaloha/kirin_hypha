@@ -133,7 +133,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     if (includeChannelStrips && target() == ObservationTarget::absolute
         && (density == Density::standard || isFullDensity (density)))
         channelStrips = area.removeFromRight (
-            density == Density::inspection ? 156 : density == Density::observatory ? 112 : 62).reduced (2);
+            density == Density::inspection ? 164 : density == Density::observatory ? 120 : 62).reduced (2);
     if (compact)
         area.removeFromTop (20);
     if (target() == ObservationTarget::delta)

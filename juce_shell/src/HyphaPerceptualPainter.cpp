@@ -78,7 +78,7 @@ namespace
                     3.0f * scale);
             g.setColour (unavailable ? COL_MUTED.withAlpha (0.30f)
                                      : selected ? COL_SPECTRUM_DELTA_BR.withAlpha (0.98f)
-                                                : COL_MUTED.withAlpha (0.78f));
+                                                : COL_TEXT_SECONDARY);
             g.drawText (channelModeText (mode), segment.toNearestInt(),
                         juce::Justification::centred);
         }
@@ -301,8 +301,7 @@ void paint (juce::Graphics& g,
     const auto plot = historyPlot (outer, scale);
     paintMode (g, outer, scale, state);
     paintHeader (g, outer, scale, state);
-    g.setColour (juce::Colours::black);
-    g.fillRect (plot);
+    surface_material::paintObservationWell (g, plot);
     paintAxes (g, plot, scale, state.presentation);
 
     if (! state.snapshotValid || state.history.empty())

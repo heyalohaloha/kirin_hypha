@@ -22,6 +22,11 @@ P2では追加bitmapを採用せず、通常版と同じnative描画へ連続し
 PRE／POST、5基準サイズ、全domain、Hybrid VU、Captureを同じ描画経路で比較し、OFF復帰は同一snapshotで画素差ゼロを確認した。
 VU全面を覆う半透明膜は現行VUの深いガラス感を損なうため不採用とし、目盛り、針、TP rail、数値の負空間を保護した。
 
+最終外観監査では、情報buttonの通常時描画を透明なhit領域へ戻してPRE／POST titleを保護した。
+LEVELの左右channel stripへ数値とaxisの専用幅を追加し、端点labelをplot内へ収めた。
+FREQ、SHARP、LIVEは黒いplotを共通のrecessed observation wellへ統一し、選択可能なMID／SIDE等と無効項目の明度階層を分離した。
+これらは静的なnative描画だけであり、Jungleの状態、計測線、解析頻度、追加timerを変更しない。
+
 ## 1. 完成させる体験
 
 Kirin OSでJungle Modeが実際に発動し、MASKING GuideをHyphaへ一度でも正常送信すると、同じ端末の同じOS利用者で動くHyphaも初回だけJungle外観になる。

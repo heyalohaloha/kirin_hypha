@@ -94,12 +94,13 @@ void paintFullChannelStrips (juce::Graphics& g,
     for (int db = 0; db >= -48; db -= 6)
     {
         const auto y = juce::roundToInt (mapY ((double) db));
+        const auto labelY = juce::jlimit (area.getY(), area.getBottom() - 14, y - 7);
         g.setColour (COL_MUTED.withAlpha (0.22f));
         for (const auto column : columns)
             g.drawHorizontalLine (y, (float) column.getX(), (float) column.getRight());
         g.setColour (COL_TEXT_TERTIARY);
         g.drawText (juce::String (db),
-                    juce::Rectangle<int> { scaleColumn.getX(), y - 7,
+                    juce::Rectangle<int> { scaleColumn.getX(), labelY,
                                            scaleColumn.getWidth(), 14 },
                     juce::Justification::centred);
     }

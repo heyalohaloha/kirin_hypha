@@ -74,7 +74,7 @@ namespace
                     scaled (3.0f));
             g.setColour (unavailable ? COL_MUTED.withAlpha (0.30f)
                                      : selected ? COL_SPECTRUM_DELTA_BR.withAlpha (0.98f)
-                                                : COL_MUTED.withAlpha (0.78f));
+                                                : COL_TEXT_SECONDARY);
             g.drawText (channelModeText (mode), segment.toNearestInt(),
                         juce::Justification::centred);
         }
@@ -370,8 +370,7 @@ void paint (juce::Graphics& g,
                 state.focusFrequencyHz, minimumHz, maximumHz))
         : -1.0f;
 
-    g.setColour (juce::Colours::black);
-    g.fillRect (plot);
+    surface_material::paintObservationWell (g, plot);
     spectrum_axes::paintAxes (g, plot, scale, minimumHz, maximumHz,
                               state.absoluteObservation, state.presentation);
     const bool expandedReadout = scale > 1.1f && probeNormalisedX >= 0.0f;

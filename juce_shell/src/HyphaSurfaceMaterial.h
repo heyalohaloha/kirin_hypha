@@ -95,4 +95,23 @@ inline void paintInstrumentFrame (juce::Graphics& g,
                 outer.getY() + 0.55f,
                 capture ? 0.8f : 0.6f);
 }
+
+inline void paintObservationWell (juce::Graphics& g, juce::Rectangle<float> area)
+{
+    if (area.isEmpty())
+        return;
+
+    g.setColour (BG.darker (0.48f));
+    g.fillRect (area);
+
+    const auto inner = area.reduced (0.35f);
+    g.setColour (graphiteEdge().withAlpha (0.34f));
+    g.drawRect (inner, 0.70f);
+    g.setColour (COL_NORMAL.withAlpha (0.045f));
+    g.drawLine (inner.getX() + 1.0f, inner.getY() + 0.40f,
+                inner.getRight() - 1.0f, inner.getY() + 0.40f, 0.60f);
+    g.setColour (BG.darker (0.82f).withAlpha (0.88f));
+    g.drawLine (inner.getX() + 1.0f, inner.getBottom() - 0.35f,
+                inner.getRight() - 1.0f, inner.getBottom() - 0.35f, 0.65f);
+}
 }
