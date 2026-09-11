@@ -24,13 +24,19 @@ PACE and Authenticode verification through the combined signing path described b
 Run from a Visual Studio x64 developer shell with the SDK outside the GPL repository:
 
 ```powershell
-pwsh -NoProfile -File scripts/build_aax_windows.ps1 `
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_aax_windows.ps1 `
   -Sdk C:\absolute\external\aax-sdk-2-9-0 `
-  -LicenseConfirmed
+  -LicenseConfirmed `
+  -KimeraFont C:\absolute\licensed\KMR-Waldenburg-Book.otf `
+  -KimeraLicenseConfirmed
 ```
 
 The script builds the Rust FFI static library, applies and verifies the tracked JUCE patch stack,
-configures the explicit AAX gate, builds only PRE/POST AAX, and checks both version resources.
+requires a clean B-numbered source, configures the explicit AAX gate, builds only PRE/POST AAX,
+checks both version resources, and writes `kirin-hypha-windows-aax-build.json`. The manifest pins the
+full source commit, source state, Kimera embedding state, Native-only/AudioSuite state, and exact
+PRE/POST hashes. Omitting the Kimera options is permitted for an unsigned diagnostic build, but the
+resulting manifest records `kimera_embedded: false` and release signing rejects it.
 
 ## Signing boundary
 
@@ -64,9 +70,12 @@ The release sequence is:
 1. Build PRE and POST on the SDK-equipped Windows host.
 2. Load the eSigner CKA certificate into that same user's certificate store.
 3. Run `scripts/windows/sign-aax-wraptool.ps1` once, passing the certificate thumbprint to
-   `wraptool`; the physical signing authorization must be attached.
+   `wraptool`; the physical signing authorization must be attached. Before mutation, the script
+   verifies the build provenance and refuses modified-source, non-Kimera, non-Native-only, or
+   hash-mismatched input.
 4. Verify PACE locally, Authenticode validity, Kirin publisher identity, secure timestamp, x64 PE,
-   version, and exact PRE/POST bundle structure before packaging.
+   version, and exact PRE/POST bundle structure before packaging. Successful signing writes
+   `kirin-hypha-windows-aax-signed.json`, preserving unsigned hashes and recording signed hashes.
 
 The output directory must be new and separate from the unsigned build. Failed attempts never mutate
 the unsigned source artifacts.
@@ -98,8 +107,12 @@ Official implementation references:
 
 `scripts/windows/build-installer.mjs --aax-artifact-dir <dir>` is opt-in. It accepts AAX only when
 exact PRE and POST bundles are present, both are x64 and version-matched, and both pass PACE and
-Authenticode verification. AAX is copied after the VST3 eSigner payload stage and is never signed
-again by the installer builder.
+Authenticode verification. It also requires the signed AAX provenance to match the clean installer
+source commit and B number. The signed provenance is copied beside the installer, hashed into the
+installer manifest, and rechecked by the three-channel release-set gate. This prevents a signed AAX
+from another same-version commit, a system-font diagnostic build, or an AudioSuite-enabled build
+from being mixed into a release. AAX is copied after the VST3 eSigner payload stage and is never
+signed again by the installer builder.
 
 The AAX installer variant requires administrator access and owns only these paths under the 64-bit
 Common Files directory:

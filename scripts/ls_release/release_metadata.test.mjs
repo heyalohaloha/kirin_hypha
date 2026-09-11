@@ -418,6 +418,21 @@ test('full release set accepts only a signed, verified, externally validated Win
 
   const preAaxDigest = '4'.repeat(64);
   const postAaxDigest = '5'.repeat(64);
+  const aaxProofName = `Kirin-Hypha-${identity.version}-Windows-x64-AAX.json`;
+  const signedAaxProof = {
+    schema: 'kirin-hypha-windows-aax-signed-v1',
+    source: { commit: identity.commit, b_number: identity.bNumber, state: 'clean source' },
+    product: { name: 'Kirin Hypha', version: identity.version, platform: 'windows-x64', format: 'AAX' },
+    release: { kimera_embedded: true, native_only: true, audio_suite_enabled: false },
+    bundles: [
+      { role: 'PRE', sha256: preAaxDigest, pace_verified: true, authenticode_verified: true },
+      { role: 'POST', sha256: postAaxDigest, pace_verified: true, authenticode_verified: true },
+    ],
+    signing: { pace_verified: true, authenticode_verified: true },
+  };
+  const aaxProofPath = path.join(root, aaxProofName);
+  fs.writeFileSync(aaxProofPath, JSON.stringify(signedAaxProof));
+  const aaxProofDigest = sha256File(aaxProofPath);
   const aaxManifest = {
     ...manifest,
     product: { ...manifest.product, format: 'VST3+AAX', formats: ['VST3', 'AAX'] },
@@ -445,7 +460,20 @@ test('full release set accepts only a signed, verified, externally validated Win
         ],
       },
     },
-    distribution: { ...manifest.distribution, aax_included: true },
+    distribution: {
+      ...manifest.distribution,
+      aax_included: true,
+      aax_identity: {
+        source_commit: identity.commit,
+        b_number: identity.bNumber,
+        source_state: 'clean source',
+        kimera_embedded: true,
+        native_only: true,
+        audio_suite_enabled: false,
+        signed_manifest: aaxProofName,
+        signed_manifest_sha256: aaxProofDigest,
+      },
+    },
   };
   fs.writeFileSync(`${installer}.json`, JSON.stringify(aaxManifest));
   assert.equal(requireWindowsInstaller(root, identity, { requireAax: true }), installer);
@@ -482,6 +510,18 @@ test('full release set accepts only a signed, verified, externally validated Win
   assert.throws(
     () => requireWindowsInstaller(root, identity, { requireAax: true }),
     /PRE AAX payload is not fully verified/,
+  );
+
+  fs.writeFileSync(`${installer}.json`, JSON.stringify({
+    ...aaxManifest,
+    distribution: {
+      ...aaxManifest.distribution,
+      aax_identity: { ...aaxManifest.distribution.aax_identity, kimera_embedded: false },
+    },
+  }));
+  assert.throws(
+    () => requireWindowsInstaller(root, identity, { requireAax: true }),
+    /AAX release provenance is incomplete/,
   );
 
   fs.writeFileSync(`${installer}.json`, JSON.stringify({

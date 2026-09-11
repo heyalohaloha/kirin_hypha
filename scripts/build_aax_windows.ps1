@@ -4,6 +4,10 @@ param(
 
   [switch]$LicenseConfirmed,
 
+  [string]$KimeraFont = "",
+
+  [switch]$KimeraLicenseConfirmed,
+
   [string]$BuildDir = "build-aax-windows"
 )
 
@@ -21,6 +25,19 @@ if (!(Test-Path -LiteralPath (Join-Path $sdkPath "Interfaces\ACF") -PathType Con
 $repoPrefix = $repoRoot.TrimEnd("\") + "\"
 if ($sdkPath.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase)) {
   throw "AAX SDK must remain outside the repository"
+}
+
+$kimeraPath = ""
+if (![string]::IsNullOrWhiteSpace($KimeraFont)) {
+  if (!$KimeraLicenseConfirmed) {
+    throw "-KimeraLicenseConfirmed is required when -KimeraFont is supplied"
+  }
+  $kimeraPath = (Resolve-Path -LiteralPath $KimeraFont -ErrorAction Stop).Path
+  if ($kimeraPath.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "licensed Kimera font must remain outside the repository"
+  }
+} elseif ($KimeraLicenseConfirmed) {
+  throw "-KimeraFont is required when -KimeraLicenseConfirmed is supplied"
 }
 
 function Invoke-Checked([string]$Label, [scriptblock]$Command) {
@@ -41,14 +58,32 @@ Invoke-Checked "verify tracked JUCE patches" {
   bash scripts/verify_juce_patch_state.sh
 }
 
+$identityJson = @(& node scripts/ls_release/release_source_identity.mjs --require-clean 2>&1)
+if ($LASTEXITCODE -ne 0) {
+  $identityJson | ForEach-Object { Write-Host $_ }
+  throw "release source identity verification failed"
+}
+$sourceIdentity = ($identityJson -join [Environment]::NewLine) | ConvertFrom-Json
+
 $buildPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $BuildDir))
 $ffiLibrary = Join-Path $repoRoot "target\release\kirin_hypha_ffi.lib"
+$cmakeArguments = @(
+  "-S", "juce_shell",
+  "-B", $buildPath,
+  "-DKIRIN_FFI_LIB=$ffiLibrary",
+  "-DKIRIN_HYPHA_AAX_SDK_PATH=$sdkPath",
+  "-DKIRIN_HYPHA_AAX_SDK_LICENSE_CONFIRMED=ON",
+  "-DKIRIN_HYPHA_REQUIRE_AAX=ON"
+)
+if ($kimeraPath -ne "") {
+  $cmakeArguments += @(
+    "-DKIRIN_HYPHA_KIMERA_FONT_FILE=$kimeraPath",
+    "-DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=ON",
+    "-DKIRIN_HYPHA_REQUIRE_KIMERA=ON"
+  )
+}
 Invoke-Checked "configure external-SDK AAX build" {
-  cmake -S juce_shell -B $buildPath `
-    -DKIRIN_FFI_LIB="$ffiLibrary" `
-    -DKIRIN_HYPHA_AAX_SDK_PATH="$sdkPath" `
-    -DKIRIN_HYPHA_AAX_SDK_LICENSE_CONFIRMED=ON `
-    -DKIRIN_HYPHA_REQUIRE_AAX=ON
+  & cmake @cmakeArguments
 }
 Invoke-Checked "build PRE and POST AAX" {
   cmake --build $buildPath --config Release `
@@ -71,4 +106,13 @@ foreach ($role in @("PRE", "POST")) {
     throw "$role AAX version is $($item.VersionInfo.FileVersion)/$($item.VersionInfo.ProductVersion), expected $version"
   }
   Write-Host "[aax-windows] $role AAX ready for PACE signing: $($item.Length) bytes"
+}
+
+Invoke-Checked "write exact Windows AAX build provenance" {
+  node scripts/windows/windows-aax-provenance.mjs write-build `
+    --artifact-dir $buildPath `
+    --version $version `
+    --source-commit $sourceIdentity.commit `
+    --b-number $sourceIdentity.bNumber `
+    --source-state $sourceIdentity.sourceState
 }

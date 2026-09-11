@@ -102,9 +102,10 @@ node scripts/ls_release/build_kirin_hypha_release_set.mjs \
 ```
 
 The command rejects a Windows AAX installer when `--with-aax` was omitted, and rejects a VST3-only
-installer when it was selected. AAX source bundles must carry the exact current commit, `clean
-source`, licensed Kimera, and Native-only stamps; same-version bundles from an older commit cannot
-be packaged.
+installer when it was selected. macOS AAX bundles must carry the exact current commit, `clean
+source`, licensed Kimera, and Native-only stamps. Windows AAX must carry the equivalent signed
+provenance sidecar, whose hash and PRE/POST hashes are bound into the installer manifest. In both
+cases, same-version bundles from an older commit cannot be packaged.
 
 ## Phase 0: Read State
 

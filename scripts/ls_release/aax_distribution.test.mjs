@@ -123,3 +123,21 @@ test('self-hosted Windows AAX CI uses the x64 build entry point without signing'
   assert.match(workflow, /-LicenseConfirmed/);
   assert.doesNotMatch(workflow, /Build Windows x64 AAX without signing[\s\S]*wraptool/);
 });
+
+test('Windows AAX provenance survives build, combined signing, installer, and release-set gates', () => {
+  const build = fs.readFileSync(path.join(repoRoot, 'scripts/build_aax_windows.ps1'), 'utf8');
+  const sign = fs.readFileSync(path.join(repoRoot, 'scripts/windows/sign-aax-wraptool.ps1'), 'utf8');
+  const installer = fs.readFileSync(path.join(repoRoot, 'scripts/windows/build-installer.mjs'), 'utf8');
+  const releaseSet = fs.readFileSync(
+    path.join(repoRoot, 'scripts/ls_release/build_kirin_hypha_release_set.mjs'),
+    'utf8',
+  );
+  assert.match(build, /windows-aax-provenance\.mjs write-build/);
+  assert.match(build, /KIRIN_HYPHA_REQUIRE_KIMERA=ON/);
+  assert.match(sign, /windows-aax-provenance\.mjs verify-build/);
+  assert.match(sign, /--require-release-ready/);
+  assert.match(sign, /windows-aax-provenance\.mjs write-signed/);
+  assert.match(installer, /loadWindowsAaxSignedProvenance/);
+  assert.match(installer, /bindAaxSourceIdentity/);
+  assert.match(releaseSet, /Windows AAX signed provenance sidecar is missing or changed/);
+});

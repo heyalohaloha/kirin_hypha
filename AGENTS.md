@@ -198,7 +198,9 @@ AAXは既定OFFで、SDKとPACEツールはリポジトリ外に保つ。macOS U
 Windows x64 build/PACE+Authenticode署名の単体経路は実証済み。B-786のIntel版Pro Tools実機では
 Native load、再open、stereo/multi-mono、pairing、0 sample表示、Offline Bounceを確認済みだが、
 後続commitへ証跡を流用しない。現在の配布候補にはexact commit、clean source、Kimera、Native-only
-stampを要求する。AAXのローカルPRE/POST Blindはexact-range clock/PDC実証までfail closed。
+stampまたはWindows signed provenanceを要求する。Windows installerはprovenance sidecarと
+PRE/POST hashを同じrelease commitへ結び、別commitの署名済みAAXを受理しない。
+AAXのローカルPRE/POST Blindはexact-range clock/PDC実証までfail closed。
 macOSの正本は`docs/aax_macos_universal_build_20260910.md`、Windowsは
 `docs/aax_windows_build_20260910.md`、Phase A境界は`docs/aax_phase_a_readiness_20260907.md`とする。
 

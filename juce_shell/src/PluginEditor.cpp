@@ -72,8 +72,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         processorRef.observatoryTimeRangePreference()));
     configureMeterContext(); setResizable (true, false);
     setResizeLimits (300, 200, 900, 600);
-    if (auto* constrainer = getConstrainer())
-        constrainer->setFixedAspectRatio (1.5);
+    if (auto* aspectConstrainer = getConstrainer())
+        aspectConstrainer->setFixedAspectRatio (1.5);
     const auto storedEditorSize = hypha::observatory::unpackEditorSize (
         processorRef.observatoryEditorSizePreference());
     auto initialWidth = storedEditorSize.width;

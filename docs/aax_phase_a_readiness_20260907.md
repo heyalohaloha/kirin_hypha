@@ -45,7 +45,8 @@ their filesystem syntax and SDK installation locations differ.
 
 The macOS self-hosted leg uses `scripts/build_aax_universal.sh` and builds both Apple architectures
 before linking PRE/POST. It deliberately does not sign in CI. PACE signing stays a release-operator
-step on the Mac holding the physical authorization device. The Windows leg remains host-x64.
+step on the Mac holding the physical authorization device. The Windows leg remains host-x64 and
+writes build provenance; a diagnostic build without the licensed App font cannot enter signing.
 
 ## Remaining external gates
 

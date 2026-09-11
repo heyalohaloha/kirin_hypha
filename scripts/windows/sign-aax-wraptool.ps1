@@ -74,6 +74,19 @@ if (Test-Path -LiteralPath $signedRoot) {
   throw "OutputDir must not already exist: $signedRoot"
 }
 
+$versionSource = Get-Content -LiteralPath "crates\hypha_pre\Cargo.toml" -Raw
+$versionMatch = [regex]::Match($versionSource, '(?m)^version\s*=\s*"([^"]+)"')
+if (!$versionMatch.Success) { throw "Hypha version not found" }
+$version = $versionMatch.Groups[1].Value
+
+& node scripts/windows/windows-aax-provenance.mjs verify-build `
+  --artifact-dir $sourceRoot `
+  --version $version `
+  --require-release-ready
+if ($LASTEXITCODE -ne 0) {
+  throw "Windows AAX release build provenance verification failed"
+}
+
 $thumbprint = $CertificateThumbprint.ToUpperInvariant()
 $certificates = @(
   Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
@@ -140,14 +153,12 @@ foreach ($record in $records) {
   Write-Host "[aax-windows] $($record.role) combined signature applied"
 }
 
-$versionSource = Get-Content -LiteralPath "crates\hypha_pre\Cargo.toml" -Raw
-$versionMatch = [regex]::Match($versionSource, '(?m)^version\s*=\s*"([^"]+)"')
-if (!$versionMatch.Success) { throw "Hypha version not found" }
 $env:KIRIN_AAX_WRAPTOOL = $wraptoolPath
-& node scripts/windows/windows-aax-bundles.mjs `
+& node scripts/windows/windows-aax-provenance.mjs write-signed `
   --artifact-dir $signedRoot `
-  --version $versionMatch.Groups[1].Value
+  --source-artifact-dir $sourceRoot `
+  --version $version
 if ($LASTEXITCODE -ne 0) {
-  throw "Signed Windows AAX verification failed with exit code $LASTEXITCODE"
+  throw "Signed Windows AAX provenance verification failed with exit code $LASTEXITCODE"
 }
-Write-Host "[aax-windows] PRE/POST PACE + Authenticode verification passed"
+Write-Host "[aax-windows] PRE/POST PACE + Authenticode verification and provenance passed"

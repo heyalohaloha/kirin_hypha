@@ -12,6 +12,8 @@ import {
   recordAtBundle,
   verifyWindowsAaxCopy,
 } from './windows-aax-bundles.mjs';
+import { loadWindowsAaxSignedProvenance } from './windows-aax-provenance.mjs';
+import { requireCleanReleaseSource } from '../ls_release/release_source_identity.mjs';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(THIS_FILE), '..', '..');
@@ -199,7 +201,19 @@ async function signPayload(records, tempRoot, env) {
   }
 }
 
-function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords }) {
+export function bindAaxSourceIdentity(opts, currentSource, aaxProvenance) {
+  const source = aaxProvenance.manifest.source;
+  if (source.commit !== currentSource.commit || source.b_number !== currentSource.bNumber) {
+    throw new Error('signed Windows AAX source does not match the installer source');
+  }
+  if ((opts.commit && opts.commit !== currentSource.commit)
+      || (opts.bNumber && opts.bNumber !== currentSource.bNumber)) {
+    throw new Error('requested Windows installer identity does not match clean source');
+  }
+  return { ...opts, commit: currentSource.commit, bNumber: currentSource.bNumber };
+}
+
+function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxProvenance }) {
   const aaxIncluded = aaxPayloadRecords.length === 2;
   return {
     schema: 'kirin-hypha-windows-installer-v1',
@@ -270,6 +284,16 @@ function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords }) {
       primary: true,
       manual_zip: 'fallback_only',
       aax_included: aaxIncluded,
+      aax_identity: aaxIncluded ? {
+        source_commit: aaxProvenance.manifest.source.commit,
+        b_number: aaxProvenance.manifest.source.b_number,
+        source_state: aaxProvenance.manifest.source.state,
+        kimera_embedded: aaxProvenance.manifest.release.kimera_embedded,
+        native_only: aaxProvenance.manifest.release.native_only,
+        audio_suite_enabled: aaxProvenance.manifest.release.audio_suite_enabled,
+        signed_manifest: `Kirin-Hypha-${VERSION}-Windows-x64-AAX.json`,
+        signed_manifest_sha256: aaxProvenance.manifestSha256,
+      } : null,
       public_ready: false,
     },
   };
@@ -278,16 +302,28 @@ function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords }) {
 export async function buildInstaller(opts) {
   if (process.platform !== 'win32') throw new Error('Windows installer builds must run on Windows');
   if (opts.signing === 'signed') signingEnvironment();
-  opts.commit ||= git(['rev-parse', 'HEAD'], 'unknown');
-  opts.bNumber ||= inferBNumber();
+  let aaxProvenance = null;
+  if (opts.aaxArtifactDir) {
+    aaxProvenance = loadWindowsAaxSignedProvenance({
+      artifactRoot: opts.aaxArtifactDir,
+      version: VERSION,
+    });
+    opts = bindAaxSourceIdentity(opts, requireCleanReleaseSource({ root: ROOT }), aaxProvenance);
+  } else {
+    opts.commit ||= git(['rev-parse', 'HEAD'], 'unknown');
+    opts.bNumber ||= inferBNumber();
+  }
   opts.runUrl ||= inferRunUrl();
 
   const outputDir = path.resolve(ROOT, opts.outputDir);
   const payloadDir = path.join(outputDir, PAYLOAD_DIR_NAME);
   const installer = path.join(outputDir, `Kirin-Hypha-${VERSION}-Windows-x64-Setup.exe`);
+  const aaxManifestCopy = path.join(outputDir, `Kirin-Hypha-${VERSION}-Windows-x64-AAX.json`);
   fs.mkdirSync(outputDir, { recursive: true });
   fs.rmSync(payloadDir, { recursive: true, force: true });
-  for (const sidecar of [installer, `${installer}.sha256`, `${installer}.json`]) fs.rmSync(sidecar, { force: true });
+  for (const sidecar of [installer, `${installer}.sha256`, `${installer}.json`, aaxManifestCopy]) {
+    fs.rmSync(sidecar, { force: true });
+  }
   fs.mkdirSync(payloadDir, { recursive: true });
 
   const sourceRecords = ['PRE', 'POST'].map((role) => bundleRecord(opts.artifactDir, role));
@@ -307,6 +343,7 @@ export async function buildInstaller(opts) {
       VERSION,
     ));
   }
+  if (aaxProvenance) fs.copyFileSync(aaxProvenance.manifestPath, aaxManifestCopy);
   const payloadRecords = ['PRE', 'POST'].map((role) => bundleRecord(payloadDir, role));
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-installer-'));
   const buildEnv = {
@@ -327,7 +364,13 @@ export async function buildInstaller(opts) {
   if (!fs.statSync(installer, { throwIfNoEntry: false })?.isFile() || fs.statSync(installer).size <= 0) {
     throw new Error(`Inno Setup did not produce the expected installer: ${installer}`);
   }
-  const manifest = manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords });
+  const manifest = manifestFor({
+    opts,
+    installer,
+    payloadRecords,
+    aaxPayloadRecords,
+    aaxProvenance,
+  });
   fs.writeFileSync(`${installer}.sha256`, `${manifest.installer.sha256}  ${path.basename(installer)}\n`);
   fs.writeFileSync(`${installer}.json`, `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`[hypha-installer] wrote ${installer}`);

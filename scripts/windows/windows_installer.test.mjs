@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   VERSION,
+  bindAaxSourceIdentity,
   bundleRecord,
   innoCompilerArgs,
   parseArgs as parseBuildArgs,
@@ -24,6 +25,12 @@ import {
   loadWindowsAaxBundleManifest,
   readPeMachine,
 } from './windows-aax-bundles.mjs';
+import {
+  SIGNED_MANIFEST_NAME,
+  loadWindowsAaxBuildProvenance,
+  loadWindowsAaxSignedProvenance,
+  writeWindowsAaxBuildProvenance,
+} from './windows-aax-provenance.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,6 +54,20 @@ function createPeFixture(filePath, machine = 0x8664) {
   data.writeUInt16LE(machine, 0x84);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, data);
+}
+
+function createAaxBuildConfiguration(root, kimeraEmbedded) {
+  fs.writeFileSync(path.join(root, 'CMakeCache.txt'), [
+    `KIRIN_HYPHA_KIMERA_FONT_FILE:FILEPATH=${kimeraEmbedded ? 'C:/licensed/Kimera.otf' : ''}`,
+    `KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED:BOOL=${kimeraEmbedded ? 'ON' : 'OFF'}`,
+    `KIRIN_HYPHA_REQUIRE_KIMERA:BOOL=${kimeraEmbedded ? 'ON' : 'OFF'}`,
+  ].join('\n'));
+  for (const role of ['PRE', 'POST']) {
+    fs.writeFileSync(
+      path.join(root, `KirinHypha${role}_AAX.vcxproj`),
+      '<PreprocessorDefinitions>JucePlugin_AAXDisableAudioSuite=1</PreprocessorDefinitions>',
+    );
+  }
 }
 
 test('Windows installer arguments default to unsigned fail-safe CI mode', () => {
@@ -87,6 +108,90 @@ test('Windows AAX manifest and PE gate require exact PRE/POST x64 bundles', (con
   assert.throws(() => inspectWindowsAaxRecord(post), /expected x64/);
 });
 
+test('Windows AAX build provenance pins source, licensed typography, surface, and binaries', (context) => {
+  const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-aax-provenance-'));
+  context.after(() => fs.rmSync(artifactRoot, { recursive: true, force: true }));
+  const records = loadWindowsAaxBundleManifest({ artifactRoot }).bundles;
+  for (const record of records) {
+    createPeFixture(path.join(record.bundle, ...record.binaryRelative.split('/')));
+  }
+  createAaxBuildConfiguration(artifactRoot, true);
+  const source = { commit: 'a'.repeat(40), b_number: 'B-823', state: 'clean source' };
+  writeWindowsAaxBuildProvenance({ artifactRoot, version: VERSION, source });
+  const verified = loadWindowsAaxBuildProvenance({
+    artifactRoot,
+    version: VERSION,
+    requireReleaseReady: true,
+  });
+  assert.equal(verified.manifest.source.commit, source.commit);
+  assert.equal(verified.manifest.release.native_only, true);
+  assert.equal(verified.manifest.release.audio_suite_enabled, false);
+  const signedManifest = {
+    schema: 'kirin-hypha-windows-aax-signed-v1',
+    source: verified.manifest.source,
+    product: verified.manifest.product,
+    release: verified.manifest.release,
+    unsigned_build: {
+      manifest_sha256: verified.manifestSha256,
+      bundles: verified.manifest.bundles,
+    },
+    bundles: verified.manifest.bundles.map((record) => ({
+      ...record,
+      pace_verified: true,
+      authenticode_verified: true,
+    })),
+    signing: { pace_verified: true, authenticode_verified: true },
+  };
+  fs.writeFileSync(
+    path.join(artifactRoot, SIGNED_MANIFEST_NAME),
+    JSON.stringify(signedManifest),
+  );
+  assert.equal(
+    loadWindowsAaxSignedProvenance({ artifactRoot, version: VERSION }).manifest.source.commit,
+    source.commit,
+  );
+  signedManifest.bundles[0].pace_verified = false;
+  fs.writeFileSync(
+    path.join(artifactRoot, SIGNED_MANIFEST_NAME),
+    JSON.stringify(signedManifest),
+  );
+  assert.throws(
+    () => loadWindowsAaxSignedProvenance({ artifactRoot, version: VERSION }),
+    /PRE Windows AAX signed provenance is incomplete/,
+  );
+
+  const postBinary = path.join(records[1].bundle, ...records[1].binaryRelative.split('/'));
+  fs.appendFileSync(postBinary, 'changed');
+  assert.throws(
+    () => loadWindowsAaxBuildProvenance({ artifactRoot, version: VERSION }),
+    /POST Windows AAX no longer matches/,
+  );
+
+  createPeFixture(postBinary);
+  createAaxBuildConfiguration(artifactRoot, false);
+  writeWindowsAaxBuildProvenance({ artifactRoot, version: VERSION, source });
+  assert.throws(
+    () => loadWindowsAaxBuildProvenance({ artifactRoot, version: VERSION, requireReleaseReady: true }),
+    /licensed Kimera App font/,
+  );
+});
+
+test('Windows AAX installer identity is derived from clean source and signed provenance', () => {
+  const opts = { commit: '', bNumber: '' };
+  const current = { commit: 'a'.repeat(40), bNumber: 'B-823' };
+  const aax = { manifest: { source: { commit: current.commit, b_number: current.bNumber } } };
+  assert.deepEqual(bindAaxSourceIdentity(opts, current, aax), {
+    commit: current.commit,
+    bNumber: current.bNumber,
+  });
+  assert.throws(
+    () => bindAaxSourceIdentity(opts, current, {
+      manifest: { source: { commit: 'b'.repeat(40), b_number: current.bNumber } },
+    }),
+    /does not match the installer source/,
+  );
+});
+
 test('Windows AAX signing is one combined wraptool operation through a store certificate', () => {
   const source = fs.readFileSync(path.join(scriptDir, 'sign-aax-wraptool.ps1'), 'utf8');
   assert.match(source, /"--signid", \$thumbprint/);
@@ -95,7 +200,8 @@ test('Windows AAX signing is one combined wraptool operation through a store cer
     /"--explicitsigningoptions=sign \/sha1 \$thumbprint \/fd sha256 \/tr http:\/\/ts\.ssl\.com \/td sha256"/,
   );
   assert.doesNotMatch(source, /--extrasigningoptions/);
-  assert.match(source, /windows-aax-bundles\.mjs/);
+  assert.match(source, /windows-aax-provenance\.mjs verify-build/);
+  assert.match(source, /windows-aax-provenance\.mjs write-signed/);
   assert.match(source, /OutputDir must not already exist/);
   assert.doesNotMatch(source, /--dsig(?:\s|",\s*)off/);
 });

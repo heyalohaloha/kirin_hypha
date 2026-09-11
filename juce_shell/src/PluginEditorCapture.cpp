@@ -293,12 +293,12 @@ void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
                              .getChildFile (filename);
     captureChooser = std::make_unique<juce::FileChooser> (
         "Save Hypha capture", initial, "*.png", true);
-    const auto flags = juce::FileBrowserComponent::saveMode
-                     | juce::FileBrowserComponent::canSelectFiles
-                     | juce::FileBrowserComponent::warnAboutOverwriting;
+    const auto chooserFlags = juce::FileBrowserComponent::saveMode
+                            | juce::FileBrowserComponent::canSelectFiles
+                            | juce::FileBrowserComponent::warnAboutOverwriting;
     juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);
     captureChooser->launchAsync (
-        flags, [safeThis, image = snapshot.image] (const juce::FileChooser& chooser)
+        chooserFlags, [safeThis, image = snapshot.image] (const juce::FileChooser& chooser)
     {
         if (safeThis == nullptr)
             return;

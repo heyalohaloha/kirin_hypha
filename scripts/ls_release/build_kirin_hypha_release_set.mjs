@@ -255,6 +255,48 @@ export function requireWindowsInstaller(
         throw new Error(`Windows ${role} AAX payload is not fully verified`);
       }
     }
+    const aaxIdentity = manifest.distribution?.aax_identity;
+    const expectedAaxManifestName = `Kirin-Hypha-${expectedIdentity.version}-Windows-x64-AAX.json`;
+    if (aaxIdentity?.source_commit !== expectedIdentity.commit
+        || aaxIdentity?.b_number !== expectedIdentity.bNumber
+        || aaxIdentity?.source_state !== 'clean source'
+        || aaxIdentity?.kimera_embedded !== true
+        || aaxIdentity?.native_only !== true
+        || aaxIdentity?.audio_suite_enabled !== false
+        || aaxIdentity?.signed_manifest !== expectedAaxManifestName
+        || !/^[0-9a-f]{64}$/.test(aaxIdentity?.signed_manifest_sha256 || '')) {
+      throw new Error('Windows AAX release provenance is incomplete or does not match this release');
+    }
+    const aaxManifestPath = path.join(directory, expectedAaxManifestName);
+    if (!fs.statSync(aaxManifestPath, { throwIfNoEntry: false })?.isFile()
+        || sha256(aaxManifestPath) !== aaxIdentity.signed_manifest_sha256) {
+      throw new Error('Windows AAX signed provenance sidecar is missing or changed');
+    }
+    const signedAax = JSON.parse(fs.readFileSync(aaxManifestPath, 'utf8').replace(/^\uFEFF/, ''));
+    if (signedAax.schema !== 'kirin-hypha-windows-aax-signed-v1'
+        || signedAax.source?.commit !== expectedIdentity.commit
+        || signedAax.source?.b_number !== expectedIdentity.bNumber
+        || signedAax.source?.state !== 'clean source'
+        || signedAax.product?.version !== expectedIdentity.version
+        || signedAax.release?.kimera_embedded !== true
+        || signedAax.release?.native_only !== true
+        || signedAax.release?.audio_suite_enabled !== false
+        || signedAax.signing?.pace_verified !== true
+        || signedAax.signing?.authenticode_verified !== true
+        || !Array.isArray(signedAax.bundles)
+        || signedAax.bundles.length !== 2) {
+      throw new Error('Windows AAX signed provenance content is invalid');
+    }
+    for (const role of ['PRE', 'POST']) {
+      const signedRecord = signedAax.bundles.find((item) => item.role === role);
+      const payload = aaxPayloads.find((item) => item.role === role);
+      if (!signedRecord
+          || signedRecord.sha256 !== payload.binary_sha256
+          || signedRecord.pace_verified !== true
+          || signedRecord.authenticode_verified !== true) {
+        throw new Error(`Windows ${role} AAX provenance hash does not match the installer`);
+      }
+    }
   }
   if (manifest.ci_validation?.status !== 'passed') {
     throw new Error(`Windows installer verification is incomplete: ${manifest.ci_validation?.status}`);
