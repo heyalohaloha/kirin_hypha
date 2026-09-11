@@ -15,6 +15,11 @@ node scripts/research/review/browser-test.mjs PACK_DIRECTORY PLAYWRIGHT_MODULE_D
 node scripts/research/review/evaluate_review_answers.mjs \
   ANSWERS_JSON PACK_DIRECTORY/manifest.json CORRECTION_SIDECAR_JSON \
   EVIDENCE_DIRECTORY/evidence-manifest.json NEW_PRIVATE_OUTPUT_JSON
+
+# After the representative pilot, build an exhaustive SPACE development annotation pack
+# from the already verified six-item SPACE pack. Prior answers and source paths are omitted.
+node scripts/research/review/build_space_exhaustive_pack.mjs \
+  VERIFIED_SPACE_PACK NEW_PRIVATE_REVIEW_DIRECTORY NEW_PRIVATE_EVIDENCE_DIRECTORY
 ```
 
 The existing research root must contain the corpus proposal, exactly one development
@@ -25,6 +30,11 @@ Creation refuses existing output directories and uses private file permissions.
 The review and evidence directories must remain separate. Give only the review directory
 to the annotator; retain the evidence directory for evaluation.
 Do not add generated audio, provenance paths, reviewer identities or answers to Git.
+
+The exhaustive SPACE protocol presents all 30 seconds, requires at least 95% distinct playback
+coverage, and asks for every perceptually trackable decay interval. It is a development annotation
+set, not an unused holdout. It deliberately omits detector candidates, source titles, prior answers
+and source paths from the review pack.
 
 ## Source responsibilities
 
