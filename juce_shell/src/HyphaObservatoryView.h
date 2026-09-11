@@ -138,6 +138,13 @@ public:
     bool isReferenceOwned() const noexcept { return referenceOwned; }
     void setConnection (juce::String text, juce::Colour colour, ConnectionState state);
     void setExternalConnectionLabelVisible (bool visible);
+    void setJungleAppearance (bool enabled)
+    {
+        if (jungleAppearance == enabled) return;
+        jungleAppearance = enabled;
+        repaint();
+    }
+    bool jungleAppearanceEnabledForTest() const noexcept { return jungleAppearance; }
     ConnectionState connection() const noexcept { return connectionState; }
     void setGuide (juce::String primary, juce::String detail, bool emphasized);
     void clearGuide();
@@ -250,6 +257,7 @@ private:
     juce::String guideDetail;
     bool guideEmphasized = false;
     bool captureFrame = false;
+    bool jungleAppearance = false;
     presentation::OutputTarget presentationOutput = presentation::OutputTarget::editor;
     juce::String captureTimestamp;
     juce::String captureVersion;

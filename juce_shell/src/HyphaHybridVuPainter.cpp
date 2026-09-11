@@ -4,6 +4,7 @@
 
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
+#include "HyphaJungleMaterial.h"
 
 #include <array>
 #include <cmath>
@@ -435,6 +436,8 @@ void paint (juce::Graphics& g, juce::Rectangle<int> requested, const State& stat
         g.setColour (BG.darker (0.38f));
         g.fillRect (bounds);
     }
+    if (state.jungle)
+        jungle_material::paintVuAcceleration (g, bounds, state.role);
     auto header = juce::Rectangle<float> (
         bounds.getX() + bounds.getWidth() * 0.020f,
         bounds.getY() + bounds.getHeight() * 0.018f,

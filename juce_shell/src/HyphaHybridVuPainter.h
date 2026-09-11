@@ -22,6 +22,7 @@ struct State
     bool recording = false;
     juce::String connectionText;
     juce::Colour connectionColour;
+    bool jungle = false;
     presentation::Context presentation = presentation::defaultContext();
 };
 

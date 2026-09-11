@@ -360,7 +360,7 @@ void View::paint (juce::Graphics& g)
             role, observatoryFrame.meter, watchDisplay,
             currentFactsAvailable(), cumulativeFactsAvailable(), watchDisplayAvailable,
             selectedShortTermLoudness, hostRecording, connectionText, connectionColour,
-            presentationContext()
+            jungleAppearance, presentationContext()
         });
         if (feedbackText.isNotEmpty())
         {

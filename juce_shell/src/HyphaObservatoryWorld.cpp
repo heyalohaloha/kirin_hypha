@@ -4,6 +4,7 @@
 
 #include "HyphaTheme.h"
 #include "HyphaSurfaceMaterial.h"
+#include "HyphaJungleMaterial.h"
 
 #include <array>
 #include <cmath>
@@ -244,7 +245,7 @@ void Backdrop::drawLevelCorners (juce::Graphics& g,
     juce::Graphics::ScopedSaveState saved (g);
     const float roleOpacity = state.role == observatory::Role::pre ? 0.72f : 1.0f;
     const float signalOpacity = state.active ? 0.86f : 0.58f;
-    g.setOpacity (roleOpacity * signalOpacity);
+    g.setOpacity (roleOpacity * signalOpacity * (state.jungle ? 1.08f : 1.0f));
     drawAspectFill (g, levelCorners, area);
 }
 
@@ -311,7 +312,8 @@ void Backdrop::drawHyphaSpecimen (juce::Graphics& g,
         g.reduceClipRegion (area.removeFromBottom (historyHeight));
     }
     const float roleOpacity = state.role == observatory::Role::pre ? 0.72f : 1.0f;
-    g.setOpacity ((state.active ? 0.76f : 0.42f) * roleOpacity);
+    g.setOpacity ((state.active ? 0.76f : 0.42f) * roleOpacity
+                  * (state.jungle ? 1.10f : 1.0f));
     g.drawImageAt (specimen, x, y, false);
 }
 
@@ -342,6 +344,9 @@ void paintPlateFrame (juce::Graphics& g, juce::Rectangle<int> area, const State&
 {
     const auto outer = area.toFloat().reduced (1.0f);
     surface_material::paintInstrumentFrame (g, outer, state.capture);
+    if (state.jungle)
+        jungle_material::paintInstrumentAcceleration (
+            g, outer, state.role, state.density, state.capture);
 
     if (! state.capture)
         return;
@@ -395,6 +400,8 @@ void paintHyphaAperture (juce::Graphics& g, juce::Rectangle<int> area, const Sta
     g.drawEllipse (aperture, 0.75f);
     g.setColour ((state.active ? COL_SPECTRUM_POST : COL_MUTED).withAlpha (signalAlpha));
     g.fillEllipse (aperture.reduced (diameter * 0.29f));
+    if (state.jungle)
+        jungle_material::paintApertureAcceleration (g, aperture, state.role);
 
     const bool connected = state.connection == observatory::ConnectionState::paired
                         || state.connection == observatory::ConnectionState::source;

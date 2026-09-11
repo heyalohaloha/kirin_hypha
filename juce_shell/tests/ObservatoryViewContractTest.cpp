@@ -1,5 +1,6 @@
 #include "ObservatoryViewContractTest.h"
 #include "ObservatoryCaptureContractTest.h"
+#include "JungleAppearanceContractTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaSpectrumComponent.h"
@@ -341,6 +342,7 @@ void verifyObservatoryViewContract()
     KIRIN_OBSERVATORY_REQUIRE (meter.field_observation_count == 30u);
     verifyRoleAtEverySize (observatory::Role::pre, meter, history);
     verifyRoleAtEverySize (observatory::Role::post, meter, history);
+    verifyJungleAppearanceContract (meter, watch, history, activeFrame());
 
     observatory::View pre (observatory::Role::pre);
     pre.setWatchDisplay (watch, true);

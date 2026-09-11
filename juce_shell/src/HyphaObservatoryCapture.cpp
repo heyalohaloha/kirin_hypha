@@ -60,6 +60,7 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     }
     frame.history = historySnapshot != nullptr ? *historySnapshot : history;
     frame.captureFrame = true;
+    frame.jungleAppearance = jungleAppearance;
     frame.presentationOutput = presentation::OutputTarget::capture;
     frame.captureTimestamp = capturedAt.isNotEmpty()
         ? std::move (capturedAt)

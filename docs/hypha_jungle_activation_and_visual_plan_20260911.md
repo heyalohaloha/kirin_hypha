@@ -1,7 +1,7 @@
 # Hypha通常版のCE 2226統一とJungle連動の実装計画
 
 更新日：2026-09-11。
-状態：通常版の質感統一とJungleによる生命感の加速、連動方針はDaisuke承認済み。P1の通常外観、OS側のAND条件publisher、Hypha共有serviceは実装済み。Jungle差分と通知は未実装。
+状態：通常版の質感統一とJungleによる生命感の加速、連動方針はDaisuke承認済み。P1の通常外観、OS側のAND条件publisher、Hypha共有service、P2の全5サイズ共通Jungle差分は実装済み。初回通知は未実装。
 調査基準：Hypha `2908d601`（B-812）、Kirin OS `0bd9db7a8`（W-3045）。
 改訂理由：通常版を現状固定する計画から、現在のVUの品位を全画面へ広げ、その完成した通常版をJungleで深める計画へ変更した。
 
@@ -16,7 +16,11 @@ native UI contractはPRE/POSTと全5サイズを含めてpassした。
 同一機での変更前後の900×600 Spectrumは7.50887から7.53996 ms/frame、M/S Spectrumは1.82294から2.01299 ms/frameで、いずれも追加0.5 ms/frame以内だった。
 OS publisherはKirin OSのJungle発動と、MASKING GuideのHyphaへのpublish成功を別々に検証し、両方が成立した場合だけ発動証明を作る。
 Hypha共有serviceは可視editorの既存timerから最大1 Hzで起こし、filesystem、JSON、排他、保存を一個のbackground workerへ隔離した。
-初回通知、Jungle差分、macOS/Windows実ホスト検証は次工程に残る。
+初回通知、macOS/Windows実ホスト検証は次工程に残る。
+
+P2では追加bitmapを採用せず、通常版と同じnative描画へ連続した青緑／琥珀の菌糸と低明度の縁光を追加した。
+PRE／POST、5基準サイズ、全domain、Hybrid VU、Captureを同じ描画経路で比較し、OFF復帰は同一snapshotで画素差ゼロを確認した。
+VU全面を覆う半透明膜は現行VUの深いガラス感を損なうため不採用とし、目盛り、針、TP rail、数値の負空間を保護した。
 
 ## 1. 完成させる体験
 
@@ -399,8 +403,8 @@ Rustを変更しない限り、新たなFFI検証を増やさない。
 
 ## 12. 実装着手と完了の境界
 
-今回の到達点はHypha通常版の共通surface、Kirin OSの二条件publisher、Hyphaの共有外観service実装と対象native検証である。
-Jungle差分、初回通知、実ホスト、配布はまだ変更していない。
+今回の到達点はHypha通常版の共通surface、Kirin OSの二条件publisher、Hyphaの共有外観service、全5サイズのJungle差分実装と対象native検証である。
+初回通知、実ホスト、配布はまだ変更していない。
 既存のdirtyなJUCE submodule、別件handoff、既存build directoryの内容は変更対象に含めない。
 Notionへの書込みも行わない。
 
@@ -410,6 +414,6 @@ Windows操作前にはOS側`docs/windows_validation_remote_access.md`を読む�
 公開する場合は別途既存release runbookに従い、HyphaのLS PKG、macOS無料ZIPとGitHub Releaseと英日HP、同じ版の署名済みWindows installerを揃える。
 release build、公証、配置を行うセッションのLSパッケージ準備も省略しない。
 
-次の着手点はP2のJungle差分である。
-通常版の共通surfaceを戻り先として固定し、その同じ構造でJungleを完成させる。
-追加の外観生成や全体testを大量に繰り返さず、比較用に得た同じfixtureと素材を全サイズで再利用する。
+次の着手点はP3の初回通知とDisplayメニューである。
+通常版の共通surfaceとP2のJungle差分を固定し、気づき、即時OFF、未確認引継ぎ、Blind保護、重複通知防止を完成させる。
+追加の外観生成や全体testを大量に繰り返さず、変更した通知と保存責務の対象試験だけを実行する。

@@ -14,7 +14,11 @@ void KirinHyphaEditor::refreshAppearance()
     }
     if (appearanceVisibleRegistered)
         service.pulse();
-    appearanceSnapshot = service.snapshot();
+    const auto next = service.snapshot();
+    if (next.generation != appearanceSnapshot.generation
+        || next.enabled != appearanceSnapshot.enabled)
+        observatoryView.setJungleAppearance (next.enabled);
+    appearanceSnapshot = next;
 }
 
 void KirinHyphaEditor::releaseAppearanceVisibility()
