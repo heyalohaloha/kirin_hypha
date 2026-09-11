@@ -106,6 +106,7 @@ export function verifyAaxBundle({
   requireKimera = false,
   requireNativeOnly = false,
   requireDiagnostic = false,
+  requireNotarization = true,
 }) {
   if (!fs.statSync(bundlePath, { throwIfNoEntry: false })?.isDirectory()) {
     throw new Error(`AAX bundle missing: ${bundlePath}`);
@@ -149,11 +150,13 @@ export function verifyAaxBundle({
     throw new Error(`AAX bundle is not universal: ${archs.join(' ')}`);
   }
   run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', bundlePath], 'AAX codesign verification');
-  run(
-    'codesign',
-    ['--verify', '--deep', '--strict', '--check-notarization', '--verbose=2', bundlePath],
-    'AAX notarization verification',
-  );
+  if (requireNotarization) {
+    run(
+      'codesign',
+      ['--verify', '--deep', '--strict', '--check-notarization', '--verbose=2', bundlePath],
+      'AAX notarization verification',
+    );
+  }
   const signing = run('codesign', ['-dvv', bundlePath], 'AAX signing identity inspection').stderr;
   if (!signing.includes(`TeamIdentifier=${TEAM_ID}`)) {
     throw new Error(`AAX bundle is not signed by required Apple team ${TEAM_ID}`);
@@ -176,6 +179,7 @@ export function verifyAaxBundleCopy({
   requireKimera = false,
   requireNativeOnly = false,
   requireDiagnostic = false,
+  requireNotarization = true,
 }) {
   const options = {
     executableName: spec.executable_name,
@@ -194,6 +198,7 @@ export function verifyAaxBundleCopy({
     requireKimera,
     requireNativeOnly,
     requireDiagnostic,
+    requireNotarization,
   });
   if (source.binarySha256 !== destination.binarySha256) {
     throw new Error(`AAX executable changed during copy: ${spec.role}`);
@@ -217,6 +222,7 @@ function parseArgs(argv) {
     else if (arg === '--require-kimera') options.requireKimera = true;
     else if (arg === '--require-native-only') options.requireNativeOnly = true;
     else if (arg === '--require-diagnostic') options.requireDiagnostic = true;
+    else if (arg === '--allow-unnotarized') options.requireNotarization = false;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new Error(`unknown argument: ${arg}`);
   }
@@ -226,7 +232,7 @@ function parseArgs(argv) {
 function runCli(argv) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log('Usage: node aax_bundle_verify.mjs --bundle PATH --executable NAME --identifier ID --version VERSION [--source PATH] [--source-id ID --source-state STATE --require-kimera --require-native-only --require-diagnostic]');
+    console.log('Usage: node aax_bundle_verify.mjs --bundle PATH --executable NAME --identifier ID --version VERSION [--source PATH] [--source-id ID --source-state STATE --require-kimera --require-native-only --require-diagnostic --allow-unnotarized]');
     return;
   }
   for (const key of ['bundlePath', 'executableName', 'bundleIdentifier', 'version']) {
@@ -248,6 +254,7 @@ function runCli(argv) {
       requireKimera: options.requireKimera,
       requireNativeOnly: options.requireNativeOnly,
       requireDiagnostic: options.requireDiagnostic,
+      requireNotarization: options.requireNotarization,
     });
   } else {
     verifyAaxBundle({
@@ -260,6 +267,7 @@ function runCli(argv) {
       requireKimera: options.requireKimera,
       requireNativeOnly: options.requireNativeOnly,
       requireDiagnostic: options.requireDiagnostic,
+      requireNotarization: options.requireNotarization,
     });
   }
   console.log(`[aax-bundle-verify] OK: ${options.bundlePath}`);

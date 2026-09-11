@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadMacAaxBundleManifest, PROJECT_ROOT } from './kirin_hypha_aax_bundles.mjs';
+import { verifyAaxBundle } from './aax_bundle_verify.mjs';
 import { readReleaseSourceIdentity } from './release_source_identity.mjs';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
@@ -32,7 +33,7 @@ function plistValue(plist, key) {
   return run('/usr/libexec/PlistBuddy', ['-c', `Print :${key}`, plist], `read ${key}`);
 }
 
-function inspectBundle(bundle, source) {
+function inspectBundle(bundle, source, { version, signed }) {
   const plist = path.join(bundle.sourcePath, 'Contents', 'Info.plist');
   const binary = path.join(bundle.sourcePath, 'Contents', 'MacOS', bundle.executable_name);
   if (!fs.statSync(bundle.sourcePath, { throwIfNoEntry: false })?.isDirectory()) {
@@ -56,6 +57,21 @@ function inspectBundle(bundle, source) {
   if (plistValue(plist, 'KirinHyphaAaxBuildMode') !== 'diagnostic') {
     throw new Error(`${bundle.role} diagnostic AAX mode marker is missing`);
   }
+  let binarySha256;
+  if (signed) {
+    const verified = verifyAaxBundle({
+      bundlePath: bundle.sourcePath,
+      executableName: bundle.executable_name,
+      bundleIdentifier: bundle.bundle_identifier,
+      version,
+      sourceId: source.commit,
+      sourceState: source.sourceState,
+      requireNativeOnly: true,
+      requireDiagnostic: true,
+      requireNotarization: false,
+    });
+    binarySha256 = verified.binarySha256;
+  }
   const architectures = run('lipo', ['-archs', binary], `${bundle.role} architecture inspection`)
     .split(/\s+/)
     .filter(Boolean)
@@ -68,13 +84,14 @@ function inspectBundle(bundle, source) {
     bundle: path.basename(bundle.sourcePath),
     executable: bundle.executable_name,
     size_bytes: fs.statSync(binary).size,
-    sha256: sha256(binary),
+    sha256: binarySha256 || sha256(binary),
     architectures,
   };
 }
 
 export function writeMacAaxDiagnosticReceipt({
   artifactDir,
+  signed = false,
   root = PROJECT_ROOT,
 } = {}) {
   if (process.platform !== 'darwin') {
@@ -84,7 +101,10 @@ export function writeMacAaxDiagnosticReceipt({
   const artifactRoot = path.resolve(resolvedRoot, artifactDir || 'build-aax-universal');
   const source = readReleaseSourceIdentity({ root: resolvedRoot });
   const manifest = loadMacAaxBundleManifest({ root: resolvedRoot, buildRoot: artifactRoot });
-  const bundles = manifest.bundles.map((bundle) => inspectBundle(bundle, source));
+  const version = fs.readFileSync(path.join(resolvedRoot, 'crates/hypha_pre/Cargo.toml'), 'utf8')
+    .match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+  if (!version) throw new Error('Hypha version is missing');
+  const bundles = manifest.bundles.map((bundle) => inspectBundle(bundle, source, { version, signed }));
   const receipt = {
     schema: 'kirin-hypha-macos-aax-diagnostic-v1',
     generated_at: new Date().toISOString(),
@@ -95,20 +115,23 @@ export function writeMacAaxDiagnosticReceipt({
     },
     product: {
       name: 'Kirin Hypha',
-      version: fs.readFileSync(path.join(resolvedRoot, 'crates/hypha_pre/Cargo.toml'), 'utf8')
-        .match(/^version\s*=\s*"([^"]+)"/m)?.[1],
       platform: 'macos-universal',
       format: 'AAX',
+      version,
     },
     diagnostic: {
       kimera_embedded: false,
       native_only: true,
       audio_suite_enabled: false,
-      signed: false,
+      signed,
+      pace_verified: signed,
+      apple_signed: signed,
       notarized: false,
       distribution_ready: false,
       not_for_distribution: true,
-      host_validation_target: 'Pro Tools Developer or other explicitly permitted diagnostic host',
+      host_validation_target: signed
+        ? 'Pro Tools Ultimate or other explicitly permitted local diagnostic host'
+        : 'Pro Tools Developer or other explicitly permitted diagnostic host',
     },
     bundles,
   };
@@ -119,10 +142,22 @@ export function writeMacAaxDiagnosticReceipt({
 }
 
 function main(argv) {
-  const artifactIndex = argv.indexOf('--artifact-dir');
-  const artifactDir = artifactIndex >= 0 ? argv[artifactIndex + 1] : 'build-aax-universal';
-  if (!artifactDir) throw new Error('--artifact-dir requires a value');
-  const result = writeMacAaxDiagnosticReceipt({ artifactDir });
+  let artifactDir = 'build-aax-universal';
+  let signed = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === '--artifact-dir') {
+      artifactDir = argv[++index];
+      if (!artifactDir) throw new Error('--artifact-dir requires a value');
+    } else if (argv[index] === '--signed') {
+      signed = true;
+    } else if (argv[index] === '--help' || argv[index] === '-h') {
+      console.log('Usage: node aax_diagnostic_receipt.mjs [--artifact-dir DIR] [--signed]');
+      return;
+    } else {
+      throw new Error(`unknown argument: ${argv[index]}`);
+    }
+  }
+  const result = writeMacAaxDiagnosticReceipt({ artifactDir, signed });
   console.log(`[aax-diagnostic] wrote ${result.receiptPath}`);
 }
 

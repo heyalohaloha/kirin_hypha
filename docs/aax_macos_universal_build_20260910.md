@@ -54,6 +54,22 @@ surface, and binary hashes. The bundles are intentionally unsigned and marked
 (such as Pro Tools Developer). Do not copy them into a release package or replace a user's installed
 signed plug-in with them.
 
+For local validation in regular Pro Tools Ultimate, the same Kimera-free build can be signed with
+PACE and Developer ID while remaining explicitly non-distributable:
+
+```bash
+bash scripts/build_aax_universal.sh \
+  --sdk "$HOME/SDKs/aax-sdk-2-9-0" \
+  --license-confirmed \
+  --diagnostic-sign
+```
+
+This requires the local PACE/iLok and signing environment, but does not require the Kimera App
+License. It writes the same diagnostic receipt with `signed: true`, `pace_verified: true`, and
+`apple_signed: true`; notarization is intentionally not performed, so this artifact is for local
+Ultimate host testing only. It must never be included in a pkg/zip/installer or treated as a
+release candidate.
+
 For the eventual distribution build, run this separately on the release operator's Mac:
 
 ```bash
@@ -67,8 +83,9 @@ scripts/build_aax_universal.sh \
 
 This builds the Rust FFI for both Apple architectures, creates one Universal static library, and
 builds only the PRE/POST AAX targets under `build-aax-universal/`. Omitting the Kimera options is
-allowed only for an unsigned diagnostic build. `--diagnostic` makes that intent explicit and writes
-the non-distribution receipt. `--sign` requires the licensed font, a clean source
+allowed only for a diagnostic build. `--diagnostic` makes unsigned intent explicit, while
+`--diagnostic-sign` permits local PACE + Apple signing without Kimera and writes the same
+non-distribution receipt. `--sign` requires the licensed font, a clean source
 commit with a B number, the exact tracked JUCE patch stack, and the documented PACE and Apple signing
 environment. The font, account identifiers, and signer values remain outside the repository and
 must not be written to logs.

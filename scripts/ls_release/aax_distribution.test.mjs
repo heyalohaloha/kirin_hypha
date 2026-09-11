@@ -127,6 +127,7 @@ test('AAX target is Native-only and stamps signed build identity before distribu
   const cmake = fs.readFileSync(path.join(repoRoot, 'juce_shell/CMakeLists.txt'), 'utf8');
   const buildScript = fs.readFileSync(path.join(repoRoot, 'scripts/build_aax_universal.sh'), 'utf8');
   const stamp = fs.readFileSync(path.join(repoRoot, 'scripts/stamp_aax_bundle_identity.sh'), 'utf8');
+  const verifier = fs.readFileSync(path.join(repoRoot, 'scripts/ls_release/aax_bundle_verify.mjs'), 'utf8');
   const diagnosticReceipt = fs.readFileSync(
     path.join(repoRoot, 'scripts/ls_release/aax_diagnostic_receipt.mjs'),
     'utf8',
@@ -140,10 +141,17 @@ test('AAX target is Native-only and stamps signed build identity before distribu
   assert.match(stamp, /KirinHyphaAudioSuiteEnabled/);
   assert.match(stamp, /KirinHyphaAaxBuildMode/);
   assert.match(buildScript, /--diagnostic/);
+  assert.match(buildScript, /--diagnostic-sign/);
   assert.match(buildScript, /mutually exclusive/);
-  assert.match(buildScript, /cannot include Kimera/);
+  assert.match(buildScript, /diagnostic modes cannot include Kimera/);
   assert.match(diagnosticReceipt, /not_for_distribution: true/);
   assert.match(diagnosticReceipt, /host_validation_target/);
+  assert.match(diagnosticReceipt, /verifyAaxBundle/);
+  assert.match(diagnosticReceipt, /--signed/);
+  assert.match(diagnosticReceipt, /pace_verified: signed/);
+  assert.match(buildScript, /unnotarized and never use for distribution/);
+  assert.match(verifier, /requireNotarization = true/);
+  assert.match(verifier, /--allow-unnotarized/);
 });
 
 test('self-hosted macOS AAX CI uses the Universal build entry point', () => {
