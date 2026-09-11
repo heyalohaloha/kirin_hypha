@@ -70,6 +70,12 @@ try {
   assert.notEqual(result.status, 0);
   assert.match(result.output, /--license-confirmed is required/);
 
+  if (os.platform() !== 'darwin') {
+    result = run(['--sdk', sdkRoot, '--license-confirmed']);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /requires macOS/);
+  }
+
   result = run(['--sdk', sdkRoot, '--license-confirmed', '--dry-run']);
   assert.equal(result.status, 0);
   assert.match(result.output, /CMAKE_OSX_ARCHITECTURES=x86_64\\;arm64/);
