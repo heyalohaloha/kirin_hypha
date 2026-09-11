@@ -1,6 +1,7 @@
 #include "HyphaWidgets.h"
 
 #include "BinaryData.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 
 #include <cmath>
@@ -92,13 +93,9 @@ namespace hypha
     void PairDropdownButton::paintButton (
         juce::Graphics& g, bool highlighted, bool down)
     {
-        const auto background = findColour (getToggleState()
-                                                ? juce::TextButton::buttonOnColourId
-                                                : juce::TextButton::buttonColourId,
-                                            true);
-        getLookAndFeel().drawButtonBackground (g, *this, background, highlighted, down);
-
         const auto bounds = getLocalBounds().toFloat();
+        surface_material::paintControl (
+            g, bounds.reduced (0.5f), highlighted, down, getToggleState(), COL_FLORA_BR);
         const float centreX = bounds.getCentreX();
         const float centreY = bounds.getCentreY() + (down ? 1.0f : 0.0f);
         constexpr float halfWidth = 4.0f;
@@ -216,10 +213,8 @@ namespace hypha
     {
         auto area = getLocalBounds().toFloat();
         if (selected || highlighted || down)
-        {
-            g.setColour (selected ? kFieldFill.brighter (0.08f) : kFieldFill);
-            g.fillRect (area);
-        }
+            surface_material::paintControl (
+                g, area.reduced (0.5f), highlighted, down, selected, COL_FLORA, 2.5f);
         g.setColour (selected ? COL_FLORA : COL_MUTED);
         g.setFont (monoFont (presentationContext, typography::TextRole::navigation));
         g.drawText (text, getLocalBounds(), juce::Justification::centred);

@@ -5,6 +5,7 @@
 #include "HyphaSpectrumAxisPainter.h"
 #include "HyphaAnalysisUiText.h"
 #include "HyphaSpectrumFocusTrailPainter.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -68,12 +69,9 @@ namespace
                 || (mode == KIRIN_SPECTRUM_SELECTION_MID_SIDE
                     && (! state.absoluteObservation || state.inputChannels != 2u));
             if (selected)
-            {
-                g.setColour (BG.brighter (0.14f).withAlpha (0.92f));
-                g.fillRoundedRectangle (segment, scaled (3.0f));
-                g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.62f));
-                g.drawRoundedRectangle (segment, scaled (3.0f), scaled (0.65f));
-            }
+                surface_material::paintControl (
+                    g, segment, false, false, true, COL_SPECTRUM_DELTA_BR,
+                    scaled (3.0f));
             g.setColour (unavailable ? COL_MUTED.withAlpha (0.30f)
                                      : selected ? COL_SPECTRUM_DELTA_BR.withAlpha (0.98f)
                                                 : COL_MUTED.withAlpha (0.78f));

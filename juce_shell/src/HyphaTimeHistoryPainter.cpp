@@ -1,6 +1,7 @@
 #include "HyphaTimeHistoryPainter.h"
 #include "HyphaTimeAxisContract.h"
 
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -355,10 +356,7 @@ void paint (juce::Graphics& g,
             meter_context::ScaleMode scaleMode,
             presentation::Context presentation)
 {
-    g.setColour (BG.withAlpha (compactMeter ? 0.96f : 0.76f));
-    g.fillRoundedRectangle (area.toFloat(), 4.0f);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
+    surface_material::paintPanel (g, area.toFloat(), compactMeter ? 0.96f : 0.76f);
     area.reduce (7, 6);
     if (history.empty())
     {

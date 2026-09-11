@@ -2,6 +2,7 @@
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -72,12 +73,9 @@ namespace
             const bool unavailable = mode == KIRIN_SPECTRUM_CHANNEL_SIDE
                                   && state.inputChannels == 1u;
             if (selected)
-            {
-                g.setColour (BG.brighter (0.14f).withAlpha (0.92f));
-                g.fillRoundedRectangle (segment, 3.0f * scale);
-                g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.62f));
-                g.drawRoundedRectangle (segment, 3.0f * scale, 0.65f * scale);
-            }
+                surface_material::paintControl (
+                    g, segment, false, false, true, COL_SPECTRUM_DELTA_BR,
+                    3.0f * scale);
             g.setColour (unavailable ? COL_MUTED.withAlpha (0.30f)
                                      : selected ? COL_SPECTRUM_DELTA_BR.withAlpha (0.98f)
                                                 : COL_MUTED.withAlpha (0.78f));

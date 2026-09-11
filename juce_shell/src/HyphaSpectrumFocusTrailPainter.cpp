@@ -1,6 +1,7 @@
 #include "HyphaSpectrumFocusTrailPainter.h"
 
 #include "HyphaSpectrumUiContract.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaPolylineGeometry.h"
 
@@ -55,8 +56,7 @@ void paint (juce::Graphics& g,
 
     const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
     const float radius = ui_contract::spectrumFocusTrailRadius * strokeScale;
-    g.setColour (BG.darker (0.18f).withAlpha (compact ? 0.84f : 0.72f));
-    g.fillRoundedRectangle (bounds, radius);
+    surface_material::paintPanel (g, bounds, compact ? 0.84f : 0.72f, radius);
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (compact ? 0.13f : 0.17f));
     g.drawRoundedRectangle (bounds, radius, 0.65f * strokeScale);
 

@@ -11,6 +11,7 @@
 #include "HyphaAnalysisNavigation.h"
 #include "HyphaHoverHelpPreference.h"
 #include "HyphaObservatoryView.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTimePageNavigation.h"
 #include "HyphaTooltipLookAndFeel.h"
@@ -67,6 +68,12 @@ private:
             return hypha::nativeTextFont (hypha::presentation::forOutput (
                 450, 300, hypha::presentation::OutputTarget::popup),
                 hypha::typography::TextRole::menu);
+        }
+        void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
+        {
+            g.fillAll (hypha::BG);
+            hypha::surface_material::paintInstrumentFrame (
+                g, juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height), false);
         }
     };
 

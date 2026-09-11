@@ -3,6 +3,7 @@
 #include "HyphaAttackPainter.h"
 #include "HyphaAttackUiContract.h"
 #include "HyphaAttackSnapshotEquality.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -12,7 +13,6 @@ namespace
 {
 const auto waveformColour = juce::Colour (attack_ui::waveformColour);
 const auto selectionColour = juce::Colour (attack_ui::selectionColour);
-const auto panelColour = juce::Colour (0xff0d1620);
 
 const KirinAttackDetail* findDetail (const KirinAttackDetailBatch& batch,
                                      std::int64_t eventSample, std::uint64_t generation,
@@ -274,8 +274,7 @@ void AttackComponent::paint (juce::Graphics& g)
     auto bounds = getLocalBounds();
     // ATTACK owns the Observatory body while selected. Keep the body opaque so the HISTORY
     // labels beneath this child cannot leak into its transparent header or capture composite.
-    g.setColour (BG);
-    g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
+    surface_material::paintPanel (g, bounds.toFloat(), 1.0f);
     const bool running = runtimeStats.available != 0 && runtimeStats.enabled != 0
                       && runtimeStats.worker_running != 0;
     const auto responsiveHeaderHeight = attack_ui::headerHeightFor (presentationContext);
@@ -290,6 +289,7 @@ void AttackComponent::paint (juce::Graphics& g)
         if (area.isEmpty()) continue;
         g.setColour (juce::Colours::black);
         g.fillRoundedRectangle (area.reduced (1).toFloat(), 4.0f);
+        surface_material::paintPanel (g, area.reduced (1).toFloat(), 0.12f);
     }
 
     auto titleRow = header.removeFromTop (attack_ui::titleRowHeight (presentationContext));
@@ -299,8 +299,9 @@ void AttackComponent::paint (juce::Graphics& g)
     g.setColour (COL_NORMAL);
     g.drawText (getWidth() < 430 ? "DRUM / ATTACK" : "DRUM / ATTACK SPECIMEN",
                 titleRow, juce::Justification::centredLeft);
-    g.setColour (waveformColour.withAlpha (0.10f));
-    g.fillRoundedRectangle (viewButton.reduced (1).toFloat(), 3.0f);
+    surface_material::paintControl (
+        g, viewButton.reduced (1).toFloat(), false, false, overlayMode,
+        waveformColour, 3.0f);
     g.setColour (COL_NORMAL);
     g.setFont (monoFont (presentationContext, typography::TextRole::action,
                          typography::Composition::visualization));
@@ -341,8 +342,7 @@ void AttackComponent::paint (juce::Graphics& g)
     if (! timeline.isEmpty())
     {
         timeline = timeline.reduced (1);
-        g.setColour (panelColour.withAlpha (0.94f));
-        g.fillRoundedRectangle (timeline.toFloat(), 4.0f);
+        surface_material::paintPanel (g, timeline.toFloat(), 0.94f);
         g.setColour (waveformColour.withAlpha (0.075f));
         g.drawRoundedRectangle (timeline.toFloat(), 4.0f, 0.7f);
         for (int second = 1; second < attack_ui::presentationSeconds; ++second)

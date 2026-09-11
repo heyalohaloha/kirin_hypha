@@ -1,6 +1,7 @@
 #include "HyphaReferenceMetricPainter.h"
 
 #include "HyphaTheme.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 
 namespace hypha::reference_metric_painter
@@ -38,10 +39,7 @@ void paintValue (juce::Graphics& g, juce::Rectangle<float> area,
 
 void paintPanel (juce::Graphics& g, juce::Rectangle<float> area, float alpha)
 {
-    g.setColour (BG.withAlpha (alpha));
-    g.fillRoundedRectangle (area, 4.0f);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.reduced (0.5f), 4.0f, 0.8f);
+    surface_material::paintPanel (g, area, alpha);
 }
 
 void paintComparisonRoots (juce::Graphics& g, juce::Rectangle<float> area)

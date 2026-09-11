@@ -1,5 +1,7 @@
 #include "HyphaLocalBlindComponent.h"
 
+#include "HyphaSurfaceMaterial.h"
+
 #include <array>
 #include <cmath>
 
@@ -287,8 +289,7 @@ void Component::paint (juce::Graphics& g)
 {
     g.fillAll (BG);
     const auto area = getLocalBounds().toFloat().reduced (10.0f);
-    g.setColour (kFieldFill.withAlpha (0.94f));
-    g.fillRoundedRectangle (area, 7.0f);
+    surface_material::paintPanel (g, area, 0.94f, 7.0f);
     g.setColour (COL_FLORA.withAlpha (0.52f));
     g.drawRoundedRectangle (area.reduced (0.5f), 7.0f, 1.0f);
     g.setColour (COL_LED_BLUE.withAlpha (0.34f));

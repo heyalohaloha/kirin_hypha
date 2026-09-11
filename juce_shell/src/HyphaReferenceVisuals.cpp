@@ -1,6 +1,7 @@
 #include "HyphaReferenceVisuals.h"
 
 #include "HyphaReferenceComponent.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -19,10 +20,7 @@ constexpr double maximumSpectrumDb = 6.0;
 
 void panel (juce::Graphics& g, juce::Rectangle<float> area)
 {
-    g.setColour (BG.withAlpha (0.72f));
-    g.fillRoundedRectangle (area, 4.0f);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.reduced (0.5f), 4.0f, 0.8f);
+    surface_material::paintPanel (g, area, 0.72f);
 }
 
 juce::Rectangle<float> chartArea (juce::Graphics& g, juce::Rectangle<float> area,

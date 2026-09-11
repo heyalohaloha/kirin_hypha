@@ -1,6 +1,7 @@
 #include "HyphaSpacePainter.h"
 
 #include "HyphaTheme.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 
 #include <cmath>
@@ -29,10 +30,7 @@ namespace
 void drawPanel (juce::Graphics& g, juce::Rectangle<int> area,
                 bool compact, float radius = 4.0f)
 {
-    g.setColour (BG.withAlpha (compact ? 0.96f : 0.76f));
-    g.fillRoundedRectangle (area.toFloat(), radius);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), radius, 1.0f);
+    surface_material::paintPanel (g, area.toFloat(), compact ? 0.96f : 0.76f, radius);
 }
 
 juce::String balanceText (const KirinMeterSession& meter, bool available)

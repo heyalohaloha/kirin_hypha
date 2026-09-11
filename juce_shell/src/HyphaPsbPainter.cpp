@@ -1,6 +1,7 @@
 #include "HyphaPsbPainter.h"
 
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 
 #include <algorithm>
@@ -54,12 +55,8 @@ void paintSubviewToggle (juce::Graphics& g, juce::Rectangle<float> bounds, bool 
     const auto scale = visualScale (bounds);
     const auto button = spectrum_geometry::subviewBoundsFor (
         spectrum_geometry::plotBoundsFor (bounds), scale);
-    g.setColour ((psbSelected ? COL_LED_BLUE : COL_MUTED).withAlpha (
-        psbSelected ? 0.14f : 0.05f));
-    g.fillRoundedRectangle (button, 3.0f * scale);
-    g.setColour ((psbSelected ? COL_LED_BLUE : COL_MUTED).withAlpha (
-        psbSelected ? 0.88f : 0.48f));
-    g.drawRoundedRectangle (button, 3.0f * scale, 0.75f * scale);
+    surface_material::paintControl (
+        g, button, false, false, psbSelected, COL_LED_BLUE, 3.0f * scale);
     g.setFont (monoFont (presentation, typography::TextRole::action,
                          typography::Composition::visualization));
     g.drawText (psbSelected ? "SPECTRUM" : "PSB", button.toNearestInt(),
@@ -71,8 +68,7 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
     const auto scale = visualScale (bounds);
     const auto outer = spectrum_geometry::plotBoundsFor (bounds);
     const auto plot = dataBounds (bounds);
-    g.setColour (BG.withAlpha (0.84f));
-    g.fillRoundedRectangle (outer, 4.0f * scale);
+    surface_material::paintPanel (g, outer, 0.84f, 4.0f * scale);
 
     g.setFont (monoFont (state.presentation, typography::TextRole::legend,
                          typography::Composition::visualization));

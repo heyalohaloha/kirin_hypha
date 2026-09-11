@@ -1,5 +1,6 @@
 #include "HyphaRunSummary.h"
 
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -266,10 +267,7 @@ int visibleRowCount (int width) noexcept
 void paint (juce::Graphics& g, juce::Rectangle<int> area, const Result& result,
             double sampleRate, presentation::Context presentation)
 {
-    g.setColour (BG.withAlpha (0.78f));
-    g.fillRoundedRectangle (area.toFloat(), 4.0f);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
+    surface_material::paintPanel (g, area.toFloat(), 0.78f);
     area.reduce (8, 6);
     auto heading = area.removeFromTop (juce::jlimit (18, 28, area.getHeight() / 7));
     g.setFont (monoFont (presentation, typography::TextRole::sectionTitle,

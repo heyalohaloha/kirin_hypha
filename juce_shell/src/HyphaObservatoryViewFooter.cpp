@@ -1,5 +1,6 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaRunSummary.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTimeHistoryPainter.h"
 #include "HyphaTextStyle.h"
 
@@ -18,10 +19,7 @@ void drawPanel (juce::Graphics& g, juce::Rectangle<int> area,
                 ExperienceFamily family, float corner)
 {
     const auto opacity = family == ExperienceFamily::compactMeter ? 0.96f : 0.76f;
-    g.setColour (BG.withAlpha (opacity));
-    g.fillRoundedRectangle (area.toFloat(), corner);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), corner, 1.0f);
+    surface_material::paintPanel (g, area.toFloat(), opacity, corner);
 }
 }
 

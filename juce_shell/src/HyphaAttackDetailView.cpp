@@ -6,6 +6,7 @@
 #include "HyphaAttackOrganismPainter.h"
 #include "HyphaAttackPainter.h"
 #include "HyphaAttackUiContract.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -139,6 +140,7 @@ void AttackComponent::paintSelectedEvent (juce::Graphics& g, juce::Rectangle<int
     }
 
     area = area.reduced (1);
+    surface_material::paintPanel (g, area.toFloat(), 0.22f);
     g.setColour (selectionColour.withAlpha (0.16f));
     g.drawRoundedRectangle (area.toFloat(), 4.0f, 0.75f);
     auto content = area.reduced (7, 3);

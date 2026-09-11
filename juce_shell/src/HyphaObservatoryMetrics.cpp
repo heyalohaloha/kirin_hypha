@@ -2,6 +2,7 @@
 
 #include "HyphaCaptureHistoryPainter.h"
 #include "HyphaLevelMetricContract.h"
+#include "HyphaSurfaceMaterial.h"
 
 #include <array>
 #include <cmath>
@@ -26,10 +27,7 @@ void drawPanel (juce::Graphics& g,
     const auto opacity = opacityOverride >= 0.0f
         ? opacityOverride
         : family == ExperienceFamily::compactMeter ? 0.96f : 0.76f;
-    g.setColour (BG.withAlpha (opacity));
-    g.fillRoundedRectangle (area.toFloat(), 4.0f);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
+    surface_material::paintPanel (g, area.toFloat(), opacity);
 }
 
 void drawMetric (juce::Graphics& g,

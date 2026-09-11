@@ -3,6 +3,7 @@
 #include <BinaryData.h>
 
 #include "HyphaTheme.h"
+#include "HyphaSurfaceMaterial.h"
 
 #include <array>
 #include <cmath>
@@ -340,10 +341,7 @@ void paintDomainBed (juce::Graphics& g, juce::Rectangle<int> area, const State& 
 void paintPlateFrame (juce::Graphics& g, juce::Rectangle<int> area, const State& state)
 {
     const auto outer = area.toFloat().reduced (1.0f);
-    g.setColour (COL_MUTED.withAlpha (state.capture ? 0.68f : 0.44f));
-    g.drawRoundedRectangle (outer, state.capture ? 7.0f : 5.0f, state.capture ? 1.2f : 0.8f);
-    g.setColour (COL_SPECTRUM_POST.withAlpha (state.capture ? 0.18f : 0.08f));
-    g.drawRoundedRectangle (outer.reduced (2.0f), state.capture ? 6.0f : 4.0f, 0.55f);
+    surface_material::paintInstrumentFrame (g, outer, state.capture);
 
     if (! state.capture)
         return;

@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaSurfaceMaterial.h"
 
 #include <array>
 #include <cmath>
@@ -199,11 +200,9 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     const auto& meter = observatoryFrame.meter;
     const bool currentAvailable = currentFactsAvailable();
     const bool cumulativeAvailable = cumulativeFactsAvailable();
-    g.setColour (BG.withAlpha (experienceFamily() == ExperienceFamily::compactMeter
-                                   ? 0.96f : 0.76f));
-    g.fillRoundedRectangle (area.toFloat(), 4.0f);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
+    surface_material::paintPanel (
+        g, area.toFloat(), experienceFamily() == ExperienceFamily::compactMeter
+                               ? 0.96f : 0.76f);
     area.reduce (5, 5);
     if (isFullDensity (currentPreset().density))
     {

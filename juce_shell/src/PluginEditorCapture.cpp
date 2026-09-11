@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaSurfaceMaterial.h"
 
 namespace
 {
@@ -226,8 +227,7 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
         setAnalysisPresentationContext (*external,
             hypha::presentation::forEditor (getWidth(), getHeight()));
         juce::Graphics graphics (snapshot.image);
-        graphics.setColour (hypha::BG);
-        graphics.fillRoundedRectangle (body.toFloat(), 4.0f);
+        hypha::surface_material::paintPanel (graphics, body.toFloat(), 1.0f);
         graphics.drawImage (analysis, body.getX(), body.getY(), body.getWidth(), body.getHeight(),
                             0, 0, analysis.getWidth(), analysis.getHeight(), false);
     }

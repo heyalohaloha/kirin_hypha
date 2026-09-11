@@ -8,6 +8,15 @@ Branch: `codex/hypha-meter`
 
 Baseline: `a29f50c5cf38fe29fad2bedc7db690c492c2f471`
 
+## 2026-09-11の承認済み方向と段階実装計画
+
+Hyphaは通常時からCE 2226であり、Jungle発動は同じ生態系の生命感が加速する状態として扱う。
+現在のVUの品位を通常版の全画面へ広げ、その通常版をJungleで深める方針が承認された。
+具体的な仕上げ、全5サイズ、連動、軽量性、検証は[改訂実装計画](hypha_jungle_activation_and_visual_plan_20260911.md)を参照する。
+通常版の共通surfaceは実装済みであり、OS連動とJungle差分は未実装である。
+以下の既存baselineを、未実装のJungle外観や連動まで達成済みだと読み替えない。
+VUの計測、構図、操作と既存の意味色を守り、破線、点線、自律的な装飾animationは追加しない。
+
 ## 1. 世界設定の接続
 
 Kirin OSの通常面はCE2026の道具であり、Jungleは同じ世界がCE2226の生態系まで進んだ状態である。

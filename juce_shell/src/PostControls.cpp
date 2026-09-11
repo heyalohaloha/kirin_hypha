@@ -1,4 +1,5 @@
 #include "PostControls.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 
 namespace hypha
@@ -15,25 +16,15 @@ namespace hypha
                                        bool shouldDrawButtonAsDown)
     {
         auto area = getLocalBounds().toFloat().reduced (0.5f);
-        const auto fill = findColour (juce::TextButton::buttonColourId, true);
         const auto textColour = findColour (getToggleState()
                                                 ? juce::TextButton::textColourOnId
                                                 : juce::TextButton::textColourOffId,
                                             true);
 
         if (framed)
-        {
-            auto buttonFill = fill;
-            if (shouldDrawButtonAsHighlighted)
-                buttonFill = buttonFill.brighter (0.06f);
-            if (shouldDrawButtonAsDown)
-                buttonFill = buttonFill.darker (0.08f);
-
-            g.setColour (buttonFill);
-            g.fillRoundedRectangle (area, 3.0f);
-            g.setColour (COL_MUTED.withAlpha (shouldDrawButtonAsHighlighted ? 0.65f : 0.45f));
-            g.drawRoundedRectangle (area, 3.0f, 1.0f);
-        }
+            surface_material::paintControl (
+                g, area, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown,
+                getToggleState(), COL_FLORA_BR);
 
         g.setColour (isEnabled() ? textColour : COL_MUTED);
         g.setFont (monoFont (presentationContext, typography::TextRole::action));

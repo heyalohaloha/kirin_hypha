@@ -3,6 +3,7 @@
 #include "HyphaSpacePainter.h"
 #include "HyphaTimeHistoryPainter.h"
 #include "HyphaObservationEquality.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
 #include <utility>
 
@@ -30,9 +31,7 @@ void drawPanel (juce::Graphics& g, juce::Rectangle<int> area,
                 ExperienceFamily family, float corner = 4.0f)
 {
     const auto opacity = family == ExperienceFamily::compactMeter ? 0.96f : 0.76f;
-    g.setColour (BG.withAlpha (opacity));
-    g.fillRoundedRectangle (area.toFloat(), corner);
-    g.setColour (COL_MUTED.withAlpha (0.34f)); g.drawRoundedRectangle (area.toFloat().reduced (0.5f), corner, 1.0f);
+    surface_material::paintPanel (g, area.toFloat(), opacity, corner);
 }
 void styleButton (juce::TextButton& button)
 {

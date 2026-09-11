@@ -1,5 +1,6 @@
 #include "HyphaCaptureHistoryPainter.h"
 
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTimeAxisContract.h"
 
@@ -329,10 +330,7 @@ void paint (juce::Graphics& g,
             std::optional<std::size_t> hoveredIndex,
             juce::String contextFact)
 {
-    g.setColour (BG.withAlpha (0.62f));
-    g.fillRoundedRectangle (area.toFloat(), 4.0f);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
+    surface_material::paintPanel (g, area.toFloat(), 0.62f);
     const auto layout = layoutFor (area);
     const auto peakSummary = delta ? TruePeakSummary {} : analyseTruePeak (history, sampleRate);
 
