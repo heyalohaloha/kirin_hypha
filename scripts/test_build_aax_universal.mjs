@@ -104,6 +104,17 @@ try {
   result = run([
     '--sdk', sdkRoot,
     '--license-confirmed',
+    '--sign',
+    '--kimera-font', fontPath,
+    '--kimera-license-confirmed',
+    '--dry-run',
+  ], { ...signingEnv, KIRIN_AAX_PACE_ACCOUNT: '' });
+  assert.equal(result.status, 0);
+  assert.doesNotMatch(result.output, /--account/);
+
+  result = run([
+    '--sdk', sdkRoot,
+    '--license-confirmed',
     '--diagnostic-sign',
     '--dry-run',
   ], signingEnv);

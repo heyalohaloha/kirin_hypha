@@ -74,9 +74,11 @@ release candidate.
 The path measured on the Mac is
 `/Applications/PACEAntiPiracy/Eden/Fusion/Versions/6/bin/wraptool`. The installed
 `.../Fusion/Current` entry is a symlink to `Versions/6`; the build script selects the versioned path
-by default and falls back to `Current` only when the versioned path is unavailable. Signing passes
-the PACE account explicitly with `--account` because the successful Mac signing command included it.
-The value is supplied only through `KIRIN_AAX_PACE_ACCOUNT`; it is never written to this repository.
+by default and falls back to `Current` only when the versioned path is unavailable. When
+`KIRIN_AAX_PACE_ACCOUNT` is set, signing passes that account explicitly with `--account`, matching
+the successful Mac signing command. Leaving it unset allows an explicit second trial using only
+credentials already synchronized by `wraptool sync`; the signing result determines whether the
+account is actually required. The value is never written to this repository.
 
 For the eventual distribution build, run this separately on the release operator's Mac:
 

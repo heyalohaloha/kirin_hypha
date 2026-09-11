@@ -32,7 +32,7 @@ Options:
                          Confirm the font is covered by the Kirin Hypha App License
 
 Signing environment (required with --sign or --diagnostic-sign):
-  KIRIN_AAX_PACE_ACCOUNT
+  KIRIN_AAX_PACE_ACCOUNT       Optional account ID; passed to wraptool when set
   KIRIN_AAX_PACE_CUSTOMER_NUMBER
   KIRIN_AAX_PACE_CUSTOMER_NAME
   KIRIN_AAX_APPLE_SIGN_IDENTITY
@@ -140,12 +140,12 @@ fi
 
 RELEASE_SOURCE_ID=""
 WRAPTOOL=""
+WRAPTOOL_SIGN_ARGS=(sign)
 if [[ "$SIGN_OUTPUT" == 1 || "$DIAGNOSTIC_SIGN_OUTPUT" == 1 ]]; then
   if [[ "$SIGN_OUTPUT" == 1 ]]; then
     [[ -n "$KIMERA_FONT_FILE" ]] \
       || fail "distribution signing requires --kimera-font and --kimera-license-confirmed"
   fi
-  : "${KIRIN_AAX_PACE_ACCOUNT:?required with signing mode}"
   : "${KIRIN_AAX_PACE_CUSTOMER_NUMBER:?required with signing mode}"
   : "${KIRIN_AAX_PACE_CUSTOMER_NAME:?required with signing mode}"
   : "${KIRIN_AAX_APPLE_SIGN_IDENTITY:?required with signing mode}"
@@ -155,6 +155,9 @@ if [[ "$SIGN_OUTPUT" == 1 || "$DIAGNOSTIC_SIGN_OUTPUT" == 1 ]]; then
     WRAPTOOL="$DEFAULT_WRAPTOOL"
   else
     WRAPTOOL="$FALLBACK_WRAPTOOL"
+  fi
+  if [[ -n "${KIRIN_AAX_PACE_ACCOUNT:-}" ]]; then
+    WRAPTOOL_SIGN_ARGS+=(--account "$KIRIN_AAX_PACE_ACCOUNT")
   fi
   if [[ "$DRY_RUN" == 0 ]]; then
     [[ -x "$WRAPTOOL" ]] || fail "wraptool is not executable; set KIRIN_AAX_WRAPTOOL"
@@ -234,8 +237,7 @@ if [[ "$SIGN_OUTPUT" == 1 || "$DIAGNOSTIC_SIGN_OUTPUT" == 1 ]]; then
   for role in PRE POST; do
     lower="$(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')"
     bundle="build-aax-universal/KirinHypha${role}_artefacts/Release/AAX/Kirin Hypha ${role}.aaxplugin"
-    run "$WRAPTOOL" sign \
-      --account "$KIRIN_AAX_PACE_ACCOUNT" \
+    run "$WRAPTOOL" "${WRAPTOOL_SIGN_ARGS[@]}" \
       --in "$bundle" \
       --customernumber "$KIRIN_AAX_PACE_CUSTOMER_NUMBER" \
       --customername "$KIRIN_AAX_PACE_CUSTOMER_NAME" \
