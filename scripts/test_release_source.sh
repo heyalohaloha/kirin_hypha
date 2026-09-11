@@ -77,8 +77,8 @@ run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   juce_shell/tests/ui_contract_test.cpp -o "$UI_CONTRACT_BIN"
 run "$UI_CONTRACT_BIN"
 
-# New shell anatomy is independent of the legacy Meters layout. Pin all four PRE/POST sizes and
-# the optional Guide rail before either transport or JUCE rendering is connected to it.
+# New shell anatomy is independent of the legacy Meters layout. Pin all five PRE/POST sizes and
+# the optional Guide context before either transport or JUCE rendering is connected to it.
 run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   juce_shell/tests/observatory_contract_test.cpp -o "$OBSERVATORY_CONTRACT_BIN"
 run "$OBSERVATORY_CONTRACT_BIN"

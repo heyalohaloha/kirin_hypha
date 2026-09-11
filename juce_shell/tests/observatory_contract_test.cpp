@@ -32,7 +32,7 @@ void verifyLayout (observatory::Role role,
     for (const auto rect : std::array {
              layout.header, layout.roleTitle, layout.domainNavigation,
              layout.connectionStatus, layout.body, layout.footer,
-             layout.session, layout.actions })
+             layout.session, layout.actions, layout.sizeSelector })
     {
         assert (observatory::hasArea (rect));
         assert (observatory::fitsWithin (rect, preset.width, preset.height));
@@ -43,11 +43,12 @@ void verifyLayout (observatory::Role role,
     assert (! overlaps (layout.header, layout.body));
     assert (! overlaps (layout.body, layout.footer));
     assert (! overlaps (layout.session, layout.actions));
+    assert (! overlaps (layout.actions, layout.sizeSelector));
 
     if (role == observatory::Role::post)
     {
         assert (observatory::hasArea (layout.observationTarget));
-        assert (! overlaps (layout.observationTarget, layout.session));
+        assert (! overlaps (layout.observationTarget, layout.domainNavigation));
     }
     else
     {
@@ -60,6 +61,8 @@ void verifyLayout (observatory::Role role,
         assert (observatory::fitsWithin (layout.guideRail, preset.width, preset.height));
         assert (! overlaps (layout.header, layout.guideRail));
         assert (! overlaps (layout.guideRail, layout.body));
+        assert (overlaps (layout.guideRail, layout.footer));
+        assert (! overlaps (layout.guideRail, layout.session));
     }
     else
     {
@@ -125,8 +128,8 @@ int main()
             assert (withoutGuide.header.y == withGuide.header.y);
             assert (withoutGuide.header.width == withGuide.header.width);
             assert (withoutGuide.footer.y == withGuide.footer.y);
-            assert (withGuide.body.y > withoutGuide.body.y);
-            assert (withGuide.body.height < withoutGuide.body.height);
+            assert (withGuide.body.y == withoutGuide.body.y);
+            assert (withGuide.body.height == withoutGuide.body.height);
         }
     }
 
@@ -188,7 +191,7 @@ int main()
         observatory::GuidePresence::present);
     assert (inspection.domainTabs);
     assert (inspection.capture);
-    static_assert (observatory::footerHeight (observatory::Density::inspection) == 64);
+    static_assert (observatory::footerHeight (observatory::Density::inspection) == 34);
     static_assert (observatory::timeNavigationHeight (
         observatory::Density::inspection) == 38);
 

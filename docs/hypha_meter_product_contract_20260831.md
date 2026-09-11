@@ -95,7 +95,7 @@ REFの案内画面は試聴の許可ではない。
 進行中の比較や減衰保持からの復帰操作を案内画面で覆わない。
 ローカルPRE/POST BlindはHypha単体機能として承認済みだが、このReference案内の実装では音声経路へ接続しない。
 Keep／Record開始は既存のRust側license gateを正本とし、UI状態だけで許可を推測しない。
-Guide rail、TIME上のGuide時刻、FREQ上のGuide帯域、WorkへのCapture添付、Work名、CaptureへのGuide包含はOS所有時だけ利用できる。
+FooterのGuide context、TIME上のGuide時刻、FREQ上のGuide帯域、WorkへのCapture添付、Work名、CaptureへのGuide包含はOS所有時だけ利用できる。
 LEVEL、TIME、FREQ、SPACE、通常のPRE/POST差分と解析、ローカル高解像度Capture、自由リサイズは制限しない。
 
 ### 3.2 Measurement boundary
@@ -290,7 +290,7 @@ PRE未接続時はPOST absoluteを維持し、PREと差分を生成しない。
 Kirin OSのINSPECTとMASKINGは、POSTの第五domainではなく全domainへ作用できるGuide layerとする。
 
 Guide layerの取得・接続承認・表示snapshotはKirin OS entitlementで制限する。
-OS未所有でも各domain自体は使用でき、Guide由来のrail、時刻、帯域だけを表示しない。
+OS未所有でも各domain自体は使用でき、Guide由来のcontext、時刻、帯域だけを表示しない。
 
 Guideの実装計画は`docs/hypha_post_os_guide_integration_plan_20260831.md`を正本とする。
 
@@ -298,11 +298,11 @@ Kirin OSは保存済みWorkから利用者が確認したPOST一台へ直接送�
 
 PREをrelayに使わず、POSTはPREとpairされていなくてもGuideを表示できる。
 
-Guide不在時は画面上の占有面積を0にする。
+Guide不在時はFooterのGuide contextを表示せず、測定面の寸法を変えない。
 
 Guide受信時も現在のdomainを自動変更しない。
 
-LEVELはGuide railだけを表示する。
+LEVELはFooterのGuide contextだけを表示する。
 
 TIMEはINSPECTの時刻または区間と、MASKINGの選択範囲および実測collision intervalを表示する。
 

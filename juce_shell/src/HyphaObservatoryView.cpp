@@ -48,7 +48,8 @@ View::View (Role roleIn) : role (roleIn)
                           &referenceButton,
                           &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton,
                           &compactLoudnessButton, &compactRangeButton,
-                          &contextButton, &scaleButton, &sizeButton, &hybridVuButton,
+                          &contextButton, &scaleButton, &sizeButton, &operationsButton,
+                          &stopButton, &guideButton, &statusButton, &hybridVuButton,
                           &clearPeakClipButton, &resetButton, &noteButton, &captureButton })
     {
         styleButton (*button);
@@ -61,7 +62,8 @@ View::View (Role roleIn) : role (roleIn)
     referenceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::reference); };
     referenceButton.setComponentID ("observatory-reference");
     setReferenceOwned (false);
-    domainCycleButton.onClick = [this] { cycleDomain(); };
+    domainCycleButton.onClick = [this]
+    { if (onDomainMenu) onDomainMenu(); else cycleDomain(); };
     targetButton.onClick = [this]
     {
         if (isFullDensity (currentPreset().density))
@@ -96,7 +98,19 @@ View::View (Role roleIn) : role (roleIn)
     };
     compactLoudnessButton.setTooltip ("Switch Momentary / Short-term loudness"); compactRangeButton.setTooltip ("Switch current / session maximum values");
     contextButton.setTooltip ("Switch TRACK/STEM / 2MIX meter context"); scaleButton.setTooltip ("Switch WIDE / FOCUS loudness scale");
-    sizeButton.onClick = [this] { cycleSize(); };
+    sizeButton.onClick = [this] { if (onSizeMenu) onSizeMenu(); else cycleSize(); };
+    sizeButton.setTooltip ("Choose an exact editor size");
+    operationsButton.setTooltip ("Keep, measurement, and display controls");
+    operationsButton.setComponentID ("observatory-menu");
+    operationsButton.onClick = [this] { if (onOperationsMenu) onOperationsMenu(); };
+    stopButton.setColour (juce::TextButton::textColourOffId, COL_FLORA_BR);
+    stopButton.setTooltip ("Stop the selected PRE / POST Keep");
+    stopButton.onClick = [this] { if (onStop) onStop(); };
+    guideButton.setColour (juce::TextButton::textColourOffId, COL_GUIDE_BR);
+    guideButton.setTooltip ("Open the received Kirin OS Guide details");
+    guideButton.onClick = [this] { if (onGuideDetails) onGuideDetails(); };
+    statusButton.setColour (juce::TextButton::textColourOffId, COL_NORMAL);
+    statusButton.onClick = [this] { if (onFeedbackDetails) onFeedbackDetails(); };
     hybridVuButton.setComponentID ("observatory-hybrid-vu");
     hybridVuButton.setTitle ("Hybrid VU");
     hybridVuButton.setDescription ("Show or hide the Hybrid VU without changing measurement");
@@ -233,6 +247,7 @@ void View::setGuide (juce::String primary, juce::String detail, bool emphasized)
     guidePrimary = std::move (primary);
     guideDetail = std::move (detail);
     guideEmphasized = emphasized;
+    updateControls();
     if (changedPresence)
         resized();
     repaint();
@@ -245,6 +260,7 @@ void View::clearGuide()
     guidePrimary.clear();
     guideDetail.clear();
     guideEmphasized = false;
+    updateControls();
     resized();
     repaint();
 }
@@ -348,6 +364,15 @@ void View::updateControls()
     scaleButton.setToggleState (true, juce::dontSendNotification);
     sizeButton.setButtonText (
         displayedEditorWidth > 0 ? displayedSizeLabel : currentPreset().label);
+    const auto guideLabel = guidePrimary.containsIgnoreCase ("MASKING") ? "MASKING"
+                          : guidePrimary.containsIgnoreCase ("INSPECT") ? "INSPECT"
+                          : guidePrimary.containsIgnoreCase ("CONNECT") ? "CONNECT"
+                                                                       : "OS GUIDE";
+    guideButton.setButtonText (guideLabel);
+    guideButton.setToggleState (guideEmphasized, juce::dontSendNotification);
+    guideButton.setTooltip ((guidePrimary + "  " + guideDetail).trim());
+    statusButton.setButtonText (feedbackText);
+    statusButton.setTooltip (feedbackText);
     hybridVuButton.setToggleState (hybridVuVisible(), juce::dontSendNotification);
 }
 
@@ -395,7 +420,6 @@ void View::paint (juce::Graphics& g)
         background.drawHyphaSpecimen (g, bodyArea, state);
     }
     paintHeader (g, layout);
-    paintGuide (g, layout);
     if (selectedDomain == Domain::level && (captureFrame || fullCockpit()))
         paintLevelWithHistory (g, bodyArea);
     else if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
@@ -449,23 +473,6 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
         g.drawText (connectionText, statusArea.reduced (4, 0),
                     juce::Justification::centredRight);
     }
-}
-
-void View::paintGuide (juce::Graphics& g, const ShellLayout& layout)
-{
-    if (! hasArea (layout.guideRail))
-        return;
-    auto area = toJuce (layout.guideRail);
-    g.setColour ((guideEmphasized ? COL_GUIDE_BR : COL_GUIDE).withAlpha (0.10f));
-    g.fillRoundedRectangle (area.toFloat(), 3.0f);
-    g.setColour (guideEmphasized ? COL_GUIDE_BR : COL_GUIDE);
-    g.fillRect (area.removeFromLeft (2));
-    g.setFont (monoFont (presentationContext(), typography::TextRole::body));
-    g.drawText (guidePrimary, area.removeFromLeft (juce::roundToInt (area.getWidth() * 0.58f))
-                                  .reduced (6, 0), juce::Justification::centredLeft);
-    g.setColour (COL_GUIDE.withAlpha (0.78f));
-    g.drawText (guideDetail, area.reduced (4, 0), juce::Justification::centredRight);
-    observatory_world::paintGuideRoot (g, toJuce (layout.guideRail), worldState());
 }
 
 }

@@ -352,7 +352,8 @@ void paint (juce::Graphics& g,
 {
     const float scale = spectrum_geometry::visualScaleFor (bounds);
     const auto outerPlot = spectrum_geometry::plotBoundsFor (bounds);
-    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, ! state.absoluteObservation);
+    const bool focusLocked = ! state.absoluteObservation && state.focusFrequencyHz > 0.0f;
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, focusLocked);
     const float minimumHz = state.haveSnapshot && state.snapshot.min_hz > 0.0f
                           ? state.snapshot.min_hz : 10.0f;
     const float maximumHz = state.haveSnapshot && state.snapshot.max_hz > minimumHz
@@ -412,16 +413,13 @@ void paint (juce::Graphics& g,
     else
         spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                        state.delta, state.haveMark ? &state.mark : nullptr);
-    if (! state.absoluteObservation && focusNormalisedX >= 0.0f
+    if (focusLocked
         && state.focusTrail != nullptr && ! state.focusTrail->empty())
     {
         spectrum_focus_painter::paint (
             g, spectrum_geometry::focusTrailBoundsFor (bounds), scale,
             *state.focusTrail, focusNormalisedX, scale <= 1.1f, state.presentation);
     }
-    else if (! state.absoluteObservation && scale > 1.1f && focusNormalisedX < 0.0f)
-        spectrum_focus_painter::paintEmptyPrompt (
-            g, spectrum_geometry::focusTrailBoundsFor (bounds), state.presentation);
     if (probeNormalisedX >= 0.0f)
         paintProbe (g, outerPlot, plot, scale, probeNormalisedX,
                     minimumHz, maximumHz, state);

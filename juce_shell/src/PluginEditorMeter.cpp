@@ -185,6 +185,7 @@ void KirinHyphaEditor::updatePost()
     const bool armed = keepPhase == (int) KIRIN_KEEP_PHASE_ARMED;
     const bool keepActive = rec || preparing || armed;
     observatoryView.setNoteAvailability (processorRef.licenseIsOs(), rec);
+    observatoryView.setKeepActive (keepActive);
     const bool ack    = processorRef.recordAcknowledged(); // POST: always false (egui parity)
     const bool preset = processorRef.presetAvailable();
     const bool playing = processorRef.isPlaying();

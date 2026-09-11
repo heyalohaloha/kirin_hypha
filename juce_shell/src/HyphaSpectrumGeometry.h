@@ -46,7 +46,7 @@ namespace hypha::spectrum_geometry
     }
 
     inline juce::Rectangle<float> dataPlotBoundsFor (juce::Rectangle<float> bounds,
-                                                    bool reserveFocusTrail = true) noexcept
+                                                    bool reserveFocusTrail = false) noexcept
     {
         const float scale = visualScaleFor (bounds);
         auto plot = plotBoundsFor (bounds);

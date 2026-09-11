@@ -23,6 +23,8 @@ void View::setFeedback (juce::String text)
     feedbackText = std::move (text);
     setTooltip (feedbackText);
     setDescription (feedbackText);
+    updateControls();
+    resized();
     if (hybridVuVisible()) repaint(); else repaint (sessionArea);
 }
 
@@ -91,8 +93,7 @@ int View::timeControlsHeight() const noexcept
 {
     if (selectedDomain != Domain::time) return 0;
     const bool controls = capabilities().historyRange || capabilities().loudnessScale;
-    return timeNavigationHeight (currentPreset().density)
-        * ((role == Role::post ? 1 : 0) + (controls ? 1 : 0));
+    return (role == Role::post || controls) ? timeNavigationHeight (currentPreset().density) : 0;
 }
 void View::setMeterContext (meter_context::MeterContext value)
 {
@@ -143,6 +144,10 @@ juce::Rectangle<int> View::timeNavigationBounds() const noexcept
     const auto density = currentPreset().density;
     auto available = bodyArea;
     auto row = available.removeFromTop (timeNavigationHeight (density));
+    if (capabilities().loudnessScale && ! captureFrame)
+        row.removeFromRight (timeScaleWidth (density));
+    if (capabilities().historyRange && ! captureFrame)
+        row.removeFromRight (juce::jmax (120, timeRangeWidth (density)));
     return row;
 }
 }

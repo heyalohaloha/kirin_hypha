@@ -57,9 +57,20 @@ public:
     std::function<void()> onNote;
     std::function<void()> onInformation;
     std::function<void()> onLocalBlind;
+    std::function<void()> onDomainMenu;
+    std::function<void()> onSizeMenu;
+    std::function<void()> onOperationsMenu;
+    std::function<void()> onStop;
+    std::function<void()> onGuideDetails;
+    std::function<void()> onFeedbackDetails;
     std::function<void (bool)> onHybridVuChange;
     std::function<void()> onClearPeakClipHolds;
     juce::Component& informationAnchor() noexcept { return informationButton; }
+    juce::Component& domainMenuAnchor() noexcept { return domainCycleButton; }
+    juce::Component& sizeMenuAnchor() noexcept { return sizeButton; }
+    juce::Component& operationsMenuAnchor() noexcept { return operationsButton; }
+    juce::Component& guideDetailsAnchor() noexcept { return guideButton; }
+    juce::Component& feedbackDetailsAnchor() noexcept { return statusButton; }
 
     void setDomain (Domain);
     Domain domain() const noexcept { return selectedDomain; }
@@ -154,6 +165,9 @@ public:
     // only the size label/cycle identity; measurement and shell layout keep using local bounds.
     void setDisplayedEditorSize (int width, int height);
     void setNoteAvailability (bool osOwned, bool recording);
+    void setKeepActive (bool active);
+    bool localBlindEntryAvailable() const noexcept { return localBlindEntryEnabled; }
+    const juce::String& feedback() const noexcept { return feedbackText; }
     void setLocalBlindEntryEnabled (bool enabled)
     {
         if (localBlindEntryEnabled == enabled) return;
@@ -213,7 +227,6 @@ private:
     SizePreset currentPreset() const noexcept;
     GuidePresence guidePresence() const noexcept;
     void paintHeader (juce::Graphics&, const ShellLayout&);
-    void paintGuide (juce::Graphics&, const ShellLayout&);
     void paintFooter (juce::Graphics&, const ShellLayout&);
     void layoutFooterActions (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
@@ -250,6 +263,7 @@ private:
     juce::String feedbackText;
     bool referenceOwned = false;
     bool localBlindEntryEnabled = false;
+    bool keepActive = false;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;
     ConnectionState connectionState = ConnectionState::unpaired;
@@ -290,6 +304,10 @@ private:
     Button contextButton { {}, false };
     Button scaleButton { {}, false };
     Button sizeButton { {}, false };
+    Button operationsButton { "MENU", false };
+    Button stopButton { "STOP", false };
+    Button guideButton { {}, false };
+    Button statusButton { {}, true };
     Button hybridVuButton { "VU", false };
     Button clearPeakClipButton { "CLEAR", false };
     Button resetButton { "RESET", false };

@@ -194,9 +194,10 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         spectrum_geometry::bandCentreNormalisedX (0u), snapshot.min_hz, snapshot.max_hz);
     KIRIN_INTERACTION_REQUIRE (std::abs (
         bandMappingSpectrum.focusLockFrequencyHz() - firstCentreFrequency) < 0.001f);
+    const auto lockedMappingPlot = spectrum_geometry::dataPlotBoundsFor (componentBounds, true);
     bandMappingSpectrum.mouseDown (mouseEvent (
-        bandMappingSpectrum, mappingPlot.getRight() - 0.01f,
-        mappingPlot.getCentreY(), eventTime));
+        bandMappingSpectrum, lockedMappingPlot.getRight() - 0.01f,
+        lockedMappingPlot.getCentreY(), eventTime));
     const float lastCentreFrequency = spectrum_geometry::frequencyForNormalisedX (
         spectrum_geometry::bandCentreNormalisedX (KIRIN_SPECTRUM_BAND_COUNT - 1u),
         snapshot.min_hz, snapshot.max_hz);
@@ -303,11 +304,10 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     const float movedHoverX = juce::jmap (
         0.75f, recoveredPlot.getX(), recoveredPlot.getRight());
     recoveredSpectrum.mouseDown (mouseEvent (
-        recoveredSpectrum,
-        lockedX,
-        recoveredPlot.getCentreY(), eventTime));
+        recoveredSpectrum, lockedX, recoveredPlot.getCentreY(), eventTime));
     KIRIN_INTERACTION_REQUIRE (recoveredSpectrum.hasFocusLock());
     const float lockedFrequency = recoveredSpectrum.focusLockFrequencyHz();
+    const auto recoveredLockedPlot = spectrum_geometry::dataPlotBoundsFor (componentBounds, true);
     juce::Image trailAtLock (
         juce::Image::ARGB, recoveredSpectrum.getWidth(), recoveredSpectrum.getHeight(), true);
     {
@@ -315,8 +315,7 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
         recoveredSpectrum.paintEntireComponent (graphics, true);
     }
     recoveredSpectrum.mouseMove (mouseEvent (
-        recoveredSpectrum, movedHoverX,
-        recoveredPlot.getCentreY(), eventTime));
+        recoveredSpectrum, movedHoverX, recoveredLockedPlot.getCentreY(), eventTime));
     KIRIN_INTERACTION_REQUIRE (
         std::abs (recoveredSpectrum.focusLockFrequencyHz() - lockedFrequency) < 1.0e-4f);
     juce::Image trailAfterHoverMove (

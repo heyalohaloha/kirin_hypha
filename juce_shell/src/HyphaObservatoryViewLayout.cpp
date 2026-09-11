@@ -14,7 +14,8 @@ void View::resized()
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                           &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
                           &timeRangeButton, &compactLoudnessButton, &compactRangeButton,
-                          &contextButton, &scaleButton, &sizeButton, &hybridVuButton,
+                          &contextButton, &scaleButton, &sizeButton, &operationsButton,
+                          &stopButton, &guideButton, &statusButton, &hybridVuButton,
                           &clearPeakClipButton, &resetButton, &noteButton, &captureButton,
                           &localBlindButton })
         button->setPresentationContext (context);
@@ -36,7 +37,8 @@ void View::resized()
         for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                               &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
                               &timeRangeButton, &compactLoudnessButton, &compactRangeButton,
-                              &contextButton, &scaleButton, &sizeButton, &resetButton,
+                              &contextButton, &scaleButton, &sizeButton, &operationsButton,
+                              &stopButton, &guideButton, &statusButton, &resetButton,
                               &noteButton, &captureButton, &localBlindButton })
             button->setVisible (false);
         const auto bounds = getLocalBounds();
@@ -118,7 +120,6 @@ void View::resized()
     {
         const auto density = preset.density;
         auto available = bodyArea; auto controls = available.removeFromTop (timeNavigationHeight (density));
-        if (role == Role::post) controls.translate (0, timeNavigationHeight (density));
         scaleButton.setBounds (
             controls.removeFromRight (timeScaleWidth (density)).reduced (2, 2));
     }
@@ -126,7 +127,6 @@ void View::resized()
     {
         const auto density = preset.density;
         auto available = bodyArea; auto controls = available.removeFromTop (timeNavigationHeight (density));
-        if (role == Role::post) controls.translate (0, timeNavigationHeight (density));
         if (scaleButton.isVisible()) controls.removeFromRight (timeScaleWidth (density));
         timeRangeButton.setBounds (
             controls.removeFromRight (juce::jmax (120, timeRangeWidth (density))).reduced (2, 2));
@@ -146,10 +146,11 @@ void View::resized()
     }
     sizeButton.setVisible (! captureFrame);
     if (! captureFrame)
-    {
-        const auto sizeWidth = compact ? 42 : 52;
-        sizeButton.setBounds (sessionArea.removeFromRight (sizeWidth).reduced (1, 2));
-    }
+        sizeButton.setBounds (toJuce (layout.sizeSelector).reduced (1, 2));
+    guideButton.setVisible (guidePresence() == GuidePresence::present);
+    guideButton.setBounds (guideArea.reduced (1, 2));
+    statusButton.setVisible (! captureFrame && feedbackText.isNotEmpty());
+    statusButton.setBounds (sessionArea.reduced (1, 2));
     layoutFooterActions (toJuce (layout.actions));
 }
 }

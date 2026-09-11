@@ -34,10 +34,12 @@ inline void verifyLocalBlindUiContract()
     {
         post.setSize (preset.width, preset.height);
         pre.setSize (preset.width, preset.height);
-        require (postEntry->isVisible() == observatory::isFullDensity (preset.density),
-                 "POST entry exists only in a large analysis frame");
+        require (! postEntry->isVisible(),
+                 "POST Blind entry is consolidated into the operations menu");
         require (! preEntry->isVisible(), "PRE never consumes a second Blind UI slot");
     }
+    require (post.localBlindEntryAvailable(),
+             "POST Blind capability remains available to the operations menu");
 
     local_blind_ui::Component component;
     component.setPresentationContext (presentation::forEditor (600, 400));

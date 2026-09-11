@@ -56,6 +56,10 @@ Hyphaの画面だけを見た段階では地下の観測設備として読め、
 
 graphiteを画面とpanelの基材にする。
 
+通常panelと未選択controlは、明るい四角枠で区切らない。
+暗い基材の層差、上辺の連続した低明度反射、下辺の沈みで境界を成立させ、選択箇所だけ意味色の短い光を持たせる。
+VUの計器フレームはこの簡略化の対象外とし、既存の筐体構図と意味を維持する。
+
 ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep tealは構造の微光へ割り当てる。
 
 赤、黄、緑の信号色で品質を採点しない。
@@ -254,9 +258,9 @@ LEVELの菌糸量はLUFS-Mを`-48..0 LUFS`から`0..1`へclampした値だけで
 
 waitingと未接続では接続済みの形を表示しない。
 
-OS Guideが存在する場合だけGuide railと下端の細いrootを表示する。
+OS Guideが存在する場合だけFooterに短いGuide contextを表示する。
 
-Guide railは現在のdomainを変更しない。
+Guide contextは現在のdomainを変更せず、測定面の高さも変えない。
 
 Guideの文字とbandはKirin OS由来の事実であり、Live POSTとLive Deltaの測定値へ混ぜない。
 

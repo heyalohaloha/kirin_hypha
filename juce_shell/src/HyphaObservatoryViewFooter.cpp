@@ -28,10 +28,21 @@ void View::setNoteAvailability (bool osOwned, bool recording)
     const auto help = ! osOwned ? juce::String ("NOTE requires Kirin OS")
                     : ! recording ? juce::String ("NOTE requires an active Keep")
                                   : juce::String ("Add a note at the current sample position");
-    noteButton.setEnabled (osOwned && recording);
+    const bool enabled = osOwned && recording;
+    const bool visibilityMayChange = noteButton.isEnabled() != enabled;
+    noteButton.setEnabled (enabled);
     noteButton.setTitle (help);
     noteButton.setDescription (help);
     noteButton.setTooltip (help);
+    if (visibilityMayChange)
+        resized();
+}
+
+void View::setKeepActive (bool active)
+{
+    if (keepActive == active) return;
+    keepActive = active;
+    resized();
 }
 
 void View::layoutFooterActions (juce::Rectangle<int> actions)
@@ -40,13 +51,15 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     const bool full = captureEntryAvailable (role, currentPreset()) && ! reference;
     hybridVuButton.setVisible (! captureFrame);
     clearPeakClipButton.setVisible (false);
-    resetButton.setVisible (! captureFrame && ! reference);
-    noteButton.setVisible (role == Role::post && ! captureFrame && ! reference);
+    operationsButton.setVisible (! captureFrame);
+    stopButton.setVisible (role == Role::post && keepActive && ! captureFrame);
+    resetButton.setVisible (full && ! captureFrame);
+    noteButton.setVisible (role == Role::post && full && noteButton.isEnabled() && ! captureFrame);
     captureButton.setVisible (full && ! captureFrame);
-    localBlindButton.setVisible (localBlindEntryEnabled && full && ! captureFrame);
+    localBlindButton.setVisible (false);
     juce::Array<juce::Button*> visible;
-    for (auto* button : { &hybridVuButton, &resetButton, &noteButton,
-                          &captureButton, &localBlindButton })
+    for (auto* button : { &hybridVuButton, &resetButton, &noteButton, &captureButton,
+                          &stopButton, &operationsButton })
         if (button->isVisible()) visible.add (button);
     juce::Array<int> minimumWidths;
     const auto actionFont = labelFont (presentationContext(), typography::TextRole::action);
@@ -74,34 +87,25 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     drawPanel (g, toJuce (layout.footer), experienceFamily(), 4.0f);
     auto session = sessionArea.reduced (6, 0);
     const auto& meter = observatoryFrame.meter;
-    const auto state = ! frameAvailable ? juce::String ("SESSION ") + hypha::emDash()
-                     : meter.state == KIRIN_METER_SESSION_EMPTY ? juce::String ("READY  ")
+    const auto state = ! frameAvailable || meter.state == KIRIN_METER_SESSION_EMPTY
+                         ? juce::String ("WAITING")
                      : observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED
-                         ? juce::String ("BYPASSED  ")
-                     : observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_INACTIVE
-                         ? juce::String ("INACTIVE  ")
-                     : juce::String ("ACTIVE  ");
+                         ? juce::String ("BYPASSED") : juce::String();
     const auto seconds = frameAvailable && meter.sample_rate > 0
         ? static_cast<double> (meter.active_frames) / static_cast<double> (meter.sample_rate) : 0.0;
     g.setColour (frameAvailable ? COL_TEXT_SECONDARY : COL_MUTED);
     if (! captureFrame)
     {
-        if (feedbackText.isNotEmpty())
-        {
-            g.setFont (monoFont (presentationContext(), typography::TextRole::status));
-            g.setColour (COL_NORMAL);
-            g.drawText (feedbackText, session, juce::Justification::centredLeft);
-            return;
-        }
         g.setFont (monoFont (presentationContext(), typography::TextRole::status));
+        if (feedbackText.isEmpty())
+            g.drawText (state, session, juce::Justification::centredLeft);
        #if defined(JucePlugin_VersionString)
-        const auto version = juce::String ("  |  v") + JucePlugin_VersionString;
+        const auto version = juce::String ("v") + JucePlugin_VersionString;
        #else
-        const auto version = juce::String ("  |  development");
+        const auto version = juce::String ("development");
        #endif
-        g.drawText (state + juce::String (seconds, 1) + " S"
-                    + (session.getWidth() >= 290 ? version : juce::String {}), session,
-                    juce::Justification::centred);
+        if (getWidth() >= 600 && feedbackText.isEmpty())
+            g.drawText (version, session, juce::Justification::centredRight);
         return;
     }
 

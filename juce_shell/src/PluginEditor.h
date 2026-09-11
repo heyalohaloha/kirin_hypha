@@ -124,7 +124,13 @@ private:
     static constexpr int jungleModeMenuAction = 13;
     void configureForKind (Kind);
     void layoutMetrics (bool six);
-    void showCandidateMenu();          // B-102: POST pair dropdown (All Keep/All Stop/candidates)
+    void showCandidateMenu();
+    void showOperationsMenu();
+    void showDomainMenu();
+    void showSizeMenu();
+    void showGuideInformationMenu();
+    void showFeedbackInformationMenu();
+    void handleOperationsMenu (int result);
     void showInformationMenu();
     void handleInformationMenu (int result);
     bool informationBlockedByBlind() const;

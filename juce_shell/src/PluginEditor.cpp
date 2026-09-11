@@ -179,11 +179,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
                 showToast ("Could not open browser");
         };
 
-        // B-102/B-492: vector-arrow dropdown beside the pair field — All Keep / All Stop / candidates.
-        pairDropdown.setTitle ("Pair, Keep, and display menu");
-        pairDropdown.setDescription (
-            "Choose an exact PRE pair, control Keep, or change hover help");
-        pairDropdown.setTooltip ("Pair, Keep, and display options.");
+        // The arrow beside PAIR owns exact connection selection only.
+        pairDropdown.setTitle ("Pair menu");
+        pairDropdown.setDescription ("Choose one exact PRE connection");
+        pairDropdown.setTooltip ("Pair choices");
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
         pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);

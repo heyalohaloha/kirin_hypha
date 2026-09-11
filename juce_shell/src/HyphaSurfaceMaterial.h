@@ -22,25 +22,41 @@ inline void paintPanel (juce::Graphics& g,
     const auto outer = area.reduced (0.5f);
     const auto radius = juce::jlimit (1.0f, juce::jmin (outer.getWidth(), outer.getHeight()) * 0.5f,
                                       corner);
-    g.setColour (BG.brighter (0.055f).withAlpha (fillAlpha));
+    juce::ColourGradient material (
+        BG.brighter (0.060f).withAlpha (fillAlpha), outer.getCentreX(), outer.getY(),
+        BG.darker (0.16f).withAlpha (fillAlpha), outer.getCentreX(), outer.getBottom(), false);
+    material.addColour (0.34, BG.brighter (0.025f).withAlpha (fillAlpha));
+    g.setGradientFill (material);
     g.fillRoundedRectangle (outer, radius);
 
-    g.setColour (graphiteEdge().withAlpha (0.46f));
-    g.drawRoundedRectangle (outer, radius, 0.75f);
+    // Depth comes from the material itself. The perimeter stays dark so a grid of cards does not
+    // read as a generic collection of pale rectangular outlines.
+    g.setColour (BG.darker (0.82f).withAlpha (0.92f));
+    g.drawRoundedRectangle (outer, radius, 0.80f);
     if (outer.getWidth() > 8.0f && outer.getHeight() > 7.0f)
     {
         const auto inner = outer.reduced (1.15f);
-        g.setColour (BG.darker (0.28f).withAlpha (0.84f));
-        g.drawRoundedRectangle (inner, juce::jmax (1.0f, radius - 1.0f), 0.65f);
+        g.setColour (graphiteEdge().withAlpha (0.13f));
+        g.drawRoundedRectangle (inner, juce::jmax (1.0f, radius - 1.0f), 0.55f);
 
-        // A single continuous upper reflection gives the recessed instrument window depth.
-        // It is deliberately structural and never follows a measurement or connection state.
-        g.setColour (COL_NORMAL.withAlpha (0.075f));
-        g.drawLine (inner.getX() + radius,
+        // One unbroken, fading reflection suggests the CE 2226 grown surface without becoming a
+        // decorative line language. It never follows a measurement or connection state.
+        const float reflectionStart = inner.getX() + radius + inner.getWidth() * 0.10f;
+        const float reflectionEnd = inner.getRight() - radius - inner.getWidth() * 0.10f;
+        juce::ColourGradient reflection (
+            COL_NORMAL.withAlpha (0.0f), reflectionStart, inner.getY(),
+            COL_NORMAL.withAlpha (0.0f), reflectionEnd, inner.getY(), false);
+        reflection.addColour (0.28, COL_NORMAL.withAlpha (0.050f));
+        reflection.addColour (0.58, COL_NORMAL.withAlpha (0.072f));
+        g.setGradientFill (reflection);
+        g.drawLine (reflectionStart,
                     inner.getY() + 0.35f,
-                    inner.getRight() - radius,
+                    reflectionEnd,
                     inner.getY() + 0.35f,
                     0.65f);
+        g.setColour (BG.darker (0.92f).withAlpha (0.80f));
+        g.drawLine (inner.getX() + radius, inner.getBottom() - 0.35f,
+                    inner.getRight() - radius, inner.getBottom() - 0.35f, 0.60f);
     }
 }
 
@@ -61,12 +77,16 @@ inline void paintControl (juce::Graphics& g,
     paintPanel (g, area, highlighted ? 0.94f : selected ? 0.88f : 0.74f, corner);
     g.setColour (fill.withAlpha (down ? 0.62f : selected ? 0.42f : 0.18f));
     g.fillRoundedRectangle (area.reduced (1.35f), juce::jmax (1.0f, corner - 0.8f));
-    const auto edge = selected ? accent
-                               : highlighted ? accent.interpolatedWith (graphiteEdge(), 0.68f)
-                                             : graphiteEdge();
-    g.setColour (edge
-                     .withAlpha (selected ? 0.76f : highlighted ? 0.52f : 0.30f));
-    g.drawRoundedRectangle (area.reduced (0.7f), corner, selected ? 0.95f : 0.65f);
+    if (selected || highlighted)
+    {
+        const auto edge = selected ? accent
+                                   : accent.interpolatedWith (graphiteEdge(), 0.72f);
+        g.setColour (edge.withAlpha (selected ? 0.76f : 0.38f));
+        const auto inset = area.reduced (corner + 1.0f, 0.0f);
+        g.drawLine (inset.getX(), inset.getBottom() - 0.75f,
+                    inset.getRight(), inset.getBottom() - 0.75f,
+                    selected ? 0.95f : 0.70f);
+    }
 }
 
 inline void paintInstrumentFrame (juce::Graphics& g,
@@ -105,7 +125,7 @@ inline void paintObservationWell (juce::Graphics& g, juce::Rectangle<float> area
     g.fillRect (area);
 
     const auto inner = area.reduced (0.35f);
-    g.setColour (graphiteEdge().withAlpha (0.34f));
+    g.setColour (BG.darker (0.88f).withAlpha (0.90f));
     g.drawRect (inner, 0.70f);
     g.setColour (COL_NORMAL.withAlpha (0.045f));
     g.drawLine (inner.getX() + 1.0f, inner.getY() + 0.40f,

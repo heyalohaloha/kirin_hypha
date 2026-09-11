@@ -80,6 +80,12 @@ void KirinHyphaEditor::configureMeterContext()
         observatoryView.setScaleMode (scale);
         processorRef.setScaleModePreference (scale);
     };
+    observatoryView.onDomainMenu = [this] { showDomainMenu(); };
+    observatoryView.onSizeMenu = [this] { showSizeMenu(); };
+    observatoryView.onOperationsMenu = [this] { showOperationsMenu(); };
+    observatoryView.onGuideDetails = [this] { showGuideInformationMenu(); };
+    observatoryView.onFeedbackDetails = [this] { showFeedbackInformationMenu(); };
+    observatoryView.onStop = [this] { processorRef.stopPair(); };
     observatoryView.onReset = [this]
     {
         if (! processorRef.resetMeterSession())
@@ -321,7 +327,7 @@ void KirinHyphaEditor::refreshObservatory()
             ? connection.workTitle : connection.workId;
         const auto primary = "CONNECT  " + title.substring (0, 36);
         observatoryView.setGuide (primary, {}, true);
-        guideConnectButton.setButtonText (primary);
+        guideConnectButton.setButtonText ("CONNECT");
         guideConnectButton.setTooltip ("Connect this Hypha session to Work: " + title);
     }
     else
