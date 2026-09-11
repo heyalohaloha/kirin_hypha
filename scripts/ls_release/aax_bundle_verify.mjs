@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 const MODULE_PATH = fileURLToPath(import.meta.url);
 const TEAM_ID = process.env.KIRIN_TEAM_ID || '7N8BSMA684';
 const DEFAULT_WRAPTOOL_PATHS = [
-  '/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool',
   '/Applications/PACEAntiPiracy/Eden/Fusion/Versions/6/bin/wraptool',
+  '/Applications/PACEAntiPiracy/Eden/Fusion/Current/bin/wraptool',
 ];
 const PACE_DSIG_LINK = 'Contents/Resources/__Pace_Eden/Signatures/codesign.dsig';
 

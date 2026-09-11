@@ -13,7 +13,8 @@ The local build and installed copies passed both PACE `wraptool verify` and Appl
 Mac.
 
 The signed B-786 bundles (`be7b7de4`, version 1.1.49) were then exercised in Pro Tools Ultimate
-2026.4.1 on 2026-09-11 in a 48 kHz / 24-bit session. The Intel slice passed plug-in scanning,
+2026.4.1 (Avid-issued Developer NFR) on 2026-09-11 in a 48 kHz / 24-bit session. The Intel slice
+passed plug-in scanning,
 PRE/POST Native insertion, session close/reopen, stereo and multi-mono instantiation, PRE/POST
 pairing, zero-delay host reporting, and Offline Bounce. The ten-second stereo bounce contained the
 same 480,000 samples as the float source; subtracting the 24-bit bounce from the source measured
@@ -70,6 +71,13 @@ License. It writes the same diagnostic receipt with `signed: true`, `pace_verifi
 Ultimate host testing only. It must never be included in a pkg/zip/installer or treated as a
 release candidate.
 
+The path measured on the Mac is
+`/Applications/PACEAntiPiracy/Eden/Fusion/Versions/6/bin/wraptool`. The installed
+`.../Fusion/Current` entry is a symlink to `Versions/6`; the build script selects the versioned path
+by default and falls back to `Current` only when the versioned path is unavailable. Signing passes
+the PACE account explicitly with `--account` because the successful Mac signing command included it.
+The value is supplied only through `KIRIN_AAX_PACE_ACCOUNT`; it is never written to this repository.
+
 For the eventual distribution build, run this separately on the release operator's Mac:
 
 ```bash
@@ -89,6 +97,10 @@ non-distribution receipt. `--sign` requires the licensed font, a clean source
 commit with a B number, the exact tracked JUCE patch stack, and the documented PACE and Apple signing
 environment. The font, account identifiers, and signer values remain outside the repository and
 must not be written to logs.
+
+`--dry-run` performs the same argument, external-SDK path, signing-mode, and command-composition
+checks without invoking Cargo, CMake, lipo, wraptool, or macOS-only tools. It is safe to run in the
+SDK-free CI gate. Dry-run output redacts the account, customer, and Apple identity values.
 
 The entry point removes only its generated PRE/POST AAX product directories before each wrapper
 build. This prevents an unsigned diagnostic build from inheriting PACE symlinks or Apple signature

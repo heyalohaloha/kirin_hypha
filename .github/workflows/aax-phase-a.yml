@@ -39,6 +39,7 @@ jobs:
       - name: Test and enforce SDK absence
         run: |
           node scripts/test_aax_cmake_gate.mjs
+          node scripts/test_build_aax_universal.mjs
           node --test scripts/check_aax_sdk_absence.test.mjs
           node --test scripts/ls_release/aax_distribution.test.mjs
           node scripts/check_aax_sdk_absence.mjs

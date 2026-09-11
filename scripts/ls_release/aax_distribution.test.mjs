@@ -142,6 +142,10 @@ test('AAX target is Native-only and stamps signed build identity before distribu
   assert.match(stamp, /KirinHyphaAaxBuildMode/);
   assert.match(buildScript, /--diagnostic/);
   assert.match(buildScript, /--diagnostic-sign/);
+  assert.match(buildScript, /--dry-run/);
+  assert.match(buildScript, /KIRIN_AAX_PACE_ACCOUNT/);
+  assert.match(buildScript, /Fusion\/Versions\/6\/bin\/wraptool/);
+  assert.match(buildScript, /--account/);
   assert.match(buildScript, /mutually exclusive/);
   assert.match(buildScript, /diagnostic modes cannot include Kimera/);
   assert.match(diagnosticReceipt, /not_for_distribution: true/);
