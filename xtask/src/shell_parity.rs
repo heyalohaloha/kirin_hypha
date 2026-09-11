@@ -177,7 +177,7 @@ mod tests {
         assert!(
             JUCE_CMAKE.contains("target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)")
         );
-        assert!(PLUGIN_EDITOR_H.contains("juce::TextButton          guideConnectButton"));
+        assert!(PLUGIN_EDITOR_H.contains("hypha::HyphaTextButton    guideConnectButton"));
         assert!(PLUGIN_EDITOR_OBSERVATORY_CPP.contains("pendingPreDisplayConnection"));
         assert!(PLUGIN_EDITOR_OBSERVATORY_CPP.contains("preDisplaySnapshot"));
         assert!(

@@ -156,5 +156,42 @@ void verifySpectrumPresentationContract()
         spectrum_presentation::calmLowFrequencies (deltaInput, invalidWeights);
     KIRIN_SPECTRUM_REQUIRE (std::memcmp (invalidOutput.data(), deltaInput,
                                         sizeof (deltaInput)) == 0);
+
+    std::array<float, 4> absoluteCurve { -48.0f, -48.0f, -48.0f, -48.0f };
+    const std::array<float, 4> absoluteTarget { -20.0f, -68.0f, -48.0f, -36.0f };
+    spectrum_presentation::advanceAbsoluteCurve (absoluteCurve, absoluteTarget, 125.0);
+    KIRIN_SPECTRUM_REQUIRE (std::abs (absoluteCurve[0] - absoluteTarget[0]) < 1.0e-6f);
+    KIRIN_SPECTRUM_REQUIRE (std::abs (absoluteCurve[1] + 53.0f) < 1.0e-6f);
+    KIRIN_SPECTRUM_REQUIRE (std::abs (absoluteCurve[2] - absoluteTarget[2]) < 1.0e-6f);
+    KIRIN_SPECTRUM_REQUIRE (std::abs (absoluteCurve[3] - absoluteTarget[3]) < 1.0e-6f);
+    spectrum_presentation::advanceAbsoluteCurve (absoluteCurve, absoluteTarget, 375.0);
+    KIRIN_SPECTRUM_REQUIRE (absoluteCurve == absoluteTarget);
+
+    std::array<float, 1> oneRelease { -20.0f };
+    std::array<float, 1> splitRelease = oneRelease;
+    const std::array<float, 1> releaseTarget { -60.0f };
+    spectrum_presentation::advanceAbsoluteCurve (oneRelease, releaseTarget, 500.0);
+    spectrum_presentation::advanceAbsoluteCurve (splitRelease, releaseTarget, 250.0);
+    spectrum_presentation::advanceAbsoluteCurve (splitRelease, releaseTarget, 250.0);
+    KIRIN_SPECTRUM_REQUIRE (std::abs (oneRelease[0] + 40.0f) < 1.0e-6f);
+    KIRIN_SPECTRUM_REQUIRE (oneRelease == splitRelease);
+    const auto beforeInvalidTime = oneRelease;
+    spectrum_presentation::advanceAbsoluteCurve (
+        oneRelease, releaseTarget, std::numeric_limits<double>::quiet_NaN());
+    KIRIN_SPECTRUM_REQUIRE (oneRelease == beforeInvalidTime);
+
+    std::array<float, 2> signedCurve {};
+    std::array<float, 2> splitSignedCurve {};
+    const std::array<float, 2> signedTarget { 12.0f, -12.0f };
+    spectrum_presentation::advanceSignedDeltaCurve (
+        signedCurve, signedTarget, spectrum_presentation::signedDeltaResponseMs);
+    spectrum_presentation::advanceSignedDeltaCurve (
+        splitSignedCurve, signedTarget, spectrum_presentation::signedDeltaResponseMs * 0.5);
+    spectrum_presentation::advanceSignedDeltaCurve (
+        splitSignedCurve, signedTarget, spectrum_presentation::signedDeltaResponseMs * 0.5);
+    KIRIN_SPECTRUM_REQUIRE (signedCurve[0] > 0.0f && signedCurve[0] < signedTarget[0]);
+    KIRIN_SPECTRUM_REQUIRE (std::abs (signedCurve[0] + signedCurve[1]) < 1.0e-6f);
+    KIRIN_SPECTRUM_REQUIRE (std::abs (signedCurve[0] - splitSignedCurve[0]) < 1.0e-5f);
+    KIRIN_SPECTRUM_REQUIRE (std::abs (signedCurve[1] - splitSignedCurve[1]) < 1.0e-5f);
 }
 }

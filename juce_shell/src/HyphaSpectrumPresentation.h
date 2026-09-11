@@ -11,6 +11,12 @@ namespace hypha::spectrum_presentation
 inline constexpr float lowCalmFullEndHz = 70.0f;
 inline constexpr float lowCalmTaperEndHz = 180.0f;
 inline constexpr float lowCalmMaximumBlend = 0.55f;
+// Live absolute curves rise on the next existing presentation tick, then fall at a stable
+// display-only rate. Signed delta cannot use that asymmetric rule without favouring one sign,
+// so it follows the same target in both directions with a short time constant.
+inline constexpr float absoluteReleaseDb = 20.0f;
+inline constexpr double absoluteReleaseDurationMs = 500.0;
+inline constexpr double signedDeltaResponseMs = 150.0;
 
 inline float lowFrequencyCalmBlend (float frequencyHz) noexcept
 {
@@ -77,5 +83,45 @@ std::array<float, Size> calmLowFrequencies (
         output[index] = input[index] + blend * (neighbourAverage - input[index]);
     }
     return output;
+}
+
+template <std::size_t Size>
+void advanceAbsoluteCurve (std::array<float, Size>& displayed,
+                           const std::array<float, Size>& target,
+                           double elapsedMs) noexcept
+{
+    const double boundedElapsedMs = std::isfinite (elapsedMs) && elapsedMs > 0.0
+                                  ? elapsedMs : 0.0;
+    const float releaseDb = static_cast<float> (
+        boundedElapsedMs * absoluteReleaseDb / absoluteReleaseDurationMs);
+    for (std::size_t index = 0; index < Size; ++index)
+    {
+        if (! std::isfinite (target[index]))
+            continue;
+        if (! std::isfinite (displayed[index]) || target[index] >= displayed[index])
+            displayed[index] = target[index];
+        else
+            displayed[index] = std::max (target[index], displayed[index] - releaseDb);
+    }
+}
+
+template <std::size_t Size>
+void advanceSignedDeltaCurve (std::array<float, Size>& displayed,
+                              const std::array<float, Size>& target,
+                              double elapsedMs) noexcept
+{
+    if (! std::isfinite (elapsedMs) || elapsedMs <= 0.0)
+        return;
+    const float response = static_cast<float> (
+        -std::expm1 (-elapsedMs / signedDeltaResponseMs));
+    for (std::size_t index = 0; index < Size; ++index)
+    {
+        if (! std::isfinite (target[index]))
+            continue;
+        if (! std::isfinite (displayed[index]))
+            displayed[index] = target[index];
+        else
+            displayed[index] += response * (target[index] - displayed[index]);
+    }
 }
 }

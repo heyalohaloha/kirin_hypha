@@ -336,10 +336,12 @@ void SpectrumComponent::presentationTickAt (double nowMs)
     {
         const double intervalMs = 1'000.0
             / (double) ui_contract::spectrumCurvePresentationHz;
+        const double elapsedMs = std::max (0.0, nowMs - lastCurvePresentationMs);
         snapshot = pendingSnapshot;
-        displayedPre = pendingPre;
-        displayedPost = pendingPost;
-        displayedDelta = pendingDelta;
+        spectrum_presentation::advanceAbsoluteCurve (displayedPre, pendingPre, elapsedMs);
+        spectrum_presentation::advanceAbsoluteCurve (displayedPost, pendingPost, elapsedMs);
+        spectrum_presentation::advanceSignedDeltaCurve (
+            displayedDelta, pendingDelta, elapsedMs);
         curveDirty = false;
         lastCurvePresentationMs = nowMs - lastCurvePresentationMs > 2.0 * intervalMs
                                 ? nowMs : lastCurvePresentationMs + intervalMs;
@@ -449,7 +451,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         }
         else if (haveSnapshot && validSnapshot (snapshot, absoluteObservation))
         {
-            markedDelta = displayedDelta;
+            markedDelta = pendingDelta;
             haveMark = true;
         }
         else

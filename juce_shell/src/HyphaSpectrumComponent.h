@@ -16,8 +16,8 @@
 namespace hypha
 {
 // POST-only presentation component. It receives a fixed Rust snapshot and owns no timer, file,
-// FFT, pairing, or audio state. The renderer uses only state-free frequency-axis presentation and
-// y clipping; raw analysis remains in Rust and an incompatible exact frame becomes a factual status.
+// FFT, pairing, or audio state. Spatial calm and curve ballistics remain display-only; raw analysis
+// stays in Rust and an incompatible exact frame becomes a factual status.
 class SpectrumComponent final : public juce::Component,
                                 public juce::SettableTooltipClient
 {
@@ -72,6 +72,10 @@ public:
     { return index < readoutPre.size() ? readoutPre[index] : 0.0f; }
     float readoutSideForTest (size_t index) const noexcept
     { return index < readoutPost.size() ? readoutPost[index] : 0.0f; }
+    float displayedPostForTest (size_t index) const noexcept
+    { return index < displayedPost.size() ? displayedPost[index] : 0.0f; }
+    float pendingPostForTest (size_t index) const noexcept
+    { return index < pendingPost.size() ? pendingPost[index] : 0.0f; }
     bool isAbsoluteObservationForTest() const noexcept { return absoluteObservation; }
     bool isPsbObservationForTest() const noexcept { return psbObservation; }
     size_t absoluteHistorySizeForTest() const noexcept { return absoluteHistory.size(); }

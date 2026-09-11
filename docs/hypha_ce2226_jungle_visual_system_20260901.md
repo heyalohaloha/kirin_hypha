@@ -96,6 +96,7 @@ FREQは時間detailへ埋めず一階層目に置き、`MARK`で現在の全帯�
 POST targetのFREQでは`LR / MID / SIDE`の右に`M/S`を置き、同じapertureのMIDをcyan実線、SIDEをviolet実線で重ねる。
 曲線の識別に破線や点線を使わず、色、連続した輪郭、抑えた発光量で精密さを保つ。
 既存VUの暗部、細い光、端正な数値を質感の基準とし、VU自体の配色や挙動は変更しない。
+全絶対Spectrumのlive inkは上昇を次の既存描画tickで反映し、下降だけを20 dB／500 msで残す。符号付きΔは正負を偏らせない150 msの対称追従とし、数値、MARK、Focus Trail、履歴、正本snapshotへ時間平滑を混ぜない。
 
 M/Sは二つの絶対測定を比較する観測面であり、PRE/POST差分、評価色、fill、glow、MARK、Focus Trailを混在させない。
 

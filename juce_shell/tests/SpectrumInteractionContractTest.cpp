@@ -396,18 +396,27 @@ void verifySpectrumInteractionContract (SpectrumComponent& spectrum,
     queuedSnapshot.post_dbfs[0] += 6.0f;
     const float heldDelta = pacedSpectrum.readoutDeltaForTest (0u);
     pacedSpectrum.queueSnapshot (queuedSnapshot);
-    KIRIN_INTERACTION_REQUIRE (
-        pacedSpectrum.presentedEndpointForTest() == snapshot.presentation_end_samples);
+    KIRIN_INTERACTION_REQUIRE (pacedSpectrum.presentedEndpointForTest() == snapshot.presentation_end_samples);
     const double now = juce::Time::getMillisecondCounterHiRes();
     pacedSpectrum.presentationTickAt (now + 50.0);
-    KIRIN_INTERACTION_REQUIRE (
-        pacedSpectrum.presentedEndpointForTest() == snapshot.presentation_end_samples);
+    KIRIN_INTERACTION_REQUIRE (pacedSpectrum.presentedEndpointForTest() == snapshot.presentation_end_samples);
     pacedSpectrum.presentationTickAt (now + 90.0);
     KIRIN_INTERACTION_REQUIRE (
         pacedSpectrum.presentedEndpointForTest()
             == queuedSnapshot.presentation_end_samples);
+    KIRIN_INTERACTION_REQUIRE (std::abs (pacedSpectrum.displayedPostForTest (0u)
+        - pacedSpectrum.pendingPostForTest (0u)) < 1.0e-5f);
     KIRIN_INTERACTION_REQUIRE (
         std::abs (pacedSpectrum.readoutDeltaForTest (0u) - heldDelta) < 1.0e-6f);
+    KirinSpectrumView fallingSnapshot = queuedSnapshot;
+    fallingSnapshot.presentation_end_samples += 1'600;
+    fallingSnapshot.post_dbfs[0] -= 20.0f;
+    const float releaseStart = pacedSpectrum.displayedPostForTest (0u);
+    pacedSpectrum.queueSnapshot (fallingSnapshot);
+    pacedSpectrum.presentationTickAt (now + 180.0);
+    const float releasedPost = pacedSpectrum.displayedPostForTest (0u);
+    KIRIN_INTERACTION_REQUIRE (releasedPost < releaseStart
+                               && releasedPost > fallingSnapshot.post_dbfs[0]);
     pacedSpectrum.presentationTickAt (now + 510.0);
     KIRIN_INTERACTION_REQUIRE (
         std::abs (pacedSpectrum.readoutDeltaForTest (0u) - heldDelta) > 0.1f);
