@@ -338,10 +338,10 @@ mod tests {
             "sameNameCount > 1",
             "labelEnabled.add (! inUse);",
             "labelChecked.add (selected && ! inUse);",
-            "menu.addSectionHeader (\"Pair choices\");",
-            "menu.addItem (3, \"No pair choices\", false, false);",
+            "menu.addSectionHeader (\"PRE connection\");",
+            "menu.addItem (3, \"No available PRE\", false, false);",
             "! pairLocked && labelEnabled[i], labelChecked[i]",
-            "labels.add ((inUse ? \"In use: \" : (selected ? \"Selected: \" : \"\")) + shown);",
+            "labels.add ((inUse ? \"In use by another POST: \" : \"Use PRE: \") + shown);",
         ] {
             assert!(body.contains(required), "candidate menu missing {required}");
         }
