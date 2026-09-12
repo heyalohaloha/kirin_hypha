@@ -25,6 +25,7 @@
 #include "SpectrumPerformanceFixture.h"
 #include "SpectrumResponsiveGeometryContractTest.h"
 #include "TypographyContractTest.h"
+#include "AnalysisDemandContractTest.h"
 
 namespace hypha::tests
 {
@@ -37,18 +38,26 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     const bool typographyOnly = argc == 2 && std::string_view (argv[1]) == "--typography-only";
     const bool typographyVisualOnly = argc == 2
         && std::string_view (argv[1]) == "--typography-visual-only";
+    const bool timeHistoryOnly = argc == 2
+        && std::string_view (argv[1]) == "--time-history-only";
     if (argc != 1 && ! entryOnly && ! updatesOnly && ! focusOnly && ! hybridVuOnly
-        && ! typographyOnly && ! typographyVisualOnly)
+        && ! typographyOnly && ! typographyVisualOnly && ! timeHistoryOnly)
     {
         std::cerr << "Usage: KirinUiRenderContractTests [--product-entry-only|"
                      "--observation-update-only|--spectrum-focus-only|--hybrid-vu-only|"
-                     "--typography-only|--typography-visual-only]\n";
+                     "--typography-only|--typography-visual-only|--time-history-only]\n";
         std::exit (EXIT_FAILURE);
     }
     observation_equality_contract::verify();
+    analysis_demand_contract::verify();
     verifyPolylineGeometryContract();
     verifySpectrumResponsiveGeometry();
     if (updatesOnly) return true;
+    if (timeHistoryOnly)
+    {
+        verifyTimeHistoryContract();
+        return true;
+    }
     verifyTypographyContract();
     if (typographyOnly) return true;
     if (typographyVisualOnly)

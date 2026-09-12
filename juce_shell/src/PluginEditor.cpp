@@ -37,8 +37,6 @@ namespace
         }
         return {};
     }
-
-
 }
 
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
@@ -46,6 +44,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
       observatoryView (isPost ? hypha::observatory::Role::post
                               : hypha::observatory::Role::pre)
 {
+    analysisOwnerToken = processorRef.beginAnalysisUiSession();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     const bool openAttackAtLaunch = isPost
         && juce::SystemStats::getEnvironmentVariable (
@@ -220,7 +219,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         configureSpectrumCallbacks();
         perceptualView.onChannelModeChange = [this] (uint8_t channelMode)
         {
-            return processorRef.setSpectrumChannelMode (channelMode);
+            const auto accepted = processorRef.setSpectrumChannelMode (channelMode);
+            return accepted ? (syncAnalysisDemand(), true) : false;
         };
         updateSpectrumSizeControl();
         scaleRoot.addChildComponent (timePageNavigation);

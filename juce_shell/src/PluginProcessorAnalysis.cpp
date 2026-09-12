@@ -1,5 +1,25 @@
 #include "PluginProcessor.h"
 
+namespace
+{
+struct AnalysisFfiAdapter
+{
+    KirinHypha* handle = nullptr;
+    bool setSpectrumVisible (bool value) const
+    { return kirin_hypha_set_spectrum_visible (handle, value); }
+    bool setAttackEnabled (bool value) const
+    { return kirin_hypha_set_attack_enabled (handle, value); }
+    bool setChannelMode (std::uint8_t value) const
+    { return kirin_hypha_set_spectrum_channel_mode (handle, value); }
+    bool setMidSideSpectrumVisible (bool value) const
+    { return kirin_hypha_set_mid_side_spectrum_visible (handle, value); }
+    bool setAbsoluteVisible (bool value) const
+    { return kirin_hypha_set_absolute_visible (handle, value); }
+    bool setPerceptualVisible (bool value) const
+    { return kirin_hypha_set_perceptual_visible (handle, value); }
+};
+}
+
 void KirinHyphaProcessorBase::normalizeSpectrumSelectionForInputChannels (int channels) noexcept
 {
     if (role != Role::Post || channels == 2)
@@ -13,44 +33,112 @@ void KirinHyphaProcessorBase::normalizeSpectrumSelectionForInputChannels (int ch
         preferredSpectrumDisplaySelection.store (
             preferredSpectrumChannelMode.load (std::memory_order_acquire),
             std::memory_order_release);
+
+    auto demand = requestedAnalysisDemand();
+    if (demand.kind == hypha::analysis::Kind::midSideSpectrum)
+    {
+        demand.kind = hypha::analysis::Kind::spectrum;
+        demand.channelMode = preferredSpectrumChannelMode.load (std::memory_order_acquire);
+        analysisDemandOwner.replaceCurrentRequest (demand);
+    }
+    else if (hypha::analysis::usesChannelMode (demand.kind)
+             && demand.channelMode == KIRIN_SPECTRUM_CHANNEL_SIDE)
+    {
+        demand.channelMode = KIRIN_SPECTRUM_CHANNEL_LR;
+        analysisDemandOwner.replaceCurrentRequest (demand);
+    }
+}
+
+std::uint64_t KirinHyphaProcessorBase::beginAnalysisUiSession() noexcept
+{
+    if (role != Role::Post)
+        return 0;
+    const juce::ScopedLock sl (handleLock);
+    const auto owner = analysisDemandOwner.begin();
+    if (hyphaHandle != nullptr && writesEnabled.load (std::memory_order_acquire))
+        applyAnalysisDemandUnderHandleLock ({});
+    else
+        analysisDemandApplied = {};
+    return owner;
+}
+
+bool KirinHyphaProcessorBase::applyAnalysisDemandUnderHandleLock (
+    hypha::analysis::Demand demand)
+{
+    if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
+        return false;
+    if (analysisDemandApplied == demand)
+        return true;
+
+    AnalysisFfiAdapter adapter { hyphaHandle };
+    const bool accepted = hypha::analysis::apply (analysisDemandApplied, demand, adapter);
+
+    if (accepted)
+        analysisDemandApplied = demand;
+    else
+    {
+        kirin_hypha_set_spectrum_visible (hyphaHandle, false);
+        kirin_hypha_set_attack_enabled (hyphaHandle, false);
+        analysisDemandApplied = {};
+    }
+    return accepted;
+}
+
+bool KirinHyphaProcessorBase::setAnalysisDemand (
+    std::uint64_t owner, hypha::analysis::Demand demand)
+{
+    if (role != Role::Post || owner == 0
+        || ! analysisDemandOwner.isCurrent (owner)
+        || ! hypha::analysis::valid (demand)
+        || (hypha::analysis::isAttack (demand)
+            && ! hypha::meter_context::drumAttackAvailable (meterContextPreference()))
+        || ((demand.kind == hypha::analysis::Kind::midSideSpectrum
+             || demand.channelMode == KIRIN_SPECTRUM_CHANNEL_SIDE)
+            && getTotalNumInputChannels() != 2))
+        return false;
+
+    const juce::ScopedLock sl (handleLock);
+    if (! analysisDemandOwner.set (owner, demand))
+        return false;
+    return applyAnalysisDemandUnderHandleLock (demand);
+}
+
+void KirinHyphaProcessorBase::releaseAnalysisDemand (std::uint64_t owner)
+{
+    if (role != Role::Post || owner == 0
+        || ! analysisDemandOwner.isCurrent (owner))
+        return;
+    const juce::ScopedLock sl (handleLock);
+    if (! analysisDemandOwner.clear (owner))
+        return;
+    const auto none = hypha::analysis::Demand {};
+    if (hyphaHandle != nullptr && writesEnabled.load (std::memory_order_acquire))
+        applyAnalysisDemandUnderHandleLock (none);
+    else
+        analysisDemandApplied = none;
+}
+
+void KirinHyphaProcessorBase::endAnalysisUiSession (std::uint64_t owner)
+{
+    if (role != Role::Post || owner == 0)
+        return;
+    const juce::ScopedLock sl (handleLock);
+    if (! analysisDemandOwner.isCurrent (owner))
+        return;
+    const auto none = hypha::analysis::Demand {};
+    if (hyphaHandle != nullptr && writesEnabled.load (std::memory_order_acquire))
+        applyAnalysisDemandUnderHandleLock (none);
+    else
+        analysisDemandApplied = none;
+    analysisDemandOwner.end (owner);
 }
 
 void KirinHyphaProcessorBase::restoreRequestedAnalysisUnderHandleLock()
 {
-    if (attackRequested.load (std::memory_order_acquire))
-    {
-        kirin_hypha_set_attack_enabled (hyphaHandle, true);
-        return;
-    }
-    if (! spectrumVisibleRequested.load (std::memory_order_acquire))
-        return;
-    kirin_hypha_set_spectrum_channel_mode (hyphaHandle, requestedAnalysisChannelMode());
-    if (absoluteAnalysisRequested.load (std::memory_order_acquire))
-        kirin_hypha_set_absolute_visible (hyphaHandle, true);
-    else if (perceptualAnalysisRequested.load (std::memory_order_acquire))
-        kirin_hypha_set_perceptual_visible (hyphaHandle, true);
-    else if (preferredSpectrumDisplaySelection.load (std::memory_order_acquire)
-                == KIRIN_SPECTRUM_SELECTION_MID_SIDE)
-        kirin_hypha_set_mid_side_spectrum_visible (hyphaHandle, true);
-    else
-        kirin_hypha_set_spectrum_visible (hyphaHandle, true);
-}
-
-bool KirinHyphaProcessorBase::setAttackEnabled (bool enabled)
-{
-    const juce::ScopedLock sl (handleLock);
-    if (role != Role::Post || (enabled
-        && ! hypha::meter_context::drumAttackAvailable (meterContextPreference())))
-        return false;
-    if (enabled)
-    {
-        perceptualAnalysisRequested.store (false, std::memory_order_release);
-        absoluteAnalysisRequested.store (false, std::memory_order_release);
-    }
-    spectrumVisibleRequested.store (enabled, std::memory_order_release);
-    attackRequested.store (enabled, std::memory_order_release);
-    return hyphaHandle != nullptr
-        && kirin_hypha_set_attack_enabled (hyphaHandle, enabled);
+    analysisDemandApplied = {};
+    const auto demand = requestedAnalysisDemand();
+    if (hypha::analysis::active (demand))
+        applyAnalysisDemandUnderHandleLock (demand);
 }
 
 bool KirinHyphaProcessorBase::pollAttackBatch (KirinAttackBatch& out) const
@@ -125,23 +213,6 @@ bool KirinHyphaProcessorBase::attackStats (KirinAttackStats& out) const
         && kirin_hypha_attack_stats (hyphaHandle, &out);
 }
 
-bool KirinHyphaProcessorBase::setPsbVisible (bool delta)
-{
-    if (role != Role::Post) return false;
-    // Retain the single Analysis lease and restore its LR definition after engine recreation.
-    // Neither this choice nor its fixed LR source changes the saved Spectrum/SHARP mode.
-    psbAnalysisRequested.store (true);
-    perceptualAnalysisRequested.store (delta);
-    absoluteAnalysisRequested.store (! delta);
-    attackRequested.store (false);
-    spectrumVisibleRequested.store (true);
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr || ! writesEnabled.load()) return false;
-    if (! kirin_hypha_set_spectrum_channel_mode (hyphaHandle, KIRIN_SPECTRUM_CHANNEL_LR)) return false;
-    return delta ? kirin_hypha_set_perceptual_visible (hyphaHandle, true)
-                 : kirin_hypha_set_absolute_visible (hyphaHandle, true);
-}
-
 bool KirinHyphaProcessorBase::pollPsb (KirinPsbView& out) const
 {
     const juce::ScopedLock sl (handleLock);
@@ -149,93 +220,13 @@ bool KirinHyphaProcessorBase::pollPsb (KirinPsbView& out) const
         && kirin_hypha_poll_psb (hyphaHandle, &out);
 }
 
-bool KirinHyphaProcessorBase::setSpectrumVisible (bool visible)
-{
-    psbAnalysisRequested.store (false);
-    if (role != Role::Post)
-        return false;
-    if (visible)
-    {
-        perceptualAnalysisRequested.store (false, std::memory_order_release);
-        absoluteAnalysisRequested.store (false, std::memory_order_release);
-        attackRequested.store (false, std::memory_order_release);
-    }
-    spectrumVisibleRequested.store (visible, std::memory_order_release);
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
-        return false;
-    if (visible && preferredSpectrumDisplaySelection.load (std::memory_order_acquire)
-            == KIRIN_SPECTRUM_SELECTION_MID_SIDE)
-        return kirin_hypha_set_mid_side_spectrum_visible (hyphaHandle, true);
-    if (visible && ! kirin_hypha_set_spectrum_channel_mode (
-            hyphaHandle, preferredSpectrumChannelMode.load (std::memory_order_acquire)))
-        return false;
-    return kirin_hypha_set_spectrum_visible (hyphaHandle, visible);
-}
-
-bool KirinHyphaProcessorBase::setPerceptualVisible (bool visible)
-{
-    psbAnalysisRequested.store (false);
-    if (role != Role::Post)
-        return false;
-    if (visible)
-    {
-        perceptualAnalysisRequested.store (true, std::memory_order_release);
-        absoluteAnalysisRequested.store (false, std::memory_order_release);
-        attackRequested.store (false, std::memory_order_release);
-    }
-    else
-    {
-        perceptualAnalysisRequested.store (false, std::memory_order_release);
-    }
-    spectrumVisibleRequested.store (visible, std::memory_order_release);
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
-        return false;
-    if (visible && ! kirin_hypha_set_spectrum_channel_mode (
-            hyphaHandle,
-            preferredSpectrumChannelMode.load (std::memory_order_acquire)))
-        return false;
-    return kirin_hypha_set_perceptual_visible (hyphaHandle, visible);
-}
-
-bool KirinHyphaProcessorBase::setAbsoluteVisible (bool visible)
-{
-    psbAnalysisRequested.store (false);
-    if (role != Role::Post)
-        return false;
-    if (visible)
-    {
-        perceptualAnalysisRequested.store (false, std::memory_order_release);
-        absoluteAnalysisRequested.store (true, std::memory_order_release);
-        attackRequested.store (false, std::memory_order_release);
-    }
-    else
-    {
-        absoluteAnalysisRequested.store (false, std::memory_order_release);
-    }
-    spectrumVisibleRequested.store (visible, std::memory_order_release);
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
-        return false;
-    return kirin_hypha_set_absolute_visible (hyphaHandle, visible);
-}
-
 bool KirinHyphaProcessorBase::setSpectrumChannelMode (uint8_t channelMode)
 {
     if (role != Role::Post || channelMode > KIRIN_SPECTRUM_CHANNEL_SIDE)
         return false;
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle != nullptr && writesEnabled.load (std::memory_order_acquire))
-    {
-        if (! kirin_hypha_set_spectrum_channel_mode (hyphaHandle, channelMode))
-            return false;
-    }
-    else if (channelMode == KIRIN_SPECTRUM_CHANNEL_SIDE
-             && getTotalNumInputChannels() != 2)
-    {
+    if (channelMode == KIRIN_SPECTRUM_CHANNEL_SIDE
+        && getTotalNumInputChannels() != 2)
         return false;
-    }
     preferredSpectrumChannelMode.store (channelMode, std::memory_order_release);
     return true;
 }
@@ -250,16 +241,6 @@ bool KirinHyphaProcessorBase::setSpectrumDisplaySelection (
     if ((stereoOnly && getTotalNumInputChannels() != 2)
         || (midSide && ! absoluteTarget))
         return false;
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle != nullptr && writesEnabled.load (std::memory_order_acquire))
-    {
-        const bool accepted = midSide
-            ? kirin_hypha_set_mid_side_spectrum_visible (hyphaHandle, true)
-            : kirin_hypha_set_spectrum_channel_mode (hyphaHandle, selection)
-                && kirin_hypha_set_spectrum_visible (hyphaHandle, true);
-        if (! accepted)
-            return false;
-    }
     if (! midSide)
         preferredSpectrumChannelMode.store (selection, std::memory_order_release);
     preferredSpectrumDisplaySelection.store (selection, std::memory_order_release);

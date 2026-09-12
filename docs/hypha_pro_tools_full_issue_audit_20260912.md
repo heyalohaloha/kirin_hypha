@@ -18,8 +18,8 @@ Pro Tools captures are evidence, not specifications embedded in those images.
 
 | ID | Severity | Finding and evidence | Root cause | Resolution / gate |
 |---|---:|---|---|---|
-| PT-01 | S1 | FREQ can remain empty while audio is playing. The supplied 300% captures show an empty LR and M/S plot. | Pro Tools may hide an editor without destroying it, so the hidden editor retained a process-wide optional analysis lease. Switching normal Spectrum and PSB also enabled the new lease without releasing the old one, consuming both slots from one editor. | Make Spectrum and PSB leases mutually exclusive, release both on page exit or `visibilityChanged(false)`, and reacquire only the visible subview on show. Verify by alternating PRE/POST windows, LR/M/S and PSB, then reopening FREQ. |
-| PT-02 | S1 | TIME SHARP and LIVE can remain empty under the same conditions. | The perceptual, absolute, and attack leases had the same hidden-editor lifetime error as Spectrum. | Apply the same visibility ownership rule to every optional analysis page, not only Spectrum. |
+| PT-01 | S1 | FREQ can remain empty while audio is playing. The supplied 300% captures show an empty LR and M/S plot. | The JUCE shell represented one Rust Analysis slot with several independent booleans and imperative calls. In particular `setPsbVisible(false)` did not mean “hide PSB”; its argument selected absolute rather than delta, so leaving FREQ could start a hidden absolute analysis. Rust still owns one slot per POST instance; the earlier claim that one editor consumed both process slots was incorrect. | Replace all page-specific starts/stops with one typed demand and one owner token. `none` is the only release state; editor hide, VU/Blind replacement, page exit, destruction, and engine restoration pass through the same application point. Verify LR/MID/SIDE/M+S/PSB transitions and stale-editor rejection. |
+| PT-02 | S1 | TIME SHARP and LIVE can remain empty under the same conditions. | Analysis lifetime was distributed across page callbacks, visibility callbacks, timer-driven Pair updates, and processor restoration. A hidden SHARP page could observe a Pair change and request analysis again after the visibility callback had released it. | Derive the sole demand from effective surface visibility plus page/subview/Pair state. Hidden surfaces always derive `none`, so background refresh cannot reacquire; repeated identical requests do not restart analysis. Apply this to FREQ, SHARP, LIVE, and DRUM. |
 | PT-03 | S1 | Pair appeared unavailable and the menu exposed only POST-only / selected / in-use states. | The menu described internal claim state but did not distinguish playback lock, an unavailable PRE, or a PRE claimed by another POST; raw instance IDs dominated unnamed candidates. | Use explicit `Stop playback to change connection`, `Use POST only`, `Use PRE`, `In use by another POST`, and `No available PRE` states. Retain the exact claim rules; verify with playing/stopped, zero, one, duplicate-name, and contended PRE candidates. |
 | PT-04 | S2 | Pair text contained `Â·` in Pro Tools. | A UTF-8 middle dot passed through an AAX/host text path with a mismatched legacy decoding boundary. | Use an ASCII slash in host-facing menus and status copy. No dotted visual encoding is introduced. |
 | PT-05 | S1 | REF looked unusable even though the license was confirmed; a full-width `RECHECK LICENSE` action occupied the measurement area. | Ownership and saved-work connection were collapsed into one access state. The action row was reserved even for a confirmed owner who only lacked a Kirin OS connection. | Show `WAITING FOR KIRIN OS` with the exact INSPECT route. Hide the license action for confirmed owners and return the row to the content area. |
@@ -29,7 +29,7 @@ Pro Tools captures are evidence, not specifications embedded in those images.
 | PT-09 | S2 | `DAW`, `SESSION + DAW RUNS`, and the graph's clock basis were unclear. | Internal axis-mode names were copied directly to the visualization. | Use `DAW TIME`, `AUDIO TIME / RUNS`, and `AUDIO TIME`. |
 | PT-10 | S2 | PLR looked like a nearly invariant time trace; its purpose was unclear. | PLR is a cumulative Meter Session fact (`session max TP - LUFS-I`), not an independent short-window waveform. Plotting each retained cumulative value exaggerates the expectation of movement. | Present the latest PLR as a restrained fact gauge, labelled `SESSION FACT / TP MAX - LUFS-I` at full sizes and `TP MAX - LUFS-I` at 150%. |
 | PT-11 | S2 | SIDE `+` / `-` could be read as good/bad width or left/right level. | The polar plot showed signs without naming the signed M/S coordinate convention. | Label the axes `SIDE > 0`, `SIDE < 0`, `MID > 0`, and `MID < 0`; compact sizes use the same signs in abbreviated form. The sign remains the polarity of `(L-R)/2`, not a quality score. |
-| PT-12 | S2 | TIME discontinuities after stop/restart were not vertically aligned between M, S, TP, and correlation. | Each path independently accepted its own finite value before applying generation/run boundaries; min/max columns could remain when a sibling primary fact was absent. | Gate M/S/TP means and ranges on one shared primary-validity boundary. Apply the same boundary to correlation and retain the same generation/run break. PLR no longer claims a time trace. |
+| PT-12 | S2 | TIME discontinuities after stop/restart were not vertically aligned between M, S, TP, and correlation. | The main curves and CORR mapped the same history endpoint into different physical X rectangles. A later attempted repair also gated every curve on simultaneous M/S/TP finiteness, which hid valid 3 s S, TP, or CORR facts when another measurement window was unavailable. | Use one physical timeline X range and the same generation/run break for every time-derived curve. Validate finiteness per metric so missing M does not erase valid S/TP/CORR. PLR remains a cumulative fact gauge rather than a time trace. |
 | PT-13 | S2 | Stopped transport could continue to look live for roughly seconds, with the visible break appearing late. | The common heartbeat liveness window was 30 × 100 ms = 3 s, despite the current 200 ms supervisory boundary. A direct-engine regression also exposed that an expired heartbeat discarded already accepted Watch tail samples. | Use four 100 ms ticks = 400 ms, allowing one supervisory miss while separating callback stall from the independent 3 s musical-rest gate. Drain the finite accepted Watch tail before Inactive; Pair lock still reads the evaluator directly and unlocks at 400 ms. Verify stop for more than one second, then restart. |
 | PT-14 | S3 | `TRACK/STEM` clipped to `TRACK/STE` at 300%. | The context control had a 94 px maximum independent of the resolved font width. | Increase its maximum allocation while preserving the one-row header. Verify both context names at all five sizes. |
 | PT-15 | S3 | TIME's lower left axis unit (`LUFS`) and right unit (`dBTP`) collided with the lower lane and each other in supplied 300% captures. | Duplicate unit labels were anchored at the plot bottom while auxiliary lanes began at the same vertical boundary. | Remove the redundant bottom unit labels; the legend and values already state M/S/TP and units. |
@@ -50,6 +50,37 @@ Pro Tools captures are evidence, not specifications embedded in those images.
 | PT-30 | S3 test | The Jungle capture reversibility check failed intermittently although normal editor renders were deterministic. | Each comparison image generated a new current-time capture stamp, so crossing a one-second boundary created unrelated pixels. | Keep real Capture timestamps unchanged. Supply one fixed timestamp to every image in the appearance-only contract so it measures Jungle state and nothing else. |
 | PT-31 | S1 | The empty rounded control beside MARK in the supplied FREQ captures looked like an unfinished field, and PSB could not be discovered. | The PSB/SPECTRUM toggle painted its control material, then inherited the material painter's final graphics colour instead of selecting a text colour; the label disappeared against the surface in the real host. | Set an explicit high-contrast text colour after painting the control, for both `PSB` and selected `SPECTRUM` states. Verify both states at all five sizes. |
 
+## Why pre-host verification did not stop these defects
+
+The source and current test registration establish the detection gaps below. Historical execution
+records do not identify the exact loaded commit for every screenshot, so “not run” is not inferred
+from a later CI condition. Where no candidate receipt exists, the historical result remains
+untraceable rather than being reconstructed from memory.
+
+| Findings | Pre-host detectability | Detection gap / current correction |
+|---|---|---|
+| PT-01, PT-02 | Yes | Component snapshots proved that plots could draw, but did not exercise editor visibility, page changes, Pair timer updates, Processor restoration, and the real Analysis lease as one sequence. The typed surface demand now makes hidden state `none`; its transition/owner contract rejects a stale editor and verifies all 15 executable demands. Real-host confirmation remains required. |
+| PT-03 | Mostly; Pro Tools menu timing remains host-specific | Candidate rules and popup copy were tested separately, not as playing/stopped/contended interaction states. The acceptance matrix now requires zero/one/duplicate/in-use candidates and a playback lock in one sequence. |
+| PT-04, PT-22 | Source-level risk was detectable; mojibake manifestation is host-specific | Host-facing copy admitted decorative non-ASCII separators without an encoding-boundary rule. Host menus now use ASCII slashes and the host pass still checks the rendered string. |
+| PT-05, PT-28 | Yes | License ownership, saved-work connection, Pair verification, and observation target were accepted as neighbouring states rather than an explicit state matrix. Dedicated access and Pair fixtures now keep these prerequisites separate. |
+| PT-06 | Yes | Audio fail-closed behavior existed, but the UI contract did not require a discoverable disabled reason. Product-entry tests now require the AAX validation-pending entry. |
+| PT-07–PT-11, PT-21 | Yes, with product/measurement review | Tests asserted that values and labels existed, not that the copy conveyed the measurement window or avoided a quality judgement. The product contract now fixes WARMING, hidden 10 Hz cadence, clock-basis copy, PLR as a fact gauge, and signed SIDE axes. Pixel tests remain insufficient for semantic acceptance. |
+| PT-12 | Yes | Fixtures made M/S/TP/CORR finite together and checked normalized time before separate plot transforms. That could not reveal either cross-metric data loss or physical X drift. Partial-missing fixtures and one shared physical timeline projection now cover both independently. |
+| PT-13 | Partly; final latency is host-specific | The liveness threshold was unit-tested as configured, but no acceptance sequence tied accepted tail, 0.1/0.4/1/3 s stops, restart, and visible run boundaries together. Core tests now cover the 400 ms/tail rules; the exact Pro Tools chronology remains open. |
+| PT-14–PT-18, PT-24, PT-31 | Yes | Width/alpha/image-difference checks allowed clipped, overlapping, abbreviated, or same-colour text to pass. Tests now use the exact product strings, populated states, allocated bounds, and contrast checks at all five sizes; the final host typography pass remains required. |
+| PT-19, PT-20 | Mostly; host popup ordering remains host-specific | Static layout could not exercise tooltip/page lifetime or popup-dismiss/resize ordering. The interaction contract now includes page dismissal and deferred resize; Pro Tools still verifies its native modal order. |
+| PT-23, PT-25 | Yes | Generic shell images were interpreted too broadly even though they intentionally contained no external Analysis/Reference data. Acceptance now names the dedicated populated components and treats shell-only output as layout evidence only. |
+| PT-26 | Audio transparency is pre-host testable; DAW continuity is host-specific | A correct graph was allowed to stand in for A-path evidence. Bit identity/zero-latency and visible-history continuity are now separate gates; neither proves the other. |
+| PT-27 | Not fully without the exact host report/build | Nearby crash artifacts lacked an exact Hypha attribution. The correction is evidentiary: preserve the report, exact commit and reproduction conditions, and do not mark either cause or resolution without them. |
+| PT-29 | Yes; it was detected by the complete gate | A focused entry/layout run did not include the changing-frame performance path. The complete render gate found it; cached axis weights and the dedicated five-size performance fixture close the defect. Partial runs are no longer reported as full UI acceptance. |
+| PT-30 | Yes | The appearance fixture injected current time, so its own unrelated timestamp made the comparison nondeterministic. A fixed test-only timestamp isolates Jungle reversibility without changing the product timestamp. |
+
+The main process failure was therefore not one missing test. It was the combination of favourable
+fixtures, disconnected layers, weak visual or semantic assertions, partial-suite ambiguity, and
+candidate identity that was not always recorded. The release-source gate now registers the focused
+TIME history contract in its exact CTest inventory in addition to the complete UI run. Focused
+development tests remain local evidence only; they are not a release or host-pass claim.
+
 ## Verification matrix
 
 The implementation is not accepted from screenshots alone. The final pass must record:
@@ -66,21 +97,16 @@ The implementation is not accepted from screenshots alone. The final pass must r
 
 ## Current automated evidence
 
-- Complete JUCE UI render contract, including normal/Jungle reversibility and all five editor sizes:
-  pass.
-- Five-size Focus Trail changing-frame cost: 2.325 / 2.509 / 2.807 / 3.482 / 5.565 ms;
-  all below the density-specific gates.
-- TIME one-slot / two-slot / changing-frame cost: 8.187 / 16.204 / 8.287 ms per tick;
-  the two-slot path remains below its 25 ms gate.
-- Static 5-size PRE/POST domain compositions and dedicated populated FREQ / SHARP / LIVE renders:
-  generated and visually inspected without text overlap. Dedicated FREQ and PSB renders visibly
-  show both `PSB` and selected `SPECTRUM` labels after PT-31.
-- The post-fix measure library passes 1,454 tests with 9 intentionally ignored tests. The FFI
-  library passes all 86 tests, including 48,000 active frames published in 0.69 seconds after the
-  accepted-tail correction. JUCE lifecycle wiring passes 16 tests; FFI panic-safety and RT handoff
-  contract suites pass 3 and 1 tests respectively. The monolithic workspace invocation reached
-  these product suites but stopped at one obsolete Pair-menu string assertion; that assertion was
-  corrected and its complete 16-test suite rerun green.
+- The focused Analysis-demand contract passes all 15 canonical demands, owner replacement,
+  stale-owner rejection, hidden-surface release, and unavailable-ATTACK rejection.
+- The focused TIME contract passes S-only, TP-only, CORR-only, all-missing, and shared physical-X
+  projections. Its Debug correctness run measured 11.920 / 23.297 / 11.976 ms per tick for one-slot,
+  two-slot, and changing-frame paths; shipping performance limits remain a Release-build gate.
+- PRE and POST Debug VST3 targets compile after the coordinator replacement. The focused Rust
+  source/wiring suites pass 2 ATTACK-wiring tests and 16 JUCE-lifecycle tests.
+- Source line-budget, shell syntax, and whitespace checks pass. The exact-commit integrated
+  release-source gate has not yet been run for this candidate, so these focused results are not a
+  complete source or release acceptance claim.
 - Pro Tools Developer post-fix pass: still required. Native computer-control is not exposed in the
   current Codex surface, and the regular Pro Tools process is open; do not replace its loaded signed
   diagnostic AAX bundle with an unsigned build while that session is active.

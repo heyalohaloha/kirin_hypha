@@ -100,6 +100,9 @@ void KirinHyphaEditor::configureMeterContext()
             observatoryView.manualHybridVuVisible());
         resized();
         if (visible) observatoryView.toFront (false);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        syncAnalysisDemand();
+       #endif
     };
     observatoryView.onNote = [this] { showNoteDialog(); };
 }
@@ -175,32 +178,20 @@ void KirinHyphaEditor::visibilityChanged()
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
         // Pro Tools can hide an editor without destroying it when another insert is opened.
-        // Optional analysis slots are process-wide, so a hidden editor must never retain one.
-        processorRef.setSpectrumVisible (false);
-        processorRef.setPsbVisible (false);
-        processorRef.setPerceptualVisible (false);
-        processorRef.setAbsoluteVisible (false);
-        processorRef.setAttackEnabled (false);
+        // The editor owns one typed optional-analysis request and releases it at this boundary.
+        syncAnalysisDemand();
        #endif
     }
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     else if (isPost)
-    {
-        if (analysisPage == AnalysisPage::spectrum) configureSpectrumAnalysis();
-        else if (analysisPage == AnalysisPage::perceptual)
-        {
-            if (sharpnessUsesAbsolute) processorRef.setAbsoluteVisible (true);
-            else processorRef.setPerceptualVisible (true);
-        }
-        else if (analysisPage == AnalysisPage::absolute) processorRef.setAbsoluteVisible (true);
-        else if (analysisPage == AnalysisPage::attack) processorRef.setAttackEnabled (true);
-    }
+        syncAnalysisDemand();
    #endif
 }
 
 void KirinHyphaEditor::refreshObservatory()
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    syncAnalysisDemand();
     if (localBlindOpen)
     {
         refreshLocalBlindProduct();
@@ -225,6 +216,9 @@ void KirinHyphaEditor::refreshObservatory()
         resized();
         if (observatoryView.hybridVuVisible())
             observatoryView.toFront (false);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        syncAnalysisDemand();
+       #endif
     }
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
     const bool referenceOwned = isPost && processorRef.licenseIsOs();

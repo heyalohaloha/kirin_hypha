@@ -96,14 +96,13 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
             kirin_hypha_set_attack_enabled (hyphaHandle, false);
         }
         kirin_hypha_destroy (hyphaHandle);
-        hyphaHandle = nullptr;
+        hyphaHandle = nullptr; analysisDemandApplied = {};
     }
 }
 
 void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     const int numCh = getTotalNumInputChannels();
-    normalizeSpectrumSelectionForInputChannels (numCh);
 
     // Pre-allocate the interleave scratch so processBlock never allocates (RT-safe).
     // B-125 (b): prealloc-max — size to max(declared block, kOversizeHeadroomFrames) frames
@@ -117,6 +116,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
 
     stopLocalBlindCaptureForFormatChange (sampleRate, numCh);
     const juce::ScopedLock sl (handleLock);
+    normalizeSpectrumSelectionForInputChannels (numCh);
     // B-141: Studio One offline bounce can call prepareToPlay again after All Keep has entered
     // Record. The maximumExpectedSamplesPerBlock may change for render, but the user-visible
     // Record state must not be thrown away. Reuse the Rust engine when the audio format is the same.
@@ -141,7 +141,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     if (hyphaHandle != nullptr)
     {
         kirin_hypha_destroy (hyphaHandle);
-        hyphaHandle = nullptr;
+        hyphaHandle = nullptr; analysisDemandApplied = {};
     }
 
     // num_channels: pass the actual negotiated input channel count. Mono must remain 1ch

@@ -15,6 +15,7 @@
 
 #include "HyphaSignalStateContract.h"
 #include "HyphaMeterContext.h"
+#include "HyphaAnalysisDemand.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
  #include "CaptureWorkAttachment.h"
@@ -181,9 +182,12 @@ public:
     int  signalStateLive() const;                      // B-113: FFI kirin_hypha_get_signal_state (heartbeat-aware, no stale Active)
     bool hasLiveInput() const noexcept { return liveInputPresent.load (std::memory_order_relaxed); }
     bool pollDelta (KirinDelta& out) const;            // FFI kirin_hypha_poll_delta (mode + Δ values)
-    bool setSpectrumVisible (bool visible);             // POST-only; request work stays on IO thread
-    bool setPerceptualVisible (bool visible);           // POST-only exact-aperture Sharpness page
-    bool setAbsoluteVisible (bool visible);             // POST-only LUFS-M / TP / Sharpness timeline
+    std::uint64_t beginAnalysisUiSession() noexcept;
+    bool setAnalysisDemand (std::uint64_t owner, hypha::analysis::Demand demand);
+    void releaseAnalysisDemand (std::uint64_t owner);
+    void endAnalysisUiSession (std::uint64_t owner);
+    hypha::analysis::Demand requestedAnalysisDemand() const noexcept
+    { return analysisDemandOwner.requested(); }
     bool setSpectrumChannelMode (uint8_t channelMode);  // LR/MID/SIDE; SIDE is stereo-only
     bool setSpectrumDisplaySelection (uint8_t selection, bool absoluteTarget);
     uint8_t spectrumDisplaySelection() const noexcept
@@ -197,10 +201,8 @@ public:
     bool pollPerceptualBatch (KirinPerceptualBatch& out) const;
     bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;
     bool pollPsb (KirinPsbView& out) const;
-    bool setPsbVisible (bool delta);
     bool pollAnalysisOwnerNames (juce::String& out) const;
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
-    bool setAttackEnabled (bool enabled);       // POST ATTACK page; never DAW state
     bool pollAttackBatch (KirinAttackBatch& out) const;
     bool pollAttackEvents (KirinAttackEventBatch& out) const;
     bool pollAttackWaveform (KirinAttackWaveformBatch& out) const;
@@ -332,6 +334,7 @@ private:
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
     void restorePersistedPairUnderHandleLock();
+    bool applyAnalysisDemandUnderHandleLock (hypha::analysis::Demand demand);
     void restoreRequestedAnalysisUnderHandleLock();
     void normalizeSpectrumSelectionForInputChannels (int channels) noexcept;
     static hypha::local_blind::CaptureSide localBlindCaptureSide (Role) noexcept;
@@ -395,13 +398,8 @@ private:
     std::atomic<bool> enablePending { false };         // B-126: set by prepare/processBlock, observed by the Timer
     std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; setState clears it
     std::atomic<bool> stateInformationSeen { false };  // setStateInformation reached this instance at least once
-    std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
-    std::atomic<bool> perceptualAnalysisRequested { false }; // restores the visible analyzer after engine recreation
-    std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
-    std::atomic<bool> psbAnalysisRequested { false }; // transient LR display source, not a saved preference
-    uint8_t requestedAnalysisChannelMode() const noexcept
-    { return psbAnalysisRequested.load() ? KIRIN_SPECTRUM_CHANNEL_LR : preferredSpectrumChannelMode.load(); }
-    std::atomic<bool> attackRequested { false }; // ATTACK is inactive while its page is hidden
+    hypha::analysis::OwnerState analysisDemandOwner;
+    hypha::analysis::Demand analysisDemandApplied {}; // guarded by handleLock
     std::atomic<uint8_t> preferredSpectrumSize { 0 };      // legacy/default state opens at 100%
     // Packed into one atomic so a concurrent host state read can never persist mismatched axes.
     std::atomic<uint32_t> preferredEditorSize { (300u << 16u) | 200u }; // DisplayState v3

@@ -87,6 +87,7 @@ fn attack_abi_stays_compatible_and_the_product_view_has_a_navigation_route() {
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     let editor_analysis = read_repo("juce_shell/src/PluginEditorAnalysis.cpp");
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    let demand = read_repo("juce_shell/src/HyphaAnalysisDemand.h");
     let navigation = read_repo("juce_shell/src/HyphaAnalysisNavigation.h");
     let time_navigation = read_repo("juce_shell/src/HyphaTimePageNavigation.cpp");
     let time_navigation_header = read_repo("juce_shell/src/HyphaTimePageNavigation.h");
@@ -99,10 +100,12 @@ fn attack_abi_stays_compatible_and_the_product_view_has_a_navigation_route() {
     assert!(processor.contains("setMeterContextPreference (restoredMeterContext, false)"));
     assert!(!processor.contains("preferredMeterContext.store"));
     let display_state = read_repo("juce_shell/src/PluginProcessorDisplayState.cpp");
-    assert!(display_state.contains("setAttackEnabled (false)"));
+    assert!(display_state.contains("releaseAnalysisDemand"));
     assert!(display_state.contains("if (changed && notifyHost)"));
     assert!(time_navigation.contains("choose (Page::attack)"));
-    assert!(editor_analysis.contains("processorRef.setAttackEnabled (true)"));
+    assert!(demand.contains("Page::attack"));
+    assert!(demand.contains("Kind::attack"));
+    assert!(editor_analysis.contains("setAnalysisDemand"));
     assert!(
         processor.contains("kirin_hypha_set_attack_enabled")
             || read_repo("juce_shell/src/PluginProcessorAnalysis.cpp")

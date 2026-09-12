@@ -648,6 +648,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         COMMAND KirinUiRenderContractTests --product-entry-only)
     add_test(NAME kirin_ui_typography_contract
         COMMAND KirinUiRenderContractTests --typography-only)
+    add_test(NAME kirin_time_history_contract
+        COMMAND KirinUiRenderContractTests --time-history-only)
 
     juce_add_console_app(KirinAppearanceContractTests
         PRODUCT_NAME "Kirin Appearance Contract Tests")

@@ -12,12 +12,9 @@ KirinHyphaEditor::~KirinHyphaEditor()
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
        #endif
         processorRef.endReferenceBlind();
-        processorRef.setSpectrumVisible (false);
-        processorRef.setPsbVisible (false);
-        processorRef.setPerceptualVisible (false);
-        processorRef.setAbsoluteVisible (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
-        processorRef.setAttackEnabled (false);
+        processorRef.endAnalysisUiSession (analysisOwnerToken);
+        analysisOwnerToken = 0;
        #endif
     }
 }

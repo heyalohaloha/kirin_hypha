@@ -144,9 +144,10 @@ juce::StringArray KirinHyphaProcessorBase::localValidationFacts() const
                 + number (comparison.frames) + " / " + number (comparison.sampleRate) + " Hz / "
                 + number (comparison.channels) + " ch");
         }
-        lines.add ("Requested PSB: " + number (psbAnalysisRequested.load())
-            + " / perceptual: " + number (perceptualAnalysisRequested.load())
-            + " / absolute: " + number (absoluteAnalysisRequested.load()));
+        const auto requested = requestedAnalysisDemand();
+        lines.add ("Requested Analysis kind: "
+            + number (static_cast<int> (requested.kind))
+            + " / channel: " + number (requested.channelMode));
         KirinPsbView psb {};
         if (pollPsb (psb))
         {

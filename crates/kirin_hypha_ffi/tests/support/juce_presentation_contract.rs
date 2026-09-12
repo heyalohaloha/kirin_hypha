@@ -275,11 +275,17 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(!exchange.contains("plugin_data"));
     assert!(!protocol.contains("plugin_data"));
 
-    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
-    assert!(processor.contains("perceptualAnalysisRequested.store (true"));
-    assert!(processor.contains("perceptualAnalysisRequested.load"));
-    assert!(processor.contains("kirin_hypha_set_perceptual_visible (hyphaHandle, true)"));
-    assert!(processor.contains("kirin_hypha_set_absolute_visible (hyphaHandle, true)"));
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
+        + &read_repo("juce_shell/src/PluginProcessorAnalysis.cpp");
+    let demand = read_repo("juce_shell/src/HyphaAnalysisDemand.h");
+    assert!(processor.contains("setAnalysisDemand"));
+    assert!(processor.contains("analysisDemandOwner"));
+    assert!(processor.contains("hypha::analysis::apply"));
+    assert!(processor.contains("kirin_hypha_set_perceptual_visible"));
+    assert!(processor.contains("kirin_hypha_set_absolute_visible"));
+    assert!(demand.contains("adapter.setPerceptualVisible (true)"));
+    assert!(demand.contains("adapter.setAbsoluteVisible (true)"));
+    assert!(demand.contains("class OwnerState"));
     let processor_header = read_repo("juce_shell/src/PluginProcessor.h");
     assert!(processor_header.contains("index < 5u ? index : uint8_t { 0 }"));
     assert!(processor_header.contains("preferredSpectrumSize { 0 }"));
@@ -301,8 +307,9 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(analysis_navigation
         .contains("Page::meters, Page::run, Page::attack, Page::perceptual, Page::absolute"));
     assert!(observatory_editor.contains("? AnalysisPage::spectrum : AnalysisPage::meters"));
-    assert!(editor.contains("processorRef.setSpectrumVisible (false)"));
-    assert!(editor.contains("processorRef.setPerceptualVisible (false)"));
+    assert!(editor.contains("syncAnalysisDemand"));
+    assert!(editor.contains("processorRef.releaseAnalysisDemand"));
+    assert!(!editor.contains("processorRef.setPsbVisible"));
     assert!(editor.contains("AnalysisPage::perceptual"));
     assert!(editor.contains("AnalysisPage::absolute"));
     assert!(editor.contains("sharpnessUsesAbsolute"));

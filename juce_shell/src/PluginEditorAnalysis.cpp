@@ -15,8 +15,11 @@ void KirinHyphaEditor::configureSpectrumCallbacks()
             channelMode,
             observatoryView.target() == hypha::observatory::ObservationTarget::absolute);
         if (accepted)
+        {
             observatoryView.setDeltaTargetEnabled (
                 channelMode != KIRIN_SPECTRUM_SELECTION_MID_SIDE);
+            syncAnalysisDemand();
+        }
         return accepted;
     };
     spectrumView.onSubviewChange = [this]
@@ -35,7 +38,6 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
         page = AnalysisPage::meters;
     if (! isPost || analysisPage == page)
         return;
-    const auto previousPage = analysisPage;
     spectrumView.clearSnapshot();
     perceptualView.clearSnapshot();
     absoluteView.clearSnapshot();
@@ -50,25 +52,6 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     cachedAttackLatest = -1;
     cachedAttackRate = 0;
     cachedAttackGeneration = 0;
-    // ATTACK / FREQ / SHARP / LIVE share the current Analysis lease. HISTORY and RUN are
-    // read-only meter projections and release it.
-    if (hypha::analysis_navigation::releasesSlot (previousPage, page))
-    {
-        if (previousPage == AnalysisPage::spectrum)
-        {
-            processorRef.setSpectrumVisible (false);
-            processorRef.setPsbVisible (false);
-        }
-        else if (previousPage == AnalysisPage::perceptual)
-        {
-            if (sharpnessUsesAbsolute) processorRef.setAbsoluteVisible (false);
-            else processorRef.setPerceptualVisible (false);
-        }
-        else if (previousPage == AnalysisPage::absolute)
-            processorRef.setAbsoluteVisible (false);
-        else if (previousPage == AnalysisPage::attack)
-            processorRef.setAttackEnabled (false);
-    }
     analysisPage = page;
     sharpnessUsesAbsolute = page == AnalysisPage::perceptual
         && processorRef.pairStatus() != KIRIN_PAIR_STATUS_PAIRED;
@@ -94,17 +77,10 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
                                    : ui::preDisplayPresentationHz);
     resized();
     repaint();
-    if (page == AnalysisPage::attack)
-        processorRef.setAttackEnabled (true);
-    else if (page == AnalysisPage::spectrum)
+    if (page == AnalysisPage::spectrum)
         configureSpectrumAnalysis();
-    else if (page == AnalysisPage::perceptual)
-    {
-        if (sharpnessUsesAbsolute) processorRef.setAbsoluteVisible (true);
-        else processorRef.setPerceptualVisible (true);
-    }
-    else if (page == AnalysisPage::absolute)
-        processorRef.setAbsoluteVisible (true);
+    else
+        syncAnalysisDemand();
 }
 
 void KirinHyphaEditor::configureSharpnessAnalysis (int pairStatus)
@@ -115,18 +91,15 @@ void KirinHyphaEditor::configureSharpnessAnalysis (int pairStatus)
     if (useAbsolute == sharpnessUsesAbsolute)
         return;
 
-    if (sharpnessUsesAbsolute) processorRef.setAbsoluteVisible (false);
-    else processorRef.setPerceptualVisible (false);
     sharpnessUsesAbsolute = useAbsolute;
     perceptualView.clearSnapshot();
     absoluteView.clearSnapshot();
     absoluteView.setSharpnessOnly (sharpnessUsesAbsolute);
     perceptualView.setVisible (! sharpnessUsesAbsolute);
     absoluteView.setVisible (sharpnessUsesAbsolute);
-    if (sharpnessUsesAbsolute) processorRef.setAbsoluteVisible (true);
-    else processorRef.setPerceptualVisible (true);
     startTimerHz (sharpnessUsesAbsolute ? ui::absoluteTimelineSourceHz
                                         : ui::spectrumPresentationHz);
+    syncAnalysisDemand();
     repaint();
 }
 
@@ -160,15 +133,41 @@ void KirinHyphaEditor::configureSpectrumAnalysis()
         spectrumView.setDisplaySelection (processorRef.spectrumDisplaySelection());
     observatoryView.setDeltaTargetEnabled (! midSide || spectrumView.isPsbObservation());
     spectrumView.setAbsoluteObservation (absolute);
-    if (spectrumView.isPsbObservation())
+    syncAnalysisDemand();
+}
+
+hypha::analysis::Demand KirinHyphaEditor::desiredAnalysisDemand() const noexcept
+{
+    return hypha::analysis::forSurface ({
+        analysisSurfaceShowing(), analysisPage, spectrumView.isPsbObservation(),
+        observatoryView.target() == hypha::observatory::ObservationTarget::absolute,
+        processorRef.spectrumDisplaySelection() == KIRIN_SPECTRUM_SELECTION_MID_SIDE,
+        sharpnessUsesAbsolute, processorRef.spectrumSingleChannelMode(),
+        hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()) });
+}
+
+bool KirinHyphaEditor::analysisSurfaceShowing() const noexcept
+{
+    return isPost && analysisOwnerToken != 0 && isShowing() && ! localBlindOpen
+        && ! observatoryView.hybridVuVisible()
+        && hypha::analysis_navigation::isAnalysis (analysisPage);
+}
+
+void KirinHyphaEditor::syncAnalysisDemand()
+{
+    const auto demand = desiredAnalysisDemand();
+    const auto processorDemand = processorRef.requestedAnalysisDemand();
+    if (hypha::analysis::active (demand))
     {
-        processorRef.setSpectrumVisible (false);
-        processorRef.setPsbVisible (! absolute);
+        if ((demand != submittedAnalysisDemand || demand != processorDemand)
+            && processorRef.setAnalysisDemand (analysisOwnerToken, demand))
+            submittedAnalysisDemand = demand;
     }
-    else
+    else if (hypha::analysis::active (submittedAnalysisDemand)
+             || hypha::analysis::active (processorDemand))
     {
-        processorRef.setPsbVisible (false);
-        processorRef.setSpectrumVisible (true);
+        processorRef.releaseAnalysisDemand (analysisOwnerToken);
+        submittedAnalysisDemand = {};
     }
 }
 
@@ -176,7 +175,7 @@ bool KirinHyphaEditor::refreshAnalysisViews (
     bool alive, int signalState, bool recording, bool armed,
     bool acknowledged, bool presetAvailable, int pairStatus)
 {
-    if (! hypha::analysis_navigation::isAnalysis (analysisPage))
+    if (! analysisSurfaceShowing())
         return false;
 
     const bool liveInput = signalState == KIRIN_SIGNAL_STATE_ACTIVE && processorRef.hasLiveInput();

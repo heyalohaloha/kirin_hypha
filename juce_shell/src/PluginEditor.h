@@ -99,6 +99,9 @@ private:
     void setAnalysisPage (AnalysisPage page);
     void configureSharpnessAnalysis (int pairStatus);
     void configureSpectrumAnalysis();
+    hypha::analysis::Demand desiredAnalysisDemand() const noexcept;
+    bool analysisSurfaceShowing() const noexcept;
+    void syncAnalysisDemand();
     void configureSpectrumCallbacks();
     void updateTimePageNavigation();
     void cycleSpectrumSize();
@@ -230,6 +233,8 @@ private:
     KirinMeasureResult watchMaximum {};
     bool haveWatchMaximum = false;
     bool pairedPreExplicitlyBypassed = false; // updated only from a successful exact delta poll
+    std::uint64_t analysisOwnerToken = 0;
+    hypha::analysis::Demand submittedAnalysisDemand {};
     KirinRecordDisplay cachedRecordDisplay {};
     bool haveRecordDisplay = false;
     std::uint64_t observedHostProcessHeartbeat = 0;

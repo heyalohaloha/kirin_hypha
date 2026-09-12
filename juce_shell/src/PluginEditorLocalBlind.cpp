@@ -166,6 +166,7 @@ void KirinHyphaEditor::layoutLocalBlindProduct()
     localBlindView.setBounds (scaleRoot.getLocalBounds());
     localBlindView.setVisible (localBlindOpen);
     setLocalBlindIsolation (localBlindOpen);
+    syncAnalysisDemand();
     if (localBlindOpen)
     {
         localBlindView.toFront (true);

@@ -26,14 +26,11 @@ void KirinHyphaProcessorBase::setMeterContextPreference (
     hypha::meter_context::MeterContext value, bool notifyHost)
 {
     const auto encoded = hypha::meter_context::stateValue (value);
-    bool changed;
-    {
-        const juce::ScopedLock sl (handleLock);
-        if (! hypha::meter_context::drumAttackAvailable (value)
-            && attackRequested.load (std::memory_order_acquire))
-            setAttackEnabled (false);
-        changed = preferredMeterContext.exchange (encoded, std::memory_order_acq_rel) != encoded;
-    }
+    if (! hypha::meter_context::drumAttackAvailable (value)
+        && hypha::analysis::isAttack (requestedAnalysisDemand()))
+        releaseAnalysisDemand (analysisDemandOwner.currentOwner());
+    const bool changed = preferredMeterContext.exchange (
+        encoded, std::memory_order_acq_rel) != encoded;
     if (changed)
     {
         // The explicit context chooses the Blind gain policy. Never continue a prepared or active

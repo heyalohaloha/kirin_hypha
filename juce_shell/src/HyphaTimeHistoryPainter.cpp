@@ -39,6 +39,23 @@ int auxLabelWidth (presentation::Context presentation, bool plr, bool delta,
     return juce::jmin (required, availableWidth / 2);
 }
 
+juce::Range<float> dataXRange (juce::Rectangle<int> area, bool compactMeter) noexcept
+{
+    const auto inset = compactMeter ? 4 : 32;
+    const auto reduced = area.reduced (inset, 0).toFloat();
+    return { reduced.getX(), reduced.getRight() };
+}
+
+float dataXForEntry (juce::Range<float> range,
+                     const KirinMeterHistoryEntry& entry,
+                     const HistoryAxis& axis,
+                     std::size_t index,
+                     std::size_t count) noexcept
+{
+    return range.getStart()
+         + static_cast<float> (normalizedX (axis, entry, index, count)) * range.getLength();
+}
+
 namespace
 {
 enum class Metric { momentary, shortTerm, truePeak, plr, correlation };
@@ -91,7 +108,7 @@ float xFor (juce::Rectangle<float> plot,
             size_t index,
             size_t count) noexcept
 {
-    return plot.getX() + (float) normalizedX (axis, entry, index, count) * plot.getWidth();
+    return dataXForEntry ({ plot.getX(), plot.getRight() }, entry, axis, index, count);
 }
 
 juce::String latestText (const std::vector<KirinMeterHistoryEntry>& history,
@@ -119,13 +136,6 @@ double latestValue (const std::vector<KirinMeterHistoryEntry>& history,
     return std::numeric_limits<double>::quiet_NaN();
 }
 
-bool primaryMetricsAvailable (const KirinMeterHistoryEntry& entry) noexcept
-{
-    return std::isfinite (entry.lufs_m.mean)
-        && std::isfinite (entry.lufs_s.mean)
-        && std::isfinite (entry.true_peak.mean);
-}
-
 float normalizedAux (Metric metric, double value, bool delta) noexcept
 {
     const double minimum = metric == Metric::plr ? (delta ? -12.0 : 0.0)
@@ -142,6 +152,7 @@ void paintAuxLane (juce::Graphics& g,
                    const char* label,
                    juce::Colour colour,
                    const HistoryAxis& axis,
+                   juce::Range<float> timelineX,
                    bool delta,
                    presentation::Context presentation)
 {
@@ -192,7 +203,9 @@ void paintAuxLane (juce::Graphics& g,
 
     const auto axisWidth = 32;
     auto axisArea = area.removeFromRight (axisWidth);
-    auto plot = area.reduced (2, 2).toFloat();
+    auto plot = juce::Rectangle<float> (
+        timelineX.getStart(), static_cast<float> (area.getY() + 2),
+        timelineX.getLength(), static_cast<float> (juce::jmax (0, area.getHeight() - 4)));
     const auto zeroY = plot.getY() + normalizedAux (metric, 0.0, delta) * plot.getHeight();
     g.setColour (COL_MUTED.withAlpha (0.28f));
     g.drawHorizontalLine (juce::roundToInt (zeroY), plot.getX(), plot.getRight());
@@ -205,7 +218,7 @@ void paintAuxLane (juce::Graphics& g,
     {
         const auto& entry = history[index];
         const auto value = rangeFor (entry, metric).mean;
-        if (! primaryMetricsAvailable (entry) || ! std::isfinite (value))
+        if (! std::isfinite (value))
         {
             open = false;
             continue;
@@ -302,7 +315,7 @@ void paintMetric (juce::Graphics& g,
         const auto& range = rangeFor (entry, visual.metric);
         const float x = xFor (plot, entry, axis,
                               index, history.size());
-        if (! primaryMetricsAvailable (entry) || ! std::isfinite (range.mean))
+        if (! std::isfinite (range.mean))
         {
             open = false;
             continue;
@@ -315,8 +328,8 @@ void paintMetric (juce::Graphics& g,
             if (top < bottom)
                 ranges.addRectangle ((float) juce::roundToInt (x), top, 1.0f, bottom - top);
         }
-        // A shared validity boundary keeps M, S and TP discontinuities aligned. A missing
-        // primary fact must not make one curve imply continuous observation while another stops.
+        // Missing data breaks only this metric. Generation/run boundaries still break every
+        // metric at the same factual endpoint without inventing a cross-metric validity rule.
         const float y = yFor (plot, visual.metric, range.mean, delta, scaleMode);
         const bool newRun = ! open || entry.generation != previousGeneration
                          || entry.run_id != previousRun;
@@ -430,23 +443,17 @@ void paint (juce::Graphics& g,
     juce::Rectangle<int> correlationArea;
     if (! compactMeter)
     {
-        if (plotArea.getHeight() < 160)
-        {
-            auto auxArea = plotArea.removeFromBottom (32);
-            plrArea = auxArea.removeFromLeft (auxArea.getWidth() * 55 / 100);
-            auxArea.removeFromLeft (3);
-            correlationArea = auxArea;
-        }
-        else
-        {
-            const auto auxLaneHeight = juce::jlimit (30, 72, plotArea.getHeight() / 5);
-            auto auxArea = plotArea.removeFromBottom (auxLaneHeight * 2 + 2);
-            plrArea = auxArea.removeFromTop (auxLaneHeight);
-            auxArea.removeFromTop (2);
-            correlationArea = auxArea;
-        }
+        const auto auxLaneHeight = plotArea.getHeight() < 160
+            ? 24 : juce::jlimit (30, 72, plotArea.getHeight() / 5);
+        auto auxArea = plotArea.removeFromBottom (auxLaneHeight * 2 + 2);
+        plrArea = auxArea.removeFromTop (auxLaneHeight);
+        auxArea.removeFromTop (2);
+        correlationArea = auxArea;
     }
-    auto plot = plotArea.reduced (compactMeter ? 4 : 32, 7).toFloat();
+    const auto timelineX = dataXRange (plotArea, compactMeter);
+    auto plot = juce::Rectangle<float> (
+        timelineX.getStart(), static_cast<float> (plotArea.getY() + 7),
+        timelineX.getLength(), static_cast<float> (juce::jmax (0, plotArea.getHeight() - 14)));
     plot.removeFromBottom (3.0f);
     paintAxes (g, plot, delta, ! compactMeter && plot.getHeight() >= 55.0f, scaleMode,
                presentation);
@@ -456,9 +463,9 @@ void paint (juce::Graphics& g,
     if (! compactMeter)
     {
         paintAuxLane (g, plrArea, history, Metric::plr, "PLR", COL_GUIDE_BR,
-                      axis, delta, presentation);
+                      axis, timelineX, delta, presentation);
         paintAuxLane (g, correlationArea, history, Metric::correlation, "CORR",
-                      COL_SPECTRUM_DELTA_BR, axis, delta, presentation);
+                      COL_SPECTRUM_DELTA_BR, axis, timelineX, delta, presentation);
     }
 
 }
