@@ -105,16 +105,6 @@ jobs:
             -DKIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS=ON
           cmake --build juce_shell/build-arm64 --config Release
 
-      - name: Validate macOS AU and VST3 audio transparency
-        run: |
-          TEST_EXE="$(find juce_shell/build-arm64 -type f -name KirinAudioTransparencyContractTests -perm +111 | head -1)"
-          test -n "$TEST_EXE"
-          "$TEST_EXE" \
-            "juce_shell/build-arm64/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3" \
-            "juce_shell/build-arm64/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3" \
-            "juce_shell/build-arm64/KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component" \
-            "juce_shell/build-arm64/KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component"
-
       - name: Validate Kirin OS Reference preview renderer (arm64)
         run: ctest --test-dir juce_shell/build-arm64 -C Release --output-on-failure -R '^kirin_hypha_reference_preview_renderer$'
 
@@ -145,6 +135,18 @@ jobs:
           # Force AudioComponentRegistrar to rescan the freshly-copied components.
           killall -9 AudioComponentRegistrar 2>/dev/null || true
           sleep 8
+
+      # JUCE resolves AU instances through AudioComponentFindNext even when given a bundle
+      # path. Register this build before the host test so a clean runner can discover it.
+      - name: Validate macOS AU and VST3 audio transparency
+        run: |
+          TEST_EXE="$(find juce_shell/build-arm64 -type f -name KirinAudioTransparencyContractTests -perm +111 | head -1)"
+          test -n "$TEST_EXE"
+          "$TEST_EXE" \
+            "juce_shell/build-arm64/KirinHyphaPRE_artefacts/Release/VST3/Kirin Hypha PRE.vst3" \
+            "juce_shell/build-arm64/KirinHyphaPOST_artefacts/Release/VST3/Kirin Hypha POST.vst3" \
+            "juce_shell/build-arm64/KirinHyphaPRE_artefacts/Release/AU/Kirin Hypha PRE.component" \
+            "juce_shell/build-arm64/KirinHyphaPOST_artefacts/Release/AU/Kirin Hypha POST.component"
 
       # Individual auval per AU (NOT `auval -a`: that scans every AU on the system and can crash
       # on unrelated third-party AUs, e.g. iZotope). Gate on "AU VALIDATION SUCCEEDED".
