@@ -49,6 +49,7 @@ Pro Tools captures are evidence, not specifications embedded in those images.
 | PT-29 | S1 | The complete UI gate found the 100% Focus Trail changing-frame path at 4.56 ms, just over its 4.5 ms budget. | Every 30 Hz snapshot recomputed frequency-axis low-band calm weights even though the axis definition was unchanged. | Cache the display-only weights by the exact minimum/maximum frequency definition. The final isolated five-size Focus Trail gate passes at 2.325 / 2.509 / 2.807 / 3.482 / 5.565 ms changing-frame cost without changing measurement or appearance. |
 | PT-30 | S3 test | The Jungle capture reversibility check failed intermittently although normal editor renders were deterministic. | Each comparison image generated a new current-time capture stamp, so crossing a one-second boundary created unrelated pixels. | Keep real Capture timestamps unchanged. Supply one fixed timestamp to every image in the appearance-only contract so it measures Jungle state and nothing else. |
 | PT-31 | S1 | The empty rounded control beside MARK in the supplied FREQ captures looked like an unfinished field, and PSB could not be discovered. | The PSB/SPECTRUM toggle painted its control material, then inherited the material painter's final graphics colour instead of selecting a text colour; the label disappeared against the surface in the real host. | Set an explicit high-contrast text colour after painting the control, for both `PSB` and selected `SPECTRUM` states. Verify both states at all five sizes. |
+| PT-32 | S3 | The delta TIME basis still truncated at 600 and 900 logical widths during the repaired five-size review. | The legend reserved a fixed 184 px while the mono font scales with editor size, so `EXACT Δ / AUDIO TIME / RUNS` lost its final meaning at larger sizes. | Allocate the legend remainder after three fixed metric cells, and assert the production allocation is at least the exact font width at every non-compact size. |
 
 ## Why pre-host verification did not stop these defects
 
@@ -59,13 +60,13 @@ untraceable rather than being reconstructed from memory.
 
 | Findings | Pre-host detectability | Detection gap / current correction |
 |---|---|---|
-| PT-01, PT-02 | Yes | Component snapshots proved that plots could draw, but did not exercise editor visibility, page changes, Pair timer updates, Processor restoration, and the real Analysis lease as one sequence. The typed surface demand now makes hidden state `none`; its transition/owner contract rejects a stale editor and verifies all 15 executable demands. Real-host confirmation remains required. |
+| PT-01, PT-02 | Yes | Component snapshots proved that plots could draw, but did not exercise editor visibility, page changes, Pair timer updates, Processor restoration, and the real Analysis lease as one sequence. The correction now pins the actual Processor readiness order, generation state, shipping C++ adapter, and real Rust C ABI route separately; the five known mutations fail their detectors. Pro Tools window-lifecycle confirmation is still required. |
 | PT-03 | Mostly; Pro Tools menu timing remains host-specific | Candidate rules and popup copy were tested separately, not as playing/stopped/contended interaction states. The acceptance matrix now requires zero/one/duplicate/in-use candidates and a playback lock in one sequence. |
 | PT-04, PT-22 | Source-level risk was detectable; mojibake manifestation is host-specific | Host-facing copy admitted decorative non-ASCII separators without an encoding-boundary rule. Host menus now use ASCII slashes and the host pass still checks the rendered string. |
 | PT-05, PT-28 | Yes | License ownership, saved-work connection, Pair verification, and observation target were accepted as neighbouring states rather than an explicit state matrix. Dedicated access and Pair fixtures now keep these prerequisites separate. |
 | PT-06 | Yes | Audio fail-closed behavior existed, but the UI contract did not require a discoverable disabled reason. Product-entry tests now require the AAX validation-pending entry. |
 | PT-07–PT-11, PT-21 | Yes, with product/measurement review | Tests asserted that values and labels existed, not that the copy conveyed the measurement window or avoided a quality judgement. The product contract now fixes WARMING, hidden 10 Hz cadence, clock-basis copy, PLR as a fact gauge, and signed SIDE axes. Pixel tests remain insufficient for semantic acceptance. |
-| PT-12 | Yes | Fixtures made M/S/TP/CORR finite together and checked normalized time before separate plot transforms. That could not reveal either cross-metric data loss or physical X drift. Partial-missing fixtures and one shared physical timeline projection now cover both independently. |
+| PT-12 | Yes | Fixtures made M/S/TP/CORR finite together and checked normalized time before separate plot transforms. The correction now uses one production layout for final X coordinates and separate CORR readout/data rectangles, then changes only the CORR path and requires zero changed pixels in the fixed readout. Pro Tools rasterization remains a host check. |
 | PT-13 | Partly; final latency is host-specific | The liveness threshold was unit-tested as configured, but no acceptance sequence tied accepted tail, 0.1/0.4/1/3 s stops, restart, and visible run boundaries together. Core tests now cover the 400 ms/tail rules; the exact Pro Tools chronology remains open. |
 | PT-14–PT-18, PT-24, PT-31 | Yes | Width/alpha/image-difference checks allowed clipped, overlapping, abbreviated, or same-colour text to pass. Tests now use the exact product strings, populated states, allocated bounds, and contrast checks at all five sizes; the final host typography pass remains required. |
 | PT-19, PT-20 | Mostly; host popup ordering remains host-specific | Static layout could not exercise tooltip/page lifetime or popup-dismiss/resize ordering. The interaction contract now includes page dismissal and deferred resize; Pro Tools still verifies its native modal order. |
@@ -74,6 +75,7 @@ untraceable rather than being reconstructed from memory.
 | PT-27 | Not fully without the exact host report/build | Nearby crash artifacts lacked an exact Hypha attribution. The correction is evidentiary: preserve the report, exact commit and reproduction conditions, and do not mark either cause or resolution without them. |
 | PT-29 | Yes; it was detected by the complete gate | A focused entry/layout run did not include the changing-frame performance path. The complete render gate found it; cached axis weights and the dedicated five-size performance fixture close the defect. Partial runs are no longer reported as full UI acceptance. |
 | PT-30 | Yes | The appearance fixture injected current time, so its own unrelated timestamp made the comparison nondeterministic. A fixed test-only timestamp isolates Jungle reversibility without changing the product timestamp. |
+| PT-32 | Yes | Earlier checks only proved that some legend pixels existed. The repaired five-size images exposed the fixed-width truncation; the contract now compares the exact production font requirement with the production legend allocation. |
 
 The main process failure was therefore not one missing test. It was the combination of favourable
 fixtures, disconnected layers, weak visual or semantic assertions, partial-suite ambiguity, and
@@ -88,7 +90,7 @@ The implementation is not accepted from screenshots alone. The final pass must r
 1. Static render contracts for PRE and POST at 300×200, 375×250, 450×300, 600×400, and 900×600.
 2. Dedicated populated renders for FREQ LR/MID/SIDE/M/S, TIME HISTORY/SHARP/LIVE, SPACE, VU,
    Reference access, normal appearance, and Jungle appearance.
-3. Pro Tools Developer AAX: PRE + POST insertion, Pair zero/one/contended states, hidden/reopened
+3. Pro Tools Developer AAX: PT-01 through PT-32, PRE + POST insertion, Pair zero/one/contended states, hidden/reopened
    editor analysis ownership, REF access, disabled AAX Blind reason, every size preset, and
    stop for more than one second followed by restart.
 4. Reported latency and uninterrupted A-path playback are checked separately from visible history
@@ -97,20 +99,49 @@ The implementation is not accepted from screenshots alone. The final pass must r
 
 ## Current automated evidence
 
-- The focused Analysis-demand contract passes all 15 canonical demands, owner replacement,
-  stale-owner rejection, hidden-surface release, and unavailable-ATTACK rejection.
-- The focused TIME contract passes S-only, TP-only, CORR-only, all-missing, and shared physical-X
-  projections. Its Debug correctness run measured 11.920 / 23.297 / 11.976 ms per tick for one-slot,
-  two-slot, and changing-frame paths; shipping performance limits remain a Release-build gate.
-- PRE and POST Debug VST3 targets compile after the coordinator replacement. The focused Rust
-  source/wiring suites pass 2 ATTACK-wiring tests and 16 JUCE-lifecycle tests.
-- Source line-budget, shell syntax, whitespace, public-history, and clippy checks pass. The single
-  integrated run passed its Release native 14/14, measure 1,454/1,463 with nine intentional ignores,
-  and FFI 86/86 stages, then stopped on one stale xtask Pair-menu copy assertion after 139/140 xtask
-  tests had passed. B-834 changes only that assertion; its focused test passes, followed by the
-  inventory-pinned realtime parity 20/20 and Pair-candidate 6/6 suites. The complete wrapper was not
-  restarted, preserving the agreed one-run policy; this is composite source evidence rather than a
-  second monolithic receipt.
-- Pro Tools Developer post-fix pass: still required. Native computer-control is not exposed in the
-  current Codex surface, and the regular Pro Tools process is open; do not replace its loaded signed
-  diagnostic AAX bundle with an unsigned build while that session is active.
+The repaired candidate completed one integrated release-source run on 2026-09-13. This is a
+pre-host result, not a Pro Tools pass.
+
+- Processor application truth now includes engine generation, readiness, applied demand, and
+  bounded retry after rejection. Product lifecycle source-order checks require writes publication,
+  engine readiness, then application. The native state contract covers destroy/create/retry.
+- The shipping C++ adapter binds every method to the exact C ABI function symbol. Independent
+  route expectations cover every active transition, while two Rust tests call the actual C ABI on
+  a real engine and distinguish spectrum SIDE, M/S, perceptual, absolute, attack, release, and
+  PRE/mono/null rejection.
+- The production TIME layout owns the main and CORR timeline X, plus separate CORR readout/data/axis
+  rectangles. A production-painter comparison changes the CORR path while keeping `CORR +0.00`
+  constant and requires zero changed pixels in the readout. Normal and delta populated renders were
+  inspected at all five sizes. That review found and closed PT-32; the exact font-width assertion
+  now prevents the fixed-width legend regression.
+- The five known mutation classes each fail their dedicated detector. The Analysis contract is a
+  separately named CTest, preventing a focused invocation from being described as the whole UI run.
+- PRE/POST Release VST3 compilation passed. The integrated wrapper passed Release native CTest
+  15/15, `kirin_measure` main 1,454 with nine intentional ignores, FFI main 88/88, realtime parity
+  20/20, Pair candidates 6/6, xtask 140/140, Release performance probes, source/line budgets, and
+  clippy with warnings denied. It ended with `release source contract: PASS`.
+- The later PT-32 presentation-only correction reran only the focused Release TIME test and five-size
+  image output; it passed. The complete wrapper was not repeated, following the one-run policy.
+- Pro Tools Developer post-fix pass is still required. Native computer-control is not exposed in
+  the current Codex surface; do not replace a loaded signed bundle or modify a working session.
+
+## B-835 review follow-up and candidate identity
+
+- The B-835 premature application order and stale editor-submission state are repaired by the
+  Processor-owned generation/application state described above. This closes the pre-host defect,
+  but PT-01/PT-02 remain open for current exact-candidate host confirmation.
+- The B-835 CORR collision is repaired by final-coordinate geometry and production-painter
+  non-intersection coverage. PT-12/PT-15 remain open only at the current Pro Tools host layer.
+- The pre-host-detectability table records why earlier green checks were insufficient; the new
+  route, lifecycle, final-pixel, font-width, and mutation gates are the corrective evidence.
+- Preserve the outstanding request to build AAX from exact B-835
+  `63daa09a9f6113fb868cd107b9072aaa7bdb7924` and diagnose PT-01 through PT-31, all five sizes,
+  Pair/Reference/Blind, stopping for more than one second then restarting, 0 samples, and A-path
+  continuity in Pro Tools Developer. B-835 is a known-bad baseline, not the repaired candidate.
+- Also verify the newly found PT-32 on the repaired candidate. Build and accept that candidate
+  separately from its own exact commit. Distinguish
+  Reference Blind from AAX local PRE/POST Blind, whose exact-range clock/PDC gate stays fail-closed.
+- Operator tasks, lifecycle/layout design, the required real integration and mutation tests, and
+  G0–G4 acceptance gates are consolidated in
+  [the structural repair plan](hypha_structural_repair_plan_20260912.md). Product code and pre-host
+  gates are now changed in the repaired candidate; no host result has been promoted to PASS.

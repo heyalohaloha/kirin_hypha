@@ -96,14 +96,14 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
             kirin_hypha_set_attack_enabled (hyphaHandle, false);
         }
         kirin_hypha_destroy (hyphaHandle);
-        hyphaHandle = nullptr; analysisDemandApplied = {};
+        hyphaHandle = nullptr;
+        analysisApplication.engineDestroyed();
     }
 }
 
 void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     const int numCh = getTotalNumInputChannels();
-
     // Pre-allocate the interleave scratch so processBlock never allocates (RT-safe).
     // B-125 (b): prealloc-max — size to max(declared block, kOversizeHeadroomFrames) frames
     // so realistic variable / offline-render blocks above the realtime maximum are absorbed
@@ -113,7 +113,6 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     // B-125: cache the prepared capacity so processBlock re-checks against it (the oversized
     // fallback fires only for blocks beyond this) without re-deriving from samplesPerBlock.
     scratchCapacitySamples = interleaveScratch.size();
-
     stopLocalBlindCaptureForFormatChange (sampleRate, numCh);
     const juce::ScopedLock sl (handleLock);
     normalizeSpectrumSelectionForInputChannels (numCh);
@@ -137,16 +136,17 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     lastProcessHadPosition = false;
     lastProcessNumFrames = 0;
     watchSilenceGate.reset();
-
+    writesEnabled.store (false, std::memory_order_release);
+    analysisApplication.engineDestroyed();
     if (hyphaHandle != nullptr)
     {
         kirin_hypha_destroy (hyphaHandle);
-        hyphaHandle = nullptr; analysisDemandApplied = {};
+        hyphaHandle = nullptr;
     }
-
     // num_channels: pass the actual negotiated input channel count. Mono must remain 1ch
     // all the way into the meter; duplicating to stereo would bias loudness by +3.01 dB.
     hyphaHandle = kirin_hypha_create ((uint32_t) sampleRate, (uint32_t) numCh);
+    if (hyphaHandle != nullptr) analysisApplication.engineCreated();
     preparedSampleRate = hyphaHandle != nullptr ? sampleRate : 0.0;
     preparedInputChannels = hyphaHandle != nullptr ? numCh : 0;
 
@@ -163,7 +163,6 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         // the Rust engine. Apply the retained host fact to every fresh handle so an insert that
         // was already OFF at project-open reaches the same ABS state as an explicit live click.
         kirin_hypha_set_host_component_active (hyphaHandle, hostComponentActive);
-        writesEnabled.store (false, std::memory_order_release);
         // Logic stopped-state fix: re-prepare needs a fresh enable, but Logic may not call processBlock until
         // playback. Start a message-thread fallback so Inactive presence/candidates are published
         // even while stopped. If setStateInformation already arrived for this instance, skip the
@@ -992,7 +991,6 @@ void KirinHyphaProcessorBase::enableWritesNow()
     {
         kirin_hypha_enable_post_writes (hyphaHandle);
         restorePersistedPairUnderHandleLock();
-        restoreRequestedAnalysisUnderHandleLock();
     }
     else
     {
@@ -1055,5 +1053,7 @@ void KirinHyphaProcessorBase::enableWritesNow()
 #endif
 
     writesEnabled.store (true, std::memory_order_release);
+    analysisApplication.engineReady();
+    serviceRequestedAnalysisUnderHandleLock();
     startLocalBlindCaptureForPreparedFormat();
 }

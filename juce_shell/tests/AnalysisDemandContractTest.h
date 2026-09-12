@@ -1,9 +1,11 @@
 #pragma once
 
 #include "../src/HyphaAnalysisDemand.h"
+#include "../src/HyphaAnalysisFfiAdapter.h"
 #include <array>
 #include <cstdlib>
 #include <iostream>
+#include <type_traits>
 
 namespace hypha::tests::analysis_demand_contract
 {
@@ -11,33 +13,92 @@ using Kind = analysis::Kind;
 
 struct RecordingAdapter
 {
+    enum class Route { none, spectrum, midSide, absolute, perceptual, attack };
     int enabledCalls = 0;
     int spectrumStops = 0;
     int attackStops = 0;
     int channelMode = -1;
-    Kind enabledKind = Kind::none;
+    Route enabledRoute = Route::none;
+    bool acceptChannel = true;
+    bool acceptEnable = true;
 
     bool setSpectrumVisible (bool value)
     {
-        if (value) { ++enabledCalls; enabledKind = Kind::spectrum; }
+        if (value) { ++enabledCalls; enabledRoute = Route::spectrum; }
         else ++spectrumStops;
-        return true;
+        return ! value || acceptEnable;
     }
     bool setAttackEnabled (bool value)
     {
-        if (value) { ++enabledCalls; enabledKind = Kind::attack; }
+        if (value) { ++enabledCalls; enabledRoute = Route::attack; }
         else ++attackStops;
-        return true;
+        return ! value || acceptEnable;
     }
     bool setChannelMode (std::uint8_t value)
-    { channelMode = value; return true; }
+    { channelMode = value; return acceptChannel; }
     bool setMidSideSpectrumVisible (bool)
-    { ++enabledCalls; enabledKind = Kind::midSideSpectrum; return true; }
+    { ++enabledCalls; enabledRoute = Route::midSide; return acceptEnable; }
     bool setAbsoluteVisible (bool)
-    { ++enabledCalls; enabledKind = Kind::liveAbsolute; return true; }
+    { ++enabledCalls; enabledRoute = Route::absolute; return acceptEnable; }
     bool setPerceptualVisible (bool)
-    { ++enabledCalls; enabledKind = Kind::sharpDelta; return true; }
+    { ++enabledCalls; enabledRoute = Route::perceptual; return acceptEnable; }
 };
+
+constexpr RecordingAdapter::Route expectedRoute (Kind kind) noexcept
+{
+    using Route = RecordingAdapter::Route;
+    switch (kind)
+    {
+        case Kind::spectrum: return Route::spectrum;
+        case Kind::midSideSpectrum: return Route::midSide;
+        case Kind::psbAbsolute:
+        case Kind::sharpAbsolute:
+        case Kind::liveAbsolute: return Route::absolute;
+        case Kind::psbDelta:
+        case Kind::sharpDelta: return Route::perceptual;
+        case Kind::attack: return Route::attack;
+        case Kind::none: return Route::none;
+    }
+    return Route::none;
+}
+
+struct CAbiRecorder
+{
+    RecordingAdapter::Route route = RecordingAdapter::Route::none;
+    int channelMode = -1;
+};
+
+inline CAbiRecorder& cAbiRecorder (KirinHypha* handle)
+{
+    return *reinterpret_cast<CAbiRecorder*> (handle);
+}
+
+inline bool recordSpectrum (KirinHypha* handle, bool)
+{ cAbiRecorder (handle).route = RecordingAdapter::Route::spectrum; return true; }
+inline bool recordAttack (KirinHypha* handle, bool)
+{ cAbiRecorder (handle).route = RecordingAdapter::Route::attack; return true; }
+inline bool recordChannel (KirinHypha* handle, std::uint8_t value)
+{ cAbiRecorder (handle).channelMode = value; return true; }
+inline bool recordMidSide (KirinHypha* handle, bool)
+{ cAbiRecorder (handle).route = RecordingAdapter::Route::midSide; return true; }
+inline bool recordAbsolute (KirinHypha* handle, bool)
+{ cAbiRecorder (handle).route = RecordingAdapter::Route::absolute; return true; }
+inline bool recordPerceptual (KirinHypha* handle, bool)
+{ cAbiRecorder (handle).route = RecordingAdapter::Route::perceptual; return true; }
+
+using RecordingFfiAdapter = analysis::BasicFfiAdapter<
+    &recordSpectrum, &recordAttack, &recordChannel, &recordMidSide,
+    &recordAbsolute, &recordPerceptual>;
+
+using ExpectedShippingFfiAdapter = analysis::BasicFfiAdapter<
+    &kirin_hypha_set_spectrum_visible,
+    &kirin_hypha_set_attack_enabled,
+    &kirin_hypha_set_spectrum_channel_mode,
+    &kirin_hypha_set_mid_side_spectrum_visible,
+    &kirin_hypha_set_absolute_visible,
+    &kirin_hypha_set_perceptual_visible>;
+static_assert (std::is_same_v<analysis::ShippingFfiAdapter,
+                              ExpectedShippingFfiAdapter>);
 
 inline void require (bool value)
 {
@@ -89,6 +150,7 @@ inline void verify()
         RecordingAdapter adapter;
         require (analysis::apply (Demand {}, demand, adapter));
         require (adapter.enabledCalls == 1);
+        require (adapter.enabledRoute == expectedRoute (demand.kind));
         if (analysis::usesChannelMode (demand.kind)
             || demand.kind == Kind::psbAbsolute || demand.kind == Kind::psbDelta)
             require (adapter.channelMode == static_cast<int> (demand.channelMode));
@@ -103,6 +165,61 @@ inline void verify()
     require (analysis::apply ({ Kind::spectrum, 2u }, { Kind::spectrum, 2u }, unchanged));
     require (unchanged.enabledCalls == 0 && unchanged.spectrumStops == 0
              && unchanged.attackStops == 0 && unchanged.channelMode == -1);
+
+    // Every active-to-active transition must route to the requested analysis kind. The expected
+    // table above is independent from production apply(), so a swapped FFI call fails this test.
+    for (const auto previous : demands)
+        for (const auto requested : demands)
+        {
+            if (! analysis::active (requested) || previous == requested) continue;
+            RecordingAdapter adapter;
+            require (analysis::apply (previous, requested, adapter));
+            require (adapter.enabledCalls == 1);
+            require (adapter.enabledRoute == expectedRoute (requested.kind));
+        }
+    RecordingAdapter rejectedChannel;
+    rejectedChannel.acceptChannel = false;
+    require (! analysis::apply ({}, { Kind::spectrum, 2u }, rejectedChannel));
+    require (rejectedChannel.enabledCalls == 0);
+    RecordingAdapter rejectedEnable;
+    rejectedEnable.acceptEnable = false;
+    require (! analysis::apply ({}, { Kind::midSideSpectrum, 0u }, rejectedEnable));
+
+    CAbiRecorder cAbi;
+    RecordingFfiAdapter ffiAdapter { reinterpret_cast<KirinHypha*> (&cAbi) };
+    require (ffiAdapter.setSpectrumVisible (true)
+             && cAbi.route == RecordingAdapter::Route::spectrum);
+    require (ffiAdapter.setChannelMode (2u) && cAbi.channelMode == 2);
+    require (ffiAdapter.setMidSideSpectrumVisible (true)
+             && cAbi.route == RecordingAdapter::Route::midSide);
+    require (ffiAdapter.setAbsoluteVisible (true)
+             && cAbi.route == RecordingAdapter::Route::absolute);
+    require (ffiAdapter.setPerceptualVisible (true)
+             && cAbi.route == RecordingAdapter::Route::perceptual);
+    require (ffiAdapter.setAttackEnabled (true)
+             && cAbi.route == RecordingAdapter::Route::attack);
+
+    analysis::ApplicationState application;
+    application.engineCreated();
+    require (application.generation() == 1 && ! application.isReady());
+    require (! application.shouldApply ({ Kind::midSideSpectrum, 0u }));
+    application.engineReady();
+    require (application.shouldApply ({ Kind::midSideSpectrum, 0u }));
+    application.applicationSucceeded ({ Kind::midSideSpectrum, 0u });
+    require (application.isApplied ({ Kind::midSideSpectrum, 0u }));
+    require (! application.shouldApply ({ Kind::midSideSpectrum, 0u }));
+    application.engineDestroyed();
+    application.engineCreated();
+    require (application.generation() == 2 && ! application.isReady());
+    application.engineReady();
+    require (application.shouldApply ({ Kind::midSideSpectrum, 0u }));
+    application.applicationFailed();
+    require (! application.isApplied ({ Kind::midSideSpectrum, 0u }));
+    for (int skipped = 0; skipped < 3; ++skipped)
+        require (! application.shouldApply ({ Kind::midSideSpectrum, 0u }));
+    require (application.shouldApply ({ Kind::midSideSpectrum, 0u }));
+    application.requestChanged();
+    require (application.shouldApply ({ Kind::liveAbsolute, 0u }));
 
     using Page = analysis_navigation::Page;
     analysis::SurfaceState surface { true, Page::spectrum, false, true, false, false, 2u };
@@ -140,6 +257,6 @@ inline void verify()
     require (owners.set (replacementOwner, { Kind::attack, 0u }));
     require (owners.end (replacementOwner));
     require (owners.currentOwner() == 0 && owners.requested() == Demand {});
-    std::cout << "Analysis demand: PASS (15 exclusive states, owner replacement, stale rejection)\n";
+    std::cout << "Analysis demand: PASS (routes, transitions, failures, engine generations, owners)\n";
 }
 }

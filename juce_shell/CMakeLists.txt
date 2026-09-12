@@ -281,6 +281,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryWorld.cpp
         src/HyphaTimePageNavigation.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
@@ -519,6 +520,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryWorld.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
@@ -590,6 +592,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaObservatoryWorld.cpp
         src/HyphaTimePageNavigation.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
@@ -650,6 +653,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         COMMAND KirinUiRenderContractTests --typography-only)
     add_test(NAME kirin_time_history_contract
         COMMAND KirinUiRenderContractTests --time-history-only)
+    add_test(NAME kirin_analysis_demand_contract
+        COMMAND KirinUiRenderContractTests --analysis-demand-only)
 
     juce_add_console_app(KirinAppearanceContractTests
         PRODUCT_NAME "Kirin Appearance Contract Tests")
@@ -855,6 +860,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryWorld.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp

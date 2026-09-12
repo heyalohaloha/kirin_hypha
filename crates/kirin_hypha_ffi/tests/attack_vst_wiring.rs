@@ -106,11 +106,8 @@ fn attack_abi_stays_compatible_and_the_product_view_has_a_navigation_route() {
     assert!(demand.contains("Page::attack"));
     assert!(demand.contains("Kind::attack"));
     assert!(editor_analysis.contains("setAnalysisDemand"));
-    assert!(
-        processor.contains("kirin_hypha_set_attack_enabled")
-            || read_repo("juce_shell/src/PluginProcessorAnalysis.cpp")
-                .contains("kirin_hypha_set_attack_enabled")
-    );
+    assert!(read_repo("juce_shell/src/HyphaAnalysisFfiAdapter.h")
+        .contains("&kirin_hypha_set_attack_enabled"));
     assert!(navigation.contains("attack"));
     assert!(navigation.contains("ATTACK"));
 }

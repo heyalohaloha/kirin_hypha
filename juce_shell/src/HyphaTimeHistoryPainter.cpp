@@ -3,7 +3,6 @@
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
-#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <array>
@@ -13,49 +12,6 @@
 
 namespace hypha::time_history
 {
-int auxLabelWidth (presentation::Context presentation, bool plr, bool delta,
-                   int availableWidth)
-{
-    const auto readoutStyle = typography::resolve (
-        presentation, typography::TextRole::readout,
-        typography::Composition::visualization);
-    const auto readoutFont = monoFont (presentation, typography::TextRole::readout,
-                                       typography::Composition::visualization);
-    auto required = text_style::requiredWidth (
-        readoutFont, plr ? "PLR -100.0 dB" : "CORR +1.00", readoutStyle);
-    if (plr)
-    {
-        const auto bodyStyle = typography::resolve (
-            presentation, typography::TextRole::body,
-            typography::Composition::visualization);
-        const auto bodyFont = monoFont (presentation, typography::TextRole::body,
-                                        typography::Composition::visualization);
-        const auto definition = presentation.logicalWidth >= 600
-            ? (delta ? "PLR / POST - PRE" : "SESSION FACT / TP MAX - LUFS-I")
-            : (delta ? "PLR POST - PRE" : "TP MAX - LUFS-I");
-        required = juce::jmax (required, text_style::requiredWidth (
-            bodyFont, definition, bodyStyle));
-    }
-    return juce::jmin (required, availableWidth / 2);
-}
-
-juce::Range<float> dataXRange (juce::Rectangle<int> area, bool compactMeter) noexcept
-{
-    const auto inset = compactMeter ? 4 : 32;
-    const auto reduced = area.reduced (inset, 0).toFloat();
-    return { reduced.getX(), reduced.getRight() };
-}
-
-float dataXForEntry (juce::Range<float> range,
-                     const KirinMeterHistoryEntry& entry,
-                     const HistoryAxis& axis,
-                     std::size_t index,
-                     std::size_t count) noexcept
-{
-    return range.getStart()
-         + static_cast<float> (normalizedX (axis, entry, index, count)) * range.getLength();
-}
-
 namespace
 {
 enum class Metric { momentary, shortTerm, truePeak, plr, correlation };
@@ -153,13 +109,15 @@ void paintAuxLane (juce::Graphics& g,
                    juce::Colour colour,
                    const HistoryAxis& axis,
                    juce::Range<float> timelineX,
+                   const AuxiliaryLaneGeometry* sharedGeometry,
                    bool delta,
                    presentation::Context presentation)
 {
     g.setColour (COL_MUTED.withAlpha (0.16f));
     g.fillRoundedRectangle (area.toFloat(), 2.0f);
-    auto labelArea = area.removeFromLeft (auxLabelWidth (
-        presentation, metric == Metric::plr, delta, area.getWidth()));
+    auto labelArea = sharedGeometry != nullptr ? sharedGeometry->readout
+        : area.removeFromLeft (auxLabelWidth (
+            presentation, metric == Metric::plr, delta, area.getWidth()));
     g.setColour (colour.withAlpha (0.90f));
     g.setFont (monoFont (presentation, typography::TextRole::readout,
                          typography::Composition::visualization));
@@ -201,11 +159,12 @@ void paintAuxLane (juce::Graphics& g,
     else
         g.drawText (labelText, labelArea.reduced (2, 0), juce::Justification::centredLeft);
 
-    const auto axisWidth = 32;
-    auto axisArea = area.removeFromRight (axisWidth);
-    auto plot = juce::Rectangle<float> (
-        timelineX.getStart(), static_cast<float> (area.getY() + 2),
-        timelineX.getLength(), static_cast<float> (juce::jmax (0, area.getHeight() - 4)));
+    auto axisArea = sharedGeometry != nullptr ? sharedGeometry->axis
+                                              : area.removeFromRight (32);
+    auto plot = sharedGeometry != nullptr ? sharedGeometry->data
+        : juce::Rectangle<float> (
+            timelineX.getStart(), static_cast<float> (area.getY() + 2),
+            timelineX.getLength(), static_cast<float> (juce::jmax (0, area.getHeight() - 4)));
     const auto zeroY = plot.getY() + normalizedAux (metric, 0.0, delta) * plot.getHeight();
     g.setColour (COL_MUTED.withAlpha (0.28f));
     g.drawHorizontalLine (juce::roundToInt (zeroY), plot.getX(), plot.getRight());
@@ -385,7 +344,7 @@ void paintLegend (juce::Graphics& g,
                   presentation::Context presentation)
 {
     auto left = area;
-    const auto range = left.removeFromRight (compact ? 94 : 184);
+    const auto range = left.removeFromRight (legendBasisWidth (area.getWidth(), compact));
     const int metricWidth = compact ? 42 : juce::jmin (72, left.getWidth() / 3);
     g.setFont (monoFont (presentation, typography::TextRole::legend,
                          typography::Composition::visualization));
@@ -417,7 +376,8 @@ void paint (juce::Graphics& g,
             presentation::Context presentation)
 {
     surface_material::paintPanel (g, area.toFloat(), compactMeter ? 0.96f : 0.76f);
-    area.reduce (7, 6);
+    const auto geometry = makeGeometry (area, compactMeter, presentation);
+    area = geometry.content;
     if (history.empty())
     {
         g.setColour (COL_TEXT_SECONDARY);
@@ -436,36 +396,21 @@ void paint (juce::Graphics& g,
         { Metric::truePeak, "TP", COL_FLORA_BR, 2.4f, 0.9f },
     }};
     const auto axis = selectAxis (history);
-    paintLegend (g, area.removeFromTop (16), history, rangeLabel,
+    paintLegend (g, geometry.legend, history, rangeLabel,
                  visuals, axis, delta, compactMeter, presentation);
-    auto plotArea = area;
-    juce::Rectangle<int> plrArea;
-    juce::Rectangle<int> correlationArea;
-    if (! compactMeter)
-    {
-        const auto auxLaneHeight = plotArea.getHeight() < 160
-            ? 24 : juce::jlimit (30, 72, plotArea.getHeight() / 5);
-        auto auxArea = plotArea.removeFromBottom (auxLaneHeight * 2 + 2);
-        plrArea = auxArea.removeFromTop (auxLaneHeight);
-        auxArea.removeFromTop (2);
-        correlationArea = auxArea;
-    }
-    const auto timelineX = dataXRange (plotArea, compactMeter);
-    auto plot = juce::Rectangle<float> (
-        timelineX.getStart(), static_cast<float> (plotArea.getY() + 7),
-        timelineX.getLength(), static_cast<float> (juce::jmax (0, plotArea.getHeight() - 14)));
-    plot.removeFromBottom (3.0f);
-    paintAxes (g, plot, delta, ! compactMeter && plot.getHeight() >= 55.0f, scaleMode,
+    paintAxes (g, geometry.mainPlot, delta,
+               ! compactMeter && geometry.mainPlot.getHeight() >= 55.0f, scaleMode,
                presentation);
 
     for (const auto& visual : visuals)
-        paintMetric (g, plot, history, visual, axis, delta, scaleMode, presentation);
+        paintMetric (g, geometry.mainPlot, history, visual, axis, delta, scaleMode, presentation);
     if (! compactMeter)
     {
-        paintAuxLane (g, plrArea, history, Metric::plr, "PLR", COL_GUIDE_BR,
-                      axis, timelineX, delta, presentation);
-        paintAuxLane (g, correlationArea, history, Metric::correlation, "CORR",
-                      COL_SPECTRUM_DELTA_BR, axis, timelineX, delta, presentation);
+        paintAuxLane (g, geometry.plrBounds, history, Metric::plr, "PLR", COL_GUIDE_BR,
+                      axis, geometry.timelineX, nullptr, delta, presentation);
+        paintAuxLane (g, geometry.correlation.bounds, history, Metric::correlation, "CORR",
+                      COL_SPECTRUM_DELTA_BR, axis, geometry.timelineX,
+                      &geometry.correlation, delta, presentation);
     }
 
 }

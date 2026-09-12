@@ -1,6 +1,7 @@
 #include "TimeHistoryContractTest.h"
 
 #include "../src/HyphaObservatoryView.h"
+#include "../src/HyphaTextStyle.h"
 #include "../src/HyphaTimeAxisContract.h"
 
 #include <cmath>
@@ -222,6 +223,36 @@ void verifyTimeHistoryContract()
         fullWidth, dawAxisFixture[1], dawAxis, 1, dawAxisFixture.size());
     KIRIN_TIME_HISTORY_REQUIRE (std::abs (projected - 85.6f) < 0.01f);
 
+    auto zeroCorrelation = normal;
+    auto movingCorrelation = normal;
+    for (size_t index = 0; index < normal.size(); ++index)
+    {
+        zeroCorrelation[index].correlation = { 0.0, 0.0, 0.0 };
+        const auto value = index + 1 == normal.size()
+            ? 0.0 : std::sin (static_cast<double> (index) * 0.17) * 0.9;
+        movingCorrelation[index].correlation = { value, value, value };
+    }
+    const auto zeroCorrelationImage = renderPainter (zeroCorrelation);
+    const auto movingCorrelationImage = renderPainter (movingCorrelation);
+    const auto painterGeometry = time_history::makeGeometry (
+        zeroCorrelationImage.getBounds(), false,
+        presentation::forEditor (zeroCorrelationImage.getWidth(),
+                                 zeroCorrelationImage.getHeight()));
+    KIRIN_TIME_HISTORY_REQUIRE (
+        painterGeometry.correlation.readout.getBottom()
+            <= juce::roundToInt (painterGeometry.correlation.data.getY()));
+    KIRIN_TIME_HISTORY_REQUIRE (
+        std::abs (painterGeometry.correlation.data.getX()
+                  - painterGeometry.timelineX.getStart()) < 0.01f);
+    KIRIN_TIME_HISTORY_REQUIRE (
+        std::abs (painterGeometry.correlation.data.getRight()
+                  - painterGeometry.timelineX.getEnd()) < 0.01f);
+    // Both fixtures display the same `CORR +0.00` readout. Their paths differ, so any changed
+    // pixel in the production readout rectangle proves that data ink crossed the text band.
+    KIRIN_TIME_HISTORY_REQUIRE (changedPixels (
+        zeroCorrelationImage, movingCorrelationImage,
+        painterGeometry.correlation.readout) == 0);
+
     auto difference = fixture (false);
     for (size_t index = 0u; index < difference.size(); ++index)
     {
@@ -252,6 +283,24 @@ void verifyTimeHistoryContract()
              std::pair { 900, 600 } })
     {
         const auto image = render (normal, dimensions.first, dimensions.second);
+        const auto previewDirectory = juce::SystemStats::getEnvironmentVariable (
+            "KIRIN_HYPHA_TIME_PREVIEW_DIR", {});
+        if (previewDirectory.isNotEmpty())
+        {
+            const juce::File directory (previewDirectory);
+            KIRIN_TIME_HISTORY_REQUIRE (directory.createDirectory().wasOk());
+            for (const auto variant : { std::pair { "normal", false },
+                                        std::pair { "delta", true } })
+            {
+                auto output = directory.getChildFile (
+                    juce::String (variant.first) + "-" + juce::String (dimensions.first)
+                    + "x" + juce::String (dimensions.second) + ".png").createOutputStream();
+                KIRIN_TIME_HISTORY_REQUIRE (output != nullptr);
+                KIRIN_TIME_HISTORY_REQUIRE (juce::PNGImageFormat().writeImageToStream (
+                    render (variant.second ? difference : normal, dimensions.first,
+                            dimensions.second, variant.second), *output));
+            }
+        }
         int visible = 0;
         for (int y = 0; y < image.getHeight(); ++y)
             for (int x = 0; x < image.getWidth(); ++x)
@@ -261,6 +310,34 @@ void verifyTimeHistoryContract()
             image, render (alternateAux, dimensions.first, dimensions.second));
         const auto compact = dimensions.first <= 375;
         KIRIN_TIME_HISTORY_REQUIRE (compact ? auxChanged == 0 : auxChanged > 30);
+        const auto geometry = time_history::makeGeometry (
+            image.getBounds(), compact,
+            presentation::forEditor (dimensions.first, dimensions.second));
+        if (! compact)
+        {
+            const auto presentation = presentation::forEditor (
+                dimensions.first, dimensions.second);
+            const auto legendStyle = typography::resolve (
+                presentation, typography::TextRole::legend,
+                typography::Composition::visualization);
+            const auto legendFont = monoFont (
+                presentation, typography::TextRole::legend,
+                typography::Composition::visualization);
+            const auto exactBasis = juce::String ("30 S  EXACT ") + hypha::delta()
+                                  + " / AUDIO TIME / RUNS";
+            KIRIN_TIME_HISTORY_REQUIRE (
+                time_history::legendBasisWidth (geometry.legend.getWidth(), false)
+                    >= text_style::requiredWidth (legendFont, exactBasis, legendStyle));
+            KIRIN_TIME_HISTORY_REQUIRE (
+                geometry.correlation.readout.getBottom()
+                    <= juce::roundToInt (geometry.correlation.data.getY()));
+            KIRIN_TIME_HISTORY_REQUIRE (
+                std::abs (geometry.correlation.data.getX()
+                          - geometry.mainPlot.getX()) < 0.01f);
+            KIRIN_TIME_HISTORY_REQUIRE (
+                std::abs (geometry.correlation.data.getRight()
+                          - geometry.mainPlot.getRight()) < 0.01f);
+        }
     }
 
     // The editor retains its View and backing surface between timer ticks. Keep setup and

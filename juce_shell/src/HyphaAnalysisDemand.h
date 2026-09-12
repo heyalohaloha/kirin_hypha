@@ -159,6 +159,87 @@ private:
     std::atomic<std::uint16_t> request { 0 };
 };
 
+// Processor-side application truth. The editor owns only the requested Demand; an equal request
+// is not proof that a newly-created engine has accepted it. All methods are called under the
+// processor handle lock, so this state deliberately contains no second set of atomics.
+class ApplicationState
+{
+public:
+    void engineCreated() noexcept
+    {
+        ++engineGeneration;
+        if (engineGeneration == 0) ++engineGeneration;
+        ready = false;
+        appliedGeneration = engineGeneration;
+        appliedDemand = {};
+        retryCountdown = 0;
+    }
+
+    void engineDestroyed() noexcept
+    {
+        ready = false;
+        appliedGeneration = 0;
+        appliedDemand = {};
+        retryCountdown = 0;
+    }
+
+    void engineReady() noexcept
+    {
+        ready = engineGeneration != 0;
+        retryCountdown = 0;
+    }
+
+    void requestChanged() noexcept { retryCountdown = 0; }
+
+    bool shouldApply (Demand requested) noexcept
+    {
+        if (! ready || (appliedGeneration == engineGeneration
+                        && appliedDemand == requested))
+            return false;
+        if (retryCountdown > 0)
+        {
+            --retryCountdown;
+            return false;
+        }
+        return true;
+    }
+
+    Demand previousForCurrentEngine() const noexcept
+    {
+        return appliedGeneration == engineGeneration ? appliedDemand : Demand {};
+    }
+
+    void applicationSucceeded (Demand demand) noexcept
+    {
+        appliedGeneration = engineGeneration;
+        appliedDemand = demand;
+        retryCountdown = 0;
+    }
+
+    void applicationFailed() noexcept
+    {
+        appliedGeneration = 0;
+        appliedDemand = {};
+        // A visible editor services the pending request again. Bound retries so a temporarily
+        // occupied process-wide slot does not create control-plane churn every paint tick.
+        retryCountdown = 3;
+    }
+
+    std::uint64_t generation() const noexcept { return engineGeneration; }
+    bool isReady() const noexcept { return ready; }
+    bool isApplied (Demand demand) const noexcept
+    {
+        return ready && appliedGeneration == engineGeneration && appliedDemand == demand;
+    }
+
+private:
+    std::uint64_t engineGeneration = 0;
+    std::uint64_t appliedGeneration = 0;
+    Demand appliedDemand {};
+    std::uint8_t retryCountdown = 0;
+    bool ready = false;
+};
+
 // Adapter is deliberately tiny: production binds these calls to the C ABI while tests bind them
 // to a recorder. This keeps the semantic mapping independently testable without a second engine.
 template <typename Adapter>

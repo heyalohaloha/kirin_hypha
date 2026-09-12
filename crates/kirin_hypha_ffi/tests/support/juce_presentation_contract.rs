@@ -278,14 +278,36 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
         + &read_repo("juce_shell/src/PluginProcessorAnalysis.cpp");
     let demand = read_repo("juce_shell/src/HyphaAnalysisDemand.h");
+    let ffi_adapter = read_repo("juce_shell/src/HyphaAnalysisFfiAdapter.h");
     assert!(processor.contains("setAnalysisDemand"));
     assert!(processor.contains("analysisDemandOwner"));
     assert!(processor.contains("hypha::analysis::apply"));
-    assert!(processor.contains("kirin_hypha_set_perceptual_visible"));
-    assert!(processor.contains("kirin_hypha_set_absolute_visible"));
+    assert!(processor.contains("ShippingFfiAdapter"));
+    assert!(ffi_adapter.contains("&kirin_hypha_set_mid_side_spectrum_visible"));
+    assert!(ffi_adapter.contains("&kirin_hypha_set_perceptual_visible"));
+    assert!(ffi_adapter.contains("&kirin_hypha_set_absolute_visible"));
     assert!(demand.contains("adapter.setPerceptualVisible (true)"));
     assert!(demand.contains("adapter.setAbsoluteVisible (true)"));
     assert!(demand.contains("class OwnerState"));
+    assert!(demand.contains("class ApplicationState"));
+    assert!(!processor.contains("submittedAnalysisDemand"));
+
+    let processor_lifecycle = read_repo("juce_shell/src/PluginProcessor.cpp");
+    let enable = slice_between(
+        &processor_lifecycle,
+        "void KirinHyphaProcessorBase::enableWritesNow()",
+        "startLocalBlindCaptureForPreparedFormat();",
+    );
+    let writes_ready = enable
+        .find("writesEnabled.store (true")
+        .expect("analysis application must wait for the published ready boundary");
+    let engine_ready = enable
+        .find("analysisApplication.engineReady()")
+        .expect("fresh engine must publish its analysis generation as ready");
+    let apply_requested = enable
+        .find("serviceRequestedAnalysisUnderHandleLock()")
+        .expect("latest editor demand must be applied after engine readiness");
+    assert!(writes_ready < engine_ready && engine_ready < apply_requested);
     let processor_header = read_repo("juce_shell/src/PluginProcessor.h");
     assert!(processor_header.contains("index < 5u ? index : uint8_t { 0 }"));
     assert!(processor_header.contains("preferredSpectrumSize { 0 }"));

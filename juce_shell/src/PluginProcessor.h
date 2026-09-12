@@ -334,8 +334,7 @@ private:
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
     void restorePersistedPairUnderHandleLock();
-    bool applyAnalysisDemandUnderHandleLock (hypha::analysis::Demand demand);
-    void restoreRequestedAnalysisUnderHandleLock();
+    bool serviceRequestedAnalysisUnderHandleLock();
     void normalizeSpectrumSelectionForInputChannels (int channels) noexcept;
     static hypha::local_blind::CaptureSide localBlindCaptureSide (Role) noexcept;
     static hypha::local_blind::CaptureServiceHooks localBlindCaptureHooks (KirinHyphaProcessorBase&);
@@ -399,7 +398,7 @@ private:
     std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; setState clears it
     std::atomic<bool> stateInformationSeen { false };  // setStateInformation reached this instance at least once
     hypha::analysis::OwnerState analysisDemandOwner;
-    hypha::analysis::Demand analysisDemandApplied {}; // guarded by handleLock
+    hypha::analysis::ApplicationState analysisApplication; // guarded by handleLock
     std::atomic<uint8_t> preferredSpectrumSize { 0 };      // legacy/default state opens at 100%
     // Packed into one atomic so a concurrent host state read can never persist mismatched axes.
     std::atomic<uint32_t> preferredEditorSize { (300u << 16u) | 200u }; // DisplayState v3

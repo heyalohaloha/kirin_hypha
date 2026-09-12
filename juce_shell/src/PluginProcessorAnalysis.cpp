@@ -1,24 +1,5 @@
 #include "PluginProcessor.h"
-
-namespace
-{
-struct AnalysisFfiAdapter
-{
-    KirinHypha* handle = nullptr;
-    bool setSpectrumVisible (bool value) const
-    { return kirin_hypha_set_spectrum_visible (handle, value); }
-    bool setAttackEnabled (bool value) const
-    { return kirin_hypha_set_attack_enabled (handle, value); }
-    bool setChannelMode (std::uint8_t value) const
-    { return kirin_hypha_set_spectrum_channel_mode (handle, value); }
-    bool setMidSideSpectrumVisible (bool value) const
-    { return kirin_hypha_set_mid_side_spectrum_visible (handle, value); }
-    bool setAbsoluteVisible (bool value) const
-    { return kirin_hypha_set_absolute_visible (handle, value); }
-    bool setPerceptualVisible (bool value) const
-    { return kirin_hypha_set_perceptual_visible (handle, value); }
-};
-}
+#include "HyphaAnalysisFfiAdapter.h"
 
 void KirinHyphaProcessorBase::normalizeSpectrumSelectionForInputChannels (int channels) noexcept
 {
@@ -40,12 +21,14 @@ void KirinHyphaProcessorBase::normalizeSpectrumSelectionForInputChannels (int ch
         demand.kind = hypha::analysis::Kind::spectrum;
         demand.channelMode = preferredSpectrumChannelMode.load (std::memory_order_acquire);
         analysisDemandOwner.replaceCurrentRequest (demand);
+        analysisApplication.requestChanged();
     }
     else if (hypha::analysis::usesChannelMode (demand.kind)
              && demand.channelMode == KIRIN_SPECTRUM_CHANNEL_SIDE)
     {
         demand.channelMode = KIRIN_SPECTRUM_CHANNEL_LR;
         analysisDemandOwner.replaceCurrentRequest (demand);
+        analysisApplication.requestChanged();
     }
 }
 
@@ -55,31 +38,33 @@ std::uint64_t KirinHyphaProcessorBase::beginAnalysisUiSession() noexcept
         return 0;
     const juce::ScopedLock sl (handleLock);
     const auto owner = analysisDemandOwner.begin();
+    analysisApplication.requestChanged();
     if (hyphaHandle != nullptr && writesEnabled.load (std::memory_order_acquire))
-        applyAnalysisDemandUnderHandleLock ({});
-    else
-        analysisDemandApplied = {};
+        serviceRequestedAnalysisUnderHandleLock();
     return owner;
 }
 
-bool KirinHyphaProcessorBase::applyAnalysisDemandUnderHandleLock (
-    hypha::analysis::Demand demand)
+bool KirinHyphaProcessorBase::serviceRequestedAnalysisUnderHandleLock()
 {
     if (hyphaHandle == nullptr || ! writesEnabled.load (std::memory_order_acquire))
         return false;
-    if (analysisDemandApplied == demand)
-        return true;
+    const auto demand = requestedAnalysisDemand();
+    if (! analysisApplication.shouldApply (demand))
+        return analysisApplication.isApplied (demand);
 
-    AnalysisFfiAdapter adapter { hyphaHandle };
-    const bool accepted = hypha::analysis::apply (analysisDemandApplied, demand, adapter);
+    hypha::analysis::ShippingFfiAdapter adapter { hyphaHandle };
+    const auto previous = analysisApplication.previousForCurrentEngine();
+    const bool accepted = hypha::analysis::apply (previous, demand, adapter);
 
     if (accepted)
-        analysisDemandApplied = demand;
+        analysisApplication.applicationSucceeded (demand);
     else
     {
+        // Failure must never become an applied-state claim. Both stop calls are idempotent and
+        // leave the existing Rust Coordinator as the sole owner of process-wide slot admission.
         kirin_hypha_set_spectrum_visible (hyphaHandle, false);
         kirin_hypha_set_attack_enabled (hyphaHandle, false);
-        analysisDemandApplied = {};
+        analysisApplication.applicationFailed();
     }
     return accepted;
 }
@@ -98,9 +83,15 @@ bool KirinHyphaProcessorBase::setAnalysisDemand (
         return false;
 
     const juce::ScopedLock sl (handleLock);
+    const auto changed = analysisDemandOwner.requested() != demand;
     if (! analysisDemandOwner.set (owner, demand))
         return false;
-    return applyAnalysisDemandUnderHandleLock (demand);
+    if (changed)
+        analysisApplication.requestChanged();
+    // The request is accepted even while a new handle is preparing. Its one authoritative
+    // application point runs after enable, and visible-editor service retries bounded failures.
+    serviceRequestedAnalysisUnderHandleLock();
+    return true;
 }
 
 void KirinHyphaProcessorBase::releaseAnalysisDemand (std::uint64_t owner)
@@ -109,13 +100,12 @@ void KirinHyphaProcessorBase::releaseAnalysisDemand (std::uint64_t owner)
         || ! analysisDemandOwner.isCurrent (owner))
         return;
     const juce::ScopedLock sl (handleLock);
+    const auto changed = hypha::analysis::active (analysisDemandOwner.requested());
     if (! analysisDemandOwner.clear (owner))
         return;
-    const auto none = hypha::analysis::Demand {};
-    if (hyphaHandle != nullptr && writesEnabled.load (std::memory_order_acquire))
-        applyAnalysisDemandUnderHandleLock (none);
-    else
-        analysisDemandApplied = none;
+    if (changed)
+        analysisApplication.requestChanged();
+    serviceRequestedAnalysisUnderHandleLock();
 }
 
 void KirinHyphaProcessorBase::endAnalysisUiSession (std::uint64_t owner)
@@ -125,20 +115,9 @@ void KirinHyphaProcessorBase::endAnalysisUiSession (std::uint64_t owner)
     const juce::ScopedLock sl (handleLock);
     if (! analysisDemandOwner.isCurrent (owner))
         return;
-    const auto none = hypha::analysis::Demand {};
-    if (hyphaHandle != nullptr && writesEnabled.load (std::memory_order_acquire))
-        applyAnalysisDemandUnderHandleLock (none);
-    else
-        analysisDemandApplied = none;
     analysisDemandOwner.end (owner);
-}
-
-void KirinHyphaProcessorBase::restoreRequestedAnalysisUnderHandleLock()
-{
-    analysisDemandApplied = {};
-    const auto demand = requestedAnalysisDemand();
-    if (hypha::analysis::active (demand))
-        applyAnalysisDemandUnderHandleLock (demand);
+    analysisApplication.requestChanged();
+    serviceRequestedAnalysisUnderHandleLock();
 }
 
 bool KirinHyphaProcessorBase::pollAttackBatch (KirinAttackBatch& out) const

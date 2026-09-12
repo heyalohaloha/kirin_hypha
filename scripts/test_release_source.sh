@@ -63,6 +63,7 @@ run node --test scripts/check_aax_sdk_absence.test.mjs
 run node scripts/check_aax_sdk_absence.mjs
 run node --test scripts/check_typography_source.test.mjs
 run node scripts/check_typography_source.mjs
+run node --test scripts/structural_repair_detection.test.mjs
 run node --test scripts/research/review/review.test.mjs
 run node --test scripts/research/review/evaluate_review_answers.test.mjs
 run bash scripts/test_source_line_budget.sh
@@ -118,8 +119,8 @@ JUCE_TEST_TARGETS=(
   KirinLocalBlindCapturePairComparisonTests
   KirinLocalBlindPdcValidationDelayTests
 )
-JUCE_TEST_REGEX='^(kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_time_history_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay)$'
-JUCE_TEST_COUNT=14
+JUCE_TEST_REGEX='^(kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_time_history_contract|kirin_analysis_demand_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay)$'
+JUCE_TEST_COUNT=15
 run cmake --build "$PRE_DISPLAY_BUILD" --target "${JUCE_TEST_TARGETS[@]}" --config Release
 assert_ctest_inventory "$PRE_DISPLAY_BUILD" Release "$JUCE_TEST_REGEX" "$JUCE_TEST_COUNT"
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \

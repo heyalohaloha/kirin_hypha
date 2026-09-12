@@ -156,19 +156,10 @@ bool KirinHyphaEditor::analysisSurfaceShowing() const noexcept
 void KirinHyphaEditor::syncAnalysisDemand()
 {
     const auto demand = desiredAnalysisDemand();
-    const auto processorDemand = processorRef.requestedAnalysisDemand();
     if (hypha::analysis::active (demand))
-    {
-        if ((demand != submittedAnalysisDemand || demand != processorDemand)
-            && processorRef.setAnalysisDemand (analysisOwnerToken, demand))
-            submittedAnalysisDemand = demand;
-    }
-    else if (hypha::analysis::active (submittedAnalysisDemand)
-             || hypha::analysis::active (processorDemand))
-    {
+        processorRef.setAnalysisDemand (analysisOwnerToken, demand);
+    else
         processorRef.releaseAnalysisDemand (analysisOwnerToken);
-        submittedAnalysisDemand = {};
-    }
 }
 
 bool KirinHyphaEditor::refreshAnalysisViews (
