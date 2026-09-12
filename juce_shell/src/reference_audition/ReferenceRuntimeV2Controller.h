@@ -6,6 +6,7 @@
 
 #include "ReferenceAuditionController.h"
 #include "ReferenceAudioPages.h"
+#include "ReferenceCandidatePreparationTransport.h"
 #include "ReferencePresetAdoptionTransport.h"
 #include "ReferencePresetSelectionTransport.h"
 #include "ReferenceRecoveryTransport.h"
@@ -17,6 +18,7 @@
 #include "ReferenceRuntimeABinding.h"
 #include "ReferenceRuntimeACapture.h"
 #include "ReferenceRuntimeV2Source.h"
+#include "ReferenceRuntimeV2SourceCache.h"
 
 namespace hypha::reference_audition
 {
@@ -37,6 +39,7 @@ namespace hypha::reference_audition
         bool selectCandidate (const juce::String&);
         bool selectCue (const juce::String&);
         bool retryPresetSelection();
+        bool retryCandidatePreparation();
         bool approveSampleRateConversion();
         bool requestRecovery();
 
@@ -151,6 +154,7 @@ namespace hypha::reference_audition
         void serviceRuntimeEvents();
         void serviceRecoveryAcknowledgement();
         void servicePresetSelectionAcknowledgement();
+        void serviceCandidatePreparationAcknowledgement();
         void serviceDeferredAudioThreadActions();
         void revokeAuditionPublication() noexcept;
         void failClosedToA() noexcept;
@@ -164,12 +168,14 @@ namespace hypha::reference_audition
         RuntimeABindingRepository aBindingRepository;
         RuntimeACapture aCapture;
         RuntimeV2SourceRepository sourceRepository;
+        RuntimeV2SourceCache sourceCache;
         RuntimeV2MeasurementRepository measurementRepository;
         RuntimeV2AlignmentRepository alignmentRepository;
         RuntimeV2ProfileRepository profileRepository;
         RuntimeV2PresentationRepository presentationRepository;
         RecoveryTransport recoveryTransport;
         PresetSelectionTransport presetSelectionTransport;
+        CandidatePreparationTransport candidatePreparationTransport;
         PresetAdoptionTransport presetAdoptionTransport;
         RuntimeEventTransport eventTransport;
         AudioPages pages;
@@ -185,7 +191,6 @@ namespace hypha::reference_audition
         RuntimeFiles activeRuntimeFiles;
         std::shared_ptr<const RuntimeSource> workerSource;
         std::shared_ptr<const RuntimeSource> publishedSource;
-        juce::String activeSourceArtifactSha256;
         juce::String activeSourceKey;
         juce::String activeMappingKey;
         juce::String activeContentMappingKey;
@@ -206,9 +211,13 @@ namespace hypha::reference_audition
         std::optional<PresetSelectionRequest> pendingPresetSelectionRequest;
         std::optional<RuntimeGlobalPresetCatalogEntry> pendingPresetSelectionTarget;
         std::optional<RuntimeGlobalPresetCatalogEntry> failedPresetSelectionTarget;
+        std::optional<CandidatePreparationRequest> pendingCandidatePreparationRequest;
+        std::optional<CandidatePreparationTarget> failedCandidatePreparationTarget;
         std::int64_t recoveryStatusExpiresAtMs = 0;
         std::int64_t presetSelectionWaitingSinceMs = 0;
         std::int64_t presetSelectionStatusExpiresAtMs = 0;
+        std::int64_t candidatePreparationWaitingSinceMs = 0;
+        std::int64_t candidatePreparationStatusExpiresAtMs = 0;
         std::atomic<bool> ready { false };
         std::atomic<bool> bSelected { false };
         std::atomic<float> bLinearGain { 1.0f };

@@ -59,10 +59,10 @@ struct ReservationFile {
 
 /// Cross-process serialization for one project's tiny reservation registry. The lock file is
 /// stable; a process crash releases the OS lock automatically and leaves no stale lock state.
-struct ProjectLock(File);
+pub(crate) struct ProjectLock(File);
 
 impl ProjectLock {
-    fn acquire(dir: &Path) -> std::io::Result<Self> {
+    pub(crate) fn acquire(dir: &Path) -> std::io::Result<Self> {
         fs::create_dir_all(dir)?;
         let file = OpenOptions::new()
             .read(true)
@@ -90,9 +90,11 @@ pub enum ReserveOutcome {
     AlreadyReserved,
     /// 同じ PRE を別 POST が既に所有している。上書きせず利用者へ競合を返す。
     PreInUse,
+    /// A Reference or local PRE/POST Blind audition owns the project admission lease.
+    AuditionInUse,
 }
 
-fn reservation_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
+pub(crate) fn reservation_dir(base_dir: &Path, project_hash: &str) -> PathBuf {
     // B-128 (G-115-370): within-base wall（project_hash 成分）。
     let ph =
         crate::path_identity::guard_path_component(project_hash, "reservation.dir.project_hash");
@@ -130,6 +132,9 @@ pub fn reserve_pairing_at(
     // Explicit Keep is the only recovery boundary. The registry is capped at 12 live entries,
     // so this work is bounded by the product contract and never scales with stored history.
     reclaim_stale_project_reservations_unlocked(base_dir, project_hash, now);
+    if crate::project_audition_lease::ProjectAuditionLease::active_while_registry_locked(&dir)? {
+        return Ok(ReserveOutcome::AuditionInUse);
+    }
     let path = reservation_path(base_dir, project_hash, pre_iid);
 
     // G-115-366 (A): atomic claim = tempfile + hard_link。final(枠) は link するまで dir entry を
@@ -385,7 +390,7 @@ pub fn reclaim_stale_project_reservations(
     reclaim_stale_project_reservations_unlocked(base_dir, project_hash, now)
 }
 
-fn reclaim_stale_project_reservations_unlocked(
+pub(crate) fn reclaim_stale_project_reservations_unlocked(
     base_dir: &Path,
     project_hash: &str,
     now: DateTime<Utc>,

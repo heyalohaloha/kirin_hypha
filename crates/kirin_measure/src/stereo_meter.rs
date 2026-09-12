@@ -10,6 +10,7 @@ use ebur128::{EbuR128, Mode};
 
 const OBSERVATIONS_PER_THREE_SECONDS: usize = 30;
 const OBSERVATIONS_PER_TP_WINDOW: usize = 4;
+const OBSERVATIONS_PER_VU_WINDOW: usize = 3;
 const FIELD_MAX_POINTS_PER_OBSERVATION: usize = 1_024;
 pub const STEREO_FIELD_SIZE: usize = 25;
 pub const STEREO_FIELD_BINS: usize = STEREO_FIELD_SIZE * STEREO_FIELD_SIZE;
@@ -28,8 +29,17 @@ pub struct StereoMeterSnapshot {
     pub sample_peak_dbfs: [Option<f64>; 2],
     pub sample_peak_hold_dbfs: [Option<f64>; 2],
     pub true_peak_dbtp: [Option<f64>; 2],
+    /// True Peak of the latest exact 100 ms observation. The 400 ms `true_peak_dbtp` value
+    /// remains available for the conventional level strips.
+    pub instant_true_peak_dbtp: [Option<f64>; 2],
     pub max_true_peak_dbtp: [Option<f64>; 2],
+    /// Sine-calibrated, full-wave average over the latest exact 300 ms. A sine whose peak is
+    /// -18 dBFS therefore reads -18 dBFS and 0 VU at the UI's fixed reference.
+    pub vu_dbfs: [Option<f64>; 2],
+    /// Session-cumulative contiguous sample-clip runs. Only a full Meter Session reset clears it.
     pub clip_events: [u64; 2],
+    /// User-clearable Hybrid VU indicators. These do not replace the cumulative clip facts.
+    pub clip_latched: [bool; 2],
     pub balance_db: Option<f64>,
     pub balance_state: BalanceState,
     pub correlation: Option<f64>,
@@ -46,6 +56,12 @@ struct EnergyObservation {
     cross: f64,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct VuObservation {
+    rectified: [f64; 2],
+    frames: u64,
+}
+
 #[derive(Debug, Clone)]
 struct FieldObservation {
     bins: [u16; STEREO_FIELD_BINS],
@@ -57,8 +73,12 @@ pub struct StereoMeter {
     sample_peak: [f64; 2],
     sample_peak_hold: [f64; 2],
     true_peak_window: VecDeque<[f64; 2]>,
-    clip_events: [u64; 2],
-    clip_open: [bool; 2],
+    max_true_peak: [f64; 2],
+    vu_window: VecDeque<VuObservation>,
+    vu_sum: VuObservation,
+    clip_latched: [bool; 2],
+    session_clip_events: [u64; 2],
+    session_clip_open: [bool; 2],
     energy_window: VecDeque<EnergyObservation>,
     energy_sum: EnergyObservation,
     field_window: VecDeque<FieldObservation>,
@@ -78,8 +98,12 @@ impl StereoMeter {
             sample_peak: [0.0; 2],
             sample_peak_hold: [0.0; 2],
             true_peak_window: VecDeque::with_capacity(OBSERVATIONS_PER_TP_WINDOW + 1),
-            clip_events: [0; 2],
-            clip_open: [false; 2],
+            max_true_peak: [0.0; 2],
+            vu_window: VecDeque::with_capacity(OBSERVATIONS_PER_VU_WINDOW + 1),
+            vu_sum: VuObservation::default(),
+            clip_latched: [false; 2],
+            session_clip_events: [0; 2],
+            session_clip_open: [false; 2],
             energy_window: VecDeque::with_capacity(OBSERVATIONS_PER_THREE_SECONDS + 1),
             energy_sum: EnergyObservation::default(),
             field_window: VecDeque::with_capacity(OBSERVATIONS_PER_THREE_SECONDS + 1),
@@ -96,12 +120,14 @@ impl StereoMeter {
         }
 
         let mut peak = [0.0_f64; 2];
+        let mut vu = VuObservation::default();
         let mut energy = EnergyObservation::default();
         let mut field = FieldObservation {
             bins: [0; STEREO_FIELD_BINS],
         };
-        let mut clip_events = self.clip_events;
-        let mut clip_open = self.clip_open;
+        let mut clip_latched = self.clip_latched;
+        let mut session_clip_events = self.session_clip_events;
+        let mut session_clip_open = self.session_clip_open;
         let frame_count = interleaved.len() / self.channels;
         const MAX_POINTS: usize = FIELD_MAX_POINTS_PER_OBSERVATION;
         let field_point_count = frame_count.min(MAX_POINTS);
@@ -111,11 +137,15 @@ impl StereoMeter {
             for channel in 0..self.channels {
                 let magnitude = frame[channel].abs();
                 peak[channel] = peak[channel].max(magnitude);
+                vu.rectified[channel] += magnitude;
                 let clipped = magnitude >= 1.0;
-                if clipped && !clip_open[channel] {
-                    clip_events[channel] = clip_events[channel].saturating_add(1);
+                if clipped {
+                    clip_latched[channel] = true;
                 }
-                clip_open[channel] = clipped;
+                if clipped && !session_clip_open[channel] {
+                    session_clip_events[channel] = session_clip_events[channel].saturating_add(1);
+                }
+                session_clip_open[channel] = clipped;
             }
             if self.channels == 2 {
                 energy.left += frame[0] * frame[0];
@@ -134,8 +164,9 @@ impl StereoMeter {
         if self.ebu.add_frames_f64(interleaved).is_err() {
             return false;
         }
-        self.clip_events = clip_events;
-        self.clip_open = clip_open;
+        self.clip_latched = clip_latched;
+        self.session_clip_events = session_clip_events;
+        self.session_clip_open = session_clip_open;
         self.sample_peak = peak;
         for (channel, value) in peak.iter().copied().enumerate().take(self.channels) {
             self.sample_peak_hold[channel] = self.sample_peak_hold[channel].max(value);
@@ -144,10 +175,26 @@ impl StereoMeter {
         let mut true_peak = [0.0; 2];
         for (channel, value) in true_peak.iter_mut().enumerate().take(self.channels) {
             *value = self.ebu.prev_true_peak(channel as u32).unwrap_or(0.0);
+            self.max_true_peak[channel] = self.max_true_peak[channel].max(*value);
         }
         self.true_peak_window.push_back(true_peak);
         while self.true_peak_window.len() > OBSERVATIONS_PER_TP_WINDOW {
             self.true_peak_window.pop_front();
+        }
+        vu.frames = frame_count as u64;
+        self.vu_window.push_back(vu);
+        for channel in 0..self.channels {
+            self.vu_sum.rectified[channel] += vu.rectified[channel];
+        }
+        self.vu_sum.frames = self.vu_sum.frames.saturating_add(vu.frames);
+        while self.vu_window.len() > OBSERVATIONS_PER_VU_WINDOW {
+            if let Some(expired) = self.vu_window.pop_front() {
+                for channel in 0..self.channels {
+                    self.vu_sum.rectified[channel] =
+                        (self.vu_sum.rectified[channel] - expired.rectified[channel]).max(0.0);
+                }
+                self.vu_sum.frames = self.vu_sum.frames.saturating_sub(expired.frames);
+            }
         }
 
         if self.channels == 2 {
@@ -183,16 +230,27 @@ impl StereoMeter {
         self.sample_peak = [0.0; 2];
         self.sample_peak_hold = [0.0; 2];
         self.true_peak_window.clear();
-        self.clip_events = [0; 2];
-        self.clip_open = [false; 2];
+        self.max_true_peak = [0.0; 2];
+        self.vu_window.clear();
+        self.vu_sum = VuObservation::default();
+        self.clip_latched = [false; 2];
+        self.session_clip_events = [0; 2];
+        self.session_clip_open = [false; 2];
         self.energy_window.clear();
         self.energy_sum = EnergyObservation::default();
         self.field_window.clear();
         self.field_sum = [0; STEREO_FIELD_BINS];
     }
 
-    pub fn clip_events(&self) -> [u64; 2] {
-        self.clip_events
+    /// Clears only the Hybrid VU's user-resettable TP maximum and clip latch.
+    /// Current/recent TP, VU averaging, sample peak hold, and stereo windows remain continuous.
+    pub fn clear_peak_clip_holds(&mut self) {
+        self.max_true_peak = [0.0; 2];
+        self.clip_latched = [false; 2];
+    }
+
+    pub fn session_clip_events(&self) -> [u64; 2] {
+        self.session_clip_events
     }
 
     pub fn snapshot(&self) -> StereoMeterSnapshot {
@@ -205,19 +263,23 @@ impl StereoMeter {
             }
         }
         let true_peak_dbtp = self.map_channels(recent_true_peak, linear_to_db);
-        let mut max_true_peak = [0.0_f64; 2];
-        for (channel, value) in max_true_peak.iter_mut().enumerate().take(self.channels) {
-            *value = self.ebu.true_peak(channel as u32).unwrap_or(0.0);
-        }
-        let max_true_peak_dbtp = self.map_channels(max_true_peak, linear_to_db);
+        let instant_true_peak_dbtp = self.map_channels(
+            self.true_peak_window.back().copied().unwrap_or([0.0; 2]),
+            linear_to_db,
+        );
+        let vu_dbfs = self.vu_levels();
+        let max_true_peak_dbtp = self.map_channels(self.max_true_peak, linear_to_db);
         let (balance_db, balance_state, correlation) = self.stereo_window_facts();
         StereoMeterSnapshot {
             channels: self.channels as u8,
             sample_peak_dbfs,
             sample_peak_hold_dbfs,
             true_peak_dbtp,
+            instant_true_peak_dbtp,
             max_true_peak_dbtp,
-            clip_events: self.clip_events,
+            vu_dbfs,
+            clip_events: self.session_clip_events,
+            clip_latched: self.clip_latched,
             balance_db,
             balance_state,
             correlation,
@@ -254,6 +316,21 @@ impl StereoMeter {
             .filter(|value| value.is_finite())
             .map(|value| value.clamp(-1.0, 1.0));
         (balance, state, correlation)
+    }
+
+    fn vu_levels(&self) -> [Option<f64>; 2] {
+        let mut result = [None; 2];
+        if self.vu_window.len() < OBSERVATIONS_PER_VU_WINDOW || self.vu_sum.frames == 0 {
+            return result;
+        }
+        for (channel, value) in result.iter_mut().enumerate().take(self.channels) {
+            // A full-wave average meter is calibrated so the mean-rectified value of a sine
+            // maps back to its peak amplitude: mean(abs(sine)) * PI/2 == sine peak.
+            let calibrated = self.vu_sum.rectified[channel] / self.vu_sum.frames as f64
+                * std::f64::consts::FRAC_PI_2;
+            *value = linear_to_db(calibrated);
+        }
+        result
     }
 }
 
@@ -302,160 +379,5 @@ fn linear_to_db(value: f64) -> Option<f64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SR: u32 = 48_000;
-    const FRAMES: usize = SR as usize / 10;
-
-    fn observation(left: f64, right: f64) -> Vec<f64> {
-        [left, right].into_iter().cycle().take(FRAMES * 2).collect()
-    }
-
-    fn phase_observation(inverse: bool) -> Vec<f64> {
-        let mut result = Vec::with_capacity(FRAMES * 2);
-        for frame in 0..FRAMES {
-            let sample = (std::f64::consts::TAU * 997.0 * frame as f64 / SR as f64).sin() * 0.5;
-            result.push(sample);
-            result.push(if inverse { -sample } else { sample });
-        }
-        result
-    }
-
-    #[test]
-    fn in_phase_inverse_and_balance_share_exact_three_second_window() {
-        let mut meter = StereoMeter::new(SR, 2).unwrap();
-        for _ in 0..29 {
-            assert!(meter.push_observation(&observation(0.5, 0.5)));
-        }
-        assert!(meter.snapshot().correlation.is_none());
-        assert!(meter.push_observation(&observation(0.5, 0.5)));
-        let in_phase = meter.snapshot();
-        assert_eq!(in_phase.balance_state, BalanceState::Numeric);
-        assert!(in_phase.balance_db.unwrap().abs() < 1.0e-12);
-        assert!((in_phase.correlation.unwrap() - 1.0).abs() < 1.0e-12);
-
-        meter.reset();
-        for _ in 0..30 {
-            assert!(meter.push_observation(&observation(0.5, -0.5)));
-        }
-        assert!((meter.snapshot().correlation.unwrap() + 1.0).abs() < 1.0e-12);
-    }
-
-    #[test]
-    fn one_sided_and_mono_are_explicit_not_invented_numeric_stereo() {
-        let mut stereo = StereoMeter::new(SR, 2).unwrap();
-        for _ in 0..30 {
-            assert!(stereo.push_observation(&observation(0.25, 0.0)));
-        }
-        let left_only = stereo.snapshot();
-        assert_eq!(left_only.balance_state, BalanceState::LeftOnly);
-        assert!(left_only.balance_db.is_none());
-        assert!(left_only.correlation.is_none());
-        assert!(left_only.sample_peak_dbfs[0].is_some());
-        assert!(left_only.sample_peak_dbfs[1].is_none());
-
-        stereo.reset();
-        for _ in 0..30 {
-            assert!(stereo.push_observation(&observation(0.0, 0.25)));
-        }
-        let right_only = stereo.snapshot();
-        assert_eq!(right_only.balance_state, BalanceState::RightOnly);
-        assert!(right_only.balance_db.is_none());
-        assert!(right_only.correlation.is_none());
-
-        let mut mono = StereoMeter::new(SR, 1).unwrap();
-        assert!(mono.push_observation(&vec![0.25; FRAMES]));
-        let mono = mono.snapshot();
-        assert_eq!(mono.channels, 1);
-        assert_eq!(mono.balance_state, BalanceState::Unavailable);
-        assert!(mono.balance_db.is_none());
-        assert!(mono.correlation.is_none());
-        assert!(mono.sample_peak_dbfs[0].is_some());
-        assert!(mono.sample_peak_dbfs[1].is_none());
-    }
-
-    #[test]
-    fn malformed_observation_fails_without_partial_mutation() {
-        let mut meter = StereoMeter::new(SR, 2).unwrap();
-        let before = meter.snapshot();
-        assert!(!meter.push_observation(&[]));
-        assert!(!meter.push_observation(&[0.0]));
-        assert!(!meter.push_observation(&[0.0, f64::NAN]));
-        let after = meter.snapshot();
-        assert_eq!(after.clip_events, before.clip_events);
-        assert_eq!(after.sample_peak_dbfs, before.sample_peak_dbfs);
-        assert_eq!(after.balance_state, before.balance_state);
-        assert_eq!(after.correlation, before.correlation);
-    }
-
-    #[test]
-    fn clip_events_are_channel_specific_contiguous_runs_across_observations() {
-        let mut meter = StereoMeter::new(SR, 2).unwrap();
-        assert!(meter.push_observation(&observation(1.0, 0.5)));
-        assert!(meter.push_observation(&observation(1.2, 0.5)));
-        assert_eq!(meter.snapshot().clip_events, [1, 0]);
-        assert!(meter.push_observation(&observation(0.5, 0.5)));
-        assert!(meter.push_observation(&observation(1.0, -1.0)));
-        assert_eq!(meter.snapshot().clip_events, [2, 1]);
-    }
-
-    #[test]
-    fn peak_hold_and_true_peak_are_per_channel_and_reset_only_explicitly() {
-        let mut meter = StereoMeter::new(SR, 2).unwrap();
-        assert!(meter.push_observation(&observation(0.5, 0.25)));
-        assert!(meter.push_observation(&observation(0.1, 0.05)));
-        let held = meter.snapshot();
-        assert!((held.sample_peak_hold_dbfs[0].unwrap() - 20.0 * 0.5_f64.log10()).abs() < 1e-9);
-        assert!((held.sample_peak_hold_dbfs[1].unwrap() - 20.0 * 0.25_f64.log10()).abs() < 1e-9);
-        assert!(held.true_peak_dbtp[0].unwrap() > held.true_peak_dbtp[1].unwrap());
-        meter.reset();
-        let reset = meter.snapshot();
-        assert_eq!(reset.clip_events, [0, 0]);
-        assert!(reset.sample_peak_hold_dbfs.iter().all(Option::is_none));
-        assert!(reset.max_true_peak_dbtp.iter().all(Option::is_none));
-    }
-
-    #[test]
-    fn field_density_has_mid_side_orientation_and_an_exact_three_second_window() {
-        const CENTRE: usize = STEREO_FIELD_SIZE / 2;
-        let mut meter = StereoMeter::new(SR, 2).unwrap();
-        for _ in 0..30 {
-            assert!(meter.push_observation(&phase_observation(false)));
-        }
-        assert!(
-            meter
-                .field_window
-                .back()
-                .unwrap()
-                .bins
-                .iter()
-                .map(|value| usize::from(*value))
-                .sum::<usize>()
-                <= FIELD_MAX_POINTS_PER_OBSERVATION
-        );
-        let mid = meter.snapshot();
-        assert_eq!(mid.field_observation_count, 30);
-        assert!(mid.field_density.iter().any(|value| *value > 0));
-        for (index, value) in mid.field_density.iter().copied().enumerate() {
-            if value > 0 {
-                assert_eq!(index % STEREO_FIELD_SIZE, CENTRE);
-            }
-        }
-
-        for _ in 0..30 {
-            assert!(meter.push_observation(&phase_observation(true)));
-        }
-        let side = meter.snapshot();
-        assert_eq!(side.field_observation_count, 30);
-        for (index, value) in side.field_density.iter().copied().enumerate() {
-            if value > 0 {
-                assert_eq!(index / STEREO_FIELD_SIZE, CENTRE);
-            }
-        }
-        meter.reset();
-        let reset = meter.snapshot();
-        assert_eq!(reset.field_observation_count, 0);
-        assert!(reset.field_density.iter().all(|value| *value == 0));
-    }
-}
+#[path = "stereo_meter_tests.rs"]
+mod tests;

@@ -53,9 +53,15 @@ inline bool verifyAttackFrameBudget()
                 preset, observatory::GuidePresence::absent);
             const auto width = layout.body.width;
             const auto height = layout.body.height - observatory::timeNavigationHeight (preset.density);
-            auto component = std::make_unique<AttackComponent>(); component->setSize (width, height);
+            auto component = std::make_unique<AttackComponent>();
+            component->setPresentationContext (
+                presentation::forEditor (preset.width, preset.height));
+            component->setSize (width, height);
             component->setOverlayMode (overlay);
-            auto second = std::make_unique<AttackComponent>(); second->setSize (width, height);
+            auto second = std::make_unique<AttackComponent>();
+            second->setPresentationContext (
+                presentation::forEditor (preset.width, preset.height));
+            second->setSize (width, height);
             second->setOverlayMode (overlay);
             juce::Image image (juce::Image::ARGB, static_cast<int> (std::ceil (width * dpi)),
                                 static_cast<int> (std::ceil (height * dpi)), true);

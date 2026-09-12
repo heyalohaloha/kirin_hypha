@@ -20,8 +20,9 @@ const selectionReasons = {
   'space_development-02': 'modern contrast screening candidate B; traceable decay may be absent; human judgement pending',
 };
 
-export async function buildSpaceFollowupPack(root, output) {
+export async function buildSpaceFollowupPack(root, output, evidenceOutput) {
   return buildPack(root, output, {
+    evidenceOutput,
     selection: spaceFollowupSelection,
     selectionReasons,
     packId: 'hypha-space-followup-20260907-01',
@@ -39,10 +40,10 @@ export async function buildSpaceFollowupPack(root, output) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  if (process.argv.length !== 4) {
-    throw new Error('Usage: build_space_followup_pack.mjs RESEARCH_ROOT NEW_OUTPUT_DIRECTORY');
+  if (process.argv.length !== 5) {
+    throw new Error('Usage: build_space_followup_pack.mjs RESEARCH_ROOT NEW_REVIEW_DIRECTORY NEW_PRIVATE_EVIDENCE_DIRECTORY');
   }
   process.umask(0o077);
   console.log(JSON.stringify(await buildSpaceFollowupPack(
-    path.resolve(process.argv[2]), path.resolve(process.argv[3])), null, 2));
+    path.resolve(process.argv[2]), path.resolve(process.argv[3]), path.resolve(process.argv[4])), null, 2));
 }

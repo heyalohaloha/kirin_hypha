@@ -127,7 +127,8 @@ namespace
 
     double meanTrailPaintMs (const spectrum_focus::FocusTrailHistory& history,
                              juce::Rectangle<float> bounds,
-                             float scale)
+                             float scale,
+                             presentation::Context context)
     {
         constexpr int iterations = 500;
         juce::Image image (juce::Image::ARGB,
@@ -139,7 +140,8 @@ namespace
             image.clear (image.getBounds(), BG);
             juce::Graphics graphics (image);
             spectrum_focus_painter::paint (
-                graphics, bounds, scale, history, 0.70f, scale <= 1.1f);
+                graphics, bounds, scale, history, 0.70f, scale <= 1.1f,
+                context);
         }
         return (juce::Time::getMillisecondCounterHiRes() - started) / iterations;
     }
@@ -162,6 +164,8 @@ namespace
                                 double trailBudgetMs)
     {
         SpectrumComponent component;
+        component.setPresentationContext (
+            presentation::forEditor (preset.width, preset.height));
         component.setSignalActive (true);
         const auto componentBounds = ui_contract::spectrumPlotBounds (
             preset.width, preset.height);
@@ -235,7 +239,8 @@ namespace
         }
         const double trailOnlyPaintMs = meanTrailPaintMs (
             directHistory, trailBounds.toFloat(),
-            spectrum_geometry::visualScaleFor (bounds));
+            spectrum_geometry::visualScaleFor (bounds),
+            presentation::forEditor (preset.width, preset.height));
         const double changingPaintMs = meanPaintMs (component, &source);
         std::cout << "Focus Trail paint " << preset.buttonText << ": "
                   << unlockedPaintMs << " -> " << focusedPaintMs

@@ -1,0 +1,22 @@
+{
+  "schema": "kirin-hypha-macos-aax-bundles-v1",
+  "default_build_root": "build-aax-universal",
+  "bundles": [
+    {
+      "role": "PRE",
+      "source_relative": "KirinHyphaPRE_artefacts/Release/AAX/Kirin Hypha PRE.aaxplugin",
+      "install_relative": "Library/Application Support/Avid/Audio/Plug-Ins/Kirin Hypha PRE.aaxplugin",
+      "archive_relative": "AAX/Kirin Hypha PRE.aaxplugin",
+      "executable_name": "Kirin Hypha PRE",
+      "bundle_identifier": "com.kirinmastering.hypha.pre"
+    },
+    {
+      "role": "POST",
+      "source_relative": "KirinHyphaPOST_artefacts/Release/AAX/Kirin Hypha POST.aaxplugin",
+      "install_relative": "Library/Application Support/Avid/Audio/Plug-Ins/Kirin Hypha POST.aaxplugin",
+      "archive_relative": "AAX/Kirin Hypha POST.aaxplugin",
+      "executable_name": "Kirin Hypha POST",
+      "bundle_identifier": "com.kirinmastering.hypha.post"
+    }
+  ]
+}

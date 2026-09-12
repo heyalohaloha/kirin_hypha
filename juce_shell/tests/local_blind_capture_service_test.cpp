@@ -18,9 +18,10 @@ static CaptureClockObservation clockAt (std::int64_t position, int frames)
     return { position, frames, 1, 1, 0, 96, true, true, false, true, false, true };
 }
 
-static bool waitUntil (const std::function<bool()>& predicate)
+static bool waitUntil (const std::function<bool()>& predicate,
+                       std::chrono::milliseconds timeout = std::chrono::seconds (2))
 {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (2);
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
     while (std::chrono::steady_clock::now() < deadline)
     {
         if (predicate())
@@ -34,6 +35,7 @@ struct MockPreTransport
 {
     std::mutex lock;
     std::optional<CaptureReceipt> receipt;
+    std::optional<CaptureOwnerView> failure;
     std::vector<float> pcm;
     const std::string sha256 = std::string (64, 'a');
     std::atomic<bool> consumed { false };
@@ -49,17 +51,20 @@ int main()
         0, 12, now + 5'000
     };
     std::atomic<bool> preRequestAvailable { true };
+    std::atomic<bool> preRequestContended { false };
     std::atomic<bool> preAcknowledged { false };
     std::atomic<std::uint64_t> pairGeneration { request.pair.generation };
+    std::atomic<unsigned int> deliveredPairs { 0 };
     MockPreTransport transport;
 
     LocalBlindCaptureService pre (
         CaptureSide::pre,
         { [&] (ExactCaptureRequest& out)
               {
-                  if (! preRequestAvailable.load()) return false;
+                  if (preRequestContended.load()) return CaptureRequestPoll::contended;
+                  if (! preRequestAvailable.load()) return CaptureRequestPoll::unavailable;
                   out = request;
-                  return true;
+                  return CaptureRequestPoll::current;
               },
           [&] (const std::string& requestId)
               {
@@ -79,12 +84,21 @@ int main()
                   sha256 = transport.sha256;
                   return true;
               },
-          {}, {},
+          [&] (const ExactCaptureRequest& exact, CaptureOwnerView failure)
+              {
+                  std::lock_guard<std::mutex> guard (transport.lock);
+                  if (exact != request || failure.phase != CaptureOwnerPhase::failed)
+                      return false;
+                  transport.failure = failure;
+                  return true;
+              },
+          {}, {}, {},
           [&] (const ExactCaptureRequest& exact, const std::string& sha256)
               { return exact == request && sha256 == transport.sha256
                     && transport.consumed.load(); },
           [&] (const ExactCaptureRequest& exact)
-              { transport.retired.store (exact == request); } });
+              { transport.retired.store (exact == request); },
+          {} });
 
     LocalBlindCaptureService post (
         CaptureSide::post,
@@ -96,8 +110,8 @@ int main()
                   out = request.pair;
                   out.generation = pairGeneration.load();
                   return true;
-              },
-          {},
+          },
+          {}, {},
           [&] (const ExactCaptureRequest& exact,
                CaptureServiceHooks::ImportedPreCapture& imported)
               {
@@ -111,18 +125,38 @@ int main()
                   imported.pcmSha256 = transport.sha256;
                   return imported.capture != nullptr;
               },
+          [&] (const ExactCaptureRequest& exact, CaptureOwnerView& failure)
+              {
+                  std::lock_guard<std::mutex> guard (transport.lock);
+                  if (exact != request || ! transport.failure)
+                      return false;
+                  failure = *transport.failure;
+                  return true;
+              },
           [&] (const ExactCaptureRequest& exact, const std::string& sha256)
               {
                   const bool matches = exact == request && sha256 == transport.sha256;
                   transport.consumed.store (matches);
                   return matches;
-              },
-          {}, {} });
+          },
+          {}, {},
+          [&] (const ExactCaptureRequest& exact, const ExactRangeCapture& postCapture,
+               const ExactRangeCapture& preCapture)
+              {
+                  const bool exactPair = exact == request
+                      && postCapture.range().frames == request.frames
+                      && preCapture.range().frames == request.frames;
+                  if (exactPair) deliveredPairs.fetch_add (1);
+                  return false; // Debug evidence remains owned by the capture service.
+              } });
 
     pre.start (48000, 1);
     post.start (48000, 1);
     require (waitUntil ([&] { return preAcknowledged.load(); }));
     require (pre.view().phase == CaptureOwnerPhase::capturing);
+    // A claim transaction may briefly own the filesystem lock after PRE admission. It must not be
+    // mistaken for a stable pair change while the exact captured request remains unchanged.
+    preRequestContended.store (true);
     require (post.reservePostRequest());
     require (! post.reservePostRequest());
     require (post.commitPostRequest (request));
@@ -137,7 +171,17 @@ int main()
     require (pre.process (prePointers, 1, clockAt (0, 12), 48000));
     require (post.process (postPointers, 1, clockAt (0, 12), 48000));
     require (waitUntil ([&] { return post.capturePairReady(); }));
+    require (waitUntil ([&] { return deliveredPairs.load() == 1; }));
+    std::this_thread::sleep_for (std::chrono::milliseconds (100));
+    require (deliveredPairs.load() == 1);
     require (post.view().phase == CaptureOwnerPhase::paired);
+#if JUCE_DEBUG
+    const auto comparison = post.capturePairComparison();
+    require (comparison.valid && ! comparison.exactAtZero
+             && comparison.generation == request.captureGeneration
+             && comparison.start == request.nativeStart
+             && comparison.frames == request.frames);
+#endif
     require (waitUntil ([&] { return pre.view().phase == CaptureOwnerPhase::retired; }));
     require (transport.consumed.load() && transport.retired.load());
     {
@@ -148,8 +192,12 @@ int main()
     // Completion remains bound to the exact pair. A later generation invalidates it and releases
     // the one-request owner rather than silently re-targeting the captured PCM.
     pairGeneration.fetch_add (1);
+    preRequestContended.store (false);
     preRequestAvailable.store (false);
     require (waitUntil ([&] { return ! post.capturePairReady(); }));
+    require (waitUntil ([&] { return post.view().phase == CaptureOwnerPhase::failed; }));
+    require (post.view().failure == CaptureOwnerFailure::stalePair);
+    post.requestReset();
     require (waitUntil ([&] { return post.view().phase == CaptureOwnerPhase::idle; }));
     require (post.reservePostRequest());
     post.abandonPostRequest();
@@ -183,7 +231,7 @@ int main()
                   out = rejectedRequest.pair;
                   return true;
               },
-          {},
+          {}, {},
           [&] (const ExactCaptureRequest& exact,
                CaptureServiceHooks::ImportedPreCapture& imported)
               {
@@ -202,12 +250,13 @@ int main()
                   badReceiptRead.store (true);
                   return imported.capture != nullptr;
               },
+          {},
           [&] (const ExactCaptureRequest&, const std::string&)
               {
                   badReceiptAcknowledged.store (true);
                   return true;
               },
-          {}, {} });
+          {}, {}, {} });
     rejectingPost.start (48000, 1);
     require (rejectingPost.reservePostRequest());
     require (rejectingPost.commitPostRequest (rejectedRequest));
@@ -217,11 +266,135 @@ int main()
     }));
     require (rejectingPost.process (postPointers, 1, clockAt (41, 12), 48000));
     require (waitUntil ([&] { return badReceiptRead.load(); }));
-    require (waitUntil ([&] { return rejectingPost.view().phase == CaptureOwnerPhase::idle; }));
+    require (waitUntil ([&] { return rejectingPost.view().phase == CaptureOwnerPhase::failed; }));
+    require (rejectingPost.view().failure == CaptureOwnerFailure::receiptRejected);
     require (! rejectingPost.capturePairReady() && ! badReceiptAcknowledged.load());
+    rejectingPost.requestReset();
+    require (waitUntil ([&] { return rejectingPost.view().phase == CaptureOwnerPhase::idle; }));
     require (rejectingPost.reservePostRequest());
     rejectingPost.abandonPostRequest();
     rejectingPost.stop();
 
-    std::cout << "Local Blind capture service: PASS (exact PRE transfer, pair barrier, rejection, retirement, stop race)\n";
+    // A completed POST also has a separate finalization bound when PRE returns neither success
+    // nor failure. The request admission deadline remains unrelated to this wait.
+    const ExactCaptureRequest absentPreRequest {
+        "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        { 66, "project-a", "pre-absent" }, 67, 68, 1, 0, 48000, 1,
+        0, 12, juce::Time::currentTimeMillis() + 5'000
+    };
+    LocalBlindCaptureService absentPrePost (
+        CaptureSide::post,
+        { {}, {},
+          [&] (const std::string& id) { return id == absentPreRequest.requestId; },
+          [&] (ExactPairBinding& out) { out = absentPreRequest.pair; return true; },
+          {}, {}, {}, {}, {}, {}, {}, {} },
+        250);
+    absentPrePost.start (48000, 1);
+    require (absentPrePost.reservePostRequest());
+    require (absentPrePost.commitPostRequest (absentPreRequest));
+    require (waitUntil ([&]
+    {
+        return absentPrePost.view().phase == CaptureOwnerPhase::capturing;
+    }));
+    require (absentPrePost.process (postPointers, 1, clockAt (0, 12), 48000));
+    require (waitUntil ([&] { return absentPrePost.view().phase == CaptureOwnerPhase::failed; }));
+    require (absentPrePost.view().failure == CaptureOwnerFailure::receiptRejected);
+    absentPrePost.stop();
+
+    // A PRE lane failure is a terminal result. POST must surface it instead of remaining in
+    // `complete` forever while polling for PCM that can never be published.
+    const ExactCaptureRequest failedRequest {
+        "fedcba98-7654-4321-8765-abcdefabcdef",
+        { 71, "project-a", "pre-failure" }, 72, 73, 1, 0, 48000, 1,
+        0, 12, juce::Time::currentTimeMillis() + 5'000
+    };
+    std::mutex failureLock;
+    std::optional<CaptureOwnerView> publishedFailure;
+    LocalBlindCaptureService failingPre (
+        CaptureSide::pre,
+        { [&] (ExactCaptureRequest& out)
+              { out = failedRequest; return CaptureRequestPoll::current; },
+          [&] (const std::string& id) { return id == failedRequest.requestId; },
+          {}, {}, {},
+          [&] (const ExactCaptureRequest& exact, CaptureOwnerView failure)
+              {
+                  std::lock_guard<std::mutex> guard (failureLock);
+                  if (exact != failedRequest) return false;
+                  publishedFailure = failure;
+                  return true;
+              },
+          {}, {}, {}, {}, {}, {} });
+    failingPre.start (48000, 1);
+    require (waitUntil ([&] { return failingPre.view().phase == CaptureOwnerPhase::capturing; }));
+    require (failingPre.process (prePointers, 1, clockAt (0, 6), 48000));
+    require (failingPre.process (prePointers, 1, clockAt (7, 5), 48000));
+    require (waitUntil ([&]
+    {
+        std::lock_guard<std::mutex> guard (failureLock);
+        return publishedFailure.has_value();
+    }));
+
+    LocalBlindCaptureService observingPost (
+        CaptureSide::post,
+        { {}, {},
+          [&] (const std::string& id) { return id == failedRequest.requestId; },
+          [&] (ExactPairBinding& out) { out = failedRequest.pair; return true; },
+          {}, {}, {},
+          [&] (const ExactCaptureRequest& exact, CaptureOwnerView& failure)
+              {
+                  std::lock_guard<std::mutex> guard (failureLock);
+                  if (exact != failedRequest || ! publishedFailure) return false;
+                  failure = *publishedFailure;
+                  return true;
+              },
+          {}, {}, {}, {} });
+    observingPost.start (48000, 1);
+    require (observingPost.reservePostRequest());
+    require (observingPost.commitPostRequest (failedRequest));
+    require (waitUntil ([&] { return observingPost.view().phase == CaptureOwnerPhase::failed; }));
+    require (observingPost.view().failure == CaptureOwnerFailure::captureFailed);
+    require (observingPost.view().captureFailure == CaptureFailure::clock);
+    observingPost.stop();
+    failingPre.stop();
+
+    // A completed PRE whose immutable PCM cannot be published must also become terminal. This
+    // bounds non-RT publication retries instead of leaving POST in `complete` indefinitely.
+    const ExactCaptureRequest unpublishableRequest {
+        "11111111-2222-4333-8444-555555555555",
+        { 81, "project-a", "pre-unpublishable" }, 82, 83, 1, 0, 48000, 1,
+        0, 12, juce::Time::currentTimeMillis() + 5'000
+    };
+    std::atomic<unsigned int> publishAttempts { 0 };
+    std::atomic<bool> publicationFailurePublished { false };
+    LocalBlindCaptureService unpublishablePre (
+        CaptureSide::pre,
+        { [&] (ExactCaptureRequest& out)
+              { out = unpublishableRequest; return CaptureRequestPoll::current; },
+          [&] (const std::string& id) { return id == unpublishableRequest.requestId; },
+          {}, {},
+          [&] (const ExactCaptureRequest&, const CaptureReceipt&,
+               const std::vector<float>&, std::string&)
+              { publishAttempts.fetch_add (1); return false; },
+          [&] (const ExactCaptureRequest& exact, CaptureOwnerView failure)
+              {
+                  const bool expected = exact == unpublishableRequest
+                      && failure.phase == CaptureOwnerPhase::failed
+                      && failure.failure == CaptureOwnerFailure::receiptRejected;
+                  publicationFailurePublished.store (expected);
+                  return expected;
+              },
+          {}, {}, {}, {}, {}, {} });
+    unpublishablePre.start (48000, 1);
+    require (waitUntil ([&]
+    {
+        return unpublishablePre.view().phase == CaptureOwnerPhase::capturing;
+    }));
+    require (unpublishablePre.process (prePointers, 1, clockAt (0, 12), 48000));
+    require (waitUntil ([&] { return publicationFailurePublished.load(); },
+                        std::chrono::seconds (6)));
+    require (publishAttempts.load() == 20);
+    require (unpublishablePre.view().failure == CaptureOwnerFailure::receiptRejected);
+    unpublishablePre.stop();
+
+    std::cout << "Local Blind capture service: PASS (exact PRE transfer, terminal failure, pair barrier, rejection, retirement, stop race)\n";
 }

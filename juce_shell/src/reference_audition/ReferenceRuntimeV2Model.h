@@ -61,6 +61,7 @@ namespace hypha::reference_audition
         RuntimeContentReceipt sourceArtifact;
         std::vector<RuntimeCue> cues;
         juce::String defaultCueId;
+        bool prepared = true;
     };
 
     struct RuntimeProfileBinding
@@ -89,6 +90,13 @@ namespace hypha::reference_audition
         std::vector<RuntimeCheck> checks;
     };
 
+    struct RuntimePendingPreset
+    {
+        RuntimeSourcePresetReceipt sourceTemplateArtifact;
+        RuntimeSourcePresetReceipt sourcePresetArtifact;
+        juce::String name;
+    };
+
     struct RuntimeManifest
     {
         juce::String workId;
@@ -98,6 +106,7 @@ namespace hypha::reference_audition
         juce::String activePresetId;
         juce::String activePresetRevisionId;
         std::vector<RuntimePresetReceipt> presetArtifacts;
+        std::vector<RuntimePendingPreset> pendingPresets;
     };
 
     struct RuntimeWorkspace

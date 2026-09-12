@@ -1,8 +1,7 @@
 #pragma once
 #include "HostProcessClock.h"
-#include "local_blind/LocalBlindSlot.h"
 #include "local_blind/LocalBlindCaptureService.h"
-#include "local_blind/LocalBlindEpochSnapshot.h"
+#include "local_blind/LocalBlindProductSession.h"
 #include "local_blind/PairCaptureBarrier.h"
 #include "local_blind/VST3HostContext.h"
 #include "local_blind/HostClockProbe.h"
@@ -16,6 +15,7 @@
 
 #include "HyphaSignalStateContract.h"
 #include "HyphaMeterContext.h"
+#include "HyphaAnalysisDemand.h"
 #include "kirin_hypha_ffi.h" // C ABI to the Rust RT-measure engine (Phase 1 / B-052)
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
  #include "CaptureWorkAttachment.h"
@@ -56,6 +56,7 @@ public:
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
 #if JUCE_DEBUG
     juce::StringArray localValidationFacts() const;
+    bool startLocalBlindPdcValidation();
 #endif
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -79,6 +80,7 @@ public:
                                 size_t maxEntries,
                                 size_t maxOutputEntries) const;
     bool resetMeterSession();
+    bool clearMeterPeakClipHolds();
     bool useShortTermLoudness() const
     {
         return persistShortTermLoudness.load (std::memory_order_acquire);
@@ -103,6 +105,7 @@ public:
     bool retryReferencePresetSelection();
     bool selectReferenceCheck (const juce::String&);
     bool selectReferenceCandidate (const juce::String&);
+    bool retryReferenceCandidatePreparation();
     bool selectReferenceCue (const juce::String&);
     bool approveReferenceSampleRateConversion();
     bool requestReferenceRecovery();
@@ -122,26 +125,46 @@ public:
     bool isRecording() const;                          // FFI kirin_hypha_is_recording (Watch/Record toggle)
     int keepPhase() const;                             // IDLE / PREPARING / ARMED transaction barrier
     juce::String pairName() const { return persistPairName; }
-    void setPairName (const juce::String& name);       // persist + set_pair_target (sanitized in FFI)
+    juce::String pairDisplayName() const;
     bool setPairCandidate (const juce::String& instanceId, const juce::String& name);
+    void clearPairCandidate();
     int pairStatus() const;                            // 0=Unpaired 1=Waiting 2=Paired
     juce::String pairedPreInstanceId() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
+    // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until
+    // exact-range project-clock and PDC proof has been recorded for that host format.
+    bool localBlindProductSupported() const noexcept;
+    hypha::local_blind::ProductSessionView localBlindProductView() const;
+    bool requestLocalBlindProductCapture();
+    bool startLocalBlindProductTrial (bool approveLowerPost = false);
+    bool selectLocalBlindProductStimulus (int stimulus);
+    bool answerLocalBlindProductTrial (hypha::local_blind::TrialAnswer);
+    bool revealLocalBlindProductTrial();
+    void stopLocalBlindProductTrial();
+    void cancelLocalBlindProductSession();
+    void requestLocalBlindNormalReturn();
     // Non-RT exact capture control and PRE result transport. None starts an audition.
     bool issueLocalBlindCaptureRequest (std::uint64_t captureGeneration,
                                         std::int64_t frames,
                                         hypha::local_blind::ExactCaptureRequest& out);
-    bool pollLocalBlindCaptureRequest (hypha::local_blind::ExactCaptureRequest& out) const;
+    hypha::local_blind::CaptureRequestPoll pollLocalBlindCaptureRequest (
+        hypha::local_blind::ExactCaptureRequest& out) const;
     bool acknowledgeLocalBlindCaptureRequest (const std::string& requestId) const;
     bool localBlindCaptureIsArmed (const std::string& requestId) const;
     bool publishLocalBlindPreCapture (
         const hypha::local_blind::ExactCaptureRequest&,
         const hypha::local_blind::CaptureReceipt&, const std::vector<float>&,
         std::string& pcmSha256) const;
+    bool publishLocalBlindPreFailure (
+        const hypha::local_blind::ExactCaptureRequest&,
+        hypha::local_blind::CaptureOwnerView) const;
     bool readLocalBlindPreCapture (
         const hypha::local_blind::ExactCaptureRequest&,
         hypha::local_blind::CaptureServiceHooks::ImportedPreCapture&) const;
+    bool readLocalBlindPreFailure (
+        const hypha::local_blind::ExactCaptureRequest&,
+        hypha::local_blind::CaptureOwnerView&) const;
     bool acknowledgeLocalBlindPreCapture (
         const hypha::local_blind::ExactCaptureRequest&, const std::string& pcmSha256) const;
     bool localBlindPreCaptureWasConsumed (
@@ -159,20 +182,27 @@ public:
     int  signalStateLive() const;                      // B-113: FFI kirin_hypha_get_signal_state (heartbeat-aware, no stale Active)
     bool hasLiveInput() const noexcept { return liveInputPresent.load (std::memory_order_relaxed); }
     bool pollDelta (KirinDelta& out) const;            // FFI kirin_hypha_poll_delta (mode + Δ values)
-    bool setSpectrumVisible (bool visible);             // POST-only; request work stays on IO thread
-    bool setPerceptualVisible (bool visible);           // POST-only exact-aperture Sharpness page
-    bool setAbsoluteVisible (bool visible);             // POST-only LUFS-M / TP / Sharpness timeline
+    std::uint64_t beginAnalysisUiSession() noexcept;
+    bool setAnalysisDemand (std::uint64_t owner, hypha::analysis::Demand demand);
+    void releaseAnalysisDemand (std::uint64_t owner);
+    void endAnalysisUiSession (std::uint64_t owner);
+    hypha::analysis::Demand requestedAnalysisDemand() const noexcept
+    { return analysisDemandOwner.requested(); }
     bool setSpectrumChannelMode (uint8_t channelMode);  // LR/MID/SIDE; SIDE is stereo-only
+    bool setSpectrumDisplaySelection (uint8_t selection, bool absoluteTarget);
+    uint8_t spectrumDisplaySelection() const noexcept
+    { return preferredSpectrumDisplaySelection.load (std::memory_order_acquire); }
+    uint8_t spectrumSingleChannelMode() const noexcept
+    { return preferredSpectrumChannelMode.load (std::memory_order_acquire); }
     bool pollSpectrum (KirinSpectrumView& out) const;   // signed POST-PRE display snapshot
     bool pollSpectrumBatch (KirinSpectrumBatch& out) const;
+    bool pollMidSideSpectrum (KirinMidSideSpectrumView& out) const;
     bool pollPerceptual (KirinPerceptualView& out) const;
     bool pollPerceptualBatch (KirinPerceptualBatch& out) const;
     bool pollAbsoluteBatch (KirinAbsoluteBatch& out) const;
     bool pollPsb (KirinPsbView& out) const;
-    bool setPsbVisible (bool delta);
     bool pollAnalysisOwnerNames (juce::String& out) const;
     bool spectrumStats (KirinSpectrumStats& out) const; // read-only validation counters
-    bool setAttackEnabled (bool enabled);       // POST ATTACK page; never DAW state
     bool pollAttackBatch (KirinAttackBatch& out) const;
     bool pollAttackEvents (KirinAttackEventBatch& out) const;
     bool pollAttackWaveform (KirinAttackWaveformBatch& out) const;
@@ -223,7 +253,28 @@ public:
     }
     void setMeterContextPreference (hypha::meter_context::MeterContext value, bool notifyHost = true);
     void setScaleModePreference (hypha::meter_context::ScaleMode value);
+    bool hybridVuOnRecordPreference() const noexcept
+    {
+        return preferredHybridVuOnRecord.load (std::memory_order_acquire);
+    }
+    void setHybridVuOnRecordPreference (bool enabled);
+    bool manualHybridVuSelection() const noexcept
+    {
+        return manualHybridVuSelected.load (std::memory_order_acquire);
+    }
+    void setManualHybridVuSelection (bool visible) noexcept
+    {
+        manualHybridVuSelected.store (visible, std::memory_order_release);
+    }
     bool isPlaying() const { return lastPlaying.load (std::memory_order_acquire); } // transport (POST pair lock)
+    bool isHostRecording() const noexcept
+    {
+        return lastHostRecording.load (std::memory_order_acquire);
+    }
+    std::uint64_t hostProcessHeartbeatValue() const noexcept
+    {
+        return hostProcessHeartbeat.load (std::memory_order_acquire);
+    }
 
     // --- B-054: PRE live name + LED pollers (egui parity) --------------------------------
     juce::String preName() const   { return persistName; }       // PRE self name (= identity.name)
@@ -282,8 +333,16 @@ private:
     // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
+    void restorePersistedPairUnderHandleLock();
+    bool serviceRequestedAnalysisUnderHandleLock();
+    void normalizeSpectrumSelectionForInputChannels (int channels) noexcept;
     static hypha::local_blind::CaptureSide localBlindCaptureSide (Role) noexcept;
     static hypha::local_blind::CaptureServiceHooks localBlindCaptureHooks (KirinHyphaProcessorBase&);
+    bool acceptLocalBlindProductPair (const hypha::local_blind::ExactCaptureRequest&,
+                                      const hypha::local_blind::ExactRangeCapture& post,
+                                      const hypha::local_blind::ExactRangeCapture& pre);
+    bool releaseLocalBlindProductScope (std::uint64_t scopeEpoch);
+    void serviceLocalBlindProductSession();
     void stopLocalBlindCaptureForFormatChange (double sampleRate, int channels);
     void startLocalBlindCaptureForPreparedFormat();
     void processComparisonPaths (juce::AudioBuffer<float>&, const hypha::HostProcessClock&,
@@ -293,9 +352,13 @@ private:
     const Role role;                                   // Pre or Post (selects enable + display name)
     hypha::local_blind::VST3HostContext nativeHostContext;
     mutable hypha::local_blind::HostClockProbe hostClockProbe;
-    hypha::local_blind::LocalBlindSlot localBlindOutput;
-    hypha::local_blind::LocalBlindEpochSnapshot localBlindEpochs;
+    hypha::local_blind::LocalBlindProductSession localBlindProductSession;
     hypha::local_blind::LocalBlindCaptureService localBlindCapture;
+    std::atomic<std::uint64_t> localBlindProductSerial { 0 };
+#if JUCE_DEBUG
+    std::atomic<std::uint64_t> localBlindPdcValidationSerial { 0 };
+    std::atomic<int> localBlindPdcValidationIssue { 0 };
+#endif
 
     juce::AudioParameterBool* bypassParam = nullptr;   // owned by AudioProcessor (addParameter)
     std::vector<float> interleaveScratch;              // pre-allocated in prepareToPlay (RT-safe; no alloc in processBlock)
@@ -327,18 +390,15 @@ private:
 
     std::atomic<int>  cachedLicenseCode { 2 };         // live non-RT entitlement cache (0=Os)
     std::atomic<bool> lastPlaying { false };           // B-054: transport playing (POST pair lock during playback)
+    mutable std::atomic<bool> lastHostRecording { false }; // DAW record flag; display-only
+    mutable std::atomic<std::uint64_t> hostProcessHeartbeat { 0 }; // rejects stale flags
     std::atomic<bool> lastMeasurementTimelineActive { false }; // Watch MAX pass clock (AU render fallback)
     std::atomic<bool> writesEnabled { false };         // plugin_data writes enabled (idempotent guard)
     std::atomic<bool> enablePending { false };         // B-126: set by prepare/processBlock, observed by the Timer
     std::atomic<int>  enableDelayTicks { 0 };          // prepare fallback restore grace; setState clears it
     std::atomic<bool> stateInformationSeen { false };  // setStateInformation reached this instance at least once
-    std::atomic<bool> spectrumVisibleRequested { false }; // editor lifetime; not persisted in DAW state
-    std::atomic<bool> perceptualAnalysisRequested { false }; // restores the visible analyzer after engine recreation
-    std::atomic<bool> absoluteAnalysisRequested { false }; // local POST absolute timeline restore
-    std::atomic<bool> psbAnalysisRequested { false }; // transient LR display source, not a saved preference
-    uint8_t requestedAnalysisChannelMode() const noexcept
-    { return psbAnalysisRequested.load() ? KIRIN_SPECTRUM_CHANNEL_LR : preferredSpectrumChannelMode.load(); }
-    std::atomic<bool> attackRequested { false }; // ATTACK is inactive while its page is hidden
+    hypha::analysis::OwnerState analysisDemandOwner;
+    hypha::analysis::ApplicationState analysisApplication; // guarded by handleLock
     std::atomic<uint8_t> preferredSpectrumSize { 0 };      // legacy/default state opens at 100%
     // Packed into one atomic so a concurrent host state read can never persist mismatched axes.
     std::atomic<uint32_t> preferredEditorSize { (300u << 16u) | 200u }; // DisplayState v3
@@ -349,7 +409,11 @@ private:
         hypha::meter_context::stateValue (hypha::meter_context::defaultContext) };
     std::atomic<uint8_t> preferredScaleMode {
         hypha::meter_context::stateValue (hypha::meter_context::defaultScale) };
+    std::atomic<bool> preferredHybridVuOnRecord { true }; // DisplayState v5; legacy default ON
+    // Retained across editor close/reopen for this loaded instance; not a DAW-saved preference.
+    std::atomic<bool> manualHybridVuSelected { false };
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
+    std::atomic<uint8_t> preferredSpectrumDisplaySelection { KIRIN_SPECTRUM_CHANNEL_LR };
 
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     hypha::pre_display::ClockTap preDisplayClock;

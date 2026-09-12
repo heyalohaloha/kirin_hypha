@@ -1,6 +1,7 @@
 #pragma once
 
 #include "reference_runtime_v2_analysis_test_support.h"
+#include "reference_runtime_v2_refresh_test_support.h"
 
 #include <functional>
 
@@ -16,6 +17,14 @@ namespace
         const juce::String& presetId,
         const juce::String& revisionId)
     {
+        verifyPlaybackIdentityDependencies();
+        require (controller.selectB (-15.0, -2.0), "refresh fixture must enter gain-matched B");
+        juce::AudioBuffer<float> output (2, 256);
+        verifyUnrelatedPublicationPreservesPlayback (
+            controller, presetFile, manifestFile, measuredPreset, presetId, revisionId, 128, output);
+        controller.selectA();
+        measuredPreset = measuredPreset.clone();
+        const auto nextRevision = controller.snapshot().manifestRevision + 1;
         measuredPreset.getDynamicObject()->getProperty ("checks").getArray()
             ->getReference (0).getDynamicObject()->setProperty (
                 "comparison_mode", "original");
@@ -26,11 +35,11 @@ namespace
                 writeJson (presetFile, measuredPreset)
                 && writeJson (manifestFile,
                               makeRuntimeV2Manifest (
-                                  presetId, revisionId, presetFile, 6)));
+                                  presetId, revisionId, presetFile, nextRevision)));
             for (int attempt = 0; attempt < 400; ++attempt)
             {
                 const auto state = controller.snapshot();
-                if (state.manifestRevision == 6
+                if (state.manifestRevision == nextRevision
                     && state.comparisonMode == "original")
                     break;
                 juce::Thread::sleep (10);
@@ -41,7 +50,7 @@ namespace
         beforeGateActivation = {};
         auto runtime = controller.snapshot();
         require (replacementPublished.load()
-                 && runtime.manifestRevision == 6
+                 && runtime.manifestRevision == nextRevision
                  && runtime.comparisonMode == "original"
                  && ! runtime.bSelected && ! comparisonSuspended.load(),
                  "publication change must revoke both the stale gain and the temporary output gate");
@@ -73,6 +82,7 @@ namespace
         juce::AudioBuffer<float>& output)
     {
         const auto initial = controller.snapshot();
+        const auto gateRaceRevision = initial.manifestRevision + 1;
         const auto heldAGain = std::pow (
             10.0f, static_cast<float> (-initial.blindRequiredAAttenuationDb / 20.0));
         const juce::String gateRaceVersionId =
@@ -90,9 +100,9 @@ namespace
             gateRacePublished.store (
                 writeJson (presetFile, gateRacePreset)
                 && writeJson (manifestFile, makeRuntimeV2Manifest (
-                    presetId, revisionId, presetFile, 8)));
+                    presetId, revisionId, presetFile, gateRaceRevision)));
             for (int attempt = 0; attempt < 400
-                 && controller.snapshot().manifestRevision != 8; ++attempt)
+                 && controller.snapshot().manifestRevision != gateRaceRevision; ++attempt)
                 juce::Thread::sleep (10);
         };
         require (! controller.approveBlindLowerAAndStart (-14.0, -6.0),
@@ -109,6 +119,9 @@ namespace
         output.clear();
         require (controller.renderSelectedB (output, hostPosition, true),
                  "the approved Blind context must reach one real audio callback");
+        verifyUnrelatedPublicationPreservesPlayback (
+            controller, presetFile, manifestFile, gateRacePreset, presetId, revisionId, hostPosition, output);
+        const auto replacementRevision = controller.snapshot().manifestRevision + 1;
 
         const juce::String replacementVersionId =
             "efefefef-efef-4fef-8fef-efefefefefef";
@@ -122,18 +135,18 @@ namespace
         require (writeJson (presetFile, replacementPreset)
                  && writeJson (manifestFile,
                                makeRuntimeV2Manifest (
-                                   presetId, revisionId, presetFile, 9)),
+                                   presetId, revisionId, presetFile, replacementRevision)),
                  "a replacement source must publish before invalidating active Blind");
         for (int attempt = 0; attempt < 400; ++attempt)
         {
             const auto state = controller.snapshot();
-            if (state.manifestRevision == 9
+            if (state.manifestRevision == replacementRevision
                 && state.blindPhase == ref::BlindPhase::invalidated)
                 break;
             juce::Thread::sleep (10);
         }
         const auto invalidated = controller.snapshot();
-        require (invalidated.manifestRevision == 9
+        require (invalidated.manifestRevision == replacementRevision
                  && invalidated.blindPhase == ref::BlindPhase::invalidated
                  && comparisonSuspended.load(),
                  "source replacement must invalidate Blind without releasing the lower-A gate");

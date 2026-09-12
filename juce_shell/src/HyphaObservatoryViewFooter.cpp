@@ -1,6 +1,10 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaRunSummary.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTimeHistoryPainter.h"
+#include "HyphaTextStyle.h"
+
+#include <cmath>
 
 namespace hypha::observatory
 {
@@ -15,10 +19,7 @@ void drawPanel (juce::Graphics& g, juce::Rectangle<int> area,
                 ExperienceFamily family, float corner)
 {
     const auto opacity = family == ExperienceFamily::compactMeter ? 0.96f : 0.76f;
-    g.setColour (BG.withAlpha (opacity));
-    g.fillRoundedRectangle (area.toFloat(), corner);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), corner, 1.0f);
+    surface_material::paintPanel (g, area.toFloat(), opacity, corner);
 }
 }
 
@@ -27,26 +28,58 @@ void View::setNoteAvailability (bool osOwned, bool recording)
     const auto help = ! osOwned ? juce::String ("NOTE requires Kirin OS")
                     : ! recording ? juce::String ("NOTE requires an active Keep")
                                   : juce::String ("Add a note at the current sample position");
-    noteButton.setEnabled (osOwned && recording);
+    const bool enabled = osOwned && recording;
+    const bool visibilityMayChange = noteButton.isEnabled() != enabled;
+    noteButton.setEnabled (enabled);
     noteButton.setTitle (help);
     noteButton.setDescription (help);
     noteButton.setTooltip (help);
+    if (visibilityMayChange)
+        resized();
+}
+
+void View::setKeepActive (bool active)
+{
+    if (keepActive == active) return;
+    keepActive = active;
+    resized();
 }
 
 void View::layoutFooterActions (juce::Rectangle<int> actions)
 {
     const bool reference = selectedDomain == Domain::reference;
     const bool full = captureEntryAvailable (role, currentPreset()) && ! reference;
-    resetButton.setVisible (! captureFrame && ! reference);
-    noteButton.setVisible (role == Role::post && ! captureFrame && ! reference);
+    hybridVuButton.setVisible (! captureFrame);
+    clearPeakClipButton.setVisible (false);
+    operationsButton.setVisible (! captureFrame);
+    stopButton.setVisible (role == Role::post && keepActive && ! captureFrame);
+    resetButton.setVisible (full && ! captureFrame);
+    noteButton.setVisible (role == Role::post && full && noteButton.isEnabled() && ! captureFrame);
     captureButton.setVisible (full && ! captureFrame);
+    localBlindButton.setVisible (false);
     juce::Array<juce::Button*> visible;
-    for (auto* button : { &resetButton, &noteButton, &captureButton })
+    for (auto* button : { &hybridVuButton, &resetButton, &noteButton, &captureButton,
+                          &stopButton, &operationsButton })
         if (button->isVisible()) visible.add (button);
-    const int width = visible.isEmpty() ? 0 : actions.getWidth() / visible.size();
+    juce::Array<int> minimumWidths;
+    const auto actionFont = labelFont (presentationContext(), typography::TextRole::action);
+    int minimumTotal = 0;
+    for (auto* button : visible)
+    {
+        const auto width = juce::roundToInt (
+            std::ceil (actionFont.getStringWidthFloat (button->getButtonText()) + 6.0f));
+        minimumWidths.add (width);
+        minimumTotal += width;
+    }
+    auto flexible = juce::jmax (0, actions.getWidth() - minimumTotal);
     for (int index = 0; index < visible.size(); ++index)
+    {
+        const auto remaining = visible.size() - index;
+        const auto width = minimumWidths[index] + flexible / remaining;
+        flexible -= flexible / remaining;
         visible[index]->setBounds ((index + 1 == visible.size()
             ? actions : actions.removeFromLeft (width)).reduced (1, 2));
+    }
 }
 
 void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
@@ -54,36 +87,25 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     drawPanel (g, toJuce (layout.footer), experienceFamily(), 4.0f);
     auto session = sessionArea.reduced (6, 0);
     const auto& meter = observatoryFrame.meter;
-    const auto state = ! frameAvailable ? juce::String ("SESSION ") + hypha::emDash()
-                     : meter.state == KIRIN_METER_SESSION_EMPTY ? juce::String ("READY  ")
+    const auto state = ! frameAvailable || meter.state == KIRIN_METER_SESSION_EMPTY
+                         ? juce::String ("WAITING")
                      : observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED
-                         ? juce::String ("BYPASSED  ")
-                     : observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_INACTIVE
-                         ? juce::String ("INACTIVE  ")
-                     : juce::String ("ACTIVE  ");
+                         ? juce::String ("BYPASSED") : juce::String();
     const auto seconds = frameAvailable && meter.sample_rate > 0
         ? static_cast<double> (meter.active_frames) / static_cast<double> (meter.sample_rate) : 0.0;
-    g.setColour (frameAvailable ? COL_MUTED.brighter (0.25f) : COL_MUTED);
+    g.setColour (frameAvailable ? COL_TEXT_SECONDARY : COL_MUTED);
     if (! captureFrame)
     {
-        const auto density = currentPreset().density;
-        if (feedbackText.isNotEmpty())
-        {
-            g.setFont (monoFont (density == Density::inspection ? 14.0f : 11.0f));
-            g.setColour (COL_NORMAL);
-            g.drawText (feedbackText, session, juce::Justification::centredLeft);
-            return;
-        }
-        g.setFont (monoFont (density == Density::compact ? 8.5f
-                           : density == Density::inspection ? 14.0f : 10.5f));
+        g.setFont (monoFont (presentationContext(), typography::TextRole::status));
+        if (feedbackText.isEmpty())
+            g.drawText (state, session, juce::Justification::centredLeft);
        #if defined(JucePlugin_VersionString)
-        const auto version = juce::String ("  |  v") + JucePlugin_VersionString;
+        const auto version = juce::String ("v") + JucePlugin_VersionString;
        #else
-        const auto version = juce::String ("  |  development");
+        const auto version = juce::String ("development");
        #endif
-        g.drawText (state + juce::String (seconds, 1) + " S"
-                    + (session.getWidth() >= 290 ? version : juce::String {}), session,
-                    juce::Justification::centred);
+        if (getWidth() >= 600 && feedbackText.isEmpty())
+            g.drawText (version, session, juce::Justification::centredRight);
         return;
     }
 
@@ -92,17 +114,22 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     auto provenance = captureTimestamp;
     if (captureVersion.isNotEmpty())
         provenance += "  |  v" + captureVersion;
-    g.setFont (monoFont (8.0f));
+    g.setFont (monoFont (presentationContext(), typography::TextRole::captureMetadata));
     auto statusArea = upper.removeFromLeft (juce::roundToInt (upper.getWidth() * 0.55f));
-    g.drawFittedText (state + juce::String (seconds, 1) + " S  |  ITU-R BS.1770",
-                      statusArea, juce::Justification::centredLeft, 1, 0.78f);
-    g.drawFittedText (provenance, upper, juce::Justification::centredRight, 1, 0.72f);
+    text_style::draw (g, state + juce::String (seconds, 1) + " S  |  ITU-R BS.1770",
+                      statusArea, presentationContext(), typography::TextRole::captureMetadata,
+                      juce::Justification::centredLeft);
+    text_style::draw (g, provenance, upper, presentationContext(),
+                      typography::TextRole::captureMetadata,
+                      juce::Justification::centredRight);
     const auto metadata = captureMetadata.footerLine();
     if (metadata.isNotEmpty())
     {
         g.setColour (COL_FLORA.withAlpha (0.82f));
-        g.setFont (monoFont (7.5f));
-        g.drawFittedText (metadata, lower, juce::Justification::centredLeft, 1, 0.70f);
+        g.setFont (monoFont (presentationContext(), typography::TextRole::captureMetadata));
+        text_style::draw (g, metadata, lower, presentationContext(),
+                          typography::TextRole::captureMetadata,
+                          juce::Justification::centredLeft);
     }
 }
 
@@ -112,9 +139,11 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
     area.removeFromTop (timeControlsHeight());
     if (showRunSummary && target() == ObservationTarget::absolute)
         run_summary::paint (g, area, runSummary,
-                            frameAvailable ? observatoryFrame.meter.sample_rate : 0.0);
+                            frameAvailable ? observatoryFrame.meter.sample_rate : 0.0,
+                            presentationContext());
     else
         time_history::paint (g, area, history, compact ? historyRequest().label : "",
-                             target() == ObservationTarget::delta, compact, selectedScaleMode);
+                             target() == ObservationTarget::delta, compact, selectedScaleMode,
+                             presentationContext());
 }
 }

@@ -5,15 +5,20 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kirin_measure::local_blind_capture_protocol::{
+    poll_validated_local_blind_capture_request_for_active_result,
     publish_local_blind_capture_armed, publish_local_blind_capture_request,
     read_matching_local_blind_capture_armed, read_validated_local_blind_capture_request,
-    LocalBlindCaptureRequest, LocalBlindPairAuthority, LOCAL_BLIND_CAPTURE_LEASE_MS,
+    ActiveCaptureRequestPoll, LocalBlindCaptureRequest, LocalBlindPairAuthority,
+    LOCAL_BLIND_CAPTURE_LEASE_MS,
 };
 use kirin_measure::{PlatformPaths, PluginDataRole};
 
 use super::{copy_exact, KirinHyphaEngine, LOCATOR_CAPACITY};
 
 const REQUEST_ID_CAPACITY: usize = 37;
+const REQUEST_POLL_UNAVAILABLE: u8 = 0;
+const REQUEST_POLL_CURRENT: u8 = 1;
+const REQUEST_POLL_CONTENDED: u8 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -149,6 +154,41 @@ impl KirinHyphaEngine {
         )
     }
 
+    pub(crate) fn read_local_blind_capture_request_for_active_pre(
+        &self,
+    ) -> Option<LocalBlindCaptureRequest> {
+        match self.poll_local_blind_capture_request_for_active_pre() {
+            ActiveCaptureRequestPoll::Current(request) => Some(request),
+            ActiveCaptureRequestPoll::Unavailable | ActiveCaptureRequestPoll::Contended => None,
+        }
+    }
+
+    fn poll_local_blind_capture_request_for_active_pre(&self) -> ActiveCaptureRequestPoll {
+        if !self.is_local_blind_role(PluginDataRole::Pre) {
+            return ActiveCaptureRequestPoll::Unavailable;
+        }
+        let identity = self.identity_snapshot();
+        let root = PlatformPaths::current_kirin_tmp_root();
+        let instance_dir = root
+            .join(&identity.project_hash)
+            .join(&identity.instance_id);
+        let Ok(channels) = u8::try_from(self.num_channels) else {
+            return ActiveCaptureRequestPoll::Unavailable;
+        };
+        let Some(now_unix_ms) = unix_ms_now() else {
+            return ActiveCaptureRequestPoll::Unavailable;
+        };
+        poll_validated_local_blind_capture_request_for_active_result(
+            &root,
+            &instance_dir,
+            &identity.project_hash,
+            &identity.instance_id,
+            self.sample_rate,
+            channels,
+            now_unix_ms,
+        )
+    }
+
     fn acknowledge_local_blind_capture_request(&self, request_id: &str) -> bool {
         let Some(now_unix_ms) = unix_ms_now() else {
             return false;
@@ -242,7 +282,7 @@ pub(crate) fn unix_ms_now() -> Option<i64> {
 /// `handle` must be null or point to a live `KirinHyphaEngine`. When `out` is non-null,
 /// it must point to writable storage for one `KirinLocalBlindCaptureRequest`.
 #[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_issue_local_blind_capture_request(
+pub unsafe extern "C" fn kirin_hypha_issue_local_blind_capture_request_v2(
     handle: *mut KirinHyphaEngine,
     capture_generation: u64,
     clock_generation: u64,
@@ -277,10 +317,10 @@ pub unsafe extern "C" fn kirin_hypha_issue_local_blind_capture_request(
     .unwrap_or(false)
 }
 
-/// Read the currently valid request addressed to this exact PRE.
+/// Read the immutable request addressed to this exact PRE. The C++ owner applies the admission
+/// deadline before arming and retains this identity only while finalizing that accepted capture.
 ///
 /// # Safety
-///
 /// `handle` must be null or point to a live `KirinHyphaEngine`. When `out` is non-null,
 /// it must point to writable storage for one `KirinLocalBlindCaptureRequest`.
 #[no_mangle]
@@ -292,7 +332,8 @@ pub unsafe extern "C" fn kirin_hypha_poll_local_blind_capture_request(
         if handle.is_null() || out.is_null() {
             return false;
         }
-        let Some(request) = (unsafe { (*handle).read_local_blind_capture_request_for_pre() })
+        let Some(request) =
+            (unsafe { (*handle).read_local_blind_capture_request_for_active_pre() })
         else {
             return false;
         };
@@ -305,10 +346,37 @@ pub unsafe extern "C" fn kirin_hypha_poll_local_blind_capture_request(
     .unwrap_or(false)
 }
 
+/// Poll an admitted request without collapsing pair-claim contention into pair loss.
+///
+/// # Safety
+/// `handle` must be null or live; `out` must be null or writable for one request.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_local_blind_capture_request_v2(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinLocalBlindCaptureRequest,
+) -> u8 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return REQUEST_POLL_UNAVAILABLE;
+        }
+        match unsafe { (*handle).poll_local_blind_capture_request_for_active_pre() } {
+            ActiveCaptureRequestPoll::Unavailable => REQUEST_POLL_UNAVAILABLE,
+            ActiveCaptureRequestPoll::Contended => REQUEST_POLL_CONTENDED,
+            ActiveCaptureRequestPoll::Current(request) => match encode_request(&request) {
+                Some(encoded) => {
+                    unsafe { out.write(encoded) };
+                    REQUEST_POLL_CURRENT
+                }
+                None => REQUEST_POLL_UNAVAILABLE,
+            },
+        }
+    }))
+    .unwrap_or(REQUEST_POLL_UNAVAILABLE)
+}
+
 /// Echo one request only after the PRE shell has installed its matching capture object.
 ///
 /// # Safety
-///
 /// `handle` must be null or point to a live `KirinHyphaEngine`. `request_id` must be null or
 /// point to a readable null-terminated string.
 #[no_mangle]
@@ -350,6 +418,44 @@ pub unsafe extern "C" fn kirin_hypha_local_blind_capture_is_armed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn c_request_layout_matches_the_handwritten_header() {
+        assert_eq!(std::mem::size_of::<KirinLocalBlindCaptureRequest>(), 240);
+        assert_eq!(std::mem::align_of::<KirinLocalBlindCaptureRequest>(), 8);
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, request_id),
+            0
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, pair_generation),
+            40
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, clock_source),
+            64
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, clock_position_at_issue),
+            72
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, native_start),
+            88
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, frames),
+            96
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, pre_project_hash),
+            112
+        );
+        assert_eq!(
+            std::mem::offset_of!(KirinLocalBlindCaptureRequest, pre_instance_id),
+            176
+        );
+    }
 
     #[test]
     fn c_request_encoding_is_exact_and_rejects_locator_truncation() {

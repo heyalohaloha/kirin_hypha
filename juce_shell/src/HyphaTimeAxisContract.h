@@ -78,9 +78,9 @@ inline double normalizedX (const HistoryAxis& axis,
 inline const char* axisLabel (AxisMode mode) noexcept
 {
     if (mode == AxisMode::daw)
-        return "DAW";
+        return "DAW TIME";
     if (mode == AxisMode::sessionWithDawRuns)
-        return "SESSION + DAW RUNS";
-    return "SESSION";
+        return "AUDIO TIME / RUNS";
+    return "AUDIO TIME";
 }
 }

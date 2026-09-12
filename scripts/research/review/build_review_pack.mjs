@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { selectDevelopment } from '../probe_audio_corpus.mjs';
+import { evidenceSchema, evaluationEvidenceIdentitySha } from './evidence_contract.mjs';
 import { readFloatWav } from './wav.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -18,11 +19,22 @@ export function inlineJson(value) {
     .replaceAll('&', '\\u0026').replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
 }
 export async function buildPack(root, output, options = {}) {
+  const evidenceOutput = options.evidenceOutput;
+  if (!evidenceOutput) throw new Error('A separate private evaluation evidence directory is required');
+  const reviewRoot = path.resolve(output), evidenceRoot = path.resolve(evidenceOutput);
+  const isInside = (parent, child) => {
+    const relative = path.relative(parent, child);
+    return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..'
+      && !path.isAbsolute(relative));
+  };
+  if (isInside(reviewRoot, evidenceRoot) || isInside(evidenceRoot, reviewRoot)) {
+    throw new Error('Review pack and private evaluation evidence must be separate, non-nested directories');
+  }
   const activeSelection = options.selection ?? selection;
   const proposal = JSON.parse(await readFile(path.join(root, 'corpus-proposal.json'), 'utf8'));
   const partitions = { space: selectDevelopment(proposal, 'space'), attack: selectDevelopment(proposal, 'attack') };
   const dirs = await readdir(root);
-  const items = [], provenance = [];
+  const items = [], evidence = [];
   // Gather and verify everything before creating the output folder.
   for (const [mode, number] of activeSelection) {
     const id = `${mode}_development-${number}`;
@@ -54,8 +66,9 @@ export async function buildPack(root, output, options = {}) {
       rate: facts.rate, channels: facts.channels, frames: facts.frames, step: facts.step,
       wave: facts.wave, peak: facts.peak, rms: facts.rms, bytes: audio.length,
       source_start_sample: 30 * facts.rate, preview });
-    provenance.push({ id, source_path: candidate.path, artist_group_sha256: candidate.artist_group_sha256,
-      research_excerpt: audioPath, research_result_sha256: hash(priorBytes), source_sha256: prior.source_sha256,
+    evidence.push({ id, artist_group_sha256: candidate.artist_group_sha256,
+      research_excerpt: audioPath, research_result_bytes: priorBytes,
+      research_result_sha256: hash(priorBytes), source_sha256: prior.source_sha256,
       audio_sha256: digest,
       source_start_seconds: 30, duration_seconds: 30, byte_identity_to_research_excerpt: true,
       selection_reason: options.selectionReasons?.[id]
@@ -66,24 +79,44 @@ export async function buildPack(root, output, options = {}) {
     assets[name] = await readFile(path.join(here, name), 'utf8');
   const protocol = 'hypha.pilot-review.v1';
   const identity = items.map(({ wave, ...item }) => item);
-  const pack = { schema: protocol, pack_id: options.packId ?? 'hypha-pilot-20260907-01',
+  const packId = options.packId ?? 'hypha-pilot-20260907-01';
+  const evidenceItems = evidence.map(row => ({ id: row.id, result: `results/${row.id}.json`,
+    research_result_sha256: row.research_result_sha256,
+    artist_group_sha256: row.artist_group_sha256, source_sha256: row.source_sha256,
+    audio_sha256: row.audio_sha256,
+    byte_identity_to_research_excerpt: row.byte_identity_to_research_excerpt }));
+  const evidenceIdentity = { schema: evidenceSchema, pack_id: packId, items: evidenceItems };
+  const evaluationEvidenceSha256 = evaluationEvidenceIdentitySha(evidenceIdentity);
+  const pack = { schema: protocol, pack_id: packId,
     protocol: options.answerProtocol ?? 'development-first-pass-v1',
     candidate_exposure: false, product_qualified: false,
-    manifest_sha256: hash(JSON.stringify({ protocol, identity })), items };
+    evaluation_evidence_sha256: evaluationEvidenceSha256,
+    manifest_sha256: hash(JSON.stringify({ protocol, identity,
+      evaluation_evidence_sha256: evaluationEvidenceSha256 })), items };
   let html = assets['shell.html'].replace('/* REVIEW_STYLE */', assets['review.css']);
   html = html.replace('<!-- REVIEW_DATA -->', `<script id="review-data" type="application/json">${inlineJson(pack)}</script>`);
   html = html.replace('/* REVIEW_SCRIPTS */', [assets['model.js'], assets['wave.js'], assets['app.js']].join('\n'));
   await mkdir(output, { recursive: false, mode: 0o700 });
   await mkdir(path.join(output, 'audio'), { mode: 0o700 });
   for (const item of items) {
-    const source = provenance.find(row => row.id === item.id).research_excerpt;
+    const source = evidence.find(row => row.id === item.id).research_excerpt;
     const destination = path.join(output, item.audio);
     await copyFile(source, destination, constants.COPYFILE_EXCL);
     if (hash(await readFile(destination)) !== item.audio_sha256) throw new Error('Copy hash mismatch');
   }
   await writeFile(path.join(output, 'index.html'), html, { flag: 'wx', mode: 0o600 });
   await writeFile(path.join(output, 'manifest.json'), JSON.stringify({ ...pack, items: identity,
-    html_sha256: hash(html), provenance }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+    html_sha256: hash(html) }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+  await mkdir(evidenceOutput, { recursive: false, mode: 0o700 });
+  await mkdir(path.join(evidenceOutput, 'results'), { mode: 0o700 });
+  for (const row of evidence) {
+    const result = `results/${row.id}.json`;
+    await writeFile(path.join(evidenceOutput, result), row.research_result_bytes,
+      { flag: 'wx', mode: 0o600 });
+  }
+  const evidenceManifest = { ...evidenceIdentity, manifest_sha256: pack.manifest_sha256 };
+  await writeFile(path.join(evidenceOutput, 'evidence-manifest.json'),
+    `${JSON.stringify(evidenceManifest, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
   const readme = options.readme ?? ('Hypha 判定パック 01\n\nindex.html をChromeで開いてください。ネット接続は不要です。\n'
     + 'SPACE 3件、2MIX ATTACK 3件です。未回答から再開します。\n'
     + '途中でも「回答JSONを保存」で書き出し、そのJSONをCodexへ添付してください。\n'
@@ -92,10 +125,14 @@ export async function buildPack(root, output, options = {}) {
   await writeFile(path.join(output, 'はじめに.txt'), readme, { flag: 'wx', mode: 0o600 });
   return { output, items: items.length, audio_bytes: items.reduce((sum, item) => sum + item.bytes, 0),
     html_bytes: (await stat(path.join(output, 'index.html'))).size, manifest_sha256: pack.manifest_sha256,
+    evidence_output: evidenceOutput,
     sources: items.map(({ id, rate, channels, frames, peak, rms }) => ({ id, rate, channels, frames, peak, rms })) };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  if (process.argv.length !== 4) throw new Error('Usage: build_review_pack.mjs RESEARCH_ROOT NEW_OUTPUT_DIRECTORY');
+  if (process.argv.length !== 5) {
+    throw new Error('Usage: build_review_pack.mjs RESEARCH_ROOT NEW_REVIEW_DIRECTORY NEW_PRIVATE_EVIDENCE_DIRECTORY');
+  }
   process.umask(0o077);
-  console.log(JSON.stringify(await buildPack(path.resolve(process.argv[2]), path.resolve(process.argv[3])), null, 2));
+  console.log(JSON.stringify(await buildPack(path.resolve(process.argv[2]), path.resolve(process.argv[3]),
+    { evidenceOutput: path.resolve(process.argv[4]) }), null, 2));
 }

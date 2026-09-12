@@ -114,6 +114,8 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
     }
     if (mode == stopRequested || failed.load (std::memory_order_acquire) != TrialFailure::none)
         return hold (data, channels, frames, block);
+    const bool exactWrap = hasPrevious && format.exactLoopAllowed && block.exactLoopRangeValid
+        && previousEnd == format.start + format.frames && block.position == format.start;
     if (! inputLayout (data, channels, frames) || channels != format.channels || block.sampleRate != format.sampleRate)
         invalidate (TrialFailure::format);
     else if (! block.realtime || block.bypassed)
@@ -129,10 +131,7 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
     else if (block.position < format.start || block.position >= format.start + format.frames
              || frames > format.start + format.frames - block.position)
         invalidate (TrialFailure::range);
-    else if (hasPrevious && block.position != previousEnd
-             && ! (format.exactLoopAllowed && block.exactLoopRangeValid
-                   && block.loopStart == format.start && block.loopEnd == format.start + format.frames
-                   && previousEnd == block.loopEnd && block.position == block.loopStart))
+    else if (hasPrevious && block.position != previousEnd && ! exactWrap)
         invalidate (TrialFailure::discontinuity);
     if (failed.load (std::memory_order_acquire) != TrialFailure::none)
         return hold (data, channels, frames, block);
@@ -147,9 +146,21 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
         for (int f = 0; f < frames; ++f)
             data[c][f] = source[(offset + static_cast<std::size_t> (f)) * static_cast<std::size_t> (channels)
                                 + static_cast<std::size_t> (c)] * multiplier;
+    if (! passActive || passStimulus != mode || exactWrap)
+    {
+        passStimulus = mode;
+        passFrames = 0;
+        passStart = block.position;
+        passActive = true;
+    }
+    passFrames += static_cast<std::uint64_t> (frames);
+    const bool completePass = passFrames >= format.minimumHeardFrames
+        && (format.minimumHeardFrames < static_cast<std::uint64_t> (format.frames)
+            || passStart == format.start);
+    if (completePass)
+        (mode == one ? heardOne : heardTwo).store (passFrames, std::memory_order_release);
     hasPrevious = true;
     previousEnd = block.position + frames;
-    (mode == one ? heardOne : heardTwo).fetch_add (static_cast<std::uint64_t> (frames), std::memory_order_relaxed);
     // The entire command (sequence + stimulus) was sampled before copying. A later request is
     // never falsely acknowledged as the one that this callback rendered.
     receipt.store (requested, std::memory_order_release);

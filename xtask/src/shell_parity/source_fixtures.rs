@@ -28,6 +28,8 @@
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
     ));
+    const PLUGIN_PROCESSOR_PAIRING_CPP: &str =
+        include_str!("../../../juce_shell/src/PluginProcessorPairing.cpp");
     const PLUGIN_PROCESSOR_METER_CPP: &str = include_str!("../../../juce_shell/src/PluginProcessorMeter.cpp");
     const PLUGIN_PROCESSOR_CLOCK_CPP: &str = include_str!("../../../juce_shell/src/PluginProcessorHostClock.cpp");
     const WATCH_DISPLAY_FFI_RS: &str = include_str!("../../../crates/kirin_hypha_ffi/src/watch_display_ffi.rs");

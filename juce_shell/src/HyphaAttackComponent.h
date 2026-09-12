@@ -6,15 +6,22 @@
 
 #include "kirin_hypha_ffi.h"
 #include "HyphaAttackOverviewGlyphPainter.h"
+#include "HyphaPresentationContext.h"
 
 namespace hypha
 {
-    // POST-only DRUM ATTACK view. It presents factual absolute PRE/POST shapes and deltas;
-    // no confidence score, instrument inference, or quality judgement is introduced.
+    // TRACK/STEM DRUM ATTACK view. HISTORY and TRANSIENT compare PRE/POST; the specimen is
+    // the selected POST observation only. No quality judgement or instrument inference.
     class AttackComponent final : public juce::Component
     {
     public:
         AttackComponent();
+        void setPresentationContext (presentation::Context next)
+        {
+            if (presentationContext == next) return;
+            presentationContext = next;
+            repaint();
+        }
         bool setSnapshot (const KirinAttackEventBatch& events,
                           const KirinAttackWaveformBatch& waveform,
                           const KirinAttackDetailBatch& details,
@@ -54,16 +61,21 @@ namespace hypha
         bool overlayMode = true;
         bool followLatest = true;
         bool liveSignalActive = true;
+        presentation::Context presentationContext = presentation::defaultContext();
 
         const KirinAttackPairEvent* selectedPairEvent() const noexcept;
+        bool pairHasPostDetail (const KirinAttackPairEvent&) const noexcept;
         const KirinAttackDetail* selectedPostDetail() const noexcept;
         const KirinAttackDetail* selectedPreDetail() const noexcept;
         juce::Rectangle<int> timelineBounds() const noexcept;
         juce::Rectangle<int> scrubBounds() const noexcept;
+        int viewControlWidth() const;
+        int statusControlWidth() const;
         void selectNearestEventAtX (int x) noexcept;
         void selectBoundaryEvent (bool selectLast) noexcept;
         void selectAdjacentEvent (bool moveRight) noexcept;
         void advancePresentation (double nowMs) noexcept;
+        void paintTransientComparison (juce::Graphics&, juce::Rectangle<int>);
         void paintSelectedEvent (juce::Graphics&, juce::Rectangle<int>);
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AttackComponent)

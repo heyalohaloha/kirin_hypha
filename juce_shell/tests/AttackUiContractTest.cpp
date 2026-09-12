@@ -87,8 +87,8 @@ namespace
     {
         const auto area = juce::Rectangle<int> (
             centreX - 2, hypha::attack_ui::headerHeight, 5,
-            image.getHeight() - hypha::attack_ui::headerHeight
-                - hypha::attack_ui::axisLabelHeight).getIntersection (image.getBounds());
+            hypha::attack_ui::timelineHeight (image.getHeight()))
+                .getIntersection (image.getBounds());
         for (int x = area.getX(); x < area.getRight(); ++x)
             for (int y = area.getY(); y < area.getBottom(); ++y)
                 if (nearRgb (image.getPixelAt (x, y), target))
@@ -277,11 +277,12 @@ int main()
                            288'000, 48'000, 7, stats);
     component.setOverlayMode (false);
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyDetailLifecycle (events, waveform, details, pairEvents, stats));
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifySignedComparisonSpecimen());
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyPostAbsoluteSpecimen());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyMeasuredEnvelope());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyEnvelopeSimplificationBound());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyEnvelopeRaster());
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyUpperFeatureIsolation (events, waveform, details, pairEvents, stats));
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyTransientIsolation (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (hypha::attack_ui_test::verifyContinuousTrace (waveform, details));
     const auto image = render (component);
     writePreview ("KIRIN_ATTACK_UI_PREVIEW_PATH", image);
@@ -349,11 +350,14 @@ int main()
         events.events[1].event_sample, 336'000, 48'000, image.getWidth());
     const auto newLastX = hypha::attack_ui::eventX (
         laterPairEvents.events[3].event_sample, 336'000, 48'000, image.getWidth());
+    const auto lastCompleteX = hypha::attack_ui::eventX (
+        laterPairEvents.events[2].event_sample, 336'000, 48'000, image.getWidth());
     KIRIN_REQUIRE (hasColourNear (render (component), lockedMiddleX, selectionColour));
     KIRIN_REQUIRE (! hasColourNear (render (component), newLastX, selectionColour));
 
     KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::endKey)));
-    KIRIN_REQUIRE (hasColourNear (render (component), newLastX, selectionColour));
+    KIRIN_REQUIRE (hasColourNear (render (component), lastCompleteX, selectionColour));
+    KIRIN_REQUIRE (! hasColourNear (render (component), newLastX, selectionColour));
 
     auto newestPairEvents = laterPairEvents;
     newestPairEvents.count = 5;
@@ -363,8 +367,15 @@ int main()
     newestPairEvents.events[4].post_event_sample = 370'000;
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, newestPairEvents,
                            384'000, 48'000, 7, stats);
-    component.presentationTick (false); // Inactive transport snaps and then remains still.
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyDormantSpecimenBlack (render (component)));
+    const auto beforeHold = render (component);
+    component.presentationTick (false); // Silence/stop holds the last complete specimen.
+    const auto held = render (component);
+    const auto heldMetricsHeight = hypha::attack_ui::metricsHeight (held.getHeight());
+    const juce::Rectangle<int> heldSpecimen {
+        0, held.getHeight() - heldMetricsHeight, held.getWidth(), heldMetricsHeight };
+    KIRIN_REQUIRE (hypha::attack_ui_test::specimenDifferences (
+                       beforeHold, held, heldSpecimen) == 0
+                   && hypha::attack_ui_test::specimenDifferences (beforeHold, held) > 0);
     component.presentationTick (true);
     KIRIN_REQUIRE (! component.keyPressed (juce::KeyPress ('x')));
 
@@ -397,8 +408,8 @@ int main()
                            288'000, 48'000, 7, stats);
     const auto warming = render (component);
     KIRIN_REQUIRE (countRuns (warming, { 0, 20, warming.getWidth(), 150 },
-                              selectionColour) == 0
-                   && hypha::attack_ui_test::verifyDormantSpecimenBlack (warming));
-    std::cout << "ATTACK UI contract passed: split PRE/POST, scrub, factual deltas\n";
+                              selectionColour) == 0);
+    KIRIN_REQUIRE (hypha::attack_ui_test::verifyDormantSpecimenQuiet (warming));
+    std::cout << "ATTACK UI contract passed: HISTORY, TRANSIENT comparison, POST specimen\n";
     return EXIT_SUCCESS;
 }

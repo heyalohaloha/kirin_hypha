@@ -104,6 +104,7 @@ pub struct SpectrumRuntimeStats {
     pub analyzed_frames: u64,
     pub analyzed_perceptual_frames: u64,
     pub analyzed_absolute_frames: u64,
+    pub analyzed_mid_side_frames: u64,
 }
 
 impl SpectrumRuntime {
@@ -148,6 +149,9 @@ impl SpectrumRuntime {
 
     /// Control/worker thread only. Spectrum, Perceptual, and Absolute analysis are exclusive.
     pub fn set_analysis_mode(&self, mode: AnalysisViewMode) -> bool {
+        if mode != AnalysisViewMode::Spectrum {
+            self.set_mid_side_enabled(false);
+        }
         let previous = self.analysis_mode.swap(mode as u8, Ordering::AcqRel);
         if previous != mode as u8 {
             self.generation.fetch_add(1, Ordering::AcqRel);
@@ -166,6 +170,7 @@ impl SpectrumRuntime {
             if let Ok(mut history) = self.absolute_history.lock() {
                 history.clear();
             }
+            self.clear_mid_side_frame();
             self.wake.1.notify_all();
         }
         true

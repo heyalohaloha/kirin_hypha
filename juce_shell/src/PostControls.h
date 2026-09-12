@@ -20,6 +20,11 @@ namespace hypha
     {
     public:
         explicit HyphaTextButton (const juce::String& text, bool framed = true);
+        void setPresentationContext (presentation::Context next) noexcept
+        {
+            presentationContext = next;
+            repaint();
+        }
 
         void paintButton (juce::Graphics& g,
                           bool shouldDrawButtonAsHighlighted,
@@ -27,12 +32,18 @@ namespace hypha
 
     private:
         bool framed = true;
+        presentation::Context presentationContext = presentation::defaultContext();
     };
 
     class PostControls : public juce::Component
     {
     public:
         PostControls();
+        void setPresentationContext (presentation::Context next) noexcept
+        {
+            for (auto* button : { &keepBtn, &stopBtn, &senseBtn })
+                button->setPresentationContext (next);
+        }
 
         std::function<void()>                     onKeep;       // -> kirin_hypha_keep
         std::function<void()>                     onStop;       // -> kirin_hypha_stop

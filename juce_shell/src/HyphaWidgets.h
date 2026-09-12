@@ -73,17 +73,20 @@ namespace hypha
     {
     public:
         MetricCell();
-        void configure (const juce::String& label, const juce::String& unit, const juce::String& help,
-                        float labelSize, float valueSize, float unitSize, float minColW);
+        void configure (const juce::String& label, const juce::String& unit,
+                        const juce::String& help, float minColW);
+        void setPresentationContext (presentation::Context next)
+        {
+            presentationContext = next;
+            repaint();
+        }
         void setValue (const juce::String& value, juce::Colour valueColour);
         void paint (juce::Graphics&) override;
     private:
         juce::String label, unit, value;
         juce::Colour valueColour = COL_MUTED;
-        float labelSize = ui_contract::metricLabelFontHeight;
-        float valueSize = ui_contract::metricValueFontHeight;
-        float unitSize = ui_contract::metricUnitFontHeight;
         float minColW = ui_contract::metricMinimumLabelWidth;
+        presentation::Context presentationContext = presentation::defaultContext();
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MetricCell)
     };
 
@@ -99,6 +102,14 @@ namespace hypha
 
         void setShortTerm (bool shortTerm);
         void setDeltaMode (bool delta);
+        void setPresentationContext (presentation::Context next)
+        {
+            presentationContext = next;
+            momentary.setPresentationContext (next);
+            shortTerm.setPresentationContext (next);
+            resized();
+            repaint();
+        }
         void paint (juce::Graphics&) override;
         void resized() override;
 
@@ -108,10 +119,16 @@ namespace hypha
         public:
             explicit SegmentButton (const juce::String& text);
             void setSelected (bool selectedIn);
+            void setPresentationContext (presentation::Context next) noexcept
+            {
+                presentationContext = next;
+                repaint();
+            }
             void paintButton (juce::Graphics&, bool highlighted, bool down) override;
         private:
             const juce::String text;
             bool selected = false;
+            presentation::Context presentationContext = presentation::defaultContext();
         };
 
         SegmentButton momentary { "M" };
@@ -119,14 +136,15 @@ namespace hypha
         ui_contract::LoudnessSelectorLayout currentLayout() const;
         bool selectedShortTerm = false;
         bool deltaMode = false;
+        presentation::Context presentationContext = presentation::defaultContext();
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LoudnessSelector)
     };
 
-    // ── click-to-edit name (egui PRE name / POST pair name) ─────────────────────────────────
+    // ── editable PRE name / read-only POST exact-pair selector ──────────────────────────────
     // Shows display text (optional prefix + raw name, or a fallback when the name is empty) in
-    // COL_FLORA monospace; single click opens an inline editor seeded with the RAW name. Enter
-    // commits (onCommit, sanitized to ≤16 chars by the FFI), Escape / focus loss discards
-    // (parity: egui only writes on lost_focus+Enter). Editing can be locked (POST playback).
+    // COL_FLORA monospace. With onSelect, a click opens the exact selector; otherwise it opens
+    // an inline editor seeded with the RAW name. Enter commits (onCommit, sanitized to ≤16 chars
+    // by the FFI); Escape / focus loss discards. Editing can be locked (POST playback).
     class EditableName : public juce::Component,
                          public juce::SettableTooltipClient
     {
@@ -134,12 +152,19 @@ namespace hypha
         EditableName();
 
         std::function<void (const juce::String&)> onCommit; // called with the new raw name
+        std::function<void()> onSelect; // when present, click selects instead of editing
 
         void setPrefix (const juce::String& p)        { prefix = p; if (! editing) repaint(); }
         void setFallback (const juce::String& f)       { fallback = f; if (! editing) repaint(); }
         void setModelName (const juce::String& raw);   // edited value; repaints when not editing
                                                         // (named to avoid hiding juce::Component::setName)
         void setEditingEnabled (bool enabled);         // false -> click does nothing (locked)
+        void setPresentationContext (presentation::Context next)
+        {
+            presentationContext = next;
+            editor->setFont (monoFont (next, typography::TextRole::selector));
+            repaint();
+        }
         void setLockedTooltip (const juce::String& t)  { lockedTooltip = t; }
         void setEnabledTooltip (const juce::String& t)
         {
@@ -161,6 +186,7 @@ namespace hypha
         bool editing = false;
         bool editingEnabled = true;
         std::unique_ptr<juce::TextEditor> editor;
+        presentation::Context presentationContext = presentation::defaultContext();
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EditableName)
     };
 }

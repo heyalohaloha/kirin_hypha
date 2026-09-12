@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 
 namespace hypha
@@ -22,8 +23,17 @@ public:
     void paintButton (juce::Graphics& g, bool highlighted, bool down) override
     {
         const bool focused = highlighted || hasKeyboardFocus (true);
-        g.setColour (COL_FLORA.withAlpha (down ? 0.9f : focused ? 0.6f : 0.22f));
-        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (1.0f), 3.0f, 1.0f);
+        if (! focused && ! down)
+            return;
+
+        const auto area = getLocalBounds().toFloat().reduced (1.0f);
+        if (down)
+        {
+            g.setColour (kFieldFill.withAlpha (0.16f));
+            g.fillRoundedRectangle (area, 3.0f);
+        }
+        g.setColour (COL_FLORA_BR.withAlpha (down ? 0.48f : 0.30f));
+        g.drawRoundedRectangle (area, 3.0f, down ? 0.90f : 0.65f);
     }
 };
 }

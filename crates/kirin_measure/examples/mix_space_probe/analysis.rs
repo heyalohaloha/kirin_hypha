@@ -2,8 +2,12 @@
 use kirin_measure::{SuperFluxAnalyzer, SuperFluxChannelMode, SuperFluxConfig, SuperFluxFrame};
 use serde::{Deserialize, Serialize};
 
-#[path = "../space_decay_probe/analysis.rs"]
-pub(crate) mod fixed;
+pub(crate) mod fixed {
+    pub(crate) use kirin_measure::space_decay::{
+        analyze_space_decay as analyze, qualify_space_d20, space_decay_boundary as boundary,
+        space_decay_power as power, SpaceD20Policy, SpaceDecayFacts as Facts,
+    };
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -214,11 +218,16 @@ pub(crate) fn observe(
         end as u32 * 10,
         p.floor_db,
     )?;
+    let policy = fixed::SpaceD20Policy {
+        minimum_points: 10,
+        minimum_r_squared: p.minimum_r_squared,
+        maximum_rise_db: p.maximum_rise_db,
+    };
     let rejection = match &facts.fit {
         None => facts.fit_reason,
-        Some(fit) if fit.d20_seconds.is_none() => Some("insufficient_observed_fall"),
-        Some(fit) if fit.r_squared < p.minimum_r_squared => Some("regression_fit"),
-        Some(_) => None,
+        Some(fit) => fixed::qualify_space_d20(fit, policy)
+            .err()
+            .map(|reason| reason.as_str()),
     };
     if rejection.is_some() {
         if let Some(fit) = facts.fit.as_mut() {

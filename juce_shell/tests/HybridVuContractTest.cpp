@@ -1,0 +1,197 @@
+#include "HybridVuContractTest.h"
+
+#include "../src/HyphaHybridVuPainter.h"
+#include "../src/HyphaObservatoryView.h"
+
+#include <cmath>
+#include <cstdlib>
+#include <iostream>
+
+namespace hypha::tests
+{
+namespace
+{
+void require (bool condition, const char* expression, int line)
+{
+    if (condition)
+        return;
+    std::cerr << "Hybrid VU contract failed at line " << line << ": " << expression << '\n';
+    std::exit (EXIT_FAILURE);
+}
+
+#define KIRIN_HYBRID_VU_REQUIRE(expression) require ((expression), #expression, __LINE__)
+
+KirinMeterSession meterFixture()
+{
+    KirinMeterSession meter {};
+    meter.state = KIRIN_METER_SESSION_ACTIVE;
+    meter.channels = 2;
+    meter.true_peak = -3.2;
+    meter.max_true_peak = -1.2;
+    meter.channel_vu_dbfs[0] = -28.0;
+    meter.channel_vu_dbfs[1] = -27.0;
+    meter.channel_instant_true_peak_dbtp[0] = -18.0;
+    meter.channel_instant_true_peak_dbtp[1] = -17.0;
+    meter.channel_max_true_peak_dbtp[0] = -3.2;
+    meter.channel_max_true_peak_dbtp[1] = -4.7;
+    return meter;
+}
+
+KirinWatchDisplay watchFixture()
+{
+    KirinWatchDisplay watch {};
+    watch.current.lufs_m = -18.2;
+    watch.current.lufs_s = -18.8;
+    watch.current.true_peak = -3.2;
+    watch.current.crest = 11.4;
+    return watch;
+}
+
+juce::Image render (observatory::View& view)
+{
+    juce::Image image (juce::Image::ARGB, view.getWidth(), view.getHeight(), true);
+    juce::Graphics graphics (image);
+    view.paintEntireComponent (graphics, true);
+    return image;
+}
+
+int differentPixels (const juce::Image& left, const juce::Image& right)
+{
+    KIRIN_HYBRID_VU_REQUIRE (left.getBounds() == right.getBounds());
+    int count = 0;
+    for (int y = 0; y < left.getHeight(); ++y)
+        for (int x = 0; x < left.getWidth(); ++x)
+            count += left.getPixelAt (x, y).getARGB() != right.getPixelAt (x, y).getARGB();
+    return count;
+}
+
+void writePreview (const juce::Image& image,
+                   observatory::Role role,
+                   const juce::String& state,
+                   int width)
+{
+    const auto previewDirectory = juce::SystemStats::getEnvironmentVariable (
+        "KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+    if (previewDirectory.isEmpty())
+        return;
+
+    auto output = juce::File (previewDirectory).getChildFile (
+        juce::String (role == observatory::Role::pre ? "pre" : "post")
+        + "-hybrid-vu-" + state + "-" + juce::String (width) + ".png").createOutputStream();
+    KIRIN_HYBRID_VU_REQUIRE (output != nullptr);
+    KIRIN_HYBRID_VU_REQUIRE (juce::PNGImageFormat().writeImageToStream (image, *output));
+}
+}
+
+void verifyHybridVuContract()
+{
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-38.0) > 0.06f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-38.0) < 0.08f);
+    KIRIN_HYBRID_VU_REQUIRE (
+        std::abs (hybrid_vu::vuNormalized (-15.0) - 1.0f) < 1.0e-6f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-18.0) > 0.77f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::vuNormalized (-18.0) < 0.79f);
+    KIRIN_HYBRID_VU_REQUIRE (
+        std::abs (hybrid_vu::truePeakNormalized (-28.0)) < 1.0e-6f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::truePeakNormalized (-24.0) > 0.14f);
+    KIRIN_HYBRID_VU_REQUIRE (hybrid_vu::truePeakNormalized (-24.0) < 0.15f);
+    KIRIN_HYBRID_VU_REQUIRE (
+        std::abs (hybrid_vu::truePeakNormalized (0.0) - 1.0f) < 1.0e-6f);
+
+    const auto meter = meterFixture();
+    for (const auto role : { observatory::Role::pre, observatory::Role::post })
+        for (const auto preset : observatory::sizePresets)
+        {
+            observatory::View view (role);
+            view.setSize (preset.width, preset.height);
+            view.setDomain (observatory::Domain::time);
+            view.setConnection (role == observatory::Role::post ? "PAIR DRUM" : "SOURCE PRE",
+                                COL_LED_BLUE,
+                                role == observatory::Role::post
+                                    ? observatory::ConnectionState::paired
+                                    : observatory::ConnectionState::source);
+            view.setMeterSnapshot (meter, true);
+            view.setWatchDisplay (watchFixture(), true);
+            auto* vuButton = dynamic_cast<juce::Button*> (
+                view.findChildWithID ("observatory-hybrid-vu"));
+            auto* clearButton = dynamic_cast<juce::Button*> (
+                view.findChildWithID ("observatory-clear-peak-clip"));
+            KIRIN_HYBRID_VU_REQUIRE (vuButton != nullptr);
+            KIRIN_HYBRID_VU_REQUIRE (clearButton != nullptr);
+            KIRIN_HYBRID_VU_REQUIRE (vuButton->isVisible());
+            KIRIN_HYBRID_VU_REQUIRE (! clearButton->isVisible());
+            bool retainedManualSelection = false;
+            bool clearCallback = false;
+            view.onHybridVuChange = [&view, &retainedManualSelection] (bool)
+            { retainedManualSelection = view.manualHybridVuVisible(); };
+            view.onClearPeakClipHolds = [&clearCallback] { clearCallback = true; };
+            vuButton->onClick();
+            KIRIN_HYBRID_VU_REQUIRE (retainedManualSelection);
+            KIRIN_HYBRID_VU_REQUIRE (view.manualHybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (vuButton->isVisible());
+            KIRIN_HYBRID_VU_REQUIRE (clearButton->isVisible());
+            KIRIN_HYBRID_VU_REQUIRE (
+                view.getLocalBounds().contains (vuButton->getBounds()));
+            KIRIN_HYBRID_VU_REQUIRE (
+                view.getLocalBounds().contains (clearButton->getBounds()));
+            KIRIN_HYBRID_VU_REQUIRE (
+                ! vuButton->getBounds().intersects (clearButton->getBounds()));
+            const auto manualImage = render (view);
+            writePreview (manualImage, role, "manual", preset.width);
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (true));
+            const auto recordingImage = render (view);
+            writePreview (recordingImage, role, "recording", preset.width);
+            KIRIN_HYBRID_VU_REQUIRE (differentPixels (manualImage, recordingImage) > 12);
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (false));
+            KIRIN_HYBRID_VU_REQUIRE (differentPixels (manualImage, render (view)) == 0);
+            clearButton->onClick();
+            KIRIN_HYBRID_VU_REQUIRE (clearCallback);
+            observatory::View reopened (role);
+            reopened.setSize (preset.width, preset.height);
+            reopened.setManualHybridVuVisible (retainedManualSelection);
+            KIRIN_HYBRID_VU_REQUIRE (reopened.manualHybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (reopened.hybridVuVisible());
+            vuButton->onClick();
+            KIRIN_HYBRID_VU_REQUIRE (! retainedManualSelection);
+            KIRIN_HYBRID_VU_REQUIRE (! view.manualHybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (! view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (vuButton->isVisible());
+            KIRIN_HYBRID_VU_REQUIRE (! clearButton->isVisible());
+            KIRIN_HYBRID_VU_REQUIRE (! view.setHybridVuOnRecordEnabled (true));
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (true));
+            KIRIN_HYBRID_VU_REQUIRE (view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (view.informationAnchor().isVisible());
+            const auto image = render (view);
+            auto alternate = meter;
+            alternate.channel_vu_dbfs[0] = -25.0;
+            alternate.channel_instant_true_peak_dbtp[1] = -11.0;
+            view.setMeterSnapshot (alternate, true);
+            KIRIN_HYBRID_VU_REQUIRE (differentPixels (image, render (view)) > 24);
+            auto sessionClipOnly = meter;
+            sessionClipOnly.clip_events[0] = 1;
+            view.setMeterSnapshot (sessionClipOnly, true);
+            KIRIN_HYBRID_VU_REQUIRE (differentPixels (image, render (view)) == 0);
+            auto clipped = sessionClipOnly;
+            clipped.channel_clip_latched[0] = 1;
+            view.setMeterSnapshot (clipped, true);
+            KIRIN_HYBRID_VU_REQUIRE (differentPixels (image, render (view)) > 8);
+            view.setMeterSnapshot (meter, true);
+            KIRIN_HYBRID_VU_REQUIRE (view.dismissHybridVuForCurrentRecording());
+            KIRIN_HYBRID_VU_REQUIRE (! view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (! view.dismissHybridVuForCurrentRecording());
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (false));
+            KIRIN_HYBRID_VU_REQUIRE (! view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (view.domain() == observatory::Domain::time);
+            KIRIN_HYBRID_VU_REQUIRE (view.setHybridVuOnRecordEnabled (false));
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (true));
+            KIRIN_HYBRID_VU_REQUIRE (! view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (false));
+            KIRIN_HYBRID_VU_REQUIRE (view.setHybridVuOnRecordEnabled (true));
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (true));
+            KIRIN_HYBRID_VU_REQUIRE (view.hybridVuVisible());
+            KIRIN_HYBRID_VU_REQUIRE (view.setHostRecording (false));
+        }
+    std::cout << "Hybrid VU: PASS (PRE/POST, five sizes, preference, manual override)\n";
+}
+}

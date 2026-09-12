@@ -312,7 +312,7 @@ void PerceptualComponent::paint (juce::Graphics& g)
     const perceptual_painter::PaintState state {
         snapshot, history, modeActionNotice, analysisOwnerNames,
         haveSnapshot, signalActive && haveSnapshot && validSnapshot (snapshot),
-        channelMode, inputChannels, signalActive
+        channelMode, inputChannels, signalActive, presentationContext
     };
     perceptual_painter::paint (g, getLocalBounds().toFloat(), state);
 }

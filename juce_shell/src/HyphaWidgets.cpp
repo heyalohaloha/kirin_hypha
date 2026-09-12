@@ -1,6 +1,8 @@
 #include "HyphaWidgets.h"
 
 #include "BinaryData.h"
+#include "HyphaSurfaceMaterial.h"
+#include "HyphaTextStyle.h"
 
 #include <cmath>
 
@@ -91,13 +93,9 @@ namespace hypha
     void PairDropdownButton::paintButton (
         juce::Graphics& g, bool highlighted, bool down)
     {
-        const auto background = findColour (getToggleState()
-                                                ? juce::TextButton::buttonOnColourId
-                                                : juce::TextButton::buttonColourId,
-                                            true);
-        getLookAndFeel().drawButtonBackground (g, *this, background, highlighted, down);
-
         const auto bounds = getLocalBounds().toFloat();
+        surface_material::paintControl (
+            g, bounds.reduced (0.5f), highlighted, down, getToggleState(), COL_FLORA_BR);
         const float centreX = bounds.getCentreX();
         const float centreY = bounds.getCentreY() + (down ? 1.0f : 0.0f);
         constexpr float halfWidth = 4.0f;
@@ -140,11 +138,10 @@ namespace hypha
     }
 
     void MetricCell::configure (const juce::String& labelIn, const juce::String& unitIn,
-                                const juce::String& help, float labelSizeIn, float valueSizeIn,
-                                float unitSizeIn, float minColWIn)
+                                const juce::String& help, float minColWIn)
     {
         label = labelIn; unit = unitIn;
-        labelSize = labelSizeIn; valueSize = valueSizeIn; unitSize = unitSizeIn; minColW = minColWIn;
+        minColW = minColWIn;
         setTooltip (help); // same help on the whole cell (egui attaches it to label/value/unit)
     }
 
@@ -164,9 +161,12 @@ namespace hypha
         // The larger release typography still fits the fixed 300px editor because spacing is
         // part of the same shared contract as the font and two-column geometry.
         const float spacing = ui_contract::metricHorizontalSpacing;
-        const auto  labelF = labelFont (labelSize);
-        const auto  valueF = monoFont  (valueSize);
-        const auto  unitF  = labelFont (unitSize);
+        const auto labelF = labelFont (presentationContext, typography::TextRole::metricLabel,
+                                       typography::Composition::facts);
+        const auto valueF = monoFont (presentationContext, typography::TextRole::secondaryValue,
+                                      typography::Composition::facts);
+        const auto unitF = labelFont (presentationContext, typography::TextRole::unit,
+                                      typography::Composition::facts);
 
         const float labelW = juce::jmax (minColW, labelF.getStringWidthFloat (label));
         const float valueW = juce::jmax (minColW, tabularTextWidth (valueF, value));
@@ -174,7 +174,8 @@ namespace hypha
         const float h = (float) getHeight();
         float x = 0.0f;
 
-        g.setFont (labelF);
+        g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel,
+                              typography::Composition::facts));
         g.setColour (COL_MUTED);
         g.drawText (label, juce::Rectangle<float> (x, 0.0f, labelW, h), juce::Justification::centredLeft);
         x += labelW + spacing;
@@ -184,7 +185,8 @@ namespace hypha
                          juce::Justification::centredLeft);
         x += valueW + spacing;
 
-        g.setFont (unitF);
+        g.setFont (labelFont (presentationContext, typography::TextRole::unit,
+                              typography::Composition::facts));
         g.setColour (COL_MUTED);
         g.drawText (unit, juce::Rectangle<float> (x, 0.0f, juce::jmax (0.0f, (float) getWidth() - x), h),
                     juce::Justification::centredLeft);
@@ -211,12 +213,10 @@ namespace hypha
     {
         auto area = getLocalBounds().toFloat();
         if (selected || highlighted || down)
-        {
-            g.setColour (selected ? kFieldFill.brighter (0.08f) : kFieldFill);
-            g.fillRect (area);
-        }
+            surface_material::paintControl (
+                g, area.reduced (0.5f), highlighted, down, selected, COL_FLORA, 2.5f);
         g.setColour (selected ? COL_FLORA : COL_MUTED);
-        g.setFont (monoFont (ui_contract::metricLabelFontHeight));
+        g.setFont (monoFont (presentationContext, typography::TextRole::navigation));
         g.drawText (text, getLocalBounds(), juce::Justification::centred);
         if (hasKeyboardFocus (true))
         {
@@ -266,7 +266,7 @@ namespace hypha
 
     ui_contract::LoudnessSelectorLayout LoudnessSelector::currentLayout() const
     {
-        const auto font = labelFont (ui_contract::metricLabelFontHeight);
+        const auto font = labelFont (presentationContext, typography::TextRole::navigation);
         const int measuredGlyphWidth = static_cast<int> (
             std::ceil (font.getStringWidthFloat (delta())));
         return ui_contract::loudnessSelectorLayout (
@@ -279,9 +279,10 @@ namespace hypha
         if (deltaMode)
         {
             g.setColour (COL_MUTED);
-            g.setFont (labelFont (ui_contract::metricLabelFontHeight));
-            g.drawFittedText (delta(), 0, 0, layout.deltaPrefixWidth, getHeight(),
-                              juce::Justification::centredLeft, 1, 0.75f);
+            g.setFont (labelFont (presentationContext, typography::TextRole::navigation));
+            text_style::draw (g, delta(), { 0, 0, layout.deltaPrefixWidth, getHeight() },
+                              presentationContext, typography::TextRole::navigation,
+                              juce::Justification::centredLeft);
         }
         g.setColour (COL_MUTED);
         g.drawRect ((float) layout.deltaPrefixWidth, 3.0f,
@@ -308,7 +309,7 @@ namespace hypha
         editor->setMultiLine (false);
         editor->setReturnKeyStartsNewLine (false);
         editor->setInputRestrictions (16, allowedNameChars()); // parity with sanitize_name (≤16)
-        editor->setFont (monoFont (ui_contract::nameFontHeight));
+        editor->setFont (monoFont (presentationContext, typography::TextRole::selector));
         editor->setColour (juce::TextEditor::backgroundColourId, kFieldFill);
         editor->setColour (juce::TextEditor::textColourId, COL_FLORA);
         editor->setColour (juce::TextEditor::outlineColourId, COL_MUTED);
@@ -378,6 +379,11 @@ namespace hypha
 
     void EditableName::mouseDown (const juce::MouseEvent&)
     {
+        if (onSelect)
+        {
+            onSelect();
+            return;
+        }
         if (! editing)
             startEditing();
     }
@@ -395,9 +401,10 @@ namespace hypha
 
         const bool empty = rawName.isEmpty();
         const juce::String shown = prefix + (empty ? fallback : rawName);
-        g.setFont (monoFont (ui_contract::nameFontHeight));
+        g.setFont (monoFont (presentationContext, typography::TextRole::selector));
         g.setColour (COL_FLORA);
-        g.drawFittedText (shown, getLocalBounds(), juce::Justification::centredLeft,
-                          1, 0.72f);
+        text_style::draw (g, shown, getLocalBounds(), presentationContext,
+                          typography::TextRole::selector,
+                          juce::Justification::centredLeft);
     }
 }

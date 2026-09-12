@@ -1,4 +1,77 @@
 use super::*;
+
+fn post_engine(channels: u32) -> Box<KirinHyphaEngine> {
+    let engine = Box::new(KirinHyphaEngine::new(48_000, channels));
+    *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
+    engine
+}
+
+#[test]
+fn shipping_c_abi_routes_each_analysis_request_to_the_expected_runtime() {
+    let mut engine = post_engine(2);
+    let handle = engine.as_mut() as *mut KirinHyphaEngine;
+
+    assert!(unsafe { kirin_hypha_set_spectrum_channel_mode(handle, 2) });
+    assert!(unsafe { kirin_hypha_set_spectrum_visible(handle, true) });
+    assert_eq!(
+        engine.spectrum_runtime.analysis_mode(),
+        AnalysisViewMode::Spectrum
+    );
+    assert_eq!(
+        engine.spectrum_runtime.channel_mode(),
+        SpectrumChannelMode::Side
+    );
+    assert!(!engine.spectrum_runtime.mid_side_enabled());
+
+    assert!(unsafe { kirin_hypha_set_mid_side_spectrum_visible(handle, true) });
+    assert_eq!(
+        engine.spectrum_runtime.analysis_mode(),
+        AnalysisViewMode::Spectrum
+    );
+    assert!(engine.spectrum_runtime.mid_side_enabled());
+
+    assert!(unsafe { kirin_hypha_set_perceptual_visible(handle, true) });
+    assert_eq!(
+        engine.spectrum_runtime.analysis_mode(),
+        AnalysisViewMode::Perceptual
+    );
+    assert!(!engine.spectrum_runtime.mid_side_enabled());
+
+    assert!(unsafe { kirin_hypha_set_absolute_visible(handle, true) });
+    assert_eq!(
+        engine.spectrum_runtime.analysis_mode(),
+        AnalysisViewMode::Absolute
+    );
+
+    assert!(unsafe { kirin_hypha_set_attack_enabled(handle, true) });
+    assert_eq!(
+        engine.spectrum_runtime.analysis_mode(),
+        AnalysisViewMode::Attack
+    );
+    assert_eq!(engine.attack_stats().enabled, 1);
+
+    assert!(unsafe { kirin_hypha_set_attack_enabled(handle, false) });
+    assert!(!engine.spectrum.post_visible());
+    assert_eq!(engine.attack_stats().enabled, 0);
+}
+
+#[test]
+fn shipping_c_abi_rejects_invalid_role_channel_and_null_handle() {
+    let mut pre = Box::new(KirinHyphaEngine::new(48_000, 2));
+    *pre.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
+    let pre_handle = pre.as_mut() as *mut KirinHyphaEngine;
+    assert!(!unsafe { kirin_hypha_set_spectrum_visible(pre_handle, true) });
+    assert!(!unsafe { kirin_hypha_set_absolute_visible(pre_handle, true) });
+    assert!(!unsafe { kirin_hypha_set_attack_enabled(pre_handle, true) });
+
+    let mut mono = post_engine(1);
+    let mono_handle = mono.as_mut() as *mut KirinHyphaEngine;
+    assert!(!unsafe { kirin_hypha_set_spectrum_channel_mode(mono_handle, 2) });
+    assert!(!unsafe { kirin_hypha_set_mid_side_spectrum_visible(mono_handle, true) });
+
+    assert!(!unsafe { kirin_hypha_set_spectrum_visible(std::ptr::null_mut(), true) });
+    assert!(!unsafe { kirin_hypha_set_mid_side_spectrum_visible(std::ptr::null_mut(), true) });
+}
 use kirin_measure::spectrum::SpectrumDifference;
 
 #[test]

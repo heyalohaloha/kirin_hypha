@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaUiContract.h"
+#include "HyphaTypographyContract.h"
 
 // B-054: element-for-element port of crates/hypha_gui/{palette,common,led}.rs into JUCE.
 // palette.rs is the single source of truth for colour (no new colours hardcoded) — every
@@ -18,6 +19,13 @@ namespace hypha
     inline const juce::Colour COL_NORMAL    { ui_contract::normal }; // #E0E0E0 values / title (not pure white)
     inline const juce::Colour COL_OBSERVATORY_VALUE { ui_contract::observatoryValue };
     inline const juce::Colour COL_MUTED     { ui_contract::muted }; // #606060 labels / units / "---"
+    // Readable text tiers are derived from the fixed palette. COL_MUTED remains reserved for
+    // unavailable values, disabled controls, and non-text geometry; it is too quiet for small
+    // explanatory copy on the cockpit background.
+    inline const juce::Colour COL_TEXT_SECONDARY {
+        COL_MUTED.interpolatedWith (COL_NORMAL, 0.30f) };
+    inline const juce::Colour COL_TEXT_TERTIARY {
+        COL_MUTED.interpolatedWith (COL_NORMAL, 0.22f) };
     inline const juce::Colour COL_FLORA     { ui_contract::flora }; // #D4A043 name / flora line / Keeping / preset LED
     inline const juce::Colour COL_FLORA_BR  { ui_contract::floraBright }; // #FFE0A0 TP > -1.0 dBTP
     inline const juce::Colour COL_GUIDE     { ui_contract::guideGold };
@@ -26,6 +34,8 @@ namespace hypha
     inline const juce::Colour COL_SPECTRUM_DELTA_BR { ui_contract::spectrumDeltaBright };
     inline const juce::Colour COL_SPECTRUM_PRE { ui_contract::spectrumPre };
     inline const juce::Colour COL_SPECTRUM_POST { ui_contract::spectrumPost };
+    inline const juce::Colour COL_SPECTRUM_MID { ui_contract::spectrumMid };
+    inline const juce::Colour COL_SPECTRUM_SIDE { ui_contract::spectrumSide };
     inline const juce::Colour COL_LED_BLUE  { ui_contract::ledBlue }; // #4488CC WatchBreathing
     inline const juce::Colour COL_LED_GREEN { ui_contract::ledGreen }; // #4CC07A RecordStandby / RecordActive
     inline const juce::Colour COL_LED_YELLOW{ ui_contract::ledYellow }; // #CCAA44 Error (measure thread)
@@ -41,10 +51,15 @@ namespace hypha
     // Both functions resolve to paid Kimera Waldenburg Book when a licensed typeface is embedded.
     // `monoFont` names the measurement role, not a second family. Numeric painters give its digits
     // fixed cells because JUCE 7 cannot request the font's OpenType `tnum` feature directly.
-    juce::Font labelFont (float h);
-    juce::Font monoFont (float h);
-    juce::Font nativeTextFont (float h);
-    juce::Font displayTextFont (const juce::String& text, float h);
+    juce::Font labelFont (const presentation::Context&, typography::TextRole,
+                          typography::Composition = typography::Composition::shell);
+    juce::Font monoFont (const presentation::Context&, typography::TextRole,
+                         typography::Composition = typography::Composition::shell);
+    juce::Font nativeTextFont (const presentation::Context&, typography::TextRole,
+                               typography::Composition = typography::Composition::shell);
+    juce::Font displayTextFont (const juce::String&, const presentation::Context&,
+                                typography::TextRole,
+                                typography::Composition = typography::Composition::shell);
     bool requiresNativeTextFont (const juce::String& text) noexcept;
     bool usingKimeraTypography() noexcept;
     const char* nativeFallbackLabelFontFamily() noexcept;

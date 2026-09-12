@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaPerceptualHistory.h"
+#include "HyphaPresentationContext.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha
@@ -14,6 +15,13 @@ class PerceptualComponent final : public juce::Component,
 {
 public:
     PerceptualComponent();
+
+    void setPresentationContext (presentation::Context next)
+    {
+        if (presentationContext == next) return;
+        presentationContext = next;
+        repaint();
+    }
 
     void setSnapshot (const KirinPerceptualView& next);
     void setBatch (const KirinPerceptualBatch& next);
@@ -60,6 +68,7 @@ private:
     double lastNumericPresentationMs = 0.0;
     uint64_t curvePresentationCount = 0u;
     uint64_t numericPresentationCount = 0u;
+    presentation::Context presentationContext = presentation::defaultContext();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PerceptualComponent)
 };

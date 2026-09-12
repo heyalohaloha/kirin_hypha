@@ -24,7 +24,8 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
     const auto bounds = getLocalBounds().toFloat();
     const float scale = spectrum_geometry::visualScaleFor (bounds);
     const auto outer = spectrum_geometry::plotBoundsFor (bounds);
-    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, ! absoluteObservation);
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (
+        bounds, ! absoluteObservation && focusFrequencyHz > 0.0f);
     const auto position = event.position;
     juce::String tip;
 
@@ -40,9 +41,11 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
         return;
     }
 
-    for (size_t index = 0; index < ui_contract::spectrumChannelModeWidths.size(); ++index)
-        if (spectrum_geometry::channelModeBoundsFor (index, outer, scale).contains (position))
-            tip = analysis_ui::channelModeTooltip (static_cast<uint8_t> (index));
+    for (size_t index = 0; index < ui_contract::spectrumDisplayModeWidths.size(); ++index)
+        if (spectrum_geometry::displayModeBoundsFor (index, outer, scale).contains (position))
+            tip = index == KIRIN_SPECTRUM_SELECTION_MID_SIDE
+                ? analysis_ui::midSideModeTooltip (absoluteObservation, inputChannels == 2u)
+                : analysis_ui::channelModeTooltip (static_cast<uint8_t> (index));
 
     const auto mark = spectrum_geometry::markBoundsFor (outer, scale);
     if (! absoluteObservation && tip.isEmpty()
@@ -53,7 +56,9 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
     const bool expanded = scale > 1.1f;
     if (tip.isEmpty() && focusFrequencyHz > 0.0f)
     {
-        const auto readout = spectrum_geometry::readoutBoundsFor (outer, scale, expanded, true);
+        const auto readout = midSideObservation
+            ? spectrum_geometry::midSideReadoutBoundsFor (outer, scale, expanded)
+            : spectrum_geometry::readoutBoundsFor (outer, scale, expanded, true);
         if (readout.contains (position))
             tip = spectrum_geometry::focusClearBoundsFor (readout, scale).contains (position)
                     ? analysis_ui::focusTrailTooltip (true)
@@ -95,6 +100,7 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
             : 0.0f;
         tip = frequency > 0.0f && frequency < snapshot.approximate_below_hz
                 ? analysis_ui::approximateFrequencyTooltip()
+                : midSideObservation ? analysis_ui::midSideSpectrumPlotTooltip()
                 : absoluteObservation ? analysis_ui::absoluteSpectrumPlotTooltip()
                                       : analysis_ui::spectrumPlotTooltip();
     }

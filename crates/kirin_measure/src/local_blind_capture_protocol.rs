@@ -11,13 +11,18 @@ use uuid::Uuid;
 
 use crate::analysis_exchange_transport::{self, AnalysisSlot};
 use crate::pair_claim_index::StablePairClaimObservation;
-
 const REQUEST_SCHEMA: &str = "kirin_hypha_local_blind_capture_request_v2";
 const ARMED_SCHEMA: &str = "kirin_hypha_local_blind_capture_armed_v2";
 const REQUEST_MAX_BYTES: u64 = 4_096;
 const ARMED_MAX_BYTES: u64 = 2_048;
 pub const LOCAL_BLIND_CAPTURE_LEASE_MS: i64 = 15_000;
 const MAX_CAPTURE_SECONDS: i64 = 4;
+
+#[path = "local_blind_capture_active_poll.rs"]
+mod active_poll;
+pub use active_poll::{
+    poll_validated_local_blind_capture_request_for_active_result, ActiveCaptureRequestPoll,
+};
 
 #[derive(Clone, Copy)]
 struct CaptureTarget<'a> {
@@ -127,8 +132,37 @@ impl LocalBlindCaptureRequest {
     }
 
     fn valid_for_target(&self, target: CaptureTarget<'_>, now_unix_ms: i64) -> bool {
-        self.valid_shape_at(now_unix_ms)
-            && self.authority.pre_project_hash == target.pre_project_hash
+        self.valid_shape_at(now_unix_ms) && self.matches_target(target)
+    }
+
+    // The wall-clock lease admits an owner; it does not discard exact PCM already captured on
+    // the requested audio timeline. Result transport still requires the immutable envelope and
+    // the same currently-owned pair claim.
+    pub(crate) fn valid_for_active_capture_result(
+        &self,
+        kirin_root: &Path,
+        instance_dir: &Path,
+        now_unix_ms: i64,
+    ) -> bool {
+        self.valid_shape()
+            && self.issued_at_unix_ms <= now_unix_ms
+            && self.matches_target(CaptureTarget {
+                kirin_root,
+                instance_dir,
+                pre_project_hash: &self.authority.pre_project_hash,
+                pre_instance_id: &self.authority.pre_instance_id,
+                sample_rate: self.sample_rate,
+                channels: self.channels,
+            })
+    }
+
+    fn matches_target(&self, target: CaptureTarget<'_>) -> bool {
+        self.matches_static_target(target)
+            && self.authority.matches_current_claim(target.kirin_root)
+    }
+
+    fn matches_static_target(&self, target: CaptureTarget<'_>) -> bool {
+        self.authority.pre_project_hash == target.pre_project_hash
             && self.authority.pre_instance_id == target.pre_instance_id
             && self.sample_rate == target.sample_rate
             && self.channels == target.channels
@@ -138,29 +172,15 @@ impl LocalBlindCaptureRequest {
                     .join(target.pre_project_hash)
                     .join(target.pre_instance_id)
                     .as_path()
-            && self.authority.matches_current_claim(target.kirin_root)
-    }
-
-    pub(crate) fn valid_for_pre_instance(
-        &self,
-        kirin_root: &Path,
-        instance_dir: &Path,
-        now_unix_ms: i64,
-    ) -> bool {
-        self.valid_for_target(
-            CaptureTarget {
-                kirin_root,
-                instance_dir,
-                pre_project_hash: &self.authority.pre_project_hash,
-                pre_instance_id: &self.authority.pre_instance_id,
-                sample_rate: self.sample_rate,
-                channels: self.channels,
-            },
-            now_unix_ms,
-        )
     }
 
     fn valid_shape_at(&self, now_unix_ms: i64) -> bool {
+        self.valid_shape()
+            && self.issued_at_unix_ms <= now_unix_ms
+            && self.expires_at_unix_ms >= now_unix_ms
+    }
+
+    fn valid_shape(&self) -> bool {
         let max_frames = i64::from(self.sample_rate).checked_mul(MAX_CAPTURE_SECONDS);
         self.schema == REQUEST_SCHEMA
             && canonical_uuid(&self.request_id)
@@ -175,8 +195,6 @@ impl LocalBlindCaptureRequest {
             && max_frames.is_some_and(|limit| self.frames <= limit)
             && self.native_start.checked_add(self.frames).is_some()
             && self.issued_at_unix_ms > 0
-            && self.issued_at_unix_ms <= now_unix_ms
-            && self.expires_at_unix_ms >= now_unix_ms
             && self.expires_at_unix_ms > self.issued_at_unix_ms
             && self.expires_at_unix_ms - self.issued_at_unix_ms <= LOCAL_BLIND_CAPTURE_LEASE_MS
     }
@@ -218,6 +236,10 @@ impl LocalBlindCaptureArmed {
     }
 
     pub fn matches_request(&self, request: &LocalBlindCaptureRequest, now_unix_ms: i64) -> bool {
+        self.matches_active_request(request) && request.valid_shape_at(now_unix_ms)
+    }
+
+    fn matches_active_request(&self, request: &LocalBlindCaptureRequest) -> bool {
         self.schema == ARMED_SCHEMA
             && self.request_id == request.request_id
             && self.request_sha256.len() == 64
@@ -227,7 +249,7 @@ impl LocalBlindCaptureArmed {
             && self.capture_generation == request.capture_generation
             && self.clock_generation == request.clock_generation
             && self.expires_at_unix_ms == request.expires_at_unix_ms
-            && request.valid_shape_at(now_unix_ms)
+            && request.valid_shape()
     }
 }
 
@@ -275,14 +297,7 @@ pub fn read_validated_local_blind_capture_request(
     channels: u8,
     now_unix_ms: i64,
 ) -> Option<LocalBlindCaptureRequest> {
-    let request: LocalBlindCaptureRequest =
-        serde_json::from_slice(&analysis_exchange_transport::read(
-            instance_dir,
-            &request_path(instance_dir),
-            AnalysisSlot::LocalBlindRequest,
-            REQUEST_MAX_BYTES,
-        )?)
-        .ok()?;
+    let request = read_capture_request(instance_dir)?;
     let target = CaptureTarget {
         kirin_root,
         instance_dir,
@@ -294,6 +309,42 @@ pub fn read_validated_local_blind_capture_request(
     request
         .valid_for_target(target, now_unix_ms)
         .then_some(request)
+}
+
+/// Read the immutable identity for a capture admitted before its deadline. This path is only for
+/// finalizing an already-armed capture; it does not authorize a new PRE or POST owner after expiry.
+#[allow(clippy::too_many_arguments)]
+pub fn read_validated_local_blind_capture_request_for_active_result(
+    kirin_root: &Path,
+    instance_dir: &Path,
+    pre_project_hash: &str,
+    pre_instance_id: &str,
+    sample_rate: u32,
+    channels: u8,
+    now_unix_ms: i64,
+) -> Option<LocalBlindCaptureRequest> {
+    match poll_validated_local_blind_capture_request_for_active_result(
+        kirin_root,
+        instance_dir,
+        pre_project_hash,
+        pre_instance_id,
+        sample_rate,
+        channels,
+        now_unix_ms,
+    ) {
+        ActiveCaptureRequestPoll::Current(request) => Some(request),
+        ActiveCaptureRequestPoll::Unavailable | ActiveCaptureRequestPoll::Contended => None,
+    }
+}
+
+fn read_capture_request(instance_dir: &Path) -> Option<LocalBlindCaptureRequest> {
+    serde_json::from_slice(&analysis_exchange_transport::read(
+        instance_dir,
+        &request_path(instance_dir),
+        AnalysisSlot::LocalBlindRequest,
+        REQUEST_MAX_BYTES,
+    )?)
+    .ok()
 }
 
 /// Publish only after the PRE non-RT owner has installed the matching capture object for its
@@ -365,6 +416,25 @@ pub fn read_matching_local_blind_capture_armed(
     )?)
     .ok()?;
     armed.matches_request(request, now_unix_ms).then_some(armed)
+}
+
+pub(crate) fn active_capture_result_was_armed(
+    kirin_root: &Path,
+    instance_dir: &Path,
+    request: &LocalBlindCaptureRequest,
+    now_unix_ms: i64,
+) -> bool {
+    if !request.valid_for_active_capture_result(kirin_root, instance_dir, now_unix_ms) {
+        return false;
+    }
+    analysis_exchange_transport::read(
+        instance_dir,
+        &armed_path(instance_dir),
+        AnalysisSlot::LocalBlindArmed,
+        ARMED_MAX_BYTES,
+    )
+    .and_then(|bytes| serde_json::from_slice::<LocalBlindCaptureArmed>(&bytes).ok())
+    .is_some_and(|armed| armed.matches_active_request(request))
 }
 
 fn request_path(instance_dir: &Path) -> PathBuf {

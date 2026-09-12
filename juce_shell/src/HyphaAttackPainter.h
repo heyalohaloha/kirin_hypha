@@ -7,6 +7,7 @@
 #include "kirin_hypha_ffi.h"
 #include "HyphaAttackMotion.h"
 #include "HyphaAttackOverviewGlyphPainter.h"
+#include "HyphaPresentationContext.h"
 
 namespace hypha::attack_painter
 {
@@ -35,5 +36,5 @@ namespace hypha::attack_painter
                          const juce::String& value,
                          const juce::String& context,
                          juce::Colour,
-                         bool alignRight);
+                         presentation::Context);
 }

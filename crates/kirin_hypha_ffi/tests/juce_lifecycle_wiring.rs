@@ -104,7 +104,9 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
     assert!(processor.contains("xml.setAttribute (\"loudness_view\""));
     assert!(processor.contains("getStringAttribute (\"loudness_view\") == \"S\""));
-    assert!(processor.contains("xml.setAttribute (\"display_state_version\", 4)"));
+    assert!(processor.contains("xml.setAttribute (\"display_state_version\", 5)"));
+    assert!(processor.contains("xml.setAttribute (\"hybrid_vu_on_record\""));
+    assert!(processor.contains("getBoolAttribute (\"hybrid_vu_on_record\", true)"));
     assert!(processor.contains("meter_context"));
     assert!(processor.contains("scale_mode"));
     assert!(processor.contains("observatory_width"));
@@ -136,10 +138,11 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
 #[test]
 fn saved_daw_state_restores_the_exact_pre_without_registry_rescan() {
     let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
-    assert!(ffi_header.contains("kirin_hypha_restore_pair_candidate"));
+    assert!(ffi_header.contains("kirin_hypha_restore_pair_candidate_v2"));
     assert!(ffi_header.contains("kirin_hypha_get_paired_pre_locator"));
 
-    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
+        + &read_repo("juce_shell/src/PluginProcessorPairing.cpp");
     assert!(
         processor.contains("xml.setAttribute (\"paired_pre_instance_id\", persistPairInstanceId)")
     );
@@ -151,13 +154,13 @@ fn saved_daw_state_restores_the_exact_pre_without_registry_rescan() {
         "restoredPairProjectHash = xml->getStringAttribute (\"paired_pre_project_hash\")"
     ));
     assert!(processor.contains("pairedPreLocator (livePairProjectHash, livePairInstanceId)"));
-    assert!(processor.contains("kirin_hypha_restore_pair_candidate ("));
+    assert!(processor.contains("kirin_hypha_restore_pair_candidate_v2 ("));
+    assert!(!processor.contains("kirin_hypha_set_pair_target (hyphaHandle, persistPairName"));
 
     let ffi = read_repo("crates/kirin_hypha_ffi/src/lib.rs");
+    let restore = read_repo("crates/kirin_hypha_ffi/src/pair_restore_ffi.rs");
     let pair_snapshot = read_repo("crates/kirin_hypha_ffi/src/pair_snapshot_ffi.rs");
-    let restore = slice_between(&ffi, "pub fn restore_pair_candidate", "pub fn pair_status");
     assert!(restore.contains("restored_pair_latch("));
-    assert!(!restore.contains("enumerate_live_pre_pair_choices"));
     assert!(!restore.contains("select_live_pre_pair_choice"));
     assert!(ffi.contains("project_dir.join(pre_instance_id).join(\"pre.json\")"));
     assert!(ffi.contains("LatchedPreReadiness::RestoredWaiting"));
@@ -200,6 +203,27 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
     assert!(processor_clock.contains("if (publishClockProbe)"));
     let clock_probe = read_repo("juce_shell/src/local_blind/HostClockProbe.h");
     assert!(clock_probe.contains("class alignas (128) HostClockProbe"));
+    let capture_service = read_repo("juce_shell/src/local_blind/LocalBlindCaptureService.cpp");
+    assert!(
+        capture_service.contains("compareCapturePair (postCapture->range(), *prePcm, *postPcm)")
+    );
+    let validation = read_repo("juce_shell/src/PluginProcessorValidation.cpp");
+    assert!(validation.contains("startLocalBlindPdcValidation"));
+    assert!(validation.contains("PDC residual:"));
+    assert!(validation.contains("PDC normalized zero RMS error:"));
+    let information = read_repo("juce_shell/src/PluginEditorInformation.cpp");
+    assert!(information.contains("Capture one exact 4 s PRE/POST range"));
+    let cmake = read_repo("juce_shell/CMakeLists.txt");
+    assert!(cmake.contains("KIRIN_HYPHA_BUILD_PDC_VALIDATION_DELAY"));
+    assert!(cmake.contains("Kirin Hypha PDC Validation Delay 4096"));
+    let validation_delay =
+        read_repo("juce_shell/tests/pdc_validation_delay/FixedValidationDelay.h");
+    assert!(validation_delay.contains("static constexpr int latencySamples = 4'096"));
+    let validation_processor =
+        read_repo("juce_shell/tests/pdc_validation_delay/PluginProcessor.cpp");
+    assert!(
+        validation_processor.contains("setLatencySamples (FixedValidationDelay::latencySamples)")
+    );
     let request_header =
         read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_local_blind_capture_ffi.h");
     for required in [
@@ -211,8 +235,10 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
         "clock_position_at_issue",
         "native_start",
         "expires_at_unix_ms",
-        "kirin_hypha_issue_local_blind_capture_request",
+        "kirin_hypha_issue_local_blind_capture_request_v2",
         "kirin_hypha_poll_local_blind_capture_request",
+        "kirin_hypha_poll_local_blind_capture_request_v2",
+        "KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_CONTENDED",
         "kirin_hypha_ack_local_blind_capture_request",
         "kirin_hypha_local_blind_capture_is_armed",
     ] {
@@ -226,8 +252,11 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
     let transport = read_repo("juce_shell/src/PluginProcessorLocalBlindTransport.cpp");
     for required in [
         "KirinLocalBlindPreCaptureReceipt",
+        "KirinLocalBlindPreCaptureFailure",
         "kirin_hypha_publish_local_blind_pre_capture",
         "kirin_hypha_read_local_blind_pre_capture",
+        "kirin_hypha_publish_local_blind_pre_capture_failure",
+        "kirin_hypha_read_local_blind_pre_capture_failure",
         "kirin_hypha_ack_local_blind_pre_capture",
         "kirin_hypha_local_blind_pre_capture_was_consumed",
         "kirin_hypha_retire_local_blind_pre_capture",
@@ -251,8 +280,9 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
         "source.clock_source",
         "source.clock_position_at_issue",
         "source.native_start",
-        "kirin_hypha_issue_local_blind_capture_request",
-        "kirin_hypha_poll_local_blind_capture_request",
+        "kirin_hypha_issue_local_blind_capture_request_v2",
+        "kirin_hypha_poll_local_blind_capture_request_v2",
+        "KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_CONTENDED",
         "kirin_hypha_ack_local_blind_capture_request",
         "kirin_hypha_local_blind_capture_is_armed",
     ] {

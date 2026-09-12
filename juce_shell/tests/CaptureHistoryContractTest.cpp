@@ -55,7 +55,8 @@ juce::Image render (const std::vector<KirinMeterHistoryEntry>& history,
 {
     juce::Image image (juce::Image::ARGB, 500, 130, true);
     juce::Graphics graphics (image);
-    capture_history::paint (graphics, image.getBounds(), history, delta, 48'000.0, hovered);
+    capture_history::paint (graphics, image.getBounds(), history, delta, 48'000.0,
+                            presentation::forEditor (500, 333), hovered);
     return image;
 }
 

@@ -68,6 +68,7 @@ void verifyAbsoluteSpectrumContract()
     KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (history.size() == 1u);
 
     SpectrumComponent component;
+    component.setPresentationContext (presentation::forEditor (600, 400));
     component.setSignalActive (true);
     component.setSize (600, 318);
     component.setAbsoluteObservation (true);
@@ -92,6 +93,7 @@ void verifyAbsoluteSpectrumContract()
         std::abs (component.absolutePeakHoldForTest (0) - second.post_dbfs[0]) < 0.0001f);
 
     SpectrumComponent deltaComponent;
+    deltaComponent.setPresentationContext (presentation::forEditor (600, 400));
     deltaComponent.setSignalActive (true);
     deltaComponent.setBatch (batch);
     KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (

@@ -17,7 +17,7 @@ inline KirinAttackDetail overviewDetail()
     detail.shape_count = KIRIN_ATTACK_SHAPE_CAPACITY;
     detail.attack_rms_dbfs = attack_ui::strengthGlowFullDbfs;
     detail.sharpness_available = 1;
-    detail.sharpness_acum = attack_ui::brightnessGlowFullAcum;
+    detail.sharpness_acum = attack_ui::sharpnessGlowFullAcum;
     detail.contrast_db = attack_ui::transientGlowFullDb;
     detail.sample_edge_ratio_db = 0.0f;
     detail.crest_db = 0.0f;
@@ -76,13 +76,53 @@ inline bool verifyUpperFeatureIsolation (const KirinAttackEventBatch& events,
     const auto before=draw();
     for (std::uint32_t i=0;i<changed->count;++i) {
         auto& d=changed->details[i]; d.sharpness_acum=0;d.attack_rms_dbfs=-70;
-        d.contrast_db=0;d.sample_edge_ratio_db=-24;
+        d.sample_edge_ratio_db=-24;d.crest_db=12;d.peak_plateau_ms=0;
     }
     const auto after=draw();
-    for (int y=0;y<480-attack_ui::metricsHeight (480);++y)
+    const auto metricsTop = attack_ui::headerHeight + attack_ui::timelineHeight (480)
+                          + attack_ui::axisHeight (480) + attack_ui::transientHeight (480);
+    for (int y=0;y<metricsTop;++y)
         for (int x=0;x<880;++x)
             if (before.getPixelAt (x,y)!=after.getPixelAt (x,y)) return false;
-    return specimenDifferences (before,after)>100;
+    return specimenDifferences (before,after,
+        {0,metricsTop,880,480-metricsTop})>100;
+}
+
+inline bool verifyTransientIsolation (const KirinAttackEventBatch& events,
+    const KirinAttackWaveformBatch& waveform, const KirinAttackDetailBatch& details,
+    const KirinAttackPairEventBatch& pairs, const KirinAttackStats& stats)
+{
+    auto component=std::make_unique<AttackComponent>();
+    auto post=std::make_unique<KirinAttackDetailBatch> (details);
+    auto pre=std::make_unique<KirinAttackDetailBatch> (details);
+    component->setSize (880,480);
+    for (std::uint32_t i=0;i<pre->count;++i) pre->details[i].contrast_db=5.0f;
+    const auto draw=[&] (const KirinAttackPairEventBatch& pairState) {
+        component->setSnapshot (events,waveform,*post,waveform,*pre,pairState,288000,48000,7,stats);
+        juce::Image image (juce::Image::ARGB,880,480,true);juce::Graphics g (image);
+        component->paintEntireComponent (g,true);
+        return image;
+    };
+    for (std::uint32_t i=0;i<post->count;++i) post->details[i].contrast_db=8.0f;
+    const auto positive=draw (pairs);
+    for (std::uint32_t i=0;i<post->count;++i) post->details[i].contrast_db=2.0f;
+    const auto negative=draw (pairs);
+    for (std::uint32_t i=0;i<post->count;++i) post->details[i].contrast_db=5.0f;
+    const auto identity=draw (pairs);
+    auto postOnlyPairs=pairs;postOnlyPairs.status=KIRIN_SPECTRUM_NO_PAIR;postOnlyPairs.count=0;
+    const auto postOnly=draw (postOnlyPairs);
+    const auto transientTop = attack_ui::headerHeight + attack_ui::timelineHeight (480)
+                            + attack_ui::axisHeight (480);
+    const auto transientHeight = attack_ui::transientHeight (480);
+    const auto metricsTop = transientTop + transientHeight;
+    const juce::Rectangle<int> transientArea {0,transientTop,880,transientHeight};
+    const juce::Rectangle<int> specimenArea {0,metricsTop,880,480-metricsTop};
+    return specimenDifferences (positive,negative,transientArea)>40
+        && specimenDifferences (positive,identity,transientArea)>40
+        && specimenDifferences (identity,postOnly,transientArea)>40
+        && specimenDifferences (positive,negative,specimenArea)==0
+        && specimenDifferences (positive,identity,specimenArea)==0
+        && specimenDifferences (identity,postOnly,specimenArea)==0;
 }
 inline bool verifyEnvelopeSimplificationBound()
 {

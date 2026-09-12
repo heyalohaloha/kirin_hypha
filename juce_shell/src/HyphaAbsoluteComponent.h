@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "HyphaPresentationContext.h"
 #include "kirin_hypha_ffi.h"
 
 namespace hypha
@@ -12,9 +13,20 @@ class AbsoluteComponent final : public juce::Component,
 public:
     AbsoluteComponent();
 
+    void setPresentationContext (presentation::Context next)
+    {
+        if (presentationContext == next) return;
+        presentationContext = next;
+        repaint();
+    }
+
     void setBatch (const KirinAbsoluteBatch& next);
     void setBatchAt (const KirinAbsoluteBatch& next, double nowMs);
     void clearSnapshot();
+    void setSharpnessOnly (bool value)
+    {
+        if (sharpnessOnly != value) { sharpnessOnly = value; repaint(); }
+    }
     void setSignalActive (bool active) { if (signalActive != active) { signalActive = active; repaint(); } }
     void setAnalysisOwnerNames (const juce::String& names);
     void paint (juce::Graphics&) override;
@@ -41,6 +53,7 @@ private:
     KirinAbsoluteView numericSnapshot {};
     bool haveBatch = false;
     bool signalActive = true;
+    bool sharpnessOnly = false;
     bool havePendingBatch = false;
     bool haveNumericSnapshot = false;
     juce::String analysisOwnerNames;
@@ -48,6 +61,7 @@ private:
     double lastNumericPresentationMs = 0.0;
     uint64_t curvePresentationCount = 0u;
     uint64_t numericPresentationCount = 0u;
+    presentation::Context presentationContext = presentation::defaultContext();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AbsoluteComponent)
 };

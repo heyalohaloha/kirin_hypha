@@ -27,14 +27,14 @@ struct CaptureRange
 enum class CaptureState : unsigned char { pending, complete, invalid };
 enum class CaptureFailure : unsigned char
 {
-    none,
-    discontinuity,
-    format,
-    generation,
-    nonRealtime,
-    nonFinite,
-    transport,
-    clock
+    none = 0,
+    discontinuity = 1,
+    format = 2,
+    generation = 3,
+    nonRealtime = 4,
+    nonFinite = 5,
+    transport = 6,
+    clock = 7
 };
 
 class ExactRangeCapture final

@@ -81,11 +81,15 @@ reference_ui::State readyState()
 
 void verifyReferenceAuditionComponentContract()
 {
+    constexpr auto presentationContext = presentation::forEditor (450, 300);
     KIRIN_REF_REQUIRE (! requiresNativeTextFont ("Mix Reference"));
     KIRIN_REF_REQUIRE (requiresNativeTextFont (juce::String::fromUTF8 ("全工程｜基本5項目")));
-    KIRIN_REF_REQUIRE (displayTextFont (juce::String::fromUTF8 ("低域"), 13.0f)
+    KIRIN_REF_REQUIRE (displayTextFont (juce::String::fromUTF8 ("低域"), presentationContext,
+                                       typography::TextRole::selector,
+                                       typography::Composition::information)
                            .getTypefaceName()
-                       != labelFont (13.0f).getTypefaceName()
+                       != labelFont (presentationContext, typography::TextRole::selector,
+                                     typography::Composition::information).getTypefaceName()
                        || ! usingKimeraTypography());
 
     auto state = readyState();
@@ -117,6 +121,7 @@ void verifyReferenceAuditionComponentContract()
     KIRIN_REF_REQUIRE (reference_ui::canStartBlind (state));
 
     reference_ui::Component component;
+    component.setPresentationContext (presentation::forEditor (300, 200));
     component.setSize (288, 136);
     component.setState (readyState());
     KIRIN_REF_REQUIRE (! component.detailedLayout());
@@ -162,6 +167,10 @@ void verifyReferenceAuditionComponentContract()
     auto* b = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-b"));
     auto* startBlind = dynamic_cast<juce::TextButton*> (
         component.findChildWithID ("reference-blind"));
+    auto* compactCandidate = dynamic_cast<juce::ComboBox*> (
+        component.findChildWithID ("reference-candidate"));
+    auto* compactCheck = dynamic_cast<juce::ComboBox*> (
+        component.findChildWithID ("reference-check"));
     auto* one = dynamic_cast<juce::TextButton*> (
         component.findChildWithID ("reference-blind-1"));
     auto* two = dynamic_cast<juce::TextButton*> (
@@ -177,6 +186,20 @@ void verifyReferenceAuditionComponentContract()
                        && one != nullptr && two != nullptr && answer != nullptr
                        && reveal != nullptr
                        && endBlind != nullptr);
+    KIRIN_REF_REQUIRE (startBlind->getButtonText() == "VERSION BLIND"
+                       && startBlind->getY() > b->getBottom());
+    KIRIN_REF_REQUIRE (compactCheck != nullptr && compactCheck->isVisible()
+                       && compactCandidate != nullptr && compactCandidate->isVisible()
+                       && compactCheck->getTitle() == "Check"
+                       && compactCandidate->getTitle() == "B Source"
+                       && compactCheck->getY() == compactCandidate->getY()
+                       && compactCheck->getRight() < compactCandidate->getX()
+                       && compactCandidate->getY() > b->getBottom()
+                       && compactCandidate->getBottom() < startBlind->getY());
+    compactCheck->setSelectedId (2, juce::sendNotificationSync);
+    compactCandidate->setSelectedId (2, juce::sendNotificationSync);
+    KIRIN_REF_REQUIRE (requestedCheck == "check-b"
+                       && requestedCandidate == "reference-b");
     auto unavailableBlind = readyState();
     unavailableBlind.blindPhase = reference_ui::BlindPhase::unavailable;
     component.setState (unavailableBlind);
@@ -280,6 +303,7 @@ void verifyReferenceAuditionComponentContract()
     KIRIN_REF_REQUIRE (differentPixels (compactA, compactB) > 100);
     writeImageIfRequested (compactB, "KIRIN_REFERENCE_UI_COMPACT_OUTPUT");
 
+    component.setPresentationContext (presentation::forEditor (900, 600));
     component.setSize (888, 470);
     KIRIN_REF_REQUIRE (component.detailedLayout());
     component.setState (selected);
@@ -294,12 +318,37 @@ void verifyReferenceAuditionComponentContract()
     KIRIN_REF_REQUIRE (preset != nullptr && check != nullptr && candidate != nullptr
                        && cue != nullptr && preset->isVisible() && check->isVisible()
                        && candidate->isVisible() && cue->isVisible());
+    KIRIN_REF_REQUIRE (candidate->getTooltip().contains ("Replace B")
+                       && candidate->getNumItems() == 2);
     preset->setSelectedId (2, juce::sendNotificationSync);
     check->setSelectedId (2, juce::sendNotificationSync);
     candidate->setSelectedId (2, juce::sendNotificationSync);
     cue->setSelectedId (2, juce::sendNotificationSync);
     KIRIN_REF_REQUIRE (requestedPreset == "preset-b" && requestedCheck == "check-b"
                        && requestedCandidate == "reference-b" && requestedCue == "cue-b");
+    auto pendingCandidate = selected;
+    pendingCandidate.bSelected = false;
+    pendingCandidate.auditionBuffered = false;
+    pendingCandidate.status = "KIRIN OS PREPARING REFERENCE / A REMAINS LIVE";
+    pendingCandidate.candidateId = "reference-b";
+    pendingCandidate.candidates[1].label = "Mix v3  /  PREPARE";
+    pendingCandidate.candidatePreparationPending = true;
+    component.setState (pendingCandidate);
+    KIRIN_REF_REQUIRE (candidate->isEnabled() && candidate->getSelectedId() == 2
+                       && candidate->getItemText (1).contains ("PREPARE")
+                       && ! cue->isEnabled() && ! b->isEnabled());
+    writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_PENDING_OUTPUT");
+    reference_ui::Component compactPendingComponent;
+    compactPendingComponent.setPresentationContext (presentation::forEditor (300, 200));
+    compactPendingComponent.setSize (288, 136);
+    compactPendingComponent.setState (pendingCandidate);
+    auto* compactPendingSelector = dynamic_cast<juce::ComboBox*> (
+        compactPendingComponent.findChildWithID ("reference-candidate"));
+    KIRIN_REF_REQUIRE (compactPendingSelector != nullptr
+                       && compactPendingSelector->isVisible()
+                       && compactPendingSelector->getSelectedId() == 2);
+    writeImageIfRequested (render (compactPendingComponent),
+                           "KIRIN_REFERENCE_UI_PENDING_COMPACT_OUTPUT");
     auto approval = selected;
     approval.sampleRateApprovalRequired = true;
     approval.actionText = "USE 44.1 TO 48.0 kHz";

@@ -116,14 +116,14 @@ constexpr int headerHeight (Density density) noexcept
 
 constexpr int footerHeight (Density density) noexcept
 {
-    // Actions and session/Keep feedback have separate rows at every size.
+    // One stable control rail. Status text appears in the same rail only when it is actionable.
     switch (density)
     {
-        case Density::compact: return 44;
-        case Density::focused: return 48;
-        case Density::standard: return 48;
-        case Density::observatory: return 52;
-        case Density::inspection: return 64;
+        case Density::compact: return 24;
+        case Density::focused: return 26;
+        case Density::standard: return 28;
+        case Density::observatory: return 30;
+        case Density::inspection: return 34;
     }
     return 44;
 }
@@ -160,21 +160,21 @@ constexpr int compressedLevelMetricsHeight (int previousHeight) noexcept
     return (previousHeight * 3 + 2) / 5;
 }
 
-static_assert (footerHeight (Density::observatory) == 52);
+static_assert (footerHeight (Density::observatory) == 30);
 static_assert (compressedLevelMetricsHeight (150) == 90);
 
-constexpr int guideRailHeight (Density density, GuidePresence presence) noexcept
+constexpr int guideContextWidth (Density density, GuidePresence presence) noexcept
 {
     if (presence == GuidePresence::absent)
         return 0;
 
     switch (density)
     {
-        case Density::compact:     return 18;
-        case Density::focused:     return 20;
-        case Density::standard:    return 22;
-        case Density::observatory: return 24;
-        case Density::inspection:  return 30;
+        case Density::compact:     return 74;
+        case Density::focused:     return 82;
+        case Density::standard:    return 96;
+        case Density::observatory: return 112;
+        case Density::inspection:  return 144;
     }
     return 18;
 }
@@ -193,6 +193,7 @@ struct ShellLayout
     Rect observationTarget;
     Rect session;
     Rect actions;
+    Rect sizeSelector;
 };
 
 constexpr ShellLayout shellLayout (Role role,
@@ -203,7 +204,7 @@ constexpr ShellLayout shellLayout (Role role,
     const int gap = preset.density == Density::compact ? 2 : 4;
     const int headerH = headerHeight (preset.density);
     const int footerH = footerHeight (preset.density);
-    const int railH = guideRailHeight (preset.density, guide);
+    const int guideWidth = guideContextWidth (preset.density, guide);
     const Rect header { margin, margin, preset.width - 2 * margin, headerH };
     const int titleWidth = preset.density == Density::compact ? 100
                          : preset.density == Density::focused ? 116
@@ -219,18 +220,24 @@ constexpr ShellLayout shellLayout (Role role,
     const Rect connectionStatus {
         right (header) - statusWidth, header.y, statusWidth, rowHeight
     };
+    const int targetWidth = role == Role::post
+        ? (preset.density == Density::compact ? 58
+           : preset.density == Density::focused ? 68
+           : preset.density == Density::standard ? 76
+           : preset.density == Density::observatory ? 116 : 140) : 0;
+    const Rect observationTarget {
+        right (header) - targetWidth, header.y + rowHeight,
+        targetWidth, header.height - rowHeight
+    };
     const Rect domainNavigation {
-        header.x, header.y + rowHeight, header.width, header.height - rowHeight
+        header.x, header.y + rowHeight,
+        header.width - targetWidth - (targetWidth > 0 ? gap : 0),
+        header.height - rowHeight
     };
     const Rect contextSelector { right (roleTitle) + gap, header.y,
         connectionStatus.x - gap - (right (roleTitle) + gap), rowHeight };
 
-    const int contextTop = bottom (header) + gap;
-    const Rect guideRail = guide == GuidePresence::present
-        ? Rect { margin, contextTop, preset.width - 2 * margin, railH }
-        : Rect { margin, contextTop, 0, 0 };
-    const int bodyTop = guide == GuidePresence::present
-        ? bottom (guideRail) + gap : contextTop;
+    const int bodyTop = bottom (header) + gap;
     const Rect footer {
         margin,
         preset.height - margin - footerH,
@@ -244,25 +251,26 @@ constexpr ShellLayout shellLayout (Role role,
         footer.y - gap - bodyTop
     };
 
-    const int targetWidth = role == Role::post
-        ? (preset.density == Density::compact ? 58
-           : preset.density == Density::inspection ? 210
-           : preset.density == Density::observatory ? 150 : 76) : 0;
     const int actionWidth = preset.density == Density::compact ? 104
                           : preset.density == Density::focused ? 112
-                          : preset.density == Density::standard ? 120
-                          : preset.density == Density::inspection ? 260 : 180;
-    const Rect observationTarget {
-        footer.x, footer.y, targetWidth, footer.height / 2
+                          : preset.density == Density::standard ? 132
+                          : preset.density == Density::inspection ? 290 : 250;
+    const int sizeWidth = preset.density == Density::compact ? 44
+                        : preset.density == Density::focused ? 46
+                        : preset.density == Density::standard ? 50
+                        : preset.density == Density::observatory ? 56 : 66;
+    const Rect sizeSelector {
+        right (footer) - sizeWidth, footer.y, sizeWidth, footer.height
     };
     const Rect actions {
-        right (footer) - actionWidth, footer.y, actionWidth, footer.height / 2
+        sizeSelector.x - gap - actionWidth, footer.y, actionWidth, footer.height
     };
+    const Rect guideRail = guide == GuidePresence::present
+        ? Rect { footer.x, footer.y, guideWidth, footer.height }
+        : Rect { footer.x, footer.y, 0, 0 };
+    const int sessionX = hasArea (guideRail) ? right (guideRail) + gap : footer.x;
     const Rect session {
-        footer.x,
-        footer.y + footer.height / 2,
-        footer.width,
-        footer.height - footer.height / 2
+        sessionX, footer.y, actions.x - gap - sessionX, footer.height
     };
 
     return {
@@ -278,6 +286,7 @@ constexpr ShellLayout shellLayout (Role role,
         observationTarget,
         session,
         actions,
+        sizeSelector,
     };
 }
 

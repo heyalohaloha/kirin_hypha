@@ -1,8 +1,9 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceRuntimeV2PlaybackIdentity.h"
+#include "ReferenceRuntimePresetOptions.h"
 
 #include <cmath>
 #include <limits>
-#include <set>
 
 namespace hypha::reference_audition
 {
@@ -19,47 +20,7 @@ namespace hypha::reference_audition
 
         void appendPresetOptions (Snapshot& snapshot, const RuntimeWorkspace& workspace)
         {
-            std::set<std::string> added;
-            for (const auto& global : workspace.globalPresetCatalog.presets)
-            {
-                const RuntimePreset* available = nullptr;
-                for (const auto& workPreset : workspace.presets)
-                {
-                    if (workPreset.sourceTemplateArtifact.presetId == global.presetId
-                        && workPreset.sourceTemplateArtifact.revisionId == global.revisionId)
-                    {
-                        available = &workPreset;
-                        break;
-                    }
-                }
-                if (available != nullptr)
-                {
-                    snapshot.presets.push_back ({
-                        global.presetId,
-                        global.nameSnapshot,
-                        global.revisionId,
-                        false,
-                    });
-                    added.insert (global.presetId.toStdString());
-                }
-                else
-                {
-                    snapshot.presets.push_back ({
-                        global.presetId, global.nameSnapshot, global.revisionId, true,
-                    });
-                    added.insert (global.presetId.toStdString());
-                }
-            }
-            for (const auto& item : workspace.presets)
-            {
-                if (added.insert (item.sourceTemplateArtifact.presetId.toStdString()).second)
-                    snapshot.presets.push_back ({
-                        item.sourceTemplateArtifact.presetId,
-                        item.name,
-                        item.sourceTemplateArtifact.revisionId,
-                        false,
-                    });
-            }
+            appendRuntimePresetOptions (snapshot, workspace);
         }
 
         const RuntimeCheck* findCheck (const RuntimePreset& preset, const juce::String& id)
@@ -73,7 +34,7 @@ namespace hypha::reference_audition
         const RuntimeCandidate* findCandidate (const RuntimeCheck& check, const juce::String& id)
         {
             for (const auto& candidate : check.candidates)
-                if (candidate.candidateId == id)
+                if (candidate.prepared && (id.isEmpty() || candidate.candidateId == id))
                     return &candidate;
             return nullptr;
         }
@@ -168,7 +129,7 @@ namespace hypha::reference_audition
             return;
         }
         const RuntimeCandidate* candidate = findCandidate (*check, selection.candidateId);
-        if (candidate == nullptr) candidate = &check->candidates.front();
+        if (candidate == nullptr) candidate = findCandidate (*check, {});
         if (candidate->cues.empty())
         {
             failClosedToA();
@@ -188,7 +149,8 @@ namespace hypha::reference_audition
             for (const auto& item : preset->checks)
                 next.checks.push_back ({ item.checkId, item.label, {}, false });
             for (const auto& item : check->candidates)
-                next.candidates.push_back ({ item.candidateId, item.displayName, {}, false });
+                next.candidates.push_back ({ item.candidateId, item.displayName,
+                    preset->sourcePresetArtifact.revisionId, ! item.prepared });
             publish (std::move (next));
             return;
         }
@@ -217,9 +179,8 @@ namespace hypha::reference_audition
         next.aRecordingId = activeABinding ? activeABinding->recordingId : juce::String {};
         next.aCaptureAvailable = aCapture.currentReceipt().has_value();
         next.manifestRevision = workspace->manifest.revision;
-        const auto publicationKey = juce::String (next.manifestRevision) + ":"
-            + next.presetId + ":" + next.checkId + ":" + next.candidateId + ":"
-            + next.cueId + ":" + next.comparisonMode;
+        const auto publicationKey = runtimeSelectionPlaybackIdentity (
+            *preset, *check, *candidate, *cue);
         if (publicationKey != activePublishedSelectionKey)
         {
             revokeAuditionPublication();
@@ -232,7 +193,8 @@ namespace hypha::reference_audition
         for (const auto& item : preset->checks)
             next.checks.push_back ({ item.checkId, item.label, {}, false });
         for (const auto& item : check->candidates)
-            next.candidates.push_back ({ item.candidateId, item.displayName, {}, false });
+            next.candidates.push_back ({ item.candidateId, item.displayName,
+                preset->sourcePresetArtifact.revisionId, ! item.prepared });
         for (const auto& item : candidate->cues)
             next.cues.push_back ({ item.cueId, item.label, {}, false });
 
@@ -245,22 +207,24 @@ namespace hypha::reference_audition
             publish (std::move (next));
             return;
         }
-        auto selectedSource = sourceLoad.source;
-        const bool sourceArtifactChanged = workerSource == nullptr
-            || activeSourceArtifactSha256 != candidate->sourceArtifact.sha256;
-        const auto sourceFailure = sourceArtifactChanged
-            ? sourceRepository.verifySourceFile (*selectedSource)
-            : sourceRepository.verifySourceRevision (*workerSource);
+        auto selectedSource = sourceCache.find (candidate->sourceArtifact.sha256);
+        const bool previouslyVerified = selectedSource != nullptr;
+        if (! previouslyVerified)
+            selectedSource = sourceLoad.source;
+        const auto sourceFailure = previouslyVerified
+            ? sourceRepository.verifySourceRevision (*selectedSource)
+            : sourceRepository.verifySourceFile (*selectedSource);
         if (sourceFailure.isNotEmpty())
         {
+            sourceCache.forget (candidate->sourceArtifact.sha256);
             failClosedToA();
             next.state = RuntimeState::rejected;
             next.rejectionCode = sourceFailure;
             publish (std::move (next));
             return;
         }
-        if (! sourceArtifactChanged)
-            selectedSource = workerSource;
+        if (! previouslyVerified)
+            sourceCache.remember (candidate->sourceArtifact.sha256, selectedSource);
         next.sourceSampleRateHz = selectedSource->audio.sampleRateHz;
         const auto approvalKey = candidate->sourceArtifact.sha256 + ":"
             + juce::String (selectedSource->audio.sampleRateHz) + ":"
@@ -300,8 +264,6 @@ namespace hypha::reference_audition
             activeSourceKey = sourceKey;
         }
         workerSource = selectedSource;
-        activeSourceArtifactSha256 = candidate->sourceArtifact.sha256;
-
         const auto measurement = measurementRepository.load (*selectedSource);
         if (measurement.accepted())
         {
@@ -321,9 +283,8 @@ namespace hypha::reference_audition
             cue->startSample, cue->sampleRateHz, hostRate);
         const auto mappedCueEnd = outputSample (
             cue->endSample, cue->sampleRateHz, hostRate);
-        const auto mappingKey = activeSourceKey + ":" + cue->cueId + ":"
-            + juce::String (cue->startSample) + ":" + juce::String (cue->endSample)
-            + ":" + (cue->loopEnabled ? "loop" : "once");
+        const auto cueKey = runtimeCuePlaybackIdentity (*cue);
+        const auto mappingKey = activeSourceKey + ":" + cueKey;
         if (activeMappingKey != mappingKey)
         {
             mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
@@ -356,7 +317,7 @@ namespace hypha::reference_audition
             && candidate->sourceVersionId.isNotEmpty();
         const auto nextBlindContextKey = blindIdentityMatches
             ? activeABinding->bindingId + ":" + candidate->sourceArtifact.sha256 + ":"
-                + cue->cueId + ":" + juce::String (next.hostSampleRateHz)
+                + cueKey + ":" + juce::String (next.hostSampleRateHz)
             : juce::String {};
         if (nextBlindContextKey != blindContextKey)
         {
@@ -368,7 +329,7 @@ namespace hypha::reference_audition
         }
         const auto nextBlindKey = blindIdentityMatches && capturedA != nullptr
             ? capturedA->cuePcmSha256 + ":" + candidate->sourceArtifact.sha256 + ":"
-                + cue->cueId + ":" + juce::String (next.hostSampleRateHz)
+                + cueKey + ":" + juce::String (next.hostSampleRateHz)
             : juce::String {};
         if (nextBlindKey.isEmpty() && blindPreparationKey.isNotEmpty()
             && ! blind.ongoing())

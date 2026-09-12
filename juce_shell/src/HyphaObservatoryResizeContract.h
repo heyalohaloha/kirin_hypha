@@ -36,6 +36,26 @@ constexpr bool isFullDensity (Density density) noexcept
     return density == Density::observatory || density == Density::inspection;
 }
 
+// One canonical mapping is used by the editor, every child surface, Capture, and tests. The
+// boundaries are the midpoints between the five saved presets, matching the historical nearest-
+// preset behaviour without asking child bounds to guess the editor density.
+constexpr Density densityForWidth (int width) noexcept
+{
+    return width < 338 ? Density::compact
+         : width < 413 ? Density::focused
+         : width < 525 ? Density::standard
+         : width < 750 ? Density::observatory
+                       : Density::inspection;
+}
+
+constexpr SizePreset presetForWidth (int width) noexcept
+{
+    for (const auto& preset : sizePresets)
+        if (preset.density == densityForWidth (width))
+            return preset;
+    return sizePresets.front();
+}
+
 struct DisplayViewport
 {
     int width = 0;
@@ -103,6 +123,14 @@ static_assert (sizePresets[2].width == 450 && sizePresets[2].height == 300);
 static_assert (sizePresets[3].width == 600 && sizePresets[3].height == 400);
 static_assert (sizePresets[4].width == 900 && sizePresets[4].height == 600);
 static_assert (sizePresets[4].density == Density::inspection);
+static_assert (densityForWidth (337) == Density::compact);
+static_assert (densityForWidth (338) == Density::focused);
+static_assert (densityForWidth (412) == Density::focused);
+static_assert (densityForWidth (413) == Density::standard);
+static_assert (densityForWidth (524) == Density::standard);
+static_assert (densityForWidth (525) == Density::observatory);
+static_assert (densityForWidth (749) == Density::observatory);
+static_assert (densityForWidth (750) == Density::inspection);
 static_assert (displayViewport (sizePresets[3]).width == 600
                && displayViewport (sizePresets[3]).height == 400);
 static_assert (displayViewport (sizePresets[4]).width == 900

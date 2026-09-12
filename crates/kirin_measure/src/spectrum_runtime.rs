@@ -12,6 +12,7 @@ use crate::absolute_timeline::AbsoluteTimeline;
 use crate::spectrum::{
     AnalysisViewMode, SpectrumChannelMode, SpectrumLayout, SPECTRUM_WINDOW_SIZE,
 };
+use crate::MidSideSpectrumFrame;
 
 #[path = "spectrum_runtime_assemblers.rs"]
 mod assemblers;
@@ -58,6 +59,7 @@ pub struct SpectrumRuntime {
     generation: AtomicU64,
     analysis_mode: AtomicU8,
     channel_mode: AtomicU8,
+    mid_side_enabled: AtomicBool,
     perceptual_state_epoch: AtomicI64,
     latest_presentation_end: AtomicI64,
     perceptual_rearm_required: AtomicBool,
@@ -69,12 +71,14 @@ pub struct SpectrumRuntime {
     history: Mutex<SpectrumHistory>,
     perceptual_history: Mutex<PerceptualHistory>,
     absolute_history: Mutex<AbsoluteTimeline>,
+    latest_mid_side: Mutex<Option<MidSideSpectrumFrame>>,
     worker_running: AtomicBool,
     pushed_blocks: AtomicU64,
     dropped_blocks: AtomicU64,
     analyzed_frames: AtomicU64,
     analyzed_perceptual_frames: AtomicU64,
     analyzed_absolute_frames: AtomicU64,
+    analyzed_mid_side_frames: AtomicU64,
 }
 
 // SAFETY: only the one Audio Thread calls `push_block_from_audio`, which is the sole mutable
@@ -99,6 +103,7 @@ impl SpectrumRuntime {
             generation: AtomicU64::new(1),
             analysis_mode: AtomicU8::new(AnalysisViewMode::Spectrum as u8),
             channel_mode: AtomicU8::new(SpectrumChannelMode::Lr as u8),
+            mid_side_enabled: AtomicBool::new(false),
             perceptual_state_epoch: AtomicI64::new(NO_PRESENTATION_POSITION),
             latest_presentation_end: AtomicI64::new(NO_PRESENTATION_POSITION),
             perceptual_rearm_required: AtomicBool::new(false),
@@ -113,12 +118,14 @@ impl SpectrumRuntime {
             history: Mutex::new(SpectrumHistory::with_capacity()),
             perceptual_history: Mutex::new(PerceptualHistory::with_capacity()),
             absolute_history: Mutex::new(AbsoluteTimeline::default()),
+            latest_mid_side: Mutex::new(None),
             worker_running: AtomicBool::new(false),
             pushed_blocks: AtomicU64::new(0),
             dropped_blocks: AtomicU64::new(0),
             analyzed_frames: AtomicU64::new(0),
             analyzed_perceptual_frames: AtomicU64::new(0),
             analyzed_absolute_frames: AtomicU64::new(0),
+            analyzed_mid_side_frames: AtomicU64::new(0),
         })
     }
 
@@ -151,6 +158,7 @@ impl SpectrumRuntime {
             if let Ok(mut history) = self.absolute_history.lock() {
                 history.clear();
             }
+            self.clear_mid_side_frame();
         }
         self.wake.1.notify_all();
         true
@@ -174,6 +182,28 @@ impl SpectrumRuntime {
         self.num_channels
     }
 
+    pub fn mid_side_enabled(&self) -> bool {
+        self.mid_side_enabled.load(Ordering::Acquire)
+    }
+
+    /// Control thread only. Mid/Side is one stereo-only Spectrum processing selection.
+    pub fn set_mid_side_enabled(&self, enabled: bool) -> bool {
+        if enabled && (self.num_channels != 2 || self.analysis_mode() != AnalysisViewMode::Spectrum)
+        {
+            return false;
+        }
+        let previous = self.mid_side_enabled.swap(enabled, Ordering::AcqRel);
+        if previous != enabled {
+            self.generation.fetch_add(1, Ordering::AcqRel);
+            if let Ok(mut history) = self.history.lock() {
+                *history = SpectrumHistory::with_capacity();
+            }
+            self.clear_mid_side_frame();
+            self.wake.1.notify_all();
+        }
+        true
+    }
+
     /// Control/worker thread only. A mode edge invalidates every queued presentation frame so
     /// PRE and POST must warm up again on one exact channel definition.
     pub fn set_channel_mode(&self, mode: SpectrumChannelMode) -> bool {
@@ -192,6 +222,7 @@ impl SpectrumRuntime {
             if let Ok(mut history) = self.absolute_history.lock() {
                 history.clear();
             }
+            self.clear_mid_side_frame();
             self.wake.1.notify_all();
         }
         true
@@ -272,6 +303,13 @@ impl SpectrumRuntime {
             .map(|history| history.clone())
     }
 
+    pub fn try_mid_side_frame(&self) -> Option<Option<MidSideSpectrumFrame>> {
+        self.latest_mid_side
+            .try_lock()
+            .ok()
+            .map(|frame| frame.clone())
+    }
+
     pub fn stats(&self) -> SpectrumRuntimeStats {
         SpectrumRuntimeStats {
             enabled: self.enabled.load(Ordering::Acquire),
@@ -284,6 +322,7 @@ impl SpectrumRuntime {
             analyzed_frames: self.analyzed_frames.load(Ordering::Relaxed),
             analyzed_perceptual_frames: self.analyzed_perceptual_frames.load(Ordering::Relaxed),
             analyzed_absolute_frames: self.analyzed_absolute_frames.load(Ordering::Relaxed),
+            analyzed_mid_side_frames: self.analyzed_mid_side_frames.load(Ordering::Relaxed),
         }
     }
 
@@ -304,6 +343,12 @@ impl SpectrumRuntime {
         if self.analysis_mode() == AnalysisViewMode::Perceptual {
             self.perceptual_rearm_required
                 .store(true, Ordering::Release);
+        }
+    }
+
+    fn clear_mid_side_frame(&self) {
+        if let Ok(mut frame) = self.latest_mid_side.lock() {
+            *frame = None;
         }
     }
 

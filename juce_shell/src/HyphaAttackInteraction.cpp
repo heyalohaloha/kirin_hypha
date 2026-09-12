@@ -17,8 +17,8 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
 {
     if (isShowing()) grabKeyboardFocus();
     if (getHeight() < 145) return;
-    if (event.y < attack_ui::headerHeight
-        && event.x > getWidth() - attack_ui::modeControlWidth (getWidth()))
+    if (event.y < attack_ui::titleRowHeight (presentationContext)
+        && event.x > getWidth() - viewControlWidth())
     {
         overlayMode = ! overlayMode;
         repaint();
@@ -78,7 +78,8 @@ void AttackComponent::selectNearestEventAtX (int x) noexcept
             pairEventBatch.count,
             static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
         for (std::uint32_t index = 0; index < count; ++index)
-            consider (pairEventBatch.events[index].event_sample);
+            if (pairHasPostDetail (pairEventBatch.events[index]))
+                consider (pairEventBatch.events[index].event_sample);
     }
     else
     {
@@ -106,7 +107,8 @@ void AttackComponent::selectBoundaryEvent (bool selectLast) noexcept
             pairEventBatch.count,
             static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
         for (std::uint32_t index = 0; index < count; ++index)
-            consider (pairEventBatch.events[index].event_sample);
+            if (pairHasPostDetail (pairEventBatch.events[index]))
+                consider (pairEventBatch.events[index].event_sample);
     }
     else
     {
@@ -139,7 +141,8 @@ void AttackComponent::selectAdjacentEvent (bool moveRight) noexcept
             pairEventBatch.count,
             static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
         for (std::uint32_t index = 0; index < count; ++index)
-            consider (pairEventBatch.events[index].event_sample);
+            if (pairHasPostDetail (pairEventBatch.events[index]))
+                consider (pairEventBatch.events[index].event_sample);
     }
     else
     {

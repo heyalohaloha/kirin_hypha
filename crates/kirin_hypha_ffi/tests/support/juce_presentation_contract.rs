@@ -1,8 +1,26 @@
 use super::{read_repo, slice_between};
 
+fn without_juce_debug_blocks(source: &str) -> String {
+    let mut depth = 0usize;
+    let mut shipped = String::new();
+    for line in source.lines() {
+        let directive = line.trim();
+        if directive == "#if JUCE_DEBUG" {
+            depth += 1;
+        } else if directive == "#endif" && depth > 0 {
+            depth -= 1;
+        } else if depth == 0 {
+            shipped.push_str(line);
+            shipped.push('\n');
+        }
+    }
+    shipped
+}
+
 #[test]
 fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() {
-    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h")
+        + &read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_spectrum_mid_side_ffi.h");
     for symbol in [
         "kirin_hypha_select_pair_candidate",
         "kirin_hypha_pair_status",
@@ -10,12 +28,15 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
         "kirin_hypha_drain_keep_action_notice",
         "kirin_hypha_poll_record_display",
         "kirin_hypha_poll_spectrum_batch",
+        "kirin_hypha_set_mid_side_spectrum_visible",
+        "kirin_hypha_poll_mid_side_spectrum",
     ] {
         assert!(ffi_header.contains(symbol), "FFI must expose {symbol}");
     }
     let juce_editor = read_repo("juce_shell/src/PluginEditor.cpp")
         + &read_repo("juce_shell/src/PluginEditorObservatory.cpp")
         + &read_repo("juce_shell/src/PluginEditorAnalysis.cpp");
+    let observatory_metrics = read_repo("juce_shell/src/HyphaObservatoryMetrics.cpp");
     for text in ["PAIR —", "PAIR ◌", "PAIR ●"] {
         assert!(
             juce_editor.contains(text),
@@ -29,9 +50,9 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     assert!(juce_editor.contains("observatoryView.bodyBounds()"));
     assert!(juce_editor.contains("ui::watchMetrics"));
     assert!(juce_editor.contains("ui::recordMetrics"));
-    assert!(juce_editor.contains("ui::metricLabelFontHeight"));
-    assert!(juce_editor.contains("ui::metricValueFontHeight"));
-    assert!(juce_editor.contains("ui::metricUnitFontHeight"));
+    assert!(observatory_metrics.contains("typography::TextRole::metricLabel"));
+    assert!(observatory_metrics.contains("typography::TextRole::primaryValue"));
+    assert!(observatory_metrics.contains("typography::TextRole::unit"));
     assert!(juce_editor.contains("ui::maximumLabel"));
     assert!(juce_editor.contains("cachedRecordDisplay.session"));
     assert!(juce_editor.contains("menu.addSectionHeader"));
@@ -109,6 +130,8 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     assert!(cmake.contains("src/PluginProcessor.cpp"));
     assert!(cmake.contains("src/PluginEditor.cpp"));
     assert!(cmake.contains("src/PostControls.cpp"));
+    assert!(cmake.contains("src/HyphaSpectrumMidSide.cpp"));
+    assert!(cmake.contains("src/HyphaSpectrumMidSidePainter.cpp"));
     assert!(cmake.contains("tests/OsAccessUiContractTest.cpp"));
     assert!(cmake.contains("add_test(NAME kirin_ui_render_contract"));
     assert!(cmake.contains("add_kirin_plugin(KirinHyphaPRE"));
@@ -140,6 +163,64 @@ fn hover_help_is_one_user_preference_without_touching_measurement_state() {
     assert!(editor.contains("Hover help changed for this session only"));
     assert!(!processor.contains("show_hover_help"));
     assert!(!processor.contains("HoverHelpPreference"));
+}
+
+#[test]
+fn post_pair_surface_selects_an_exact_pre_without_free_text() {
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp")
+        + &read_repo("juce_shell/src/PluginEditorMeter.cpp")
+        + &read_repo("juce_shell/src/PluginEditorMenu.cpp");
+    let widgets = read_repo("juce_shell/src/HyphaWidgets.cpp");
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
+        + &read_repo("juce_shell/src/PluginProcessorPairing.cpp");
+
+    assert!(editor.contains("nameField.onSelect = [this] { showCandidateMenu(); }"));
+    assert!(editor.contains("Click to choose one exact PRE."));
+    assert!(editor.contains("processorRef.setPairCandidate"));
+    assert!(editor.contains("Use POST only"));
+    assert!(editor.contains("Stop playback to change connection"));
+    assert!(editor.contains("In use by another POST:"));
+    assert!(editor.contains("processorRef.clearPairCandidate"));
+    assert!(!editor.contains("processorRef.setPairName"));
+    assert!(widgets.contains("if (onSelect)"));
+    assert!(processor.contains("pairDisplayName() const"));
+    assert!(processor.contains("clearPairCandidate()"));
+    assert!(processor.contains("kirin_hypha_set_pair_target (hyphaHandle, \"\")"));
+    assert!(processor.contains("return shortId.isEmpty() ? juce::String() : \"PRE \" + shortId"));
+    assert!(processor.contains("return persistPairName;"));
+    assert!(!processor.contains("setPairName ("));
+}
+
+#[test]
+fn hypha_information_and_display_actions_ship_while_capture_validation_stays_debug_only() {
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let information = read_repo("juce_shell/src/PluginEditorInformation.cpp");
+
+    assert!(editor.contains("observatoryView.onInformation = [this] { showInformationMenu(); }"));
+    let shipped_information = without_juce_debug_blocks(&information);
+    for required in [
+        "Loaded v",
+        "Official release identity not verified",
+        "Update information and downloads (English)",
+        "Release notes",
+    ] {
+        assert!(
+            shipped_information.contains(required),
+            "shipped HYPHA PRE/POST information menu missing {required}"
+        );
+    }
+    for required in [
+        "Show hover help",
+        "Show Hybrid VU while recording",
+        "Show selected view for this recording",
+    ] {
+        assert!(
+            editor.contains(required),
+            "shipped HYPHA PRE/POST operations menu missing {required}"
+        );
+    }
+    assert!(!shipped_information.contains("Capture one exact 4 s PRE/POST range"));
+    assert!(information.contains("Capture one exact 4 s PRE/POST range"));
 }
 
 #[test]
@@ -194,11 +275,39 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(!exchange.contains("plugin_data"));
     assert!(!protocol.contains("plugin_data"));
 
-    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
-    assert!(processor.contains("perceptualAnalysisRequested.store (true"));
-    assert!(processor.contains("perceptualAnalysisRequested.load"));
-    assert!(processor.contains("kirin_hypha_set_perceptual_visible (hyphaHandle, true)"));
-    assert!(processor.contains("kirin_hypha_set_absolute_visible (hyphaHandle, true)"));
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
+        + &read_repo("juce_shell/src/PluginProcessorAnalysis.cpp");
+    let demand = read_repo("juce_shell/src/HyphaAnalysisDemand.h");
+    let ffi_adapter = read_repo("juce_shell/src/HyphaAnalysisFfiAdapter.h");
+    assert!(processor.contains("setAnalysisDemand"));
+    assert!(processor.contains("analysisDemandOwner"));
+    assert!(processor.contains("hypha::analysis::apply"));
+    assert!(processor.contains("ShippingFfiAdapter"));
+    assert!(ffi_adapter.contains("&kirin_hypha_set_mid_side_spectrum_visible"));
+    assert!(ffi_adapter.contains("&kirin_hypha_set_perceptual_visible"));
+    assert!(ffi_adapter.contains("&kirin_hypha_set_absolute_visible"));
+    assert!(demand.contains("adapter.setPerceptualVisible (true)"));
+    assert!(demand.contains("adapter.setAbsoluteVisible (true)"));
+    assert!(demand.contains("class OwnerState"));
+    assert!(demand.contains("class ApplicationState"));
+    assert!(!processor.contains("submittedAnalysisDemand"));
+
+    let processor_lifecycle = read_repo("juce_shell/src/PluginProcessor.cpp");
+    let enable = slice_between(
+        &processor_lifecycle,
+        "void KirinHyphaProcessorBase::enableWritesNow()",
+        "startLocalBlindCaptureForPreparedFormat();",
+    );
+    let writes_ready = enable
+        .find("writesEnabled.store (true")
+        .expect("analysis application must wait for the published ready boundary");
+    let engine_ready = enable
+        .find("analysisApplication.engineReady()")
+        .expect("fresh engine must publish its analysis generation as ready");
+    let apply_requested = enable
+        .find("serviceRequestedAnalysisUnderHandleLock()")
+        .expect("latest editor demand must be applied after engine readiness");
+    assert!(writes_ready < engine_ready && engine_ready < apply_requested);
     let processor_header = read_repo("juce_shell/src/PluginProcessor.h");
     assert!(processor_header.contains("index < 5u ? index : uint8_t { 0 }"));
     assert!(processor_header.contains("preferredSpectrumSize { 0 }"));
@@ -220,10 +329,14 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(analysis_navigation
         .contains("Page::meters, Page::run, Page::attack, Page::perceptual, Page::absolute"));
     assert!(observatory_editor.contains("? AnalysisPage::spectrum : AnalysisPage::meters"));
-    assert!(editor.contains("processorRef.setSpectrumVisible (false)"));
-    assert!(editor.contains("processorRef.setPerceptualVisible (false)"));
+    assert!(editor.contains("syncAnalysisDemand"));
+    assert!(editor.contains("processorRef.releaseAnalysisDemand"));
+    assert!(!editor.contains("processorRef.setPsbVisible"));
     assert!(editor.contains("AnalysisPage::perceptual"));
     assert!(editor.contains("AnalysisPage::absolute"));
+    assert!(editor.contains("sharpnessUsesAbsolute"));
+    assert!(editor.contains("pairStatus != KIRIN_PAIR_STATUS_PAIRED"));
+    assert!(editor.contains("absoluteView.setSharpnessOnly (sharpnessUsesAbsolute)"));
     assert!(editor.contains("processorRef.pollAbsoluteBatch"));
     assert!(editor.contains("observatorySizeIndex + 1u"));
     assert!(editor.contains("ui::spectrumSizePresets[observatorySizeIndex]"));
@@ -258,6 +371,10 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(processor.contains("setObservatoryEditorSizePreference"));
     assert!(processor.contains("editorSizeFromState"));
     assert!(processor.contains("packEditorSize"));
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp")
+        + &read_repo("juce_shell/src/PluginEditorObservatory.cpp");
+    assert!(editor.contains("void KirinHyphaEditor::visibilityChanged()"));
+    assert!(editor.contains("commitEditorSizeStateIfSettled (true)"));
 
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     let post_only_branch = slice_between(

@@ -3,7 +3,9 @@
 #include "HyphaAttackPainter.h"
 #include "HyphaAttackUiContract.h"
 #include "HyphaAttackSnapshotEquality.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 namespace hypha
 {
@@ -11,7 +13,6 @@ namespace
 {
 const auto waveformColour = juce::Colour (attack_ui::waveformColour);
 const auto selectionColour = juce::Colour (attack_ui::selectionColour);
-const auto panelColour = juce::Colour (0xff0d1620);
 
 const KirinAttackDetail* findDetail (const KirinAttackDetailBatch& batch,
                                      std::int64_t eventSample, std::uint64_t generation,
@@ -199,17 +200,39 @@ void AttackComponent::clearSnapshot()
 juce::Rectangle<int> AttackComponent::timelineBounds() const noexcept
 {
     auto bounds = getLocalBounds();
-    bounds.removeFromTop (attack_ui::headerHeight);
-    bounds.removeFromBottom (attack_ui::metricsHeight (getHeight()));
+    bounds.removeFromTop (attack_ui::headerHeightFor (presentationContext));
     return bounds.removeFromTop (attack_ui::timelineHeight (getHeight()));
 }
 
 juce::Rectangle<int> AttackComponent::scrubBounds() const noexcept
 {
     auto bounds = getLocalBounds();
-    bounds.removeFromTop (attack_ui::headerHeight + attack_ui::timelineHeight (getHeight()));
-    bounds.removeFromBottom (attack_ui::metricsHeight (getHeight()));
-    return bounds.removeFromTop (attack_ui::axisLabelHeight);
+    bounds.removeFromTop (attack_ui::headerHeightFor (presentationContext)
+                          + attack_ui::timelineHeight (getHeight()));
+    return bounds.removeFromTop (attack_ui::axisHeight (getHeight()));
+}
+
+int AttackComponent::viewControlWidth() const
+{
+    const auto style = typography::resolve (
+        presentationContext, typography::TextRole::action,
+        typography::Composition::visualization);
+    const auto font = monoFont (presentationContext, typography::TextRole::action,
+                                typography::Composition::visualization);
+    const auto overlayWidth = text_style::requiredWidth (font, "VIEW  OVERLAY", style);
+    const auto rowsWidth = text_style::requiredWidth (font, "VIEW  2 ROWS", style);
+    return attack_ui::modeControlWidth (getWidth(), juce::jmax (overlayWidth, rowsWidth));
+}
+
+int AttackComponent::statusControlWidth() const
+{
+    const auto style = typography::resolve (
+        presentationContext, typography::TextRole::status,
+        typography::Composition::visualization);
+    const auto font = monoFont (presentationContext, typography::TextRole::status,
+                                typography::Composition::visualization);
+    return attack_ui::statusControlWidth (
+        getWidth(), text_style::requiredWidth (font, "PAIR / HOLD", style));
 }
 
 const KirinAttackPairEvent* AttackComponent::selectedPairEvent() const noexcept
@@ -222,6 +245,13 @@ const KirinAttackPairEvent* AttackComponent::selectedPairEvent() const noexcept
         if (pairEventBatch.events[index].event_sample == selectedEventSample)
             return &pairEventBatch.events[index];
     return nullptr;
+}
+
+bool AttackComponent::pairHasPostDetail (const KirinAttackPairEvent& pair) const noexcept
+{
+    return pair.post_available != 0
+        && findDetail (detailBatch, pair.post_event_sample,
+                       pair.post_generation, pair.sample_rate) != nullptr;
 }
 
 const KirinAttackDetail* AttackComponent::selectedPostDetail() const noexcept
@@ -242,119 +272,119 @@ const KirinAttackDetail* AttackComponent::selectedPreDetail() const noexcept
 void AttackComponent::paint (juce::Graphics& g)
 {
     auto bounds = getLocalBounds();
-    const auto textScale = attack_ui::textScale (getWidth(), getHeight());
     // ATTACK owns the Observatory body while selected. Keep the body opaque so the HISTORY
     // labels beneath this child cannot leak into its transparent header or capture composite.
-    g.setColour (BG);
-    g.fillRoundedRectangle (bounds.toFloat(), 4.0f);
+    surface_material::paintPanel (g, bounds.toFloat(), 1.0f);
     const bool running = runtimeStats.available != 0 && runtimeStats.enabled != 0
                       && runtimeStats.worker_running != 0;
-    if (getHeight() < 145)
-    {
-        if (bounds.getHeight() >= 78)
-        {
-            g.setColour (COL_MUTED); g.setFont (monoFont (11.0f));
-            g.drawText (followLatest ? "DRUM / latest event" : "DRUM / locked event",
-                        bounds.removeFromTop (18), juce::Justification::centredLeft);
-        }
-        g.setColour (juce::Colours::black); g.fillRect (bounds);
-        if (running && (liveSignalActive || ! followLatest)) paintSelectedEvent (g, bounds);
-        return;
-    }
-    auto header = bounds.removeFromTop (attack_ui::headerHeight);
-    auto metrics = bounds.removeFromBottom (attack_ui::metricsHeight (getHeight()));
+    const auto responsiveHeaderHeight = attack_ui::headerHeightFor (presentationContext);
+    auto header = bounds.removeFromTop (responsiveHeaderHeight);
     auto timeline = bounds.removeFromTop (attack_ui::timelineHeight (getHeight()));
-    auto scrub = bounds.removeFromTop (attack_ui::axisLabelHeight);
+    auto scrub = bounds.removeFromTop (attack_ui::axisHeight (getHeight()));
+    auto transient = bounds.removeFromTop (attack_ui::transientHeight (getHeight()));
+    auto metrics = bounds;
     const bool paired = pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE;
-    if (! metrics.isEmpty())
+    for (auto area : { transient, metrics })
     {
+        if (area.isEmpty()) continue;
         g.setColour (juce::Colours::black);
-        g.fillRoundedRectangle (metrics.reduced (1).toFloat(), 4.0f);
+        g.fillRoundedRectangle (area.reduced (1).toFloat(), 4.0f);
+        surface_material::paintPanel (g, area.reduced (1).toFloat(), 0.12f);
     }
 
-    auto titleRow = header.removeFromTop (20);
-    auto viewButton = titleRow.removeFromRight (attack_ui::modeControlWidth (getWidth()));
-    g.setFont (monoFont (juce::jmax (12.0f, 9.2f * textScale)));
+    auto titleRow = header.removeFromTop (attack_ui::titleRowHeight (presentationContext));
+    auto viewButton = titleRow.removeFromRight (viewControlWidth());
+    g.setFont (monoFont (presentationContext, typography::TextRole::sectionTitle,
+                         typography::Composition::visualization));
     g.setColour (COL_NORMAL);
-    g.drawText ("DRUM / ATTACK", titleRow, juce::Justification::centredLeft);
-    g.setColour (waveformColour.withAlpha (0.10f));
-    g.fillRoundedRectangle (viewButton.reduced (1).toFloat(), 3.0f);
+    g.drawText (getWidth() < 430 ? "DRUM / ATTACK" : "DRUM / ATTACK SPECIMEN",
+                titleRow, juce::Justification::centredLeft);
+    surface_material::paintControl (
+        g, viewButton.reduced (1).toFloat(), false, false, overlayMode,
+        waveformColour, 3.0f);
     g.setColour (COL_NORMAL);
-    g.setFont (monoFont (juce::jmax (11.0f, 7.2f * textScale)));
+    g.setFont (monoFont (presentationContext, typography::TextRole::action,
+                         typography::Composition::visualization));
     g.drawText (overlayMode ? "VIEW  2 ROWS" : "VIEW  OVERLAY",
                 viewButton, juce::Justification::centred);
 
-    auto state = getWidth() >= 470 ? header.removeFromRight (84) : juce::Rectangle<int> {};
-    g.setColour (COL_MUTED); g.setFont (monoFont (11.0f));
-    g.drawText (getWidth() < 470 ? "RMS / 6 S" : "10 ms RMS / 6 S / -72..0 dBFS",
+    auto state = getWidth() >= 470 ? header.removeFromRight (statusControlWidth())
+                                   : juce::Rectangle<int> {};
+    g.setColour (COL_TEXT_SECONDARY);
+    g.setFont (monoFont (presentationContext, typography::TextRole::legend,
+                         typography::Composition::visualization));
+    g.drawText (timeline.isEmpty() ? "POST FACTS"
+                : getWidth() < 470 ? "RMS / 6 S"
+                : getWidth() >= 700 ? "10 ms RMS / 6 S   PRE trace / POST body"
+                                    : "10 ms RMS / 6 S / -72..0 dBFS",
                 header, juce::Justification::centredLeft);
     if (! state.isEmpty())
     {
-        g.setColour (COL_MUTED);
-        g.setFont (monoFont (11.0f));
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (presentationContext, typography::TextRole::status,
+                             typography::Composition::visualization));
         g.drawText (juce::String (paired ? "PAIR / " : "POST / ")
-                        + (followLatest ? "LIVE" : "LOCK"),
+                        + (followLatest ? (liveSignalActive ? "LIVE" : "HOLD") : "LOCK"),
                     state, juce::Justification::centredRight);
-    }
-
-    if (! liveSignalActive && followLatest)
-    {
-        g.setColour (juce::Colours::black);
-        g.fillRect (getLocalBounds().withTrimmedTop (attack_ui::headerHeight));
-        return;
     }
     if (! running || ! attack_ui::validTimeline (latest, rate))
     {
-        g.setColour (COL_MUTED);
-        g.setFont (monoFont (juce::jmax (11.0f, 8.0f * textScale)));
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (presentationContext, typography::TextRole::status,
+                             typography::Composition::visualization));
         g.drawText (runtimeStats.available == 0 ? "UNAVAILABLE" : "WARMING UP",
-                    timeline, juce::Justification::centred);
+                    timeline.isEmpty() ? getLocalBounds().withTrimmedTop (responsiveHeaderHeight)
+                                       : timeline,
+                    juce::Justification::centred);
         return;
     }
 
-    timeline = timeline.reduced (1);
-    g.setColour (panelColour.withAlpha (0.94f));
-    g.fillRoundedRectangle (timeline.toFloat(), 4.0f);
-    g.setColour (waveformColour.withAlpha (0.075f));
-    g.drawRoundedRectangle (timeline.toFloat(), 4.0f, 0.7f);
-    for (int second = 1; second < attack_ui::presentationSeconds; ++second)
+    if (! timeline.isEmpty())
     {
-        const auto x = timeline.getX() + second * timeline.getWidth()
-                     / attack_ui::presentationSeconds;
-        g.setColour (waveformColour.withAlpha (second == 3 ? 0.10f : 0.035f));
-        g.drawVerticalLine (x, static_cast<float> (timeline.getY() + 4),
-                            static_cast<float> (timeline.getBottom() - 4));
-    }
-    const auto first = latest - attack_ui::windowSamples (rate);
-    if (paired && ! overlayMode)
-    {
-        const auto laneHeight = timeline.getHeight() / 2;
-        auto preLane = timeline.removeFromTop (laneHeight);
-        auto postLane = timeline.removeFromTop (laneHeight);
-        drawEnvelope (g, preWaveformBatch, preLane.reduced (0, 4),
-                      first, latest, rate, WaveformStyle::continuous, 0.90f);
-        drawEnvelope (g, waveformBatch, postLane.reduced (0, 4),
-                      first, latest, rate, WaveformStyle::continuous, 0.90f);
+        timeline = timeline.reduced (1);
+        surface_material::paintPanel (g, timeline.toFloat(), 0.94f);
         g.setColour (waveformColour.withAlpha (0.075f));
-        g.drawHorizontalLine (preLane.getBottom(), static_cast<float> (preLane.getX() + 3),
-                              static_cast<float> (preLane.getRight() - 3));
-        g.setColour (COL_MUTED);
-        g.setFont (monoFont (11.0f));
-        g.drawText ("PRE", preLane.reduced (5, 1), juce::Justification::topLeft);
-        g.drawText ("POST", postLane.reduced (5, 1), juce::Justification::topLeft);
-    }
-    else if (paired)
-    {
-        const auto waveArea = timeline.reduced (0, 7);
-        drawEnvelope (g, preWaveformBatch, waveArea,
-                      first, latest, rate, WaveformStyle::trace, 0.64f);
-        drawEnvelope (g, waveformBatch, waveArea,
-                      first, latest, rate, WaveformStyle::continuous, 0.94f);
-    }
-    else
-    {
-        drawEnvelope (g, waveformBatch, timeline.reduced (0, 7),
-                      first, latest, rate, WaveformStyle::continuous, 0.94f);
+        g.drawRoundedRectangle (timeline.toFloat(), 4.0f, 0.7f);
+        for (int second = 1; second < attack_ui::presentationSeconds; ++second)
+        {
+            const auto x = timeline.getX() + second * timeline.getWidth()
+                         / attack_ui::presentationSeconds;
+            g.setColour (waveformColour.withAlpha (second == 3 ? 0.10f : 0.035f));
+            g.drawVerticalLine (x, static_cast<float> (timeline.getY() + 4),
+                                static_cast<float> (timeline.getBottom() - 4));
+        }
+        const auto first = latest - attack_ui::windowSamples (rate);
+        if (paired && ! overlayMode)
+        {
+            const auto laneHeight = timeline.getHeight() / 2;
+            auto preLane = timeline.removeFromTop (laneHeight);
+            auto postLane = timeline.removeFromTop (laneHeight);
+            drawEnvelope (g, preWaveformBatch, preLane.reduced (0, 4),
+                          first, latest, rate, WaveformStyle::continuous, 0.90f);
+            drawEnvelope (g, waveformBatch, postLane.reduced (0, 4),
+                          first, latest, rate, WaveformStyle::continuous, 0.90f);
+            g.setColour (waveformColour.withAlpha (0.075f));
+            g.drawHorizontalLine (preLane.getBottom(), static_cast<float> (preLane.getX() + 3),
+                                  static_cast<float> (preLane.getRight() - 3));
+            g.setColour (COL_TEXT_TERTIARY);
+            g.setFont (monoFont (presentationContext, typography::TextRole::legend,
+                                 typography::Composition::visualization));
+            g.drawText ("PRE", preLane.reduced (5, 1), juce::Justification::topLeft);
+            g.drawText ("POST", postLane.reduced (5, 1), juce::Justification::topLeft);
+        }
+        else if (paired)
+        {
+            const auto waveArea = timeline.reduced (0, 7);
+            drawEnvelope (g, preWaveformBatch, waveArea,
+                          first, latest, rate, WaveformStyle::trace, 0.64f);
+            drawEnvelope (g, waveformBatch, waveArea,
+                          first, latest, rate, WaveformStyle::continuous, 0.94f);
+        }
+        else
+        {
+            drawEnvelope (g, waveformBatch, timeline.reduced (0, 7),
+                          first, latest, rate, WaveformStyle::continuous, 0.94f);
+        }
     }
 
     std::uint32_t visibleCount = 0;
@@ -385,20 +415,25 @@ void AttackComponent::paint (juce::Graphics& g)
     if (! metrics.isEmpty() && selectedX >= 0)
         drawSelectionArc (g, markerArea.getX() + selectedX, markerArea);
 
-    const auto railY = scrub.getCentreY() - 2;
-    g.setColour (waveformColour.withAlpha (0.28f));
-    g.drawHorizontalLine (railY, static_cast<float> (scrub.getX() + 35),
-                          static_cast<float> (scrub.getRight() - 35));
-    g.setFont (monoFont (11.0f));
-    g.setColour (COL_MUTED);
-    g.drawText ("-6 s", scrub.removeFromLeft (35), juce::Justification::centredLeft);
-    g.setColour (followLatest ? selectionColour : COL_MUTED);
-    g.drawText ("NOW", scrub.removeFromRight (35), juce::Justification::centredRight);
-    g.setColour (COL_NORMAL);
-    g.drawText (juce::String (visibleCount)
-                    + (followLatest ? " EVENTS  /  LIVE" : " EVENTS  /  LOCK"),
-                scrub, juce::Justification::centred);
+    if (! scrub.isEmpty())
+    {
+        const auto railY = scrub.getCentreY() - 2;
+        g.setColour (waveformColour.withAlpha (0.28f));
+        g.drawHorizontalLine (railY, static_cast<float> (scrub.getX() + 35),
+                              static_cast<float> (scrub.getRight() - 35));
+        g.setFont (monoFont (presentationContext, typography::TextRole::axis,
+                             typography::Composition::visualization));
+        g.setColour (COL_TEXT_TERTIARY);
+        g.drawText ("-6 s", scrub.removeFromLeft (35), juce::Justification::centredLeft);
+        g.setColour (followLatest ? selectionColour : COL_TEXT_TERTIARY);
+        g.drawText ("NOW", scrub.removeFromRight (35), juce::Justification::centredRight);
+        g.setColour (COL_NORMAL);
+        g.drawText (juce::String (visibleCount)
+                        + (followLatest ? " EVENTS  /  LIVE" : " EVENTS  /  LOCK"),
+                    scrub, juce::Justification::centred);
+    }
 
+    paintTransientComparison (g, transient);
     paintSelectedEvent (g, metrics);
 }
 }

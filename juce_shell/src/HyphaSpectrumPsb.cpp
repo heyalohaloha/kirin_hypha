@@ -94,7 +94,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
             : psbStatus == KIRIN_SPECTRUM_UNAVAILABLE ? "PSB UNAVAILABLE" : "PSB WARMING";
         psb_painter::paint (g, getLocalBounds().toFloat(), {
             values, signalActive && (absoluteObservation ? absolutePsbAvailable : deltaPsbAvailable),
-            ! absoluteObservation, psbHoverBand, status });
+            ! absoluteObservation, psbHoverBand, status, presentationContext });
     }
     else
     {
@@ -103,11 +103,14 @@ void SpectrumComponent::paint (juce::Graphics& g)
             readoutPre, readoutPost, readoutDelta, markedDelta,
             focusTrail.get(), modeActionNotice, analysisOwnerNames, guideOverlay,
             &absoluteHistory, absoluteHistory.peakHold(), absoluteObservation,
+            midSideObservation,
             haveSnapshot, signalActive && currentSnapshotValid(),
-            haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels, signalActive
+            haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels, signalActive,
+            presentationContext
         };
         spectrum_chrome::paint (g, getLocalBounds().toFloat(), state);
     }
-    psb_painter::paintSubviewToggle (g, getLocalBounds().toFloat(), psbObservation);
+    psb_painter::paintSubviewToggle (g, getLocalBounds().toFloat(), psbObservation,
+                                     presentationContext);
 }
 }

@@ -10,8 +10,8 @@
 </head>
 <body>
   <header class="masthead">
-    <div><div class="eyebrow">KIRIN HYPHA / LISTENING STUDY 01</div><h1>音を聴いて、印を残す。</h1>
-      <p>SPACE 3件 + 2MIX ATTACK 3件。途中で閉じて、後から続けられます。</p></div>
+    <div><div id="study-eyebrow" class="eyebrow">KIRIN HYPHA / LISTENING STUDY 01</div><h1 id="study-heading">音を聴いて、印を残す。</h1>
+      <p id="study-subtitle">SPACE 3件 + 2MIX ATTACK 3件。途中で閉じて、後から続けられます。</p></div>
     <div class="export-actions"><button id="export-json" class="primary">回答JSONを保存</button>
       <button id="import-button">回答を読み込む</button><input type="file" id="import-file" accept=".json,application/json" hidden>
       <button id="export-tsv">TSVを保存</button></div>
@@ -22,10 +22,10 @@
   <div class="workspace">
     <aside>
       <label for="reviewer">判定者名（任意）</label><input id="reviewer" maxlength="80" placeholder="名前 / イニシャル">
-      <nav id="tasks" aria-label="判定する6件"></nav>
+      <nav id="tasks" aria-label="判定する項目"></nav>
       <p class="side-note">途中でも「回答JSONを保存」で書き出し、そのファイルをCodexへ添付してください。</p>
-      <details><summary>この判定について</summary><p>開発用の初回判定です。正解を当てる試験ではありません。解析候補は表示しません。</p>
-        <p>音源は原本から切り出した30秒のコピーです。中央の10秒が判定対象で、前後は文脈確認用です。機能の最終精度やBlindの実動検証とは別です。</p>
+      <details><summary>この判定について</summary><p id="about-primary">開発用の初回判定です。正解を当てる試験ではありません。解析候補は表示しません。</p>
+        <p id="about-secondary">音源は原本から切り出した30秒のコピーです。中央の10秒が判定対象で、前後は文脈確認用です。機能の最終精度やBlindの実動検証とは別です。</p>
         <p>保存はこのブラウザ内です。ファイル移動やブラウザ変更の前にJSONを保存してください。通信や音源の送信は行いません。</p>
       </details>
     </aside>
@@ -37,7 +37,7 @@
         <div class="listen-controls"><button id="play-preview" class="primary">判定する10秒を再生</button>
           <button id="stop">停止</button><button id="play-context">前後を含む30秒を再生</button></div>
         <audio id="audio" controls preload="metadata"></audio>
-        <p id="audio-error" role="alert" class="warning" hidden></p>
+        <p id="audio-error" role="alert" class="warning" hidden></p><p id="listen-progress" class="muted"></p>
         <div class="volume"><label for="volume">試聴音量 <span id="volume-value">35%</span></label>
           <input type="range" id="volume" min="0" max="100" value="35"><span class="muted">小さめから調整してください。自動補正はありません。</span></div>
         <div class="wave-toolbar"><span id="wave-range"></span><div class="button-row">
@@ -70,7 +70,7 @@
       </section>
     </main>
   </div>
-  <footer>LOCAL ONLY / 原音は変更せず、回答は手元に保存。6件すべてを一度に終える必要はありません。</footer>
+  <footer id="footer-copy">LOCAL ONLY / 原音は変更せず、回答は手元に保存。6件すべてを一度に終える必要はありません。</footer>
   <!-- REVIEW_DATA -->
   <script>/* REVIEW_SCRIPTS */</script>
 </body>

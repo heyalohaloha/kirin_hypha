@@ -24,12 +24,12 @@ namespace hypha::reference_audition
         aCapture.disconnect();
         workspace.reset();
         activeABinding.reset();
-        activeSourceArtifactSha256.clear();
         activeSourceKey.clear();
         activeMappingKey.clear();
         activeContentMappingKey.clear();
         activePublishedSelectionKey.clear();
         workerSource.reset();
+        sourceCache.clear();
         mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
         cueStart.store (0, std::memory_order_relaxed);
         cueEnd.store (0, std::memory_order_relaxed);
@@ -54,6 +54,10 @@ namespace hypha::reference_audition
             pendingPresetSelectionRequest.reset();
             pendingPresetSelectionTarget.reset();
             failedPresetSelectionTarget.reset();
+            if (pendingCandidatePreparationRequest)
+                candidatePreparationTransport.removeExchange (*pendingCandidatePreparationRequest);
+            pendingCandidatePreparationRequest.reset();
+            failedCandidatePreparationTarget.reset();
             activeEventContext = {};
             activeEventCandidate = {};
             activeEventCue = {};
@@ -62,6 +66,8 @@ namespace hypha::reference_audition
             recoveryStatusExpiresAtMs = 0;
             presetSelectionWaitingSinceMs = 0;
             presetSelectionStatusExpiresAtMs = 0;
+            candidatePreparationWaitingSinceMs = 0;
+            candidatePreparationStatusExpiresAtMs = 0;
         }
         appliedConfigurationGeneration = configuration.generation;
         appliedSelectionGeneration = 0;
@@ -111,6 +117,7 @@ namespace hypha::reference_audition
             serviceDeferredAudioThreadActions();
             serviceRecoveryAcknowledgement();
             servicePresetSelectionAcknowledgement();
+            serviceCandidatePreparationAcknowledgement();
             const auto currentTransportHeartbeat = transportHeartbeat.load (
                 std::memory_order_acquire);
             if (! blind.auditioning())

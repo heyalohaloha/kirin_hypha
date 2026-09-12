@@ -46,7 +46,7 @@ namespace hypha::spectrum_geometry
     }
 
     inline juce::Rectangle<float> dataPlotBoundsFor (juce::Rectangle<float> bounds,
-                                                    bool reserveFocusTrail = true) noexcept
+                                                    bool reserveFocusTrail = false) noexcept
     {
         const float scale = visualScaleFor (bounds);
         auto plot = plotBoundsFor (bounds);
@@ -95,6 +95,18 @@ namespace hypha::spectrum_geometry
         return readout.removeFromRight ((float) ui_contract::spectrumFocusClearWidth * scale);
     }
 
+    inline juce::Rectangle<float> midSideReadoutBoundsFor (juce::Rectangle<float> plot,
+                                                            float scale,
+                                                            bool expanded) noexcept
+    {
+        const int logicalWidth = expanded ? ui_contract::spectrumExpandedReadoutWidth
+                                          : ui_contract::spectrumMidSideCompactReadoutWidth;
+        return { plot.getRight() - (float) logicalWidth * scale,
+                 plot.getY() + 17.0f * scale,
+                 (float) logicalWidth * scale,
+                 (float) ui_contract::spectrumHoverReadoutHeight * scale };
+    }
+
     inline juce::Rectangle<float> channelModeBoundsFor (size_t index,
                                                          juce::Rectangle<float> outerPlot,
                                                          float scale) noexcept
@@ -106,6 +118,20 @@ namespace hypha::spectrum_geometry
         return { x,
                  outerPlot.getY() + (float) ui_contract::spectrumChannelModeTop * scale,
                  (float) ui_contract::spectrumChannelModeWidths[index] * scale,
+                 (float) ui_contract::spectrumChannelModeHeight * scale };
+    }
+
+    inline juce::Rectangle<float> displayModeBoundsFor (size_t index,
+                                                         juce::Rectangle<float> outerPlot,
+                                                         float scale) noexcept
+    {
+        float x = outerPlot.getX();
+        for (size_t preceding = 0; preceding < index; ++preceding)
+            x += (float) (ui_contract::spectrumDisplayModeWidths[preceding]
+                        + ui_contract::spectrumChannelModeGap) * scale;
+        return { x,
+                 outerPlot.getY() + (float) ui_contract::spectrumChannelModeTop * scale,
+                 (float) ui_contract::spectrumDisplayModeWidths[index] * scale,
                  (float) ui_contract::spectrumChannelModeHeight * scale };
     }
 

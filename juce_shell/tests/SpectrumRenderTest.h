@@ -12,4 +12,7 @@ bool isReferenceCurveInk (juce::Colour pixel, juce::Colour target);
 
 SpectrumRenderResult renderSpectrumAtSize (const KirinSpectrumView&,
     const ui_contract::SpectrumSizePreset&, const char*);
+SpectrumRenderResult renderMidSideSpectrumAtSize (const KirinMidSideSpectrumView&,
+    const ui_contract::SpectrumSizePreset&, const char*);
+void verifyMidSideUsesSolidCurvesAtAllSizes();
 }

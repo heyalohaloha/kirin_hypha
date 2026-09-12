@@ -5,6 +5,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 get_filename_component(HYPHA_SHELL "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(HYPHA_JUCE_SOURCE "${HYPHA_SHELL}/JUCE" CACHE PATH "Read-only JUCE 7.0.12 source")
 add_subdirectory("${HYPHA_JUCE_SOURCE}" JUCE)
+juce_add_binary_data(KirinAttackValidationData SOURCES
+    ${HYPHA_SHELL}/../crates/hypha_gui/assets/attack_specimen_body_v3.png)
 juce_add_console_app(KirinAttackUiContractTests PRODUCT_NAME "Hypha Attack Validation")
 target_sources(KirinAttackUiContractTests PRIVATE
     ../AttackUiContractTest.cpp
@@ -25,7 +27,7 @@ if(MSVC)
     target_compile_definitions(KirinAttackUiContractTests PRIVATE _CRT_SECURE_NO_WARNINGS=1)
     target_compile_options(KirinAttackUiContractTests PRIVATE /utf-8)
 endif()
-target_link_libraries(KirinAttackUiContractTests PRIVATE juce::juce_gui_basics
+target_link_libraries(KirinAttackUiContractTests PRIVATE KirinAttackValidationData juce::juce_gui_basics
     juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 enable_testing()
 add_test(NAME kirin_attack_ui_contract COMMAND KirinAttackUiContractTests)

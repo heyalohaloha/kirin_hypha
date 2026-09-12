@@ -1,10 +1,11 @@
     #[test]
     fn localized_juce_menus_use_the_native_text_font() {
         assert!(PLUGIN_EDITOR_H.contains(
-            "return hypha::nativeTextFont (hypha::ui_contract::menuFontHeight);"
+            "return hypha::nativeTextFont (hypha::presentation::forOutput ("
         ));
+        assert!(PLUGIN_EDITOR_H.contains("hypha::typography::TextRole::menu"));
         assert!(!PLUGIN_EDITOR_H.contains(
-            "return hypha::monoFont (hypha::ui_contract::menuFontHeight);"
+            "return hypha::monoFont ("
         ));
     }
 

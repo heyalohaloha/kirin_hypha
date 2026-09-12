@@ -10,11 +10,7 @@ SizePreset capturePreset (int pixelWidth, int pixelHeight)
         1, juce::roundToInt ((float) pixelWidth / captureRenderScale));
     const int height = juce::jmax (
         1, juce::roundToInt ((float) pixelHeight / captureRenderScale));
-    const auto density = width < 338 ? Density::compact
-                       : width < 413 ? Density::focused
-                       : width < 525 ? Density::standard
-                       : width < 750 ? Density::observatory : Density::inspection;
-    return { width, height, density, "CAPTURE" };
+    return { width, height, densityForWidth (width), "CAPTURE" };
 }
 
 juce::Rectangle<int> scaled (Rect rect)
@@ -64,6 +60,8 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     }
     frame.history = historySnapshot != nullptr ? *historySnapshot : history;
     frame.captureFrame = true;
+    frame.jungleAppearance = jungleAppearance;
+    frame.presentationOutput = presentation::OutputTarget::capture;
     frame.captureTimestamp = capturedAt.isNotEmpty()
         ? std::move (capturedAt)
         : juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H:%M:%S");

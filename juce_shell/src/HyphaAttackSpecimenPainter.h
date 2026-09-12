@@ -3,33 +3,15 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "kirin_hypha_ffi.h"
-#include "HyphaAttackMotion.h"
-
 namespace hypha::attack_specimen
 {
     struct FeatureAmounts
     {
         float strength = 0.0f;
-        float brightness = 0.0f;
-        float transient = 0.0f;
         float texture = 0.0f;
+        float sharpness = 0.0f;
     };
 
-    void drawAbsolute (juce::Graphics&,
-                       const KirinAttackDetail&,
-                       juce::Rectangle<int>,
-                       FeatureAmounts,
-                       const attack_motion::Motion& = {});
-
-    void drawComparison (juce::Graphics&,
-                         const KirinAttackDetail& pre,
-                         const KirinAttackDetail& post,
-                         juce::Rectangle<int>,
-                         FeatureAmounts preAmounts,
-                         FeatureAmounts postAmounts,
-                         const attack_motion::Motion& = {});
-
-    void drawMembrane (juce::Graphics&, juce::Rectangle<int>, FeatureAmounts,
-                       const attack_motion::Motion& = {}, bool reference = false);
+    void drawSpecimen (juce::Graphics&, juce::Rectangle<int>, FeatureAmounts);
 
 }

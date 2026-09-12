@@ -2,7 +2,9 @@
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <array>
 #include <cmath>
@@ -34,10 +36,10 @@ namespace
 
     juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
     {
-        if (status == KIRIN_SPECTRUM_WARMING_UP) return juce::CharPointer_UTF8 ("OBSERVE ◌");
+        if (status == KIRIN_SPECTRUM_WARMING_UP) return "PREPARING ANALYSIS";
         if (status == KIRIN_SPECTRUM_IN_USE)
             return analysis_ui::slotsInUse (analysisOwnerNames);
-        if (status == KIRIN_SPECTRUM_UNAVAILABLE) return juce::CharPointer_UTF8 ("DATA —");
+        if (status == KIRIN_SPECTRUM_UNAVAILABLE) return "ANALYSIS DATA UNAVAILABLE";
         return {};
     }
 
@@ -78,8 +80,22 @@ namespace
     void paintHeader (juce::Graphics& g, juce::Rectangle<float> area,
                       float scale, const PaintState& state)
     {
+        if (state.sharpnessOnly)
+        {
+            const auto value = state.haveNumericSnapshot
+                ? state.numericSnapshot.sharpness
+                : std::numeric_limits<double>::quiet_NaN();
+            const auto label = scale > 1.1f ? "POST SHARPNESS " : "POST SH ";
+            g.setFont (monoFont (state.presentation, typography::TextRole::readout,
+                                 typography::Composition::visualization));
+            g.setColour (COL_SPECTRUM_POST.withAlpha (0.98f));
+            g.drawText (juce::String (label) + factValueText (value, 2) + " acum",
+                        area, juce::Justification::centred);
+            return;
+        }
         const auto third = area.getWidth() / 3.0f;
-        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (state.presentation, typography::TextRole::readout,
+                             typography::Composition::visualization));
         auto latest = state.numericSnapshot;
         if (! state.haveNumericSnapshot)
             latest.lufs_m = latest.true_peak = latest.sharpness = std::numeric_limits<double>::quiet_NaN();
@@ -101,7 +117,8 @@ namespace
         }
     }
 
-    void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, float scale)
+    void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, float scale,
+                    bool sharpnessOnly, presentation::Context presentation)
     {
         for (float proportion : { 0.25f, 0.5f, 0.75f })
         {
@@ -116,7 +133,8 @@ namespace
             g.setColour (COL_MUTED.withAlpha (0.14f));
             g.drawVerticalLine (juce::roundToInt (x), plot.getY(), plot.getBottom());
         }
-        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (presentation, typography::TextRole::axis,
+                             typography::Composition::visualization));
         g.setColour (COL_MUTED.withAlpha (0.82f));
         const int y = juce::roundToInt (plot.getBottom());
         const int labelWidth = juce::roundToInt (30.0f * scale);
@@ -130,6 +148,18 @@ namespace
         g.drawText ("NOW", juce::roundToInt (plot.getRight()) - labelWidth, y,
                     labelWidth, labelHeight,
                     juce::Justification::centredRight);
+        if (sharpnessOnly)
+        {
+            g.drawText ("3", 0, juce::roundToInt (plot.getY()) - labelHeight / 2,
+                        juce::roundToInt (plot.getX()) - 3, labelHeight,
+                        juce::Justification::centredRight);
+            g.drawText ("1.5", 0, juce::roundToInt (plot.getCentreY()) - labelHeight / 2,
+                        juce::roundToInt (plot.getX()) - 3, labelHeight,
+                        juce::Justification::centredRight);
+            g.drawText ("0", 0, juce::roundToInt (plot.getBottom()) - labelHeight,
+                        juce::roundToInt (plot.getX()) - 3, labelHeight,
+                        juce::Justification::centredRight);
+        }
     }
 
     template <typename ValueFn>
@@ -197,20 +227,31 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
     paintHeader (g, header, scale, state);
     auto plot = outer;
     plot.removeFromBottom (10.0f * scale);
-    g.setColour (juce::Colours::black);
-    g.fillRect (plot);
-    paintAxes (g, plot, scale);
+    surface_material::paintObservationWell (g, plot);
+    paintAxes (g, plot, scale, state.sharpnessOnly, state.presentation);
 
     if (! state.signalActive || ! state.haveBatch || state.batch.count == 0u)
     {
-        const auto status = ! state.signalActive ? juce::String ("INACTIVE / POST ABSOLUTE") : state.haveBatch
+        const auto inactive = state.sharpnessOnly ? "INACTIVE / POST SHARPNESS"
+                                                  : "INACTIVE / POST ABSOLUTE";
+        const auto status = ! state.signalActive ? juce::String (inactive) : state.haveBatch
                               ? statusText (state.batch.latest.status,
                                             state.analysisOwnerNames)
-                                            : juce::String ("OBSERVE --");
-        g.setFont (monoFont (10.0f * ui_contract::analysisTextScale (scale)));
+                                            : juce::String ("PREPARING ANALYSIS");
+        g.setFont (monoFont (state.presentation, typography::TextRole::status,
+                             typography::Composition::visualization));
         g.setColour (COL_MUTED.withAlpha (0.84f));
-        g.drawFittedText (status, plot.toNearestInt(), juce::Justification::centred,
-                          2, 0.72f);
+        text_style::draw (g, status, plot.toNearestInt(), state.presentation,
+                          typography::TextRole::status, juce::Justification::centred,
+                          2, typography::Composition::visualization);
+        return;
+    }
+
+    if (state.sharpnessOnly)
+    {
+        paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
+                     sharpnessMinimum, sharpnessMaximum, 0.0f, 1.0f, scale,
+                     [] (const KirinAbsoluteView& frame) { return frame.sharpness; });
         return;
     }
 

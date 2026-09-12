@@ -66,6 +66,28 @@ juce::String nativeTextFontFamily()
     }();
     return family;
 }
+
+juce::Font makeLabelFont (float height)
+{
+    height = juce::jmax (11.0f, height);
+    if (const auto typeface = kimeraTypeface())
+        return juce::Font (typeface).withHeight (height);
+    return fallbackFont (nativeFallbackLabelFontFamily(), height);
+}
+
+juce::Font makeMonoFont (float height)
+{
+    height = juce::jmax (11.0f, height);
+    if (const auto typeface = kimeraTypeface())
+        return juce::Font (typeface).withHeight (height);
+    return fallbackFont (nativeFallbackMonoFontFamily(), height);
+}
+
+juce::Font makeNativeTextFont (float height)
+{
+    return juce::Font (nativeTextFontFamily(), juce::jmax (11.0f, height),
+                       juce::Font::plain);
+}
 }
 
 const char* nativeFallbackLabelFontFamily() noexcept
@@ -91,22 +113,6 @@ bool usingKimeraTypography() noexcept
     return kimeraTypeface() != nullptr;
 }
 
-juce::Font labelFont (float height)
-{
-    height = juce::jmax (11.0f, height);
-    if (const auto typeface = kimeraTypeface())
-        return juce::Font (typeface).withHeight (height);
-    return fallbackFont (nativeFallbackLabelFontFamily(), height);
-}
-
-juce::Font monoFont (float height)
-{
-    height = juce::jmax (11.0f, height);
-    if (const auto typeface = kimeraTypeface())
-        return juce::Font (typeface).withHeight (height);
-    return fallbackFont (nativeFallbackMonoFontFamily(), height);
-}
-
 bool requiresNativeTextFont (const juce::String& text) noexcept
 {
     for (auto cursor = text.getCharPointer(); ! cursor.isEmpty(); ++cursor)
@@ -115,14 +121,34 @@ bool requiresNativeTextFont (const juce::String& text) noexcept
     return false;
 }
 
-juce::Font nativeTextFont (float height)
+juce::Font labelFont (const presentation::Context& context,
+                      typography::TextRole role,
+                      typography::Composition composition)
 {
-    return juce::Font (nativeTextFontFamily(), juce::jmax (11.0f, height), juce::Font::plain);
+    return makeLabelFont (typography::resolve (context, role, composition).fontHeight);
 }
 
-juce::Font displayTextFont (const juce::String& text, float height)
+juce::Font monoFont (const presentation::Context& context,
+                     typography::TextRole role,
+                     typography::Composition composition)
 {
-    return requiresNativeTextFont (text) ? nativeTextFont (height) : labelFont (height);
+    return makeMonoFont (typography::resolve (context, role, composition).fontHeight);
+}
+
+juce::Font nativeTextFont (const presentation::Context& context,
+                           typography::TextRole role,
+                           typography::Composition composition)
+{
+    return makeNativeTextFont (typography::resolve (context, role, composition).fontHeight);
+}
+
+juce::Font displayTextFont (const juce::String& text,
+                            const presentation::Context& context,
+                            typography::TextRole role,
+                            typography::Composition composition)
+{
+    return requiresNativeTextFont (text) ? nativeTextFont (context, role, composition)
+                                         : labelFont (context, role, composition);
 }
 
 float tabularTextWidth (const juce::Font& font, const juce::String& text)

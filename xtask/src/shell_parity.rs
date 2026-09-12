@@ -177,7 +177,7 @@ mod tests {
         assert!(
             JUCE_CMAKE.contains("target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)")
         );
-        assert!(PLUGIN_EDITOR_H.contains("juce::TextButton          guideConnectButton"));
+        assert!(PLUGIN_EDITOR_H.contains("hypha::HyphaTextButton    guideConnectButton"));
         assert!(PLUGIN_EDITOR_OBSERVATORY_CPP.contains("pendingPreDisplayConnection"));
         assert!(PLUGIN_EDITOR_OBSERVATORY_CPP.contains("preDisplaySnapshot"));
         assert!(
@@ -277,7 +277,7 @@ mod tests {
         ));
         assert!(PLUGIN_PROCESSOR_CPP
             .contains("pairedPreLocator (livePairProjectHash, livePairInstanceId)"));
-        assert!(PLUGIN_PROCESSOR_CPP.contains("kirin_hypha_restore_pair_candidate ("));
+        assert!(PLUGIN_PROCESSOR_PAIRING_CPP.contains("kirin_hypha_restore_pair_candidate_v2 ("));
     }
 
     #[test]
@@ -322,50 +322,50 @@ mod tests {
 
     #[test]
     fn candidate_menu_enumerates_pre_candidates_independent_of_current_pair() {
-        let body = between(
-            PLUGIN_EDITOR_CPP,
-            "void KirinHyphaEditor::showCandidateMenu()",
-            "void KirinHyphaEditor::handleCandidateMenu",
-        );
-
-        assert!(body.contains("const auto cands = processorRef.enumeratePreCandidates();"));
-        assert!(body.contains("const auto claims = processorRef.enumeratePostPairClaims();"));
-        assert!(
-            body.contains("const juce::String currentPreInstanceId = resolvedOwnPreInstanceId (")
-        );
-        assert!(body.contains("ownInstanceId, processorRef.pairedPreInstanceId(), claims);"));
-        assert!(body.contains("c.instanceId == currentPreInstanceId"));
-        assert!(body.contains("const bool inUse = claimedByOtherPost"));
+        let candidate_start = "void KirinHyphaEditor::showCandidateMenu()";
+        let operations_start = "void KirinHyphaEditor::showOperationsMenu()";
+        let operations_end = "void KirinHyphaEditor::handleOperationsMenu";
+        let body = between(PLUGIN_EDITOR_CPP, candidate_start, operations_start);
+        let operations = between(PLUGIN_EDITOR_CPP, operations_start, operations_end);
+        for required in [
+            "const auto cands = processorRef.enumeratePreCandidates();",
+            "const auto claims = processorRef.enumeratePostPairClaims();",
+            "const juce::String currentPreInstanceId = resolvedOwnPreInstanceId (",
+            "ownInstanceId, processorRef.pairedPreInstanceId(), claims);",
+            "const bool selected = currentPreInstanceId.isNotEmpty()",
+            "c.instanceId == currentPreInstanceId",
+            "const bool inUse = claimedByOtherPost",
+            "sameNameCount > 1",
+            "labelEnabled.add (! inUse);",
+            "labelChecked.add (selected && ! inUse);",
+            "menu.addSectionHeader (\"PRE connection\");",
+            "menu.addItem (3, \"No available PRE\", false, false);",
+            "! pairLocked && labelEnabled[i], labelChecked[i]",
+            "labels.add ((inUse ? \"In use by another POST: \" : \"Use PRE: \") + shown);",
+        ] {
+            assert!(body.contains(required), "candidate menu missing {required}");
+        }
         assert!(
             body.contains("c.hasName && c.name.isNotEmpty()")
                 && body.contains("c.instanceId.substring (0, 8)"),
             "unnamed PREs must remain independently selectable by an exact-id fallback label"
         );
-        assert!(body.contains(
-            "labels.add ((inUse ? \"In use: \" : (keepReady ? \"Keep ready: \" : \"Can Keep: \")) + shown);"
-        ));
-        assert!(body.contains("const bool keepReady = currentPreInstanceId.isNotEmpty()"));
         assert!(!body.contains("c.name == currentPairName"));
-        assert!(body.contains("sameNameCount > 1"));
-        assert!(body.contains("labelEnabled.add (! inUse);"));
-        assert!(body.contains("labelChecked.add (keepReady && ! inUse);"));
-        assert!(body.contains("const int nReady = processorRef.keepReadyCount();"));
-        assert!(body.contains("processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE"));
-        assert!(body.contains("const bool osOwned = processorRef.licenseIsOs();"));
-        assert!(body.contains("osOwned && nReady >= 1"));
-        assert!(body.contains("All Keep: Kirin OS required"));
-        assert!(body.contains("menu.addItem (2, \"All Stop: active POSTs\");"));
-        assert!(body.contains("menu.addSectionHeader (\"Pair choices (not Keep targets)\");"));
-        assert!(body.contains("menu.addItem (3, \"No pair choices\", false, false);"));
-        assert!(body.contains("! pairLocked && labelEnabled[i], labelChecked[i]"));
-        assert!(
-            !body.contains("All Keep ("),
-            "old ambiguous All Keep label must not remain in the JUCE menu"
-        );
-        assert!(
-            !body.contains("No candidates"),
-            "old ambiguous empty label must not remain in the JUCE menu"
-        );
+        for required in [
+            "const int nReady = processorRef.keepReadyCount();",
+            "processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE",
+            "const bool osOwned = processorRef.licenseIsOs();",
+            "osOwned && nReady >= 1",
+            "All Keep: Kirin OS required",
+            "menu.addItem (2, \"All Stop: active POSTs\");",
+        ] {
+            assert!(
+                operations.contains(required),
+                "operations menu missing {required}"
+            );
+        }
+        assert!(!operations.contains("All Keep ("));
+        assert!(!body.contains("No candidates"));
         assert!(!body.contains("pairNonEmpty"));
     }
 
@@ -393,17 +393,13 @@ mod tests {
         );
 
         assert!(body.contains("processorRef.setPairCandidate (candidate.instanceId, name)"));
-        assert!(body.contains("nameField.setModelName (name);"));
-        assert!(body.contains("candidate.instanceId.substring (0, 8)"));
+        assert!(body.contains("nameField.setModelName (processorRef.pairDisplayName());"));
+        assert!(PLUGIN_PROCESSOR_PAIRING_CPP.contains("persistPairInstanceId.substring (0, 8)"));
     }
 
     #[test]
     fn juce_keep_does_not_pre_reject_at_twelve_reservations() {
-        let ctor_body = between(
-            PLUGIN_EDITOR_CPP,
-            "KirinHyphaEditor::KirinHyphaEditor",
-            "KirinHyphaEditor::~KirinHyphaEditor",
-        );
+        let ctor_body = cpp_body(PLUGIN_EDITOR_CPP, "KirinHyphaEditor::KirinHyphaEditor");
         let keep_body = between(ctor_body, "postControls->onKeep = [this] {", "};");
 
         assert!(

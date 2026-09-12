@@ -1,3 +1,4 @@
+mod aax_distribution;
 mod ci_usage_guard;
 mod diagnose_watch;
 mod gen_signals;
@@ -12,6 +13,7 @@ mod os_access;
 mod plugin_display_names;
 mod release_gate;
 mod release_package;
+mod release_package_metadata;
 #[cfg(test)]
 mod rt_contract_surface;
 mod rt_safety;

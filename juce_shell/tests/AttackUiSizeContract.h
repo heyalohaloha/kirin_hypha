@@ -16,10 +16,11 @@ inline bool nearColour (juce::Colour pixel, juce::Colour target)
         && std::abs ((int) pixel.getBlue() - (int) target.getBlue()) <= tolerance;
 }
 
-inline bool verifyNoSelectionBar (const juce::Image& image)
+inline bool verifyNoSelectionBar (const juce::Image& image,
+                                  presentation::Context presentation)
 {
     const auto target = juce::Colour (attack_ui::selectionColour);
-    const auto top = attack_ui::headerHeight;
+    const auto top = attack_ui::headerHeightFor (presentation);
     const auto height = attack_ui::timelineHeight (image.getHeight());
     for (int x = 0; x < image.getWidth(); ++x)
     {
@@ -34,10 +35,11 @@ inline bool verifyNoSelectionBar (const juce::Image& image)
     return true;
 }
 
-inline bool verifyContinuousScrubRail (const juce::Image& image)
+inline bool verifyContinuousScrubRail (const juce::Image& image,
+                                       presentation::Context presentation)
 {
-    if (image.getHeight() < 145) return true; // Compact view has no scrub rail.
-    const auto scrubTop = attack_ui::headerHeight
+    if (attack_ui::axisHeight (image.getHeight()) == 0) return true;
+    const auto scrubTop = attack_ui::headerHeightFor (presentation)
                         + attack_ui::timelineHeight (image.getHeight());
     const auto railY = scrubTop + attack_ui::axisLabelHeight / 2 - 2;
     for (int x = 35; x < image.getWidth() - 35; ++x)
@@ -46,43 +48,45 @@ inline bool verifyContinuousScrubRail (const juce::Image& image)
     return true;
 }
 
-inline bool verifyDormantSpecimenBlack (const juce::Image& image)
+inline bool verifyDormantSpecimenQuiet (
+    const juce::Image& image,
+    presentation::Context presentation = presentation::defaultContext())
 {
-    const auto height = attack_ui::metricsHeight (image.getHeight());
+    const auto height = attack_ui::metricsHeightFor (image.getHeight(), presentation);
     if (height == 0)
         return true;
     const auto area = juce::Rectangle<int> (0, image.getHeight() - height,
                                             image.getWidth(), height).reduced (5);
+    const std::array semanticColours {
+        juce::Colour (attack_ui::selectionColour),
+        juce::Colour (attack_ui::strengthColour),
+        juce::Colour (attack_ui::textureColour),
+        juce::Colour (attack_ui::sharpnessColour),
+        juce::Colour (attack_ui::transientColour),
+    };
     for (int y = area.getY(); y < area.getBottom(); ++y)
         for (int x = area.getX(); x < area.getRight(); ++x)
-            if (image.getPixelAt (x, y) != juce::Colours::black)
+        {
+            const auto pixel = image.getPixelAt (x, y);
+            // A dormant specimen may retain the low-contrast CE 2226 surface material, but it
+            // must not expose a value, label, selection, or metric colour before data is valid.
+            if (juce::jmax (pixel.getRed(), pixel.getGreen(), pixel.getBlue()) > 48)
                 return false;
+            for (const auto colour : semanticColours)
+                if (nearColour (pixel, colour))
+                    return false;
+        }
     return true;
 }
 
-inline bool verifyNoMetricLeaderCorridors (const juce::Image& image)
+inline bool verifySectionLayout (const juce::Image& image,
+                                 presentation::Context presentation)
 {
-    const auto height = attack_ui::metricsHeight (image.getHeight());
-    if (height == 0 || image.getWidth() < 390)
-        return true;
-    auto metrics = juce::Rectangle<int> (
-        0, image.getHeight() - height, image.getWidth(), height).reduced (1);
-    auto content = metrics.reduced (7, 3);
-    content.removeFromTop (18);
-    if (content.getHeight() < 65)
-        return true;
-    const auto scale = attack_ui::textScale (image.getWidth(), image.getHeight());
-    const auto sideWidth = juce::jmin (scale > 1.4f ? 178 : 112, content.getWidth() / 4);
-    const auto left = juce::Rectangle<int> (
-        content.getX() + sideWidth, content.getY(), 4, content.getHeight());
-    const auto right = juce::Rectangle<int> (
-        content.getRight() - sideWidth - 4, content.getY(), 4, content.getHeight());
-    for (const auto corridor : { left, right })
-        for (int y = corridor.getY(); y < corridor.getBottom(); ++y)
-            for (int x = corridor.getX(); x < corridor.getRight(); ++x)
-                if (image.getPixelAt (x, y) != juce::Colours::black)
-                    return false;
-    return true;
+    return attack_ui::headerHeightFor (presentation)
+         + attack_ui::timelineHeight (image.getHeight())
+         + attack_ui::axisHeight (image.getHeight())
+         + attack_ui::transientHeight (image.getHeight())
+         + attack_ui::metricsHeightFor (image.getHeight(), presentation) == image.getHeight();
 }
 
 inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform,
@@ -137,14 +141,17 @@ inline bool verifySupportedSizes (AttackComponent& component)
         {
             const auto& preset = ui_contract::spectrumSizePresets[index];
             const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
+            const auto context = presentation::forEditor (preset.width, preset.height);
+            component.setPresentationContext (context);
             component.setSize (bounds.width, bounds.height);
             juce::Image image (juce::Image::ARGB, bounds.width, bounds.height, true);
             juce::Graphics graphics (image);
             component.paintEntireComponent (graphics, true);
             if (image.getWidth() != bounds.width || image.getHeight() != bounds.height)
                 return false;
-            if (! verifyNoSelectionBar (image) || ! verifyContinuousScrubRail (image)
-                || ! verifyNoMetricLeaderCorridors (image))
+            if (! verifyNoSelectionBar (image, context)
+                || ! verifyContinuousScrubRail (image, context)
+                || ! verifySectionLayout (image, context))
                 return false;
             if (const auto* path = std::getenv (variables[index]))
             {
@@ -156,6 +163,7 @@ inline bool verifySupportedSizes (AttackComponent& component)
         }
     }
     component.setSize (originalWidth, originalHeight);
+    component.setPresentationContext (presentation::defaultContext());
     component.setOverlayMode (true);
     return true;
 }

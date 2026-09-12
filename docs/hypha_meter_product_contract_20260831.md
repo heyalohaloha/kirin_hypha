@@ -85,7 +85,9 @@ POSTのREF入口はOS権限を確認できない状態でも開け、Reference�
 公式製品ページは英語と日本語の明示選択で開き、購入処理や外部通信を自動開始しない。
 所有者向け案内ではローカルlicenseの明示再確認を提供し、確認できないことを「未購入」と断定しない。
 Keep／All Keepは消さずdisabled表示にする。
-OS所有・未接続では購入案内を表示せず、Bを無効にしてKirin OSの`Open in Hypha`を案内する。
+OS所有・未接続では購入案内を表示せず、Bを無効にする。保存済みWorkをKirin OSのINSPECTで開き、
+`Connect Hypha POST`から対象のPOSTへ接続する現在の入口を案内する。ReferenceはWork接続後に自動投影し、
+廃止した`Open in Hypha`操作を要求しない。
 接続済み・準備不足では不足している前提に関係する操作だけを無効にし、準備完了時だけBとBlindを許可する。
 
 REFの案内画面は試聴の許可ではない。
@@ -93,7 +95,7 @@ REFの案内画面は試聴の許可ではない。
 進行中の比較や減衰保持からの復帰操作を案内画面で覆わない。
 ローカルPRE/POST BlindはHypha単体機能として承認済みだが、このReference案内の実装では音声経路へ接続しない。
 Keep／Record開始は既存のRust側license gateを正本とし、UI状態だけで許可を推測しない。
-Guide rail、TIME上のGuide時刻、FREQ上のGuide帯域、WorkへのCapture添付、Work名、CaptureへのGuide包含はOS所有時だけ利用できる。
+FooterのGuide context、TIME上のGuide時刻、FREQ上のGuide帯域、WorkへのCapture添付、Work名、CaptureへのGuide包含はOS所有時だけ利用できる。
 LEVEL、TIME、FREQ、SPACE、通常のPRE/POST差分と解析、ローカル高解像度Capture、自由リサイズは制限しない。
 
 ### 3.2 Measurement boundary
@@ -214,7 +216,7 @@ Hypha固有の差は、PREとPOSTのexactな差分を複数領域へ横断させ
 
 ### 7.1 Global shell
 
-Header左にroleを含む`HYPHA POST`または`HYPHA PRE`を置く。
+Header左にroleを先頭にした`POST HYPHA`または`PRE HYPHA`を置く。PREは青、POSTはflora amberのrole文字で区別し、製品名の`HYPHA`は共通色を保つ。
 
 Header中央に`LEVEL / TIME / FREQ / SPACE`を置く。
 
@@ -232,14 +234,15 @@ PREはpair側の測定sensorであり、POSTと同じ機能数を無理に持た
 |---|---|---|---|
 | LEVEL | M、Max M、S、I、recent TP、MaxTP、LRA、PLR、Crest、L/R meter | 現行Watch、Record、LIVEの現在値 | session facts |
 | TIME | M、S、TPの履歴、playback run単位の事実集計 | LIVE timeline、SHARP timeline、ATTACK event timeline | HISTORY、RUN、SHARP、ATTACK、LIVE |
-| FREQ | Spectrum | 現行FREQのPRE、POST、Δ、LR、MID、SIDE、probe、MARK、Focus Trail | SPECTRUM |
+| FREQ | Spectrum | 現行FREQのPRE、POST、Δ、LR、MID、SIDE、M/S同時表示、probe、MARK、Focus Trail | SPECTRUM |
 | SPACE | correlation、L/R balance、goniometer density | なし | FIELD |
 
 `LIVE`は独立ページとして残さない。
 
 LIVEのM、TP、SharpnessはLEVELの現在値とTIMEの履歴へ吸収する。
 
-`SHARP`は時間変化を主表示とするためTIMEのsubviewに置く。
+`SHARP`は時間変化を主表示とするためTIMEのsubviewに置く。exact pair成立時はPOST−PRE、
+未成立時はPOST単体のSharpnessを同じ画面に表示し、見出しと固定scaleを切り替える。
 
 `ATTACK`もeventの六秒scrubを主表示とするためTIMEのsubviewに置く。
 
@@ -254,6 +257,8 @@ FREQは既存Spectrumの意味と操作を保ったまま、上位領域へ移�
 
 ペア選択は入力データの接続状態だけを変える。
 
+POSTのpair欄は読取専用の候補選択とし、自由入力を持たない。PRE名は任意の表示ラベルであり、無名PREも候補に含める。選択とDAW state復元の権威はexact PRE locatorとし、名前一致による自動選択・再接続を行わない。同名PREは選択欄で短いinstance IDを併記する。
+
 POSTとΔの切替は利用者の観測視点だけを変える。
 
 ペア接続によって画面を強制的にΔへ切り替えない。
@@ -261,6 +266,12 @@ POSTとΔの切替は利用者の観測視点だけを変える。
 意味が固定できた領域だけにΔを提供する。
 
 LEVEL、TIME、FREQはPOSTとΔを持つ。
+
+FREQのM/SはPOST targetでだけ成立するstereo絶対観測であり、同じapertureのMIDとSIDEを同時表示する。
+
+M/S中はΔだけをdisabledにし、Δ中はM/Sだけをdisabledにする。
+
+LR、MID、SIDEへ戻ればΔを再び選択でき、targetやpairの状態を自動変更しない。
 
 SPACEはcorrelation差分の定義と知覚上の意味を固定するまでPOSTだけを持つ。
 SPACEの主表示は、同じ100 ms観測境界からMeasure Threadが生成するrolling 3秒のMID/SIDE densityとする。
@@ -270,14 +281,16 @@ MIDは`(L+R)/2`、SIDEは`(L-R)/2`とし、25×25の固定fieldへ各観測最�
 30観測未満は実際の観測数を`WARMING n/30`として表示し、mono、無音、未成立を数値で装わない。
 correlationとL/R balanceも同じrolling 3秒窓を参照し、SPACEの発光やcell色は品質判定へ使わない。
 
-ATTACKは現在の契約どおり、pair時はexact PRE/POST、未接続時はPOST absoluteを表示する。
+ATTACKはTRACK／STEMのDRUMに限定する。pair時のHISTORYとTRANSIENTはexact PRE/POSTを比較し、
+中央標本はpair状態にかかわらず選択POSTのStrength／Texture／Sharpness絶対値だけを表示する。
+PRE未接続時はPOST absoluteを維持し、PREと差分を生成しない。
 
 ### 7.4 OS Guide layer
 
 Kirin OSのINSPECTとMASKINGは、POSTの第五domainではなく全domainへ作用できるGuide layerとする。
 
 Guide layerの取得・接続承認・表示snapshotはKirin OS entitlementで制限する。
-OS未所有でも各domain自体は使用でき、Guide由来のrail、時刻、帯域だけを表示しない。
+OS未所有でも各domain自体は使用でき、Guide由来のcontext、時刻、帯域だけを表示しない。
 
 Guideの実装計画は`docs/hypha_post_os_guide_integration_plan_20260831.md`を正本とする。
 
@@ -285,11 +298,11 @@ Kirin OSは保存済みWorkから利用者が確認したPOST一台へ直接送�
 
 PREをrelayに使わず、POSTはPREとpairされていなくてもGuideを表示できる。
 
-Guide不在時は画面上の占有面積を0にする。
+Guide不在時はFooterのGuide contextを表示せず、測定面の寸法を変えない。
 
 Guide受信時も現在のdomainを自動変更しない。
 
-LEVELはGuide railだけを表示する。
+LEVELはFooterのGuide contextだけを表示する。
 
 TIMEはINSPECTの時刻または区間と、MASKINGの選択範囲および実測collision intervalを表示する。
 
@@ -315,7 +328,9 @@ transport停止、無音、DAW bypass中はSession時間と集計を進めない
 
 UIを閉じてもプラグインinstanceが生存する限りSessionを保持する。
 
-`RESET`だけが現在のSession統計を明示的に破棄する。
+`RESET`だけが現在のSession統計、generation、履歴をまとめて明示的に破棄する。
+
+Hybrid VUの`CLEAR`はSession破棄ではない。左右の保持TPとVU専用clip表示ラッチだけを解除し、現在TP、VU平均、I、LRA、MaxTP、PLR、LEVEL／CaptureのL/R Session累積clip event、TIME履歴、Record／Keepを維持する。解除時点でもclipが続いている場合は次の100 ms観測で表示だけ再点灯し、同じ連続runをSessionへ二重算入しない。
 
 Record、Keep、Kirin OS接続の状態はMeter Sessionに影響しない。
 
@@ -337,12 +352,15 @@ I/LRAのgating履歴を完全保存せず累積値だけ復元すると、reload
 | PLR | dB | MAX TP − I | 0.1 dB |
 | L/R SP | dBFS | current block and hold | 0.1 dB |
 | L/R TP | dBTP | recent 400 ms | 0.1 dB |
+| L/R VU | VU / dBFS | full-wave average、sine校正、直近300 ms、0 VU = -18 dBFS | 針 |
+| L/R INSTANT TP | dBTP | 最新のexact 100 ms観測 | 1 dB segment |
+| L/R HOLD TP | dBTP | Meter Session開始または直近CLEAR以降 | marker |
 | BAL | dB | 3 sのL/R energy差 | 0.1 dB |
 | CORR | unitless | 3 s energy-normalized correlation | 0.01 |
 
 L/R Sample Peakのhold markerはMeter Session開始後のチャンネル別最大値とし、時間で自動解除しない。
 
-`RESET`だけがholdを解除する。
+L/R Sample Peakのhold markerは`RESET`だけが解除する。Hybrid VUのL/R HOLD TPとVU専用clip表示ラッチは`CLEAR`でも解除できるが、Sample Peak holdとMeter Session正本のL/R累積clip eventは変更しない。
 
 `BAL`は`10 log10(E_L / E_R)`の符号付き値とし、正値をL、負値をRとしてラベルにも明示する。
 
@@ -390,9 +408,17 @@ UIを閉じても履歴計測を継続し、再表示時に直前の文脈を復
 
 FREQは画面を開いたときだけ既存Spectrum解析を取得する。
 
-TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠を取得する。
+TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠を取得する。SHARPはpair未成立時に
+既存のPOST absolute timelineを使い、PRE exchange requestを生成しない。
 
 POST FREQは既存Spectrum解析の同じ実測frameから、現在Spectrum、6秒固定長の時間周波数field、rolling peak holdを生成する。
+
+POST FREQのM/Sは同じstereo入力窓をMID、SIDEの順で解析し、一つの専用frameとして公開する。
+
+M/SはPOSTローカルであり、PRE要求、PRE/POST差分、6秒field、peak hold、MARK、Focus Trailを生成しない。
+
+表示は全5サイズで共通の0〜−96 dBFS軸を使い、MIDをcyan実線、SIDEをviolet実線として色で区別する。
+どちらの曲線にも破線や点線を用いない。
 
 このfieldのためにAudio Thread処理、FFT worker、解析slotを追加しない。
 
@@ -420,7 +446,20 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 600×400は二つのトラック比較、および2MIXと単体トラックの二面比較を成立させる主力Observatoryとして維持する。
 
+共通HeaderのMeter Contextは即時toggleにせず、`2MIX`をmix／master busと連続active区間、
+`TRACK / STEM`をindividual／group busと短い・疎なeventとして説明する選択menuを開く。
+ローカルPRE／POST Blindは取得前の全画面preflightで現在contextとGain Match根拠を再表示し、
+利用者の`CAPTURE 4 S`操作後だけ取得を始める。取得後のtagは開始時に固定したpolicyから表示する。
+channel数、名前、routing、levelからcontextを推測または自動変更せず、通常画面の行も増やさない。
+
 900×600（300%）は600×400を置換せず、LEVEL、TIME、FREQ、SPACEとTIME配下の解析を同じ操作体系のまま高解像度で読むInspection Viewとする。LEVELは履歴面積、channel strip、数値階層を拡張するが、未合意の新指標は追加しない。将来Session Atlasを載せる場合は別途表示内容を確定する。
+
+既存Footerへ置く`VU`ボタンは通常時もHybrid VUを全sizeで前面表示し、同じボタンで選択domainを変更せず元の画面へ戻す。手動選択は読み込まれたplugin instanceのeditorを閉じて再表示しても保持するが、DAW project stateへは保存しない。
+DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更せず、一時的なHybrid VU面を全sizeで前面表示する。
+停止後はRecord前の画面へ復帰する。
+情報メニューの`Show Hybrid VU while recording`は既定ONとし、DAWのplugin stateへ保存する。OFFではRecord中も選択中のdomainを維持する。ONでもHybrid VUの役割表示から情報メニューを開き、`Show selected view for this recording`を選ぶと、そのRecord区間だけ自動表示を解除できる。次のRecord開始時には再びHybrid VUを表示する。
+Hybrid VUは左右300 ms平均応答の針、左右100 ms True Peak rail、Session開始または直近`CLEAR`以降の左右最大TP marker、Session累積clip eventから独立した解除可能なclip indicator、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。`CLEAR`は同じ面の既存button styleで置き、新しい画面を作らない。
+host callbackが350 ms以上停止した場合はRecord通知を失効させ、古いREC表示を保持しない。
 
 LEVELの60秒Historyは固定時間軸とし、M主線、run別2秒最大TP event、L/R別sample clip event、`60 S MAX TP`と相対時刻を表示する。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`+6〜-24 dBTP`軸と下から立ち上がるstemを重ねる。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。
 
@@ -435,6 +474,11 @@ Concept C Hybrid Observatoryをvisual baselineとする。
 菌糸は外周、構造境界、history下層、status周辺へ限定する。
 
 [Kirin OS 1.0](https://kirinmastering.com/kirin-os-1-0)下部のJungle世界から、巨大な有機構造、湿度を感じる奥行き、暖色の生活光、疎なcyan signalを取り入れる。
+
+通常時からCE 2226の完成した計器として成立させ、Jungleでは同じ筐体の生命感だけを加速する。
+Kirin OSのJungle発動とMASKING GuideのHyphaへの送信成功が両方成立した場合だけ初回発動し、順序は問わない。
+連動ポップアップや由来badgeは表示せず、発動後だけ既存Displayメニューの`Jungle Mode`で独立してON／OFFする。
+選択は利用者dataとしてPRE／POST、DAW再起動、Project Folder、製品versionを跨いで保持する。
 
 細い蔓を画面へ貼り付けただけの装飾にはしない。
 

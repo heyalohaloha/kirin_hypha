@@ -39,7 +39,9 @@ jobs:
       - name: Test and enforce SDK absence
         run: |
           node scripts/test_aax_cmake_gate.mjs
+          node scripts/test_build_aax_universal.mjs
           node --test scripts/check_aax_sdk_absence.test.mjs
+          node --test scripts/ls_release/aax_distribution.test.mjs
           node scripts/check_aax_sdk_absence.mjs
 
   aax-sdk-build:
@@ -51,9 +53,7 @@ jobs:
       matrix:
         include:
           - runner_os: macOS
-            ffi_library: target/release/libkirin_hypha_ffi.a
           - runner_os: Windows
-            ffi_library: target/release/kirin_hypha_ffi.lib
     runs-on: [self-hosted, aax-sdk, "${{ matrix.runner_os }}"]
     timeout-minutes: 45
     defaults:
@@ -69,31 +69,31 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build FFI and apply the tracked JUCE patch stack
-        run: |
-          cargo build --release -p kirin_hypha_ffi --locked
-          bash scripts/apply_juce_patches.sh
-
-      - name: Configure the explicit external-SDK AAX build
+      - name: Build macOS Universal AAX without signing
+        if: ${{ matrix.runner_os == 'macOS' }}
         env:
-          AAX_SDK_PATH_MACOS: ${{ inputs.aax_sdk_path_macos }}
+          AAX_SDK_PATH: ${{ inputs.aax_sdk_path_macos }}
+          AAX_LICENSE_CONFIRMED: ${{ inputs.aax_sdk_license_confirmed }}
+        run: |
+          if [ "$AAX_LICENSE_CONFIRMED" != "true" ]; then
+            echo "AAX SDK license confirmation is required." >&2
+            exit 1
+          fi
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          bash scripts/build_aax_universal.sh \
+            --sdk "$AAX_SDK_PATH" \
+            --license-confirmed
+
+      - name: Build Windows x64 AAX without signing
+        if: ${{ matrix.runner_os == 'Windows' }}
+        shell: pwsh
+        env:
           AAX_SDK_PATH_WINDOWS: ${{ inputs.aax_sdk_path_windows }}
           AAX_LICENSE_CONFIRMED: ${{ inputs.aax_sdk_license_confirmed }}
         run: |
-          if [ "${{ matrix.runner_os }}" = "macOS" ]; then
-            AAX_SDK_PATH="$AAX_SDK_PATH_MACOS"
-          else
-            AAX_SDK_PATH="$AAX_SDK_PATH_WINDOWS"
-          fi
-          cmake -S juce_shell -B juce_shell/build-aax \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DKIRIN_FFI_LIB="${{ github.workspace }}/${{ matrix.ffi_library }}" \
-            -DKIRIN_HYPHA_AAX_SDK_PATH="$AAX_SDK_PATH" \
-            -DKIRIN_HYPHA_AAX_SDK_LICENSE_CONFIRMED="$AAX_LICENSE_CONFIRMED" \
-            -DKIRIN_HYPHA_REQUIRE_AAX=ON
-
-      - name: Build PRE and POST AAX targets
-        run: >
-          cmake --build juce_shell/build-aax --config Release
-          --target KirinHyphaPRE_AAX KirinHyphaPOST_AAX
-          --parallel 2
+          if ($env:AAX_LICENSE_CONFIRMED -ne 'true') {
+            throw 'AAX SDK license confirmation is required.'
+          }
+          pwsh -NoProfile -File scripts/build_aax_windows.ps1 `
+            -Sdk $env:AAX_SDK_PATH_WINDOWS `
+            -LicenseConfirmed

@@ -4,25 +4,25 @@
 
 namespace hypha::attack_focus
 {
+namespace
+{
+float stableAmount (float value) noexcept
+{
+    constexpr float steps = 48.0f;
+    return std::round (attack_motion::unit (value) * steps) / steps;
+}
+}
+
 juce::Image Cache::lookup (attack_specimen::FeatureAmounts pre, attack_specimen::FeatureAmounts post,
                            bool isPaired, int w, int h, float dpi, const attack_motion::Motion& bend)
 {
-    if (! std::isfinite (dpi) || dpi <= 0 || dpi > 4 || w < 4 || h < 4 || w > 1024 || h > 512
-        || std::any_of (bend.bend.begin(), bend.bend.end(), [] (float v) { return ! std::isfinite (v); }))
+    if (! std::isfinite (dpi) || dpi <= 0 || dpi > 4 || w < 4 || h < 4 || w > 1024 || h > 512)
         return {};
-    using attack_motion::unit;
-    if (! isPaired) pre = {};
-    const std::array<float, 8> key { unit (pre.strength), unit (pre.brightness), unit (pre.transient),
-        unit (pre.texture), unit (post.strength), unit (post.brightness), unit (post.transient), unit (post.texture) };
-    // Control points and gradient anchors move <= 0.1 * height * maximum bend delta.
-    // Catmull-Rom control amplification is <= 4/3; 0.07 * 4/3 < 0.1.
-    // Reuse stays below 0.05 physical pixels, without quantizing measured features.
-    const auto tolerance = .5f / (static_cast<float> (h) * dpi);
-    bool sameBend = true;
-    for (std::size_t i = 0; i < bend.bend.size(); ++i)
-        sameBend = sameBend && std::abs (bend.bend[i] - motion.bend[i]) <= tolerance;
+    juce::ignoreUnused (pre, isPaired, bend);
+    const std::array<float, 3> key {
+        stableAmount (post.strength), stableAmount (post.texture), stableAmount (post.sharpness) };
     if (image.isValid() && width == w && height == h && std::equal_to<float> {} (scale, dpi)
-        && paired == isPaired && amounts == key && sameBend) return image;
+        && amounts == key) return image;
     const auto pw = static_cast<int> (std::ceil (w * dpi)), ph = static_cast<int> (std::ceil (h * dpi));
     const auto bytesNeeded = static_cast<std::size_t> (pw) * static_cast<std::size_t> (ph) * 4;
     if (bytesNeeded > byteBudget) return {};
@@ -33,10 +33,9 @@ juce::Image Cache::lookup (attack_specimen::FeatureAmounts pre, attack_specimen:
     {
         juce::Graphics raster (next);
         raster.addTransform (juce::AffineTransform::scale (dpi));
-        if (isPaired) attack_specimen::drawMembrane (raster, { 0, 0, w, h }, pre, bend, true);
-        attack_specimen::drawMembrane (raster, { 0, 0, w, h }, post, bend);
+        attack_specimen::drawSpecimen (raster, { 0, 0, w, h }, { key[0], key[1], key[2] });
     }
-    image = next; width = w; height = h; scale = dpi; paired = isPaired; amounts = key; motion = bend;
+    image = next; width = w; height = h; scale = dpi; amounts = key;
     usedBytes = bytesNeeded; ++buildCount;
     return image;
 }
@@ -62,7 +61,7 @@ void drawFocus (juce::Graphics& g, juce::Rectangle<int> area,
             return;
         }
     }
-    if (paired) attack_specimen::drawMembrane (g, area, pre, motion, true);
-    attack_specimen::drawMembrane (g, area, post, motion);
+    juce::ignoreUnused (pre, paired, motion);
+    attack_specimen::drawSpecimen (g, area, post);
 }
 }

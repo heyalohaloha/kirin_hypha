@@ -8,29 +8,43 @@ Never calculate final precision/recall from this pilot's marks.
 ## Build
 
 ```sh
-node scripts/research/review/build_review_pack.mjs RESEARCH_ROOT NEW_PRIVATE_OUTPUT_DIRECTORY
+node scripts/research/review/build_review_pack.mjs \
+  RESEARCH_ROOT NEW_PRIVATE_REVIEW_DIRECTORY NEW_PRIVATE_EVIDENCE_DIRECTORY
 node --test scripts/research/review/review.test.mjs
 node scripts/research/review/browser-test.mjs PACK_DIRECTORY PLAYWRIGHT_MODULE_DIRECTORY NEW_EVIDENCE_DIRECTORY
 node scripts/research/review/evaluate_review_answers.mjs \
-  ANSWERS_JSON PACK_DIRECTORY/manifest.json CORRECTION_SIDECAR_JSON NEW_PRIVATE_OUTPUT_JSON
+  ANSWERS_JSON PACK_DIRECTORY/manifest.json CORRECTION_SIDECAR_JSON \
+  EVIDENCE_DIRECTORY/evidence-manifest.json NEW_PRIVATE_OUTPUT_JSON
+
+# After the representative pilot, build an exhaustive SPACE development annotation pack
+# from the already verified six-item SPACE pack. Prior answers and source paths are omitted.
+node scripts/research/review/build_space_exhaustive_pack.mjs \
+  VERIFIED_SPACE_PACK NEW_PRIVATE_REVIEW_DIRECTORY NEW_PRIVATE_EVIDENCE_DIRECTORY
 ```
 
 The existing research root must contain the corpus proposal, exactly one development
 directory per feature, and the associated float WAVs and provenance JSONs.
 Only six explicitly selected development excerpts are opened; reserved evaluation
 audio is never decoded or copied.
-Creation refuses an existing output directory and uses private file permissions.
+Creation refuses existing output directories and uses private file permissions.
+The review and evidence directories must remain separate. Give only the review directory
+to the annotator; retain the evidence directory for evaluation.
 Do not add generated audio, provenance paths, reviewer identities or answers to Git.
+
+The exhaustive SPACE protocol presents all 30 seconds, requires at least 95% distinct playback
+coverage, and asks for every perceptually trackable decay interval. It is a development annotation
+set, not an unused holdout. It deliberately omits detector candidates, source titles, prior answers
+and source paths from the review pack.
 
 ## Source responsibilities
 
 - `wav.mjs`: validates native float WAV structure and produces a display-only envelope.
 - `build_review_pack.mjs`: verifies development partitions and provenance, copies unchanged PCM,
-  embeds the UI and waveform data, and writes the private manifest.
+  embeds the UI and waveform data, and writes a separate detector-result evidence bundle.
 - `model.js`: validates answers and exact pack identity; exports TSV with real separators.
 - `wave.js`: native sample-coordinate selection and bounded canvas rendering.
 - `app.js`: one audio player, manual playback, draft answers, persistence, import/export.
-- `evaluate_review_answers.mjs`: verifies the answer, pack, audio, detector-result and
+- `evaluate_review_answers.mjs`: verifies the answer, pack, audio, separate detector-result evidence and
   correction identities, then writes a privacy-reduced development diagnostic.
 - `shell.html` and `review.css`: offline interface with no external resources.
 - `review.test.mjs` and `browser-test.mjs`: model, parser, browser and error-path tests.

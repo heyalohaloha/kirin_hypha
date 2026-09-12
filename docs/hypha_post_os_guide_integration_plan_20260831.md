@@ -57,11 +57,11 @@ Guideは第五の観測domainにしない。
 
 Guideは`LEVEL / TIME / FREQ / SPACE`へ必要な事実だけを投影するcontext layerとする。
 
-Guideが存在しないときは画面上の占有面積を0にする。
+Guideが存在しないときはFooterのGuide contextを表示せず、測定面の寸法を変えない。
 
 Guide受信によって表示中domainを自動変更しない。
 
-利用者がGuide railを選んだときだけ、対応するTIMEまたはFREQへ移動する。
+利用者がGuide contextを選んだときは受信事実の詳細を開き、domain移動は利用者の直接操作に委ねる。
 
 POSTはPREとpairされていなくてもGuideを表示できる。
 
@@ -149,14 +149,14 @@ TIMEとFREQ用のwindow batchは表示範囲内のfactを最大64件まで返し
 
 | Domain | Guide presentation |
 |---|---|
-| LEVEL | Header下のGuide railだけを表示し、meter値とscaleを変更しない |
+| LEVEL | FooterのGuide contextだけを表示し、meter値とscaleを変更しない |
 | TIME | INSPECTのinstantまたはinterval、MASKINGのreview selectionとmeasured collision intervalを時間軸へ表示する |
 | FREQ | INSPECTにbandがある場合のbracket、MASKINGのfrequency focusとmeasured bandを別の形で表示する |
 | SPACE | 対応するGuide事実がないため投影しない |
 
 MASKINGの`frequency_state = unlocated`にはbandを描かない。
 
-frequency focusは利用者が選んだ範囲、measured bandはKirin OSが測定した範囲として線種を分ける。
+frequency focusは利用者が選んだ範囲、measured bandはKirin OSが測定した範囲として、どちらも連続線のまま色、太さ、明度で分ける。破線と点線は使わない。
 
 INSPECT instantの1 ns wire sentinelを実測durationとして描かず、point markerへ戻す。
 
@@ -236,9 +236,9 @@ receiver起動と終了がWatch、Record、Keep、Pairing、Analysisへ依存し
 
 文字列から時刻や帯域を再parseせず、検証済みGuideModelから型付き事実を投影する。
 
-### Phase 4: Global Guide rail
+### Phase 4: Global Guide context
 
-POSTの全domainと5サイズへGuide railを追加する。
+POSTの全domainと5サイズへFooterのGuide contextを追加する。
 
 Guide不在、受信待ち、project clock待ち、active、held、end、paused、rejectedを同じfixtureでrenderする。
 
@@ -330,6 +330,6 @@ POST Guideを再開する場合は、統合baseline上でGuide receiverをATTACK
 
 ATTACK、FREQ、SHARPのanalysis leaseとGuide receiverの生存期間を共有しない。
 
-Guide railを閉じてもGuideをEndせず、Kirin OSのEndまたはreplaceまでretention契約を保つ。
+Guide contextの詳細を閉じてもGuideをEndせず、Kirin OSのEndまたはreplaceまでretention契約を保つ。
 
 この分離により、ATTACKの精度と資源制御へ影響を与えず、POSTをKirin OSの主観測窓へ拡張できる。

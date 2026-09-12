@@ -1,7 +1,10 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaHybridVuPainter.h"
 #include "HyphaSpacePainter.h"
 #include "HyphaTimeHistoryPainter.h"
 #include "HyphaObservationEquality.h"
+#include "HyphaSurfaceMaterial.h"
+#include "HyphaTextStyle.h"
 #include <utility>
 
 namespace hypha::observatory
@@ -28,9 +31,7 @@ void drawPanel (juce::Graphics& g, juce::Rectangle<int> area,
                 ExperienceFamily family, float corner = 4.0f)
 {
     const auto opacity = family == ExperienceFamily::compactMeter ? 0.96f : 0.76f;
-    g.setColour (BG.withAlpha (opacity));
-    g.fillRoundedRectangle (area.toFloat(), corner);
-    g.setColour (COL_MUTED.withAlpha (0.34f)); g.drawRoundedRectangle (area.toFloat().reduced (0.5f), corner, 1.0f);
+    surface_material::paintPanel (g, area.toFloat(), opacity, corner);
 }
 void styleButton (juce::TextButton& button)
 {
@@ -47,7 +48,9 @@ View::View (Role roleIn) : role (roleIn)
                           &referenceButton,
                           &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton,
                           &compactLoudnessButton, &compactRangeButton,
-                          &contextButton, &scaleButton, &sizeButton, &resetButton, &noteButton, &captureButton })
+                          &contextButton, &scaleButton, &sizeButton, &operationsButton,
+                          &stopButton, &guideButton, &statusButton, &hybridVuButton,
+                          &clearPeakClipButton, &resetButton, &noteButton, &captureButton })
     {
         styleButton (*button);
         addAndMakeVisible (*button);
@@ -59,7 +62,8 @@ View::View (Role roleIn) : role (roleIn)
     referenceButton.onClick = [this] { if (onDomainChange) onDomainChange (Domain::reference); };
     referenceButton.setComponentID ("observatory-reference");
     setReferenceOwned (false);
-    domainCycleButton.onClick = [this] { cycleDomain(); };
+    domainCycleButton.onClick = [this]
+    { if (onDomainMenu) onDomainMenu(); else cycleDomain(); };
     targetButton.onClick = [this]
     {
         if (isFullDensity (currentPreset().density))
@@ -84,6 +88,7 @@ View::View (Role roleIn) : role (roleIn)
     compactRangeButton.onClick = [this] { setCompactMaximum (! compactShowsMaximum); };
     contextButton.onClick = [this]
     {
+        if (onContextMenu) { onContextMenu(); return; }
         const auto next = meter_context::nextContext (selectedMeterContext);
         if (onContextChange) onContextChange (next); else setMeterContext (next);
     };
@@ -93,12 +98,50 @@ View::View (Role roleIn) : role (roleIn)
         if (onScaleChange) onScaleChange (next); else setScaleMode (next);
     };
     compactLoudnessButton.setTooltip ("Switch Momentary / Short-term loudness"); compactRangeButton.setTooltip ("Switch current / session maximum values");
-    contextButton.setTooltip ("Switch TRACK/STEM / 2MIX meter context"); scaleButton.setTooltip ("Switch WIDE / FOCUS loudness scale");
-    sizeButton.onClick = [this] { cycleSize(); };
+    contextButton.setComponentID ("observatory-meter-context");
+    contextButton.setTooltip ("Choose whether this instance observes a mix bus or a track / stem"); scaleButton.setTooltip ("Switch WIDE / FOCUS loudness scale");
+    sizeButton.onClick = [this] { if (onSizeMenu) onSizeMenu(); else cycleSize(); };
+    sizeButton.setTooltip ("Choose an exact editor size");
+    operationsButton.setTooltip ("Keep, measurement, and display controls");
+    operationsButton.setComponentID ("observatory-menu");
+    operationsButton.onClick = [this] { if (onOperationsMenu) onOperationsMenu(); };
+    stopButton.setColour (juce::TextButton::textColourOffId, COL_FLORA_BR);
+    stopButton.setTooltip ("Stop the selected PRE / POST Keep");
+    stopButton.onClick = [this] { if (onStop) onStop(); };
+    guideButton.setColour (juce::TextButton::textColourOffId, COL_GUIDE_BR);
+    guideButton.setTooltip ("Open the received Kirin OS Guide details");
+    guideButton.onClick = [this] { if (onGuideDetails) onGuideDetails(); };
+    statusButton.setColour (juce::TextButton::textColourOffId, COL_NORMAL);
+    statusButton.onClick = [this] { if (onFeedbackDetails) onFeedbackDetails(); };
+    hybridVuButton.setComponentID ("observatory-hybrid-vu");
+    hybridVuButton.setTitle ("Hybrid VU");
+    hybridVuButton.setDescription ("Show or hide the Hybrid VU without changing measurement");
+    hybridVuButton.setTooltip (hybridVuButton.getDescription());
+    hybridVuButton.onClick = [this]
+    {
+        toggleHybridVu();
+        if (onHybridVuChange) onHybridVuChange (hybridVuVisible());
+    };
+    clearPeakClipButton.setComponentID ("observatory-clear-peak-clip");
+    clearPeakClipButton.setTitle ("Clear True Peak and Clip holds");
+    clearPeakClipButton.setDescription (
+        "Clear held channel True Peak and Clip indicators; keep current values and history");
+    clearPeakClipButton.setTooltip (clearPeakClipButton.getDescription());
+    clearPeakClipButton.onClick = [this]
+    {
+        if (onClearPeakClipHolds) onClearPeakClipHolds();
+    };
     resetButton.onClick = [this] { if (onReset) onReset(); };
     noteButton.onClick = [this] { if (onNote) onNote(); };
     noteButton.setComponentID ("observatory-note");
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
+    styleButton (localBlindButton);
+    localBlindButton.setComponentID ("observatory-local-blind");
+    localBlindButton.setTitle ("PRE / POST Blind Compare");
+    localBlindButton.setDescription ("Capture and compare one exact four second PRE and POST range");
+    localBlindButton.setTooltip (localBlindButton.getDescription());
+    localBlindButton.onClick = [this] { if (onLocalBlind) onLocalBlind(); };
+    addChildComponent (localBlindButton);
     updateControls();
 }
 
@@ -141,6 +184,14 @@ void View::setTarget (ObservationTarget value)
     updateControls();
     resized();
     repaint();
+}
+
+void View::setDeltaTargetEnabled (bool enabled)
+{
+    if (deltaTargetEnabled == enabled)
+        return;
+    deltaTargetEnabled = enabled;
+    updateControls();
 }
 
 void View::setConnection (juce::String text, juce::Colour colour, ConnectionState state)
@@ -198,6 +249,7 @@ void View::setGuide (juce::String primary, juce::String detail, bool emphasized)
     guidePrimary = std::move (primary);
     guideDetail = std::move (detail);
     guideEmphasized = emphasized;
+    updateControls();
     if (changedPresence)
         resized();
     repaint();
@@ -210,6 +262,7 @@ void View::clearGuide()
     guidePrimary.clear();
     guideDetail.clear();
     guideEmphasized = false;
+    updateControls();
     resized();
     repaint();
 }
@@ -235,11 +288,11 @@ View::HistoryRequest View::historyRequest() const noexcept
         128, 1'200, juce::jmax (1, bodyArea.getWidth()) * 2));
     switch (timeRange)
     {
-        case TimeRange::seconds30: return { KIRIN_METER_HISTORY_10_HZ, 300, maxOutput, "30 S / 10 HZ" };
-        case TimeRange::minutes2:  return { KIRIN_METER_HISTORY_10_HZ, 1'200, maxOutput, "2 MIN / 10 HZ" };
-        case TimeRange::minutes10: return { KIRIN_METER_HISTORY_10_HZ, 6'000, maxOutput, "10 MIN / 10 HZ" };
-        case TimeRange::hours2:    return { KIRIN_METER_HISTORY_1_HZ, 7'200, maxOutput, "2 H / 1 HZ" };
-        case TimeRange::hours24:   return { KIRIN_METER_HISTORY_0_1_HZ, 8'640, maxOutput, "24 H / 0.1 HZ" };
+        case TimeRange::seconds30: return { KIRIN_METER_HISTORY_10_HZ, 300, maxOutput, "30 S" };
+        case TimeRange::minutes2:  return { KIRIN_METER_HISTORY_10_HZ, 1'200, maxOutput, "2 MIN" };
+        case TimeRange::minutes10: return { KIRIN_METER_HISTORY_10_HZ, 6'000, maxOutput, "10 MIN" };
+        case TimeRange::hours2:    return { KIRIN_METER_HISTORY_1_HZ, 7'200, maxOutput, "2 H" };
+        case TimeRange::hours24:   return { KIRIN_METER_HISTORY_0_1_HZ, 8'640, maxOutput, "24 H" };
     }
     return {};
 }
@@ -289,12 +342,16 @@ void View::updateControls()
         juce::dontSendNotification);
     if (! capabilities().targetSelectable)
         targetButton.setButtonText (target() == ObservationTarget::absolute ? "POST" : hypha::delta());
-    targetButton.setEnabled (capabilities().targetSelectable);
-    targetButton.setTooltip (capabilities().help);
+    targetButton.setEnabled (capabilities().targetSelectable
+                             && (fullCockpit || deltaTargetEnabled));
+    targetButton.setTooltip (deltaTargetEnabled ? capabilities().help
+                                                : "Select LR, MID, or SIDE to view Delta");
     deltaButton.setToggleState (target() == ObservationTarget::delta,
                                 juce::dontSendNotification);
-    deltaButton.setEnabled (capabilities().targetSelectable);
-    deltaButton.setTooltip ("POST minus PRE; select POST to return to absolute values");
+    deltaButton.setEnabled (capabilities().targetSelectable && deltaTargetEnabled);
+    deltaButton.setTooltip (deltaTargetEnabled
+        ? "POST minus PRE; select POST to return to absolute values"
+        : "Select LR, MID, or SIDE to view Delta");
     timeRangeButton.setButtonText (historyRequest().label);
     compactLoudnessButton.setButtonText (
         selectedShortTermLoudness ? "LOUDNESS S" : "LOUDNESS M");
@@ -309,11 +366,46 @@ void View::updateControls()
     scaleButton.setToggleState (true, juce::dontSendNotification);
     sizeButton.setButtonText (
         displayedEditorWidth > 0 ? displayedSizeLabel : currentPreset().label);
+    const auto guideLabel = guidePrimary.containsIgnoreCase ("MASKING") ? "MASKING"
+                          : guidePrimary.containsIgnoreCase ("INSPECT") ? "INSPECT"
+                          : guidePrimary.containsIgnoreCase ("CONNECT") ? "CONNECT"
+                                                                       : "OS GUIDE";
+    guideButton.setButtonText (guideLabel);
+    guideButton.setToggleState (guideEmphasized, juce::dontSendNotification);
+    guideButton.setTooltip ((guidePrimary + "  " + guideDetail).trim());
+    statusButton.setButtonText (feedbackText);
+    statusButton.setTooltip (feedbackText);
+    hybridVuButton.setToggleState (hybridVuVisible(), juce::dontSendNotification);
 }
 
 
 void View::paint (juce::Graphics& g)
 {
+    if (hybridVuVisible())
+    {
+        hybrid_vu::paint (g, getLocalBounds(), {
+            role, observatoryFrame.meter, watchDisplay,
+            currentFactsAvailable(), cumulativeFactsAvailable(), watchDisplayAvailable,
+            selectedShortTermLoudness, hostRecording, connectionText, connectionColour,
+            jungleAppearance, presentationContext()
+        });
+        if (feedbackText.isNotEmpty())
+        {
+            auto feedback = getLocalBounds();
+            feedback = { feedback.getX(), juce::roundToInt (getHeight() * 0.880f),
+                         feedback.getWidth(), juce::roundToInt (getHeight() * 0.095f) };
+            feedback.removeFromLeft (juce::roundToInt (getWidth() * 0.18f));
+            feedback.removeFromRight (juce::roundToInt (getWidth() * 0.20f));
+            g.setColour (BG.withAlpha (0.92f));
+            g.fillRoundedRectangle (feedback.toFloat(), 3.0f);
+            g.setColour (COL_NORMAL);
+            g.setFont (monoFont (presentationContext(), typography::TextRole::status));
+            text_style::draw (g, feedbackText, feedback.reduced (3, 0),
+                              presentationContext(), typography::TextRole::status,
+                              juce::Justification::centred);
+        }
+        return;
+    }
     const auto state = worldState();
     const auto contract = presentation();
     if (contract.worldBackdrop)
@@ -330,7 +422,6 @@ void View::paint (juce::Graphics& g)
         background.drawHyphaSpecimen (g, bodyArea, state);
     }
     paintHeader (g, layout);
-    paintGuide (g, layout);
     if (selectedDomain == Domain::level && (captureFrame || fullCockpit()))
         paintLevelWithHistory (g, bodyArea);
     else if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
@@ -339,7 +430,8 @@ void View::paint (juce::Graphics& g)
     else if (selectedDomain == Domain::space)
         space_field::paint (g, bodyArea, observatoryFrame.meter,
                             currentFactsAvailable(),
-                            contract.family == ExperienceFamily::compactMeter);
+                            contract.family == ExperienceFamily::compactMeter,
+                            presentationContext());
     else drawPanel (g, bodyArea, contract.family);
     paintFooter (g, layout);
     observatory_world::paintPlateFrame (g, getLocalBounds(), state);
@@ -356,52 +448,33 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
     else
         observatory_world::paintPairRoot (g, statusArea, state, connectionColour);
     const auto density = currentPreset().density;
-    const auto titleHeight = density == Density::compact ? 12.0f
-                           : density == Density::focused ? 14.0f
-                           : density == Density::standard ? 16.0f
-                           : density == Density::inspection ? 23.0f : 18.0f;
+    const auto context = presentationContext();
     auto titleArea = toJuce (layout.roleTitle).reduced (6, 0);
-    const auto productFont = labelFont (titleHeight);
-    const auto productWidth = juce::jmin (
+    const auto roleText = role == Role::post ? juce::String ("POST") : juce::String ("PRE");
+    const auto roleFont = labelFont (context, typography::TextRole::shellTitle);
+    const auto roleWidth = juce::jmin (
         titleArea.getWidth() - 20,
-        juce::roundToInt (productFont.getStringWidthFloat ("HYPHA")) + 2);
-    auto productArea = titleArea.removeFromLeft (juce::jmax (1, productWidth));
+        juce::roundToInt (roleFont.getStringWidthFloat (roleText)) + 2);
+    auto roleArea = titleArea.removeFromLeft (juce::jmax (1, roleWidth));
     titleArea.removeFromLeft (density == Density::compact ? 3 : 5);
-    g.setFont (productFont);
+    g.setFont (labelFont (context, typography::TextRole::shellTitle));
+    g.setColour (role == Role::post ? COL_FLORA : COL_LED_BLUE);
+    text_style::draw (g, roleText, roleArea, context, typography::TextRole::shellTitle,
+                      juce::Justification::centredLeft);
     g.setColour (COL_NORMAL);
-    g.drawFittedText ("HYPHA", productArea, juce::Justification::centredLeft, 1, 0.82f);
-    g.setColour (COL_MUTED.brighter (0.18f));
-    g.setFont (labelFont (titleHeight * 0.88f));
-    g.drawFittedText (role == Role::post ? "POST" : "PRE",
-                      titleArea.translated (0, density == Density::compact ? 1 : 0),
-                      juce::Justification::centredLeft, 1, 0.82f);
+    g.setFont (labelFont (context, typography::TextRole::shellTitle));
+    text_style::draw (g, "HYPHA",
+                      titleArea.translated (0, density == Density::compact ? 1 : 0), context,
+                      typography::TextRole::shellTitle, juce::Justification::centredLeft);
     if (! externalConnectionLabelVisible || captureFrame)
     {
         g.setColour (connectionColour);
-        g.setFont (monoFont (density == Density::compact ? 9.0f
-                           : density == Density::inspection ? 16.0f : 11.0f));
+        g.setFont (monoFont (context, typography::TextRole::status));
         if (contract.hyphaAperture)
             statusArea.removeFromLeft (22);
         g.drawText (connectionText, statusArea.reduced (4, 0),
                     juce::Justification::centredRight);
     }
-}
-
-void View::paintGuide (juce::Graphics& g, const ShellLayout& layout)
-{
-    if (! hasArea (layout.guideRail))
-        return;
-    auto area = toJuce (layout.guideRail);
-    g.setColour ((guideEmphasized ? COL_GUIDE_BR : COL_GUIDE).withAlpha (0.10f));
-    g.fillRoundedRectangle (area.toFloat(), 3.0f);
-    g.setColour (guideEmphasized ? COL_GUIDE_BR : COL_GUIDE);
-    g.fillRect (area.removeFromLeft (2));
-    g.setFont (monoFont (9.5f));
-    g.drawText (guidePrimary, area.removeFromLeft (juce::roundToInt (area.getWidth() * 0.58f))
-                                  .reduced (6, 0), juce::Justification::centredLeft);
-    g.setColour (COL_GUIDE.withAlpha (0.78f));
-    g.drawText (guideDetail, area.reduced (4, 0), juce::Justification::centredRight);
-    observatory_world::paintGuideRoot (g, toJuce (layout.guideRail), worldState());
 }
 
 }

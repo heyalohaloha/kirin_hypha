@@ -15,6 +15,7 @@ struct State
     observatory::ConnectionState connection = observatory::ConnectionState::unpaired;
     bool guidePresent = false;
     bool capture = false;
+    bool jungle = false;
     float energy = 0.0f;
     float direction = 0.0f;
 };
@@ -27,7 +28,8 @@ constexpr float backdropOpacity (const State& state) noexcept
     const float role = state.role == observatory::Role::pre ? 0.72f : 1.0f;
     const float signal = state.active ? 1.0f : 0.48f;
     const float capture = state.capture ? 1.08f : 1.0f;
-    return density * role * signal * capture;
+    const float jungle = state.jungle ? 1.08f : 1.0f;
+    return density * role * signal * capture * jungle;
 }
 
 class Backdrop

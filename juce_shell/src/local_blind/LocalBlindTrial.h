@@ -99,6 +99,10 @@ private:
     std::atomic<TrialAnswer> answered { TrialAnswer::none };
     std::int64_t previousEnd = 0; // RT-owned
     bool hasPrevious = false; // RT-owned, capture and playback epochs remain separate
+    Command passStimulus = ready; // RT-owned; partial visits never combine into a full pass
+    std::uint64_t passFrames = 0;
+    std::int64_t passStart = 0;
+    bool passActive = false;
 
     static Command kind (std::uint64_t value) noexcept { return static_cast<Command> (value & 7u); }
     bool issue (Command) noexcept;

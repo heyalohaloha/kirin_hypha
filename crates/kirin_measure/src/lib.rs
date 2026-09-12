@@ -1,6 +1,4 @@
-//! kirin_measure — Kirin Hypha 共通計測ライブラリ。
-//!
-//! napi-rsに依存せず、nih-plugのAudio Threadから独立したMeasure Thread／IO Threadで使う。
+//! kirin_measure — napi-rs非依存でAudio Threadから隔離したKirin Hypha共通計測ライブラリ。
 mod absolute_level;
 pub mod absolute_timeline;
 pub mod all_keep_signal;
@@ -55,6 +53,7 @@ mod pre_pair_status;
 pub mod preset;
 pub mod preset_dispatch;
 pub mod preset_v2;
+mod project_audition_lease;
 mod raw_pre_roll;
 pub mod record;
 pub mod record_clock;
@@ -72,10 +71,12 @@ mod record_writer_claim;
 pub mod reference_gain;
 pub mod resampler;
 pub mod reservation;
+pub mod space_decay;
 pub mod spectrum;
 mod spectrum_difference_timeline;
 pub mod spectrum_exchange;
 mod spectrum_exchange_worker;
+mod spectrum_mid_side;
 pub mod spectrum_runtime;
 pub mod stereo_meter;
 pub mod storage;
@@ -109,7 +110,7 @@ pub use all_stop_signal::{
     write_stop_broadcast_for_generation, write_stop_broadcast_signal, AllStopBroadcast,
     AllStopError, ALL_STOP_BROADCAST_STALE_SECS, ALL_STOP_SCHEMA_VERSION, ALL_STOP_SIGNAL_SUBDIR,
 };
-pub use analysis_lease::{ANALYSIS_OWNER_NAME_MAX_BYTES, ANALYSIS_SLOT_COUNT};
+pub use analysis_lease::{AuditionAdmission, ANALYSIS_OWNER_NAME_MAX_BYTES, ANALYSIS_SLOT_COUNT};
 pub use attack_perception::{
     AttackPerceptionError, AttackPerceptualDelta, AttackPerceptualFeatures, ATTACK_CONTEXT_MICROS,
     ATTACK_DETAIL_MICROS, ATTACK_LEVEL_FLOOR_DBFS,
@@ -304,9 +305,10 @@ pub use spectrum_difference_timeline::{
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY,
 };
 pub use spectrum_exchange::{
-    AttackPairViewSnapshot, SpectrumCoordinator, SpectrumTarget, SpectrumViewSnapshot,
-    SpectrumViewStatus,
+    AttackPairViewSnapshot, MidSideSpectrumViewSnapshot, SpectrumCoordinator, SpectrumTarget,
+    SpectrumViewSnapshot, SpectrumViewStatus,
 };
+pub use spectrum_mid_side::MidSideSpectrumFrame;
 pub use spectrum_runtime::{
     PerceptualHistory, SpectrumHistory, SpectrumRuntime, SpectrumRuntimeStats,
     PERCEPTUAL_HISTORY_CAPACITY, SPECTRUM_HISTORY_CAPACITY,
@@ -971,9 +973,7 @@ mod b110_identity_reset_tests {
         set_daw_session_id("global-daw".to_string());
         assert_eq!(peek_project_uuid(), "global-proj");
         assert_eq!(daw_session_id_cell().read().unwrap().clone(), "global-daw");
-
         clear_shared_identity_cells();
-
         assert!(
             peek_project_uuid().is_empty(),
             "clear 後 project_uuid セルは空（次 seed で埋め直し）"

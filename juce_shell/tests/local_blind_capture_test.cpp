@@ -315,16 +315,25 @@ int main()
         pre.confirmPreAcknowledgement (true);
         const float* pointers[] = { input.data() };
         require (pre.process (pointers, 1, clockAt (0, 12), 48000));
-        pre.servicePre (&request, 1001);
+        // Completion on the exact audio timeline wins even when the non-RT owner observes it
+        // after the admission lease. Finalization must not discard already-complete PCM.
+        pre.servicePre (&request, 2001);
         require (pre.view().phase == CaptureOwnerPhase::complete);
         require (pre.completedCapture() != nullptr);
         auto changed = request;
         changed.pair.generation++;
         require (changed != request);
-        pre.servicePre (&changed, 1002);
+        pre.servicePre (&changed, 2002);
         require (pre.view().phase == CaptureOwnerPhase::failed);
         require (pre.view().failure == CaptureOwnerFailure::stalePair);
         require (pre.completedCapture() == nullptr);
+        pre.reset();
+
+        require (pre.beginPre (request, 48000, 1, 1000));
+        pre.confirmPreAcknowledgement (true);
+        pre.servicePre (&request, 2001);
+        require (pre.view().phase == CaptureOwnerPhase::failed);
+        require (pre.view().failure == CaptureOwnerFailure::expired);
         pre.reset();
 
         LocalBlindCaptureOwner post (CaptureSide::post);
@@ -343,22 +352,46 @@ int main()
         post.servicePost (true, &pair, 48000, 1, 1000);
         require (post.view().phase == CaptureOwnerPhase::capturing);
         require (post.process (pointers, 1, clockAt (0, 12), 48000));
-        post.servicePost (true, &pair, 48000, 1, 1001);
+        post.servicePost (false, &pair, 48000, 1, 2001);
         require (post.view().phase == CaptureOwnerPhase::complete);
         CaptureReceipt receipt;
         require (post.receipt (receipt));
         require (receipt.side == CaptureSide::post && receipt.range.start == 0);
-        post.servicePost (false, &pair, 48000, 1, 1002);
-        require (post.view().failure == CaptureOwnerFailure::peerRejected);
+        require (post.view().failure == CaptureOwnerFailure::none);
+        post.servicePost (false, &wrongPair, 48000, 1, 2002);
+        require (post.view().phase == CaptureOwnerPhase::failed);
+        require (post.view().failure == CaptureOwnerFailure::stalePair);
         post.reset();
 
         require (post.beginPost (request));
         post.servicePost (true, &pair, 48000, 1, 2001);
         require (post.view().failure == CaptureOwnerFailure::expired);
         post.reset();
+
+        require (post.beginPost (request));
+        post.servicePost (true, &pair, 48000, 1, 1000);
+        require (post.process (pointers, 1, clockAt (0, 6), 48000));
+        post.servicePost (false, &pair, 48000, 1, 2001);
+        require (post.view().phase == CaptureOwnerPhase::failed);
+        require (post.view().failure == CaptureOwnerFailure::expired);
+        post.reset();
         require (post.beginPost (request));
         post.servicePost (true, &pair, 44100, 1, 1000);
         require (post.view().failure == CaptureOwnerFailure::armRejected);
+        post.reset();
+
+        require (post.beginPost (request));
+        post.servicePost (true, &pair, 48000, 1, 1000);
+        require (post.process (pointers, 1, clockAt (0, 6), 48000));
+        require (post.process (pointers, 1, clockAt (7, 5), 48000));
+        post.servicePost (true, &pair, 48000, 1, 1001);
+        require (post.view().phase == CaptureOwnerPhase::failed);
+        require (post.view().failure == CaptureOwnerFailure::captureFailed);
+        // The clock guard rejects the transport gap before PCM ingress can classify it as a
+        // range discontinuity; preserve that exact producer-side reason across retirement.
+        require (post.view().captureFailure == CaptureFailure::clock);
+        post.reset();
+        require (post.view().captureFailure == CaptureFailure::none);
     }
     std::cout << "Exact range capture: PASS (ranges, pair barrier, role lane, bounds, retirement)\n";
 }

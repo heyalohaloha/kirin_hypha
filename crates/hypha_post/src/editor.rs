@@ -13,12 +13,10 @@
 //! - POST Bypassed → 全項目 `---` + ボタン非表示（プラグイン無効化中）
 //! - POST Inactive → 全項目 `---` + ボタン表示（信号待ちでも license 操作は可能）
 //!
-//! Record モード（recording=true）: 左列=Δ 3 項目 / 右列=絶対値 3 項目（LUFS-M / TP / Crest）。
-//! NoPre 時は Δ 列が自動的に `---`、右列は POST 絶対値で埋める。
+//! Record時は左列=Δ、右列=絶対値。NoPre時はΔが`---`、右列はPOST絶対値で埋める。
 //! ペアリング表示は pair_label から取得（サブ3 で IO Thread から配信）。
 //!
-//! - `Keep` → PRE 候補 0 件 → toast / 排他違反 → toast /
-//!   `try_enter_record(license)` → `write_pending`
+//! - `Keep` → PRE候補0件/排他違反はtoast、成功時は`try_enter_record` → `write_pending`
 //! - `Stop` → `record_sm.exit_record()` + reasoned `mark_released`
 //! - Sense hint → `open::that(SENSE_UPSELL_URL)` でブラウザ起動
 //!
@@ -1993,9 +1991,11 @@ pub(crate) fn trigger_keep_internal(
         {
             Ok(reservation::ReserveOutcome::Created) => true,
             Ok(reservation::ReserveOutcome::AlreadyReserved) => false,
-            Ok(reservation::ReserveOutcome::PreInUse) => {
+            Ok(
+                reservation::ReserveOutcome::PreInUse | reservation::ReserveOutcome::AuditionInUse,
+            ) => {
                 if let Some(t) = toast.as_mut() {
-                    **t = Some(Toast::new("PRE already in use", now));
+                    **t = Some(Toast::new("PRE or Blind Compare already in use", now));
                 }
                 return false;
             }

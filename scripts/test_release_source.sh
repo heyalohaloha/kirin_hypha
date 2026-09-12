@@ -6,11 +6,13 @@ cd "$ROOT"
 
 UI_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-ui-contract-$$"
 OBSERVATORY_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-observatory-contract-$$"
-PRE_DISPLAY_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/kirin-pre-display-test.XXXXXX")"
+# Keep native objects under the already-ignored Cargo target tree. Re-running this gate now
+# recompiles only changed JUCE sources; CI workspaces are fresh, so release verification remains
+# independent there. Set KIRIN_HYPHA_NATIVE_TEST_BUILD to isolate a diagnostic run if needed.
+PRE_DISPLAY_BUILD="${KIRIN_HYPHA_NATIVE_TEST_BUILD:-${CARGO_TARGET_DIR:-$ROOT/target}/hypha-release-native-tests}"
 cleanup() {
   cmake -E rm -f "$UI_CONTRACT_BIN"
   cmake -E rm -f "$OBSERVATORY_CONTRACT_BIN"
-  cmake -E remove_directory "$PRE_DISPLAY_BUILD"
 }
 trap cleanup EXIT
 
@@ -37,6 +39,20 @@ assert_ignored_count() {
   fi
 }
 
+assert_ctest_inventory() {
+  local build_dir="$1"
+  local build_config="$2"
+  local test_regex="$3"
+  local expected="$4"
+  local actual
+  actual="$(ctest --test-dir "$build_dir" --build-config "$build_config" -N -R "$test_regex" \
+    | awk '/Total Tests:/ { print $3 }')"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "release gate CTest inventory mismatch: selected=$actual expected=$expected regex=$test_regex" >&2
+    exit 1
+  fi
+}
+
 # Shipping producer/consumer contract. This includes measurement, Record writer, generation,
 # pairing, TRACE publication, and error-path integration tests without treating the retired
 # nih-plug editors as the AU/VST3 release shell.
@@ -45,6 +61,9 @@ run node --test scripts/public_history.test.mjs
 run node scripts/check_public_history.mjs --tip HEAD
 run node --test scripts/check_aax_sdk_absence.test.mjs
 run node scripts/check_aax_sdk_absence.mjs
+run node --test scripts/check_typography_source.test.mjs
+run node scripts/check_typography_source.mjs
+run node --test scripts/structural_repair_detection.test.mjs
 run node --test scripts/research/review/review.test.mjs
 run node --test scripts/research/review/evaluate_review_answers.test.mjs
 run bash scripts/test_source_line_budget.sh
@@ -59,8 +78,8 @@ run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   juce_shell/tests/ui_contract_test.cpp -o "$UI_CONTRACT_BIN"
 run "$UI_CONTRACT_BIN"
 
-# New shell anatomy is independent of the legacy Meters layout. Pin all four PRE/POST sizes and
-# the optional Guide rail before either transport or JUCE rendering is connected to it.
+# New shell anatomy is independent of the legacy Meters layout. Pin all five PRE/POST sizes and
+# the optional Guide context before either transport or JUCE rendering is connected to it.
 run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   juce_shell/tests/observatory_contract_test.cpp -o "$OBSERVATORY_CONTRACT_BIN"
 run "$OBSERVATORY_CONTRACT_BIN"
@@ -85,12 +104,27 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   PRE_DISPLAY_CMAKE_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=$(uname -m)")
 fi
 run cmake "${PRE_DISPLAY_CMAKE_ARGS[@]}"
-run cmake --build "$PRE_DISPLAY_BUILD" \
-  --target KirinPreDisplayRuntimeTests KirinUiRenderContractTests \
-  KirinAttackUiContractTests KirinReferenceAuditionRuntimeTests --config Release
+JUCE_TEST_TARGETS=(
+  KirinPreDisplayRuntimeTests
+  KirinCaptureWorkAttachmentTests
+  KirinUiRenderContractTests
+  KirinAttackUiContractTests
+  KirinReferenceAuditionRuntimeTests
+  KirinReferenceAudioPagesTests
+  KirinLocalBlindCaptureTests
+  KirinLocalBlindTrialTests
+  KirinLocalBlindHostContextTests
+  KirinLocalBlindPreparationTests
+  KirinLocalBlindCaptureServiceTests
+  KirinLocalBlindCapturePairComparisonTests
+  KirinLocalBlindPdcValidationDelayTests
+)
+JUCE_TEST_REGEX='^(kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_time_history_contract|kirin_analysis_demand_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay)$'
+JUCE_TEST_COUNT=15
+run cmake --build "$PRE_DISPLAY_BUILD" --target "${JUCE_TEST_TARGETS[@]}" --config Release
+assert_ctest_inventory "$PRE_DISPLAY_BUILD" Release "$JUCE_TEST_REGEX" "$JUCE_TEST_COUNT"
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
-  --output-on-failure \
-  -R '^(kirin_pre_display_runtime|kirin_ui_render_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime)$'
+  --output-on-failure --no-tests=error -R "$JUCE_TEST_REGEX"
 
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked
@@ -111,7 +145,7 @@ FFI_ARCHIVE="${CARGO_TARGET_DIR:-target}/debug/libkirin_hypha_ffi.a"
 # attributes for unrelated dependency objects. It still emits the public symbol table for this
 # crate; discard those diagnostic-only failures and require our entries to be defined (`T`).
 FFI_SYMBOLS="$(nm -g "$FFI_ARCHIVE" 2>/dev/null || true)"
-for symbol in kirin_hypha_restore_pair_candidate kirin_hypha_get_paired_pre_locator \
+for symbol in kirin_hypha_restore_pair_candidate_v2 kirin_hypha_get_paired_pre_locator \
               kirin_hypha_poll_record_display \
               kirin_hypha_publish_local_blind_pre_capture \
               kirin_hypha_read_local_blind_pre_capture \

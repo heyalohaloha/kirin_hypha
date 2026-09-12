@@ -54,11 +54,11 @@ The DAW process provides two stable kernel-backed Analysis slots across FREQ, SH
 third page stays idle and displays:
 
 ```text
-Both slots in use — Mix, Vocal
+ANALYSIS IN USE / Mix, Vocal
 ```
 
 The two names come from the slots observed locked during that acquisition attempt. If both names
-cannot be verified, the fallback is `Both slots in use`; the UI never guesses names or commands the
+cannot be verified, the fallback is `ANALYSIS IN USE`; the UI never guesses names or commands the
 user to close a page that may be off screen.
 
 When either active owner returns to METERS or closes, the waiting page may acquire the released slot

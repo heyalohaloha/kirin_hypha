@@ -4,6 +4,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 
 namespace hypha
@@ -49,7 +50,11 @@ public:
                       int width,
                       int height) override
     {
-        graphics.fillAll (findColour (juce::TooltipWindow::backgroundColourId));
+        graphics.fillAll (BG);
+        surface_material::paintPanel (
+            graphics,
+            juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height),
+            0.98f, 4.0f);
         graphics.setColour (findColour (juce::TooltipWindow::outlineColourId));
         graphics.drawRoundedRectangle (
             juce::Rectangle<float> (0.5f, 0.5f, (float) width - 1.0f, (float) height - 1.0f),
@@ -73,7 +78,9 @@ private:
         attributed.setJustification (juce::Justification::centred);
         attributed.append (
             text,
-            labelFont (11.5f),
+            labelFont (presentation::forOutput (
+                450, 300, presentation::OutputTarget::tooltip),
+                typography::TextRole::tooltip),
             findColour (juce::TooltipWindow::textColourId));
         juce::TextLayout layout;
         layout.createLayoutWithBalancedLineLengths (

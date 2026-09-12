@@ -2,7 +2,9 @@
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <array>
@@ -23,9 +25,10 @@ namespace
 
     juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
     {
-        if (status == KIRIN_SPECTRUM_NO_PAIR) return "PRE required for SHARPNESS difference";
-        if (status == KIRIN_SPECTRUM_WARMING_UP) return juce::CharPointer_UTF8 ("SYNC ◌");
-        if (status == KIRIN_SPECTRUM_UNAVAILABLE) return juce::CharPointer_UTF8 ("DATA —");
+        if (status == KIRIN_SPECTRUM_NO_PAIR)
+            return "PAIR PRE TO VIEW DIFFERENCE\nPOST SHARPNESS IS IN LIVE";
+        if (status == KIRIN_SPECTRUM_WARMING_UP) return "PREPARING ANALYSIS";
+        if (status == KIRIN_SPECTRUM_UNAVAILABLE) return "ANALYSIS DATA UNAVAILABLE";
         if (status == KIRIN_SPECTRUM_IN_USE)
             return analysis_ui::slotsInUse (analysisOwnerNames);
         return {};
@@ -52,7 +55,8 @@ namespace
                     float scale,
                     const PaintState& state)
     {
-        g.setFont (monoFont (7.5f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (state.presentation, typography::TextRole::navigation,
+                             typography::Composition::visualization));
         if (state.actionNotice.isNotEmpty())
         {
             g.setColour (COL_MUTED.withAlpha (0.90f));
@@ -69,15 +73,12 @@ namespace
             const bool unavailable = mode == KIRIN_SPECTRUM_CHANNEL_SIDE
                                   && state.inputChannels == 1u;
             if (selected)
-            {
-                g.setColour (BG.brighter (0.14f).withAlpha (0.92f));
-                g.fillRoundedRectangle (segment, 3.0f * scale);
-                g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.62f));
-                g.drawRoundedRectangle (segment, 3.0f * scale, 0.65f * scale);
-            }
+                surface_material::paintControl (
+                    g, segment, false, false, true, COL_SPECTRUM_DELTA_BR,
+                    3.0f * scale);
             g.setColour (unavailable ? COL_MUTED.withAlpha (0.30f)
                                      : selected ? COL_SPECTRUM_DELTA_BR.withAlpha (0.98f)
-                                                : COL_MUTED.withAlpha (0.78f));
+                                                : COL_TEXT_SECONDARY);
             g.drawText (channelModeText (mode), segment.toNearestInt(),
                         juce::Justification::centred);
         }
@@ -90,7 +91,8 @@ namespace
     {
         const float left = outer.getX() + 84.0f * scale;
         const float right = outer.getRight();
-        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (state.presentation, typography::TextRole::readout,
+                             typography::Composition::visualization));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.96f));
         g.drawText (juce::CharPointer_UTF8 ("Δ SHARPNESS"),
                     juce::Rectangle<float> (left, outer.getY(), 76.0f * scale, 13.0f * scale),
@@ -109,7 +111,8 @@ namespace
 
         if (scale > 1.1f)
         {
-            g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (scale)));
+            g.setFont (monoFont (state.presentation, typography::TextRole::legend,
+                                 typography::Composition::visualization));
             g.setColour (COL_SPECTRUM_PRE.withAlpha (0.88f));
             const auto text = "PRE " + juce::String (state.snapshot.pre_sharpness, 2)
                             + "   POST " + juce::String (state.snapshot.post_sharpness, 2);
@@ -120,10 +123,12 @@ namespace
         }
     }
 
-    void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, float scale)
+    void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, float scale,
+                    presentation::Context presentation)
     {
         const float zeroY = yForValue (0.0, plot);
-        g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (presentation, typography::TextRole::axis,
+                             typography::Composition::visualization));
         g.setColour (COL_MUTED.withAlpha (0.86f));
         const int labelWidth = juce::roundToInt (21.0f * scale);
         const int labelHeight = juce::roundToInt (10.0f * scale);
@@ -296,21 +301,22 @@ void paint (juce::Graphics& g,
     const auto plot = historyPlot (outer, scale);
     paintMode (g, outer, scale, state);
     paintHeader (g, outer, scale, state);
-    g.setColour (juce::Colours::black);
-    g.fillRect (plot);
-    paintAxes (g, plot, scale);
+    surface_material::paintObservationWell (g, plot);
+    paintAxes (g, plot, scale, state.presentation);
 
     if (! state.snapshotValid || state.history.empty())
     {
         const auto text = ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot
                             ? statusText (state.snapshot.status, state.analysisOwnerNames)
-                                             : juce::String ("SYNC");
+                                             : juce::String ("PREPARING ANALYSIS");
         if (text.isNotEmpty())
         {
             g.setColour (COL_MUTED);
-            g.setFont (monoFont (13.0f * scale));
-            g.drawFittedText (text, plot.toNearestInt(), juce::Justification::centred,
-                              2, 0.72f);
+            g.setFont (monoFont (state.presentation, typography::TextRole::status,
+                                 typography::Composition::visualization));
+            text_style::draw (g, text, plot.toNearestInt(), state.presentation,
+                              typography::TextRole::status, juce::Justification::centred,
+                              2, typography::Composition::visualization);
         }
         return;
     }

@@ -163,8 +163,8 @@ void paintCurves (juce::Graphics& g,
     g.setGradientFill (fillGradient);
     g.fillPath (deltaFill);
 
-    // A fact-derived tip ribbon adds density beside the Δ edge, never across the whole body.
-    // It has no hold state or animation: every filled segment belongs to this exact snapshot.
+    // A measurement-derived tip ribbon adds density beside the live presentation edge, never
+    // across the whole body. Numeric readout, MARK and Focus Trail retain their unsmoothed facts.
     for (size_t layer = 0; layer < intensityTips.size(); ++layer)
     {
         for (size_t bucket = 1; bucket < intensityTips[layer].size(); ++bucket)
@@ -177,7 +177,7 @@ void paintCurves (juce::Graphics& g,
     }
 
     // MARK is a presentation-only frozen Δ. Amber separates the chosen moment from the cyan live
-    // fact, while its narrower stroke and lack of fill/glow keep the live Δ visually primary.
+    // presentation, while its narrower stroke and lack of fill/glow keep live Δ visually primary.
     if (! markCurve.isEmpty())
     {
         g.setColour (COL_FLORA.withAlpha (
@@ -225,7 +225,8 @@ void paintAbsolute (juce::Graphics& g,
                     float visualScale,
                     const SpectrumBins& post,
                     const SpectrumBins& peakHold,
-                    const absolute_spectrum::History& history)
+                    const absolute_spectrum::History& history,
+                    presentation::Context presentation)
 {
     if (! history.empty())
     {
@@ -295,9 +296,11 @@ void paintAbsolute (juce::Graphics& g,
     }
     const auto current = makeCurve (x, currentY);
     const auto hold = makeCurve (x, holdY);
-    g.setFont (monoFont (11.0f));
+    g.setFont (monoFont (presentation, typography::TextRole::axis,
+                         typography::Composition::visualization));
     g.setColour (COL_NORMAL.withAlpha (0.82f));
-    g.drawText ("-6s", plot.withLeft (plot.getRight() - 36).withHeight (14).toNearestInt(),
+    g.drawText ("-6s", juce::Rectangle<float> { plot.getRight() - 36.0f, plot.getY(),
+                                                36.0f, 14.0f }.toNearestInt(),
                 juce::Justification::centredRight);
     g.drawText ("NOW", plot.withLeft (plot.getRight() - 36).withTop (plot.getBottom() - 14).toNearestInt(),
                 juce::Justification::centredRight);

@@ -23,12 +23,24 @@ typedef struct {
   char pre_instance_id[64];
 } KirinLocalBlindCaptureRequest;
 
-bool kirin_hypha_issue_local_blind_capture_request(
+/*
+ * The version is part of the link contract.  Do not reuse this symbol after changing either the
+ * argument list or KirinLocalBlindCaptureRequest: an older Rust staticlib must fail at link time,
+ * rather than interpreting a scalar argument as an output pointer inside the host process.
+ */
+bool kirin_hypha_issue_local_blind_capture_request_v2(
     KirinHypha* handle, uint64_t capture_generation, uint64_t clock_generation,
     uint8_t clock_source, int64_t clock_position_at_issue,
     int64_t native_start, int64_t frames,
     KirinLocalBlindCaptureRequest* out);
 bool kirin_hypha_poll_local_blind_capture_request(
+    KirinHypha* handle, KirinLocalBlindCaptureRequest* out);
+enum {
+  KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_UNAVAILABLE = 0,
+  KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_CURRENT = 1,
+  KIRIN_LOCAL_BLIND_CAPTURE_REQUEST_CONTENDED = 2
+};
+uint8_t kirin_hypha_poll_local_blind_capture_request_v2(
     KirinHypha* handle, KirinLocalBlindCaptureRequest* out);
 bool kirin_hypha_ack_local_blind_capture_request(
     KirinHypha* handle, const char* request_id);
@@ -36,6 +48,8 @@ bool kirin_hypha_local_blind_capture_is_armed(
     KirinHypha* handle, const char* request_id);
 
 #ifdef __cplusplus
+static_assert(sizeof(KirinLocalBlindCaptureRequest) == 240,
+              "Local Blind capture request ABI size drift");
 }
 #endif
 

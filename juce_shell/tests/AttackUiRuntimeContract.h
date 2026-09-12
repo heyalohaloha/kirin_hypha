@@ -35,12 +35,14 @@ inline bool verifyRedrawContract (const KirinAttackEventBatch& events,
 inline bool verifyFocusCache()
 {
     auto cache = std::make_unique<attack_focus::Cache>();
-    const attack_specimen::FeatureAmounts pre {.2f,.4f,.6f,.8f}, post {.8f,.6f,.4f,.2f};
+    const attack_specimen::FeatureAmounts pre {.2f,.4f,.6f}, post {.8f,.6f,.4f};
     attack_motion::Motion still, tiny, changed;
     tiny.bend.fill (.0001f); changed.bend.fill (.03f);
     if (! cache->lookup (pre,post,true,400,100,2,still).isValid()
         || ! cache->lookup (pre,post,true,400,100,2,tiny).isValid() || cache->builds()!=1
-        || ! cache->lookup (pre,post,true,400,100,2,changed).isValid() || cache->builds()!=2) return false;
+        || ! cache->lookup (pre,post,true,400,100,2,changed).isValid() || cache->builds()!=1
+        || ! cache->lookup (post,post,false,400,100,2,changed).isValid()
+        || cache->builds()!=1) return false;
     for (auto dpi : {1.0f,1.25f,2.0f,4.0f}) {
         const auto result=cache->lookup (pre,post,true,200,100,dpi,still);
         if (! result.isValid() || cache->bytes()!=static_cast<std::size_t> (result.getWidth()*result.getHeight()*4))
@@ -71,7 +73,7 @@ inline bool verifyFocusCache()
     }
     const auto nan=std::numeric_limits<float>::quiet_NaN();
     changed.bend[0]=nan;
-    return ! cache->lookup (pre,post,true,400,100,2,changed).isValid()
+    return cache->lookup (pre,post,true,400,100,2,changed).isValid()
         && ! cache->lookup (pre,post,true,400,100,nan,still).isValid()
         && ! cache->lookup (pre,post,true,1024,512,4,still).isValid()
         && ! cache->lookup (pre,post,true,0,100,1,still).isValid()

@@ -82,7 +82,9 @@ SpectrumComponent::SpectrumComponent()
 
 bool SpectrumComponent::currentSnapshotValid() const noexcept
 {
-    return haveSnapshot && validSnapshot (snapshot, absoluteObservation);
+    return haveSnapshot && (midSideObservation
+        ? midSideSnapshotValid
+        : validSnapshot (snapshot, absoluteObservation));
 }
 
 void SpectrumComponent::setAnalysisOwnerNames (const juce::String& names)
@@ -102,25 +104,6 @@ void SpectrumComponent::setGuideFrequencyOverlay (
     repaint();
 }
 
-void SpectrumComponent::setAbsoluteObservation (bool absolute)
-{
-    if (absoluteObservation == absolute)
-        return;
-    absoluteObservation = absolute;
-    absolutePsbAvailable = deltaPsbAvailable = false;
-    psbStatus = KIRIN_SPECTRUM_WARMING_UP;
-    clearInteractionState();
-    if (haveSnapshot)
-    {
-        const auto retained = snapshot;
-        haveSnapshot = false;
-        havePendingSnapshot = false;
-        setSnapshot (retained);
-    }
-    else
-        repaint();
-}
-
 void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
 {
     if (haveSnapshot && std::memcmp (&snapshot, &next, sizeof (snapshot)) == 0)
@@ -131,6 +114,8 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     if (layoutChanged)
         clearInteractionState();
     snapshot = next;
+    midSideObservation = false;
+    midSideSnapshotValid = false;
     haveSnapshot = true;
     if (next.channel_mode <= KIRIN_SPECTRUM_CHANNEL_SIDE)
         channelMode = next.channel_mode;
@@ -142,8 +127,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     {
         interactionDefinition = next;
         haveInteractionDefinition = true;
-        const auto calmWeights = spectrum_presentation::lowFrequencyCalmWeights<
-            KIRIN_SPECTRUM_BAND_COUNT> (snapshot.min_hz, snapshot.max_hz);
+        const auto& calmWeights = calmWeightsFor (snapshot.min_hz, snapshot.max_hz);
         if (snapshot.has_data != 0)
             displayedPre = spectrum_presentation::calmLowFrequencies (
                 snapshot.pre_dbfs, calmWeights);
@@ -263,8 +247,7 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
         return;
     }
 
-    const auto calmWeights = spectrum_presentation::lowFrequencyCalmWeights<
-        KIRIN_SPECTRUM_BAND_COUNT> (next.min_hz, next.max_hz);
+    const auto& calmWeights = calmWeightsFor (next.min_hz, next.max_hz);
     if (next.has_data != 0)
         pendingPre = spectrum_presentation::calmLowFrequencies (next.pre_dbfs, calmWeights);
     else
@@ -296,6 +279,8 @@ void SpectrumComponent::clearSnapshot()
     absolutePsbAvailable = deltaPsbAvailable = false;
     psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     snapshot = {};
+    midSideSnapshot = {};
+    midSideSnapshotValid = false;
     pendingSnapshot = {};
     displayedPre.fill (0.0f);
     displayedPost.fill (0.0f);
@@ -349,10 +334,12 @@ void SpectrumComponent::presentationTickAt (double nowMs)
     {
         const double intervalMs = 1'000.0
             / (double) ui_contract::spectrumCurvePresentationHz;
+        const double elapsedMs = std::max (0.0, nowMs - lastCurvePresentationMs);
         snapshot = pendingSnapshot;
-        displayedPre = pendingPre;
-        displayedPost = pendingPost;
-        displayedDelta = pendingDelta;
+        spectrum_presentation::advanceAbsoluteCurve (displayedPre, pendingPre, elapsedMs);
+        spectrum_presentation::advanceAbsoluteCurve (displayedPost, pendingPost, elapsedMs);
+        spectrum_presentation::advanceSignedDeltaCurve (
+            displayedDelta, pendingDelta, elapsedMs);
         curveDirty = false;
         lastCurvePresentationMs = nowMs - lastCurvePresentationMs > 2.0 * intervalMs
                                 ? nowMs : lastCurvePresentationMs + intervalMs;
@@ -401,22 +388,29 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
     if (psbObservation) return;
-    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, ! absoluteObservation);
-    for (size_t index = 0; index < ui_contract::spectrumChannelModeWidths.size(); ++index)
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (
+        bounds, ! absoluteObservation && focusFrequencyHz > 0.0f);
+    for (size_t index = 0; index < ui_contract::spectrumDisplayModeWidths.size(); ++index)
     {
-        if (! spectrum_geometry::channelModeBoundsFor (
+        if (! spectrum_geometry::displayModeBoundsFor (
                 index, outerPlot, scale).contains (event.position))
             continue;
         const auto requestedMode = static_cast<uint8_t> (index);
         if (requestedMode == channelMode)
             return;
-        const bool monoSide = requestedMode == KIRIN_SPECTRUM_CHANNEL_SIDE
-                           && inputChannels == 1u;
-        const bool accepted = ! monoSide && onChannelModeChange
+        const bool stereoOnly = requestedMode == KIRIN_SPECTRUM_CHANNEL_SIDE
+                             || requestedMode == KIRIN_SPECTRUM_SELECTION_MID_SIDE;
+        const bool unavailable = (stereoOnly && inputChannels != 2u)
+                              || (requestedMode == KIRIN_SPECTRUM_SELECTION_MID_SIDE
+                                  && ! absoluteObservation);
+        const bool accepted = ! unavailable && onChannelModeChange
                            && onChannelModeChange (requestedMode);
         if (! accepted)
         {
-            modeActionNotice = monoSide ? "SIDE -- MONO" : "MODE --";
+            modeActionNotice = unavailable
+                ? requestedMode == KIRIN_SPECTRUM_SELECTION_MID_SIDE
+                    ? "M/S -- POST STEREO" : "SIDE -- STEREO"
+                : "MODE --";
             modeActionNoticeUntilMs = juce::Time::getMillisecondCounterHiRes() + 1'500.0;
             repaint();
             return;
@@ -438,6 +432,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         curveDirty = false;
         numericDirty = false;
         channelMode = requestedMode;
+        midSideObservation = requestedMode == KIRIN_SPECTRUM_SELECTION_MID_SIDE;
         repaint();
         return;
     }
@@ -455,7 +450,7 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         }
         else if (haveSnapshot && validSnapshot (snapshot, absoluteObservation))
         {
-            markedDelta = displayedDelta;
+            markedDelta = pendingDelta;
             haveMark = true;
         }
         else
@@ -467,13 +462,14 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
 
-    if (! haveSnapshot || ! validSnapshot (snapshot, absoluteObservation))
+    if (! currentSnapshotValid())
         return;
     const bool expanded = scale > 1.1f;
     if (focusFrequencyHz > 0.0f)
     {
-        auto readout = spectrum_geometry::readoutBoundsFor (
-            outerPlot, scale, expanded, true);
+        auto readout = midSideObservation
+            ? spectrum_geometry::midSideReadoutBoundsFor (outerPlot, scale, expanded)
+            : spectrum_geometry::readoutBoundsFor (outerPlot, scale, expanded, true);
         if (spectrum_geometry::focusClearBoundsFor (
                 readout, scale).contains (event.position))
         {

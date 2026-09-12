@@ -1,6 +1,8 @@
 #include "ReferenceRuntimeV2Repository.h"
 #include "ReferenceRuntimeV2PresetParsing.h"
+#include "ReferenceRuntimePendingPresets.h"
 
+#include <algorithm>
 #include <limits>
 #include <regex>
 #include <set>
@@ -12,7 +14,7 @@ namespace hypha::reference_audition
 {
     namespace
     {
-        constexpr std::int64_t maximumManifestBytes = 64 * 1024;
+        constexpr std::int64_t maximumManifestBytes = 256 * 1024;
         constexpr std::int64_t maximumGlobalPresetCatalogBytes = 64 * 1024;
         constexpr std::int64_t maximumPresetBytes = 2 * 1024 * 1024;
         constexpr std::int64_t maximumSourceStateBytes = 1024 * 1024;
@@ -122,11 +124,8 @@ namespace hypha::reference_audition
                             RuntimeManifest& result)
         {
             const auto* object = value.getDynamicObject();
-            if (object == nullptr || ! exactProperties (*object, {
-                    "format", "version", "work_id", "revision", "source_state_artifact",
-                    "global_preset_catalog_artifact", "active_preset", "preset_artifacts" })
+            if (object == nullptr || ! runtimeManifestKeys (*object)
                 || object->getProperty ("format") != "kirin_hypha_reference_manifest"
-                || object->getProperty ("version") != "3.0"
                 || ! exactString (object->getProperty ("work_id"), result.workId)
                 || ! workUuid (result.workId) || result.workId != expectedWorkId
                 || ! exactInteger (object->getProperty ("revision"), 1,
@@ -164,9 +163,10 @@ namespace hypha::reference_audition
                 result.presetArtifacts.push_back (std::move (receipt));
             }
 
+            if (! parseRuntimePendingPresets (*object, result)) return false;
             const auto active = object->getProperty ("active_preset");
             if (active.isVoid())
-                return presets->isEmpty();
+                return presets->isEmpty() && result.pendingPresets.empty();
             const auto* activeObject = active.getDynamicObject();
             if (activeObject == nullptr || ! exactProperties (*activeObject, { "preset_id", "revision_id" })
                 || ! exactString (activeObject->getProperty ("preset_id"), result.activePresetId)
@@ -177,6 +177,9 @@ namespace hypha::reference_audition
                 if (receipt.presetId == result.activePresetId
                     && receipt.revisionId == result.activePresetRevisionId)
                     return true;
+            for (const auto& pending : result.pendingPresets)
+                if (pending.sourcePresetArtifact.presetId == result.activePresetId
+                    && pending.sourcePresetArtifact.revisionId == result.activePresetRevisionId) return true;
             return false;
         }
 
@@ -239,23 +242,30 @@ namespace hypha::reference_audition
             return true;
         }
 
-        bool parseCandidate (const juce::var& value, RuntimeCandidate& result)
+        bool parseCandidate (const juce::var& value, RuntimeCandidate& result,
+                             bool progressive)
         {
             const auto* object = value.getDynamicObject();
-            if (object == nullptr || ! exactProperties (*object, {
-                    "candidate_id", "display_name", "source_kind", "source_identity",
-                    "source_artifact", "cues", "default_cue_id" })
+            if (object == nullptr || ! exactProperties (*object, progressive
+                    ? std::initializer_list<const char*> { "candidate_id", "display_name", "source_kind", "source_identity",
+                        "source_artifact", "cues", "default_cue_id", "preparation_status" }
+                    : std::initializer_list<const char*> { "candidate_id", "display_name", "source_kind", "source_identity",
+                        "source_artifact", "cues", "default_cue_id" })
                 || ! exactString (object->getProperty ("candidate_id"), result.candidateId)
                 || ! uuidV4 (result.candidateId)
                 || ! displayText (object->getProperty ("display_name"), 160, result.displayName)
                 || ! exactString (object->getProperty ("source_kind"), result.sourceKind)
                 || ! parseSourceIdentity (object->getProperty ("source_identity"), result.sourceKind,
                                          result)
-                || ! parseContentReceipt (object->getProperty ("source_artifact"), "sources",
-                                         64 * 1024, result.sourceArtifact)
                 || ! exactString (object->getProperty ("default_cue_id"), result.defaultCueId)
                 || ! uuidV4 (result.defaultCueId))
                 return false;
+            const auto status = object->getProperty ("preparation_status");
+            result.prepared = ! progressive || status == "prepared";
+            if (progressive && status != "prepared" && status != "pending") return false;
+            if (result.prepared != ! object->getProperty ("source_artifact").isVoid()
+                || (result.prepared && ! parseContentReceipt (object->getProperty ("source_artifact"), "sources",
+                                                              64 * 1024, result.sourceArtifact))) return false;
             const auto* cues = object->getProperty ("cues").getArray();
             if (cues == nullptr || cues->isEmpty() || cues->size() > 4)
                 return false;
@@ -297,7 +307,7 @@ namespace hypha::reference_audition
             return result.empty() || total == 10'000;
         }
 
-        bool parseCheck (const juce::var& value, RuntimeCheck& result)
+        bool parseCheck (const juce::var& value, RuntimeCheck& result, bool progressive)
         {
             const auto* object = value.getDynamicObject();
             if (object == nullptr || ! exactProperties (*object, {
@@ -336,13 +346,15 @@ namespace hypha::reference_audition
             for (const auto& item : *candidates)
             {
                 RuntimeCandidate candidate;
-                if (! parseCandidate (item, candidate)
+                if (! parseCandidate (item, candidate, progressive)
                     || ! candidateIds.emplace (candidate.candidateId.toStdString()).second
                     || ! identities.emplace ((candidate.sourceKind + ":" + candidate.sourceIdentityKey).toStdString()).second)
                     return false;
                 result.candidates.push_back (std::move (candidate));
             }
-            return parseProfileBindings (object->getProperty ("profile_bindings"),
+            return std::any_of (result.candidates.begin(), result.candidates.end(),
+                                [] (const auto& candidate) { return candidate.prepared; })
+                && parseProfileBindings (object->getProperty ("profile_bindings"),
                                          result.profileBindings);
         }
 
@@ -354,7 +366,8 @@ namespace hypha::reference_audition
                     "format", "version", "work_id", "source_template_artifact",
                     "source_preset_artifact", "name", "checks" })
                 || object->getProperty ("format") != "kirin_hypha_reference_preset"
-                || object->getProperty ("version") != "2.0"
+                || (object->getProperty ("version") != "2.0"
+                    && object->getProperty ("version") != "3.0")
                 || ! exactString (object->getProperty ("work_id"), result.workId)
                 || result.workId != workId
                 || ! runtime_v2_parsing::parseSourcePresetReceipt (
@@ -378,7 +391,7 @@ namespace hypha::reference_audition
             for (const auto& item : *checks)
             {
                 RuntimeCheck check;
-                if (! parseCheck (item, check)
+                if (! parseCheck (item, check, object->getProperty ("version") == "3.0")
                     || ! checkIds.emplace (check.checkId.toStdString()).second)
                     return false;
                 result.checks.push_back (std::move (check));
@@ -436,6 +449,7 @@ namespace hypha::reference_audition
         juce::var manifestJson;
         RuntimeManifest manifest;
         if (! readJson (manifestFile, maximumManifestBytes, manifestBytes, manifestJson)
+            || (manifestBytes.getSize() > 64 * 1024 && manifestJson["version"] != "4.0")
             || ! parseManifest (manifestJson, workId, manifest))
             return failure ("reference_manifest_rejected", std::move (previous));
         if (previous != nullptr)

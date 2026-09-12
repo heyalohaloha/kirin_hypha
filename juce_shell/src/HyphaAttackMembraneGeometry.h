@@ -1,99 +1,110 @@
 #pragma once
+
+#include <array>
+#include <cmath>
+
 #include "HyphaAttackSpecimenPainter.h"
 
-namespace hypha::attack_membrane
+namespace hypha::attack_specimen_geometry
 {
-constexpr int segments = 44;
-struct Point { float x, y, half, twist, shear, ridge, u; };
-using Surface = std::array<Point, segments + 1>;
-struct Sheet
-{
-    std::array<juce::Path, 5> fills;
-    juce::Point<float> lightStart, lightEnd;
-};
+constexpr std::size_t maximumFibres = 12;
+
 struct Geometry
 {
-    std::array<Sheet, 4> sheets;
-    juce::Path front;
-    float coreThickness = 0, opening = 0, wrinkle = 0, frontX = 0;
+    juce::Path outline;
+    std::array<juce::Path, 3> tissue;
+    std::array<juce::Path, maximumFibres> fibres;
+    std::array<juce::Path, 3> sharpnessArcs;
+    juce::Rectangle<float> bounds;
+    std::size_t fibreCount = 0;
+    float sharpnessReach = 0.0f;
 };
-inline juce::Point<float> position (const Point& p, float v)
+
+inline float unit (float value) noexcept
 {
-    return { p.x + p.shear * v, p.y + p.half * ((v*.75f + v*v*.22f - .10f) * p.twist
-        + .48f * std::sin (v*2.25f + p.u*3)) + p.ridge * (1-v*v) };
+    return std::isfinite (value) ? juce::jlimit (0.0f, 1.0f, value) : 0.0f;
 }
-inline void boundary (juce::Path& path, const Surface& points, float v, bool reverse, int first = 0)
+
+inline juce::Path node (juce::Rectangle<float> bounds)
 {
-    std::array<juce::Point<float>, segments + 1> curve;
-    const auto n = segments - first;
-    for (int i = 0; i <= n; ++i)
-        curve[static_cast<std::size_t> (i)] = position (
-            points[static_cast<std::size_t> (reverse ? segments-i : i+first)], v);
-    if (reverse) path.lineTo (curve[0]); else path.startNewSubPath (curve[0]);
-    for (int i = 0; i < n; ++i)
-    {
-        const auto a = curve[static_cast<std::size_t> (std::max (0,i-1))];
-        const auto b = curve[static_cast<std::size_t> (i)];
-        const auto c = curve[static_cast<std::size_t> (i+1)];
-        const auto d = curve[static_cast<std::size_t> (std::min (n,i+2))];
-        path.cubicTo (b+(c-a)/6.0f, c-(d-b)/6.0f, c);
-    }
-}
-inline juce::Path strip (const Surface& points, float lo, float hi, int first = 0)
-{
+    const auto x = [&] (float fraction) { return bounds.getX() + bounds.getWidth() * fraction; };
+    const auto y = [&] (float fraction) { return bounds.getY() + bounds.getHeight() * fraction; };
     juce::Path path;
-    path.preallocateSpace ((segments-first+1)*14+8);
-    boundary (path, points, lo, false, first); boundary (path, points, hi, true, first);
-    path.closeSubPath(); return path;
+    path.startNewSubPath (x (.065f), y (.51f));
+    path.cubicTo (x (.10f), y (.31f), x (.22f), y (.31f), x (.31f), y (.17f));
+    path.cubicTo (x (.42f), y (.015f), x (.55f), y (.16f), x (.63f), y (.19f));
+    path.cubicTo (x (.72f), y (.22f), x (.77f), y (.11f), x (.86f), y (.25f));
+    path.cubicTo (x (.93f), y (.35f), x (.97f), y (.39f), x (.955f), y (.52f));
+    path.cubicTo (x (.94f), y (.67f), x (.84f), y (.66f), x (.78f), y (.76f));
+    path.cubicTo (x (.70f), y (.89f), x (.58f), y (.78f), x (.49f), y (.83f));
+    path.cubicTo (x (.37f), y (.90f), x (.28f), y (.75f), x (.20f), y (.76f));
+    path.cubicTo (x (.11f), y (.77f), x (.055f), y (.63f), x (.065f), y (.51f));
+    path.closeSubPath();
+    return path;
 }
-inline float gaussian (float u, float centre, float spread)
-{ const auto v = (u-centre)/spread; return std::exp (-v*v); }
-inline Geometry geometry (juce::Rectangle<float> area, attack_specimen::FeatureAmounts raw,
-                          const attack_motion::Motion& motion = {})
+
+inline juce::Path transformedNode (juce::Rectangle<float> bounds, float scaleX,
+                                   float scaleY, float offsetX, float offsetY)
+{
+    auto path = node (bounds);
+    const auto centre = bounds.getCentre();
+    path.applyTransform (juce::AffineTransform::translation (-centre.x, -centre.y)
+        .scaled (scaleX, scaleY).translated (centre.x + offsetX, centre.y + offsetY));
+    return path;
+}
+
+inline Geometry geometry (juce::Rectangle<float> area, attack_specimen::FeatureAmounts raw)
 {
     Geometry result;
     if (! std::isfinite (area.getX()) || ! std::isfinite (area.getY())
         || ! std::isfinite (area.getWidth()) || ! std::isfinite (area.getHeight())
-        || area.getWidth() < 4 || area.getHeight() < 4) return result;
-    using attack_motion::unit;
-    const auto s=unit (raw.strength), b=unit (raw.brightness), x=unit (raw.texture), t=unit (raw.transient);
-    struct Profile { float start, end, lift, phase, span, bias; };
-    constexpr std::array<Profile, 4> profiles {{
-        {.075f,.82f,-.115f,.1f,.150f,-1}, {.135f,.87f,.058f,1.3f,.115f,.18f},
-        {.115f,.82f,.115f,2.6f,.123f,1}, {.250f,.85f,-.035f,3.4f,.073f,-.18f} }};
-    result.coreThickness=area.getHeight()*s*.12f; result.opening=area.getHeight()*b*.108f;
-    result.wrinkle=area.getHeight()*x*.018f; result.frontX=area.getX()+area.getWidth()*(.87f+t*.078f);
-    for (std::size_t layer=0; layer<profiles.size(); ++layer)
+        || area.getWidth() < 8 || area.getHeight() < 8)
+        return result;
+    const auto strength = unit (raw.strength);
+    const auto texture = unit (raw.texture);
+    const auto sharpness = unit (raw.sharpness);
+    const auto maximumHeight = juce::jmin (area.getHeight() * .99f / .96f,
+                                           area.getWidth() / 1.22f);
+    const auto height = maximumHeight * (.84f + .12f * strength);
+    const auto width = maximumHeight * 1.22f * (.96f + .03f * strength);
+    result.bounds = { area.getCentreX() - width * .5f, area.getCentreY() - height * .5f,
+                      width, height };
+    result.outline = node (result.bounds);
+    result.tissue[0] = transformedNode (result.bounds, .88f, .78f, -.025f * width, -.035f * height);
+    result.tissue[1] = transformedNode (result.bounds, .69f, .56f, .045f * width, .075f * height);
+    result.tissue[2] = transformedNode (result.bounds, .46f, .35f, -.11f * width, .025f * height);
+
+    result.fibreCount = static_cast<std::size_t> (4 + std::lround (texture * 8.0f));
+    for (std::size_t index = 0; index < result.fibreCount; ++index)
     {
-        const auto& p=profiles[layer]; Surface points {};
-        for (int j=0; j<=segments; ++j)
-        {
-            const auto u=static_cast<float> (j)/segments;
-            const auto envelope=std::pow (std::max (0.0f,std::sin (juce::MathConstants<float>::pi*u)),.82f);
-            const auto fold=gaussian (u,.57f,.21f);
-            const auto wave=std::sin (juce::MathConstants<float>::pi*std::min (1.0f,u/.76f));
-            const auto tap=std::min (5,static_cast<int> (u*6));
-            const auto bend=[&] (int at) { const auto v=motion.bend[static_cast<std::size_t> (at)];
-                return std::isfinite (v)?juce::jlimit (-.24f,.24f,v):0.0f; };
-            const auto curvature=bend (tap)+(bend (tap+1)-bend (tap))*(u*6-static_cast<float> (tap));
-            const auto tissue=(p.span*.37f+s*.12f*gaussian (u,.61f,.24f))*(layer%2==0?.78f:1.0f);
-            points[static_cast<std::size_t> (j)]={
-                area.getX()+area.getWidth()*(p.start+(p.end-p.start)*u+t*.078f*u*u*u),
-                area.getY()+area.getHeight()*(.51f+p.lift*envelope+.049f*std::sin (u*6+p.phase)*envelope
-                    +p.bias*b*.108f*envelope+x*.018f*fold*std::sin (u*24+p.phase)
-                    +curvature*.07f*wave*wave*(layer%2==0?-1.0f:1.0f)),
-                area.getHeight()*tissue*envelope,std::cos (u*3.3f+p.phase*.55f),
-                area.getWidth()*.022f*envelope*std::sin (u*4+p.phase),
-                area.getHeight()*x*.010f*fold*std::sin (u*35+p.phase),u};
-        }
-        auto& sheet=result.sheets[layer];
-        sheet.fills={strip (points,-1,1),strip (points,-.82f,-.05f),strip (points,-.04f,.63f),
-                     strip (points,.57f,.586f),strip (points,-.80f,-.784f)};
-        const auto a=position (points[27],-1), z=position (points[27],1);
-        sheet.lightStart={area.getX()+area.getWidth()*.38f,std::min (a.y,z.y)-area.getHeight()*.0175f};
-        sheet.lightEnd={area.getX()+area.getWidth()*.70f,std::max (a.y,z.y)+area.getHeight()*.028f};
-        if (layer==1) result.front=strip (points,-1,1,segments*3/4);
+        const auto fraction = result.fibreCount == 1 ? .5f
+            : static_cast<float> (index) / static_cast<float> (result.fibreCount - 1);
+        const auto spread = (fraction - .5f) * .72f;
+        auto& fibre = result.fibres[index];
+        fibre.startNewSubPath (result.bounds.getX() + width * .10f,
+                               result.bounds.getCentreY() + spread * height * .08f);
+        fibre.cubicTo (result.bounds.getX() + width * .28f,
+                       result.bounds.getCentreY() + spread * height * .90f,
+                       result.bounds.getX() + width * (.47f + .04f * std::sin (index * 1.7f)),
+                       result.bounds.getCentreY() + spread * height,
+                       result.bounds.getX() + width * (.73f + .12f * (1.0f - std::abs (spread))),
+                       result.bounds.getCentreY() + spread * height * .72f);
     }
+
+    result.sharpnessReach = height * (.015f + .055f * sharpness);
+    const auto arc = [&] (juce::Path& path, float x0, float y0, float cx, float cy,
+                          float x1, float y1)
+    {
+        path.startNewSubPath (result.bounds.getX() + width * x0,
+                              result.bounds.getY() + height * y0);
+        path.quadraticTo (result.bounds.getX() + width * cx,
+                          result.bounds.getY() + height * cy - result.sharpnessReach,
+                          result.bounds.getX() + width * x1,
+                          result.bounds.getY() + height * y1);
+    };
+    arc (result.sharpnessArcs[0], .15f, .30f, .24f, .10f, .35f, .13f);
+    arc (result.sharpnessArcs[1], .58f, .18f, .70f, .08f, .81f, .22f);
+    arc (result.sharpnessArcs[2], .12f, .66f, .19f, .83f, .31f, .80f);
     return result;
 }
 }

@@ -39,6 +39,7 @@ namespace hypha::reference_audition
           presentationRepository (root),
           recoveryTransport (root),
           presetSelectionTransport (root),
+          candidatePreparationTransport (root),
           presetAdoptionTransport (root),
           eventTransport (root)
     {
@@ -111,7 +112,8 @@ namespace hypha::reference_audition
             && blindState.lowerAApprovalRequired;
         result.blindRequiredAAttenuationDb = result.blindEligible || blindState.attenuationHeld
             ? blindState.requiredAAttenuationDb : 0.0;
-        if (result.presetSelectionStatus.isNotEmpty())
+        if (result.presetSelectionStatus.isNotEmpty()
+            || result.candidatePreparationStatus.isNotEmpty())
             result.auditionBuffered = false;
         result.blindReveal = blindState.phase == BlindPhase::revealed
             ? (blindState.revealedStimulusOneSide == 1
@@ -207,6 +209,12 @@ namespace hypha::reference_audition
             next.presetSelectionStatus = currentSnapshot.presetSelectionStatus;
             next.presetSelectionAction = currentSnapshot.presetSelectionAction;
             next.presetSelectionTargetId = currentSnapshot.presetSelectionTargetId;
+        }
+        if (currentSnapshot.candidatePreparationStatus.isNotEmpty())
+        {
+            next.candidatePreparationStatus = currentSnapshot.candidatePreparationStatus;
+            next.candidatePreparationAction = currentSnapshot.candidatePreparationAction;
+            next.candidatePreparationTargetId = currentSnapshot.candidatePreparationTargetId;
         }
         currentSnapshot = std::move (next);
     }

@@ -150,6 +150,12 @@ void AbsoluteComponent::clearSnapshot()
 
 void AbsoluteComponent::mouseMove (const juce::MouseEvent& event)
 {
+    if (sharpnessOnly)
+    {
+        const auto tip = analysis_ui::liveMetricTooltip (2u);
+        if (tip != getTooltip()) setTooltip (tip);
+        return;
+    }
     const auto bounds = getLocalBounds().toFloat();
     const float scale = spectrum_geometry::visualScaleFor (bounds);
     auto outer = bounds
@@ -179,7 +185,8 @@ void AbsoluteComponent::mouseExit (const juce::MouseEvent&)
 void AbsoluteComponent::paint (juce::Graphics& g)
 {
     absolute_painter::paint (g, getLocalBounds().toFloat(), {
-        batch, numericSnapshot, analysisOwnerNames, haveBatch, haveNumericSnapshot && signalActive, signalActive
+        batch, numericSnapshot, analysisOwnerNames, haveBatch,
+        haveNumericSnapshot && signalActive, signalActive, sharpnessOnly, presentationContext
     });
 }
 }

@@ -33,10 +33,11 @@ namespace
 
 void paintEmptyPrompt (juce::Graphics& g,
                        juce::Rectangle<float> bounds,
-                       float visualScale)
+                       presentation::Context presentation)
 {
     g.setColour (COL_MUTED.brighter (0.10f).withAlpha (0.64f));
-    g.setFont (monoFont (7.5f * ui_contract::analysisTextScale (visualScale)));
+    g.setFont (monoFont (presentation, typography::TextRole::status,
+                         typography::Composition::visualization));
     g.drawText ("FOCUS TRAIL  /  CLICK A BAND", bounds.toNearestInt(),
                 juce::Justification::centred);
 }
@@ -46,22 +47,33 @@ void paint (juce::Graphics& g,
             float visualScale,
             const spectrum_focus::FocusTrailHistory& history,
             float normalisedBand,
-            bool compact)
+            bool compact,
+            presentation::Context presentation)
 {
     if (history.empty() || bounds.isEmpty())
         return;
 
     const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
     const float radius = ui_contract::spectrumFocusTrailRadius * strokeScale;
+    // Focus Trail is a live work surface. A dark solid well with two continuous material edges
+    // preserves the CE 2226 depth cue while avoiding the generic panel's multi-pass gradient on
+    // every Spectrum frame.
+    const auto well = bounds.reduced (0.5f);
     g.setColour (BG.darker (0.18f).withAlpha (compact ? 0.84f : 0.72f));
-    g.fillRoundedRectangle (bounds, radius);
+    g.fillRoundedRectangle (well, radius);
+    const auto reflection = well.reduced (radius + strokeScale, 0.0f);
+    g.setColour (COL_NORMAL.withAlpha (0.045f));
+    g.drawLine (reflection.getX(), well.getY() + 0.45f * strokeScale,
+                reflection.getRight(), well.getY() + 0.45f * strokeScale,
+                0.55f * strokeScale);
     g.setColour (COL_SPECTRUM_DELTA.withAlpha (compact ? 0.13f : 0.17f));
-    g.drawRoundedRectangle (bounds, radius, 0.65f * strokeScale);
+    g.drawRoundedRectangle (well, radius, 0.65f * strokeScale);
 
     auto plot = bounds.reduced (3.0f * strokeScale, 2.0f * strokeScale);
     if (! compact)
     {
-        g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (visualScale)));
+        g.setFont (monoFont (presentation, typography::TextRole::legend,
+                             typography::Composition::visualization));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.68f));
         g.drawText (juce::String (juce::CharPointer_UTF8 (
                         "\xCE\x94 \xC2\xB7 6s \xC2\xB7 \xC2\xB1\x31\x32")),

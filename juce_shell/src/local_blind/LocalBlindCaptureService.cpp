@@ -9,6 +9,7 @@ namespace
 constexpr int activeServiceIntervalMs = 50;
 constexpr int idlePreServiceIntervalMs = 500;
 constexpr int idlePostServiceIntervalMs = 5'000;
+constexpr unsigned int maximumPrePublishFailures = 20;
 }
 
 struct LocalBlindCaptureService::Scheduler
@@ -24,8 +25,11 @@ struct LocalBlindCaptureService::Scheduler
     juce::TimeSliceThread thread;
 };
 
-LocalBlindCaptureService::LocalBlindCaptureService (CaptureSide sideIn, CaptureServiceHooks hooksIn)
-    : side (sideIn), hooks (std::move (hooksIn)), owner (sideIn)
+LocalBlindCaptureService::LocalBlindCaptureService (
+    CaptureSide sideIn, CaptureServiceHooks hooksIn, std::int64_t finalizationTimeoutMsIn)
+    : side (sideIn), hooks (std::move (hooksIn)),
+      finalizationTimeoutMs (finalizationTimeoutMsIn > 0 ? finalizationTimeoutMsIn : 30'000),
+      owner (sideIn)
 {
 }
 
@@ -108,6 +112,14 @@ void LocalBlindCaptureService::requestReset() noexcept
     wake();
 }
 
+#if JUCE_DEBUG
+CapturePairComparison LocalBlindCaptureService::capturePairComparison() const
+{
+    const juce::ScopedLock lock (comparisonLock);
+    return comparison;
+}
+#endif
+
 void LocalBlindCaptureService::wake()
 {
     const juce::ScopedLock lock (schedulerLock);
@@ -141,9 +153,12 @@ int LocalBlindCaptureService::useTimeSlice()
 void LocalBlindCaptureService::servicePre (std::int64_t now)
 {
     ExactCaptureRequest live;
-    const bool hasLive = hooks.pollPreRequest && hooks.pollPreRequest (live);
+    const auto polled = hooks.pollPreRequest
+        ? hooks.pollPreRequest (live) : CaptureRequestPoll::unavailable;
+    const bool hasLive = polled == CaptureRequestPoll::current;
     const auto terminal = owner.view().phase;
     if ((terminal == CaptureOwnerPhase::failed || terminal == CaptureOwnerPhase::retired)
+        && polled != CaptureRequestPoll::contended
         && (! hasLive || ! owner.matches (live)))
     {
         clearAttemptState();
@@ -160,7 +175,12 @@ void LocalBlindCaptureService::servicePre (std::int64_t now)
              || owner.view().phase == CaptureOwnerPhase::complete
              || owner.view().phase == CaptureOwnerPhase::retired)
     {
-        owner.servicePre (hasLive ? &live : nullptr, now);
+        // A pair-claim writer temporarily owns the transaction lock. Retain the already-admitted
+        // immutable request for this observation; the next stable missing/changed read still
+        // invalidates the capture before any result can be accepted.
+        const auto* observed = hasLive ? &live
+            : polled == CaptureRequestPoll::contended ? owner.activeRequest() : nullptr;
+        owner.servicePre (observed, now);
     }
 
     if (owner.view().phase == CaptureOwnerPhase::complete && ! prePublished)
@@ -169,15 +189,22 @@ void LocalBlindCaptureService::servicePre (std::int64_t now)
         const auto* capture = owner.completedCapture();
         const auto* pcm = capture != nullptr ? capture->completedPcm() : nullptr;
         std::string sha256;
-        if (pcm != nullptr && owner.receipt (receipt) && hooks.publishPreCapture
+        const bool published = pcm != nullptr && owner.receipt (receipt)
+            && hooks.publishPreCapture
             && hooks.publishPreCapture (*owner.activeRequest(), receipt, *pcm, sha256)
-            && ! sha256.empty())
+            && ! sha256.empty();
+        if (published)
         {
             prePublished = true;
             prePublishedSha256 = std::move (sha256);
         }
+        else if (++prePublishFailures >= maximumPrePublishFailures)
+            owner.rejectReceipt();
     }
     const auto* request = owner.activeRequest();
+    if (owner.view().phase == CaptureOwnerPhase::failed && ! preFailurePublished
+        && request != nullptr && hooks.publishPreFailure)
+        preFailurePublished = hooks.publishPreFailure (*request, owner.view());
     if (prePublished && request != nullptr && hooks.preCaptureConsumed
         && hooks.preCaptureConsumed (*request, prePublishedSha256)
         && owner.retireCompletedPre())
@@ -187,8 +214,6 @@ void LocalBlindCaptureService::servicePre (std::int64_t now)
         prePublished = false;
         prePublishedSha256.clear();
     }
-    if (owner.view().phase == CaptureOwnerPhase::failed)
-        clearAttemptState();
 }
 
 void LocalBlindCaptureService::servicePost (std::int64_t now)
@@ -223,6 +248,16 @@ void LocalBlindCaptureService::servicePost (std::int64_t now)
         || (hooks.postPeerArmed && hooks.postPeerArmed (request->requestId));
     owner.servicePost (peerArmed, hasPair ? &pair : nullptr,
                        preparedSampleRate, preparedChannels, now);
+
+    if (owner.view().phase == CaptureOwnerPhase::complete && postCompletedAtUnixMs == 0)
+        postCompletedAtUnixMs = now;
+
+    if (owner.view().phase != CaptureOwnerPhase::paired && hooks.readPreFailure)
+    {
+        CaptureOwnerView peerFailure;
+        if (hooks.readPreFailure (*request, peerFailure))
+            owner.rejectPreFailure (peerFailure.failure, peerFailure.captureFailure);
+    }
 
     if (owner.view().phase == CaptureOwnerPhase::complete && pairBarrier)
     {
@@ -263,12 +298,42 @@ void LocalBlindCaptureService::servicePost (std::int64_t now)
             preAcknowledged = hooks.acknowledgePreCapture (
                 *request, importedPre.pcmSha256);
         if (preAcknowledged && owner.sealCompletedPost())
+        {
+#if JUCE_DEBUG
+            CapturePairComparison next;
+            const auto* postCapture = owner.completedCapture();
+            const auto* prePcm = importedPre.capture != nullptr
+                ? importedPre.capture->completedPcm() : nullptr;
+            const auto* postPcm = postCapture != nullptr
+                ? postCapture->completedPcm() : nullptr;
+            if (postCapture != nullptr && prePcm != nullptr && postPcm != nullptr)
+                next = compareCapturePair (postCapture->range(), *prePcm, *postPcm);
+            const juce::ScopedLock lock (comparisonLock);
+            comparison = next;
+#endif
             pairReady.store (true, std::memory_order_release);
+        }
+        if (pairReady.load (std::memory_order_acquire) && ! pairDelivered)
+        {
+            const auto* postCapture = owner.completedCapture();
+            const auto* preCapture = importedPre.capture.get();
+            const bool consumed = hooks.acceptCompletedPair && postCapture != nullptr
+                && preCapture != nullptr
+                && hooks.acceptCompletedPair (*request, *postCapture, *preCapture);
+            pairDelivered = true;
+            if (consumed)
+                resetRequested.store (true, std::memory_order_release);
+        }
     }
+    // Admission expiry cannot discard PCM that already completed on the audio timeline. A
+    // separate finalization deadline bounds a vanished PRE or unavailable result transport.
+    if (owner.view().phase == CaptureOwnerPhase::complete && postCompletedAtUnixMs > 0
+        && now >= postCompletedAtUnixMs
+        && now - postCompletedAtUnixMs >= finalizationTimeoutMs)
+        owner.rejectReceipt();
     if (owner.view().phase == CaptureOwnerPhase::failed)
     {
         clearAttemptState();
-        owner.reset();
         postRequestOccupied.store (false, std::memory_order_release);
     }
 }
@@ -276,10 +341,13 @@ void LocalBlindCaptureService::servicePost (std::int64_t now)
 void LocalBlindCaptureService::clearAttemptState()
 {
     const auto* request = owner.activeRequest();
-    if (side == CaptureSide::pre && prePublished && request != nullptr
+    if (side == CaptureSide::pre && (prePublished || preFailurePublished) && request != nullptr
         && hooks.retirePreCapture)
         hooks.retirePreCapture (*request);
     prePublished = false;
+    preFailurePublished = false;
+    prePublishFailures = 0;
+    postCompletedAtUnixMs = 0;
     prePublishedSha256.clear();
     pairReady.store (false, std::memory_order_release);
     pairBarrier.reset();
@@ -287,5 +355,10 @@ void LocalBlindCaptureService::clearAttemptState()
     postReceiptAccepted = false;
     preReceiptAccepted = false;
     preAcknowledged = false;
+    pairDelivered = false;
+#if JUCE_DEBUG
+    const juce::ScopedLock lock (comparisonLock);
+    comparison = {};
+#endif
 }
 }

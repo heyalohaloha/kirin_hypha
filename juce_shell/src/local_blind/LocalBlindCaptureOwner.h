@@ -15,20 +15,21 @@ enum class CaptureOwnerPhase : unsigned char
 };
 enum class CaptureOwnerFailure : unsigned char
 {
-    none,
-    invalidRequest,
-    expired,
-    peerRejected,
-    stalePair,
-    armRejected,
-    captureFailed,
-    receiptRejected
+    none = 0,
+    invalidRequest = 1,
+    expired = 2,
+    peerRejected = 3,
+    stalePair = 4,
+    armRejected = 5,
+    captureFailed = 6,
+    receiptRejected = 7
 };
 
 struct CaptureOwnerView
 {
     CaptureOwnerPhase phase = CaptureOwnerPhase::idle;
     CaptureOwnerFailure failure = CaptureOwnerFailure::none;
+    CaptureFailure captureFailure = CaptureFailure::none;
 };
 
 // One non-RT owner for one role-local lane. The PRE owner arms before acknowledging the exact
@@ -63,6 +64,7 @@ public:
             return false;
         request = next;
         failure.store (CaptureOwnerFailure::none, std::memory_order_relaxed);
+        captureFailure.store (CaptureFailure::none, std::memory_order_relaxed);
         phase.store (CaptureOwnerPhase::awaitingPeer, std::memory_order_release);
         return true;
     }
@@ -74,10 +76,16 @@ public:
                 && currentPhase() != CaptureOwnerPhase::complete
                 && currentPhase() != CaptureOwnerPhase::retired))
             return;
-        if (expired (nowUnixMs)) { fail (CaptureOwnerFailure::expired); return; }
+        // Observe the Audio Thread's terminal fact before applying the admission deadline. A
+        // completed exact range remains valid for non-RT finalization after that deadline.
+        if (currentPhase() == CaptureOwnerPhase::capturing)
+            observeCapture();
+        if (currentPhase() == CaptureOwnerPhase::failed)
+            return;
+        if (currentPhase() == CaptureOwnerPhase::capturing && expired (nowUnixMs))
+        { fail (CaptureOwnerFailure::expired); return; }
         if (liveRequest == nullptr || *liveRequest != *request)
         { fail (CaptureOwnerFailure::stalePair); return; }
-        observeCapture();
     }
 
     void servicePost (bool peerArmed, const ExactPairBinding* livePair,
@@ -86,7 +94,7 @@ public:
     {
         if (side != CaptureSide::post || ! request)
             return;
-        const auto current = currentPhase();
+        auto current = currentPhase();
         if (current != CaptureOwnerPhase::awaitingPeer
             && current != CaptureOwnerPhase::capturing
             && current != CaptureOwnerPhase::complete
@@ -98,19 +106,26 @@ public:
                 fail (CaptureOwnerFailure::stalePair);
             return;
         }
-        if (expired (nowUnixMs)) { fail (CaptureOwnerFailure::expired); return; }
+        if (current == CaptureOwnerPhase::capturing)
+        {
+            observeCapture();
+            current = currentPhase();
+        }
+        if (current == CaptureOwnerPhase::failed)
+            return;
         if (livePair == nullptr || *livePair != request->pair)
         { fail (CaptureOwnerFailure::stalePair); return; }
-        if (current != CaptureOwnerPhase::awaitingPeer && ! peerArmed)
-        { fail (CaptureOwnerFailure::peerRejected); return; }
         if (current == CaptureOwnerPhase::awaitingPeer)
         {
+            if (expired (nowUnixMs)) { fail (CaptureOwnerFailure::expired); return; }
             if (! peerArmed)
                 return;
             if (! lane.arm (*request, sampleRate, channels, nowUnixMs, byteBudget (*request)))
             { fail (CaptureOwnerFailure::armRejected); return; }
             phase.store (CaptureOwnerPhase::capturing, std::memory_order_release);
         }
+        else if (current == CaptureOwnerPhase::capturing && expired (nowUnixMs))
+        { fail (CaptureOwnerFailure::expired); return; }
         observeCapture();
     }
 
@@ -124,7 +139,8 @@ public:
     CaptureOwnerView view() const noexcept
     {
         return { phase.load (std::memory_order_acquire),
-                 failure.load (std::memory_order_acquire) };
+                 failure.load (std::memory_order_acquire),
+                 captureFailure.load (std::memory_order_acquire) };
     }
     bool matches (const ExactCaptureRequest& candidate) const noexcept
     { return request && *request == candidate; }
@@ -149,6 +165,18 @@ public:
         return true;
     }
 
+    void rejectPreFailure (CaptureOwnerFailure peerFailure,
+                           CaptureFailure peerCaptureFailure) noexcept
+    {
+        if (side != CaptureSide::post || currentPhase() == CaptureOwnerPhase::paired
+            || peerFailure == CaptureOwnerFailure::none)
+            return;
+        captureFailure.store (peerCaptureFailure, std::memory_order_relaxed);
+        fail (peerFailure == CaptureOwnerFailure::captureFailed
+                  ? CaptureOwnerFailure::captureFailed
+                  : CaptureOwnerFailure::peerRejected);
+    }
+
     void rejectReceipt() noexcept { fail (CaptureOwnerFailure::receiptRejected); }
 
     void reset() noexcept
@@ -158,6 +186,7 @@ public:
         lane.collect();
         request.reset();
         failure.store (CaptureOwnerFailure::none, std::memory_order_relaxed);
+        captureFailure.store (CaptureFailure::none, std::memory_order_relaxed);
         phase.store (CaptureOwnerPhase::idle, std::memory_order_release);
     }
 
@@ -167,8 +196,10 @@ private:
     std::optional<ExactCaptureRequest> request;
     std::atomic<CaptureOwnerPhase> phase { CaptureOwnerPhase::idle };
     std::atomic<CaptureOwnerFailure> failure { CaptureOwnerFailure::none };
+    std::atomic<CaptureFailure> captureFailure { CaptureFailure::none };
     static_assert (std::atomic<CaptureOwnerPhase>::is_always_lock_free);
     static_assert (std::atomic<CaptureOwnerFailure>::is_always_lock_free);
+    static_assert (std::atomic<CaptureFailure>::is_always_lock_free);
 
     CaptureOwnerPhase currentPhase() const noexcept
     { return phase.load (std::memory_order_acquire); }
@@ -204,6 +235,7 @@ private:
         }
         request = next;
         failure.store (CaptureOwnerFailure::none, std::memory_order_relaxed);
+        captureFailure.store (CaptureFailure::none, std::memory_order_relaxed);
         return true;
     }
 
@@ -220,7 +252,10 @@ private:
         if (current.state == CaptureState::complete && current.failure == CaptureFailure::none)
             phase.store (CaptureOwnerPhase::complete, std::memory_order_release);
         else
+        {
+            captureFailure.store (current.failure, std::memory_order_relaxed);
             fail (CaptureOwnerFailure::captureFailed);
+        }
     }
 
     void fail (CaptureOwnerFailure reason) noexcept

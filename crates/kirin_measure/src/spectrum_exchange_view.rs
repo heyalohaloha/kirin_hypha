@@ -78,6 +78,9 @@ impl SpectrumCoordinator {
         difference: Option<SpectrumDifference>,
         perceptual_difference: Option<PerceptualDifference>,
     ) {
+        if self.runtime.mid_side_enabled() {
+            self.store_mid_side_view(status, None);
+        }
         self.store_view_with_spectrum_boundary(status, difference, perceptual_difference, false);
     }
 
@@ -240,6 +243,9 @@ impl SpectrumCoordinator {
                 status: SpectrumViewStatus::InUse,
                 ..Default::default()
             });
+        }
+        if self.runtime.mid_side_enabled() {
+            self.store_mid_side_in_use(analysis_owner_names.clone());
         }
         let mut view = match self.view.lock() {
             Ok(view) => view,

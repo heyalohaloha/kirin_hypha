@@ -11,13 +11,16 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::local_blind_capture_protocol::LocalBlindCaptureRequest;
+use crate::local_blind_capture_protocol::{
+    active_capture_result_was_armed, LocalBlindCaptureRequest,
+};
 
 const BLOB_MAGIC: &[u8; 16] = b"KIRINLBPCMv1\0\0\0\0";
 const HEADER_LENGTH_BYTES: usize = 4;
 const HEADER_MAX_BYTES: usize = 4_096;
 const RECEIPT_SCHEMA: &str = "kirin_hypha_local_blind_pre_capture_v2";
 const CONSUMED_SCHEMA: &str = "kirin_hypha_local_blind_pre_capture_consumed_v2";
+const FAILURE_SCHEMA: &str = "kirin_hypha_local_blind_pre_capture_failure_v1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -35,6 +38,53 @@ pub struct LocalBlindPreCaptureReceipt {
     pub sample_count: u64,
     pub pcm_sha256: String,
     pub expires_at_unix_ms: i64,
+}
+
+/// Terminal PRE failure for one already-armed request. The numeric values are the stable C ABI
+/// discriminants for the non-RT owner and role-local capture lane; zero is never a failure.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalBlindPreCaptureFailure {
+    schema: String,
+    pub request_id: String,
+    pub request_sha256: String,
+    pub pair_generation: u64,
+    pub capture_generation: u64,
+    pub clock_generation: u64,
+    pub owner_failure: u8,
+    pub capture_failure: u8,
+    pub expires_at_unix_ms: i64,
+}
+
+impl LocalBlindPreCaptureFailure {
+    fn new(
+        request: &LocalBlindCaptureRequest,
+        owner_failure: u8,
+        capture_failure: u8,
+    ) -> Option<Self> {
+        valid_failure_codes(owner_failure, capture_failure).then(|| Self {
+            schema: FAILURE_SCHEMA.to_string(),
+            request_id: request.request_id.clone(),
+            request_sha256: request.digest().unwrap_or_default(),
+            pair_generation: request.authority.pair_generation,
+            capture_generation: request.capture_generation,
+            clock_generation: request.clock_generation,
+            owner_failure,
+            capture_failure,
+            expires_at_unix_ms: request.expires_at_unix_ms,
+        })
+    }
+
+    fn matches_request(&self, request: &LocalBlindCaptureRequest) -> bool {
+        self.schema == FAILURE_SCHEMA
+            && self.request_id == request.request_id
+            && self.request_sha256 == request.digest().unwrap_or_default()
+            && self.pair_generation == request.authority.pair_generation
+            && self.capture_generation == request.capture_generation
+            && self.clock_generation == request.clock_generation
+            && valid_failure_codes(self.owner_failure, self.capture_failure)
+            && self.expires_at_unix_ms == request.expires_at_unix_ms
+    }
 }
 
 impl LocalBlindPreCaptureReceipt {
@@ -99,6 +149,48 @@ pub struct LocalBlindPreCapture {
     pub interleaved: Vec<f32>,
 }
 
+pub fn publish_local_blind_pre_capture_failure(
+    kirin_root: &Path,
+    instance_dir: &Path,
+    request: &LocalBlindCaptureRequest,
+    owner_failure: u8,
+    capture_failure: u8,
+    now_unix_ms: i64,
+) -> io::Result<()> {
+    if !active_capture_result_was_armed(kirin_root, instance_dir, request, now_unix_ms) {
+        return Err(invalid("Local Blind PRE failure lost exact pair authority"));
+    }
+    if capture_path(instance_dir, request).exists() {
+        return Err(invalid(
+            "Local Blind PRE capture already has a successful terminal result",
+        ));
+    }
+    let failure = LocalBlindPreCaptureFailure::new(request, owner_failure, capture_failure)
+        .ok_or_else(|| invalid("Local Blind PRE failure code is invalid"))?;
+    let bytes = serde_json::to_vec(&failure).map_err(io::Error::other)?;
+    if bytes.len() > HEADER_MAX_BYTES {
+        return Err(invalid("Local Blind PRE failure exceeds its bound"));
+    }
+    crate::atomic_file::write_bytes_immutable(&failure_path(instance_dir, request), &bytes)
+}
+
+pub fn read_local_blind_pre_capture_failure(
+    kirin_root: &Path,
+    instance_dir: &Path,
+    request: &LocalBlindCaptureRequest,
+    now_unix_ms: i64,
+) -> Option<LocalBlindPreCaptureFailure> {
+    if !active_capture_result_was_armed(kirin_root, instance_dir, request, now_unix_ms) {
+        return None;
+    }
+    let failure: LocalBlindPreCaptureFailure = serde_json::from_slice(&read_bounded(
+        &failure_path(instance_dir, request),
+        HEADER_MAX_BYTES,
+    )?)
+    .ok()?;
+    failure.matches_request(request).then_some(failure)
+}
+
 pub fn publish_local_blind_pre_capture(
     kirin_root: &Path,
     instance_dir: &Path,
@@ -106,8 +198,13 @@ pub fn publish_local_blind_pre_capture(
     interleaved: &[f32],
     now_unix_ms: i64,
 ) -> io::Result<LocalBlindPreCaptureReceipt> {
-    if !request.valid_for_pre_instance(kirin_root, instance_dir, now_unix_ms) {
+    if !active_capture_result_was_armed(kirin_root, instance_dir, request, now_unix_ms) {
         return Err(invalid("Local Blind PRE capture lost exact pair authority"));
+    }
+    if failure_path(instance_dir, request).exists() {
+        return Err(invalid(
+            "Local Blind PRE capture already has a failed terminal result",
+        ));
     }
     let sample_count = expected_sample_count(request)
         .and_then(|value| usize::try_from(value).ok())
@@ -160,7 +257,7 @@ pub fn read_local_blind_pre_capture(
     request: &LocalBlindCaptureRequest,
     now_unix_ms: i64,
 ) -> Option<LocalBlindPreCapture> {
-    if !request.valid_for_pre_instance(kirin_root, instance_dir, now_unix_ms) {
+    if !active_capture_result_was_armed(kirin_root, instance_dir, request, now_unix_ms) {
         return None;
     }
     let expected_pcm_bytes = usize::try_from(expected_sample_count(request)?)
@@ -184,7 +281,7 @@ pub fn publish_local_blind_pre_capture_consumed(
     pcm_sha256: &str,
     now_unix_ms: i64,
 ) -> io::Result<()> {
-    if !request.valid_for_pre_instance(kirin_root, instance_dir, now_unix_ms) {
+    if !active_capture_result_was_armed(kirin_root, instance_dir, request, now_unix_ms) {
         return Err(invalid(
             "Local Blind PRE acknowledgement lost exact pair authority",
         ));
@@ -202,7 +299,7 @@ pub fn local_blind_pre_capture_was_consumed(
     pcm_sha256: &str,
     now_unix_ms: i64,
 ) -> bool {
-    if !request.valid_for_pre_instance(kirin_root, instance_dir, now_unix_ms) {
+    if !active_capture_result_was_armed(kirin_root, instance_dir, request, now_unix_ms) {
         return false;
     }
     read_bounded(&consumed_path(instance_dir, request), HEADER_MAX_BYTES)
@@ -217,6 +314,7 @@ pub fn remove_local_blind_pre_capture(instance_dir: &Path, request_id: &str) -> 
     for path in [
         capture_path_for_id(instance_dir, request_id),
         consumed_path_for_id(instance_dir, request_id),
+        failure_path_for_id(instance_dir, request_id),
     ] {
         match fs::remove_file(path) {
             Ok(()) => {}
@@ -278,6 +376,10 @@ fn consumed_path(instance_dir: &Path, request: &LocalBlindCaptureRequest) -> Pat
     consumed_path_for_id(instance_dir, &request.request_id)
 }
 
+fn failure_path(instance_dir: &Path, request: &LocalBlindCaptureRequest) -> PathBuf {
+    failure_path_for_id(instance_dir, &request.request_id)
+}
+
 fn capture_path_for_id(instance_dir: &Path, request_id: &str) -> PathBuf {
     instance_dir
         .join("local_blind")
@@ -290,6 +392,19 @@ fn consumed_path_for_id(instance_dir: &Path, request_id: &str) -> PathBuf {
         .join("local_blind")
         .join("consumed")
         .join(format!("{request_id}.json"))
+}
+
+fn failure_path_for_id(instance_dir: &Path, request_id: &str) -> PathBuf {
+    instance_dir
+        .join("local_blind")
+        .join("failed")
+        .join(format!("{request_id}.json"))
+}
+
+fn valid_failure_codes(owner_failure: u8, capture_failure: u8) -> bool {
+    (1..=7).contains(&owner_failure)
+        && capture_failure <= 7
+        && (owner_failure == 6 || capture_failure == 0)
 }
 
 fn read_bounded(path: &Path, maximum_bytes: usize) -> Option<Vec<u8>> {

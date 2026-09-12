@@ -96,7 +96,7 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_METER_HISTORY_0_1_HZ_CAPACITY 8640u
 #define KIRIN_METER_HISTORY_MAX_ENTRIES 8640u
 
-#define KIRIN_OBSERVATORY_FRAME_VERSION 2u
+#define KIRIN_OBSERVATORY_FRAME_VERSION 3u
 #define KIRIN_LRA_UNAVAILABLE 0u
 #define KIRIN_LRA_WARMING 1u
 #define KIRIN_LRA_READY 2u
@@ -151,7 +151,7 @@ typedef struct {
   double plr;
   uint8_t channels;
   uint8_t balance_state; /* KIRIN_BALANCE_* */
-  uint8_t stereo_reserved[6];
+  uint8_t channel_clip_latched[2], stereo_reserved[4]; /* VU表示のみ。Session clip_eventsとは独立 */
   double sample_peak_dbfs[2];
   double sample_peak_hold_dbfs[2];
   double channel_true_peak_dbtp[2];
@@ -162,9 +162,9 @@ typedef struct {
   uint8_t field_size; /* 0=unavailable, otherwise KIRIN_STEREO_FIELD_SIZE */
   uint8_t field_observation_count; /* rolling 100 ms observations, maximum 30 */
   uint8_t field_reserved[6];
-  /* rolling 3 s MID/SIDE density; row-major top-left, shape-normalized 0..255 */
-  uint8_t field_density[KIRIN_STEREO_FIELD_BINS];
+  uint8_t field_density[KIRIN_STEREO_FIELD_BINS]; /* rolling 3 s MID/SIDE density */
   double max_lufs_m; /* EBU Mode Maximum Momentary through observed_frames */
+  double channel_vu_dbfs[2], channel_instant_true_peak_dbtp[2]; /* 300 ms VU; 100 ms TP */
 } KirinMeterSession;
 
 typedef struct {
@@ -277,7 +277,7 @@ typedef struct {
   uint32_t reserved;
   KirinSpectrumView frames[KIRIN_SPECTRUM_BATCH_CAPACITY];
 } KirinSpectrumBatch;
-
+#include "kirin_hypha_spectrum_mid_side_ffi.h"
 /* POST専用Perceptual Delta表示. 同一100 ms aperture / presentation endpointで一致した
  * PRE/POST Sharpnessだけを公開する。delta_sharpnessは符号付きPOST-PREでclipしない。 */
 typedef struct {
@@ -578,10 +578,10 @@ void kirin_hypha_set_pair_target(KirinHypha* handle, const char* name);
 /* Dropdown で選んだ exact PRE instance を即時ラッチする. live/in-scope なら true. */
 bool kirin_hypha_select_pair_candidate(KirinHypha* handle, const char* instance_id);
 
-/* DAW state から復元した exact PRE locator を Waiting latch として再構成する。
- * live scan は行わず、保存済み PRE project + instance の固定 pre.json だけを待つ。 */
-bool kirin_hypha_restore_pair_candidate(KirinHypha* handle, const char* pre_project_hash,
-                                        const char* instance_id);
+/* DAW state の exact PRE locator を復元する。live scan / 名前探索は行わない。 */
+bool kirin_hypha_restore_pair_candidate(KirinHypha*, const char*, const char*);
+/* DAW state の exact locator + 任意表示名を復元する。名前探索は行わない。 */
+bool kirin_hypha_restore_pair_candidate_v2(KirinHypha*, const char*, const char*, const char*);
 
 /* Pair status は KIRIN_PAIR_STATUS_* のいずれか. KEEP/Record 状態とは独立. */
 uint8_t kirin_hypha_pair_status(KirinHypha* handle);
@@ -716,9 +716,9 @@ size_t kirin_hypha_enumerate_post_pair_claims(KirinHypha* handle, KirinPostPairC
 
 /* POSTのΔをoutへ。値あり=true、競合/未計測=false。post.jsonはPOST生メトリクス。 */
 bool kirin_hypha_poll_delta(KirinHypha* handle, KirinDelta* out);
-/* Reference B suspends PRE comparisons while A stays measured. */
 bool kirin_hypha_set_reference_audition_active(KirinHypha* handle, bool active);
-
+bool kirin_hypha_begin_local_blind(KirinHypha* handle, uint64_t* out_scope_epoch);
+bool kirin_hypha_end_local_blind(KirinHypha* handle, uint64_t scope_epoch);
 /* POST Spectrumページの表示edge。PRE/未enableはfalse。filesystem処理はIO threadへ遅延する。 */
 bool kirin_hypha_set_spectrum_visible(KirinHypha* handle, bool visible);
 
@@ -828,7 +828,7 @@ bool kirin_hypha_poll_meter_delta_history_decimated(KirinHypha* handle,
 
 /* 利用者操作で常設メーターだけをReset。競合・未生成時はfalse。 */
 bool kirin_hypha_reset_meter_session(KirinHypha* handle);
-
+bool kirin_hypha_clear_meter_peak_clip_holds(KirinHypha* handle); /* TP/Clip holdのみ解除。現値・履歴・Recordは維持。 */
 /* 破棄（shutdown -> Measure Thread join）. */
 void kirin_hypha_destroy(KirinHypha* handle);
 

@@ -20,12 +20,23 @@ typedef struct {
   char pcm_sha256[65];
 } KirinLocalBlindPreCaptureReceipt;
 
+typedef struct {
+  uint8_t owner_failure;
+  uint8_t capture_failure;
+} KirinLocalBlindPreCaptureFailure;
+
 bool kirin_hypha_publish_local_blind_pre_capture(
     KirinHypha* handle, const char* request_id, const float* interleaved,
     size_t sample_count, KirinLocalBlindPreCaptureReceipt* out_receipt);
 bool kirin_hypha_read_local_blind_pre_capture(
     KirinHypha* handle, const char* request_id, float* out_interleaved,
     size_t sample_count, KirinLocalBlindPreCaptureReceipt* out_receipt);
+bool kirin_hypha_publish_local_blind_pre_capture_failure(
+    KirinHypha* handle, const char* request_id, uint8_t owner_failure,
+    uint8_t capture_failure);
+bool kirin_hypha_read_local_blind_pre_capture_failure(
+    KirinHypha* handle, const char* request_id,
+    KirinLocalBlindPreCaptureFailure* out_failure);
 bool kirin_hypha_ack_local_blind_pre_capture(
     KirinHypha* handle, const KirinLocalBlindPreCaptureReceipt* receipt);
 bool kirin_hypha_local_blind_pre_capture_was_consumed(

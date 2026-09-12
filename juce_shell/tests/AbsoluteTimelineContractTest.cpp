@@ -83,6 +83,8 @@ namespace
     double renderAt (const ui_contract::SpectrumSizePreset& preset)
     {
         AbsoluteComponent component;
+        component.setPresentationContext (
+            presentation::forEditor (preset.width, preset.height));
         const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
         component.setSize (bounds.width, bounds.height);
         component.setBatch (batch (1, 60));
@@ -160,6 +162,9 @@ void verifyAbsoluteTimelineContract()
     KIRIN_ABSOLUTE_REQUIRE (gapTolerant.frameCountForTest() == 0u);
 
     AbsoluteComponent onePoint;
+    onePoint.setPresentationContext (presentation::forEditor (
+        ui_contract::spectrumSizePresets[0].width,
+        ui_contract::spectrumSizePresets[0].height));
     const auto compactBounds = ui_contract::spectrumPlotBounds (
         ui_contract::spectrumSizePresets[0].width,
         ui_contract::spectrumSizePresets[0].height);
@@ -190,6 +195,9 @@ void verifyAbsoluteTimelineContract()
     // A move-only JUCE Path still reports isEmpty(). Guard the real multi-point pixels rather
     // than only the one-point fallback, otherwise every frame can become an invisible moveTo.
     AbsoluteComponent multiPoint;
+    multiPoint.setPresentationContext (presentation::forEditor (
+        ui_contract::spectrumSizePresets[0].width,
+        ui_contract::spectrumSizePresets[0].height));
     multiPoint.setSize (compactBounds.width, compactBounds.height);
     multiPoint.setBatchAt (batch (1, 60), 0.0);
     juce::Image multiPointImage (juce::Image::ARGB,
@@ -208,6 +216,34 @@ void verifyAbsoluteTimelineContract()
         countNearColour (multiPointImage, historyInterior, COL_SPECTRUM_POST) > 8);
     KIRIN_ABSOLUTE_REQUIRE (
         countNearColour (multiPointImage, historyInterior, COL_FLORA) > 8);
+
+    // SHARP reuses the same exact POST timeline when there is no pair, but presents only the
+    // Sharpness fact at its full 0..3 acum scale.
+    AbsoluteComponent postSharpness;
+    postSharpness.setPresentationContext (presentation::forEditor (
+        ui_contract::spectrumSizePresets[0].width,
+        ui_contract::spectrumSizePresets[0].height));
+    postSharpness.setSharpnessOnly (true);
+    postSharpness.setSize (compactBounds.width, compactBounds.height);
+    postSharpness.setBatchAt (batch (1, 60), 0.0);
+    juce::Image postSharpnessImage (juce::Image::ARGB,
+                                    compactBounds.width, compactBounds.height, true);
+    postSharpnessImage.clear (postSharpnessImage.getBounds(), BG);
+    {
+        juce::Graphics graphics (postSharpnessImage);
+        postSharpness.paintEntireComponent (graphics, true);
+    }
+    KIRIN_ABSOLUTE_REQUIRE (
+        countNearColour (postSharpnessImage, historyInterior, COL_SPECTRUM_POST) > 8);
+    KIRIN_ABSOLUTE_REQUIRE (
+        countNearColour (postSharpnessImage, historyInterior, COL_SPECTRUM_DELTA) == 0);
+    KIRIN_ABSOLUTE_REQUIRE (
+        countNearColour (postSharpnessImage, historyInterior, COL_FLORA) == 0);
+    postSharpness.mouseMove (mouseEvent (
+        postSharpness, (float) compactBounds.width * 0.5f,
+        (float) compactBounds.height * 0.5f));
+    KIRIN_ABSOLUTE_REQUIRE (
+        postSharpness.getTooltip() == analysis_ui::liveMetricTooltip (2u));
 
     AbsoluteComponent gated;
     gated.setBatchAt (batch (1, 1), 0.0);

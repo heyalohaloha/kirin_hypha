@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaSurfaceMaterial.h"
 
 namespace
 {
@@ -29,6 +30,21 @@ juce::String captureDomainId (hypha::observatory::Domain domain)
     }
     return "level";
 }
+
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+void setAnalysisPresentationContext (juce::Component& component,
+                                     hypha::presentation::Context context)
+{
+    if (auto* spectrum = dynamic_cast<hypha::SpectrumComponent*> (&component))
+        spectrum->setPresentationContext (context);
+    else if (auto* perceptual = dynamic_cast<hypha::PerceptualComponent*> (&component))
+        perceptual->setPresentationContext (context);
+    else if (auto* absolute = dynamic_cast<hypha::AbsoluteComponent*> (&component))
+        absolute->setPresentationContext (context);
+    else if (auto* attack = dynamic_cast<hypha::AttackComponent*> (&component))
+        attack->setPresentationContext (context);
+}
+#endif
 }
 
 void KirinHyphaEditor::beginObservatoryCapture()
@@ -182,7 +198,8 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
     if (analysisPage == AnalysisPage::spectrum)
         external = &spectrumView;
     else if (analysisPage == AnalysisPage::perceptual)
-        external = &perceptualView;
+        external = sharpnessUsesAbsolute ? static_cast<juce::Component*> (&absoluteView)
+                                         : static_cast<juce::Component*> (&perceptualView);
     else if (analysisPage == AnalysisPage::absolute)
         external = &absoluteView;
     else if (analysisPage == AnalysisPage::attack)
@@ -192,6 +209,13 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
         const auto body = observatoryView.captureBodyBounds (
             width, height, includeOsGuide);
         const auto originalBounds = external->getBounds();
+        const auto logicalCaptureWidth = juce::roundToInt (
+            (float) width / hypha::observatory::captureRenderScale);
+        const auto logicalCaptureHeight = juce::roundToInt (
+            (float) height / hypha::observatory::captureRenderScale);
+        setAnalysisPresentationContext (*external, hypha::presentation::forOutput (
+            logicalCaptureWidth, logicalCaptureHeight,
+            hypha::presentation::OutputTarget::capture));
         external->setSize (
             juce::roundToInt ((float) body.getWidth()
                               / hypha::observatory::captureRenderScale),
@@ -200,9 +224,10 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
         const auto analysis = external->createComponentSnapshot (
             external->getLocalBounds(), true, hypha::observatory::captureRenderScale);
         external->setBounds (originalBounds);
+        setAnalysisPresentationContext (*external,
+            hypha::presentation::forEditor (getWidth(), getHeight()));
         juce::Graphics graphics (snapshot.image);
-        graphics.setColour (hypha::BG);
-        graphics.fillRoundedRectangle (body.toFloat(), 4.0f);
+        hypha::surface_material::paintPanel (graphics, body.toFloat(), 1.0f);
         graphics.drawImage (analysis, body.getX(), body.getY(), body.getWidth(), body.getHeight(),
                             0, 0, analysis.getWidth(), analysis.getHeight(), false);
     }
@@ -268,12 +293,12 @@ void KirinHyphaEditor::chooseObservatoryCapture (int width, int height)
                              .getChildFile (filename);
     captureChooser = std::make_unique<juce::FileChooser> (
         "Save Hypha capture", initial, "*.png", true);
-    const auto flags = juce::FileBrowserComponent::saveMode
-                     | juce::FileBrowserComponent::canSelectFiles
-                     | juce::FileBrowserComponent::warnAboutOverwriting;
+    const auto chooserFlags = juce::FileBrowserComponent::saveMode
+                            | juce::FileBrowserComponent::canSelectFiles
+                            | juce::FileBrowserComponent::warnAboutOverwriting;
     juce::Component::SafePointer<KirinHyphaEditor> safeThis (this);
     captureChooser->launchAsync (
-        flags, [safeThis, image = snapshot.image] (const juce::FileChooser& chooser)
+        chooserFlags, [safeThis, image = snapshot.image] (const juce::FileChooser& chooser)
     {
         if (safeThis == nullptr)
             return;

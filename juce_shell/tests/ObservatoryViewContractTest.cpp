@@ -1,5 +1,6 @@
 #include "ObservatoryViewContractTest.h"
 #include "ObservatoryCaptureContractTest.h"
+#include "JungleAppearanceContractTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaSpectrumComponent.h"
@@ -172,6 +173,13 @@ void verifyRoleAtEverySize (observatory::Role role,
         view.setMeterSnapshot (meter, true);
         view.setWatchDisplay (activeWatch(), true);
         view.setHistory (history);
+        if (role == observatory::Role::post)
+        {
+            view.setDomain (observatory::Domain::frequency);
+            view.setDeltaTargetEnabled (false);
+            KIRIN_OBSERVATORY_REQUIRE (! view.deltaTargetControlEnabledForTest());
+            view.setDeltaTargetEnabled (true);
+        }
         for (const auto domain : {
                  observatory::Domain::level, observatory::Domain::time,
                  observatory::Domain::frequency, observatory::Domain::space,
@@ -248,6 +256,7 @@ void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
     shell.paintEntireComponent (composedGraphics, true);
 
     SpectrumComponent frequencyBody;
+    frequencyBody.setPresentationContext (presentation::forEditor (600, 400));
     frequencyBody.setSignalActive (true);
     const auto body = shell.bodyBounds();
     frequencyBody.setSize (body.getWidth(), body.getHeight());
@@ -333,6 +342,7 @@ void verifyObservatoryViewContract()
     KIRIN_OBSERVATORY_REQUIRE (meter.field_observation_count == 30u);
     verifyRoleAtEverySize (observatory::Role::pre, meter, history);
     verifyRoleAtEverySize (observatory::Role::post, meter, history);
+    verifyJungleAppearanceContract (meter, watch, history, activeFrame());
 
     observatory::View pre (observatory::Role::pre);
     pre.setWatchDisplay (watch, true);

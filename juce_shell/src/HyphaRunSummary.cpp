@@ -1,6 +1,8 @@
 #include "HyphaRunSummary.h"
 
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <cmath>
@@ -107,7 +109,8 @@ juce::String durationText (const Summary& run, double sampleRate)
 }
 
 void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
-               double sampleRate, bool latest, bool expanded)
+               double sampleRate, bool latest, bool expanded,
+               presentation::Context presentation)
 {
     g.setColour ((latest ? COL_LED_BLUE : COL_MUTED).withAlpha (latest ? 0.15f : 0.08f));
     g.fillRoundedRectangle (row.toFloat(), 3.0f);
@@ -120,41 +123,49 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
         auto upper = row.removeFromTop (juce::jmax (18, row.getHeight() / 2));
         auto identity = upper.removeFromLeft (juce::jmin (94, upper.getWidth() / 2)).reduced (5, 0);
         g.setColour (latest ? COL_LED_BLUE : COL_NORMAL);
-        g.setFont (monoFont (9.0f));
-        g.drawFittedText ("RUN " + juce::String (run.runId)
-                          + (latest ? " *" : ""), identity,
-                          juce::Justification::centredLeft, 1, 1.0f);
+        g.setFont (monoFont (presentation, typography::TextRole::readout,
+                             typography::Composition::information));
+        text_style::draw (g, "RUN " + juce::String (run.runId)
+                          + (latest ? " *" : ""), identity, presentation,
+                          typography::TextRole::readout, juce::Justification::centredLeft,
+                          1, typography::Composition::information);
         auto clips = upper.removeFromRight (58).reduced (3, 0);
         g.setColour ((run.clipEvents[0] + run.clipEvents[1] > 0 ? COL_SPECTRUM_POST : COL_MUTED)
                          .withAlpha (0.90f));
-        g.drawFittedText ("L" + juce::String (run.clipEvents[0])
-                          + " R" + juce::String (run.clipEvents[1]), clips,
-                          juce::Justification::centredRight, 1, 1.0f);
+        text_style::draw (g, "L" + juce::String (run.clipEvents[0])
+                          + " R" + juce::String (run.clipEvents[1]), clips, presentation,
+                          typography::TextRole::readout, juce::Justification::centredRight,
+                          1, typography::Composition::information);
         g.setColour (COL_MUTED.brighter (0.22f));
         g.drawText (durationText (run, sampleRate), upper.reduced (3, 0),
                     juce::Justification::centredRight);
 
         auto peak = row.removeFromRight (84).reduced (3, 0);
         g.setColour (COL_FLORA_BR.withAlpha (0.92f));
-        g.drawFittedText ("TP " + (run.truePeakAvailable
+        text_style::draw (g, "TP " + (run.truePeakAvailable
                             ? number (run.maximumTruePeak) : juce::String ("---")), peak,
-                          juce::Justification::centredRight, 1, 1.0f);
+                          presentation, typography::TextRole::readout,
+                          juce::Justification::centredRight, 1,
+                          typography::Composition::information);
         const auto loudness = run.momentary.available
             ? "M " + number (run.momentary.minimum) + ".." + number (run.momentary.maximum)
             : juce::String ("M ---");
         g.setColour (COL_SPECTRUM_POST.withAlpha (0.95f));
-        g.drawFittedText (loudness, row.reduced (5, 0), juce::Justification::centredLeft,
-                          1, 1.0f);
+        text_style::draw (g, loudness, row.reduced (5, 0), presentation,
+                          typography::TextRole::readout, juce::Justification::centredLeft,
+                          1, typography::Composition::information);
         return;
     }
 
     constexpr auto runWidth = 92;
     auto identity = row.removeFromLeft (runWidth).reduced (5, 0);
     g.setColour (latest ? COL_LED_BLUE : COL_NORMAL);
-    g.setFont (monoFont (10.0f));
-    g.drawFittedText ("RUN " + juce::String (run.runId)
-                      + (latest ? " *" : ""), identity,
-                      juce::Justification::centredLeft, 1, 1.0f);
+    g.setFont (monoFont (presentation, typography::TextRole::readout,
+                         typography::Composition::information));
+    text_style::draw (g, "RUN " + juce::String (run.runId)
+                      + (latest ? " *" : ""), identity, presentation,
+                      typography::TextRole::readout, juce::Justification::centredLeft,
+                      1, typography::Composition::information);
 
     auto duration = row.removeFromLeft (62).reduced (3, 0);
     g.setColour (COL_MUTED.brighter (0.22f));
@@ -165,20 +176,25 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
     auto clips = row.removeFromRight (78).reduced (3, 0);
     g.setColour ((run.clipEvents[0] + run.clipEvents[1] > 0 ? COL_SPECTRUM_POST : COL_MUTED)
                      .withAlpha (0.90f));
-    g.drawFittedText (clipText, clips, juce::Justification::centredRight, 1, 1.0f);
+    text_style::draw (g, clipText, clips, presentation, typography::TextRole::readout,
+                      juce::Justification::centredRight, 1,
+                      typography::Composition::information);
 
     auto peak = row.removeFromRight (106).reduced (3, 0);
     g.setColour (COL_FLORA_BR.withAlpha (0.92f));
-    g.drawFittedText ("TP " + (run.truePeakAvailable
+    text_style::draw (g, "TP " + (run.truePeakAvailable
                         ? number (run.maximumTruePeak) : juce::String ("---")), peak,
-                      juce::Justification::centredRight, 1, 1.0f);
+                      presentation, typography::TextRole::readout,
+                      juce::Justification::centredRight, 1,
+                      typography::Composition::information);
 
     const auto loudness = run.momentary.available
         ? "M " + number (run.momentary.minimum) + ".." + number (run.momentary.maximum)
         : juce::String ("M ---");
     g.setColour (COL_SPECTRUM_POST.withAlpha (0.95f));
-    g.drawFittedText (loudness, row.reduced (3, 0), juce::Justification::centredLeft,
-                      1, 1.0f);
+    text_style::draw (g, loudness, row.reduced (3, 0), presentation,
+                      typography::TextRole::readout, juce::Justification::centredLeft,
+                      1, typography::Composition::information);
 }
 }
 
@@ -249,15 +265,13 @@ int visibleRowCount (int width) noexcept
 }
 
 void paint (juce::Graphics& g, juce::Rectangle<int> area, const Result& result,
-            double sampleRate)
+            double sampleRate, presentation::Context presentation)
 {
-    g.setColour (BG.withAlpha (0.78f));
-    g.fillRoundedRectangle (area.toFloat(), 4.0f);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
+    surface_material::paintPanel (g, area.toFloat(), 0.78f);
     area.reduce (8, 6);
     auto heading = area.removeFromTop (juce::jlimit (18, 28, area.getHeight() / 7));
-    g.setFont (monoFont (area.getWidth() >= 700 ? 11.0f : 9.0f));
+    g.setFont (monoFont (presentation, typography::TextRole::sectionTitle,
+                         typography::Composition::information));
     g.setColour (COL_NORMAL);
     g.drawText (result.exactTimeline ? "RUNS IN VIEW" : "SESSION RUN", heading,
                 juce::Justification::centredLeft);
@@ -265,9 +279,12 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const Result& result,
     g.drawText ("* LATEST / POST", heading, juce::Justification::centredRight);
     if (result.runs.empty())
     {
-        g.setFont (monoFont (12.0f));
-        g.drawFittedText ("Play audio to collect run facts in this history range", area,
-                          juce::Justification::centred, 2, 1.0f);
+        g.setFont (monoFont (presentation, typography::TextRole::status,
+                             typography::Composition::information));
+        text_style::draw (g, "Play audio to collect run facts in this history range", area,
+                          presentation, typography::TextRole::status,
+                          juce::Justification::centred, 2,
+                          typography::Composition::information);
         return;
     }
 
@@ -279,7 +296,7 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const Result& result,
     {
         auto row = area.removeFromTop (juce::jmin (rowHeight, area.getHeight()));
         paintRow (g, row, result.runs[first + static_cast<std::size_t> (index)], sampleRate,
-                  index + 1 == rows, row.getWidth() >= 520);
+                  index + 1 == rows, row.getWidth() >= 520, presentation);
     }
 }
 }

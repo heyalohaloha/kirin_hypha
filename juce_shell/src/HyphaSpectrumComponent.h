@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstring>
 #include <functional>
 #include <memory>
 
@@ -10,21 +11,30 @@
 #include "HyphaAbsoluteSpectrumHistory.h"
 #include "HyphaGuideFrequencyOverlay.h"
 #include "HyphaSpectrumFocusTrail.h"
+#include "HyphaSpectrumPresentation.h"
 #include "kirin_hypha_ffi.h"
 #include "kirin_hypha_display_ffi.h"
 
 namespace hypha
 {
 // POST-only presentation component. It receives a fixed Rust snapshot and owns no timer, file,
-// FFT, pairing, or audio state. The renderer uses only state-free frequency-axis presentation and
-// y clipping; raw analysis remains in Rust and an incompatible exact frame becomes a factual status.
+// FFT, pairing, or audio state. Spatial calm and curve ballistics remain display-only; raw analysis
+// stays in Rust and an incompatible exact frame becomes a factual status.
 class SpectrumComponent final : public juce::Component,
                                 public juce::SettableTooltipClient
 {
 public:
     SpectrumComponent();
 
+    void setPresentationContext (presentation::Context next)
+    {
+        if (presentationContext == next) return;
+        presentationContext = next;
+        repaint();
+    }
+
     void setSnapshot (const KirinSpectrumView& next);
+    void setMidSideSnapshot (const KirinMidSideSpectrumView& next);
     void setBatch (const KirinSpectrumBatch& batch);
     void queueSnapshot (const KirinSpectrumView& next);
     void clearSnapshot();
@@ -33,8 +43,10 @@ public:
     void setAnalysisOwnerNames (const juce::String& names);
     void setGuideFrequencyOverlay (const guide_frequency::Overlay& next);
     void setAbsoluteObservation (bool absolute);
+    void setDisplaySelection (uint8_t selection);
     void setPsbSnapshot (const KirinPsbView&);
     bool isPsbObservation() const noexcept { return psbObservation; }
+    bool isMidSideObservation() const noexcept { return midSideObservation; }
     std::function<void()> onSubviewChange;
     void setSignalActive (bool active);
     void paint (juce::Graphics&) override;
@@ -58,6 +70,14 @@ public:
     {
         return index < readoutDelta.size() ? readoutDelta[index] : 0.0f;
     }
+    float readoutMidForTest (size_t index) const noexcept
+    { return index < readoutPre.size() ? readoutPre[index] : 0.0f; }
+    float readoutSideForTest (size_t index) const noexcept
+    { return index < readoutPost.size() ? readoutPost[index] : 0.0f; }
+    float displayedPostForTest (size_t index) const noexcept
+    { return index < displayedPost.size() ? displayedPost[index] : 0.0f; }
+    float pendingPostForTest (size_t index) const noexcept
+    { return index < pendingPost.size() ? pendingPost[index] : 0.0f; }
     bool isAbsoluteObservationForTest() const noexcept { return absoluteObservation; }
     bool isPsbObservationForTest() const noexcept { return psbObservation; }
     size_t absoluteHistorySizeForTest() const noexcept { return absoluteHistory.size(); }
@@ -72,8 +92,24 @@ public:
 private:
     void clearInteractionState() noexcept;
     bool currentSnapshotValid() const noexcept;
+    const std::array<float, KIRIN_SPECTRUM_BAND_COUNT>& calmWeightsFor (
+        float minimumHz, float maximumHz) noexcept
+    {
+        if (! calmWeightsValid
+            || std::memcmp (&calmMinimumHz, &minimumHz, sizeof (float)) != 0
+            || std::memcmp (&calmMaximumHz, &maximumHz, sizeof (float)) != 0)
+        {
+            cachedCalmWeights = spectrum_presentation::lowFrequencyCalmWeights<
+                KIRIN_SPECTRUM_BAND_COUNT> (minimumHz, maximumHz);
+            calmMinimumHz = minimumHz;
+            calmMaximumHz = maximumHz;
+            calmWeightsValid = true;
+        }
+        return cachedCalmWeights;
+    }
 
     KirinSpectrumView snapshot {};
+    KirinMidSideSpectrumView midSideSnapshot {};
     KirinSpectrumView pendingSnapshot {};
     KirinSpectrumView interactionDefinition {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> displayedPre {};
@@ -86,6 +122,7 @@ private:
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> pendingPost {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> pendingDelta {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> markedDelta {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> cachedCalmWeights {};
     std::unique_ptr<spectrum_focus::FocusTrailHistory> focusTrail;
     bool haveSnapshot = false;
     bool havePendingSnapshot = false;
@@ -95,6 +132,9 @@ private:
     bool haveMark = false;
     float hoverNormalisedX = -1.0f;
     float focusFrequencyHz = -1.0f;
+    float calmMinimumHz = 0.0f;
+    float calmMaximumHz = 0.0f;
+    bool calmWeightsValid = false;
     uint8_t channelMode = KIRIN_SPECTRUM_CHANNEL_LR;
     uint8_t inputChannels = 0;
     juce::String modeActionNotice;
@@ -102,6 +142,8 @@ private:
     guide_frequency::Overlay guideOverlay;
     absolute_spectrum::History absoluteHistory;
     bool absoluteObservation = false;
+    bool midSideObservation = false;
+    bool midSideSnapshotValid = false;
     std::array<double, 20> absolutePsb {};
     std::array<double, 20> deltaPsb {};
     bool absolutePsbAvailable = false;
@@ -112,6 +154,7 @@ private:
     int psbHoverBand = -1;
     double modeActionNoticeUntilMs = 0.0;
     bool hoverNeedsRepaint = false;
+    presentation::Context presentationContext = presentation::defaultContext();
     double lastCurvePresentationMs = 0.0;
     double lastNumericPresentationMs = 0.0;
 

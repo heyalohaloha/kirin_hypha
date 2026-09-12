@@ -404,10 +404,11 @@ mod tests {
         let mut second = AbsoluteContinuousAnalyzer::new(48_000, 2).unwrap();
         first.reset_at_epoch(0).unwrap();
         second.reset_at_epoch(0).unwrap();
-        let iterations = 40;
-        let started = Instant::now();
-        for index in 0..iterations {
-            let endpoint = (index + 1) as i64 * 4_800;
+        let mut endpoint = 0i64;
+        // Prime lazy CPU/runtime state before measuring sustained work. Repeated windows keep a
+        // brief shared-runner deschedule from being mistaken for an analysis cost regression.
+        for _ in 0..8 {
+            endpoint += 4_800;
             black_box(
                 first
                     .analyze_aperture(black_box(aperture), endpoint, 1)
@@ -419,12 +420,31 @@ mod tests {
                     .unwrap(),
             );
         }
-        let combined_ms_per_aperture =
-            started.elapsed().as_secs_f64() * 1_000.0 / iterations as f64;
-        let projected_two_worker_cpu_percent = combined_ms_per_aperture;
+
+        let mut trial_percent = [0.0; 5];
+        for percent in &mut trial_percent {
+            let started = Instant::now();
+            for _ in 0..20 {
+                endpoint += 4_800;
+                black_box(
+                    first
+                        .analyze_aperture(black_box(aperture), endpoint, 1)
+                        .unwrap(),
+                );
+                black_box(
+                    second
+                        .analyze_aperture(black_box(aperture), endpoint, 1)
+                        .unwrap(),
+                );
+            }
+            *percent = started.elapsed().as_secs_f64() * 1_000.0 / 20.0;
+        }
+        trial_percent.sort_by(f64::total_cmp);
+        let projected_two_worker_cpu_percent = trial_percent[trial_percent.len() / 2];
         eprintln!(
-            "48k two POST absolute workers: {combined_ms_per_aperture:.3} ms/100ms pair, \
-             projected CPU {projected_two_worker_cpu_percent:.3}%"
+            "48k two POST absolute workers: median projected CPU \
+             {projected_two_worker_cpu_percent:.3}%, worst {:.3}%",
+            trial_percent[trial_percent.len() - 1]
         );
         assert!(projected_two_worker_cpu_percent < 18.0);
     }

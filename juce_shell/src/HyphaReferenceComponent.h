@@ -9,6 +9,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaOsAccess.h"
+#include "HyphaPresentationContext.h"
+#include "HyphaReferenceSelectorLookAndFeel.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
 #include "reference_audition/ReferenceRuntimeV2Profile.h"
 
@@ -108,6 +110,8 @@ struct State
     std::int64_t sourceSampleRateHz = 0;
     std::int64_t hostSampleRateHz = 0;
     juce::String presetSelectionAction;
+    juce::String candidatePreparationAction;
+    bool candidatePreparationPending = false;
     juce::String actionText;
 };
 
@@ -128,6 +132,18 @@ class Component final : public juce::Component
 {
 public:
     Component();
+
+    void setPresentationContext (presentation::Context next)
+    {
+        if (presentationContext == next) return;
+        presentationContext = next;
+        selectorLookAndFeel.setPresentationContext (next);
+        for (auto* button : { &aButton, &bButton, &blindButton, &oneButton, &twoButton,
+                              &answerButton, &revealButton, &endBlindButton, &actionButton })
+            button->setPresentationContext (next);
+        resized();
+        repaint();
+    }
 
     std::function<void()> onSelectA;
     std::function<void()> onSelectB;
@@ -154,17 +170,26 @@ private:
     {
     public:
         explicit SideButton (const juce::String& text);
+        void setPresentationContext (presentation::Context next) noexcept
+        {
+            presentationContext = next;
+        }
         void paintButton (juce::Graphics&, bool highlighted, bool down) override;
+
+    private:
+        presentation::Context presentationContext = presentation::defaultContext();
     };
 
     State current;
+    presentation::Context presentationContext = presentation::defaultContext();
+    ReferenceSelectorLookAndFeel selectorLookAndFeel;
     juce::ComboBox presetBox;
     juce::ComboBox checkBox;
     juce::ComboBox candidateBox;
     juce::ComboBox cueBox;
     SideButton aButton { "A" };
     SideButton bButton { "B" };
-    SideButton blindButton { "BLIND" };
+    SideButton blindButton { "VERSION BLIND" };
     SideButton oneButton { "1" };
     SideButton twoButton { "2" };
     SideButton answerButton { "CHOOSE" };

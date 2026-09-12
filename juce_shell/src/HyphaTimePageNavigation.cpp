@@ -1,4 +1,5 @@
 #include "HyphaTimePageNavigation.h"
+#include "HyphaSurfacePresentation.h"
 
 #include "HyphaAnalysisUiText.h"
 #include "HyphaTheme.h"
@@ -115,7 +116,8 @@ void TimePageNavigation::updateControls()
         ? "Cycle History, Run facts, Drum Attack, Sharpness Delta, and POST live facts"
         : "Cycle History, Run facts, Sharpness Delta, and POST live facts");
     compactCycle.setVisible (! direct);
-    compactCycle.setButtonText (analysis_navigation::timePageLabel (selectedPage));
+    compactCycle.setButtonText (surface_presentation::descriptor (
+        surface_presentation::forTimePage (selectedPage)).label);
     compactCycle.setTooltip (selectedPage == Page::meters
         ? "Switch TIME detail view"
         : selectedPage == Page::run

@@ -1,6 +1,7 @@
 #include "HyphaPsbPainter.h"
 
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 
 #include <algorithm>
@@ -48,18 +49,18 @@ int bandAt (juce::Rectangle<float> bounds, juce::Point<float> point) noexcept
         (int) ((point.x - plot.getX()) * (float) bandCount / plot.getWidth()));
 }
 
-void paintSubviewToggle (juce::Graphics& g, juce::Rectangle<float> bounds, bool psbSelected)
+void paintSubviewToggle (juce::Graphics& g, juce::Rectangle<float> bounds, bool psbSelected,
+                         presentation::Context presentation)
 {
     const auto scale = visualScale (bounds);
     const auto button = spectrum_geometry::subviewBoundsFor (
         spectrum_geometry::plotBoundsFor (bounds), scale);
-    g.setColour ((psbSelected ? COL_LED_BLUE : COL_MUTED).withAlpha (
-        psbSelected ? 0.14f : 0.05f));
-    g.fillRoundedRectangle (button, 3.0f * scale);
-    g.setColour ((psbSelected ? COL_LED_BLUE : COL_MUTED).withAlpha (
-        psbSelected ? 0.88f : 0.48f));
-    g.drawRoundedRectangle (button, 3.0f * scale, 0.75f * scale);
-    g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (scale)));
+    surface_material::paintControl (
+        g, button, false, false, psbSelected, COL_LED_BLUE, 3.0f * scale);
+    g.setFont (monoFont (presentation, typography::TextRole::action,
+                         typography::Composition::visualization));
+    g.setColour (psbSelected ? COL_LED_BLUE.brighter (0.24f)
+                             : COL_TEXT_SECONDARY.withAlpha (0.92f));
     g.drawText (psbSelected ? "SPECTRUM" : "PSB", button.toNearestInt(),
                 juce::Justification::centred);
 }
@@ -69,13 +70,14 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
     const auto scale = visualScale (bounds);
     const auto outer = spectrum_geometry::plotBoundsFor (bounds);
     const auto plot = dataBounds (bounds);
-    g.setColour (BG.withAlpha (0.84f));
-    g.fillRoundedRectangle (outer, 4.0f * scale);
+    surface_material::paintPanel (g, outer, 0.84f, 4.0f * scale);
 
-    g.setFont (monoFont (8.0f * ui_contract::analysisTextScale (scale)));
+    g.setFont (monoFont (state.presentation, typography::TextRole::legend,
+                         typography::Composition::visualization));
     g.setColour (COL_NORMAL.withAlpha (0.86f));
     g.drawText (state.delta ? "PSB / delta pp" : "PSB / POST %",
-                outer.withHeight (18.0f * scale).withTrimmedRight (100.0f * scale).toNearestInt(),
+                juce::Rectangle<float> { outer.getX(), outer.getY(),
+                    outer.getWidth() - 100.0f * scale, 18.0f * scale }.toNearestInt(),
                 juce::Justification::centredLeft);
     if (! state.available)
     {
@@ -113,10 +115,13 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
         g.fillRoundedRectangle (bar, std::min (2.0f * scale, bar.getWidth() * 0.25f));
     }
 
-    g.setFont (monoFont (7.0f * ui_contract::analysisTextScale (scale)));
+    g.setFont (monoFont (state.presentation, typography::TextRole::axis,
+                         typography::Composition::visualization));
     g.setColour (COL_NORMAL.withAlpha (0.78f));
-    const auto axisLegend = outer.withTrimmedTop (17.0f * scale)
-                                 .withHeight (13.0f * scale);
+    const juce::Rectangle<float> axisLegend {
+        outer.getX(), outer.getY() + 17.0f * scale,
+        outer.getWidth(), 13.0f * scale
+    };
     g.drawText ("0-24 Bark | LR", axisLegend.withTrimmedRight (90.0f * scale).toNearestInt(),
                 juce::Justification::centredLeft);
     g.drawText (state.delta ? "+/- " + juce::String (ceiling * 100.0f, 0) + " PP"

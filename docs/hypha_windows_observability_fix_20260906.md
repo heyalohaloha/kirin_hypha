@@ -105,13 +105,13 @@ The baseline version string is insufficient to establish its source commit.
 | Sound and drawing seem out of sync | Exact sample identities and complete retained batches; LIVE curves use 100 ms observations, numeric readouts retain their documented cadence. No assertion of zero visual latency. |
 | Unexplained white line / frozen last drawing | Remove ATTACK selection line; live-inactive body clears to black, while an explicitly locked event remains inspectable. |
 | ATTACK allows FOCUS / adjacent controls | Page capability contract removes irrelevant loudness/history controls and their hit targets. |
-| HISTORY PLR unreadable / horizontal | Readable dB label and Session max TP - I definition; fixed 0–24 range, with a separate compact auxiliary row. A stable PLR may truthfully stay horizontal. |
+| HISTORY PLR unreadable / horizontal | Readable dB value and `SESSION FACT / TP MAX - LUFS-I` definition; fixed 0–24 range, with a restrained latest-value gauge instead of a misleading cumulative time trace. |
 | KEEP overlaps READY TO BOUNCE | Session and explicit-action feedback use an independent footer row; preserve the underlying Record/Keep operation. |
 | Focus Trail unstable / broken | Publish every retained exact match; preserve real missing endpoints and do not interpolate invented observations. |
 | 150% items beside 2MIX unreadable | Context owns the first header row; domain navigation owns the second. |
 | LEVEL purple / orange meanings unclear | Colored M momentary LUFS and TP two-second peak dBTP legends; readable axes and supporting facts. |
 | MAX text too small | Shared font floor and larger label bounds; maxima originate in the producer and survive editor closure until explicit RESET. |
-| SHARPNESS seems unavailable with POST alone | Explicit PRE-required difference definition; do not relabel absolute POST as delta. |
+| SHARPNESS seems unavailable with POST alone | SHARP shows local POST Sharpness on its 0..3 acum scale until an exact pair exists, then switches the same page to signed POST-minus-PRE without relabelling either value. |
 | LIVE seems unrelated to delta | Fixed POST absolute target, disabled target switching, explanatory help and consistent capture metadata. |
 | PRE / common small text | Apply common typography, geometry, maxima and capture fixes to PRE and POST, keeping PRE's existing page boundary. |
 

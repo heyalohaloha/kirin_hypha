@@ -2,3 +2,5 @@
 build/
 # B-082: universal (x86_64;arm64) ship build tree (scripts/build_juce_universal.sh)
 build-universal/
+# Host-validation CMake trees are generated locally, like the shipping build trees.
+build-pdc-macos/

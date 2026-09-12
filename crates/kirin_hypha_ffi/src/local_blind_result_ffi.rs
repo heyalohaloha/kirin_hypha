@@ -5,11 +5,12 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
 
 use kirin_measure::local_blind_capture_protocol::{
-    read_validated_local_blind_capture_request, LocalBlindCaptureRequest,
+    read_validated_local_blind_capture_request_for_active_result, LocalBlindCaptureRequest,
 };
 use kirin_measure::local_blind_capture_result::{
     local_blind_pre_capture_was_consumed, publish_local_blind_pre_capture,
-    publish_local_blind_pre_capture_consumed, read_local_blind_pre_capture,
+    publish_local_blind_pre_capture_consumed, publish_local_blind_pre_capture_failure,
+    read_local_blind_pre_capture, read_local_blind_pre_capture_failure,
     remove_local_blind_pre_capture, LocalBlindPreCaptureReceipt,
 };
 use kirin_measure::{PlatformPaths, PluginDataRole};
@@ -52,6 +53,15 @@ impl Default for KirinLocalBlindPreCaptureReceipt {
     }
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct KirinLocalBlindPreCaptureFailure {
+    pub owner_failure: u8,
+    pub capture_failure: u8,
+}
+
+const _: () = assert!(std::mem::size_of::<KirinLocalBlindPreCaptureFailure>() == 2);
+
 impl KirinHyphaEngine {
     fn local_blind_request_for_post(
         &self,
@@ -69,7 +79,7 @@ impl KirinHyphaEngine {
         let instance_dir = root
             .join(&authority.pre_project_hash)
             .join(&authority.pre_instance_id);
-        let request = read_validated_local_blind_capture_request(
+        let request = read_validated_local_blind_capture_request_for_active_result(
             &root,
             &instance_dir,
             &authority.pre_project_hash,
@@ -176,7 +186,8 @@ pub unsafe extern "C" fn kirin_hypha_publish_local_blind_pre_capture(
             return false;
         }
         let request_id = unsafe { crate::read_c_str(request_id) };
-        let Some(request) = (unsafe { &*handle }).read_local_blind_capture_request_for_pre() else {
+        let Some(request) = (unsafe { &*handle }).read_local_blind_capture_request_for_active_pre()
+        else {
             return false;
         };
         if request.request_id != request_id {
@@ -264,6 +275,85 @@ pub unsafe extern "C" fn kirin_hypha_read_local_blind_pre_capture(
     .unwrap_or(false)
 }
 
+/// Publish one terminal PRE failure for an already-armed request.
+///
+/// # Safety
+/// `handle` must be live and `request_id` must be a readable null-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_publish_local_blind_pre_capture_failure(
+    handle: *mut KirinHyphaEngine,
+    request_id: *const c_char,
+    owner_failure: u8,
+    capture_failure: u8,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || request_id.is_null() {
+            return false;
+        }
+        let request_id = unsafe { crate::read_c_str(request_id) };
+        let engine = unsafe { &*handle };
+        let Some(request) = engine.read_local_blind_capture_request_for_active_pre() else {
+            return false;
+        };
+        if request.request_id != request_id {
+            return false;
+        }
+        let root = PlatformPaths::current_kirin_tmp_root();
+        let instance_dir = root
+            .join(&request.authority.pre_project_hash)
+            .join(&request.authority.pre_instance_id);
+        publish_local_blind_pre_capture_failure(
+            &root,
+            &instance_dir,
+            &request,
+            owner_failure,
+            capture_failure,
+            unix_ms_now().unwrap_or_default(),
+        )
+        .is_ok()
+    }))
+    .unwrap_or(false)
+}
+
+/// Read a terminal failure only for this POST's current exact request.
+///
+/// # Safety
+/// `handle` and `out_failure` must be live writable pointers. `request_id` must be readable.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_read_local_blind_pre_capture_failure(
+    handle: *mut KirinHyphaEngine,
+    request_id: *const c_char,
+    out_failure: *mut KirinLocalBlindPreCaptureFailure,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || request_id.is_null() || out_failure.is_null() {
+            return false;
+        }
+        let request_id = unsafe { crate::read_c_str(request_id) };
+        let Some((request, root, instance_dir)) =
+            (unsafe { &*handle }).local_blind_request_for_post(&request_id)
+        else {
+            return false;
+        };
+        let Some(failure) = read_local_blind_pre_capture_failure(
+            &root,
+            &instance_dir,
+            &request,
+            unix_ms_now().unwrap_or_default(),
+        ) else {
+            return false;
+        };
+        unsafe {
+            out_failure.write(KirinLocalBlindPreCaptureFailure {
+                owner_failure: failure.owner_failure,
+                capture_failure: failure.capture_failure,
+            });
+        }
+        true
+    }))
+    .unwrap_or(false)
+}
+
 /// Acknowledge only the exact PRE artifact already verified and copied by this POST.
 ///
 /// # Safety
@@ -317,7 +407,7 @@ pub unsafe extern "C" fn kirin_hypha_local_blind_pre_capture_was_consumed(
             return false;
         };
         let engine = unsafe { &*handle };
-        let Some(request) = engine.read_local_blind_capture_request_for_pre() else {
+        let Some(request) = engine.read_local_blind_capture_request_for_active_pre() else {
             return false;
         };
         if request.request_id != request_id {

@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import { evaluateReview, matchRepresentativeAttackPoints,
   reviewManifestIdentitySha } from './evaluate_review_answers.mjs';
+import { evidenceSchema, evaluationEvidenceIdentitySha } from './evidence_contract.mjs';
 
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 
@@ -14,8 +15,10 @@ async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'hypha-review-evaluation-'));
   const pack = path.join(root, 'pack');
   const research = path.join(root, 'research');
+  const evidence = path.join(root, 'evidence');
   await mkdir(path.join(pack, 'audio'), { recursive: true });
   await mkdir(research);
+  await mkdir(path.join(evidence, 'results'), { recursive: true });
   const html = Buffer.from('<!doctype html><title>review</title>');
   await writeFile(path.join(pack, 'index.html'), html);
   const definitions = [
@@ -27,6 +30,7 @@ async function fixture() {
   ];
   const items = [];
   const provenance = [];
+  const evidenceItems = [];
   const answers = {};
   for (const definition of definitions) {
     const audio = Buffer.from(`audio-${definition.id}`);
@@ -46,9 +50,15 @@ async function fixture() {
         space_observations: definition.mode === 'space' ? definition.events : [] } };
     const resultBytes = Buffer.from(`${JSON.stringify(result)}\n`);
     await writeFile(researchWav.replace(/\.wav$/, '.json'), resultBytes);
+    const resultRelative = `results/${definition.id}.json`;
+    await writeFile(path.join(evidence, resultRelative), resultBytes);
     provenance.push({ id: definition.id, artist_group_sha256: `artist-${definition.id}`,
       source_path: `/private/${definition.id}`, research_excerpt: researchWav,
       research_result_sha256: sha256(resultBytes), source_sha256: `source-${definition.id}`,
+      audio_sha256: audioHash, byte_identity_to_research_excerpt: true });
+    evidenceItems.push({ id: definition.id, result: resultRelative,
+      research_result_sha256: sha256(resultBytes),
+      artist_group_sha256: `artist-${definition.id}`, source_sha256: `source-${definition.id}`,
       audio_sha256: audioHash, byte_identity_to_research_excerpt: true });
     answers[definition.id] = { decision: 'present', confidence: '4', note: 'private note',
       marks: definition.marks, complete: true, played_seconds: 2,
@@ -56,10 +66,16 @@ async function fixture() {
   }
   const manifest = { schema: 'hypha.pilot-review.v1', pack_id: 'fixture-pack',
     protocol: 'development-first-pass-v1', candidate_exposure: false,
-    product_qualified: false, items, html_sha256: sha256(html), provenance };
+    product_qualified: false, items, html_sha256: sha256(html) };
+  const evidenceIdentity = { schema: evidenceSchema, pack_id: manifest.pack_id,
+    items: evidenceItems };
+  manifest.evaluation_evidence_sha256 = evaluationEvidenceIdentitySha(evidenceIdentity);
   manifest.manifest_sha256 = reviewManifestIdentitySha(manifest);
   const manifestPath = path.join(pack, 'manifest.json');
   await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
+  const evidenceManifestPath = path.join(evidence, 'evidence-manifest.json');
+  await writeFile(evidenceManifestPath, `${JSON.stringify({ ...evidenceIdentity,
+    manifest_sha256: manifest.manifest_sha256 })}\n`);
   const answer = { schema: 'hypha.review.answers.v1', pack_id: manifest.pack_id,
     manifest_sha256: manifest.manifest_sha256, protocol: manifest.protocol,
     reviewer: 'private reviewer', candidate_exposure: false, volume: 0.35,
@@ -76,7 +92,8 @@ async function fixture() {
     }] };
   const sidecarPath = path.join(root, 'sidecar.json');
   await writeFile(sidecarPath, `${JSON.stringify(sidecar)}\n`);
-  return { root, pack, manifestPath, answerPath, sidecarPath, answer, sidecar };
+  return { root, pack, research, manifestPath, answerPath, sidecarPath,
+    evidenceManifestPath, answer, sidecar, manifest, provenance };
 }
 
 async function usingFixture(run) {
@@ -98,6 +115,7 @@ test('ATTACK matching maximizes correspondence before minimizing total distance'
 
 test('correction stays auditable and representative points produce diagnostic matches', () =>
   usingFixture(async paths => {
+    assert.equal(paths.manifest.provenance, undefined);
     const result = await evaluateReview({ ...paths, matchToleranceMs: 10 });
     assert.deepEqual(result.counts, { items: 2, complete: 2, corrections_applied: 1,
       attack_representative_points: 2, attack_matched_points: 1 });
@@ -142,4 +160,29 @@ test('wrong hashes, duplicate corrections and missing audio fail closed', () =>
     await writeFile(paths.sidecarPath, originalSidecar);
     await unlink(path.join(paths.pack, 'audio', 'attack_development-01.wav'));
     await assert.rejects(() => evaluateReview(paths), /ENOENT/);
+  }));
+
+test('evidence identity and result hashes are bound to the review pack', () =>
+  usingFixture(async paths => {
+    const original = JSON.parse(await readFile(paths.evidenceManifestPath));
+    const wrongPack = { ...original, pack_id: 'wrong-pack' };
+    await writeFile(paths.evidenceManifestPath, `${JSON.stringify(wrongPack)}\n`);
+    await assert.rejects(() => evaluateReview(paths), /evidence identity mismatch/);
+    const escaped = structuredClone(original);
+    escaped.items[0].result = '../outside.json';
+    await writeFile(paths.evidenceManifestPath, `${JSON.stringify(escaped)}\n`);
+    await assert.rejects(() => evaluateReview(paths), /evidence identity mismatch/);
+    await writeFile(paths.evidenceManifestPath, `${JSON.stringify(original)}\n`);
+    await writeFile(path.join(path.dirname(paths.evidenceManifestPath),
+      original.items[0].result), '{"tampered":true}\n');
+    await assert.rejects(() => evaluateReview(paths), /Research result hash mismatch/);
+  }));
+
+test('legacy packs report missing ephemeral results as a durable-evidence error', () =>
+  usingFixture(async paths => {
+    paths.manifest.provenance = paths.provenance;
+    await writeFile(paths.manifestPath, `${JSON.stringify(paths.manifest)}\n`);
+    await unlink(paths.provenance[0].research_excerpt.replace(/\.wav$/, '.json'));
+    await assert.rejects(() => evaluateReview({ ...paths, evidenceManifestPath: undefined }),
+      /Durable evaluation evidence required/);
   }));

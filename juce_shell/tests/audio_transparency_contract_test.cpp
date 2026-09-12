@@ -1,5 +1,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
-#include "WindowsCpuObservation.h"
+#if JUCE_WINDOWS
+ #include "WindowsCpuObservation.h"
+#endif
 
 #include <array>
 #include <cstdint>
@@ -7,9 +9,14 @@
 #include <cstring>
 #include <iomanip>
 #include <iostream>
-#include <process.h>
 #include <string>
 #include <vector>
+
+#if JUCE_WINDOWS
+ #include <process.h>
+#else
+ #include <unistd.h>
+#endif
 
 namespace
 {
@@ -29,12 +36,18 @@ class ValidationStorageSandbox
 public:
     ValidationStorageSandbox()
     {
+       #if JUCE_WINDOWS
+        const auto processId = ::_getpid();
+       #else
+        const auto processId = ::getpid();
+       #endif
         root = juce::File::getSpecialLocation (juce::File::tempDirectory)
                    .getNonexistentChildFile ("kirin-hypha-audio-transparency-"
-                                             + juce::String (::_getpid()), {}, false);
+                                             + juce::String (processId), {}, false);
         const auto result = root.createDirectory();
         if (result.failed())
             fail ("could not create isolated storage: " + result.getErrorMessage().toStdString());
+       #if JUCE_WINDOWS
         // Windows Watch snapshots use TEMP, identity uses APPDATA, Record uses
         // LOCALAPPDATA. Isolating only the latter leaves discovery in the user's tree.
         for (const auto* name : { "LOCALAPPDATA", "APPDATA", "TEMP", "TMP" })
@@ -55,12 +68,33 @@ public:
                 || ::_putenv_s (name, destination.getFullPathName().toRawUTF8()) != 0)
                 fail ("could not redirect validation storage");
         }
+       #else
+        // The Rust storage adapter uses HOME and TMPDIR on macOS. Redirect both before loading
+        // either bundle so validation cannot discover or modify the user's Kirin OS state.
+        for (const auto* name : { "HOME", "TMPDIR" })
+        {
+            const auto* current = std::getenv (name);
+            SavedVariable saved { name, current != nullptr ? current : "", current != nullptr };
+            variables.push_back (std::move (saved));
+            const auto destination = root.getChildFile (juce::String (name));
+            if (destination.createDirectory().failed()
+                || ::setenv (name, destination.getFullPathName().toRawUTF8(), 1) != 0)
+                fail ("could not redirect validation storage");
+        }
+       #endif
     }
 
     ~ValidationStorageSandbox()
     {
         for (const auto& saved : variables)
+       #if JUCE_WINDOWS
             ::_putenv_s (saved.name.c_str(), saved.present ? saved.value.c_str() : "");
+       #else
+            if (saved.present)
+                ::setenv (saved.name.c_str(), saved.value.c_str(), 1);
+            else
+                ::unsetenv (saved.name.c_str());
+       #endif
         root.deleteRecursively();
     }
 
@@ -101,15 +135,15 @@ uint32_t sampleBits (float value) noexcept
 
 float contractSample (int channel, int frame, int blockIndex) noexcept
 {
-    const auto mixed = static_cast<uint32_t> ((blockIndex + 1) * 0x9e3779b9u)
-                     ^ static_cast<uint32_t> ((channel + 3) * 0x85ebca6bu)
-                     ^ static_cast<uint32_t> ((frame + 11) * 0xc2b2ae35u);
+    const auto mixed = static_cast<uint32_t> (blockIndex + 1) * 0x9e3779b9u
+                     ^ static_cast<uint32_t> (channel + 3) * 0x85ebca6bu
+                     ^ static_cast<uint32_t> (frame + 11) * 0xc2b2ae35u;
     const auto signedValue = static_cast<int32_t> (mixed & 0xffffu) - 32'768;
     return static_cast<float> (signedValue) / 65'536.0f;
 }
 
 std::unique_ptr<juce::AudioPluginInstance> createInstance (
-    juce::VST3PluginFormat& format,
+    juce::AudioPluginFormat& format,
     const juce::PluginDescription& description)
 {
     juce::String error;
@@ -121,7 +155,7 @@ std::unique_ptr<juce::AudioPluginInstance> createInstance (
     return instance;
 }
 
-void verifyConfiguration (juce::VST3PluginFormat& format,
+void verifyConfiguration (juce::AudioPluginFormat& format,
                           const juce::PluginDescription& description,
                           int channels,
                           bool offline)
@@ -209,13 +243,131 @@ void verifyConfiguration (juce::VST3PluginFormat& format,
               << " samples=" << verifiedSamples << " latency=0 bit-identical\n";
 }
 
-void verifyBundle (const juce::String& path)
+struct Vst3State
+{
+    std::unique_ptr<juce::XmlElement> wrapper;
+    std::unique_ptr<juce::XmlElement> plugin;
+};
+
+Vst3State readVst3State (juce::AudioProcessor& instance)
+{
+    juce::MemoryBlock state;
+    instance.getStateInformation (state);
+    auto wrapper = juce::AudioProcessor::getXmlFromBinary (
+        state.getData(), static_cast<int> (state.getSize()));
+    if (wrapper == nullptr || ! wrapper->hasTagName ("VST3PluginState"))
+        fail (instance.getName().toStdString() + " did not publish VST3 host state");
+    auto* component = wrapper->getChildByName ("IComponent");
+    juce::MemoryBlock pluginState;
+    if (component == nullptr || ! pluginState.fromBase64Encoding (component->getAllSubText()))
+        fail (instance.getName().toStdString() + " did not publish VST3 component state");
+    auto plugin = juce::AudioProcessor::getXmlFromBinary (
+        pluginState.getData(), static_cast<int> (pluginState.getSize()));
+    if (plugin == nullptr || ! plugin->hasTagName ("KirinHyphaState"))
+        fail (instance.getName().toStdString() + " did not publish KirinHyphaState");
+    return { std::move (wrapper), std::move (plugin) };
+}
+
+juce::MemoryBlock writeVst3State (Vst3State state)
+{
+    juce::MemoryBlock pluginState;
+    juce::AudioProcessor::copyXmlToBinary (*state.plugin, pluginState);
+    for (const auto* sectionName : { "IComponent", "IEditController" })
+    {
+        if (auto* section = state.wrapper->getChildByName (sectionName))
+        {
+            section->deleteAllChildElements();
+            section->addTextElement (pluginState.toBase64Encoding());
+        }
+    }
+    juce::MemoryBlock wrapperState;
+    juce::AudioProcessor::copyXmlToBinary (*state.wrapper, wrapperState);
+    return wrapperState;
+}
+
+void verifyVst3HostStatePersistence (juce::AudioPluginFormat& format,
+                                     const juce::PluginDescription& description)
+{
+    auto source = createInstance (format, description);
+    auto fresh = readVst3State (*source);
+    if (fresh.plugin->getIntAttribute ("meter_context", -1) != 1)
+        fail (description.name.toStdString() + " fresh instance did not default to 2MIX");
+    fresh.plugin->setAttribute ("display_state_version", 5);
+    fresh.plugin->setAttribute ("meter_context", 0);
+    fresh.plugin->setAttribute ("scale_mode", 0);
+    fresh.plugin->setAttribute ("observatory_size", 3);
+    fresh.plugin->setAttribute ("observatory_width", 654);
+    fresh.plugin->setAttribute ("observatory_height", 436);
+    const auto trackState = writeVst3State (std::move (fresh));
+    source->setStateInformation (trackState.getData(), static_cast<int> (trackState.getSize()));
+    const auto applied = readVst3State (*source);
+    if (applied.plugin->getIntAttribute ("meter_context", -1) != 0
+        || applied.plugin->getIntAttribute ("observatory_width", -1) != 654
+        || applied.plugin->getIntAttribute ("observatory_height", -1) != 436)
+        fail (description.name.toStdString() + " rejected host-provided TRACK/STEM editor state");
+
+    auto* appliedEditor = source->createEditorIfNeeded();
+    if (appliedEditor == nullptr)
+        fail (description.name.toStdString() + " did not create its shipped VST3 editor");
+    if (appliedEditor->getWidth() != 654 || appliedEditor->getHeight() != 436)
+    {
+        const auto afterEditor = readVst3State (*source);
+        fail (description.name.toStdString() + " serialized size was not applied to the VST3 editor: "
+              + std::to_string (appliedEditor->getWidth()) + "x"
+              + std::to_string (appliedEditor->getHeight()) + " component-state="
+              + std::to_string (afterEditor.plugin->getIntAttribute ("observatory_width", -1))
+              + "x"
+              + std::to_string (afterEditor.plugin->getIntAttribute ("observatory_height", -1)));
+    }
+    const auto afterAppliedEditor = readVst3State (*source);
+    if (afterAppliedEditor.plugin->getIntAttribute ("meter_context", -1) != 0)
+        fail (description.name.toStdString()
+              + " editor creation replaced restored TRACK/STEM with 2MIX");
+    delete appliedEditor;
+
+    juce::MemoryBlock saved;
+    source->getStateInformation (saved);
+    if (saved.isEmpty())
+        fail (description.name.toStdString() + " did not save TRACK/STEM and the free editor size");
+    auto savedState = readVst3State (*source);
+    if (savedState.plugin->getIntAttribute ("meter_context", -1) != 0
+        || savedState.plugin->getIntAttribute ("observatory_width", -1) != 654
+        || savedState.plugin->getIntAttribute ("observatory_height", -1) != 436)
+        fail (description.name.toStdString() + " did not save TRACK/STEM and the free editor size");
+
+    auto restored = createInstance (format, description);
+    restored->setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
+    const auto restoredState = readVst3State (*restored);
+    if (restoredState.plugin->getIntAttribute ("meter_context", -1) != 0
+        || restoredState.plugin->getIntAttribute ("observatory_width", -1) != 654
+        || restoredState.plugin->getIntAttribute ("observatory_height", -1) != 436)
+        fail (description.name.toStdString() + " changed TRACK/STEM or editor size after host reload");
+
+    auto* restoredEditor = restored->createEditorIfNeeded();
+    if (restoredEditor == nullptr)
+        fail (description.name.toStdString() + " did not recreate its shipped VST3 editor");
+    if (restoredEditor->getWidth() != 654 || restoredEditor->getHeight() != 436)
+        fail (description.name.toStdString() + " did not restore the VST3 editor to 654x436: "
+              + std::to_string (restoredEditor->getWidth()) + "x"
+              + std::to_string (restoredEditor->getHeight()));
+    const auto afterRestoredEditor = readVst3State (*restored);
+    if (afterRestoredEditor.plugin->getIntAttribute ("meter_context", -1) != 0)
+        fail (description.name.toStdString()
+              + " reloaded editor replaced restored TRACK/STEM with 2MIX");
+    delete restoredEditor;
+
+    std::cout << "PASS " << description.name
+              << " VST3 host-state fresh=2MIX restored=TRACK/STEM size=654x436\n";
+}
+
+void verifyBundle (juce::AudioPluginFormat& format,
+                   const juce::String& path,
+                   const char* formatName)
 {
     const juce::File bundle (path);
     if (! bundle.exists())
-        fail ("VST3 bundle does not exist: " + path.toStdString());
+        fail (std::string (formatName) + " bundle does not exist: " + path.toStdString());
 
-    juce::VST3PluginFormat format;
     juce::OwnedArray<juce::PluginDescription> descriptions;
     format.findAllTypesForFile (descriptions, bundle.getFullPathName());
     if (descriptions.size() != 1)
@@ -225,34 +377,54 @@ void verifyBundle (const juce::String& path)
     verifyConfiguration (format, *descriptions[0], 2, false);
     verifyConfiguration (format, *descriptions[0], 2, true);
     verifyConfiguration (format, *descriptions[0], 1, false);
+    if (std::string (formatName) == "VST3")
+        verifyVst3HostStatePersistence (format, *descriptions[0]);
 }
 } // namespace
 
 int main (int argc, char* argv[])
 {
     if (argc != 3 && argc != 5)
-        fail ("usage: KirinAudioTransparencyContractTests <PRE.vst3> <POST.vst3> [--cpu-observation PAIRS]");
+        fail ("usage: KirinAudioTransparencyContractTests <PRE.vst3> <POST.vst3> "
+              "[<PRE.component> <POST.component>|--cpu-observation PAIRS]");
 
     ValidationStorageSandbox sandbox;
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     if (argc == 5)
     {
-        if (std::string (argv[3]) != "--cpu-observation")
-            fail ("unknown diagnostic option");
-        try
+       #if JUCE_WINDOWS
+        if (std::string (argv[3]) == "--cpu-observation")
         {
-            const std::string count (argv[4]);
-            size_t consumed = 0;
-            const int pairs = std::stoi (count, &consumed);
-            if (consumed != count.size()) fail ("invalid diagnostic pair count");
-            hypha::validation::runCpuObservation (
-                juce::String::fromUTF8 (argv[1]), juce::String::fromUTF8 (argv[2]), pairs);
+            try
+            {
+                const std::string count (argv[4]);
+                size_t consumed = 0;
+                const int pairs = std::stoi (count, &consumed);
+                if (consumed != count.size()) fail ("invalid diagnostic pair count");
+                hypha::validation::runCpuObservation (
+                    juce::String::fromUTF8 (argv[1]), juce::String::fromUTF8 (argv[2]), pairs);
+            }
+            catch (const std::exception& error) { fail (error.what()); }
+            return EXIT_SUCCESS;
         }
-        catch (const std::exception& error) { fail (error.what()); }
-        return EXIT_SUCCESS;
+       #endif
     }
-    verifyBundle (juce::String::fromUTF8 (argv[1]));
-    verifyBundle (juce::String::fromUTF8 (argv[2]));
-    std::cout << "PASS PRE/POST VST3 audio transparency contract\n";
+
+    juce::VST3PluginFormat vst3;
+    verifyBundle (vst3, juce::String::fromUTF8 (argv[1]), "VST3");
+    verifyBundle (vst3, juce::String::fromUTF8 (argv[2]), "VST3");
+
+    if (argc == 5)
+    {
+       #if JUCE_MAC
+        juce::AudioUnitPluginFormat audioUnit;
+        verifyBundle (audioUnit, juce::String::fromUTF8 (argv[3]), "AU");
+        verifyBundle (audioUnit, juce::String::fromUTF8 (argv[4]), "AU");
+       #else
+        fail ("AU bundle arguments are supported on macOS only");
+       #endif
+    }
+
+    std::cout << "PASS PRE/POST audio transparency contract\n";
     return EXIT_SUCCESS;
 }

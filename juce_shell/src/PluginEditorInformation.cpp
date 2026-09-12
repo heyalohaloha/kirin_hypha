@@ -1,36 +1,27 @@
 #include "PluginEditor.h"
 #include "HyphaBuildIdentity.h"
+#include "HyphaLocalBlindUiContract.h"
+#include "HyphaPluginFormat.h"
 #include "HyphaUpdateContract.h"
 
 namespace
 {
 namespace update = hypha::update_information;
+#if JUCE_DEBUG
+constexpr int pdcValidationAction = 900;
+#endif
 juce::String toString (std::string_view value)
 {
     return juce::String::fromUTF8 (value.data(), static_cast<int> (value.size()));
-}
-const char* formatName (juce::AudioProcessor::WrapperType type)
-{
-    switch (type)
-    {
-        case juce::AudioProcessor::wrapperType_VST3: return "VST3";
-        case juce::AudioProcessor::wrapperType_AudioUnit: return "AU";
-        case juce::AudioProcessor::wrapperType_AudioUnitv3: return "AUv3";
-        case juce::AudioProcessor::wrapperType_Standalone: return "Standalone";
-        case juce::AudioProcessor::wrapperType_VST: return "VST";
-        case juce::AudioProcessor::wrapperType_AAX: return "AAX";
-        case juce::AudioProcessor::wrapperType_Unity: return "Unity";
-        case juce::AudioProcessor::wrapperType_LV2: return "LV2";
-        case juce::AudioProcessor::wrapperType_Undefined: return "Format unconfirmed";
-    }
-    return "Format unconfirmed";
 }
 }
 
 bool KirinHyphaEditor::informationBlockedByBlind() const
 {
-    return isPost && processorRef.referenceAuditionSnapshot().blindPhase
-        != hypha::reference_audition::BlindPhase::inactive;
+    return isPost && (processorRef.referenceAuditionSnapshot().blindPhase
+        != hypha::reference_audition::BlindPhase::inactive
+        || (processorRef.localBlindProductSupported()
+            && hypha::local_blind_ui::blocksDisclosure (processorRef.localBlindProductView())));
 }
 
 void KirinHyphaEditor::showInformationMenu()
@@ -45,7 +36,7 @@ void KirinHyphaEditor::showInformationMenu()
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader (juce::String ("Hypha ") + (isPost ? "POST" : "PRE"));
     menu.addItem (1, juce::String ("Loaded v") + JucePlugin_VersionString, false);
-    menu.addItem (2, juce::String (formatName (processorRef.wrapperType)) + " / "
+    menu.addItem (2, juce::String (hypha::plugin_format::name (processorRef.wrapperType)) + " / "
                       + juce::SystemStats::getOperatingSystemName(), false);
     menu.addItem (3, juce::String ("Source ") + HYPHA_SOURCE_ID + " / "
                       + HYPHA_SOURCE_STATE, false);
@@ -56,6 +47,12 @@ void KirinHyphaEditor::showInformationMenu()
     for (const auto& fact : processorRef.localValidationFacts())
         validation.addItem (diagnosticId++, fact, false);
     menu.addSubMenu ("Validation facts (read-only)", validation);
+    if (isPost)
+    {
+        menu.addSectionHeader ("Local Blind host validation");
+        menu.addItem (pdcValidationAction, "Capture one exact 4 s PRE/POST range",
+                      processorRef.isPlaying());
+    }
    #endif
     menu.addSeparator();
     const auto add = [&] (update::Action action, const juce::String& text)
@@ -73,8 +70,6 @@ void KirinHyphaEditor::showInformationMenu()
     menu.addSectionHeader ("Updating PRE and POST together");
     menu.addItem (5, "Save work, close the DAW, then install both", false);
     menu.addItem (6, "Restart / rescan; check both loaded versions", false);
-    menu.addItem (10, "Show hover help", true,
-                  hypha::HoverHelpPreference::shared().isEnabled());
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (observatoryView.informationAnchor())
         .withDeletionCheck (*this).withMinimumWidth (360)
@@ -89,6 +84,34 @@ void KirinHyphaEditor::showInformationMenu()
 void KirinHyphaEditor::handleInformationMenu (int result)
 {
     if (result == 0) return;
+    if (result == 11)
+    {
+        const bool enabled = ! processorRef.hybridVuOnRecordPreference();
+        processorRef.setHybridVuOnRecordPreference (enabled);
+        if (observatoryView.setHybridVuOnRecordEnabled (enabled))
+            resized();
+        return;
+    }
+    if (result == 12)
+    {
+        if (observatoryView.dismissHybridVuForCurrentRecording()) resized();
+        return;
+    }
+    if (result == jungleModeMenuAction)
+    {
+        requestJungleChoice (! observatoryView.jungleAppearanceEnabled());
+        return;
+    }
+   #if JUCE_DEBUG
+    if (result == pdcValidationAction)
+    {
+        if (processorRef.startLocalBlindPdcValidation())
+            showToast ("Capture scheduled; keep playback running for 5 seconds");
+        else
+            showToast ("Capture not scheduled; reopen Validation facts for the exact reason");
+        return;
+    }
+   #endif
     const bool busy = informationBlockedByBlind();
     const auto outcome = update::dispatch (static_cast<update::Action> (result), busy,
         [] (std::string_view destination)

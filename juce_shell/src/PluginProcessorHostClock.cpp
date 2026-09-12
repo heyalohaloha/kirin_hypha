@@ -2,9 +2,14 @@
 #include "HyphaClockSourceContract.h"
 #include <limits>
 
+static_assert (std::atomic<bool>::is_always_lock_free
+               && std::atomic<std::uint64_t>::is_always_lock_free,
+               "Audio Thread host-state notifications must remain lock-free");
+
 hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
 {
     bool playing = false;
+    bool recording = false;
     bool hasPosition = false;
     uint8_t clockSource = KIRIN_HYPHA_CLOCK_UNKNOWN;
     int64_t positionSamples = 0;
@@ -16,10 +21,13 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
     uint32_t inputPresentationSamples = 0;
     bool outputPresentationValid = false;
     uint32_t outputPresentationSamples = 0;
+    bool looping = false;
     if (auto* ph = getPlayHead())
         if (const auto pos = ph->getPosition())
         {
             playing = pos->getIsPlaying();
+            recording = pos->getIsRecording();
+            looping = pos->getIsLooping();
             if (const auto timeSamples = pos->getTimeInSamples())
             {
                 hasPosition = true;
@@ -56,13 +64,15 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
                                      outputPresentationValid, outputPresentationSamples);
            #endif
         }
+    lastHostRecording.store (recording, std::memory_order_release);
+    hostProcessHeartbeat.fetch_add (1u, std::memory_order_release);
     // JUCE exposes loop points in PPQ, not the exact exported WAV sample range. Do not
     // promote those values to wav_clock_native; render span remains a lower-trust fallback
     // until a host-supplied native sample range exists.
     const hypha::HostProcessClock clock { playing, hasPosition, clockSource, positionSamples, hasClockEnd,
              clockStartSamples, clockEndSamples, presentationSource,
              inputPresentationValid, inputPresentationSamples,
-             outputPresentationValid, outputPresentationSamples };
+             outputPresentationValid, outputPresentationSamples, looping };
     // Release PRE never issues a capture request. Keep its Audio Thread free of an otherwise
     // unused snapshot write while retaining both-role clock diagnostics in Debug validation.
    #if JUCE_DEBUG

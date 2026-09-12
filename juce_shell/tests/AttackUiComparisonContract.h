@@ -10,9 +10,8 @@ namespace hypha::attack_ui_test
 enum class ComparisonFeature
 {
     strength,
-    brightness,
-    transient,
-    texture
+    texture,
+    sharpness
 };
 
 inline KirinAttackDetail comparisonDetail()
@@ -26,7 +25,7 @@ inline KirinAttackDetail comparisonDetail()
     detail.shape_count = KIRIN_ATTACK_SHAPE_CAPACITY;
     detail.attack_rms_dbfs = attack_ui::strengthGlowOnDbfs;
     detail.sharpness_available = 1;
-    detail.sharpness_acum = attack_ui::brightnessGlowOnAcum;
+    detail.sharpness_acum = attack_ui::sharpnessGlowOnAcum;
     detail.contrast_db = attack_ui::transientGlowOnDb;
     detail.sample_edge_ratio_db = -24.0f;
     detail.crest_db = 12.0f;
@@ -52,15 +51,10 @@ inline void setComparisonFeature (KirinAttackDetail& detail,
                 + amount * (attack_ui::strengthGlowFullDbfs
                             - attack_ui::strengthGlowOnDbfs);
             break;
-        case ComparisonFeature::brightness:
-            detail.sharpness_acum = attack_ui::brightnessGlowOnAcum
-                + amount * (attack_ui::brightnessGlowFullAcum
-                            - attack_ui::brightnessGlowOnAcum);
-            break;
-        case ComparisonFeature::transient:
-            detail.contrast_db = attack_ui::transientGlowOnDb
-                + amount * (attack_ui::transientGlowFullDb
-                            - attack_ui::transientGlowOnDb);
+        case ComparisonFeature::sharpness:
+            detail.sharpness_acum = attack_ui::sharpnessGlowOnAcum
+                + amount * (attack_ui::sharpnessGlowFullAcum
+                            - attack_ui::sharpnessGlowOnAcum);
             break;
         case ComparisonFeature::texture:
         {
@@ -74,23 +68,26 @@ inline void setComparisonFeature (KirinAttackDetail& detail,
     }
 }
 
-inline juce::Image renderComparison (const KirinAttackDetail& pre,
+inline juce::Image renderComparison (const KirinAttackDetail* pre,
                                      const KirinAttackDetail& post,
                                      const attack_motion::Motion& motion = {})
 {
-    juce::Image image (juce::Image::ARGB, 300, 100, true);
+    juce::Image image (juce::Image::ARGB, 400, 124, true);
     juce::Graphics graphics (image);
     graphics.fillAll (juce::Colours::black);
     attack_painter::drawEventFocus (
-        graphics, &pre, &post, image.getBounds(), motion);
+        graphics, pre, &post, image.getBounds(), motion);
     return image;
 }
 
-inline std::uint64_t specimenLight (const juce::Image& image)
+inline std::uint64_t specimenLight (const juce::Image& image,
+                                    juce::Rectangle<int> requested = {})
 {
+    const auto area = requested.isEmpty() ? image.getBounds()
+                                           : requested.getIntersection (image.getBounds());
     std::uint64_t light = 0;
-    for (int y = 0; y < image.getHeight(); ++y)
-        for (int x = 0; x < image.getWidth(); ++x)
+    for (int y = area.getY(); y < area.getBottom(); ++y)
+        for (int x = area.getX(); x < area.getRight(); ++x)
         {
             const auto pixel = image.getPixelAt (x, y);
             light += static_cast<std::uint64_t> (pixel.getAlpha())
@@ -99,11 +96,15 @@ inline std::uint64_t specimenLight (const juce::Image& image)
     return light;
 }
 
-inline int specimenDifferences (const juce::Image& first, const juce::Image& second)
+inline int specimenDifferences (const juce::Image& first, const juce::Image& second,
+                                juce::Rectangle<int> requested = {})
 {
+    if (first.getBounds() != second.getBounds()) return -1;
+    const auto area = requested.isEmpty() ? first.getBounds()
+                                          : requested.getIntersection (first.getBounds());
     int differences = 0;
-    for (int y = 0; y < first.getHeight(); ++y)
-        for (int x = 0; x < first.getWidth(); ++x)
+    for (int y = area.getY(); y < area.getBottom(); ++y)
+        for (int x = area.getX(); x < area.getRight(); ++x)
             differences += first.getPixelAt (x, y) != second.getPixelAt (x, y);
     return differences;
 }
@@ -113,8 +114,7 @@ inline bool writeComparisonPreview (const juce::Image& image,
                                     const juce::String& direction)
 {
     const auto* directory = std::getenv ("KIRIN_ATTACK_UI_SIGNED_PREVIEW_DIR");
-    if (directory == nullptr)
-        return true;
+    if (directory == nullptr) return true;
     const auto file = juce::File { directory }.getChildFile (
         "attack-" + feature + "-" + direction + ".png");
     juce::FileOutputStream output { file };
@@ -122,54 +122,48 @@ inline bool writeComparisonPreview (const juce::Image& image,
     return output.openedOk() && png.writeImageToStream (image, output);
 }
 
-inline bool verifySignedComparisonSpecimen()
+inline bool verifyPostAbsoluteSpecimen()
 {
     constexpr std::array features {
         ComparisonFeature::strength,
-        ComparisonFeature::brightness,
-        ComparisonFeature::transient,
         ComparisonFeature::texture,
+        ComparisonFeature::sharpness,
     };
-    constexpr std::array names { "strength", "brightness", "transient", "texture" };
-    for (std::size_t index = 0; index < features.size(); ++index)
-    {
-        const auto feature = features[index];
-        auto pre = comparisonDetail();
-        auto positive = comparisonDetail();
-        auto negative = comparisonDetail();
-        setComparisonFeature (pre, feature, 0.50f);
-        setComparisonFeature (positive, feature, 0.75f);
-        setComparisonFeature (negative, feature, 0.25f);
-        const auto identity = renderComparison (pre, pre);
-        const auto positiveImage = renderComparison (pre, positive);
-        const auto negativeImage = renderComparison (pre, negative);
-        if (specimenLight (identity) == 0
-            || specimenLight (positiveImage) <= specimenLight (negativeImage)
-            || specimenDifferences (positiveImage, negativeImage) < 100
-            || ! writeComparisonPreview (positiveImage, names[index], "positive")
-            || ! writeComparisonPreview (negativeImage, names[index], "negative"))
-            return false;
-    }
-    auto mixedPre = comparisonDetail();
-    auto mixedPost = comparisonDetail();
+    constexpr std::array names { "strength", "texture", "sharpness" };
+    auto post = comparisonDetail();
+    for (const auto feature : features) setComparisonFeature (post, feature, .5f);
+    auto preLow = comparisonDetail(), preHigh = comparisonDetail();
     for (const auto feature : features)
     {
-        setComparisonFeature (mixedPre, feature, 0.50f);
-        setComparisonFeature (mixedPost, feature,
-                              feature == ComparisonFeature::strength
-                                  || feature == ComparisonFeature::transient ? 0.75f : 0.25f);
+        setComparisonFeature (preLow, feature, 0.0f);
+        setComparisonFeature (preHigh, feature, 1.0f);
     }
-    const auto identityImage = renderComparison (mixedPre, mixedPre);
-    const auto mixedImage = renderComparison (mixedPre, mixedPost);
-    if (specimenDifferences (identityImage, mixedImage) < 100)
-        return false;
+    const auto base = renderComparison (&preLow, post);
+    if (specimenLight (base) == 0
+        || specimenDifferences (base, renderComparison (&preHigh, post)) != 0
+        || specimenDifferences (base, renderComparison (nullptr, post)) != 0)
+        return false; // PRE availability and PRE values cannot alter a POST specimen.
+
     attack_motion::Motion motion;
-    motion.bend.fill (0.24f);
-    if (specimenDifferences (mixedImage, renderComparison (mixedPre, mixedPost, motion)) < 100)
-        return false;
-    if (! writeComparisonPreview (mixedImage, "mixed", "signed")
-        || ! writeComparisonPreview (identityImage, "identity", "zero"))
-        return false;
-    return true;
+    motion.bend.fill (.24f);
+    if (specimenDifferences (base, renderComparison (&preLow, post, motion)) != 0)
+        return false; // The selected observation is static.
+
+    for (std::size_t index = 0; index < features.size(); ++index)
+    {
+        auto low = post, high = post;
+        setComparisonFeature (low, features[index], 0.0f);
+        setComparisonFeature (high, features[index], 1.0f);
+        const auto lowImage = renderComparison (&preLow, low);
+        const auto highImage = renderComparison (&preLow, high);
+        if (specimenDifferences (lowImage, highImage) < 80
+            || ! writeComparisonPreview (lowImage, names[index], "low")
+            || ! writeComparisonPreview (highImage, names[index], "high"))
+            return false;
+    }
+    auto transientChanged = post;
+    transientChanged.contrast_db += 9.0f;
+    return specimenDifferences (base, renderComparison (&preLow, transientChanged)) == 0
+        && writeComparisonPreview (base, "post", "absolute");
 }
 }

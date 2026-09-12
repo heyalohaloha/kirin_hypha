@@ -17,11 +17,15 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "OsAccessUiContractTest.h"
 #include "HyphaInformationContractTest.h"
+#include "HybridVuContractTest.h"
+#include "LocalBlindUiContractTest.h"
 #include "ReferenceAccessPanelContractTest.h"
 #include "ObservationEqualityContractTest.h"
 #include "PolylineGeometryContractTest.h"
 #include "SpectrumPerformanceFixture.h"
 #include "SpectrumResponsiveGeometryContractTest.h"
+#include "TypographyContractTest.h"
+#include "AnalysisDemandContractTest.h"
 
 namespace hypha::tests
 {
@@ -30,15 +34,48 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     const bool entryOnly = argc == 2 && std::string_view (argv[1]) == "--product-entry-only";
     const bool updatesOnly = argc == 2 && std::string_view (argv[1]) == "--observation-update-only";
     const bool focusOnly = argc == 2 && std::string_view (argv[1]) == "--spectrum-focus-only";
-    if (argc != 1 && ! entryOnly && ! updatesOnly && ! focusOnly)
+    const bool hybridVuOnly = argc == 2 && std::string_view (argv[1]) == "--hybrid-vu-only";
+    const bool typographyOnly = argc == 2 && std::string_view (argv[1]) == "--typography-only";
+    const bool typographyVisualOnly = argc == 2
+        && std::string_view (argv[1]) == "--typography-visual-only";
+    const bool timeHistoryOnly = argc == 2
+        && std::string_view (argv[1]) == "--time-history-only";
+    const bool analysisDemandOnly = argc == 2
+        && std::string_view (argv[1]) == "--analysis-demand-only";
+    if (argc != 1 && ! entryOnly && ! updatesOnly && ! focusOnly && ! hybridVuOnly
+        && ! typographyOnly && ! typographyVisualOnly && ! timeHistoryOnly
+        && ! analysisDemandOnly)
     {
-        std::cerr << "Usage: KirinUiRenderContractTests [--product-entry-only|--observation-update-only|--spectrum-focus-only]\n";
+        std::cerr << "Usage: KirinUiRenderContractTests [--product-entry-only|"
+                     "--observation-update-only|--spectrum-focus-only|--hybrid-vu-only|"
+                     "--typography-only|--typography-visual-only|--time-history-only|"
+                     "--analysis-demand-only]\n";
         std::exit (EXIT_FAILURE);
     }
     observation_equality_contract::verify();
+    analysis_demand_contract::verify();
+    if (analysisDemandOnly) return true;
     verifyPolylineGeometryContract();
     verifySpectrumResponsiveGeometry();
     if (updatesOnly) return true;
+    if (timeHistoryOnly)
+    {
+        verifyTimeHistoryContract();
+        return true;
+    }
+    verifyTypographyContract();
+    if (typographyOnly) return true;
+    if (typographyVisualOnly)
+    {
+        verifyObservatoryViewContract();
+        verifyObservatoryCompositeContract();
+        return true;
+    }
+    if (hybridVuOnly)
+    {
+        verifyHybridVuContract();
+        return true;
+    }
     if (focusOnly)
     {
         std::cout << std::unitbuf << "Starting focused Spectrum contracts\n";
@@ -51,6 +88,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyReferenceAuditionComponentContract();
     verifyOsAccessUiContract();
     verifyTimePageNavigationContract();
+    verifyLocalBlindUiContract();
     if (entryOnly)
     {
         std::cout << "Product entry: PASS (82 role/size layouts, 41 Reference layouts, update dispatch, DRUM navigation)\n";
@@ -66,6 +104,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyAbsoluteTimelineContract();
     verifyAbsoluteSpectrumContract();
     verifyPerceptualRenderingContract();
+    verifyHybridVuContract();
     verifyObservatoryViewContract();
     verifyCaptureHistoryContract();
     verifyTimeHistoryContract();

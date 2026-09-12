@@ -31,7 +31,11 @@ fn ship_set_is_juce_common_shell_only() {
 fn release_manifest_mentions_all_four_installed_files() {
     let bundles = ship_bundles().unwrap();
     let leaf = package_leaf("1.1.1", false);
-    let json = manifest_json("1.1.1", &leaf, "abc", false, "false", &bundles).unwrap();
+    let entries = bundle_entries(&bundles).unwrap();
+    let json = release_package_metadata::manifest_json(
+        "1.1.1", &leaf, "abc", false, "false", false, &entries,
+    )
+    .unwrap();
     for file in [
         "Kirin Hypha PRE.component",
         "Kirin Hypha POST.component",
@@ -42,4 +46,32 @@ fn release_manifest_mentions_all_four_installed_files() {
     }
     assert!(json.contains("\"ship_set\": \"juce-common-shell\""));
     assert!(json.contains("\"unsigned_smoke_test\": false"));
+}
+
+#[test]
+fn aax_opt_in_adds_both_roles_to_metadata_and_install_text() {
+    let bundles = ship_bundles().unwrap();
+    let aax_bundles = aax_distribution::bundles().unwrap();
+    let mut entries = bundle_entries(&bundles).unwrap();
+    entries.extend(aax_distribution::metadata_entries(&aax_bundles).unwrap());
+    let json = release_package_metadata::manifest_json(
+        "1.1.1",
+        &package_leaf("1.1.1", false),
+        "abc",
+        false,
+        "false",
+        true,
+        &entries,
+    )
+    .unwrap();
+    assert!(json.contains("\"ship_set\": \"juce-common-shell+aax\""));
+    assert!(json.contains("\"aax_included\": true"));
+    assert!(json.contains("Kirin Hypha PRE.aaxplugin"));
+    assert!(json.contains("Kirin Hypha POST.aaxplugin"));
+    assert!(json.contains("kirin-hypha-macos-aax-notarization.json"));
+
+    let install = release_package_metadata::install_text("1.1.1", true);
+    assert!(install.contains("/Library/Application Support/Avid/Audio/Plug-Ins/"));
+    assert!(install.contains("AAX/Kirin Hypha PRE.aaxplugin"));
+    assert!(install.contains("AAX/Kirin Hypha POST.aaxplugin"));
 }

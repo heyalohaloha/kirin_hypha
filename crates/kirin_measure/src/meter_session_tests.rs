@@ -131,6 +131,55 @@ fn reset_is_the_only_explicit_discard_boundary() {
 }
 
 #[test]
+fn peak_clip_clear_does_not_discard_meter_session_truth() {
+    let mut session = MeterSession::new(SR, 2).unwrap();
+    assert!(session.push_active(&stereo_constant(1.1, 0.4)));
+    let before = session.snapshot();
+    let history_before = session.recent_history(MeterHistoryResolution::Hz10, 20);
+    assert!(before.stereo.clip_events.iter().any(|count| *count > 0));
+    assert!(before.stereo.max_true_peak_dbtp.iter().all(Option::is_some));
+
+    session.clear_peak_clip_holds();
+    let cleared = session.snapshot();
+    assert_eq!(cleared.generation, before.generation);
+    assert_eq!(cleared.state, before.state);
+    assert_eq!(cleared.active_frames, before.active_frames);
+    assert_eq!(cleared.observed_frames, before.observed_frames);
+    assert_eq!(cleared.summary.lufs_i, before.summary.lufs_i);
+    assert_eq!(cleared.summary.lra, before.summary.lra);
+    assert_eq!(cleared.summary.max_true_peak, before.summary.max_true_peak);
+    assert_eq!(cleared.current.lufs_m, before.current.lufs_m);
+    assert_eq!(cleared.current.lufs_s, before.current.lufs_s);
+    assert_eq!(cleared.current.true_peak, before.current.true_peak);
+    assert_eq!(cleared.max_lufs_m, before.max_lufs_m);
+    assert_eq!(cleared.stereo.clip_events, before.stereo.clip_events);
+    assert_eq!(cleared.stereo.clip_latched, [false, false]);
+    assert!(cleared
+        .stereo
+        .max_true_peak_dbtp
+        .iter()
+        .all(Option::is_none));
+    assert_eq!(
+        session.recent_history(MeterHistoryResolution::Hz10, 20),
+        history_before
+    );
+
+    assert!(session.push_active(&stereo_constant(1.1, 0.4)));
+    let relatched = session.snapshot();
+    assert_eq!(relatched.stereo.clip_events, [1, 0]);
+    assert_eq!(relatched.stereo.clip_latched, [true, false]);
+    assert!(relatched.stereo.max_true_peak_dbtp[0].is_some());
+    let history_after = session.recent_history(MeterHistoryResolution::Hz10, 20);
+    let clip_event_totals = history_after.iter().fold([0_u32; 2], |mut totals, entry| {
+        for (total, count) in totals.iter_mut().zip(entry.clip_event_count) {
+            *total += count;
+        }
+        totals
+    });
+    assert_eq!(clip_event_totals, [1, 0]);
+}
+
+#[test]
 fn maximum_momentary_is_an_official_session_fact_until_explicit_reset() {
     let loud = stereo_sine(1.0, 0.5);
     let quiet = stereo_sine(1.0, 0.05);

@@ -87,6 +87,17 @@ int differentPixels (const juce::Image& left, const juce::Image& right,
     return count;
 }
 
+int brightPixels (const juce::Image& image, juce::Rectangle<int> requested,
+                  float minimumBrightness)
+{
+    const auto area = requested.getIntersection (image.getBounds());
+    auto count = 0;
+    for (int y = area.getY(); y < area.getBottom(); ++y)
+        for (int x = area.getX(); x < area.getRight(); ++x)
+            count += image.getPixelAt (x, y).getPerceivedBrightness() >= minimumBrightness;
+    return count;
+}
+
 void paintIntoBody (juce::Image& destination, juce::Component& body,
                     juce::Rectangle<int> bounds)
 {
@@ -98,12 +109,28 @@ void paintIntoBody (juce::Image& destination, juce::Component& body,
     body.paintEntireComponent (graphics, true);
 }
 
+void applyEditorPresentationContext (juce::Component& component, int width, int height)
+{
+    const auto context = presentation::forEditor (width, height);
+    if (auto* attack = dynamic_cast<AttackComponent*> (&component))
+        attack->setPresentationContext (context);
+    else if (auto* absolute = dynamic_cast<AbsoluteComponent*> (&component))
+        absolute->setPresentationContext (context);
+    else if (auto* perceptual = dynamic_cast<PerceptualComponent*> (&component))
+        perceptual->setPresentationContext (context);
+    else if (auto* spectrum = dynamic_cast<SpectrumComponent*> (&component))
+        spectrum->setPresentationContext (context);
+}
+
 juce::Image compose (observatory::View& shell, juce::Component& body)
 {
+    applyEditorPresentationContext (body, shell.getWidth(), shell.getHeight());
     auto image = render (shell);
     if (shell.domain() == observatory::Domain::time)
     {
         TimePageNavigation navigation;
+        navigation.setPresentationContext (
+            presentation::forEditor (shell.getWidth(), shell.getHeight()));
         navigation.setDirect (shell.getWidth() >= 450);
         const auto page = dynamic_cast<AttackComponent*> (&body) ? analysis_navigation::Page::attack
             : dynamic_cast<AbsoluteComponent*> (&body) ? analysis_navigation::Page::absolute
@@ -165,19 +192,29 @@ void verifyPsbComposites (observatory::View& shell)
             shell.setSize (preset.width, preset.height);
             shell.setTarget (delta ? observatory::ObservationTarget::delta : observatory::ObservationTarget::absolute);
             SpectrumComponent component;
+            component.setPresentationContext (presentation::forEditor (preset.width, preset.height));
             component.setSignalActive (true);
             component.setAbsoluteObservation (! delta);
             component.setSize (shell.analysisBodyBounds().getWidth(), shell.analysisBodyBounds().getHeight());
             const auto bounds = component.getLocalBounds().toFloat();
             const auto scale = spectrum_geometry::visualScaleFor (bounds);
             const auto toggle = spectrum_geometry::subviewBoundsFor (spectrum_geometry::plotBoundsFor (bounds), scale);
+            const auto toggleInterior = toggle.toNearestInt().reduced (
+                juce::jmax (2, juce::roundToInt (toggle.getWidth() * 0.12f)),
+                juce::jmax (1, juce::roundToInt (toggle.getHeight() * 0.18f)));
+            KIRIN_COMPOSITE_REQUIRE (
+                brightPixels (render (component), toggleInterior, 0.28f) > 3);
             const auto now = juce::Time::getCurrentTime();
             component.mouseDown ({ juce::Desktop::getInstance().getMainMouseSource(),
                 toggle.getCentre(), {}, 0, 0, 0, 0, 0, &component, &component, now,
                 toggle.getCentre(), now, 0, false });
             KIRIN_COMPOSITE_REQUIRE (component.isPsbObservation());
-            KIRIN_COMPOSITE_REQUIRE (monoFont (7.0f * ui_contract::analysisTextScale (scale))
+            KIRIN_COMPOSITE_REQUIRE (monoFont (presentation::forEditor (preset.width, preset.height),
+                                               typography::TextRole::action,
+                                               typography::Composition::visualization)
                 .getStringWidthFloat ("SPECTRUM") < toggle.getWidth());
+            KIRIN_COMPOSITE_REQUIRE (
+                brightPixels (render (component), toggleInterior, 0.28f) > 3);
             const auto missing = compose (shell, component);
             KirinPsbView value {};
             value.status = KIRIN_SPECTRUM_ACTIVE;
@@ -381,6 +418,10 @@ void verifyObservatoryCompositeContract()
         1'200, 630, false, "2026-09-01 00:00:00", "0.1.0");
     auto captureComposite = captureBase.createCopy();
     const auto captureBody = shell.captureBodyBounds (1'200, 630, false);
+    attack->setPresentationContext (presentation::forOutput (
+        juce::roundToInt (1'200.0f / observatory::captureRenderScale),
+        juce::roundToInt (630.0f / observatory::captureRenderScale),
+        presentation::OutputTarget::capture));
     attack->setSize (
         juce::roundToInt ((float) captureBody.getWidth()
                           / observatory::captureRenderScale),

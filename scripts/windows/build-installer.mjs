@@ -7,6 +7,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { batchSign, signingEnvironment } from './sign-codesigntool.mjs';
+import {
+  loadWindowsAaxBundleManifest,
+  recordAtBundle,
+  verifyWindowsAaxCopy,
+} from './windows-aax-bundles.mjs';
+import { loadWindowsAaxSignedProvenance } from './windows-aax-provenance.mjs';
+import { requireCleanReleaseSource } from '../ls_release/release_source_identity.mjs';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(THIS_FILE), '..', '..');
@@ -27,6 +34,7 @@ export const VERSION = readVersion();
 export function parseArgs(argv) {
   const opts = {
     artifactDir: 'juce_shell/build-windows',
+    aaxArtifactDir: '',
     outputDir: 'dist/WINDOWS_CI',
     signing: 'unsigned',
     externalValidation: 'pending',
@@ -39,6 +47,10 @@ export function parseArgs(argv) {
     const arg = argv[index];
     if (arg === '--help' || arg === '-h') opts.help = true;
     else if (arg === '--artifact-dir') opts.artifactDir = argv[++index] || '';
+    else if (arg === '--aax-artifact-dir') {
+      opts.aaxArtifactDir = argv[++index] || '';
+      if (!opts.aaxArtifactDir) throw new Error('--aax-artifact-dir requires a value');
+    }
     else if (arg === '--output-dir') opts.outputDir = argv[++index] || '';
     else if (arg === '--signing') opts.signing = argv[++index] || '';
     else if (arg === '--external-validation') opts.externalValidation = argv[++index] || '';
@@ -148,7 +160,7 @@ function resolveIscc(env = process.env) {
   return match;
 }
 
-export function innoCompilerArgs({ outputDir, payloadDir, signing }) {
+export function innoCompilerArgs({ outputDir, payloadDir, signing, aaxRecords = [] }) {
   const args = [
     `/DAppVersion=${VERSION}`,
     `/DOutputDir=${outputDir}`,
@@ -158,6 +170,15 @@ export function innoCompilerArgs({ outputDir, payloadDir, signing }) {
   if (signing === 'signed') {
     args.push('/DSignedBuild=1');
     args.push(`/Skirin_esigner="${process.execPath}" "${SIGNER_FILE}" --input-file $f`);
+  }
+  if (aaxRecords.length > 0) {
+    if (aaxRecords.length !== 2) throw new Error('AAX installer payload must contain PRE and POST');
+    const pre = aaxRecords.find((record) => record.role === 'PRE');
+    const post = aaxRecords.find((record) => record.role === 'POST');
+    if (!pre || !post) throw new Error('AAX installer payload must contain unique PRE and POST');
+    args.push('/DWithAax=1');
+    args.push(`/DPreAaxBundle=${pre.bundle}`);
+    args.push(`/DPostAaxBundle=${post.bundle}`);
   }
   args.push(ISS_FILE);
   return args;
@@ -180,12 +201,31 @@ async function signPayload(records, tempRoot, env) {
   }
 }
 
-function manifestFor({ opts, installer, payloadRecords }) {
+export function bindAaxSourceIdentity(opts, currentSource, aaxProvenance) {
+  const source = aaxProvenance.manifest.source;
+  if (source.commit !== currentSource.commit || source.b_number !== currentSource.bNumber) {
+    throw new Error('signed Windows AAX source does not match the installer source');
+  }
+  if ((opts.commit && opts.commit !== currentSource.commit)
+      || (opts.bNumber && opts.bNumber !== currentSource.bNumber)) {
+    throw new Error('requested Windows installer identity does not match clean source');
+  }
+  return { ...opts, commit: currentSource.commit, bNumber: currentSource.bNumber };
+}
+
+function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxProvenance }) {
+  const aaxIncluded = aaxPayloadRecords.length === 2;
   return {
     schema: 'kirin-hypha-windows-installer-v1',
     schema_version: 1,
     generated_at: new Date().toISOString(),
-    product: { name: PRODUCT_NAME, version: VERSION, platform: 'windows-x64', format: 'VST3' },
+    product: {
+      name: PRODUCT_NAME,
+      version: VERSION,
+      platform: 'windows-x64',
+      format: aaxIncluded ? 'VST3+AAX' : 'VST3',
+      formats: aaxIncluded ? ['VST3', 'AAX'] : ['VST3'],
+    },
     source: {
       commit: opts.commit,
       b_number: opts.bNumber,
@@ -197,11 +237,22 @@ function manifestFor({ opts, installer, payloadRecords }) {
       size_bytes: fs.statSync(installer).size,
       sha256: sha256(installer),
       framework: 'Inno Setup 6',
-      install_mode: 'per-user by default; all-users selectable',
+      install_mode: aaxIncluded
+        ? 'all-users; administrator required'
+        : 'per-user by default; all-users selectable',
       payload: payloadRecords.map((record) => ({
         role: record.role,
+        format: 'VST3',
         bundle: record.name,
         binary_sha256: sha256(record.binary),
+      })),
+      aax_payload: aaxPayloadRecords.map((record) => ({
+        role: record.role,
+        format: 'AAX',
+        bundle: record.name,
+        binary_sha256: sha256(record.binary),
+        pace_verified: true,
+        authenticode_verified: true,
       })),
     },
     signing: {
@@ -215,7 +266,9 @@ function manifestFor({ opts, installer, payloadRecords }) {
       required: [
         'silent install',
         'same-version reinstall',
+        ...(aaxIncluded ? ['prior-public-version upgrade'] : []),
         'PRE/POST payload hash equality',
+        ...(aaxIncluded ? ['PACE + Authenticode AAX payloads'] : []),
         'Authenticode surfaces when signed',
         'silent uninstall',
         'unrelated VST3 preservation',
@@ -230,6 +283,17 @@ function manifestFor({ opts, installer, payloadRecords }) {
     distribution: {
       primary: true,
       manual_zip: 'fallback_only',
+      aax_included: aaxIncluded,
+      aax_identity: aaxIncluded ? {
+        source_commit: aaxProvenance.manifest.source.commit,
+        b_number: aaxProvenance.manifest.source.b_number,
+        source_state: aaxProvenance.manifest.source.state,
+        kimera_embedded: aaxProvenance.manifest.release.kimera_embedded,
+        native_only: aaxProvenance.manifest.release.native_only,
+        audio_suite_enabled: aaxProvenance.manifest.release.audio_suite_enabled,
+        signed_manifest: `Kirin-Hypha-${VERSION}-Windows-x64-AAX.json`,
+        signed_manifest_sha256: aaxProvenance.manifestSha256,
+      } : null,
       public_ready: false,
     },
   };
@@ -238,22 +302,48 @@ function manifestFor({ opts, installer, payloadRecords }) {
 export async function buildInstaller(opts) {
   if (process.platform !== 'win32') throw new Error('Windows installer builds must run on Windows');
   if (opts.signing === 'signed') signingEnvironment();
-  opts.commit ||= git(['rev-parse', 'HEAD'], 'unknown');
-  opts.bNumber ||= inferBNumber();
+  let aaxProvenance = null;
+  if (opts.aaxArtifactDir) {
+    aaxProvenance = loadWindowsAaxSignedProvenance({
+      artifactRoot: opts.aaxArtifactDir,
+      version: VERSION,
+    });
+    opts = bindAaxSourceIdentity(opts, requireCleanReleaseSource({ root: ROOT }), aaxProvenance);
+  } else {
+    opts.commit ||= git(['rev-parse', 'HEAD'], 'unknown');
+    opts.bNumber ||= inferBNumber();
+  }
   opts.runUrl ||= inferRunUrl();
 
   const outputDir = path.resolve(ROOT, opts.outputDir);
   const payloadDir = path.join(outputDir, PAYLOAD_DIR_NAME);
   const installer = path.join(outputDir, `Kirin-Hypha-${VERSION}-Windows-x64-Setup.exe`);
+  const aaxManifestCopy = path.join(outputDir, `Kirin-Hypha-${VERSION}-Windows-x64-AAX.json`);
   fs.mkdirSync(outputDir, { recursive: true });
   fs.rmSync(payloadDir, { recursive: true, force: true });
-  for (const sidecar of [installer, `${installer}.sha256`, `${installer}.json`]) fs.rmSync(sidecar, { force: true });
+  for (const sidecar of [installer, `${installer}.sha256`, `${installer}.json`, aaxManifestCopy]) {
+    fs.rmSync(sidecar, { force: true });
+  }
   fs.mkdirSync(payloadDir, { recursive: true });
 
   const sourceRecords = ['PRE', 'POST'].map((role) => bundleRecord(opts.artifactDir, role));
+  const aaxSourceRecords = opts.aaxArtifactDir
+    ? loadWindowsAaxBundleManifest({ artifactRoot: opts.aaxArtifactDir }).bundles
+    : [];
   for (const source of sourceRecords) {
     fs.cpSync(source.bundle, path.join(payloadDir, source.name), { recursive: true });
   }
+  const aaxPayloadRecords = [];
+  for (const source of aaxSourceRecords) {
+    const destination = path.join(payloadDir, source.name);
+    fs.cpSync(source.bundle, destination, { recursive: true });
+    aaxPayloadRecords.push(verifyWindowsAaxCopy(
+      source,
+      recordAtBundle(source, destination),
+      VERSION,
+    ));
+  }
+  if (aaxProvenance) fs.copyFileSync(aaxProvenance.manifestPath, aaxManifestCopy);
   const payloadRecords = ['PRE', 'POST'].map((role) => bundleRecord(payloadDir, role));
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-installer-'));
   const buildEnv = {
@@ -262,14 +352,25 @@ export async function buildInstaller(opts) {
   };
   try {
     if (opts.signing === 'signed') await signPayload(payloadRecords, tempRoot, buildEnv);
-    run(resolveIscc(buildEnv), innoCompilerArgs({ outputDir, payloadDir, signing: opts.signing }), { env: buildEnv });
+    run(resolveIscc(buildEnv), innoCompilerArgs({
+      outputDir,
+      payloadDir,
+      signing: opts.signing,
+      aaxRecords: aaxPayloadRecords,
+    }), { env: buildEnv });
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
   if (!fs.statSync(installer, { throwIfNoEntry: false })?.isFile() || fs.statSync(installer).size <= 0) {
     throw new Error(`Inno Setup did not produce the expected installer: ${installer}`);
   }
-  const manifest = manifestFor({ opts, installer, payloadRecords });
+  const manifest = manifestFor({
+    opts,
+    installer,
+    payloadRecords,
+    aaxPayloadRecords,
+    aaxProvenance,
+  });
   fs.writeFileSync(`${installer}.sha256`, `${manifest.installer.sha256}  ${path.basename(installer)}\n`);
   fs.writeFileSync(`${installer}.json`, `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`[hypha-installer] wrote ${installer}`);
@@ -280,7 +381,7 @@ export async function buildInstaller(opts) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) {
-    console.log('Build the Kirin Hypha Windows installer. Use --signing unsigned|signed.');
+    console.log('Build the Kirin Hypha Windows installer. Add --aax-artifact-dir DIR only for signed AAX payloads.');
     return;
   }
   await buildInstaller(opts);

@@ -174,6 +174,9 @@ void KirinHyphaEditor::updatePre()
 
 void KirinHyphaEditor::updatePost()
 {
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (localBlindOpen) return;
+   #endif
     const bool alive  = processorRef.measureAlive();
     const int  sig    = processorRef.signalStateLive(); // B-113: heartbeat-aware (no stale Active)
     const bool rec    = processorRef.isRecording();
@@ -182,6 +185,7 @@ void KirinHyphaEditor::updatePost()
     const bool armed = keepPhase == (int) KIRIN_KEEP_PHASE_ARMED;
     const bool keepActive = rec || preparing || armed;
     observatoryView.setNoteAvailability (processorRef.licenseIsOs(), rec);
+    observatoryView.setKeepActive (keepActive);
     const bool ack    = processorRef.recordAcknowledged(); // POST: always false (egui parity)
     const bool preset = processorRef.presetAvailable();
     const bool playing = processorRef.isPlaying();
@@ -205,7 +209,7 @@ void KirinHyphaEditor::updatePost()
                                pairStatusColour (pairStatus, postAbsolute));
     pairStatusLabel.setTooltip (pairStatusHelp (pairStatus, postAbsolute));
 
-    nameField.setModelName (pairName);
+    nameField.setModelName (processorRef.pairDisplayName());
     nameField.setEditingEnabled (! pairLocked); // W-280 + B-115 playback pair lock (playing AND live)
 
     const double t = nowSecs();

@@ -11,17 +11,30 @@ inline juce::String switchViewTooltip (const char* viewName)
 
 inline juce::String slotsInUse (const juce::String& ownerNames)
 {
-    auto text = juce::String ("Both slots in use");
+    auto text = juce::String ("ANALYSIS IN USE");
     if (ownerNames.isNotEmpty())
-        text += " " + juce::String::charToString (0x2014) + " " + ownerNames;
+        text += " / " + ownerNames;
     return text;
 }
 
 inline juce::String channelModeTooltip (uint8_t mode)
 {
+    if (mode == 3u) return "M/S: show POST Mid and Side together. Stereo only.";
     if (mode == 1u) return "MID: analyze (L + R) / 2.";
     if (mode == 2u) return "SIDE: analyze (L - R) / 2. Stereo only.";
     return "LR: analyze L and R separately, then average power.";
+}
+
+inline juce::String midSideModeTooltip (bool absolute, bool stereo)
+{
+    if (! absolute) return "Select POST to show Mid and Side together.";
+    if (! stereo) return "M/S requires a stereo input.";
+    return channelModeTooltip (3u);
+}
+
+inline juce::String midSideSpectrumPlotTooltip()
+{
+    return "POST Mid and Side at one frequency. Click to lock the readout.";
 }
 
 inline juce::String spectrumPlotTooltip()

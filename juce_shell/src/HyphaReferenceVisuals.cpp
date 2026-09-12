@@ -1,7 +1,9 @@
 #include "HyphaReferenceVisuals.h"
 
 #include "HyphaReferenceComponent.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <cmath>
@@ -18,26 +20,29 @@ constexpr double maximumSpectrumDb = 6.0;
 
 void panel (juce::Graphics& g, juce::Rectangle<float> area)
 {
-    g.setColour (BG.withAlpha (0.72f));
-    g.fillRoundedRectangle (area, 4.0f);
-    g.setColour (COL_MUTED.withAlpha (0.34f));
-    g.drawRoundedRectangle (area.reduced (0.5f), 4.0f, 0.8f);
+    surface_material::paintPanel (g, area, 0.72f);
 }
 
 juce::Rectangle<float> chartArea (juce::Graphics& g, juce::Rectangle<float> area,
                                   const juce::String& heading,
-                                  const juce::String& detail)
+                                  const juce::String& detail,
+                                  presentation::Context presentation)
 {
     panel (g, area);
     auto header = area.removeFromTop (28.0f);
-    g.setColour (COL_NORMAL.withAlpha (0.86f));
-    g.setFont (labelFont (9.0f));
-    g.drawFittedText (heading, header.reduced (9.0f, 1.0f).toNearestInt(),
-                      juce::Justification::centredLeft, 1, 0.78f);
-    g.setColour (COL_MUTED.withAlpha (0.78f));
-    g.setFont (labelFont (7.5f));
-    g.drawFittedText (detail, header.reduced (9.0f, 1.0f).toNearestInt(),
-                      juce::Justification::centredRight, 1, 0.62f);
+    auto headerText = header.reduced (9.0f, 1.0f).toNearestInt();
+    auto headingArea = headerText.removeFromLeft (juce::roundToInt (
+        static_cast<float> (headerText.getWidth()) * 0.44f));
+    g.setColour (COL_NORMAL.withAlpha (0.92f));
+    g.setFont (labelFont (presentation, typography::TextRole::sectionTitle,
+                          typography::Composition::visualization));
+    text_style::drawEllipsized (g, heading, headingArea,
+                                juce::Justification::centredLeft);
+    g.setColour (COL_TEXT_TERTIARY.withAlpha (0.92f));
+    g.setFont (labelFont (presentation, typography::TextRole::legend,
+                          typography::Composition::visualization));
+    text_style::drawEllipsized (g, detail, headerText,
+                                juce::Justification::centredRight);
     auto chart = area.reduced (10.0f, 8.0f);
     g.setColour (COL_MUTED.withAlpha (0.10f));
     for (int line = 1; line < 4; ++line)
@@ -48,12 +53,24 @@ juce::Rectangle<float> chartArea (juce::Graphics& g, juce::Rectangle<float> area
     return chart;
 }
 
-void unavailable (juce::Graphics& g, juce::Rectangle<float> area)
+void unavailable (juce::Graphics& g, juce::Rectangle<float> area,
+                  presentation::Context presentation)
 {
-    g.setColour (COL_MUTED.withAlpha (0.82f));
-    g.setFont (labelFont (9.0f));
-    g.drawFittedText ("REFERENCE FACTS NOT AVAILABLE / AUDIO REMAINS READY",
-                      area.toNearestInt(), juce::Justification::centred, 2, 0.72f);
+    g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
+    g.setFont (labelFont (presentation, typography::TextRole::status,
+                          typography::Composition::visualization));
+    const auto lineHeight = juce::roundToInt (typography::resolve (
+        presentation, typography::TextRole::status,
+        typography::Composition::visualization).lineHeight);
+    auto textArea = area.toNearestInt().withSizeKeepingCentre (
+        area.toNearestInt().getWidth(), juce::jmin (area.toNearestInt().getHeight(),
+                                                   lineHeight * 2));
+    text_style::drawEllipsized (g,
+        area.getWidth() < 420.0f ? "FACTS UNAVAILABLE" : "REFERENCE FACTS NOT AVAILABLE",
+        textArea.removeFromTop (lineHeight), juce::Justification::centred);
+    text_style::drawEllipsized (g,
+        area.getWidth() < 420.0f ? "AUDIO READY" : "AUDIO REMAINS READY",
+        textArea.removeFromTop (lineHeight), juce::Justification::centred);
 }
 
 float dbY (double db, juce::Rectangle<float> area)
@@ -120,12 +137,12 @@ juce::Path nullableSpectrumPath (const std::vector<double>& frequencies,
 }
 
 bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
-                   const State& state, bool lowOnly)
+                   const State& state, bool lowOnly, presentation::Context presentation)
 {
     const double minimumHz = 20.0;
     const double maximumHz = lowOnly ? 300.0 : 20'000.0;
     auto area = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM",
-                           "A LIVE  /  B REFERENCE");
+                           "A LIVE  /  B REFERENCE", presentation);
     bool drew = false;
     for (const auto& profile : state.profiles)
     {
@@ -180,22 +197,23 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
         g.strokePath (live, juce::PathStrokeType (1.25f));
         drew = true;
     }
-    if (! drew) unavailable (g, area);
+    if (! drew) unavailable (g, area, presentation);
     return drew;
 }
 
-bool drawWaveform (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state)
+bool drawWaveform (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
+                   presentation::Context presentation)
 {
-    auto area = chartArea (g, bounds, "WAVEFORM", "B REFERENCE / SAMPLE GRID");
+    auto area = chartArea (g, bounds, "WAVEFORM", "B REFERENCE / SAMPLE GRID", presentation);
     if (! state.detailedMeasurement || ! state.detailedMeasurement->waveform)
     {
-        unavailable (g, area);
+        unavailable (g, area, presentation);
         return false;
     }
     const auto& waveform = *state.detailedMeasurement->waveform;
     if (waveform.samplePeakMillidbfs.empty() || waveform.samplePeakMillidbfs.front().empty())
     {
-        unavailable (g, area);
+        unavailable (g, area, presentation);
         return false;
     }
     const auto bins = waveform.samplePeakMillidbfs.front().size();
@@ -254,7 +272,8 @@ const NullableSeries* timelineSeries (const Measurement& measurement,
 }
 
 bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
-                   const State& state, const juce::String& binding)
+                   const State& state, const juce::String& binding,
+                   presentation::Context presentation)
 {
     juce::String title = binding.toUpperCase();
     juce::String seriesName;
@@ -263,10 +282,10 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
     if (state.detailedMeasurement)
         series = timelineSeries (*state.detailedMeasurement, binding, title, seriesName,
                                  minimum, maximum);
-    auto area = chartArea (g, bounds, title, "B REFERENCE / SOURCE TIMELINE");
+    auto area = chartArea (g, bounds, title, "B REFERENCE / TIMELINE", presentation);
     if (series == nullptr || series->empty())
     {
-        unavailable (g, area);
+        unavailable (g, area, presentation);
         return false;
     }
     juce::Path path;
@@ -289,13 +308,15 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
     return true;
 }
 
-bool drawTransient (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state)
+bool drawTransient (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
+                    presentation::Context presentation)
 {
-    auto area = chartArea (g, bounds, "TRANSIENT", "B REFERENCE / ONSET STRENGTH");
+    auto area = chartArea (g, bounds, "TRANSIENT", "B REFERENCE / ONSET STRENGTH",
+                           presentation);
     if (! state.detailedMeasurement || ! state.detailedMeasurement->transient
         || state.detailedMeasurement->transient->onsetStrengthQ15.empty())
     {
-        unavailable (g, area);
+        unavailable (g, area, presentation);
         return false;
     }
     const auto& values = state.detailedMeasurement->transient->onsetStrengthQ15;
@@ -315,32 +336,34 @@ bool drawTransient (juce::Graphics& g, juce::Rectangle<float> bounds, const Stat
 }
 
 void paintOne (juce::Graphics& g, juce::Rectangle<float> area,
-               const State& state, const juce::String& binding)
+               const State& state, const juce::String& binding,
+               presentation::Context presentation)
 {
-    if (binding == "spectrum_full") drawSpectrum (g, area, state, false);
-    else if (binding == "spectrum_low") drawSpectrum (g, area, state, true);
-    else if (binding == "waveform") drawWaveform (g, area, state);
-    else if (binding == "transient") drawTransient (g, area, state);
-    else drawTimeline (g, area, state, binding);
+    if (binding == "spectrum_full") drawSpectrum (g, area, state, false, presentation);
+    else if (binding == "spectrum_low") drawSpectrum (g, area, state, true, presentation);
+    else if (binding == "waveform") drawWaveform (g, area, state, presentation);
+    else if (binding == "transient") drawTransient (g, area, state, presentation);
+    else drawTimeline (g, area, state, binding, presentation);
 }
 }
 
 bool paintConfiguredReferenceViews (juce::Graphics& g, juce::Rectangle<float> area,
-                                    const State& state)
+                                    const State& state, presentation::Context presentation)
 {
     if (state.viewBindings.empty() || area.getWidth() < 120.0f || area.getHeight() < 70.0f)
         return false;
     const auto count = std::min<size_t> (3, state.viewBindings.size());
     constexpr float gap = 6.0f;
     if (count == 1)
-        paintOne (g, area, state, state.viewBindings[0]);
+        paintOne (g, area, state, state.viewBindings[0], presentation);
     else if (area.getWidth() < 620.0f)
     {
         const auto height = (area.getHeight() - gap * static_cast<float> (count - 1))
                           / static_cast<float> (count);
         for (size_t index = 0; index < count; ++index)
         {
-            paintOne (g, area.removeFromTop (height), state, state.viewBindings[index]);
+            paintOne (g, area.removeFromTop (height), state, state.viewBindings[index],
+                      presentation);
             area.removeFromTop (gap);
         }
     }
@@ -348,22 +371,23 @@ bool paintConfiguredReferenceViews (juce::Graphics& g, juce::Rectangle<float> ar
     {
         auto primary = area.removeFromLeft (area.getWidth() * 0.62f);
         area.removeFromLeft (gap);
-        paintOne (g, primary, state, state.viewBindings[0]);
-        paintOne (g, area, state, state.viewBindings[1]);
+        paintOne (g, primary, state, state.viewBindings[0], presentation);
+        paintOne (g, area, state, state.viewBindings[1], presentation);
     }
     else if (count == 2)
     {
         const auto width = (area.getWidth() - gap) * 0.5f;
-        paintOne (g, area.removeFromLeft (width), state, state.viewBindings[0]);
+        paintOne (g, area.removeFromLeft (width), state, state.viewBindings[0], presentation);
         area.removeFromLeft (gap);
-        paintOne (g, area, state, state.viewBindings[1]);
+        paintOne (g, area, state, state.viewBindings[1], presentation);
     }
     else if (state.presentationLayout == "equal")
     {
         const auto width = (area.getWidth() - gap * 2.0f) / 3.0f;
         for (size_t index = 0; index < count; ++index)
         {
-            paintOne (g, area.removeFromLeft (width), state, state.viewBindings[index]);
+            paintOne (g, area.removeFromLeft (width), state, state.viewBindings[index],
+                      presentation);
             area.removeFromLeft (gap);
         }
     }
@@ -371,11 +395,11 @@ bool paintConfiguredReferenceViews (juce::Graphics& g, juce::Rectangle<float> ar
     {
         auto primary = area.removeFromLeft (area.getWidth() * 0.62f);
         area.removeFromLeft (gap);
-        paintOne (g, primary, state, state.viewBindings[0]);
+        paintOne (g, primary, state, state.viewBindings[0], presentation);
         const auto height = (area.getHeight() - gap) * 0.5f;
-        paintOne (g, area.removeFromTop (height), state, state.viewBindings[1]);
+        paintOne (g, area.removeFromTop (height), state, state.viewBindings[1], presentation);
         area.removeFromTop (gap);
-        paintOne (g, area, state, state.viewBindings[2]);
+        paintOne (g, area, state, state.viewBindings[2], presentation);
     }
     return true;
 }

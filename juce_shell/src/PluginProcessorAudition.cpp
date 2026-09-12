@@ -13,24 +13,32 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         clock.outputPresentationSamples, clock.hasPosition, timelineActive, bypassed,
         ! nonRealtimeMode, clock.inputPresentationValid, clock.outputPresentationValid
     };
-    localBlindCapture.process (buffer.getArrayOfReadPointers(), getTotalNumInputChannels(),
-                               captureClock, static_cast<std::uint32_t> (preparedSampleRate));
+   #if JUCE_DEBUG
+    constexpr bool diagnosticCaptureEnabled = true;
+   #else
+    const bool diagnosticCaptureEnabled = localBlindProductSupported();
+   #endif
+    if (diagnosticCaptureEnabled)
+        localBlindCapture.process (buffer.getArrayOfReadPointers(), getTotalNumInputChannels(),
+                                   captureClock, static_cast<std::uint32_t> (preparedSampleRate));
 
     // Default closed: no production admission owner publishes PCM/epochs yet. No new button,
     // fake PDC, local-PID scope assumption, or third Analysis slot is enabled by this hook.
-    if (role == Role::Post && localBlindOutput.hasPublishedRealtime())
+    if (localBlindProductSupported()
+        && role == Role::Post && localBlindProductSession.hasPublishedRealtime())
     {
         hypha::local_blind::TrialBlock block;
-        block.epochs = localBlindEpochs.read();
         block.sampleRate = static_cast<std::uint32_t> (preparedSampleRate);
         block.position = clock.positionSamples;
         block.positionValid = clock.hasPosition;
         block.playing = clock.playing;
         block.realtime = ! nonRealtimeMode;
         block.bypassed = bypassed;
-        // JUCE PPQ loop points do not prove native sample-exact loop boundaries.
-        if (localBlindOutput.render (buffer.getArrayOfWritePointers(), buffer.getNumChannels(),
-                                     buffer.getNumSamples(), block)) return;
+        // The host looping boolean authorizes only the exact native end->start wrap that the
+        // renderer itself observes. PPQ loop points are never converted into sample boundaries.
+        block.exactLoopRangeValid = clock.looping;
+        if (localBlindProductSession.render (buffer.getArrayOfWritePointers(), buffer.getNumChannels(),
+                                             buffer.getNumSamples(), block)) return;
     }
 #if KIRIN_HYPHA_GUIDE_TRANSPORT && ! KIRIN_HYPHA_PRE_DISPLAY
     if (role == Role::Post && referenceAuditionController != nullptr)

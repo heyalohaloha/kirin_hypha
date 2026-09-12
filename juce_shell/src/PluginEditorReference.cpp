@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iterator>
 #include "HyphaUpdateContract.h"
+#include "reference_audition/ReferenceRuntimePresetOptions.h"
 
 namespace
 {
@@ -49,7 +50,8 @@ std::vector<hypha::reference_ui::SelectionOption> selectionOptions (
 {
     std::vector<hypha::reference_ui::SelectionOption> output;
     output.reserve (input.size());
-    for (const auto& item : input) output.push_back ({ item.id, item.label });
+    for (const auto& item : input) output.push_back ({
+        item.id, item.label + (item.requiresPreparation ? "  /  PREPARE" : "") });
     return output;
 }
 
@@ -93,7 +95,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onSelectPreset = [this] (const juce::String& id)
     {
         if (! processorRef.selectReferencePreset (id))
-            showToast ("Preset selection was not changed");
+            showToast ("Check Preset selection was not changed");
     };
     referenceView.onSelectCheck = [this] (const juce::String& id)
     {
@@ -120,6 +122,8 @@ void KirinHyphaEditor::configureReferenceAudition()
                     state.aIntegratedLoudness, state.aMaximumTruePeakDbtp)
                 : state.presetSelectionAction == "retry"
                     ? processorRef.retryReferencePresetSelection()
+                    : state.candidatePreparationAction == "retry"
+                        ? processorRef.retryReferenceCandidatePreparation()
                     : processorRef.requestReferenceRecovery();
         if (! accepted) showToast ("Kirin OS could not receive the request");
     };
@@ -159,6 +163,7 @@ void KirinHyphaEditor::layoutReferenceAudition (juce::Rectangle<int> body)
     referenceAccessView.setBounds (body);
     referenceAccessView.setVisible (reference && access);
     if (referenceAccessView.isVisible()) referenceAccessView.toFront (false);
+    layoutLocalBlindProduct();
 }
 
 void KirinHyphaEditor::showReferenceInformationMenu()
@@ -174,6 +179,13 @@ void KirinHyphaEditor::showReferenceInformationMenu()
     menu.addSeparator();
     menu.addItem (static_cast<int> (Action::copyOsEnglish), "Copy official URL (English)");
     menu.addItem (static_cast<int> (Action::copyOsJapanese), "Copy official URL (Japanese)");
+    if (appearanceSnapshot.activationSeen)
+    {
+        menu.addSeparator();
+        menu.addSectionHeader ("Display");
+        menu.addItem (jungleModeMenuAction, "Jungle Mode", true,
+                      observatoryView.jungleAppearanceEnabled());
+    }
     const juce::Component::SafePointer<KirinHyphaEditor> safe (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&referenceAccessView)
         .withDeletionCheck (*this).withMinimumWidth (360).withStandardItemHeight (28),
@@ -230,10 +242,10 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     const bool blindAvailable = callbackLive && runtime.blindEligible
         && hypha::reference_ui::canSelectB (state);
     state.blindPhase = referenceBlindPhase (runtime.blindPhase, blindAvailable);
-    state.presetId = runtime.presetSelectionTargetId.isNotEmpty()
-        ? runtime.presetSelectionTargetId : runtime.presetId;
+    state.presetId = hypha::reference_audition::runtimePresetDisplaySelection (runtime);
     state.checkId = runtime.checkId;
-    state.candidateId = runtime.candidateId;
+    state.candidateId = runtime.candidatePreparationTargetId.isNotEmpty()
+        ? runtime.candidatePreparationTargetId : runtime.candidateId;
     state.cueId = runtime.cueId;
     state.presetName = runtime.presetName;
     state.checkLabel = runtime.checkLabel;
@@ -252,6 +264,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.sourceSampleRateHz = runtime.sourceSampleRateHz;
     state.hostSampleRateHz = runtime.hostSampleRateHz;
     state.presetSelectionAction = runtime.presetSelectionAction;
+    state.candidatePreparationAction = runtime.candidatePreparationAction;
+    state.candidatePreparationPending = runtime.candidatePreparationStatus == "pending";
     if (observatoryDomain == hypha::observatory::Domain::reference)
     {
         KirinSpectrumView spectrum {};
@@ -311,12 +325,12 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         state.status = "CONNECT TO A KIRIN OS WORK";
     if (runtime.presetSelectionStatus == "pending")
     {
-        state.status = "PREPARING PRESET IN KIRIN OS / A REMAINS LIVE";
+        state.status = "KIRIN OS PREPARING CHECK PRESET / A REMAINS LIVE";
         state.actionText.clear();
     }
     else if (runtime.presetSelectionStatus == "prepared")
     {
-        state.status = "PRESET READY / A REMAINS LIVE";
+        state.status = "CHECK PRESET READY / A REMAINS LIVE";
         state.actionText.clear();
     }
     else if (runtime.presetSelectionStatus == "timed_out")
@@ -343,11 +357,48 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
              || runtime.presetSelectionStatus == "storage_unavailable"
              || runtime.presetSelectionStatus == "publication_failed")
     {
-        state.status = "PRESET WAS NOT REFRESHED / A REMAINS LIVE";
+        state.status = "CHECK PRESET NOT REFRESHED / A REMAINS LIVE";
         state.actionText = "RETRY PREPARATION";
     }
     else if (runtime.presetSelectionStatus == "work_unavailable"
              || runtime.presetSelectionStatus == "request_invalid")
+    {
+        state.status = "REFERENCE SETUP NEEDS ATTENTION / A REMAINS LIVE";
+        state.actionText = "OPEN REFERENCE";
+    }
+    else if (runtime.candidatePreparationStatus == "pending")
+    {
+        state.status = "KIRIN OS PREPARING REFERENCE / A REMAINS LIVE";
+        state.actionText.clear();
+    }
+    else if (runtime.candidatePreparationStatus == "prepared")
+    {
+        state.status = "REFERENCE READY / A REMAINS LIVE";
+        state.actionText.clear();
+    }
+    else if (runtime.candidatePreparationStatus == "timed_out")
+    {
+        state.status = "KIRIN OS NEEDS MORE TIME / A REMAINS LIVE";
+        state.actionText = "RETRY PREPARATION";
+    }
+    else if (runtime.candidatePreparationStatus == "source_unavailable")
+    {
+        state.status = "REFERENCE SOURCE NEEDS ATTENTION / A REMAINS LIVE";
+        state.actionText = "CHOOSE SOURCE";
+    }
+    else if (runtime.candidatePreparationStatus == "measurement_required")
+    {
+        state.status = "MEASURE THE REFERENCE SOURCE IN KIRIN OS / A REMAINS LIVE";
+        state.actionText = "MEASURE SOURCE";
+    }
+    else if (runtime.candidatePreparationStatus == "request_stale"
+             || runtime.candidatePreparationStatus == "storage_unavailable"
+             || runtime.candidatePreparationStatus == "publication_failed")
+    {
+        state.status = "REFERENCE NOT REFRESHED / A REMAINS LIVE";
+        state.actionText = "RETRY PREPARATION";
+    }
+    else if (runtime.candidatePreparationStatus.isNotEmpty())
     {
         state.status = "REFERENCE SETUP NEEDS ATTENTION / A REMAINS LIVE";
         state.actionText = "OPEN REFERENCE";

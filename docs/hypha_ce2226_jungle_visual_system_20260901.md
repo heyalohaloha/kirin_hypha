@@ -8,6 +8,18 @@ Branch: `codex/hypha-meter`
 
 Baseline: `a29f50c5cf38fe29fad2bedc7db690c492c2f471`
 
+## 2026-09-11の承認済み方向と段階実装計画
+
+Hyphaは通常時からCE 2226であり、Jungle発動は同じ生態系の生命感が加速する状態として扱う。
+現在のVUの品位を通常版の全画面へ広げ、その通常版をJungleで深める方針が承認された。
+具体的な仕上げ、全5サイズ、連動、軽量性、検証は[改訂実装計画](hypha_jungle_activation_and_visual_plan_20260911.md)を参照する。
+通常版の共通surface、OSのJungle発動とMASKING送信をAND条件にしたpublisher、Hypha共有service、全5サイズ共通のJungle差分は実装済みである。
+Jungle差分は追加bitmapやanimationを使わず、VUのガラス下層と共通外周へnativeの連続菌糸と低明度の内部光だけを加える。
+初回の連動ポップアップや由来badgeは表示しない。
+発動後は既存Displayメニューの`Jungle Mode`だけで独立してON/OFFできる。
+以下の既存baselineを、未実装のJungle外観や連動まで達成済みだと読み替えない。
+VUの計測、構図、操作と既存の意味色を守り、破線、点線、自律的な装飾animationは追加しない。
+
 ## 1. 世界設定の接続
 
 Kirin OSの通常面はCE2026の道具であり、Jungleは同じ世界がCE2226の生態系まで進んだ状態である。
@@ -43,6 +55,10 @@ Hyphaの画面だけを見た段階では地下の観測設備として読め、
 ## 3. 共通色と素材
 
 graphiteを画面とpanelの基材にする。
+
+通常panelと未選択controlは、明るい四角枠で区切らない。
+暗い基材の層差、上辺の連続した低明度反射、下辺の沈みで境界を成立させ、選択箇所だけ意味色の短い光を持たせる。
+VUの計器フレームはこの簡略化の対象外とし、既存の筐体構図と意味を維持する。
 
 ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep tealは構造の微光へ割り当てる。
 
@@ -81,6 +97,15 @@ ObservatoryのTIMEは`HISTORY / ATTACK / SHARP / LIVE`を常時見える二階�
 Compact Meterでは同じ四項目を一つのcycle controlへ畳み、常設UIを増やさない。
 FREQは時間detailへ埋めず一階層目に置き、`MARK`で現在の全帯域差分を固定し、`Focus Trail`で選択帯域の六秒差分を追跡する。
 
+POST targetのFREQでは`LR / MID / SIDE`の右に`M/S`を置き、同じapertureのMIDをcyan実線、SIDEをviolet実線で重ねる。
+曲線の識別に破線や点線を使わず、色、連続した輪郭、抑えた発光量で精密さを保つ。
+既存VUの暗部、細い光、端正な数値を質感の基準とし、VU自体の配色や挙動は変更しない。
+全絶対Spectrumのlive inkは上昇を次の既存描画tickで反映し、下降だけを20 dB／500 msで残す。符号付きΔは正負を偏らせない150 msの対称追従とし、数値、MARK、Focus Trail、履歴、正本snapshotへ時間平滑を混ぜない。
+
+M/Sは二つの絶対測定を比較する観測面であり、PRE/POST差分、評価色、fill、glow、MARK、Focus Trailを混在させない。
+
+M/S中のΔとΔ中のM/Sは位置を残して低明度のdisabled表示とし、LR、MID、SIDEへ戻る経路を常に見せる。
+
 そのため、各解析面は同じ背景、外周、Header、Guide、Footer、Captureの文法を継承する。
 
 ## 5. 6画面の比較試作
@@ -94,15 +119,17 @@ FREQは時間detailへ埋めず一階層目に置き、`MARK`で現在の全帯�
 5. PRE LEVEL 600×400
 6. Capture 1200×630
 
-各画面についてCompact 300×200と375×250、Observatory 450×300と600×400の二系統を確認する。
+各画面についてCompact 300×200と375×250、Observatory 450×300と600×400、Inspection 900×600の五つの基準寸法を確認する。表示思想はCompactとObservatoryの二系統であり、InspectionはObservatoryの高解像度表示である。
 
 Captureは追加で1080×1080と1080×1350のbounds契約を検証する。
 
-ATTACKのbodyは既存の`attack_specimen_emission.png`とnative painterを使用し、親Shell側の背景を新しい地下観測所へ統一する。
+ATTACKのbodyは`attack_specimen_body_v3.png`とnative painterを使用する。半透明の水中生命体として、クラゲの傘とイカの推進を思わせる膜、青緑の屈折、暖色の生体発光脈を持たせ、親Shell側の背景を新しい地下観測所へ統一する。
+
+旧`attack_specimen_emission.png`は長い尾を持つ診断素材であり、製品ATTACKの中央標本には使用しない。
 
 ## 6. responsive契約
 
-画面寸法は四段階を保持するが、利用者に提供する表示思想は二系統だけとする。
+画面寸法は300×200、375×250、450×300、600×400、900×600の五つを基準とするが、利用者に提供する表示思想はCompactとObservatoryの二系統だけとする。
 
 ### Compact meter: 300×200、375×250
 
@@ -125,6 +152,14 @@ Hypha Apertureは小さな有機鉱物の開口部であり、信号状態とPai
 domainが変わっても位置と面積を変えず、小画面へ複数の世界観表現を持ち込まない。
 
 300×200と375×250は同じgeometry規則を使用し、375専用の第三の表示思想を作らない。
+
+DAW Record中はCompactの常設面をHybrid VUへ一時置換する。通常時も既存Footerへ追加した`VU`ボタンから同じ面を開き、同じボタンで選択domainを変更せず元の画面へ戻る。
+Recordによる面は停止時に元の画面へ戻る。手動選択はRecord開始／停止と独立する。
+既定ONの表示設定をOFFにした場合、またはHybrid VUの情報メニューから選択中のviewへ戻した場合は、自動置換を行わない。後者はそのRecord区間だけ有効とする。
+左右の針は0 VU = -18 dBFSの300 ms平均応答、上段cyan railは左右100 ms True Peak、amber markerはSession開始または直近`CLEAR`以降の左右最大TPとし、異なる時間尺度を一つの針へ混ぜない。
+`CLEAR`はcalibration stripの既存button styleでTP markerとclip latchだけを解除し、現在値、Session正本、履歴、Record／Keepを変更しない。通常表示への復帰も同じ`VU`ボタンで行い、新しい画面階層を追加しない。
+下段は選択M/S、TP、Crestの三値を維持し、音種別の推奨帯や品質色を追加しない。
+Record面の低明度菌糸はmeter face下端と外周だけに置き、目盛り、針、数値の負空間を侵食しない。
 
 ### Standard: 450×300 / Full cockpit: 600×400
 
@@ -164,6 +199,11 @@ Mを主線、Sを低彩度の副線とし、TPは連続線を重ねず、runご�
 
 900×600は四domain共通のInspection Viewとし、LEVELではHistory、channel strip、数値階層へ追加面積を与える。TIME、FREQ、SPACEとTIME配下解析も既存の測定事実と操作を変えず高解像度化し、未合意の新指標は載せない。
 
+Hybrid VUは300×200から900×600まで同じ3:2構図を保つ。
+300×200と375×250では補助目盛りを間引き、450×300以上ではVUとTrue Peakの全補助目盛りを出す。
+筐体、ガラス、菌糸は最大表示より高解像度の埋込chassis素材を縮小使用し、針、目盛り、True Peak rail、文字、線幅、余白はnative painterが実boundsから再計算する。
+素材へ測定値や目盛りを焼き込まず、全ての動的事実はnative layerだけが所有する。
+
 PREとの差分ではΔM、ΔS、ΔTP、ΔCrestを同じ四列geometryで比較する。
 
 ΔMAXは時刻の異なる独立最大値同士を差し引く可能性があるため作らず、MAXは絶対値の事実としてだけ表示する。
@@ -172,7 +212,7 @@ PREとの差分ではΔM、ΔS、ΔTP、ΔCrestを同じ四列geometryで比較�
 
 600×400のPOST FooterだけにPOSTとΔの独立ボタン、左右TP数値と0〜−48 dBTP目盛り、CAPTURE入口を置く。
 
-右端L/R meterは1 dBごとの48 blockを使い、300%でも粗い24段表示に見せない。左上の`HYPHA POST/PRE`は一体の静的titleとし、domain tabと同じ操作 affordanceを持たせない。runtimeのPAIR name fieldがあるサイズでは背景側のPAIR文字を重ねて描かない。
+右端L/R meterは1 dBごとの48 blockを使い、300%でも粗い24段表示に見せない。左上の静的titleは役割を先頭にした`PRE HYPHA`／`POST HYPHA`とし、PREは青、POSTはflora amberで即座に区別する。domain tabと同じ操作 affordanceは持たせない。runtimeのPAIR name fieldがあるサイズでは背景側のPAIR文字を重ねて描かない。
 
 450×300以下ではPOST/Δを一つの切替へ畳み、CAPTURE入口を出さない。
 
@@ -218,9 +258,9 @@ LEVELの菌糸量はLUFS-Mを`-48..0 LUFS`から`0..1`へclampした値だけで
 
 waitingと未接続では接続済みの形を表示しない。
 
-OS Guideが存在する場合だけGuide railと下端の細いrootを表示する。
+OS Guideが存在する場合だけFooterに短いGuide contextを表示する。
 
-Guide railは現在のdomainを変更しない。
+Guide contextは現在のdomainを変更せず、測定面の高さも変えない。
 
 Guideの文字とbandはKirin OS由来の事実であり、Live POSTとLive Deltaの測定値へ混ぜない。
 
@@ -290,7 +330,11 @@ native render testはPREとPOST、四domain、五size、POSTとDelta、Guide有�
 
 ATTACKはCompact、Observatory、1200×630 Captureの三経路でbodyが欠落しないことをpixel差分で確認する。
 
-300×200と375×250はCompact、450×300はStandard、600×400と900×600をfull cockpitとしてcompile-timeとruntimeの両方で固定する。
+300×200と375×250はCompact、450×300はStandard、600×400はfull cockpit、900×600はInspection Viewとしてcompile-timeとruntimeの両方で固定する。文字はこの五つを基準点として中間寸法を連続補間し、役割と構成は`HyphaTypographyContract.h`、画面対応は`HyphaSurfacePresentation.h`を正本とする。
+
+文字は一律拡大しない。LEVELのM/S/Iなど即読する主値を`primaryValue`、TP、MAX TP、LRA、PLR、Crestなど比較を補助する値を`secondaryValue`として、全基準寸法で主値を大きく保つ。ATTACKのStrength、Texture、Sharpnessは同じ観測階層として均等な三列に置き、label、value、contextの中央軸をそろえる。
+
+利用可能なlabel、unit、axis、legend、説明文には背景に対して4.5:1以上の可読色を使う。従来のmuted色は欠測値、無効な操作、非文字の補助線へ限定し、存在する情報を単に薄く見せる用途には使わない。PRESENCE overlayの既存値は変更しない。
 
 TIMEとSPACEの600×400描画は12 ms未満を維持し、900×600も独立の性能上限で検証する。
 

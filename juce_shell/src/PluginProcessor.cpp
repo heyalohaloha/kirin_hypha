@@ -1,12 +1,13 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "HyphaPluginFormat.h"
 #include <algorithm>
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
 namespace
 {
-    static_assert (sizeof (KirinMeterSession) == 840u,
+    static_assert (sizeof (KirinMeterSession) == 872u,
                    "Rust/C++ Meter Session ABI size must remain exact");
-    static_assert (sizeof (KirinObservatoryFrame) == 1'080u,
+    static_assert (sizeof (KirinObservatoryFrame) == 1'112u,
                    "Rust/C++ Observatory frame ABI size must remain exact");
     static_assert (sizeof (KirinMeterHistoryEntry) == 184u,
                    "Rust/C++ Meter history ABI size must remain exact");
@@ -64,16 +65,15 @@ namespace
             && (stateCode == 1 || (recording && (playing || positionChanged || nonRealtime)));
     }
 }
-
 KirinHyphaProcessorBase::KirinHyphaProcessorBase (Role roleIn)
     : juce::AudioProcessor (BusesProperties()
           .withInput  ("Input",  juce::AudioChannelSet::mono(), true)
           .withOutput ("Output", juce::AudioChannelSet::mono(), true)),
       role (roleIn),
+      localBlindProductSession ([this] (std::uint64_t epoch) { return releaseLocalBlindProductScope (epoch); }),
       localBlindCapture (localBlindCaptureSide (roleIn), localBlindCaptureHooks (*this))
 {
-    // Host bypass routed through this parameter; processBlock reads it to set the
-    // Bypassed signal state while still passing audio through (parity with hypha_pre).
+    // Host bypass keeps audio unchanged while reporting the matching signal state.
     addParameter (bypassParam = new juce::AudioParameterBool ({ "bypass", 1 }, "Bypass", false));
 }
 
@@ -97,20 +97,13 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
         }
         kirin_hypha_destroy (hyphaHandle);
         hyphaHandle = nullptr;
+        analysisApplication.engineDestroyed();
     }
 }
 
 void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     const int numCh = getTotalNumInputChannels();
-    if (role == Role::Post && numCh != 2
-        && preferredSpectrumChannelMode.load (std::memory_order_acquire)
-            == KIRIN_SPECTRUM_CHANNEL_SIDE)
-    {
-        preferredSpectrumChannelMode.store (
-            KIRIN_SPECTRUM_CHANNEL_LR, std::memory_order_release);
-    }
-
     // Pre-allocate the interleave scratch so processBlock never allocates (RT-safe).
     // B-125 (b): prealloc-max — size to max(declared block, kOversizeHeadroomFrames) frames
     // so realistic variable / offline-render blocks above the realtime maximum are absorbed
@@ -120,9 +113,9 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     // B-125: cache the prepared capacity so processBlock re-checks against it (the oversized
     // fallback fires only for blocks beyond this) without re-deriving from samplesPerBlock.
     scratchCapacitySamples = interleaveScratch.size();
-
     stopLocalBlindCaptureForFormatChange (sampleRate, numCh);
     const juce::ScopedLock sl (handleLock);
+    normalizeSpectrumSelectionForInputChannels (numCh);
     // B-141: Studio One offline bounce can call prepareToPlay again after All Keep has entered
     // Record. The maximumExpectedSamplesPerBlock may change for render, but the user-visible
     // Record state must not be thrown away. Reuse the Rust engine when the audio format is the same.
@@ -143,16 +136,17 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     lastProcessHadPosition = false;
     lastProcessNumFrames = 0;
     watchSilenceGate.reset();
-
+    writesEnabled.store (false, std::memory_order_release);
+    analysisApplication.engineDestroyed();
     if (hyphaHandle != nullptr)
     {
         kirin_hypha_destroy (hyphaHandle);
         hyphaHandle = nullptr;
     }
-
     // num_channels: pass the actual negotiated input channel count. Mono must remain 1ch
     // all the way into the meter; duplicating to stereo would bias loudness by +3.01 dB.
     hyphaHandle = kirin_hypha_create ((uint32_t) sampleRate, (uint32_t) numCh);
+    if (hyphaHandle != nullptr) analysisApplication.engineCreated();
     preparedSampleRate = hyphaHandle != nullptr ? sampleRate : 0.0;
     preparedInputChannels = hyphaHandle != nullptr ? numCh : 0;
 
@@ -169,7 +163,6 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         // the Rust engine. Apply the retained host fact to every fresh handle so an insert that
         // was already OFF at project-open reaches the same ABS state as an explicit live click.
         kirin_hypha_set_host_component_active (hyphaHandle, hostComponentActive);
-        writesEnabled.store (false, std::memory_order_release);
         // Logic stopped-state fix: re-prepare needs a fresh enable, but Logic may not call processBlock until
         // playback. Start a message-thread fallback so Inactive presence/candidates are published
         // even while stopped. If setStateInformation already arrived for this instance, skip the
@@ -251,15 +244,14 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
             enableDelayTicks.store (0, std::memory_order_release);
         enablePending.store (true, std::memory_order_release);
     }
-
     // --- Signal state derivation (parity: hypha_pre.rs:397-403) -------------------
     const bool bypassed = (bypassParam != nullptr && bypassParam->get());
-
     const auto processClock = readHostProcessClock();
     const auto [playing, hasPosition, clockSource, positionSamples, hasClockEnd,
           clockStartSamples, clockEndSamples, presentationSource,
-          inputPresentationValid, inputPresentationSamples,
-          outputPresentationValid, outputPresentationSamples] = processClock;
+          inputPresentationValid, inputPresentationSamples, outputPresentationValid,
+          outputPresentationSamples, looping] = processClock;
+    juce::ignoreUnused (looping); // Used by the explicit local Blind output path below.
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     preDisplayClock.publish (positionSamples, preparedSampleRate,
@@ -490,44 +482,6 @@ bool KirinHyphaProcessorBase::isRecording() const
     if (hyphaHandle == nullptr)
         return false;
     return kirin_hypha_is_recording (hyphaHandle);
-}
-
-void KirinHyphaProcessorBase::setPairName (const juce::String& name)
-{
-    if (persistPairName != name)
-    {
-        persistPairInstanceId.clear();
-        persistPairProjectHash.clear();
-    }
-    persistPairName = name; // persisted; the FFI sanitizes its own copy (ASCII graphic + space, 16).
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle != nullptr)
-        kirin_hypha_set_pair_target (hyphaHandle, name.toRawUTF8());
-}
-
-bool KirinHyphaProcessorBase::setPairCandidate (const juce::String& instanceId,
-                                                const juce::String& name)
-{
-    bool selected = false;
-    {
-        const juce::ScopedLock sl (handleLock);
-        if (hyphaHandle == nullptr)
-            return false;
-        selected = kirin_hypha_select_pair_candidate (hyphaHandle, instanceId.toRawUTF8());
-    }
-    if (selected)
-    {
-        persistPairName = name;
-        persistPairProjectHash.clear();
-        persistPairInstanceId.clear();
-        juce::String projectHash, selectedInstanceId;
-        if (pairedPreLocator (projectHash, selectedInstanceId))
-        {
-            persistPairProjectHash = projectHash;
-            persistPairInstanceId = selectedInstanceId;
-        }
-    }
-    return selected;
 }
 
 int KirinHyphaProcessorBase::pairStatus() const
@@ -819,11 +773,9 @@ int KirinHyphaProcessorBase::getCurrentProgram()         { return 0; }
 void KirinHyphaProcessorBase::setCurrentProgram (int)    {}
 const juce::String KirinHyphaProcessorBase::getProgramName (int) { return {}; }
 void KirinHyphaProcessorBase::changeProgramName (int, const juce::String&) {}
-
 void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
 {
-    // Persist both the human reconnect selector and the exact PRE instance. Hosts may restore PRE
-    // and POST in either order; the exact ID is reconstructed as a Waiting fixed-path latch.
+    // Hosts may restore PRE and POST in either order; exact ID becomes a Waiting fixed-path latch.
     juce::String livePairProjectHash, livePairInstanceId;
     if (pairedPreLocator (livePairProjectHash, livePairInstanceId))
     {
@@ -845,7 +797,7 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("paired_pre_project_hash", persistPairProjectHash);
     xml.setAttribute ("loudness_view",
                       persistShortTermLoudness.load (std::memory_order_acquire) ? "S" : "M");
-    xml.setAttribute ("display_state_version", 4);
+    xml.setAttribute ("display_state_version", 5);
     xml.setAttribute ("observatory_domain", (int) observatoryDomainPreference());
     xml.setAttribute ("observatory_target", (int) observatoryTargetPreference());
     xml.setAttribute ("observatory_time_range", (int) observatoryTimeRangePreference());
@@ -858,9 +810,9 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
         meterContextPreference()));
     xml.setAttribute ("scale_mode", (int) hypha::meter_context::stateValue (
         scaleModePreference()));
+    xml.setAttribute ("hybrid_vu_on_record", hybridVuOnRecordPreference());
     copyXmlToBinary (xml, destData);
 }
-
 void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInBytes)
 {
     // B-069/B-072: restore the 4 identity keys + pair target into the persist members. May
@@ -879,7 +831,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     int restoredEditorHeight = 200;
     auto restoredMeterContext = hypha::meter_context::defaultContext;
     auto restoredScaleMode = hypha::meter_context::defaultScale;
-    bool restored = false;
+    bool restoredHybridVuOnRecord = true, restored = false;
 
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
     {
@@ -920,6 +872,8 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
                 restoredScaleMode = hypha::meter_context::scaleFromState (
                     (uint8_t) xml->getIntAttribute ("scale_mode", 1));
             }
+            if (displayStateVersion >= 5) restoredHybridVuOnRecord =
+                xml->getBoolAttribute ("hybrid_vu_on_record", true);
             restored = true;
         }
     }
@@ -944,8 +898,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
 
     if (restored)
     {
-        // Additive display-only state. Old JUCE states, legacy nih-plug JSON, and invalid values
-        // all resolve to the established Momentary default without touching identity/pair fields.
+        // Additive display state keeps established defaults for older JUCE and nih-plug states.
         persistShortTermLoudness.store (restoredShortTermLoudness, std::memory_order_release);
         preferredObservatoryDomain.store (restoredObservatoryDomain, std::memory_order_release);
         preferredObservatoryTarget.store (restoredObservatoryTarget, std::memory_order_release);
@@ -958,6 +911,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
         setMeterContextPreference (restoredMeterContext, false);
         preferredScaleMode.store (
             hypha::meter_context::stateValue (restoredScaleMode), std::memory_order_release);
+        preferredHybridVuOnRecord.store (restoredHybridVuOnRecord, std::memory_order_release);
         // Once writes are enabled, the io_thread has already snapshotted path identity. Only the
         // live-editable name/pair fields may be applied at that point; the exact-path writer stays
         // coherent with its established identity.
@@ -971,20 +925,7 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
             if (hyphaHandle != nullptr)
             {
                 if (role == Role::Post)
-                {
-                    kirin_hypha_set_pair_target (hyphaHandle, persistPairName.toRawUTF8());
-                    if (persistPairInstanceId.isNotEmpty() && persistPairProjectHash.isNotEmpty())
-                    {
-                        if (! kirin_hypha_restore_pair_candidate (
-                                hyphaHandle,
-                                persistPairProjectHash.toRawUTF8(),
-                                persistPairInstanceId.toRawUTF8()))
-                        {
-                            persistPairInstanceId.clear();
-                            persistPairProjectHash.clear();
-                        }
-                    }
-                }
+                    restorePersistedPairUnderHandleLock();
                 else
                     kirin_hypha_set_pre_name (hyphaHandle, persistName.toRawUTF8());
             }
@@ -1019,7 +960,8 @@ void KirinHyphaProcessorBase::timerCallback()
         else
             enableWritesNow();
     }
-    if (writesEnabled.load (std::memory_order_acquire))
+    serviceLocalBlindProductSession();
+    if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService())
         stopTimer();
 }
 
@@ -1048,35 +990,7 @@ void KirinHyphaProcessorBase::enableWritesNow()
     if (role == Role::Post)
     {
         kirin_hypha_enable_post_writes (hyphaHandle);
-        // B-072: apply the restored/current pair target after enable (contract order).
-        kirin_hypha_set_pair_target (hyphaHandle, persistPairName.toRawUTF8());
-        if (persistPairInstanceId.isNotEmpty() && persistPairProjectHash.isNotEmpty())
-        {
-            if (! kirin_hypha_restore_pair_candidate (
-                    hyphaHandle,
-                    persistPairProjectHash.toRawUTF8(),
-                    persistPairInstanceId.toRawUTF8()))
-            {
-                persistPairInstanceId.clear();
-                persistPairProjectHash.clear();
-            }
-        }
-        if (attackRequested.load (std::memory_order_acquire))
-        {
-            kirin_hypha_set_attack_enabled (hyphaHandle, true);
-        }
-        else if (spectrumVisibleRequested.load (std::memory_order_acquire))
-        {
-            kirin_hypha_set_spectrum_channel_mode (
-                hyphaHandle,
-                requestedAnalysisChannelMode());
-            if (absoluteAnalysisRequested.load (std::memory_order_acquire))
-                kirin_hypha_set_absolute_visible (hyphaHandle, true);
-            else if (perceptualAnalysisRequested.load (std::memory_order_acquire))
-                kirin_hypha_set_perceptual_visible (hyphaHandle, true);
-            else
-                kirin_hypha_set_spectrum_visible (hyphaHandle, true);
-        }
+        restorePersistedPairUnderHandleLock();
     }
     else
     {
@@ -1110,7 +1024,7 @@ void KirinHyphaProcessorBase::enableWritesNow()
     displayIdentity.dawSessionUuid = persistDawSessionUuid;
     displayIdentity.name = persistName;
     displayIdentity.pluginVersion = JucePlugin_VersionString;
-    displayIdentity.pluginFormat = wrapperType == juce::AudioProcessor::wrapperType_AudioUnit ? "AU" : "VST3";
+    displayIdentity.pluginFormat = hypha::plugin_format::name (wrapperType);
        #if JUCE_WINDOWS
     displayIdentity.platform = "windows";
        #else
@@ -1139,5 +1053,7 @@ void KirinHyphaProcessorBase::enableWritesNow()
 #endif
 
     writesEnabled.store (true, std::memory_order_release);
+    analysisApplication.engineReady();
+    serviceRequestedAnalysisUnderHandleLock();
     startLocalBlindCaptureForPreparedFormat();
 }

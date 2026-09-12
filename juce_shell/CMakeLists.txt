@@ -50,6 +50,7 @@ set(KIRIN_FFI_LIB "${_KIRIN_FFI_DEFAULT}"
 # The gate runs before format selection so a rejected configuration cannot create a partial AAX
 # target. JUCE's SDK registration function is called below after JUCE has defined it.
 include(cmake/KirinHyphaAax.cmake)
+include(cmake/ObservatoryMaterial.cmake)
 kirin_hypha_configure_aax(KIRIN_HYPHA_AAX_ENABLED)
 
 # B-376: The C ABI symbol name does not encode its argument list, so an old staticlib can link
@@ -125,9 +126,10 @@ option(KIRIN_HYPHA_REQUIRE_KIMERA_FONT
 
 set(KIRIN_HYPHA_DATA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hybrid_vu_chassis.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/observatory_understory.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hypha_level_corners.png
-    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/attack_specimen_emission.png)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/attack_specimen_body_v3.png)
 set(KIRIN_HYPHA_KIMERA_EMBEDDED 0)
 if(KIRIN_HYPHA_KIMERA_FONT_FILE)
     if(NOT KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED)
@@ -155,12 +157,12 @@ set(KIRIN_HYPHA_WIDGETS_SOURCE src/HyphaWidgets.cpp)
 set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceAudioPages.cpp
     src/reference_audition/ReferenceAudioPageRender.cpp
-    src/reference_audition/ReferenceBlindSession.cpp
     src/reference_audition/ReferenceAuditionController.cpp
     src/reference_audition/ReferenceAuditionGain.cpp
     src/reference_audition/ReferenceAuditionLease.cpp
     src/reference_audition/ReferenceAuditionProtocol.cpp
     src/reference_audition/ReferenceAuditionRepository.cpp
+    src/reference_audition/ReferenceCandidatePreparationTransport.cpp
     src/reference_audition/ReferencePresetAdoptionTransport.cpp
     src/reference_audition/ReferencePresetSelectionTransport.cpp
     src/reference_audition/ReferenceRecoveryTransport.cpp
@@ -171,6 +173,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
+    src/reference_audition/ReferenceRuntimeV2CandidatePreparation.cpp
     src/reference_audition/ReferenceRuntimeV2Workspace.cpp
     src/reference_audition/ReferenceRuntimeV2Lifecycle.cpp
     src/reference_audition/ReferenceRuntimeV2Events.cpp
@@ -185,7 +188,8 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeV2Measurement.cpp
     src/reference_audition/ReferenceRuntimeV2Profile.cpp
     src/reference_audition/ReferenceRuntimeV2Presentation.cpp
-    src/reference_audition/ReferenceRuntimeV2Source.cpp)
+    src/reference_audition/ReferenceRuntimeV2Source.cpp
+    src/reference_audition/ReferenceRuntimeV2SourceCache.cpp)
 
 # B-070: PRE and POST are two plugin targets sharing one role-parameterized base
 # (KirinHyphaProcessorBase). They link the same kirin_hypha_ffi staticlib and compile the
@@ -197,8 +201,8 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
 function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     set(_KIRIN_AAX_PLUGIN_ARGS)
     if(KIRIN_HYPHA_AAX_ENABLED)
-        # Keep the established PRE/POST bundle IDs as the AAX identifiers. None is JUCE's default
-        # non-synth category; confirm the final category in Pro Tools before public AAX release.
+        # Keep the established PRE/POST bundle IDs as the AAX identifiers. B-786 host evidence
+        # confirmed that None appears under Other; the SDK has no analyzer/meter category.
         list(APPEND _KIRIN_AAX_PLUGIN_ARGS
             AAX_IDENTIFIER ${BUNDLE_ID}
             AAX_CATEGORY ePlugInCategory_None)
@@ -226,11 +230,22 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         SUPPRESS_AU_PLIST_RESOURCE_USAGE TRUE
         COPY_PLUGIN_AFTER_BUILD FALSE)
 
+    if(KIRIN_HYPHA_AAX_ENABLED)
+        # Hypha is a realtime meter. Offline Bounce still uses the Native component, while an
+        # AudioSuite registration would expose a second, destructive/render-selection workflow
+        # that has no meaningful meter lifetime. Keep mono/stereo and multi-mono Native support.
+        target_compile_definitions(${TARGET}_AAX PRIVATE JucePlugin_AAXDisableAudioSuite=1)
+    endif()
+
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/local_blind/LocalBlindCaptureService.cpp
+        src/local_blind/CapturePairComparison.cpp
+        src/local_blind/LocalBlindPreparation.cpp
+        src/local_blind/LocalBlindProductSession.cpp
         src/local_blind/LocalBlindTrial.cpp
+        src/reference_audition/ReferenceBlindSession.cpp
         src/local_blind/HostContext.cpp
         src/PluginProcessorHostClock.cpp
         src/PluginProcessorValidation.cpp
@@ -238,6 +253,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorGuideTransport.cpp
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
+        src/PluginEditorLifecycle.cpp
+        src/PluginEditorAppearance.cpp
         src/PluginEditorMenu.cpp
         src/PluginEditorInformation.cpp
         src/PluginEditorMeter.cpp
@@ -259,14 +276,20 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
+        ${KIRIN_HYPHA_OBSERVATORY_MATERIAL_SOURCES}
         src/HyphaObservatoryLevelStrips.cpp
-        src/HyphaObservatoryWorld.cpp
         src/HyphaTimePageNavigation.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp
         src/HyphaHoverHelpPreference.cpp
+        src/appearance/AppearanceContract.cpp
+        src/appearance/AppearanceFileLock.cpp
+        src/appearance/AppearanceStorage.cpp
+        src/appearance/AppearanceService.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE} # B-054: LED / mycelium bg / metric cells / editable name
         src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
         src/pre_display/PreDisplayController.cpp
@@ -286,6 +309,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=1)
     else()
         target_sources(${TARGET} PRIVATE
+            src/PluginEditorLocalBlind.cpp
+            src/HyphaLocalBlindComponent.cpp
             src/PluginEditorReference.cpp
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
@@ -302,6 +327,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaPerceptualPainter.cpp
             src/HyphaPsbPainter.cpp
             src/HyphaReferenceComponent.cpp
+            src/HyphaReferenceControls.cpp
+            src/HyphaReferenceMetricPainter.cpp
             src/HyphaReferenceVisuals.cpp
             src/HyphaSpectrumComponent.cpp
             src/HyphaSpectrumPsb.cpp
@@ -310,6 +337,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaSpectrumFocusTrail.cpp
             src/HyphaSpectrumFocusTrailPainter.cpp
             src/HyphaSpectrumPainter.cpp
+            src/HyphaSpectrumMidSide.cpp
+            src/HyphaSpectrumMidSidePainter.cpp
             ${KIRIN_REFERENCE_AUDITION_SOURCES})
         target_link_libraries(${TARGET} PRIVATE juce::juce_audio_formats)
         target_compile_definitions(${TARGET} PRIVATE KIRIN_HYPHA_PRE_DISPLAY=0)
@@ -357,6 +386,19 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     add_dependencies(${TARGET} HyphaBuildIdentity)
     target_include_directories(${TARGET} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
+    if(APPLE AND KIRIN_HYPHA_AAX_ENABLED)
+        # These keys are added before PACE/Developer-ID signing. Distribution verification reads
+        # them from the signed Info.plist, preventing a version-equal stale AAX from entering a
+        # newer release set. The script records whether this is a release (licensed Kimera) or
+        # diagnostic (system-font, never-for-distribution) build as well as the AudioSuite fact.
+        add_custom_command(TARGET ${TARGET}_AAX POST_BUILD
+            COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/stamp_aax_bundle_identity.sh"
+                "$<TARGET_BUNDLE_DIR:${TARGET}_AAX>"
+                "${CMAKE_CURRENT_BINARY_DIR}/generated/HyphaBuildIdentity.h"
+                "${KIRIN_HYPHA_KIMERA_EMBEDDED}"
+            VERBATIM)
+    endif()
+
     # B-130 (G-115-373): juce_audio_utils（AudioThumbnail/CD/DeviceSelector 用・実使用 grep 0）を
     # plugin に必要な最小モジュールへ差し替え。これで juce_audio_utils 由来の DiscRecording.framework
     # link を落とす。AudioProcessor(Editor) は juce_audio_processors、widget は juce_gui_basics。
@@ -386,12 +428,42 @@ endfunction()
 add_kirin_plugin(KirinHyphaPRE  Khpr "Kirin Hypha PRE"  "PRE Kirin Hypha"  src/PluginMainPRE.cpp  "com.kirinmastering.hypha.pre")
 add_kirin_plugin(KirinHyphaPOST Khpo "Kirin Hypha POST" "POST Kirin Hypha" src/PluginMainPOST.cpp "com.kirinmastering.hypha.post")
 
+# A separately identified, non-shipping VST3 used only to prove host PDC against one exact,
+# declared latency. It is absent from normal configure/build/install/release targets.
+option(KIRIN_HYPHA_BUILD_PDC_VALIDATION_DELAY
+    "Build the 4096-sample host PDC validation VST3" OFF)
+if(KIRIN_HYPHA_BUILD_PDC_VALIDATION_DELAY)
+    juce_add_plugin(KirinHyphaPdcValidationDelay
+        PLUGIN_MANUFACTURER_CODE Kirn
+        PLUGIN_CODE Khpd
+        FORMATS VST3
+        PRODUCT_NAME "Kirin Hypha PDC Validation Delay 4096"
+        COMPANY_NAME "Kirin"
+        BUNDLE_ID "com.kirinmastering.hypha.pdc-validation-delay"
+        VST3_CATEGORIES Fx Tools
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT FALSE
+        NEEDS_MIDI_OUTPUT FALSE
+        IS_MIDI_EFFECT FALSE
+        COPY_PLUGIN_AFTER_BUILD FALSE)
+    target_sources(KirinHyphaPdcValidationDelay PRIVATE
+        tests/pdc_validation_delay/PluginProcessor.cpp)
+    target_compile_definitions(KirinHyphaPdcValidationDelay PUBLIC
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_compile_options(KirinHyphaPdcValidationDelay PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinHyphaPdcValidationDelay PRIVATE
+        juce::juce_audio_processors
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+endif()
+
 option(KIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS
-    "Build the Windows VST3 in-place bit-transparency host contract" OFF)
+    "Build the in-place AU/VST3 bit-transparency host contract" OFF)
 if(KIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS)
-    if(NOT WIN32)
-        message(FATAL_ERROR "The VST3 audio transparency host contract currently supports Windows only")
-    endif()
     juce_add_console_app(KirinAudioTransparencyContractTests
         PRODUCT_NAME "Kirin Audio Transparency Contract Tests")
     target_sources(KirinAudioTransparencyContractTests PRIVATE
@@ -402,6 +474,13 @@ if(KIRIN_HYPHA_BUILD_AUDIO_TRANSPARENCY_TESTS)
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0)
+    if(APPLE)
+        target_compile_definitions(KirinAudioTransparencyContractTests PRIVATE
+            JUCE_PLUGINHOST_AU=1)
+        target_link_libraries(KirinAudioTransparencyContractTests PRIVATE
+            "-framework CoreAudioKit"
+            "-framework AudioUnit")
+    endif()
     target_compile_options(KirinAudioTransparencyContractTests PRIVATE
         ${KIRIN_SOURCE_ENCODING_ARGS})
     target_link_libraries(KirinAudioTransparencyContractTests PRIVATE
@@ -425,21 +504,25 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceControls.cpp
+        src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryMetrics.cpp
+        ${KIRIN_HYPHA_OBSERVATORY_MATERIAL_SOURCES}
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryViewState.cpp
-        src/HyphaObservatoryWorld.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinHyphaReferencePreviewRenderer PRIVATE
         JUCE_WEB_BROWSER=0
@@ -475,7 +558,9 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpectrumFocusTrailContractTest.cpp
         tests/SpectrumPresentationContractTest.cpp
         tests/GuideFrequencyOverlayContractTest.cpp
+        tests/HybridVuContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
+        tests/JungleAppearanceContractTest.cpp
         tests/ObservatoryCaptureContractTest.cpp
         tests/ObservatoryCompositeContractTest.cpp
         tests/ObservationPageContractTest.cpp
@@ -483,8 +568,10 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpaceFieldContractTest.cpp
         tests/TimeHistoryContractTest.cpp
         tests/TimePageNavigationContractTest.cpp
+        tests/TypographyContractTest.cpp
         tests/RunSummaryContractTest.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
+        src/HyphaLocalBlindComponent.cpp
         tests/OsAccessUiContractTest.cpp
         src/HyphaObservatoryCapture.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
@@ -497,13 +584,15 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
+        ${KIRIN_HYPHA_OBSERVATORY_MATERIAL_SOURCES}
         src/HyphaObservatoryLevelStrips.cpp
-        src/HyphaObservatoryWorld.cpp
         src/HyphaTimePageNavigation.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp
         src/HyphaHoverHelpPreference.cpp
         src/HyphaGuideFrequencyOverlay.cpp
         src/HyphaAbsoluteComponent.cpp
@@ -519,6 +608,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
         src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceControls.cpp
+        src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/PostControls.cpp
         src/HyphaPsbPainter.cpp
@@ -529,6 +620,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
         src/HyphaSpectrumPainter.cpp
+        src/HyphaSpectrumMidSide.cpp
+        src/HyphaSpectrumMidSidePainter.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinUiRenderContractTests PRIVATE
         JUCE_WEB_BROWSER=0
@@ -552,6 +645,31 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     add_test(NAME kirin_ui_render_contract COMMAND KirinUiRenderContractTests)
     add_test(NAME kirin_product_entry_contract
         COMMAND KirinUiRenderContractTests --product-entry-only)
+    add_test(NAME kirin_ui_typography_contract
+        COMMAND KirinUiRenderContractTests --typography-only)
+    add_test(NAME kirin_time_history_contract
+        COMMAND KirinUiRenderContractTests --time-history-only)
+    add_test(NAME kirin_analysis_demand_contract
+        COMMAND KirinUiRenderContractTests --analysis-demand-only)
+
+    juce_add_console_app(KirinAppearanceContractTests
+        PRODUCT_NAME "Kirin Appearance Contract Tests")
+    target_sources(KirinAppearanceContractTests PRIVATE
+        tests/appearance_contract_test.cpp
+        src/appearance/AppearanceContract.cpp
+        src/appearance/AppearanceFileLock.cpp
+        src/appearance/AppearanceStorage.cpp
+        src/appearance/AppearanceService.cpp)
+    target_compile_definitions(KirinAppearanceContractTests PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0)
+    target_compile_options(KirinAppearanceContractTests PRIVATE
+        ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_link_libraries(KirinAppearanceContractTests PRIVATE
+        juce::juce_core
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_appearance_contract COMMAND KirinAppearanceContractTests)
 
     juce_add_console_app(KirinGuideFrequencyOverlayContractTests
         PRODUCT_NAME "Kirin Guide Frequency Overlay Contract Tests")
@@ -566,7 +684,10 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
         src/HyphaSpectrumPainter.cpp
-        src/HyphaTypography.cpp)
+        src/HyphaSpectrumMidSide.cpp
+        src/HyphaSpectrumMidSidePainter.cpp
+        src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp)
     target_compile_definitions(KirinGuideFrequencyOverlayContractTests PRIVATE
         KIRIN_GUIDE_OVERLAY_STANDALONE=1
         JUCE_WEB_BROWSER=0
@@ -596,7 +717,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaAttackOrganismPainter.cpp
         src/HyphaAttackPainter.cpp
         src/HyphaAttackSpecimenPainter.cpp
-        src/HyphaTypography.cpp)
+        src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp)
     target_compile_definitions(KirinAttackUiContractTests PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
@@ -667,7 +789,9 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         PRODUCT_NAME "Kirin Reference Audition Runtime Tests")
     target_sources(KirinReferenceAuditionRuntimeTests PRIVATE
         tests/reference_audition_runtime_test.cpp
+        tests/reference_runtime_v2_source_cache_test.cpp
         tests/reference_runtime_v2_workspace_test.cpp
+        src/reference_audition/ReferenceBlindSession.cpp
         ${KIRIN_REFERENCE_AUDITION_SOURCES})
     target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE
         JUCE_WEB_BROWSER=0
@@ -717,21 +841,25 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceControls.cpp
+        src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryMetrics.cpp
+        ${KIRIN_HYPHA_OBSERVATORY_MATERIAL_SOURCES}
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryViewState.cpp
-        src/HyphaObservatoryWorld.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
+        src/HyphaTextStyle.cpp
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinReferenceAuditionComponentTests PRIVATE
         JUCE_WEB_BROWSER=0

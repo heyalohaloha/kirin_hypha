@@ -22,16 +22,18 @@ namespace hypha::spectrum_axes
                     float scale,
                     float minimumHz,
                     float maximumHz,
-                    bool absoluteObservation)
+                    bool absoluteObservation,
+                    presentation::Context presentation)
     {
         const auto scaled = [scale] (float value) { return value * scale; };
         const auto scaledInt = [scale] (int value) {
             return juce::roundToInt ((float) value * scale);
         };
-        g.setFont (monoFont (8.5f * ui_contract::analysisTextScale (scale)));
+        g.setFont (monoFont (presentation, typography::TextRole::axis,
+                             typography::Composition::visualization));
         g.setColour (COL_MUTED.withAlpha (0.86f));
         if (absoluteObservation)
-            spectrum_magnitude_chrome::paintAxis (g, plot, scale, true, true);
+            spectrum_magnitude_chrome::paintAxis (g, plot, scale, true, true, presentation);
         else
         {
             const float zeroY = spectrum_geometry::yForDeltaDb (0.0f, plot);
@@ -47,7 +49,7 @@ namespace hypha::spectrum_axes
                 g.setColour (COL_MUTED.withAlpha (0.18f));
                 g.drawHorizontalLine (juce::roundToInt (y), plot.getX(), plot.getRight());
             }
-            spectrum_magnitude_chrome::paintAxis (g, plot, scale, false, false);
+            spectrum_magnitude_chrome::paintAxis (g, plot, scale, false, false, presentation);
         }
         for (float hz : { 100.0f, 1'000.0f, 10'000.0f })
         {

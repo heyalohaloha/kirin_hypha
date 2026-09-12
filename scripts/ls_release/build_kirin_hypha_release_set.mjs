@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { requireCleanReleaseSource } from './release_source_identity.mjs';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(THIS_FILE);
@@ -22,6 +23,7 @@ Builds the release artifact set:
 Options:
   --windows-installer-dir <dir>         Downloaded kirin-hypha-windows-installer artifact.
   --windows-artifact-dir <dir>          Deprecated alias for --windows-installer-dir.
+  --with-aax                            Require AAX in all three release channels.
   --skip-windows-package                Only for diagnostics; release output is not complete.
   --skip-macos-pkg                      Only for diagnostics; release output is not complete.
   --skip-hp-zip                         Only for diagnostics; release output is not complete.
@@ -32,6 +34,7 @@ Options:
 export function parseArgs(argv) {
   const opts = {
     windowsInstallerDir: process.env.KIRIN_WINDOWS_INSTALLER_DIR || '',
+    withAax: false,
     skipWindowsPackage: false,
     skipMacosPkg: false,
     skipHpZip: false,
@@ -40,6 +43,8 @@ export function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--windows-installer-dir' || arg === '--windows-artifact-dir') {
       opts.windowsInstallerDir = requireValue(argv, ++i, arg);
+    } else if (arg === '--with-aax') {
+      opts.withAax = true;
     } else if (arg === '--skip-windows-package') {
       opts.skipWindowsPackage = true;
     } else if (arg === '--skip-macos-pkg') {
@@ -98,15 +103,20 @@ function currentReleaseIdentity() {
   return { version, commit: commitResult.stdout.trim(), bNumber };
 }
 
-function requireValidSigningTargets(manifest) {
+function requireValidSigningTargets(manifest, { requireAax }) {
   const targets = manifest.signing?.verification?.targets;
-  if (!Array.isArray(targets) || targets.length !== 4) {
-    throw new Error('Windows installer must contain four Authenticode verification records');
+  const expectedCount = requireAax ? 6 : 4;
+  if (!Array.isArray(targets) || targets.length !== expectedCount) {
+    throw new Error(`Windows installer must contain exactly ${expectedCount} Authenticode verification records`);
   }
   const roles = [
     'installer',
     'installed PRE VST3 binary',
     'installed POST VST3 binary',
+    ...(requireAax ? [
+      'installed PRE AAX binary',
+      'installed POST AAX binary',
+    ] : []),
     'installed uninstaller',
   ];
   for (const role of roles) {
@@ -125,7 +135,11 @@ function requireValidSigningTargets(manifest) {
   return targets;
 }
 
-export function requireWindowsInstaller(value, expectedIdentity = currentReleaseIdentity()) {
+export function requireWindowsInstaller(
+  value,
+  expectedIdentity = currentReleaseIdentity(),
+  { requireAax = false } = {},
+) {
   const candidates = [
     value,
     'dist/WINDOWS_CI/KirinHypha-Windows-signed-full',
@@ -168,11 +182,30 @@ export function requireWindowsInstaller(value, expectedIdentity = currentRelease
   if (manifest.schema !== 'kirin-hypha-windows-installer-v1') {
     throw new Error(`unsupported Windows installer manifest: ${manifest.schema}`);
   }
+  const expectedFormat = requireAax ? 'VST3+AAX' : 'VST3';
   if (manifest.product?.name !== 'Kirin Hypha'
       || manifest.product?.version !== expectedIdentity.version
-      || manifest.product?.platform !== 'windows-x64'
-      || manifest.product?.format !== 'VST3') {
+      || manifest.product?.platform !== 'windows-x64') {
     throw new Error('Windows installer product identity does not match this release');
+  }
+  if (manifest.product?.format !== expectedFormat) {
+    if (!requireAax && manifest.product?.format === 'VST3+AAX') {
+      throw new Error('Windows installer contains AAX but this release set did not select --with-aax');
+    }
+    throw new Error(`Windows installer format ${manifest.product?.format} does not match ${expectedFormat}`);
+  }
+  const formats = manifest.product?.formats;
+  if (requireAax) {
+    if (!Array.isArray(formats)
+        || formats.length !== 2
+        || formats[0] !== 'VST3'
+        || formats[1] !== 'AAX'
+        || manifest.distribution?.aax_included !== true) {
+      throw new Error('Windows installer does not declare the required VST3+AAX release set');
+    }
+  } else if (manifest.distribution?.aax_included === true
+      || (Array.isArray(manifest.installer?.aax_payload) && manifest.installer.aax_payload.length > 0)) {
+    throw new Error('Windows installer contains AAX but this release set did not select --with-aax');
   }
   if (manifest.source?.commit !== expectedIdentity.commit
       || manifest.source?.b_number !== expectedIdentity.bNumber) {
@@ -191,7 +224,7 @@ export function requireWindowsInstaller(value, expectedIdentity = currentRelease
   )) {
     throw new Error('Windows installer has no valid signing workflow run URL');
   }
-  const signingTargets = requireValidSigningTargets(manifest);
+  const signingTargets = requireValidSigningTargets(manifest, { requireAax });
   const installerTarget = signingTargets.find((target) => target.role === 'installer');
   if (installerTarget.sha256 !== expectedHash) {
     throw new Error('Signed installer verification hash does not match the release artifact');
@@ -205,6 +238,64 @@ export function requireWindowsInstaller(value, expectedIdentity = currentRelease
     const target = signingTargets.find((item) => item.role === `installed ${role} VST3 binary`);
     if (!payload || payload.binary_sha256 !== target.sha256) {
       throw new Error(`Windows ${role} payload hash does not match installed verification`);
+    }
+  }
+  if (requireAax) {
+    const aaxPayloads = manifest.installer?.aax_payload;
+    if (!Array.isArray(aaxPayloads) || aaxPayloads.length !== 2) {
+      throw new Error('Windows installer manifest must contain PRE and POST AAX payload records');
+    }
+    for (const role of ['PRE', 'POST']) {
+      const payload = aaxPayloads.find((item) => item.role === role && item.format === 'AAX');
+      const target = signingTargets.find((item) => item.role === `installed ${role} AAX binary`);
+      if (!payload
+          || payload.binary_sha256 !== target.sha256
+          || payload.pace_verified !== true
+          || payload.authenticode_verified !== true) {
+        throw new Error(`Windows ${role} AAX payload is not fully verified`);
+      }
+    }
+    const aaxIdentity = manifest.distribution?.aax_identity;
+    const expectedAaxManifestName = `Kirin-Hypha-${expectedIdentity.version}-Windows-x64-AAX.json`;
+    if (aaxIdentity?.source_commit !== expectedIdentity.commit
+        || aaxIdentity?.b_number !== expectedIdentity.bNumber
+        || aaxIdentity?.source_state !== 'clean source'
+        || aaxIdentity?.kimera_embedded !== true
+        || aaxIdentity?.native_only !== true
+        || aaxIdentity?.audio_suite_enabled !== false
+        || aaxIdentity?.signed_manifest !== expectedAaxManifestName
+        || !/^[0-9a-f]{64}$/.test(aaxIdentity?.signed_manifest_sha256 || '')) {
+      throw new Error('Windows AAX release provenance is incomplete or does not match this release');
+    }
+    const aaxManifestPath = path.join(directory, expectedAaxManifestName);
+    if (!fs.statSync(aaxManifestPath, { throwIfNoEntry: false })?.isFile()
+        || sha256(aaxManifestPath) !== aaxIdentity.signed_manifest_sha256) {
+      throw new Error('Windows AAX signed provenance sidecar is missing or changed');
+    }
+    const signedAax = JSON.parse(fs.readFileSync(aaxManifestPath, 'utf8').replace(/^\uFEFF/, ''));
+    if (signedAax.schema !== 'kirin-hypha-windows-aax-signed-v1'
+        || signedAax.source?.commit !== expectedIdentity.commit
+        || signedAax.source?.b_number !== expectedIdentity.bNumber
+        || signedAax.source?.state !== 'clean source'
+        || signedAax.product?.version !== expectedIdentity.version
+        || signedAax.release?.kimera_embedded !== true
+        || signedAax.release?.native_only !== true
+        || signedAax.release?.audio_suite_enabled !== false
+        || signedAax.signing?.pace_verified !== true
+        || signedAax.signing?.authenticode_verified !== true
+        || !Array.isArray(signedAax.bundles)
+        || signedAax.bundles.length !== 2) {
+      throw new Error('Windows AAX signed provenance content is invalid');
+    }
+    for (const role of ['PRE', 'POST']) {
+      const signedRecord = signedAax.bundles.find((item) => item.role === role);
+      const payload = aaxPayloads.find((item) => item.role === role);
+      if (!signedRecord
+          || signedRecord.sha256 !== payload.binary_sha256
+          || signedRecord.pace_verified !== true
+          || signedRecord.authenticode_verified !== true) {
+        throw new Error(`Windows ${role} AAX provenance hash does not match the installer`);
+      }
     }
   }
   if (manifest.ci_validation?.status !== 'passed') {
@@ -225,6 +316,12 @@ function runMain() {
     console.log(usage());
     return;
   }
+  const source = requireCleanReleaseSource({ root: ROOT });
+  const releaseIdentity = {
+    ...currentReleaseIdentity(),
+    commit: source.commit,
+    bNumber: source.bNumber,
+  };
 
   run('cargo', ['run', '--package', 'xtask', '--', 'windows-readiness']);
   run('cargo', ['run', '--package', 'xtask', '--', 'windows-preflight']);
@@ -232,20 +329,30 @@ function runMain() {
   if (opts.skipWindowsPackage) {
     log('SKIP Windows installer; release set is incomplete.');
   } else {
-    const installer = requireWindowsInstaller(opts.windowsInstallerDir);
+    const installer = requireWindowsInstaller(
+      opts.windowsInstallerDir,
+      releaseIdentity,
+      { requireAax: opts.withAax },
+    );
     log(`Windows primary installer ready: ${path.relative(ROOT, installer)}`);
   }
 
   if (opts.skipMacosPkg) {
     log('SKIP macOS LS pkg; release set is incomplete.');
   } else {
-    run('node', ['scripts/ls_release/build_kirin_hypha_pkg.mjs']);
+    run('node', [
+      'scripts/ls_release/build_kirin_hypha_pkg.mjs',
+      ...(opts.withAax ? ['--with-aax'] : []),
+    ]);
   }
 
   if (opts.skipHpZip) {
     log('SKIP macOS HP zip; release set is incomplete.');
   } else {
-    run('cargo', ['run', '--package', 'xtask', '--', 'release-package']);
+    run('cargo', [
+      'run', '--package', 'xtask', '--', 'release-package',
+      ...(opts.withAax ? ['--with-aax'] : []),
+    ]);
   }
 }
 

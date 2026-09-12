@@ -30,6 +30,8 @@ inline void verifySpectrumResponsiveGeometry()
             require (absolute.getHeight() > delta.getHeight() + 30, "reclaimed focus reservation");
 
             SpectrumComponent component;
+            component.setPresentationContext (
+                presentation::forEditor (size.width, size.height));
             component.setSize (layout.body.width, layout.body.height);
             component.setAbsoluteObservation (true);
             component.setSignalActive (true);

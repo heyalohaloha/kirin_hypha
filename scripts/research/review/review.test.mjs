@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { readFloatWav } from './wav.mjs';
-import { inlineJson, selection } from './build_review_pack.mjs';
+import { buildPack, inlineJson, selection } from './build_review_pack.mjs';
 import { spaceFollowupSelection } from './build_space_followup_pack.mjs';
+import { exhaustiveSpaceItem } from './build_space_exhaustive_pack.mjs';
 
 const context = vm.createContext({});
 vm.runInContext(await readFile(new URL('./model.js', import.meta.url), 'utf8'), context);
@@ -23,6 +25,13 @@ test('pilot selects exactly 3 distinct development items per feature', () => {
   assert.equal(selection.length, 6); assert.equal(new Set(selection.map(String)).size, 6);
   assert.equal(selection.filter(([mode]) => mode === 'space').length, 3);
 });
+test('builder requires a separate non-nested private evidence directory', async () => {
+  await assert.rejects(() => buildPack('/missing', '/tmp/review'), /evidence directory is required/);
+  await assert.rejects(() => buildPack('/missing', '/tmp/review',
+    { evidenceOutput: '/tmp/review/evidence' }), /separate, non-nested/);
+  await assert.rejects(() => buildPack('/missing', '/tmp/evidence/review',
+    { evidenceOutput: '/tmp/evidence' }), /separate, non-nested/);
+});
 test('SPACE follow-up uses six unused development items without reserved audio', () => {
   const ids = spaceFollowupSelection.map(([mode, number]) => `${mode}_development-${number}`);
   assert.equal(ids.length, 6);
@@ -30,6 +39,18 @@ test('SPACE follow-up uses six unused development items without reserved audio',
   assert(ids.every(id => id.startsWith('space_development-')));
   assert(ids.every(id => !['space_development-01', 'space_development-03',
     'space_development-12'].includes(id)));
+});
+test('exhaustive SPACE item is anonymous, full-length and bound to verified PCM', () => {
+  const audio = Buffer.from('verified-private-pcm');
+  const facts = { rate: 44100, channels: 2, frames: 1323000, step: 45,
+    peak: .8, rms: .2, wave: new Int16Array() };
+  const source = { id: 'private-source', mode: 'space', audio_sha256: 'unused',
+    rate: facts.rate, channels: facts.channels, frames: facts.frames, source_start_sample: 0 };
+  const digest = createHash('sha256').update(audio).digest('hex');
+  const item = exhaustiveSpaceItem({ ...source, audio_sha256: digest }, 0, audio, facts);
+  assert.equal(item.title, 'SPACE 01'); assert.equal(item.hide_source_title, true);
+  assert.deepEqual(item.preview, [0, facts.frames]); assert.equal(item.minimum_listened_fraction, .95);
+  assert.throws(() => exhaustiveSpaceItem({ ...source, audio_sha256: '0'.repeat(64) }, 0, audio, facts));
 });
 test('waveform includes both channels without mono cancellation', () => {
   const f = readFloatWav(wav()); assert.equal(f.frames, 2); assert.equal(f.rate, 44100);
@@ -58,6 +79,19 @@ test('finish requires listening, explicit choice, confidence and relevant marks'
   assert.equal(model.finishError(a, pack.items[0]), '');
   a.decision = 'none'; assert(model.finishError(a, pack.items[0]));
 });
+test('exhaustive completion requires union coverage of the review interval', () => {
+  const exhaustive = { ...pack.items[0], minimum_listened_fraction: .95 };
+  const a = model.fresh({ ...pack, items: [exhaustive] }).answers.s;
+  Object.assign(a, { decision: 'none', confidence: '4', played_seconds: 20,
+    listened_ranges: [{ start: 441000, end: 661500 }, { start: 650000, end: 859950 }] });
+  const normalized = model.validate({ ...model.fresh({ ...pack, items: [exhaustive] }),
+    answers: { s: a } }, { ...pack, items: [exhaustive] }).answers.s;
+  assert.equal(JSON.stringify(normalized.listened_ranges),
+    JSON.stringify([{ start: 441000, end: 859950 }]));
+  assert.equal(model.finishError(normalized, exhaustive), '');
+  normalized.listened_ranges[0].end--;
+  assert.match(model.finishError(normalized, exhaustive), /判定範囲全体/);
+});
 test('uncertain and unavailable never count as judged evidence', () => {
   const state = model.fresh(pack);
   Object.assign(state.answers.s, { decision: 'unavailable', complete: true });
@@ -82,6 +116,14 @@ test('malformed imports, false completion and missing answers are rejected', () 
     s => delete s.answers.a, s => s.answers.s.note = [], s => s.volume = 5,
     s => s.answers.s.marks = Array(301).fill({ start: 441000, end: 450000 })]) {
     const state = model.fresh(pack); mutate(state); assert.throws(() => model.validate(state, pack));
+  }
+});
+test('malformed listened coverage cannot qualify an exhaustive answer', () => {
+  for (const listened_ranges of [[{ start: 440999, end: 450000 }],
+    [{ start: 441000, end: 882001 }], [{ start: 450000, end: 450000 }],
+    [{ start: 441000.5, end: 450000 }]]) {
+    const state = model.fresh(pack); state.answers.s.listened_ranges = listened_ranges;
+    assert.throws(() => model.validate(state, pack));
   }
 });
 test('TSV contains actual tabs, BOM and escaped multiline text without formula execution', () => {

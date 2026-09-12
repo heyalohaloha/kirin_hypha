@@ -7,9 +7,11 @@ namespace hypha::local_blind
 {
 PreparedCandidate prepareLocalBlindCandidate (
     const ExactRangeCapture& post, const ExactRangeCapture& pre, const TrialFormat& f,
-    std::int64_t expectedPreStart, std::size_t budget, const std::function<bool()>& random) noexcept
+    std::int64_t expectedPreStart, std::size_t budget, GainMatchPolicy policy,
+    const std::function<bool()>& random) noexcept
 {
     PreparedCandidate result;
+    result.gainPolicy = policy;
     try
     {
         const auto* a = post.completedPcm();
@@ -26,18 +28,37 @@ PreparedCandidate prepareLocalBlindCandidate (
         { result.failure = PreparationFailure::rangeMismatch; return result; }
         if (a->size() > budget / sizeof (float) / 2)
         { result.failure = PreparationFailure::capacity; return result; }
-        KirinReferenceGainFacts facts {};
-        // Keep the existing named policy intact: 400 ms / 100 ms hop, 27 contiguous active blocks.
-        // A sparse/short Track that cannot meet it is explicitly unavailable, never raw-unmatched.
-        if (! kirin_hypha_analyze_reference_gain (a->data(), b->data(), static_cast<std::size_t> (f.frames),
-                                                 f.sampleRate, static_cast<std::uint32_t> (f.channels), &facts))
-        { result.failure = PreparationFailure::gainUnavailable; return result; }
+        std::int64_t gainDeltaMilli = 0, postPeakMilli = 0, prePeakMilli = 0;
+        if (policy == GainMatchPolicy::alignedActiveBlocksV1)
+        {
+            KirinReferenceGainFacts facts {};
+            // Existing named policy stays intact: 400 ms / 100 ms hop, 27 contiguous active blocks.
+            if (! kirin_hypha_analyze_reference_gain (
+                    a->data(), b->data(), static_cast<std::size_t> (f.frames), f.sampleRate,
+                    static_cast<std::uint32_t> (f.channels), &facts))
+            { result.failure = PreparationFailure::gainUnavailable; return result; }
+            gainDeltaMilli = facts.paired_loudness_delta_median_millilu;
+            postPeakMilli = facts.a_cue_true_peak_millidbtp;
+            prePeakMilli = facts.b_cue_true_peak_millidbtp;
+            result.matchedAnalysisUnits = facts.paired_block_count;
+        }
+        else
+        {
+            KirinTrackEventGainFacts facts {};
+            if (! kirin_hypha_analyze_track_event_gain (
+                    a->data(), b->data(), static_cast<std::size_t> (f.frames), f.sampleRate,
+                    static_cast<std::uint32_t> (f.channels), &facts))
+            { result.failure = PreparationFailure::gainUnavailable; return result; }
+            gainDeltaMilli = facts.paired_energy_delta_millidb;
+            postPeakMilli = facts.post_cue_true_peak_millidbtp;
+            prePeakMilli = facts.pre_cue_true_peak_millidbtp;
+            result.matchedAnalysisUnits = facts.paired_window_count;
+        }
         if (post.completedPcm() == nullptr || pre.completedPcm() == nullptr)
         { result.failure = PreparationFailure::incompleteCapture; return result; }
-        result.fixedPreGainDb = facts.paired_loudness_delta_median_millilu / 1000.0;
-        result.matchedBlocks = facts.paired_block_count;
-        const auto postPeak = facts.a_cue_true_peak_millidbtp / 1000.0;
-        const auto prePeak = facts.b_cue_true_peak_millidbtp / 1000.0;
+        result.fixedPreGainDb = gainDeltaMilli / 1000.0;
+        const auto postPeak = postPeakMilli / 1000.0;
+        const auto prePeak = prePeakMilli / 1000.0;
         const auto ceiling = std::max ({ -1.0, postPeak, prePeak });
         TrialGain gain;
         gain.fixedPre = static_cast<float> (std::pow (10.0, result.fixedPreGainDb / 20.0));

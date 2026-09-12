@@ -211,6 +211,91 @@ impl Drop for AnalysisLease {
     }
 }
 
+/// Non-RT admission for one comparison audition. It acquires one of the two optional Analysis
+/// slots first, then process- and project-wide audition slots. Partial acquisition is rolled back.
+/// Dropping the value releases every kernel lock after a host or plug-in crash as well.
+#[derive(Debug)]
+pub struct AuditionAdmission {
+    analysis: AnalysisLease,
+    process_audition: AnalysisLease,
+    project_audition: crate::project_audition_lease::ProjectAuditionLease,
+    held: bool,
+}
+
+impl AuditionAdmission {
+    #[cfg(not(test))]
+    pub fn for_current_project(plugin_data_dir: &Path, project_hash: &str) -> Self {
+        let root = PlatformPaths::current_kirin_tmp_root().join("analysis");
+        let process = std::process::id();
+        Self::at_paths(
+            [
+                root.join(format!("{process}.0.lease")),
+                root.join(format!("{process}.1.lease")),
+            ],
+            root.join(format!("{process}.audition.lease")),
+            plugin_data_dir,
+            project_hash,
+        )
+    }
+
+    fn at_paths(
+        analysis_paths: impl IntoIterator<Item = PathBuf>,
+        process_audition_path: PathBuf,
+        plugin_data_dir: &Path,
+        project_hash: &str,
+    ) -> Self {
+        Self {
+            analysis: AnalysisLease::at_paths(analysis_paths),
+            process_audition: AnalysisLease::at_paths([process_audition_path]),
+            project_audition: crate::project_audition_lease::ProjectAuditionLease::new(
+                plugin_data_dir,
+                project_hash,
+            ),
+            held: false,
+        }
+    }
+
+    pub fn try_acquire_for(&mut self, owner_name: &str) -> io::Result<bool> {
+        if self.held {
+            return Ok(true);
+        }
+        if !self.analysis.try_acquire_for(owner_name)? {
+            return Ok(false);
+        }
+        if !self.process_audition.try_acquire_for(owner_name)? {
+            self.analysis.release();
+            return Ok(false);
+        }
+        match self.project_audition.try_acquire() {
+            Ok(true) => {
+                self.held = true;
+                Ok(true)
+            }
+            Ok(false) => {
+                self.process_audition.release();
+                self.analysis.release();
+                Ok(false)
+            }
+            Err(error) => {
+                self.process_audition.release();
+                self.analysis.release();
+                Err(error)
+            }
+        }
+    }
+
+    pub fn release(&mut self) {
+        self.project_audition.release();
+        self.process_audition.release();
+        self.analysis.release();
+        self.held = false;
+    }
+
+    pub fn held(&self) -> bool {
+        self.held
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,5 +387,45 @@ mod tests {
         let mut lease = AnalysisLease::at_paths([blocker.join("analysis.0.lease"), valid]);
         assert!(lease.try_acquire().unwrap());
         assert_eq!(lease.held_slot(), Some(1));
+    }
+
+    #[test]
+    fn only_one_audition_owns_one_of_two_analysis_slots() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = [
+            temp.path().join("analysis.0.lease"),
+            temp.path().join("analysis.1.lease"),
+        ];
+        let process_path = temp.path().join("process.audition.lease");
+        let make_admission = || {
+            AuditionAdmission::at_paths(paths.clone(), process_path.clone(), temp.path(), "project")
+        };
+        let mut first = make_admission();
+        let mut second = make_admission();
+        assert!(first.try_acquire_for("Reference").unwrap());
+        assert!(first.held());
+        assert!(!second.try_acquire_for("PRE POST Blind").unwrap());
+        assert!(!second.held());
+
+        let mut other_analysis = AnalysisLease::at_paths(paths.clone());
+        assert!(other_analysis.try_acquire_for("Drum").unwrap());
+        first.release();
+        assert!(!first.held());
+        assert!(second.try_acquire_for("PRE POST Blind").unwrap());
+    }
+
+    #[test]
+    fn one_process_cannot_audition_two_projects() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = [
+            temp.path().join("analysis.0"),
+            temp.path().join("analysis.1"),
+        ];
+        let process = temp.path().join("process.audition");
+        let mut first =
+            AuditionAdmission::at_paths(paths.clone(), process.clone(), temp.path(), "first");
+        let mut second = AuditionAdmission::at_paths(paths, process, temp.path(), "second");
+        assert!(first.try_acquire_for("Reference").unwrap());
+        assert!(!second.try_acquire_for("PRE POST Blind").unwrap());
     }
 }

@@ -75,6 +75,7 @@ observatory_world::State View::worldState() const noexcept
     state.connection = connectionState;
     state.guidePresent = guidePresence() == GuidePresence::present;
     state.capture = captureFrame;
+    state.jungle = jungleAppearance;
     state.energy = state.active && std::isfinite (observatoryFrame.meter.lufs_m)
         ? static_cast<float> (juce::jlimit (
             0.0, 1.0, (observatoryFrame.meter.lufs_m + 48.0) / 48.0)) : 0.0f;

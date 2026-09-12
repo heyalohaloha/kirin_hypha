@@ -85,3 +85,9 @@ bool KirinHyphaProcessorBase::resetMeterSession()
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr && kirin_hypha_reset_meter_session (hyphaHandle);
 }
+
+bool KirinHyphaProcessorBase::clearMeterPeakClipHolds()
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && kirin_hypha_clear_meter_peak_clip_holds (hyphaHandle);
+}

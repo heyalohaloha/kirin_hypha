@@ -2,6 +2,7 @@
 
 #include <array>
 #include <memory>
+#include <vector>
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -10,11 +11,13 @@
 #include "HyphaAnalysisNavigation.h"
 #include "HyphaHoverHelpPreference.h"
 #include "HyphaObservatoryView.h"
+#include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTimePageNavigation.h"
 #include "HyphaTooltipLookAndFeel.h"
 #include "HyphaWidgets.h"
 #include "PostControls.h"
+#include "appearance/AppearanceService.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaSpectrumComponent.h"
  #include "HyphaPerceptualComponent.h"
@@ -22,6 +25,7 @@
  #include "HyphaAttackComponent.h"
  #include "HyphaReferenceComponent.h"
  #include "HyphaReferenceAccessPanel.h"
+ #include "HyphaLocalBlindComponent.h"
 #endif
 
 // B-054: full UI rebuild to egui parity (crates/hypha_pre/editor.rs + hypha_post/editor.rs +
@@ -31,7 +35,7 @@
 //
 // PRE: title "PRE" + click-to-edit Name (→ kirin_hypha_set_pre_name) + flora line + Watch(current+MAX)/
 //      Record(6) metric grid (per-cell hover help) + Keeping banner + 5-state static LED.
-// POST: title "POST" + Record pair label + click-to-edit pair name (→ set_pair_target) + flora +
+// POST: title "POST" + exact PRE selector (name is display-only) + flora +
 //      display-branch grid (Bypassed/Inactive→"---" ; pair-empty/PRE bypassed→absolute ;
 //      paired Stale/NoPre/Inactive→muted Δ/--- ; PRE Bypassed→POST absolute ; Δ Active ; Record→6) +
 //      Keep/Stop/Sense hint + one prioritized feedback row + playback pair
@@ -45,6 +49,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void visibilityChanged() override;
 
 private:
     class PairMenuLookAndFeel final : public juce::LookAndFeel_V4
@@ -61,8 +66,15 @@ private:
         }
         juce::Font getPopupMenuFont() override
         {
-            // Menus contain localized product text and user-provided project/channel names.
-            return hypha::nativeTextFont (hypha::ui_contract::menuFontHeight);
+            return hypha::nativeTextFont (hypha::presentation::forOutput (
+                450, 300, hypha::presentation::OutputTarget::popup),
+                hypha::typography::TextRole::menu);
+        }
+        void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
+        {
+            g.fillAll (hypha::BG);
+            hypha::surface_material::paintInstrumentFrame (
+                g, juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height), false);
         }
     };
 
@@ -70,6 +82,7 @@ private:
     void updatePre();
     void updatePost();
     void refreshObservatory();
+    void applyPresentationContext();
     void configureMeterContext();
     void showNoteDialog();
     void setObservatoryDomain (hypha::observatory::Domain domain);
@@ -84,7 +97,12 @@ private:
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     using AnalysisPage = hypha::analysis_navigation::Page;
     void setAnalysisPage (AnalysisPage page);
+    void configureSharpnessAnalysis (int pairStatus);
     void configureSpectrumAnalysis();
+    hypha::analysis::Demand desiredAnalysisDemand() const noexcept;
+    bool analysisSurfaceShowing() const noexcept;
+    void syncAnalysisDemand();
+    void configureSpectrumCallbacks();
     void updateTimePageNavigation();
     void cycleSpectrumSize();
     void updateSpectrumSizeControl();
@@ -92,6 +110,13 @@ private:
     void showReferenceInformationMenu();
     void layoutReferenceAudition (juce::Rectangle<int>);
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
+    void configureLocalBlindProduct();
+    void openLocalBlindProduct();
+    void beginLocalBlindProductCapture();
+    void closeLocalBlindProduct();
+    void refreshLocalBlindProduct();
+    void layoutLocalBlindProduct();
+    void setLocalBlindIsolation (bool active);
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,
                                int pairStatus);
@@ -100,9 +125,18 @@ private:
     // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
     // (LUFS-M/TP/…); Delta* uses Δ labels (ΔLUFS/…). Watch is current|MAX; Record is 2×3.
     enum class Kind { WatchAbs6, WatchDelta6, Abs6, Delta6 };
+    static constexpr int jungleModeMenuAction = 13;
     void configureForKind (Kind);
     void layoutMetrics (bool six);
-    void showCandidateMenu();          // B-102: POST pair dropdown (All Keep/All Stop/candidates)
+    void showCandidateMenu();
+    void showOperationsMenu();
+    void showMeterContextMenu (juce::Component& anchor);
+    void applyMeterContextChoice (hypha::meter_context::MeterContext);
+    void showDomainMenu();
+    void showSizeMenu();
+    void showGuideInformationMenu();
+    void showFeedbackInformationMenu();
+    void handleOperationsMenu (int result);
     void showInformationMenu();
     void handleInformationMenu (int result);
     bool informationBlockedByBlind() const;
@@ -116,6 +150,9 @@ private:
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
     void commitEditorSizeStateIfSettled (bool force);
+    void refreshAppearance();
+    void requestJungleChoice (bool enabled);
+    void releaseAppearanceVisibility();
 
     KirinHyphaProcessorBase& processorRef;
     const bool isPost;
@@ -124,27 +161,28 @@ private:
 
     hypha::MyceliumBackground bg;
     hypha::StatusLed          led;
-    hypha::EditableName       nameField;                  // PRE name / POST pair name
+    hypha::EditableName       nameField;                  // PRE name / POST exact-pair selector
     juce::Label               pairStatusLabel;            // PRE/POST: PAIR — / ◌ / ●
     std::array<hypha::MetricCell, 6> cells;
     hypha::LoudnessSelector   loudnessSelector;           // occupies cell 0's existing label column
     juce::Label               feedbackLabel;              // toast > persistent error > Keeping
-    juce::TextButton          guideConnectButton;          // role-neutral explicit Work/session connect
+    hypha::HyphaTextButton    guideConnectButton { "" };   // role-neutral explicit Work/session connect
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     std::unique_ptr<juce::FileChooser> captureChooser;
     std::unique_ptr<juce::AlertWindow> noteDialog;
     hypha::capture::PrivacyOptions capturePrivacy;         // editor-lifetime, private by default
     hypha::PairDropdownButton pairDropdown;                // POST: vector arrow / candidate / All Keep / All Stop
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-    juce::TextButton          spectrumToggle;               // POST: meters / Analysis page
+    hypha::HyphaTextButton    spectrumToggle { "" };        // POST: meters / Analysis page
     hypha::TimePageNavigation timePageNavigation;            // Compact cycle / Observatory tabs
-    juce::TextButton          spectrumSizeToggle;           // POST Analysis: 100/125/150/200/300 percent
+    hypha::HyphaTextButton    spectrumSizeToggle { "" };    // POST Analysis: 100/125/150/200/300 percent
     hypha::SpectrumComponent  spectrumView;                 // POST-only signed difference plot
-    hypha::PerceptualComponent perceptualView;               // POST-only Δ Sharpness History
+    hypha::PerceptualComponent perceptualView;               // paired POST-minus-PRE Sharpness
     hypha::AbsoluteComponent absoluteView;                    // POST-only absolute observation timeline
     hypha::AttackComponent attackView;         // POST ATTACK product view
     hypha::reference_ui::Component referenceView; // POST-only Kirin OS prepared A/B
     hypha::reference_ui::AccessPanel referenceAccessView;
+    hypha::local_blind_ui::Component localBlindView;
 #endif
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help
@@ -155,6 +193,7 @@ private:
     size_t observatorySizeIndex = 0;
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     AnalysisPage analysisPage = AnalysisPage::meters;
+    bool sharpnessUsesAbsolute = false;
     KirinAttackEventBatch cachedAttackEvents {};
     KirinAttackWaveformBatch cachedAttackWaveform {};
     KirinAttackDetailBatch cachedAttackDetails {};
@@ -165,6 +204,15 @@ private:
     std::int64_t cachedAttackLatest = -1;
     std::uint32_t cachedAttackRate = 0;
     std::uint64_t cachedAttackGeneration = 0;
+    bool localBlindOpen = false;
+    bool localBlindPreflight = false;
+    struct LocalBlindUnderlyingState
+    {
+        juce::Component* component = nullptr;
+        bool accessible = true;
+        bool enabled = true;
+    };
+    std::vector<LocalBlindUnderlyingState> localBlindUnderlyingStates;
 #endif
     int    metricTop   = 0;       // y of the first metric row (set in resized())
     int    floraY      = 0;       // y of the flora separator line
@@ -174,6 +222,7 @@ private:
     double bannerUntil = 0.0;
     double toastUntil  = 0.0;
     double editorSizeLastChangedAt = 0.0;
+    bool editorSizePersistenceReady = false;
     bool editorSizeStateDirty = false;
     juce::String toastText;
     double pathAnomalyUntil = 0.0;        // B-128 (G-115-371 D3): restore identity anomaly latch
@@ -184,8 +233,15 @@ private:
     KirinMeasureResult watchMaximum {};
     bool haveWatchMaximum = false;
     bool pairedPreExplicitlyBypassed = false; // updated only from a successful exact delta poll
+    std::uint64_t analysisOwnerToken = 0;
     KirinRecordDisplay cachedRecordDisplay {};
     bool haveRecordDisplay = false;
+    std::uint64_t observedHostProcessHeartbeat = 0;
+    double observedHostProcessHeartbeatAt = 0.0;
+    hypha::appearance::Snapshot appearanceSnapshot;
+    bool appearanceVisibleRegistered = false;
+    bool appearanceApplyPending = false;
+    std::uint64_t appearanceActionAwaited = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaEditor)
 };

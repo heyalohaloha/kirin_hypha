@@ -71,6 +71,8 @@ inline void verify()
     a.meter.lufs_m = -20; require (same (a, b));
     a.meter.clip_events[0] = b.meter.clip_events[0] = std::uint64_t { 1 } << 54;
     ++b.meter.clip_events[0]; require (! same (a, b));
+    b.meter.clip_events[0] = a.meter.clip_events[0]; require (same (a, b));
+    b.meter.channel_clip_latched[1] = 1; require (! same (a, b));
     KirinWatchDisplay w {}, x {};
     w.current.lufs_s = x.current.lufs_s = -std::numeric_limits<double>::infinity();
     require (same (w, x));

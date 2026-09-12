@@ -6,6 +6,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 
+import { evidenceSchema, evaluationEvidenceIdentitySha } from './evidence_contract.mjs';
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const coordinateRule = 'hypha.review.native-sample-boundary-half-open.v1';
@@ -28,17 +30,21 @@ function parse(bytes, label) {
   }
 }
 
-function exactPath(root, relative) {
+function exactPath(root, relative, label = 'Manifest audio') {
   const absoluteRoot = path.resolve(root);
   const absolute = path.resolve(absoluteRoot, relative);
   if (absolute !== absoluteRoot && !absolute.startsWith(`${absoluteRoot}${path.sep}`)) {
-    throw new Error('Manifest audio path escapes the pack directory');
+    throw new Error(`${label} path escapes its directory`);
   }
   return absolute;
 }
 
 export function reviewManifestIdentitySha(manifest) {
-  return sha256(JSON.stringify({ protocol: manifest.schema, identity: manifest.items }));
+  const identity = { protocol: manifest.schema, identity: manifest.items };
+  if (manifest.evaluation_evidence_sha256 !== undefined) {
+    identity.evaluation_evidence_sha256 = manifest.evaluation_evidence_sha256;
+  }
+  return sha256(JSON.stringify(identity));
 }
 
 function applyCorrections(answers, items, sidecar) {
@@ -133,15 +139,27 @@ function summarizeSpace(observations) {
     accepted_d20_count_in_window: accepted, rejection_counts };
 }
 
-async function verifyResearchResult(item, provenance) {
-  const resultPath = provenance.research_excerpt.replace(/\.wav$/i, '.json');
-  const bytes = await readFile(resultPath);
-  if (sha256(bytes) !== provenance.research_result_sha256) {
+async function verifyResearchResult(item, evidence, evidenceRoot) {
+  let resultPath;
+  if (evidenceRoot) resultPath = exactPath(evidenceRoot, evidence.result, 'Evidence result');
+  else if (typeof evidence.research_excerpt === 'string') {
+    resultPath = evidence.research_excerpt.replace(/\.wav$/i, '.json');
+  } else throw new Error(`Durable evaluation evidence required: ${item.id}`);
+  let bytes;
+  try {
+    bytes = await readFile(resultPath);
+  } catch (error) {
+    if (!evidenceRoot && error?.code === 'ENOENT') {
+      throw new Error(`Durable evaluation evidence required: ${item.id}`);
+    }
+    throw error;
+  }
+  if (sha256(bytes) !== evidence.research_result_sha256) {
     throw new Error(`Research result hash mismatch: ${item.id}`);
   }
   const result = parse(bytes, 'research result');
-  if (result.item?.id !== item.id || result.item?.artist_group_sha256 !== provenance.artist_group_sha256
-    || result.source_sha256 !== provenance.source_sha256 || result.facts?.input_sha256 !== item.audio_sha256
+  if (result.item?.id !== item.id || result.item?.artist_group_sha256 !== evidence.artist_group_sha256
+    || result.source_sha256 !== evidence.source_sha256 || result.facts?.input_sha256 !== item.audio_sha256
     || result.facts?.sample_rate !== item.rate || result.facts?.frames !== item.frames
     || result.facts?.mode !== item.mode || result.source_unchanged_after_decode !== true) {
     throw new Error(`Research result identity mismatch: ${item.id}`);
@@ -150,15 +168,15 @@ async function verifyResearchResult(item, provenance) {
 }
 
 export async function evaluateReview({ answerPath, manifestPath, sidecarPath,
-  packDirectory = path.dirname(manifestPath), matchToleranceMs = 50 }) {
-  const [answerBytes, manifestBytes, sidecarBytes] = await Promise.all([
+  evidenceManifestPath, packDirectory = path.dirname(manifestPath), matchToleranceMs = 50 }) {
+  const [answerBytes, manifestBytes, sidecarBytes, evidenceBytes] = await Promise.all([
     readFile(answerPath), readFile(manifestPath), readFile(sidecarPath),
+    evidenceManifestPath ? readFile(evidenceManifestPath) : Promise.resolve(null),
   ]);
   const manifest = parse(manifestBytes, 'manifest');
   const sidecar = parse(sidecarBytes, 'correction sidecar');
   if (manifest.schema !== 'hypha.pilot-review.v1' || manifest.candidate_exposure !== false
     || manifest.product_qualified !== false || !Array.isArray(manifest.items)
-    || !Array.isArray(manifest.provenance) || manifest.items.length !== manifest.provenance.length
     || reviewManifestIdentitySha(manifest) !== manifest.manifest_sha256) {
     throw new Error('Manifest identity mismatch');
   }
@@ -171,23 +189,39 @@ export async function evaluateReview({ answerPath, manifestPath, sidecarPath,
   }
   const answer = (await model()).validate(parse(answerBytes, 'answer'), manifest);
   const corrections = applyCorrections(answer.answers, manifest.items, sidecar);
-  const provenanceById = new Map(manifest.provenance.map(row => [row.id, row]));
-  if (provenanceById.size !== manifest.items.length) throw new Error('Duplicate provenance ID');
+  const evidenceManifest = evidenceBytes ? parse(evidenceBytes, 'evaluation evidence') : null;
+  if (evidenceManifest && (evidenceManifest.schema !== evidenceSchema
+    || evidenceManifest.pack_id !== manifest.pack_id
+    || evidenceManifest.manifest_sha256 !== manifest.manifest_sha256
+    || !Array.isArray(evidenceManifest.items)
+    || evidenceManifest.items.length !== manifest.items.length
+    || evaluationEvidenceIdentitySha(evidenceManifest) !== manifest.evaluation_evidence_sha256)) {
+    throw new Error('Evaluation evidence identity mismatch');
+  }
+  const evidenceRows = evidenceManifest?.items ?? manifest.provenance;
+  if (!Array.isArray(evidenceRows) || evidenceRows.length !== manifest.items.length) {
+    throw new Error('Durable evaluation evidence required');
+  }
+  const evidenceById = new Map(evidenceRows.map(row => [row.id, row]));
+  if (evidenceById.size !== manifest.items.length) {
+    throw new Error('Duplicate evaluation evidence ID');
+  }
+  const evidenceRoot = evidenceManifestPath ? path.dirname(evidenceManifestPath) : null;
   const html = await readFile(exactPath(packDirectory, 'index.html'));
   if (sha256(html) !== manifest.html_sha256) throw new Error('Review HTML identity mismatch');
 
   const results = [];
   for (const item of manifest.items) {
-    const provenance = provenanceById.get(item.id);
-    if (!provenance || provenance.audio_sha256 !== item.audio_sha256
-      || provenance.byte_identity_to_research_excerpt !== true) {
+    const evidence = evidenceById.get(item.id);
+    if (!evidence || evidence.audio_sha256 !== item.audio_sha256
+      || evidence.byte_identity_to_research_excerpt !== true) {
       throw new Error(`Missing or mismatched provenance: ${item.id}`);
     }
     const audio = await readFile(exactPath(packDirectory, item.audio));
     if (audio.length !== item.bytes || sha256(audio) !== item.audio_sha256) {
       throw new Error(`Audio identity mismatch: ${item.id}`);
     }
-    const facts = await verifyResearchResult(item, provenance);
+    const facts = await verifyResearchResult(item, evidence, evidenceRoot);
     const raw = answer.answers[item.id];
     const correction = corrections.get(item.id);
     const effectiveDecision = correction?.effective_decision ?? raw.decision;
@@ -232,12 +266,14 @@ export async function evaluateReview({ answerPath, manifestPath, sidecarPath,
 }
 
 async function main() {
-  if (process.argv.length !== 6) {
-    throw new Error('Usage: evaluate_review_answers.mjs ANSWERS MANIFEST SIDECAR NEW_OUTPUT');
+  if (![6, 7].includes(process.argv.length)) {
+    throw new Error('Usage: evaluate_review_answers.mjs ANSWERS MANIFEST SIDECAR [EVIDENCE_MANIFEST] NEW_OUTPUT');
   }
-  const [, , answerPath, manifestPath, sidecarPath, outputPath] = process.argv;
+  const [, , answerPath, manifestPath, sidecarPath, ...rest] = process.argv;
+  const [evidencePath, outputPath] = rest.length === 2 ? rest : [undefined, rest[0]];
   const evaluation = await evaluateReview({ answerPath: path.resolve(answerPath),
-    manifestPath: path.resolve(manifestPath), sidecarPath: path.resolve(sidecarPath) });
+    manifestPath: path.resolve(manifestPath), sidecarPath: path.resolve(sidecarPath),
+    evidenceManifestPath: evidencePath ? path.resolve(evidencePath) : undefined });
   await writeFile(path.resolve(outputPath), `${JSON.stringify(evaluation, null, 2)}\n`,
     { flag: 'wx', mode: 0o600 });
   console.log(JSON.stringify(evaluation.counts));

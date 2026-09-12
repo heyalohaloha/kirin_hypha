@@ -5,10 +5,11 @@ using hypha::COL_MUTED;
 
 namespace
 {
-juce::String observatoryPairText (bool isPost, int status)
+juce::String observatoryPairText (bool isPost, int status, const juce::String& name)
 {
-    if (! isPost) return "SOURCE";
-    if (status == KIRIN_PAIR_STATUS_PAIRED) return juce::CharPointer_UTF8 ("PAIR ●");
+    if (! isPost) return name.isNotEmpty() ? "SOURCE " + name : juce::String ("SOURCE");
+    if (status == KIRIN_PAIR_STATUS_PAIRED)
+        return name.isNotEmpty() ? "PAIR " + name : juce::String (juce::CharPointer_UTF8 ("PAIR ●"));
     if (status == KIRIN_PAIR_STATUS_WAITING) return juce::CharPointer_UTF8 ("PAIR ◌");
     return juce::CharPointer_UTF8 ("PAIR —");
 }
@@ -32,29 +33,49 @@ hypha::observatory::ConnectionState observatoryConnectionState (bool isPost, int
 }
 }
 
+void KirinHyphaEditor::applyPresentationContext()
+{
+    const auto context = hypha::presentation::forEditor (getWidth(), getHeight());
+    nameField.setPresentationContext (context);
+    loudnessSelector.setPresentationContext (context);
+    for (auto& cell : cells) cell.setPresentationContext (context);
+    pairStatusLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
+    feedbackLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
+    guideConnectButton.setPresentationContext (context);
+    if (postControls != nullptr) postControls->setPresentationContext (context);
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    spectrumView.setPresentationContext (context);
+    perceptualView.setPresentationContext (context);
+    absoluteView.setPresentationContext (context);
+    attackView.setPresentationContext (context);
+    referenceView.setPresentationContext (context);
+    referenceAccessView.setPresentationContext (context);
+    localBlindView.setPresentationContext (context);
+    timePageNavigation.setPresentationContext (context);
+    spectrumToggle.setPresentationContext (context);
+    spectrumSizeToggle.setPresentationContext (context);
+#endif
+}
+
 void KirinHyphaEditor::configureMeterContext()
 {
     observatoryView.setMeterContext (processorRef.meterContextPreference());
     observatoryView.setScaleMode (processorRef.scaleModePreference());
     observatoryView.onContextChange = [this] (hypha::meter_context::MeterContext context)
-    {
-        const auto scale = hypha::meter_context::initialScaleFor (context);
-        observatoryView.setMeterContext (context);
-        observatoryView.setScaleMode (scale);
-        processorRef.setMeterContextPreference (context);
-        processorRef.setScaleModePreference (scale);
-       #if ! KIRIN_HYPHA_PRE_DISPLAY
-        if (analysisPage == AnalysisPage::attack
-            && ! hypha::meter_context::drumAttackAvailable (context))
-            setAnalysisPage (AnalysisPage::meters);
-        updateTimePageNavigation();
-       #endif
-    };
+    { applyMeterContextChoice (context); };
+    observatoryView.onContextMenu = [this]
+    { showMeterContextMenu (observatoryView.contextMenuAnchor()); };
     observatoryView.onScaleChange = [this] (hypha::meter_context::ScaleMode scale)
     {
         observatoryView.setScaleMode (scale);
         processorRef.setScaleModePreference (scale);
     };
+    observatoryView.onDomainMenu = [this] { showDomainMenu(); };
+    observatoryView.onSizeMenu = [this] { showSizeMenu(); };
+    observatoryView.onOperationsMenu = [this] { showOperationsMenu(); };
+    observatoryView.onGuideDetails = [this] { showGuideInformationMenu(); };
+    observatoryView.onFeedbackDetails = [this] { showFeedbackInformationMenu(); };
+    observatoryView.onStop = [this] { processorRef.stopPair(); };
     observatoryView.onReset = [this]
     {
         if (! processorRef.resetMeterSession())
@@ -67,6 +88,21 @@ void KirinHyphaEditor::configureMeterContext()
         haveWatchMaximum = false;
         haveObservatoryWatchDisplay = false;
         observatoryView.setWatchDisplay ({}, false);
+    };
+    observatoryView.onClearPeakClipHolds = [this]
+    {
+        if (! processorRef.clearMeterPeakClipHolds())
+            showToast ("TP / Clip CLEAR failed");
+    };
+    observatoryView.onHybridVuChange = [this] (bool visible)
+    {
+        processorRef.setManualHybridVuSelection (
+            observatoryView.manualHybridVuVisible());
+        resized();
+        if (visible) observatoryView.toFront (false);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        syncAnalysisDemand();
+       #endif
     };
     observatoryView.onNote = [this] { showNoteDialog(); };
 }
@@ -103,6 +139,10 @@ void KirinHyphaEditor::showNoteDialog()
 
 void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 {
+    tooltip.hideTip();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (localBlindOpen) return;
+   #endif
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
     domain = hypha::observatory::sanitizeDomain (role, domain);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -114,6 +154,8 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
     processorRef.setObservatoryDomainPreference (hypha::observatory::stateValue (domain));
     observatoryView.setDomain (domain);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (domain != hypha::observatory::Domain::frequency)
+        observatoryView.setDeltaTargetEnabled (true);
     spectrumView.setAbsoluteObservation (
         observatoryView.target() == hypha::observatory::ObservationTarget::absolute);
     const auto page = domain == hypha::observatory::Domain::frequency
@@ -125,8 +167,59 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
     repaint();
 }
 
+void KirinHyphaEditor::visibilityChanged()
+{
+    refreshAppearance();
+    // Some hosts snapshot non-parameter state when the editor becomes hidden, before destroying
+    // it. Mark the already-updated exact dimensions dirty at that boundary as well as in dtor.
+    if (! isVisible())
+    {
+        commitEditorSizeStateIfSettled (true);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
+        // Pro Tools can hide an editor without destroying it when another insert is opened.
+        // The editor owns one typed optional-analysis request and releases it at this boundary.
+        syncAnalysisDemand();
+       #endif
+    }
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    else if (isPost)
+        syncAnalysisDemand();
+   #endif
+}
+
 void KirinHyphaEditor::refreshObservatory()
 {
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    syncAnalysisDemand();
+    if (localBlindOpen)
+    {
+        refreshLocalBlindProduct();
+        return;
+    }
+   #endif
+    const auto presentationNow = nowSecs();
+    const auto hostHeartbeat = processorRef.hostProcessHeartbeatValue();
+    if (hostHeartbeat != observedHostProcessHeartbeat)
+    {
+        observedHostProcessHeartbeat = hostHeartbeat;
+        observedHostProcessHeartbeatAt = presentationNow;
+    }
+    constexpr double hostRecordingStaleSeconds = 0.35;
+    const bool hostRecording = hostHeartbeat != 0u && processorRef.isHostRecording()
+        && presentationNow - observedHostProcessHeartbeatAt <= hostRecordingStaleSeconds;
+    const bool hybridPreferenceChanged = observatoryView.setHybridVuOnRecordEnabled (
+        processorRef.hybridVuOnRecordPreference());
+    const bool hostRecordingChanged = observatoryView.setHostRecording (hostRecording);
+    if (hybridPreferenceChanged || hostRecordingChanged)
+    {
+        resized();
+        if (observatoryView.hybridVuVisible())
+            observatoryView.toFront (false);
+       #if ! KIRIN_HYPHA_PRE_DISPLAY
+        syncAnalysisDemand();
+       #endif
+    }
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
     const bool referenceOwned = isPost && processorRef.licenseIsOs();
     if (observatoryView.isReferenceOwned() != referenceOwned)
@@ -224,7 +317,8 @@ void KirinHyphaEditor::refreshObservatory()
             observatoryView.setHistory (std::move (history));
     }
 
-    observatoryView.setConnection (observatoryPairText (isPost, pairStatus),
+    const auto sourceName = isPost ? processorRef.pairDisplayName() : processorRef.preName();
+    observatoryView.setConnection (observatoryPairText (isPost, pairStatus, sourceName),
                                    observatoryPairColour (isPost, pairStatus),
                                    observatoryConnectionState (isPost, pairStatus));
 
@@ -238,7 +332,7 @@ void KirinHyphaEditor::refreshObservatory()
             ? connection.workTitle : connection.workId;
         const auto primary = "CONNECT  " + title.substring (0, 36);
         observatoryView.setGuide (primary, {}, true);
-        guideConnectButton.setButtonText (primary);
+        guideConnectButton.setButtonText ("CONNECT");
         guideConnectButton.setTooltip ("Connect this Hypha session to Work: " + title);
     }
     else
@@ -257,7 +351,7 @@ void KirinHyphaEditor::refreshObservatory()
         else
             observatoryView.clearGuide();
     }
-    guideConnectButton.setVisible (connectionPending);
+    guideConnectButton.setVisible (connectionPending && ! observatoryView.hybridVuVisible());
 #else
     observatoryView.clearGuide();
     guideConnectButton.setVisible (false);
