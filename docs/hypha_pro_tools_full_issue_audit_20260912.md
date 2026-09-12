@@ -104,9 +104,13 @@ The implementation is not accepted from screenshots alone. The final pass must r
   two-slot, and changing-frame paths; shipping performance limits remain a Release-build gate.
 - PRE and POST Debug VST3 targets compile after the coordinator replacement. The focused Rust
   source/wiring suites pass 2 ATTACK-wiring tests and 16 JUCE-lifecycle tests.
-- Source line-budget, shell syntax, and whitespace checks pass. The exact-commit integrated
-  release-source gate has not yet been run for this candidate, so these focused results are not a
-  complete source or release acceptance claim.
+- Source line-budget, shell syntax, whitespace, public-history, and clippy checks pass. The single
+  integrated run passed its Release native 14/14, measure 1,454/1,463 with nine intentional ignores,
+  and FFI 86/86 stages, then stopped on one stale xtask Pair-menu copy assertion after 139/140 xtask
+  tests had passed. B-834 changes only that assertion; its focused test passes, followed by the
+  inventory-pinned realtime parity 20/20 and Pair-candidate 6/6 suites. The complete wrapper was not
+  restarted, preserving the agreed one-run policy; this is composite source evidence rather than a
+  second monolithic receipt.
 - Pro Tools Developer post-fix pass: still required. Native computer-control is not exposed in the
   current Codex surface, and the regular Pro Tools process is open; do not replace its loaded signed
   diagnostic AAX bundle with an unsigned build while that session is active.
