@@ -244,13 +244,49 @@ test('AAX bundle identity stamp is idempotent on macOS', {
   assert.equal(mode, 'diagnostic');
 });
 
-test('release source identity resolves the current full commit and B number without treating JUCE patches as owned source', () => {
-  const identity = readReleaseSourceIdentity({ root: repoRoot });
-  assert.match(identity.commit, /^[0-9a-f]{40}$/);
-  assert.equal(identity.shortCommit, identity.commit.slice(0, 12));
-  assert.match(identity.bNumber, /^B-\d+$/);
-  assert.ok(['clean source', 'modified source'].includes(identity.sourceState));
-  assert.ok(identity.dirtyEntries.every((entry) => !entry.endsWith('juce_shell/JUCE')));
+test('release source identity uses exact fixture commits and distinguishes patches from gitlink changes', (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-source-identity-'));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (cwd, ...args) => execFileSync('git', [
+    '-c', 'user.name=Hypha Test', '-c', 'user.email=test@example.invalid',
+    '-c', 'commit.gpgsign=false', '-C', cwd, ...args,
+  ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  git(root, 'init');
+  const juce = path.join(root, 'juce_shell/JUCE');
+  fs.mkdirSync(juce, { recursive: true });
+  git(juce, 'init');
+  fs.writeFileSync(path.join(juce, 'source.txt'), 'upstream\n');
+  git(juce, 'add', 'source.txt');
+  git(juce, 'commit', '-m', 'upstream fixture');
+  fs.writeFileSync(path.join(root, '.gitmodules'), [
+    '[submodule "juce_shell/JUCE"]', '\tpath = juce_shell/JUCE', '\turl = ./JUCE', '',
+  ].join('\n'));
+  fs.writeFileSync(path.join(root, 'owned.txt'), 'owned source\n');
+  git(root, 'add', '.gitmodules', 'owned.txt', 'juce_shell/JUCE');
+  git(root, 'commit', '-m', '[B-123] release fixture');
+  const commit = git(root, 'rev-parse', 'HEAD');
+  const expected = {
+    commit, shortCommit: commit.slice(0, 12), bNumber: 'B-123',
+    sourceState: 'clean source', dirtyEntries: [],
+  };
+  assert.deepEqual(readReleaseSourceIdentity({ root }), expected);
+
+  fs.appendFileSync(path.join(juce, 'source.txt'), 'tracked build-time patch\n');
+  assert.deepEqual(readReleaseSourceIdentity({ root }), expected);
+  fs.appendFileSync(path.join(root, 'owned.txt'), 'owned edit\n');
+  const modified = readReleaseSourceIdentity({ root });
+  assert.equal(modified.sourceState, 'modified source');
+  assert.ok(modified.dirtyEntries.some((entry) => entry.endsWith('owned.txt')));
+  git(root, 'restore', 'owned.txt');
+
+  git(juce, 'add', 'source.txt');
+  git(juce, 'commit', '-m', 'different upstream fixture');
+  const changedRevision = readReleaseSourceIdentity({ root });
+  assert.equal(changedRevision.sourceState, 'modified source');
+  assert.ok(changedRevision.dirtyEntries.some((entry) => entry.endsWith('juce_shell/JUCE')));
+
+  git(root, 'commit', '--allow-empty', '-m', 'Merge temporary CI candidate');
+  assert.throws(() => readReleaseSourceIdentity({ root }), /release commit subject has no B number/);
 });
 
 test('AAX target is Native-only and stamps signed build identity before distribution', () => {
