@@ -50,6 +50,7 @@ set(KIRIN_FFI_LIB "${_KIRIN_FFI_DEFAULT}"
 # The gate runs before format selection so a rejected configuration cannot create a partial AAX
 # target. JUCE's SDK registration function is called below after JUCE has defined it.
 include(cmake/KirinHyphaAax.cmake)
+include(cmake/ObservatoryMaterial.cmake)
 kirin_hypha_configure_aax(KIRIN_HYPHA_AAX_ENABLED)
 
 # B-376: The C ABI symbol name does not encode its argument list, so an old staticlib can link
@@ -275,10 +276,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
-        src/HyphaHybridVuPainter.cpp
-        src/HyphaJungleMaterial.cpp
+        ${KIRIN_HYPHA_OBSERVATORY_MATERIAL_SOURCES}
         src/HyphaObservatoryLevelStrips.cpp
-        src/HyphaObservatoryWorld.cpp
         src/HyphaTimePageNavigation.cpp
         src/HyphaSpacePainter.cpp
         src/HyphaTimeHistoryLayout.cpp
@@ -513,12 +512,11 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryMetrics.cpp
-        src/HyphaHybridVuPainter.cpp
+        ${KIRIN_HYPHA_OBSERVATORY_MATERIAL_SOURCES}
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryViewState.cpp
-        src/HyphaObservatoryWorld.cpp
         src/HyphaSpacePainter.cpp
         src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
@@ -586,10 +584,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
-        src/HyphaHybridVuPainter.cpp
-        src/HyphaJungleMaterial.cpp
+        ${KIRIN_HYPHA_OBSERVATORY_MATERIAL_SOURCES}
         src/HyphaObservatoryLevelStrips.cpp
-        src/HyphaObservatoryWorld.cpp
         src/HyphaTimePageNavigation.cpp
         src/HyphaSpacePainter.cpp
         src/HyphaTimeHistoryLayout.cpp
@@ -853,12 +849,11 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaObservatoryMetrics.cpp
-        src/HyphaHybridVuPainter.cpp
+        ${KIRIN_HYPHA_OBSERVATORY_MATERIAL_SOURCES}
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryViewState.cpp
-        src/HyphaObservatoryWorld.cpp
         src/HyphaSpacePainter.cpp
         src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
