@@ -161,7 +161,7 @@ Fail data:
 
 1. Optionally name the PRE instance with a simple label such as `Mix` or `Drum`.
 2. On POST, open the pair menu.
-3. Select that exact PRE under **Pair choices (not Keep targets)**; matching names are not required.
+3. Select that exact PRE under **PRE connection**; matching names are not required.
 4. Press `Keep`.
 5. Confirm PRE acknowledges the record request and POST indicates active Keep/Record state.
 6. Stop Keep.

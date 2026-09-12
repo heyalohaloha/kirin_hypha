@@ -71,7 +71,7 @@ void View::resized()
     {
         auto contextSelectorBounds = toJuce (layout.contextSelector);
         contextButton.setBounds (contextSelectorBounds.withSizeKeepingCentre (
-            juce::jmin (94, contextSelectorBounds.getWidth()),
+            juce::jmin (136, contextSelectorBounds.getWidth()),
             contextSelectorBounds.getHeight()).reduced (1, 2));
     }
     domainCycleButton.setVisible (singleDomainControl);

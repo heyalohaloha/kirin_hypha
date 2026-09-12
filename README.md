@@ -16,7 +16,7 @@ audition output with a verified, immutable comparison copy.
 
 1. Insert **PRE Kirin Hypha** before the processing chain.
 2. Insert **POST Kirin Hypha** after the processing chain.
-3. Click POST's pair selector or arrow, then choose that exact PRE under **Pair choices**.
+3. Click POST's pair selector or arrow, then choose that exact PRE under **PRE connection**.
 4. Use the top-level **LEVEL**, **TIME**, **FREQ**, and **SPACE** domains. In **TIME**, choose
    **HISTORY**, **ATTACK**, **SHARP**, or **LIVE**.
 
@@ -383,7 +383,7 @@ matching names.
 
 1. Insert PRE before the processors and POST after them.
 2. In POST, click the read-only pair selector or its arrow.
-3. Under **Pair choices (not Keep targets)**, select the intended PRE.
+3. Under **PRE connection**, select the intended PRE.
 4. POST keeps that exact PRE identity and begins displaying Δ values.
 
 Giving PRE a name such as `Mix`, `Drum`, or `Vocal` makes the menu easier to scan, but naming is

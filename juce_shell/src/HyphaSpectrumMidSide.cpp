@@ -123,8 +123,7 @@ void SpectrumComponent::setMidSideSnapshot (const KirinMidSideSpectrumView& next
     absoluteHistory.clear();
     if (valid)
     {
-        const auto calmWeights = spectrum_presentation::lowFrequencyCalmWeights<
-            KIRIN_SPECTRUM_BAND_COUNT> (next.min_hz, next.max_hz);
+        const auto& calmWeights = calmWeightsFor (next.min_hz, next.max_hz);
         pendingPre = spectrum_presentation::calmLowFrequencies (next.mid_dbfs, calmWeights);
         pendingPost = spectrum_presentation::calmLowFrequencies (next.side_dbfs, calmWeights);
         if (continuing)

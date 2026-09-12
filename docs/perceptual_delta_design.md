@@ -52,8 +52,8 @@ Exactly one optional analyzer mode may be active within each lease-owning POST:
 
 Two POST Analysis pages in a DAW process may hold the two stable process-wide kernel slots. A third
 does not start its worker or request a PRE worker and reports the factual lease owners in one line,
-for example `Both slots in use — Mix, Vocal`. If both names cannot be verified, it reports only
-`Both slots in use`; it does not infer pair names or instruct the user to close an unseen page.
+for example `ANALYSIS IN USE / Mix, Vocal`. If both names cannot be verified, it reports only
+`ANALYSIS IN USE`; it does not infer pair names or instruct the user to close an unseen page.
 Returning either owner to METERS or closing its editor lets the waiting page acquire that slot.
 Changing FREQ / SHARP / LIVE retains the same owned slot. The stable lock files are not removed,
 avoiding an unlink-and-recreate race between new owners.

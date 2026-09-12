@@ -288,11 +288,11 @@ View::HistoryRequest View::historyRequest() const noexcept
         128, 1'200, juce::jmax (1, bodyArea.getWidth()) * 2));
     switch (timeRange)
     {
-        case TimeRange::seconds30: return { KIRIN_METER_HISTORY_10_HZ, 300, maxOutput, "30 S / 10 HZ" };
-        case TimeRange::minutes2:  return { KIRIN_METER_HISTORY_10_HZ, 1'200, maxOutput, "2 MIN / 10 HZ" };
-        case TimeRange::minutes10: return { KIRIN_METER_HISTORY_10_HZ, 6'000, maxOutput, "10 MIN / 10 HZ" };
-        case TimeRange::hours2:    return { KIRIN_METER_HISTORY_1_HZ, 7'200, maxOutput, "2 H / 1 HZ" };
-        case TimeRange::hours24:   return { KIRIN_METER_HISTORY_0_1_HZ, 8'640, maxOutput, "24 H / 0.1 HZ" };
+        case TimeRange::seconds30: return { KIRIN_METER_HISTORY_10_HZ, 300, maxOutput, "30 S" };
+        case TimeRange::minutes2:  return { KIRIN_METER_HISTORY_10_HZ, 1'200, maxOutput, "2 MIN" };
+        case TimeRange::minutes10: return { KIRIN_METER_HISTORY_10_HZ, 6'000, maxOutput, "10 MIN" };
+        case TimeRange::hours2:    return { KIRIN_METER_HISTORY_1_HZ, 7'200, maxOutput, "2 H" };
+        case TimeRange::hours24:   return { KIRIN_METER_HISTORY_0_1_HZ, 8'640, maxOutput, "24 H" };
     }
     return {};
 }

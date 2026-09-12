@@ -136,6 +136,7 @@ void KirinHyphaEditor::showNoteDialog()
 
 void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 {
+    tooltip.hideTip();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (localBlindOpen) return;
    #endif
@@ -173,8 +174,28 @@ void KirinHyphaEditor::visibilityChanged()
         commitEditorSizeStateIfSettled (true);
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
+        // Pro Tools can hide an editor without destroying it when another insert is opened.
+        // Optional analysis slots are process-wide, so a hidden editor must never retain one.
+        processorRef.setSpectrumVisible (false);
+        processorRef.setPsbVisible (false);
+        processorRef.setPerceptualVisible (false);
+        processorRef.setAbsoluteVisible (false);
+        processorRef.setAttackEnabled (false);
        #endif
     }
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    else if (isPost)
+    {
+        if (analysisPage == AnalysisPage::spectrum) configureSpectrumAnalysis();
+        else if (analysisPage == AnalysisPage::perceptual)
+        {
+            if (sharpnessUsesAbsolute) processorRef.setAbsoluteVisible (true);
+            else processorRef.setPerceptualVisible (true);
+        }
+        else if (analysisPage == AnalysisPage::absolute) processorRef.setAbsoluteVisible (true);
+        else if (analysisPage == AnalysisPage::attack) processorRef.setAttackEnabled (true);
+    }
+   #endif
 }
 
 void KirinHyphaEditor::refreshObservatory()

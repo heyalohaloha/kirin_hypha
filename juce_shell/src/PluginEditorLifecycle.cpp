@@ -13,6 +13,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
        #endif
         processorRef.endReferenceBlind();
         processorRef.setSpectrumVisible (false);
+        processorRef.setPsbVisible (false);
         processorRef.setPerceptualVisible (false);
         processorRef.setAbsoluteVisible (false);
        #if ! KIRIN_HYPHA_PRE_DISPLAY

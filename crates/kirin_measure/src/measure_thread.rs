@@ -44,13 +44,14 @@ const LOOP_SLEEP: Duration = Duration::from_millis(100);
 /// Audio→Measure ring の滞留を減らす。Audio Thread からの通知や lock は増やさない。
 const RECORD_LOOP_SLEEP: Duration = Duration::from_millis(1);
 
-/// G-115-245 決定文言: heartbeat が変化しないまま何 tick 経過したら process() 停止と判定するか。
-/// **30 tick** × **TICK(=LOOP_SLEEP=100ms)** = **3s**（DAW の一時 stall を吸収）。30 / 100ms を
-/// literal に保持し、live ウィンドウ Duration を `live_window()` で導出する。
-const HEARTBEAT_STALE_TICKS: u32 = 30;
+/// heartbeat が変化しないまま何 tick 経過したら process() 停止と判定するか。
+/// 4 tick × 100 ms = 400 ms。2回連続の200 ms監視境界を満たしつつ、一時的なcallback揺れを
+/// 1回分吸収する。音声callbackが継続する実際の無音は別のsilence gateが扱うため、ここで
+/// 3秒保持するとtransport停止後に古い値と履歴だけが残る。
+const HEARTBEAT_STALE_TICKS: u32 = 4;
 const TICK: Duration = LOOP_SLEEP; // 100ms
 
-/// B-118 / G-115-245 執行: 鮮度の live ウィンドウ = 30 tick × 100ms = 3s。製品はこの導出値、
+/// 鮮度の live ウィンドウ = 4 tick × 100ms = 400ms。製品はこの導出値、
 /// テストは `LivenessEvaluator::new` に任意 Duration を注入する。
 pub fn live_window() -> Duration {
     TICK * HEARTBEAT_STALE_TICKS
@@ -100,7 +101,7 @@ pub fn pair_lock_active(playing: bool, live: bool) -> bool {
 
 /// B-118: 単一鮮度評価器（per-instance）。heartbeat counter の `last_seen` と最終変化時刻
 /// （単調時計 `Instant`）を保持し、`is_live()` =「heartbeat の最終変化から live ウィンドウ
-/// （G-115-245: 30×100ms=3s）以内」を返す。
+/// （4×100ms=400ms）以内」を返す。
 ///
 /// **単一源**: 表示（measure loop の signal_state→Inactive 上書き）/ POST pair lock 述語 /
 /// FFI getter / watchdog が全てこの 1 評価器を読む。**非 RT 読み手専用**（measure loop /
@@ -126,7 +127,7 @@ pub struct LivenessEvaluator {
 }
 
 impl LivenessEvaluator {
-    /// `heartbeat` は engine の共有カウンタ。`window` は製品 `live_window()`（3s）/ テスト任意。
+    /// `heartbeat` は engine の共有カウンタ。`window` は製品 `live_window()`（400ms）/ テスト任意。
     /// 生成直後は `last_change=0`（epoch 起点）なので、生成から window 内は live（既存 measure
     /// loop の「生成直後は live」意味論と一致）。
     pub fn new(heartbeat: Arc<AtomicU32>, window: Duration) -> Self {
@@ -194,7 +195,7 @@ pub fn stalled_signal_state(host_component_active: bool) -> SignalState {
 /// - `signal_state`: Audio Thread が書き込む信号状態
 /// - `shutdown`    : `true` に設定されたらループを終了するフラグ
 /// - `evaluator`   : B-118 単一鮮度評価器（`LivenessEvaluator`）。measure loop は毎ループ
-///   `evaluator.is_live()` を読み、not live（process() が live ウィンドウ=3s 変化なし）なら
+///   `evaluator.is_live()` を読み、not live（process() が live ウィンドウ=400ms 変化なし）なら
 ///   signal_state を Inactive に上書きする consumer に徹する（独自 stale 計数は撤去）。同一
 ///   評価器を editor pair lock / FFI getter / watchdog も読む（単一源）。
 ///
@@ -570,13 +571,10 @@ pub fn spawn_measure_thread(
             }
             prev_recording = is_recording;
 
-            // ── B-118: 単一鮮度評価器による stall detection（G-115-245: 3s）──────
-            // measure loop は評価器の consumer。process() が live ウィンドウ(3s)変化しなければ
-            // signal_state を停止理由に応じて上書きする（process() 再開時に Audio Thread が
-            // 即座に正しい state を書き戻す）。通常停止は Inactive、host が component を
-            // deactivate した場合だけ Bypassed。評価器は heartbeat と host activation を
-            // 独立に保持する（独自 stale 計数なし）。
-            let live = evaluator.is_live();
+            // ── B-118: 単一鮮度評価器による stall detection（400ms）────────────
+            // callback停止後も受理済みWatch末尾は有限ringから計測し、空になってからInactiveへ
+            // 移る。Pair lockは共有evaluatorを直接読むため400msで独立して解除される。
+            let live = evaluator.is_live() || (!is_recording && consumer.slots() > 0);
             if !live {
                 let stalled_state = stalled_signal_state(evaluator.host_component_active());
                 if prev_live {
@@ -2981,7 +2979,7 @@ pub mod tests {
             "(c) playing=false → unlocked（live 無関係）"
         );
     }
-    // (i) B-118 評価器単体: 連続 beat→live / 停止→window(3s) 経過で false / 再開→true。
+    // (i) B-118 評価器単体: 連続 beat→live / 停止→注入window経過で false / 再開→true。
     //     duration（elapsed ns）注入で決定的に検証する。
     #[test]
     fn b118_evaluator_beat_then_stale_after_window_then_resume() {
@@ -2995,14 +2993,8 @@ pub mod tests {
         hb.fetch_add(1, Ordering::Relaxed);
         assert!(ev.is_live_at(1_000), "beat 直後は live");
         // 停止: heartbeat 不変。window 未満は live 維持 / window 到達・超過は not live
-        assert!(
-            ev.is_live_at(1_000 + w - 1),
-            "停止後 window 未満は live（<3s）"
-        );
-        assert!(
-            !ev.is_live_at(1_000 + w),
-            "停止後 window 到達で not live（=3s）"
-        );
+        assert!(ev.is_live_at(1_000 + w - 1), "停止後 window 未満は live");
+        assert!(!ev.is_live_at(1_000 + w), "停止後 window 到達で not live");
         assert!(
             !ev.is_live_at(1_000 + w + 1_000_000_000),
             "window 超過も not live"
@@ -3054,9 +3046,9 @@ pub mod tests {
         );
     }
 
-    // (ii) B-115 回帰の 3s 化: 3s 未満のギャップで pair lock が false-release しない。
+    // (ii) B-115 回帰: 注入window未満のギャップでpair lockがfalse-releaseしない。
     #[test]
-    fn b118_pair_lock_no_false_release_below_3s() {
+    fn b118_pair_lock_no_false_release_below_window() {
         use std::sync::atomic::{AtomicU32, Ordering};
         use std::sync::Arc;
         let hb = Arc::new(AtomicU32::new(0));
@@ -3065,22 +3057,22 @@ pub mod tests {
         let w = win.as_nanos() as u64;
         hb.fetch_add(1, Ordering::Relaxed);
         assert!(ev.is_live_at(0), "beat → live");
-        // playing 凍結 + 3s 未満ギャップ: live 維持 → pair_lock_active(true, live)=true（lock 維持）
+        // playing 凍結 + window未満ギャップ: live維持 → pair lock維持
         assert!(
             super::pair_lock_active(true, ev.is_live_at(w - 1)),
-            "3s 未満は lock 維持（false-release しない）"
+            "window未満はlock維持（false-releaseしない）"
         );
-        // 3s 到達: not live → pair lock 解除
+        // window到達: not live → pair lock解除
         assert!(
             !super::pair_lock_active(true, ev.is_live_at(w)),
-            "3s 到達で lock 解除"
+            "window到達でlock解除"
         );
     }
 
-    // 製品定数の値検証: live_window = 30 tick × 100ms = 3s（G-115-245 決定文言）。
+    // 製品定数の値検証: live_window = 4 tick × 100ms = 400ms。
     #[test]
-    fn b118_live_window_is_30_ticks_100ms_3s() {
-        assert_eq!(super::HEARTBEAT_STALE_TICKS, 30, "G-115-245: 30 tick");
+    fn b118_live_window_is_four_ticks_400ms() {
+        assert_eq!(super::HEARTBEAT_STALE_TICKS, 4, "four ticks");
         assert_eq!(
             super::TICK,
             std::time::Duration::from_millis(100),
@@ -3088,8 +3080,8 @@ pub mod tests {
         );
         assert_eq!(
             super::live_window(),
-            std::time::Duration::from_secs(3),
-            "30 × 100ms = 3s"
+            std::time::Duration::from_millis(400),
+            "4 × 100ms = 400ms"
         );
     }
 
@@ -3101,7 +3093,7 @@ pub mod tests {
         use std::sync::Arc;
         use std::thread;
         let hb = Arc::new(AtomicU32::new(0));
-        // window=3s。テストは 50ms しか回さないので beat 中は常に window 内 = live。
+        // 注入window=3s。テストは50msしか回さないのでbeat中は常にwindow内。
         let ev = Arc::new(super::LivenessEvaluator::new(
             Arc::clone(&hb),
             std::time::Duration::from_secs(3),

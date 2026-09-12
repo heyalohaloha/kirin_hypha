@@ -107,7 +107,7 @@ void KirinHyphaEditor::beginLocalBlindProductCapture()
     if (! localBlindOpen || ! localBlindPreflight) return;
     if (processorRef.pairStatus() != KIRIN_PAIR_STATUS_PAIRED)
     {
-        localBlindView.setActionNotice ("PAIR CHANGED · RETURN AND REOPEN");
+        localBlindView.setActionNotice ("PAIR CHANGED / RETURN AND REOPEN");
         return;
     }
     if (processorRef.isRecording() || processorRef.keepPhase() != KIRIN_KEEP_PHASE_IDLE)

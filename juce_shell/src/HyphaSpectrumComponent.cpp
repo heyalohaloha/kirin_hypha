@@ -127,8 +127,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
     {
         interactionDefinition = next;
         haveInteractionDefinition = true;
-        const auto calmWeights = spectrum_presentation::lowFrequencyCalmWeights<
-            KIRIN_SPECTRUM_BAND_COUNT> (snapshot.min_hz, snapshot.max_hz);
+        const auto& calmWeights = calmWeightsFor (snapshot.min_hz, snapshot.max_hz);
         if (snapshot.has_data != 0)
             displayedPre = spectrum_presentation::calmLowFrequencies (
                 snapshot.pre_dbfs, calmWeights);
@@ -248,8 +247,7 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
         return;
     }
 
-    const auto calmWeights = spectrum_presentation::lowFrequencyCalmWeights<
-        KIRIN_SPECTRUM_BAND_COUNT> (next.min_hz, next.max_hz);
+    const auto& calmWeights = calmWeightsFor (next.min_hz, next.max_hz);
     if (next.has_data != 0)
         pendingPre = spectrum_presentation::calmLowFrequencies (next.pre_dbfs, calmWeights);
     else

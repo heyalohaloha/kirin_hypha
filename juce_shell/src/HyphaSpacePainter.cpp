@@ -15,7 +15,7 @@ int axisLabelWidth (presentation::Context presentation, bool compact)
         typography::Composition::visualization);
     const auto font = monoFont (presentation, typography::TextRole::axis,
                                 typography::Composition::visualization);
-    return text_style::requiredWidth (font, compact ? "S-" : "SIDE -", style);
+    return text_style::requiredWidth (font, compact ? "S<0" : "SIDE < 0", style);
 }
 
 int axisLabelHeight (presentation::Context presentation)
@@ -129,16 +129,16 @@ void drawAxisLabels (juce::Graphics& g, juce::Rectangle<int> plot, bool compact,
     const auto rowHeight = juce::jmin (axisLabelHeight (presentation), plot.getHeight() / 3);
     const auto sideWidth = juce::jmin (axisLabelWidth (presentation, compact),
                                       plot.getWidth() / 3);
-    g.drawText (compact ? "M+" : "MID +",
+    g.drawText (compact ? "M>0" : "MID > 0",
                 juce::Rectangle<int> { plot.getX(), plot.getY(), plot.getWidth(), rowHeight },
                 juce::Justification::centred);
-    g.drawText (compact ? "M-" : "MID -",
+    g.drawText (compact ? "M<0" : "MID < 0",
                 juce::Rectangle<int> { plot.getX(), plot.getBottom() - rowHeight,
                                        plot.getWidth(), rowHeight },
                 juce::Justification::centred);
-    g.drawText (compact ? "S-" : "SIDE -", plot.withWidth (sideWidth),
+    g.drawText (compact ? "S<0" : "SIDE < 0", plot.withWidth (sideWidth),
                 juce::Justification::centredLeft);
-    g.drawText (compact ? "S+" : "SIDE +",
+    g.drawText (compact ? "S>0" : "SIDE > 0",
                 plot.withX (plot.getRight() - sideWidth).withWidth (sideWidth),
                 juce::Justification::centredRight);
 }
@@ -158,7 +158,7 @@ void paint (juce::Graphics& g,
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (monoFont (presentation, typography::TextRole::legend,
                          typography::Composition::visualization));
-    g.drawText (compact ? "3 S FIELD" : "3 S MID / SIDE DENSITY",
+    g.drawText (compact ? "3 S M/S" : "3 S M/S POLARITY DENSITY",
                 title, juce::Justification::centredLeft);
     const bool fieldAvailable = available && meter.channels == 2
                              && meter.field_size == KIRIN_STEREO_FIELD_SIZE

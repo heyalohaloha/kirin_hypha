@@ -129,12 +129,16 @@ void verifyJungleAppearanceContract (
     post.setSize (600, 400);
     configure (post, observatory::Role::post, meter, watch, history);
     post.setObservatoryFrame (frame, true);
-    const auto normalCapture = post.createCaptureImage (1200, 630, true);
+    const juce::String fixedCaptureTime { "2226-09-12 12:00:00" };
+    const auto normalCapture = post.createCaptureImage (
+        1200, 630, true, fixedCaptureTime);
     post.setJungleAppearance (true);
     KIRIN_JUNGLE_REQUIRE (
-        differentPixels (normalCapture, post.createCaptureImage (1200, 630, true)) > 80);
+        differentPixels (normalCapture, post.createCaptureImage (
+            1200, 630, true, fixedCaptureTime)) > 80);
     post.setJungleAppearance (false);
     KIRIN_JUNGLE_REQUIRE (
-        differentPixels (normalCapture, post.createCaptureImage (1200, 630, true)) == 0);
+        differentPixels (normalCapture, post.createCaptureImage (
+            1200, 630, true, fixedCaptureTime)) == 0);
 }
 }

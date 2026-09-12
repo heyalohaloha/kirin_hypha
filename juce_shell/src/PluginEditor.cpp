@@ -183,7 +183,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         // The arrow beside PAIR owns exact connection selection only.
         pairDropdown.setTitle ("Pair menu");
         pairDropdown.setDescription ("Choose one exact PRE connection");
-        pairDropdown.setTooltip ("Pair choices");
+        pairDropdown.setTooltip ("PRE connection");
         pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
         pairDropdown.setColour (juce::TextButton::textColourOnId,  COL_FLORA);
         pairDropdown.setColour (juce::TextButton::textColourOffId, COL_FLORA);

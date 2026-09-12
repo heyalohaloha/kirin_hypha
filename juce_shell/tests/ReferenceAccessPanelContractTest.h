@@ -112,7 +112,7 @@ inline void verifyReferenceAccessPanelContract()
         panel.setOwned (true);
         require (! panel.getDescription().contains ("License not confirmed"),
                  "external entitlement recognition clears stale recheck failure");
-        require (panel.getDescription().contains ("Kirin OS license confirmed"),
+        require (panel.getDescription().contains ("Open Kirin OS > INSPECT"),
                  "recognized owner sees explicit license confirmation");
         require (panel.getDescription().contains ("Connect Hypha POST"),
                  "recognized owner sees the current Work connection action");

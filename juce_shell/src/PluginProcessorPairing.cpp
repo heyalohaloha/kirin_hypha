@@ -327,8 +327,8 @@ juce::String KirinHyphaProcessorBase::pairDisplayName() const
 {
     const auto shortId = persistPairInstanceId.substring (0, 8);
     if (persistPairName.isEmpty())
-        return shortId;
-    return shortId.isEmpty() ? persistPairName : persistPairName + " · " + shortId;
+        return shortId.isEmpty() ? juce::String() : "PRE " + shortId;
+    return persistPairName;
 }
 
 bool KirinHyphaProcessorBase::setPairCandidate (const juce::String& instanceId,

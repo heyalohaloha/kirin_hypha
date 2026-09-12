@@ -177,14 +177,17 @@ fn post_pair_surface_selects_an_exact_pre_without_free_text() {
     assert!(editor.contains("nameField.onSelect = [this] { showCandidateMenu(); }"));
     assert!(editor.contains("Click to choose one exact PRE."));
     assert!(editor.contains("processorRef.setPairCandidate"));
-    assert!(editor.contains("POST only (no PRE pair)"));
+    assert!(editor.contains("Use POST only"));
+    assert!(editor.contains("Stop playback to change connection"));
+    assert!(editor.contains("In use by another POST:"));
     assert!(editor.contains("processorRef.clearPairCandidate"));
     assert!(!editor.contains("processorRef.setPairName"));
     assert!(widgets.contains("if (onSelect)"));
     assert!(processor.contains("pairDisplayName() const"));
     assert!(processor.contains("clearPairCandidate()"));
     assert!(processor.contains("kirin_hypha_set_pair_target (hyphaHandle, \"\")"));
-    assert!(processor.contains("persistPairName + \" · \" + shortId"));
+    assert!(processor.contains("return shortId.isEmpty() ? juce::String() : \"PRE \" + shortId"));
+    assert!(processor.contains("return persistPairName;"));
     assert!(!processor.contains("setPairName ("));
 }
 

@@ -204,7 +204,7 @@ void Component::refreshPresentation()
     titleLabel.setText (juce::String (hidden ? "BLIND COMPARE"
                                             : phase == Phase::revealed ? "BLIND RESULT"
                                                                       : "PRE / POST BLIND")
-                           + "  ·  " + tag,
+                           + " / " + tag,
                         juce::dontSendNotification);
     juce::String status;
     juce::String detail;

@@ -340,12 +340,13 @@ void paint (juce::Graphics& g,
                          typography::Composition::visualization));
     g.setColour (COL_SPECTRUM_POST);
     auto loudnessLegend = meanings.removeFromLeft (delta ? meanings.getWidth() : meanings.getWidth() / 2);
-    g.drawText (delta ? "M: POST - PRE (LU) / 60s" : "M: momentary LUFS",
+    g.drawText (delta ? "M / POST - PRE / 60 S" : "M / momentary LUFS",
                 loudnessLegend, juce::Justification::centredLeft);
     if (! delta)
     {
         g.setColour (COL_FLORA_BR);
-        g.drawText ("TP: 2s peaks (dBTP)", meanings, juce::Justification::centredRight);
+        g.drawText ("TP / 2 S peak hold / dBTP", meanings,
+                    juce::Justification::centredRight);
     }
     g.setColour (COL_MUTED.brighter (0.15f));
     juce::String detail;
@@ -366,8 +367,8 @@ void paint (juce::Graphics& g,
                + " @ " + relativeTimeText (peakSummary.secondsBeforeEnd);
     }
     else
-        detail = delta ? juce::String ("M   |   60 S / 10 HZ")
-                       : juce::String ("TP ") + emDash() + "   |   60 S / 10 HZ";
+        detail = delta ? juce::String ("M / 60 S AUDIO")
+                       : juce::String ("TP ") + emDash() + " / 60 S AUDIO";
     if (contextFact.isNotEmpty())
         detail = contextFact + "   |   " + detail;
     g.drawText (detail, legend, juce::Justification::centredLeft);

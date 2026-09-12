@@ -35,7 +35,7 @@ namespace hypha::reference_audition
                 });
             if (! sameGlobalRevision)
                 snapshot.presets.push_back ({ "work:" + item.sourcePresetArtifact.presetId,
-                    item.name + " · WORK", item.sourceTemplateArtifact.revisionId, pending });
+                    item.name + " / WORK", item.sourceTemplateArtifact.revisionId, pending });
         };
         for (const auto& item : workspace.presets) appendWork (item, false);
         for (const auto& item : workspace.manifest.pendingPresets) appendWork (item, true);

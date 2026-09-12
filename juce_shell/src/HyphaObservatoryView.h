@@ -182,7 +182,7 @@ public:
         uint8_t resolution = KIRIN_METER_HISTORY_10_HZ;
         size_t maxEntries = 300;
         size_t maxOutputEntries = 300;
-        const char* label = "30 S / 10 HZ";
+        const char* label = "30 S";
     };
 
     HistoryRequest historyRequest() const noexcept;

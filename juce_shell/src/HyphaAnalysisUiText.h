@@ -11,9 +11,9 @@ inline juce::String switchViewTooltip (const char* viewName)
 
 inline juce::String slotsInUse (const juce::String& ownerNames)
 {
-    auto text = juce::String ("Both slots in use");
+    auto text = juce::String ("ANALYSIS IN USE");
     if (ownerNames.isNotEmpty())
-        text += " " + juce::String::charToString (0x2014) + " " + ownerNames;
+        text += " / " + ownerNames;
     return text;
 }
 

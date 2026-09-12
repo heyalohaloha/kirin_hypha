@@ -37,8 +37,8 @@ namespace
     juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
     {
         if (status == KIRIN_SPECTRUM_NO_PAIR) return juce::CharPointer_UTF8 ("PAIR —");
-        if (status == KIRIN_SPECTRUM_WARMING_UP) return juce::CharPointer_UTF8 ("SYNC ◌");
-        if (status == KIRIN_SPECTRUM_UNAVAILABLE) return juce::CharPointer_UTF8 ("DATA —");
+        if (status == KIRIN_SPECTRUM_WARMING_UP) return "PREPARING ANALYSIS";
+        if (status == KIRIN_SPECTRUM_UNAVAILABLE) return "ANALYSIS DATA UNAVAILABLE";
         if (status == KIRIN_SPECTRUM_IN_USE)
             return analysis_ui::slotsInUse (analysisOwnerNames);
         return {};
@@ -400,7 +400,7 @@ void paint (juce::Graphics& g,
     {
         const auto text = ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot
                             ? statusText (state.snapshot.status, state.analysisOwnerNames)
-                                             : juce::String ("SYNC");
+                                             : juce::String ("PREPARING ANALYSIS");
         if (text.isNotEmpty())
         {
             g.setColour (COL_MUTED);

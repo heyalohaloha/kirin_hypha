@@ -31,7 +31,6 @@ public:
         }
         heading.setComponentID ("reference-access-heading");
         detail.setComponentID ("reference-access-detail");
-        detail.setComponentID ("reference-access-detail");
         for (auto* button : { &about, &owner, &recheck })
         {
             addAndMakeVisible (*button);
@@ -85,13 +84,15 @@ public:
         detail.setFont (labelFont (presentationContext, typography::TextRole::body,
                                    typography::Composition::information));
         heading.setBounds (area.removeFromTop (large ? 24 : 20));
-        auto actions = area.removeFromBottom (large ? 32 : 28);
-        area.removeFromBottom (3);
+        juce::Rectangle<int> actions;
+        if (! owned)
+        {
+            actions = area.removeFromBottom (large ? 32 : 28);
+            area.removeFromBottom (3);
+        }
         detail.setBounds (area);
         const int gap = 4;
-        if (owned)
-            recheck.setBounds (actions);
-        else
+        if (! owned)
         {
             auto first = actions.removeFromLeft ((actions.getWidth() - gap) / 2);
             actions.removeFromLeft (gap);
@@ -111,11 +112,11 @@ private:
     void refresh()
     {
         const bool help = owned || ownerHelp;
-        heading.setText (owned ? "CONNECT FROM A SAVED WORK" : "REFERENCE / KIRIN OS",
+        heading.setText (owned ? "WAITING FOR KIRIN OS" : "REFERENCE / KIRIN OS",
                          juce::dontSendNotification);
         const auto text = owned
-            ? juce::String ("Kirin OS license confirmed.\n"
-                            "In INSPECT, choose Connect Hypha POST.")
+            ? juce::String ("Open Kirin OS > INSPECT.\n"
+                            "Choose Connect Hypha POST for this saved work.")
             : help
                 ? (unconfirmed ? "License not confirmed. " : "")
                     + juce::String ("Open Kirin OS, then Recheck License.\n"
@@ -127,7 +128,7 @@ private:
         about.setVisible (! help);
         owner.setVisible (! owned);
         owner.setButtonText (ownerHelp ? "BACK" : "ALREADY OWN IT?");
-        recheck.setVisible (help);
+        recheck.setVisible (! owned && help);
         resized();
     }
 };

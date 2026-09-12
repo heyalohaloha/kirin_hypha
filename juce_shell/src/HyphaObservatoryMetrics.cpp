@@ -51,7 +51,7 @@ void drawMetric (juce::Graphics& g,
         const auto labelHeight = juce::jlimit (14, 18, area.getHeight() / 4);
         const auto unitHeight = juce::jlimit (14, 16, area.getHeight() / 5);
         const auto labelArea = area.removeFromTop (labelHeight);
-        const auto unitArea = area.removeFromBottom (unitHeight);
+        const auto unitArea = area.removeFromBottom (textOverride.isEmpty() ? unitHeight : 0);
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                               typography::Composition::facts));
@@ -66,7 +66,8 @@ void drawMetric (juce::Graphics& g,
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentation, typography::TextRole::unit,
                               typography::Composition::facts));
-        g.drawText (unit, unitArea.reduced (3, 0), juce::Justification::centred);
+        if (textOverride.isEmpty())
+            g.drawText (unit, unitArea.reduced (3, 0), juce::Justification::centred);
         return;
     }
     const auto labelArea = area.removeFromTop (juce::jmax (14, area.getHeight() / 4));
@@ -261,7 +262,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         const auto warming = index == lraIndex && cumulativeAvailable
                           && observatoryFrame.lra_state == KIRIN_LRA_WARMING;
         const auto warmingText = warming
-            ? "WARM " + juce::String ((int) std::floor (observatoryFrame.lra_elapsed_seconds)) + "S"
+            ? "WARMING " + juce::String ((int) std::floor (observatoryFrame.lra_elapsed_seconds)) + " S"
             : juce::String();
         drawMetric (g, area.removeFromLeft (
                         area.getWidth() / (supportCount - index)).reduced (2),

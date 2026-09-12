@@ -75,10 +75,10 @@ void KirinHyphaEditor::showCandidateMenu()
                     ++sameNameCount;
         const juce::String shown = c.hasName && c.name.isNotEmpty()
                                      ? c.name + (sameNameCount > 1
-                                                     ? " · " + c.instanceId.substring (0, 8)
+                                                     ? " / " + c.instanceId.substring (0, 8)
                                                      : juce::String())
-                                     : c.instanceId.substring (0, 8);
-        labels.add ((inUse ? "In use: " : (selected ? "Selected: " : "")) + shown);
+                                     : "PRE " + c.instanceId.substring (0, 8);
+        labels.add ((inUse ? "In use by another POST: " : "Use PRE: ") + shown);
         labelEnabled.add (! inUse);
         labelChecked.add (selected && ! inUse);
     }
@@ -86,10 +86,12 @@ void KirinHyphaEditor::showCandidateMenu()
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     const bool pairSelected = processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED;
-    menu.addSectionHeader ("Pair choices");
-    menu.addItem (11, "POST only (no PRE pair)", ! pairLocked, ! pairSelected);
+    menu.addSectionHeader ("PRE connection");
+    if (pairLocked)
+        menu.addItem (2, "Stop playback to change connection", false, false);
+    menu.addItem (11, "Use POST only", ! pairLocked, ! pairSelected);
     if (cands.isEmpty())
-        menu.addItem (3, "No pair choices", false, false); // disabled (R-26: silent when nothing)
+        menu.addItem (3, "No available PRE", false, false); // explicit result of user action
     else
         for (int i = 0; i < labels.size(); ++i)
             menu.addItem (100 + i, labels[i], ! pairLocked && labelEnabled[i], labelChecked[i]);
@@ -144,8 +146,10 @@ void KirinHyphaEditor::showOperationsMenu()
         if (observatoryDomain != hypha::observatory::Domain::reference)
             menu.addItem (21, "Create Capture");
         if (observatoryView.localBlindEntryAvailable())
-            menu.addItem (23, "PRE / POST Blind Compare  ·  "
+            menu.addItem (23, "PRE / POST Blind Compare / "
                               + meterContextLabel (processorRef.meterContextPreference()));
+        else if (processorRef.wrapperType == juce::AudioProcessor::wrapperType_AAX)
+            menu.addItem (23, "PRE / POST Blind / AAX validation pending", false);
     }
     menu.addSeparator();
     menu.addSectionHeader ("Display");
@@ -197,9 +201,9 @@ void KirinHyphaEditor::showMeterContextMenu (juce::Component& anchor)
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader ("Meter context");
-    menu.addItem (700, "2MIX  ·  Mix / master bus  ·  continuous active sections",
+    menu.addItem (700, "2MIX / Mix or master bus / continuous sections",
                   true, current == hypha::meter_context::MeterContext::twoMix);
-    menu.addItem (701, "TRACK / STEM  ·  Individual / group bus  ·  short or sparse events",
+    menu.addItem (701, "TRACK / STEM / individual or group bus / sparse events",
                   true, current == hypha::meter_context::MeterContext::trackStem);
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (&anchor).withDeletionCheck (*this)
@@ -265,6 +269,7 @@ void KirinHyphaEditor::showDomainMenu()
 
 void KirinHyphaEditor::showSizeMenu()
 {
+    tooltip.hideTip();
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader ("Editor size");
@@ -286,9 +291,14 @@ void KirinHyphaEditor::showSizeMenu()
     {
         if (safe == nullptr || result < 400 || result >= 405) return;
         const auto preset = hypha::observatory::sizePresets[(size_t) (result - 400)];
-        if ((safe->getWidth() != preset.width || safe->getHeight() != preset.height)
-            && safe->observatoryView.onSizeChange)
-            safe->observatoryView.onSizeChange (preset);
+        juce::PopupMenu::dismissAllActiveMenus();
+        juce::MessageManager::callAsync ([safe, preset]
+        {
+            if (safe != nullptr
+                && (safe->getWidth() != preset.width || safe->getHeight() != preset.height)
+                && safe->observatoryView.onSizeChange)
+                safe->observatoryView.onSizeChange (preset);
+        });
     });
 }
 
@@ -299,8 +309,8 @@ void KirinHyphaEditor::showGuideInformationMenu()
     if (! guide.guideAvailable && display.primary.isEmpty() && display.detail.isEmpty()) return;
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
-    const auto heading = guide.payloadKind == "masking" ? "MASKING · OS GUIDE"
-                       : guide.payloadKind == "inspect" ? "INSPECT · OS GUIDE" : "OS GUIDE";
+    const auto heading = guide.payloadKind == "masking" ? "MASKING / OS GUIDE"
+                       : guide.payloadKind == "inspect" ? "INSPECT / OS GUIDE" : "OS GUIDE";
     menu.addSectionHeader (heading);
     int item = 500;
     const auto addFact = [&menu, &item] (const juce::String& text)
@@ -321,7 +331,7 @@ void KirinHyphaEditor::showGuideInformationMenu()
             addFact (juce::String (guide.primary.lowHz, 0) + " to "
                      + juce::String (guide.primary.highHz, 0) + " Hz"
                      + (guide.primary.frequencyBasis.isNotEmpty()
-                            ? juce::String ("  ·  ") + guide.primary.frequencyBasis
+                            ? juce::String (" / ") + guide.primary.frequencyBasis
                             : juce::String()));
     }
     const auto options = juce::PopupMenu::Options()

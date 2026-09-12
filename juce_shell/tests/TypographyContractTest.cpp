@@ -250,15 +250,17 @@ void verifyPreservedSurfaceText()
             context, typography::TextRole::axis,
             typography::Composition::visualization);
         KIRIN_TYPOGRAPHY_REQUIRE (fits (
-            axisFont, preset.density == observatory::Density::compact ? "S-" : "SIDE -",
+            axisFont, preset.density == observatory::Density::compact ? "S<0" : "SIDE < 0",
             space_field::axisLabelWidth (
                 context, preset.density == observatory::Density::compact)));
 
         const auto bodyFont = monoFont (
             context, typography::TextRole::body,
             typography::Composition::visualization);
+        const auto plrDefinition = preset.width >= 600
+            ? "SESSION FACT / TP MAX - LUFS-I" : "TP MAX - LUFS-I";
         KIRIN_TYPOGRAPHY_REQUIRE (fits (
-            bodyFont, "Session max TP - I",
+            bodyFont, plrDefinition,
             time_history::auxLabelWidth (context, true, false, body.width)));
     }
 }
@@ -357,7 +359,7 @@ void verifyProductTypography()
 
     const auto slotsText = analysis_ui::slotsInUse ("Mix, Vocal");
     KIRIN_TYPOGRAPHY_REQUIRE (! slotsText.containsChar ('\n'));
-    KIRIN_TYPOGRAPHY_REQUIRE (analysis_ui::slotsInUse ({}).equalsIgnoreCase ("Both slots in use"));
+    KIRIN_TYPOGRAPHY_REQUIRE (analysis_ui::slotsInUse ({}).equalsIgnoreCase ("ANALYSIS IN USE"));
     const auto compactAnalysisBounds = ui_contract::spectrumPlotBounds (300, 200);
     KIRIN_TYPOGRAPHY_REQUIRE (fits (
         monoFont (compact, typography::TextRole::status, typography::Composition::visualization),

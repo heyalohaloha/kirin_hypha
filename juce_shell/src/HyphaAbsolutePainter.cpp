@@ -36,10 +36,10 @@ namespace
 
     juce::String statusText (uint8_t status, const juce::String& analysisOwnerNames)
     {
-        if (status == KIRIN_SPECTRUM_WARMING_UP) return juce::CharPointer_UTF8 ("OBSERVE ◌");
+        if (status == KIRIN_SPECTRUM_WARMING_UP) return "PREPARING ANALYSIS";
         if (status == KIRIN_SPECTRUM_IN_USE)
             return analysis_ui::slotsInUse (analysisOwnerNames);
-        if (status == KIRIN_SPECTRUM_UNAVAILABLE) return juce::CharPointer_UTF8 ("DATA —");
+        if (status == KIRIN_SPECTRUM_UNAVAILABLE) return "ANALYSIS DATA UNAVAILABLE";
         return {};
     }
 
@@ -237,7 +237,7 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
         const auto status = ! state.signalActive ? juce::String (inactive) : state.haveBatch
                               ? statusText (state.batch.latest.status,
                                             state.analysisOwnerNames)
-                                            : juce::String ("OBSERVE --");
+                                            : juce::String ("PREPARING ANALYSIS");
         g.setFont (monoFont (state.presentation, typography::TextRole::status,
                              typography::Composition::visualization));
         g.setColour (COL_MUTED.withAlpha (0.84f));

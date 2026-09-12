@@ -30,8 +30,11 @@ int auxLabelWidth (presentation::Context presentation, bool plr, bool delta,
             typography::Composition::visualization);
         const auto bodyFont = monoFont (presentation, typography::TextRole::body,
                                         typography::Composition::visualization);
+        const auto definition = presentation.logicalWidth >= 600
+            ? (delta ? "PLR / POST - PRE" : "SESSION FACT / TP MAX - LUFS-I")
+            : (delta ? "PLR POST - PRE" : "TP MAX - LUFS-I");
         required = juce::jmax (required, text_style::requiredWidth (
-            bodyFont, delta ? "Difference of PLR" : "Session max TP - I", bodyStyle));
+            bodyFont, definition, bodyStyle));
     }
     return juce::jmin (required, availableWidth / 2);
 }
@@ -105,6 +108,24 @@ juce::String latestText (const std::vector<KirinMeterHistoryEntry>& history,
     return "---";
 }
 
+double latestValue (const std::vector<KirinMeterHistoryEntry>& history,
+                    Metric metric) noexcept
+{
+    for (auto iterator = history.rbegin(); iterator != history.rend(); ++iterator)
+    {
+        const auto value = rangeFor (*iterator, metric).mean;
+        if (std::isfinite (value)) return value;
+    }
+    return std::numeric_limits<double>::quiet_NaN();
+}
+
+bool primaryMetricsAvailable (const KirinMeterHistoryEntry& entry) noexcept
+{
+    return std::isfinite (entry.lufs_m.mean)
+        && std::isfinite (entry.lufs_s.mean)
+        && std::isfinite (entry.true_peak.mean);
+}
+
 float normalizedAux (Metric metric, double value, bool delta) noexcept
 {
     const double minimum = metric == Metric::plr ? (delta ? -12.0 : 0.0)
@@ -139,8 +160,32 @@ void paintAuxLane (juce::Graphics& g,
                     juce::Justification::centredLeft);
         g.setFont (monoFont (presentation, typography::TextRole::body,
                              typography::Composition::visualization));
-        g.drawText (delta ? "Difference of PLR" : "Session max TP - I", labelArea,
+        const auto definition = presentation.logicalWidth >= 600
+            ? (delta ? "PLR / POST - PRE" : "SESSION FACT / TP MAX - LUFS-I")
+            : (delta ? "PLR POST - PRE" : "TP MAX - LUFS-I");
+        g.drawText (definition, labelArea,
                     juce::Justification::centredLeft);
+
+        // PLR is a cumulative session fact and normally changes very little. Present it as a
+        // restrained horizontal fact gauge instead of a misleading near-flat time trace.
+        const auto value = latestValue (history, metric);
+        const auto minimum = delta ? -12.0 : 0.0;
+        const auto maximum = delta ? 12.0 : 24.0;
+        auto gauge = area.reduced (6, juce::jmax (4, area.getHeight() / 3)).toFloat();
+        const auto centreY = gauge.getCentreY();
+        g.setColour (COL_MUTED.withAlpha (0.28f));
+        g.drawLine (gauge.getX(), centreY, gauge.getRight(), centreY, 1.0f);
+        if (std::isfinite (value))
+        {
+            const auto proportion = (float) juce::jlimit (
+                0.0, 1.0, (value - minimum) / (maximum - minimum));
+            const auto start = delta ? gauge.getCentreX() : gauge.getX();
+            const auto end = gauge.getX() + proportion * gauge.getWidth();
+            g.setColour (colour.withAlpha (0.82f));
+            g.drawLine (start, centreY, end, centreY, 1.15f);
+            g.fillEllipse (end - 2.0f, centreY - 2.0f, 4.0f, 4.0f);
+        }
+        return;
     }
     else
         g.drawText (labelText, labelArea.reduced (2, 0), juce::Justification::centredLeft);
@@ -160,7 +205,7 @@ void paintAuxLane (juce::Graphics& g,
     {
         const auto& entry = history[index];
         const auto value = rangeFor (entry, metric).mean;
-        if (! std::isfinite (value))
+        if (! primaryMetricsAvailable (entry) || ! std::isfinite (value))
         {
             open = false;
             continue;
@@ -257,6 +302,11 @@ void paintMetric (juce::Graphics& g,
         const auto& range = rangeFor (entry, visual.metric);
         const float x = xFor (plot, entry, axis,
                               index, history.size());
+        if (! primaryMetricsAvailable (entry) || ! std::isfinite (range.mean))
+        {
+            open = false;
+            continue;
+        }
         if (entry.observation_count > 1u
             && std::isfinite (range.min) && std::isfinite (range.max))
         {
@@ -265,11 +315,8 @@ void paintMetric (juce::Graphics& g,
             if (top < bottom)
                 ranges.addRectangle ((float) juce::roundToInt (x), top, 1.0f, bottom - top);
         }
-        if (! std::isfinite (range.mean))
-        {
-            open = false;
-            continue;
-        }
+        // A shared validity boundary keeps M, S and TP discontinuities aligned. A missing
+        // primary fact must not make one curve imply continuous observation while another stops.
         const float y = yFor (plot, visual.metric, range.mean, delta, scaleMode);
         const bool newRun = ! open || entry.generation != previousGeneration
                          || entry.run_id != previousRun;
@@ -414,17 +461,5 @@ void paint (juce::Graphics& g,
                       COL_SPECTRUM_DELTA_BR, axis, delta, presentation);
     }
 
-    if (! compactMeter && plot.getHeight() >= 55.0f)
-    {
-        g.setColour (COL_TEXT_TERTIARY);
-        g.setFont (labelFont (presentation, typography::TextRole::unit,
-                              typography::Composition::visualization));
-        g.drawText (delta ? "LU" : "LUFS", juce::roundToInt (plot.getX()) - 27,
-                    juce::roundToInt (plot.getBottom()) - 8, 28, 14,
-                    juce::Justification::centredRight);
-        g.drawText (delta ? "dB" : "dBTP", juce::roundToInt (plot.getRight()) + 4,
-                    juce::roundToInt (plot.getBottom()) - 8, 28, 14,
-                    juce::Justification::centredLeft);
-    }
 }
 }

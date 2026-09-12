@@ -59,6 +59,8 @@ void paintSubviewToggle (juce::Graphics& g, juce::Rectangle<float> bounds, bool 
         g, button, false, false, psbSelected, COL_LED_BLUE, 3.0f * scale);
     g.setFont (monoFont (presentation, typography::TextRole::action,
                          typography::Composition::visualization));
+    g.setColour (psbSelected ? COL_LED_BLUE.brighter (0.24f)
+                             : COL_TEXT_SECONDARY.withAlpha (0.92f));
     g.drawText (psbSelected ? "SPECTRUM" : "PSB", button.toNearestInt(),
                 juce::Justification::centred);
 }

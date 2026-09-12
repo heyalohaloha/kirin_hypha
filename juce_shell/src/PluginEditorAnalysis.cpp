@@ -29,6 +29,7 @@ void KirinHyphaEditor::configureSpectrumCallbacks()
 
 void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
 {
+    tooltip.hideTip();
     if (page == AnalysisPage::attack
         && ! hypha::meter_context::drumAttackAvailable (processorRef.meterContextPreference()))
         page = AnalysisPage::meters;
@@ -54,7 +55,10 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     if (hypha::analysis_navigation::releasesSlot (previousPage, page))
     {
         if (previousPage == AnalysisPage::spectrum)
+        {
             processorRef.setSpectrumVisible (false);
+            processorRef.setPsbVisible (false);
+        }
         else if (previousPage == AnalysisPage::perceptual)
         {
             if (sharpnessUsesAbsolute) processorRef.setAbsoluteVisible (false);
@@ -156,8 +160,16 @@ void KirinHyphaEditor::configureSpectrumAnalysis()
         spectrumView.setDisplaySelection (processorRef.spectrumDisplaySelection());
     observatoryView.setDeltaTargetEnabled (! midSide || spectrumView.isPsbObservation());
     spectrumView.setAbsoluteObservation (absolute);
-    if (spectrumView.isPsbObservation()) processorRef.setPsbVisible (! absolute);
-    else processorRef.setSpectrumVisible (true);
+    if (spectrumView.isPsbObservation())
+    {
+        processorRef.setSpectrumVisible (false);
+        processorRef.setPsbVisible (! absolute);
+    }
+    else
+    {
+        processorRef.setPsbVisible (false);
+        processorRef.setSpectrumVisible (true);
+    }
 }
 
 bool KirinHyphaEditor::refreshAnalysisViews (

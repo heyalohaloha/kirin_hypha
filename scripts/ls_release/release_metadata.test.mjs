@@ -227,7 +227,7 @@ test('README opens with current analysis, exact pairing, and supported Windows f
       < readme.indexOf('docs/media/kirin-hypha-pre-post.jpg'),
     'FREQ must be the first public product image',
   );
-  assert.match(entrance, /choose that exact PRE under \*\*Pair choices\*\*/);
+  assert.match(entrance, /choose that exact PRE under \*\*PRE connection\*\*/);
   assert.match(entrance, /Names are optional labels/);
   assert.match(readme, /current v1\.1\.49 Windows 10\/11 64-bit VST3 release is distributed as one signed installer EXE/);
   assert.match(readme, /payloads, installer, and generated uninstaller passed signature/);

@@ -87,6 +87,17 @@ int differentPixels (const juce::Image& left, const juce::Image& right,
     return count;
 }
 
+int brightPixels (const juce::Image& image, juce::Rectangle<int> requested,
+                  float minimumBrightness)
+{
+    const auto area = requested.getIntersection (image.getBounds());
+    auto count = 0;
+    for (int y = area.getY(); y < area.getBottom(); ++y)
+        for (int x = area.getX(); x < area.getRight(); ++x)
+            count += image.getPixelAt (x, y).getPerceivedBrightness() >= minimumBrightness;
+    return count;
+}
+
 void paintIntoBody (juce::Image& destination, juce::Component& body,
                     juce::Rectangle<int> bounds)
 {
@@ -188,6 +199,11 @@ void verifyPsbComposites (observatory::View& shell)
             const auto bounds = component.getLocalBounds().toFloat();
             const auto scale = spectrum_geometry::visualScaleFor (bounds);
             const auto toggle = spectrum_geometry::subviewBoundsFor (spectrum_geometry::plotBoundsFor (bounds), scale);
+            const auto toggleInterior = toggle.toNearestInt().reduced (
+                juce::jmax (2, juce::roundToInt (toggle.getWidth() * 0.12f)),
+                juce::jmax (1, juce::roundToInt (toggle.getHeight() * 0.18f)));
+            KIRIN_COMPOSITE_REQUIRE (
+                brightPixels (render (component), toggleInterior, 0.28f) > 3);
             const auto now = juce::Time::getCurrentTime();
             component.mouseDown ({ juce::Desktop::getInstance().getMainMouseSource(),
                 toggle.getCentre(), {}, 0, 0, 0, 0, 0, &component, &component, now,
@@ -197,6 +213,8 @@ void verifyPsbComposites (observatory::View& shell)
                                                typography::TextRole::action,
                                                typography::Composition::visualization)
                 .getStringWidthFloat ("SPECTRUM") < toggle.getWidth());
+            KIRIN_COMPOSITE_REQUIRE (
+                brightPixels (render (component), toggleInterior, 0.28f) > 3);
             const auto missing = compose (shell, component);
             KirinPsbView value {};
             value.status = KIRIN_SPECTRUM_ACTIVE;

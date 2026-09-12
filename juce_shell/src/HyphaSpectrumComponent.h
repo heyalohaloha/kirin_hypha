@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstring>
 #include <functional>
 #include <memory>
 
@@ -10,6 +11,7 @@
 #include "HyphaAbsoluteSpectrumHistory.h"
 #include "HyphaGuideFrequencyOverlay.h"
 #include "HyphaSpectrumFocusTrail.h"
+#include "HyphaSpectrumPresentation.h"
 #include "kirin_hypha_ffi.h"
 #include "kirin_hypha_display_ffi.h"
 
@@ -90,6 +92,21 @@ public:
 private:
     void clearInteractionState() noexcept;
     bool currentSnapshotValid() const noexcept;
+    const std::array<float, KIRIN_SPECTRUM_BAND_COUNT>& calmWeightsFor (
+        float minimumHz, float maximumHz) noexcept
+    {
+        if (! calmWeightsValid
+            || std::memcmp (&calmMinimumHz, &minimumHz, sizeof (float)) != 0
+            || std::memcmp (&calmMaximumHz, &maximumHz, sizeof (float)) != 0)
+        {
+            cachedCalmWeights = spectrum_presentation::lowFrequencyCalmWeights<
+                KIRIN_SPECTRUM_BAND_COUNT> (minimumHz, maximumHz);
+            calmMinimumHz = minimumHz;
+            calmMaximumHz = maximumHz;
+            calmWeightsValid = true;
+        }
+        return cachedCalmWeights;
+    }
 
     KirinSpectrumView snapshot {};
     KirinMidSideSpectrumView midSideSnapshot {};
@@ -105,6 +122,7 @@ private:
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> pendingPost {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> pendingDelta {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> markedDelta {};
+    std::array<float, KIRIN_SPECTRUM_BAND_COUNT> cachedCalmWeights {};
     std::unique_ptr<spectrum_focus::FocusTrailHistory> focusTrail;
     bool haveSnapshot = false;
     bool havePendingSnapshot = false;
@@ -114,6 +132,9 @@ private:
     bool haveMark = false;
     float hoverNormalisedX = -1.0f;
     float focusFrequencyHz = -1.0f;
+    float calmMinimumHz = 0.0f;
+    float calmMaximumHz = 0.0f;
+    bool calmWeightsValid = false;
     uint8_t channelMode = KIRIN_SPECTRUM_CHANNEL_LR;
     uint8_t inputChannels = 0;
     juce::String modeActionNotice;
