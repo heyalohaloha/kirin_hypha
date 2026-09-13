@@ -45,7 +45,9 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
 #[test]
 fn visible_guide_action_accepts_pending_connection_before_opening_received_guide_details() {
     let action = include_str!("../../juce_shell/src/PluginEditorMenu.cpp");
-    let connect = action.find("processorRef.acceptPreDisplayConnection()").unwrap();
+    let connect = action
+        .find("processorRef.acceptPreDisplayConnection()")
+        .expect("the visible guide action accepts a pending connection");
     let details = action.find("if (! guide.guideAvailable").unwrap();
     assert!(action.contains("processorRef.pendingPreDisplayConnection().validAt"));
     assert!(connect < details);
