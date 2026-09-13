@@ -24,7 +24,6 @@ replace that evidence. Public distribution is a separate three-channel release g
 | BL-C03 | Leaving the range or stopping after a completed first pass prevents completing the second side without an exact loop. | Keep completed-pass evidence and permit an explicitly selected next source to await the same range. An interrupted incomplete pass still fails. |
 | BL-C04 | The audition renderer ignores the captured clock source and optional PDC notifications. | Freeze the admission observations and invalidate if their source, availability, or values change before/during playback. Never derive a compensation offset from them. |
 | BL-C05 | An offline or bypass callback can acknowledge normal return and release a pending realtime attenuation hold. | Only a nonempty, non-bypassed realtime callback acknowledges the explicit normal-return command. |
-
 | BL-C06 | Range edges and source changes replace the waveform abruptly. | Bound source and range transitions to five milliseconds, preserve fixed gains and equal-PCM controls, and produce identical output across callback partitions. |
 
 The original failures were reproduced directly against the baseline renderer before editing it.
@@ -44,7 +43,7 @@ normal return. Capture/PDC proof and playback-boundary proof remain separate.
 | macOS VST3 and AU host acceptance | Pending | Current candidate product round trip, stopped/reopened editor and mix synchronization |
 | Windows VST3 host acceptance | Pending | Same candidate and conditions on the validation machine |
 | AAX native clock/PDC | Pending; product disabled | Known 4096-sample delay, exact PRE/POST capture, native hashes and residual zero on each supported host |
-| Final source gate / Clippy / CI | Pending | Exact candidate results |
+| Final source gate / Clippy / CI | Rust libraries and Clippy pass; native/CI running | 1,638 library tests pass, nine existing slow tests remain ignored in this command; full Clippy has no owned-source diagnostics. Required PR gates remain authoritative |
 
 ## Host coordination
 

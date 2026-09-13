@@ -195,7 +195,8 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
             static_cast<std::int64_t> (nativeOffset), format.frames, format.transitionFrames);
         for (int c = 0; c < channels; ++c)
         {
-            const auto index = nativeOffset * static_cast<std::size_t> (channels) + c;
+            const auto index = nativeOffset * static_cast<std::size_t> (channels)
+                + static_cast<std::size_t> (c);
             const float copy = sourceWeight <= 0.0f ? frozenPost[index] * postGain
                 : sourceWeight >= 1.0f ? frozenPre[index] * preGain
                 : LocalBlindTransition::blend (frozenPost[index] * postGain,
