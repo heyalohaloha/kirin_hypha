@@ -12,6 +12,15 @@ hypha::reference_audition::Snapshot KirinHyphaProcessorBase::referenceAuditionSn
    #endif
 }
 
+void KirinHyphaProcessorBase::setReferenceViewPresented (bool active)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController) referenceAuditionController->setPresented (active);
+   #else
+    juce::ignoreUnused (active);
+   #endif
+}
+
 bool KirinHyphaProcessorBase::selectReferenceB (double aIntegratedLoudness,
                                                 double aMaximumTruePeakDbtp)
 {

@@ -156,7 +156,10 @@ void Component::setState (State next)
     bButton.setVisible (! blindSession);
     cButton.setVisible (! blindSession && current.separateComparisons);
     versionBox.setVisible (! blindSession && current.separateComparisons);
-    blindButton.setVisible (! blindSession && canStartBlind (current));
+    const bool versionChosen = current.separateComparisons && current.versionId.isNotEmpty()
+        && current.libraryReceived && current.osAccess != os_access::State::unowned;
+    blindButton.setVisible (! blindSession && (versionChosen || canStartBlind (current)));
+    blindButton.setEnabled (!current.blindLargeScreen || canStartBlind (current));
     blindButton.setButtonText (current.blindLargeScreen ? "VERSION BLIND" : "BLIND 300%");
     blindButton.setTitle (current.blindLargeScreen ? "Start Version Blind" : "Open Blind at 300%");
     oneButton.setVisible (blindAudition);
@@ -180,8 +183,8 @@ void Component::setState (State next)
     endBlindButton.setVisible (blindSession);
     oneButton.setToggleState (current.activeBlindStimulus == 1, juce::dontSendNotification);
     twoButton.setToggleState (current.activeBlindStimulus == 2, juce::dontSendNotification);
-    oneButton.setEnabled (current.pendingBlindStimulus != 1);
-    twoButton.setEnabled (current.pendingBlindStimulus != 2);
+    oneButton.setEnabled (!current.blindPaused && current.pendingBlindStimulus != 1);
+    twoButton.setEnabled (!current.blindPaused && current.pendingBlindStimulus != 2);
     syncSelectionControl (presetBox, current.presets, current.presetId);
     syncSelectionControl (versionBox, current.versions, current.versionId);
     syncSelectionControl (checkBox, current.checks, current.checkId);
@@ -192,7 +195,8 @@ void Component::setState (State next)
     presetBox.setVisible (! blindSession && ! current.presets.empty());
     checkBox.setVisible (! blindSession && ! current.checks.empty());
     candidateBox.setVisible (! blindSession && ! current.separateComparisons && ! current.candidates.empty());
-    cueBox.setVisible (showDetailedSelectors && ! current.cues.empty());
+    cueBox.setVisible (showDetailedSelectors && ! current.cues.empty()
+        && (!current.separateComparisons || current.comparisonSlot == 2));
     actionButton.setButtonText (current.actionText);
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
     resized();
@@ -229,7 +233,7 @@ void Component::paint (juce::Graphics& g)
         };
         label (versionBox, detailedLayout() ? "B / VERSION" : "B");
         label (checkBox, detailedLayout() ? "C / CHECK" : "C");
-        if (detailedLayout()) { label (presetBox, "C / CHECK PRESET"); label (cueBox, "CUE"); }
+        if (detailedLayout()) { label (presetBox, "C / CHECK PRESET"); if (cueBox.isVisible()) label (cueBox, "CUE"); }
     }
     else if (detailedLayout() && ! blindSession)
     {
@@ -317,6 +321,8 @@ void Component::paint (juce::Graphics& g)
         if (! blindInvalidated && current.answeredBlindStimulus != 0)
             status = "CHOSEN " + juce::String (current.answeredBlindStimulus)
                    + " / REVEAL WHEN READY";
+        if (current.blindPaused) status = "PAUSED / PLAY TO RESUME BLIND";
+        else if (current.blindOutsideSong) status = "PLAY WITHIN THE SONG";
         g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.92f));
         g.setFont (labelFont (presentationContext, typography::TextRole::status,
                               typography::Composition::information));

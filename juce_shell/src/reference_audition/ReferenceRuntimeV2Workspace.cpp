@@ -71,10 +71,14 @@ namespace hypha::reference_audition
         libraryOnline.store (configuration.identity.library && repository.libraryOnline (nowMs),
                              std::memory_order_release);
         activeABinding = aBindingRepository.load (configuration.identity, nowMs);
+        RequestedSelection selection;
+        { const juce::ScopedLock lock (stateLock); selection = requestedSelection; }
         aCapture.service (activeABinding,
                           static_cast<std::int64_t> (std::llround (
                               configuration.sampleRate)),
-                          configuration.channels, nowMs);
+                          configuration.channels, nowMs,
+                          versionComparison && configuration.identity.library
+                              ? configuration.identity.runtimeInstanceId : juce::String {});
         const auto loaded = configuration.identity.library ? repository.refreshLibrary (workspace)
             : repository.refresh (configuration.identity.workId, workspace);
         if (loaded.workspace == nullptr)
@@ -89,11 +93,6 @@ namespace hypha::reference_audition
         }
         workspace = loaded.workspace;
         libraryReceived.store (workspace->library, std::memory_order_release);
-        RequestedSelection selection;
-        {
-            const juce::ScopedLock lock (stateLock);
-            selection = requestedSelection;
-        }
         appliedSelectionGeneration = selection.generation;
         const auto missingSelection = [&] {
             failClosedToA();
@@ -245,6 +244,20 @@ namespace hypha::reference_audition
         }
         if (! previouslyVerified)
             sourceCache.remember (candidate->sourceArtifact.sha256, selectedSource);
+        const auto selectedCueLabel = cue->label;
+        RuntimeCue wholeVersionCue;
+        if (versionComparison && candidate->sourceKind == "work_version")
+        {
+            wholeVersionCue = *cue;
+            wholeVersionCue.startSample = 0;
+            wholeVersionCue.endSample = selectedSource->audio.totalSampleFrames;
+            wholeVersionCue.sampleRateHz = selectedSource->audio.sampleRateHz;
+            wholeVersionCue.loopEnabled = false;
+            wholeVersionCue.label = "Full song";
+            cue = &wholeVersionCue;
+            next.cueLabel = wholeVersionCue.label;
+            next.comparisonMode = "loudness_match";
+        }
         const auto mediaKey = workspace->library ? runtimeSourceAudioIdentity (*selectedSource)
             : candidate->sourceArtifact.sha256;
         const auto publicationKey = runtimeSelectionPlaybackIdentity (
@@ -340,86 +353,7 @@ namespace hypha::reference_audition
         next.sourceMaximumTruePeakDbtp = selectedSource->measurementSummary
             && selectedSource->measurementSummary->maximumTruePeakDbtp
             ? *selectedSource->measurementSummary->maximumTruePeakDbtp : unavailable();
-        const auto capturedA = aCapture.currentAudio();
-        const bool blindIdentityMatches = activeABinding
-            && activeABinding->workId == configuration.identity.workId
-            && activeABinding->recordingId == candidate->sourceRecordingId
-            && candidate->sourceKind == "work_version"
-            && candidate->sourceWorkId == configuration.identity.workId
-            && candidate->sourceVersionId.isNotEmpty();
-        const auto nextBlindContextKey = blindIdentityMatches
-            ? activeABinding->bindingId + ":" + candidate->sourceArtifact.sha256 + ":"
-                + cueKey + ":" + juce::String (next.hostSampleRateHz)
-            : juce::String {};
-        if (nextBlindContextKey != blindContextKey)
-        {
-            if (blind.ongoing())
-                invalidateBlind();
-            blind.clear();
-            blindPreparationKey.clear();
-            blindContextKey = nextBlindContextKey;
-        }
-        const auto nextBlindKey = blindIdentityMatches && capturedA != nullptr
-            ? capturedA->cuePcmSha256 + ":" + candidate->sourceArtifact.sha256 + ":"
-                + cueKey + ":" + juce::String (next.hostSampleRateHz)
-            : juce::String {};
-        if (nextBlindKey.isEmpty() && blindPreparationKey.isNotEmpty()
-            && ! blind.ongoing())
-        {
-            blind.clear();
-            blindPreparationKey.clear();
-        }
-        if (blindIdentityMatches && capturedA != nullptr
-            && nextBlindKey != blindPreparationKey)
-        {
-            if (blind.ongoing())
-                invalidateBlind();
-            if (blind.prepare (capturedA, *candidate, *cue, selectedSource, rateApproved))
-                blindPreparationKey = nextBlindKey;
-        }
-        const auto blindState = blind.snapshot();
-        const auto nextContentMappingKey = blindState.eligible
-            ? nextBlindKey + ":" + juce::String (blindState.aStartSample) + ":"
-                + juce::String (blindState.bStartSample)
-            : juce::String {};
-        if (nextContentMappingKey.isNotEmpty()
-            && nextContentMappingKey != activeContentMappingKey)
-        {
-            mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
-            cueStart.store (mappedCueStart, std::memory_order_relaxed);
-            cueEnd.store (mappedCueEnd, std::memory_order_relaxed);
-            cueLoops.store (cue->loopEnabled, std::memory_order_relaxed);
-            bHostAnchor.store (outputSample (
-                blindState.aStartSample, blindState.aSampleRateHz, hostRate),
-                std::memory_order_relaxed);
-            bSourceAnchor.store (outputSample (
-                blindState.bStartSample, blindState.bSampleRateHz, hostRate),
-                std::memory_order_relaxed);
-            sampleLocked.store (false, std::memory_order_relaxed);
-            mappingGeneration.fetch_add (1, std::memory_order_release);
-            activeContentMappingKey = nextContentMappingKey;
-        }
-        else if (nextContentMappingKey.isEmpty() && activeContentMappingKey.isNotEmpty())
-        {
-            mappingGeneration.fetch_add (1, std::memory_order_acq_rel);
-            cueStart.store (mappedCueStart, std::memory_order_relaxed);
-            cueEnd.store (mappedCueEnd, std::memory_order_relaxed);
-            cueLoops.store (cue->loopEnabled, std::memory_order_relaxed);
-            sampleLocked.store (candidate->sourceKind == "work_version"
-                                && candidate->sourceWorkId == configuration.identity.workId,
-                                std::memory_order_relaxed);
-            bHostAnchor.store (latestHostPosition.load (std::memory_order_acquire),
-                               std::memory_order_relaxed);
-            bSourceAnchor.store (mappedCueStart, std::memory_order_relaxed);
-            mappingGeneration.fetch_add (1, std::memory_order_release);
-            activeContentMappingKey.clear();
-        }
-        pages.request (mappedSourcePosition (latestHostPosition.load()));
-        pages.service();
-        next.state = RuntimeState::ready;
-        next.blindEligible = blindState.eligible;
-        next.blindLowerAApprovalRequired = blindState.lowerAApprovalRequired;
-        next.blindRequiredAAttenuationDb = blindState.requiredAAttenuationDb;
+        serviceBlindPreparation (configuration, *candidate, *cue, selectedSource, next);
         const auto adoptionKey = configuration.identity.runtimeInstanceId + ":"
             + juce::String (configuration.identity.hostProcessId) + ":"
             + configuration.identity.workId + ":"
@@ -453,7 +387,7 @@ namespace hypha::reference_audition
                 next.candidateId,
                 next.candidateName,
                 next.cueId,
-                next.cueLabel,
+                selectedCueLabel,
                 next.comparisonMode,
             };
             activeEventCandidate = *candidate;

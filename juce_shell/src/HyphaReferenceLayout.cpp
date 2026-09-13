@@ -31,7 +31,7 @@ void Component::resized()
         auto top = area.removeFromTop (detailedLayout() ? 38 : 24);
         if (detailedLayout())
         {
-            const auto width = (top.getWidth() - 5) * 3 / 4;
+            const auto width = cueBox.isVisible() ? (top.getWidth() - 5) * 3 / 4 : top.getWidth();
             presetBox.setBounds (top.removeFromLeft (width).removeFromBottom (22));
             top.removeFromLeft (5);
             cueBox.setBounds (top.removeFromBottom (22));

@@ -12,6 +12,7 @@ public:
     explicit ReferenceComparisonController (juce::File, SelectionGate = {});
     ~ReferenceComparisonController();
     void configure (RuntimeIdentity, double, int);
+    void setPresented (bool active) noexcept { version.setContentObservationEnabled (active); }
     Snapshot snapshot() const;
     ReferenceComparisonSettings savedSettings() const;
     void restoreSettings (const ReferenceComparisonSettings&);
@@ -50,6 +51,7 @@ private:
     std::optional<ReferenceComparisonSettings> pendingSettings;
     bool configured = false;
     std::atomic<int> viewedSlot { 2 };
+    std::atomic<bool> versionChosen { false };
     bool rtPlaying = false, rtInputAllowed = false;
     RuntimeV2Controller version, check;
 };

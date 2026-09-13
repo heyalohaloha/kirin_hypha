@@ -2,6 +2,7 @@
 #include <functional>
 #include <cstring>
 #include "../src/reference_audition/ReferenceComparisonController.h"
+#include "reference_whole_song_fixture.h"
 
 namespace
 {
@@ -24,9 +25,10 @@ juce::var libraryManifest (const juce::File& root, juce::var preset, std::int64_
     const auto* templateObject = preset["source_template_artifact"].getDynamicObject();
     const auto presetId = templateObject->getProperty ("preset_id");
     auto* item = new juce::DynamicObject();
-    const auto json = juce::JSON::toString (preset, true) + "\n";
+    const auto json = ref::RuntimeEventTransport::canonicalJson (preset);
     const auto hash = juce::SHA256 (json.toRawUTF8(), json.getNumBytesAsUTF8()).toHexString();
-    require (writeJson (root.getChildFile ("library/presets/" + hash + ".json"), preset), "library preset must be written");
+    const auto presetFile = root.getChildFile ("library/presets/" + hash + ".json");
+    require (presetFile.getParentDirectory().createDirectory().wasOk() && presetFile.replaceWithText (json), "canonical library preset must be written");
     item->setProperty ("preset_id", presetId);
     item->setProperty ("revision_id", templateObject->getProperty ("revision_id"));
     item->setProperty ("relative_path", "plugin_data/reference/v2/library/presets/" + hash + ".json");
@@ -38,7 +40,9 @@ juce::var libraryManifest (const juce::File& root, juce::var preset, std::int64_
     manifest->setProperty ("revision", revision);
     manifest->setProperty ("default_preset_id", presetId);
     manifest->setProperty ("presets", juce::var (juce::Array<juce::var> { juce::var (item) }));
-    return juce::var (manifest);
+    const juce::var value (manifest);
+    require (writeJson (root.getChildFile ("library/manifests/" + juce::String (revision) + ".json"), value), "immutable library manifest fixture");
+    return value;
 }
 }
 
@@ -108,7 +112,6 @@ void testReferenceComparisons (const juce::File& sandbox)
     const auto root = sandbox.getChildFile ("abc-library");
     require (root.createDirectory().wasOk(), "ABC fixture directory");
     const auto bFile = root.getChildFile ("version.wav"), cFile = root.getChildFile ("check.wav");
-    require (writeStereoWav (bFile), "known B tone");
     {
         juce::WavAudioFormat format;
         auto stream = cFile.createOutputStream();
@@ -119,17 +122,17 @@ void testReferenceComparisons (const juce::File& sandbox)
             for (int sample = 0; sample < data.getNumSamples(); ++sample) data.setSample (channel, sample, -0.25f);
         require (writer && writer->writeFromAudioSampleBuffer (data, 0, data.getNumSamples()), "known C samples");
     }
-    const auto bHash = juce::SHA256 (bFile).toHexString(), cHash = juce::SHA256 (cFile).toHexString();
-    const auto pcm = juce::String::repeatedString ("f", 64);
     const juce::String presetId = "88888888-8888-4888-8888-888888888888";
     const juce::String revisionId = "99999999-9999-4999-8999-999999999999";
     const juce::String recordingId = "22222222-2222-4222-8222-222222222222";
     const juce::String versionId = "33333333-3333-4333-8333-333333333333";
-    const auto bReceipt = stageRuntimeV2Artifact (root, "sources",
-        makeRuntimeV2WorkVersionSource (bFile, bHash, pcm, recordingId, versionId, 96000));
+    const auto fixture = makeWholeSongFixture (root, bFile, recordingId, versionId);
+    const auto bHash = juce::SHA256 (bFile).toHexString(), cHash = juce::SHA256 (cFile).toHexString();
+    const auto pcm = fixture.pcmHash;
+    const auto bReceipt = fixture.receipt;
     const auto cReceipt = stageRuntimeV2Artifact (root, "sources", makeRuntimeV2Source (cFile, cHash, pcm));
     auto preset = bindRuntimeV2WorkVersionPresetToSource (
-        presetId, revisionId, bReceipt, bHash, pcm, recordingId, versionId, 96000);
+        presetId, revisionId, bReceipt, bHash, pcm, recordingId, versionId, fixture.audio.getNumSamples());
     auto cPreset = bindRuntimeV2PresetToSource (presetId, revisionId, cReceipt, cHash, pcm);
     auto* object = preset.getDynamicObject();
     object->setProperty ("format", "kirin_hypha_reference_library_preset");
@@ -161,12 +164,18 @@ void testReferenceComparisons (const juce::File& sandbox)
     controller.configure (identity, 48000, 2);
     const auto wait = [&] (const auto& predicate)
     {
+        int cursor = 0;
         for (int i = 0; i < 1000; ++i)
         {
-            controller.observeTransport (0, true, true);
-            if (predicate (controller.snapshot())) return;
+            observeWholeSongFixture (controller, fixture, cursor);
+            if (predicate (controller.snapshot())) {
+                controller.observeTransport (0, true, true); juce::Thread::sleep (200); return;
+            }
             juce::Thread::sleep (10);
         }
+        const auto last = controller.snapshot();
+        std::cerr << "ABC state " << static_cast<int> (last.state) << " " << last.rejectionCode
+                  << " capture " << last.aCaptureAvailable << " measurement " << last.measurementAvailable << '\n';
         require (false, "ABC preparation deadline");
     };
     wait ([] (const auto& state) { return state.libraryReceived && state.checkReady; });
@@ -194,10 +203,10 @@ void testReferenceComparisons (const juce::File& sandbox)
     require (! controller.selectB (-14, -2) && owners == 0 && ! block(), "busy admission leaves A");
     admissionAllowed = true;
     require (controller.selectB (-14, -2) && block(), "one B click auditions Version");
-    require (std::abs (buffer.getSample (0, 32) - 0.24079f) < 0.0001f, "B output is the known Version tone");
-    auto observed = makeRuntimeV2WorkVersionSource (bFile, bHash, pcm, recordingId, versionId, 96000);
-    addRuntimeV2MeasurementSummary (observed, -18, -3);
-    const auto observedReceipt = stageRuntimeV2Artifact (root, "sources", observed);
+    require (std::abs (buffer.getSample (0, 32) - fixture.audio.getSample (0, 32)) < 0.0001f, "B output is the sample-aligned Version");
+    auto observed = fixture.source.clone();
+    addRuntimeV2MeasurementSummary (observed, -18, -6);
+    const auto observedReceipt = stageWholeSongArtifact (root, "sources", observed);
     auto* observedArtifact = new juce::DynamicObject();
     observedArtifact->setProperty ("relative_path", observedReceipt.relativePath);
     observedArtifact->setProperty ("sha256", observedReceipt.sha256);
@@ -208,7 +217,7 @@ void testReferenceComparisons (const juce::File& sandbox)
              "late observation publication");
     wait ([] (const auto& state) { return state.manifestRevision == 2; });
     require (controller.snapshot().audibleComparisonSlot == 1 && owners == 1 && block()
-        && std::abs (buffer.getSample (0, 32) - 0.24079f) < 0.0001f,
+        && std::abs (buffer.getSample (0, 32) - fixture.audio.getSample (0, 32)) < 0.0001f,
         "optional observations must not interrupt the same verified audio or change its admitted gain");
     require (controller.selectC (-14, -2) && block(), "one C click auditions Check");
     require (std::abs (buffer.getSample (0, 32) + 0.25f) < 0.000001f, "C output is the Check source, not B or A");
@@ -240,11 +249,15 @@ void testReferenceComparisons (const juce::File& sandbox)
         ref::ReferenceComparisonController reopened (root);
         reopened.restoreSettings (saved); // Hosts can restore before prepareToPlay.
         reopened.configure ({ "abc-reopened", {}, 42, true }, 48000, 2);
+        reopened.setPresented (true);
         const auto awaitReopen = [&] (const auto& predicate) {
+            int cursor = 0;
             for (int i = 0; i < 1000; ++i)
             {
-                reopened.observeTransport (0, true, true);
-                if (predicate (reopened.snapshot())) return;
+                observeWholeSongFixture (reopened, fixture, cursor);
+                if (predicate (reopened.snapshot())) {
+                    reopened.observeTransport (0, true, true); juce::Thread::sleep (200); return;
+                }
                 juce::Thread::sleep (10);
             }
             require (false, "restored selection deadline");
@@ -270,6 +283,7 @@ void testReferenceComparisons (const juce::File& sandbox)
     const auto rejected = ref::ReferenceComparisonSettings::read (savedXml);
     require (rejected.version.presetId.isEmpty() && rejected.check.target() == saved.check.target(),
              "malformed saved B does not destroy valid C");
+    exerciseWholeSongLibraryTrial (controller, fixture, root);
     require (bFile.deleteFile(), "remove Version source");
     wait ([] (const auto& state) { return ! state.versionReady && state.checkReady; });
     require (! controller.selectB (-14, -2) && ! block(), "missing Version leaves A");

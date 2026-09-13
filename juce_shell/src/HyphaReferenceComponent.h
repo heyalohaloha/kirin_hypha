@@ -88,6 +88,7 @@ struct State
     int answeredBlindStimulus = 0;
     bool blindStimulusOneHeard = false;
     bool blindStimulusTwoHeard = false;
+    bool blindPaused = false, blindOutsideSong = false;
     bool blindLowerAApprovalRequired = false;
     double blindRequiredAAttenuationDb = 0.0;
     juce::String blindReveal;

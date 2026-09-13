@@ -100,6 +100,7 @@ public:
     hypha::capture::WorkAttachmentResult takeCaptureWorkAttachmentResult();
 #endif
     hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
+    void setReferenceViewPresented (bool);
     bool selectReferenceC (double, double);
     bool selectReferenceVersion (const juce::String&);
     bool selectReferenceB (double aIntegratedLoudness, double aMaximumTruePeakDbtp);

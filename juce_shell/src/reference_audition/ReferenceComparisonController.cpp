@@ -5,7 +5,7 @@ namespace hypha::reference_audition
 {
 ReferenceComparisonController::ReferenceComparisonController (juce::File root, SelectionGate callback)
     : gate (std::move (callback)),
-      version (root, [this] (bool active) { return admit (1, active); }),
+      version (root, [this] (bool active) { return admit (1, active); }, true),
       check (root, [this] (bool active) { return admit (2, active); }) {}
 
 ReferenceComparisonController::~ReferenceComparisonController() { suspendAudition(); }
@@ -32,6 +32,7 @@ void ReferenceComparisonController::configure (RuntimeIdentity identity, double 
         const juce::ScopedLock lock (selectionLock);
         if (receiverId != identity.runtimeInstanceId && ! pendingSettings) versionId.clear();
         receiverId = identity.runtimeInstanceId;
+        versionChosen.store (versionId.isNotEmpty(), std::memory_order_release);
     }
     auto bIdentity = identity;
     bIdentity.runtimeInstanceId += ".version";
@@ -72,6 +73,7 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
     {
         const juce::ScopedLock lock (selectionLock);
         versionId = value.version.candidateId.isEmpty() ? juce::String {} : value.version.target();
+        versionChosen.store (versionId.isNotEmpty(), std::memory_order_release);
         viewedSlot.store (value.viewedSlot == 1 ? 1 : 2, std::memory_order_release);
         apply = configured;
         pendingSettings = apply ? std::optional<ReferenceComparisonSettings> {} : value;
@@ -120,6 +122,8 @@ bool ReferenceComparisonController::selectVersion (const juce::String& id)
     if (trialActive() || ! version.selectLibraryVersion (id)) return false;
     selectA();
     { const juce::ScopedLock lock (selectionLock); versionId = id; }
+    versionChosen.store (id.isNotEmpty(), std::memory_order_release);
+    setPresented (true);
     viewedSlot.store (1, std::memory_order_release);
     return true;
 }
@@ -169,13 +173,14 @@ bool ReferenceComparisonController::selectC (double loudness, double peak) noexc
 void ReferenceComparisonController::selectA() noexcept { version.selectA(); check.selectA(); }
 bool ReferenceComparisonController::startBlind (double loudness, double peak) noexcept
 {
-    if (! snapshot().versionReady) return false;
-    check.selectA(); viewedSlot.store (1, std::memory_order_release);
+    if (trialActive() || ! snapshot().versionReady) return false;
+    check.selectA(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
     return version.startBlind (loudness, peak);
 }
 bool ReferenceComparisonController::approveBlindLowerAAndStart (double loudness, double peak) noexcept
 {
-    check.selectA(); viewedSlot.store (1, std::memory_order_release);
+    if (trialActive() || !snapshot().versionReady) return false;
+    check.selectA(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
     return version.approveBlindLowerAAndStart (loudness, peak);
 }
 bool ReferenceComparisonController::selectBlindStimulus (int value) noexcept { return version.selectBlindStimulus (value); }
@@ -194,7 +199,7 @@ void ReferenceComparisonController::observeAInput (const juce::AudioBuffer<float
     std::int64_t position, bool valid, bool playing, bool allowed) noexcept
 {
     rtInputAllowed = allowed;
-    version.observeAInput (buffer, position, valid, playing, allowed, false);
+    version.observeAInput (buffer, position, valid, playing, allowed && versionChosen.load (std::memory_order_acquire), false);
     check.observeAInput (buffer, position, valid, playing, allowed, false);
 }
 bool ReferenceComparisonController::renderSelectedB (juce::AudioBuffer<float>& buffer,

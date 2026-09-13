@@ -3,6 +3,7 @@
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    processorRef.setReferenceViewPresented (false);
     releaseAppearanceVisibility();
     commitEditorSizeStateIfSettled (true);
     tooltip.setLookAndFeel (nullptr);

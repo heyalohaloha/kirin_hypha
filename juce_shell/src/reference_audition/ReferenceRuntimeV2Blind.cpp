@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Blind.h"
+#include "ReferenceProbeAudio.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -13,27 +14,10 @@ namespace hypha::reference_audition
     {
         constexpr int envelopeMilliseconds = 20;
         constexpr int envelopeBatchWindows = 128;
-        constexpr int sincHalfTaps = 24;
         constexpr double minimumCorrelation = 0.72;
         constexpr double minimumUnambiguousGap = 0.015;
         constexpr std::int64_t maximumSearchWindows = 180'000;
 
-        juce::String pcmHash (const std::vector<float>& samples)
-        {
-            juce::MemoryBlock canonical (samples.size() * sizeof (float), true);
-            auto* output = static_cast<std::uint8_t*> (canonical.getData());
-            for (size_t index = 0; index < samples.size(); ++index)
-            {
-                const float normalized = samples[index] == 0.0f ? 0.0f : samples[index];
-                std::uint32_t bits = 0;
-                std::memcpy (&bits, &normalized, sizeof (bits));
-                output[index * 4] = static_cast<std::uint8_t> (bits & 0xffu);
-                output[index * 4 + 1] = static_cast<std::uint8_t> ((bits >> 8u) & 0xffu);
-                output[index * 4 + 2] = static_cast<std::uint8_t> ((bits >> 16u) & 0xffu);
-                output[index * 4 + 3] = static_cast<std::uint8_t> ((bits >> 24u) & 0xffu);
-            }
-            return juce::SHA256 (canonical).toHexString();
-        }
 
         std::vector<double> memoryEnvelope (const RuntimeACaptureAudio& audio)
         {
@@ -176,79 +160,7 @@ namespace hypha::reference_audition
             return cueStart + static_cast<std::int64_t> (bestOffset) * sourceWindowFrames;
         }
 
-        bool readAligned (juce::AudioFormatReader& reader, std::int64_t sourceStart,
-                          std::int64_t outputFrames, int outputRate, int channels,
-                          std::vector<float>& interleaved)
-        {
-            if (static_cast<int> (reader.numChannels) != channels || outputFrames < 1)
-                return false;
-            if (std::abs (reader.sampleRate - outputRate) <= 0.001)
-            {
-                if (sourceStart < 0 || sourceStart + outputFrames > reader.lengthInSamples
-                    || outputFrames > std::numeric_limits<int>::max())
-                    return false;
-                juce::AudioBuffer<float> exact (channels, static_cast<int> (outputFrames));
-                if (! reader.read (&exact, 0, static_cast<int> (outputFrames), sourceStart,
-                                   true, channels > 1))
-                    return false;
-                interleaved.resize (static_cast<size_t> (outputFrames * channels));
-                for (std::int64_t frame = 0; frame < outputFrames; ++frame)
-                    for (int channel = 0; channel < channels; ++channel)
-                        interleaved[static_cast<size_t> (frame * channels + channel)]
-                            = exact.getSample (channel, static_cast<int> (frame));
-                return true;
-            }
-            const auto ratio = reader.sampleRate / outputRate;
-            const auto rawStart = sourceStart - sincHalfTaps;
-            const auto rawEnd = static_cast<std::int64_t> (std::ceil (
-                sourceStart + static_cast<double> (outputFrames - 1) * ratio))
-                + sincHalfTaps + 1;
-            const auto readStart = juce::jmax<std::int64_t> (0, rawStart);
-            const auto readEnd = juce::jmin<std::int64_t> (reader.lengthInSamples, rawEnd);
-            const auto readFrames64 = juce::jmax<std::int64_t> (0, readEnd - readStart);
-            if (readFrames64 < 1 || readFrames64 > std::numeric_limits<int>::max())
-                return false;
-            const auto readFrames = static_cast<int> (readFrames64);
-            juce::AudioBuffer<float> input (channels, readFrames);
-            if (! reader.read (&input, 0, readFrames, readStart, true, channels > 1))
-                return false;
-            interleaved.assign (static_cast<size_t> (outputFrames * channels), 0.0f);
-            const auto cutoff = juce::jmin (1.0, outputRate / reader.sampleRate) * 0.94;
-            for (std::int64_t outputFrame = 0; outputFrame < outputFrames; ++outputFrame)
-            {
-                const auto position = sourceStart + static_cast<double> (outputFrame) * ratio;
-                const auto center = static_cast<std::int64_t> (std::floor (position));
-                for (int channel = 0; channel < channels; ++channel)
-                {
-                    double weighted = 0.0;
-                    double weightSum = 0.0;
-                    for (int tap = -sincHalfTaps + 1; tap <= sincHalfTaps; ++tap)
-                    {
-                        const auto sourceFrame = center + tap;
-                        const auto inputOffset = sourceFrame - readStart;
-                        if (inputOffset < 0 || inputOffset >= readFrames)
-                            continue;
-                        const auto distance = position - static_cast<double> (sourceFrame);
-                        const auto scaled = juce::MathConstants<double>::pi * cutoff * distance;
-                        const auto sinc = std::abs (scaled) < 1.0e-12
-                            ? cutoff : cutoff * std::sin (scaled) / scaled;
-                        const auto normalized = distance / sincHalfTaps;
-                        const auto window = std::abs (normalized) >= 1.0 ? 0.0
-                            : 0.42 + 0.5 * std::cos (juce::MathConstants<double>::pi * normalized)
-                                   + 0.08 * std::cos (
-                                       juce::MathConstants<double>::twoPi * normalized);
-                        const auto weight = sinc * window;
-                        weighted += input.getSample (channel, static_cast<int> (inputOffset)) * weight;
-                        weightSum += weight;
-                    }
-                    if (weightSum == 0.0)
-                        return false;
-                    interleaved[static_cast<size_t> (outputFrame * channels + channel)]
-                        = static_cast<float> (weighted / weightSum);
-                }
-            }
-            return true;
-        }
+
     }
 
     bool RuntimeV2Blind::prepare (
@@ -259,6 +171,7 @@ namespace hypha::reference_audition
     {
         if (! enterPreparation())
             return false;
+        wholeSong = false;
         frozenA.clear();
         frozenB.clear();
         dawRevisionId.clear();
@@ -299,14 +212,14 @@ namespace hypha::reference_audition
         const auto cueEnd = juce::jlimit<std::int64_t> (
             cueStart, reader->lengthInSamples, cue.endSample);
         const auto aligned = alignedSourceStart (*a, *reader, cueStart, cueEnd);
-        if (! aligned || ! readAligned (*reader, *aligned, a->frameCount,
+        if (! aligned || ! readReferenceProbe (*reader, *aligned, a->frameCount,
                                         static_cast<int> (a->sampleRateHz), a->channels, frozenB))
         {
             reject ("reference_blind_alignment_unavailable");
             return false;
         }
         frozenA = a->interleaved;
-        const auto frozenBHash = pcmHash (frozenB);
+        const auto frozenBHash = referenceProbePcmHash (frozenB);
         if (frozenBHash == a->cuePcmSha256)
         {
             reject ("reference_blind_same_revision");
@@ -374,10 +287,12 @@ namespace hypha::reference_audition
 
     bool RuntimeV2Blind::answer (int stimulus) noexcept
     {
+        const auto facts = snapshot();
+        const auto minimumFrames = facts.wholeSong ? static_cast<std::uint64_t> (facts.aSampleRateHz) * 3 : 1;
         if (lifecycle.load (std::memory_order_acquire) != active
             || (stimulus != 1 && stimulus != 2)
-            || stimulusOneFrames.load (std::memory_order_acquire) == 0
-            || stimulusTwoFrames.load (std::memory_order_acquire) == 0)
+            || stimulusOneFrames.load (std::memory_order_acquire) < minimumFrames
+            || stimulusTwoFrames.load (std::memory_order_acquire) < minimumFrames)
             return false;
         answeredStimulus.store (stimulus, std::memory_order_release);
         return true;

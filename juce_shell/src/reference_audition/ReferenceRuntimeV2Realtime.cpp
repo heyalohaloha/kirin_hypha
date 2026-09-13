@@ -4,6 +4,7 @@ namespace hypha::reference_audition
 {
     void RuntimeV2Controller::serviceDeferredAudioThreadActions()
     {
+        if (versionComparison && !latestPlaying.load (std::memory_order_acquire)) blind.confirmStoppedReturn();
         ReferenceSessionRetirement retirement;
         if (blind.completeNormalReturn (retirement))
         {
@@ -57,8 +58,11 @@ namespace hypha::reference_audition
         {
             if (! blind.auditioning())
                 return false;
+            if (versionComparison && auditionAllowed && positionValid
+                && !latestPlaying.load (std::memory_order_acquire) && ready.load (std::memory_order_acquire))
+                return blind.renderPausedA (buffer);
             if (! activeTransport || ! ready.load (std::memory_order_acquire)
-                || ! blind.render (buffer, hostPosition, positionValid))
+                || ! blind.render (buffer, hostPosition, positionValid, &pages, mappedSourcePosition (hostPosition)))
             {
                 invalidateBlindFromAudioThread();
                 return blind.renderInvalidatedA (buffer, normalReturnTransport);

@@ -110,6 +110,7 @@ JUCE_TEST_TARGETS=(
   KirinUiRenderContractTests
   KirinAttackUiContractTests
   KirinReferenceAuditionRuntimeTests
+  KirinReferenceContentCorrelationTests
   KirinReferenceAudioPagesTests
   KirinLocalBlindCaptureTests
   KirinLocalBlindTrialTests
@@ -121,8 +122,8 @@ JUCE_TEST_TARGETS=(
   KirinLocalBlindProductTests
   KirinEditorSurfaceProductTests
 )
-JUCE_TEST_REGEX='^(kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_time_history_contract|kirin_analysis_demand_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay|kirin_local_blind_product|kirin_local_blind_product_track|kirin_editor_surface_product)$'
-JUCE_TEST_COUNT=18
+JUCE_TEST_REGEX='^(kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_time_history_contract|kirin_analysis_demand_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_reference_content_correlation|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay|kirin_local_blind_product|kirin_local_blind_product_track|kirin_editor_surface_product)$'
+JUCE_TEST_COUNT=19
 run cmake --build "$PRE_DISPLAY_BUILD" --target "${JUCE_TEST_TARGETS[@]}" --config Release
 assert_ctest_inventory "$PRE_DISPLAY_BUILD" Release "$JUCE_TEST_REGEX" "$JUCE_TEST_COUNT"
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \

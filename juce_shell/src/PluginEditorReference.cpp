@@ -123,6 +123,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onAction = [this]
     {
         const auto& state = referenceView.state();
+        if (state.blindLowerAApprovalRequired && !state.blindLargeScreen) { setSize (900, 600); return; }
         const bool accepted = state.sampleRateApprovalRequired
             ? processorRef.approveReferenceSampleRateConversion()
             : state.blindLowerAApprovalRequired
@@ -169,6 +170,7 @@ void KirinHyphaEditor::layoutReferenceAudition (juce::Rectangle<int> body)
     const bool reference = observatoryDomain == hypha::observatory::Domain::reference
         && ! observatoryView.hybridVuVisible() && ! localBlindOpen;
     const bool access = hypha::reference_ui::needsAccessPanel (referenceView.state());
+    processorRef.setReferenceViewPresented (reference);
     referenceView.setBounds (body);
     referenceView.setVisible (reference && ! access);
     if (referenceView.isVisible()) referenceView.toFront (false);
@@ -230,7 +232,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         && runtime.transportPositionValid && runtime.auditionBuffered;
     state.title = runtime.title;
     state.sourceLabel = sourceLabel (runtime.sourceKind);
-    state.alignmentLabel = runtime.alignmentMode
+    state.alignmentLabel = runtime.separateComparisons && runtime.comparisonSlot == 1
+        ? (runtime.versionReady ? "CONTENT ALIGNED" : "ALIGNING") : runtime.alignmentMode
             == hypha::reference_audition::AlignmentMode::sampleLock
         ? "PROJECT TIMELINE" : "REFERENCE CUE";
     state.bSelected = runtime.bSelected;
@@ -244,6 +247,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.blindLowerAApprovalRequired = runtime.blindLowerAApprovalRequired;
     state.blindRequiredAAttenuationDb = runtime.blindRequiredAAttenuationDb;
     state.blindReveal = runtime.blindReveal;
+    state.blindPaused = runtime.blindPhase == hypha::reference_audition::BlindPhase::active && !runtime.transportPlaying;
+    state.blindOutsideSong = runtime.blindPhase == hypha::reference_audition::BlindPhase::active && runtime.transportPlaying && runtime.activeBlindStimulus == 0;
 
     const bool liveA = frameAvailable
         && frame.meter.state != KIRIN_METER_SESSION_EMPTY
@@ -317,6 +322,11 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
                 + juce::String (runtime.blindRequiredAAttenuationDb, 1)
                 + " dB / RETURN A EXPLICITLY"
             : "BLIND STOPPED / RETURN A EXPLICITLY";
+    else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::active && !runtime.transportPlaying)
+        state.status = "PAUSED / PLAY TO RESUME BLIND";
+    else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::active
+        && runtime.activeBlindStimulus == 0)
+        state.status = "PLAY WITHIN THE SONG / A REMAINS LIVE";
     else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::starting)
         state.status = "BLIND / WAITING FOR FIRST AUDIBLE BLOCK";
     else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::active)
@@ -344,6 +354,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         state.status = rejectedStatus (runtime.rejectionCode);
     else if (runtime.state == Runtime::waiting)
         state.status = runtime.rejectionCode == "reference_version_unselected" ? "CHOOSE VERSION B"
+            : runtime.rejectionCode == "reference_alignment_waiting_for_content" ? "PLAY A / ALIGNING VERSION B"
+            : runtime.rejectionCode == "reference_alignment_ambiguous" ? "PLAY ANOTHER PASSAGE TO ALIGN B"
             : runtime.rejectionCode == "reference_candidates_empty" ? "CHOOSE A SOURCE IN KIRIN OS"
             : runtime.rejectionCode == "reference_checks_empty" ? "ENABLE A CHECK IN KIRIN OS"
             : runtime.rejectionCode == "reference_source_unavailable" ? "SOURCE UNAVAILABLE / OPEN KIRIN OS"
@@ -472,7 +484,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     {
         const auto attenuation = juce::String (state.blindRequiredAAttenuationDb, 1);
         state.status = "BLIND NEEDS HEADROOM / A RETURNS +" + attenuation + " dB ON END";
-        state.actionText = "LOWER A " + attenuation + " dB & START";
+        state.actionText = state.blindLargeScreen ? "LOWER A " + attenuation + " dB & START" : juce::String {};
     }
     else if (connected && (runtime.state == Runtime::rejected
                            || runtime.state == Runtime::waiting))

@@ -25,9 +25,10 @@ namespace hypha::reference_audition
     }
 
     RuntimeV2Controller::RuntimeV2Controller (juce::File transportRootIn,
-                                              SelectionGate selectionGateIn)
+                                              SelectionGate selectionGateIn, bool wholeVersionComparison)
         : juce::Thread ("Kirin Reference v2"),
           root (std::move (transportRootIn)),
+          versionComparison (wholeVersionComparison),
           selectionGate (std::move (selectionGateIn)),
           repository (root),
           aBindingRepository (root),
@@ -104,13 +105,15 @@ namespace hypha::reference_audition
             || (result.transportPositionValid
                 && pages.readyAt (mappedSourcePosition (latestHostPosition.load()), 1)));
         result.blindEligible = publishedReady && blindState.eligible;
+        if (versionComparison && !blindState.eligible) result.auditionBuffered = false;
         result.blindPhase = blindState.phase;
         result.activeBlindStimulus = blindState.activeStimulus;
         result.pendingBlindStimulus = blindState.pendingStimulus;
         result.answeredBlindStimulus = blindState.answeredStimulus;
-        result.blindStimulusOneHeard = blindState.stimulusOneAudibleFrames > 0
+        const auto minimumFrames = blindState.wholeSong ? static_cast<std::uint64_t> (blindState.aSampleRateHz) * 3 : 1;
+        result.blindStimulusOneHeard = blindState.stimulusOneAudibleFrames >= minimumFrames
             && blindState.stimulusOneConfirmedSwitches > 0;
-        result.blindStimulusTwoHeard = blindState.stimulusTwoAudibleFrames > 0
+        result.blindStimulusTwoHeard = blindState.stimulusTwoAudibleFrames >= minimumFrames
             && blindState.stimulusTwoConfirmedSwitches > 0;
         result.blindLowerAApprovalRequired = result.blindEligible
             && blindState.lowerAApprovalRequired;

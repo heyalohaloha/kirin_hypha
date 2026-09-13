@@ -422,6 +422,22 @@ void verifyReferenceAuditionComponentContract()
     abc.checkReady = false;
     component.setState (abc);
     KIRIN_REF_REQUIRE (b->isEnabled() && ! c->isEnabled() && a->isEnabled());
+    abc.readiness = reference_ui::Readiness::ready;
+    abc.osAccess = os_access::State::ready;
+    abc.comparisonSlot = 1; abc.audibleComparisonSlot = 0; abc.bSelected = false;
+    abc.blindPhase = reference_ui::BlindPhase::available;
+    abc.alignmentLabel = "CONTENT ALIGNED"; abc.status = "READY / A REMAINS LIVE";
+    component.setState (abc);
+    KIRIN_REF_REQUIRE (!cue->isVisible() && startBlind->isEnabled());
+    writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_VERSION_OUTPUT");
+    abc.blindPhase = reference_ui::BlindPhase::active;
+    abc.activeBlindStimulus = 1;
+    abc.status = "BLIND / SOURCE IDENTITY HIDDEN";
+    component.setState (abc);
+    KIRIN_REF_REQUIRE (!version->isVisible() && !check->isVisible() && !preset->isVisible());
+    writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_WHOLE_BLIND_OUTPUT");
+    abc.blindPaused = true; component.setState (abc);
+    KIRIN_REF_REQUIRE (!one->isEnabled() && !two->isEnabled() && endBlind->isEnabled());
     component.setState (visual);
 
     const auto compositePath = juce::SystemStats::getEnvironmentVariable (

@@ -29,7 +29,7 @@ namespace hypha::reference_audition
         using SelectionGate = std::function<bool(bool)>;
 
         explicit RuntimeV2Controller (juce::File transportRootIn = RuntimeV2Repository::transportRoot(),
-                                      SelectionGate = {});
+                                      SelectionGate = {}, bool wholeVersionComparison = false);
         ~RuntimeV2Controller() override;
 
         void configure (RuntimeIdentity, double hostSampleRate, int hostChannels);
@@ -50,6 +50,7 @@ namespace hypha::reference_audition
 
         void observeTransport (std::int64_t hostPosition, bool positionValid,
                                bool playing) noexcept;
+        void setContentObservationEnabled (bool enabled) noexcept;
         void observeAInput (const juce::AudioBuffer<float>&,
                             std::int64_t hostPosition,
                             bool positionValid,
@@ -138,6 +139,8 @@ namespace hypha::reference_audition
         void run() override;
         void applyConfiguration (const Configuration&);
         void refreshWorkspace (const Configuration&, std::int64_t nowMs);
+        void serviceBlindPreparation (const Configuration&, const RuntimeCandidate&, const RuntimeCue&,
+                                      const std::shared_ptr<const RuntimeSource>&, Snapshot&);
         void publish (Snapshot);
         void publishReady (Snapshot, std::shared_ptr<const RuntimeSource>);
         void publishApprovalRequired (Snapshot, const juce::String& approvalKey);
@@ -171,6 +174,7 @@ namespace hypha::reference_audition
         void invalidateBlindFromAudioThread() noexcept;
 
         const juce::File root;
+        const bool versionComparison;
         const SelectionGate selectionGate;
         RuntimeV2Repository repository;
         RuntimeABindingRepository aBindingRepository;
@@ -231,6 +235,7 @@ namespace hypha::reference_audition
         std::atomic<bool> libraryReceived { false }, libraryOnline { false };
         std::atomic<bool> ready { false };
         std::atomic<bool> bSelected { false };
+        std::atomic<bool> contentObservationEnabled { false }, contentRefreshRequested { false };
         std::atomic<float> bLinearGain { 1.0f };
         std::atomic<std::uint64_t> auditionEpoch { 1 };
         std::atomic<std::uint64_t> activeAuditionEpoch { 0 };

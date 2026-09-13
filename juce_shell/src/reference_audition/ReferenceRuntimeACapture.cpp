@@ -80,8 +80,7 @@ namespace hypha::reference_audition
 
     RuntimeACapture::RuntimeACapture (juce::File transportRootIn)
         : root (std::move (transportRootIn)),
-          queueSamples (static_cast<size_t> (queueSlotCount * maximumBlockFrames * 2), 0.0f),
-          capturedSamples (static_cast<size_t> (maximumCaptureFrames * 2), 0.0f)
+          queueSamples (static_cast<size_t> (queueSlotCount * maximumBlockFrames * 2), 0.0f)
     {
     }
 
@@ -110,7 +109,8 @@ namespace hypha::reference_audition
     {
         const auto frames = input.getNumSamples();
         const auto channels = input.getNumChannels();
-        const bool active = positionValid && playing && aSelected && startSample >= 0
+        const bool active = captureEnabled.load (std::memory_order_acquire)
+                         && positionValid && playing && aSelected && startSample >= 0
                          && frames > 0 && frames <= maximumBlockFrames
                          && (channels == 1 || channels == 2)
                          && startSample <= maximumSafeInteger - frames;
@@ -159,17 +159,20 @@ namespace hypha::reference_audition
                         std::memory_order_release);
     }
 
-    void RuntimeACapture::resetAccumulator()
+    void RuntimeACapture::resetAccumulator (bool preservePublished)
     {
         collecting = false;
         complete = false;
         captureStartSample = 0;
         capturedFrames = 0;
         lastObservedEndSample = 0;
-        receipt.reset();
-        std::atomic_store_explicit (
-            &publishedAudio, std::shared_ptr<const RuntimeACaptureAudio> {},
-            std::memory_order_release);
+        if (!preservePublished)
+        {
+            receipt.reset();
+            std::atomic_store_explicit (
+                &publishedAudio, std::shared_ptr<const RuntimeACaptureAudio> {},
+                std::memory_order_release);
+        }
         nextPublishAtMs = 0;
     }
 
@@ -182,6 +185,7 @@ namespace hypha::reference_audition
 
     void RuntimeACapture::disconnect()
     {
+        captureEnabled.store (false, std::memory_order_release);
         removeReceiptFile();
         resetAccumulator();
         discardQueued();
@@ -200,6 +204,7 @@ namespace hypha::reference_audition
         if (block.continuityGeneration != consumedGeneration
             || block.channels != activeChannels)
             return;
+        if (complete && localObservation) resetAccumulator (true);
         int offset = 0;
         if (! collecting && ! complete)
         {
@@ -237,6 +242,7 @@ namespace hypha::reference_audition
         const auto available = static_cast<std::int64_t> (block.frames - offset);
         const auto framesToCopy = static_cast<int> (
             std::min (available, targetFrames - capturedFrames));
+        capturedSamples.resize (static_cast<size_t> (targetFrames * activeChannels));
         for (int frame = 0; frame < framesToCopy; ++frame)
         {
             for (int channel = 0; channel < activeChannels; ++channel)
@@ -360,15 +366,18 @@ namespace hypha::reference_audition
     void RuntimeACapture::service (const std::optional<RuntimeABinding>& binding,
                                    std::int64_t sampleRateHz,
                                    int channels,
-                                   std::int64_t nowMs)
+                                   std::int64_t nowMs,
+                                   const juce::String& localRuntimeId)
     {
-        const bool authorityValid = binding.has_value()
-            && binding->leaseExpiresAtMs >= nowMs
+        const bool local = safeRuntimeId (localRuntimeId);
+        const bool authorityValid = (local || (binding.has_value()
+            && binding->leaseExpiresAtMs >= nowMs))
             && sampleRateHz >= 8'000 && sampleRateHz <= 768'000
             && (channels == 1 || channels == 2)
             && nowMs >= 0 && nowMs <= maximumSafeInteger - receiptLeaseMs;
         if (! authorityValid)
         {
+            captureEnabled.store (false, std::memory_order_release);
             if (receipt || ! activeBindingId.isEmpty())
                 removeReceiptFile();
             resetAccumulator();
@@ -377,8 +386,11 @@ namespace hypha::reference_audition
             activeRuntimeInstanceId.clear();
             return;
         }
-        if (activeBindingId != binding->bindingId
-            || activeRuntimeInstanceId != binding->runtimeInstanceId
+        const auto bindingId = local ? juce::String {} : binding->bindingId;
+        const auto runtimeId = local ? localRuntimeId : binding->runtimeInstanceId;
+        localObservation = local;
+        if (activeBindingId != bindingId
+            || activeRuntimeInstanceId != runtimeId
             || activeSampleRateHz != sampleRateHz || activeChannels != channels)
         {
             removeReceiptFile();
@@ -386,8 +398,8 @@ namespace hypha::reference_audition
             discardQueued();
             previousHash.clear();
             previousRevisionId.clear();
-            activeBindingId = binding->bindingId;
-            activeRuntimeInstanceId = binding->runtimeInstanceId;
+            activeBindingId = bindingId;
+            activeRuntimeInstanceId = runtimeId;
             activeSampleRateHz = sampleRateHz;
             activeChannels = channels;
             consumedGeneration = continuityGeneration.load (std::memory_order_acquire);
@@ -402,6 +414,7 @@ namespace hypha::reference_audition
         }
         const auto targetFrames = std::min (
             maximumCaptureFrames, activeSampleRateHz * captureSeconds);
+        captureEnabled.store (true, std::memory_order_release);
         for (;;)
         {
             const auto currentRead = readSlot.load (std::memory_order_relaxed);
@@ -419,6 +432,6 @@ namespace hypha::reference_audition
             removeReceiptFile();
             resetAccumulator();
         }
-        publishReceipt (*binding, nowMs);
+        if (!local) publishReceipt (*binding, nowMs);
     }
 }

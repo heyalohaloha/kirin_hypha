@@ -6,3 +6,6 @@ void testRuntimeV2SourceCache();
 void testReferenceLibraryContract (const juce::File&);
 void testReferenceComparisons (const juce::File&);
 bool testReferenceLibraryOsFixture();
+
+void testReferenceContentAlignment (const juce::File&);
+void testReferenceRealContentAlignment();

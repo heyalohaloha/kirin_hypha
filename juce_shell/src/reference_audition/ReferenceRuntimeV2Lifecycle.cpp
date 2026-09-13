@@ -112,11 +112,19 @@ namespace hypha::reference_audition
                 untilPoll = 0;
             }
             pages.service();
+            if (contentRefreshRequested.exchange (false, std::memory_order_acq_rel)
+                && !bSelected.load (std::memory_order_acquire) && !blind.ongoing())
+            {
+                blind.clear(); blindPreparationKey.clear();
+                aCapture.disconnect(); untilPoll = 0;
+            }
             aCapture.service (
                 activeABinding,
                 static_cast<std::int64_t> (std::llround (configuration.sampleRate)),
                 configuration.channels,
-                juce::Time::currentTimeMillis());
+                juce::Time::currentTimeMillis(),
+                versionComparison && configuration.identity.library
+                    ? configuration.identity.runtimeInstanceId : juce::String {});
             serviceRuntimeEvents();
             serviceDeferredAudioThreadActions();
             serviceRecoveryAcknowledgement();
@@ -129,6 +137,12 @@ namespace hypha::reference_audition
             {
                 observedTransportHeartbeat = currentTransportHeartbeat;
                 missedTransportCallbacks = 0;
+            }
+            else if (versionComparison && !latestPlaying.load (std::memory_order_acquire)
+                && latestPositionValid.load (std::memory_order_acquire))
+            {
+                missedTransportCallbacks = 0;
+                observedTransportHeartbeat = currentTransportHeartbeat;
             }
             else if (! latestPlaying.load (std::memory_order_acquire)
                      || ! latestPositionValid.load (std::memory_order_acquire))

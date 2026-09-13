@@ -180,12 +180,19 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
     src/reference_audition/ReferenceRuntimeV2CandidatePreparation.cpp
     src/reference_audition/ReferenceRuntimeV2Workspace.cpp
+    src/reference_audition/ReferenceRuntimeV2BlindPreparation.cpp
     src/reference_audition/ReferenceRuntimeV2Lifecycle.cpp
     src/reference_audition/ReferenceRuntimeV2Events.cpp
     src/reference_audition/ReferenceRuntimeV2Selection.cpp
     src/reference_audition/ReferenceRuntimeV2NormalSelection.cpp
     src/reference_audition/ReferenceRuntimeV2Realtime.cpp
     src/reference_audition/ReferenceRuntimeV2Alignment.cpp
+    src/reference_audition/ReferenceContentAlignment.cpp
+    src/reference_audition/ReferenceContentCorrelation.cpp
+    src/reference_audition/ReferenceProbeAudio.cpp
+    src/reference_audition/ReferenceWholeSongPreparation.cpp
+    src/reference_audition/ReferenceWholeSongEvents.cpp
+    src/reference_audition/ReferenceWholeSongRealtime.cpp
     src/reference_audition/ReferenceRuntimeV2Blind.cpp
     src/reference_audition/ReferenceRuntimeV2BlindLifecycle.cpp
     src/reference_audition/ReferenceRuntimeV2BlindRealtime.cpp
@@ -762,6 +769,11 @@ option(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS
     "Build the Kirin OS to Hypha Reference audition contract tests" OFF)
 if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
     enable_testing()
+    add_executable(KirinReferenceContentCorrelationTests
+        tests/reference_content_correlation_test.cpp
+        src/reference_audition/ReferenceContentCorrelation.cpp)
+    target_compile_features(KirinReferenceContentCorrelationTests PRIVATE cxx_std_17)
+    add_test(NAME kirin_reference_content_correlation COMMAND KirinReferenceContentCorrelationTests)
     juce_add_console_app(KirinReferenceAuditionRuntimeTests
         PRODUCT_NAME "Kirin Reference Audition Runtime Tests")
     target_sources(KirinReferenceAuditionRuntimeTests PRIVATE
@@ -769,6 +781,9 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_runtime_v2_source_cache_test.cpp
         tests/reference_runtime_v2_workspace_test.cpp
         tests/reference_library_test.cpp
+        tests/reference_content_alignment_test.cpp
+        tests/reference_real_content_alignment_test.cpp
+        tests/reference_rt_probe.cpp
         src/reference_audition/ReferenceBlindSession.cpp
         ${KIRIN_REFERENCE_AUDITION_SOURCES})
     target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE

@@ -17,6 +17,7 @@ int main (int argc, char** argv)
     const auto sandbox = juce::File::getSpecialLocation (juce::File::tempDirectory)
                              .getNonexistentChildFile ("hypha-reference-audition", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
+    testReferenceContentAlignment (sandbox);
     testReferenceLibraryContract (sandbox);
     testReferenceComparisons (sandbox);
     if (argc == 2 && juce::String (argv[1]) == "--abc-only")

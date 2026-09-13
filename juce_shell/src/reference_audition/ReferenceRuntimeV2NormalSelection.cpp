@@ -68,6 +68,20 @@ namespace hypha::reference_audition
         }
         else if (comparisonMode != "original")
             return false;
+        if (versionComparison)
+        {
+            const auto calibration = blind.snapshot();
+            if (!calibration.wholeSong || !calibration.eligible) return false;
+            if (calibration.wholeSong && calibration.eligible)
+            {
+                requiredGain = calibration.pairedLoudnessDeltaDb;
+                aMaximumTruePeakDbtp = calibration.aCueTruePeakDbtp;
+                fallbackOriginal = false;
+                // The paired observation determines gain. It does not establish
+                // an integrated whole-song LUFS value for the live, editable A.
+                aIntegratedLoudness = unavailable();
+            }
+        }
         if (! std::isfinite (requiredGain)
             || requiredGain < -100.0 || requiredGain > 100.0)
             return false;

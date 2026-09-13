@@ -402,6 +402,12 @@ remain visible when media is unavailable. Hypha does not substitute its own Fact
 A is the live DAW input. B selects a registered Version; C selects a Check from its own preset.
 Each has a button, and B/C have independent dropdowns. Choices and ordinary A/B/C audition remain
 available at every size. Blind opens at 300% (900×600).
+For Version comparison, play the DAW input to establish the same song and position against B's
+verified Kirin OS measurement. The short observation calibrates a fixed position map and gain;
+playback then follows the song beyond that observation, with A remaining live. Ambiguous repeated
+passages wait for distinguishing content. Ordinary B preserves A at 0 dB; if full matching exceeds
+the allowed peak ceiling, B remains available at its original level and Blind requires explicit
+approval before lowering A. The approved gain stays fixed through switches, seeks and pauses.
 Receiving or restoring settings never starts B. Explicit audition still verifies the immutable
 source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
 single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
@@ -444,10 +450,10 @@ Downstream processors still receive the selected copy and may react to it. Sends
 that branch before POST are not switched, so this is specifically a comparison between the chosen
 PRE and POST insertion points—not a claim about every route in the project.
 
-The current local trial length is four seconds. For long-form or whole-song comparison of finished
-versions, render and register immutable versions in Kirin OS and use the normal Reference audition
-with an appropriate Cue. The current Reference Blind flow is also based on a four-second live-A
-capture; registering a WAV does not turn it into a whole-song blind trial.
+The local PRE/POST trial length is four seconds. Reference Version Blind is a separate whole-song
+comparison between live DAW A and a measured, acoustically matched Version B from Kirin OS.
+Its four-second A observation proves calibration only; it neither replaces live A nor claims
+whole-song loudness or an immutable whole-song identity for the current DAW input.
 
 ## Watch mode
 
