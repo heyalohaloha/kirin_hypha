@@ -26,10 +26,10 @@ replace that evidence. Public distribution is a separate three-channel release g
 | BL-C05 | An offline or bypass callback can acknowledge normal return and release a pending realtime attenuation hold. | Only a nonempty, non-bypassed realtime callback acknowledges the explicit normal-return command. |
 | BL-C06 | Range edges and source changes replace the waveform abruptly. | Bound source and range transitions to five milliseconds, preserve fixed gains and equal-PCM controls, and produce identical output across callback partitions. |
 | BL-C07 | Equal-width buttons clip answer labels and the explicit POST attenuation at small sizes. Repeated diagnostic PNG output appends to the old image. | Allocate width from actual font metrics, use unambiguous compact labels, test every visible action, and overwrite each preview. |
-
 | BL-C08 | B-843 still rejects a stopped host that omits playback-clock fields, including while waiting to start. | Preserve an armed or completed trial while stopped; validate the frozen clock before the next playing callback, and continue to reject an interrupted incomplete pass. |
 
-The original failures were reproduced directly against the baseline renderer before editing it.
+The range-entry and end-boundary failures were reproduced against the baseline before editing.
+The stopped-clock failure was separately reproduced at B-843.
 The regression matrix uses untrimmed host callbacks at 44.1, 48 and 96 kHz; 64, 257, 512 and 2048
 frames; mono and stereo. It checks every output sample, two complete sides, answer, reveal and
 normal return. Capture/PDC proof and playback-boundary proof remain separate.
@@ -70,7 +70,7 @@ leaving live POST in place cannot falsely pass the assignment/output check. The 
 uses mono and only one second of signal in the four-second fixture. Neither case changes the
 user's stored project, audio device, DAW routing or selected real-host session.
 
-Both Release cases passed (31.93 seconds together). Actual output covers 384,000 audition frames,
+Both stopped-clock Release cases passed (31.92 seconds together). Actual output covers 384,000 audition frames,
 the hidden/revealed assignment agrees with PCM polarity, matched-copy maximum error is below
 0.00004, and the normal PRE/POST path is bit identical. The stereo observed error was 0.0000115335.
 These tests prove product wiring and recovery, not a DAW's clock/PDC implementation.
