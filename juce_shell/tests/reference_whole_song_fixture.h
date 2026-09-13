@@ -120,15 +120,15 @@ namespace
                 require (controller.renderSelectedB (input, position, true, true, true), "whole-song audition callback");
                 juce::Thread::sleep (5);
             }
-            controller.observeTransport (0, true, false);
+            controller.observeTransport (0, false, false);
             input.clear();
-            require (controller.renderSelectedB (input, 0, true, true, true), "host pause preserves the whole-song trial");
+            require (controller.renderSelectedB (input, 0, false, true, true), "host pause without a sample clock preserves the whole-song trial");
             juce::Thread::sleep (600);
             require (controller.snapshot().blindPhase == ref::BlindPhase::active, "a paused trial survives the callback timeout");
             controller.observeTransport (0, true, true); juce::Thread::sleep (200);
         }
         require (controller.answerBlind (1) && controller.revealBlind(), "audible whole-song preference completes");
-        controller.observeTransport (0, true, false);
+        controller.observeTransport (0, false, false);
         controller.endBlind();
         juce::Thread::sleep (300);
         require (controller.snapshot().blindPhase == ref::BlindPhase::inactive, "END during pause returns to the normal screen without another play click");

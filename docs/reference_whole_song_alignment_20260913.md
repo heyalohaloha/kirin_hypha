@@ -93,6 +93,8 @@ registered measurements were not changed.
 4. Once accepted, verify only the mapped location. Keep the map and gain through
    silence, transport pause and seeks. Positive content/timing contradictions
    invalidate playback to A; they never silently move an ongoing trial.
+   A host-reported pause may omit its sample clock. Preserve the trial and require
+   a valid clock again on resume; never fabricate a stopped position.
 
 All decoding, hashing, FFTs and gain analysis run on workers. At most two alignment
 jobs run together per process; busy instances retry. A capture is lazy and bounded

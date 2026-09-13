@@ -58,7 +58,7 @@ namespace hypha::reference_audition
         {
             if (! blind.auditioning())
                 return false;
-            if (versionComparison && auditionAllowed && positionValid
+            if (versionComparison && auditionAllowed
                 && !latestPlaying.load (std::memory_order_acquire) && ready.load (std::memory_order_acquire))
                 return blind.renderPausedA (buffer);
             if (! activeTransport || ! ready.load (std::memory_order_acquire)

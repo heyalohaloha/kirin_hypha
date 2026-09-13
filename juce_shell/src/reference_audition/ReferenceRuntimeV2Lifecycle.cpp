@@ -138,8 +138,7 @@ namespace hypha::reference_audition
                 observedTransportHeartbeat = currentTransportHeartbeat;
                 missedTransportCallbacks = 0;
             }
-            else if (versionComparison && !latestPlaying.load (std::memory_order_acquire)
-                && latestPositionValid.load (std::memory_order_acquire))
+            else if (versionComparison && !latestPlaying.load (std::memory_order_acquire))
             {
                 missedTransportCallbacks = 0;
                 observedTransportHeartbeat = currentTransportHeartbeat;
