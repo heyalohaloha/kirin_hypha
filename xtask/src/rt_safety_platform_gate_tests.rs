@@ -14,6 +14,7 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         "KirinLocalBlindPreparationTests",
         "KirinLocalBlindHostContextTests",
         "KirinLocalBlindProductTests",
+        "KirinEditorSurfaceProductTests",
     ] {
         assert!(ci.contains(target));
         assert!(source_gate.contains(target));
@@ -37,5 +38,6 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         assert!(ci.contains(target) && ci.contains(test_name));
         assert!(source_gate.contains(target) && source_gate.contains(test_name));
     }
-    assert!(ci.contains("-R '^kirin_local_blind_'"));
+    assert!(ci.contains("-R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'"));
+    assert!(source_gate.contains("|kirin_editor_surface_product)$'"));
 }
