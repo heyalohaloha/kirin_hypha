@@ -15,15 +15,17 @@ using Answer = local_blind::TrialAnswer;
 
 juce::String timeline (std::int64_t sample, std::uint32_t sampleRate)
 {
-    if (sample < 0 || sampleRate == 0)
+    if (sampleRate == 0)
         return {};
-    const auto milliseconds = static_cast<std::int64_t> (
+    const auto signedMilliseconds = static_cast<std::int64_t> (
         std::llround (static_cast<double> (sample) * 1000.0
                       / static_cast<double> (sampleRate)));
+    const auto milliseconds = std::abs (signedMilliseconds);
     const auto minutes = milliseconds / 60'000;
     const auto seconds = (milliseconds / 1'000) % 60;
     const auto millis = milliseconds % 1'000;
-    return juce::String (minutes).paddedLeft ('0', 2) + ":"
+    return juce::String (sample < 0 ? "-" : "")
+        + juce::String (minutes).paddedLeft ('0', 2) + ":"
         + juce::String (seconds).paddedLeft ('0', 2) + "."
         + juce::String (millis).paddedLeft ('0', 3);
 }
@@ -60,6 +62,8 @@ juce::String failureText (const local_blind::ProductSessionView& state)
             return "Playback jumped outside the exact captured sequence.";
         case local_blind::TrialFailure::range:
             return "Playback did not begin at the captured range start.";
+        case local_blind::TrialFailure::clock:
+            return "The host clock or delay compensation changed. Capture again.";
         case local_blind::TrialFailure::none:
             break;
     }
@@ -228,8 +232,7 @@ void Component::refreshPresentation()
     else if (phase == Phase::ready)
     {
         status = "EXACT RANGE READY";
-        detail = "Set the DAW playhead to " + rangeText (current)
-               + " and play or loop this exact range.";
+        detail = "Start Blind, then play from before " + rangeText (current) + ".";
         if (current.trial.lowerPostApprovalRequired)
         {
             const auto attenuation = std::abs (current.lowerPostGainDb);
@@ -251,18 +254,23 @@ void Component::refreshPresentation()
     else if (phase == Phase::armed)
     {
         status = "WAITING FOR CAPTURED RANGE START";
-        detail = "Play from " + rangeText (current) + ". No source has been heard yet.";
+        detail = "Play from before " + rangeText (current) + ". The full range will be heard.";
     }
     else if (phase == Phase::listening)
     {
-        status = current.trial.pendingStimulus != 0
+        status = current.trial.passComplete
+            ? "PASS COMPLETE / SOURCE " + juce::String (current.trial.activeStimulus)
+            : current.trial.pendingStimulus != 0
             ? "SWITCHING TO SOURCE " + juce::String (current.trial.pendingStimulus)
             : current.trial.activeStimulus != 0
                 ? "LISTENING TO SOURCE " + juce::String (current.trial.activeStimulus)
                 : "WAITING FOR AUDIBLE PLAYBACK";
         detail = current.trial.canAnswer
             ? "Both complete passes were heard. Choose your answer, then reveal."
-            : "Listen to one complete pass of Source 1 and Source 2.";
+            : current.trial.passComplete
+                ? "Select the other source, then play from before "
+                    + timeline (current.start, current.sampleRate) + "."
+                : "Listen to one complete pass of Source 1 and Source 2.";
         result = answerText (current.trial.answer);
     }
     else if (phase == Phase::revealed)
@@ -280,12 +288,12 @@ void Component::refreshPresentation()
                      && current.trial.failure == local_blind::TrialFailure::none
             ? "Confirm the return to the unchanged live signal."
             : failureText (current);
-        result = "The comparison remains reserved until live output confirms the return.";
+        result = "Press RETURN TO LIVE, then resume playback.";
     }
     else if (phase == Phase::returned)
     {
         status = "LIVE SIGNAL RESTORED";
-        detail = "The Audio Thread confirmed normal output and released the comparison.";
+        detail = "The comparison is closed. Live output is restored.";
     }
     else
     {
@@ -354,12 +362,21 @@ void Component::layoutRow (juce::Rectangle<int> area,
     for (auto* button : buttons)
         if (button->isVisible()) visible.add (button);
     if (visible.isEmpty()) return;
-    constexpr int gap = 6;
-    const auto width = (area.getWidth() - gap * (visible.size() - 1)) / visible.size();
+    const int gap = presentation::densityIndex (presentationContext.density) <= 1 ? 4 : 6;
+    const auto font = monoFont (presentationContext, typography::TextRole::action);
+    juce::Array<int> minimumWidths;
+    int totalMinimum = 0;
+    for (const auto* button : visible)
+    {
+        const auto minimum = juce::roundToInt (std::ceil (font.getStringWidthFloat (button->getButtonText()))) + 12;
+        minimumWidths.add (minimum);
+        totalMinimum += minimum;
+    }
+    const auto spare = juce::jmax (0, area.getWidth() - gap * (visible.size() - 1) - totalMinimum);
     for (int index = 0; index < visible.size(); ++index)
     {
         visible[index]->setBounds (area.removeFromLeft (
-            index + 1 == visible.size() ? area.getWidth() : width));
+            index + 1 == visible.size() ? area.getWidth() : minimumWidths[index] + spare / visible.size()));
         if (index + 1 != visible.size()) area.removeFromLeft (gap);
     }
 }
@@ -379,6 +396,8 @@ void Component::resized()
     const auto actionHeight = compact ? 28 : medium ? 36 : 48;
     const auto gap = compact ? 2 : medium ? 4 : 6;
     contextButton.setButtonText (compact ? "CONTEXT" : "CHANGE CONTEXT");
+    noPreference.setButtonText (compact ? "NO PREF" : "NO PREFERENCE");
+    cannotDistinguish.setButtonText (compact ? "CAN'T TELL" : "CANNOT TELL");
     titleLabel.setFont (labelFont (presentationContext, typography::TextRole::sectionTitle,
                                    typography::Composition::information));
     statusLabel.setFont (labelFont (presentationContext, typography::TextRole::status,

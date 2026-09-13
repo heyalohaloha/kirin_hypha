@@ -188,7 +188,7 @@ static void explicitlyArmedTransport()
         auto t = trial (false, { 2.0f, 0.5f, true });
         t->start (true);
         auto first = block();
-        if (failure == 0) first.position = 0;
+        if (failure == 0) first.positionValid = false;
         if (failure == 1) first.epochs.scope = 0;
         if (failure == 2) first.bypassed = true;
         if (failure == 3) first.realtime = false;
@@ -229,6 +229,12 @@ static void heldLevelAndRetirement()
              "null buffer cannot acknowledge return");
     require (t->render (buffer.pointers.data(), 1, 0, block()) == TrialOutput::untouched && ! t->normalReturnConfirmed(),
              "empty callback cannot acknowledge return");
+    require (buffer.render (*t, offline) == TrialOutput::untouched && ! t->normalReturnConfirmed(),
+             "offline render cannot release the realtime attenuation hold");
+    auto bypassed = block();
+    bypassed.bypassed = true;
+    require (buffer.render (*t, bypassed) == TrialOutput::untouched && ! t->normalReturnConfirmed(),
+             "bypassed output cannot acknowledge normal realtime return");
     buffer.fill();
     require (slot.render (buffer.pointers.data(), 1, 64, block (128)) && buffer.left[0] == 0.8f, "return in changed layout");
     require (slot.retireAfterNormalReceipt() && ! slot.hasStorage(), "off-RT retirement after actual return");
@@ -325,8 +331,15 @@ static void coherentEpochs()
     require (t->view().failure == TrialFailure::epochs, "revocation is latched");
 }
 
+#include "LocalBlindPlaybackContract.h"
+#include "LocalBlindTransitionContract.h"
+
 int main()
 {
+    nativeRangePlaybackContract();
+    capturedClockPlaybackContract();
+    stoppedHostClockContract();
+    localBlindTransitionContract();
     selectionAndAnswers();
     timeAndFailures();
     completePassCannotBeAssembledFromFragments();

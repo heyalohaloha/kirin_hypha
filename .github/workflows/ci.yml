@@ -28,6 +28,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # The full product contract also builds the common processor. Bound native build
+  # concurrency on each runner; timing-sensitive tests continue to run serially.
+  CMAKE_BUILD_PARALLEL_LEVEL: "2"
+
 jobs:
   public-history:
     name: public history identity
@@ -216,9 +221,9 @@ jobs:
           cmake --build juce_shell/build-windows --config Release --target KirinHyphaReferencePreviewRenderer
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_hypha_reference_preview_renderer$'
 
-      - name: Validate local PRE/POST Blind building blocks
+      - name: Validate local PRE/POST Blind and complete product flow
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinLocalBlindCaptureTests KirinLocalBlindCaptureServiceTests KirinLocalBlindCapturePairComparisonTests KirinLocalBlindPdcValidationDelayTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests KirinLocalBlindHostContextTests
+          cmake --build juce_shell/build-windows --config Release --target KirinLocalBlindCaptureTests KirinLocalBlindCaptureServiceTests KirinLocalBlindCapturePairComparisonTests KirinLocalBlindPdcValidationDelayTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests KirinLocalBlindHostContextTests KirinLocalBlindProductTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_local_blind_'
 
       - name: Validate Work attachment transport

@@ -214,8 +214,10 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
     let information = read_repo("juce_shell/src/PluginEditorInformation.cpp");
     assert!(information.contains("Capture one exact 4 s PRE/POST range"));
     let cmake = read_repo("juce_shell/CMakeLists.txt");
-    assert!(cmake.contains("KIRIN_HYPHA_BUILD_PDC_VALIDATION_DELAY"));
-    assert!(cmake.contains("Kirin Hypha PDC Validation Delay 4096"));
+    assert!(cmake.contains("include(cmake/PdcValidation.cmake)"));
+    let pdc_cmake = read_repo("juce_shell/cmake/PdcValidation.cmake");
+    assert!(pdc_cmake.contains("KIRIN_HYPHA_BUILD_PDC_VALIDATION_DELAY"));
+    assert!(pdc_cmake.contains("Kirin Hypha PDC Validation Delay 4096"));
     let validation_delay =
         read_repo("juce_shell/tests/pdc_validation_delay/FixedValidationDelay.h");
     assert!(validation_delay.contains("static constexpr int latencySamples = 4'096"));
