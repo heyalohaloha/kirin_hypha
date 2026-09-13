@@ -3,6 +3,7 @@
 Date: 2026-09-14
 Status: 実装候補とローカル検証を作成済み。実DAWのPDC・長時間負荷・Windowsの実機検証は未完了。配布なし。
 実装と証跡: [implementation record](reference_visual_comparison_implementation_20260914.md)。
+追加計画: [Capture Aによる全曲取得・保持](reference_a_full_capture_plan_20260914.md)。明示取得をBの準備・表示寿命から独立させ、取得時点の要約を保持する設計。製品実装は未着手。
 Baseline: Hypha B-871 `3ccec450` / Kirin OS W-3080 `31fd330c`。
 
 Daisukeが承認した方向は、曲全体の波形を比較の入口とし、現在のDAW音Aと計測済みVersion Bを、同じ場所・共通の尺度で見比べることである。
