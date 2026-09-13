@@ -22,7 +22,7 @@ namespace hypha::reference_audition
     {
         if (workspace.library)
             for (const auto& preset : workspace.presets)
-                if (preset.sourcePresetArtifact.presetId == snapshot.presetId)
+                if (!preset.versionEntry && preset.sourcePresetArtifact.presetId == snapshot.presetId)
                     for (const auto& check : preset.checks)
                     {
                         if (check.candidates.empty())
@@ -35,6 +35,7 @@ namespace hypha::reference_audition
         std::set<juce::String> versions;
         if (workspace.library)
             for (const auto& preset : workspace.presets)
+                if (!workspace.independentVersions || preset.versionEntry)
                 for (const auto& check : preset.checks)
                     for (const auto& candidate : check.candidates)
                         if (candidate.sourceKind == "work_version"
@@ -60,7 +61,7 @@ namespace hypha::reference_audition
                 snapshot.presets.push_back ({ "work:" + item.sourcePresetArtifact.presetId,
                     item.name + " / WORK", item.sourceTemplateArtifact.revisionId, pending });
         };
-        for (const auto& item : workspace.presets) appendWork (item, false);
+        for (const auto& item : workspace.presets) if (!item.versionEntry) appendWork (item, false);
         for (const auto& item : workspace.manifest.pendingPresets) appendWork (item, true);
     }
 }

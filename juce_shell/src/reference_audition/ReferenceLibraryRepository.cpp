@@ -1,6 +1,7 @@
 #include "ReferenceRuntimeV2Repository.h"
 #include "ReferenceRuntimeRepositoryParsing.h"
 #include <set>
+#include "ReferenceLibraryVersions.h"
 #include <juce_cryptography/juce_cryptography.h>
 
 namespace hypha::reference_audition
@@ -22,8 +23,10 @@ RuntimeWorkspaceLoadResult RuntimeV2Repository::refreshLibrary (
     next->library = true;
     next->publicationHash = juce::SHA256 (bytes).toHexString();
     if (object == nullptr || ! exactProperties (*object,
-        { "format", "version", "revision", "default_preset_id", "presets" })
-        || json["format"] != "kirin_hypha_reference_library" || json["version"] != "1.0"
+        json["version"] == "1.1"
+            ? std::initializer_list<const char*> { "format", "version", "revision", "default_preset_id", "presets", "versions" }
+            : std::initializer_list<const char*> { "format", "version", "revision", "default_preset_id", "presets" })
+        || json["format"] != "kirin_hypha_reference_library" || (json["version"] != "1.0" && json["version"] != "1.1")
         || ! exactInteger (json["revision"], 1, 9'007'199'254'740'991, next->manifest.revision)
         || ! json["default_preset_id"].isString()
         || ! uuidV4 (json["default_preset_id"].toString()))
@@ -74,6 +77,8 @@ RuntimeWorkspaceLoadResult RuntimeV2Repository::refreshLibrary (
     }
     if (next->manifest.activePresetRevisionId.isEmpty())
         return failure ("reference_library_default_missing", previous);
+    if (json["version"] == "1.1" && !readReferenceLibraryVersions (root, json["versions"], *next))
+        return failure ("reference_library_versions_rejected", previous);
     return { RuntimeWorkspaceLoadState::updated, next, {} };
 }
 

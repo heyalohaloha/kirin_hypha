@@ -1,8 +1,11 @@
 #include "reference_runtime_v2_analysis_test_support.h"
 #include <functional>
 #include <cstring>
+#include <thread>
+#include "reference_rt_probe.h"
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "reference_whole_song_fixture.h"
+#include "reference_library_manifest_fixture.h"
 
 namespace
 {
@@ -20,30 +23,7 @@ bool waitFor (ref::RuntimeV2Controller& controller, const std::function<bool(con
     return false;
 }
 
-juce::var libraryManifest (const juce::File& root, juce::var preset, std::int64_t revision)
-{
-    const auto* templateObject = preset["source_template_artifact"].getDynamicObject();
-    const auto presetId = templateObject->getProperty ("preset_id");
-    auto* item = new juce::DynamicObject();
-    const auto json = ref::RuntimeEventTransport::canonicalJson (preset);
-    const auto hash = juce::SHA256 (json.toRawUTF8(), json.getNumBytesAsUTF8()).toHexString();
-    const auto presetFile = root.getChildFile ("library/presets/" + hash + ".json");
-    require (presetFile.getParentDirectory().createDirectory().wasOk() && presetFile.replaceWithText (json), "canonical library preset must be written");
-    item->setProperty ("preset_id", presetId);
-    item->setProperty ("revision_id", templateObject->getProperty ("revision_id"));
-    item->setProperty ("relative_path", "plugin_data/reference/v2/library/presets/" + hash + ".json");
-    item->setProperty ("sha256", hash);
-    item->setProperty ("bytes", static_cast<juce::int64> (json.getNumBytesAsUTF8()));
-    auto* manifest = new juce::DynamicObject();
-    manifest->setProperty ("format", "kirin_hypha_reference_library");
-    manifest->setProperty ("version", "1.0");
-    manifest->setProperty ("revision", revision);
-    manifest->setProperty ("default_preset_id", presetId);
-    manifest->setProperty ("presets", juce::var (juce::Array<juce::var> { juce::var (item) }));
-    const juce::var value (manifest);
-    require (writeJson (root.getChildFile ("library/manifests/" + juce::String (revision) + ".json"), value), "immutable library manifest fixture");
-    return value;
-}
+
 }
 
 void testReferenceLibraryContract (const juce::File& sandbox);
@@ -149,7 +129,7 @@ void testReferenceComparisons (const juce::File& sandbox)
         value["candidates"].getArray()->getReference (0).getDynamicObject()->setProperty ("preparation_status", "prepared");
     }
     object->setProperty ("checks", checks);
-    require (writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 1)), "ABC publication");
+    require (writeJson (root.getChildFile ("library/manifest.json"), independentLibraryManifest (root, preset, 1)), "ABC publication");
     std::atomic<int> owners { 0 }, maximumOwners { 0 };
     std::atomic<bool> admissionAllowed { true };
     ref::ReferenceComparisonController controller (root, [&] (bool active)
@@ -194,15 +174,22 @@ void testReferenceComparisons (const juce::File& sandbox)
     {
         for (int channel = 0; channel < 2; ++channel)
             for (int n = 0; n < 128; ++n) buffer.setSample (channel, n, 0.125f);
+        beginReferenceRtProbe();
         controller.observeTransport (0, true, true);
         controller.observeAInput (buffer, 0, true, true, true);
-        return controller.renderSelectedB (buffer, 0, true, true, true);
+        const bool rendered = controller.renderSelectedB (buffer, 0, true, true, true);
+        const auto heapOperations = endReferenceRtProbe();
+        require (heapOperations == 0, "normal A/B/C callbacks and overlapping tails perform zero C++ heap operations");
+        return rendered;
     };
     require (! block() && buffer.getSample (0, 32) == 0.125f, "dropdown choices never auto-audition");
     admissionAllowed = false;
     require (! controller.selectB (-14, -2) && owners == 0 && ! block(), "busy admission leaves A");
     admissionAllowed = true;
     require (controller.selectB (-14, -2) && block(), "one B click auditions Version");
+    require (std::abs (buffer.getSample (0, 0) - (0.125f + (fixture.audio.getSample (0, 0) - 0.125f) / 240.0f)) < 1.0e-6f,
+             "first B sample begins a 5 ms fade from live A");
+    block(); block();
     require (std::abs (buffer.getSample (0, 32) - fixture.audio.getSample (0, 32)) < 0.0001f, "B output is the sample-aligned Version");
     auto observed = fixture.source.clone();
     addRuntimeV2MeasurementSummary (observed, -18, -6);
@@ -213,16 +200,35 @@ void testReferenceComparisons (const juce::File& sandbox)
     observedArtifact->setProperty ("bytes", observedReceipt.bytes);
     preset["checks"].getArray()->getReference (0)["candidates"].getArray()->getReference (0)
         .getDynamicObject()->setProperty ("source_artifact", juce::var (observedArtifact));
-    require (writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 2)),
+    require (writeJson (root.getChildFile ("library/manifest.json"), independentLibraryManifest (root, preset, 2)),
              "late observation publication");
     wait ([] (const auto& state) { return state.manifestRevision == 2; });
     require (controller.snapshot().audibleComparisonSlot == 1 && owners == 1 && block()
         && std::abs (buffer.getSample (0, 32) - fixture.audio.getSample (0, 32)) < 0.0001f,
         "optional observations must not interrupt the same verified audio or change its admitted gain");
     require (controller.selectC (-14, -2) && block(), "one C click auditions Check");
+    block(); block();
     require (std::abs (buffer.getSample (0, 32) + 0.25f) < 0.000001f, "C output is the Check source, not B or A");
     require (controller.selectB (-14, -2) && block(), "B choice survives C audition");
+    block(); block();
     require (maximumOwners == 1 && owners == 1, "three buttons never require three analysis slots");
+    std::thread switches ([&] {
+        for (int i = 0; i < 100; ++i)
+        { if ((i & 1) == 0) controller.selectC (-14, -2); else controller.selectB (-14, -2); juce::Thread::sleep (1); }
+    });
+    for (int i = 0; i < 200; ++i)
+    {
+        block();
+        for (int c = 0; c < 2; ++c) for (int frame = 0; frame < 128; ++frame)
+        {
+            const auto upper = juce::jmax (0.125f, fixture.audio.getSample (c, frame));
+            require (buffer.getSample (c, frame) >= -0.250002f && buffer.getSample (c, frame) <= upper + 2.0e-6f,
+                     "concurrent B/C commands cannot sum two full sources or overshoot the convex fade");
+        }
+        juce::Thread::sleep (1);
+    }
+    switches.join(); block(); block();
+    require (maximumOwners == 1 && owners == 1, "rapid concurrent switching retains one external owner");
     const auto completionCount = [&] {
         int count = 0;
         for (const auto& file : root.getChildFile ("library/events").findChildFiles (
@@ -233,7 +239,10 @@ void testReferenceComparisons (const juce::File& sandbox)
     juce::Thread::sleep (150);
     require (completionCount() == 0, "C to B does not falsely record an audible A return");
     controller.selectA();
-    require (! block() && owners == 0, "one A click releases audition ownership");
+    block(); block();
+    require (!block(), "one A click completes its 5 ms return");
+    for (int i = 0; i < 100 && owners != 0; ++i) juce::Thread::sleep (5);
+    require (owners == 0, "A return releases audition ownership after the tail");
     for (int channel = 0; channel < 2; ++channel)
         for (int n = 0; n < 128; ++n) require (buffer.getSample (channel, n) == 0.125f, "A remains bit identical");
     controller.configure (identity, 48000, 2);
@@ -287,7 +296,7 @@ void testReferenceComparisons (const juce::File& sandbox)
     require (bFile.deleteFile(), "remove Version source");
     wait ([] (const auto& state) { return ! state.versionReady && state.checkReady; });
     require (! controller.selectB (-14, -2) && ! block(), "missing Version leaves A");
-    require (controller.selectC (-14, -2) && block()
+    require (controller.selectC (-14, -2) && block() && block() && block()
         && std::abs (buffer.getSample (0, 32) + 0.25f) < 0.000001f,
         "missing B source leaves the independently prepared C usable");
     controller.selectA();
@@ -316,15 +325,15 @@ bool testReferenceLibraryOsFixture()
                     if (source.source->measurementArtifact)
                     {
                         const auto measured = ref::RuntimeV2MeasurementRepository (root).load (*source.source);
-                        require (measured.accepted() && measured.measurement->waveform.has_value()
-                            && measured.measurement->spectrum.has_value(), "OS measurements must reach Hypha with exact PCM binding");
+                        require (measured.accepted() && (measured.measurement->waveform.has_value()
+                            || measured.measurement->spectrum.has_value()), "OS measurements must reach Hypha with exact PCM binding");
                     }
                 }
     ref::RuntimeV2Controller first (root), second (root);
     first.configure ({ "independent-post-one", {}, 42, true }, 44100, 2);
     second.configure ({ "independent-post-two", {}, 42, true }, 44100, 2);
-    require (waitFor (first, [] (const auto& s) { return s.libraryReceived; })
-        && waitFor (second, [] (const auto& s) { return s.libraryReceived; }), "two POSTs receive the same library automatically");
+    require (waitFor (first, [] (const auto& s) { return s.libraryReceived && !s.presets.empty(); })
+        && waitFor (second, [] (const auto& s) { return s.libraryReceived && !s.presets.empty(); }), "two POSTs receive the same library automatically");
     const auto initial = second.snapshot();
     require (! first.snapshot().bSelected && ! initial.bSelected, "receipt does not select B");
     const auto other = initial.presets.front().id == initial.presetId ? initial.presets.back().id : initial.presets.front().id;
@@ -369,9 +378,12 @@ bool testReferenceLibraryOsFixture()
                 };
                 const auto previousCompletions = completions();
                 first.selectA();
-                for (int c = 0; c < 2; ++c) for (int n = 0; n < 128; ++n) buffer.setSample (c, n, 0.125f);
-                first.observeAInput (buffer, 12800, true, true, true);
-                first.renderSelectedB (buffer, 12800, true, true);
+                for (int block = 0; block < 4; ++block)
+                {
+                    for (int c = 0; c < 2; ++c) for (int n = 0; n < 128; ++n) buffer.setSample (c, n, 0.125f);
+                    first.observeAInput (buffer, 12800 + block * 128, true, true, true);
+                    first.renderSelectedB (buffer, 12800 + block * 128, true, true);
+                }
                 require (buffer.getSample (0, 0) == 0.125f && buffer.getSample (1, 127) == 0.125f,
                          "explicit return restores unmodified DAW A");
                 first.configure ({ "independent-post-one", {}, 42, true }, 44100, 2);

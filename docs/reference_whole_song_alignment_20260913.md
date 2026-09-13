@@ -129,7 +129,8 @@ commitment/reveal and callback-confirmed audible frames. Each hidden stimulus
 must be heard for at least three seconds before an answer. This is a preference
 trial, not a claim that every second of the song was heard or an ABX result.
 
-Kirin OS verifies the exact immutable manifest/preset/source, start bytes,
+Kirin OS verifies the exact immutable manifest/Version descriptor/source (or legacy
+preset receipt), start bytes,
 runtime, hidden assignment, source peak and range before showing completion.
 Duplicate starts/completions, missing artifacts and changed source identities
 fail closed. C++ canonical event JSON preserves UTF-8 Japanese text and UTF-16
@@ -169,3 +170,32 @@ one `NO DATA` indication instead of repeated readiness explanations. The footer
 retains the active comparison, PRE delta pause and applied gain; approval and
 recovery controls retain their existing behavior. This changes presentation only,
 including small layouts, without changing matching, gain or playback contracts.
+
+## Review corrections — B-869
+
+Observation cache identity includes host start, duration, rate and channels as
+well as PCM hash. Identical PCM relocated on the DAW timeline must establish a
+new map; a cached hash alone cannot preserve the old placement. A changed map
+invalidates an active trial, while idle comparison returns to A and recalibrates.
+
+Gain/DSP edit detection compares corresponding samples in the initial calibration
+passage and one recent passage, requiring at least three seconds of overlap.
+Quantisation/dither and silence do not trigger recalibration. Different musical
+positions retain the accepted fixed gain rather than causing dynamic leveling.
+This bounded guard does not claim immediate detection of arbitrary A edits in
+passages never observed before. It retains at most two shared four-second PCM
+observations on the worker; no full-song A buffer is allocated.
+
+The regression fixture halves A, requires B gain −6.0206 dB within 0.01 dB, then
+moves the identical captured PCM by 48,000 samples and requires zero mapping
+error. A further edit during Blind must invalidate answering while retaining END.
+Normal A/B/C transitions additionally exercise rapid control/audio concurrency,
+one external admission, bounded fades and bit-identical settled A.
+
+Local verification for these corrections: workspace Rust tests and warning-free
+owned clippy passed; the final native Reference runtime, audio-page and content
+correlation suites passed. The normal A/B/C callback probe also reported zero
+C++ heap operations, including concurrent switching and overlapping tails. The
+actual OS Library 1.1 publication was accepted by two native POST receivers;
+Version 1.1 and legacy C 1.0 journals were accepted by OS (12 events, zero failures).
+These are local harness results, not a signed DAW or Windows device receipt.

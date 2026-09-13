@@ -33,6 +33,7 @@ bool RuntimeV2Controller::selectLibraryVersion (const juce::String& id)
         if (! requestedConfiguration.identity.library
             || std::none_of (currentSnapshot.versions.begin(), currentSnapshot.versions.end(),
                             [&] (const auto& option) { return option.id == id; })) return false;
+        legacyVersionChoice.clear();
         requestedSelection.presetId = parts[0];
         requestedSelection.checkId = parts[1];
         requestedSelection.candidateId = parts[2];
@@ -59,6 +60,7 @@ void RuntimeV2Controller::restoreChoice (const ReferenceChoice& value)
     selectA();
     {
         const juce::ScopedLock lock (stateLock);
+        legacyVersionChoice.clear();
         const auto choice = value.valid() ? value : ReferenceChoice {};
         const auto generation = requestedSelection.generation + 1;
         requestedSelection = { choice.presetId, choice.checkId, choice.candidateId,

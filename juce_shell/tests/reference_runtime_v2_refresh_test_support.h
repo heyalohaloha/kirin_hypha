@@ -52,6 +52,8 @@ namespace
         std::int64_t hostPosition, juce::AudioBuffer<float>& output)
     {
         const auto before = controller.snapshot();
+        if (before.blindPhase == ref::BlindPhase::inactive)
+            for (int i = 0; i < 4; ++i) { output.clear(); controller.renderSelectedB (output, hostPosition, true); }
         output.clear();
         require (controller.renderSelectedB (output, hostPosition, true),
                  "refresh fixture must have audible output before publication");

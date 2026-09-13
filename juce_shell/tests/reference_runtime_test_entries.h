@@ -9,3 +9,12 @@ bool testReferenceLibraryOsFixture();
 
 void testReferenceContentAlignment (const juce::File&);
 void testReferenceRealContentAlignment();
+
+void testReferenceCalibrationRegressions (const juce::File&);
+
+inline void finishReferenceRegressionFixture (const juce::File& sandbox)
+{
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_KEEP_FIXTURE", {}).isNotEmpty())
+        std::cout << "Reference regression fixture: " << sandbox.getFullPathName() << '\n';
+    else require (sandbox.deleteRecursively(), "ABC fixtures must be removed");
+}

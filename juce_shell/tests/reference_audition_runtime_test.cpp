@@ -5,7 +5,6 @@
 #include "reference_runtime_lazy_candidates_test_support.h"
 
 #include "reference_runtime_test_entries.h"
-
 int main (int argc, char** argv)
 {
     if (testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
@@ -20,9 +19,10 @@ int main (int argc, char** argv)
     testReferenceContentAlignment (sandbox);
     testReferenceLibraryContract (sandbox);
     testReferenceComparisons (sandbox);
+    testReferenceCalibrationRegressions (sandbox);
     if (argc == 2 && juce::String (argv[1]) == "--abc-only")
     {
-        require (sandbox.deleteRecursively(), "ABC fixtures must be removed");
+        finishReferenceRegressionFixture (sandbox);
         return 0;
     }
     if (argc == 2 && juce::String (argv[1]) == "--lazy-presets-only")

@@ -63,6 +63,7 @@ namespace hypha::reference_audition
     void RuntimeV2Controller::configure (RuntimeIdentity identity, double hostSampleRate,
                                          int hostChannels)
     {
+        normalFadeStep.store (static_cast<float> (1.0 / juce::jmax (1.0, hostSampleRate * 0.005)), std::memory_order_release);
         if (identity.hostProcessId == 0)
             identity.hostProcessId = currentProcessId();
         {
@@ -166,12 +167,12 @@ namespace hypha::reference_audition
     std::uint64_t RuntimeV2Controller::acquireOutputGate() noexcept
     {
         const juce::ScopedLock lock (outputGateLock);
-        if (activeOutputGateToken.load (std::memory_order_acquire) != 0)
-            return 0;
+        const bool retained = activeOutputGateToken.load (std::memory_order_acquire) != 0;
+        if (retained && (bSelected.load (std::memory_order_acquire) || blind.ongoing())) return 0;
         auto token = nextOutputGateToken.fetch_add (1, std::memory_order_acq_rel);
         if (token == 0)
             token = nextOutputGateToken.fetch_add (1, std::memory_order_acq_rel);
-        if (selectionGate && ! selectionGate (true))
+        if (!retained && selectionGate && ! selectionGate (true))
             return 0;
         activeOutputGateToken.store (token, std::memory_order_release);
         return token;
@@ -196,6 +197,7 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::publishLocked (Snapshot next)
     {
+        next.migratedVersionChoice = legacyVersionChoice;
         next.bSelected = bSelected.load (std::memory_order_acquire);
         if (next.bSelected || blind.ongoing())
         {

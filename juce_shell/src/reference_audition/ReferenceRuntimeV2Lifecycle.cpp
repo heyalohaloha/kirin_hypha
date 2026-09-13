@@ -40,6 +40,7 @@ namespace hypha::reference_audition
         mappingGeneration.fetch_add (1, std::memory_order_release);
         blindContextKey.clear();
         blindPreparationKey.clear();
+        calibrationObservation.clear();
         activePresetAdoptionKey.clear();
         blind.clear();
         {
@@ -115,7 +116,7 @@ namespace hypha::reference_audition
             if (contentRefreshRequested.exchange (false, std::memory_order_acq_rel)
                 && !bSelected.load (std::memory_order_acquire) && !blind.ongoing())
             {
-                blind.clear(); blindPreparationKey.clear();
+                blind.clear(); blindPreparationKey.clear(); calibrationObservation.clear();
                 aCapture.disconnect(); untilPoll = 0;
             }
             aCapture.service (

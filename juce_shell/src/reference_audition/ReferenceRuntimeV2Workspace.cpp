@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceLibraryLegacyChoice.h"
 #include "ReferenceRuntimeV2PlaybackIdentity.h"
 #include "ReferenceRuntimePresetOptions.h"
 
@@ -92,6 +93,26 @@ namespace hypha::reference_audition
             return;
         }
         workspace = loaded.workspace;
+        if (versionComparison && workspace->independentVersions)
+        {
+            const ReferenceChoice original { selection.presetId, selection.checkId, selection.candidateId, selection.cueId };
+            const auto key = workspace->publicationHash + ":" + original.target() + ":" + juce::String (selection.generation);
+            if (legacyVersionLookupKey != key)
+            {
+                legacyVersionLookupKey = key;
+                const auto id = migrateLegacyVersionChoice (root, *workspace, original);
+                if (id.isNotEmpty())
+                {
+                    const juce::ScopedLock lock (stateLock);
+                    if (requestedSelection.generation == selection.generation)
+                    {
+                        legacyVersionChoice = original.target();
+                        selection.presetId = id; selection.checkId = id; selection.candidateId = id; selection.cueId = id;
+                        requestedSelection = selection;
+                    }
+                }
+            }
+        }
         libraryReceived.store (workspace->library, std::memory_order_release);
         appliedSelectionGeneration = selection.generation;
         const auto missingSelection = [&] {
@@ -389,6 +410,7 @@ namespace hypha::reference_audition
                 next.cueId,
                 selectedCueLabel,
                 next.comparisonMode,
+                preset->versionEntry,
             };
             activeEventCandidate = *candidate;
             activeEventCue = *cue;

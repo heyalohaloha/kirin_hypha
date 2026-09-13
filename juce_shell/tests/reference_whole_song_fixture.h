@@ -96,7 +96,7 @@ namespace
         position += frames;
     }
 
-    void exerciseWholeSongLibraryTrial (ref::ReferenceComparisonController& controller,
+    [[maybe_unused]] void exerciseWholeSongLibraryTrial (ref::ReferenceComparisonController& controller,
                                         const WholeSongFixture& fixture, const juce::File& root)
     {
         controller.observeTransport (0, true, true);

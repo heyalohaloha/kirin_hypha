@@ -77,7 +77,7 @@ namespace hypha::reference_audition
                               || bSelected.load (std::memory_order_acquire) || blind.ongoing()) && (versionComparison
                               || (! bSelected.load (std::memory_order_acquire) && ! blind.ongoing())));
         if (confirmAudible && auditionAllowed && playing && positionValid && input.getNumSamples() > 0
-            && ! bSelected.load (std::memory_order_acquire) && ! blind.ongoing())
+            && ! bSelected.load (std::memory_order_acquire) && !normalReturnToken.load (std::memory_order_acquire) && ! blind.ongoing())
             aAudibleConfirmations.fetch_add (1, std::memory_order_release);
     }
 
@@ -160,6 +160,7 @@ namespace hypha::reference_audition
             return false;
         const auto epoch = auditionEpoch.load (std::memory_order_acquire);
         const auto gateToken = acquireOutputGate();
+        if (gateToken != 0) normalReturnToken.store (0, std::memory_order_release);
         if (gateToken == 0)
             return false;
         if (! ready.load (std::memory_order_acquire)
@@ -253,7 +254,7 @@ namespace hypha::reference_audition
         if (blind.ongoing())
             invalidateBlind();
         else
-            selectA();
+            selectA (false);
     }
 
     void RuntimeV2Controller::loseAudibleConfirmation() noexcept
@@ -305,7 +306,8 @@ namespace hypha::reference_audition
         else
         {
             const auto gateToken = activeOutputGateToken.load (std::memory_order_acquire);
-            if (bSelected.exchange (false, std::memory_order_acq_rel))
+            const bool returning = normalReturnToken.exchange (0, std::memory_order_acq_rel);
+            if (bSelected.exchange (false, std::memory_order_acq_rel) || returning)
             {
                 activeAuditionEpoch.store (0, std::memory_order_release);
                 auditionReturnPending.store (true, std::memory_order_release);

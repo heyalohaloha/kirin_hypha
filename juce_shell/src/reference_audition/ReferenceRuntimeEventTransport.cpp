@@ -262,7 +262,7 @@ namespace hypha::reference_audition
         auto object = new juce::DynamicObject();
         object->setProperty ("format", context.identity.library
             ? "kirin_hypha_reference_library_event" : "kirin_hypha_reference_event");
-        object->setProperty ("version", "1.0");
+        object->setProperty ("version", context.versionEntry ? "1.1" : "1.0");
         object->setProperty ("event_id", eventId);
         object->setProperty ("runtime_instance_id", context.identity.runtimeInstanceId);
         object->setProperty ("host_process_id",
@@ -272,7 +272,13 @@ namespace hypha::reference_audition
         object->setProperty ("event_type", eventType);
         object->setProperty ("occurred_at_ms", occurredAtMs);
         object->setProperty ("run_id", runId);
-        object->setProperty ("preset_artifact", contentReceipt (context.presetArtifact));
+        auto receipt = contentReceipt (context.presetArtifact);
+        if (context.versionEntry)
+        {
+            receipt.getDynamicObject()->removeProperty ("preset_id");
+            receipt.getDynamicObject()->setProperty ("entry_id", context.presetArtifact.presetId);
+        }
+        object->setProperty (context.versionEntry ? "version_artifact" : "preset_artifact", receipt);
         object->setProperty ("display_snapshot", displaySnapshot (context));
         object->setProperty ("note", note);
         object->setProperty ("payload", payload);

@@ -20,6 +20,7 @@
 #include "ReferenceRuntimeACapture.h"
 #include "ReferenceRuntimeV2Source.h"
 #include "ReferenceRuntimeV2SourceCache.h"
+#include "ReferenceCalibrationObservation.h"
 
 namespace hypha::reference_audition
 {
@@ -58,7 +59,10 @@ namespace hypha::reference_audition
                             bool auditionAllowed, bool confirmAudible = true) noexcept;
         void confirmAOutput() noexcept { aAudibleConfirmations.fetch_add (1, std::memory_order_release); }
         bool selectB (double aIntegratedLoudness, double aMaximumTruePeakDbtp) noexcept;
-        void selectA() noexcept;
+        void selectA (bool allowFade = true) noexcept;
+        bool hasOutputPath() const noexcept { return bSelected.load (std::memory_order_acquire) || returningToA() || normalAudible.load (std::memory_order_acquire) || blind.ongoing(); }
+        bool canTransferOutputGate() const noexcept { return !bSelected.load (std::memory_order_acquire) && !blind.ongoing(); }
+        bool returningToA() const noexcept { return normalReturnToken.load (std::memory_order_acquire); }
         bool startBlind (double, double) noexcept;
         bool approveBlindLowerAAndStart (double, double) noexcept;
         bool selectBlindStimulus (int) noexcept;
@@ -70,7 +74,7 @@ namespace hypha::reference_audition
                               bool positionValid, bool auditionAllowed = true) noexcept;
         bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t hostPosition,
                               bool positionValid, bool auditionAllowed,
-                              bool normalReturnAllowed) noexcept;
+                              bool normalReturnAllowed, bool normalTarget = true) noexcept;
         void loseAudibleConfirmation() noexcept;
 
     private:
@@ -210,6 +214,8 @@ namespace hypha::reference_audition
         juce::String pendingApprovalKey;
         juce::String blindContextKey;
         juce::String blindPreparationKey;
+        juce::String legacyVersionLookupKey, legacyVersionChoice;
+        CalibrationObservation calibrationObservation;
         juce::String activePresetAdoptionKey;
         Snapshot currentSnapshot;
         PreparedNormalSelection preparedNormalSelection;
@@ -235,6 +241,12 @@ namespace hypha::reference_audition
         std::atomic<bool> libraryReceived { false }, libraryOnline { false };
         std::atomic<bool> ready { false };
         std::atomic<bool> bSelected { false };
+        std::atomic<std::uint64_t> normalReturnToken { 0 };
+        std::atomic<bool> normalAudible { false };
+        std::atomic<float> normalFadeStep { 1.0f / 240.0f };
+        std::array<std::array<float, 8192>, 2> normalLiveA {};
+        std::uint64_t rtNormalEpoch = 0;
+        float rtNormalBlend = 0.0f; // Audio-thread owned.
         std::atomic<bool> contentObservationEnabled { false }, contentRefreshRequested { false };
         std::atomic<float> bLinearGain { 1.0f };
         std::atomic<std::uint64_t> auditionEpoch { 1 };

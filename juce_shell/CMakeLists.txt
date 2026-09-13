@@ -781,6 +781,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_runtime_v2_source_cache_test.cpp
         tests/reference_runtime_v2_workspace_test.cpp
         tests/reference_library_test.cpp
+        tests/reference_calibration_regression_test.cpp
         tests/reference_content_alignment_test.cpp
         tests/reference_real_content_alignment_test.cpp
         tests/reference_rt_probe.cpp

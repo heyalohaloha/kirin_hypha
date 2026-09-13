@@ -45,14 +45,15 @@ private:
     bool trialActive() const;
     SelectionGate gate;
     juce::CriticalSection gateLock;
-    int gateOwner = 0;
+    int gateOwners = 0; // Bit mask retains one external admission across overlapping tails.
     mutable juce::CriticalSection selectionLock;
     juce::String versionId, receiverId;
     std::optional<ReferenceComparisonSettings> pendingSettings;
     bool configured = false;
-    std::atomic<int> viewedSlot { 2 };
+    std::atomic<int> viewedSlot { 2 }, normalOutputSlot { 0 };
     std::atomic<bool> versionChosen { false };
     bool rtPlaying = false, rtInputAllowed = false;
+    juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 };
     RuntimeV2Controller version, check;
 };
 }

@@ -116,6 +116,7 @@ namespace hypha::reference_audition
                      std::int64_t mappedSourcePosition = -1) noexcept;
         bool renderInvalidatedA (juce::AudioBuffer<float>&,
                                  bool auditionAllowed) noexcept;
+        void seedNormalSourceBlend (float blend) noexcept { pendingNormalBlend.store (blend, std::memory_order_release); }
         bool renderPausedA (juce::AudioBuffer<float>&) noexcept;
         void confirmStoppedReturn() noexcept;
         RuntimeV2BlindSnapshot snapshot() const;
@@ -154,6 +155,7 @@ namespace hypha::reference_audition
         double alignmentCorrelation = 0.0;
         std::int64_t alignmentSpreadSamples = 0;
         juce::AudioBuffer<float> liveScratch;
+        std::atomic<float> pendingNormalBlend { -1.0f };
         float rtSourceBlend = 0.0f;
         std::vector<float> frozenA;
         std::vector<float> frozenB;

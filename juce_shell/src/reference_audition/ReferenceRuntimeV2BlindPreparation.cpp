@@ -37,10 +37,11 @@ namespace hypha::reference_audition
                 invalidateBlind();
             blind.clear();
             blindPreparationKey.clear();
+            calibrationObservation.clear();
             blindContextKey = nextBlindContextKey;
         }
         const auto nextBlindKey = blindIdentityMatches && capturedA != nullptr
-            ? capturedA->cuePcmSha256 + ":" + candidate.sourceArtifact.sha256 + ":"
+            ? referenceObservationIdentity (*capturedA) + ":" + candidate.sourceArtifact.sha256 + ":"
                 + cueKey + ":" + juce::String (next.hostSampleRateHz)
             : juce::String {};
         if (!libraryVersion && nextBlindKey.isEmpty() && blindPreparationKey.isNotEmpty()
@@ -57,21 +58,40 @@ namespace hypha::reference_audition
                 const auto previous = blind.snapshot();
                 const auto predicted = previous.bStartSample + outputSample (
                     capturedA->startSample - previous.aStartSample, hostRate, previous.bSampleRateHz);
-                const auto matched = alignReferenceContent (*capturedA, *selectedSource, *next.detailedMeasurement, true,
+                auto matched = alignReferenceContent (*capturedA, *selectedSource, *next.detailedMeasurement, true,
                     previous.eligible ? std::optional<std::int64_t> { predicted } : std::nullopt);
                 if (sourceRepository.verifySourceRevision (*selectedSource).isNotEmpty())
                 { failClosedToA(); blind.clear(); next.state = RuntimeState::rejected; next.rejectionCode = "reference_source_changed"; return; }
-                if (previous.eligible && ((matched.established && std::abs (matched.sourceStartSample - predicted) > 1)
-                    || matched.reason == "reference_alignment_content_changed" || matched.reason == "reference_alignment_timing_changed"))
+                const bool mappingChanged = previous.eligible
+                    && ((capturedA->cuePcmSha256 == previous.aCuePcmSha256 && capturedA->startSample != previous.aStartSample)
+                        || (matched.established && std::abs (matched.sourceStartSample - predicted) > 1)
+                        || matched.reason == "reference_alignment_content_changed"
+                        || matched.reason == "reference_alignment_timing_changed");
+                const bool calibrationChanged = previous.eligible && matched.established
+                    && calibrationObservation.changed (*capturedA, matched.sourceStartSample, selectedSource->audio.sampleRateHz);
+                bool prepared = false;
+                if (mappingChanged || calibrationChanged)
                 {
                     if (blind.ongoing()) invalidateBlind();
-                    else { selectA(); blind.clear(); }
+                    else
+                    {
+                        failClosedToA(); blind.clear(); calibrationObservation.clear();
+                        if (mappingChanged)
+                            matched = alignReferenceContent (*capturedA, *selectedSource, *next.detailedMeasurement, true);
+                        if (sourceRepository.verifySourceRevision (*selectedSource).isNotEmpty())
+                        { failClosedToA(); next.state = RuntimeState::rejected; next.rejectionCode = "reference_source_changed"; return; }
+                        if (matched.established) prepared = blind.prepareWholeSong (*capturedA, *selectedSource, matched);
+                    }
                 }
-                else if (matched.established && !previous.eligible)
-                    blind.prepareWholeSong (*capturedA, *selectedSource, matched);
+                else if (matched.established && !previous.eligible && !blind.ongoing())
+                    prepared = blind.prepareWholeSong (*capturedA, *selectedSource, matched);
+                if (prepared || (matched.established && previous.eligible && !mappingChanged && !calibrationChanged))
+                    calibrationObservation.remember (capturedA, matched.sourceStartSample, selectedSource->audio.sampleRateHz);
                 // Silence or an ambiguous passage cannot replace a proven map.
                 // A positively detected timing change returns to A before rematching.
-                if (matched.reason != "reference_alignment_busy") blindPreparationKey = nextBlindKey;
+                if (matched.reason != "reference_alignment_busy"
+                    && (!blind.ongoing() || (previous.eligible && !mappingChanged && !calibrationChanged)))
+                    blindPreparationKey = nextBlindKey;
                 if (!previous.eligible && !matched.established) next.rejectionCode = matched.reason;
             }
             else if (!libraryVersion)

@@ -9,6 +9,7 @@ bool exactProperties (const juce::DynamicObject&, std::initializer_list<const ch
 bool exactInteger (const juce::var&, std::int64_t, std::int64_t, std::int64_t&);
 bool readJson (const juce::File&, std::int64_t, juce::MemoryBlock&, juce::var&);
 bool parseManifest (const juce::var&, const juce::String&, RuntimeManifest&);
+bool parseLibraryVersionCandidate (const juce::var&, RuntimeCandidate&);
 bool parsePreset (const juce::var&, const RuntimePresetReceipt&, const juce::String&, RuntimePreset&, bool library = false);
 RuntimeWorkspaceLoadResult failure (juce::String, std::shared_ptr<const RuntimeWorkspace>);
 inline constexpr std::int64_t maximumManifestBytes = 256 * 1024;

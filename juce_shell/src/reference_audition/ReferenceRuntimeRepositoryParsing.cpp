@@ -355,6 +355,9 @@ namespace hypha::reference_audition
                                          result.profileBindings);
         }
 
+        bool parseLibraryVersionCandidate (const juce::var& value, RuntimeCandidate& result)
+        { return parseCandidate (value, result, true); }
+
         bool parsePreset (const juce::var& value, const RuntimePresetReceipt& expected,
                           const juce::String& workId, RuntimePreset& result, bool library)
         {

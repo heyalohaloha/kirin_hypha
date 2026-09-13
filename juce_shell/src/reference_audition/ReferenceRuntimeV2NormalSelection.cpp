@@ -215,6 +215,7 @@ namespace hypha::reference_audition
             return false;
         }
         activeAuditionEpoch.store (epoch, std::memory_order_release);
+        normalReturnToken.store (0, std::memory_order_release);
         bSelected.store (true, std::memory_order_release);
         if (! ready.load (std::memory_order_acquire)
             || auditionEpoch.load (std::memory_order_acquire) != epoch
@@ -234,6 +235,7 @@ namespace hypha::reference_audition
     {
         if (blind.ongoing())
             return false;
+        if (bSelected.load (std::memory_order_acquire)) return true;
         const auto generation = normalSelectionGeneration.fetch_add (
             1, std::memory_order_acq_rel) + 1;
         const bool alreadySelected = bSelected.load (std::memory_order_acquire);
@@ -246,7 +248,7 @@ namespace hypha::reference_audition
         return selected;
     }
 
-    void RuntimeV2Controller::selectA() noexcept
+    void RuntimeV2Controller::selectA (bool allowFade) noexcept
     {
         normalSelectionGeneration.fetch_add (1, std::memory_order_acq_rel);
         if (blind.ongoing())
@@ -256,14 +258,19 @@ namespace hypha::reference_audition
         }
         const auto aBaseline = aAudibleConfirmations.load (std::memory_order_acquire);
         const bool wasSelected = bSelected.exchange (false, std::memory_order_acq_rel);
-        activeAuditionEpoch.store (0, std::memory_order_release);
+        const bool fade = allowFade && wasSelected && normalAudible.load (std::memory_order_acquire)
+            && ready.load (std::memory_order_acquire) && latestPlaying.load (std::memory_order_acquire);
+        if (fade) normalReturnToken.store (activeOutputGateToken.load (std::memory_order_acquire), std::memory_order_release);
+        else if (allowFade && normalReturnToken.load (std::memory_order_acquire)
+                 && ready.load (std::memory_order_acquire) && latestPlaying.load (std::memory_order_acquire)) return;
+        else { normalReturnToken.store (0, std::memory_order_release); activeAuditionEpoch.store (0, std::memory_order_release); }
         const bool deferredReturn = auditionReturnPending.exchange (
             false, std::memory_order_acq_rel);
         const auto deferredRelease = normalGateReleasePendingToken.exchange (
             0, std::memory_order_acq_rel);
         if (wasSelected || deferredReturn)
             requestAuditionReturnEvent (aBaseline);
-        if (wasSelected)
+        if (!fade && !normalReturnToken.load (std::memory_order_acquire))
             releaseActiveOutputGate();
         else
             releaseOutputGate (deferredRelease);

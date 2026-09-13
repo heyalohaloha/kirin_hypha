@@ -43,6 +43,8 @@ namespace hypha::reference_audition
         if (count < 1 || count > liveScratch.getNumSamples() || length <= 0
             || position == std::numeric_limits<std::int64_t>::min())
         { release(); return false; }
+        const auto seed = pendingNormalBlend.exchange (-1.0f, std::memory_order_acq_rel);
+        if (seed >= 0.0f) rtSourceBlend = seed;
         const int first = position < 0
             ? (position <= -static_cast<std::int64_t> (count) ? count : static_cast<int> (-position)) : 0;
         const auto sourceFirst = position < 0 ? 0 : position;

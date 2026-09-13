@@ -83,6 +83,7 @@ namespace hypha::reference_audition
 
     struct RuntimePreset
     {
+        bool versionEntry = false;
         juce::String workId;
         RuntimeSourcePresetReceipt sourceTemplateArtifact;
         RuntimeSourcePresetReceipt sourcePresetArtifact;
@@ -112,6 +113,7 @@ namespace hypha::reference_audition
     struct RuntimeWorkspace
     {
         bool library = false;
+        bool independentVersions = false;
         juce::String publicationHash;
         RuntimeManifest manifest;
         RuntimeGlobalPresetCatalog globalPresetCatalog;
