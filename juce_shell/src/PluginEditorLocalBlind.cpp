@@ -21,8 +21,6 @@ void KirinHyphaEditor::configureLocalBlindProduct()
     localBlindView.setMeterContext (processorRef.meterContextPreference());
 
     localBlindView.onCapture = [this] { beginLocalBlindProductCapture(); };
-    localBlindView.onContextMenu = [this]
-    { showMeterContextMenu (localBlindView.contextAnchor()); };
     localBlindView.onStart = [this] (bool approveLowerPost)
     {
         if (! processorRef.startLocalBlindProductTrial (approveLowerPost))
@@ -96,6 +94,7 @@ void KirinHyphaEditor::openLocalBlindProduct()
         return;
     }
     localBlindPreflight = true;
+    localBlindView.setMeterContext (processorRef.meterContextPreference());
     localBlindOpen = true;
     localBlindView.clearActionNotice();
     refreshLocalBlindProduct();
@@ -104,7 +103,9 @@ void KirinHyphaEditor::openLocalBlindProduct()
 
 void KirinHyphaEditor::beginLocalBlindProductCapture()
 {
-    if (! localBlindOpen || ! localBlindPreflight) return;
+    if (! localBlindOpen) return;
+    const auto current = processorRef.localBlindProductView();
+    if (! localBlindPreflight && ! current.canRecapture) return;
     if (processorRef.pairStatus() != KIRIN_PAIR_STATUS_PAIRED)
     {
         localBlindView.setActionNotice ("PAIR CHANGED / RETURN AND REOPEN");
@@ -127,11 +128,12 @@ void KirinHyphaEditor::beginLocalBlindProductCapture()
         return;
     }
     const auto previousPhase = processorRef.localBlindProductView().phase;
-    if (processorRef.requestLocalBlindProductCapture())
+    if (processorRef.requestLocalBlindProductCapture (localBlindView.meterContext()))
         localBlindPreflight = false;
     else
     {
-        localBlindPreflight = processorRef.localBlindProductView().phase == previousPhase;
+        localBlindPreflight = localBlindPreflight
+            && processorRef.localBlindProductView().phase == previousPhase;
         localBlindView.setActionNotice ("ANALYSIS SLOT NOT AVAILABLE");
     }
     refreshLocalBlindProduct();
@@ -162,7 +164,6 @@ void KirinHyphaEditor::refreshLocalBlindProduct()
     if (processorRef.localBlindProductSupported()
         && ! localBlindOpen && hypha::local_blind_ui::needsRecoveryScreen (current))
         localBlindOpen = true;
-    localBlindView.setMeterContext (processorRef.meterContextPreference());
     localBlindView.setState (localBlindPreflight
         ? hypha::local_blind::ProductSessionView {} : current);
     layoutLocalBlindProduct();

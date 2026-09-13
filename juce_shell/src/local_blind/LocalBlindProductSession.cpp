@@ -20,6 +20,7 @@ bool LocalBlindProductSession::beginCapture (
     admittedClock = nextClock;
     capturedPair = {};
     failure = ProductSessionFailure::none;
+    preparationFailure = PreparationFailure::none;
     basePhase = ProductSessionPhase::capturing;
     sampleRate = 0;
     channels = 0;
@@ -85,6 +86,7 @@ bool LocalBlindProductSession::acceptCapturedPair (
     if (frames == 0 || chans == 0 || frames > max / chans / sizeof (float) / 2u)
     {
         const std::lock_guard<std::mutex> lock (controlLock);
+        preparationFailure = PreparationFailure::capacity;
         markFailed (ProductSessionFailure::preparation);
         return true;
     }
@@ -98,6 +100,7 @@ bool LocalBlindProductSession::acceptCapturedPair (
         return false;
     if (! prepared.trial)
     {
+        preparationFailure = prepared.failure;
         markFailed (ProductSessionFailure::preparation);
         return true;
     }
@@ -197,6 +200,9 @@ ProductSessionView LocalBlindProductSession::viewUnderLock() const noexcept
     ProductSessionView result;
     result.phase = basePhase;
     result.failure = failure;
+    result.preparationFailure = preparationFailure;
+    result.canRecapture = basePhase == ProductSessionPhase::failed && scopeEpoch == 0
+        && ! releasePending && ! output.hasStorage();
     result.gainPolicy = gainPolicy;
     result.sampleRate = sampleRate;
     result.channels = channels;

@@ -41,6 +41,8 @@ struct ProductSessionView
 {
     ProductSessionPhase phase = ProductSessionPhase::idle;
     ProductSessionFailure failure = ProductSessionFailure::none;
+    PreparationFailure preparationFailure = PreparationFailure::none;
+    bool canRecapture = false;
     GainMatchPolicy gainPolicy = GainMatchPolicy::alignedActiveBlocksV1;
     TrialView trial;
     std::uint32_t sampleRate = 0;
@@ -101,6 +103,7 @@ private:
     LocalBlindEpochSnapshot epochs;
     ProductSessionPhase basePhase = ProductSessionPhase::idle;
     ProductSessionFailure failure = ProductSessionFailure::none;
+    PreparationFailure preparationFailure = PreparationFailure::none;
     std::uint64_t scopeEpoch = 0;
     std::uint64_t expectedCaptureGeneration = 0;
     GainMatchPolicy gainPolicy = GainMatchPolicy::alignedActiveBlocksV1;

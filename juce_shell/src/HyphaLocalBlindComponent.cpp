@@ -1,6 +1,7 @@
 #include "HyphaLocalBlindComponent.h"
 
 #include "HyphaSurfaceMaterial.h"
+#include "HyphaLocalBlindFailureText.h"
 
 #include <array>
 #include <cmath>
@@ -38,37 +39,6 @@ juce::String rangeText (const local_blind::ProductSessionView& state)
         + timeline (state.start + state.frames, state.sampleRate);
 }
 
-juce::String failureText (const local_blind::ProductSessionView& state)
-{
-    if (state.failure == Failure::pairChanged)
-        return "The selected pair changed. Return to the live signal, then capture again.";
-    if (state.failure == Failure::captureRequest)
-        return "The exact range could not be scheduled. Keep playback running and try again.";
-    if (state.failure == Failure::captureResult)
-        return "The exact PRE and POST range was not completed.";
-    if (state.failure == Failure::preparation)
-        return "This range did not contain enough matched audio for a fair comparison.";
-    if (state.failure == Failure::publication)
-        return "The prepared comparison could not be made available.";
-    switch (state.trial.failure)
-    {
-        case local_blind::TrialFailure::format:
-            return "The channel layout or sample rate changed.";
-        case local_blind::TrialFailure::transport:
-            return "Playback stopped, bypassed, or entered offline render.";
-        case local_blind::TrialFailure::epochs:
-            return "The comparison ownership changed.";
-        case local_blind::TrialFailure::discontinuity:
-            return "Playback jumped outside the exact captured sequence.";
-        case local_blind::TrialFailure::range:
-            return "Playback did not begin at the captured range start.";
-        case local_blind::TrialFailure::clock:
-            return "The host clock or delay compensation changed. Capture again.";
-        case local_blind::TrialFailure::none:
-            break;
-    }
-    return "The comparison stopped before it could be completed.";
-}
 
 juce::String answerText (Answer answer)
 {
@@ -127,7 +97,17 @@ Component::Component()
     styleButton (startButton, "local-blind-start", "Start the prepared comparison");
     styleButton (revealButton, "local-blind-reveal", "Reveal the hidden source assignment");
     styleButton (captureButton, "local-blind-capture", "Capture one exact four second range");
-    styleButton (contextButton, "local-blind-context", "Change Meter Context before capture");
+    contextChoice.setComponentID ("local-blind-context");
+    contextChoice.setTitle ("Gain Match mode for this comparison");
+    contextChoice.setTooltip ("2MIX: continuous sections. TRACK / STEM: short or sparse events. Applies to this comparison.");
+    contextChoice.setDescription (contextChoice.getTooltip());
+    contextChoice.setColour (juce::ComboBox::textColourId, COL_NORMAL);
+    contextChoice.setColour (juce::ComboBox::arrowColourId, COL_FLORA);
+    contextChoice.setLookAndFeel (&contextLookAndFeel);
+    contextChoice.addItem ("2MIX", 1);
+    contextChoice.addItem ("TRACK / STEM", 2);
+    contextChoice.setSelectedId (1, juce::dontSendNotification);
+    addChildComponent (contextChoice);
     styleButton (stopButton, "local-blind-stop", "Stop the comparison safely");
     styleButton (returnButton, "local-blind-return", "Return explicitly to the live signal");
     styleButton (closeButton, "local-blind-close", "Close Blind Compare");
@@ -142,7 +122,14 @@ Component::Component()
     { if (onStart) onStart (current.trial.lowerPostApprovalRequired); };
     revealButton.onClick = [this] { if (onReveal) onReveal(); };
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
-    contextButton.onClick = [this] { if (onContextMenu) onContextMenu(); };
+    contextChoice.onChange = [this]
+    {
+        if (canChooseContext())
+            setMeterContext (contextChoice.getSelectedId() == 2
+                ? meter_context::MeterContext::trackStem : meter_context::MeterContext::twoMix);
+        else contextChoice.setSelectedId (preflightContext == meter_context::MeterContext::trackStem ? 2 : 1,
+                                          juce::dontSendNotification);
+    };
     stopButton.onClick = [this] { if (onStop) onStop(); };
     returnButton.onClick = [this] { if (onReturn) onReturn(); };
     closeButton.onClick = [this] { if (onClose) onClose(); };
@@ -189,35 +176,40 @@ void Component::setMeterContext (meter_context::MeterContext next)
 {
     if (preflightContext == next) return;
     preflightContext = next;
+    contextChoice.setSelectedId (next == meter_context::MeterContext::trackStem ? 2 : 1,
+                                 juce::dontSendNotification);
     actionNotice.clear();
-    if (current.phase == Phase::idle)
+    if (canChooseContext())
     {
         refreshPresentation();
+        resized();
         repaint();
     }
 }
+
+bool Component::canChooseContext() const noexcept
+{ return current.phase == Phase::idle || current.phase == Phase::failed; }
 
 void Component::refreshPresentation()
 {
     const auto phase = current.phase;
     const bool hidden = phase == Phase::armed || phase == Phase::listening;
-    const bool trackStem = phase == Phase::idle
+    const bool trackStem = canChooseContext()
         ? preflightContext == meter_context::MeterContext::trackStem
         : trackStemPolicy (current);
     const auto tag = contextTag (trackStem);
     titleLabel.setText (juce::String (hidden ? "BLIND COMPARE"
                                             : phase == Phase::revealed ? "BLIND RESULT"
                                                                       : "PRE / POST BLIND")
-                           + " / " + tag,
+                           + (canChooseContext() ? juce::String() : " / " + tag),
                         juce::dontSendNotification);
     juce::String status;
     juce::String detail;
     juce::String result;
     if (phase == Phase::idle)
     {
-        status = trackStem ? "INDIVIDUAL TRACK / GROUP BUS" : "MIX / MASTER BUS";
-        detail = trackStem ? "Gain Match reads short or sparse events."
-                           : "Gain Match reads continuous active sections.";
+        status = "READY TO CAPTURE";
+        detail = "Play the section you want to compare, then capture 4 seconds.";
     }
     else if (phase == Phase::capturing)
     {
@@ -287,7 +279,7 @@ void Component::refreshPresentation()
         detail = current.failure == Failure::none
                      && current.trial.failure == local_blind::TrialFailure::none
             ? "Confirm the return to the unchanged live signal."
-            : failureText (current);
+            : failureText (current, preflightContext);
         result = "Press RETURN TO LIVE, then resume playback.";
     }
     else if (phase == Phase::returned)
@@ -297,8 +289,10 @@ void Component::refreshPresentation()
     }
     else
     {
-        status = "COMPARISON NOT PREPARED";
-        detail = failureText (current);
+        status = current.failure == Failure::preparation
+            && current.preparationFailure == local_blind::PreparationFailure::gainUnavailable
+                ? "GAIN MATCH UNAVAILABLE" : "COMPARISON NOT PREPARED";
+        detail = failureText (current, preflightContext);
     }
     if (actionNotice.isNotEmpty())
         result = actionNotice;
@@ -331,8 +325,11 @@ void Component::refreshPresentation()
                                       juce::dontSendNotification);
 
     startButton.setVisible (phase == Phase::ready);
-    captureButton.setVisible (phase == Phase::idle);
-    contextButton.setVisible (phase == Phase::idle);
+    captureButton.setVisible (canChooseContext());
+    captureButton.setEnabled (phase == Phase::idle || current.canRecapture);
+    captureButton.setButtonText (phase == Phase::failed ? "CAPTURE AGAIN" : "CAPTURE 4 S");
+    contextChoice.setVisible (canChooseContext());
+    contextChoice.setAccessible (canChooseContext());
     revealButton.setVisible (phase == Phase::listening);
     revealButton.setEnabled (current.trial.canAnswer && current.trial.answer != Answer::none);
     stopButton.setVisible (phase == Phase::capturing || phase == Phase::preparing
@@ -395,7 +392,6 @@ void Component::resized()
     const auto answerHeight = compact ? 26 : medium ? 32 : 42;
     const auto actionHeight = compact ? 28 : medium ? 36 : 48;
     const auto gap = compact ? 2 : medium ? 4 : 6;
-    contextButton.setButtonText (compact ? "CONTEXT" : "CHANGE CONTEXT");
     noPreference.setButtonText (compact ? "NO PREF" : "NO PREFERENCE");
     cannotDistinguish.setButtonText (compact ? "CAN'T TELL" : "CANNOT TELL");
     titleLabel.setFont (labelFont (presentationContext, typography::TextRole::sectionTitle,
@@ -406,6 +402,9 @@ void Component::resized()
                                     typography::Composition::information));
     resultLabel.setFont (labelFont (presentationContext, typography::TextRole::secondaryValue,
                                     typography::Composition::information));
+
+    if (canChooseContext()) { layoutPreflight(); return; }
+    titleLabel.setJustificationType (juce::Justification::centred);
 
     auto area = getLocalBounds().reduced (margin);
     titleLabel.setBounds (area.removeFromTop (titleHeight));
@@ -421,7 +420,40 @@ void Component::resized()
                { &answerOne, &answerTwo, &noPreference, &cannotDistinguish });
     area.removeFromTop (compact ? 3 : medium ? 6 : 10);
     layoutRow (area.removeFromTop (actionHeight),
-               { &contextButton, &captureButton, &startButton, &revealButton, &stopButton,
+               { &captureButton, &startButton, &revealButton, &stopButton,
                  &returnButton, &closeButton });
+}
+
+void Component::layoutPreflight()
+{
+    const bool compact = getWidth() < 450;
+    const int margin = compact ? 10 : juce::jmax (18, getWidth() / 24);
+    auto area = getLocalBounds().reduced (margin);
+    auto header = area.removeFromTop (compact ? 22 : 34);
+    const auto font = contextLookAndFeel.getComboBoxFont (contextChoice);
+    const int choiceWidth = juce::roundToInt (std::ceil (font.getStringWidthFloat ("TRACK / STEM"))) + 38;
+    if (compact)
+    {
+        titleLabel.setJustificationType (juce::Justification::centred);
+        titleLabel.setBounds (header);
+        area.removeFromTop (4);
+        contextChoice.setBounds (area.removeFromTop (24).withSizeKeepingCentre (choiceWidth, 24));
+    }
+    else
+    {
+        contextChoice.setBounds (header.removeFromRight (choiceWidth));
+        header.removeFromRight (12);
+        titleLabel.setJustificationType (juce::Justification::centredLeft);
+        titleLabel.setBounds (header);
+    }
+    auto actions = area.removeFromBottom (compact ? 28 : 44);
+    const int backWidth = compact ? 58 : 92;
+    closeButton.setBounds (actions.removeFromRight (backWidth));
+    actions.removeFromRight (8);
+    captureButton.setBounds (actions.withSizeKeepingCentre (juce::jmin (actions.getWidth(), compact ? 180 : 280), actions.getHeight()));
+    area.removeFromTop (compact ? 5 : juce::jmax (12, area.getHeight() / 4));
+    statusLabel.setBounds (area.removeFromTop (compact ? 24 : 42));
+    detailLabel.setBounds (area.removeFromTop (compact ? 36 : 58));
+    resultLabel.setBounds (area.removeFromTop (compact ? 24 : 34));
 }
 }

@@ -108,3 +108,40 @@ The current-candidate Pro Tools checks remain: exact installed source identity,
 normal input/output transparency, native position and known-delay alignment,
 complete Blind return, Reference A/B/C and whole-song mapping, and mutual
 exclusion. Record their observed results independently of these native tests.
+
+## Comparison mode and recovery — B-876 (2026-09-14)
+
+The former `CHANGE CONTEXT` action opened the normal Meter Context menu. Besides
+changing the comparison policy, that path reset WIDE / FOCUS and could leave ATTACK.
+The preflight now gives capture the primary action and shows a small `2MIX` /
+`TRACK / STEM` selector, with the mode explanation in its tooltip and accessibility
+description. It inherits the normal setting on each fresh open; an override applies
+only to the current comparison. Capture freezes the selected policy and hides the
+selector until the attempt fails or ends. Neither Gain Match algorithm changed.
+
+Preparation failures retain their typed reason. Only unavailable Gain Match asks
+for a busier section or short-event mode; internal preparation failures no longer
+blame the material. The failed screen exposes `CAPTURE AGAIN`, enabled only after
+the old comparison scope, retained output and capture owner are released. Selecting
+a different mode does not capture or audition automatically.
+
+Validation on the Intel macOS development machine:
+
+- Native preparation plus all four product cases (VST3/AAX wrapper identity,
+  stereo/mono): **5/5 pass**, 75.87 seconds. The sparse mono cases deliberately fail
+  under inherited 2MIX, select TRACK/STEM and recapture through the actual editor.
+  The normal meter context and FOCUS setting remain unchanged. Stereo cases use
+  an explicit 2MIX override while the normal meter stays TRACK/STEM.
+- Each prepared trial contains 192,000 frames at 48 kHz, fixed gain -6.021 dB,
+  and 384,000 audition frames across both passes. Maximum matched-copy error is
+  0.0000115335; normal PRE/POST output remains bit identical. Both sources,
+  answer/reveal, editor reopen and explicit normal return pass.
+- UI product-entry contract: **pass**, including five Blind sizes, typed failure
+  guidance, retry readiness, delayed selection protection and hidden controls.
+  Initial 900×600 and failed 300×200 rendered images were visually inspected.
+- Source line budget, typography source contract and whitespace checks: **pass**.
+  Rust was unchanged; the full Rust/Reference suites were not repeated, following
+  the user's request to limit broad validation to one run.
+
+These are common processor/editor tests with synthetic host clocks. No plug-in was
+installed and no current-candidate DAW/PDC or Windows acceptance is claimed here.

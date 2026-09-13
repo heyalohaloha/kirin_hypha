@@ -1,4 +1,5 @@
 #include "../src/PluginProcessor.h"
+#include "../src/HyphaLocalBlindComponent.h"
 #include "ValidationStorageSandbox.h"
 
 #include <algorithm>
@@ -67,8 +68,9 @@ public:
             layout.inputBuses.set (0, channels);
             layout.outputBuses.set (0, channels);
             require (instance->setBusesLayout (layout), "host negotiates the exact mono/stereo input and output");
-            instance->setMeterContextPreference (trackMono ? hypha::meter_context::MeterContext::trackStem
-                                                          : hypha::meter_context::MeterContext::twoMix, false);
+            instance->setMeterContextPreference (trackMono ? hypha::meter_context::MeterContext::twoMix
+                                                          : hypha::meter_context::MeterContext::trackStem, false);
+            instance->setScaleModePreference (hypha::meter_context::ScaleMode::focus);
             instance->setPlayHead (&clock);
             instance->setNonRealtime (false);
             instance->prepareToPlay (48000, blockFrames);
@@ -119,6 +121,17 @@ private:
         play.store (true);
     }
 
+    void selectBlindMode (int id)
+    {
+        auto* choice = dynamic_cast<juce::ComboBox*> (find (*editor, "local-blind-context"));
+        require (choice != nullptr && choice->isVisible(), "actual Blind mode selector is available");
+        choice->setSelectedId (id, juce::sendNotificationSync);
+        require (post->meterContextPreference() == (channelCount == 1
+            ? hypha::meter_context::MeterContext::twoMix : hypha::meter_context::MeterContext::trackStem)
+            && post->scaleModePreference() == hypha::meter_context::ScaleMode::focus,
+            "Blind mode selection preserves the ordinary meter context and custom scale");
+    }
+
     void timerCallback() override
     {
         if (stage != reportedStage)
@@ -129,8 +142,8 @@ private:
         require (std::chrono::steady_clock::now() - started < std::chrono::seconds (40),
                  "product round trip timed out");
         const auto state = post->localBlindProductView();
-        if (state.phase == Phase::failed || state.failure != hypha::local_blind::ProductSessionFailure::none
-            || state.trial.failure != hypha::local_blind::TrialFailure::none)
+        if (stage != 20 && (state.phase == Phase::failed || state.failure != hypha::local_blind::ProductSessionFailure::none
+            || state.trial.failure != hypha::local_blind::TrialFailure::none))
         {
             std::cerr << "stage=" << stage << " phase=" << int (state.phase)
                       << " product_failure=" << int (state.failure)
@@ -159,14 +172,28 @@ private:
                 if (! post->isPlaying() || ! post->heartbeatLive()) break;
                 // The operations menu and this shared editor entry invoke the same owner.
                 click ("observatory-local-blind", false);
+                if (channelCount == 2) selectBlindMode (1);
                 if (! click ("local-blind-capture")) break;
-                ++stage;
+                stage = channelCount == 1 ? 20 : 3;
+                break;
+            case 20:
+                if (state.phase != Phase::failed) break;
+                require (state.preparationFailure == hypha::local_blind::PreparationFailure::gainUnavailable,
+                         "sparse audio under inherited 2MIX retains the typed gain failure");
+                if (! state.canRecapture) break;
+                selectBlindMode (2);
+                if (! click ("local-blind-capture")) break;
+                stage = 3;
                 break;
             case 3:
                 if (state.phase != Phase::ready) break;
                 std::cout << "prepared frames=" << state.frames << " channels=" << state.channels
                           << " gain_db=" << state.fixedPreGainDb << std::endl;
                 require (state.frames == 192000 && state.channels == channelCount, "exact four-second pair prepares");
+                require (state.gainPolicy == (channelCount == 1
+                    ? hypha::local_blind::GainMatchPolicy::exactTrackEventEnergyV1
+                    : hypha::local_blind::GainMatchPolicy::alignedActiveBlocksV1),
+                    "explicit Blind mode is frozen in the actual prepared trial");
                 require (std::abs (state.fixedPreGainDb + 6.0206) < 0.002,
                          "real FFI gain match measures the known gain within 0.002 dB");
                 nativeStart = state.start;

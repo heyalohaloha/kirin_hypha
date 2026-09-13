@@ -140,7 +140,7 @@ public:
     // exact-range project-clock and PDC proof has been recorded for that host format.
     bool localBlindProductSupported() const noexcept;
     hypha::local_blind::ProductSessionView localBlindProductView() const;
-    bool requestLocalBlindProductCapture();
+    bool requestLocalBlindProductCapture (hypha::meter_context::MeterContext);
     bool startLocalBlindProductTrial (bool approveLowerPost = false);
     bool selectLocalBlindProductStimulus (int stimulus);
     bool answerLocalBlindProductTrial (hypha::local_blind::TrialAnswer);

@@ -67,7 +67,7 @@ B-768は、ローカルBlind、Reference、Record、Keepを同じ入場判定へ
 B-769は、製品の4秒取得から固定Gain準備、試聴、回答、Reveal、通常復帰、PCM回収までを一つの`LocalBlindProductSession`へ接続した。
 B-770は、2MIXの`alignedActiveBlocksV1`を変更せず、TRACK/STEM専用の`exactTrackEventEnergyV1`を追加した。
 後者はexact 4秒を非重複20 ms窓で読み、各側の最大eventから40 dB以内にある対応窓を3個以上要求する。長い低レベルnoiseで短音の差を上書きせず、短音を反復しない。無音、片側欠落、非有限値、範囲違いは開始不可とする。
-取得開始時のMeter Contextでpolicyを固定し、途中の文脈変更では準備済みTrialを継続しない。
+取得開始時の選択でpolicyを固定する。B-876以降は通常Meter Contextを初期値として継承し、Blind画面内の変更はその比較だけに適用する。取得後は選択欄を隠し、準備済みTrialのpolicyを変更しない。
 B-771は、既存の500行超`PluginEditor.cpp`からeditor lifecycleを独立sourceへ移し、製品UIを追加できる境界へ収束させた。
 B-772は、POSTの大画面に単一のBlind入口と、取得、準備、必要な固定減衰の承認、Source 1／2試聴、回答、Reveal、中断、通常復帰を一つの全画面UIとして接続した。
 試聴中は既存の計測、pair、Capture、Reference、情報操作を表示と入力とaccessibility treeから隔離する。Reveal前はSource 1／2と回答だけを表示し、PRE／POSTの割当は明示Reveal後だけ表示する。

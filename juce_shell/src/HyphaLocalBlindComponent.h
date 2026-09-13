@@ -7,6 +7,7 @@
 #include "HyphaLocalBlindUiContract.h"
 #include "HyphaMeterContext.h"
 #include "HyphaPresentationContext.h"
+#include "HyphaReferenceSelectorLookAndFeel.h"
 #include "PostControls.h"
 
 namespace hypha::local_blind_ui
@@ -15,14 +16,16 @@ class Component final : public juce::Component
 {
 public:
     Component();
+    ~Component() override { contextChoice.setLookAndFeel (nullptr); }
 
     void setPresentationContext (presentation::Context next)
     {
         if (presentationContext == next) return;
         presentationContext = next;
+        contextLookAndFeel.setPresentationContext (next);
         for (auto* button : { &sourceOne, &sourceTwo, &answerOne, &answerTwo,
                               &noPreference, &cannotDistinguish, &startButton, &revealButton,
-                              &captureButton, &contextButton, &stopButton, &returnButton,
+                              &captureButton, &stopButton, &returnButton,
                               &closeButton })
             button->setPresentationContext (next);
         resized();
@@ -31,7 +34,6 @@ public:
 
     std::function<void (bool approveLowerPost)> onStart;
     std::function<void()> onCapture;
-    std::function<void()> onContextMenu;
     std::function<void (int stimulus)> onSelectStimulus;
     std::function<void (local_blind::TrialAnswer)> onAnswer;
     std::function<void()> onReveal;
@@ -41,10 +43,10 @@ public:
 
     void setState (local_blind::ProductSessionView);
     void setMeterContext (meter_context::MeterContext);
+    meter_context::MeterContext meterContext() const noexcept { return preflightContext; }
     void setActionNotice (juce::String);
     void clearActionNotice();
     const local_blind::ProductSessionView& state() const noexcept { return current; }
-    juce::Component& contextAnchor() noexcept { return contextButton; }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -54,6 +56,8 @@ private:
     void styleButton (juce::Button&, const juce::String& id,
                       const juce::String& title);
     void layoutRow (juce::Rectangle<int>, std::initializer_list<juce::Button*>);
+    bool canChooseContext() const noexcept;
+    void layoutPreflight();
 
     local_blind::ProductSessionView current;
     juce::String actionNotice;
@@ -71,7 +75,8 @@ private:
     HyphaTextButton startButton { "START BLIND" };
     HyphaTextButton revealButton { "REVEAL" };
     HyphaTextButton captureButton { "CAPTURE 4 S" };
-    HyphaTextButton contextButton { "CHANGE CONTEXT" };
+    reference_ui::ReferenceSelectorLookAndFeel contextLookAndFeel; // Shared shell styling only.
+    juce::ComboBox contextChoice;
     HyphaTextButton stopButton { "STOP" };
     HyphaTextButton returnButton { "RETURN TO LIVE" };
     HyphaTextButton closeButton { "CLOSE" };

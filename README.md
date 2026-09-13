@@ -445,11 +445,12 @@ The AAX entry is enabled by user direction for current-candidate validation. Its
 Pro Tools clock/PDC acceptance remains pending; exact capture and runtime checks
 are enforced on every format.
 
-1. In POST, select the exact PRE pair and set **Meter Context** to **2MIX** or **TRACK/STEM** before
-   capture. This selection fixes the Gain Match policy for that trial.
-2. Open **PRE / POST Blind Compare** from POST's menu. The preflight shows the current context and
-   its Gain Match evidence before any capture begins. Change it if needed, keep the DAW playing,
-   then press **CAPTURE 4 S**. Wait for both sides of the exact range to finish preparation.
+1. In POST, select the exact PRE pair and open **PRE / POST Blind Compare** from POST's menu.
+2. Keep the DAW playing, then press **CAPTURE 4 S**. The small **2MIX / TRACK / STEM** selector
+   starts from the normal meter setting; change it only if needed for this comparison. Capture
+   freezes that Gain Match policy without changing the normal meter context or WIDE / FOCUS.
+   Wait for both sides of the exact range to finish preparation. If Gain Match is unavailable,
+   follow the section guidance and use **CAPTURE AGAIN** in the same screen.
 3. Start the prepared comparison, then play the DAW from before the displayed range. Hypha auditions
    only the captured samples, even when a processing block crosses either end of the range.
    After the first pass completes, select the other **Source** and play from before the same range
@@ -466,7 +467,8 @@ measurement and Record remain unchanged. Closing the editor ends the audition. R
 the explicit return screen without automatically resuming playback.
 
 The normal header's Meter Context control opens a descriptive choice rather than switching on one
-click. **2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
+click. Blind inherits it when opened and keeps any override within that comparison.
+**2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
 **TRACK/STEM** identifies an individual track or group bus and uses short or sparse event energy.
 Hypha never infers or changes this choice from channel count, names, routing, or signal level.
 

@@ -74,25 +74,24 @@ inline void verifyLocalBlindUiContract()
     };
 
     local_blind::ProductSessionView idle;
+    auto* choice = dynamic_cast<juce::ComboBox*> (component.findChildWithID ("local-blind-context"));
+    require (choice != nullptr, "Blind mode uses a small native selection control");
     component.setMeterContext (meter_context::MeterContext::twoMix);
     component.setState (idle);
-    require (labelText ("local-blind-title").contains ("2MIX")
-                 && labelText ("local-blind-status").contains ("MIX / MASTER BUS")
-                 && labelText ("local-blind-detail").contains ("continuous active sections"),
-             "2MIX preflight states its use and Gain Match evidence");
+    require (choice->getText() == "2MIX" && labelText ("local-blind-title") == "PRE / POST BLIND"
+                 && labelText ("local-blind-status") == "READY TO CAPTURE"
+                 && labelText ("local-blind-detail").contains ("Play the section"),
+             "preflight prioritizes the capture action and shows the current mode once");
     bool captureRequested = false;
-    bool preflightContextRequested = false;
     component.onCapture = [&] { captureRequested = true; };
-    component.onContextMenu = [&] { preflightContextRequested = true; };
     button ("local-blind-capture")->onClick();
-    button ("local-blind-context")->onClick();
-    require (captureRequested && preflightContextRequested
+    require (captureRequested
                  && button ("local-blind-close")->getButtonText() == "BACK",
              "preflight requires an explicit capture and keeps a way back");
-    component.setMeterContext (meter_context::MeterContext::trackStem);
-    require (labelText ("local-blind-title").contains ("TRACK / STEM")
-                 && labelText ("local-blind-detail").contains ("short or sparse events"),
-             "TRACK / STEM preflight states its different Gain Match evidence");
+    choice->setSelectedId (2, juce::sendNotificationSync);
+    require (component.meterContext() == meter_context::MeterContext::trackStem
+                 && choice->getText() == "TRACK / STEM" && choice->getTooltip().contains ("short or sparse"),
+             "the mode choice changes this comparison and explains its purpose on demand");
     component.setActionNotice ("START PLAYBACK BEFORE CAPTURE");
     require (labelText ("local-blind-result") == "START PLAYBACK BEFORE CAPTURE",
              "preflight action failures remain visible inside the isolated screen");
@@ -101,9 +100,9 @@ inline void verifyLocalBlindUiContract()
     {
         component.setPresentationContext (presentation::forEditor (preset.width, preset.height));
         component.setSize (preset.width, preset.height);
-        if (preset.width == 300)
-            require (button ("local-blind-context")->getButtonText() == "CONTEXT",
-                     "minimum-size context action uses its complete compact label");
+        require (choice->getBottom() < button ("local-blind-capture")->getY()
+                     && choice->getWidth() < component.getWidth() * 0.55,
+                 "mode selection stays separate from the primary capture action at every size");
         for (int index = 0; index < component.getNumChildComponents(); ++index)
         {
             const auto* child = component.getChildComponent (index);
@@ -129,6 +128,29 @@ inline void verifyLocalBlindUiContract()
     }
     component.setPresentationContext (presentation::forEditor (600, 400));
     component.setSize (600, 400);
+
+    auto failed = idle;
+    failed.phase = local_blind::ProductSessionPhase::failed;
+    failed.failure = local_blind::ProductSessionFailure::preparation;
+    failed.preparationFailure = local_blind::PreparationFailure::gainUnavailable;
+    component.setMeterContext (meter_context::MeterContext::twoMix);
+    component.setState (failed);
+    require (labelText ("local-blind-detail").contains ("TRACK / STEM")
+                 && choice->isVisible() && ! button ("local-blind-capture")->isEnabled(),
+             "unmatched audio gives actionable guidance while admission is still retiring");
+    failed.canRecapture = true;
+    component.setState (failed);
+    require (button ("local-blind-capture")->isEnabled()
+                 && button ("local-blind-capture")->getButtonText() == "CAPTURE AGAIN",
+             "failed preparation can retry in place after scope and capture cleanup");
+    choice->setSelectedId (2, juce::sendNotificationSync);
+    require (labelText ("local-blind-detail").contains ("both PRE and POST"),
+             "TRACK retry asks for audible events rather than continuous mix material");
+    failed.preparationFailure = local_blind::PreparationFailure::preparationFailed;
+    component.setState (failed);
+    require (! labelText ("local-blind-detail").contains ("TRACK / STEM")
+                 && ! labelText ("local-blind-detail").contains ("audible events"),
+             "non-audio preparation failures never blame the selected gain mode");
 
     local_blind::ProductSessionView ready;
     ready.phase = local_blind::ProductSessionPhase::ready;
@@ -167,6 +189,10 @@ inline void verifyLocalBlindUiContract()
     listening.trial.phase = local_blind::TrialPhase::listening;
     listening.trial.activeStimulus = 1;
     component.setState (listening);
+    choice->setSelectedId (1, juce::sendNotificationSync);
+    require (! choice->isVisible() && ! choice->isAccessible()
+                 && component.meterContext() == meter_context::MeterContext::trackStem,
+             "a late selection callback cannot change an active comparison or expose a hidden mode control");
     require (labelText ("local-blind-title").contains ("TRACK / STEM"),
              "captured context stays visible from the frozen Gain Match policy");
     require (! labelText ("local-blind-title").containsIgnoreCase ("PRE")
@@ -239,7 +265,8 @@ inline void verifyLocalBlindUiContract()
                         local_blind::ProductSessionPhase::listening,
                         local_blind::ProductSessionPhase::returnPending,
                         local_blind::ProductSessionPhase::revealed,
-                        local_blind::ProductSessionPhase::returned })
+                        local_blind::ProductSessionPhase::returned,
+                        local_blind::ProductSessionPhase::failed })
         for (const auto preset : observatory::sizePresets)
         {
             auto state = ready;
@@ -248,6 +275,9 @@ inline void verifyLocalBlindUiContract()
             state.trial.passComplete = phase == local_blind::ProductSessionPhase::listening;
             state.trial.lowerPostApprovalRequired = phase == local_blind::ProductSessionPhase::ready;
             state.lowerPostGainDb = -18.0;
+            state.failure = local_blind::ProductSessionFailure::preparation;
+            state.preparationFailure = local_blind::PreparationFailure::gainUnavailable;
+            state.canRecapture = true;
             component.setState (state);
             component.setPresentationContext (presentation::forEditor (preset.width, preset.height));
             component.setSize (preset.width, preset.height);
@@ -285,6 +315,12 @@ inline void verifyLocalBlindUiContract()
                                   << bounds.getHeight() << '\n';
                     require (layout.getHeight() <= bounds.getHeight() + 1,
                              "playback instructions remain readable without font compression");
+                }
+                if (const auto* selected = dynamic_cast<const juce::ComboBox*> (child))
+                {
+                    const auto font = selected->getLookAndFeel().getComboBoxFont (*choice);
+                    require (font.getStringWidthFloat (selected->getText()) <= selected->getWidth() - 32,
+                             "both mode labels fit without font compression");
                 }
             }
             const auto directory = juce::SystemStats::getEnvironmentVariable (

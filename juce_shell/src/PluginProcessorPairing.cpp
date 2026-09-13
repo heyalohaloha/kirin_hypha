@@ -74,7 +74,10 @@ KirinHyphaProcessorBase::localBlindCaptureHooks (KirinHyphaProcessorBase& proces
 hypha::local_blind::ProductSessionView
 KirinHyphaProcessorBase::localBlindProductView() const
 {
-    return localBlindProductSession.view();
+    auto view = localBlindProductSession.view();
+    view.canRecapture = view.canRecapture
+        && localBlindCapture.view().phase == hypha::local_blind::CaptureOwnerPhase::idle;
+    return view;
 }
 
 bool KirinHyphaProcessorBase::localBlindProductSupported() const noexcept
@@ -98,7 +101,7 @@ bool KirinHyphaProcessorBase::acceptLocalBlindProductPair (
         request, post, pre, hypha::reference_audition::secureRandomBit);
 }
 
-bool KirinHyphaProcessorBase::requestLocalBlindProductCapture()
+bool KirinHyphaProcessorBase::requestLocalBlindProductCapture (hypha::meter_context::MeterContext context)
 {
     if (! localBlindProductSupported()
         || role != Role::Post
@@ -118,7 +121,7 @@ bool KirinHyphaProcessorBase::requestLocalBlindProductCapture()
     const auto serial = localBlindProductSerial.fetch_add (1, std::memory_order_acq_rel) + 1;
     const auto now = static_cast<std::uint64_t> (juce::Time::currentTimeMillis());
     const auto generation = (now << 16u) | (serial & 0xffffu);
-    const auto gainPolicy = meterContextPreference() == hypha::meter_context::MeterContext::trackStem
+    const auto gainPolicy = context == hypha::meter_context::MeterContext::trackStem
         ? hypha::local_blind::GainMatchPolicy::exactTrackEventEnergyV1
         : hypha::local_blind::GainMatchPolicy::alignedActiveBlocksV1;
     if (generation == 0 || ! localBlindProductSession.beginCapture (
