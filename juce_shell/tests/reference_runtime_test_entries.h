@@ -20,3 +20,5 @@ inline void finishReferenceRegressionFixture (const juce::File& sandbox)
 }
 
 void testReferenceVisual (const juce::File&);
+
+void testReferenceACapture(const juce::File&);

@@ -1,6 +1,7 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "ReferenceDisplayRegressionTest.h"
 #include "ReferenceVisualComparisonTest.h"
+#include "ReferenceACaptureControlsTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -84,7 +85,7 @@ reference_ui::State readyState()
 
 void verifyReferenceAuditionComponentContract()
 {
-    verifyReferenceVisualComparison();
+    verifyReferenceVisualComparison(); verifyCaptureControls();
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_VISUAL_ONLY", {}) == "1") return;
     verifyReferenceDisplayRegression();
     constexpr auto presentationContext = presentation::forEditor (450, 300);

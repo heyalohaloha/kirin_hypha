@@ -21,8 +21,8 @@ void ComparisonView::ViewButton::paintButton (juce::Graphics& g, bool highlighte
     g.setColour (COL_MUTED.withAlpha (down ? 0.3f : highlighted ? 0.16f : 0.07f));
     g.fillRoundedRectangle (bounds, 3);
     g.setColour (getToggleState() ? COL_FLORA : COL_TEXT_SECONDARY);
-    g.setFont (labelFont (presentation::forEditor (300, 200), typography::TextRole::legend,
-        typography::Composition::visualization).withHeight (10.5f));
+    g.setFont (labelFont (presentation::forEditor (300, 200), typography::TextRole::captureMetadata,
+        typography::Composition::visualization));
     g.drawText (getButtonText(), bounds, juce::Justification::centred);
 }
 ComparisonView::ComparisonView()
@@ -43,12 +43,13 @@ void ComparisonView::update (std::shared_ptr<const reference_audition::VisualTim
     data = std::move (next); position = currentPosition;
     if (data && data->binding.key != key)
     {
-        key = data->binding.key; following = true; start = 0; end = std::min (12.0, data->duration()); cacheRevision = 0;
+        key = data->binding.key; following = true; start = 0; end = data->capture ? data->duration() : std::min (12.0, data->duration());
+        if(data->capture) following=false; cacheRevision = 0;
         const auto choice = preferences ? preferences->get() : reference_audition::VisualViewChoice {};
-        if (choice.valid() && data->binding.source && data->binding.aligned
+        if (!data->capture && choice.valid() && data->binding.source && data->binding.aligned
             && choice.sourceHash == data->binding.source->sourceFileSha256 && choice.end <= data->duration())
         { start = choice.start; end = choice.end; following = choice.follow; showingCrest = choice.crest; }
-        else if (choice.valid() && data->binding.aligned && data->binding.source && lastVerifiedView.source
+        else if (!data->capture && choice.valid() && data->binding.aligned && data->binding.source && lastVerifiedView.source
             && lastVerifiedView.hostRate > 0 && data->binding.hostRate > 0
             && choice.sourceHash == lastVerifiedView.source->sourceFileSha256
             && data->binding.source->sourceKind == "work_version" && lastVerifiedView.source->sourceKind == "work_version")
@@ -73,7 +74,7 @@ void ComparisonView::update (std::shared_ptr<const reference_audition::VisualTim
 }
 void ComparisonView::saveView()
 {
-    if (preferences && data && data->binding.source && !hidden)
+    if (preferences && data && !data->capture && data->binding.source && !hidden)
         preferences->set ({ data->binding.source->sourceFileSha256, start, end, following, showingCrest });
 }
 void ComparisonView::setRange (double first, double last)
@@ -97,11 +98,13 @@ void ComparisonView::resized()
     crest.setBounds (tabs.removeFromLeft (58).toNearestInt());
     loudness.setVisible (detail && !hidden); crest.setVisible (detail && !hidden);
     graph = detail ? area.reduced (15, 3) : juce::Rectangle<float> {};
+    if(getHeight()<42) waveform=getLocalBounds().toFloat().reduced(5,1);
     if (previous != waveform) cacheRevision = 0;
 }
 void ComparisonView::rebuild()
 {
     waveformCache = {};
+    if(data && data->capture) { rebuildCaptured(); return; }
     if (!data || !data->binding.source || !data->binding.overview || !data->binding.overview->waveform) return;
     const auto& source = *data->binding.source;
     const auto& overview = *data->binding.overview->waveform;
@@ -165,6 +168,7 @@ void ComparisonView::rebuild()
 }
 juce::String ComparisonView::valuesAt (double seconds, bool compact) const
 {
+    if(data && data->capture) return capturedValuesAt(seconds,compact);
     if (!data || !data->binding.aligned || data->hop <= 0 || seconds < 0 || seconds > data->duration()) return "A  --    B  --";
     const auto& source = *data->binding.source;
     // Values belong to completed bin endpoints; no interpolation or mean LUFS.
@@ -186,13 +190,14 @@ void ComparisonView::paint (juce::Graphics& g)
 {
     if (hidden) return;
     surface_material::paintObservationWell (g, getLocalBounds().toFloat());
-    g.setFont (labelFont (context, typography::TextRole::legend, typography::Composition::visualization).withHeight (getWidth() >= 600 ? 12.0f : 10.5f));
+    g.setFont (labelFont (context, typography::TextRole::captureMetadata, typography::Composition::visualization));
     g.setColour (COL_TEXT_SECONDARY);
     const bool detail = !graph.isEmpty();
-    const auto heading = data && data->binding.aligned
+    const auto heading = data && data->capture ? juce::String("CAPTURED A / ")+juce::Time(data->capture->created).formatted("%H:%M")
+        + (data->binding.aligned ? (data->binding.matched ? " / MATCHED B" : " / ORIGINAL B") : "") : data && data->binding.aligned
         ? (data->binding.matched ? "MATCHED" : "ORIGINAL") : "B OVERVIEW";
     if (getHeight() >= 65) text_style::drawEllipsized (g, heading, juce::Rectangle<int> (7, 3, juce::jmax (0, getWidth() - 76), 18), juce::Justification::centredLeft);
-    if (!data || !data->binding.overview || !data->binding.overview->waveform)
+    if (!data || (!data->capture && (!data->binding.overview || !data->binding.overview->waveform)))
     { text_style::drawEllipsized (g, "Choose Version", getLocalBounds().reduced (20), juce::Justification::centred); return; }
     if (cacheRevision != data->revision) rebuild();
     if (waveformCache.isValid()) g.drawImageAt (waveformCache, int(waveform.getX()), int(waveform.getY()));
@@ -206,14 +211,14 @@ void ComparisonView::paint (juce::Graphics& g)
         const float width = float ((end - start) / duration) * waveform.getWidth();
         g.setColour (COL_NORMAL.withAlpha (0.08f)); g.fillRect (x, waveform.getY(), width, waveform.getHeight());
         g.setColour (COL_NORMAL.withAlpha (0.40f)); g.drawRect (juce::Rectangle<float> (x, waveform.getY(), width, waveform.getHeight()));
-        if (data->binding.aligned && position >= 0 && position <= duration)
+        if ((data->capture || data->binding.aligned) && position >= 0 && position <= duration)
         { g.setColour (COL_NORMAL); g.drawVerticalLine (int (waveform.getX() + float (position / duration)*waveform.getWidth()), waveform.getY(), waveform.getBottom()); }
     }
     follow.setToggleState (following, juce::dontSendNotification);
     loudness.setToggleState (!showingCrest, juce::dontSendNotification);
     crest.setToggleState (showingCrest, juce::dontSendNotification);
     if (detail) paintDetails (g);
-    else
+    else if(getHeight()>=42)
     {
         g.setColour (COL_TEXT_SECONDARY);
         text_style::drawEllipsized (g, valuesAt (position, true), getLocalBounds().removeFromBottom (17).reduced (6, 0), juce::Justification::centredLeft);
@@ -228,13 +233,13 @@ void ComparisonView::paintDetails (juce::Graphics& g)
     auto chart = graph; chart.removeFromBottom (18);
     double minimum = showingCrest ? 0.0 : -24.0, maximum = showingCrest ? 18.0 : -6.0;
     double low = std::numeric_limits<double>::infinity(), high = -low;
-    if (data && data->binding.source) for (size_t i=0; i<data->bins.size(); ++i)
+    if (data && (data->capture || data->binding.source)) for (size_t i=0; i<data->bins.size(); ++i)
     {
         const auto& pair = data->bins[i];
-        const auto seconds = double (std::min (std::int64_t (i+1)*data->hop, data->binding.source->audio.totalSampleFrames)) / data->binding.source->audio.sampleRateHz;
+        const auto seconds = data->endpoint(i);
         if (!pair.pass || pair.pass != data->pass || seconds < start || seconds > end) continue;
         const std::array<double,2> values { showingCrest ? pair.a.crest_db : pair.a.short_lufs,
-            showingCrest ? pair.b.crest_db : pair.b.short_lufs + data->binding.gainDb };
+            pair.b.frames ? (showingCrest ? pair.b.crest_db : pair.b.short_lufs + data->binding.gainDb) : std::numeric_limits<double>::quiet_NaN() };
         for (auto value : values) if (std::isfinite (value)) { low = std::min (low,value); high = std::max (high,value); }
     }
     if (std::isfinite (low))
@@ -249,7 +254,7 @@ void ComparisonView::paintDetails (juce::Graphics& g)
         g.setColour (COL_TEXT_SECONDARY.withAlpha (0.65f));
         g.drawText (juce::String (maximum-(maximum-minimum)*i/4,1), juce::Rectangle<float> (chart.getX(),y-11,32,11), juce::Justification::centredLeft);
     }
-    if (data && data->binding.aligned && end > start)
+    if (data && (data->capture || data->binding.aligned) && end > start)
     {
         for (int side = 0; side < 2; ++side)
         {
@@ -257,9 +262,9 @@ void ComparisonView::paintDetails (juce::Graphics& g)
             for (size_t i = 0; i < data->bins.size(); ++i)
             {
                 const auto& pair = data->bins[i]; const auto& bin = side == 0 ? pair.a : pair.b;
-                const double seconds = double (std::min<std::int64_t> (std::int64_t (i+1)*data->hop, data->binding.source->audio.totalSampleFrames)) / data->binding.source->audio.sampleRateHz;
+                const double seconds = data->endpoint(i);
                 const double value = showingCrest ? bin.crest_db : bin.short_lufs + (side == 0 ? 0.0 : data->binding.gainDb);
-                if (seconds < start || seconds > end || !pair.pass || pair.pass != data->pass || !std::isfinite (value)) { open = false; continue; }
+                if (!bin.frames || seconds < start || seconds > end || !pair.pass || pair.pass != data->pass || !std::isfinite (value)) { open = false; continue; }
                 const float x = chart.getX() + float ((seconds-start)/(end-start))*chart.getWidth();
                 const float y = chart.getBottom() - float (juce::jlimit (0.0, 1.0, (value-minimum)/(maximum-minimum)))*chart.getHeight();
                 if (open && pass == pair.pass) path.lineTo (x,y); else path.startNewSubPath (x,y);

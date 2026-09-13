@@ -92,6 +92,7 @@ namespace hypha::reference_audition
         std::shared_ptr<const VisualTimeline> visualTimeline;
         double visualPositionSeconds = -1.0;
         std::shared_ptr<VisualPreferences> visualPreferences;
+    std::shared_ptr<ACaptureAccess> captureAccess;
         std::vector<std::shared_ptr<const RuntimeProfile>> profiles;
         bool sampleRateApprovalRequired = false;
         std::int64_t sourceSampleRateHz = 0;

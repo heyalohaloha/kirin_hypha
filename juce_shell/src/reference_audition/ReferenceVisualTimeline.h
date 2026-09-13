@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include "ReferenceACaptureModel.h"
 #include <limits>
 #include "ReferenceRuntimeV2Measurement.h"
 #include "kirin_hypha_reference_visual_ffi.h"
@@ -30,6 +31,8 @@ struct VisualPairBin
 struct VisualTimeline
 {
     VisualBinding binding;
+    std::shared_ptr<const ACaptureData> capture;
+    std::vector<std::uint8_t> revisited;
     std::vector<VisualPairBin> bins;
     std::int64_t hop = 0;
     std::uint64_t pass = 0, revision = 0;
@@ -47,7 +50,10 @@ struct VisualTimeline
         if (!binding.source || hop < 1 || index > size_t(std::numeric_limits<std::int64_t>::max()/hop)) return -1;
         return outputSample (std::int64_t(index)*hop, binding.source->audio.sampleRateHz, binding.hostRate);
     }
+    double endpoint(size_t i) const noexcept
+    { return capture ? double(capture->bins[i].offset+capture->bins[i].value.frames)/capture->rate
+        : binding.source ? double(std::min(std::int64_t(i+1)*hop,binding.source->audio.totalSampleFrames))/binding.source->audio.sampleRateHz : 0; }
     double duration() const noexcept
-    { return binding.source ? double (binding.source->audio.totalSampleFrames) / binding.source->audio.sampleRateHz : 0.0; }
+    { return capture ? capture->duration() : binding.source ? double (binding.source->audio.totalSampleFrames) / binding.source->audio.sampleRateHz : 0.0; }
 };
 }

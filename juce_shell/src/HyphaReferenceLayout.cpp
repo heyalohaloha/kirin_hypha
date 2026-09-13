@@ -93,6 +93,7 @@ void Component::resized()
         }
     }
     area.removeFromTop (4);
+    if(captureControls.isVisible()) captureControls.setBounds(area.removeFromTop(24).reduced(0,2));
     auto footer = area.removeFromBottom (detailedLayout() ? 24 : 18);
     comparisonView.setBounds (area);
     if (blindSession)

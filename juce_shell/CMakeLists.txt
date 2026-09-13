@@ -185,6 +185,11 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceVisualAudio.cpp
     src/reference_audition/ReferenceVisualBinding.cpp
     src/reference_audition/ReferenceVisualObservation.cpp
+    src/reference_audition/ReferenceACaptureCodec.cpp
+    src/reference_audition/ReferenceACaptureSession.cpp
+    src/reference_audition/ReferenceACaptureRevisit.cpp
+    src/reference_audition/ReferenceACaptureProjection.cpp
+    src/reference_audition/ReferenceComparisonCapture.cpp
     src/reference_audition/ReferenceRuntimeV2Events.cpp
     src/reference_audition/ReferenceRuntimeV2Selection.cpp
     src/reference_audition/ReferenceRuntimeV2NormalSelection.cpp
@@ -327,6 +332,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/PluginEditorLocalBlind.cpp
             src/HyphaLocalBlindComponent.cpp
             src/PluginEditorReference.cpp
+            src/PluginEditorReferenceCapture.cpp
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
             src/HyphaAttackComponent.cpp
@@ -347,6 +353,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaReferenceMetricPainter.cpp
             src/HyphaReferenceVisuals.cpp
             src/HyphaReferenceComparisonView.cpp
+        src/HyphaReferenceCapturedView.cpp
             src/HyphaSpectrumComponent.cpp
             src/HyphaSpectrumPsb.cpp
             src/HyphaSpectrumTooltip.cpp
@@ -495,6 +502,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceComparisonView.cpp
+        src/HyphaReferenceCapturedView.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
@@ -601,6 +609,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceComparisonView.cpp
+        src/HyphaReferenceCapturedView.cpp
         src/PostControls.cpp
         src/HyphaPsbPainter.cpp
         src/HyphaSpectrumComponent.cpp
@@ -792,6 +801,10 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_real_content_alignment_test.cpp
         tests/reference_rt_probe.cpp
         tests/reference_visual_test.cpp
+        tests/reference_a_capture_test.cpp
+        tests/reference_a_capture_projection_test.cpp
+        tests/reference_a_capture_long_test.cpp
+        tests/reference_a_capture_errors_test.cpp
         src/reference_audition/ReferenceBlindSession.cpp
         ${KIRIN_REFERENCE_AUDITION_SOURCES})
     target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE
@@ -848,6 +861,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
         src/HyphaReferenceComparisonView.cpp
+        src/HyphaReferenceCapturedView.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp

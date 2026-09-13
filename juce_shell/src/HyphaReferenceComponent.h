@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaReferenceCaptureControls.h"
 
 #include <cmath>
 #include <functional>
@@ -112,6 +113,7 @@ struct State
     std::shared_ptr<const reference_audition::VisualTimeline> visualTimeline;
     double visualPositionSeconds = -1.0;
     std::shared_ptr<reference_audition::VisualPreferences> visualPreferences;
+    std::shared_ptr<reference_audition::ACaptureAccess> captureAccess;
     std::vector<std::shared_ptr<const reference_audition::RuntimeProfile>> profiles;
     std::vector<float> liveSpectrumDbfs;
     float liveSpectrumMinimumHz = 0.0f;
@@ -194,6 +196,7 @@ private:
 
     State current;
     ComparisonView comparisonView;
+    CaptureControls captureControls;
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
     juce::Label connectionStatus;

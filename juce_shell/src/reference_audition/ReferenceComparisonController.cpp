@@ -3,25 +3,27 @@
 
 namespace hypha::reference_audition
 {
-ReferenceComparisonController::ReferenceComparisonController (juce::File root, SelectionGate callback)
-    : gate (std::move (callback)),
+ReferenceComparisonController::ReferenceComparisonController (juce::File root, SelectionGate callback, SelectionGate captureCallback, SelectionGate blindCallback)
+    : gate (std::move (callback)), captureGate(std::move(captureCallback)), blindCaptureGate(std::move(blindCallback)),
       version (root, [this] (bool active) { return admit (1, active); }, true),
       check (root, [this] (bool active) { return admit (2, active); }),
       visual ([this] {
           auto result = version.visualBinding();
           result.hidden = result.hidden || viewedSlot.load (std::memory_order_acquire) != 1;
           return result;
-      }) {}
+      }), capture([this](bool active){return admitCapture(active);}, [this]{return captureReceipt();}),
+      captureProjection(capture.access,[this]{return version.visualBinding();}) {}
 
 ReferenceComparisonController::~ReferenceComparisonController()
 {
-    setPresented (false); suspendAudition();
+    setPresented (false); capture.shutdown(); suspendAudition();
     const juce::ScopedLock lock (gateLock); closing = true;
     visual.pauseAdmission(); if (gateOwners && gate) gate (false); gateOwners = 0;
+    if(blindGuardOwned && blindCaptureGate) blindCaptureGate(false); blindGuardOwned=false;
 }
 
 void ReferenceComparisonController::setPresented (bool active) noexcept
-{ version.setContentObservationEnabled (active); visual.setPresented (active); }
+{ presented=active; refreshObservation(); }
 
 bool ReferenceComparisonController::admit (int slot, bool active)
 {
@@ -35,9 +37,10 @@ bool ReferenceComparisonController::admit (int slot, bool active)
         if ((gateOwners & 4) != 0 && !check.canTransferOutputGate()) return false;
         if (gateOwners == 0)
         {
-            visual.pauseAdmission();
+            visual.pauseAdmission(); capture.pauseObservation();
             const bool admitted = !gate || gate (true);
-            visual.useAuditionAdmission (admitted);
+            if(!captureOwned) visual.useAuditionAdmission (admitted);
+            capture.useAuditionAdmission(admitted);
             if (!admitted) return false;
         }
         gateOwners |= bit;
@@ -45,11 +48,13 @@ bool ReferenceComparisonController::admit (int slot, bool active)
     else if ((gateOwners & bit) != 0)
     {
         gateOwners &= ~bit;
+        if(slot==1 && blindGuardOwned) { if(blindCaptureGate) blindCaptureGate(false); blindGuardOwned=false; }
         if (gateOwners == 0)
         {
-            visual.pauseAdmission();
+            visual.pauseAdmission(); capture.pauseObservation();
             if (gate) gate (false);
-            visual.useAuditionAdmission (false);
+            if(!captureOwned) visual.useAuditionAdmission (false);
+            capture.useAuditionAdmission(false);
         }
     }
     return true;
@@ -63,6 +68,7 @@ void ReferenceComparisonController::configure (RuntimeIdentity identity, double 
         receiverId = identity.runtimeInstanceId;
         versionChosen.store (versionId.isNotEmpty(), std::memory_order_release);
     }
+    capture.configure(identity.runtimeInstanceId,rate,channels);
     auto bIdentity = identity;
     bIdentity.runtimeInstanceId += ".version";
     version.configure (bIdentity, rate, channels);
@@ -90,6 +96,7 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings() const
     }
     result.check = check.savedChoice();
     result.visualView = visualPreferences->get();
+    result.captureState = capture.access->snapshot().encoded; result.capturedView = capture.access->capturedView;
     result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
     return result;
 }
@@ -110,7 +117,7 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
         apply = configured;
         pendingSettings = apply ? std::optional<ReferenceComparisonSettings> {} : value;
     }
-    if (apply) { version.restoreChoice (value.version); check.restoreChoice (value.check); }
+    if (apply) { version.restoreChoice (value.version); check.restoreChoice (value.check); capture.restore(value.captureState,value.capturedView); }
 }
 
 bool ReferenceComparisonController::trialActive() const
@@ -137,6 +144,10 @@ Snapshot ReferenceComparisonController::snapshot() const
         result.visualPositionSeconds = double (visualPosition) / map.hostRate;
     if (map.hidden || !map.source || (result.visualTimeline && result.visualTimeline->binding.key != map.key))
         result.visualTimeline.reset();
+    result.captureAccess=capture.access;
+    if(capture.access->capturedView && !trialActive())
+    { result.visualTimeline=captureProjection.snapshot(); result.visualPositionSeconds=result.visualTimeline && result.visualTimeline->capture && map.hostPositionValid
+        ? double(map.hostPosition-result.visualTimeline->capture->hostStart)/result.visualTimeline->capture->rate : -1; }
     result.separateComparisons = true;
     result.comparisonSlot = slot;
     result.audibleComparisonSlot = b.bSelected ? 1 : c.bSelected ? 2 : 0;
@@ -148,7 +159,7 @@ Snapshot ReferenceComparisonController::snapshot() const
         && result.selectedVersionId == b.presetId + "/" + b.checkId + "/" + b.candidateId
         && b.state == RuntimeState::ready && b.auditionBuffered;
     result.checkReady = c.state == RuntimeState::ready && c.auditionBuffered;
-    result.blindEligible = slot == 1 && result.versionReady && b.blindEligible;
+    result.blindEligible = slot == 1 && result.versionReady && b.blindEligible && !capture.access->active;
     if (slot == 1 && versionId.isEmpty())
     {
         result.state = RuntimeState::waiting;
@@ -172,19 +183,19 @@ bool ReferenceComparisonController::selectVersion (const juce::String& id)
 bool ReferenceComparisonController::selectPreset (const juce::String& id)
 {
     if (trialActive()) return false;
-    selectA(); viewedSlot.store (2, std::memory_order_release);
+    selectA(); capture.access->capturedView=false; viewedSlot.store (2, std::memory_order_release);
     return check.selectPreset (id);
 }
 bool ReferenceComparisonController::selectCheck (const juce::String& id)
 {
     if (trialActive()) return false;
-    selectA(); viewedSlot.store (2, std::memory_order_release);
+    selectA(); capture.access->capturedView=false; viewedSlot.store (2, std::memory_order_release);
     return id.containsChar ('/') ? check.selectLibraryCheck (id) : check.selectCheck (id);
 }
 bool ReferenceComparisonController::selectCandidate (const juce::String& id)
 {
     if (trialActive()) return false;
-    selectA(); viewedSlot.store (2, std::memory_order_release);
+    selectA(); capture.access->capturedView=false; viewedSlot.store (2, std::memory_order_release);
     return check.selectCandidate (id);
 }
 bool ReferenceComparisonController::selectCue (const juce::String& id)
@@ -209,7 +220,7 @@ bool ReferenceComparisonController::selectB (double loudness, double peak) noexc
 bool ReferenceComparisonController::selectC (double loudness, double peak) noexcept
 {
     if (trialActive() || ! snapshot().checkReady) return false;
-    version.selectA();
+    version.selectA(); capture.access->capturedView=false;
     viewedSlot.store (2, std::memory_order_release);
     const bool selected = check.selectB (loudness, peak);
     normalOutputSlot.store (selected ? 2 : 0, std::memory_order_release);
@@ -219,20 +230,20 @@ void ReferenceComparisonController::selectA() noexcept
 { normalOutputSlot.store (0, std::memory_order_release); version.selectA(); check.selectA(); }
 bool ReferenceComparisonController::startBlind (double loudness, double peak) noexcept
 {
-    if (trialActive() || ! snapshot().versionReady) return false;
+    if (trialActive() || ! snapshot().versionReady || !beginBlindGuard()) return false;
     check.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
-    return version.startBlind (loudness, peak);
+    const bool started=version.startBlind(loudness,peak); if(!started) endBlindGuard(); return started;
 }
 bool ReferenceComparisonController::approveBlindLowerAAndStart (double loudness, double peak) noexcept
 {
-    if (trialActive() || !snapshot().versionReady) return false;
+    if (trialActive() || !snapshot().versionReady || !beginBlindGuard()) return false;
     check.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
-    return version.approveBlindLowerAAndStart (loudness, peak);
+    const bool started=version.approveBlindLowerAAndStart(loudness,peak); if(!started) endBlindGuard(); return started;
 }
 bool ReferenceComparisonController::selectBlindStimulus (int value) noexcept { return version.selectBlindStimulus (value); }
 bool ReferenceComparisonController::answerBlind (int value) noexcept { return version.answerBlind (value); }
 bool ReferenceComparisonController::revealBlind() noexcept { return version.revealBlind(); }
-void ReferenceComparisonController::endBlind() noexcept { version.endBlind(); }
+void ReferenceComparisonController::endBlind() noexcept { version.endBlind(); endBlindGuard(); }
 void ReferenceComparisonController::suspendAudition() noexcept { version.suspendAudition(); check.suspendAudition(); }
 
 void ReferenceComparisonController::observeTransport (std::int64_t position, bool valid, bool playing) noexcept
@@ -242,10 +253,11 @@ void ReferenceComparisonController::observeTransport (std::int64_t position, boo
     check.observeTransport (position, valid, playing);
 }
 void ReferenceComparisonController::observeAInput (const juce::AudioBuffer<float>& buffer,
-    std::int64_t position, bool valid, bool playing, bool allowed) noexcept
+    std::int64_t position, bool valid, bool playing, bool allowed, int clock, std::optional<bool> captureAllowed) noexcept
 {
     rtInputAllowed = allowed;
-    visual.observe (buffer, position, valid && playing && allowed && versionChosen.load (std::memory_order_acquire));
+    if(!capture.observe(buffer,position,valid,playing,captureAllowed.value_or(allowed),clock))
+        visual.observe (buffer, position, valid && playing && allowed && versionChosen.load (std::memory_order_acquire));
     version.observeAInput (buffer, position, valid, playing, allowed && versionChosen.load (std::memory_order_acquire), false);
     check.observeAInput (buffer, position, valid, playing, allowed, false);
 }

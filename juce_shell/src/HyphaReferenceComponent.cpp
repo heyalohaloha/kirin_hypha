@@ -32,7 +32,7 @@ void configureSelector (juce::ComboBox& box, const juce::String& componentId,
 Component::Component()
 {
     setOpaque (false);
-    addChildComponent (comparisonView);
+    addChildComponent (comparisonView); addChildComponent(captureControls);
     connectionStatus.setComponentID ("reference-connection");
     connectionStatus.setText ("OS", juce::dontSendNotification);
     connectionStatus.setJustificationType (juce::Justification::centred);
@@ -204,7 +204,8 @@ void Component::setState (State next)
         && (!current.separateComparisons || current.comparisonSlot == 2));
     actionButton.setButtonText (current.actionText);
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
-    comparisonView.setVisible (current.separateComparisons && current.comparisonSlot == 1 && !blindSession);
+    captureControls.update(current.captureAccess,blindSession,presentationContext);
+    comparisonView.setVisible (current.separateComparisons && (current.comparisonSlot == 1 || (current.captureAccess && current.captureAccess->capturedView)) && !blindSession);
     comparisonView.update (current.visualTimeline, current.visualPositionSeconds, presentationContext, blindSession, current.visualPreferences);
     resized();
     repaint();
@@ -365,6 +366,7 @@ void Component::paint (juce::Graphics& g)
     text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
 
     area.removeFromTop (4);
+    if(captureControls.isVisible()) area.removeFromTop(24);
     auto statusArea = area.removeFromBottom (detailedLayout() ? 24 : 18);
     const auto statusColour = current.readiness == Readiness::rejected
         ? COL_LED_YELLOW : current.bSelected ? COL_SPECTRUM_DELTA_BR : COL_MUTED;

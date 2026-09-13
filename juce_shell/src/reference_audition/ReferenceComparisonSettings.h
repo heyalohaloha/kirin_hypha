@@ -23,6 +23,7 @@ struct ReferenceComparisonSettings
     ReferenceChoice version, check;
     VisualViewChoice visualView;
     int viewedSlot = 2;
+    juce::String captureState; bool capturedView=false;
     void write (juce::XmlElement& parent) const
     {
         auto* xml = parent.createNewChildElement ("ReferenceChoices");
@@ -35,6 +36,7 @@ struct ReferenceComparisonSettings
             child->setAttribute ("candidate", choice.candidateId);
             child->setAttribute ("cue", choice.cueId);
         };
+        if(captureState.isNotEmpty()) { auto* captured=xml->createNewChildElement("ACapture"); captured->setAttribute("data",captureState); captured->setAttribute("shown",capturedView); }
         append ("B", version); append ("C", check); visualView.write (*xml);
     }
     static ReferenceComparisonSettings read (const juce::XmlElement& parent)
@@ -49,6 +51,7 @@ struct ReferenceComparisonSettings
                            child->getStringAttribute ("candidate"), child->getStringAttribute ("cue") };
             return choice.valid() ? choice : ReferenceChoice {};
         };
+        if(const auto* captured=xml->getChildByName("ACapture")) { const auto data=captured->getStringAttribute("data"); if(data.length()<=256*1024) result.captureState=data; result.capturedView=captured->getBoolAttribute("shown"); }
         result.visualView = VisualViewChoice::read (*xml);
         result.version = readChoice ("B"); result.check = readChoice ("C");
         if (result.version.candidateId.isEmpty()) result.version = {};

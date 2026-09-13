@@ -3,6 +3,51 @@ use kirin_measure::reference_gain::visual::{VisualAdmission, VisualBin, VisualMe
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[no_mangle]
+pub extern "C" fn kirin_reference_capture_create(rate: u32, channels: u32) -> *mut VisualMeter {
+    catch_unwind(|| {
+        VisualMeter::capture(rate, channels as usize)
+            .map_or(std::ptr::null_mut(), |m| Box::into_raw(Box::new(m)))
+    })
+    .unwrap_or(std::ptr::null_mut())
+}
+/// # Safety
+/// Live, exclusively owned meter and writable outputs; worker thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_reference_capture_finish(
+    m: *mut VisualMeter,
+    bin: *mut VisualBin,
+    tp: *mut f64,
+) -> bool {
+    if m.is_null() || bin.is_null() || tp.is_null() {
+        return false;
+    }
+    catch_unwind(AssertUnwindSafe(|| unsafe {
+        *tp = (*m).pending_true_peak();
+        kirin_reference_visual_finish(m, bin)
+    }))
+    .unwrap_or(false)
+}
+/// # Safety
+/// Live, exclusively owned meter and writable outputs; worker thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_reference_capture_totals(
+    m: *mut VisualMeter,
+    loudness: *mut f64,
+    tp: *mut f64,
+) -> bool {
+    if m.is_null() || loudness.is_null() || tp.is_null() {
+        return false;
+    }
+    catch_unwind(AssertUnwindSafe(|| unsafe {
+        let totals = (*m).seal_capture();
+        *loudness = totals.0;
+        *tp = totals.1;
+        true
+    }))
+    .unwrap_or(false)
+}
+
+#[no_mangle]
 pub extern "C" fn kirin_reference_visual_create(rate: u32, channels: u32) -> *mut VisualMeter {
     catch_unwind(|| {
         VisualMeter::new(rate, channels as usize)

@@ -108,6 +108,8 @@ private:
     void updateSpectrumSizeControl();
     void configureReferenceAudition();
     void showReferenceInformationMenu();
+    void refreshCaptureControls();
+    hypha::reference_ui::CaptureControls captureStatus{true};
     void layoutReferenceAudition (juce::Rectangle<int>);
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
     void configureLocalBlindProduct();

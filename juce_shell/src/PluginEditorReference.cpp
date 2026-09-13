@@ -158,7 +158,7 @@ void KirinHyphaEditor::configureReferenceAudition()
             showToast ("Blind Compare could not be revealed");
     };
     referenceView.onEndBlind = [this] { processorRef.endReferenceBlind(); };
-    scaleRoot.addChildComponent (referenceView);
+    scaleRoot.addChildComponent (referenceView); scaleRoot.addChildComponent(captureStatus);
 }
 
 void KirinHyphaEditor::layoutReferenceAudition (juce::Rectangle<int> body)
@@ -175,7 +175,7 @@ void KirinHyphaEditor::layoutReferenceAudition (juce::Rectangle<int> body)
     referenceAccessView.setBounds (body);
     referenceAccessView.setVisible (reference && access);
     if (referenceAccessView.isVisible()) referenceAccessView.toFront (false);
-    layoutLocalBlindProduct();
+    layoutLocalBlindProduct(); refreshCaptureControls();
 }
 
 void KirinHyphaEditor::showReferenceInformationMenu()
@@ -284,7 +284,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.cues = selectionOptions (runtime.cues);
     state.detailedMeasurement = runtime.detailedMeasurement;
     state.visualTimeline = runtime.visualTimeline; state.visualPositionSeconds = runtime.visualPositionSeconds;
-    state.visualPreferences = runtime.visualPreferences;
+    state.visualPreferences = runtime.visualPreferences; state.captureAccess=runtime.captureAccess;
     state.profiles = runtime.profiles;
     state.sampleRateApprovalRequired = runtime.sampleRateApprovalRequired;
     state.sourceSampleRateHz = runtime.sourceSampleRateHz;

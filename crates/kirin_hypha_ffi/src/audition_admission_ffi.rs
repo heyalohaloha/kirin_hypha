@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[cfg(test)]
+pub(crate) static ADMISSION_TEST: Mutex<()> = Mutex::new(());
+
 pub(crate) const AUDITION_NONE: u8 = 0;
 pub(crate) const AUDITION_REFERENCE: u8 = 1;
 const AUDITION_LOCAL_BLIND: u8 = 2;
@@ -11,6 +14,8 @@ pub(crate) struct AuditionState {
     admission: Mutex<Option<kirin_measure::AuditionAdmission>>,
     kind: Arc<AtomicU8>,
     epoch: AtomicU64,
+    version_blind: Mutex<Option<kirin_measure::reference_gain::visual::BlindCaptureExclusion>>,
+    capture: Mutex<Option<kirin_measure::reference_gain::visual::CaptureAdmission>>,
 }
 
 impl AuditionState {
@@ -20,6 +25,8 @@ impl AuditionState {
             admission: Mutex::new(None),
             kind: Arc::new(AtomicU8::new(AUDITION_NONE)),
             epoch: AtomicU64::new(0),
+            capture: Mutex::new(None),
+            version_blind: Mutex::new(None),
         }
     }
 
@@ -78,7 +85,15 @@ impl KirinHyphaEngine {
         let plugin_data_dir = StoragePaths::default_platform().ok()?.plugin_data_dir();
         let mut candidate =
             kirin_measure::AuditionAdmission::for_current_project(&plugin_data_dir, &project_hash);
-        if !candidate.try_acquire_for(owner).ok()? {
+        let capture = self.audition.capture.lock().ok()?;
+        let accepted = if kind == AUDITION_LOCAL_BLIND {
+            candidate.try_acquire_blind_for(owner)
+        } else if let Some(capture) = capture.as_ref() {
+            candidate.try_acquire_during_capture(capture, owner)
+        } else {
+            candidate.try_acquire_for(owner)
+        };
+        if !accepted.ok()? {
             return None;
         }
         if self.record_sm.is_recording()
@@ -143,8 +158,97 @@ impl KirinHyphaEngine {
     pub fn end_local_blind(&self, scope_epoch: u64) -> bool {
         self.end_audition(AUDITION_LOCAL_BLIND, Some(scope_epoch))
     }
+
+    fn set_version_blind_capture_exclusion(&self, active: bool) -> bool {
+        let Some(project) = self.audition_project() else {
+            return false;
+        };
+        let Ok(mut held) = self.audition.version_blind.lock() else {
+            return false;
+        };
+        if !active {
+            *held = None;
+            return true;
+        }
+        if held.is_some() {
+            return true;
+        }
+        let Ok(storage) = StoragePaths::default_platform() else {
+            return false;
+        };
+        let mut guard =
+            kirin_measure::reference_gain::visual::BlindCaptureExclusion::for_current_project(
+                &storage.plugin_data_dir(),
+                &project,
+            );
+        if !guard.acquire() {
+            return false;
+        }
+        *held = Some(guard);
+        true
+    }
+    fn set_reference_capture(&self, active: bool) -> bool {
+        let Some(project) = self.audition_project() else {
+            return false;
+        };
+        let Ok(mut audition) = self.audition.admission.lock() else {
+            return false;
+        };
+        let Ok(mut capture) = self.audition.capture.lock() else {
+            return false;
+        };
+        if !active {
+            if let Some(mut held) = capture.take() {
+                held.release(audition.as_mut());
+            }
+            return true;
+        }
+        if capture.is_some() {
+            return true;
+        }
+        if self.audition.kind.load(Ordering::Acquire) == AUDITION_LOCAL_BLIND {
+            return false;
+        }
+        let Ok(storage) = StoragePaths::default_platform() else {
+            return false;
+        };
+        let mut held = kirin_measure::reference_gain::visual::CaptureAdmission::for_current_project(
+            &storage.plugin_data_dir(),
+            &project,
+        );
+        if !held.try_acquire(audition.as_mut()).unwrap_or(false) {
+            return false;
+        }
+        *capture = Some(held);
+        true
+    }
 }
 
+/// # Safety
+/// Null or a live engine pointer; non-RT control thread only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_reference_capture_active(
+    handle: *mut KirinHyphaEngine,
+    active: bool,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        !handle.is_null() && unsafe { (*handle).set_reference_capture(active) }
+    }))
+    .unwrap_or(false)
+}
+
+/// # Safety
+/// Null or live engine pointer, non-RT only.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_version_blind_capture_exclusion(
+    handle: *mut KirinHyphaEngine,
+    active: bool,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        !handle.is_null() && unsafe { (*handle).set_version_blind_capture_exclusion(active) }
+    }))
+    .unwrap_or(false)
+}
 /// Reserve the POST's project-wide local Blind scope on the control thread.
 ///
 /// # Safety
@@ -198,6 +302,7 @@ mod tests {
 
     #[test]
     fn local_blind_is_post_only_and_returns_a_stable_epoch() {
+        let _serial = ADMISSION_TEST.lock().unwrap();
         let pre = KirinHyphaEngine::new(48_000, 2);
         assert_eq!(pre.begin_local_blind(), None);
         let post = post_engine(&format!("ffi-audition-{}", Uuid::new_v4()));
@@ -222,6 +327,41 @@ mod tests {
         assert_eq!(post.begin_local_blind(), None);
     }
 
+    #[test]
+    fn capture_keeps_pre_delta_and_shares_two_slots_with_reference() {
+        let _serial = ADMISSION_TEST.lock().unwrap();
+        let project = format!("ffi-capture-{}", Uuid::new_v4());
+        let a = post_engine(&project);
+        let b = post_engine(&project);
+        let c = post_engine(&project);
+        *a.delta_result.lock().unwrap() = DeltaResult {
+            lufs: Some(2.0),
+            mode: DeltaMode::Active,
+            ..Default::default()
+        };
+        assert!(a.set_reference_capture(true));
+        assert!(b.set_reference_capture(true));
+        assert!(!a.audition.is_active());
+        assert!(!a.audition.blocks_record());
+        assert_eq!(a.delta_result.lock().unwrap().lufs, Some(2.0));
+        assert!(!c.set_reference_capture(true));
+        assert_eq!(c.begin_local_blind(), None);
+        assert!(!c.set_version_blind_capture_exclusion(true));
+        assert!(a.set_reference_audition_active(true));
+        assert!(a.set_reference_capture(false));
+        assert!(!c.set_reference_capture(true)); // B output retains the transferred slot.
+        assert!(a.set_reference_capture(true));
+        assert!(a.set_reference_audition_active(false));
+        assert!(!c.set_reference_capture(true)); // Return A does not release Capture's slot.
+        assert!(a.set_reference_capture(false));
+        assert!(b.set_reference_capture(false));
+        assert!(c.set_version_blind_capture_exclusion(true));
+        assert!(!a.set_reference_capture(true));
+        assert!(c.set_version_blind_capture_exclusion(false));
+        assert!(a.set_reference_capture(true));
+        assert!(a.set_reference_capture(false));
+        assert!(!unsafe { kirin_hypha_set_reference_capture_active(std::ptr::null_mut(), true) });
+    }
     #[test]
     fn null_local_blind_ffi_fails_closed() {
         let mut epoch = 0;

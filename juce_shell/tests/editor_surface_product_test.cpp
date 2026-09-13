@@ -2,6 +2,7 @@
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceAccessPanel.h"
 #include "ValidationStorageSandbox.h"
+#include "EditorCaptureProductTest.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -269,7 +270,8 @@ int main (int argc, char** argv)
    #endif
     juce::ScopedJuceInitialiser_GUI init;
     verifySavedReferenceChoices();
-    SurfaceContract contract (argc > 1 ? juce::File (argv[1]) : juce::File());
+    std::unique_ptr<SurfaceContract> contract;
+    CaptureProductContract capture([&] { contract=std::make_unique<SurfaceContract>(argc>1 ? juce::File(argv[1]) : juce::File()); });
     juce::MessageManager::getInstance()->runDispatchLoop();
-    return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
+    return contract && contract->passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

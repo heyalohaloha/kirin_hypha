@@ -1,6 +1,8 @@
 #pragma once
 #include "ReferenceRuntimeV2Controller.h"
 #include "ReferenceVisualObservation.h"
+#include "ReferenceACaptureSession.h"
+#include "ReferenceACaptureProjection.h"
 
 namespace hypha::reference_audition
 {
@@ -10,7 +12,7 @@ class ReferenceComparisonController final
 {
 public:
     using SelectionGate = RuntimeV2Controller::SelectionGate;
-    explicit ReferenceComparisonController (juce::File, SelectionGate = {});
+    explicit ReferenceComparisonController (juce::File, SelectionGate = {}, SelectionGate = {}, SelectionGate = {});
     ~ReferenceComparisonController();
     void configure (RuntimeIdentity, double, int);
     void setPresented (bool active) noexcept;
@@ -37,14 +39,21 @@ public:
     void endBlind() noexcept;
     void suspendAudition() noexcept;
     void observeTransport (std::int64_t, bool, bool) noexcept;
-    void observeAInput (const juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool) noexcept;
+    void observeAInput (const juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool, int clock = 0, std::optional<bool> captureAllowed = {}) noexcept;
     bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool) noexcept;
 
 private:
     bool admit (int, bool);
+    bool admitCapture(bool);
+    bool beginBlindGuard();
+    void endBlindGuard();
+    void refreshObservation();
+    ACaptureReceipt captureReceipt() const;
     RuntimeV2Controller& viewed() noexcept;
     bool trialActive() const;
-    SelectionGate gate;
+    SelectionGate gate, captureGate, blindCaptureGate;
+    bool captureOwned=false,blindGuardOwned=false;
+    std::atomic<bool> presented{false};
     juce::CriticalSection gateLock;
     bool closing = false;
     int gateOwners = 0; // Bit mask retains one external admission across overlapping tails.
@@ -58,6 +67,8 @@ private:
     juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 };
     RuntimeV2Controller version, check;
     VisualObservation visual;
+    ACaptureSession capture;
+    ACaptureProjection captureProjection;
     std::shared_ptr<VisualPreferences> visualPreferences = std::make_shared<VisualPreferences>();
 };
 }

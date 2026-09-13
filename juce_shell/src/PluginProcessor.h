@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaCaptureStateNotification.h"
 #include "HostProcessClock.h"
 #include "local_blind/LocalBlindCaptureService.h"
 #include "local_blind/LocalBlindProductSession.h"
@@ -426,6 +427,7 @@ private:
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::String referenceRuntimeId { juce::Uuid().toDashedString() };
     void createReferenceAuditionController();
+    hypha::CaptureStateNotification captureStateNotification{[this]{ updateHostDisplay(ChangeDetails{}.withNonParameterStateChanged(true)); }};
     std::unique_ptr<hypha::reference_audition::ReferenceComparisonController> referenceAuditionController;
    #endif
 

@@ -8,7 +8,7 @@ namespace hypha::reference_ui
 // Discovery is not audition permission. Never cover an outstanding return-level control.
 inline bool needsAccessPanel (const State& state) noexcept
 {
-    return (state.osAccess == os_access::State::unowned)
+    return (state.osAccess == os_access::State::unowned) && !state.captureAccess
         && ! state.bSelected && ! isBlindSession (state.blindPhase);
 }
 

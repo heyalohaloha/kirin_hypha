@@ -39,6 +39,8 @@ private:
     std::shared_ptr<reference_audition::VisualPreferences> preferences;
     void saveView();
     void rebuild();
+    void rebuildCaptured();
+    juce::String capturedValuesAt(double,bool) const;
     void setRange (double, double);
     double timeAt (float x) const;
     void paintDetails (juce::Graphics&);

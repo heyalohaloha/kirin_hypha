@@ -1,3 +1,4 @@
+#include "kirin_hypha_reference_capture_ffi.h"
 #include "PluginProcessor.h"
 
 
@@ -273,6 +274,14 @@ void KirinHyphaProcessorBase::createReferenceAuditionController()
             const juce::ScopedLock gateLock (handleLock);
             return hyphaHandle != nullptr
                 && kirin_hypha_set_reference_audition_active (hyphaHandle, active);
+        }, [this](bool active) {
+            const juce::ScopedLock lock(handleLock);
+            const bool accepted=hyphaHandle && kirin_hypha_set_reference_capture_active(hyphaHandle,active);
+            if(accepted && !active) captureStateNotification.changed();
+            return accepted;
+        }, [this](bool active) {
+            const juce::ScopedLock lock(handleLock);
+            return hyphaHandle && kirin_hypha_set_version_blind_capture_exclusion(hyphaHandle,active);
         });
 }
 #endif

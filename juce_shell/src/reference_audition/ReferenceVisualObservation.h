@@ -25,8 +25,8 @@ private:
         std::uint64_t generation = 0, discontinuity = 0;
         int frames = 0, channels = 0;
     };
-    static constexpr size_t queueSize = 30;
-    static_assert (sizeof (Block) * queueSize <= 2 * 1024 * 1024, "Display queue budget");
+    static constexpr size_t queueSize = 15;
+    static_assert (sizeof (Block) * queueSize <= 1024 * 1024, "Display queue budget");
     std::unique_ptr<std::array<Block, queueSize>> queue = std::make_unique<std::array<Block, queueSize>>();
     std::atomic<size_t> writeIndex { 0 }, readIndex { 0 };
     std::atomic<bool> accepting { false };

@@ -419,6 +419,22 @@ These controls change the view only. They do not seek the DAW or switch audio. T
 view choice survives editor/session restoration, while live A observations are never restored as
 current audio. Blind hides these graphs and their accessibility content.
 
+**CAPTURE A** retains the original POST input's measured overview independently of B or a
+Kirin OS connection. Arm it, play the DAW from the desired start, then stop the DAW or use
+**FINISH A**. **CAPTURED / LIVE** changes the display; audio A always remains live at 0 dB.
+Capture continues without an editor. Its bounded summary is saved in the DAW session, and
+restores as historical data without starting capture, calibration, or audition.
+
+The captured range includes peak/RMS, 3-second loudness endpoints, Crest, and continuous-range
+integrated loudness/maximum true peak. A seek, missing clock/input, format change, or queue gap
+closes a partial pass; a failed retry preserves the previous successful capture. The two-hour
+limit also closes as partial, never as proof of a complete song. Revisited input changes are
+marked without rewriting the capture; unvisited regions are never certified as current.
+B comparisons require the captured pass's same-Work evidence and a separately verified live
+map. A restored capture must be revalidated before using that map. B loss leaves A available.
+Capture uses the existing two Analysis slots, shares its slot with ordinary audition, and
+excludes both kinds of Blind until the relevant capture or audible return has completed.
+
 ## Local PRE/POST Blind Compare
 
 Local Blind Compare auditions immutable copies of one exact four-second PRE/POST range. It is a
