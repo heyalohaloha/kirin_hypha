@@ -38,8 +38,11 @@ struct Clock final : juce::AudioPlayHead
     {
         PositionInfo info;
         info.setIsPlaying (playing);
-        info.setTimeInSamples (position);
-        info.setTimeInSeconds (static_cast<double> (position) / 48000.0);
+        if (playing)
+        {
+            info.setTimeInSamples (position);
+            info.setTimeInSeconds (static_cast<double> (position) / 48000.0);
+        }
         return info;
     }
     std::int64_t position = 0; // one audio producer; commands are applied between callbacks
@@ -184,9 +187,15 @@ private:
                     }
                     break;
                 }
+                armedAt = std::chrono::steady_clock::now();
+                stage = 40;
+                break;
+            case 40:
+                // The user may arm the comparison, then start the stopped DAW later.
+                if (std::chrono::steady_clock::now() - armedAt < std::chrono::milliseconds (200)) break;
                 passNumber.store (1);
                 cue (nativeStart - 1003);
-                ++stage;
+                stage = 5;
                 break;
             case 5:
                 if (! state.trial.passComplete) break;
@@ -312,6 +321,7 @@ private:
     std::atomic<int> passNumber { 0 };
     std::atomic<double> correlationOne { 0 }, correlationTwo { 0 };
     std::chrono::steady_clock::time_point started;
+    std::chrono::steady_clock::time_point armedAt;
     int stage = 0, reportedStage = -1, waitingUi = 0;
     bool reopened = false;
 };

@@ -123,10 +123,10 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
         invalidate (TrialFailure::transport);
     else if (! (block.epochs == format.epochs))
         invalidate (TrialFailure::epochs);
-    else if (! (block.clock == format.clock))
+    else if (block.playing && ! (block.clock == format.clock))
         invalidate (TrialFailure::clock);
-    else if (! block.positionValid
-             || block.position > std::numeric_limits<std::int64_t>::max() - frames)
+    else if (block.playing && (! block.positionValid
+             || block.position > std::numeric_limits<std::int64_t>::max() - frames))
         invalidate (TrialFailure::transport);
     if (failed.load (std::memory_order_acquire) != TrialFailure::none)
         return hold (data, channels, frames, block);
@@ -149,6 +149,8 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
     renderedCommand = requested;
     if (! block.playing)
     {
+        // Stopped hosts may omit their playback clock. A later playing callback must still
+        // match the frozen clock before copying; an incomplete pass cannot survive a stop.
         exactWrapEligible = false;
         if (hasPrevious && ! finishedRange) invalidate (TrialFailure::transport);
         return hold (data, channels, frames, block);

@@ -98,3 +98,41 @@ static void capturedClockPlaybackContract()
                      "restored clock cannot silently resume an invalid trial");
         }
 }
+
+static void stoppedHostClockContract()
+{
+    auto f = format();
+    f.minimumHeardFrames = static_cast<std::uint64_t> (f.frames);
+    f.clock = { 1, 1, 32, 4096, true, true };
+    LocalBlindTrial trial (f, {}, std::vector<float> (512, 0.25f),
+                           std::vector<float> (512, -0.125f), false, 4096);
+    Buffer buffer;
+    auto stopped = block();
+    stopped.playing = false;
+    stopped.positionValid = false;
+    stopped.clock = {};
+    require (trial.start(), "comparison can be armed while the host is stopped");
+    buffer.fill();
+    require (buffer.render (trial, stopped) == TrialOutput::untouched && buffer.original()
+                 && trial.view().failure == TrialFailure::none,
+             "a stopped host need not supply a playback clock before the first pass");
+    for (auto position = f.start; position < f.start + f.frames; position += 64)
+    {
+        auto playing = block (position);
+        playing.clock = f.clock;
+        require (buffer.render (trial, playing) == TrialOutput::copy, "valid playing clock completes the range");
+    }
+    require (trial.view().passComplete, "full first pass is retained");
+    buffer.fill();
+    require (buffer.render (trial, stopped) == TrialOutput::untouched
+                 && trial.view().failure == TrialFailure::none && trial.view().passComplete,
+             "missing stopped clock does not erase a complete pass");
+    require (trial.select (2), "second side arms explicitly while stopped");
+    buffer.render (trial, stopped);
+    auto changed = block();
+    changed.clock = f.clock;
+    ++changed.clock.outputLatency;
+    require (buffer.render (trial, changed) == TrialOutput::untouched
+                 && trial.view().failure == TrialFailure::clock,
+             "the next playing callback must still match the captured clock and PDC");
+}

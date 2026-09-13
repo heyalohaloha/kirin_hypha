@@ -28,6 +28,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # The full product contract also builds the common processor. Bound native build
+  # concurrency on each runner; timing-sensitive tests continue to run serially.
+  CMAKE_BUILD_PARALLEL_LEVEL: "2"
+
 jobs:
   public-history:
     name: public history identity

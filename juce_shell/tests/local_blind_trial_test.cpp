@@ -338,6 +338,7 @@ int main()
 {
     nativeRangePlaybackContract();
     capturedClockPlaybackContract();
+    stoppedHostClockContract();
     localBlindTransitionContract();
     selectionAndAnswers();
     timeAndFailures();

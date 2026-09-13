@@ -27,6 +27,8 @@ replace that evidence. Public distribution is a separate three-channel release g
 | BL-C06 | Range edges and source changes replace the waveform abruptly. | Bound source and range transitions to five milliseconds, preserve fixed gains and equal-PCM controls, and produce identical output across callback partitions. |
 | BL-C07 | Equal-width buttons clip answer labels and the explicit POST attenuation at small sizes. Repeated diagnostic PNG output appends to the old image. | Allocate width from actual font metrics, use unambiguous compact labels, test every visible action, and overwrite each preview. |
 
+| BL-C08 | B-843 still rejects a stopped host that omits playback-clock fields, including while waiting to start. | Preserve an armed or completed trial while stopped; validate the frozen clock before the next playing callback, and continue to reject an interrupted incomplete pass. |
+
 The original failures were reproduced directly against the baseline renderer before editing it.
 The regression matrix uses untrimmed host callbacks at 44.1, 48 and 96 kHz; 64, 257, 512 and 2048
 frames; mono and stereo. It checks every output sample, two complete sides, answer, reveal and
@@ -78,3 +80,9 @@ The isolated renderer benchmark at 48 kHz stereo reported p99 callback times of 
 audio callback interval). This measures the audition renderer on this Intel Mac, not the full
 processor or every supported host. The 64/256-frame cases retain exactly 3,072,000 bytes of
 frozen PRE/POST PCM. Runtime contracts also record zero audio-thread allocation/deallocation.
+
+The stopped-clock regression is separately reproduced against B-843 before its correction. The
+complete product harness now omits all position observations while stopped and deliberately waits
+200 ms between START BLIND and starting the DAW. Both product contexts pass this sequence, and a
+PDC change on resumed playback remains a terminal refusal. CI uses two native compiler jobs to
+accommodate the complete common-processor contract within the existing validation gates.
