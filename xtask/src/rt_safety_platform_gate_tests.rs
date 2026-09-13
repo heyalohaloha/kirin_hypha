@@ -41,3 +41,12 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
     assert!(ci.contains("-R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'"));
     assert!(source_gate.contains("|kirin_editor_surface_product)$'"));
 }
+
+#[test]
+fn visible_guide_action_accepts_pending_connection_before_opening_received_guide_details() {
+    let action = include_str!("../../juce_shell/src/PluginEditorMenu.cpp");
+    let connect = action.find("processorRef.acceptPreDisplayConnection()").unwrap();
+    let details = action.find("if (! guide.guideAvailable").unwrap();
+    assert!(action.contains("processorRef.pendingPreDisplayConnection().validAt"));
+    assert!(connect < details);
+}

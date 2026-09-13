@@ -139,6 +139,17 @@ private:
                 require (access->getBounds() == view->analysisBodyBounds(), "Reference returns to its body bounds");
         }
         require (processor->getLatencySamples() == 0, "display transitions retain zero latency");
+        if (! vu)
+        {
+            // A connection may arrive after the editor has laid out an empty guide rail.
+            // Exercise that transition through the shipping hierarchy, including VU return.
+            view->setGuide ("CONNECT  Saved Work", {}, true);
+            auto* guide = dynamic_cast<juce::Button*> (&view->guideDetailsAnchor());
+            require (guide != nullptr && guide->isVisible() && ! guide->getBounds().isEmpty(),
+                     "late connection action is visible");
+            const auto point = editor->getLocalPoint (guide, guide->getLocalBounds().getCentre());
+            require (editor->getComponentAt (point) == guide, "one guide action owns the actual pointer hit");
+        }
     }
 
     void preview (const char* state)

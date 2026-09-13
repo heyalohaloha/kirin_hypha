@@ -28,4 +28,4 @@ juce_shell/src/PluginProcessor.cpp	1059
 juce_shell/src/pre_display/PreDisplayProtocol.cpp	583
 juce_shell/tests/pre_display_runtime_test.cpp	1171
 juce_shell/tests/ui_contract_test.cpp	559
-xtask/src/shell_parity.rs	506
+xtask/src/shell_parity.rs	505
