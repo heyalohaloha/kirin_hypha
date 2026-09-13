@@ -15,15 +15,17 @@ using Answer = local_blind::TrialAnswer;
 
 juce::String timeline (std::int64_t sample, std::uint32_t sampleRate)
 {
-    if (sample < 0 || sampleRate == 0)
+    if (sampleRate == 0)
         return {};
-    const auto milliseconds = static_cast<std::int64_t> (
+    const auto signedMilliseconds = static_cast<std::int64_t> (
         std::llround (static_cast<double> (sample) * 1000.0
                       / static_cast<double> (sampleRate)));
+    const auto milliseconds = std::abs (signedMilliseconds);
     const auto minutes = milliseconds / 60'000;
     const auto seconds = (milliseconds / 1'000) % 60;
     const auto millis = milliseconds % 1'000;
-    return juce::String (minutes).paddedLeft ('0', 2) + ":"
+    return juce::String (sample < 0 ? "-" : "")
+        + juce::String (minutes).paddedLeft ('0', 2) + ":"
         + juce::String (seconds).paddedLeft ('0', 2) + "."
         + juce::String (millis).paddedLeft ('0', 3);
 }

@@ -27,6 +27,7 @@ replace that evidence. Public distribution is a separate three-channel release g
 | BL-C06 | Range edges and source changes replace the waveform abruptly. | Bound source and range transitions to five milliseconds, preserve fixed gains and equal-PCM controls, and produce identical output across callback partitions. |
 | BL-C07 | Equal-width buttons clip answer labels and the explicit POST attenuation at small sizes. Repeated diagnostic PNG output appends to the old image. | Allocate width from actual font metrics, use unambiguous compact labels, test every visible action, and overwrite each preview. |
 | BL-C08 | B-843 still rejects a stopped host that omits playback-clock fields, including while waiting to start. | Preserve an armed or completed trial while stopped; validate the frozen clock before the next playing callback, and continue to reject an interrupted incomplete pass. |
+| BL-C09 | A valid capture before project zero shows an empty start cue. | Display signed project time so the user can find a range that crosses project zero. |
 
 The range-entry and end-boundary failures were reproduced against the baseline before editing.
 The stopped-clock failure was separately reproduced at B-843.

@@ -155,6 +155,12 @@ inline void verifyLocalBlindUiContract()
     require (start->getTitle().contains ("PRE is matched to POST with fixed gain")
                  && start->getTitle().contains ("Solo and routing stay unchanged"),
              "normal start describes the gain reference and preserves DAW mix context");
+    ready.start = -48'000;
+    component.setState (ready);
+    require (labelText ("local-blind-detail").contains ("-00:01.000 - 00:03.000"),
+             "a captured range before project zero retains its signed cue");
+    ready.start = 48'000;
+    component.setState (ready);
 
     local_blind::ProductSessionView listening = ready;
     listening.phase = local_blind::ProductSessionPhase::listening;
