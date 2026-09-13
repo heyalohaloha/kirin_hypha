@@ -233,7 +233,7 @@ void Component::paint (juce::Graphics& g)
         };
         label (versionBox, detailedLayout() ? "B / VERSION" : "B");
         label (checkBox, detailedLayout() ? "C / CHECK" : "C");
-        if (detailedLayout()) { label (presetBox, "C / CHECK PRESET"); if (cueBox.isVisible()) label (cueBox, "CUE"); }
+        if (detailedLayout()) { label (presetBox, "PRESET"); if (cueBox.isVisible()) label (cueBox, "CUE"); }
     }
     else if (detailedLayout() && ! blindSession)
     {
@@ -248,7 +248,7 @@ void Component::paint (juce::Graphics& g)
                                   typography::Composition::information));
             g.drawText (text, cell.removeFromTop (15), juce::Justification::centredLeft);
         };
-        drawSelectorLabel (selectors.removeFromLeft (columnWidth), "CHECK PRESET");
+        drawSelectorLabel (selectors.removeFromLeft (columnWidth), "PRESET");
         selectors.removeFromLeft (gap);
         drawSelectorLabel (selectors.removeFromLeft (columnWidth), "CHECK");
         selectors.removeFromLeft (gap);
@@ -343,7 +343,7 @@ void Component::paint (juce::Graphics& g)
     g.setColour (COL_FLORA.withAlpha (0.86f));
     g.setFont (labelFont (presentationContext, typography::TextRole::navigation,
                           typography::Composition::information));
-    text_style::draw (g, "REFERENCE / CHECK",
+    text_style::draw (g, "REFERENCE",
                       header.removeFromTop (navigationHeight), presentationContext,
                       typography::TextRole::navigation, juce::Justification::centredLeft,
                       1, typography::Composition::information);
@@ -351,7 +351,7 @@ void Component::paint (juce::Graphics& g)
     auto title = current.separateComparisons && current.comparisonSlot == 1 ? juce::String { "VERSION" }
         : current.checkLabel.isNotEmpty() ? current.checkLabel : juce::String { "CHECK" };
     if (current.title.isNotEmpty())
-        title += (current.separateComparisons && current.comparisonSlot == 2 ? "  /  C: " : "  /  B: ") + current.title;
+        title += "  /  " + current.title;
     g.setFont (displayTextFont (title, presentationContext,
                                 typography::TextRole::sectionTitle,
                                 typography::Composition::information));
@@ -374,11 +374,7 @@ void Component::paint (juce::Graphics& g)
         ? "REVEALED / " + current.blindReveal : current.status;
     const auto side = current.separateComparisons && current.comparisonSlot == 2 ? "C" : "B";
     if (current.bSelected && ! blindRevealed)
-        statusText = detailedLayout()
-            ? juce::String { side } + " / "
-                + (current.alignmentLabel == "PROJECT TIMELINE" ? "TIMELINE" : "CUE")
-                + " / PRE " + delta() + " PAUSED"
-            : juce::String { side } + " / PRE " + delta() + " PAUSED";
+        statusText = juce::String { side } + "  /  PRE " + delta() + " PAUSED";
     else if (detailedLayout() && current.alignmentLabel.isNotEmpty())
         statusText += (statusText.isNotEmpty() ? "  /  " : "") + current.alignmentLabel;
     auto availableStatusArea = statusArea;
@@ -417,11 +413,8 @@ void Component::paint (juce::Graphics& g)
         if (current.bSelected && std::isfinite (current.appliedGainDb))
         {
             const auto gain = juce::String { side } + " " + fmtDelta (current.appliedGainDb) + " dB  /  "
-                + (current.comparisonFallbackOriginal
-                       ? (current.gainLimited ? "ORIGINAL / MATCH UNAVAILABLE"
-                                              : "ORIGINAL / FACT UNAVAILABLE")
-                   : current.gainLimited ? "LIMITED" : "MATCHED")
-                + "  /  NO LIMITER / PEAK CEILING";
+                + (current.comparisonFallbackOriginal ? "ORIGINAL"
+                   : current.gainLimited ? "MATCH UNAVAILABLE" : "MATCHED");
             g.setColour ((current.gainLimited ? COL_FLORA_BR : COL_MUTED).withAlpha (0.9f));
             g.setFont (labelFont (presentationContext, typography::TextRole::status,
                                   typography::Composition::information));

@@ -160,3 +160,12 @@ Additional primary references:
 - https://tech.ebu.ch/docs/tech/tech3285.pdf — BWF TimeReference is metadata, not
   evidence of current DAW placement.
 - https://www.rfc-editor.org/rfc/rfc8785.html — canonical JSON string/number rules.
+
+## Reference presentation — B-868
+
+The ordinary Reference header and selector labels avoid repeating Check/Preset
+identities. Chart legends identify A/B/C directly, and missing measurements use
+one `NO DATA` indication instead of repeated readiness explanations. The footer
+retains the active comparison, PRE delta pause and applied gain; approval and
+recovery controls retain their existing behavior. This changes presentation only,
+including small layouts, without changing matching, gain or playback contracts.

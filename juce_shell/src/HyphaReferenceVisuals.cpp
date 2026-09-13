@@ -59,18 +59,8 @@ void unavailable (juce::Graphics& g, juce::Rectangle<float> area,
     g.setColour (COL_TEXT_SECONDARY.withAlpha (0.92f));
     g.setFont (labelFont (presentation, typography::TextRole::status,
                           typography::Composition::visualization));
-    const auto lineHeight = juce::roundToInt (typography::resolve (
-        presentation, typography::TextRole::status,
-        typography::Composition::visualization).lineHeight);
-    auto textArea = area.toNearestInt().withSizeKeepingCentre (
-        area.toNearestInt().getWidth(), juce::jmin (area.toNearestInt().getHeight(),
-                                                   lineHeight * 2));
-    text_style::drawEllipsized (g,
-        area.getWidth() < 420.0f ? "FACTS UNAVAILABLE" : "REFERENCE FACTS NOT AVAILABLE",
-        textArea.removeFromTop (lineHeight), juce::Justification::centred);
-    text_style::drawEllipsized (g,
-        area.getWidth() < 420.0f ? "AUDIO READY" : "AUDIO REMAINS READY",
-        textArea.removeFromTop (lineHeight), juce::Justification::centred);
+    text_style::drawEllipsized (g, "NO DATA", area.toNearestInt(),
+                                juce::Justification::centred);
 }
 
 float dbY (double db, juce::Rectangle<float> area)
@@ -142,7 +132,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
     const double minimumHz = 20.0;
     const double maximumHz = lowOnly ? 300.0 : 20'000.0;
     auto area = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM",
-                           state.separateComparisons && state.comparisonSlot == 2 ? "A LIVE / C CHECK" : state.separateComparisons ? "A LIVE / B VERSION" : "A LIVE / B REFERENCE", presentation);
+                           state.separateComparisons && state.comparisonSlot == 2 ? "A / C" : "A / B", presentation);
     bool drew = false;
     for (const auto& profile : state.profiles)
     {
@@ -204,7 +194,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
 bool drawWaveform (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
                    presentation::Context presentation)
 {
-    auto area = chartArea (g, bounds, "WAVEFORM", state.separateComparisons && state.comparisonSlot == 2 ? "C CHECK / SAMPLE GRID" : state.separateComparisons ? "B VERSION / SAMPLE GRID" : "B REFERENCE / SAMPLE GRID", presentation);
+    auto area = chartArea (g, bounds, "WAVEFORM", state.separateComparisons && state.comparisonSlot == 2 ? "C" : "B", presentation);
     if (! state.detailedMeasurement || ! state.detailedMeasurement->waveform)
     {
         unavailable (g, area, presentation);
@@ -282,7 +272,7 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
     if (state.detailedMeasurement)
         series = timelineSeries (*state.detailedMeasurement, binding, title, seriesName,
                                  minimum, maximum);
-    auto area = chartArea (g, bounds, title, state.separateComparisons && state.comparisonSlot == 2 ? "C CHECK / TIMELINE" : state.separateComparisons ? "B VERSION / TIMELINE" : "B REFERENCE / TIMELINE", presentation);
+    auto area = chartArea (g, bounds, title, state.separateComparisons && state.comparisonSlot == 2 ? "C" : "B", presentation);
     if (series == nullptr || series->empty())
     {
         unavailable (g, area, presentation);
@@ -311,7 +301,7 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
 bool drawTransient (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
                     presentation::Context presentation)
 {
-    auto area = chartArea (g, bounds, "TRANSIENT", state.separateComparisons && state.comparisonSlot == 2 ? "C CHECK / ONSET STRENGTH" : state.separateComparisons ? "B VERSION / ONSET STRENGTH" : "B REFERENCE / ONSET STRENGTH",
+    auto area = chartArea (g, bounds, "TRANSIENT", state.separateComparisons && state.comparisonSlot == 2 ? "C" : "B",
                            presentation);
     if (! state.detailedMeasurement || ! state.detailedMeasurement->transient
         || state.detailedMeasurement->transient->onsetStrengthQ15.empty())
