@@ -30,6 +30,8 @@ mod tests {
     ));
     const AUDITION_OUTPUT_CPP: &str =
         include_str!("../../juce_shell/src/PluginProcessorAudition.cpp");
+    const LOCAL_TRANSITION_H: &str =
+        include_str!("../../juce_shell/src/local_blind/LocalBlindTransition.h");
     const LOCAL_TRIAL_CPP: &str =
         include_str!("../../juce_shell/src/local_blind/LocalBlindTrial.cpp");
     const LOCAL_SLOT_H: &str = include_str!("../../juce_shell/src/local_blind/LocalBlindSlot.h");
@@ -154,6 +156,10 @@ mod tests {
             (LOCAL_TRIAL_CPP, "TrialOutput LocalBlindTrial::hold"),
             (LOCAL_TRIAL_CPP, "bool LocalBlindTrial::inputLayout"),
             (LOCAL_TRIAL_CPP, "void LocalBlindTrial::invalidate"),
+            (LOCAL_TRANSITION_H, "void beginPass()"),
+            (LOCAL_TRANSITION_H, "float nextSourceWeight ("),
+            (LOCAL_TRANSITION_H, "static float edgeWeight ("),
+            (LOCAL_TRANSITION_H, "static float blend ("),
             (LOCAL_SLOT_H, "bool render ("),
             (LOCAL_SLOT_H, "bool hasPublishedRealtime()"),
             (LOCAL_EPOCH_H, "TrialEpochs read()"),

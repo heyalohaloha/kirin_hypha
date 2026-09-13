@@ -64,7 +64,7 @@ public:
         : releaseScope (std::move (releaseScopeIn)) {}
 
     bool beginCapture (std::uint64_t scopeEpoch, std::uint64_t captureGeneration,
-                       GainMatchPolicy) noexcept;
+                       GainMatchPolicy, TrialClockSignature = {}) noexcept;
     void failCaptureRequest() noexcept;
     bool acceptCapturedPair (const ExactCaptureRequest&, const ExactRangeCapture& post,
                              const ExactRangeCapture& pre,
@@ -104,6 +104,7 @@ private:
     std::uint64_t scopeEpoch = 0;
     std::uint64_t expectedCaptureGeneration = 0;
     GainMatchPolicy gainPolicy = GainMatchPolicy::alignedActiveBlocksV1;
+    TrialClockSignature admittedClock;
     ExactPairBinding capturedPair;
     bool releasePending = false;
     std::uint32_t sampleRate = 0;

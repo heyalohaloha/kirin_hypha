@@ -403,15 +403,20 @@ Kirin OS.
 2. Open **PRE / POST Blind Compare** from POST's menu. The preflight shows the current context and
    its Gain Match evidence before any capture begins. Change it if needed, keep the DAW playing,
    then press **CAPTURE 4 S**. Wait for both sides of the exact range to finish preparation.
-3. Return the DAW to the displayed range and start the prepared comparison. Listen to one complete
-   pass of both **Source 1** and **Source 2** before answering.
+3. Start the prepared comparison, then play the DAW from before the displayed range. Hypha auditions
+   only the captured samples, even when a processing block crosses either end of the range.
+   After the first pass completes, select the other **Source** and play from before the same range
+   again. A sample-exact DAW loop is optional. Both sources must complete a full pass before answering.
 4. Answer, reveal the hidden assignment, end the comparison, and explicitly return to the live
    signal.
 
 POST is the normal Gain Match reference: the frozen PRE audition copy receives one fixed gain so it
 matches the captured POST level. If raising PRE would exceed the comparison ceiling, Hypha does not
 clip or silently normalize both sides. It asks for explicit approval to leave PRE unchanged and lower
-POST by the inverse fixed amount instead. Gain does not follow the signal during the trial.
+POST by the inverse fixed amount instead. Gain does not follow the signal during the trial. Source changes and the two range edges use
+symmetric five-millisecond transitions in the audition output only; the captured PCM, normal input
+measurement and Record remain unchanged. Closing the editor ends the audition. Reopening recovers
+the explicit return screen without automatically resuming playback.
 
 The normal header's Meter Context control opens a descriptive choice rather than switching on one
 click. **2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.

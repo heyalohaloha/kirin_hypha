@@ -104,6 +104,10 @@ bool KirinHyphaProcessorBase::requestLocalBlindProductCapture()
         || role != Role::Post
         || localBlindCapture.view().phase != hypha::local_blind::CaptureOwnerPhase::idle)
         return false;
+    hypha::local_blind::HostClockProbeSnapshot clock;
+    if (! hostClockProbe.read (clock) || ! clock.playing || ! clock.hasPosition
+        || ! std::isfinite (clock.rate) || clock.rate < 8'000.0 || clock.rate > 768'000.0)
+        return false;
     std::uint64_t scopeEpoch = 0;
     {
         const juce::ScopedLock lock (handleLock);
@@ -118,16 +122,15 @@ bool KirinHyphaProcessorBase::requestLocalBlindProductCapture()
         ? hypha::local_blind::GainMatchPolicy::exactTrackEventEnergyV1
         : hypha::local_blind::GainMatchPolicy::alignedActiveBlocksV1;
     if (generation == 0 || ! localBlindProductSession.beginCapture (
-            scopeEpoch, generation, gainPolicy))
+            scopeEpoch, generation, gainPolicy,
+            { clock.source, clock.presentationSource, clock.inputLatency, clock.outputLatency,
+              clock.hasInputLatency, clock.hasOutputLatency }))
     {
         releaseLocalBlindProductScope (scopeEpoch);
         return false;
     }
-    hypha::local_blind::HostClockProbeSnapshot clock;
     hypha::local_blind::ExactCaptureRequest request;
-    if (! hostClockProbe.read (clock) || ! std::isfinite (clock.rate)
-        || clock.rate < 8'000.0 || clock.rate > 768'000.0
-        || ! issueLocalBlindCaptureRequest (
+    if (! issueLocalBlindCaptureRequest (
             generation, static_cast<std::int64_t> (std::llround (clock.rate)) * 4, request))
     {
         localBlindProductSession.failCaptureRequest();

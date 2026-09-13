@@ -22,8 +22,8 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         localBlindCapture.process (buffer.getArrayOfReadPointers(), getTotalNumInputChannels(),
                                    captureClock, static_cast<std::uint32_t> (preparedSampleRate));
 
-    // Default closed: no production admission owner publishes PCM/epochs yet. No new button,
-    // fake PDC, local-PID scope assumption, or third Analysis slot is enabled by this hook.
+    // The admitted session owns exact, immutable PCM and its epochs. Wrapper-specific host
+    // proof remains a separate prerequisite; a trial never creates another Analysis slot.
     if (localBlindProductSupported()
         && role == Role::Post && localBlindProductSession.hasPublishedRealtime())
     {
@@ -34,6 +34,9 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         block.playing = clock.playing;
         block.realtime = ! nonRealtimeMode;
         block.bypassed = bypassed;
+        block.clock = { clock.clockSource, clock.presentationSource,
+                        clock.inputPresentationSamples, clock.outputPresentationSamples,
+                        clock.inputPresentationValid, clock.outputPresentationValid };
         // The host looping boolean authorizes only the exact native end->start wrap that the
         // renderer itself observes. PPQ loop points are never converted into sample boundaries.
         block.exactLoopRangeValid = clock.looping;

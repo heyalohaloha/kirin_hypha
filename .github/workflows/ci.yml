@@ -216,9 +216,9 @@ jobs:
           cmake --build juce_shell/build-windows --config Release --target KirinHyphaReferencePreviewRenderer
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_hypha_reference_preview_renderer$'
 
-      - name: Validate local PRE/POST Blind building blocks
+      - name: Validate local PRE/POST Blind and complete product flow
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinLocalBlindCaptureTests KirinLocalBlindCaptureServiceTests KirinLocalBlindCapturePairComparisonTests KirinLocalBlindPdcValidationDelayTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests KirinLocalBlindHostContextTests
+          cmake --build juce_shell/build-windows --config Release --target KirinLocalBlindCaptureTests KirinLocalBlindCaptureServiceTests KirinLocalBlindCapturePairComparisonTests KirinLocalBlindPdcValidationDelayTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests KirinLocalBlindHostContextTests KirinLocalBlindProductTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_local_blind_'
 
       - name: Validate Work attachment transport

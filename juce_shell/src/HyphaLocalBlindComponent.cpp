@@ -60,6 +60,8 @@ juce::String failureText (const local_blind::ProductSessionView& state)
             return "Playback jumped outside the exact captured sequence.";
         case local_blind::TrialFailure::range:
             return "Playback did not begin at the captured range start.";
+        case local_blind::TrialFailure::clock:
+            return "The host clock or delay compensation changed. Capture again.";
         case local_blind::TrialFailure::none:
             break;
     }
@@ -228,8 +230,7 @@ void Component::refreshPresentation()
     else if (phase == Phase::ready)
     {
         status = "EXACT RANGE READY";
-        detail = "Set the DAW playhead to " + rangeText (current)
-               + " and play or loop this exact range.";
+        detail = "Start Blind, then play from before " + rangeText (current) + ".";
         if (current.trial.lowerPostApprovalRequired)
         {
             const auto attenuation = std::abs (current.lowerPostGainDb);
@@ -251,18 +252,23 @@ void Component::refreshPresentation()
     else if (phase == Phase::armed)
     {
         status = "WAITING FOR CAPTURED RANGE START";
-        detail = "Play from " + rangeText (current) + ". No source has been heard yet.";
+        detail = "Play from before " + rangeText (current) + ". The full range will be heard.";
     }
     else if (phase == Phase::listening)
     {
-        status = current.trial.pendingStimulus != 0
+        status = current.trial.passComplete
+            ? "PASS COMPLETE / SOURCE " + juce::String (current.trial.activeStimulus)
+            : current.trial.pendingStimulus != 0
             ? "SWITCHING TO SOURCE " + juce::String (current.trial.pendingStimulus)
             : current.trial.activeStimulus != 0
                 ? "LISTENING TO SOURCE " + juce::String (current.trial.activeStimulus)
                 : "WAITING FOR AUDIBLE PLAYBACK";
         detail = current.trial.canAnswer
             ? "Both complete passes were heard. Choose your answer, then reveal."
-            : "Listen to one complete pass of Source 1 and Source 2.";
+            : current.trial.passComplete
+                ? "Select the other source, then play from before "
+                    + timeline (current.start, current.sampleRate) + "."
+                : "Listen to one complete pass of Source 1 and Source 2.";
         result = answerText (current.trial.answer);
     }
     else if (phase == Phase::revealed)
@@ -280,12 +286,12 @@ void Component::refreshPresentation()
                      && current.trial.failure == local_blind::TrialFailure::none
             ? "Confirm the return to the unchanged live signal."
             : failureText (current);
-        result = "The comparison remains reserved until live output confirms the return.";
+        result = "Press RETURN TO LIVE, then resume playback.";
     }
     else if (phase == Phase::returned)
     {
         status = "LIVE SIGNAL RESTORED";
-        detail = "The Audio Thread confirmed normal output and released the comparison.";
+        detail = "The comparison is closed. Live output is restored.";
     }
     else
     {

@@ -13,6 +13,7 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         "KirinLocalBlindTrialTests",
         "KirinLocalBlindPreparationTests",
         "KirinLocalBlindHostContextTests",
+        "KirinLocalBlindProductTests",
     ] {
         assert!(ci.contains(target));
         assert!(source_gate.contains(target));

@@ -56,4 +56,22 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     add_test(NAME kirin_local_blind_pdc_validation_delay
         COMMAND KirinLocalBlindPdcValidationDelayTests)
     set_tests_properties(kirin_local_blind_pdc_validation_delay PROPERTIES TIMEOUT 120)
+
+    add_executable(KirinLocalBlindProductTests tests/local_blind_product_test.cpp)
+    if(APPLE)
+        target_sources(KirinLocalBlindProductTests PRIVATE tests/BlindProductMacRunLoop.mm)
+    endif()
+    target_compile_features(KirinLocalBlindProductTests PRIVATE cxx_std_17)
+    target_compile_options(KirinLocalBlindProductTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_compile_definitions(KirinLocalBlindProductTests PRIVATE
+        "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
+    target_include_directories(KirinLocalBlindProductTests PRIVATE
+        "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
+    target_link_libraries(KirinLocalBlindProductTests PRIVATE KirinHyphaPOST
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_local_blind_product COMMAND KirinLocalBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav")
+    add_test(NAME kirin_local_blind_product_track COMMAND KirinLocalBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --track-mono)
+    set_tests_properties(kirin_local_blind_product kirin_local_blind_product_track PROPERTIES TIMEOUT 90)
 endif()

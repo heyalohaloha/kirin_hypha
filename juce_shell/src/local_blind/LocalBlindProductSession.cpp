@@ -1,12 +1,13 @@
 #include "LocalBlindProductSession.h"
 
+#include <algorithm>
 #include <limits>
 
 namespace hypha::local_blind
 {
 bool LocalBlindProductSession::beginCapture (
     std::uint64_t nextScopeEpoch, std::uint64_t nextCaptureGeneration,
-    GainMatchPolicy nextGainPolicy) noexcept
+    GainMatchPolicy nextGainPolicy, TrialClockSignature nextClock) noexcept
 {
     const std::lock_guard<std::mutex> lock (controlLock);
     output.collect();
@@ -16,6 +17,7 @@ bool LocalBlindProductSession::beginCapture (
     scopeEpoch = nextScopeEpoch;
     expectedCaptureGeneration = nextCaptureGeneration;
     gainPolicy = nextGainPolicy;
+    admittedClock = nextClock;
     capturedPair = {};
     failure = ProductSessionFailure::none;
     basePhase = ProductSessionPhase::capturing;
@@ -50,6 +52,7 @@ bool LocalBlindProductSession::acceptCapturedPair (
 {
     std::uint64_t admittedScope = 0;
     GainMatchPolicy admittedGainPolicy = GainMatchPolicy::alignedActiveBlocksV1;
+    TrialClockSignature clock;
     {
         const std::lock_guard<std::mutex> lock (controlLock);
         if (basePhase != ProductSessionPhase::capturing || scopeEpoch == 0
@@ -58,6 +61,7 @@ bool LocalBlindProductSession::acceptCapturedPair (
         basePhase = ProductSessionPhase::preparing;
         admittedScope = scopeEpoch;
         admittedGainPolicy = gainPolicy;
+        clock = admittedClock;
     }
 
     TrialFormat format;
@@ -67,6 +71,9 @@ bool LocalBlindProductSession::acceptCapturedPair (
     format.channels = request.channels;
     format.start = request.nativeStart;
     format.frames = request.frames;
+    format.clock = clock;
+    format.transitionFrames = static_cast<std::uint32_t> (
+        std::min<std::int64_t> (request.sampleRate / 200u, request.frames / 2));
     // Each hidden side must complete one native pass. Exact wraps are admitted only when the
     // observed sample positions close at this immutable range, never from a PPQ conversion.
     format.minimumHeardFrames = static_cast<std::uint64_t> (request.frames);
