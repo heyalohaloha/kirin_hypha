@@ -35,7 +35,7 @@ mod tests {
         let process = body(
             PROCESSOR,
             "void KirinHyphaProcessorBase::processBlock",
-            "void KirinHyphaProcessorBase::getStateInformation",
+            "bool KirinHyphaProcessorBase::acceptsMidi",
         );
         assert!(process.contains(PROCESS_COMPARISON_CALL));
         let output = include_str!("../../juce_shell/src/PluginProcessorAudition.cpp");
