@@ -92,6 +92,14 @@ void KirinHyphaEditor::configureReferenceAudition()
                                               state.aMaximumTruePeakDbtp))
             showToast ("Reference B is not ready");
     };
+    referenceView.onSelectC = [this]
+    {
+        const auto& state = referenceView.state();
+        if (! processorRef.selectReferenceC (state.aIntegratedLoudness, state.aMaximumTruePeakDbtp))
+            showToast ("Reference C is not ready");
+    };
+    referenceView.onSelectVersion = [this] (const juce::String& id)
+    { if (! processorRef.selectReferenceVersion (id)) showToast ("Version selection was not changed"); };
     referenceView.onSelectPreset = [this] (const juce::String& id)
     {
         if (! processorRef.selectReferencePreset (id))
@@ -200,6 +208,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
                                                   bool frameAvailable)
 {
     auto runtime = processorRef.referenceAuditionSnapshot();
+    const auto& checkSelection = runtime.checkSelection ? *runtime.checkSelection : runtime;
     const bool callbackLive = processorRef.heartbeatLive();
     hypha::reference_ui::State state;
     state.readiness = referenceReadiness (runtime.state);
@@ -207,6 +216,13 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.osOnline = runtime.osOnline;
     state.libraryReceived = runtime.libraryReceived;
     state.blindLargeScreen = getWidth() >= 900 && getHeight() >= 600;
+    state.separateComparisons = runtime.separateComparisons;
+    state.comparisonSlot = runtime.comparisonSlot;
+    state.audibleComparisonSlot = runtime.audibleComparisonSlot;
+    state.versionId = runtime.selectedVersionId;
+    state.versions = selectionOptions (runtime.versions);
+    state.versionReady = callbackLive && runtime.versionReady;
+    state.checkReady = callbackLive && runtime.checkReady;
     state.osAccess = hypha::os_access::classify (
         processorRef.licenseIsOs(), connected,
         runtime.state == hypha::reference_audition::RuntimeState::ready);
@@ -246,20 +262,21 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     const bool blindAvailable = callbackLive && runtime.blindEligible
         && hypha::reference_ui::canSelectB (state);
     state.blindPhase = referenceBlindPhase (runtime.blindPhase, blindAvailable);
-    state.presetId = hypha::reference_audition::runtimePresetDisplaySelection (runtime);
-    state.checkId = runtime.checkId;
+    state.presetId = hypha::reference_audition::runtimePresetDisplaySelection (checkSelection);
+    state.checkId = runtime.separateComparisons
+        ? checkSelection.checkId + "/" + checkSelection.candidateId : runtime.checkId;
     state.candidateId = runtime.candidatePreparationTargetId.isNotEmpty()
         ? runtime.candidatePreparationTargetId : runtime.candidateId;
     state.cueId = runtime.cueId;
-    state.presetName = runtime.presetName;
+    state.presetName = checkSelection.presetName;
     state.checkLabel = runtime.checkLabel;
     state.candidateName = runtime.candidateName;
     state.cueLabel = runtime.cueLabel;
     state.comparisonMode = runtime.comparisonMode;
     state.presentationLayout = runtime.presentationLayout;
     state.viewBindings = runtime.viewBindings;
-    state.presets = selectionOptions (runtime.presets);
-    state.checks = selectionOptions (runtime.checks);
+    state.presets = selectionOptions (checkSelection.presets);
+    state.checks = selectionOptions (runtime.separateComparisons ? checkSelection.checkTargets : runtime.checks);
     state.candidates = selectionOptions (runtime.candidates);
     state.cues = selectionOptions (runtime.cues);
     state.detailedMeasurement = runtime.detailedMeasurement;
@@ -311,20 +328,23 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     else if (runtime.blindPhase == hypha::reference_audition::BlindPhase::revealed)
         state.status = "BLIND / REVEALED";
     else if (runtime.bSelected)
-        state.status = "B AUDITION / PRE DELTA PAUSED";
+        state.status = juce::String (runtime.comparisonSlot == 2 ? "C" : "B") + " AUDITION / PRE DELTA PAUSED";
     else if (state.osAccess == Access::unowned)
         state.status = "REF REQUIRES KIRIN OS";
     else if (state.osAccess == Access::ownedDisconnected)
         state.status = "WAITING FOR KIRIN OS REFERENCE";
     else if (runtime.state == Runtime::ready)
         state.status = state.auditionBuffered && liveA
-            ? "READY / B FOLLOWS A" : "PLAY A TO ENABLE B";
+            ? "READY / A REMAINS LIVE" : "PLAY A TO AUDITION";
+    else if (runtime.rejectionCode == "reference_selection_unavailable")
+        state.status = "SAVED CHOICE UNAVAILABLE / CHOOSE AGAIN";
     else if (runtime.state == Runtime::verifying)
         state.status = "VERIFYING SOURCE";
     else if (runtime.state == Runtime::rejected)
         state.status = rejectedStatus (runtime.rejectionCode);
     else if (runtime.state == Runtime::waiting)
-        state.status = runtime.rejectionCode == "reference_candidates_empty" ? "CHOOSE A SOURCE IN KIRIN OS"
+        state.status = runtime.rejectionCode == "reference_version_unselected" ? "CHOOSE VERSION B"
+            : runtime.rejectionCode == "reference_candidates_empty" ? "CHOOSE A SOURCE IN KIRIN OS"
             : runtime.rejectionCode == "reference_checks_empty" ? "ENABLE A CHECK IN KIRIN OS"
             : runtime.rejectionCode == "reference_source_unavailable" ? "SOURCE UNAVAILABLE / OPEN KIRIN OS"
             : "RECEIVING REFERENCE";

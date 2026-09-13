@@ -142,7 +142,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
     const double minimumHz = 20.0;
     const double maximumHz = lowOnly ? 300.0 : 20'000.0;
     auto area = chartArea (g, bounds, lowOnly ? "LOW FREQUENCY" : "SPECTRUM",
-                           "A LIVE  /  B REFERENCE", presentation);
+                           state.separateComparisons && state.comparisonSlot == 2 ? "A LIVE / C CHECK" : state.separateComparisons ? "A LIVE / B VERSION" : "A LIVE / B REFERENCE", presentation);
     bool drew = false;
     for (const auto& profile : state.profiles)
     {
@@ -204,7 +204,7 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
 bool drawWaveform (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
                    presentation::Context presentation)
 {
-    auto area = chartArea (g, bounds, "WAVEFORM", "B REFERENCE / SAMPLE GRID", presentation);
+    auto area = chartArea (g, bounds, "WAVEFORM", state.separateComparisons && state.comparisonSlot == 2 ? "C CHECK / SAMPLE GRID" : state.separateComparisons ? "B VERSION / SAMPLE GRID" : "B REFERENCE / SAMPLE GRID", presentation);
     if (! state.detailedMeasurement || ! state.detailedMeasurement->waveform)
     {
         unavailable (g, area, presentation);
@@ -282,7 +282,7 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
     if (state.detailedMeasurement)
         series = timelineSeries (*state.detailedMeasurement, binding, title, seriesName,
                                  minimum, maximum);
-    auto area = chartArea (g, bounds, title, "B REFERENCE / TIMELINE", presentation);
+    auto area = chartArea (g, bounds, title, state.separateComparisons && state.comparisonSlot == 2 ? "C CHECK / TIMELINE" : state.separateComparisons ? "B VERSION / TIMELINE" : "B REFERENCE / TIMELINE", presentation);
     if (series == nullptr || series->empty())
     {
         unavailable (g, area, presentation);
@@ -311,7 +311,7 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
 bool drawTransient (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
                     presentation::Context presentation)
 {
-    auto area = chartArea (g, bounds, "TRANSIENT", "B REFERENCE / ONSET STRENGTH",
+    auto area = chartArea (g, bounds, "TRANSIENT", state.separateComparisons && state.comparisonSlot == 2 ? "C CHECK / ONSET STRENGTH" : state.separateComparisons ? "B VERSION / ONSET STRENGTH" : "B REFERENCE / ONSET STRENGTH",
                            presentation);
     if (! state.detailedMeasurement || ! state.detailedMeasurement->transient
         || state.detailedMeasurement->transient->onsetStrengthQ15.empty())

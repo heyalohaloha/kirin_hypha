@@ -40,6 +40,34 @@ void KirinHyphaProcessorBase::selectReferenceA()
    #endif
 }
 
+bool KirinHyphaProcessorBase::selectReferenceC (double loudness, double peak)
+{
+    refreshLicenseForUserAction();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (! licenseIsOs())
+    {
+        if (referenceAuditionController) referenceAuditionController->suspendAudition();
+        return false;
+    }
+    return referenceAuditionController != nullptr
+        && referenceAuditionController->selectC (loudness, peak);
+   #else
+    juce::ignoreUnused (loudness, peak);
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::selectReferenceVersion (const juce::String& id)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->selectVersion (id);
+   #else
+    juce::ignoreUnused (id);
+    return false;
+   #endif
+}
+
 bool KirinHyphaProcessorBase::selectReferencePreset (const juce::String& id)
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -230,7 +258,7 @@ void KirinHyphaProcessorBase::endReferenceBlind()
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void KirinHyphaProcessorBase::createReferenceAuditionController()
 {
-    referenceAuditionController = std::make_unique<hypha::reference_audition::RuntimeV2Controller> (
+    referenceAuditionController = std::make_unique<hypha::reference_audition::ReferenceComparisonController> (
         hypha::reference_audition::RuntimeV2Repository::transportRoot(), [this] (bool active)
         {
             const juce::ScopedLock gateLock (handleLock);

@@ -27,11 +27,23 @@ The existing platform-specific `plugin_data/reference/v2` root contains:
 
 Hypha rejects malformed, oversize, changed same-revision and rollback publications. A partial or
 rejected replacement retains the last complete verified library. A fresh receiver cannot accept a
-corrupt library. Source validation and decoding remain outside the audio callback.
+corrupt library. Source validation and decoding remain outside the audio callback. Optional observations arriving
+for the same verified file/PCM/format/revision do not restart audition or its SRC approval.
+The admitted gain remains frozen; a changed audio identity or cue still returns to A.
 
 ## Display and admission
 
-Preset/check selection and ordinary A/B remain available at every editor size. At smaller sizes,
+A is fixed to the live DAW input. B selects a registered Version from its dropdown; C selects a
+Check (and its candidate when several are registered) from the independently retained preset.
+A/B/C buttons and both dropdowns remain available at every editor size. Changing a dropdown
+returns to A without starting audition. One button selects the prepared B or C source; missing
+media in one choice does not disable the other. Both controllers share one output admission and
+confirm an A return only after an actual A output block, never merely because C changed to B.
+The DAW state stores both choices and cues, never audible selection or source media. Restoration
+before/after preparation starts at A. Missing saved IDs stay unavailable until selected again;
+malformed state is bounded and cannot replace the other valid choice.
+
+Preset/check selection and ordinary A/B/C remain available at every editor size. At smaller sizes,
 `BLIND 300%` opens the 900 × 600 editor; starting a trial is a subsequent explicit action. Active
 Blind screens stay at that size. Closing PRE/POST Blind restores the previous editor size.
 

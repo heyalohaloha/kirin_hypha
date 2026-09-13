@@ -13,6 +13,7 @@
 #include "ReferenceRuntimeV2Alignment.h"
 #include "ReferenceRuntimeV2Blind.h"
 #include "ReferenceRuntimeV2Presentation.h"
+#include "ReferenceComparisonSettings.h"
 #include "ReferenceRuntimeV2Repository.h"
 #include "ReferenceRuntimeEventTransport.h"
 #include "ReferenceRuntimeABinding.h"
@@ -33,11 +34,15 @@ namespace hypha::reference_audition
 
         void configure (RuntimeIdentity, double hostSampleRate, int hostChannels);
         void disconnect();
+        ReferenceChoice savedChoice() const;
+        void restoreChoice (const ReferenceChoice&);
         Snapshot snapshot() const;
         bool selectPreset (const juce::String&);
         bool selectCheck (const juce::String&);
         bool selectCandidate (const juce::String&);
         bool selectCue (const juce::String&);
+        bool selectLibraryVersion (const juce::String&);
+        bool selectLibraryCheck (const juce::String&);
         bool retryPresetSelection();
         bool retryCandidatePreparation();
         bool approveSampleRateConversion();
@@ -49,7 +54,8 @@ namespace hypha::reference_audition
                             std::int64_t hostPosition,
                             bool positionValid,
                             bool playing,
-                            bool auditionAllowed) noexcept;
+                            bool auditionAllowed, bool confirmAudible = true) noexcept;
+        void confirmAOutput() noexcept { aAudibleConfirmations.fetch_add (1, std::memory_order_release); }
         bool selectB (double aIntegratedLoudness, double aMaximumTruePeakDbtp) noexcept;
         void selectA() noexcept;
         bool startBlind (double, double) noexcept;

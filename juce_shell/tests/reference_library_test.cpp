@@ -1,6 +1,7 @@
 #include "reference_runtime_v2_analysis_test_support.h"
 #include <functional>
 #include <cstring>
+#include "../src/reference_audition/ReferenceComparisonController.h"
 
 namespace
 {
@@ -99,6 +100,183 @@ void testReferenceLibraryContract (const juce::File& sandbox)
     const auto receipt = manifest["presets"].getArray()->getReference (0);
     root.getChildFile ("library/presets/" + receipt["sha256"].toString() + ".json").replaceWithText ("{}");
     require (! repository.refreshLibrary().usable(), "preset tampering must fail closed");
+}
+
+void testReferenceComparisons (const juce::File& sandbox);
+void testReferenceComparisons (const juce::File& sandbox)
+{
+    const auto root = sandbox.getChildFile ("abc-library");
+    require (root.createDirectory().wasOk(), "ABC fixture directory");
+    const auto bFile = root.getChildFile ("version.wav"), cFile = root.getChildFile ("check.wav");
+    require (writeStereoWav (bFile), "known B tone");
+    {
+        juce::WavAudioFormat format;
+        auto stream = cFile.createOutputStream();
+        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (
+            stream.release(), 48000, 2, 24, {}, 0));
+        juce::AudioBuffer<float> data (2, 96000);
+        for (int channel = 0; channel < 2; ++channel)
+            for (int sample = 0; sample < data.getNumSamples(); ++sample) data.setSample (channel, sample, -0.25f);
+        require (writer && writer->writeFromAudioSampleBuffer (data, 0, data.getNumSamples()), "known C samples");
+    }
+    const auto bHash = juce::SHA256 (bFile).toHexString(), cHash = juce::SHA256 (cFile).toHexString();
+    const auto pcm = juce::String::repeatedString ("f", 64);
+    const juce::String presetId = "88888888-8888-4888-8888-888888888888";
+    const juce::String revisionId = "99999999-9999-4999-8999-999999999999";
+    const juce::String recordingId = "22222222-2222-4222-8222-222222222222";
+    const juce::String versionId = "33333333-3333-4333-8333-333333333333";
+    const auto bReceipt = stageRuntimeV2Artifact (root, "sources",
+        makeRuntimeV2WorkVersionSource (bFile, bHash, pcm, recordingId, versionId, 96000));
+    const auto cReceipt = stageRuntimeV2Artifact (root, "sources", makeRuntimeV2Source (cFile, cHash, pcm));
+    auto preset = bindRuntimeV2WorkVersionPresetToSource (
+        presetId, revisionId, bReceipt, bHash, pcm, recordingId, versionId, 96000);
+    auto cPreset = bindRuntimeV2PresetToSource (presetId, revisionId, cReceipt, cHash, pcm);
+    auto* object = preset.getDynamicObject();
+    object->setProperty ("format", "kirin_hypha_reference_library_preset");
+    object->setProperty ("version", "1.0");
+    object->removeProperty ("work_id"); object->removeProperty ("source_preset_artifact");
+    auto checks = *preset["checks"].getArray();
+    auto cCheck = cPreset["checks"].getArray()->getReference (0);
+    cCheck.getDynamicObject()->setProperty ("check_id", "44444444-4444-4444-8444-444444444444");
+    cCheck.getDynamicObject()->setProperty ("label", "Dynamics");
+    checks.add (cCheck);
+    for (auto& value : checks)
+    {
+        value.getDynamicObject()->setProperty ("comparison_mode", "original");
+        value["candidates"].getArray()->getReference (0).getDynamicObject()->setProperty ("preparation_status", "prepared");
+    }
+    object->setProperty ("checks", checks);
+    require (writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 1)), "ABC publication");
+    std::atomic<int> owners { 0 }, maximumOwners { 0 };
+    std::atomic<bool> admissionAllowed { true };
+    ref::ReferenceComparisonController controller (root, [&] (bool active)
+    {
+        if (active && ! admissionAllowed) return false;
+        const auto count = owners.fetch_add (active ? 1 : -1) + (active ? 1 : -1);
+        maximumOwners.store (juce::jmax (maximumOwners.load(), count));
+        require (owners >= 0 && owners <= 1, "B and C share exactly one audition owner");
+        return true;
+    });
+    const ref::RuntimeIdentity identity { "abc-post", {}, 42, true };
+    controller.configure (identity, 48000, 2);
+    const auto wait = [&] (const auto& predicate)
+    {
+        for (int i = 0; i < 1000; ++i)
+        {
+            controller.observeTransport (0, true, true);
+            if (predicate (controller.snapshot())) return;
+            juce::Thread::sleep (10);
+        }
+        require (false, "ABC preparation deadline");
+    };
+    wait ([] (const auto& state) { return state.libraryReceived && state.checkReady; });
+    const auto initial = controller.snapshot();
+    require (initial.versions.size() == 1 && ! initial.versionReady && ! initial.bSelected,
+             "only registered Versions appear in B; initial receipt stays A");
+    const auto bId = initial.versions[0].id;
+    require (controller.selectVersion (bId), "choose B independently");
+    wait ([] (const auto& state) { return state.versionReady; });
+    const auto cId = initial.checkSelection->checkTargets.back().id;
+    require (controller.selectCheck (cId), "choose C independently");
+    wait ([] (const auto& state) { return state.checkReady && state.checkSelection->checkLabel == "Dynamics"; });
+    require (controller.snapshot().selectedVersionId == bId, "changing C retains B Version");
+    juce::AudioBuffer<float> buffer (2, 128);
+    const auto block = [&]
+    {
+        for (int channel = 0; channel < 2; ++channel)
+            for (int n = 0; n < 128; ++n) buffer.setSample (channel, n, 0.125f);
+        controller.observeTransport (0, true, true);
+        controller.observeAInput (buffer, 0, true, true, true);
+        return controller.renderSelectedB (buffer, 0, true, true, true);
+    };
+    require (! block() && buffer.getSample (0, 32) == 0.125f, "dropdown choices never auto-audition");
+    admissionAllowed = false;
+    require (! controller.selectB (-14, -2) && owners == 0 && ! block(), "busy admission leaves A");
+    admissionAllowed = true;
+    require (controller.selectB (-14, -2) && block(), "one B click auditions Version");
+    require (std::abs (buffer.getSample (0, 32) - 0.24079f) < 0.0001f, "B output is the known Version tone");
+    auto observed = makeRuntimeV2WorkVersionSource (bFile, bHash, pcm, recordingId, versionId, 96000);
+    addRuntimeV2MeasurementSummary (observed, -18, -3);
+    const auto observedReceipt = stageRuntimeV2Artifact (root, "sources", observed);
+    auto* observedArtifact = new juce::DynamicObject();
+    observedArtifact->setProperty ("relative_path", observedReceipt.relativePath);
+    observedArtifact->setProperty ("sha256", observedReceipt.sha256);
+    observedArtifact->setProperty ("bytes", observedReceipt.bytes);
+    preset["checks"].getArray()->getReference (0)["candidates"].getArray()->getReference (0)
+        .getDynamicObject()->setProperty ("source_artifact", juce::var (observedArtifact));
+    require (writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 2)),
+             "late observation publication");
+    wait ([] (const auto& state) { return state.manifestRevision == 2; });
+    require (controller.snapshot().audibleComparisonSlot == 1 && owners == 1 && block()
+        && std::abs (buffer.getSample (0, 32) - 0.24079f) < 0.0001f,
+        "optional observations must not interrupt the same verified audio or change its admitted gain");
+    require (controller.selectC (-14, -2) && block(), "one C click auditions Check");
+    require (std::abs (buffer.getSample (0, 32) + 0.25f) < 0.000001f, "C output is the Check source, not B or A");
+    require (controller.selectB (-14, -2) && block(), "B choice survives C audition");
+    require (maximumOwners == 1 && owners == 1, "three buttons never require three analysis slots");
+    const auto completionCount = [&] {
+        int count = 0;
+        for (const auto& file : root.getChildFile ("library/events").findChildFiles (
+                 juce::File::findFiles, true, "*.json"))
+            if (juce::JSON::parse (file)["event_type"].toString() == "audition_completed") ++count;
+        return count;
+    };
+    juce::Thread::sleep (150);
+    require (completionCount() == 0, "C to B does not falsely record an audible A return");
+    controller.selectA();
+    require (! block() && owners == 0, "one A click releases audition ownership");
+    for (int channel = 0; channel < 2; ++channel)
+        for (int n = 0; n < 128; ++n) require (buffer.getSample (channel, n) == 0.125f, "A remains bit identical");
+    controller.configure (identity, 48000, 2);
+    wait ([] (const auto& state) { return state.versionReady && state.checkReady; });
+    require (! controller.snapshot().bSelected && controller.snapshot().selectedVersionId == bId
+        && controller.snapshot().checkSelection->checkLabel == "Dynamics", "host reprepare retains choices and starts at A");
+    juce::XmlElement savedXml ("KirinHyphaState");
+    controller.savedSettings().write (savedXml);
+    const auto saved = ref::ReferenceComparisonSettings::read (savedXml);
+    require (saved.version.target() == bId && saved.check.checkId + "/" + saved.check.candidateId == cId,
+             "host state holds B and C independently");
+    {
+        ref::ReferenceComparisonController reopened (root);
+        reopened.restoreSettings (saved); // Hosts can restore before prepareToPlay.
+        reopened.configure ({ "abc-reopened", {}, 42, true }, 48000, 2);
+        const auto awaitReopen = [&] (const auto& predicate) {
+            for (int i = 0; i < 1000; ++i)
+            {
+                reopened.observeTransport (0, true, true);
+                if (predicate (reopened.snapshot())) return;
+                juce::Thread::sleep (10);
+            }
+            require (false, "restored selection deadline");
+        };
+        awaitReopen ([] (const auto& state) { return state.versionReady && state.checkReady; });
+        require (reopened.snapshot().selectedVersionId == bId
+            && reopened.snapshot().checkSelection->checkLabel == "Dynamics"
+            && reopened.snapshot().audibleComparisonSlot == 0, "reopen restores both choices at A");
+        auto removed = saved;
+        removed.check.candidateId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        reopened.restoreSettings (removed); // Restore after preparation is also supported.
+        awaitReopen ([] (const auto& state) { return state.versionReady
+            && state.checkSelection->rejectionCode == "reference_selection_unavailable"; });
+        require (! reopened.selectC (-14, -2) && reopened.snapshot().selectedVersionId == bId,
+                 "a removed C never silently becomes a different candidate");
+        juce::XmlElement resavedXml ("KirinHyphaState");
+        reopened.savedSettings().write (resavedXml);
+        require (ref::ReferenceComparisonSettings::read (resavedXml).check.candidateId == removed.check.candidateId,
+                 "unavailable saved choice survives another save");
+    }
+    auto* bad = savedXml.getChildByName ("ReferenceChoices")->getChildByName ("B");
+    bad->setAttribute ("preset", "../../invalid");
+    const auto rejected = ref::ReferenceComparisonSettings::read (savedXml);
+    require (rejected.version.presetId.isEmpty() && rejected.check.target() == saved.check.target(),
+             "malformed saved B does not destroy valid C");
+    require (bFile.deleteFile(), "remove Version source");
+    wait ([] (const auto& state) { return ! state.versionReady && state.checkReady; });
+    require (! controller.selectB (-14, -2) && ! block(), "missing Version leaves A");
+    require (controller.selectC (-14, -2) && block()
+        && std::abs (buffer.getSample (0, 32) + 0.25f) < 0.000001f,
+        "missing B source leaves the independently prepared C usable");
+    controller.selectA();
 }
 
 bool testReferenceLibraryOsFixture();
