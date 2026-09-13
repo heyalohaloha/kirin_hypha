@@ -159,7 +159,19 @@ private:
         processor->processBlock (buffer, midi);
         clock.position += buffer.getNumSamples();
         require (buffer.getMagnitude (0, buffer.getNumSamples()) == 0.0f, "display keeps silent A input unchanged");
-        if (std::chrono::steady_clock::now() - changed < std::chrono::milliseconds (180)) return;
+        const auto elapsed = std::chrono::steady_clock::now() - changed;
+        if (elapsed < std::chrono::milliseconds (180)) return;
+        // Button commands and the editor's timer are separate message-loop events.
+        // Wait for the requested transition before asserting sibling hit routing;
+        // a loaded CI runner need not dispatch both within a fixed 180 ms window.
+        const bool expectedVu = stage == 1 || stage == 2 || stage == 4;
+        if (view->hybridVuVisible() != expectedVu)
+        {
+            if (elapsed < std::chrono::seconds (2)) return;
+            std::cerr << "stage=" << stage << " expected VU=" << expectedVu
+                      << " actual VU=" << view->hybridVuVisible() << '\n';
+            require (false, "requested surface transition did not arrive");
+        }
         switch (stage)
         {
             case 0: verifySurface (false); vuButton().triggerClick(); break;
