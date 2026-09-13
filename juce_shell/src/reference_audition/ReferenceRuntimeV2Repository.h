@@ -13,6 +13,9 @@ namespace hypha::reference_audition
             const juce::String& workId,
             std::shared_ptr<const RuntimeWorkspace> previous = {}) const;
 
+        RuntimeWorkspaceLoadResult refreshLibrary (std::shared_ptr<const RuntimeWorkspace> previous = {}) const;
+        bool libraryOnline (std::int64_t nowMs) const;
+
         static juce::File transportRoot();
 
     private:

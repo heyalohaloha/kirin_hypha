@@ -129,6 +129,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     };
     referenceView.onStartBlind = [this]
     {
+        if (getWidth() < 900 || getHeight() < 600) { setSize (900, 600); return; }
         const auto& state = referenceView.state();
         if (! processorRef.startReferenceBlind (state.aIntegratedLoudness,
                                                  state.aMaximumTruePeakDbtp))
@@ -202,10 +203,10 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     const bool callbackLive = processorRef.heartbeatLive();
     hypha::reference_ui::State state;
     state.readiness = referenceReadiness (runtime.state);
-    bool connected = false;
-   #if KIRIN_HYPHA_GUIDE_TRANSPORT
-    connected = processorRef.connectedWorkReference().valid();
-   #endif
+    const bool connected = runtime.libraryReceived;
+    state.osOnline = runtime.osOnline;
+    state.libraryReceived = runtime.libraryReceived;
+    state.blindLargeScreen = getWidth() >= 900 && getHeight() >= 600;
     state.osAccess = hypha::os_access::classify (
         processorRef.licenseIsOs(), connected,
         runtime.state == hypha::reference_audition::RuntimeState::ready);
@@ -323,9 +324,12 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     else if (runtime.state == Runtime::rejected)
         state.status = rejectedStatus (runtime.rejectionCode);
     else if (runtime.state == Runtime::waiting)
-        state.status = "WAITING FOR KIRIN OS REFERENCE";
+        state.status = runtime.rejectionCode == "reference_candidates_empty" ? "CHOOSE A SOURCE IN KIRIN OS"
+            : runtime.rejectionCode == "reference_checks_empty" ? "ENABLE A CHECK IN KIRIN OS"
+            : runtime.rejectionCode == "reference_source_unavailable" ? "SOURCE UNAVAILABLE / OPEN KIRIN OS"
+            : "RECEIVING REFERENCE";
     else
-        state.status = "CONNECT TO A KIRIN OS WORK";
+        state.status = "OPEN KIRIN OS";
     if (runtime.presetSelectionStatus == "pending")
     {
         state.status = "KIRIN OS PREPARING CHECK PRESET / A REMAINS LIVE";
@@ -411,6 +415,11 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         state.status = "OPENING REFERENCE IN KIRIN OS";
         state.actionText.clear();
     }
+    else if (runtime.recoveryStatus == "opened")
+    {
+        state.status = "CONTINUE IN KIRIN OS";
+        state.actionText.clear();
+    }
     else if (runtime.recoveryStatus == "exact_opened")
     {
         state.status = "KIRIN OS OPENED THE REFERENCE LOCATION";
@@ -447,7 +456,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     }
     else if (connected && (runtime.state == Runtime::rejected
                            || runtime.state == Runtime::waiting))
-        state.actionText = "FIX IN KIRIN OS";
+        state.actionText = "OPEN REFERENCE";
     else if (connected && runtime.state == Runtime::ready
              && ! runtime.measurementAvailable && ! runtime.viewBindings.empty())
         state.actionText = "PREPARE VISUALS";

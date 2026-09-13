@@ -31,17 +31,6 @@ bool KirinHyphaProcessorBase::acceptPreDisplayConnection()
     if (! licenseIsOs() || preDisplayController == nullptr
         || ! preDisplayController->acceptPendingConnection())
         return false;
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (referenceAuditionController != nullptr)
-    {
-        const auto work = preDisplayController->connectedWorkReference();
-        hypha::reference_audition::RuntimeIdentity identity;
-        identity.runtimeInstanceId = work.runtimeInstanceId;
-        identity.workId = work.workId;
-        referenceAuditionController->configure (
-            std::move (identity), preparedSampleRate, preparedInputChannels);
-    }
-   #endif
     return true;
 }
 
@@ -87,10 +76,6 @@ void KirinHyphaProcessorBase::configureWorkTransports()
     if (role == Role::Post && captureWorkAttachmentController == nullptr)
         captureWorkAttachmentController =
             std::make_unique<hypha::capture::WorkAttachmentController>();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (role == Role::Post && referenceAuditionController == nullptr)
-        createReferenceAuditionController();
-   #endif
     hypha::pre_display::RuntimeIdentity displayIdentity;
     displayIdentity.role = role == Role::Post ? hypha::pre_display::GuideTargetRole::post
                                               : hypha::pre_display::GuideTargetRole::pre;
@@ -111,20 +96,6 @@ void KirinHyphaProcessorBase::configureWorkTransports()
     displayIdentity.architecture = "x86_64";
        #endif
     preDisplayController->configureAndStart (std::move (displayIdentity));
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (role == Role::Post && referenceAuditionController != nullptr)
-    {
-        const auto work = preDisplayController->connectedWorkReference();
-        if (work.valid())
-        {
-            hypha::reference_audition::RuntimeIdentity referenceIdentity;
-            referenceIdentity.runtimeInstanceId = work.runtimeInstanceId;
-            referenceIdentity.workId = work.workId;
-            referenceAuditionController->configure (
-                std::move (referenceIdentity), preparedSampleRate, preparedInputChannels);
-        }
-    }
-   #endif
 }
 
 #else

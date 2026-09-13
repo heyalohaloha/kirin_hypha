@@ -146,7 +146,8 @@ void KirinHyphaEditor::showOperationsMenu()
         if (observatoryDomain != hypha::observatory::Domain::reference)
             menu.addItem (21, "Create Capture");
         if (observatoryView.localBlindEntryAvailable())
-            menu.addItem (23, "PRE / POST Blind Compare / "
+            menu.addItem (23, (getWidth() < 900 ? juce::String ("PRE / POST Blind / Open at 300% / ")
+                                              : juce::String ("PRE / POST Blind Compare / "))
                               + meterContextLabel (processorRef.meterContextPreference()));
         else if (processorRef.wrapperType == juce::AudioProcessor::wrapperType_AAX)
             menu.addItem (23, "PRE / POST Blind / AAX validation pending", false);

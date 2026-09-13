@@ -67,13 +67,16 @@ namespace hypha::reference_audition
     {
         if (! configuration.identity.valid())
             return;
-        writeCapability (root, configuration.identity, nowMs);
+        if (! configuration.identity.library) writeCapability (root, configuration.identity, nowMs);
+        libraryOnline.store (configuration.identity.library && repository.libraryOnline (nowMs),
+                             std::memory_order_release);
         activeABinding = aBindingRepository.load (configuration.identity, nowMs);
         aCapture.service (activeABinding,
                           static_cast<std::int64_t> (std::llround (
                               configuration.sampleRate)),
                           configuration.channels, nowMs);
-        const auto loaded = repository.refresh (configuration.identity.workId, workspace);
+        const auto loaded = configuration.identity.library ? repository.refreshLibrary (workspace)
+            : repository.refresh (configuration.identity.workId, workspace);
         if (loaded.workspace == nullptr)
         {
             failClosedToA();
@@ -85,6 +88,7 @@ namespace hypha::reference_audition
             return;
         }
         workspace = loaded.workspace;
+        libraryReceived.store (workspace->library, std::memory_order_release);
         RequestedSelection selection;
         {
             const juce::ScopedLock lock (stateLock);
@@ -102,6 +106,7 @@ namespace hypha::reference_audition
             Snapshot next;
             next.state = RuntimeState::waiting;
             next.rejectionCode = "reference_checks_empty";
+            if (preset != nullptr) { next.presetId = preset->sourcePresetArtifact.presetId; next.presetName = preset->name; }
             next.manifestRevision = workspace->manifest.revision;
             appendPresetOptions (next, *workspace);
             publish (std::move (next));
@@ -130,18 +135,24 @@ namespace hypha::reference_audition
         }
         const RuntimeCandidate* candidate = findCandidate (*check, selection.candidateId);
         if (candidate == nullptr) candidate = findCandidate (*check, {});
-        if (candidate->cues.empty())
+        if (workspace->library)
+        {
+            candidate = &check->candidates.front();
+            for (const auto& item : check->candidates)
+                if (item.candidateId == selection.candidateId) candidate = &item;
+        }
+        if (candidate == nullptr || ! candidate->prepared || candidate->cues.empty())
         {
             failClosedToA();
             Snapshot next;
             next.state = RuntimeState::waiting;
-            next.rejectionCode = "reference_cues_empty";
+            next.rejectionCode = candidate != nullptr && ! candidate->prepared
+                ? "reference_source_unavailable" : "reference_cues_empty";
             next.presetId = preset->sourcePresetArtifact.presetId;
             next.presetName = preset->name;
             next.checkId = check->checkId;
             next.checkLabel = check->label;
-            next.candidateId = candidate->candidateId;
-            next.candidateName = candidate->displayName;
+            if (candidate != nullptr) { next.candidateId = candidate->candidateId; next.candidateName = candidate->displayName; }
             next.manifestRevision = workspace->manifest.revision;
             next.hostSampleRateHz = static_cast<std::int64_t> (
                 std::llround (configuration.sampleRate));
@@ -394,7 +405,7 @@ namespace hypha::reference_audition
             + juce::String (workspace->manifest.revision) + ":"
             + preset->sourceTemplateArtifact.sha256 + ":"
             + preset->sourcePresetArtifact.sha256;
-        if (adoptionKey != activePresetAdoptionKey
+        if (! configuration.identity.library && adoptionKey != activePresetAdoptionKey
             && presetAdoptionTransport.write (
                 configuration.identity,
                 workspace->manifest.revision,

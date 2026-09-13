@@ -46,7 +46,8 @@ namespace hypha::reference_audition
             const juce::ScopedLock lock (stateLock);
             publishedSource.reset();
             pendingApprovalKey.clear();
-            auditionEventSessions.clear();
+            // Audible receipts own their original immutable context across reprepare.
+            // The worker completes their journal after the confirmed A return.
             blindEventSession.reset();
             pendingRecoveryRequest.reset();
             if (pendingPresetSelectionRequest)
@@ -69,6 +70,8 @@ namespace hypha::reference_audition
             candidatePreparationWaitingSinceMs = 0;
             candidatePreparationStatusExpiresAtMs = 0;
         }
+        libraryReceived.store (false, std::memory_order_release);
+        libraryOnline.store (false, std::memory_order_release);
         appliedConfigurationGeneration = configuration.generation;
         appliedSelectionGeneration = 0;
         if (! configuration.identity.valid() || ! std::isfinite (configuration.sampleRate)
@@ -78,7 +81,8 @@ namespace hypha::reference_audition
             publish ({});
             return;
         }
-        activeRuntimeFiles = runtimeFiles (root, configuration.identity);
+        activeRuntimeFiles = configuration.identity.library ? RuntimeFiles {}
+            : runtimeFiles (root, configuration.identity);
         if (activeRuntimeFiles.acknowledgement.existsAsFile())
             activeRuntimeFiles.acknowledgement.deleteFile();
         Snapshot waiting;
@@ -116,6 +120,7 @@ namespace hypha::reference_audition
             serviceRuntimeEvents();
             serviceDeferredAudioThreadActions();
             serviceRecoveryAcknowledgement();
+            serviceLibraryRecovery();
             servicePresetSelectionAcknowledgement();
             serviceCandidatePreparationAcknowledgement();
             const auto currentTransportHeartbeat = transportHeartbeat.load (

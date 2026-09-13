@@ -202,6 +202,10 @@ namespace hypha::reference_audition
 
     bool RuntimeV2Controller::requestRecovery()
     {
+        {
+            const juce::ScopedLock lock (stateLock);
+            if (requestedConfiguration.identity.library) return requestLibraryRecovery();
+        }
         RecoveryAuthority authority;
         RecoveryContext context;
         RecoveryDestination destination = RecoveryDestination::reference;

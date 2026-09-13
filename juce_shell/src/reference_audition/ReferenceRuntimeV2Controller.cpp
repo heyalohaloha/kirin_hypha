@@ -66,11 +66,13 @@ namespace hypha::reference_audition
             identity.hostProcessId = currentProcessId();
         {
             const juce::ScopedLock lock (stateLock);
+            const bool sameLibraryReceiver = identity.library && requestedConfiguration.identity.library
+                && identity.runtimeInstanceId == requestedConfiguration.identity.runtimeInstanceId;
             requestedConfiguration.identity = std::move (identity);
             requestedConfiguration.sampleRate = hostSampleRate;
             requestedConfiguration.channels = hostChannels;
             ++requestedConfiguration.generation;
-            requestedSelection = {};
+            if (! sameLibraryReceiver) requestedSelection = {};
             pendingApprovalKey.clear();
             currentSnapshot.sampleRateApprovalRequired = false;
             revokeAuditionPublication();
@@ -91,6 +93,8 @@ namespace hypha::reference_audition
     {
         const juce::ScopedLock lock (stateLock);
         auto result = currentSnapshot;
+        result.libraryReceived = libraryReceived.load (std::memory_order_acquire);
+        result.osOnline = libraryOnline.load (std::memory_order_acquire);
         const auto blindState = blind.snapshot();
         result.bSelected = bSelected.load (std::memory_order_acquire);
         result.transportPlaying = latestPlaying.load (std::memory_order_acquire);

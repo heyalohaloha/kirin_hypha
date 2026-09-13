@@ -43,7 +43,9 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         if (localBlindProductSession.render (buffer.getArrayOfWritePointers(), buffer.getNumChannels(),
                                              buffer.getNumSamples(), block)) return;
     }
-#if KIRIN_HYPHA_GUIDE_TRANSPORT && ! KIRIN_HYPHA_PRE_DISPLAY
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (role == Role::Post && referenceAuditionController != nullptr)
+        referenceAuditionController->observeTransport (clock.positionSamples, clock.hasPosition, clock.playing);
     if (role == Role::Post && referenceAuditionController != nullptr)
         referenceAuditionController->observeAInput (
             buffer, clock.positionSamples, clock.hasPosition, clock.playing,
