@@ -153,7 +153,7 @@ void testReferenceComparisons (const juce::File& sandbox)
     {
         if (active && ! admissionAllowed) return false;
         const auto count = owners.fetch_add (active ? 1 : -1) + (active ? 1 : -1);
-        maximumOwners.store (std::max (maximumOwners.load(), count));
+        maximumOwners.store (juce::jmax (maximumOwners.load(), count));
         require (owners >= 0 && owners <= 1, "B and C share exactly one audition owner");
         return true;
     });
