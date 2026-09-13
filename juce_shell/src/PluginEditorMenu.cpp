@@ -304,6 +304,15 @@ void KirinHyphaEditor::showSizeMenu()
 
 void KirinHyphaEditor::showGuideInformationMenu()
 {
+    // The visible guide rail owns both actions. A separate overlaid CONNECT
+    // button can retain empty bounds when a request arrives after layout.
+    if (processorRef.pendingPreDisplayConnection().validAt (juce::Time::currentTimeMillis()))
+    {
+        if (! processorRef.acceptPreDisplayConnection())
+            showToast (processorRef.licenseIsOs() ? "Connection request is no longer available"
+                                                  : "Kirin OS is required for Work connection");
+        return;
+    }
     const auto display = processorRef.preDisplaySnapshot();
     const auto guide = processorRef.guidePresentationSnapshot();
     if (! guide.guideAvailable && display.primary.isEmpty() && display.detail.isEmpty()) return;

@@ -223,8 +223,8 @@ jobs:
 
       - name: Validate local PRE/POST Blind and complete product flow
         run: |
-          cmake --build juce_shell/build-windows --config Release --target KirinLocalBlindCaptureTests KirinLocalBlindCaptureServiceTests KirinLocalBlindCapturePairComparisonTests KirinLocalBlindPdcValidationDelayTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests KirinLocalBlindHostContextTests KirinLocalBlindProductTests
-          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_local_blind_'
+          cmake --build juce_shell/build-windows --config Release --target KirinLocalBlindCaptureTests KirinLocalBlindCaptureServiceTests KirinLocalBlindCapturePairComparisonTests KirinLocalBlindPdcValidationDelayTests KirinLocalBlindTrialTests KirinLocalBlindPreparationTests KirinLocalBlindHostContextTests KirinLocalBlindProductTests KirinEditorSurfaceProductTests
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure --no-tests=error -R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'
 
       - name: Validate Work attachment transport
         run: |

@@ -41,7 +41,6 @@ void KirinHyphaEditor::applyPresentationContext()
     for (auto& cell : cells) cell.setPresentationContext (context);
     pairStatusLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
     feedbackLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
-    guideConnectButton.setPresentationContext (context);
     if (postControls != nullptr) postControls->setPresentationContext (context);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumView.setPresentationContext (context);
@@ -332,8 +331,6 @@ void KirinHyphaEditor::refreshObservatory()
             ? connection.workTitle : connection.workId;
         const auto primary = "CONNECT  " + title.substring (0, 36);
         observatoryView.setGuide (primary, {}, true);
-        guideConnectButton.setButtonText ("CONNECT");
-        guideConnectButton.setTooltip ("Connect this Hypha session to Work: " + title);
     }
     else
     {
@@ -351,10 +348,8 @@ void KirinHyphaEditor::refreshObservatory()
         else
             observatoryView.clearGuide();
     }
-    guideConnectButton.setVisible (connectionPending && ! observatoryView.hybridVuVisible());
 #else
     observatoryView.clearGuide();
-    guideConnectButton.setVisible (false);
 #endif
     if (previousBody != observatoryView.bodyBounds())
         resized();

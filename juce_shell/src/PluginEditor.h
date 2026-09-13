@@ -166,7 +166,6 @@ private:
     std::array<hypha::MetricCell, 6> cells;
     hypha::LoudnessSelector   loudnessSelector;           // occupies cell 0's existing label column
     juce::Label               feedbackLabel;              // toast > persistent error > Keeping
-    hypha::HyphaTextButton    guideConnectButton { "" };   // role-neutral explicit Work/session connect
     std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     std::unique_ptr<juce::FileChooser> captureChooser;
     std::unique_ptr<juce::AlertWindow> noteDialog;

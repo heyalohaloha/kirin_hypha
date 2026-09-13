@@ -177,14 +177,13 @@ mod tests {
         assert!(
             JUCE_CMAKE.contains("target_link_libraries(${TARGET} PRIVATE juce::juce_cryptography)")
         );
-        assert!(PLUGIN_EDITOR_H.contains("hypha::HyphaTextButton    guideConnectButton"));
+        assert!(!PLUGIN_EDITOR_H.contains("guideConnectButton"));
         assert!(PLUGIN_EDITOR_OBSERVATORY_CPP.contains("pendingPreDisplayConnection"));
         assert!(PLUGIN_EDITOR_OBSERVATORY_CPP.contains("preDisplaySnapshot"));
         assert!(
             PLUGIN_EDITOR_OBSERVATORY_CPP.contains("display.sectionActive || display.cueActive")
         );
         assert!(PLUGIN_EDITOR_OBSERVATORY_CPP.contains("observatoryView.setGuide"));
-        assert!(PLUGIN_EDITOR_CPP.contains("acceptPreDisplayConnection"));
         assert_eq!(
             count_occurrences(PLUGIN_PROCESSOR_CPP, "preDisplayClock.publish"),
             1,

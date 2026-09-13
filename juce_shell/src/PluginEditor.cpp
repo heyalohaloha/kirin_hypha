@@ -250,18 +250,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     feedbackLabel.setInterceptsMouseClicks (false, false);
     scaleRoot.addChildComponent (feedbackLabel);
 
-    guideConnectButton.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
-    guideConnectButton.setColour (juce::TextButton::buttonOnColourId, hypha::kFieldFill);
-    guideConnectButton.setColour (juce::TextButton::textColourOffId, COL_FLORA_BR);
-    guideConnectButton.setColour (juce::TextButton::textColourOnId, COL_FLORA_BR);
-    guideConnectButton.onClick = [this]
-    {
-        if (! processorRef.acceptPreDisplayConnection())
-            showToast (processorRef.licenseIsOs() ? "Connection request is no longer available"
-                                                  : "Kirin OS is required for Work connection");
-    };
-    scaleRoot.addChildComponent (guideConnectButton);
-
     configureForKind (Kind::WatchAbs6); // retained display compatibility; Observatory owns chrome
     for (auto& cell : cells)
         cell.setVisible (false);
@@ -370,7 +358,6 @@ void KirinHyphaEditor::resized()
         timePageNavigation.toFront (false);
     }
    #endif
-    guideConnectButton.setBounds (observatoryView.guideBounds());
     feedbackLabel.setBounds (observatoryView.sessionBounds());
     feedbackLabel.toFront (false);
     if (observatoryView.hybridVuVisible()) observatoryView.toFront (false);

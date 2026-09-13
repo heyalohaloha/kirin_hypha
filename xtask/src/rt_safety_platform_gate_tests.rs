@@ -14,6 +14,7 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         "KirinLocalBlindPreparationTests",
         "KirinLocalBlindHostContextTests",
         "KirinLocalBlindProductTests",
+        "KirinEditorSurfaceProductTests",
     ] {
         assert!(ci.contains(target));
         assert!(source_gate.contains(target));
@@ -37,5 +38,17 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         assert!(ci.contains(target) && ci.contains(test_name));
         assert!(source_gate.contains(target) && source_gate.contains(test_name));
     }
-    assert!(ci.contains("-R '^kirin_local_blind_'"));
+    assert!(ci.contains("-R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'"));
+    assert!(source_gate.contains("|kirin_editor_surface_product)$'"));
+}
+
+#[test]
+fn visible_guide_action_accepts_pending_connection_before_opening_received_guide_details() {
+    let action = include_str!("../../juce_shell/src/PluginEditorMenu.cpp");
+    let connect = action
+        .find("processorRef.acceptPreDisplayConnection()")
+        .expect("the visible guide action accepts a pending connection");
+    let details = action.find("if (! guide.guideAvailable").unwrap();
+    assert!(action.contains("processorRef.pendingPreDisplayConnection().validAt"));
+    assert!(connect < details);
 }
