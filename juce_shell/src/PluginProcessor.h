@@ -425,5 +425,7 @@ private:
    #endif
 #endif
 
+    void configureWorkTransports();
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)
 };

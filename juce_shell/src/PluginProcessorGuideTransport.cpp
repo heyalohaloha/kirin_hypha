@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "HyphaPluginFormat.h"
 
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
 
@@ -79,243 +80,53 @@ KirinHyphaProcessorBase::takeCaptureWorkAttachmentResult()
         : hypha::capture::WorkAttachmentResult {};
 }
 
-hypha::reference_audition::Snapshot KirinHyphaProcessorBase::referenceAuditionSnapshot() const
+void KirinHyphaProcessorBase::configureWorkTransports()
 {
+    if (preDisplayController == nullptr)
+        preDisplayController = std::make_unique<hypha::pre_display::Controller> (preDisplayClock);
+    if (role == Role::Post && captureWorkAttachmentController == nullptr)
+        captureWorkAttachmentController =
+            std::make_unique<hypha::capture::WorkAttachmentController>();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return referenceAuditionController != nullptr
-        ? referenceAuditionController->snapshot()
-        : hypha::reference_audition::Snapshot {};
-   #else
-    return {};
+    if (role == Role::Post && referenceAuditionController == nullptr)
+        createReferenceAuditionController();
    #endif
-}
-
-bool KirinHyphaProcessorBase::selectReferenceB (double aIntegratedLoudness,
-                                                double aMaximumTruePeakDbtp)
-{
-    refreshLicenseForUserAction();
+    hypha::pre_display::RuntimeIdentity displayIdentity;
+    displayIdentity.role = role == Role::Post ? hypha::pre_display::GuideTargetRole::post
+                                              : hypha::pre_display::GuideTargetRole::pre;
+    displayIdentity.instanceId = persistInstanceId;
+    displayIdentity.projectUuid = persistProjectUuid;
+    displayIdentity.dawSessionUuid = persistDawSessionUuid;
+    displayIdentity.name = persistName;
+    displayIdentity.pluginVersion = JucePlugin_VersionString;
+    displayIdentity.pluginFormat = hypha::plugin_format::name (wrapperType);
+       #if JUCE_WINDOWS
+    displayIdentity.platform = "windows";
+       #else
+    displayIdentity.platform = "macos";
+       #endif
+       #if JUCE_ARM
+    displayIdentity.architecture = "arm64";
+       #else
+    displayIdentity.architecture = "x86_64";
+       #endif
+    preDisplayController->configureAndStart (std::move (displayIdentity));
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (! licenseIsOs())
+    if (role == Role::Post && referenceAuditionController != nullptr)
     {
-        if (referenceAuditionController != nullptr)
-            referenceAuditionController->suspendAudition();
-        return false;
-    }
-    return referenceAuditionController != nullptr
-        && referenceAuditionController->selectB (
-            aIntegratedLoudness, aMaximumTruePeakDbtp);
-   #else
-    juce::ignoreUnused (aIntegratedLoudness, aMaximumTruePeakDbtp);
-    return false;
-   #endif
-}
-
-void KirinHyphaProcessorBase::selectReferenceA()
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (referenceAuditionController != nullptr)
-        referenceAuditionController->selectA();
-   #endif
-}
-
-bool KirinHyphaProcessorBase::selectReferencePreset (const juce::String& id)
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->selectPreset (id);
-   #else
-    juce::ignoreUnused (id);
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::retryReferencePresetSelection()
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->retryPresetSelection();
-   #else
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::selectReferenceCheck (const juce::String& id)
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->selectCheck (id);
-   #else
-    juce::ignoreUnused (id);
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::selectReferenceCandidate (const juce::String& id)
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->selectCandidate (id);
-   #else
-    juce::ignoreUnused (id);
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::retryReferenceCandidatePreparation()
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->retryCandidatePreparation();
-   #else
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::selectReferenceCue (const juce::String& id)
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->selectCue (id);
-   #else
-    juce::ignoreUnused (id);
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::approveReferenceSampleRateConversion()
-{
-    refreshLicenseForUserAction();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->approveSampleRateConversion();
-   #else
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::requestReferenceRecovery()
-{
-    refreshLicenseForUserAction();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
-        && referenceAuditionController->requestRecovery();
-   #else
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::startReferenceBlind (double aIntegratedLoudness,
-                                                   double aMaximumTruePeakDbtp)
-{
-    refreshLicenseForUserAction();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (! licenseIsOs())
-    {
-        if (referenceAuditionController != nullptr)
-            referenceAuditionController->suspendAudition();
-        return false;
-    }
-    return referenceAuditionController != nullptr
-        && referenceAuditionController->startBlind (
-            aIntegratedLoudness, aMaximumTruePeakDbtp);
-   #else
-    juce::ignoreUnused (aIntegratedLoudness, aMaximumTruePeakDbtp);
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::selectReferenceBlindStimulus (int stimulus)
-{
-    refreshLicenseForUserAction();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (! licenseIsOs())
-    {
-        if (referenceAuditionController != nullptr)
-            referenceAuditionController->suspendAudition();
-        return false;
-    }
-    return referenceAuditionController != nullptr
-        && referenceAuditionController->selectBlindStimulus (stimulus);
-   #else
-    juce::ignoreUnused (stimulus);
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::approveReferenceBlindLowerA (
-    double aIntegratedLoudness, double aMaximumTruePeakDbtp)
-{
-    refreshLicenseForUserAction();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (! licenseIsOs())
-    {
-        if (referenceAuditionController != nullptr)
-            referenceAuditionController->suspendAudition();
-        return false;
-    }
-    return referenceAuditionController != nullptr
-        && referenceAuditionController->approveBlindLowerAAndStart (
-            aIntegratedLoudness, aMaximumTruePeakDbtp);
-   #else
-    juce::ignoreUnused (aIntegratedLoudness, aMaximumTruePeakDbtp);
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::answerReferenceBlind (int stimulus)
-{
-    refreshLicenseForUserAction();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (! licenseIsOs())
-    {
-        if (referenceAuditionController != nullptr)
-            referenceAuditionController->suspendAudition();
-        return false;
-    }
-    return referenceAuditionController != nullptr
-        && referenceAuditionController->answerBlind (stimulus);
-   #else
-    juce::ignoreUnused (stimulus);
-    return false;
-   #endif
-}
-
-bool KirinHyphaProcessorBase::revealReferenceBlind()
-{
-    refreshLicenseForUserAction();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (! licenseIsOs())
-    {
-        if (referenceAuditionController != nullptr)
-            referenceAuditionController->suspendAudition();
-        return false;
-    }
-    return referenceAuditionController != nullptr
-        && referenceAuditionController->revealBlind();
-   #else
-    return false;
-   #endif
-}
-
-void KirinHyphaProcessorBase::endReferenceBlind()
-{
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (referenceAuditionController != nullptr)
-        referenceAuditionController->endBlind();
-   #endif
-}
-
-#if ! KIRIN_HYPHA_PRE_DISPLAY
-void KirinHyphaProcessorBase::createReferenceAuditionController()
-{
-    referenceAuditionController = std::make_unique<hypha::reference_audition::RuntimeV2Controller> (
-        hypha::reference_audition::RuntimeV2Repository::transportRoot(), [this] (bool active)
+        const auto work = preDisplayController->connectedWorkReference();
+        if (work.valid())
         {
-            const juce::ScopedLock gateLock (handleLock);
-            return hyphaHandle != nullptr
-                && kirin_hypha_set_reference_audition_active (hyphaHandle, active);
-        });
+            hypha::reference_audition::RuntimeIdentity referenceIdentity;
+            referenceIdentity.runtimeInstanceId = work.runtimeInstanceId;
+            referenceIdentity.workId = work.workId;
+            referenceAuditionController->configure (
+                std::move (referenceIdentity), preparedSampleRate, preparedInputChannels);
+        }
+    }
+   #endif
 }
-#endif
 
+#else
+void KirinHyphaProcessorBase::configureWorkTransports() {}
 #endif
