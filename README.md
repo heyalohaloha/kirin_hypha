@@ -418,6 +418,10 @@ Local Blind Compare auditions immutable copies of one exact four-second PRE/POST
 preference listening trial, not a score or proof that either side is better, and it does not require
 Kirin OS.
 
+The AAX entry is enabled by user direction for current-candidate validation. Its
+Pro Tools clock/PDC acceptance remains pending; exact capture and runtime checks
+are enforced on every format.
+
 1. In POST, select the exact PRE pair and set **Meter Context** to **2MIX** or **TRACK/STEM** before
    capture. This selection fixes the Gain Match policy for that trial.
 2. Open **PRE / POST Blind Compare** from POST's menu. The preflight shows the current context and

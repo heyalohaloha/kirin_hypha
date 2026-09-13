@@ -54,12 +54,13 @@ struct Clock final : juce::AudioPlayHead
 class ProductContract final : private juce::Timer
 {
 public:
-    explicit ProductContract (std::vector<float> signalIn, bool trackMono)
+    explicit ProductContract (std::vector<float> signalIn, bool trackMono, bool aax)
         : signal (std::move (signalIn)), channelCount (trackMono ? 1 : 2)
     {
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
-            juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+            juce::AudioProcessor::setTypeOfNextNewPlugin (aax ? juce::AudioProcessor::wrapperType_AAX
+                                                           : juce::AudioProcessor::wrapperType_VST3);
             auto instance = std::make_unique<Processor> (role);
             auto layout = instance->getBusesLayout();
             const auto channels = trackMono ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo();
@@ -329,9 +330,15 @@ private:
 
 int main (int argc, char** argv)
 {
-    require (argc == 2 || (argc == 3 && std::string (argv[2]) == "--track-mono"),
-             "usage: product test S-1.wav [--track-mono]");
-    const bool trackMono = argc == 3;
+    require (argc >= 2 && argc <= 4, "usage: product test S-1.wav [--track-mono] [--aax]");
+    bool trackMono = false, aax = false;
+    for (int i = 2; i < argc; ++i)
+    {
+        const std::string arg (argv[i]);
+        if (arg == "--track-mono" && !trackMono) trackMono = true;
+        else if (arg == "--aax" && !aax) aax = true;
+        else require (false, "unknown or repeated product fixture option");
+    }
     auto signal = readFixture (argv[1]);
     if (trackMono) std::fill (signal.begin() + 48000, signal.end(), 0.0f);
     ValidationStorageSandbox sandbox;
@@ -339,7 +346,7 @@ int main (int argc, char** argv)
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
-    ProductContract contract (std::move (signal), trackMono);
+    ProductContract contract (std::move (signal), trackMono, aax);
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

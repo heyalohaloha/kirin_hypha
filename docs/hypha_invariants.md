@@ -173,6 +173,7 @@ TRACK/STEM から 2MIX への変更は、画面操作と DAW state 復元の双�
 手動更新入口は固定 HTTPS の外部ページを明示操作で開くもので、自動の最新版判定ではない。
 PRE/POST Blindの製品セッション、共通入場判定、開始から通常復帰までの全画面UIは接続済みである。
 単一の製品入口gateは、Windows VST3、macOS VST3、macOS AUのexact 4秒PDC実証がそれぞれ残差0 sampleで完了したため開く。
+AAXの入口も2026-09-13の利用者指示により有効とする。exact capture、clock/PDC連続性、開始排他は引き続き検証し、AAX実機のPDC実証は未完了として保持する。
 部品試験だけを公開形式の実ホスト排他保証と扱わない。
 ローカルBlindのpair authorityは通常pairingと同じ明示PRE選択である。
 名前は任意の表示ラベルとし、host固有IDは補助診断に限定する。

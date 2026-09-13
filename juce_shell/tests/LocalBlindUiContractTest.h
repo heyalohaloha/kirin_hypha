@@ -22,12 +22,12 @@ inline void verifyLocalBlindUiContract()
                  juce::AudioProcessor::wrapperType_VST3)
                  && local_blind_ui::productEntryEnabled (
                      juce::AudioProcessor::wrapperType_AudioUnit),
-             "product entry opens only for wrappers with exact PDC proof");
-    require (! local_blind_ui::productEntryEnabled (
+             "VST3 and AU product entries remain enabled");
+    require (local_blind_ui::productEntryEnabled (
                  juce::AudioProcessor::wrapperType_AAX)
                  && ! local_blind_ui::productEntryEnabled (
                      juce::AudioProcessor::wrapperType_Undefined),
-             "AAX and unknown wrappers fail closed until host proof exists");
+             "AAX entry is enabled while unknown wrappers remain unavailable");
 
     observatory::View post (observatory::Role::post);
     observatory::View pre (observatory::Role::pre);

@@ -21,16 +21,17 @@ constexpr const char* name (juce::AudioProcessor::WrapperType type) noexcept
     return "Format unconfirmed";
 }
 
-// Exact-range PRE/POST Blind has host-clock/PDC proof only on these wrappers. Unknown or newly
-// enabled wrappers fail closed until their own host validation is recorded.
+// Product availability is explicit per format. AAX entry was enabled by user direction
+// on 2026-09-13; exact capture, clock/PDC continuity and admission checks still apply.
 constexpr bool supportsLocalBlindProduct (juce::AudioProcessor::WrapperType type) noexcept
 {
     return type == juce::AudioProcessor::wrapperType_VST3
-        || type == juce::AudioProcessor::wrapperType_AudioUnit;
+        || type == juce::AudioProcessor::wrapperType_AudioUnit
+        || type == juce::AudioProcessor::wrapperType_AAX;
 }
 
 static_assert (supportsLocalBlindProduct (juce::AudioProcessor::wrapperType_VST3));
 static_assert (supportsLocalBlindProduct (juce::AudioProcessor::wrapperType_AudioUnit));
-static_assert (! supportsLocalBlindProduct (juce::AudioProcessor::wrapperType_AAX));
+static_assert (supportsLocalBlindProduct (juce::AudioProcessor::wrapperType_AAX));
 static_assert (! supportsLocalBlindProduct (juce::AudioProcessor::wrapperType_Undefined));
 }

@@ -6,7 +6,7 @@
 namespace hypha::local_blind_ui
 {
 // Keep one shared wrapper-aware fact for the POST large-frame product entry; PRE never exposes a
-// second entry. AAX remains unavailable until its exact-range project clock and PDC proof is green.
+// second entry. Availability does not bypass exact capture or runtime clock/PDC checks.
 inline constexpr bool productEntryEnabled (juce::AudioProcessor::WrapperType wrapper) noexcept
 {
     return plugin_format::supportsLocalBlindProduct (wrapper);

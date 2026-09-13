@@ -73,6 +73,7 @@ Workspace Rust tests and clippy cover the unchanged shared admission implementat
 
 The Reference library does not invent a live A recording identity. Version Blind verifies
 the live A acoustically against the selected measured Version, then streams the full song
-using the accepted source/host map and fixed gain. The AAX PRE/POST Blind gate remains
-closed until exact-range project-clock/PDC host proof; Reference is independent of that gate. These are verification boundaries, not completed
+using the accepted source/host map and fixed gain. The AAX PRE/POST Blind entry is enabled
+by user direction, with exact capture and runtime clock/PDC checks retained. Its host
+validation is pending; Reference remains an independent comparison flow. These are verification boundaries, not completed
 host-validation claims.

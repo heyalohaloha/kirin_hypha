@@ -149,8 +149,6 @@ void KirinHyphaEditor::showOperationsMenu()
             menu.addItem (23, (getWidth() < 900 ? juce::String ("PRE / POST Blind / Open at 300% / ")
                                               : juce::String ("PRE / POST Blind Compare / "))
                               + meterContextLabel (processorRef.meterContextPreference()));
-        else if (processorRef.wrapperType == juce::AudioProcessor::wrapperType_AAX)
-            menu.addItem (23, "PRE / POST Blind / AAX validation pending", false);
     }
     menu.addSeparator();
     menu.addSectionHeader ("Display");

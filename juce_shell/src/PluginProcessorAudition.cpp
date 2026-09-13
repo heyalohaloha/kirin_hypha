@@ -22,8 +22,8 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         localBlindCapture.process (buffer.getArrayOfReadPointers(), getTotalNumInputChannels(),
                                    captureClock, static_cast<std::uint32_t> (preparedSampleRate));
 
-    // The admitted session owns exact, immutable PCM and its epochs. Wrapper-specific host
-    // proof remains a separate prerequisite; a trial never creates another Analysis slot.
+    // The admitted session owns exact, immutable PCM and its epochs. Runtime clock/PDC
+    // continuity remains required; a trial never creates another Analysis slot.
     if (localBlindProductSupported()
         && role == Role::Post && localBlindProductSession.hasPublishedRealtime())
     {
