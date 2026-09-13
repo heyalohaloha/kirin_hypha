@@ -96,6 +96,8 @@ namespace hypha::reference_audition
         juce::String candidatePreparationStatus;
         juce::String candidatePreparationAction;
         juce::String candidatePreparationTargetId;
+        bool libraryReceived = false;
+        bool osOnline = false;
         std::int64_t manifestRevision = 0;
     };
 

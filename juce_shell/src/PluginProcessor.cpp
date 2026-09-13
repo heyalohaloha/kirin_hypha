@@ -81,10 +81,10 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 {
     stopTimer(); // B-126: stop the non-RT enable poll before teardown (was cancelPendingUpdate / B-070).
     localBlindCapture.stop();
-#if KIRIN_HYPHA_GUIDE_TRANSPORT
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
+#if ! KIRIN_HYPHA_PRE_DISPLAY
     referenceAuditionController.reset();
-   #endif
+#endif
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
     preDisplayController.reset();
 #endif
     const juce::ScopedLock sl (handleLock);
@@ -257,10 +257,6 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     preDisplayClock.publish (positionSamples, preparedSampleRate,
                              static_cast<std::uint32_t> (juce::jmax (0, numFrames)), playing,
                              static_cast<hypha::pre_display::ClockSource> (clockSource));
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (referenceAuditionController != nullptr)
-        referenceAuditionController->observeTransport (positionSamples, hasPosition, playing);
-   #endif
 #endif
     const bool positionChanged = hasPosition && lastProcessPositionValid
                               && positionSamples != lastProcessPositionSamples;
@@ -1006,51 +1002,8 @@ void KirinHyphaProcessorBase::enableWritesNow()
     persistDawSessionUuid = juce::String::fromUTF8 (id.daw_session_uuid);
     persistName           = juce::String::fromUTF8 (id.name);
 
-#if KIRIN_HYPHA_GUIDE_TRANSPORT
-    if (preDisplayController == nullptr)
-        preDisplayController = std::make_unique<hypha::pre_display::Controller> (preDisplayClock);
-    if (role == Role::Post && captureWorkAttachmentController == nullptr)
-        captureWorkAttachmentController =
-            std::make_unique<hypha::capture::WorkAttachmentController>();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (role == Role::Post && referenceAuditionController == nullptr)
-        createReferenceAuditionController();
-   #endif
-    hypha::pre_display::RuntimeIdentity displayIdentity;
-    displayIdentity.role = role == Role::Post ? hypha::pre_display::GuideTargetRole::post
-                                              : hypha::pre_display::GuideTargetRole::pre;
-    displayIdentity.instanceId = persistInstanceId;
-    displayIdentity.projectUuid = persistProjectUuid;
-    displayIdentity.dawSessionUuid = persistDawSessionUuid;
-    displayIdentity.name = persistName;
-    displayIdentity.pluginVersion = JucePlugin_VersionString;
-    displayIdentity.pluginFormat = hypha::plugin_format::name (wrapperType);
-       #if JUCE_WINDOWS
-    displayIdentity.platform = "windows";
-       #else
-    displayIdentity.platform = "macos";
-       #endif
-       #if JUCE_ARM
-    displayIdentity.architecture = "arm64";
-       #else
-    displayIdentity.architecture = "x86_64";
-       #endif
-    preDisplayController->configureAndStart (std::move (displayIdentity));
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (role == Role::Post && referenceAuditionController != nullptr)
-    {
-        const auto work = preDisplayController->connectedWorkReference();
-        if (work.valid())
-        {
-            hypha::reference_audition::RuntimeIdentity referenceIdentity;
-            referenceIdentity.runtimeInstanceId = work.runtimeInstanceId;
-            referenceIdentity.workId = work.workId;
-            referenceAuditionController->configure (
-                std::move (referenceIdentity), preparedSampleRate, preparedInputChannels);
-        }
-    }
-   #endif
-#endif
+    configureWorkTransports();
+    configureReferenceAudition();
 
     writesEnabled.store (true, std::memory_order_release);
     analysisApplication.engineReady();

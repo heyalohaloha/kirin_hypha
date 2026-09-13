@@ -111,6 +111,8 @@ namespace hypha::reference_audition
 
     struct RuntimeWorkspace
     {
+        bool library = false;
+        juce::String publicationHash;
         RuntimeManifest manifest;
         RuntimeGlobalPresetCatalog globalPresetCatalog;
         std::vector<RuntimePreset> presets;

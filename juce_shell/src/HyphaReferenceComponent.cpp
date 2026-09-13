@@ -31,6 +31,12 @@ void configureSelector (juce::ComboBox& box, const juce::String& componentId,
 Component::Component()
 {
     setOpaque (false);
+    connectionStatus.setComponentID ("reference-connection");
+    connectionStatus.setText ("OS", juce::dontSendNotification);
+    connectionStatus.setJustificationType (juce::Justification::centred);
+    connectionStatus.setFont (labelFont (presentationContext, typography::TextRole::status,
+                                         typography::Composition::information));
+    addAndMakeVisible (connectionStatus);
     presetBox.setLookAndFeel (&selectorLookAndFeel);
     checkBox.setLookAndFeel (&selectorLookAndFeel);
     candidateBox.setLookAndFeel (&selectorLookAndFeel);
@@ -118,39 +124,15 @@ Component::Component()
     addChildComponent (actionButton);
 }
 
-void Component::syncSelectionControl (juce::ComboBox& box,
-                                      const std::vector<SelectionOption>& options,
-                                      const juce::String& selectedId)
-{
-    bool same = box.getNumItems() == static_cast<int> (options.size());
-    for (int index = 0; same && index < box.getNumItems(); ++index)
-        same = box.getItemText (index) == options[static_cast<size_t> (index)].label;
-    if (! same)
-    {
-        box.clear (juce::dontSendNotification);
-        for (size_t index = 0; index < options.size(); ++index)
-            box.addItem (options[index].label, static_cast<int> (index) + 1);
-    }
-    int selected = 0;
-    for (size_t index = 0; index < options.size(); ++index)
-        if (options[index].id == selectedId)
-            selected = static_cast<int> (index) + 1;
-    box.setSelectedId (selected, juce::dontSendNotification);
-    box.setEnabled (options.size() > 1);
-}
-
-juce::String Component::selectedOptionId (const juce::ComboBox& box,
-                                          const std::vector<SelectionOption>& options)
-{
-    const int index = box.getSelectedId() - 1;
-    return index >= 0 && index < static_cast<int> (options.size())
-        ? options[static_cast<size_t> (index)].id : juce::String {};
-}
-
 void Component::setState (State next)
 {
     current = std::move (next);
+    connectionStatus.setTooltip (current.osOnline ? "Kirin OS connected"
+        : current.libraryReceived ? "Kirin OS offline / received presets available" : "Waiting for Kirin OS");
+    connectionStatus.setTitle (connectionStatus.getTooltip());
+    connectionStatus.setColour (juce::Label::textColourId, current.osOnline ? COL_FLORA : COL_MUTED);
     const bool blindSession = isBlindSession (current.blindPhase);
+    connectionStatus.setVisible (! blindSession);
     const bool blindAudition = isBlindAudition (current.blindPhase);
     aButton.setToggleState (! current.bSelected, juce::dontSendNotification);
     bButton.setToggleState (current.bSelected, juce::dontSendNotification);
@@ -158,6 +140,8 @@ void Component::setState (State next)
     aButton.setVisible (! blindSession);
     bButton.setVisible (! blindSession);
     blindButton.setVisible (! blindSession && canStartBlind (current));
+    blindButton.setButtonText (current.blindLargeScreen ? "VERSION BLIND" : "BLIND 300%");
+    blindButton.setTitle (current.blindLargeScreen ? "Start Version Blind" : "Open Blind at 300%");
     oneButton.setVisible (blindAudition);
     twoButton.setVisible (blindAudition);
     const bool bothHeard = current.blindStimulusOneHeard && current.blindStimulusTwoHeard;
@@ -187,7 +171,7 @@ void Component::setState (State next)
     syncSelectionControl (cueBox, current.cues, current.cueId);
     cueBox.setEnabled (cueBox.isEnabled() && ! current.candidatePreparationPending);
     const bool showDetailedSelectors = detailedLayout() && ! blindSession;
-    presetBox.setVisible (showDetailedSelectors && ! current.presets.empty());
+    presetBox.setVisible (! blindSession && ! current.presets.empty());
     checkBox.setVisible (! blindSession && ! current.checks.empty());
     candidateBox.setVisible (! blindSession && ! current.candidates.empty());
     cueBox.setVisible (showDetailedSelectors && ! current.cues.empty());
@@ -204,6 +188,7 @@ bool Component::detailedLayout() const noexcept
 
 void Component::resized()
 {
+    connectionStatus.setBounds (getWidth() - (detailedLayout() ? 62 : 48) * 2 - 36, 6, 24, 12);
     auto area = getLocalBounds().reduced (6);
     auto header = area.removeFromTop (detailedLayout() ? 42 : 34);
     const int buttonWidth = detailedLayout() ? 62 : 48;
@@ -237,8 +222,9 @@ void Component::resized()
         selectors.removeFromLeft (gap);
         cueBox.setBounds (selectors.removeFromBottom (27));
     }
-    else if (! blindSession && (checkBox.isVisible() || candidateBox.isVisible()))
+    else if (! blindSession && (presetBox.isVisible() || checkBox.isVisible() || candidateBox.isVisible()))
     {
+        if (presetBox.isVisible()) { auto row = area.removeFromTop (24); presetBox.setBounds (row); }
         area.removeFromTop (4);
         auto selector = area.removeFromTop (24);
         constexpr int gap = 5;
@@ -320,8 +306,9 @@ void Component::paint (juce::Graphics& g)
         drawSelectorLabel (selectors, "CUE");
     }
     else if (! detailedLayout() && ! blindSession
-             && (checkBox.isVisible() || candidateBox.isVisible()))
+             && (presetBox.isVisible() || checkBox.isVisible() || candidateBox.isVisible()))
     {
+        if (presetBox.isVisible()) area.removeFromTop (24);
         area.removeFromTop (4);
         auto selector = area.removeFromTop (24);
         g.setColour (COL_TEXT_TERTIARY.withAlpha (0.92f));
@@ -348,7 +335,7 @@ void Component::paint (juce::Graphics& g)
     if (isBlindSession (current.blindPhase))
         controlsWidth = blindInvalidated ? (detailedLayout() ? 132 : 94)
                                          : (detailedLayout() ? 62 : 48);
-    header.removeFromRight (controlsWidth);
+    header.removeFromRight (controlsWidth + (blindSession ? 0 : 32));
     const auto navigationHeight = juce::roundToInt (typography::resolve (
         presentationContext, typography::TextRole::navigation,
         typography::Composition::information).lineHeight);
@@ -422,6 +409,12 @@ void Component::paint (juce::Graphics& g)
     g.setColour (statusColour.withAlpha (0.92f));
     g.setFont (labelFont (presentationContext, typography::TextRole::status,
                           typography::Composition::information));
+    if (! blindSession)
+    {
+        g.setColour (current.osOnline ? COL_FLORA : COL_MUTED);
+        g.fillEllipse (static_cast<float> (connectionStatus.getX() - 4), 10.0f, 4.0f, 4.0f);
+        g.setColour (statusColour.withAlpha (0.92f));
+    }
     auto statusText = blindRevealed && current.blindReveal.isNotEmpty()
         ? "REVEALED / " + current.blindReveal : current.status;
     if (current.bSelected && ! blindRevealed)

@@ -35,6 +35,7 @@ void writeImageIfRequested (const juce::Image& image, const char* variable)
     if (path.isEmpty())
         return;
     juce::FileOutputStream stream { juce::File { path } };
+    KIRIN_REF_REQUIRE (stream.setPosition (0) && stream.truncate().wasOk());
     KIRIN_REF_REQUIRE (juce::PNGImageFormat().writeImageToStream (image, stream));
 }
 
@@ -123,7 +124,8 @@ void verifyReferenceAuditionComponentContract()
     reference_ui::Component component;
     component.setPresentationContext (presentation::forEditor (300, 200));
     component.setSize (288, 136);
-    component.setState (readyState());
+    auto compactState = readyState(); compactState.blindLargeScreen = false;
+    component.setState (compactState);
     KIRIN_REF_REQUIRE (! component.detailedLayout());
     const auto compactA = render (component);
 
@@ -186,7 +188,7 @@ void verifyReferenceAuditionComponentContract()
                        && one != nullptr && two != nullptr && answer != nullptr
                        && reveal != nullptr
                        && endBlind != nullptr);
-    KIRIN_REF_REQUIRE (startBlind->getButtonText() == "VERSION BLIND"
+    KIRIN_REF_REQUIRE (startBlind->getButtonText() == "BLIND 300%"
                        && startBlind->getY() > b->getBottom());
     KIRIN_REF_REQUIRE (compactCheck != nullptr && compactCheck->isVisible()
                        && compactCandidate != nullptr && compactCandidate->isVisible()
@@ -196,6 +198,13 @@ void verifyReferenceAuditionComponentContract()
                        && compactCheck->getRight() < compactCandidate->getX()
                        && compactCandidate->getY() > b->getBottom()
                        && compactCandidate->getBottom() < startBlind->getY());
+    auto* compactPreset = dynamic_cast<juce::ComboBox*> (component.findChildWithID ("reference-preset"));
+    KIRIN_REF_REQUIRE (compactPreset != nullptr && compactPreset->isVisible()
+                       && compactPreset->getBottom() <= compactCheck->getY());
+    compactPreset->setSelectedId (2, juce::sendNotificationSync);
+    KIRIN_REF_REQUIRE (requestedPreset == "preset-b");
+    auto* connection = dynamic_cast<juce::Label*> (component.findChildWithID ("reference-connection"));
+    KIRIN_REF_REQUIRE (connection != nullptr && connection->getTitle() == "Waiting for Kirin OS");
     compactCheck->setSelectedId (2, juce::sendNotificationSync);
     compactCandidate->setSelectedId (2, juce::sendNotificationSync);
     KIRIN_REF_REQUIRE (requestedCheck == "check-b"
@@ -290,6 +299,7 @@ void verifyReferenceAuditionComponentContract()
                        && differentPixels (concealedB, revealed) > 100);
 
     auto selected = readyState();
+    selected.blindLargeScreen = false;
     selected.bSelected = true;
     selected.status = "B AUDITION / PRE DELTA PAUSED";
     selected.adjustedBIntegratedLoudness = -14.0;
@@ -306,6 +316,7 @@ void verifyReferenceAuditionComponentContract()
     component.setPresentationContext (presentation::forEditor (900, 600));
     component.setSize (888, 470);
     KIRIN_REF_REQUIRE (component.detailedLayout());
+    selected.blindLargeScreen = true;
     component.setState (selected);
     auto* preset = dynamic_cast<juce::ComboBox*> (
         component.findChildWithID ("reference-preset"));

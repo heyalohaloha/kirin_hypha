@@ -211,7 +211,7 @@ namespace hypha::reference_audition
 
     bool RuntimeIdentity::valid() const noexcept
     {
-        return safeId (runtimeInstanceId) && safeId (workId) && hostProcessId > 0;
+        return safeId (runtimeInstanceId) && (library ? workId.isEmpty() : safeId (workId)) && hostProcessId > 0;
     }
 
     bool Preparation::valid() const noexcept

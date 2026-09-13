@@ -170,6 +170,9 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeABinding.cpp
     src/reference_audition/ReferenceRuntimeACapture.cpp
     src/reference_audition/ReferenceRuntimeV2Repository.cpp
+    src/reference_audition/ReferenceRuntimeRepositoryParsing.cpp
+    src/reference_audition/ReferenceLibraryRepository.cpp
+    src/reference_audition/ReferenceLibraryRecovery.cpp
     src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
@@ -250,7 +253,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorHostClock.cpp
         src/PluginProcessorValidation.cpp
         src/PluginProcessorDisplayState.cpp
-        src/PluginProcessorGuideTransport.cpp
+        src/PluginProcessorGuideTransport.cpp src/PluginProcessorReference.cpp
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
         src/PluginEditorLifecycle.cpp
@@ -326,7 +329,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaPerceptualComponent.cpp
             src/HyphaPerceptualPainter.cpp
             src/HyphaPsbPainter.cpp
-            src/HyphaReferenceComponent.cpp
+            src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
             src/HyphaReferenceControls.cpp
             src/HyphaReferenceMetricPainter.cpp
             src/HyphaReferenceVisuals.cpp
@@ -472,7 +475,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         tools/ReferencePreviewRenderer.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
-        src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
@@ -576,7 +579,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaAttackSpecimenPainter.cpp
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
-        src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
@@ -760,6 +763,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_audition_runtime_test.cpp
         tests/reference_runtime_v2_source_cache_test.cpp
         tests/reference_runtime_v2_workspace_test.cpp
+        tests/reference_library_test.cpp
         src/reference_audition/ReferenceBlindSession.cpp
         ${KIRIN_REFERENCE_AUDITION_SOURCES})
     target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE
@@ -809,7 +813,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/ReferenceAuditionComponentContractTest.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
-        src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp

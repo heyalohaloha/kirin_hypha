@@ -59,6 +59,7 @@ struct SelectionOption
 
 struct State
 {
+    bool osOnline = false, libraryReceived = false, blindLargeScreen = true;
     Readiness readiness = Readiness::disconnected;
     juce::String title;
     juce::String sourceLabel;
@@ -138,6 +139,8 @@ public:
         if (presentationContext == next) return;
         presentationContext = next;
         selectorLookAndFeel.setPresentationContext (next);
+        connectionStatus.setFont (labelFont (next, typography::TextRole::status,
+                                             typography::Composition::information));
         for (auto* button : { &aButton, &bButton, &blindButton, &oneButton, &twoButton,
                               &answerButton, &revealButton, &endBlindButton, &actionButton })
             button->setPresentationContext (next);
@@ -183,6 +186,7 @@ private:
     State current;
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
+    juce::Label connectionStatus;
     juce::ComboBox presetBox;
     juce::ComboBox checkBox;
     juce::ComboBox candidateBox;

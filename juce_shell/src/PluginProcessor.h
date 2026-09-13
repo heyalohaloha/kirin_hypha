@@ -21,8 +21,8 @@
  #include "CaptureWorkAttachment.h"
  #include "pre_display/PreDisplayClock.h"
  #include "pre_display/PreDisplayController.h"
- #include "reference_audition/ReferenceRuntimeV2Controller.h"
 #endif
+#include "reference_audition/ReferenceRuntimeV2Controller.h"
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
 // All FFI wiring (create / set_license / push_samples / poll_result), the identity state
@@ -98,6 +98,7 @@ public:
         juce::MemoryBlock pngBytes,
         hypha::capture::WorkAttachmentDescriptor descriptor);
     hypha::capture::WorkAttachmentResult takeCaptureWorkAttachmentResult();
+#endif
     hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
     bool selectReferenceB (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     void selectReferenceA();
@@ -116,7 +117,6 @@ public:
     bool answerReferenceBlind (int stimulus);
     bool revealReferenceBlind();
     void endReferenceBlind();
-#endif
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
     bool isPostRole() const { return role == Role::Post; }
@@ -419,11 +419,15 @@ private:
     hypha::pre_display::ClockTap preDisplayClock;
     std::unique_ptr<hypha::pre_display::Controller> preDisplayController;
     std::unique_ptr<hypha::capture::WorkAttachmentController> captureWorkAttachmentController;
+#endif
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    juce::String referenceRuntimeId { juce::Uuid().toDashedString() };
     void createReferenceAuditionController();
     std::unique_ptr<hypha::reference_audition::RuntimeV2Controller> referenceAuditionController;
    #endif
-#endif
+
+    void configureReferenceAudition();
+    void configureWorkTransports();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)
 };

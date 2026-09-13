@@ -224,13 +224,14 @@ namespace hypha::reference_audition
             || occurredAtMs < 0 || occurredAtMs > maxSafeJsonInteger)
             return result;
         auto object = new juce::DynamicObject();
-        object->setProperty ("format", "kirin_hypha_reference_event");
+        object->setProperty ("format", context.identity.library
+            ? "kirin_hypha_reference_library_event" : "kirin_hypha_reference_event");
         object->setProperty ("version", "1.0");
         object->setProperty ("event_id", eventId);
         object->setProperty ("runtime_instance_id", context.identity.runtimeInstanceId);
         object->setProperty ("host_process_id",
                              static_cast<juce::int64> (context.identity.hostProcessId));
-        object->setProperty ("work_id", context.identity.workId);
+        object->setProperty ("work_id", context.identity.library ? juce::var() : juce::var (context.identity.workId));
         object->setProperty ("manifest_revision", context.manifestRevision);
         object->setProperty ("event_type", eventType);
         object->setProperty ("occurred_at_ms", occurredAtMs);
@@ -240,7 +241,9 @@ namespace hypha::reference_audition
         object->setProperty ("note", note);
         object->setProperty ("payload", payload);
         result.canonicalJson = canonicalJson (juce::var (object));
-        const auto file = eventFile (context.identity.runtimeInstanceId, eventId);
+        const auto file = context.identity.library
+            ? root.getChildFile ("library/events").getChildFile (context.identity.runtimeInstanceId).getChildFile (eventId + ".json")
+            : eventFile (context.identity.runtimeInstanceId, eventId);
         result.written = file != juce::File() && result.canonicalJson.isNotEmpty()
                       && writeImmutable (file, result.canonicalJson);
         return result;

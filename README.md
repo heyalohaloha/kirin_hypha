@@ -392,6 +392,18 @@ its exact instance identity. POST never accepts a typed pair name or retargets a
 
 Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per project).
 
+## Reference from Kirin OS
+
+Kirin OS automatically publishes its saved Reference library to POST. No Work connection,
+INSPECT screen, receiver choice, or connect button is required. Each POST chooses its preset,
+check, and source independently. A small OS indicator reports the connection; received settings
+remain visible when media is unavailable. Hypha does not substitute its own Factory library.
+
+Normal A/B and preset selection remain available at every size. Blind opens at 300% (900×600).
+Receiving or restoring settings never starts B. Explicit audition still verifies the immutable
+source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
+single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
+
 ## Local PRE/POST Blind Compare
 
 Local Blind Compare auditions immutable copies of one exact four-second PRE/POST range. It is a

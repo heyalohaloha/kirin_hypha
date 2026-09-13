@@ -88,6 +88,20 @@ void paintCompactDelta (juce::Graphics& g, juce::Rectangle<float> area,
                         presentation::Context presentation)
 {
     paintPanel (g, area, 0.72f);
+    if (area.getHeight() < 52.0f)
+    {
+        area.reduce (4.0f, 0.0f);
+        auto label = area.removeFromLeft (area.getWidth() * 0.54f);
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
+                              typography::Composition::information));
+        g.drawText ("B-A " + name, label, juce::Justification::centredLeft);
+        g.setColour (std::isfinite (value) ? COL_SPECTRUM_DELTA_BR : COL_MUTED);
+        g.setFont (monoFont (presentation, typography::TextRole::secondaryValue,
+                             typography::Composition::information));
+        g.drawText (valueText (value, true), area, juce::Justification::centredRight);
+        return;
+    }
     area.reduce (4.0f, 3.0f);
     paintValue (g, area, "B-A  " + name, value, unit,
                 COL_SPECTRUM_DELTA_BR, true, 1.0f, presentation);
