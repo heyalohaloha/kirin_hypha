@@ -81,10 +81,10 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 {
     stopTimer(); // B-126: stop the non-RT enable poll before teardown (was cancelPendingUpdate / B-070).
     localBlindCapture.stop();
-#if KIRIN_HYPHA_GUIDE_TRANSPORT
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
+#if ! KIRIN_HYPHA_PRE_DISPLAY
     referenceAuditionController.reset();
-   #endif
+#endif
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
     preDisplayController.reset();
 #endif
     const juce::ScopedLock sl (handleLock);
@@ -257,10 +257,6 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     preDisplayClock.publish (positionSamples, preparedSampleRate,
                              static_cast<std::uint32_t> (juce::jmax (0, numFrames)), playing,
                              static_cast<hypha::pre_display::ClockSource> (clockSource));
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (referenceAuditionController != nullptr)
-        referenceAuditionController->observeTransport (positionSamples, hasPosition, playing);
-   #endif
 #endif
     const bool positionChanged = hasPosition && lastProcessPositionValid
                               && positionSamples != lastProcessPositionSamples;
@@ -1007,6 +1003,7 @@ void KirinHyphaProcessorBase::enableWritesNow()
     persistName           = juce::String::fromUTF8 (id.name);
 
     configureWorkTransports();
+    configureReferenceAudition();
 
     writesEnabled.store (true, std::memory_order_release);
     analysisApplication.engineReady();

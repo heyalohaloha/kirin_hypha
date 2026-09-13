@@ -1,6 +1,5 @@
 #include "PluginProcessor.h"
 
-#if KIRIN_HYPHA_GUIDE_TRANSPORT
 
 hypha::reference_audition::Snapshot KirinHyphaProcessorBase::referenceAuditionSnapshot() const
 {
@@ -241,4 +240,15 @@ void KirinHyphaProcessorBase::createReferenceAuditionController()
 }
 #endif
 
-#endif
+
+void KirinHyphaProcessorBase::configureReferenceAudition()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (role != Role::Post) return;
+    if (referenceAuditionController == nullptr) createReferenceAuditionController();
+    hypha::reference_audition::RuntimeIdentity identity;
+    identity.runtimeInstanceId = referenceRuntimeId;
+    identity.library = true;
+    referenceAuditionController->configure (identity, preparedSampleRate, preparedInputChannels);
+   #endif
+}

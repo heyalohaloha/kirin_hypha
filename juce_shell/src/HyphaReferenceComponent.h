@@ -59,6 +59,7 @@ struct SelectionOption
 
 struct State
 {
+    bool osOnline = false, libraryReceived = false, blindLargeScreen = true;
     Readiness readiness = Readiness::disconnected;
     juce::String title;
     juce::String sourceLabel;
@@ -183,6 +184,7 @@ private:
     State current;
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
+    juce::Label connectionStatus;
     juce::ComboBox presetBox;
     juce::ComboBox checkBox;
     juce::ComboBox candidateBox;

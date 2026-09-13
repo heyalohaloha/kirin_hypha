@@ -8,8 +8,7 @@ namespace hypha::reference_ui
 // Discovery is not audition permission. Never cover an outstanding return-level control.
 inline bool needsAccessPanel (const State& state) noexcept
 {
-    return (state.osAccess == os_access::State::unowned
-            || state.osAccess == os_access::State::ownedDisconnected)
+    return (state.osAccess == os_access::State::unowned)
         && ! state.bSelected && ! isBlindSession (state.blindPhase);
 }
 
@@ -115,12 +114,12 @@ private:
         heading.setText (owned ? "WAITING FOR KIRIN OS" : "REFERENCE / KIRIN OS",
                          juce::dontSendNotification);
         const auto text = owned
-            ? juce::String ("Open Kirin OS > INSPECT.\n"
-                            "Choose Connect Hypha POST for this saved work.")
+            ? juce::String ("Open Kirin OS.\n"
+                            "Saved Reference presets arrive automatically.")
             : help
                 ? (unconfirmed ? "License not confirmed. " : "")
                     + juce::String ("Open Kirin OS, then Recheck License.\n"
-                                    "In INSPECT, choose Connect Hypha POST.")
+                                    "Saved Reference presets arrive automatically.")
                 : juce::String ("Compare audio registered in Kirin OS.\n"
                                 "About: product, trial and purchase information.");
         detail.setText (text, juce::dontSendNotification);

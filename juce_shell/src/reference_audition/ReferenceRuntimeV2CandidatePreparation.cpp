@@ -25,7 +25,7 @@ namespace hypha::reference_audition
             currentSnapshot.presetSelectionAction.clear();
             currentSnapshot.presetSelectionTargetId.clear();
             presetSelectionStatusExpiresAtMs = 0;
-            if (! option.requiresPreparation)
+            if (requestedConfiguration.identity.library || ! option.requiresPreparation)
             {
                 cancelled = pendingCandidatePreparationRequest;
                 pendingCandidatePreparationRequest.reset();

@@ -145,6 +145,13 @@ void KirinHyphaEditor::closeLocalBlindProduct()
     localBlindOpen = false;
     localBlindView.setVisible (false);
     setLocalBlindIsolation (false);
+    setResizable (true, false);
+    if (! localBlindReturnSize.isOrigin())
+    {
+        const auto size = localBlindReturnSize;
+        localBlindReturnSize = {};
+        setSize (size.x, size.y);
+    }
     resized();
     refreshObservatory();
 }
@@ -163,6 +170,14 @@ void KirinHyphaEditor::refreshLocalBlindProduct()
 
 void KirinHyphaEditor::layoutLocalBlindProduct()
 {
+    const auto referenceBlind = processorRef.referenceAuditionSnapshot().blindPhase
+        != hypha::reference_audition::BlindPhase::inactive;
+    if ((localBlindOpen || referenceBlind) && (getWidth() < 900 || getHeight() < 600))
+    {
+        if (localBlindOpen && localBlindReturnSize.isOrigin()) localBlindReturnSize = { getWidth(), getHeight() };
+        setSize (900, 600);
+    }
+    setResizable (! localBlindOpen && ! referenceBlind, false);
     localBlindView.setBounds (scaleRoot.getLocalBounds());
     localBlindView.setVisible (localBlindOpen);
     setLocalBlindIsolation (localBlindOpen);

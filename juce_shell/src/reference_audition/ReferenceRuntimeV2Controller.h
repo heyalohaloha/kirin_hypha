@@ -152,6 +152,8 @@ namespace hypha::reference_audition
         void beginBlindEventSession (const RuntimeV2BlindSnapshot&) noexcept;
         void completeBlindEventSession (const RuntimeV2BlindSnapshot&) noexcept;
         void serviceRuntimeEvents();
+        bool requestLibraryRecovery();
+        void serviceLibraryRecovery();
         void serviceRecoveryAcknowledgement();
         void servicePresetSelectionAcknowledgement();
         void serviceCandidatePreparationAcknowledgement();
@@ -218,6 +220,9 @@ namespace hypha::reference_audition
         std::int64_t presetSelectionStatusExpiresAtMs = 0;
         std::int64_t candidatePreparationWaitingSinceMs = 0;
         std::int64_t candidatePreparationStatusExpiresAtMs = 0;
+        juce::File pendingLibraryOpen;
+        std::int64_t libraryOpenRequestedAt = 0;
+        std::atomic<bool> libraryReceived { false }, libraryOnline { false };
         std::atomic<bool> ready { false };
         std::atomic<bool> bSelected { false };
         std::atomic<float> bLinearGain { 1.0f };
