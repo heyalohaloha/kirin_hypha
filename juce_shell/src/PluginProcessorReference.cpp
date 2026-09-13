@@ -44,7 +44,12 @@ bool KirinHyphaProcessorBase::selectReferenceC (double loudness, double peak)
 {
     refreshLicenseForUserAction();
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    return licenseIsOs() && referenceAuditionController != nullptr
+    if (! licenseIsOs())
+    {
+        if (referenceAuditionController) referenceAuditionController->suspendAudition();
+        return false;
+    }
+    return referenceAuditionController != nullptr
         && referenceAuditionController->selectC (loudness, peak);
    #else
     juce::ignoreUnused (loudness, peak);

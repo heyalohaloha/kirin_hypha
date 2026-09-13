@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "HyphaObservatoryResizeContract.h"
 
 void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
 {
@@ -38,6 +39,10 @@ void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
     xml.setAttribute ("scale_mode", (int) hypha::meter_context::stateValue (
         scaleModePreference()));
     xml.setAttribute ("hybrid_vu_on_record", hybridVuOnRecordPreference());
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    { const juce::ScopedLock lock (handleLock);
+      if (referenceAuditionController) referenceAuditionController->savedSettings().write (xml); }
+   #endif
     copyXmlToBinary (xml, destData);
 }
 void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInBytes)
@@ -64,6 +69,15 @@ void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInB
     {
         if (xml->hasTagName ("KirinHyphaState"))
         {
+           #if ! KIRIN_HYPHA_PRE_DISPLAY
+            if (role == Role::Post)
+            {
+                const juce::ScopedLock lock (handleLock);
+                if (! referenceAuditionController) createReferenceAuditionController();
+                referenceAuditionController->restoreSettings (
+                    hypha::reference_audition::ReferenceComparisonSettings::read (*xml));
+            }
+           #endif
             restoredInstanceId     = xml->getStringAttribute ("instance_id");
             restoredProjectUuid    = xml->getStringAttribute ("project_uuid");
             restoredDawSessionUuid = xml->getStringAttribute ("daw_session_uuid");

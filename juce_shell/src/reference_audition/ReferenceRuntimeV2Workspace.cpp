@@ -95,7 +95,20 @@ namespace hypha::reference_audition
             selection = requestedSelection;
         }
         appliedSelectionGeneration = selection.generation;
+        const auto missingSelection = [&] {
+            failClosedToA();
+            Snapshot next;
+            next.state = RuntimeState::waiting;
+            next.rejectionCode = "reference_selection_unavailable";
+            next.presetId = selection.presetId; next.checkId = selection.checkId;
+            next.candidateId = selection.candidateId; next.cueId = selection.cueId;
+            next.manifestRevision = workspace->manifest.revision;
+            appendPresetOptions (next, *workspace);
+            publish (std::move (next));
+        };
         const RuntimePreset* preset = findPreset (*workspace, selection.presetId);
+        if (workspace->library && selection.presetId.isNotEmpty() && preset == nullptr)
+        { missingSelection(); return; }
         if (preset == nullptr)
             preset = findPreset (*workspace, workspace->manifest.activePresetId);
         if (preset == nullptr && ! workspace->presets.empty())
@@ -113,6 +126,8 @@ namespace hypha::reference_audition
             return;
         }
         const RuntimeCheck* check = findCheck (*preset, selection.checkId);
+        if (workspace->library && selection.checkId.isNotEmpty() && check == nullptr)
+        { missingSelection(); return; }
         if (check == nullptr) check = &preset->checks.front();
         if (check->candidates.empty())
         {
@@ -140,6 +155,8 @@ namespace hypha::reference_audition
             candidate = &check->candidates.front();
             for (const auto& item : check->candidates)
                 if (item.candidateId == selection.candidateId) candidate = &item;
+            if (selection.candidateId.isNotEmpty() && candidate->candidateId != selection.candidateId)
+            { missingSelection(); return; }
         }
         if (candidate == nullptr || ! candidate->prepared || candidate->cues.empty())
         {
@@ -166,6 +183,8 @@ namespace hypha::reference_audition
             return;
         }
         const RuntimeCue* cue = findCue (*candidate, selection.cueId);
+        if (workspace->library && selection.cueId.isNotEmpty() && cue == nullptr)
+        { missingSelection(); return; }
         if (cue == nullptr) cue = findCue (*candidate, candidate->defaultCueId);
         if (cue == nullptr) cue = &candidate->cues.front();
 

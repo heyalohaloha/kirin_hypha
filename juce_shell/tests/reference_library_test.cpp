@@ -216,6 +216,45 @@ void testReferenceComparisons (const juce::File& sandbox)
     wait ([] (const auto& state) { return state.versionReady && state.checkReady; });
     require (! controller.snapshot().bSelected && controller.snapshot().selectedVersionId == bId
         && controller.snapshot().checkSelection->checkLabel == "Dynamics", "host reprepare retains choices and starts at A");
+    juce::XmlElement savedXml ("KirinHyphaState");
+    controller.savedSettings().write (savedXml);
+    const auto saved = ref::ReferenceComparisonSettings::read (savedXml);
+    require (saved.version.target() == bId && saved.check.checkId + "/" + saved.check.candidateId == cId,
+             "host state holds B and C independently");
+    {
+        ref::ReferenceComparisonController reopened (root);
+        reopened.restoreSettings (saved); // Hosts can restore before prepareToPlay.
+        reopened.configure ({ "abc-reopened", {}, 42, true }, 48000, 2);
+        const auto awaitReopen = [&] (const auto& predicate) {
+            for (int i = 0; i < 1000; ++i)
+            {
+                reopened.observeTransport (0, true, true);
+                if (predicate (reopened.snapshot())) return;
+                juce::Thread::sleep (10);
+            }
+            require (false, "restored selection deadline");
+        };
+        awaitReopen ([] (const auto& state) { return state.versionReady && state.checkReady; });
+        require (reopened.snapshot().selectedVersionId == bId
+            && reopened.snapshot().checkSelection->checkLabel == "Dynamics"
+            && reopened.snapshot().audibleComparisonSlot == 0, "reopen restores both choices at A");
+        auto removed = saved;
+        removed.check.candidateId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        reopened.restoreSettings (removed); // Restore after preparation is also supported.
+        awaitReopen ([] (const auto& state) { return state.versionReady
+            && state.checkSelection->rejectionCode == "reference_selection_unavailable"; });
+        require (! reopened.selectC (-14, -2) && reopened.snapshot().selectedVersionId == bId,
+                 "a removed C never silently becomes a different candidate");
+        juce::XmlElement resavedXml ("KirinHyphaState");
+        reopened.savedSettings().write (resavedXml);
+        require (ref::ReferenceComparisonSettings::read (resavedXml).check.candidateId == removed.check.candidateId,
+                 "unavailable saved choice survives another save");
+    }
+    auto* bad = savedXml.getChildByName ("ReferenceChoices")->getChildByName ("B");
+    bad->setAttribute ("preset", "../../invalid");
+    const auto rejected = ref::ReferenceComparisonSettings::read (savedXml);
+    require (rejected.version.presetId.isEmpty() && rejected.check.target() == saved.check.target(),
+             "malformed saved B does not destroy valid C");
     require (bFile.deleteFile(), "remove Version source");
     wait ([] (const auto& state) { return ! state.versionReady && state.checkReady; });
     require (! controller.selectB (-14, -2) && ! block(), "missing Version leaves A");

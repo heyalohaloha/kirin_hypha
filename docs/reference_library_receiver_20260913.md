@@ -37,6 +37,9 @@ A/B/C buttons and both dropdowns remain available at every editor size. Changing
 returns to A without starting audition. One button selects the prepared B or C source; missing
 media in one choice does not disable the other. Both controllers share one output admission and
 confirm an A return only after an actual A output block, never merely because C changed to B.
+The DAW state stores both choices and cues, never audible selection or source media. Restoration
+before/after preparation starts at A. Missing saved IDs stay unavailable until selected again;
+malformed state is bounded and cannot replace the other valid choice.
 
 Preset/check selection and ordinary A/B/C remain available at every editor size. At smaller sizes,
 `BLIND 300%` opens the 900 × 600 editor; starting a trial is a subsequent explicit action. Active

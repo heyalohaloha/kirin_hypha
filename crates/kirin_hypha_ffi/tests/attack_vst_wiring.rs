@@ -86,7 +86,8 @@ fn attack_abi_stays_compatible_and_the_product_view_has_a_navigation_route() {
 
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     let editor_analysis = read_repo("juce_shell/src/PluginEditorAnalysis.cpp");
-    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
+        + &read_repo("juce_shell/src/PluginProcessorState.cpp");
     let demand = read_repo("juce_shell/src/HyphaAnalysisDemand.h");
     let navigation = read_repo("juce_shell/src/HyphaAnalysisNavigation.h");
     let time_navigation = read_repo("juce_shell/src/HyphaTimePageNavigation.cpp");

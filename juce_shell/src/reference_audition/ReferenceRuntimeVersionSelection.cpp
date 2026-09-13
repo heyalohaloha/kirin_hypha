@@ -47,4 +47,27 @@ bool RuntimeV2Controller::selectLibraryVersion (const juce::String& id)
     notify();
     return true;
 }
+ReferenceChoice RuntimeV2Controller::savedChoice() const
+{
+    const juce::ScopedLock lock (stateLock);
+    return { requestedSelection.presetId, requestedSelection.checkId,
+             requestedSelection.candidateId, requestedSelection.cueId };
+}
+
+void RuntimeV2Controller::restoreChoice (const ReferenceChoice& value)
+{
+    selectA();
+    {
+        const juce::ScopedLock lock (stateLock);
+        const auto choice = value.valid() ? value : ReferenceChoice {};
+        const auto generation = requestedSelection.generation + 1;
+        requestedSelection = { choice.presetId, choice.checkId, choice.candidateId,
+                               choice.cueId, {}, generation };
+        pendingApprovalKey.clear();
+        currentSnapshot.sampleRateApprovalRequired = false;
+        revokeAuditionPublication();
+    }
+    notify();
+}
+
 }

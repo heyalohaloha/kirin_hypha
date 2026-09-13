@@ -13,6 +13,7 @@
 #include "ReferenceRuntimeV2Alignment.h"
 #include "ReferenceRuntimeV2Blind.h"
 #include "ReferenceRuntimeV2Presentation.h"
+#include "ReferenceComparisonSettings.h"
 #include "ReferenceRuntimeV2Repository.h"
 #include "ReferenceRuntimeEventTransport.h"
 #include "ReferenceRuntimeABinding.h"
@@ -33,6 +34,8 @@ namespace hypha::reference_audition
 
         void configure (RuntimeIdentity, double hostSampleRate, int hostChannels);
         void disconnect();
+        ReferenceChoice savedChoice() const;
+        void restoreChoice (const ReferenceChoice&);
         Snapshot snapshot() const;
         bool selectPreset (const juce::String&);
         bool selectCheck (const juce::String&);
