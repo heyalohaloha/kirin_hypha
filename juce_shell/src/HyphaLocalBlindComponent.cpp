@@ -360,12 +360,21 @@ void Component::layoutRow (juce::Rectangle<int> area,
     for (auto* button : buttons)
         if (button->isVisible()) visible.add (button);
     if (visible.isEmpty()) return;
-    constexpr int gap = 6;
-    const auto width = (area.getWidth() - gap * (visible.size() - 1)) / visible.size();
+    const int gap = presentation::densityIndex (presentationContext.density) <= 1 ? 4 : 6;
+    const auto font = monoFont (presentationContext, typography::TextRole::action);
+    juce::Array<int> minimumWidths;
+    int totalMinimum = 0;
+    for (const auto* button : visible)
+    {
+        const auto minimum = juce::roundToInt (std::ceil (font.getStringWidthFloat (button->getButtonText()))) + 12;
+        minimumWidths.add (minimum);
+        totalMinimum += minimum;
+    }
+    const auto spare = juce::jmax (0, area.getWidth() - gap * (visible.size() - 1) - totalMinimum);
     for (int index = 0; index < visible.size(); ++index)
     {
         visible[index]->setBounds (area.removeFromLeft (
-            index + 1 == visible.size() ? area.getWidth() : width));
+            index + 1 == visible.size() ? area.getWidth() : minimumWidths[index] + spare / visible.size()));
         if (index + 1 != visible.size()) area.removeFromLeft (gap);
     }
 }
@@ -385,6 +394,8 @@ void Component::resized()
     const auto actionHeight = compact ? 28 : medium ? 36 : 48;
     const auto gap = compact ? 2 : medium ? 4 : 6;
     contextButton.setButtonText (compact ? "CONTEXT" : "CHANGE CONTEXT");
+    noPreference.setButtonText (compact ? "NO PREF" : "NO PREFERENCE");
+    cannotDistinguish.setButtonText (compact ? "CAN'T TELL" : "CANNOT TELL");
     titleLabel.setFont (labelFont (presentationContext, typography::TextRole::sectionTitle,
                                    typography::Composition::information));
     statusLabel.setFont (labelFont (presentationContext, typography::TextRole::status,

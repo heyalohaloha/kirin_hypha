@@ -122,6 +122,7 @@ inline void verifyLocalBlindUiContract()
                 "local-blind-preflight-" + juce::String (preset.width) + ".png")
                               .createOutputStream();
             require (output != nullptr
+                         && output->setPosition (0) && output->truncate().wasOk()
                          && juce::PNGImageFormat().writeImageToStream (preview, *output),
                      "preflight preview can be written for visual inspection");
         }
@@ -230,13 +231,17 @@ inline void verifyLocalBlindUiContract()
                         local_blind::ProductSessionPhase::ready,
                         local_blind::ProductSessionPhase::armed,
                         local_blind::ProductSessionPhase::listening,
-                        local_blind::ProductSessionPhase::returnPending })
+                        local_blind::ProductSessionPhase::returnPending,
+                        local_blind::ProductSessionPhase::revealed,
+                        local_blind::ProductSessionPhase::returned })
         for (const auto preset : observatory::sizePresets)
         {
             auto state = ready;
             state.phase = phase;
             state.trial.activeStimulus = 1;
             state.trial.passComplete = phase == local_blind::ProductSessionPhase::listening;
+            state.trial.lowerPostApprovalRequired = phase == local_blind::ProductSessionPhase::ready;
+            state.lowerPostGainDb = -18.0;
             component.setState (state);
             component.setPresentationContext (presentation::forEditor (preset.width, preset.height));
             component.setSize (preset.width, preset.height);
@@ -247,6 +252,18 @@ inline void verifyLocalBlindUiContract()
                 require (! child->getBounds().isEmpty()
                              && component.getLocalBounds().contains (child->getBounds()),
                          "every playback phase remains within the editor");
+                if (const auto* action = dynamic_cast<const juce::TextButton*> (child))
+                {
+                    const auto font = monoFont (presentation::forEditor (preset.width, preset.height),
+                                                typography::TextRole::action);
+                    const auto required = font.getStringWidthFloat (action->getButtonText());
+                    if (required > action->getWidth() - 12)
+                        std::cerr << "Blind clipped action: " << preset.width << " "
+                                  << action->getButtonText() << " needs=" << required
+                                  << " available=" << action->getWidth() - 12 << '\n';
+                    require (required <= action->getWidth() - 12,
+                             "complete answer labels and explicit attenuation fit without shrinking");
+                }
                 if (const auto* label = dynamic_cast<const juce::Label*> (child))
                 {
                     if (label->getText().isEmpty()) continue;
@@ -274,7 +291,8 @@ inline void verifyLocalBlindUiContract()
                 auto output = juce::File (directory).getChildFile (
                     "local-blind-phase-" + juce::String (static_cast<int> (phase))
                         + "-" + juce::String (preset.width) + ".png").createOutputStream();
-                require (output != nullptr && juce::PNGImageFormat().writeImageToStream (preview, *output),
+                require (output != nullptr && output->setPosition (0) && output->truncate().wasOk()
+                             && juce::PNGImageFormat().writeImageToStream (preview, *output),
                          "playback presentation preview is written");
             }
         }

@@ -2,7 +2,7 @@
 
 Date: 2026-09-13
 Baseline: B-840 / `95d49b829bc8018826fde00357c400d2235faaf3`
-Status: implementation and acceptance in progress; not a release-completion claim.
+Status: playback fixes and local product acceptance pass; platform CI and current-candidate DAW acceptance remain separate gates. This is not a release-completion claim.
 
 ## Scope
 
@@ -25,6 +25,7 @@ replace that evidence. Public distribution is a separate three-channel release g
 | BL-C04 | The audition renderer ignores the captured clock source and optional PDC notifications. | Freeze the admission observations and invalidate if their source, availability, or values change before/during playback. Never derive a compensation offset from them. |
 | BL-C05 | An offline or bypass callback can acknowledge normal return and release a pending realtime attenuation hold. | Only a nonempty, non-bypassed realtime callback acknowledges the explicit normal-return command. |
 | BL-C06 | Range edges and source changes replace the waveform abruptly. | Bound source and range transitions to five milliseconds, preserve fixed gains and equal-PCM controls, and produce identical output across callback partitions. |
+| BL-C07 | Equal-width buttons clip answer labels and the explicit POST attenuation at small sizes. Repeated diagnostic PNG output appends to the old image. | Allocate width from actual font metrics, use unambiguous compact labels, test every visible action, and overwrite each preview. |
 
 The original failures were reproduced directly against the baseline renderer before editing it.
 The regression matrix uses untrimmed host callbacks at 44.1, 48 and 96 kHz; 64, 257, 512 and 2048
@@ -35,10 +36,10 @@ normal return. Capture/PDC proof and playback-boundary proof remain separate.
 
 | Boundary | State | Evidence needed to close |
 | --- | --- | --- |
-| Native playback range, explicit next pass, full-pass answer gate | Targeted tests pass | Final candidate native gate and unchanged A samples outside the range |
-| Clock/PDC change and normal-return acknowledgement | Targeted tests pass | Product wiring plus failure/recovery coverage |
-| Actual product UI at all five sizes | Native presentation contract passes | The seven tested phases fit at 300, 375, 450, 600 and 900 pixels; complete processor/editor flow passes for stereo 2MIX and mono TRACK/STEM |
-| Preparation, capture service, lease and PCM cleanup | Targeted tests pass | Combined final native gate in progress |
+| Native playback range, explicit next pass, full-pass answer gate | Pass | 24 rate/block/channel configurations, both complete sides, and unchanged A samples outside the range |
+| Clock/PDC change and normal-return acknowledgement | Pass | Twelve source/latency change cases, offline/bypass return refusal and real product wiring |
+| Actual product UI at all five sizes | Native presentation contract passes | All nine product phases fit at 300, 375, 450, 600 and 900 pixels; complete processor/editor flow passes for stereo 2MIX and mono TRACK/STEM |
+| Preparation, capture service, lease and PCM cleanup | Targeted tests pass | All 17 selected native contracts pass (233.07 seconds, including process startup) |
 | Source and range transitions; real-audio Gain Match | Targeted tests pass | Five-millisecond transition is partition-invariant; maximum constant-signal step is 0.00208336 (normal) or 0.00104171 (approved attenuation). S-1 matched gain tolerance is 0.002 dB. Complete processor/editor flow passes for stereo 2MIX and mono TRACK/STEM |
 | macOS VST3 and AU host acceptance | Pending | Current candidate product round trip, stopped/reopened editor and mix synchronization |
 | Windows VST3 host acceptance | Pending | Same candidate and conditions on the validation machine |
@@ -71,3 +72,9 @@ Both Release cases passed (31.93 seconds together). Actual output covers 384,000
 the hidden/revealed assignment agrees with PCM polarity, matched-copy maximum error is below
 0.00004, and the normal PRE/POST path is bit identical. The stereo observed error was 0.0000115335.
 These tests prove product wiring and recovery, not a DAW's clock/PDC implementation.
+
+The isolated renderer benchmark at 48 kHz stereo reported p99 callback times of 0.659, 1.683 and
+32.281 microseconds for 64, 256 and 2048 frames, respectively (0.0494%, 0.0316%, 0.0757% of the
+audio callback interval). This measures the audition renderer on this Intel Mac, not the full
+processor or every supported host. The 64/256-frame cases retain exactly 3,072,000 bytes of
+frozen PRE/POST PCM. Runtime contracts also record zero audio-thread allocation/deallocation.
