@@ -63,13 +63,13 @@ namespace hypha::reference_audition
                                              std::int64_t hostPosition,
                                              bool positionValid,
                                              bool playing,
-                                             bool auditionAllowed) noexcept
+                                             bool auditionAllowed, bool confirmAudible) noexcept
     {
         aCapture.observe (input, hostPosition, positionValid, playing,
                           auditionAllowed
                               && ! bSelected.load (std::memory_order_acquire)
                               && ! blind.ongoing());
-        if (auditionAllowed && playing && positionValid && input.getNumSamples() > 0
+        if (confirmAudible && auditionAllowed && playing && positionValid && input.getNumSamples() > 0
             && ! bSelected.load (std::memory_order_acquire) && ! blind.ongoing())
             aAudibleConfirmations.fetch_add (1, std::memory_order_release);
     }

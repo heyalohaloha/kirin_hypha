@@ -60,6 +60,10 @@ struct SelectionOption
 struct State
 {
     bool osOnline = false, libraryReceived = false, blindLargeScreen = true;
+    bool separateComparisons = false, versionReady = false, checkReady = false;
+    int comparisonSlot = 2, audibleComparisonSlot = 0;
+    juce::String versionId;
+    std::vector<SelectionOption> versions;
     Readiness readiness = Readiness::disconnected;
     juce::String title;
     juce::String sourceLabel;
@@ -139,7 +143,7 @@ public:
         if (presentationContext == next) return;
         presentationContext = next;
         selectorLookAndFeel.setPresentationContext (next);
-        for (auto* button : { &aButton, &bButton, &blindButton, &oneButton, &twoButton,
+        for (auto* button : { &aButton, &bButton, &cButton, &blindButton, &oneButton, &twoButton,
                               &answerButton, &revealButton, &endBlindButton, &actionButton })
             button->setPresentationContext (next);
         resized();
@@ -148,6 +152,8 @@ public:
 
     std::function<void()> onSelectA;
     std::function<void()> onSelectB;
+    std::function<void()> onSelectC;
+    std::function<void(const juce::String&)> onSelectVersion;
     std::function<void(const juce::String&)> onSelectPreset;
     std::function<void(const juce::String&)> onSelectCheck;
     std::function<void(const juce::String&)> onSelectCandidate;
@@ -186,11 +192,13 @@ private:
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
     juce::Label connectionStatus;
     juce::ComboBox presetBox;
+    juce::ComboBox versionBox;
     juce::ComboBox checkBox;
     juce::ComboBox candidateBox;
     juce::ComboBox cueBox;
     SideButton aButton { "A" };
     SideButton bButton { "B" };
+    SideButton cButton { "C" };
     SideButton blindButton { "VERSION BLIND" };
     SideButton oneButton { "1" };
     SideButton twoButton { "2" };

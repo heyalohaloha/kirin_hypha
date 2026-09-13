@@ -4,7 +4,8 @@ namespace hypha::reference_ui
 {
 void Component::resized()
 {
-    connectionStatus.setBounds (getWidth() - (detailedLayout() ? 62 : 48) * 2 - 36, 6, 24, 12);
+    const int comparisonWidth = detailedLayout() ? 62 : current.separateComparisons ? 36 : 48;
+    connectionStatus.setBounds (getWidth() - comparisonWidth * (current.separateComparisons ? 3 : 2) - 39, 6, 24, 18);
     auto area = getLocalBounds().reduced (6);
     auto header = area.removeFromTop (detailedLayout() ? 42 : 34);
     const int buttonWidth = detailedLayout() ? 62 : 48;
@@ -21,10 +22,37 @@ void Component::resized()
     }
     else
     {
-        place (bButton, buttonWidth);
-        place (aButton, buttonWidth);
+        if (current.separateComparisons) place (cButton, comparisonWidth);
+        place (bButton, comparisonWidth);
+        place (aButton, comparisonWidth);
     }
-    if (detailedLayout() && ! blindSession)
+    if (current.separateComparisons && ! blindSession)
+    {
+        auto top = area.removeFromTop (detailedLayout() ? 38 : 24);
+        if (detailedLayout())
+        {
+            const auto width = (top.getWidth() - 5) * 3 / 4;
+            presetBox.setBounds (top.removeFromLeft (width).removeFromBottom (22));
+            top.removeFromLeft (5);
+            cueBox.setBounds (top.removeFromBottom (22));
+        }
+        else presetBox.setBounds (top);
+        area.removeFromTop (4);
+        auto row = area.removeFromTop (detailedLayout() ? 40 : 24);
+        auto b = row.removeFromLeft ((row.getWidth() - 5) / 2);
+        row.removeFromLeft (5);
+        if (detailedLayout())
+        {
+            versionBox.setBounds (b.removeFromBottom (25));
+            checkBox.setBounds (row.removeFromBottom (25));
+        }
+        else
+        {
+            b.removeFromLeft (14); row.removeFromLeft (14);
+            versionBox.setBounds (b); checkBox.setBounds (row);
+        }
+    }
+    else if (detailedLayout() && ! blindSession)
     {
         area.removeFromTop (4);
         auto selectors = area.removeFromTop (46);

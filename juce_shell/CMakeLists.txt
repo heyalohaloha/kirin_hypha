@@ -175,6 +175,8 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceLibraryRecovery.cpp
     src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
+    src/reference_audition/ReferenceComparisonController.cpp
+    src/reference_audition/ReferenceRuntimeVersionSelection.cpp
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
     src/reference_audition/ReferenceRuntimeV2CandidatePreparation.cpp
     src/reference_audition/ReferenceRuntimeV2Workspace.cpp
