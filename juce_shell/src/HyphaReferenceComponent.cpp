@@ -34,7 +34,8 @@ Component::Component()
     connectionStatus.setComponentID ("reference-connection");
     connectionStatus.setText ("OS", juce::dontSendNotification);
     connectionStatus.setJustificationType (juce::Justification::centred);
-    connectionStatus.setFont (juce::Font (9.0f));
+    connectionStatus.setFont (labelFont (presentationContext, typography::TextRole::status,
+                                         typography::Composition::information));
     addAndMakeVisible (connectionStatus);
     presetBox.setLookAndFeel (&selectorLookAndFeel);
     checkBox.setLookAndFeel (&selectorLookAndFeel);

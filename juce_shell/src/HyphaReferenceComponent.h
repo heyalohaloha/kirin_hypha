@@ -139,6 +139,8 @@ public:
         if (presentationContext == next) return;
         presentationContext = next;
         selectorLookAndFeel.setPresentationContext (next);
+        connectionStatus.setFont (labelFont (next, typography::TextRole::status,
+                                             typography::Composition::information));
         for (auto* button : { &aButton, &bButton, &blindButton, &oneButton, &twoButton,
                               &answerButton, &revealButton, &endBlindButton, &actionButton })
             button->setPresentationContext (next);

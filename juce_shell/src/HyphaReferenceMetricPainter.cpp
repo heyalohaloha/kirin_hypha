@@ -97,8 +97,8 @@ void paintCompactDelta (juce::Graphics& g, juce::Rectangle<float> area,
                               typography::Composition::information));
         g.drawText ("B-A " + name, label, juce::Justification::centredLeft);
         g.setColour (std::isfinite (value) ? COL_SPECTRUM_DELTA_BR : COL_MUTED);
-        g.setFont (monoFont (presentation, typography::TextRole::primaryValue,
-                             typography::Composition::information).withHeight (12.0f));
+        g.setFont (monoFont (presentation, typography::TextRole::secondaryValue,
+                             typography::Composition::information));
         g.drawText (valueText (value, true), area, juce::Justification::centredRight);
         return;
     }
