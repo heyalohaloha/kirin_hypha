@@ -27,7 +27,9 @@ The existing platform-specific `plugin_data/reference/v2` root contains:
 
 Hypha rejects malformed, oversize, changed same-revision and rollback publications. A partial or
 rejected replacement retains the last complete verified library. A fresh receiver cannot accept a
-corrupt library. Source validation and decoding remain outside the audio callback.
+corrupt library. Source validation and decoding remain outside the audio callback. Optional observations arriving
+for the same verified file/PCM/format/revision do not restart audition or its SRC approval.
+The admitted gain remains frozen; a changed audio identity or cue still returns to A.
 
 ## Display and admission
 

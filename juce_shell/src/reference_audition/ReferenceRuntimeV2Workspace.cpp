@@ -209,16 +209,6 @@ namespace hypha::reference_audition
         next.aRecordingId = activeABinding ? activeABinding->recordingId : juce::String {};
         next.aCaptureAvailable = aCapture.currentReceipt().has_value();
         next.manifestRevision = workspace->manifest.revision;
-        const auto publicationKey = runtimeSelectionPlaybackIdentity (
-            *preset, *check, *candidate, *cue);
-        if (publicationKey != activePublishedSelectionKey)
-        {
-            revokeAuditionPublication();
-            if (blind.ongoing())
-                invalidateBlind();
-            else
-                selectA();
-        }
         appendPresetOptions (next, *workspace);
         for (const auto& item : preset->checks)
             next.checks.push_back ({ item.checkId, item.label, {}, false });
@@ -255,8 +245,20 @@ namespace hypha::reference_audition
         }
         if (! previouslyVerified)
             sourceCache.remember (candidate->sourceArtifact.sha256, selectedSource);
+        const auto mediaKey = workspace->library ? runtimeSourceAudioIdentity (*selectedSource)
+            : candidate->sourceArtifact.sha256;
+        const auto publicationKey = runtimeSelectionPlaybackIdentity (
+            *preset, *check, *candidate, *cue, workspace->library ? mediaKey : juce::String {});
+        if (publicationKey != activePublishedSelectionKey)
+        {
+            revokeAuditionPublication();
+            if (blind.ongoing())
+                invalidateBlind();
+            else
+                selectA();
+        }
         next.sourceSampleRateHz = selectedSource->audio.sampleRateHz;
-        const auto approvalKey = candidate->sourceArtifact.sha256 + ":"
+        const auto approvalKey = mediaKey + ":"
             + juce::String (selectedSource->audio.sampleRateHz) + ":"
             + juce::String (next.hostSampleRateHz);
         const bool rateDiffers = selectedSource->audio.sampleRateHz != next.hostSampleRateHz;
@@ -271,7 +273,7 @@ namespace hypha::reference_audition
             return;
         }
 
-        const auto sourceKey = candidate->sourceArtifact.sha256 + ":"
+        const auto sourceKey = mediaKey + ":"
             + juce::String (next.hostSampleRateHz) + ":"
             + (rateDiffers ? "converted" : "native");
         if (sourceKey != activeSourceKey || ! pages.sourceOpen())

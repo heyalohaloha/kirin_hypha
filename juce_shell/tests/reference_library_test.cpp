@@ -195,6 +195,17 @@ void testReferenceComparisons (const juce::File& sandbox)
     admissionAllowed = true;
     require (controller.selectB (-14, -2) && block(), "one B click auditions Version");
     require (std::abs (buffer.getSample (0, 32) - 0.24079f) < 0.0001f, "B output is the known Version tone");
+    auto observed = makeRuntimeV2WorkVersionSource (bFile, bHash, pcm, recordingId, versionId, 96000);
+    addRuntimeV2MeasurementSummary (observed, -18, -3);
+    const auto observedReceipt = stageRuntimeV2Artifact (root, "sources", observed);
+    preset["checks"].getArray()->getReference (0)["candidates"].getArray()->getReference (0)
+        .getDynamicObject()->setProperty ("source_artifact", observedReceipt);
+    require (writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 2)),
+             "late observation publication");
+    wait ([] (const auto& state) { return state.manifestRevision == 2; });
+    require (controller.snapshot().audibleComparisonSlot == 1 && owners == 1 && block()
+        && std::abs (buffer.getSample (0, 32) - 0.24079f) < 0.0001f,
+        "optional observations must not interrupt the same verified audio or change its admitted gain");
     require (controller.selectC (-14, -2) && block(), "one C click auditions Check");
     require (std::abs (buffer.getSample (0, 32) + 0.25f) < 0.000001f, "C output is the Check source, not B or A");
     require (controller.selectB (-14, -2) && block(), "B choice survives C audition");
