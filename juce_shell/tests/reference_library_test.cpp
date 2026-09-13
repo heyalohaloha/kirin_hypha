@@ -198,8 +198,12 @@ void testReferenceComparisons (const juce::File& sandbox)
     auto observed = makeRuntimeV2WorkVersionSource (bFile, bHash, pcm, recordingId, versionId, 96000);
     addRuntimeV2MeasurementSummary (observed, -18, -3);
     const auto observedReceipt = stageRuntimeV2Artifact (root, "sources", observed);
+    auto* observedArtifact = new juce::DynamicObject();
+    observedArtifact->setProperty ("relative_path", observedReceipt.relativePath);
+    observedArtifact->setProperty ("sha256", observedReceipt.sha256);
+    observedArtifact->setProperty ("bytes", observedReceipt.bytes);
     preset["checks"].getArray()->getReference (0)["candidates"].getArray()->getReference (0)
-        .getDynamicObject()->setProperty ("source_artifact", observedReceipt);
+        .getDynamicObject()->setProperty ("source_artifact", juce::var (observedArtifact));
     require (writeJson (root.getChildFile ("library/manifest.json"), libraryManifest (root, preset, 2)),
              "late observation publication");
     wait ([] (const auto& state) { return state.manifestRevision == 2; });
