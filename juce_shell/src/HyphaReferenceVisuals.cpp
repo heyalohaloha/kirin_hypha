@@ -34,7 +34,7 @@ juce::Rectangle<float> chartArea (juce::Graphics& g, juce::Rectangle<float> area
     auto headingArea = headerText.removeFromLeft (juce::roundToInt (
         static_cast<float> (headerText.getWidth()) * 0.44f));
     g.setColour (COL_NORMAL.withAlpha (0.92f));
-    g.setFont (labelFont (presentation, typography::TextRole::sectionTitle,
+    g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                           typography::Composition::visualization));
     text_style::drawEllipsized (g, heading, headingArea,
                                 juce::Justification::centredLeft);
@@ -273,7 +273,8 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
         series = timelineSeries (*state.detailedMeasurement, binding, title, seriesName,
                                  minimum, maximum);
     auto area = chartArea (g, bounds, title, state.separateComparisons && state.comparisonSlot == 2 ? "C" : "B", presentation);
-    if (series == nullptr || series->empty())
+    if (series == nullptr || std::none_of (series->begin(), series->end(),
+        [] (const auto& value) { return value.has_value(); }))
     {
         unavailable (g, area, presentation);
         return false;

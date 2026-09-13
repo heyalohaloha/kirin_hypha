@@ -3,6 +3,7 @@
 #include "HyphaReferenceSelectorLookAndFeel.h"
 #include "HyphaReferenceMetricPainter.h"
 #include "HyphaReferenceVisuals.h"
+#include "HyphaReferenceDisplayText.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -136,11 +137,13 @@ Component::Component()
 void Component::setState (State next)
 {
     current = std::move (next);
+    prepareDisplayNames (current);
+    setTitle (current.title);
     connectionStatus.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
     connectionStatus.setTooltip (current.osOnline ? "Kirin OS connected"
         : current.libraryReceived ? "Kirin OS offline / received presets available" : "Waiting for Kirin OS");
     connectionStatus.setTitle (connectionStatus.getTooltip());
-    connectionStatus.setColour (juce::Label::textColourId, current.osOnline ? COL_FLORA : COL_MUTED);
+    connectionStatus.setColour (juce::Label::textColourId, current.osOnline ? COL_LED_BLUE : COL_MUTED);
     const bool blindSession = isBlindSession (current.blindPhase);
     connectionStatus.setVisible (! blindSession);
     const bool blindAudition = isBlindAudition (current.blindPhase);
@@ -221,8 +224,8 @@ void Component::paint (juce::Graphics& g)
     if (current.separateComparisons && ! blindSession)
     {
         area.removeFromTop (detailedLayout() ? 82 : 52);
-        g.setColour (COL_MUTED);
-        g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel,
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (labelFont (presentationContext, typography::TextRole::unit,
                               typography::Composition::information));
         const auto label = [&] (const juce::ComboBox& box, const juce::String& text)
         {
@@ -348,12 +351,11 @@ void Component::paint (juce::Graphics& g)
                       typography::TextRole::navigation, juce::Justification::centredLeft,
                       1, typography::Composition::information);
     g.setColour (COL_OBSERVATORY_VALUE);
-    auto title = current.separateComparisons && current.comparisonSlot == 1 ? juce::String { "VERSION" }
-        : current.checkLabel.isNotEmpty() ? current.checkLabel : juce::String { "CHECK" };
-    if (current.title.isNotEmpty())
-        title += "  /  " + current.title;
+    const auto title = current.title.isNotEmpty() ? current.title
+        : current.separateComparisons && current.comparisonSlot == 1 ? juce::String { "VERSION" }
+        : current.checkLabel;
     g.setFont (displayTextFont (title, presentationContext,
-                                typography::TextRole::sectionTitle,
+                                typography::TextRole::body,
                                 typography::Composition::information));
     text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
 
@@ -362,11 +364,11 @@ void Component::paint (juce::Graphics& g)
     const auto statusColour = current.readiness == Readiness::rejected
         ? COL_LED_YELLOW : current.bSelected ? COL_SPECTRUM_DELTA_BR : COL_MUTED;
     g.setColour (statusColour.withAlpha (0.92f));
-    g.setFont (labelFont (presentationContext, typography::TextRole::status,
+    g.setFont (labelFont (presentationContext, typography::TextRole::readout,
                           typography::Composition::information));
     if (! blindSession)
     {
-        g.setColour (current.osOnline ? COL_FLORA : COL_MUTED);
+        g.setColour (current.osOnline ? COL_LED_BLUE : COL_MUTED);
         g.fillEllipse (static_cast<float> (connectionStatus.getX() - 4), 10.0f, 4.0f, 4.0f);
         g.setColour (statusColour.withAlpha (0.92f));
     }
@@ -375,8 +377,6 @@ void Component::paint (juce::Graphics& g)
     const auto side = current.separateComparisons && current.comparisonSlot == 2 ? "C" : "B";
     if (current.bSelected && ! blindRevealed)
         statusText = juce::String { side } + "  /  PRE " + delta() + " PAUSED";
-    else if (detailedLayout() && current.alignmentLabel.isNotEmpty())
-        statusText += (statusText.isNotEmpty() ? "  /  " : "") + current.alignmentLabel;
     auto availableStatusArea = statusArea;
     if (blindRevealed)
         availableStatusArea.removeFromLeft ((detailedLayout() ? 62 : 48) * 2 + 6);

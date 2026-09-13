@@ -70,7 +70,7 @@ void paintMetric (juce::Graphics& g, juce::Rectangle<float> area,
     const float scale = juce::jlimit (1.0f, 2.2f, area.getHeight() / 170.0f);
     auto header = area.removeFromTop (18.0f * scale);
     g.setColour (COL_NORMAL.withAlpha (0.78f));
-    g.setFont (labelFont (presentation, typography::TextRole::sectionTitle,
+    g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                           typography::Composition::information));
     g.drawText (name, header.reduced (9.0f, 0.0f), juce::Justification::centredLeft);
     area.reduce (5.0f, 3.0f);

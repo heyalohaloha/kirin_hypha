@@ -11,7 +11,7 @@ void Component::resized()
     const int buttonWidth = detailedLayout() ? 62 : 48;
     const auto place = [&header] (juce::Component& button, int width)
     {
-        button.setBounds (header.removeFromRight (width));
+        button.setBounds (header.removeFromRight (width).reduced (0, 4));
         header.removeFromRight (3);
     };
     const bool blindSession = isBlindSession (current.blindPhase);

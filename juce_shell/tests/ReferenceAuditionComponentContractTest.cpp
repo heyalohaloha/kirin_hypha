@@ -1,4 +1,5 @@
 #include "ReferenceAuditionComponentContractTest.h"
+#include "ReferenceDisplayRegressionTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -82,6 +83,7 @@ reference_ui::State readyState()
 
 void verifyReferenceAuditionComponentContract()
 {
+    verifyReferenceDisplayRegression();
     constexpr auto presentationContext = presentation::forEditor (450, 300);
     KIRIN_REF_REQUIRE (! requiresNativeTextFont ("Mix Reference"));
     KIRIN_REF_REQUIRE (requiresNativeTextFont (juce::String::fromUTF8 ("全工程｜基本5項目")));

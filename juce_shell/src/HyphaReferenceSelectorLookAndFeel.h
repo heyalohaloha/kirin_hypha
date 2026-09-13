@@ -40,7 +40,7 @@ public:
 
     juce::Font getComboBoxFont (juce::ComboBox& box) override
     {
-        return displayTextFont (box.getText(), context, typography::TextRole::selector,
+        return displayTextFont (box.getText(), context, typography::TextRole::readout,
                                 typography::Composition::information);
     }
 
