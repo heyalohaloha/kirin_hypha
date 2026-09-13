@@ -1,5 +1,6 @@
 #pragma once
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceVisualObservation.h"
 
 namespace hypha::reference_audition
 {
@@ -12,7 +13,7 @@ public:
     explicit ReferenceComparisonController (juce::File, SelectionGate = {});
     ~ReferenceComparisonController();
     void configure (RuntimeIdentity, double, int);
-    void setPresented (bool active) noexcept { version.setContentObservationEnabled (active); }
+    void setPresented (bool active) noexcept;
     Snapshot snapshot() const;
     ReferenceComparisonSettings savedSettings() const;
     void restoreSettings (const ReferenceComparisonSettings&);
@@ -45,6 +46,7 @@ private:
     bool trialActive() const;
     SelectionGate gate;
     juce::CriticalSection gateLock;
+    bool closing = false;
     int gateOwners = 0; // Bit mask retains one external admission across overlapping tails.
     mutable juce::CriticalSection selectionLock;
     juce::String versionId, receiverId;
@@ -55,5 +57,7 @@ private:
     bool rtPlaying = false, rtInputAllowed = false;
     juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 };
     RuntimeV2Controller version, check;
+    VisualObservation visual;
+    std::shared_ptr<VisualPreferences> visualPreferences = std::make_shared<VisualPreferences>();
 };
 }

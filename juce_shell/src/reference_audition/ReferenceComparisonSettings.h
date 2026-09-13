@@ -1,5 +1,6 @@
 #pragma once
 #include "ReferenceAuditionProtocol.h"
+#include "ReferenceVisualPreferences.h"
 
 namespace hypha::reference_audition
 {
@@ -20,6 +21,7 @@ struct ReferenceChoice
 struct ReferenceComparisonSettings
 {
     ReferenceChoice version, check;
+    VisualViewChoice visualView;
     int viewedSlot = 2;
     void write (juce::XmlElement& parent) const
     {
@@ -33,7 +35,7 @@ struct ReferenceComparisonSettings
             child->setAttribute ("candidate", choice.candidateId);
             child->setAttribute ("cue", choice.cueId);
         };
-        append ("B", version); append ("C", check);
+        append ("B", version); append ("C", check); visualView.write (*xml);
     }
     static ReferenceComparisonSettings read (const juce::XmlElement& parent)
     {
@@ -47,6 +49,7 @@ struct ReferenceComparisonSettings
                            child->getStringAttribute ("candidate"), child->getStringAttribute ("cue") };
             return choice.valid() ? choice : ReferenceChoice {};
         };
+        result.visualView = VisualViewChoice::read (*xml);
         result.version = readChoice ("B"); result.check = readChoice ("C");
         if (result.version.candidateId.isEmpty()) result.version = {};
         result.viewedSlot = xml->getIntAttribute ("viewed_slot", 2) == 1 ? 1 : 2;

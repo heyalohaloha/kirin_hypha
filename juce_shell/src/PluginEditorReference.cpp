@@ -1,7 +1,5 @@
 #include "PluginEditor.h"
-
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-
 #include <cmath>
 #include <iterator>
 #include "HyphaUpdateContract.h"
@@ -285,6 +283,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.candidates = selectionOptions (runtime.candidates);
     state.cues = selectionOptions (runtime.cues);
     state.detailedMeasurement = runtime.detailedMeasurement;
+    state.visualTimeline = runtime.visualTimeline; state.visualPositionSeconds = runtime.visualPositionSeconds;
+    state.visualPreferences = runtime.visualPreferences;
     state.profiles = runtime.profiles;
     state.sampleRateApprovalRequired = runtime.sampleRateApprovalRequired;
     state.sourceSampleRateHz = runtime.sourceSampleRateHz;

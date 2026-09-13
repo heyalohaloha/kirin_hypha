@@ -1,0 +1,56 @@
+#pragma once
+#include <juce_audio_formats/juce_audio_formats.h>
+#include "ReferenceVisualTimeline.h"
+#include <array>
+#include <functional>
+namespace hypha::reference_audition
+{
+class VisualObservation final : private juce::Thread
+{
+public:
+    using Binding = std::function<VisualBinding()>;
+    explicit VisualObservation (Binding);
+    ~VisualObservation() override;
+    void setPresented (bool);
+    // Non-RT admission transfer. Neither method waits for source reads.
+    void pauseAdmission();
+    void useAuditionAdmission (bool);
+    void observe (const juce::AudioBuffer<float>&, std::int64_t, bool) noexcept;
+    std::shared_ptr<const VisualTimeline> snapshot() const;
+private:
+    struct Block
+    {
+        std::array<float, 16384> pcm {};
+        std::int64_t position = 0;
+        std::uint64_t generation = 0, discontinuity = 0;
+        int frames = 0, channels = 0;
+    };
+    static constexpr size_t queueSize = 30;
+    static_assert (sizeof (Block) * queueSize <= 2 * 1024 * 1024, "Display queue budget");
+    std::unique_ptr<std::array<Block, queueSize>> queue = std::make_unique<std::array<Block, queueSize>>();
+    std::atomic<size_t> writeIndex { 0 }, readIndex { 0 };
+    std::atomic<bool> accepting { false };
+    std::atomic<std::uint64_t> generation { 1 };
+    std::uint64_t rtDiscontinuity = 0;
+    mutable juce::CriticalSection controlLock, snapshotLock;
+    bool presented = false, borrowed = false, paused = false;
+    KirinReferenceVisualAdmission* admission = nullptr;
+    Binding binding;
+    VisualTimeline timeline;
+    std::shared_ptr<const VisualTimeline> published;
+    std::unique_ptr<juce::AudioFormatReader> reader;
+    juce::AudioFormatManager formats;
+    juce::AudioBuffer<float> bAudio, scratch;
+    std::array<float, 16384> bPcm {};
+    KirinReferenceVisualMeter* aMeter = nullptr;
+    KirinReferenceVisualMeter* bMeter = nullptr;
+    std::int64_t expected = -1;
+    std::uint64_t previousDiscontinuity = 0;
+    bool completeBin = false, measuring = false, dirty = true;
+    void run() override;
+    void clearMeters();
+    bool resetMeters();
+    void consume (const Block&);
+    void publish();
+};
+}

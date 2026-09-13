@@ -86,6 +86,7 @@ void testReferenceLibraryContract (const juce::File& sandbox)
     require (! repository.refreshLibrary().usable(), "preset tampering must fail closed");
 }
 
+void testReferenceVisualIntegration (ref::ReferenceComparisonController&, const juce::AudioBuffer<float>&);
 void testReferenceComparisons (const juce::File& sandbox);
 void testReferenceComparisons (const juce::File& sandbox)
 {
@@ -165,6 +166,7 @@ void testReferenceComparisons (const juce::File& sandbox)
     const auto bId = initial.versions[0].id;
     require (controller.selectVersion (bId), "choose B independently");
     wait ([] (const auto& state) { return state.versionReady; });
+    testReferenceVisualIntegration (controller, fixture.audio);
     const auto cId = initial.checkSelection->checkTargets.back().id;
     require (controller.selectCheck (cId), "choose C independently");
     wait ([] (const auto& state) { return state.checkReady && state.checkSelection->checkLabel == "Dynamics"; });

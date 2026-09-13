@@ -35,6 +35,10 @@ namespace hypha::reference_audition
           randomBit (randomBitIn ? std::move (randomBitIn) : RandomBit { secureRandomBit }),
           repository (root)
     {
+        outputRetirement.start ([this] {
+            if (gateReleasePending.exchange (false, std::memory_order_acq_rel) && selectionGate)
+                selectionGate (false);
+        });
         startThread (juce::Thread::Priority::low);
     }
 
@@ -45,6 +49,7 @@ namespace hypha::reference_audition
         notify();
         if (! stopThread (-1))
             jassertfalse;
+        outputRetirement.stop();
         removeRuntimeFiles (activeRuntimeFiles);
     }
 
@@ -423,8 +428,6 @@ namespace hypha::reference_audition
                 lastAudioActivityMs = nowMs;
             monitoringAudio = shouldMonitor;
             previousAudioSequence = audioSequence;
-            if (gateReleasePending.exchange (false, std::memory_order_acq_rel) && selectionGate)
-                selectionGate (false);
             Configuration configuration;
             {
                 const juce::ScopedLock lock (configurationLock);

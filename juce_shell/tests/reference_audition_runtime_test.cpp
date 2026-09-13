@@ -3,7 +3,6 @@
 #include "reference_runtime_v2_refresh_test_support.h"
 #include "reference_runtime_lazy_presets_test_support.h"
 #include "reference_runtime_lazy_candidates_test_support.h"
-
 #include "reference_runtime_test_entries.h"
 int main (int argc, char** argv)
 {
@@ -12,10 +11,11 @@ int main (int argc, char** argv)
     require (! ref::safeId ("../escape"), "path separators must be rejected");
     require (ref::safeUuid (preparationId), "preparation UUID must validate");
     testRuntimeV2SourceCache();
-
     const auto sandbox = juce::File::getSpecialLocation (juce::File::tempDirectory)
                              .getNonexistentChildFile ("hypha-reference-audition", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
+    testReferenceVisual (sandbox);
+    if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (sandbox.deleteRecursively(), "visual fixture cleanup"); return 0; }
     testReferenceContentAlignment (sandbox);
     testReferenceLibraryContract (sandbox);
     testReferenceComparisons (sandbox);

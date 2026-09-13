@@ -28,7 +28,7 @@ void Component::resized()
     }
     if (current.separateComparisons && ! blindSession)
     {
-        auto top = area.removeFromTop (detailedLayout() ? 38 : 24);
+        auto top = area.removeFromTop (presetBox.isVisible() ? (detailedLayout() ? 38 : 24) : 0);
         if (detailedLayout())
         {
             const auto width = cueBox.isVisible() ? (top.getWidth() - 5) * 3 / 4 : top.getWidth();
@@ -92,7 +92,9 @@ void Component::resized()
             candidateBox.setBounds (selector);
         }
     }
+    area.removeFromTop (4);
     auto footer = area.removeFromBottom (detailedLayout() ? 24 : 18);
+    comparisonView.setBounds (area);
     if (blindSession)
     {
         const auto placeLeft = [&footer] (juce::Component& button, int width)

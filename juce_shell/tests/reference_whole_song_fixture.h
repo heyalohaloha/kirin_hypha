@@ -83,7 +83,7 @@ namespace
         return result;
     }
 
-    void observeWholeSongFixture (ref::ReferenceComparisonController& controller,
+    [[maybe_unused]] void observeWholeSongFixture (ref::ReferenceComparisonController& controller,
                                   const WholeSongFixture& fixture, int& position)
     {
         constexpr int frames = 1024;

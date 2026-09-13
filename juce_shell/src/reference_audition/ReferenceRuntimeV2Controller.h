@@ -21,6 +21,8 @@
 #include "ReferenceRuntimeV2Source.h"
 #include "ReferenceRuntimeV2SourceCache.h"
 #include "ReferenceCalibrationObservation.h"
+#include "ReferenceDeferredControl.h"
+#include "ReferenceVisualTimeline.h"
 
 namespace hypha::reference_audition
 {
@@ -38,6 +40,7 @@ namespace hypha::reference_audition
         ReferenceChoice savedChoice() const;
         void restoreChoice (const ReferenceChoice&);
         Snapshot snapshot() const;
+        VisualBinding visualBinding() const;
         bool selectPreset (const juce::String&);
         bool selectCheck (const juce::String&);
         bool selectCandidate (const juce::String&);
@@ -171,6 +174,7 @@ namespace hypha::reference_audition
         void servicePresetSelectionAcknowledgement();
         void serviceCandidatePreparationAcknowledgement();
         void serviceDeferredAudioThreadActions();
+        void serviceOutputRetirement();
         void revokeAuditionPublication() noexcept;
         void failClosedToA() noexcept;
         void invalidateBlind() noexcept;
@@ -270,5 +274,6 @@ namespace hypha::reference_audition
         std::atomic<std::uint64_t> normalGateReleasePendingToken { 0 };
         std::atomic<std::uint64_t> blindGateReleasePendingToken { 0 };
         std::atomic<bool> auditionReturnPending { false };
+        DeferredControl outputRetirement;
     };
 }

@@ -6,26 +6,51 @@ namespace hypha::reference_audition
 ReferenceComparisonController::ReferenceComparisonController (juce::File root, SelectionGate callback)
     : gate (std::move (callback)),
       version (root, [this] (bool active) { return admit (1, active); }, true),
-      check (root, [this] (bool active) { return admit (2, active); }) {}
+      check (root, [this] (bool active) { return admit (2, active); }),
+      visual ([this] {
+          auto result = version.visualBinding();
+          result.hidden = result.hidden || viewedSlot.load (std::memory_order_acquire) != 1;
+          return result;
+      }) {}
 
-ReferenceComparisonController::~ReferenceComparisonController() { suspendAudition(); }
+ReferenceComparisonController::~ReferenceComparisonController()
+{
+    setPresented (false); suspendAudition();
+    const juce::ScopedLock lock (gateLock); closing = true;
+    visual.pauseAdmission(); if (gateOwners && gate) gate (false); gateOwners = 0;
+}
+
+void ReferenceComparisonController::setPresented (bool active) noexcept
+{ version.setContentObservationEnabled (active); visual.setPresented (active); }
 
 bool ReferenceComparisonController::admit (int slot, bool active)
 {
     const juce::ScopedLock lock (gateLock);
+    if (closing) return !active;
     const int bit = 1 << slot;
     if (active)
     {
         if ((gateOwners & bit) != 0) return false;
         if ((gateOwners & 2) != 0 && !version.canTransferOutputGate()) return false;
         if ((gateOwners & 4) != 0 && !check.canTransferOutputGate()) return false;
-        if (gateOwners == 0 && gate && !gate (true)) return false;
+        if (gateOwners == 0)
+        {
+            visual.pauseAdmission();
+            const bool admitted = !gate || gate (true);
+            visual.useAuditionAdmission (admitted);
+            if (!admitted) return false;
+        }
         gateOwners |= bit;
     }
     else if ((gateOwners & bit) != 0)
     {
         gateOwners &= ~bit;
-        if (gateOwners == 0 && gate) gate (false);
+        if (gateOwners == 0)
+        {
+            visual.pauseAdmission();
+            if (gate) gate (false);
+            visual.useAuditionAdmission (false);
+        }
     }
     return true;
 }
@@ -64,6 +89,7 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings() const
         { result.version.presetId = ids[0]; result.version.checkId = ids[1]; result.version.candidateId = ids[2]; }
     }
     result.check = check.savedChoice();
+    result.visualView = visualPreferences->get();
     result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
     return result;
 }
@@ -71,6 +97,7 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings() const
 void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSettings& input)
 {
     ReferenceComparisonSettings value = input;
+    visualPreferences->set (value.visualView);
     if (! value.version.valid() || value.version.candidateId.isEmpty()) value.version = {};
     if (! value.check.valid()) value.check = {};
     selectA();
@@ -102,6 +129,14 @@ Snapshot ReferenceComparisonController::snapshot() const
     const juce::ScopedLock lock (selectionLock);
     const auto slot = viewedSlot.load (std::memory_order_acquire);
     auto result = slot == 1 ? b : c;
+    result.visualTimeline = visual.snapshot();
+    result.visualPreferences = visualPreferences;
+    const auto map = version.visualBinding();
+    std::int64_t visualPosition = 0;
+    if (map.aligned && !map.hidden && map.hostPositionValid && map.hostRate > 0 && map.mapPosition (map.hostPosition, visualPosition))
+        result.visualPositionSeconds = double (visualPosition) / map.hostRate;
+    if (map.hidden || !map.source || (result.visualTimeline && result.visualTimeline->binding.key != map.key))
+        result.visualTimeline.reset();
     result.separateComparisons = true;
     result.comparisonSlot = slot;
     result.audibleComparisonSlot = b.bSelected ? 1 : c.bSelected ? 2 : 0;
@@ -210,6 +245,7 @@ void ReferenceComparisonController::observeAInput (const juce::AudioBuffer<float
     std::int64_t position, bool valid, bool playing, bool allowed) noexcept
 {
     rtInputAllowed = allowed;
+    visual.observe (buffer, position, valid && playing && allowed && versionChosen.load (std::memory_order_acquire));
     version.observeAInput (buffer, position, valid, playing, allowed && versionChosen.load (std::memory_order_acquire), false);
     check.observeAInput (buffer, position, valid, playing, allowed, false);
 }

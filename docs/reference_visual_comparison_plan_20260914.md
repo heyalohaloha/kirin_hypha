@@ -1,7 +1,8 @@
 # Reference — A/B visual comparison implementation plan
 
 Date: 2026-09-14
-Status: 計画策定。製品実装・配布は未着手。
+Status: 実装候補とローカル検証を作成済み。実DAWのPDC・長時間負荷・Windowsの実機検証は未完了。配布なし。
+実装と証跡: [implementation record](reference_visual_comparison_implementation_20260914.md)。
 Baseline: Hypha B-871 `3ccec450` / Kirin OS W-3080 `31fd330c`。
 
 Daisukeが承認した方向は、曲全体の波形を比較の入口とし、現在のDAW音Aと計測済みVersion Bを、同じ場所・共通の尺度で見比べることである。

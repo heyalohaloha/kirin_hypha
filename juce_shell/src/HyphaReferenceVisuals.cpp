@@ -249,7 +249,7 @@ const NullableSeries* timelineSeries (const Measurement& measurement,
     else if (binding == "dynamics" && measurement.dynamics)
     {
         timeline = &*measurement.dynamics;
-        title = "DYNAMICS"; seriesName = "psr_millidb"; minimum = 0; maximum = 30'000;
+        title = "CREST"; seriesName = "crest_millidb"; minimum = 0; maximum = 30'000;
     }
     else if (binding == "stereo" && measurement.stereo)
     {
@@ -265,7 +265,7 @@ bool drawTimeline (juce::Graphics& g, juce::Rectangle<float> bounds,
                    const State& state, const juce::String& binding,
                    presentation::Context presentation)
 {
-    juce::String title = binding.toUpperCase();
+    juce::String title = binding == "dynamics" ? "CREST" : binding.toUpperCase();
     juce::String seriesName;
     double minimum = 0.0, maximum = 1.0;
     const NullableSeries* series = nullptr;

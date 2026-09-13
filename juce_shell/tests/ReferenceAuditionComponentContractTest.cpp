@@ -1,5 +1,6 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "ReferenceDisplayRegressionTest.h"
+#include "ReferenceVisualComparisonTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -83,6 +84,8 @@ reference_ui::State readyState()
 
 void verifyReferenceAuditionComponentContract()
 {
+    verifyReferenceVisualComparison();
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_VISUAL_ONLY", {}) == "1") return;
     verifyReferenceDisplayRegression();
     constexpr auto presentationContext = presentation::forEditor (450, 300);
     KIRIN_REF_REQUIRE (! requiresNativeTextFont ("Mix Reference"));

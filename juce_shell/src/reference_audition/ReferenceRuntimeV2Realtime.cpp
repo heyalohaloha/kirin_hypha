@@ -4,29 +4,24 @@ namespace hypha::reference_audition
 {
     void RuntimeV2Controller::serviceDeferredAudioThreadActions()
     {
-        if (versionComparison && !latestPlaying.load (std::memory_order_acquire)) blind.confirmStoppedReturn();
+        // Journal observes the completed session before this worker retires its data.
         ReferenceSessionRetirement retirement;
-        if (blind.completeNormalReturn (retirement))
-        {
-            releaseOutputGate (retirement.outputGateToken);
-        }
-        if (normalReturnToken.load (std::memory_order_acquire) && !latestPlaying.load (std::memory_order_acquire))
-        { releaseOutputGate (normalReturnToken.exchange (0, std::memory_order_acq_rel)); }
+        if (blind.completeNormalReturn (retirement)) releaseOutputGate (retirement.outputGateToken);
         if (auditionReturnPending.exchange (false, std::memory_order_acq_rel))
             requestAuditionReturnEvent (aAudibleConfirmations.load (std::memory_order_acquire));
-        const auto pendingNormalGateRelease = normalGateReleasePendingToken.exchange (
-            0, std::memory_order_acq_rel);
-        if (pendingNormalGateRelease != 0)
-            releaseOutputGate (pendingNormalGateRelease);
-        const auto pendingBlindGateRelease = blindGateReleasePendingToken.exchange (
-            0, std::memory_order_acq_rel);
-        if (pendingBlindGateRelease != 0)
-        {
-            ReferenceSessionRetirement cancelled;
-            if (blind.cancelUnheardStart (cancelled)
-                && cancelled.outputGateToken == pendingBlindGateRelease)
-                releaseOutputGate (pendingBlindGateRelease);
-        }
+        const auto pending = blindGateReleasePendingToken.exchange (0, std::memory_order_acq_rel);
+        ReferenceSessionRetirement cancelled;
+        if (pending && blind.cancelUnheardStart (cancelled) && cancelled.outputGateToken == pending)
+            releaseOutputGate (pending);
+    }
+
+    void RuntimeV2Controller::serviceOutputRetirement()
+    {
+        if (versionComparison && !latestPlaying.load (std::memory_order_acquire)) blind.confirmStoppedReturn();
+        releaseOutputGate (blind.retirableOutputGateToken());
+        if (normalReturnToken.load (std::memory_order_acquire) && !latestPlaying.load (std::memory_order_acquire))
+            releaseOutputGate (normalReturnToken.exchange (0, std::memory_order_acq_rel));
+        releaseOutputGate (normalGateReleasePendingToken.exchange (0, std::memory_order_acq_rel));
     }
 
     bool RuntimeV2Controller::renderSelectedB (juce::AudioBuffer<float>& buffer,

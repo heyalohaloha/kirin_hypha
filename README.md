@@ -412,6 +412,13 @@ Receiving or restoring settings never starts B. Explicit audition still verifies
 source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
 single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
 
+The Version view shows A above B on a shared song timeline, with peak outside and RMS inside.
+Only observed A regions are drawn; older passes are dimmed. Select a region for the shared
+LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play position.
+These controls change the view only. They do not seek the DAW or switch audio. The source-qualified
+view choice survives editor/session restoration, while live A observations are never restored as
+current audio. Blind hides these graphs and their accessibility content.
+
 ## Local PRE/POST Blind Compare
 
 Local Blind Compare auditions immutable copies of one exact four-second PRE/POST range. It is a

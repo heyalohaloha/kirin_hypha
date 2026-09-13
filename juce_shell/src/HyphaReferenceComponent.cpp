@@ -32,6 +32,7 @@ void configureSelector (juce::ComboBox& box, const juce::String& componentId,
 Component::Component()
 {
     setOpaque (false);
+    addChildComponent (comparisonView);
     connectionStatus.setComponentID ("reference-connection");
     connectionStatus.setText ("OS", juce::dontSendNotification);
     connectionStatus.setJustificationType (juce::Justification::centred);
@@ -195,13 +196,16 @@ void Component::setState (State next)
     syncSelectionControl (cueBox, current.cues, current.cueId);
     cueBox.setEnabled (cueBox.isEnabled() && ! current.candidatePreparationPending);
     const bool showDetailedSelectors = detailedLayout() && ! blindSession;
-    presetBox.setVisible (! blindSession && ! current.presets.empty());
+    presetBox.setVisible (!blindSession && !current.presets.empty()
+        && (!current.separateComparisons || current.comparisonSlot == 2));
     checkBox.setVisible (! blindSession && ! current.checks.empty());
     candidateBox.setVisible (! blindSession && ! current.separateComparisons && ! current.candidates.empty());
     cueBox.setVisible (showDetailedSelectors && ! current.cues.empty()
         && (!current.separateComparisons || current.comparisonSlot == 2));
     actionButton.setButtonText (current.actionText);
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
+    comparisonView.setVisible (current.separateComparisons && current.comparisonSlot == 1 && !blindSession);
+    comparisonView.update (current.visualTimeline, current.visualPositionSeconds, presentationContext, blindSession, current.visualPreferences);
     resized();
     repaint();
 }
@@ -223,7 +227,8 @@ void Component::paint (juce::Graphics& g)
     const bool blindSession = isBlindSession (current.blindPhase);
     if (current.separateComparisons && ! blindSession)
     {
-        area.removeFromTop (detailedLayout() ? 82 : 52);
+        area.removeFromTop ((presetBox.isVisible() ? (detailedLayout() ? 38 : 24) : 0)
+                            + 4 + (detailedLayout() ? 40 : 24));
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentationContext, typography::TextRole::unit,
                               typography::Composition::information));
@@ -236,7 +241,7 @@ void Component::paint (juce::Graphics& g)
         };
         label (versionBox, detailedLayout() ? "B / VERSION" : "B");
         label (checkBox, detailedLayout() ? "C / CHECK" : "C");
-        if (detailedLayout()) { label (presetBox, "PRESET"); if (cueBox.isVisible()) label (cueBox, "CUE"); }
+        if (detailedLayout()) { if (presetBox.isVisible()) label (presetBox, "PRESET"); if (cueBox.isVisible()) label (cueBox, "CUE"); }
     }
     else if (detailedLayout() && ! blindSession)
     {
@@ -394,7 +399,7 @@ void Component::paint (juce::Graphics& g)
 
     if (detailedLayout())
     {
-        if (! paintConfiguredReferenceViews (g, area.toFloat(), current, presentationContext))
+        if (!comparisonView.isVisible() && !paintConfiguredReferenceViews (g, area.toFloat(), current, presentationContext))
         {
             auto metrics = area;
             const float gap = 6.0f;
@@ -422,7 +427,7 @@ void Component::paint (juce::Graphics& g)
                                         juce::Justification::centredRight);
         }
     }
-    else
+    else if (!comparisonView.isVisible())
     {
         const int gap = 4;
         auto left = area.removeFromLeft ((area.getWidth() - gap) / 2);

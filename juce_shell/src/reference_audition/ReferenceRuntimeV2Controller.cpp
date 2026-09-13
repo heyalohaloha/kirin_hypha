@@ -44,6 +44,7 @@ namespace hypha::reference_audition
           presetAdoptionTransport (root),
           eventTransport (root)
     {
+        outputRetirement.start ([this] { serviceOutputRetirement(); });
         startThread (juce::Thread::Priority::low);
     }
 
@@ -54,6 +55,7 @@ namespace hypha::reference_audition
         notify();
         if (! stopThread (-1))
             jassertfalse;
+        outputRetirement.stop();
         blind.forceClearAfterAudioStopped();
         releaseActiveOutputGate();
         aCapture.disconnect();

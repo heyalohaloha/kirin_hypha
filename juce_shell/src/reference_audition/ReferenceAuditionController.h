@@ -7,6 +7,9 @@
 #include <juce_core/juce_core.h>
 
 #include "ReferenceAudioPages.h"
+#include "ReferenceDeferredControl.h"
+#include "ReferenceVisualTimeline.h"
+#include "ReferenceVisualPreferences.h"
 #include "ReferenceBlindSession.h"
 #include "ReferenceAuditionLease.h"
 #include "ReferenceAuditionRepository.h"
@@ -86,6 +89,9 @@ namespace hypha::reference_audition
         bool separateComparisons = false, versionReady = false, checkReady = false;
         int comparisonSlot = 2, audibleComparisonSlot = 0;
         std::shared_ptr<const RuntimeDetailedMeasurement> detailedMeasurement;
+        std::shared_ptr<const VisualTimeline> visualTimeline;
+        double visualPositionSeconds = -1.0;
+        std::shared_ptr<VisualPreferences> visualPreferences;
         std::vector<std::shared_ptr<const RuntimeProfile>> profiles;
         bool sampleRateApprovalRequired = false;
         std::int64_t sourceSampleRateHz = 0;
@@ -179,5 +185,6 @@ namespace hypha::reference_audition
         std::atomic<bool> latestPlaying { false };
         std::atomic<std::uint64_t> audioCallbackSequence { 0 };
         std::atomic<bool> gateReleasePending { false };
+        DeferredControl outputRetirement;
     };
 }

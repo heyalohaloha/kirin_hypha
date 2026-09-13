@@ -11,6 +11,7 @@
 #include "HyphaOsAccess.h"
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceSelectorLookAndFeel.h"
+#include "HyphaReferenceComparisonView.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
 #include "reference_audition/ReferenceRuntimeV2Profile.h"
 
@@ -108,6 +109,9 @@ struct State
     std::vector<SelectionOption> candidates;
     std::vector<SelectionOption> cues;
     std::shared_ptr<const reference_audition::RuntimeDetailedMeasurement> detailedMeasurement;
+    std::shared_ptr<const reference_audition::VisualTimeline> visualTimeline;
+    double visualPositionSeconds = -1.0;
+    std::shared_ptr<reference_audition::VisualPreferences> visualPreferences;
     std::vector<std::shared_ptr<const reference_audition::RuntimeProfile>> profiles;
     std::vector<float> liveSpectrumDbfs;
     float liveSpectrumMinimumHz = 0.0f;
@@ -189,6 +193,7 @@ private:
     };
 
     State current;
+    ComparisonView comparisonView;
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
     juce::Label connectionStatus;

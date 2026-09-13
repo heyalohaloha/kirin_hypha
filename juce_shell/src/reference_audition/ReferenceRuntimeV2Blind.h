@@ -119,6 +119,11 @@ namespace hypha::reference_audition
         void seedNormalSourceBlend (float blend) noexcept { pendingNormalBlend.store (blend, std::memory_order_release); }
         bool renderPausedA (juce::AudioBuffer<float>&) noexcept;
         void confirmStoppedReturn() noexcept;
+        std::uint64_t retirableOutputGateToken() const noexcept
+        {
+            const auto token = sessionOutputGateToken.load (std::memory_order_acquire);
+            return lifecycle.load (std::memory_order_acquire) == normalConfirmed ? token : 0;
+        }
         RuntimeV2BlindSnapshot snapshot() const;
         bool ongoing() const noexcept;
         bool listening() const noexcept;

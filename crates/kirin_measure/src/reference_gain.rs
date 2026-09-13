@@ -1,6 +1,8 @@
 //! Offline Reference Blind gain facts from sample-aligned A/B PCM.
 
 use ebur128::{EbuR128, Mode};
+#[path = "reference_visual.rs"]
+pub mod visual;
 
 const MINIMUM_SAMPLE_RATE: u32 = 8_000;
 const MAXIMUM_SAMPLE_RATE: u32 = 768_000;

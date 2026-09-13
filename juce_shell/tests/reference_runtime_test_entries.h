@@ -18,3 +18,5 @@ inline void finishReferenceRegressionFixture (const juce::File& sandbox)
         std::cout << "Reference regression fixture: " << sandbox.getFullPathName() << '\n';
     else require (sandbox.deleteRecursively(), "ABC fixtures must be removed");
 }
+
+void testReferenceVisual (const juce::File&);
