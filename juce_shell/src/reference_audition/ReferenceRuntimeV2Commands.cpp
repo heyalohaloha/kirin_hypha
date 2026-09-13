@@ -21,6 +21,12 @@ namespace hypha::reference_audition
             if (*selectedId == id)
                 return true;
             *selectedId = id;
+            if (requestedConfiguration.identity.library)
+            {
+                if (kind == "preset") requestedSelection.checkId.clear();
+                if (kind == "preset" || kind == "check") requestedSelection.candidateId.clear();
+                if (kind != "cue") requestedSelection.cueId.clear();
+            }
             ++requestedSelection.generation;
             requestedSelection.sampleRateApprovalKey.clear();
             pendingApprovalKey.clear();

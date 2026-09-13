@@ -336,6 +336,8 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     else if (runtime.state == Runtime::ready)
         state.status = state.auditionBuffered && liveA
             ? "READY / A REMAINS LIVE" : "PLAY A TO AUDITION";
+    else if (runtime.rejectionCode == "reference_selection_unavailable")
+        state.status = "SAVED CHOICE UNAVAILABLE / CHOOSE AGAIN";
     else if (runtime.state == Runtime::verifying)
         state.status = "VERIFYING SOURCE";
     else if (runtime.state == Runtime::rejected)

@@ -13,6 +13,8 @@ public:
     ~ReferenceComparisonController();
     void configure (RuntimeIdentity, double, int);
     Snapshot snapshot() const;
+    ReferenceComparisonSettings savedSettings() const;
+    void restoreSettings (const ReferenceComparisonSettings&);
     bool selectVersion (const juce::String&);
     bool selectPreset (const juce::String&);
     bool selectCheck (const juce::String&);
@@ -45,6 +47,8 @@ private:
     int gateOwner = 0;
     mutable juce::CriticalSection selectionLock;
     juce::String versionId, receiverId;
+    std::optional<ReferenceComparisonSettings> pendingSettings;
+    bool configured = false;
     std::atomic<int> viewedSlot { 2 };
     bool rtPlaying = false, rtInputAllowed = false;
     RuntimeV2Controller version, check;

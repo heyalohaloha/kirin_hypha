@@ -30,15 +30,53 @@ void ReferenceComparisonController::configure (RuntimeIdentity identity, double 
 {
     {
         const juce::ScopedLock lock (selectionLock);
-        if (receiverId != identity.runtimeInstanceId) versionId.clear();
+        if (receiverId != identity.runtimeInstanceId && ! pendingSettings) versionId.clear();
         receiverId = identity.runtimeInstanceId;
     }
     auto bIdentity = identity;
     bIdentity.runtimeInstanceId += ".version";
     version.configure (bIdentity, rate, channels);
     check.configure (identity, rate, channels);
+    std::optional<ReferenceComparisonSettings> pending;
+    { const juce::ScopedLock lock (selectionLock); configured = true; pending = pendingSettings; }
+    if (pending) restoreSettings (*pending);
     rtPlaying = false;
     rtInputAllowed = false;
+}
+
+ReferenceComparisonSettings ReferenceComparisonController::savedSettings() const
+{
+    const juce::ScopedLock lock (selectionLock);
+    if (pendingSettings) return *pendingSettings;
+    ReferenceComparisonSettings result;
+    result.version = versionId.isEmpty() ? ReferenceChoice {} : version.savedChoice();
+    // A removed Version must not be replaced by a fallback selection on save.
+    if (versionId.isNotEmpty())
+    {
+        const auto ids = juce::StringArray::fromTokens (versionId, "/", {});
+        if (ids.size() == 3)
+        { result.version.presetId = ids[0]; result.version.checkId = ids[1]; result.version.candidateId = ids[2]; }
+    }
+    result.check = check.savedChoice();
+    result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
+    return result;
+}
+
+void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSettings& input)
+{
+    ReferenceComparisonSettings value = input;
+    if (! value.version.valid() || value.version.candidateId.isEmpty()) value.version = {};
+    if (! value.check.valid()) value.check = {};
+    selectA();
+    bool apply = false;
+    {
+        const juce::ScopedLock lock (selectionLock);
+        versionId = value.version.candidateId.isEmpty() ? juce::String {} : value.version.target();
+        viewedSlot.store (value.viewedSlot == 1 ? 1 : 2, std::memory_order_release);
+        apply = configured;
+        pendingSettings = apply ? std::optional<ReferenceComparisonSettings> {} : value;
+    }
+    if (apply) { version.restoreChoice (value.version); check.restoreChoice (value.check); }
 }
 
 bool ReferenceComparisonController::trialActive() const
