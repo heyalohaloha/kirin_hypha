@@ -79,6 +79,12 @@ namespace hypha::reference_audition
         std::vector<RuntimeSelectionOption> checks;
         std::vector<RuntimeSelectionOption> candidates;
         std::vector<RuntimeSelectionOption> cues;
+        std::vector<RuntimeSelectionOption> versions;
+        std::vector<RuntimeSelectionOption> checkTargets;
+        std::shared_ptr<const Snapshot> checkSelection;
+        juce::String selectedVersionId;
+        bool separateComparisons = false, versionReady = false, checkReady = false;
+        int comparisonSlot = 2, audibleComparisonSlot = 0;
         std::shared_ptr<const RuntimeDetailedMeasurement> detailedMeasurement;
         std::vector<std::shared_ptr<const RuntimeProfile>> profiles;
         bool sampleRateApprovalRequired = false;

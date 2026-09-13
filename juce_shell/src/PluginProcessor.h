@@ -22,7 +22,7 @@
  #include "pre_display/PreDisplayClock.h"
  #include "pre_display/PreDisplayController.h"
 #endif
-#include "reference_audition/ReferenceRuntimeV2Controller.h"
+#include "reference_audition/ReferenceComparisonController.h"
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
 // All FFI wiring (create / set_license / push_samples / poll_result), the identity state
@@ -100,6 +100,8 @@ public:
     hypha::capture::WorkAttachmentResult takeCaptureWorkAttachmentResult();
 #endif
     hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
+    bool selectReferenceC (double, double);
+    bool selectReferenceVersion (const juce::String&);
     bool selectReferenceB (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     void selectReferenceA();
     bool selectReferencePreset (const juce::String&);
@@ -423,7 +425,7 @@ private:
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::String referenceRuntimeId { juce::Uuid().toDashedString() };
     void createReferenceAuditionController();
-    std::unique_ptr<hypha::reference_audition::RuntimeV2Controller> referenceAuditionController;
+    std::unique_ptr<hypha::reference_audition::ReferenceComparisonController> referenceAuditionController;
    #endif
 
     void configureReferenceAudition();

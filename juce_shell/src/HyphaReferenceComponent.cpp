@@ -34,15 +34,17 @@ Component::Component()
     connectionStatus.setComponentID ("reference-connection");
     connectionStatus.setText ("OS", juce::dontSendNotification);
     connectionStatus.setJustificationType (juce::Justification::centred);
-    connectionStatus.setFont (labelFont (presentationContext, typography::TextRole::status,
-                                         typography::Composition::information));
     addAndMakeVisible (connectionStatus);
     presetBox.setLookAndFeel (&selectorLookAndFeel);
+    versionBox.setLookAndFeel (&selectorLookAndFeel);
     checkBox.setLookAndFeel (&selectorLookAndFeel);
     candidateBox.setLookAndFeel (&selectorLookAndFeel);
     cueBox.setLookAndFeel (&selectorLookAndFeel);
     configureSelector (presetBox, "reference-preset", "Check Preset",
                        "Temporarily call a Check Preset received from Kirin OS.");
+    configureSelector (versionBox, "reference-version", "B Version",
+                       "Choose the registered Version for B. A stays the current DAW input.");
+    versionBox.setTextWhenNothingSelected ("Choose Version");
     configureSelector (checkBox, "reference-check", "Check",
                        "Temporarily call a Check received from Kirin OS.");
     configureSelector (candidateBox, "reference-candidate", "B Source",
@@ -51,6 +53,7 @@ Component::Component()
                        "Choose a prepared listening position for this audition.");
     aButton.setComponentID ("reference-a");
     bButton.setComponentID ("reference-b");
+    cButton.setComponentID ("reference-c");
     blindButton.setComponentID ("reference-blind");
     oneButton.setComponentID ("reference-blind-1");
     twoButton.setComponentID ("reference-blind-2");
@@ -60,6 +63,7 @@ Component::Component()
     actionButton.setComponentID ("reference-action");
     aButton.setTitle ("Audition A");
     bButton.setTitle ("Audition B");
+    cButton.setTitle ("Audition C Check");
     blindButton.setTitle ("Start Version Blind");
     oneButton.setTitle ("Audition blind source 1");
     twoButton.setTitle ("Audition blind source 2");
@@ -109,6 +113,11 @@ Component::Component()
     revealButton.onClick = [this] { if (onRevealBlind) onRevealBlind(); };
     endBlindButton.onClick = [this] { if (onEndBlind) onEndBlind(); };
     actionButton.onClick = [this] { if (onAction) onAction(); };
+    cButton.onClick = [this] { if (onSelectC) onSelectC(); };
+    versionBox.onChange = [this]
+    { if (onSelectVersion) onSelectVersion (selectedOptionId (versionBox, current.versions)); };
+    addAndMakeVisible (versionBox);
+    addAndMakeVisible (cButton);
     addAndMakeVisible (presetBox);
     addAndMakeVisible (checkBox);
     addAndMakeVisible (candidateBox);
@@ -127,6 +136,7 @@ Component::Component()
 void Component::setState (State next)
 {
     current = std::move (next);
+    connectionStatus.setFont (labelFont (presentationContext, typography::TextRole::unit, typography::Composition::information));
     connectionStatus.setTooltip (current.osOnline ? "Kirin OS connected"
         : current.libraryReceived ? "Kirin OS offline / received presets available" : "Waiting for Kirin OS");
     connectionStatus.setTitle (connectionStatus.getTooltip());
@@ -135,10 +145,17 @@ void Component::setState (State next)
     connectionStatus.setVisible (! blindSession);
     const bool blindAudition = isBlindAudition (current.blindPhase);
     aButton.setToggleState (! current.bSelected, juce::dontSendNotification);
-    bButton.setToggleState (current.bSelected, juce::dontSendNotification);
-    bButton.setEnabled (canSelectB (current));
+    bButton.setToggleState (current.bSelected && (! current.separateComparisons
+        || current.audibleComparisonSlot == 1), juce::dontSendNotification);
+    cButton.setToggleState (current.bSelected && current.audibleComparisonSlot == 2, juce::dontSendNotification);
+    const bool sourcesAllowed = current.osAccess != os_access::State::unowned
+        && current.libraryReceived && current.aAvailable;
+    bButton.setEnabled (current.separateComparisons ? sourcesAllowed && current.versionReady : canSelectB (current));
+    cButton.setEnabled (sourcesAllowed && current.checkReady);
     aButton.setVisible (! blindSession);
     bButton.setVisible (! blindSession);
+    cButton.setVisible (! blindSession && current.separateComparisons);
+    versionBox.setVisible (! blindSession && current.separateComparisons);
     blindButton.setVisible (! blindSession && canStartBlind (current));
     blindButton.setButtonText (current.blindLargeScreen ? "VERSION BLIND" : "BLIND 300%");
     blindButton.setTitle (current.blindLargeScreen ? "Start Version Blind" : "Open Blind at 300%");
@@ -166,6 +183,7 @@ void Component::setState (State next)
     oneButton.setEnabled (current.pendingBlindStimulus != 1);
     twoButton.setEnabled (current.pendingBlindStimulus != 2);
     syncSelectionControl (presetBox, current.presets, current.presetId);
+    syncSelectionControl (versionBox, current.versions, current.versionId);
     syncSelectionControl (checkBox, current.checks, current.checkId);
     syncSelectionControl (candidateBox, current.candidates, current.candidateId);
     syncSelectionControl (cueBox, current.cues, current.cueId);
@@ -173,7 +191,7 @@ void Component::setState (State next)
     const bool showDetailedSelectors = detailedLayout() && ! blindSession;
     presetBox.setVisible (! blindSession && ! current.presets.empty());
     checkBox.setVisible (! blindSession && ! current.checks.empty());
-    candidateBox.setVisible (! blindSession && ! current.candidates.empty());
+    candidateBox.setVisible (! blindSession && ! current.separateComparisons && ! current.candidates.empty());
     cueBox.setVisible (showDetailedSelectors && ! current.cues.empty());
     actionButton.setButtonText (current.actionText);
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
@@ -196,7 +214,24 @@ void Component::paint (juce::Graphics& g)
     const bool blindInvalidated = current.blindPhase == BlindPhase::invalidated;
     const bool blindRevealed = current.blindPhase == BlindPhase::revealed;
     const bool blindSession = isBlindSession (current.blindPhase);
-    if (detailedLayout() && ! blindSession)
+    if (current.separateComparisons && ! blindSession)
+    {
+        area.removeFromTop (detailedLayout() ? 82 : 52);
+        g.setColour (COL_MUTED);
+        g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel,
+                              typography::Composition::information));
+        const auto label = [&] (const juce::ComboBox& box, const juce::String& text)
+        {
+            auto bounds = box.getBounds();
+            if (detailedLayout()) bounds = bounds.withY (bounds.getY() - 17).withHeight (15);
+            else bounds = bounds.withX (bounds.getX() - 14).withWidth (12);
+            text_style::drawEllipsized (g, text, bounds, juce::Justification::centredLeft);
+        };
+        label (versionBox, detailedLayout() ? "B / VERSION" : "B");
+        label (checkBox, detailedLayout() ? "C / CHECK" : "C");
+        if (detailedLayout()) { label (presetBox, "C / CHECK PRESET"); label (cueBox, "CUE"); }
+    }
+    else if (detailedLayout() && ! blindSession)
     {
         auto selectors = area.removeFromTop (50);
         const int gap = 5;
@@ -243,7 +278,8 @@ void Component::paint (juce::Graphics& g)
                                         juce::Justification::centredLeft);
         }
     }
-    int controlsWidth = (detailedLayout() ? 62 : 48) * 2 + 3;
+    int controlsWidth = current.separateComparisons
+        ? (detailedLayout() ? 62 : 36) * 3 + 6 : (detailedLayout() ? 62 : 48) * 2 + 3;
     if (isBlindSession (current.blindPhase))
         controlsWidth = blindInvalidated ? (detailedLayout() ? 132 : 94)
                                          : (detailedLayout() ? 62 : 48);
@@ -306,9 +342,10 @@ void Component::paint (juce::Graphics& g)
                       typography::TextRole::navigation, juce::Justification::centredLeft,
                       1, typography::Composition::information);
     g.setColour (COL_OBSERVATORY_VALUE);
-    auto title = current.checkLabel.isNotEmpty() ? current.checkLabel : juce::String { "CHECK" };
+    auto title = current.separateComparisons && current.comparisonSlot == 1 ? juce::String { "VERSION" }
+        : current.checkLabel.isNotEmpty() ? current.checkLabel : juce::String { "CHECK" };
     if (current.title.isNotEmpty())
-        title += "  /  B: " + current.title;
+        title += (current.separateComparisons && current.comparisonSlot == 2 ? "  /  C: " : "  /  B: ") + current.title;
     g.setFont (displayTextFont (title, presentationContext,
                                 typography::TextRole::sectionTitle,
                                 typography::Composition::information));
@@ -329,12 +366,13 @@ void Component::paint (juce::Graphics& g)
     }
     auto statusText = blindRevealed && current.blindReveal.isNotEmpty()
         ? "REVEALED / " + current.blindReveal : current.status;
+    const auto side = current.separateComparisons && current.comparisonSlot == 2 ? "C" : "B";
     if (current.bSelected && ! blindRevealed)
         statusText = detailedLayout()
-            ? juce::String { "B / " }
+            ? juce::String { side } + " / "
                 + (current.alignmentLabel == "PROJECT TIMELINE" ? "TIMELINE" : "CUE")
                 + " / PRE " + delta() + " PAUSED"
-            : juce::String { "B / PRE " } + delta() + " PAUSED";
+            : juce::String { side } + " / PRE " + delta() + " PAUSED";
     else if (detailedLayout() && current.alignmentLabel.isNotEmpty())
         statusText += (statusText.isNotEmpty() ? "  /  " : "") + current.alignmentLabel;
     auto availableStatusArea = statusArea;
@@ -363,16 +401,16 @@ void Component::paint (juce::Graphics& g)
                         g, metrics.removeFromLeft (juce::roundToInt (width)).toFloat(),
                         "INTEGRATED LOUDNESS", "LUFS", current.aIntegratedLoudness,
                         current.adjustedBIntegratedLoudness, current.loudnessDeltaBMinusA,
-                        presentationContext);
+                        presentationContext, side);
             metrics.removeFromLeft (juce::roundToInt (gap));
             reference_metric_painter::paintMetric (
                         g, metrics.toFloat(), "MAXIMUM TRUE PEAK", "dBTP",
                         current.aMaximumTruePeakDbtp, current.adjustedBMaximumTruePeakDbtp,
-                        current.truePeakDeltaBMinusA, presentationContext);
+                        current.truePeakDeltaBMinusA, presentationContext, side);
         }
         if (current.bSelected && std::isfinite (current.appliedGainDb))
         {
-            const auto gain = "B " + fmtDelta (current.appliedGainDb) + " dB  /  "
+            const auto gain = juce::String { side } + " " + fmtDelta (current.appliedGainDb) + " dB  /  "
                 + (current.comparisonFallbackOriginal
                        ? (current.gainLimited ? "ORIGINAL / MATCH UNAVAILABLE"
                                               : "ORIGINAL / FACT UNAVAILABLE")
@@ -392,10 +430,10 @@ void Component::paint (juce::Graphics& g)
         area.removeFromLeft (gap);
         reference_metric_painter::paintCompactDelta (
             g, left.toFloat(), "LUFS-I", current.loudnessDeltaBMinusA, "LU",
-            presentationContext);
+            presentationContext, side);
         reference_metric_painter::paintCompactDelta (
             g, area.toFloat(), "MAX TP", current.truePeakDeltaBMinusA, "dB",
-            presentationContext);
+            presentationContext, side);
     }
 }
 }

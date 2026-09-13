@@ -143,6 +143,7 @@ hypha::reference_ui::State stateFromRequest (juce::DynamicObject* root)
     state.title = text (candidate, "label");
     state.sourceLabel = "REFERENCE PREVIEW";
     state.status = "PREVIEW / DAW INPUT NOT AVAILABLE";
+    state.separateComparisons = true;
     state.alignmentLabel = "REFERENCE CUE";
     state.presetId = text (preset, "id", 128);
     state.presetName = text (preset, "label");

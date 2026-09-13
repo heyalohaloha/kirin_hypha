@@ -3,6 +3,7 @@
 #include "ReferenceRuntimeV2Model.h"
 #include "ReferenceRuntimePendingPresets.h"
 #include <algorithm>
+#include <set>
 
 namespace hypha::reference_audition
 {
@@ -19,6 +20,28 @@ namespace hypha::reference_audition
 
     inline void appendRuntimePresetOptions (Snapshot& snapshot, const RuntimeWorkspace& workspace)
     {
+        if (workspace.library)
+            for (const auto& preset : workspace.presets)
+                if (preset.sourcePresetArtifact.presetId == snapshot.presetId)
+                    for (const auto& check : preset.checks)
+                    {
+                        if (check.candidates.empty())
+                            snapshot.checkTargets.push_back ({ check.checkId + "/", check.label, {}, false });
+                        for (const auto& candidate : check.candidates)
+                            snapshot.checkTargets.push_back ({ check.checkId + "/" + candidate.candidateId,
+                                check.label + (check.candidates.size() > 1 ? " / " + candidate.displayName : ""),
+                                {}, ! candidate.prepared });
+                    }
+        std::set<juce::String> versions;
+        if (workspace.library)
+            for (const auto& preset : workspace.presets)
+                for (const auto& check : preset.checks)
+                    for (const auto& candidate : check.candidates)
+                        if (candidate.sourceKind == "work_version"
+                            && versions.insert (candidate.sourceIdentityKey).second)
+                            snapshot.versions.push_back ({ preset.sourcePresetArtifact.presetId
+                                + "/" + check.checkId + "/" + candidate.candidateId,
+                                candidate.displayName, {}, ! candidate.prepared });
         for (const auto& global : workspace.globalPresetCatalog.presets)
         {
             const bool ready = std::any_of (workspace.presets.begin(), workspace.presets.end(), [&] (const auto& item) {

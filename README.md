@@ -399,7 +399,9 @@ INSPECT screen, receiver choice, or connect button is required. Each POST choose
 check, and source independently. A small OS indicator reports the connection; received settings
 remain visible when media is unavailable. Hypha does not substitute its own Factory library.
 
-Normal A/B and preset selection remain available at every size. Blind opens at 300% (900×600).
+A is the live DAW input. B selects a registered Version; C selects a Check from its own preset.
+Each has a button, and B/C have independent dropdowns. Choices and ordinary A/B/C audition remain
+available at every size. Blind opens at 300% (900×600).
 Receiving or restoring settings never starts B. Explicit audition still verifies the immutable
 source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
 single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
