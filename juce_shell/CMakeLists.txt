@@ -262,7 +262,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     endif()
 
     target_sources(${TARGET} PRIVATE
-        src/PluginProcessor.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
+        src/PluginProcessor.cpp src/PluginProcessorCandidates.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/local_blind/LocalBlindCaptureService.cpp
         src/local_blind/CapturePairComparison.cpp
@@ -335,6 +335,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_sources(${TARGET} PRIVATE
             src/PluginEditorLocalBlind.cpp
             src/HyphaLocalBlindComponent.cpp
+        src/HyphaLocalBlindPresentation.cpp
             src/PluginEditorReference.cpp
             src/PluginEditorReferenceCapture.cpp
             src/HyphaAbsoluteComponent.cpp
@@ -572,6 +573,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/RunSummaryContractTest.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
         src/HyphaLocalBlindComponent.cpp
+        src/HyphaLocalBlindPresentation.cpp
         tests/OsAccessUiContractTest.cpp
         src/HyphaObservatoryCapture.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
