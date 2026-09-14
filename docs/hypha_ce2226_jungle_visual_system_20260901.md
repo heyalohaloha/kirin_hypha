@@ -68,7 +68,11 @@ ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep teal�
 
 全面発光、全面texture、装飾目的の自律motionは使用しない。
 
-新しい背景は左上、右上、下端だけに有機鉱物構造を置き、中央を計測panel用の負空間として残す。
+新しい背景は右上を主となる有機鉱物構造とし、下端には低い菌糸床だけを置き、中央を計測panel用の負空間として残す。
+
+下端の菌糸床は画面の最低12%以内を基準とし、中央60%ではほぼ暗部へ消失させる。
+
+LEVELでは全面背景の上へ別の不透明画像を重ねず、外周の連続性を保つ。
 
 指定されたHypha素材`bg_mycelium.png`はTIMEとATTACKの下層へ固定表示し、時間が堆積する菌糸床として扱う。
 
@@ -282,15 +286,15 @@ CAPTURE操作時にshellと表示中の外部解析面を同じmessage-thread re
 
 LEVELのObservation Plateでは、通常画面を縦横へ引き伸ばさず、右のchannel strip、上段の測定値、下段の60秒Historyを一つの標本構図に組み直す。
 
-60秒Historyでは指定済みHypha標本と時間strataをHistory領域内だけ、測定線の背後へ低明度で残し、Mを青緑、Sを低彩度の補助線として描く。
+60秒Historyでは時間strataだけをHistory領域内の測定線背後へ低明度で残し、Mを青緑、Sを低彩度の補助線として描く。
 
 保存失敗は利用者操作の結果なので通知する。
 
 ## 10. 生成素材と権利境界
 
-`observatory_understory.png`はbuilt-in image generationで新規生成した。
+`observatory_understory.png`はbuilt-in image generationで生成し、2026-09-15に下端の占有量と素材の規則性を修正した画像へ差し替えた。
 
-出力は1536×1024、RGB、alphaなし、1,474,029 bytesである。
+出力は1536×1024、RGB、alphaなし、1,351,618 bytesである。
 
 参照画像はHypha内のConcept CとATTACK emissionだけである。
 
