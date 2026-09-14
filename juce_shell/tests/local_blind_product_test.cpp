@@ -159,13 +159,27 @@ private:
                 {
                     pairPreview = post->createPairPreview();
                     require (hypha::pair_preview::request (pairPreview), "demand starts one bounded discovery job outside handle lock");
+                    pairPreviewRequestedAt = std::chrono::steady_clock::now();
                 }
                 KirinPairPreviewValue preview {};
                 if (! kirin_hypha_pair_preview_poll (pairPreview.get(), &preview)) break;
                 require (post->pairPreviewMatches (pairPreview.get()), "preview retains the current processor identity boundary");
-                require (preview.complete && preview.has_single
-                    && juce::String::fromUTF8 (preview.candidate.instance_id) == pre->instanceId(),
-                    "complete live-runtime discovery exposes the exact sole PRE");
+                if (! preview.complete || ! preview.has_single)
+                {
+                    // PRE publication and discovery are independent. A scan can be empty or
+                    // uncertain while the producer replaces its identity files. Retry the same
+                    // exact scope after the service throttle instead of accepting partial evidence.
+                    if (std::chrono::steady_clock::now() - pairPreviewRequestedAt
+                        >= std::chrono::milliseconds (1050))
+                    {
+                        require (hypha::pair_preview::request (pairPreview),
+                                 "empty discovery can request one bounded retry");
+                        pairPreviewRequestedAt = std::chrono::steady_clock::now();
+                    }
+                    break;
+                }
+                require (juce::String::fromUTF8 (preview.candidate.instance_id) == pre->instanceId(),
+                         "complete live-runtime discovery exposes the exact sole PRE");
                 require (post->setPairCandidate (pre->instanceId(), {}), "exact discovered PRE is selected");
                 pairPreview.reset();
                 ++stage;
@@ -362,6 +376,7 @@ private:
     std::atomic<double> correlationOne { 0 }, correlationTwo { 0 };
     std::chrono::steady_clock::time_point started;
     std::chrono::steady_clock::time_point armedAt;
+    std::chrono::steady_clock::time_point pairPreviewRequestedAt;
     hypha::pair_preview::Ticket pairPreview;
     int stage = 0, reportedStage = -1, waitingUi = 0;
     bool reopened = false;

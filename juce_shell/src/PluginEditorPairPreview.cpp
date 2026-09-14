@@ -1,5 +1,12 @@
 #include "PluginEditor.h"
-#include <cstring>
+
+namespace
+{
+constexpr double firstRetrySeconds = 1.05; // The worker admits at most one demand per second.
+constexpr double maximumRetrySeconds = 8.0;
+constexpr double resultWatchdogSeconds = 2.0;
+constexpr double exactCandidateRefreshSeconds = 8.0;
+}
 
 void KirinHyphaEditor::refreshPairPreview (bool demand)
 {
@@ -12,6 +19,9 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
     if (! available)
     {
         pairPreview.reset(); pairPreviewShown = {}; pairPreviewWasFocused = false;
+        pairPreviewNextDemandAt = 0;
+        pairPreviewRetrySeconds = firstRetrySeconds;
+        pairPreviewObservedGeneration = 0;
         nameField.setSelectionPreview ({}, 0);
         return;
     }
@@ -21,27 +31,60 @@ void KirinHyphaEditor::refreshPairPreview (bool demand)
     if (! pairPreview || ! processorRef.pairPreviewMatches (pairPreview.get()))
     {
         pairPreview = processorRef.createPairPreview();
+        pairPreviewShown = {};
+        pairPreviewNextDemandAt = 0;
+        pairPreviewRetrySeconds = firstRetrySeconds;
+        pairPreviewObservedGeneration = 0;
+        nameField.setSelectionPreview ({}, 0);
         demand = true;
     }
-    if (demand) hypha::pair_preview::request (pairPreview);
-    KirinPairPreviewValue value {};
-    if (pairPreview && kirin_hypha_pair_preview_poll (pairPreview.get(), &value)
-        && value.complete && value.has_single)
+
+    // Discovery is advisory and stays off the audio thread. An empty first scan is common while
+    // a newly-created PRE is still publishing its identity, so retry with bounded backoff rather
+    // than making the user reopen the selector. A known exact candidate is checked occasionally;
+    // the final pairing command always rechecks identity and ownership.
+    if (pairPreview && (demand || (pairPreviewNextDemandAt > 0 && now >= pairPreviewNextDemandAt)))
     {
-        const auto id = juce::String::fromUTF8 (value.candidate.instance_id);
-        const auto name = juce::String::fromUTF8 (value.candidate.name);
-        const auto text = "CONNECT " + (name.isNotEmpty() ? name + " / " : juce::String ("PRE "))
-                        + id.substring (0, 8);
-        if (nameField.setSelectionPreview (text, value.generation))
+        pairPreviewNextDemandAt = now + (hypha::pair_preview::request (pairPreview)
+            ? resultWatchdogSeconds : firstRetrySeconds);
+    }
+
+    KirinPairPreviewValue value {};
+    if (pairPreview && kirin_hypha_pair_preview_poll (pairPreview.get(), &value))
+    {
+        if (value.generation != pairPreviewObservedGeneration)
         {
-            pairPreviewShown = value;
-            nameField.setEnabledTooltip ("Connect this PRE: " + id + ". The arrow opens all candidates.");
-            return;
+            pairPreviewObservedGeneration = value.generation;
+            if (value.complete && value.has_single)
+            {
+                const auto id = juce::String::fromUTF8 (value.candidate.instance_id);
+                const auto name = juce::String::fromUTF8 (value.candidate.name);
+                const auto text = "CONNECT "
+                    + (name.isNotEmpty() ? name + " / " : juce::String ("PRE "))
+                    + id.substring (0, 8);
+                if (nameField.setSelectionPreview (text, value.generation))
+                {
+                    pairPreviewShown = value;
+                    pairPreviewRetrySeconds = firstRetrySeconds;
+                    pairPreviewNextDemandAt = now + exactCandidateRefreshSeconds;
+                    nameField.setEnabledTooltip (
+                        "Connect this PRE: " + id + ". The arrow opens all candidates.");
+                    return;
+                }
+            }
+
+            pairPreviewShown = {};
+            nameField.setSelectionPreview ({}, 0);
+            pairPreviewNextDemandAt = now + pairPreviewRetrySeconds;
+            pairPreviewRetrySeconds = juce::jmin (
+                maximumRetrySeconds, pairPreviewRetrySeconds * 2.0);
         }
     }
-    pairPreviewShown = {};
-    nameField.setSelectionPreview ({}, 0);
-    nameField.setEnabledTooltip ("Click to choose one exact PRE.");
+
+    // Keep a displayed exact receipt while its non-blocking refresh is pending. A click still
+    // goes through the authoritative pairing command, which fails closed if the PRE disappeared.
+    if (! pairPreviewShown.has_single)
+        nameField.setEnabledTooltip ("Click to choose one exact PRE.");
 }
 
 void KirinHyphaEditor::selectPairPreview()
@@ -52,11 +95,7 @@ void KirinHyphaEditor::selectPairPreview()
         showCandidateMenu();
         return;
     }
-    KirinPairPreviewValue current {};
-    if (! pairPreview || ! processorRef.pairPreviewMatches (pairPreview.get())
-        || ! kirin_hypha_pair_preview_poll (pairPreview.get(), &current)
-        || ! current.complete || ! current.has_single || current.generation != shown.generation
-        || std::strcmp (current.candidate.instance_id, shown.candidate.instance_id) != 0)
+    if (! pairPreview || ! processorRef.pairPreviewMatches (pairPreview.get()))
     {
         refreshPairPreview (false);
         showToast ("PRE preview changed. Choose the PRE again.");
