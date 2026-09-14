@@ -29,14 +29,6 @@ const juce::Image& sharedHyphaSpecimenImage()
     return shared;
 }
 
-const juce::Image& sharedLevelCornersImage()
-{
-    static const juce::Image shared = juce::ImageFileFormat::loadFrom (
-        BinaryData::hypha_level_corners_png,
-        static_cast<size_t> (BinaryData::hypha_level_corners_pngSize));
-    return shared;
-}
-
 const std::array<juce::Image, 4>& sharedHyphaSpecimenVariants()
 {
     static const std::array<juce::Image, 4> variants = []
@@ -162,7 +154,6 @@ void paintReferenceBridge (juce::Graphics& g, juce::Rectangle<float> area, const
 Backdrop::Backdrop()
 {
     image = sharedBackdropImage();
-    levelCorners = sharedLevelCornersImage();
     hyphaSpecimen = sharedHyphaSpecimenImage();
 }
 
@@ -232,23 +223,6 @@ void Backdrop::draw (juce::Graphics& g, juce::Rectangle<int> area, const State& 
     g.drawImage (scaledBackdrop, area.toFloat());
 }
 
-void Backdrop::drawLevelCorners (juce::Graphics& g,
-                                 juce::Rectangle<int> area,
-                                 const State& state) const
-{
-    if (state.domain != observatory::Domain::level
-        || ! observatory::isFullDensity (state.density)
-        || ! levelCorners.isValid()
-        || area.isEmpty())
-        return;
-
-    juce::Graphics::ScopedSaveState saved (g);
-    const float roleOpacity = state.role == observatory::Role::pre ? 0.72f : 1.0f;
-    const float signalOpacity = state.active ? 0.86f : 0.58f;
-    g.setOpacity (roleOpacity * signalOpacity * (state.jungle ? 1.08f : 1.0f));
-    drawAspectFill (g, levelCorners, area);
-}
-
 void Backdrop::drawDomainBed (juce::Graphics& g, juce::Rectangle<int> area,
                               const State& state) const
 {
@@ -290,27 +264,14 @@ void Backdrop::drawHyphaSpecimen (juce::Graphics& g,
                                   juce::Rectangle<int> area,
                                   const State& state) const
 {
-    const bool levelSignature = state.domain == observatory::Domain::level
-                             && (state.capture
-                                 || observatory::isFullDensity (state.density));
-    const bool referenceSignature = state.domain == observatory::Domain::reference
-                                 && observatory::isFullDensity (state.density);
-    if ((state.domain != observatory::Domain::time && ! levelSignature && ! referenceSignature)
-        || ! hyphaSpecimen.isValid()
-        || area.isEmpty())
+    if (state.domain != observatory::Domain::time
+        || ! hyphaSpecimen.isValid() || area.isEmpty())
         return;
 
     const auto& specimen = sharedHyphaSpecimenVariants()[densityIndex (state.density)];
     const int x = area.getCentreX() - specimen.getWidth() / 2;
     const int y = area.getBottom() - specimen.getHeight();
     juce::Graphics::ScopedSaveState saved (g);
-    if (levelSignature)
-    {
-        const auto historyFraction = area.getWidth() > area.getHeight() ? 0.40f : 0.32f;
-        const auto historyHeight = juce::roundToInt (
-            static_cast<float> (area.getHeight()) * historyFraction);
-        g.reduceClipRegion (area.removeFromBottom (historyHeight));
-    }
     const float roleOpacity = state.role == observatory::Role::pre ? 0.72f : 1.0f;
     g.setOpacity ((state.active ? 0.76f : 0.42f) * roleOpacity
                   * (state.jungle ? 1.10f : 1.0f));

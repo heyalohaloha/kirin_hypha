@@ -303,19 +303,19 @@ void verifyObservatoryViewContract()
     }
     KIRIN_OBSERVATORY_REQUIRE (
         differentPixels (specimenBlank, specimenImage) > 2'000);
-    juce::Image levelCornersImage (juce::Image::ARGB, 580, 112, true);
-    levelCornersImage.clear (levelCornersImage.getBounds(), BG);
-    const auto levelCornersBlank = levelCornersImage.createCopy();
+    juce::Image levelImage (juce::Image::ARGB, 580, 228, true);
+    levelImage.clear (levelImage.getBounds(), BG);
+    const auto levelBlank = levelImage.createCopy();
     {
-        juce::Graphics graphics (levelCornersImage);
+        juce::Graphics graphics (levelImage);
         observatory_world::State state;
         state.domain = observatory::Domain::level;
         state.density = observatory::Density::observatory;
         state.active = true;
-        backdrop.drawLevelCorners (graphics, levelCornersImage.getBounds(), state);
+        backdrop.drawHyphaSpecimen (graphics, levelImage.getBounds(), state);
     }
     KIRIN_OBSERVATORY_REQUIRE (
-        differentPixels (levelCornersBlank, levelCornersImage) > 2'000);
+        differentPixels (levelBlank, levelImage) == 0);
     const auto wideCrop = observatory_world::aspectFillSourceBounds (1536, 1024, 1200, 630);
     KIRIN_OBSERVATORY_REQUIRE (std::abs (wideCrop.getWidth() - 1536.0f) < 0.01f);
     KIRIN_OBSERVATORY_REQUIRE (std::abs (wideCrop.getHeight() - 806.4f) < 0.1f);
