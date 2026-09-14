@@ -7,6 +7,11 @@ void ReferenceComparisonController::refreshObservation()
     const bool heldView=capture.access->capturedView;
     if(heldView && !trialActive()) viewedSlot.store(1,std::memory_order_release);
     version.setContentObservationEnabled(presented || captureOwned);
+    const auto captured=capture.access->snapshot().shown;
+    const auto selected=version.visualBinding();
+    bool needsEvidence=(presented || captureOwned) && !trialActive() && captured && captured->frames && selected.source;
+    if(needsEvidence) for(const auto& b:captured->bindings) if(b.sourceHash==selected.source->sourceFileSha256) needsEvidence=false;
+    version.setCaptureObservation(needsEvidence ? captured->id : juce::String(),needsEvidence ? captured->hostStart : 0);
     visual.setPresented(presented && !heldView && !captureOwned);
     capture.setPresented(presented && !trialActive());
     captureProjection.setPresented(presented && !trialActive());
@@ -47,9 +52,7 @@ void ReferenceComparisonController::endBlindGuard()
 }
 ACaptureReceipt ReferenceComparisonController::captureReceipt() const
 {
-    const auto map=version.visualBinding(); ACaptureReceipt result;
-    result.verified=map.aligned && !map.hidden && map.source && map.hostPositionValid;
-    if(result.verified) result.work=map.source->sourceIdentityKey.upToFirstOccurrenceOf(":",false,false);
-    result.rate=int(map.hostRate); result.hostPosition=map.hostPosition; return result;
+    const auto map=version.visualBinding();
+    return map.captureEvidence && !map.hidden ? *map.captureEvidence : ACaptureReceipt{};
 }
 }

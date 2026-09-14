@@ -31,7 +31,7 @@ ComparisonView::ComparisonView()
     setTitle ("A and B comparison. Arrows move the view; Shift and arrows resize it; Home follows playback.");
     for (auto* button : { &follow, &loudness, &crest }) addAndMakeVisible (*button);
     follow.setComponentID ("reference-follow"); loudness.setComponentID ("reference-loudness"); crest.setComponentID ("reference-crest");
-    follow.onClick = [this] { following = true; saveView(); repaint(); };
+    follow.onClick = [this] { fitCapture = false; following = true; saveView(); repaint(); };
     loudness.onClick = [this] { showingCrest = false; saveView(); repaint(); };
     crest.onClick = [this] { showingCrest = true; saveView(); repaint(); };
 }
@@ -41,7 +41,10 @@ void ComparisonView::update (std::shared_ptr<const reference_audition::VisualTim
     context = presentation; hidden = concealed; preferences = std::move (saved);
     if (concealed) { data.reset(); waveformCache = {}; setTitle ({}); return; }
     data = std::move (next); position = currentPosition;
-    if (data && data->binding.key != key)
+    const bool sameCapture = data && data->capture && data->capture->id == captureId;
+    if (data && data->capture && !sameCapture) { fitCapture = true; captureId = data->capture->id; }
+    if (data && !data->capture) captureId.clear();
+    if (data && data->binding.key != key && !sameCapture)
     {
         key = data->binding.key; following = true; start = 0; end = data->capture ? data->duration() : std::min (12.0, data->duration());
         if(data->capture) following=false; cacheRevision = 0;
@@ -66,6 +69,8 @@ void ComparisonView::update (std::shared_ptr<const reference_audition::VisualTim
             }
         }
     }
+    if (data && data->capture && fitCapture) { start = 0; end = data->duration(); }
+    if (data) key = data->binding.key;
     if (data && following && position >= 0 && position <= data->duration())
         setRange (position - 6.0, position + 6.0);
     if (data && data->binding.aligned) lastVerifiedView = data->binding;
@@ -194,7 +199,7 @@ void ComparisonView::paint (juce::Graphics& g)
     g.setColour (COL_TEXT_SECONDARY);
     const bool detail = !graph.isEmpty();
     const auto heading = data && data->capture ? juce::String("CAPTURED A / ")+juce::Time(data->capture->created).formatted("%H:%M")
-        + (data->binding.aligned ? (data->binding.matched ? " / MATCHED B" : " / ORIGINAL B") : "") : data && data->binding.aligned
+        + (data->binding.aligned ? (data->binding.matched ? " / B " + juce::String(data->binding.gainDb,1) + " dB" : " / ORIGINAL LEVELS") : "") : data && data->binding.aligned
         ? (data->binding.matched ? "MATCHED" : "ORIGINAL") : "B OVERVIEW";
     if (getHeight() >= 65) text_style::drawEllipsized (g, heading, juce::Rectangle<int> (7, 3, juce::jmax (0, getWidth() - 76), 18), juce::Justification::centredLeft);
     if (!data || (!data->capture && (!data->binding.overview || !data->binding.overview->waveform)))
@@ -282,7 +287,7 @@ double ComparisonView::timeAt (float x) const
 void ComparisonView::mouseDown (const juce::MouseEvent& event)
 {
     if (!hidden && waveform.contains (event.position) && data)
-    { grabKeyboardFocus(); following = false; dragAnchor = timeAt (event.position.x); setRange (dragAnchor-6, dragAnchor+6); saveView(); repaint(); }
+    { grabKeyboardFocus(); fitCapture = false; following = false; dragAnchor = timeAt (event.position.x); setRange (dragAnchor-6, dragAnchor+6); saveView(); repaint(); }
 }
 void ComparisonView::mouseDrag (const juce::MouseEvent& event)
 {
@@ -299,10 +304,10 @@ void ComparisonView::mouseExit (const juce::MouseEvent&) { pointedTime = -1; rep
 bool ComparisonView::keyPressed (const juce::KeyPress& keypress)
 {
     if (hidden || !data) return false;
-    if (keypress.getKeyCode() == juce::KeyPress::homeKey) { following = true; saveView(); repaint(); return true; }
+    if (keypress.getKeyCode() == juce::KeyPress::homeKey) { fitCapture = false; following = true; saveView(); repaint(); return true; }
     const int direction = keypress.getKeyCode() == juce::KeyPress::leftKey ? -1 : keypress.getKeyCode() == juce::KeyPress::rightKey ? 1 : 0;
     if (!direction) return false;
-    following = false;
+    fitCapture = false; following = false;
     if (keypress.getModifiers().isShiftDown()) setRange (start, end + direction);
     else setRange (start + direction, end + direction);
     saveView(); repaint(); return true;

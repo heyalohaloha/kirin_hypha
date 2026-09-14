@@ -119,6 +119,7 @@ namespace hypha::reference_audition
                 blind.clear(); blindPreparationKey.clear(); calibrationObservation.clear();
                 aCapture.disconnect(); untilPoll = 0;
             }
+            { const juce::ScopedLock lock(stateLock); aCapture.setObservationGrid(captureTargetId.isNotEmpty(),captureGridAnchor); }
             aCapture.service (
                 activeABinding,
                 static_cast<std::int64_t> (std::llround (configuration.sampleRate)),

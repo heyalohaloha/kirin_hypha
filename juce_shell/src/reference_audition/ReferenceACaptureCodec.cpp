@@ -1,4 +1,4 @@
-#include "ReferenceACaptureModel.h"
+#include "ReferenceACaptureEvidenceCodec.h"
 #include <juce_cryptography/juce_cryptography.h>
 #include <cmath>
 #include <cstring>
@@ -37,9 +37,9 @@ void mergeACaptureBins(std::vector<ACaptureBin>& bins, int channels)
 }
 juce::String encodeACapture(const ACaptureData& data)
 {
-    if(data.bins.empty() || data.bins.size()>2048 || data.receiver.length()>160) return {};
+    if(data.bins.empty() || data.bins.size()>2048 || data.receiver.length()>160 || data.units.size()>7200 || data.bindings.size()>16) return {};
     juce::MemoryOutputStream out;
-    out.writeInt(0x41435031); out.writeString(data.id); out.writeString(data.receiver); out.writeString(data.verifiedWork);
+    out.writeInt(0x41435032); out.writeString(data.id); out.writeString(data.receiver); out.writeString(data.verifiedWork);
     out.writeInt64(data.created); out.writeInt64(data.hostStart); out.writeInt64(juce::int64(data.frames));
     out.writeInt64(juce::int64(data.hop)); out.writeInt(data.rate); out.writeInt(data.channels);
     out.writeInt(data.clockSource); out.writeBool(data.complete); out.writeDouble(data.integrated); out.writeDouble(data.maximumTruePeak);
@@ -51,18 +51,22 @@ juce::String encodeACapture(const ACaptureData& data)
         for(auto v:bin.value.rms) out.writeDouble(v);
         out.writeDouble(bin.value.short_lufs); out.writeDouble(bin.value.crest_db); out.writeDouble(bin.truePeak); out.writeInt64(juce::int64(bin.fingerprint));
     }
+    writeCaptureEvidence(out,data);
     const auto checksum=juce::SHA256(out.getData(),out.getDataSize()).toHexString();
-    return checksum+":"+out.getMemoryBlock().toBase64Encoding();
+    const auto encoded=checksum+":"+out.getMemoryBlock().toBase64Encoding();
+    return encoded.length()<=1024*1024-4096 ? encoded : juce::String();
 }
 std::shared_ptr<const ACaptureData> decodeACapture(const juce::String& text)
 {
-    if(text.isEmpty() || text.length()>256*1024) return {};
+    if(text.isEmpty() || text.length()>1024*1024-4096) return {};
     if(text.indexOfChar(':')!=64) return {};
-    juce::MemoryBlock bytes; if(!bytes.fromBase64Encoding(text.substring(65)) || bytes.getSize()>192*1024) return {};
+    juce::MemoryBlock bytes; if(!bytes.fromBase64Encoding(text.substring(65)) || bytes.getSize()>768*1024) return {};
     if(bytes.toBase64Encoding()!=text.substring(65)) return {};
     if(juce::SHA256(bytes.getData(),bytes.getSize()).toHexString()!=text.substring(0,64)) return {};
     juce::MemoryInputStream in(bytes,false);
-    if(in.readInt()!=0x41435031) return {};
+    const auto schema=in.readInt();
+    if(schema!=0x41435031 && schema!=0x41435032) return {};
+    if(schema==0x41435031 && (text.length()>256*1024 || bytes.getSize()>192*1024)) return {};
     auto d=std::make_shared<ACaptureData>(); d->id=in.readString(); d->receiver=in.readString(); d->verifiedWork=in.readString();
     d->created=in.readInt64(); d->hostStart=in.readInt64(); d->frames=std::uint64_t(in.readInt64());
     d->hop=std::uint64_t(in.readInt64()); d->rate=in.readInt(); d->channels=in.readInt(); d->clockSource=in.readInt();
@@ -72,7 +76,7 @@ std::shared_ptr<const ACaptureData> decodeACapture(const juce::String& text)
     if(d->id.length()!=36 || juce::Uuid(d->id).isNull() || d->verifiedWork.length()>160 || d->clockSource<0 || d->clockSource>8 || d->receiver.length()>160 || d->rate<8000 || d->rate>768000 || d->channels<1 || d->channels>2
         || d->frames<1 || d->frames>std::uint64_t(d->rate)*7200 || d->hop<1 || d->hop>d->frames+std::uint64_t(d->rate)*128
         || d->hostStart < -limit || d->hostStart>limit || count<1 || count>2048
-        || in.getNumBytesRemaining()!=juce::int64(count)*80 || !std::isfinite(d->maximumTruePeak) || d->maximumTruePeak<0) return {};
+        || in.getNumBytesRemaining()<juce::int64(count)*80 || !std::isfinite(d->maximumTruePeak) || d->maximumTruePeak<0) return {};
     std::uint64_t end=0;
     for(int i=0;i<count;++i)
     {
@@ -86,7 +90,7 @@ std::shared_ptr<const ACaptureData> decodeACapture(const juce::String& text)
             || bin.value.rms[c]<0 || bin.value.peak[c]<bin.value.rms[c]-1e-7) return {};
         end+=bin.value.frames; d->bins.push_back(bin);
     }
-    if(end!=d->frames || !in.isExhausted()) return {};
+    if(end!=d->frames || (schema==0x41435032 ? !readCaptureEvidence(in,*d) : !in.isExhausted())) return {};
     if(!d->complete) d->integrated=std::numeric_limits<double>::quiet_NaN();
     d->restored=true; d->revision=1; return d;
 }

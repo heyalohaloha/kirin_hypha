@@ -44,6 +44,7 @@ VisualBinding RuntimeV2Controller::visualBinding() const
             && std::isfinite (result.gainDb);
         if (!std::isfinite (result.gainDb)) result.gainDb = 0.0;
     }
+    result.captureEvidence = !result.hidden ? publishedCaptureEvidence : nullptr;
     result.key += ":gain:" + juce::String (result.gainDb, 9);
     return result;
 }

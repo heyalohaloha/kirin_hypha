@@ -39,7 +39,7 @@ public:
     void endBlind() noexcept;
     void suspendAudition() noexcept;
     void observeTransport (std::int64_t, bool, bool) noexcept;
-    void observeAInput (const juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool, int clock = 0, std::optional<bool> captureAllowed = {}) noexcept;
+    void observeAInput (const juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool, int clock = 0, std::optional<bool> captureAllowed = {}, CaptureClockSignature = {}) noexcept;
     bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool) noexcept;
 
 private:

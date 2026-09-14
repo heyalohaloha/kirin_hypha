@@ -208,7 +208,12 @@ namespace hypha::reference_audition
         int offset = 0;
         if (! collecting && ! complete)
         {
-            while (offset < block.frames)
+            if(localObservation && gridEnabled && activeSampleRateHz>0)
+            {
+                const auto remainder=((block.startSample-gridAnchor)%activeSampleRateHz+activeSampleRateHz)%activeSampleRateHz;
+                offset=int(remainder ? std::min<std::int64_t>(block.frames,activeSampleRateHz-remainder) : 0);
+            }
+            while (offset < block.frames && !(localObservation && gridEnabled))
             {
                 bool content = false;
                 for (int channel = 0; channel < activeChannels; ++channel)

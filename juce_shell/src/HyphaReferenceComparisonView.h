@@ -33,7 +33,8 @@ private:
     juce::Image waveformCache;
     juce::Rectangle<float> waveform, graph;
     std::uint64_t cacheRevision = 0;
-    juce::String key;
+    juce::String key, captureId;
+    bool fitCapture = true;
     double position = -1, start = 0, end = 12, dragAnchor = -1, pointedTime = -1;
     bool following = true, showingCrest = false, hidden = false;
     std::shared_ptr<reference_audition::VisualPreferences> preferences;

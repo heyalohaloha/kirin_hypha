@@ -96,7 +96,7 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings() const
     }
     result.check = check.savedChoice();
     result.visualView = visualPreferences->get();
-    result.captureState = capture.access->snapshot().encoded; result.capturedView = capture.access->capturedView;
+    result.captureState = capture.access->store.value().encoded; result.capturedView = capture.access->capturedView;
     result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
     return result;
 }
@@ -145,8 +145,10 @@ Snapshot ReferenceComparisonController::snapshot() const
     if (map.hidden || !map.source || (result.visualTimeline && result.visualTimeline->binding.key != map.key))
         result.visualTimeline.reset();
     result.captureAccess=capture.access;
+    const auto captureState=capture.access->snapshot();
     if(capture.access->capturedView && !trialActive())
-    { result.visualTimeline=captureProjection.snapshot(); result.visualPositionSeconds=result.visualTimeline && result.visualTimeline->capture && map.hostPositionValid
+    { result.visualTimeline=captureProjection.snapshot(); result.visualPositionSeconds=result.visualTimeline && result.visualTimeline->capture && map.hostPositionValid && captureState.timingVerified
+            && captureState.confirmedTimingEpoch==capture.access->currentTimingEpoch.load()
         ? double(map.hostPosition-result.visualTimeline->capture->hostStart)/result.visualTimeline->capture->rate : -1; }
     result.separateComparisons = true;
     result.comparisonSlot = slot;
@@ -253,10 +255,10 @@ void ReferenceComparisonController::observeTransport (std::int64_t position, boo
     check.observeTransport (position, valid, playing);
 }
 void ReferenceComparisonController::observeAInput (const juce::AudioBuffer<float>& buffer,
-    std::int64_t position, bool valid, bool playing, bool allowed, int clock, std::optional<bool> captureAllowed) noexcept
+    std::int64_t position, bool valid, bool playing, bool allowed, int clock, std::optional<bool> captureAllowed, CaptureClockSignature signature) noexcept
 {
     rtInputAllowed = allowed;
-    if(!capture.observe(buffer,position,valid,playing,captureAllowed.value_or(allowed),clock))
+    if(!capture.observe(buffer,position,valid,playing,captureAllowed.value_or(allowed),clock,signature))
         visual.observe (buffer, position, valid && playing && allowed && versionChosen.load (std::memory_order_acquire));
     version.observeAInput (buffer, position, valid, playing, allowed && versionChosen.load (std::memory_order_acquire), false);
     check.observeAInput (buffer, position, valid, playing, allowed, false);

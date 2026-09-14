@@ -51,7 +51,7 @@ struct ReferenceComparisonSettings
                            child->getStringAttribute ("candidate"), child->getStringAttribute ("cue") };
             return choice.valid() ? choice : ReferenceChoice {};
         };
-        if(const auto* captured=xml->getChildByName("ACapture")) { const auto data=captured->getStringAttribute("data"); if(data.length()<=256*1024) result.captureState=data; result.capturedView=captured->getBoolAttribute("shown"); }
+        if(const auto* captured=xml->getChildByName("ACapture")) { const auto data=captured->getStringAttribute("data"); if(data.getNumBytesAsUTF8()<=1024*1024-4096) result.captureState=data; result.capturedView=captured->getBoolAttribute("shown"); }
         result.visualView = VisualViewChoice::read (*xml);
         result.version = readChoice ("B"); result.check = readChoice ("C");
         if (result.version.candidateId.isEmpty()) result.version = {};

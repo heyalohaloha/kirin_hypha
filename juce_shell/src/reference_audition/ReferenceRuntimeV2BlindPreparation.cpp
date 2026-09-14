@@ -69,6 +69,7 @@ namespace hypha::reference_audition
                         || matched.reason == "reference_alignment_timing_changed");
                 const bool calibrationChanged = previous.eligible && matched.established
                     && calibrationObservation.changed (*capturedA, matched.sourceStartSample, selectedSource->audio.sampleRateHz);
+                if(matched.established) serviceCaptureEvidence(*capturedA,*selectedSource,matched);
                 bool prepared = false;
                 if (mappingChanged || calibrationChanged)
                 {

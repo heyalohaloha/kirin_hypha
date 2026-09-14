@@ -1,4 +1,6 @@
-//! Non-RT, single-owner handles; callers serialize create/push/finish/drop.
+#[path = "reference_capture_index_ffi.rs"]
+mod capture_index;
+// Non-RT, single-owner handles; callers serialize create/push/finish/drop.
 use kirin_measure::reference_gain::visual::{VisualAdmission, VisualBin, VisualMeter};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 

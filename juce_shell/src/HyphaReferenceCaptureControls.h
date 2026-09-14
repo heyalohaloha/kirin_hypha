@@ -37,6 +37,11 @@ public:
         const auto data=snapshot.shown;
         const auto seconds=data ? data->duration() : 0;
         status=active ? (armed ? "PLAY" : "CAPTURING") : snapshot.phase==reference_audition::ACapturePhase::partial ? "PARTIAL" : data ? "CAPTURED" : juce::String();
+        const bool differs=std::find(snapshot.unitStatus.begin(),snapshot.unitStatus.end(),std::uint8_t(2))!=snapshot.unitStatus.end();
+        bool currentDifference=false;
+        for(size_t i=0;i<snapshot.unitStatus.size() && i<snapshot.unitPass.size();++i)
+            currentDifference=currentDifference || (snapshot.unitStatus[i]==2 && snapshot.unitPass[i]==snapshot.observationPass);
+        if(!active && differs) status=snapshot.observationFresh && currentDifference && access && snapshot.confirmedTimingEpoch==access->currentTimingEpoch.load() ? "A DIFFERS" : "LAST CHECK: A DIFFERS";
         if(seconds>0) status+="  "+juce::String(int(seconds)/60)+":"+juce::String(int(seconds)%60).paddedLeft('0',2);
         setTitle(concealed ? juce::String() : status);
         setDescription(concealed ? juce::String() : snapshot.message);

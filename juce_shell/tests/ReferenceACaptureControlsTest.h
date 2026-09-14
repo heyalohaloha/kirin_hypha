@@ -1,5 +1,6 @@
 #pragma once
 #include "../src/HyphaReferenceComponent.h"
+#include "../src/HyphaReferenceComparisonView.h"
 #include <iostream>
 namespace hypha::tests
 {
@@ -40,6 +41,20 @@ inline void verifyCaptureControls()
         state.blindPhase=reference_ui::BlindPhase::active; component.setState(state);
         check(!controls->isVisible() && controls->getTitle().isEmpty() && !graph->isVisible(),"Blind hides capture data and accessibility");
         state.blindPhase=reference_ui::BlindPhase::unavailable;
+    }
+    {
+        reference_ui::ComparisonView graph; graph.setSize(600,300);
+        auto small=std::make_shared<reference_audition::VisualTimeline>(*timeline);
+        auto first=std::make_shared<reference_audition::ACaptureData>(*captured); first->frames=4800; first->bins.resize(1);
+        small->capture=first; small->bins.resize(1); graph.update(small,-1,presentation::forEditor(900,600),false);
+        check(std::abs(graph.selectedRange().getEnd()-0.1)<1e-9,"first capture bin fits visible range");
+        graph.update(timeline,-1,presentation::forEditor(900,600),false);
+        check(std::abs(graph.selectedRange().getEnd()-120)<1e-9,"same capture grows to its full duration");
+        graph.keyPressed(juce::KeyPress(juce::KeyPress::leftKey)); const auto manual=graph.selectedRange();
+        auto longer=std::make_shared<reference_audition::VisualTimeline>(*timeline);
+        auto next=std::make_shared<reference_audition::ACaptureData>(*captured); next->frames=48000*180; longer->capture=next;
+        graph.update(longer,-1,presentation::forEditor(900,600),false);
+        check(graph.selectedRange()==manual,"manual range survives continued capture growth");
     }
     access->active=true; held.phase=reference_audition::ACapturePhase::capturing; access->publish(held); component.setState(state);
     auto* controls=component.findChildWithID("capture-a-controls"); auto* finish=dynamic_cast<juce::Button*>(controls->findChildWithID("capture-a-action"));

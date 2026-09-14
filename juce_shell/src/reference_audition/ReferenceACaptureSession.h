@@ -16,10 +16,10 @@ public:
     void setPresented(bool);
     void pauseObservation();
     void useAuditionAdmission(bool);
-    bool observe(const juce::AudioBuffer<float>&,std::int64_t,bool,bool,bool,int) noexcept;
+    bool observe(const juce::AudioBuffer<float>&,std::int64_t,bool,bool,bool,int,CaptureClockSignature = {}) noexcept;
     std::shared_ptr<ACaptureAccess> access = std::make_shared<ACaptureAccess>();
 private:
-    struct Block { std::array<float,512> pcm {}; std::int64_t position=0; int frames=0,channels=0,clock=0; std::uint64_t config=0,epoch=0; };
+    struct Block { std::array<float,512> pcm {}; std::int64_t position=0; int frames=0,channels=0,clock=0; std::uint64_t config=0,epoch=0,timing=0; CaptureClockSignature signature; };
     static constexpr size_t slots=480;
     static_assert(sizeof(Block)*slots<=1024*1024,"Capture and visual queues together remain below 2 MiB");
     std::unique_ptr<std::array<Block,slots>> queue=std::make_unique<std::array<Block,slots>>();
@@ -27,12 +27,18 @@ private:
     std::atomic<std::uint64_t> accepting{0},configuration{0},heartbeat{0};
     std::atomic<int> writers{0},terminal{0};
     std::atomic<bool> started{false};
+    CaptureClockSignature rtSignature;
+    int rtClock=0;
+    std::uint64_t rtTimingEpoch=1;
+    const std::uint64_t runtimeToken=std::uint64_t(juce::Random::getSystemRandom().nextInt64());
     std::function<bool(bool)> gate;
     std::function<ACaptureReceipt()> receipt;
     KirinReferenceVisualAdmission* observationAdmission=nullptr;
     bool presented=false,borrowed=false,paused=false;
     juce::CriticalSection control;
     juce::String receiver, restoreText;
+    std::uint64_t restoreGeneration=0, stateGeneration=0;
+    void serviceRestore();
     bool restorePending=false,restoreShown=true, ownsGate=false, measurementFailed=false;
     int rate=0,channels=0;
     std::uint64_t epoch=0,activeConfig=0,pendingFrames=0,binOffset=0,pendingHash=0;
@@ -42,6 +48,12 @@ private:
     std::shared_ptr<ACaptureData> draft;
     ACaptureState state;
     KirinReferenceVisualMeter* meter=nullptr;
+    KirinReferenceCaptureIndex* captureIndex=nullptr;
+    std::uint64_t unitFrames=0,confirmedTimingEpoch=0;
+    double nextRevisitPublish=0,nextEvidencePoll=0;
+    juce::String lastReceiptCheck;
+    void finishUnit();
+    void stampHeldReceipt();
     void run() override;
     void consumeRevisit(const Block&);
     void prepareObservation();

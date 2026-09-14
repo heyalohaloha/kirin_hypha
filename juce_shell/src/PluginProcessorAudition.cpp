@@ -49,7 +49,8 @@ void KirinHyphaProcessorBase::processComparisonPaths (
     if (role == Role::Post && referenceAuditionController != nullptr)
         referenceAuditionController->observeAInput (
             buffer, clock.positionSamples, clock.hasPosition, clock.playing,
-            ! bypassed && ! nonRealtimeMode && licenseIsOs(), clock.clockSource, !bypassed && !nonRealtimeMode);
+            ! bypassed && ! nonRealtimeMode && licenseIsOs(), clock.clockSource, !bypassed && !nonRealtimeMode,
+            {clock.inputPresentationSamples,clock.outputPresentationSamples,clock.presentationSource,clock.inputPresentationValid,clock.outputPresentationValid});
     // Explicit B is an output-only audition copy. A has already been measured. Offline
     // render, bypass, missing project time, cache miss, and every consumer failure keep A intact.
     if (role == Role::Post && referenceAuditionController != nullptr)

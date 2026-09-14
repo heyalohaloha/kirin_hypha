@@ -31,7 +31,7 @@ void testReferenceACaptureLong()
     const auto state=capture.access->snapshot();
     require(!capture.access->active && state.held && state.held->frames==total,"two-hour limit keeps every accepted frame");
     require(!state.held->complete && state.phase==ref::ACapturePhase::partial,"limit never claims whole-song completion");
-    require(state.held->bins.size()<=2048 && state.encoded.length()<256*1024,"two-hour capture respects bin and state budgets");
+    require(state.held->bins.size()<=2048 && state.encoded.length()<1024*1024,"two-hour capture respects bin and state budgets");
     require(ref::decodeACapture(state.encoded)!=nullptr,"long coarsened snapshot restores");
     std::sort(callbacks.begin(),callbacks.end());
     std::cout<<"Capture A 2h: "<<state.held->frames<<" frames, "<<state.held->bins.size()<<" bins, "<<state.encoded.length()<<" serialized bytes; callback p95 "

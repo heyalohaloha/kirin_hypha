@@ -186,7 +186,11 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceVisualBinding.cpp
     src/reference_audition/ReferenceVisualObservation.cpp
     src/reference_audition/ReferenceACaptureCodec.cpp
+    src/reference_audition/ReferenceACaptureEvidenceCodec.cpp
+    src/reference_audition/ReferenceCaptureEvidence.cpp
+    src/reference_audition/ReferenceRuntimeCaptureEvidence.cpp
     src/reference_audition/ReferenceACaptureSession.cpp
+    src/reference_audition/ReferenceACaptureRestore.cpp
     src/reference_audition/ReferenceACaptureRevisit.cpp
     src/reference_audition/ReferenceACaptureProjection.cpp
     src/reference_audition/ReferenceComparisonCapture.cpp
@@ -805,6 +809,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_a_capture_projection_test.cpp
         tests/reference_a_capture_long_test.cpp
         tests/reference_a_capture_errors_test.cpp
+        tests/reference_capture_evidence_test.cpp
         src/reference_audition/ReferenceBlindSession.cpp
         ${KIRIN_REFERENCE_AUDITION_SOURCES})
     target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE

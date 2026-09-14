@@ -23,15 +23,23 @@ void ACaptureProjection::run()
         const auto state=access->snapshot(); const auto data=state.shown;
         if(!data || data->bins.empty()) { { const juce::ScopedLock lock(mutex); published.reset(); } wait(50); continue; }
         auto map=binding();
-        // A historical pass requires its own same-Work receipt. A newly aligned live A cannot
-        // silently certify an unrelated capture, especially after state restoration/copying.
-        const auto work=map.source ? map.source->sourceIdentityKey.upToFirstOccurrenceOf(":",false,false) : juce::String();
-        const bool related=work.isNotEmpty() && (state.revisitedWork==work || (!data->restored && data->verifiedWork==work));
+        // A historical plot has its own immutable position and gain receipt. Live map/gain
+        // revisions can never move or level the saved pass, including after state restore.
+        const CaptureBindingReceipt* proof=nullptr;
+        if(map.source && !map.hidden) for(const auto& item:data->bindings)
+            if(item.valid() && item.captureId==data->id && item.sourceHash==map.source->sourceFileSha256
+                && item.sourcePcmHash==map.source->sourcePcmSha256 && item.rate==data->rate && item.channels==data->channels) { proof=&item; break; }
         RuntimeV2SourceRepository verifier(juce::File{});
-        map.aligned=map.aligned && !map.hidden && map.source && related && map.hostRate==data->rate
-            && map.channels==data->channels && verifier.verifySourceRevision(*map.source).isEmpty();
-        if(!map.aligned) { map.source.reset(); map.overview.reset(); map.gainDb=0; map.matched=false; }
-        map.key=data->id+":"+(map.aligned ? map.key : juce::String("a-only"));
+        map.aligned=proof && verifier.verifySourceRevision(*map.source).isEmpty();
+        if(map.aligned)
+        {
+            map.hostAnchor=proof->hostAnchor; map.sourceAnchor=proof->sourceAnchor;
+            map.gainDb=proof->gainKnown ? proof->displayGainDb : 0;
+            map.matched=proof->gainKnown && !proof->originalFallback;
+            map.key=data->id+":"+proof->sourceHash+":"+juce::String(proof->revision);
+        }
+        else { map.source.reset(); map.overview.reset(); map.gainDb=0; map.matched=false; map.key=data->id+":a-only"; }
+        map.captureEvidence.reset();
         map.hostRate=data->rate; map.channels=data->channels;
         if(key!=map.key || hop!=data->hop)
         {

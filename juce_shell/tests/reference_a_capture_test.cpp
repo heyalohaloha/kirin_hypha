@@ -3,6 +3,8 @@
 #include "../src/reference_audition/ReferenceACaptureProjection.h"
 #include "reference_whole_song_fixture.h"
 #include "reference_rt_probe.h"
+#include "ReferenceCaptureStoreTest.h"
+#include "ReferenceCaptureStorageBudgetTest.h"
 #include <iostream>
 namespace
 {
@@ -48,6 +50,8 @@ void testReferenceACapture(const juce::File& root)
         for(int f=0;f<4800;++f) { const auto v=fixture.audio.getSample(0,int(i)*4800+f); peak=std::max(peak,std::abs(double(v))); energy+=double(v)*v; }
         require(std::abs(bin.value.peak[0]-peak)<1e-9 && std::abs(bin.value.rms[0]-std::sqrt(energy/4800))<1e-9,"raw independent peak/RMS reference calculation");
     }
+    testCaptureStore(held.held,held.encoded);
+    testCaptureStorageBudget(*held.held);
     const auto restored=ref::decodeACapture(held.encoded);
     require(restored && restored->restored && restored->frames==held.held->frames && restored->bins[0].fingerprint==held.held->bins[0].fingerprint,"bounded snapshot restores history and fingerprints");
     require(held.encoded.length()<256*1024 && !ref::decodeACapture(held.encoded+"x") && !ref::decodeACapture("old state"),"corrupt and old state rejected");
@@ -56,7 +60,7 @@ void testReferenceACapture(const juce::File& root)
     require(merged[0].fingerprint==ref::captureHash(0,pcm.data(),pcm.size()) && merged[0].value.frames==9600,"coarsening retains exact concatenated fingerprint and frames");
     capture.setPresented(true);
     require(waitCapture([&]{return capture.access->analysisAvailable.load();}),"held view admits lightweight revisits");
-    feed(0,3,true);
+    feed(0,12,true);
     require(waitCapture([&]{const auto s=capture.access->snapshot();return s.revisited.size()==40 && s.revisited[1]==2;}),"revisited changed input marked without overwriting captured A");
     require(capture.access->snapshot().held->bins[1].fingerprint==held.held->bins[1].fingerprint,"captured original remains immutable");
     capture.setPresented(false);
@@ -75,10 +79,11 @@ void testReferenceACapture(const juce::File& root)
     require(waitCapture([&]{return capture.access->snapshot().message.contains("unavailable");}),"denied explicit start is visible");
     require(!capture.access->active && owns==0,"denied start cannot consume a hidden slot");
     capture.restore(held.encoded);
+    require(capture.access->store.value().encoded==held.encoded,"immediate host save cannot lose pending capture restoration");
     require(waitCapture([&]{const auto s=capture.access->snapshot();return s.held && s.held->restored;}),"state restoration is worker-owned");
     require(!capture.access->active && owns==0,"restore never starts capture or audio");
     {
-        ref::ACaptureSession reopened([](bool){return true;},[]{return ref::ACaptureReceipt{"revalidated-work",216000,48000,true};});
+        ref::ACaptureSession reopened([](bool){return true;});
         reopened.configure("new-instance-after-host-reopen",48000,2); reopened.restore(held.encoded); reopened.setPresented(true);
         require(waitCapture([&]{return reopened.access->analysisAvailable.load();}),"restored capture can revisit in a newly created instance");
         require(reopened.access->snapshot().revisitedWork.isEmpty(),"restored receiver cannot inherit Work qualification");
@@ -90,9 +95,8 @@ void testReferenceACapture(const juce::File& root)
                 if(pass==0) audio.applyGain(0.5f);
                 reopened.observe(audio,24000+i*4800,true,true,true,1); juce::Thread::sleep(10);
             }
-            require(waitCapture([&]{const auto s=reopened.access->snapshot();return s.revisited.back()==(pass==0 ? 2 : 1);}),"restored revisit compares the full accepted range");
-            require(pass==0 ? reopened.access->snapshot().revisitedWork.isEmpty()
-                : reopened.access->snapshot().revisitedWork=="revalidated-work","only matching input plus a new verified map requalifies the restored Work");
+            require(waitCapture([&]{const auto s=reopened.access->snapshot();return pass==0 ? (!s.unitStatus.empty() && s.unitStatus.back()==3 && !s.timingVerified) : (!s.unitStatus.empty() && s.unitStatus.back()==1 && s.timingVerified);}),"restored revisit compares the full accepted range");
+            require(reopened.access->snapshot().revisitedWork.isEmpty(),"input matching never invents Work or B identity");
         }
     }
     testReferenceACaptureProjection(root,held.held,fixture.source["file"]["revision"]);

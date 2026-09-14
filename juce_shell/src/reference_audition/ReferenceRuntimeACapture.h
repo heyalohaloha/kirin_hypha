@@ -59,6 +59,11 @@ namespace hypha::reference_audition
                       std::int64_t nowMs,
                       const juce::String& localRuntimeId = {});
         void disconnect();
+        void setObservationGrid(bool enabled,std::int64_t anchor)
+        {
+            if(gridEnabled==enabled && gridAnchor==anchor) return;
+            gridEnabled=enabled; gridAnchor=anchor; resetAccumulator(true);
+        }
 
         const std::optional<RuntimeACaptureReceipt>& currentReceipt() const noexcept
         {
@@ -98,6 +103,7 @@ namespace hypha::reference_audition
         std::vector<float> queueSamples;
         std::vector<float> capturedSamples;
         std::atomic<bool> captureEnabled { false };
+        bool gridEnabled=false; std::int64_t gridAnchor=0;
         bool localObservation = false;
         std::atomic<unsigned int> writeSlot { 0 };
         std::atomic<unsigned int> readSlot { 0 };

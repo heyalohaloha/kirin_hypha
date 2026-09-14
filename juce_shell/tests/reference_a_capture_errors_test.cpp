@@ -4,7 +4,7 @@ void testReferenceACaptureErrors();
 void testReferenceACaptureErrors()
 {
     const auto wait=[](const auto& test) {for(int i=0;i<600;++i){if(test())return true;juce::Thread::sleep(5);}return false;};
-    for(int failure=0;failure<7;++failure)
+    for(int failure=0;failure<8;++failure)
     {
         ref::ACaptureSession capture([](bool){return true;});capture.configure("errors",48000,2);
         require(capture.access->request(ref::ACaptureAccess::start),"failure fixture starts");
@@ -20,6 +20,7 @@ void testReferenceACaptureErrors()
             case 3: capture.configure("errors",96000,2);break;
             case 4: audio.setSample(0,0,NAN);capture.observe(audio,8192,true,true,true,1);break;
             case 5: for(int i=1;i<600;++i) capture.observe(audio,std::int64_t(i)*8192,true,true,true,1);break;
+            case 7: capture.observe(audio,8192,true,true,true,1,{64,0,1,true,false});break;
             case 6: { juce::AudioBuffer<float> mono(audio.getArrayOfWritePointers(),1,8192);capture.observe(mono,8192,true,true,true,1);break; }
         }
         require(wait([&]{return !capture.access->active;}),"clock/bypass/rate/nonfinite/overflow/channel failure closes without blocking audio");
@@ -27,6 +28,12 @@ void testReferenceACaptureErrors()
         require(state.phase==ref::ACapturePhase::partial && state.held && !state.held->complete,"failure is partial, never whole-song success");
         require(state.held->frames>=8192 && std::isnan(state.held->integrated) && state.message.isNotEmpty(),"partial keeps accepted prefix and explicit short notice");
         require(ref::decodeACapture(state.encoded)!=nullptr,"partial summary remains bounded and restorable");
+        if(failure==0) {
+            capture.restore(state.encoded);
+            require(wait([&]{const auto v=capture.access->snapshot();return v.held && v.held->restored;}),"partial restore completes");
+            const auto restored=capture.access->snapshot();
+            require(restored.phase==ref::ACapturePhase::partial && restored.message.isNotEmpty(),"partial and its notice survive restore");
+        }
     }
     {
         ref::ACaptureSession capture([](bool){return true;});capture.configure("tail",48000,1);

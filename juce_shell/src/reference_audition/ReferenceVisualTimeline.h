@@ -22,6 +22,7 @@ struct VisualBinding
     }
     double gainDb = 0.0;
     bool matched = false;
+    std::shared_ptr<const ACaptureReceipt> captureEvidence;
 };
 struct VisualPairBin
 {
