@@ -1,9 +1,13 @@
 # Hypha比較機能 v5実行・検証契約
 
 作成日: 2026-09-14。
-対応: [統合実装計画v5 revision 2](hypha_comparison_integrated_plan_v5_20260914.md)。
+対応: [統合実装計画v5 revision 3](hypha_comparison_integrated_plan_v5_20260914.md)。
 状態: 規範付属書。実装、性能測定、実機受入を完了した記録ではない。
 親計画のID、予算、host matrix、完成状態を使い、別の完成条件を作らない。
+
+[B-890とW-3083の構造修正計画](reference_b890_structural_repair_plan_20260914.md)を今回の補修工程に適用する。
+旧reader互換試験は利用者の指示により対象外とするが、既存原本、保存receipt、機能間の障害分離を維持する。
+本書のB-887との性能比較に加え、補修前のB-890とW-3083からの増分も測り、修復処理による負荷を区別する。
 
 ## 1. 共有責務と先行統合S0
 
