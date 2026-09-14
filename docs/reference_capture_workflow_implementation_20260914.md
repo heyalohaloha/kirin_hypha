@@ -1,7 +1,7 @@
 # Capture A and workflow implementation evidence
 
 Date: 2026-09-14
-Status: In progress. Implements the approved B-879 plan; this is not a release or host-validation claim.
+Status: Implementation and local source/native verification complete. Current-candidate DAW acceptance and Windows physical-unload verification remain pending. This is not a release claim.
 Plan: [Integrated plan](hypha_capture_and_workflow_integrated_plan_20260914.md), [evidence and discovery contract](reference_evidence_and_discovery_contract_20260914.md).
 
 ## B-880: Capture ownership, historical evidence and input observations
@@ -82,13 +82,26 @@ API references: [Microsoft DLL restrictions](https://learn.microsoft.com/en-us/w
 - On macOS, 50 µs sampling of live malloc bytes observed a largest combined increase of 24,066,832 bytes against the two-POST 33,554,432-byte target. This is sampled live heap, not an absolute peak or process RSS claim. The allocator's touched-memory high-water mark also includes retired arenas and is logged separately. Non-macOS runs explicitly skip allocator measurement while retaining capacity/restore/serialization checks.
 - As specified by the original Capture A plan, the existing EBU three-second history/filter is reported separately: approximately 2.39 MB at 48 kHz stereo and 37.00 MB at 768 kHz stereo. The existing gain-analysis frame cap rejects a four-second 768 kHz probe; these changes neither relax that limit nor claim gain calibration at that rate.
 - The macOS loader probe passed 36 guard-drain and close/reopen cycles across three independently loaded modules, with the engine destroyed before each request. Actual image unmapping remains untested on macOS because dyld retains Rust TLV-bearing images.
-- An isolated Windows worktree built the Rust static library and native lifetime probe successfully. Its DLL loading was rejected with Win32 error 4551; actual Windows unload verification remains blocked. No OS security setting, installed plugin or active DAW was changed. The remote worktree is `C:\Users\hello\Dev\kirin_hypha_b883_validation` at B-883 plus the loader diagnostic/UTF-8 test-build changes in B-884.
+- An isolated Windows worktree built the Rust static library and native lifetime probe successfully. Its DLL loading was rejected with Win32 error 4551; Code Integrity events 3033/3077 name the exact test DLL. Actual Windows unload verification remains blocked. Five scanner and three scheduler tests passed on Windows, including pending-demand coalescing, cancellation and eight-slot retention. No OS security setting, installed plugin or active DAW was changed. The remote worktree is `C:\Users\hello\Dev\kirin_hypha_b883_validation` at B-883 plus the loader diagnostic/UTF-8 test-build changes in B-884; the discovery implementation is unchanged in B-884.
 
-Focused logs: `target/b884-gain-test.log`, `target/b884-memory-detail.log`, `target/b883-lifetime-test.log`, `target/b883-windows-validation.log`.
+Focused logs: `target/b884-gain-test.log`, `target/b884-memory-detail.log`, `target/b883-lifetime-test.log`, `target/b883-windows-validation.log`, `target/b884-windows-probe-integrity.log`, `target/b884-windows-focused.log`.
 
-## Remaining work in the same approved task
+## Consolidated baseline and final UI repairs
+
+The complete source baseline was started once. Successful groups were not rerun. Failures were repaired and only their affected targets rerun; unexecuted groups continued from the same script.
+
+- All 23 selected native targets now pass, including the four Blind processor/editor cases, 40 editor-surface scenarios, Reference/Capture, two-slot analysis demand, retirement and maximum memory.
+- The first render run exposed a missing preview-output directory; the test main now creates it before any optional writer runs. The next run exposed the TIME menu arrow's UTF-8 bytes being interpreted as ASCII. Its string construction is corrected. The final all-size render target passes; 600/900 LEVEL and 900 ABC fixtures were inspected. TP values −14.5/−114.5 fit and footer image Capture is absent. The existing chart's NOW cursor is distinct from the removed permanent metric-scope captions.
+- The old source assertion required every PRE name click to open the menu. It now checks the direct-preview route plus painted generation, fresh matching identity and menu fallback, retaining the existing identity/ownership/playback contracts. That complete lifecycle wiring target passes.
+- The platform-gate test now parses the anchored native selection and requires both new lifetime/memory tests, instead of requiring the old last entry to remain last. The affected test passes; the other 140 xtask tests passed in the consolidated run.
+- The shipping Rust measurement/FFI suites and optimized optional-worker budgets pass. Both ignored FFI inventories were measured before execution: parity 20/20 and pairing candidates 6/6 pass. Owned clippy passes with warnings denied. Its two Capture-index style findings were corrected without changing the allowed ranges or format rules; the affected index tests are checked separately.
+- Native/source logs: `target/b884-full-baseline.log`, `target/b884-ui-retry.log`, `target/b884-ui-final.log`, `target/b884-ui-final-detail.log`, `target/b884-baseline-remaining.log`, `target/b884-ffi-remaining.log`. Fresh images: `target/b884-final-ui/`.
+- Remaining-gate evidence: `target/b884-baseline-tail.log`, `target/b884-gate-retry.log`, `target/b884-baseline-final.log`, `target/b885-clippy.log`, `target/b885-index-check.log`. The earlier logs intentionally retain the resolved failures; a failed group is not relabelled as an originally green run.
+
+## Remaining acceptance work
 
 - Maximum summary memory and macOS retirement probes are recorded above; current results do not establish DAW wall-clock latency or all-wrapper peak resident memory.
-- Windows actual module unload remains an external verification blocker (error 4551). H02 and H01/H03–H08 UI work is implemented; final baseline and native cross-feature checks still apply.
-- Consolidate the full Rust/FFI ignored/native baseline once the final implementation is ready. Run new focused tests only for changed or unresolved paths.
-- Record actual Studio One / Pro Tools and Windows verification separately. No new release build, installation, signing, notarization or public distribution has been performed for these changes.
+- Windows actual module unload remains an external verification blocker (error 4551). Verify the same source on a trusted validation runner or with the approved signed development module; do not weaken the machine's Code Integrity policy. The successful Windows unit tests do not replace DLL unloading or DAW validation.
+- The local consolidated source baseline is complete, with focused correction of the failures recorded above. No second full baseline was run. H01–H08 implementation follows the selected narrower H03 layout; direct Keep expansion was not adopted.
+- Record actual Studio One / Pro Tools and Windows verification separately. No new plugin installation, signing, notarization or public distribution has been performed for these changes.
+- The user's absence leaves manual host acceptance pending: long-duration playback, host clock/PDC, complete Version Blind use and sustained CPU/RSS/AAE behavior. Initial-user usability and click-count improvements have not been measured.

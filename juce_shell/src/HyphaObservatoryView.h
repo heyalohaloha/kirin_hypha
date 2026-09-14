@@ -311,7 +311,7 @@ private:
     Button targetButton { {}, false };
     Button deltaButton { hypha::delta(), false };
     Button timeRangeButton { {}, false };
-    Button timeRangeMenuButton { "\xe2\x96\xbe", false };
+    Button timeRangeMenuButton { juce::String::fromUTF8 ("\xe2\x96\xbe"), false };
     Button compactLoudnessButton { {}, false };
     Button compactRangeButton { {}, false };
     Button contextButton { {}, false };

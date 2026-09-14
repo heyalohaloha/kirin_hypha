@@ -57,7 +57,7 @@ impl CaptureIndex {
     }
     pub fn push(&mut self, samples: &[f32]) -> bool {
         if !self.valid
-            || samples.len() % self.channels != 0
+            || !samples.len().is_multiple_of(self.channels)
             || samples.len() / self.channels > (self.target - self.frames) as usize
         {
             self.valid = false;
@@ -120,7 +120,7 @@ impl CaptureIndex {
                 let db = 1000.0 * energy.log10();
                 result.bands[c * 4 + k] = if energy == 0.0 {
                     BAND_SILENT
-                } else if db.is_finite() && db >= -32766.0 && db <= 32767.0 {
+                } else if db.is_finite() && (-32766.0..=32767.0).contains(&db) {
                     db.round() as i16
                 } else {
                     BAND_UNAVAILABLE
