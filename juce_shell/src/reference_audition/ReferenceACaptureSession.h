@@ -9,7 +9,9 @@ namespace hypha::reference_audition
 class ACaptureSession final : private juce::Thread
 {
 public:
-    explicit ACaptureSession(std::function<bool(bool)>, std::function<ACaptureReceipt()> = {}, std::shared_ptr<ReferenceAnalysis> = std::make_shared<ReferenceAnalysis>(), VisualObservation* = nullptr);
+    explicit ACaptureSession(std::function<bool(bool)>, std::function<ACaptureReceipt()> = {},
+                             std::shared_ptr<ReferenceAnalysis> = std::make_shared<ReferenceAnalysis>(),
+                             VisualObservation* = nullptr, juce::File transportRoot = {});
     ~ACaptureSession() override;
     void shutdown();
     static constexpr size_t inputQueueBytes() { return sizeof(Block)*slots; }
@@ -36,6 +38,7 @@ private:
     const std::uint64_t runtimeToken=std::uint64_t(juce::Random::getSystemRandom().nextInt64());
     std::function<bool(bool)> gate;
     std::function<ACaptureReceipt()> receipt;
+    juce::File transportRoot;
     std::shared_ptr<ReferenceAnalysis> analysis;
     ReferenceAnalysis::Lease observationAdmission, captureAdmission;
     VisualObservation* live=nullptr;
@@ -53,6 +56,7 @@ private:
     std::shared_ptr<ACaptureData> draft;
     ACaptureState state;
     KirinReferenceVisualMeter* meter=nullptr;
+    std::unique_ptr<TonalCapture> tonalCapture;
     KirinReferenceCaptureIndex* captureIndex=nullptr;
     std::uint64_t unitFrames=0,confirmedTimingEpoch=0;
     double nextRevisitPublish=0,nextEvidencePoll=0;

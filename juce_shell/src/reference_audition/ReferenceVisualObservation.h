@@ -10,8 +10,10 @@ class VisualObservation final : private juce::Thread
 {
 public:
     using Binding = std::function<VisualBinding()>;
-    explicit VisualObservation (Binding, std::shared_ptr<ReferenceAnalysis> = std::make_shared<ReferenceAnalysis>());
+    explicit VisualObservation (Binding, std::shared_ptr<ReferenceAnalysis> = std::make_shared<ReferenceAnalysis>(),
+                                juce::File runtimeRoot = {});
     ~VisualObservation() override;
+    void configure (double sampleRate, int channels);
     void setPresented (bool);
     static constexpr size_t inputQueueBytes() { return sizeof(Block)*queueSize; }
     bool pendingInput() const noexcept { return readIndex.load()!=writeIndex.load(); }
@@ -38,8 +40,10 @@ private:
     std::uint64_t rtDiscontinuity = 0;
     mutable juce::CriticalSection controlLock, snapshotLock;
     bool presented = false, paused = false;
+    int configuredRate = 0, configuredChannels = 0;
     std::shared_ptr<ReferenceAnalysis> analysis;
     ReferenceAnalysis::Lease admission;
+    ReferenceTonalRepository tonalRepository;
     Binding binding;
     VisualTimeline timeline;
     std::shared_ptr<const VisualTimeline> published;
@@ -49,13 +53,19 @@ private:
     std::array<float, 512> bPcm {};
     KirinReferenceVisualMeter* aMeter = nullptr;
     KirinReferenceVisualMeter* bMeter = nullptr;
+    KirinReferenceTonalMeter* tonalMeter = nullptr;
     std::int64_t expected = -1;
+    std::int64_t tonalExpected = -1;
     std::uint64_t previousDiscontinuity = 0;
+    std::uint64_t tonalDiscontinuity = 0;
     bool completeBin = false, measuring = false, dirty = true;
     void run() override;
     void clearMeters();
+    void clearTonal();
     bool resetMeters();
-    void consume (const Block&);
+    bool resetTonal();
+    void consumePair (const Block&);
+    void consumeTonal (const Block&);
     void publish();
 };
 }

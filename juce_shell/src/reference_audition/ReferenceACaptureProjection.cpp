@@ -1,10 +1,17 @@
 #include "kirin_hypha_reference_capture_ffi.h"
 #include "ReferenceACaptureProjection.h"
+#include "ReferenceCaptureTonalStore.h"
 #include "ReferenceVisualAudio.h"
 namespace hypha::reference_audition
 {
-ACaptureProjection::ACaptureProjection(std::shared_ptr<ACaptureAccess> value,std::function<VisualBinding()> provider,std::shared_ptr<ReferenceAnalysis> owner)
-    :juce::Thread("Captured A comparison"),analysis(std::move(owner)),access(std::move(value)),binding(std::move(provider))
+ACaptureProjection::ACaptureProjection(std::shared_ptr<ACaptureAccess> value,
+    std::function<VisualBinding()> provider,std::shared_ptr<ReferenceAnalysis> owner,
+    std::function<TonalDisplayState()> tonalProvider,juce::File root,
+    std::function<VisualBinding()> referenceProvider)
+    :juce::Thread("Captured A comparison"),analysis(std::move(owner)),access(std::move(value)),
+      binding(std::move(provider)),tonalSelection(std::move(tonalProvider)),
+      tonalReferenceBinding(std::move(referenceProvider)),transportRoot(std::move(root)),
+      tonalRepository(transportRoot)
 { startThread(juce::Thread::Priority::low); }
 ACaptureProjection::~ACaptureProjection() { signalThreadShouldExit(); notify(); stopThread(-1); }
 std::shared_ptr<const VisualTimeline> ACaptureProjection::snapshot() const
@@ -14,9 +21,10 @@ void ACaptureProjection::run()
     juce::AudioFormatManager formats; formats.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> reader;
     juce::AudioBuffer<float> audio,scratch; std::array<float,16384> pcm{};
-    VisualTimeline result; juce::String key; std::uint64_t hop=0,revision=0; size_t index=0;
+    VisualTimeline result; juce::String key,tonalKey,referenceTonalKey;
+    std::uint64_t hop=0,revision=0; size_t index=0;
     KirinReferenceVisualMeter* meter=nullptr; std::uint64_t consumed=0;
-    double nextPublish=0; bool dirty=true;
+    double nextPublish=0,nextTonalCheck=0; juce::String tonalPublicationKey; bool dirty=true;
     while(!threadShouldExit())
     {
         if(!presented || !access->capturedView) { wait(100); continue; }
@@ -44,7 +52,8 @@ void ACaptureProjection::run()
         map.hostRate=data->rate; map.channels=data->channels;
         if(key!=map.key || hop!=data->hop)
         {
-            dirty=true; key=map.key; hop=data->hop; index=0; consumed=0;
+            dirty=true; key=map.key; tonalKey={}; referenceTonalKey={};
+            hop=data->hop; index=0; consumed=0;
             result={}; result.binding=map;
             kirin_reference_visual_drop(meter); meter=nullptr; reader.reset();
         }
@@ -55,6 +64,78 @@ void ACaptureProjection::run()
         const bool captureChanged=result.capture!=data;
         dirty=dirty || captureChanged || result.revisited!=state.revisited;
         result.capture=data; result.revisited=state.revisited; result.binding=map; result.pass=1;
+        auto tonal=data->tonal;
+        auto selection=tonalSelection ? tonalSelection() : TonalDisplayState{};
+        const bool selectedRange=selection.source==TonalDisplayState::Source::captured
+            &&selection.captureId==data->id&&selection.artifactSha256==data->tonal.artifactSha256
+            &&selection.rangeEnd>selection.rangeStart;
+        const auto first=selectedRange ? std::uint64_t(std::floor(selection.rangeStart*data->rate)) : 0;
+        const auto last=selectedRange ? std::uint64_t(std::ceil(selection.rangeEnd*data->rate)) : data->frames;
+        const auto requestedKey=data->id+":"+data->tonal.artifactSha256+":"
+            +juce::String(first)+":"+juce::String(last);
+        if(requestedKey!=tonalKey)
+        {
+            if(selectedRange)
+                tonal=loadCaptureTonalArtifact(transportRoot,data->tonal,data->id,
+                    std::min(first,data->frames),std::min(last,data->frames),
+                    [this,data,requestedKey]
+                    {
+                        if(threadShouldExit()||!presented||!access->capturedView)return true;
+                        if(!tonalSelection)return false;
+                        const auto current=tonalSelection();
+                        const auto currentFirst=current.rangeEnd>current.rangeStart
+                            ?std::uint64_t(std::floor(current.rangeStart*data->rate)):0;
+                        const auto currentLast=current.rangeEnd>current.rangeStart
+                            ?std::uint64_t(std::ceil(current.rangeEnd*data->rate)):data->frames;
+                        return current.captureId!=data->id
+                            ||current.artifactSha256!=data->tonal.artifactSha256
+                            ||data->id+":"+data->tonal.artifactSha256+":"
+                                +juce::String(currentFirst)+":"+juce::String(currentLast)!=requestedKey;
+                    });
+            if(tonalSelection)
+            {
+                const auto current=tonalSelection();
+                const auto currentFirst=current.rangeEnd>current.rangeStart
+                    ?std::uint64_t(std::floor(current.rangeStart*data->rate)):0;
+                const auto currentLast=current.rangeEnd>current.rangeStart
+                    ?std::uint64_t(std::ceil(current.rangeEnd*data->rate)):data->frames;
+                const auto currentKey=data->id+":"+data->tonal.artifactSha256+":"
+                    +juce::String(currentFirst)+":"+juce::String(currentLast);
+                if(current.captureId!=selection.captureId||current.artifactSha256!=selection.artifactSha256
+                    ||currentKey!=requestedKey) continue;
+            }
+            result.tonalAvailable=tonal.valid();
+            result.tonal={};
+            result.tonalCaptureRange=tonal;
+            if(result.tonalAvailable)
+            {
+                result.tonal.sample_rate=std::uint32_t(tonal.sampleRate);
+                result.tonal.channels=std::uint32_t(tonal.channels);
+                result.tonal.frames_seen=tonal.frames;
+                result.tonal.valid_bits=tonal.validBits;
+                std::copy(tonal.median.begin(),tonal.median.end(),result.tonal.values_db);
+            }
+            tonalKey=requestedKey; dirty=true;
+        }
+        if(tonalReferenceBinding)
+        {
+            const auto tonalMap=tonalReferenceBinding();
+            const auto tonalNow=juce::Time::getMillisecondCounterHiRes();
+            if(tonalNow>=nextTonalCheck)
+            { tonalPublicationKey=tonalRepository.publicationKey(); nextTonalCheck=tonalNow+1000.0; }
+            const auto nextReferenceKey=tonalMap.key+":"+juce::String(tonalMap.cueStartSample)
+                +":"+juce::String(tonalMap.cueEndSample)+":"+tonalPublicationKey;
+            if(nextReferenceKey!=referenceTonalKey)
+            {
+                result.tonalReference=!tonalMap.hidden&&tonalMap.source
+                    ?tonalRepository.load(*tonalMap.source,tonalMap.cueStartSample,tonalMap.cueEndSample)
+                    :nullptr;
+                result.tonalGenre=!tonalMap.hidden
+                    ?tonalRepository.loadGenre(tonalMap.presetId,tonalMap.presetRevisionId,tonalMap.checkId)
+                    :nullptr;
+                referenceTonalKey=nextReferenceKey;dirty=true;
+            }
+        }
         result.bins.resize(data->bins.size());
         if(captureChanged) for(size_t i=0;i<data->bins.size();++i) { result.bins[i].a=data->bins[i].value; result.bins[i].pass=1; }
         if(map.aligned && reader && meter && index<data->bins.size() && job)

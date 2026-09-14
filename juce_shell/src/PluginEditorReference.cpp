@@ -1,10 +1,10 @@
 #include "PluginEditor.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
+#include <algorithm>
 #include <cmath>
 #include <iterator>
 #include "HyphaUpdateContract.h"
 #include "reference_audition/ReferenceRuntimePresetOptions.h"
-
 namespace
 {
 hypha::reference_ui::Readiness referenceReadiness (
@@ -22,14 +22,12 @@ hypha::reference_ui::Readiness referenceReadiness (
     }
     return Output::disconnected;
 }
-
 juce::String sourceLabel (const juce::String& kind)
 {
     if (kind == "work_version") return "WORK VERSION";
     if (kind == "catalog_track" || kind == "catalog") return "CATALOG";
     return "KIRIN OS";
 }
-
 juce::String rejectedStatus (const juce::String& code)
 {
     if (code == "source_changed") return "SOURCE CHANGED / PREPARE AGAIN IN KIRIN OS";
@@ -42,7 +40,6 @@ juce::String rejectedStatus (const juce::String& code)
         return "SOURCE FORMAT CHANGED / VERIFY IN KIRIN OS";
     return "PREPARE AGAIN IN KIRIN OS";
 }
-
 std::vector<hypha::reference_ui::SelectionOption> selectionOptions (
     const std::vector<hypha::reference_audition::RuntimeSelectionOption>& input)
 {
@@ -52,7 +49,6 @@ std::vector<hypha::reference_ui::SelectionOption> selectionOptions (
         item.id, item.label + (item.requiresPreparation ? "  /  PREPARE" : "") });
     return output;
 }
-
 hypha::reference_ui::BlindPhase referenceBlindPhase (
     hypha::reference_audition::BlindPhase phase,
     bool available) noexcept
@@ -70,7 +66,6 @@ hypha::reference_ui::BlindPhase referenceBlindPhase (
     return Output::unavailable;
 }
 }
-
 void KirinHyphaEditor::configureReferenceAudition()
 {
     referenceAccessView.onAbout = [this] { showReferenceInformationMenu(); };
@@ -96,8 +91,7 @@ void KirinHyphaEditor::configureReferenceAudition()
         if (! processorRef.selectReferenceC (state.aIntegratedLoudness, state.aMaximumTruePeakDbtp))
             showToast ("Reference C is not ready");
     };
-    referenceView.onSelectVersion = [this] (const juce::String& id)
-    { if (! processorRef.selectReferenceVersion (id)) showToast ("Version selection was not changed"); };
+    referenceView.onSelectVersion = [this](const juce::String& id){if(!processorRef.selectReferenceVersion(id))showToast("Version selection was not changed");};
     referenceView.onSelectPreset = [this] (const juce::String& id)
     {
         if (! processorRef.selectReferencePreset (id))
@@ -158,9 +152,16 @@ void KirinHyphaEditor::configureReferenceAudition()
             showToast ("Blind Compare could not be revealed");
     };
     referenceView.onEndBlind = [this] { processorRef.endReferenceBlind(); };
+    referenceView.onStartReview=[this]{if(!processorRef.startLatestReferenceReview())showToast("Today's review is unavailable");};
+    referenceView.onStartBookmark=[this]{if(!processorRef.startLatestReferenceBookmark())showToast("Bookmark is unavailable");};
+    referenceView.onWorkflowBack=[this]{if(!processorRef.moveReferenceWorkflow(-1,false,false))showToast("Previous item is unavailable");};
+    referenceView.onWorkflowConfirmed=[this]{if(!processorRef.moveReferenceWorkflow(1,true,false))showToast("Next item is unavailable");};
+    referenceView.onWorkflowDeferred=[this]{if(!processorRef.moveReferenceWorkflow(1,false,true))showToast("Next item is unavailable");};
+    referenceView.onWorkflowEnd=[this]{processorRef.endReferenceWorkflow();};
+    referenceView.onCapturedTonalRange=[this](double start,double end)
+    {processorRef.setReferenceCaptureTonalRange(start,end);};
     scaleRoot.addChildComponent (referenceView); scaleRoot.addChildComponent(captureStatus);
 }
-
 void KirinHyphaEditor::layoutReferenceAudition (juce::Rectangle<int> body)
 {
     // A selected domain survives VU/Blind replacement, but does not own the visible surface.
@@ -177,7 +178,6 @@ void KirinHyphaEditor::layoutReferenceAudition (juce::Rectangle<int> body)
     if (referenceAccessView.isVisible()) referenceAccessView.toFront (false);
     layoutLocalBlindProduct(); refreshCaptureControls();
 }
-
 void KirinHyphaEditor::showReferenceInformationMenu()
 {
     if (informationBlockedByBlind()) return;
@@ -203,7 +203,6 @@ void KirinHyphaEditor::showReferenceInformationMenu()
         .withDeletionCheck (*this).withMinimumWidth (360).withStandardItemHeight (28),
         [safe] (int selected) { if (safe != nullptr) safe->handleInformationMenu (selected); });
 }
-
 void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& frame,
                                                   bool frameAvailable)
 {
@@ -247,7 +246,6 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.blindReveal = runtime.blindReveal;
     state.blindPaused = runtime.blindPhase == hypha::reference_audition::BlindPhase::active && !runtime.transportPlaying;
     state.blindOutsideSong = runtime.blindPhase == hypha::reference_audition::BlindPhase::active && runtime.transportPlaying && runtime.activeBlindStimulus == 0;
-
     const bool liveA = frameAvailable
         && frame.meter.state != KIRIN_METER_SESSION_EMPTY
         && std::isfinite (frame.meter.lufs_i)
@@ -292,6 +290,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     state.presetSelectionAction = runtime.presetSelectionAction;
     state.candidatePreparationAction = runtime.candidatePreparationAction;
     state.candidatePreparationPending = runtime.candidatePreparationStatus == "pending";
+    state.workflow = runtime.workflow;
     if (observatoryDomain == hypha::observatory::Domain::reference)
     {
         KirinSpectrumView spectrum {};
@@ -303,7 +302,6 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
             state.liveSpectrumMaximumHz = spectrum.max_hz;
         }
     }
-
     if (runtime.bSelected
         || runtime.blindPhase != hypha::reference_audition::BlindPhase::inactive)
     {
@@ -313,7 +311,6 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         state.truePeakDeltaBMinusA = runtime.truePeakDeltaBMinusA;
         state.appliedGainDb = runtime.appliedGainDb;
     }
-
     using Runtime = hypha::reference_audition::RuntimeState;
     using Access = hypha::os_access::State;
     if (runtime.blindPhase == hypha::reference_audition::BlindPhase::invalidated)
@@ -492,9 +489,12 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
     else if (connected && runtime.state == Runtime::ready
              && ! runtime.measurementAvailable && ! runtime.viewBindings.empty())
         state.actionText = "PREPARE VISUALS";
+    else if (connected && runtime.state == Runtime::ready
+             && std::find (runtime.viewBindings.begin(), runtime.viewBindings.end(), "tonal_balance")
+                    != runtime.viewBindings.end())
+        state.actionText = "EDIT GENRE";
     referenceView.setState (std::move (state));
     referenceAccessView.setOwned (processorRef.licenseIsOs());
     layoutReferenceAudition (referenceView.getBounds());
 }
-
 #endif

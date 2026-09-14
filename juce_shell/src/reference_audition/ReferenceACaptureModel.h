@@ -8,6 +8,7 @@
 #include "ReferenceACaptureStore.h"
 #include "ReferenceCaptureEvidence.h"
 #include "ReferenceCaptureOperation.h"
+#include "ReferenceTonalCapture.h"
 namespace hypha::reference_audition
 {
 enum class ACapturePhase { idle, armed, capturing, finalizing, held, partial };
@@ -20,6 +21,7 @@ struct ACaptureData
     int rate = 0, channels = 0, clockSource = 0;
     bool complete = false, restored = false;
     double integrated = std::numeric_limits<double>::quiet_NaN(), maximumTruePeak = 0;
+    CaptureTonalSummary tonal;
     std::vector<ACaptureBin> bins;
     std::vector<KirinReferenceCaptureUnit> units;
     std::vector<CaptureBindingReceipt> bindings;

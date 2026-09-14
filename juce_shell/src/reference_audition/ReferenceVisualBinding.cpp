@@ -10,8 +10,19 @@ VisualBinding RuntimeV2Controller::visualBinding() const
     result.hidden = calibration.phase != BlindPhase::inactive;
     result.source = ready.load (std::memory_order_acquire) ? publishedSource : nullptr;
     result.overview = result.source ? currentSnapshot.detailedMeasurement : nullptr;
+    result.presetId = currentSnapshot.presetId;
+    result.checkId = currentSnapshot.checkId;
+    if (workspace)
+        for (const auto& preset : workspace->presets)
+            if (preset.sourcePresetArtifact.presetId == result.presetId)
+            {
+                result.presetRevisionId = preset.sourcePresetArtifact.revisionId;
+                break;
+            }
     result.hostRate = static_cast<std::int64_t> (std::llround (requestedConfiguration.sampleRate));
     result.channels = requestedConfiguration.channels;
+    result.cueStartSample = cueStart.load (std::memory_order_acquire);
+    result.cueEndSample = cueEnd.load (std::memory_order_acquire);
     const auto generation = mappingGeneration.load (std::memory_order_acquire);
     result.hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
     result.sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
@@ -22,7 +33,9 @@ VisualBinding RuntimeV2Controller::visualBinding() const
         ? latestHostPosition.load (std::memory_order_acquire) : -1;
     if (result.source)
         result.key = result.source->sourceFileSha256 + ":" + juce::String (requestedConfiguration.generation)
-            + ":" + juce::String (generation) + ":" + juce::String (calibration.pairedLoudnessDeltaDb, 9);
+            + ":" + juce::String (generation) + ":" + juce::String (calibration.pairedLoudnessDeltaDb, 9)
+            + ":cue:" + juce::String (result.cueStartSample) + ":" + juce::String (result.cueEndSample);
+    result.key += ":selection:" + result.presetId + ":" + result.presetRevisionId + ":" + result.checkId;
     if (result.aligned)
     {
         result.gainDb = calibration.pairedLoudnessDeltaDb;

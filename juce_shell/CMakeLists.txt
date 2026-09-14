@@ -155,6 +155,9 @@ target_compile_definitions(KirinHyphaData INTERFACE
     KIRIN_HYPHA_KIMERA_EMBEDDED=${KIRIN_HYPHA_KIMERA_EMBEDDED})
 set(KIRIN_HYPHA_WIDGETS_SOURCE src/HyphaWidgets.cpp)
 set(KIRIN_REFERENCE_AUDITION_SOURCES
+    src/reference_audition/ReferencePersistedState.cpp
+    src/reference_audition/ReferenceWorkflowRepository.cpp
+    src/reference_audition/ReferenceWorkflowStorage.cpp
     src/reference_audition/ReferenceAudioPages.cpp
     src/reference_audition/ReferenceAudioPageRender.cpp
     src/reference_audition/ReferenceAuditionController.cpp
@@ -176,6 +179,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
     src/reference_audition/ReferenceComparisonController.cpp
+    src/reference_audition/ReferenceComparisonWorkflow.cpp
     src/reference_audition/ReferenceRuntimeVersionSelection.cpp
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
     src/reference_audition/ReferenceRuntimeV2CandidatePreparation.cpp
@@ -185,6 +189,10 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceVisualAudio.cpp
     src/reference_audition/ReferenceVisualBinding.cpp
     src/reference_audition/ReferenceVisualObservation.cpp
+    src/reference_audition/ReferenceTonalRepository.cpp
+    src/reference_audition/ReferenceTonalCapture.cpp
+    src/reference_audition/ReferenceTonalSummary.cpp
+    src/reference_audition/ReferenceCaptureTonalStore.cpp
     src/reference_audition/ReferenceACaptureCodec.cpp
     src/reference_audition/ReferenceACaptureEvidenceCodec.cpp
     src/reference_audition/ReferenceCaptureEvidence.cpp
@@ -358,6 +366,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaReferenceControls.cpp
             src/HyphaReferenceMetricPainter.cpp
             src/HyphaReferenceVisuals.cpp
+            src/HyphaReferenceTonalView.cpp
             src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp
             src/HyphaSpectrumComponent.cpp
@@ -507,8 +516,10 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
+        src/HyphaReferenceTonalView.cpp
         src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp
+        src/reference_audition/ReferenceTonalSummary.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
@@ -615,6 +626,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
+        src/HyphaReferenceTonalView.cpp
         src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp
         src/PostControls.cpp
@@ -808,6 +820,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_real_content_alignment_test.cpp
         tests/reference_rt_probe.cpp
         tests/reference_visual_test.cpp
+        tests/reference_tonal_repository_test.cpp
+        tests/reference_workflow_test.cpp
         tests/reference_a_capture_test.cpp
         tests/reference_a_capture_projection_test.cpp
         tests/reference_a_capture_long_test.cpp
@@ -866,6 +880,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
     target_sources(KirinReferenceAuditionComponentTests PRIVATE
         tests/reference_audition_component_test_main.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
+        tests/ReferenceTonalViewContractTest.cpp
+        src/reference_audition/ReferenceTonalSummary.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
@@ -873,6 +889,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
+        src/HyphaReferenceTonalView.cpp
         src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp
         src/HyphaObservatoryButton.cpp

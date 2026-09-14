@@ -133,6 +133,7 @@ namespace hypha::reference_audition
             serviceLibraryRecovery();
             servicePresetSelectionAcknowledgement();
             serviceCandidatePreparationAcknowledgement();
+            serviceWorkflowEvents (juce::Time::currentTimeMillis());
             const auto currentTransportHeartbeat = transportHeartbeat.load (
                 std::memory_order_acquire);
             if (! blind.auditioning())
@@ -163,6 +164,13 @@ namespace hypha::reference_audition
             }
             if (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0)
             {
+                if (! versionComparison)
+                {
+                    auto nextCatalog = workflowRepository.refresh (workflowCatalog);
+                    const juce::ScopedLock lock (stateLock);
+                    workflowCatalog = std::move (nextCatalog);
+                    currentSnapshot.workflowCatalog = workflowCatalog;
+                }
                 refreshWorkspace (configuration, juce::Time::currentTimeMillis());
                 untilPoll = workspacePolls;
             }

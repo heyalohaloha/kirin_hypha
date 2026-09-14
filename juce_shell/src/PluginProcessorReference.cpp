@@ -142,6 +142,56 @@ bool KirinHyphaProcessorBase::selectReferenceCue (const juce::String& id)
    #endif
 }
 
+bool KirinHyphaProcessorBase::startLatestReferenceReview()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->startLatestReview();
+   #else
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::startLatestReferenceBookmark()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->startLatestBookmark();
+   #else
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::moveReferenceWorkflow (
+    int direction, bool confirmed, bool deferred)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->moveWorkflow (direction, confirmed, deferred);
+   #else
+    juce::ignoreUnused (direction, confirmed, deferred);
+    return false;
+   #endif
+}
+
+void KirinHyphaProcessorBase::endReferenceWorkflow()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController != nullptr) referenceAuditionController->endWorkflow();
+   #endif
+}
+
+void KirinHyphaProcessorBase::setReferenceCaptureTonalRange (
+    double startSeconds, double endSeconds)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController != nullptr)
+        referenceAuditionController->setCaptureTonalRange (startSeconds, endSeconds);
+   #else
+    juce::ignoreUnused (startSeconds, endSeconds);
+   #endif
+}
+
 bool KirinHyphaProcessorBase::approveReferenceSampleRateConversion()
 {
     refreshLicenseForUserAction();
@@ -282,7 +332,7 @@ void KirinHyphaProcessorBase::createReferenceAuditionController()
         }, [this](bool active) {
             const juce::ScopedLock lock(handleLock);
             return hyphaHandle && kirin_hypha_set_version_blind_capture_exclusion(hyphaHandle,active);
-        });
+        }, [this] { captureStateNotification.changed(); });
 }
 #endif
 

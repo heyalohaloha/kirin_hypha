@@ -93,9 +93,15 @@ void Component::resized()
         }
     }
     area.removeFromTop (panelGap());
+    if (workflowControls.isVisible())
+    {
+        workflowControls.setBounds (area.removeFromTop (workflowControls.preferredHeight()));
+        area.removeFromTop (panelGap());
+    }
     if(captureControls.isVisible()) captureControls.setBounds(area.removeFromTop(captureControls.preferredHeight(area.getWidth())).reduced(0,2));
     auto footer = area.removeFromBottom (detailedLayout() ? 24 : 18);
     comparisonView.setBounds (area);
+    tonalView.setBounds (area);
     if (blindSession)
     {
         const auto placeLeft = [&footer] (juce::Component& button, int width)

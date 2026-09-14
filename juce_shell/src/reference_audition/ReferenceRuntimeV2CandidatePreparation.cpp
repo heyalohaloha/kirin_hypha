@@ -170,6 +170,8 @@ namespace hypha::reference_audition
                 requestedSelection.candidateId = prepared.candidateId;
                 requestedSelection.cueId.clear();
                 requestedSelection.sampleRateApprovalKey.clear();
+                requestedSelection.workflowCondition.reset();
+                requestedSelection.workflowToken.clear();
                 ++requestedSelection.generation;
                 currentSnapshot.candidatePreparationStatus = "prepared";
                 currentSnapshot.candidatePreparationAction.clear();

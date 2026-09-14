@@ -5,6 +5,7 @@
 #include "ReferenceSelectionWorkflowTest.h"
 #include "MetricPresentationWorkflowTest.h"
 #include "PairPreviewUiContractTest.h"
+#include "ReferenceTonalViewContractTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -89,6 +90,7 @@ reference_ui::State readyState()
 void verifyReferenceAuditionComponentContract()
 {
     verifyReferenceVisualComparison(); verifyCaptureControls();
+    KIRIN_REF_REQUIRE (verifyReferenceTonalViewContract());
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_VISUAL_ONLY", {}) == "1") return;
     verifyReferenceDisplayRegression();
     constexpr auto presentationContext = presentation::forEditor (450, 300);

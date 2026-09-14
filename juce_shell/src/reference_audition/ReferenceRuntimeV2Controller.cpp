@@ -25,12 +25,15 @@ namespace hypha::reference_audition
     }
 
     RuntimeV2Controller::RuntimeV2Controller (juce::File transportRootIn,
-                                              SelectionGate selectionGateIn, bool wholeVersionComparison)
+                                              SelectionGate selectionGateIn, bool wholeVersionComparison,
+                                              WorkflowCommitCallback workflowCommitCallbackIn)
         : juce::Thread ("Kirin Reference v2"),
           root (std::move (transportRootIn)),
           versionComparison (wholeVersionComparison),
           selectionGate (std::move (selectionGateIn)),
+          workflowCommitCallback (std::move (workflowCommitCallbackIn)),
           repository (root),
+          workflowRepository (root),
           aBindingRepository (root),
           aCapture (root),
           sourceRepository (root),
@@ -199,6 +202,7 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::publishLocked (Snapshot next)
     {
+        next.workflowCatalog = workflowCatalog;
         next.migratedVersionChoice = legacyVersionChoice;
         next.bSelected = bSelected.load (std::memory_order_acquire);
         if (next.bSelected || blind.ongoing())

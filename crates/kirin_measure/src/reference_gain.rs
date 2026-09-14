@@ -3,6 +3,8 @@
 use ebur128::{EbuR128, Mode};
 #[path = "reference_capture_index.rs"]
 pub mod capture_index;
+#[path = "reference_tonal.rs"]
+pub mod tonal;
 #[path = "reference_visual.rs"]
 pub mod visual;
 

@@ -3,6 +3,7 @@
 #include "ReferenceACaptureModel.h"
 #include <limits>
 #include "ReferenceRuntimeV2Measurement.h"
+#include "ReferenceTonalRepository.h"
 #include "kirin_hypha_reference_visual_ffi.h"
 namespace hypha::reference_audition
 {
@@ -10,7 +11,7 @@ struct VisualBinding
 {
     std::shared_ptr<const RuntimeSource> source;
     std::shared_ptr<const RuntimeDetailedMeasurement> overview;
-    juce::String key;
+    juce::String key, presetId, presetRevisionId, checkId;
     std::int64_t hostRate = 0, hostAnchor = 0, sourceAnchor = 0, hostPosition = -1;
     int channels = 0;
     bool aligned = false, hidden = false, hostPositionValid = false;
@@ -23,6 +24,7 @@ struct VisualBinding
     double gainDb = 0.0;
     bool matched = false;
     std::shared_ptr<const ACaptureReceipt> captureEvidence;
+    std::int64_t cueStartSample = 0, cueEndSample = 0;
 };
 struct VisualPairBin
 {
@@ -35,9 +37,13 @@ struct VisualTimeline
     std::shared_ptr<const ACaptureData> capture;
     std::vector<std::uint8_t> revisited;
     std::vector<VisualPairBin> bins;
+    KirinReferenceTonalSnapshot tonal {};
+    CaptureTonalSummary tonalCaptureRange;
+    std::shared_ptr<const ReferenceTonalCurve> tonalReference;
+    std::shared_ptr<const ReferenceTonalCurve> tonalGenre;
     std::int64_t hop = 0;
     std::uint64_t pass = 0, revision = 0;
-    bool observing = false;
+    bool observing = false, pairedObserving = false, tonalAvailable = false;
     static std::int64_t outputSample (std::int64_t source, std::int64_t sourceRate, std::int64_t hostRate) noexcept
     {
         if (source < 0 || sourceRate < 8000 || sourceRate > 768000 || hostRate < 8000 || hostRate > 768000) return -1;

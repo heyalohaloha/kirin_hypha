@@ -3,13 +3,25 @@
 #include <cmath>
 namespace hypha::reference_audition
 {
-VisualObservation::VisualObservation (Binding callback, std::shared_ptr<ReferenceAnalysis> owner)
-    : juce::Thread ("Reference view"), analysis(std::move(owner)), binding (std::move (callback))
+VisualObservation::VisualObservation (Binding callback, std::shared_ptr<ReferenceAnalysis> owner,
+                                      juce::File runtimeRoot)
+    : juce::Thread ("Reference view"), analysis(std::move(owner)),
+      tonalRepository (std::move (runtimeRoot)), binding (std::move (callback))
 { formats.registerBasicFormats(); startThread (juce::Thread::Priority::low); }
 VisualObservation::~VisualObservation()
 {
     setPresented (false); signalThreadShouldExit(); notify(); stopThread (-1);
-    clearMeters(); admission.reset();
+    clearMeters(); clearTonal(); admission.reset();
+}
+void VisualObservation::configure (double sampleRate, int channels)
+{
+    const int rate = std::isfinite (sampleRate) && sampleRate >= 8000.0 && sampleRate <= 768000.0
+        ? int (std::llround (sampleRate)) : 0;
+    const juce::ScopedLock lock (controlLock);
+    if (configuredRate == rate && configuredChannels == channels) return;
+    accepting.store (false, std::memory_order_release);
+    configuredRate = rate; configuredChannels = channels;
+    generation.fetch_add (1, std::memory_order_acq_rel);
 }
 void VisualObservation::setPresented (bool value)
 {
@@ -55,6 +67,12 @@ void VisualObservation::clearMeters()
     kirin_reference_visual_drop (aMeter); kirin_reference_visual_drop (bMeter);
     aMeter = bMeter = nullptr; expected = -1; completeBin = false; measuring = false;
 }
+void VisualObservation::clearTonal()
+{
+    kirin_reference_tonal_drop (tonalMeter); tonalMeter = nullptr;
+    tonalExpected = -1; tonalDiscontinuity = 0;
+    timeline.tonal = {}; timeline.tonalAvailable = false;
+}
 bool VisualObservation::resetMeters()
 {
     clearMeters(); ++timeline.pass; dirty = true;
@@ -62,7 +80,30 @@ bool VisualObservation::resetMeters()
     bMeter = kirin_reference_visual_create (uint32_t (timeline.binding.hostRate), uint32_t (timeline.binding.channels));
     return aMeter && bMeter;
 }
-void VisualObservation::consume (const Block& block)
+bool VisualObservation::resetTonal()
+{
+    if (! tonalMeter)
+        tonalMeter = kirin_reference_tonal_create (uint32_t (configuredRate), uint32_t (configuredChannels));
+    else if (! kirin_reference_tonal_reset (tonalMeter))
+    { clearTonal(); return false; }
+    timeline.tonal = {}; timeline.tonalAvailable = false; dirty = true;
+    return tonalMeter != nullptr;
+}
+void VisualObservation::consumeTonal (const Block& block)
+{
+    if (block.channels != configuredChannels)
+    { clearTonal(); dirty = true; return; }
+    if (! tonalMeter || block.position != tonalExpected || block.discontinuity != tonalDiscontinuity)
+        if (! resetTonal()) return;
+    tonalDiscontinuity = block.discontinuity;
+    if (! kirin_reference_tonal_push (tonalMeter, block.pcm.data(), size_t (block.frames * block.channels))
+        || ! kirin_reference_tonal_snapshot (tonalMeter, &timeline.tonal))
+    { clearTonal(); dirty = true; return; }
+    tonalExpected = block.position + block.frames;
+    timeline.tonalAvailable = timeline.tonal.valid_bits != 0;
+    dirty = true;
+}
+void VisualObservation::consumePair (const Block& block)
 {
     const auto& map = timeline.binding;
     std::int64_t position = 0;
@@ -108,13 +149,15 @@ void VisualObservation::run()
     juce::String readerKey;
     std::uint64_t workerGeneration = 0;
     double nextRevisionCheck = 0.0; bool sourceUnchanged = false; juce::String checkedKey;
+    double nextTonalCheck = 0.0; juce::String tonalPublicationKey;
     while (!threadShouldExit())
     {
-        bool visible = false;
-        { const juce::ScopedLock lock (controlLock); visible = presented; }
+        bool visible = false; int rate = 0, channels = 0;
+        { const juce::ScopedLock lock (controlLock); visible = presented; rate = configuredRate; channels = configuredChannels; }
         if (!visible)
         {
-            if (timeline.observing) { timeline.observing = false; dirty = true; clearMeters(); }
+            if (timeline.observing || timeline.pairedObserving)
+            { timeline.observing = timeline.pairedObserving = false; dirty = true; clearMeters(); clearTonal(); }
             if (dirty) publish();
             readIndex.store (writeIndex.load (std::memory_order_acquire), std::memory_order_release);
             wait (100); continue;
@@ -131,16 +174,37 @@ void VisualObservation::run()
             checkedKey = next.key; nextRevisionCheck = checkedAt + 100.0;
         }
         next.aligned = next.aligned && sourceUnchanged;
-        bool wanted = false;
+        juce::String observedTonalKey = tonalPublicationKey;
+        bool tonalPublicationChanged = false;
+        if (checkedAt >= nextTonalCheck)
+        {
+            observedTonalKey = tonalRepository.publicationKey();
+            tonalPublicationChanged = observedTonalKey != tonalPublicationKey;
+            nextTonalCheck = checkedAt + 1000.0;
+        }
+        const bool bindingChanged = timeline.binding.key != next.key
+            || timeline.binding.aligned != next.aligned;
+        auto nextTonalReference = timeline.tonalReference;
+        auto nextTonalGenre = timeline.tonalGenre;
+        if (bindingChanged || tonalPublicationChanged)
+        {
+            nextTonalReference = !next.hidden && next.source
+                ? tonalRepository.load (*next.source, next.cueStartSample, next.cueEndSample) : nullptr;
+            nextTonalGenre = !next.hidden
+                ? tonalRepository.loadGenre (next.presetId, next.presetRevisionId, next.checkId) : nullptr;
+        }
+        bool wanted = false, pairWanted = false;
         {
             const juce::ScopedLock lock (controlLock);
             if(requestedGeneration!=generation.load(std::memory_order_acquire)) continue;
-            wanted = presented && !paused && !next.hidden && next.aligned && next.source && next.overview
+            wanted = presented && !paused && rate >= 40000 && rate <= 768000
+                && channels >= 1 && channels <= 2;
+            pairWanted = wanted && !next.hidden && next.aligned && next.source && next.overview
                 && next.overview->waveform && next.hostRate >= 8000 && next.hostRate <= 768000;
-            if (timeline.binding.key != next.key || timeline.binding.aligned != next.aligned)
+            if (bindingChanged)
             {
-                clearMeters(); timeline = {}; timeline.binding = next; dirty = true;
-                generation.fetch_add (1, std::memory_order_acq_rel);
+                clearMeters(); timeline.binding = next; timeline.bins.clear(); timeline.hop = 0;
+                ++timeline.pass; dirty = true;
                 if (next.overview && next.overview->waveform && next.source)
                 {
                     timeline.hop = next.overview->waveform->framesPerBin;
@@ -149,17 +213,25 @@ void VisualObservation::run()
                 }
             }
             else timeline.binding = next;
-            wanted = wanted && !timeline.bins.empty();
+            if (bindingChanged || tonalPublicationChanged)
+            {
+                timeline.tonalReference = std::move (nextTonalReference);
+                timeline.tonalGenre = std::move (nextTonalGenre);
+                tonalPublicationKey = observedTonalKey; dirty = true;
+            }
+            pairWanted = pairWanted && !timeline.bins.empty();
             if (!wanted) admission.reset();
             if(!analysis->current(admission)) admission.reset();
             if(wanted && !admission) admission=analysis->acquire();
             const bool observing = wanted && bool(admission);
             dirty = dirty || timeline.observing != observing;
             timeline.observing = observing;
+            dirty = dirty || timeline.pairedObserving != (pairWanted && observing);
+            timeline.pairedObserving = pairWanted && observing;
             if (accepting.exchange (timeline.observing, std::memory_order_acq_rel) && !timeline.observing)
                 generation.fetch_add (1, std::memory_order_acq_rel);
             if (workerGeneration != generation.load (std::memory_order_acquire))
-            { clearMeters(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
+            { clearMeters(); clearTonal(); ++timeline.pass; dirty = true; workerGeneration = generation.load (std::memory_order_acquire); }
         }
         if(!job) { const juce::ScopedLock lock(controlLock); job=admission; }
         const auto read = readIndex.load (std::memory_order_relaxed);
@@ -170,33 +242,34 @@ void VisualObservation::run()
             bool decoded = false;
             if (timeline.observing && analysis->current(job) && block.generation == epoch)
             {
-                if (readerKey != next.key)
-                { reader.reset (formats.createReaderFor (juce::File (next.source->absolutePath))); readerKey = next.key; }
-                RuntimeV2SourceRepository verifier (juce::File {});
-                std::int64_t position = 0;
-                if (reader && next.mapPosition (block.position, position) && verifier.verifySourceRevision (*next.source).isEmpty())
+                consumeTonal (block);
+                if (timeline.pairedObserving)
                 {
-                    decoded = true;
-                    for (int offset = 0; offset < block.frames && decoded; offset += 256)
+                    if (readerKey != next.key)
+                    { reader.reset (formats.createReaderFor (juce::File (next.source->absolutePath))); readerKey = next.key; }
+                    RuntimeV2SourceRepository verifier (juce::File {});
+                    std::int64_t position = 0;
+                    if (reader && next.mapPosition (block.position, position) && verifier.verifySourceRevision (*next.source).isEmpty())
                     {
-                        const auto frames = juce::jmin (256, block.frames-offset);
-                        decoded = readReferenceVisualAudio (*reader, position+offset, frames, int (next.hostRate),
-                            next.channels, bAudio, scratch, [this, epoch, &job] (const auto& convert) {
-                                const juce::ScopedLock lock (controlLock);
-                                if (!analysis->current(job) || !presented || paused || epoch != generation.load (std::memory_order_acquire)) return false;
-                                convert(); return true;
-                            });
-                        if (decoded) for (int c=0; c<next.channels; ++c) for (int i=0; i<frames; ++i)
-                            bPcm[size_t ((offset+i)*next.channels+c)] = bAudio.getSample (c,i);
+                        decoded = true;
+                        for (int offset = 0; offset < block.frames && decoded; offset += 256)
+                        {
+                            const auto frames = juce::jmin (256, block.frames-offset);
+                            decoded = readReferenceVisualAudio (*reader, position+offset, frames, int (next.hostRate),
+                                next.channels, bAudio, scratch, [this, epoch, &job] (const auto& convert) {
+                                    const juce::ScopedLock lock (controlLock);
+                                    if (!analysis->current(job) || !presented || paused || epoch != generation.load (std::memory_order_acquire)) return false;
+                                    convert(); return true;
+                                });
+                            if (decoded) for (int c=0; c<next.channels; ++c) for (int i=0; i<frames; ++i)
+                                bPcm[size_t ((offset+i)*next.channels+c)] = bAudio.getSample (c,i);
+                        }
+                        decoded = decoded && verifier.verifySourceRevision (*next.source).isEmpty();
                     }
-                    decoded = decoded && verifier.verifySourceRevision (*next.source).isEmpty();
                 }
             }
-            {
-                const juce::ScopedLock lock (controlLock);
-                if (decoded && analysis->current(job) && presented && !paused && block.generation == generation.load (std::memory_order_acquire)) consume (block);
-                else clearMeters();
-            }
+            if (decoded && analysis->current(job) && block.generation == generation.load (std::memory_order_acquire)) consumePair (block);
+            else if (timeline.pairedObserving) clearMeters();
             readIndex.store ((read + 1) % queueSize, std::memory_order_release);
         }
         const auto now = juce::Time::getMillisecondCounterHiRes();

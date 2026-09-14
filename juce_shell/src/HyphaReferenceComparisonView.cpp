@@ -14,6 +14,21 @@ double rms (const KirinReferenceVisualBin& bin, int channels)
 { return std::sqrt ((bin.rms[0]*bin.rms[0] + bin.rms[1]*bin.rms[1]) / channels); }
 juce::String timeText (double seconds)
 { return juce::String (int (seconds) / 60) + ":" + juce::String (int (seconds) % 60).paddedLeft ('0', 2); }
+template <typename Values>
+juce::Path tonalPath(const Values& values,std::uint64_t valid,juce::Rectangle<float> area)
+{
+    juce::Path path;bool open=false;
+    for(size_t band=0;band<60;++band)
+    {
+        if((valid&(std::uint64_t(1)<<band))==0){open=false;continue;}
+        const auto frequency=20.0*std::pow(1000.0,(double(band)+0.5)/60.0);
+        const auto x=area.getX()+float(std::log(frequency/20.0)/std::log(1000.0))*area.getWidth();
+        const auto y=area.getBottom()-float(juce::jlimit(0.0,1.0,(double(values[band])+90.0)/87.0))*area.getHeight();
+        if(open)path.lineTo(x,y);else path.startNewSubPath(x,y);
+        open=true;
+    }
+    return path;
+}
 }
 void ComparisonView::ViewButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 {
@@ -29,11 +44,18 @@ ComparisonView::ComparisonView()
 {
     setComponentID ("reference-comparison-view"); setWantsKeyboardFocus (true);
     setTitle ("A and B comparison. Arrows move the view; Shift and arrows resize it; Home follows playback.");
-    for (auto* button : { &follow, &loudness, &crest }) addAndMakeVisible (*button);
-    follow.setComponentID ("reference-follow"); loudness.setComponentID ("reference-loudness"); crest.setComponentID ("reference-crest");
-    follow.onClick = [this] { fitCapture = false; following = true; saveView(); repaint(); };
-    loudness.onClick = [this] { showingCrest = false; saveView(); repaint(); };
-    crest.onClick = [this] { showingCrest = true; saveView(); repaint(); };
+    for (auto* button : { &follow, &loudness, &crest, &tonal }) addAndMakeVisible (*button);
+    follow.setComponentID ("reference-follow"); loudness.setComponentID ("reference-loudness");
+    crest.setComponentID ("reference-crest"); tonal.setComponentID ("reference-tonal");
+    follow.onClick = [this] {
+        if(data&&data->capture)
+        {fitCapture=true;following=false;setRange(0,data->duration());publishCapturedRange(true);}
+        else {fitCapture=false;following=true;saveView();}
+        repaint();
+    };
+    loudness.onClick = [this] { showingCrest = false; showingTonal=false; saveView(); repaint(); };
+    crest.onClick = [this] { showingCrest = true; showingTonal=false; saveView(); repaint(); };
+    tonal.onClick=[this]{showingTonal=true;repaint();};
 }
 void ComparisonView::update (std::shared_ptr<const reference_audition::VisualTimeline> next,
     double currentPosition, presentation::Context presentation, bool concealed, std::shared_ptr<reference_audition::VisualPreferences> saved)
@@ -43,7 +65,7 @@ void ComparisonView::update (std::shared_ptr<const reference_audition::VisualTim
     data = std::move (next); position = currentPosition;
     const bool sameCapture = data && data->capture && data->capture->id == captureId;
     if (data && data->capture && !sameCapture) { fitCapture = true; captureId = data->capture->id; }
-    if (data && !data->capture) captureId.clear();
+    if (data && !data->capture) {captureId.clear();showingTonal=false;}
     if (data && data->binding.key != key && !sameCapture)
     {
         key = data->binding.key; following = true; start = 0; end = data->capture ? data->duration() : std::min (12.0, data->duration());
@@ -70,6 +92,7 @@ void ComparisonView::update (std::shared_ptr<const reference_audition::VisualTim
         }
     }
     if (data && data->capture && fitCapture) { start = 0; end = data->duration(); }
+    follow.setButtonText(data&&data->capture ? "FULL" : "FOLLOW");
     if (data) key = data->binding.key;
     if (data && following && position >= 0 && position <= data->duration())
         setRange (position - 6.0, position + 6.0);
@@ -88,6 +111,11 @@ void ComparisonView::setRange (double first, double last)
     const double duration = data->duration(), width = juce::jlimit (std::min (1.0, duration), duration, last - first);
     start = juce::jlimit (0.0, duration - width, first); end = start + width;
 }
+void ComparisonView::publishCapturedRange(bool whole)
+{
+    if(data&&data->capture&&onCapturedRange)
+        onCapturedRange(whole ? 0.0 : start,whole ? 0.0 : end);
+}
 void ComparisonView::resized()
 {
     const auto previous = waveform;
@@ -101,7 +129,9 @@ void ComparisonView::resized()
     auto tabs = area.removeFromTop (20);
     loudness.setBounds (tabs.removeFromLeft (84).toNearestInt());
     crest.setBounds (tabs.removeFromLeft (58).toNearestInt());
+    tonal.setBounds(tabs.removeFromLeft(58).toNearestInt());
     loudness.setVisible (detail && !hidden); crest.setVisible (detail && !hidden);
+    tonal.setVisible(detail&&!hidden&&data&&data->capture);
     graph = detail ? area.reduced (15, 3) : juce::Rectangle<float> {};
     if(getHeight()<42) waveform=getLocalBounds().toFloat().reduced(5,1);
     if (previous != waveform) cacheRevision = 0;
@@ -220,8 +250,9 @@ void ComparisonView::paint (juce::Graphics& g)
         { g.setColour (COL_NORMAL); g.drawVerticalLine (int (waveform.getX() + float (position / duration)*waveform.getWidth()), waveform.getY(), waveform.getBottom()); }
     }
     follow.setToggleState (following, juce::dontSendNotification);
-    loudness.setToggleState (!showingCrest, juce::dontSendNotification);
-    crest.setToggleState (showingCrest, juce::dontSendNotification);
+    crest.setToggleState (showingCrest&&!showingTonal, juce::dontSendNotification);
+    loudness.setToggleState (!showingCrest&&!showingTonal, juce::dontSendNotification);
+    tonal.setToggleState(showingTonal,juce::dontSendNotification);
     if (detail) paintDetails (g);
     else if(getHeight()>=42)
     {
@@ -231,6 +262,7 @@ void ComparisonView::paint (juce::Graphics& g)
 }
 void ComparisonView::paintDetails (juce::Graphics& g)
 {
+    if(showingTonal){paintTonalDetails(g);return;}
     const auto time = pointedTime >= 0 ? pointedTime : position;
     g.setColour (COL_TEXT_SECONDARY);
     const auto rangeText = timeText (start) + " - " + timeText (end);
@@ -282,6 +314,48 @@ void ComparisonView::paintDetails (juce::Graphics& g)
     const auto unit = showingCrest ? "TP/RMS  " : "3s  ";
     text_style::drawEllipsized (g, juce::String (unit) + valuesAt (time), graph.toNearestInt().removeFromBottom (18), juce::Justification::centredLeft);
 }
+void ComparisonView::paintTonalDetails(juce::Graphics& g)
+{
+    auto chart=graph;chart.removeFromBottom(18);
+    for(int i=1;i<4;++i)
+    {
+        const auto y=chart.getY()+chart.getHeight()*i/4;
+        g.setColour(COL_MUTED.withAlpha(0.12f));g.drawHorizontalLine(int(y),chart.getX(),chart.getRight());
+    }
+    if(data&&data->tonalReference)
+    {
+        const auto& c=*data->tonalReference;
+        if(!data->tonalGenre)
+        {
+            g.setColour(COL_FLORA.withAlpha(0.20f));
+            g.strokePath(tonalPath(c.p10,c.validBits,chart),juce::PathStrokeType(0.8f));
+            g.strokePath(tonalPath(c.p90,c.validBits,chart),juce::PathStrokeType(0.8f));
+        }
+        g.setColour(COL_FLORA.withAlpha(0.90f));
+        g.strokePath(tonalPath(c.median,c.validBits,chart),juce::PathStrokeType(1.5f));
+    }
+    if(data&&data->tonalGenre)
+    {
+        const auto& genre=*data->tonalGenre;
+        g.setColour(COL_TEXT_TERTIARY.withAlpha(0.34f));
+        g.strokePath(tonalPath(genre.p10,genre.validBits,chart),juce::PathStrokeType(1.0f));
+        g.strokePath(tonalPath(genre.p90,genre.validBits,chart),juce::PathStrokeType(1.0f));
+    }
+    if(data&&data->tonalCaptureRange.valid())
+    {
+        const auto& a=data->tonalCaptureRange;
+        g.setColour(COL_SPECTRUM_DELTA_BR.withAlpha(0.20f));
+        g.strokePath(tonalPath(a.p10,a.validBits,chart),juce::PathStrokeType(0.8f));
+        g.strokePath(tonalPath(a.p90,a.validBits,chart),juce::PathStrokeType(0.8f));
+        g.setColour(COL_SPECTRUM_DELTA_BR.withAlpha(0.95f));
+        g.strokePath(tonalPath(a.median,a.validBits,chart),juce::PathStrokeType(1.5f));
+    }
+    g.setColour(COL_TEXT_SECONDARY);
+    const auto detail=juce::String("A CAPTURE  /  C CUE  /  RELATIVE POWER")
+        +(data&&data->tonalGenre ? "  /  "+data->tonalGenre->displayLabel.toUpperCase() : "");
+    text_style::drawEllipsized(g,detail,
+        graph.toNearestInt().removeFromBottom(18),juce::Justification::centredLeft);
+}
 double ComparisonView::timeAt (float x) const
 { return data && waveform.getWidth() > 0 ? juce::jlimit (0.0, data->duration(), double ((x-waveform.getX())/waveform.getWidth())*data->duration()) : 0; }
 void ComparisonView::mouseDown (const juce::MouseEvent& event)
@@ -294,6 +368,11 @@ void ComparisonView::mouseDrag (const juce::MouseEvent& event)
     if (!hidden && dragAnchor >= 0 && data && event.getDistanceFromDragStart() > 4)
     { const double t = timeAt (event.position.x); setRange (std::min (t, dragAnchor), std::max (t, dragAnchor)); saveView(); repaint(); }
 }
+void ComparisonView::mouseUp (const juce::MouseEvent&)
+{
+    if(dragAnchor>=0)publishCapturedRange(false);
+    dragAnchor=-1;
+}
 void ComparisonView::mouseMove (const juce::MouseEvent& event)
 {
     pointedTime = graph.contains (event.position) && graph.getWidth() > 0
@@ -304,12 +383,18 @@ void ComparisonView::mouseExit (const juce::MouseEvent&) { pointedTime = -1; rep
 bool ComparisonView::keyPressed (const juce::KeyPress& keypress)
 {
     if (hidden || !data) return false;
-    if (keypress.getKeyCode() == juce::KeyPress::homeKey) { fitCapture = false; following = true; saveView(); repaint(); return true; }
+    if (keypress.getKeyCode() == juce::KeyPress::homeKey)
+    {
+        if(data->capture)
+        {fitCapture=true;following=false;setRange(0,data->duration());publishCapturedRange(true);}
+        else {fitCapture=false;following=true;saveView();}
+        repaint();return true;
+    }
     const int direction = keypress.getKeyCode() == juce::KeyPress::leftKey ? -1 : keypress.getKeyCode() == juce::KeyPress::rightKey ? 1 : 0;
     if (!direction) return false;
     fitCapture = false; following = false;
     if (keypress.getModifiers().isShiftDown()) setRange (start, end + direction);
     else setRange (start + direction, end + direction);
-    saveView(); repaint(); return true;
+    saveView(); publishCapturedRange(false); repaint(); return true;
 }
 }

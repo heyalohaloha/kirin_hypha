@@ -12,7 +12,9 @@ class ReferenceComparisonController final
 {
 public:
     using SelectionGate = RuntimeV2Controller::SelectionGate;
-    explicit ReferenceComparisonController (juce::File, SelectionGate = {}, SelectionGate = {}, SelectionGate = {});
+    using StateChanged = std::function<void()>;
+    explicit ReferenceComparisonController (juce::File, SelectionGate = {}, SelectionGate = {},
+                                            SelectionGate = {}, StateChanged = {});
     ~ReferenceComparisonController();
     void setAnalysisOwner(KirinReferenceAnalysisOwner* owner) { analysis->replace(owner); }
     void configure (RuntimeIdentity, double, int);
@@ -29,6 +31,11 @@ public:
     bool retryCandidatePreparation();
     bool approveSampleRateConversion();
     bool requestRecovery();
+    bool startLatestReview();
+    bool startLatestBookmark();
+    bool moveWorkflow (int direction, bool confirmed, bool deferred);
+    void endWorkflow();
+    void setCaptureTonalRange (double startSeconds, double endSeconds);
     bool selectB (double, double) noexcept;
     bool selectC (double, double) noexcept;
     void selectA() noexcept;
@@ -47,6 +54,14 @@ public:
     bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t, bool, bool, bool) noexcept;
 
 private:
+    struct PendingWorkflowTransition
+    {
+        enum class Action { checkpointOnly, move, finish };
+        Action action = Action::checkpointOnly;
+        juce::String operationId;
+        std::shared_ptr<const WorkflowDefinition> definition;
+        int nextIndex = 0;
+    };
     bool admit (int, bool);
     bool admitCapture(bool);
     bool beginBlindGuard();
@@ -55,6 +70,14 @@ private:
     ACaptureReceipt captureReceipt() const;
     RuntimeV2Controller& viewed() noexcept;
     bool trialActive() const;
+    bool startWorkflow (std::shared_ptr<const WorkflowDefinition>, int itemIndex = 0);
+    bool prepareWorkflowItem (const std::shared_ptr<const WorkflowDefinition>&, int);
+    bool appendWorkflowEvent (const juce::String&, const WorkflowItem&,
+                              const std::shared_ptr<const WorkflowDefinition>&,
+                              PendingWorkflowTransition::Action, int nextIndex = 0);
+    void workflowCommitted (const WorkflowEventCommit&);
+    bool finishWorkflow (bool completed);
+    void applyWorkflowFinish();
     SelectionGate gate, captureGate, blindCaptureGate;
     bool captureOwned=false,blindGuardOwned=false,localBlindOwned=false;
     std::uint64_t localBlindEpoch=0;
@@ -64,6 +87,14 @@ private:
     int gateOwners = 0; // Bit mask retains one external admission across overlapping tails.
     mutable juce::CriticalSection selectionLock;
     juce::String versionId, receiverId;
+    TonalDisplayState tonalState;
+    WorkflowResumeState workflowState;
+    std::shared_ptr<const WorkflowDefinition> activeWorkflow;
+    std::optional<PendingWorkflowTransition> pendingWorkflowTransition;
+    ReferenceChoice normalCheckChoice;
+    int workflowItemIndex = 0;
+    StateChanged stateChanged;
+    std::atomic<bool> acceptWorkflowCallbacks { true };
     std::optional<ReferenceComparisonSettings> pendingSettings;
     bool configured = false;
     std::atomic<int> viewedSlot { 2 }, normalOutputSlot { 0 };

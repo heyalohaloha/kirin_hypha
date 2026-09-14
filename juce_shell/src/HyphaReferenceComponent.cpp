@@ -7,6 +7,7 @@
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace hypha::reference_ui
@@ -32,7 +33,16 @@ void configureSelector (juce::ComboBox& box, const juce::String& componentId,
 Component::Component()
 {
     setOpaque (false);
-    addChildComponent (comparisonView); addChildComponent(captureControls);
+    addChildComponent (comparisonView); addChildComponent (tonalView);
+    addChildComponent(captureControls); addChildComponent(workflowControls);
+    workflowControls.onStart=[this]{if(onStartReview)onStartReview();};
+    workflowControls.onBookmark=[this]{if(onStartBookmark)onStartBookmark();};
+    workflowControls.onBack=[this]{if(onWorkflowBack)onWorkflowBack();};
+    workflowControls.onConfirmed=[this]{if(onWorkflowConfirmed)onWorkflowConfirmed();};
+    workflowControls.onDeferred=[this]{if(onWorkflowDeferred)onWorkflowDeferred();};
+    workflowControls.onEnd=[this]{if(onWorkflowEnd)onWorkflowEnd();};
+    comparisonView.onCapturedRange=[this](double start,double end)
+    {if(onCapturedTonalRange)onCapturedTonalRange(start,end);};
     connectionStatus.setComponentID ("reference-connection");
     connectionStatus.setText ("OS", juce::dontSendNotification);
     connectionStatus.setJustificationType (juce::Justification::centred);
@@ -154,6 +164,8 @@ void Component::setState (State next)
     connectionStatus.setTitle (connectionStatus.getTooltip());
     connectionStatus.setColour (juce::Label::textColourId, current.osOnline ? COL_LED_BLUE : COL_MUTED);
     const bool blindSession = isBlindSession (current.blindPhase);
+    const bool workflowActive = current.workflow.mode != reference_audition::WorkflowView::Mode::normal
+        && current.workflow.status != reference_audition::WorkflowView::Status::resumeAvailable;
     connectionStatus.setVisible (! blindSession);
     const bool blindAudition = isBlindAudition (current.blindPhase);
     aButton.setToggleState (! current.bSelected, juce::dontSendNotification);
@@ -170,7 +182,7 @@ void Component::setState (State next)
     versionBox.setVisible (! blindSession && current.separateComparisons);
     const bool versionChosen = current.separateComparisons && current.versionId.isNotEmpty()
         && current.libraryReceived && current.osAccess != os_access::State::unowned;
-    blindButton.setVisible (! blindSession && (versionChosen || canStartBlind (current)));
+    blindButton.setVisible (! blindSession && ! workflowActive && (versionChosen || canStartBlind (current)));
     blindButton.setEnabled (!current.blindLargeScreen || canStartBlind (current));
     blindButton.setButtonText (current.blindLargeScreen ? "VERSION BLIND" : "BLIND 300%");
     blindButton.setTitle (current.blindLargeScreen ? "Start Version Blind" : "Open Blind at 300%");
@@ -204,17 +216,28 @@ void Component::setState (State next)
     syncSelectionControl (cueBox, current.cues, current.cueId);
     cueBox.setEnabled (cueBox.isEnabled() && ! current.candidatePreparationPending);
     const bool showDetailedSelectors = detailedLayout() && ! blindSession;
-    presetBox.setVisible (!blindSession && !current.presets.empty()
+    presetBox.setVisible (!blindSession && !workflowActive && !current.presets.empty()
         && (!current.separateComparisons || current.comparisonSlot == 2));
-    checkBox.setVisible (! blindSession && ! current.checks.empty());
+    checkBox.setVisible (! blindSession && ! workflowActive && ! current.checks.empty());
     candidateBox.setVisible (! blindSession && ! current.separateComparisons && ! current.candidates.empty());
-    cueBox.setVisible (showDetailedSelectors && ! current.cues.empty()
+    cueBox.setVisible (showDetailedSelectors && ! workflowActive && ! current.cues.empty()
         && (!current.separateComparisons || current.comparisonSlot == 2));
     actionButton.setButtonText (current.actionText);
+    actionButton.setTooltip (current.actionText == "EDIT GENRE"
+        ? "Open this Balance Check in Kirin OS." : "Continue with the safe next action.");
     actionButton.setVisible (! blindSession && current.actionText.isNotEmpty());
-    captureControls.update(current.captureAccess,blindSession,presentationContext);
+    captureControls.update(current.captureAccess,blindSession||workflowActive,presentationContext);
+    workflowControls.update(current.workflow,blindSession,!detailedLayout());
+    workflowControls.setVisible(!blindSession&&(current.workflow.reviewAvailable
+        ||current.workflow.bookmarkAvailable
+        ||current.workflow.mode!=reference_audition::WorkflowView::Mode::normal));
     comparisonView.setVisible (current.separateComparisons && (current.comparisonSlot == 1 || (current.captureAccess && current.captureAccess->capturedView)) && !blindSession);
     comparisonView.update (current.visualTimeline, current.visualPositionSeconds, presentationContext, blindSession, current.visualPreferences);
+    const bool tonalSelected = std::find (current.viewBindings.begin(), current.viewBindings.end(),
+                                          "tonal_balance") != current.viewBindings.end();
+    tonalView.setVisible (! blindSession && ! comparisonView.isVisible() && tonalSelected);
+    tonalView.update (current.visualTimeline, presentationContext, blindSession,
+                      current.candidateName, current.cueLabel);
     resized();
     repaint();
 }
@@ -374,6 +397,7 @@ void Component::paint (juce::Graphics& g)
     if(!shortPanel()) text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
 
     area.removeFromTop (panelGap());
+    if(workflowControls.isVisible()) area.removeFromTop(workflowControls.preferredHeight()+panelGap());
     if(captureControls.isVisible()) area.removeFromTop(captureControls.preferredHeight(area.getWidth()));
     auto statusArea = area.removeFromBottom (detailedLayout() ? 24 : 18);
     const auto statusColour = current.readiness == Readiness::rejected
@@ -409,7 +433,8 @@ void Component::paint (juce::Graphics& g)
 
     if (detailedLayout())
     {
-        if (!comparisonView.isVisible() && !paintConfiguredReferenceViews (g, area.toFloat(), current, presentationContext))
+        if (!comparisonView.isVisible() && !tonalView.isVisible()
+            && !paintConfiguredReferenceViews (g, area.toFloat(), current, presentationContext))
         {
             auto metrics = area;
             const float gap = 6.0f;
@@ -437,7 +462,7 @@ void Component::paint (juce::Graphics& g)
                                         juce::Justification::centredRight);
         }
     }
-    else if (!comparisonView.isVisible())
+    else if (!comparisonView.isVisible() && !tonalView.isVisible())
     {
         const int gap = 4;
         auto left = area.removeFromLeft ((area.getWidth() - gap) / 2);

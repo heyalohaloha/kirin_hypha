@@ -208,6 +208,37 @@ namespace hypha::reference_audition
         if (cue == nullptr) cue = findCue (*candidate, candidate->defaultCueId);
         if (cue == nullptr) cue = &candidate->cues.front();
 
+        if (selection.workflowCondition)
+        {
+            const auto& expected = *selection.workflowCondition;
+            const bool exact = expected.comparison == "a_c"
+                && preset->sourcePresetArtifact.presetId == expected.presetId
+                && preset->sourcePresetArtifact.revisionId == expected.presetRevisionId
+                && preset->sourcePresetArtifact.sha256 == expected.presetSha256
+                && check->checkId == expected.checkId
+                && candidate->candidateId == expected.candidateId
+                && candidate->sourceKind == expected.sourceKind
+                && candidate->sourceIdentityKey == expected.sourceIdentityKey
+                && cue->cueId == expected.cueId && cue->label == expected.cueLabel
+                && cue->startSample == expected.cueStart && cue->endSample == expected.cueEnd
+                && cue->sampleRateHz == expected.cueRate && cue->loopEnabled == expected.cueLoops;
+            if (! exact)
+            {
+                failClosedToA();
+                Snapshot rejected;
+                rejected.state = RuntimeState::rejected;
+                rejected.rejectionCode = "reference_workflow_condition_changed";
+                rejected.presetId = selection.presetId;
+                rejected.checkId = selection.checkId;
+                rejected.candidateId = selection.candidateId;
+                rejected.cueId = selection.cueId;
+                rejected.manifestRevision = workspace->manifest.revision;
+                appendPresetOptions (rejected, *workspace);
+                publish (std::move (rejected));
+                return;
+            }
+        }
+
         Snapshot next;
         next.state = RuntimeState::verifying;
         next.presetId = preset->sourcePresetArtifact.presetId;
@@ -219,6 +250,7 @@ namespace hypha::reference_audition
         next.candidateName = candidate->displayName;
         next.cueLabel = cue->label;
         next.title = candidate->displayName;
+        next.workflowToken = selection.workflowCondition ? selection.workflowToken : juce::String {};
         next.sourceKind = candidate->sourceKind;
         next.comparisonMode = check->comparisonMode;
         next.presentationLayout = RuntimeV2PresentationRepository::text (

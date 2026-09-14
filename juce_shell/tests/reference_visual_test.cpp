@@ -7,8 +7,10 @@
 #include <ctime>
 
 void testReferenceVisual (const juce::File&);
+void testReferenceTonalRepository (const juce::File&);
 void testReferenceVisual (const juce::File& sandbox)
 {
+    testReferenceTonalRepository (sandbox);
     const auto root = sandbox.getChildFile ("visual"); require (root.createDirectory().wasOk(), "visual fixture directory");
     const auto file = root.getChildFile ("same-song.wav");
     const auto fixture = makeWholeSongFixture (root, file, "recording-visual", "version-visual");
@@ -30,6 +32,7 @@ void testReferenceVisual (const juce::File& sandbox)
         if (blockBinding) { entered = true; while (blockBinding) juce::Thread::sleep (1); }
         return map;
     },sharedOwner);
+    observation.configure (48000, 2);
     const auto enqueueInput=[&](const juce::AudioBuffer<float>& input,std::int64_t position,bool valid) {
         if(!valid) return;
         std::array<float,512> pcm{}; const auto epoch=observation.inputGeneration();
@@ -155,7 +158,9 @@ void testReferenceVisual (const juce::File& sandbox)
     observation.setPresented (true);
     require (wait ([] (const auto& state) { return state.observing; }), "reopen can reacquire after handoff");
     require (file.setLastModificationTime (juce::Time::getCurrentTime()+juce::RelativeTime::seconds (5)), "source revision change fixture");
-    require (wait ([] (const auto& state) { return !state.binding.aligned && !state.observing; }), "changed source invalidates paired observation and releases its slot");
+    require (wait ([] (const auto& state) {
+        return !state.binding.aligned && state.observing && !state.pairedObserving;
+    }), "changed B disables paired observation while the independent live A Tonal view continues");
     std::int64_t mapped = 0;
     auto preroll = map; preroll.hostAnchor = -24000;
     require (preroll.mapPosition (-24000,mapped) && mapped == 0, "negative host preroll can map to source frame zero");

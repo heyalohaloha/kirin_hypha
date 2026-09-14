@@ -4,7 +4,7 @@
 改訂: v5 revision 2。レビューを既存実装と照合し、統合順序と受入条件を修正。
 状態: 計画修正。実装開始の承認とは区別する。
 製品コードの実装、DAWへの配置、実機検証、公開は未実施である。
-対象: Reference CのTonal Balance、聴きどころの再利用、今日の確認、比較しおり、ローカルPRE/POST Blind、通常A/B/CとVersion Blindの回帰、比較機能の共通安全条件。
+対象: Reference CのBalance、聴きどころの再利用、今日の確認、比較しおり、ローカルPRE/POST Blind、通常A/B/CとVersion Blindの回帰、比較機能の共通安全条件。
 
 ## 1. 本書の位置付け
 
@@ -19,7 +19,7 @@
 
 | 参照文書 | v5で採用する内容 | v5が置き換える内容 |
 | --- | --- | --- |
-| [Reference統合実装計画v4](reference_c_tonal_balance_plan_20260914.md) | 第3節から第10節までのTonal固有の測定、Capture、配信、表示、T1からT10、U1からU3 | 題名、実装基点、共通完成条件、DAW保存予算、host matrix、他機能の所有 |
+| [Reference統合実装計画v4](reference_c_tonal_balance_plan_20260914.md) | 第3節から第10節までのBalance固有の測定、Capture、配信、表示、T1からT10、U1からU3 | 題名、実装基点、共通完成条件、DAW保存予算、host matrix、他機能の所有 |
 | [聴取再利用と確認手順](reference_listening_workflow_plan_20260914.md) | 聴きどころ、今日の確認、比較しおり、WG0からWG4、R1からR12、V1からV3 | B-884基点、実行ID、共通保存予算、共通完成条件、文書更新記録 |
 | [PRE/POST Blind](hypha_pre_post_blind_usability_plan_20260914.md) | 固定4秒Capture、再比較、診断、Pause、GainMatch比較、BL0からBL4、BL-V01からBL-V12、BL-U1からBL-U3 | host matrixの所有、統合完成条件 |
 | [比較機能の共通安全契約](hypha_comparison_safety_contract_20260914.md) | CS1からCS8、制作設定、Undo、offline書き出し、失効後の自動再生禁止 | 実装基点、host matrixの所有、統合完成条件 |
@@ -40,7 +40,7 @@ v5作成時の参照文書を次のsha256で固定する。
 
 ## 2. 利用者に届ける結果
 
-Tonal Balanceでは、現在の音Aと比較曲Cを同じ相対パワー尺度で確認し、ジャンル分布を補助基準として利用できるようにする。
+Balanceでは、現在の音Aと比較曲Cを同じ相対パワー尺度で確認し、ジャンル分布を補助基準として利用できるようにする。
 聴取手順では、保存した曲とCueを別Presetへ再利用し、その回に選んだCheckだけを確認して、条件と本人のメモを次回へ残せるようにする。
 Local Blindでは、制作設定を変えずに固定したPRE/POSTコピーを比較し、不成立理由を理解して再取得または通常制作へ戻れるようにする。
 既存Referenceでは、Aを現在のDAW音、Bを同じ曲の別Version、Cを独立したCheckとして維持する。
@@ -55,7 +55,7 @@ Version Blindの短い照合観測を比較時間や保存済みA音声へ置き
 - 保存済み、保存待ち、OS未反映を同じ状態として表示しない。
 - 計測事実を品質点数、合否、EQ修正指示へ変換しない。
 
-Tonal、聴取手順、Local Blindの固有責務はC0と共有基盤S0の完了後に実装できる。
+Balance、聴取手順、Local Blindの固有責務はC0と共有基盤S0の完了後に実装できる。
 一機能の失敗や未完成を、他機能の通常利用へ波及させない。
 
 ## 3. 完成状態の定義
@@ -73,7 +73,7 @@ Tonal、聴取手順、Local Blindの固有責務はC0と共有基盤S0の完了
 | `release_ready` | `integration_complete`後、明示された公開作業で三つの配布チャネルを同一versionに揃えた | 本計画だけでは到達しない |
 
 先行した機能は`feature_complete`まで個別に判定できる。
-Local Blindの未完了を理由にTonalや聴取手順の実装を止めない。
+Local Blindの未完了を理由にBalanceや聴取手順の実装を止めない。
 ただし、個別完成を`integration_complete`または`release_ready`と表示しない。
 
 ## 4. 実装基点
@@ -105,7 +105,7 @@ Notionへの書込みは行わない。
 
 | 機能群 | 正本の入力 | 保持する状態 | 変更しない対象 |
 | --- | --- | --- | --- |
-| Tonal Balance | AのLIVEまたはCapture、比較曲C、任意のジャンル分布 | 60帯域の観測、Cue集計、Capture Tonal artifact、表示設定 | BのVersion、元PCM、既存64点Spectrum、制作音 |
+| Balance | AのLIVEまたはCapture、比較曲C、任意のジャンル分布 | 60帯域の観測、Cue集計、Capture Balance artifact、表示設定 | BのVersion、元PCM、既存64点Spectrum、制作音 |
 | 聴取手順 | Candidate、Cue、Preset、Check、History | 聴きどころ、review定義、attempt、checkpoint、比較しおり | 元Preset revision、別POST、過去の比較条件 |
 | Local Blind | exact PRE/POST pair、固定4秒PCM、固定Gain | trial、回答、Reveal、Return、同じprocessor内の一時Context | Reference schema、Work、DAW制作設定、過去trial |
 | 既存Reference回帰 | live A、Kirin OSで計測済みのVersion B、独立したCheck C | 検証済みmap、固定Gain、実聴取receipt、既存trial | Aの全曲LUFSの捏造、Capture Aへの音声置換、Local Blindの4秒契約、INSPECT |
@@ -133,7 +133,7 @@ Reference側のownerとLocal Blindの既存admissionは別に保ち、物理的�
 | `operation_id` | 操作を受理した側 | 保存または更新の一操作を受理した時点で発行 | 結果不明の再送では同じIDと本文hashを使う |
 | `listening_moment_id` | OS | 聴きどころの原本を初回保存した時点で発行 | revisionと本文hashを別に持つ |
 | `bookmark_id` | 最初の保存操作を受理したOSまたはHypha | 比較しおりの初回保存操作でUUIDとして発行し、作成元を`bookmark_origin`へ固定する | OSはHypha発行IDを再採番せず、改訂は同じIDの新revisionとする |
-| `capture_id` | Hypha | base Captureの取得開始時に発行 | Capture内容hash、Tonal artifact、DAW状態を照合する |
+| `capture_id` | Hypha | base Captureの取得開始時に発行 | Capture内容hash、Balance artifact、DAW状態を照合する |
 | `publication_ref` | 公開側 | manifest公開ごとに作成 | `namespace`、`revision`、`sha256`の三つを必須とする |
 
 同じ`review_id`を二つのPOSTで使う場合は、それぞれ異なる`attempt_id`と`runtime_instance_id`を持つ。
@@ -184,7 +184,7 @@ DAW plugin stateのhard limitは1,048,576 bytesとする。
 | 内訳 | v5設計上限bytes |
 | --- | ---: |
 | 既存Captureの宣言上限 | 988,172 |
-| Tonalの全域要約、状態、receipt、表示設定 | 8,192 |
+| Balanceの全域要約、状態、receipt、表示設定 | 8,192 |
 | workflowのmode、戻り先、checkpoint、最小receipt | 2,048 |
 | その他の既存stateと外側XMLの予約 | 32,768 |
 | 設計合計 | 1,031,180 |
@@ -202,7 +202,7 @@ Local BlindのPCM、Gain、承認、回答、再生許可、一時ContextはDAW 
 
 | 試験 | このrevisionで使う判定 |
 | --- | --- |
-| G0-E、T5、T8 | Tonal増分8,192 bytes以下。最大Capture、最大workflow、最大既存stateを同時投入し、読戻し欠落0 |
+| G0-E、T5、T8 | Balance増分8,192 bytes以下。最大Capture、最大workflow、最大既存stateを同時投入し、読戻し欠落0 |
 | WG0-E、R11 | workflow増分2,048 bytes以下。同じ共通encoder fixtureを使い、旧reader経由とrestore直後の再保存も照合 |
 | S0、C1、C2の保存検証 | encode済み総stateは1,032,192 bytes以下。hard limitとの差16,384 bytes以上、各内訳も上限以下 |
 
@@ -211,14 +211,14 @@ raw struct長や各要素を別々に測った結果だけで合格にしない�
 
 ### 7.4 artifactとメモリ
 
-Tonalの一Capture当たりの時系列artifactとrecovery記録は16 MiB以内とする。
-Tonalの追加RAMは一owner当たり32 MiB以内、workflowの追加RAMは一POST当たり8 MiB以内とする。
-2 MiB上限はB-887のA表示／Capture共有入力queueと受渡しbufferの合計に適用し、Tonalのための追加RT PCM queueは0とする。
+Balanceの一Capture当たりの時系列artifactとrecovery記録は16 MiB以内とする。
+Balanceの追加RAMは一owner当たり32 MiB以内、workflowの追加RAMは一POST当たり8 MiB以内とする。
+2 MiB上限はB-887のA表示／Capture共有入力queueと受渡しbufferの合計に適用し、Balanceのための追加RT PCM queueは0とする。
 既存のVersion／Check照合用観測、decode pages、Local Blind PCMまで含む全Referenceメモリが2 MiBであるとは扱わない。
 それらは既存分としてC0でサイズ、個数、寿命を棚卸しし、共存peak RSSに重複なく含める。
 runningとdraining、作成中と公開中、restore待ち、encode一時領域をpeakから除外しない。
 Local Blindの一時Contextと診断は一POST当たり4 KiB以内とするが、全体peak RSSから除外しない。
-Tonalの32 MiBは同じPOSTの退役ownerと後継ownerを合算する予算とし、owner再生成のたびに32 MiBを追加しない。
+Balanceの32 MiBは同じPOSTの退役ownerと後継ownerを合算する予算とし、owner再生成のたびに32 MiBを追加しない。
 物理2枠、解析job、I/O、待機要求の数は別に検証し、付属書第2節の上限を満たすまでS0を完了にしない。
 
 ## 8. 検索と保存物の寿命
@@ -278,7 +278,7 @@ U1からU3、V1からV3、BL-U1からBL-U3、RB-U1へ同じ判定方法を適用
 以前の成功試行を修正版のpassへ転用しない。
 人数不足はfailではなく未完了と記録するが、`ux_accepted`と`integration_complete`には進めない。
 
-TonalのU1からU3は旧v4第10節の課題内容と個別操作上限を使う。
+BalanceのU1からU3は旧v4第10節の課題内容と個別操作上限を使う。
 聴取手順のV1からV3は詳細文書第11節の課題内容を使う。
 Local BlindのBL-U1からBL-U3は詳細文書第9.3節の課題内容を使う。
 同じ5人の課題順を入れ替えても、各課題について5人分の完全な初見試行にはならない。
@@ -290,9 +290,9 @@ Local BlindのBL-U1からBL-U3は詳細文書第9.3節の課題内容を使う�
 
 ## 10. 機能固有の実装契約
 
-### 10.1 Tonal Balance
+### 10.1 Balance
 
-Tonalの測定式、60帯域、三plane、窓起点、Capture artifact、旧新版配信、History識別は旧v4第3節から第10節を使う。
+Balanceの測定式、60帯域、三plane、窓起点、Capture artifact、旧新版配信、History識別は旧v4第3節から第10節を使う。
 G0からG4、T1からT10、U1からU3のIDを維持する。
 DAW保存増分だけは本書第7.3節の8 KiBへ置き換える。
 G0-Eでは全域要約と最小receiptが8 KiB以内で成立する形式を実encoderで証明する。
@@ -334,7 +334,7 @@ CS1からCS8を通常Reference、Reference Blind、Local Blind、今日の確認
 通常Aはbit identical、追加latency 0 samplesを維持する。
 Audio Threadへalloc、lock、blocking I/O、探索、JSON、文字列生成を追加しない。
 offline、bypass、失効、restore後は比較音を自動復活させない。
-比較用の一時操作はparameter gestureや不要なdirty通知を発行せず、Capture、Tonal ready、workflow commitに必要な通知は止めない。
+比較用の一時操作はparameter gestureや不要なdirty通知を発行せず、Capture、Balance ready、workflow commitに必要な通知は止めない。
 
 Pauseと終了は次の区別を維持し、共通化で操作を増減させない。
 
@@ -367,7 +367,7 @@ BL0へ依存させず、必要な実機構成の固定をC0へ集約する。
 「Studio One系」「出荷対象host」のように対象が増減する名称をC0完了後へ残さない。
 製品名、版、OS build、formatの一欄でも未確定ならC0は未完了とする。
 sample rate、buffer、CPU／architecture、audio device、clock/PDC確認手順も実試験前に同じ行へ固定する。
-上表の5行すべてで、Tonal、workflow、通常A/B/C、Version Blind、Local Blindを必須とする。
+上表の5行すべてで、Balance、workflow、通常A/B/C、Version Blind、Local Blindを必須とする。
 Local Blindを使わないPRE単体や非stereo状態のstereo専用表示など、存在しない個別状態だけを理由付きN/Aにできる。
 未所持host、署名未完了、未実証clock/PDC、実機未接続をN/Aへ変更しない。
 B-887では利用者の2026-09-13の指示によりAAXのLocal Blind入口は有効である。
@@ -387,7 +387,7 @@ Merging機器へ触れる場合だけ、共有Audio Routes手順を先に実行�
 | C0 基点と共通境界 | 実装開始の指示 | Hypha、Hypha Reference、OS Reference | 計画commit、実装基点、共有責務の全呼出元、ID、host matrix、操作baseline、容量／検索fixture、既存資源内訳を固定 |
 | G0／WG0／BL0／RB0 実証 | C0 | Hypha Reference、OS Reference | 各詳細文書と付属書の試作・基準を検証。G0-EとWG0-Eは同じencoderを使う。相手の未実装fixtureを製品passに数えない |
 | S0 共通基盤の先行統合 | 共通責務に対応するG0／WG0／BL0／RB0の実証 | Hypha Reference、OS Reference | 付属書第1・2節のowner、snapshot、ID、取消、retirement、予算を主セッションが直列統合。実encoder、実worker、実wrapperで対象試験をpass |
-| G1からG4 | G0、S0 | Hypha Reference、OS Reference | Tonal固有の実装、T1からT10、U1からU3、対象hostを受入 |
+| G1からG4 | G0、S0 | Hypha Reference、OS Reference | Balance固有の実装、T1からT10、U1からU3、対象hostを受入 |
 | WG1からWG4 | WG0、S0 | Hypha Reference、OS Reference | 再利用→今日の確認→しおりの順で実装。R1からR12、V1からV3、対象hostを受入 |
 | BL1からBL4 | BL0、S0 | Hypha Reference | Local固有の実装、BL-V01からBL-V12、BL-U1からBL-U3、対象hostを受入 |
 | RB1からRB4 | RB0、S0 | Hypha Reference、OS Reference | 通常A/B/CとVersion Blindの専用回帰、共存、RB-U1、対象hostを受入 |
@@ -418,16 +418,16 @@ C0は文書レビューだけでpassにしない。
 | --- | --- | --- |
 | 開始予約と解析枠 | T1、T9、BL-V07、BL-V11、RB-V07、CS8 | 競合する開始確定を直列化。許可された同一ownerのCaptureと通常B/Cは共存でき、第三枠、二重取得、停止ack前の解放0 |
 | 音声出力と復帰 | R5、BL-V01、BL-V04、BL-V06、RB-V03、RB-V04、RB-V08、CS4、CS5、CS7 | 第10.4節のPause／終了契約を区別し、失効後の自動再生0。通常Aのbit identityと0 samplesを維持 |
-| 保存snapshot | T5、T8、R9からR11、CS2、CS3、CS6 | Tonal readyとworkflow commitの完了順を反転しても他方の巻戻し、欠落、古いdirty通知0 |
+| 保存snapshot | T5、T8、R9からR11、CS2、CS3、CS6 | Balance readyとworkflow commitの完了順を反転しても他方の巻戻し、欠落、古いdirty通知0 |
 | HistoryとID | T10、R7からR9、RB-V05 | legacy、tonal-v1、workflow-v1の同じ番号をnamespace、hash、ID契約で分離し、誤結合0。新runtimeからの旧outbox再送でも重複0 |
 | 表示と秘匿 | U1からU3、V1からV3、BL-V08、BL-V12、BL-U1からBL-U3、RB-V06、RB-U1 | 全5サイズで現在音、固定コピー、保存状態、条件差を誤認せず、Blind情報の漏出0 |
 | 負荷と終了 | G0-R、G0-L、WG0-L、BL-V11、RB-V07、CS8 | runningとdrainingを含む合算peakとjob数が上限内で、RT待機、破棄済みcallback、unload後の実行中コード0 |
 
-試験IDは表と実装記録の両方で完全名を使い、Tonal、workflow、Local Blindの番号を混同しない。
+試験IDは表と実装記録の両方で完全名を使い、Balance、workflow、Local Blindの番号を混同しない。
 
 ## 14. 完了判定
 
-TonalはG4、T1からT10、U1からU3を満たして`feature_complete`とする。
+BalanceはG4、T1からT10、U1からU3を満たして`feature_complete`とする。
 聴取手順はWG4、R1からR12、V1からV3を満たして`feature_complete`とする。
 Local BlindはBL4、BL-V01からBL-V12、BL-U1からBL-U3を満たして`feature_complete`とする。
 既存ReferenceはRB4、RB-V01からRB-V08、RB-U1を満たして`reference_regression_complete`とする。
@@ -463,7 +463,7 @@ Local BlindはBL4、BL-V01からBL-V12、BL-U1からBL-U3を満たして`feature
 C0のhost matrixは未確定である。
 G0、WG0、BL0、RB0、S0以降の本計画の実試作と製品実装は未実施である。
 U1からU3、V1からV3、BL-U1からBL-U3、RB-U1の協力者は未確定である。
-本書の8 KiB Tonal要素、2 KiB workflow要素、16 KiB最低余裕は実encoderで未検証である。
+本書の8 KiB Balance要素、2 KiB workflow要素、16 KiB最低余裕は実encoderで未検証である。
 検索時間、index再構築、1 GiB fixture、durability tierは実writerで未検証である。
 B-887の既存試験結果は実装基点の情報であり、本計画の完成証拠ではない。
 

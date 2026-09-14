@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_core/juce_core.h>
 #include <memory>
+#include "ReferencePersistedState.h"
 
 namespace hypha::reference_audition
 {
@@ -16,8 +17,8 @@ public:
         const juce::ScopedLock guard(lock);
         ++current.generation; pending=true;
         // Never retain an unbounded host payload. Verification still belongs to the worker.
-        incoming=payload.getNumBytesAsUTF8()<=1024*1024 ? payload : juce::String();
-        rejectedOversize=payload.getNumBytesAsUTF8()>1024*1024;
+        incoming=payload.getNumBytesAsUTF8()<=referenceCaptureMaximumEncodedBytes ? payload : juce::String();
+        rejectedOversize=payload.getNumBytesAsUTF8()>referenceCaptureMaximumEncodedBytes;
         return current.generation;
     }
     std::uint64_t beginAttempt()
@@ -36,7 +37,7 @@ public:
     bool commit(std::uint64_t token,std::shared_ptr<const ACaptureData> document,juce::String encoded)
     {
         const juce::ScopedLock guard(lock);
-        if(token!=current.generation || pending || !document || encoded.isEmpty() || encoded.getNumBytesAsUTF8()>1024*1024) return false;
+        if(token!=current.generation || pending || !document || encoded.isEmpty() || encoded.getNumBytesAsUTF8()>referenceCaptureMaximumEncodedBytes) return false;
         current.document=std::move(document); current.encoded=std::move(encoded); return true;
     }
     bool isCurrent(std::uint64_t token) const

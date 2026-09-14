@@ -15,10 +15,12 @@ public:
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
     bool keyPressed (const juce::KeyPress&) override;
     juce::Range<double> selectedRange() const noexcept { return { start, end }; }
+    std::function<void(double,double)> onCapturedRange;
 private:
     std::shared_ptr<const reference_audition::VisualTimeline> data;
     reference_audition::VisualBinding lastVerifiedView;
@@ -29,22 +31,24 @@ private:
         using juce::TextButton::TextButton;
         void paintButton (juce::Graphics&, bool, bool) override;
     };
-    ViewButton follow { "FOLLOW" }, loudness { "LOUDNESS" }, crest { "CREST" };
+    ViewButton follow { "FOLLOW" }, loudness { "LOUDNESS" }, crest { "CREST" }, tonal { "BALANCE" };
     juce::Image waveformCache;
     juce::Rectangle<float> waveform, graph;
     std::uint64_t cacheRevision = 0;
     juce::String key, captureId;
     bool fitCapture = true;
     double position = -1, start = 0, end = 12, dragAnchor = -1, pointedTime = -1;
-    bool following = true, showingCrest = false, hidden = false;
+    bool following = true, showingCrest = false, showingTonal = false, hidden = false;
     std::shared_ptr<reference_audition::VisualPreferences> preferences;
     void saveView();
     void rebuild();
     void rebuildCaptured();
     juce::String capturedValuesAt(double,bool) const;
     void setRange (double, double);
+    void publishCapturedRange (bool whole);
     double timeAt (float x) const;
     void paintDetails (juce::Graphics&);
+    void paintTonalDetails (juce::Graphics&);
     juce::String valuesAt (double, bool compact = false) const;
 };
 }

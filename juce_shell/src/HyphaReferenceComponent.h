@@ -14,6 +14,8 @@
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceSelectorLookAndFeel.h"
 #include "HyphaReferenceComparisonView.h"
+#include "HyphaReferenceTonalView.h"
+#include "HyphaReferenceWorkflowControls.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
 #include "reference_audition/ReferenceRuntimeV2Profile.h"
 
@@ -126,6 +128,7 @@ struct State
     juce::String candidatePreparationAction;
     bool candidatePreparationPending = false;
     juce::String actionText;
+    reference_audition::WorkflowView workflow;
 };
 
 inline bool canSelectB (const State& state) noexcept
@@ -154,6 +157,8 @@ public:
         for (auto* button : { &aButton, &bButton, &cButton, &blindButton, &oneButton, &twoButton,
                               &answerButton, &revealButton, &endBlindButton, &actionButton })
             button->setPresentationContext (next);
+        tonalView.update (current.visualTimeline, presentationContext,
+                          isBlindSession (current.blindPhase), current.candidateName, current.cueLabel);
         resized();
         repaint();
     }
@@ -172,6 +177,9 @@ public:
     std::function<void(int)> onAnswerBlind;
     std::function<void()> onRevealBlind;
     std::function<void()> onEndBlind;
+    std::function<void()> onStartReview, onStartBookmark, onWorkflowBack;
+    std::function<void()> onWorkflowConfirmed, onWorkflowDeferred, onWorkflowEnd;
+    std::function<void(double,double)> onCapturedTonalRange;
 
     void setState (State);
     const State& state() const noexcept { return current; }
@@ -202,7 +210,9 @@ private:
 
     State current;
     ComparisonView comparisonView;
+    TonalView tonalView;
     CaptureControls captureControls;
+    WorkflowControls workflowControls;
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
     juce::Label connectionStatus;

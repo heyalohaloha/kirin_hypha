@@ -3,19 +3,26 @@
 
 namespace hypha::reference_audition
 {
-ReferenceComparisonController::ReferenceComparisonController (juce::File root, SelectionGate callback, SelectionGate captureCallback, SelectionGate blindCallback)
+ReferenceComparisonController::ReferenceComparisonController (juce::File root, SelectionGate callback,
+    SelectionGate captureCallback, SelectionGate blindCallback, StateChanged stateChangedIn)
     : gate (std::move (callback)), captureGate(std::move(captureCallback)), blindCaptureGate(std::move(blindCallback)),
+      stateChanged(std::move(stateChangedIn)),
       version (root, [this] (bool active) { return admit (1, active); }, true),
-      check (root, [this] (bool active) { return admit (2, active); }),
+      check (root, [this] (bool active) { return admit (2, active); }, false,
+          [this] (const WorkflowEventCommit& commit) { workflowCommitted (commit); }),
       visual ([this] {
-          auto result = version.visualBinding();
-          result.hidden = result.hidden || viewedSlot.load (std::memory_order_acquire) != 1;
+          const auto slot = viewedSlot.load (std::memory_order_acquire);
+          auto result = slot == 1 ? version.visualBinding() : check.visualBinding();
           return result;
-      },analysis), capture([this](bool active){return admitCapture(active);}, [this]{return captureReceipt();},analysis,&visual),
-      captureProjection(capture.access,[this]{return version.visualBinding();},analysis) {}
+      },analysis,root), capture([this](bool active){return admitCapture(active);},
+          [this]{return captureReceipt();},analysis,&visual,root),
+      captureProjection(capture.access,[this]{return version.visualBinding();},analysis,
+          [this]{const juce::ScopedLock lock(selectionLock);return tonalState;},root,
+          [this]{return check.visualBinding();}) {}
 
 ReferenceComparisonController::~ReferenceComparisonController()
 {
+    acceptWorkflowCallbacks.store (false, std::memory_order_release);
     setPresented (false); capture.shutdown(); suspendAudition();
     const juce::ScopedLock lock (gateLock); closing = true;
     visual.pauseAdmission(); if (gateOwners && gate) gate (false); gateOwners = 0;
@@ -62,6 +69,7 @@ void ReferenceComparisonController::configure (RuntimeIdentity identity, double 
         versionChosen.store (versionId.isNotEmpty(), std::memory_order_release);
     }
     capture.configure(identity.runtimeInstanceId,rate,channels);
+    visual.configure(rate,channels);
     auto bIdentity = identity;
     bIdentity.runtimeInstanceId += ".version";
     version.configure (bIdentity, rate, channels);
@@ -87,11 +95,32 @@ ReferenceComparisonSettings ReferenceComparisonController::savedSettings() const
         if (ids.size() == 3)
         { result.version.presetId = ids[0]; result.version.checkId = ids[1]; result.version.candidateId = ids[2]; }
     }
-    result.check = check.savedChoice();
+    result.check = activeWorkflow != nullptr ? normalCheckChoice : check.savedChoice();
     result.visualView = visualPreferences->get();
     result.captureState = capture.access->store.value().encoded; result.capturedView = capture.access->capturedView;
+    result.tonal = tonalState;
+    result.workflow = workflowState;
     result.viewedSlot = viewedSlot.load (std::memory_order_acquire);
     return result;
+}
+
+void ReferenceComparisonController::setCaptureTonalRange(double startSeconds,double endSeconds)
+{
+    const auto state=capture.access->snapshot();
+    if(!state.shown||!state.shown->tonal.valid())return;
+    TonalDisplayState next;
+    next.source=TonalDisplayState::Source::captured;
+    next.captureId=state.shown->id;
+    next.artifactSha256=state.shown->tonal.artifactSha256;
+    const auto duration=state.shown->duration();
+    if(std::isfinite(startSeconds)&&std::isfinite(endSeconds)&&startSeconds>=0
+        &&endSeconds>startSeconds&&endSeconds<=duration)
+    {next.rangeStart=startSeconds;next.rangeEnd=endSeconds;}
+    {
+        const juce::ScopedLock lock(selectionLock);
+        tonalState=next;
+    }
+    if(stateChanged)stateChanged();
 }
 
 void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSettings& input)
@@ -107,6 +136,12 @@ void ReferenceComparisonController::restoreSettings (const ReferenceComparisonSe
         versionId = value.version.candidateId.isEmpty() ? juce::String {} : value.version.target();
         versionChosen.store (versionId.isNotEmpty(), std::memory_order_release);
         viewedSlot.store (value.viewedSlot == 1 ? 1 : 2, std::memory_order_release);
+        tonalState = value.tonal;
+        workflowState = value.workflow;
+        normalCheckChoice = value.check;
+        activeWorkflow.reset();
+        pendingWorkflowTransition.reset();
+        workflowItemIndex = 0;
         apply = configured;
         pendingSettings = apply ? std::optional<ReferenceComparisonSettings> {} : value;
     }
@@ -131,23 +166,34 @@ Snapshot ReferenceComparisonController::snapshot() const
     auto result = slot == 1 ? b : c;
     result.visualTimeline = visual.snapshot();
     result.visualPreferences = visualPreferences;
-    const auto map = version.visualBinding();
+    const auto viewedMap = slot == 1 ? version.visualBinding() : check.visualBinding();
+    const auto versionMap = version.visualBinding();
     std::int64_t visualPosition = 0;
-    if (map.aligned && !map.hidden && map.hostPositionValid && map.hostRate > 0 && map.mapPosition (map.hostPosition, visualPosition))
-        result.visualPositionSeconds = double (visualPosition) / map.hostRate;
-    if (map.hidden || !map.source || (result.visualTimeline && result.visualTimeline->binding.key != map.key))
-        result.visualTimeline.reset();
+    if (viewedMap.aligned && !viewedMap.hidden && viewedMap.hostPositionValid && viewedMap.hostRate > 0
+        && viewedMap.mapPosition (viewedMap.hostPosition, visualPosition))
+        result.visualPositionSeconds = double (visualPosition) / viewedMap.hostRate;
+    if (viewedMap.hidden || (result.visualTimeline && result.visualTimeline->binding.key != viewedMap.key))
+    {
+        if (result.visualTimeline && result.visualTimeline->tonalAvailable)
+        {
+            auto tonalOnly = std::make_shared<VisualTimeline> (*result.visualTimeline);
+            tonalOnly->binding = {}; tonalOnly->bins.clear(); tonalOnly->hop = 0;
+            tonalOnly->pairedObserving = false;
+            result.visualTimeline = std::shared_ptr<const VisualTimeline> (std::move (tonalOnly));
+        }
+        else result.visualTimeline.reset();
+    }
     result.captureAccess=capture.access;
     const auto captureState=capture.access->snapshot();
     if(capture.access->capturedView && !trialActive())
     { result.visualTimeline=captureProjection.snapshot();
       if(result.visualTimeline && result.visualTimeline->capture
           && (!captureState.shown || result.visualTimeline->capture->id!=captureState.shown->id
-              || (result.visualTimeline->binding.source && (!map.source
-                  || result.visualTimeline->binding.source->sourceFileSha256!=map.source->sourceFileSha256)))) result.visualTimeline.reset();
-      result.visualPositionSeconds=result.visualTimeline && result.visualTimeline->capture && map.hostPositionValid && captureState.timingVerified
+              || (result.visualTimeline->binding.source && (!versionMap.source
+                  || result.visualTimeline->binding.source->sourceFileSha256!=versionMap.source->sourceFileSha256)))) result.visualTimeline.reset();
+      result.visualPositionSeconds=result.visualTimeline && result.visualTimeline->capture && versionMap.hostPositionValid && captureState.timingVerified
             && captureState.confirmedTimingEpoch==capture.access->currentTimingEpoch.load()
-        ? double(map.hostPosition-result.visualTimeline->capture->hostStart)/result.visualTimeline->capture->rate : -1; }
+        ? double(versionMap.hostPosition-result.visualTimeline->capture->hostStart)/result.visualTimeline->capture->rate : -1; }
     result.separateComparisons = true;
     result.comparisonSlot = slot;
     result.audibleComparisonSlot = b.bSelected ? 1 : c.bSelected ? 2 : 0;
@@ -159,6 +205,48 @@ Snapshot ReferenceComparisonController::snapshot() const
         && result.selectedVersionId == b.presetId + "/" + b.checkId + "/" + b.candidateId
         && b.state == RuntimeState::ready && b.auditionBuffered;
     result.checkReady = c.state == RuntimeState::ready && c.auditionBuffered;
+    const auto catalog = c.workflowCatalog;
+    result.workflow.reviewAvailable = catalog != nullptr && catalog->latestReview != nullptr;
+    result.workflow.bookmarkAvailable = catalog != nullptr && catalog->latestBookmark != nullptr;
+    if (activeWorkflow != nullptr && workflowItemIndex >= 0
+        && workflowItemIndex < static_cast<int> (activeWorkflow->items.size()))
+    {
+        const auto& item = activeWorkflow->items[static_cast<size_t> (workflowItemIndex)];
+        result.workflow.mode = activeWorkflow->kind == WorkflowDefinition::Kind::review
+            ? WorkflowView::Mode::review : WorkflowView::Mode::bookmark;
+        result.workflow.definitionId = activeWorkflow->id;
+        result.workflow.definitionTitle = activeWorkflow->title;
+        result.workflow.itemId = item.itemId;
+        result.workflow.itemTitle = item.title;
+        result.workflow.purpose = item.purpose;
+        result.workflow.itemIndex = workflowItemIndex;
+        result.workflow.itemCount = static_cast<int> (activeWorkflow->items.size());
+        result.workflow.canMoveBack = workflowItemIndex > 0;
+        result.workflow.canAdvance = true;
+        result.workflow.canEnd = true;
+        const auto token = activeWorkflow->revisionId + ":" + item.itemId;
+        if (pendingWorkflowTransition.has_value())
+            result.workflow.status = WorkflowView::Status::saving;
+        else if (c.workflowToken == token && c.state == RuntimeState::ready)
+            result.workflow.status = WorkflowView::Status::ready;
+        else if (c.state == RuntimeState::rejected && c.rejectionCode == "reference_workflow_condition_changed")
+        {
+            result.workflow.status = WorkflowView::Status::rejected;
+            result.workflow.message = "SOURCE OR CUE CHANGED";
+        }
+        else result.workflow.status = WorkflowView::Status::preparing;
+    }
+    else if (workflowState.mode != WorkflowResumeState::Mode::idle)
+    {
+        result.workflow.status = WorkflowView::Status::resumeAvailable;
+        result.workflow.mode = workflowState.mode == WorkflowResumeState::Mode::review
+            ? WorkflowView::Mode::review : WorkflowView::Mode::bookmark;
+        result.workflow.definitionId = workflowState.mode == WorkflowResumeState::Mode::review
+            ? workflowState.reviewId : workflowState.bookmarkId;
+        result.workflow.message = "CONTINUE WHEN READY";
+    }
+    else result.workflow.status = result.workflow.reviewAvailable || result.workflow.bookmarkAvailable
+        ? WorkflowView::Status::available : WorkflowView::Status::unavailable;
     result.blindEligible = slot == 1 && result.versionReady && b.blindEligible && !capture.access->busy();
     if (slot == 1 && versionId.isEmpty())
     {
@@ -183,24 +271,48 @@ bool ReferenceComparisonController::selectVersion (const juce::String& id)
 bool ReferenceComparisonController::selectPreset (const juce::String& id)
 {
     if (trialActive()) return false;
+    if (activeWorkflow != nullptr)
+    {
+        if (! finishWorkflow (false)) return false;
+        const juce::ScopedLock lock (selectionLock);
+        if (activeWorkflow != nullptr) return false;
+    }
     selectA(); capture.access->capturedView=false; viewedSlot.store (2, std::memory_order_release);
     return check.selectPreset (id);
 }
 bool ReferenceComparisonController::selectCheck (const juce::String& id)
 {
     if (trialActive()) return false;
+    if (activeWorkflow != nullptr)
+    {
+        if (! finishWorkflow (false)) return false;
+        const juce::ScopedLock lock (selectionLock);
+        if (activeWorkflow != nullptr) return false;
+    }
     selectA(); capture.access->capturedView=false; viewedSlot.store (2, std::memory_order_release);
     return id.containsChar ('/') ? check.selectLibraryCheck (id) : check.selectCheck (id);
 }
 bool ReferenceComparisonController::selectCandidate (const juce::String& id)
 {
     if (trialActive()) return false;
+    if (activeWorkflow != nullptr)
+    {
+        if (! finishWorkflow (false)) return false;
+        const juce::ScopedLock lock (selectionLock);
+        if (activeWorkflow != nullptr) return false;
+    }
     selectA(); capture.access->capturedView=false; viewedSlot.store (2, std::memory_order_release);
     return check.selectCandidate (id);
 }
 bool ReferenceComparisonController::selectCue (const juce::String& id)
 {
     if (trialActive()) return false;
+    if (activeWorkflow != nullptr)
+    {
+        if (! finishWorkflow (false)) return false;
+        const juce::ScopedLock lock (selectionLock);
+        if (activeWorkflow != nullptr) return false;
+    }
     selectA(); return viewed().selectCue (id);
 }
 bool ReferenceComparisonController::retryPresetSelection() { return check.retryPresetSelection(); }
@@ -230,13 +342,13 @@ void ReferenceComparisonController::selectA() noexcept
 { normalOutputSlot.store (0, std::memory_order_release); version.selectA(); check.selectA(); }
 bool ReferenceComparisonController::startBlind (double loudness, double peak) noexcept
 {
-    if (trialActive() || ! snapshot().versionReady || !beginBlindGuard()) return false;
+    if (trialActive() || activeWorkflow != nullptr || ! snapshot().versionReady || !beginBlindGuard()) return false;
     check.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
     const bool started=version.startBlind(loudness,peak); if(!started) endBlindGuard(); return started;
 }
 bool ReferenceComparisonController::approveBlindLowerAAndStart (double loudness, double peak) noexcept
 {
-    if (trialActive() || !snapshot().versionReady || !beginBlindGuard()) return false;
+    if (trialActive() || activeWorkflow != nullptr || !snapshot().versionReady || !beginBlindGuard()) return false;
     check.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
     const bool started=version.approveBlindLowerAAndStart(loudness,peak); if(!started) endBlindGuard(); return started;
 }
@@ -256,7 +368,7 @@ void ReferenceComparisonController::observeAInput (const juce::AudioBuffer<float
     std::int64_t position, bool valid, bool playing, bool allowed, int clock, std::optional<bool> captureAllowed, CaptureClockSignature signature) noexcept
 {
     rtInputAllowed = allowed;
-    capture.observe(buffer,position,valid,playing,captureAllowed.value_or(allowed),clock,signature,allowed && versionChosen.load(std::memory_order_acquire));
+    capture.observe(buffer,position,valid,playing,captureAllowed.value_or(allowed),clock,signature,allowed);
     version.observeAInput (buffer, position, valid, playing, allowed && versionChosen.load (std::memory_order_acquire), false);
     check.observeAInput (buffer, position, valid, playing, allowed, false);
 }

@@ -1,6 +1,7 @@
 #[path = "reference_capture_index_ffi.rs"]
 mod capture_index;
 // Non-RT, single-owner handles; callers serialize create/push/finish/drop.
+use kirin_measure::reference_gain::tonal::{TonalMeter, TonalSnapshot};
 use kirin_measure::reference_gain::visual::{VisualAdmission, VisualBin, VisualMeter};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -56,6 +57,82 @@ pub extern "C" fn kirin_reference_visual_create(rate: u32, channels: u32) -> *mu
             .map_or(std::ptr::null_mut(), |m| Box::into_raw(Box::new(m)))
     })
     .unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn kirin_reference_tonal_create(rate: u32, channels: u32) -> *mut TonalMeter {
+    catch_unwind(|| {
+        TonalMeter::new(rate, channels as usize)
+            .map_or(std::ptr::null_mut(), |meter| Box::into_raw(Box::new(meter)))
+    })
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// # Safety
+/// Null or a live, exclusively owned worker-thread meter.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_reference_tonal_drop(meter: *mut TonalMeter) {
+    if !meter.is_null() {
+        let _ = catch_unwind(AssertUnwindSafe(|| drop(unsafe { Box::from_raw(meter) })));
+    }
+}
+
+/// # Safety
+/// Meter is live and samples contains count readable floats; no concurrent calls.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_reference_tonal_push(
+    meter: *mut TonalMeter,
+    samples: *const f32,
+    count: usize,
+) -> bool {
+    if meter.is_null() || samples.is_null() || count == 0 || count > 16_384 {
+        return false;
+    }
+    catch_unwind(AssertUnwindSafe(|| unsafe {
+        (*meter).push(std::slice::from_raw_parts(samples, count))
+    }))
+    .unwrap_or(false)
+}
+
+/// # Safety
+/// Meter is live and output is writable; no concurrent calls.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_reference_tonal_snapshot(
+    meter: *const TonalMeter,
+    output: *mut TonalSnapshot,
+) -> bool {
+    if meter.is_null() || output.is_null() {
+        return false;
+    }
+    catch_unwind(AssertUnwindSafe(|| unsafe {
+        *output = (*meter).snapshot();
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// # Safety
+/// Meter is live and exclusively owned; no concurrent calls.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_reference_tonal_reset(meter: *mut TonalMeter) -> bool {
+    if meter.is_null() {
+        return false;
+    }
+    catch_unwind(AssertUnwindSafe(|| unsafe {
+        (*meter).reset();
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// # Safety
+/// Meter is live and exclusively owned; no concurrent calls.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_reference_tonal_allocated_bytes(meter: *const TonalMeter) -> usize {
+    if meter.is_null() {
+        return 0;
+    }
+    catch_unwind(AssertUnwindSafe(|| unsafe { (*meter).allocated_bytes() })).unwrap_or(0)
 }
 /// # Safety
 /// Null or a live meter owned by this caller; no concurrent calls.

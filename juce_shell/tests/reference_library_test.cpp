@@ -43,12 +43,22 @@ void testReferenceLibraryContract (const juce::File& sandbox)
     object->removeProperty ("work_id");
     object->removeProperty ("source_preset_artifact");
     auto* check = preset["checks"].getArray()->getReference (0).getDynamicObject();
+    check->setProperty ("view_bindings", juce::Array<juce::var> { "tonal_balance" });
     auto* candidate = check->getProperty ("candidates").getArray()->getReference (0).getDynamicObject();
     candidate->setProperty ("source_artifact", juce::var());
     candidate->setProperty ("preparation_status", "pending");
     auto manifest = libraryManifest (root, preset, 1);
     const auto file = root.getChildFile ("library/manifest.json");
     require (writeJson (file, manifest), "library manifest publication");
+    const auto now = juce::Time::currentTimeMillis();
+    auto* presenceObject = new juce::DynamicObject();
+    presenceObject->setProperty ("format", "kirin_hypha_reference_library_presence");
+    presenceObject->setProperty ("version", "1.0");
+    presenceObject->setProperty ("session_id", "77777777-7777-4777-8777-777777777777");
+    presenceObject->setProperty ("updated_at_ms", now);
+    presenceObject->setProperty ("expires_at_ms", now + 5000);
+    require (writeJson (root.getChildFile ("library/presence.json"), juce::var (presenceObject)),
+             "library presence publication");
     auto first = repository.refreshLibrary();
     if (! first.usable()) std::cerr << first.rejectionCode << '\n';
     require (first.usable() && first.workspace->presets[0].checks[0].candidates.size() == 1,
@@ -56,8 +66,30 @@ void testReferenceLibraryContract (const juce::File& sandbox)
     {
         ref::RuntimeV2Controller controller (root);
         controller.configure (identity, 48000, 2);
-        require (waitFor (controller, [] (const auto& s) { return s.libraryReceived && s.candidates.size() == 1; }),
+        require (waitFor (controller, [] (const auto& s) { return s.libraryReceived && s.osOnline && s.candidates.size() == 1; }),
                  "Work-less startup must receive selectors even when every candidate is unprepared");
+        require (controller.requestRecovery(), "Balance Check can explicitly open in Kirin OS");
+        const auto requests = root.getChildFile ("library/open").findChildFiles (
+            juce::File::findFiles, false, "*.json");
+        require (requests.size() == 1, "one explicit Kirin OS open request");
+        const auto open = juce::JSON::parse (requests[0]);
+        const auto* openObject = open.getDynamicObject();
+        require (openObject != nullptr && openObject->getProperties().size() == 9,
+                 "Balance open request uses the closed schema");
+        require (open["format"] == "kirin_hypha_reference_library_open"
+                 && open["version"] == "2.0" && open["namespace"] == "tonal-v1",
+                 "Balance open request uses its exact protocol namespace");
+        require (open["runtime_instance_id"] == identity.runtimeInstanceId,
+                 "Balance open request binds the intended receiver");
+        require (open["preset_id"] == "88888888-8888-4888-8888-888888888888",
+                 "Balance open request binds the exact Preset");
+        require (open["preset_revision_id"] == preset["source_template_artifact"]["revision_id"],
+                 "Balance open request binds the exact Preset revision");
+        require (open["check_id"] == check->getProperty ("check_id"),
+                 "Balance open request binds the exact Check");
+        require (requests[0].getFileNameWithoutExtension() == open["request_id"].toString(),
+                 "Balance open request filename binds the request identity");
+        require (requests[0].deleteFile(), "Kirin OS consumes the explicit open request");
         require (! controller.snapshot().bSelected && ! controller.selectB (-14, -2), "unprepared startup keeps A");
         auto buffer = juce::AudioBuffer<float> (2, 64);
         for (int c = 0; c < 2; ++c) for (int i = 0; i < 64; ++i) buffer.setSample (c, i, static_cast<float> (i) / 128);

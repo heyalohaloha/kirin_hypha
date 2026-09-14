@@ -24,7 +24,7 @@ void writeCaptureEvidence(juce::MemoryOutputStream& out,const ACaptureData& d)
         out.writeBool(b.gainKnown); out.writeBool(b.originalFallback);
     }
 }
-bool readCaptureEvidence(juce::MemoryInputStream& in,ACaptureData& d)
+bool readCaptureEvidence(juce::MemoryInputStream& in,ACaptureData& d,bool requireExhausted)
 {
     if(in.getNumBytesRemaining()<23) return false;
     d.terminationReason=in.readInt();
@@ -56,6 +56,6 @@ bool readCaptureEvidence(juce::MemoryInputStream& in,ACaptureData& d)
         for(const auto& old:d.bindings) if(old.sourceHash==b.sourceHash) return false;
         d.bindings.push_back(std::move(b));
     }
-    return in.isExhausted();
+    return !requireExhausted || in.isExhausted();
 }
 }

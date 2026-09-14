@@ -116,6 +116,11 @@ public:
     bool selectReferenceCue (const juce::String&);
     bool approveReferenceSampleRateConversion();
     bool requestReferenceRecovery();
+    bool startLatestReferenceReview();
+    bool startLatestReferenceBookmark();
+    bool moveReferenceWorkflow (int direction, bool confirmed, bool deferred);
+    void endReferenceWorkflow();
+    void setReferenceCaptureTonalRange (double startSeconds, double endSeconds);
     bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     bool approveReferenceBlindLowerA (double aIntegratedLoudness,
                                       double aMaximumTruePeakDbtp);

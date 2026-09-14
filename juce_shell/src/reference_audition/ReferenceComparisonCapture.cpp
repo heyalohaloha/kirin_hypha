@@ -30,6 +30,16 @@ bool ReferenceComparisonController::admitCapture(bool active)
     }
     else
     {
+        const auto captured=capture.access->snapshot().shown;
+        if(captured)
+        {
+            const juce::ScopedLock selection(selectionLock);
+            tonalState.source=TonalDisplayState::Source::captured;
+            tonalState.captureId=captured->id;
+            tonalState.artifactSha256=captured->tonal.artifactSha256;
+            tonalState.rangeStart=0;
+            tonalState.rangeEnd=0;
+        }
         if(captureOwned && captureGate) captureGate(false);
         captureOwned=false; visual.resumeObservation(); capture.resumeObservation();
     }

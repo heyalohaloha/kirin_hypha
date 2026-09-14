@@ -1,4 +1,5 @@
 #include "ReferenceACaptureEvidenceCodec.h"
+#include "ReferencePersistedState.h"
 #include <juce_cryptography/juce_cryptography.h>
 #include <cmath>
 #include <cstring>
@@ -41,7 +42,7 @@ juce::String encodeACapture(const ACaptureData& data)
     // Reserve the bounded document once; repeated growth needlessly retains allocator arenas
     // when two POSTs serialize long captures together. The encoded size gate still applies.
     juce::MemoryOutputStream out(16384 + data.bins.size()*80 + data.units.size()*64 + data.bindings.size()*1024);
-    out.writeInt(0x41435032); out.writeString(data.id); out.writeString(data.receiver); out.writeString(data.verifiedWork);
+    out.writeInt(0x41435034); out.writeString(data.id); out.writeString(data.receiver); out.writeString(data.verifiedWork);
     out.writeInt64(data.created); out.writeInt64(data.hostStart); out.writeInt64(juce::int64(data.frames));
     out.writeInt64(juce::int64(data.hop)); out.writeInt(data.rate); out.writeInt(data.channels);
     out.writeInt(data.clockSource); out.writeBool(data.complete); out.writeDouble(data.integrated); out.writeDouble(data.maximumTruePeak);
@@ -54,20 +55,24 @@ juce::String encodeACapture(const ACaptureData& data)
         out.writeDouble(bin.value.short_lufs); out.writeDouble(bin.value.crest_db); out.writeDouble(bin.truePeak); out.writeInt64(juce::int64(bin.fingerprint));
     }
     writeCaptureEvidence(out,data);
+    const auto tonal = data.tonal.valid() && data.tonal.sampleRate == data.rate
+        && data.tonal.channels == data.channels && data.tonal.frames == data.frames
+        ? data.tonal : CaptureTonalSummary {};
+    writeCaptureTonalSummary(out,tonal);
     const auto checksum=juce::SHA256(out.getData(),out.getDataSize()).toHexString();
     const auto encoded=checksum+":"+out.getMemoryBlock().toBase64Encoding();
-    return encoded.length()<=1024*1024-4096 ? encoded : juce::String();
+    return encoded.getNumBytesAsUTF8()<=referenceCaptureMaximumEncodedBytes ? encoded : juce::String();
 }
 std::shared_ptr<const ACaptureData> decodeACapture(const juce::String& text)
 {
-    if(text.isEmpty() || text.length()>1024*1024-4096) return {};
+    if(text.isEmpty() || text.getNumBytesAsUTF8()>referenceCaptureMaximumEncodedBytes) return {};
     if(text.indexOfChar(':')!=64) return {};
     juce::MemoryBlock bytes; if(!bytes.fromBase64Encoding(text.substring(65)) || bytes.getSize()>768*1024) return {};
     if(bytes.toBase64Encoding()!=text.substring(65)) return {};
     if(juce::SHA256(bytes.getData(),bytes.getSize()).toHexString()!=text.substring(0,64)) return {};
     juce::MemoryInputStream in(bytes,false);
     const auto schema=in.readInt();
-    if(schema!=0x41435031 && schema!=0x41435032) return {};
+    if(schema!=0x41435031 && schema!=0x41435032 && schema!=0x41435033 && schema!=0x41435034) return {};
     if(schema==0x41435031 && (text.length()>256*1024 || bytes.getSize()>192*1024)) return {};
     auto d=std::make_shared<ACaptureData>(); d->id=in.readString(); d->receiver=in.readString(); d->verifiedWork=in.readString();
     d->created=in.readInt64(); d->hostStart=in.readInt64(); d->frames=std::uint64_t(in.readInt64());
@@ -93,7 +98,12 @@ std::shared_ptr<const ACaptureData> decodeACapture(const juce::String& text)
             || bin.value.rms[c]<0 || bin.value.peak[c]<bin.value.rms[c]-1e-7) return {};
         end+=bin.value.frames; d->bins.push_back(bin);
     }
-    if(end!=d->frames || (schema==0x41435032 ? !readCaptureEvidence(in,*d) : !in.isExhausted())) return {};
+    if(end!=d->frames) return {};
+    if(schema==0x41435031 ? !in.isExhausted() : !readCaptureEvidence(in,*d,schema==0x41435032)) return {};
+    if(schema==0x41435033 && !readCaptureTonalSummary(in,d->tonal,false)) return {};
+    if(schema==0x41435034 && !readCaptureTonalSummary(in,d->tonal,true)) return {};
+    if(d->tonal.valid() && (d->tonal.sampleRate!=d->rate || d->tonal.channels!=d->channels
+        || d->tonal.frames!=d->frames)) return {};
     if(!d->complete) d->integrated=std::numeric_limits<double>::quiet_NaN();
     d->restored=true; d->revision=1; return d;
 }

@@ -2,8 +2,10 @@
 #include <cmath>
 namespace hypha::reference_audition
 {
-ACaptureSession::ACaptureSession(std::function<bool(bool)> f,std::function<ACaptureReceipt()> proof,std::shared_ptr<ReferenceAnalysis> owner,VisualObservation* sink)
-    :juce::Thread("Capture A"),gate(std::move(f)),receipt(std::move(proof)),analysis(std::move(owner)),live(sink)
+ACaptureSession::ACaptureSession(std::function<bool(bool)> f,std::function<ACaptureReceipt()> proof,
+    std::shared_ptr<ReferenceAnalysis> owner,VisualObservation* sink,juce::File root)
+    :juce::Thread("Capture A"),gate(std::move(f)),receipt(std::move(proof)),
+      transportRoot(std::move(root)),analysis(std::move(owner)),live(sink)
 { startThread(juce::Thread::Priority::low); }
 ACaptureSession::~ACaptureSession() { shutdown(); }
 void ACaptureSession::shutdown()
@@ -12,6 +14,7 @@ void ACaptureSession::shutdown()
     while(writers.load(std::memory_order_acquire)) juce::Thread::yield();
     if(ownsGate && gate) gate(false); ownsGate=false; access->active=false;
     kirin_reference_visual_drop(meter); meter=nullptr;
+    tonalCapture.reset();
     kirin_reference_index_drop(captureIndex); captureIndex=nullptr;
     observationAdmission.reset(); captureAdmission.reset();
 }
@@ -81,8 +84,9 @@ void ACaptureSession::begin()
         draft=std::make_shared<ACaptureData>(); draft->receiver=receiver; draft->rate=rate; draft->channels=channels; activeConfig=configuration; draft->inputConfiguration=activeConfig; draft->runtimeToken=runtimeToken;
     }
     meter=kirin_reference_capture_create(uint32_t(draft->rate),uint32_t(draft->channels));
+    tonalCapture=std::make_unique<TonalCapture>(draft->rate,draft->channels);
     if(!captureAdmission || !meter || !gate || !gate(true))
-    { captureAdmission.reset(); kirin_reference_visual_drop(meter); meter=nullptr; draft.reset(); state.message="Capture unavailable / finish other capture or Blind"; state.outcome={CaptureOutcome::unavailable,stateGeneration,state.held ? state.held->id : juce::String()}; { const juce::ScopedLock lock(control); paused=false; } access->complete(stateGeneration); publish(); return; }
+    { captureAdmission.reset(); kirin_reference_visual_drop(meter); meter=nullptr; tonalCapture.reset(); draft.reset(); state.message="Capture unavailable / finish other capture or Blind"; state.outcome={CaptureOutcome::unavailable,stateGeneration,state.held ? state.held->id : juce::String()}; { const juce::ScopedLock lock(control); paused=false; } access->complete(stateGeneration); publish(); return; }
     ownsGate=true;
     if(!access->advance(stateGeneration,CaptureOperationPhase::armed)) { close(5); return; }
     kirin_reference_index_drop(captureIndex);
@@ -116,6 +120,7 @@ void ACaptureSession::consume(const Block& b)
         if(measurementFailed) return;
         const auto n=int(std::min({std::uint64_t(count-offset),draft->hop-pendingFrames,std::uint64_t(draft->rate)-unitFrames}));
         if(!kirin_reference_visual_push(meter,b.pcm.data()+size_t(offset*b.channels),size_t(n*b.channels))) { terminal=3; accepting=0; measurementFailed=true; return; }
+        if(tonalCapture && !tonalCapture->push(b.pcm.data()+size_t(offset*b.channels),size_t(n*b.channels))) tonalCapture.reset();
         if(!kirin_reference_index_push(captureIndex,b.pcm.data()+size_t(offset*b.channels),size_t(n*b.channels))) { terminal=3; accepting=0; measurementFailed=true; return; }
         unitFrames+=std::uint64_t(n);
         if(unitFrames==std::uint64_t(draft->rate)) finishUnit();
@@ -133,6 +138,19 @@ void ACaptureSession::close(int reason)
     if(draft && draft->frames && reason!=5)
     {
         finishUnit(); draft->frames=binOffset; draft->terminationReason=reason;
+        if(tonalCapture)
+        {
+            if(transportRoot == juce::File{})
+                draft->tonal=tonalCapture->finish();
+            else
+            {
+                auto base=*draft; base.tonal={};
+                const auto baseEncoding=encodeACapture(base);
+                if(baseEncoding.isNotEmpty())
+                    draft->tonal=tonalCapture->finishAndStore(
+                        transportRoot,draft->id,baseEncoding.substring(0,64),draft->hostStart);
+            }
+        }
         draft->complete=reason==1;
         if(!draft->complete) draft->integrated=std::numeric_limits<double>::quiet_NaN();
         stampReceipt(*draft); ++draft->revision;
@@ -156,6 +174,7 @@ void ACaptureSession::close(int reason)
     draft.reset();
     publish(); // The host dirty notification on gate release must see the committed snapshot.
     kirin_reference_visual_drop(meter); meter=nullptr;
+    tonalCapture.reset();
     kirin_reference_index_drop(captureIndex); captureIndex=nullptr; unitFrames=0;
     if(ownsGate && gate) gate(false); ownsGate=false; captureAdmission.reset(); access->active=false; access->analysisAvailable=false; terminal=0;
     { const juce::ScopedLock lock(control); paused=false; } access->complete(stateGeneration); publish();

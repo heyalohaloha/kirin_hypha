@@ -191,6 +191,83 @@ bool drawSpectrum (juce::Graphics& g, juce::Rectangle<float> bounds,
     return drew;
 }
 
+float tonalY (double db, juce::Rectangle<float> area)
+{
+    constexpr double minimum = -90.0, maximum = -3.0;
+    return area.getBottom() - static_cast<float> (
+        (juce::jlimit (minimum, maximum, db) - minimum) / (maximum - minimum)) * area.getHeight();
+}
+
+template <typename Value>
+juce::Path tonalPath (const std::array<double, 60>& centers, const Value& values,
+                      std::uint64_t validBits, juce::Rectangle<float> area)
+{
+    juce::Path path;
+    bool started = false;
+    for (size_t band = 0; band < centers.size(); ++band)
+    {
+        if ((validBits & (std::uint64_t (1) << band)) == 0)
+        { started = false; continue; }
+        const juce::Point<float> point {
+            logX (centers[band], 20.0, 20'000.0, area), tonalY (values[band], area)
+        };
+        if (started) path.lineTo (point); else { path.startNewSubPath (point); started = true; }
+    }
+    return path;
+}
+
+bool drawTonalBalance (juce::Graphics& g, juce::Rectangle<float> bounds,
+                       const State& state, presentation::Context presentation)
+{
+    const auto timeline = state.visualTimeline;
+    const bool aReady = timeline && timeline->tonalAvailable;
+    const bool cReady = timeline && timeline->tonalReference;
+    const bool genreReady = timeline && timeline->tonalGenre;
+    const bool captured = timeline && timeline->capture && timeline->capture->tonal.valid();
+    auto detail = juce::String (cReady ? (captured ? "A CAPTURE / C CUE" : "A LIVE / C CUE")
+                                             : (captured ? "A CAPTURE" : "A LIVE"));
+    if (genreReady) detail += " / " + timeline->tonalGenre->displayLabel.toUpperCase();
+    auto area = chartArea (g, bounds, "BALANCE",
+                           detail, presentation);
+    std::array<double, 60> centers {};
+    const auto ratio = std::pow (20'000.0 / 20.0, 1.0 / 60.0);
+    for (size_t band = 0; band < centers.size(); ++band)
+        centers[band] = 20.0 * std::pow (ratio, static_cast<double> (band) + 0.5);
+    if (cReady)
+    {
+        const auto& curve = *timeline->tonalReference;
+        if (! genreReady)
+        {
+            g.setColour (COL_FLORA.withAlpha (0.20f));
+            g.strokePath (tonalPath (curve.centersHz, curve.p10, curve.validBits, area),
+                          juce::PathStrokeType (0.8f));
+            g.strokePath (tonalPath (curve.centersHz, curve.p90, curve.validBits, area),
+                          juce::PathStrokeType (0.8f));
+        }
+        g.setColour (COL_FLORA.withAlpha (0.86f));
+        g.strokePath (tonalPath (curve.centersHz, curve.median, curve.validBits, area),
+                      juce::PathStrokeType (1.5f));
+    }
+    if (genreReady)
+    {
+        const auto& curve = *timeline->tonalGenre;
+        g.setColour (COL_TEXT_TERTIARY.withAlpha (0.34f));
+        g.strokePath (tonalPath (curve.centersHz, curve.p10, curve.validBits, area),
+                      juce::PathStrokeType (1.0f));
+        g.strokePath (tonalPath (curve.centersHz, curve.p90, curve.validBits, area),
+                      juce::PathStrokeType (1.0f));
+    }
+    if (aReady)
+    {
+        g.setColour (COL_SPECTRUM_POST.withAlpha (0.94f));
+        g.strokePath (tonalPath (centers, timeline->tonal.values_db,
+                                 timeline->tonal.valid_bits, area),
+                      juce::PathStrokeType (1.55f));
+    }
+    if (! aReady && ! cReady) unavailable (g, area, presentation);
+    return aReady || cReady;
+}
+
 bool drawWaveform (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state,
                    presentation::Context presentation)
 {
@@ -330,7 +407,8 @@ void paintOne (juce::Graphics& g, juce::Rectangle<float> area,
                const State& state, const juce::String& binding,
                presentation::Context presentation)
 {
-    if (binding == "spectrum_full") drawSpectrum (g, area, state, false, presentation);
+    if (binding == "tonal_balance") drawTonalBalance (g, area, state, presentation);
+    else if (binding == "spectrum_full") drawSpectrum (g, area, state, false, presentation);
     else if (binding == "spectrum_low") drawSpectrum (g, area, state, true, presentation);
     else if (binding == "waveform") drawWaveform (g, area, state, presentation);
     else if (binding == "transient") drawTransient (g, area, state, presentation);

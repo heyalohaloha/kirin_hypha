@@ -1,5 +1,6 @@
 #pragma once
 #include "ReferenceAuditionProtocol.h"
+#include "ReferencePersistedState.h"
 #include "ReferenceVisualPreferences.h"
 
 namespace hypha::reference_audition
@@ -24,6 +25,8 @@ struct ReferenceComparisonSettings
     VisualViewChoice visualView;
     int viewedSlot = 2;
     juce::String captureState; bool capturedView=false;
+    TonalDisplayState tonal;
+    WorkflowResumeState workflow;
     void write (juce::XmlElement& parent) const
     {
         auto* xml = parent.createNewChildElement ("ReferenceChoices");
@@ -36,8 +39,10 @@ struct ReferenceComparisonSettings
             child->setAttribute ("candidate", choice.candidateId);
             child->setAttribute ("cue", choice.cueId);
         };
-        if(captureState.isNotEmpty()) { auto* captured=xml->createNewChildElement("ACapture"); captured->setAttribute("data",captureState); captured->setAttribute("shown",capturedView); }
+        if(captureState.isNotEmpty() && captureState.getNumBytesAsUTF8() <= referenceCaptureMaximumEncodedBytes)
+        { auto* captured=xml->createNewChildElement("ACapture"); captured->setAttribute("data",captureState); captured->setAttribute("shown",capturedView); }
         append ("B", version); append ("C", check); visualView.write (*xml);
+        tonal.write (parent); workflow.write (parent);
     }
     static ReferenceComparisonSettings read (const juce::XmlElement& parent)
     {
@@ -51,8 +56,10 @@ struct ReferenceComparisonSettings
                            child->getStringAttribute ("candidate"), child->getStringAttribute ("cue") };
             return choice.valid() ? choice : ReferenceChoice {};
         };
-        if(const auto* captured=xml->getChildByName("ACapture")) { const auto data=captured->getStringAttribute("data"); if(data.getNumBytesAsUTF8()<=1024*1024-4096) result.captureState=data; result.capturedView=captured->getBoolAttribute("shown"); }
+        if(const auto* captured=xml->getChildByName("ACapture")) { const auto data=captured->getStringAttribute("data"); if(data.getNumBytesAsUTF8()<=referenceCaptureMaximumEncodedBytes) result.captureState=data; result.capturedView=captured->getBoolAttribute("shown"); }
         result.visualView = VisualViewChoice::read (*xml);
+        result.tonal = TonalDisplayState::read (parent);
+        result.workflow = WorkflowResumeState::read (parent);
         result.version = readChoice ("B"); result.check = readChoice ("C");
         if (result.version.candidateId.isEmpty()) result.version = {};
         result.viewedSlot = xml->getIntAttribute ("viewed_slot", 2) == 1 ? 1 : 2;

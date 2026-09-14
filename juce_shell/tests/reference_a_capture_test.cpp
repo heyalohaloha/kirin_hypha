@@ -1,6 +1,7 @@
 #include "../src/reference_audition/ReferenceComparisonController.h"
 #include "../src/reference_audition/ReferenceACaptureSession.h"
 #include "../src/reference_audition/ReferenceACaptureProjection.h"
+#include "../src/reference_audition/ReferenceCaptureTonalStore.h"
 #include "reference_whole_song_fixture.h"
 #include "reference_rt_probe.h"
 #include "ReferenceCaptureStoreTest.h"
@@ -17,9 +18,16 @@ void testReferenceACaptureErrors();
 void testReferenceACapture(const juce::File&);
 void testReferenceACapture(const juce::File& root)
 {
+    ref::TonalCapture maximumTonal(768000,2);
+    require(maximumTonal.available(),"maximum supported Tonal configuration is available");
+    require(maximumTonal.allocatedBytes()<=32*1024*1024,
+        "maximum supported Tonal owner stays within the 32 MiB RAM budget");
+    require(maximumTonal.projectedArtifactBytes()<=16*1024*1024,
+        "maximum two-hour Tonal grid stays within the 16 MiB artifact budget");
     auto fixture=makeWholeSongFixture(root,root.getChildFile("capture-source.wav"),"recording-capture","version-capture");
     std::atomic<int> owns{0}; std::atomic<bool> admit{true};
-    ref::ACaptureSession capture([&](bool active){ if(active && !admit) return false; owns=active ? 1 : 0; return true; });
+    ref::ACaptureSession capture([&](bool active){ if(active && !admit) return false; owns=active ? 1 : 0; return true; },
+                                 {},std::make_shared<ref::ReferenceAnalysis>(),nullptr,root);
     capture.configure("capture-instance",48000,2);
     require(capture.access->request(ref::ACaptureAccess::start),"capture accepts explicit start");
     require(waitCapture([&]{return capture.access->active.load();}),"capture is armed without B or OS");
@@ -45,6 +53,21 @@ void testReferenceACapture(const juce::File& root)
     require(held.held && held.held->complete && held.held->frames==192000 && held.held->hostStart==24000,"exact accepted four-second range retained");
     require(owns==0,"capture admission released on finish");
     require(held.held->bins.size()==40 && std::isfinite(held.held->integrated),"waveform and global integrated loudness retained");
+    require(held.held->tonal.valid() && held.held->tonal.frames==held.held->frames,
+            "Capture A retains an independent whole-capture tonal summary");
+    require(ref::safeSha256(held.held->tonal.artifactSha256)
+        && ref::safeSha256(held.held->tonal.recoveryKey)
+        && held.held->tonal.artifactBytes>0
+        && held.held->tonal.artifactBytes<=16*1024*1024,
+        "Capture A stores a bounded immutable Tonal artifact receipt");
+    const auto selectedTonal=ref::loadCaptureTonalArtifact(
+        root,held.held->tonal,held.held->id,48000,144000);
+    require(selectedTonal.valid()&&selectedTonal.validBits!=0
+        && selectedTonal.artifactSha256==held.held->tonal.artifactSha256,
+        "Capture A Tonal range is reaggregated from the saved window artifact");
+    auto wrongTonal=held.held->tonal; wrongTonal.artifactSha256=juce::String::repeatedString("0",64);
+    require(!ref::loadCaptureTonalArtifact(root,wrongTonal,held.held->id,0,held.held->frames).valid(),
+        "Capture A Tonal range fails closed for a mismatched artifact receipt");
     for(size_t i=0;i<40;++i) {
         const auto& bin=held.held->bins[i]; double peak=0,energy=0;
         for(int f=0;f<4800;++f) { const auto v=fixture.audio.getSample(0,int(i)*4800+f); peak=std::max(peak,std::abs(double(v))); energy+=double(v)*v; }
@@ -53,7 +76,10 @@ void testReferenceACapture(const juce::File& root)
     testCaptureStore(held.held,held.encoded);
     testCaptureStorageBudget(*held.held);
     const auto restored=ref::decodeACapture(held.encoded);
-    require(restored && restored->restored && restored->frames==held.held->frames && restored->bins[0].fingerprint==held.held->bins[0].fingerprint,"bounded snapshot restores history and fingerprints");
+    require(restored && restored->restored && restored->frames==held.held->frames
+        && restored->bins[0].fingerprint==held.held->bins[0].fingerprint
+        && restored->tonal.validBits==held.held->tonal.validBits,
+        "bounded snapshot restores history, fingerprints and tonal summary");
     require(held.encoded.length()<256*1024 && !ref::decodeACapture(held.encoded+"x") && !ref::decodeACapture("old state"),"corrupt and old state rejected");
     auto merged=held.held->bins; ref::mergeACaptureBins(merged,2);
     std::vector<float> pcm; for(int f=0;f<9600;++f) for(int c=0;c<2;++c) pcm.push_back(fixture.audio.getSample(c,f));
