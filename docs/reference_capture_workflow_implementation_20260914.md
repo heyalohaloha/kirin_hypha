@@ -74,9 +74,21 @@ The macOS lifetime probe initially expected physical unmapping. The test binary 
 
 API references: [Microsoft DLL restrictions](https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-best-practices), [counted module reference](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw), [callback retirement](https://learn.microsoft.com/en-us/windows/win32/api/threadpoolapiset/nf-threadpoolapiset-freelibrarywhencallbackreturns), [callback submission](https://learn.microsoft.com/en-us/windows/win32/api/threadpoolapiset/nf-threadpoolapiset-trysubmitthreadpoolcallback), [Apple dyld TLV lifetime](https://github.com/apple-oss-distributions/dyld/blob/main/dyld/Loader.h).
 
+## B-884: Allocation reuse and maximum-memory/lifetime probes
+
+- Reuse the offline paired-block EBU meter's allocated storage, resetting its filter/history before every A or B block. Six focused gain tests pass, including exact comparison against fresh meters after alternating audio and silence. The paired-block selection and frozen gain policy are unchanged; the audio callback gains no work.
+- Reserve bounded Capture codec buffers before serialization/decoding, avoiding growth copies while old, pending, draft and published documents coexist.
+- The maximum-memory harness uses fresh processes for seven rates × mono/stereo. Two POST lanes concurrently retain 7,200 units, 2,048 bins, 16 receipts, pending restore, UI copies, XML and the complete 2 MiB queue allowance per lane. Existing four-second A/B PCM is allocated before the baseline and receipts retain zero PCM.
+- On macOS, 50 µs sampling of live malloc bytes observed a largest combined increase of 24,066,832 bytes against the two-POST 33,554,432-byte target. This is sampled live heap, not an absolute peak or process RSS claim. The allocator's touched-memory high-water mark also includes retired arenas and is logged separately. Non-macOS runs explicitly skip allocator measurement while retaining capacity/restore/serialization checks.
+- As specified by the original Capture A plan, the existing EBU three-second history/filter is reported separately: approximately 2.39 MB at 48 kHz stereo and 37.00 MB at 768 kHz stereo. The existing gain-analysis frame cap rejects a four-second 768 kHz probe; these changes neither relax that limit nor claim gain calibration at that rate.
+- The macOS loader probe passed 36 guard-drain and close/reopen cycles across three independently loaded modules, with the engine destroyed before each request. Actual image unmapping remains untested on macOS because dyld retains Rust TLV-bearing images.
+- An isolated Windows worktree built the Rust static library and native lifetime probe successfully. Its DLL loading was rejected with Win32 error 4551; actual Windows unload verification remains blocked. No OS security setting, installed plugin or active DAW was changed. The remote worktree is `C:\Users\hello\Dev\kirin_hypha_b883_validation` at B-883 plus the loader diagnostic/UTF-8 test-build changes in B-884.
+
+Focused logs: `target/b884-gain-test.log`, `target/b884-memory-detail.log`, `target/b883-lifetime-test.log`, `target/b883-windows-validation.log`.
+
 ## Remaining work in the same approved task
 
-- Finish G0 RAM/lifetime and cross-feature boundaries. Current results do not establish DAW wall-clock latency or all-wrapper peak resident memory.
-- Finish platform lifetime verification of the bounded PRE discovery (G0-S). H02 and H01/H03–H08 UI work is implemented; remaining cross-feature and final baseline checks still apply.
+- Maximum summary memory and macOS retirement probes are recorded above; current results do not establish DAW wall-clock latency or all-wrapper peak resident memory.
+- Windows actual module unload remains an external verification blocker (error 4551). H02 and H01/H03–H08 UI work is implemented; final baseline and native cross-feature checks still apply.
 - Consolidate the full Rust/FFI ignored/native baseline once the final implementation is ready. Run new focused tests only for changed or unresolved paths.
 - Record actual Studio One / Pro Tools and Windows verification separately. No new release build, installation, signing, notarization or public distribution has been performed for these changes.

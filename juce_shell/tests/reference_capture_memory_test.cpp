@@ -6,11 +6,13 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <thread>
 #if defined(__APPLE__)
  #include <malloc/malloc.h>
 #endif
 namespace ref = hypha::reference_audition;
 void testReferenceCaptureMemory();
+void testReferenceCaptureMemoryCase(int,int);
 namespace {
 void check(bool ok,const char* why) { if(!ok) { std::cerr<<"Capture RAM: "<<why<<'\n'; std::exit(1); } }
 struct Heap { size_t live=0,high=0; };
@@ -69,29 +71,56 @@ struct Lane {
     }
 };
 }
-void testReferenceCaptureMemory()
+void testReferenceCaptureMemoryCase(int rate,int channels)
 {
     // Existing short calibration A/B PCM is a baseline, never copied/retained by a Capture receipt.
     // Preallocate once at the maximum rate so lower-rate cases cannot hide behind an older heap peak.
     std::vector<float> a(768000*4*2),b(a.size());
     for(size_t i=0;i<a.size();++i) { a[i]=0.1f*std::sin(float(i)*0.05f); b[i]=a[i]*0.5f; }
     const auto before=heap(); size_t largest=0;
-    for(int rate:{768000,384000,192000,96000,48000,44100,8000}) for(int channels:{2,1}) {
+    std::atomic<bool> sampling{true}; std::atomic<size_t> sampledLive{before.live};
+    std::thread sampler([&]{
+        while(sampling.load()) {
+            const auto live=heap().live; auto old=sampledLive.load();
+            while(old<live && !sampledLive.compare_exchange_weak(old,live)) {}
+            std::this_thread::sleep_for(std::chrono::microseconds(50));
+        }
+    });
+    {
         std::array<Lane,2> posts;
-        for(auto& post:posts) post.exercise(rate,channels);
+        std::array<std::thread,2> workers {
+            std::thread([&]{ posts[0].exercise(rate,channels); }),
+            std::thread([&]{ posts[1].exercise(rate,channels); }) };
+        for(auto& worker:workers) worker.join();
         KirinReferenceGainFacts gain{};
         const auto gainReady=kirin_hypha_analyze_reference_gain(a.data(),b.data(),size_t(rate)*4,uint32_t(rate),uint32_t(channels),&gain);
         check(gainReady==(size_t(rate)*4<=2097152),"existing gain-analysis frame cap remains fail-closed at the highest rate");
-        const auto peak=heap(); largest=std::max(largest,peak.high>before.live?peak.high-before.live:0);
+        const auto peak=heap(); sampling=false; sampler.join();
+        largest=std::max(sampledLive.load(),peak.live)-before.live;
+        std::cout<<"RAM "<<rate<<"/"<<channels<<" baseline="<<before.live<<" live="<<peak.live<<" touched-high="<<peak.high<<" sampled-live-delta="<<largest<<std::endl;
         check(largest<=2*16*1024*1024,"two simultaneous POST summaries/queues/restore/encode/gain scratch exceed 2 x 16 MiB");
     }
-    std::cout<<"Capture RAM: 7 rates x mono/stereo, two POST lifetimes; allocator high-water above preexisting PCM = "<<largest<<" bytes (limit 33554432); receipt PCM retained = 0\n";
-   #if !defined(__APPLE__)
+   #if defined(__APPLE__)
+    std::cout<<"Capture RAM: two concurrent POST lifetimes; sampled live heap above preexisting PCM = "<<largest<<" bytes (limit 33554432, 50 us sampling, not RSS); receipt PCM retained = 0\n";
+   #else
     std::cout<<"Allocator measurement SKIP on this platform; capacities, restore and serialization verified only\n";
    #endif
     // The original Capture A plan budgets the EBU 3-second history separately. Report its cost.
-    const auto ebBefore=heap(); auto* meter=kirin_reference_capture_create(768000,2);
+    const auto ebBefore=heap(); auto* meter=kirin_reference_capture_create(uint32_t(rate),uint32_t(channels));
     check(meter!=nullptr,"maximum-rate EBU meter"); const auto ebAfter=heap();
-    std::cout<<"Existing EBU capture meter at 768 kHz stereo, separate live heap = "<<(ebAfter.live>ebBefore.live?ebAfter.live-ebBefore.live:0)<<" bytes\n";
+    std::cout<<"Existing EBU capture meter, separate live heap = "<<(ebAfter.live>ebBefore.live?ebAfter.live-ebBefore.live:0)<<" bytes\n";
     kirin_reference_visual_drop(meter);
+}
+void testReferenceCaptureMemory()
+{
+    // Fresh processes prevent historical allocator arenas from accumulating across formats.
+    for(int rate:{768000,384000,192000,96000,48000,44100,8000}) for(int channels:{2,1}) {
+        juce::ChildProcess child;
+        check(child.start(juce::StringArray{juce::File::getSpecialLocation(juce::File::currentExecutableFile).getFullPathName(),
+            "--capture-memory-case",juce::String(rate),juce::String(channels)}),"isolated allocator case starts");
+        const bool finished=child.waitForProcessToFinish(60000);
+        if(!finished) child.kill();
+        std::cout<<child.readAllProcessOutput()<<std::flush;
+        check(finished && child.getExitCode()==0,"isolated allocator case passes");
+    }
 }

@@ -35,7 +35,11 @@ int main(int argc,char** argv)
     for(int cycle=0;cycle<12;++cycle) {
         std::array<juce::DynamicLibrary,3> libraries;
         for(size_t i=0;i<3;++i) {
-            require(libraries[i].open(modules[i].getFullPathName()),"load module");
+            const bool loaded=libraries[i].open(modules[i].getFullPathName());
+           #if JUCE_WINDOWS
+            if(!loaded) std::cerr<<"LoadLibrary error="<<GetLastError()<<" file="<<modules[i].getFullPathName()<<'\n';
+           #endif
+            require(loaded,"load module");
             using Start=bool(*)(std::atomic<int>*);
             auto start=reinterpret_cast<Start>(libraries[i].getFunction("startPairPreviewProbe"));
             require(start && start(&unloaded),"submit after engine destruction");

@@ -838,7 +838,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         COMMAND KirinReferenceAuditionRuntimeTests)
     include(cmake/PairPreviewTests.cmake)
     add_test(NAME kirin_reference_capture_memory COMMAND KirinReferenceAuditionRuntimeTests --capture-memory-only)
-
+    set_tests_properties(kirin_reference_capture_memory PROPERTIES TIMEOUT 300)
     juce_add_console_app(KirinReferenceAudioPagesTests
         PRODUCT_NAME "Kirin Reference Audio Page Tests")
     target_sources(KirinReferenceAudioPagesTests PRIVATE

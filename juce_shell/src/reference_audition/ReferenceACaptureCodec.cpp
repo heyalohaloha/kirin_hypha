@@ -38,7 +38,9 @@ void mergeACaptureBins(std::vector<ACaptureBin>& bins, int channels)
 juce::String encodeACapture(const ACaptureData& data)
 {
     if(data.bins.empty() || data.bins.size()>2048 || data.receiver.length()>160 || data.units.size()>7200 || data.bindings.size()>16) return {};
-    juce::MemoryOutputStream out;
+    // Reserve the bounded document once; repeated growth needlessly retains allocator arenas
+    // when two POSTs serialize long captures together. The encoded size gate still applies.
+    juce::MemoryOutputStream out(16384 + data.bins.size()*80 + data.units.size()*64 + data.bindings.size()*1024);
     out.writeInt(0x41435032); out.writeString(data.id); out.writeString(data.receiver); out.writeString(data.verifiedWork);
     out.writeInt64(data.created); out.writeInt64(data.hostStart); out.writeInt64(juce::int64(data.frames));
     out.writeInt64(juce::int64(data.hop)); out.writeInt(data.rate); out.writeInt(data.channels);
@@ -77,6 +79,7 @@ std::shared_ptr<const ACaptureData> decodeACapture(const juce::String& text)
         || d->frames<1 || d->frames>std::uint64_t(d->rate)*7200 || d->hop<1 || d->hop>d->frames+std::uint64_t(d->rate)*128
         || d->hostStart < -limit || d->hostStart>limit || count<1 || count>2048
         || in.getNumBytesRemaining()<juce::int64(count)*80 || !std::isfinite(d->maximumTruePeak) || d->maximumTruePeak<0) return {};
+    d->bins.reserve(size_t(count));
     std::uint64_t end=0;
     for(int i=0;i<count;++i)
     {
