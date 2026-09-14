@@ -96,8 +96,12 @@ void KirinHyphaEditor::showCandidateMenu()
         for (int i = 0; i < labels.size(); ++i)
             menu.addItem (100 + i, labels[i], ! pairLocked && labelEnabled[i], labelChecked[i]);
 
+    auto* anchor = static_cast<juce::Component*> (&pairDropdown);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (localBlindOpen) anchor = &localBlindView.repairAnchor();
+   #endif
     const auto options = juce::PopupMenu::Options()
-                             .withTargetComponent (&pairDropdown)
+                             .withTargetComponent (anchor)
                              .withDeletionCheck (*this)
                              .withMinimumWidth (ui::pairMenuMinimumWidth)
                              .withMaximumNumColumns (ui::pairMenuMaximumColumns)
@@ -144,12 +148,11 @@ void KirinHyphaEditor::showOperationsMenu()
     {
         if (recording) menu.addItem (22, "Add NOTE at current position", osOwned);
         if (observatoryDomain != hypha::observatory::Domain::reference)
-            menu.addItem (21, "Create Capture");
-        if (observatoryView.localBlindEntryAvailable())
-            menu.addItem (23, "PRE / POST Blind Compare / "
+            menu.addItem (21, "Save measurement image");
+        if (observatoryView.localBlindEntryAvailable() && ! observatoryView.localBlindDirectEntryVisible())
+            menu.addItem (23, (getWidth() < 900 ? juce::String ("PRE / POST Blind / Open at 300% / ")
+                                              : juce::String ("PRE / POST Blind Compare / "))
                               + meterContextLabel (processorRef.meterContextPreference()));
-        else if (processorRef.wrapperType == juce::AudioProcessor::wrapperType_AAX)
-            menu.addItem (23, "PRE / POST Blind / AAX validation pending", false);
     }
     menu.addSeparator();
     menu.addSectionHeader ("Display");
@@ -265,6 +268,28 @@ void KirinHyphaEditor::showDomainMenu()
         safe->setObservatoryDomain (
             static_cast<hypha::observatory::Domain> (result - 300));
     });
+}
+
+void KirinHyphaEditor::showTimeRangeMenu()
+{
+    using Range = hypha::observatory::TimeRange;
+    const std::array<Range, 5> ranges { Range::seconds30, Range::minutes2, Range::minutes10,
+                                      Range::hours2, Range::hours24 };
+    const std::array<const char*, 5> labels { "30 seconds", "2 minutes", "10 minutes", "2 hours", "24 hours" };
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&pairMenuLookAndFeel());
+    for (size_t i = 0; i < ranges.size(); ++i)
+        menu.addItem (static_cast<int> (i + 1), labels[i], true,
+                      observatoryView.selectedTimeRange() == ranges[i]);
+    juce::Component::SafePointer<KirinHyphaEditor> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options()
+        .withTargetComponent (&observatoryView.timeRangeMenuAnchor()).withDeletionCheck (*this),
+        [safe, ranges] (int choice)
+        {
+            if (safe != nullptr && choice >= 1 && choice <= static_cast<int> (ranges.size())
+                && safe->observatoryView.onTimeRangeChange)
+                safe->observatoryView.onTimeRangeChange (ranges[static_cast<size_t> (choice - 1)]);
+        });
 }
 
 void KirinHyphaEditor::showSizeMenu()

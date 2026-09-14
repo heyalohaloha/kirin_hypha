@@ -25,7 +25,7 @@ namespace hypha::reference_audition
             currentSnapshot.presetSelectionAction.clear();
             currentSnapshot.presetSelectionTargetId.clear();
             presetSelectionStatusExpiresAtMs = 0;
-            if (! option.requiresPreparation)
+            if (requestedConfiguration.identity.library || ! option.requiresPreparation)
             {
                 cancelled = pendingCandidatePreparationRequest;
                 pendingCandidatePreparationRequest.reset();
@@ -170,6 +170,8 @@ namespace hypha::reference_audition
                 requestedSelection.candidateId = prepared.candidateId;
                 requestedSelection.cueId.clear();
                 requestedSelection.sampleRateApprovalKey.clear();
+                requestedSelection.workflowCondition.reset();
+                requestedSelection.workflowToken.clear();
                 ++requestedSelection.generation;
                 currentSnapshot.candidatePreparationStatus = "prepared";
                 currentSnapshot.candidatePreparationAction.clear();

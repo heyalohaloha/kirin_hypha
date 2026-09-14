@@ -101,19 +101,50 @@ namespace hypha::reference_audition
             return juce::var (object);
         }
 
+        juce::String canonicalString (const juce::String& value)
+        {
+            juce::String output ("\"");
+            for (const auto character : value)
+            {
+                switch (character)
+                {
+                    case '"': output += "\\\""; break;
+                    case '\\': output += "\\\\"; break;
+                    case '\b': output += "\\b"; break;
+                    case '\t': output += "\\t"; break;
+                    case '\n': output += "\\n"; break;
+                    case '\f': output += "\\f"; break;
+                    case '\r': output += "\\r"; break;
+                    default:
+                        if (character < 0x20)
+                            output += "\\u" + juce::String::toHexString (static_cast<int> (character)).paddedLeft ('0', 4);
+                        else if (character >= 0xd800 && character <= 0xdfff) return {};
+                        else output += juce::String::charToString (character);
+                }
+            }
+            return output + "\"";
+        }
+
         juce::String canonicalValue (const juce::var& value)
         {
             if (value.isVoid() || value.isUndefined()) return "null";
             if (value.isBool()) return static_cast<bool> (value) ? "true" : "false";
             if (value.isInt()) return juce::String (static_cast<int> (value));
-            if (value.isInt64()) return juce::String (static_cast<juce::int64> (value));
+            if (value.isInt64()) {
+                const auto number = static_cast<juce::int64> (value);
+                return number >= -9007199254740991LL && number <= 9007199254740991LL ? juce::String (number) : juce::String {};
+            }
             if (value.isDouble())
             {
                 const auto number = static_cast<double> (value);
-                if (! std::isfinite (number)) return {};
-                return juce::JSON::toString (value, true);
+                // Reference events encode measurements as integer milli-units.
+                // Reject values outside that closed schema instead of claiming
+                // JUCE's arbitrary decimal formatting is ECMAScript JCS.
+                if (!std::isfinite (number) || std::abs (number) > 9007199254740991.0
+                    || std::abs (number - std::trunc (number)) > 0.0) return {};
+                return juce::String (static_cast<juce::int64> (number));
             }
-            if (value.isString()) return juce::JSON::toString (value, true);
+            if (value.isString()) return canonicalString (value.toString());
             if (const auto* array = value.getArray())
             {
                 juce::String output ("[");
@@ -134,7 +165,11 @@ namespace hypha::reference_audition
             for (int index = 0; index < properties.size(); ++index)
                 keys.push_back (properties.getName (index));
             std::sort (keys.begin(), keys.end(), [] (const auto& left, const auto& right) {
-                return left.toString().compare (right.toString()) < 0;
+                const auto leftString = left.toString(), rightString = right.toString();
+                const auto* a = leftString.toUTF16().getAddress();
+                const auto* b = rightString.toUTF16().getAddress();
+                while (*a != 0 && *a == *b) { ++a; ++b; }
+                return *a < *b;
             });
             juce::String output ("{");
             for (size_t index = 0; index < keys.size(); ++index)
@@ -142,8 +177,9 @@ namespace hypha::reference_audition
                 if (index != 0) output += ",";
                 const auto child = canonicalValue (object->getProperty (keys[index]));
                 if (child.isEmpty()) return {};
-                output += juce::JSON::toString (juce::var (keys[index].toString()), true)
-                       + ":" + child;
+                const auto key = canonicalString (keys[index].toString());
+                if (key.isEmpty()) return {};
+                output += key + ":" + child;
             }
             return output + "}";
         }
@@ -224,23 +260,32 @@ namespace hypha::reference_audition
             || occurredAtMs < 0 || occurredAtMs > maxSafeJsonInteger)
             return result;
         auto object = new juce::DynamicObject();
-        object->setProperty ("format", "kirin_hypha_reference_event");
-        object->setProperty ("version", "1.0");
+        object->setProperty ("format", context.identity.library
+            ? "kirin_hypha_reference_library_event" : "kirin_hypha_reference_event");
+        object->setProperty ("version", context.versionEntry ? "1.1" : "1.0");
         object->setProperty ("event_id", eventId);
         object->setProperty ("runtime_instance_id", context.identity.runtimeInstanceId);
         object->setProperty ("host_process_id",
                              static_cast<juce::int64> (context.identity.hostProcessId));
-        object->setProperty ("work_id", context.identity.workId);
+        object->setProperty ("work_id", context.identity.library ? juce::var() : juce::var (context.identity.workId));
         object->setProperty ("manifest_revision", context.manifestRevision);
         object->setProperty ("event_type", eventType);
         object->setProperty ("occurred_at_ms", occurredAtMs);
         object->setProperty ("run_id", runId);
-        object->setProperty ("preset_artifact", contentReceipt (context.presetArtifact));
+        auto receipt = contentReceipt (context.presetArtifact);
+        if (context.versionEntry)
+        {
+            receipt.getDynamicObject()->removeProperty ("preset_id");
+            receipt.getDynamicObject()->setProperty ("entry_id", context.presetArtifact.presetId);
+        }
+        object->setProperty (context.versionEntry ? "version_artifact" : "preset_artifact", receipt);
         object->setProperty ("display_snapshot", displaySnapshot (context));
         object->setProperty ("note", note);
         object->setProperty ("payload", payload);
         result.canonicalJson = canonicalJson (juce::var (object));
-        const auto file = eventFile (context.identity.runtimeInstanceId, eventId);
+        const auto file = context.identity.library
+            ? root.getChildFile ("library/events").getChildFile (context.identity.runtimeInstanceId).getChildFile (eventId + ".json")
+            : eventFile (context.identity.runtimeInstanceId, eventId);
         result.written = file != juce::File() && result.canonicalJson.isNotEmpty()
                       && writeImmutable (file, result.canonicalJson);
         return result;

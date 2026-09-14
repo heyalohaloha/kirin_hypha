@@ -28,9 +28,10 @@ matrix provides contrary evidence.
 The old B-786 artifact exposed four components per role: stereo/mono Native and stereo/mono
 AudioSuite. AudioSuite is not a meaningful surface for a realtime meter and was not part of the
 Offline Bounce proof. Current source disables AudioSuite registration while retaining Native mono,
-stereo, and multi-mono support. The local PRE/POST Blind product entry also remains disabled on AAX
-until exact-range AAX project-clock and PDC behavior has its own proof; ordinary metering and pairing
-remain available.
+stereo, and multi-mono support. On 2026-09-13 the user explicitly requested enabling
+the local PRE/POST Blind entry on AAX. The format gate now permits it; exact capture,
+clock/PDC continuity and shared admission remain mandatory at runtime. AAX host/PDC
+acceptance remains unverified and is still required for release.
 
 This host evidence belongs to B-786, not to later same-version source. A current candidate must be
 built, signed, installed, and retested from its exact commit before release.

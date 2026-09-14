@@ -23,6 +23,9 @@ namespace
         verifyUnrelatedPublicationPreservesPlayback (
             controller, presetFile, manifestFile, measuredPreset, presetId, revisionId, 128, output);
         controller.selectA();
+        for (int i = 0; i < 4; ++i) { output.clear(); controller.renderSelectedB (output, 128, true); }
+        for (int i = 0; i < 200 && comparisonSuspended.load(); ++i) juce::Thread::sleep (5);
+        require (!comparisonSuspended.load(), "completed normal fade releases the gate before testing a fresh acquisition");
         measuredPreset = measuredPreset.clone();
         const auto nextRevision = controller.snapshot().manifestRevision + 1;
         measuredPreset.getDynamicObject()->getProperty ("checks").getArray()
@@ -81,6 +84,9 @@ namespace
         std::int64_t hostPosition,
         juce::AudioBuffer<float>& output)
     {
+        for (int i = 0; i < 4; ++i) { output.clear(); controller.renderSelectedB (output, hostPosition, true); }
+        for (int i = 0; i < 200 && comparisonSuspended.load(); ++i) juce::Thread::sleep (5);
+        require (!comparisonSuspended.load(), "normal return completes before the new Blind acquisition race");
         const auto initial = controller.snapshot();
         const auto gateRaceRevision = initial.manifestRevision + 1;
         const auto heldAGain = std::pow (

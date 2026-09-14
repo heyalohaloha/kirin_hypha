@@ -22,8 +22,8 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         localBlindCapture.process (buffer.getArrayOfReadPointers(), getTotalNumInputChannels(),
                                    captureClock, static_cast<std::uint32_t> (preparedSampleRate));
 
-    // The admitted session owns exact, immutable PCM and its epochs. Wrapper-specific host
-    // proof remains a separate prerequisite; a trial never creates another Analysis slot.
+    // The admitted session owns exact, immutable PCM and its epochs. Runtime clock/PDC
+    // continuity remains required; a trial never creates another Analysis slot.
     if (localBlindProductSupported()
         && role == Role::Post && localBlindProductSession.hasPublishedRealtime())
     {
@@ -43,11 +43,14 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         if (localBlindProductSession.render (buffer.getArrayOfWritePointers(), buffer.getNumChannels(),
                                              buffer.getNumSamples(), block)) return;
     }
-#if KIRIN_HYPHA_GUIDE_TRANSPORT && ! KIRIN_HYPHA_PRE_DISPLAY
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (role == Role::Post && referenceAuditionController != nullptr)
+        referenceAuditionController->observeTransport (clock.positionSamples, clock.hasPosition, clock.playing);
     if (role == Role::Post && referenceAuditionController != nullptr)
         referenceAuditionController->observeAInput (
             buffer, clock.positionSamples, clock.hasPosition, clock.playing,
-            ! bypassed && ! nonRealtimeMode && licenseIsOs());
+            ! bypassed && ! nonRealtimeMode && licenseIsOs(), clock.clockSource, !bypassed && !nonRealtimeMode,
+            {clock.inputPresentationSamples,clock.outputPresentationSamples,clock.presentationSource,clock.inputPresentationValid,clock.outputPresentationValid});
     // Explicit B is an output-only audition copy. A has already been measured. Offline
     // render, bypass, missing project time, cache miss, and every consumer failure keep A intact.
     if (role == Role::Post && referenceAuditionController != nullptr)

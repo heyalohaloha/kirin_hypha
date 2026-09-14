@@ -14,6 +14,8 @@
 
 namespace hypha::reference_audition
 {
+    class AudioPages;
+    struct RuntimeContentAlignment;
     struct RuntimeV2BlindGainPlan
     {
         double aGainDb = 0.0;
@@ -40,6 +42,10 @@ namespace hypha::reference_audition
     struct RuntimeV2BlindSnapshot
     {
         BlindPhase phase = BlindPhase::inactive;
+        bool wholeSong = false;
+        std::int64_t wholeSourceFrames = 0;
+        double alignmentCorrelation = 0.0;
+        std::int64_t alignmentSpreadSamples = 0;
         bool eligible = false;
         bool lowerAApprovalRequired = false;
         bool attenuationHeld = false;
@@ -87,6 +93,8 @@ namespace hypha::reference_audition
                       const RuntimeCandidate&, const RuntimeCue&,
                       const std::shared_ptr<const RuntimeSource>&,
                       bool sampleRateConversionApproved);
+        bool prepareWholeSong (const RuntimeACaptureAudio&, const RuntimeSource&,
+                               const RuntimeContentAlignment&);
         void invalidate() noexcept;
         void clear() noexcept;
 
@@ -104,9 +112,18 @@ namespace hypha::reference_audition
         void forceClearAfterAudioStopped() noexcept;
         void loseAudibleConfirmation() noexcept;
         bool render (juce::AudioBuffer<float>&, std::int64_t hostPosition,
-                     bool positionValid) noexcept;
+                     bool positionValid, AudioPages* pages = nullptr,
+                     std::int64_t mappedSourcePosition = -1) noexcept;
         bool renderInvalidatedA (juce::AudioBuffer<float>&,
                                  bool auditionAllowed) noexcept;
+        void seedNormalSourceBlend (float blend) noexcept { pendingNormalBlend.store (blend, std::memory_order_release); }
+        bool renderPausedA (juce::AudioBuffer<float>&) noexcept;
+        void confirmStoppedReturn() noexcept;
+        std::uint64_t retirableOutputGateToken() const noexcept
+        {
+            const auto token = sessionOutputGateToken.load (std::memory_order_acquire);
+            return lifecycle.load (std::memory_order_acquire) == normalConfirmed ? token : 0;
+        }
         RuntimeV2BlindSnapshot snapshot() const;
         bool ongoing() const noexcept;
         bool listening() const noexcept;
@@ -132,11 +149,19 @@ namespace hypha::reference_audition
         };
 
         bool enterPreparation() noexcept;
+        bool renderWholeSong (juce::AudioBuffer<float>&, AudioPages&, std::int64_t sourcePosition) noexcept;
         void restorePreparedGain() noexcept;
         void resetSession() noexcept;
         int sideForStimulus (int stimulus) const noexcept;
         static BlindPhase publicPhase (int lifecycle) noexcept;
 
+        bool wholeSong = false;
+        std::int64_t wholeSourceFrames = 0;
+        double alignmentCorrelation = 0.0;
+        std::int64_t alignmentSpreadSamples = 0;
+        juce::AudioBuffer<float> liveScratch;
+        std::atomic<float> pendingNormalBlend { -1.0f };
+        float rtSourceBlend = 0.0f;
         std::vector<float> frozenA;
         std::vector<float> frozenB;
         std::int64_t aStartSample = 0;

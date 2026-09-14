@@ -1,7 +1,10 @@
 #pragma once
+#include "HyphaPairPreview.h"
+#include "HyphaCaptureStateNotification.h"
 #include "HostProcessClock.h"
 #include "local_blind/LocalBlindCaptureService.h"
 #include "local_blind/LocalBlindProductSession.h"
+#include "local_blind/LocalBlindAdmission.h"
 #include "local_blind/PairCaptureBarrier.h"
 #include "local_blind/VST3HostContext.h"
 #include "local_blind/HostClockProbe.h"
@@ -21,8 +24,8 @@
  #include "CaptureWorkAttachment.h"
  #include "pre_display/PreDisplayClock.h"
  #include "pre_display/PreDisplayController.h"
- #include "reference_audition/ReferenceRuntimeV2Controller.h"
 #endif
+#include "reference_audition/ReferenceComparisonController.h"
 
 // Role-parameterized base for both the Kirin Hypha PRE and POST JUCE shells (B-070).
 // All FFI wiring (create / set_license / push_samples / poll_result), the identity state
@@ -98,7 +101,11 @@ public:
         juce::MemoryBlock pngBytes,
         hypha::capture::WorkAttachmentDescriptor descriptor);
     hypha::capture::WorkAttachmentResult takeCaptureWorkAttachmentResult();
+#endif
     hypha::reference_audition::Snapshot referenceAuditionSnapshot() const;
+    void setReferenceViewPresented (bool);
+    bool selectReferenceC (double, double);
+    bool selectReferenceVersion (const juce::String&);
     bool selectReferenceB (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     void selectReferenceA();
     bool selectReferencePreset (const juce::String&);
@@ -109,6 +116,11 @@ public:
     bool selectReferenceCue (const juce::String&);
     bool approveReferenceSampleRateConversion();
     bool requestReferenceRecovery();
+    bool startLatestReferenceReview();
+    bool startLatestReferenceBookmark();
+    bool moveReferenceWorkflow (int direction, bool confirmed, bool deferred);
+    void endReferenceWorkflow();
+    void setReferenceCaptureTonalRange (double startSeconds, double endSeconds);
     bool startReferenceBlind (double aIntegratedLoudness, double aMaximumTruePeakDbtp);
     bool approveReferenceBlindLowerA (double aIntegratedLoudness,
                                       double aMaximumTruePeakDbtp);
@@ -116,7 +128,6 @@ public:
     bool answerReferenceBlind (int stimulus);
     bool revealReferenceBlind();
     void endReferenceBlind();
-#endif
 
     // --- B-072: POST pairing surface (used by the editor only when isPostRole()) ----------
     bool isPostRole() const { return role == Role::Post; }
@@ -136,14 +147,15 @@ public:
     // exact-range project-clock and PDC proof has been recorded for that host format.
     bool localBlindProductSupported() const noexcept;
     hypha::local_blind::ProductSessionView localBlindProductView() const;
-    bool requestLocalBlindProductCapture();
+    hypha::local_blind::CaptureAdmission localBlindCaptureAvailability() const;
+    hypha::local_blind::CaptureAdmission requestLocalBlindProductCapture (hypha::meter_context::MeterContext);
     bool startLocalBlindProductTrial (bool approveLowerPost = false);
     bool selectLocalBlindProductStimulus (int stimulus);
     bool answerLocalBlindProductTrial (hypha::local_blind::TrialAnswer);
     bool revealLocalBlindProductTrial();
     void stopLocalBlindProductTrial();
     void cancelLocalBlindProductSession();
-    void requestLocalBlindNormalReturn();
+    hypha::local_blind::TrialReturnFacts requestLocalBlindNormalReturn();
     // Non-RT exact capture control and PRE result transport. None starts an audition.
     bool issueLocalBlindCaptureRequest (std::uint64_t captureGeneration,
                                         std::int64_t frames,
@@ -301,6 +313,8 @@ public:
     };
     bool keepAll();                                       // FFI kirin_hypha_keep_all (broadcast + self keep)
     void stopAll();                                       // FFI kirin_hypha_stop_all (broadcast + self stop)
+    hypha::pair_preview::Ticket createPairPreview() const;
+    bool pairPreviewMatches (const KirinPairPreview*) const;
     juce::Array<PreCandidate> enumeratePreCandidates() const; // FFI kirin_hypha_enumerate_pre_candidates
     juce::Array<PostPairClaim> enumeratePostPairClaims() const; // FFI kirin_hypha_enumerate_post_pair_claims
     int keepReadyCount() const;                               // FFI kirin_hypha_count_keep_ready (egui n_ready)
@@ -419,11 +433,16 @@ private:
     hypha::pre_display::ClockTap preDisplayClock;
     std::unique_ptr<hypha::pre_display::Controller> preDisplayController;
     std::unique_ptr<hypha::capture::WorkAttachmentController> captureWorkAttachmentController;
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    void createReferenceAuditionController();
-    std::unique_ptr<hypha::reference_audition::RuntimeV2Controller> referenceAuditionController;
-   #endif
 #endif
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    juce::String referenceRuntimeId { juce::Uuid().toDashedString() };
+    void createReferenceAuditionController();
+    hypha::CaptureStateNotification captureStateNotification{[this]{ updateHostDisplay(ChangeDetails{}.withNonParameterStateChanged(true)); }};
+    std::unique_ptr<hypha::reference_audition::ReferenceComparisonController> referenceAuditionController;
+   #endif
+
+    void configureReferenceAudition();
+    void configureWorkTransports();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KirinHyphaProcessorBase)
 };

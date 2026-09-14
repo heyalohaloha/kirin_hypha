@@ -24,10 +24,11 @@
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginEditorCapture.cpp"
     ));
-    const PLUGIN_PROCESSOR_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PluginProcessor.cpp"
-    ));
+    const PLUGIN_PROCESSOR_CPP: &str = concat!(
+        include_str!("../../../juce_shell/src/PluginProcessor.cpp"),
+        "\n",
+        include_str!("../../../juce_shell/src/PluginProcessorState.cpp")
+    );
     const PLUGIN_PROCESSOR_PAIRING_CPP: &str =
         include_str!("../../../juce_shell/src/PluginProcessorPairing.cpp");
     const PLUGIN_PROCESSOR_METER_CPP: &str = include_str!("../../../juce_shell/src/PluginProcessorMeter.cpp");

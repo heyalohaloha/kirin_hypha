@@ -51,6 +51,8 @@ KirinObservatoryFrame activeFrame()
     meter.max_true_peak = -1.2;
     meter.plr = 13.1;
     meter.channels = 2u;
+    meter.channel_true_peak_dbtp[0] = -14.5;
+    meter.channel_true_peak_dbtp[1] = -114.5;
     meter.balance_state = KIRIN_BALANCE_NUMERIC;
     meter.balance_db = 0.82;
     meter.correlation = 0.76;
@@ -154,7 +156,7 @@ void writeCompositePreview (const juce::String& name, const juce::Image& image)
     const juce::File directory (outputDirectory);
     KIRIN_COMPOSITE_REQUIRE (directory.createDirectory().wasOk());
     auto output = directory.getChildFile (name).createOutputStream();
-    KIRIN_COMPOSITE_REQUIRE (output != nullptr);
+    KIRIN_COMPOSITE_REQUIRE (output != nullptr && output->setPosition (0) && output->truncate().wasOk());
     KIRIN_COMPOSITE_REQUIRE (juce::PNGImageFormat().writeImageToStream (image, *output));
 }
 
@@ -341,6 +343,7 @@ void verifyObservatoryCompositeContract()
         == observatory::ExperienceFamily::observatory);
 
     observatory::View shell (observatory::Role::post);
+    shell.setLocalBlindEntryEnabled (true);
     shell.setSize (600, 400);
     shell.setObservatoryFrame (activeFrame(), true);
     shell.setConnection ("PAIR DRUM", COL_LED_BLUE, observatory::ConnectionState::paired);

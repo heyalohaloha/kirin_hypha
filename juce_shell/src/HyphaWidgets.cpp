@@ -377,10 +377,11 @@ namespace hypha
         repaint();
     }
 
-    void EditableName::mouseDown (const juce::MouseEvent&)
+    void EditableName::mouseDown (const juce::MouseEvent& event)
     {
         if (onSelect)
         {
+            if (event.getNumberOfClicks() > 1) return;
             onSelect();
             return;
         }
@@ -388,8 +389,22 @@ namespace hypha
             startEditing();
     }
 
+    bool EditableName::setSelectionPreview (const juce::String& text, std::uint64_t generation)
+    {
+        const auto fits = text.isNotEmpty()
+            && monoFont (presentationContext, typography::TextRole::selector).getStringWidthFloat (text) + 4 <= getWidth();
+        const auto next = fits ? text : juce::String();
+        const auto nextGeneration = fits ? generation : 0;
+        if (selectionPreview != next || previewGeneration != nextGeneration)
+        {
+            selectionPreview = next; previewGeneration = nextGeneration; paintedPreview = 0; repaint();
+        }
+        return fits;
+    }
+
     void EditableName::resized()
     {
+        paintedPreview = 0;
         if (editing)
             editor->setBounds (getLocalBounds());
     }
@@ -400,7 +415,10 @@ namespace hypha
             return; // the TextEditor child paints itself
 
         const bool empty = rawName.isEmpty();
-        const juce::String shown = prefix + (empty ? fallback : rawName);
+        const bool previewFits = selectionPreview.isNotEmpty()
+            && monoFont (presentationContext, typography::TextRole::selector).getStringWidthFloat (selectionPreview) + 4 <= getWidth();
+        const juce::String shown = previewFits ? selectionPreview : prefix + (empty ? fallback : rawName);
+        paintedPreview = previewFits ? previewGeneration : 0;
         g.setFont (monoFont (presentationContext, typography::TextRole::selector));
         g.setColour (COL_FLORA);
         text_style::draw (g, shown, getLocalBounds(), presentationContext,

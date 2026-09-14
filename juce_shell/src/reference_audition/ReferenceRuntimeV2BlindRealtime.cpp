@@ -43,7 +43,8 @@ namespace hypha::reference_audition
 
     bool RuntimeV2Blind::render (juce::AudioBuffer<float>& buffer,
                                  std::int64_t hostPosition,
-                                 bool positionValid) noexcept
+                                 bool positionValid, AudioPages* pages,
+                                 std::int64_t mappedSourcePosition) noexcept
     {
         auto state = lifecycle.load (std::memory_order_acquire);
         if ((state != armed && state != active && state != revealed) || ! positionValid)
@@ -53,6 +54,12 @@ namespace hypha::reference_audition
         if ((state != armed && state != active && state != revealed)
             || frameCount < 1 || buffer.getNumChannels() != channels)
         {
+            callbacksInFlight.fetch_sub (1, std::memory_order_release);
+            return false;
+        }
+        if (wholeSong)
+        {
+            if (pages != nullptr) return renderWholeSong (buffer, *pages, mappedSourcePosition);
             callbacksInFlight.fetch_sub (1, std::memory_order_release);
             return false;
         }

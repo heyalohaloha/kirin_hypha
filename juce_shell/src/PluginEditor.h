@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaLocalBlindReturnIntent.h"
 
 #include <array>
 #include <memory>
@@ -108,6 +109,8 @@ private:
     void updateSpectrumSizeControl();
     void configureReferenceAudition();
     void showReferenceInformationMenu();
+    void refreshCaptureControls();
+    hypha::reference_ui::CaptureControls captureStatus{true};
     void layoutReferenceAudition (juce::Rectangle<int>);
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
     void configureLocalBlindProduct();
@@ -129,7 +132,17 @@ private:
     void configureForKind (Kind);
     void layoutMetrics (bool six);
     void showCandidateMenu();
+    void refreshPairPreview (bool demand);
+    void selectPairPreview();
+    hypha::pair_preview::Ticket pairPreview;
+    KirinPairPreviewValue pairPreviewShown {};
+    bool pairPreviewWasFocused = false;
+    double pairPreviewRefreshAt = 0;
+    double pairPreviewNextDemandAt = 0;
+    double pairPreviewRetrySeconds = 1.05;
+    std::uint64_t pairPreviewObservedGeneration = 0;
     void showOperationsMenu();
+    void showTimeRangeMenu();
     void showMeterContextMenu (juce::Component& anchor);
     void applyMeterContextChoice (hypha::meter_context::MeterContext);
     void showDomainMenu();
@@ -203,7 +216,10 @@ private:
     std::int64_t cachedAttackLatest = -1;
     std::uint32_t cachedAttackRate = 0;
     std::uint64_t cachedAttackGeneration = 0;
+    juce::Point<int> localBlindReturnSize;
     bool localBlindOpen = false;
+    double localBlindPresentationAt = -1.0;
+    hypha::local_blind_ui::ReturnIntent localBlindReturnIntent;
     bool localBlindPreflight = false;
     struct LocalBlindUnderlyingState
     {

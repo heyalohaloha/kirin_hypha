@@ -7,6 +7,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaCaptureContract.h"
+#include "HyphaLevelMetricContract.h"
 #include "HyphaMeterContext.h"
 #include "HyphaInformationButton.h"
 #include "HyphaObservatoryContract.h"
@@ -62,6 +63,7 @@ public:
     std::function<void()> onSizeMenu;
     std::function<void()> onOperationsMenu;
     std::function<void()> onStop;
+    std::function<void()> onTimeRangeMenu;
     std::function<void()> onGuideDetails;
     std::function<void()> onFeedbackDetails;
     std::function<void (bool)> onHybridVuChange;
@@ -169,6 +171,8 @@ public:
     void setNoteAvailability (bool osOwned, bool recording);
     void setKeepActive (bool active);
     bool localBlindEntryAvailable() const noexcept { return localBlindEntryEnabled; }
+    bool localBlindDirectEntryVisible() const noexcept { return localBlindButton.isVisible(); }
+    juce::Component& timeRangeMenuAnchor() noexcept { return timeRangeMenuButton; }
     const juce::String& feedback() const noexcept { return feedbackText; }
     void setLocalBlindEntryEnabled (bool enabled)
     {
@@ -210,6 +214,8 @@ public:
             && (selectedDomain == Domain::frequency || selectedDomain == Domain::reference);
     }
 
+    juce::String getTooltip() override;
+    juce::String metricHelpAt (juce::Point<int>) const;
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseMove (const juce::MouseEvent&) override;
@@ -236,6 +242,10 @@ private:
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
     void refreshLevelHistoryHover();
+    juce::Rectangle<int> metricHelpArea (juce::Rectangle<int>, level_metrics::Metric);
+    struct MetricHelpRegion { juce::Rectangle<int> bounds; level_metrics::Metric metric; };
+    std::array<MetricHelpRegion, 8> metricHelpRegions {};
+    std::size_t metricHelpCount = 0;
     observatory_world::State worldState() const noexcept;
     bool currentFactsAvailable() const noexcept;
     bool cumulativeFactsAvailable() const noexcept;
@@ -301,6 +311,7 @@ private:
     Button targetButton { {}, false };
     Button deltaButton { hypha::delta(), false };
     Button timeRangeButton { {}, false };
+    Button timeRangeMenuButton { juce::String::fromUTF8 ("\xe2\x96\xbe"), false };
     Button compactLoudnessButton { {}, false };
     Button compactRangeButton { {}, false };
     Button contextButton { {}, false };

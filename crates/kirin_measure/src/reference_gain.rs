@@ -1,6 +1,12 @@
 //! Offline Reference Blind gain facts from sample-aligned A/B PCM.
 
 use ebur128::{EbuR128, Mode};
+#[path = "reference_capture_index.rs"]
+pub mod capture_index;
+#[path = "reference_tonal.rs"]
+pub mod tonal;
+#[path = "reference_visual.rs"]
+pub mod visual;
 
 const MINIMUM_SAMPLE_RATE: u32 = 8_000;
 const MAXIMUM_SAMPLE_RATE: u32 = 768_000;
@@ -32,8 +38,9 @@ fn checked_level_milli(value: f64) -> Option<i64> {
         .then(|| (value * 1_000.0).round() as i64)
 }
 
-fn block_loudness(samples: &[f32], sample_rate: u32, channels: usize) -> Option<f64> {
-    let mut meter = EbuR128::new(channels as u32, sample_rate, Mode::M).ok()?;
+fn block_loudness(meter: &mut EbuR128, samples: &[f32]) -> Option<f64> {
+    // Each block retains the original cold-filter policy; reuse only the allocated storage.
+    meter.reset();
     meter.add_frames_f32(samples).ok()?;
     meter
         .loudness_momentary()
@@ -175,12 +182,14 @@ pub fn analyze_reference_gain(
 
     let mut best_run = Vec::<i64>::new();
     let mut current_run = Vec::<i64>::new();
+    let mut block_meter = EbuR128::new(channels as u32, sample_rate, Mode::M)
+        .map_err(|_| "reference_gain_meter_unavailable")?;
     for start_frame in (0..=frame_count - block_frames).step_by(hop_frames) {
         let start = start_frame * channels;
         let end = (start_frame + block_frames) * channels;
         match (
-            block_loudness(&a[start..end], sample_rate, channels),
-            block_loudness(&b[start..end], sample_rate, channels),
+            block_loudness(&mut block_meter, &a[start..end]),
+            block_loudness(&mut block_meter, &b[start..end]),
         ) {
             (Some(a_loudness), Some(b_loudness)) => {
                 let delta = checked_level_milli(a_loudness - b_loudness)
@@ -199,6 +208,7 @@ pub fn analyze_reference_gain(
     if current_run.len() > best_run.len() {
         best_run = current_run;
     }
+    drop(block_meter);
     if best_run.len() < MINIMUM_PAIRED_BLOCKS {
         return Err("reference_gain_paired_blocks_insufficient");
     }
@@ -224,6 +234,24 @@ pub fn analyze_reference_gain(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reused_block_storage_keeps_cold_filter_results_exact() {
+        for rate in [8000, 44100, 48000, 192000] {
+            let signal = stereo_tone(rate, 1, 0.2);
+            let frames = ((u64::from(rate) * 4 + 5) / 10) as usize;
+            let mut reused = EbuR128::new(2, rate, Mode::M).unwrap();
+            for scale in [1.0, 0.0, 0.01, 2.0, 0.5] {
+                let block: Vec<_> = signal[..frames * 2].iter().map(|v| v * scale).collect();
+                let mut cold = EbuR128::new(2, rate, Mode::M).unwrap();
+                cold.add_frames_f32(&block).unwrap();
+                let expected = cold
+                    .loudness_momentary()
+                    .ok()
+                    .filter(|v| v.is_finite() && *v > ACTIVE_FLOOR_LUFS);
+                assert_eq!(block_loudness(&mut reused, &block), expected);
+            }
+        }
+    }
 
     fn stereo_tone(sample_rate: u32, seconds: usize, amplitude: f32) -> Vec<f32> {
         let frames = sample_rate as usize * seconds;

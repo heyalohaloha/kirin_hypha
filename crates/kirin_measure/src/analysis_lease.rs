@@ -22,6 +22,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
+#[path = "reference_capture_admission.rs"]
+pub mod capture;
+#[path = "reference_analysis_owner.rs"]
+pub mod reference_owner;
 
 #[cfg(not(test))]
 use crate::storage::PlatformPaths;
@@ -220,6 +224,9 @@ pub struct AuditionAdmission {
     process_audition: AnalysisLease,
     project_audition: crate::project_audition_lease::ProjectAuditionLease,
     held: bool,
+    borrowed_analysis: bool,
+    shared_analysis: Option<reference_owner::ReferenceAnalysisGrant>,
+    capture_barrier: capture::CaptureBarrier,
 }
 
 impl AuditionAdmission {
@@ -244,6 +251,7 @@ impl AuditionAdmission {
         plugin_data_dir: &Path,
         project_hash: &str,
     ) -> Self {
+        let process_barrier = process_audition_path.with_extension("capture-barrier");
         Self {
             analysis: AnalysisLease::at_paths(analysis_paths),
             process_audition: AnalysisLease::at_paths([process_audition_path]),
@@ -252,6 +260,13 @@ impl AuditionAdmission {
                 project_hash,
             ),
             held: false,
+            borrowed_analysis: false,
+            shared_analysis: None,
+            capture_barrier: capture::CaptureBarrier::new(
+                process_barrier,
+                crate::reservation::reservation_dir(plugin_data_dir, project_hash)
+                    .join(".capture-barrier"),
+            ),
         }
     }
 
@@ -259,7 +274,10 @@ impl AuditionAdmission {
         if self.held {
             return Ok(true);
         }
-        if !self.analysis.try_acquire_for(owner_name)? {
+        if !self.borrowed_analysis
+            && self.shared_analysis.is_none()
+            && !self.analysis.try_acquire_for(owner_name)?
+        {
             return Ok(false);
         }
         if !self.process_audition.try_acquire_for(owner_name)? {
@@ -289,6 +307,38 @@ impl AuditionAdmission {
         self.process_audition.release();
         self.analysis.release();
         self.held = false;
+        self.borrowed_analysis = false;
+        self.shared_analysis = None;
+        self.capture_barrier.release();
+    }
+
+    pub fn try_acquire_blind_for(&mut self, owner: &str) -> io::Result<bool> {
+        if !self.capture_barrier.acquire(false)? {
+            return Ok(false);
+        }
+        match self.try_acquire_for(owner) {
+            Ok(true) => Ok(true),
+            other => {
+                self.capture_barrier.release();
+                other
+            }
+        }
+    }
+
+    pub fn try_acquire_during_capture(
+        &mut self,
+        capture: &capture::CaptureAdmission,
+        owner: &str,
+    ) -> io::Result<bool> {
+        if !capture.compatible(self) {
+            return Ok(false);
+        }
+        self.borrowed_analysis = true;
+        let result = self.try_acquire_for(owner);
+        if !matches!(result, Ok(true)) {
+            self.borrowed_analysis = false;
+        }
+        result
     }
 
     pub fn held(&self) -> bool {

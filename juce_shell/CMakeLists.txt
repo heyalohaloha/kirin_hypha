@@ -21,6 +21,14 @@ if(NOT CMAKE_MATCH_1)
 endif()
 project(KirinHypha VERSION ${CMAKE_MATCH_1} LANGUAGES C CXX)
 
+# The Windows SDK exposes min/max as function-like macros unless NOMINMAX is
+# defined before any platform header is parsed.  Keep that macro out of every
+# product and contract-test translation unit instead of repairing collisions
+# one source file at a time.
+if(WIN32)
+    add_compile_definitions(NOMINMAX=1)
+endif()
+
 add_custom_target(HyphaBuildIdentity
     COMMAND ${CMAKE_COMMAND}
         "-DHYPHA_SOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -155,6 +163,9 @@ target_compile_definitions(KirinHyphaData INTERFACE
     KIRIN_HYPHA_KIMERA_EMBEDDED=${KIRIN_HYPHA_KIMERA_EMBEDDED})
 set(KIRIN_HYPHA_WIDGETS_SOURCE src/HyphaWidgets.cpp)
 set(KIRIN_REFERENCE_AUDITION_SOURCES
+    src/reference_audition/ReferencePersistedState.cpp
+    src/reference_audition/ReferenceWorkflowRepository.cpp
+    src/reference_audition/ReferenceWorkflowStorage.cpp
     src/reference_audition/ReferenceAudioPages.cpp
     src/reference_audition/ReferenceAudioPageRender.cpp
     src/reference_audition/ReferenceAuditionController.cpp
@@ -170,17 +181,47 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceRuntimeABinding.cpp
     src/reference_audition/ReferenceRuntimeACapture.cpp
     src/reference_audition/ReferenceRuntimeV2Repository.cpp
+    src/reference_audition/ReferenceRuntimeRepositoryParsing.cpp
+    src/reference_audition/ReferenceLibraryRepository.cpp
+    src/reference_audition/ReferenceLibraryRecovery.cpp
     src/reference_audition/ReferenceRuntimeV2PresetParsing.cpp
     src/reference_audition/ReferenceRuntimeV2Controller.cpp
+    src/reference_audition/ReferenceComparisonController.cpp
+    src/reference_audition/ReferenceComparisonWorkflow.cpp
+    src/reference_audition/ReferenceRuntimeVersionSelection.cpp
     src/reference_audition/ReferenceRuntimeV2Commands.cpp
     src/reference_audition/ReferenceRuntimeV2CandidatePreparation.cpp
     src/reference_audition/ReferenceRuntimeV2Workspace.cpp
+    src/reference_audition/ReferenceRuntimeV2BlindPreparation.cpp
     src/reference_audition/ReferenceRuntimeV2Lifecycle.cpp
+    src/reference_audition/ReferenceVisualAudio.cpp
+    src/reference_audition/ReferenceVisualBinding.cpp
+    src/reference_audition/ReferenceVisualObservation.cpp
+    src/reference_audition/ReferenceTonalRepository.cpp
+    src/reference_audition/ReferenceTonalWireValidation.cpp
+    src/reference_audition/ReferenceTonalCapture.cpp
+    src/reference_audition/ReferenceTonalSummary.cpp
+    src/reference_audition/ReferenceCaptureTonalStore.cpp
+    src/reference_audition/ReferenceACaptureCodec.cpp
+    src/reference_audition/ReferenceACaptureEvidenceCodec.cpp
+    src/reference_audition/ReferenceCaptureEvidence.cpp
+    src/reference_audition/ReferenceRuntimeCaptureEvidence.cpp
+    src/reference_audition/ReferenceACaptureSession.cpp
+    src/reference_audition/ReferenceACaptureRestore.cpp
+    src/reference_audition/ReferenceACaptureRevisit.cpp
+    src/reference_audition/ReferenceACaptureProjection.cpp
+    src/reference_audition/ReferenceComparisonCapture.cpp
     src/reference_audition/ReferenceRuntimeV2Events.cpp
     src/reference_audition/ReferenceRuntimeV2Selection.cpp
     src/reference_audition/ReferenceRuntimeV2NormalSelection.cpp
     src/reference_audition/ReferenceRuntimeV2Realtime.cpp
     src/reference_audition/ReferenceRuntimeV2Alignment.cpp
+    src/reference_audition/ReferenceContentAlignment.cpp
+    src/reference_audition/ReferenceContentCorrelation.cpp
+    src/reference_audition/ReferenceProbeAudio.cpp
+    src/reference_audition/ReferenceWholeSongPreparation.cpp
+    src/reference_audition/ReferenceWholeSongEvents.cpp
+    src/reference_audition/ReferenceWholeSongRealtime.cpp
     src/reference_audition/ReferenceRuntimeV2Blind.cpp
     src/reference_audition/ReferenceRuntimeV2BlindLifecycle.cpp
     src/reference_audition/ReferenceRuntimeV2BlindRealtime.cpp
@@ -238,7 +279,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     endif()
 
     target_sources(${TARGET} PRIVATE
-        src/PluginProcessor.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
+        src/PluginProcessor.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/local_blind/LocalBlindCaptureService.cpp
         src/local_blind/CapturePairComparison.cpp
@@ -250,10 +291,11 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorHostClock.cpp
         src/PluginProcessorValidation.cpp
         src/PluginProcessorDisplayState.cpp
-        src/PluginProcessorGuideTransport.cpp
+        src/PluginProcessorGuideTransport.cpp src/PluginProcessorReference.cpp
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
         src/PluginEditorLifecycle.cpp
+        src/PluginEditorPairPreview.cpp
         src/PluginEditorAppearance.cpp
         src/PluginEditorMenu.cpp
         src/PluginEditorInformation.cpp
@@ -311,7 +353,9 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_sources(${TARGET} PRIVATE
             src/PluginEditorLocalBlind.cpp
             src/HyphaLocalBlindComponent.cpp
+        src/HyphaLocalBlindPresentation.cpp
             src/PluginEditorReference.cpp
+            src/PluginEditorReferenceCapture.cpp
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
             src/HyphaAttackComponent.cpp
@@ -326,10 +370,14 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaPerceptualComponent.cpp
             src/HyphaPerceptualPainter.cpp
             src/HyphaPsbPainter.cpp
-            src/HyphaReferenceComponent.cpp
+            src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
+            src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp
             src/HyphaReferenceControls.cpp
             src/HyphaReferenceMetricPainter.cpp
             src/HyphaReferenceVisuals.cpp
+            src/HyphaReferenceTonalView.cpp
+            src/HyphaReferenceComparisonView.cpp
+        src/HyphaReferenceCapturedView.cpp
             src/HyphaSpectrumComponent.cpp
             src/HyphaSpectrumPsb.cpp
             src/HyphaSpectrumTooltip.cpp
@@ -472,10 +520,15 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         tools/ReferencePreviewRenderer.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
-        src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
+        src/HyphaReferenceTonalView.cpp
+        src/HyphaReferenceComparisonView.cpp
+        src/HyphaReferenceCapturedView.cpp
+        src/reference_audition/ReferenceTonalSummary.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
@@ -540,7 +593,9 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/TypographyContractTest.cpp
         tests/RunSummaryContractTest.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
+        tests/ReferenceTonalViewContractTest.cpp
         src/HyphaLocalBlindComponent.cpp
+        src/HyphaLocalBlindPresentation.cpp
         tests/OsAccessUiContractTest.cpp
         src/HyphaObservatoryCapture.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
@@ -576,10 +631,15 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaAttackSpecimenPainter.cpp
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
-        src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
+        src/HyphaReferenceTonalView.cpp
+        src/HyphaReferenceComparisonView.cpp
+        src/HyphaReferenceCapturedView.cpp
+        src/reference_audition/ReferenceTonalSummary.cpp
         src/PostControls.cpp
         src/HyphaPsbPainter.cpp
         src/HyphaSpectrumComponent.cpp
@@ -754,12 +814,33 @@ option(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS
     "Build the Kirin OS to Hypha Reference audition contract tests" OFF)
 if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
     enable_testing()
+    add_executable(KirinReferenceContentCorrelationTests
+        tests/reference_content_correlation_test.cpp
+        src/reference_audition/ReferenceContentCorrelation.cpp)
+    target_compile_features(KirinReferenceContentCorrelationTests PRIVATE cxx_std_17)
+    add_test(NAME kirin_reference_content_correlation COMMAND KirinReferenceContentCorrelationTests)
     juce_add_console_app(KirinReferenceAuditionRuntimeTests
         PRODUCT_NAME "Kirin Reference Audition Runtime Tests")
     target_sources(KirinReferenceAuditionRuntimeTests PRIVATE
         tests/reference_audition_runtime_test.cpp
         tests/reference_runtime_v2_source_cache_test.cpp
         tests/reference_runtime_v2_workspace_test.cpp
+        tests/reference_library_test.cpp
+        tests/reference_calibration_regression_test.cpp
+        tests/reference_content_alignment_test.cpp
+        tests/reference_real_content_alignment_test.cpp
+        tests/reference_rt_probe.cpp
+        tests/reference_visual_test.cpp
+        tests/reference_tonal_repository_test.cpp
+        tests/reference_workflow_test.cpp
+        tests/reference_a_capture_test.cpp
+        tests/reference_a_capture_projection_test.cpp
+        tests/reference_a_capture_long_test.cpp
+        tests/reference_capture_memory_test.cpp
+        tests/reference_a_capture_errors_test.cpp
+        tests/reference_capture_evidence_test.cpp
+        tests/reference_capture_operation_test.cpp
+        tests/reference_capture_live_sharing_test.cpp
         src/reference_audition/ReferenceBlindSession.cpp
         ${KIRIN_REFERENCE_AUDITION_SOURCES})
     target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE
@@ -777,17 +858,21 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         juce::juce_audio_formats
         juce::juce_core
         juce::juce_cryptography
+        juce::juce_events
         ${KIRIN_RUST_NATIVE_LIBS}
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
     add_test(NAME kirin_reference_audition_runtime
         COMMAND KirinReferenceAuditionRuntimeTests)
-
+    include(cmake/PairPreviewTests.cmake)
+    add_test(NAME kirin_reference_capture_memory COMMAND KirinReferenceAuditionRuntimeTests --capture-memory-only)
+    set_tests_properties(kirin_reference_capture_memory PROPERTIES TIMEOUT 300)
     juce_add_console_app(KirinReferenceAudioPagesTests
         PRODUCT_NAME "Kirin Reference Audio Page Tests")
     target_sources(KirinReferenceAudioPagesTests PRIVATE
         tests/reference_audio_pages_test.cpp
         src/reference_audition/ReferenceAudioPages.cpp
+        src/reference_audition/ReferenceVisualAudio.cpp
         src/reference_audition/ReferenceAudioPageRender.cpp
         src/reference_audition/ReferenceAuditionProtocol.cpp)
     target_compile_definitions(KirinReferenceAudioPagesTests PRIVATE
@@ -807,12 +892,18 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
     target_sources(KirinReferenceAuditionComponentTests PRIVATE
         tests/reference_audition_component_test_main.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
+        tests/ReferenceTonalViewContractTest.cpp
+        src/reference_audition/ReferenceTonalSummary.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
-        src/HyphaReferenceComponent.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
+        src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp
         src/HyphaReferenceControls.cpp
         src/HyphaReferenceMetricPainter.cpp
         src/HyphaReferenceVisuals.cpp
+        src/HyphaReferenceTonalView.cpp
+        src/HyphaReferenceComparisonView.cpp
+        src/HyphaReferenceCapturedView.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp

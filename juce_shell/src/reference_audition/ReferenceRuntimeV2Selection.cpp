@@ -59,18 +59,25 @@ namespace hypha::reference_audition
             pages.request (sourcePosition);
     }
 
+    void RuntimeV2Controller::setContentObservationEnabled (bool enabled) noexcept
+    {
+        if (contentObservationEnabled.exchange (enabled, std::memory_order_acq_rel) == enabled) return;
+        if (enabled) contentRefreshRequested.store (true, std::memory_order_release);
+        notify();
+    }
+
     void RuntimeV2Controller::observeAInput (const juce::AudioBuffer<float>& input,
                                              std::int64_t hostPosition,
                                              bool positionValid,
                                              bool playing,
-                                             bool auditionAllowed) noexcept
+                                             bool auditionAllowed, bool confirmAudible) noexcept
     {
         aCapture.observe (input, hostPosition, positionValid, playing,
-                          auditionAllowed
-                              && ! bSelected.load (std::memory_order_acquire)
-                              && ! blind.ongoing());
-        if (auditionAllowed && playing && positionValid && input.getNumSamples() > 0
-            && ! bSelected.load (std::memory_order_acquire) && ! blind.ongoing())
+                          auditionAllowed && (!versionComparison || contentObservationEnabled.load (std::memory_order_acquire)
+                              || bSelected.load (std::memory_order_acquire) || blind.ongoing()) && (versionComparison
+                              || (! bSelected.load (std::memory_order_acquire) && ! blind.ongoing())));
+        if (confirmAudible && auditionAllowed && playing && positionValid && input.getNumSamples() > 0
+            && ! bSelected.load (std::memory_order_acquire) && !normalReturnToken.load (std::memory_order_acquire) && ! blind.ongoing())
             aAudibleConfirmations.fetch_add (1, std::memory_order_release);
     }
 
@@ -88,7 +95,7 @@ namespace hypha::reference_audition
             const bool loops = cueLoops.load (std::memory_order_relaxed);
             const auto hostAnchor = bHostAnchor.load (std::memory_order_relaxed);
             const auto sourceAnchor = bSourceAnchor.load (std::memory_order_relaxed);
-            std::int64_t result = -1;
+            std::int64_t result = versionComparison ? std::numeric_limits<std::int64_t>::min() : -1;
             if (end > start)
             {
                 if (loops)
@@ -118,14 +125,14 @@ namespace hypha::reference_audition
                     if (sourceAnchor >= start && sourceAnchor < end
                         && checkedSubtract (hostPosition, hostAnchor, delta)
                         && checkedAdd (sourceAnchor, delta, position)
-                        && position >= start && position < end)
+                        && (versionComparison || (position >= start && position < end)))
                         result = position;
                 }
             }
             if (mappingGeneration.load (std::memory_order_acquire) == generation)
                 return result;
         }
-        return -1;
+        return versionComparison ? std::numeric_limits<std::int64_t>::min() : -1;
     }
 
     bool RuntimeV2Controller::startBlind (double aIntegratedLoudness,
@@ -153,6 +160,7 @@ namespace hypha::reference_audition
             return false;
         const auto epoch = auditionEpoch.load (std::memory_order_acquire);
         const auto gateToken = acquireOutputGate();
+        if (gateToken != 0) normalReturnToken.store (0, std::memory_order_release);
         if (gateToken == 0)
             return false;
         if (! ready.load (std::memory_order_acquire)
@@ -190,6 +198,12 @@ namespace hypha::reference_audition
                 currentSnapshot.loudnessDeltaBMinusA = 0.0;
                 currentSnapshot.truePeakDeltaBMinusA = currentSnapshot.adjustedBMaximumTruePeakDbtp
                                                      - currentSnapshot.aMaximumTruePeakDbtp;
+                if (facts.wholeSong)
+                {
+                    currentSnapshot.aIntegratedLoudness = std::numeric_limits<double>::quiet_NaN();
+                    currentSnapshot.adjustedBIntegratedLoudness = currentSnapshot.sourceIntegratedLoudness + facts.bGainDb;
+                    currentSnapshot.loudnessDeltaBMinusA = std::numeric_limits<double>::quiet_NaN();
+                }
             }
         }
         if (! publicationStillValid)
@@ -240,7 +254,7 @@ namespace hypha::reference_audition
         if (blind.ongoing())
             invalidateBlind();
         else
-            selectA();
+            selectA (false);
     }
 
     void RuntimeV2Controller::loseAudibleConfirmation() noexcept
@@ -292,7 +306,8 @@ namespace hypha::reference_audition
         else
         {
             const auto gateToken = activeOutputGateToken.load (std::memory_order_acquire);
-            if (bSelected.exchange (false, std::memory_order_acq_rel))
+            const bool returning = normalReturnToken.exchange (0, std::memory_order_acq_rel);
+            if (bSelected.exchange (false, std::memory_order_acq_rel) || returning)
             {
                 activeAuditionEpoch.store (0, std::memory_order_release);
                 auditionReturnPending.store (true, std::memory_order_release);

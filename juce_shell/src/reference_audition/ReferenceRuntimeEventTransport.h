@@ -24,6 +24,7 @@ namespace hypha::reference_audition
         juce::String cueId;
         juce::String cueLabel;
         juce::String comparisonMode;
+        bool versionEntry = false;
 
         bool valid() const noexcept;
     };

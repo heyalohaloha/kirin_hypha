@@ -13,12 +13,17 @@
 #include "ReferenceRuntimeV2Alignment.h"
 #include "ReferenceRuntimeV2Blind.h"
 #include "ReferenceRuntimeV2Presentation.h"
+#include "ReferenceComparisonSettings.h"
 #include "ReferenceRuntimeV2Repository.h"
 #include "ReferenceRuntimeEventTransport.h"
 #include "ReferenceRuntimeABinding.h"
 #include "ReferenceRuntimeACapture.h"
 #include "ReferenceRuntimeV2Source.h"
 #include "ReferenceRuntimeV2SourceCache.h"
+#include "ReferenceCalibrationObservation.h"
+#include "ReferenceDeferredControl.h"
+#include "ReferenceVisualTimeline.h"
+#include "ReferenceWorkflowRepository.h"
 
 namespace hypha::reference_audition
 {
@@ -26,18 +31,29 @@ namespace hypha::reference_audition
     {
     public:
         using SelectionGate = std::function<bool(bool)>;
+        using WorkflowCommitCallback = std::function<void(const WorkflowEventCommit&)>;
 
         explicit RuntimeV2Controller (juce::File transportRootIn = RuntimeV2Repository::transportRoot(),
-                                      SelectionGate = {});
+                                      SelectionGate = {}, bool wholeVersionComparison = false,
+                                      WorkflowCommitCallback = {});
         ~RuntimeV2Controller() override;
 
         void configure (RuntimeIdentity, double hostSampleRate, int hostChannels);
         void disconnect();
+        ReferenceChoice savedChoice() const;
+        void restoreChoice (const ReferenceChoice&);
         Snapshot snapshot() const;
+        VisualBinding visualBinding() const;
+        void setCaptureObservation(const juce::String&,std::int64_t);
+        void serviceCaptureEvidence(const RuntimeACaptureAudio&,const RuntimeSource&,const RuntimeContentAlignment&);
         bool selectPreset (const juce::String&);
         bool selectCheck (const juce::String&);
         bool selectCandidate (const juce::String&);
         bool selectCue (const juce::String&);
+        bool selectWorkflowCondition (const WorkflowCondition&, const juce::String& token);
+        bool appendWorkflowEvent (WorkflowEventRequest);
+        bool selectLibraryVersion (const juce::String&);
+        bool selectLibraryCheck (const juce::String&);
         bool retryPresetSelection();
         bool retryCandidatePreparation();
         bool approveSampleRateConversion();
@@ -45,13 +61,18 @@ namespace hypha::reference_audition
 
         void observeTransport (std::int64_t hostPosition, bool positionValid,
                                bool playing) noexcept;
+        void setContentObservationEnabled (bool enabled) noexcept;
         void observeAInput (const juce::AudioBuffer<float>&,
                             std::int64_t hostPosition,
                             bool positionValid,
                             bool playing,
-                            bool auditionAllowed) noexcept;
+                            bool auditionAllowed, bool confirmAudible = true) noexcept;
+        void confirmAOutput() noexcept { aAudibleConfirmations.fetch_add (1, std::memory_order_release); }
         bool selectB (double aIntegratedLoudness, double aMaximumTruePeakDbtp) noexcept;
-        void selectA() noexcept;
+        void selectA (bool allowFade = true) noexcept;
+        bool hasOutputPath() const noexcept { return bSelected.load (std::memory_order_acquire) || returningToA() || normalAudible.load (std::memory_order_acquire) || blind.ongoing(); }
+        bool canTransferOutputGate() const noexcept { return !bSelected.load (std::memory_order_acquire) && !blind.ongoing(); }
+        bool returningToA() const noexcept { return normalReturnToken.load (std::memory_order_acquire); }
         bool startBlind (double, double) noexcept;
         bool approveBlindLowerAAndStart (double, double) noexcept;
         bool selectBlindStimulus (int) noexcept;
@@ -63,7 +84,7 @@ namespace hypha::reference_audition
                               bool positionValid, bool auditionAllowed = true) noexcept;
         bool renderSelectedB (juce::AudioBuffer<float>&, std::int64_t hostPosition,
                               bool positionValid, bool auditionAllowed,
-                              bool normalReturnAllowed) noexcept;
+                              bool normalReturnAllowed, bool normalTarget = true) noexcept;
         void loseAudibleConfirmation() noexcept;
 
     private:
@@ -82,6 +103,8 @@ namespace hypha::reference_audition
             juce::String candidateId;
             juce::String cueId;
             juce::String sampleRateApprovalKey;
+            std::optional<WorkflowCondition> workflowCondition;
+            juce::String workflowToken;
             std::uint64_t generation = 0;
         };
 
@@ -132,6 +155,8 @@ namespace hypha::reference_audition
         void run() override;
         void applyConfiguration (const Configuration&);
         void refreshWorkspace (const Configuration&, std::int64_t nowMs);
+        void serviceBlindPreparation (const Configuration&, const RuntimeCandidate&, const RuntimeCue&,
+                                      const std::shared_ptr<const RuntimeSource>&, Snapshot&);
         void publish (Snapshot);
         void publishReady (Snapshot, std::shared_ptr<const RuntimeSource>);
         void publishApprovalRequired (Snapshot, const juce::String& approvalKey);
@@ -152,10 +177,14 @@ namespace hypha::reference_audition
         void beginBlindEventSession (const RuntimeV2BlindSnapshot&) noexcept;
         void completeBlindEventSession (const RuntimeV2BlindSnapshot&) noexcept;
         void serviceRuntimeEvents();
+        bool requestLibraryRecovery();
+        void serviceLibraryRecovery();
         void serviceRecoveryAcknowledgement();
         void servicePresetSelectionAcknowledgement();
         void serviceCandidatePreparationAcknowledgement();
         void serviceDeferredAudioThreadActions();
+        void serviceOutputRetirement();
+        void serviceWorkflowEvents (std::int64_t nowMs);
         void revokeAuditionPublication() noexcept;
         void failClosedToA() noexcept;
         void invalidateBlind() noexcept;
@@ -163,8 +192,11 @@ namespace hypha::reference_audition
         void invalidateBlindFromAudioThread() noexcept;
 
         const juce::File root;
+        const bool versionComparison;
         const SelectionGate selectionGate;
+        const WorkflowCommitCallback workflowCommitCallback;
         RuntimeV2Repository repository;
+        ReferenceWorkflowRepository workflowRepository;
         RuntimeABindingRepository aBindingRepository;
         RuntimeACapture aCapture;
         RuntimeV2SourceRepository sourceRepository;
@@ -187,6 +219,9 @@ namespace hypha::reference_audition
         std::uint64_t appliedConfigurationGeneration = 0;
         std::uint64_t appliedSelectionGeneration = 0;
         std::shared_ptr<const RuntimeWorkspace> workspace;
+        std::shared_ptr<const WorkflowCatalog> workflowCatalog;
+        std::deque<WorkflowEventRequest> workflowEvents;
+        std::int64_t workflowRetryAtMs = 0;
         std::optional<RuntimeABinding> activeABinding;
         RuntimeFiles activeRuntimeFiles;
         std::shared_ptr<const RuntimeSource> workerSource;
@@ -198,6 +233,11 @@ namespace hypha::reference_audition
         juce::String pendingApprovalKey;
         juce::String blindContextKey;
         juce::String blindPreparationKey;
+        juce::String legacyVersionLookupKey, legacyVersionChoice;
+        CalibrationObservation calibrationObservation;
+        juce::String captureTargetId,captureProbeKey;
+        std::int64_t captureGridAnchor=0;
+        std::shared_ptr<const ACaptureReceipt> publishedCaptureEvidence;
         juce::String activePresetAdoptionKey;
         Snapshot currentSnapshot;
         PreparedNormalSelection preparedNormalSelection;
@@ -218,8 +258,18 @@ namespace hypha::reference_audition
         std::int64_t presetSelectionStatusExpiresAtMs = 0;
         std::int64_t candidatePreparationWaitingSinceMs = 0;
         std::int64_t candidatePreparationStatusExpiresAtMs = 0;
+        juce::File pendingLibraryOpen;
+        std::int64_t libraryOpenRequestedAt = 0;
+        std::atomic<bool> libraryReceived { false }, libraryOnline { false };
         std::atomic<bool> ready { false };
         std::atomic<bool> bSelected { false };
+        std::atomic<std::uint64_t> normalReturnToken { 0 };
+        std::atomic<bool> normalAudible { false };
+        std::atomic<float> normalFadeStep { 1.0f / 240.0f };
+        std::array<std::array<float, 8192>, 2> normalLiveA {};
+        std::uint64_t rtNormalEpoch = 0;
+        float rtNormalBlend = 0.0f; // Audio-thread owned.
+        std::atomic<bool> contentObservationEnabled { false }, contentRefreshRequested { false };
         std::atomic<float> bLinearGain { 1.0f };
         std::atomic<std::uint64_t> auditionEpoch { 1 };
         std::atomic<std::uint64_t> activeAuditionEpoch { 0 };
@@ -242,5 +292,6 @@ namespace hypha::reference_audition
         std::atomic<std::uint64_t> normalGateReleasePendingToken { 0 };
         std::atomic<std::uint64_t> blindGateReleasePendingToken { 0 };
         std::atomic<bool> auditionReturnPending { false };
+        DeferredControl outputRetirement;
     };
 }

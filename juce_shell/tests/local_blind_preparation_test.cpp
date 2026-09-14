@@ -1,4 +1,5 @@
 #include "../src/local_blind/LocalBlindProductSession.h"
+#include "../src/HyphaLocalBlindReturnIntent.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -232,12 +233,31 @@ static void productLifecycle (const std::vector<float>& source)
     require (releaseCalls == 0 && session.view().phase == ProductSessionPhase::returnPending
                  && session.view().failure == ProductSessionFailure::pairChanged,
              "pair change stops output but cannot release admission before normal audio receipt");
-    session.requestNormalReturn();
+    hypha::local_blind_ui::ReturnIntent editorIntent;
+    const auto requestFacts = session.requestNormalReturn();
+    editorIntent.arm (requestFacts);
+    require (requestFacts.requested() && ! requestFacts.confirmed
+        && ! editorIntent.shouldClose (session.view()), "request alone never closes the screen");
+    require (session.requestNormalReturn().sameRequest (requestFacts), "repeat click preserves pending return command");
     TrialBlock normal { {}, request.sampleRate, 0, true, true, true, false };
     std::fill (output.begin(), output.end(), 0.75f);
     require (session.render (pointers, 1, static_cast<int> (output.size()), normal),
              "normal-return callback is owned until receipt");
+    require (editorIntent.shouldClose (session.view()), "exact callback closes the requesting Editor");
     session.service();
+    require (editorIntent.shouldClose (session.view()), "receipt survives non-RT PCM retirement");
+    hypha::local_blind_ui::ReturnIntent reopenedEditor;
+    require (! reopenedEditor.shouldClose (session.view()), "reopening cannot inherit a return gesture");
+    auto stale = session.view();
+    ++stale.returnFacts.capture;
+    require (! editorIntent.shouldClose (stale), "other capture receipt cannot close this screen");
+    stale = session.view(); ++stale.returnFacts.scope;
+    require (! editorIntent.shouldClose (stale), "other scope receipt cannot close this screen");
+    stale = session.view(); ++stale.returnFacts.command;
+    require (! editorIntent.shouldClose (stale), "other command receipt cannot close this screen");
+    editorIntent.clear();
+    require (! editorIntent.shouldClose (session.view()), "closed Editor discards return intent");
+    require (! session.requestNormalReturn().requested(), "retired trial cannot mint a fresh gesture receipt");
     require (releaseCalls == 1 && releasedEpoch == 11
                  && session.view().phase == ProductSessionPhase::returned
                  && ! session.hasPublishedRealtime(),
@@ -277,6 +297,30 @@ static void productLifecycle (const std::vector<float>& source)
              "asynchronous capture failure releases without waiting for an audio receipt");
 }
 
+static void gainFailureRecovery (const std::vector<float>& source)
+{
+    bool releaseAllowed = false;
+    LocalBlindProductSession session ([&] (std::uint64_t) { return releaseAllowed; });
+    auto request = productRequest (1, static_cast<std::int64_t> (source.size()));
+    auto sparse = source;
+    std::fill (sparse.begin() + 48000, sparse.end(), 0.0f);
+    auto post = capture (sparse, 1, request.nativeStart, request.captureGeneration);
+    auto pre = capture (sparse, 1, request.nativeStart, request.captureGeneration);
+    require (session.beginCapture (21, request.captureGeneration, GainMatchPolicy::alignedActiveBlocksV1)
+        && session.acceptCapturedPair (request, *post, *pre, [] { return false; }), "failed exact capture reaches its owner");
+    require (session.view().phase == ProductSessionPhase::failed
+        && session.view().preparationFailure == PreparationFailure::gainUnavailable
+        && ! session.view().canRecapture && ! session.hasPublishedRealtime(), "typed gain failure cannot publish audio or race scope retirement");
+    session.service(); require (! session.view().canRecapture, "failed release cannot offer a premature retry");
+    releaseAllowed = true; session.service();
+    require (session.view().canRecapture, "retry becomes available after scope release");
+    require (session.beginCapture (22, request.captureGeneration, GainMatchPolicy::exactTrackEventEnergyV1)
+        && session.view().preparationFailure == PreparationFailure::none
+        && ! session.view().canRecapture, "retry clears the old failure and freezes its explicit mode");
+    require (session.acceptCapturedPair (request, *post, *pre, [] { return false; })
+        && session.view().phase == ProductSessionPhase::ready, "same sparse input prepares with explicitly selected TRACK policy");
+}
+
 int main (int argc, char** argv)
 {
     require (argc == 2, "pass the checked-in S-1 WAV path");
@@ -285,5 +329,6 @@ int main (int argc, char** argv)
     unavailableAndApproval (source);
     exactTrackEvents (source);
     productLifecycle (source);
+    gainFailureRecovery (source);
     std::cout << "Local Blind preparation: PASS (real S-1, product capture-to-return, mono/stereo, fixed gain, same-PCM, fail-closed match, lower POST)\n";
 }

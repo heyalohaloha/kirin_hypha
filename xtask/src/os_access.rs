@@ -10,6 +10,7 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessorGuideTransport.cpp"
     ));
+    const REFERENCE: &str = include_str!("../../juce_shell/src/PluginProcessorReference.cpp");
     const EDITOR_OBSERVATORY: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginEditorObservatory.cpp"
@@ -34,13 +35,13 @@ mod tests {
         let process = body(
             PROCESSOR,
             "void KirinHyphaProcessorBase::processBlock",
-            "void KirinHyphaProcessorBase::getStateInformation",
+            "bool KirinHyphaProcessorBase::acceptsMidi",
         );
         assert!(process.contains(PROCESS_COMPARISON_CALL));
         let output = include_str!("../../juce_shell/src/PluginProcessorAudition.cpp");
         assert!(output.contains("! nonRealtimeMode && licenseIsOs()"));
         let snapshot = body(
-            GUIDE,
+            REFERENCE,
             "KirinHyphaProcessorBase::referenceAuditionSnapshot",
             "bool KirinHyphaProcessorBase::selectReferenceB",
         );
@@ -71,7 +72,7 @@ mod tests {
                 "void KirinHyphaProcessorBase::endReferenceBlind",
             ),
         ] {
-            let action = body(GUIDE, start, end);
+            let action = body(REFERENCE, start, end);
             assert!(action.contains("refreshLicenseForUserAction();"));
             assert!(action.contains("if (! licenseIsOs())"));
             assert!(action.contains("suspendAudition();"));

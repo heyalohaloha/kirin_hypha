@@ -1,0 +1,76 @@
+#pragma once
+#include "kirin_hypha_reference_capture_ffi.h"
+#include "ReferenceACaptureModel.h"
+#include "ReferenceVisualObservation.h"
+#include <array>
+#include <functional>
+namespace hypha::reference_audition
+{
+class ACaptureSession final : private juce::Thread
+{
+public:
+    explicit ACaptureSession(std::function<bool(bool)>, std::function<ACaptureReceipt()> = {},
+                             std::shared_ptr<ReferenceAnalysis> = std::make_shared<ReferenceAnalysis>(),
+                             VisualObservation* = nullptr, juce::File transportRoot = {});
+    ~ACaptureSession() override;
+    void shutdown();
+    static constexpr size_t inputQueueBytes() { return sizeof(Block)*slots; }
+    static constexpr size_t inputQueueFrames() { return (slots-1)*256; }
+    void configure(juce::String, double, int);
+    void restore(juce::String,bool shown=true);
+    void setPresented(bool);
+    void pauseObservation();
+    void resumeObservation();
+    bool observe(const juce::AudioBuffer<float>&,std::int64_t,bool,bool,bool,int,CaptureClockSignature = {}, bool liveAllowed=true) noexcept;
+    std::shared_ptr<ACaptureAccess> access = std::make_shared<ACaptureAccess>();
+private:
+    struct Block { std::array<float,512> pcm {}; std::int64_t position=0; int frames=0,channels=0,clock=0; std::uint64_t config=0,epoch=0,timing=0,live=0,continuity=0; CaptureClockSignature signature; };
+    static constexpr size_t slots=480;
+    static_assert(sizeof(Block)*slots<=1024*1024,"Capture and visual queues together remain below 2 MiB");
+    std::unique_ptr<std::array<Block,slots>> queue=std::make_unique<std::array<Block,slots>>();
+    std::atomic<size_t> writeIndex{0},readIndex{0};
+    std::atomic<std::uint64_t> accepting{0},configuration{0},heartbeat{0};
+    std::atomic<int> writers{0},terminal{0};
+    std::atomic<bool> started{false};
+    CaptureClockSignature rtSignature;
+    int rtClock=0;
+    std::uint64_t rtTimingEpoch=1,rtContinuity=1,previousRevisitContinuity=0;
+    const std::uint64_t runtimeToken=std::uint64_t(juce::Random::getSystemRandom().nextInt64());
+    std::function<bool(bool)> gate;
+    std::function<ACaptureReceipt()> receipt;
+    juce::File transportRoot;
+    std::shared_ptr<ReferenceAnalysis> analysis;
+    ReferenceAnalysis::Lease observationAdmission, captureAdmission;
+    VisualObservation* live=nullptr;
+    bool presented=false,paused=false;
+    juce::CriticalSection control;
+    juce::String receiver, restoreText;
+    std::uint64_t restoreGeneration=0, stateGeneration=0;
+    void serviceRestore();
+    bool restorePending=false,restoreShown=true, ownsGate=false, measurementFailed=false;
+    int rate=0,channels=0;
+    std::uint64_t epoch=0,activeConfig=0,pendingFrames=0,binOffset=0,pendingHash=0;
+    std::int64_t revisitExpected=0;
+    std::uint64_t revisitHash=0,revisitFrames=0,matchingFrames=0;
+    size_t revisitIndex=0;
+    std::shared_ptr<ACaptureData> draft;
+    ACaptureState state;
+    KirinReferenceVisualMeter* meter=nullptr;
+    std::unique_ptr<TonalCapture> tonalCapture;
+    KirinReferenceCaptureIndex* captureIndex=nullptr;
+    std::uint64_t unitFrames=0,confirmedTimingEpoch=0;
+    double nextRevisitPublish=0,nextEvidencePoll=0;
+    juce::String lastReceiptCheck;
+    void finishUnit();
+    void stampHeldReceipt();
+    void run() override;
+    void consumeRevisit(const Block&);
+    void prepareObservation();
+    void stampReceipt(ACaptureData&);
+    void begin();
+    void consume(const Block&);
+    void finishBin();
+    void close(int);
+    void publish();
+};
+}

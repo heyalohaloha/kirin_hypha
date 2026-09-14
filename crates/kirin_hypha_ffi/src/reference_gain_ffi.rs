@@ -1,3 +1,5 @@
+#[path = "reference_visual_ffi.rs"]
+mod visual;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[repr(C)]
