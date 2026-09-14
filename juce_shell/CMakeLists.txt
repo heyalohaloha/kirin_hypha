@@ -21,6 +21,14 @@ if(NOT CMAKE_MATCH_1)
 endif()
 project(KirinHypha VERSION ${CMAKE_MATCH_1} LANGUAGES C CXX)
 
+# The Windows SDK exposes min/max as function-like macros unless NOMINMAX is
+# defined before any platform header is parsed.  Keep that macro out of every
+# product and contract-test translation unit instead of repairing collisions
+# one source file at a time.
+if(WIN32)
+    add_compile_definitions(NOMINMAX=1)
+endif()
+
 add_custom_target(HyphaBuildIdentity
     COMMAND ${CMAKE_COMMAND}
         "-DHYPHA_SOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/.."

@@ -45,9 +45,9 @@ private:
         }
         if(phase==0)
         {
-            // Allow the production identity/IO startup timer to complete, without an OS library.
-            if(juce::Time::getMillisecondCounterHiRes()-started<700) return;
-            access=processor->referenceAuditionSnapshot().captureAccess;require(bool(access),"shipping POST exposes Capture without B");
+            // Production identity/IO startup is asynchronous and can take longer on a loaded CI
+            // runner. Poll the product fact until the contract's existing bounded timeout.
+            access=processor->referenceAuditionSnapshot().captureAccess;if(!access)return;
             require(access->request(hypha::reference_audition::ACaptureAccess::start),"shipping Capture start");++phase;return;
         }
         if(phase==1) {if(!access->active)return;clock.playing=true;++phase;}

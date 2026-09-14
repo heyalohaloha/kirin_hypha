@@ -138,6 +138,9 @@ private:
     KirinPairPreviewValue pairPreviewShown {};
     bool pairPreviewWasFocused = false;
     double pairPreviewRefreshAt = 0;
+    double pairPreviewNextDemandAt = 0;
+    double pairPreviewRetrySeconds = 1.05;
+    std::uint64_t pairPreviewObservedGeneration = 0;
     void showOperationsMenu();
     void showTimeRangeMenu();
     void showMeterContextMenu (juce::Component& anchor);

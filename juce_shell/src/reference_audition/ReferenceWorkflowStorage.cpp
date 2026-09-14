@@ -57,8 +57,11 @@ bool writeWorkflowDurable (const juce::File& root, const juce::File& target,
         || ! safeParent (root, parent) || target.isSymbolicLink()) return false;
     if (! replace && target.existsAsFile()) return ! target.isSymbolicLink()
         && target.loadFileAsString() == content;
-    const auto temporary = target.getSiblingFile (
-        "." + target.getFileName() + "." + juce::Uuid().toDashedString() + ".tmp");
+    // The target may already contain a revision UUID and a content hash. Repeating that full
+    // name in the staging file exceeds legacy Windows path limits even when the final path fits.
+    // A UUID-only sibling remains unique and keeps the final replace on the same volume.
+    const auto temporary = parent.getChildFile (
+        "." + juce::Uuid().toDashedString() + ".tmp");
     auto stream = temporary.createOutputStream();
     if (stream == nullptr || ! stream->openedOk()
         || ! stream->write (content.toRawUTF8(), static_cast<size_t> (bytes))) return false;
