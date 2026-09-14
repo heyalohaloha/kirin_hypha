@@ -3,6 +3,7 @@
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    pairPreview.reset();
     processorRef.setReferenceViewPresented (false);
     releaseAppearanceVisibility();
     commitEditorSizeStateIfSettled (true);
@@ -49,6 +50,7 @@ void KirinHyphaEditor::timerCallback()
     if (isPost) updatePost();
     else        updatePre();
     refreshObservatory();
+    refreshPairPreview (false);
 }
 
 void KirinHyphaEditor::commitEditorSizeStateIfSettled (bool force)

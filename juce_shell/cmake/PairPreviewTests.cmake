@@ -1,0 +1,18 @@
+# Development-only load/unload probe; no plugin bundle is installed or packaged.
+add_library(KirinPairPreviewModule MODULE tests/pair_preview_module.cpp src/HyphaPairPreview.cpp)
+target_include_directories(KirinPairPreviewModule PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../crates/kirin_hypha_ffi/include")
+target_link_libraries(KirinPairPreviewModule PRIVATE ${KIRIN_FFI_LIB} ${KIRIN_RUST_NATIVE_LIBS})
+if(TARGET KirinHyphaRustFFI)
+    add_dependencies(KirinPairPreviewModule KirinHyphaRustFFI)
+endif()
+if(APPLE)
+    target_link_libraries(KirinPairPreviewModule PRIVATE "-framework Security" "-framework CoreFoundation")
+endif()
+juce_add_console_app(KirinPairPreviewLifetimeTests PRODUCT_NAME "Kirin Pair Preview Lifetime Tests")
+target_sources(KirinPairPreviewLifetimeTests PRIVATE tests/pair_preview_lifetime_test.cpp)
+target_compile_definitions(KirinPairPreviewLifetimeTests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(KirinPairPreviewLifetimeTests PRIVATE juce::juce_core ${CMAKE_DL_LIBS})
+add_dependencies(KirinPairPreviewLifetimeTests KirinPairPreviewModule)
+add_test(NAME kirin_pair_preview_lifetime COMMAND KirinPairPreviewLifetimeTests "$<TARGET_FILE:KirinPairPreviewModule>")
+set_tests_properties(kirin_pair_preview_lifetime PROPERTIES TIMEOUT 120)

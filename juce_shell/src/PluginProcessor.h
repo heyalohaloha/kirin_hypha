@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaPairPreview.h"
 #include "HyphaCaptureStateNotification.h"
 #include "HostProcessClock.h"
 #include "local_blind/LocalBlindCaptureService.h"
@@ -307,6 +308,8 @@ public:
     };
     bool keepAll();                                       // FFI kirin_hypha_keep_all (broadcast + self keep)
     void stopAll();                                       // FFI kirin_hypha_stop_all (broadcast + self stop)
+    hypha::pair_preview::Ticket createPairPreview() const;
+    bool pairPreviewMatches (const KirinPairPreview*) const;
     juce::Array<PreCandidate> enumeratePreCandidates() const; // FFI kirin_hypha_enumerate_pre_candidates
     juce::Array<PostPairClaim> enumeratePostPairClaims() const; // FFI kirin_hypha_enumerate_post_pair_claims
     int keepReadyCount() const;                               // FFI kirin_hypha_count_keep_ready (egui n_ready)

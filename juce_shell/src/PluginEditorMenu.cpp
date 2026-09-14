@@ -148,7 +148,7 @@ void KirinHyphaEditor::showOperationsMenu()
     {
         if (recording) menu.addItem (22, "Add NOTE at current position", osOwned);
         if (observatoryDomain != hypha::observatory::Domain::reference)
-            menu.addItem (21, "Create Capture");
+            menu.addItem (21, "Save measurement image");
         if (observatoryView.localBlindEntryAvailable() && ! observatoryView.localBlindDirectEntryVisible())
             menu.addItem (23, (getWidth() < 900 ? juce::String ("PRE / POST Blind / Open at 300% / ")
                                               : juce::String ("PRE / POST Blind Compare / "))

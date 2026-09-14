@@ -9,6 +9,9 @@ use kirin_measure::{
     enumerate_ready_post_pair_candidates_for_operation_group, License, PlatformPaths,
 };
 
+#[path = "pair_preview_ffi.rs"]
+mod pair_preview_ffi;
+
 use super::identity_registry::read_shared_id;
 use super::{write_c_buf, KirinHyphaEngine, ID_BUF_LEN};
 

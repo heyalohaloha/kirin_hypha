@@ -44,3 +44,15 @@ juce::Array<KirinHyphaProcessorBase::PostPairClaim> KirinHyphaProcessorBase::enu
     return out;
 }
 
+
+hypha::pair_preview::Ticket KirinHyphaProcessorBase::createPairPreview() const
+{
+    const juce::ScopedLock lock (handleLock);
+    return hypha::pair_preview::Ticket (kirin_hypha_pair_preview_create (hyphaHandle));
+}
+
+bool KirinHyphaProcessorBase::pairPreviewMatches (const KirinPairPreview* preview) const
+{
+    const juce::ScopedLock lock (handleLock);
+    return kirin_hypha_pair_preview_matches (hyphaHandle, preview);
+}

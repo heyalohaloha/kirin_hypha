@@ -155,11 +155,19 @@ private:
             case 0:
             {
                 if (pre->instanceId().isEmpty()) break;
-                const auto candidates = post->enumeratePreCandidates();
-                const bool discovered = std::any_of (candidates.begin(), candidates.end(), [this] (const auto& c)
-                    { return c.instanceId == pre->instanceId(); });
-                if (! discovered) break;
+                if (! pairPreview)
+                {
+                    pairPreview = post->createPairPreview();
+                    require (hypha::pair_preview::request (pairPreview), "demand starts one bounded discovery job outside handle lock");
+                }
+                KirinPairPreviewValue preview {};
+                if (! kirin_hypha_pair_preview_poll (pairPreview.get(), &preview)) break;
+                require (post->pairPreviewMatches (pairPreview.get()), "preview retains the current processor identity boundary");
+                require (preview.complete && preview.has_single
+                    && juce::String::fromUTF8 (preview.candidate.instance_id) == pre->instanceId(),
+                    "complete live-runtime discovery exposes the exact sole PRE");
                 require (post->setPairCandidate (pre->instanceId(), {}), "exact discovered PRE is selected");
+                pairPreview.reset();
                 ++stage;
                 break;
             }
@@ -354,6 +362,7 @@ private:
     std::atomic<double> correlationOne { 0 }, correlationTwo { 0 };
     std::chrono::steady_clock::time_point started;
     std::chrono::steady_clock::time_point armedAt;
+    hypha::pair_preview::Ticket pairPreview;
     int stage = 0, reportedStage = -1, waitingUi = 0;
     bool reopened = false;
 };

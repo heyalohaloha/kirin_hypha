@@ -132,6 +132,12 @@ private:
     void configureForKind (Kind);
     void layoutMetrics (bool six);
     void showCandidateMenu();
+    void refreshPairPreview (bool demand);
+    void selectPairPreview();
+    hypha::pair_preview::Ticket pairPreview;
+    KirinPairPreviewValue pairPreviewShown {};
+    bool pairPreviewWasFocused = false;
+    double pairPreviewRefreshAt = 0;
     void showOperationsMenu();
     void showTimeRangeMenu();
     void showMeterContextMenu (juce::Component& anchor);

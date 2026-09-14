@@ -1225,7 +1225,9 @@ dependencies = [
  "kirin_measure",
  "rtrb",
  "serde_json",
+ "tempfile",
  "uuid 1.23.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

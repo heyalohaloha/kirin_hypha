@@ -46,6 +46,8 @@ inline void verifyLocalBlindUiContract()
                  "normal large POST has one direct Blind entry; smaller sizes use MENU");
         require (! preEntry->isVisible(), "PRE never consumes a second Blind UI slot");
     }
+    require (! post.findChildWithID ("observatory-capture")->isVisible(),
+             "measurement image Capture is in MENU, leaving the footer for audition controls");
     require (post.localBlindEntryAvailable(),
              "POST Blind capability remains available to the operations menu");
     for (const auto preset : { observatory::sizePresets[3], observatory::sizePresets[4] })

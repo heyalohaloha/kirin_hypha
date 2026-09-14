@@ -55,7 +55,7 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     stopButton.setVisible (role == Role::post && keepActive && ! captureFrame);
     resetButton.setVisible (false); // Reset Meter Session has one entry in MENU.
     noteButton.setVisible (role == Role::post && full && noteButton.isEnabled() && ! captureFrame);
-    captureButton.setVisible (full && ! captureFrame);
+    captureButton.setVisible (false); // Image Capture has one entry in MENU.
     localBlindButton.setVisible (full && localBlindEntryEnabled && ! captureFrame);
     localBlindButton.setEnabled (! keepActive);
     localBlindButton.setButtonText (getWidth() < 900 ? "BLIND 300%" : "PRE/POST BLIND");
@@ -65,8 +65,7 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     juce::Array<juce::Button*> visible;
     if (full && ! captureFrame)
     {
-        visible = { &hybridVuButton, &stopButton,
-                    &noteButton, &captureButton };
+        visible = { &hybridVuButton, &stopButton, &noteButton };
         if (localBlindButton.isVisible()) visible.add (&localBlindButton);
         visible.add (&operationsButton);
     }

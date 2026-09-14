@@ -159,7 +159,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setLockedTooltip (juce::CharPointer_UTF8 ("Pair selection is locked during playback"));
         nameField.setEnabledTooltip ("Click to choose one exact PRE.");
         nameField.setModelName (processorRef.pairDisplayName());
-        nameField.onSelect = [this] { showCandidateMenu(); };
+        nameField.onSelect = [this] { selectPairPreview(); };
+        nameField.onPreviewDemand = [this] { refreshPairPreview (true); };
+        nameField.setWantsKeyboardFocus (true);
 
         postControls = std::make_unique<hypha::PostControls>();
         scaleRoot.addAndMakeVisible (*postControls);

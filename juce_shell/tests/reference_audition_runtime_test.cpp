@@ -6,7 +6,7 @@
 #include "reference_runtime_test_entries.h"
 int main (int argc, char** argv)
 {
-    if (testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
+    if (runReferenceCaptureMemory(argc,argv) || testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
     require (ref::safeId (workId), "Work UUID must be a safe ID");
     require (! ref::safeId ("../escape"), "path separators must be rejected");
     require (ref::safeUuid (preparationId), "preparation UUID must validate");

@@ -138,6 +138,7 @@ View::View (Role roleIn) : role (roleIn)
     resetButton.onClick = [this] { if (onReset) onReset(); };
     noteButton.onClick = [this] { if (onNote) onNote(); };
     noteButton.setComponentID ("observatory-note");
+    captureButton.setComponentID ("observatory-capture");
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
     styleButton (localBlindButton);
     localBlindButton.setComponentID ("observatory-local-blind");

@@ -1,5 +1,11 @@
 #pragma once
 #include <juce_core/juce_core.h>
+void testReferenceCaptureMemory();
+inline bool runReferenceCaptureMemory(int argc,char** argv)
+{
+    if(argc!=2 || juce::String(argv[1])!="--capture-memory-only") return false;
+    testReferenceCaptureMemory(); return true;
+}
 
 void testRuntimeV2Workspace (const juce::File& sandbox);
 void testRuntimeV2SourceCache();

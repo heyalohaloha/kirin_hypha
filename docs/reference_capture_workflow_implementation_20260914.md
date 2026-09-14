@@ -61,10 +61,22 @@ Focused native results (not DAW host evidence):
 
 Logs: `target/b882-*`. Verified new layout frames: `target/b882-verified-ui/`; ABC/Blind fixtures: `target/b882-ui/` (those writers truncate). No native plugin installation or release packaging was performed.
 
+## B-883: Bounded PRE discovery and footer cleanup
+
+- Image CAPTURE is now MENU → Save measurement image. Reference Capture A stays on its primary surface. This follows the user's subsequent footer feedback.
+- A demand-driven, value-only preview scans at most 512 entries / 64 JSON attempts / 64 KiB per file / 1 MiB read bytes. Batch and elapsed/active time ceilings stop incomplete scans. Canonical per-PRE transactional claims are read in the same scan; unavailable legacy ownership proof keeps the ordinary menu.
+- One scheduler per loaded module coalesces one pending demand; eight published/retired slots stay below 1 MiB. UI polling is at most 10 Hz, requests are debounced for one second, and preview freshness is two seconds. No engine pointer or audio-thread work enters discovery.
+- H02 displays the full fitting identity label and requires its painted generation before direct connection. Resize invalidates that receipt. Existing exact pairing rechecks live identity, ownership and playback; stale/incomplete/unfitting results retain the menu.
+- Windows callbacks hold a counted DLL reference until callback return; DLL detach never joins a worker. The implementation uses Microsoft's documented GetModuleHandleExW / FreeLibraryWhenCallbackReturns / TrySubmitThreadpoolCallback contracts. Non-Windows module retirement drains the dedicated worker outside engine destruction.
+- Focused results so far: five bounded scanner tests, three scheduler tests, native live PRE discovery → exact pairing → full Local Blind cycle, and all-size product-entry UI pass. Windows Rust cross-target check passes. Module lifetime and maximum RAM probes are being completed before the consolidated baseline.
+
+The macOS lifetime probe initially expected physical unmapping. The test binary has MH_HAS_TLV_DESCRIPTORS; dyld retains these images. The revised probe records explicit non-RT retirement and close/reopen separately from actual unmapping. Windows keeps its physical-unload assertion. This is a platform distinction, not a claim that macOS unmapping was tested.
+
+API references: [Microsoft DLL restrictions](https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-best-practices), [counted module reference](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw), [callback retirement](https://learn.microsoft.com/en-us/windows/win32/api/threadpoolapiset/nf-threadpoolapiset-freelibrarywhencallbackreturns), [callback submission](https://learn.microsoft.com/en-us/windows/win32/api/threadpoolapiset/nf-threadpoolapiset-trysubmitthreadpoolcallback), [Apple dyld TLV lifetime](https://github.com/apple-oss-distributions/dyld/blob/main/dyld/Loader.h).
+
 ## Remaining work in the same approved task
 
 - Finish G0 RAM/lifetime and cross-feature boundaries. Current results do not establish DAW wall-clock latency or all-wrapper peak resident memory.
-- Implement and verify bounded, demand-driven PRE candidate discovery, including completeness, concurrent claims, teardown and module-unload behavior (G0-S).
-- Integrate H02 exact single-PRE action after bounded discovery passes G0-S. H01/H03–H08 UI work is implemented; remaining cross-feature and final baseline checks still apply.
+- Finish platform lifetime verification of the bounded PRE discovery (G0-S). H02 and H01/H03–H08 UI work is implemented; remaining cross-feature and final baseline checks still apply.
 - Consolidate the full Rust/FFI ignored/native baseline once the final implementation is ready. Run new focused tests only for changed or unresolved paths.
 - Record actual Studio One / Pro Tools and Windows verification separately. No new release build, installation, signing, notarization or public distribution has been performed for these changes.

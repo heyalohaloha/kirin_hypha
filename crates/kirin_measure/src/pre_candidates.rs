@@ -9,6 +9,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+#[path = "pair_preview.rs"]
+pub mod pair_preview;
+
 const RECORD_SIGNAL_RESERVED_DIR: &str = "record_signal";
 
 /// `/tmp/kirin/{ph}/{instance_id}/pre.json` 1 件分のパース結果。

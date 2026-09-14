@@ -152,10 +152,13 @@ namespace hypha
         EditableName();
 
         std::function<void (const juce::String&)> onCommit; // called with the new raw name
+        std::function<void()> onPreviewDemand;
         std::function<void()> onSelect; // when present, click selects instead of editing
 
         void setPrefix (const juce::String& p)        { prefix = p; if (! editing) repaint(); }
         void setFallback (const juce::String& f)       { fallback = f; if (! editing) repaint(); }
+        bool setSelectionPreview (const juce::String&, std::uint64_t generation);
+        std::uint64_t paintedSelectionGeneration() const noexcept { return paintedPreview; }
         void setModelName (const juce::String& raw);   // edited value; repaints when not editing
                                                         // (named to avoid hiding juce::Component::setName)
         void setEditingEnabled (bool enabled);         // false -> click does nothing (locked)
@@ -175,6 +178,14 @@ namespace hypha
 
         void paint (juce::Graphics&) override;
         void mouseDown (const juce::MouseEvent&) override;
+        void mouseEnter (const juce::MouseEvent&) override { if (onPreviewDemand) onPreviewDemand(); }
+        void focusGained (FocusChangeType) override { if (onPreviewDemand) onPreviewDemand(); }
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            if (onSelect && (key == juce::KeyPress::returnKey || key == juce::KeyPress::spaceKey))
+            { onSelect(); return true; }
+            return false;
+        }
         void resized() override;
 
     private:
@@ -182,7 +193,8 @@ namespace hypha
         void commitEditing();
         void cancelEditing();
 
-        juce::String rawName, prefix, fallback, enabledTooltip, lockedTooltip;
+        juce::String rawName, prefix, fallback, enabledTooltip, lockedTooltip, selectionPreview;
+        std::uint64_t previewGeneration = 0, paintedPreview = 0;
         bool editing = false;
         bool editingEnabled = true;
         std::unique_ptr<juce::TextEditor> editor;

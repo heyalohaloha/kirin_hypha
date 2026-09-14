@@ -166,7 +166,7 @@ pub(crate) fn engine_binding_claim_is_live(
     .is_some_and(|path| marker_lock_is_held(&path))
 }
 
-fn engine_binding_proof_path(
+pub(crate) fn engine_binding_proof_path(
     kirin_root: &Path,
     instance_dir: &Path,
     owner_id: &str,

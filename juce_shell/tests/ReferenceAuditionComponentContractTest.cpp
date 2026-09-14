@@ -4,6 +4,7 @@
 #include "ReferenceACaptureControlsTest.h"
 #include "ReferenceSelectionWorkflowTest.h"
 #include "MetricPresentationWorkflowTest.h"
+#include "PairPreviewUiContractTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -449,6 +450,7 @@ void verifyReferenceAuditionComponentContract()
     component.setState (visual);
 
     verifyMetricPresentationWorkflow();
+    verifyPairPreviewUiContract();
     verifyReferenceSelectionWorkflow (readyState());
 
     const auto compositePath = juce::SystemStats::getEnvironmentVariable (

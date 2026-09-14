@@ -262,7 +262,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     endif()
 
     target_sources(${TARGET} PRIVATE
-        src/PluginProcessor.cpp src/PluginProcessorCandidates.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
+        src/PluginProcessor.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/local_blind/LocalBlindCaptureService.cpp
         src/local_blind/CapturePairComparison.cpp
@@ -278,6 +278,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
         src/PluginEditorLifecycle.cpp
+        src/PluginEditorPairPreview.cpp
         src/PluginEditorAppearance.cpp
         src/PluginEditorMenu.cpp
         src/PluginEditorInformation.cpp
@@ -810,6 +811,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_a_capture_test.cpp
         tests/reference_a_capture_projection_test.cpp
         tests/reference_a_capture_long_test.cpp
+        tests/reference_capture_memory_test.cpp
         tests/reference_a_capture_errors_test.cpp
         tests/reference_capture_evidence_test.cpp
         src/reference_audition/ReferenceBlindSession.cpp
@@ -834,6 +836,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         juce::juce_recommended_warning_flags)
     add_test(NAME kirin_reference_audition_runtime
         COMMAND KirinReferenceAuditionRuntimeTests)
+    include(cmake/PairPreviewTests.cmake)
+    add_test(NAME kirin_reference_capture_memory COMMAND KirinReferenceAuditionRuntimeTests --capture-memory-only)
 
     juce_add_console_app(KirinReferenceAudioPagesTests
         PRODUCT_NAME "Kirin Reference Audio Page Tests")

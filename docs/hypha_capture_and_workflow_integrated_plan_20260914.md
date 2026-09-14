@@ -67,6 +67,7 @@ KEEPの直接追加は、上記構成と拡張構成を600/900の実寸で比較
 詰め込むための文字縮小を行わず、入らない場合はKeep開始をメニューに残す。
 この場合、Keepの3→2は計画上も達成扱いにしない。All Keep/All Stopは別操作を維持する。
 RESETは既存のReset Meter Sessionメニューへ集約し、VU CLEARはVUに残す。
+追加指示により、画像CAPTUREもMENUのSave measurement imageへ集約する。ReferenceのCapture Aは独立した音声取得操作として主面に残す。
 
 ### 表示と次の操作
 
