@@ -3,6 +3,7 @@
 Date: 2026-09-14 (JST)
 Source: B-875, branch `codex/reference-abc-delivery`, extending B-874.
 Status: local implementation and regression complete, with real-host/Windows completion criteria below still open. No public package or DAW installation in this change.
+Review update: B-875 has four reproduced correctness defects (historical mapping, immediate restore/save, partial-state restoration and growing capture viewport). They remain in B-876; follow the [structural repair and change-detection plan](reference_capture_structural_repair_plan_20260914.md) before claiming feature completion. This plan is not an implementation or a passing regression result.
 Plan: [whole-song Capture A](reference_a_full_capture_plan_20260914.md).
 
 ## Product behavior
