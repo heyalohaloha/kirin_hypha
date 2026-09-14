@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include <cstring>
 
 namespace
 {
@@ -95,7 +96,11 @@ void KirinHyphaEditor::selectPairPreview()
         showCandidateMenu();
         return;
     }
-    if (! pairPreview || ! processorRef.pairPreviewMatches (pairPreview.get()))
+    KirinPairPreviewValue current {};
+    if (! pairPreview || ! processorRef.pairPreviewMatches (pairPreview.get())
+        || ! kirin_hypha_pair_preview_poll (pairPreview.get(), &current)
+        || ! current.complete || ! current.has_single || current.generation != shown.generation
+        || std::strcmp (current.candidate.instance_id, shown.candidate.instance_id) != 0)
     {
         refreshPairPreview (false);
         showToast ("PRE preview changed. Choose the PRE again.");
