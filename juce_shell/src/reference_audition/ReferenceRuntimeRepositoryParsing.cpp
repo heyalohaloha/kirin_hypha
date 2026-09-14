@@ -321,7 +321,7 @@ namespace hypha::reference_audition
                 return false;
             const auto* views = object->getProperty ("view_bindings").getArray();
             const std::set<juce::String> validViews { "waveform", "spectrum_full", "spectrum_low",
-                "loudness", "dynamics", "transient", "stereo" };
+                "balance", "loudness", "dynamics", "transient", "stereo" };
             std::set<std::string> viewNames;
             if (views == nullptr || views->size() > 3)
                 return false;
@@ -354,6 +354,9 @@ namespace hypha::reference_audition
                 && parseProfileBindings (object->getProperty ("profile_bindings"),
                                          result.profileBindings);
         }
+
+        bool parseLibraryVersionCandidate (const juce::var& value, RuntimeCandidate& result)
+        { return parseCandidate (value, result, true); }
 
         bool parsePreset (const juce::var& value, const RuntimePresetReceipt& expected,
                           const juce::String& workId, RuntimePreset& result, bool library)

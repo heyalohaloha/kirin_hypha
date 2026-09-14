@@ -399,10 +399,41 @@ INSPECT screen, receiver choice, or connect button is required. Each POST choose
 check, and source independently. A small OS indicator reports the connection; received settings
 remain visible when media is unavailable. Hypha does not substitute its own Factory library.
 
-Normal A/B and preset selection remain available at every size. Blind opens at 300% (900×600).
+A is the live DAW input. B selects a registered Version; C selects a Check from its own preset.
+Each has a button, and B/C have independent dropdowns. Choices and ordinary A/B/C audition remain
+available at every size. Blind opens at 300% (900×600).
+For Version comparison, play the DAW input to establish the same song and position against B's
+verified Kirin OS measurement. The short observation calibrates a fixed position map and gain;
+playback then follows the song beyond that observation, with A remaining live. Ambiguous repeated
+passages wait for distinguishing content. Ordinary B preserves A at 0 dB; if full matching exceeds
+the allowed peak ceiling, B remains available at its original level and Blind requires explicit
+approval before lowering A. The approved gain stays fixed through switches, seeks and pauses.
 Receiving or restoring settings never starts B. Explicit audition still verifies the immutable
 source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
 single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
+
+The Version view shows A above B on a shared song timeline, with peak outside and RMS inside.
+Only observed A regions are drawn; older passes are dimmed. Select a region for the shared
+LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play position.
+These controls change the view only. They do not seek the DAW or switch audio. The source-qualified
+view choice survives editor/session restoration, while live A observations are never restored as
+current audio. Blind hides these graphs and their accessibility content.
+
+**CAPTURE A** retains the original POST input's measured overview independently of B or a
+Kirin OS connection. Arm it, play the DAW from the desired start, then stop the DAW or use
+**FINISH A**. **CAPTURED / LIVE** changes the display; audio A always remains live at 0 dB.
+Capture continues without an editor. Its bounded summary is saved in the DAW session, and
+restores as historical data without starting capture, calibration, or audition.
+
+The captured range includes peak/RMS, 3-second loudness endpoints, Crest, and continuous-range
+integrated loudness/maximum true peak. A seek, missing clock/input, format change, or queue gap
+closes a partial pass; a failed retry preserves the previous successful capture. The two-hour
+limit also closes as partial, never as proof of a complete song. Revisited input changes are
+marked without rewriting the capture; unvisited regions are never certified as current.
+B comparisons require the captured pass's same-Work evidence and a separately verified live
+map. A restored capture must be revalidated before using that map. B loss leaves A available.
+Capture uses the existing two Analysis slots, shares its slot with ordinary audition, and
+excludes both kinds of Blind until the relevant capture or audible return has completed.
 
 ## Local PRE/POST Blind Compare
 
@@ -410,11 +441,16 @@ Local Blind Compare auditions immutable copies of one exact four-second PRE/POST
 preference listening trial, not a score or proof that either side is better, and it does not require
 Kirin OS.
 
-1. In POST, select the exact PRE pair and set **Meter Context** to **2MIX** or **TRACK/STEM** before
-   capture. This selection fixes the Gain Match policy for that trial.
-2. Open **PRE / POST Blind Compare** from POST's menu. The preflight shows the current context and
-   its Gain Match evidence before any capture begins. Change it if needed, keep the DAW playing,
-   then press **CAPTURE 4 S**. Wait for both sides of the exact range to finish preparation.
+The AAX entry is enabled by user direction for current-candidate validation. Its
+Pro Tools clock/PDC acceptance remains pending; exact capture and runtime checks
+are enforced on every format.
+
+1. In POST, select the exact PRE pair and open **PRE / POST Blind Compare** from POST's menu.
+2. Keep the DAW playing, then press **CAPTURE 4 S**. The small **2MIX / TRACK / STEM** selector
+   starts from the normal meter setting; change it only if needed for this comparison. Capture
+   freezes that Gain Match policy without changing the normal meter context or WIDE / FOCUS.
+   Wait for both sides of the exact range to finish preparation. If Gain Match is unavailable,
+   follow the section guidance and use **CAPTURE AGAIN** in the same screen.
 3. Start the prepared comparison, then play the DAW from before the displayed range. Hypha auditions
    only the captured samples, even when a processing block crosses either end of the range.
    After the first pass completes, select the other **Source** and play from before the same range
@@ -431,7 +467,8 @@ measurement and Record remain unchanged. Closing the editor ends the audition. R
 the explicit return screen without automatically resuming playback.
 
 The normal header's Meter Context control opens a descriptive choice rather than switching on one
-click. **2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
+click. Blind inherits it when opened and keeps any override within that comparison.
+**2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
 **TRACK/STEM** identifies an individual track or group bus and uses short or sparse event energy.
 Hypha never infers or changes this choice from channel count, names, routing, or signal level.
 
@@ -442,10 +479,10 @@ Downstream processors still receive the selected copy and may react to it. Sends
 that branch before POST are not switched, so this is specifically a comparison between the chosen
 PRE and POST insertion points—not a claim about every route in the project.
 
-The current local trial length is four seconds. For long-form or whole-song comparison of finished
-versions, render and register immutable versions in Kirin OS and use the normal Reference audition
-with an appropriate Cue. The current Reference Blind flow is also based on a four-second live-A
-capture; registering a WAV does not turn it into a whole-song blind trial.
+The local PRE/POST trial length is four seconds. Reference Version Blind is a separate whole-song
+comparison between live DAW A and a measured, acoustically matched Version B from Kirin OS.
+Its four-second A observation proves calibration only; it neither replaces live A nor claims
+whole-song loudness or an immutable whole-song identity for the current DAW input.
 
 ## Watch mode
 

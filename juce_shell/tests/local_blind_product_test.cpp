@@ -1,4 +1,5 @@
 #include "../src/PluginProcessor.h"
+#include "../src/HyphaLocalBlindComponent.h"
 #include "ValidationStorageSandbox.h"
 
 #include <algorithm>
@@ -54,20 +55,22 @@ struct Clock final : juce::AudioPlayHead
 class ProductContract final : private juce::Timer
 {
 public:
-    explicit ProductContract (std::vector<float> signalIn, bool trackMono)
+    explicit ProductContract (std::vector<float> signalIn, bool trackMono, bool aax)
         : signal (std::move (signalIn)), channelCount (trackMono ? 1 : 2)
     {
         for (auto role : { Processor::Role::Pre, Processor::Role::Post })
         {
-            juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+            juce::AudioProcessor::setTypeOfNextNewPlugin (aax ? juce::AudioProcessor::wrapperType_AAX
+                                                           : juce::AudioProcessor::wrapperType_VST3);
             auto instance = std::make_unique<Processor> (role);
             auto layout = instance->getBusesLayout();
             const auto channels = trackMono ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo();
             layout.inputBuses.set (0, channels);
             layout.outputBuses.set (0, channels);
             require (instance->setBusesLayout (layout), "host negotiates the exact mono/stereo input and output");
-            instance->setMeterContextPreference (trackMono ? hypha::meter_context::MeterContext::trackStem
-                                                          : hypha::meter_context::MeterContext::twoMix, false);
+            instance->setMeterContextPreference (trackMono ? hypha::meter_context::MeterContext::twoMix
+                                                          : hypha::meter_context::MeterContext::trackStem, false);
+            instance->setScaleModePreference (hypha::meter_context::ScaleMode::focus);
             instance->setPlayHead (&clock);
             instance->setNonRealtime (false);
             instance->prepareToPlay (48000, blockFrames);
@@ -118,6 +121,17 @@ private:
         play.store (true);
     }
 
+    void selectBlindMode (int id)
+    {
+        auto* choice = dynamic_cast<juce::ComboBox*> (find (*editor, "local-blind-context"));
+        require (choice != nullptr && choice->isVisible(), "actual Blind mode selector is available");
+        choice->setSelectedId (id, juce::sendNotificationSync);
+        require (post->meterContextPreference() == (channelCount == 1
+            ? hypha::meter_context::MeterContext::twoMix : hypha::meter_context::MeterContext::trackStem)
+            && post->scaleModePreference() == hypha::meter_context::ScaleMode::focus,
+            "Blind mode selection preserves the ordinary meter context and custom scale");
+    }
+
     void timerCallback() override
     {
         if (stage != reportedStage)
@@ -128,8 +142,8 @@ private:
         require (std::chrono::steady_clock::now() - started < std::chrono::seconds (40),
                  "product round trip timed out");
         const auto state = post->localBlindProductView();
-        if (state.phase == Phase::failed || state.failure != hypha::local_blind::ProductSessionFailure::none
-            || state.trial.failure != hypha::local_blind::TrialFailure::none)
+        if (stage != 20 && (state.phase == Phase::failed || state.failure != hypha::local_blind::ProductSessionFailure::none
+            || state.trial.failure != hypha::local_blind::TrialFailure::none))
         {
             std::cerr << "stage=" << stage << " phase=" << int (state.phase)
                       << " product_failure=" << int (state.failure)
@@ -141,11 +155,19 @@ private:
             case 0:
             {
                 if (pre->instanceId().isEmpty()) break;
-                const auto candidates = post->enumeratePreCandidates();
-                const bool discovered = std::any_of (candidates.begin(), candidates.end(), [this] (const auto& c)
-                    { return c.instanceId == pre->instanceId(); });
-                if (! discovered) break;
+                if (! pairPreview)
+                {
+                    pairPreview = post->createPairPreview();
+                    require (hypha::pair_preview::request (pairPreview), "demand starts one bounded discovery job outside handle lock");
+                }
+                KirinPairPreviewValue preview {};
+                if (! kirin_hypha_pair_preview_poll (pairPreview.get(), &preview)) break;
+                require (post->pairPreviewMatches (pairPreview.get()), "preview retains the current processor identity boundary");
+                require (preview.complete && preview.has_single
+                    && juce::String::fromUTF8 (preview.candidate.instance_id) == pre->instanceId(),
+                    "complete live-runtime discovery exposes the exact sole PRE");
                 require (post->setPairCandidate (pre->instanceId(), {}), "exact discovered PRE is selected");
+                pairPreview.reset();
                 ++stage;
                 break;
             }
@@ -158,14 +180,30 @@ private:
                 if (! post->isPlaying() || ! post->heartbeatLive()) break;
                 // The operations menu and this shared editor entry invoke the same owner.
                 click ("observatory-local-blind", false);
+                if (channelCount == 2) selectBlindMode (1);
                 if (! click ("local-blind-capture")) break;
-                ++stage;
+                stage = channelCount == 1 ? 20 : 3;
+                break;
+            case 20:
+                if (state.phase != Phase::failed) break;
+                require (state.preparationFailure == hypha::local_blind::PreparationFailure::gainUnavailable,
+                         "sparse audio under inherited 2MIX retains the typed gain failure");
+                if (! state.canRecapture) break;
+                if (const auto* choice = find (*editor, "local-blind-context");
+                    choice == nullptr || ! choice->isVisible()) break; // UI observes processor facts asynchronously.
+                selectBlindMode (2);
+                if (! click ("local-blind-capture")) break;
+                stage = 3;
                 break;
             case 3:
                 if (state.phase != Phase::ready) break;
                 std::cout << "prepared frames=" << state.frames << " channels=" << state.channels
                           << " gain_db=" << state.fixedPreGainDb << std::endl;
                 require (state.frames == 192000 && state.channels == channelCount, "exact four-second pair prepares");
+                require (state.gainPolicy == (channelCount == 1
+                    ? hypha::local_blind::GainMatchPolicy::exactTrackEventEnergyV1
+                    : hypha::local_blind::GainMatchPolicy::alignedActiveBlocksV1),
+                    "explicit Blind mode is frozen in the actual prepared trial");
                 require (std::abs (state.fixedPreGainDb + 6.0206) < 0.002,
                          "real FFI gain match measures the known gain within 0.002 dB");
                 nativeStart = state.start;
@@ -244,6 +282,8 @@ private:
                 break;
             case 11:
                 if (state.phase != Phase::returned) break;
+                if (auto* screen = find (*editor, "local-blind-screen"); screen != nullptr && screen->isVisible()) break;
+                require (editor->isResizable(), "audio-confirmed return restores normal resize without Close");
                 require (preTransparent.load() && postTransparent.load(), "normal PRE/POST paths stay bit identical");
                 require (maximumCopyError.load() < 0.00004, "matched output stays within fixed-gain quantization bound");
                 require (auditionSamples.load() >= 192000 * 2, "actual audio output covered both complete sides");
@@ -322,6 +362,7 @@ private:
     std::atomic<double> correlationOne { 0 }, correlationTwo { 0 };
     std::chrono::steady_clock::time_point started;
     std::chrono::steady_clock::time_point armedAt;
+    hypha::pair_preview::Ticket pairPreview;
     int stage = 0, reportedStage = -1, waitingUi = 0;
     bool reopened = false;
 };
@@ -329,9 +370,15 @@ private:
 
 int main (int argc, char** argv)
 {
-    require (argc == 2 || (argc == 3 && std::string (argv[2]) == "--track-mono"),
-             "usage: product test S-1.wav [--track-mono]");
-    const bool trackMono = argc == 3;
+    require (argc >= 2 && argc <= 4, "usage: product test S-1.wav [--track-mono] [--aax]");
+    bool trackMono = false, aax = false;
+    for (int i = 2; i < argc; ++i)
+    {
+        const std::string arg (argv[i]);
+        if (arg == "--track-mono" && !trackMono) trackMono = true;
+        else if (arg == "--aax" && !aax) aax = true;
+        else require (false, "unknown or repeated product fixture option");
+    }
     auto signal = readFixture (argv[1]);
     if (trackMono) std::fill (signal.begin() + 48000, signal.end(), 0.0f);
     ValidationStorageSandbox sandbox;
@@ -339,7 +386,7 @@ int main (int argc, char** argv)
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
-    ProductContract contract (std::move (signal), trackMono);
+    ProductContract contract (std::move (signal), trackMono, aax);
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

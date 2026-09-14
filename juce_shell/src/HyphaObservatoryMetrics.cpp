@@ -1,6 +1,7 @@
 #include "HyphaObservatoryView.h"
 
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaChannelReadoutLayout.h"
 #include "HyphaLevelMetricContract.h"
 #include "HyphaSurfaceMaterial.h"
 
@@ -134,7 +135,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     if (includeChannelStrips && target() == ObservationTarget::absolute
         && (density == Density::standard || isFullDensity (density)))
         channelStrips = area.removeFromRight (
-            density == Density::inspection ? 164 : density == Density::observatory ? 120 : 62).reduced (2);
+            isFullDensity (density) ? channelStripWidth (context, density == Density::inspection ? 164 : 120) : 62).reduced (2);
     if (compact)
         area.removeFromTop (20);
     if (target() == ObservationTarget::delta)
@@ -151,7 +152,9 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
             };
             const std::array<const char*, 3> units { "LU", "dB", "dB" };
             for (int index = 0; index < 3; ++index)
-                drawMetric (g, area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
+                drawMetric (g, metricHelpArea (area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
+                            index == 0 ? (selectedShortTermLoudness ? level_metrics::Metric::shortTerm : level_metrics::Metric::momentary)
+                                : index == 1 ? level_metrics::Metric::truePeak : level_metrics::Metric::crest),
                             hypha::delta() + labels[(size_t) index],
                             optionValue (values[(size_t) index], deltaFactsAvailable()),
                             units[(size_t) index], family, context, true);
@@ -163,7 +166,9 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         const std::array<const char*, 4> labels { "M", "S", "TP", "CREST" };
         const std::array<const char*, 4> units { "LU", "LU", "dB", "dB" };
         for (int index = 0; index < 4; ++index)
-            drawMetric (g, area.removeFromLeft (area.getWidth() / (4 - index)).reduced (2),
+            drawMetric (g, metricHelpArea (area.removeFromLeft (area.getWidth() / (4 - index)).reduced (2),
+                        std::array { level_metrics::Metric::momentary, level_metrics::Metric::shortTerm,
+                            level_metrics::Metric::truePeak, level_metrics::Metric::crest }[(size_t) index]),
                         hypha::delta() + labels[(size_t) index],
                         optionValue (values[(size_t) index], deltaFactsAvailable()),
                         units[(size_t) index], family, context, true);
@@ -199,7 +204,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
             "LUFS", "LUFS", trackStem ? "dB" : "LUFS"
         };
         for (int index = 0; index < 3; ++index)
-            drawMetric (g, area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
+            drawMetric (g, metricHelpArea (area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
+                        level_metrics::layoutFor (trackStem).main[(size_t) index]),
                         compactLabels[(size_t) index],
                         optionValue (compactValues[(size_t) index],
                                      compactAvailable[(size_t) index]),
@@ -224,7 +230,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         background.drawLevelCorners (g, main, worldState());
     for (int index = 0; index < mainCount; ++index)
     {
-        drawMetric (g, main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
+        drawMetric (g, metricHelpArea (main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
+                    metricLayout.main[(size_t) index]),
                     level_metrics::label (metricLayout.main[(size_t) index]),
                     optionValue (mainValues[(size_t) index], mainAvailable[(size_t) index]),
                     mainUnits[(size_t) index], family, context,
@@ -264,8 +271,9 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         const auto warmingText = warming
             ? "WARMING " + juce::String ((int) std::floor (observatoryFrame.lra_elapsed_seconds)) + " S"
             : juce::String();
-        drawMetric (g, area.removeFromLeft (
+        drawMetric (g, metricHelpArea (area.removeFromLeft (
                         area.getWidth() / (supportCount - index)).reduced (2),
+                        metricLayout.support[(size_t) index]),
                     level_metrics::label (metricLayout.support[(size_t) index]),
                     optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
                     supportUnits[(size_t) index], family, context,
@@ -282,7 +290,7 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
     const auto inspection = getWidth() >= 900;
     juce::Rectangle<int> channelStrips;
     if (target() == ObservationTarget::absolute)
-        channelStrips = area.removeFromRight (inspection ? 126 : 116).reduced (2);
+        channelStrips = area.removeFromRight (channelStripWidth (presentationContext(), inspection ? 126 : 116)).reduced (2);
 
     const auto landscape = area.getWidth() > area.getHeight();
     const auto previousHistoryHeight = juce::jlimit (

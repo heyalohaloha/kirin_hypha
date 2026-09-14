@@ -359,7 +359,7 @@ void paintLegend (juce::Graphics& g,
     }
     g.setColour (COL_TEXT_TERTIARY);
     const auto basis = delta
-        ? juce::String ("  EXACT ") + hypha::delta() + " / " + axisLabel (axis.mode)
+        ? juce::String ("POST-PRE / ") + axisLabel (axis.mode)
         : juce::String ("  ") + axisLabel (axis.mode);
     g.drawText (rangeLabel + (compact ? "" : basis), range,
                 juce::Justification::centredRight);

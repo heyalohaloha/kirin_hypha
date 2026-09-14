@@ -58,8 +58,8 @@ KirinMeterSession activeMeter()
     meter.sample_peak_dbfs[1] = -5.7;
     meter.sample_peak_hold_dbfs[0] = -2.8;
     meter.sample_peak_hold_dbfs[1] = -3.0;
-    meter.channel_true_peak_dbtp[0] = -4.2;
-    meter.channel_true_peak_dbtp[1] = -4.8;
+    meter.channel_true_peak_dbtp[0] = -14.5;
+    meter.channel_true_peak_dbtp[1] = -114.5;
     meter.channel_max_true_peak_dbtp[0] = -1.2;
     meter.channel_max_true_peak_dbtp[1] = -1.5;
     meter.clip_events[0] = 2;
@@ -163,6 +163,7 @@ void verifyRoleAtEverySize (observatory::Role role,
     for (const auto preset : observatory::sizePresets)
     {
         observatory::View view (role);
+        view.setLocalBlindEntryEnabled (role == observatory::Role::post);
         view.setSize (preset.width, preset.height);
         view.setConnection (role == observatory::Role::post ? "PAIR DRUM" : "SOURCE PRE",
                             COL_LED_BLUE,
@@ -198,7 +199,7 @@ void verifyRoleAtEverySize (observatory::Role role,
                     juce::String (role == observatory::Role::pre ? "pre" : "post")
                     + "-domain-" + juce::String (static_cast<int> (domain))
                     + "-" + juce::String (preset.width) + ".png").createOutputStream();
-                KIRIN_OBSERVATORY_REQUIRE (output != nullptr);
+                KIRIN_OBSERVATORY_REQUIRE (output != nullptr && output->setPosition (0) && output->truncate().wasOk());
                 KIRIN_OBSERVATORY_REQUIRE (juce::PNGImageFormat().writeImageToStream (image, *output));
             }
             KIRIN_OBSERVATORY_REQUIRE (image.getPixelAt (0, 0).getAlpha() != 0);
@@ -276,7 +277,7 @@ void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
     }
 
     auto output = juce::File (outputPath).createOutputStream();
-    KIRIN_OBSERVATORY_REQUIRE (output != nullptr);
+    KIRIN_OBSERVATORY_REQUIRE (output != nullptr && output->setPosition (0) && output->truncate().wasOk());
     KIRIN_OBSERVATORY_REQUIRE (
         juce::PNGImageFormat().writeImageToStream (composed, *output));
 }
@@ -449,7 +450,7 @@ void verifyObservatoryViewContract()
     if (outputPath.isNotEmpty())
     {
         auto output = juce::File (outputPath).createOutputStream();
-        KIRIN_OBSERVATORY_REQUIRE (output != nullptr);
+        KIRIN_OBSERVATORY_REQUIRE (output != nullptr && output->setPosition (0) && output->truncate().wasOk());
         KIRIN_OBSERVATORY_REQUIRE (
             juce::PNGImageFormat().writeImageToStream (absolute, *output));
     }

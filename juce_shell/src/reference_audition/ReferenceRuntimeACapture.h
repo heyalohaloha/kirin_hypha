@@ -56,8 +56,14 @@ namespace hypha::reference_audition
         void service (const std::optional<RuntimeABinding>& binding,
                       std::int64_t sampleRateHz,
                       int channels,
-                      std::int64_t nowMs);
+                      std::int64_t nowMs,
+                      const juce::String& localRuntimeId = {});
         void disconnect();
+        void setObservationGrid(bool enabled,std::int64_t anchor)
+        {
+            if(gridEnabled==enabled && gridAnchor==anchor) return;
+            gridEnabled=enabled; gridAnchor=anchor; resetAccumulator(true);
+        }
 
         const std::optional<RuntimeACaptureReceipt>& currentReceipt() const noexcept
         {
@@ -73,7 +79,7 @@ namespace hypha::reference_audition
     private:
         static constexpr int queueSlotCount = 32;
         static constexpr int maximumBlockFrames = 8'192;
-        static constexpr std::int64_t maximumCaptureFrames = 2'097'152;
+        static constexpr std::int64_t maximumCaptureFrames = 3'072'000;
 
         struct Block
         {
@@ -84,7 +90,7 @@ namespace hypha::reference_audition
         };
 
         void markDiscontinuity() noexcept;
-        void resetAccumulator();
+        void resetAccumulator (bool preservePublished = false);
         void discardQueued() noexcept;
         void consumeBlock (const Block&, const float* samples,
                            std::int64_t targetFrames, std::int64_t nowMs);
@@ -96,6 +102,9 @@ namespace hypha::reference_audition
         std::array<Block, queueSlotCount> blocks;
         std::vector<float> queueSamples;
         std::vector<float> capturedSamples;
+        std::atomic<bool> captureEnabled { false };
+        bool gridEnabled=false; std::int64_t gridAnchor=0;
+        bool localObservation = false;
         std::atomic<unsigned int> writeSlot { 0 };
         std::atomic<unsigned int> readSlot { 0 };
         std::atomic<std::uint64_t> continuityGeneration { 1 };

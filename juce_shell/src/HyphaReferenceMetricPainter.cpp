@@ -63,29 +63,29 @@ void paintComparisonRoots (juce::Graphics& g, juce::Rectangle<float> area)
 
 void paintMetric (juce::Graphics& g, juce::Rectangle<float> area,
                   const juce::String& name, const juce::String& unit,
-                  double a, double b, double delta, presentation::Context presentation)
+                  double a, double b, double delta, presentation::Context presentation, const juce::String& side)
 {
     paintPanel (g, area);
     paintComparisonRoots (g, area);
     const float scale = juce::jlimit (1.0f, 2.2f, area.getHeight() / 170.0f);
     auto header = area.removeFromTop (18.0f * scale);
     g.setColour (COL_NORMAL.withAlpha (0.78f));
-    g.setFont (labelFont (presentation, typography::TextRole::sectionTitle,
+    g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                           typography::Composition::information));
     g.drawText (name, header.reduced (9.0f, 0.0f), juce::Justification::centredLeft);
     area.reduce (5.0f, 3.0f);
     const float columnWidth = area.getWidth() / 3.0f;
     paintValue (g, area.removeFromLeft (columnWidth), "A", a, unit,
                 COL_OBSERVATORY_VALUE, false, scale, presentation);
-    paintValue (g, area.removeFromLeft (columnWidth), "B", b, unit,
+    paintValue (g, area.removeFromLeft (columnWidth), side, b, unit,
                 COL_OBSERVATORY_VALUE, false, scale, presentation);
-    paintValue (g, area, "B-A", delta, unit == "LUFS" ? "LU" : "dB",
+    paintValue (g, area, side + "-A", delta, unit == "LUFS" ? "LU" : "dB",
                 COL_SPECTRUM_DELTA_BR, true, scale * 1.12f, presentation);
 }
 
 void paintCompactDelta (juce::Graphics& g, juce::Rectangle<float> area,
                         const juce::String& name, double value, const juce::String& unit,
-                        presentation::Context presentation)
+                        presentation::Context presentation, const juce::String& side)
 {
     paintPanel (g, area, 0.72f);
     if (area.getHeight() < 52.0f)
@@ -95,15 +95,15 @@ void paintCompactDelta (juce::Graphics& g, juce::Rectangle<float> area,
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                               typography::Composition::information));
-        g.drawText ("B-A " + name, label, juce::Justification::centredLeft);
+        g.drawText (side + "-A " + name, label, juce::Justification::centredLeft);
         g.setColour (std::isfinite (value) ? COL_SPECTRUM_DELTA_BR : COL_MUTED);
-        g.setFont (monoFont (presentation, typography::TextRole::secondaryValue,
+        g.setFont (monoFont (presentation, typography::TextRole::readout,
                              typography::Composition::information));
         g.drawText (valueText (value, true), area, juce::Justification::centredRight);
         return;
     }
     area.reduce (4.0f, 3.0f);
-    paintValue (g, area, "B-A  " + name, value, unit,
+    paintValue (g, area, side + "-A  " + name, value, unit,
                 COL_SPECTRUM_DELTA_BR, true, 1.0f, presentation);
 }
 }

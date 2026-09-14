@@ -21,7 +21,11 @@ rtrb = { workspace = true }
 uuid = { workspace = true }
 serde_json = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_LibraryLoader"] }
+
 [dev-dependencies]
+tempfile = "3"
 # kirin_measure の MoSQITo tolerance テストと同一の比較マクロ（同許容誤差で assert する）。
 approx = "0.5"
 # B-057 3b: 書かれた PluginDataFile(.json) を読み戻して schema 検証する。

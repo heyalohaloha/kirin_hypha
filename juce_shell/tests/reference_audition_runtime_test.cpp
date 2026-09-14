@@ -3,24 +3,28 @@
 #include "reference_runtime_v2_refresh_test_support.h"
 #include "reference_runtime_lazy_presets_test_support.h"
 #include "reference_runtime_lazy_candidates_test_support.h"
-
-void testRuntimeV2Workspace (const juce::File& sandbox);
-void testRuntimeV2SourceCache();
-void testReferenceLibraryContract (const juce::File&);
-bool testReferenceLibraryOsFixture();
-
+#include "reference_runtime_test_entries.h"
 int main (int argc, char** argv)
 {
-    if (testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
+    if (runReferenceCaptureMemory(argc,argv) || testReferenceLibraryOsFixture() || testRuntimeOsFixtureIfRequested()) return 0;
     require (ref::safeId (workId), "Work UUID must be a safe ID");
     require (! ref::safeId ("../escape"), "path separators must be rejected");
     require (ref::safeUuid (preparationId), "preparation UUID must validate");
     testRuntimeV2SourceCache();
-
     const auto sandbox = juce::File::getSpecialLocation (juce::File::tempDirectory)
                              .getNonexistentChildFile ("hypha-reference-audition", {}, false);
     require (sandbox.createDirectory(), "sandbox directory must be created");
+    if (runReferenceCaptureTests(argc,argv,sandbox)) return 0;
+    testReferenceVisual (sandbox); if (argc == 2 && juce::String (argv[1]) == "--visual-only") { require (sandbox.deleteRecursively(), "visual fixture cleanup"); return 0; } testReferenceWorkflow (sandbox);
+    testReferenceContentAlignment (sandbox);
     testReferenceLibraryContract (sandbox);
+    testReferenceComparisons (sandbox);
+    testReferenceCalibrationRegressions (sandbox);
+    if (argc == 2 && juce::String (argv[1]) == "--abc-only")
+    {
+        finishReferenceRegressionFixture (sandbox);
+        return 0;
+    }
     if (argc == 2 && juce::String (argv[1]) == "--lazy-presets-only")
     {
         verifyLazyPresets (sandbox);

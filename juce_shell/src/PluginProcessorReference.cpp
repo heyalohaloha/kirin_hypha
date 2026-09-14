@@ -1,3 +1,4 @@
+#include "kirin_hypha_reference_capture_ffi.h"
 #include "PluginProcessor.h"
 
 
@@ -9,6 +10,15 @@ hypha::reference_audition::Snapshot KirinHyphaProcessorBase::referenceAuditionSn
         : hypha::reference_audition::Snapshot {};
    #else
     return {};
+   #endif
+}
+
+void KirinHyphaProcessorBase::setReferenceViewPresented (bool active)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController) referenceAuditionController->setPresented (active);
+   #else
+    juce::ignoreUnused (active);
    #endif
 }
 
@@ -37,6 +47,34 @@ void KirinHyphaProcessorBase::selectReferenceA()
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (referenceAuditionController != nullptr)
         referenceAuditionController->selectA();
+   #endif
+}
+
+bool KirinHyphaProcessorBase::selectReferenceC (double loudness, double peak)
+{
+    refreshLicenseForUserAction();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (! licenseIsOs())
+    {
+        if (referenceAuditionController) referenceAuditionController->suspendAudition();
+        return false;
+    }
+    return referenceAuditionController != nullptr
+        && referenceAuditionController->selectC (loudness, peak);
+   #else
+    juce::ignoreUnused (loudness, peak);
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::selectReferenceVersion (const juce::String& id)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->selectVersion (id);
+   #else
+    juce::ignoreUnused (id);
+    return false;
    #endif
 }
 
@@ -101,6 +139,56 @@ bool KirinHyphaProcessorBase::selectReferenceCue (const juce::String& id)
    #else
     juce::ignoreUnused (id);
     return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::startLatestReferenceReview()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->startLatestReview();
+   #else
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::startLatestReferenceBookmark()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->startLatestBookmark();
+   #else
+    return false;
+   #endif
+}
+
+bool KirinHyphaProcessorBase::moveReferenceWorkflow (
+    int direction, bool confirmed, bool deferred)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    return licenseIsOs() && referenceAuditionController != nullptr
+        && referenceAuditionController->moveWorkflow (direction, confirmed, deferred);
+   #else
+    juce::ignoreUnused (direction, confirmed, deferred);
+    return false;
+   #endif
+}
+
+void KirinHyphaProcessorBase::endReferenceWorkflow()
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController != nullptr) referenceAuditionController->endWorkflow();
+   #endif
+}
+
+void KirinHyphaProcessorBase::setReferenceCaptureTonalRange (
+    double startSeconds, double endSeconds)
+{
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (referenceAuditionController != nullptr)
+        referenceAuditionController->setCaptureTonalRange (startSeconds, endSeconds);
+   #else
+    juce::ignoreUnused (startSeconds, endSeconds);
    #endif
 }
 
@@ -230,13 +318,21 @@ void KirinHyphaProcessorBase::endReferenceBlind()
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void KirinHyphaProcessorBase::createReferenceAuditionController()
 {
-    referenceAuditionController = std::make_unique<hypha::reference_audition::RuntimeV2Controller> (
+    referenceAuditionController = std::make_unique<hypha::reference_audition::ReferenceComparisonController> (
         hypha::reference_audition::RuntimeV2Repository::transportRoot(), [this] (bool active)
         {
             const juce::ScopedLock gateLock (handleLock);
             return hyphaHandle != nullptr
                 && kirin_hypha_set_reference_audition_active (hyphaHandle, active);
-        });
+        }, [this](bool active) {
+            const juce::ScopedLock lock(handleLock);
+            const bool accepted=hyphaHandle && kirin_hypha_set_reference_capture_active(hyphaHandle,active);
+            if(accepted && !active) captureStateNotification.changed();
+            return accepted;
+        }, [this](bool active) {
+            const juce::ScopedLock lock(handleLock);
+            return hyphaHandle && kirin_hypha_set_version_blind_capture_exclusion(hyphaHandle,active);
+        }, [this] { captureStateNotification.changed(); });
 }
 #endif
 
@@ -249,6 +345,7 @@ void KirinHyphaProcessorBase::configureReferenceAudition()
     hypha::reference_audition::RuntimeIdentity identity;
     identity.runtimeInstanceId = referenceRuntimeId;
     identity.library = true;
+    referenceAuditionController->setAnalysisOwner(kirin_hypha_reference_analysis_owner(hyphaHandle));
     referenceAuditionController->configure (identity, preparedSampleRate, preparedInputChannels);
    #endif
 }

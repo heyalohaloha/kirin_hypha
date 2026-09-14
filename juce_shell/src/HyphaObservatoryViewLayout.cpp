@@ -13,7 +13,7 @@ void View::resized()
     const auto context = presentationContext();
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                           &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
-                          &timeRangeButton, &compactLoudnessButton, &compactRangeButton,
+                          &timeRangeButton, &timeRangeMenuButton, &compactLoudnessButton, &compactRangeButton,
                           &contextButton, &scaleButton, &sizeButton, &operationsButton,
                           &stopButton, &guideButton, &statusButton, &hybridVuButton,
                           &clearPeakClipButton, &resetButton, &noteButton, &captureButton,
@@ -36,7 +36,7 @@ void View::resized()
         sessionArea = {};
         for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                               &referenceButton, &domainCycleButton, &targetButton, &deltaButton,
-                              &timeRangeButton, &compactLoudnessButton, &compactRangeButton,
+                              &timeRangeButton, &timeRangeMenuButton, &compactLoudnessButton, &compactRangeButton,
                               &contextButton, &scaleButton, &sizeButton, &operationsButton,
                               &stopButton, &guideButton, &statusButton, &resetButton,
                               &noteButton, &captureButton, &localBlindButton })
@@ -115,6 +115,7 @@ void View::resized()
     else
         targetButton.setBounds (targetArea.reduced (0, 2));
     timeRangeButton.setVisible (capabilities().historyRange && ! captureFrame);
+    timeRangeMenuButton.setVisible (timeRangeButton.isVisible() && isFullDensity (preset.density));
     scaleButton.setVisible (capabilities().loudnessScale && ! captureFrame);
     if (scaleButton.isVisible())
     {
@@ -128,8 +129,10 @@ void View::resized()
         const auto density = preset.density;
         auto available = bodyArea; auto controls = available.removeFromTop (timeNavigationHeight (density));
         if (scaleButton.isVisible()) controls.removeFromRight (timeScaleWidth (density));
-        timeRangeButton.setBounds (
-            controls.removeFromRight (juce::jmax (120, timeRangeWidth (density))).reduced (2, 2));
+        auto range = controls.removeFromRight (juce::jmax (120, timeRangeWidth (density)));
+        if (timeRangeMenuButton.isVisible())
+            timeRangeMenuButton.setBounds (range.removeFromRight (28).reduced (2, 2));
+        timeRangeButton.setBounds (range.reduced (2, 2));
     }
     const bool compactLevel = compact && selectedDomain == Domain::level;
     compactLoudnessButton.setVisible (false);
@@ -149,8 +152,14 @@ void View::resized()
         sizeButton.setBounds (toJuce (layout.sizeSelector).reduced (1, 2));
     guideButton.setVisible (guidePresence() == GuidePresence::present);
     guideButton.setBounds (guideArea.reduced (1, 2));
+    auto footerActions = toJuce (layout.actions);
+    if (reference && isFullDensity (preset.density))
+    {
+        footerActions.setLeft (footerActions.getRight() - (preset.density == Density::inspection ? 290 : 250));
+        sessionArea.setRight (footerActions.getX() - 4);
+    }
     statusButton.setVisible (! captureFrame && feedbackText.isNotEmpty());
     statusButton.setBounds (sessionArea.reduced (1, 2));
-    layoutFooterActions (toJuce (layout.actions));
+    layoutFooterActions (footerActions);
 }
 }

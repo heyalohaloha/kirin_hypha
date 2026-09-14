@@ -73,7 +73,12 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav")
     add_test(NAME kirin_local_blind_product_track COMMAND KirinLocalBlindProductTests
         "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --track-mono)
-    set_tests_properties(kirin_local_blind_product kirin_local_blind_product_track PROPERTIES TIMEOUT 90)
+    add_test(NAME kirin_local_blind_product_aax COMMAND KirinLocalBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --aax)
+    add_test(NAME kirin_local_blind_product_aax_track COMMAND KirinLocalBlindProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav" --aax --track-mono)
+    set_tests_properties(kirin_local_blind_product kirin_local_blind_product_track
+        kirin_local_blind_product_aax kirin_local_blind_product_aax_track PROPERTIES TIMEOUT 90)
 
     add_executable(KirinEditorSurfaceProductTests tests/editor_surface_product_test.cpp)
     if(APPLE)

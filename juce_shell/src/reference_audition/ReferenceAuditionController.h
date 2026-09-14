@@ -7,11 +7,15 @@
 #include <juce_core/juce_core.h>
 
 #include "ReferenceAudioPages.h"
+#include "ReferenceDeferredControl.h"
+#include "ReferenceVisualTimeline.h"
+#include "ReferenceVisualPreferences.h"
 #include "ReferenceBlindSession.h"
 #include "ReferenceAuditionLease.h"
 #include "ReferenceAuditionRepository.h"
 #include "ReferenceRuntimeV2Measurement.h"
 #include "ReferenceRuntimeV2Profile.h"
+#include "ReferenceWorkflowModel.h"
 
 namespace hypha::reference_audition
 {
@@ -79,7 +83,17 @@ namespace hypha::reference_audition
         std::vector<RuntimeSelectionOption> checks;
         std::vector<RuntimeSelectionOption> candidates;
         std::vector<RuntimeSelectionOption> cues;
+        std::vector<RuntimeSelectionOption> versions;
+        std::vector<RuntimeSelectionOption> checkTargets;
+        std::shared_ptr<const Snapshot> checkSelection;
+        juce::String selectedVersionId, migratedVersionChoice;
+        bool separateComparisons = false, versionReady = false, checkReady = false;
+        int comparisonSlot = 2, audibleComparisonSlot = 0;
         std::shared_ptr<const RuntimeDetailedMeasurement> detailedMeasurement;
+        std::shared_ptr<const VisualTimeline> visualTimeline;
+        double visualPositionSeconds = -1.0;
+        std::shared_ptr<VisualPreferences> visualPreferences;
+    std::shared_ptr<ACaptureAccess> captureAccess;
         std::vector<std::shared_ptr<const RuntimeProfile>> profiles;
         bool sampleRateApprovalRequired = false;
         std::int64_t sourceSampleRateHz = 0;
@@ -99,6 +113,9 @@ namespace hypha::reference_audition
         bool libraryReceived = false;
         bool osOnline = false;
         std::int64_t manifestRevision = 0;
+        std::shared_ptr<const WorkflowCatalog> workflowCatalog;
+        juce::String workflowToken;
+        WorkflowView workflow;
     };
 
     class Controller final : private juce::Thread
@@ -173,5 +190,6 @@ namespace hypha::reference_audition
         std::atomic<bool> latestPlaying { false };
         std::atomic<std::uint64_t> audioCallbackSequence { 0 };
         std::atomic<bool> gateReleasePending { false };
+        DeferredControl outputRetirement;
     };
 }

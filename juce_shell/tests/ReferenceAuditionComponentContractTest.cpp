@@ -1,4 +1,11 @@
 #include "ReferenceAuditionComponentContractTest.h"
+#include "ReferenceDisplayRegressionTest.h"
+#include "ReferenceVisualComparisonTest.h"
+#include "ReferenceACaptureControlsTest.h"
+#include "ReferenceSelectionWorkflowTest.h"
+#include "MetricPresentationWorkflowTest.h"
+#include "PairPreviewUiContractTest.h"
+#include "ReferenceTonalViewContractTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -82,6 +89,10 @@ reference_ui::State readyState()
 
 void verifyReferenceAuditionComponentContract()
 {
+    verifyReferenceVisualComparison(); verifyCaptureControls();
+    KIRIN_REF_REQUIRE (verifyReferenceTonalViewContract());
+    if (juce::SystemStats::getEnvironmentVariable ("KIRIN_REFERENCE_VISUAL_ONLY", {}) == "1") return;
+    verifyReferenceDisplayRegression();
     constexpr auto presentationContext = presentation::forEditor (450, 300);
     KIRIN_REF_REQUIRE (! requiresNativeTextFont ("Mix Reference"));
     KIRIN_REF_REQUIRE (requiresNativeTextFont (juce::String::fromUTF8 ("全工程｜基本5項目")));
@@ -382,6 +393,68 @@ void verifyReferenceAuditionComponentContract()
         detailed.getWidth() / 4, detailed.getHeight() / 2).getAlpha() != 0);
     writeImageIfRequested (detailed, "KIRIN_REFERENCE_UI_OUTPUT");
 
+    auto abc = visual;
+    abc.separateComparisons = true;
+    abc.libraryReceived = true;
+    abc.osOnline = true;
+    abc.versionReady = true;
+    abc.checkReady = true;
+    abc.versions = { { "version-1", "Mix v3" }, { "version-2", "Mix v2" } };
+    abc.versionId = "version-1";
+    abc.comparisonSlot = 2;
+    abc.audibleComparisonSlot = 2;
+    auto* c = dynamic_cast<juce::TextButton*> (component.findChildWithID ("reference-c"));
+    auto* version = dynamic_cast<juce::ComboBox*> (component.findChildWithID ("reference-version"));
+    KIRIN_REF_REQUIRE (c != nullptr && version != nullptr);
+    bool requestedC = false;
+    juce::String requestedVersion;
+    component.onSelectC = [&] { requestedC = true; };
+    component.onSelectVersion = [&] (const auto& id) { requestedVersion = id; };
+    for (const auto width : { 300, 375, 450, 600, 900 })
+    {
+        component.setPresentationContext (presentation::forEditor (width, width * 2 / 3));
+        component.setSize (width - 12, width == 900 ? 470 : width * 2 / 3 - 64);
+        abc.blindLargeScreen = width == 900;
+        component.setState (abc);
+        KIRIN_REF_REQUIRE (a->isVisible() && b->isVisible() && c->isVisible()
+            && c->getToggleState() && ! b->getToggleState() && ! a->getToggleState());
+        KIRIN_REF_REQUIRE (version->isVisible() && check->isVisible() && preset->isVisible()
+            && ! version->getBounds().intersects (check->getBounds())
+            && component.getLocalBounds().contains (version->getBounds())
+            && component.getLocalBounds().contains (check->getBounds()));
+        if (width == 300) writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_ABC_COMPACT_OUTPUT");
+        if (width == 900) writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_ABC_OUTPUT");
+    }
+    c->onClick();
+    version->setSelectedId (2, juce::sendNotificationSync);
+    KIRIN_REF_REQUIRE (requestedC && requestedVersion == "version-2" && component.state().checkId == abc.checkId);
+    abc.readiness = reference_ui::Readiness::waiting;
+    abc.osAccess = os_access::State::connectedUnprepared;
+    abc.checkReady = false;
+    component.setState (abc);
+    KIRIN_REF_REQUIRE (b->isEnabled() && ! c->isEnabled() && a->isEnabled());
+    abc.readiness = reference_ui::Readiness::ready;
+    abc.osAccess = os_access::State::ready;
+    abc.comparisonSlot = 1; abc.audibleComparisonSlot = 0; abc.bSelected = false;
+    abc.blindPhase = reference_ui::BlindPhase::available;
+    abc.alignmentLabel = "CONTENT ALIGNED"; abc.status = "READY / A REMAINS LIVE";
+    component.setState (abc);
+    KIRIN_REF_REQUIRE (!cue->isVisible() && startBlind->isEnabled());
+    writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_VERSION_OUTPUT");
+    abc.blindPhase = reference_ui::BlindPhase::active;
+    abc.activeBlindStimulus = 1;
+    abc.status = "BLIND / SOURCE IDENTITY HIDDEN";
+    component.setState (abc);
+    KIRIN_REF_REQUIRE (!version->isVisible() && !check->isVisible() && !preset->isVisible());
+    writeImageIfRequested (render (component), "KIRIN_REFERENCE_UI_WHOLE_BLIND_OUTPUT");
+    abc.blindPaused = true; component.setState (abc);
+    KIRIN_REF_REQUIRE (!one->isEnabled() && !two->isEnabled() && endBlind->isEnabled());
+    component.setState (visual);
+
+    verifyMetricPresentationWorkflow();
+    verifyPairPreviewUiContract();
+    verifyReferenceSelectionWorkflow (readyState());
+
     const auto compositePath = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_REFERENCE_UI_COMPOSITE_OUTPUT", {});
     if (compositePath.isNotEmpty())
@@ -399,6 +472,7 @@ void verifyReferenceAuditionComponentContract()
         juce::Graphics graphics (composite);
         surface.paintEntireComponent (graphics, true);
         juce::FileOutputStream stream { juce::File { compositePath } };
+        stream.setPosition (0); stream.truncate();
         KIRIN_REF_REQUIRE (juce::PNGImageFormat().writeImageToStream (composite, stream));
     }
 }

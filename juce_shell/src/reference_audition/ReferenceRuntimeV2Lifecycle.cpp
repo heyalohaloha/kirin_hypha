@@ -40,6 +40,7 @@ namespace hypha::reference_audition
         mappingGeneration.fetch_add (1, std::memory_order_release);
         blindContextKey.clear();
         blindPreparationKey.clear();
+        calibrationObservation.clear();
         activePresetAdoptionKey.clear();
         blind.clear();
         {
@@ -112,23 +113,38 @@ namespace hypha::reference_audition
                 untilPoll = 0;
             }
             pages.service();
+            if (contentRefreshRequested.exchange (false, std::memory_order_acq_rel)
+                && !bSelected.load (std::memory_order_acquire) && !blind.ongoing())
+            {
+                blind.clear(); blindPreparationKey.clear(); calibrationObservation.clear();
+                aCapture.disconnect(); untilPoll = 0;
+            }
+            { const juce::ScopedLock lock(stateLock); aCapture.setObservationGrid(captureTargetId.isNotEmpty(),captureGridAnchor); }
             aCapture.service (
                 activeABinding,
                 static_cast<std::int64_t> (std::llround (configuration.sampleRate)),
                 configuration.channels,
-                juce::Time::currentTimeMillis());
+                juce::Time::currentTimeMillis(),
+                versionComparison && configuration.identity.library
+                    ? configuration.identity.runtimeInstanceId : juce::String {});
             serviceRuntimeEvents();
             serviceDeferredAudioThreadActions();
             serviceRecoveryAcknowledgement();
             serviceLibraryRecovery();
             servicePresetSelectionAcknowledgement();
             serviceCandidatePreparationAcknowledgement();
+            serviceWorkflowEvents (juce::Time::currentTimeMillis());
             const auto currentTransportHeartbeat = transportHeartbeat.load (
                 std::memory_order_acquire);
             if (! blind.auditioning())
             {
                 observedTransportHeartbeat = currentTransportHeartbeat;
                 missedTransportCallbacks = 0;
+            }
+            else if (versionComparison && !latestPlaying.load (std::memory_order_acquire))
+            {
+                missedTransportCallbacks = 0;
+                observedTransportHeartbeat = currentTransportHeartbeat;
             }
             else if (! latestPlaying.load (std::memory_order_acquire)
                      || ! latestPositionValid.load (std::memory_order_acquire))
@@ -148,6 +164,13 @@ namespace hypha::reference_audition
             }
             if (selectionGeneration != appliedSelectionGeneration || untilPoll-- <= 0)
             {
+                if (! versionComparison)
+                {
+                    auto nextCatalog = workflowRepository.refresh (workflowCatalog);
+                    const juce::ScopedLock lock (stateLock);
+                    workflowCatalog = std::move (nextCatalog);
+                    currentSnapshot.workflowCatalog = workflowCatalog;
+                }
                 refreshWorkspace (configuration, juce::Time::currentTimeMillis());
                 untilPoll = workspacePolls;
             }

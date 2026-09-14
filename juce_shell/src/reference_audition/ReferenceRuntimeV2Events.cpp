@@ -1,4 +1,5 @@
 #include "ReferenceRuntimeV2Controller.h"
+#include "ReferenceWholeSongEvents.h"
 
 #include <algorithm>
 #include <cmath>
@@ -151,7 +152,7 @@ namespace hypha::reference_audition
             start->setProperty ("cue", juce::var (trialCue));
             start->setProperty ("conditions", juce::var (conditions));
             start->setProperty ("commitment", juce::var (commitment));
-            return juce::var (start);
+            return facts.wholeSong ? wholeSongTrialStart (juce::var (start), candidate, facts) : juce::var (start);
         }
 
         juce::var buildTrialCompleted (const juce::var& trialStart,
@@ -210,7 +211,7 @@ namespace hypha::reference_audition
             completed->setProperty ("answer", juce::var (answer));
             completed->setProperty ("reveal", juce::var (reveal));
             completed->setProperty ("audible_receipt", juce::var (audible));
-            return juce::var (completed);
+            return facts.wholeSong ? wholeSongTrialCompleted (juce::var (completed)) : juce::var (completed);
         }
     }
 
@@ -266,7 +267,8 @@ namespace hypha::reference_audition
             const juce::ScopedLock lock (stateLock);
             if (! activeEventContext.valid() || activeEventSource == nullptr
                 || activeEventCandidate.sourceKind != "work_version"
-                || activeEventCandidate.sourceWorkId != activeEventContext.identity.workId
+                || ((!facts.wholeSong || !activeEventContext.identity.library)
+                    && activeEventCandidate.sourceWorkId != activeEventContext.identity.workId)
                 || facts.trialId.isEmpty() || facts.dawRevisionId.isEmpty()
                 || facts.aCuePcmSha256.isEmpty() || facts.bCuePcmSha256.isEmpty())
                 return;

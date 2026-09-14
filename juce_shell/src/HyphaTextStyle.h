@@ -7,6 +7,7 @@ namespace hypha::text_style
 int requiredWidth (const juce::Font&, const juce::String&,
                    const typography::TextStyle&, int minimum = 0);
 int requiredLineHeight (const typography::TextStyle&, int minimum = 0) noexcept;
+juce::String ellipsizedText (const juce::String&, const juce::Font&, float width);
 void draw (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
            const presentation::Context&, typography::TextRole,
            juce::Justification, int maximumLines = 1,

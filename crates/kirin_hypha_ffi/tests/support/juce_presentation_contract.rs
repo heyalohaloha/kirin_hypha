@@ -170,11 +170,26 @@ fn post_pair_surface_selects_an_exact_pre_without_free_text() {
     let editor = read_repo("juce_shell/src/PluginEditor.cpp")
         + &read_repo("juce_shell/src/PluginEditorMeter.cpp")
         + &read_repo("juce_shell/src/PluginEditorMenu.cpp");
+    let preview = read_repo("juce_shell/src/PluginEditorPairPreview.cpp");
     let widgets = read_repo("juce_shell/src/HyphaWidgets.cpp");
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp")
         + &read_repo("juce_shell/src/PluginProcessorPairing.cpp");
 
-    assert!(editor.contains("nameField.onSelect = [this] { showCandidateMenu(); }"));
+    assert!(editor.contains("nameField.onSelect = [this] { selectPairPreview(); }"));
+    // Direct connection requires the painted, fresh identity; all other paths keep the menu.
+    for required in [
+        "paintedSelectionGeneration() != shown.generation",
+        "processorRef.pairPreviewMatches (pairPreview.get())",
+        "current.generation != shown.generation",
+        "std::strcmp (current.candidate.instance_id, shown.candidate.instance_id)",
+        "showCandidateMenu();",
+        "handleCandidateMenu (100, chosen);",
+    ] {
+        assert!(
+            preview.contains(required),
+            "single PRE preview lost {required}"
+        );
+    }
     assert!(editor.contains("Click to choose one exact PRE."));
     assert!(editor.contains("processorRef.setPairCandidate"));
     assert!(editor.contains("Use POST only"));

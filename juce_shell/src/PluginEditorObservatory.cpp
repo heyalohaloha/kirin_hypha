@@ -74,6 +74,7 @@ void KirinHyphaEditor::configureMeterContext()
     observatoryView.onOperationsMenu = [this] { showOperationsMenu(); };
     observatoryView.onGuideDetails = [this] { showGuideInformationMenu(); };
     observatoryView.onFeedbackDetails = [this] { showFeedbackInformationMenu(); };
+    observatoryView.onTimeRangeMenu = [this] { showTimeRangeMenu(); };
     observatoryView.onStop = [this] { processorRef.stopPair(); };
     observatoryView.onReset = [this]
     {
@@ -168,6 +169,7 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 
 void KirinHyphaEditor::visibilityChanged()
 {
+    refreshPairPreview (true);
     refreshAppearance();
     // Some hosts snapshot non-parameter state when the editor becomes hidden, before destroying
     // it. Mark the already-updated exact dimensions dirty at that boundary as well as in dtor.
@@ -193,7 +195,12 @@ void KirinHyphaEditor::refreshObservatory()
     syncAnalysisDemand();
     if (localBlindOpen)
     {
-        refreshLocalBlindProduct();
+        const auto now = nowSecs();
+        if (now - localBlindPresentationAt >= 0.1)
+        {
+            localBlindPresentationAt = now;
+            refreshLocalBlindProduct();
+        }
         return;
     }
    #endif

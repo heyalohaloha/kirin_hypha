@@ -57,7 +57,8 @@ writes build provenance; a diagnostic build without the licensed App font cannot
   stereo/multi-mono insertion, pairing, zero-delay reporting, and Offline Bounce. Re-run the host
   gates for the exact current release candidate; arm64 Pro Tools execution remains unverified.
 - Verify current-candidate bypass/state persistence and the AAX-specific exact-range/PDC contract
-  before enabling local PRE/POST Blind on AAX. Current source fails that product entry closed.
+  before claiming local PRE/POST Blind host acceptance on AAX. The user enabled the
+  product entry on 2026-09-13; runtime capture/clock/admission checks remain in place.
 - Complete Windows VST3+AAX installer build, install, same-version reinstall, prior-version upgrade,
   uninstall, and Pro Tools validation.
 - Re-run all three existing public distribution channels from the same release commit. AAX Phase A

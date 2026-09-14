@@ -2,6 +2,7 @@
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceAccessPanel.h"
 #include "ValidationStorageSandbox.h"
+#include "EditorCaptureProductTest.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -51,6 +52,27 @@ struct HostClock final : juce::AudioPlayHead
     bool recording = false;
     std::int64_t position = 0;
 };
+
+void verifySavedReferenceChoices()
+{
+    juce::XmlElement xml ("KirinHyphaState");
+    hypha::reference_audition::ReferenceComparisonSettings settings;
+    settings.version = { "preset-b", "check-b", "candidate-b", "cue-b" };
+    settings.check = { "preset-c", "check-c", "candidate-c", "cue-c" };
+    settings.write (xml);
+    juce::MemoryBlock bytes;
+    juce::AudioProcessor::copyXmlToBinary (xml, bytes);
+    Processor restored (Processor::Role::Post);
+    restored.setStateInformation (bytes.getData(), static_cast<int> (bytes.getSize()));
+    juce::MemoryBlock saved;
+    restored.getStateInformation (saved);
+    const auto output = juce::AudioProcessor::getXmlFromBinary (saved.getData(), static_cast<int> (saved.getSize()));
+    require (output != nullptr, "Reference host XML state round trip");
+    const auto choices = hypha::reference_audition::ReferenceComparisonSettings::read (*output);
+    require (choices.version.target() == settings.version.target()
+        && choices.check.target() == settings.check.target(), "shipping processor retains B/C before prepare");
+    require (! restored.referenceAuditionSnapshot().bSelected, "restoring the processor never selects reference audio");
+}
 
 // Exercise the shipping editor's refresh timer, sibling z-order and hit routing together.
 // Calling a detached View's onClick cannot detect another pane covering the VU exit.
@@ -247,7 +269,9 @@ int main (int argc, char** argv)
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
-    SurfaceContract contract (argc > 1 ? juce::File (argv[1]) : juce::File());
+    verifySavedReferenceChoices();
+    std::unique_ptr<SurfaceContract> contract;
+    CaptureProductContract capture([&] { contract=std::make_unique<SurfaceContract>(argc>1 ? juce::File(argv[1]) : juce::File()); });
     juce::MessageManager::getInstance()->runDispatchLoop();
-    return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
+    return contract && contract->passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

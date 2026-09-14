@@ -96,6 +96,7 @@ namespace hypha::reference_audition
 
     void RuntimeV2Blind::resetSession() noexcept
     {
+        rtSourceBlend = 0.0f;
         requestedStimulus.store (0, std::memory_order_relaxed);
         activeStimulus.store (0, std::memory_order_relaxed);
         answeredStimulus.store (0, std::memory_order_relaxed);
@@ -133,6 +134,10 @@ namespace hypha::reference_audition
                         && state != armed && state != active && state != revealed)
             || state == returnRequested || state == normalConfirmed
             ? BlindPhase::invalidated : publicPhase (state);
+        result.wholeSong = wholeSong;
+        result.wholeSourceFrames = wholeSourceFrames;
+        result.alignmentCorrelation = alignmentCorrelation;
+        result.alignmentSpreadSamples = alignmentSpreadSamples;
         result.eligible = state == prepared || state == approvalRequired || state == armed
                        || state == active || state == revealed;
         result.lowerAApprovalRequired = state == approvalRequired;
