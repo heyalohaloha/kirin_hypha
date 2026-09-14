@@ -231,7 +231,7 @@ CaptureTonalSummary loadCaptureTonalArtifact (
         if (version == 2)
         {
             const auto validityBytes = static_cast<size_t> ((cells + 7) / 8);
-            if (cells > std::uint64_t (std::numeric_limits<std::int64_t>::max() / 4)
+            if (cells > std::uint64_t ((std::numeric_limits<std::int64_t>::max)() / 4)
                 || input->getNumBytesRemaining()
                     < static_cast<std::int64_t> (validityBytes + static_cast<size_t> (cells) * 4)) return {};
             validity.resize (validityBytes);
