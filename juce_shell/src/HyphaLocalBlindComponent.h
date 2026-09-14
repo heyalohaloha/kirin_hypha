@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaLocalBlindUiContract.h"
+#include "local_blind/LocalBlindAdmission.h"
 #include "HyphaMeterContext.h"
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceSelectorLookAndFeel.h"
@@ -25,7 +26,7 @@ public:
         contextLookAndFeel.setPresentationContext (next);
         for (auto* button : { &sourceOne, &sourceTwo, &answerOne, &answerTwo,
                               &noPreference, &cannotDistinguish, &startButton, &revealButton,
-                              &captureButton, &stopButton, &returnButton,
+                              &captureButton, &repairButton, &stopButton, &returnButton,
                               &closeButton })
             button->setPresentationContext (next);
         resized();
@@ -34,6 +35,7 @@ public:
 
     std::function<void (bool approveLowerPost)> onStart;
     std::function<void()> onCapture;
+    std::function<void()> onRepair;
     std::function<void (int stimulus)> onSelectStimulus;
     std::function<void (local_blind::TrialAnswer)> onAnswer;
     std::function<void()> onReveal;
@@ -42,12 +44,15 @@ public:
     std::function<void()> onClose;
 
     void setState (local_blind::ProductSessionView);
+    void setAdmission (local_blind::CaptureAdmission);
+    void setPairName (juce::String);
     void setMeterContext (meter_context::MeterContext);
     meter_context::MeterContext meterContext() const noexcept { return preflightContext; }
     void setActionNotice (juce::String);
     void clearActionNotice();
     const local_blind::ProductSessionView& state() const noexcept { return current; }
 
+    juce::Component& repairAnchor() noexcept { return repairButton; }
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -60,7 +65,8 @@ private:
     void layoutPreflight();
 
     local_blind::ProductSessionView current;
-    juce::String actionNotice;
+    juce::String actionNotice, preflightPair;
+    local_blind::CaptureAdmission admission = local_blind::CaptureAdmission::ready;
     presentation::Context presentationContext = presentation::defaultContext();
     juce::Label titleLabel;
     juce::Label statusLabel;
@@ -75,6 +81,7 @@ private:
     HyphaTextButton startButton { "START BLIND" };
     HyphaTextButton revealButton { "REVEAL" };
     HyphaTextButton captureButton { "CAPTURE 4 S" };
+    HyphaTextButton repairButton { "SELECT PRE" };
     reference_ui::ReferenceSelectorLookAndFeel contextLookAndFeel; // Shared shell styling only.
     juce::ComboBox contextChoice;
     HyphaTextButton stopButton { "STOP" };

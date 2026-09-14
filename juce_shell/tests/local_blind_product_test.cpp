@@ -181,6 +181,8 @@ private:
                 require (state.preparationFailure == hypha::local_blind::PreparationFailure::gainUnavailable,
                          "sparse audio under inherited 2MIX retains the typed gain failure");
                 if (! state.canRecapture) break;
+                if (const auto* choice = find (*editor, "local-blind-context");
+                    choice == nullptr || ! choice->isVisible()) break; // UI observes processor facts asynchronously.
                 selectBlindMode (2);
                 if (! click ("local-blind-capture")) break;
                 stage = 3;
@@ -272,6 +274,8 @@ private:
                 break;
             case 11:
                 if (state.phase != Phase::returned) break;
+                if (auto* screen = find (*editor, "local-blind-screen"); screen != nullptr && screen->isVisible()) break;
+                require (editor->isResizable(), "audio-confirmed return restores normal resize without Close");
                 require (preTransparent.load() && postTransparent.load(), "normal PRE/POST paths stay bit identical");
                 require (maximumCopyError.load() < 0.00004, "matched output stays within fixed-gain quantization bound");
                 require (auditionSamples.load() >= 192000 * 2, "actual audio output covered both complete sides");

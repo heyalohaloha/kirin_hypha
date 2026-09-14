@@ -1,4 +1,5 @@
 #include "../src/local_blind/LocalBlindProductSession.h"
+#include "../src/HyphaLocalBlindReturnIntent.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -232,12 +233,31 @@ static void productLifecycle (const std::vector<float>& source)
     require (releaseCalls == 0 && session.view().phase == ProductSessionPhase::returnPending
                  && session.view().failure == ProductSessionFailure::pairChanged,
              "pair change stops output but cannot release admission before normal audio receipt");
-    session.requestNormalReturn();
+    hypha::local_blind_ui::ReturnIntent editorIntent;
+    const auto requestFacts = session.requestNormalReturn();
+    editorIntent.arm (requestFacts);
+    require (requestFacts.requested() && ! requestFacts.confirmed
+        && ! editorIntent.shouldClose (session.view()), "request alone never closes the screen");
+    require (session.requestNormalReturn().sameRequest (requestFacts), "repeat click preserves pending return command");
     TrialBlock normal { {}, request.sampleRate, 0, true, true, true, false };
     std::fill (output.begin(), output.end(), 0.75f);
     require (session.render (pointers, 1, static_cast<int> (output.size()), normal),
              "normal-return callback is owned until receipt");
+    require (editorIntent.shouldClose (session.view()), "exact callback closes the requesting Editor");
     session.service();
+    require (editorIntent.shouldClose (session.view()), "receipt survives non-RT PCM retirement");
+    hypha::local_blind_ui::ReturnIntent reopenedEditor;
+    require (! reopenedEditor.shouldClose (session.view()), "reopening cannot inherit a return gesture");
+    auto stale = session.view();
+    ++stale.returnFacts.capture;
+    require (! editorIntent.shouldClose (stale), "other capture receipt cannot close this screen");
+    stale = session.view(); ++stale.returnFacts.scope;
+    require (! editorIntent.shouldClose (stale), "other scope receipt cannot close this screen");
+    stale = session.view(); ++stale.returnFacts.command;
+    require (! editorIntent.shouldClose (stale), "other command receipt cannot close this screen");
+    editorIntent.clear();
+    require (! editorIntent.shouldClose (session.view()), "closed Editor discards return intent");
+    require (! session.requestNormalReturn().requested(), "retired trial cannot mint a fresh gesture receipt");
     require (releaseCalls == 1 && releasedEpoch == 11
                  && session.view().phase == ProductSessionPhase::returned
                  && ! session.hasPublishedRealtime(),

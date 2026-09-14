@@ -45,6 +45,7 @@ struct ProductSessionView
     bool canRecapture = false;
     GainMatchPolicy gainPolicy = GainMatchPolicy::alignedActiveBlocksV1;
     TrialView trial;
+    TrialReturnFacts returnFacts;
     std::uint32_t sampleRate = 0;
     int channels = 0;
     std::int64_t start = 0;
@@ -77,7 +78,7 @@ public:
     bool answer (TrialAnswer) noexcept;
     bool reveal() noexcept;
     void stop() noexcept;
-    void requestNormalReturn() noexcept;
+    TrialReturnFacts requestNormalReturn() noexcept;
     void invalidate() noexcept;
     void validatePair (const ExactPairBinding*) noexcept;
 
@@ -110,6 +111,7 @@ private:
     TrialClockSignature admittedClock;
     ExactPairBinding capturedPair;
     bool releasePending = false;
+    TrialReturnFacts retiredReturnFacts; // Until the next admission; never serialized.
     std::uint32_t sampleRate = 0;
     int channels = 0;
     std::int64_t startSample = 0;

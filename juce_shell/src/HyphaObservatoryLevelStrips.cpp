@@ -1,5 +1,6 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaSurfaceMaterial.h"
+#include "HyphaChannelReadoutLayout.h"
 
 #include <array>
 #include <cmath>
@@ -39,8 +40,33 @@ void paintFullChannelStrips (juce::Graphics& g,
                              bool cumulativeAvailable,
                              presentation::Context presentation)
 {
+    const auto valueFont = monoFont (presentation, typography::TextRole::secondaryValue,
+                                    typography::Composition::instrument);
+    auto title = area.removeFromTop (16);
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
+                         typography::Composition::instrument));
+    g.drawText ("TP", title, juce::Justification::centredLeft);
+    g.setFont (labelFont (presentation, typography::TextRole::unit,
+                         typography::Composition::instrument));
+    g.drawText ("dBTP", title, juce::Justification::centredRight);
+    const auto readoutHeight = (int) std::ceil (valueFont.getHeight()) + 2;
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        auto row = area.removeFromTop (readoutHeight);
+        const bool available = currentAvailable && channel < meter.channels
+                            && std::isfinite (meter.channel_true_peak_dbtp[channel]);
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (monoFont (presentation, typography::TextRole::legend,
+                            typography::Composition::instrument));
+        g.drawText (channel == 0 ? "L" : "R", row.withWidth (16), juce::Justification::centredLeft);
+        g.setColour (available ? COL_NORMAL : COL_MUTED);
+        drawTabularText (g, valueFont,
+                         available ? juce::String (meter.channel_true_peak_dbtp[channel], 1)
+                                   : juce::String ("---"),
+                         channelPeakValueArea (row).toFloat(), juce::Justification::centredRight);
+    }
     auto labels = area.removeFromTop (18);
-    auto readouts = area.removeFromTop (46);
     auto clips = area.removeFromBottom (28);
     constexpr int scaleWidth = 22;
     constexpr int columnGap = 4;
@@ -60,29 +86,6 @@ void paintFullChannelStrips (juce::Graphics& g,
     g.drawText (meter.channels > 1 ? juce::String ("R") : hypha::emDash(),
                 labels.withX (rightColumn.getX()).withWidth (columnWidth),
                 juce::Justification::centred);
-
-    for (int channel = 0; channel < 2; ++channel)
-    {
-        auto readout = readouts.withX (columns[(size_t) channel].getX())
-                               .withWidth (columnWidth);
-        const bool available = currentAvailable && channel < meter.channels
-                            && std::isfinite (meter.channel_true_peak_dbtp[channel]);
-        g.setColour (COL_TEXT_TERTIARY);
-        g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
-                              typography::Composition::instrument));
-        g.drawText ("TP", readout.removeFromTop (12), juce::Justification::centred);
-        g.setColour (available ? COL_NORMAL : COL_MUTED);
-        drawTabularText (g, monoFont (presentation, typography::TextRole::secondaryValue,
-                                      typography::Composition::instrument),
-                         available ? juce::String (meter.channel_true_peak_dbtp[channel], 1)
-                                   : juce::String ("---"),
-                         readout.removeFromTop (21).toFloat(),
-                         juce::Justification::centred);
-        g.setColour (COL_TEXT_TERTIARY);
-        g.setFont (labelFont (presentation, typography::TextRole::unit,
-                              typography::Composition::instrument));
-        g.drawText ("dBTP", readout, juce::Justification::centred);
-    }
 
     const auto mapY = [&area] (double value)
     {

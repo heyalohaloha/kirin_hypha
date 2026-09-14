@@ -118,6 +118,14 @@ Component::Component()
     cButton.onClick = [this] { if (onSelectC) onSelectC(); };
     versionBox.onChange = [this]
     { if (onSelectVersion) onSelectVersion (selectedOptionId (versionBox, current.versions)); };
+    for (size_t i = 0; i < selectionReadouts.size(); ++i)
+    {
+        auto& label = selectionReadouts[i];
+        label.setComponentID ("reference-selection-value-" + juce::String (static_cast<int> (i)));
+        label.setColour (juce::Label::textColourId, COL_TEXT_SECONDARY);
+        label.setMinimumHorizontalScale (1.0f);
+        addChildComponent (label);
+    }
     addAndMakeVisible (versionBox);
     addAndMakeVisible (cButton);
     addAndMakeVisible (presetBox);
@@ -228,7 +236,7 @@ void Component::paint (juce::Graphics& g)
     const bool blindSession = isBlindSession (current.blindPhase);
     if (current.separateComparisons && ! blindSession)
     {
-        area.removeFromTop ((presetBox.isVisible() ? (detailedLayout() ? 38 : 24) : 0)
+        area.removeFromTop ((selectionVisible (presetBox) ? (detailedLayout() ? 38 : 24) : 0)
                             + 4 + (detailedLayout() ? 40 : 24));
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentationContext, typography::TextRole::unit,
@@ -242,7 +250,7 @@ void Component::paint (juce::Graphics& g)
         };
         label (versionBox, detailedLayout() ? "B / VERSION" : "B");
         label (checkBox, detailedLayout() ? "C / CHECK" : "C");
-        if (detailedLayout()) { if (presetBox.isVisible()) label (presetBox, "PRESET"); if (cueBox.isVisible()) label (cueBox, "CUE"); }
+        if (detailedLayout()) { if (selectionVisible (presetBox)) label (presetBox, "PRESET"); if (selectionVisible (cueBox)) label (cueBox, "CUE"); }
     }
     else if (detailedLayout() && ! blindSession)
     {
@@ -266,16 +274,16 @@ void Component::paint (juce::Graphics& g)
         drawSelectorLabel (selectors, "CUE");
     }
     else if (! detailedLayout() && ! blindSession
-             && (presetBox.isVisible() || checkBox.isVisible() || candidateBox.isVisible()))
+             && (selectionVisible (presetBox) || selectionVisible (checkBox) || selectionVisible (candidateBox)))
     {
-        if (presetBox.isVisible()) area.removeFromTop (24);
+        if (selectionVisible (presetBox)) area.removeFromTop (24);
         area.removeFromTop (4);
         auto selector = area.removeFromTop (24);
         g.setColour (COL_TEXT_TERTIARY.withAlpha (0.92f));
         g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel,
                               typography::Composition::information));
         constexpr int gap = 5;
-        if (checkBox.isVisible() && candidateBox.isVisible())
+        if (selectionVisible (checkBox) && selectionVisible (candidateBox))
         {
             auto checkSelector = selector.removeFromLeft ((selector.getWidth() - gap) * 5 / 12);
             selector.removeFromLeft (gap);
@@ -286,8 +294,8 @@ void Component::paint (juce::Graphics& g)
         }
         else
         {
-            text_style::drawEllipsized (g, checkBox.isVisible() ? "CHECK" : "B SOURCE",
-                                        selector.removeFromLeft (checkBox.isVisible() ? 38 : 64),
+            text_style::drawEllipsized (g, selectionVisible (checkBox) ? "CHECK" : "B SOURCE",
+                                        selector.removeFromLeft (selectionVisible (checkBox) ? 38 : 64),
                                         juce::Justification::centredLeft);
         }
     }

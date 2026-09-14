@@ -46,7 +46,7 @@ View::View (Role roleIn) : role (roleIn)
     informationButton.onClick = [this] { if (onInformation) onInformation(); };
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                           &referenceButton,
-                          &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton,
+                          &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton, &timeRangeMenuButton,
                           &compactLoudnessButton, &compactRangeButton,
                           &contextButton, &scaleButton, &sizeButton, &operationsButton,
                           &stopButton, &guideButton, &statusButton, &hybridVuButton,
@@ -80,6 +80,10 @@ View::View (Role roleIn) : role (roleIn)
         if (onTargetChange) onTargetChange (ObservationTarget::delta);
     };
     timeRangeButton.onClick = [this] { cycleTimeRange(); };
+    timeRangeMenuButton.setComponentID ("observatory-time-range-menu");
+    timeRangeMenuButton.setTitle ("Choose history time range");
+    timeRangeMenuButton.setTooltip ("Choose history time range");
+    timeRangeMenuButton.onClick = [this] { if (onTimeRangeMenu) onTimeRangeMenu(); };
     compactLoudnessButton.onClick = [this]
     {
         const auto next = ! selectedShortTermLoudness;
@@ -381,6 +385,7 @@ void View::updateControls()
 
 void View::paint (juce::Graphics& g)
 {
+    metricHelpCount = 0;
     if (hybridVuVisible())
     {
         hybrid_vu::paint (g, getLocalBounds(), {

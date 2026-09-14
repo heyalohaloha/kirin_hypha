@@ -35,10 +35,36 @@ These are native harness and algorithm results, not DAW-host results.
 
 Logs and rendered images are local under `target/b880-*`. The JUCE helper build initially used an unset deployment target and failed against the macOS 15 SDK. Setting the existing helper build cache to macOS 12.0 resolved this; vendor source was not changed.
 
+## B-881 / B-882: Blind workflow, Reference choices and measurement help
+
+B-881 extracts candidate access and Blind presentation without changing behavior. B-882 then changes the owned workflow modules.
+
+- Normal POST at 600/900 has one direct PRE/POST Blind entry; smaller entries enlarge to 300%. Reset Meter Session remains in MENU. Keep start remains in MENU: the fixed Stop slot cannot also contain the longer finalization/failure actions without taking width from the other controls. The optional direct Keep expansion is not adopted and no 3-to-2 operation reduction is claimed.
+- Keep/NOTE transitions preserve Blind and MENU positions. Reference, PRE, VU and unsupported wrappers do not receive a duplicate direct Blind control.
+- Blind keeps its captured range in a fixed place. Complete-pass facts drive each Source's DONE state; actual output acknowledgement drives selection feedback. Answers appear only when both passes are complete, with Stop/End in a separate fixed slot.
+- END and RETURN TO LIVE remain separate explicit gestures. Only the matching scope/capture/command audio receipt can close the Editor's recovery view automatically. Empty, bypassed and offline callbacks cannot acknowledge return. Reopened Editors do not inherit the old Editor's close intent. Applied attenuation, rather than approval alone, supplies the possible Live gain increase.
+- Admission now exposes known causes. Missing PRE and Keep return actions are available in preflight; no recording is stopped automatically. Unknown lower-level refusal is not diagnosed as an analysis-slot shortage. Eligible capture failures reuse the existing safe recapture transaction and release/generation checks.
+- Blind presentation skips unchanged states and uses the existing UI timer at no more than 10 Hz. Explicit gestures refresh immediately. No new RT processing or file polling is introduced for these UI changes.
+- TIME retains one-click stepping and adds a direct range menu at 600/900. Reference keeps B/Version and C/Check positions stable; known singleton choices become readable labels. Missing IDs still require explicit selection. Blind conceals both labels and dropdowns.
+- The user's subsequent NOW/SESSION feedback supersedes permanent range captions. LEVEL metrics explain their observation source and time scope on hover. Painted bounds use a fixed eight-entry metadata array; text is constructed only for the requested tooltip.
+- The top-right TP header now stacks L/R numbers across the strip width, independently of the bar widths. Existing numeric font sizes are retained. Signed values from −14.5 through −897.1 and +770.6 fit their measured bounds at 600/900.
+
+Focused native results (not DAW host evidence):
+
+| Check | Result |
+| --- | --- |
+| Local Blind trial/preparation | 2 targets pass: explicit return, exact receipts, duplicate request, stale/reopened Editor, no-callback/bypass/offline cases |
+| Local Blind product | Stereo and track/stem paths pass for VST3- and AAX-designated native processors. The track UI test initially raced its 10 Hz presentation update; waiting for the actual context control fixed the test, and the affected case passed |
+| Product entry / UI | Pass: all five sizes, fixed action/range placement, repair affordance, readonly/missing Reference choices, Blind privacy, metric hover and signed TP width |
+| Typography / composites | Pass; fresh 600/900 LEVEL frames with −14.5/−114.5 and direct Blind inspected. ABC Reference frame inspected. Preview writers now truncate existing PNG files instead of appending another PNG stream |
+| Reference rendering | Focused run: 900×600 panel p95 1.831 ms; cached comparison p95 1.001 ms; rebuild p95 1.532 ms |
+
+Logs: `target/b882-*`. Verified new layout frames: `target/b882-verified-ui/`; ABC/Blind fixtures: `target/b882-ui/` (those writers truncate). No native plugin installation or release packaging was performed.
+
 ## Remaining work in the same approved task
 
 - Finish G0 RAM/lifetime and cross-feature boundaries. Current results do not establish DAW wall-clock latency or all-wrapper peak resident memory.
 - Implement and verify bounded, demand-driven PRE candidate discovery, including completeness, concurrent claims, teardown and module-unload behavior (G0-S).
-- Complete H01–H08: labels, exact single-PRE action, large-screen Blind entrance, fixed progress/answer placement, matching audio-confirmed return without extra Close, typed refusal/repair, direct TIME range and primary Reference choices.
+- Integrate H02 exact single-PRE action after bounded discovery passes G0-S. H01/H03–H08 UI work is implemented; remaining cross-feature and final baseline checks still apply.
 - Consolidate the full Rust/FFI ignored/native baseline once the final implementation is ready. Run new focused tests only for changed or unresolved paths.
 - Record actual Studio One / Pro Tools and Windows verification separately. No new release build, installation, signing, notarization or public distribution has been performed for these changes.

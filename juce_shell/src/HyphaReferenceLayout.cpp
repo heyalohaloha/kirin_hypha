@@ -28,15 +28,6 @@ void Component::resized()
     }
     if (current.separateComparisons && ! blindSession)
     {
-        auto top = area.removeFromTop (presetBox.isVisible() ? (detailedLayout() ? 38 : 24) : 0);
-        if (detailedLayout())
-        {
-            const auto width = cueBox.isVisible() ? (top.getWidth() - 5) * 3 / 4 : top.getWidth();
-            presetBox.setBounds (top.removeFromLeft (width).removeFromBottom (22));
-            top.removeFromLeft (5);
-            cueBox.setBounds (top.removeFromBottom (22));
-        }
-        else presetBox.setBounds (top);
         area.removeFromTop (4);
         auto row = area.removeFromTop (detailedLayout() ? 40 : 24);
         auto b = row.removeFromLeft ((row.getWidth() - 5) / 2);
@@ -51,6 +42,15 @@ void Component::resized()
             b.removeFromLeft (14); row.removeFromLeft (14);
             versionBox.setBounds (b); checkBox.setBounds (row);
         }
+        auto top = area.removeFromTop (selectionVisible (presetBox) ? (detailedLayout() ? 38 : 24) : 0);
+        if (detailedLayout())
+        {
+            const auto width = selectionVisible (cueBox) ? (top.getWidth() - 5) * 3 / 4 : top.getWidth();
+            presetBox.setBounds (top.removeFromLeft (width).removeFromBottom (22));
+            top.removeFromLeft (5);
+            cueBox.setBounds (top.removeFromBottom (22));
+        }
+        else presetBox.setBounds (top);
     }
     else if (detailedLayout() && ! blindSession)
     {
@@ -66,13 +66,13 @@ void Component::resized()
         selectors.removeFromLeft (gap);
         cueBox.setBounds (selectors.removeFromBottom (27));
     }
-    else if (! blindSession && (presetBox.isVisible() || checkBox.isVisible() || candidateBox.isVisible()))
+    else if (! blindSession && (selectionVisible (presetBox) || selectionVisible (checkBox) || selectionVisible (candidateBox)))
     {
-        if (presetBox.isVisible()) { auto row = area.removeFromTop (24); presetBox.setBounds (row); }
+        if (selectionVisible (presetBox)) { auto row = area.removeFromTop (24); presetBox.setBounds (row); }
         area.removeFromTop (4);
         auto selector = area.removeFromTop (24);
         constexpr int gap = 5;
-        if (checkBox.isVisible() && candidateBox.isVisible())
+        if (selectionVisible (checkBox) && selectionVisible (candidateBox))
         {
             auto checkSelector = selector.removeFromLeft ((selector.getWidth() - gap) * 5 / 12);
             selector.removeFromLeft (gap);
@@ -81,7 +81,7 @@ void Component::resized()
             checkBox.setBounds (checkSelector);
             candidateBox.setBounds (selector);
         }
-        else if (checkBox.isVisible())
+        else if (selectionVisible (checkBox))
         {
             selector.removeFromLeft (42);
             checkBox.setBounds (selector);
@@ -120,6 +120,7 @@ void Component::resized()
     }
     if (actionButton.isVisible())
         actionButton.setBounds (footer.removeFromRight (detailedLayout() ? 188 : 116));
+    layoutSelectionReadouts();
 }
 
 }

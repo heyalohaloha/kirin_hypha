@@ -1,5 +1,6 @@
 #include "HyphaLocalBlindComponent.h"
 #include "HyphaLocalBlindFailureText.h"
+#include "HyphaLocalBlindAdmissionText.h"
 #include <cmath>
 
 namespace hypha::local_blind_ui
@@ -75,7 +76,8 @@ void Component::refreshPresentation()
     if (phase == Phase::idle)
     {
         status = "READY TO CAPTURE";
-        detail = "Play the section you want to compare, then capture 4 seconds.";
+        detail = admissionText (admission);
+        if (admission != local_blind::CaptureAdmission::ready) status = "BEFORE CAPTURE";
     }
     else if (phase == Phase::capturing)
     {
@@ -90,7 +92,7 @@ void Component::refreshPresentation()
     else if (phase == Phase::ready)
     {
         status = "EXACT RANGE READY";
-        detail = "Start Blind, then play from before " + rangeText (current) + ".";
+        detail = "HYPHA: start Blind. DAW: play from before the captured range.";
         if (current.trial.lowerPostApprovalRequired)
         {
             const auto attenuation = std::abs (current.lowerPostGainDb);
@@ -112,7 +114,7 @@ void Component::refreshPresentation()
     else if (phase == Phase::armed)
     {
         status = "WAITING FOR CAPTURED RANGE START";
-        detail = "Play from before " + rangeText (current) + ". The full range will be heard.";
+        detail = "DAW: play from before the captured range to hear the full pass.";
     }
     else if (phase == Phase::listening)
     {
@@ -126,8 +128,7 @@ void Component::refreshPresentation()
         detail = current.trial.canAnswer
             ? "Both complete passes were heard. Choose your answer, then reveal."
             : current.trial.passComplete
-                ? "Select the other source, then play from before "
-                    + timeline (current.start, current.sampleRate) + "."
+                ? "HYPHA: select the other source. DAW: replay the captured range."
                 : "Listen to one complete pass of Source 1 and Source 2.";
         result = answerText (current.trial.answer);
     }
@@ -136,17 +137,27 @@ void Component::refreshPresentation()
         status = current.trial.revealedOneSide == 1
             ? "SOURCE 1 = PRE   /   SOURCE 2 = POST"
             : "SOURCE 1 = POST   /   SOURCE 2 = PRE";
-        detail = "The assignment is revealed. Stop to leave the comparison.";
+        detail = answerText (current.trial.answer) + ". Select END when finished.";
         result = answerText (current.trial.answer);
     }
     else if (phase == Phase::returnPending)
     {
-        status = "RETURN TO LIVE SIGNAL";
-        detail = current.failure == Failure::none
-                     && current.trial.failure == local_blind::TrialFailure::none
-            ? "Confirm the return to the unchanged live signal."
-            : failureText (current, preflightContext);
-        result = "Press RETURN TO LIVE, then resume playback.";
+        const bool requested = current.returnFacts.requested();
+        status = requested ? "WAITING FOR LIVE OUTPUT" : "RETURN TO LIVE";
+        detail = requested ? "DAW: resume audio processing. Closes when Live is confirmed."
+            : current.returnFacts.attenuationApplied
+                ? "Live level will rise by " + juce::String (std::abs (current.lowerPostGainDb), 1) + " dB."
+                : "Return to the unchanged live signal.";
+        if (! requested && (current.failure != Failure::none
+            || current.trial.failure != local_blind::TrialFailure::none))
+        {
+            status = "COMPARISON STOPPED";
+            detail = failureText (current, preflightContext);
+            if (current.returnFacts.attenuationApplied)
+                detail += " Live +" + juce::String (std::abs (current.lowerPostGainDb), 1) + " dB.";
+        }
+        // The exact range keeps the same position during recovery as during listening.
+        result = rangeText (current);
     }
     else if (phase == Phase::returned)
     {
@@ -160,8 +171,11 @@ void Component::refreshPresentation()
                 ? "GAIN MATCH UNAVAILABLE" : "COMPARISON NOT PREPARED";
         detail = failureText (current, preflightContext);
     }
-    if (actionNotice.isNotEmpty())
-        result = actionNotice;
+    // One fixed range position throughout preparation, listening, result, and return.
+    if (current.frames > 0 && current.sampleRate > 0 )
+        result = rangeText (current);
+    if (canChooseContext() && preflightPair.isNotEmpty()) result = preflightPair;
+    if (actionNotice.isNotEmpty()) result = actionNotice;
     statusLabel.setText (status, juce::dontSendNotification);
     detailLabel.setText (detail, juce::dontSendNotification);
     resultLabel.setText (result, juce::dontSendNotification);
@@ -174,10 +188,12 @@ void Component::refreshPresentation()
                             || phase == Phase::revealed);
         button->setEnabled (selectable);
     }
+    sourceOne.setButtonText (current.trial.heardOneComplete ? "SOURCE 1 / DONE" : "SOURCE 1");
+    sourceTwo.setButtonText (current.trial.heardTwoComplete ? "SOURCE 2 / DONE" : "SOURCE 2");
     sourceOne.setToggleState (current.trial.activeStimulus == 1, juce::dontSendNotification);
     sourceTwo.setToggleState (current.trial.activeStimulus == 2, juce::dontSendNotification);
 
-    const bool answersVisible = phase == Phase::listening;
+    const bool answersVisible = phase == Phase::listening && current.trial.canAnswer;
     for (auto* button : { &answerOne, &answerTwo, &noPreference, &cannotDistinguish })
     {
         button->setVisible (answersVisible);
@@ -191,12 +207,17 @@ void Component::refreshPresentation()
                                       juce::dontSendNotification);
 
     startButton.setVisible (phase == Phase::ready);
-    captureButton.setVisible (canChooseContext());
-    captureButton.setEnabled (phase == Phase::idle || current.canRecapture);
+    const bool repairPair = admission == local_blind::CaptureAdmission::pairRequired;
+    const bool repairKeep = admission == local_blind::CaptureAdmission::keepBusy;
+    repairButton.setVisible (canChooseContext() && (repairPair || repairKeep));
+    repairButton.setButtonText (repairPair ? "SELECT PRE" : "BACK TO KEEP");
+    captureButton.setVisible (canChooseContext() && ! repairButton.isVisible());
+    captureButton.setEnabled ((phase == Phase::idle || current.canRecapture)
+        && admission == local_blind::CaptureAdmission::ready);
     captureButton.setButtonText (phase == Phase::failed ? "CAPTURE AGAIN" : "CAPTURE 4 S");
     contextChoice.setVisible (canChooseContext());
     contextChoice.setAccessible (canChooseContext());
-    revealButton.setVisible (phase == Phase::listening);
+    revealButton.setVisible (answersVisible);
     revealButton.setEnabled (current.trial.canAnswer && current.trial.answer != Answer::none);
     stopButton.setVisible (phase == Phase::capturing || phase == Phase::preparing
                            || phase == Phase::ready || phase == Phase::armed
@@ -204,6 +225,7 @@ void Component::refreshPresentation()
     stopButton.setButtonText (phase == Phase::capturing || phase == Phase::preparing
                                 ? "CANCEL" : phase == Phase::revealed ? "END" : "STOP");
     returnButton.setVisible (phase == Phase::returnPending);
+    returnButton.setEnabled (! current.returnFacts.requested());
     closeButton.setVisible (phase == Phase::idle || phase == Phase::returned
                             || phase == Phase::failed);
     closeButton.setButtonText (phase == Phase::idle ? "BACK" : "CLOSE");

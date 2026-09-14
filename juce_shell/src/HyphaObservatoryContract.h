@@ -254,7 +254,8 @@ constexpr ShellLayout shellLayout (Role role,
     const int actionWidth = preset.density == Density::compact ? 104
                           : preset.density == Density::focused ? 112
                           : preset.density == Density::standard ? 132
-                          : preset.density == Density::inspection ? 290 : 250;
+                          : preset.density == Density::inspection ? (role == Role::post ? 460 : 290)
+                          : (role == Role::post ? 350 : 250);
     const int sizeWidth = preset.density == Density::compact ? 44
                         : preset.density == Density::focused ? 46
                         : preset.density == Density::standard ? 50

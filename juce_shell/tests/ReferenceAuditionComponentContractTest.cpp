@@ -2,6 +2,8 @@
 #include "ReferenceDisplayRegressionTest.h"
 #include "ReferenceVisualComparisonTest.h"
 #include "ReferenceACaptureControlsTest.h"
+#include "ReferenceSelectionWorkflowTest.h"
+#include "MetricPresentationWorkflowTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -445,6 +447,9 @@ void verifyReferenceAuditionComponentContract()
     abc.blindPaused = true; component.setState (abc);
     KIRIN_REF_REQUIRE (!one->isEnabled() && !two->isEnabled() && endBlind->isEnabled());
     component.setState (visual);
+
+    verifyMetricPresentationWorkflow();
+    verifyReferenceSelectionWorkflow (readyState());
 
     const auto compositePath = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_REFERENCE_UI_COMPOSITE_OUTPUT", {});

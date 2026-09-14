@@ -101,22 +101,44 @@ bool KirinHyphaProcessorBase::acceptLocalBlindProductPair (
         request, post, pre, hypha::reference_audition::secureRandomBit);
 }
 
-bool KirinHyphaProcessorBase::requestLocalBlindProductCapture (hypha::meter_context::MeterContext context)
+hypha::local_blind::CaptureAdmission KirinHyphaProcessorBase::localBlindCaptureAvailability() const
 {
-    if (! localBlindProductSupported()
-        || role != Role::Post
-        || localBlindCapture.view().phase != hypha::local_blind::CaptureOwnerPhase::idle)
-        return false;
+    using Admission = hypha::local_blind::CaptureAdmission;
+    using Phase = hypha::local_blind::ProductSessionPhase;
+    if (! localBlindProductSupported() || role != Role::Post) return Admission::unsupported;
+    const auto session = localBlindProductView();
+    if (session.phase != Phase::idle && session.phase != Phase::returned && session.phase != Phase::failed)
+        return Admission::recovery;
+    if (session.phase == Phase::failed && ! session.canRecapture) return Admission::releasePending;
+    if (referenceAuditionSnapshot().blindPhase != hypha::reference_audition::BlindPhase::inactive)
+        return Admission::referenceBusy;
+    if (isRecording() || keepPhase() != KIRIN_KEEP_PHASE_IDLE) return Admission::keepBusy;
+    if (pairStatus() != KIRIN_PAIR_STATUS_PAIRED) return Admission::pairRequired;
+    if (localBlindCapture.view().phase != hypha::local_blind::CaptureOwnerPhase::idle)
+        return Admission::captureBusy;
+    if (! isPlaying() || ! heartbeatLive()) return Admission::playbackRequired;
     hypha::local_blind::HostClockProbeSnapshot clock;
     if (! hostClockProbe.read (clock) || ! clock.playing || ! clock.hasPosition
         || ! std::isfinite (clock.rate) || clock.rate < 8'000.0 || clock.rate > 768'000.0)
-        return false;
+        return Admission::clockUnavailable;
+    return Admission::ready;
+}
+
+hypha::local_blind::CaptureAdmission KirinHyphaProcessorBase::requestLocalBlindProductCapture (hypha::meter_context::MeterContext context)
+{
+    using Admission = hypha::local_blind::CaptureAdmission;
+    const auto available = localBlindCaptureAvailability();
+    if (available != Admission::ready) return available;
+    hypha::local_blind::HostClockProbeSnapshot clock;
+    if (! hostClockProbe.read (clock) || ! clock.playing || ! clock.hasPosition
+        || ! std::isfinite (clock.rate) || clock.rate < 8'000.0 || clock.rate > 768'000.0)
+        return Admission::clockUnavailable;
     std::uint64_t scopeEpoch = 0;
     {
         const juce::ScopedLock lock (handleLock);
-        if (hyphaHandle == nullptr
-            || ! kirin_hypha_begin_local_blind (hyphaHandle, &scopeEpoch))
-            return false;
+        if (hyphaHandle == nullptr) return Admission::engineUnavailable;
+        if (! kirin_hypha_begin_local_blind (hyphaHandle, &scopeEpoch))
+            return Admission::admissionFailed;
     }
     const auto serial = localBlindProductSerial.fetch_add (1, std::memory_order_acq_rel) + 1;
     const auto now = static_cast<std::uint64_t> (juce::Time::currentTimeMillis());
@@ -130,7 +152,7 @@ bool KirinHyphaProcessorBase::requestLocalBlindProductCapture (hypha::meter_cont
               clock.hasInputLatency, clock.hasOutputLatency }))
     {
         releaseLocalBlindProductScope (scopeEpoch);
-        return false;
+        return Admission::captureBusy;
     }
     hypha::local_blind::ExactCaptureRequest request;
     if (! issueLocalBlindCaptureRequest (
@@ -138,10 +160,10 @@ bool KirinHyphaProcessorBase::requestLocalBlindProductCapture (hypha::meter_cont
     {
         localBlindProductSession.failCaptureRequest();
         startTimer (50);
-        return false;
+        return Admission::requestFailed;
     }
     startTimer (50);
-    return true;
+    return Admission::ready;
 }
 
 bool KirinHyphaProcessorBase::startLocalBlindProductTrial (bool approveLowerPost)
@@ -167,10 +189,11 @@ void KirinHyphaProcessorBase::cancelLocalBlindProductSession()
     startTimer (50);
 }
 
-void KirinHyphaProcessorBase::requestLocalBlindNormalReturn()
+hypha::local_blind::TrialReturnFacts KirinHyphaProcessorBase::requestLocalBlindNormalReturn()
 {
-    localBlindProductSession.requestNormalReturn();
+    const auto facts = localBlindProductSession.requestNormalReturn();
     startTimer (50);
+    return facts;
 }
 
 void KirinHyphaProcessorBase::serviceLocalBlindProductSession()

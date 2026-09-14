@@ -1,6 +1,7 @@
 #pragma once
 #include "HyphaReferenceCaptureControls.h"
 
+#include <array>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -205,6 +206,7 @@ private:
     juce::ComboBox checkBox;
     juce::ComboBox candidateBox;
     juce::ComboBox cueBox;
+    std::array<juce::Label, 5> selectionReadouts;
     SideButton aButton { "A" };
     SideButton bButton { "B" };
     SideButton cButton { "C" };
@@ -216,6 +218,8 @@ private:
     SideButton endBlindButton { "END" };
     SideButton actionButton { "OPEN KIRIN OS" };
 
+    bool selectionVisible (const juce::ComboBox&) const;
+    void layoutSelectionReadouts();
     void syncSelectionControl (juce::ComboBox&, const std::vector<SelectionOption>&,
                                const juce::String& selectedId);
     static juce::String selectedOptionId (const juce::ComboBox&,

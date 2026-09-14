@@ -56,6 +56,23 @@ constexpr const char* label (Metric metric) noexcept
     return "";
 }
 
+constexpr const char* scopeHelp (Metric metric) noexcept
+{
+    switch (metric)
+    {
+        case Metric::momentary: return "Momentary loudness over 400 ms.";
+        case Metric::shortTerm: return "Short-term loudness over 3 seconds.";
+        case Metric::integrated: return "Integrated loudness since the last Meter Session reset.";
+        case Metric::maximumTruePeak: return "Highest true peak since the last Meter Session reset.";
+        case Metric::loudnessRange: return "Loudness range since the last Meter Session reset.";
+        case Metric::plr: return "Session maximum true peak minus integrated loudness.";
+        case Metric::truePeak: return "True peak in the current measurement window.";
+        case Metric::crest: return "Peak-to-RMS difference in the current measurement window.";
+        case Metric::psr: return "Peak-to-short-term loudness difference in the current measurement window.";
+    }
+    return "";
+}
+
 constexpr bool hasUniqueMetrics (Layout layout) noexcept
 {
     for (std::size_t index = 0; index < layout.main.size(); ++index)

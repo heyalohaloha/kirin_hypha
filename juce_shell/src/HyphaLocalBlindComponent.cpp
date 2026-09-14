@@ -1,6 +1,7 @@
 #include "HyphaLocalBlindComponent.h"
 
 #include "HyphaSurfaceMaterial.h"
+#include "HyphaLocalBlindPresentationState.h"
 
 #include <array>
 #include <cmath>
@@ -50,6 +51,8 @@ Component::Component()
     styleButton (startButton, "local-blind-start", "Start the prepared comparison");
     styleButton (revealButton, "local-blind-reveal", "Reveal the hidden source assignment");
     styleButton (captureButton, "local-blind-capture", "Capture one exact four second range");
+    styleButton (repairButton, "local-blind-repair", "Resolve the capture requirement");
+    repairButton.onClick = [this] { if (onRepair) onRepair(); };
     contextChoice.setComponentID ("local-blind-context");
     contextChoice.setTitle ("Gain Match mode for this comparison");
     contextChoice.setTooltip ("2MIX: continuous sections. TRACK / STEM: short or sparse events. Applies to this comparison.");
@@ -104,11 +107,30 @@ void Component::styleButton (juce::Button& button, const juce::String& id,
 
 void Component::setState (local_blind::ProductSessionView next)
 {
+    if (samePresentation (current, next)) return;
     if (next.phase != current.phase)
         actionNotice.clear();
     current = next;
     refreshPresentation();
     resized();
+    repaint();
+}
+
+void Component::setAdmission (local_blind::CaptureAdmission next)
+{
+    if (admission == next) return;
+    admission = next;
+    actionNotice.clear();
+    refreshPresentation();
+    resized();
+    repaint();
+}
+
+void Component::setPairName (juce::String next)
+{
+    if (preflightPair == next) return;
+    preflightPair = std::move (next);
+    refreshPresentation();
     repaint();
 }
 
@@ -219,9 +241,13 @@ void Component::resized()
     layoutRow (area.removeFromTop (answerHeight),
                { &answerOne, &answerTwo, &noPreference, &cannotDistinguish });
     area.removeFromTop (compact ? 3 : medium ? 6 : 10);
-    layoutRow (area.removeFromTop (actionHeight),
-               { &captureButton, &startButton, &revealButton, &stopButton,
-                 &returnButton, &closeButton });
+    auto actions = area.removeFromTop (actionHeight);
+    // End/Stop stays in the same right-hand slot when answers become available.
+    const auto stopArea = actions.removeFromRight (compact ? 66 : medium ? 100 : 140);
+    if (stopButton.isVisible()) stopButton.setBounds (stopArea);
+    actions.removeFromRight (gap);
+    layoutRow (actions, { &captureButton, &startButton, &revealButton,
+                         &returnButton, &closeButton });
 }
 
 void Component::layoutPreflight()
@@ -250,6 +276,7 @@ void Component::layoutPreflight()
     const int backWidth = compact ? 58 : 92;
     closeButton.setBounds (actions.removeFromRight (backWidth));
     actions.removeFromRight (8);
+    repairButton.setBounds (actions.withSizeKeepingCentre (juce::jmin (actions.getWidth(), compact ? 180 : 280), actions.getHeight()));
     captureButton.setBounds (actions.withSizeKeepingCentre (juce::jmin (actions.getWidth(), compact ? 180 : 280), actions.getHeight()));
     area.removeFromTop (compact ? 5 : juce::jmax (12, area.getHeight() / 4));
     statusLabel.setBounds (area.removeFromTop (compact ? 24 : 42));

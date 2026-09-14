@@ -1,4 +1,5 @@
 #pragma once
+#include "HyphaLocalBlindReturnIntent.h"
 
 #include <array>
 #include <memory>
@@ -132,6 +133,7 @@ private:
     void layoutMetrics (bool six);
     void showCandidateMenu();
     void showOperationsMenu();
+    void showTimeRangeMenu();
     void showMeterContextMenu (juce::Component& anchor);
     void applyMeterContextChoice (hypha::meter_context::MeterContext);
     void showDomainMenu();
@@ -207,6 +209,8 @@ private:
     std::uint64_t cachedAttackGeneration = 0;
     juce::Point<int> localBlindReturnSize;
     bool localBlindOpen = false;
+    double localBlindPresentationAt = -1.0;
+    hypha::local_blind_ui::ReturnIntent localBlindReturnIntent;
     bool localBlindPreflight = false;
     struct LocalBlindUnderlyingState
     {

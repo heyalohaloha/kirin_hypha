@@ -19,6 +19,7 @@ bool LocalBlindProductSession::beginCapture (
     gainPolicy = nextGainPolicy;
     admittedClock = nextClock;
     capturedPair = {};
+    retiredReturnFacts = {};
     failure = ProductSessionFailure::none;
     preparationFailure = PreparationFailure::none;
     basePhase = ProductSessionPhase::capturing;
@@ -159,10 +160,15 @@ void LocalBlindProductSession::stop() noexcept
     if (auto* trial = output.control()) trial->stop();
 }
 
-void LocalBlindProductSession::requestNormalReturn() noexcept
+TrialReturnFacts LocalBlindProductSession::requestNormalReturn() noexcept
 {
     const std::lock_guard<std::mutex> lock (controlLock);
-    if (auto* trial = output.control()) trial->requestNormalReturn();
+    if (auto* trial = output.control())
+    {
+        trial->requestNormalReturn();
+        return trial->returnFacts();
+    }
+    return {}; // A retired receipt is evidence, not a new UI return request.
 }
 
 void LocalBlindProductSession::invalidate() noexcept
@@ -204,6 +210,7 @@ ProductSessionView LocalBlindProductSession::viewUnderLock() const noexcept
     result.canRecapture = basePhase == ProductSessionPhase::failed && scopeEpoch == 0
         && ! releasePending && ! output.hasStorage();
     result.gainPolicy = gainPolicy;
+    result.returnFacts = retiredReturnFacts;
     result.sampleRate = sampleRate;
     result.channels = channels;
     result.start = startSample;
@@ -214,6 +221,7 @@ ProductSessionView LocalBlindProductSession::viewUnderLock() const noexcept
     if (auto* trial = output.control())
     {
         result.trial = trial->view();
+        result.returnFacts = trial->returnFacts();
         result.phase = trialPhase (result.trial.phase);
     }
     return result;
@@ -243,10 +251,12 @@ void LocalBlindProductSession::service() noexcept
         const std::lock_guard<std::mutex> lock (controlLock);
         if (auto* trial = output.control(); trial != nullptr && trial->normalReturnConfirmed())
         {
+            const auto receipt = trial->returnFacts();
             if (output.retireAfterNormalReceipt())
             {
                 epochs.publish ({});
                 basePhase = ProductSessionPhase::returned;
+                retiredReturnFacts = receipt;
                 releasePending = scopeEpoch != 0;
             }
         }

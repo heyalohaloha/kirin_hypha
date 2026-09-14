@@ -3,6 +3,7 @@
 #include "HostProcessClock.h"
 #include "local_blind/LocalBlindCaptureService.h"
 #include "local_blind/LocalBlindProductSession.h"
+#include "local_blind/LocalBlindAdmission.h"
 #include "local_blind/PairCaptureBarrier.h"
 #include "local_blind/VST3HostContext.h"
 #include "local_blind/HostClockProbe.h"
@@ -140,14 +141,15 @@ public:
     // exact-range project-clock and PDC proof has been recorded for that host format.
     bool localBlindProductSupported() const noexcept;
     hypha::local_blind::ProductSessionView localBlindProductView() const;
-    bool requestLocalBlindProductCapture (hypha::meter_context::MeterContext);
+    hypha::local_blind::CaptureAdmission localBlindCaptureAvailability() const;
+    hypha::local_blind::CaptureAdmission requestLocalBlindProductCapture (hypha::meter_context::MeterContext);
     bool startLocalBlindProductTrial (bool approveLowerPost = false);
     bool selectLocalBlindProductStimulus (int stimulus);
     bool answerLocalBlindProductTrial (hypha::local_blind::TrialAnswer);
     bool revealLocalBlindProductTrial();
     void stopLocalBlindProductTrial();
     void cancelLocalBlindProductSession();
-    void requestLocalBlindNormalReturn();
+    hypha::local_blind::TrialReturnFacts requestLocalBlindNormalReturn();
     // Non-RT exact capture control and PRE result transport. None starts an audition.
     bool issueLocalBlindCaptureRequest (std::uint64_t captureGeneration,
                                         std::int64_t frames,
