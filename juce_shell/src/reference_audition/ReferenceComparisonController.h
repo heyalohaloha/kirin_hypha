@@ -4,23 +4,26 @@
 #include "ReferenceACaptureSession.h"
 #include "ReferenceACaptureProjection.h"
 
+#include <deque>
+#include <juce_events/juce_events.h>
+
 namespace hypha::reference_audition
 {
 // A is the original DAW input. B and C own separate prepared choices, while one
 // shared gate admits only the explicitly selected output path.
-class ReferenceComparisonController final
+class ReferenceComparisonController final : private juce::AsyncUpdater
 {
 public:
     using SelectionGate = RuntimeV2Controller::SelectionGate;
     using StateChanged = std::function<void()>;
     explicit ReferenceComparisonController (juce::File, SelectionGate = {}, SelectionGate = {},
                                             SelectionGate = {}, StateChanged = {});
-    ~ReferenceComparisonController();
+    ~ReferenceComparisonController() override;
     void setAnalysisOwner(KirinReferenceAnalysisOwner* owner) { analysis->replace(owner); }
     void configure (RuntimeIdentity, double, int);
     void setPresented (bool active) noexcept;
-    Snapshot snapshot() const;
-    ReferenceComparisonSettings savedSettings() const;
+    Snapshot snapshot();
+    ReferenceComparisonSettings savedSettings();
     void restoreSettings (const ReferenceComparisonSettings&);
     bool selectVersion (const juce::String&);
     bool selectPreset (const juce::String&);
@@ -62,6 +65,13 @@ private:
         std::shared_ptr<const WorkflowDefinition> definition;
         int nextIndex = 0;
     };
+    struct WorkflowCommitInbox
+    {
+        juce::CriticalSection lock;
+        std::deque<WorkflowEventCommit> commits;
+        juce::AsyncUpdater* updater = nullptr;
+        bool accepting = true;
+    };
     bool admit (int, bool);
     bool admitCapture(bool);
     bool beginBlindGuard();
@@ -76,6 +86,9 @@ private:
                               const std::shared_ptr<const WorkflowDefinition>&,
                               PendingWorkflowTransition::Action, int nextIndex = 0);
     void workflowCommitted (const WorkflowEventCommit&);
+    void serviceWorkflowCommits();
+    void handleAsyncUpdate() override;
+    bool hasActiveWorkflow() const;
     bool finishWorkflow (bool completed);
     void applyWorkflowFinish();
     SelectionGate gate, captureGate, blindCaptureGate;
@@ -94,7 +107,6 @@ private:
     ReferenceChoice normalCheckChoice;
     int workflowItemIndex = 0;
     StateChanged stateChanged;
-    std::atomic<bool> acceptWorkflowCallbacks { true };
     std::optional<ReferenceComparisonSettings> pendingSettings;
     bool configured = false;
     std::atomic<int> viewedSlot { 2 }, normalOutputSlot { 0 };
@@ -102,6 +114,8 @@ private:
     bool rtPlaying = false, rtInputAllowed = false;
     juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 };
     std::shared_ptr<ReferenceAnalysis> analysis=std::make_shared<ReferenceAnalysis>();
+    std::shared_ptr<WorkflowCommitInbox> workflowCommitInbox = std::make_shared<WorkflowCommitInbox>();
+    juce::CriticalSection workflowServiceLock;
     RuntimeV2Controller version, check;
     VisualObservation visual;
     ACaptureSession capture;

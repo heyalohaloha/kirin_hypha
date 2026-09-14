@@ -2,6 +2,7 @@
 #include "ReferenceACaptureProjection.h"
 #include "ReferenceCaptureTonalStore.h"
 #include "ReferenceVisualAudio.h"
+#include <algorithm>
 namespace hypha::reference_audition
 {
 ACaptureProjection::ACaptureProjection(std::shared_ptr<ACaptureAccess> value,
@@ -24,7 +25,8 @@ void ACaptureProjection::run()
     VisualTimeline result; juce::String key,tonalKey,referenceTonalKey;
     std::uint64_t hop=0,revision=0; size_t index=0;
     KirinReferenceVisualMeter* meter=nullptr; std::uint64_t consumed=0;
-    double nextPublish=0,nextTonalCheck=0; juce::String tonalPublicationKey; bool dirty=true;
+    double nextPublish=0,nextTonalCheck=0,nextReferenceTonalRetry=0,referenceTonalRetryDelay=1000;
+    juce::String tonalPublicationKey; bool dirty=true;
     while(!threadShouldExit())
     {
         if(!presented || !access->capturedView) { wait(100); continue; }
@@ -125,14 +127,25 @@ void ACaptureProjection::run()
             { tonalPublicationKey=tonalRepository.publicationKey(); nextTonalCheck=tonalNow+1000.0; }
             const auto nextReferenceKey=tonalMap.key+":"+juce::String(tonalMap.cueStartSample)
                 +":"+juce::String(tonalMap.cueEndSample)+":"+tonalPublicationKey;
-            if(nextReferenceKey!=referenceTonalKey)
+            const bool keyChanged=nextReferenceKey!=referenceTonalKey;
+            const bool retryDue=nextReferenceTonalRetry>0&&tonalNow>=nextReferenceTonalRetry;
+            if(keyChanged||retryDue)
             {
-                result.tonalReference=!tonalMap.hidden&&tonalMap.source
-                    ?tonalRepository.load(*tonalMap.source,tonalMap.cueStartSample,tonalMap.cueEndSample)
-                    :nullptr;
-                result.tonalGenre=!tonalMap.hidden
-                    ?tonalRepository.loadGenre(tonalMap.presetId,tonalMap.presetRevisionId,tonalMap.checkId)
-                    :nullptr;
+                bool retrySource=false,retryGenre=false;
+                if(keyChanged||result.tonalReference==nullptr)
+                    result.tonalReference=!tonalMap.hidden&&tonalMap.source
+                        ?tonalRepository.load(*tonalMap.source,tonalMap.cueStartSample,
+                            tonalMap.cueEndSample,&retrySource):nullptr;
+                if(keyChanged||result.tonalGenre==nullptr)
+                    result.tonalGenre=!tonalMap.hidden
+                        ?tonalRepository.loadGenre(tonalMap.presetId,tonalMap.presetRevisionId,
+                            tonalMap.checkId,&retryGenre):nullptr;
+                if(retrySource||retryGenre)
+                {
+                    nextReferenceTonalRetry=tonalNow+referenceTonalRetryDelay;
+                    referenceTonalRetryDelay=std::min(referenceTonalRetryDelay*2.0,15'000.0);
+                }
+                else { nextReferenceTonalRetry=0; referenceTonalRetryDelay=1000; }
                 referenceTonalKey=nextReferenceKey;dirty=true;
             }
         }

@@ -10,12 +10,37 @@ juce::String uuid()
 }
 }
 
+void ReferenceComparisonController::serviceWorkflowCommits()
+{
+    const juce::ScopedLock serviceLock (workflowServiceLock);
+    std::deque<WorkflowEventCommit> pending;
+    {
+        const juce::ScopedLock lock (workflowCommitInbox->lock);
+        pending.swap (workflowCommitInbox->commits);
+    }
+    for (const auto& commit : pending) workflowCommitted (commit);
+}
+
+void ReferenceComparisonController::handleAsyncUpdate()
+{
+    serviceWorkflowCommits();
+}
+
+bool ReferenceComparisonController::hasActiveWorkflow() const
+{
+    const juce::ScopedLock lock (selectionLock);
+    return activeWorkflow != nullptr;
+}
 bool ReferenceComparisonController::appendWorkflowEvent (
     const juce::String& kind, const WorkflowItem& item,
     const std::shared_ptr<const WorkflowDefinition>& definition,
     PendingWorkflowTransition::Action action, int nextIndex)
 {
     if (definition == nullptr) return false;
+    {
+        const juce::ScopedLock inboxLock (workflowCommitInbox->lock);
+        if (! workflowCommitInbox->accepting || workflowCommitInbox->commits.size() >= 32) return false;
+    }
     WorkflowEventRequest request;
     PendingWorkflowTransition transition;
     {
@@ -61,7 +86,7 @@ bool ReferenceComparisonController::appendWorkflowEvent (
 
 void ReferenceComparisonController::workflowCommitted (const WorkflowEventCommit& commit)
 {
-    if (! commit.committed || ! acceptWorkflowCallbacks.load (std::memory_order_acquire)) return;
+    if (! commit.committed) return;
     std::optional<PendingWorkflowTransition> transition;
     {
         const juce::ScopedLock lock (selectionLock);
@@ -136,6 +161,7 @@ bool ReferenceComparisonController::startWorkflow (
 
 bool ReferenceComparisonController::startLatestReview()
 {
+    serviceWorkflowCommits();
     const auto state = check.snapshot();
     if (state.workflowCatalog == nullptr || state.workflowCatalog->latestReview == nullptr) return false;
     const auto definition = state.workflowCatalog->latestReview;
@@ -156,6 +182,7 @@ bool ReferenceComparisonController::startLatestReview()
 
 bool ReferenceComparisonController::startLatestBookmark()
 {
+    serviceWorkflowCommits();
     const auto state = check.snapshot();
     if (state.workflowCatalog == nullptr || state.workflowCatalog->latestBookmark == nullptr) return false;
     const auto definition = state.workflowCatalog->latestBookmark;
@@ -170,6 +197,7 @@ bool ReferenceComparisonController::startLatestBookmark()
 bool ReferenceComparisonController::moveWorkflow (
     int direction, bool confirmed, bool deferred)
 {
+    serviceWorkflowCommits();
     std::shared_ptr<const WorkflowDefinition> definition;
     WorkflowItem current;
     int next = 0;
@@ -203,6 +231,7 @@ bool ReferenceComparisonController::moveWorkflow (
 
 void ReferenceComparisonController::endWorkflow()
 {
+    serviceWorkflowCommits();
     finishWorkflow (true);
 }
 

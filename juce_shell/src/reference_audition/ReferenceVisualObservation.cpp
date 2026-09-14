@@ -1,5 +1,6 @@
 #include "ReferenceVisualObservation.h"
 #include "ReferenceVisualAudio.h"
+#include <algorithm>
 #include <cmath>
 namespace hypha::reference_audition
 {
@@ -150,6 +151,7 @@ void VisualObservation::run()
     std::uint64_t workerGeneration = 0;
     double nextRevisionCheck = 0.0; bool sourceUnchanged = false; juce::String checkedKey;
     double nextTonalCheck = 0.0; juce::String tonalPublicationKey;
+    double nextTonalRetry = 0.0, tonalRetryDelay = 1000.0;
     while (!threadShouldExit())
     {
         bool visible = false; int rate = 0, channels = 0;
@@ -184,14 +186,26 @@ void VisualObservation::run()
         }
         const bool bindingChanged = timeline.binding.key != next.key
             || timeline.binding.aligned != next.aligned;
+        const bool tonalRetryDue = nextTonalRetry > 0.0 && checkedAt >= nextTonalRetry;
         auto nextTonalReference = timeline.tonalReference;
         auto nextTonalGenre = timeline.tonalGenre;
-        if (bindingChanged || tonalPublicationChanged)
+        bool retrySource = false, retryGenre = false;
+        if (bindingChanged || tonalPublicationChanged || tonalRetryDue)
         {
-            nextTonalReference = !next.hidden && next.source
-                ? tonalRepository.load (*next.source, next.cueStartSample, next.cueEndSample) : nullptr;
-            nextTonalGenre = !next.hidden
-                ? tonalRepository.loadGenre (next.presetId, next.presetRevisionId, next.checkId) : nullptr;
+            if (bindingChanged || tonalPublicationChanged || nextTonalReference == nullptr)
+                nextTonalReference = !next.hidden && next.source
+                    ? tonalRepository.load (*next.source, next.cueStartSample, next.cueEndSample,
+                                            &retrySource) : nullptr;
+            if (bindingChanged || tonalPublicationChanged || nextTonalGenre == nullptr)
+                nextTonalGenre = !next.hidden
+                    ? tonalRepository.loadGenre (next.presetId, next.presetRevisionId, next.checkId,
+                                                 &retryGenre) : nullptr;
+            if (retrySource || retryGenre)
+            {
+                nextTonalRetry = checkedAt + tonalRetryDelay;
+                tonalRetryDelay = std::min (tonalRetryDelay * 2.0, 15'000.0);
+            }
+            else { nextTonalRetry = 0.0; tonalRetryDelay = 1000.0; }
         }
         bool wanted = false, pairWanted = false;
         {
@@ -213,7 +227,7 @@ void VisualObservation::run()
                 }
             }
             else timeline.binding = next;
-            if (bindingChanged || tonalPublicationChanged)
+            if (bindingChanged || tonalPublicationChanged || tonalRetryDue)
             {
                 timeline.tonalReference = std::move (nextTonalReference);
                 timeline.tonalGenre = std::move (nextTonalGenre);

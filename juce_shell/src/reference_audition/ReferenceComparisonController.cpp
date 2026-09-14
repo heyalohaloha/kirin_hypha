@@ -9,7 +9,20 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
       stateChanged(std::move(stateChangedIn)),
       version (root, [this] (bool active) { return admit (1, active); }, true),
       check (root, [this] (bool active) { return admit (2, active); }, false,
-          [this] (const WorkflowEventCommit& commit) { workflowCommitted (commit); }),
+          [inbox = std::weak_ptr<WorkflowCommitInbox> (workflowCommitInbox)] (const WorkflowEventCommit& commit)
+          {
+              const auto target = inbox.lock();
+              if (target == nullptr) return;
+              const juce::ScopedLock lock (target->lock);
+              if (! target->accepting) return;
+              for (const auto& queued : target->commits)
+                  if (queued.operationId == commit.operationId) return;
+              if (target->commits.size() < 32)
+              {
+                  target->commits.push_back (commit);
+                  if (target->updater != nullptr) target->updater->triggerAsyncUpdate();
+              }
+          }),
       visual ([this] {
           const auto slot = viewedSlot.load (std::memory_order_acquire);
           auto result = slot == 1 ? version.visualBinding() : check.visualBinding();
@@ -18,11 +31,22 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
           [this]{return captureReceipt();},analysis,&visual,root),
       captureProjection(capture.access,[this]{return version.visualBinding();},analysis,
           [this]{const juce::ScopedLock lock(selectionLock);return tonalState;},root,
-          [this]{return check.visualBinding();}) {}
+          [this]{return check.visualBinding();})
+{
+    const juce::ScopedLock inboxLock (workflowCommitInbox->lock);
+    workflowCommitInbox->updater = this;
+}
 
 ReferenceComparisonController::~ReferenceComparisonController()
 {
-    acceptWorkflowCallbacks.store (false, std::memory_order_release);
+    {
+        const juce::ScopedLock inboxLock (workflowCommitInbox->lock);
+        workflowCommitInbox->accepting = false;
+        workflowCommitInbox->updater = nullptr;
+        workflowCommitInbox->commits.clear();
+    }
+    cancelPendingUpdate();
+    const juce::ScopedLock serviceLock (workflowServiceLock);
     setPresented (false); capture.shutdown(); suspendAudition();
     const juce::ScopedLock lock (gateLock); closing = true;
     visual.pauseAdmission(); if (gateOwners && gate) gate (false); gateOwners = 0;
@@ -81,8 +105,9 @@ void ReferenceComparisonController::configure (RuntimeIdentity identity, double 
     rtInputAllowed = false;
 }
 
-ReferenceComparisonSettings ReferenceComparisonController::savedSettings() const
+ReferenceComparisonSettings ReferenceComparisonController::savedSettings()
 {
+    serviceWorkflowCommits();
     const auto b = version.snapshot();
     const juce::ScopedLock lock (selectionLock);
     if (pendingSettings) return *pendingSettings;
@@ -158,8 +183,9 @@ RuntimeV2Controller& ReferenceComparisonController::viewed() noexcept
     return viewedSlot.load (std::memory_order_acquire) == 1 ? version : check;
 }
 
-Snapshot ReferenceComparisonController::snapshot() const
+Snapshot ReferenceComparisonController::snapshot()
 {
+    serviceWorkflowCommits();
     const auto b = version.snapshot(), c = check.snapshot();
     const juce::ScopedLock lock (selectionLock);
     const auto slot = viewedSlot.load (std::memory_order_acquire);
@@ -259,7 +285,15 @@ Snapshot ReferenceComparisonController::snapshot() const
 
 bool ReferenceComparisonController::selectVersion (const juce::String& id)
 {
-    if (trialActive() || ! version.selectLibraryVersion (id)) return false;
+    serviceWorkflowCommits();
+    if (trialActive()) return false;
+    if (hasActiveWorkflow())
+    {
+        if (! finishWorkflow (false)) return false;
+        const juce::ScopedLock lock (selectionLock);
+        if (activeWorkflow != nullptr) return false;
+    }
+    if (! version.selectLibraryVersion (id)) return false;
     selectA();
     { const juce::ScopedLock lock (selectionLock); versionId = id; }
     versionChosen.store (id.isNotEmpty(), std::memory_order_release);
@@ -270,8 +304,9 @@ bool ReferenceComparisonController::selectVersion (const juce::String& id)
 
 bool ReferenceComparisonController::selectPreset (const juce::String& id)
 {
+    serviceWorkflowCommits();
     if (trialActive()) return false;
-    if (activeWorkflow != nullptr)
+    if (hasActiveWorkflow())
     {
         if (! finishWorkflow (false)) return false;
         const juce::ScopedLock lock (selectionLock);
@@ -282,8 +317,9 @@ bool ReferenceComparisonController::selectPreset (const juce::String& id)
 }
 bool ReferenceComparisonController::selectCheck (const juce::String& id)
 {
+    serviceWorkflowCommits();
     if (trialActive()) return false;
-    if (activeWorkflow != nullptr)
+    if (hasActiveWorkflow())
     {
         if (! finishWorkflow (false)) return false;
         const juce::ScopedLock lock (selectionLock);
@@ -294,8 +330,9 @@ bool ReferenceComparisonController::selectCheck (const juce::String& id)
 }
 bool ReferenceComparisonController::selectCandidate (const juce::String& id)
 {
+    serviceWorkflowCommits();
     if (trialActive()) return false;
-    if (activeWorkflow != nullptr)
+    if (hasActiveWorkflow())
     {
         if (! finishWorkflow (false)) return false;
         const juce::ScopedLock lock (selectionLock);
@@ -306,8 +343,9 @@ bool ReferenceComparisonController::selectCandidate (const juce::String& id)
 }
 bool ReferenceComparisonController::selectCue (const juce::String& id)
 {
+    serviceWorkflowCommits();
     if (trialActive()) return false;
-    if (activeWorkflow != nullptr)
+    if (hasActiveWorkflow())
     {
         if (! finishWorkflow (false)) return false;
         const juce::ScopedLock lock (selectionLock);
@@ -322,7 +360,7 @@ bool ReferenceComparisonController::requestRecovery() { return viewed().requestR
 
 bool ReferenceComparisonController::selectB (double loudness, double peak) noexcept
 {
-    if (trialActive() || ! snapshot().versionReady) return false;
+    if (trialActive() || hasActiveWorkflow() || ! snapshot().versionReady) return false;
     check.selectA();
     viewedSlot.store (1, std::memory_order_release);
     const bool selected = version.selectB (loudness, peak);
@@ -342,13 +380,13 @@ void ReferenceComparisonController::selectA() noexcept
 { normalOutputSlot.store (0, std::memory_order_release); version.selectA(); check.selectA(); }
 bool ReferenceComparisonController::startBlind (double loudness, double peak) noexcept
 {
-    if (trialActive() || activeWorkflow != nullptr || ! snapshot().versionReady || !beginBlindGuard()) return false;
+    if (trialActive() || hasActiveWorkflow() || ! snapshot().versionReady || !beginBlindGuard()) return false;
     check.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
     const bool started=version.startBlind(loudness,peak); if(!started) endBlindGuard(); return started;
 }
 bool ReferenceComparisonController::approveBlindLowerAAndStart (double loudness, double peak) noexcept
 {
-    if (trialActive() || activeWorkflow != nullptr || !snapshot().versionReady || !beginBlindGuard()) return false;
+    if (trialActive() || hasActiveWorkflow() || !snapshot().versionReady || !beginBlindGuard()) return false;
     check.suspendAudition(); version.selectA(); viewedSlot.store (1, std::memory_order_release);
     const bool started=version.approveBlindLowerAAndStart(loudness,peak); if(!started) endBlindGuard(); return started;
 }

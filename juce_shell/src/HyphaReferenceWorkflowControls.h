@@ -2,6 +2,7 @@
 #include <functional>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 #include "reference_audition/ReferenceWorkflowModel.h"
 
 namespace hypha::reference_ui
@@ -65,8 +66,9 @@ public:
         else if(state.status==reference_audition::WorkflowView::Status::saving)title+="  /  SAVING";
         else if(state.status==reference_audition::WorkflowView::Status::rejected)title+="  /  CHANGED";
         g.setColour(state.status==reference_audition::WorkflowView::Status::rejected?COL_LED_YELLOW:COL_TEXT_SECONDARY);
-        g.setFont(juce::Font(compactLayout?10.0f:12.0f));
-        g.drawFittedText(title,getLocalBounds().removeFromTop(compactLayout?18:24),juce::Justification::centredLeft,1,1.0f);
+        const auto context=presentation::forEditor(compactLayout?300:600,compactLayout?200:400);
+        text_style::draw(g,title,getLocalBounds().removeFromTop(compactLayout?18:24),context,
+            typography::TextRole::captureMetadata,juce::Justification::centredLeft);
     }
 private:
     static void configure(juce::TextButton& button,const juce::String& label,const juce::String& tooltip)

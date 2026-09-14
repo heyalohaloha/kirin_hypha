@@ -190,6 +190,7 @@ set(KIRIN_REFERENCE_AUDITION_SOURCES
     src/reference_audition/ReferenceVisualBinding.cpp
     src/reference_audition/ReferenceVisualObservation.cpp
     src/reference_audition/ReferenceTonalRepository.cpp
+    src/reference_audition/ReferenceTonalWireValidation.cpp
     src/reference_audition/ReferenceTonalCapture.cpp
     src/reference_audition/ReferenceTonalSummary.cpp
     src/reference_audition/ReferenceCaptureTonalStore.cpp
@@ -584,6 +585,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/TypographyContractTest.cpp
         tests/RunSummaryContractTest.cpp
         tests/ReferenceAuditionComponentContractTest.cpp
+        tests/ReferenceTonalViewContractTest.cpp
         src/HyphaLocalBlindComponent.cpp
         src/HyphaLocalBlindPresentation.cpp
         tests/OsAccessUiContractTest.cpp
@@ -629,6 +631,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferenceTonalView.cpp
         src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp
+        src/reference_audition/ReferenceTonalSummary.cpp
         src/PostControls.cpp
         src/HyphaPsbPainter.cpp
         src/HyphaSpectrumComponent.cpp
@@ -847,6 +850,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         juce::juce_audio_formats
         juce::juce_core
         juce::juce_cryptography
+        juce::juce_events
         ${KIRIN_RUST_NATIVE_LIBS}
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
