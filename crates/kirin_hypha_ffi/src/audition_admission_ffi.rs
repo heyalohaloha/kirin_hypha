@@ -1,6 +1,8 @@
 //! Non-RT admission shared by Reference and local PRE/POST Blind audition.
 
 use super::*;
+#[path = "reference_analysis_ffi.rs"]
+mod reference_analysis;
 
 #[cfg(test)]
 pub(crate) static ADMISSION_TEST: Mutex<()> = Mutex::new(());
@@ -16,6 +18,7 @@ pub(crate) struct AuditionState {
     epoch: AtomicU64,
     version_blind: Mutex<Option<kirin_measure::reference_gain::visual::BlindCaptureExclusion>>,
     capture: Mutex<Option<kirin_measure::reference_gain::visual::CaptureAdmission>>,
+    reference_owner: kirin_measure::reference_gain::visual::ReferenceAnalysisOwner,
 }
 
 impl AuditionState {
@@ -26,6 +29,7 @@ impl AuditionState {
             kind: Arc::new(AtomicU8::new(AUDITION_NONE)),
             epoch: AtomicU64::new(0),
             capture: Mutex::new(None),
+            reference_owner: Default::default(),
             version_blind: Mutex::new(None),
         }
     }
@@ -85,13 +89,10 @@ impl KirinHyphaEngine {
         let plugin_data_dir = StoragePaths::default_platform().ok()?.plugin_data_dir();
         let mut candidate =
             kirin_measure::AuditionAdmission::for_current_project(&plugin_data_dir, &project_hash);
-        let capture = self.audition.capture.lock().ok()?;
         let accepted = if kind == AUDITION_LOCAL_BLIND {
             candidate.try_acquire_blind_for(owner)
-        } else if let Some(capture) = capture.as_ref() {
-            candidate.try_acquire_during_capture(capture, owner)
         } else {
-            candidate.try_acquire_for(owner)
+            candidate.try_acquire_shared(&self.audition.reference_owner, owner)
         };
         if !accepted.ok()? {
             return None;
@@ -216,7 +217,10 @@ impl KirinHyphaEngine {
             &storage.plugin_data_dir(),
             &project,
         );
-        if !held.try_acquire(audition.as_mut()).unwrap_or(false) {
+        if !held
+            .try_acquire_shared(&self.audition.reference_owner)
+            .unwrap_or(false)
+        {
             return false;
         }
         *capture = Some(held);
@@ -361,6 +365,40 @@ mod tests {
         assert!(a.set_reference_capture(true));
         assert!(a.set_reference_capture(false));
         assert!(!unsafe { kirin_hypha_set_reference_capture_active(std::ptr::null_mut(), true) });
+    }
+    #[test]
+    fn engine_owner_survives_shutdown_until_all_async_jobs_retire() {
+        use super::reference_analysis::*;
+        let _serial = ADMISSION_TEST.lock().unwrap();
+        let project = format!("ffi-owner-{}", Uuid::new_v4());
+        let a = post_engine(&project);
+        let b = post_engine(&project);
+        let c = post_engine(&project);
+        unsafe {
+            let owner = kirin_hypha_reference_analysis_owner(&a);
+            let same = kirin_hypha_reference_analysis_owner(&a);
+            assert!(kirin_reference_analysis_same(owner, same));
+            let live = kirin_reference_analysis_acquire(owner);
+            let revisit = kirin_reference_analysis_acquire(owner);
+            assert!(!live.is_null() && !revisit.is_null());
+            assert!(a.set_reference_capture(true));
+            assert!(a.set_reference_audition_active(true));
+            assert!(b.set_reference_capture(true));
+            assert!(!c.set_reference_capture(true));
+            assert!(a.set_reference_audition_active(false));
+            assert!(a.set_reference_capture(false));
+            kirin_reference_analysis_owner_drop(same);
+            kirin_reference_analysis_owner_drop(owner);
+            drop(a);
+            assert!(!c.set_reference_capture(true));
+            kirin_reference_analysis_grant_drop(live);
+            assert!(!c.set_reference_capture(true));
+            kirin_reference_analysis_grant_drop(revisit);
+            assert!(c.set_reference_capture(true));
+            assert!(b.set_reference_capture(false) && c.set_reference_capture(false));
+            assert!(kirin_hypha_reference_analysis_owner(std::ptr::null()).is_null());
+            assert!(kirin_reference_analysis_acquire(std::ptr::null()).is_null());
+        }
     }
     #[test]
     fn null_local_blind_ffi_fails_closed() {

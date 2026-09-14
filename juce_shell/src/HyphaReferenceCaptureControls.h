@@ -2,71 +2,109 @@
 #include "HyphaTheme.h"
 #include "HyphaPresentationContext.h"
 #include "HyphaTextStyle.h"
-#include "reference_audition/ReferenceACaptureModel.h"
+#include "HyphaReferenceCapturePresentation.h"
 namespace hypha::reference_ui
 {
-class CaptureControls final : public juce::Component
+class CaptureControls final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit CaptureControls(bool compact=false):statusOnly(compact)
     {
+        setWantsKeyboardFocus(true);
         setComponentID(compact ? "capture-a-status" : "capture-a-controls");
         for(auto* button:{&action,&cancel,&view}) addAndMakeVisible(*button);
         action.setComponentID("capture-a-action"); cancel.setComponentID("capture-a-cancel"); view.setComponentID("capture-a-view");
-        action.onClick=[this] { if(access) access->request(access->active
-            ? (snapshot.phase==reference_audition::ACapturePhase::armed ? reference_audition::ACaptureAccess::cancel : reference_audition::ACaptureAccess::finish)
-            : reference_audition::ACaptureAccess::start); };
-        cancel.onClick=[this] { if(access) access->request(reference_audition::ACaptureAccess::cancel); };
+        const auto latch=[this] { return CommandBinding{access,presentation.operation,presentation.command}; };
+        action.binding=latch;
+        cancel.binding=[this] { return CommandBinding{access,presentation.operation,reference_audition::ACaptureAccess::cancel}; };
+        action.onClick=[this] { action.invoke(); };
+        cancel.onClick=[this] { cancel.invoke(); };
         view.onClick=[this] { if(access && snapshot.held) { access->capturedView=!access->capturedView; update(access,false,context); } };
     }
     void update(std::shared_ptr<reference_audition::ACaptureAccess> next,bool concealed,presentation::Context value)
     {
         context=value; access=concealed ? nullptr : std::move(next); snapshot=access ? access->snapshot() : reference_audition::ACaptureState{};
-        const bool active=access && access->active;
+        presentation=presentCapture(snapshot,access ? access->currentTimingEpoch.load() : 0);
+        const bool active=presentation.busy;
         setVisible(access && (!statusOnly || active));
         for(auto* button:{&action,&cancel,&view}) button->setPresentationContext(context);
-        const bool armed=snapshot.phase==reference_audition::ACapturePhase::armed;
-        action.setButtonText(active ? (armed ? "CANCEL" : "FINISH A") : snapshot.held ? "CAPTURE AGAIN" : "CAPTURE A");
-        action.setEnabled(access && access->alive && access->pending==0);
-        action.setTitle(active ? (armed ? "Cancel Capture A" : "Finish Capture A") : "Capture original DAW input");
+        action.setButtonText(presentation.action);
+        action.setEnabled(access && access->alive && presentation.command!=reference_audition::ACaptureAccess::none);
+        action.setTitle(active ? presentation.action : "Capture original DAW input");
         action.setTooltip(active ? "Stop this capture. Live A audio is unchanged." : "Capture A, then play from the beginning. Stop the DAW to keep the captured range.");
-        cancel.setVisible(active && !armed && !statusOnly); cancel.setTitle("Discard this capture and keep the previous one");
-        view.setVisible(snapshot.held && !active && !statusOnly);
-        view.setButtonText(access && access->capturedView ? "CAPTURED" : "LIVE");
+        cancel.setVisible(presentation.cancel && !statusOnly); cancel.setTitle("Discard this capture and keep the previous one");
+        view.setVisible(presentation.view && !statusOnly);
+        view.setButtonText(access && access->capturedView ? "SAVED" : "LIVE");
         view.setTitle("Displayed A: captured or live. Audio A always remains live.");
-        const auto data=snapshot.shown;
-        const auto seconds=data ? data->duration() : 0;
-        status=active ? (armed ? "PLAY" : "CAPTURING") : snapshot.phase==reference_audition::ACapturePhase::partial ? "PARTIAL" : data ? "CAPTURED" : juce::String();
-        const bool differs=std::find(snapshot.unitStatus.begin(),snapshot.unitStatus.end(),std::uint8_t(2))!=snapshot.unitStatus.end();
-        bool currentDifference=false;
-        for(size_t i=0;i<snapshot.unitStatus.size() && i<snapshot.unitPass.size();++i)
-            currentDifference=currentDifference || (snapshot.unitStatus[i]==2 && snapshot.unitPass[i]==snapshot.observationPass);
-        if(!active && differs) status=snapshot.observationFresh && currentDifference && access && snapshot.confirmedTimingEpoch==access->currentTimingEpoch.load() ? "A DIFFERS" : "LAST CHECK: A DIFFERS";
-        if(seconds>0) status+="  "+juce::String(int(seconds)/60)+":"+juce::String(int(seconds)%60).paddedLeft('0',2);
-        setTitle(concealed ? juce::String() : status);
-        setDescription(concealed ? juce::String() : snapshot.message);
+        setTitle(concealed ? juce::String() : presentation.primary);
+        setDescription(concealed ? juce::String() : presentation.detail);
+        setTooltip(concealed ? juce::String() : presentation.detail);
         resized(); repaint();
     }
+    int preferredHeight(int width) const { return presentation.secondary.isNotEmpty() ? (width>=550 ? 40 : 32) : 24; }
     void resized() override
     {
         auto area=getLocalBounds();
         if(statusOnly) { action.setBounds(area); cancel.setVisible(false); view.setVisible(false); return; }
-        action.setBounds(area.removeFromRight(snapshot.held && !(access && access->active) ? 108 : 86));
+        action.setBounds(area.removeFromRight(80));
         if(cancel.isVisible()) { area.removeFromRight(3); cancel.setBounds(area.removeFromRight(58)); }
-        if(view.isVisible()) { area.removeFromRight(3); view.setBounds(area.removeFromRight(76)); }
-        label=area.reduced(3,0);
+        if(view.isVisible()) { area.removeFromRight(3); view.setBounds(area.removeFromRight(52)); }
+        label=area.reduced(3,0); secondary={};
+        if(presentation.secondary.isNotEmpty()) secondary=label.removeFromBottom(getHeight()/2);
     }
     void paint(juce::Graphics& g) override
     {
         if(statusOnly || !access) return;
         g.setColour(COL_TEXT_SECONDARY);
         g.setFont(labelFont(context,typography::TextRole::captureMetadata,typography::Composition::information));
-        text_style::drawEllipsized(g,snapshot.message.isNotEmpty() ? snapshot.message : status,label,juce::Justification::centredLeft);
+        text_style::drawEllipsized(g,presentation.primary,label,juce::Justification::centredLeft);
+        if(!secondary.isEmpty()) text_style::drawEllipsized(g,getWidth()>=550 ? presentation.secondary : presentation.compactSecondary,secondary,juce::Justification::centredLeft);
     }
 private:
+    struct CommandBinding
+    {
+        std::shared_ptr<reference_audition::ACaptureAccess> access;
+        std::uint64_t operation=0;
+        reference_audition::ACaptureAccess::Command command=reference_audition::ACaptureAccess::none;
+    };
     class CaptureButton final : public juce::TextButton {
     public:
         explicit CaptureButton(const char* text):juce::TextButton(text) {}
+        std::function<CommandBinding()> binding;
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            ignoredMouseGesture=e.getNumberOfClicks()>1;
+            if(ignoredMouseGesture) return;
+            if(binding) held=binding();
+            juce::TextButton::mouseDown(e);
+        }
+        void mouseUp(const juce::MouseEvent& e) override
+        {
+            if(ignoredMouseGesture) { ignoredMouseGesture=false; held.reset(); setState(juce::Button::buttonNormal); return; }
+            juce::TextButton::mouseUp(e);
+        }
+        bool keyPressed(const juce::KeyPress& key) override
+        {
+            if(binding && (key.isKeyCode(juce::KeyPress::returnKey) || key.isKeyCode(juce::KeyPress::spaceKey)))
+            {
+                if(!keyHeld && isEnabled()) { keyHeld=true; held=binding(); invoke(); }
+                return true;
+            }
+            return juce::TextButton::keyPressed(key);
+        }
+        bool keyStateChanged(bool down) override
+        {
+            if(!down) keyHeld=false;
+            return juce::TextButton::keyStateChanged(down);
+        }
+        void focusLost(FocusChangeType cause) override { keyHeld=false; juce::TextButton::focusLost(cause); }
+        void invoke()
+        {
+            const auto command=held ? *held : binding ? binding() : CommandBinding{};
+            held.reset();
+            if(command.access && command.command!=reference_audition::ACaptureAccess::none)
+                command.access->request(command.command,command.operation);
+        }
         void setPresentationContext(presentation::Context value) { context=value; }
         void paintButton(juce::Graphics& g,bool over,bool down) override {
             const auto bounds=getLocalBounds().toFloat().reduced(0.5f);
@@ -76,14 +114,14 @@ private:
             g.setFont(labelFont(context,typography::TextRole::captureMetadata,typography::Composition::information));
             g.drawText(getButtonText(),getLocalBounds().reduced(3,0),juce::Justification::centred);
         }
-    private: presentation::Context context=presentation::defaultContext();
+    private: bool keyHeld=false,ignoredMouseGesture=false; std::optional<CommandBinding> held; presentation::Context context=presentation::defaultContext();
     };
     bool statusOnly=false;
     std::shared_ptr<reference_audition::ACaptureAccess> access;
     reference_audition::ACaptureState snapshot;
     presentation::Context context=presentation::defaultContext();
-    CaptureButton action{"CAPTURE A"},cancel{"CANCEL"},view{"CAPTURED"};
-    juce::Rectangle<int> label;
-    juce::String status;
+    CaptureButton action{"CAPTURE A"},cancel{"CANCEL"},view{"SAVED"};
+    juce::Rectangle<int> label,secondary;
+    CapturePresentation presentation;
 };
 }

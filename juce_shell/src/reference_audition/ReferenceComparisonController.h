@@ -14,6 +14,7 @@ public:
     using SelectionGate = RuntimeV2Controller::SelectionGate;
     explicit ReferenceComparisonController (juce::File, SelectionGate = {}, SelectionGate = {}, SelectionGate = {});
     ~ReferenceComparisonController();
+    void setAnalysisOwner(KirinReferenceAnalysisOwner* owner) { analysis->replace(owner); }
     void configure (RuntimeIdentity, double, int);
     void setPresented (bool active) noexcept;
     Snapshot snapshot() const;
@@ -31,6 +32,9 @@ public:
     bool selectB (double, double) noexcept;
     bool selectC (double, double) noexcept;
     void selectA() noexcept;
+    bool reserveLocalBlind();
+    void bindLocalBlind(std::uint64_t);
+    void releaseLocalBlind(std::uint64_t);
     bool startBlind (double, double) noexcept;
     bool approveBlindLowerAAndStart (double, double) noexcept;
     bool selectBlindStimulus (int) noexcept;
@@ -52,7 +56,8 @@ private:
     RuntimeV2Controller& viewed() noexcept;
     bool trialActive() const;
     SelectionGate gate, captureGate, blindCaptureGate;
-    bool captureOwned=false,blindGuardOwned=false;
+    bool captureOwned=false,blindGuardOwned=false,localBlindOwned=false;
+    std::uint64_t localBlindEpoch=0;
     std::atomic<bool> presented{false};
     juce::CriticalSection gateLock;
     bool closing = false;
@@ -65,6 +70,7 @@ private:
     std::atomic<bool> versionChosen { false };
     bool rtPlaying = false, rtInputAllowed = false;
     juce::AudioBuffer<float> bScratch { 2, 8192 }, cScratch { 2, 8192 };
+    std::shared_ptr<ReferenceAnalysis> analysis=std::make_shared<ReferenceAnalysis>();
     RuntimeV2Controller version, check;
     VisualObservation visual;
     ACaptureSession capture;

@@ -34,11 +34,14 @@ void testReferenceVisual (const juce::File&);
 void testReferenceACapture(const juce::File&);
 
 void testReferenceCaptureEvidence(const juce::File&);
+void testCaptureStartRace();
+void testCaptureLiveSharing();
 inline bool runReferenceCaptureTests(int argc,char** argv,const juce::File& sandbox)
 {
     const auto mode=argc==2 ? juce::String(argv[1]) : juce::String();
+    if(mode=="--capture-repair-only") { testCaptureStartRace(); testCaptureLiveSharing(); require(sandbox.deleteRecursively(),"repair cleanup"); return true; }
     if(mode!="--capture-evidence-only") testReferenceACapture(sandbox);
     if(mode!="--capture-only") testReferenceCaptureEvidence(sandbox);
-    if(mode!="--capture-only" && mode!="--capture-evidence-only") return false;
+    if(mode!="--capture-only" && mode!="--capture-evidence-only") { testCaptureStartRace(); testCaptureLiveSharing(); return false; }
     require(sandbox.deleteRecursively(),"capture fixture cleanup"); return true;
 }

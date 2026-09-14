@@ -15,7 +15,7 @@ void ACaptureSession::serviceRestore()
     readIndex=writeIndex.load(std::memory_order_acquire);
     if(ownsGate) close(5);
     const auto decoded=decodeACapture(encoded);
-    if(access->store.finishRestore(token,decoded))
+    if(access->finishRestore(token,decoded))
     {
         stateGeneration=token; state={};
         const auto saved=access->store.value(); state.held=saved.document; state.encoded=saved.encoded;
@@ -23,10 +23,12 @@ void ACaptureSession::serviceRestore()
         if(!encoded.isEmpty() && !decoded) state.message="Saved capture unavailable / previous capture kept";
         else if(state.held && !state.held->complete) state.message="Partial capture / capture again";
         if(state.held) { state.revisited.assign(state.held->bins.size(),0); state.unitStatus.assign(state.held->units.size(),0); }
+        if(!encoded.isEmpty() && !decoded) state.outcome={CaptureOutcome::restoreFailed,token,state.held ? state.held->id : juce::String()};
         confirmedTimingEpoch=0;
         access->presentIfCurrent(token,bool(state.held) && show);
         publish();
     }
     { const juce::ScopedLock lock(control); paused=false; }
+    access->completeRestore(token);
 }
 }

@@ -1,6 +1,7 @@
 #pragma once
 #include "kirin_hypha_reference_capture_ffi.h"
 #include "ReferenceACaptureModel.h"
+#include "ReferenceVisualObservation.h"
 #include <array>
 #include <functional>
 namespace hypha::reference_audition
@@ -8,18 +9,20 @@ namespace hypha::reference_audition
 class ACaptureSession final : private juce::Thread
 {
 public:
-    explicit ACaptureSession(std::function<bool(bool)>, std::function<ACaptureReceipt()> = {});
+    explicit ACaptureSession(std::function<bool(bool)>, std::function<ACaptureReceipt()> = {}, std::shared_ptr<ReferenceAnalysis> = std::make_shared<ReferenceAnalysis>(), VisualObservation* = nullptr);
     ~ACaptureSession() override;
     void shutdown();
+    static constexpr size_t inputQueueBytes() { return sizeof(Block)*slots; }
+    static constexpr size_t inputQueueFrames() { return (slots-1)*256; }
     void configure(juce::String, double, int);
     void restore(juce::String,bool shown=true);
     void setPresented(bool);
     void pauseObservation();
-    void useAuditionAdmission(bool);
-    bool observe(const juce::AudioBuffer<float>&,std::int64_t,bool,bool,bool,int,CaptureClockSignature = {}) noexcept;
+    void resumeObservation();
+    bool observe(const juce::AudioBuffer<float>&,std::int64_t,bool,bool,bool,int,CaptureClockSignature = {}, bool liveAllowed=true) noexcept;
     std::shared_ptr<ACaptureAccess> access = std::make_shared<ACaptureAccess>();
 private:
-    struct Block { std::array<float,512> pcm {}; std::int64_t position=0; int frames=0,channels=0,clock=0; std::uint64_t config=0,epoch=0,timing=0; CaptureClockSignature signature; };
+    struct Block { std::array<float,512> pcm {}; std::int64_t position=0; int frames=0,channels=0,clock=0; std::uint64_t config=0,epoch=0,timing=0,live=0,continuity=0; CaptureClockSignature signature; };
     static constexpr size_t slots=480;
     static_assert(sizeof(Block)*slots<=1024*1024,"Capture and visual queues together remain below 2 MiB");
     std::unique_ptr<std::array<Block,slots>> queue=std::make_unique<std::array<Block,slots>>();
@@ -29,12 +32,14 @@ private:
     std::atomic<bool> started{false};
     CaptureClockSignature rtSignature;
     int rtClock=0;
-    std::uint64_t rtTimingEpoch=1;
+    std::uint64_t rtTimingEpoch=1,rtContinuity=1,previousRevisitContinuity=0;
     const std::uint64_t runtimeToken=std::uint64_t(juce::Random::getSystemRandom().nextInt64());
     std::function<bool(bool)> gate;
     std::function<ACaptureReceipt()> receipt;
-    KirinReferenceVisualAdmission* observationAdmission=nullptr;
-    bool presented=false,borrowed=false,paused=false;
+    std::shared_ptr<ReferenceAnalysis> analysis;
+    ReferenceAnalysis::Lease observationAdmission, captureAdmission;
+    VisualObservation* live=nullptr;
+    bool presented=false,paused=false;
     juce::CriticalSection control;
     juce::String receiver, restoreText;
     std::uint64_t restoreGeneration=0, stateGeneration=0;

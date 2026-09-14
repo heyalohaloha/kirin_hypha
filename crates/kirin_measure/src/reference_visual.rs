@@ -1,5 +1,6 @@
 //! Bounded, worker-only Reference display measurements. Never a Record authority.
 pub use crate::analysis_lease::capture::{BlindCaptureExclusion, CaptureAdmission};
+pub use crate::analysis_lease::reference_owner::{ReferenceAnalysisGrant, ReferenceAnalysisOwner};
 use crate::analysis_lease::AnalysisLease;
 use ebur128::{EbuR128, Mode};
 

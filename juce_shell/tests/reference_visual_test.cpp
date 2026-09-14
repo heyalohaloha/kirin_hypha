@@ -25,10 +25,20 @@ void testReferenceVisual (const juce::File& sandbox)
     ref::VisualBinding map; map.source = source; map.overview = measurement.measurement;
     map.hostRate = 48000; map.channels = 2; map.hostAnchor = 24000; map.aligned = true; map.key = "verified-map-1";
     std::atomic<bool> blockBinding { false }, entered { false };
+    auto sharedOwner=std::make_shared<ref::ReferenceAnalysis>();
     ref::VisualObservation observation ([&] {
         if (blockBinding) { entered = true; while (blockBinding) juce::Thread::sleep (1); }
         return map;
-    });
+    },sharedOwner);
+    const auto enqueueInput=[&](const juce::AudioBuffer<float>& input,std::int64_t position,bool valid) {
+        if(!valid) return;
+        std::array<float,512> pcm{}; const auto epoch=observation.inputGeneration();
+        for(int offset=0;offset<input.getNumSamples();offset+=256) {
+            const int count=std::min(256,input.getNumSamples()-offset);
+            for(int c=0;c<input.getNumChannels();++c) for(int i=0;i<count;++i) pcm[size_t(i*input.getNumChannels()+c)]=input.getSample(c,offset+i);
+            observation.enqueue(pcm.data(),count,input.getNumChannels(),position+offset,epoch,1);
+        }
+    };
     const auto wait = [&] (const auto& predicate) {
         for (int i = 0; i < 300; ++i) { const auto state = observation.snapshot(); if (state && predicate (*state)) return true; juce::Thread::sleep (10); }
         return false;
@@ -42,8 +52,10 @@ void testReferenceVisual (const juce::File& sandbox)
     require (wait ([] (const auto& state) { return state.observing; }), "view uses the released analysis slot");
     const auto previousPass = observation.snapshot()->pass;
     observation.pauseAdmission();
-    require (kirin_reference_visual_admission_set (owner2, true), "handoff releases its own slot before audition acquisition");
-    observation.useAuditionAdmission (true);
+    ref::ReferenceAnalysis::Lease audition;
+    for(int i=0;i<100 && !audition;++i) { audition=sharedOwner->acquire(); if(!audition) juce::Thread::sleep(5); }
+    require(bool(audition),"audition shares the same concrete engine owner");
+    observation.resumeObservation();
     require (wait ([&] (const auto& state) { return state.observing && state.pass > previousPass; }), "observation can share admitted audition work");
     auto* excess = kirin_reference_visual_admission_create();
     require (!kirin_reference_visual_admission_set (excess, true), "borrowed observation still permits only two total owners");
@@ -51,7 +63,7 @@ void testReferenceVisual (const juce::File& sandbox)
     juce::AudioBuffer<float> input (2, 4800);
     const auto feed = [&] (int bin) {
         for (int c = 0; c < 2; ++c) input.copyFrom (c, 0, fixture.audio, c, bin * 4800, 4800);
-        beginReferenceRtProbe(); observation.observe (input, 24000 + bin * 4800, true);
+        beginReferenceRtProbe(); enqueueInput (input, 24000 + bin * 4800, true);
         require (endReferenceRtProbe() == 0, "display copy allocates zero times in callback");
         require (std::memcmp (input.getReadPointer (1,32), fixture.audio.getReadPointer (1,bin*4800+32), sizeof(float)) == 0, "observation preserves original A bits");
         juce::Thread::sleep (10);
@@ -75,15 +87,58 @@ void testReferenceVisual (const juce::File& sandbox)
     require (wait ([] (const auto& state) { return state.bins[61].pass == state.pass; }), "seek publishes a new pass");
     auto sought = observation.snapshot();
     require (sought->bins[10].pass != sought->pass && std::isnan (sought->bins[61].a.short_lufs), "history is distinct and windows do not cross a seek");
+    std::vector<double> routing;
+    std::array<float,9600> routePcm{};
+    for(int c=0;c<2;++c) for(int f=0;f<4800;++f) routePcm[size_t(f*2+c)]=input.getSample(c,f);
+    for(int sample=0;sample<40;++sample)
+    {
+        for(int i=0;i<400 && observation.pendingInput();++i) juce::Thread::sleep(1);
+        require(!observation.pendingInput(),"routing benchmark starts with queue capacity");
+        const auto start=juce::Time::getMillisecondCounterHiRes(),epoch=double(observation.inputGeneration());
+        for(int offset=0;offset<4800;offset+=256) observation.enqueue(routePcm.data()+size_t(offset*2),std::min(256,4800-offset),2,24000+offset,std::uint64_t(epoch),1);
+        routing.push_back(juce::Time::getMillisecondCounterHiRes()-start);
+    }
+    std::sort(routing.begin(),routing.end());
+    std::cout<<"Shared routing p95 per 100ms="<<routing[38]<<" ms; queues="
+        <<ref::ACaptureSession::inputQueueBytes()+ref::VisualObservation::inputQueueBytes()<<" bytes; ingress capacity="<<ref::ACaptureSession::inputQueueFrames()<<" frames\n";
+    require(routing[38]<0.1,"non-RT routing stays below 0.1 ms per 100 ms of stereo input");
+    require(ref::ACaptureSession::inputQueueBytes()+ref::VisualObservation::inputQueueBytes()<=2*1024*1024,"both bounded queues fit 2 MiB");
     blockBinding = true;
     for (int i=0; i<200 && !entered; ++i) juce::Thread::sleep (5);
     require (entered, "simulate stalled non-RT source preparation");
+    {
+        ref::ACaptureSession capture([](bool){return true;},{},sharedOwner,&observation);
+        capture.configure("blocked-b-capture",48000,2); require(capture.access->request(ref::ACaptureAccess::start),"Capture admitted while B worker is stalled");
+        for(int i=0;i<600 && !capture.access->active;++i) juce::Thread::sleep(5);
+        require(capture.access->active,"Capture uses its own finite worker");
+        for(int i=0;i<40;++i) {
+            for(int c=0;c<2;++c) input.copyFrom(c,0,fixture.audio,c,i*4800,4800);
+            beginReferenceRtProbe(); capture.observe(input,24000+i*4800,true,true,true,1);
+            require(endReferenceRtProbe()==0,"stalled B never introduces RT allocation"); juce::Thread::sleep(10);
+        }
+        capture.observe(input,216000,true,false,true,1);
+        for(int i=0;i<600 && capture.access->busy();++i) juce::Thread::sleep(5);
+        require(capture.access->snapshot().held && capture.access->snapshot().held->frames==192000,"stalled B and overflowing LIVE queue lose zero Capture frames");
+        capture.setPresented(true);
+        for(int i=0;i<600 && !capture.access->analysisAvailable;++i) juce::Thread::sleep(5);
+        for(int i=0;i<12;++i) {
+            for(int c=0;c<2;++c) input.copyFrom(c,0,fixture.audio,c,i*4800,4800); input.applyGain(0.5f);
+            capture.observe(input,24000+i*4800,true,true,true,1); juce::Thread::sleep(10);
+        }
+        bool changed=false; for(int i=0;i<600 && !changed;++i) { const auto state=capture.access->snapshot(); changed=!state.unitStatus.empty() && state.unitStatus.front()==2; if(!changed) juce::Thread::sleep(5); }
+        require(changed,"stalled B cannot stop same-position A change detection");
+    }
     beginReferenceRtProbe();
-    for (int i=0; i<100; ++i) observation.observe (input, 24000 + i*4800, true);
+    for (int i=0; i<100; ++i) enqueueInput (input, 24000 + i*4800, true);
     require (endReferenceRtProbe() == 0, "a full display queue stays bounded without RT allocation");
+    audition.reset();
     const auto before = juce::Time::getMillisecondCounterHiRes(); observation.pauseAdmission();
     require (juce::Time::getMillisecondCounterHiRes()-before < 100, "admission release never waits behind blocked source work");
-    observation.useAuditionAdmission (false); observation.setPresented (false); blockBinding = false;
+    require(!kirin_reference_visual_admission_set(owner2,true),"retiring source job still owns its physical slot after demand cancellation");
+    observation.resumeObservation(); observation.setPresented (false); blockBinding = false;
+    bool retired=false; for(int i=0;i<100 && !retired;++i) { retired=kirin_reference_visual_admission_set(owner2,true); if(!retired) juce::Thread::sleep(5); }
+    require(retired,"physical slot becomes available only after the delayed job returns");
+    audition.reset();
     kirin_reference_visual_admission_drop (owner1); kirin_reference_visual_admission_drop (owner2);
     // The display converter is the very same implementation used by audible pages.
     juce::AudioFormatManager formats; formats.registerBasicFormats();

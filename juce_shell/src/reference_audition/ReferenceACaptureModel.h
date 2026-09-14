@@ -7,6 +7,7 @@
 #include <limits>
 #include "ReferenceACaptureStore.h"
 #include "ReferenceCaptureEvidence.h"
+#include "ReferenceCaptureOperation.h"
 namespace hypha::reference_audition
 {
 enum class ACapturePhase { idle, armed, capturing, finalizing, held, partial };
@@ -31,6 +32,8 @@ struct ACaptureData
 struct ACaptureState
 {
     ACapturePhase phase = ACapturePhase::idle;
+    CaptureOperationView operation;
+    CaptureAttemptOutcome outcome;
     std::shared_ptr<const ACaptureData> shown, held;
     juce::String message, encoded;
     std::vector<std::uint8_t> revisited; // 0 unknown, 1 matching input fingerprint, 2 changed input
@@ -42,40 +45,10 @@ struct ACaptureState
     std::vector<std::int64_t> unitCheckedAt;
     std::int64_t checkedAt=0;
 };
-// A UI may outlive its processor. Commands only target this mailbox; no dangling callbacks.
-class ACaptureAccess
-{
-public:
-    enum Command { none, start, finish, cancel };
-    bool request(Command command)
-    {
-        const juce::ScopedLock lock(mutex);
-        if(!alive || pending!=none || (command==start && active)) return false;
-        if(command==start) commandGeneration=store.beginAttempt();
-        pending=command; wake.signal(); return true;
-    }
-    Command takeCommand(std::uint64_t& generation)
-    { const juce::ScopedLock lock(mutex); generation=commandGeneration; return Command(pending.exchange(none)); }
-    std::uint64_t beginRestore(const juce::String& payload,bool shown)
-    { const juce::ScopedLock lock(mutex); const auto token=store.beginRestore(payload); capturedView=shown; return token; }
-    void presentIfCurrent(std::uint64_t token,bool shown)
-    { const juce::ScopedLock lock(mutex); if(store.isCurrent(token)) capturedView=shown; }
-    void publish(ACaptureState value,std::uint64_t token)
-    { const juce::ScopedLock lock(mutex); if(store.isCurrent(token)) state=std::move(value); }
-    ACaptureStore store;
-    ACaptureState snapshot() const { const juce::ScopedLock lock(mutex); return state; }
-    void publish(ACaptureState value) { const juce::ScopedLock lock(mutex); state=std::move(value); }
-    juce::WaitableEvent wake; // UI/control notification only; never signalled from the audio callback.
-    std::atomic<std::uint64_t> framesProcessed{0},currentTimingEpoch{0};
-    std::atomic<int> pending {none};
-    std::atomic<bool> capturedView {false}, active {false}, alive {true}, analysisAvailable {false};
-private:
-    mutable juce::CriticalSection mutex;
-    ACaptureState state;
-    std::uint64_t commandGeneration=0;
-};
 std::uint64_t captureHash(std::uint64_t, const float*, size_t) noexcept;
 juce::String encodeACapture(const ACaptureData&);
 std::shared_ptr<const ACaptureData> decodeACapture(const juce::String&);
 void mergeACaptureBins(std::vector<ACaptureBin>&, int channels);
 }
+
+#include "ReferenceACaptureAccess.h"

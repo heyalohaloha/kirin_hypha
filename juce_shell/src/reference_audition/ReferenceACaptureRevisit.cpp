@@ -5,35 +5,38 @@ namespace hypha::reference_audition
 void ACaptureSession::setPresented(bool value)
 {
     const juce::ScopedLock lock(control); presented=value;
-    if(!value && !access->active) { accepting=0; kirin_reference_visual_admission_set(observationAdmission,false); access->analysisAvailable=false; }
+    if(!value && !access->active) { accepting=0; observationAdmission.reset(); access->analysisAvailable=false; }
 }
 void ACaptureSession::pauseObservation()
 {
     const juce::ScopedLock lock(control); paused=true;
     if(!access->active) accepting=0;
-    kirin_reference_visual_admission_set(observationAdmission,false);
+    observationAdmission.reset();
     if(!access->active) access->analysisAvailable=false;
 }
-void ACaptureSession::useAuditionAdmission(bool value)
-{ const juce::ScopedLock lock(control); borrowed=value; paused=false; }
+void ACaptureSession::resumeObservation()
+{ const juce::ScopedLock lock(control); paused=false; }
 void ACaptureSession::prepareObservation()
 {
     const juce::ScopedLock lock(control);
-    const bool wanted=presented && !paused && state.held
+    const bool revisit=state.held
         && (state.held->restored || receiver==state.held->receiver)
         && rate==state.held->rate && channels==state.held->channels;
+    const bool wanted=presented && !paused && (revisit || (live && live->inputGeneration()!=0));
     if(!wanted)
     {
-        accepting=0; kirin_reference_visual_admission_set(observationAdmission,false); access->analysisAvailable=false;
+        accepting=0; observationAdmission.reset(); access->analysisAvailable=false;
         if(state.observationFresh) { state.observationFresh=false; publish(); }
         return;
     }
-    const bool admitted=borrowed || kirin_reference_visual_admission_set(observationAdmission,true);
+    if(!analysis->current(observationAdmission)) observationAdmission.reset();
+    if(!observationAdmission) observationAdmission=analysis->acquire();
+    const bool admitted=bool(observationAdmission);
     access->analysisAvailable=admitted;
     if(admitted && !accepting && !writers.load() && readIndex.load()==writeIndex.load())
     {
         kirin_reference_index_drop(captureIndex);
-        captureIndex=kirin_reference_index_create(uint32_t(rate),uint32_t(channels),uint32_t(rate));
+        captureIndex=revisit ? kirin_reference_index_create(uint32_t(rate),uint32_t(channels),uint32_t(rate)) : nullptr;
         revisitExpected=0; revisitFrames=matchingFrames=0; ++state.observationPass; accepting.store(++epoch,std::memory_order_release);
     }
 }
@@ -80,6 +83,7 @@ void ACaptureSession::consumeRevisit(const Block& block)
     if(!state.held || !access->analysisAvailable || !captureIndex || block.epoch!=epoch) return;
     const auto& data=*state.held;
     const auto reset=[&] { KirinReferenceCaptureUnit ignored{}; kirin_reference_index_finish(captureIndex,&ignored); revisitFrames=matchingFrames=0; };
+    if(block.continuity!=previousRevisitContinuity) { reset(); ++state.observationPass; previousRevisitContinuity=block.continuity; if(state.observationFresh) { state.observationFresh=false; publish(); } }
     if(block.channels!=data.channels || block.clock!=data.clockSource || block.config!=configuration.load() || block.signature!=data.clockSignature)
     {
         reset(); const bool changed=state.timingVerified || state.observationFresh;
@@ -94,8 +98,8 @@ void ACaptureSession::consumeRevisit(const Block& block)
     }
     if(sameRuntime) { state.timingVerified=true; confirmedTimingEpoch=block.timing; state.confirmedTimingEpoch=block.timing; }
     auto at=block.position-data.hostStart;
-    if(at<0 || at>=std::int64_t(data.frames)) { reset(); return; }
-    if(block.position!=revisitExpected) { reset(); ++state.observationPass; }
+    if(at<0 || at>=std::int64_t(data.frames)) { reset(); if(state.observationFresh) { state.observationFresh=false; publish(); } return; }
+    if(block.position!=revisitExpected) { reset(); ++state.observationPass; if(state.observationFresh) { state.observationFresh=false; publish(); } }
     int offset=0;
     while(offset<block.frames && at<std::int64_t(data.frames))
     {

@@ -1,5 +1,6 @@
 #pragma once
 #include "ReferenceACaptureModel.h"
+#include "ReferenceAnalysis.h"
 #include "ReferenceVisualTimeline.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 namespace hypha::reference_audition
@@ -7,11 +8,12 @@ namespace hypha::reference_audition
 class ACaptureProjection final : private juce::Thread
 {
 public:
-    ACaptureProjection(std::shared_ptr<ACaptureAccess>,std::function<VisualBinding()>);
+    ACaptureProjection(std::shared_ptr<ACaptureAccess>,std::function<VisualBinding()>,std::shared_ptr<ReferenceAnalysis> = std::make_shared<ReferenceAnalysis>());
     ~ACaptureProjection() override;
     void setPresented(bool value) { presented=value; }
     std::shared_ptr<const VisualTimeline> snapshot() const;
 private:
+    std::shared_ptr<ReferenceAnalysis> analysis;
     std::shared_ptr<ACaptureAccess> access;
     std::function<VisualBinding()> binding;
     std::atomic<bool> presented{false};

@@ -11,8 +11,8 @@ ReferenceComparisonController::ReferenceComparisonController (juce::File root, S
           auto result = version.visualBinding();
           result.hidden = result.hidden || viewedSlot.load (std::memory_order_acquire) != 1;
           return result;
-      }), capture([this](bool active){return admitCapture(active);}, [this]{return captureReceipt();}),
-      captureProjection(capture.access,[this]{return version.visualBinding();}) {}
+      },analysis), capture([this](bool active){return admitCapture(active);}, [this]{return captureReceipt();},analysis,&visual),
+      captureProjection(capture.access,[this]{return version.visualBinding();},analysis) {}
 
 ReferenceComparisonController::~ReferenceComparisonController()
 {
@@ -37,24 +37,17 @@ bool ReferenceComparisonController::admit (int slot, bool active)
         if ((gateOwners & 4) != 0 && !check.canTransferOutputGate()) return false;
         if (gateOwners == 0)
         {
-            visual.pauseAdmission(); capture.pauseObservation();
-            const bool admitted = !gate || gate (true);
-            if(!captureOwned) visual.useAuditionAdmission (admitted);
-            capture.useAuditionAdmission(admitted);
-            if (!admitted) return false;
+            if(gate && !gate(true)) return false;
         }
         gateOwners |= bit;
     }
     else if ((gateOwners & bit) != 0)
     {
         gateOwners &= ~bit;
-        if(slot==1 && blindGuardOwned) { if(blindCaptureGate) blindCaptureGate(false); blindGuardOwned=false; }
+        if(slot==1 && blindGuardOwned) { if(blindCaptureGate) blindCaptureGate(false); blindGuardOwned=false; capture.access->releaseBlind(CaptureBlindOwner::version); }
         if (gateOwners == 0)
         {
-            visual.pauseAdmission(); capture.pauseObservation();
             if (gate) gate (false);
-            if(!captureOwned) visual.useAuditionAdmission (false);
-            capture.useAuditionAdmission(false);
         }
     }
     return true;
@@ -147,7 +140,12 @@ Snapshot ReferenceComparisonController::snapshot() const
     result.captureAccess=capture.access;
     const auto captureState=capture.access->snapshot();
     if(capture.access->capturedView && !trialActive())
-    { result.visualTimeline=captureProjection.snapshot(); result.visualPositionSeconds=result.visualTimeline && result.visualTimeline->capture && map.hostPositionValid && captureState.timingVerified
+    { result.visualTimeline=captureProjection.snapshot();
+      if(result.visualTimeline && result.visualTimeline->capture
+          && (!captureState.shown || result.visualTimeline->capture->id!=captureState.shown->id
+              || (result.visualTimeline->binding.source && (!map.source
+                  || result.visualTimeline->binding.source->sourceFileSha256!=map.source->sourceFileSha256)))) result.visualTimeline.reset();
+      result.visualPositionSeconds=result.visualTimeline && result.visualTimeline->capture && map.hostPositionValid && captureState.timingVerified
             && captureState.confirmedTimingEpoch==capture.access->currentTimingEpoch.load()
         ? double(map.hostPosition-result.visualTimeline->capture->hostStart)/result.visualTimeline->capture->rate : -1; }
     result.separateComparisons = true;
@@ -161,7 +159,7 @@ Snapshot ReferenceComparisonController::snapshot() const
         && result.selectedVersionId == b.presetId + "/" + b.checkId + "/" + b.candidateId
         && b.state == RuntimeState::ready && b.auditionBuffered;
     result.checkReady = c.state == RuntimeState::ready && c.auditionBuffered;
-    result.blindEligible = slot == 1 && result.versionReady && b.blindEligible && !capture.access->active;
+    result.blindEligible = slot == 1 && result.versionReady && b.blindEligible && !capture.access->busy();
     if (slot == 1 && versionId.isEmpty())
     {
         result.state = RuntimeState::waiting;
@@ -258,8 +256,7 @@ void ReferenceComparisonController::observeAInput (const juce::AudioBuffer<float
     std::int64_t position, bool valid, bool playing, bool allowed, int clock, std::optional<bool> captureAllowed, CaptureClockSignature signature) noexcept
 {
     rtInputAllowed = allowed;
-    if(!capture.observe(buffer,position,valid,playing,captureAllowed.value_or(allowed),clock,signature))
-        visual.observe (buffer, position, valid && playing && allowed && versionChosen.load (std::memory_order_acquire));
+    capture.observe(buffer,position,valid,playing,captureAllowed.value_or(allowed),clock,signature,allowed && versionChosen.load(std::memory_order_acquire));
     version.observeAInput (buffer, position, valid, playing, allowed && versionChosen.load (std::memory_order_acquire), false);
     check.observeAInput (buffer, position, valid, playing, allowed, false);
 }

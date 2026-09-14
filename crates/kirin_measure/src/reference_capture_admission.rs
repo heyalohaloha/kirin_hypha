@@ -103,6 +103,26 @@ impl CaptureAdmission {
         self.held = true;
         Ok(true)
     }
+    pub fn try_acquire_shared(
+        &mut self,
+        owner: &reference_owner::ReferenceAnalysisOwner,
+    ) -> io::Result<bool> {
+        if self.held {
+            return Ok(true);
+        }
+        if !owner.compatible(&self.owner.analysis.paths)
+            || !self.owner.capture_barrier.acquire(true)?
+        {
+            return Ok(false);
+        }
+        let Some(grant) = owner.acquire() else {
+            self.owner.capture_barrier.release();
+            return Ok(false);
+        };
+        self.owner.shared_analysis = Some(grant);
+        self.held = true;
+        Ok(true)
+    }
     pub fn release(&mut self, audition: Option<&mut AuditionAdmission>) {
         if !self.held {
             return;

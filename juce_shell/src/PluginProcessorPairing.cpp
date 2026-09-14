@@ -87,9 +87,13 @@ bool KirinHyphaProcessorBase::localBlindProductSupported() const noexcept
 
 bool KirinHyphaProcessorBase::releaseLocalBlindProductScope (std::uint64_t epoch)
 {
-    const juce::ScopedLock lock (handleLock);
-    return role == Role::Post && hyphaHandle != nullptr
-        && kirin_hypha_end_local_blind (hyphaHandle, epoch);
+    bool released=false;
+    { const juce::ScopedLock lock(handleLock);
+        released=role==Role::Post && hyphaHandle && kirin_hypha_end_local_blind(hyphaHandle,epoch); }
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if(released && referenceAuditionController) referenceAuditionController->releaseLocalBlind(epoch);
+   #endif
+    return released;
 }
 
 bool KirinHyphaProcessorBase::acceptLocalBlindProductPair (
@@ -110,7 +114,9 @@ hypha::local_blind::CaptureAdmission KirinHyphaProcessorBase::localBlindCaptureA
     if (session.phase != Phase::idle && session.phase != Phase::returned && session.phase != Phase::failed)
         return Admission::recovery;
     if (session.phase == Phase::failed && ! session.canRecapture) return Admission::releasePending;
-    if (referenceAuditionSnapshot().blindPhase != hypha::reference_audition::BlindPhase::inactive)
+    const auto reference=referenceAuditionSnapshot();
+    if(reference.captureAccess && reference.captureAccess->busy()) return Admission::referenceBusy;
+    if (reference.blindPhase != hypha::reference_audition::BlindPhase::inactive)
         return Admission::referenceBusy;
     if (isRecording() || keepPhase() != KIRIN_KEEP_PHASE_IDLE) return Admission::keepBusy;
     if (pairStatus() != KIRIN_PAIR_STATUS_PAIRED) return Admission::pairRequired;
@@ -134,12 +140,22 @@ hypha::local_blind::CaptureAdmission KirinHyphaProcessorBase::requestLocalBlindP
         || ! std::isfinite (clock.rate) || clock.rate < 8'000.0 || clock.rate > 768'000.0)
         return Admission::clockUnavailable;
     std::uint64_t scopeEpoch = 0;
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if(referenceAuditionController && !referenceAuditionController->reserveLocalBlind()) return Admission::referenceBusy;
+   #endif
+    Admission admission=Admission::ready;
     {
-        const juce::ScopedLock lock (handleLock);
-        if (hyphaHandle == nullptr) return Admission::engineUnavailable;
-        if (! kirin_hypha_begin_local_blind (hyphaHandle, &scopeEpoch))
-            return Admission::admissionFailed;
+        const juce::ScopedLock lock(handleLock);
+        if(!hyphaHandle) admission=Admission::engineUnavailable;
+        else if(!kirin_hypha_begin_local_blind(hyphaHandle,&scopeEpoch)) admission=Admission::admissionFailed;
     }
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if(referenceAuditionController) {
+        if(admission==Admission::ready) referenceAuditionController->bindLocalBlind(scopeEpoch);
+        else referenceAuditionController->releaseLocalBlind(0);
+    }
+   #endif
+    if(admission!=Admission::ready) return admission;
     const auto serial = localBlindProductSerial.fetch_add (1, std::memory_order_acq_rel) + 1;
     const auto now = static_cast<std::uint64_t> (juce::Time::currentTimeMillis());
     const auto generation = (now << 16u) | (serial & 0xffffu);

@@ -814,6 +814,8 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         tests/reference_capture_memory_test.cpp
         tests/reference_a_capture_errors_test.cpp
         tests/reference_capture_evidence_test.cpp
+        tests/reference_capture_operation_test.cpp
+        tests/reference_capture_live_sharing_test.cpp
         src/reference_audition/ReferenceBlindSession.cpp
         ${KIRIN_REFERENCE_AUDITION_SOURCES})
     target_compile_definitions(KirinReferenceAuditionRuntimeTests PRIVATE

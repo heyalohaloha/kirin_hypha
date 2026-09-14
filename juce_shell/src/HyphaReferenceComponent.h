@@ -176,6 +176,11 @@ public:
     void setState (State);
     const State& state() const noexcept { return current; }
     bool detailedLayout() const noexcept;
+    bool shortPanel() const noexcept { return getHeight()<150 && !isBlindSession(current.blindPhase); }
+    int panelHeaderHeight() const noexcept { return shortPanel() ? 20 : detailedLayout() ? 42 : 34; }
+    int panelPickerHeight() const noexcept { return shortPanel() ? 18 : 24; }
+    int panelGap() const noexcept { return shortPanel() ? 2 : 4; }
+    juce::Rectangle<int> panelArea() const noexcept { return getLocalBounds().reduced(6,shortPanel() ? 3 : 6); }
 
     void paint (juce::Graphics&) override;
     void resized() override;

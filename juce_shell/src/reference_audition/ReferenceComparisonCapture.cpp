@@ -5,16 +5,17 @@ void ReferenceComparisonController::refreshObservation()
 {
     const juce::ScopedLock lock(gateLock);
     const bool heldView=capture.access->capturedView;
+    const bool observing=presented && !localBlindOwned;
     if(heldView && !trialActive()) viewedSlot.store(1,std::memory_order_release);
-    version.setContentObservationEnabled(presented || captureOwned);
+    version.setContentObservationEnabled(observing || captureOwned);
     const auto captured=capture.access->snapshot().shown;
     const auto selected=version.visualBinding();
-    bool needsEvidence=(presented || captureOwned) && !trialActive() && captured && captured->frames && selected.source;
+    bool needsEvidence=(observing || captureOwned) && !trialActive() && captured && captured->frames && selected.source;
     if(needsEvidence) for(const auto& b:captured->bindings) if(b.sourceHash==selected.source->sourceFileSha256) needsEvidence=false;
     version.setCaptureObservation(needsEvidence ? captured->id : juce::String(),needsEvidence ? captured->hostStart : 0);
-    visual.setPresented(presented && !heldView && !captureOwned);
-    capture.setPresented(presented && !trialActive());
-    captureProjection.setPresented(presented && !trialActive());
+    visual.setPresented(observing && !heldView && !captureOwned);
+    capture.setPresented(observing && !trialActive());
+    captureProjection.setPresented(observing && !trialActive());
 }
 bool ReferenceComparisonController::admitCapture(bool active)
 {
@@ -23,24 +24,23 @@ bool ReferenceComparisonController::admitCapture(bool active)
     if(active)
     {
         if(blindGuardOwned || trialActive()) return false;
-        visual.pauseAdmission(); capture.pauseObservation();
         if(!captureGate || !captureGate(true))
-        { visual.useAuditionAdmission(gateOwners!=0); capture.useAuditionAdmission(gateOwners!=0); return false; }
+        { visual.resumeObservation(); capture.resumeObservation(); return false; }
         captureOwned=true;
     }
     else
     {
         if(captureOwned && captureGate) captureGate(false);
-        captureOwned=false; visual.useAuditionAdmission(gateOwners!=0); capture.useAuditionAdmission(gateOwners!=0);
+        captureOwned=false; visual.resumeObservation(); capture.resumeObservation();
     }
     refreshObservation(); return true;
 }
 bool ReferenceComparisonController::beginBlindGuard()
 {
     const juce::ScopedLock lock(gateLock);
-    if(captureOwned || capture.access->active || capture.access->pending==ACaptureAccess::start) return false;
+    if(captureOwned || !capture.access->reserveBlind(CaptureBlindOwner::version)) return false;
     capture.pauseObservation(); captureProjection.setPresented(false);
-    if(blindCaptureGate && !blindCaptureGate(true)) { capture.useAuditionAdmission(gateOwners!=0); return false; }
+    if(blindCaptureGate && !blindCaptureGate(true)) { capture.access->releaseBlind(CaptureBlindOwner::version); capture.resumeObservation(); return false; }
     blindGuardOwned=true; return true;
 }
 void ReferenceComparisonController::endBlindGuard()
@@ -48,7 +48,24 @@ void ReferenceComparisonController::endBlindGuard()
     const juce::ScopedLock lock(gateLock);
     if((gateOwners & 2)!=0) return; // Keep exclusion until the RT normal-return receipt retires output.
     if(blindGuardOwned && blindCaptureGate) blindCaptureGate(false);
-    blindGuardOwned=false; capture.useAuditionAdmission(gateOwners!=0); refreshObservation();
+    blindGuardOwned=false; capture.access->releaseBlind(CaptureBlindOwner::version); capture.resumeObservation(); refreshObservation();
+}
+bool ReferenceComparisonController::reserveLocalBlind()
+{
+    const juce::ScopedLock lock(gateLock);
+    if(closing || !capture.access->reserveBlind(CaptureBlindOwner::local)) return false;
+    localBlindOwned=true; localBlindEpoch=0;
+    visual.pauseAdmission(); capture.pauseObservation(); captureProjection.setPresented(false);
+    refreshObservation(); return true;
+}
+void ReferenceComparisonController::bindLocalBlind(std::uint64_t epoch)
+{ const juce::ScopedLock lock(gateLock); if(localBlindOwned) localBlindEpoch=epoch; }
+void ReferenceComparisonController::releaseLocalBlind(std::uint64_t epoch)
+{
+    const juce::ScopedLock lock(gateLock);
+    if(!localBlindOwned || localBlindEpoch!=epoch) return;
+    localBlindOwned=false; capture.access->releaseBlind(CaptureBlindOwner::local);
+    visual.resumeObservation(); capture.resumeObservation(); refreshObservation();
 }
 ACaptureReceipt ReferenceComparisonController::captureReceipt() const
 {

@@ -24,6 +24,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 #[path = "reference_capture_admission.rs"]
 pub mod capture;
+#[path = "reference_analysis_owner.rs"]
+pub mod reference_owner;
 
 #[cfg(not(test))]
 use crate::storage::PlatformPaths;
@@ -223,6 +225,7 @@ pub struct AuditionAdmission {
     project_audition: crate::project_audition_lease::ProjectAuditionLease,
     held: bool,
     borrowed_analysis: bool,
+    shared_analysis: Option<reference_owner::ReferenceAnalysisGrant>,
     capture_barrier: capture::CaptureBarrier,
 }
 
@@ -258,6 +261,7 @@ impl AuditionAdmission {
             ),
             held: false,
             borrowed_analysis: false,
+            shared_analysis: None,
             capture_barrier: capture::CaptureBarrier::new(
                 process_barrier,
                 crate::reservation::reservation_dir(plugin_data_dir, project_hash)
@@ -270,7 +274,10 @@ impl AuditionAdmission {
         if self.held {
             return Ok(true);
         }
-        if !self.borrowed_analysis && !self.analysis.try_acquire_for(owner_name)? {
+        if !self.borrowed_analysis
+            && self.shared_analysis.is_none()
+            && !self.analysis.try_acquire_for(owner_name)?
+        {
             return Ok(false);
         }
         if !self.process_audition.try_acquire_for(owner_name)? {
@@ -301,6 +308,7 @@ impl AuditionAdmission {
         self.analysis.release();
         self.held = false;
         self.borrowed_analysis = false;
+        self.shared_analysis = None;
         self.capture_barrier.release();
     }
 

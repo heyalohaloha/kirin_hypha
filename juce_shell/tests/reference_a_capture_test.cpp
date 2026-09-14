@@ -60,6 +60,8 @@ void testReferenceACapture(const juce::File& root)
     require(merged[0].fingerprint==ref::captureHash(0,pcm.data(),pcm.size()) && merged[0].value.frames==9600,"coarsening retains exact concatenated fingerprint and frames");
     capture.setPresented(true);
     require(waitCapture([&]{return capture.access->analysisAvailable.load();}),"held view admits lightweight revisits");
+    capture.observe(audio,216000,true,false,true,1);
+    require(!capture.access->snapshot().observationFresh,"stopped callbacks make previous checks historical without changing the time axis");
     feed(0,12,true);
     require(waitCapture([&]{const auto s=capture.access->snapshot();return s.revisited.size()==40 && s.revisited[1]==2;}),"revisited changed input marked without overwriting captured A");
     require(capture.access->snapshot().held->bins[1].fingerprint==held.held->bins[1].fingerprint,"captured original remains immutable");
@@ -69,7 +71,7 @@ void testReferenceACapture(const juce::File& root)
     feed(0,2); feed(10,1);
     require(waitCapture([&]{return !capture.access->active;}),"seek closes partial capture");
     const auto failed=capture.access->snapshot();
-    require(failed.phase==ref::ACapturePhase::partial && failed.held->id==held.held->id && failed.encoded==held.encoded,"failed retry preserves previous successful result");
+    require(failed.phase==ref::ACapturePhase::held && failed.outcome.kind==ref::CaptureOutcome::interrupted && failed.held->id==held.held->id && failed.encoded==held.encoded,"failed retry preserves previous successful result");
     require(capture.access->request(ref::ACaptureAccess::start),"restart after seek");
     require(waitCapture([&]{return capture.access->active.load();}),"restart armed");
     feed(0,1); require(capture.access->request(ref::ACaptureAccess::cancel),"cancel accepted");

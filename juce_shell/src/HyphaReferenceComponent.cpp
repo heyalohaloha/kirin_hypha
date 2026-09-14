@@ -227,8 +227,8 @@ bool Component::detailedLayout() const noexcept
 
 void Component::paint (juce::Graphics& g)
 {
-    auto area = getLocalBounds().reduced (6);
-    auto header = area.removeFromTop (detailedLayout() ? 42 : 34);
+    auto area = panelArea();
+    auto header = area.removeFromTop (panelHeaderHeight());
     const bool blindActive = current.blindPhase == BlindPhase::active;
     const bool blindStarting = current.blindPhase == BlindPhase::starting;
     const bool blindInvalidated = current.blindPhase == BlindPhase::invalidated;
@@ -236,8 +236,8 @@ void Component::paint (juce::Graphics& g)
     const bool blindSession = isBlindSession (current.blindPhase);
     if (current.separateComparisons && ! blindSession)
     {
-        area.removeFromTop ((selectionVisible (presetBox) ? (detailedLayout() ? 38 : 24) : 0)
-                            + 4 + (detailedLayout() ? 40 : 24));
+        area.removeFromTop ((selectionVisible (presetBox) ? (detailedLayout() ? 38 : panelPickerHeight()) : 0)
+                            + panelGap() + (detailedLayout() ? 40 : panelPickerHeight()));
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentationContext, typography::TextRole::unit,
                               typography::Composition::information));
@@ -276,9 +276,9 @@ void Component::paint (juce::Graphics& g)
     else if (! detailedLayout() && ! blindSession
              && (selectionVisible (presetBox) || selectionVisible (checkBox) || selectionVisible (candidateBox)))
     {
-        if (selectionVisible (presetBox)) area.removeFromTop (24);
-        area.removeFromTop (4);
-        auto selector = area.removeFromTop (24);
+        if (selectionVisible (presetBox)) area.removeFromTop (panelPickerHeight());
+        area.removeFromTop (panelGap());
+        auto selector = area.removeFromTop (panelPickerHeight());
         g.setColour (COL_TEXT_TERTIARY.withAlpha (0.92f));
         g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel,
                               typography::Composition::information));
@@ -323,7 +323,7 @@ void Component::paint (juce::Graphics& g)
         text_style::drawEllipsized (g, "SOURCE IDENTITY HIDDEN", header,
                                     juce::Justification::centredLeft);
 
-        area.removeFromTop (4);
+        area.removeFromTop (panelGap());
         const auto footerHeight = detailedLayout() ? 24 : 18;
         if (blindActive) area.removeFromBottom (footerHeight);
         auto statusArea = area.removeFromTop (footerHeight);
@@ -371,10 +371,10 @@ void Component::paint (juce::Graphics& g)
     g.setFont (displayTextFont (title, presentationContext,
                                 typography::TextRole::body,
                                 typography::Composition::information));
-    text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
+    if(!shortPanel()) text_style::drawEllipsized (g, title, header, juce::Justification::centredLeft);
 
-    area.removeFromTop (4);
-    if(captureControls.isVisible()) area.removeFromTop(24);
+    area.removeFromTop (panelGap());
+    if(captureControls.isVisible()) area.removeFromTop(captureControls.preferredHeight(area.getWidth()));
     auto statusArea = area.removeFromBottom (detailedLayout() ? 24 : 18);
     const auto statusColour = current.readiness == Readiness::rejected
         ? COL_LED_YELLOW : current.bSelected ? COL_SPECTRUM_DELTA_BR : COL_MUTED;
