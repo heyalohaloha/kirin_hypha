@@ -407,7 +407,7 @@ void paintOne (juce::Graphics& g, juce::Rectangle<float> area,
                const State& state, const juce::String& binding,
                presentation::Context presentation)
 {
-    if (binding == "tonal_balance") drawTonalBalance (g, area, state, presentation);
+    if (binding == "balance") drawTonalBalance (g, area, state, presentation);
     else if (binding == "spectrum_full") drawSpectrum (g, area, state, false, presentation);
     else if (binding == "spectrum_low") drawSpectrum (g, area, state, true, presentation);
     else if (binding == "waveform") drawWaveform (g, area, state, presentation);

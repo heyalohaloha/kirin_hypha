@@ -321,7 +321,7 @@ namespace hypha::reference_audition
                 return false;
             const auto* views = object->getProperty ("view_bindings").getArray();
             const std::set<juce::String> validViews { "waveform", "spectrum_full", "spectrum_low",
-                "tonal_balance", "loudness", "dynamics", "transient", "stereo" };
+                "balance", "loudness", "dynamics", "transient", "stereo" };
             std::set<std::string> viewNames;
             if (views == nullptr || views->size() > 3)
                 return false;

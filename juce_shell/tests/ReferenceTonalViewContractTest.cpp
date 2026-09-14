@@ -62,7 +62,7 @@ bool verifyReferenceTonalViewContract()
     state.title = "Balance";
     state.candidateName = "Reference C";
     state.cueLabel = "Full song";
-    state.viewBindings = { "tonal_balance" };
+    state.viewBindings = { "balance" };
     state.visualTimeline = tonalTimeline();
     reference_ui::TonalView* tonal = nullptr;
     juce::Image compact, large;

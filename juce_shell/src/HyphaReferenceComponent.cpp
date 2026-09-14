@@ -234,7 +234,7 @@ void Component::setState (State next)
     comparisonView.setVisible (current.separateComparisons && (current.comparisonSlot == 1 || (current.captureAccess && current.captureAccess->capturedView)) && !blindSession);
     comparisonView.update (current.visualTimeline, current.visualPositionSeconds, presentationContext, blindSession, current.visualPreferences);
     const bool tonalSelected = std::find (current.viewBindings.begin(), current.viewBindings.end(),
-                                          "tonal_balance") != current.viewBindings.end();
+                                          "balance") != current.viewBindings.end();
     tonalView.setVisible (! blindSession && ! comparisonView.isVisible() && tonalSelected);
     tonalView.update (current.visualTimeline, presentationContext, blindSession,
                       current.candidateName, current.cueLabel);

@@ -43,7 +43,7 @@ void testReferenceLibraryContract (const juce::File& sandbox)
     object->removeProperty ("work_id");
     object->removeProperty ("source_preset_artifact");
     auto* check = preset["checks"].getArray()->getReference (0).getDynamicObject();
-    check->setProperty ("view_bindings", juce::Array<juce::var> { "tonal_balance" });
+    check->setProperty ("view_bindings", juce::Array<juce::var> { "balance" });
     auto* candidate = check->getProperty ("candidates").getArray()->getReference (0).getDynamicObject();
     candidate->setProperty ("source_artifact", juce::var());
     candidate->setProperty ("preparation_status", "pending");

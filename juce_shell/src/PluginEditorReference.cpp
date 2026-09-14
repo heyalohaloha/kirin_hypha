@@ -490,7 +490,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
              && ! runtime.measurementAvailable && ! runtime.viewBindings.empty())
         state.actionText = "PREPARE VISUALS";
     else if (connected && runtime.state == Runtime::ready
-             && std::find (runtime.viewBindings.begin(), runtime.viewBindings.end(), "tonal_balance")
+             && std::find (runtime.viewBindings.begin(), runtime.viewBindings.end(), "balance")
                     != runtime.viewBindings.end())
         state.actionText = "EDIT GENRE";
     referenceView.setState (std::move (state));

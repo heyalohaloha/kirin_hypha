@@ -20,7 +20,7 @@ bool RuntimeV2Controller::requestLibraryRecovery()
         || targetCheck == nullptr) return false;
     bool opensBalanceSettings = false;
     for (const auto& binding : targetCheck->viewBindings)
-        opensBalanceSettings = opensBalanceSettings || binding == "tonal_balance";
+        opensBalanceSettings = opensBalanceSettings || binding == "balance";
     const auto id = juce::Uuid().toDashedString().toLowerCase();
     const auto requestedAt = juce::Time::currentTimeMillis();
     auto* object = new juce::DynamicObject();
