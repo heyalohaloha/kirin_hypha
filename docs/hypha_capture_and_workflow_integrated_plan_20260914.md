@@ -3,11 +3,13 @@
 Date: 2026-09-14
 Status: 提案の精査と実装計画。製品変更・新たな実機検証は未実施。
 Source baseline: B-877 `9d7c3bb2`、`codex/reference-abc-delivery`。
+Revision: B-878計画レビュー3件を反映。追加の根拠・判定・探索契約を確定し、G0で実証してから新方式を組み込む。
 Input: 利用者が提示したH01〜H08改善案。調査対象は旧main `9cb40e56`、関連OSは`27dee5b7d`。
 
 目的は、正しく比較できる根拠を維持し、準備・聴取・復帰で利用者が迷う箇所を減らすことである。
 本書は[Capture A構造修正計画](reference_capture_structural_repair_plan_20260914.md)へ操作導線の修正を接続する。
 Captureのデータ構造・位置対応・保存予算は同計画を引き継ぐ。
+[根拠・判定・探索の実装契約](reference_evidence_and_discovery_contract_20260914.md)を音量基準、通知方式、候補検索の上限、G0合格条件の正本とする。
 H01〜H08は下記の修正を加えて計画へ含めるが、提案文の全項目を実装済み・承認済みとは扱わない。
 今回はソースと既存のレビュー結果を確認した。ネイティブ画面、実出力、初見利用者の改善効果は検証していない。
 
@@ -41,11 +43,13 @@ H01〜H08は下記の修正を加えて計画へ含めるが、提案文の全�
 過去のCaptureへ現在の位置対応を流用する問題、復元直後の保存欠落、PARTIALの消失、成長後も冒頭0.1秒に固定される表示を、同じ回帰検証へ含める。
 既存レビューは`target/b875-review/findings.txt`と[構造修正計画](reference_capture_structural_repair_plan_20260914.md)に記録されている。
 
-CaptureDocument/Store/Attempt/Binding/LiveEvidence/ViewStateの責務を分離する。
-取得時のAと現在の入力に差が確認された場合は、A欄の小さな`A DIFFERS`と確認区間の印で伝える。
+CaptureDocument/Store/Attempt/Binding/CaptureGainReceipt/LiveEvidence/ViewStateの責務を分離する。
+取得時と同じDAW sample区間の入力に通知対象の差が確認された場合は、A欄の小さな`A DIFFERS`と確認区間の印で伝える。
 未再生区間を確認済みにせず、どのプラグインを操作したかも断定しない。
 波形の間引きやUI通知の閾値を、sample位置・Gain Matchの成立判定へ流用しない。
 保存済みA、現在のA出力、比較画面の表示対象を分け、変更検知による自動再取得・音量追従・音源切替を行わない。
+保存Aの表示Gainは当該Captureの検証Receiptへ固定し、現在の試聴Gainから上書きしない。根拠が欠ける場合の原音表示と位置保留も実装契約に従う。
+「Bなし取得→全体EQ変更→B選択」は、入力差の通知と現在のA/Bを利用可能にし、根拠のない過去A/Bだけを保留する。現在A/Bを使うために再取得を必須にしない。
 
 ## 3. Blindを一つの利用手順として整える（H03〜H06）
 
@@ -55,7 +59,8 @@ CaptureDocument/Store/Attempt/Binding/LiveEvidence/ViewStateの責務を分離�
 600では「300％で開く」意味を押す前に伝え、その1操作で拡大と開始前画面への移動を行う。
 小さい3サイズでは同じ意味のメニュー入口を残す。
 メニューと直接入口は共通の可用性判定から作り、現在表示している面で直接入口が出る場合だけ重複を除く。
-REF/VU面でもメニューまで消して入口や復帰先を失わない。PREや非対応形式へ試聴入口を増やさない。
+REF面のメニューを維持する。VU全面は現行のVU操作で通常面へ戻る入口を維持し、存在しないMenuを「維持」の名目で新設しない。
+PREや非対応形式へ試聴入口を増やさない。VU面からの追加移動は、通常POSTの10→8操作とは別に記録する。
 
 KEEPの直接追加は、上記構成と拡張構成を600/900の実寸で比較する。
 既存フォントと押下領域を保ち、NOTE出現時もKeep/StopとMenuを動かさず、終了処理・保存失敗も収まる場合に限り採用候補とする。
@@ -114,23 +119,18 @@ H01は`Δ POST−PRE`など、現行見出しの意味を明確にする置換�
 現行のInactiveには複数原因が含まれるため、値だけから停止原因を細分化しない。
 同じ入力値を使い、履歴生成、Reset範囲、測定窓、SPACEの絶対観測を変えない。
 
-H02の候補は現状、クリック時にFFI経由で列挙している。常設ボタン化は表示変更だけでは済まない。
-新しい候補snapshotはhost/session境界、対象ID、claims、完全取得かどうかを持ち、描画はそれだけを読む。
-既存の非RTサービスで候補更新をまとめ、接続済み・非表示中には常時探索を追加しない。
-現在の列挙を背景threadから呼ぶだけで済ませず、engineの寿命と`handleLock`の保持範囲を監査する。
-ファイル探索のためにUIの状態取得やengine破棄を長く待たせず、公開済みsnapshotの読み取りを短く保つ。
-未接続の画面表示・接続状態変更で更新し、表示中の再探索が必要なら同じhost/sessionで最大1 Hzへ集約する予算案とする。
-候補数に応じた探索量も実測し、インスタンスごとに専用監視threadやファイルwatcherを増設しない。
-現在のC++候補／claims列挙は各32件で打ち切られるため、上限到達・取得失敗・古い境界は単一候補の証拠に使わない。
-その場合は既存候補メニューへ戻す。表示の更新後も、押した瞬間には表示した同じIDの存在・排他・再生条件を再検証する。
-名前欄と矢印の役割変更は未接続時に限定し、長い名前や識別不能な小サイズも既存選択を維持する。
+H02は[実装契約3章](reference_evidence_and_discovery_contract_20260914.md)の需要起動・分割探索・完全性付きsnapshotを使う。
+現行の列挙を1秒ごとに呼ばず、entry、file、bytes、処理時間、同時jobの上限を探索内部に設ける。32件の出力上限を検索量の上限と扱わない。
+cacheはroot/host/project/session/schemaの境界を持ち、PREとclaimsを同じ世代で公開する。別wrapperで一つのstaticが共有されるとは仮定しない。
+不完全・古い・識別不能な結果では既存候補メニューを使う。押下時は表示していた同じIDを固定し、既存の接続commandで存在・排他・再生条件を再検証する。
+UIの状態取得やengine破棄から探索完了を待たず、接続済み・非表示中の自動探索、インスタンスごとの専用threadを増やさない。
 
 H07は時間範囲ボタン本体の順送りと、隣の一覧入口を分ける。
 600/900ではkeyboardでも選べる一覧を追加し、小サイズは従来どおりとする。
 データが存在しない時間は空白を保つ。メニューを開くために履歴を再集計しない。
 
 H08の主面はA/B/Cの実出力、BのVersion選択、CのCheck選択、現在位置、表示がLIVEかCAPTUREDかを優先する。
-Capture Aと`A DIFFERS`／PARTIALはAの観測情報として配置し、CやBの準備状態へ混ぜない。
+Capture Aと`A DIFFERS`／PARTIALはAの観測情報として配置し、CやBの準備状態へ混ぜない。照合休止後のLAST CHECKも同じ小さな状態領域へ置く。
 B/Cの名前と対応を安定させ、Preset・Cueは必要な比較で直接操作を維持する。
 単一候補は読み取り可能な現在値へ置換できるが、Source/Cue変更に追加操作が必要な折り畳みは採用しない。
 まれな設定だけ補助面へまとめる。星、点滅、長い常設説明、確認用の新しい接続ボタンは増やさない。
@@ -143,11 +143,11 @@ Kirin OSの既存配信と安定IDを使い、接続・準備完了・復元だ�
 | 項目 | 上限・方針 | 確認方法 |
 | --- | --- | --- |
 | H01/H03〜H08の表示整理 | 新しいDSP、FFT、PCM保存、周期的ファイル読込を追加しない | callbackの変更差分と呼出経路を監査 |
-| H02の候補探索 | 非RT、表示条件付き、要求集約。上記1 Hzは予算案であって実測結果ではない | 1/複数POST、候補多数、非表示で検索回数・I/O待ちを計測 |
+| H02の候補探索 | 実装契約3章の需要・仕事量上限。未変更画面の周期的全探索0回 | G0-Sと1/複数POST、混在wrapper、非表示、遅延I/Oで計測 |
 | UI | 既存の更新経路を使用。新しい状態表示は最大10 Hz、状態不変なら文言・配置・波形pathを再生成しない | idle/再生/リサイズのUI CPUと割当を比較 |
-| Capture変更照合 | 既存queueからworkerへ渡し、全曲の再decodeをしない。Reference表示中に限り追加照合 | 検知遅延、queue欠落、worker CPUを測定 |
+| Capture変更照合 | 実装契約2章のdigestと軽量特徴をworkerで作る。Reference表示中に再照合し、全曲再decodeをしない | G0-D/P/Mで判定・検知遅延・queue欠落・worker CPUを測定 |
 | 資源 | 2枠Analysisと両Blind排他を維持。空の開始前画面では枠を取らない | 競合・取消・復帰・解放待ちを検証 |
-| Capture保存とRAM | B-877の新schema上限1 MiB、queue合計2 MiB、追加RAM目標16 MiBを引き継ぐ | 最大2時間、restoreと保持Aと取得の同時存在を実測 |
+| Capture保存とRAM | 実装契約5章のReceipt込みCapture領域1 MiB、queue合計2 MiB、追加RAM目標16 MiB | G0-Mと最大2時間、restoreと保持Aと取得の同時存在を実測 |
 | 通常A | 0 samples、bit identical。RTのalloc/lock/blocking I/Oを禁止 | nativeの厳密比較と対象DAWで確認 |
 
 UI更新の制限をメーター全体の描画フレームレート変更へ広げない。
@@ -162,8 +162,9 @@ callback p95/p99、最大処理時間、RSS、queue欠落、ホストのoverload
 
 | 順序 | 変更する責務 | 主なファイル群と対応試験 |
 | --- | --- | --- |
+| G0 | 音量基準、Bなし変更検知、探索予算を小さなnative検証で実証 | 実装契約4章のG0-G/D/P/S/M。失敗時は同じ計画内で修正し、新方式のschema/UIへ未検証のまま進まない |
 | 1 | 既存巨大ファイルから変更責務を抽出し、Captureの4不具合を解消 | B-877のModel/Store/Session/Codec/Controller/Projection/表示範囲と4件の回帰試験 |
-| 2 | Capture照合と表示、保存Aと現在入力の区別を完結 | CaptureRevisit/Binding、ReferenceCaptureControls、ComparisonView、schema・変更検知試験 |
+| 2 | Capture照合と表示、取得時Gainと現在試聴Gain、保存Aと現在入力の区別を完結 | CaptureRevisit/Binding/GainReceipt、ReferenceCaptureControls、ComparisonView、schema・変更検知試験 |
 | 3 | H03〜H06の入口・拒否理由・聴取表示・復帰を一体で接続 | PluginEditorLocalBlind/Lifecycle/Menu、LocalBlindComponent、ProcessorPairing、ProductSession/Trial、UI/Product/Playback/Transition試験 |
 | 4 | H01/H02/H07/H08を共通shellへ反映 | ObservatoryView/Layout/Footer/Presentation/Contract、Pair候補snapshotと確定処理、ReferenceComponent/Editor/表示adapter、候補競合・Reference選択・5サイズ試験 |
 | 5 | 対象試験を通し、最終状態で全体検証と実機を一巡 | 通常A不変、Record、復元、排他、負荷、操作数、初見観察を別々に記録 |
@@ -208,7 +209,7 @@ Windows操作前は既存Runbookを読み、macOS AU/VST3/AAXとWindows対象形
 既存の三つの実利用課題は維持し、OS・Jungleを再設計したり、Hypha側の修正をそれらの改修待ちにしたりしない。
 提案内の外部資料3点とOS側実画面は今回再検証していない。存在や操作結果を推定して引用しない。
 
-実装に進む場合の出発点は順序1である。公開資料、配布物、Notion、Kirin OS schemaはこの計画作成では変更しない。
+実装に進む場合の出発点はG0と独立した既知4不具合の修正である。G0合格後に新方式を統合する。公開資料、配布物、Notion、Kirin OS schemaはこの計画作成では変更しない。
 
 ## 8. 確認したソース
 

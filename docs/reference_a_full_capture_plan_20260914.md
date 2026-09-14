@@ -3,6 +3,7 @@
 Date: 2026-09-14
 Status: 実装・対象試験を実施。実機を含む完成判定は [検証記録](reference_a_full_capture_validation_20260914.md) を参照。
 Review follow-up: B-875の4件とCapture後の変更検知は[構造修正計画](reference_capture_structural_repair_plan_20260914.md)で扱う。現行実装を完成扱いしない。
+Plan review follow-up: Capture表示のGain、入力差と同曲校正の区別、保存予算は[根拠・判定・探索の実装契約](reference_evidence_and_discovery_contract_20260914.md)で更新した。本書のLIVE表示・音声契約は維持する。
 Baseline: Hypha B-873 `674e383a93aedcb3cbab211452e7a1f17fb2d931` / Kirin OS W-3080 `31fd330c`。
 
 利用者の合意は、現在のDAW音Aを一度曲全体で把握し、波形・音量・強弱の比較に使えるようにすることである。
@@ -109,7 +110,9 @@ CaptureのLUFS-I差をそのまま新しい試聴gainへ置換しない。再生
 全体の情報は、既存の位置・音量校正が曲内の離れた区間でも妥当かを確認する根拠として利用する。
 特徴量・波形の一致だけでsample一致を宣言せず、確定には既存のPCM照合とhost clockの検証を必要とする。
 不変なBの全体LUFSとA Captureの取得範囲が異なる場合、両者を同範囲のLUFS差として表示しない。
-Bの異rate変換と表示gainは現行の試聴経路を正本とし、比較値に別の変換・補正を導入しない。
+Bの異rate変換とLIVEの表示gainは現行の試聴経路を正本とする。
+CAPTUREDの表示gainは取得音とBに固有のCaptureGainReceiptを正本とし、同じ既定policyで検証した量を固定する。現在の試聴gainを過去Aへ流用しない。
+この表示Receiptは音声経路を変更せず、根拠欠損・headroom不足時の表示は上記実装契約に従う。
 
 | 組合せ | 方針 |
 | --- | --- |
@@ -142,7 +145,7 @@ A計測workerにBファイルI/Oを載せず、B準備が遅いときは比較�
 | 取得時間 | 2時間を初期上限案とする。上限で安全に閉じ、全曲完了と誤表示しない。長尺fixtureで実装時に確定 |
 | 入力queue | 既存2 MiB以内を共有。欠落時もAudio Threadを待たせない |
 | 要約・特徴・集計 | activeと前回保持分を含む追加メモリ16 MiB以内を初期目標とし、実測。EBUフィルタ/3秒履歴は別計上 |
-| 保存state | 全体波形・時刻・数値・validityの圧縮要約256 KiB以内を目標。encode/decodeはworkerで行い、state callbackへ処理を持ち込まない |
+| 保存state | B-875形式は256 KiB。新形式は根拠・判定・探索の実装契約の1 MiB上限へ更新。encode/decodeはworkerで行い、state callbackへ処理を持ち込まない |
 | 表示 | 最大2,048区間。必要なら同一passのpeak最大・energy総和・実frame数で段階集約。LUFS-Sは実window終端値を選び、平均しない |
 | 更新 | summary最大10 Hz、位置線最大30 Hz。非表示時の描画0回 |
 | 描画負荷 | 900×600追加描画p95 4 ms以内。B-873の1.000 ms cached / 2.523 ms rebuildを基準記録にする |
