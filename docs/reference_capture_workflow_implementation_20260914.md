@@ -100,6 +100,7 @@ The complete source baseline was started once. Successful groups were not rerun.
 
 ## Remaining acceptance work
 
+- A subsequent strict review of B-885 reproduced three defects: a duplicate Start during admission invalidates the in-flight capture's store generation; retained A starves LIVE observations and consumes both analysis slots; a prior failure message hides the visible A DIFFERS notification. These remain unfixed. The structural repair and its acceptance criteria are defined in [the B-885 repair plan](reference_capture_b885_structural_repair_plan_20260914.md). The earlier suite results below do not establish acceptance for these uncovered transitions.
 - Maximum summary memory and macOS retirement probes are recorded above; current results do not establish DAW wall-clock latency or all-wrapper peak resident memory.
 - Windows actual module unload remains an external verification blocker (error 4551). Verify the same source on a trusted validation runner or with the approved signed development module; do not weaken the machine's Code Integrity policy. The successful Windows unit tests do not replace DLL unloading or DAW validation.
 - The local consolidated source baseline is complete, with focused correction of the failures recorded above. No second full baseline was run. H01–H08 implementation follows the selected narrower H03 layout; direct Keep expansion was not adopted.
