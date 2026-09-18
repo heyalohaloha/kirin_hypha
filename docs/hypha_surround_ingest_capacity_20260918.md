@@ -31,9 +31,27 @@ ABI capacity = 16
 
 **音響測定の精度を削ってメモリを節約する案は採らない。**
 
-§2 で見るとおり、4 領域のいずれも「測定の精度」を持っていない。
-すべて **delivery（届ける保証）** である。削る候補になるのは精度ではなく、
-**測定機会（drop の有無）** と **RT safety** と **製品保証の範囲**である。
+ただし、次の 2 つを混同しない。
+
+| | 意味 | 4 領域との関係 |
+|---|---|---|
+| **measurement fidelity** | 測定アルゴリズム自体の数値精度 | **4 領域はこれを定義していない** |
+| **observation completeness** | 観測結果の完全性 | **4 領域は直接これに効く** |
+
+§2 で見るとおり、**4 領域はいずれも測定アルゴリズム自体の数値精度を定義する領域ではない。**
+すべて delivery（届ける保証）である。
+
+**しかし buffer 不足で drop すれば測定区間が欠落し、
+LUFS-I、LRA、最大値、履歴などの最終的な観測結果そのものは変わり得る。**
+
+```
+DSP アルゴリズムの精度を落とすわけではない
+  ≠
+観測結果の完全性に影響しない
+```
+
+削る候補になるのは fidelity ではなく、**completeness（drop の有無）** と
+**RT safety** と **製品保証の範囲**である。**completeness を削ることも軽い決定ではない。**
 
 ## 1. メモリを 4 つに分類する
 
@@ -55,7 +73,7 @@ RT safety を壊すのか、製品保証だけが変わるのかが分かる。*
 
 | 領域 | コードが書いている目的 | 分類 |
 |---|---|---|
-| interleave scratch | 「processBlock が allocate しないように事前確保（RT-safe）」。`max(declared block, 262144)` | **ホスト宣言分 = 必須 working set + RT headroom。<br>262,144 への上乗せ = product guarantee** |
+| interleave scratch | 「processBlock が allocate しないように事前確保（RT-safe）」。`max(declared block, 262144)` | **ホスト宣言分 = 現行方式の working set + RT headroom（§5.1）。<br>262,144 への上乗せ = product guarantee** |
 | Watch ring | 「One Watch lane only has to retain one complete host callback」 | **burst absorption（1 callback）。<br>その 1 callback が 262,144 であること = product guarantee** |
 | Record burst ×3 | 「Maximum number of complete Record callbacks that may remain unconsumed」 | **burst absorption（3 callback）。<br>「3 つまで」の公表契約 = product guarantee** |
 | raw pre-roll 1 秒 | 「bounded Keep notification/ACK handoff をカバーする。Watch metrics から Record データを導出しないため」 | **product guarantee**（用途が明示されている） |
@@ -139,7 +157,7 @@ PluginProcessor.cpp:32   constexpr int kOversizeHeadroomFrames = 262144;
 
 stereo・24 インスタンスでの内訳（式からの算出）:
 
-| ホスト宣言 block | 必須 working set | 確保 | 保険が占める割合 |
+| ホスト宣言 block | 現行方式の working set | 確保 | 保険が占める割合 |
 |---:|---:|---:|---:|
 | 128 | 0.023 MiB | 48.0 MiB | 99.95% |
 | 512 | 0.094 MiB | 48.0 MiB | 99.80% |
@@ -147,6 +165,23 @@ stereo・24 インスタンスでの内訳（式からの算出）:
 | 4096 | 0.750 MiB | 48.0 MiB | 98.44% |
 
 **この領域は、ほぼ全部が product guarantee である。** 調査価値が高い。
+
+### 5.1 「必須」の定義を厳密にする
+
+上表の「現行方式の working set」を **必須 working set と同一視しない。**
+正確には
+
+> **少なくとも、現在の planar→interleaved 方式でその callback を drop せず処理するために
+> 必要な scratch 容量**
+
+である。**処理方式そのものを変えれば、同じ block サイズでも必要な scratch 量は変わり得る。**
+
+```
+現在の実装上必要   ≠   アルゴリズム上絶対必要
+```
+
+この区別を残しておくと、(a) の検討で「方式を変える」案が
+「必須を削る案」と誤認されずに済む。
 
 超過時の経路も既にある。
 
@@ -228,12 +263,54 @@ bytes 一定になるようチャンネル数で割る案は、メモリは一�
 > (c) 明示的に同時利用条件を変更、の順で検討する。
 > **利用条件の縮小は Daisuke の承認なしに行わない。**
 
-## 8. 未確認 [C]
+## 8. 調査結果 — 384 MiB と burst=3 の由来 [A]
+
+§6 (a) 6 / 7 の最優先項目を追った。
+
+`ingest_contract.rs` は `49e6118 [B-409] Make Keep generations sample-exact and monotonic`
+（2026-07-16）で**完成した形で導入されている**。導入時点で既に
+
+- `CAPTURE_GENERATION_RSS_BUDGET_BYTES = 384 * 1024 * 1024`
+- `RECORD_UNCONSUMED_BURST_BLOCKS = 3`
+- `MAX_AUDIO_BLOCK_FRAMES = 262_144`
+
+がこの値であり、コメントも現行と同じである。commit 本文は 1 行で、導出の記述は無い。
+
+**リポジトリ内に 384 MiB と 3 blocks の導出根拠は記録されていない。**
+
+- `docs/` `AGENTS.md` `README.md` を全走査したが、384 MiB / RSS 予算 / 3 blocks の
+  根拠に触れる記述は**本サラウンド 3 文書以外に存在しない。**
+- コメントが述べるのは**何を保証するか**（hard RSS allocation envelope /
+  three complete maximum-sized callbacks）であって、**なぜその値か**ではない。
+
+**含意**: 384 MiB は「12 pair 実測から決めた hard ceiling」として**リポジトリからは裏付けられない。**
+昔の安全マージンなのか、特定環境の実 RSS から逆算したのかも不明である。
+
+したがって、**384 MiB を維持することは継承した制約ではなく、選択である。**
+由来が Daisuke の記憶または外部資料にある場合は、それが唯一の一次情報になる。
+
+## 9. 次の調査の優先順位
+
+**最適化案を考える段階ではない。§10 の未確認を潰して、
+現在の 384 MiB 契約そのものを再構築する段階である。**
+
+1. ~~384 MiB の由来~~ → §8。**リポジトリには記録が無い**と確定。外部情報が要る。
+2. ~~Record burst = 3 の由来~~ → §8。同じく記録が無い。
+3. **実際の全 allocation の列挙。** §3 の 4 領域に含まれていないものを全部出す
+   （measure thread 内の `with_capacity`、DSP state、history、UI / FFI、spool、workspace）。
+4. **2 / 6 / 12ch での理論 peak。** 3 を含めた全体で出し直す。§3 の値は 4 領域だけの中間値。
+5. **実 RSS 測定。** 論理的確保容量ではなく physical residency を測る。
+6. **保証モデルの候補比較。** ここで初めて、Daisuke が判断すべき選択肢を
+   **数値と失う保証をセットで**並べる。例:「384 MiB を維持する案」「保証を完全維持する案」「中間案」。
+
+**現段階では、384 MiB を増やす / 262,144 を減らす / 12 pair を減らす /
+Record burst を減らす、のどれも決定しない。**
+
+## 10. 未確認 [C]
 
 - **実 RSS 測定。** 本書はすべて式からの算出である。論理的確保容量 ≠ physical residency。
-- **384 MiB の由来**（§6 (a) 6）。
+- **384 MiB と burst=3 の導出根拠。** §8 のとおりリポジトリには無い。**外部情報が要る。**
 - **`remaining reserve` 約 50.8 MiB の実体**（§6 (a) 7）。
-- **Record burst = 3 の根拠となった元の事象。**
 - 同時に Record 中となるインスタンス数の実際の分布。
 - spool と f32→f64 workspace の内訳（約 10 MiB の詳細）。
 - `record_alignment_silence` / `chunk_f64` / `resampled_buf`（`measure_thread.rs:314-328`）など、
