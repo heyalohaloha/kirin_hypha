@@ -305,63 +305,9 @@ fn probe_calibration(mib_target: usize) {
     std::hint::black_box(buffer);
 }
 
-/// Constructing is not running. SpectrumRuntime accepts more than two channels at construction,
-/// so this pushes real blocks and reads the counters the runtime keeps, rather than inferring from
-/// RSS which only shows whether a preallocated ring was filled.
-fn probe_accept(native_rate: u32, channels: usize) {
-    println!("\n== SpectrumRuntime acceptance: native {native_rate} Hz, {channels} ch ==");
-    let runtime = SpectrumRuntime::new(native_rate, channels);
-    runtime.set_enabled(true);
-
-    let chunk_frames = native_rate as usize / 10;
-    let chunk: Vec<f32> = (0..chunk_frames * channels)
-        .map(|i| ((i % 97) as f32 / 97.0) * 0.5 - 0.25)
-        .collect();
-    let mut accepted = 0usize;
-    for i in 0..40 {
-        if runtime.push_block_from_audio(&chunk, channels, Some((i * chunk_frames) as i64)) {
-            accepted += 1;
-        }
-    }
-    // Give any worker a chance to drain before reading its counters.
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    let stats = runtime.stats();
-    println!("  push_block_from_audio returned true   {accepted} / 40");
-    println!("  enabled                               {}", stats.enabled);
-    println!(
-        "  worker_running                        {}",
-        stats.worker_running
-    );
-    println!("  channels                              {}", stats.channels);
-    println!(
-        "  pushed_blocks / dropped_blocks        {} / {}",
-        stats.pushed_blocks, stats.dropped_blocks
-    );
-    println!(
-        "  analyzed_frames                       {}",
-        stats.analyzed_frames
-    );
-    println!(
-        "  analyzed_perceptual_frames            {}",
-        stats.analyzed_perceptual_frames
-    );
-    println!(
-        "  analyzed_absolute_frames              {}",
-        stats.analyzed_absolute_frames
-    );
-    println!(
-        "  analyzed_mid_side_frames              {}",
-        stats.analyzed_mid_side_frames
-    );
-    println!(
-        "  history observations                  {}",
-        runtime.try_history().map_or(0, |h| h.frames().len())
-    );
-}
-
 /// Production routing: measure_thread.rs:1022 feeds the 48 kHz Watch engine on every iteration,
 /// while the two native-rate Record engines are fed only inside `if is_recording` (:1046). Feeding
-/// all three, as the earlier probe did, measures a generation that is recording on every instance.
+/// all three measures a generation that is recording on every instance.
 fn probe_routing(native_rate: u32, channels: usize, instances: usize) {
     println!("\n== routing: native {native_rate} Hz, {channels} ch, {instances} instance(s) ==");
     for (label, feed_record) in [
@@ -408,60 +354,6 @@ fn probe_routing(native_rate: u32, channels: usize, instances: usize) {
     }
 }
 
-/// True Peak is per-channel peak detection, not a weighted sum, so it must not be assumed to share
-/// the loudness path's channel-map defect. Put a known peak in exactly one channel, rotate which
-/// one, and read back every channel's true_peak.
-fn probe_true_peak(rate: u32, channels: usize) {
-    println!("\n== True Peak per channel: {rate} Hz, {channels} ch ==");
-    println!("  peak in channel c = -6.02 dBFS (0.5), every other channel silent");
-    println!(
-        "  {:<10} {:<14} {:<12} {}",
-        "signal ch", "observed on", "value dBTP", "verdict"
-    );
-
-    let frames = rate as usize / 10;
-    for c in 0..channels {
-        let mut meter = EbuR128::new(channels as u32, rate, MODE).expect("EbuR128");
-        let mut block = vec![0.0f64; frames * channels];
-        for f in 0..frames {
-            // A short tone so the 4x interpolation has something to reconstruct.
-            let phase = (f as f64) * std::f64::consts::TAU * 997.0 / rate as f64;
-            block[f * channels + c] = 0.5 * phase.sin();
-        }
-        for _ in 0..10 {
-            meter.add_frames_f64(&block).expect("add_frames");
-        }
-        let mut observed: Vec<usize> = Vec::new();
-        let mut value = f64::NEG_INFINITY;
-        for k in 0..channels {
-            if let Ok(tp) = meter.true_peak(k as u32) {
-                if tp > 1e-6 {
-                    observed.push(k);
-                    value = value.max(20.0 * tp.log10());
-                }
-            }
-        }
-        let verdict = if observed == vec![c] {
-            "ok"
-        } else if observed.is_empty() {
-            "NOT OBSERVED"
-        } else {
-            "wrong channel"
-        };
-        println!(
-            "  {:<10} {:<14} {:<12} {}",
-            c,
-            format!("{observed:?}"),
-            if value.is_finite() {
-                format!("{value:.2}")
-            } else {
-                "-".to_owned()
-            },
-            verdict
-        );
-    }
-}
-
 fn main() {
     if rss_bytes().is_none() {
         println!("/proc/self/statm unavailable — this probe is Linux only.");
@@ -490,23 +382,11 @@ fn main() {
             }
             probe_touched(rate, ch, instances);
         }
-        Some("truepeak") => {
-            probe_true_peak(
-                args[2].parse().expect("rate"),
-                args[3].parse().expect("channels"),
-            );
-        }
         Some("routing") => {
             probe_routing(
                 args[2].parse().expect("rate"),
                 args[3].parse().expect("channels"),
                 args[4].parse().expect("instances"),
-            );
-        }
-        Some("accept") => {
-            probe_accept(
-                args[2].parse().expect("rate"),
-                args[3].parse().expect("channels"),
             );
         }
         Some("calibrate") => {
@@ -519,7 +399,7 @@ fn main() {
             probe_census(rate, ch, instances);
         }
         _ => {
-            println!("usage: memory_contract_probe <single|scaling|touched|census> <rate> <channels> [instances]");
+            println!("usage: memory_contract_probe <single|scaling|touched|census|routing|calibrate> <rate> <channels> [instances]");
             println!("Formula side: docs/hypha_surround_ingest_capacity_20260918.md");
         }
     }

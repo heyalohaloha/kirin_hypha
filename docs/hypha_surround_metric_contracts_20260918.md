@@ -98,7 +98,7 @@ Correlation は runtime 上は R だが、それは `StereoMeter` の親ガー�
 
 ## 4. 実測 — True Peak は LUFS と分離する [A]
 
-`memory_contract_probe truepeak <rate> <channels>`。
+`channel_contract_probe truepeak <rate> <channels>`。
 1 チャンネルだけに既知ピーク（0.5 = −6.02 dBFS の 997 Hz）を入れ、位置を順に移す。
 `EbuR128` の mode は `MeasureEngine` と同一。
 
@@ -272,7 +272,23 @@ Spectrum FIELD aggregation / Phase D aggregate / SPACE。
 最も危険なのは「構築できない R」ではない。
 **構築できて正常に見える C と、値まで出る G である。**
 
-## 13. 未確認 [C]
+## 13. probe の構成
+
+役割で 2 つに分けてある。**バイト数を測るものと、挙動を測るものは別物である。**
+
+| example | 測るもの | mode |
+|---|---|---|
+| `memory_contract_probe` | バイト数（RSS） | `single` `scaling` `touched` `census` `routing` `calibrate` |
+| `channel_contract_probe` | **挙動**（受理するか、どのチャンネルで観測されるか） | `accept` `truepeak` |
+
+```bash
+cargo run -p kirin_measure --example channel_contract_probe --release -- truepeak 48000 12
+cargo run -p kirin_measure --example channel_contract_probe --release -- accept 48000 6
+```
+
+`memory_contract_probe` は **1 ケース 1 プロセス**で実行する（§10 / capacity 文書）。
+
+## 14. 未確認 [C]
 
 - VU の内部定義（チャンネル別のみか、集約があるか）。
 - Sharpness continuous の Nch 適用可否。
