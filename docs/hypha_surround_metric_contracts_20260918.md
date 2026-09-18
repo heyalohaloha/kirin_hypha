@@ -65,13 +65,13 @@ Correlation は runtime 上は R だが、それは `StereoMeter` の親ガー�
 | True Peak / instant TP（`StereoMeter` ABI 公開） | **R** | CHANNEL-LOCAL | Nch 一般化。**ABI だけでなく channel identity 契約全体** |
 | Sample Peak / hold | **R** | CHANNEL-LOCAL | 同上 |
 | Clip / clip latched | **R** | CHANNEL-LOCAL | 同上 |
-| VU | **R** | CHANNEL-LOCAL（**集約の有無を要確認** [C]） | 内部定義を確認してから Nch 化 |
+| VU | **R** | **CHANNEL-LOCAL（集約なし）** | `vu_levels()` は `.take(self.channels)` の純チャンネル別。Nch 化は素直 |
 | Correlation | **R** | **STEREO-ONLY**（pair-extension candidate） | 現行値は stereo 専用。左右ペア拡張は**別仕様** |
 | Balance / BalanceState | **R** | **AGGREGATION-UNDEFINED** | 左右 group energy ratio は**候補に留める**（§7） |
 | Stereo field density | **R** | **STEREO-ONLY** | Nch では明示的適用外 |
 | MONO | **R** | **STEREO-ONLY** / NEW-METRIC-CANDIDATE | 現行 MONO は stereo 専用。downmix survival は**別測定量** |
 | Spectrum analysis | **C** | CHANNEL-LOCAL | **silent clamp / drop を最優先で除去**。Nch 分析自体は成立 |
-| Spectrum FIELD / presentation | **C** | **AGGREGATION-UNDEFINED** | 6 秒 FIELD へ**根拠なく Nch 平均を入れない** |
+| Spectrum FIELD / presentation | **C** | **AGGREGATION-UNDEFINED**（ABI にチャンネルを表す手段が無い / §9.1） | 6 秒 FIELD へ**根拠なく Nch 平均を入れない** |
 | MID-SIDE | **C**（Spectrum と同一 runtime） | **STEREO-ONLY** | Nch では明示的適用外 |
 | Attack detector | **R** | CHANNEL-LOCAL | チャンネル別検出は Nch 化候補 |
 | Attack event aggregation | **R** | **AGGREGATION-UNDEFINED** | 複数 ch の近接 attack の扱いが未定義（§5.2） |
@@ -218,8 +218,8 @@ Spectrum FIELD aggregation / Phase D aggregate / SPACE。
 | 1 | TP を LUFS から分離した 6ch / 12ch single-channel probe | **完了**（§4） |
 | 2 | `space_decay` の実装読破 | **完了**。broadband（全 ch 合算 / ch 数）。`space_decay.rs:120-126` |
 | 3 | `local_blind_capture_protocol` の PCM / metadata 依存性 | **完了**。metadata のみ。PCM を運ばない |
-| 4 | Spectrum の C が発生する層の特定 | **部分完了**（§9.1） |
-| 5 | `phase_d` 以外に「runtime generic / aggregate 未定義」がないか全走査 | **未実施** [C] |
+| 4 | Spectrum の C が発生する層の特定 | **完了**（§9.1）。**ABI と表示にチャンネルの概念が無い** |
+| 5 | `phase_d` 以外に「runtime generic / aggregate 未定義」がないか全走査 | **完了**（§9.2）。**該当は `phase_d` のみ** |
 
 ### 9.1 Spectrum の C はどの層か
 
@@ -229,8 +229,29 @@ Spectrum FIELD aggregation / Phase D aggregate / SPACE。
 | runtime state | clamp 後の値を保持。`stats().channels` が 2 を返す |
 | push admission | `num_channels != self.num_channels` で **全 drop**（`:245`） |
 | worker | `block.channels != self.num_channels` で discard（`spectrum_runtime_worker.rs:42`） |
-| FFI | **未確認** [C] |
-| presentation | **未確認** [C] |
+| **FFI** | `channels: uint8_t` はあるが、**`channel_mode` は 3 値のみ**（`kirin_hypha_ffi.h:68-70` `KIRIN_SPECTRUM_CHANNEL_LR / MID / SIDE`） |
+| **presentation** | 同じ 3 値。**per-channel spectrum を表す手段が無い** |
+
+**clamp を外しても足りない。** ABI と表示の channel model が
+「LR / Mid / Side」という**stereo 由来の 3 値**であり、
+**6ch のスペクトルを表現する場所が存在しない。**
+
+したがって Spectrum の C は 1 行の修正ではなく、**presentation model の設計**である。
+
+### 9.2 gate 5 — runtime generic かつ集約未定義は `phase_d` のみ
+
+`channels` を受け取るコンストラクタ 21 件を全走査し、ガードの有無と集約を確認した。
+
+| 分類 | 対象 |
+|---|---|
+| **集約が未定義** | **`phase_d/channels.rs:30, :86` のみ**（重みなし算術平均） |
+| 集約は定義済み | `absolute_level.rs:30`（TP は `0..channels` の max、LUFS-M は規格定義） |
+| 変換であって指標ではない | `resampler.rs:43`、`raw_pre_roll.rs:27` |
+| ガード付き経路からしか到達しない | `attack_detail` `attack_runtime_assembler` `spectrum_runtime_assemblers`（×3）`reference_tonal:76` `meter_session` |
+
+**`absolute_level.rs:30` は 4 つ目の `EbuR128` 生成経路であり、チャンネル数ガードを持たない。**
+本番の呼出し元は `absolute_timeline.rs:179` の 1 つで、そちらは `:170` でガードされる。
+**独立した危険ではないが、明示 map の適用対象に必ず含める。**
 
 ## 10. 初期公開の考え方
 
@@ -290,9 +311,7 @@ cargo run -p kirin_measure --example channel_contract_probe --release -- accept 
 
 ## 14. 未確認 [C]
 
-- VU の内部定義（チャンネル別のみか、集約があるか）。
 - Sharpness continuous の Nch 適用可否。
-- `phase_d` 以外の「runtime generic / aggregate 未定義」subsystem の全走査。
-- Spectrum の C における FFI 層と presentation 層。
+- Spectrum の presentation model を Nch でどう設計するか（**C の解消はここに依存する**）。
 - 各指標の窓長・hop・正規化・無音条件・reset 条件。**本表は Nch 挙動に絞っている。**
 - Reference B が stereo、入力 A が Nch のときの比較条件。
