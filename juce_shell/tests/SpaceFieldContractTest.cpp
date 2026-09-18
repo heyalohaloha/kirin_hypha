@@ -4,6 +4,7 @@
 #include "../src/HyphaMonoSumHistory.h"
 
 #include <cmath>
+#include <functional>
 #include <limits>
 
 #include "../src/HyphaObservatoryView.h"
@@ -68,19 +69,50 @@ KirinMeterSession fixture (bool sideDominant)
     return meter;
 }
 
+/// Renders `observationCount` observations, each built by `observationAt`, which receives the
+/// index oldest first. The default hands back the same snapshot every time.
+juce::Image renderOverTime (int width, int height, int observationCount,
+                            const std::function<KirinMeterSession (int)>& observationAt)
+{
+    observatory::View view (observatory::Role::post);
+    view.setSize (width, height);
+    view.setDomain (observatory::Domain::space);
+    for (int observation = 0; observation < observationCount; ++observation)
+    {
+        KirinObservatoryFrame frame {};
+        frame.version = KIRIN_OBSERVATORY_FRAME_VERSION;
+        frame.meter = observationAt (observation);
+        frame.meter.observed_frames =
+            frame.meter.observed_frames + (uint64_t) observation * 4'800u;
+        frame.signal_state = KIRIN_SIGNAL_STATE_ACTIVE;
+        view.setObservatoryFrame (frame, true);
+    }
+    juce::Image image (juce::Image::ARGB, width, height, true);
+    juce::Graphics graphics (image);
+    view.paintEntireComponent (graphics, true);
+    return image;
+}
+
 juce::Image render (const KirinMeterSession& meter, int width, int height,
                     int observationCount = (int) mono_sum_history::capacity)
 {
     observatory::View view (observatory::Role::post);
     view.setSize (width, height);
     view.setDomain (observatory::Domain::space);
-    // Each call advances the 100 ms observation clock, so the six-second field fills the way it
-    // does in the plug-in rather than from one repeated snapshot.
+    // Through setObservatoryFrame, which is the entry point the plug-in uses. Feeding the view by
+    // setMeterSnapshot instead would exercise a path nothing ships, and did: the six-second field
+    // was wired only there and would never have filled in the plug-in.
+    //
+    // Each call advances the 100 ms observation clock, so the field fills the way it does live
+    // rather than from one repeated snapshot.
     for (int observation = 0; observation < observationCount; ++observation)
     {
-        auto moment = meter;
-        moment.observed_frames = meter.observed_frames + (uint64_t) observation * 4'800u;
-        view.setMeterSnapshot (moment, true);
+        KirinObservatoryFrame frame {};
+        frame.version = KIRIN_OBSERVATORY_FRAME_VERSION;
+        frame.meter = meter;
+        frame.meter.observed_frames = meter.observed_frames + (uint64_t) observation * 4'800u;
+        frame.signal_state = KIRIN_SIGNAL_STATE_ACTIVE;
+        view.setObservatoryFrame (frame, true);
     }
     juce::Image image (juce::Image::ARGB, width, height, true);
     juce::Graphics graphics (image);
@@ -214,6 +246,40 @@ void verifyMonoSumFieldInk()
                              std::numeric_limits<float>::quiet_NaN()) == 0u);
 }
 
+/// The six seconds behind the curve have to reach the screen, and their vertical axis has to be
+/// time. Both cases end on the same observation, so the live curve is identical and every
+/// difference between them is the field.
+void verifyMonoSumFieldReachesTheScreen()
+{
+    constexpr int kWidth = 900;
+    constexpr int kHeight = 600;
+    constexpr int kCount = (int) mono_sum_history::capacity;
+
+    const auto flat = flatMonoFixture (0.0f);
+    auto dipped = flat;
+    for (size_t band = 10u; band < 16u; ++band)
+        dipped.mono_sum_db[band] = -18.0f;
+
+    // Oldest half dipped, newest half flat.
+    const auto wasDipped = renderOverTime (kWidth, kHeight, kCount,
+        [&] (int index) { return index < kCount / 2 ? dipped : flat; });
+    // Flat throughout.
+    const auto neverDipped = renderOverTime (kWidth, kHeight, kCount,
+        [&] (int) { return flat; });
+    KIRIN_SPACE_REQUIRE (changedPixels (wasDipped, neverDipped) > 100);
+
+    // Newest half dipped instead. Its live curve differs, but so must the field, and the two
+    // dipped cases cannot look the same or the field is not carrying time at all.
+    const auto isDipped = renderOverTime (kWidth, kHeight, kCount,
+        [&] (int index) { return index < kCount / 2 ? flat : dipped; });
+    KIRIN_SPACE_REQUIRE (changedPixels (wasDipped, isDipped) > 100);
+
+    // One observation cannot fill six seconds of field, so it differs from a full one.
+    const auto single = renderOverTime (kWidth, kHeight, 1, [&] (int) { return dipped; });
+    const auto full = renderOverTime (kWidth, kHeight, kCount, [&] (int) { return dipped; });
+    KIRIN_SPACE_REQUIRE (changedPixels (single, full) > 100);
+}
+
 /// The curve has to move with the value, stop where the scale stops, and break where a band was
 /// not measured rather than drawing the one reading that means the band loses nothing.
 void verifyMonoSumCurveRendering()
@@ -282,6 +348,7 @@ void verifySpaceFieldContract()
     verifyMonoSumScale();
     verifyMonoSumHistory();
     verifyMonoSumFieldInk();
+    verifyMonoSumFieldReachesTheScreen();
     verifyMonoSumCurveRendering();
     const auto mid = fixture (false);
     const auto side = fixture (true);

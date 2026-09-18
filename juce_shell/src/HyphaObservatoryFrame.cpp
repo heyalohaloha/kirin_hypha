@@ -41,7 +41,11 @@ void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool availab
 {
     if (! available || value.version != KIRIN_OBSERVATORY_FRAME_VERSION)
         return;
-    if (frameAvailable && observation_equality::same (observatoryFrame, value))
+    // This is the entry point the plug-in uses. Anything a snapshot has to be stored into has to
+    // be stored here, not only in setMeterSnapshot, which nothing but tests calls.
+    const bool storedMono = monoSumHistory.append (value.meter);
+    if (! storedMono && frameAvailable
+        && observation_equality::same (observatoryFrame, value))
         return;
     observatoryFrame = value;
     frameAvailable = true;

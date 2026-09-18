@@ -201,9 +201,12 @@ void paint (juce::Graphics& g,
     constexpr int metricsRowMinimum = 136;
     const int metricWidth = juce::jlimit (82, compact ? 102 : 168,
                                           juce::roundToInt (area.getWidth() * 0.31f));
+    // The same inset the square's plot is drawn with below, so the gate cannot disagree with what
+    // is actually painted.
+    const int fieldInset = compact ? 11 : 16;
     const auto squarePlotWidthAfter = [&] (int stripHeight) {
         const int rowHeight = area.getHeight() - (stripHeight > 0 ? stripHeight + gap : 0);
-        return juce::jmin (area.getWidth() - metricWidth - gap, rowHeight) - 32;
+        return juce::jmin (area.getWidth() - metricWidth - gap, rowHeight) - fieldInset * 2;
     };
     const int monoHeight = juce::jmax (monoStripMinimum,
                                        juce::roundToInt (area.getHeight() * 0.42f));
@@ -221,7 +224,7 @@ void paint (juce::Graphics& g,
     const int side = juce::jmin (area.getWidth(), area.getHeight());
     auto field = juce::Rectangle<int> (0, 0, side, side).withCentre (area.getCentre());
     drawPanel (g, field, compact);
-    auto plot = field.reduced (compact ? 11 : 16).toFloat();
+    auto plot = field.reduced (fieldInset).toFloat();
     drawFieldAxes (g, plot);
     if (fieldAvailable)
         drawDensity (g, plot, meter);

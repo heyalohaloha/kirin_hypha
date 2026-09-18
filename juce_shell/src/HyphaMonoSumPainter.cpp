@@ -168,9 +168,9 @@ namespace
                 return;
             if (pointsInRun == 1)
             {
-                juce::Point<float> only;
-                run.getCurrentPosition();
-                only = run.getCurrentPosition();
+                // One measured band between two unmeasured ones still has to be visible, and a
+                // path of a single point strokes nothing.
+                const auto only = run.getCurrentPosition();
                 g.fillEllipse (only.x - strokeWidth, only.y - strokeWidth,
                                strokeWidth * 2.0f, strokeWidth * 2.0f);
             }
