@@ -92,8 +92,8 @@ affects what is drawn, never what is measured, stored, or read back.
   neither sign is favoured.
 
 Everything else is the measurement itself: the playback-pass and Keep maximums, LUFS-S, the FREQ
-numeric readout, MARK, Focus Trail, peak hold, Meter Session statistics, TIME history, the SHARP and
-LIVE timelines, Record, Keep, and `plugin_data`. A value read back later is therefore the measured
+numeric readout, the six-second field, MARK, Focus Trail, peak hold, Meter Session statistics, TIME
+history, the SHARP and LIVE timelines, Record, Keep, and `plugin_data`. A value read back later is therefore the measured
 one, and it can differ from what a live cell or curve showed while it was moving.
 
 Every metric is backed by a known-signal golden test: the expected values are derived independently from the signal definition and the ITU-R BS.1770 filter coefficients, not asserted by hand. The measurement layer demonstrates its precision rather than claiming it.
@@ -159,6 +159,15 @@ waveform. **SIDE** analyzes `(L−R)/2` and is available only for stereo input; 
 SIDE result. Switching LR / MID / SIDE clears the old frame and waits for an exact PRE/POST match in
 the newly selected mode. Record-mode N and Sharpness use their own independent-channel definition,
 described below, so they can differ from MID or SIDE Spectrum on wide or phase-opposed material.
+
+When POST has no verified PRE, Spectrum shows POST on its own: the current curve, a rolling peak
+hold, and the **six-second field** behind them. The field is a second axis inside the same
+rectangle — vertical is time, not level. The newest observation is drawn along the bottom edge and
+rises as it ages, leaving the top edge six seconds later, so a resonance that appeared, a sweep, or
+a level move traces a visible shape. It carries one row per 30 Hz observation at the full band
+resolution, and density follows the measured level, so a loud band is far denser than a quiet one.
+Nothing is averaged, interpolated, or scrolled between observations: a gap in the measurement stays
+a gap in the field.
 
 In the POST target, **M/S** is a fourth display choice beside LR / MID / SIDE. It overlays solid
 cyan Mid and violet Side curves calculated from the same aperture, with a shared

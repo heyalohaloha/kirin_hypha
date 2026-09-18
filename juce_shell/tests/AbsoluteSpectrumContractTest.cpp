@@ -2,6 +2,9 @@
 
 #include "../src/HyphaAbsoluteSpectrumHistory.h"
 #include "../src/HyphaSpectrumComponent.h"
+#include "../src/HyphaSpectrumGeometry.h"
+#include "../src/HyphaSpectrumPainter.h"
+#include "../src/HyphaSpectrumUiContract.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -44,10 +47,167 @@ KirinSpectrumView postFrame (int64_t endpoint, float magnitude)
             * std::sin ((float) index * 0.03125f);
     return frame;
 }
+
+// One quiet frame with a single loud band, so the band's position and brightness are checkable.
+KirinSpectrumView markedFrame (int64_t endpoint, size_t loudBand, float loudDbfs)
+{
+    KirinSpectrumView frame {};
+    frame.status = KIRIN_SPECTRUM_NO_PAIR;
+    frame.channel_mode = KIRIN_SPECTRUM_CHANNEL_LR;
+    frame.channels = 2;
+    frame.sample_rate = 48'000;
+    frame.min_hz = 10.0f;
+    frame.max_hz = 22'000.0f;
+    frame.presentation_end_samples = endpoint;
+    frame.aperture_samples = 4'096;
+    frame.fft_size = 8'192;
+    frame.approximate_below_hz = 35.15625f;
+    frame.post_has_data = 1;
+    for (auto& value : frame.post_dbfs)
+        value = -90.0f;
+    frame.post_dbfs[loudBand] = loudDbfs;
+    return frame;
+}
+
+int fieldInkAt (const juce::Image& image, int x, int y)
+{
+    return image.getPixelAt (x, y).getAlpha();
+}
+
+// The six-second field carries time on the vertical axis: the newest observation at the bottom,
+// the oldest at the top. A sweeping loud band therefore has to draw one diagonal streak, and the
+// streak's resolution is what tells the user whether a change was sudden or gradual.
+void verifySixSecondFieldReadsAsTime()
+{
+    constexpr int width = 600;
+    constexpr int height = 400;
+    constexpr size_t frames = absolute_spectrum::historyCapacity;
+    constexpr size_t oldestBand = 40u;
+    constexpr size_t newestBand = 200u;
+
+    absolute_spectrum::History history;
+    for (size_t index = 0u; index < frames; ++index)
+    {
+        // 30 Hz observations, one per row of the field.
+        const auto endpoint = (int64_t) ((index + 1u) * 1'600u);
+        const auto band = oldestBand
+            + (newestBand - oldestBand) * index / (frames - 1u);
+        KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (
+            history.append (markedFrame (endpoint, band, -6.0f)));
+    }
+    KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (history.size() == frames);
+
+    spectrum_painter::SpectrumBins post {};
+    spectrum_painter::SpectrumBins hold {};
+    post.fill (-96.0f);
+    hold.fill (-96.0f);
+
+    juce::Image image (juce::Image::ARGB, width, height, true);
+    {
+        juce::Graphics graphics (image);
+        const auto plot = spectrum_geometry::dataPlotBoundsFor (
+            image.getBounds().toFloat(), false);
+        spectrum_painter::paintAbsolute (
+            graphics, plot, spectrum_geometry::visualScaleFor (image.getBounds().toFloat()),
+            post, hold, history, presentation::forEditor (width, height));
+
+        const auto pixels = plot.toNearestInt();
+        const auto columnFor = [&plot] (size_t band) {
+            return juce::roundToInt (juce::jmap (
+                spectrum_geometry::bandCentreNormalisedX (band),
+                plot.getX(), plot.getRight()));
+        };
+
+        // 1. Age maps to height. Frame i is (179 - i) / 30 seconds old, so its loud band has to
+        //    land that fraction of the way up from the bottom. Scanning stops short of the live
+        //    curve's own row at the plot floor.
+        const auto brightestRowIn = [&] (int column, int stopBefore) {
+            int bestRow = -1;
+            int bestInk = 0;
+            for (int y = pixels.getY(); y < stopBefore; ++y)
+                if (const auto ink = fieldInkAt (image, column, y); ink > bestInk)
+                {
+                    bestInk = ink;
+                    bestRow = y;
+                }
+            return std::pair<int, int> { bestRow, bestInk };
+        };
+        const int scanStop = pixels.getBottom() - 12;
+        const float tolerance = 0.08f * (float) pixels.getHeight();
+        for (const auto frameIndex : { (size_t) 29u, (size_t) 89u, (size_t) 149u })
+        {
+            const auto band = oldestBand
+                + (newestBand - oldestBand) * frameIndex / (frames - 1u);
+            const double ageSeconds = (double) (frames - 1u - frameIndex) / 30.0;
+            const float expected = (float) pixels.getBottom()
+                - (float) (ageSeconds / absolute_spectrum::historySeconds)
+                    * (float) pixels.getHeight();
+            const auto found = brightestRowIn (columnFor (band), scanStop);
+            KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (found.second > 0);
+            KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (
+                std::abs ((float) found.first - expected) <= tolerance);
+        }
+
+        // 2. Time resolution. The field carries the 30 Hz observations, not a 40-row reduction of
+        //    them, so a six-second sweep has to leave far more than 40 distinct rows of ink.
+        int inkedRows = 0;
+        for (int y = pixels.getY(); y < pixels.getBottom(); ++y)
+        {
+            bool inked = false;
+            for (int x = pixels.getX(); x < pixels.getRight() && ! inked; ++x)
+                inked = fieldInkAt (image, x, y) > 0;
+            inkedRows += inked ? 1 : 0;
+        }
+        KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (inkedRows > 100);
+    }
+
+    const auto outputPath = juce::SystemStats::getEnvironmentVariable (
+        "KIRIN_HYPHA_SIX_SECOND_FIELD_TEST_PNG", {});
+    if (outputPath.isNotEmpty())
+    {
+        auto output = juce::File (outputPath).createOutputStream();
+        KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (output != nullptr);
+        KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (
+            juce::PNGImageFormat().writeImageToStream (image, *output));
+    }
+
+    // 3. Level separation. A loud band and a quiet one must not arrive at the same density, which
+    //    is what made the field read as one flat haze.
+    juce::Image loudImage (juce::Image::ARGB, width, height, true);
+    juce::Image quietImage (juce::Image::ARGB, width, height, true);
+    const auto inkForSingle = [&] (juce::Image& target, float dbfs) {
+        // The marked observation is followed by two seconds of quiet ones, so its row sits well
+        // clear of the live curve at the plot floor.
+        absolute_spectrum::History single;
+        KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (single.append (markedFrame (1'600, 100u, dbfs)));
+        for (int later = 1; later <= 60; ++later)
+            KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (
+                single.append (markedFrame ((int64_t) (later + 1) * 1'600, 250u, -90.0f)));
+        juce::Graphics graphics (target);
+        const auto plot = spectrum_geometry::dataPlotBoundsFor (
+            target.getBounds().toFloat(), false);
+        spectrum_painter::paintAbsolute (
+            graphics, plot, spectrum_geometry::visualScaleFor (target.getBounds().toFloat()),
+            post, hold, single, presentation::forEditor (width, height));
+        const auto column = juce::roundToInt (juce::jmap (
+            spectrum_geometry::bandCentreNormalisedX (100u), plot.getX(), plot.getRight()));
+        int best = 0;
+        for (int y = plot.toNearestInt().getY(); y < plot.toNearestInt().getBottom() - 12; ++y)
+            best = std::max (best, fieldInkAt (target, column, y));
+        return best;
+    };
+    const auto loudInk = inkForSingle (loudImage, -6.0f);
+    const auto quietInk = inkForSingle (quietImage, -60.0f);
+    KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (loudInk > 0 && quietInk > 0);
+    KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (loudInk >= quietInk * 3);
+
+}
 }
 
 void verifyAbsoluteSpectrumContract()
 {
+    verifySixSecondFieldReadsAsTime();
+
     absolute_spectrum::History history;
     const auto first = postFrame (4'800, -32.0f);
     const auto second = postFrame (6'400, -20.0f);
