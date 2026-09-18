@@ -4,7 +4,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use super::{
     opt_f64, KirinHyphaEngine, KirinMeterSession, KIRIN_BALANCE_LEFT_ONLY, KIRIN_BALANCE_NUMERIC,
     KIRIN_BALANCE_RIGHT_ONLY, KIRIN_BALANCE_UNAVAILABLE, KIRIN_METER_SESSION_ACTIVE,
-    KIRIN_METER_SESSION_EMPTY, KIRIN_METER_SESSION_PAUSED, KIRIN_STEREO_FIELD_SIZE,
+    KIRIN_METER_SESSION_EMPTY, KIRIN_METER_SESSION_PAUSED, KIRIN_MONO_SUM_BAND_COUNT,
+    KIRIN_STEREO_FIELD_SIZE,
 };
 
 impl KirinHyphaEngine {
@@ -121,5 +122,16 @@ pub(super) fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterS
         max_lufs_m: opt_f64(snapshot.max_lufs_m),
         channel_vu_dbfs: snapshot.stereo.vu_dbfs.map(opt_f64),
         channel_instant_true_peak_dbtp: snapshot.stereo.instant_true_peak_dbtp.map(opt_f64),
+        mono_sum_band_count: if snapshot.stereo.mono_sum_db.iter().any(Option::is_some) {
+            KIRIN_MONO_SUM_BAND_COUNT as u8
+        } else {
+            0
+        },
+        mono_sum_reserved: [0; 3],
+        mono_sum_approximate_below_hz: snapshot.stereo.mono_sum_approximate_below_hz,
+        mono_sum_db: snapshot
+            .stereo
+            .mono_sum_db
+            .map(|value| value.unwrap_or(f32::NAN)),
     }
 }

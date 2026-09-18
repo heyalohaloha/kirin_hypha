@@ -6,7 +6,7 @@ use kirin_measure::BalanceState;
 
 #[test]
 fn snapshot_layout_and_mapping_are_stable() {
-    assert_eq!(std::mem::size_of::<KirinMeterSession>(), 872);
+    assert_eq!(std::mem::size_of::<KirinMeterSession>(), 1008);
     assert_eq!(
         std::mem::offset_of!(KirinMeterSession, channel_clip_latched),
         90
@@ -21,9 +21,21 @@ fn snapshot_layout_and_mapping_are_stable() {
         std::mem::offset_of!(KirinMeterSession, channel_instant_true_peak_dbtp),
         856
     );
+    // MONO is appended after every field that shipped before it, so an older reader keeps its
+    // offsets and simply does not see it.
+    assert_eq!(
+        std::mem::offset_of!(KirinMeterSession, mono_sum_band_count),
+        872
+    );
+    assert_eq!(
+        std::mem::offset_of!(KirinMeterSession, mono_sum_approximate_below_hz),
+        876
+    );
+    assert_eq!(std::mem::offset_of!(KirinMeterSession, mono_sum_db), 880);
+    assert_eq!(KIRIN_MONO_SUM_BAND_COUNT, 32);
     assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
     assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 184);
-    assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 1112);
+    assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 1248);
     let current = MeasureResult {
         lufs_m: Some(-14.2),
         lufs_s: Some(-14.8),
@@ -64,6 +76,8 @@ fn snapshot_layout_and_mapping_are_stable() {
                 density
             },
             field_observation_count: 30,
+            mono_sum_db: [Some(-0.75); kirin_measure::mono_sum::MONO_SUM_BAND_COUNT],
+            mono_sum_approximate_below_hz: 30.0,
         },
     };
     let mapped = to_c_meter_session(&snapshot);
@@ -83,6 +97,28 @@ fn snapshot_layout_and_mapping_are_stable() {
     assert_eq!(mapped.sample_peak_dbfs, [-1.0, -2.0]);
     assert_eq!(mapped.channel_vu_dbfs, [-18.0, -20.0]);
     assert_eq!(mapped.channel_instant_true_peak_dbtp, [-0.9, -1.9]);
+    // MONO crosses the boundary as a value or as NaN. An unmeasured band must never arrive as
+    // 0 dB, which is the one reading that means the band loses nothing.
+    assert_eq!(mapped.mono_sum_band_count, KIRIN_MONO_SUM_BAND_COUNT as u8);
+    assert_eq!(mapped.mono_sum_reserved, [0; 3]);
+    assert_eq!(mapped.mono_sum_approximate_below_hz, 30.0);
+    assert!(mapped.mono_sum_db.iter().all(|value| *value == -0.75));
+
+    let mut partial = snapshot.clone();
+    partial.stereo.mono_sum_db[0] = None;
+    partial.stereo.mono_sum_db[31] = None;
+    let mapped = to_c_meter_session(&partial);
+    assert_eq!(mapped.mono_sum_band_count, KIRIN_MONO_SUM_BAND_COUNT as u8);
+    assert!(mapped.mono_sum_db[0].is_nan());
+    assert!(mapped.mono_sum_db[31].is_nan());
+    assert_eq!(mapped.mono_sum_db[1], -0.75);
+
+    let mut absent = snapshot.clone();
+    absent.stereo.mono_sum_db = [None; kirin_measure::mono_sum::MONO_SUM_BAND_COUNT];
+    absent.stereo.mono_sum_approximate_below_hz = 0.0;
+    let mapped = to_c_meter_session(&absent);
+    assert_eq!(mapped.mono_sum_band_count, 0);
+    assert!(mapped.mono_sum_db.iter().all(|value| value.is_nan()));
     assert_eq!(mapped.clip_events, [2, 1]);
     assert_eq!(mapped.channel_clip_latched, [1, 0]);
     assert_eq!(mapped.balance_db, 0.75);
@@ -158,6 +194,8 @@ fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
             correlation: None,
             field_density: [0; STEREO_FIELD_BINS],
             field_observation_count: 0,
+            mono_sum_db: [None; kirin_measure::mono_sum::MONO_SUM_BAND_COUNT],
+            mono_sum_approximate_below_hz: 0.0,
         },
     };
     assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_WARMING);
@@ -225,6 +263,10 @@ fn null_meter_session_calls_fail_closed_without_touching_output() {
         max_lufs_m: 0.0,
         channel_vu_dbfs: [0.0; 2],
         channel_instant_true_peak_dbtp: [0.0; 2],
+        mono_sum_band_count: 0,
+        mono_sum_reserved: [0; 3],
+        mono_sum_approximate_below_hz: 0.0,
+        mono_sum_db: [f32::NAN; KIRIN_MONO_SUM_BAND_COUNT],
     };
     assert!(!unsafe { kirin_hypha_poll_meter_session(std::ptr::null_mut(), &mut out) });
     let mut history_count = 41_u32;

@@ -87,6 +87,14 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_BALANCE_RIGHT_ONLY 3u
 #define KIRIN_STEREO_FIELD_SIZE 25u
 #define KIRIN_STEREO_FIELD_BINS 625u
+/* MONO band split: 10 Hz to 22 kHz over 32 log bands is 0.347 octave each, a third octave. */
+#define KIRIN_MONO_SUM_BAND_COUNT 32u
+#define KIRIN_MONO_SUM_MIN_HZ 10.0f
+#define KIRIN_MONO_SUM_MAX_HZ 22000.0f
+/* Display: 0 dB at the top, -6 dB at the midpoint, -24 dB at the floor. The values users act on
+ * sit between 0 and -3 dB, so the top half carries them and the bottom half carries the rest. */
+#define KIRIN_MONO_SUM_DISPLAY_FLOOR_DB (-24.0f)
+#define KIRIN_MONO_SUM_DISPLAY_MIDPOINT_DB (-6.0f)
 
 #define KIRIN_METER_HISTORY_10_HZ 0u
 #define KIRIN_METER_HISTORY_1_HZ 1u
@@ -133,39 +141,7 @@ typedef struct {
   double max_true_peak; /* セッション内 True Peak 最大 [dBTP] */
 } KirinSessionSummary;
 
-/* Record/Keepから独立した常設メーターセッション。値なしはNaN。
- * current/session値はobserved_framesの同一100ms境界から生成される。 */
-typedef struct {
-  uint64_t generation;
-  uint64_t active_frames;   /* 受理したActive音声の総フレーム数 */
-  uint64_t observed_frames; /* 全指標が共有する100ms測定境界 */
-  uint32_t sample_rate;
-  uint8_t state;            /* KIRIN_METER_SESSION_* */
-  uint8_t reserved[3];
-  double lufs_m;
-  double lufs_s;
-  double lufs_i;
-  double lra;
-  double true_peak;
-  double max_true_peak;
-  double plr;
-  uint8_t channels;
-  uint8_t balance_state; /* KIRIN_BALANCE_* */
-  uint8_t channel_clip_latched[2], stereo_reserved[4]; /* VU表示のみ。Session clip_eventsとは独立 */
-  double sample_peak_dbfs[2];
-  double sample_peak_hold_dbfs[2];
-  double channel_true_peak_dbtp[2];
-  double channel_max_true_peak_dbtp[2];
-  uint64_t clip_events[2];
-  double balance_db;  /* positive=L, negative=R; one-sidedはbalance_stateで表す */
-  double correlation; /* fixed 3 s; denominator 0/mono/未成立はNaN */
-  uint8_t field_size; /* 0=unavailable, otherwise KIRIN_STEREO_FIELD_SIZE */
-  uint8_t field_observation_count; /* rolling 100 ms observations, maximum 30 */
-  uint8_t field_reserved[6];
-  uint8_t field_density[KIRIN_STEREO_FIELD_BINS]; /* rolling 3 s MID/SIDE density */
-  double max_lufs_m; /* EBU Mode Maximum Momentary through observed_frames */
-  double channel_vu_dbfs[2], channel_instant_true_peak_dbtp[2]; /* 300 ms VU; 100 ms TP */
-} KirinMeterSession;
+#include "kirin_hypha_meter_session_ffi.h"
 
 typedef struct {
   double min;

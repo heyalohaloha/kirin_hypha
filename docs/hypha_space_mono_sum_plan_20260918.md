@@ -119,16 +119,21 @@ SPACE の時間表示でも同じ規則が要るため、**先に共有部品へ
 **費用の実測。** 100 ms ごとに FFT 2 回を足す。Measure Thread の現行処理に対する増分を測り、
 数値を記録する。推測で「軽い」と書かない。
 
-### Phase 2 — FFI
+### Phase 2 — FFI  ✅ 完了 / B-910
 
 `KirinMeterSession` の**末尾に追加**する。既存オフセットは動かさない（B-074 / B-075 と同じ規約）。
 
 ```c
-uint8_t mono_sum_band_count;           /* 0 = 未成立、それ以外は 32 */
+uint8_t mono_sum_band_count;           /* 0 = 未成立、32 = 成立。可変の帯域数ではない */
 uint8_t mono_sum_reserved[3];
 float   mono_sum_approximate_below_hz;
-float   mono_sum_db[32];               /* NaN = undefined */
+float   mono_sum_db[KIRIN_MONO_SUM_BAND_COUNT];  /* NaN = undefined */
 ```
+
+実測した layout（2026-09-18 / B-910）: `KirinMeterSession` は 872 → **1008 bytes**、
+`KirinObservatoryFrame` は 1112 → **1248 bytes**。新 field の offset は 872 / 876 / 880 で、
+既存 field の offset は 1 つも動いていない。Rust 側 `meter_session_abi_tests.rs` の offset 表と
+JUCE 側 2 箇所の `static_assert` が同時にこれを固定する（更新を忘れるとビルドが止まる）。
 
 - C ヘッダと `meter_session_ffi.rs` を同時に更新
 - `HyphaObservationEquality.h` の key に新フィールドを追加（NaN 比較を含む）
@@ -178,7 +183,7 @@ float   mono_sum_db[32];               /* NaN = undefined */
 根拠 — 散布図が答えるのは「広いか狭いか」だけで、カーブは「どの帯域で何 dB 失うか」を答える。
 画面が小さいほど、情報量の多い方を残すべきである。散布図は 375×250 以上で復帰させる。
 
-### (2) 表示床とスケール形状  ⚠ 2026-09-18 レビューで差し戻し / 判断待ち
+### (2) 表示床とスケール形状  ✅ 2026-09-18 再決裁（推奨どおり）
 
 **確定していた「表示床 -24 dB・線形」は取り消す。** 値の分布を並べたところ実用に耐えない。
 
@@ -195,9 +200,9 @@ float   mono_sum_db[32];               /* NaN = undefined */
 12% に潰れ、一番読みたい「0 dB と -3 dB の違い」が見えない。めったに来ない -15 dB 付近に
 画面の半分を使うことになる。
 
-**推奨: 表示床は -24 dB のまま、割り当てを区分にする。** 上半分に 0 〜 -6 dB、下半分に
--6 〜 -24 dB。判断が起きるのは 0 〜 -6 dB であり、-15 と -20 の区別には実用上の意味がない
-（どちらも「その帯域は消える」で同じ結論になる）。
+**確定: 表示床は -24 dB。割り当ては区分とする。上半分に 0 〜 -6 dB、下半分に -6 〜 -24 dB。**
+判断が起きるのは 0 〜 -6 dB であり、-15 と -20 の区別には実用上の意味がない
+（どちらも「その帯域は消える」で同じ結論になる）。境界 -6 dB は目盛りとして描く。
 
 ### (3) 名前
 
@@ -223,7 +228,7 @@ Meter Session は editor の生死と独立に常時動く（INV-S15）。した
 
 ## 4b. 2026-09-18 計画レビューで確定した追加事項
 
-初稿に欠けていた項目。(2) の表示スケールだけが判断待ちで、以下は確定である。
+初稿に欠けていた項目。(2) の表示スケールを含め、全件確定済みである。
 
 ### 履歴と Record
 
