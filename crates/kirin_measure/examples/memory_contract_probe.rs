@@ -7,7 +7,12 @@
 //! `cargo run -p kirin_measure --example memory_contract_probe --release`
 
 use ebur128::{EbuR128, Mode};
-use kirin_measure::MeasureEngine;
+use kirin_measure::phase_d::channels::PhaseDChannelStream;
+use kirin_measure::phase_d::tables::FieldType;
+use kirin_measure::resampler::ResamplerTo48k;
+use kirin_measure::{
+    AttackRuntime, MeasureEngine, SharpnessContinuousAnalyzer, SpectrumRuntime, StereoMeter,
+};
 
 const MODE: Mode = Mode::M
     .union(Mode::S)
@@ -155,6 +160,114 @@ fn probe_touched(native_rate: u32, channels: usize, instances: usize) {
     std::hint::black_box(held);
 }
 
+/// Everything the four ingest regions and the MeasureEngine audit leave out. Each subsystem is
+/// built `instances` times, measured, then fed the same 4 s of audio and measured again, so the
+/// untouched and resident sides stay separate the way §10 showed they must.
+fn probe_census(native_rate: u32, channels: usize, instances: usize) {
+    println!(
+        "\n== subsystem census: native {native_rate} Hz, {channels} ch, {instances} instance(s) =="
+    );
+    println!(
+        "  {:<34} {:>12} {:>12}",
+        "subsystem", "allocated", "after feed"
+    );
+
+    let chunk_frames = native_rate as usize / 10;
+    let chunk_f64: Vec<f64> = (0..chunk_frames * channels)
+        .map(|i| ((i % 97) as f64 / 97.0) * 0.5 - 0.25)
+        .collect();
+    let chunk_f32: Vec<f32> = chunk_f64.iter().map(|v| *v as f32).collect();
+    let pushes = 40usize;
+
+    macro_rules! census {
+        ($label:expr, $build:expr, $feed:expr) => {{
+            // A subsystem that refuses this channel count is a result, not a crash: the stereo
+            // guards are exactly what surround has to deal with, so record and carry on.
+            let probe: Option<_> = $build;
+            if probe.is_none() {
+                println!("  {:<34} {:>12} {:>12}", $label, "rejected", "-");
+            } else {
+                drop(probe);
+                let base = rss_bytes().expect("statm");
+                let mut held: Vec<_> = (0..instances).filter_map(|_| $build).collect();
+                let allocated = rss_bytes().expect("statm");
+                #[allow(clippy::redundant_closure_call)]
+                for item in held.iter_mut() {
+                    ($feed)(item);
+                }
+                let fed = rss_bytes().expect("statm");
+                println!(
+                    "  {:<34} {:>+11.2} {:>+12.2}",
+                    $label,
+                    mib(allocated as i64 - base as i64),
+                    mib(fed as i64 - base as i64)
+                );
+                std::hint::black_box(held);
+            }
+        }};
+    }
+
+    census!(
+        "StereoMeter",
+        StereoMeter::new(native_rate, channels).ok(),
+        |m: &mut StereoMeter| {
+            for _ in 0..pushes {
+                m.push_observation(&chunk_f64);
+            }
+        }
+    );
+    census!(
+        "PhaseDChannelStream",
+        Some(PhaseDChannelStream::new(FieldType::Free, channels)),
+        |s: &mut PhaseDChannelStream| {
+            for _ in 0..pushes {
+                let _ = s.push_interleaved_slot(&chunk_f64);
+            }
+        }
+    );
+    census!(
+        "SharpnessContinuousAnalyzer",
+        SharpnessContinuousAnalyzer::new(native_rate, channels).ok(),
+        |_: &mut SharpnessContinuousAnalyzer| {}
+    );
+    census!(
+        "SpectrumRuntime",
+        {
+            let r = SpectrumRuntime::new(native_rate, channels);
+            r.set_enabled(true);
+            Some(r)
+        },
+        |r: &mut std::sync::Arc<SpectrumRuntime>| {
+            for i in 0..pushes {
+                r.push_block_from_audio(&chunk_f32, channels, Some((i * chunk_frames) as i64));
+            }
+        }
+    );
+    census!(
+        "AttackRuntime",
+        AttackRuntime::new(native_rate, channels).ok().inspect(|r| {
+            r.set_enabled(true);
+        }),
+        |r: &mut std::sync::Arc<AttackRuntime>| {
+            for i in 0..pushes {
+                r.push_block_from_audio(&chunk_f32, channels, Some((i * chunk_frames) as i64));
+            }
+        }
+    );
+    if native_rate != 48_000 {
+        census!(
+            "ResamplerTo48k",
+            ResamplerTo48k::new(native_rate, channels).ok(),
+            |r: &mut ResamplerTo48k| {
+                let mut out = Vec::new();
+                for _ in 0..pushes {
+                    let _ = r.process(&chunk_f64, &mut out);
+                }
+            }
+        );
+    }
+}
+
 fn main() {
     if rss_bytes().is_none() {
         println!("/proc/self/statm unavailable — this probe is Linux only.");
@@ -183,8 +296,14 @@ fn main() {
             }
             probe_touched(rate, ch, instances);
         }
+        Some("census") => {
+            let rate: u32 = args[2].parse().expect("rate");
+            let ch: usize = args[3].parse().expect("channels");
+            let instances: usize = args[4].parse().expect("instances");
+            probe_census(rate, ch, instances);
+        }
         _ => {
-            println!("usage: memory_contract_probe <single|scaling|touched> <rate> <channels> [instances]");
+            println!("usage: memory_contract_probe <single|scaling|touched|census> <rate> <channels> [instances]");
             println!("Formula side: docs/hypha_surround_ingest_capacity_20260918.md");
         }
     }

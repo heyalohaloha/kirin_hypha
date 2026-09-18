@@ -456,7 +456,67 @@ push を 8 秒・16 秒に延ばしても +30.98 MiB で飽和するので、rin
 - **stereo の現行製品でも、24 インスタンスが同時に測定していれば
   engine だけで 214.57 MiB を使う。** 契約の scope 次第では既に整合しない。
 
-## 11. 次の調査の優先順位
+## 11. 実測 — サブシステム census [A]
+
+`memory_contract_probe census <rate> <ch> <instances>`。24 インスタンス分を構築 → 4 秒 push。
+構築を拒否するサブシステムは `rejected` と記録する（**落とさない。拒否も結果である**）。
+
+### 11.1 48 kHz / 24 インスタンス
+
+| サブシステム | 2ch 確保 | 2ch push 後 | 6ch push 後 | 12ch push 後 |
+|---|---:|---:|---:|---:|
+| `StereoMeter` | +1.76 | **+15.39** | **rejected** | **rejected** |
+| `PhaseDChannelStream` | +0.38 | +1.20 | +13.14 | **+25.96** |
+| `SharpnessContinuousAnalyzer` | +2.25 | +2.25 | **rejected** | **rejected** |
+| `SpectrumRuntime` | +12.18 | +13.44 | +12.47 | +16.05 |
+| `AttackRuntime` | +12.82 | **+33.61** | **rejected** | **rejected** |
+| **小計（2ch）** | | **+65.89 MiB** | | |
+
+### 11.2 192 kHz / stereo / 24 インスタンス
+
+| サブシステム | 確保 | push 後 |
+|---|---:|---:|
+| `StereoMeter` | +1.72 | **+55.80** |
+| `PhaseDChannelStream` | +0.10 | +3.80 |
+| `SharpnessContinuousAnalyzer` | +2.96 | +2.96 |
+| `SpectrumRuntime` | +8.24 | +12.47 |
+| **`AttackRuntime`** | **+44.07** | **+134.32** |
+| `ResamplerTo48k` | +2.27 | +20.00 |
+| **小計** | | **+229.35 MiB** |
+
+### 11.3 稼働中の実測合計（4 領域を除く）
+
+| 条件 | MeasureEngine ×3（§10） | サブシステム（§11） | **合計** |
+|---|---:|---:|---:|
+| 48 kHz / stereo / 24 | 214.57 | 65.89 | **280.46 MiB** |
+| 192 kHz / stereo / 24 | 646.05 | 229.35 | **875.40 MiB** |
+
+**4 領域（Watch ring / Record burst / scratch / pre-roll）は含まない。**
+それらは §10 の結果から、使われるまでほぼ resident にならないと見てよい（未測定 [C]）。
+
+### 11.4 読み取れること
+
+**(1) `AttackRuntime` が最大の未計上項目だった。**
+192 kHz で 134.32 MiB。§9 の列挙には入っていなかった。
+`SpectrumRuntime` も 12〜16 MiB あり、チャンネル数にほぼ依存しない。
+
+**(2) `StereoMeter` は sample rate に強く依存する。** 15.39（48k）→ 55.80（192k）。
+
+**(3) 構築を拒否するのは 3 つ。**
+`StereoMeter` / `SharpnessContinuousAnalyzer` / `AttackRuntime` は 2ch を超えると
+**構築できない**（§2 のガード）。サラウンドで最初に当たる壁はメモリではなく**ここ**である。
+
+**(4) `SpectrumRuntime` は 6ch / 12ch でも構築できる。** ただし push 後の増分がほぼゼロ
+（+0.02 / +0.01 MiB）なので、**投入が受理されていない可能性が高い** [C]。
+「構築できる = 動く」ではない。
+
+**(5) `PhaseDChannelStream` だけがチャンネル数に素直に比例する。**
+1.20 → 13.14 → 25.96 MiB。§5 のとおり機構が総称だからである。
+
+**(6) 測定のばらつき。** 同一条件の再実行で `StereoMeter` 確保が +0.95 / +1.76 と振れる。
+allocator 挙動によるもので、**小さい値ほど有効数字は落ちる。**
+
+## 12. 次の調査の優先順位
 
 **最適化案を考える段階ではない。§10 の未確認を潰して、
 現在の 384 MiB 契約そのものを再構築する段階である。**
@@ -465,16 +525,19 @@ push を 8 秒・16 秒に延ばしても +30.98 MiB で飽和するので、rin
 2. ~~Record burst = 3 の由来~~ → §8。同じく記録が無い。
 3. ~~EbuR128 allocation audit~~ → §10.1 完了。
 4. ~~最小 RSS 実験~~ → §10.2 完了。**式は予測子にならないことが判明。**
-5. **残り全 allocation の census。** §9.6。**式ではなく probe を拡張して実測する。**
-6. **完全な 2 / 6 / 12ch モデル。** 実測を土台にする。
-7. **DAW 条件を含む実 RSS。** 実機。JUCE 側 scratch と Record lane を含む。
-8. **保証モデルの候補比較。** ここで初めて、Daisuke が判断すべき選択肢を
+5. ~~残り全 allocation の census~~ → §11 完了。**`AttackRuntime` が最大の見落としだった。**
+6. **4 領域（Watch ring / Record burst / scratch / pre-roll）の実測。** §10 の結果から
+   「使うまで resident にならない」と推定しているが、**未測定** [C]。
+7. **`SpectrumRuntime` が 6ch / 12ch で投入を受理しているかの確認**（§11.4 (4)）。
+8. **完全な 2 / 6 / 12ch モデル。** 実測を土台にする。
+9. **DAW 条件を含む実 RSS。** 実機。JUCE 側 scratch と Record lane を含む。
+10. **保証モデルの候補比較。** ここで初めて、Daisuke が判断すべき選択肢を
    **数値と失う保証をセットで**並べる。例:「384 MiB を維持する案」「保証を完全維持する案」「中間案」。
 
 **現段階では、384 MiB を増やす / 262,144 を減らす / 12 pair を減らす /
 Record burst を減らす、のどれも決定しない。**
 
-## 12. 未確認 [C]
+## 13. 未確認 [C]
 
 - **実 RSS 測定。** 本書はすべて式からの算出である。論理的確保容量 ≠ physical residency。
 - **384 MiB と burst=3 の導出根拠。** §8 のとおりリポジトリには無い。**外部情報が要る。**
