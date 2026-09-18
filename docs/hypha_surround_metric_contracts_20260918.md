@@ -500,5 +500,77 @@ cargo run -p kirin_measure --example channel_contract_probe --release -- accept 
 ## 16. 未確認 [C]
 
 - (a) を採る場合の selector の粒度（全チャンネルを出すか、layout 定義済みの役割のみか）。
-- 各指標の窓長・hop・正規化・無音条件・reset 条件。**本表は Nch 挙動に絞っている。**
 - (ii) を採る場合の downmix 係数の出典（計画 §7.4）。
+
+## 17. 窓・cadence・有効条件・reset [A]
+
+計画 §6 の残り。**Nch 化で「変えてはいけない時間契約」を先に固定する。**
+
+### 17.1 観測 cadence
+
+| 経路 | cadence | 根拠 |
+|---|---|---|
+| `StereoMeter` の observation | **100 ms** | `OBSERVATIONS_PER_*` が 100 ms 単位（`stereo_meter.rs:13-15`） |
+| Sharpness の presentation | **10 Hz = 100 ms** | `perceptual.rs:18-19`。aperture 4,800 frames @48 kHz |
+| `MeasureEngine` の解析 | **10 ms**、公開は 100 ms | B-605 監査（解析 cadence と公開 cadence の分離） |
+| Watch engine の rate | **常に 48 kHz** | `measure_thread.rs:245` `ENGINE_SR` |
+| Record engine の rate | **入力 native** | `:252` `:262` |
+
+**Nch 化で cadence を変えない。** 変えると PRE/POST 比較と履歴の同一性が崩れる。
+
+### 17.2 窓長
+
+| 指標 | 窓 | 根拠 |
+|---|---|---|
+| LUFS-M | 400 ms | ebur128 `Mode::M` |
+| LUFS-S | 3 s | ebur128 `Mode::S`（`window = 3000`） |
+| LUFS-I / LRA | session（gated） | `Mode::I` / `Mode::LRA` |
+| True Peak（recent） | **400 ms、frames 基準**（壁時計ではない） | `engine.rs:49-52 tp_recent_window_frames` |
+| True Peak（`StereoMeter` instant） | **400 ms** = 4 × 100 ms | `stereo_meter.rs:14` |
+| VU | **300 ms** = 3 × 100 ms。全波平均 × π/2 で正弦の peak へ校正 | `:15` / `:364-375` |
+| Correlation / Balance | **3 s 固定** = 30 × 100 ms | `:13` / `:343` |
+| Spectrum | FFT window **4,096** | `spectrum.rs:16` |
+| Attack context / detail | **100 ms / 30 ms** | `attack_perception.rs:9-10` |
+| MONO | 1/3 oct **32 band**、3 周期未満は近似表示 | `mono_sum.rs:24, :34` |
+| SPACE decay | bin **10 ms**、early split **80 ms**、early end **250 ms**、最大区間 **6 s** | `space_decay.rs:10-13` |
+
+### 17.3 有効条件（floor）
+
+| 値 | floor | 意味 |
+|---|---|---|
+| LUFS | **−100 LUFS** | `engine.rs:18` / `absolute_level.rs:12`。下回れば無信号扱い（`---`） |
+| True Peak | **−100 dBTP** | `engine.rs:19` / `absolute_level.rs:13` |
+| Reference gain の active | **−100 LUFS** | `reference_gain.rs:13` |
+| MONO の測定可能下限 | **−120 dBFS** | `mono_sum.rs:28`。下回れば **undefined（NaN）** |
+| MONO の比の floor | **−60 dB** | `mono_sum.rs:31`。**「消えた」であって「測っていない」ではない** |
+| Attack level floor | **−120 dBFS** | `attack_perception.rs:11` |
+
+**Nch 化で floor を変えない。** 特に MONO の「undefined と floor の区別」（INV-S31）は、
+**サラウンドの downmix 指標でも同じ規律を引き継ぐ**（計画 §7.3）。
+
+### 17.4 reset の契機
+
+```rust
+crates/kirin_measure/src/measure_thread.rs:426-431
+engine.reset();
+record_trace_engine.reset();
+record_summary_engine.reset();
+phase_d.reset();
+    rs.reset();
+```
+
+Watch → Record 遷移で **engine 群と phase_d を一括 reset** する（`:208` のコメント）。
+
+`StereoMeter::reset`（`:247`）は sample peak / hold / max TP / clip latched /
+session clip events を初期化する。
+
+**Nch 化で新たに必要になる reset は、レイアウト変更である**（計画 §5.3 の epoch）。
+現行の reset 契機は rate と Record 遷移しか見ていない。
+
+### 17.5 この節が Nch 化へ課す制約
+
+1. **cadence と窓長は不変。** Nch でチャンネルが増えても 100 ms / 400 ms / 3 s を変えない。
+2. **floor は不変。** チャンネル数で有効条件を変えない。
+3. **reset にレイアウト変更を足す。** 現行は rate と Record 遷移のみ。
+4. **Watch が常に 48 kHz、Record が native** という二重 rate 構造を維持する。
+   §14.2 のとおり、Watch のコストが sample rate に依存しないのはこの構造による。
