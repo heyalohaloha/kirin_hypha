@@ -64,8 +64,15 @@ namespace
         return table[(size_t) juce::jlimit (0, (int) table.size() - 1, entry)];
     }
 
-    // The field as one image: a column per measured band, a row per measured observation, newest
-    // at the bottom. Rows with no observation stay transparent so a gap stays a gap.
+    // The field as one image: a column per measured band, a row per 1/180 of the six seconds,
+    // newest at the bottom.
+    //
+    // Each row shows the observation nearest its own instant, and only when one lands within that
+    // row's width in time. Scattering observations into the row their age falls in looked simpler
+    // but is wrong: hosts publish on their own buffer boundaries, so a 1024-sample host at 48 kHz
+    // delivers one observation per 42.7 ms and leaves 22% of the rows empty, which draws a striped
+    // field that no measurement gap caused. Choosing per row also keeps a real gap visible: half a
+    // second without observations still empties fifteen rows.
     juce::Image makeFieldImage (const absolute_spectrum::History& history)
     {
         if (history.empty())
@@ -73,7 +80,27 @@ namespace
 
         constexpr int rows = (int) absolute_spectrum::historyCapacity;
         constexpr int columns = (int) KIRIN_SPECTRUM_BAND_COUNT;
+        constexpr double rowSeconds = absolute_spectrum::historySeconds / (double) rows;
         const auto& newest = history.at (history.size() - 1u);
+
+        // The observations inside the window, oldest first, with their age.
+        std::array<double, absolute_spectrum::historyCapacity> ages {};
+        std::array<size_t, absolute_spectrum::historyCapacity> source {};
+        size_t inWindow = 0u;
+        for (size_t frameIndex = 0u; frameIndex < history.size(); ++frameIndex)
+        {
+            const auto& frame = history.at (frameIndex);
+            const double ageSeconds = frame.sampleRate > 0u
+                ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate
+                : absolute_spectrum::historySeconds;
+            if (ageSeconds < 0.0 || ageSeconds > absolute_spectrum::historySeconds)
+                continue;
+            ages[inWindow] = ageSeconds;
+            source[inWindow] = frameIndex;
+            ++inWindow;
+        }
+        if (inWindow == 0u)
+            return {};
 
         juce::Image image (juce::Image::ARGB, columns, rows, true,
                            juce::SoftwareImageType {});
@@ -88,17 +115,20 @@ namespace
         }();
         const auto& alphaTable = fieldAlphaTable();
 
+        // Ages fall as the index rises and the rows ask for rising ages, so one walk covers both.
+        size_t candidate = inWindow - 1u;
         bool painted = false;
-        for (size_t frameIndex = 0u; frameIndex < history.size(); ++frameIndex)
+        for (int fromBottom = 0; fromBottom < rows; ++fromBottom)
         {
-            const auto& frame = history.at (frameIndex);
-            const double ageSeconds = frame.sampleRate > 0u
-                ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate
-                : absolute_spectrum::historySeconds;
-            if (ageSeconds < 0.0 || ageSeconds > absolute_spectrum::historySeconds)
+            const double instant = ((double) fromBottom + 0.5) * rowSeconds;
+            while (candidate > 0u
+                   && std::abs (ages[candidate - 1u] - instant)
+                          <= std::abs (ages[candidate] - instant))
+                --candidate;
+            if (std::abs (ages[candidate] - instant) > rowSeconds)
                 continue;
-            const int fromBottom = juce::jlimit (0, rows - 1,
-                (int) std::floor (ageSeconds / absolute_spectrum::historySeconds * rows));
+
+            const auto& frame = history.at (source[candidate]);
             auto* line = (juce::PixelARGB*) pixels.getLinePointer (rows - 1 - fromBottom);
             for (int column = 0; column < columns; ++column)
             {

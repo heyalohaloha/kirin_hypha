@@ -164,10 +164,11 @@ When POST has no verified PRE, Spectrum shows POST on its own: the current curve
 hold, and the **six-second field** behind them. The field is a second axis inside the same
 rectangle — vertical is time, not level. The newest observation is drawn along the bottom edge and
 rises as it ages, leaving the top edge six seconds later, so a resonance that appeared, a sweep, or
-a level move traces a visible shape. It carries one row per 30 Hz observation at the full band
-resolution, and density follows the measured level, so a loud band is far denser than a quiet one.
-Nothing is averaged, interpolated, or scrolled between observations: a gap in the measurement stays
-a gap in the field.
+a level move traces a visible shape. Each of its 180 rows is one thirtieth of a second and shows
+the observation nearest that instant, at the full band resolution; density follows the measured
+level, so a loud band is far denser than a quiet one. Nothing is averaged, blended, or invented
+between observations, and a row with no observation near it stays empty, so a break in the
+measurement stays a break in the field.
 
 In the POST target, **M/S** is a fourth display choice beside LR / MID / SIDE. It overlays solid
 cyan Mid and violet Side curves calculated from the same aperture, with a shared

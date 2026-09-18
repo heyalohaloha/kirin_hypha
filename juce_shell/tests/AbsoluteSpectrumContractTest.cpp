@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <vector>
+#include <algorithm>
 
 namespace hypha::tests
 {
@@ -74,6 +76,118 @@ int fieldInkAt (const juce::Image& image, int x, int y)
     return image.getPixelAt (x, y).getAlpha();
 }
 
+// Rows of the rendered plot that carry field ink, ignoring the strip at the floor where the live
+// curve is drawn.
+std::vector<bool> fieldRowsWithInk (const juce::Image& image, juce::Rectangle<int> plot)
+{
+    std::vector<bool> inked;
+    for (int y = plot.getY(); y < plot.getBottom() - 12; ++y)
+    {
+        bool any = false;
+        for (int x = plot.getX(); x < plot.getRight() && ! any; ++x)
+            any = fieldInkAt (image, x, y) > 0;
+        inked.push_back (any);
+    }
+    return inked;
+}
+
+juce::Image renderField (const absolute_spectrum::History& history, int width, int height)
+{
+    spectrum_painter::SpectrumBins post {};
+    spectrum_painter::SpectrumBins hold {};
+    post.fill (-96.0f);
+    hold.fill (-96.0f);
+    juce::Image image (juce::Image::ARGB, width, height, true);
+    juce::Graphics graphics (image);
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (image.getBounds().toFloat(), false);
+    spectrum_painter::paintAbsolute (
+        graphics, plot, spectrum_geometry::visualScaleFor (image.getBounds().toFloat()),
+        post, hold, history, presentation::forEditor (width, height));
+    return image;
+}
+
+// A host publishes on its own buffer boundaries, so the observations do not arrive one per row of
+// the field. The field must still be continuous: the only empty rows allowed are the ones a real
+// measurement gap creates.
+void verifyFieldIsContinuousAtAnyHostCadence()
+{
+    constexpr int width = 600;
+    constexpr int height = 400;
+
+    for (const auto spacingSamples : { 1'600, 1'536, 2'048, 2'560, 3'200 })
+    {
+        absolute_spectrum::History history;
+        for (int step = 1; step <= 400; ++step)
+            KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (history.append (
+                markedFrame ((int64_t) step * spacingSamples, 100u, -20.0f)));
+
+        const auto image = renderField (history, width, height);
+        const auto plot = spectrum_geometry::dataPlotBoundsFor (
+            image.getBounds().toFloat(), false).toNearestInt();
+        // Rows above the oldest observation are legitimately empty: a host that publishes faster
+        // than 30 Hz fills the 180-frame ring in less than six seconds, and the field must not
+        // invent the time it has no observations for. Everything from there down is continuous.
+        const auto cadencePath = juce::SystemStats::getEnvironmentVariable (
+            "KIRIN_HYPHA_FIELD_CADENCE_TEST_PNG", {});
+        if (cadencePath.isNotEmpty() && spacingSamples == 2'048)
+        {
+            auto output = juce::File (cadencePath).createOutputStream();
+            KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (output != nullptr);
+            KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (
+                juce::PNGImageFormat().writeImageToStream (image, *output));
+        }
+
+        const auto inked = fieldRowsWithInk (image, plot);
+        const auto firstInked = std::find (inked.begin(), inked.end(), true);
+        KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (firstInked != inked.end());
+        int longestEmptyRun = 0;
+        int run = 0;
+        for (auto row = firstInked; row != inked.end(); ++row)
+        {
+            run = *row ? 0 : run + 1;
+            longestEmptyRun = std::max (longestEmptyRun, run);
+        }
+        KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (longestEmptyRun <= 2);
+    }
+}
+
+// A real break in the measurement is not filled in. Half a second of missing observations has to
+// stay visible as a band of empty rows.
+void verifyFieldKeepsARealGapEmpty()
+{
+    constexpr int width = 600;
+    constexpr int height = 400;
+    constexpr int64_t spacing = 1'600;
+
+    absolute_spectrum::History history;
+    for (int step = 1; step <= 400; ++step)
+    {
+        // 0.5 s .. 1.0 s before the newest observation is missing.
+        const auto ageSeconds = (double) (400 - step) * (double) spacing / 48'000.0;
+        if (ageSeconds >= 0.5 && ageSeconds <= 1.0)
+            continue;
+        KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (history.append (
+            markedFrame ((int64_t) step * spacing, 100u, -20.0f)));
+    }
+
+    const auto image = renderField (history, width, height);
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (
+        image.getBounds().toFloat(), false).toNearestInt();
+    const auto inked = fieldRowsWithInk (image, plot);
+    int longestEmptyRun = 0;
+    int run = 0;
+    for (const auto row : inked)
+    {
+        run = row ? 0 : run + 1;
+        longestEmptyRun = std::max (longestEmptyRun, run);
+    }
+    // 0.5 s of six seconds across the plot height, less the rounding at both ends.
+    const int expected = (int) (0.5 / absolute_spectrum::historySeconds
+                                * (double) (plot.getHeight() - 12));
+    KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (longestEmptyRun >= expected - 4);
+    KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (longestEmptyRun <= expected + 4);
+}
+
 // The six-second field carries time on the vertical axis: the newest observation at the bottom,
 // the oldest at the top. A sweeping loud band therefore has to draw one diagonal streak, and the
 // streak's resolution is what tells the user whether a change was sudden or gradual.
@@ -133,7 +247,7 @@ void verifySixSecondFieldReadsAsTime()
             return std::pair<int, int> { bestRow, bestInk };
         };
         const int scanStop = pixels.getBottom() - 12;
-        const float tolerance = 0.08f * (float) pixels.getHeight();
+        const float tolerance = 0.03f * (float) pixels.getHeight();
         for (const auto frameIndex : { (size_t) 29u, (size_t) 89u, (size_t) 149u })
         {
             const auto band = oldestBand
@@ -207,6 +321,8 @@ void verifySixSecondFieldReadsAsTime()
 void verifyAbsoluteSpectrumContract()
 {
     verifySixSecondFieldReadsAsTime();
+    verifyFieldIsContinuousAtAnyHostCadence();
+    verifyFieldKeepsARealGapEmpty();
 
     absolute_spectrum::History history;
     const auto first = postFrame (4'800, -32.0f);
