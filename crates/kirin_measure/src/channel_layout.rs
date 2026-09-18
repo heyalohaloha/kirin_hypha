@@ -1,0 +1,374 @@
+//! Channel layouts named by ITU role, never by index (D-5 / D-10).
+//!
+//! `ebur128`'s default channel map fixes everything past index 5 to `Unused`, so from seven
+//! channels up a loudness sum silently loses channels. Every engine therefore takes its map from
+//! here instead. A layout is recognised only by the exact set of roles it carries: an unknown set
+//! is refused rather than guessed at (D-4), because neither channel count nor pair count
+//! identifies a layout — 7.1 and 5.1.2 are both eight channels and both yield three pairs.
+//!
+//! Decisions: `docs/hypha_surround_decisions_20260918.md`.
+//! ITU positions: `docs/hypha_surround_channel_map_findings_20260918.md` §4.
+
+use ebur128::Channel;
+
+/// The channel count the fixed-stereo path assumes.
+///
+/// `measure_thread` and `kirin_hypha_ffi` fall back to this for any host count other than 1 or 2,
+/// so it is the stereo assumption itself, not a buffer size. It lives beside the layouts because
+/// a layout, not a constant, is what replaces it as engines move onto `ChannelLayout`.
+pub const N_CHANNELS: usize = 2;
+
+/// One speaker position, by its ITU-R BS.2051 role.
+///
+/// The name is the identity. Two layouts with the same channel count hold different roles, and a
+/// role that survives a layout change is the same measurement while an index is not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ChannelRole {
+    /// M+000
+    Centre,
+    /// M+030
+    Left,
+    /// M-030
+    Right,
+    /// Low frequency effects. Excluded from loudness, observed for peak and clip.
+    Lfe,
+    /// M+110
+    LeftSurround,
+    /// M-110
+    RightSurround,
+    /// M+090
+    LeftSurroundSide,
+    /// M-090
+    RightSurroundSide,
+    /// M+135
+    LeftSurroundRear,
+    /// M-135
+    RightSurroundRear,
+    /// U+045
+    TopFrontLeft,
+    /// U-045
+    TopFrontRight,
+    /// U+135
+    TopRearLeft,
+    /// U-135
+    TopRearRight,
+}
+
+/// Where a role sits, for the mirror rule. Azimuth is degrees, positive to the left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Position {
+    /// Listener-level plane at this azimuth.
+    Middle(i16),
+    /// Upper plane at this azimuth.
+    Upper(i16),
+    /// No position in the mirror sense.
+    NoMirror,
+}
+
+impl ChannelRole {
+    fn position(self) -> Position {
+        match self {
+            Self::Centre => Position::Middle(0),
+            Self::Left => Position::Middle(30),
+            Self::Right => Position::Middle(-30),
+            Self::Lfe => Position::NoMirror,
+            Self::LeftSurround => Position::Middle(110),
+            Self::RightSurround => Position::Middle(-110),
+            Self::LeftSurroundSide => Position::Middle(90),
+            Self::RightSurroundSide => Position::Middle(-90),
+            Self::LeftSurroundRear => Position::Middle(135),
+            Self::RightSurroundRear => Position::Middle(-135),
+            Self::TopFrontLeft => Position::Upper(45),
+            Self::TopFrontRight => Position::Upper(-45),
+            Self::TopRearLeft => Position::Upper(135),
+            Self::TopRearRight => Position::Upper(-135),
+        }
+    }
+
+    /// The role at the mirrored azimuth in the same plane.
+    ///
+    /// The median plane (0 and 180 degrees) mirrors onto itself, so it has none, and neither does
+    /// LFE. This is the whole pair rule: no table of pairs is written anywhere (D-10).
+    pub fn mirror(self) -> Option<Self> {
+        let mirrored = match self.position() {
+            Position::NoMirror => return None,
+            Position::Middle(0) | Position::Middle(180) => return None,
+            Position::Upper(0) | Position::Upper(180) => return None,
+            Position::Middle(azimuth) => Position::Middle(-azimuth),
+            Position::Upper(azimuth) => Position::Upper(-azimuth),
+        };
+        ALL_ROLES.iter().copied().find(|r| r.position() == mirrored)
+    }
+
+    /// True when this role is the left member of its pair, by ITU's positive-is-left convention.
+    pub fn is_left_of_pair(self) -> bool {
+        matches!(
+            self.position(),
+            Position::Middle(azimuth) | Position::Upper(azimuth) if azimuth > 0
+        )
+    }
+
+    /// What `ebur128` must be told this channel is, so BS.1770 weighting reaches it.
+    ///
+    /// `Unused` here means "not part of the loudness sum", which is true of LFE alone. It never
+    /// means "not measured": peak, clip and VU observe LFE like any other channel.
+    pub fn loudness_channel(self) -> Channel {
+        match self {
+            Self::Centre => Channel::Center,
+            Self::Left => Channel::Left,
+            Self::Right => Channel::Right,
+            Self::Lfe => Channel::Unused,
+            Self::LeftSurround => Channel::LeftSurround,
+            Self::RightSurround => Channel::RightSurround,
+            Self::LeftSurroundSide => Channel::Mp090,
+            Self::RightSurroundSide => Channel::Mm090,
+            Self::LeftSurroundRear => Channel::Mp135,
+            Self::RightSurroundRear => Channel::Mm135,
+            Self::TopFrontLeft => Channel::Up045,
+            Self::TopFrontRight => Channel::Um045,
+            Self::TopRearLeft => Channel::Up135,
+            Self::TopRearRight => Channel::Um135,
+        }
+    }
+
+    /// Stable short name for records and displays. Never an index.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Centre => "C",
+            Self::Left => "L",
+            Self::Right => "R",
+            Self::Lfe => "LFE",
+            Self::LeftSurround => "Ls",
+            Self::RightSurround => "Rs",
+            Self::LeftSurroundSide => "Lss",
+            Self::RightSurroundSide => "Rss",
+            Self::LeftSurroundRear => "Lsr",
+            Self::RightSurroundRear => "Rsr",
+            Self::TopFrontLeft => "TFL",
+            Self::TopFrontRight => "TFR",
+            Self::TopRearLeft => "TRL",
+            Self::TopRearRight => "TRR",
+        }
+    }
+}
+
+const ALL_ROLES: [ChannelRole; 14] = [
+    ChannelRole::Centre,
+    ChannelRole::Left,
+    ChannelRole::Right,
+    ChannelRole::Lfe,
+    ChannelRole::LeftSurround,
+    ChannelRole::RightSurround,
+    ChannelRole::LeftSurroundSide,
+    ChannelRole::RightSurroundSide,
+    ChannelRole::LeftSurroundRear,
+    ChannelRole::RightSurroundRear,
+    ChannelRole::TopFrontLeft,
+    ChannelRole::TopFrontRight,
+    ChannelRole::TopRearLeft,
+    ChannelRole::TopRearRight,
+];
+
+/// A left/right pair, derived rather than declared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PairRole {
+    pub left: ChannelRole,
+    pub right: ChannelRole,
+}
+
+/// Which recognised layout this is. Carried in records so a change is visible (D-12).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LayoutId {
+    Mono,
+    Stereo,
+    Surround5_0,
+    Surround5_1,
+    Surround7_1_4,
+}
+
+impl LayoutId {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mono => "mono",
+            Self::Stereo => "stereo",
+            Self::Surround5_0 => "5.0",
+            Self::Surround5_1 => "5.1",
+            Self::Surround7_1_4 => "7.1.4",
+        }
+    }
+}
+
+/// A recognised layout: an ordered list of roles, in the order the host's buffer carries them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChannelLayout {
+    id: LayoutId,
+    roles: &'static [ChannelRole],
+}
+
+use ChannelRole as R;
+
+/// Every layout Hypha recognises. Order matches the interleaved buffer, which for JUCE is the
+/// ChannelType enum's ascending order, not the order a layout is usually written in: at 7.1.4 the
+/// four ceiling channels come before the two rear surrounds.
+const LAYOUTS: [ChannelLayout; 5] = [
+    ChannelLayout {
+        id: LayoutId::Mono,
+        roles: &[R::Centre],
+    },
+    ChannelLayout {
+        id: LayoutId::Stereo,
+        roles: &[R::Left, R::Right],
+    },
+    ChannelLayout {
+        id: LayoutId::Surround5_0,
+        roles: &[
+            R::Left,
+            R::Right,
+            R::Centre,
+            R::LeftSurround,
+            R::RightSurround,
+        ],
+    },
+    ChannelLayout {
+        id: LayoutId::Surround5_1,
+        roles: &[
+            R::Left,
+            R::Right,
+            R::Centre,
+            R::Lfe,
+            R::LeftSurround,
+            R::RightSurround,
+        ],
+    },
+    ChannelLayout {
+        id: LayoutId::Surround7_1_4,
+        roles: &[
+            R::Left,
+            R::Right,
+            R::Centre,
+            R::Lfe,
+            R::LeftSurroundSide,
+            R::RightSurroundSide,
+            R::TopFrontLeft,
+            R::TopFrontRight,
+            R::TopRearLeft,
+            R::TopRearRight,
+            R::LeftSurroundRear,
+            R::RightSurroundRear,
+        ],
+    },
+];
+
+/// Why a role list was not accepted. Every case is reported; none falls back to a guess.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayoutError {
+    /// No role at all.
+    Empty,
+    /// The same role appears twice.
+    DuplicateRole(ChannelRole),
+    /// The roles are valid but their combination is not a layout Hypha recognises.
+    UnknownLayout,
+    /// The roles match a layout, but not in the order its buffer carries them.
+    WrongOrder(LayoutId),
+}
+
+impl ChannelLayout {
+    /// Recognise a layout from the roles a host negotiated, in buffer order.
+    ///
+    /// Exact match only. A set of roles that resembles a known layout but is ordered differently,
+    /// or holds an extra or missing role, is refused: measuring it would mean guessing which
+    /// channel is which, and a wrong guess produces numbers that look right (D-4, D-13).
+    pub fn recognise(roles: &[ChannelRole]) -> Result<Self, LayoutError> {
+        if roles.is_empty() {
+            return Err(LayoutError::Empty);
+        }
+        for (index, role) in roles.iter().enumerate() {
+            if roles[..index].contains(role) {
+                return Err(LayoutError::DuplicateRole(*role));
+            }
+        }
+        if let Some(layout) = LAYOUTS.iter().find(|layout| layout.roles == roles) {
+            return Ok(*layout);
+        }
+        // Same roles, different order: say so rather than reporting it as unknown, because the two
+        // need different fixes.
+        let mut sorted: Vec<ChannelRole> = roles.to_vec();
+        sorted.sort();
+        for layout in LAYOUTS.iter() {
+            let mut known: Vec<ChannelRole> = layout.roles.to_vec();
+            known.sort();
+            if known == sorted {
+                return Err(LayoutError::WrongOrder(layout.id));
+            }
+        }
+        Err(LayoutError::UnknownLayout)
+    }
+
+    /// Look a layout up by name, for state and records.
+    pub fn by_id(id: LayoutId) -> Self {
+        *LAYOUTS
+            .iter()
+            .find(|layout| layout.id == id)
+            .expect("every LayoutId has a layout")
+    }
+
+    pub fn id(self) -> LayoutId {
+        self.id
+    }
+
+    pub fn roles(self) -> &'static [ChannelRole] {
+        self.roles
+    }
+
+    pub fn channel_count(self) -> usize {
+        self.roles.len()
+    }
+
+    /// Where a role sits in the interleaved buffer, or `None` when the layout lacks it.
+    pub fn index_of(self, role: ChannelRole) -> Option<usize> {
+        self.roles.iter().position(|r| *r == role)
+    }
+
+    /// The map `ebur128` is given, in buffer order. Never the crate's default.
+    pub fn loudness_map(self) -> Vec<Channel> {
+        self.roles
+            .iter()
+            .map(|role| role.loudness_channel())
+            .collect()
+    }
+
+    /// How many channels contribute to loudness. LFE does not.
+    pub fn loudness_channel_count(self) -> usize {
+        self.roles
+            .iter()
+            .filter(|role| role.loudness_channel() != Channel::Unused)
+            .count()
+    }
+
+    /// Left/right pairs present in this layout, in buffer order of their left member.
+    ///
+    /// Derived from the mirror rule, so a layout Hypha has never seen cannot acquire a pair table
+    /// by accident, and Correlation and Balance cannot end up looking at different pairs (D-10).
+    pub fn pairs(self) -> Vec<PairRole> {
+        let mut pairs = Vec::new();
+        for role in self.roles {
+            if !role.is_left_of_pair() {
+                continue;
+            }
+            let Some(mirror) = role.mirror() else {
+                continue;
+            };
+            if self.roles.contains(&mirror) {
+                pairs.push(PairRole {
+                    left: *role,
+                    right: mirror,
+                });
+            }
+        }
+        pairs
+    }
+}
+
+#[cfg(test)]
+#[path = "channel_layout_tests.rs"]
+mod tests;

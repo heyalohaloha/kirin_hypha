@@ -16,6 +16,7 @@ pub mod capture_generation;
 pub mod capture_generation_lifecycle;
 pub mod capture_generation_tx;
 pub mod channel_identity;
+pub mod channel_layout;
 pub mod cleanup;
 pub mod delta;
 pub mod engine;
@@ -141,6 +142,7 @@ pub use capture_generation_lifecycle::{
 };
 pub use capture_generation_tx::CaptureGenerationTransaction;
 pub use channel_identity::{canonical_channel_role, display_name_snapshot};
+pub use channel_layout::N_CHANNELS;
 pub use cleanup::{clear_pair_label, exit_record_full, exit_record_preserve_pair};
 pub use delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 pub use engine::{MeasureEngine, SessionSummary};
@@ -385,9 +387,6 @@ pub fn sanitize_name(raw: &str) -> String {
 /// Measure Thread が追いつく前に overflow し、Record の sample count が WAV と一致しなくなる。
 /// Audio Thread はブロックできないので、余裕のある SPSC 容量で clean Record を優先する。
 pub const RING_BUFFER_SECONDS: usize = 30;
-
-/// 対応チャンネル数（ステレオ固定）。
-pub const N_CHANNELS: usize = 2;
 
 // ── プロセス単位識別子（B-020 / γ-3 chunk-persistent UUID 後）─────────────
 //
