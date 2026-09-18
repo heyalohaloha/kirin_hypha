@@ -77,7 +77,7 @@ mono(b) = 10 * log10( Pm(b) / (Pm(b) + Ps(b)) )   [dB]
 
 ## 3. 段階
 
-### Phase 0 — FIELD 描画の共有化（先行）
+### Phase 0 — FIELD 描画の共有化（先行）  ✅ 完了 / B-907
 
 B-902〜B-905 で作った「観測を画像 1 枚にして cadence で行を埋める」処理は、現在
 `HyphaSpectrumPainter.cpp` の無名名前空間にあり `absolute_spectrum::History` に結び付いている。
@@ -91,7 +91,7 @@ SPACE の時間表示でも同じ規則が要るため、**先に共有部品へ
 - 既存の `verifySixSecondFieldReadsAsTime` / `verifyFieldIsContinuousAtAnyHostCadence` /
   `verifyFieldKeepsARealGapEmpty` / `verifyFieldDoesNotInventACadenceFromTwoObservations` を共有部品側へ移す
 
-### Phase 1 — 計測（Rust）
+### Phase 1 — 計測（Rust）  ✅ 完了 / B-908
 
 - 新 `crates/kirin_measure/src/mono_sum.rs`
   - 32 帯域の対数境界（FREQ の `band_plan` と同じ式）
@@ -178,11 +178,26 @@ float   mono_sum_db[32];               /* NaN = undefined */
 根拠 — 散布図が答えるのは「広いか狭いか」だけで、カーブは「どの帯域で何 dB 失うか」を答える。
 画面が小さいほど、情報量の多い方を残すべきである。散布図は 375×250 以上で復帰させる。
 
-### (2) 表示床
+### (2) 表示床とスケール形状  ⚠ 2026-09-18 レビューで差し戻し / 判断待ち
 
-**確定: -24 dB。**
-根拠 — -3 dB がハードパン、-6 dB で半分。-24 dB より下は実質「その帯域は消えている」であり、
--30 と -40 を見分ける実用上の意味がない。実測値は床で切らずに保持し、表示だけを床で止める。
+**確定していた「表示床 -24 dB・線形」は取り消す。** 値の分布を並べたところ実用に耐えない。
+
+| 状態 | Side の割合 | mono |
+|---|---|---|
+| ほぼモノ | 2% | -0.09 dB |
+| 普通のミックス | 15% | -0.71 dB |
+| 広いミックス | 30% | -1.55 dB |
+| とても広い | 45% | -2.60 dB |
+| ハードパン | 50% | -3.01 dB |
+| かなり逆相寄り | 75% | -6.02 dB |
+
+日常的に見る範囲は **0 〜 -3 dB** に集中する。0..-24 の線形スケールではそこがプロットの上端
+12% に潰れ、一番読みたい「0 dB と -3 dB の違い」が見えない。めったに来ない -15 dB 付近に
+画面の半分を使うことになる。
+
+**推奨: 表示床は -24 dB のまま、割り当てを区分にする。** 上半分に 0 〜 -6 dB、下半分に
+-6 〜 -24 dB。判断が起きるのは 0 〜 -6 dB であり、-15 と -20 の区別には実用上の意味がない
+（どちらも「その帯域は消える」で同じ結論になる）。
 
 ### (3) 名前
 
@@ -205,6 +220,54 @@ Meter Session は editor の生死と独立に常時動く（INV-S15）。した
 開くまで履歴が無い状態のほうが実害が大きい。 Measure Thread の現行処理に対する増分が数 % に収まるなら
 常時のままにする。SPACE を開いたときだけにすると「開くまで履歴が無い」ことになり、
 時間表示の価値が落ちる。
+
+## 4b. 2026-09-18 計画レビューで確定した追加事項
+
+初稿に欠けていた項目。(2) の表示スケールだけが判断待ちで、以下は確定である。
+
+### 履歴と Record
+
+**MONO は GUI 側の 6 秒リングだけに保持する。TIME 履歴にも Record にも入れない。**
+
+根拠 — `correlation` は `meter_history` に入るが Record には入らない、という先例がある。ただし
+MONO は 32 帯域の配列で、TIME 履歴の 10 Hz 容量 6000 点に入れると 192,000 個の値になる。単一値
+である correlation とは容量の桁が違う。**代償として「editor を閉じると 6 秒の履歴は消える」。**
+これを受け入れた上で明記する。
+
+### 再生が止まっているとき
+
+**直近の観測を保持し、Meter Session の Pause / Inactive の既存規則に合わせる。** LEVEL の数値が
+持つ 9 秒保持・5 秒減光、LIVE の「一時 warming は直前の verified field を消さない」と同じ扱い。
+Phase 3 の描画契約に含める。初稿はここが未定義だった。
+
+### PRE にも出る
+
+`space_field::paint` は `observatory::View` から呼ばれ、View は PRE / POST 両方に存在する。
+**MONO は両 role に出る。** 切り替えて PRE と POST を比べられるので望ましい。
+`HyphaSpacePainter.h` のコメントが `Renders only the rolling POST stereo facts` と書いてあり
+事実と食い違っているので、Phase 3 で直す。
+
+### Phase 4 の行数
+
+**60 行。** FREQ の FIELD が 180 行なのは source が 30 Hz だからで、MONO は 10 Hz なので
+6 秒 = 60 観測である。180 行のままだと共有部品の cadence 規則で 1 観測が 3 行へ引き伸ばされ、
+画像が 3 倍無駄になる。
+
+### 帯域の分離能
+
+100 ms 観測での実測値（Phase 1）は**不変条件と README に書き、tooltip には書かない**。
+R-26 沈黙ゲート — 言うことがなければ黙る。分離能は通常の素材では問題にならない。
+
+### FFI フィールド名
+
+`mono_sum_band_count` は実質「利用可能か」の 0 / 32 フラグである。名前と実態が合っていないので
+**用途をヘッダのコメントで明示する**（0 = 未成立、32 = 成立。可変の帯域数ではない）。
+
+### スレッド境界
+
+`MonoSumAnalyzer::new` は `Vec` を確保する。**Measure Thread 上であり Audio Thread ではない。**
+observation 長が変わるたびに確保が起きる（host の buffer size 変更時のみ）。Audio Thread には
+何も追加しない。
 
 ## 5. 明示しておくリスク
 
