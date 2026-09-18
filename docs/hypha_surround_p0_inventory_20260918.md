@@ -376,3 +376,64 @@ B-925 §11 の条件に加えて、次が要る。
 第2巡の中心は検索結果を増やすことではなく、
 **入力の身元・時間・容量・所有者・保存先を一つの経路として結び付けること**である。
 数値が正しくても、別の ch 数・別の区間・別の比較条件へ結び付けば観測として誤る。
+
+## 15. 無言変換の全走査（第2巡 調査1）[A]
+
+`1..=2` / `matches!` の拒否ガードとは別に、**「別の形を黙って作る処理」**を全走査した。
+パターンごとに網羅性を申告する。
+
+### 15.1 走査したパターンと結果
+
+| パターン | 結果 |
+|---|---|
+| `match { 1 \| 2 => .., _ => N_CHANNELS }` | **2 件**（§2）。`ffi/lib.rs:189`、`measure_thread.rs:240` |
+| `.clamp(1, 2)` | **1 件**。`spectrum_runtime.rs:91`（capacity §13） |
+| `.min(2)` / `.max(1)` によるチャンネル丸め | **0 件**。`.max(1)` の一致は全てゼロ除算避けで、`raw_pre_roll.rs:28` を含め無害 |
+| `unwrap_or(2)` / `unwrap_or(N_CHANNELS)` | **0 件** |
+| `.take(2)` によるチャンネル切詰め | **0 件**。一致は全てバイト復号（`u16::from_le_bytes`）と PRE/POST 対の処理 |
+| `[..2]` / `[0..2]` のスライス | **0 件** |
+| C++ 側の `jmin` / `jlimit` / `std::min` によるチャンネル丸め | **0 件** |
+
+**走査範囲**: `crates/*/src`、`juce_shell/src`。`_tests.rs` と `/tests/` を除く。
+`#[cfg(test)]` 内は除いていない（§9 の教訓により、除外条件を明記する）。
+
+### 15.2 第 4 の類型 — 入力を読まずに定数を使う
+
+**変換ですらない。** `crates/hypha_pre/src/lib.rs` は `N_CHANNELS`（= 2）を
+**交渉済み layout からではなく定数として** 9 か所で使う（`hypha_post` も同じく 9 か所）。
+
+```rust
+crates/hypha_pre/src/lib.rs:187   RecordIngress::new(record_ring_capacity_samples(N_CHANNELS))
+crates/hypha_pre/src/lib.rs:392   watch_ring_capacity_samples(N_CHANNELS)
+crates/hypha_pre/src/lib.rs:524   n_channels: N_CHANNELS
+...
+```
+
+**ただし出荷経路ではない。**
+
+- `scripts/test_release_source.sh:156` がビルドするのは **`kirin_hypha_ffi` のみ**。
+- CMake は `crates/hypha_pre/Cargo.toml` を **version 文字列の抽出にだけ**使う
+  （`juce_shell/CMakeLists.txt:17`）。
+- JUCE shell は `kirin_hypha_ffi` をリンクする。
+
+`hypha_pre` / `hypha_post` は **workspace member として残る legacy cdylib** であり、
+**version の正本という役割だけが生きている** [C]（出荷物への同梱有無は未確認）。
+
+**含意**: Nch 化のとき、この 2 crate を「もう一つの実装」と誤認しない。
+逆に、**残したまま放置すると「2ch 固定の実装が別にある」状態が続く。**
+
+### 15.3 結論
+
+**無言変換は出荷経路に 3 件。すべて別イディオムだった。**
+
+| # | 場所 | 形 |
+|---|---|---|
+| 1 | `crates/kirin_hypha_ffi/src/lib.rs:189` | `match _ =>` |
+| 2 | `crates/kirin_measure/src/measure_thread.rs:240` | `match _ =>` |
+| 3 | `crates/kirin_measure/src/spectrum_runtime.rs:91` | `.clamp(1, 2)` |
+
+**1 つのパターンを探しても 3 件は見つからない。**
+これが「ガードの件数を数える」方法では掴めなかった理由である。
+
+**第2巡 調査1 の完了条件**（拒否 / 適用外 / 明示変換のどれにするか）は、
+契約表 `@docs/hypha_surround_metric_contracts_20260918.md` §2 の Runtime 列で与えられる。
