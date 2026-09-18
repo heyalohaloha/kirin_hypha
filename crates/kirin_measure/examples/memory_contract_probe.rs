@@ -7,6 +7,7 @@
 //! `cargo run -p kirin_measure --example memory_contract_probe --release`
 
 use ebur128::{EbuR128, Mode};
+use kirin_measure::channel_layout::{ChannelLayout, LayoutId};
 use kirin_measure::phase_d::channels::PhaseDChannelStream;
 use kirin_measure::phase_d::tables::FieldType;
 use kirin_measure::resampler::ResamplerTo48k;
@@ -22,6 +23,19 @@ const MODE: Mode = Mode::M
 
 static PUSH_CHUNKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(40);
 
+/// The layout a probe channel count stands for. The probe measures memory at the counts the
+/// product may reach, so an unmodelled count is a probe bug, not something to approximate.
+fn layout_for(channels: usize) -> ChannelLayout {
+    match channels {
+        1 => ChannelLayout::mono(),
+        2 => ChannelLayout::stereo(),
+        5 => ChannelLayout::by_id(LayoutId::Surround5_0),
+        6 => ChannelLayout::by_id(LayoutId::Surround5_1),
+        12 => ChannelLayout::by_id(LayoutId::Surround7_1_4),
+        other => panic!("no layout is defined for {other} channels"),
+    }
+}
+
 fn rss_bytes() -> Option<u64> {
     let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
     let resident_pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
@@ -36,9 +50,9 @@ fn mib(bytes: i64) -> f64 {
 /// Record TRACE engine and Record summary engine (measure_thread.rs:245 / 252 / 262).
 fn instance_engines(native_rate: u32, channels: usize) -> Vec<MeasureEngine> {
     vec![
-        MeasureEngine::new(48_000, channels).expect("watch engine"),
-        MeasureEngine::new(native_rate, channels).expect("record trace engine"),
-        MeasureEngine::new(native_rate, channels).expect("record summary engine"),
+        MeasureEngine::new(48_000, layout_for(channels)).expect("watch engine"),
+        MeasureEngine::new(native_rate, layout_for(channels)).expect("record trace engine"),
+        MeasureEngine::new(native_rate, layout_for(channels)).expect("record summary engine"),
     ]
 }
 
@@ -70,7 +84,7 @@ fn probe_single(native_rate: u32, channels: usize) {
     let one_ebu = EbuR128::new(channels as u32, native_rate, MODE).expect("EbuR128");
     let after_ebu = step("1x EbuR128 (native rate)", base, &one_ebu);
 
-    let one_engine = MeasureEngine::new(native_rate, channels).expect("MeasureEngine");
+    let one_engine = MeasureEngine::new(native_rate, layout_for(channels)).expect("MeasureEngine");
     let after_engine = step("1x MeasureEngine (native rate)", after_ebu, &one_engine);
 
     let engines = instance_engines(native_rate, channels);
@@ -217,7 +231,7 @@ fn probe_census(native_rate: u32, channels: usize, instances: usize) {
 
     census!(
         "StereoMeter",
-        StereoMeter::new(native_rate, channels).ok(),
+        StereoMeter::new(native_rate, layout_for(channels)).ok(),
         |m: &mut StereoMeter| {
             for _ in 0..pushes {
                 m.push_observation(&chunk_f64);

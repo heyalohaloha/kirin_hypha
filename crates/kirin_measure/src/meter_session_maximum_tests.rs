@@ -16,7 +16,7 @@ fn feed(session: &mut MeterSession, amplitude: f64, count: usize) {
 
 #[test]
 fn session_maximum_is_producer_owned_survives_pause_and_resets_explicitly() {
-    let mut session = MeterSession::new(48_000, 2).unwrap();
+    let mut session = MeterSession::new(48_000, ChannelLayout::stereo()).unwrap();
     feed(&mut session, 0.8, 40);
     let high = session.snapshot();
     feed(&mut session, 0.01, 40);

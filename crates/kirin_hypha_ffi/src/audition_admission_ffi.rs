@@ -295,7 +295,10 @@ mod tests {
     use super::*;
 
     fn post_engine(project: &str) -> KirinHyphaEngine {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(
+            48_000,
+            kirin_measure::channel_layout::ChannelLayout::stereo(),
+        );
         *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
         let mut identity = engine.identity.lock().unwrap();
         identity.project_hash = project.to_string();
@@ -307,7 +310,10 @@ mod tests {
     #[test]
     fn local_blind_is_post_only_and_returns_a_stable_epoch() {
         let _serial = ADMISSION_TEST.lock().unwrap();
-        let pre = KirinHyphaEngine::new(48_000, 2);
+        let pre = KirinHyphaEngine::new(
+            48_000,
+            kirin_measure::channel_layout::ChannelLayout::stereo(),
+        );
         assert_eq!(pre.begin_local_blind(), None);
         let post = post_engine(&format!("ffi-audition-{}", Uuid::new_v4()));
         let epoch = post.begin_local_blind().unwrap();

@@ -172,11 +172,14 @@ impl AbsoluteContinuousAnalyzer {
             return Err(AbsoluteError::InvalidFormat);
         }
         let aperture_samples = (sample_rate / ABSOLUTE_PRESENTATION_HZ) as usize;
+        // The guard above is what makes a count enough to name a layout here.
+        let layout = crate::channel_layout::ChannelLayout::mono_or_stereo_by_count(channels)
+            .ok_or(AbsoluteError::InvalidFormat)?;
         Ok(Self {
             sample_rate,
             channels,
             aperture_samples,
-            core: AbsoluteLevelAnalyzer::new(sample_rate, channels)
+            core: AbsoluteLevelAnalyzer::new(sample_rate, layout)
                 .map_err(|_| AbsoluteError::CoreUnavailable)?,
             sharpness: SharpnessContinuousAnalyzer::new(sample_rate, channels)?,
             pending_core: VecDeque::with_capacity(JOIN_CAPACITY),

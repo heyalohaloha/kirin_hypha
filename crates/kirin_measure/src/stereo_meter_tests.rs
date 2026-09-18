@@ -23,7 +23,7 @@ fn phase_observation(inverse: bool) -> Vec<f64> {
 
 #[test]
 fn in_phase_inverse_and_balance_share_exact_three_second_window() {
-    let mut meter = StereoMeter::new(SR, 2).unwrap();
+    let mut meter = StereoMeter::new(SR, ChannelLayout::stereo()).unwrap();
     for _ in 0..29 {
         assert!(meter.push_observation(&observation(0.5, 0.5)));
     }
@@ -43,7 +43,7 @@ fn in_phase_inverse_and_balance_share_exact_three_second_window() {
 
 #[test]
 fn one_sided_and_mono_are_explicit_not_invented_numeric_stereo() {
-    let mut stereo = StereoMeter::new(SR, 2).unwrap();
+    let mut stereo = StereoMeter::new(SR, ChannelLayout::stereo()).unwrap();
     for _ in 0..30 {
         assert!(stereo.push_observation(&observation(0.25, 0.0)));
     }
@@ -56,7 +56,7 @@ fn one_sided_and_mono_are_explicit_not_invented_numeric_stereo() {
     assert!(left_only.vu_dbfs[0].is_some());
     assert!(left_only.vu_dbfs[1].is_none());
 
-    let mut mono = StereoMeter::new(SR, 1).unwrap();
+    let mut mono = StereoMeter::new(SR, ChannelLayout::mono()).unwrap();
     for _ in 0..3 {
         assert!(mono.push_observation(&vec![0.25; FRAMES]));
     }
@@ -69,7 +69,7 @@ fn one_sided_and_mono_are_explicit_not_invented_numeric_stereo() {
 
 #[test]
 fn malformed_observation_fails_without_partial_mutation() {
-    let mut meter = StereoMeter::new(SR, 2).unwrap();
+    let mut meter = StereoMeter::new(SR, ChannelLayout::stereo()).unwrap();
     let before = meter.snapshot();
     assert!(!meter.push_observation(&[]));
     assert!(!meter.push_observation(&[0.0]));
@@ -82,7 +82,7 @@ fn malformed_observation_fails_without_partial_mutation() {
 
 #[test]
 fn clip_events_are_channel_specific_contiguous_runs_across_observations() {
-    let mut meter = StereoMeter::new(SR, 2).unwrap();
+    let mut meter = StereoMeter::new(SR, ChannelLayout::stereo()).unwrap();
     assert!(meter.push_observation(&observation(1.0, 0.5)));
     assert!(meter.push_observation(&observation(1.2, 0.5)));
     assert_eq!(meter.snapshot().clip_events, [1, 0]);
@@ -93,7 +93,7 @@ fn clip_events_are_channel_specific_contiguous_runs_across_observations() {
 
 #[test]
 fn vu_is_three_observations_and_sine_calibrated() {
-    let mut meter = StereoMeter::new(SR, 2).unwrap();
+    let mut meter = StereoMeter::new(SR, ChannelLayout::stereo()).unwrap();
     const LEFT: f64 = 0.125_892_541_179_416_73; // -18 dBFS peak
     for index in 0..3 {
         assert!(meter.push_observation(&sine_observation(LEFT, LEFT * 0.5)));
@@ -108,7 +108,7 @@ fn vu_is_three_observations_and_sine_calibrated() {
 
 #[test]
 fn instant_true_peak_releases_without_erasing_four_observation_recent_peak() {
-    let mut meter = StereoMeter::new(SR, 2).unwrap();
+    let mut meter = StereoMeter::new(SR, ChannelLayout::stereo()).unwrap();
     assert!(meter.push_observation(&sine_observation(0.8, 0.4)));
     assert!(meter.push_observation(&sine_observation(0.08, 0.04)));
     // The first lower block contains the reconstructed boundary from the loud block. The next
@@ -126,7 +126,7 @@ fn instant_true_peak_releases_without_erasing_four_observation_recent_peak() {
 
 #[test]
 fn peak_hold_and_true_peak_are_per_channel_and_reset_only_explicitly() {
-    let mut meter = StereoMeter::new(SR, 2).unwrap();
+    let mut meter = StereoMeter::new(SR, ChannelLayout::stereo()).unwrap();
     for _ in 0..3 {
         assert!(meter.push_observation(&observation(0.5, 0.25)));
     }
@@ -144,7 +144,7 @@ fn peak_hold_and_true_peak_are_per_channel_and_reset_only_explicitly() {
 
 #[test]
 fn clear_peak_clip_holds_preserves_live_windows_and_relatches_continuing_clip() {
-    let mut meter = StereoMeter::new(SR, 2).unwrap();
+    let mut meter = StereoMeter::new(SR, ChannelLayout::stereo()).unwrap();
     for _ in 0..3 {
         assert!(meter.push_observation(&observation(1.1, 0.4)));
     }
@@ -178,7 +178,7 @@ fn clear_peak_clip_holds_preserves_live_windows_and_relatches_continuing_clip() 
 #[test]
 fn field_density_has_mid_side_orientation_and_an_exact_three_second_window() {
     const CENTRE: usize = STEREO_FIELD_SIZE / 2;
-    let mut meter = StereoMeter::new(SR, 2).unwrap();
+    let mut meter = StereoMeter::new(SR, ChannelLayout::stereo()).unwrap();
     for _ in 0..30 {
         assert!(meter.push_observation(&phase_observation(false)));
     }
@@ -232,7 +232,7 @@ fn mono_sum_reaches_the_snapshot_and_survives_a_changed_observation_length() {
         out
     };
 
-    let mut meter = StereoMeter::new(SR, 2).expect("meter");
+    let mut meter = StereoMeter::new(SR, ChannelLayout::stereo()).expect("meter");
     assert!(
         meter.snapshot().mono_sum_db.iter().all(Option::is_none),
         "an empty meter must not claim a survival figure"
@@ -267,7 +267,7 @@ fn mono_sum_reaches_the_snapshot_and_survives_a_changed_observation_length() {
 
 #[test]
 fn mono_input_reports_no_mono_sum_instead_of_zero() {
-    let mut meter = StereoMeter::new(48_000, 1).expect("meter");
+    let mut meter = StereoMeter::new(48_000, ChannelLayout::mono()).expect("meter");
     let samples: Vec<f64> = (0..4_800)
         .map(|index| (std::f64::consts::TAU * 1_000.0 * index as f64 / 48_000.0).sin() * 0.4)
         .collect();

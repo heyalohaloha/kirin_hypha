@@ -11,6 +11,7 @@
 //! テスト信号は 48 kHz 正弦波 (1 kHz, peak ≈ -3 dBFS, ≈ 1 秒) を直接生成する。
 //! オフライン ebur128 検証は `tp_offline_reference.rs` 系列と同じ流儀。
 
+use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::engine::MeasureEngine;
 use kirin_measure::plugin_data::{
     verify_checksum, PluginDataFile, PluginDataWriter, Role, WriterPaths,
@@ -107,7 +108,7 @@ fn schema_version_is_1_3() {
 
 #[test]
 fn engine_finalize_returns_session_summary_with_lufs_i_lra_tp() {
-    let mut engine = MeasureEngine::new(SR, CH).expect("engine init");
+    let mut engine = MeasureEngine::new(SR, ChannelLayout::stereo()).expect("engine init");
 
     // 10 秒以上必要（loudness_global の最小ウィンドウ）。15 秒積む。
     let chunk_size = SR as usize / 10; // 100 ms
@@ -224,7 +225,7 @@ fn frame_psr_none_is_omitted_from_json() {
 fn finalize_handles_inf_or_neg_inf_loudness_gracefully() {
     // 無音入力では loudness_global / loudness_range が -inf or finite 端値を返し得る。
     // `is_finite()` フィルタで Some(NaN/Inf) が漏れないことを確認する。
-    let mut engine = MeasureEngine::new(SR, CH).expect("engine init");
+    let mut engine = MeasureEngine::new(SR, ChannelLayout::stereo()).expect("engine init");
     // 100ms 無音だけ push して finalize
     let chunk_size = SR as usize / 10;
     let silent: Vec<f64> = vec![0.0; chunk_size * CH];

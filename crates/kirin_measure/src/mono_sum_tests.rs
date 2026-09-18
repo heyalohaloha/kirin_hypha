@@ -1,6 +1,7 @@
 //! MONO golden values. Every anchor is derived from the definition, not from a previous run.
 
 use super::*;
+use crate::channel_layout::ChannelLayout;
 use crate::log_bands::log_band_edges;
 
 const SR: u32 = 48_000;
@@ -313,7 +314,8 @@ fn cost_of_one_observation() {
     }
     let mono_us = started.elapsed().as_secs_f64() * 1e6 / f64::from(RUNS);
 
-    let mut meter = crate::stereo_meter::StereoMeter::new(SR, 2).expect("meter");
+    let mut meter =
+        crate::stereo_meter::StereoMeter::new(SR, ChannelLayout::stereo()).expect("meter");
     for _ in 0..50 {
         meter.push_observation(&samples);
     }

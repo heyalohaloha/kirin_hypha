@@ -7,7 +7,7 @@
  * 実装:           crates/kirin_hypha_ffi/src/lib.rs（このヘッダと常に一致させること）.
  *
  * C ABI surface（すべて実装済み）:
- *   - RT 計測: create / set_signal_state / push_samples / poll_result / destroy.
+ *   - RT 計測: create（kirin_hypha_channels.h）/ set_signal_state / push_samples / poll_result / destroy.
  *   - Record:  set_license / exit_record / poll_session
  *              （SessionSummary は Record finalize 後に成立。finalize は Measure Thread のみ）.
  *   - 識別子:  set_identity / get_identity（state chunk 方式A）.
@@ -31,14 +31,12 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "kirin_hypha_channels.h"
 #include "kirin_hypha_reference_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* 不透明ハンドル. */
-typedef struct KirinHypha KirinHypha;
-
 /* C / C++ shell が Rust ABI の数値を直書きしないための共有状態契約. */
 #define KIRIN_SIGNAL_STATE_INACTIVE 0u
 #define KIRIN_SIGNAL_STATE_ACTIVE 1u
@@ -497,9 +495,6 @@ typedef struct {
   char paired_pre_instance_id[64];
   uint8_t has_paired_pre_instance_id;
 } KirinPostPairClaim;
-
-/* ランタイム生成. sample_rate!=48000 は内部で 48k 変換. num_channels は 1=mono / 2=stereo. */
-KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
 
 /* 信号状態（0=Inactive 1=Active 2=Bypassed）. */
 void kirin_hypha_set_signal_state(KirinHypha* handle, uint8_t state);

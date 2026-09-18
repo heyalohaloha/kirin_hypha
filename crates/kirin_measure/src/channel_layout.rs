@@ -18,41 +18,66 @@ use ebur128::Channel;
 /// a layout, not a constant, is what replaces it as engines move onto `ChannelLayout`.
 pub const N_CHANNELS: usize = 2;
 
+use ChannelRole as R;
+
 /// One speaker position, by its ITU-R BS.2051 role.
 ///
 /// The name is the identity. Two layouts with the same channel count hold different roles, and a
 /// role that survives a layout change is the same measurement while an index is not.
+///
+/// The discriminants are the C ABI codes the shell passes to `kirin_hypha_create`. They are
+/// written out so the enum itself is the wire format and `KirinChannelRole` in
+/// `include/kirin_hypha_channels.h` has one thing to match. Never renumber a code in place.
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ChannelRole {
     /// M+000
-    Centre,
+    Centre = 0,
     /// M+030
-    Left,
+    Left = 1,
     /// M-030
-    Right,
+    Right = 2,
     /// Low frequency effects. Excluded from loudness, observed for peak and clip.
-    Lfe,
+    Lfe = 3,
     /// M+110
-    LeftSurround,
+    LeftSurround = 4,
     /// M-110
-    RightSurround,
+    RightSurround = 5,
     /// M+090
-    LeftSurroundSide,
+    LeftSurroundSide = 6,
     /// M-090
-    RightSurroundSide,
+    RightSurroundSide = 7,
     /// M+135
-    LeftSurroundRear,
+    LeftSurroundRear = 8,
     /// M-135
-    RightSurroundRear,
+    RightSurroundRear = 9,
     /// U+045
-    TopFrontLeft,
+    TopFrontLeft = 10,
     /// U-045
-    TopFrontRight,
+    TopFrontRight = 11,
     /// U+135
-    TopRearLeft,
+    TopRearLeft = 12,
     /// U-135
-    TopRearRight,
+    TopRearRight = 13,
 }
+
+/// Every role, in ABI code order. The one place a code is bound to a role.
+const ROLES_BY_ABI: [ChannelRole; 14] = [
+    R::Centre,
+    R::Left,
+    R::Right,
+    R::Lfe,
+    R::LeftSurround,
+    R::RightSurround,
+    R::LeftSurroundSide,
+    R::RightSurroundSide,
+    R::LeftSurroundRear,
+    R::RightSurroundRear,
+    R::TopFrontLeft,
+    R::TopFrontRight,
+    R::TopRearLeft,
+    R::TopRearRight,
+];
 
 /// Where a role sits, for the mirror rule. Azimuth is degrees, positive to the left.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +91,19 @@ enum Position {
 }
 
 impl ChannelRole {
+    /// The role a C ABI code names, or `None` when the code names no role.
+    ///
+    /// An unknown code is refused, never clamped to a neighbour: a shell built against a newer
+    /// header would otherwise have its extra channel silently measured as something else.
+    pub fn from_abi(code: u8) -> Option<Self> {
+        ROLES_BY_ABI.get(code as usize).copied()
+    }
+
+    /// The C ABI code for this role.
+    pub fn to_abi(self) -> u8 {
+        self as u8
+    }
+
     fn position(self) -> Position {
         match self {
             Self::Centre => Position::Middle(0),
@@ -205,8 +243,6 @@ pub struct ChannelLayout {
     roles: &'static [ChannelRole],
 }
 
-use ChannelRole as R;
-
 /// Every layout Hypha recognises. Order matches the interleaved buffer, which for JUCE is the
 /// ChannelType enum's ascending order, not the order a layout is usually written in: at 7.1.4 the
 /// four ceiling channels come before the two rear surrounds.
@@ -302,6 +338,29 @@ impl ChannelLayout {
             }
         }
         Err(LayoutError::UnknownLayout)
+    }
+
+    /// The single-channel layout.
+    pub fn mono() -> Self {
+        Self::by_id(LayoutId::Mono)
+    }
+
+    /// The two-channel layout.
+    pub fn stereo() -> Self {
+        Self::by_id(LayoutId::Stereo)
+    }
+
+    /// The layout a channel count names, for paths still clamped to mono or stereo.
+    ///
+    /// A count does not identify a layout — 7.1 and 5.1.2 are both eight channels — so this is
+    /// total only where a `1..=2` guard already stands immediately above it. Anything else returns
+    /// `None` rather than a layout. Each caller deletes its call when it takes a layout instead.
+    pub fn mono_or_stereo_by_count(channels: usize) -> Option<Self> {
+        match channels {
+            1 => Some(Self::by_id(LayoutId::Mono)),
+            2 => Some(Self::by_id(LayoutId::Stereo)),
+            _ => None,
+        }
     }
 
     /// Look a layout up by name, for state and records.

@@ -32,7 +32,10 @@ fn attack_c_layout_is_fixed_without_changing_existing_abi() {
 
 #[test]
 fn default_is_off_and_only_post_can_enable_attack() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(
+        48_000,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    );
     assert_eq!(
         engine.attack_stats(),
         KirinAttackStats {
@@ -53,7 +56,10 @@ fn default_is_off_and_only_post_can_enable_attack() {
 
 #[test]
 fn selecting_another_analysis_view_stops_the_attack_worker_without_closing_analysis() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(
+        48_000,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    );
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     assert!(engine.set_attack_enabled(true));
     assert_eq!(engine.attack_stats().enabled, 1);
@@ -64,7 +70,10 @@ fn selecting_another_analysis_view_stops_the_attack_worker_without_closing_analy
 
 #[test]
 fn unsupported_host_rate_stays_unavailable_without_failing_engine() {
-    let engine = KirinHyphaEngine::new(12_345, 2);
+    let engine = KirinHyphaEngine::new(
+        12_345,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    );
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     assert_eq!(engine.attack_stats().available, 0);
     assert!(!engine.set_attack_enabled(true));
@@ -129,7 +138,10 @@ fn wait_for_event(
 
 #[test]
 fn shipping_vst_clock_and_audio_transaction_reaches_attack_worker() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(
+        48_000,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    );
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     assert!(engine.set_attack_enabled(true));
     feed_shipping_audio(&engine, true);
@@ -158,7 +170,10 @@ fn shipping_vst_clock_and_audio_transaction_reaches_attack_worker() {
 
 #[test]
 fn studio_project_clock_without_optional_presentation_callback_reaches_attack_worker() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(
+        48_000,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    );
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     assert!(engine.set_attack_enabled(true));
     feed_shipping_audio(&engine, false);

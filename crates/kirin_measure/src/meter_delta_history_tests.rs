@@ -1,4 +1,5 @@
 use super::*;
+use crate::channel_layout::ChannelLayout;
 use crate::{MeterClockStart, MeterHistoryRange};
 
 fn post_point(observed: u64, endpoint: i64, value: f64) -> MeterHistoryEntry {
@@ -177,7 +178,9 @@ fn sine(amplitude: f64) -> Vec<f64> {
 #[test]
 fn atomic_publication_and_exact_target_join_work_end_to_end() {
     let directory = tempfile::tempdir().unwrap();
-    let pre_session = Arc::new(Mutex::new(MeterSession::new(48_000, 2).unwrap()));
+    let pre_session = Arc::new(Mutex::new(
+        MeterSession::new(48_000, ChannelLayout::stereo()).unwrap(),
+    ));
     pre_session.lock().unwrap().push_active_at(
         &sine(0.25),
         MeterClockStart {
@@ -196,7 +199,9 @@ fn atomic_publication_and_exact_target_join_work_end_to_end() {
     )
     .unwrap();
 
-    let post_session = Arc::new(Mutex::new(MeterSession::new(48_000, 2).unwrap()));
+    let post_session = Arc::new(Mutex::new(
+        MeterSession::new(48_000, ChannelLayout::stereo()).unwrap(),
+    ));
     post_session.lock().unwrap().push_active_at(
         &sine(0.5),
         MeterClockStart {
@@ -220,7 +225,9 @@ fn atomic_publication_and_exact_target_join_work_end_to_end() {
     .unwrap();
     let replacement_post = MeterDeltaHistoryExchange::new(
         48_000,
-        Arc::new(Mutex::new(MeterSession::new(48_000, 2).unwrap())),
+        Arc::new(Mutex::new(
+            MeterSession::new(48_000, ChannelLayout::stereo()).unwrap(),
+        )),
     );
     replacement_post
         .service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), &pre_json));

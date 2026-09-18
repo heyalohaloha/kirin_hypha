@@ -2,6 +2,7 @@
 //!
 //! These tests exercise the C ABI that the JUCE shell calls for the POST dropdown.
 
+use kirin_measure::channel_layout::ChannelLayout;
 use std::ffi::CStr;
 use std::path::Path;
 use std::thread::sleep;
@@ -94,7 +95,7 @@ fn spawn_pre(
     daw_session_id: &str,
     name: &str,
 ) -> KirinHyphaEngine {
-    let pre = KirinHyphaEngine::new(SR, 2);
+    let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     pre.set_license(0);
     pre.set_identity(
         instance_id.to_string(),
@@ -113,7 +114,7 @@ fn spawn_post(
     daw_session_id: &str,
     name: &str,
 ) -> KirinHyphaEngine {
-    let post = KirinHyphaEngine::new(SR, 2);
+    let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity(
         instance_id.to_string(),
@@ -335,7 +336,7 @@ fn juce_candidate_abi_bridges_split_shell_claims_and_all_keep() {
 #[ignore = "slow: C ABI restore order with POST io thread (sets HOME/TMPDIR)"]
 fn restored_pair_target_before_enable_is_written_to_post_watch_json() {
     let (home, tmp) = isolate_env("restore_pair_before_enable");
-    let post = KirinHyphaEngine::new(SR, 2);
+    let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity(
         "post-restore-a".to_string(),
@@ -370,7 +371,7 @@ fn restored_pair_target_before_enable_is_written_to_post_watch_json() {
 #[ignore = "slow: C ABI live restore with POST io thread (sets HOME/TMPDIR)"]
 fn restored_pair_target_after_enable_updates_post_watch_json() {
     let (home, tmp) = isolate_env("restore_pair_after_enable");
-    let post = KirinHyphaEngine::new(SR, 2);
+    let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity(
         "post-restore-b".to_string(),
@@ -405,7 +406,7 @@ fn restored_pair_target_after_enable_updates_post_watch_json() {
 #[ignore = "slow: C ABI restore order with PRE io thread (sets HOME/TMPDIR)"]
 fn restored_pre_name_before_enable_is_written_to_pre_watch_json() {
     let (home, tmp) = isolate_env("restore_pre_before_enable");
-    let pre = KirinHyphaEngine::new(SR, 2);
+    let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     pre.set_license(0);
     pre.set_identity(
         "pre-restore-a".to_string(),
@@ -439,7 +440,7 @@ fn restored_pre_name_before_enable_is_written_to_pre_watch_json() {
 #[ignore = "slow: C ABI live restore with PRE io thread (sets HOME/TMPDIR)"]
 fn restored_pre_name_after_enable_updates_pre_watch_json() {
     let (home, tmp) = isolate_env("restore_pre_after_enable");
-    let pre = KirinHyphaEngine::new(SR, 2);
+    let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     pre.set_license(0);
     pre.set_identity(
         "pre-restore-b".to_string(),

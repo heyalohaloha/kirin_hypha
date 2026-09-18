@@ -33,6 +33,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::engine::SessionSummary;
 use kirin_measure::mono_sum::MONO_SUM_BAND_COUNT;
 use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reservation
@@ -66,7 +67,7 @@ use kirin_measure::{
     SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo,
     WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
     HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT,
-    MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
+    MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS,
     PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS, STEREO_FIELD_SIZE,
 };
@@ -75,6 +76,7 @@ use uuid::Uuid;
 mod analysis_display_ffi;
 mod attack_ffi;
 mod audition_admission_ffi;
+pub mod channel_abi;
 mod identity_ffi;
 mod identity_registry;
 mod legacy_nih_state;
@@ -180,13 +182,6 @@ mod keep_phase_contract_tests {
             Some("pre-exact"),
             "closed-session Drop polling must retain its deterministic PRE address"
         );
-    }
-}
-
-fn supported_channel_count(num_channels: u32) -> usize {
-    match num_channels {
-        1 | 2 => num_channels as usize,
-        _ => N_CHANNELS,
     }
 }
 
@@ -983,10 +978,10 @@ impl KirinHyphaEngine {
     ///
     /// `sample_rate` ≠ 48000 のときの 48k 変換は Measure Thread 内 `ResamplerTo48k` が
     /// 既存どおり担う（新規変換コードは書かない / measure_thread.rs:82-101）。
-    /// `num_channels` は 1=mono / 2=stereo を受ける。mono は1chとして計測し、
-    /// dual-mono 化による loudness +3.01 dB バイアスを入れない。
-    pub fn new(sample_rate: u32, num_channels: u32) -> Self {
-        let num_channels = supported_channel_count(num_channels);
+    /// `layout` は現状 mono / stereo のみ（`kirin_hypha_create` が門で弾く）。mono は1chとして
+    /// 計測し、dual-mono 化による loudness +3.01 dB バイアスを入れない。
+    pub fn new(sample_rate: u32, layout: ChannelLayout) -> Self {
+        let num_channels = layout.channel_count();
         let capacity = watch_ring_capacity_samples(num_channels);
         let (producer, consumer) = rtrb::RingBuffer::new(capacity);
         let producer_handoff = Arc::new(WatchProducerHandoff::new(producer));
@@ -1004,7 +999,7 @@ impl KirinHyphaEngine {
             attack_runtime.as_ref().map(Arc::clone),
         );
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
-        let meter_session = MeterSession::new(sample_rate, num_channels).ok();
+        let meter_session = MeterSession::new(sample_rate, layout).ok();
         let meter_session_publication = meter_session
             .as_ref()
             .map(|session| Arc::new(MeterSessionPublication::new(session.snapshot())));
@@ -1046,7 +1041,7 @@ impl KirinHyphaEngine {
         let measure_handle = spawn_measure_thread(
             consumer,
             sample_rate,
-            num_channels,
+            layout,
             Arc::clone(&measure_result),
             meter_session.as_ref().map(Arc::clone),
             meter_session_publication.as_ref().map(Arc::clone),
@@ -1070,7 +1065,7 @@ impl KirinHyphaEngine {
         // join するため join_on_shutdown=true（io→measure 順 / 共有 Arc UAF 回避）。
         let watchdog_handle = spawn_watchdog(WatchdogParams {
             sample_rate,
-            n_channels: num_channels,
+            layout,
             ring_capacity: capacity,
             measure_result: Arc::clone(&measure_result),
             meter_session: meter_session.as_ref().map(Arc::clone),
@@ -3833,19 +3828,6 @@ mod record_display_abi_tests {
     }
 }
 
-/// ランタイムを生成して不透明ポインタを返す（失敗時 null は返さない）。
-///
-/// # Safety
-/// 返り値は `kirin_hypha_destroy` でのみ解放すること。
-#[no_mangle]
-pub extern "C" fn kirin_hypha_create(sample_rate: u32, num_channels: u32) -> *mut KirinHyphaEngine {
-    // panic を C ABI 境界で止める。panic 時は null を返す（UB 回避）。論理は変えない。
-    catch_unwind(AssertUnwindSafe(|| {
-        Box::into_raw(Box::new(KirinHyphaEngine::new(sample_rate, num_channels)))
-    }))
-    .unwrap_or(std::ptr::null_mut())
-}
-
 /// identity.json からライセンスコードを読む（0=Os 1=Sense 2=Unknown）。ハンドル不要。
 /// `~/Library/Application Support/Kirin OS/identity.json` の `"license"` を loose 抽出する
 /// `kirin_measure::load_license_safe` を包む。ファイル不在・parse 失敗・$HOME 不在は 2=Unknown
@@ -5078,7 +5060,7 @@ pub type _KirinHyphaOpaque = c_void;
 
 #[cfg(test)]
 mod record_start_latch_tests {
-    use super::{KirinHyphaEngine, RecordTakeBlock, LICENSE_OS};
+    use super::{ChannelLayout, KirinHyphaEngine, RecordTakeBlock, LICENSE_OS};
 
     fn block(
         rendered: bool,
@@ -5101,7 +5083,7 @@ mod record_start_latch_tests {
 
     #[test]
     fn ffi_record_start_latches_only_rendered_capture_window() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         engine.set_license(LICENSE_OS);
         assert!(engine.enter_record());
 
@@ -5117,7 +5099,7 @@ mod record_start_latch_tests {
 
     #[test]
     fn ffi_record_start_latches_explicit_clock_start_for_bounded_window() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         engine.set_license(LICENSE_OS);
         assert!(engine.enter_record());
 
@@ -5131,11 +5113,11 @@ mod record_start_latch_tests {
 
 #[cfg(test)]
 mod admission_contract_tests {
-    use super::{KirinHyphaEngine, RecordTakeBlock, MAX_AUDIO_BLOCK_FRAMES};
+    use super::{ChannelLayout, KirinHyphaEngine, RecordTakeBlock, MAX_AUDIO_BLOCK_FRAMES};
 
     #[test]
     fn shipping_transaction_rejects_channel_remainder_without_advancing_clock() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         assert!(!engine.push_samples_transaction(&[0.0, 1.0, 2.0], 2));
         assert_eq!(engine.overflow_count(), 3);
         assert_eq!(engine.record_take_tracker.captured_frames_total(), 0);
@@ -5143,7 +5125,7 @@ mod admission_contract_tests {
 
     #[test]
     fn shipping_transaction_reports_success_only_after_audio_and_clock_commit() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         engine.note_capture_window(
             true,
             42,
@@ -5159,12 +5141,12 @@ mod admission_contract_tests {
 
     #[test]
     fn shipping_transaction_rejects_nonempty_unclocked_watch_and_record() {
-        let watch = KirinHyphaEngine::new(48_000, 2);
+        let watch = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         assert!(!watch.push_samples_transaction(&[0.0, 0.0], 2));
         assert_eq!(watch.overflow_count(), 2);
         assert_eq!(watch.record_take_tracker.captured_frames_total(), 0);
 
-        let record = KirinHyphaEngine::new(48_000, 2);
+        let record = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         record.set_license(super::LICENSE_OS);
         assert!(record.enter_record());
         record.stage_record_block(RecordTakeBlock {
@@ -5187,7 +5169,7 @@ mod admission_contract_tests {
 
     #[test]
     fn shipping_transaction_rejects_frames_above_declared_host_maximum() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         let frames = MAX_AUDIO_BLOCK_FRAMES + 1;
         let block = vec![0.0; frames * 2];
         engine.note_capture_window(

@@ -4,6 +4,7 @@
 //! peaks, clip events, balance and correlation on the same sample boundary as loudness/session
 //! facts without adding work to the Audio Thread.
 
+use crate::channel_layout::{ChannelLayout, LayoutId};
 use std::collections::VecDeque;
 
 use ebur128::{EbuR128, Mode};
@@ -101,12 +102,18 @@ pub struct StereoMeter {
 }
 
 impl StereoMeter {
-    pub fn new(sample_rate: u32, channels: usize) -> Result<Self, String> {
-        if !(1..=2).contains(&channels) {
-            return Err(format!("unsupported channel count: {channels}"));
+    /// `layout` must still be mono or stereo: every field of this meter is a `[_; 2]`, so a wider
+    /// layout would be measured on its first two channels and reported as the whole programme.
+    /// The map is applied all the same, so the stereo path never relies on the ebur128 default.
+    pub fn new(sample_rate: u32, layout: ChannelLayout) -> Result<Self, String> {
+        let channels = layout.channel_count();
+        if !matches!(layout.id(), LayoutId::Mono | LayoutId::Stereo) {
+            return Err(format!("unsupported layout: {}", layout.id().as_str()));
         }
-        let ebu = EbuR128::new(channels as u32, sample_rate, Mode::TRUE_PEAK)
+        let mut ebu = EbuR128::new(channels as u32, sample_rate, Mode::TRUE_PEAK)
             .map_err(|error| format!("EbuR128::new: {error:?}"))?;
+        ebu.set_channel_map(&layout.loudness_map())
+            .map_err(|error| format!("set_channel_map: {error:?}"))?;
         Ok(Self {
             ebu,
             channels,

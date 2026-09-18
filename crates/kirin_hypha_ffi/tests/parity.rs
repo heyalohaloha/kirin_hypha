@@ -18,7 +18,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use approx::{abs_diff_eq, assert_relative_eq, relative_eq};
 
-use kirin_hypha_ffi::{KirinHyphaEngine, KIRIN_KEEP_PHASE_ARMED};
+use kirin_hypha_ffi::{channel_abi::ChannelLayout, KirinHyphaEngine, KIRIN_KEEP_PHASE_ARMED};
 use kirin_measure::engine::{MeasureEngine, SessionSummary};
 use kirin_measure::phase_d::stream::{PhaseDResult, PhaseDStream};
 use kirin_measure::phase_d::tables::FieldType;
@@ -240,10 +240,10 @@ fn direct_phase_d_publish_candidates(stereo_f32: &[f32]) -> Vec<PhaseDResult> {
     frames
 }
 
-fn direct_last_lufs(samples: &[f32], channels: usize) -> f64 {
-    let mut engine = MeasureEngine::new(SR, channels).expect("MeasureEngine init");
+fn direct_last_lufs(samples: &[f32], layout: ChannelLayout) -> f64 {
+    let mut engine = MeasureEngine::new(SR, layout).expect("MeasureEngine init");
     let f64buf: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
-    let chunk = (SR as usize / 10) * channels;
+    let chunk = (SR as usize / 10) * layout.channel_count();
     let mut last = None;
     for c in f64buf.chunks(chunk) {
         if let Some(r) = engine.push(c) {
@@ -255,23 +255,23 @@ fn direct_last_lufs(samples: &[f32], channels: usize) -> f64 {
     last.expect("direct engine should produce LUFS-M")
 }
 
-fn drive_ffi_lufs(samples: &[f32], channels: u32) -> f64 {
-    let engine = KirinHyphaEngine::new(SR, channels);
+fn drive_ffi_lufs(samples: &[f32], layout: ChannelLayout) -> f64 {
+    let engine = KirinHyphaEngine::new(SR, layout);
     engine.set_signal_state(1); // Active (ABI code)
 
     let block_frames = SR as usize / 10;
-    let block_len = block_frames * channels as usize;
+    let block_len = block_frames * layout.channel_count();
     let mut i = 0;
     while i < samples.len() {
         let end = (i + block_len).min(samples.len());
-        engine.push_samples(&samples[i..end], channels);
+        engine.push_samples(&samples[i..end], layout.channel_count() as u32);
         i = end;
         sleep(Duration::from_millis(30));
     }
 
     let mut last = None;
     for _ in 0..40 {
-        engine.push_samples(&[], channels);
+        engine.push_samples(&[], layout.channel_count() as u32);
         sleep(Duration::from_millis(50));
         if let Some(r) = engine.poll_result() {
             if let Some(lufs) = r.lufs_m {
@@ -384,7 +384,7 @@ fn drive_ffi(
     stereo_f32: &[f32],
     direct_candidates: &[PhaseDResult],
 ) -> (kirin_measure::MeasureResult, usize, u64) {
-    let engine = KirinHyphaEngine::new(SR, 2);
+    let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     engine.set_signal_state(1); // Active (ABI code)
     engine.set_license(0); // Os
     assert!(
@@ -533,9 +533,9 @@ fn mono_ffi_is_one_channel_not_dual_mono_plus_3db() {
     let mono = gen_mono_f32(2.0);
     let dual_mono = duplicate_mono_to_stereo(&mono);
 
-    let direct_mono = direct_last_lufs(&mono, 1);
-    let direct_dual_mono = direct_last_lufs(&dual_mono, 2);
-    let ffi_mono = drive_ffi_lufs(&mono, 1);
+    let direct_mono = direct_last_lufs(&mono, ChannelLayout::mono());
+    let direct_dual_mono = direct_last_lufs(&dual_mono, ChannelLayout::stereo());
+    let ffi_mono = drive_ffi_lufs(&mono, ChannelLayout::mono());
 
     approx::assert_abs_diff_eq!(ffi_mono, direct_mono, epsilon = 0.2);
 
@@ -550,7 +550,7 @@ fn mono_ffi_is_one_channel_not_dual_mono_plus_3db() {
 #[test]
 fn poll_session_is_false_in_phase1() {
     // Phase 1 では SessionSummary 経路（Record 依存）を埋めない。常に None。
-    let engine = KirinHyphaEngine::new(SR, 2);
+    let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     engine.set_signal_state(1);
     let signal = gen_stereo_f32(0.5);
     engine.push_samples(&signal, 2);
@@ -566,7 +566,7 @@ fn rt_safety_no_overflow_at_juce_block_sizes() {
     // JUCE 代表ブロック 64/128/256/512/1024 frames×2ch を ~real-time で連投し、
     // rtrb push が一度も fail しない（ring 2s で足りる）ことを確認（§8）。
     for &block in &[64usize, 128, 256, 512, 1024] {
-        let engine = KirinHyphaEngine::new(SR, 2);
+        let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         engine.set_signal_state(1);
 
         // 小さな非ゼロ値（Active 維持。silent 判定は host 側責務だが念のため非ゼロ）。
@@ -594,7 +594,7 @@ fn rt_safety_no_overflow_at_juce_block_sizes() {
 /// stereo interleaved・48k で resample なし / measure_thread.rs:232,266）を直接
 /// `MeasureEngine` に通して finalize する。
 fn direct_session(stereo_f32: &[f32]) -> SessionSummary {
-    let mut engine = MeasureEngine::new(SR, 2).expect("MeasureEngine init");
+    let mut engine = MeasureEngine::new(SR, ChannelLayout::stereo()).expect("MeasureEngine init");
     let f64buf: Vec<f64> = stereo_f32.iter().map(|&s| s as f64).collect();
     let chunk = (SR as usize / 10) * 2; // 100ms stereo interleaved
     for c in f64buf.chunks(chunk) {
@@ -606,7 +606,7 @@ fn direct_session(stereo_f32: &[f32]) -> SessionSummary {
 /// FFI で Record セッションを駆動して poll_session を取得する。
 /// 駆動ペースは `drive_ffi`（phase_d parity）と同じ 0.1s/30ms（ring 2s で overflow=0）。
 fn drive_ffi_session(stereo_f32: &[f32]) -> (SessionSummary, u64, bool) {
-    let engine = KirinHyphaEngine::new(SR, 2);
+    let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     engine.set_license(0); // Os
     engine.set_signal_state(1); // Active
     assert!(
@@ -745,7 +745,7 @@ fn session_finalize_ffi_matches_direct_engine() {
 #[test]
 fn license_gate_blocks_record_when_not_os() {
     for code in [1u8 /* Sense */, 2u8 /* Unknown */] {
-        let engine = KirinHyphaEngine::new(SR, 2);
+        let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         engine.set_license(code);
         engine.set_signal_state(1);
         assert!(
@@ -770,7 +770,7 @@ fn license_gate_blocks_record_when_not_os() {
 /// 既定（set_license 前）は Unknown 安全側で Record 不可。
 #[test]
 fn default_license_is_unknown_record_denied() {
-    let engine = KirinHyphaEngine::new(SR, 2);
+    let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     engine.set_signal_state(1);
     assert!(
         !engine.enter_record(),
@@ -782,7 +782,7 @@ fn default_license_is_unknown_record_denied() {
 /// Keep 開始後は license 更新に停止権限がない。降格は次回 Keep の開始 gate にだけ反映する。
 #[test]
 fn license_demotion_does_not_stop_active_keep() {
-    let engine = KirinHyphaEngine::new(SR, 2);
+    let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     engine.set_license(0); // Os
     assert!(engine.enter_record(), "Os で enter_record は true");
     assert!(engine.is_recording(), "Record 中");
@@ -929,7 +929,7 @@ fn pre_direct_record_without_pair_does_not_write_plugin_data_json() {
     let aggregates;
     let watch_pre_exists;
     {
-        let engine = KirinHyphaEngine::new(SR, 2);
+        let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         engine.set_license(0); // Os（enable より前）
         engine.enable_pre_writes(); // io_thread_pre 起動
         engine.set_signal_state(1); // Active
@@ -1017,7 +1017,7 @@ fn identity_round_trip_via_c_abi() {
     use std::ffi::CString;
 
     let read_back = |iid: &str, puid: &str, dsid: &str, nm: &str| {
-        let mut engine = KirinHyphaEngine::new(SR, 2);
+        let mut engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         let ptr = &mut engine as *mut KirinHyphaEngine;
         let (c_iid, c_puid, c_dsid, c_nm) = (
             CString::new(iid).unwrap(),
@@ -1071,7 +1071,7 @@ fn set_identity_materializes_unsafe_restore_value() {
 
     let _ = drain_path_events(); // sink clean
 
-    let mut engine = KirinHyphaEngine::new(SR, 2);
+    let mut engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     let ptr = &mut engine as *mut KirinHyphaEngine;
     let (c_iid, c_puid, c_dsid, c_nm) = (
         CString::new("/tmp/x").unwrap(),          // 絶対パス（§7 i）
@@ -1145,7 +1145,7 @@ fn set_identity_materializes_unsafe_restore_value() {
 /// add_annotation は Os 以外（既定 Unknown / Sense）で false（二重 gate / can_write_plugin_data）。
 #[test]
 fn record_annotations_denied_without_os() {
-    let engine = KirinHyphaEngine::new(SR, 2);
+    let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     assert!(
         !engine.add_annotation("x".to_string()),
         "既定 Unknown では false"
@@ -1194,7 +1194,7 @@ fn set_identity_direct_record_does_not_create_annotation_target() {
     let known_puid = "puid-b058-fixed";
 
     {
-        let engine = KirinHyphaEngine::new(SR, 2);
+        let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         engine.set_license(0); // Os
         engine.set_identity(
             known_iid.to_string(),
@@ -1309,14 +1309,14 @@ fn post_writes_delta_against_colocated_pre() {
     let post_pre_state_found: bool;
     {
         // PRE engine: 同名 "mix"、別 project_uuid "puid-pre"。Watch（録音不要）。
-        let pre = KirinHyphaEngine::new(SR, 2);
+        let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         pre.set_license(0);
         pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
         pre.enable_pre_writes();
         pre.set_signal_state(1); // Active
 
         // POST engine: 同名 "mix"（= 対 PRE 名）、別 project_uuid "puid-post"。
-        let post = KirinHyphaEngine::new(SR, 2);
+        let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         post.set_license(0);
         post.set_identity(
             "iid-post".into(),
@@ -1435,14 +1435,14 @@ fn post_keep_acked_by_colocated_pre() {
 
     {
         // PRE: 同名 "mix" / project_uuid "puid-pre"（io_thread が autonomous に ack する）。
-        let pre = KirinHyphaEngine::new(SR, 2);
+        let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         pre.set_license(0);
         pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
         pre.enable_pre_writes();
         pre.set_signal_state(1);
 
         // POST: 同名 "mix" / project_uuid "puid-post"（別 uuid = cross-uuid ack の肝）。
-        let post = KirinHyphaEngine::new(SR, 2);
+        let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         post.set_license(0);
         post.set_identity(
             "iid-post".into(),
@@ -1560,13 +1560,13 @@ fn capstone_paired_record_output_and_linkage() {
 
     let delta_lufs: f64;
     {
-        let pre = KirinHyphaEngine::new(SR, 2);
+        let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         pre.set_license(0);
         pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
         pre.enable_pre_writes();
         pre.set_signal_state(1);
 
-        let post = KirinHyphaEngine::new(SR, 2);
+        let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         post.set_license(0);
         post.set_identity(
             "iid-post".into(),
@@ -1821,13 +1821,13 @@ fn keep_failure_after_enter_reverts_record_state() {
     let watch_root = tmp.join("kirin");
 
     {
-        let pre = KirinHyphaEngine::new(SR, 2);
+        let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         pre.set_license(0);
         pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
         pre.enable_pre_writes();
         pre.set_signal_state(1);
 
-        let post = KirinHyphaEngine::new(SR, 2);
+        let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         post.set_license(0);
         post.set_identity(
             "iid-post".into(),
@@ -1902,7 +1902,7 @@ fn keep_failure_after_enter_reverts_record_state() {
 /// enable していない engine（write_role 未確定）は Os でも add_annotation を no-op にする。
 #[test]
 fn add_annotation_noop_without_role() {
-    let engine = KirinHyphaEngine::new(SR, 2);
+    let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     engine.set_license(0); // Os
     assert!(
         !engine.add_annotation("x".into()),
@@ -1944,13 +1944,13 @@ fn post_mark_survives_flush_and_close_with_wav_sample_position() {
     let plugin_data_root = home.join("Library/Application Support/Kirin OS/plugin_data");
 
     {
-        let pre = KirinHyphaEngine::new(SR, 2);
+        let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         pre.set_license(0);
         pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
         pre.enable_pre_writes();
         pre.set_signal_state(1);
 
-        let post = KirinHyphaEngine::new(SR, 2);
+        let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         post.set_license(0);
         post.set_identity(
             "iid-post".into(),
@@ -2145,13 +2145,13 @@ fn double_keep_preserves_linkage() {
     let watch_root = tmp.join("kirin");
 
     {
-        let pre = KirinHyphaEngine::new(SR, 2);
+        let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         pre.set_license(0);
         pre.set_identity("iid-pre".into(), "puid-pre".into(), "".into(), "mix".into());
         pre.enable_pre_writes();
         pre.set_signal_state(1);
 
-        let post = KirinHyphaEngine::new(SR, 2);
+        let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         post.set_license(0);
         post.set_identity(
             "iid-post".into(),
@@ -2219,11 +2219,11 @@ fn double_keep_preserves_linkage() {
 #[test]
 fn dropped_samples_surfaced_via_c_abi_on_ring_overflow() {
     use kirin_hypha_ffi::{
-        kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_poll_result, kirin_hypha_push_samples,
-        kirin_hypha_set_signal_state, KirinMeasureResult,
+        channel_abi::kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_poll_result,
+        kirin_hypha_push_samples, kirin_hypha_set_signal_state, KirinMeasureResult,
     };
     unsafe {
-        let h = kirin_hypha_create(SR, 2);
+        let h = kirin_hypha_create(SR, [1_u8, 2].as_ptr(), 2); // Left, Right
         assert!(!h.is_null(), "create");
         kirin_hypha_set_signal_state(h, 1); // Active
 
@@ -2261,7 +2261,7 @@ fn dropped_samples_surfaced_via_c_abi_on_ring_overflow() {
 #[test]
 fn b125_overflow_and_oversized_drop_are_independent_counters() {
     // note_oversized_drop だけ → oversized_drop_count のみ増え overflow_count は 0 のまま。
-    let engine = KirinHyphaEngine::new(SR, 2);
+    let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     assert_eq!(engine.overflow_count(), 0);
     assert_eq!(engine.oversized_drop_count(), 0);
     engine.note_oversized_drop(100);
@@ -2274,7 +2274,7 @@ fn b125_overflow_and_oversized_drop_are_independent_counters() {
     );
 
     // 逆: ring 満杯 burst だけ → overflow_count のみ増え oversized_drop_count は 0 のまま。
-    let engine2 = KirinHyphaEngine::new(SR, 2);
+    let engine2 = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     engine2.set_signal_state(1);
     let ring_capacity = SR as usize * RING_BUFFER_SECONDS * 2;
     let burst = vec![0.05f32; ring_capacity * 2]; // Measure Thread が並行消費しても ring 容量を超過
@@ -2298,12 +2298,12 @@ fn b125_overflow_and_oversized_drop_are_independent_counters() {
 #[test]
 fn b125_oversized_drop_surfaces_in_c_abi_dropped_samples() {
     use kirin_hypha_ffi::{
-        kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_note_capture_window,
+        channel_abi::kirin_hypha_create, kirin_hypha_destroy, kirin_hypha_note_capture_window,
         kirin_hypha_note_oversized_drop, kirin_hypha_poll_result, kirin_hypha_push_samples,
         kirin_hypha_set_signal_state, KirinMeasureResult,
     };
     unsafe {
-        let h = kirin_hypha_create(SR, 2);
+        let h = kirin_hypha_create(SR, [1_u8, 2].as_ptr(), 2); // Left, Right
         assert!(!h.is_null(), "create");
         kirin_hypha_set_signal_state(h, 1); // Active
 
@@ -2392,13 +2392,13 @@ fn two_post_instances_converge_on_one_shelf() {
 
     {
         // POST A: 自分の project_uuid "puid-a" を持ち最初に enable → 共有 POST セルを seed。
-        let mut post_a = KirinHyphaEngine::new(SR, 2);
+        let mut post_a = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         post_a.set_license(0);
         post_a.set_identity("iid-a".into(), "puid-a".into(), "".into(), "mix".into());
         post_a.enable_post_writes();
 
         // POST B: 別の project_uuid "puid-b" を持つが、enable で共有 POST セル既値を採用（first-wins）。
-        let mut post_b = KirinHyphaEngine::new(SR, 2);
+        let mut post_b = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         post_b.set_license(0);
         post_b.set_identity("iid-b".into(), "puid-b".into(), "".into(), "mix".into());
         post_b.enable_post_writes();
@@ -2428,7 +2428,7 @@ fn two_post_instances_converge_on_one_shelf() {
 #[test]
 #[ignore]
 fn b118_measure_restart_recovers_via_watchdog() {
-    let engine = KirinHyphaEngine::new(SR, 2);
+    let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     engine.set_signal_state(1); // Active
     assert!(engine.measure_alive(), "起動直後は measure 生存");
 
@@ -2525,7 +2525,7 @@ fn b118_measure_restart_recovers_via_watchdog() {
 #[ignore]
 fn b118_drop_after_measure_restart_no_uaf() {
     let completed = {
-        let engine = KirinHyphaEngine::new(SR, 2);
+        let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
         engine.set_signal_state(1);
         engine.__force_measure_restart_for_test();
         sleep(Duration::from_millis(1500)); // watchdog 再 spawn（再起動世代を確定）
@@ -2539,7 +2539,7 @@ fn b118_drop_after_measure_restart_no_uaf() {
 /// B-118 Phase 3 (② getter): 未 enable（project_hash 空）では排他 conflict は false（保守側）。
 #[test]
 fn b118_record_exclusion_conflict_false_before_enable() {
-    let engine = KirinHyphaEngine::new(SR, 2);
+    let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     assert!(
         !engine.record_exclusion_conflict(),
         "未 enable は exclusion 非 conflict（ブロックしない）"
@@ -2549,7 +2549,7 @@ fn b118_record_exclusion_conflict_false_before_enable() {
 /// B-118 Phase 3 (③ getter): io 失敗が無ければ record_error_message は None（R-26 沈黙）。
 #[test]
 fn b118_record_error_message_none_initially() {
-    let engine = KirinHyphaEngine::new(SR, 2);
+    let engine = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     assert_eq!(engine.record_error_message(), None, "通常時は None");
 }
 
@@ -2595,7 +2595,7 @@ fn b127_isolate(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
 /// "mix" の fresh pre.json が TMPDIR/kirin に書かれるまで待つ PRE engine（POST の arm 先）。
 /// 返す engine は生かし続けること（drop すると io_thread 停止で pre.json が stale 化する）。
 fn b127_spawn_pre(puid: &str, tmp: &std::path::Path) -> KirinHyphaEngine {
-    let pre = KirinHyphaEngine::new(SR, 2);
+    let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     pre.set_license(0);
     pre.set_identity("iid-pre".into(), puid.into(), "".into(), "mix".into());
     pre.enable_pre_writes();
@@ -2633,7 +2633,7 @@ fn b140_inactive_keep_latches_pre_for_delta_after_audio() {
     let puid = "puid-b140-inactive";
     let watch_root = tmp.join("kirin");
 
-    let pre = KirinHyphaEngine::new(SR, 2);
+    let pre = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     pre.set_license(0);
     pre.set_identity("iid-pre-b140".into(), puid.into(), "".into(), "mix".into());
     pre.enable_pre_writes();
@@ -2658,7 +2658,7 @@ fn b140_inactive_keep_latches_pre_for_delta_after_audio() {
         "Inactive PRE pre.json must be fresh and arm-selectable"
     );
 
-    let post = KirinHyphaEngine::new(SR, 2);
+    let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity("iid-post-b140".into(), puid.into(), "".into(), "mix".into());
     post.enable_post_writes();
@@ -2765,7 +2765,7 @@ fn b127_engine_counts_pairings_not_markers() {
     let pre = b127_spawn_pre(puid, &tmp);
     b127_write_bidi_pairs(&base, puid, 12); // 24 active marker・**枠は 0**
 
-    let post = KirinHyphaEngine::new(SR, 2);
+    let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity("iid-frame".into(), puid.into(), "".into(), "mix".into());
     post.enable_post_writes();
@@ -2797,7 +2797,7 @@ fn b127_reservation_released_on_stop() {
 
     let _pre = b127_spawn_pre(puid, &tmp); // PRE "mix" = "iid-pre"
 
-    let post = KirinHyphaEngine::new(SR, 2);
+    let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity("iid-rel".into(), puid.into(), "".into(), "mix".into());
     post.enable_post_writes();
@@ -2835,7 +2835,7 @@ fn b127_reservation_released_on_drop() {
 
     let _pre = b127_spawn_pre(puid, &tmp);
 
-    let post = KirinHyphaEngine::new(SR, 2);
+    let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity("iid-rel-drop".into(), puid.into(), "".into(), "mix".into());
     post.enable_post_writes();
@@ -2874,7 +2874,7 @@ fn b127_engine_caps_at_twelve_and_notifies() {
     let _pre = b127_spawn_pre(puid, &tmp); // 生かし続ける（arm 先 "mix"）。
     b127_make_frames(&base, puid, 12); // cap ちょうど（12 枠 = 12 pairing / 真実源 = 枠存在）。
 
-    let post = KirinHyphaEngine::new(SR, 2);
+    let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity("iid-13".into(), puid.into(), "".into(), "mix".into());
     post.enable_post_writes();
@@ -2919,7 +2919,7 @@ fn b127_engine_allows_keep_under_cap() {
     let pre = b127_spawn_pre(puid, &tmp);
     b127_make_frames(&base, puid, 11); // < cap（11 枠 = 11 pairing）。
 
-    let post = KirinHyphaEngine::new(SR, 2);
+    let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity("iid-12".into(), puid.into(), "".into(), "mix".into());
     post.enable_post_writes();
@@ -2953,7 +2953,7 @@ fn b127_keep_reclaims_bounded_stale_leases_before_cap() {
     let base = home.join("Library/Application Support/Kirin OS/plugin_data");
 
     let pre = b127_spawn_pre(puid, &tmp);
-    let post = KirinHyphaEngine::new(SR, 2);
+    let post = KirinHyphaEngine::new(SR, ChannelLayout::stereo());
     post.set_license(0);
     post.set_identity(
         "iid-stale-keep".into(),

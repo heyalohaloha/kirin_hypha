@@ -2,6 +2,7 @@ use super::meter_session_ffi::{
     kirin_hypha_clear_meter_peak_clip_holds, kirin_hypha_reset_meter_session,
 };
 use super::*;
+use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::BalanceState;
 
 #[test]
@@ -308,7 +309,7 @@ fn null_meter_session_calls_fail_closed_without_touching_output() {
 
 #[test]
 fn meter_poll_reads_completed_publication_while_live_session_is_locked() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
     let live_session = engine.meter_session.as_ref().unwrap();
     let _live_guard = live_session.lock().unwrap();
 
@@ -321,7 +322,7 @@ fn meter_poll_reads_completed_publication_while_live_session_is_locked() {
 
 #[test]
 fn delta_history_abi_is_post_only_and_empty_is_a_valid_fact() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
     assert!(engine
         .poll_meter_delta_history(MeterHistoryResolution::Hz10, 10)
         .is_none());
@@ -351,7 +352,7 @@ fn delta_history_abi_is_post_only_and_empty_is_a_valid_fact() {
 
 #[test]
 fn live_measure_worker_advances_pauses_and_resets_independent_session() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
     engine.set_signal_state(KIRIN_SIGNAL_STATE_ACTIVE);
     let mut samples = Vec::with_capacity(48_000 * 2);
     for frame in 0..48_000 {

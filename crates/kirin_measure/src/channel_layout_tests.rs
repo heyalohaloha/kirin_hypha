@@ -216,3 +216,30 @@ fn pair_count_does_not_identify_a_layout_either() {
     assert_eq!(five_one_four.pairs().len(), 5);
     assert_eq!(five_one_four.channel_count(), 12);
 }
+
+#[test]
+fn every_role_survives_the_abi_and_no_two_share_a_code() {
+    // The table and the discriminants are written out separately, so they can disagree. If they
+    // do, a shell's Left arrives as Right and the channels are silently swapped.
+    let mut seen: Vec<u8> = Vec::new();
+    for role in ROLES_BY_ABI {
+        let code = role.to_abi();
+        assert_eq!(
+            ChannelRole::from_abi(code),
+            Some(role),
+            "{} did not survive its own ABI code {code}",
+            role.as_str()
+        );
+        assert!(!seen.contains(&code), "code {code} is used twice");
+        seen.push(code);
+    }
+    assert_eq!(seen.len(), 14, "a role was added without an ABI code");
+}
+
+#[test]
+fn a_code_no_role_claims_is_refused_not_clamped() {
+    // A shell built against a newer header sends a code this build has no role for. Clamping it
+    // to the nearest known role would measure that channel as something it is not.
+    assert_eq!(ChannelRole::from_abi(14), None);
+    assert_eq!(ChannelRole::from_abi(u8::MAX), None);
+}

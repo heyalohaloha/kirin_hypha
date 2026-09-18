@@ -1,14 +1,15 @@
 use super::*;
+use kirin_measure::channel_layout::ChannelLayout;
 
-fn post_engine(channels: u32) -> Box<KirinHyphaEngine> {
-    let engine = Box::new(KirinHyphaEngine::new(48_000, channels));
+fn post_engine(layout: ChannelLayout) -> Box<KirinHyphaEngine> {
+    let engine = Box::new(KirinHyphaEngine::new(48_000, layout));
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     engine
 }
 
 #[test]
 fn shipping_c_abi_routes_each_analysis_request_to_the_expected_runtime() {
-    let mut engine = post_engine(2);
+    let mut engine = post_engine(ChannelLayout::stereo());
     let handle = engine.as_mut() as *mut KirinHyphaEngine;
 
     assert!(unsafe { kirin_hypha_set_spectrum_channel_mode(handle, 2) });
@@ -57,14 +58,17 @@ fn shipping_c_abi_routes_each_analysis_request_to_the_expected_runtime() {
 
 #[test]
 fn shipping_c_abi_rejects_invalid_role_channel_and_null_handle() {
-    let mut pre = Box::new(KirinHyphaEngine::new(48_000, 2));
+    let mut pre = Box::new(KirinHyphaEngine::new(
+        48_000,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    ));
     *pre.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
     let pre_handle = pre.as_mut() as *mut KirinHyphaEngine;
     assert!(!unsafe { kirin_hypha_set_spectrum_visible(pre_handle, true) });
     assert!(!unsafe { kirin_hypha_set_absolute_visible(pre_handle, true) });
     assert!(!unsafe { kirin_hypha_set_attack_enabled(pre_handle, true) });
 
-    let mut mono = post_engine(1);
+    let mut mono = post_engine(ChannelLayout::mono());
     let mono_handle = mono.as_mut() as *mut KirinHyphaEngine;
     assert!(!unsafe { kirin_hypha_set_spectrum_channel_mode(mono_handle, 2) });
     assert!(!unsafe { kirin_hypha_set_mid_side_spectrum_visible(mono_handle, true) });
@@ -397,7 +401,10 @@ fn attack_uses_exact_project_clock_when_presentation_callback_is_absent() {
 
 #[test]
 fn pre_role_cannot_expose_the_post_spectrum_page() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(
+        48_000,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    );
     assert!(!engine.set_spectrum_visible(true));
     assert!(!engine.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
@@ -408,7 +415,10 @@ fn pre_role_cannot_expose_the_post_spectrum_page() {
 
 #[test]
 fn post_channel_mode_is_single_select_and_side_requires_stereo() {
-    let stereo = KirinHyphaEngine::new(48_000, 2);
+    let stereo = KirinHyphaEngine::new(
+        48_000,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    );
     *stereo.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     assert!(stereo.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
     assert_eq!(
@@ -422,7 +432,7 @@ fn post_channel_mode_is_single_select_and_side_requires_stereo() {
     );
     assert!(!stereo.set_spectrum_channel_mode(3));
 
-    let mono = KirinHyphaEngine::new(48_000, 1);
+    let mono = KirinHyphaEngine::new(48_000, kirin_measure::channel_layout::ChannelLayout::mono());
     *mono.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     assert!(mono.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
     assert!(!mono.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_SIDE));

@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "HyphaPluginFormat.h"
+#include "ChannelRoles.h"
 #include <algorithm>
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
 namespace
@@ -141,9 +142,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         kirin_hypha_destroy (hyphaHandle);
         hyphaHandle = nullptr;
     }
-    // num_channels: pass the actual negotiated input channel count. Mono must remain 1ch
-    // all the way into the meter; duplicating to stereo would bias loudness by +3.01 dB.
-    hyphaHandle = kirin_hypha_create ((uint32_t) sampleRate, (uint32_t) numCh);
+    hyphaHandle = kirin::createEngineForChannelSet (sampleRate, getChannelLayoutOfBus (true, 0));
     if (hyphaHandle != nullptr) analysisApplication.engineCreated();
     preparedSampleRate = hyphaHandle != nullptr ? sampleRate : 0.0;
     preparedInputChannels = hyphaHandle != nullptr ? numCh : 0;

@@ -5,6 +5,7 @@
 //! accumulated statistics. The owner lives outside the replaceable Measure worker so a worker
 //! restart does not implicitly discard the session.
 
+use crate::channel_layout::ChannelLayout;
 use crate::meter_clock::MeterClockTracker;
 use crate::meter_history::MeterHistory;
 use crate::{
@@ -100,9 +101,10 @@ pub struct MeterSession {
 }
 
 impl MeterSession {
-    pub fn new(sample_rate: u32, n_channels: usize) -> Result<Self, String> {
-        let engine = MeasureEngine::new(sample_rate, n_channels)?;
-        let stereo = StereoMeter::new(sample_rate, n_channels)?;
+    pub fn new(sample_rate: u32, layout: ChannelLayout) -> Result<Self, String> {
+        let n_channels = layout.channel_count();
+        let engine = MeasureEngine::new(sample_rate, layout)?;
+        let stereo = StereoMeter::new(sample_rate, layout)?;
         Ok(Self {
             engine,
             sample_rate,

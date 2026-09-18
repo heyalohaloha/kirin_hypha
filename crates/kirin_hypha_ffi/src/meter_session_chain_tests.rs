@@ -31,7 +31,8 @@ fn mono_sum_travels_from_audio_to_the_c_struct() {
             .sum()
     };
 
-    let mut session = MeterSession::new(SR, 2).expect("session");
+    let mut session = MeterSession::new(SR, kirin_measure::channel_layout::ChannelLayout::stereo())
+        .expect("session");
     // Hard panned left, so every measured band has to read exactly -3.01 dB.
     let mut interleaved = Vec::with_capacity(4_800 * 2 * 3);
     for index in 0..(4_800 * 3) {

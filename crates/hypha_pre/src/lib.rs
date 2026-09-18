@@ -417,7 +417,7 @@ impl Plugin for HyphaPre {
         let measure_handle = spawn_measure_thread(
             consumer,
             buffer_config.sample_rate as u32,
-            N_CHANNELS,
+            kirin_measure::channel_layout::ChannelLayout::stereo(),
             Arc::clone(&self.measure_result),
             None,
             None,
@@ -521,7 +521,7 @@ impl Plugin for HyphaPre {
 
         self.watchdog_handle = Some(spawn_watchdog(WatchdogParams {
             sample_rate: buffer_config.sample_rate as u32,
-            n_channels: N_CHANNELS,
+            layout: kirin_measure::channel_layout::ChannelLayout::stereo(),
             ring_capacity: capacity,
             measure_result: Arc::clone(&self.measure_result),
             meter_session: None,

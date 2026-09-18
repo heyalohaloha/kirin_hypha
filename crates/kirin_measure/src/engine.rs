@@ -8,6 +8,7 @@
 use ebur128::{EbuR128, Mode};
 use std::collections::VecDeque;
 
+use crate::channel_layout::ChannelLayout;
 use crate::MeasureResult;
 
 /// B-205: サブサイレンス・フロア。実プログラム素材（おおむね -60..0 LUFS / dBTP）の遥か下に置く。
@@ -120,14 +121,21 @@ pub struct MeasureEngine {
     tp_window: VecDeque<(f64, u64)>,
     /// tp_window の失効しきい値（フレーム / = 400ms）。
     tp_window_frames: u64,
+
+    /// このエンジンが作られたレイアウト。チャンネル数の出所であり、再生成判定の材料。
+    layout: ChannelLayout,
 }
 
 impl MeasureEngine {
     /// 新規計測エンジンを生成する。
     ///
+    /// `layout` がチャンネル数と ebur128 の map の両方を決める。B-955 以降 map は常に明示で、
+    /// ebur128 の default map（index 5 より後を `Unused` に固定）へは決して落ちない。
+    ///
     /// # Errors
-    /// ebur128 の初期化失敗時に Err を返す。
-    pub fn new(sample_rate: u32, n_channels: usize) -> Result<Self, String> {
+    /// ebur128 の初期化失敗時と map 適用失敗時に Err を返す。
+    pub fn new(sample_rate: u32, layout: ChannelLayout) -> Result<Self, String> {
+        let n_channels = layout.channel_count();
         // LUFS-M (Mode::M) + LUFS-S(PSR用, Mode::S) + Integrated (Mode::I)
         // + LRA (Mode::LRA) + True Peak (Mode::TRUE_PEAK)
         // B-043: Integrated / LRA は Record 終了時に finalize() で集計
@@ -135,6 +143,10 @@ impl MeasureEngine {
         let mode = Mode::M | Mode::S | Mode::I | Mode::LRA | Mode::TRUE_PEAK;
         let mut ebu = EbuR128::new(n_channels as u32, sample_rate, mode)
             .map_err(|e| format!("EbuR128::new: {:?}", e))?;
+        // `reset()` は map を触らないので、ここで一度入れれば Record 跨ぎでも保たれる
+        // （vendor/ebur128/src/ebur128.rs:555 実読）。
+        ebu.set_channel_map(&layout.loudness_map())
+            .map_err(|e| format!("set_channel_map: {e:?}"))?;
         ebu.enable_cached_window_queries();
 
         // ebur128が採用する丸め後の100msフレーム数を観測時刻の正本にする。
@@ -169,6 +181,7 @@ impl MeasureEngine {
             // 最大40エントリ（400ms / 10ms）。フレーム基準で失効するので容量は余裕を持つ。
             tp_window: VecDeque::with_capacity(48),
             tp_window_frames: tp_recent_window_frames(sample_rate),
+            layout,
         })
     }
 
@@ -191,6 +204,11 @@ impl MeasureEngine {
         self.publish_buf.clear();
         self.max_lufs_m = None;
         self.max_lufs_s = None;
+    }
+
+    /// このエンジンが作られたレイアウト。
+    pub fn layout(&self) -> ChannelLayout {
+        self.layout
     }
 
     /// 100ms observerへ公開済みの累積フレーム数（48k/engine sample time）。
@@ -398,3 +416,7 @@ mod readout;
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "engine_channel_map_tests.rs"]
+mod channel_map_tests;

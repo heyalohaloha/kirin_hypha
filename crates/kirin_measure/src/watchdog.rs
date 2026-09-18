@@ -17,6 +17,7 @@
 //! active Producer を差し替える。旧 Producer の破棄は Watchdog Thread に返し、
 //! Audio Thread で lock / allocation / deallocation を発生させない。
 
+use crate::channel_layout::ChannelLayout;
 use crate::engine::SessionSummary;
 use crate::record::RecordStateMachine;
 use crate::record_ingress::RecordIngressGenerationObservation;
@@ -77,8 +78,8 @@ pub enum WatchdogIo {
 pub struct WatchdogParams {
     /// 計測スレッドのサンプルレート（再起動時の ring buffer 再生成に使う）
     pub sample_rate: u32,
-    /// 計測スレッドの入力チャンネル数（1=mono / 2=stereo）。再起動後も同じ layout を維持する。
-    pub n_channels: usize,
+    /// 計測スレッドのチャンネルレイアウト。再起動後も同じ layout・同じ map を維持する。
+    pub layout: ChannelLayout,
     /// ring buffer 容量（samples）
     pub ring_capacity: usize,
     /// 計測結果共有（再起動した Measure Thread に渡す）
@@ -140,7 +141,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
     thread::spawn(move || {
         let WatchdogParams {
             sample_rate,
-            n_channels,
+            layout,
             ring_capacity,
             measure_result,
             meter_session,
@@ -219,7 +220,7 @@ pub fn spawn_watchdog(params: WatchdogParams) -> JoinHandle<()> {
                 cur_measure = spawn_measure_thread(
                     consumer,
                     sample_rate,
-                    n_channels,
+                    layout,
                     Arc::clone(&measure_result),
                     meter_session.as_ref().map(Arc::clone),
                     meter_session_publication.as_ref().map(Arc::clone),

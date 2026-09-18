@@ -21,8 +21,9 @@ use crate::record_writer::{
 use crate::resampler::ResamplerTo48k;
 use crate::watch_playback_pass::watch_ring_cursor_samples_for_pass;
 use crate::{
-    engine::SessionSummary, load_signal_state, store_signal_state, MeasureEngine, MeasureResult,
-    MeterClockStart, MeterSession, MeterSessionPublication, PsbSummary, SignalState, N_CHANNELS,
+    channel_layout::ChannelLayout, engine::SessionSummary, load_signal_state, store_signal_state,
+    MeasureEngine, MeasureResult, MeterClockStart, MeterSession, MeterSessionPublication,
+    PsbSummary, SignalState,
 };
 
 /// Watch core と PhaseD の内部処理 SR。Record core は host native SR で別 engine を動かし、
@@ -215,7 +216,7 @@ pub fn stalled_signal_state(host_component_active: bool) -> SignalState {
 pub fn spawn_measure_thread(
     consumer: rtrb::Consumer<f32>,
     sample_rate: u32,
-    n_channels: usize,
+    layout: ChannelLayout,
     result: Arc<Mutex<MeasureResult>>,
     meter_session: Option<Arc<Mutex<MeterSession>>>,
     meter_session_publication: Option<Arc<MeterSessionPublication>>,
@@ -235,21 +236,18 @@ pub fn spawn_measure_thread(
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         let mut consumer = MeasureSampleConsumer::watch(consumer);
-        let n_channels = match n_channels {
-            1 | 2 => n_channels,
-            _ => N_CHANNELS,
-        };
+        let n_channels = layout.channel_count();
 
         //  v2: 内部処理は 48 kHz 固定。入力 SR が異なる場合のみ
         // ResamplerTo48k で変換して engine / phase_d に渡す。
-        let mut engine = match MeasureEngine::new(ENGINE_SR, n_channels) {
+        let mut engine = match MeasureEngine::new(ENGINE_SR, layout) {
             Ok(e) => e,
             Err(e) => {
                 log::error!("[MeasureThread] MeasureEngine::new failed: {}", e);
                 return;
             }
         };
-        let mut record_trace_engine = match MeasureEngine::new(sample_rate, n_channels) {
+        let mut record_trace_engine = match MeasureEngine::new(sample_rate, layout) {
             Ok(engine) => engine,
             Err(error) => {
                 log::error!(
@@ -259,7 +257,7 @@ pub fn spawn_measure_thread(
                 return;
             }
         };
-        let mut record_summary_engine = match MeasureEngine::new(sample_rate, n_channels) {
+        let mut record_summary_engine = match MeasureEngine::new(sample_rate, layout) {
             Ok(engine) => engine,
             Err(error) => {
                 log::error!(
@@ -2079,7 +2077,8 @@ fn compute_psb_summary(
 pub mod tests {
     use super::{
         compute_psb_summary, push_record_trace_clock_markers_until,
-        push_record_trace_to_record_take_clock, record_grid_alignment, RecordTraceCursor,
+        push_record_trace_to_record_take_clock, record_grid_alignment, ChannelLayout,
+        RecordTraceCursor,
     };
     use crate::record_take::{
         CaptureClockSource, PresentationLatencySamples, PresentationLatencySource, RecordTakeBlock,
@@ -2659,7 +2658,7 @@ pub mod tests {
         let queue = crate::record_writer::new_record_trace_queue();
         let mut next_trace_ms = 0;
         let mut next_psb_ms = 0;
-        let mut engine = crate::MeasureEngine::new(SR, 2).unwrap();
+        let mut engine = crate::MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         let timeline = super::RecordTraceTimeline {
             generation: 6,
             origin_frames_48k: 0,
@@ -2749,7 +2748,7 @@ pub mod tests {
     fn ninety_six_khz_record_engine_keeps_all_native_host_boundaries() {
         const NATIVE_SR: u32 = 96_000;
         let tracker = crate::record_take::RecordTakeTracker::new();
-        let mut engine = crate::MeasureEngine::new(NATIVE_SR, 2).unwrap();
+        let mut engine = crate::MeasureEngine::new(NATIVE_SR, ChannelLayout::stereo()).unwrap();
         let mut native_total = 0_u64;
         let mut observed_positions = Vec::new();
 
@@ -2799,8 +2798,8 @@ pub mod tests {
         let mut next_trace_ms = 0;
         let mut next_psb_ms = 0;
         let mut resampler = Some(crate::resampler::ResamplerTo48k::new(SR, 2).unwrap());
-        let mut trace_engine = crate::MeasureEngine::new(SR, 2).unwrap();
-        let mut summary_engine = crate::MeasureEngine::new(SR, 2).unwrap();
+        let mut trace_engine = crate::MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
+        let mut summary_engine = crate::MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         let summary = std::sync::Arc::new(std::sync::Mutex::new(None));
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
@@ -3194,8 +3193,8 @@ pub mod tests {
 #[cfg(test)]
 mod b132_drain_tests {
     use super::{
-        drain_ring_into_session, trusted_pre_roll_epoch, CaptureChunkPlan, DrainRingSession,
-        MeasureSampleConsumer,
+        drain_ring_into_session, trusted_pre_roll_epoch, CaptureChunkPlan, ChannelLayout,
+        DrainRingSession, MeasureSampleConsumer,
     };
     use crate::engine::MeasureEngine;
     use crate::phase_d::channels::PhaseDChannelStream;
@@ -3236,27 +3235,28 @@ mod b132_drain_tests {
         let tail_f64 = to_f64(&tail); // ON 側 drain と同じ f32→f64 経路を full にも適用（精度対称）
 
         // full 参照: body + tail を直接 push。
-        let mut eng_full = MeasureEngine::new(SR, 2).unwrap();
+        let mut eng_full = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         let _ = eng_full.push(&body_f64);
         let _ = eng_full.push(&tail_f64);
         let full = eng_full.finalize();
 
         // OFF（旧 discard）: body のみ。tail は破棄され finalize に入らない。
-        let mut eng_off = MeasureEngine::new(SR, 2).unwrap();
+        let mut eng_off = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         let _ = eng_off.push(&body_f64);
         let off = eng_off.finalize();
 
         // ON（barrier）: body push 済 + tail を ring に入れて drain。
-        let mut eng_on = MeasureEngine::new(SR, 2).unwrap();
+        let mut eng_on = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         let _ = eng_on.push(&body_f64);
-        let mut trace_engine = MeasureEngine::new(SR, 2).unwrap();
+        let mut trace_engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         let (mut prod, cons) = rtrb::RingBuffer::<f32>::new(tail.len() + 16);
         for &s in &tail {
             prod.push(s).unwrap();
         }
         let mut cons = MeasureSampleConsumer::watch(cons);
         let ss: Arc<Mutex<Option<crate::engine::SessionSummary>>> = Arc::new(Mutex::new(None));
-        let meter_session = Arc::new(Mutex::new(crate::MeterSession::new(SR, 2).unwrap()));
+        let session = crate::MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
+        let meter_session = Arc::new(Mutex::new(session));
         let mut chunk = Vec::new();
         let mut resampled = Vec::new();
         let mut resampler = None;
@@ -3326,9 +3326,9 @@ mod b132_drain_tests {
     fn drain_empty_ring_preserves_finalize_value() {
         let body = sine_stereo(SR as usize, 0.2);
         let body_f64 = to_f64(&body);
-        let mut eng = MeasureEngine::new(SR, 2).unwrap();
+        let mut eng = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         let _ = eng.push(&body_f64);
-        let mut trace_engine = MeasureEngine::new(SR, 2).unwrap();
+        let mut trace_engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         let reference = eng.finalize();
 
         let (_prod, cons) = rtrb::RingBuffer::<f32>::new(16); // 空
@@ -3395,14 +3395,14 @@ mod b132_drain_tests {
         let body_f64 = to_f64(&body);
         let tail_f64 = to_f64(&tail);
 
-        let mut reference_engine = MeasureEngine::new(SR, 2).unwrap();
+        let mut reference_engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         let _ = reference_engine.push(&body_f64);
         let _ = reference_engine.push(&tail_f64);
         let reference = reference_engine.finalize();
 
-        let mut summary_engine = MeasureEngine::new(SR, 2).unwrap();
+        let mut summary_engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         let _ = summary_engine.push(&body_f64);
-        let mut trace_engine = MeasureEngine::new(SR, 2).unwrap();
+        let mut trace_engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(tail.len() + 16);
         for &sample in &tail {
             producer.push(sample).unwrap();
