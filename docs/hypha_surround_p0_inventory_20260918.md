@@ -417,7 +417,32 @@ crates/hypha_pre/src/lib.rs:524   n_channels: N_CHANNELS
 - JUCE shell は `kirin_hypha_ffi` をリンクする。
 
 `hypha_pre` / `hypha_post` は **workspace member として残る legacy cdylib** であり、
-**version の正本という役割だけが生きている** [C]（出荷物への同梱有無は未確認）。
+**version の正本という役割だけが生きている。**
+
+**出荷物への同梱は無い（確定）[A]:**
+
+```json
+config/hypha_macos_ship_bundles.json   ship set は 4 bundle のみ
+  KirinHyphaPRE_artefacts  / Release / AU   "Kirin Hypha PRE.component"
+  KirinHyphaPOST_artefacts / Release / AU   "Kirin Hypha POST.component"
+  KirinHyphaPRE_artefacts  / Release / VST3 "Kirin Hypha PRE.vst3"
+  KirinHyphaPOST_artefacts / Release / VST3 "Kirin Hypha POST.vst3"
+```
+
+4 つとも `juce_shell/build-universal` 配下である。さらに
+
+```rust
+xtask/src/release_package.rs:201-210   verify_ship_set_shape
+if bundles.len() != 4 { bail!("common-shell ship set must contain exactly 4 bundles"); }
+...
+bail!("non-JUCE source forbidden in ship set: {}", b.source.display());
+```
+
+**packaging が「JUCE 以外を出荷物へ入れること」を能動的に拒否する。**
+Rust cdylib は構造上入り得ない。
+
+**したがって `N_CHANNELS` 固定は製品に含まれない。**
+ただし §15.2 冒頭のとおり、**残したままにすると「2ch 固定の実装が別にある」状態は続く。**
 
 **含意**: Nch 化のとき、この 2 crate を「もう一つの実装」と誤認しない。
 逆に、**残したまま放置すると「2ch 固定の実装が別にある」状態が続く。**
