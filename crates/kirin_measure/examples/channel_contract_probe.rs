@@ -73,8 +73,8 @@ fn probe_true_peak(rate: u32, channels: usize) {
     println!("\n== True Peak per channel: {rate} Hz, {channels} ch ==");
     println!("  peak in channel c = -6.02 dBFS (0.5), every other channel silent");
     println!(
-        "  {:<10} {:<14} {:<12} {}",
-        "signal ch", "observed on", "value dBTP", "verdict"
+        "  {:<10} {:<14} {:<12} verdict",
+        "signal ch", "observed on", "value dBTP"
     );
 
     let frames = rate as usize / 10;
