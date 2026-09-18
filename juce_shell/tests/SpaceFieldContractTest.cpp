@@ -164,14 +164,6 @@ KirinMeterSession flatMonoFixture (float db)
     return meter;
 }
 
-int inkInColumn (const juce::Image& image, int x, int fromY, int toY)
-{
-    int count = 0;
-    for (int y = fromY; y < toY; ++y)
-        count += image.getPixelAt (x, y).getAlpha() > 0 ? 1 : 0;
-    return count;
-}
-
 /// The six-second ring stores exact observations and nothing else, and starts over rather than
 /// mixing two timelines together.
 void verifyMonoSumHistory()
@@ -234,8 +226,10 @@ void verifyMonoSumHistory()
 /// More loss is more ink, and a band with nothing to measure leaves none.
 void verifyMonoSumFieldInk()
 {
-    KIRIN_SPACE_REQUIRE (mono_sum_curve::fieldAlphaStepFor (0.0f) == 0u
-                         || mono_sum_curve::fieldAlphaStepFor (0.0f) < 4u);
+    // A band that was measured always leaves some ink, even when it lost nothing, so that no ink
+    // can only mean there was nothing to measure. The two are different facts.
+    KIRIN_SPACE_REQUIRE (mono_sum_curve::fieldAlphaStepFor (0.0f) > 0u);
+    KIRIN_SPACE_REQUIRE (mono_sum_curve::fieldAlphaStepFor (0.0f) < 8u);
     const auto panned = mono_sum_curve::fieldAlphaStepFor (-3.0103f);
     const auto deep = mono_sum_curve::fieldAlphaStepFor (-18.0f);
     const auto floor = mono_sum_curve::fieldAlphaStepFor (KIRIN_MONO_SUM_DISPLAY_FLOOR_DB);

@@ -18,9 +18,6 @@ namespace hypha::mono_sum_curve
 /// Height of one band value on the split scale. Values outside the scale stop at its edge.
 float yForDb (float db, juce::Rectangle<float> plot) noexcept;
 
-/// True when the band's low edge holds fewer than three cycles in one observation.
-bool bandIsApproximate (size_t band, float approximateBelowHz) noexcept;
-
 /// `showTitle` is false where the panel's own title row already names MONO, which is how the
 /// smallest size fits it without spending two rows on labels.
 void paint (juce::Graphics&,

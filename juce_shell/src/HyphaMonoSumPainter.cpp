@@ -24,14 +24,6 @@ namespace
         { 10.0f, "10" }, { 100.0f, "100" }, { 1'000.0f, "1k" }, { 10'000.0f, "10k" },
     }};
 
-    /// Band centres share FREQ's definition: band i spans min*(max/min)^(i/N) to the next edge.
-    float bandEdgeHz (size_t index) noexcept
-    {
-        const float ratio = KIRIN_MONO_SUM_MAX_HZ / KIRIN_MONO_SUM_MIN_HZ;
-        return KIRIN_MONO_SUM_MIN_HZ
-             * std::pow (ratio, (float) index / (float) KIRIN_MONO_SUM_BAND_COUNT);
-    }
-
     float xForBand (size_t index, juce::Rectangle<float> plot) noexcept
     {
         const auto position = ((float) index + 0.5f) / (float) KIRIN_MONO_SUM_BAND_COUNT;
@@ -66,11 +58,26 @@ namespace
     void drawScale (juce::Graphics& g, juce::Rectangle<float> plot, bool compact,
                     presentation::Context presentation)
     {
-        g.setColour (COL_MUTED.withAlpha (0.42f));
-        for (const auto db : { kTopDb, kMidDb, kFloorDb })
+        // The three lines carry their own label and weight rather than being compared back to the
+        // constants they came from: the midpoint's line is the lighter one because it divides the
+        // scale, not because its value happens to equal kMidDb.
+        struct ScaleLine
         {
-            const auto y = yForDb (db, plot);
-            g.drawLine (plot.getX(), y, plot.getRight(), y, db == kMidDb ? 0.6f : 0.8f);
+            float db;
+            const char* label;
+            float thickness;
+        };
+        const std::array<ScaleLine, 3> lines {{
+            { kTopDb, "0", 0.8f },
+            { kMidDb, "-6", 0.6f },
+            { kFloorDb, "-24", 0.8f },
+        }};
+
+        g.setColour (COL_MUTED.withAlpha (0.42f));
+        for (const auto& line : lines)
+        {
+            const auto y = yForDb (line.db, plot);
+            g.drawLine (plot.getX(), y, plot.getRight(), y, line.thickness);
         }
         // The smallest size shows MONO on its own, so it is the size that most needs the scale.
         // Labels are drawn at every size; only the gutter they sit in is narrower.
@@ -78,15 +85,13 @@ namespace
                              typography::Composition::visualization));
         g.setColour (COL_TEXT_TERTIARY);
         const float gutter = compact ? 18.0f : 26.0f;
-        for (const auto db : { kTopDb, kMidDb, kFloorDb })
+        for (const auto& line : lines)
         {
-            const auto y = yForDb (db, plot);
-            const auto label = db == 0.0f ? juce::String ("0")
-                                          : juce::String (juce::roundToInt (db));
+            const auto y = yForDb (line.db, plot);
             // The floor label is held inside the plot so it does not collide with the frequency
             // row directly under it.
             const auto top = juce::jlimit (plot.getY() - 7.0f, plot.getBottom() - 14.0f, y - 7.0f);
-            g.drawText (label,
+            g.drawText (line.label,
                         juce::Rectangle<float> { plot.getX() - gutter - 3.0f, top, gutter, 14.0f }
                             .toNearestInt(),
                         juce::Justification::centredRight);
@@ -96,7 +101,7 @@ namespace
     /// The boundary under which one observation holds fewer than three cycles. Marked, not hidden:
     /// the values stay on the curve and a divider says where they stop being exact.
     void drawApproximateBoundary (juce::Graphics& g, juce::Rectangle<float> plot,
-                                  float approximateBelowHz, bool compact,
+                                  float approximateBelowHz,
                                   presentation::Context presentation)
     {
         if (! (approximateBelowHz > KIRIN_MONO_SUM_MIN_HZ)
@@ -223,11 +228,6 @@ float yForDb (float db, juce::Rectangle<float> plot) noexcept
                        middle, plot.getBottom());
 }
 
-bool bandIsApproximate (size_t band, float approximateBelowHz) noexcept
-{
-    return std::isfinite (approximateBelowHz) && bandEdgeHz (band) < approximateBelowHz;
-}
-
 bool hasBands (const KirinMeterSession& meter, bool available) noexcept
 {
     return available && meter.channels == 2
@@ -245,11 +245,17 @@ juce::String stateText (const KirinMeterSession& meter, bool available)
 
 uint8_t fieldAlphaStepFor (float db) noexcept
 {
+    // No ink at all means "not measured", so a band that was measured never gets none. At 0 dB the
+    // loss is zero and the ink would be too, which would draw a band that loses nothing exactly
+    // like a band there was nothing to measure in. The floor keeps those two apart: dark is no
+    // observation, the faintest wash is an observation that lost nothing.
+    constexpr int measuredMinimum = 3;
     if (! std::isfinite (db))
         return 0u;
     const juce::Rectangle<float> unit { 0.0f, 0.0f, 1.0f, 1.0f };
     const auto position = juce::jlimit (0.0f, 1.0f, yForDb (db, unit));
-    return (uint8_t) juce::jlimit (0, 255, (int) std::lround (position * 0.62f * 255.0f));
+    return (uint8_t) juce::jlimit (measuredMinimum, 255,
+                                   (int) std::lround (position * 0.62f * 255.0f));
 }
 
 void paint (juce::Graphics& g,
@@ -313,8 +319,7 @@ void paint (juce::Graphics& g,
     if (! compact)
         drawFrequencyLabels (g, curvePlot, (withField ? fieldPlot : curvePlot).getBottom() + 1.0f,
                              presentation);
-    drawApproximateBoundary (g, curvePlot, meter.mono_sum_approximate_below_hz, compact,
-                             presentation);
+    drawApproximateBoundary (g, curvePlot, meter.mono_sum_approximate_below_hz, presentation);
     drawCurve (g, curvePlot, meter, compact ? 1.2f : 1.6f);
 }
 }
