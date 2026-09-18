@@ -56,10 +56,32 @@ warning colour, score, or recommendation.
 LIVE overlays POST **LUFS-M**, **recent True Peak**, and **Sharpness** on one six-second time axis.
 Each metric keeps an independent fixed scale, and the current values update at a readable rate.
 
-### SPACE — stereo distribution without a verdict
+### SPACE — stereo distribution, and what the mono sum keeps
 
 SPACE shows three-second MID/SIDE density, L/R balance, and correlation. It stays absolute because
 Hypha does not invent PRE/POST subtraction for correlation or the stereo field.
+
+At the largest editor it also shows **MONO**: how much of each third-octave band survives being
+summed to mono. One correlation figure is one number for the whole signal, and a stereo problem is
+never spread evenly across the spectrum — it is a bass note, or a band an M/S move widened, or a
+pair of channels that ended up out of phase somewhere. MONO says which band, and by how much.
+
+Mid and Side are built in the time domain before the transform, so a phase cancellation is already
+in the magnitude and the figure is what the band actually loses, not a width estimate. Identical
+channels read 0 dB, an ordinary mix around -0.7 dB, a hard-panned source exactly -3.01 dB, and a
+band that cancels falls to the floor. The vertical scale gives its top half to 0..-6 dB, because
+that is where every value worth acting on sits, and its bottom half to -6..-24 dB. A band with
+nothing to measure breaks the line rather than being drawn at 0 dB, which is the one reading that
+means the band loses nothing. Below the frequency where one observation holds fewer than three
+cycles, a divider and a tilde say so without hiding the values.
+
+Under the curve, six seconds of the same bands run bottom to top: the newest observation along the
+bottom edge, rising as it ages. A cancellation that came and went is visible after it has gone.
+Those six seconds live in the editor, so closing it loses them; per-band history is not written to
+the TIME history or to Record.
+
+MONO is measured on both PRE and POST, so the two can be compared by switching between the
+plug-ins. It adds no analyzer, consumes no analysis slot, and runs whether or not SPACE is open.
 
 Two POST optional analyzers may stay active: one can remain on the 2MIX while the other follows the
 working track. A third identifies the owners and waits until one returns to **LEVEL**, **TIME /
@@ -90,6 +112,8 @@ affects what is drawn, never what is measured, stored, or read back.
 - **Live FREQ curves.** The absolute PRE / POST / MID / SIDE spectra rise on the next drawing tick
   and fall at 20 dB per 500 ms. The signed Δ curve follows its target symmetrically over 150 ms, so
   neither sign is favoured.
+
+SPACE's MONO curve and its six-second field are neither: both draw the observations as measured.
 
 Everything else is the measurement itself: the playback-pass and Keep maximums, LUFS-S, the FREQ
 numeric readout, the six-second field, MARK, Focus Trail, peak hold, Meter Session statistics, TIME

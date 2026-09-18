@@ -238,7 +238,12 @@ PREはpair側の測定sensorであり、POSTと同じ機能数を無理に持た
 | LEVEL | M、Max M、S、I、recent TP、MaxTP、LRA、PLR、Crest、L/R meter | 現行Watch、Record、LIVEの現在値 | session facts |
 | TIME | M、S、TPの履歴、playback run単位の事実集計 | LIVE timeline、SHARP timeline、ATTACK event timeline | HISTORY、RUN、SHARP、ATTACK、LIVE |
 | FREQ | Spectrum | 現行FREQのPRE、POST、Δ、LR、MID、SIDE、M/S同時表示、probe、MARK、Focus Trail | SPECTRUM |
-| SPACE | correlation、L/R balance、goniometer density | なし | FIELD |
+| SPACE | correlation、L/R balance、goniometer density、MONO（帯域別モノ加算残存） | なし | FIELD |
+
+MONO は 2026-09-18 追加（B-908〜B-915）。100 ms 観測ごとに 1/3 oct 32 帯域の
+`10*log10(Pm/(Pm+Ps))` を測り、既存表示を損なわずに入る editor サイズでだけ SPACE へ足す
+（現時点では 900x600 のみ）。定義と表示契約は INV-S31 / INV-S32、計画は
+`hypha_space_mono_sum_plan_20260918.md` を正本とする。
 
 `LIVE`は独立ページとして残さない。
 

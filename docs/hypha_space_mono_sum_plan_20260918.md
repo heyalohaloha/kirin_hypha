@@ -167,13 +167,18 @@ JUCE 側 2 箇所の `static_assert` が同時にこれを固定する（更新�
   そこは既存の作りであり、SPACE は最初から分けられる
 - cadence 規則は `time_field` が持つので、SPACE 用に書き直さない（Phase 0 の目的）
 
-### Phase 5 — 文書と不変条件
+### Phase 5 — 文書と不変条件  ✅ 完了 / B-916
 
 - `docs/hypha_invariants.md` に 2 件
-  - INV-S31: mono(b) の定義、undefined の扱い、帯域数、`~` 規約、リサンプルしないこと
-  - INV-S32: SPACE 時間表示の cadence 規則（FREQ の INV-S30 と同一規則であることを明記）
-- `README.md` の SPACE 節を書き換える
-- tooltip を足す場合は `docs/hypha_support_guidelines.md` に従う（body は事実、rhyme は Jungle 限定）
+  - **INV-S31**: 計測の定義。時間領域 M/S、既知値、undefined と算出床の区別、帯域、窓、
+    host rate、分離能の実測値、常時計算とその費用
+  - **INV-S32**: 表示契約。3 条件の gate、分割スケール、線を切ること、カーブと FIELD を
+    重ねないこと、履歴の範囲と代償、PRE/POST 両方に出ること
+- `README.md` の SPACE 節を書き換えた
+- `docs/hypha_meter_product_contract_20260831.md` の domain 表に MONO を追記した
+  （AGENTS.md が表示契約の正本と指定しているため）
+- **tooltip は足さない。** SPACE に hover が無く、MONO は分離能のような内部事情を利用者へ
+  語る必要が無い（R-26 沈黙ゲート）。したがって `hypha_support_guidelines.md` の対象外。
 
 ## 4. 確定事項（2026-09-18 Daisuke 決裁 / 全件推奨どおり）
 
