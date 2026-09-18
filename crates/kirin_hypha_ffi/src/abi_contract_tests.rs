@@ -8,8 +8,8 @@ use super::*;
 
 /// 隔離された参照値。製品の定数を読まない。
 const EXPECTED: KirinAbiContract = KirinAbiContract {
-    revision: 4,
-    observatory_frame_version: 4,
+    revision: 5,
+    observatory_frame_version: 5,
     max_channels: 16,
     mono_sum_band_count: 32,
     stereo_field_bins: 625,
@@ -19,7 +19,8 @@ const EXPECTED: KirinAbiContract = KirinAbiContract {
     observatory_frame_size: 2080,
     measure_result_size: 416,
     delta_size: 224,
-    meter_history_entry_size: 184,
+    meter_history_entry_size: 248,
+    meter_history_entry_epoch_offset: 0,
     meter_session_channels_offset: 88,
     meter_session_sample_peak_offset: 112,
     meter_session_channel_positions_offset: 1808,
@@ -46,6 +47,7 @@ fn the_c_entry_point_writes_the_same_contract_and_tolerates_null() {
         measure_result_size: 0,
         delta_size: 0,
         meter_history_entry_size: 0,
+        meter_history_entry_epoch_offset: 0,
         meter_session_channels_offset: 0,
         meter_session_sample_peak_offset: 0,
         meter_session_channel_positions_offset: 0,
@@ -71,6 +73,15 @@ fn a_revision_change_and_an_offset_change_cannot_happen_separately() {
 #[test]
 fn the_meter_session_fields_sit_where_the_header_says() {
     assert_eq!(std::mem::size_of::<crate::KirinMeterHistoryRange>(), 24);
+    // B-962: clip_event_count [2] -> [16] and measurement_epoch first, so a zeroed struct cannot
+    // read as span 0 of a real measurement.
+    assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 248);
+    // 7 x 8 = 56 (epoch, generation, run_id, first/last observed, first/last timeline),
+    // then u16 + u8 + u8 = 60. No padding before the u32 array.
+    assert_eq!(
+        std::mem::offset_of!(KirinMeterHistoryEntry, clip_event_count),
+        60
+    );
     // B-958 widened the input-channel arrays from [2] to [16], so every offset from
     // `channel_clip_latched` onwards moved. The same numbers are asserted in C++
     // (HyphaObservationEquality.h) and handed to callers by `kirin_hypha_abi_contract`.

@@ -28,6 +28,7 @@
 #include "TypographyContractTest.h"
 #include "AnalysisDemandContractTest.h"
 #include "PreparedFormatContractTest.h"
+#include "MeasurementSpanContractTest.h"
 
 namespace hypha::tests
 {
@@ -58,6 +59,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         std::exit (EXIT_FAILURE);
     }
     prepared_format_contract::verify();
+    measurement_span_contract::verify();
     observation_equality_contract::verify();
     analysis_demand_contract::verify();
     // The row rule FREQ and SPACE share. Cheap, so every focused run exercises it.

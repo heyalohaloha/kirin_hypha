@@ -215,6 +215,7 @@ impl MeterSession {
                 if clock.usable_for_history {
                     let correlation = stereo_snapshot.and_then(|snapshot| snapshot.correlation);
                     self.history.push(
+                        self.measurement_epoch,
                         self.generation,
                         clock.run_id,
                         self.observed_frames,

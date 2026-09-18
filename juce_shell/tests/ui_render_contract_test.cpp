@@ -39,7 +39,7 @@ static_assert (offsetof (KirinMidSideSpectrumView, side_dbfs) == 1'040);
 static_assert (offsetof (KirinMidSideSpectrumView, presentation_end_samples) == 2'064);
 static_assert (sizeof (KirinMeterSession) == 1'840u, "Meter Session ABI size must remain exact");
 static_assert (sizeof (KirinObservatoryFrame) == 2'080u, "Observatory frame ABI size must remain exact");
-static_assert (sizeof (KirinMeterHistoryEntry) == 184u, "Meter history ABI size must remain exact");
+static_assert (sizeof (KirinMeterHistoryEntry) == 248u, "Meter history ABI size must remain exact");
 namespace
 {
     void require (bool condition, const char* expression, int line)

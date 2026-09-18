@@ -52,6 +52,7 @@ struct Accumulator
 
     explicit Accumulator (const KirinMeterHistoryEntry& entry)
     {
+        summary.measurementEpoch = entry.measurement_epoch;
         summary.generation = entry.generation;
         summary.runId = entry.run_id;
         summary.firstObservedFrames = entry.first_observed_frames;
@@ -90,7 +91,8 @@ struct Accumulator
 
 bool sameRun (const KirinMeterHistoryEntry& entry, const Accumulator& run) noexcept
 {
-    return entry.generation == run.summary.generation && entry.run_id == run.summary.runId;
+    return entry.measurement_epoch == run.summary.measurementEpoch
+        && entry.generation == run.summary.generation && entry.run_id == run.summary.runId;
 }
 
 juce::String number (double value, int decimals = 1)

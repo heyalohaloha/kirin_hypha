@@ -10,6 +10,7 @@ fn post_point(observed: u64, endpoint: i64, value: f64) -> MeterHistoryEntry {
     };
     MeterHistoryEntry {
         resolution: MeterHistoryResolution::Hz10,
+        measurement_epoch: 11,
         generation: 3,
         run_id: 7,
         observation_count: 1,

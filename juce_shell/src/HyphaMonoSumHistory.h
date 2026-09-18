@@ -43,10 +43,12 @@ public:
                 return false;
             if (meter.observed_frames < newest.observedFrames
                 || meter.sample_rate != newest.sampleRate
-                || meter.generation != generation)
+                || meter.generation != generation
+                || meter.measurement_epoch != measurementEpoch)
                 clear();
         }
         generation = meter.generation;
+        measurementEpoch = meter.measurement_epoch;
 
         const auto destination = count < capacity ? (start + count) % capacity : start;
         auto& entry = frames[destination];
@@ -93,6 +95,7 @@ private:
     std::array<Entry, capacity> frames {};
     size_t start = 0u;
     size_t count = 0u;
+    uint64_t measurementEpoch = 0;
     uint64_t generation = 0;
 };
 }

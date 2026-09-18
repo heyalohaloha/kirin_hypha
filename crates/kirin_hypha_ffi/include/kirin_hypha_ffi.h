@@ -102,7 +102,7 @@ extern "C" {
 #define KIRIN_METER_HISTORY_0_1_HZ_CAPACITY 8640u
 #define KIRIN_METER_HISTORY_MAX_ENTRIES 8640u
 
-#define KIRIN_OBSERVATORY_FRAME_VERSION 4u
+#define KIRIN_OBSERVATORY_FRAME_VERSION 5u
 #define KIRIN_LRA_UNAVAILABLE 0u
 #define KIRIN_LRA_WARMING 1u
 #define KIRIN_LRA_READY 2u
@@ -141,31 +141,7 @@ typedef struct {
 
 #include "kirin_hypha_meter_session_ffi.h"
 
-typedef struct {
-  double min;
-  double max;
-  double mean;
-} KirinMeterHistoryRange;
-
-/* TIME履歴1点。10 Hzはexact（min=max=mean）、低rate層は100 ms事実の集約。 */
-typedef struct {
-  uint64_t generation;
-  uint64_t run_id;
-  uint64_t first_observed_frames;
-  uint64_t last_observed_frames;
-  int64_t first_timeline_endpoint_samples; /* 不明はINT64_MIN */
-  int64_t last_timeline_endpoint_samples;  /* 不明はINT64_MIN */
-  uint16_t observation_count;
-  uint8_t resolution; /* KIRIN_METER_HISTORY_* */
-  uint8_t reserved;
-  /* この履歴点の区間内で新たに始まったsample clip run数。0=L, 1=R。 */
-  uint32_t clip_event_count[2];
-  KirinMeterHistoryRange lufs_m;
-  KirinMeterHistoryRange lufs_s;
-  KirinMeterHistoryRange true_peak;
-  KirinMeterHistoryRange correlation;
-  KirinMeterHistoryRange plr;
-} KirinMeterHistoryEntry;
+#include "kirin_hypha_meter_history_ffi.h"
 
 /* state chunk 往復する識別子（方式A）. 各フィールドは null 終端 C 文字列（最大 63 + null）.
  * project_hash は派生値のため含めない（JUCE は下記 4 キーを chunk に保存する）. */

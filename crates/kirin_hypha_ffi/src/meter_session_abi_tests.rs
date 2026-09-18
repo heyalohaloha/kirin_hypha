@@ -122,40 +122,6 @@ fn snapshot_layout_and_mapping_are_stable() {
     assert_eq!(mapped.field_size, KIRIN_STEREO_FIELD_SIZE);
     assert_eq!(mapped.field_observation_count, 30);
     assert_eq!(mapped.field_density[312], 211);
-
-    let history = to_c_history_entry(MeterHistoryEntry {
-        resolution: MeterHistoryResolution::Hz1,
-        generation: 3,
-        run_id: 7,
-        observation_count: 10,
-        first_observed_frames: 4_800,
-        last_observed_frames: 48_000,
-        first_timeline_endpoint_samples: Some(104_800),
-        last_timeline_endpoint_samples: None,
-        timeline_source: CaptureClockSource::ProjectTimeline,
-        clip_event_count: [3, 1],
-        lufs_m: MeterHistoryRange {
-            min: Some(-16.0),
-            max: Some(-13.0),
-            mean: Some(-14.5),
-        },
-        lufs_s: MeterHistoryRange::default(),
-        true_peak: MeterHistoryRange::default(),
-        correlation: MeterHistoryRange::default(),
-        plr: MeterHistoryRange {
-            min: Some(12.0),
-            max: Some(14.0),
-            mean: Some(13.0),
-        },
-    });
-    assert_eq!(history.resolution, KIRIN_METER_HISTORY_1_HZ);
-    assert_eq!(history.observation_count, 10);
-    assert_eq!(history.clip_event_count, [3, 1]);
-    assert_eq!(history.first_timeline_endpoint_samples, 104_800);
-    assert_eq!(history.plr.mean, 13.0);
-    assert_eq!(history.last_timeline_endpoint_samples, i64::MIN);
-    assert_eq!(history.lufs_m.min, -16.0);
-    assert!(history.lufs_s.mean.is_nan());
 }
 
 #[test]

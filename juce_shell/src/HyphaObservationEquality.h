@@ -14,7 +14,8 @@ namespace hypha::observation_equality
 // retain all 64 bits. Any ABI extension must explicitly extend these semantic comparisons.
 static_assert (sizeof (KirinMeasureResult) == 416 && sizeof (KirinWatchDisplay) == 832);
 static_assert (sizeof (KirinMeterSession) == 1840 && sizeof (KirinDelta) == 224);
-static_assert (sizeof (KirinObservatoryFrame) == 2080 && sizeof (KirinMeterHistoryEntry) == 184);
+static_assert (sizeof (KirinObservatoryFrame) == 2080 && sizeof (KirinMeterHistoryEntry) == 248);
+static_assert (offsetof (KirinMeterHistoryEntry, measurement_epoch) == 0);
 // The moving parts of B-958's widening, asserted where a header/shell mismatch is a compile error.
 // A stale *library* slips past this, which is what kirin_hypha_abi_contract is for.
 static_assert (alignof (KirinMeterSession) == 8);
@@ -91,10 +92,12 @@ inline bool same (const KirinObservatoryFrame& a, const KirinObservatoryFrame& b
 }
 inline bool same (const KirinMeterHistoryEntry& a, const KirinMeterHistoryEntry& b) noexcept
 {
-    return fields (std::tie (a.generation, a.run_id, a.first_observed_frames, a.last_observed_frames,
+    return fields (std::tie (a.measurement_epoch,
+                            a.generation, a.run_id, a.first_observed_frames, a.last_observed_frames,
                             a.first_timeline_endpoint_samples, a.last_timeline_endpoint_samples,
                             a.observation_count, a.resolution, a.clip_event_count),
-                   std::tie (b.generation, b.run_id, b.first_observed_frames, b.last_observed_frames,
+                   std::tie (b.measurement_epoch,
+                            b.generation, b.run_id, b.first_observed_frames, b.last_observed_frames,
                             b.first_timeline_endpoint_samples, b.last_timeline_endpoint_samples,
                             b.observation_count, b.resolution, b.clip_event_count))
         && same (a.lufs_m, b.lufs_m) && same (a.lufs_s, b.lufs_s)

@@ -17,12 +17,13 @@ use crate::{
 };
 
 /// ABI 全体の版。offset を動かす変更のたびに 1 つ上げる。
-/// 4 = B-958（入力チャンネル配列 `[2]` → `[MAX_ABI_CHANNELS]`）。
-pub const KIRIN_ABI_REVISION: u32 = 4;
+/// 4 = B-958（`KirinMeterSession` の入力チャンネル配列 `[2]` → `[MAX_ABI_CHANNELS]`）。
+/// 5 = B-962（`KirinMeterHistoryEntry` の `clip_event_count` 同上 + `measurement_epoch`）。
+pub const KIRIN_ABI_REVISION: u32 = 5;
 
 /// `KirinObservatoryFrame.version`。フレーム 1 個ごとに載る版で、殻はこれが自分のヘッダの値と
 /// 違うフレームを捨てる（`HyphaObservatoryFrame.cpp:42`）。ABI 版とは別に数える。
-pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 4;
+pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 5;
 
 /// `include/kirin_hypha_abi_contract.h` の `KirinAbiContract`。
 #[repr(C)]
@@ -40,6 +41,7 @@ pub struct KirinAbiContract {
     pub measure_result_size: u64,
     pub delta_size: u64,
     pub meter_history_entry_size: u64,
+    pub meter_history_entry_epoch_offset: u64,
     pub meter_session_channels_offset: u64,
     pub meter_session_sample_peak_offset: u64,
     pub meter_session_channel_positions_offset: u64,
@@ -61,6 +63,8 @@ pub fn abi_contract() -> KirinAbiContract {
         measure_result_size: size_of::<KirinMeasureResult>() as u64,
         delta_size: size_of::<KirinDelta>() as u64,
         meter_history_entry_size: size_of::<KirinMeterHistoryEntry>() as u64,
+        meter_history_entry_epoch_offset: offset_of!(KirinMeterHistoryEntry, measurement_epoch)
+            as u64,
         meter_session_channels_offset: offset_of!(KirinMeterSession, channels) as u64,
         meter_session_sample_peak_offset: offset_of!(KirinMeterSession, sample_peak_dbfs) as u64,
         meter_session_channel_positions_offset: offset_of!(KirinMeterSession, channel_positions)

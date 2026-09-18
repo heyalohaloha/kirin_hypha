@@ -19,8 +19,9 @@ extern "C" {
  * 1 つでも違えば engine を作らない. */
 
 /* ABI 全体の版. offset を動かす変更のたびに 1 つ上げる.
- * 4 = B-958（入力チャンネル配列 [2] -> [KIRIN_MAX_CHANNELS]）. */
-#define KIRIN_ABI_REVISION 4u
+ * 4 = B-958（KirinMeterSession の入力チャンネル配列 [2] -> [KIRIN_MAX_CHANNELS]）.
+ * 5 = B-962（KirinMeterHistoryEntry の clip_event_count 同上 + measurement_epoch）. */
+#define KIRIN_ABI_REVISION 5u
 
 typedef struct {
   uint32_t revision;                  /* KIRIN_ABI_REVISION */
@@ -35,6 +36,7 @@ typedef struct {
   uint64_t measure_result_size;
   uint64_t delta_size;
   uint64_t meter_history_entry_size;
+  uint64_t meter_history_entry_epoch_offset;
   /* 移動しやすい offset の実測値. 上の size が偶然一致しても、中身の配置が違えば ここで落ちる. */
   uint64_t meter_session_channels_offset;
   uint64_t meter_session_sample_peak_offset;

@@ -3133,33 +3133,8 @@ pub const KIRIN_LRA_READY: u8 = 2;
 mod meter_session_abi;
 pub use meter_session_abi::KirinMeterSession;
 
-/// TIME履歴1指標の範囲。10 Hzではmin=max=mean、値なしはNaN。
-#[repr(C)]
-pub struct KirinMeterHistoryRange {
-    pub min: f64,
-    pub max: f64,
-    pub mean: f64,
-}
-
-/// TIME履歴の1点。低rate層は`observation_count`個の100 ms事実を集約する。
-#[repr(C)]
-pub struct KirinMeterHistoryEntry {
-    pub generation: u64,
-    pub run_id: u64,
-    pub first_observed_frames: u64,
-    pub last_observed_frames: u64,
-    pub first_timeline_endpoint_samples: i64,
-    pub last_timeline_endpoint_samples: i64,
-    pub observation_count: u16,
-    pub resolution: u8,
-    pub reserved: u8,
-    pub clip_event_count: [u32; 2],
-    pub lufs_m: KirinMeterHistoryRange,
-    pub lufs_s: KirinMeterHistoryRange,
-    pub true_peak: KirinMeterHistoryRange,
-    pub correlation: KirinMeterHistoryRange,
-    pub plr: KirinMeterHistoryRange,
-}
+mod meter_history_abi;
+pub use meter_history_abi::{KirinMeterHistoryEntry, KirinMeterHistoryRange};
 
 /// `KirinDelta` — POST の Δ（C struct / B-061 3d-b）。各 double の「値なし」は NaN。
 /// `mode`: 0=Active / 1=Stale / 2=NoPre / 3=Bypassed / 4=PreInactive。
@@ -3396,6 +3371,7 @@ fn to_c_history_entry(entry: MeterHistoryEntry) -> KirinMeterHistoryEntry {
     };
     KirinMeterHistoryEntry {
         generation: entry.generation,
+        measurement_epoch: entry.measurement_epoch,
         run_id: entry.run_id,
         first_observed_frames: entry.first_observed_frames,
         last_observed_frames: entry.last_observed_frames,
@@ -3404,7 +3380,7 @@ fn to_c_history_entry(entry: MeterHistoryEntry) -> KirinMeterHistoryEntry {
         observation_count: entry.observation_count,
         resolution,
         reserved: 0,
-        clip_event_count: entry.clip_event_count,
+        clip_event_count: channel_abi::widen(&entry.clip_event_count, 0),
         lufs_m: to_c_history_range(entry.lufs_m),
         lufs_s: to_c_history_range(entry.lufs_s),
         true_peak: to_c_history_range(entry.true_peak),

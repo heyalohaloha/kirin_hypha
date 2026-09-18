@@ -216,6 +216,9 @@ impl DeltaHistoryState {
                 ..MeasureResult::default()
             };
             self.history.push(
+                // Δ は POST の測定区間に属する。POST が別 layout / rate で作り直されたら、
+                // その前後の Δ は同じ測定の続きではない。
+                post_point.measurement_epoch,
                 self.generation.max(1),
                 self.next_run_id,
                 post_point.last_observed_frames,
