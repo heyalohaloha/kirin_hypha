@@ -1,0 +1,200 @@
+# SPACE — MONO（帯域別モノ加算残存）実装計画 / 2026-09-18
+
+## 0. 目的（Pass 14）
+
+SPACE に Hypha 固有の計測を持たせる。現在の SPACE は 3 秒 M/S 散布図、L/R バランス、相関の 3 つで、
+どれも他製品と同じ内容であり、Hypha が PRE/POST 対を持つことも、時間軸を持つことも活かしていない。
+
+本計画が足すのは 1 つの計測事実である。
+
+> **その帯域の音は、モノラルに加算したときどれだけ残るか。**
+
+広帯域の相関値 1 つでは、どの帯域で何が起きているかが分からない。実際の判断
+（カッティング、クラブ、スマートフォン、放送）は常に帯域固有である。
+
+スコープ外: PRE/POST 差分（M/S 交換の PRE 拡張が必要なため別計画）、音声加工（R-12 により恒久的に対象外）。
+
+## 1. 計測の定義
+
+100 ms の観測ごと、帯域 b ごとに次を求める。
+
+```
+M[n] = (L[n] + R[n]) / 2        時間領域
+S[n] = (L[n] - R[n]) / 2        時間領域
+Pm(b), Ps(b) = M, S を FFT し帯域 b に集約した電力
+mono(b) = 10 * log10( Pm(b) / (Pm(b) + Ps(b)) )   [dB]
+```
+
+**M と S を時間領域で作ってから FFT する。** したがって位相による打ち消しが |M| にそのまま現れる。
+振幅比の近似ではなく、実際にモノ加算で失われる量である。
+
+### 既知信号での固定値（golden）
+
+| 入力 | mono(b) |
+|---|---|
+| L = R（同相） | **0.00 dB** |
+| 片チャンネルのみ（ハードパン） | **-3.01 dB** |
+| L:R = 3:1 のバランス | **-0.97 dB** |
+| L = -R（逆相） | 測定床未満 → **undefined** |
+| 無音 | **undefined**（0 dB と報告しない） |
+
+### 帯域
+
+- 10 Hz 〜 22 kHz を対数で 32 分割。FREQ と同じ `min * (max/min)^(i/N)` の式を使う。
+- 11.10 オクターブ / 32 = **0.347 oct/band ≒ 1/3 オクターブ**。マスタリングで考える単位と一致する。
+
+### 低域の扱い
+
+100 ms @ 48 kHz = 4800 サンプル。3 周期を観測するには 30 Hz 以上が必要。
+30 Hz 未満は値を隠さず、読み値に ASCII `~` を付けて近似であることを示す（INV-S12 と同じ規約）。
+
+### host sample rate
+
+100 ms の観測はホストのレートのままで、リサンプルしない。FFT 長はフレーム数以上の最小の 2 のべき乗。
+48 kHz と 96 kHz で同じ信号が同じ値になることを試験で固定する。
+
+### undefined の条件
+
+`Pm(b) + Ps(b)` が測定床未満の帯域は **undefined**（FFI では NaN）として保持する。
+0 dB へ丸めない。無音を「完全にモノ互換」と report しないため。
+
+## 2. なぜ相関ではなくこの量か
+
+- 相関係数は正規化された相互積であり、過渡的な素材で激しく振れて読めない。
+- 相関は「失う量」を答えない。`mono(b)` は dB で直接それを答える。
+- 帯域別相関メーターを持つ製品はあるが、`|M|²/(|M|²+|S|²)` を dB で出すものは確認できていない。
+
+## 3. 段階
+
+### Phase 0 — FIELD 描画の共有化（先行）
+
+B-902〜B-905 で作った「観測を画像 1 枚にして cadence で行を埋める」処理は、現在
+`HyphaSpectrumPainter.cpp` の無名名前空間にあり `absolute_spectrum::History` に結び付いている。
+SPACE の時間表示でも同じ規則が要るため、**先に共有部品へ抽出する。**
+
+抽出しないと cadence 規則の実装が 2 つになり、次の不具合が片方だけ直る。
+本セッションで同種の取りこぼしを 2 回起こしているため、これを先行させる。
+
+- 新 `juce_shell/src/HyphaTimeFieldImage.h` — (行数, 列数, 観測の age と値の供給元, 色) を引数に取る
+- FREQ の出力が**1 ピクセルも変わらない**ことを、現行出力との画素一致試験で固定する
+- 既存の `verifySixSecondFieldReadsAsTime` / `verifyFieldIsContinuousAtAnyHostCadence` /
+  `verifyFieldKeepsARealGapEmpty` / `verifyFieldDoesNotInventACadenceFromTwoObservations` を共有部品側へ移す
+
+### Phase 1 — 計測（Rust）
+
+- 新 `crates/kirin_measure/src/mono_sum.rs`
+  - 32 帯域の対数境界（FREQ の `band_plan` と同じ式）
+  - 100 ms 観測ごとに M/S を組み、2 回の FFT、帯域集約、dB 化
+  - `approximate_below_hz` を観測長から算出
+- `StereoMeter::push_observed` から呼ぶ。**stereo のときだけ。** mono 入力では全帯域 undefined
+- `StereoMeterSnapshot` に `mono_sum_db: [Option<f32>; 32]` と `mono_sum_approximate_below_hz: f32`
+- reset / pause / generation の扱いは Meter Session の既存規則に完全に従う（INV-S15）
+- Audio Thread には何も足さない。追加は Measure Thread のみ（3 層隔離）
+
+**試験（正常系だけにしない）**
+
+| 検査 | 期待 |
+|---|---|
+| L = R | 全帯域 0.00 ± 0.1 dB |
+| 片チャンネルのみ | 全帯域 -3.01 ± 0.1 dB |
+| L:R = 3:1 | 全帯域 -0.97 ± 0.1 dB |
+| 200 Hz だけ逆相、他は同相 | 200 Hz の帯域だけが落ち、他は 0 dB 付近 |
+| 無音 | 全帯域 undefined。0 dB を返さない |
+| L = -R | 全帯域 undefined |
+| 48 kHz と 96 kHz | 同じ信号で同じ値（ホストレート不変） |
+| mono 入力 | 全帯域 undefined。クラッシュも 0 dB もなし |
+| 観測長が FFT 長に満たない | undefined。ゼロ詰めで値を捏造しない |
+
+**費用の実測。** 100 ms ごとに FFT 2 回を足す。Measure Thread の現行処理に対する増分を測り、
+数値を記録する。推測で「軽い」と書かない。
+
+### Phase 2 — FFI
+
+`KirinMeterSession` の**末尾に追加**する。既存オフセットは動かさない（B-074 / B-075 と同じ規約）。
+
+```c
+uint8_t mono_sum_band_count;           /* 0 = 未成立、それ以外は 32 */
+uint8_t mono_sum_reserved[3];
+float   mono_sum_approximate_below_hz;
+float   mono_sum_db[32];               /* NaN = undefined */
+```
+
+- C ヘッダと `meter_session_ffi.rs` を同時に更新
+- `HyphaObservationEquality.h` の key に新フィールドを追加（NaN 比較を含む）
+- ABI padding 試験を新レイアウトへ更新
+
+### Phase 3 — SPACE の表示（案 1: カーブ）
+
+- 32 帯域のカーブ。上端 0 dB、下端は表示床。**固定スケール、auto-range なし**（INV-S8 / S10 の家則）
+- undefined の帯域は**線を切る。** 0 dB を描かない
+- `approximate_below_hz` 未満の読み値に `~` を付ける（INV-S12 の規約を再利用）
+- hover で帯域中心周波数と dB。FREQ と同じ作法
+- 価値判断・目標値・警告色を出さない（R-22）
+
+**描画試験**
+
+| 検査 | 期待 |
+|---|---|
+| ハードパン素材 | カーブが -3 dB の高さに乗る（画素で確認） |
+| undefined を含む素材 | その帯域で線が切れる。0 dB の位置に画素がない |
+| 5 サイズ全部 | 描画され、plot 内に収まる |
+| 固定スケール | 素材が変わっても上端 0 dB の画素位置が動かない |
+
+### Phase 4 — SPACE の時間表示（案 2）
+
+- GUI 側に 6 秒 = 60 観測（10 Hz）のリングを持つ。`absolute_spectrum::History` と同じ形
+- Phase 0 の共有部品で描く。縦が時間（下が現在）、横が周波数、濃さが mono(b)
+- 試験は FREQ の FIELD と同じ 4 本を SPACE のデータで通す
+  （時刻→高さ 3 点 / 5 種の host cadence で縞が出ない / 実欠測は空欄 / 観測 2 個で埋めない）
+
+### Phase 5 — 文書と不変条件
+
+- `docs/hypha_invariants.md` に 2 件
+  - INV-S31: mono(b) の定義、undefined の扱い、帯域数、`~` 規約、リサンプルしないこと
+  - INV-S32: SPACE 時間表示の cadence 規則（FREQ の INV-S30 と同一規則であることを明記）
+- `README.md` の SPACE 節を書き換える
+- tooltip を足す場合は `docs/hypha_support_guidelines.md` に従う（body は事実、rhyme は Jungle 限定）
+
+## 4. Daisuke の判断が要る事項
+
+いずれも実装前に確定が要る。推奨と根拠を付す。
+
+### (1) 300×200 でのレイアウト
+
+正方形の散布図 + 数値 2 つ + 新カーブ + 時間ストリップは 300×200 に入らない。
+
+**推奨: 300×200 では散布図を落とし、カーブを出す。**
+根拠 — 散布図が答えるのは「広いか狭いか」だけで、カーブは「どの帯域で何 dB 失うか」を答える。
+画面が小さいほど、情報量の多い方を残すべきである。散布図は 375×250 以上で復帰させる。
+
+### (2) 表示床
+
+**推奨: -24 dB。**
+根拠 — -3 dB がハードパン、-6 dB で半分。-24 dB より下は実質「その帯域は消えている」であり、
+-30 と -40 を見分ける実用上の意味がない。実測値は床で切らずに保持し、表示だけを床で止める。
+
+### (3) 名前
+
+**推奨: `MONO`。** 単位 dB。
+根拠 — 短い。中学生でも意味が取れる。価値判断を含まない。
+`MONO COMPATIBILITY` は長く、`COMPATIBILITY` は良し悪しの含みが出る。
+
+### (4) 帯域数
+
+**推奨: 32。** 根拠は §1（1/3 オクターブ）。
+
+### (5) 常時計算か、SPACE を開いたときだけか
+
+Meter Session は editor の生死と独立に常時動く（INV-S15）。したがって既定では常時計算になる。
+
+**推奨: Phase 1 の実測を見てから決める。** Measure Thread の現行処理に対する増分が数 % に収まるなら
+常時のままにする。SPACE を開いたときだけにすると「開くまで履歴が無い」ことになり、
+時間表示の価値が落ちる。
+
+## 5. 明示しておくリスク
+
+- **Linux ではプラグイン本体がビルドできない。** `juce::var` 変換の既存エラー（本計画と無関係）。
+  Phase 3 / 4 の画素検証は UI render contract test で行える（こちらはビルド・実行できる）。
+  実機動作の確認は macOS 側で別途必要。
+- **FFT 2 回の費用は未測定。** Phase 1 で測る。数値が出るまで「軽い」と書かない。
+- **300×200 のレイアウトは設計判断であり、実装で決めない。**
