@@ -57,6 +57,19 @@ let n_channels = match n_channels {
 - 現在の公開経路は mono / stereo 限定（`PluginProcessor.cpp:208`）なので、
   **今の製品で誤測定が起きているという意味ではない。** 制限を外したときに効く。
 
+**同じ置換が FFI の入口にもある**（第2巡で発見）:
+
+```rust
+crates/kirin_hypha_ffi/src/lib.rs:186-191
+fn supported_channel_count(num_channels: u32) -> usize {
+    match num_channels { 1 | 2 => num_channels as usize, _ => N_CHANNELS }
+}
+```
+
+`kirin_hypha_create` → `KirinHyphaEngine::new`（`lib.rs:989`）が最初に通す関数である。
+**measure thread より外側で、すべてに先立って 2 へ変えられる。**
+`hypha_pre/src/lib.rs:187` も `record_ring_capacity_samples(N_CHANNELS)` を直接使う。
+
 第2巡では、拒否ガードとは別に **「別の形を黙って作る処理」を独立した監査対象**にする。
 候補パターン: `match` の `_ =>`、`if/else` の既定値、`.min(2)`、`.clamp(1, 2)`、
 `unwrap_or(2)`、`.take(2)`、先頭 2 要素のスライス、暗黙の複製・間引き・downmix。
