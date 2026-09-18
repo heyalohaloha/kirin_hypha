@@ -75,7 +75,8 @@ Correlation は runtime 上は R だが、それは `StereoMeter` の親ガー�
 | MID-SIDE | **C**（Spectrum と同一 runtime） | **STEREO-ONLY** | Nch では明示的適用外 |
 | Attack detector | **R** | CHANNEL-LOCAL | チャンネル別検出は Nch 化候補 |
 | Attack event aggregation | **R** | **AGGREGATION-UNDEFINED** | 複数 ch の近接 attack の扱いが未定義（§5.2） |
-| Sharpness continuous | **R** | **要確認** [C] | mono / stereo 定義を保持し、Nch は別途検証 |
+| Sharpness continuous（LR view） | **R** | **AGGREGATION-UNDEFINED**（`phase_d` の平均を継承 / §11.5） | 集約の定義が決まるまで一般化しない |
+| Sharpness continuous（MID / SIDE view） | **R** | **STEREO-ONLY**（`as_chunks::<2>()` で対を前提） | Nch では明示的適用外 |
 | Zwicker / specific loudness（`phase_d`） | **P** | **AGGREGATION-UNDEFINED** | 現行算術平均を surround perceptual quantity と**宣言しない** |
 | Absolute timeline | **R** | COMPOSITE / dependent | LUFS / TP / Sharpness の各契約確定後に判断 |
 | SPACE decay | **R** | **broadband（全 ch 合算）** | 計算は既に総称。ガードは入力検証のみ |
@@ -400,6 +401,46 @@ crates/kirin_hypha_ffi/include/kirin_hypha_spectrum_mid_side_ffi.h  KirinMidSide
 
 **これらは「やらない」ではなく「初期版では決めない」。**
 
+### 11.5 Sharpness も同じ 3 view モデルである [A]
+
+`SharpnessContinuousAnalyzer` は Spectrum とまったく同じ構造を持つ。
+
+```rust
+crates/kirin_measure/src/perceptual.rs:253-258   analyze_lr
+    self.lr_stream.push_display_slot(&self.lr_samples)   // input_channels 本 → 算術平均
+```
+
+```rust
+crates/kirin_measure/src/perceptual.rs:272-283   analyze_mono
+    let polarity = if channel_mode == SpectrumChannelMode::Mid { 1.0 } else { -1.0 };
+    let (frames, remainder) = input.as_chunks::<2>();
+    ... (frame[0] + polarity * frame[1]) * 0.5
+```
+
+| view | 実体 | Nch での状態 |
+|---|---|---|
+| **LR** | `lr_stream`（`input_channels` 本）→ `phase_d` の**重みなし算術平均** | **AGGREGATION-UNDEFINED。** ガードを外せば「動く」が意味が未定義 |
+| **MID** | `(L + R) * 0.5` を 1 本の stream へ | **STEREO-ONLY。** `as_chunks::<2>()` が対を前提 |
+| **SIDE** | `(L − R) * 0.5` を 1 本の stream へ | 同上 |
+
+**`as_chunks::<2>()` は 6ch の interleaved バッファに対して
+チャンネル境界を跨いで対を切る。** `perceptual.rs:139` のガードが到達を防いでいる。
+
+### 11.6 Spectrum と Sharpness は同じ設計判断で閉じる
+
+両者とも **「LR / MID / SIDE の 3 view から 1 つ選ぶ」**モデルであり、
+**MID / SIDE はチャンネルではなく導出 view**、**LR は per-channel の畳み込み**である。
+
+したがって §11.2 の推奨 (a)（selector 拡張）は、**Spectrum と Sharpness の両方に同じ形で効く。**
+
+- selector に layout のチャンネルを足す → **どちらも「選ばれた 1 チャンネル」を測れる**。
+  Sharpness の LR view が抱える AGGREGATION-UNDEFINED を**回避できる**
+  （平均を定義しなくても、チャンネル別の値は定義済みだから）。
+- MID / SIDE は両方で STEREO-ONLY のまま。L/R 対を持つ layout でのみ出す。
+
+**これは偶然ではない。** 同じ 3 view モデルを共有しているので、
+**片方だけを直すと UI の一貫性が壊れる。**
+
 ## 12. 初期公開の考え方
 
 **初期公開を「全指標 16ch 化」と定義しない。**
@@ -458,7 +499,6 @@ cargo run -p kirin_measure --example channel_contract_probe --release -- accept 
 
 ## 16. 未確認 [C]
 
-- Sharpness continuous の Nch 適用可否。
 - (a) を採る場合の selector の粒度（全チャンネルを出すか、layout 定義済みの役割のみか）。
 - 各指標の窓長・hop・正規化・無音条件・reset 条件。**本表は Nch 挙動に絞っている。**
 - (ii) を採る場合の downmix 係数の出典（計画 §7.4）。
