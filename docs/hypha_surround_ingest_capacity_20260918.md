@@ -289,24 +289,110 @@ bytes 一定になるようチャンネル数で割る案は、メモリは一�
 したがって、**384 MiB を維持することは継承した制約ではなく、選択である。**
 由来が Daisuke の記憶または外部資料にある場合は、それが唯一の一次情報になる。
 
-## 9. 次の調査の優先順位
+## 9. 調査結果 — 4 領域に含まれていない allocation の列挙 [A]
+
+§10-3（旧 §9-3）の結果。**これは中間結果であり、列挙は完了していない。**
+
+### 9.1 `known_pipeline_bytes` が実際に数えているもの
+
+```rust
+ingest_contract.rs:86-95
+max_generation_ingest_bytes()                                   // 4 領域
+  + instances * record_spool::memory_bytes_per_instance()       // spool
+  + instances * measure_chunk_capacity_samples(192_000, 2) * 8  // chunk_f64 のみ
+```
+
+**measure thread が持つ 4 つのバッファのうち、計上されているのは `chunk_f64` だけである。**
+`record_spool` は `DRAIN_SAMPLES = 16_384` 固定で **チャンネル非依存**（`record_spool.rs:16-21`）。
+
+### 9.2 未計上の measure thread バッファ
+
+| 確保 | 行 | stereo | 5.1 | 7.1.4 |
+|---|---|---:|---:|---:|
+| `phase_d_slot_pending` | `measure_thread.rs:302` | 3.5 MiB | 10.5 | 21.1 |
+| `record_alignment_silence` | `:315` | 3.5 MiB | 10.5 | 21.1 |
+| `resampled_buf` | `:328` | 4.4 MiB | 13.2 | 26.4 |
+| **小計** | | **11.4 MiB** | **34.3** | **68.6** |
+
+`remaining reserve` は約 50.8 MiB。**7.1.4 ではこの 3 本だけで reserve の 1.35 倍になる。**
+
+### 9.3 ebur128 の内部バッファ — 最大の未計上項目
+
+`MeasureEngine::new`（`engine.rs:135-138`）は `Mode::M | S | I | LRA | TRUE_PEAK` を使う。
+`Mode::S` があるので `EbuR128` の window は **3000 ms**（`vendor/ebur128/src/ebur128.rs:308-310`）。
+`allocate_audio_data`（`:269-283`）は `vec![0.0; frames * channels]` を確保する。
+
+**1 インスタンスにつき MeasureEngine は 3 本**（`measure_thread.rs:245 / 252 / 262`。
+いずれも無条件生成で、失敗時は早期 return）。
+Watch は 48 kHz 固定、Record TRACE と summary は入力 native rate。
+
+measure thread は `kirin_hypha_ffi/src/lib.rs:1046` で **engine 生成時に無条件で起動**する。
+したがって 24 インスタンスなら **MeasureEngine は 72 本**同時に存在する。
+
+| native rate | stereo | 5.1 | 7.1.4 |
+|---|---:|---:|---:|
+| 48 kHz | **158.2 MiB** | 474.6 | 949.2 |
+| 192 kHz | **474.6 MiB** | 1,423.8 | 2,847.7 |
+
+**stereo・48 kHz でも 158.2 MiB。** 契約が「DSP engine internals は remaining reserve
+（約 50.8 MiB）で賄う」としている前提と、**3.1 倍の開きがある。**
+
+### 9.4 部分合計（列挙は未完）
+
+| native | stereo | 5.1 | 7.1.4 |
+|---|---:|---:|---:|
+| 48 kHz | **502.8 MiB（1.31×）** | 1,502.4（3.91×） | 3,001.9（7.82×） |
+| 192 kHz | **819.2 MiB（2.13×）** | 2,451.7（6.38×） | 4,900.3（12.76×） |
+
+括弧内は 384 MiB 予算比。
+
+**stereo でも既に予算を超える。** これはサラウンドの問題ではなく、
+**現行契約と現行実装の整合性の問題である。**
+
+### 9.5 この数字の読み方 — 重要な留保
+
+**すべて式からの算出であり、実 RSS ではない。** 特に確保方法によって physical residency が違う。
+
+| 確保 | 挙動 | RSS への寄与 |
+|---|---|---|
+| `vec![0.0; n]`（ebur128 `audio_data`） | **ゼロを書き込む** | **commit される。resident になる** |
+| `Vec::with_capacity(n)`（measure thread の 4 本） | 予約のみ。触らない | **使われるまで resident とは限らない** |
+| `rtrb::RingBuffer::new(n)` | 未確認 [C] | 未確認 |
+
+したがって §9.4 の部分合計は **論理的確保容量の上限**であり、
+**実測 RSS はこれより小さい可能性が高い。**
+
+一方 §9.3 の ebur128 分は `vec![0.0; …]` なので**ゼロ書き込みで commit される**。
+ここは論理容量と RSS が一致すると見てよい（ただし未測定）。
+
+**§10-5 の実 RSS 測定が、この節の結論を確定させる唯一の方法である。**
+
+### 9.6 まだ列挙していないもの [C]
+
+Phase D stream 内部、StereoMeter、`ResamplerTo48k` 内部（FFT workspace）、
+SpectrumRuntime、AttackRuntime、Perceptual、`MeterSession` 自身の MeasureEngine、
+meter history、delta history、UI / FFI frame、control state。
+
+**§9.4 は下限であって上限ではない。**
+
+## 10. 次の調査の優先順位
 
 **最適化案を考える段階ではない。§10 の未確認を潰して、
 現在の 384 MiB 契約そのものを再構築する段階である。**
 
 1. ~~384 MiB の由来~~ → §8。**リポジトリには記録が無い**と確定。外部情報が要る。
 2. ~~Record burst = 3 の由来~~ → §8。同じく記録が無い。
-3. **実際の全 allocation の列挙。** §3 の 4 領域に含まれていないものを全部出す
-   （measure thread 内の `with_capacity`、DSP state、history、UI / FFI、spool、workspace）。
-4. **2 / 6 / 12ch での理論 peak。** 3 を含めた全体で出し直す。§3 の値は 4 領域だけの中間値。
-5. **実 RSS 測定。** 論理的確保容量ではなく physical residency を測る。
+3. **実際の全 allocation の列挙** → §9 で着手。**未完**（§9.6 が残り）。
+4. **2 / 6 / 12ch での理論 peak** → §9.4 に部分合計。**列挙未完なので下限値。**
+5. **実 RSS 測定。** 論理的確保容量ではなく physical residency を測る。**§9.5 のとおり、
+   ここが §9 の結論を確定させる唯一の方法。**
 6. **保証モデルの候補比較。** ここで初めて、Daisuke が判断すべき選択肢を
    **数値と失う保証をセットで**並べる。例:「384 MiB を維持する案」「保証を完全維持する案」「中間案」。
 
 **現段階では、384 MiB を増やす / 262,144 を減らす / 12 pair を減らす /
 Record burst を減らす、のどれも決定しない。**
 
-## 10. 未確認 [C]
+## 11. 未確認 [C]
 
 - **実 RSS 測定。** 本書はすべて式からの算出である。論理的確保容量 ≠ physical residency。
 - **384 MiB と burst=3 の導出根拠。** §8 のとおりリポジトリには無い。**外部情報が要る。**
