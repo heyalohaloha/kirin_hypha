@@ -400,6 +400,39 @@ Rs = Rss + Rrs
 **Dolby Atmos Renderer の Lo/Ro として固定するなら根拠がある。**
 この区別は、Hypha が「何を再現したか」を記録できるかどうかを決める。
 
+#### 10.6.3.1 固定係数行列と renderer 由来 view を同じ棚に置かない [B]
+
+**2 種類ある。混ぜると「係数を探せば揃う」と読める構造になる。**
+
+| 種別 | 内容 | Hypha が再現できるか |
+|---|---|---|
+| **固定係数行列** | 文書化された係数の積（Lo/Ro の 5.1 → 2.0、7.1 → 5.1 等） | **できる。** 係数を写して同じ演算を行う |
+| **renderer 由来 view** | renderer が mix から直接導く出力（Stereo Direct 等） | **できない。** 固定行列が存在しない |
+
+**Stereo Direct は「まだ見つかっていない係数」ではない。** Atmos mix から直接作られる render であり、
+**係数表として取得できる種類の対象ではない**（Daisuke が一次資料で確認 / [B]。
+本セッションの egress policy では再取得できないため Claude Code 側では未検証）。
+
+したがって:
+
+> **「7.1.4 → 7.1 の係数が揃えば Atmos → stereo の行列が完成する」とは書かない。**
+> 完成するのは **Lo/Ro 連鎖の再現**であって、Atmos の stereo 出力一般ではない。
+
+**そして Lo/Ro 自体も「普遍的な正解」ではない。** Dolby には Lo/Ro のほかに
+Pro Logic IIx、Direct Render、Direct Render with room balance があり、stereo 側にも
+Lo/Ro、Lt/Rt、Stereo Direct がある（Daisuke 供給 / [B] / Claude Code 未検証）。
+特定 deliverable の仕様例が Lo/Ro を指定していることは、**Lo/Ro が既定であることを意味しない。**
+
+**`Dolby downmix` という profile 名を作らない。** method identity を保つ:
+
+```
+Dolby Atmos Renderer / Standard (Lo/Ro) / 7.1 -> 5.1
+Dolby Atmos Renderer / Lo/Ro / 5.1 -> 2.0
+```
+
+この粒度は Downmix Observation（集約候補 §6.2）にも Reference 比較（D-8）にも効く。
+「どの方式で畳んだ結果か」が消えると、2 つの値が比較可能かどうかを判定できない。
+
 #### 10.6.4 記録する項目
 
 §10.4 の「downmix 係数の出典と版」を、次の粒度にする。
@@ -414,8 +447,11 @@ Rs = Rss + Rrs
 #### 10.6.5 まだ無いもの [C]
 
 - **7.1.4 → 7.1** の段（天井チャンネルの扱い）。上記の一次資料確認には含まれていない。
-- Stereo Direct の完全な定義。
-- Hypha がどの版を再現対象にするか（**Daisuke の決定事項**）。
+  **これは固定係数として存在し得る対象であり、探す意味がある。**
+- Hypha がどの版・どの方式を再現対象にするか（**Daisuke の決定事項**）。
+
+**ここから外したもの**: 「Stereo Direct の完全な定義」。§10.6.3.1 のとおり、
+Stereo Direct は固定係数行列を持つ対象ではない。**未取得の資料として並べない。**
 
 ## 11. Spectrum の presentation model（Priority 1 の実体）
 
