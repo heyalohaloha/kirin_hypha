@@ -156,12 +156,16 @@ JUCE 側 2 箇所の `static_assert` が同時にこれを固定する（更新�
 | 5 サイズ全部 | 描画され、plot 内に収まる |
 | 固定スケール | 素材が変わっても上端 0 dB の画素位置が動かない |
 
-### Phase 4 — SPACE の時間表示（案 2）
+### Phase 4 — SPACE の時間表示（案 2）  ✅ 完了 / B-915
 
-- GUI 側に 6 秒 = 60 観測（10 Hz）のリングを持つ。`absolute_spectrum::History` と同じ形
-- Phase 0 の共有部品で描く。縦が時間（下が現在）、横が周波数、濃さが mono(b)
-- 試験は FREQ の FIELD と同じ 4 本を SPACE のデータで通す
-  （時刻→高さ 3 点 / 5 種の host cadence で縞が出ない / 実欠測は空欄 / 観測 2 個で埋めない）
+- GUI 側に 6 秒 = 60 観測（10 Hz）のリングを持つ。`mono_sum_history::History`。
+  `observed_frames` を時刻の正本とし、同一観測の重複、generation 変更、sample rate 変更、
+  時計の逆行をそれぞれ扱う
+- Phase 0 の共有部品 `time_field` で描く。縦が時間（下が現在）、横が周波数、濃さが loss
+- **カーブと FIELD は同じ矩形を共有しない。** 上にカーブ（縦 = dB）、下に FIELD（縦 = 時間）、
+  周波数軸は同じ 32 band なので下に 1 本だけ置いて両方で共有する。FREQ では両者を重ねているが、
+  そこは既存の作りであり、SPACE は最初から分けられる
+- cadence 規則は `time_field` が持つので、SPACE 用に書き直さない（Phase 0 の目的）
 
 ### Phase 5 — 文書と不変条件
 

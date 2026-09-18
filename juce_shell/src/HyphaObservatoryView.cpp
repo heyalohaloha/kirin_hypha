@@ -434,7 +434,7 @@ void View::paint (juce::Graphics& g)
     else if (selectedDomain == Domain::time && ! externalAnalysisBodyActive)
         paintTime (g, bodyArea);
     else if (selectedDomain == Domain::space)
-        space_field::paint (g, bodyArea, observatoryFrame.meter,
+        space_field::paint (g, bodyArea, observatoryFrame.meter, monoSumHistory,
                             currentFactsAvailable(),
                             contract.family == ExperienceFamily::compactMeter,
                             presentationContext());

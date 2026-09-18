@@ -4,6 +4,7 @@
 
 #include "HyphaPresentationContext.h"
 #include "kirin_hypha_ffi.h"
+#include "HyphaMonoSumHistory.h"
 
 namespace hypha::space_field
 {
@@ -15,6 +16,7 @@ int axisLabelHeight (presentation::Context);
 void paint (juce::Graphics&,
             juce::Rectangle<int> area,
             const KirinMeterSession&,
+            const mono_sum_history::History&,
             bool available,
             bool compactMeter,
             presentation::Context);

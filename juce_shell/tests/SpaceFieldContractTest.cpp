@@ -1,6 +1,7 @@
 #include "SpaceFieldContractTest.h"
 
 #include "../src/HyphaMonoSumPainter.h"
+#include "../src/HyphaMonoSumHistory.h"
 
 #include <cmath>
 #include <limits>
@@ -67,12 +68,20 @@ KirinMeterSession fixture (bool sideDominant)
     return meter;
 }
 
-juce::Image render (const KirinMeterSession& meter, int width, int height)
+juce::Image render (const KirinMeterSession& meter, int width, int height,
+                    int observationCount = (int) mono_sum_history::capacity)
 {
     observatory::View view (observatory::Role::post);
     view.setSize (width, height);
     view.setDomain (observatory::Domain::space);
-    view.setMeterSnapshot (meter, true);
+    // Each call advances the 100 ms observation clock, so the six-second field fills the way it
+    // does in the plug-in rather than from one repeated snapshot.
+    for (int observation = 0; observation < observationCount; ++observation)
+    {
+        auto moment = meter;
+        moment.observed_frames = meter.observed_frames + (uint64_t) observation * 4'800u;
+        view.setMeterSnapshot (moment, true);
+    }
     juce::Image image (juce::Image::ARGB, width, height, true);
     juce::Graphics graphics (image);
     view.paintEntireComponent (graphics, true);
@@ -129,6 +138,80 @@ int inkInColumn (const juce::Image& image, int x, int fromY, int toY)
     for (int y = fromY; y < toY; ++y)
         count += image.getPixelAt (x, y).getAlpha() > 0 ? 1 : 0;
     return count;
+}
+
+/// The six-second ring stores exact observations and nothing else, and starts over rather than
+/// mixing two timelines together.
+void verifyMonoSumHistory()
+{
+    mono_sum_history::History history;
+    KIRIN_SPACE_REQUIRE (history.empty());
+
+    auto meter = fixture (false);
+    meter.sample_rate = 48'000;
+    meter.observed_frames = 4'800;
+    KIRIN_SPACE_REQUIRE (history.append (meter));
+    // The same observation arriving again is not a new row.
+    KIRIN_SPACE_REQUIRE (! history.append (meter));
+    KIRIN_SPACE_REQUIRE (history.size() == 1u);
+
+    meter.observed_frames = 9'600;
+    KIRIN_SPACE_REQUIRE (history.append (meter));
+    KIRIN_SPACE_REQUIRE (history.size() == 2u);
+    // Oldest first, so the newest reads zero and the one before it one observation older.
+    KIRIN_SPACE_REQUIRE (std::abs (history.ageSeconds (1)) < 0.0001);
+    KIRIN_SPACE_REQUIRE (std::abs (history.ageSeconds (0) - 0.1) < 0.0001);
+
+    // Bands that were never measured are not a row.
+    auto unmeasured = meter;
+    unmeasured.observed_frames = 14'400;
+    unmeasured.mono_sum_band_count = 0;
+    KIRIN_SPACE_REQUIRE (! history.append (unmeasured));
+    KIRIN_SPACE_REQUIRE (history.size() == 2u);
+
+    // A reset, a rate change and a backwards clock each start the field over instead of placing
+    // new observations against ages that no longer mean anything.
+    for (const auto breakTimeline : { 0, 1, 2 })
+    {
+        mono_sum_history::History fresh;
+        auto first = meter;
+        first.observed_frames = 48'000;
+        KIRIN_SPACE_REQUIRE (fresh.append (first));
+        auto second = first;
+        second.observed_frames = 52'800;
+        if (breakTimeline == 0) second.generation = first.generation + 1;
+        if (breakTimeline == 1) second.sample_rate = 96'000;
+        if (breakTimeline == 2) second.observed_frames = 24'000;
+        KIRIN_SPACE_REQUIRE (fresh.append (second));
+        KIRIN_SPACE_REQUIRE (fresh.size() == 1u);
+    }
+
+    // Past capacity the ring keeps the newest six seconds.
+    mono_sum_history::History rolling;
+    for (uint64_t observation = 1; observation <= mono_sum_history::capacity * 2u; ++observation)
+    {
+        auto moment = meter;
+        moment.observed_frames = observation * 4'800u;
+        KIRIN_SPACE_REQUIRE (rolling.append (moment));
+    }
+    KIRIN_SPACE_REQUIRE (rolling.size() == mono_sum_history::capacity);
+    KIRIN_SPACE_REQUIRE (rolling.ageSeconds (0)
+                         <= mono_sum_history::seconds + 0.0001);
+}
+
+/// More loss is more ink, and a band with nothing to measure leaves none.
+void verifyMonoSumFieldInk()
+{
+    KIRIN_SPACE_REQUIRE (mono_sum_curve::fieldAlphaStepFor (0.0f) == 0u
+                         || mono_sum_curve::fieldAlphaStepFor (0.0f) < 4u);
+    const auto panned = mono_sum_curve::fieldAlphaStepFor (-3.0103f);
+    const auto deep = mono_sum_curve::fieldAlphaStepFor (-18.0f);
+    const auto floor = mono_sum_curve::fieldAlphaStepFor (KIRIN_MONO_SUM_DISPLAY_FLOOR_DB);
+    KIRIN_SPACE_REQUIRE (panned > mono_sum_curve::fieldAlphaStepFor (-0.7f));
+    KIRIN_SPACE_REQUIRE (deep > panned);
+    KIRIN_SPACE_REQUIRE (floor >= deep);
+    KIRIN_SPACE_REQUIRE (mono_sum_curve::fieldAlphaStepFor (
+                             std::numeric_limits<float>::quiet_NaN()) == 0u);
 }
 
 /// The curve has to move with the value, stop where the scale stops, and break where a band was
@@ -197,6 +280,8 @@ void verifyMonoSumCurveRendering()
 void verifySpaceFieldContract()
 {
     verifyMonoSumScale();
+    verifyMonoSumHistory();
+    verifyMonoSumFieldInk();
     verifyMonoSumCurveRendering();
     const auto mid = fixture (false);
     const auto side = fixture (true);

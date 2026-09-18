@@ -154,6 +154,7 @@ void drawAxisLabels (juce::Graphics& g, juce::Rectangle<int> plot, bool compact,
 void paint (juce::Graphics& g,
             juce::Rectangle<int> area,
             const KirinMeterSession& meter,
+            const mono_sum_history::History& monoHistory,
             bool available,
             bool compactMeter,
             presentation::Context presentation)
@@ -195,7 +196,8 @@ void paint (juce::Graphics& g,
     // to stay wide enough for the scatter's own axis labels. The third is what rules out the
     // 600x400 editor, where the strip fits but pushes "SIDE < 0" down to "S<0". Today only the
     // largest editor clears all three.
-    constexpr int monoStripMinimum = 70;
+    // The strip carries the curve, the six-second field under it and one frequency row for both.
+    constexpr int monoStripMinimum = 116;
     constexpr int metricsRowMinimum = 136;
     const int metricWidth = juce::jlimit (82, compact ? 102 : 168,
                                           juce::roundToInt (area.getWidth() * 0.31f));
@@ -204,7 +206,7 @@ void paint (juce::Graphics& g,
         return juce::jmin (area.getWidth() - metricWidth - gap, rowHeight) - 32;
     };
     const int monoHeight = juce::jmax (monoStripMinimum,
-                                       juce::roundToInt (area.getHeight() * 0.32f));
+                                       juce::roundToInt (area.getHeight() * 0.42f));
     const bool showMono = ! compact
                        && area.getHeight() >= monoHeight + gap + metricsRowMinimum
                        && squarePlotWidthAfter (monoHeight) / 3
@@ -235,8 +237,8 @@ void paint (juce::Graphics& g,
     if (showMono)
     {
         drawPanel (g, mono, compact);
-        mono_sum_curve::paint (g, mono.reduced (4, 3), meter, available, false, true,
-                               presentation);
+        mono_sum_curve::paint (g, mono.reduced (4, 3), meter, monoHistory, available, false,
+                               true, presentation);
     }
 
     auto balance = metrics.removeFromTop ((metrics.getHeight() - gap) / 2);

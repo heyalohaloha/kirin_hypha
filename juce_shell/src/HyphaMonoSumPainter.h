@@ -4,6 +4,7 @@
 
 #include "HyphaPresentationContext.h"
 #include "kirin_hypha_ffi.h"
+#include "HyphaMonoSumHistory.h"
 
 // MONO — how much of each third-octave band survives the mono sum, from KirinMeterSession.
 //
@@ -25,10 +26,15 @@ bool bandIsApproximate (size_t band, float approximateBelowHz) noexcept;
 void paint (juce::Graphics&,
             juce::Rectangle<int> area,
             const KirinMeterSession&,
+            const mono_sum_history::History&,
             bool available,
             bool compact,
             bool showTitle,
             presentation::Context);
+
+/// Ink for one band of the six-second field: none at 0 dB, most at the display floor. The split
+/// scale decides it, so a value's weight in the field matches its height on the curve above.
+uint8_t fieldAlphaStepFor (float db) noexcept;
 
 /// What the readout says beside the title: the unit when bands are measured, and why not when
 /// they are not.

@@ -18,6 +18,7 @@
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
 #include "kirin_hypha_ffi.h"
+#include "HyphaMonoSumHistory.h"
 
 namespace hypha::observatory
 {
@@ -256,6 +257,7 @@ private:
     ObservationTarget selectedTarget = ObservationTarget::absolute;
     TimeRange timeRange = TimeRange::seconds30;
     KirinObservatoryFrame observatoryFrame {};
+    mono_sum_history::History monoSumHistory;
     bool frameAvailable = false;
     KirinWatchDisplay watchDisplay {};
     bool watchDisplayAvailable = false;

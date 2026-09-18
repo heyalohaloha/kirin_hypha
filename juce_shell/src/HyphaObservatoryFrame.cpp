@@ -21,7 +21,9 @@ void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
         : elapsed < 60.0 ? KIRIN_LRA_WARMING
                          : std::isfinite (value.lra) ? KIRIN_LRA_READY : KIRIN_LRA_UNAVAILABLE;
     frameAvailable = available;
-    if (previouslyAvailable != available || ! observation_equality::same (previous, observatoryFrame))
+    const bool storedMono = monoSumHistory.append (value);
+    if (previouslyAvailable != available || storedMono
+        || ! observation_equality::same (previous, observatoryFrame))
         repaint (bodyArea);
 }
 
