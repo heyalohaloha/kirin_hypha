@@ -305,6 +305,109 @@ fn probe_calibration(mib_target: usize) {
     std::hint::black_box(buffer);
 }
 
+/// Constructing is not running. SpectrumRuntime accepts more than two channels at construction,
+/// so this pushes real blocks and reads the counters the runtime keeps, rather than inferring from
+/// RSS which only shows whether a preallocated ring was filled.
+fn probe_accept(native_rate: u32, channels: usize) {
+    println!("\n== SpectrumRuntime acceptance: native {native_rate} Hz, {channels} ch ==");
+    let runtime = SpectrumRuntime::new(native_rate, channels);
+    runtime.set_enabled(true);
+
+    let chunk_frames = native_rate as usize / 10;
+    let chunk: Vec<f32> = (0..chunk_frames * channels)
+        .map(|i| ((i % 97) as f32 / 97.0) * 0.5 - 0.25)
+        .collect();
+    let mut accepted = 0usize;
+    for i in 0..40 {
+        if runtime.push_block_from_audio(&chunk, channels, Some((i * chunk_frames) as i64)) {
+            accepted += 1;
+        }
+    }
+    // Give any worker a chance to drain before reading its counters.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let stats = runtime.stats();
+    println!("  push_block_from_audio returned true   {accepted} / 40");
+    println!("  enabled                               {}", stats.enabled);
+    println!(
+        "  worker_running                        {}",
+        stats.worker_running
+    );
+    println!("  channels                              {}", stats.channels);
+    println!(
+        "  pushed_blocks / dropped_blocks        {} / {}",
+        stats.pushed_blocks, stats.dropped_blocks
+    );
+    println!(
+        "  analyzed_frames                       {}",
+        stats.analyzed_frames
+    );
+    println!(
+        "  analyzed_perceptual_frames            {}",
+        stats.analyzed_perceptual_frames
+    );
+    println!(
+        "  analyzed_absolute_frames              {}",
+        stats.analyzed_absolute_frames
+    );
+    println!(
+        "  analyzed_mid_side_frames              {}",
+        stats.analyzed_mid_side_frames
+    );
+    println!(
+        "  history observations                  {}",
+        runtime.try_history().map_or(0, |h| h.frames().len())
+    );
+}
+
+/// Production routing: measure_thread.rs:1022 feeds the 48 kHz Watch engine on every iteration,
+/// while the two native-rate Record engines are fed only inside `if is_recording` (:1046). Feeding
+/// all three, as the earlier probe did, measures a generation that is recording on every instance.
+fn probe_routing(native_rate: u32, channels: usize, instances: usize) {
+    println!("\n== routing: native {native_rate} Hz, {channels} ch, {instances} instance(s) ==");
+    for (label, feed_record) in [
+        ("Watch only (not recording)", false),
+        ("Watch + Record x2", true),
+    ] {
+        let base = rss_bytes().expect("statm");
+        let mut held: Vec<Vec<MeasureEngine>> = (0..instances)
+            .map(|_| instance_engines(native_rate, channels))
+            .collect();
+
+        // The Watch engine always receives audio resampled to 48 kHz.
+        let watch_frames = 4_800usize;
+        let watch_chunk: Vec<f64> = (0..watch_frames * channels)
+            .map(|i| ((i % 97) as f64 / 97.0) * 0.5 - 0.25)
+            .collect();
+        let native_frames = native_rate as usize / 10;
+        let native_chunk: Vec<f64> = (0..native_frames * channels)
+            .map(|i| ((i % 97) as f64 / 97.0) * 0.5 - 0.25)
+            .collect();
+
+        for engines in held.iter_mut() {
+            for _ in 0..40 {
+                let _ = engines[0].push(&watch_chunk);
+            }
+            if feed_record {
+                for engine in engines.iter_mut().skip(1) {
+                    for _ in 0..40 {
+                        let _ = engine.push(&native_chunk);
+                    }
+                }
+            }
+        }
+        let after = rss_bytes().expect("statm");
+        println!(
+            "  {label:<30} {:>+10.2} MiB",
+            mib(after as i64 - base as i64)
+        );
+        std::hint::black_box(held);
+        if !feed_record {
+            // Drop before the next case so the two are not measured on top of each other.
+            continue;
+        }
+    }
+}
+
 fn main() {
     if rss_bytes().is_none() {
         println!("/proc/self/statm unavailable — this probe is Linux only.");
@@ -332,6 +435,19 @@ fn main() {
                 PUSH_CHUNKS.store(secs * 10, std::sync::atomic::Ordering::Relaxed);
             }
             probe_touched(rate, ch, instances);
+        }
+        Some("routing") => {
+            probe_routing(
+                args[2].parse().expect("rate"),
+                args[3].parse().expect("channels"),
+                args[4].parse().expect("instances"),
+            );
+        }
+        Some("accept") => {
+            probe_accept(
+                args[2].parse().expect("rate"),
+                args[3].parse().expect("channels"),
+            );
         }
         Some("calibrate") => {
             probe_calibration(args[2].parse().expect("MiB"));

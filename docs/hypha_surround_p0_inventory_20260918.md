@@ -70,6 +70,16 @@ fn supported_channel_count(num_channels: u32) -> usize {
 **measure thread より外側で、すべてに先立って 2 へ変えられる。**
 `hypha_pre/src/lib.rs:187` も `record_ring_capacity_samples(N_CHANNELS)` を直接使う。
 
+**3 つ目は別のイディオムだった**（実測で発見 / `docs/hypha_surround_ingest_capacity_20260918.md` §13）:
+
+```rust
+crates/kirin_measure/src/spectrum_runtime.rs:91
+let num_channels = num_channels.clamp(1, 2);
+```
+
+`match _ =>` を探しても出てこない。`stats().channels` は 6ch 構築時にも 2 を返し、
+6ch の push は 40 件すべて drop される。**構築できる ≠ 動く。**
+
 第2巡では、拒否ガードとは別に **「別の形を黙って作る処理」を独立した監査対象**にする。
 候補パターン: `match` の `_ =>`、`if/else` の既定値、`.min(2)`、`.clamp(1, 2)`、
 `unwrap_or(2)`、`.take(2)`、先頭 2 要素のスライス、暗黙の複製・間引き・downmix。

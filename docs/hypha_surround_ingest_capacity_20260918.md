@@ -496,7 +496,8 @@ push を 8 秒・16 秒に延ばしても +30.98 MiB で飽和するので、rin
 **4 領域（Watch ring / Record burst / scratch / pre-roll）は含まない。**
 それらは §10 の結果から、使われるまでほぼ resident にならないと見てよい（未測定 [C]）。
 
-**この合計は別々の probe の RSS 差分を足したものである。**
+**この合計は別々の probe の RSS 差分を足したものであり、かつ
+「24 インスタンス全部が Record 中」の前提を含む**（§14）。
 1 プロセスで全部を同時稼働させた RSS とは必ずしも一致しない
 （allocator の再利用、共有コード / データ、thread stack、ページ再利用がある）。
 **「現製品が 875 MiB 使う」とは言わない。**
@@ -593,12 +594,93 @@ default channel map（findings §3）で実際に使われるチャンネル数:
 12ch の audio_data は 395.5 MiB から 949.2 MiB へ増える。**
 サラウンドを正しく測ると、メモリはさらに増える。
 
-## 13. 次の調査の優先順位
+## 13. 実測 — `SpectrumRuntime` は 6/12ch を受け付けていない [A]
+
+`accept` モード。構築し、`set_enabled(true)`、40 ブロック push して runtime 自身の counter を読む。
+**RSS ではなく戻り値と counter を見る。**
+
+| 指標 | 2ch | 6ch | 12ch |
+|---|---:|---:|---:|
+| `push_block_from_audio` が true | 1 / 40 | **0 / 40** | **0 / 40** |
+| `stats().channels` | 2 | **2** | **2** |
+| `pushed_blocks / dropped_blocks` | 1 / 39 | **0 / 40** | **0 / 40** |
+| `analyzed_frames` | 0 | 0 | 0 |
+
+**`stats().channels` が 6ch / 12ch でも 2 を返す。**
+
+```rust
+crates/kirin_measure/src/spectrum_runtime.rs:91
+let num_channels = num_channels.clamp(1, 2);
+```
+
+**3 つ目の無言 2ch 化である。** しかも `match _ =>` ではなく `clamp` なので、
+§2 で挙げた検索候補のうち `.clamp(1, 2)` を入れていなければ見落としていた。
+
+結果として `push_block_from_audio` の `num_channels != self.num_channels` で**全ブロックが drop される**。
+
+> **構築できる ≠ 動く。** §11.4 (4) の推定が実測で確定した。
+
+2ch で 1/40 しか受理されないのは probe 側の事情である
+（1 ブロック 4,800 frame が ring 容量を超え、worker の消費が追いつかない）。
+**サラウンドの判定には影響しない。**
+
+### 13.1 無言 2ch 化は 3 か所
+
+| 場所 | 形 |
+|---|---|
+| `crates/kirin_hypha_ffi/src/lib.rs:189` | `match { 1 \| 2 => n, _ => N_CHANNELS }` |
+| `crates/kirin_measure/src/measure_thread.rs:240` | 同上 |
+| `crates/kirin_measure/src/spectrum_runtime.rs:91` | **`.clamp(1, 2)`** |
+
+## 14. 実測 — 3 MeasureEngine は同時にフル稼働しない [A]
+
+### 14.1 production routing
+
+```rust
+measure_thread.rs:1022   let _ = engine.push_observed(chunk_48k, ...);      // Watch。毎回
+measure_thread.rs:1046   if is_recording {
+measure_thread.rs:1051       let _ = record_trace_engine.push_observed(&chunk_f64, ...);
+measure_thread.rs:1100       let _ = record_summary_engine.push(&chunk_f64);
+                         }
+```
+
+- **Watch engine は常に 48 kHz。毎イテレーション push される。**
+- **Record TRACE と summary は `is_recording` の中でしか push されない。** native rate。
+
+したがって §10.2 の「4 秒を全 engine へ push」は、
+**24 インスタンス全部が Record 中**という状態に対応する。
+
+### 14.2 実測
+
+| native | Watch のみ（非 Record） | Watch + Record ×2 |
+|---|---:|---:|
+| 48 kHz / stereo / 24 | **+74.30 MiB** | +229.53 MiB |
+| 192 kHz / stereo / 24 | **+76.99 MiB** | +665.27 MiB |
+
+**通常の計測時は約 74 MiB。Record 中は最大 665 MiB。9 倍近い差がある。**
+
+### 14.3 これが変えること
+
+**(1) Watch のみのコストは sample rate にほぼ依存しない**（74.30 → 76.99）。
+Watch engine が常に 48 kHz だからである。**host rate が効くのは Record 中だけ。**
+
+**(2) §10 / §11 の大きい数値は「全インスタンスが Record 中」の値である。**
+§11.3 の 875.40 MiB も同じ前提を含む。**通常計測時の値ではない。**
+
+**(3) 384 MiB 予算が問題になるのは、まさに契約が想定している最悪ケースだけである。**
+「12 pair 全部が 192 kHz で Record 中」。通常の計測では余裕がある。
+
+**(4) したがって (a) の検討対象は「Record engine の構成」に絞れる。**
+Watch engine は 24 インスタンスで 74 MiB しか使っていない。
+
+## 15. 次の調査の優先順位
 
 **最適化案を考える段階ではない。§10 の未確認を潰して、
 現在の 384 MiB 契約そのものを再構築する段階である。**
 
 0. ~~12ch が 0.76 倍になる理由~~ → §12 完了。**planar 書込 + `Unused` スキップ。**
+0. ~~`SpectrumRuntime` の 6/12ch 受理~~ → §13 完了。**受理していない。3 つ目の無言 clamp。**
+0. ~~3 MeasureEngine と production routing の同値性~~ → §14 完了。**Record 中のみ 3 本稼働。**
 1. ~~384 MiB の由来~~ → §8。**リポジトリには記録が無い**と確定。外部情報が要る。
 2. ~~Record burst = 3 の由来~~ → §8。同じく記録が無い。
 3. ~~EbuR128 allocation audit~~ → §10.1 完了。
@@ -615,7 +697,7 @@ default channel map（findings §3）で実際に使われるチャンネル数:
 **現段階では、384 MiB を増やす / 262,144 を減らす / 12 pair を減らす /
 Record burst を減らす、のどれも決定しない。**
 
-## 14. 未確認 [C]
+## 16. 未確認 [C]
 
 - **DAW 実機上の製品 RSS。** §10 / §11 は Linux コンテナ上の probe による **RSS 実測**であり、
   **JUCE plugin を DAW へ 24 インスタンス挿した製品実測ではない。**
