@@ -5,10 +5,10 @@
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
 namespace
 {
-    // The Meter Session / Observatory frame / Meter history ABI sizes are asserted once, in
-    // HyphaObservationEquality.h, which HyphaObservatoryFrame.cpp compiles into this same target.
-    // They used to be duplicated here as well, and the copy went stale at 872/1112 when B-910
-    // grew the struct to 1008/1248: this file is not compiled on Linux, so nothing caught it.
+    // The ABI sizes are asserted once, in HyphaObservationEquality.h, which HyphaObservatoryFrame.cpp
+    // compiles into this same target. A duplicate here went stale at 872/1112 when B-910 grew it.
+    // This file does compile on Linux; the target stops earlier on an unrelated GCC ambiguity in
+    // AppearanceContract.cpp, so check this object alone with ninja rather than the whole target.
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::unknown)
                        == KIRIN_HYPHA_CLOCK_UNKNOWN);
