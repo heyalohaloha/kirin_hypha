@@ -490,3 +490,8 @@ fn live_measure_worker_advances_pauses_and_resets_independent_session() {
     assert_eq!(reset.generation, active.generation + 1);
     assert_eq!(reset.active_frames, 0);
 }
+
+// One test spans every link from audio to the C struct. It lives in its own file so this one
+// stays inside the source line budget.
+#[path = "meter_session_chain_tests.rs"]
+mod chain;
