@@ -67,12 +67,15 @@ namespace
     // The field as one image: a column per measured band, a row per 1/180 of the six seconds,
     // newest at the bottom.
     //
-    // Each row shows the observation nearest its own instant, and only when one lands within that
-    // row's width in time. Scattering observations into the row their age falls in looked simpler
-    // but is wrong: hosts publish on their own buffer boundaries, so a 1024-sample host at 48 kHz
-    // delivers one observation per 42.7 ms and leaves 22% of the rows empty, which draws a striped
-    // field that no measurement gap caused. Choosing per row also keeps a real gap visible: half a
-    // second without observations still empties fifteen rows.
+    // Each row shows the observation nearest its own instant, and stays empty only when the
+    // nearest one is further away than this stream's own cadence. Scattering observations into
+    // the row their age falls in looked simpler but is wrong: hosts publish on their own buffer
+    // boundaries, so a 1024-sample host at 48 kHz delivers one observation per 42.7 ms and leaves
+    // 22% of the rows empty, drawing a striped field that no measurement gap caused. A fixed
+    // tolerance of one row is wrong for the same reason one step further out: a 4096-sample
+    // buffer publishes every 85 ms and the stripes come back. Measuring the cadence from the
+    // observations themselves holds at any buffer size, and still leaves a real break visible,
+    // because a break is long against the cadence that surrounds it.
     juce::Image makeFieldImage (const absolute_spectrum::History& history)
     {
         if (history.empty())
@@ -102,6 +105,27 @@ namespace
         if (inWindow == 0u)
             return {};
 
+        // This stream's own cadence: the median interval between the observations in the window.
+        // The median ignores the few long intervals a real break creates, so the break stays
+        // measured against the normal spacing rather than against itself.
+        double cadenceSeconds = rowSeconds;
+        if (inWindow > 1u)
+        {
+            std::array<double, absolute_spectrum::historyCapacity> intervals {};
+            const size_t count = inWindow - 1u;
+            for (size_t index = 0u; index < count; ++index)
+                intervals[index] = ages[index] - ages[index + 1u];
+            const auto middle = intervals.begin() + (std::ptrdiff_t) (count / 2u);
+            std::nth_element (intervals.begin(), middle, intervals.begin() + (std::ptrdiff_t) count);
+            // The cap matters when there is almost nothing to take a median of: two observations
+            // five seconds apart would otherwise call five seconds the cadence and fill the whole
+            // field from them. Half a second is fifteen times the intended 30 Hz cadence and about
+            // three times the most extreme buffer a host publishes on (8192 frames at 48 kHz), so
+            // no working host reaches it.
+            constexpr double slowestCredibleCadenceSeconds = 0.5;
+            cadenceSeconds = juce::jlimit (rowSeconds, slowestCredibleCadenceSeconds, *middle);
+        }
+
         juce::Image image (juce::Image::ARGB, columns, rows, true,
                            juce::SoftwareImageType {});
         juce::Image::BitmapData pixels (image, juce::Image::BitmapData::writeOnly);
@@ -125,7 +149,7 @@ namespace
                    && std::abs (ages[candidate - 1u] - instant)
                           <= std::abs (ages[candidate] - instant))
                 --candidate;
-            if (std::abs (ages[candidate] - instant) > rowSeconds)
+            if (std::abs (ages[candidate] - instant) > cadenceSeconds)
                 continue;
 
             const auto& frame = history.at (source[candidate]);

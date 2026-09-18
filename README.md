@@ -167,8 +167,9 @@ rises as it ages, leaving the top edge six seconds later, so a resonance that ap
 a level move traces a visible shape. Each of its 180 rows is one thirtieth of a second and shows
 the observation nearest that instant, at the full band resolution; density follows the measured
 level, so a loud band is far denser than a quiet one. Nothing is averaged, blended, or invented
-between observations, and a row with no observation near it stays empty, so a break in the
-measurement stays a break in the field.
+between observations. A row stays empty when the nearest observation is further away than the
+cadence the host is actually publishing at, so the field is continuous at any buffer size while a
+break in the measurement stays a break in the field.
 
 In the POST target, **M/S** is a fourth display choice beside LR / MID / SIDE. It overlays solid
 cyan Mid and violet Side curves calculated from the same aperture, with a shared

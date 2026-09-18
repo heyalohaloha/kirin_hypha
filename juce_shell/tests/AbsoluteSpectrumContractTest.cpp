@@ -114,7 +114,7 @@ void verifyFieldIsContinuousAtAnyHostCadence()
     constexpr int width = 600;
     constexpr int height = 400;
 
-    for (const auto spacingSamples : { 1'600, 1'536, 2'048, 2'560, 3'200 })
+    for (const auto spacingSamples : { 1'600, 1'536, 2'048, 2'560, 3'200, 4'096, 8'192 })
     {
         absolute_spectrum::History history;
         for (int step = 1; step <= 400; ++step)
@@ -149,6 +149,29 @@ void verifyFieldIsContinuousAtAnyHostCadence()
         }
         KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (longestEmptyRun <= 2);
     }
+}
+
+// Two lone observations far apart are not a cadence. The field must not spread them over six
+// seconds just because there is nothing else to compare them against.
+void verifyFieldDoesNotInventACadenceFromTwoObservations()
+{
+    constexpr int width = 600;
+    constexpr int height = 400;
+
+    absolute_spectrum::History history;
+    KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (history.append (markedFrame (1'600, 100u, -20.0f)));
+    KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (
+        history.append (markedFrame (1'600 + 5 * 48'000, 100u, -20.0f)));
+
+    const auto image = renderField (history, width, height);
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (
+        image.getBounds().toFloat(), false).toNearestInt();
+    const auto inked = fieldRowsWithInk (image, plot);
+    int filled = 0;
+    for (const auto row : inked)
+        filled += row ? 1 : 0;
+    // Half a second of the six is the most two observations may claim between them.
+    KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (filled < (int) inked.size() / 3);
 }
 
 // A real break in the measurement is not filled in. Half a second of missing observations has to
@@ -323,6 +346,7 @@ void verifyAbsoluteSpectrumContract()
     verifySixSecondFieldReadsAsTime();
     verifyFieldIsContinuousAtAnyHostCadence();
     verifyFieldKeepsARealGapEmpty();
+    verifyFieldDoesNotInventACadenceFromTwoObservations();
 
     absolute_spectrum::History history;
     const auto first = postFrame (4'800, -32.0f);
