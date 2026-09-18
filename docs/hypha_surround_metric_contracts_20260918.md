@@ -478,6 +478,73 @@ crates/kirin_hypha_ffi/include/kirin_hypha_spectrum_mid_side_ffi.h  KirinMidSide
 - **PRE/POST 比較は両者が同じ view を選んでいることを条件にする。**
   Reference の §10 と同じ規律。**違う view の比較を無言で成立させない。**
 
+### 11.3.1 selector の粒度 — 役割で指す（index ではない）[A]
+
+**決め手は epoch である。**
+
+```rust
+crates/kirin_measure/src/spectrum_runtime.rs:212-215
+let previous = self.channel_mode.swap(mode as u8, Ordering::AcqRel);
+if previous != mode as u8 {
+    self.generation.fetch_add(1, Ordering::AcqRel);   // 履歴を捨てる
+```
+
+**比較しているのは生の `u8` である。**
+
+selector が **index** だと、7.1.4 → 5.1.4 の layout 変更で
+**index 7 は有効なまま、指すチャンネルだけが変わる。**
+`previous != mode` が成立しないので **generation は上がらず、履歴が捨てられない。**
+**別のチャンネルの履歴が無言で連結する。** §3 の C と同じ失敗である。
+
+selector が **役割**（`Lss` 等）なら、layout 変更で
+「役割が残る」か「役割が消える」かのどちらかになり、**どちらも検出できる。**
+
+> **selector は layout 上の役割で指す。index では layout 変更を検出できない。**
+
+**有効な値の集合は、交渉済み layout の `channel_positions[]` そのものである**（計画 §5.1）。
+これに、適用できる場合の導出 view（LR / MID / SIDE）を足す。**別途の取捨選択は要らない。**
+
+既定値は現在 `Lr = 0`（`spectrum.rs:105-106`、`PluginProcessor.h:429`）。
+**L/R 対を持つ layout では LR を既定のまま維持し、持たない layout では先頭の位置を既定にする。**
+
+### 11.3.2 UI の制約 — 3 項目固定のピクセル帯である [A]
+
+```cpp
+juce_shell/src/HyphaSpectrumUiContract.h:118-120
+constexpr int spectrumChannelModeHeight = 13;
+constexpr int spectrumChannelModeGap = 2;
+constexpr std::array<int, 3> spectrumChannelModeWidths { 20, 26, 30 };
+```
+
+`channelModeBoundsFor`（`HyphaSpectrumGeometry.h:110-122`）は
+この幅表を左から積んで hit 領域を作る。**帯の全幅は 76 px + gap×2 である。**
+
+**12 チャンネルは入らない。** 同じ帯へ足す前提で設計しない。
+
+**ただし値空間と UI 部品は別である。**
+
+- **値空間**（`u8` の selector）は §11.3.1 のとおり拡張する。**epoch 機構がそのまま働く。**
+- **UI 部品**は別途必要になる。現行の 3 項目帯は導出 view の数に合わせて作られている。
+
+この UI には既に cycle 型の先例がある
+（`PluginEditor.cpp:216` `spectrumSizeToggle` が 100/125/150/200% を cycle する）。
+
+**どの部品にするかは P-0 では決めない。** 決めるのは
+**「値空間は役割で拡張する」**ことと、**「3 項目帯には入らない」**ことである。
+
+### 11.3.3 selector は永続化されていない [A]
+
+`preferredSpectrumChannelMode`（`PluginProcessor.h:429`）の既定は `KIRIN_SPECTRUM_CHANNEL_LR` で、
+`PluginProcessorState.cpp` が保存するのは `observatory_size` などであり、**channel mode は含まない。**
+
+**再読み込みで LR に戻る。**
+
+含意:
+
+- **state 復元で index と役割の不一致が起きる心配は無い**（そもそも復元しない）。
+- 一方、**チャンネル数が増えると「毎回選び直す」ことになる。**
+  永続化するかどうかは別途の判断であり、**するなら役割で保存する**（index では layout 変更に耐えない）。
+
 ### 11.4 初期版に含めないもの
 
 - **全チャンネル同時表示。** 表示設計が別途要る。FIELD に 12 本を置く根拠が無い。
@@ -584,7 +651,8 @@ cargo run -p kirin_measure --example channel_contract_probe --release -- accept 
 
 ## 16. 未確認 [C]
 
-- (a) を採る場合の selector の粒度（全チャンネルを出すか、layout 定義済みの役割のみか）。
+- selector の UI 部品（§11.3.2。値空間は確定、部品は未定）。
+- selector を永続化するか（§11.3.3）。
 - **7.1.4 → 7.1 の段の係数**（§10.6.5）。5.1 → stereo と 7.1 → 5.1 は出典が付いた。
 - 異種 layout 比較がどの程度の頻度で起きるか（**運用上の評価。コードからは判定できない**）。
 
