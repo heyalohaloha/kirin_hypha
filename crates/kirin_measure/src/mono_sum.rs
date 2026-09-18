@@ -149,8 +149,10 @@ impl MonoSumAnalyzer {
             self.mid[index] = Complex32::default();
             self.side[index] = Complex32::default();
         }
-        self.fft.process_with_scratch(&mut self.mid, &mut self.scratch);
-        self.fft.process_with_scratch(&mut self.side, &mut self.scratch);
+        self.fft
+            .process_with_scratch(&mut self.mid, &mut self.scratch);
+        self.fft
+            .process_with_scratch(&mut self.side, &mut self.scratch);
 
         let scale = self.amplitude_scale * self.amplitude_scale;
         let level_floor_power = 10.0_f32.powf(MONO_SUM_LEVEL_FLOOR_DBFS / 10.0);

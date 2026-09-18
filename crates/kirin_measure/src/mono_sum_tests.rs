@@ -46,8 +46,7 @@ fn band_tones(index: usize, sample_rate: u32) -> f64 {
 /// does not hold enough cycles to place their content, which is why the readout marks them.
 fn resolved_bands(analyzer: &MonoSumAnalyzer) -> impl Iterator<Item = usize> + '_ {
     (0..MONO_SUM_BAND_COUNT).filter(move |band| {
-        let (low, _) =
-            log_band_edges(*band, MONO_SUM_BAND_COUNT, MONO_SUM_MIN_HZ, MONO_SUM_MAX_HZ);
+        let (low, _) = log_band_edges(*band, MONO_SUM_BAND_COUNT, MONO_SUM_MIN_HZ, MONO_SUM_MAX_HZ);
         low >= analyzer.approximate_below_hz()
     })
 }
@@ -63,7 +62,10 @@ fn identical_channels_lose_nothing() {
     let mut checked = 0;
     for band in resolved_bands(&analyzer) {
         let value = bands[band].unwrap_or_else(|| panic!("band {band} has no content"));
-        assert!(value.abs() < 0.1, "band {band} read {value} dB, expected 0.00");
+        assert!(
+            value.abs() < 0.1,
+            "band {band} read {value} dB, expected 0.00"
+        );
         checked += 1;
     }
     assert!(checked >= 26, "only {checked} bands were resolved");
@@ -225,7 +227,10 @@ fn the_same_signal_reads_the_same_at_any_host_rate() {
     let mut compared = 0;
     for (left, right) in bands_48.iter().zip(bands_96.iter()) {
         if let (Some(left), Some(right)) = (left, right) {
-            assert!((left - right).abs() < 0.5, "48 kHz {left} vs 96 kHz {right}");
+            assert!(
+                (left - right).abs() < 0.5,
+                "48 kHz {left} vs 96 kHz {right}"
+            );
             compared += 1;
         }
     }
@@ -236,8 +241,12 @@ fn the_same_signal_reads_the_same_at_any_host_rate() {
 fn an_observation_of_the_wrong_length_is_refused() {
     // Zero padding a short observation would report a value for time that was never observed.
     let mut analyzer = analyzer(SR, FRAMES);
-    assert!(analyzer.analyze(&stereo(FRAMES - 1, |_| (0.5, 0.5))).is_none());
-    assert!(analyzer.analyze(&stereo(FRAMES + 1, |_| (0.5, 0.5))).is_none());
+    assert!(analyzer
+        .analyze(&stereo(FRAMES - 1, |_| (0.5, 0.5)))
+        .is_none());
+    assert!(analyzer
+        .analyze(&stereo(FRAMES + 1, |_| (0.5, 0.5)))
+        .is_none());
     assert!(analyzer.analyze(&[]).is_none());
 }
 
@@ -270,7 +279,10 @@ fn every_band_covers_a_distinct_rising_frequency_range() {
         );
         assert!(high > low, "band {index} is empty");
         if index > 0 {
-            assert!((low - previous_high).abs() < 0.01, "band {index} leaves a gap");
+            assert!(
+                (low - previous_high).abs() < 0.01,
+                "band {index} leaves a gap"
+            );
         }
         previous_high = high;
     }

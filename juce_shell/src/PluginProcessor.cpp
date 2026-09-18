@@ -5,12 +5,10 @@
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
 namespace
 {
-    static_assert (sizeof (KirinMeterSession) == 872u,
-                   "Rust/C++ Meter Session ABI size must remain exact");
-    static_assert (sizeof (KirinObservatoryFrame) == 1'112u,
-                   "Rust/C++ Observatory frame ABI size must remain exact");
-    static_assert (sizeof (KirinMeterHistoryEntry) == 184u,
-                   "Rust/C++ Meter history ABI size must remain exact");
+    // The Meter Session / Observatory frame / Meter history ABI sizes are asserted once, in
+    // HyphaObservationEquality.h, which HyphaObservatoryFrame.cpp compiles into this same target.
+    // They used to be duplicated here as well, and the copy went stale at 872/1112 when B-910
+    // grew the struct to 1008/1248: this file is not compiled on Linux, so nothing caught it.
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::unknown)
                        == KIRIN_HYPHA_CLOCK_UNKNOWN);
