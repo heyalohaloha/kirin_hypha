@@ -67,12 +67,15 @@ never spread evenly across the spectrum — it is a bass note, or a band an M/S 
 pair of channels that ended up out of phase somewhere. MONO says which band, and by how much.
 
 Mid and Side are built in the time domain before the transform, so a phase cancellation is already
-in the magnitude and the figure is what the band actually loses, not a width estimate. Identical
-channels read 0 dB, an ordinary mix around -0.7 dB, a hard-panned source exactly -3.01 dB, and a
-band that cancels falls to the floor. The vertical scale gives its top half to 0..-6 dB, because
-that is where every value worth acting on sits, and its bottom half to -6..-24 dB. A band with
-nothing to measure breaks the line rather than being drawn at 0 dB, which is the one reading that
-means the band loses nothing. Below the frequency where one observation holds fewer than three
+in the magnitude and the figure is what the band actually loses, not a width estimate.
+
+Identical channels read 0 dB and a hard-panned source exactly -3.01 dB, and those two are the ends
+of one range: while a band's channels share polarity, its reading cannot fall below -3.01 dB,
+however wide the band is. A reading past -3.01 dB means the channels are partly opposed there, and
+a band that cancels outright falls to the floor. The scale is split on that: the top half carries
+0..-6 dB, which is every same-polarity reading and the margin around it, and the bottom half
+-6..-24 dB, which is cancellation. A band with nothing to measure breaks the line rather than being
+drawn at 0 dB, which is the one reading that means the band loses nothing. Below the frequency where one observation holds fewer than three
 cycles, a divider and a tilde say so without hiding the values.
 
 Under the curve, six seconds of the same bands run bottom to top: the newest observation along the
