@@ -85,6 +85,59 @@ crates/kirin_measure/src/transient_superflux.rs:474-477
 **(A-1) は「現行の意図を N へ正しく直す」案として残す。**
 採るなら **`0.5*(a+b)` の逐次形を `Σ/N` へ直す**ことが前提である。
 
+### 2.2 (A-3) の名称 — 「選択 view の Attack」である
+
+**内部契約上の名前を `ATTACK` にしない。**
+
+> **Attack of selected view.**
+> C を選べば C の Attack、Lss を選べば Lss の Attack である。
+> **Hypha はこれを「作品全体の Attack」とは解釈しない。**
+
+この一文を契約として残す。**表示名が短くても、記録される意味は選択 view に限定される。**
+
+### 2.3 `SuperFluxChannelMode` の実 read [A]
+
+承認前に閉じるべき項目を確認した。
+
+```rust
+crates/kirin_measure/src/transient_superflux.rs:27-31
+pub enum SuperFluxChannelMode { Lr, Mid, Side }
+```
+
+**variant は 3 つだけ。** Spectrum / Sharpness と同じ 3 view である。
+
+```rust
+crates/kirin_measure/src/transient_superflux.rs:36-38
+Self::Lr  => "lr-power-mean",
+Self::Mid => "mid-waveform",
+```
+
+```rust
+crates/kirin_measure/src/transient_superflux.rs:454
+bin.re = 0.5 * (left + right_sign * right) * window;
+```
+
+**Mid / Side は波形領域で `0.5·(L ± R)`。** Sharpness の `analyze_mono` と同じ形であり、
+**2ch 前提である**（契約表 §11.5）。
+
+**そして集約規則は既に測定の同一性に入っている。**
+
+```rust
+crates/kirin_measure/src/transient_superflux_bank.rs:63-
+hasher.update(config.channel_mode.as_str().as_bytes());   // "lr-power-mean" 等
+hasher.update((config.channel_count as u64).to_le_bytes());
+```
+
+`definition_hash` は **channel_mode の文字列と channel_count の両方**を含む。
+
+含意:
+
+- **集約規則を変えれば hash が変わり、旧測定と新測定が区別できる。**
+  `"lr-power-mean"` という名前自体が、**LR mode が平均であることを識別子に刻んでいる。**
+- **チャンネル数も既に hash に入っている。** 2ch と 6ch の Attack は既に別の定義として区別される。
+- したがって **Attack には「何をどう集約したか」を記録する場所が既にある。**
+  (A-1) を将来採る場合も、**新しい mode 名を与えれば旧定義と混ざらない。**
+
 ## 3. Correlation — 現行値は 2 信号の関係である
 
 `Σ(L·R) / √(E_L·E_R)` は**2 つの信号の間**にしか定義されない。
@@ -127,7 +180,52 @@ N ch へ適用対象を増やすとき、**この定義を変えない**（契�
 
 **どの案でも、C と LFE を分母に入れない事実を表示・記録する**（契約表 §10.4 と同じ規律）。
 
-## 5. MONO — 現行は stereo 専用、置換は別測定量
+### 4.1 Correlation と Balance は同じ pair 定義を参照する
+
+(B-3) と (C-1) は**同じ「左右対」**を単位にする。
+これを別々に列挙すると、**2 つの指標が違う対を見ている状態が起こり得る。**
+
+共通の記述を 1 つ置く（名前は提案）:
+
+```
+PairRole {
+    left_channel_role,
+    right_channel_role,
+}
+```
+
+**Correlation と Balance が同じ `PairRole` の並びを参照する。**
+これで両者の食い違いを**構造的に**防ぐ。表示上の対応付けも自動的に取れる。
+
+7.1.4 での例（§4.2 の導出規則による）:
+
+```
+FRONT      L ↔ R
+SIDE       Lss ↔ Rss
+REAR       Lsr ↔ Rsr
+TOP FRONT  TFL ↔ TFR
+TOP REAR   TRL ↔ TRR
+```
+
+**何を比較しているかが表示から消えない。**
+
+### 4.2 左右対は role から機械的に導出する — 手で決めない
+
+**`channel_count == 12 だから 5 pair` としない。**
+
+```
+交渉済み layout に存在する role を確認
+  → 対応する mirror role が存在するときだけ pair を生成
+```
+
+- **未知 layout へ勝手に pair を作らない。**
+- mirror が無い role（C / LFE / 天井の中央等）は **pair に入らない**。それが事実である。
+- 契約表 §11.3.1 のとおり **selector も role で指す**。
+  **この role vocabulary を Correlation / Balance / Attack / Spectrum / Sharpness で共通化する。**
+
+**Daisuke が手で対を列挙する項目にしない。**
+
+## 5. MONO — サラウンドでは適用外。downmix 観測は別の新規測定へ
 
 現行 MONO は `M=(L+R)/2` / `S=(L−R)/2` に対する帯域別の残存比であり、
 **L/R という 2 チャンネルの定義**である（契約表 §6）。
@@ -136,16 +234,56 @@ N ch へ適用対象を増やすとき、**この定義を変えない**（契�
 |---|---|---|
 | (M-1) 適用外 | Nch では出さない | 最も安全。**サラウンドで「mono 互換性」を見る手段が無くなる** |
 | (M-2) 左右対ごとの MONO | 対ごとに現行式を適用 | 現行式そのまま。**layout 全体の downmix 生存は見えない** |
-| **(M-3) downmix survival** | 明示 downmix を通した後の帯域別残存（計画 §7.3） | **固有価値の候補。** 測定量の定義・係数・表示範囲が未確定 |
+| (M-3) 旧案「MONO の Nch 版」 | 現行式を Nch へ広げる | **成立しない。** §5.1 |
 
-**推奨: 初期版は (M-1)、(M-3) は別測定量として後続。** 根拠:
+**推奨: MONO は (M-1)。サラウンドでは適用外を明示する。**
 
 1. **現行 MONO の名前を残して意味を差し替えない**（契約表 §6）。
-2. **(M-3) は係数の出典が要る。** 5.1 → stereo と 7.1 → 5.1 は出典が付いたが、
-   **7.1.4 → 7.1 の段が未確定**（契約表 §10.6.5）。**係数が揃う前に測定量を確定しない。**
+2. **意味が確定していない値を出さない**。機能後退ではなく Hypha の原則である。
 3. (M-2) は現行式を保つが、**「mono 互換性」という名前で対ごとの値を出すのは誤解を招く。**
 
-**(M-3) を採るなら、MONO の「undefined と floor の区別」（INV-S31 / 契約表 §17.3）を引き継ぐ。**
+### 5.1 現行 MONO 式は Nch へ広がらない
+
+```
+現行:  帯域ごとに  10·log10( Pm / (Pm + Ps) )
+       M = (L+R)/2、S = (L−R)/2
+```
+
+**分母 `Pm + Ps` は M/S 分解が持つエネルギー関係を使っている。**
+一般の Nch → stereo downmix では、**同じ分母を作れない。**
+
+> **したがって downmix survival を「現行 MONO 式の Nch 版」として設計してはならない。**
+
+### 5.2 Downmix Observation は MONO の後継ではなく、独立した新規測定である
+
+**MONO の承認と切り離す。初期 5.1 で新しい "surround MONO" を作らない。**
+
+設計するなら**ゼロから**、次を別々の事実として保持する。
+
+| 保持する量 | 内容 |
+|---|---|
+| **source-band energy** | 入力側の帯域エネルギー（基準量） |
+| **rendered / downmixed-view band energy** | 明示 downmix を通した後の帯域エネルギー（実測量） |
+| **差分** | 上の 2 つの関係 |
+
+**最初から 1 つの「survival %」を作らない。** 事実を保持してから、何を製品表示するか決める。
+
+理由は `P_downmix / P_source` でも足りないことにある。
+**Nch 側の各チャンネルのエネルギーを単純加算した値と downmix 後のエネルギーは、
+係数だけでなくチャンネル間の相関と位相で変わる。**
+
+**そしてそれこそが downmix survival が観測したい現象である。**
+単一比に畳むと、観測したかった情報がその場で失われる。
+
+### 5.3 位置づけ
+
+- **単なる mono compatibility ではない。**
+- **「ある明示された render / downmix を通したとき、何が帯域ごとに変化したかを観測する」**
+  というサラウンド向けの測定である。
+- 係数の出典（契約表 §10.6）と規格側の downmix 調査が揃ってから設計する。
+
+**MONO の「undefined と floor の区別」（INV-S31 / 契約表 §17.3）は、
+新測定でも同じ規律として引き継ぐ。**
 
 ## 6. まとめ — 推奨の一覧
 
@@ -154,7 +292,8 @@ N ch へ適用対象を増やすとき、**この定義を変えない**（契�
 | Attack | **(A-3) 選択チャンネルのみ**（selector 拡張で 3 指標同時に解決） | (A-1) 正しい N 平均 / (A-2) チャンネル別イベント |
 | Correlation | **(C-1) 左右対 overview + (C-2) 選択ペア詳細** | (C-3) 全ペア行列 |
 | Balance | **(B-3) 左右対ごと**（Correlation と同じ分解単位） | 単一値が要るなら (B-2) を別途定義 |
-| MONO | **(M-1) 適用外を明示** | **(M-3) downmix survival**（係数の出典が揃ってから） |
+| MONO | **(M-1) 適用外を明示** | — |
+| **Downmix Observation**（新規） | **初期版に含めない** | MONO とは独立した新測定として設計（§5.2） |
 
 **共通する根拠:**
 
@@ -166,7 +305,6 @@ N ch へ適用対象を増やすとき、**この定義を変えない**（契�
 
 ## 7. 未確認 [C]
 
-- `SuperFluxChannelMode` の全 variant（`Lr` / `Mid` 以外の有無）。
-- Attack の `Mid` mode が `as_chunks::<2>()` 相当の 2ch 前提を持つか。
-- (B-3) / (C-1) の「左右対」を layout からどう列挙するか（計画 §5.1 の記述に依存）。
-- (M-3) の測定量定義（計画 §7.3 の `D_interference` と残存エネルギー比の区別）。
+- `PairRole` の具体的な記述と、role vocabulary の共通化範囲（計画 §5.1 に依存）。
+- Downmix Observation の測定量定義（計画 §7.3 の `D_interference` と残存エネルギー比の区別）。
+  **MONO の承認とは切り離して扱う。**
