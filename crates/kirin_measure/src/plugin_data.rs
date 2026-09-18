@@ -209,72 +209,12 @@ pub struct BounceTake {
     pub host_end_position_samples: Option<i64>,
 }
 
-/// TRACE bake diagnostics. These fields separate a real measured silence frame
-/// from a missing TRACE slot so downstream UI never has to infer absence from
-/// `-100`.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TraceDiagnostics {
-    pub raw_trace_count: u64,
-    pub expected_frame_count: u64,
-    pub measured_frame_count: u64,
-    pub missing_slots: u64,
-    pub explicit_silence_frame_count: u64,
-}
-
-/// Producer-owned absolute sample clock used to bake every TRACE frame.
-///
-/// `origin_position_samples` is the absolute callback position corresponding to `t_ms = 0`.
-/// Every measured slot must independently derive the same origin before this metadata is written.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TraceClock {
-    pub basis: String,
-    pub origin_position_samples: i64,
-    pub end_position_samples: i64,
-    pub sample_rate: u32,
-    pub sources: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub struct HostPresentationLatencyObservation {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_samples: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_samples: Option<u32>,
-}
-
-/// Record-only measurement candidate with the untouched host clock facts that formed it.
-///
-/// Unlike `trace_slot_positions`, this journal is not a public TRACE axis. It survives until the
-/// dropped WAV is known so pair finalization can test host-specific presentation-clock models per
-/// side and per latency epoch without touching metric values or retaining unbounded raw audio.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TraceClockObservation {
-    pub frame: Frame,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub producer_position_samples: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub raw_host_position_samples: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capture_epoch: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clock_source: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub presentation_latency_source: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_presentation_latency_samples: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_presentation_latency_samples: Option<u32>,
-}
-
-/// Unmodified host render range retained as diagnostics after TRACE is normalized to the output
-/// presentation/WAV axis. It is never used by consumers to shift a curve.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct HostClockRange {
-    pub start_position_samples: i64,
-    pub end_position_samples: i64,
-}
+#[path = "record_clock_facts.rs"]
+mod record_clock_facts;
+pub use record_clock_facts::{
+    HostClockRange, HostPresentationLatencyObservation, MeasurementLayout, TraceClock,
+    TraceClockObservation, TraceDiagnostics,
+};
 
 /// Final TRACE axis bound to the exact WAV selected by Drop.
 ///
@@ -416,6 +356,10 @@ pub struct PluginDataFile {
     /// Kirin OS/Hub から Record 開始前に渡された dropped WAV metadata。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_wav: Option<ExpectedWavMetadata>,
+    /// この Record がどの配置を、どの map で測ったか。旧 .kirin 互換のため optional additive。
+    /// 不在は「記録した版がこの事実を持っていなかった」であり、stereo の意味ではない。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement_layout: Option<MeasurementLayout>,
     /// TRACE 欠損診断。missing は frames[] に測定値として入れない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_diagnostics: Option<TraceDiagnostics>,
@@ -592,6 +536,7 @@ impl PluginDataFile {
             integrity_reasons: Vec::new(),
             bounce_take: None,
             expected_wav: None,
+            measurement_layout: None,
             trace_diagnostics: None,
             trace_time_axis: None,
             trace_clock: None,
@@ -970,6 +915,9 @@ impl PluginDataWriter {
             .and_then(|i| summary.max_true_peak.map(|tp| tp - i))
             .filter(|v| v.is_finite())
             .map(round1);
+        // 配置は集計値ではないが、engine から書き手へ届く経路がここしかない。どの配置を
+        // どの map で測ったかが分からない記録は、後から比較可能かどうかを判定できない。
+        self.data.measurement_layout = summary.layout.map(MeasurementLayout::new);
     }
 
     /// B-076 / B-125: この Record の欠落サンプル数を JSON に焼き込む。`close()` 直前に呼ぶ。

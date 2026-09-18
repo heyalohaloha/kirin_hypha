@@ -29,6 +29,7 @@ fn snapshot_layout_and_mapping_are_stable() {
             lufs_i: Some(-15.0),
             lra: Some(4.2),
             max_true_peak: Some(-0.8),
+            layout: None,
         },
         plr: Some(14.2),
         stereo: kirin_measure::StereoMeterSnapshot {
@@ -174,6 +175,7 @@ fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
             lufs_i: Some(-14.0),
             lra: Some(0.0),
             max_true_peak: Some(-1.0),
+            layout: None,
         },
         plr: Some(13.0),
         stereo: kirin_measure::StereoMeterSnapshot {

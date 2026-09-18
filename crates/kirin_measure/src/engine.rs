@@ -36,6 +36,9 @@ pub struct SessionSummary {
     /// `ebu.true_peak(ch)` は init（reset）以降の inter-sample running max（linear）。
     /// 20·log10 で dBTP 化済。`compute()` が返す `MeasureResult.tp_session_max` と同一定義。
     pub max_true_peak: Option<f64>,
+    /// この集計を出したエンジンのレイアウト。Record がどの配置を測ったかを、engine から
+    /// 書き手まで運ぶ唯一の経路である。`None` は旧経路（レイアウトを持たない構築）。
+    pub layout: Option<ChannelLayout>,
 }
 
 /// True Peak「直近」窓の幅（フレーム）。LUFS-M と同じ 400ms（B-074）。
@@ -390,6 +393,7 @@ impl MeasureEngine {
             lufs_i,
             lra,
             max_true_peak,
+            layout: Some(self.layout),
         }
     }
 

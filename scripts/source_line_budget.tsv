@@ -12,7 +12,7 @@ crates/kirin_measure/src/lib.rs	789
 crates/kirin_measure/src/measure_thread.rs	3515
 crates/kirin_measure/src/pairing_scope.rs	1013
 crates/kirin_measure/src/pairing_scope/tests.rs	1573
-crates/kirin_measure/src/plugin_data.rs	9325
+crates/kirin_measure/src/plugin_data.rs	9273
 crates/kirin_measure/src/post_candidates.rs	563
 crates/kirin_measure/src/record_drop_commit_tests.rs	850
 crates/kirin_measure/src/record_expected.rs	575

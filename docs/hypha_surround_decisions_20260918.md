@@ -256,3 +256,26 @@ Lo/Ro 自体も既定ではない。`Dolby downmix` という profile 名を作�
 
 **出典区分**: Dolby の方式一覧（Pro Logic IIx / Direct Render / Lt/Rt 等）は Daisuke 供給の [B]。
 本セッションの egress policy では一次資料を取得できず、**Claude Code 側では未検証**である。
+
+## 6. 承認事項 3A 確定（2026-09-18）
+
+**Daisuke 承認。** 集約候補 §6.1 の 4 件を初期 Nch 契約として確定する。
+
+| 指標 | 確定 |
+|---|---|
+| **Attack** | **(A-3) 選択 view のみ。** 「作品全体の Attack」は初期 Nch 版に**存在しない** |
+| **Correlation** | **(C-1) 左右対 overview + (C-2) 選択ペア詳細。** overview を単一値へ畳まない（§5.1） |
+| **Balance** | **(B-3) 左右対ごと。** 対象 pair を値と分離して記録しない（§5.3） |
+| **MONO** | **(M-1) サラウンドでは適用外を明示** |
+
+**承認事項 3B（新規サラウンド観測）は Research のまま据え置く。**
+N 平均 Attack / 空間的 Attack イベント集約 / 全ペア correlation 行列 / 群 Balance /
+Downmix Observation は、**3A の実装条件にしない**（集約候補 §6.2）。
+
+### 6.1 3A が実装へ課す条件
+
+1. **selector は role で指す**（D-5）。Spectrum / Sharpness / Attack が同じ selector を共有する。
+2. **pair は mirror 規則から導く**（D-10）。対の表を書かない。
+3. **Correlation と Balance は同じ `PairRole` の並びを参照する**（集約候補 §4.1）。
+4. **値と対・view の身元を分離しない。** 表示・記録・集計のどの段でも。
+5. **MONO は Nch で適用外を明示する。** 無言で別の値に置き換えない。

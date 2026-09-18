@@ -3769,6 +3769,7 @@ mod record_display_abi_tests {
                 lufs_i: Some(-14.2),
                 lra: Some(3.0),
                 max_true_peak: Some(-0.7),
+                layout: None,
             }),
             delta: Some(DeltaResult {
                 lufs: Some(0.2),
@@ -3783,9 +3784,8 @@ mod record_display_abi_tests {
         assert_eq!(out.generation, 19);
         assert_eq!((out.has_measure, out.has_session, out.has_delta), (1, 1, 1));
         assert_eq!(out.pair_matches_current, 1);
-        assert_eq!(out.measure.lufs_s, -13.5);
+        assert_eq!((out.measure.lufs_s, out.delta.lufs_s), (-13.5, 0.4));
         assert_eq!(out.session.lufs_i, -14.2);
-        assert_eq!(out.delta.lufs_s, 0.4);
     }
 
     #[test]

@@ -154,6 +154,7 @@ fn set_session_aggregates_writes_lufs_i_lra_plr_to_json() {
         lufs_i: Some(-14.3),
         lra: Some(6.4),
         max_true_peak: Some(-1.2),
+        layout: Some(ChannelLayout::stereo()),
     };
     w.set_session_aggregates(summary);
     let final_path = {
@@ -182,7 +183,49 @@ fn set_session_aggregates_writes_lufs_i_lra_plr_to_json() {
     assert_eq!(loaded.plr, Some(13.1));
     // Frame psr が JSON に出ている
     assert_eq!(loaded.frames[0].psr, Some(8.7));
+    // どの配置をどの map で測ったかが、書かれた JSON 自身に残る（P-2 / 棚卸し §8）。
+    let recorded = loaded
+        .measurement_layout
+        .as_ref()
+        .expect("a record must say what it measured");
+    assert_eq!(recorded.layout, "stereo");
+    assert_eq!(recorded.channel_positions, ["L", "R"]);
+    assert_eq!(recorded.loudness_map, ["Left", "Right"]);
+    assert_eq!(recorded.mapping_revision, 1);
     assert!(verify_checksum(&loaded));
+}
+
+#[test]
+fn a_record_from_a_summary_without_a_layout_omits_the_field_rather_than_inventing_one() {
+    use kirin_measure::engine::SessionSummary;
+
+    let base = isolated_base();
+    let mut w = make_writer(&base, Role::Post);
+    w.append_frame(0, [1.0; 20], 1.5, -14.0, -1.0, 12.0, Some(8.7));
+    w.set_session_aggregates(SessionSummary {
+        lufs_i: Some(-14.0),
+        lra: Some(3.0),
+        max_true_peak: Some(-1.0),
+        layout: None,
+    });
+    let final_path = WriterPaths::build(
+        &base,
+        "b043_ph",
+        "b043_iid",
+        Role::Post,
+        "2026-05-16T10:00:00Z",
+    )
+    .final_path;
+    w.close().unwrap();
+
+    let loaded = read_output_for_final(&final_path);
+    // 不在は「この版がその事実を持たなかった」であって、stereo の意味ではない。
+    assert!(loaded.measurement_layout.is_none());
+    let raw = serde_json::to_string(&loaded).unwrap();
+    assert!(
+        !raw.contains("measurement_layout"),
+        "an absent layout must be omitted from the JSON, not written as null"
+    );
 }
 
 #[test]
@@ -195,6 +238,7 @@ fn plr_omitted_when_lufs_i_is_none() {
         lufs_i: None,
         lra: None,
         max_true_peak: Some(-0.5),
+        layout: None,
     });
 
     // 注入後の json で lufs_i / lra / plr が省略されること

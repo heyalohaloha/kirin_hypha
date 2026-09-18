@@ -25,6 +25,14 @@ pub const N_CHANNELS: usize = 2;
 /// past `channel_count` holds no measurement (D-3).
 pub const MAX_ABI_CHANNELS: usize = 16;
 
+/// Which revision of the role-to-`ebur128` mapping a measurement used.
+///
+/// Records carry it so two measurements are comparable only when they were weighted the same way.
+/// Raise it whenever `loudness_channel` changes what a role is measured as — including if Hypha
+/// ever moves from the weighting `vendor/ebur128` implements (BS.1770-4) to another (決定 §4.1).
+/// The layout name alone cannot say this: "7.1.4" measured under two weightings is two things.
+pub const MAPPING_REVISION: u32 = 1;
+
 use ChannelRole as R;
 
 /// One speaker position, by its ITU-R BS.2051 role.
@@ -155,6 +163,31 @@ impl ChannelRole {
             Self::TopFrontRight => Channel::Um045,
             Self::TopRearLeft => Channel::Up135,
             Self::TopRearRight => Channel::Um135,
+        }
+    }
+
+    /// The name of the `ebur128` channel this role is measured as, for records.
+    ///
+    /// A record says what was handed to the meter, not just what the layout was called: if the map
+    /// were ever applied wrongly, the record is where it shows. `"unused"` is LFE's loudness
+    /// exclusion, not a missing channel — its peak and clip are still observed.
+    pub fn loudness_channel_name(self) -> &'static str {
+        match self.loudness_channel() {
+            Channel::Unused => "unused",
+            Channel::Left => "Left",
+            Channel::Right => "Right",
+            Channel::Center => "Center",
+            Channel::LeftSurround => "LeftSurround",
+            Channel::RightSurround => "RightSurround",
+            Channel::Mp090 => "Mp090",
+            Channel::Mm090 => "Mm090",
+            Channel::Mp135 => "Mp135",
+            Channel::Mm135 => "Mm135",
+            Channel::Up045 => "Up045",
+            Channel::Um045 => "Um045",
+            Channel::Up135 => "Up135",
+            Channel::Um135 => "Um135",
+            other => panic!("no record name for {other:?}; add it with the role that produced it"),
         }
     }
 

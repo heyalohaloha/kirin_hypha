@@ -225,6 +225,7 @@ mod tests {
             lufs_i: Some(i),
             lra: Some(4.0),
             max_true_peak: Some(-0.5),
+            layout: None,
         }
     }
 
