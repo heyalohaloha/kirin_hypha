@@ -331,7 +331,76 @@ AGENTS.md:59 / 77-83 のとおり、**Reference B は登録済みのファイル
 | Reference tonal | 直接依存 |
 | Reference capture index | **依存しない。** digest は PCM 同一性であって layout 同一性ではない（capacity §6）。ただし 64 byte 保存契約は別途 |
 
-## 11. 初期公開の考え方
+## 11. Spectrum の presentation model（Priority 1 の実体）
+
+gate 4 で「ABI にチャンネルを表す手段が無い」と分かった以上、
+**Spectrum の C の解消は clamp の除去ではなく、ここの設計である。**
+
+### 11.1 現行モデル [A]
+
+ABI は 2 つある。
+
+```c
+crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h:228-245  KirinSpectrumView
+  uint8_t channel_mode;   /* KIRIN_SPECTRUM_CHANNEL_LR / MID / SIDE */
+  uint8_t channels;       /* 1=mono / 2=stereo */
+  float pre_dbfs[256]; float post_dbfs[256]; float display_db[256];
+```
+
+```c
+crates/kirin_hypha_ffi/include/kirin_hypha_spectrum_mid_side_ffi.h  KirinMidSideSpectrumView
+  float mid_dbfs[256]; float side_dbfs[256];   /* 対で 1 つの view */
+```
+
+**main view が運ぶのはスペクトル 1 本である。**
+チャンネルの次元は配列ではなく **`channel_mode` という「表示する view の選択」**に畳まれている。
+
+**そして MID / SIDE は、チャンネルではなく導出 view である。**
+`KirinMidSideSpectrumView` が別構造体で対を運ぶのも同じ理由による。
+
+> **現行モデルは「チャンネルの配列」ではなく「view を 1 つ選んで描く」である。**
+
+### 11.2 推奨 — selector を拡張する
+
+| 案 | 内容 | 評価 |
+|---|---|---|
+| **(a) selector 拡張** | `channel_mode` に**交渉済み layout のチャンネルを個別に足す**（L / R / C / LFE / Lss …）。表示は従来どおり 1 本 | **推奨** |
+| (b) 配列化 | view を per-channel スペクトルの配列にする | ABI も表示も根本から変わる。12 本を 1 画面に置く設計が別途要る |
+| (c) 集約 | N チャンネルを 1 本へ畳む | **AGGREGATION-UNDEFINED。** 根拠のない平均は R-22 に反する |
+
+**(a) を推奨する根拠:**
+
+1. **モデルを変えない。** 現行は既に「view を 1 つ選ぶ」であり、
+   MID / SIDE がチャンネルでない時点で **selector は既にチャンネル以外を含んでいる。**
+   L / R / C / Lss … を足すのは**同じ枠の拡張**である。
+2. **集約を発明しない。** (c) の AGGREGATION-UNDEFINED を回避できる。
+   R-22 の「価値判断も推測も出さない」に沿う。
+3. **6 秒 FIELD の契約が保たれる。** FIELD は常に「選ばれた 1 view」を描くので、
+   横軸 Low → High、縦軸 上 = 過去 / 下 = 現在、下端から発生して上へ移動、が変わらない。
+   **根拠のない 12ch 平均を FIELD へ入れない**という §5.3 の要求をそのまま満たす。
+4. **ABI のサイズが変わらない。** main view は 1 本のままである。
+
+### 11.3 (a) を採る場合に決めること
+
+- **selector はチャンネルを index ではなく layout 上の役割で指す。**
+  findings §2 のとおり JUCE の index 順は直感と一致しない。
+  計画 §5.1 の layout 記述と同じ語彙を使う。
+- `channels` のコメント `/* 1=mono / 2=stereo */` を
+  **「交渉済み layout のチャンネル数」**へ変える。selector が「どれを表示しているか」を持つ。
+- **MID / SIDE は STEREO-ONLY のまま**（§6）。L/R 対を持つ layout でのみ選択肢に出す。
+  Nch で勝手に「全体の M/S」を作らない。
+- **PRE/POST 比較は両者が同じ view を選んでいることを条件にする。**
+  Reference の §10 と同じ規律。**違う view の比較を無言で成立させない。**
+
+### 11.4 初期版に含めないもの
+
+- **全チャンネル同時表示。** 表示設計が別途要る。FIELD に 12 本を置く根拠が無い。
+- **チャンネル群（speaker group）単位の view。** 集約の定義が要る。
+- **renderer 出力の view。** findings §6.2 の記録要件を満たす設計が先。
+
+**これらは「やらない」ではなく「初期版では決めない」。**
+
+## 12. 初期公開の考え方
 
 **初期公開を「全指標 16ch 化」と定義しない。**
 
@@ -344,18 +413,18 @@ AGENTS.md:59 / 77-83 のとおり、**Reference B は登録済みのファイル
 - **silent clamp / silent drop が存在しない**
 - **channel map が不明な状態で loudness 値を出さない**
 
-## 12. 承認事項（P-0 が事実を確定した後、順に）
+## 13. 承認事項（P-0 が事実を確定した後、順に）
 
 1. どの指標を初期 5.1 で Nch 化するか
 2. どの stereo-only 指標を明示的適用外とするか
 3. Correlation pair extension / Balance / MONO 置換 / Attack aggregation /
-   Spectrum aggregation を初期版に含めるか
+   Spectrum aggregation を初期版に含めるか（**§11。Spectrum は推奨 (a) selector 拡張**）
 4. Reference で異種 layout 比較を許すか（**§10。推奨は「既定 (i) + 明示選択で (ii)」**）
 5. 7.1.4 へ進む時点
 
 工数・日程は判断材料にしない。
 
-## 13. 評価 — 問題は 4 層に分かれる
+## 14. 評価 — 問題は 4 層に分かれる
 
 サラウンド化は「チャンネル数を 16 へ増やす作業」ではない。
 
@@ -371,7 +440,7 @@ AGENTS.md:59 / 77-83 のとおり、**Reference B は登録済みのファイル
 最も危険なのは「構築できない R」ではない。
 **構築できて正常に見える C と、値まで出る G である。**
 
-## 14. probe の構成
+## 15. probe の構成
 
 役割で 2 つに分けてある。**バイト数を測るものと、挙動を測るものは別物である。**
 
@@ -387,9 +456,9 @@ cargo run -p kirin_measure --example channel_contract_probe --release -- accept 
 
 `memory_contract_probe` は **1 ケース 1 プロセス**で実行する（§10 / capacity 文書）。
 
-## 15. 未確認 [C]
+## 16. 未確認 [C]
 
 - Sharpness continuous の Nch 適用可否。
-- Spectrum の presentation model を Nch でどう設計するか（**C の解消はここに依存する**）。
+- (a) を採る場合の selector の粒度（全チャンネルを出すか、layout 定義済みの役割のみか）。
 - 各指標の窓長・hop・正規化・無音条件・reset 条件。**本表は Nch 挙動に絞っている。**
 - (ii) を採る場合の downmix 係数の出典（計画 §7.4）。
