@@ -437,3 +437,93 @@ crates/hypha_pre/src/lib.rs:524   n_channels: N_CHANNELS
 
 **第2巡 調査1 の完了条件**（拒否 / 適用外 / 明示変換のどれにするか）は、
 契約表 `@docs/hypha_surround_metric_contracts_20260918.md` §2 の Runtime 列で与えられる。
+
+## 16. epoch / Record 遷移（第2巡 調査6）[A]
+
+計画 §5.3 と §11 の遷移表に対し、**現行に何があり何が無いか**を確定する。
+
+### 16.1 既存の区間識別子
+
+| 識別子 | 何を区切るか | 誰が増やすか | 保存先 |
+|---|---|---|---|
+| `MeterSession.generation` | meter session | **`reset()` のみ**（`meter_session.rs:232`） | ABI |
+| `SpectrumRuntime.generation` | **観測している view** | `set_enabled` / `set_mid_side_enabled` / **`set_channel_mode`** / `note_drop`（`:147` `:197` `:215` `:342`） | 内部 + block descriptor |
+| `TraceClockObservation.capture_epoch` | capture 区間 | — | Record（`plugin_data.rs:260`） |
+| `state_epoch_samples` | PRE/POST の共通状態開始点 | — | ABI（`kirin_hypha_ffi.h:270` `:295`） |
+| local blind の `scope_epoch` | blind capture の scope | `kirin_hypha_begin_local_blind` | FFI |
+
+**「測定区間」の概念は既にある。無いのは layout の次元だけである。**
+
+### 16.2 先例 — view の変更は既に境界として扱われている
+
+```rust
+crates/kirin_measure/src/spectrum_runtime.rs:212-216
+let previous = self.channel_mode.swap(mode as u8, Ordering::AcqRel);
+if previous != mode as u8 {
+    self.generation.fetch_add(1, Ordering::AcqRel);
+    if let Ok(mut history) = self.history.lock() {   // 履歴を捨てる
+```
+
+**`SpectrumRuntime` は、観測する view が変わったら generation を上げ、履歴を捨てる。**
+
+これは契約表 §11.2 の推奨（selector に layout のチャンネルを足す）にとって重要である。
+**selector を拡張すれば、epoch の意味論はそのまま継承される。**
+「L を見ていた履歴」と「C を見ていた履歴」が混ざらないことが、既存の仕組みで保証される。
+
+**新しい概念を足すのではなく、既にある境界に layout の次元を足す。**
+
+### 16.3 欠落 1 — layout の識別子が無い
+
+`plugin_data.rs` に `channels` の出現は 0（§6）。
+`PluginProcessor.cpp:123-125` の再生成条件は rate とチャンネル**数**のみ（§3.2）。
+
+**同数の別 layout（7.1.2 ⇄ 5.1.4）は、どの識別子でも区別されない。**
+
+### 16.4 欠落 2 — 「defer」の実体は「skip」である
+
+```cpp
+juce_shell/src/PluginProcessor.cpp:121   // B-334: incompatible reprepare is not Stop authority while
+juce_shell/src/PluginProcessor.cpp:128   if (hyphaHandle != nullptr && kirin_hypha_is_recording (hyphaHandle))
+juce_shell/src/PluginProcessor.cpp:129       return;
+```
+
+**Record 中の非互換 reprepare は、保留されずに破棄される。**
+
+- `preparedSampleRate` / `preparedInputChannels` が書かれるのは `:148-149` だけで、
+  **早期 return の経路では古い値のまま残る。**
+- **reprepare が要求されたことを覚えている場所が無い。**
+- Record が終わっても**再適用の契機が無い。** ホストが再び prepareToPlay を呼ぶまで不一致が続く。
+- `:255` の `preDisplayClock.publish(..., preparedSampleRate, ...)` も**古い rate を公開し続ける。**
+
+**Stop 権限を奪わないという B-334 の判断は正しい。**
+**しかし「奪わない」と「忘れる」は別である。**
+
+現状は rate とチャンネル数だけの問題だが、**layout を足すと中心的な欠陥になる。**
+
+### 16.5 推奨する設計
+
+**新しい識別子を足すのではなく、既存の 2 つを拡張する。**
+
+1. **`MeterSession.generation` に layout fingerprint を紐づける。**
+   現在 `reset()` でしか増えない。**layout 変更でも増やす。**
+   契約表 §17.4 のとおり、現行の reset 契機は rate と Record 遷移しか見ていない。
+2. **`SpectrumRuntime` の view 境界（§16.2）に layout の次元を足す。**
+   selector が layout のチャンネルを指すようになれば、既存の generation 機構がそのまま働く。
+3. **非互換 reprepare を「保留」として実体化する。**
+   要求された format を保持し、Record 終了時に適用する。
+   **Stop 権限は移さない。** 保留中は測定を欠落として記録し、音声 A の通過は維持する（R-12）。
+4. **保留中に新しい音声を古い map の測定器へ入れない。**
+   これは計画 §5.3-3 の要求であり、現状は成立していない。
+
+### 16.6 承認事項 2 への材料
+
+> 非互換レイアウト変更中は測定を保留し、旧 map へ新音声を入れない方針と、
+> Record の区切り・再開権限。
+
+- **「保留」は新規実装である。** 現行に保留機構は無い（§16.4）。
+- **「区切り」は既存機構の拡張で足りる。** `generation` と view 境界がある（§16.1 / §16.2）。
+- **「再開権限」は Stop 権限と分離できる。** B-334 の判断（Stop 権限を移さない）を維持したまま、
+  **reprepare の再適用契機だけを足す。**
+
+**欠陥は layout に固有ではない。** rate とチャンネル数の変更でも同じ穴が開いている。
+**サラウンド化はそれを踏み抜くだけである。**
