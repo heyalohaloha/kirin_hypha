@@ -157,3 +157,45 @@ Annex 1 / 2 に差分は無いので mono/stereo の数値は変わらない。
 4. **時間契約を変えない**（D-11）。
 5. **入力 A の出力音声を変えない**（R-12）。比較用 downmix は測定のための内部計算である。
 6. **値が出ているのに意味が違う状態を作らない**（D-13）。
+
+## 4. P-1 実装で判明した事実（B-956 / 2026-09-18）
+
+**判断ではなく計測・実読の記録。** §2 の未確定項目に効く。
+
+### 4.1 vendor/ebur128 0.1.10 の 1.41 重み付けは 6 チャンネル型に限られる
+
+`vendor/ebur128/src/filter.rs:352-360` 実読。`channel_sum *= 1.41` が適用されるのは
+`LeftSurround` / `RightSurround` / `Mp060` / `Mm060` / `Mp090` / `Mm090` の 6 型だけで、
+`Mp135` / `Mm135`（rear surround）と `Up045` / `Up135`（天井）には適用されない。
+BS.1770-4 §2 Table 3 の記述（Gi = 1.41 は left/right surround のみ）と一致する。
+
+したがって 7.1.4 を現行 vendor で測ると重みは次になる。
+
+| 役割 | ebur128 Channel | Gi |
+|---|---|---|
+| L / R / C | Left / Right / Center | 1.0 |
+| LFE | Unused | 除外 |
+| Lss / Rss | Mp090 / Mm090 | 1.41 |
+| Lsr / Rsr | Mp135 / Mm135 | **1.0** |
+| TFL / TFR / TRL / TRR | Up045 / Up135 系 | **1.0** |
+
+**BS.1770-5 Annex 3/4 を採るなら、この重みは変わる。** §2 の #2「7.1.4 へ進む時点」には
+**採用する版と、必要なら vendor 側の重み表への追補**が付随する。P-1 は位置（ITU role）を
+map するところまでで、重みは vendor の実装に従っており、**-5 を実装したとは主張しない**。
+
+本節の事実は、`engine_channel_map_tests.rs` の
+`the_surround_pair_carries_the_standard_weighting_and_the_front_does_not`
+（Lss − L = 10·log10(1.41) LU）が固定している。版を変えるときはこの試験が落ちる。
+
+### 4.2 5.1 と 6ch default map は偶然一致する
+
+`vendor/ebur128/src/ebur128.rs:243-258` 実読。6 チャンネルの default map は
+`[Left, Right, Center, Unused, LeftSurround, RightSurround]` で、5.1 の正しい map と同じになる。
+**5.1 だけでは「明示 map が適用されているか」を判定できない。** 判定には index 5 より後を
+持つ配置（7.1.4 の天井チャンネル）が要る。map 適用の変異検出は 7.1.4 で行っている。
+
+### 4.3 `N_CHANNELS` は残っている
+
+`kirin_measure::channel_layout::N_CHANNELS`（= 2）は、出荷経路からは消えたが
+legacy egui 殻（`hypha_pre` / `hypha_post`）の ring 容量計算で使われ続けている。
+B-952 でこの 2 crate は**出荷対象外**と確認済み。撤去はそれらの扱いが決まるまで保留する。
