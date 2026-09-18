@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kirin_hypha_ffi.h"
+#include <cstddef>
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -12,8 +13,15 @@ namespace hypha::observation_equality
 // Compare facts, not ABI padding. Repeated unavailable NaNs are unchanged; integer clocks
 // retain all 64 bits. Any ABI extension must explicitly extend these semantic comparisons.
 static_assert (sizeof (KirinMeasureResult) == 416 && sizeof (KirinWatchDisplay) == 832);
-static_assert (sizeof (KirinMeterSession) == 1008 && sizeof (KirinDelta) == 224);
-static_assert (sizeof (KirinObservatoryFrame) == 1248 && sizeof (KirinMeterHistoryEntry) == 184);
+static_assert (sizeof (KirinMeterSession) == 1840 && sizeof (KirinDelta) == 224);
+static_assert (sizeof (KirinObservatoryFrame) == 2080 && sizeof (KirinMeterHistoryEntry) == 184);
+// The moving parts of B-958's widening, asserted where a header/shell mismatch is a compile error.
+// A stale *library* slips past this, which is what kirin_hypha_abi_contract is for.
+static_assert (alignof (KirinMeterSession) == 8);
+static_assert (offsetof (KirinMeterSession, channels) == 88);
+static_assert (offsetof (KirinMeterSession, sample_peak_dbfs) == 112);
+static_assert (offsetof (KirinMeterSession, channel_positions) == 1808);
+static_assert (offsetof (KirinMeterSession, measurement_epoch) == 1832);
 
 template <typename T> bool field (const T& a, const T& b) noexcept
 {
@@ -58,7 +66,8 @@ inline auto key (const KirinMeterSession& v) noexcept
         v.balance_db, v.correlation, v.field_size, v.field_observation_count,
         v.field_density, v.max_lufs_m, v.channel_vu_dbfs,
         v.channel_instant_true_peak_dbtp,
-        v.mono_sum_band_count, v.mono_sum_approximate_below_hz, v.mono_sum_db);
+        v.mono_sum_band_count, v.mono_sum_approximate_below_hz, v.mono_sum_db,
+        v.channel_positions, v.layout_id, v.measurement_epoch);
 }
 inline auto key (const KirinMeterHistoryRange& v) noexcept
 {

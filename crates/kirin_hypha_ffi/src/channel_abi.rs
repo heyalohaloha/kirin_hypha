@@ -8,7 +8,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use kirin_measure::channel_layout::{ChannelRole, LayoutId};
+use kirin_measure::channel_layout::{ChannelRole, LayoutId, MAX_ABI_CHANNELS};
 
 /// この境界が生む型。殻とテストは kirin_measure を直接参照せずここから取る。
 pub use kirin_measure::channel_layout::ChannelLayout;
@@ -63,12 +63,29 @@ unsafe fn layout_from_abi(roles: *const u8, count: u32) -> Option<ChannelLayout>
     matches!(layout.id(), LayoutId::Mono | LayoutId::Stereo).then_some(layout)
 }
 
-/// 役割コード列として受け取る最大長。`ChannelLayout` が認識する最大配置（7.1.4 = 12）を
-/// 上回る値を弾き、殻の計算違いがそのまま巨大な確保にならないようにする。
-const MAX_ABI_CHANNELS: usize = 16;
-
 /// あるレイアウトの役割コード列（バッファ順）。殻は自分のチャンネル集合から同じ列を組む。
 /// **コード表の検証には使わない**（製品から期待値を作ることになるため / 試験規律 §9.1）。
 pub fn abi_codes(layout: ChannelLayout) -> Vec<u8> {
     layout.roles().iter().map(|role| role.to_abi()).collect()
+}
+
+/// スロットに役割が無いことを表す ABI 値（`KIRIN_CHANNEL_ROLE_NONE`）。
+pub const CHANNEL_ROLE_NONE_ABI: u8 = 255;
+
+/// `channel_positions[]`。`layout.channel_count()` 未満は役割コード、以降は `NONE`。
+pub fn channel_positions(layout: ChannelLayout) -> [u8; MAX_ABI_CHANNELS] {
+    let roles = layout.roles();
+    std::array::from_fn(|slot| {
+        roles
+            .get(slot)
+            .map_or(CHANNEL_ROLE_NONE_ABI, |role| role.to_abi())
+    })
+}
+
+/// 測定済みスロットを前から詰め、残りを「測っていない」で埋める。
+///
+/// 埋め値は毎回同じものにする。同じ観測を 2 回読んだときに、使っていないスロットの中身が
+/// 違うせいで「変化した」と判定されるのを防ぐ（等値判定は `channels` を見ない）。
+pub fn widen<T: Copy>(measured: &[T], unmeasured: T) -> [T; MAX_ABI_CHANNELS] {
+    std::array::from_fn(|slot| measured.get(slot).copied().unwrap_or(unmeasured))
 }

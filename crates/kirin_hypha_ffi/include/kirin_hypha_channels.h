@@ -10,6 +10,26 @@ extern "C" {
 /* 不透明ハンドル. */
 typedef struct KirinHypha KirinHypha;
 
+/* C ABI が運ぶチャンネルスロット数. **容量であって対応宣言ではない**（D-3）.
+ * 認識する最大配置は 7.1.4 = 12ch. 余りは、配置が増えたときに ABI を作り直さずに済むためにある.
+ * `channel_count` 以降のスロットは測定を持たない. */
+#define KIRIN_MAX_CHANNELS 16u
+
+/* スロットに役割が無いことを表す値. どの KirinChannelRole とも重ならない. */
+#define KIRIN_CHANNEL_ROLE_NONE 255u
+
+/* 認識済みレイアウトの識別子. 0 はレイアウト不明で、**レイアウトではない**.
+ * ゼロ初期化された構造体はここが 0 になるので、未初期化を mono と取り違えない.
+ * 値は crates/kirin_measure/src/channel_layout.rs の `LayoutId` discriminant と一致させること. */
+typedef enum {
+  KIRIN_LAYOUT_ID_UNKNOWN = 0,
+  KIRIN_LAYOUT_ID_MONO = 1,
+  KIRIN_LAYOUT_ID_STEREO = 2,
+  KIRIN_LAYOUT_ID_5_0 = 3,
+  KIRIN_LAYOUT_ID_5_1 = 4,
+  KIRIN_LAYOUT_ID_7_1_4 = 5
+} KirinChannelLayoutId;
+
 /* チャンネル 1 本の役割（ITU-R BS.2051 の位置名）.
  *
  * 値は crates/kirin_measure/src/channel_layout.rs の `ChannelRole` discriminant と一致させること.

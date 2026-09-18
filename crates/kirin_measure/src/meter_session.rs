@@ -12,7 +12,18 @@ use crate::{
     MeasureEngine, MeasureResult, MeterClockStart, MeterHistoryAux, MeterHistoryEntry,
     MeterHistoryResolution, SessionSummary, StereoMeter, StereoMeterSnapshot,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{RwLock, TryLockError};
+
+/// 次の測定区間 id を取る。プロセス内で単調増加し、0 は決して返さない。
+///
+/// 区間は「同じ map・同じ rate で測り続けた範囲」であり、時刻でも通し番号でもない。engine を
+/// 別の layout / sample rate で作り直したときに新しい値を取る。2 つの値を比較する意味があるのは
+/// 「同じか違うか」だけで、差や大小に意味は無い。
+pub fn next_measurement_epoch() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeterSessionState {
@@ -38,6 +49,12 @@ pub struct MeterSessionSnapshot {
     pub summary: SessionSummary,
     pub plr: Option<f64>,
     pub stereo: StereoMeterSnapshot,
+    /// The layout this session's engine was built for. The slot order is the buffer order, so a
+    /// reader names a channel by its role rather than by where it happened to sit.
+    pub layout: ChannelLayout,
+    /// Which measurement span these values belong to. Values from two spans are not the same
+    /// measurement and must not be shown or aggregated together (D-12).
+    pub measurement_epoch: u64,
 }
 
 impl MeterSessionSnapshot {
@@ -98,10 +115,22 @@ pub struct MeterSession {
     stereo: StereoMeter,
     clock: MeterClockTracker,
     history: MeterHistory,
+    layout: ChannelLayout,
+    measurement_epoch: u64,
 }
 
 impl MeterSession {
     pub fn new(sample_rate: u32, layout: ChannelLayout) -> Result<Self, String> {
+        Self::new_in_epoch(sample_rate, layout, 0)
+    }
+
+    /// `epoch` は測定区間の識別子。engine が別の layout / sample rate で作り直されるたびに
+    /// 呼び出し側が進める。0 は「区間が割り当てられていない」で、比較の対象にしない。
+    pub fn new_in_epoch(
+        sample_rate: u32,
+        layout: ChannelLayout,
+        measurement_epoch: u64,
+    ) -> Result<Self, String> {
         let n_channels = layout.channel_count();
         let engine = MeasureEngine::new(sample_rate, layout)?;
         let stereo = StereoMeter::new(sample_rate, layout)?;
@@ -120,6 +149,8 @@ impl MeterSession {
             stereo,
             clock: MeterClockTracker::new(),
             history: MeterHistory::new(),
+            layout,
+            measurement_epoch,
         })
     }
 
@@ -268,6 +299,8 @@ impl MeterSession {
                 .map(|(peak, integrated)| peak - integrated)
                 .filter(|value| value.is_finite()),
             stereo: self.stereo.snapshot(),
+            layout: self.layout,
+            measurement_epoch: self.measurement_epoch,
         }
     }
 }

@@ -18,6 +18,13 @@ use ebur128::Channel;
 /// a layout, not a constant, is what replaces it as engines move onto `ChannelLayout`.
 pub const N_CHANNELS: usize = 2;
 
+/// How many channel slots the C ABI carries, and nothing more.
+///
+/// Capacity, not support: the widest layout Hypha recognises is 7.1.4 at twelve channels, and the
+/// spare slots exist so that widening the ABI again is not what a new layout costs. A slot at or
+/// past `channel_count` holds no measurement (D-3).
+pub const MAX_ABI_CHANNELS: usize = 16;
+
 use ChannelRole as R;
 
 /// One speaker position, by its ITU-R BS.2051 role.
@@ -61,24 +68,6 @@ pub enum ChannelRole {
     TopRearRight = 13,
 }
 
-/// Every role, in ABI code order. The one place a code is bound to a role.
-const ROLES_BY_ABI: [ChannelRole; 14] = [
-    R::Centre,
-    R::Left,
-    R::Right,
-    R::Lfe,
-    R::LeftSurround,
-    R::RightSurround,
-    R::LeftSurroundSide,
-    R::RightSurroundSide,
-    R::LeftSurroundRear,
-    R::RightSurroundRear,
-    R::TopFrontLeft,
-    R::TopFrontRight,
-    R::TopRearLeft,
-    R::TopRearRight,
-];
-
 /// Where a role sits, for the mirror rule. Azimuth is degrees, positive to the left.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Position {
@@ -96,7 +85,7 @@ impl ChannelRole {
     /// An unknown code is refused, never clamped to a neighbour: a shell built against a newer
     /// header would otherwise have its extra channel silently measured as something else.
     pub fn from_abi(code: u8) -> Option<Self> {
-        ROLES_BY_ABI.get(code as usize).copied()
+        ALL_ROLES.get(code as usize).copied()
     }
 
     /// The C ABI code for this role.
@@ -190,6 +179,8 @@ impl ChannelRole {
     }
 }
 
+/// Every role, **indexed by its C ABI code**. The one place a code is bound to a role, and the
+/// list `mirror` searches. Two tables would be two things to keep in step.
 const ALL_ROLES: [ChannelRole; 14] = [
     ChannelRole::Centre,
     ChannelRole::Left,
@@ -215,16 +206,46 @@ pub struct PairRole {
 }
 
 /// Which recognised layout this is. Carried in records so a change is visible (D-12).
+///
+/// The discriminants are the C ABI codes (`KirinChannelLayoutId`). 0 is reserved for "no layout
+/// known", which is what a zeroed struct reads as, so a caller cannot mistake an uninitialised
+/// field for mono.
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LayoutId {
-    Mono,
-    Stereo,
-    Surround5_0,
-    Surround5_1,
-    Surround7_1_4,
+    Mono = 1,
+    Stereo = 2,
+    Surround5_0 = 3,
+    Surround5_1 = 4,
+    Surround7_1_4 = 5,
 }
 
+/// The ABI code for "this field holds no layout". Never a layout.
+pub const LAYOUT_ID_UNKNOWN_ABI: u8 = 0;
+
+/// Every layout Hypha recognises, in ABI code order.
+pub const ALL_LAYOUT_IDS: [LayoutId; 5] = [
+    LayoutId::Mono,
+    LayoutId::Stereo,
+    LayoutId::Surround5_0,
+    LayoutId::Surround5_1,
+    LayoutId::Surround7_1_4,
+];
+
 impl LayoutId {
+    /// The C ABI code for this layout. Never `LAYOUT_ID_UNKNOWN_ABI`.
+    pub fn to_abi(self) -> u8 {
+        self as u8
+    }
+
+    /// The layout a C ABI code names, or `None` for 0 and for any code this build does not know.
+    pub fn from_abi(code: u8) -> Option<Self> {
+        ALL_LAYOUT_IDS
+            .iter()
+            .copied()
+            .find(|id| id.to_abi() == code)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Mono => "mono",

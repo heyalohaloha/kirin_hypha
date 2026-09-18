@@ -1,6 +1,7 @@
 use kirin_measure::{BalanceState, MeterSessionSnapshot, MeterSessionState};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+use super::channel_abi::{channel_positions, widen};
 use super::{
     opt_f64, KirinHyphaEngine, KirinMeterSession, KIRIN_BALANCE_LEFT_ONLY, KIRIN_BALANCE_NUMERIC,
     KIRIN_BALANCE_RIGHT_ONLY, KIRIN_BALANCE_UNAVAILABLE, KIRIN_METER_SESSION_ACTIVE,
@@ -86,6 +87,8 @@ pub(super) fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterS
         BalanceState::LeftOnly => KIRIN_BALANCE_LEFT_ONLY,
         BalanceState::RightOnly => KIRIN_BALANCE_RIGHT_ONLY,
     };
+    // `StereoMeterSnapshot` は `[_; 2]` のままなので、埋まっているのは報告された本数だけ。
+    let measured = (snapshot.stereo.channels as usize).min(2);
     KirinMeterSession {
         generation: snapshot.generation,
         active_frames: snapshot.active_frames,
@@ -102,13 +105,26 @@ pub(super) fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterS
         plr: opt_f64(snapshot.plr),
         channels: snapshot.stereo.channels,
         balance_state,
-        channel_clip_latched: snapshot.stereo.clip_latched.map(u8::from),
-        stereo_reserved: [0; 4],
-        sample_peak_dbfs: snapshot.stereo.sample_peak_dbfs.map(opt_f64),
-        sample_peak_hold_dbfs: snapshot.stereo.sample_peak_hold_dbfs.map(opt_f64),
-        channel_true_peak_dbtp: snapshot.stereo.true_peak_dbtp.map(opt_f64),
-        channel_max_true_peak_dbtp: snapshot.stereo.max_true_peak_dbtp.map(opt_f64),
-        clip_events: snapshot.stereo.clip_events,
+        // 測定しているのは `channels` 本だけ。残りのスロットは「測っていない」で埋める。
+        channel_clip_latched: widen(&snapshot.stereo.clip_latched.map(u8::from)[..measured], 0),
+        stereo_reserved: [0; 6],
+        sample_peak_dbfs: widen(
+            &snapshot.stereo.sample_peak_dbfs.map(opt_f64)[..measured],
+            f64::NAN,
+        ),
+        sample_peak_hold_dbfs: widen(
+            &snapshot.stereo.sample_peak_hold_dbfs.map(opt_f64)[..measured],
+            f64::NAN,
+        ),
+        channel_true_peak_dbtp: widen(
+            &snapshot.stereo.true_peak_dbtp.map(opt_f64)[..measured],
+            f64::NAN,
+        ),
+        channel_max_true_peak_dbtp: widen(
+            &snapshot.stereo.max_true_peak_dbtp.map(opt_f64)[..measured],
+            f64::NAN,
+        ),
+        clip_events: widen(&snapshot.stereo.clip_events[..measured], 0),
         balance_db: opt_f64(snapshot.stereo.balance_db),
         correlation: opt_f64(snapshot.stereo.correlation),
         field_size: if snapshot.stereo.channels == 2 {
@@ -120,8 +136,11 @@ pub(super) fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterS
         field_reserved: [0; 6],
         field_density: snapshot.stereo.field_density,
         max_lufs_m: opt_f64(snapshot.max_lufs_m),
-        channel_vu_dbfs: snapshot.stereo.vu_dbfs.map(opt_f64),
-        channel_instant_true_peak_dbtp: snapshot.stereo.instant_true_peak_dbtp.map(opt_f64),
+        channel_vu_dbfs: widen(&snapshot.stereo.vu_dbfs.map(opt_f64)[..measured], f64::NAN),
+        channel_instant_true_peak_dbtp: widen(
+            &snapshot.stereo.instant_true_peak_dbtp.map(opt_f64)[..measured],
+            f64::NAN,
+        ),
         mono_sum_band_count: if snapshot.stereo.mono_sum_db.iter().any(Option::is_some) {
             KIRIN_MONO_SUM_BAND_COUNT as u8
         } else {
@@ -133,5 +152,9 @@ pub(super) fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterS
             .stereo
             .mono_sum_db
             .map(|value| value.unwrap_or(f32::NAN)),
+        channel_positions: channel_positions(snapshot.layout),
+        layout_id: snapshot.layout.id().to_abi(),
+        layout_reserved: [0; 7],
+        measurement_epoch: snapshot.measurement_epoch,
     }
 }

@@ -73,6 +73,7 @@ use kirin_measure::{
 };
 use uuid::Uuid;
 
+pub mod abi_contract;
 mod analysis_display_ffi;
 mod attack_ffi;
 mod audition_admission_ffi;
@@ -978,8 +979,7 @@ impl KirinHyphaEngine {
     ///
     /// `sample_rate` ≠ 48000 のときの 48k 変換は Measure Thread 内 `ResamplerTo48k` が
     /// 既存どおり担う（新規変換コードは書かない / measure_thread.rs:82-101）。
-    /// `layout` は現状 mono / stereo のみ（`kirin_hypha_create` が門で弾く）。mono は1chとして
-    /// 計測し、dual-mono 化による loudness +3.01 dB バイアスを入れない。
+    /// `layout` は現状 mono / stereo のみ。mono は 1ch として計測し +3.01 dB バイアスを入れない。
     pub fn new(sample_rate: u32, layout: ChannelLayout) -> Self {
         let num_channels = layout.channel_count();
         let capacity = watch_ring_capacity_samples(num_channels);
@@ -999,7 +999,8 @@ impl KirinHyphaEngine {
             attack_runtime.as_ref().map(Arc::clone),
         );
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
-        let meter_session = MeterSession::new(sample_rate, layout).ok();
+        let epoch = kirin_measure::meter_session::next_measurement_epoch();
+        let meter_session = MeterSession::new_in_epoch(sample_rate, layout, epoch).ok();
         let meter_session_publication = meter_session
             .as_ref()
             .map(|session| Arc::new(MeterSessionPublication::new(session.snapshot())));
@@ -3125,7 +3126,6 @@ pub const KIRIN_METER_HISTORY_1_HZ_CAPACITY: usize = HISTORY_1_HZ_CAPACITY;
 pub const KIRIN_METER_HISTORY_0_1_HZ_CAPACITY: usize = HISTORY_0_1_HZ_CAPACITY;
 pub const KIRIN_METER_HISTORY_MAX_ENTRIES: usize = HISTORY_0_1_HZ_CAPACITY;
 pub const KIRIN_DELTA_MODE_ACTIVE: u8 = 0;
-pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 3;
 pub const KIRIN_LRA_UNAVAILABLE: u8 = 0;
 pub const KIRIN_LRA_WARMING: u8 = 1;
 pub const KIRIN_LRA_READY: u8 = 2;
@@ -4862,7 +4862,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_observatory_frame(
         }
         let (lra_state, lra_elapsed_seconds) = lra_readiness(&snapshot);
         let frame = KirinObservatoryFrame {
-            version: KIRIN_OBSERVATORY_FRAME_VERSION,
+            version: abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION,
             signal_state: signal_after,
             lra_state,
             delta_available: delta_has_finite_fact(&delta) as u8,

@@ -222,7 +222,7 @@ fn every_role_survives_the_abi_and_no_two_share_a_code() {
     // The table and the discriminants are written out separately, so they can disagree. If they
     // do, a shell's Left arrives as Right and the channels are silently swapped.
     let mut seen: Vec<u8> = Vec::new();
-    for role in ROLES_BY_ABI {
+    for role in ALL_ROLES {
         let code = role.to_abi();
         assert_eq!(
             ChannelRole::from_abi(code),
@@ -242,4 +242,40 @@ fn a_code_no_role_claims_is_refused_not_clamped() {
     // to the nearest known role would measure that channel as something it is not.
     assert_eq!(ChannelRole::from_abi(14), None);
     assert_eq!(ChannelRole::from_abi(u8::MAX), None);
+}
+
+#[test]
+fn every_layout_survives_the_abi_and_zero_is_not_a_layout() {
+    // A zeroed C struct reads 0 here. If 0 meant mono, an uninitialised field would look like a
+    // measured single-channel programme.
+    assert_eq!(LayoutId::from_abi(LAYOUT_ID_UNKNOWN_ABI), None);
+    let mut seen: Vec<u8> = Vec::new();
+    for id in ALL_LAYOUT_IDS {
+        let code = id.to_abi();
+        assert_ne!(code, LAYOUT_ID_UNKNOWN_ABI, "{} claims code 0", id.as_str());
+        assert_eq!(LayoutId::from_abi(code), Some(id), "{}", id.as_str());
+        assert!(!seen.contains(&code), "code {code} is used twice");
+        seen.push(code);
+    }
+    assert_eq!(seen.len(), 5, "a layout was added without an ABI code");
+    assert_eq!(LayoutId::from_abi(6), None, "one past the last layout");
+}
+
+#[test]
+fn the_abi_carries_more_slots_than_the_widest_layout_needs() {
+    // 16 is capacity, not support. The widest layout recognised is 7.1.4 at twelve channels, so
+    // there must be room left over; if a layout ever needed more, the ABI would have to change
+    // rather than quietly truncate.
+    for id in ALL_LAYOUT_IDS {
+        let count = ChannelLayout::by_id(id).channel_count();
+        assert!(
+            count <= MAX_ABI_CHANNELS,
+            "{} needs {count} slots, the ABI carries {MAX_ABI_CHANNELS}",
+            id.as_str()
+        );
+    }
+    assert_eq!(
+        ChannelLayout::by_id(LayoutId::Surround7_1_4).channel_count(),
+        12
+    );
 }

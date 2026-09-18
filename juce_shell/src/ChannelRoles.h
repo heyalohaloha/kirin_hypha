@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AbiContract.h"
 #include "kirin_hypha_channels.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -75,6 +76,10 @@ inline std::vector<uint8_t> channelRoles (const juce::AudioChannelSet& set)
 /** Creates an engine for a channel set, or returns nullptr when the layout is not measurable. */
 inline KirinHypha* createEngineForChannelSet (double sampleRate, const juce::AudioChannelSet& set)
 {
+    // A library built against a different ABI reads every field at the wrong offset, so nothing it
+    // produces is a measurement. Refuse before the first sample rather than display it.
+    if (! abiMatchesLinkedLibraryOnce())
+        return nullptr;
     const auto roles = channelRoles (set);
     if (roles.empty())
         return nullptr;
