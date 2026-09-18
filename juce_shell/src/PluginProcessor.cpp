@@ -18,19 +18,6 @@ namespace
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::audioRenderTimeline)
                        == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE);
 #endif
-    // Logic stopped-state fix: expose Inactive PRE/POST presence without waiting for the first audio callback.
-    // The 50 ms Timer grants a bounded state-restore window before enabling from prepareToPlay.
-    constexpr int kPrepareEnableDelayTicks = 10;
-    // B-125 (b): prealloc-max headroom (frames). The interleave scratch is sized in
-    // prepareToPlay to max(maximumExpectedSamplesPerBlock, this) frames so that realistic
-    // variable / offline-render blocks larger than the realtime-declared block are still
-    // measured without a (non-RT-safe) reallocation on the audio thread. Hosts can deliver
-    // offline / freeze / bounce blocks well above the realtime maximum; 262144 frames
-    // (~5.46 s @ 48 kHz) absorbs large offline chunks while keeping the one-time, non-RT
-    // prepareToPlay allocation bounded at 262144 * numCh * sizeof(float) (≈2 MB stereo).
-    // Pathological blocks beyond this ceiling are not reallocated; their frames are counted as
-    // oversized drops (B-125 (c) / kirin_hypha_note_oversized_drop) while audio passes through.
-    constexpr int kOversizeHeadroomFrames = 262144;
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
     uint8_t resolveSignalStateCode (bool bypassed,
                                     bool playing,
@@ -100,78 +87,6 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
     }
 }
 
-void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
-{
-    const int numCh = getTotalNumInputChannels();
-    // Pre-allocate the interleave scratch so processBlock never allocates (RT-safe).
-    // B-125 (b): prealloc-max — size to max(declared block, kOversizeHeadroomFrames) frames
-    // so realistic variable / offline-render blocks above the realtime maximum are absorbed
-    // without an audio-thread realloc. This .assign runs in prepareToPlay (non-RT) — allowed.
-    const int   maxFrames = juce::jmax (juce::jmax (0, samplesPerBlock), kOversizeHeadroomFrames);
-    interleaveScratch.assign ((size_t) maxFrames * (size_t) juce::jmax (1, numCh), 0.0f);
-    // B-125: cache the prepared capacity so processBlock re-checks against it (the oversized
-    // fallback fires only for blocks beyond this) without re-deriving from samplesPerBlock.
-    scratchCapacitySamples = interleaveScratch.size();
-    stopLocalBlindCaptureForFormatChange (sampleRate, numCh);
-    const juce::ScopedLock sl (handleLock);
-    normalizeSpectrumSelectionForInputChannels (numCh);
-    // B-141: Studio One offline bounce can call prepareToPlay again after All Keep has entered
-    // Record. The maximumExpectedSamplesPerBlock may change for render, but the user-visible
-    // Record state must not be thrown away. Reuse the Rust engine when the audio format is the same.
-    //
-    // B-334: incompatible reprepare is not Stop authority while Record is armed; defer it rather
-    // than destroying the writer before POST All Stop.
-    const bool needsNewHandle = hyphaHandle == nullptr
-                             || std::abs (preparedSampleRate - sampleRate) > 0.001
-                             || preparedInputChannels != numCh;
-    if (! needsNewHandle)
-        return;
-    if (hyphaHandle != nullptr && kirin_hypha_is_recording (hyphaHandle))
-        return;
-
-    selectReferenceA(); // A is mandatory before replacing the comparison-suspension owner.
-
-    lastProcessPositionValid = false;
-    lastProcessHadPosition = false;
-    lastProcessNumFrames = 0;
-    watchSilenceGate.reset();
-    writesEnabled.store (false, std::memory_order_release);
-    analysisApplication.engineDestroyed();
-    if (hyphaHandle != nullptr)
-    {
-        kirin_hypha_destroy (hyphaHandle);
-        hyphaHandle = nullptr;
-    }
-    hyphaHandle = kirin::createEngineForChannelSet (sampleRate, getChannelLayoutOfBus (true, 0));
-    if (hyphaHandle != nullptr) analysisApplication.engineCreated();
-    preparedSampleRate = hyphaHandle != nullptr ? sampleRate : 0.0;
-    preparedInputChannels = hyphaHandle != nullptr ? numCh : 0;
-
-    // A fresh handle receives the current entitlement immediately. Further refreshes are tied to
-    // editor open / explicit Keep / pair-menu actions; there is no steady-state disk polling.
-    // set_identity + enable_*_writes are deferred to the message-thread Timer
-    // (enableWritesNow) so any setStateInformation restore is applied before enable.
-    if (hyphaHandle != nullptr)
-    {
-        const uint8_t lic = kirin_hypha_load_license();
-        cachedLicenseCode.store ((int) lic, std::memory_order_release);
-        kirin_hypha_set_license (hyphaHandle, lic);
-        // A recalled Studio Pro session may deliver setActive(false) before prepareToPlay creates
-        // the Rust engine. Apply the retained host fact to every fresh handle so an insert that
-        // was already OFF at project-open reaches the same ABS state as an explicit live click.
-        kirin_hypha_set_host_component_active (hyphaHandle, hostComponentActive);
-        // Logic stopped-state fix: re-prepare needs a fresh enable, but Logic may not call processBlock until
-        // playback. Start a message-thread fallback so Inactive presence/candidates are published
-        // even while stopped. If setStateInformation already arrived for this instance, skip the
-        // grace delay; otherwise keep the window so project recall can restore identity before the
-        // io_thread snapshots it.
-        const int restoreDelay = stateInformationSeen.load (std::memory_order_acquire) ? 0 : kPrepareEnableDelayTicks;
-        enableDelayTicks.store (restoreDelay, std::memory_order_release);
-        enablePending.store (true, std::memory_order_release);
-        startTimer (50);
-    }
-    // A null handle (create failure) is tolerated; processBlock / pollMeasureResult guard on it.
-}
 
 void KirinHyphaProcessorBase::releaseResources()
 {
@@ -251,7 +166,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     juce::ignoreUnused (looping); // Used by the explicit local Blind output path below.
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
-    preDisplayClock.publish (positionSamples, preparedSampleRate,
+    preDisplayClock.publish (positionSamples, preparedFormat.sampleRate,
                              static_cast<std::uint32_t> (juce::jmax (0, numFrames)), playing,
                              static_cast<hypha::pre_display::ClockSource> (clockSource));
 #endif
@@ -302,7 +217,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
         watchSampleTimelineStartedNewPass || watchAvailabilityBoundary,
         silent,
         (uint64_t) juce::jmax (0, numFrames),
-        preparedSampleRate);
+        preparedFormat.sampleRate);
     const bool stateSilent = silent && ! watchActiveThroughSilence;
     int windowStartFrame = 0;
     int windowEndFrame = numFrames;
@@ -372,7 +287,11 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool forceTakeStartEpoch = renderedRecordWindow
                                   && hasClockEnd
                                   && ! recordNativeRangeLatched;
-    const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer;
+    // B-961: while a format change is held, the engine is still built for the old one. Audio keeps
+    // passing through untouched (R-12), but it is not fed to a meter that would measure it as
+    // something it is not. The keepalive below still advances the heartbeat.
+    const bool formatHeld = formatChangeHeld.load (std::memory_order_acquire);
+    const bool pushBuffer = ! formatHeld && (recording ? renderedRecordWindow : captureBuffer);
     kirin_hypha_note_record_window (hyphaHandle,
                                     recording,
                                     renderedRecordWindow,
@@ -734,8 +653,10 @@ void KirinHyphaProcessorBase::timerCallback()
         else
             enableWritesNow();
     }
+    applyHeldFormatIfRecordReleased();
     serviceLocalBlindProductSession();
-    if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService())
+    if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService()
+        && ! heldFormat.held)
         stopTimer();
 }
 

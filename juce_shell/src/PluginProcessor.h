@@ -1,4 +1,5 @@
 #pragma once
+#include "PreparedFormat.h"
 #include "HyphaPairPreview.h"
 #include "HyphaCaptureStateNotification.h"
 #include "HostProcessClock.h"
@@ -346,6 +347,7 @@ private:
     // the Timer publishes Inactive PRE/POST presence after either setStateInformation arrives or the
     // restore grace expires. enable_*_writes spawns an io_thread (not RT-safe), hence the deferral.
     void timerCallback() override;        // B-126: one-shot non-RT enable barrier
+    void applyHeldFormatIfRecordReleased(); // B-961: re-prepare held during Record, applied after
     void enableWritesNow();               // B-070 enable body (set_identity -> enable_*_writes -> readback)
     void restorePersistedPairUnderHandleLock();
     bool serviceRequestedAnalysisUnderHandleLock();
@@ -357,7 +359,8 @@ private:
                                       const hypha::local_blind::ExactRangeCapture& pre);
     bool releaseLocalBlindProductScope (std::uint64_t scopeEpoch);
     void serviceLocalBlindProductSession();
-    void stopLocalBlindCaptureForFormatChange (double sampleRate, int channels);
+    void stopLocalBlindCaptureForFormatChange (double sampleRate,
+                                               const std::vector<uint8_t>& channelRoles);
     void startLocalBlindCaptureForPreparedFormat();
     void processComparisonPaths (juce::AudioBuffer<float>&, const hypha::HostProcessClock&,
                                  bool timelineActive,
@@ -381,8 +384,9 @@ private:
     juce::CriticalSection handleLock;                  // guards hyphaHandle vs editor poll / create / destroy
     KirinHypha* hyphaHandle = nullptr;                 // owned; reused across same-format prepareToPlay; destroyed on incompatible reprepare/dtor
     bool hostComponentActive = true;                   // guarded by handleLock; retains VST3 setActive before engine creation
-    double preparedSampleRate = 0.0;                   // format bound to hyphaHandle
-    int preparedInputChannels = 0;                     // format bound to hyphaHandle
+    kirin::PreparedFormat preparedFormat;              // rate + channel roles bound to hyphaHandle
+    kirin::HeldFormat heldFormat;                      // reprepare refused during Record, not forgotten
+    std::atomic<bool> formatChangeHeld { false };      // audio thread: stop feeding the stale engine
     bool lastProcessPositionValid = false;             // audio-thread local transport position cache
     bool lastProcessHadPosition = false;               // previous callback had an adjacent sample range
     int64_t lastProcessPositionSamples = 0;            // audio-thread local transport position cache

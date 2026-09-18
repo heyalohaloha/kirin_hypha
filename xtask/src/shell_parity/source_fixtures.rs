@@ -27,6 +27,9 @@
     const PLUGIN_PROCESSOR_CPP: &str = concat!(
         include_str!("../../../juce_shell/src/PluginProcessor.cpp"),
         "\n",
+        // B-961: format binding lives in its own translation unit; parity still reads one shell.
+        include_str!("../../../juce_shell/src/PluginProcessorFormat.cpp"),
+        "\n",
         include_str!("../../../juce_shell/src/PluginProcessorState.cpp")
     );
     const PLUGIN_PROCESSOR_PAIRING_CPP: &str =

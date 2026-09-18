@@ -11,11 +11,7 @@
 
     #[test]
     fn juce_offline_lifecycle_does_not_stop_record() {
-        let prepare = between(
-            PLUGIN_PROCESSOR_CPP,
-            "void KirinHyphaProcessorBase::prepareToPlay",
-            "void KirinHyphaProcessorBase::releaseResources()",
-        );
+        let prepare = cpp_body(PLUGIN_PROCESSOR_CPP, "void KirinHyphaProcessorBase::prepareToPlay");
         assert!(
             !prepare.contains("maybeAutoStopOnOfflineEnd")
                 && !prepare.contains("offlineAutoStop")
@@ -90,7 +86,7 @@
             body.contains("recordStartWindowLatched")
                 && body.contains("recordStartCandidateWindow")
                 && body.contains("renderedRecordWindow")
-                && body.contains("const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer"),
+                && body.contains("(recording ? renderedRecordWindow : captureBuffer)"),
             "JUCE Record must not push or render idle pre-start windows before the first valid Record window"
         );
         assert!(
@@ -167,11 +163,7 @@
             "JUCE shell should absorb large offline-render blocks before falling back to oversized_drop"
         );
 
-        let prepare = between(
-            PLUGIN_PROCESSOR_CPP,
-            "void KirinHyphaProcessorBase::prepareToPlay",
-            "void KirinHyphaProcessorBase::releaseResources()",
-        );
+        let prepare = cpp_body(PLUGIN_PROCESSOR_CPP, "void KirinHyphaProcessorBase::prepareToPlay");
         assert!(
             prepare.contains("interleaveScratch.assign")
                 && prepare.contains("kOversizeHeadroomFrames")
@@ -235,8 +227,10 @@
         assert!(body.contains(
             "resolveSignalStateCode (bypassed, measurementTimelineActive,\n                                                      stateSilent, recording, nonRealtimeMode)"
         ));
+        // B-961: while a format change is held the engine is built for the old format, so audio
+        // passes through (R-12) but is not fed to a meter that would mislabel it.
         assert!(body.contains(
-            "const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer;"
+            "const bool pushBuffer = ! formatHeld && (recording ? renderedRecordWindow : captureBuffer);"
         ));
     }
 

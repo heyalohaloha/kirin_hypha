@@ -242,14 +242,15 @@ void KirinHyphaProcessorBase::serviceLocalBlindProductSession()
 }
 
 void KirinHyphaProcessorBase::stopLocalBlindCaptureForFormatChange (
-    double sampleRate, int channels)
+    double sampleRate, const std::vector<uint8_t>& channelRoles)
 {
     bool shouldStop = false;
     {
         const juce::ScopedLock lock (handleLock);
+        // B-961: roles, not a count. Ten channels are 7.1.2 or 5.1.4, and a capture started under
+        // one is not a capture of the other.
         shouldStop = hyphaHandle == nullptr
-                  || std::abs (preparedSampleRate - sampleRate) > 0.001
-                  || preparedInputChannels != channels;
+                  || ! preparedFormat.matches (sampleRate, channelRoles);
         if (shouldStop && hyphaHandle != nullptr && kirin_hypha_is_recording (hyphaHandle))
             shouldStop = false;
     }
@@ -267,8 +268,8 @@ void KirinHyphaProcessorBase::startLocalBlindCaptureForPreparedFormat()
         return;
    #endif
     if (! localBlindCapture.running() && hyphaHandle != nullptr)
-        localBlindCapture.start (static_cast<std::uint32_t> (preparedSampleRate),
-                                 preparedInputChannels);
+        localBlindCapture.start (static_cast<std::uint32_t> (preparedFormat.sampleRate),
+                                 static_cast<int> (preparedFormat.channelRoles.size()));
 }
 
 bool KirinHyphaProcessorBase::localBlindPairBinding (
@@ -314,8 +315,8 @@ bool KirinHyphaProcessorBase::issueLocalBlindCaptureRequest (
         return false;
     const juce::ScopedLock lock (handleLock);
     if (role != Role::Post || hyphaHandle == nullptr
-        || std::abs (clock.rate - preparedSampleRate) > 0.001
-        || clock.channels != static_cast<std::uint32_t> (preparedInputChannels))
+        || std::abs (clock.rate - preparedFormat.sampleRate) > 0.001
+        || clock.channels != static_cast<std::uint32_t> (preparedFormat.channelRoles.size()))
     {
         localBlindCapture.abandonPostRequest();
         return false;

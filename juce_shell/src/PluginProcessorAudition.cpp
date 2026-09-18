@@ -20,7 +20,7 @@ void KirinHyphaProcessorBase::processComparisonPaths (
    #endif
     if (diagnosticCaptureEnabled)
         localBlindCapture.process (buffer.getArrayOfReadPointers(), getTotalNumInputChannels(),
-                                   captureClock, static_cast<std::uint32_t> (preparedSampleRate));
+                                   captureClock, static_cast<std::uint32_t> (preparedFormat.sampleRate));
 
     // The admitted session owns exact, immutable PCM and its epochs. Runtime clock/PDC
     // continuity remains required; a trial never creates another Analysis slot.
@@ -28,7 +28,7 @@ void KirinHyphaProcessorBase::processComparisonPaths (
         && role == Role::Post && localBlindProductSession.hasPublishedRealtime())
     {
         hypha::local_blind::TrialBlock block;
-        block.sampleRate = static_cast<std::uint32_t> (preparedSampleRate);
+        block.sampleRate = static_cast<std::uint32_t> (preparedFormat.sampleRate);
         block.position = clock.positionSamples;
         block.positionValid = clock.hasPosition;
         block.playing = clock.playing;

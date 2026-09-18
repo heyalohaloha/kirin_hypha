@@ -27,6 +27,7 @@
 #include "SpectrumResponsiveGeometryContractTest.h"
 #include "TypographyContractTest.h"
 #include "AnalysisDemandContractTest.h"
+#include "PreparedFormatContractTest.h"
 
 namespace hypha::tests
 {
@@ -56,6 +57,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
                      "--analysis-demand-only|--absolute-spectrum-only|--space-only]\n";
         std::exit (EXIT_FAILURE);
     }
+    prepared_format_contract::verify();
     observation_equality_contract::verify();
     analysis_demand_contract::verify();
     // The row rule FREQ and SPACE share. Cheap, so every focused run exercises it.

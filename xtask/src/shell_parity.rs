@@ -461,25 +461,24 @@ mod tests {
 
     #[test]
     fn juce_prepare_to_play_reuses_record_engine_for_same_format() {
-        let body = between(
+        // B-961: the decision moved into kirin::decidePrepare and compares roles, not a count.
+        let body = cpp_body(
             PLUGIN_PROCESSOR_CPP,
             "void KirinHyphaProcessorBase::prepareToPlay",
-            "void KirinHyphaProcessorBase::releaseResources()",
         );
-
-        assert!(body.contains("const bool needsNewHandle = hyphaHandle == nullptr"));
-        assert!(body.contains("std::abs (preparedSampleRate - sampleRate) > 0.001"));
-        assert!(body.contains("preparedInputChannels != numCh"));
+        assert!(body.contains("kirin::decidePrepare (hyphaHandle != nullptr,"));
+        assert!(body.contains("kirin_hypha_is_recording (hyphaHandle)"));
         assert!(
-            body.contains("if (! needsNewHandle)\n        return;"),
+            body.contains("case kirin::PrepareAction::reuse:\n            return;"),
             "same-format reprepare must not destroy the Rust engine or Record state"
         );
-        let reuse_gate = body.find("if (! needsNewHandle)").expect("reuse gate");
-        let destroy = body.find("kirin_hypha_destroy").expect("destroy path");
         assert!(
-            reuse_gate < destroy,
-            "reuse gate must precede any destroy path"
+            body.contains("heldFormat.hold (sampleRate, samplesPerBlock);"),
+            "an incompatible reprepare during Record must be held, not forgotten"
         );
+        let reuse = body.find("PrepareAction::reuse").expect("reuse gate");
+        let destroy = body.find("kirin_hypha_destroy").expect("destroy path");
+        assert!(reuse < destroy, "reuse gate must precede any destroy path");
     }
 
     #[test]

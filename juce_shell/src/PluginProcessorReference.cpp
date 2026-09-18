@@ -346,6 +346,6 @@ void KirinHyphaProcessorBase::configureReferenceAudition()
     identity.runtimeInstanceId = referenceRuntimeId;
     identity.library = true;
     referenceAuditionController->setAnalysisOwner(kirin_hypha_reference_analysis_owner(hyphaHandle));
-    referenceAuditionController->configure (identity, preparedSampleRate, preparedInputChannels);
+    referenceAuditionController->configure (identity, preparedFormat.sampleRate, static_cast<int> (preparedFormat.channelRoles.size()));
    #endif
 }

@@ -73,15 +73,12 @@ inline std::vector<uint8_t> channelRoles (const juce::AudioChannelSet& set)
     return roles;
 }
 
-/** Creates an engine for a channel set, or returns nullptr when the layout is not measurable. */
-inline KirinHypha* createEngineForChannelSet (double sampleRate, const juce::AudioChannelSet& set)
+/** Creates an engine for a role list, or returns nullptr when it is not measurable. */
+inline KirinHypha* createEngineForRoles (double sampleRate, const std::vector<uint8_t>& roles)
 {
     // A library built against a different ABI reads every field at the wrong offset, so nothing it
     // produces is a measurement. Refuse before the first sample rather than display it.
-    if (! abiMatchesLinkedLibraryOnce())
-        return nullptr;
-    const auto roles = channelRoles (set);
-    if (roles.empty())
+    if (! abiMatchesLinkedLibraryOnce() || roles.empty())
         return nullptr;
     return kirin_hypha_create ((uint32_t) sampleRate, roles.data(), (uint32_t) roles.size());
 }

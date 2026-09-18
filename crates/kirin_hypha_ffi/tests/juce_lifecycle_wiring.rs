@@ -355,11 +355,12 @@ fn slice_between<'a>(src: &'a str, start_marker: &str, end_marker: &str) -> &'a 
 
 #[test]
 fn juce_prepare_does_not_destroy_engine_while_recording() {
-    let src = read_repo("juce_shell/src/PluginProcessor.cpp");
+    // B-961: format binding moved to its own translation unit; the guard's order is unchanged.
+    let src = read_repo("juce_shell/src/PluginProcessorFormat.cpp");
     let body = slice_between(
         &src,
         "void KirinHyphaProcessorBase::prepareToPlay",
-        "void KirinHyphaProcessorBase::releaseResources",
+        "void KirinHyphaProcessorBase::applyHeldFormatIfRecordReleased",
     );
 
     let guard = body
@@ -406,10 +407,11 @@ fn vst3_component_activation_is_distinct_from_release_resources() {
     assert!(activation.contains("hostComponentActive = active"));
     assert!(activation.contains("kirin_hypha_set_host_component_active"));
 
+    let format_unit = read_repo("juce_shell/src/PluginProcessorFormat.cpp");
     let prepare = slice_between(
-        &processor,
+        &format_unit,
         "void KirinHyphaProcessorBase::prepareToPlay",
-        "void KirinHyphaProcessorBase::releaseResources",
+        "void KirinHyphaProcessorBase::applyHeldFormatIfRecordReleased",
     );
     assert!(
         prepare
