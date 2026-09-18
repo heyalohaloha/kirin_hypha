@@ -408,6 +408,60 @@ fn probe_routing(native_rate: u32, channels: usize, instances: usize) {
     }
 }
 
+/// True Peak is per-channel peak detection, not a weighted sum, so it must not be assumed to share
+/// the loudness path's channel-map defect. Put a known peak in exactly one channel, rotate which
+/// one, and read back every channel's true_peak.
+fn probe_true_peak(rate: u32, channels: usize) {
+    println!("\n== True Peak per channel: {rate} Hz, {channels} ch ==");
+    println!("  peak in channel c = -6.02 dBFS (0.5), every other channel silent");
+    println!(
+        "  {:<10} {:<14} {:<12} {}",
+        "signal ch", "observed on", "value dBTP", "verdict"
+    );
+
+    let frames = rate as usize / 10;
+    for c in 0..channels {
+        let mut meter = EbuR128::new(channels as u32, rate, MODE).expect("EbuR128");
+        let mut block = vec![0.0f64; frames * channels];
+        for f in 0..frames {
+            // A short tone so the 4x interpolation has something to reconstruct.
+            let phase = (f as f64) * std::f64::consts::TAU * 997.0 / rate as f64;
+            block[f * channels + c] = 0.5 * phase.sin();
+        }
+        for _ in 0..10 {
+            meter.add_frames_f64(&block).expect("add_frames");
+        }
+        let mut observed: Vec<usize> = Vec::new();
+        let mut value = f64::NEG_INFINITY;
+        for k in 0..channels {
+            if let Ok(tp) = meter.true_peak(k as u32) {
+                if tp > 1e-6 {
+                    observed.push(k);
+                    value = value.max(20.0 * tp.log10());
+                }
+            }
+        }
+        let verdict = if observed == vec![c] {
+            "ok"
+        } else if observed.is_empty() {
+            "NOT OBSERVED"
+        } else {
+            "wrong channel"
+        };
+        println!(
+            "  {:<10} {:<14} {:<12} {}",
+            c,
+            format!("{observed:?}"),
+            if value.is_finite() {
+                format!("{value:.2}")
+            } else {
+                "-".to_owned()
+            },
+            verdict
+        );
+    }
+}
+
 fn main() {
     if rss_bytes().is_none() {
         println!("/proc/self/statm unavailable — this probe is Linux only.");
@@ -435,6 +489,12 @@ fn main() {
                 PUSH_CHUNKS.store(secs * 10, std::sync::atomic::Ordering::Relaxed);
             }
             probe_touched(rate, ch, instances);
+        }
+        Some("truepeak") => {
+            probe_true_peak(
+                args[2].parse().expect("rate"),
+                args[3].parse().expect("channels"),
+            );
         }
         Some("routing") => {
             probe_routing(
