@@ -134,6 +134,14 @@ fn probe_touched(native_rate: u32, channels: usize, instances: usize) {
     let chunk: Vec<f64> = (0..chunk_frames * channels)
         .map(|i| ((i % 97) as f64 / 97.0) * 0.5 - 0.25)
         .collect();
+    // Every channel has to carry signal, or an untouched region would be the test's doing rather
+    // than the code's -- which is exactly the distinction §12 turns on.
+    for c in 0..channels {
+        assert!(
+            chunk.iter().skip(c).step_by(channels).any(|v| *v != 0.0),
+            "channel {c} of the probe signal is silent"
+        );
+    }
     for engines in held.iter_mut() {
         for engine in engines.iter_mut() {
             for _ in 0..PUSH_CHUNKS.load(std::sync::atomic::Ordering::Relaxed) {
@@ -268,6 +276,35 @@ fn probe_census(native_rate: u32, channels: usize, instances: usize) {
     }
 }
 
+/// Calibrate the measurement itself: allocate a known zeroed f64 buffer, write one value per page,
+/// and see whether RSS follows. Without this, a gap between formula and measurement cannot be
+/// attributed to the code under test rather than to how residency is being read.
+fn probe_calibration(mib_target: usize) {
+    println!("\n== RSS calibration: {mib_target} MiB of zeroed f64 ==");
+    let elements = mib_target * 1024 * 1024 / std::mem::size_of::<f64>();
+    let base = rss_bytes().expect("statm");
+    let mut buffer = vec![0.0f64; elements];
+    let allocated = rss_bytes().expect("statm");
+    println!(
+        "  {:<34} {:>+11.2} MiB",
+        "allocated (alloc_zeroed)",
+        mib(allocated as i64 - base as i64)
+    );
+    // One write per 4 KiB page is all residency needs.
+    let stride = 4096 / std::mem::size_of::<f64>();
+    for i in (0..elements).step_by(stride) {
+        buffer[i] = 1.0;
+    }
+    let touched = rss_bytes().expect("statm");
+    println!(
+        "  {:<34} {:>+11.2} MiB   ratio {:.3}",
+        "after one write per page",
+        mib(touched as i64 - base as i64),
+        mib(touched as i64 - base as i64) / mib_target as f64
+    );
+    std::hint::black_box(buffer);
+}
+
 fn main() {
     if rss_bytes().is_none() {
         println!("/proc/self/statm unavailable — this probe is Linux only.");
@@ -295,6 +332,9 @@ fn main() {
                 PUSH_CHUNKS.store(secs * 10, std::sync::atomic::Ordering::Relaxed);
             }
             probe_touched(rate, ch, instances);
+        }
+        Some("calibrate") => {
+            probe_calibration(args[2].parse().expect("MiB"));
         }
         Some("census") => {
             let rate: u32 = args[2].parse().expect("rate");
