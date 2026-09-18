@@ -130,6 +130,23 @@ void twoObservationsDoNotBecomeACadence()
     KIRIN_TIME_FIELD_REQUIRE (filled < kRows / 3);
 }
 
+// More observations than the working arrays hold keeps the newest ones. Dropping the newest would
+// empty the bottom of the field, which is where the user is looking.
+void anOverflowKeepsTheNewestObservations()
+{
+    // Ages ascending in the source means index 0 is the newest, which is the wrong order; build it
+    // oldest first as the contract requires, with far more observations than the arrays hold.
+    constexpr size_t count = time_field::maximumObservations * 2u;
+    std::vector<double> ages;
+    for (size_t index = 0u; index < count; ++index)
+        ages.push_back (kSpanSeconds * (double) (count - 1u - index) / (double) (count - 1u));
+
+    const auto inked = rowsWithInk (buildFrom (ages));
+    // The newest observation is at age zero, so the bottom row has to carry ink.
+    KIRIN_TIME_FIELD_REQUIRE (inked.back());
+    KIRIN_TIME_FIELD_REQUIRE (longestEmptyRunFromFirstInk (inked) <= 1);
+}
+
 // Nothing to draw returns an invalid image, so the caller skips the blit instead of covering the
 // plot with a transparent rectangle.
 void nothingToDrawReturnsNoImage()
@@ -159,7 +176,8 @@ void verifyTimeFieldContract()
     anyCadenceStaysContinuous();
     arealBreakStaysEmpty();
     twoObservationsDoNotBecomeACadence();
+    anOverflowKeepsTheNewestObservations();
     nothingToDrawReturnsNoImage();
-    std::cout << "Time field: PASS (age to row, seven cadences, real break, two observations)\n";
+    std::cout << "Time field: PASS (age to row, seven cadences, real break, two observations, overflow)\n";
 }
 }

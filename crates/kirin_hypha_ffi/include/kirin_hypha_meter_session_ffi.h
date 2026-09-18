@@ -45,7 +45,11 @@ typedef struct {
   uint8_t mono_sum_band_count;  /* 0 = unavailable, KIRIN_MONO_SUM_BAND_COUNT = available.
                                  * A flag, not a variable band count. */
   uint8_t mono_sum_reserved[3];
-  float mono_sum_approximate_below_hz; /* fewer than three cycles below this; 0 when unavailable */
+  /* Fewer than three cycles below this frequency, so the readout marks it approximate. This is
+   * the observation layout's own boundary, not a property of what the latest observation held, so
+   * it stays valid while mono_sum_band_count is 0 and a held display keeps its marking. It is 0
+   * only before the first stereo observation has established a layout. */
+  float mono_sum_approximate_below_hz;
   float mono_sum_db[KIRIN_MONO_SUM_BAND_COUNT];
 } KirinMeterSession;
 

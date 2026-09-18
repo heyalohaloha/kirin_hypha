@@ -46,8 +46,11 @@ pub struct KirinMeterSession {
     /// band count; append-only ABI field.
     pub mono_sum_band_count: u8,
     pub mono_sum_reserved: [u8; 3],
-    /// Bands under this frequency hold fewer than three cycles in one observation. 0 when MONO is
-    /// unavailable.
+    /// Bands under this frequency hold fewer than three cycles in one observation.
+    ///
+    /// This is the observation layout's boundary, not a property of what the latest observation
+    /// held, so it stays valid while `mono_sum_band_count` is 0 and a held display keeps its
+    /// marking. It is 0 only before the first stereo observation has established a layout.
     pub mono_sum_approximate_below_hz: f32,
     /// How much of each third-octave band survives the mono sum. NaN is a band with nothing to
     /// measure, never a band that reads 0 dB.

@@ -65,7 +65,11 @@ namespace hypha::time_field
         std::array<double, maximumObservations> ages {};
         std::array<size_t, maximumObservations> source {};
         size_t inWindow = 0u;
-        for (size_t index = 0u; index < count && inWindow < maximumObservations; ++index)
+        // More observations than the working arrays hold means keeping the newest, not the first
+        // that arrive. Stopping once the arrays fill would drop the newest end of the field, which
+        // is the part a user is reading.
+        const size_t oldestKept = count > maximumObservations ? count - maximumObservations : 0u;
+        for (size_t index = oldestKept; index < count; ++index)
         {
             const double ageSeconds = ageOf (index);
             if (! (ageSeconds >= 0.0) || ageSeconds > geometry.spanSeconds)

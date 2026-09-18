@@ -53,7 +53,9 @@ pub struct StereoMeterSnapshot {
     /// observation. `None` is a band with nothing to measure, never a band that reads 0 dB.
     pub mono_sum_db: MonoSumBands,
     /// Bands under this frequency hold fewer than three cycles in one observation, so their
-    /// readout is marked approximate. Zero when MONO is not available.
+    /// readout is marked approximate. This belongs to the observation layout, not to what the
+    /// latest observation held, so it outlives a silent observation that leaves every band
+    /// undefined. Zero only before the first stereo observation has established a layout.
     pub mono_sum_approximate_below_hz: f32,
 }
 
