@@ -185,26 +185,34 @@ void paint (juce::Graphics& g,
                 title, juce::Justification::centredRight);
 
     const int gap = compact ? 5 : 8;
-    // MONO is added only where it fits beside what SPACE already shows. The scatter answers
+    // MONO is added only where it costs nothing that SPACE already shows. The scatter answers
     // "wide or narrow" at a glance and stays the panel's own picture; MONO is a chart to read,
-    // and a chart with no room to plot is worth less than the scatter it would displace.
+    // and it is worth having only once there is room for both to be themselves.
     //
-    // The two minimums are what the parts need, not a size the sizes were chosen to satisfy:
-    // MONO needs its title, its frequency row and a plot tall enough to separate 0, -6 and -24,
-    // and the metric column needs the height drawMetric lays out for two boxes.
+    // Three conditions, all measured from what the parts lay out rather than from a size preset:
+    // MONO needs its title, its frequency row and a plot tall enough to separate 0, -6 and -24;
+    // the metric column needs the height drawMetric gives two boxes; and the square left over has
+    // to stay wide enough for the scatter's own axis labels. The third is what rules out the
+    // 600x400 editor, where the strip fits but pushes "SIDE < 0" down to "S<0". Today only the
+    // largest editor clears all three.
     constexpr int monoStripMinimum = 70;
     constexpr int metricsRowMinimum = 136;
+    const int metricWidth = juce::jlimit (82, compact ? 102 : 168,
+                                          juce::roundToInt (area.getWidth() * 0.31f));
+    const auto squarePlotWidthAfter = [&] (int stripHeight) {
+        const int rowHeight = area.getHeight() - (stripHeight > 0 ? stripHeight + gap : 0);
+        return juce::jmin (area.getWidth() - metricWidth - gap, rowHeight) - 32;
+    };
+    const int monoHeight = juce::jmax (monoStripMinimum,
+                                       juce::roundToInt (area.getHeight() * 0.32f));
     const bool showMono = ! compact
-                       && area.getHeight() >= monoStripMinimum + gap + metricsRowMinimum;
-    auto mono = showMono
-        ? area.removeFromBottom (juce::jmax (monoStripMinimum,
-                                             juce::roundToInt (area.getHeight() * 0.32f)))
-        : juce::Rectangle<int> {};
+                       && area.getHeight() >= monoHeight + gap + metricsRowMinimum
+                       && squarePlotWidthAfter (monoHeight) / 3
+                              >= axisLabelWidth (presentation, false);
+    auto mono = showMono ? area.removeFromBottom (monoHeight) : juce::Rectangle<int> {};
     if (showMono)
         area.removeFromBottom (gap);
 
-    const int metricWidth = juce::jlimit (82, compact ? 102 : 168,
-                                          juce::roundToInt (area.getWidth() * 0.31f));
     auto metrics = area.removeFromRight (metricWidth);
     area.removeFromRight (gap);
 

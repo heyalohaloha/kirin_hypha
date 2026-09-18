@@ -135,9 +135,14 @@ int inkInColumn (const juce::Image& image, int x, int fromY, int toY)
 /// not measured rather than drawing the one reading that means the band loses nothing.
 void verifyMonoSumCurveRendering()
 {
-    const auto identical = render (flatMonoFixture (0.0f), 600, 400);
-    const auto panned = render (flatMonoFixture (-3.0103f), 600, 400);
-    const auto collapsed = render (flatMonoFixture (KIRIN_MONO_SUM_DISPLAY_FLOOR_DB), 600, 400);
+    // The editor that shows MONO. The smaller ones are covered by the size sweep below, which
+    // requires them to be untouched by these same values.
+    constexpr int kWidth = 900;
+    constexpr int kHeight = 600;
+    const auto identical = render (flatMonoFixture (0.0f), kWidth, kHeight);
+    const auto panned = render (flatMonoFixture (-3.0103f), kWidth, kHeight);
+    const auto collapsed = render (flatMonoFixture (KIRIN_MONO_SUM_DISPLAY_FLOOR_DB),
+                                   kWidth, kHeight);
     KIRIN_SPACE_REQUIRE (changedPixels (identical, panned) > 100);
     KIRIN_SPACE_REQUIRE (changedPixels (panned, collapsed) > 100);
 
@@ -146,12 +151,12 @@ void verifyMonoSumCurveRendering()
     auto broken = flatMonoFixture (0.0f);
     for (size_t band = 12u; band < 20u; ++band)
         broken.mono_sum_db[band] = std::numeric_limits<float>::quiet_NaN();
-    const auto withBreak = render (broken, 600, 400);
+    const auto withBreak = render (broken, kWidth, kHeight);
     KIRIN_SPACE_REQUIRE (changedPixels (identical, withBreak) > 40);
 
-    // MONO is added only where it fits. A size that does not show it has to be untouched by the
-    // values rather than drawing a squashed plot, and the two largest have to show it. Both
-    // halves matter: a size that half-draws it is worse than one that leaves it out.
+    // MONO is added only where it costs nothing. A size that does not show it has to be untouched
+    // by the values rather than drawing a squashed plot. Both halves matter: a size that
+    // half-draws it is worse than one that leaves it out.
     int showing = 0;
     for (const auto dimensions : {
              std::pair { 300, 200 }, std::pair { 375, 250 }, std::pair { 450, 300 },
@@ -170,7 +175,9 @@ void verifyMonoSumCurveRendering()
         KIRIN_SPACE_REQUIRE (changedPixels (present, render (withoutField, dimensions.first,
                                                              dimensions.second)) > 40);
     }
-    KIRIN_SPACE_REQUIRE (showing >= 2);
+    // Only the editor with room for both shows MONO. Everywhere else SPACE is exactly the panel
+    // that shipped before it, rather than a smaller scatter beside a squashed chart.
+    KIRIN_SPACE_REQUIRE (showing == 1);
 
     // Mono input has no stereo to lose, so no curve is drawn and the state says why.
     auto monoInput = flatMonoFixture (-1.0f);
@@ -178,8 +185,8 @@ void verifyMonoSumCurveRendering()
     monoInput.mono_sum_band_count = 0;
     for (auto& value : monoInput.mono_sum_db)
         value = std::numeric_limits<float>::quiet_NaN();
-    const auto withoutStereo = render (monoInput, 600, 400);
-    KIRIN_SPACE_REQUIRE (changedPixels (render (flatMonoFixture (-1.0f), 600, 400),
+    const auto withoutStereo = render (monoInput, kWidth, kHeight);
+    KIRIN_SPACE_REQUIRE (changedPixels (render (flatMonoFixture (-1.0f), kWidth, kHeight),
                                         withoutStereo) > 100);
     KIRIN_SPACE_REQUIRE (! mono_sum_curve::hasBands (monoInput, true));
     KIRIN_SPACE_REQUIRE (mono_sum_curve::hasBands (flatMonoFixture (-1.0f), true));
