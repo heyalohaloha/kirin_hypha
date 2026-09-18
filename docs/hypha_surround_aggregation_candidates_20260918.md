@@ -225,6 +225,50 @@ TOP REAR   TRL ↔ TRR
 
 **Daisuke が手で対を列挙する項目にしない。**
 
+#### 4.2.1 mirror の判定規則 — 方位角の符号反転で足りる
+
+**対の表を書かない。規則を 1 つ置く。**
+
+> **mirror(role) = 同じ平面（M / U）で方位角の符号を反転した role。**
+> **方位角が 0° または 180°（正中面）なら mirror は無い。LFE にも mirror は無い。**
+
+ITU の角度表記がそのまま使える（findings §2 の対応表）。
+`L = M+030` の mirror は `M−030 = R`。`Lss = M+090` の mirror は `M−090 = Rss`。
+`C = M+000` と `Cs = M+180` は正中面なので mirror が無い。
+
+**左を方位角が正の側とする**（ITU の `M+030` が左という表記に従う）。
+
+#### 4.2.2 導出結果 [A]
+
+この規則を交渉済み layout に当てた結果（`channel_positions[]` の存在判定のみ）:
+
+| layout | pair 数 | 対 | 対の無い role |
+|---|---:|---|---|
+| 5.0 | 2 | L↔R, Ls↔Rs | C |
+| 5.1 | 2 | L↔R, Ls↔Rs | C, LFE |
+| 7.1 | 3 | L↔R, Lss↔Rss, Lsr↔Rsr | C, LFE |
+| **7.1.4** | **5** | L↔R, Lss↔Rss, TFL↔TFR, TRL↔TRR, Lsr↔Rsr | C, LFE |
+| 9.1.6 | 7 | 上記 + WL↔WR, TSL↔TSR | C, LFE |
+
+**7.1.4 の 5 対は、§4.1 で手で書いた並びと一致する。** 規則だけで再現できる。
+
+#### 4.2.3 pair 数も layout を特定しない
+
+findings §3.1 の「チャンネル数で layout を特定してはならない」は、**pair 数にも当てはまる。**
+
+| layout | ch | pair 数 | 対 |
+|---|---:|---:|---|
+| 7.1 | 8 | **3** | L↔R, **Lss↔Rss, Lsr↔Rsr** |
+| 5.1.2 | 8 | **3** | L↔R, **Ls↔Rs, TSL↔TSR** |
+| 5.1.4 | 10 | **4** | L↔R, **Ls↔Rs, TFL↔TFR, TRL↔TRR** |
+| 7.1.2 | 10 | **4** | L↔R, **Lss↔Rss, Lsr↔Rsr, TSL↔TSR** |
+
+**同じチャンネル数で pair 数まで一致し、対の中身だけが違う。**
+
+したがって **`PairRole` の並びは role の同一性で比較する。** 個数や index では比較しない。
+契約表 §11.3.1 の selector と同じ理由である
+（layout 変更を検出できないと、別の対の履歴が無言で連結する）。
+
 ## 5. MONO — サラウンドでは適用外。downmix 観測は別の新規測定へ
 
 現行 MONO は `M=(L+R)/2` / `S=(L−R)/2` に対する帯域別の残存比であり、
@@ -305,6 +349,8 @@ TOP REAR   TRL ↔ TRR
 
 ## 7. 未確認 [C]
 
-- `PairRole` の具体的な記述と、role vocabulary の共通化範囲（計画 §5.1 に依存）。
+- role vocabulary の共通化範囲（どの subsystem まで同じ語彙を使うか）。
+- **ITU 角度の割り当て自体は [B]**（Daisuke が BS.2051 から確認）。
+  §4.2.1 の規則はその角度表を前提とする。
 - Downmix Observation の測定量定義（計画 §7.3 の `D_interference` と残存エネルギー比の区別）。
   **MONO の承認とは切り離して扱う。**
