@@ -8,6 +8,8 @@ use std::collections::VecDeque;
 
 use ebur128::{EbuR128, Mode};
 
+use crate::mono_sum::{MonoSumAnalyzer, MonoSumBands, MONO_SUM_BAND_COUNT};
+
 const OBSERVATIONS_PER_THREE_SECONDS: usize = 30;
 const OBSERVATIONS_PER_TP_WINDOW: usize = 4;
 const OBSERVATIONS_PER_VU_WINDOW: usize = 3;
@@ -47,6 +49,12 @@ pub struct StereoMeterSnapshot {
     /// the densest cell in the same factual window; it is a shape display, not a level metric.
     pub field_density: [u8; STEREO_FIELD_BINS],
     pub field_observation_count: u8,
+    /// MONO — how much of each third-octave band survives the mono sum, from the latest exact
+    /// observation. `None` is a band with nothing to measure, never a band that reads 0 dB.
+    pub mono_sum_db: MonoSumBands,
+    /// Bands under this frequency hold fewer than three cycles in one observation, so their
+    /// readout is marked approximate. Zero when MONO is not available.
+    pub mono_sum_approximate_below_hz: f32,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -83,6 +91,11 @@ pub struct StereoMeter {
     energy_sum: EnergyObservation,
     field_window: VecDeque<FieldObservation>,
     field_sum: [u32; STEREO_FIELD_BINS],
+    sample_rate: u32,
+    /// Built for one observation length. A host that changes its buffer size changes the length,
+    /// so the analyzer is rebuilt rather than fed an observation it was not laid out for.
+    mono_sum: Option<MonoSumAnalyzer>,
+    mono_sum_db: MonoSumBands,
 }
 
 impl StereoMeter {
@@ -95,6 +108,9 @@ impl StereoMeter {
         Ok(Self {
             ebu,
             channels,
+            sample_rate,
+            mono_sum: None,
+            mono_sum_db: [None; MONO_SUM_BAND_COUNT],
             sample_peak: [0.0; 2],
             sample_peak_hold: [0.0; 2],
             true_peak_window: VecDeque::with_capacity(OBSERVATIONS_PER_TP_WINDOW + 1),
@@ -209,6 +225,7 @@ impl StereoMeter {
                     self.energy_sum.cross -= expired.cross;
                 }
             }
+            self.update_mono_sum(interleaved, frame_count);
             for (sum, value) in self.field_sum.iter_mut().zip(field.bins.iter().copied()) {
                 *sum = sum.saturating_add(u32::from(value));
             }
@@ -240,6 +257,24 @@ impl StereoMeter {
         self.energy_sum = EnergyObservation::default();
         self.field_window.clear();
         self.field_sum = [0; STEREO_FIELD_BINS];
+        self.mono_sum_db = [None; MONO_SUM_BAND_COUNT];
+    }
+
+    /// MONO for the latest exact observation. Mono input and a layout the observation length
+    /// cannot carry both leave every band undefined rather than reporting a survival figure.
+    fn update_mono_sum(&mut self, interleaved: &[f64], frame_count: usize) {
+        let usable = self
+            .mono_sum
+            .as_ref()
+            .is_some_and(|analyzer| analyzer.frames() == frame_count);
+        if !usable {
+            self.mono_sum = MonoSumAnalyzer::new(self.sample_rate, frame_count);
+        }
+        self.mono_sum_db = self
+            .mono_sum
+            .as_mut()
+            .and_then(|analyzer| analyzer.analyze(interleaved))
+            .unwrap_or([None; MONO_SUM_BAND_COUNT]);
     }
 
     /// Clears only the Hybrid VU's user-resettable TP maximum and clip latch.
@@ -285,6 +320,12 @@ impl StereoMeter {
             correlation,
             field_density: normalized_field_density(&self.field_sum),
             field_observation_count: self.field_window.len() as u8,
+            mono_sum_db: self.mono_sum_db,
+            mono_sum_approximate_below_hz: self
+                .mono_sum
+                .as_ref()
+                .map(MonoSumAnalyzer::approximate_below_hz)
+                .unwrap_or(0.0),
         }
     }
 

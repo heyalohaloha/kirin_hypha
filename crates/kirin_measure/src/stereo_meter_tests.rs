@@ -205,3 +205,77 @@ fn field_density_has_mid_side_orientation_and_an_exact_three_second_window() {
         .iter()
         .all(|value| *value == 0));
 }
+
+#[test]
+fn mono_sum_reaches_the_snapshot_and_survives_a_changed_observation_length() {
+    use crate::mono_sum::MONO_SUM_BAND_COUNT;
+
+    const SR: u32 = 48_000;
+    let tones = |frames: usize, invert: bool| {
+        let mut out = Vec::with_capacity(frames * 2);
+        for index in 0..frames {
+            let value: f64 = (0..MONO_SUM_BAND_COUNT)
+                .map(|band| {
+                    let (low, high) = crate::log_bands::log_band_edges(
+                        band,
+                        MONO_SUM_BAND_COUNT,
+                        crate::mono_sum::MONO_SUM_MIN_HZ,
+                        crate::mono_sum::MONO_SUM_MAX_HZ,
+                    );
+                    let centre = (low as f64 * high as f64).sqrt();
+                    (std::f64::consts::TAU * centre * index as f64 / SR as f64).sin() * 0.02
+                })
+                .sum();
+            out.push(value);
+            out.push(if invert { -value } else { value });
+        }
+        out
+    };
+
+    let mut meter = StereoMeter::new(SR, 2).expect("meter");
+    assert!(
+        meter.snapshot().mono_sum_db.iter().all(Option::is_none),
+        "an empty meter must not claim a survival figure"
+    );
+
+    meter.push_observation(&tones(4_800, false));
+    let identical = meter.snapshot();
+    let measured = identical.mono_sum_db.iter().filter(|v| v.is_some()).count();
+    assert!(measured >= 26, "only {measured} bands were measured");
+    for value in identical.mono_sum_db.iter().flatten() {
+        assert!(value.abs() < 0.1, "identical channels read {value} dB");
+    }
+    assert!((identical.mono_sum_approximate_below_hz - 30.0).abs() < 0.001);
+
+    // A host that changes its buffer size changes the observation length. The analyzer is rebuilt
+    // for the new one instead of refusing every observation from then on.
+    meter.push_observation(&tones(2_400, true));
+    let shorter = meter.snapshot();
+    assert!(
+        shorter.mono_sum_db.iter().any(Option::is_some),
+        "a changed observation length must not silence MONO"
+    );
+    assert!((shorter.mono_sum_approximate_below_hz - 60.0).abs() < 0.001);
+    for value in shorter.mono_sum_db.iter().flatten() {
+        assert!(*value < -20.0, "an inverted pair read {value} dB");
+    }
+
+    // A reset leaves nothing behind.
+    meter.reset();
+    assert!(meter.snapshot().mono_sum_db.iter().all(Option::is_none));
+}
+
+#[test]
+fn mono_input_reports_no_mono_sum_instead_of_zero() {
+    let mut meter = StereoMeter::new(48_000, 1).expect("meter");
+    let samples: Vec<f64> = (0..4_800)
+        .map(|index| (std::f64::consts::TAU * 1_000.0 * index as f64 / 48_000.0).sin() * 0.4)
+        .collect();
+    meter.push_observation(&samples);
+    let snapshot = meter.snapshot();
+    assert!(
+        snapshot.mono_sum_db.iter().all(Option::is_none),
+        "mono input has no stereo to lose"
+    );
+    assert_eq!(snapshot.mono_sum_approximate_below_hz, 0.0);
+}

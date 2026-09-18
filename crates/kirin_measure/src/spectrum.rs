@@ -7,6 +7,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::log_bands::log_band_edges;
 use rustfft::num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
 
@@ -472,11 +473,7 @@ impl SpectrumAnalyzer {
 }
 
 fn band_plan(index: usize, min_hz: f32, max_hz: f32, bin_hz: f32, max_bin: usize) -> BandPlan {
-    let ratio = max_hz / min_hz;
-    let edge =
-        |offset: usize| min_hz * ratio.powf((index + offset) as f32 / SPECTRUM_BAND_COUNT as f32);
-    let low = edge(0);
-    let high = edge(1);
+    let (low, high) = log_band_edges(index, SPECTRUM_BAND_COUNT, min_hz, max_hz);
     let first = (low / bin_hz).ceil().max(1.0) as usize;
     let last = (high / bin_hz).floor().min(max_bin as f32) as usize;
     if last >= first {
