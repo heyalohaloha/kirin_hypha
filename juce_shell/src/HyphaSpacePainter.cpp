@@ -1,5 +1,7 @@
 #include "HyphaSpacePainter.h"
 
+#include "HyphaMonoSumPainter.h"
+
 #include "HyphaTheme.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
@@ -158,7 +160,10 @@ void paint (juce::Graphics& g,
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (monoFont (presentation, typography::TextRole::legend,
                          typography::Composition::visualization));
-    g.drawText (compact ? "3 S M/S" : "3 S M/S POLARITY DENSITY",
+    // The smallest size shows MONO instead of the density scatter, so the title names what is
+    // there. The scatter answers "wide or narrow"; MONO answers "which band is lost and by how
+    // much", and the smaller the panel the more the denser answer is worth its space.
+    g.drawText (compact ? "3 S MONO" : "3 S M/S POLARITY DENSITY",
                 title, juce::Justification::centredLeft);
     const bool fieldAvailable = available && meter.channels == 2
                              && meter.field_size == KIRIN_STEREO_FIELD_SIZE
@@ -173,30 +178,50 @@ void paint (juce::Graphics& g,
                                  : meter.field_observation_count < 30u
                                      ? juce::String (meter.field_observation_count) + "/30"
                                      : juce::String ("30/30");
-    g.setColour (fieldAvailable ? COL_SPECTRUM_POST : COL_MUTED);
-    g.drawText (compact ? compactFieldState : fieldState,
-                title, juce::Justification::centredRight);
+    const auto rightText = compact ? mono_sum_curve::stateText (meter, available)
+                                   : (compact ? compactFieldState : fieldState);
+    g.setColour ((compact ? mono_sum_curve::hasBands (meter, available) : fieldAvailable)
+                     ? COL_SPECTRUM_POST : COL_MUTED);
+    g.drawText (rightText, title, juce::Justification::centredRight);
 
     const int gap = compact ? 5 : 8;
+    // MONO takes the full width before the metric column is cut, so the curve spans the panel
+    // rather than stopping at the scatter. The metrics keep the height they need above it.
+    auto mono = compact ? juce::Rectangle<int> {}
+                        : area.removeFromBottom (juce::roundToInt (area.getHeight() * 0.32f));
+    if (! compact)
+        area.removeFromBottom (gap);
+
     const int metricWidth = juce::jlimit (82, compact ? 102 : 168,
                                           juce::roundToInt (area.getWidth() * 0.31f));
     auto metrics = area.removeFromRight (metricWidth);
     area.removeFromRight (gap);
-    const int side = juce::jmin (area.getWidth(), area.getHeight());
-    auto field = juce::Rectangle<int> (0, 0, side, side).withCentre (area.getCentre());
-    drawPanel (g, field, compact);
-    auto plot = field.reduced (compact ? 11 : 16).toFloat();
-    drawFieldAxes (g, plot);
-    if (fieldAvailable)
-        drawDensity (g, plot, meter);
-    drawAxisLabels (g, plot.getSmallestIntegerContainer(), compact, presentation);
-    if (! fieldAvailable && ! compact)
+
+    if (compact)
     {
-        g.setColour (COL_TEXT_SECONDARY);
-        g.setFont (monoFont (presentation, typography::TextRole::status,
-                             typography::Composition::visualization));
-        g.drawText (fieldState, plot.getSmallestIntegerContainer(),
-                    juce::Justification::centred);
+        mono_sum_curve::paint (g, area, meter, available, true, false, presentation);
+    }
+    else
+    {
+        const int side = juce::jmin (area.getWidth(), area.getHeight());
+        auto field = juce::Rectangle<int> (0, 0, side, side).withCentre (area.getCentre());
+        drawPanel (g, field, compact);
+        auto plot = field.reduced (11).toFloat();
+        drawFieldAxes (g, plot);
+        if (fieldAvailable)
+            drawDensity (g, plot, meter);
+        drawAxisLabels (g, plot.getSmallestIntegerContainer(), compact, presentation);
+        if (! fieldAvailable)
+        {
+            g.setColour (COL_TEXT_SECONDARY);
+            g.setFont (monoFont (presentation, typography::TextRole::status,
+                                 typography::Composition::visualization));
+            g.drawText (fieldState, plot.getSmallestIntegerContainer(),
+                        juce::Justification::centred);
+        }
+        drawPanel (g, mono, compact);
+        mono_sum_curve::paint (g, mono.reduced (4, 3), meter, available, false, true,
+                               presentation);
     }
 
     auto balance = metrics.removeFromTop ((metrics.getHeight() - gap) / 2);

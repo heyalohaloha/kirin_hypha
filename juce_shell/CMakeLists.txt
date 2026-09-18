@@ -322,6 +322,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaTimePageNavigation.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaMonoSumPainter.cpp
         src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
@@ -540,6 +541,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaMonoSumPainter.cpp
         src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
@@ -613,6 +615,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaObservatoryLevelStrips.cpp
         src/HyphaTimePageNavigation.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaMonoSumPainter.cpp
         src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp
@@ -916,6 +919,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaObservatoryViewFooter.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaSpacePainter.cpp
+        src/HyphaMonoSumPainter.cpp
         src/HyphaTimeHistoryLayout.cpp
         src/HyphaTimeHistoryPainter.cpp
         src/HyphaRunSummary.cpp

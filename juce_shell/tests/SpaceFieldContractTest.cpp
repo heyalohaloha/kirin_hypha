@@ -1,5 +1,10 @@
 #include "SpaceFieldContractTest.h"
 
+#include "../src/HyphaMonoSumPainter.h"
+
+#include <cmath>
+#include <limits>
+
 #include "../src/HyphaObservatoryView.h"
 
 #include <cstdlib>
@@ -45,6 +50,20 @@ KirinMeterSession fixture (bool sideDominant)
         meter.field_density[row * KIRIN_STEREO_FIELD_SIZE + column]
             = static_cast<uint8_t> (juce::jmax (36, 255 - distance * 17));
     }
+    // A plausible MONO shape: an ordinary mix near -0.7 dB, a low-end cancellation around 80 Hz,
+    // and two bands with nothing to measure so the curve has to break rather than draw 0 dB.
+    meter.mono_sum_band_count = (uint8_t) KIRIN_MONO_SUM_BAND_COUNT;
+    meter.mono_sum_approximate_below_hz = 30.0f;
+    for (size_t band = 0u; band < KIRIN_MONO_SUM_BAND_COUNT; ++band)
+    {
+        const float ratio = KIRIN_MONO_SUM_MAX_HZ / KIRIN_MONO_SUM_MIN_HZ;
+        const float centre = KIRIN_MONO_SUM_MIN_HZ
+            * std::pow (ratio, ((float) band + 0.5f) / (float) KIRIN_MONO_SUM_BAND_COUNT);
+        const float octavesFrom80 = std::log2 (centre / 80.0f);
+        meter.mono_sum_db[band] = -0.7f - 17.0f * std::exp (-octavesFrom80 * octavesFrom80 * 2.0f);
+    }
+    meter.mono_sum_db[1] = std::numeric_limits<float>::quiet_NaN();
+    meter.mono_sum_db[2] = std::numeric_limits<float>::quiet_NaN();
     return meter;
 }
 
@@ -72,8 +91,94 @@ int changedPixels (const juce::Image& first, const juce::Image& second)
 }
 }
 
+namespace
+{
+/// The split scale is the contract: the top half carries 0..-6 dB because that is where every
+/// value a user acts on lives, and the bottom half carries -6..-24 dB.
+void verifyMonoSumScale()
+{
+    const juce::Rectangle<float> plot { 0.0f, 100.0f, 200.0f, 80.0f };
+    const auto top = mono_sum_curve::yForDb (0.0f, plot);
+    const auto middle = mono_sum_curve::yForDb (KIRIN_MONO_SUM_DISPLAY_MIDPOINT_DB, plot);
+    const auto floor = mono_sum_curve::yForDb (KIRIN_MONO_SUM_DISPLAY_FLOOR_DB, plot);
+    KIRIN_SPACE_REQUIRE (std::abs (top - plot.getY()) < 0.01f);
+    KIRIN_SPACE_REQUIRE (std::abs (middle - (plot.getY() + plot.getHeight() * 0.5f)) < 0.01f);
+    KIRIN_SPACE_REQUIRE (std::abs (floor - plot.getBottom()) < 0.01f);
+
+    // -3.01 dB is a hard-panned source and lands exactly halfway down the top half.
+    const auto panned = mono_sum_curve::yForDb (-3.0103f, plot);
+    const auto expected = plot.getY() + plot.getHeight() * 0.25f;
+    KIRIN_SPACE_REQUIRE (std::abs (panned - expected) < 0.35f);
+
+    // Beyond the scale the value stops at its edge rather than leaving the plot.
+    KIRIN_SPACE_REQUIRE (mono_sum_curve::yForDb (-60.0f, plot) <= plot.getBottom() + 0.01f);
+    KIRIN_SPACE_REQUIRE (mono_sum_curve::yForDb (5.0f, plot) >= plot.getY() - 0.01f);
+}
+
+KirinMeterSession flatMonoFixture (float db)
+{
+    auto meter = fixture (false);
+    for (auto& value : meter.mono_sum_db)
+        value = db;
+    return meter;
+}
+
+int inkInColumn (const juce::Image& image, int x, int fromY, int toY)
+{
+    int count = 0;
+    for (int y = fromY; y < toY; ++y)
+        count += image.getPixelAt (x, y).getAlpha() > 0 ? 1 : 0;
+    return count;
+}
+
+/// The curve has to move with the value, stop where the scale stops, and break where a band was
+/// not measured rather than drawing the one reading that means the band loses nothing.
+void verifyMonoSumCurveRendering()
+{
+    const auto identical = render (flatMonoFixture (0.0f), 600, 400);
+    const auto panned = render (flatMonoFixture (-3.0103f), 600, 400);
+    const auto collapsed = render (flatMonoFixture (KIRIN_MONO_SUM_DISPLAY_FLOOR_DB), 600, 400);
+    KIRIN_SPACE_REQUIRE (changedPixels (identical, panned) > 100);
+    KIRIN_SPACE_REQUIRE (changedPixels (panned, collapsed) > 100);
+
+    // A band with nothing to measure leaves its column without a curve, while its neighbours keep
+    // theirs. Both frames are otherwise the same, so the difference is the break itself.
+    auto broken = flatMonoFixture (0.0f);
+    for (size_t band = 12u; band < 20u; ++band)
+        broken.mono_sum_db[band] = std::numeric_limits<float>::quiet_NaN();
+    const auto withBreak = render (broken, 600, 400);
+    KIRIN_SPACE_REQUIRE (changedPixels (identical, withBreak) > 40);
+
+    // Every size draws it, and none of them draws it outside the panel.
+    for (const auto dimensions : {
+             std::pair { 300, 200 }, std::pair { 375, 250 }, std::pair { 450, 300 },
+             std::pair { 600, 400 }, std::pair { 900, 600 } })
+    {
+        const auto present = render (flatMonoFixture (-1.0f), dimensions.first, dimensions.second);
+        const auto absent = render (flatMonoFixture (KIRIN_MONO_SUM_DISPLAY_FLOOR_DB),
+                                    dimensions.first, dimensions.second);
+        KIRIN_SPACE_REQUIRE (changedPixels (present, absent) > 20);
+    }
+
+    // Mono input has no stereo to lose, so no curve is drawn and the state says why.
+    auto monoInput = flatMonoFixture (-1.0f);
+    monoInput.channels = 1;
+    monoInput.mono_sum_band_count = 0;
+    for (auto& value : monoInput.mono_sum_db)
+        value = std::numeric_limits<float>::quiet_NaN();
+    const auto withoutStereo = render (monoInput, 600, 400);
+    KIRIN_SPACE_REQUIRE (changedPixels (render (flatMonoFixture (-1.0f), 600, 400),
+                                        withoutStereo) > 100);
+    KIRIN_SPACE_REQUIRE (! mono_sum_curve::hasBands (monoInput, true));
+    KIRIN_SPACE_REQUIRE (mono_sum_curve::hasBands (flatMonoFixture (-1.0f), true));
+    KIRIN_SPACE_REQUIRE (! mono_sum_curve::hasBands (flatMonoFixture (-1.0f), false));
+}
+}
+
 void verifySpaceFieldContract()
 {
+    verifyMonoSumScale();
+    verifyMonoSumCurveRendering();
     const auto mid = fixture (false);
     const auto side = fixture (true);
     const auto midImage = render (mid, 600, 400);

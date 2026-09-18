@@ -139,7 +139,7 @@ JUCE 側 2 箇所の `static_assert` が同時にこれを固定する（更新�
 - `HyphaObservationEquality.h` の key に新フィールドを追加（NaN 比較を含む）
 - ABI padding 試験を新レイアウトへ更新
 
-### Phase 3 — SPACE の表示（案 1: カーブ）
+### Phase 3 — SPACE の表示（案 1: カーブ）  ✅ 完了 / B-912
 
 - 32 帯域のカーブ。上端 0 dB、下端は表示床。**固定スケール、auto-range なし**（INV-S8 / S10 の家則）
 - undefined の帯域は**線を切る。** 0 dB を描かない
@@ -239,11 +239,16 @@ MONO は 32 帯域の配列で、TIME 履歴の 10 Hz 容量 6000 点に入れ�
 である correlation とは容量の桁が違う。**代償として「editor を閉じると 6 秒の履歴は消える」。**
 これを受け入れた上で明記する。
 
-### 再生が止まっているとき
+### 再生が止まっているとき  ✅ 実装で確認（B-912）
 
-**直近の観測を保持し、Meter Session の Pause / Inactive の既存規則に合わせる。** LEVEL の数値が
-持つ 9 秒保持・5 秒減光、LIVE の「一時 warming は直前の verified field を消さない」と同じ扱い。
-Phase 3 の描画契約に含める。初稿はここが未定義だった。
+**直近の観測を保持し、Meter Session の Pause / Inactive の既存規則に合わせる。** 実装後に経路を
+確認したところ、追加の保持機構は要らなかった。
+
+- **Pause / Inactive**: 観測が来ないので engine の `mono_sum_db` が更新されず、直近の値がその
+  まま残る。表示可否は既存の `available` が決める。
+- **再生中の無音**: engine が全帯域 undefined を返し、MONO は空になる。これは正しい。測るものが
+  無いときに「完全にモノ互換」と読める 0 dB を出さないための規則そのものである。
+  `correlation` も同じ条件で NaN になるので、SPACE 内で扱いが揃っている。
 
 ### PRE にも出る
 

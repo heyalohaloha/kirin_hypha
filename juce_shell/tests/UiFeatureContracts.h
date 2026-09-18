@@ -45,14 +45,15 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         && std::string_view (argv[1]) == "--analysis-demand-only";
     const bool absoluteSpectrumOnly = argc == 2
         && std::string_view (argv[1]) == "--absolute-spectrum-only";
+    const bool spaceOnly = argc == 2 && std::string_view (argv[1]) == "--space-only";
     if (argc != 1 && ! entryOnly && ! updatesOnly && ! focusOnly && ! hybridVuOnly
         && ! typographyOnly && ! typographyVisualOnly && ! timeHistoryOnly
-        && ! analysisDemandOnly && ! absoluteSpectrumOnly)
+        && ! analysisDemandOnly && ! absoluteSpectrumOnly && ! spaceOnly)
     {
         std::cerr << "Usage: KirinUiRenderContractTests [--product-entry-only|"
                      "--observation-update-only|--spectrum-focus-only|--hybrid-vu-only|"
                      "--typography-only|--typography-visual-only|--time-history-only|"
-                     "--analysis-demand-only|--absolute-spectrum-only]\n";
+                     "--analysis-demand-only|--absolute-spectrum-only|--space-only]\n";
         std::exit (EXIT_FAILURE);
     }
     observation_equality_contract::verify();
@@ -60,6 +61,11 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     // The row rule FREQ and SPACE share. Cheap, so every focused run exercises it.
     verifyTimeFieldContract();
     if (analysisDemandOnly) return true;
+    if (spaceOnly)
+    {
+        verifySpaceFieldContract();
+        return true;
+    }
     if (absoluteSpectrumOnly)
     {
         verifyAbsoluteSpectrumContract();
