@@ -253,7 +253,85 @@ Spectrum FIELD aggregation / Phase D aggregate / SPACE。
 本番の呼出し元は `absolute_timeline.rs:179` の 1 つで、そちらは `:170` でガードされる。
 **独立した危険ではないが、明示 map の適用対象に必ず含める。**
 
-## 10. 初期公開の考え方
+## 10. Reference の異種 layout 比較（承認事項 4）
+
+### 10.1 現行の比較契約 [A]
+
+```rust
+crates/kirin_measure/src/reference_gain.rs:160-174
+pub fn analyze_reference_gain(a: &[f32], b: &[f32], sample_rate: u32, channels: usize)
+    ...
+    || !matches!(channels, 1 | 2)
+    || a.len() != b.len()
+```
+
+```rust
+crates/kirin_measure/src/reference_gain.rs:80-95   analyze_track_event_gain
+    ... 同じ形（post と pre で channels は 1 つ、長さ不一致はエラー）
+```
+
+```cpp
+juce_shell/src/reference_audition/ReferenceACaptureRevisit.cpp:87
+if (block.channels != data.channels || ...) // 不一致は拒否
+```
+
+**A と B は「同一チャンネル数・同一長・同一 sample rate」でなければ比較しない。**
+`channels` はひとつの引数で、**両者が別の layout を持つことを表現できない。**
+
+異種 layout 比較は「未定義」ではなく、**構造的に排除されている。**
+
+### 10.2 しかし異種 layout は自然な運用である
+
+AGENTS.md:59 / 77-83 のとおり、**Reference B は登録済みのファイル**である。
+利用者が明示した比較試聴で、不変の Reference を B 経路で再生する。
+
+したがって **入力 A が 7.1.4 で、登録した Reference B が stereo** という組合せは、
+仮定ではなく**マスタリングの通常の作業**である。
+
+**サラウンド対応で最初に壊れるのはここではないが、最初に「使えない」と気づかれるのはここである。**
+
+### 10.3 「比較可能」の定義 — 推奨
+
+| 案 | 内容 | 評価 |
+|---|---|---|
+| (i) 同一 layout のみ | 現行の延長。A と B の layout が一致しなければ比較しない | 最も安全。**だが stereo reference が 7.1.4 セッションで一切使えない** |
+| (ii) 明示 view 経由 | A を明示した downmix で B の layout へ落として比較する | 実用的。**測定条件の記録が必須** |
+| (iii) 共通 view | A と B の両方を mono / stereo などの共通 view へ落とす | B が失う情報も増える。(ii) より根拠が弱い |
+
+**推奨: 既定を (i) とし、(ii) を「利用者が明示的に選択した比較 view」として追加する。**
+
+根拠:
+
+1. **R-22**。どの view で比較したかを利用者が選び、Hypha は**選ばれた view の事実だけを出す**。
+   Hypha が勝手に downmix して「比較できました」とはしない。
+2. **BS.1770-5 Annex 4**（findings §6.2）。レンダリングして測る場合は
+   **使用した配置とレンダリング方法を報告する**。比較 view も同じ規律で記録する。
+3. **R-12**。比較用 downmix は**測定のための内部計算**であり、入力 A の出力音声を変えない。
+   既存 MONO と同じ扱いで、新しい原則を持ち込まない。
+4. **既定を (i) にする理由**: 無言で downmix して比較すると、
+   **利用者は「7.1.4 と stereo を比べた」ことに気づかない。** §3 の C と同じ失敗になる。
+
+### 10.4 記録すべき項目
+
+比較を行った場合、計画 §5.4 の分離に次を足す。
+
+- A の layout / B の layout
+- **比較に使った view**（どちらに合わせたか、恒等か downmix か）
+- **downmix 係数の出典と版**（計画 §7.4。**未確認の係数を記憶で埋めない**）
+- 比較が成立しなかった場合の理由（layout 不一致 / 長さ不一致 / rate 不一致）
+
+**「比較できない」を無言で空値にしない。** 理由まで記録する。
+
+### 10.5 この判断に依存する指標
+
+| 指標 | 依存 |
+|---|---|
+| Reference gain | **直接依存。** `channels` 引数の形そのものを変える |
+| Reference visual | 直接依存 |
+| Reference tonal | 直接依存 |
+| Reference capture index | **依存しない。** digest は PCM 同一性であって layout 同一性ではない（capacity §6）。ただし 64 byte 保存契約は別途 |
+
+## 11. 初期公開の考え方
 
 **初期公開を「全指標 16ch 化」と定義しない。**
 
@@ -266,18 +344,18 @@ Spectrum FIELD aggregation / Phase D aggregate / SPACE。
 - **silent clamp / silent drop が存在しない**
 - **channel map が不明な状態で loudness 値を出さない**
 
-## 11. 承認事項（P-0 が事実を確定した後、順に）
+## 12. 承認事項（P-0 が事実を確定した後、順に）
 
 1. どの指標を初期 5.1 で Nch 化するか
 2. どの stereo-only 指標を明示的適用外とするか
 3. Correlation pair extension / Balance / MONO 置換 / Attack aggregation /
    Spectrum aggregation を初期版に含めるか
-4. Reference で異種 layout 比較を許すか
+4. Reference で異種 layout 比較を許すか（**§10。推奨は「既定 (i) + 明示選択で (ii)」**）
 5. 7.1.4 へ進む時点
 
 工数・日程は判断材料にしない。
 
-## 12. 評価 — 問題は 4 層に分かれる
+## 13. 評価 — 問題は 4 層に分かれる
 
 サラウンド化は「チャンネル数を 16 へ増やす作業」ではない。
 
@@ -293,7 +371,7 @@ Spectrum FIELD aggregation / Phase D aggregate / SPACE。
 最も危険なのは「構築できない R」ではない。
 **構築できて正常に見える C と、値まで出る G である。**
 
-## 13. probe の構成
+## 14. probe の構成
 
 役割で 2 つに分けてある。**バイト数を測るものと、挙動を測るものは別物である。**
 
@@ -309,9 +387,9 @@ cargo run -p kirin_measure --example channel_contract_probe --release -- accept 
 
 `memory_contract_probe` は **1 ケース 1 プロセス**で実行する（§10 / capacity 文書）。
 
-## 14. 未確認 [C]
+## 15. 未確認 [C]
 
 - Sharpness continuous の Nch 適用可否。
 - Spectrum の presentation model を Nch でどう設計するか（**C の解消はここに依存する**）。
 - 各指標の窓長・hop・正規化・無音条件・reset 条件。**本表は Nch 挙動に絞っている。**
-- Reference B が stereo、入力 A が Nch のときの比較条件。
+- (ii) を採る場合の downmix 係数の出典（計画 §7.4）。
