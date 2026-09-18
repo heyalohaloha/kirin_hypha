@@ -12,6 +12,7 @@
 #include "AbsoluteSpectrumContractTest.h"
 #include "ObservatoryViewContractTest.h"
 #include "CaptureHistoryContractTest.h"
+#include "TimeFieldContractTest.h"
 #include "TimeHistoryContractTest.h"
 #include "SpaceFieldContractTest.h"
 #include "ReferenceAuditionComponentContractTest.h"
@@ -56,6 +57,8 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     }
     observation_equality_contract::verify();
     analysis_demand_contract::verify();
+    // The row rule FREQ and SPACE share. Cheap, so every focused run exercises it.
+    verifyTimeFieldContract();
     if (analysisDemandOnly) return true;
     if (absoluteSpectrumOnly)
     {

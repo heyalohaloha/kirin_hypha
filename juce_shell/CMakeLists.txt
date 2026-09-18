@@ -588,6 +588,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/ObservationPageContractTest.cpp
         tests/CaptureHistoryContractTest.cpp
         tests/SpaceFieldContractTest.cpp
+        tests/TimeFieldContractTest.cpp
         tests/TimeHistoryContractTest.cpp
         tests/TimePageNavigationContractTest.cpp
         tests/TypographyContractTest.cpp

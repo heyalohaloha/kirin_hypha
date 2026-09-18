@@ -4,6 +4,7 @@
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 #include "HyphaPolylineGeometry.h"
+#include "HyphaTimeFieldImage.h"
 
 #include <algorithm>
 #include <array>
@@ -62,108 +63,6 @@ namespace
         const int entry = (int) std::lround ((dbfs - kMagnitudeFloorDbfs)
                                              * (float) kFieldStepsPerDb);
         return table[(size_t) juce::jlimit (0, (int) table.size() - 1, entry)];
-    }
-
-    // The field as one image: a column per measured band, a row per 1/180 of the six seconds,
-    // newest at the bottom.
-    //
-    // Each row shows the observation nearest its own instant, and stays empty only when the
-    // nearest one is further away than this stream's own cadence. Scattering observations into
-    // the row their age falls in looked simpler but is wrong: hosts publish on their own buffer
-    // boundaries, so a 1024-sample host at 48 kHz delivers one observation per 42.7 ms and leaves
-    // 22% of the rows empty, drawing a striped field that no measurement gap caused. A fixed
-    // tolerance of one row is wrong for the same reason one step further out: a 4096-sample
-    // buffer publishes every 85 ms and the stripes come back. Measuring the cadence from the
-    // observations themselves holds at any buffer size, and still leaves a real break visible,
-    // because a break is long against the cadence that surrounds it.
-    juce::Image makeFieldImage (const absolute_spectrum::History& history)
-    {
-        if (history.empty())
-            return {};
-
-        constexpr int rows = (int) absolute_spectrum::historyCapacity;
-        constexpr int columns = (int) KIRIN_SPECTRUM_BAND_COUNT;
-        constexpr double rowSeconds = absolute_spectrum::historySeconds / (double) rows;
-        const auto& newest = history.at (history.size() - 1u);
-
-        // The observations inside the window, oldest first, with their age.
-        std::array<double, absolute_spectrum::historyCapacity> ages {};
-        std::array<size_t, absolute_spectrum::historyCapacity> source {};
-        size_t inWindow = 0u;
-        for (size_t frameIndex = 0u; frameIndex < history.size(); ++frameIndex)
-        {
-            const auto& frame = history.at (frameIndex);
-            const double ageSeconds = frame.sampleRate > 0u
-                ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate
-                : absolute_spectrum::historySeconds;
-            if (ageSeconds < 0.0 || ageSeconds > absolute_spectrum::historySeconds)
-                continue;
-            ages[inWindow] = ageSeconds;
-            source[inWindow] = frameIndex;
-            ++inWindow;
-        }
-        if (inWindow == 0u)
-            return {};
-
-        // This stream's own cadence: the median interval between the observations in the window.
-        // The median ignores the few long intervals a real break creates, so the break stays
-        // measured against the normal spacing rather than against itself.
-        double cadenceSeconds = rowSeconds;
-        if (inWindow > 1u)
-        {
-            std::array<double, absolute_spectrum::historyCapacity> intervals {};
-            const size_t count = inWindow - 1u;
-            for (size_t index = 0u; index < count; ++index)
-                intervals[index] = ages[index] - ages[index + 1u];
-            const auto middle = intervals.begin() + (std::ptrdiff_t) (count / 2u);
-            std::nth_element (intervals.begin(), middle, intervals.begin() + (std::ptrdiff_t) count);
-            // The cap matters when there is almost nothing to take a median of: two observations
-            // five seconds apart would otherwise call five seconds the cadence and fill the whole
-            // field from them. Half a second is fifteen times the intended 30 Hz cadence and about
-            // three times the most extreme buffer a host publishes on (8192 frames at 48 kHz), so
-            // no working host reaches it.
-            constexpr double slowestCredibleCadenceSeconds = 0.5;
-            cadenceSeconds = juce::jlimit (rowSeconds, slowestCredibleCadenceSeconds, *middle);
-        }
-
-        juce::Image image (juce::Image::ARGB, columns, rows, true,
-                           juce::SoftwareImageType {});
-        juce::Image::BitmapData pixels (image, juce::Image::BitmapData::writeOnly);
-
-        // One premultiplied colour per 1/255 alpha step, so the inner loop is a table lookup.
-        static const auto ink = [] {
-            std::array<juce::PixelARGB, 256> built {};
-            for (size_t step = 0u; step < built.size(); ++step)
-                built[step] = COL_SPECTRUM_POST.withAlpha ((float) step / 255.0f).getPixelARGB();
-            return built;
-        }();
-        const auto& alphaTable = fieldAlphaTable();
-
-        // Ages fall as the index rises and the rows ask for rising ages, so one walk covers both.
-        size_t candidate = inWindow - 1u;
-        bool painted = false;
-        for (int fromBottom = 0; fromBottom < rows; ++fromBottom)
-        {
-            const double instant = ((double) fromBottom + 0.5) * rowSeconds;
-            while (candidate > 0u
-                   && std::abs (ages[candidate - 1u] - instant)
-                          <= std::abs (ages[candidate] - instant))
-                --candidate;
-            if (std::abs (ages[candidate] - instant) > cadenceSeconds)
-                continue;
-
-            const auto& frame = history.at (source[candidate]);
-            auto* line = (juce::PixelARGB*) pixels.getLinePointer (rows - 1 - fromBottom);
-            for (int column = 0; column < columns; ++column)
-            {
-                const auto step = fieldAlphaStepFor (frame.postDbfs[(size_t) column], alphaTable);
-                if (step == 0u)
-                    continue;
-                line[column] = ink[step];
-                painted = true;
-            }
-        }
-        return painted ? image : juce::Image {};
     }
 
     float yForMagnitudeDbfs (float dbfs, juce::Rectangle<float> plot) noexcept
@@ -367,16 +266,30 @@ void paintAbsolute (juce::Graphics& g,
                     const absolute_spectrum::History& history,
                     presentation::Context presentation)
 {
-    if (const auto field = makeFieldImage (history); field.isValid())
+    if (! history.empty())
     {
-        // One blit at the measured resolution. The previous 64 x 40 cell grid kept one frame per
-        // row, so 140 of 180 observations never reached the screen and the surviving rows stepped
-        // a whole cell every 150 ms. Rows now carry the 30 Hz observations themselves.
-        const juce::Graphics::ScopedSaveState saved (g);
-        // Nearest neighbour. A smoothed stretch would blend neighbouring observations into pixels
-        // that were never measured, and would bridge a gap instead of showing it.
-        g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
-        g.drawImage (field, plot, juce::RectanglePlacement::stretchToFit, false);
+        // One blit at the measured resolution: a column per band, a row per 1/180 of the six
+        // seconds. The 64 x 40 cell grid this replaced kept one frame per row, so 140 of 180
+        // observations never reached the screen and the survivors stepped a whole cell every
+        // 150 ms. hypha::time_field owns the row rule, so SPACE draws MONO by the same one.
+        const auto& newest = history.at (history.size() - 1u);
+        const auto& alphaTable = fieldAlphaTable();
+        const auto field = time_field::build (
+            { (int) absolute_spectrum::historyCapacity, (int) KIRIN_SPECTRUM_BAND_COUNT,
+              absolute_spectrum::historySeconds },
+            history.size(),
+            [&history, &newest] (size_t index) {
+                const auto& frame = history.at (index);
+                return frame.sampleRate > 0u
+                    ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate
+                    : absolute_spectrum::historySeconds;
+            },
+            [&history] (size_t index, int column) {
+                return history.at (index).postDbfs[(size_t) column];
+            },
+            COL_SPECTRUM_POST,
+            [&alphaTable] (float dbfs) { return fieldAlphaStepFor (dbfs, alphaTable); });
+        time_field::draw (g, field, plot);
     }
 
     SpectrumBins x {};
