@@ -129,18 +129,23 @@ void drawAxisLabels (juce::Graphics& g, juce::Rectangle<int> plot, bool compact,
     g.setFont (monoFont (presentation, typography::TextRole::axis,
                          typography::Composition::visualization));
     const auto rowHeight = juce::jmin (axisLabelHeight (presentation), plot.getHeight() / 3);
-    const auto sideWidth = juce::jmin (axisLabelWidth (presentation, compact),
+    // The short form is chosen by what fits, not by which size preset this is. Adding MONO takes
+    // height from the scatter, so a large editor can end up with a square too narrow for the long
+    // labels; "SIDE ..." names nothing, while "S>0" still does.
+    const bool shortLabels = compact
+        || plot.getWidth() / 3 < axisLabelWidth (presentation, false);
+    const auto sideWidth = juce::jmin (axisLabelWidth (presentation, shortLabels),
                                       plot.getWidth() / 3);
-    g.drawText (compact ? "M>0" : "MID > 0",
+    g.drawText (shortLabels ? "M>0" : "MID > 0",
                 juce::Rectangle<int> { plot.getX(), plot.getY(), plot.getWidth(), rowHeight },
                 juce::Justification::centred);
-    g.drawText (compact ? "M<0" : "MID < 0",
+    g.drawText (shortLabels ? "M<0" : "MID < 0",
                 juce::Rectangle<int> { plot.getX(), plot.getBottom() - rowHeight,
                                        plot.getWidth(), rowHeight },
                 juce::Justification::centred);
-    g.drawText (compact ? "S<0" : "SIDE < 0", plot.withWidth (sideWidth),
+    g.drawText (shortLabels ? "S<0" : "SIDE < 0", plot.withWidth (sideWidth),
                 juce::Justification::centredLeft);
-    g.drawText (compact ? "S>0" : "SIDE > 0",
+    g.drawText (shortLabels ? "S>0" : "SIDE > 0",
                 plot.withX (plot.getRight() - sideWidth).withWidth (sideWidth),
                 juce::Justification::centredRight);
 }
@@ -160,10 +165,7 @@ void paint (juce::Graphics& g,
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (monoFont (presentation, typography::TextRole::legend,
                          typography::Composition::visualization));
-    // The smallest size shows MONO instead of the density scatter, so the title names what is
-    // there. The scatter answers "wide or narrow"; MONO answers "which band is lost and by how
-    // much", and the smaller the panel the more the denser answer is worth its space.
-    g.drawText (compact ? "3 S MONO" : "3 S M/S POLARITY DENSITY",
+    g.drawText (compact ? "3 S M/S" : "3 S M/S POLARITY DENSITY",
                 title, juce::Justification::centredLeft);
     const bool fieldAvailable = available && meter.channels == 2
                              && meter.field_size == KIRIN_STEREO_FIELD_SIZE
@@ -178,18 +180,27 @@ void paint (juce::Graphics& g,
                                  : meter.field_observation_count < 30u
                                      ? juce::String (meter.field_observation_count) + "/30"
                                      : juce::String ("30/30");
-    const auto rightText = compact ? mono_sum_curve::stateText (meter, available)
-                                   : (compact ? compactFieldState : fieldState);
-    g.setColour ((compact ? mono_sum_curve::hasBands (meter, available) : fieldAvailable)
-                     ? COL_SPECTRUM_POST : COL_MUTED);
-    g.drawText (rightText, title, juce::Justification::centredRight);
+    g.setColour (fieldAvailable ? COL_SPECTRUM_POST : COL_MUTED);
+    g.drawText (compact ? compactFieldState : fieldState,
+                title, juce::Justification::centredRight);
 
     const int gap = compact ? 5 : 8;
-    // MONO takes the full width before the metric column is cut, so the curve spans the panel
-    // rather than stopping at the scatter. The metrics keep the height they need above it.
-    auto mono = compact ? juce::Rectangle<int> {}
-                        : area.removeFromBottom (juce::roundToInt (area.getHeight() * 0.32f));
-    if (! compact)
+    // MONO is added only where it fits beside what SPACE already shows. The scatter answers
+    // "wide or narrow" at a glance and stays the panel's own picture; MONO is a chart to read,
+    // and a chart with no room to plot is worth less than the scatter it would displace.
+    //
+    // The two minimums are what the parts need, not a size the sizes were chosen to satisfy:
+    // MONO needs its title, its frequency row and a plot tall enough to separate 0, -6 and -24,
+    // and the metric column needs the height drawMetric lays out for two boxes.
+    constexpr int monoStripMinimum = 70;
+    constexpr int metricsRowMinimum = 136;
+    const bool showMono = ! compact
+                       && area.getHeight() >= monoStripMinimum + gap + metricsRowMinimum;
+    auto mono = showMono
+        ? area.removeFromBottom (juce::jmax (monoStripMinimum,
+                                             juce::roundToInt (area.getHeight() * 0.32f)))
+        : juce::Rectangle<int> {};
+    if (showMono)
         area.removeFromBottom (gap);
 
     const int metricWidth = juce::jlimit (82, compact ? 102 : 168,
@@ -197,28 +208,24 @@ void paint (juce::Graphics& g,
     auto metrics = area.removeFromRight (metricWidth);
     area.removeFromRight (gap);
 
-    if (compact)
+    const int side = juce::jmin (area.getWidth(), area.getHeight());
+    auto field = juce::Rectangle<int> (0, 0, side, side).withCentre (area.getCentre());
+    drawPanel (g, field, compact);
+    auto plot = field.reduced (compact ? 11 : 16).toFloat();
+    drawFieldAxes (g, plot);
+    if (fieldAvailable)
+        drawDensity (g, plot, meter);
+    drawAxisLabels (g, plot.getSmallestIntegerContainer(), compact, presentation);
+    if (! fieldAvailable && ! compact)
     {
-        mono_sum_curve::paint (g, area, meter, available, true, false, presentation);
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (presentation, typography::TextRole::status,
+                             typography::Composition::visualization));
+        g.drawText (fieldState, plot.getSmallestIntegerContainer(),
+                    juce::Justification::centred);
     }
-    else
+    if (showMono)
     {
-        const int side = juce::jmin (area.getWidth(), area.getHeight());
-        auto field = juce::Rectangle<int> (0, 0, side, side).withCentre (area.getCentre());
-        drawPanel (g, field, compact);
-        auto plot = field.reduced (11).toFloat();
-        drawFieldAxes (g, plot);
-        if (fieldAvailable)
-            drawDensity (g, plot, meter);
-        drawAxisLabels (g, plot.getSmallestIntegerContainer(), compact, presentation);
-        if (! fieldAvailable)
-        {
-            g.setColour (COL_TEXT_SECONDARY);
-            g.setFont (monoFont (presentation, typography::TextRole::status,
-                                 typography::Composition::visualization));
-            g.drawText (fieldState, plot.getSmallestIntegerContainer(),
-                        juce::Justification::centred);
-        }
         drawPanel (g, mono, compact);
         mono_sum_curve::paint (g, mono.reduced (4, 3), meter, available, false, true,
                                presentation);

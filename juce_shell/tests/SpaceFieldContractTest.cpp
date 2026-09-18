@@ -149,7 +149,10 @@ void verifyMonoSumCurveRendering()
     const auto withBreak = render (broken, 600, 400);
     KIRIN_SPACE_REQUIRE (changedPixels (identical, withBreak) > 40);
 
-    // Every size draws it, and none of them draws it outside the panel.
+    // MONO is added only where it fits. A size that does not show it has to be untouched by the
+    // values rather than drawing a squashed plot, and the two largest have to show it. Both
+    // halves matter: a size that half-draws it is worse than one that leaves it out.
+    int showing = 0;
     for (const auto dimensions : {
              std::pair { 300, 200 }, std::pair { 375, 250 }, std::pair { 450, 300 },
              std::pair { 600, 400 }, std::pair { 900, 600 } })
@@ -157,8 +160,17 @@ void verifyMonoSumCurveRendering()
         const auto present = render (flatMonoFixture (-1.0f), dimensions.first, dimensions.second);
         const auto absent = render (flatMonoFixture (KIRIN_MONO_SUM_DISPLAY_FLOOR_DB),
                                     dimensions.first, dimensions.second);
-        KIRIN_SPACE_REQUIRE (changedPixels (present, absent) > 20);
+        const auto difference = changedPixels (present, absent);
+        KIRIN_SPACE_REQUIRE (difference == 0 || difference > 20);
+        showing += difference > 0 ? 1 : 0;
+
+        // The density scatter is what SPACE has always shown, and no size may have lost it.
+        auto withoutField = flatMonoFixture (-1.0f);
+        withoutField.field_observation_count = 0;
+        KIRIN_SPACE_REQUIRE (changedPixels (present, render (withoutField, dimensions.first,
+                                                             dimensions.second)) > 40);
     }
+    KIRIN_SPACE_REQUIRE (showing >= 2);
 
     // Mono input has no stereo to lose, so no curve is drawn and the state says why.
     auto monoInput = flatMonoFixture (-1.0f);
