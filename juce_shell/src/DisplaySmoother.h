@@ -28,8 +28,7 @@ namespace hypha
             const double dt = deltaTime (lastMeasureSecs, nowSecs);
             lastMeasureSecs = nowSecs;
 
-            auto out = nanMeasure();
-            out = raw;
+            auto out = raw;
             out.lufs_m        = update (measure[0], raw.lufs_m,        dt, false);
             out.true_peak     = update (measure[1], raw.true_peak,     dt, true);
             out.crest         = update (measure[2], raw.crest,         dt, false);
@@ -52,8 +51,10 @@ namespace hypha
             const double dt = deltaTime (lastDeltaSecs, nowSecs);
             lastDeltaSecs = nowSecs;
 
-            auto out = nanDelta();
-            out.mode          = raw.mode;
+            // Start from the measurement so every field the smoother does not own — today the
+            // per-Bark shares — reaches the caller as the measured value rather than a zero that
+            // reads like one.
+            auto out = raw;
             out.lufs          = update (delta[0], raw.lufs,          dt, false);
             out.true_peak     = update (delta[1], raw.true_peak,     dt, false);
             out.crest         = update (delta[2], raw.crest,         dt, false);
@@ -236,6 +237,7 @@ namespace hypha
             d.mode = 2;
             d.lufs = d.true_peak = d.crest = d.psr = d.n_prime_total = d.sharpness = nan();
             d.lufs_s = nan();
+            for (auto& v : d.psb_bark) v = nan();
             return d;
         }
     };

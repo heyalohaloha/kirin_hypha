@@ -80,6 +80,22 @@ or delay audio: the same input produces the same output, every time. An explicit
 is a separate output-only path; it never rewrites the input, the captured PRE/POST measurements, or
 Record data. Numbers are reported as captured — no interpretation, no scoring, no recommendation.
 
+Two display filters exist, and both are named here rather than left to be discovered. Each one
+affects what is drawn, never what is measured, stored, or read back.
+
+- **Live Watch cells.** LUFS-M, recent True Peak, Crest, PSR, N, Sharpness, and the POST Δ of those
+  follow the measurement through a 1.5-second time constant, because at 10 observations per second
+  an unfiltered readout of a drum transient is a blur rather than a number. A True Peak that rises
+  is shown on the observation itself; only its release is eased.
+- **Live FREQ curves.** The absolute PRE / POST / MID / SIDE spectra rise on the next drawing tick
+  and fall at 20 dB per 500 ms. The signed Δ curve follows its target symmetrically over 150 ms, so
+  neither sign is favoured.
+
+Everything else is the measurement itself: the playback-pass and Keep maximums, LUFS-S, the FREQ
+numeric readout, MARK, Focus Trail, peak hold, Meter Session statistics, TIME history, the SHARP and
+LIVE timelines, Record, Keep, and `plugin_data`. A value read back later is therefore the measured
+one, and it can differ from what a live cell or curve showed while it was moving.
+
 Every metric is backed by a known-signal golden test: the expected values are derived independently from the signal definition and the ITU-R BS.1770 filter coefficients, not asserted by hand. The measurement layer demonstrates its precision rather than claiming it.
 
 The public [BS.1770-5 / EBU R 128 v5 measurement audit](docs/hypha_bs1770_5_r128_v5_audit_20260831.md)
@@ -117,7 +133,8 @@ silence, stale read, or temporary absence never claims that PRE was bypassed. Th
 also selects the independent MAX value for the current Watch playback pass.
 In the Watch grid, the live 400 ms True Peak and its playback-pass MAX are shown side by side.
 Pressing **Keep** changes the grid labels; **Max TP** then means the maximum for the whole Keep
-session, including across transport stops.
+session, including across transport stops. The live cells are eased over 1.5 seconds so they stay
+readable (see [Design](#design)); every MAX, and everything Keep and Record write, is raw.
 
 ### FREQ: Spectrum (on demand)
 

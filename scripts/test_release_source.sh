@@ -6,6 +6,7 @@ cd "$ROOT"
 
 UI_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-ui-contract-$$"
 OBSERVATORY_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-observatory-contract-$$"
+DISPLAY_SMOOTHING_BIN="${TMPDIR:-/tmp}/kirin-hypha-display-smoothing-$$"
 # Keep native objects under the already-ignored Cargo target tree. Re-running this gate now
 # recompiles only changed JUCE sources; CI workspaces are fresh, so release verification remains
 # independent there. Set KIRIN_HYPHA_NATIVE_TEST_BUILD to isolate a diagnostic run if needed.
@@ -13,6 +14,7 @@ PRE_DISPLAY_BUILD="${KIRIN_HYPHA_NATIVE_TEST_BUILD:-${CARGO_TARGET_DIR:-$ROOT/ta
 cleanup() {
   cmake -E rm -f "$UI_CONTRACT_BIN"
   cmake -E rm -f "$OBSERVATORY_CONTRACT_BIN"
+  cmake -E rm -f "$DISPLAY_SMOOTHING_BIN"
 }
 trap cleanup EXIT
 
@@ -83,6 +85,14 @@ run "$UI_CONTRACT_BIN"
 run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   juce_shell/tests/observatory_contract_test.cpp -o "$OBSERVATORY_CONTRACT_BIN"
 run "$OBSERVATORY_CONTRACT_BIN"
+
+# The live Watch cells are the only numbers Hypha shows that are not the raw measurement (the other
+# display filter, FREQ curve ballistics, never reaches a numeric readout). Pin which fields this one
+# owns, and that everything kept, recorded, or held as a maximum stays raw, before any JUCE target.
+run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+  -I crates/kirin_hypha_ffi/include \
+  juce_shell/tests/display_smoothing_contract_test.cpp -o "$DISPLAY_SMOOTHING_BIN"
+run "$DISPLAY_SMOOTHING_BIN"
 
 # The pinned JUCE submodule is intentionally pristine in a clean checkout. Both the runtime
 # build below and xtask's wrapper parity checks consume the tracked build-time patch stack, so
