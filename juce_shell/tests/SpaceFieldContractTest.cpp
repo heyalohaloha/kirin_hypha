@@ -113,10 +113,27 @@ void verifySpaceFieldContract()
     mono.field_observation_count = 0;
     KIRIN_SPACE_REQUIRE (changedPixels (midImage, render (mono, 600, 400)) > 300);
 
+    // The editor keeps its View and backing surface between timer ticks, so the gate has to
+    // measure the repaint alone. Building a View and a fresh surface inside the loop measured
+    // construction as well and reported about twice the production cost, which both hides a real
+    // repaint regression and would fail the gate for work the plug-in never repeats.
+    constexpr int warmupIterations = 3;
     constexpr int paintIterations = 30;
+    observatory::View steady (observatory::Role::post);
+    steady.setSize (600, 400);
+    steady.setDomain (observatory::Domain::space);
+    steady.setMeterSnapshot (mid, true);
+    juce::Image surface (juce::Image::ARGB, 600, 400, true);
+    const auto repaint = [&steady, &surface] {
+        juce::Graphics graphics (surface);
+        steady.paintEntireComponent (graphics, true);
+    };
+    for (int index = 0; index < warmupIterations; ++index)
+        repaint();
+
     const double startedMs = juce::Time::getMillisecondCounterHiRes();
     for (int index = 0; index < paintIterations; ++index)
-        render (mid, 600, 400);
+        repaint();
     const double paintMs = (juce::Time::getMillisecondCounterHiRes() - startedMs)
                          / paintIterations;
     std::cout << "SPACE density paint: " << paintMs << " ms/frame\n";
