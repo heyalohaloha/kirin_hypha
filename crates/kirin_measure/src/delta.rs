@@ -18,6 +18,19 @@ pub enum DeltaMode {
 
     /// PRE ファイルが 2 秒以内に更新されている（通常表示）
     Active,
+
+    /// PRE と POST が**違う配置で測っている**。Δ を出さない（B-976 / Gate A1）。
+    ///
+    /// 同じ音を通しても mono と stereo では loudness が 3.01 LU ずれる（mono は 1ch として測り
+    /// +3.01 dB バイアスを入れない）。その差は連鎖が加えたものではないので、引き算しない。
+    LayoutMismatch,
+
+    /// PRE が配置を名乗っていない。**compatible であることを確認できない。**
+    ///
+    /// 旧版の PRE は `layout` を書かない。読めること（transport）と、その測定値どうしを
+    /// 比べてよいこと（measurement compatibility）は別である。unknown を compatible と
+    /// みなさない。
+    LayoutUnknown,
 }
 
 /// 直近 `DeltaMode::Active` 時の Δ 6 軸スナップショット (B-048 / G-115-245 Last Known Good)。

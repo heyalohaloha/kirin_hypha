@@ -71,10 +71,22 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | 同名複数（曖昧・未ラッチ） | NoPre（沈黙） | 不可（None） | なし | 不可 | — |
 | 同名複数（ラッチ済み） | ラッチ先を維持 | ラッチ先 instance 不変 | ラッチ先で算出 | 凍結 | ラッチ先 |
 | 不在 | NoPre | 不可 | なし | 実消滅で exit | — |
+| **配置が違う**（PRE と POST が別 map で測定 / B-976） | `LayoutMismatch` = Δ 非表示。exact pair は保持 | 可（pairing は壊れない） | **非算出** | — | — |
+| **配置を名乗らない PRE**（旧版 / B-976） | `LayoutUnknown` = Δ 非表示。同上 | 可 | **非算出** | — | — |
 
 > 「表示」は `select_target_pre`（require_active=true）、「Keep/Arm」は `select_target_pre_for_arm`
 > （require_active=false）。両者とも **一意・fresh・名前一致・非 Bypassed** が共通前提。
 > 停止中の PRE を Keep でき、再生後に Δ が出る（Inactive 行）のが Step2 5c の核心不変条件。
+>
+> **配置 2 行（B-976 / Gate A1）**: `pre.json` を読めること（transport）と、その測定値どうしを
+> 引き算してよいこと（measurement compatibility）は別である。`v` は 2 のままなので旧 POST も
+> 読め、ペアリングも壊れない。失われるのは Δ だけである。同じ音を通しても mono と stereo では
+> loudness が 3.01 LU ずれ、その差は連鎖が加えたものではない。拒否理由の提示は Gate D。
+> 試験: `the_same_layout_on_both_sides_still_compares` /
+> `a_different_layout_is_not_subtracted_in_either_direction` /
+> `an_unstated_layout_is_not_treated_as_compatible` /
+> `a_layout_mismatch_does_not_break_transport_or_pairing` /
+> `the_shipping_writer_states_the_layout_it_measured`
 
 ---
 

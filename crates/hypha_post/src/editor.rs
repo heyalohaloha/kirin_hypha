@@ -1175,6 +1175,8 @@ fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult, mu
             DeltaMode::Bypassed => COL_MUTED,
             DeltaMode::PreInactive => COL_MUTED,
             DeltaMode::NoPre => COL_MUTED,
+            // B-976: 比較が成立しない。legacy egui 殻では他の非表示状態と同じ扱いにする。
+            DeltaMode::LayoutMismatch | DeltaMode::LayoutUnknown => COL_MUTED,
         }
     };
     let tp_warn = !muted && tp_over(m.true_peak);

@@ -243,30 +243,35 @@ fn a_surround_layout_analyses_instead_of_jamming() {
         position += chunk_frames as i64;
     }
 
-    // worker が落ち着くまで待つ。analyzed_frames が動かなくなったら引き切ったとみなす。
-    let mut settled = runtime.stats().analyzed_frames;
+    // **ring 容量ちょうどの block が入る = 読み残しがゼロ。** 残量の判定であって時間の判定ではない。
+    // 待ち時間は hang を切るためだけにある。詰まっていれば何秒待っても空かない。
+    // （settle を「analyzed_frames が 50 ms 変わらない」で判定していた版は、全体試験の
+    //   並列実行下で worker が 50 ms 以上止まると誤検出した。B-976 で残量の retry に置き換え。）
+    let full: Vec<f32> = vec![0.1; ring_frames * 6];
     let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        std::thread::sleep(Duration::from_millis(50));
-        let now = runtime.stats().analyzed_frames;
-        if now == settled || Instant::now() >= deadline {
+    let mut drained = false;
+    while Instant::now() < deadline {
+        if runtime.push_block_from_audio(&full, 6, Some(position)) {
+            drained = true;
             break;
         }
-        settled = now;
+        std::thread::sleep(Duration::from_millis(5));
     }
-
     let stats = runtime.stats();
-    assert!(stats.pushed_blocks > 0, "block が入っている");
-    assert!(stats.analyzed_frames > 0, "解析が進んでいる");
-
-    // **ring 容量ちょうどの block が入る = 読み残しがゼロ。** 時間に依存しない判定である。
-    let full: Vec<f32> = vec![0.1; ring_frames * 6];
     assert!(
-        runtime.push_block_from_audio(&full, 6, Some(position)),
+        drained,
         "引き切ったあとの ring は空のはず（pushed {} / dropped {}）",
-        stats.pushed_blocks,
-        stats.dropped_blocks
+        stats.pushed_blocks, stats.dropped_blocks
     );
+    assert!(stats.pushed_blocks > 0, "block が入っている");
+
+    // 解析が進んでいることは別に待つ。ring が空になることと、frame が組み上がることは別の事象で、
+    // 後者は窓が満ちるまで起きない。
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline && runtime.stats().analyzed_frames == 0 {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(runtime.stats().analyzed_frames > 0, "解析が進んでいる");
     runtime.shutdown_and_join();
 }
 

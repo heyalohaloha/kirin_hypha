@@ -23,7 +23,11 @@ fn write_pre_latch(
     fs::create_dir_all(&dir).unwrap();
     let host_process_id = crate::post_candidates::current_host_process_id();
     let json = format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{iid}","name":"{name}","host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+        r#"{{"v":2,"role":"PRE","instance_id":"{iid}","name":"{name}","host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0,"layout":{layout}}}"#,
+        layout = serde_json::to_string(&crate::plugin_data::MeasurementLayout::new(
+            crate::channel_layout::ChannelLayout::stereo()
+        ))
+        .unwrap()
     );
     fs::write(dir.join("pre.json"), json).unwrap();
 }
@@ -50,6 +54,7 @@ fn latch_inactive_switches_to_post_absolute_without_releasing_pair() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -64,6 +69,7 @@ fn latch_inactive_switches_to_post_absolute_without_releasing_pair() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -85,6 +91,7 @@ fn latch_pre_bypassed_keeps_pair_but_marks_bypassed() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -96,6 +103,7 @@ fn latch_pre_bypassed_keeps_pair_but_marks_bypassed() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -116,6 +124,7 @@ fn latch_inactive_then_active_yields_live_delta() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -131,6 +140,7 @@ fn latch_inactive_then_active_yields_live_delta() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,

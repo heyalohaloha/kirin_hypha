@@ -76,6 +76,7 @@ impl PostSnapshotPublisher {
             &identity.instance_id,
             self.watch_lease.owner_id(),
             &runtime.post_result,
+            &runtime.post_layout,
             &runtime.delta_result,
             &runtime.signal_state,
             &pair.name,

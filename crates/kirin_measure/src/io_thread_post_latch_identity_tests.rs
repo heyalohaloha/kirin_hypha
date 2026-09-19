@@ -27,7 +27,11 @@ fn write_pre_latch(
     fs::create_dir_all(&dir).unwrap();
     let host_process_id = crate::post_candidates::current_host_process_id();
     let json = format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{iid}","name":"{name}","host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+        r#"{{"v":2,"role":"PRE","instance_id":"{iid}","name":"{name}","host_process_id":{host_process_id},"signal_state":"{signal_state}","t":"{t}","lufs_m":-14.0,"true_peak":-1.0,"crest":12.0,"psr":8.0,"layout":{layout}}}"#,
+        layout = serde_json::to_string(&crate::plugin_data::MeasurementLayout::new(
+            crate::channel_layout::ChannelLayout::stereo()
+        ))
+        .unwrap()
     );
     let p = dir.join("pre.json");
     fs::write(&p, json).unwrap();
@@ -70,6 +74,7 @@ fn latch_invariant_to_second_same_name() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -85,6 +90,7 @@ fn latch_invariant_to_second_same_name() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -107,6 +113,7 @@ fn latch_name_change_unlatches() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -115,7 +122,7 @@ fn latch_name_change_unlatches() {
     assert!(latched.lock().unwrap().is_some());
     // 名前変更（"kick" 不在）→ アンラッチ + NoPre。
     let (d, _, _) =
-        compute_latched_display(&root, "kick", &latch_post(), Some("kick"), false, &latched)
+        compute_latched_display(&root, "kick", &latch_post(), &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()), Some("kick"), false, &latched)
             .unwrap();
     assert!(latched.lock().unwrap().is_none(), "名前変更で即アンラッチ");
     assert_eq!(d.mode, DeltaMode::NoPre);
@@ -124,6 +131,7 @@ fn latch_name_change_unlatches() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -131,7 +139,7 @@ fn latch_name_change_unlatches() {
     .unwrap();
     assert!(latched.lock().unwrap().is_some());
     let (d2, _, _) =
-        compute_latched_display(&root, "", &latch_post(), None, false, &latched).unwrap();
+        compute_latched_display(&root, "", &latch_post(), &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()), None, false, &latched).unwrap();
     assert!(latched.lock().unwrap().is_none(), "クリアで即アンラッチ");
     assert_eq!(d2.mode, DeltaMode::NoPre);
 }
@@ -151,7 +159,7 @@ fn unnamed_exact_latch_remains_valid_until_selection_layer_clears_it() {
     }));
 
     let (delta, _, _) =
-        compute_latched_display(&root, "", &latch_post(), None, false, &latched).unwrap();
+        compute_latched_display(&root, "", &latch_post(), &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()), None, false, &latched).unwrap();
     assert_eq!(delta.mode, DeltaMode::Active);
     assert_eq!(
         latched
@@ -186,6 +194,7 @@ fn restored_exact_latch_waits_for_pre_loaded_later_without_name_rescan() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -208,6 +217,7 @@ fn restored_exact_latch_waits_for_pre_loaded_later_without_name_rescan() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -241,6 +251,7 @@ fn released_watch_owner_keeps_exact_pair_and_rejects_name_retargeting() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -257,6 +268,7 @@ fn released_watch_owner_keeps_exact_pair_and_rejects_name_retargeting() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -273,6 +285,7 @@ fn released_watch_owner_keeps_exact_pair_and_rejects_name_retargeting() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -303,6 +316,7 @@ fn latch_stale_beyond_ttl_keeps_pair_latched() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -315,6 +329,7 @@ fn latch_stale_beyond_ttl_keeps_pair_latched() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -337,6 +352,7 @@ fn latch_pre_name_mismatch_keeps_instance_authority() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -355,6 +371,7 @@ fn latch_pre_name_mismatch_keeps_instance_authority() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -379,6 +396,7 @@ fn latch_frozen_during_record() {
         &root,
         "snare",
         &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         Some("snare"),
         false,
         &latched,
@@ -386,7 +404,7 @@ fn latch_frozen_during_record() {
     .unwrap();
     assert!(latched.lock().unwrap().is_some());
     // Record 中に名前変更（別名）→ アンラッチしない（凍結）。
-    let _ = compute_latched_display(&root, "kick", &latch_post(), Some("kick"), true, &latched)
+    let _ = compute_latched_display(&root, "kick", &latch_post(), &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()), Some("kick"), true, &latched)
         .unwrap();
     assert_eq!(
         latched.lock().unwrap().as_ref().unwrap().instance_id,

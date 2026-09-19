@@ -1,6 +1,15 @@
 use super::*;
 use std::sync::atomic::AtomicU64;
 
+/// 既存の Δ 試験はすべて同じ配置どうしの対である。fixture にその事実を書く（B-976）。
+fn stereo_layout() -> crate::plugin_data::MeasurementLayout {
+    crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo())
+}
+
+fn stereo_layout_json() -> String {
+    serde_json::to_string(&stereo_layout()).unwrap()
+}
+
 fn isolated_project_dir() -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -17,7 +26,8 @@ fn write_pre(project_dir: &Path, instance_id: &str, t: &str, lufs: f64) {
     let dir = project_dir.join(instance_id);
     fs::create_dir_all(&dir).unwrap();
     let json = format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"active","t":"{t}","lufs_m":{lufs},"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"active","t":"{t}","lufs_m":{lufs},"true_peak":-1.0,"crest":12.0,"psr":8.0,"layout":{stereo}}}"#,
+        stereo = stereo_layout_json()
     );
     fs::write(dir.join("pre.json"), json).unwrap();
 }
@@ -32,7 +42,8 @@ fn write_pre_with_short_term(
     let dir = project_dir.join(instance_id);
     fs::create_dir_all(&dir).unwrap();
     let json = format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"active","t":"{t}","lufs_m":{lufs_m},"lufs_s":{lufs_s},"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","signal_state":"active","t":"{t}","lufs_m":{lufs_m},"lufs_s":{lufs_s},"true_peak":-1.0,"crest":12.0,"psr":8.0,"layout":{stereo}}}"#,
+        stereo = stereo_layout_json()
     );
     fs::write(dir.join("pre.json"), json).unwrap();
 }
@@ -41,7 +52,8 @@ fn write_pre_named(project_dir: &Path, instance_id: &str, name: &str, t: &str, l
     let dir = project_dir.join(instance_id);
     fs::create_dir_all(&dir).unwrap();
     let json = format!(
-        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":"{name}","signal_state":"active","t":"{t}","lufs_m":{lufs},"true_peak":-1.0,"crest":12.0,"psr":8.0}}"#
+        r#"{{"v":2,"role":"PRE","instance_id":"{instance_id}","name":"{name}","signal_state":"active","t":"{t}","lufs_m":{lufs},"true_peak":-1.0,"crest":12.0,"psr":8.0,"layout":{stereo}}}"#,
+        stereo = stereo_layout_json()
     );
     fs::write(dir.join("pre.json"), json).unwrap();
 }
@@ -57,6 +69,7 @@ fn no_pre_dir_returns_no_pre_mode() {
             crest: Some(12.0),
             ..Default::default()
         },
+        &stereo_layout(),
         None,
     )
     .unwrap();
@@ -76,7 +89,7 @@ fn short_term_delta_is_additive_across_old_and_new_pre_json() {
     };
 
     write_pre(&pd, "pre-old", &now, -14.0);
-    let old = compute_delta_with_state(&pd, &post, None).unwrap().0;
+    let old = compute_delta_with_state(&pd, &post, &stereo_layout(), None).unwrap().0;
     assert_eq!(old.mode, DeltaMode::Active);
     assert_eq!(old.lufs, Some(4.0));
     assert_eq!(
@@ -86,7 +99,7 @@ fn short_term_delta_is_additive_across_old_and_new_pre_json() {
 
     fs::remove_dir_all(pd.join("pre-old")).unwrap();
     write_pre_with_short_term(&pd, "pre-new", &now, -14.0, -15.0);
-    let new = compute_delta_with_state(&pd, &post, None).unwrap().0;
+    let new = compute_delta_with_state(&pd, &post, &stereo_layout(), None).unwrap().0;
     assert_eq!(new.mode, DeltaMode::Active);
     assert_eq!(new.lufs, Some(4.0));
     assert_eq!(new.lufs_s, Some(4.0));
@@ -108,6 +121,7 @@ fn single_instance_pass_through_when_no_pair() {
             crest: Some(12.0),
             ..Default::default()
         },
+        &stereo_layout(),
         None,
     )
     .unwrap();
@@ -129,6 +143,7 @@ fn record_signal_subdir_is_skipped() {
             crest: Some(12.0),
             ..Default::default()
         },
+        &stereo_layout(),
         None,
     )
     .unwrap();
@@ -152,6 +167,7 @@ fn pair_filter_skips_non_matching_name() {
             crest: Some(12.0),
             ..Default::default()
         },
+        &stereo_layout(),
         Some("snare"),
     )
     .unwrap();
@@ -184,6 +200,7 @@ fn pair_filter_picks_max_t_within_pair() {
             crest: Some(12.0),
             ..Default::default()
         },
+        &stereo_layout(),
         Some("snare"),
     )
     .unwrap();
@@ -212,6 +229,7 @@ fn pair_filter_zero_match_falls_to_no_pre() {
             crest: Some(12.0),
             ..Default::default()
         },
+        &stereo_layout(),
         Some("vocal"),
     )
     .unwrap();
@@ -236,6 +254,7 @@ fn no_pair_with_multiple_instances_falls_to_no_pre() {
             crest: Some(12.0),
             ..Default::default()
         },
+        &stereo_layout(),
         None,
     )
     .unwrap();

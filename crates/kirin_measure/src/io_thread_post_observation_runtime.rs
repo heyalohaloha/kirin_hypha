@@ -17,6 +17,8 @@ pub(in crate::io_thread_post) struct PostObservationRuntime {
     pub(in crate::io_thread_post) daw_session_id: Arc<RwLock<String>>,
     pub(in crate::io_thread_post) record_sm: Arc<RecordStateMachine>,
     pub(in crate::io_thread_post) post_result: Arc<Mutex<crate::MeasureResult>>,
+    /// この POST が測っている配置。PRE と同じ map で測ったときだけ Δ を出す（B-976）。
+    pub(in crate::io_thread_post) post_layout: crate::plugin_data::MeasurementLayout,
     pub(in crate::io_thread_post) delta_result: Arc<Mutex<DeltaResult>>,
     pub(in crate::io_thread_post) signal_state: Arc<AtomicU8>,
     pub(in crate::io_thread_post) is_playing: Arc<AtomicBool>,

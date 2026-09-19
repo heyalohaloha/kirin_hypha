@@ -95,6 +95,7 @@ pub(super) fn compute_latched_display(
     kirin_root: &Path,
     pair_pre_name: &str,
     post: &MeasureResult,
+    post_layout: &crate::plugin_data::MeasurementLayout,
     pair_opt: Option<&str>,
     recording: bool,
     latched: &Mutex<Option<LatchedPre>>,
@@ -105,6 +106,7 @@ pub(super) fn compute_latched_display(
         "",
         "",
         post,
+        post_layout,
         pair_opt,
         recording,
         true,
@@ -119,6 +121,7 @@ fn compute_latched_display_for_post_project(
     post_project_hash: &str,
     post_daw_session_id: &str,
     post: &MeasureResult,
+    post_layout: &crate::plugin_data::MeasurementLayout,
     _pair_opt: Option<&str>,
     recording: bool,
     allow_unlatched_resolution: bool,
@@ -133,7 +136,7 @@ fn compute_latched_display_for_post_project(
         };
         return match read_pre_at(&l.pre_json) {
             Some(st) if st.fresh && st.active => {
-                let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post)?;
+                let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post, post_layout)?;
                 Ok((d, false, ss))
             }
             Some(st) if st.signal_state == Some(SignalState::Bypassed) => Ok(delta_pre_bypassed()),
@@ -169,7 +172,7 @@ fn compute_latched_display_for_post_project(
         match read_pre_at(&l.pre_json) {
             // fresh + active → 通常 Δ。名前の一時不一致では解除しない。
             Some(st) if st.fresh && st.active => {
-                let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post)?;
+                let (d, ss) = compute_delta_for_pre_file(&l.pre_json, post, post_layout)?;
                 return Ok((d, false, ss));
             }
             // 明示 OFF は pair 維持のまま POST 単独表示に戻す。
@@ -216,7 +219,7 @@ fn compute_latched_display_for_post_project(
             // 初回ラッチ直後の同 tick 表示。
             match read_pre_at(&pre_json) {
                 Some(st) if st.fresh && st.active => {
-                    let (d, ss) = compute_delta_for_pre_file(&pre_json, post)?;
+                    let (d, ss) = compute_delta_for_pre_file(&pre_json, post, post_layout)?;
                     Ok((d, false, ss))
                 }
                 Some(st) if st.signal_state == Some(SignalState::Bypassed) => {
@@ -245,6 +248,8 @@ pub(super) fn run_tick(
     instance_id: &str,
     watch_owner_id: &str,
     post_result: &Arc<Mutex<MeasureResult>>,
+    // この POST が測っている配置。PRE と同じ map で測ったときだけ Δ を出す（B-976）。
+    post_layout: &crate::plugin_data::MeasurementLayout,
     delta_result: &Arc<Mutex<DeltaResult>>,
     signal_state_atom: &Arc<AtomicU8>,
     pair_pre_name: &str,
@@ -319,6 +324,7 @@ pub(super) fn run_tick(
             post_project_hash,
             daw_session_id,
             &post,
+            post_layout,
             pair_opt,
             recording,
             allow_unlatched_resolution,

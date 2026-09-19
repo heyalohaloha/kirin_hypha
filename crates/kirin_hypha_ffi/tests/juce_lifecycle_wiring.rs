@@ -52,11 +52,21 @@ fn juce_commits_take_start_only_after_whole_block_admission() {
 
 #[test]
 fn paired_pre_off_is_absolute_while_inactive_and_stale_preserve_delta_layout() {
-    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    // B-976: Δ の mode コードは `kirin_hypha_delta_ffi.h` へ分けた（行数規律）。
+    // 主 header が include するので、殻から見えるコードの集合は変わらない。
+    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h")
+        + &read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_delta_ffi.h");
+    assert!(
+        ffi_header.contains("#include \"kirin_hypha_delta_ffi.h\""),
+        "主 header が delta header を include していない"
+    );
     for required in [
         "KIRIN_DELTA_MODE_ACTIVE 0u",
         "KIRIN_DELTA_MODE_BYPASSED 3u",
         "KIRIN_DELTA_MODE_PRE_INACTIVE 4u",
+        // B-976: 比較が成立しない 2 状態。
+        "KIRIN_DELTA_MODE_LAYOUT_MISMATCH 5u",
+        "KIRIN_DELTA_MODE_LAYOUT_UNKNOWN 6u",
         "KIRIN_PAIR_STATUS_PAIRED 2u",
         "KIRIN_SIGNAL_STATE_ACTIVE 1u",
     ] {

@@ -54,7 +54,7 @@ use kirin_measure::{
     spawn_watchdog, watch_ring_capacity_samples, write_broadcast_for_generation,
     write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
     write_stop_broadcast_for_generation, AnalysisViewMode, CaptureClockSource, CaptureGeneration,
-    CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode, DeltaResult,
+    CaptureGenerationMember, CaptureGenerationTransaction, DeltaResult,
     GenerationTerminalReason, IoThreadHandle, LatchedPre, License, LiveLicense, LivenessEvaluator,
     MeasureResult, MeterDeltaHistoryExchange, MeterHistoryEntry, MeterHistoryRange,
     MeterHistoryResolution, MeterSession, MeterSessionPublication, MeterSessionSnapshot,
@@ -187,6 +187,12 @@ mod keep_phase_contract_tests {
 }
 
 /// C ABI 識別子バッファ長（UUID 36 + null に十分）。
+/// Δ の mode は ABI 変換（`delta_abi`）と試験だけが直接使う（B-976）。
+#[cfg(test)]
+use delta_abi::delta_mode_to_abi;
+#[cfg(test)]
+use kirin_measure::DeltaMode;
+
 const ID_BUF_LEN: usize = 64;
 
 /// Rust `&str` を C 文字列バッファへ書く（truncate + null 終端）。
@@ -426,6 +432,9 @@ pub struct KirinHyphaEngine {
     sample_rate: u32,
     /// create 時に確定した入力チャンネル数。1=mono / 2=stereo。
     num_channels: usize,
+    /// create 時に交渉された配置。`num_channels` の出所であり、pre.json / post.json が
+    /// 「どの map で測ったか」を名乗る正本（B-976）。**チャンネル数から推測しない**（D-4）。
+    layout: ChannelLayout,
     /// PRE/POST io_thread（B-057 3b / B-060 3d-a）。`enable_pre_writes` or
     /// `enable_post_writes` で 1 度だけ起動。B-118: watchdog（Lazy）と Arc 共有し、watchdog が
     /// is_finished 監視・crash 時 re-spawn・shutdown 時 join する。
@@ -1164,6 +1173,7 @@ impl KirinHyphaEngine {
             license: LiveLicense::new(License::Unknown),
             sample_rate,
             num_channels,
+            layout,
             io_thread,
             io_restart_slot,
             measure_alive,
@@ -1621,6 +1631,8 @@ impl KirinHyphaEngine {
         // 同一実体を capture し、再起動後も同じ Arc を指す（closure 内での再生成・新規 Arc 化は禁止）。
         // io_shutdown のみ世代毎に新規生成する。
         let restart: RestartIoFn = {
+            // `ChannelLayout` は Copy。closure へは値で渡す（`&self` を捕まえない）。
+            let layout = self.layout;
             let record_sm = Arc::clone(&self.record_sm);
             let measure_result = Arc::clone(&self.measure_result);
             let signal_state = Arc::clone(&self.signal_state);
@@ -1640,6 +1652,7 @@ impl KirinHyphaEngine {
                     project_hash.clone(),
                     daw_uuid.clone(), // PRE pre.json の document 境界として出力する復元値
                     sample_rate,
+                    layout,
                     Arc::clone(&record_sm),
                     Arc::clone(&recording),
                     Arc::clone(&record_acknowledged),
@@ -1834,6 +1847,8 @@ impl KirinHyphaEngine {
         // record_error_message / paired_pre_target / pair_pre_name / trigger 群 / latched_pre / 各 self.*）
         // は同一実体を capture し再起動後も同じ Arc を指す（closure 内での再生成禁止）。io_shutdown のみ
         // 世代毎に新規生成。
+        // `ChannelLayout` は Copy。closure へは値で渡す（`&self` を捕まえない）。
+        let layout = self.layout;
         let restart: RestartIoFn = {
             let record_sm = Arc::clone(&self.record_sm);
             let measure_result = Arc::clone(&self.measure_result);
@@ -1859,6 +1874,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&instance_id),
                     Arc::clone(&project_hash_arc),
                     sample_rate,
+                    layout,
                     Arc::clone(&record_sm),
                     Arc::clone(&measure_result),
                     Arc::clone(&delta_result),
@@ -3315,12 +3331,12 @@ pub const KIRIN_RECORD_DISPLAY_RESULT_HOLD: u8 = 3;
 pub const KIRIN_RECORD_DISPLAY_UNAVAILABLE: u8 = 4;
 
 #[inline]
-fn opt_f64(v: Option<f64>) -> f64 {
+pub(crate) fn opt_f64(v: Option<f64>) -> f64 {
     v.unwrap_or(f64::NAN)
 }
 
 #[inline]
-fn opt_arr20(v: Option<[f64; 20]>) -> [f64; 20] {
+pub(crate) fn opt_arr20(v: Option<[f64; 20]>) -> [f64; 20] {
     v.unwrap_or([f64::NAN; 20])
 }
 
@@ -3398,29 +3414,10 @@ fn meter_history_resolution_from_abi(value: u8) -> Option<MeterHistoryResolution
     }
 }
 
-fn delta_mode_to_abi(mode: &DeltaMode) -> u8 {
-    match mode {
-        DeltaMode::Active => 0,
-        DeltaMode::Stale => 1,
-        DeltaMode::NoPre => 2,
-        DeltaMode::Bypassed => 3,
-        DeltaMode::PreInactive => 4,
-    }
-}
+#[path = "delta_abi.rs"]
+mod delta_abi;
+use delta_abi::to_c_delta;
 
-fn to_c_delta(d: &DeltaResult) -> KirinDelta {
-    KirinDelta {
-        mode: delta_mode_to_abi(&d.mode),
-        lufs: opt_f64(d.lufs),
-        true_peak: opt_f64(d.tp),
-        crest: opt_f64(d.crest),
-        psr: opt_f64(d.psr),
-        n_prime_total: opt_f64(d.n_prime_total),
-        sharpness: opt_f64(d.sharpness),
-        lufs_s: opt_f64(d.lufs_s),
-        psb_bark: opt_arr20(d.psb_bark),
-    }
-}
 
 fn delta_has_finite_fact(delta: &KirinDelta) -> bool {
     delta.mode == KIRIN_DELTA_MODE_ACTIVE
