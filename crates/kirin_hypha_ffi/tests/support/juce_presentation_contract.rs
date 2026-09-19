@@ -35,6 +35,7 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     }
     let juce_editor = read_repo("juce_shell/src/PluginEditor.cpp")
         + &read_repo("juce_shell/src/PluginEditorObservatory.cpp")
+        + &read_repo("juce_shell/src/PluginEditorMeter.cpp")
         + &read_repo("juce_shell/src/PluginEditorAnalysis.cpp");
     let observatory_metrics = read_repo("juce_shell/src/HyphaObservatoryMetrics.cpp");
     for text in ["PAIR —", "PAIR ◌", "PAIR ●"] {
@@ -56,7 +57,7 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     assert!(juce_editor.contains("withMinimumWidth (ui::pairMenuMinimumWidth)"));
     assert!(juce_editor.contains("withMaximumNumColumns (ui::pairMenuMaximumColumns)"));
     assert!(juce_editor.contains("withStandardItemHeight (ui::pairMenuItemHeight)"));
-    assert!(juce_editor.contains("updateFeedback (t, t < bannerUntil, status)"));
+    assert!(juce_editor.contains("updateFeedback (now, now < bannerUntil, status)"));
     assert!(!juce_editor.contains("bannerLabel"));
     assert!(!juce_editor.contains("toastLabel"));
     assert!(!juce_editor.contains("recordErrorLabel"));
@@ -251,7 +252,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     let ingress = slice_between(
         &runtime,
         "pub fn push_block_from_audio",
-        "pub fn try_history",
+        "pub fn shutdown_and_join",
     );
     let enabled_check = ingress
         .find("if !self.enabled.load")

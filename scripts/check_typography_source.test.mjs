@@ -25,6 +25,14 @@ test('comments and strings do not create false positives', () => {
   assert.deepEqual(findTypographyViolations(source), []);
 });
 
+test('C++ numeric separators do not hide later typography violations', () => {
+  const source = `
+    const auto frequency = 1'000.0f;
+    g.drawFittedText (text, area, centred, 1, 0.7f);
+  `;
+  assert.match(findTypographyViolations(source)[0]?.reason ?? '', /drawFittedText/);
+});
+
 test('rectangle height changes are not mistaken for font mutations', () => {
   const source = `
     const auto band = inner.withY (42.0f).withHeight (inner.getHeight() * 0.12f);

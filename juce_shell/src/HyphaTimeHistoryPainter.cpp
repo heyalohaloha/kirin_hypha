@@ -3,6 +3,7 @@
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <array>
@@ -383,8 +384,8 @@ void paint (juce::Graphics& g,
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (monoFont (presentation, typography::TextRole::status,
                              typography::Composition::visualization));
-        g.drawFittedText (comparisonStatus, statusArea.reduced (4, 1),
-                          juce::Justification::centred, 1, 0.55f);
+        text_style::drawEllipsized (g, comparisonStatus, statusArea.reduced (4, 1),
+                                    juce::Justification::centred);
     }
     const auto geometry = makeGeometry (area, compactMeter, presentation);
     area = geometry.content;

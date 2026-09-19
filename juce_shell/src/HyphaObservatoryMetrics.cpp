@@ -5,6 +5,7 @@
 #include "HyphaComparisonPresentation.h"
 #include "HyphaLevelMetricContract.h"
 #include "HyphaSurfaceMaterial.h"
+#include "HyphaTextStyle.h"
 
 #include <array>
 #include <cmath>
@@ -147,8 +148,8 @@ void View::paintRecordDisplay (juce::Graphics& g, juce::Rectangle<int> area)
     g.setColour (recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
                      ? COL_MUTED : COL_NORMAL);
     g.setFont (monoFont (context, typography::TextRole::status));
-    g.drawFittedText (phaseText + sourceText, statusArea.reduced (5, 1),
-                      juce::Justification::centred, 1, 0.65f);
+    text_style::drawEllipsized (g, phaseText + sourceText, statusArea.reduced (5, 1),
+                                juce::Justification::centred);
 
     const auto& measure = recordDisplay.measure;
     const auto& session = recordDisplay.session;
@@ -221,10 +222,11 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (labelFont (context, typography::TextRole::status,
                               typography::Composition::facts));
-        g.drawFittedText (
+        text_style::drawEllipsized (
+            g,
             comparison_presentation::statusText (observatoryFrame.comparison_state,
                                                   observatoryFrame.comparison_reason),
-            statusArea.reduced (4, 1), juce::Justification::centred, 1, 0.55f);
+            statusArea.reduced (4, 1), juce::Justification::centred);
     }
     else if (compact)
         area.removeFromTop (20);

@@ -110,10 +110,11 @@ namespace
         if (! state.absoluteObservation && state.comparisonStatus.isNotEmpty())
         {
             g.setColour (COL_TEXT_SECONDARY);
-            g.drawFittedText (state.comparisonStatus,
-                              outerPlot.withTop (legendTop).withHeight (
-                                  scaled ((float) ui_contract::spectrumLegendHeight)).toNearestInt(),
-                              juce::Justification::centredLeft, 1, 0.55f);
+            text_style::drawEllipsized (
+                g, state.comparisonStatus,
+                outerPlot.withTop (legendTop).withHeight (
+                    scaled ((float) ui_contract::spectrumLegendHeight)).toNearestInt(),
+                juce::Justification::centredLeft);
             return;
         }
         if (state.midSideObservation)

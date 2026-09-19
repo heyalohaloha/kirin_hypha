@@ -59,9 +59,9 @@ KirinMeterSession fixture (bool sideDominant)
     for (size_t band = 0u; band < KIRIN_MONO_SUM_BAND_COUNT; ++band)
     {
         const float ratio = KIRIN_MONO_SUM_MAX_HZ / KIRIN_MONO_SUM_MIN_HZ;
-        const float centre = KIRIN_MONO_SUM_MIN_HZ
+        const float centreHz = KIRIN_MONO_SUM_MIN_HZ
             * std::pow (ratio, ((float) band + 0.5f) / (float) KIRIN_MONO_SUM_BAND_COUNT);
-        const float octavesFrom80 = std::log2 (centre / 80.0f);
+        const float octavesFrom80 = std::log2 (centreHz / 80.0f);
         meter.mono_sum_db[band] = -0.7f - 17.0f * std::exp (-octavesFrom80 * octavesFrom80 * 2.0f);
     }
     meter.mono_sum_db[1] = std::numeric_limits<float>::quiet_NaN();

@@ -246,3 +246,12 @@ test('structural repair detectors reject the nine known mutation classes', () =>
     'an independent hidden delta polling path must be detected',
   );
 });
+
+test('release source gate resolves tracked ABI headers without ambient include paths', () => {
+  const releaseGate = read('scripts/test_release_source.sh');
+  assert.ok(releaseGate.includes(
+    'ABI_INCLUDE_DIR="$ROOT/crates/kirin_hypha_ffi/include"',
+  ));
+  const uiCompile = between(releaseGate, 'run "${CXX:-c++}"', 'run "$UI_CONTRACT_BIN"');
+  assert.ok(uiCompile.includes('-I "$ABI_INCLUDE_DIR"'));
+});

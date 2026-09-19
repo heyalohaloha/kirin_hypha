@@ -338,8 +338,8 @@ inline void verifyLocalBlindUiContract()
                 if (const auto* label = dynamic_cast<const juce::Label*> (child))
                 {
                     if (label->getText().isEmpty()) continue;
-                    juce::AttributedString text (label->getText());
-                    text.setFont (label->getFont());
+                    juce::AttributedString text;
+                    text.append (label->getText(), label->getFont(), juce::Colours::white);
                     juce::TextLayout layout;
                     const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
                     layout.createLayout (text, static_cast<float> (bounds.getWidth()));

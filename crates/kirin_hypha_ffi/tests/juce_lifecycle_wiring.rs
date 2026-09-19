@@ -19,9 +19,11 @@ fn direct_keep_feedback_is_a_consumable_edge_not_a_persistent_error() {
         + &read_repo("juce_shell/src/PluginProcessorDisplayState.cpp");
     assert!(processor.contains("kirin_hypha_drain_keep_action_notice"));
     let editor = read_repo("juce_shell/src/PluginEditor.cpp")
+        + &read_repo("juce_shell/src/PluginEditorMeter.cpp")
         + &read_repo("juce_shell/src/PluginEditorAnalysis.cpp");
     assert!(editor.contains("processorRef.drainKeepActionNotice()"));
-    assert!(editor.contains("toastUntil = t + 3.0"));
+    assert!(editor.contains("toastText = keepNotice"));
+    assert!(editor.contains("toastUntil = now + 3.0"));
 }
 
 #[test]
@@ -69,16 +71,16 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     assert!(processor.contains("observatory_height"));
     assert!(processor.contains("withNonParameterStateChanged (true)"));
 
-    let contract = read_repo("juce_shell/src/HyphaUiContract.h");
-    assert!(contract.contains("Metric::maxTruePeak"));
+    let contract = read_repo("juce_shell/src/HyphaLevelMetricContract.h");
+    assert!(contract.contains("Metric::maximumTruePeak"));
     assert!(contract.contains("Metric::integrated"));
-    assert!(!contract.contains("Metric::loudness"));
+    assert!(!contract.contains("    loudness,"));
 
-    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
-    assert!(editor.contains("return useShortTerm ? value.lufs_s : value.lufs_m"));
-    assert!(editor.contains("summary.max_true_peak"));
-    assert!(editor.contains("summary.lufs_i"));
-    assert!(!editor.contains("fillAbs (3, V (m.n_prime_total)"));
+    let observatory = read_repo("juce_shell/src/HyphaObservatoryMetrics.cpp");
+    assert!(observatory.contains("shortTerm ? measure.lufs_s : measure.lufs_m"));
+    assert!(observatory.contains("session.max_true_peak"));
+    assert!(observatory.contains("session.lufs_i"));
+    assert!(!observatory.contains("fillAbs (3, V (m.n_prime_total)"));
 
     let pre_json = read_repo("crates/kirin_measure/src/io_thread_pre.rs");
     let post_json = read_repo("crates/kirin_measure/src/io_thread_post_json.rs");

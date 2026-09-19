@@ -111,20 +111,20 @@ inline void verifyCaptureControls()
     {
         auto mouseAccess=std::make_shared<reference_audition::ACaptureAccess>(); reference_ui::CaptureControls mouse;
         mouse.setSize(600,24); mouse.update(mouseAccess,false,presentation::forEditor(900,600));
-        auto* component=mouse.findChildWithID("capture-a-action"); auto* button=dynamic_cast<juce::Button*>(component);
-        const auto event=[&](int count) { const auto now=juce::Time::getCurrentTime(); return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),{5,5},{},0,0,0,0,0,component,component,now,{5,5},now,count,false); };
-        component->mouseDown(event(1)); component->mouseUp(event(1));
+        auto* actionComponent=mouse.findChildWithID("capture-a-action"); auto* button=dynamic_cast<juce::Button*>(actionComponent);
+        const auto event=[&](int count) { const auto now=juce::Time::getCurrentTime(); return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),{5,5},{},0,0,0,0,0,actionComponent,actionComponent,now,{5,5},now,count,false); };
+        actionComponent->mouseDown(event(1)); actionComponent->mouseUp(event(1));
         check(mouseAccess->operationView().busy(),"first complete mouse gesture starts Capture");
         mouse.update(mouseAccess,false,presentation::forEditor(900,600));
         button->setState(juce::Button::buttonDown); // Exercise an outstanding pressed/flash state too.
-        component->mouseDown(event(2)); component->mouseUp(event(2));
+        actionComponent->mouseDown(event(2)); actionComponent->mouseUp(event(2));
         check(!mouseAccess->operationView().cancellation,"second mouse-up cannot cancel through a lingering pressed state");
-        component->mouseDown(event(1)); component->mouseUp(event(1));
+        actionComponent->mouseDown(event(1)); actionComponent->mouseUp(event(1));
         check(mouseAccess->operationView().cancellation,"a new independent click explicitly cancels");
         mouseAccess->complete(mouseAccess->operationView().id); mouse.update(mouseAccess,false,presentation::forEditor(900,600));
-        component->mouseDown(event(1));
+        actionComponent->mouseDown(event(1));
         check(mouseAccess->request(reference_audition::ACaptureAccess::start),"another entry accepts Start while a gesture is held");
-        mouse.update(mouseAccess,false,presentation::forEditor(900,600)); component->mouseUp(event(1));
+        mouse.update(mouseAccess,false,presentation::forEditor(900,600)); actionComponent->mouseUp(event(1));
         check(!mouseAccess->operationView().cancellation,"held Start gesture is never reinterpreted as the newly displayed Cancel");
     }
     check(access->request(reference_audition::ACaptureAccess::start),"fixture capture reserves start");

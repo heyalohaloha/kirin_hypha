@@ -40,6 +40,10 @@ const SHELL_PARITY: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../xtask/src/shell_parity.rs"
 ));
+const SHELL_PARITY_RUNTIME_TESTS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../xtask/src/shell_parity/runtime_tests.rs"
+));
 const RT_SAFETY: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../xtask/src/rt_safety.rs"
@@ -197,15 +201,22 @@ fn readiness_checks() -> Vec<Check> {
         ),
         check_all(
             "shell-parity",
-            "JUCE POST exact-pair menu and fixed Keep slot have static parity tests",
-            &[(
-                SHELL_PARITY,
-                &[
-                    "post_controls_keep_slot_is_fixed_and_availability_depends_on_selected_pair",
-                    "candidate_menu_enumerates_pre_candidates_independent_of_current_pair",
-                    "candidate_selection_commits_exact_instance_and_updates_display_field",
-                ][..],
-            )],
+            "JUCE POST exact-pair menu, Keep controls, and Observatory path have static parity tests",
+            &[
+                (
+                    SHELL_PARITY,
+                    &[
+                        "include!(\"shell_parity/runtime_tests.rs\")",
+                        "keep_controls_are_owned_by_the_menu_and_observatory_footer",
+                        "candidate_menu_enumerates_pre_candidates_independent_of_current_pair",
+                        "candidate_selection_commits_exact_instance_and_updates_display_field",
+                    ][..],
+                ),
+                (
+                    SHELL_PARITY_RUNTIME_TESTS,
+                    &["juce_watch_and_delta_have_one_observatory_path"][..],
+                ),
+            ],
         ),
         check_all(
             "rt-safety",

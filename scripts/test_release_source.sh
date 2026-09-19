@@ -6,6 +6,7 @@ cd "$ROOT"
 
 UI_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-ui-contract-$$"
 OBSERVATORY_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-observatory-contract-$$"
+ABI_INCLUDE_DIR="$ROOT/crates/kirin_hypha_ffi/include"
 # Keep native objects under the already-ignored Cargo target tree. Re-running this gate now
 # recompiles only changed JUCE sources; CI workspaces are fresh, so release verification remains
 # independent there. Set KIRIN_HYPHA_NATIVE_TEST_BUILD to isolate a diagnostic run if needed.
@@ -75,6 +76,7 @@ run node --test scripts/windows/windows_installer.test.mjs
 # bundle build and blocks mismatched dimensions, bounds, ABI contracts, fonts, colours, or shared
 # UI constants while remaining independent of host/plugin-format wrappers.
 run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+  -I "$ABI_INCLUDE_DIR" \
   juce_shell/tests/ui_contract_test.cpp -o "$UI_CONTRACT_BIN"
 run "$UI_CONTRACT_BIN"
 

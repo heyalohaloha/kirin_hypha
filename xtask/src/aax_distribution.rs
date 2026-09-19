@@ -37,7 +37,6 @@ struct AaxManifest {
 
 pub struct AaxBundle {
     pub spec: AaxBundleSpec,
-    pub source: PathBuf,
 }
 
 impl AaxBundle {
@@ -57,10 +56,7 @@ pub fn bundles() -> Result<Vec<AaxBundle>> {
     Ok(manifest
         .bundles
         .into_iter()
-        .map(|spec| AaxBundle {
-            source: manifest.default_build_root.join(&spec.source_relative),
-            spec,
-        })
+        .map(|spec| AaxBundle { spec })
         .collect())
 }
 
@@ -393,13 +389,17 @@ mod tests {
 
     #[test]
     fn manifest_has_exact_pre_and_post_aax_contract() {
+        let manifest: AaxManifest = serde_json::from_str(MANIFEST_SOURCE).unwrap();
+        assert_eq!(
+            manifest.default_build_root,
+            Path::new("build-aax-universal")
+        );
         let bundles = bundles().unwrap();
         assert_eq!(bundles.len(), 2);
         assert_eq!(bundles[0].spec.role, "PRE");
         assert_eq!(bundles[1].spec.role, "POST");
         assert!(bundles.iter().all(|bundle| {
-            bundle.source.starts_with("build-aax-universal")
-                && bundle.spec.install_relative.starts_with(INSTALL_PARENT)
+            bundle.spec.install_relative.starts_with(INSTALL_PARENT)
                 && bundle.spec.archive_relative.starts_with(ARCHIVE_PARENT)
         }));
     }
