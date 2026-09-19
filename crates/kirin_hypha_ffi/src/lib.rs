@@ -189,9 +189,7 @@ mod keep_phase_contract_tests {
 /// C ABI 識別子バッファ長（UUID 36 + null に十分）。
 /// Δ の mode は ABI 変換（`delta_abi`）と試験だけが直接使う（B-976）。
 #[cfg(test)]
-use delta_abi::delta_mode_to_abi;
-#[cfg(test)]
-use kirin_measure::DeltaMode;
+use {delta_abi::delta_mode_to_abi, kirin_measure::DeltaMode};
 
 const ID_BUF_LEN: usize = 64;
 
