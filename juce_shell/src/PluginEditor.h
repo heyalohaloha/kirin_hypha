@@ -95,6 +95,8 @@ private:
     void configureSpectrumAnalysis();
     hypha::analysis::Demand desiredAnalysisDemand() const noexcept;
     bool analysisSurfaceShowing() const noexcept;
+    bool externalAnalysisBodyShowing() const noexcept;
+    void updateAnalysisBodyPresentation();
     void syncAnalysisDemand();
     void configureSpectrumCallbacks();
     void updateTimePageNavigation();

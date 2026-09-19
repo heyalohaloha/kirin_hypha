@@ -69,6 +69,7 @@ public:
     std::function<void()> onFeedbackDetails;
     std::function<void (bool)> onHybridVuChange;
     std::function<void()> onClearPeakClipHolds;
+    std::function<void (bool)> onRecordBodyOwnershipChange;
     juce::Component& informationAnchor() noexcept { return informationButton; }
     juce::Component& domainMenuAnchor() noexcept { return domainCycleButton; }
     juce::Component& contextMenuAnchor() noexcept { return contextButton; }
@@ -134,7 +135,8 @@ public:
         return (manualHybridVuSelected || recordingHybridVuRequested())
             && ! captureFrame && ! recordDisplayShowing();
     }
-    bool recordDisplayShowingForTest() const noexcept { return recordDisplayShowing(); }
+    bool recordBodyActive() const noexcept { return recordDisplayShowing(); }
+    bool recordDisplayShowingForTest() const noexcept { return recordBodyActive(); }
     void setCompactMaximum (bool);
     bool compactMaximum() const noexcept { return compactShowsMaximum; }
     void setMeterContext (meter_context::MeterContext);

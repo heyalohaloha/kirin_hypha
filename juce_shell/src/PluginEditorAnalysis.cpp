@@ -59,11 +59,7 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     observatoryView.setAnalysisPage (page);
     const bool analysisOpen = hypha::analysis_navigation::isAnalysis (page);
     observatoryView.setRunSummaryMode (page == AnalysisPage::run);
-    observatoryView.setExternalAnalysisBodyActive (analysisOpen);
-    spectrumView.setVisible (page == AnalysisPage::spectrum);
-    perceptualView.setVisible (page == AnalysisPage::perceptual && ! sharpnessUsesAbsolute);
-    absoluteView.setVisible (page == AnalysisPage::absolute || sharpnessUsesAbsolute);
-    attackView.setVisible (page == AnalysisPage::attack);
+    updateAnalysisBodyPresentation();
     spectrumSizeToggle.setVisible (false);
     spectrumToggle.setVisible (false);
     timePageNavigation.setPage (page);
@@ -92,8 +88,7 @@ void KirinHyphaEditor::configureSharpnessAnalysis (int pairStatus)
     perceptualView.clearSnapshot();
     absoluteView.clearSnapshot();
     absoluteView.setSharpnessOnly (sharpnessUsesAbsolute);
-    perceptualView.setVisible (! sharpnessUsesAbsolute);
-    absoluteView.setVisible (sharpnessUsesAbsolute);
+    updateAnalysisBodyPresentation();
     startTimerHz (sharpnessUsesAbsolute ? ui::absoluteTimelineSourceHz
                                         : ui::spectrumPresentationHz);
     syncAnalysisDemand();
@@ -148,6 +143,24 @@ bool KirinHyphaEditor::analysisSurfaceShowing() const noexcept
     return isPost && analysisOwnerToken != 0 && isShowing() && ! localBlindOpen
         && ! observatoryView.hybridVuVisible()
         && hypha::analysis_navigation::isAnalysis (analysisPage);
+}
+
+bool KirinHyphaEditor::externalAnalysisBodyShowing() const noexcept
+{
+    return isPost && hypha::analysis_navigation::isAnalysis (analysisPage)
+        && ! observatoryView.recordBodyActive();
+}
+
+void KirinHyphaEditor::updateAnalysisBodyPresentation()
+{
+    const bool external = externalAnalysisBodyShowing();
+    observatoryView.setExternalAnalysisBodyActive (external);
+    spectrumView.setVisible (external && analysisPage == AnalysisPage::spectrum);
+    perceptualView.setVisible (
+        external && analysisPage == AnalysisPage::perceptual && ! sharpnessUsesAbsolute);
+    absoluteView.setVisible (
+        external && (analysisPage == AnalysisPage::absolute || sharpnessUsesAbsolute));
+    attackView.setVisible (external && analysisPage == AnalysisPage::attack);
 }
 
 void KirinHyphaEditor::syncAnalysisDemand()

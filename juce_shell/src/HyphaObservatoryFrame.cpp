@@ -54,8 +54,12 @@ void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool availab
 
 void View::setRecordDisplay (const KirinRecordDisplay& value, bool available)
 {
+    const auto previouslyShowing = recordDisplayShowing();
     recordDisplay = value;
     recordDisplayAvailable = available;
+    const auto showing = recordDisplayShowing();
+    if (previouslyShowing != showing && onRecordBodyOwnershipChange)
+        onRecordBodyOwnershipChange (showing);
     repaint (bodyArea);
 }
 

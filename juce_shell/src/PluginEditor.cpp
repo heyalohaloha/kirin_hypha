@@ -104,6 +104,12 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     };
     observatoryView.onCapture = [this] { beginObservatoryCapture(); };
     observatoryView.onInformation = [this] { showInformationMenu(); };
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    observatoryView.onRecordBodyOwnershipChange = [this] (bool)
+    {
+        updateAnalysisBodyPresentation();
+    };
+   #endif
     scaleRoot.addAndMakeVisible (observatoryView);
 
     scaleRoot.addAndMakeVisible (led);

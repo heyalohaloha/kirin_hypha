@@ -1,9 +1,10 @@
-#include "../src/PluginProcessor.h"
+#include "../src/PluginEditor.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceAccessPanel.h"
 #include "ValidationStorageSandbox.h"
 #include "EditorCaptureProductTest.h"
 
+#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -17,6 +18,7 @@ namespace
 {
 using Processor = KirinHyphaProcessorBase;
 using Domain = hypha::observatory::Domain;
+using AnalysisPage = hypha::analysis_navigation::Page;
 
 void require (bool condition, const char* message)
 {
@@ -37,6 +39,113 @@ juce::Component* find (juce::Component& parent, const juce::String& id)
     for (auto* child : parent.getChildren())
         if (auto* result = find (*child, id)) return result;
     return nullptr;
+}
+
+template <class Tag, typename Tag::Type Member> struct TestAccess
+{
+    friend typename Tag::Type testMember (Tag) { return Member; }
+};
+
+struct SetAnalysisPage
+{
+    using Type = void (KirinHyphaEditor::*) (AnalysisPage);
+    friend Type testMember (SetAnalysisPage);
+};
+template struct TestAccess<SetAnalysisPage, &KirinHyphaEditor::setAnalysisPage>;
+
+struct FreezeCapture
+{
+    using Type = hypha::capture::Snapshot (KirinHyphaEditor::*) (int, int);
+    friend Type testMember (FreezeCapture);
+};
+template struct TestAccess<FreezeCapture, &KirinHyphaEditor::freezeObservatoryCapture>;
+
+int differentPixels (const juce::Image& first, const juce::Image& second,
+                     juce::Rectangle<int> area)
+{
+    area = area.getIntersection (first.getBounds()).getIntersection (second.getBounds());
+    int changed = 0;
+    for (int y = area.getY(); y < area.getBottom(); ++y)
+        for (int x = area.getX(); x < area.getRight(); ++x)
+            if (first.getPixelAt (x, y) != second.getPixelAt (x, y)) ++changed;
+    return changed;
+}
+
+void verifyRecordBodyOwnership()
+{
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Post);
+    processor.setMeterContextPreference (hypha::meter_context::MeterContext::trackStem, false);
+    processor.setObservatoryDomainPreference (hypha::observatory::stateValue (Domain::frequency));
+    processor.prepareToPlay (48'000, 960);
+    auto editor = std::unique_ptr<KirinHyphaEditor> (
+        dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
+    require (editor != nullptr, "Record body shipping editor opens");
+    editor->setSize (600, 400);
+    editor->setVisible (true);
+    auto* view = component<hypha::observatory::View> (*editor);
+    auto* spectrum = component<hypha::SpectrumComponent> (*editor);
+    auto* perceptual = component<hypha::PerceptualComponent> (*editor);
+    auto* absolute = component<hypha::AbsoluteComponent> (*editor);
+    auto* attack = component<hypha::AttackComponent> (*editor);
+    require (view && spectrum && perceptual && absolute && attack,
+             "Record body uses the shipping component tree");
+
+    struct Case { AnalysisPage page; juce::Component* expected; const char* name; };
+    const std::array<Case, 4> cases {{
+        { AnalysisPage::spectrum, spectrum, "FREQ" },
+        // An unpaired SHARP page deliberately uses the absolute observation worker.
+        { AnalysisPage::perceptual, absolute, "SHARP" },
+        { AnalysisPage::absolute, absolute, "LIVE" },
+        { AnalysisPage::attack, attack, "ATTACK" },
+    }};
+    for (const auto& test : cases)
+    {
+        (editor.get()->*testMember (SetAnalysisPage {})) (test.page);
+        require (test.expected->isVisible(), "selected external analysis owns the body");
+        const auto domainBefore = view->domain();
+
+        KirinRecordDisplay record {};
+        record.phase = KIRIN_RECORD_DISPLAY_RESULT_HOLD;
+        record.generation = 42;
+        record.has_measure = 1;
+        record.has_session = 1;
+        record.measure.lufs_m = -17.2;
+        record.measure.lufs_s = -16.8;
+        record.measure.crest = 11.1;
+        record.measure.psr = 9.4;
+        record.measure.sharpness = 1.3;
+        record.session.max_true_peak = -0.8;
+        record.session.lufs_i = -16.1;
+        view->setRecordDisplay (record, true);
+        require (view->recordBodyActive(), "Record result owns the Observatory body");
+        require (! test.expected->isVisible(), "Record result retires the external analysis sibling");
+
+        const auto editorBody = editor->getLocalArea (view, view->analysisBodyBounds());
+        const auto captureBody = view->captureBodyBounds (1'200, 800, false);
+        const auto editorFirst = editor->createComponentSnapshot (editor->getLocalBounds());
+        const auto captureFirst = (editor.get()->*testMember (FreezeCapture {})) (1'200, 800).image;
+        record.measure.lufs_m = -37.2;
+        record.measure.lufs_s = -36.8;
+        record.session.lufs_i = -36.1;
+        view->setRecordDisplay (record, true);
+        const auto editorSecond = editor->createComponentSnapshot (editor->getLocalBounds());
+        const auto captureSecond = (editor.get()->*testMember (FreezeCapture {})) (1'200, 800).image;
+        require (differentPixels (editorFirst, editorSecond, editorBody) > 100,
+                 "Record values reach the shipping editor body");
+        require (differentPixels (captureFirst, captureSecond, captureBody) > 100,
+                 "Record values reach the synchronous Capture body");
+
+        record.phase = KIRIN_RECORD_DISPLAY_WATCH;
+        view->setRecordDisplay (record, false);
+        require (! view->recordBodyActive(), "Watch releases Record body ownership");
+        require (test.expected->isVisible(), "the selected analysis page returns after Record");
+        require (view->domain() == domainBefore, "Record preserves the selected domain");
+        std::cout << "Record body " << test.name << ": PASS" << std::endl;
+    }
+    processor.editorBeingDeleted (editor.get());
+    editor.reset();
+    processor.releaseResources();
 }
 
 struct HostClock final : juce::AudioPlayHead
@@ -269,6 +378,7 @@ int main (int argc, char** argv)
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
+    verifyRecordBodyOwnership();
     verifySavedReferenceChoices();
     std::unique_ptr<SurfaceContract> contract;
     CaptureProductContract capture([&] { contract=std::make_unique<SurfaceContract>(argc>1 ? juce::File(argv[1]) : juce::File()); });
