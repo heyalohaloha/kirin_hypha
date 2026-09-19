@@ -9,7 +9,7 @@ use std::thread::{self, JoinHandle};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::absolute_timeline::AbsoluteTimeline;
-use crate::channel_layout::{ChannelLayout, SpectrumView, SPECTRUM_VIEW_NONE};
+use crate::channel_layout::{ChannelLayout, SpectrumView};
 use crate::spectrum::{
     AnalysisViewMode, SpectrumChannelMode, SpectrumLayout, SPECTRUM_WINDOW_SIZE,
 };
@@ -110,14 +110,8 @@ impl SpectrumRuntime {
             sample_rate,
             num_channels,
             layout,
-            view: AtomicU8::new(
-                {
-                    let default = SpectrumView::default_for(layout);
-                    // 測れない layout では「既定の view」を名乗らない。Spectrum は未対応である。
-                    default.is_analysable().then_some(default)
-                }
-                .map_or(SPECTRUM_VIEW_NONE, SpectrumView::to_abi),
-            ),
+            // B-970: どの認識済み layout にも既定 view がある。サラウンドでは役割 view になる。
+            view: AtomicU8::new(SpectrumView::default_for(layout).to_abi()),
             enabled: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
             generation: AtomicU64::new(1),
@@ -153,14 +147,9 @@ impl SpectrumRuntime {
         if self.shutdown.load(Ordering::Acquire) {
             return false;
         }
-        // B-964: worker の de-interleave は `num_channels == 2` のときだけ 2 本を pop し、
-        // それ以外は 1 本しか pop しない（`spectrum_runtime_worker.rs`）。6ch を渡すと
-        // interleave がそのまま 1 本の流れとして扱われ、ring は溜まり続けて drop が積み上がる。
-        // **測れない layout は「測れない」として現れるべきで、受理して無言で詰まるべきではない。**
-        // P-4 で役割ごとの de-interleave が入るまで、ここで閉じる。
-        if enabled && !SpectrumView::any_analysable_in(self.layout) {
-            return false;
-        }
+        // B-965 はここで「解析できる view が無い layout」を閉じていた。B-970 で worker が
+        // 入力チャンネル数ぶん pop して役割で選ぶようになったので、認識済み layout には必ず
+        // 測れる view がある。門は `set_view` 側（layout が提供しない view の拒否）に残る。
         let currently_enabled = self.enabled.load(Ordering::Acquire);
         if enabled == currently_enabled && (!enabled || self.worker_running.load(Ordering::Acquire))
         {
@@ -206,10 +195,24 @@ impl SpectrumRuntime {
             .unwrap_or(AnalysisViewMode::Spectrum)
     }
 
-    /// 現在の観測対象。
-    /// 現在の観測対象。`None` はこの layout を解析経路が測れない状態であり、既定値ではない。
+    /// 現在の観測対象。`None` は ABI 値が既知の view を指していない状態であり、既定値ではない。
     pub fn view(&self) -> Option<SpectrumView> {
         SpectrumView::from_abi(self.view.load(Ordering::Acquire))
+    }
+
+    /// 現在の view で解析器が見る信号の本数。**入力チャンネル数（`num_channels`）とは別である。**
+    /// view が読めないときは 0 を返し、worker は何も組み立てない。
+    pub fn analysis_channels(&self) -> usize {
+        self.view()
+            .map_or(0, |view| view.analysis_channels(self.layout))
+    }
+
+    /// 現在の view が指す入力チャンネルの index（バッファ順）。導出 view では `None`。
+    pub fn selected_channel_index(&self) -> Option<usize> {
+        match self.view()? {
+            SpectrumView::Channel(role) => self.layout.index_of(role),
+            _ => None,
+        }
     }
 
     /// この runtime が作られた layout。
@@ -226,8 +229,13 @@ impl SpectrumRuntime {
     }
 
     /// Control thread only. Mid/Side is one stereo-only Spectrum processing selection.
+    ///
+    /// **いまの view が 2 本を解析していないと成立しない。** 1 本の view のまま受理すると、
+    /// 組立器が `channels != 2` で `None` を返し続け、**何も出ないまま有効に見える**（D-13 の C）。
     pub fn set_mid_side_enabled(&self, enabled: bool) -> bool {
-        if enabled && (self.num_channels != 2 || self.analysis_mode() != AnalysisViewMode::Spectrum)
+        if enabled
+            && (self.analysis_channels() != 2
+                || self.analysis_mode() != AnalysisViewMode::Spectrum)
         {
             return false;
         }
@@ -259,12 +267,16 @@ impl SpectrumRuntime {
     /// **役割で比べるので、layout が変われば「役割が残る」か「消える」かのどちらかになり、
     /// どちらも検出できる。** index だと別チャンネルの履歴が無言で連結する（契約表 §11.3.1）。
     pub fn set_view(&self, view: SpectrumView) -> bool {
-        // layout が提供しないものと、解析経路がまだ測れないものの両方を拒否する。後者を
-        // 受理すると `view()` は選んだ役割を答え、frame は LR を運ぶ（D-13）。
-        if !view.is_available_in(self.layout) || !view.is_analysable() {
+        if !view.is_available_in(self.layout) {
             return false;
         }
         let code = view.to_abi();
+        // 1 本しか解析しない view へ移るなら Mid/Side は成立しない。**有効なまま残さない。**
+        // 残すと組立器が `None` を返し続け、有効に見えるのに何も出ない状態になる。
+        if view.analysis_channels(self.layout) != 2 {
+            self.mid_side_enabled.store(false, Ordering::Release);
+            self.clear_mid_side_frame();
+        }
         let previous_view = self.view.swap(code, Ordering::AcqRel);
         let mode = match view {
             SpectrumView::Mid => SpectrumChannelMode::Mid,

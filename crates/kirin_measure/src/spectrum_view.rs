@@ -16,7 +16,7 @@ use super::{ChannelLayout, ChannelRole, LayoutId};
 pub const SPECTRUM_VIEW_ROLE_BASE: u8 = 16;
 
 /// 「観測対象が無い」ことを表す ABI 値。どの view とも重ならない。
-/// 既定値ではなく、**解析経路がこの layout を測れない**という事実である。
+/// **既定値ではない。** 既知の view を指していないコードは、近い view へ丸めずここへ落ちる。
 pub const SPECTRUM_VIEW_NONE: u8 = 255;
 
 /// 観測している対象。導出 view か、名前の付いた 1 チャンネルか。
@@ -83,14 +83,18 @@ impl SpectrumView {
         }
     }
 
-    /// 解析経路がこの view を実際に測れるか。
+    /// この view を測るとき、解析器が見る信号の本数。
     ///
-    /// **P-3 時点では導出 view（LR / MID / SIDE）だけである。** 単一チャンネル view は値空間と
-    /// 検証は揃ったが、`update_power` / `analyze_mono` がまだ役割で入力を選ばない（P-4）。
-    /// 選べてしまうと `view()` が `Rss` と答えながら frame は LR を運ぶ。
-    /// **値が出ているのに意味が違う状態を作らない**（D-13）。P-4 でこの関数は消える。
-    pub fn is_analysable(self) -> bool {
-        matches!(self, Self::Lr | Self::Mid | Self::Side)
+    /// **入力チャンネル数とは別の量である。** 5.1 の `C` を選んだとき、ring から 1 フレームあたり
+    /// 6 サンプル読むが、解析器に入るのは 1 本である。この 2 つを同じ `num_channels` で呼んでいた
+    /// のが B-963 の詰まり（6ch の interleave を 1 本の流れとして読んだ）の素地だった。
+    ///
+    /// 導出 view は L と R の 2 本（mono では 1 本）。単一チャンネル view は常に 1 本。
+    pub fn analysis_channels(self, layout: ChannelLayout) -> usize {
+        match self {
+            Self::Lr | Self::Mid | Self::Side => layout.channel_count().min(2),
+            Self::Channel(_) => 1,
+        }
     }
 
     /// この layout で選べる view の全体。導出 view が先、その後にチャンネルがバッファ順で並ぶ。
@@ -100,16 +104,6 @@ impl SpectrumView {
             .filter(|view| view.is_available_in(layout));
         let channels = layout.roles().iter().copied().map(Self::Channel);
         derived.chain(channels).collect()
-    }
-
-    /// この layout に、解析経路が実際に測れる view が 1 つでもあるか。
-    ///
-    /// 無ければ **Spectrum はこの layout に対して未対応**である。既定を名乗らせず、有効化も
-    /// させない。「既定はあるが何も出ない」は無言の失敗であって、未対応ではない。
-    pub fn any_analysable_in(layout: ChannelLayout) -> bool {
-        Self::available_in(layout)
-            .into_iter()
-            .any(Self::is_analysable)
     }
 
     /// この layout の既定 view。

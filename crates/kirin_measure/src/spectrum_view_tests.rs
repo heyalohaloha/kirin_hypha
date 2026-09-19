@@ -152,3 +152,33 @@ fn a_layout_change_either_keeps_the_role_or_loses_it_and_both_are_visible() {
     assert_eq!(narrow.roles()[5], ChannelRole::RightSurround);
     assert_ne!(wide.roles()[5], narrow.roles()[5]);
 }
+
+/// 解析器が見る本数は、入力チャンネル数とは別の量である（B-970）。
+#[test]
+fn analysis_channels_counts_signals_not_input_channels() {
+    let mono = ChannelLayout::mono();
+    let stereo = ChannelLayout::stereo();
+    let surround = ChannelLayout::by_id(LayoutId::Surround5_1);
+
+    // 導出 view は L と R の 2 本。mono では右が無いので 1 本。
+    assert_eq!(SpectrumView::Lr.analysis_channels(stereo), 2);
+    assert_eq!(SpectrumView::Mid.analysis_channels(stereo), 2);
+    assert_eq!(SpectrumView::Side.analysis_channels(stereo), 2);
+    assert_eq!(SpectrumView::Lr.analysis_channels(mono), 1);
+    assert_eq!(SpectrumView::Mid.analysis_channels(mono), 1);
+
+    // 単一チャンネル view は入力が何本でも 1 本。
+    assert_eq!(surround.channel_count(), 6);
+    for role in surround.roles() {
+        assert_eq!(
+            SpectrumView::Channel(*role).analysis_channels(surround),
+            1,
+            "{} は 1 本",
+            role.as_str()
+        );
+    }
+    assert_eq!(
+        SpectrumView::Channel(ChannelRole::Left).analysis_channels(stereo),
+        1
+    );
+}

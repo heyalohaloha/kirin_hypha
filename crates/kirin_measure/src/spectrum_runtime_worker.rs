@@ -10,22 +10,87 @@ use super::{SpectrumConsumers, SpectrumRuntime};
 use crate::absolute_timeline::AbsoluteFrame;
 use crate::perceptual::PerceptualFrame;
 use crate::spectrum::{AnalysisViewMode, SpectrumAnalyzer, SpectrumFrame};
+use crate::channel_layout::MAX_ABI_CHANNELS;
 use crate::MidSideSpectrumFrame;
 
 const WORKER_IDLE: Duration = Duration::from_millis(10);
 
+/// 1 フレームのうち、いまの view が使う入力チャンネルの位置。
+///
+/// **`input` は ring から 1 フレームあたり pop するサンプル数、`left` / `right` はそのフレームの
+/// 中の位置である。** B-963 までこの 2 つが同じ `num_channels` で呼ばれていたため、6ch の
+/// interleave が 1 本の流れとして読まれた。別の量には別の名前を付ける。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct FrameSelection {
+    input: usize,
+    left: usize,
+    right: Option<usize>,
+}
+
+/// worker が持つ 3 つの組立器。**解析チャンネル数ごとに作り直す。**
+struct Assemblers {
+    spectrum: SpectrumAssembler,
+    perceptual: Option<PerceptualAssembler>,
+    absolute: Option<AbsoluteAssembler>,
+}
+
 impl SpectrumRuntime {
+    /// 解析チャンネル数ぶんの組立器を作る。`SpectrumAnalyzer` が作れなければ worker は止まる。
+    fn build_assemblers(&self, analysis_channels: usize) -> Option<Assemblers> {
+        let analyzer = SpectrumAnalyzer::new(self.sample_rate).ok()?;
+        Some(Assemblers {
+            spectrum: SpectrumAssembler::new(analyzer, analysis_channels),
+            perceptual: PerceptualAssembler::new(self.sample_rate, analysis_channels).ok(),
+            absolute: AbsoluteAssembler::new(self.sample_rate, analysis_channels).ok(),
+        })
+    }
+
+    /// いまの view が読む位置。view が読めないときは `None`（worker は何も組み立てない）。
+    fn frame_selection(&self) -> Option<FrameSelection> {
+        let analysis = self.analysis_channels();
+        if analysis == 0 {
+            return None;
+        }
+        Some(match self.selected_channel_index() {
+            // 単一チャンネル view。役割で決まった位置を 1 本だけ解析へ渡す。
+            Some(index) => FrameSelection {
+                input: self.num_channels,
+                left: index,
+                right: None,
+            },
+            // 導出 view（LR / MID / SIDE）。stereo family 限定なので先頭 2 本が L と R である。
+            None => FrameSelection {
+                input: self.num_channels,
+                left: 0,
+                right: (analysis == 2).then_some(1),
+            },
+        })
+    }
+
     pub(super) fn run_worker(&self, consumers: &mut SpectrumConsumers) {
-        let Ok(analyzer) = SpectrumAnalyzer::new(self.sample_rate) else {
+        let mut built_for = self.analysis_channels();
+        let Some(mut assemblers) = self.build_assemblers(built_for) else {
             return;
         };
-        let mut spectrum = SpectrumAssembler::new(analyzer, self.num_channels);
-        let mut perceptual = PerceptualAssembler::new(self.sample_rate, self.num_channels).ok();
-        let mut absolute = AbsoluteAssembler::new(self.sample_rate, self.num_channels).ok();
         while !self.shutdown.load(Ordering::Acquire) {
+            // view が変わって解析器が見る本数が変われば組み直す。前の本数のまま使うと、
+            // frame の `channels` が現在の view と食い違い、鮮度判定で全部落ちる。
+            let analysis_channels = self.analysis_channels();
+            if analysis_channels != built_for {
+                let Some(rebuilt) = self.build_assemblers(analysis_channels) else {
+                    return;
+                };
+                assemblers = rebuilt;
+                built_for = analysis_channels;
+            }
+            let (spectrum, perceptual, absolute) = (
+                &mut assemblers.spectrum,
+                &mut assemblers.perceptual,
+                &mut assemblers.absolute,
+            );
             if !self.enabled.load(Ordering::Acquire) {
                 drain_consumers(consumers);
-                reset_assemblers(&mut spectrum, perceptual.as_mut(), absolute.as_mut());
+                reset_assemblers(spectrum, perceptual.as_mut(), absolute.as_mut());
                 let guard = match self.wake.0.lock() {
                     Ok(guard) => guard,
                     Err(_) => return,
@@ -83,12 +148,12 @@ impl SpectrumRuntime {
                 consumers,
                 block.frames,
                 mode,
-                &mut spectrum,
+                spectrum,
                 perceptual.as_mut(),
                 absolute.as_mut(),
             );
             if !complete {
-                reset_assemblers(&mut spectrum, perceptual.as_mut(), absolute.as_mut());
+                reset_assemblers(spectrum, perceptual.as_mut(), absolute.as_mut());
                 if mode == AnalysisViewMode::Perceptual {
                     self.require_perceptual_rearm();
                 }
@@ -106,18 +171,21 @@ impl SpectrumRuntime {
         mut absolute: Option<&mut AbsoluteAssembler>,
     ) -> bool {
         let channel_mode = self.channel_mode();
+        let Some(selection) = self.frame_selection() else {
+            return false;
+        };
+        // 1 フレーム分をまとめて読む。**入力チャンネル数ぶん必ず読む**ので、選んだ役割が
+        // 先頭でなくても残りが ring に居残らない。B-963 はここで 1 本しか読まず詰まらせた。
+        let mut frame = [0.0f32; MAX_ABI_CHANNELS];
         for _ in 0..frames {
-            let Ok(left) = consumers.samples.pop() else {
-                return false;
-            };
-            let right = if self.num_channels == 2 {
-                match consumers.samples.pop() {
-                    Ok(right) => Some(right),
-                    Err(_) => return false,
-                }
-            } else {
-                None
-            };
+            for slot in frame.iter_mut().take(selection.input) {
+                let Ok(sample) = consumers.samples.pop() else {
+                    return false;
+                };
+                *slot = sample;
+            }
+            let left = frame[selection.left];
+            let right = selection.right.map(|index| frame[index]);
             match mode {
                 AnalysisViewMode::Spectrum => {
                     if self.mid_side_enabled() {
@@ -220,7 +288,7 @@ impl SpectrumRuntime {
             && layout_matches
             && frame.generation == self.generation.load(Ordering::Acquire)
             && frame.channel_mode == self.channel_mode()
-            && frame.channels as usize == self.num_channels
+            && frame.channels as usize == self.analysis_channels()
     }
 
     fn mid_side_frame_is_current(&self, frame: &MidSideSpectrumFrame) -> bool {
@@ -230,7 +298,7 @@ impl SpectrumRuntime {
             && frame.generation() == self.generation.load(Ordering::Acquire)
             && frame.has_valid_layout()
             && frame.mid.sample_rate == self.sample_rate
-            && frame.mid.channels as usize == self.num_channels
+            && frame.mid.channels as usize == self.analysis_channels()
     }
 
     fn perceptual_frame_is_current(&self, frame: &PerceptualFrame) -> bool {
@@ -239,14 +307,14 @@ impl SpectrumRuntime {
             && frame.generation == self.generation.load(Ordering::Acquire)
             && Some(frame.state_epoch_samples) == self.perceptual_state_epoch()
             && frame.channel_mode == self.channel_mode()
-            && frame.channels as usize == self.num_channels
+            && frame.channels as usize == self.analysis_channels()
     }
 
     fn absolute_frame_is_current(&self, frame: &AbsoluteFrame) -> bool {
         self.enabled.load(Ordering::Acquire)
             && self.analysis_mode() == AnalysisViewMode::Absolute
             && frame.generation == self.generation.load(Ordering::Acquire)
-            && frame.channels as usize == self.num_channels
+            && frame.channels as usize == self.analysis_channels()
             && frame.is_valid()
     }
 
