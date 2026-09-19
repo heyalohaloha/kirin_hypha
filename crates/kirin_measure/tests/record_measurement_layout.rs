@@ -132,8 +132,7 @@ fn the_checksum_covers_the_recorded_layout() {
         "close() must write exactly one record under {base:?}, got {found:?}"
     );
     let text = std::fs::read_to_string(&found[0]).unwrap();
-    let loaded: kirin_measure::plugin_data::PluginDataFile =
-        serde_json::from_str(&text).unwrap();
+    let loaded: kirin_measure::plugin_data::PluginDataFile = serde_json::from_str(&text).unwrap();
     assert!(
         verify_checksum(&loaded),
         "the record as written must verify"

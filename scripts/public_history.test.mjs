@@ -88,6 +88,7 @@ test('CI runs the public history contract without an event condition', () => {
   const job = workflow.slice(start, end);
   assert.match(job, /name: public history identity/);
   assert.match(job, /fetch-depth: 0/);
+  assert.match(job, /bash scripts\/test_lightweight_contract\.sh/);
   assert.match(job, /node --test scripts\/public_history\.test\.mjs/);
   assert.match(job, /node scripts\/check_public_history\.mjs --tip HEAD/);
   assert.doesNotMatch(job, /^\s+if:/m);

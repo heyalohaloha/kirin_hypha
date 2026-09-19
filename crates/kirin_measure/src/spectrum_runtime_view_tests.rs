@@ -87,7 +87,11 @@ fn a_single_channel_view_measures_that_channel_not_the_first_one() {
         })
         .collect();
 
-    let left = peak_dbfs_for(layout, SpectrumView::Channel(ChannelRole::Left), &amplitudes);
+    let left = peak_dbfs_for(
+        layout,
+        SpectrumView::Channel(ChannelRole::Left),
+        &amplitudes,
+    );
     let centre = peak_dbfs_for(
         layout,
         SpectrumView::Channel(ChannelRole::Centre),
@@ -104,7 +108,11 @@ fn a_single_channel_view_works_on_the_shipping_stereo_layout_too() {
     // 出荷中の stereo でも役割 view は成立する。L に 0.5、R に 0.125。
     let layout = ChannelLayout::stereo();
     let amplitudes = [0.5f32, 0.125];
-    let left = peak_dbfs_for(layout, SpectrumView::Channel(ChannelRole::Left), &amplitudes);
+    let left = peak_dbfs_for(
+        layout,
+        SpectrumView::Channel(ChannelRole::Left),
+        &amplitudes,
+    );
     let right = peak_dbfs_for(
         layout,
         SpectrumView::Channel(ChannelRole::Right),
@@ -235,8 +243,7 @@ fn a_surround_layout_analyses_instead_of_jamming() {
     for _ in 0..(ring_frames * 2 / chunk_frames) {
         // 詰まっていれば入らない。ここでは通し切ることだけが目的なので待つ。
         let deadline = Instant::now() + Duration::from_secs(10);
-        while Instant::now() < deadline
-            && !runtime.push_block_from_audio(&chunk, 6, Some(position))
+        while Instant::now() < deadline && !runtime.push_block_from_audio(&chunk, 6, Some(position))
         {
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -346,9 +353,11 @@ fn stale_generation_channel_mode_or_view_can_never_be_republished() {
 
     // 役割 view でも同じ。単一チャンネル view は `channel_mode` が `Lr` のままなので、
     // **名札を見ないと L/R の frame と区別できない。**
-    assert!(runtime.set_view(crate::channel_layout::SpectrumView::Channel(
-        crate::channel_layout::ChannelRole::Right
-    )));
+    assert!(
+        runtime.set_view(crate::channel_layout::SpectrumView::Channel(
+            crate::channel_layout::ChannelRole::Right
+        ))
+    );
     let mut role = current.clone();
     role.generation = runtime.generation.load(Ordering::Acquire);
     role.channels = 1;
@@ -357,10 +366,9 @@ fn stale_generation_channel_mode_or_view_can_never_be_republished() {
         !runtime.frame_is_current(&role),
         "view が MID のままの frame は R の観測として公開しない"
     );
-    role.view = crate::channel_layout::SpectrumView::Channel(
-        crate::channel_layout::ChannelRole::Right,
-    )
-    .to_abi();
+    role.view =
+        crate::channel_layout::SpectrumView::Channel(crate::channel_layout::ChannelRole::Right)
+            .to_abi();
     assert!(runtime.frame_is_current(&role));
 
     assert!(runtime.set_enabled(false));

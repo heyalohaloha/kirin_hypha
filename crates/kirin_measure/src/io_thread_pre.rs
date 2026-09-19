@@ -1601,9 +1601,9 @@ fn retry_direct_read(
 #[path = "io_thread_pre_json.rs"]
 mod pre_json;
 pub use pre_json::serialize_pre_json;
-use pre_json::write_json;
 #[cfg(test)]
 use pre_json::serialize_pre_json_with_daw_session_id;
+use pre_json::write_json;
 
 /// Bypassed / Inactive 時の最小 JSON。
 ///

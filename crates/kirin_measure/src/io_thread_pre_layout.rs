@@ -19,4 +19,3 @@ pub(super) fn layout_fragment(layout: Option<crate::channel_layout::ChannelLayou
         Err(_) => String::new(),
     }
 }
-

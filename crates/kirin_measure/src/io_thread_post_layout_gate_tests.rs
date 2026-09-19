@@ -32,8 +32,8 @@ fn write_pre(project_dir: &Path, layout: Option<ChannelLayout>) -> PathBuf {
 fn write_pre_aged(project_dir: &Path, layout: Option<ChannelLayout>, age_secs: i64) -> PathBuf {
     let dir = project_dir.join("pre-iid");
     fs::create_dir_all(&dir).unwrap();
-    let t = (chrono::Utc::now() - chrono::Duration::seconds(age_secs))
-        .format("%Y-%m-%dT%H:%M:%S%.3fZ");
+    let t =
+        (chrono::Utc::now() - chrono::Duration::seconds(age_secs)).format("%Y-%m-%dT%H:%M:%S%.3fZ");
     let fragment = layout.map_or(String::new(), |layout| {
         format!(
             r#","layout":{}"#,
@@ -62,8 +62,9 @@ fn post() -> MeasureResult {
 fn delta_for(pre_layout: Option<ChannelLayout>, post_layout: ChannelLayout) -> DeltaResult {
     let dir = isolated_dir("pair");
     let pre_json = write_pre(&dir, pre_layout);
-    let (delta, _) = compute_delta_for_pre_file(&pre_json, &post(), &MeasurementLayout::new(post_layout))
-        .unwrap();
+    let (delta, _) =
+        compute_delta_for_pre_file(&pre_json, &post(), &MeasurementLayout::new(post_layout))
+            .unwrap();
     delta
 }
 

@@ -226,8 +226,7 @@ impl SpectrumRuntime {
     /// 組立器が `channels != 2` で `None` を返し続け、**何も出ないまま有効に見える**（D-13 の C）。
     pub fn set_mid_side_enabled(&self, enabled: bool) -> bool {
         if enabled
-            && (self.analysis_channels() != 2
-                || self.analysis_mode() != AnalysisViewMode::Spectrum)
+            && (self.analysis_channels() != 2 || self.analysis_mode() != AnalysisViewMode::Spectrum)
         {
             return false;
         }

@@ -54,21 +54,20 @@ use kirin_measure::{
     spawn_watchdog, watch_ring_capacity_samples, write_broadcast_for_generation,
     write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
     write_stop_broadcast_for_generation, AnalysisViewMode, CaptureClockSource, CaptureGeneration,
-    CaptureGenerationMember, CaptureGenerationTransaction, DeltaResult,
-    GenerationTerminalReason, IoThreadHandle, LatchedPre, License, LiveLicense, LivenessEvaluator,
-    MeasureResult, MeterDeltaHistoryExchange, MeterHistoryEntry, MeterHistoryRange,
-    MeterHistoryResolution, MeterSession, MeterSessionPublication, MeterSessionSnapshot,
-    MeterSessionState, PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths,
-    PluginDataRole, PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource,
-    PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
-    RestartIoFn, SignalError, SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame,
-    SpectrumRuntime, SpectrumRuntimeStats, SpectrumTimelineFrame, SpectrumViewSnapshot,
-    SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo,
-    WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
-    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT,
-    MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS,
-    PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
+    CaptureGenerationMember, CaptureGenerationTransaction, DeltaResult, GenerationTerminalReason,
+    IoThreadHandle, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult,
+    MeterDeltaHistoryExchange, MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution,
+    MeterSession, MeterSessionPublication, MeterSessionSnapshot, MeterSessionState,
+    PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths, PluginDataRole,
+    PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource, PsbSummary,
+    RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine,
+    RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError,
+    SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame, SpectrumRuntime,
+    SpectrumRuntimeStats, SpectrumTimelineFrame, SpectrumViewSnapshot, SpectrumViewStatus,
+    StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams,
+    ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT, HISTORY_0_1_HZ_CAPACITY,
+    HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
+    MAX_CAPTURE_GENERATION_MEMBERS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS, STEREO_FIELD_SIZE,
 };
 use uuid::Uuid;
@@ -3415,7 +3414,6 @@ fn meter_history_resolution_from_abi(value: u8) -> Option<MeterHistoryResolution
 #[path = "delta_abi.rs"]
 mod delta_abi;
 use delta_abi::to_c_delta;
-
 
 fn delta_has_finite_fact(delta: &KirinDelta) -> bool {
     delta.mode == KIRIN_DELTA_MODE_ACTIVE

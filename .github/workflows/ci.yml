@@ -45,6 +45,12 @@ jobs:
           # candidate-main history on every event, including ordinary main pushes.
           fetch-depth: 0
 
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Test lightweight source contract
+        run: bash scripts/test_lightweight_contract.sh
+
       - name: Test public history contract
         run: |
           node --test scripts/public_history.test.mjs

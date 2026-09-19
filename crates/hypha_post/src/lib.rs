@@ -921,7 +921,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&instance_id_arc),
                     Arc::clone(&project_hash_arc),
                     sample_rate,
-                            kirin_measure::channel_layout::ChannelLayout::stereo(),
+                    kirin_measure::channel_layout::ChannelLayout::stereo(),
                     Arc::clone(&record_sm),
                     Arc::clone(&measure_result),
                     Arc::clone(&delta_result),

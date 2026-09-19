@@ -8,9 +8,9 @@ use super::assemblers::{AbsoluteAssembler, PerceptualAssembler, SpectrumAssemble
 use super::PerceptualHistory;
 use super::{SpectrumConsumers, SpectrumRuntime};
 use crate::absolute_timeline::AbsoluteFrame;
+use crate::channel_layout::{SpectrumView, MAX_ABI_CHANNELS};
 use crate::perceptual::PerceptualFrame;
 use crate::spectrum::{AnalysisViewMode, SpectrumAnalyzer, SpectrumFrame};
-use crate::channel_layout::{SpectrumView, MAX_ABI_CHANNELS};
 use crate::MidSideSpectrumFrame;
 
 const WORKER_IDLE: Duration = Duration::from_millis(10);
@@ -197,8 +197,7 @@ impl SpectrumRuntime {
                         if let Some(frame) = spectrum.push_mid_side_frame(left, right) {
                             self.publish_mid_side(frame);
                         }
-                    } else if let Some(mut frame) = spectrum.push_frame(left, right, channel_mode)
-                    {
+                    } else if let Some(mut frame) = spectrum.push_frame(left, right, channel_mode) {
                         // どの観測対象で作ったかをフレーム自身に持たせる。view を選んでいるのは
                         // ここだけで、view が変わると組立器は generation でリセットされるので、
                         // この窓はまるごとこの view のものである。
@@ -399,7 +398,11 @@ mod selection_tests {
                 assert!(runtime.set_view(view), "{view:?} in {:?}", layout.id());
                 let selection = runtime.frame_selection().expect("a selection");
 
-                assert_eq!(selection.input, layout.channel_count(), "読む本数は入力のまま");
+                assert_eq!(
+                    selection.input,
+                    layout.channel_count(),
+                    "読む本数は入力のまま"
+                );
                 assert_eq!(
                     SpectrumView::from_abi(selection.view_code),
                     Some(view),

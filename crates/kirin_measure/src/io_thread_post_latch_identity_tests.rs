@@ -121,9 +121,16 @@ fn latch_name_change_unlatches() {
     .unwrap();
     assert!(latched.lock().unwrap().is_some());
     // 名前変更（"kick" 不在）→ アンラッチ + NoPre。
-    let (d, _, _) =
-        compute_latched_display(&root, "kick", &latch_post(), &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()), Some("kick"), false, &latched)
-            .unwrap();
+    let (d, _, _) = compute_latched_display(
+        &root,
+        "kick",
+        &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
+        Some("kick"),
+        false,
+        &latched,
+    )
+    .unwrap();
     assert!(latched.lock().unwrap().is_none(), "名前変更で即アンラッチ");
     assert_eq!(d.mode, DeltaMode::NoPre);
     // クリア（空）→ アンラッチ + NoPre。
@@ -138,8 +145,16 @@ fn latch_name_change_unlatches() {
     )
     .unwrap();
     assert!(latched.lock().unwrap().is_some());
-    let (d2, _, _) =
-        compute_latched_display(&root, "", &latch_post(), &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()), None, false, &latched).unwrap();
+    let (d2, _, _) = compute_latched_display(
+        &root,
+        "",
+        &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
+        None,
+        false,
+        &latched,
+    )
+    .unwrap();
     assert!(latched.lock().unwrap().is_none(), "クリアで即アンラッチ");
     assert_eq!(d2.mode, DeltaMode::NoPre);
 }
@@ -158,8 +173,16 @@ fn unnamed_exact_latch_remains_valid_until_selection_layer_clears_it() {
         readiness: crate::LatchedPreReadiness::Confirmed,
     }));
 
-    let (delta, _, _) =
-        compute_latched_display(&root, "", &latch_post(), &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()), None, false, &latched).unwrap();
+    let (delta, _, _) = compute_latched_display(
+        &root,
+        "",
+        &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
+        None,
+        false,
+        &latched,
+    )
+    .unwrap();
     assert_eq!(delta.mode, DeltaMode::Active);
     assert_eq!(
         latched
@@ -404,8 +427,16 @@ fn latch_frozen_during_record() {
     .unwrap();
     assert!(latched.lock().unwrap().is_some());
     // Record 中に名前変更（別名）→ アンラッチしない（凍結）。
-    let _ = compute_latched_display(&root, "kick", &latch_post(), &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()), Some("kick"), true, &latched)
-        .unwrap();
+    let _ = compute_latched_display(
+        &root,
+        "kick",
+        &latch_post(),
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
+        Some("kick"),
+        true,
+        &latched,
+    )
+    .unwrap();
     assert_eq!(
         latched.lock().unwrap().as_ref().unwrap().instance_id,
         "iid-A",

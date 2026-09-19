@@ -89,7 +89,9 @@ fn short_term_delta_is_additive_across_old_and_new_pre_json() {
     };
 
     write_pre(&pd, "pre-old", &now, -14.0);
-    let old = compute_delta_with_state(&pd, &post, &stereo_layout(), None).unwrap().0;
+    let old = compute_delta_with_state(&pd, &post, &stereo_layout(), None)
+        .unwrap()
+        .0;
     assert_eq!(old.mode, DeltaMode::Active);
     assert_eq!(old.lufs, Some(4.0));
     assert_eq!(
@@ -99,7 +101,9 @@ fn short_term_delta_is_additive_across_old_and_new_pre_json() {
 
     fs::remove_dir_all(pd.join("pre-old")).unwrap();
     write_pre_with_short_term(&pd, "pre-new", &now, -14.0, -15.0);
-    let new = compute_delta_with_state(&pd, &post, &stereo_layout(), None).unwrap().0;
+    let new = compute_delta_with_state(&pd, &post, &stereo_layout(), None)
+        .unwrap()
+        .0;
     assert_eq!(new.mode, DeltaMode::Active);
     assert_eq!(new.lufs, Some(4.0));
     assert_eq!(new.lufs_s, Some(4.0));

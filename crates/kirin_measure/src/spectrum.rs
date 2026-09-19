@@ -182,7 +182,6 @@ impl SpectrumFrame {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SpectrumError {
     InvalidSampleRate,

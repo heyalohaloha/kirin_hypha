@@ -58,18 +58,15 @@ assert_ctest_inventory() {
 # Shipping producer/consumer contract. This includes measurement, Record writer, generation,
 # pairing, TRACE publication, and error-path integration tests without treating the retired
 # nih-plug editors as the AU/VST3 release shell.
-run cargo fmt --all -- --check
+run bash scripts/test_lightweight_contract.sh
 run node --test scripts/public_history.test.mjs
 run node scripts/check_public_history.mjs --tip HEAD
 run node --test scripts/check_aax_sdk_absence.test.mjs
 run node scripts/check_aax_sdk_absence.mjs
 run node --test scripts/check_typography_source.test.mjs
 run node scripts/check_typography_source.mjs
-run node --test scripts/structural_repair_detection.test.mjs
 run node --test scripts/research/review/review.test.mjs
 run node --test scripts/research/review/evaluate_review_answers.test.mjs
-run bash scripts/test_source_line_budget.sh
-run bash scripts/check_source_line_budget.sh
 run node --test scripts/ls_release/release_metadata.test.mjs
 run node --test scripts/windows/windows_installer.test.mjs
 

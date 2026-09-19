@@ -29,11 +29,11 @@ const shippingAdapterIsExact = (source) => {
       < alias.indexOf('&kirin_hypha_set_absolute_visible');
 };
 
-const engineLifecycleIsOrdered = (processor, demand) => {
+const engineLifecycleIsOrdered = ({ format, processor, demand }) => {
   const prepare = between(
-    processor,
+    format,
     'void KirinHyphaProcessorBase::prepareToPlay',
-    'void KirinHyphaProcessorBase::releaseResources',
+    'void KirinHyphaProcessorBase::applyHeldFormatIfRecordReleased',
   );
   const enable = between(
     processor,
@@ -77,13 +77,15 @@ const correlationRegionsAreSeparated = (layout, painter) => {
 test('structural repair detectors reject the five known mutation classes', () => {
   const adapter = read('juce_shell/src/HyphaAnalysisFfiAdapter.h');
   const demand = read('juce_shell/src/HyphaAnalysisDemand.h');
+  const format = read('juce_shell/src/PluginProcessorFormat.cpp');
   const processor = read('juce_shell/src/PluginProcessor.cpp');
   const analysis = read('juce_shell/src/PluginProcessorAnalysis.cpp');
   const layout = read('juce_shell/src/HyphaTimeHistoryLayout.cpp');
   const painter = read('juce_shell/src/HyphaTimeHistoryPainter.cpp');
 
   assert.ok(shippingAdapterIsExact(adapter));
-  assert.ok(engineLifecycleIsOrdered(processor, demand));
+  const lifecycle = { format, processor, demand };
+  assert.ok(engineLifecycleIsOrdered(lifecycle));
   assert.ok(rejectedApplicationStaysPending(analysis));
   assert.ok(correlationRegionsAreSeparated(layout, painter));
 
@@ -97,13 +99,19 @@ test('structural repair detectors reject the five known mutation classes', () =>
     'writesEnabled.store (true, std::memory_order_release);\n    analysisApplication.engineReady();',
     'analysisApplication.engineReady();\n    writesEnabled.store (true, std::memory_order_release);',
   );
-  assert.ok(!engineLifecycleIsOrdered(earlyRestore, demand), 'early restore must be detected');
+  assert.ok(
+    !engineLifecycleIsOrdered({ ...lifecycle, processor: earlyRestore }),
+    'early restore must be detected',
+  );
 
-  const staleGeneration = processor.replace(
+  const staleGeneration = format.replace(
     'analysisApplication.engineCreated();',
     '/* missing engine generation invalidation */',
   );
-  assert.ok(!engineLifecycleIsOrdered(staleGeneration, demand), 'stale engine generation must be detected');
+  assert.ok(
+    !engineLifecycleIsOrdered({ ...lifecycle, format: staleGeneration }),
+    'stale engine generation must be detected',
+  );
 
   const overlappingCorrelation = layout.replace(
     'static_cast<float> (lane.getY() + 1)',
