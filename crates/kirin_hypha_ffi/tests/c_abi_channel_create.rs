@@ -44,12 +44,32 @@ fn nothing_at_all_is_refused() {
     );
 }
 
+/// `count > MAX_ABI_CHANNELS` は slice を作る前に落ちる。**この境界より下は落ちない。**
+///
+/// `layout_from_abi` の長さ検査は `MAX_ABI_CHANNELS`（16）だけを見る。したがって
+/// count が 1..=16 で配列がそれより短い場合、`slice::from_raw_parts` は配列の外を読む。
+/// これは検出できない呼び出し側の誤りであり、`# Safety` の契約（`count` 要素以上の
+/// 有効な配列）そのものである。**ここで守られているのは 16 を超える count だけである。**
+/// 出荷経路は `ChannelRoles.h:83` が `roles.data()` と `roles.size()` を同じ vector から
+/// 渡すので、count と配列長が食い違わない。
 #[test]
-fn a_count_beyond_any_layout_is_refused_without_reading_that_far() {
-    // 殻の計算違いが巨大な確保にならないこと。ポインタは 2 要素しか指していない。
+fn only_a_count_past_the_abi_maximum_is_refused_before_the_slice_is_formed() {
+    // 16 を超える count。殻の計算違いが巨大な確保にならないこと。
     assert!(
         unsafe { kirin_hypha_create(SR, [LEFT, RIGHT].as_ptr(), 4096) }.is_null(),
         "an absurd count must be refused before the slice is formed"
+    );
+    // 境界そのもの。17 は配列を読まずに落ちる。
+    assert!(
+        unsafe { kirin_hypha_create(SR, [LEFT, RIGHT].as_ptr(), 17) }.is_null(),
+        "one past MAX_ABI_CHANNELS must be refused before the slice is formed"
+    );
+    // 16 までは長さでは落ちない。ここは実在する 16 要素を渡して、拒否の理由が長さではなく
+    // レイアウト照合であることを示す（役割は 14 種しかないので 16 は必ず未知コードを含む）。
+    let sixteen: [u8; 16] = std::array::from_fn(|slot| slot as u8);
+    assert!(
+        unsafe { kirin_hypha_create(SR, sixteen.as_ptr(), 16) }.is_null(),
+        "16 is inside the ABI capacity; it is refused by the role table and layout, not by length"
     );
 }
 
