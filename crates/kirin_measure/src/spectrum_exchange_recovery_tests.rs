@@ -1,25 +1,8 @@
 use super::*;
-use crate::spectrum::{
-    SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_FFT_SIZE, SPECTRUM_SCHEMA_VERSION,
-    SPECTRUM_WINDOW_SIZE,
-};
 use std::thread;
-fn frame(end: i64, value: f32) -> SpectrumFrame {
-    SpectrumFrame {
-        schema_version: SPECTRUM_SCHEMA_VERSION,
-        sample_rate: 48_000,
-        aperture_samples: SPECTRUM_WINDOW_SIZE as u32,
-        fft_size: SPECTRUM_FFT_SIZE as u32,
-        band_count: SPECTRUM_BAND_COUNT as u16,
-        presentation_end_samples: end,
-        generation: 7,
-        channel_mode: SpectrumChannelMode::Lr,
-        channels: 2,
-        min_hz: 10.0,
-        max_hz: 22_000.0,
-        dbfs: [value; SPECTRUM_BAND_COUNT],
-    }
-}
+// `frame()` は `spectrum_exchange_view_tests.rs` が持つ（同じ親の兄弟モジュール）。
+// 同じ helper を 2 か所に置かない。
+use super::view_tests::frame;
 
 fn perceptual_frame(end: i64, value: f64) -> crate::PerceptualFrame {
     crate::PerceptualFrame {

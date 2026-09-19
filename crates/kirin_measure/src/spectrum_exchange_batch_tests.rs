@@ -16,6 +16,7 @@ fn frame(index: i64, value: f32) -> SpectrumFrame {
         presentation_end_samples: index * 1_600,
         generation: 7,
         channel_mode: SpectrumChannelMode::Lr,
+        view: crate::channel_layout::SpectrumView::Lr.to_abi(),
         channels: 2,
         min_hz: 10.0,
         max_hz: 22_000.0,

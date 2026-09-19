@@ -148,6 +148,7 @@ mod tests {
             min_hz: 10.0,
             max_hz: 22_000.0,
             channel_mode: SpectrumChannelMode::Lr,
+            view: crate::channel_layout::SpectrumView::Lr.to_abi(),
             channels: 2,
             pre_dbfs: [-30.0; SPECTRUM_BAND_COUNT],
             post_dbfs: [-27.0; SPECTRUM_BAND_COUNT],

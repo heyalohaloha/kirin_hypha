@@ -10,7 +10,7 @@ use super::{SpectrumConsumers, SpectrumRuntime};
 use crate::absolute_timeline::AbsoluteFrame;
 use crate::perceptual::PerceptualFrame;
 use crate::spectrum::{AnalysisViewMode, SpectrumAnalyzer, SpectrumFrame};
-use crate::channel_layout::MAX_ABI_CHANNELS;
+use crate::channel_layout::{SpectrumView, MAX_ABI_CHANNELS, SPECTRUM_VIEW_NONE};
 use crate::MidSideSpectrumFrame;
 
 const WORKER_IDLE: Duration = Duration::from_millis(10);
@@ -174,6 +174,7 @@ impl SpectrumRuntime {
         let Some(selection) = self.frame_selection() else {
             return false;
         };
+        let view_code = self.view().map_or(SPECTRUM_VIEW_NONE, SpectrumView::to_abi);
         // 1 フレーム分をまとめて読む。**入力チャンネル数ぶん必ず読む**ので、選んだ役割が
         // 先頭でなくても残りが ring に居残らない。B-963 はここで 1 本しか読まず詰まらせた。
         let mut frame = [0.0f32; MAX_ABI_CHANNELS];
@@ -192,7 +193,12 @@ impl SpectrumRuntime {
                         if let Some(frame) = spectrum.push_mid_side_frame(left, right) {
                             self.publish_mid_side(frame);
                         }
-                    } else if let Some(frame) = spectrum.push_frame(left, right, channel_mode) {
+                    } else if let Some(mut frame) = spectrum.push_frame(left, right, channel_mode)
+                    {
+                        // どの観測対象で作ったかをフレーム自身に持たせる。view を選んでいるのは
+                        // ここだけで、view が変わると組立器は generation でリセットされるので、
+                        // この窓はまるごとこの view のものである。
+                        frame.view = view_code;
                         self.publish_spectrum(frame);
                     }
                 }

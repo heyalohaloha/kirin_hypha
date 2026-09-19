@@ -415,6 +415,7 @@ fn stale_generation_or_channel_mode_can_never_be_republished() {
         presentation_end_samples: 4_800,
         generation,
         channel_mode: SpectrumChannelMode::Lr,
+        view: crate::channel_layout::SpectrumView::Lr.to_abi(),
         channels: 2,
         min_hz: 10.0,
         max_hz: 22_000.0,

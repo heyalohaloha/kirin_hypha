@@ -55,7 +55,12 @@ fn peak_dbfs_for(layout: ChannelLayout, view: SpectrumView, amplitudes: &[f32]) 
         peak = runtime
             .try_history()
             .and_then(|history| history.newest().cloned())
-            .map(|frame| frame.dbfs.iter().copied().fold(f32::NEG_INFINITY, f32::max));
+            .map(|frame| {
+                // フレーム自身がどの観測対象で作られたかを名乗る（B-971）。
+                // `channel_mode` は単一チャンネル view でも `Lr` のままなので名札にしない。
+                assert_eq!(frame.view, view.to_abi(), "frame は選んだ view を名乗る");
+                frame.dbfs.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+            });
     }
     let stats = runtime.stats();
     assert_eq!(stats.dropped_blocks, 0, "block を落とさない");

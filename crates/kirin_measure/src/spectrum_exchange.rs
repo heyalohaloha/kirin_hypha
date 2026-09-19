@@ -364,3 +364,6 @@ mod recovery_tests;
 #[cfg(test)]
 #[path = "spectrum_exchange_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "spectrum_exchange_view_tests.rs"]
+mod view_tests;
