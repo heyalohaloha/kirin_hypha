@@ -198,10 +198,14 @@ fn materialize_last_active(delta: DeltaResult) -> DeltaResult {
     let Some(snapshot) = delta.last_active.clone() else {
         return delta;
     };
-    delta_from_snapshot(snapshot, delta.mode)
+    delta_from_snapshot(snapshot, delta.mode, delta.comparison)
 }
 
-fn delta_from_snapshot(snapshot: DeltaSnapshot, mode: DeltaMode) -> DeltaResult {
+fn delta_from_snapshot(
+    snapshot: DeltaSnapshot,
+    mode: DeltaMode,
+    comparison: crate::ComparisonSnapshot,
+) -> DeltaResult {
     DeltaResult {
         lufs: snapshot.lufs,
         lufs_s: snapshot.lufs_s,
@@ -213,6 +217,7 @@ fn delta_from_snapshot(snapshot: DeltaSnapshot, mode: DeltaMode) -> DeltaResult 
         psb_bark: snapshot.psb_bark,
         mode,
         last_active: Some(snapshot),
+        comparison,
     }
 }
 

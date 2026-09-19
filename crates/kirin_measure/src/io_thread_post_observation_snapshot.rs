@@ -81,6 +81,8 @@ impl PostSnapshotPublisher {
             &runtime.signal_state,
             &pair.name,
             pair.claimed_at,
+            pair.binding_generation,
+            pair.pre_instance_id.as_deref(),
             &identity.project_hash,
             &identity.daw_session_id,
             recording,

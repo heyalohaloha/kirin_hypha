@@ -108,6 +108,8 @@ KirinObservatoryFrame activeFrame()
     frame.signal_state = KIRIN_SIGNAL_STATE_ACTIVE;
     frame.lra_state = KIRIN_LRA_READY;
     frame.delta_available = 1u;
+    frame.comparison_state = KIRIN_COMPARISON_STATE_ACTIVE; frame.comparison_reason = KIRIN_COMPARISON_REASON_NONE;
+    frame.comparison_generation = 1u; frame.comparison_identity = 1u;
     frame.lra_elapsed_seconds = 272.0;
     frame.meter = activeMeter();
     frame.delta = activeDelta();
@@ -281,7 +283,6 @@ void writeFrequencyObservatoryPreview (const KirinSpectrumView& snapshot)
     KIRIN_OBSERVATORY_REQUIRE (
         juce::PNGImageFormat().writeImageToStream (composed, *output));
 }
-
 void verifyObservatoryViewContract()
 {
     verifyObservatoryBackdropContract();
@@ -457,6 +458,14 @@ void verifyObservatoryViewContract()
     post.setTarget (observatory::ObservationTarget::delta);
     const auto difference = render (post);
     KIRIN_OBSERVATORY_REQUIRE (differentPixels (absolute, difference) > 500);
+    auto rejectedFrame = activeFrame();
+    rejectedFrame.delta_available = 0u; rejectedFrame.delta.mode = KIRIN_DELTA_MODE_LAYOUT_MISMATCH;
+    rejectedFrame.comparison_state = KIRIN_COMPARISON_STATE_REJECTED;
+    rejectedFrame.comparison_reason = KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH;
+    post.setObservatoryFrame (rejectedFrame, true);
+    const auto rejected = render (post);
+    KIRIN_OBSERVATORY_REQUIRE (differentPixels (difference, rejected) > 100);
+    post.setObservatoryFrame (activeFrame(), true);
     auto observatoryCrestFrame = activeFrame();
     observatoryCrestFrame.delta.crest = 4.8;
     post.setObservatoryFrame (observatoryCrestFrame, true);

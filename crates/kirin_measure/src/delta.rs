@@ -99,6 +99,24 @@ pub struct DeltaResult {
     /// `run_tick` でのみ書き込まれる (`compute_delta_with_state` は触らない /
     /// §4-2)。`#[derive(Default)]` 自動派生で `None` 初期化。
     pub last_active: Option<DeltaSnapshot>,
+
+    /// State, reason, exact comparison identity, and edge generation published together.
+    pub comparison: crate::ComparisonSnapshot,
+}
+
+impl DeltaResult {
+    pub fn has_current_fact(&self) -> bool {
+        self.lufs.is_some_and(f64::is_finite)
+            || self.lufs_s.is_some_and(f64::is_finite)
+            || self.psr.is_some_and(f64::is_finite)
+            || self.tp.is_some_and(f64::is_finite)
+            || self.n_prime_total.is_some_and(f64::is_finite)
+            || self.crest.is_some_and(f64::is_finite)
+            || self.sharpness.is_some_and(f64::is_finite)
+            || self
+                .psb_bark
+                .is_some_and(|values| values.into_iter().all(f64::is_finite))
+    }
 }
 
 #[cfg(test)]

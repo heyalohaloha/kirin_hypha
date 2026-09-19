@@ -583,6 +583,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/SpectrumPresentationContractTest.cpp
         tests/GuideFrequencyOverlayContractTest.cpp
         tests/HybridVuContractTest.cpp
+        tests/ComparisonPresentationContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
         tests/JungleAppearanceContractTest.cpp
         tests/ObservatoryCaptureContractTest.cpp

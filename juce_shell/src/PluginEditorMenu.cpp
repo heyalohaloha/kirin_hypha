@@ -452,6 +452,8 @@ void KirinHyphaEditor::handleCandidateMenu (
             if (processorRef.setPairCandidate (candidate.instanceId, name))
             {
                 pairedPreExplicitlyBypassed = false;
+                comparisonActionAwaitingResult = true;
+                comparisonActionAfterGeneration = comparisonObservedGeneration;
                #if ! KIRIN_HYPHA_PRE_DISPLAY
                 spectrumView.clearSnapshot();
                 perceptualView.clearSnapshot();

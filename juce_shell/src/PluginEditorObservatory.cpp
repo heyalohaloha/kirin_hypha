@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaComparisonPresentation.h"
 
 using hypha::COL_LED_BLUE;
 using hypha::COL_MUTED;
@@ -278,6 +279,25 @@ void KirinHyphaEditor::refreshObservatory()
     KirinObservatoryFrame frame {};
     const bool frameAvailable = processorRef.pollObservatoryFrame (frame);
     observatoryView.setObservatoryFrame (frame, frameAvailable);
+    if (frameAvailable)
+    {
+        comparisonObservedGeneration = juce::jmax (
+            comparisonObservedGeneration, frame.comparison_generation);
+        if (comparisonActionAwaitingResult
+            && frame.comparison_generation > comparisonActionAfterGeneration)
+        {
+            if (frame.comparison_state == KIRIN_COMPARISON_STATE_ACTIVE)
+                comparisonActionAwaitingResult = false;
+            else if (hypha::comparison_presentation::notifiesExplicitAction (
+                         frame.comparison_state, frame.comparison_reason))
+            {
+                showToast (hypha::comparison_presentation::statusText (
+                    frame.comparison_state,
+                    frame.comparison_reason));
+                comparisonActionAwaitingResult = false;
+            }
+        }
+    }
     observatoryView.setWatchDisplay (observatoryWatchDisplay, haveObservatoryWatchDisplay);
     observatoryView.setShortTermLoudness (processorRef.useShortTermLoudness());
    #if ! KIRIN_HYPHA_PRE_DISPLAY

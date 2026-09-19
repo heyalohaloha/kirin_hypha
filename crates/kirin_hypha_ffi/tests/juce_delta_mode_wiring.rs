@@ -26,6 +26,11 @@ fn paired_pre_off_is_absolute_while_inactive_and_stale_preserve_delta_layout() {
         "KIRIN_DELTA_MODE_LAYOUT_UNKNOWN 6u",
         "KIRIN_PAIR_STATUS_PAIRED 2u",
         "KIRIN_SIGNAL_STATE_ACTIVE 1u",
+        "KIRIN_COMPARISON_STATE_REJECTED 0u",
+        "KIRIN_COMPARISON_STATE_ACTIVE 2u",
+        "KIRIN_COMPARISON_STATE_HOLDING 3u",
+        "KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH 6u",
+        "KIRIN_COMPARISON_REASON_LAYOUT_UNKNOWN 7u",
     ] {
         assert!(
             ffi_header.contains(required),
@@ -60,4 +65,11 @@ fn paired_pre_off_is_absolute_while_inactive_and_stale_preserve_delta_layout() {
     assert!(producer.contains("Some(SignalState::Inactive) => DeltaMode::PreInactive"));
     assert!(producer.contains("POST absolute until it resumes"));
     assert!(!producer.contains("idle はラッチ維持で Stale"));
+
+    let observatory = read_repo("juce_shell/src/PluginEditorObservatory.cpp");
+    let presentation = read_repo("juce_shell/src/HyphaComparisonPresentation.h");
+    assert!(observatory.contains("frame.comparison_generation > comparisonActionAfterGeneration"));
+    assert!(observatory.contains("notifiesExplicitAction ("));
+    assert!(presentation.contains("KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH"));
+    assert!(presentation.contains("MATCH PRE / POST BUS"));
 }

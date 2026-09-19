@@ -245,6 +245,9 @@ private:
     hypha::DisplaySmoother displaySmoother;
     KirinWatchDisplay observatoryWatchDisplay {};
     bool haveObservatoryWatchDisplay = false;
+    std::uint64_t comparisonObservedGeneration = 0;
+    std::uint64_t comparisonActionAfterGeneration = 0;
+    bool comparisonActionAwaitingResult = false;
     KirinMeasureResult watchMaximum {};
     bool haveWatchMaximum = false;
     bool pairedPreExplicitlyBypassed = false; // updated only from a successful exact delta poll

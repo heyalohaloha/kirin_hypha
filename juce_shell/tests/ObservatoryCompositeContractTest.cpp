@@ -36,6 +36,10 @@ KirinObservatoryFrame activeFrame()
     frame.signal_state = KIRIN_SIGNAL_STATE_ACTIVE;
     frame.lra_state = KIRIN_LRA_READY;
     frame.delta_available = 1u;
+    frame.comparison_state = KIRIN_COMPARISON_STATE_ACTIVE;
+    frame.comparison_reason = KIRIN_COMPARISON_REASON_NONE;
+    frame.comparison_generation = 1u;
+    frame.comparison_identity = 1u;
     frame.lra_elapsed_seconds = 245.0;
     auto& meter = frame.meter;
     meter.generation = 11u;

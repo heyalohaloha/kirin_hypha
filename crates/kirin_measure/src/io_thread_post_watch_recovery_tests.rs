@@ -57,6 +57,8 @@ fn active_watch_tick_recovers_poisoned_result_locks() {
         &state,
         "",
         0.0,
+        0,
+        None,
         "project",
         "daw",
         false,

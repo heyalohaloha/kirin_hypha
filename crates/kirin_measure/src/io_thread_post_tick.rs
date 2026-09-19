@@ -14,6 +14,49 @@ use super::{
     MeasureResult, PostDiscoveryState, SignalState,
 };
 
+struct ComparisonContext<'a> {
+    post_instance_id: &'a str,
+    pair_name: &'a str,
+    pre_instance_id: Option<&'a str>,
+    binding_generation: u64,
+    claimed_at_bits: u64,
+    post: &'a MeasureResult,
+    layout: &'a crate::plugin_data::MeasurementLayout,
+    audition_active: bool,
+}
+
+fn attach_comparison_state(
+    previous: &DeltaResult,
+    next: &mut DeltaResult,
+    context: ComparisonContext<'_>,
+) {
+    let pre_execution_identity = next.comparison.identity;
+    let mut identity = crate::comparison_state::ComparisonIdentity::new()
+        .text(context.post_instance_id)
+        .text(context.pair_name)
+        .text(context.pre_instance_id.unwrap_or_default())
+        .number(context.binding_generation)
+        .number(context.claimed_at_bits)
+        .number(context.post.playback_pass_id)
+        .number(pre_execution_identity)
+        .text(&context.layout.layout)
+        .number(u64::from(context.layout.mapping_revision));
+    for position in &context.layout.channel_positions {
+        identity = identity.text(position);
+    }
+    for channel in &context.layout.loudness_map {
+        identity = identity.text(channel);
+    }
+    next.comparison = crate::ComparisonSnapshot::transition(
+        previous.comparison,
+        next,
+        identity.finish(),
+        context
+            .audition_active
+            .then_some(crate::ComparisonReason::AuditionActive),
+    );
+}
+
 /// 1 ループの処理本体。
 ///
 /// # B-021 Phase 1A: filesystem-discovery の優先順位
@@ -254,6 +297,8 @@ pub(super) fn run_tick(
     signal_state_atom: &Arc<AtomicU8>,
     pair_pre_name: &str,
     pair_claimed_at: f64,
+    pair_binding_generation: u64,
+    paired_pre_instance_id: Option<&str>,
     post_project_hash: &str,
     daw_session_id: &str,
     // B-108: recording=Record 中はラッチ凍結（アンラッチ/再選定しない）。latched=display と
@@ -265,12 +310,28 @@ pub(super) fn run_tick(
     let state = load_signal_state(signal_state_atom);
 
     fs::create_dir_all(instance_dir).map_err(|e| format!("create_dir_all: {e}"))?;
+    let post = crate::sync_recovery::lock_recover(post_result, "POST Watch result").clone();
 
     if state != SignalState::Active {
         let mut delta_locked =
             crate::sync_recovery::lock_recover(delta_result, "POST inactive delta");
         let previous_delta = delta_locked.clone();
-        *delta_locked = resolve_delta_for_non_active_post(state, pair_pre_name, &previous_delta);
+        let mut next = resolve_delta_for_non_active_post(state, pair_pre_name, &previous_delta);
+        attach_comparison_state(
+            &previous_delta,
+            &mut next,
+            ComparisonContext {
+                post_instance_id: instance_id,
+                pair_name: pair_pre_name,
+                pre_instance_id: paired_pre_instance_id,
+                binding_generation: pair_binding_generation,
+                claimed_at_bits: pair_claimed_at.to_bits(),
+                post: &post,
+                layout: post_layout,
+                audition_active: comparison_audition_active,
+            },
+        );
+        *delta_locked = next;
 
         // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot。
         // Q-A7 採用案 A (post.json schema 拡張による cross-instance 公開)。
@@ -294,8 +355,6 @@ pub(super) fn run_tick(
     // `select_target_pre` で PRE を選定する。pair_pre_name 空 / 同名複数 / 不在 /
     // Inactive / 古t は None (= 表示 NoPre 沈黙 = commit 拒否)。
     let pair_opt = Some(pair_pre_name).filter(|s| !s.is_empty());
-
-    let post = crate::sync_recovery::lock_recover(post_result, "POST Watch result").clone();
 
     // B-108: ラッチ意味論で表示Δを決める（select_target_pre 直呼びを廃止）。一度成立した結合は
     // 無音/停止/一時鮮度揺らぎ/同名2台目では NoPre に落とさず、解除は名前変更/クリアと PRE 実消滅のみ。
@@ -341,11 +400,26 @@ pub(super) fn run_tick(
         let mut delta_locked =
             crate::sync_recovery::lock_recover(delta_result, "POST active delta");
         let prev_last_active = delta_locked.last_active.clone();
-        *delta_locked = if store_directly {
+        let mut next = if store_directly {
             new_delta
         } else {
             resolve_delta_for_store(new_delta, prev_last_active)
         };
+        attach_comparison_state(
+            &delta_locked,
+            &mut next,
+            ComparisonContext {
+                post_instance_id: instance_id,
+                pair_name: pair_pre_name,
+                pre_instance_id: paired_pre_instance_id,
+                binding_generation: pair_binding_generation,
+                claimed_at_bits: pair_claimed_at.to_bits(),
+                post: &post,
+                layout: post_layout,
+                audition_active: comparison_audition_active,
+            },
+        );
+        *delta_locked = next;
     }
 
     // B-027 段階 3-B α-7-1 / Step 6: pair_pre_name は閉路 1 tick の snapshot

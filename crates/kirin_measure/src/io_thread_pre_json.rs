@@ -107,7 +107,7 @@ pub(super) fn serialize_pre_json_with_daw_session_id_and_owner(
         serde_json::to_string(watch_owner_id).unwrap_or_else(|_| "\"\"".to_string());
     let host_process_id = current_host_process_id();
     format!(
-        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"daw_session_id":{daw_session_id_json},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id_json},"signal_state":"{signal_state}","t":"{t}","lufs_m":{lufs_m},"lufs_s":{lufs_s},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}{layout}}}"#,
+        r#"{{"v":2,"role":"PRE","instance_id":{instance_id_json},"name":{name_json},"daw_session_id":{daw_session_id_json},"host_process_id":{host_process_id},"watch_owner_id":{watch_owner_id_json},"signal_state":"{signal_state}","t":"{t}","playback_pass_id":{playback_pass_id},"lufs_m":{lufs_m},"lufs_s":{lufs_s},"true_peak":{true_peak},"crest":{crest},"psr":{psr}{phase_d}{layout}}}"#,
         instance_id_json = instance_id_json,
         name_json = name_json,
         daw_session_id_json = daw_session_id_json,
@@ -115,6 +115,7 @@ pub(super) fn serialize_pre_json_with_daw_session_id_and_owner(
         watch_owner_id_json = watch_owner_id_json,
         signal_state = state.as_str(),
         t = t,
+        playback_pass_id = result.playback_pass_id,
         lufs_m = opt_f64(result.lufs_m),
         lufs_s = opt_f64(result.lufs_s),
         true_peak = opt_f64(result.true_peak),

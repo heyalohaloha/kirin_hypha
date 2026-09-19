@@ -19,11 +19,12 @@ use crate::{
 /// ABI 全体の版。offset を動かす変更のたびに 1 つ上げる。
 /// 4 = B-958（`KirinMeterSession` の入力チャンネル配列 `[2]` → `[MAX_ABI_CHANNELS]`）。
 /// 5 = B-962（`KirinMeterHistoryEntry` の `clip_event_count` 同上 + `measurement_epoch`）。
-pub const KIRIN_ABI_REVISION: u32 = 5;
+/// 6 = B-981（Observatory comparison state/reason/generation/identity）。
+pub const KIRIN_ABI_REVISION: u32 = 6;
 
 /// `KirinObservatoryFrame.version`。フレーム 1 個ごとに載る版で、殻はこれが自分のヘッダの値と
 /// 違うフレームを捨てる（`HyphaObservatoryFrame.cpp:42`）。ABI 版とは別に数える。
-pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 5;
+pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 6;
 
 /// `include/kirin_hypha_abi_contract.h` の `KirinAbiContract`。
 #[repr(C)]

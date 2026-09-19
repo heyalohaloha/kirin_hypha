@@ -266,6 +266,20 @@ pub(super) fn compute_delta_for_pre_file(
     let content = fs::read_to_string(pre_json).map_err(|e| format!("read PRE file: {e}"))?;
     let parsed: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| format!("parse PRE JSON: {e}"))?;
+    let pre_identity = crate::comparison_state::ComparisonIdentity::new()
+        .text(parsed["instance_id"].as_str().unwrap_or_default())
+        .number(parsed["playback_pass_id"].as_u64().unwrap_or_default())
+        .text(
+            &parsed
+                .get("layout")
+                .map(serde_json::Value::to_string)
+                .unwrap_or_default(),
+        )
+        .finish();
+    let attach_identity = |mut delta: DeltaResult| {
+        delta.comparison.identity = pre_identity;
+        delta
+    };
 
     let pre_signal_state = parsed["signal_state"].as_str().map(|s| match s {
         "active" => SignalState::Active,
@@ -275,7 +289,7 @@ pub(super) fn compute_delta_for_pre_file(
 
     if pre_signal_state != Some(SignalState::Active) {
         return Ok((
-            DeltaResult {
+            attach_identity(DeltaResult {
                 lufs: None,
                 lufs_s: None,
                 psr: None,
@@ -290,7 +304,8 @@ pub(super) fn compute_delta_for_pre_file(
                     _ => DeltaMode::NoPre,
                 },
                 last_active: None, // B-048 §4-2: run_tick で merge する責務分業
-            },
+                comparison: Default::default(),
+            }),
             pre_signal_state,
         ));
     }
@@ -301,10 +316,10 @@ pub(super) fn compute_delta_for_pre_file(
     let mode = freshness_mode(&parsed)?;
     if mode == DeltaMode::NoPre {
         return Ok((
-            DeltaResult {
+            attach_identity(DeltaResult {
                 mode: DeltaMode::NoPre,
                 ..Default::default()
-            },
+            }),
             pre_signal_state,
         ));
     }
@@ -317,10 +332,10 @@ pub(super) fn compute_delta_for_pre_file(
         None => Some(DeltaMode::LayoutUnknown),
     } {
         return Ok((
-            DeltaResult {
+            attach_identity(DeltaResult {
                 mode,
                 ..Default::default()
-            },
+            }),
             pre_signal_state,
         ));
     }
@@ -352,7 +367,7 @@ pub(super) fn compute_delta_for_pre_file(
         .map(|(post, pre)| std::array::from_fn(|index| post[index] - pre[index]));
 
     Ok((
-        DeltaResult {
+        attach_identity(DeltaResult {
             lufs: delta_lufs,
             lufs_s: delta_lufs_s,
             psr: delta_psr,
@@ -363,7 +378,8 @@ pub(super) fn compute_delta_for_pre_file(
             psb_bark: delta_psb,
             mode,
             last_active: None, // B-048 §4-2: run_tick で merge する責務分業
-        },
+            comparison: Default::default(),
+        }),
         pre_signal_state,
     ))
 }

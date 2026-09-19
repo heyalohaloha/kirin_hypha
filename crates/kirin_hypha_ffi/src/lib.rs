@@ -77,6 +77,8 @@ mod analysis_display_ffi;
 mod attack_ffi;
 mod audition_admission_ffi;
 pub mod channel_abi;
+mod comparison_abi;
+pub use comparison_abi::*;
 mod identity_ffi;
 mod identity_registry;
 mod legacy_nih_state;
@@ -3166,20 +3168,6 @@ pub struct KirinDelta {
     pub psb_bark: [f64; 20],
 }
 
-/// Observatory表示が一度に受け取る非RTスナップショット。
-/// 接続状態はcontrol-plane事実なので含めず、表示対象の測定事実だけを束ねる。
-#[repr(C)]
-pub struct KirinObservatoryFrame {
-    pub version: u32,
-    pub signal_state: u8,
-    pub lra_state: u8,
-    pub delta_available: u8,
-    pub reserved: u8,
-    pub lra_elapsed_seconds: f64,
-    pub meter: KirinMeterSession,
-    pub delta: KirinDelta,
-}
-
 pub const KIRIN_SPECTRUM_HIDDEN: u8 = 0;
 pub const KIRIN_SPECTRUM_NO_PAIR: u8 = 1;
 pub const KIRIN_SPECTRUM_WARMING_UP: u8 = 2;
@@ -3413,6 +3401,7 @@ fn meter_history_resolution_from_abi(value: u8) -> Option<MeterHistoryResolution
 
 #[path = "delta_abi.rs"]
 mod delta_abi;
+use comparison_abi::comparison_projection;
 use delta_abi::to_c_delta;
 
 fn delta_has_finite_fact(delta: &KirinDelta) -> bool {
@@ -4821,24 +4810,31 @@ pub unsafe extern "C" fn kirin_hypha_poll_observatory_frame(
         let Some(snapshot) = engine.poll_meter_session() else {
             return false;
         };
-        let delta = engine.poll_delta().map_or_else(
-            || to_c_delta(&DeltaResult::default()),
-            |value| to_c_delta(&value),
-        );
+        let delta_result = engine.poll_delta().unwrap_or_default();
+        let delta = to_c_delta(&delta_result);
         let signal_after = engine.signal_state_abi();
         if signal_before != signal_after {
             return false;
         }
         let (lra_state, lra_elapsed_seconds) = lra_readiness(&snapshot);
+        let comparison = comparison_projection(
+            &delta_result,
+            snapshot.measurement_epoch,
+            snapshot.generation,
+        );
         let frame = KirinObservatoryFrame {
             version: abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION,
             signal_state: signal_after,
             lra_state,
             delta_available: delta_has_finite_fact(&delta) as u8,
-            reserved: 0,
+            comparison_state: comparison.state,
             lra_elapsed_seconds,
             meter: to_c_meter_session(&snapshot),
             delta,
+            comparison_reason: comparison.reason,
+            comparison_reserved: [0; 7],
+            comparison_generation: comparison.generation,
+            comparison_identity: comparison.identity,
         };
         unsafe { *out = frame };
         true

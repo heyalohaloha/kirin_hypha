@@ -20,8 +20,9 @@ extern "C" {
 
 /* ABI 全体の版. offset を動かす変更のたびに 1 つ上げる.
  * 4 = B-958（KirinMeterSession の入力チャンネル配列 [2] -> [KIRIN_MAX_CHANNELS]）.
- * 5 = B-962（KirinMeterHistoryEntry の clip_event_count 同上 + measurement_epoch）. */
-#define KIRIN_ABI_REVISION 5u
+ * 5 = B-962（KirinMeterHistoryEntry の clip_event_count 同上 + measurement_epoch）.
+ * 6 = B-981（Observatory comparison state/reason/generation/identity）. */
+#define KIRIN_ABI_REVISION 6u
 
 typedef struct {
   uint32_t revision;                  /* KIRIN_ABI_REVISION */

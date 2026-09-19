@@ -69,3 +69,9 @@ stamp are unavailable instead of being relabelled as current.
   measurement algorithms.
 - Carry comparison refusal as a reason-bearing snapshot through FFI and the actual Observatory path.
   Hidden compatibility cells do not own refusal presentation.
+
+B-981 implements that comparison boundary as one snapshot containing state, reason, generation, and
+the exact producer/execution identity. Rejected comparisons expose no previous delta as current;
+stale comparisons report `Holding` only when a matching prior value actually exists. The live
+Observatory renders the reason, while a toast is armed only by an explicit view or pair action and
+is deduplicated by comparison generation. Background compatibility failures remain silent.

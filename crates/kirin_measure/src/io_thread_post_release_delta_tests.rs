@@ -29,6 +29,7 @@ fn release_clears_delta_result_when_self_check_releases() {
             sharpness: Some(0.8),
             psb_bark: None,
         }),
+        comparison: Default::default(),
     }));
 
     // A-1 release mutation (W-282 io_thread_post.rs C-4 release block と同一 pattern)。

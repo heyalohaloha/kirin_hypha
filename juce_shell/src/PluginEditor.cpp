@@ -102,6 +102,12 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
        #endif
         observatoryView.setTarget (target);
         processorRef.setObservatoryTargetPreference (hypha::observatory::stateValue (target));
+        if (target == hypha::observatory::ObservationTarget::delta)
+        {
+            comparisonActionAwaitingResult = true;
+            comparisonActionAfterGeneration = comparisonObservedGeneration > 0
+                ? comparisonObservedGeneration - 1 : 0;
+        }
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         spectrumView.setAbsoluteObservation (
             target == hypha::observatory::ObservationTarget::absolute);

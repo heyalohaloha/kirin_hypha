@@ -4188,11 +4188,10 @@ mod tests {
         }
     }
 
-    // ── serialize_pre_json はそのまま動作 ────────────────────────
-
     #[test]
     fn serialize_pre_json_active_contains_instance_id() {
         let r = MeasureResult {
+            playback_pass_id: 9,
             lufs_m: Some(-14.0),
             lufs_s: Some(-15.0),
             ..Default::default()
@@ -4207,6 +4206,7 @@ mod tests {
         )));
         assert!(json.contains(r#""lufs_m":-14.000"#));
         assert!(json.contains(r#""lufs_s":-15.000"#));
+        assert!(json.contains(r#""playback_pass_id":9"#));
         // bus フィールドは削除済（A-3 修正後）
         assert!(!json.contains(r#""bus""#));
     }

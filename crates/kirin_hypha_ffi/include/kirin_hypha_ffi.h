@@ -98,7 +98,7 @@ extern "C" {
 #define KIRIN_METER_HISTORY_0_1_HZ_CAPACITY 8640u
 #define KIRIN_METER_HISTORY_MAX_ENTRIES 8640u
 
-#define KIRIN_OBSERVATORY_FRAME_VERSION 5u
+#define KIRIN_OBSERVATORY_FRAME_VERSION 6u
 #define KIRIN_LRA_UNAVAILABLE 0u
 #define KIRIN_LRA_WARMING 1u
 #define KIRIN_LRA_READY 2u
@@ -177,18 +177,18 @@ typedef struct {
   double psb_bark[20];  /* POST - PRE PSB share per Bark band */
 } KirinDelta;
 
-/* Observatoryが1回のUI pollで受け取るversion付き正本。
- * current値の表示可否はsignal_state、累積値はmeter.state、LRAはlra_stateが所有する。
- * pair接続状態は別のcontrol-plane事実であり、この計測フレームには混ぜない。 */
+/* Observatory 1 UI poll分。接続状態は別のcontrol-plane事実。 */
 typedef struct {
   uint32_t version;       /* KIRIN_OBSERVATORY_FRAME_VERSION */
   uint8_t signal_state;   /* KIRIN_SIGNAL_STATE_* */
   uint8_t lra_state;      /* KIRIN_LRA_* */
   uint8_t delta_available;/* ActiveかつfiniteなPOST-PRE測定値が1つ以上ある */
-  uint8_t reserved;
+  uint8_t comparison_state; /* KIRIN_COMPARISON_STATE_* */
   double lra_elapsed_seconds;
   KirinMeterSession meter;
   KirinDelta delta;
+  uint8_t comparison_reason; uint8_t comparison_reserved[7];
+  uint64_t comparison_generation; uint64_t comparison_identity;
 } KirinObservatoryFrame;
 
 /* POST専用Spectrum表示. pre/post_dbfsはdisplay_dbの正確な元フレーム、display_dbは

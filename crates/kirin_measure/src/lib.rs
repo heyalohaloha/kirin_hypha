@@ -18,6 +18,7 @@ pub mod capture_generation_tx;
 pub mod channel_identity;
 pub mod channel_layout;
 pub mod cleanup;
+mod comparison_state;
 pub mod delta;
 pub mod engine;
 pub mod exclusion;
@@ -144,6 +145,7 @@ pub use capture_generation_tx::CaptureGenerationTransaction;
 pub use channel_identity::{canonical_channel_role, display_name_snapshot};
 pub use channel_layout::N_CHANNELS;
 pub use cleanup::{clear_pair_label, exit_record_full, exit_record_preserve_pair};
+pub use comparison_state::{ComparisonReason, ComparisonSnapshot, ComparisonState};
 pub use delta::{DeltaMode, DeltaResult, DeltaSnapshot};
 pub use engine::{MeasureEngine, SessionSummary};
 pub use exclusion::{
@@ -317,6 +319,10 @@ pub use spectrum_runtime::{
     PerceptualHistory, SpectrumHistory, SpectrumRuntime, SpectrumRuntimeStats,
     PERCEPTUAL_HISTORY_CAPACITY, SPECTRUM_HISTORY_CAPACITY,
 };
+use std::sync::{
+    atomic::{AtomicU8, AtomicUsize, Ordering},
+    Arc, Mutex, OnceLock, RwLock,
+};
 pub use stereo_meter::{
     BalanceState, StereoMeter, StereoMeterSnapshot, STEREO_FIELD_BINS, STEREO_FIELD_SIZE,
 };
@@ -355,13 +361,7 @@ pub use watch_playback_pass::{
 pub use watchdog::{spawn_watchdog, IoThreadHandle, RestartIoFn, WatchdogIo, WatchdogParams};
 pub use watchdog_handoff::WatchProducerHandoff;
 
-use std::sync::{
-    atomic::{AtomicU8, AtomicUsize, Ordering},
-    Arc, Mutex, OnceLock, RwLock,
-};
-
 // ── B-027 段階 2: PRE/POST 共通の Name 正規化 ────────────────────────────
-
 /// Name 入力値を正規化 (R-28 機能的沈黙)。最大 16 文字。
 /// B-077: 非 ASCII（日本語等 UTF-8 印字可能文字）を **保持**する。実害のある文字＝
 /// 制御文字（`char::is_control`: 0x00-0x1F / 0x7F-0x9F 等）のみ除去し、先頭末尾の

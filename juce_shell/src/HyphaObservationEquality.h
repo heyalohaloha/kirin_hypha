@@ -14,7 +14,7 @@ namespace hypha::observation_equality
 // retain all 64 bits. Any ABI extension must explicitly extend these semantic comparisons.
 static_assert (sizeof (KirinMeasureResult) == 416 && sizeof (KirinWatchDisplay) == 832);
 static_assert (sizeof (KirinMeterSession) == 1840 && sizeof (KirinDelta) == 224);
-static_assert (sizeof (KirinObservatoryFrame) == 2080 && sizeof (KirinMeterHistoryEntry) == 248);
+static_assert (sizeof (KirinObservatoryFrame) == 2104 && sizeof (KirinMeterHistoryEntry) == 248);
 static_assert (offsetof (KirinMeterHistoryEntry, measurement_epoch) == 0);
 // The moving parts of B-958's widening, asserted where a header/shell mismatch is a compile error.
 // A stale *library* slips past this, which is what kirin_hypha_abi_contract is for.
@@ -85,9 +85,11 @@ inline bool same (const KirinWatchDisplay& a, const KirinWatchDisplay& b) noexce
 inline bool same (const KirinObservatoryFrame& a, const KirinObservatoryFrame& b) noexcept
 {
     return fields (std::tie (a.version, a.signal_state, a.lra_state, a.delta_available,
-                            a.lra_elapsed_seconds),
+                            a.comparison_state, a.lra_elapsed_seconds, a.comparison_reason,
+                            a.comparison_generation, a.comparison_identity),
                    std::tie (b.version, b.signal_state, b.lra_state, b.delta_available,
-                            b.lra_elapsed_seconds))
+                            b.comparison_state, b.lra_elapsed_seconds, b.comparison_reason,
+                            b.comparison_generation, b.comparison_identity))
         && same (a.meter, b.meter) && same (a.delta, b.delta);
 }
 inline bool same (const KirinMeterHistoryEntry& a, const KirinMeterHistoryEntry& b) noexcept

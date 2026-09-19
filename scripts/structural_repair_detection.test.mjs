@@ -95,7 +95,27 @@ const analysisIdentitiesAreSeparated = (runtime) => {
     && !drop.includes('advance_selection_generation');
 };
 
-test('structural repair detectors reject the seven known mutation classes', () => {
+const comparisonRefusalIsTransported = ({ producer, header, ffi, editor, presentation }) => {
+  const poll = between(
+    ffi,
+    'pub unsafe extern "C" fn kirin_hypha_poll_observatory_frame',
+    'pub unsafe extern "C" fn kirin_hypha_poll_meter_history',
+  );
+  return producer.includes('ComparisonSnapshot::transition(')
+    && producer.includes('DeltaMode::LayoutMismatch')
+    && header.includes('uint8_t comparison_state;')
+    && header.includes('uint8_t comparison_reason;')
+    && header.includes('uint64_t comparison_generation;')
+    && header.includes('uint64_t comparison_identity;')
+    && poll.includes('comparison_projection(')
+    && poll.includes('comparison_generation: comparison.generation')
+    && editor.includes('frame.comparison_generation > comparisonActionAfterGeneration')
+    && editor.includes('notifiesExplicitAction (')
+    && presentation.includes('KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH')
+    && presentation.includes('MATCH PRE / POST BUS');
+};
+
+test('structural repair detectors reject the eight known mutation classes', () => {
   const adapter = read('juce_shell/src/HyphaAnalysisFfiAdapter.h');
   const demand = read('juce_shell/src/HyphaAnalysisDemand.h');
   const format = read('juce_shell/src/PluginProcessorFormat.cpp');
@@ -105,6 +125,12 @@ test('structural repair detectors reject the seven known mutation classes', () =
   const painter = read('juce_shell/src/HyphaTimeHistoryPainter.cpp');
   const spectrumRuntime = read('crates/kirin_measure/src/spectrum_runtime.rs');
   const spectrumWorker = read('crates/kirin_measure/src/spectrum_runtime_worker.rs');
+  const comparisonProducer = read('crates/kirin_measure/src/io_thread_post_tick.rs')
+    + read('crates/kirin_measure/src/io_thread_post_delta.rs');
+  const ffiHeader = read('crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h');
+  const ffiSource = read('crates/kirin_hypha_ffi/src/lib.rs');
+  const observatoryEditor = read('juce_shell/src/PluginEditorObservatory.cpp');
+  const comparisonPresentation = read('juce_shell/src/HyphaComparisonPresentation.h');
 
   assert.ok(shippingAdapterIsExact(adapter));
   const lifecycle = { format, processor, demand };
@@ -113,6 +139,14 @@ test('structural repair detectors reject the seven known mutation classes', () =
   assert.ok(correlationRegionsAreSeparated(layout, painter));
   assert.ok(analysisSelectionIsAtomic(spectrumRuntime, spectrumWorker));
   assert.ok(analysisIdentitiesAreSeparated(spectrumRuntime));
+  const comparisonTransport = {
+    producer: comparisonProducer,
+    header: ffiHeader,
+    ffi: ffiSource,
+    editor: observatoryEditor,
+    presentation: comparisonPresentation,
+  };
+  assert.ok(comparisonRefusalIsTransported(comparisonTransport));
 
   const wrongMidSide = adapter.replace(
     'MidSideVisible (handle, value)',
@@ -169,5 +203,14 @@ test('structural repair detectors reject the seven known mutation classes', () =
   assert.ok(
     !analysisIdentitiesAreSeparated(conflatedGeneration),
     'audio discontinuity must not overwrite the control selection generation',
+  );
+
+  const droppedRefusal = ffiHeader.replace(
+    'uint8_t comparison_reason;',
+    'uint8_t reserved_comparison_reason;',
+  );
+  assert.ok(
+    !comparisonRefusalIsTransported({ ...comparisonTransport, header: droppedRefusal }),
+    'comparison refusal reason must reach the shipping Observatory frame',
   );
 });

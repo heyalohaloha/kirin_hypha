@@ -191,6 +191,33 @@ fn observatory_delta_requires_active_freshness_even_when_stale_values_are_finite
 }
 
 #[test]
+fn observatory_frame_keeps_reason_generation_and_identity_with_the_delta() {
+    let mut engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
+    *engine.delta_result.lock().unwrap() = DeltaResult {
+        mode: DeltaMode::LayoutMismatch,
+        comparison: kirin_measure::ComparisonSnapshot {
+            state: kirin_measure::ComparisonState::Rejected,
+            reason: kirin_measure::ComparisonReason::LayoutMismatch,
+            generation: 12,
+            identity: 0x1234,
+        },
+        ..Default::default()
+    };
+    let mut frame: KirinObservatoryFrame = unsafe { std::mem::zeroed() };
+    assert!(unsafe { kirin_hypha_poll_observatory_frame(&mut engine, &mut frame) });
+    assert_eq!(frame.version, abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION);
+    assert_eq!(frame.comparison_state, KIRIN_COMPARISON_STATE_REJECTED);
+    assert_eq!(
+        frame.comparison_reason,
+        KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH
+    );
+    assert_eq!(frame.comparison_generation, 12);
+    assert_ne!(frame.comparison_identity, 0);
+    assert_eq!(frame.delta.mode, 5);
+    assert_eq!(frame.delta_available, 0);
+}
+
+#[test]
 fn null_meter_session_calls_fail_closed_without_touching_output() {
     let mut frame: KirinObservatoryFrame = unsafe { std::mem::zeroed() };
     frame.version = 41;

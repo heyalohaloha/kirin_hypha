@@ -2,6 +2,7 @@
 
 #include "HyphaCaptureHistoryPainter.h"
 #include "HyphaChannelReadoutLayout.h"
+#include "HyphaComparisonPresentation.h"
 #include "HyphaLevelMetricContract.h"
 #include "HyphaSurfaceMaterial.h"
 
@@ -136,7 +137,20 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         && (density == Density::standard || isFullDensity (density)))
         channelStrips = area.removeFromRight (
             isFullDensity (density) ? channelStripWidth (context, density == Density::inspection ? 164 : 120) : 62).reduced (2);
-    if (compact)
+    const bool unavailableComparison = target() == ObservationTarget::delta
+        && ! deltaFactsAvailable();
+    if (unavailableComparison)
+    {
+        const auto statusArea = area.removeFromTop (compact ? 20 : 24);
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (labelFont (context, typography::TextRole::status,
+                              typography::Composition::facts));
+        g.drawFittedText (
+            comparison_presentation::statusText (observatoryFrame.comparison_state,
+                                                  observatoryFrame.comparison_reason),
+            statusArea.reduced (4, 1), juce::Justification::centred, 1, 0.55f);
+    }
+    else if (compact)
         area.removeFromTop (20);
     if (target() == ObservationTarget::delta)
     {
