@@ -207,14 +207,6 @@ impl SpectrumRuntime {
             .map_or(0, |view| view.analysis_channels(self.layout))
     }
 
-    /// 現在の view が指す入力チャンネルの index（バッファ順）。導出 view では `None`。
-    pub fn selected_channel_index(&self) -> Option<usize> {
-        match self.view()? {
-            SpectrumView::Channel(role) => self.layout.index_of(role),
-            _ => None,
-        }
-    }
-
     /// この runtime が作られた layout。
     pub fn layout(&self) -> ChannelLayout {
         self.layout

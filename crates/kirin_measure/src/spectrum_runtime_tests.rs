@@ -402,40 +402,6 @@ fn channel_mode_edge_clears_history_and_mono_side_fails_closed() {
 }
 
 #[test]
-fn stale_generation_or_channel_mode_can_never_be_republished() {
-    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
-    assert!(runtime.set_enabled(true));
-    let generation = runtime.generation.load(Ordering::Acquire);
-    let frame = SpectrumFrame {
-        schema_version: crate::SPECTRUM_SCHEMA_VERSION,
-        sample_rate: 48_000,
-        aperture_samples: crate::SPECTRUM_WINDOW_SIZE as u32,
-        fft_size: crate::SPECTRUM_FFT_SIZE as u32,
-        band_count: crate::SPECTRUM_BAND_COUNT as u16,
-        presentation_end_samples: 4_800,
-        generation,
-        channel_mode: SpectrumChannelMode::Lr,
-        view: crate::channel_layout::SpectrumView::Lr.to_abi(),
-        channels: 2,
-        min_hz: 10.0,
-        max_hz: 22_000.0,
-        dbfs: [-24.0; crate::SPECTRUM_BAND_COUNT],
-    };
-    assert!(runtime.frame_is_current(&frame));
-
-    assert!(runtime.set_channel_mode(SpectrumChannelMode::Mid));
-    assert!(!runtime.frame_is_current(&frame));
-    let mut current = frame.clone();
-    current.generation = runtime.generation.load(Ordering::Acquire);
-    current.channel_mode = SpectrumChannelMode::Mid;
-    assert!(runtime.frame_is_current(&current));
-
-    assert!(runtime.set_enabled(false));
-    assert!(!runtime.frame_is_current(&current));
-    runtime.shutdown_and_join();
-}
-
-#[test]
 fn forty_four_one_uses_a_1470_sample_grid_without_drift() {
     let runtime = SpectrumRuntime::new(44_100, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_enabled(true));

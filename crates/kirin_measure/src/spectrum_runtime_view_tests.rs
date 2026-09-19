@@ -213,44 +213,63 @@ fn a_surround_layout_analyses_instead_of_jamming() {
     // B-965 の状態: 5.1 は enable を拒否されていた。worker の de-interleave が
     // `num_channels == 2` のときだけ 2 本 pop していたため、受理すると ring が詰まったからである。
     //
-    // **ring 容量を超える量を流して、詰まらないことを確かめる。** 1 フレームにつき入力
-    // チャンネル数ぶん pop していなければ、余りが ring に残り続けて push が落ち始める。
-    // 少量だけ流すと ring に収まってしまい、この差が出ない。
+    // **判定は「全部流し切ったあと ring が空になるか」にする**（B-974）。
+    // 1 フレームにつき入力チャンネル数ぶん pop していなければ、読み残しが ring に溜まる。
+    // 溜まっていれば ring 容量ちょうどの block は入らない。
+    //
+    // 一度「一定時間内に drop が出ない」で書いて false failure を出し、次に
+    // 「各 chunk が最終的に受理される」で書いて**変異を検出できなくなった**
+    // （読み残しがあっても retry すれば通ってしまう）。どちらも時間を条件にしたのが誤りで、
+    // **空になるかどうかは時間ではなく残量の問題**である。
     let layout = ChannelLayout::by_id(LayoutId::Surround5_1);
     let runtime = SpectrumRuntime::new(48_000, layout);
     assert!(runtime.set_enabled(true), "5.1 must enable");
 
-    // ring は `aperture_samples * 2 * channels`。その 4 倍のフレーム数を流す。
+    // ring は `aperture_samples * 2 * channels` サンプル = その 1/6 のフレーム数。
     let ring_frames = crate::SPECTRUM_WINDOW_SIZE * 2;
     let chunk_frames = 256usize;
-    let chunks = ring_frames * 4 / chunk_frames;
+    let chunk: Vec<f32> = (0..chunk_frames * 6)
+        .map(|i| ((i % 6) as f32 + 1.0) * 0.1)
+        .collect();
     let mut position = 0_i64;
-    for _ in 0..chunks {
-        let block: Vec<f32> = (0..chunk_frames * 6)
-            .map(|i| ((i % 6) as f32 + 1.0) * 0.1)
-            .collect();
-        runtime.push_block_from_audio(&block, 6, Some(position));
+    for _ in 0..(ring_frames * 2 / chunk_frames) {
+        // 詰まっていれば入らない。ここでは通し切ることだけが目的なので待つ。
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline
+            && !runtime.push_block_from_audio(&chunk, 6, Some(position))
+        {
+            std::thread::sleep(Duration::from_millis(1));
+        }
         position += chunk_frames as i64;
-        // worker が引けるだけの時間を与える。詰まっていれば時間があっても引けない。
-        std::thread::sleep(Duration::from_millis(1));
     }
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while Instant::now() < deadline && runtime.stats().analyzed_frames == 0 {
-        std::thread::sleep(Duration::from_millis(5));
+
+    // worker が落ち着くまで待つ。analyzed_frames が動かなくなったら引き切ったとみなす。
+    let mut settled = runtime.stats().analyzed_frames;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        std::thread::sleep(Duration::from_millis(50));
+        let now = runtime.stats().analyzed_frames;
+        if now == settled || Instant::now() >= deadline {
+            break;
+        }
+        settled = now;
     }
+
     let stats = runtime.stats();
     assert!(stats.pushed_blocks > 0, "block が入っている");
-    assert_eq!(
-        stats.dropped_blocks, 0,
-        "ring 容量の 4 倍を流しても詰まらない（pushed {} / dropped {}）",
-        stats.pushed_blocks, stats.dropped_blocks
-    );
     assert!(stats.analyzed_frames > 0, "解析が進んでいる");
+
+    // **ring 容量ちょうどの block が入る = 読み残しがゼロ。** 時間に依存しない判定である。
+    let full: Vec<f32> = vec![0.1; ring_frames * 6];
+    assert!(
+        runtime.push_block_from_audio(&full, 6, Some(position)),
+        "引き切ったあとの ring は空のはず（pushed {} / dropped {}）",
+        stats.pushed_blocks,
+        stats.dropped_blocks
+    );
     runtime.shutdown_and_join();
 }
 
-/// Mid/Side は 2 本を解析している view でしか成立しない。1 本の view のまま有効にすると、
-/// 組立器が `channels != 2` で `None` を返し続け、**有効に見えるのに何も出ない**。
 #[test]
 fn mid_side_does_not_stay_on_over_a_view_that_cannot_carry_it() {
     let runtime = SpectrumRuntime::new(48_000, ChannelLayout::stereo());
@@ -282,4 +301,64 @@ fn mono_and_stereo_still_enable() {
         assert!(runtime.set_enabled(true), "{:?}", layout.id().as_str());
         runtime.shutdown_and_join();
     }
+}
+
+#[test]
+fn stale_generation_channel_mode_or_view_can_never_be_republished() {
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    assert!(runtime.set_enabled(true));
+    let generation = runtime.generation.load(Ordering::Acquire);
+    let frame = SpectrumFrame {
+        schema_version: crate::SPECTRUM_SCHEMA_VERSION,
+        sample_rate: 48_000,
+        aperture_samples: crate::SPECTRUM_WINDOW_SIZE as u32,
+        fft_size: crate::SPECTRUM_FFT_SIZE as u32,
+        band_count: crate::SPECTRUM_BAND_COUNT as u16,
+        presentation_end_samples: 4_800,
+        generation,
+        channel_mode: SpectrumChannelMode::Lr,
+        view: crate::channel_layout::SpectrumView::Lr.to_abi(),
+        channels: 2,
+        min_hz: 10.0,
+        max_hz: 22_000.0,
+        dbfs: [-24.0; crate::SPECTRUM_BAND_COUNT],
+    };
+    assert!(runtime.frame_is_current(&frame));
+
+    assert!(runtime.set_channel_mode(SpectrumChannelMode::Mid));
+    assert!(!runtime.frame_is_current(&frame));
+    let mut current = frame.clone();
+    current.generation = runtime.generation.load(Ordering::Acquire);
+    current.channel_mode = SpectrumChannelMode::Mid;
+    // B-974: 名札も合わせないと通らない。`channel_mode` だけを直して view を旧いまま
+    // 残した frame は、generation が現在でも公開されない。
+    assert!(
+        !runtime.frame_is_current(&current),
+        "channel_mode だけ直して view が旧い frame は公開しない"
+    );
+    current.view = crate::channel_layout::SpectrumView::Mid.to_abi();
+    assert!(runtime.frame_is_current(&current));
+
+    // 役割 view でも同じ。単一チャンネル view は `channel_mode` が `Lr` のままなので、
+    // **名札を見ないと L/R の frame と区別できない。**
+    assert!(runtime.set_view(crate::channel_layout::SpectrumView::Channel(
+        crate::channel_layout::ChannelRole::Right
+    )));
+    let mut role = current.clone();
+    role.generation = runtime.generation.load(Ordering::Acquire);
+    role.channels = 1;
+    role.channel_mode = SpectrumChannelMode::Lr;
+    assert!(
+        !runtime.frame_is_current(&role),
+        "view が MID のままの frame は R の観測として公開しない"
+    );
+    role.view = crate::channel_layout::SpectrumView::Channel(
+        crate::channel_layout::ChannelRole::Right,
+    )
+    .to_abi();
+    assert!(runtime.frame_is_current(&role));
+
+    assert!(runtime.set_enabled(false));
+    assert!(!runtime.frame_is_current(&role));
+    runtime.shutdown_and_join();
 }

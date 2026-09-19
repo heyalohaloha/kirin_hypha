@@ -10,7 +10,7 @@ use super::{SpectrumConsumers, SpectrumRuntime};
 use crate::absolute_timeline::AbsoluteFrame;
 use crate::perceptual::PerceptualFrame;
 use crate::spectrum::{AnalysisViewMode, SpectrumAnalyzer, SpectrumFrame};
-use crate::channel_layout::{SpectrumView, MAX_ABI_CHANNELS, SPECTRUM_VIEW_NONE};
+use crate::channel_layout::{SpectrumView, MAX_ABI_CHANNELS};
 use crate::MidSideSpectrumFrame;
 
 const WORKER_IDLE: Duration = Duration::from_millis(10);
@@ -25,6 +25,10 @@ struct FrameSelection {
     input: usize,
     left: usize,
     right: Option<usize>,
+    /// この選択を決めた view の ABI コード。**同じ 1 回の読み出しから来る。**
+    /// 位置と名札を別々に読むと、その間に view が変わったとき
+    /// 「C と名乗るが L/R から作った frame」ができる（B-971 で塞いだはずの G）。
+    view_code: u8,
 }
 
 /// worker が持つ 3 つの組立器。**解析チャンネル数ごとに作り直す。**
@@ -45,25 +49,26 @@ impl SpectrumRuntime {
         })
     }
 
-    /// いまの view が読む位置。view が読めないときは `None`（worker は何も組み立てない）。
+    /// いまの view が読む位置と、その view の名札。view が読めないときは `None`。
+    ///
+    /// **view の読み出しはこの 1 回だけ**にする。位置・本数・名札を別々に読むと、
+    /// その間に control thread が `set_view` を走らせたとき 3 つが食い違う。
+    /// `set_view` は view を swap してから generation を上げるので、その隙間で
+    /// 組み上がった frame は旧 generation のまま鮮度判定を通り得る（B-974）。
     fn frame_selection(&self) -> Option<FrameSelection> {
-        let analysis = self.analysis_channels();
-        if analysis == 0 {
-            return None;
-        }
-        Some(match self.selected_channel_index() {
+        let view = self.view()?;
+        let analysis = view.analysis_channels(self.layout);
+        let (left, right) = match view {
             // 単一チャンネル view。役割で決まった位置を 1 本だけ解析へ渡す。
-            Some(index) => FrameSelection {
-                input: self.num_channels,
-                left: index,
-                right: None,
-            },
+            SpectrumView::Channel(role) => (self.layout().index_of(role)?, None),
             // 導出 view（LR / MID / SIDE）。stereo family 限定なので先頭 2 本が L と R である。
-            None => FrameSelection {
-                input: self.num_channels,
-                left: 0,
-                right: (analysis == 2).then_some(1),
-            },
+            _ => (0, (analysis == 2).then_some(1)),
+        };
+        Some(FrameSelection {
+            input: self.num_channels,
+            left,
+            right,
+            view_code: view.to_abi(),
         })
     }
 
@@ -174,7 +179,6 @@ impl SpectrumRuntime {
         let Some(selection) = self.frame_selection() else {
             return false;
         };
-        let view_code = self.view().map_or(SPECTRUM_VIEW_NONE, SpectrumView::to_abi);
         // 1 フレーム分をまとめて読む。**入力チャンネル数ぶん必ず読む**ので、選んだ役割が
         // 先頭でなくても残りが ring に居残らない。B-963 はここで 1 本しか読まず詰まらせた。
         let mut frame = [0.0f32; MAX_ABI_CHANNELS];
@@ -198,7 +202,7 @@ impl SpectrumRuntime {
                         // どの観測対象で作ったかをフレーム自身に持たせる。view を選んでいるのは
                         // ここだけで、view が変わると組立器は generation でリセットされるので、
                         // この窓はまるごとこの view のものである。
-                        frame.view = view_code;
+                        frame.view = selection.view_code;
                         self.publish_spectrum(frame);
                     }
                 }
@@ -294,6 +298,10 @@ impl SpectrumRuntime {
             && layout_matches
             && frame.generation == self.generation.load(Ordering::Acquire)
             && frame.channel_mode == self.channel_mode()
+            // 名札そのものを照合する。`set_view` は view を swap してから generation を
+            // 上げるので、その隙間で組み上がった frame は generation だけでは落ちない。
+            // **「C と名乗るが L/R から作った frame」を公開しない**（B-974）。
+            && Some(frame.view) == self.view().map(SpectrumView::to_abi)
             && frame.channels as usize == self.analysis_channels()
     }
 
@@ -364,6 +372,59 @@ fn discard_samples(consumer: &mut Consumer<f32>, count: usize) {
     for _ in 0..count {
         if consumer.pop().is_err() {
             break;
+        }
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+    use crate::channel_layout::{ChannelLayout, LayoutId};
+
+    /// 位置・本数・名札が**同じ 1 回の view 読み出しから**来ていること。
+    ///
+    /// B-974 以前はこの 3 つを別々の atomic 読み出しから作っていた。その間に
+    /// `set_view` が走ると、たとえば「`C` と名乗るが `left = 0`（L）から作った」選択ができる。
+    /// ここでは layout が提供する全 view について、名札と位置が対応することを固定する。
+    #[test]
+    fn a_selection_names_the_view_it_actually_reads() {
+        for layout in [
+            ChannelLayout::mono(),
+            ChannelLayout::stereo(),
+            ChannelLayout::by_id(LayoutId::Surround5_1),
+            ChannelLayout::by_id(LayoutId::Surround7_1_4),
+        ] {
+            let runtime = SpectrumRuntime::new(48_000, layout);
+            for view in SpectrumView::available_in(layout) {
+                assert!(runtime.set_view(view), "{view:?} in {:?}", layout.id());
+                let selection = runtime.frame_selection().expect("a selection");
+
+                assert_eq!(selection.input, layout.channel_count(), "読む本数は入力のまま");
+                assert_eq!(
+                    SpectrumView::from_abi(selection.view_code),
+                    Some(view),
+                    "名札は選んだ view そのもの"
+                );
+                match view {
+                    SpectrumView::Channel(role) => {
+                        assert_eq!(
+                            selection.left,
+                            layout.index_of(role).expect("役割は layout にある"),
+                            "{} は自分の位置を読む",
+                            role.as_str()
+                        );
+                        assert_eq!(selection.right, None, "単一チャンネル view は 1 本");
+                    }
+                    _ => {
+                        assert_eq!(selection.left, 0);
+                        assert_eq!(
+                            selection.right,
+                            (layout.channel_count() >= 2).then_some(1),
+                            "導出 view は先頭 2 本（mono では 1 本）"
+                        );
+                    }
+                }
+            }
         }
     }
 }
