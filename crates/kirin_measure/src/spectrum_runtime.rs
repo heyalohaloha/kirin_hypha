@@ -37,6 +37,7 @@ mod worker;
 
 #[path = "spectrum_runtime_state.rs"]
 mod state;
+use state::StampedSnapshot;
 pub use state::{
     PerceptualHistory, SpectrumHistory, SpectrumRuntimeStats, PERCEPTUAL_HISTORY_CAPACITY,
     SPECTRUM_HISTORY_CAPACITY,
@@ -81,14 +82,10 @@ pub struct SpectrumRuntime {
     consumers: Mutex<Option<SpectrumConsumers>>,
     worker: Mutex<Option<JoinHandle<SpectrumConsumers>>>,
     wake: (Mutex<()>, Condvar),
-    history: Mutex<SpectrumHistory>,
-    history_stream_generation: AtomicU64,
-    perceptual_history: Mutex<PerceptualHistory>,
-    perceptual_history_stream_generation: AtomicU64,
-    absolute_history: Mutex<AbsoluteTimeline>,
-    absolute_history_stream_generation: AtomicU64,
-    latest_mid_side: Mutex<Option<MidSideSpectrumFrame>>,
-    mid_side_stream_generation: AtomicU64,
+    history: Mutex<StampedSnapshot<SpectrumHistory>>,
+    perceptual_history: Mutex<StampedSnapshot<PerceptualHistory>>,
+    absolute_history: Mutex<StampedSnapshot<AbsoluteTimeline>>,
+    latest_mid_side: Mutex<StampedSnapshot<Option<MidSideSpectrumFrame>>>,
     worker_running: AtomicBool,
     pushed_blocks: AtomicU64,
     dropped_blocks: AtomicU64,
@@ -141,14 +138,12 @@ impl SpectrumRuntime {
             })),
             worker: Mutex::new(None),
             wake: (Mutex::new(()), Condvar::new()),
-            history: Mutex::new(SpectrumHistory::with_capacity()),
-            history_stream_generation: AtomicU64::new(0),
-            perceptual_history: Mutex::new(PerceptualHistory::with_capacity()),
-            perceptual_history_stream_generation: AtomicU64::new(0),
-            absolute_history: Mutex::new(AbsoluteTimeline::default()),
-            absolute_history_stream_generation: AtomicU64::new(0),
-            latest_mid_side: Mutex::new(None),
-            mid_side_stream_generation: AtomicU64::new(0),
+            history: Mutex::new(StampedSnapshot::new(SpectrumHistory::with_capacity())),
+            perceptual_history: Mutex::new(
+                StampedSnapshot::new(PerceptualHistory::with_capacity()),
+            ),
+            absolute_history: Mutex::new(StampedSnapshot::new(AbsoluteTimeline::default())),
+            latest_mid_side: Mutex::new(StampedSnapshot::new(None)),
             worker_running: AtomicBool::new(false),
             pushed_blocks: AtomicU64::new(0),
             dropped_blocks: AtomicU64::new(0),
@@ -185,13 +180,13 @@ impl SpectrumRuntime {
             self.perceptual_rearm_required
                 .store(false, Ordering::Release);
             if let Ok(mut history) = self.history.lock() {
-                *history = SpectrumHistory::with_capacity();
+                history.clear_to(SpectrumHistory::with_capacity());
             }
             if let Ok(mut history) = self.perceptual_history.lock() {
-                *history = PerceptualHistory::with_capacity();
+                history.clear_to(PerceptualHistory::with_capacity());
             }
             if let Ok(mut history) = self.absolute_history.lock() {
-                history.clear();
+                history.clear_to(AbsoluteTimeline::default());
             }
             self.clear_mid_side_frame();
         }
@@ -256,7 +251,7 @@ impl SpectrumRuntime {
         };
         if changed {
             if let Ok(mut history) = self.history.lock() {
-                *history = SpectrumHistory::with_capacity();
+                history.clear_to(SpectrumHistory::with_capacity());
             }
             self.clear_mid_side_frame();
             self.wake.1.notify_all();
@@ -294,13 +289,13 @@ impl SpectrumRuntime {
         };
         if changed {
             if let Ok(mut history) = self.history.lock() {
-                *history = SpectrumHistory::with_capacity();
+                history.clear_to(SpectrumHistory::with_capacity());
             }
             if let Ok(mut history) = self.perceptual_history.lock() {
-                *history = PerceptualHistory::with_capacity();
+                history.clear_to(PerceptualHistory::with_capacity());
             }
             if let Ok(mut history) = self.absolute_history.lock() {
-                history.clear();
+                history.clear_to(AbsoluteTimeline::default());
             }
             self.clear_mid_side_frame();
             self.wake.1.notify_all();
@@ -399,7 +394,7 @@ impl SpectrumRuntime {
 
     fn clear_mid_side_frame(&self) {
         if let Ok(mut frame) = self.latest_mid_side.lock() {
-            *frame = None;
+            frame.clear_to(None);
         }
     }
 
@@ -462,3 +457,7 @@ mod tests;
 #[cfg(test)]
 #[path = "spectrum_runtime_view_tests.rs"]
 mod view_tests;
+
+#[cfg(test)]
+#[path = "spectrum_runtime_snapshot_tests.rs"]
+mod snapshot_tests;

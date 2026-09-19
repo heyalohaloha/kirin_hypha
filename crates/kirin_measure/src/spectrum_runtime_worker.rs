@@ -169,7 +169,7 @@ impl SpectrumRuntime {
                     .is_some_and(|analyzer| analyzer.take_history_reset_required())
             {
                 if let Ok(mut history) = self.absolute_history.lock() {
-                    history.clear();
+                    history.clear_to(crate::AbsoluteTimeline::default());
                 }
             }
             if !began {
@@ -269,12 +269,11 @@ impl SpectrumRuntime {
         self.analyzed_frames.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.history.lock() {
             if self.frame_is_current(&frame, stream_generation) {
-                if self.history_stream_generation.load(Ordering::Acquire) != stream_generation {
-                    *history = super::SpectrumHistory::with_capacity();
+                if history.stream_generation != stream_generation {
+                    history.value = super::SpectrumHistory::with_capacity();
                 }
-                history.push(frame);
-                self.history_stream_generation
-                    .store(stream_generation, Ordering::Release);
+                history.value.push(frame);
+                history.stream_generation = stream_generation;
             }
         }
     }
@@ -287,9 +286,8 @@ impl SpectrumRuntime {
             .fetch_add(1, Ordering::Relaxed);
         if let Ok(mut latest) = self.latest_mid_side.lock() {
             if self.mid_side_frame_is_current(&frame, stream_generation) {
-                *latest = Some(frame);
-                self.mid_side_stream_generation
-                    .store(stream_generation, Ordering::Release);
+                latest.value = Some(frame);
+                latest.stream_generation = stream_generation;
             }
         }
     }
@@ -302,16 +300,11 @@ impl SpectrumRuntime {
             .fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.perceptual_history.lock() {
             if self.perceptual_frame_is_current(frame, stream_generation) {
-                if self
-                    .perceptual_history_stream_generation
-                    .load(Ordering::Acquire)
-                    != stream_generation
-                {
-                    *history = PerceptualHistory::with_capacity();
+                if history.stream_generation != stream_generation {
+                    history.value = PerceptualHistory::with_capacity();
                 }
-                history.push(frame.clone());
-                self.perceptual_history_stream_generation
-                    .store(stream_generation, Ordering::Release);
+                history.value.push(frame.clone());
+                history.stream_generation = stream_generation;
             }
         }
     }
@@ -324,16 +317,11 @@ impl SpectrumRuntime {
             .fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.absolute_history.lock() {
             if self.absolute_frame_is_current(&frame, stream_generation) {
-                if self
-                    .absolute_history_stream_generation
-                    .load(Ordering::Acquire)
-                    != stream_generation
-                {
-                    history.clear();
+                if history.stream_generation != stream_generation {
+                    history.value.clear();
                 }
-                history.push(frame);
-                self.absolute_history_stream_generation
-                    .store(stream_generation, Ordering::Release);
+                history.value.push(frame);
+                history.stream_generation = stream_generation;
             }
         }
     }
@@ -415,7 +403,7 @@ impl SpectrumRuntime {
         self.perceptual_rearm_required
             .store(true, Ordering::Release);
         if let Ok(mut history) = self.perceptual_history.lock() {
-            *history = PerceptualHistory::with_capacity();
+            history.clear_to(PerceptualHistory::with_capacity());
         }
     }
 }

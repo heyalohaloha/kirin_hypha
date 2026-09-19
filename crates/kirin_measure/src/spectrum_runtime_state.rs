@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::sync::atomic::Ordering;
+use std::sync::Mutex;
 
 use super::{SpectrumRuntime, NO_PRESENTATION_POSITION};
 use crate::perceptual::PerceptualFrame;
@@ -7,6 +8,26 @@ use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SpectrumFrame};
 
 pub const SPECTRUM_HISTORY_CAPACITY: usize = 8;
 pub const PERCEPTUAL_HISTORY_CAPACITY: usize = 16;
+
+#[derive(Clone, Debug)]
+pub(super) struct StampedSnapshot<T> {
+    pub(super) value: T,
+    pub(super) stream_generation: u64,
+}
+
+impl<T> StampedSnapshot<T> {
+    pub(super) fn new(value: T) -> Self {
+        Self {
+            value,
+            stream_generation: 0,
+        }
+    }
+
+    pub(super) fn clear_to(&mut self, value: T) {
+        self.value = value;
+        self.stream_generation = 0;
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpectrumHistory {
@@ -108,52 +129,55 @@ pub struct SpectrumRuntimeStats {
 }
 
 impl SpectrumRuntime {
-    pub fn try_history(&self) -> Option<SpectrumHistory> {
+    fn try_current_snapshot<T: Clone>(
+        &self,
+        slot: &Mutex<StampedSnapshot<T>>,
+        empty: impl FnOnce(&T) -> bool,
+        after_clone: impl FnOnce(),
+    ) -> Option<T> {
         let stream = self.stream_generation.load(Ordering::Acquire);
-        let history = self.history.try_lock().ok()?.clone();
-        let empty = history.newest().is_none();
+        let snapshot = slot.try_lock().ok()?.clone();
+        after_clone();
         (stream != 0
             && stream == self.stream_generation.load(Ordering::Acquire)
-            && (empty || stream == self.history_stream_generation.load(Ordering::Acquire)))
-        .then_some(history)
+            && (empty(&snapshot.value) || stream == snapshot.stream_generation))
+            .then_some(snapshot.value)
+    }
+
+    pub fn try_history(&self) -> Option<SpectrumHistory> {
+        self.try_current_snapshot(&self.history, |history| history.newest().is_none(), || {})
     }
 
     pub fn try_perceptual_history(&self) -> Option<PerceptualHistory> {
-        let stream = self.stream_generation.load(Ordering::Acquire);
-        let history = self.perceptual_history.try_lock().ok()?.clone();
-        let empty = history.newest().is_none();
-        (stream != 0
-            && stream == self.stream_generation.load(Ordering::Acquire)
-            && (empty
-                || stream
-                    == self
-                        .perceptual_history_stream_generation
-                        .load(Ordering::Acquire)))
-        .then_some(history)
+        self.try_current_snapshot(
+            &self.perceptual_history,
+            |history| history.newest().is_none(),
+            || {},
+        )
     }
 
     pub fn try_absolute_history(&self) -> Option<crate::AbsoluteTimeline> {
-        let stream = self.stream_generation.load(Ordering::Acquire);
-        let history = self.absolute_history.try_lock().ok()?.clone();
-        let empty = history.newest().is_none();
-        (stream != 0
-            && stream == self.stream_generation.load(Ordering::Acquire)
-            && (empty
-                || stream
-                    == self
-                        .absolute_history_stream_generation
-                        .load(Ordering::Acquire)))
-        .then_some(history)
+        self.try_current_snapshot(
+            &self.absolute_history,
+            |history| history.newest().is_none(),
+            || {},
+        )
     }
 
     pub fn try_mid_side_frame(&self) -> Option<Option<crate::MidSideSpectrumFrame>> {
-        let stream = self.stream_generation.load(Ordering::Acquire);
-        let frame = self.latest_mid_side.try_lock().ok()?.clone();
-        let empty = frame.is_none();
-        (stream != 0
-            && stream == self.stream_generation.load(Ordering::Acquire)
-            && (empty || stream == self.mid_side_stream_generation.load(Ordering::Acquire)))
-        .then_some(frame)
+        self.try_current_snapshot(&self.latest_mid_side, Option::is_none, || {})
+    }
+
+    #[cfg(test)]
+    pub(super) fn try_history_after_clone_for_test(
+        &self,
+        after_clone: impl FnOnce(),
+    ) -> Option<SpectrumHistory> {
+        self.try_current_snapshot(
+            &self.history,
+            |history| history.newest().is_none(),
+            after_clone,
+        )
     }
 
     pub fn stats(&self) -> SpectrumRuntimeStats {
@@ -211,10 +235,10 @@ impl SpectrumRuntime {
             self.perceptual_rearm_required
                 .store(false, Ordering::Release);
             if let Ok(mut history) = self.perceptual_history.lock() {
-                *history = PerceptualHistory::with_capacity();
+                history.clear_to(PerceptualHistory::with_capacity());
             }
             if let Ok(mut history) = self.absolute_history.lock() {
-                history.clear();
+                history.clear_to(crate::AbsoluteTimeline::default());
             }
             self.wake.1.notify_all();
         }
@@ -240,13 +264,13 @@ impl SpectrumRuntime {
             self.perceptual_rearm_required
                 .store(false, Ordering::Release);
             if let Ok(mut history) = self.history.lock() {
-                *history = SpectrumHistory::with_capacity();
+                history.clear_to(SpectrumHistory::with_capacity());
             }
             if let Ok(mut history) = self.perceptual_history.lock() {
-                *history = PerceptualHistory::with_capacity();
+                history.clear_to(PerceptualHistory::with_capacity());
             }
             if let Ok(mut history) = self.absolute_history.lock() {
-                history.clear();
+                history.clear_to(crate::AbsoluteTimeline::default());
             }
             self.clear_mid_side_frame();
             self.wake.1.notify_all();
