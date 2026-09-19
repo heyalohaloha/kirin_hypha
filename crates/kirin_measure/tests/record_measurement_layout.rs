@@ -132,7 +132,7 @@ fn the_checksum_covers_the_recorded_layout() {
         "close() must write exactly one record under {base:?}, got {found:?}"
     );
     let text = std::fs::read_to_string(&found[0]).unwrap();
-    let mut loaded: kirin_measure::plugin_data::PluginDataFile =
+    let loaded: kirin_measure::plugin_data::PluginDataFile =
         serde_json::from_str(&text).unwrap();
     assert!(
         verify_checksum(&loaded),
@@ -140,10 +140,25 @@ fn the_checksum_covers_the_recorded_layout() {
     );
 
     // 配置だけを差し替える。測定値には一切触れない。
-    loaded.measurement_layout = Some(MeasurementLayout::new(ChannelLayout::mono()));
+    let mut rewritten = loaded.clone();
+    rewritten.measurement_layout = Some(MeasurementLayout::new(ChannelLayout::mono()));
     assert!(
-        !verify_checksum(&loaded),
+        !verify_checksum(&rewritten),
         "a rewritten measurement_layout must break the checksum"
+    );
+
+    // new writer → old reader（B-972 レビュー §7）。
+    // `measurement_layout` は `skip_serializing_if = "Option::is_none"` なので、`None` の
+    // serialise 結果は旧版 writer の出力と**バイト一致**する。したがってこの検査は
+    // 「この事実を知らない reader が checksum を検証したらどうなるか」そのものである。
+    //
+    // **落ちる。** 旧 reader はこの記録を「正常値」として読めない。
+    // unknown field を無視して意味の違う測定を通す経路は、checksum が閉じている。
+    let mut as_old_reader_sees_it = loaded;
+    as_old_reader_sees_it.measurement_layout = None;
+    assert!(
+        !verify_checksum(&as_old_reader_sees_it),
+        "a reader that drops measurement_layout must fail the checksum, not accept the record"
     );
 
     let _ = std::fs::remove_dir_all(&base);

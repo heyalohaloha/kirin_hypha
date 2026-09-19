@@ -270,3 +270,92 @@ B-955 から B-971 まで 17 commit、113 files。**一度も実機で動かし�
 | `docs/hypha_surround_p0_inventory_20260918.md` | P-0 棚卸し |
 | `docs/hypha_surround_implementation_plan_20260918.md` | P-1〜P-4 の計画 |
 | `docs/hypha_invariants.md` | INV 一覧（INV-S17 を B-968 で更新） |
+
+---
+
+## 9. レビューへの実測回答（B-973 / 2026-09-19 追記）
+
+レビュー提案 §4（map 検証）と §7（schema 互換）は**意見ではなく測定で答えられる**ので、測った。
+
+### 9.1 §4 — `set_channel_map` を守っている試験は 1,524 件中 1 件だけ
+
+`MeasureEngine::new` の `set_channel_map` 呼び出しを無効化して全 lib 試験を走らせた。
+
+```
+test result: FAILED. 1523 passed; 1 failed; 10 ignored
+失敗: engine::channel_map_tests::seven_one_four_proves_the_map_is_applied_because_five_one_cannot
+```
+
+**レビューの仮説は正しく、かつ実態はより細い。**
+
+- 5.1 の試験が通るだけでなく、**同じ 7.1.4 の重み付け試験（`the_surround_pair_carries_the_standard_weighting_and_the_front_does_not`）も通る。**
+  ebur128 の 6ch 既定 map は正しい 5.1 map と一致し、Ls / Rs の 1.41 も index 4 / 5 で既定どおり付くためである。
+- 落ちるのは**天井チャンネル（Top Front Left / index 6）が `Unused` に固定される**ことを見る 1 件だけ。
+  既定 map は index 5 より後をすべて `Unused` にするので、7.1.4 の天井と rear でしか差が出ない。
+
+対応: 試験名を `seven_one_four_proves_the_map_is_applied_because_five_one_cannot` へ改名し、
+モジュール doc にこの実測を記録した。**製品対応レイアウトの宣言ではなく、map 機構の検出器である**
+ことを名前で区別する。レビュー §4.1 / §4.2 の趣旨に沿う。
+
+**残る論点**: 検出器が 1 件しかない状態は薄い。天井以外の経路（rear surround / LFE 除外 /
+map 規則版の変更）も同様に「既定と一致しない配置」で押さえるべきか。
+
+### 9.2 §7 — new writer → old reader は checksum で fail-closed
+
+`measurement_layout` は `#[serde(default, skip_serializing_if = "Option::is_none")]` なので、
+`None` の serialise 結果は**旧版 writer の出力とバイト一致する**。したがって
+「この事実を知らない reader が checksum を検証したらどうなるか」は、
+読み込んだ構造体の `measurement_layout` を `None` にして検証するのと同じである。
+
+**結果: 落ちる。** 旧 reader はこの記録を正常値として読めない。
+`record_measurement_layout.rs` の `the_checksum_covers_the_recorded_layout` に
+このケースを追加した（B-973）。
+
+| Writer | Reader | 結果 |
+|---|---|---|
+| old | old | 既存挙動（変更なし） |
+| old | new | `measurement_layout` 不在 = 「記録した版がこの事実を持っていなかった」。stereo の意味にしない（試験済み） |
+| new | new | provenance + checksum 成立（試験済み） |
+| **new** | **old** | **checksum 不一致で拒否。unknown field を無視して意味の違う測定を通す経路は閉じている**（試験済み / B-973） |
+
+したがって schema_version "1.3" 据え置きは維持できる。**互換性の実体は
+「旧 reader が黙って読み違える」ではなく「旧 reader が拒否する」である。**
+
+**残る限界 [C]**: 旧 reader の拒否理由は「checksum 不一致 = 改竄または破損」であり、
+「新しい版の記録」ではない。**R ではあるが、表示される理由は誤りである。**
+R-28 の rejection reason transport（レビュー §9 / Gate D）の対象に含める。
+
+### 9.3 §6 — `measurement_epoch` の doc は既にレビューの求める内容になっている
+
+`meter_session.rs:18-26` 実読:
+
+> 次の測定区間 id を取る。プロセス内で単調増加し、0 は決して返さない。
+> 区間は「同じ map・同じ rate で測り続けた範囲」であり、**時刻でも通し番号でもない**。
+> 2 つの値を比較する意味があるのは「同じか違うか」だけで、**差や大小に意味は無い**。
+
+レビューが求めた「monotonic identity token として扱う / per-instance sequence と呼ばない /
+差や連続性から意味を推論しない」は満たしている。
+
+**満たしていないのは 1 点**: Record / restore 後の ownership が未記述。
+plugin state を保存して再オープンしたとき、復元された Record が持つ epoch が
+新しいプロセスの epoch 空間とどう関係するかを書いていない。**未確認 [C]。**
+Gate B（実機の state save → close → reopen）で実際に観察してから書く。
+
+### 9.4 実施しなかったもの
+
+- **実機 gate（§5 / Gate B）** — この環境では macOS / Windows ビルドも DAW も動かせない。**Daisuke の実行が要る。**
+- **§3.2 の probe 行列** — Gate C の作業として未着手。
+- **§2.2 型による防止** — 未着手。§9.5 に論点を書く。
+
+### 9.5 提案への異論 — Gate B と Gate C の順序
+
+提案は Gate B（実機）→ Gate C（共通語彙 / 型導入 / comparison identity 共通化）としている。
+**Gate C は同じ領域を実質的に書き換える作業なので、この順序だと実機検証が 2 回要る。**
+
+- Gate C を先にすると、実機が最終形を検証できる。ただし**未検証のコードをさらに書き換える**ことになり、
+  B-961 → B-964 と同じ失敗の条件（実機を通さずに lifecycle 周辺を触る）に戻る。
+- Gate B を先にすると、Gate C の後にもう一度実機が要る。
+
+**推奨は提案どおり Gate B を先。** 理由は、Gate C の目的が「第二の B-965 / B-970 を構造的に防ぐ」
+ことであり、**何を防ぐべきかは実機で何が壊れるかを見てから決めるほうが精度が高い**ため。
+ただし提案文の「Gate C のあとに実機が要る」点は明示しておきたい。

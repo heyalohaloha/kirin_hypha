@@ -4,6 +4,13 @@
 //! through it rather than through a hand-built `EbuR128`. Removing the `set_channel_map` call
 //! inside it must make one of them fail (試験規律 §9.2 ⑤).
 //!
+//! **実測（B-973）: `set_channel_map` を無効化したとき、1,524 件のうち落ちるのは 1 件だけである。**
+//! `seven_one_four_proves_the_map_is_applied_because_five_one_cannot` がその 1 件で、ほかは
+//! 同じ 7.1.4 の重み付け試験（`the_surround_pair_carries_...`）を含めてすべて通る。
+//! ebur128 の 6ch 既定 map が正しい 5.1 map と一致し、Ls / Rs の 1.41 も index 4 / 5 で
+//! 既定どおり付くためである。**この 1 件が map 適用そのものを支える唯一の検出器である。**
+//! 5.1 の出荷対応と、map 機構の検証は別物として扱う（D-1 は出荷順の決定であって検証手段の決定ではない）。
+//!
 //! Expected values come from ITU-R BS.1770-4 §2 Table 3 (Gi = 1.0 for the front channels, 1.41 for
 //! left/right surround), not from this crate's own tables.
 
@@ -36,8 +43,9 @@ fn integrated_for_channel(layout: ChannelLayout, channel: usize) -> Option<f64> 
     engine.finalize().lufs_i
 }
 
+/// **map 機構そのものの検出器。** 製品対応レイアウトの宣言ではない。
 #[test]
-fn a_ceiling_channel_is_measured_and_not_left_unused() {
+fn seven_one_four_proves_the_map_is_applied_because_five_one_cannot() {
     // ebur128's default map fixes every channel past index 5 to `Unused`, so at 7.1.4 the four
     // ceiling channels and the two rear surrounds would contribute nothing. Top Front Left sits at
     // index 6. If the constructor stops applying the map, this is silence.
