@@ -68,3 +68,83 @@ fn a_summary_without_a_layout_records_nothing_rather_than_guessing_stereo() {
     };
     assert!(summary.layout.map(MeasurementLayout::new).is_none());
 }
+
+#[test]
+fn the_checksum_covers_the_recorded_layout() {
+    // 記録された配置が checksum の外にあると、後から書き換えても検出されない。
+    // 「どの map で測ったか」は測定値と同じ重みの事実である。
+    use kirin_measure::plugin_data::{verify_checksum, MeasurementLayout};
+
+    let base = std::env::temp_dir().join(format!("kirin-layout-checksum-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let paths = kirin_measure::plugin_data::WriterPaths::build(
+        &base,
+        "ph",
+        "iid",
+        kirin_measure::plugin_data::Role::Post,
+        "2026-09-19T00:00:00Z",
+    );
+    let mut writer = kirin_measure::plugin_data::PluginDataWriter::create(
+        paths,
+        "install".to_string(),
+        "ph".to_string(),
+        "iid".to_string(),
+        kirin_measure::plugin_data::Role::Post,
+        None,
+        48_000,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    writer.append_frame(0, [1.0; 20], 1.5, -14.0, -1.0, 12.0, Some(8.7));
+    writer.set_session_aggregates(SessionSummary {
+        lufs_i: Some(-14.0),
+        lra: Some(3.0),
+        max_true_peak: Some(-1.0),
+        layout: Some(ChannelLayout::stereo()),
+    });
+    writer.close().unwrap();
+
+    // close() は published / pending / failed のいずれへ置くので、base 以下から拾う。
+    fn find_json(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    find_json(&path, out);
+                } else if path
+                    .extension()
+                    .is_some_and(|e| e == "kirin" || e == "json")
+                {
+                    out.push(path);
+                }
+            }
+        }
+    }
+    let mut found = Vec::new();
+    find_json(&base, &mut found);
+    found.sort();
+    assert_eq!(
+        found.len(),
+        1,
+        "close() must write exactly one record under {base:?}, got {found:?}"
+    );
+    let text = std::fs::read_to_string(&found[0]).unwrap();
+    let mut loaded: kirin_measure::plugin_data::PluginDataFile =
+        serde_json::from_str(&text).unwrap();
+    assert!(
+        verify_checksum(&loaded),
+        "the record as written must verify"
+    );
+
+    // 配置だけを差し替える。測定値には一切触れない。
+    loaded.measurement_layout = Some(MeasurementLayout::new(ChannelLayout::mono()));
+    assert!(
+        !verify_checksum(&loaded),
+        "a rewritten measurement_layout must break the checksum"
+    );
+
+    let _ = std::fs::remove_dir_all(&base);
+}
