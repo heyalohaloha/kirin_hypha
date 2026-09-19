@@ -71,7 +71,7 @@ Hypha は利用者に制限や複雑な操作を課さず、普通に計測し�
 | 同名複数（曖昧・未ラッチ） | NoPre（沈黙） | 不可（None） | なし | 不可 | — |
 | 同名複数（ラッチ済み） | ラッチ先を維持 | ラッチ先 instance 不変 | ラッチ先で算出 | 凍結 | ラッチ先 |
 | 不在 | NoPre | 不可 | なし | 実消滅で exit | — |
-| **配置が違う**（PRE と POST が別 map で測定 / B-976） | `LayoutMismatch` = Δ 非表示。exact pair は保持 | 可（pairing は壊れない） | **非算出** | — | — |
+| **配置が違う**（PRE と POST が別 map で測定 / B-976） | `LayoutMismatch` = Δ 非表示。exact pair は保持。**`NoPre` が優先**（B-978） | 可（pairing は壊れない） | **非算出** | — | — |
 | **配置を名乗らない PRE**（旧版 / B-976） | `LayoutUnknown` = Δ 非表示。同上 | 可 | **非算出** | — | — |
 
 > 「表示」は `select_target_pre`（require_active=true）、「Keep/Arm」は `select_target_pre_for_arm`

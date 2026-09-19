@@ -295,27 +295,30 @@ pub(super) fn compute_delta_for_pre_file(
         ));
     }
 
-    // 鮮度より前に見る。**古いかどうか以前に、比べてよい 2 本かどうかが決まる。**
-    // `layout` が無ければ `LayoutUnknown`（旧版の PRE）。あって違えば `LayoutMismatch`。
-    let rejection = match parsed.get("layout") {
-        Some(_) => layout_rejection(&parsed, post_layout),
-        None => Some(DeltaMode::LayoutUnknown),
-    };
-    if let Some(mode) = rejection {
+    // **不在が不一致に優先する。** `NoPre`（t が 10 秒より古い = 実質いない）は、配置の話より
+    // 先に決まる。ここを逆にすると、とうに消えた PRE に対して「配置が違う」と言うことになる
+    // （B-978 / 理由を出すのは Gate D なので、理由が正しい順序で決まっていないと意味がない）。
+    let mode = freshness_mode(&parsed)?;
+    if mode == DeltaMode::NoPre {
         return Ok((
             DeltaResult {
-                mode,
+                mode: DeltaMode::NoPre,
                 ..Default::default()
             },
             pre_signal_state,
         ));
     }
 
-    let mode = freshness_mode(&parsed)?;
-    if mode == DeltaMode::NoPre {
+    // いる PRE に対しては、古いかどうかより先に「比べてよい 2 本か」が決まる。
+    // `Stale` は同じペアの続きなので、不一致の方が行動可能な理由である。
+    // `layout` が無ければ `LayoutUnknown`（旧版の PRE）。あって違えば `LayoutMismatch`。
+    if let Some(mode) = match parsed.get("layout") {
+        Some(_) => layout_rejection(&parsed, post_layout),
+        None => Some(DeltaMode::LayoutUnknown),
+    } {
         return Ok((
             DeltaResult {
-                mode: DeltaMode::NoPre,
+                mode,
                 ..Default::default()
             },
             pre_signal_state,

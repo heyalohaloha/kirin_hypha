@@ -25,9 +25,15 @@ fn isolated_dir(label: &str) -> PathBuf {
 
 /// PRE を 1 本書く。`layout` が `None` なら旧版の PRE（配置を名乗らない）。
 fn write_pre(project_dir: &Path, layout: Option<ChannelLayout>) -> PathBuf {
+    write_pre_aged(project_dir, layout, 0)
+}
+
+/// `age_secs` 秒前の時刻で PRE を書く。鮮度と配置の優先順位を見るため。
+fn write_pre_aged(project_dir: &Path, layout: Option<ChannelLayout>, age_secs: i64) -> PathBuf {
     let dir = project_dir.join("pre-iid");
     fs::create_dir_all(&dir).unwrap();
-    let t = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
+    let t = (chrono::Utc::now() - chrono::Duration::seconds(age_secs))
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ");
     let fragment = layout.map_or(String::new(), |layout| {
         format!(
             r#","layout":{}"#,
@@ -181,4 +187,49 @@ fn a_rejected_comparison_does_not_keep_the_frozen_value() {
         assert_eq!(merged.mode, mode);
         assert!(merged.last_active.is_none(), "{mode:?} は凍結値を残さない");
     }
+}
+
+/// **不在が不一致に優先する。** とうに消えた PRE に「配置が違う」と言わない。
+///
+/// 理由を UI へ出すのは Gate D だが、**出す前に理由が正しい順序で決まっていなければ
+/// 意味がない。** B-976 は配置を鮮度より先に見ており、10 秒以上前の pre.json に対しても
+/// `LayoutMismatch` を返していた（B-978 で直した）。
+#[test]
+fn an_absent_pre_outranks_an_incompatible_one() {
+    // 10 秒より古い = 実質いない。配置が違っても `NoPre` である。
+    let dir = isolated_dir("stale");
+    let pre_json = write_pre_aged(&dir, Some(ChannelLayout::mono()), 30);
+    let (delta, _) = compute_delta_for_pre_file(
+        &pre_json,
+        &post(),
+        &MeasurementLayout::new(ChannelLayout::stereo()),
+    )
+    .unwrap();
+    assert_eq!(
+        delta.mode,
+        DeltaMode::NoPre,
+        "消えた PRE に配置の話をしない"
+    );
+
+    // 5〜10 秒（Stale）は同じペアの続きなので、不一致の方が行動可能な理由である。
+    let dir = isolated_dir("aged");
+    let pre_json = write_pre_aged(&dir, Some(ChannelLayout::mono()), 7);
+    let (delta, _) = compute_delta_for_pre_file(
+        &pre_json,
+        &post(),
+        &MeasurementLayout::new(ChannelLayout::stereo()),
+    )
+    .unwrap();
+    assert_eq!(delta.mode, DeltaMode::LayoutMismatch);
+
+    // 同じ配置なら Stale のまま（従来どおり）。
+    let dir = isolated_dir("aged-same");
+    let pre_json = write_pre_aged(&dir, Some(ChannelLayout::stereo()), 7);
+    let (delta, _) = compute_delta_for_pre_file(
+        &pre_json,
+        &post(),
+        &MeasurementLayout::new(ChannelLayout::stereo()),
+    )
+    .unwrap();
+    assert_eq!(delta.mode, DeltaMode::Stale);
 }
