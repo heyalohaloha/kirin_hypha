@@ -11,8 +11,10 @@ use kirin_measure::channel_layout::{ChannelLayout, LayoutId};
 use kirin_measure::phase_d::channels::PhaseDChannelStream;
 use kirin_measure::phase_d::tables::FieldType;
 use kirin_measure::resampler::ResamplerTo48k;
+use kirin_measure::meter_history::{MeterHistory, MeterHistoryAux};
 use kirin_measure::{
-    AttackRuntime, MeasureEngine, SharpnessContinuousAnalyzer, SpectrumRuntime, StereoMeter,
+    AttackRuntime, CaptureClockSource, MeasureEngine, MeasureResult, MeterSession,
+    SharpnessContinuousAnalyzer, SpectrumRuntime, StereoMeter,
 };
 
 const MODE: Mode = Mode::M
@@ -273,6 +275,48 @@ fn probe_census(native_rate: u32, channels: usize, instances: usize) {
         |r: &mut std::sync::Arc<AttackRuntime>| {
             for i in 0..pushes {
                 r.push_block_from_audio(&chunk_f32, channels, Some((i * chunk_frames) as i64));
+            }
+        }
+    );
+    // B-967: TIME history の 3 tier は engine 生成時に満杯分を先に確保する。確保直後と
+    // 「全 tier を実際に埋めたあと」を分けて出す。§4 のとおり確保と residency は別物であり、
+    // history は Record burst と違って通常の作業時間の中で実際に埋まっていく。
+    census!(
+        "MeterHistory",
+        Some(MeterHistory::new()),
+        |h: &mut MeterHistory| {
+            // 0.1 Hz tier（8641 bucket × 100 observation）まで埋め切る押下数。
+            let result = MeasureResult {
+                lufs_m: Some(-14.0),
+                lufs_s: Some(-15.0),
+                true_peak: Some(-1.0),
+                ..MeasureResult::default()
+            };
+            for i in 0..864_100u64 {
+                h.push(
+                    1,
+                    1,
+                    1,
+                    i * 4800,
+                    (Some(i as i64 * 4800), CaptureClockSource::Unknown),
+                    &result,
+                    MeterHistoryAux {
+                        correlation: Some(0.5),
+                        plr: Some(9.0),
+                        clip_event_count: [0; 2],
+                    },
+                );
+            }
+        }
+    );
+    // 製品経路そのもの。MeterSession は MeasureEngine と StereoMeter と history 2 本のうち
+    // 1 本を内包するので、§10 / §11 の他行と**足し合わせない**。
+    census!(
+        "MeterSession",
+        MeterSession::new(native_rate, layout_for(channels)).ok(),
+        |s: &mut MeterSession| {
+            for _ in 0..pushes {
+                s.push_active(&chunk_f64);
             }
         }
     );

@@ -381,7 +381,8 @@ page-fault 挙動により、論理容量と観測 RSS が一致するとは事�
 
 Phase D stream 内部、StereoMeter、`ResamplerTo48k` 内部（FFT workspace）、
 SpectrumRuntime、AttackRuntime、Perceptual、`MeterSession` 自身の MeasureEngine、
-meter history、delta history、UI / FFI frame、control state。
+~~meter history、delta history~~（→ §17 で実測。**24 インスタンスで最大 328 MiB**）、
+UI / FFI frame、control state。
 
 **§9.4 は下限であって上限ではない。**
 
@@ -686,6 +687,8 @@ Watch engine は 24 インスタンスで 74 MiB しか使っていない。
 3. ~~EbuR128 allocation audit~~ → §10.1 完了。
 4. ~~最小 RSS 実験~~ → §10.2 完了。**式は予測子にならないことが判明。**
 5. ~~残り全 allocation の census~~ → §11 完了。**`AttackRuntime` が最大の見落としだった。**
+5b. ~~meter history / delta history~~ → §17 完了。**24 インスタンスで最大 328 MiB。
+   `AttackRuntime` を超える最大の未計上項目だった。**
 6. **4 領域（Watch ring / Record burst / scratch / pre-roll）の実測。** §10 の結果から
    「使うまで resident にならない」と推定しているが、**未測定** [C]。
 7. **`SpectrumRuntime` が 6ch / 12ch で投入を受理しているかの確認**（§11.4 (4)）。
@@ -709,4 +712,118 @@ Record burst を減らす、のどれも決定しない。**
 - `record_alignment_silence` / `chunk_f64` / `resampled_buf`（`measure_thread.rs:314-328`）など、
   measure thread 内の他の `with_capacity` の合計。**§3 の 4 領域に含まれていない。**
 - **Phase D / MeasureEngine / resampler の Nch 増分** → §10 / §11 で **部分実測済み**。
-  **製品経路全体（JUCE scratch、Record lane、history、UI / FFI、control state）は未確認。**
+  **製品経路全体（JUCE scratch、Record lane、UI / FFI、control state）は未確認。**
+  history は §17 で実測済み。
+- **24 インスタンスが history ring を 2 本とも同時に埋めるか**（§17.3）。
+  `DeltaHistoryState` 側は POST 結合が無ければ押されない。**分布が未確認。**
+
+## 17. 実測 — TIME history は最大の未計上項目である [A]（B-967 / 2026-09-19）
+
+§9.6 と §16 が「未列挙」として挙げていた **meter history / delta history** を測った。
+
+### 17.1 構造
+
+`MeterHistory::with_config`（`meter_history.rs:321-339`）は 3 tier すべてを
+`VecDeque::with_capacity` で **engine 生成時に満杯分だけ先に確保する**。
+実測した確保数は要求値そのままで、丸め上げは無い。
+
+| tier | 解像度 | 要求 capacity | 実 capacity | bytes |
+|---|---|---:|---:|---:|
+| exact | 10 Hz / 10 分 | 6,000 | 6,001 | 1,968,328 |
+| one_second | 1 Hz / 2 時間 | 7,200 | 7,201 | 2,361,928 |
+| ten_seconds | 0.1 Hz / 24 時間 | 8,640 | 8,641 | 2,834,248 |
+| **合計** | | | **21,843** | **7,164,504（6.83 MiB）** |
+
+`MeterHistoryEntry` は **328 B**（B-962 の `measurement_epoch` で 320 B から +8 B）。
+1 バイトの増加が 21,843 倍で効く。`meter_history_tests.rs`
+`the_preallocated_history_cost_is_measured_not_assumed` がこの数字を固定する。
+
+**engine 1 台は MeterHistory を 2 本持つ。**
+`meter_session.rs:117`（`MeterSession::history`）と
+`meter_delta_history.rs:99`（`DeltaHistoryState::history`、`Default` 経由で同じ既定 capacity）。
+後者は `KirinHyphaEngine::new` が `MeterDeltaHistoryExchange::new` を呼ぶ時点で確保される
+（`kirin_hypha_ffi/src/lib.rs:1008-1010`）。POST 結合が起きなくても確保は起きる。
+
+### 17.2 RSS 実測（`memory_contract_probe census`、24 インスタンス）
+
+| 条件 | 確保直後 | 全 tier を埋めたあと |
+|---|---:|---:|
+| 48 kHz / 2ch | **+0.29 MiB** | **+164.21 MiB** |
+| 192 kHz / 2ch | +0.64 | +164.34 |
+| 48 kHz / 6ch | +0.28 | +163.86 |
+
+**(1) 確保だけでは resident にならない。** 24 インスタンス分の論理確保は
+24 × 6.83 = 164.0 MiB だが、確保直後の RSS 増分は 0.29 MiB である。§4 / §10 の
+「使うまで resident にならない」が history にも当てはまる。
+
+**(2) 埋め切ると論理確保とほぼ一致する。** 164.21 / 24 = 6.84 MiB。算術値 164.0 MiB との差は 0.2% 未満。
+**ring は 1 ページも余らせずに使い切る。**
+
+**(3) sample rate にもチャンネル数にも依存しない。** history の押下は観測（0.1 s）単位であり、
+`MeterHistoryEntry` は固定形（`clip_event_count: [u32; 2]`、range は L/R 集約済みスカラ）だからである。
+**これは Nch 化していないことの裏返しであって、Nch でも安いという意味ではない**（§17.4）。
+
+### 17.3 製品としての量 — 未計上の 328 MiB
+
+engine 1 台 = 2 本 = 13.66 MiB。`MAX_CAPTURE_PAIRS = 12` → 24 インスタンスで
+**328.0 MiB。384 MiB 予算の 85.4% に相当する量が §3 の 4 領域モデルに入っていない。**
+
+ただし §17.2 (1) のとおり、これは時間をかけて resident 化する。埋まる速さは tier ごとに違う:
+
+| 経過 | 埋まる tier | ring 1 本あたり | 24 インスタンス × 2 本 |
+|---|---|---:|---:|
+| 10 分 | exact | 1.88 MiB | 90.1 MiB |
+| 2 時間 | + one_second | 4.13 | 198.2 |
+| 24 時間 | + ten_seconds | 6.83 | 328.0 |
+
+（10 分 / 2 時間 / 24 時間の行は算術。24 時間の終点だけが §17.2 の実測である。）
+
+**Record burst との違いはここである。** Record burst は Record 中だけ、
+history は **Watch を開いているだけで、作業時間に比例して埋まる。**
+2 時間のセッションで 198.2 MiB は、`known_pipeline_bytes` が数えている 349 MiB と同じ桁である。
+
+`DeltaHistoryState` 側の ring は POST 結合が起きなければ押されないので、
+実際の 24 インスタンスがこの 2 倍を同時に埋めるかは **未確認** [C]。
+片側だけなら 24 時間で 164.0 MiB。
+
+### 17.4 Nch 化したときの増分（仮定を明示した算術。設計の提案ではない）
+
+現在 history が channel-independent なのは、`MeterHistoryEntry` が stereo 形のままだからである。
+**D-6「集約を発明しない」により、history を Nch でどう持つかは決まっていない。**
+以下は「もしこう持つなら」という仮定に対する算術であり、候補の提示ではない。
+
+| 仮定 | entry | ring 1 本 | 24 × 2 本 |
+|---|---:|---:|---:|
+| 現状（stereo 形のまま） | 328 B | 6.83 MiB | 328.0 MiB |
+| `clip_event_count` のみ 12ch 化 | 368 B | 7.67 | 368.0 |
+| 5 range すべてを 12ch 分持つ | 3,008 B | 62.66 | 3,007.7 |
+
+`MeterHistoryRange` は `Option<f64>` × 3 = **48 B**（実測）。5 個で 240 B が
+entry 328 B のうちを占める。12ch 分持てば 2,880 B になる。
+
+**3 行目は 384 MiB 予算の 7.8 倍である。** D-14 の (a)(b)(c) を判断するとき、
+history を Nch でどう持つかは Record burst と同じ桁の材料になる。
+
+### 17.5 付随して確認できたこと — `SpectrumRuntime` の 6ch 確保が消えた
+
+§11.1 では 6ch の `SpectrumRuntime` が +12.47 MiB を確保していた（投入は受理されていなかった。
+§13 の「3 つ目の無言 clamp」）。B-965 で `set_enabled` が
+「その layout で解析できる view が無いなら enable しない」を返すようになったため、
+今回の 6ch 実測は **確保 +0.18 MiB / 投入後も +0.18 MiB** になった。
+**無言 clamp を消したことが、確保量としても出ている。**
+
+### 17.6 `MeterSession` は 6ch を拒否する
+
+census に `MeterSession` 行を追加した。48 kHz / 6ch で **rejected**。
+`StereoMeter::new` が mono / stereo 以外を拒否し（`stereo_meter.rs:108-113`）、
+`MeterSession::new_in_epoch` がそれを伝播するためである。
+FFI は `.ok()` で握って `meter_session = None` とし、
+`kirin_hypha_poll_meter_session` は **false を返す**（`lib.rs:4795-4809`）。
+値を捏造しないという意味では D-13 の C / G ではなく R（構築拒否）である。
+
+**現時点でこの経路は利用者に届かない。** `isBusesLayoutSupported`
+（`PluginProcessor.cpp:120-130`）が mono / stereo しか受理しないため、
+surround が engine に到達するのは FFI を直接叩く経路だけである。
+**したがって §17.6 は出荷済みの欠陥ではなく、P-3 / P-4 の前提条件である。**
+Nch を bus として受理した時点で、Meter が黙って空になる状態は R-28 の
+「利用者が明示意図した操作の失敗」に当たるので、拒否を UI へ出す設計が要る。

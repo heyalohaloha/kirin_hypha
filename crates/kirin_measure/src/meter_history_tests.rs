@@ -275,3 +275,45 @@ fn two_measurement_spans_do_not_aggregate_into_one_bucket() {
         "the span boundary must close the bucket instead of folding both spans into one"
     );
 }
+
+/// B-962 は `KirinMeterHistoryEntry` に `measurement_epoch` を足し、内部 entry も
+/// 320 B から 328 B になった。3 tier はどれも `VecDeque::with_capacity` で
+/// **満杯分を engine 生成時に先に確保する**（`with_config`）ので、entry の 1 バイトは
+/// 21,843 倍で効く。`hypha_surround_ingest_capacity_20260918.md` §3.1 が「history の
+/// Nch 増分は 384 MiB の 4 領域モデルに入っていない」と書いたとおり、この量は
+/// 取込容量の算定に入っていない。**数字を変える変更は、ここを測り直してから通す。**
+///
+/// 注: これは論理的な確保容量であり、OS が観測する RSS ではない（容量 §4）。
+#[test]
+fn the_preallocated_history_cost_is_measured_not_assumed() {
+    assert_eq!(
+        std::mem::size_of::<MeterHistoryEntry>(),
+        328,
+        "entry のサイズを変えたら取込容量の算定をやり直す"
+    );
+    // 容量 §17.4 の「Nch 化したときの増分」はこの 48 B を前提に算術している。
+    assert_eq!(std::mem::size_of::<MeterHistoryRange>(), 48);
+
+    let history = MeterHistory::new();
+    // `with_capacity` の要求値そのままか（丸め上げがないか）を実測で確かめる。
+    assert_eq!(history.exact.capacity(), HISTORY_10_HZ_CAPACITY + 1);
+    assert_eq!(
+        history.one_second.entries.capacity(),
+        HISTORY_1_HZ_CAPACITY + 1
+    );
+    assert_eq!(
+        history.ten_seconds.entries.capacity(),
+        HISTORY_0_1_HZ_CAPACITY + 1
+    );
+
+    let entries = history.exact.capacity()
+        + history.one_second.entries.capacity()
+        + history.ten_seconds.entries.capacity();
+    assert_eq!(entries, 21_843);
+    assert_eq!(
+        entries * std::mem::size_of::<MeterHistoryEntry>(),
+        7_164_504,
+        "MeterHistory 1 本あたり 6.83 MiB。engine 1 台はこれを 2 本持つ \
+         (meter_session.rs:117 / meter_delta_history.rs:99)"
+    );
+}
