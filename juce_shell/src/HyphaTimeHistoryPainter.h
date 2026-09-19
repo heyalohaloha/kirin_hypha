@@ -21,5 +21,6 @@ void paint (juce::Graphics&,
             bool delta,
             bool compactMeter,
             meter_context::ScaleMode scaleMode,
-            presentation::Context);
+            presentation::Context,
+            const juce::String& comparisonStatus = {});
 }

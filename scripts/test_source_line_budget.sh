@@ -81,4 +81,10 @@ write_lines "$FIXTURE_ROOT/crates/demo/src/legacy.rs" 500
 write_baseline 501
 expect_failure "remove resolved baseline entry"
 
+# A staged or working-tree deletion is not an input file and must not make the checker call awk
+# on a path that no longer exists. Any stale allowance is checked separately below the inventory.
+rm -f "$FIXTURE_ROOT/crates/demo/src/legacy.rs"
+write_baseline
+run_checker >/dev/null
+
 echo "source line budget self-test: PASS"

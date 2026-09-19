@@ -7,9 +7,9 @@ use kirin_measure::{DeltaResult, MeasureResult};
 ///
 /// It owns exactly the "current" scalars: LUFS-M, recent True Peak, Crest, PSR, N, and Sharpness.
 /// Everything else passes through as measured — the session maximum `tp_session_max`, LUFS-S
-/// (already an exact 3 s engine window), the per-Bark arrays, and the integrity counters. The
-/// shipping JUCE shell holds the same boundary in `juce_shell/src/DisplaySmoother.h`, pinned by
-/// `juce_shell/tests/display_smoothing_contract_test.cpp`.
+/// (already an exact 3 s engine window), the per-Bark arrays, and the integrity counters.
+/// The retired prototype editors still use this display-only smoother. The shipping JUCE
+/// Observatory consumes producer snapshots directly and does not duplicate this hold.
 #[derive(Debug, Clone)]
 pub struct DisplaySmoother {
     measure: MeasureResult,

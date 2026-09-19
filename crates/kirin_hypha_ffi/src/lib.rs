@@ -5174,7 +5174,7 @@ mod post_controls_parity_tests {
     use super::*;
     use kirin_measure::license::{show_note_button, show_save_button};
 
-    /// PostControls visibility and enabled state replica. Source parity is pinned by xtask.
+    /// Legacy editor-control state replica retained for the non-shipping prototype editors.
     struct PostVis {
         keep_visible: bool,
         keep_enabled: bool,

@@ -9,7 +9,7 @@
 #include "HyphaMeterContext.h"
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceSelectorLookAndFeel.h"
-#include "PostControls.h"
+#include "HyphaTextButton.h"
 
 namespace hypha::local_blind_ui
 {

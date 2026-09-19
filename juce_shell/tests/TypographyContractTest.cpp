@@ -81,25 +81,6 @@ bool hasGlyph (const juce::Font& font, juce::juce_wchar codepoint)
         && offsets.size() == 2 && offsets[1] > offsets[0];
 }
 
-float metricContentWidth (const juce::String& label,
-                          const juce::String& value,
-                          const juce::String& unit)
-{
-    constexpr auto context = presentation::forEditor (300, 200);
-    const auto labelWidth = juce::jmax (
-        ui_contract::metricMinimumLabelWidth,
-        labelFont (context, typography::TextRole::metricLabel,
-                   typography::Composition::facts).getStringWidthFloat (label));
-    const auto valueWidth = juce::jmax (
-        ui_contract::metricMinimumLabelWidth,
-        monoFont (context, typography::TextRole::secondaryValue,
-                  typography::Composition::facts).getStringWidthFloat (value));
-    return labelWidth + ui_contract::metricHorizontalSpacing
-         + valueWidth + ui_contract::metricHorizontalSpacing
-         + labelFont (context, typography::TextRole::unit,
-                      typography::Composition::facts).getStringWidthFloat (unit);
-}
-
 void verifyResolvedStyles()
 {
     for (const auto role : roles)
@@ -305,22 +286,15 @@ void verifyProductTypography()
     KIRIN_TYPOGRAPHY_REQUIRE (std::abs (tabularTextWidth (statusFont, "-11.1")
                                         - tabularTextWidth (statusFont, "-88.8")) < 0.01f);
 
-    const auto preLayout = ui_contract::editorLayout (false);
-    const auto postLayout = ui_contract::editorLayout (true);
     KIRIN_TYPOGRAPHY_REQUIRE (fits (titleFont, ui_contract::preTitle,
-                                    static_cast<float> (preLayout.title.width)));
+                                    static_cast<float> (ui_contract::preTitleWidth)));
     KIRIN_TYPOGRAPHY_REQUIRE (fits (titleFont, ui_contract::postTitle,
-                                    static_cast<float> (postLayout.title.width)));
-    KIRIN_TYPOGRAPHY_REQUIRE (ui_contract::right (postLayout.title)
-                              + ui_contract::titlePairGap == postLayout.pairStatus.x);
+                                    static_cast<float> (ui_contract::preTitleWidth + 8)));
 
     const auto deltaFont = labelFont (compact, typography::TextRole::metricLabel,
                                       typography::Composition::facts);
     KIRIN_TYPOGRAPHY_REQUIRE (delta().length() == 1 && delta()[0] == 0x0394);
     KIRIN_TYPOGRAPHY_REQUIRE (emDash().length() == 1 && emDash()[0] == 0x2014);
-    const auto deltaWidth = static_cast<int> (std::ceil (deltaFont.getStringWidthFloat (delta())));
-    const auto deltaLayout = ui_contract::loudnessSelectorLayout (true, deltaWidth);
-    KIRIN_TYPOGRAPHY_REQUIRE (deltaWidth <= deltaLayout.deltaPrefixWidth);
     KIRIN_TYPOGRAPHY_REQUIRE (hasGlyph (deltaFont, 0x0394));
     for (const auto codepoint : { juce::juce_wchar { 0x25cf }, juce::juce_wchar { 0x25cc },
                                   juce::juce_wchar { 0x2014 } })
@@ -341,8 +315,8 @@ void verifyProductTypography()
                                       typography::Composition::visualization);
     const auto readoutFont = monoFont (compact, typography::TextRole::readout,
                                        typography::Composition::visualization);
-    KIRIN_TYPOGRAPHY_REQUIRE (fits (selectorFont, "DRUM BUS", preLayout.name.width));
-    KIRIN_TYPOGRAPHY_REQUIRE (fits (selectorFont, "pair: DRUM BUS", postLayout.name.width));
+    KIRIN_TYPOGRAPHY_REQUIRE (fits (selectorFont, "DRUM BUS", 160.0f));
+    KIRIN_TYPOGRAPHY_REQUIRE (fits (selectorFont, "pair: DRUM BUS", 160.0f));
     KIRIN_TYPOGRAPHY_REQUIRE (fits (legendFont, "PRE", ui_contract::spectrumPreLegendLabelWidth));
     KIRIN_TYPOGRAPHY_REQUIRE (fits (legendFont, "POST", ui_contract::spectrumPostLegendLabelWidth));
     KIRIN_TYPOGRAPHY_REQUIRE (fits (readoutFont, "22.0 kHz", ui_contract::spectrumHoverFrequencyWidth));
@@ -350,12 +324,6 @@ void verifyProductTypography()
                                     ui_contract::spectrumHoverDeltaWidth));
     KIRIN_TYPOGRAPHY_REQUIRE (fits (readoutFont, "PRE -144.0", ui_contract::spectrumExpandedPreWidth));
     KIRIN_TYPOGRAPHY_REQUIRE (fits (readoutFont, "POST -144.0", ui_contract::spectrumExpandedPostWidth));
-
-    const auto metricWidth = static_cast<float> (
-        ui_contract::metricCellBounds (0, postLayout.metricTop).width);
-    KIRIN_TYPOGRAPHY_REQUIRE (metricContentWidth (delta() + "Crest", "-100.0", "dB") <= metricWidth);
-    KIRIN_TYPOGRAPHY_REQUIRE (metricContentWidth ("Max TP", "-100.0", "dBTP") <= metricWidth);
-    KIRIN_TYPOGRAPHY_REQUIRE (metricContentWidth (delta() + "Sharp", "-100.0", "acum") <= metricWidth);
 
     const auto slotsText = analysis_ui::slotsInUse ("Mix, Vocal");
     KIRIN_TYPOGRAPHY_REQUIRE (! slotsText.containsChar ('\n'));

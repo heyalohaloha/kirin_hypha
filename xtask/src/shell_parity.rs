@@ -13,10 +13,10 @@ mod tests {
             !record_mode.contains("**Mark**"),
             "README must not advertise a Mark control absent from the shipping UI"
         );
-        assert!(POST_CONTROLS_H.contains("HyphaTextButton keepBtn"));
-        assert!(POST_CONTROLS_H.contains("HyphaTextButton stopBtn"));
-        assert!(!POST_CONTROLS_H.contains("markBtn"));
-        assert!(!POST_CONTROLS_CPP.contains("onMark"));
+        assert!(PLUGIN_EDITOR_CPP.contains("menu.addItem (4, \"Keep selected pair\""));
+        assert!(PLUGIN_EDITOR_CPP.contains("menu.addItem (5, \"Stop selected pair\""));
+        assert!(!PLUGIN_EDITOR_CPP.contains("markBtn"));
+        assert!(!PLUGIN_EDITOR_CPP.contains("onMark"));
     }
     #[test]
     fn common_juce_shell_owns_watch_max_for_both_formats_and_roles() {
@@ -25,25 +25,12 @@ mod tests {
         assert!(FFI_HEADER.contains("kirin_hypha_poll_watch_display"));
         assert_eq!(
             count_occurrences(PLUGIN_EDITOR_CPP, "processorRef.pollWatchDisplay (watch)"),
-            2,
-            "shared AU/VST3 editor must poll Watch current+MAX in both roles"
+            1,
+            "the shared AU/VST3 editor must poll Watch current+MAX through one role-neutral helper"
         );
-        assert_eq!(
-            count_occurrences(PLUGIN_EDITOR_CPP, "watchMaximum = watch.maximum;"),
-            2,
-            "shared AU/VST3 editor must retain MAX in both roles"
-        );
-        for metric in [
-            "return useShortTerm ? value.lufs_s : value.lufs_m",
-            "selectedMeasure (watchMaximum)",
-            "watchMaximum.true_peak",
-            "watchMaximum.crest",
-        ] {
-            assert!(
-                PLUGIN_EDITOR_CPP.contains(metric),
-                "common shell missing {metric}"
-            );
-        }
+        assert!(PLUGIN_EDITOR_CPP.contains("observatoryWatchDisplay = watch;"));
+        assert!(PLUGIN_EDITOR_CPP.contains("refreshWatchSnapshot();"));
+        assert!(!PLUGIN_EDITOR_CPP.contains("watchMaximum"));
         assert!(JUCE_CMAKE.contains("FORMATS ${KIRIN_PLUGIN_FORMATS}"));
         assert!(JUCE_CMAKE.contains("src/PluginEditor.cpp"));
     }
@@ -121,7 +108,7 @@ mod tests {
         assert!(JUCE_CMAKE.contains("set(KIRIN_PLUGIN_FORMATS AU VST3)"));
         assert!(JUCE_CMAKE.contains("\n        src/PluginEditor.cpp\n"));
         assert_eq!(count_occurrences(JUCE_CMAKE, "src/HyphaWidgets.cpp"), 1);
-        assert!(JUCE_CMAKE.contains("src/PostControls.cpp"));
+        assert!(JUCE_CMAKE.contains("src/HyphaTextButton.cpp"));
         for forbidden in [
             "JucePlugin_Build_AU",
             "JucePlugin_Build_VST3",
@@ -130,7 +117,7 @@ mod tests {
             assert!(
                 !PLUGIN_EDITOR_CPP.contains(forbidden)
                     && !PLUGIN_EDITOR_H.contains(forbidden)
-                    && !POST_CONTROLS_CPP.contains(forbidden),
+                    && !HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains(forbidden),
                 "format-specific UI branch can make AU and VST3 visually diverge: {forbidden}"
             );
         }
@@ -189,7 +176,7 @@ mod tests {
             1,
             "the audio callback is the only PRE display clock writer"
         );
-        assert!(HYPHA_UI_CONTRACT_H.contains("POST must not acquire PRE display geometry"));
+        assert!(!HYPHA_UI_CONTRACT_H.contains("struct EditorLayout"));
         assert!(PRE_DISPLAY_REPOSITORY_CPP
             .contains(".getChildFile (\"active\").getChildFile (\"kirin_os.json\")"));
         for source in [
@@ -240,11 +227,13 @@ mod tests {
         assert!(FFI_HEADER.contains("#define KIRIN_KEEP_PHASE_ARMED 2u"));
         assert!(FFI_HEADER.contains("uint8_t kirin_hypha_keep_phase(KirinHypha* handle);"));
         assert!(PLUGIN_PROCESSOR_CPP.contains("kirin_hypha_keep_phase (hyphaHandle)"));
-        assert!(body.contains("const bool keepActive = rec || preparing || armed;"));
+        assert!(body.contains("const bool keepActive = recording || preparing || armed;"));
         assert!(body.contains("\"Preparing pairs...\""));
         assert!(body.contains("\"Ready to bounce\""));
-        assert!(body.contains("postControls->update (keepActive"));
-        assert!(POST_CONTROLS_CPP.contains("stopBtn  .setVisible (keepActive);"));
+        assert!(body.contains("observatoryView.setKeepActive (keepActive);"));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains(
+            "stopButton.setVisible (role == Role::post && keepActive && ! captureFrame);"
+        ));
     }
 
     #[test]
@@ -292,31 +281,15 @@ mod tests {
     }
 
     #[test]
-    fn post_controls_keep_slot_is_fixed_and_availability_depends_on_selected_pair() {
-        assert!(POST_CONTROLS_CPP.contains(
-            "void PostControls::update (bool keepActive, int license, bool pairSelected)"
+    fn keep_controls_are_owned_by_the_menu_and_observatory_footer() {
+        assert!(PLUGIN_EDITOR_CPP.contains("menu.addSectionHeader (\"Keep\")"));
+        assert!(PLUGIN_EDITOR_CPP.contains("osOwned && pairSelected"));
+        assert!(PLUGIN_EDITOR_CPP.contains("processorRef.keepPair()"));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains(
+            "stopButton.setVisible (role == Role::post && keepActive && ! captureFrame);"
         ));
-        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setVisible (! keepActive);"));
-        assert!(POST_CONTROLS_CPP.contains("keepBtn  .setEnabled (os && pairSelected);"));
-        assert!(!POST_CONTROLS_CPP
-            .contains("keepBtn  .setVisible (! keepActive && os && pairSelected);"));
-    }
-
-    /// Visibility and entitlement are separate: unavailable OS features remain discoverable.
-    #[test]
-    fn post_controls_update_visibility_formula_is_pinned() {
-        let body = between(
-            POST_CONTROLS_CPP,
-            "void PostControls::update (bool keepActive, int license, bool pairSelected)",
-            "void PostControls::resized()",
-        );
-        assert!(body.contains("const bool os = license == 0;"));
-        assert!(body.contains("keepBtn  .setVisible (! keepActive);"));
-        assert!(body.contains("keepBtn  .setEnabled (os && pairSelected);"));
-        assert!(body.contains("senseBtn .setVisible (! keepActive && ! os);"));
-        assert!(body.contains("stopBtn  .setVisible (keepActive);"));
-        assert!(!body.contains("markBtn"));
-        assert!(!body.contains("markPickerOpen"));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP
+            .contains("localBlindButton.setEnabled (! keepActive);"));
     }
 
     #[test]
@@ -398,8 +371,11 @@ mod tests {
 
     #[test]
     fn juce_keep_does_not_pre_reject_at_twelve_reservations() {
-        let ctor_body = cpp_body(PLUGIN_EDITOR_CPP, "KirinHyphaEditor::KirinHyphaEditor");
-        let keep_body = between(ctor_body, "postControls->onKeep = [this] {", "};");
+        let menu_body = cpp_body(
+            PLUGIN_EDITOR_CPP,
+            "void KirinHyphaEditor::handleCandidateMenu (",
+        );
+        let keep_body = between(menu_body, "else if (result == 4)", "else if (result == 5)");
 
         assert!(
             !keep_body.contains("recordExclusionConflict()"),

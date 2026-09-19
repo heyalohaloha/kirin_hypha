@@ -21,7 +21,7 @@ VUの構図は維持する。破線・点線、新しい装飾アニメーショ
 - TIME HISTORYはsubview navigationに加えてrange/scale用の行を使う。
 - サイズボタンは5サイズの循環選択。拡大の都度ボタン位置も動く。
 - PAIRメニューに表示設定、Keep操作、ペア選択が同居する。
-- 現行editorの旧PostControlsは非表示。常設Keep行があるとは扱わない。
+- 旧PostControlsはB-982で削除済み。Keep／StopはObservatoryの操作状態として扱う。
 
 参照: `HyphaObservatoryContract.h`、`HyphaObservatoryViewLayout.cpp`、
 `HyphaObservatoryViewFooter.cpp`、`HyphaObservatoryViewState.cpp`、

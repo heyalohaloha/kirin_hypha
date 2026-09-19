@@ -45,6 +45,8 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     frame.runSummary = runSummary;
     frame.observatoryFrame = observatoryFrame;
     frame.frameAvailable = frameAvailable;
+    frame.recordDisplay = recordDisplay;
+    frame.recordDisplayAvailable = recordDisplayAvailable;
     frame.watchDisplay = watchDisplay;
     frame.watchDisplayAvailable = watchDisplayAvailable;
     frame.selectedShortTermLoudness = selectedShortTermLoudness;

@@ -150,7 +150,6 @@ int main (int argc, char** argv)
         KIRIN_REQUIRE (frame.getPixelAt (150, 1) != hypha::BG);
         KIRIN_REQUIRE (frame.getPixelAt (150, 100) == hypha::BG);
     }
-    constexpr auto compactPresentation = hypha::presentation::forEditor (300, 200);
     const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);
     KIRIN_REQUIRE (preferenceDirectory.createDirectory().wasOk());
@@ -195,24 +194,6 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (! hypha::analysis_navigation::releasesSlot (
         AnalysisPage::meters, AnalysisPage::spectrum));
 
-    const auto deltaFont = hypha::labelFont (
-        compactPresentation, hypha::typography::TextRole::metricLabel,
-        hypha::typography::Composition::facts);
-    const auto deltaWidth = static_cast<int> (
-        std::ceil (deltaFont.getStringWidthFloat (hypha::delta())));
-    const auto deltaLayout = ui::loudnessSelectorLayout (true, deltaWidth);
-    hypha::LoudnessSelector selector;
-    selector.setSize (ui::loudnessSelectorWidth, ui::metricRowHeight);
-    selector.setDeltaMode (true);
-    juce::Image selectorImage (juce::Image::ARGB, selector.getWidth(), selector.getHeight(), true);
-    {
-        juce::Graphics graphics (selectorImage);
-        selector.paintEntireComponent (graphics, true);
-    }
-    const int deltaPixels = countVisiblePixels (
-        selectorImage, { 0, 0, deltaLayout.deltaPrefixWidth, selector.getHeight() });
-    KIRIN_REQUIRE (deltaPixels > 0);
-
     hypha::PairDropdownButton pairDropdown;
     pairDropdown.setSize (ui::pairDropdownWidth, ui::nameFieldHeight);
     pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
@@ -239,6 +220,15 @@ int main (int argc, char** argv)
         juce::Graphics graphics (warmingSpectrumImage);
         spectrum.paintEntireComponent (graphics, true);
     }
+    spectrum.setComparisonStatus ("CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS");
+    juce::Image refusedSpectrumImage (
+        juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (refusedSpectrumImage);
+        spectrum.paintEntireComponent (graphics, true);
+    }
+    KIRIN_REQUIRE (countDifferentPixels (warmingSpectrumImage, refusedSpectrumImage) > 100);
+    spectrum.setComparisonStatus ({});
     KirinSpectrumView spectrumSnapshot {};
     spectrumSnapshot.status = KIRIN_SPECTRUM_ACTIVE;
     spectrumSnapshot.has_data = 1;
@@ -483,10 +473,7 @@ int main (int argc, char** argv)
     }
     std::cout << " ms/frame\n";
 
-    std::cout << "UI render contract passed: delta="
-              << deltaWidth << '/' << deltaLayout.deltaPrefixWidth << "px"
-              << " (" << deltaPixels << " pixels)"
-              << ", vector-arrow=" << arrowPixels << " pixels"
+    std::cout << "UI render contract passed: vector-arrow=" << arrowPixels << " pixels"
               << ", PRE-runs=" << preCurveRuns
               << ", POST-runs=" << postCurveRuns
               << ", spectrum-paint=" << compactSpectrum.paintMs

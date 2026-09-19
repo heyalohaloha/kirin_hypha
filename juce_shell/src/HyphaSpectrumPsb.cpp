@@ -88,7 +88,9 @@ void SpectrumComponent::paint (juce::Graphics& g)
     if (psbObservation)
     {
         const auto& values = absoluteObservation ? absolutePsb : deltaPsb;
-        const auto status = psbStatus == KIRIN_SPECTRUM_IN_USE ? "ANALYSIS SLOTS IN USE"
+        const auto status = ! absoluteObservation && comparisonStatus.isNotEmpty()
+            ? comparisonStatus
+            : psbStatus == KIRIN_SPECTRUM_IN_USE ? juce::String ("ANALYSIS SLOTS IN USE")
             : psbStatus == KIRIN_SPECTRUM_NO_PAIR ? "PRE REQUIRED FOR DELTA"
             : ! signalActive ? "INACTIVE"
             : psbStatus == KIRIN_SPECTRUM_UNAVAILABLE ? "PSB UNAVAILABLE" : "PSB WARMING";
@@ -101,7 +103,7 @@ void SpectrumComponent::paint (juce::Graphics& g)
         const spectrum_chrome::PaintState state {
             snapshot, displayedPre, displayedPost, displayedDelta,
             readoutPre, readoutPost, readoutDelta, markedDelta,
-            focusTrail.get(), modeActionNotice, analysisOwnerNames, guideOverlay,
+            focusTrail.get(), modeActionNotice, comparisonStatus, analysisOwnerNames, guideOverlay,
             &absoluteHistory, absoluteHistory.peakHold(), absoluteObservation,
             midSideObservation,
             haveSnapshot, signalActive && currentSnapshotValid(),

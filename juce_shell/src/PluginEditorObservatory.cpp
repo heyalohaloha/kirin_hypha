@@ -38,11 +38,7 @@ void KirinHyphaEditor::applyPresentationContext()
 {
     const auto context = hypha::presentation::forEditor (getWidth(), getHeight());
     nameField.setPresentationContext (context);
-    loudnessSelector.setPresentationContext (context);
-    for (auto& cell : cells) cell.setPresentationContext (context);
-    pairStatusLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
     feedbackLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
-    if (postControls != nullptr) postControls->setPresentationContext (context);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumView.setPresentationContext (context);
     perceptualView.setPresentationContext (context);
@@ -84,9 +80,7 @@ void KirinHyphaEditor::configureMeterContext()
             showToast ("Meter Session could not be reset");
             return;
         }
-        watchMaximum = {};
         observatoryWatchDisplay = {};
-        haveWatchMaximum = false;
         haveObservatoryWatchDisplay = false;
         observatoryView.setWatchDisplay ({}, false);
     };
@@ -279,6 +273,14 @@ void KirinHyphaEditor::refreshObservatory()
     KirinObservatoryFrame frame {};
     const bool frameAvailable = processorRef.pollObservatoryFrame (frame);
     observatoryView.setObservatoryFrame (frame, frameAvailable);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    spectrumView.setComparisonStatus (
+        frameAvailable
+            && observatoryView.target() == hypha::observatory::ObservationTarget::delta
+            ? hypha::comparison_presentation::statusText (
+                  frame.comparison_state, frame.comparison_reason)
+            : juce::String());
+   #endif
     if (frameAvailable)
     {
         comparisonObservedGeneration = juce::jmax (

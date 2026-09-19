@@ -20,28 +20,61 @@
 namespace kirin
 {
 
+inline KirinAbiContract expectedAbiContract() noexcept
+{
+    return {
+        KIRIN_ABI_REVISION,
+        KIRIN_OBSERVATORY_FRAME_VERSION,
+        KIRIN_MAX_CHANNELS,
+        KIRIN_MONO_SUM_BAND_COUNT,
+        KIRIN_STEREO_FIELD_BINS,
+        0u,
+        sizeof (KirinMeterSession),
+        alignof (KirinMeterSession),
+        sizeof (KirinObservatoryFrame),
+        sizeof (KirinMeasureResult),
+        sizeof (KirinDelta),
+        sizeof (KirinMeterHistoryEntry),
+        offsetof (KirinMeterHistoryEntry, measurement_epoch),
+        offsetof (KirinMeterSession, channels),
+        offsetof (KirinMeterSession, sample_peak_dbfs),
+        offsetof (KirinMeterSession, channel_positions),
+        offsetof (KirinMeterSession, measurement_epoch),
+    };
+}
+
+/** True only for an exact contract; older/newer revisions and short frames fail closed. */
+inline bool abiMatches (const KirinAbiContract& lib) noexcept
+{
+    const auto expected = expectedAbiContract();
+    return lib.revision == expected.revision
+        && lib.observatory_frame_version == expected.observatory_frame_version
+        && lib.max_channels == expected.max_channels
+        && lib.mono_sum_band_count == expected.mono_sum_band_count
+        && lib.stereo_field_bins == expected.stereo_field_bins
+        && lib.reserved == expected.reserved
+        && lib.meter_session_size == expected.meter_session_size
+        && lib.meter_session_align == expected.meter_session_align
+        && lib.observatory_frame_size == expected.observatory_frame_size
+        && lib.measure_result_size == expected.measure_result_size
+        && lib.delta_size == expected.delta_size
+        && lib.meter_history_entry_size == expected.meter_history_entry_size
+        && lib.meter_history_entry_epoch_offset
+               == expected.meter_history_entry_epoch_offset
+        && lib.meter_session_channels_offset == expected.meter_session_channels_offset
+        && lib.meter_session_sample_peak_offset == expected.meter_session_sample_peak_offset
+        && lib.meter_session_channel_positions_offset
+               == expected.meter_session_channel_positions_offset
+        && lib.meter_session_measurement_epoch_offset
+               == expected.meter_session_measurement_epoch_offset;
+}
+
 /** True when the linked library reports exactly the ABI these headers describe. */
 inline bool abiMatchesLinkedLibrary() noexcept
 {
     KirinAbiContract lib {};
     kirin_hypha_abi_contract (&lib);
-    return lib.revision == KIRIN_ABI_REVISION
-        && lib.observatory_frame_version == KIRIN_OBSERVATORY_FRAME_VERSION
-        && lib.max_channels == KIRIN_MAX_CHANNELS
-        && lib.mono_sum_band_count == KIRIN_MONO_SUM_BAND_COUNT
-        && lib.stereo_field_bins == KIRIN_STEREO_FIELD_BINS
-        && lib.meter_session_size == sizeof (KirinMeterSession)
-        && lib.meter_session_align == alignof (KirinMeterSession)
-        && lib.observatory_frame_size == sizeof (KirinObservatoryFrame)
-        && lib.measure_result_size == sizeof (KirinMeasureResult)
-        && lib.delta_size == sizeof (KirinDelta)
-        && lib.meter_history_entry_size == sizeof (KirinMeterHistoryEntry)
-        && lib.meter_session_channels_offset == offsetof (KirinMeterSession, channels)
-        && lib.meter_session_sample_peak_offset == offsetof (KirinMeterSession, sample_peak_dbfs)
-        && lib.meter_session_channel_positions_offset
-               == offsetof (KirinMeterSession, channel_positions)
-        && lib.meter_session_measurement_epoch_offset
-               == offsetof (KirinMeterSession, measurement_epoch);
+    return abiMatches (lib);
 }
 
 /** The same answer, computed once per process. The contract cannot change while it runs. */

@@ -333,8 +333,8 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/appearance/AppearanceFileLock.cpp
         src/appearance/AppearanceStorage.cpp
         src/appearance/AppearanceService.cpp
-        ${KIRIN_HYPHA_WIDGETS_SOURCE} # B-054: LED / mycelium bg / metric cells / editable name
-        src/PostControls.cpp     # B-054: POST Keep/Stop/Mark/Sense button row
+        ${KIRIN_HYPHA_WIDGETS_SOURCE} # Shared LED / mycelium background / editable name
+        src/HyphaTextButton.cpp
         src/pre_display/PreDisplayController.cpp
         src/pre_display/PreDisplayControllerConnection.cpp
         src/pre_display/PreDisplayPresence.cpp
@@ -645,7 +645,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp
         src/reference_audition/ReferenceTonalSummary.cpp
-        src/PostControls.cpp
+        src/HyphaTextButton.cpp
         src/HyphaPsbPainter.cpp
         src/HyphaSpectrumComponent.cpp
         src/HyphaSpectrumPsb.cpp

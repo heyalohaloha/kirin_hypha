@@ -25,6 +25,7 @@ namespace hypha::spectrum_chrome
         const spectrum_painter::SpectrumBins& mark;
         const spectrum_focus::FocusTrailHistory* focusTrail;
         const juce::String& actionNotice;
+        const juce::String& comparisonStatus;
         const juce::String& analysisOwnerNames;
         const guide_frequency::Overlay& guideOverlay;
         const absolute_spectrum::History* absoluteHistory;

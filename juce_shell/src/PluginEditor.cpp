@@ -1,42 +1,16 @@
 #include "PluginEditor.h"
-#include "HyphaDisplayContract.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaAttackUiContract.h"
 #endif
 
-#include <cmath>
-
 using hypha::COL_FLORA;
-using hypha::COL_FLORA_BR;
 using hypha::COL_MUTED;
 using hypha::COL_NORMAL;
 using hypha::COL_SPECTRUM_DELTA;
-using hypha::COL_SPECTRUM_POST;
 
 namespace
 {
     namespace ui = hypha::ui_contract;
-    namespace display = hypha::display_contract;
-
-    juce::Rectangle<int> juceRect (ui::Rect rect)
-    {
-        return { rect.x, rect.y, rect.width, rect.height };
-    }
-
-    juce::String metricHelp (ui::Metric metric)
-    {
-        switch (metric)
-        {
-            case ui::Metric::lufs:      return hypha::helpLufsM();
-            case ui::Metric::truePeak:  return hypha::helpTp();
-            case ui::Metric::maxTruePeak:return hypha::helpTp();
-            case ui::Metric::crest:     return hypha::helpCrest();
-            case ui::Metric::psr:       return hypha::helpPsr();
-            case ui::Metric::integrated:return hypha::helpLufsI();
-            case ui::Metric::sharpness: return hypha::helpSharp();
-        }
-        return {};
-    }
 }
 
 KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
@@ -133,30 +107,13 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     scaleRoot.addAndMakeVisible (observatoryView);
 
     scaleRoot.addAndMakeVisible (led);
-    for (auto& c : cells)
-        scaleRoot.addAndMakeVisible (c);
-    loudnessSelector.setShortTerm (processorRef.useShortTermLoudness());
-    loudnessSelector.onChange = [this] (bool shortTerm)
-    {
-        processorRef.setUseShortTermLoudness (shortTerm);
-        observatoryView.setShortTermLoudness (shortTerm);
-        configureForKind (currentKind);
-    };
     observatoryView.onLoudnessChange = [this] (bool shortTerm)
     {
         processorRef.setUseShortTermLoudness (shortTerm);
-        loudnessSelector.setShortTerm (shortTerm);
         observatoryView.setShortTermLoudness (shortTerm);
     };
-    scaleRoot.addAndMakeVisible (loudnessSelector);
 
     scaleRoot.addAndMakeVisible (nameField);
-
-    pairStatusLabel.setFont (hypha::monoFont (
-        hypha::presentation::defaultContext(), hypha::typography::TextRole::status));
-    pairStatusLabel.setJustificationType (juce::Justification::centredRight);
-    pairStatusLabel.setInterceptsMouseClicks (true, false);
-    scaleRoot.addAndMakeVisible (pairStatusLabel);
 
     if (isPost)
     {
@@ -168,24 +125,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.onSelect = [this] { selectPairPreview(); };
         nameField.onPreviewDemand = [this] { refreshPairPreview (true); };
         nameField.setWantsKeyboardFocus (true);
-
-        postControls = std::make_unique<hypha::PostControls>();
-        scaleRoot.addAndMakeVisible (*postControls);
-        postControls->onKeep = [this] {
-            if (processorRef.keepPair()) return;
-            const juce::String notice = processorRef.drainKeepActionNotice();
-            if (notice.isNotEmpty()) { showToast (notice); return; }
-            const juce::String err = processorRef.recordErrorMessage();
-            if (err.isNotEmpty()) { showToast (err); return; }
-            // B-118 (①): keep 失敗 = 非Os か no-PRE（egui trigger_keep の LicenseDenied / None と同文言）。
-            showToast (processorRef.licenseIsOs() ? "No PRE Paired" : "Record requires Kirin OS license");
-        };
-        postControls->onStop = [this] { processorRef.stopPair(); };
-        postControls->onSenseHint = [this]
-        {
-            if (! juce::URL ("https://kirinmastering.com").launchInDefaultBrowser())
-                showToast ("Could not open browser");
-        };
 
         // The arrow beside PAIR owns exact connection selection only.
         pairDropdown.setTitle ("Pair menu");
@@ -258,13 +197,6 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     feedbackLabel.setInterceptsMouseClicks (false, false);
     scaleRoot.addChildComponent (feedbackLabel);
 
-    configureForKind (Kind::WatchAbs6); // retained display compatibility; Observatory owns chrome
-    for (auto& cell : cells)
-        cell.setVisible (false);
-    loudnessSelector.setVisible (false);
-    pairStatusLabel.setVisible (false);
-    if (postControls != nullptr)
-        postControls->setVisible (false);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumToggle.setVisible (false);
    #endif
@@ -349,7 +281,6 @@ void KirinHyphaEditor::resized()
     observatoryView.setExternalConnectionLabelVisible (showName);
     if (showName)
         nameField.setBounds (connection);
-    pairStatusLabel.setVisible (false);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost)
     {
@@ -373,12 +304,6 @@ void KirinHyphaEditor::resized()
     if (isPost) layoutLocalBlindProduct();
    #endif
 }
-void KirinHyphaEditor::layoutMetrics (bool)
-{
-    for (int i = 0; i < 6; ++i)
-        cells[(size_t) i].setBounds (juceRect (ui::metricCellBounds (i, metricTop, getWidth())));
-}
-
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 void KirinHyphaEditor::cycleSpectrumSize()
 {
@@ -398,57 +323,6 @@ void KirinHyphaEditor::updateSpectrumSizeControl()
     spectrumSizeToggle.setTooltip (preset.tooltip);
 }
 #endif
-
-void KirinHyphaEditor::configureForKind (Kind k)
-{
-    const bool watch = (k == Kind::WatchAbs6 || k == Kind::WatchDelta6);
-    const bool dlt = (k == Kind::WatchDelta6 || k == Kind::Delta6);
-    const juce::String d = hypha::delta();
-
-    const auto& specs = watch ? ui::watchMetrics : ui::recordMetrics;
-    for (int i = 0; i < (int) specs.size(); ++i)
-    {
-        const auto spec = specs[(size_t) i];
-        const auto text = ui::metricText (spec.metric);
-        const bool deltaCell = dlt && spec.deltaEligible;
-        const juce::String label = i == 0
-                                     ? juce::String()
-                                     : spec.maximum
-                                     ? juce::String (ui::maximumLabel)
-                                     : (deltaCell ? d + text.deltaSuffix
-                                                  : juce::String (text.absoluteLabel));
-        const juce::String unit = deltaCell ? text.deltaUnit : text.absoluteUnit;
-        const auto help = spec.metric == ui::Metric::lufs
-                            && processorRef.useShortTermLoudness()
-                              ? hypha::helpLufsS()
-                              : metricHelp (spec.metric);
-        cells[(size_t) i].configure (label, unit, help, ui::metricMinimumLabelWidth);
-        cells[(size_t) i].setVisible (false);
-    }
-    currentKind = k;
-    currentSix  = true;
-    loudnessSelector.setShortTerm (processorRef.useShortTermLoudness());
-    loudnessSelector.setDeltaMode (dlt);
-    loudnessSelector.setVisible (false);
-    layoutMetrics (true);
-    loudnessSelector.toFront (false);
-}
-
-void KirinHyphaEditor::fillAbs (int cell, double v, bool isTp, bool muted)
-{
-    const juce::Colour col = std::isnan (v) ? COL_MUTED
-                                            : (muted ? COL_MUTED
-                                                     : (isTp ? hypha::tpColour (v) : hypha::valColour (v)));
-    cells[(size_t) cell].setValue (hypha::fmtVal (v), col);
-}
-
-void KirinHyphaEditor::fillDelta (int cell, double v, bool isTp, juce::Colour deltaBase, bool tpWarn, bool muted)
-{
-    const juce::Colour col = std::isnan (v) ? COL_MUTED
-                                            : (muted ? COL_MUTED
-                                                     : ((isTp && tpWarn) ? COL_FLORA_BR : deltaBase));
-    cells[(size_t) cell].setValue (hypha::fmtDelta (v), col);
-}
 
 void KirinHyphaEditor::showToast (const juce::String& msg)
 {

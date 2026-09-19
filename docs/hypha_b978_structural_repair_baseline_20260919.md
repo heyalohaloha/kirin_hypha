@@ -12,11 +12,12 @@ It does not expand the public channel count or role-view surface.
 | FREQ | `SpectrumRuntime` → spectrum history → `kirin_hypha_poll_spectrum_batch` | `PluginProcessorAnalysis.cpp::pollSpectrumBatch` → `PluginEditorAnalysis.cpp::refreshAnalysisViews` → `SpectrumComponent::setBatch` | Engine spectrum history and the component batch | Analysis-demand contract and spectrum product tests |
 | TIME / SHARP | Perceptual Delta or POST absolute history selected by the typed analysis demand | `pollPerceptualBatch` or `pollAbsoluteBatch` → `refreshAnalysisViews` | Perceptual or absolute batch in the corresponding component | Analysis-demand contract and perceptual presentation tests |
 | TIME / LIVE | Absolute analyzer history → `kirin_hypha_poll_absolute_batch` | `pollAbsoluteBatch` → `refreshAnalysisViews` → absolute component | Absolute batch in the component | Analysis-demand contract and absolute presentation tests |
-| Keep / completed Record | Record state and `KirinRecordDisplay`; POST control state is refreshed by `updatePost` | `PluginEditorMeter.cpp::updatePost` updates Observatory Keep state and completed-record presentation | `cachedRecordDisplay`, Keep phase, and completed session summary | Record display ABI, editor-surface, and Keep workflow tests |
-| Capture image | The explicit menu action calls the editor's one synchronous read boundary | `beginObservatoryCapture` → `freezeObservatoryCapture`; LEVEL re-polls the selected history and analysis surfaces are snapshotted before the asynchronous chooser | Owned immutable `capture::Snapshot` image | Capture product and storage/error contracts |
+| Keep / completed Record | Record state and `KirinRecordDisplay`; POST control state is refreshed by `updatePost` | `PluginEditorMeter.cpp::refreshRecordPhase` → `HyphaObservatoryView::setRecordDisplay` → `paintRecordDisplay`; Keep state is a separate Observatory control fact | `cachedRecordDisplay`, Keep phase, and completed session summary | Record display ABI, Observatory render/capture, and Keep workflow tests |
+| Capture image | The explicit menu action calls the editor's one synchronous read boundary | `beginObservatoryCapture` → `freezeObservatoryCapture`; LEVEL re-polls the selected history, copies the completed Record snapshot, and snapshots analysis surfaces before the asynchronous chooser | Owned immutable `capture::Snapshot` image | Capture product and storage/error contracts |
 
-`PluginEditorMeter.cpp::updatePost` still updates hidden compatibility cells. Those cells are not
-evidence for the visible Observatory. The visible live path is the Observatory frame path above.
+The former hidden metric-cell and `PostControls` compatibility path was deleted in B-982. Live
+Watch, completed Record, Keep state, and Capture now have separate typed paths into the visible
+Observatory; no off-screen widget is accepted as product evidence.
 
 ## Confirmed baseline failures
 
@@ -68,10 +69,13 @@ stamp are unavailable instead of being relabelled as current.
 - Keep mode-specific clocks and histories separate; a shared selection identity does not merge their
   measurement algorithms.
 - Carry comparison refusal as a reason-bearing snapshot through FFI and the actual Observatory path.
-  Hidden compatibility cells do not own refusal presentation.
+  LEVEL, TIME history, and FREQ consume the same reason vocabulary.
 
 B-981 implements that comparison boundary as one snapshot containing state, reason, generation, and
 the exact producer/execution identity. Rejected comparisons expose no previous delta as current;
 stale comparisons report `Holding` only when a matching prior value actually exists. The live
 Observatory renders the reason, while a toast is armed only by an explicit view or pair action and
-is deduplicated by comparison generation. Background compatibility failures remain silent.
+is deduplicated by comparison generation. Background compatibility failures remain silent. B-982
+removes the hidden cell/control replica, renders a completed Record from its generation-bound
+snapshot in the Observatory and Capture, and keeps the ABI handshake fail-closed for old, unknown,
+or undersized contracts.

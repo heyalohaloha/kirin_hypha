@@ -60,9 +60,6 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     const bool analysisOpen = hypha::analysis_navigation::isAnalysis (page);
     observatoryView.setRunSummaryMode (page == AnalysisPage::run);
     observatoryView.setExternalAnalysisBodyActive (analysisOpen);
-    for (auto& cell : cells)
-        cell.setVisible (false);
-    loudnessSelector.setVisible (false);
     spectrumView.setVisible (page == AnalysisPage::spectrum);
     perceptualView.setVisible (page == AnalysisPage::perceptual && ! sharpnessUsesAbsolute);
     absoluteView.setVisible (page == AnalysisPage::absolute || sharpnessUsesAbsolute);

@@ -116,6 +116,7 @@ public:
     void setMeterSnapshot (const KirinMeterSession&, bool available);
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
+    void setRecordDisplay (const KirinRecordDisplay&, bool available);
     void setWatchDisplay (const KirinWatchDisplay&, bool available);
     void setShortTermLoudness (bool);
     bool shortTermLoudness() const noexcept { return selectedShortTermLoudness; }
@@ -130,8 +131,10 @@ public:
     }
     bool hybridVuVisible() const noexcept
     {
-        return (manualHybridVuSelected || recordingHybridVuRequested()) && ! captureFrame;
+        return (manualHybridVuSelected || recordingHybridVuRequested())
+            && ! captureFrame && ! recordDisplayShowing();
     }
+    bool recordDisplayShowingForTest() const noexcept { return recordDisplayShowing(); }
     void setCompactMaximum (bool);
     bool compactMaximum() const noexcept { return compactShowsMaximum; }
     void setMeterContext (meter_context::MeterContext);
@@ -240,6 +243,7 @@ private:
     void layoutFooterActions (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
     void paintLevelWithHistory (juce::Graphics&, juce::Rectangle<int>);
+    void paintRecordDisplay (juce::Graphics&, juce::Rectangle<int>);
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
     void refreshLevelHistoryHover();
@@ -251,6 +255,7 @@ private:
     bool currentFactsAvailable() const noexcept;
     bool cumulativeFactsAvailable() const noexcept;
     bool deltaFactsAvailable() const noexcept;
+    bool recordDisplayShowing() const noexcept;
 
     Role role;
     Domain selectedDomain = Domain::level;
@@ -259,6 +264,8 @@ private:
     KirinObservatoryFrame observatoryFrame {};
     mono_sum_history::History monoSumHistory;
     bool frameAvailable = false;
+    KirinRecordDisplay recordDisplay {};
+    bool recordDisplayAvailable = false;
     KirinWatchDisplay watchDisplay {};
     bool watchDisplayAvailable = false;
     bool selectedShortTermLoudness = false;

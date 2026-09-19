@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaComparisonPresentation.h"
 #include "HyphaRunSummary.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTimeHistoryPainter.h"
@@ -155,6 +156,11 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
     else
         time_history::paint (g, area, history, compact ? historyRequest().label : "",
                              target() == ObservationTarget::delta, compact, selectedScaleMode,
-                             presentationContext());
+                             presentationContext(),
+                             target() == ObservationTarget::delta && frameAvailable
+                                 ? comparison_presentation::statusText (
+                                       observatoryFrame.comparison_state,
+                                       observatoryFrame.comparison_reason)
+                                 : juce::String());
 }
 }

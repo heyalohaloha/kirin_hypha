@@ -52,6 +52,22 @@ void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool availab
     repaint (bodyArea);
 }
 
+void View::setRecordDisplay (const KirinRecordDisplay& value, bool available)
+{
+    recordDisplay = value;
+    recordDisplayAvailable = available;
+    repaint (bodyArea);
+}
+
+bool View::recordDisplayShowing() const noexcept
+{
+    if (! recordDisplayAvailable)
+        return false;
+    return recordDisplay.phase == KIRIN_RECORD_DISPLAY_FINALIZING
+        || recordDisplay.phase == KIRIN_RECORD_DISPLAY_RESULT_HOLD
+        || recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE;
+}
+
 bool View::currentFactsAvailable() const noexcept
 {
     return frameAvailable

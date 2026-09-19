@@ -373,9 +373,19 @@ void paint (juce::Graphics& g,
             bool delta,
             bool compactMeter,
             meter_context::ScaleMode scaleMode,
-            presentation::Context presentation)
+            presentation::Context presentation,
+            const juce::String& comparisonStatus)
 {
     surface_material::paintPanel (g, area.toFloat(), compactMeter ? 0.96f : 0.76f);
+    if (delta && comparisonStatus.isNotEmpty())
+    {
+        auto statusArea = area.removeFromTop (compactMeter ? 18 : 22);
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (presentation, typography::TextRole::status,
+                             typography::Composition::visualization));
+        g.drawFittedText (comparisonStatus, statusArea.reduced (4, 1),
+                          juce::Justification::centred, 1, 0.55f);
+    }
     const auto geometry = makeGeometry (area, compactMeter, presentation);
     area = geometry.content;
     if (history.empty())

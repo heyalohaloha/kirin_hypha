@@ -115,7 +115,24 @@ const comparisonRefusalIsTransported = ({ producer, header, ffi, editor, present
     && presentation.includes('MATCH PRE / POST BUS');
 };
 
-test('structural repair detectors reject the eight known mutation classes', () => {
+const hiddenCompatibilityPathIsRemoved = ({ editor, meter, widgets, cmake }) => {
+  const shippingEditor = editor + meter;
+  return meter.includes('void KirinHyphaEditor::refreshWatchSnapshot()')
+    && meter.includes('processorRef.pollWatchDisplay (watch)')
+    && meter.includes('uint8_t KirinHyphaEditor::refreshRecordPhase()')
+    && meter.includes('processorRef.pollRecordDisplay (observed)')
+    && meter.includes('observatoryView.setKeepActive (keepActive)')
+    && !shippingEditor.includes('pollDelta')
+    && !shippingEditor.includes('DisplaySmoother')
+    && !shippingEditor.includes('configureForKind')
+    && !shippingEditor.includes('fillDelta')
+    && !shippingEditor.includes('fillAbs')
+    && !widgets.includes('class MetricCell')
+    && !widgets.includes('class LoudnessSelector')
+    && !cmake.includes('PostControls.cpp');
+};
+
+test('structural repair detectors reject the nine known mutation classes', () => {
   const adapter = read('juce_shell/src/HyphaAnalysisFfiAdapter.h');
   const demand = read('juce_shell/src/HyphaAnalysisDemand.h');
   const format = read('juce_shell/src/PluginProcessorFormat.cpp');
@@ -131,6 +148,10 @@ test('structural repair detectors reject the eight known mutation classes', () =
   const ffiSource = read('crates/kirin_hypha_ffi/src/lib.rs');
   const observatoryEditor = read('juce_shell/src/PluginEditorObservatory.cpp');
   const comparisonPresentation = read('juce_shell/src/HyphaComparisonPresentation.h');
+  const editor = read('juce_shell/src/PluginEditor.cpp');
+  const meter = read('juce_shell/src/PluginEditorMeter.cpp');
+  const widgets = read('juce_shell/src/HyphaWidgets.h');
+  const cmake = read('juce_shell/CMakeLists.txt');
 
   assert.ok(shippingAdapterIsExact(adapter));
   const lifecycle = { format, processor, demand };
@@ -147,6 +168,8 @@ test('structural repair detectors reject the eight known mutation classes', () =
     presentation: comparisonPresentation,
   };
   assert.ok(comparisonRefusalIsTransported(comparisonTransport));
+  const compatibilityPath = { editor, meter, widgets, cmake };
+  assert.ok(hiddenCompatibilityPathIsRemoved(compatibilityPath));
 
   const wrongMidSide = adapter.replace(
     'MidSideVisible (handle, value)',
@@ -212,5 +235,14 @@ test('structural repair detectors reject the eight known mutation classes', () =
   assert.ok(
     !comparisonRefusalIsTransported({ ...comparisonTransport, header: droppedRefusal }),
     'comparison refusal reason must reach the shipping Observatory frame',
+  );
+
+  const restoredHiddenDelta = meter.replace(
+    'processorRef.pollWatchDisplay (watch)',
+    'processorRef.pollDelta (watch)',
+  );
+  assert.ok(
+    !hiddenCompatibilityPathIsRemoved({ ...compatibilityPath, meter: restoredHiddenDelta }),
+    'an independent hidden delta polling path must be detected',
   );
 });

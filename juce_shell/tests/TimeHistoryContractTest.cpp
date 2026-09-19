@@ -156,6 +156,24 @@ void verifyTimeHistoryContract()
     const auto alternateImage = render (alternate, 600, 400);
     KIRIN_TIME_HISTORY_REQUIRE (changedPixels (normalImage, alternateImage) > 1'000);
 
+    juce::Image genericEmpty (juce::Image::ARGB, 600, 300, true);
+    juce::Image refusedEmpty (juce::Image::ARGB, 600, 300, true);
+    const std::vector<KirinMeterHistoryEntry> noHistory;
+    {
+        juce::Graphics graphics (genericEmpty);
+        time_history::paint (graphics, genericEmpty.getBounds(), noHistory, "30 S", true,
+                             false, meter_context::ScaleMode::wide,
+                             presentation::forEditor (600, 300));
+    }
+    {
+        juce::Graphics graphics (refusedEmpty);
+        time_history::paint (graphics, refusedEmpty.getBounds(), noHistory, "30 S", true,
+                             false, meter_context::ScaleMode::wide,
+                             presentation::forEditor (600, 300),
+                             "CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS");
+    }
+    KIRIN_TIME_HISTORY_REQUIRE (changedPixels (genericEmpty, refusedEmpty) > 100);
+
     // A real 3 s S window remains valid after the 400 ms M window falls below its valid floor.
     // Restrict comparison to the data plot so a changing legend cannot hide a missing curve.
     auto shortTermOnlyA = normal;

@@ -110,6 +110,7 @@ View::View (Role roleIn) : role (roleIn)
     operationsButton.setComponentID ("observatory-menu");
     operationsButton.onClick = [this] { if (onOperationsMenu) onOperationsMenu(); };
     stopButton.setColour (juce::TextButton::textColourOffId, COL_FLORA_BR);
+    stopButton.setComponentID ("observatory-stop");
     stopButton.setTooltip ("Stop the selected PRE / POST Keep");
     stopButton.onClick = [this] { if (onStop) onStop(); };
     guideButton.setColour (juce::TextButton::textColourOffId, COL_GUIDE_BR);
@@ -428,7 +429,9 @@ void View::paint (juce::Graphics& g)
         background.drawHyphaSpecimen (g, bodyArea, state);
     }
     paintHeader (g, layout);
-    if (selectedDomain == Domain::level && (captureFrame || fullCockpit()))
+    if (recordDisplayShowing())
+        paintRecordDisplay (g, bodyArea);
+    else if (selectedDomain == Domain::level && (captureFrame || fullCockpit()))
         paintLevelWithHistory (g, bodyArea);
     else if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
     else if (selectedDomain == Domain::time && ! externalAnalysisBodyActive)

@@ -48,13 +48,10 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     assert!(juce_editor.contains("observatoryView.setBounds (scaleRoot.getLocalBounds())"));
     assert!(juce_editor.contains("observatoryView.connectionBounds()"));
     assert!(juce_editor.contains("observatoryView.bodyBounds()"));
-    assert!(juce_editor.contains("ui::watchMetrics"));
-    assert!(juce_editor.contains("ui::recordMetrics"));
     assert!(observatory_metrics.contains("typography::TextRole::metricLabel"));
     assert!(observatory_metrics.contains("typography::TextRole::primaryValue"));
     assert!(observatory_metrics.contains("typography::TextRole::unit"));
-    assert!(juce_editor.contains("ui::maximumLabel"));
-    assert!(juce_editor.contains("cachedRecordDisplay.session"));
+    assert!(juce_editor.contains("setObservatoryFrame (frame, frameAvailable)"));
     assert!(juce_editor.contains("menu.addSectionHeader"));
     assert!(juce_editor.contains("withMinimumWidth (ui::pairMenuMinimumWidth)"));
     assert!(juce_editor.contains("withMaximumNumColumns (ui::pairMenuMaximumColumns)"));
@@ -91,14 +88,9 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
     for required in [
         "constexpr int editorWidth  = 300",
         "constexpr int editorHeight = 200",
-        "constexpr EditorLayout editorLayout",
-        "constexpr Rect metricCellBounds",
         "constexpr int pairMenuItemHeight     = 28",
         "constexpr int pairMenuMinimumWidth   = editorWidth",
         "constexpr int pairMenuMaximumColumns = 1",
-        "constexpr std::array<MetricSlot, 6> watchMetrics",
-        "constexpr std::array<MetricSlot, 6> recordMetrics",
-        "POST feedback row must fit the 300x200 editor boundary",
     ] {
         assert!(
             ui_contract.contains(required),
@@ -119,17 +111,14 @@ fn shipped_au_and_vst3_compile_the_same_editor_processor_and_control_contract() 
             "theme bypasses UI contract: {required}"
         );
     }
-    let juce_controls = read_repo("juce_shell/src/PostControls.cpp");
-    assert!(!juce_controls.contains("markBtn"));
-    let juce_controls_header = read_repo("juce_shell/src/PostControls.h");
-    assert!(juce_controls_header.contains("ui_contract::keepLabel"));
-    assert!(juce_controls_header.contains("ui_contract::stopLabel"));
+    let text_button = read_repo("juce_shell/src/HyphaTextButton.cpp");
+    assert!(text_button.contains("HyphaTextButton::paintButton"));
     let cmake = read_repo("juce_shell/CMakeLists.txt");
     assert!(cmake.contains("set(KIRIN_PLUGIN_FORMATS AU VST3)"));
     assert!(cmake.contains("FORMATS ${KIRIN_PLUGIN_FORMATS}"));
     assert!(cmake.contains("src/PluginProcessor.cpp"));
     assert!(cmake.contains("src/PluginEditor.cpp"));
-    assert!(cmake.contains("src/PostControls.cpp"));
+    assert!(cmake.contains("src/HyphaTextButton.cpp"));
     assert!(cmake.contains("src/HyphaSpectrumMidSide.cpp"));
     assert!(cmake.contains("src/HyphaSpectrumMidSidePainter.cpp"));
     assert!(cmake.contains("tests/OsAccessUiContractTest.cpp"));

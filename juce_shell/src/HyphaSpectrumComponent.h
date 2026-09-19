@@ -41,6 +41,12 @@ public:
     void presentationTick();
     void presentationTickAt (double nowMs);
     void setAnalysisOwnerNames (const juce::String& names);
+    void setComparisonStatus (const juce::String& status)
+    {
+        if (comparisonStatus == status) return;
+        comparisonStatus = status;
+        repaint();
+    }
     void setGuideFrequencyOverlay (const guide_frequency::Overlay& next);
     void setAbsoluteObservation (bool absolute);
     void setDisplaySelection (uint8_t selection);
@@ -139,6 +145,7 @@ private:
     uint8_t inputChannels = 0;
     juce::String modeActionNotice;
     juce::String analysisOwnerNames;
+    juce::String comparisonStatus;
     guide_frequency::Overlay guideOverlay;
     absolute_spectrum::History absoluteHistory;
     bool absoluteObservation = false;

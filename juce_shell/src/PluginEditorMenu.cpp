@@ -434,7 +434,6 @@ void KirinHyphaEditor::handleCandidateMenu (
     else if (result == 11)
     {
         processorRef.clearPairCandidate();
-        pairedPreExplicitlyBypassed = false;
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         spectrumView.clearSnapshot();
         perceptualView.clearSnapshot();
@@ -451,7 +450,6 @@ void KirinHyphaEditor::handleCandidateMenu (
             const juce::String name = candidate.hasName ? candidate.name : juce::String();
             if (processorRef.setPairCandidate (candidate.instanceId, name))
             {
-                pairedPreExplicitlyBypassed = false;
                 comparisonActionAwaitingResult = true;
                 comparisonActionAfterGeneration = comparisonObservedGeneration;
                #if ! KIRIN_HYPHA_PRE_DISPLAY

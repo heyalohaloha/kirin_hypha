@@ -32,6 +32,7 @@ failures=0
 debt=0
 while IFS= read -r -d '' file; do
   is_owned_source "$file" || continue
+  [[ -f "$ROOT/$file" ]] || continue
   lines="$(line_count "$ROOT/$file")"
   (( lines > LIMIT )) || continue
   debt=$((debt + 1))

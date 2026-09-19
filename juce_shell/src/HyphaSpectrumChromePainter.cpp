@@ -107,6 +107,15 @@ namespace
                         juce::Justification::centredLeft);
             return;
         }
+        if (! state.absoluteObservation && state.comparisonStatus.isNotEmpty())
+        {
+            g.setColour (COL_TEXT_SECONDARY);
+            g.drawFittedText (state.comparisonStatus,
+                              outerPlot.withTop (legendTop).withHeight (
+                                  scaled ((float) ui_contract::spectrumLegendHeight)).toNearestInt(),
+                              juce::Justification::centredLeft, 1, 0.55f);
+            return;
+        }
         if (state.midSideObservation)
         {
             g.setColour (COL_SPECTRUM_MID.withAlpha (0.98f));
@@ -398,7 +407,9 @@ void paint (juce::Graphics& g,
 
     if (! state.snapshotValid)
     {
-        const auto text = ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot
+        const auto text = ! state.absoluteObservation && state.comparisonStatus.isNotEmpty()
+                            ? state.comparisonStatus
+                            : ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot
                             ? statusText (state.snapshot.status, state.analysisOwnerNames)
                                              : juce::String ("PREPARING ANALYSIS");
         if (text.isNotEmpty())

@@ -121,6 +121,82 @@ double optionValue (double value, bool available)
 }
 }
 
+void View::paintRecordDisplay (juce::Graphics& g, juce::Rectangle<int> area)
+{
+    const auto family = experienceFamily();
+    const auto context = presentationContext();
+    const bool hasMeasure = recordDisplay.has_measure != 0u;
+    const bool hasSession = recordDisplay.has_session != 0u;
+    const bool hasDelta = role == Role::post
+        && target() == ObservationTarget::delta
+        && recordDisplay.has_delta != 0u
+        && recordDisplay.pair_matches_current != 0u
+        && recordDisplay.delta.mode == KIRIN_DELTA_MODE_ACTIVE;
+    const bool shortTerm = selectedShortTermLoudness;
+
+    auto statusArea = area.removeFromTop (juce::jlimit (20, 28, area.getHeight() / 5));
+    area.removeFromTop (3);
+    drawPanel (g, statusArea, family);
+    const auto phaseText = recordDisplay.phase == KIRIN_RECORD_DISPLAY_FINALIZING
+        ? juce::String ("RECORD FINALIZING")
+        : recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
+            ? juce::String ("RECORD UNAVAILABLE")
+            : juce::String ("RECORD RESULT");
+    const auto sourceText = hasDelta ? juce::String (juce::CharPointer_UTF8 (" · POST − PRE"))
+                                     : juce::String (" · ABSOLUTE");
+    g.setColour (recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
+                     ? COL_MUTED : COL_NORMAL);
+    g.setFont (monoFont (context, typography::TextRole::status));
+    g.drawFittedText (phaseText + sourceText, statusArea.reduced (5, 1),
+                      juce::Justification::centred, 1, 0.65f);
+
+    const auto& measure = recordDisplay.measure;
+    const auto& session = recordDisplay.session;
+    const auto& delta = recordDisplay.delta;
+    const std::array<juce::String, 6> labels {
+        hasDelta ? hypha::delta() + (shortTerm ? "S" : "M") : (shortTerm ? "S" : "M"),
+        hasDelta ? hypha::delta() + "PSR" : "PSR",
+        "MAX TP", "I",
+        hasDelta ? hypha::delta() + "CREST" : "CREST",
+        hasDelta ? hypha::delta() + "SHARP" : "SHARP"
+    };
+    const std::array<double, 6> values {
+        hasDelta ? (shortTerm ? delta.lufs_s : delta.lufs)
+                 : (shortTerm ? measure.lufs_s : measure.lufs_m),
+        hasDelta ? delta.psr : measure.psr,
+        session.max_true_peak,
+        session.lufs_i,
+        hasDelta ? delta.crest : measure.crest,
+        hasDelta ? delta.sharpness : measure.sharpness
+    };
+    const std::array<bool, 6> available {
+        hasDelta || hasMeasure,
+        hasDelta || hasMeasure,
+        hasSession,
+        hasSession,
+        hasDelta || hasMeasure,
+        hasDelta || hasMeasure
+    };
+    const std::array<const char*, 6> units {
+        hasDelta ? "LU" : "LUFS", "dB", "dBTP", "LUFS", "dB", "acum"
+    };
+
+    auto top = area.removeFromTop ((area.getHeight() - 3) / 2);
+    area.removeFromTop (3);
+    for (int index = 0; index < 6; ++index)
+    {
+        auto& row = index < 3 ? top : area;
+        const auto remaining = 3 - (index % 3);
+        auto cell = row.removeFromLeft (row.getWidth() / remaining).reduced (2);
+        drawMetric (g, cell, labels[(size_t) index],
+                    optionValue (values[(size_t) index], available[(size_t) index]),
+                    units[(size_t) index], family, context, hasDelta,
+                    1, {}, -1.0f, {}, true,
+                    index < 2 ? typography::TextRole::primaryValue
+                              : typography::TextRole::secondaryValue);
+    }
+}
+
 void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                        bool includeChannelStrips)
 {
