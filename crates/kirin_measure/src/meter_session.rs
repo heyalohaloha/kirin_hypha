@@ -282,6 +282,12 @@ impl MeterSession {
         self.stereo.clear_peak_clip_holds();
     }
 
+    /// この session が実際に測っている配置。比較の相手が同じ map で測ったかを確かめる側が読む
+    /// （`MeterDeltaHistoryExchange`）。チャンネル数から推測させないための accessor である。
+    pub fn layout(&self) -> ChannelLayout {
+        self.layout
+    }
+
     pub fn snapshot(&self) -> MeterSessionSnapshot {
         MeterSessionSnapshot {
             generation: self.generation,
