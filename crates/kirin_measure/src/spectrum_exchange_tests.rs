@@ -248,9 +248,12 @@ fn exactly_two_post_analysis_runtimes_are_active_per_process_lease() {
         temp.path().join("analysis.0.lease"),
         temp.path().join("analysis.1.lease"),
     ];
-    let first_runtime = SpectrumRuntime::new(48_000, 2);
-    let second_runtime = SpectrumRuntime::new(48_000, 2);
-    let third_runtime = SpectrumRuntime::new(48_000, 2);
+    let first_runtime =
+        SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let second_runtime =
+        SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let third_runtime =
+        SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let first = SpectrumCoordinator::new_with_lease(
         48_000,
         first_runtime,
@@ -317,7 +320,7 @@ fn analysis_lease_io_failure_is_unavailable_not_in_use() {
     let temp = tempfile::tempdir().unwrap();
     let blocker = temp.path().join("file");
     fs::write(&blocker, b"not a directory").unwrap();
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new_with_lease(
         48_000,
         Arc::clone(&runtime),
@@ -335,7 +338,7 @@ fn analysis_lease_io_failure_is_unavailable_not_in_use() {
 
 #[test]
 fn poisoned_post_session_resets_instead_of_permanently_stalling_analysis() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     coordinator.set_post_visible(true);
 
@@ -361,7 +364,7 @@ fn poisoned_pre_session_resets_instead_of_permanently_stalling_analysis() {
     let temp = tempfile::tempdir().unwrap();
     let pre_dir = temp.path().join("project").join("pre");
     fs::create_dir_all(&pre_dir).unwrap();
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
 
     let poisoned = Arc::clone(&coordinator);
@@ -380,7 +383,7 @@ fn poisoned_pre_session_resets_instead_of_permanently_stalling_analysis() {
 
 #[test]
 fn post_without_exact_pair_enables_local_spectrum_without_claiming_delta() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     coordinator.set_post_visible(true);
     assert!(coordinator.post_tick("post", None));
@@ -396,7 +399,7 @@ fn post_without_exact_pair_enables_local_spectrum_without_claiming_delta() {
 #[test]
 fn post_absolute_timeline_needs_no_pair_and_never_creates_a_pre_request() {
     let temp = tempfile::tempdir().unwrap();
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Absolute));
     let coordinator = SpectrumCoordinator::new_with_lease(
         48_000,
@@ -421,7 +424,7 @@ fn post_absolute_timeline_needs_no_pair_and_never_creates_a_pre_request() {
 
 #[test]
 fn active_spectrum_view_retains_eight_exact_differences_for_ui_recovery() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
 
     for index in 1..=10 {

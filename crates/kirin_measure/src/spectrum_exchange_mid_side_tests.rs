@@ -7,7 +7,7 @@ fn post_mid_side_is_local_even_when_a_pre_target_exists() {
     let temp = tempfile::tempdir().unwrap();
     let pre_dir = temp.path().join("pre");
     fs::create_dir_all(&pre_dir).unwrap();
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new_with_lease(
         48_000,
         Arc::clone(&runtime),

@@ -36,7 +36,7 @@ fn filesystem_stalls_never_hold_post_or_pre_session_locks() {
     crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
 
-    let post_runtime = SpectrumRuntime::new(48_000, 2);
+    let post_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
     post.set_post_visible(true);
     let request_pause = AtomicWritePause::install(request_path(&pre_dir));
@@ -58,12 +58,13 @@ fn filesystem_stalls_never_hold_post_or_pre_session_locks() {
     drop(request_pause);
     post.shutdown();
 
-    let post_for_pre_runtime = SpectrumRuntime::new(48_000, 2);
+    let post_for_pre_runtime =
+        SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let post_for_pre = SpectrumCoordinator::new(48_000, Arc::clone(&post_for_pre_runtime));
     post_for_pre.set_post_visible(true);
     assert!(post_for_pre.post_tick("post-for-pre", Some(target.clone())));
 
-    let pre_runtime = SpectrumRuntime::new(48_000, 2);
+    let pre_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
     assert!(pre.pre_tick("pre", &pre_dir));
     push_spectrum_audio(&pre_runtime);

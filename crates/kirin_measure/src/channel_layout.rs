@@ -482,6 +482,11 @@ impl ChannelLayout {
     }
 }
 
+/// 役割で指す selector。layout の語彙そのものなのでここに置く。
+#[path = "spectrum_view.rs"]
+mod spectrum_view;
+pub use spectrum_view::{SpectrumView, SPECTRUM_VIEW_ROLE_BASE};
+
 #[cfg(test)]
 #[path = "channel_layout_tests.rs"]
 mod tests;

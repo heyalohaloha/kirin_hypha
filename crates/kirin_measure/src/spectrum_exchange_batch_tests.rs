@@ -25,7 +25,7 @@ fn frame(index: i64, value: f32) -> SpectrumFrame {
 
 #[test]
 fn delayed_exchange_preserves_all_exact_frames_without_inventing_gaps() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut pre = SpectrumHistory::with_capacity();
     let mut post = SpectrumHistory::with_capacity();

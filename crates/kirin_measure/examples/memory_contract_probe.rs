@@ -255,7 +255,7 @@ fn probe_census(native_rate: u32, channels: usize, instances: usize) {
     census!(
         "SpectrumRuntime",
         {
-            let r = SpectrumRuntime::new(native_rate, channels);
+            let r = SpectrumRuntime::new(native_rate, layout_for(channels));
             r.set_enabled(true);
             Some(r)
         },

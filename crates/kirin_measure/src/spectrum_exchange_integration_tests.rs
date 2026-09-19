@@ -74,7 +74,7 @@ fn push_tone_segment(runtime: &SpectrumRuntime, start_frame: i64, end_frame: i64
 
 #[test]
 fn unpaired_post_publishes_absolute_spectrum_without_inventing_a_difference() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     coordinator.set_post_visible(true);
     assert!(coordinator.post_tick("post", None));
@@ -111,8 +111,8 @@ fn visible_exact_pair_exchanges_audio_derived_difference_end_to_end() {
     let pre_dir = temp.path().join("project").join("pre");
     let pre_json = pre_dir.join("pre.json");
     crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let pre_runtime = SpectrumRuntime::new(48_000, 2);
-    let post_runtime = SpectrumRuntime::new(48_000, 2);
+    let pre_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let post_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
     let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
@@ -189,8 +189,8 @@ fn exact_pair_resumes_after_a_staggered_backwards_seek_end_to_end() {
     let pre_dir = temp.path().join("project").join("pre");
     let pre_json = pre_dir.join("pre.json");
     crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let pre_runtime = SpectrumRuntime::new(48_000, 2);
-    let post_runtime = SpectrumRuntime::new(48_000, 2);
+    let pre_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let post_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
     let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
@@ -280,8 +280,8 @@ fn perceptual_pair_arms_one_future_epoch_and_joins_only_continuous_state() {
     let pre_dir = temp.path().join("project").join("pre");
     let pre_json = pre_dir.join("pre.json");
     crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let pre_runtime = SpectrumRuntime::new(48_000, 2);
-    let post_runtime = SpectrumRuntime::new(48_000, 2);
+    let pre_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let post_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
     let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
@@ -386,8 +386,8 @@ fn isolated_worker_advances_exact_pair_without_reentering_normal_io() {
     let pre_dir = temp.path().join("project").join("pre");
     let pre_json = pre_dir.join("pre.json");
     crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let pre_runtime = SpectrumRuntime::new(48_000, 2);
-    let post_runtime = SpectrumRuntime::new(48_000, 2);
+    let pre_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let post_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
     let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();

@@ -7,6 +7,7 @@
 //! `cargo run -p kirin_measure --example channel_contract_probe --release -- <mode> <rate> <channels>`
 
 use ebur128::{EbuR128, Mode};
+use kirin_measure::channel_layout::{ChannelLayout, LayoutId};
 use kirin_measure::SpectrumRuntime;
 
 const MODE: Mode = Mode::M
@@ -15,9 +16,21 @@ const MODE: Mode = Mode::M
     .union(Mode::LRA)
     .union(Mode::TRUE_PEAK);
 
+/// この probe が扱うチャンネル数が表すレイアウト。未対応の数はこの probe の側の誤りである。
+fn layout_for(channels: usize) -> ChannelLayout {
+    match channels {
+        1 => ChannelLayout::mono(),
+        2 => ChannelLayout::stereo(),
+        5 => ChannelLayout::by_id(LayoutId::Surround5_0),
+        6 => ChannelLayout::by_id(LayoutId::Surround5_1),
+        12 => ChannelLayout::by_id(LayoutId::Surround7_1_4),
+        other => panic!("no layout is defined for {other} channels"),
+    }
+}
+
 fn probe_accept(native_rate: u32, channels: usize) {
     println!("\n== SpectrumRuntime acceptance: native {native_rate} Hz, {channels} ch ==");
-    let runtime = SpectrumRuntime::new(native_rate, channels);
+    let runtime = SpectrumRuntime::new(native_rate, layout_for(channels));
     runtime.set_enabled(true);
 
     let chunk_frames = native_rate as usize / 10;

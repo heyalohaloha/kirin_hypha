@@ -43,8 +43,9 @@ fn exact_pair_transports_real_pre_and_post_attack_histories_end_to_end() {
     let pre_json = pre_dir.join("pre.json");
     crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
 
-    let pre_spectrum = SpectrumRuntime::new(48_000, 2);
-    let post_spectrum = SpectrumRuntime::new(48_000, 2);
+    let pre_spectrum = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let post_spectrum =
+        SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let pre_attack = AttackRuntime::new(48_000, 2).unwrap();
     let post_attack = AttackRuntime::new(48_000, 2).unwrap();
     let pre = SpectrumCoordinator::new_with_attack(

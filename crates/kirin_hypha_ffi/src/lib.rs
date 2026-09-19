@@ -992,7 +992,7 @@ impl KirinHyphaEngine {
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
         let attack_runtime = kirin_measure::AttackRuntime::new(sample_rate, num_channels).ok();
-        let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
+        let spectrum_runtime = SpectrumRuntime::new(sample_rate, layout);
         let spectrum = SpectrumCoordinator::new_with_attack(
             sample_rate,
             Arc::clone(&spectrum_runtime),

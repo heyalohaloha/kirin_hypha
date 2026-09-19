@@ -9,6 +9,7 @@ use std::thread::{self, JoinHandle};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::absolute_timeline::AbsoluteTimeline;
+use crate::channel_layout::{ChannelLayout, SpectrumView};
 use crate::spectrum::{
     AnalysisViewMode, SpectrumChannelMode, SpectrumLayout, SPECTRUM_WINDOW_SIZE,
 };
@@ -54,6 +55,10 @@ struct SpectrumConsumers {
 pub struct SpectrumRuntime {
     sample_rate: u32,
     num_channels: usize,
+    layout: ChannelLayout,
+    /// 観測対象。`SpectrumView` の ABI コード。役割で指すので layout 変更を検出できる
+    /// （契約表 §11.3.1）。`channel_mode` は導出 view 専用の旧経路として残る。
+    view: AtomicU8,
     enabled: AtomicBool,
     shutdown: AtomicBool,
     generation: AtomicU64,
@@ -87,8 +92,14 @@ pub struct SpectrumRuntime {
 unsafe impl Sync for SpectrumRuntime {}
 
 impl SpectrumRuntime {
-    pub fn new(sample_rate: u32, num_channels: usize) -> Arc<Self> {
-        let num_channels = num_channels.clamp(1, 2);
+    /// `layout` が実チャンネル数と選べる view の両方を決める。
+    ///
+    /// B-963 以前はここで `num_channels.clamp(1, 2)` していた。広い host buffer は 2ch として
+    /// 記録され、`push_block_from_audio` の `num_channels != self.num_channels` が以後すべての
+    /// block を拒否して **Spectrum が無言で何も出さない状態**になる（D-13 の C 類型）。
+    /// clamp を外したので、測れない layout は「測れない」として現れる。
+    pub fn new(sample_rate: u32, layout: ChannelLayout) -> Arc<Self> {
+        let num_channels = layout.channel_count();
         let aperture_samples = SpectrumLayout::new(sample_rate)
             .map(|layout| layout.aperture_samples)
             .unwrap_or(SPECTRUM_WINDOW_SIZE);
@@ -98,6 +109,8 @@ impl SpectrumRuntime {
         Arc::new(Self {
             sample_rate,
             num_channels,
+            layout,
+            view: AtomicU8::new(SpectrumView::default_for(layout).to_abi()),
             enabled: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
             generation: AtomicU64::new(1),
@@ -178,6 +191,17 @@ impl SpectrumRuntime {
             .unwrap_or(AnalysisViewMode::Spectrum)
     }
 
+    /// 現在の観測対象。
+    pub fn view(&self) -> SpectrumView {
+        SpectrumView::from_abi(self.view.load(Ordering::Acquire))
+            .unwrap_or_else(|| SpectrumView::default_for(self.layout))
+    }
+
+    /// この runtime が作られた layout。
+    pub fn layout(&self) -> ChannelLayout {
+        self.layout
+    }
+
     pub fn num_channels(&self) -> usize {
         self.num_channels
     }
@@ -207,11 +231,31 @@ impl SpectrumRuntime {
     /// Control/worker thread only. A mode edge invalidates every queued presentation frame so
     /// PRE and POST must warm up again on one exact channel definition.
     pub fn set_channel_mode(&self, mode: SpectrumChannelMode) -> bool {
-        if mode == SpectrumChannelMode::Side && self.num_channels != 2 {
+        let view = match mode {
+            SpectrumChannelMode::Lr => SpectrumView::Lr,
+            SpectrumChannelMode::Mid => SpectrumView::Mid,
+            SpectrumChannelMode::Side => SpectrumView::Side,
+        };
+        self.set_view(view)
+    }
+
+    /// 観測対象を選ぶ。この layout が提供しない view は拒否する。
+    ///
+    /// **役割で比べるので、layout が変われば「役割が残る」か「消える」かのどちらかになり、
+    /// どちらも検出できる。** index だと別チャンネルの履歴が無言で連結する（契約表 §11.3.1）。
+    pub fn set_view(&self, view: SpectrumView) -> bool {
+        if !view.is_available_in(self.layout) {
             return false;
         }
+        let code = view.to_abi();
+        let previous_view = self.view.swap(code, Ordering::AcqRel);
+        let mode = match view {
+            SpectrumView::Mid => SpectrumChannelMode::Mid,
+            SpectrumView::Side => SpectrumChannelMode::Side,
+            _ => SpectrumChannelMode::Lr,
+        };
         let previous = self.channel_mode.swap(mode as u8, Ordering::AcqRel);
-        if previous != mode as u8 {
+        if previous != mode as u8 || previous_view != code {
             self.generation.fetch_add(1, Ordering::AcqRel);
             if let Ok(mut history) = self.history.lock() {
                 *history = SpectrumHistory::with_capacity();
@@ -407,3 +451,7 @@ impl Drop for SpectrumRuntime {
 #[cfg(test)]
 #[path = "spectrum_runtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "spectrum_runtime_view_tests.rs"]
+mod view_tests;

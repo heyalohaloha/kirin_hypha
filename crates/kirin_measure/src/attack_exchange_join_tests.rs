@@ -32,7 +32,7 @@ fn history(generation: u64, value: f32) -> AttackHistory {
 
 #[test]
 fn exact_histories_publish_active_pair_without_time_shifting() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, runtime);
     let mut session = coordinator.new_post_session();
     session.started_at = Some(Instant::now());
@@ -52,7 +52,7 @@ fn exact_histories_publish_active_pair_without_time_shifting() {
 
 #[test]
 fn mismatched_content_stays_unavailable_instead_of_correlating() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, runtime);
     let mut pre = history(2, 0.6);
     let mut post = history(4, 0.8);
