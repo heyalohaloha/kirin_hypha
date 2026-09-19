@@ -9,7 +9,7 @@ use std::thread::{self, JoinHandle};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::absolute_timeline::AbsoluteTimeline;
-use crate::channel_layout::{ChannelLayout, SpectrumView};
+use crate::channel_layout::{ChannelLayout, SpectrumView, SPECTRUM_VIEW_NONE};
 use crate::spectrum::{
     AnalysisViewMode, SpectrumChannelMode, SpectrumLayout, SPECTRUM_WINDOW_SIZE,
 };
@@ -110,7 +110,14 @@ impl SpectrumRuntime {
             sample_rate,
             num_channels,
             layout,
-            view: AtomicU8::new(SpectrumView::default_for(layout).to_abi()),
+            view: AtomicU8::new(
+                {
+                    let default = SpectrumView::default_for(layout);
+                    // 測れない layout では「既定の view」を名乗らない。Spectrum は未対応である。
+                    default.is_analysable().then_some(default)
+                }
+                .map_or(SPECTRUM_VIEW_NONE, SpectrumView::to_abi),
+            ),
             enabled: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
             generation: AtomicU64::new(1),
@@ -192,9 +199,9 @@ impl SpectrumRuntime {
     }
 
     /// 現在の観測対象。
-    pub fn view(&self) -> SpectrumView {
+    /// 現在の観測対象。`None` はこの layout を解析経路が測れない状態であり、既定値ではない。
+    pub fn view(&self) -> Option<SpectrumView> {
         SpectrumView::from_abi(self.view.load(Ordering::Acquire))
-            .unwrap_or_else(|| SpectrumView::default_for(self.layout))
     }
 
     /// この runtime が作られた layout。
@@ -244,7 +251,9 @@ impl SpectrumRuntime {
     /// **役割で比べるので、layout が変われば「役割が残る」か「消える」かのどちらかになり、
     /// どちらも検出できる。** index だと別チャンネルの履歴が無言で連結する（契約表 §11.3.1）。
     pub fn set_view(&self, view: SpectrumView) -> bool {
-        if !view.is_available_in(self.layout) {
+        // layout が提供しないものと、解析経路がまだ測れないものの両方を拒否する。後者を
+        // 受理すると `view()` は選んだ役割を答え、frame は LR を運ぶ（D-13）。
+        if !view.is_available_in(self.layout) || !view.is_analysable() {
             return false;
         }
         let code = view.to_abi();

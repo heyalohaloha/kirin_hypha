@@ -119,5 +119,15 @@ void KirinHyphaProcessorBase::applyHeldFormatIfRecordReleased()
         sampleRate = heldFormat.sampleRate;
         blockFrames = heldFormat.maxBlockFrames;
     }
+    // prepareToPlay reallocates interleaveScratch and replaces hyphaHandle. processBlock reads
+    // both WITHOUT handleLock, on the documented contract that the host suspends processing
+    // around prepareToPlay (PluginProcessor.cpp: "Not locked on the audio thread"). A host-driven
+    // call honours that contract; this one is ours, from the message thread, and does not — so it
+    // takes the lock JUCE provides for exactly this (AudioProcessor::getCallbackLock), which
+    // blocks the audio callback for the duration instead of letting it read freed memory.
+    //
+    // suspendProcessing() is NOT the alternative here: it makes the host emit an empty buffer,
+    // which would mute the user's audio. Blocking briefly keeps A passing (R-12).
+    const juce::ScopedLock audioCallback (getCallbackLock());
     prepareToPlay (sampleRate, blockFrames);
 }

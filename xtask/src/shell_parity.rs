@@ -462,10 +462,7 @@ mod tests {
     #[test]
     fn juce_prepare_to_play_reuses_record_engine_for_same_format() {
         // B-961: the decision moved into kirin::decidePrepare and compares roles, not a count.
-        let body = cpp_body(
-            PLUGIN_PROCESSOR_CPP,
-            "void KirinHyphaProcessorBase::prepareToPlay",
-        );
+        let body = cpp_body(PLUGIN_PROCESSOR_CPP, "::prepareToPlay (double sampleRate");
         assert!(body.contains("kirin::decidePrepare (hyphaHandle != nullptr,"));
         assert!(body.contains("kirin_hypha_is_recording (hyphaHandle)"));
         assert!(
@@ -476,6 +473,9 @@ mod tests {
             body.contains("heldFormat.hold (sampleRate, samplesPerBlock);"),
             "an incompatible reprepare during Record must be held, not forgotten"
         );
+        // B-964: our own re-prepare has no host suspension, so it takes the callback lock.
+        let apply = cpp_body(PLUGIN_PROCESSOR_CPP, "::applyHeldFormatIfRecordReleased");
+        assert!(apply.contains("ScopedLock audioCallback (getCallbackLock())"));
         let reuse = body.find("PrepareAction::reuse").expect("reuse gate");
         let destroy = body.find("kirin_hypha_destroy").expect("destroy path");
         assert!(reuse < destroy, "reuse gate must precede any destroy path");

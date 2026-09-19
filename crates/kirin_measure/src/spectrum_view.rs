@@ -15,6 +15,10 @@ use super::{ChannelLayout, ChannelRole, LayoutId};
 /// 3..15 は空けてある。導出 view を足すならそこで、役割の番号には触れない。
 pub const SPECTRUM_VIEW_ROLE_BASE: u8 = 16;
 
+/// 「観測対象が無い」ことを表す ABI 値。どの view とも重ならない。
+/// 既定値ではなく、**解析経路がこの layout を測れない**という事実である。
+pub const SPECTRUM_VIEW_NONE: u8 = 255;
+
 /// 観測している対象。導出 view か、名前の付いた 1 チャンネルか。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpectrumView {
@@ -44,6 +48,7 @@ impl SpectrumView {
             0 => Some(Self::Lr),
             1 => Some(Self::Mid),
             2 => Some(Self::Side),
+            SPECTRUM_VIEW_NONE => None,
             _ if code >= SPECTRUM_VIEW_ROLE_BASE => {
                 ChannelRole::from_abi(code - SPECTRUM_VIEW_ROLE_BASE).map(Self::Channel)
             }
@@ -76,6 +81,16 @@ impl SpectrumView {
             Self::Side => layout.id() == LayoutId::Stereo,
             Self::Channel(role) => layout.index_of(role).is_some(),
         }
+    }
+
+    /// 解析経路がこの view を実際に測れるか。
+    ///
+    /// **P-3 時点では導出 view（LR / MID / SIDE）だけである。** 単一チャンネル view は値空間と
+    /// 検証は揃ったが、`update_power` / `analyze_mono` がまだ役割で入力を選ばない（P-4）。
+    /// 選べてしまうと `view()` が `Rss` と答えながら frame は LR を運ぶ。
+    /// **値が出ているのに意味が違う状態を作らない**（D-13）。P-4 でこの関数は消える。
+    pub fn is_analysable(self) -> bool {
+        matches!(self, Self::Lr | Self::Mid | Self::Side)
     }
 
     /// この layout で選べる view の全体。導出 view が先、その後にチャンネルがバッファ順で並ぶ。
