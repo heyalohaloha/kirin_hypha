@@ -77,12 +77,17 @@ test('AAX submission archive evidence rejects every payload and notary relinking
     issues: [],
     jobId: '12345678-1234-1234-1234-123456789abc',
     logFormatVersion: 1,
+    sha256: archiveRecord.sha256,
     status: 'Accepted',
   };
   const log = parseNotarytoolLog(JSON.stringify(logJson));
   const receipt = {
     submission: { id: log.job_id, status: 'Accepted', name: log.archive_filename },
-    archive: { file_name: log.archive_filename, root_name: manifest.root_name },
+    archive: {
+      file_name: log.archive_filename,
+      root_name: manifest.root_name,
+      sha256: log.archive_sha256,
+    },
   };
   assert.doesNotThrow(() => validateNotaryEvidenceLinks(receipt, manifest, log));
   assert.throws(
@@ -96,6 +101,34 @@ test('AAX submission archive evidence rejects every payload and notary relinking
   assert.throws(
     () => parseNotarytoolLog(JSON.stringify({ ...logJson, status: 'Invalid' })),
     /expected Accepted/,
+  );
+  assert.deepEqual(
+    parseNotarytoolLog(JSON.stringify({ ...logJson, issues: null })).issues,
+    null,
+  );
+  const warnings = [{ severity: 'warning', message: 'fixture warning' }];
+  assert.deepEqual(
+    parseNotarytoolLog(JSON.stringify({ ...logJson, issues: warnings })).issues,
+    warnings,
+  );
+  for (const issues of [undefined, 'none', { message: 'wrong type' }]) {
+    const fixtureLog = { ...logJson };
+    if (issues === undefined) delete fixtureLog.issues;
+    else fixtureLog.issues = issues;
+    assert.throws(() => parseNotarytoolLog(JSON.stringify(fixtureLog)), /null or an array/);
+  }
+  for (const sha256 of [undefined, '', 'f'.repeat(63), 'not-a-hash']) {
+    const fixtureLog = { ...logJson };
+    if (sha256 === undefined) delete fixtureLog.sha256;
+    else fixtureLog.sha256 = sha256;
+    assert.throws(() => parseNotarytoolLog(JSON.stringify(fixtureLog)), /SHA-256/);
+  }
+  assert.throws(
+    () => validateNotaryEvidenceLinks({
+      ...receipt,
+      archive: { ...receipt.archive, sha256: 'b'.repeat(64) },
+    }, manifest, log),
+    /Apple notary log/,
   );
   assert.throws(
     () => runEvidenceCommand('/definitely/missing/notarytool', []),

@@ -208,7 +208,9 @@ test('AAX notarization receipt requires accepted log, immutable archive, and ful
       job_id: '12345678-1234-1234-1234-123456789abc',
       status: 'Accepted',
       archive_filename: 'Kirin-Hypha-1.1.49-macOS-AAX.zip',
+      archive_sha256: '5'.repeat(64),
       log_format_version: 1,
+      issues: null,
     },
     bundles: [bundle('PRE'), bundle('POST')],
   };
@@ -244,6 +246,20 @@ test('AAX notarization receipt requires accepted log, immutable archive, and ful
       schema: 'kirin-hypha-macos-aax-notarization-v1',
     }, expected),
     /diagnostic-only/,
+  );
+  assert.throws(
+    () => validateAaxNotarizationReceipt({
+      ...receipt,
+      schema: 'kirin-hypha-macos-aax-notarization-v2',
+    }, expected),
+    /hash-unbound/,
+  );
+  assert.throws(
+    () => validateAaxNotarizationReceipt({
+      ...receipt,
+      notary_log: { ...receipt.notary_log, archive_sha256: 'a'.repeat(64) },
+    }, expected),
+    /notary log identity/,
   );
   assert.throws(
     () => validateAaxNotarizationReceipt({

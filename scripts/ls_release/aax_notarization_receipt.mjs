@@ -25,11 +25,12 @@ import { requireCleanReleaseSource } from './release_source_identity.mjs';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
 const LEGACY_SCHEMA = 'kirin-hypha-macos-aax-notarization-v1';
+const HASH_UNBOUND_SCHEMA = 'kirin-hypha-macos-aax-notarization-v2';
 const EVIDENCE_DIRECTORY = 'aax-notarization';
 const CONTENT_MANIFEST_NAME = 'submission-contents.json';
 const NOTARY_LOG_NAME = 'notary-log.json';
 export const AAX_NOTARIZATION_RECEIPT_NAME = 'kirin-hypha-macos-aax-notarization.json';
-export const AAX_NOTARIZATION_SCHEMA = 'kirin-hypha-macos-aax-notarization-v2';
+export const AAX_NOTARIZATION_SCHEMA = 'kirin-hypha-macos-aax-notarization-v3';
 
 function run(command, args, { cwd = PROJECT_ROOT, runner = runEvidenceCommand } = {}) {
   return runner(command, args, { cwd });
@@ -145,6 +146,9 @@ export function validateAaxNotarizationReceipt(receipt, expected) {
   if (receipt?.schema === LEGACY_SCHEMA) {
     throw new Error('legacy AAX notarization receipt is diagnostic-only; submit the preserved archive again');
   }
+  if (receipt?.schema === HASH_UNBOUND_SCHEMA) {
+    throw new Error('hash-unbound AAX notarization receipt is diagnostic-only; submit the preserved archive again');
+  }
   if (receipt?.schema !== AAX_NOTARIZATION_SCHEMA) {
     throw new Error(`unsupported AAX notarization receipt: ${receipt?.schema || 'missing'}`);
   }
@@ -181,6 +185,8 @@ export function validateAaxNotarizationReceipt(receipt, expected) {
   if (receipt.notary_log.job_id !== submission.id
       || receipt.notary_log.status !== 'Accepted'
       || receipt.notary_log.archive_filename !== expectedArchiveName
+      || receipt.notary_log.archive_sha256 !== receipt.archive.sha256
+      || (receipt.notary_log.issues !== null && !Array.isArray(receipt.notary_log.issues))
       || !Number.isSafeInteger(receipt.notary_log.log_format_version)) {
     throw new Error('AAX notary log identity does not match the accepted submission');
   }
@@ -221,10 +227,15 @@ function verifyLocalEvidence(context, receipt, temporary, runner) {
   const contentManifest = validateTreeManifest(readJson(manifestPath, 'AAX content manifest'));
   const parsedLog = parseNotarytoolLog(fs.readFileSync(logPath, 'utf8'));
   validateNotaryEvidenceLinks(receipt, contentManifest, parsedLog);
-  for (const field of ['job_id', 'status', 'archive_filename', 'log_format_version']) {
+  for (const field of [
+    'job_id', 'status', 'archive_filename', 'archive_sha256', 'log_format_version',
+  ]) {
     if (receipt.notary_log[field] !== parsedLog[field]) {
       throw new Error(`AAX notary log ${field} does not match its preserved bytes`);
     }
+  }
+  if (JSON.stringify(receipt.notary_log.issues) !== JSON.stringify(parsedLog.issues)) {
+    throw new Error('AAX notary log issues do not match its preserved bytes');
   }
   const bundleNames = context.manifest.bundles.map((bundle) => path.basename(bundle.sourcePath));
   requireBundleRoots(contentManifest, bundleNames);
@@ -264,6 +275,8 @@ function verifyOnlineEvidence(context, receipt, keychainProfile, temporary, runn
   if (onlineLog.job_id !== receipt.notary_log.job_id
       || onlineLog.status !== receipt.notary_log.status
       || onlineLog.archive_filename !== receipt.notary_log.archive_filename
+      || onlineLog.archive_sha256 !== receipt.notary_log.archive_sha256
+      || JSON.stringify(onlineLog.issues) !== JSON.stringify(receipt.notary_log.issues)
       || onlineLog.log_format_version !== receipt.notary_log.log_format_version) {
     throw new Error('online AAX notary log does not match the preserved submission evidence');
   }

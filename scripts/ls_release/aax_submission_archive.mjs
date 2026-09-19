@@ -229,12 +229,20 @@ export function parseNotarytoolLog(output, label = 'AAX notarytool log') {
   if (!Number.isSafeInteger(response.logFormatVersion) || response.logFormatVersion < 1) {
     throw new Error(`${label} logFormatVersion is missing or invalid`);
   }
-  if (!Array.isArray(response.issues)) throw new Error(`${label} issues must be an array`);
+  if (response.issues !== null && !Array.isArray(response.issues)) {
+    throw new Error(`${label} issues must be null or an array`);
+  }
+  const archiveSha256 = String(response.sha256 || '').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(archiveSha256)) {
+    throw new Error(`${label} archive SHA-256 is missing or invalid`);
+  }
   return {
     job_id: jobId,
     status: response.status,
     archive_filename: response.archiveFilename,
+    archive_sha256: archiveSha256,
     log_format_version: response.logFormatVersion,
+    issues: response.issues,
   };
 }
 
@@ -252,6 +260,9 @@ export function validateNotaryEvidenceLinks(receipt, manifest, log) {
   }
   if (receipt.archive?.root_name !== manifest.root_name) {
     throw new Error('AAX archive root does not match the content manifest');
+  }
+  if (receipt.archive?.sha256 !== log.archive_sha256) {
+    throw new Error('AAX archive SHA-256 does not match the Apple notary log');
   }
   return true;
 }
