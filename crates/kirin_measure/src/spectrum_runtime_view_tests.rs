@@ -319,7 +319,7 @@ fn mono_and_stereo_still_enable() {
 fn stale_generation_channel_mode_or_view_can_never_be_republished() {
     let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_enabled(true));
-    let generation = runtime.generation.load(Ordering::Acquire);
+    let generation = runtime.selection().generation;
     let frame = SpectrumFrame {
         schema_version: crate::SPECTRUM_SCHEMA_VERSION,
         sample_rate: 48_000,
@@ -335,21 +335,22 @@ fn stale_generation_channel_mode_or_view_can_never_be_republished() {
         max_hz: 22_000.0,
         dbfs: [-24.0; crate::SPECTRUM_BAND_COUNT],
     };
-    assert!(runtime.frame_is_current(&frame));
+    let stream = runtime.stream_generation.load(Ordering::Acquire);
+    assert!(runtime.frame_is_current(&frame, stream));
 
     assert!(runtime.set_channel_mode(SpectrumChannelMode::Mid));
-    assert!(!runtime.frame_is_current(&frame));
+    assert!(!runtime.frame_is_current(&frame, stream));
     let mut current = frame.clone();
-    current.generation = runtime.generation.load(Ordering::Acquire);
+    current.generation = runtime.selection().generation;
     current.channel_mode = SpectrumChannelMode::Mid;
     // B-974: 名札も合わせないと通らない。`channel_mode` だけを直して view を旧いまま
     // 残した frame は、generation が現在でも公開されない。
     assert!(
-        !runtime.frame_is_current(&current),
+        !runtime.frame_is_current(&current, stream),
         "channel_mode だけ直して view が旧い frame は公開しない"
     );
     current.view = crate::channel_layout::SpectrumView::Mid.to_abi();
-    assert!(runtime.frame_is_current(&current));
+    assert!(runtime.frame_is_current(&current, stream));
 
     // 役割 view でも同じ。単一チャンネル view は `channel_mode` が `Lr` のままなので、
     // **名札を見ないと L/R の frame と区別できない。**
@@ -359,19 +360,19 @@ fn stale_generation_channel_mode_or_view_can_never_be_republished() {
         ))
     );
     let mut role = current.clone();
-    role.generation = runtime.generation.load(Ordering::Acquire);
+    role.generation = runtime.selection().generation;
     role.channels = 1;
     role.channel_mode = SpectrumChannelMode::Lr;
     assert!(
-        !runtime.frame_is_current(&role),
+        !runtime.frame_is_current(&role, stream),
         "view が MID のままの frame は R の観測として公開しない"
     );
     role.view =
         crate::channel_layout::SpectrumView::Channel(crate::channel_layout::ChannelRole::Right)
             .to_abi();
-    assert!(runtime.frame_is_current(&role));
+    assert!(runtime.frame_is_current(&role, stream));
 
     assert!(runtime.set_enabled(false));
-    assert!(!runtime.frame_is_current(&role));
+    assert!(!runtime.frame_is_current(&role, stream));
     runtime.shutdown_and_join();
 }

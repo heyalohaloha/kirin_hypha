@@ -50,6 +50,15 @@ observes it: the later generation change clears the engine history, and the UI p
 not been demonstrated. The repair detector must interrupt the real selection publication boundary,
 not rewrite fields in an already completed frame.
 
+B-980 removes this order: mode, view, Mid/Side, and generation are encoded in one `AtomicU64`.
+The audio thread attaches that complete word to ingress, and the worker derives its input positions,
+analysis width, calculation mode, generation, and frame label from that captured value. The source
+detector rejects reintroducing independently published selector fields. Perceptual start time is
+prepared in a fixed-capacity command slot before its selection generation is published; the worker
+publishes the exact applied generation. Audio ingress loss advances a separate non-reusing stream
+stamp, so it cannot overwrite a concurrent control selection, and histories with an older stream
+stamp are unavailable instead of being relabelled as current.
+
 ## Repair boundaries
 
 - Publish one encoded analysis selection and one monotonic selection generation.

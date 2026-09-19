@@ -2,7 +2,7 @@
 
 use std::cell::UnsafeCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -14,6 +14,14 @@ use crate::spectrum::{
     AnalysisViewMode, SpectrumChannelMode, SpectrumLayout, SPECTRUM_WINDOW_SIZE,
 };
 use crate::MidSideSpectrumFrame;
+
+#[path = "analysis_commands.rs"]
+mod analysis_commands;
+use analysis_commands::AnalysisCommands;
+
+#[path = "analysis_selection.rs"]
+mod analysis_selection;
+use analysis_selection::AnalysisSelection;
 
 #[path = "spectrum_runtime_assemblers.rs"]
 mod assemblers;
@@ -44,7 +52,8 @@ struct SpectrumIngressBlock {
     frames: u32,
     channels: u8,
     presentation_start_samples: i64,
-    generation: u64,
+    selection: u64,
+    stream_generation: u64,
 }
 
 struct SpectrumConsumers {
@@ -56,16 +65,15 @@ pub struct SpectrumRuntime {
     sample_rate: u32,
     num_channels: usize,
     layout: ChannelLayout,
-    /// 観測対象。`SpectrumView` の ABI コード。役割で指すので layout 変更を検出できる
-    /// （契約表 §11.3.1）。`channel_mode` は導出 view 専用の旧経路として残る。
-    view: AtomicU8,
+    /// Mode, view, Mid/Side, and monotonic generation published as one identity.
+    selection: AtomicU64,
+    selection_update: Mutex<()>,
+    analysis_commands: AnalysisCommands,
+    requested_perceptual_state_epoch: AtomicI64,
+    applied_selection: AtomicU64,
+    stream_generation: AtomicU64,
     enabled: AtomicBool,
     shutdown: AtomicBool,
-    generation: AtomicU64,
-    analysis_mode: AtomicU8,
-    channel_mode: AtomicU8,
-    mid_side_enabled: AtomicBool,
-    perceptual_state_epoch: AtomicI64,
     latest_presentation_end: AtomicI64,
     perceptual_rearm_required: AtomicBool,
     sample_producer: UnsafeCell<Producer<f32>>,
@@ -74,9 +82,13 @@ pub struct SpectrumRuntime {
     worker: Mutex<Option<JoinHandle<SpectrumConsumers>>>,
     wake: (Mutex<()>, Condvar),
     history: Mutex<SpectrumHistory>,
+    history_stream_generation: AtomicU64,
     perceptual_history: Mutex<PerceptualHistory>,
+    perceptual_history_stream_generation: AtomicU64,
     absolute_history: Mutex<AbsoluteTimeline>,
+    absolute_history_stream_generation: AtomicU64,
     latest_mid_side: Mutex<Option<MidSideSpectrumFrame>>,
+    mid_side_stream_generation: AtomicU64,
     worker_running: AtomicBool,
     pushed_blocks: AtomicU64,
     dropped_blocks: AtomicU64,
@@ -106,19 +118,19 @@ impl SpectrumRuntime {
         let (sample_producer, sample_consumer) =
             RingBuffer::new(aperture_samples * 2 * num_channels);
         let (block_producer, block_consumer) = RingBuffer::new(SPECTRUM_BLOCK_RING_CAPACITY);
+        let initial_selection = AnalysisSelection::initial(layout);
         Arc::new(Self {
             sample_rate,
             num_channels,
             layout,
-            // B-970: どの認識済み layout にも既定 view がある。サラウンドでは役割 view になる。
-            view: AtomicU8::new(SpectrumView::default_for(layout).to_abi()),
+            selection: AtomicU64::new(initial_selection.encode()),
+            selection_update: Mutex::new(()),
+            analysis_commands: AnalysisCommands::new(initial_selection.generation),
+            requested_perceptual_state_epoch: AtomicI64::new(NO_PRESENTATION_POSITION),
+            applied_selection: AtomicU64::new(0),
+            stream_generation: AtomicU64::new(1),
             enabled: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
-            generation: AtomicU64::new(1),
-            analysis_mode: AtomicU8::new(AnalysisViewMode::Spectrum as u8),
-            channel_mode: AtomicU8::new(SpectrumChannelMode::Lr as u8),
-            mid_side_enabled: AtomicBool::new(false),
-            perceptual_state_epoch: AtomicI64::new(NO_PRESENTATION_POSITION),
             latest_presentation_end: AtomicI64::new(NO_PRESENTATION_POSITION),
             perceptual_rearm_required: AtomicBool::new(false),
             sample_producer: UnsafeCell::new(sample_producer),
@@ -130,9 +142,13 @@ impl SpectrumRuntime {
             worker: Mutex::new(None),
             wake: (Mutex::new(()), Condvar::new()),
             history: Mutex::new(SpectrumHistory::with_capacity()),
+            history_stream_generation: AtomicU64::new(0),
             perceptual_history: Mutex::new(PerceptualHistory::with_capacity()),
+            perceptual_history_stream_generation: AtomicU64::new(0),
             absolute_history: Mutex::new(AbsoluteTimeline::default()),
+            absolute_history_stream_generation: AtomicU64::new(0),
             latest_mid_side: Mutex::new(None),
+            mid_side_stream_generation: AtomicU64::new(0),
             worker_running: AtomicBool::new(false),
             pushed_blocks: AtomicU64::new(0),
             dropped_blocks: AtomicU64::new(0),
@@ -159,9 +175,11 @@ impl SpectrumRuntime {
             self.enabled.store(false, Ordering::Release);
             return false;
         }
+        if enabled != currently_enabled && !self.advance_selection_generation() {
+            return false;
+        }
         let previous = self.enabled.swap(enabled, Ordering::AcqRel);
         if previous != enabled {
-            self.generation.fetch_add(1, Ordering::AcqRel);
             self.latest_presentation_end
                 .store(NO_PRESENTATION_POSITION, Ordering::Release);
             self.perceptual_rearm_required
@@ -186,25 +204,22 @@ impl SpectrumRuntime {
     }
 
     pub fn channel_mode(&self) -> SpectrumChannelMode {
-        SpectrumChannelMode::try_from(self.channel_mode.load(Ordering::Acquire))
-            .unwrap_or(SpectrumChannelMode::Lr)
+        self.selection().channel_mode()
     }
 
     pub fn analysis_mode(&self) -> AnalysisViewMode {
-        AnalysisViewMode::try_from(self.analysis_mode.load(Ordering::Acquire))
-            .unwrap_or(AnalysisViewMode::Spectrum)
+        self.selection().mode
     }
 
     /// 現在の観測対象。`None` は ABI 値が既知の view を指していない状態であり、既定値ではない。
     pub fn view(&self) -> Option<SpectrumView> {
-        SpectrumView::from_abi(self.view.load(Ordering::Acquire))
+        Some(self.selection().view)
     }
 
     /// 現在の view で解析器が見る信号の本数。**入力チャンネル数（`num_channels`）とは別である。**
     /// view が読めないときは 0 を返し、worker は何も組み立てない。
     pub fn analysis_channels(&self) -> usize {
-        self.view()
-            .map_or(0, |view| view.analysis_channels(self.layout))
+        self.selection().analysis_channels(self.layout)
     }
 
     /// この runtime が作られた layout。
@@ -217,7 +232,7 @@ impl SpectrumRuntime {
     }
 
     pub fn mid_side_enabled(&self) -> bool {
-        self.mid_side_enabled.load(Ordering::Acquire)
+        self.selection().mid_side
     }
 
     /// Control thread only. Mid/Side is one stereo-only Spectrum processing selection.
@@ -225,14 +240,21 @@ impl SpectrumRuntime {
     /// **いまの view が 2 本を解析していないと成立しない。** 1 本の view のまま受理すると、
     /// 組立器が `channels != 2` で `None` を返し続け、**何も出ないまま有効に見える**（D-13 の C）。
     pub fn set_mid_side_enabled(&self, enabled: bool) -> bool {
-        if enabled
-            && (self.analysis_channels() != 2 || self.analysis_mode() != AnalysisViewMode::Spectrum)
-        {
+        let Some(changed) = self.update_selection(|current| {
+            if enabled
+                && (current.analysis_channels(self.layout) != 2
+                    || current.mode != AnalysisViewMode::Spectrum)
+            {
+                return None;
+            }
+            Some(AnalysisSelection {
+                mid_side: enabled,
+                ..current
+            })
+        }) else {
             return false;
-        }
-        let previous = self.mid_side_enabled.swap(enabled, Ordering::AcqRel);
-        if previous != enabled {
-            self.generation.fetch_add(1, Ordering::AcqRel);
+        };
+        if changed {
             if let Ok(mut history) = self.history.lock() {
                 *history = SpectrumHistory::with_capacity();
             }
@@ -261,22 +283,16 @@ impl SpectrumRuntime {
         if !view.is_available_in(self.layout) {
             return false;
         }
-        let code = view.to_abi();
-        // 1 本しか解析しない view へ移るなら Mid/Side は成立しない。**有効なまま残さない。**
-        // 残すと組立器が `None` を返し続け、有効に見えるのに何も出ない状態になる。
-        if view.analysis_channels(self.layout) != 2 {
-            self.mid_side_enabled.store(false, Ordering::Release);
-            self.clear_mid_side_frame();
-        }
-        let previous_view = self.view.swap(code, Ordering::AcqRel);
-        let mode = match view {
-            SpectrumView::Mid => SpectrumChannelMode::Mid,
-            SpectrumView::Side => SpectrumChannelMode::Side,
-            _ => SpectrumChannelMode::Lr,
+        let Some(changed) = self.update_selection(|current| {
+            Some(AnalysisSelection {
+                view,
+                mid_side: current.mid_side && view.analysis_channels(self.layout) == 2,
+                ..current
+            })
+        }) else {
+            return false;
         };
-        let previous = self.channel_mode.swap(mode as u8, Ordering::AcqRel);
-        if previous != mode as u8 || previous_view != code {
-            self.generation.fetch_add(1, Ordering::AcqRel);
+        if changed {
             if let Ok(mut history) = self.history.lock() {
                 *history = SpectrumHistory::with_capacity();
             }
@@ -300,6 +316,10 @@ impl SpectrumRuntime {
         presentation_start_samples: Option<i64>,
     ) -> bool {
         if !self.enabled.load(Ordering::Relaxed) {
+            return false;
+        }
+        let stream_generation = self.stream_generation.load(Ordering::Acquire);
+        if stream_generation == 0 {
             return false;
         }
         let Some(presentation_start_samples) = presentation_start_samples else {
@@ -342,52 +362,12 @@ impl SpectrumRuntime {
             frames: frames_u32,
             channels: num_channels as u8,
             presentation_start_samples,
-            generation: self.generation.load(Ordering::Acquire),
+            selection: self.selection.load(Ordering::Acquire),
+            stream_generation,
         };
         let _ = block_producer.push(block);
         self.pushed_blocks.fetch_add(1, Ordering::Relaxed);
         true
-    }
-
-    pub fn try_history(&self) -> Option<SpectrumHistory> {
-        self.history.try_lock().ok().map(|history| history.clone())
-    }
-
-    pub fn try_perceptual_history(&self) -> Option<PerceptualHistory> {
-        self.perceptual_history
-            .try_lock()
-            .ok()
-            .map(|history| history.clone())
-    }
-
-    pub fn try_absolute_history(&self) -> Option<AbsoluteTimeline> {
-        self.absolute_history
-            .try_lock()
-            .ok()
-            .map(|history| history.clone())
-    }
-
-    pub fn try_mid_side_frame(&self) -> Option<Option<MidSideSpectrumFrame>> {
-        self.latest_mid_side
-            .try_lock()
-            .ok()
-            .map(|frame| frame.clone())
-    }
-
-    pub fn stats(&self) -> SpectrumRuntimeStats {
-        SpectrumRuntimeStats {
-            enabled: self.enabled.load(Ordering::Acquire),
-            worker_running: self.worker_running.load(Ordering::Acquire),
-            analysis_mode: self.analysis_mode(),
-            channel_mode: self.channel_mode(),
-            channels: self.num_channels as u8,
-            pushed_blocks: self.pushed_blocks.load(Ordering::Relaxed),
-            dropped_blocks: self.dropped_blocks.load(Ordering::Relaxed),
-            analyzed_frames: self.analyzed_frames.load(Ordering::Relaxed),
-            analyzed_perceptual_frames: self.analyzed_perceptual_frames.load(Ordering::Relaxed),
-            analyzed_absolute_frames: self.analyzed_absolute_frames.load(Ordering::Relaxed),
-            analyzed_mid_side_frames: self.analyzed_mid_side_frames.load(Ordering::Relaxed),
-        }
     }
 
     pub fn shutdown_and_join(&self) {
@@ -403,7 +383,14 @@ impl SpectrumRuntime {
 
     fn note_drop(&self) {
         self.dropped_blocks.fetch_add(1, Ordering::Relaxed);
-        self.generation.fetch_add(1, Ordering::AcqRel);
+        let current = self.stream_generation.load(Ordering::Relaxed);
+        let next = current.checked_add(1).unwrap_or(0);
+        let _ = self.stream_generation.compare_exchange(
+            current,
+            next,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        );
         if self.analysis_mode() == AnalysisViewMode::Perceptual {
             self.perceptual_rearm_required
                 .store(true, Ordering::Release);

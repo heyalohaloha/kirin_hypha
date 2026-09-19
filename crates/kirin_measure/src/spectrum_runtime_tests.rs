@@ -365,6 +365,29 @@ fn enabled_runtime_publishes_on_the_shared_48k_30hz_grid() {
     assert_eq!(frame.presentation_end_samples, 9_600);
     assert_eq!(frame.presentation_end_samples % 1_600, 0);
     assert!(runtime.stats().analyzed_frames >= 1);
+    assert_eq!(
+        runtime.applied_selection_generation(),
+        Some(runtime.selection().generation)
+    );
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn an_audio_drop_invalidates_values_without_reusing_the_selection_generation() {
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 48_000, 10_000, 256);
+    let _ = wait_for_frame_at_or_after(&runtime, 9_600);
+    let selection_generation = runtime.selection().generation;
+    let stream_generation = runtime.stream_generation.load(Ordering::Acquire);
+
+    assert!(!runtime.push_block_from_audio(&[], 2, None));
+    assert_eq!(runtime.selection().generation, selection_generation);
+    assert_ne!(
+        runtime.stream_generation.load(Ordering::Acquire),
+        stream_generation
+    );
+    assert!(runtime.try_history().is_none());
     runtime.shutdown_and_join();
 }
 
