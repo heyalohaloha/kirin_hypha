@@ -165,15 +165,23 @@ pub fn current_source_id() -> Result<String> {
     Ok(value)
 }
 
-pub fn verify_sources(bundles: &[AaxBundle], version: &str, source_id: &str) -> Result<()> {
-    for bundle in bundles {
-        verify_bundle(bundle, &bundle.source, None, version, source_id)
-            .with_context(|| format!("{} source verification failed", bundle.label()))?;
+fn materialize_verified_payload(destination: &Path, online: bool) -> Result<()> {
+    let manifest: AaxManifest =
+        serde_json::from_str(MANIFEST_SOURCE).context("parse macOS AAX bundle manifest")?;
+    validate_manifest(&manifest)?;
+    let mut command = Command::new("node");
+    command
+        .arg(NOTARIZATION_SCRIPT)
+        .arg("verify")
+        .args(["--artifact-dir", path_text(&manifest.default_build_root)?])
+        .args(["--materialize-dir", path_text(destination)?]);
+    if online {
+        command.arg("--online");
     }
-    Ok(())
+    run_status(&mut command, "materialize accepted AAX submission archive")
 }
 
-pub fn verify_notarization_receipt() -> Result<()> {
+fn verify_payload_dir(destination: &Path) -> Result<()> {
     let manifest: AaxManifest =
         serde_json::from_str(MANIFEST_SOURCE).context("parse macOS AAX bundle manifest")?;
     validate_manifest(&manifest)?;
@@ -182,8 +190,8 @@ pub fn verify_notarization_receipt() -> Result<()> {
             .arg(NOTARIZATION_SCRIPT)
             .arg("verify")
             .args(["--artifact-dir", path_text(&manifest.default_build_root)?])
-            .arg("--online"),
-        "verify accepted AAX notarization receipt",
+            .args(["--payload-dir", path_text(destination)?]),
+        "compare packaged AAX payload with submitted archive",
     )
 }
 
@@ -193,22 +201,20 @@ pub fn stage_archives(
     version: &str,
     source_id: &str,
 ) -> Result<()> {
+    let verified = TemporaryDirectory::create("kirin_hypha_aax_verified")?;
+    materialize_verified_payload(&verified.0, true)?;
     for bundle in bundles {
+        let source = materialized_bundle_path(bundle, &verified.0)?;
         let destination = bundle.archive_path(archive_root);
         fs::create_dir_all(destination.parent().context("AAX archive parent missing")?)?;
         run_status(
-            Command::new("ditto").arg(&bundle.source).arg(&destination),
+            Command::new("ditto").arg(&source).arg(&destination),
             "ditto AAX bundle into archive",
         )?;
-        verify_bundle(
-            bundle,
-            &destination,
-            Some(&bundle.source),
-            version,
-            source_id,
-        )
-        .with_context(|| format!("{} staged archive verification failed", bundle.label()))?;
+        verify_bundle(bundle, &destination, Some(&source), version, source_id)
+            .with_context(|| format!("{} staged archive verification failed", bundle.label()))?;
     }
+    verify_payload_dir(&archive_root.join(ARCHIVE_PARENT))?;
     let receipt_source = notarization_receipt_source()?;
     let receipt_destination = archive_root
         .join(ARCHIVE_PARENT)
@@ -225,13 +231,7 @@ pub fn stage_archives(
     Ok(())
 }
 
-pub fn verify_zip(
-    bundles: &[AaxBundle],
-    zip_path: &Path,
-    package_root_name: &str,
-    version: &str,
-    source_id: &str,
-) -> Result<()> {
+pub fn verify_zip(zip_path: &Path, package_root_name: &str) -> Result<()> {
     let temporary = TemporaryDirectory::create("kirin_hypha_aax_zip")?;
     run_status(
         Command::new("ditto")
@@ -241,11 +241,7 @@ pub fn verify_zip(
         "extract AAX release zip",
     )?;
     let archive_root = temporary.0.join(package_root_name);
-    for bundle in bundles {
-        let extracted = bundle.archive_path(&archive_root);
-        verify_bundle(bundle, &extracted, Some(&bundle.source), version, source_id)
-            .with_context(|| format!("{} extracted zip verification failed", bundle.label()))?;
-    }
+    verify_payload_dir(&archive_root.join(ARCHIVE_PARENT))?;
     verify_file_copy(
         &notarization_receipt_source()?,
         &archive_root
@@ -286,8 +282,8 @@ pub fn metadata_entries(bundles: &[AaxBundle]) -> Result<Vec<BundleEntry>> {
 pub fn print_dry_run(bundles: &[AaxBundle]) {
     for bundle in bundles {
         eprintln!(
-            "  include:      {} -> {}",
-            bundle.source.display(),
+            "  include:      verified submission archive:{} -> {}",
+            bundle.spec.role,
             bundle.spec.archive_relative.display()
         );
     }
@@ -308,6 +304,15 @@ fn notarization_receipt_source() -> Result<PathBuf> {
         serde_json::from_str(MANIFEST_SOURCE).context("parse macOS AAX bundle manifest")?;
     validate_manifest(&manifest)?;
     Ok(manifest.default_build_root.join(NOTARIZATION_RECEIPT_NAME))
+}
+
+fn materialized_bundle_path(bundle: &AaxBundle, root: &Path) -> Result<PathBuf> {
+    let file_name = bundle
+        .spec
+        .source_relative
+        .file_name()
+        .context("AAX source bundle has no file name")?;
+    Ok(root.join(file_name))
 }
 
 fn verify_file_copy(source: &Path, destination: &Path) -> Result<()> {

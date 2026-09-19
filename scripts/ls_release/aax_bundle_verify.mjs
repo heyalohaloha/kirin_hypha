@@ -5,6 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  buildTreeManifest,
+  manifestBytes,
+  sha256Buffer,
+} from './aax_submission_archive.mjs';
+
 const MODULE_PATH = fileURLToPath(import.meta.url);
 export const AAX_APPLE_AUTHORITY = 'Developer ID Application: daisuke nishio (7N8BSMA684)';
 export const AAX_APPLE_TEAM_ID = '7N8BSMA684';
@@ -197,7 +203,16 @@ export function verifyAaxBundle({
   }
   const paceResult = run(resolveWraptool(), ['verify', '--in', bundlePath], 'AAX PACE signature verification');
   const pace = parseAaxPaceSignature(`${paceResult.stdout}\n${paceResult.stderr}`);
-  return { binary, binarySha256: sha256(binary), symlinks: links, apple, pace };
+  const treeManifest = buildTreeManifest(bundlePath, path.basename(bundlePath));
+  return {
+    binary,
+    binarySha256: sha256(binary),
+    symlinks: links,
+    treeManifest,
+    treeManifestSha256: sha256Buffer(manifestBytes(treeManifest)),
+    apple,
+    pace,
+  };
 }
 
 export function verifyAaxBundleCopy({
@@ -242,6 +257,9 @@ export function verifyAaxBundleCopy({
   }
   if (source.apple.cdhash !== destination.apple.cdhash) {
     throw new Error(`AAX Apple CDHash changed during copy: ${spec.role}`);
+  }
+  if (source.treeManifestSha256 !== destination.treeManifestSha256) {
+    throw new Error(`AAX bundle contents changed during copy: ${spec.role}`);
   }
 }
 

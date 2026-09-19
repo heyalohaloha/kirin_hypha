@@ -160,7 +160,7 @@ test('AAX signature parsers require the exact Apple and PACE release identities'
   );
 });
 
-test('AAX notarization receipt requires an Accepted submission bound to current signed hashes', () => {
+test('AAX notarization receipt requires accepted log, immutable archive, and full bundle manifests', () => {
   const source = {
     commit: '0123456789abcdef0123456789abcdef01234567',
     bNumber: 'B-830',
@@ -169,6 +169,7 @@ test('AAX notarization receipt requires an Accepted submission bound to current 
     role,
     bundle: `Kirin Hypha ${role}.aaxplugin`,
     binary_sha256: role === 'PRE' ? '1'.repeat(64) : '2'.repeat(64),
+    bundle_manifest_sha256: role === 'PRE' ? '7'.repeat(64) : '8'.repeat(64),
     apple_cdhash: role === 'PRE' ? '3'.repeat(40) : '4'.repeat(40),
     apple_authority: AAX_APPLE_AUTHORITY,
     apple_team_id: AAX_APPLE_TEAM_ID,
@@ -181,8 +182,34 @@ test('AAX notarization receipt requires an Accepted submission bound to current 
     generated_at: '2026-09-12T00:00:00.000Z',
     source: { commit: source.commit, b_number: source.bNumber, state: 'clean source' },
     product: { name: 'Kirin Hypha', version: '1.1.49', platform: 'macos-universal', format: 'AAX' },
-    submission: { id: '12345678-1234-1234-1234-123456789abc', status: 'Accepted' },
-    archive: { file_name: 'Kirin-Hypha-1.1.49-macOS-AAX.zip', size_bytes: 123, sha256: '5'.repeat(64) },
+    submission: {
+      id: '12345678-1234-1234-1234-123456789abc',
+      status: 'Accepted',
+      name: 'Kirin-Hypha-1.1.49-macOS-AAX.zip',
+    },
+    archive: {
+      file_name: 'Kirin-Hypha-1.1.49-macOS-AAX.zip',
+      relative_path: `aax-notarization/${'5'.repeat(64)}/Kirin-Hypha-1.1.49-macOS-AAX.zip`,
+      root_name: 'Kirin Hypha 1.1.49 AAX',
+      size_bytes: 123,
+      sha256: '5'.repeat(64),
+    },
+    content_manifest: {
+      file_name: 'submission-contents.json',
+      relative_path: `aax-notarization/${'5'.repeat(64)}/submission-contents.json`,
+      size_bytes: 456,
+      sha256: '6'.repeat(64),
+    },
+    notary_log: {
+      file_name: 'notary-log.json',
+      relative_path: `aax-notarization/${'5'.repeat(64)}/notary-log.json`,
+      size_bytes: 321,
+      sha256: '9'.repeat(64),
+      job_id: '12345678-1234-1234-1234-123456789abc',
+      status: 'Accepted',
+      archive_filename: 'Kirin-Hypha-1.1.49-macOS-AAX.zip',
+      log_format_version: 1,
+    },
     bundles: [bundle('PRE'), bundle('POST')],
   };
   const expected = { source, version: '1.1.49', bundles: receipt.bundles };
@@ -210,6 +237,38 @@ test('AAX notarization receipt requires an Accepted submission bound to current 
       archive: { ...receipt.archive, file_name: 'unrelated.zip' },
     }, expected),
     /archive identity is invalid/,
+  );
+  assert.throws(
+    () => validateAaxNotarizationReceipt({
+      ...receipt,
+      schema: 'kirin-hypha-macos-aax-notarization-v1',
+    }, expected),
+    /diagnostic-only/,
+  );
+  assert.throws(
+    () => validateAaxNotarizationReceipt({
+      ...receipt,
+      submission: { ...receipt.submission, id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' },
+    }, expected),
+    /notary log identity/,
+  );
+  assert.throws(
+    () => validateAaxNotarizationReceipt({
+      ...receipt,
+      source: { ...receipt.source, commit: 'f'.repeat(40) },
+    }, expected),
+    /clean release source/,
+  );
+  assert.throws(
+    () => validateAaxNotarizationReceipt({ ...receipt, notary_log: undefined }, expected),
+    /notary log identity/,
+  );
+  assert.throws(
+    () => validateAaxNotarizationReceipt({
+      ...receipt,
+      bundles: receipt.bundles.filter((record) => record.role === 'POST'),
+    }, expected),
+    /exactly PRE and POST/,
   );
 });
 
@@ -310,6 +369,10 @@ test('AAX target is Native-only and stamps signed build identity before distribu
     path.join(repoRoot, 'xtask/src/release_package.rs'),
     'utf8',
   );
+  const aaxDistribution = fs.readFileSync(
+    path.join(repoRoot, 'xtask/src/aax_distribution.rs'),
+    'utf8',
+  );
   assert.match(cmake, /target_compile_definitions\(\$\{TARGET\}_AAX PRIVATE JucePlugin_AAXDisableAudioSuite=1\)/);
   assert.match(cmake, /stamp_aax_bundle_identity\.sh/);
   assert.match(buildScript, /cmake -E remove_directory/);
@@ -334,14 +397,28 @@ test('AAX target is Native-only and stamps signed build identity before distribu
   assert.match(buildScript, /unnotarized and never use for distribution/);
   assert.match(verifier, /AAX_APPLE_AUTHORITY/);
   assert.match(verifier, /AAX_PACE_PUBLISHER_ID/);
+  assert.match(verifier, /treeManifestSha256/);
+  assert.match(verifier, /AAX bundle contents changed during copy/);
   assert.doesNotMatch(verifier, /--check-notarization/);
   assert.match(notarization, /notarytool', 'submit/);
   assert.match(notarization, /notarytool', 'info/);
+  assert.match(notarization, /notarytool', 'log/);
+  assert.match(notarization, /materializeVerifiedTree/);
+  assert.match(notarization, /verifyPayloadCopies/);
+  assert.match(notarization, /verifyEvidenceFile\(receipt\.archive/);
+  assert.match(notarization, /extractAndVerifyArchive/);
   assert.match(notarization, /status !== 'Accepted'/);
   assert.match(packageBuild, /verifyMacAaxNotarizationReceipt/);
+  assert.match(packageBuild, /verifiedAaxBundles/);
+  assert.match(packageBuild, /payloadDir/);
   assert.match(packageBuild, /installer pkg notarytool submit/);
   assert.match(packageBuild, /installer pkg notarytool info/);
-  assert.match(releasePackage, /verify_notarization_receipt/);
+  assert.match(releasePackage, /stage_archives/);
+  assert.match(aaxDistribution, /materialize_verified_payload/);
+  assert.match(aaxDistribution, /--materialize-dir/);
+  assert.match(aaxDistribution, /--payload-dir/);
+  assert.match(aaxDistribution, /materialized_bundle_path/);
+  assert.doesNotMatch(aaxDistribution, /Command::new\("ditto"\)\.arg\(&bundle\.source\)/);
 });
 
 test('self-hosted macOS AAX CI uses the Universal build entry point', () => {

@@ -42,6 +42,7 @@ jobs:
           node scripts/test_build_aax_universal.mjs
           node --test scripts/check_aax_sdk_absence.test.mjs
           node --test scripts/ls_release/aax_distribution.test.mjs
+          node --test scripts/ls_release/aax_submission_archive.test.mjs
           node scripts/check_aax_sdk_absence.mjs
 
   aax-sdk-build:

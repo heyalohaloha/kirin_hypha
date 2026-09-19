@@ -59,12 +59,6 @@ pub fn run(args: Vec<String>) -> Result<()> {
         verify_package_mode(&dist_dir, allow_unsigned)?;
     }
     verify_sources(&bundles, &version, allow_unsigned || dry_run)?;
-    if with_aax && !dry_run {
-        aax_distribution::verify_notarization_receipt()?;
-    }
-    if with_aax {
-        aax_distribution::verify_sources(&aax_bundles, &version, &aax_source_id)?;
-    }
     let source_git_dirty = git_dirty_for_manifest();
 
     let package_leaf = package_leaf(&version, allow_unsigned);
@@ -142,13 +136,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         "ditto zip release package",
     )?;
     if with_aax {
-        aax_distribution::verify_zip(
-            &aax_bundles,
-            &zip_path,
-            &package_root_name,
-            &version,
-            &aax_source_id,
-        )?;
+        aax_distribution::verify_zip(&zip_path, &package_root_name)?;
     }
     let sha = sha256_file(&zip_path)?;
     let zip_name = zip_path.file_name().unwrap().to_string_lossy();

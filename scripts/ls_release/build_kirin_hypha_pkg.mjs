@@ -221,7 +221,7 @@ function findBundleDirectories(root, expectedNames) {
   return matches;
 }
 
-function verifyPackagedAax(packagePath, releaseIdentity) {
+function verifyPackagedAax(packagePath) {
   if (!WITH_AAX) return;
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-pkg-expand-'));
   const expanded = path.join(temporary, 'expanded');
@@ -229,23 +229,23 @@ function verifyPackagedAax(packagePath, releaseIdentity) {
     run('pkgutil', ['--expand-full', packagePath, expanded]);
     const expectedNames = aaxManifest.bundles.map((bundle) => path.basename(bundle.install_relative));
     const matches = findBundleDirectories(expanded, expectedNames);
+    const payloadDirectories = new Set();
     for (const bundle of aaxManifest.bundles) {
       const name = path.basename(bundle.install_relative);
       const candidates = matches.get(name) || [];
       if (candidates.length !== 1) {
         throw new Error(`expanded pkg must contain exactly one ${name}; found ${candidates.length}`);
       }
-      verifyAaxBundleCopy({
-        sourcePath: bundle.sourcePath,
-        destinationPath: candidates[0],
-        spec: bundle,
-        version: VERSION,
-        sourceId: releaseIdentity.commit,
-        sourceState: 'clean source',
-        requireKimera: true,
-        requireNativeOnly: true,
-      });
+      payloadDirectories.add(path.dirname(candidates[0]));
     }
+    if (payloadDirectories.size !== 1) {
+      throw new Error('expanded pkg AAX bundles do not share one plug-in directory');
+    }
+    verifyMacAaxNotarizationReceipt({
+      root: ROOT,
+      artifactDir: aaxManifest.defaultBuildRoot,
+      payloadDir: [...payloadDirectories][0],
+    });
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
@@ -262,16 +262,30 @@ function buildPackage() {
   const releaseIdentity = SKIP_SIGN
     ? readReleaseSourceIdentity({ root: ROOT })
     : requireCleanReleaseSource({ root: ROOT });
+  const aaxMaterialization = WITH_AAX
+    ? fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-pkg-aax-'))
+    : null;
+  if (aaxMaterialization) {
+    process.once('exit', () => fs.rmSync(aaxMaterialization, { recursive: true, force: true }));
+  }
   const aaxNotarization = WITH_AAX
     ? verifyMacAaxNotarizationReceipt({
       root: ROOT,
       artifactDir: aaxManifest.defaultBuildRoot,
       keychainProfile: NOTARY_PROFILE,
       online: true,
+      materializeDir: aaxMaterialization,
     })
     : null;
+  const verifiedAaxBundles = WITH_AAX
+    ? aaxManifest.bundles.map((bundle) => ({
+      ...bundle,
+      sourcePath: path.join(aaxMaterialization, path.basename(bundle.sourcePath)),
+    }))
+    : [];
+  const packageBundles = [...shipManifest.bundles, ...verifiedAaxBundles];
   verifyShipBundleContract();
-  for (const bundle of bundles) verifySourceBundle(bundle, releaseIdentity);
+  for (const bundle of packageBundles) verifySourceBundle(bundle, releaseIdentity);
   const identity = SKIP_SIGN ? null : findInstallerIdentity();
   if (identity) log(`using Developer ID Installer identity ${identity}`);
   if (SKIP_SIGN) log('building unsigned smoke package; do not upload this file');
@@ -284,7 +298,7 @@ function buildPackage() {
   fs.mkdirSync(scriptsDir, { recursive: true });
   writePreinstall(path.join(scriptsDir, 'preinstall'));
 
-  for (const bundle of bundles) {
+  for (const bundle of packageBundles) {
     const destination = path.join(payloadRoot, bundle.install_relative);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     run('ditto', [bundle.sourcePath, destination]);
@@ -342,7 +356,7 @@ function buildPackage() {
   }
 
   run('pkgutil', ['--payload-files', PACKAGE_PATH], { capture: true });
-  verifyPackagedAax(PACKAGE_PATH, releaseIdentity);
+  verifyPackagedAax(PACKAGE_PATH);
   if (!SKIP_SIGN) {
     run('pkgutil', ['--check-signature', PACKAGE_PATH]);
     if (!SKIP_NOTARIZE) run('spctl', ['-a', '-vv', '-t', 'install', PACKAGE_PATH]);
@@ -380,6 +394,7 @@ function buildPackage() {
   fs.writeFileSync(`${PACKAGE_PATH}.json`, `${JSON.stringify(sidecar, null, 2)}\n`);
   fs.writeFileSync(`${PACKAGE_PATH}.sha256`, `${sidecar.sha256}  ${sidecar.fileName}\n`);
   fs.rmSync(workDir, { recursive: true, force: true });
+  if (aaxMaterialization) fs.rmSync(aaxMaterialization, { recursive: true, force: true });
 
   log(`wrote ${PACKAGE_PATH}`);
   log(`size ${size} (${sidecar.lsDisplaySize})`);

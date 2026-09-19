@@ -79,3 +79,10 @@ is deduplicated by comparison generation. Background compatibility failures rema
 removes the hidden cell/control replica, renders a completed Record from its generation-bound
 snapshot in the Observatory and Capture, and keeps the ABI handshake fail-closed for old, unknown,
 or undersized contracts.
+
+B-983 makes the AAX Apple submission archive the distribution source of truth. The exact PRE/POST
+tree is recorded by path, type, mode, file hash, and symlink target; the archive, manifest, and
+Apple notary log are preserved under the archive SHA-256. Both macOS packagers materialize AAX from
+that verified archive and compare their final extracted payload against it instead of rereading the
+mutable build directory. Legacy v1 receipts remain readable evidence but are not distribution
+eligible.

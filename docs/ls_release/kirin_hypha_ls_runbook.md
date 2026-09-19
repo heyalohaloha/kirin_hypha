@@ -147,10 +147,12 @@ GPL checkout does not require the external SDK or PACE tools. It is a format ins
 macOS and Windows deliverables, not a fourth release channel.
 
 The AAX release build must be created through `scripts/build_aax_universal.sh --sign`. That command
-requires the exact Kirin PACE and Developer ID identities, submits the signed PRE/POST pair to
-Apple, and writes `build-aax-universal/kirin-hypha-macos-aax-notarization.json` only after both
-`notarytool submit` and `notarytool info` report `Accepted`. A signature-only or diagnostic receipt
-is never accepted by either macOS packaging path.
+requires the exact Kirin PACE and Developer ID identities, freezes the signed PRE/POST pair into a
+hash-addressed archive with a complete content manifest, and submits that archive to Apple. It
+writes `build-aax-universal/kirin-hypha-macos-aax-notarization.json` only after `notarytool submit`,
+`notarytool info`, and the preserved `notarytool log` agree on the Accepted job and archive name.
+The archive, manifest, and log remain under `build-aax-universal/aax-notarization/<sha256>/`.
+A v1, signature-only, or diagnostic receipt is never accepted by either macOS packaging path.
 
 The HP zip also carries an exact copy of the accepted receipt at
 `AAX/kirin-hypha-macos-aax-notarization.json`. Post-extraction verification rejects a missing or
@@ -175,9 +177,10 @@ The four source, installed, archive, executable, display-name, and VST3 CID cont
 layout—including the role-first VST3 outer names—against each bundle's `CFBundleExecutable`.
 With `--with-aax`, the separate AAX manifest requires exactly PRE and POST, verifies the exact source
 commit, clean-source/Kimera/Native-only stamps, Universal architecture, exact Apple and PACE signer
-identities, secure timestamp, accepted notarization receipt, and PACE symlink integrity. It then
-reconfirms the receipt online with `notarytool info`, expands the finished pkg, and verifies the
-copied bundles again. Every AAX directory copy uses
+identities, secure timestamp, accepted notarization archive/log receipt, and PACE symlink integrity.
+It reconfirms the receipt online with `notarytool info` and `notarytool log`, materializes AAX only
+from the verified submitted archive, expands the finished pkg, and compares the complete bundle
+trees again. It never rereads AAX payload from the mutable build directory. Every AAX directory copy uses
 `ditto`; the final pkg is separately submitted to Apple and stapled as the distributed outer
 container.
 
