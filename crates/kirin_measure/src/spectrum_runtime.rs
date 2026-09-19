@@ -153,6 +153,14 @@ impl SpectrumRuntime {
         if self.shutdown.load(Ordering::Acquire) {
             return false;
         }
+        // B-964: worker の de-interleave は `num_channels == 2` のときだけ 2 本を pop し、
+        // それ以外は 1 本しか pop しない（`spectrum_runtime_worker.rs`）。6ch を渡すと
+        // interleave がそのまま 1 本の流れとして扱われ、ring は溜まり続けて drop が積み上がる。
+        // **測れない layout は「測れない」として現れるべきで、受理して無言で詰まるべきではない。**
+        // P-4 で役割ごとの de-interleave が入るまで、ここで閉じる。
+        if enabled && !SpectrumView::any_analysable_in(self.layout) {
+            return false;
+        }
         let currently_enabled = self.enabled.load(Ordering::Acquire);
         if enabled == currently_enabled && (!enabled || self.worker_running.load(Ordering::Acquire))
         {

@@ -102,6 +102,16 @@ impl SpectrumView {
         derived.chain(channels).collect()
     }
 
+    /// この layout に、解析経路が実際に測れる view が 1 つでもあるか。
+    ///
+    /// 無ければ **Spectrum はこの layout に対して未対応**である。既定を名乗らせず、有効化も
+    /// させない。「既定はあるが何も出ない」は無言の失敗であって、未対応ではない。
+    pub fn any_analysable_in(layout: ChannelLayout) -> bool {
+        Self::available_in(layout)
+            .into_iter()
+            .any(Self::is_analysable)
+    }
+
     /// この layout の既定 view。
     ///
     /// LR を持つ layout では LR のまま（現行の既定を変えない）。持たない layout では
