@@ -69,7 +69,9 @@ jobs:
     name: release source contract (macos)
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || contains(github.event.head_commit.message, '[ci full]') }}
     runs-on: macos-14
-    timeout-minutes: 30
+    # A cold macOS runner needs more than 30 minutes for the complete source
+    # contract, including the realtime ignored suites and final clippy pass.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
