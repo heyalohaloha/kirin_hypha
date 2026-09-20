@@ -73,20 +73,28 @@ export function parseNotarytoolAccepted(output, label = 'AAX notarization') {
   return accepted;
 }
 
-function releaseIdentityContext({ root = PROJECT_ROOT, artifactDir = 'build-aax-universal' } = {}) {
+function releaseIdentityContext({
+  root = PROJECT_ROOT,
+  artifactDir = 'build-aax-universal',
+  bundleVerifier = verifyAaxBundle,
+  bundleCopyVerifier = verifyAaxBundleCopy,
+  sourceVerifier = requireCleanReleaseSource,
+} = {}) {
   const resolvedRoot = path.resolve(root);
   const artifactRoot = path.resolve(resolvedRoot, artifactDir);
   return {
     root: resolvedRoot,
     artifactRoot,
-    source: requireCleanReleaseSource({ root: resolvedRoot }),
+    source: sourceVerifier({ root: resolvedRoot }),
     version: readVersion(resolvedRoot),
     manifest: loadMacAaxBundleManifest({ root: resolvedRoot, buildRoot: artifactRoot }),
+    bundleVerifier,
+    bundleCopyVerifier,
   };
 }
 
 function inspectBundle(context, bundle, bundlePath) {
-  const verified = verifyAaxBundle({
+  const verified = context.bundleVerifier({
     bundlePath,
     executableName: bundle.executable_name,
     bundleIdentifier: bundle.bundle_identifier,
@@ -285,7 +293,7 @@ function verifyOnlineEvidence(context, receipt, keychainProfile, temporary, runn
 function verifyPayloadCopies(context, extractedRoot, payloadDir) {
   for (const bundle of context.manifest.bundles) {
     const name = path.basename(bundle.sourcePath);
-    verifyAaxBundleCopy({
+    context.bundleCopyVerifier({
       sourcePath: path.join(extractedRoot, name),
       destinationPath: path.join(path.resolve(payloadDir), name),
       spec: bundle,
@@ -341,10 +349,19 @@ export function submitMacAaxForNotarization({
   artifactDir = 'build-aax-universal',
   keychainProfile = process.env.KIRIN_NOTARY_PROFILE || 'kirin-notarize',
   commandRunner = runEvidenceCommand,
+  bundleVerifier = verifyAaxBundle,
+  bundleCopyVerifier = verifyAaxBundleCopy,
+  sourceVerifier = requireCleanReleaseSource,
 } = {}) {
   if (process.platform !== 'darwin') throw new Error('macOS AAX notarization requires macOS');
   if (!keychainProfile) throw new Error('AAX notarization requires a notarytool keychain profile');
-  const context = releaseIdentityContext({ root, artifactDir });
+  const context = releaseIdentityContext({
+    root,
+    artifactDir,
+    bundleVerifier,
+    bundleCopyVerifier,
+    sourceVerifier,
+  });
   const sourceRecords = inspectBundles(context, (bundle) => bundle.sourcePath);
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'kirin-hypha-aax-notary-'));
   const rootName = `Kirin Hypha ${context.version} AAX`;

@@ -400,12 +400,28 @@ test('full release set accepts only a signed, verified, externally validated Win
       },
     },
     ci_validation: { status: 'passed' },
-    external_validation: { status: 'complete' },
+    external_validation: {
+      status: 'complete',
+      note: 'The exact signed installer passed the retained dedicated Windows DAW validation.',
+      report_sha256: 'c'.repeat(64),
+      installer_sha256: digest,
+      candidate_workflow_run: 'https://github.com/heyalohaloha/kirin_sense_lens/actions/runs/456',
+      completed_at: '2026-09-20T03:00:00.000Z',
+    },
     distribution: { primary: true, public_ready: true, aax_included: false },
   };
   fs.writeFileSync(`${installer}.json`, JSON.stringify(manifest));
 
   assert.equal(requireWindowsInstaller(root, identity), installer);
+  fs.writeFileSync(`${installer}.json`, JSON.stringify({
+    ...manifest,
+    external_validation: { ...manifest.external_validation, installer_sha256: 'd'.repeat(64) },
+  }));
+  assert.throws(
+    () => requireWindowsInstaller(root, identity),
+    /exact signed-candidate validation provenance is incomplete/,
+  );
+  fs.writeFileSync(`${installer}.json`, JSON.stringify(manifest));
   assert.equal(
     parseReleaseSetArgs(['--windows-artifact-dir', root]).windowsInstallerDir,
     root,

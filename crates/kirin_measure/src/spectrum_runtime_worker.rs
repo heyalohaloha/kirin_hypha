@@ -226,14 +226,14 @@ impl SpectrumRuntime {
                 AnalysisViewMode::Spectrum => {
                     if selection.mid_side {
                         if let Some(frame) = spectrum.push_mid_side_frame(left, right) {
-                            self.publish_mid_side(frame, block.stream_generation);
+                            self.publish_mid_side(frame, block.stream_generation, block.selection);
                         }
                     } else if let Some(mut frame) = spectrum.push_frame(left, right, channel_mode) {
                         // どの観測対象で作ったかをフレーム自身に持たせる。view を選んでいるのは
                         // ここだけで、view が変わると組立器は generation でリセットされるので、
                         // この窓はまるごとこの view のものである。
                         frame.view = frame_selection.view_code;
-                        self.publish_spectrum(frame, block.stream_generation);
+                        self.publish_spectrum(frame, block.stream_generation, block.selection);
                     }
                 }
                 AnalysisViewMode::Perceptual => {
@@ -242,7 +242,11 @@ impl SpectrumRuntime {
                     };
                     if let Some(frames) = analyzer.push_frame(left, right, channel_mode) {
                         for frame in frames {
-                            self.publish_perceptual(frame, block.stream_generation);
+                            self.publish_perceptual(
+                                frame,
+                                block.stream_generation,
+                                block.selection,
+                            );
                         }
                     }
                 }
@@ -252,7 +256,7 @@ impl SpectrumRuntime {
                     };
                     if let Some(frames) = analyzer.push_frame(left, right) {
                         for frame in frames {
-                            self.publish_absolute(*frame, block.stream_generation);
+                            self.publish_absolute(*frame, block.stream_generation, block.selection);
                         }
                     }
                 }
@@ -262,23 +266,32 @@ impl SpectrumRuntime {
         true
     }
 
-    fn publish_spectrum(&self, frame: SpectrumFrame, stream_generation: u64) {
+    fn publish_spectrum(&self, frame: SpectrumFrame, stream_generation: u64, selection: u64) {
         if !self.frame_is_current(&frame, stream_generation) {
             return;
         }
         self.analyzed_frames.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.history.lock() {
             if self.frame_is_current(&frame, stream_generation) {
-                if history.stream_generation != stream_generation {
+                let identity = super::state::SnapshotIdentity {
+                    stream_generation,
+                    selection,
+                };
+                if history.identity != identity {
                     history.value = super::SpectrumHistory::with_capacity();
                 }
                 history.value.push(frame);
-                history.stream_generation = stream_generation;
+                history.identity = identity;
             }
         }
     }
 
-    fn publish_mid_side(&self, frame: MidSideSpectrumFrame, stream_generation: u64) {
+    fn publish_mid_side(
+        &self,
+        frame: MidSideSpectrumFrame,
+        stream_generation: u64,
+        selection: u64,
+    ) {
         if !self.mid_side_frame_is_current(&frame, stream_generation) {
             return;
         }
@@ -287,12 +300,15 @@ impl SpectrumRuntime {
         if let Ok(mut latest) = self.latest_mid_side.lock() {
             if self.mid_side_frame_is_current(&frame, stream_generation) {
                 latest.value = Some(frame);
-                latest.stream_generation = stream_generation;
+                latest.identity = super::state::SnapshotIdentity {
+                    stream_generation,
+                    selection,
+                };
             }
         }
     }
 
-    fn publish_perceptual(&self, frame: &PerceptualFrame, stream_generation: u64) {
+    fn publish_perceptual(&self, frame: &PerceptualFrame, stream_generation: u64, selection: u64) {
         if !self.perceptual_frame_is_current(frame, stream_generation) {
             return;
         }
@@ -300,16 +316,20 @@ impl SpectrumRuntime {
             .fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.perceptual_history.lock() {
             if self.perceptual_frame_is_current(frame, stream_generation) {
-                if history.stream_generation != stream_generation {
+                let identity = super::state::SnapshotIdentity {
+                    stream_generation,
+                    selection,
+                };
+                if history.identity != identity {
                     history.value = PerceptualHistory::with_capacity();
                 }
                 history.value.push(frame.clone());
-                history.stream_generation = stream_generation;
+                history.identity = identity;
             }
         }
     }
 
-    fn publish_absolute(&self, frame: AbsoluteFrame, stream_generation: u64) {
+    fn publish_absolute(&self, frame: AbsoluteFrame, stream_generation: u64, selection: u64) {
         if !self.absolute_frame_is_current(&frame, stream_generation) {
             return;
         }
@@ -317,11 +337,15 @@ impl SpectrumRuntime {
             .fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.absolute_history.lock() {
             if self.absolute_frame_is_current(&frame, stream_generation) {
-                if history.stream_generation != stream_generation {
+                let identity = super::state::SnapshotIdentity {
+                    stream_generation,
+                    selection,
+                };
+                if history.identity != identity {
                     history.value.clear();
                 }
                 history.value.push(frame);
-                history.stream_generation = stream_generation;
+                history.identity = identity;
             }
         }
     }

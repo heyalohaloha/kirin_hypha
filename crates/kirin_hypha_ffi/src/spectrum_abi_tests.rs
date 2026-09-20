@@ -440,3 +440,56 @@ fn post_channel_mode_is_single_select_and_side_requires_stereo() {
     assert!(!mono.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_SIDE));
     assert_eq!(mono.spectrum_stats().channel_mode, SpectrumChannelMode::Mid);
 }
+
+#[test]
+fn shipping_ffi_never_returns_the_previous_channel_snapshot_after_selection() {
+    let mut engine = post_engine(ChannelLayout::stereo());
+    let handle = engine.as_mut() as *mut KirinHyphaEngine;
+    assert!(unsafe { kirin_hypha_set_spectrum_visible(handle, true) });
+    engine.spectrum.service_post_endpoint("post", None, "Mix");
+
+    for block in 0..40_i64 {
+        let start = block * 256;
+        let samples = (0..256)
+            .flat_map(|offset| {
+                let phase = std::f32::consts::TAU * 1_000.0 * (start + offset) as f32 / 48_000.0;
+                let sample = phase.sin() * 0.25;
+                [sample, sample]
+            })
+            .collect::<Vec<_>>();
+        engine.note_capture_window_with_presentation(
+            true,
+            start,
+            256,
+            CaptureClockSource::AudioRenderTimeline,
+            PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(0),
+            },
+            false,
+        );
+        engine.push_samples(&samples, 2);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let mut before = empty_c_spectrum();
+    while std::time::Instant::now() < deadline {
+        assert!(unsafe { kirin_hypha_poll_spectrum(handle, &mut before) });
+        if before.post_has_data == 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(before.post_has_data, 1);
+    assert_eq!(before.channel_mode, KIRIN_SPECTRUM_CHANNEL_LR);
+
+    assert!(unsafe { kirin_hypha_set_spectrum_channel_mode(handle, KIRIN_SPECTRUM_CHANNEL_MID) });
+    let mut after = before;
+    assert!(unsafe { kirin_hypha_poll_spectrum(handle, &mut after) });
+    assert_eq!(after.status, KIRIN_SPECTRUM_WARMING_UP);
+    assert_eq!(after.channel_mode, KIRIN_SPECTRUM_CHANNEL_MID);
+    assert_eq!(after.has_data, 0);
+    assert_eq!(after.post_has_data, 0);
+}

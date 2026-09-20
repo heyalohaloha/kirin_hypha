@@ -35,7 +35,10 @@ fn runtime_with_old_stream() -> (Arc<SpectrumRuntime>, SpectrumFrame) {
     assert!(runtime.set_enabled(true));
     feed_real_worker(&runtime, 0, 0.5);
     let old = wait_for_published_end(&runtime, 9_600);
-    assert_eq!(runtime.history.lock().unwrap().stream_generation, 1);
+    assert_eq!(
+        runtime.history.lock().unwrap().identity.stream_generation,
+        1
+    );
     assert!(!runtime.push_block_from_audio(&[], 2, None));
     assert_eq!(runtime.stream_generation.load(Ordering::Acquire), 2);
     assert!(runtime.try_history().is_none());
@@ -52,7 +55,10 @@ fn copied_history_cannot_borrow_a_new_stream_stamp() {
             current.presentation_end_samples,
             old.presentation_end_samples
         );
-        assert_eq!(runtime.history.lock().unwrap().stream_generation, 2);
+        assert_eq!(
+            runtime.history.lock().unwrap().identity.stream_generation,
+            2
+        );
     });
     runtime.shutdown_and_join();
     assert!(
@@ -74,11 +80,65 @@ fn same_endpoint_cannot_reuse_values_from_the_previous_stream() {
             current.presentation_end_samples
         );
         assert!((peak(&old) - peak(&current) - 12.0412).abs() < 0.2);
-        assert_eq!(runtime.history.lock().unwrap().stream_generation, 2);
+        assert_eq!(
+            runtime.history.lock().unwrap().identity.stream_generation,
+            2
+        );
     });
     runtime.shutdown_and_join();
     assert!(
         returned.is_none(),
         "old values survived at the restarted sample endpoint"
     );
+}
+
+#[test]
+fn a_selection_edge_during_clone_rejects_the_old_snapshot() {
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    assert!(runtime.set_enabled(true));
+    feed_real_worker(&runtime, 0, 0.5);
+    let old = wait_for_published_end(&runtime, 9_600);
+    let old_stream = runtime.stream_generation.load(Ordering::Acquire);
+    let returned = runtime.try_history_after_clone_for_test(|| {
+        assert!(runtime.set_channel_mode(SpectrumChannelMode::Mid));
+        assert_eq!(
+            runtime.stream_generation.load(Ordering::Acquire),
+            old_stream
+        );
+        assert!(runtime.try_history().unwrap().newest().is_none());
+    });
+    runtime.shutdown_and_join();
+    assert_eq!(returned.and_then(|history| history.newest().cloned()), None);
+    assert_eq!(old.channel_mode, SpectrumChannelMode::Lr);
+}
+
+#[test]
+fn all_four_optional_snapshot_apis_reject_a_selection_edge() {
+    let spectrum = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    assert!(spectrum
+        .try_history_after_clone_for_test(|| {
+            assert!(spectrum.set_analysis_mode(AnalysisViewMode::Perceptual));
+        })
+        .is_none());
+
+    let perceptual = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    assert!(perceptual
+        .try_perceptual_history_after_clone_for_test(|| {
+            assert!(perceptual.set_analysis_mode(AnalysisViewMode::Perceptual));
+        })
+        .is_none());
+
+    let absolute = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    assert!(absolute
+        .try_absolute_history_after_clone_for_test(|| {
+            assert!(absolute.set_analysis_mode(AnalysisViewMode::Absolute));
+        })
+        .is_none());
+
+    let mid_side = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    assert!(mid_side
+        .try_mid_side_after_clone_for_test(|| {
+            assert!(mid_side.set_mid_side_enabled(true));
+        })
+        .is_none());
 }

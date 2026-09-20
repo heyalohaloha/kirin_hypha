@@ -48,6 +48,15 @@ jobs:
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Resolve source line comparison commit
+        env:
+          SOURCE_LINE_BUDGET_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}
+        run: |
+          if [[ "$SOURCE_LINE_BUDGET_EVENT_BASE" =~ ^0+$ ]]; then
+            SOURCE_LINE_BUDGET_EVENT_BASE=HEAD^
+          fi
+          echo "SOURCE_LINE_BUDGET_BASE_REF=$SOURCE_LINE_BUDGET_EVENT_BASE" >> "$GITHUB_ENV"
+
       - name: Test lightweight source contract
         run: bash scripts/test_lightweight_contract.sh
 

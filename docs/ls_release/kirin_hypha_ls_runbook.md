@@ -10,9 +10,10 @@ Kirin Hypha ships through three release surfaces. Updating only one leaves the o
 
 1. **Lemon Squeezy (paid)** — the signed/notarized installer `.pkg`, delivered inside the existing Kirin OS / Kirin Sense products. Phases 0–7 below.
 2. **HP free download** — `kirinmastering.com/hypha` → "Download for macOS — Free", which links to a GitHub Release `.zip` on `heyalohaloha/kirin_hypha`. See **"HP Free Download Channel"** below. If skipped, free-download users stay on the old (buggy) version.
-3. **Windows** — one Authenticode-signed Inno Setup `.exe` containing PRE and POST, built and
-   installed/uninstalled on `windows-latest`. AAX releases add verified PACE+Authenticode AAX to the
-   same installer; the manual VST3 `.zip` is fallback-only. See **"Windows VST3 Channel"** below.
+3. **Windows** — one Authenticode-signed Inno Setup `.exe` containing PRE and POST. Public CI builds
+   and validates the VST3 source artifact; the private, approved Windows signing hosts produce and
+   verify the signed installer. AAX releases add verified PACE+Authenticode AAX to the same
+   installer; the manual VST3 `.zip` is fallback-only. See **"Windows VST3 Channel"** below.
 
 The macOS paid/free channels reuse the SAME signed+notarized universal bundles from Phase 1 (the `.pkg` and the `.zip` are two packagings of the same bundles). Windows uses the JUCE VST3 output from the Windows CI job.
 
@@ -44,8 +45,9 @@ The macOS paid/free channels reuse the SAME signed+notarized universal bundles f
 
 ## Validation-first source order
 
-Do not select a version, build release artifacts, sign, notarize, upload, tag, or publish while the
-product commit is still under validation. Use this order for every release:
+Do not select a version, upload, tag, or publish while the product commit is still changing. Signing
+and notarization of a non-public candidate are validation steps, not publication approval. Use this
+order for every release:
 
 1. Record the candidate product branch and its exact 40-character commit. Treat a later commit as a
    new candidate that must repeat the preliminary product gates.
@@ -57,10 +59,20 @@ product commit is still under validation. Use this order for every release:
    Hypha source. If any of the four trusted distribution files changed, review them and update the
    private factory's SHA-256 allowlist in the same integration step.
 4. Record the resulting integration commit as the release candidate. Run the complete local suites,
-   macOS/AU CI, Windows CI/pluginval, and dedicated-machine Windows DAW validation for that exact
-   commit and version. This commit, not its pre-integration parent, owns the release evidence.
-5. Only after every release-candidate gate is green, build, sign, notarize, package, and publish all
-   three distribution channels from that same commit. Do not change source or version after validation.
+   macOS/AU CI, and Windows CI/pluginval for that exact commit and version. This commit, not its
+   pre-integration parent, owns the release evidence.
+5. Build the non-public signed/notarized candidates from that exact commit. This includes the macOS
+   AU/VST3 bundles and the signed Windows installer. When AAX is selected for the release, it also
+   includes the macOS and Windows PACE-signed AAX pairs. Record every artifact hash before host
+   validation. Do not upload these candidates to a public channel yet.
+6. Run the required macOS and Windows DAW/Pro Tools checks against those candidates. The Windows
+   factory must also run install, same-version reinstall, prior-public-version upgrade, uninstall,
+   pluginval, signature, and payload-hash verification against the exact signed installer. Do not
+   substitute an older commit's evidence or an unsigned binary where the final signed binary is
+   required.
+7. After every release-candidate gate is green, package and publish all three channels using the
+   already verified signed bundle/installer hashes. Do not rebuild, resign, change source, or change
+   version after validation; any byte change creates a new candidate and repeats the affected gates.
 
 If any exact commit, CI run ID, external-validation receipt, or artifact hash differs between steps,
 stop and restart from the affected validation step. Never advance a release by branch name alone.
@@ -289,11 +301,18 @@ the Lemon Squeezy dry run also checks the pkg payload listing.
 ### HP-2: Create the GitHub Release (the URL the HP links to)
 
 ```bash
-gh release create vX.Y.Z --repo heyalohaloha/kirin_hypha --target main \
+RELEASE_COMMIT=<exact-40-character-release-commit>
+test "$(git rev-parse "$RELEASE_COMMIT^{commit}")" = "$RELEASE_COMMIT"
+
+gh release create vX.Y.Z --repo heyalohaloha/kirin_hypha --target "$RELEASE_COMMIT" \
   --title "Kirin Hypha X.Y.Z" \
   --notes "..." \
   dist/Kirin-Hypha-X.Y.Z-macOS-Universal.zip \
   dist/Kirin-Hypha-X.Y.Z-macOS-Universal.zip.sha256
+
+# A new tag must resolve to the immutable release commit, never merely to the
+# branch that happened to be current when this command ran.
+test "$(git ls-remote origin refs/tags/vX.Y.Z | cut -f1)" = "$RELEASE_COMMIT"
 
 # verify the asset URL resolves (must be HTTP 200 before the HP goes live):
 curl -sIL -o /dev/null -w '%{http_code}\n' \
@@ -325,15 +344,36 @@ and registers one product uninstaller without owning the shared VST3 root.
 
 First dispatch this repository's `.github/workflows/ci.yml` with
 `windows_signing=unsigned`. Record the completed green run ID and its exact 40-character commit.
+For an AAX release, first dispatch `hypha-aax-signing.yml` in the private Kirin release-control
+repository and record its successful `KirinHypha-Windows-AAX-signed` run ID. A VST3-only release
+does not dispatch the AAX workflow and leaves `signed_aax_run_id` empty.
+
 Then dispatch `hypha-windows-signing.yml` in the private Kirin release-control repository with:
 
 ```text
 hypha_commit=<exact 40-character commit>
 hypha_ci_run_id=<green Hypha CI run ID>
-external_validation=complete
+signed_aax_run_id=<successful AAX signing run ID, or empty for VST3-only>
+signed_candidate_run_id=
+external_validation=pending
+external_validation_report_sha256=
 ```
 
-Use `complete` only when `docs/windows_external_validation.md` is green for the source. The factory
+This produces `KirinHypha-Windows-signed-candidate`. Run
+`docs/windows_external_validation.md` against that exact signed installer, retain the report, and
+record its SHA-256. Do not rebuild or re-sign after the DAW test. Dispatch the same workflow again:
+
+```text
+hypha_commit=<same exact 40-character commit>
+hypha_ci_run_id=<same green Hypha CI run ID>
+signed_aax_run_id=<same AAX signing run ID, or empty for VST3-only>
+signed_candidate_run_id=<successful signed-candidate workflow run ID>
+external_validation=complete
+external_validation_report_sha256=<lowercase SHA-256 of the retained validation report>
+```
+
+The promotion job downloads the exact candidate, verifies its hash, source identity, signature and
+pending state, then changes only the JSON sidecar. It does not rebuild or re-sign the installer. The factory
 rejects a CI run whose commit or conclusion does not match, keeps the four `ESIGNER_*` secrets out of
 this public GPL repository, requires all three complete Hypha CI jobs, rejects distribution scripts
 outside its private SHA-256 allowlist, downloads pinned CodeSignTool bytes, uses a verified immutable
@@ -344,9 +384,11 @@ Inno Setup release, and signs:
 - generated uninstaller
 - Setup EXE
 
-It then installs the EXE twice for the current user, compares installed payload hashes, verifies all
-signatures, silently uninstalls, checks registry cleanup, and proves an unrelated VST3 sentinel was
-not removed.
+It first installs the previous public signed installer, upgrades it with the candidate, installs the
+candidate a second time, compares installed payload hashes, verifies all signatures, silently
+uninstalls, checks registry cleanup, and proves unrelated VST3 (and, when selected, AAX) sentinels
+were not removed. VST3-only signing runs on the hosted Windows runner. AAX uses the approved
+`hypha-aax-build` and `hypha-aax-sign` self-hosted runners because PACE verification is required.
 
 ### WIN-2: Required artifacts
 
@@ -356,7 +398,12 @@ Download `KirinHypha-Windows-signed-full`. It must contain exactly:
 - matching `.exe.sha256`
 - matching `.exe.json`
 
-The JSON must report signing `valid`, CI validation `passed`, external validation `complete`, and
+For an AAX release it must additionally contain the matching
+`Kirin-Hypha-X.Y.Z-Windows-x64-AAX.json` signed-provenance sidecar. A VST3-only release must not
+claim AAX in the installer manifest.
+
+The JSON must report signing `valid`, CI validation `passed`, external validation `complete`, the
+tested installer's identical SHA-256, retained report SHA-256, signed-candidate workflow URL, and
 `distribution.public_ready=true`. The one-script release set rejects any weaker state.
 
 The `kirin-hypha-windows-vst3-ls-package` artifact is a fallback-only manual ZIP. Its schema is
