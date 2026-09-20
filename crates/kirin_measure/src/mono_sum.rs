@@ -138,7 +138,7 @@ impl MonoSumAnalyzer {
             return None;
         }
 
-        for (index, frame) in interleaved.chunks_exact(2).enumerate() {
+        for (index, frame) in interleaved.as_chunks::<2>().0.iter().enumerate() {
             let weight = self.window[index];
             let left = frame[0] as f32;
             let right = frame[1] as f32;
