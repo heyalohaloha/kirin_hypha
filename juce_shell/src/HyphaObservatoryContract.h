@@ -210,11 +210,12 @@ constexpr ShellLayout shellLayout (Role role,
                          : preset.density == Density::focused ? 116
                          : preset.density == Density::standard ? 132
                          : preset.density == Density::inspection ? 190 : 148;
-    // Observatory reserves a real text field plus an independent menu hit target. The previous
-    // 104 px slot forced "PAIR <name>" underneath the arrow on Windows.
-    const int statusWidth = preset.density == Density::compact ? 92
-                          : preset.density == Density::inspection ? 210
-                          : preset.density == Density::observatory ? 140 : 104;
+    // The external connection controls reserve LED, text, spacing and a 28 px menu hit target.
+    // The compact slot is wider because it cannot borrow space through scaling: even a PRE named
+    // "PAIR" must remain visibly distinct from the adjacent down-arrow at 300 x 200.
+    const int statusWidth = preset.density == Density::compact ? 112
+                          : preset.density == Density::inspection ? 224
+                          : preset.density == Density::observatory ? 154 : 118;
     const int rowHeight = header.height / 2;
     const Rect roleTitle { header.x, header.y, titleWidth, rowHeight };
     const Rect connectionStatus {
@@ -445,6 +446,8 @@ constexpr NavigationState receiveGuide (NavigationState current) noexcept
 
 static_assert (shellLayout (Role::post, sizePresets[3], GuidePresence::absent)
                    .connectionStatus.width >= 140);
+static_assert (shellLayout (Role::post, sizePresets[0], GuidePresence::absent)
+                   .connectionStatus.width >= 112);
 static_assert (! hasArea (shellLayout (Role::post, sizePresets[0],
                                        GuidePresence::absent).guideRail));
 static_assert (hasArea (shellLayout (Role::post, sizePresets[0],

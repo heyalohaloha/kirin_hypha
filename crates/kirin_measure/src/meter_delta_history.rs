@@ -11,6 +11,9 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+#[path = "meter_history_publisher.rs"]
+mod publisher;
+
 use crate::meter_history::MeterHistory;
 use crate::plugin_data::MeasurementLayout;
 use crate::{
@@ -43,7 +46,7 @@ impl MeterHistoryTarget {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 struct WirePoint {
     generation: u64,
     run_id: u64,
@@ -57,7 +60,7 @@ struct WirePoint {
     plr: Option<f64>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 struct Publication {
     schema: u8,
     pre_instance_id: String,
@@ -274,6 +277,7 @@ pub struct MeterDeltaHistoryExchange {
     layout: MeasurementLayout,
     meter_session: Arc<Mutex<MeterSession>>,
     delta: Mutex<DeltaHistoryState>,
+    publisher: Mutex<publisher::HistoryPublisher>,
 }
 
 impl MeterDeltaHistoryExchange {
@@ -286,6 +290,7 @@ impl MeterDeltaHistoryExchange {
             layout,
             meter_session,
             delta: Mutex::new(DeltaHistoryState::default()),
+            publisher: Mutex::new(publisher::HistoryPublisher::default()),
         })
     }
 
@@ -296,29 +301,16 @@ impl MeterDeltaHistoryExchange {
         watch_owner_id: &str,
         instance_dir: &Path,
     ) -> Result<(), String> {
-        let points = self
-            .meter_session
+        self.publisher
             .try_lock()
-            .map_err(|_| "meter session busy".to_string())?
-            .recent_history(MeterHistoryResolution::Hz10, METER_HISTORY_EXCHANGE_POINTS)
-            .into_iter()
-            .filter_map(WirePoint::from_history)
-            .collect();
-        let publication = Publication {
-            schema: METER_HISTORY_EXCHANGE_SCHEMA,
-            pre_instance_id: pre_instance_id.to_string(),
-            watch_owner_id: watch_owner_id.to_string(),
-            daw_session_id: daw_session_id.to_string(),
-            sample_rate: self.sample_rate,
-            layout: self.layout.clone(),
-            points,
-        };
-        let bytes = serde_json::to_vec(&publication).map_err(|error| error.to_string())?;
-        crate::atomic_file::write_bytes_atomic(
-            &instance_dir.join(METER_HISTORY_EXCHANGE_FILE),
-            &bytes,
-        )
-        .map_err(|error| error.to_string())
+            .map_err(|_| "history publisher busy".to_string())?
+            .publish(
+                self,
+                pre_instance_id,
+                daw_session_id,
+                watch_owner_id,
+                instance_dir,
+            )
     }
 
     pub fn service_post_endpoint(&self, target: Option<MeterHistoryTarget>) {

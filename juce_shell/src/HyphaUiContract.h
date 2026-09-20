@@ -21,6 +21,8 @@ namespace hypha::ui_contract
     constexpr int pairStatusWidth   = 50;
     constexpr int nameFieldHeight   = 24;
     constexpr int pairDropdownWidth = 28;
+    constexpr int pairDropdownGap   = 4;
+    constexpr int compactPairNameMinimumWidth = 54;
     constexpr int preDisplayLineHeight = 18;
     constexpr int preDisplayStateGap = 4;
     constexpr int preDisplayDetailMinimumWidth = 72;
@@ -183,6 +185,9 @@ namespace hypha::ui_contract
     static_assert (nameFontHeight >= 16.0f
                        && pairStatusFontHeight >= 13.0f,
                    "The 300x200 editor must retain the legibility floor agreed for release");
+    static_assert (pairDropdownWidth >= 28 && pairDropdownGap >= 4
+                       && compactPairNameMinimumWidth >= pairStatusWidth,
+                   "PAIR text and its independent menu target must never share a rectangle");
     static_assert (menuFontHeight >= 16.0f && pairMenuItemHeight >= 28
                        && pairMenuMinimumWidth >= editorWidth && pairMenuMaximumColumns == 1,
                    "The pair menu must remain readable and single-column in every plugin format");

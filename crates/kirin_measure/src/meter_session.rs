@@ -115,6 +115,8 @@ pub struct MeterSession {
     stereo: StereoMeter,
     clock: MeterClockTracker,
     history: MeterHistory,
+    history_incarnation: u64,
+    history_revision: u64,
     layout: ChannelLayout,
     measurement_epoch: u64,
 }
@@ -134,6 +136,7 @@ impl MeterSession {
         let n_channels = layout.channel_count();
         let engine = MeasureEngine::new(sample_rate, layout)?;
         let stereo = StereoMeter::new(sample_rate, layout)?;
+        static NEXT_HISTORY_INCARNATION: AtomicU64 = AtomicU64::new(1);
         Ok(Self {
             engine,
             sample_rate,
@@ -149,6 +152,8 @@ impl MeterSession {
             stereo,
             clock: MeterClockTracker::new(),
             history: MeterHistory::new(),
+            history_incarnation: NEXT_HISTORY_INCARNATION.fetch_add(1, Ordering::Relaxed),
+            history_revision: 0,
             layout,
             measurement_epoch,
         })
@@ -227,6 +232,7 @@ impl MeterSession {
                             clip_event_count,
                         },
                     );
+                    self.history_revision = self.history_revision.wrapping_add(1);
                 }
                 advanced = true;
             },
@@ -235,6 +241,16 @@ impl MeterSession {
             self.summary = self.engine.finalize();
         }
         true
+    }
+
+    /// Changes only with history facts or explicit reset, never merely with a UI poll or pause.
+    /// The incarnation also distinguishes replacement sessions with equal frame/generation counts.
+    pub(crate) fn history_publication_revision(&self) -> (u64, u64, u64) {
+        (
+            self.history_incarnation,
+            self.generation,
+            self.history_revision,
+        )
     }
 
     pub fn recent_history(
@@ -274,6 +290,7 @@ impl MeterSession {
         self.stereo.reset();
         self.clock.reset();
         self.history.reset();
+        self.history_revision = self.history_revision.wrapping_add(1);
     }
 
     /// Clears the user-resettable Hybrid VU TP maximum and Clip latch without changing the

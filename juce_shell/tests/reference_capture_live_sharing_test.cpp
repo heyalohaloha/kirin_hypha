@@ -37,7 +37,8 @@ void testCaptureLiveSharing() {
     };
     feed(0.5f); juce::AudioBuffer<float> stopped(2,16); stopped.clear();
     controller.observeAInput(stopped,384000,true,false,true,1);
-    require(wait([&]{return !access->active;}),"whole A capture finishes");
+    require(wait([&]{const auto state=access->snapshot();return !access->active && state.held;}),
+        "whole A capture publishes its terminal held snapshot");
     const auto initial=access->snapshot().held;
     require(initial && initial->units.size()==8 && initial->bindings.empty(),"Capture does not need B or fabricate correspondence");
     selection.captureState=controller.savedSettings().captureState; selection.capturedView=true;

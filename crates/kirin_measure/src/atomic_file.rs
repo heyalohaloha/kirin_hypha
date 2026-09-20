@@ -22,6 +22,19 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_bytes_atomic_inspect(path, bytes, |_| Ok(()))
+}
+
+/// Return the written inode's metadata, not metadata from a possibly replaced destination.
+pub(crate) fn write_bytes_atomic_metadata(path: &Path, bytes: &[u8]) -> io::Result<fs::Metadata> {
+    write_bytes_atomic_inspect(path, bytes, fs::File::metadata)
+}
+
+fn write_bytes_atomic_inspect<T>(
+    path: &Path,
+    bytes: &[u8],
+    inspect: impl Fn(&fs::File) -> io::Result<T>,
+) -> io::Result<T> {
     #[cfg(all(test, not(windows)))]
     pause_atomic_write_if_requested(path);
     // The steady-state write proves the directory exists. Avoid a recursive directory
@@ -39,8 +52,10 @@ pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
                 let result = (|| {
                     file.write_all(bytes)?;
                     file.flush()?;
+                    let written = inspect(&file)?;
                     drop(file);
-                    fs::rename(&tmp, path)
+                    fs::rename(&tmp, path)?;
+                    Ok(written)
                 })();
                 if result.is_err() {
                     let _ = fs::remove_file(&tmp);
@@ -86,11 +101,17 @@ fn atomic_write_pause_state() -> &'static (Mutex<AtomicWritePauseState>, Condvar
 #[cfg(all(test, not(windows)))]
 pub(crate) struct AtomicWritePause {
     path: PathBuf,
+    _exclusive: std::sync::MutexGuard<'static, ()>,
 }
 
 #[cfg(all(test, not(windows)))]
 impl AtomicWritePause {
     pub(crate) fn install(path: PathBuf) -> Self {
+        // Multiple independent fault-injection tests share this one process-global hook.
+        static EXCLUSIVE: Mutex<()> = Mutex::new(());
+        let exclusive = EXCLUSIVE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let (lock, _) = atomic_write_pause_state();
         let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         assert!(
@@ -100,7 +121,10 @@ impl AtomicWritePause {
         state.path = Some(path.clone());
         state.entered = false;
         state.released = false;
-        Self { path }
+        Self {
+            path,
+            _exclusive: exclusive,
+        }
     }
 
     pub(crate) fn wait_until_entered(&self) {

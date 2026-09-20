@@ -281,7 +281,8 @@ void KirinHyphaEditor::resized()
     if (isPost)
     {
         nameField.setPrefix (getWidth() < 450 ? "" : "PAIR ");
-        pairDropdown.setBounds (connection.removeFromRight (18));
+        pairDropdown.setBounds (connection.removeFromRight (ui::pairDropdownWidth));
+        connection.removeFromRight (ui::pairDropdownGap);
     }
     const bool showName = true; nameField.setVisible (showName);
     observatoryView.setExternalConnectionLabelVisible (showName);

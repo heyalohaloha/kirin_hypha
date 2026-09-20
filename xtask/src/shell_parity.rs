@@ -89,13 +89,17 @@ mod tests {
         assert!(HYPHA_OBSERVATORY_VIEW_H.contains("connectionBounds() const noexcept"));
         assert!(PLUGIN_EDITOR_CPP
             .contains("auto connection = observatoryView.connectionBounds().reduced (4, 2)"));
-        assert!(
-            PLUGIN_EDITOR_CPP.contains("pairDropdown.setBounds (connection.removeFromRight (18))")
-        );
+        assert!(PLUGIN_EDITOR_CPP.contains(
+            "pairDropdown.setBounds (connection.removeFromRight (ui::pairDropdownWidth))"
+        ));
+        assert!(PLUGIN_EDITOR_CPP.contains("connection.removeFromRight (ui::pairDropdownGap)"));
+        assert!(HYPHA_UI_CONTRACT_H.contains("constexpr int pairDropdownWidth = 28;"));
+        assert!(HYPHA_UI_CONTRACT_H.contains("constexpr int pairDropdownGap   = 4;"));
         assert_eq!(
             count_occurrences(PLUGIN_EDITOR_CPP, "pairDropdown.setBounds"),
             1
         );
+        assert!(!PLUGIN_EDITOR_CPP.contains("connection.removeFromRight (18)"));
         assert!(!PLUGIN_EDITOR_CPP.contains("const int ddW = 22;"));
         assert!(PLUGIN_EDITOR_CPP.contains("menu.setLookAndFeel (&pairMenuLookAndFeel())"));
         assert!(

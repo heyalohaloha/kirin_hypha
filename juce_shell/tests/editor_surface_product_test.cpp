@@ -1,6 +1,7 @@
 #include "../src/PluginEditor.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceAccessPanel.h"
+#include "../src/HyphaTextStyle.h"
 #include "ValidationStorageSandbox.h"
 #include "EditorCaptureProductTest.h"
 
@@ -181,6 +182,59 @@ void verifySavedReferenceChoices()
     require (choices.version.target() == settings.version.target()
         && choices.check.target() == settings.check.target(), "shipping processor retains B/C before prepare");
     require (! restored.referenceAuditionSnapshot().bSelected, "restoring the processor never selects reference audio");
+}
+
+void verifyPairHeaderAtEverySize (const juce::File& previews)
+{
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Post);
+    processor.prepareToPlay (48'000, 960);
+    auto editor = std::unique_ptr<KirinHyphaEditor> (
+        dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
+    require (editor != nullptr, "POST editor opens for pair-header geometry");
+    auto* name = component<hypha::EditableName> (*editor);
+    auto* dropdown = component<hypha::PairDropdownButton> (*editor);
+    require (name != nullptr && dropdown != nullptr,
+             "shipping pair label and menu target both exist");
+    require (name->getParentComponent() == dropdown->getParentComponent(),
+             "pair label and menu use one coordinate space");
+
+    for (const auto preset : hypha::observatory::sizePresets)
+    {
+        editor->setSize (preset.width, preset.height);
+        const auto context = hypha::presentation::forEditor (preset.width, preset.height);
+        const auto style = hypha::typography::resolve (
+            context, hypha::typography::TextRole::selector);
+        const auto required = hypha::text_style::requiredWidth (
+            hypha::monoFont (context, hypha::typography::TextRole::selector), "PAIR", style);
+        require (dropdown->getWidth() == hypha::ui_contract::pairDropdownWidth,
+                 "pair menu retains its 28 px target");
+        require (! name->getBounds().intersects (dropdown->getBounds()),
+                 "pair label never intersects the down-arrow target");
+        require (name->getWidth() >= required,
+                 "PAIR remains fully paintable beside the down arrow");
+
+        name->setModelName ("PAIR");
+        const auto pair = name->createComponentSnapshot (name->getLocalBounds());
+        if (previews != juce::File())
+        {
+            require (previews.createDirectory().wasOk(), "pair-header preview directory");
+            auto output = previews.getChildFile (
+                "post-pair-header-" + juce::String (preset.width) + ".png").createOutputStream();
+            const auto image = editor->createComponentSnapshot (editor->getLocalBounds());
+            require (output != nullptr && output->setPosition (0) && output->truncate().wasOk(),
+                     "pair-header preview output");
+            require (juce::PNGImageFormat().writeImageToStream (image, *output),
+                     "pair-header preview PNG");
+        }
+        name->setModelName ("PAI");
+        const auto pai = name->createComponentSnapshot (name->getLocalBounds());
+        require (differentPixels (pair, pai, pair.getBounds()) > 4,
+                 "the final R is visible rather than clipped beneath the down arrow");
+    }
+    processor.editorBeingDeleted (editor.get());
+    editor.reset();
+    processor.releaseResources();
 }
 
 // Exercise the shipping editor's refresh timer, sibling z-order and hit routing together.
@@ -380,8 +434,10 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI init;
     verifyRecordBodyOwnership();
     verifySavedReferenceChoices();
+    const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();
+    verifyPairHeaderAtEverySize (previews);
     std::unique_ptr<SurfaceContract> contract;
-    CaptureProductContract capture([&] { contract=std::make_unique<SurfaceContract>(argc>1 ? juce::File(argv[1]) : juce::File()); });
+    CaptureProductContract capture([&] { contract=std::make_unique<SurfaceContract>(previews); });
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract && contract->passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

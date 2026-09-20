@@ -178,14 +178,15 @@ void testReferenceComparisons (const juce::File& sandbox)
     const auto wait = [&] (const auto& predicate)
     {
         int cursor = 0;
-        for (int i = 0; i < 1000; ++i)
+        const auto deadline = juce::Time::getMillisecondCounterHiRes() + 30'000.0;
+        do
         {
             observeWholeSongFixture (controller, fixture, cursor);
             if (predicate (controller.snapshot())) {
                 controller.observeTransport (0, true, true); juce::Thread::sleep (200); return;
             }
             juce::Thread::sleep (10);
-        }
+        } while (juce::Time::getMillisecondCounterHiRes() < deadline);
         const auto last = controller.snapshot();
         std::cerr << "ABC state " << static_cast<int> (last.state) << " " << last.rejectionCode
                   << " capture " << last.aCaptureAvailable << " measurement " << last.measurementAvailable << '\n';
