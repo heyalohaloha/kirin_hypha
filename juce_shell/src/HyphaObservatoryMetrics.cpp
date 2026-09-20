@@ -318,8 +318,6 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         "LUFS", "LUFS", trackStem ? "dB" : "LUFS"
     };
     constexpr int mainCount = 3;
-    if (isFullDensity (density))
-        background.drawLevelCorners (g, main, worldState());
     for (int index = 0; index < mainCount; ++index)
     {
         drawMetric (g, metricHelpArea (main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),

@@ -136,7 +136,6 @@ set(KIRIN_HYPHA_DATA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hybrid_vu_chassis.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/observatory_understory.png
-    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hypha_level_corners.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/attack_specimen_body_v3.png)
 set(KIRIN_HYPHA_KIMERA_EMBEDDED 0)
 if(KIRIN_HYPHA_KIMERA_FONT_FILE)

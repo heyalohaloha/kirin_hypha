@@ -426,7 +426,8 @@ void View::paint (juce::Graphics& g)
     if (contract.domainWorld)
     {
         background.drawDomainBed (g, bodyArea, state);
-        background.drawHyphaSpecimen (g, bodyArea, state);
+        if (selectedDomain == Domain::time)
+            background.drawHyphaSpecimen (g, bodyArea, state);
     }
     paintHeader (g, layout);
     if (recordDisplayShowing())

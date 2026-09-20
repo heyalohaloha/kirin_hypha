@@ -37,17 +37,15 @@ class Backdrop
 public:
     Backdrop();
     void draw (juce::Graphics&, juce::Rectangle<int>, const State&) const;
-    void drawLevelCorners (juce::Graphics&, juce::Rectangle<int>, const State&) const;
     void drawHyphaSpecimen (juce::Graphics&, juce::Rectangle<int>, const State&) const;
     void drawDomainBed (juce::Graphics&, juce::Rectangle<int>, const State&) const;
     bool isValid() const noexcept
     {
-        return image.isValid() && levelCorners.isValid() && hyphaSpecimen.isValid();
+        return image.isValid() && hyphaSpecimen.isValid();
     }
 
 private:
     juce::Image image;
-    juce::Image levelCorners;
     juce::Image hyphaSpecimen;
     // Only the immutable texture is cached; state-dependent opacity remains live.
     mutable juce::Image scaledBackdrop;
