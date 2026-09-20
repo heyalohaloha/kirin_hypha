@@ -36,22 +36,29 @@ fn peak_dbfs_for(layout: ChannelLayout, view: SpectrumView, amplitudes: &[f32]) 
     assert!(runtime.set_view(view), "{:?} must be accepted", view);
     assert!(runtime.set_enabled(true), "{:?} must enable", layout.id());
 
-    let mut position = 0_i64;
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // Feed one complete first publication instead of repeatedly driving the ring faster than
+    // realtime while waiting for a slow CI worker. At 48 kHz the 4096-sample aperture first lands
+    // on the 30 Hz publication grid at sample 4800. One block is below the two-aperture ingress
+    // capacity, so a rejected push is a product failure rather than scheduler backpressure caused
+    // by the test itself.
+    let spectrum_layout = crate::spectrum::SpectrumLayout::new(48_000).unwrap();
+    let cadence = 48_000usize / crate::spectrum::SPECTRUM_PRESENTATION_HZ as usize;
+    let count = spectrum_layout.aperture_samples.div_ceil(cadence) * cadence;
+    let mut samples = Vec::with_capacity(count * channels);
+    for index in 0..count {
+        let phase = std::f32::consts::TAU * 1_000.0 * index as f32 / 48_000.0;
+        for amplitude in amplitudes {
+            samples.push(amplitude * phase.sin());
+        }
+    }
+    assert!(
+        runtime.push_block_from_audio(&samples, channels, Some(0)),
+        "one complete publication block must fit the empty ingress ring"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(10);
     let mut peak = None;
     while Instant::now() < deadline && peak.is_none() {
-        let count = 2_048usize;
-        let mut samples = Vec::with_capacity(count * channels);
-        for index in 0..count {
-            let phase =
-                std::f32::consts::TAU * 1_000.0 * (position as usize + index) as f32 / 48_000.0;
-            for amplitude in amplitudes {
-                samples.push(amplitude * phase.sin());
-            }
-        }
-        runtime.push_block_from_audio(&samples, channels, Some(position));
-        position += count as i64;
-        std::thread::sleep(Duration::from_millis(5));
         peak = runtime
             .try_history()
             .and_then(|history| history.newest().cloned())
@@ -61,6 +68,9 @@ fn peak_dbfs_for(layout: ChannelLayout, view: SpectrumView, amplitudes: &[f32]) 
                 assert_eq!(frame.view, view.to_abi(), "frame は選んだ view を名乗る");
                 frame.dbfs.iter().copied().fold(f32::NEG_INFINITY, f32::max)
             });
+        if peak.is_none() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
     let stats = runtime.stats();
     assert_eq!(stats.dropped_blocks, 0, "block を落とさない");
