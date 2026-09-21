@@ -28,23 +28,25 @@ for that commit.
 
 ## Artifact To Send
 
-For each later release, first validate the unsigned installer candidate named
-`kirin-hypha-windows-installer` from the complete green Hypha CI run. Its manifest must identify the
-same exact release-candidate commit and version. After this checklist is green, the private signing
-factory may rebuild that exact source commit with `external_validation=complete`; it then verifies the
-signed payload and installer mechanics again before producing `KirinHypha-Windows-signed-full`.
+For each later release, first run the private signing factory in candidate mode and validate the
+`KirinHypha-Windows-signed-candidate` artifact. Its manifest must identify the exact green Hypha CI
+commit and version, and its Setup EXE and installed PRE/POST payloads must already be Authenticode
+signed. The candidate must remain `external_validation=pending` and `public_ready=false` until this
+checklist is complete.
 
 The handoff artifact should include:
 
 - `Kirin-Hypha-<version>-Windows-x64-Setup.exe`
 - the matching `.exe.sha256`
-- the matching `.exe.json`, with signing `verified_unsigned_ci_candidate`, CI validation `passed`,
-  and external validation `pending`
+- the matching `.exe.json`, with signing `valid`, CI validation `passed`, external validation
+  `pending`, and `distribution.public_ready=false`
 
-Before the checklist passes, treat that commit's package as a validation build. After it passes, the
-exact source commit may enter the signed factory with external validation marked complete. Publish
-only the factory's signed output after its own pluginval, transparency, signature, repeat-install,
-and uninstall gates pass. The unsigned candidate and fallback ZIP are not normal user-facing downloads.
+Retain the completed report and calculate its SHA-256. Then run the same factory in promotion mode
+with the signed-candidate run ID and report SHA-256. Promotion downloads that exact candidate,
+re-verifies its installer hash and Authenticode signature, and changes only the JSON sidecar to mark
+external validation complete. It does not rebuild or re-sign the EXE. Publish only the resulting
+`KirinHypha-Windows-signed-full` artifact after confirming its EXE SHA-256 is identical to the one
+tested here. The signed candidate and fallback ZIP are not normal user-facing downloads.
 
 ## Tester Requirements
 
@@ -64,6 +66,9 @@ Buffer size:
 Install path used:
 Kirin Hypha commit:
 CI run URL:
+Signed candidate workflow run URL:
+Signed candidate installer SHA-256:
+Validation report SHA-256:
 ```
 
 ## Install

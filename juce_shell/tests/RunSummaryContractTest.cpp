@@ -24,9 +24,11 @@ void require (bool condition, const char* expression, int line)
 
 KirinMeterHistoryEntry point (std::uint64_t generation, std::uint64_t run,
                               std::uint64_t observed, double momentary,
-                              double peak, std::uint16_t count = 1)
+                              double peak, std::uint16_t count = 1,
+                              std::uint64_t epoch = 1)
 {
     KirinMeterHistoryEntry entry {};
+    entry.measurement_epoch = epoch;
     entry.generation = generation;
     entry.run_id = run;
     entry.first_observed_frames = observed;

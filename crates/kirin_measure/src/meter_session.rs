@@ -5,13 +5,25 @@
 //! accumulated statistics. The owner lives outside the replaceable Measure worker so a worker
 //! restart does not implicitly discard the session.
 
+use crate::channel_layout::ChannelLayout;
 use crate::meter_clock::MeterClockTracker;
 use crate::meter_history::MeterHistory;
 use crate::{
     MeasureEngine, MeasureResult, MeterClockStart, MeterHistoryAux, MeterHistoryEntry,
     MeterHistoryResolution, SessionSummary, StereoMeter, StereoMeterSnapshot,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{RwLock, TryLockError};
+
+/// 次の測定区間 id を取る。プロセス内で単調増加し、0 は決して返さない。
+///
+/// 区間は「同じ map・同じ rate で測り続けた範囲」であり、時刻でも通し番号でもない。engine を
+/// 別の layout / sample rate で作り直したときに新しい値を取る。2 つの値を比較する意味があるのは
+/// 「同じか違うか」だけで、差や大小に意味は無い。
+pub fn next_measurement_epoch() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeterSessionState {
@@ -37,6 +49,12 @@ pub struct MeterSessionSnapshot {
     pub summary: SessionSummary,
     pub plr: Option<f64>,
     pub stereo: StereoMeterSnapshot,
+    /// The layout this session's engine was built for. The slot order is the buffer order, so a
+    /// reader names a channel by its role rather than by where it happened to sit.
+    pub layout: ChannelLayout,
+    /// Which measurement span these values belong to. Values from two spans are not the same
+    /// measurement and must not be shown or aggregated together (D-12).
+    pub measurement_epoch: u64,
 }
 
 impl MeterSessionSnapshot {
@@ -97,12 +115,28 @@ pub struct MeterSession {
     stereo: StereoMeter,
     clock: MeterClockTracker,
     history: MeterHistory,
+    history_incarnation: u64,
+    history_revision: u64,
+    layout: ChannelLayout,
+    measurement_epoch: u64,
 }
 
 impl MeterSession {
-    pub fn new(sample_rate: u32, n_channels: usize) -> Result<Self, String> {
-        let engine = MeasureEngine::new(sample_rate, n_channels)?;
-        let stereo = StereoMeter::new(sample_rate, n_channels)?;
+    pub fn new(sample_rate: u32, layout: ChannelLayout) -> Result<Self, String> {
+        Self::new_in_epoch(sample_rate, layout, 0)
+    }
+
+    /// `epoch` は測定区間の識別子。engine が別の layout / sample rate で作り直されるたびに
+    /// 呼び出し側が進める。0 は「区間が割り当てられていない」で、比較の対象にしない。
+    pub fn new_in_epoch(
+        sample_rate: u32,
+        layout: ChannelLayout,
+        measurement_epoch: u64,
+    ) -> Result<Self, String> {
+        let n_channels = layout.channel_count();
+        let engine = MeasureEngine::new(sample_rate, layout)?;
+        let stereo = StereoMeter::new(sample_rate, layout)?;
+        static NEXT_HISTORY_INCARNATION: AtomicU64 = AtomicU64::new(1);
         Ok(Self {
             engine,
             sample_rate,
@@ -118,6 +152,10 @@ impl MeterSession {
             stereo,
             clock: MeterClockTracker::new(),
             history: MeterHistory::new(),
+            history_incarnation: NEXT_HISTORY_INCARNATION.fetch_add(1, Ordering::Relaxed),
+            history_revision: 0,
+            layout,
+            measurement_epoch,
         })
     }
 
@@ -182,6 +220,7 @@ impl MeterSession {
                 if clock.usable_for_history {
                     let correlation = stereo_snapshot.and_then(|snapshot| snapshot.correlation);
                     self.history.push(
+                        self.measurement_epoch,
                         self.generation,
                         clock.run_id,
                         self.observed_frames,
@@ -193,6 +232,7 @@ impl MeterSession {
                             clip_event_count,
                         },
                     );
+                    self.history_revision = self.history_revision.wrapping_add(1);
                 }
                 advanced = true;
             },
@@ -201,6 +241,16 @@ impl MeterSession {
             self.summary = self.engine.finalize();
         }
         true
+    }
+
+    /// Changes only with history facts or explicit reset, never merely with a UI poll or pause.
+    /// The incarnation also distinguishes replacement sessions with equal frame/generation counts.
+    pub(crate) fn history_publication_revision(&self) -> (u64, u64, u64) {
+        (
+            self.history_incarnation,
+            self.generation,
+            self.history_revision,
+        )
     }
 
     pub fn recent_history(
@@ -240,12 +290,19 @@ impl MeterSession {
         self.stereo.reset();
         self.clock.reset();
         self.history.reset();
+        self.history_revision = self.history_revision.wrapping_add(1);
     }
 
     /// Clears the user-resettable Hybrid VU TP maximum and Clip latch without changing the
     /// Meter Session, its history, or Record/Keep-independent cumulative facts.
     pub fn clear_peak_clip_holds(&mut self) {
         self.stereo.clear_peak_clip_holds();
+    }
+
+    /// この session が実際に測っている配置。比較の相手が同じ map で測ったかを確かめる側が読む
+    /// （`MeterDeltaHistoryExchange`）。チャンネル数から推測させないための accessor である。
+    pub fn layout(&self) -> ChannelLayout {
+        self.layout
     }
 
     pub fn snapshot(&self) -> MeterSessionSnapshot {
@@ -266,6 +323,8 @@ impl MeterSession {
                 .map(|(peak, integrated)| peak - integrated)
                 .filter(|value| value.is_finite()),
             stereo: self.stereo.snapshot(),
+            layout: self.layout,
+            measurement_epoch: self.measurement_epoch,
         }
     }
 }

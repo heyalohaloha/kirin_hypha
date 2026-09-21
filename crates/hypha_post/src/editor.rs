@@ -22,6 +22,8 @@
 //!
 //! （赤系禁止。色相同一・明度増）。
 
+mod record_style;
+
 use hypha_gui::{
     derive_led_state, display_signal_state_for_led, display_smoothing::DisplaySmoother,
     draw_pair_indicator, fmt_delta, fmt_val, install_native_font_contract, led_color, tp_over,
@@ -1166,17 +1168,7 @@ fn draw_watch_absolute_grid(
 /// - `Δ.X` が None なら `COL_MUTED` で `---`
 /// - ΔTP のみ POST 絶対 TP が 0 dBTP 超 (tp_warn) のとき `COL_FLORA_BRIGHT` (旧仕様維持)
 fn draw_record_section(ui: &mut egui::Ui, m: &MeasureResult, d: &DeltaResult, muted: bool) {
-    let delta_col = if muted {
-        COL_MUTED
-    } else {
-        match d.mode {
-            DeltaMode::Active => COL_NORMAL,
-            DeltaMode::Stale => COL_MUTED,
-            DeltaMode::Bypassed => COL_MUTED,
-            DeltaMode::PreInactive => COL_MUTED,
-            DeltaMode::NoPre => COL_MUTED,
-        }
-    };
+    let delta_col = record_style::delta_color(&d.mode, muted);
     let tp_warn = !muted && tp_over(m.true_peak);
 
     // B-048 / G-115-245 Last Known Good (advisor 判断 1 案 X 条件付き):

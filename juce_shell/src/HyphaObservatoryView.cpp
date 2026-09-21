@@ -46,7 +46,7 @@ View::View (Role roleIn) : role (roleIn)
     informationButton.onClick = [this] { if (onInformation) onInformation(); };
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
                           &referenceButton,
-                          &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton,
+                          &domainCycleButton, &targetButton, &deltaButton, &timeRangeButton, &timeRangeMenuButton,
                           &compactLoudnessButton, &compactRangeButton,
                           &contextButton, &scaleButton, &sizeButton, &operationsButton,
                           &stopButton, &guideButton, &statusButton, &hybridVuButton,
@@ -80,6 +80,10 @@ View::View (Role roleIn) : role (roleIn)
         if (onTargetChange) onTargetChange (ObservationTarget::delta);
     };
     timeRangeButton.onClick = [this] { cycleTimeRange(); };
+    timeRangeMenuButton.setComponentID ("observatory-time-range-menu");
+    timeRangeMenuButton.setTitle ("Choose history time range");
+    timeRangeMenuButton.setTooltip ("Choose history time range");
+    timeRangeMenuButton.onClick = [this] { if (onTimeRangeMenu) onTimeRangeMenu(); };
     compactLoudnessButton.onClick = [this]
     {
         const auto next = ! selectedShortTermLoudness;
@@ -106,6 +110,7 @@ View::View (Role roleIn) : role (roleIn)
     operationsButton.setComponentID ("observatory-menu");
     operationsButton.onClick = [this] { if (onOperationsMenu) onOperationsMenu(); };
     stopButton.setColour (juce::TextButton::textColourOffId, COL_FLORA_BR);
+    stopButton.setComponentID ("observatory-stop");
     stopButton.setTooltip ("Stop the selected PRE / POST Keep");
     stopButton.onClick = [this] { if (onStop) onStop(); };
     guideButton.setColour (juce::TextButton::textColourOffId, COL_GUIDE_BR);
@@ -134,6 +139,7 @@ View::View (Role roleIn) : role (roleIn)
     resetButton.onClick = [this] { if (onReset) onReset(); };
     noteButton.onClick = [this] { if (onNote) onNote(); };
     noteButton.setComponentID ("observatory-note");
+    captureButton.setComponentID ("observatory-capture");
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
     styleButton (localBlindButton);
     localBlindButton.setComponentID ("observatory-local-blind");
@@ -381,6 +387,7 @@ void View::updateControls()
 
 void View::paint (juce::Graphics& g)
 {
+    metricHelpCount = 0;
     if (hybridVuVisible())
     {
         hybrid_vu::paint (g, getLocalBounds(), {
@@ -419,16 +426,19 @@ void View::paint (juce::Graphics& g)
     if (contract.domainWorld)
     {
         background.drawDomainBed (g, bodyArea, state);
-        background.drawHyphaSpecimen (g, bodyArea, state);
+        if (selectedDomain == Domain::time)
+            background.drawHyphaSpecimen (g, bodyArea, state);
     }
     paintHeader (g, layout);
-    if (selectedDomain == Domain::level && (captureFrame || fullCockpit()))
+    if (recordDisplayShowing())
+        paintRecordDisplay (g, bodyArea);
+    else if (selectedDomain == Domain::level && (captureFrame || fullCockpit()))
         paintLevelWithHistory (g, bodyArea);
     else if (selectedDomain == Domain::level) paintLevel (g, bodyArea);
     else if (selectedDomain == Domain::time && ! externalAnalysisBodyActive)
         paintTime (g, bodyArea);
     else if (selectedDomain == Domain::space)
-        space_field::paint (g, bodyArea, observatoryFrame.meter,
+        space_field::paint (g, bodyArea, observatoryFrame.meter, monoSumHistory,
                             currentFactsAvailable(),
                             contract.family == ExperienceFamily::compactMeter,
                             presentationContext());

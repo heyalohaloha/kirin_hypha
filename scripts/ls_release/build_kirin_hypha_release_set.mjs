@@ -304,6 +304,15 @@ export function requireWindowsInstaller(
   if (manifest.external_validation?.status !== 'complete') {
     throw new Error('Windows external DAW validation is incomplete');
   }
+  const externalValidation = manifest.external_validation;
+  if (!/^[0-9a-f]{64}$/.test(externalValidation.report_sha256 || '')
+      || externalValidation.installer_sha256 !== expectedHash
+      || !/^https:\/\/github\.com\/heyalohaloha\/kirin_sense_lens\/actions\/runs\/\d+$/.test(
+        externalValidation.candidate_workflow_run || '',
+      )
+      || Number.isNaN(Date.parse(externalValidation.completed_at || ''))) {
+    throw new Error('Windows exact signed-candidate validation provenance is incomplete');
+  }
   if (manifest.distribution?.primary !== true || manifest.distribution?.public_ready !== true) {
     throw new Error('Windows installer manifest does not mark the primary artifact public-ready');
   }

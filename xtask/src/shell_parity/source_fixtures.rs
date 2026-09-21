@@ -1,16 +1,10 @@
-    const POST_CONTROLS_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PostControls.cpp"
-    ));
-    const POST_CONTROLS_H: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PostControls.h"
-    ));
     const README: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../README.md"));
     const PLUGIN_EDITOR_CPP: &str = concat!(
         include_str!("../../../juce_shell/src/PluginEditor.cpp"),
         include_str!("../../../juce_shell/src/PluginEditorMeter.cpp"),
         include_str!("../../../juce_shell/src/PluginEditorMenu.cpp"),
+        include_str!("../../../juce_shell/src/PluginEditorObservatory.cpp"),
+        include_str!("../../../juce_shell/src/PluginEditorLifecycle.cpp"),
     );
     const PLUGIN_EDITOR_H: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -24,10 +18,14 @@
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginEditorCapture.cpp"
     ));
-    const PLUGIN_PROCESSOR_CPP: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/PluginProcessor.cpp"
-    ));
+    const PLUGIN_PROCESSOR_CPP: &str = concat!(
+        include_str!("../../../juce_shell/src/PluginProcessor.cpp"),
+        "\n",
+        // B-961: format binding lives in its own translation unit; parity still reads one shell.
+        include_str!("../../../juce_shell/src/PluginProcessorFormat.cpp"),
+        "\n",
+        include_str!("../../../juce_shell/src/PluginProcessorState.cpp")
+    );
     const PLUGIN_PROCESSOR_PAIRING_CPP: &str =
         include_str!("../../../juce_shell/src/PluginProcessorPairing.cpp");
     const PLUGIN_PROCESSOR_METER_CPP: &str = include_str!("../../../juce_shell/src/PluginProcessorMeter.cpp");
@@ -65,9 +63,17 @@
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/HyphaObservatoryView.h"
     ));
-    const HYPHA_DISPLAY_CONTRACT_H: &str = include_str!(concat!(
+    const HYPHA_OBSERVATORY_VIEW_FOOTER_CPP: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../juce_shell/src/HyphaDisplayContract.h"
+        "/../juce_shell/src/HyphaObservatoryViewFooter.cpp"
+    ));
+    const HYPHA_OBSERVATORY_METRICS_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/HyphaObservatoryMetrics.cpp"
+    ));
+    const HYPHA_OBSERVATORY_CAPTURE_CPP: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../juce_shell/src/HyphaObservatoryCapture.cpp"
     ));
     const PRE_DISPLAY_CONTROLLER_CPP: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -98,9 +104,19 @@
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
             "../juce_shell/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm",
         );
-        std::fs::read_to_string(path)
-            .ok()
-            .map(|source| source.replace("\r\n", "\n"))
+        let mut source = std::fs::read_to_string(path).ok()?.replace("\r\n", "\n");
+        if !source.contains("setKirinAuUsesHostTransportTimeline") {
+            let patch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../juce_shell/patches/0004-au-clock-provenance.patch");
+            let additions = std::fs::read_to_string(patch).ok()?
+                .lines()
+                .filter_map(|line| line.strip_prefix('+'))
+                .filter(|line| !line.starts_with("++"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            source.push_str(&additions);
+        }
+        Some(source)
     }
     fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         let start_index = source.find(start).expect(start) + start.len();

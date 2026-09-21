@@ -1,14 +1,15 @@
 use super::*;
+use kirin_measure::channel_layout::ChannelLayout;
 
-fn post_engine(channels: u32) -> Box<KirinHyphaEngine> {
-    let engine = Box::new(KirinHyphaEngine::new(48_000, channels));
+fn post_engine(layout: ChannelLayout) -> Box<KirinHyphaEngine> {
+    let engine = Box::new(KirinHyphaEngine::new(48_000, layout));
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     engine
 }
 
 #[test]
 fn shipping_c_abi_routes_each_analysis_request_to_the_expected_runtime() {
-    let mut engine = post_engine(2);
+    let mut engine = post_engine(ChannelLayout::stereo());
     let handle = engine.as_mut() as *mut KirinHyphaEngine;
 
     assert!(unsafe { kirin_hypha_set_spectrum_channel_mode(handle, 2) });
@@ -57,14 +58,17 @@ fn shipping_c_abi_routes_each_analysis_request_to_the_expected_runtime() {
 
 #[test]
 fn shipping_c_abi_rejects_invalid_role_channel_and_null_handle() {
-    let mut pre = Box::new(KirinHyphaEngine::new(48_000, 2));
+    let mut pre = Box::new(KirinHyphaEngine::new(
+        48_000,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    ));
     *pre.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
     let pre_handle = pre.as_mut() as *mut KirinHyphaEngine;
     assert!(!unsafe { kirin_hypha_set_spectrum_visible(pre_handle, true) });
     assert!(!unsafe { kirin_hypha_set_absolute_visible(pre_handle, true) });
     assert!(!unsafe { kirin_hypha_set_attack_enabled(pre_handle, true) });
 
-    let mut mono = post_engine(1);
+    let mut mono = post_engine(ChannelLayout::mono());
     let mono_handle = mono.as_mut() as *mut KirinHyphaEngine;
     assert!(!unsafe { kirin_hypha_set_spectrum_channel_mode(mono_handle, 2) });
     assert!(!unsafe { kirin_hypha_set_mid_side_spectrum_visible(mono_handle, true) });
@@ -106,6 +110,7 @@ fn spectrum_status_and_signed_display_values_have_stable_c_mapping() {
         min_hz: 10.0,
         max_hz: 22_000.0,
         channel_mode: SpectrumChannelMode::Side,
+        view: kirin_measure::channel_layout::SpectrumView::Side.to_abi(),
         channels: 2,
         pre_dbfs: [-42.0; SPECTRUM_BAND_COUNT],
         post_dbfs: [-45.5; SPECTRUM_BAND_COUNT],
@@ -171,6 +176,7 @@ fn unpaired_post_spectrum_is_distinct_from_exact_delta_at_the_abi() {
             presentation_end_samples: 9_600,
             generation: 4,
             channel_mode: SpectrumChannelMode::Lr,
+            view: kirin_measure::channel_layout::SpectrumView::Lr.to_abi(),
             channels: 2,
             min_hz: 10.0,
             max_hz: 22_000.0,
@@ -397,7 +403,10 @@ fn attack_uses_exact_project_clock_when_presentation_callback_is_absent() {
 
 #[test]
 fn pre_role_cannot_expose_the_post_spectrum_page() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(
+        48_000,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    );
     assert!(!engine.set_spectrum_visible(true));
     assert!(!engine.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Pre);
@@ -408,7 +417,10 @@ fn pre_role_cannot_expose_the_post_spectrum_page() {
 
 #[test]
 fn post_channel_mode_is_single_select_and_side_requires_stereo() {
-    let stereo = KirinHyphaEngine::new(48_000, 2);
+    let stereo = KirinHyphaEngine::new(
+        48_000,
+        kirin_measure::channel_layout::ChannelLayout::stereo(),
+    );
     *stereo.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     assert!(stereo.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
     assert_eq!(
@@ -422,9 +434,62 @@ fn post_channel_mode_is_single_select_and_side_requires_stereo() {
     );
     assert!(!stereo.set_spectrum_channel_mode(3));
 
-    let mono = KirinHyphaEngine::new(48_000, 1);
+    let mono = KirinHyphaEngine::new(48_000, kirin_measure::channel_layout::ChannelLayout::mono());
     *mono.write_role.lock().unwrap() = Some(PluginDataRole::Post);
     assert!(mono.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_MID));
     assert!(!mono.set_spectrum_channel_mode(KIRIN_SPECTRUM_CHANNEL_SIDE));
     assert_eq!(mono.spectrum_stats().channel_mode, SpectrumChannelMode::Mid);
+}
+
+#[test]
+fn shipping_ffi_never_returns_the_previous_channel_snapshot_after_selection() {
+    let mut engine = post_engine(ChannelLayout::stereo());
+    let handle = engine.as_mut() as *mut KirinHyphaEngine;
+    assert!(unsafe { kirin_hypha_set_spectrum_visible(handle, true) });
+    engine.spectrum.service_post_endpoint("post", None, "Mix");
+
+    for block in 0..40_i64 {
+        let start = block * 256;
+        let samples = (0..256)
+            .flat_map(|offset| {
+                let phase = std::f32::consts::TAU * 1_000.0 * (start + offset) as f32 / 48_000.0;
+                let sample = phase.sin() * 0.25;
+                [sample, sample]
+            })
+            .collect::<Vec<_>>();
+        engine.note_capture_window_with_presentation(
+            true,
+            start,
+            256,
+            CaptureClockSource::AudioRenderTimeline,
+            PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(0),
+            },
+            false,
+        );
+        engine.push_samples(&samples, 2);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let mut before = empty_c_spectrum();
+    while std::time::Instant::now() < deadline {
+        assert!(unsafe { kirin_hypha_poll_spectrum(handle, &mut before) });
+        if before.post_has_data == 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(before.post_has_data, 1);
+    assert_eq!(before.channel_mode, KIRIN_SPECTRUM_CHANNEL_LR);
+
+    assert!(unsafe { kirin_hypha_set_spectrum_channel_mode(handle, KIRIN_SPECTRUM_CHANNEL_MID) });
+    let mut after = before;
+    assert!(unsafe { kirin_hypha_poll_spectrum(handle, &mut after) });
+    assert_eq!(after.status, KIRIN_SPECTRUM_WARMING_UP);
+    assert_eq!(after.channel_mode, KIRIN_SPECTRUM_CHANNEL_MID);
+    assert_eq!(after.has_data, 0);
+    assert_eq!(after.post_has_data, 0);
 }

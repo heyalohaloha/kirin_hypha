@@ -1,9 +1,15 @@
 use kirin_measure::{DeltaResult, MeasureResult};
 
-/// GUI-only numeric stabilizer.
+/// GUI-only numeric stabilizer for the live Watch cells.
 ///
 /// Record/TRACE writers keep raw 10 fps measurements. This filter is only for the tiny plugin
 /// display so short drum transients do not make the visible numbers unreadable.
+///
+/// It owns exactly the "current" scalars: LUFS-M, recent True Peak, Crest, PSR, N, and Sharpness.
+/// Everything else passes through as measured — the session maximum `tp_session_max`, LUFS-S
+/// (already an exact 3 s engine window), the per-Bark arrays, and the integrity counters.
+/// The retired prototype editors still use this display-only smoother. The shipping JUCE
+/// Observatory consumes producer snapshots directly and does not duplicate this hold.
 #[derive(Debug, Clone)]
 pub struct DisplaySmoother {
     measure: MeasureResult,
@@ -48,13 +54,6 @@ impl DisplaySmoother {
         out.true_peak = smooth_option(
             self.measure.true_peak,
             raw.true_peak,
-            dt,
-            self.tau_secs,
-            true,
-        );
-        out.tp_session_max = smooth_option(
-            self.measure.tp_session_max,
-            raw.tp_session_max,
             dt,
             self.tau_secs,
             true,
@@ -286,6 +285,34 @@ mod tests {
 
         m.lufs_m = Some(-10.0);
         assert_eq!(s.update_measure(&m, 9.2).lufs_m, Some(-10.0));
+    }
+
+    #[test]
+    fn session_maximum_is_never_smoothed_toward_a_value_it_never_had() {
+        // tp_session_max carries the same definition as `SessionSummary.max_true_peak`. A display
+        // filter must not put a number between two canonical session maximums.
+        let mut s = DisplaySmoother::default();
+        let mut m = MeasureResult {
+            tp_session_max: Some(-6.0),
+            ..MeasureResult::default()
+        };
+        assert_eq!(s.update_measure(&m, 0.0).tp_session_max, Some(-6.0));
+        m.tp_session_max = Some(-0.5);
+        assert_eq!(s.update_measure(&m, 0.1).tp_session_max, Some(-0.5));
+        m.tp_session_max = Some(-20.0);
+        assert_eq!(s.update_measure(&m, 0.2).tp_session_max, Some(-20.0));
+    }
+
+    #[test]
+    fn short_term_loudness_passes_through_as_the_exact_three_second_window() {
+        let mut s = DisplaySmoother::default();
+        let mut m = MeasureResult {
+            lufs_s: Some(-18.0),
+            ..MeasureResult::default()
+        };
+        assert_eq!(s.update_measure(&m, 0.0).lufs_s, Some(-18.0));
+        m.lufs_s = Some(-40.0);
+        assert_eq!(s.update_measure(&m, 0.1).lufs_s, Some(-40.0));
     }
 
     #[test]

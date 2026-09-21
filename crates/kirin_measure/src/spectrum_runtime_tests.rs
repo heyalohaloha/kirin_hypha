@@ -101,7 +101,7 @@ fn wait_for_mid_side_frame_at_or_after(
 
 #[test]
 fn disabled_runtime_does_not_start_worker_or_accept_audio() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let samples = [0.0; 32];
     assert!(!runtime.push_block_from_audio(&samples, 2, Some(0)));
     let stats = runtime.stats();
@@ -118,14 +118,14 @@ fn disabled_runtime_does_not_start_worker_or_accept_audio() {
 
 #[test]
 fn mid_side_is_stereo_only_exclusive_and_publishes_one_coherent_frame() {
-    let mono = SpectrumRuntime::new(48_000, 1);
+    let mono = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::mono());
     assert!(!mono.set_mid_side_enabled(true));
 
-    let non_spectrum = SpectrumRuntime::new(48_000, 2);
+    let non_spectrum = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(non_spectrum.set_analysis_mode(AnalysisViewMode::Perceptual));
     assert!(!non_spectrum.set_mid_side_enabled(true));
 
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_mid_side_enabled(true));
     assert!(runtime.set_enabled(true));
     feed(&runtime, 48_000, 7_000, 256);
@@ -155,7 +155,7 @@ fn mid_side_is_stereo_only_exclusive_and_publishes_one_coherent_frame() {
 
 #[test]
 fn perceptual_mode_is_exclusive_and_publishes_exact_100ms_apertures() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
     assert!(runtime.set_perceptual_state_epoch(Some(0)));
     assert!(runtime.set_enabled(true));
@@ -178,7 +178,7 @@ fn perceptual_mode_is_exclusive_and_publishes_exact_100ms_apertures() {
 
 #[test]
 fn perceptual_44k1_grid_is_exact_and_mode_edges_clear_both_histories() {
-    let runtime = SpectrumRuntime::new(44_100, 2);
+    let runtime = SpectrumRuntime::new(44_100, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
     assert!(runtime.set_perceptual_state_epoch(Some(0)));
     assert!(runtime.set_enabled(true));
@@ -202,7 +202,7 @@ fn perceptual_44k1_grid_is_exact_and_mode_edges_clear_both_histories() {
 
 #[test]
 fn perceptual_discontinuity_clears_history_and_requires_a_new_shared_epoch() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
     assert!(runtime.set_perceptual_state_epoch(Some(0)));
     assert!(runtime.set_enabled(true));
@@ -226,7 +226,7 @@ fn perceptual_discontinuity_clears_history_and_requires_a_new_shared_epoch() {
 
 #[test]
 fn absolute_mode_publishes_three_post_facts_on_one_exact_timeline() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Absolute));
     assert!(runtime.set_enabled(true));
     feed(&runtime, 48_000, 11_000, 256);
@@ -250,7 +250,7 @@ fn absolute_mode_publishes_three_post_facts_on_one_exact_timeline() {
 
 #[test]
 fn absolute_mode_retains_short_forward_gap_but_clears_backwards_and_mode_change() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Absolute));
     assert!(runtime.set_enabled(true));
     feed(&runtime, 48_000, 9_600, 256);
@@ -299,7 +299,7 @@ fn absolute_mode_retains_short_forward_gap_but_clears_backwards_and_mode_change(
 fn disabled_audio_path_cost_is_quantified_without_starting_worker() {
     use std::hint::black_box;
 
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let samples = [0.0; 32];
     let iterations = 1_000_000;
     let started = Instant::now();
@@ -324,7 +324,7 @@ fn disabled_audio_path_cost_is_quantified_without_starting_worker() {
 fn enabled_48k_audio_ingress_budget_is_quantified() {
     use std::hint::black_box;
 
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_enabled(true));
     let block_frames = 512_usize;
     let samples = [0.125_f32; 1_024];
@@ -358,19 +358,42 @@ fn enabled_48k_audio_ingress_budget_is_quantified() {
 
 #[test]
 fn enabled_runtime_publishes_on_the_shared_48k_30hz_grid() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_enabled(true));
     feed(&runtime, 48_000, 10_000, 256);
     let frame = wait_for_frame_at_or_after(&runtime, 9_600);
     assert_eq!(frame.presentation_end_samples, 9_600);
     assert_eq!(frame.presentation_end_samples % 1_600, 0);
     assert!(runtime.stats().analyzed_frames >= 1);
+    assert_eq!(
+        runtime.applied_selection_generation(),
+        Some(runtime.selection().generation)
+    );
+    runtime.shutdown_and_join();
+}
+
+#[test]
+fn an_audio_drop_invalidates_values_without_reusing_the_selection_generation() {
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    assert!(runtime.set_enabled(true));
+    feed(&runtime, 48_000, 10_000, 256);
+    let _ = wait_for_frame_at_or_after(&runtime, 9_600);
+    let selection_generation = runtime.selection().generation;
+    let stream_generation = runtime.stream_generation.load(Ordering::Acquire);
+
+    assert!(!runtime.push_block_from_audio(&[], 2, None));
+    assert_eq!(runtime.selection().generation, selection_generation);
+    assert_ne!(
+        runtime.stream_generation.load(Ordering::Acquire),
+        stream_generation
+    );
+    assert!(runtime.try_history().is_none());
     runtime.shutdown_and_join();
 }
 
 #[test]
 fn channel_mode_edge_clears_history_and_mono_side_fails_closed() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_enabled(true));
     feed(&runtime, 48_000, 10_000, 256);
     let lr = wait_for_frame_at_or_after(&runtime, 9_600);
@@ -394,7 +417,7 @@ fn channel_mode_edge_clears_history_and_mono_side_fails_closed() {
         .all(|value| value.to_bits() == crate::SPECTRUM_FLOOR_DBFS.to_bits()));
     runtime.shutdown_and_join();
 
-    let mono = SpectrumRuntime::new(48_000, 1);
+    let mono = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::mono());
     assert!(mono.set_channel_mode(SpectrumChannelMode::Mid));
     assert!(!mono.set_channel_mode(SpectrumChannelMode::Side));
     assert_eq!(mono.channel_mode(), SpectrumChannelMode::Mid);
@@ -402,41 +425,8 @@ fn channel_mode_edge_clears_history_and_mono_side_fails_closed() {
 }
 
 #[test]
-fn stale_generation_or_channel_mode_can_never_be_republished() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
-    assert!(runtime.set_enabled(true));
-    let generation = runtime.generation.load(Ordering::Acquire);
-    let frame = SpectrumFrame {
-        schema_version: crate::SPECTRUM_SCHEMA_VERSION,
-        sample_rate: 48_000,
-        aperture_samples: crate::SPECTRUM_WINDOW_SIZE as u32,
-        fft_size: crate::SPECTRUM_FFT_SIZE as u32,
-        band_count: crate::SPECTRUM_BAND_COUNT as u16,
-        presentation_end_samples: 4_800,
-        generation,
-        channel_mode: SpectrumChannelMode::Lr,
-        channels: 2,
-        min_hz: 10.0,
-        max_hz: 22_000.0,
-        dbfs: [-24.0; crate::SPECTRUM_BAND_COUNT],
-    };
-    assert!(runtime.frame_is_current(&frame));
-
-    assert!(runtime.set_channel_mode(SpectrumChannelMode::Mid));
-    assert!(!runtime.frame_is_current(&frame));
-    let mut current = frame.clone();
-    current.generation = runtime.generation.load(Ordering::Acquire);
-    current.channel_mode = SpectrumChannelMode::Mid;
-    assert!(runtime.frame_is_current(&current));
-
-    assert!(runtime.set_enabled(false));
-    assert!(!runtime.frame_is_current(&current));
-    runtime.shutdown_and_join();
-}
-
-#[test]
 fn forty_four_one_uses_a_1470_sample_grid_without_drift() {
-    let runtime = SpectrumRuntime::new(44_100, 2);
+    let runtime = SpectrumRuntime::new(44_100, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_enabled(true));
     feed(&runtime, 44_100, 9_000, 147);
     let frame = wait_for_frame_at_or_after(&runtime, 8_820);
@@ -452,7 +442,8 @@ fn high_rate_runtime_publishes_the_time_normalized_layout_without_drops() {
         (192_000, 16_384, 32_768, 19_200),
         (384_000, 32_768, 65_536, 38_400),
     ] {
-        let runtime = SpectrumRuntime::new(sample_rate, 2);
+        let runtime =
+            SpectrumRuntime::new(sample_rate, crate::channel_layout::ChannelLayout::stereo());
         assert!(runtime.set_enabled(true));
         feed(&runtime, sample_rate, expected_end as usize + 1_024, 256);
         let frame = wait_for_frame_at_or_after(&runtime, expected_end);

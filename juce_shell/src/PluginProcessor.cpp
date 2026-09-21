@@ -1,16 +1,15 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "HyphaPluginFormat.h"
+#include "ChannelRoles.h"
 #include <algorithm>
 #include <cmath> // B-107: std::abs(float) for the silence peak threshold
 namespace
 {
-    static_assert (sizeof (KirinMeterSession) == 872u,
-                   "Rust/C++ Meter Session ABI size must remain exact");
-    static_assert (sizeof (KirinObservatoryFrame) == 1'112u,
-                   "Rust/C++ Observatory frame ABI size must remain exact");
-    static_assert (sizeof (KirinMeterHistoryEntry) == 184u,
-                   "Rust/C++ Meter history ABI size must remain exact");
+    // The ABI sizes are asserted once, in HyphaObservationEquality.h, which HyphaObservatoryFrame.cpp
+    // compiles into this same target. A duplicate here went stale at 872/1112 when B-910 grew it.
+    // This file does compile on Linux; the target stops earlier on an unrelated GCC ambiguity in
+    // AppearanceContract.cpp, so check this object alone with ninja rather than the whole target.
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::unknown)
                        == KIRIN_HYPHA_CLOCK_UNKNOWN);
@@ -19,19 +18,6 @@ namespace
     static_assert (static_cast<std::uint8_t> (hypha::pre_display::ClockSource::audioRenderTimeline)
                        == KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE);
 #endif
-    // Logic stopped-state fix: expose Inactive PRE/POST presence without waiting for the first audio callback.
-    // The 50 ms Timer grants a bounded state-restore window before enabling from prepareToPlay.
-    constexpr int kPrepareEnableDelayTicks = 10;
-    // B-125 (b): prealloc-max headroom (frames). The interleave scratch is sized in
-    // prepareToPlay to max(maximumExpectedSamplesPerBlock, this) frames so that realistic
-    // variable / offline-render blocks larger than the realtime-declared block are still
-    // measured without a (non-RT-safe) reallocation on the audio thread. Hosts can deliver
-    // offline / freeze / bounce blocks well above the realtime maximum; 262144 frames
-    // (~5.46 s @ 48 kHz) absorbs large offline chunks while keeping the one-time, non-RT
-    // prepareToPlay allocation bounded at 262144 * numCh * sizeof(float) (≈2 MB stereo).
-    // Pathological blocks beyond this ceiling are not reallocated; their frames are counted as
-    // oversized drops (B-125 (c) / kirin_hypha_note_oversized_drop) while audio passes through.
-    constexpr int kOversizeHeadroomFrames = 262144;
     // C ABI signal-state codes: 0 = Inactive, 1 = Active, 2 = Bypassed.
     uint8_t resolveSignalStateCode (bool bypassed,
                                     bool playing,
@@ -81,10 +67,10 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
 {
     stopTimer(); // B-126: stop the non-RT enable poll before teardown (was cancelPendingUpdate / B-070).
     localBlindCapture.stop();
-#if KIRIN_HYPHA_GUIDE_TRANSPORT
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
+#if ! KIRIN_HYPHA_PRE_DISPLAY
     referenceAuditionController.reset();
-   #endif
+#endif
+#if KIRIN_HYPHA_GUIDE_TRANSPORT
     preDisplayController.reset();
 #endif
     const juce::ScopedLock sl (handleLock);
@@ -101,80 +87,6 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
     }
 }
 
-void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBlock)
-{
-    const int numCh = getTotalNumInputChannels();
-    // Pre-allocate the interleave scratch so processBlock never allocates (RT-safe).
-    // B-125 (b): prealloc-max — size to max(declared block, kOversizeHeadroomFrames) frames
-    // so realistic variable / offline-render blocks above the realtime maximum are absorbed
-    // without an audio-thread realloc. This .assign runs in prepareToPlay (non-RT) — allowed.
-    const int   maxFrames = juce::jmax (juce::jmax (0, samplesPerBlock), kOversizeHeadroomFrames);
-    interleaveScratch.assign ((size_t) maxFrames * (size_t) juce::jmax (1, numCh), 0.0f);
-    // B-125: cache the prepared capacity so processBlock re-checks against it (the oversized
-    // fallback fires only for blocks beyond this) without re-deriving from samplesPerBlock.
-    scratchCapacitySamples = interleaveScratch.size();
-    stopLocalBlindCaptureForFormatChange (sampleRate, numCh);
-    const juce::ScopedLock sl (handleLock);
-    normalizeSpectrumSelectionForInputChannels (numCh);
-    // B-141: Studio One offline bounce can call prepareToPlay again after All Keep has entered
-    // Record. The maximumExpectedSamplesPerBlock may change for render, but the user-visible
-    // Record state must not be thrown away. Reuse the Rust engine when the audio format is the same.
-    //
-    // B-334: incompatible reprepare is not Stop authority while Record is armed; defer it rather
-    // than destroying the writer before POST All Stop.
-    const bool needsNewHandle = hyphaHandle == nullptr
-                             || std::abs (preparedSampleRate - sampleRate) > 0.001
-                             || preparedInputChannels != numCh;
-    if (! needsNewHandle)
-        return;
-    if (hyphaHandle != nullptr && kirin_hypha_is_recording (hyphaHandle))
-        return;
-
-    selectReferenceA(); // A is mandatory before replacing the comparison-suspension owner.
-
-    lastProcessPositionValid = false;
-    lastProcessHadPosition = false;
-    lastProcessNumFrames = 0;
-    watchSilenceGate.reset();
-    writesEnabled.store (false, std::memory_order_release);
-    analysisApplication.engineDestroyed();
-    if (hyphaHandle != nullptr)
-    {
-        kirin_hypha_destroy (hyphaHandle);
-        hyphaHandle = nullptr;
-    }
-    // num_channels: pass the actual negotiated input channel count. Mono must remain 1ch
-    // all the way into the meter; duplicating to stereo would bias loudness by +3.01 dB.
-    hyphaHandle = kirin_hypha_create ((uint32_t) sampleRate, (uint32_t) numCh);
-    if (hyphaHandle != nullptr) analysisApplication.engineCreated();
-    preparedSampleRate = hyphaHandle != nullptr ? sampleRate : 0.0;
-    preparedInputChannels = hyphaHandle != nullptr ? numCh : 0;
-
-    // A fresh handle receives the current entitlement immediately. Further refreshes are tied to
-    // editor open / explicit Keep / pair-menu actions; there is no steady-state disk polling.
-    // set_identity + enable_*_writes are deferred to the message-thread Timer
-    // (enableWritesNow) so any setStateInformation restore is applied before enable.
-    if (hyphaHandle != nullptr)
-    {
-        const uint8_t lic = kirin_hypha_load_license();
-        cachedLicenseCode.store ((int) lic, std::memory_order_release);
-        kirin_hypha_set_license (hyphaHandle, lic);
-        // A recalled Studio Pro session may deliver setActive(false) before prepareToPlay creates
-        // the Rust engine. Apply the retained host fact to every fresh handle so an insert that
-        // was already OFF at project-open reaches the same ABS state as an explicit live click.
-        kirin_hypha_set_host_component_active (hyphaHandle, hostComponentActive);
-        // Logic stopped-state fix: re-prepare needs a fresh enable, but Logic may not call processBlock until
-        // playback. Start a message-thread fallback so Inactive presence/candidates are published
-        // even while stopped. If setStateInformation already arrived for this instance, skip the
-        // grace delay; otherwise keep the window so project recall can restore identity before the
-        // io_thread snapshots it.
-        const int restoreDelay = stateInformationSeen.load (std::memory_order_acquire) ? 0 : kPrepareEnableDelayTicks;
-        enableDelayTicks.store (restoreDelay, std::memory_order_release);
-        enablePending.store (true, std::memory_order_release);
-        startTimer (50);
-    }
-    // A null handle (create failure) is tolerated; processBlock / pollMeasureResult guard on it.
-}
 
 void KirinHyphaProcessorBase::releaseResources()
 {
@@ -254,13 +166,9 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     juce::ignoreUnused (looping); // Used by the explicit local Blind output path below.
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
-    preDisplayClock.publish (positionSamples, preparedSampleRate,
+    preDisplayClock.publish (positionSamples, preparedFormat.sampleRate,
                              static_cast<std::uint32_t> (juce::jmax (0, numFrames)), playing,
                              static_cast<hypha::pre_display::ClockSource> (clockSource));
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (referenceAuditionController != nullptr)
-        referenceAuditionController->observeTransport (positionSamples, hasPosition, playing);
-   #endif
 #endif
     const bool positionChanged = hasPosition && lastProcessPositionValid
                               && positionSamples != lastProcessPositionSamples;
@@ -309,7 +217,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
         watchSampleTimelineStartedNewPass || watchAvailabilityBoundary,
         silent,
         (uint64_t) juce::jmax (0, numFrames),
-        preparedSampleRate);
+        preparedFormat.sampleRate);
     const bool stateSilent = silent && ! watchActiveThroughSilence;
     int windowStartFrame = 0;
     int windowEndFrame = numFrames;
@@ -379,7 +287,11 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool forceTakeStartEpoch = renderedRecordWindow
                                   && hasClockEnd
                                   && ! recordNativeRangeLatched;
-    const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer;
+    // B-961: while a format change is held, the engine is still built for the old one. Audio keeps
+    // passing through untouched (R-12), but it is not fed to a meter that would measure it as
+    // something it is not. The keepalive below still advances the heartbeat.
+    const bool formatHeld = formatChangeHeld.load (std::memory_order_acquire);
+    const bool pushBuffer = ! formatHeld && (recording ? renderedRecordWindow : captureBuffer);
     kirin_hypha_note_record_window (hyphaHandle,
                                     recording,
                                     renderedRecordWindow,
@@ -706,50 +618,6 @@ void KirinHyphaProcessorBase::stopAll()
         kirin_hypha_stop_all (hyphaHandle);
 }
 
-juce::Array<KirinHyphaProcessorBase::PreCandidate> KirinHyphaProcessorBase::enumeratePreCandidates() const
-{
-    juce::Array<PreCandidate> out;
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr)
-        return out;
-
-    constexpr size_t kCap = 32; // generous; FFI truncates beyond this
-    KirinPreCandidate buf[kCap];
-    const size_t n = kirin_hypha_enumerate_pre_candidates (hyphaHandle, buf, kCap);
-    for (size_t i = 0; i < n; ++i)
-    {
-        PreCandidate c;
-        c.instanceId = juce::String::fromUTF8 (buf[i].instance_id);
-        c.name       = juce::String::fromUTF8 (buf[i].name);
-        c.hasName    = (buf[i].has_name != 0);
-        out.add (c);
-    }
-    return out;
-}
-
-juce::Array<KirinHyphaProcessorBase::PostPairClaim> KirinHyphaProcessorBase::enumeratePostPairClaims() const
-{
-    juce::Array<PostPairClaim> out;
-    const juce::ScopedLock sl (handleLock);
-    if (hyphaHandle == nullptr)
-        return out;
-
-    constexpr size_t kCap = 32; // same cap as PRE candidates; FFI truncates beyond this
-    KirinPostPairClaim buf[kCap];
-    const size_t n = kirin_hypha_enumerate_post_pair_claims (hyphaHandle, buf, kCap);
-    for (size_t i = 0; i < n; ++i)
-    {
-        PostPairClaim c;
-        c.instanceId      = juce::String::fromUTF8 (buf[i].instance_id);
-        c.pairPreName     = juce::String::fromUTF8 (buf[i].pair_pre_name);
-        c.hasPairPreName  = (buf[i].has_pair_pre_name != 0);
-        c.pairedPreInstanceId = juce::String::fromUTF8 (buf[i].paired_pre_instance_id);
-        c.hasPairedPreInstanceId = (buf[i].has_paired_pre_instance_id != 0);
-        out.add (c);
-    }
-    return out;
-}
-
 int KirinHyphaProcessorBase::keepReadyCount() const
 {
     const juce::ScopedLock sl (handleLock);
@@ -773,181 +641,6 @@ int KirinHyphaProcessorBase::getCurrentProgram()         { return 0; }
 void KirinHyphaProcessorBase::setCurrentProgram (int)    {}
 const juce::String KirinHyphaProcessorBase::getProgramName (int) { return {}; }
 void KirinHyphaProcessorBase::changeProgramName (int, const juce::String&) {}
-void KirinHyphaProcessorBase::getStateInformation (juce::MemoryBlock& destData)
-{
-    // Hosts may restore PRE and POST in either order; exact ID becomes a Waiting fixed-path latch.
-    juce::String livePairProjectHash, livePairInstanceId;
-    if (pairedPreLocator (livePairProjectHash, livePairInstanceId))
-    {
-        persistPairInstanceId = livePairInstanceId;
-        persistPairProjectHash = livePairProjectHash;
-    }
-    else if (writesEnabled.load (std::memory_order_acquire))
-    {
-        persistPairInstanceId.clear();
-        persistPairProjectHash.clear();
-    }
-    juce::XmlElement xml ("KirinHyphaState");
-    xml.setAttribute ("instance_id",      persistInstanceId);
-    xml.setAttribute ("project_uuid",     persistProjectUuid);
-    xml.setAttribute ("daw_session_uuid", persistDawSessionUuid);
-    xml.setAttribute ("name",             persistName);
-    xml.setAttribute ("pair_pre_name",    persistPairName);
-    xml.setAttribute ("paired_pre_instance_id", persistPairInstanceId);
-    xml.setAttribute ("paired_pre_project_hash", persistPairProjectHash);
-    xml.setAttribute ("loudness_view",
-                      persistShortTermLoudness.load (std::memory_order_acquire) ? "S" : "M");
-    xml.setAttribute ("display_state_version", 5);
-    xml.setAttribute ("observatory_domain", (int) observatoryDomainPreference());
-    xml.setAttribute ("observatory_target", (int) observatoryTargetPreference());
-    xml.setAttribute ("observatory_time_range", (int) observatoryTimeRangePreference());
-    xml.setAttribute ("observatory_size", (int) spectrumSizePreference());
-    const auto editorSize = hypha::observatory::unpackEditorSize (
-        observatoryEditorSizePreference());
-    xml.setAttribute ("observatory_width", editorSize.width);
-    xml.setAttribute ("observatory_height", editorSize.height);
-    xml.setAttribute ("meter_context", (int) hypha::meter_context::stateValue (
-        meterContextPreference()));
-    xml.setAttribute ("scale_mode", (int) hypha::meter_context::stateValue (
-        scaleModePreference()));
-    xml.setAttribute ("hybrid_vu_on_record", hybridVuOnRecordPreference());
-    copyXmlToBinary (xml, destData);
-}
-void KirinHyphaProcessorBase::setStateInformation (const void* data, int sizeInBytes)
-{
-    // B-069/B-072: restore the 4 identity keys + pair target into the persist members. May
-    // run before or after prepareToPlay (JUCE does not guarantee ordering); the FFI receives
-    // these at enable time (enableWritesNow), deferred to the message-thread Timer.
-    stateInformationSeen.store (true, std::memory_order_release);
-
-    juce::String restoredInstanceId, restoredProjectUuid, restoredDawSessionUuid;
-    juce::String restoredName, restoredPairName, restoredPairInstanceId, restoredPairProjectHash;
-    bool restoredShortTermLoudness = false;
-    uint8_t restoredObservatoryDomain = 0;
-    uint8_t restoredObservatoryTarget = 0;
-    uint8_t restoredObservatoryTimeRange = 0;
-    uint8_t restoredObservatorySize = 0;
-    int restoredEditorWidth = 300;
-    int restoredEditorHeight = 200;
-    auto restoredMeterContext = hypha::meter_context::defaultContext;
-    auto restoredScaleMode = hypha::meter_context::defaultScale;
-    bool restoredHybridVuOnRecord = true, restored = false;
-
-    if (auto xml = getXmlFromBinary (data, sizeInBytes))
-    {
-        if (xml->hasTagName ("KirinHyphaState"))
-        {
-            restoredInstanceId     = xml->getStringAttribute ("instance_id");
-            restoredProjectUuid    = xml->getStringAttribute ("project_uuid");
-            restoredDawSessionUuid = xml->getStringAttribute ("daw_session_uuid");
-            restoredName           = xml->getStringAttribute ("name");
-            restoredPairName       = xml->getStringAttribute ("pair_pre_name");
-            restoredPairInstanceId = xml->getStringAttribute ("paired_pre_instance_id");
-            restoredPairProjectHash = xml->getStringAttribute ("paired_pre_project_hash");
-            restoredShortTermLoudness = xml->getStringAttribute ("loudness_view") == "S";
-            const int displayStateVersion = xml->getIntAttribute ("display_state_version", 0);
-            if (displayStateVersion >= 2)
-            {
-                restoredObservatoryDomain = (uint8_t) juce::jlimit (
-                    0, 4, xml->getIntAttribute ("observatory_domain", 0));
-                restoredObservatoryTarget = (uint8_t) juce::jlimit (
-                    0, 1, xml->getIntAttribute ("observatory_target", 0));
-                restoredObservatoryTimeRange = (uint8_t) juce::jlimit (
-                    0, 4, xml->getIntAttribute ("observatory_time_range", 0));
-                restoredObservatorySize = (uint8_t) juce::jlimit (
-                    0, 4, xml->getIntAttribute ("observatory_size", 0));
-                const auto preset = hypha::observatory::sizePresets[restoredObservatorySize];
-                const auto restoredEditorSize = hypha::observatory::editorSizeFromState (
-                    displayStateVersion,
-                    restoredObservatorySize,
-                    xml->getIntAttribute ("observatory_width", preset.width),
-                    xml->getIntAttribute ("observatory_height", preset.height));
-                restoredEditorWidth = restoredEditorSize.width;
-                restoredEditorHeight = restoredEditorSize.height;
-            }
-            if (displayStateVersion >= 4)
-            {
-                restoredMeterContext = hypha::meter_context::contextFromState (
-                    (uint8_t) xml->getIntAttribute ("meter_context", 1));
-                restoredScaleMode = hypha::meter_context::scaleFromState (
-                    (uint8_t) xml->getIntAttribute ("scale_mode", 1));
-            }
-            if (displayStateVersion >= 5) restoredHybridVuOnRecord =
-                xml->getBoolAttribute ("hybrid_vu_on_record", true);
-            restored = true;
-        }
-    }
-
-    // Existing Studio One projects contain the old nih-plug VST3 JSON state. The JUCE shell keeps
-    // the same component CID and decodes that exact one-time legacy contract here, so switching the
-    // shipped VST3 adapter does not fabricate new identities or lose the selected PRE name.
-    if (! restored && data != nullptr && sizeInBytes > 0)
-    {
-        KirinLegacyNihState legacy {};
-        if (kirin_hypha_decode_legacy_nih_state (
-                static_cast<const uint8_t*> (data), (size_t) sizeInBytes, &legacy))
-        {
-            restoredInstanceId     = juce::String::fromUTF8 (legacy.instance_id);
-            restoredProjectUuid    = juce::String::fromUTF8 (legacy.project_uuid);
-            restoredDawSessionUuid = juce::String::fromUTF8 (legacy.daw_session_uuid);
-            restoredName           = juce::String::fromUTF8 (legacy.name);
-            restoredPairName       = juce::String::fromUTF8 (legacy.pair_pre_name);
-            restored = true;
-        }
-    }
-
-    if (restored)
-    {
-        // Additive display state keeps established defaults for older JUCE and nih-plug states.
-        persistShortTermLoudness.store (restoredShortTermLoudness, std::memory_order_release);
-        preferredObservatoryDomain.store (restoredObservatoryDomain, std::memory_order_release);
-        preferredObservatoryTarget.store (restoredObservatoryTarget, std::memory_order_release);
-        preferredObservatoryTimeRange.store (restoredObservatoryTimeRange,
-                                              std::memory_order_release);
-        preferredSpectrumSize.store (restoredObservatorySize, std::memory_order_release);
-        preferredEditorSize.store (hypha::observatory::packEditorSize (
-            { restoredEditorWidth, restoredEditorHeight }), std::memory_order_release);
-        // Restore shares DRUM admission, without writing a host change notification back.
-        setMeterContextPreference (restoredMeterContext, false);
-        preferredScaleMode.store (
-            hypha::meter_context::stateValue (restoredScaleMode), std::memory_order_release);
-        preferredHybridVuOnRecord.store (restoredHybridVuOnRecord, std::memory_order_release);
-        // Once writes are enabled, the io_thread has already snapshotted path identity. Only the
-        // live-editable name/pair fields may be applied at that point; the exact-path writer stays
-        // coherent with its established identity.
-        if (writesEnabled.load (std::memory_order_acquire))
-        {
-            persistName = restoredName;
-            persistPairName = restoredPairName;
-            persistPairInstanceId = restoredPairInstanceId;
-            persistPairProjectHash = restoredPairProjectHash;
-            const juce::ScopedLock sl (handleLock);
-            if (hyphaHandle != nullptr)
-            {
-                if (role == Role::Post)
-                    restorePersistedPairUnderHandleLock();
-                else
-                    kirin_hypha_set_pre_name (hyphaHandle, persistName.toRawUTF8());
-            }
-            return;
-        }
-
-        persistInstanceId = restoredInstanceId;
-        persistProjectUuid = restoredProjectUuid;
-        persistDawSessionUuid = restoredDawSessionUuid;
-        persistName = restoredName;
-        persistPairName = restoredPairName;
-        persistPairInstanceId = restoredPairInstanceId;
-        persistPairProjectHash = restoredPairProjectHash;
-    }
-
-    if (! writesEnabled.load (std::memory_order_acquire))
-    {
-        enableDelayTicks.store (0, std::memory_order_release);
-        enablePending.store (true, std::memory_order_release);
-    }
-}
-
 void KirinHyphaProcessorBase::timerCallback()
 {
     // B-126 + Logic stopped-state fix: non-RT enable poll on the message thread.
@@ -960,8 +653,10 @@ void KirinHyphaProcessorBase::timerCallback()
         else
             enableWritesNow();
     }
+    applyHeldFormatIfRecordReleased();
     serviceLocalBlindProductSession();
-    if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService())
+    if (writesEnabled.load (std::memory_order_acquire) && ! localBlindProductSession.needsService()
+        && ! heldFormat.held)
         stopTimer();
 }
 
@@ -1006,51 +701,8 @@ void KirinHyphaProcessorBase::enableWritesNow()
     persistDawSessionUuid = juce::String::fromUTF8 (id.daw_session_uuid);
     persistName           = juce::String::fromUTF8 (id.name);
 
-#if KIRIN_HYPHA_GUIDE_TRANSPORT
-    if (preDisplayController == nullptr)
-        preDisplayController = std::make_unique<hypha::pre_display::Controller> (preDisplayClock);
-    if (role == Role::Post && captureWorkAttachmentController == nullptr)
-        captureWorkAttachmentController =
-            std::make_unique<hypha::capture::WorkAttachmentController>();
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (role == Role::Post && referenceAuditionController == nullptr)
-        createReferenceAuditionController();
-   #endif
-    hypha::pre_display::RuntimeIdentity displayIdentity;
-    displayIdentity.role = role == Role::Post ? hypha::pre_display::GuideTargetRole::post
-                                              : hypha::pre_display::GuideTargetRole::pre;
-    displayIdentity.instanceId = persistInstanceId;
-    displayIdentity.projectUuid = persistProjectUuid;
-    displayIdentity.dawSessionUuid = persistDawSessionUuid;
-    displayIdentity.name = persistName;
-    displayIdentity.pluginVersion = JucePlugin_VersionString;
-    displayIdentity.pluginFormat = hypha::plugin_format::name (wrapperType);
-       #if JUCE_WINDOWS
-    displayIdentity.platform = "windows";
-       #else
-    displayIdentity.platform = "macos";
-       #endif
-       #if JUCE_ARM
-    displayIdentity.architecture = "arm64";
-       #else
-    displayIdentity.architecture = "x86_64";
-       #endif
-    preDisplayController->configureAndStart (std::move (displayIdentity));
-   #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (role == Role::Post && referenceAuditionController != nullptr)
-    {
-        const auto work = preDisplayController->connectedWorkReference();
-        if (work.valid())
-        {
-            hypha::reference_audition::RuntimeIdentity referenceIdentity;
-            referenceIdentity.runtimeInstanceId = work.runtimeInstanceId;
-            referenceIdentity.workId = work.workId;
-            referenceAuditionController->configure (
-                std::move (referenceIdentity), preparedSampleRate, preparedInputChannels);
-        }
-    }
-   #endif
-#endif
+    configureWorkTransports();
+    configureReferenceAudition();
 
     writesEnabled.store (true, std::memory_order_release);
     analysisApplication.engineReady();

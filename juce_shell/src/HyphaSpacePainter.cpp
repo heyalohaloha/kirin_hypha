@@ -1,5 +1,7 @@
 #include "HyphaSpacePainter.h"
 
+#include "HyphaMonoSumPainter.h"
+
 #include "HyphaTheme.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextStyle.h"
@@ -127,18 +129,23 @@ void drawAxisLabels (juce::Graphics& g, juce::Rectangle<int> plot, bool compact,
     g.setFont (monoFont (presentation, typography::TextRole::axis,
                          typography::Composition::visualization));
     const auto rowHeight = juce::jmin (axisLabelHeight (presentation), plot.getHeight() / 3);
-    const auto sideWidth = juce::jmin (axisLabelWidth (presentation, compact),
+    // The short form is chosen by what fits, not by which size preset this is. Adding MONO takes
+    // height from the scatter, so a large editor can end up with a square too narrow for the long
+    // labels; "SIDE ..." names nothing, while "S>0" still does.
+    const bool shortLabels = compact
+        || plot.getWidth() / 3 < axisLabelWidth (presentation, false);
+    const auto sideWidth = juce::jmin (axisLabelWidth (presentation, shortLabels),
                                       plot.getWidth() / 3);
-    g.drawText (compact ? "M>0" : "MID > 0",
+    g.drawText (shortLabels ? "M>0" : "MID > 0",
                 juce::Rectangle<int> { plot.getX(), plot.getY(), plot.getWidth(), rowHeight },
                 juce::Justification::centred);
-    g.drawText (compact ? "M<0" : "MID < 0",
+    g.drawText (shortLabels ? "M<0" : "MID < 0",
                 juce::Rectangle<int> { plot.getX(), plot.getBottom() - rowHeight,
                                        plot.getWidth(), rowHeight },
                 juce::Justification::centred);
-    g.drawText (compact ? "S<0" : "SIDE < 0", plot.withWidth (sideWidth),
+    g.drawText (shortLabels ? "S<0" : "SIDE < 0", plot.withWidth (sideWidth),
                 juce::Justification::centredLeft);
-    g.drawText (compact ? "S>0" : "SIDE > 0",
+    g.drawText (shortLabels ? "S>0" : "SIDE > 0",
                 plot.withX (plot.getRight() - sideWidth).withWidth (sideWidth),
                 juce::Justification::centredRight);
 }
@@ -147,6 +154,7 @@ void drawAxisLabels (juce::Graphics& g, juce::Rectangle<int> plot, bool compact,
 void paint (juce::Graphics& g,
             juce::Rectangle<int> area,
             const KirinMeterSession& meter,
+            const mono_sum_history::History& monoHistory,
             bool available,
             bool compactMeter,
             presentation::Context presentation)
@@ -178,14 +186,45 @@ void paint (juce::Graphics& g,
                 title, juce::Justification::centredRight);
 
     const int gap = compact ? 5 : 8;
+    // MONO is added only where it costs nothing that SPACE already shows. The scatter answers
+    // "wide or narrow" at a glance and stays the panel's own picture; MONO is a chart to read,
+    // and it is worth having only once there is room for both to be themselves.
+    //
+    // Three conditions, all measured from what the parts lay out rather than from a size preset:
+    // MONO needs its title, its frequency row and a plot tall enough to separate 0, -6 and -24;
+    // the metric column needs the height drawMetric gives two boxes; and the square left over has
+    // to stay wide enough for the scatter's own axis labels. The third is what rules out the
+    // 600x400 editor, where the strip fits but pushes "SIDE < 0" down to "S<0". Today only the
+    // largest editor clears all three.
+    // The strip carries the curve, the six-second field under it and one frequency row for both.
+    constexpr int monoStripMinimum = 116;
+    constexpr int metricsRowMinimum = 136;
     const int metricWidth = juce::jlimit (82, compact ? 102 : 168,
                                           juce::roundToInt (area.getWidth() * 0.31f));
+    // The same inset the square's plot is drawn with below, so the gate cannot disagree with what
+    // is actually painted.
+    const int fieldInset = compact ? 11 : 16;
+    const auto squarePlotWidthAfter = [&] (int stripHeight) {
+        const int rowHeight = area.getHeight() - (stripHeight > 0 ? stripHeight + gap : 0);
+        return juce::jmin (area.getWidth() - metricWidth - gap, rowHeight) - fieldInset * 2;
+    };
+    const int monoHeight = juce::jmax (monoStripMinimum,
+                                       juce::roundToInt (area.getHeight() * 0.42f));
+    const bool showMono = ! compact
+                       && area.getHeight() >= monoHeight + gap + metricsRowMinimum
+                       && squarePlotWidthAfter (monoHeight) / 3
+                              >= axisLabelWidth (presentation, false);
+    auto mono = showMono ? area.removeFromBottom (monoHeight) : juce::Rectangle<int> {};
+    if (showMono)
+        area.removeFromBottom (gap);
+
     auto metrics = area.removeFromRight (metricWidth);
     area.removeFromRight (gap);
+
     const int side = juce::jmin (area.getWidth(), area.getHeight());
     auto field = juce::Rectangle<int> (0, 0, side, side).withCentre (area.getCentre());
     drawPanel (g, field, compact);
-    auto plot = field.reduced (compact ? 11 : 16).toFloat();
+    auto plot = field.reduced (fieldInset).toFloat();
     drawFieldAxes (g, plot);
     if (fieldAvailable)
         drawDensity (g, plot, meter);
@@ -197,6 +236,12 @@ void paint (juce::Graphics& g,
                              typography::Composition::visualization));
         g.drawText (fieldState, plot.getSmallestIntegerContainer(),
                     juce::Justification::centred);
+    }
+    if (showMono)
+    {
+        drawPanel (g, mono, compact);
+        mono_sum_curve::paint (g, mono.reduced (4, 3), meter, monoHistory, available, false,
+                               true, presentation);
     }
 
     auto balance = metrics.removeFromTop ((metrics.getHeight() - gap) / 2);

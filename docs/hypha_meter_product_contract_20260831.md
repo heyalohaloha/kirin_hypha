@@ -85,9 +85,12 @@ POSTのREF入口はOS権限を確認できない状態でも開け、Reference�
 公式製品ページは英語と日本語の明示選択で開き、購入処理や外部通信を自動開始しない。
 所有者向け案内ではローカルlicenseの明示再確認を提供し、確認できないことを「未購入」と断定しない。
 Keep／All Keepは消さずdisabled表示にする。
-OS所有・未接続では購入案内を表示せず、Bを無効にする。保存済みWorkをKirin OSのINSPECTで開き、
-`Connect Hypha POST`から対象のPOSTへ接続する現在の入口を案内する。ReferenceはWork接続後に自動投影し、
-廃止した`Open in Hypha`操作を要求しない。
+ReferenceはKirin OSが保存済みプリセットを自動配信し、POSTが受信する独立した経路である。
+INSPECT、Guide、Work接続、PRE/POSTペア選択をReference接続の前提にしない。
+OS所有・未受信でも通常画面への操作を覆わず、受信状態を小さく示す。
+受信したプリセットと確認項目は音源の準備状態にかかわらず選択できる。Hypha内蔵のFactory代用品は表示しない。
+通常のA/Bとプリセット選択は全5サイズで使用でき、Blindは「300%で開く」から900×600へ移動して使用する。
+配信、読込、再初期化だけでBへ切り替えず、通常Aへの明示復帰と既存の解析2枠・比較試聴排他を維持する。
 接続済み・準備不足では不足している前提に関係する操作だけを無効にし、準備完了時だけBとBlindを許可する。
 
 REFの案内画面は試聴の許可ではない。
@@ -235,7 +238,12 @@ PREはpair側の測定sensorであり、POSTと同じ機能数を無理に持た
 | LEVEL | M、Max M、S、I、recent TP、MaxTP、LRA、PLR、Crest、L/R meter | 現行Watch、Record、LIVEの現在値 | session facts |
 | TIME | M、S、TPの履歴、playback run単位の事実集計 | LIVE timeline、SHARP timeline、ATTACK event timeline | HISTORY、RUN、SHARP、ATTACK、LIVE |
 | FREQ | Spectrum | 現行FREQのPRE、POST、Δ、LR、MID、SIDE、M/S同時表示、probe、MARK、Focus Trail | SPECTRUM |
-| SPACE | correlation、L/R balance、goniometer density | なし | FIELD |
+| SPACE | correlation、L/R balance、goniometer density、MONO（帯域別モノ加算残存） | なし | FIELD |
+
+MONO は 2026-09-18 追加（B-908〜B-915）。100 ms 観測ごとに 1/3 oct 32 帯域の
+`10*log10(Pm/(Pm+Ps))` を測り、既存表示を損なわずに入る editor サイズでだけ SPACE へ足す
+（現時点では 900x600 のみ）。定義と表示契約は INV-S31 / INV-S32、計画は
+`hypha_space_mono_sum_plan_20260918.md` を正本とする。
 
 `LIVE`は独立ページとして残さない。
 

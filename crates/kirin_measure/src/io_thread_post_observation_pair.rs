@@ -29,6 +29,8 @@ pub(in crate::io_thread_post) struct PostPairObservationDeps {
 pub(super) struct PostPairSnapshot {
     pub(super) name: String,
     pub(super) claimed_at: f64,
+    pub(super) binding_generation: u64,
+    pub(super) pre_instance_id: Option<String>,
 }
 
 pub(super) struct PostPairObservation {
@@ -99,6 +101,8 @@ impl PostPairObservation {
         PostPairSnapshot {
             name: snapshot_pair_pre_name(&self.deps.pair_pre_name),
             claimed_at: self.claimed_at(),
+            binding_generation: (self.deps.pair_binding_generation)(),
+            pre_instance_id: crate::paired_pre_instance_id(&self.deps.latched_pre),
         }
     }
 

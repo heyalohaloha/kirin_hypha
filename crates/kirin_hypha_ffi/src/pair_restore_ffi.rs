@@ -69,7 +69,10 @@ mod tests {
 
     #[test]
     fn exact_restore_keeps_optional_name_as_metadata() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(
+            48_000,
+            kirin_measure::channel_layout::ChannelLayout::stereo(),
+        );
         engine.set_identity(
             "post-a".into(),
             "project-a".into(),
@@ -88,7 +91,10 @@ mod tests {
 
     #[test]
     fn exact_restore_rejects_unsafe_locator_without_name_fallback() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(
+            48_000,
+            kirin_measure::channel_layout::ChannelLayout::stereo(),
+        );
         assert!(!engine.restore_pair_candidate_v2("../other", "pre-a", "Same Name"));
         assert!(engine.pair_binding.exact_snapshot().is_none());
         assert_eq!(engine.pair_binding.status_snapshot(), (false, None));

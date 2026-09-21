@@ -33,7 +33,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::engine::SessionSummary;
+use kirin_measure::mono_sum::MONO_SUM_BAND_COUNT;
 use kirin_measure::reservation; // B-127 (G-115-364): per-pairing O_EXCL reservation
 use kirin_measure::{
     add_watch_ring_cursor_samples, publish_watch_playback_pass_boundary, reset_watch_ring_cursor,
@@ -52,28 +54,31 @@ use kirin_measure::{
     spawn_watchdog, watch_ring_capacity_samples, write_broadcast_for_generation,
     write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
     write_stop_broadcast_for_generation, AnalysisViewMode, CaptureClockSource, CaptureGeneration,
-    CaptureGenerationMember, CaptureGenerationTransaction, DeltaMode, DeltaResult,
-    GenerationTerminalReason, IoThreadHandle, LatchedPre, License, LiveLicense, LivenessEvaluator,
-    MeasureResult, MeterDeltaHistoryExchange, MeterHistoryEntry, MeterHistoryRange,
-    MeterHistoryResolution, MeterSession, MeterSessionPublication, MeterSessionSnapshot,
-    MeterSessionState, PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths,
-    PluginDataRole, PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource,
-    PsbSummary, RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue,
-    RecordStateMachine, RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason,
-    RestartIoFn, SignalError, SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame,
-    SpectrumRuntime, SpectrumRuntimeStats, SpectrumTimelineFrame, SpectrumViewSnapshot,
-    SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo,
-    WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
-    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT,
-    MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS, N_CHANNELS,
-    PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
+    CaptureGenerationMember, CaptureGenerationTransaction, DeltaResult, GenerationTerminalReason,
+    IoThreadHandle, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult,
+    MeterDeltaHistoryExchange, MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution,
+    MeterSession, MeterSessionPublication, MeterSessionSnapshot, MeterSessionState,
+    PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths, PluginDataRole,
+    PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource, PsbSummary,
+    RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine,
+    RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError,
+    SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame, SpectrumRuntime,
+    SpectrumRuntimeStats, SpectrumTimelineFrame, SpectrumViewSnapshot, SpectrumViewStatus,
+    StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams,
+    ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT, HISTORY_0_1_HZ_CAPACITY,
+    HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
+    MAX_CAPTURE_GENERATION_MEMBERS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS, STEREO_FIELD_SIZE,
 };
 use uuid::Uuid;
 
+pub mod abi_contract;
 mod analysis_display_ffi;
 mod attack_ffi;
 mod audition_admission_ffi;
+pub mod channel_abi;
+mod comparison_abi;
+pub use comparison_abi::*;
 mod identity_ffi;
 mod identity_registry;
 mod legacy_nih_state;
@@ -182,14 +187,11 @@ mod keep_phase_contract_tests {
     }
 }
 
-fn supported_channel_count(num_channels: u32) -> usize {
-    match num_channels {
-        1 | 2 => num_channels as usize,
-        _ => N_CHANNELS,
-    }
-}
-
 /// C ABI 識別子バッファ長（UUID 36 + null に十分）。
+/// Δ の mode は ABI 変換（`delta_abi`）と試験だけが直接使う（B-976）。
+#[cfg(test)]
+use {delta_abi::delta_mode_to_abi, kirin_measure::DeltaMode};
+
 const ID_BUF_LEN: usize = 64;
 
 /// Rust `&str` を C 文字列バッファへ書く（truncate + null 終端）。
@@ -429,6 +431,9 @@ pub struct KirinHyphaEngine {
     sample_rate: u32,
     /// create 時に確定した入力チャンネル数。1=mono / 2=stereo。
     num_channels: usize,
+    /// create 時に交渉された配置。`num_channels` の出所であり、pre.json / post.json が
+    /// 「どの map で測ったか」を名乗る正本（B-976）。**チャンネル数から推測しない**（D-4）。
+    layout: ChannelLayout,
     /// PRE/POST io_thread（B-057 3b / B-060 3d-a）。`enable_pre_writes` or
     /// `enable_post_writes` で 1 度だけ起動。B-118: watchdog（Lazy）と Arc 共有し、watchdog が
     /// is_finished 監視・crash 時 re-spawn・shutdown 時 join する。
@@ -982,10 +987,9 @@ impl KirinHyphaEngine {
     ///
     /// `sample_rate` ≠ 48000 のときの 48k 変換は Measure Thread 内 `ResamplerTo48k` が
     /// 既存どおり担う（新規変換コードは書かない / measure_thread.rs:82-101）。
-    /// `num_channels` は 1=mono / 2=stereo を受ける。mono は1chとして計測し、
-    /// dual-mono 化による loudness +3.01 dB バイアスを入れない。
-    pub fn new(sample_rate: u32, num_channels: u32) -> Self {
-        let num_channels = supported_channel_count(num_channels);
+    /// `layout` は現状 mono / stereo のみ。mono は 1ch として計測し +3.01 dB バイアスを入れない。
+    pub fn new(sample_rate: u32, layout: ChannelLayout) -> Self {
+        let num_channels = layout.channel_count();
         let capacity = watch_ring_capacity_samples(num_channels);
         let (producer, consumer) = rtrb::RingBuffer::new(capacity);
         let producer_handoff = Arc::new(WatchProducerHandoff::new(producer));
@@ -996,14 +1000,15 @@ impl KirinHyphaEngine {
         let measure_result = Arc::new(Mutex::new(MeasureResult::default()));
         let delta_result = Arc::new(Mutex::new(DeltaResult::default()));
         let attack_runtime = kirin_measure::AttackRuntime::new(sample_rate, num_channels).ok();
-        let spectrum_runtime = SpectrumRuntime::new(sample_rate, num_channels);
+        let spectrum_runtime = SpectrumRuntime::new(sample_rate, layout);
         let spectrum = SpectrumCoordinator::new_with_attack(
             sample_rate,
             Arc::clone(&spectrum_runtime),
             attack_runtime.as_ref().map(Arc::clone),
         );
         let session_summary: Arc<Mutex<Option<SessionSummary>>> = Arc::new(Mutex::new(None));
-        let meter_session = MeterSession::new(sample_rate, num_channels).ok();
+        let epoch = kirin_measure::meter_session::next_measurement_epoch();
+        let meter_session = MeterSession::new_in_epoch(sample_rate, layout, epoch).ok();
         let meter_session_publication = meter_session
             .as_ref()
             .map(|session| Arc::new(MeterSessionPublication::new(session.snapshot())));
@@ -1045,7 +1050,7 @@ impl KirinHyphaEngine {
         let measure_handle = spawn_measure_thread(
             consumer,
             sample_rate,
-            num_channels,
+            layout,
             Arc::clone(&measure_result),
             meter_session.as_ref().map(Arc::clone),
             meter_session_publication.as_ref().map(Arc::clone),
@@ -1069,7 +1074,7 @@ impl KirinHyphaEngine {
         // join するため join_on_shutdown=true（io→measure 順 / 共有 Arc UAF 回避）。
         let watchdog_handle = spawn_watchdog(WatchdogParams {
             sample_rate,
-            n_channels: num_channels,
+            layout,
             ring_capacity: capacity,
             measure_result: Arc::clone(&measure_result),
             meter_session: meter_session.as_ref().map(Arc::clone),
@@ -1167,6 +1172,7 @@ impl KirinHyphaEngine {
             license: LiveLicense::new(License::Unknown),
             sample_rate,
             num_channels,
+            layout,
             io_thread,
             io_restart_slot,
             measure_alive,
@@ -1624,6 +1630,8 @@ impl KirinHyphaEngine {
         // 同一実体を capture し、再起動後も同じ Arc を指す（closure 内での再生成・新規 Arc 化は禁止）。
         // io_shutdown のみ世代毎に新規生成する。
         let restart: RestartIoFn = {
+            // `ChannelLayout` は Copy。closure へは値で渡す（`&self` を捕まえない）。
+            let layout = self.layout;
             let record_sm = Arc::clone(&self.record_sm);
             let measure_result = Arc::clone(&self.measure_result);
             let signal_state = Arc::clone(&self.signal_state);
@@ -1643,6 +1651,7 @@ impl KirinHyphaEngine {
                     project_hash.clone(),
                     daw_uuid.clone(), // PRE pre.json の document 境界として出力する復元値
                     sample_rate,
+                    layout,
                     Arc::clone(&record_sm),
                     Arc::clone(&recording),
                     Arc::clone(&record_acknowledged),
@@ -1837,6 +1846,8 @@ impl KirinHyphaEngine {
         // record_error_message / paired_pre_target / pair_pre_name / trigger 群 / latched_pre / 各 self.*）
         // は同一実体を capture し再起動後も同じ Arc を指す（closure 内での再生成禁止）。io_shutdown のみ
         // 世代毎に新規生成。
+        // `ChannelLayout` は Copy。closure へは値で渡す（`&self` を捕まえない）。
+        let layout = self.layout;
         let restart: RestartIoFn = {
             let record_sm = Arc::clone(&self.record_sm);
             let measure_result = Arc::clone(&self.measure_result);
@@ -1862,6 +1873,7 @@ impl KirinHyphaEngine {
                     Arc::clone(&instance_id),
                     Arc::clone(&project_hash_arc),
                     sample_rate,
+                    layout,
                     Arc::clone(&record_sm),
                     Arc::clone(&measure_result),
                     Arc::clone(&delta_result),
@@ -3120,6 +3132,7 @@ pub const KIRIN_BALANCE_LEFT_ONLY: u8 = 2;
 pub const KIRIN_BALANCE_RIGHT_ONLY: u8 = 3;
 pub const KIRIN_STEREO_FIELD_SIZE: u8 = STEREO_FIELD_SIZE as u8;
 pub const KIRIN_STEREO_FIELD_BINS: usize = STEREO_FIELD_BINS;
+pub const KIRIN_MONO_SUM_BAND_COUNT: usize = MONO_SUM_BAND_COUNT;
 pub const KIRIN_METER_HISTORY_10_HZ: u8 = 0;
 pub const KIRIN_METER_HISTORY_1_HZ: u8 = 1;
 pub const KIRIN_METER_HISTORY_0_1_HZ: u8 = 2;
@@ -3128,77 +3141,15 @@ pub const KIRIN_METER_HISTORY_1_HZ_CAPACITY: usize = HISTORY_1_HZ_CAPACITY;
 pub const KIRIN_METER_HISTORY_0_1_HZ_CAPACITY: usize = HISTORY_0_1_HZ_CAPACITY;
 pub const KIRIN_METER_HISTORY_MAX_ENTRIES: usize = HISTORY_0_1_HZ_CAPACITY;
 pub const KIRIN_DELTA_MODE_ACTIVE: u8 = 0;
-pub const KIRIN_OBSERVATORY_FRAME_VERSION: u32 = 3;
 pub const KIRIN_LRA_UNAVAILABLE: u8 = 0;
 pub const KIRIN_LRA_WARMING: u8 = 1;
 pub const KIRIN_LRA_READY: u8 = 2;
 
-/// Record/Keepから独立した常設メーター。current/session値は同じ`observed_frames`境界、値なしはNaN。
-#[repr(C)]
-pub struct KirinMeterSession {
-    pub generation: u64,
-    pub active_frames: u64,
-    pub observed_frames: u64,
-    pub sample_rate: u32,
-    pub state: u8,
-    pub reserved: [u8; 3],
-    pub lufs_m: f64,
-    pub lufs_s: f64,
-    pub lufs_i: f64,
-    pub lra: f64,
-    pub true_peak: f64,
-    pub max_true_peak: f64,
-    pub plr: f64,
-    pub channels: u8,
-    pub balance_state: u8,
-    pub channel_clip_latched: [u8; 2],
-    pub stereo_reserved: [u8; 4],
-    pub sample_peak_dbfs: [f64; 2],
-    pub sample_peak_hold_dbfs: [f64; 2],
-    pub channel_true_peak_dbtp: [f64; 2],
-    pub channel_max_true_peak_dbtp: [f64; 2],
-    pub clip_events: [u64; 2],
-    pub balance_db: f64,
-    pub correlation: f64,
-    pub field_size: u8,
-    pub field_observation_count: u8,
-    pub field_reserved: [u8; 6],
-    pub field_density: [u8; KIRIN_STEREO_FIELD_BINS],
-    /// EBU Mode Maximum Momentary through `observed_frames`; append-only ABI field.
-    pub max_lufs_m: f64,
-    /// Full-wave average, sine-calibrated, over the latest exact 300 ms.
-    pub channel_vu_dbfs: [f64; 2],
-    /// Per-channel ITU-R BS.1770 True Peak of the latest exact 100 ms observation.
-    pub channel_instant_true_peak_dbtp: [f64; 2],
-}
+mod meter_session_abi;
+pub use meter_session_abi::KirinMeterSession;
 
-/// TIME履歴1指標の範囲。10 Hzではmin=max=mean、値なしはNaN。
-#[repr(C)]
-pub struct KirinMeterHistoryRange {
-    pub min: f64,
-    pub max: f64,
-    pub mean: f64,
-}
-
-/// TIME履歴の1点。低rate層は`observation_count`個の100 ms事実を集約する。
-#[repr(C)]
-pub struct KirinMeterHistoryEntry {
-    pub generation: u64,
-    pub run_id: u64,
-    pub first_observed_frames: u64,
-    pub last_observed_frames: u64,
-    pub first_timeline_endpoint_samples: i64,
-    pub last_timeline_endpoint_samples: i64,
-    pub observation_count: u16,
-    pub resolution: u8,
-    pub reserved: u8,
-    pub clip_event_count: [u32; 2],
-    pub lufs_m: KirinMeterHistoryRange,
-    pub lufs_s: KirinMeterHistoryRange,
-    pub true_peak: KirinMeterHistoryRange,
-    pub correlation: KirinMeterHistoryRange,
-    pub plr: KirinMeterHistoryRange,
-}
+mod meter_history_abi;
+pub use meter_history_abi::{KirinMeterHistoryEntry, KirinMeterHistoryRange};
 
 /// `KirinDelta` — POST の Δ（C struct / B-061 3d-b）。各 double の「値なし」は NaN。
 /// `mode`: 0=Active / 1=Stale / 2=NoPre / 3=Bypassed / 4=PreInactive。
@@ -3215,20 +3166,6 @@ pub struct KirinDelta {
     pub lufs_s: f64,
     /// POST − PRE PSB share for each Bark band; unavailable is all NaN.
     pub psb_bark: [f64; 20],
-}
-
-/// Observatory表示が一度に受け取る非RTスナップショット。
-/// 接続状態はcontrol-plane事実なので含めず、表示対象の測定事実だけを束ねる。
-#[repr(C)]
-pub struct KirinObservatoryFrame {
-    pub version: u32,
-    pub signal_state: u8,
-    pub lra_state: u8,
-    pub delta_available: u8,
-    pub reserved: u8,
-    pub lra_elapsed_seconds: f64,
-    pub meter: KirinMeterSession,
-    pub delta: KirinDelta,
 }
 
 pub const KIRIN_SPECTRUM_HIDDEN: u8 = 0;
@@ -3379,12 +3316,12 @@ pub const KIRIN_RECORD_DISPLAY_RESULT_HOLD: u8 = 3;
 pub const KIRIN_RECORD_DISPLAY_UNAVAILABLE: u8 = 4;
 
 #[inline]
-fn opt_f64(v: Option<f64>) -> f64 {
+pub(crate) fn opt_f64(v: Option<f64>) -> f64 {
     v.unwrap_or(f64::NAN)
 }
 
 #[inline]
-fn opt_arr20(v: Option<[f64; 20]>) -> [f64; 20] {
+pub(crate) fn opt_arr20(v: Option<[f64; 20]>) -> [f64; 20] {
     v.unwrap_or([f64::NAN; 20])
 }
 
@@ -3435,6 +3372,7 @@ fn to_c_history_entry(entry: MeterHistoryEntry) -> KirinMeterHistoryEntry {
     };
     KirinMeterHistoryEntry {
         generation: entry.generation,
+        measurement_epoch: entry.measurement_epoch,
         run_id: entry.run_id,
         first_observed_frames: entry.first_observed_frames,
         last_observed_frames: entry.last_observed_frames,
@@ -3443,7 +3381,7 @@ fn to_c_history_entry(entry: MeterHistoryEntry) -> KirinMeterHistoryEntry {
         observation_count: entry.observation_count,
         resolution,
         reserved: 0,
-        clip_event_count: entry.clip_event_count,
+        clip_event_count: channel_abi::widen(&entry.clip_event_count, 0),
         lufs_m: to_c_history_range(entry.lufs_m),
         lufs_s: to_c_history_range(entry.lufs_s),
         true_peak: to_c_history_range(entry.true_peak),
@@ -3461,29 +3399,10 @@ fn meter_history_resolution_from_abi(value: u8) -> Option<MeterHistoryResolution
     }
 }
 
-fn delta_mode_to_abi(mode: &DeltaMode) -> u8 {
-    match mode {
-        DeltaMode::Active => 0,
-        DeltaMode::Stale => 1,
-        DeltaMode::NoPre => 2,
-        DeltaMode::Bypassed => 3,
-        DeltaMode::PreInactive => 4,
-    }
-}
-
-fn to_c_delta(d: &DeltaResult) -> KirinDelta {
-    KirinDelta {
-        mode: delta_mode_to_abi(&d.mode),
-        lufs: opt_f64(d.lufs),
-        true_peak: opt_f64(d.tp),
-        crest: opt_f64(d.crest),
-        psr: opt_f64(d.psr),
-        n_prime_total: opt_f64(d.n_prime_total),
-        sharpness: opt_f64(d.sharpness),
-        lufs_s: opt_f64(d.lufs_s),
-        psb_bark: opt_arr20(d.psb_bark),
-    }
-}
+#[path = "delta_abi.rs"]
+mod delta_abi;
+use comparison_abi::comparison_projection;
+use delta_abi::to_c_delta;
 
 fn delta_has_finite_fact(delta: &KirinDelta) -> bool {
     delta.mode == KIRIN_DELTA_MODE_ACTIVE
@@ -3808,6 +3727,7 @@ mod record_display_abi_tests {
                 lufs_i: Some(-14.2),
                 lra: Some(3.0),
                 max_true_peak: Some(-0.7),
+                layout: None,
             }),
             delta: Some(DeltaResult {
                 lufs: Some(0.2),
@@ -3822,9 +3742,8 @@ mod record_display_abi_tests {
         assert_eq!(out.generation, 19);
         assert_eq!((out.has_measure, out.has_session, out.has_delta), (1, 1, 1));
         assert_eq!(out.pair_matches_current, 1);
-        assert_eq!(out.measure.lufs_s, -13.5);
+        assert_eq!((out.measure.lufs_s, out.delta.lufs_s), (-13.5, 0.4));
         assert_eq!(out.session.lufs_i, -14.2);
-        assert_eq!(out.delta.lufs_s, 0.4);
     }
 
     #[test]
@@ -3865,19 +3784,6 @@ mod record_display_abi_tests {
             std::mem::offset_of!(KirinDelta, lufs_s) > std::mem::offset_of!(KirinDelta, sharpness)
         );
     }
-}
-
-/// ランタイムを生成して不透明ポインタを返す（失敗時 null は返さない）。
-///
-/// # Safety
-/// 返り値は `kirin_hypha_destroy` でのみ解放すること。
-#[no_mangle]
-pub extern "C" fn kirin_hypha_create(sample_rate: u32, num_channels: u32) -> *mut KirinHyphaEngine {
-    // panic を C ABI 境界で止める。panic 時は null を返す（UB 回避）。論理は変えない。
-    catch_unwind(AssertUnwindSafe(|| {
-        Box::into_raw(Box::new(KirinHyphaEngine::new(sample_rate, num_channels)))
-    }))
-    .unwrap_or(std::ptr::null_mut())
 }
 
 /// identity.json からライセンスコードを読む（0=Os 1=Sense 2=Unknown）。ハンドル不要。
@@ -4904,24 +4810,31 @@ pub unsafe extern "C" fn kirin_hypha_poll_observatory_frame(
         let Some(snapshot) = engine.poll_meter_session() else {
             return false;
         };
-        let delta = engine.poll_delta().map_or_else(
-            || to_c_delta(&DeltaResult::default()),
-            |value| to_c_delta(&value),
-        );
+        let delta_result = engine.poll_delta().unwrap_or_default();
+        let delta = to_c_delta(&delta_result);
         let signal_after = engine.signal_state_abi();
         if signal_before != signal_after {
             return false;
         }
         let (lra_state, lra_elapsed_seconds) = lra_readiness(&snapshot);
+        let comparison = comparison_projection(
+            &delta_result,
+            snapshot.measurement_epoch,
+            snapshot.generation,
+        );
         let frame = KirinObservatoryFrame {
-            version: KIRIN_OBSERVATORY_FRAME_VERSION,
+            version: abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION,
             signal_state: signal_after,
             lra_state,
             delta_available: delta_has_finite_fact(&delta) as u8,
-            reserved: 0,
+            comparison_state: comparison.state,
             lra_elapsed_seconds,
             meter: to_c_meter_session(&snapshot),
             delta,
+            comparison_reason: comparison.reason,
+            comparison_reserved: [0; 7],
+            comparison_generation: comparison.generation,
+            comparison_identity: comparison.identity,
         };
         unsafe { *out = frame };
         true
@@ -5112,7 +5025,7 @@ pub type _KirinHyphaOpaque = c_void;
 
 #[cfg(test)]
 mod record_start_latch_tests {
-    use super::{KirinHyphaEngine, RecordTakeBlock, LICENSE_OS};
+    use super::{ChannelLayout, KirinHyphaEngine, RecordTakeBlock, LICENSE_OS};
 
     fn block(
         rendered: bool,
@@ -5135,7 +5048,7 @@ mod record_start_latch_tests {
 
     #[test]
     fn ffi_record_start_latches_only_rendered_capture_window() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         engine.set_license(LICENSE_OS);
         assert!(engine.enter_record());
 
@@ -5151,7 +5064,7 @@ mod record_start_latch_tests {
 
     #[test]
     fn ffi_record_start_latches_explicit_clock_start_for_bounded_window() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         engine.set_license(LICENSE_OS);
         assert!(engine.enter_record());
 
@@ -5165,11 +5078,11 @@ mod record_start_latch_tests {
 
 #[cfg(test)]
 mod admission_contract_tests {
-    use super::{KirinHyphaEngine, RecordTakeBlock, MAX_AUDIO_BLOCK_FRAMES};
+    use super::{ChannelLayout, KirinHyphaEngine, RecordTakeBlock, MAX_AUDIO_BLOCK_FRAMES};
 
     #[test]
     fn shipping_transaction_rejects_channel_remainder_without_advancing_clock() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         assert!(!engine.push_samples_transaction(&[0.0, 1.0, 2.0], 2));
         assert_eq!(engine.overflow_count(), 3);
         assert_eq!(engine.record_take_tracker.captured_frames_total(), 0);
@@ -5177,7 +5090,7 @@ mod admission_contract_tests {
 
     #[test]
     fn shipping_transaction_reports_success_only_after_audio_and_clock_commit() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         engine.note_capture_window(
             true,
             42,
@@ -5193,12 +5106,12 @@ mod admission_contract_tests {
 
     #[test]
     fn shipping_transaction_rejects_nonempty_unclocked_watch_and_record() {
-        let watch = KirinHyphaEngine::new(48_000, 2);
+        let watch = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         assert!(!watch.push_samples_transaction(&[0.0, 0.0], 2));
         assert_eq!(watch.overflow_count(), 2);
         assert_eq!(watch.record_take_tracker.captured_frames_total(), 0);
 
-        let record = KirinHyphaEngine::new(48_000, 2);
+        let record = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         record.set_license(super::LICENSE_OS);
         assert!(record.enter_record());
         record.stage_record_block(RecordTakeBlock {
@@ -5221,7 +5134,7 @@ mod admission_contract_tests {
 
     #[test]
     fn shipping_transaction_rejects_frames_above_declared_host_maximum() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
         let frames = MAX_AUDIO_BLOCK_FRAMES + 1;
         let block = vec![0.0; frames * 2];
         engine.note_capture_window(
@@ -5261,7 +5174,7 @@ mod post_controls_parity_tests {
     use super::*;
     use kirin_measure::license::{show_note_button, show_save_button};
 
-    /// PostControls visibility and enabled state replica. Source parity is pinned by xtask.
+    /// Legacy editor-control state replica retained for the non-shipping prototype editors.
     struct PostVis {
         keep_visible: bool,
         keep_enabled: bool,

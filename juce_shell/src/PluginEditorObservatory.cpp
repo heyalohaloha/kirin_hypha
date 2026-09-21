@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaComparisonPresentation.h"
 
 using hypha::COL_LED_BLUE;
 using hypha::COL_MUTED;
@@ -37,11 +38,7 @@ void KirinHyphaEditor::applyPresentationContext()
 {
     const auto context = hypha::presentation::forEditor (getWidth(), getHeight());
     nameField.setPresentationContext (context);
-    loudnessSelector.setPresentationContext (context);
-    for (auto& cell : cells) cell.setPresentationContext (context);
-    pairStatusLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
     feedbackLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
-    if (postControls != nullptr) postControls->setPresentationContext (context);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumView.setPresentationContext (context);
     perceptualView.setPresentationContext (context);
@@ -74,6 +71,7 @@ void KirinHyphaEditor::configureMeterContext()
     observatoryView.onOperationsMenu = [this] { showOperationsMenu(); };
     observatoryView.onGuideDetails = [this] { showGuideInformationMenu(); };
     observatoryView.onFeedbackDetails = [this] { showFeedbackInformationMenu(); };
+    observatoryView.onTimeRangeMenu = [this] { showTimeRangeMenu(); };
     observatoryView.onStop = [this] { processorRef.stopPair(); };
     observatoryView.onReset = [this]
     {
@@ -82,9 +80,7 @@ void KirinHyphaEditor::configureMeterContext()
             showToast ("Meter Session could not be reset");
             return;
         }
-        watchMaximum = {};
         observatoryWatchDisplay = {};
-        haveWatchMaximum = false;
         haveObservatoryWatchDisplay = false;
         observatoryView.setWatchDisplay ({}, false);
     };
@@ -168,6 +164,7 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 
 void KirinHyphaEditor::visibilityChanged()
 {
+    refreshPairPreview (true);
     refreshAppearance();
     // Some hosts snapshot non-parameter state when the editor becomes hidden, before destroying
     // it. Mark the already-updated exact dimensions dirty at that boundary as well as in dtor.
@@ -193,7 +190,12 @@ void KirinHyphaEditor::refreshObservatory()
     syncAnalysisDemand();
     if (localBlindOpen)
     {
-        refreshLocalBlindProduct();
+        const auto now = nowSecs();
+        if (now - localBlindPresentationAt >= 0.1)
+        {
+            localBlindPresentationAt = now;
+            refreshLocalBlindProduct();
+        }
         return;
     }
    #endif
@@ -271,6 +273,33 @@ void KirinHyphaEditor::refreshObservatory()
     KirinObservatoryFrame frame {};
     const bool frameAvailable = processorRef.pollObservatoryFrame (frame);
     observatoryView.setObservatoryFrame (frame, frameAvailable);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    spectrumView.setComparisonStatus (
+        frameAvailable
+            && observatoryView.target() == hypha::observatory::ObservationTarget::delta
+            ? hypha::comparison_presentation::statusText (
+                  frame.comparison_state, frame.comparison_reason)
+            : juce::String());
+   #endif
+    if (frameAvailable)
+    {
+        comparisonObservedGeneration = juce::jmax (
+            comparisonObservedGeneration, frame.comparison_generation);
+        if (comparisonActionAwaitingResult
+            && frame.comparison_generation > comparisonActionAfterGeneration)
+        {
+            if (frame.comparison_state == KIRIN_COMPARISON_STATE_ACTIVE)
+                comparisonActionAwaitingResult = false;
+            else if (hypha::comparison_presentation::notifiesExplicitAction (
+                         frame.comparison_state, frame.comparison_reason))
+            {
+                showToast (hypha::comparison_presentation::statusText (
+                    frame.comparison_state,
+                    frame.comparison_reason));
+                comparisonActionAwaitingResult = false;
+            }
+        }
+    }
     observatoryView.setWatchDisplay (observatoryWatchDisplay, haveObservatoryWatchDisplay);
     observatoryView.setShortTermLoudness (processorRef.useShortTermLoudness());
    #if ! KIRIN_HYPHA_PRE_DISPLAY

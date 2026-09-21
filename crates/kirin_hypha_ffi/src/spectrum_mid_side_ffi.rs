@@ -191,14 +191,21 @@ mod tests {
 
     #[test]
     fn mid_side_visibility_is_post_and_stereo_only() {
-        let pre = KirinHyphaEngine::new(48_000, 2);
+        let pre = KirinHyphaEngine::new(
+            48_000,
+            kirin_measure::channel_layout::ChannelLayout::stereo(),
+        );
         assert!(!pre.set_mid_side_spectrum_visible(true));
 
-        let mono = KirinHyphaEngine::new(48_000, 1);
+        let mono =
+            KirinHyphaEngine::new(48_000, kirin_measure::channel_layout::ChannelLayout::mono());
         *mono.write_role.lock().unwrap() = Some(PluginDataRole::Post);
         assert!(!mono.set_mid_side_spectrum_visible(true));
 
-        let stereo = KirinHyphaEngine::new(48_000, 2);
+        let stereo = KirinHyphaEngine::new(
+            48_000,
+            kirin_measure::channel_layout::ChannelLayout::stereo(),
+        );
         *stereo.write_role.lock().unwrap() = Some(PluginDataRole::Post);
         assert!(stereo.set_mid_side_spectrum_visible(true));
         assert!(stereo.spectrum_runtime.mid_side_enabled());

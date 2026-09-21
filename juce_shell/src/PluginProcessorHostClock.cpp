@@ -81,7 +81,7 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
     const bool publishClockProbe = role == Role::Post;
    #endif
     if (publishClockProbe)
-        hostClockProbe.publish (clock, preparedSampleRate,
+        hostClockProbe.publish (clock, preparedFormat.sampleRate,
             static_cast<std::uint32_t> (getBlockSize()),
             static_cast<std::uint32_t> (getTotalNumInputChannels()));
     return clock;

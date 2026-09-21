@@ -88,6 +88,9 @@ fn confirmed_self_check_release_is_published_in_the_same_observation_tick() {
             daw_session_id,
             record_sm,
             post_result,
+            post_layout: crate::plugin_data::MeasurementLayout::new(
+                crate::channel_layout::ChannelLayout::stereo(),
+            ),
             delta_result,
             signal_state,
             is_playing,

@@ -2,6 +2,7 @@
 //! Run the same WAV and build profile on the validation machine; times are inclusive unless
 //! explicitly compared as a differential experiment. This is not a DAW deadline benchmark.
 use ebur128::{EbuR128, Mode};
+use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::{MeasureEngine, MeterSession, StereoMeter};
 use std::hint::black_box;
 use std::time::Instant;
@@ -82,6 +83,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("empty, misaligned, or non-finite audio".into());
     }
+    let Some(layout) = ChannelLayout::mono_or_stereo_by_count(input.channels) else {
+        return Err("this probe measures the mono and stereo Watch path only".into());
+    };
     println!(
         "INPUT rate={} channels={} frames={} peak={:.9} debug_assertions={}",
         input.rate,
@@ -121,13 +125,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let frames = input.rate as usize / 10;
     measure("watch_measure_engine", &input, frames, || {
-        let mut engine = MeasureEngine::new(input.rate, input.channels).unwrap();
+        let mut engine = MeasureEngine::new(input.rate, layout).unwrap();
         Box::new(move |chunk, _| {
             black_box(engine.push(chunk));
         })
     });
     measure("stereo_meter_including_true_peak", &input, frames, || {
-        let mut stereo = StereoMeter::new(input.rate, input.channels).unwrap();
+        let mut stereo = StereoMeter::new(input.rate, layout).unwrap();
         Box::new(move |chunk, _| {
             assert!(stereo.push_observation(chunk));
             black_box(stereo.snapshot());
@@ -138,7 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &input,
         frames,
         || {
-            let mut session = MeterSession::new(input.rate, input.channels).unwrap();
+            let mut session = MeterSession::new(input.rate, layout).unwrap();
             Box::new(move |chunk, _| {
                 assert!(session.push_active(chunk));
                 black_box(session.snapshot());
@@ -146,8 +150,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     );
     measure("watch_engine_plus_meter_session", &input, frames, || {
-        let mut engine = MeasureEngine::new(input.rate, input.channels).unwrap();
-        let mut session = MeterSession::new(input.rate, input.channels).unwrap();
+        let mut engine = MeasureEngine::new(input.rate, layout).unwrap();
+        let mut session = MeterSession::new(input.rate, layout).unwrap();
         Box::new(move |chunk, _| {
             assert!(session.push_active(chunk));
             black_box(session.snapshot());

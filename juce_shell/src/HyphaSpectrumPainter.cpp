@@ -4,10 +4,12 @@
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 #include "HyphaPolylineGeometry.h"
+#include "HyphaTimeFieldImage.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 
 namespace hypha::spectrum_painter
 {
@@ -25,6 +27,42 @@ namespace
         const float clipped = juce::jlimit (-kDeltaRangeDb, kDeltaRangeDb, db);
         return juce::jmap (clipped, kDeltaRangeDb, -kDeltaRangeDb,
                            plot.getY(), plot.getBottom());
+    }
+
+    // Brightness for the six-second field. The band level keeps its full -96..0 dBFS range, but a
+    // straight line over 96 dB puts ordinary music (about -60..-10 dBFS) inside a quarter of the
+    // available ink, which reads as one flat haze. The exponent spends the range where the music
+    // is. -6 dBFS against -60 dBFS now differs by about 4.3x of ink instead of 2x, while -60 dBFS
+    // stays legible and nothing above the floor is cut.
+    constexpr float kFieldAlphaCeiling = 0.52f;
+    constexpr float kFieldGamma = 1.6f;
+    // 0.25 dB per entry over the whole -96..0 dBFS range. The exponent is evaluated 385 times at
+    // startup instead of once per pixel per frame; a per-pixel pow costs more than the blit.
+    constexpr int kFieldStepsPerDb = 4;
+    constexpr size_t kFieldTableSize = (size_t) (-kMagnitudeFloorDbfs * kFieldStepsPerDb) + 1u;
+
+    const std::array<uint8_t, kFieldTableSize>& fieldAlphaTable()
+    {
+        static const auto table = [] {
+            std::array<uint8_t, kFieldTableSize> built {};
+            for (size_t entry = 0u; entry < built.size(); ++entry)
+            {
+                const float unit = (float) entry / (float) (built.size() - 1u);
+                built[entry] = (uint8_t) juce::jlimit (0, 255, (int) std::lround (
+                    kFieldAlphaCeiling * std::pow (unit, kFieldGamma) * 255.0f));
+            }
+            return built;
+        }();
+        return table;
+    }
+
+    uint8_t fieldAlphaStepFor (float dbfs, const std::array<uint8_t, kFieldTableSize>& table) noexcept
+    {
+        if (! std::isfinite (dbfs))
+            return 0u;
+        const int entry = (int) std::lround ((dbfs - kMagnitudeFloorDbfs)
+                                             * (float) kFieldStepsPerDb);
+        return table[(size_t) juce::jlimit (0, (int) table.size() - 1, entry)];
     }
 
     float yForMagnitudeDbfs (float dbfs, juce::Rectangle<float> plot) noexcept
@@ -230,56 +268,28 @@ void paintAbsolute (juce::Graphics& g,
 {
     if (! history.empty())
     {
+        // One blit at the measured resolution: a column per band, a row per 1/180 of the six
+        // seconds. The 64 x 40 cell grid this replaced kept one frame per row, so 140 of 180
+        // observations never reached the screen and the survivors stepped a whole cell every
+        // 150 ms. hypha::time_field owns the row rule, so SPACE draws MONO by the same one.
         const auto& newest = history.at (history.size() - 1u);
-        constexpr size_t frequencyColumns = 64u;
-        constexpr size_t timeRows = 40u;
-        std::array<int, timeRows> frameForRow {};
-        frameForRow.fill (-1);
-        for (size_t frameIndex = 0u; frameIndex < history.size(); ++frameIndex)
-        {
-            const auto& frame = history.at (frameIndex);
-            const double ageSeconds = frame.sampleRate > 0u
-                ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate
-                : absolute_spectrum::historySeconds;
-            if (ageSeconds < 0.0 || ageSeconds > absolute_spectrum::historySeconds)
-                continue;
-            const auto row = juce::jlimit (0, (int) timeRows - 1,
-                (int) std::floor (ageSeconds / absolute_spectrum::historySeconds * timeRows));
-            frameForRow[(size_t) row] = (int) frameIndex;
-        }
-        const float cellWidth = plot.getWidth() / (float) frequencyColumns;
-        const float rowHeight = std::max (1.0f, plot.getHeight() / (float) timeRows);
-        for (size_t row = 0u; row < timeRows; ++row)
-        {
-            if (frameForRow[row] < 0)
-                continue;
-            const auto frameIndex = (size_t) frameForRow[row];
-            const auto& frame = history.at (frameIndex);
-            const double ageSeconds = frame.sampleRate > 0u
-                ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate
-                : absolute_spectrum::historySeconds;
-            if (ageSeconds < 0.0 || ageSeconds > absolute_spectrum::historySeconds)
-                continue;
-            const float y = plot.getBottom()
-                          - (float) (ageSeconds / absolute_spectrum::historySeconds)
-                              * plot.getHeight();
-            for (size_t column = 0u; column < frequencyColumns; ++column)
-            {
-                const size_t first = column * KIRIN_SPECTRUM_BAND_COUNT / frequencyColumns;
-                const size_t last = (column + 1u) * KIRIN_SPECTRUM_BAND_COUNT
-                                  / frequencyColumns;
-                float magnitude = kMagnitudeFloorDbfs;
-                for (size_t band = first; band < last; ++band)
-                    magnitude = std::max (magnitude, frame.postDbfs[band]);
-                const float intensity = juce::jlimit (0.0f, 1.0f,
-                    (magnitude - kMagnitudeFloorDbfs) / -kMagnitudeFloorDbfs);
-                if (intensity <= 0.015f)
-                    continue;
-                g.setColour (COL_SPECTRUM_POST.withAlpha (0.06f + 0.34f * intensity));
-                g.fillRect (plot.getX() + (float) column * cellWidth,
-                            y - rowHeight * 0.5f, cellWidth + 0.5f, rowHeight);
-            }
-        }
+        const auto& alphaTable = fieldAlphaTable();
+        const auto field = time_field::build (
+            { (int) absolute_spectrum::historyCapacity, (int) KIRIN_SPECTRUM_BAND_COUNT,
+              absolute_spectrum::historySeconds },
+            history.size(),
+            [&history, &newest] (size_t index) {
+                const auto& frame = history.at (index);
+                return frame.sampleRate > 0u
+                    ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate
+                    : absolute_spectrum::historySeconds;
+            },
+            [&history] (size_t index, int column) {
+                return history.at (index).postDbfs[(size_t) column];
+            },
+            COL_SPECTRUM_POST,
+            [&alphaTable] (float dbfs) { return fieldAlphaStepFor (dbfs, alphaTable); });
+        time_field::draw (g, field, plot);
     }
 
     SpectrumBins x {};

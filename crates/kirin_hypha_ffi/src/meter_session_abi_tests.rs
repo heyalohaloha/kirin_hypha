@@ -1,29 +1,13 @@
+use super::channel_abi::CHANNEL_ROLE_NONE_ABI;
 use super::meter_session_ffi::{
     kirin_hypha_clear_meter_peak_clip_holds, kirin_hypha_reset_meter_session,
 };
 use super::*;
+use kirin_measure::channel_layout::{ChannelLayout, ChannelRole, LayoutId, MAX_ABI_CHANNELS};
 use kirin_measure::BalanceState;
 
 #[test]
 fn snapshot_layout_and_mapping_are_stable() {
-    assert_eq!(std::mem::size_of::<KirinMeterSession>(), 872);
-    assert_eq!(
-        std::mem::offset_of!(KirinMeterSession, channel_clip_latched),
-        90
-    );
-    assert_eq!(std::mem::offset_of!(KirinMeterSession, field_density), 200);
-    assert_eq!(std::mem::offset_of!(KirinMeterSession, max_lufs_m), 832);
-    assert_eq!(
-        std::mem::offset_of!(KirinMeterSession, channel_vu_dbfs),
-        840
-    );
-    assert_eq!(
-        std::mem::offset_of!(KirinMeterSession, channel_instant_true_peak_dbtp),
-        856
-    );
-    assert_eq!(std::mem::size_of::<KirinMeterHistoryRange>(), 24);
-    assert_eq!(std::mem::size_of::<KirinMeterHistoryEntry>(), 184);
-    assert_eq!(std::mem::size_of::<KirinObservatoryFrame>(), 1112);
     let current = MeasureResult {
         lufs_m: Some(-14.2),
         lufs_s: Some(-14.8),
@@ -33,6 +17,8 @@ fn snapshot_layout_and_mapping_are_stable() {
     let snapshot = MeterSessionSnapshot {
         generation: 3,
         state: MeterSessionState::Paused,
+        layout: ChannelLayout::stereo(),
+        measurement_epoch: 7,
         sample_rate: 48_000,
         active_frames: 96_123,
         observed_frames: 96_000,
@@ -43,6 +29,7 @@ fn snapshot_layout_and_mapping_are_stable() {
             lufs_i: Some(-15.0),
             lra: Some(4.2),
             max_true_peak: Some(-0.8),
+            layout: None,
         },
         plr: Some(14.2),
         stereo: kirin_measure::StereoMeterSnapshot {
@@ -64,6 +51,8 @@ fn snapshot_layout_and_mapping_are_stable() {
                 density
             },
             field_observation_count: 30,
+            mono_sum_db: [Some(-0.75); kirin_measure::mono_sum::MONO_SUM_BAND_COUNT],
+            mono_sum_approximate_below_hz: 30.0,
         },
     };
     let mapped = to_c_meter_session(&snapshot);
@@ -79,56 +68,67 @@ fn snapshot_layout_and_mapping_are_stable() {
     assert_eq!(mapped.max_true_peak, -0.8);
     assert_eq!(mapped.plr, 14.2);
     assert_eq!(mapped.channels, 2);
+    // 測っているのは 2ch。残りを測定値に見せない。整数は NaN を持てないので、0 を測定値と
+    // 取り違えない手がかりは `channels` だけである。
+    assert_eq!(mapped.layout_id, LayoutId::Stereo.to_abi());
+    assert_eq!(mapped.measurement_epoch, 7);
+    assert_eq!(mapped.channel_positions[0], ChannelRole::Left.to_abi());
+    assert_eq!(mapped.channel_positions[1], ChannelRole::Right.to_abi());
+    for slot in 2..MAX_ABI_CHANNELS {
+        for value in [
+            mapped.sample_peak_dbfs[slot],
+            mapped.sample_peak_hold_dbfs[slot],
+            mapped.channel_true_peak_dbtp[slot],
+            mapped.channel_max_true_peak_dbtp[slot],
+            mapped.channel_vu_dbfs[slot],
+            mapped.channel_instant_true_peak_dbtp[slot],
+        ] {
+            assert!(value.is_nan(), "slot {slot}");
+        }
+        assert_eq!(mapped.channel_positions[slot], CHANNEL_ROLE_NONE_ABI);
+        assert_eq!(mapped.clip_events[slot], 0, "slot {slot}");
+        assert_eq!(mapped.channel_clip_latched[slot], 0, "slot {slot}");
+    }
     assert_eq!(mapped.balance_state, KIRIN_BALANCE_NUMERIC);
-    assert_eq!(mapped.sample_peak_dbfs, [-1.0, -2.0]);
-    assert_eq!(mapped.channel_vu_dbfs, [-18.0, -20.0]);
-    assert_eq!(mapped.channel_instant_true_peak_dbtp, [-0.9, -1.9]);
-    assert_eq!(mapped.clip_events, [2, 1]);
-    assert_eq!(mapped.channel_clip_latched, [1, 0]);
+    assert_eq!(mapped.sample_peak_dbfs[..2], [-1.0, -2.0]);
+    assert_eq!(mapped.channel_vu_dbfs[..2], [-18.0, -20.0]);
+    assert_eq!(mapped.channel_instant_true_peak_dbtp[..2], [-0.9, -1.9]);
+    // MONO crosses the boundary as a value or as NaN. An unmeasured band must never arrive as
+    // 0 dB, which is the one reading that means the band loses nothing.
+    assert_eq!(mapped.mono_sum_band_count, KIRIN_MONO_SUM_BAND_COUNT as u8);
+    assert_eq!(mapped.mono_sum_reserved, [0; 3]);
+    assert_eq!(mapped.mono_sum_approximate_below_hz, 30.0);
+    assert!(mapped.mono_sum_db.iter().all(|value| *value == -0.75));
+
+    let mut partial = snapshot.clone();
+    partial.stereo.mono_sum_db[0] = None;
+    partial.stereo.mono_sum_db[31] = None;
+    let mapped = to_c_meter_session(&partial);
+    assert_eq!(mapped.mono_sum_band_count, KIRIN_MONO_SUM_BAND_COUNT as u8);
+    assert!(mapped.mono_sum_db[0].is_nan());
+    assert!(mapped.mono_sum_db[31].is_nan());
+    assert_eq!(mapped.mono_sum_db[1], -0.75);
+
+    let mut absent = snapshot.clone();
+    absent.stereo.mono_sum_db = [None; kirin_measure::mono_sum::MONO_SUM_BAND_COUNT];
+    absent.stereo.mono_sum_approximate_below_hz = 0.0;
+    let mapped = to_c_meter_session(&absent);
+    assert_eq!(mapped.mono_sum_band_count, 0);
+    assert!(mapped.mono_sum_db.iter().all(|value| value.is_nan()));
+    assert_eq!(mapped.clip_events[..2], [2, 1]);
+    assert_eq!(mapped.channel_clip_latched[..2], [1, 0]);
     assert_eq!(mapped.balance_db, 0.75);
     assert_eq!(mapped.correlation, 0.91);
     assert_eq!(mapped.field_size, KIRIN_STEREO_FIELD_SIZE);
     assert_eq!(mapped.field_observation_count, 30);
     assert_eq!(mapped.field_density[312], 211);
-
-    let history = to_c_history_entry(MeterHistoryEntry {
-        resolution: MeterHistoryResolution::Hz1,
-        generation: 3,
-        run_id: 7,
-        observation_count: 10,
-        first_observed_frames: 4_800,
-        last_observed_frames: 48_000,
-        first_timeline_endpoint_samples: Some(104_800),
-        last_timeline_endpoint_samples: None,
-        timeline_source: CaptureClockSource::ProjectTimeline,
-        clip_event_count: [3, 1],
-        lufs_m: MeterHistoryRange {
-            min: Some(-16.0),
-            max: Some(-13.0),
-            mean: Some(-14.5),
-        },
-        lufs_s: MeterHistoryRange::default(),
-        true_peak: MeterHistoryRange::default(),
-        correlation: MeterHistoryRange::default(),
-        plr: MeterHistoryRange {
-            min: Some(12.0),
-            max: Some(14.0),
-            mean: Some(13.0),
-        },
-    });
-    assert_eq!(history.resolution, KIRIN_METER_HISTORY_1_HZ);
-    assert_eq!(history.observation_count, 10);
-    assert_eq!(history.clip_event_count, [3, 1]);
-    assert_eq!(history.first_timeline_endpoint_samples, 104_800);
-    assert_eq!(history.plr.mean, 13.0);
-    assert_eq!(history.last_timeline_endpoint_samples, i64::MIN);
-    assert_eq!(history.lufs_m.min, -16.0);
-    assert!(history.lufs_s.mean.is_nan());
 }
 
 #[test]
 fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
     let mut snapshot = MeterSessionSnapshot {
+        layout: ChannelLayout::stereo(),
+        measurement_epoch: 1,
         generation: 1,
         state: MeterSessionState::Active,
         sample_rate: 48_000,
@@ -141,6 +141,7 @@ fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
             lufs_i: Some(-14.0),
             lra: Some(0.0),
             max_true_peak: Some(-1.0),
+            layout: None,
         },
         plr: Some(13.0),
         stereo: kirin_measure::StereoMeterSnapshot {
@@ -158,6 +159,8 @@ fn lra_readiness_never_presents_an_early_finite_value_as_ready() {
             correlation: None,
             field_density: [0; STEREO_FIELD_BINS],
             field_observation_count: 0,
+            mono_sum_db: [None; kirin_measure::mono_sum::MONO_SUM_BAND_COUNT],
+            mono_sum_approximate_below_hz: 0.0,
         },
     };
     assert_eq!(lra_readiness(&snapshot).0, KIRIN_LRA_WARMING);
@@ -188,6 +191,33 @@ fn observatory_delta_requires_active_freshness_even_when_stale_values_are_finite
 }
 
 #[test]
+fn observatory_frame_keeps_reason_generation_and_identity_with_the_delta() {
+    let mut engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
+    *engine.delta_result.lock().unwrap() = DeltaResult {
+        mode: DeltaMode::LayoutMismatch,
+        comparison: kirin_measure::ComparisonSnapshot {
+            state: kirin_measure::ComparisonState::Rejected,
+            reason: kirin_measure::ComparisonReason::LayoutMismatch,
+            generation: 12,
+            identity: 0x1234,
+        },
+        ..Default::default()
+    };
+    let mut frame: KirinObservatoryFrame = unsafe { std::mem::zeroed() };
+    assert!(unsafe { kirin_hypha_poll_observatory_frame(&mut engine, &mut frame) });
+    assert_eq!(frame.version, abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION);
+    assert_eq!(frame.comparison_state, KIRIN_COMPARISON_STATE_REJECTED);
+    assert_eq!(
+        frame.comparison_reason,
+        KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH
+    );
+    assert_eq!(frame.comparison_generation, 12);
+    assert_ne!(frame.comparison_identity, 0);
+    assert_eq!(frame.delta.mode, 5);
+    assert_eq!(frame.delta_available, 0);
+}
+
+#[test]
 fn null_meter_session_calls_fail_closed_without_touching_output() {
     let mut frame: KirinObservatoryFrame = unsafe { std::mem::zeroed() };
     frame.version = 41;
@@ -209,13 +239,13 @@ fn null_meter_session_calls_fail_closed_without_touching_output() {
         plr: 0.0,
         channels: 0,
         balance_state: 0,
-        channel_clip_latched: [0; 2],
-        stereo_reserved: [0; 4],
-        sample_peak_dbfs: [0.0; 2],
-        sample_peak_hold_dbfs: [0.0; 2],
-        channel_true_peak_dbtp: [0.0; 2],
-        channel_max_true_peak_dbtp: [0.0; 2],
-        clip_events: [0; 2],
+        channel_clip_latched: [0; MAX_ABI_CHANNELS],
+        stereo_reserved: [0; 6],
+        sample_peak_dbfs: [0.0; MAX_ABI_CHANNELS],
+        sample_peak_hold_dbfs: [0.0; MAX_ABI_CHANNELS],
+        channel_true_peak_dbtp: [0.0; MAX_ABI_CHANNELS],
+        channel_max_true_peak_dbtp: [0.0; MAX_ABI_CHANNELS],
+        clip_events: [0; MAX_ABI_CHANNELS],
         balance_db: 0.0,
         correlation: 0.0,
         field_size: 0,
@@ -223,8 +253,16 @@ fn null_meter_session_calls_fail_closed_without_touching_output() {
         field_reserved: [0; 6],
         field_density: [0; KIRIN_STEREO_FIELD_BINS],
         max_lufs_m: 0.0,
-        channel_vu_dbfs: [0.0; 2],
-        channel_instant_true_peak_dbtp: [0.0; 2],
+        channel_vu_dbfs: [0.0; MAX_ABI_CHANNELS],
+        channel_instant_true_peak_dbtp: [0.0; MAX_ABI_CHANNELS],
+        mono_sum_band_count: 0,
+        mono_sum_reserved: [0; 3],
+        mono_sum_approximate_below_hz: 0.0,
+        mono_sum_db: [f32::NAN; KIRIN_MONO_SUM_BAND_COUNT],
+        channel_positions: [CHANNEL_ROLE_NONE_ABI; MAX_ABI_CHANNELS],
+        layout_id: 0,
+        layout_reserved: [0; 7],
+        measurement_epoch: 0,
     };
     assert!(!unsafe { kirin_hypha_poll_meter_session(std::ptr::null_mut(), &mut out) });
     let mut history_count = 41_u32;
@@ -266,7 +304,7 @@ fn null_meter_session_calls_fail_closed_without_touching_output() {
 
 #[test]
 fn meter_poll_reads_completed_publication_while_live_session_is_locked() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
     let live_session = engine.meter_session.as_ref().unwrap();
     let _live_guard = live_session.lock().unwrap();
 
@@ -279,7 +317,7 @@ fn meter_poll_reads_completed_publication_while_live_session_is_locked() {
 
 #[test]
 fn delta_history_abi_is_post_only_and_empty_is_a_valid_fact() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
     assert!(engine
         .poll_meter_delta_history(MeterHistoryResolution::Hz10, 10)
         .is_none());
@@ -309,7 +347,7 @@ fn delta_history_abi_is_post_only_and_empty_is_a_valid_fact() {
 
 #[test]
 fn live_measure_worker_advances_pauses_and_resets_independent_session() {
-    let engine = KirinHyphaEngine::new(48_000, 2);
+    let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
     engine.set_signal_state(KIRIN_SIGNAL_STATE_ACTIVE);
     let mut samples = Vec::with_capacity(48_000 * 2);
     for frame in 0..48_000 {
@@ -393,8 +431,8 @@ fn live_measure_worker_advances_pauses_and_resets_independent_session() {
     assert!(unsafe {
         kirin_hypha_poll_meter_session(std::ptr::from_ref(&engine).cast_mut(), &mut ffi_cleared)
     });
-    assert_eq!(ffi_cleared.clip_events, active.stereo.clip_events);
-    assert_eq!(ffi_cleared.channel_clip_latched, [0, 0]);
+    assert_eq!(ffi_cleared.clip_events[..2], active.stereo.clip_events);
+    assert_eq!(ffi_cleared.channel_clip_latched[..2], [0, 0]);
 
     let mut ffi_entries: Vec<std::mem::MaybeUninit<KirinMeterHistoryEntry>> =
         std::iter::repeat_with(std::mem::MaybeUninit::uninit)
@@ -448,3 +486,8 @@ fn live_measure_worker_advances_pauses_and_resets_independent_session() {
     assert_eq!(reset.generation, active.generation + 1);
     assert_eq!(reset.active_frames, 0);
 }
+
+// One test spans every link from audio to the C struct. It lives in its own file so this one
+// stays inside the source line budget.
+#[path = "meter_session_chain_tests.rs"]
+mod chain;

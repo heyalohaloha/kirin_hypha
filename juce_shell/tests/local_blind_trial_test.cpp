@@ -55,6 +55,34 @@ struct Buffer
     }
 };
 
+static void returnEvidence()
+{
+    for (bool played : { false, true })
+    {
+        auto t = trial (false, { 2.0f, 0.5f, true });
+        Buffer buffer;
+        t->start (true);
+        require (! t->returnFacts().attenuationApplied, "approval alone is not applied gain");
+        if (played) buffer.render (*t, block());
+        t->stop();
+        require (t->returnFacts().attenuationApplied == played, "return amount uses actual audio gain fact");
+        t->requestNormalReturn();
+        const auto requested = t->returnFacts();
+        t->requestNormalReturn();
+        require (requested.sameRequest (t->returnFacts()), "pending command is idempotent");
+        auto bypass = block(); bypass.bypassed = true;
+        buffer.render (*t, bypass);
+        require (! t->returnFacts().confirmed, "bypass callback cannot confirm normal output");
+        auto offline = block(); offline.realtime = false;
+        buffer.render (*t, offline);
+        t->render (buffer.pointers.data(), 2, 0, block());
+        require (! t->returnFacts().confirmed, "empty/offline callback cannot confirm normal output");
+        buffer.fill(); buffer.render (*t, block());
+        require (buffer.original() && t->returnFacts().confirmed
+            && requested.sameRequest (t->returnFacts()), "nonempty realtime callback confirms exact request unchanged");
+    }
+}
+
 static void selectionAndAnswers()
 {
     for (bool firstIsPre : { false, true })
@@ -340,6 +368,7 @@ int main()
     capturedClockPlaybackContract();
     stoppedHostClockContract();
     localBlindTransitionContract();
+    returnEvidence();
     selectionAndAnswers();
     timeAndFailures();
     completePassCannotBeAssembledFromFragments();

@@ -1,4 +1,5 @@
 #include "HyphaObservatoryView.h"
+#include "HyphaComparisonPresentation.h"
 #include "HyphaRunSummary.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTimeHistoryPainter.h"
@@ -53,21 +54,32 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     clearPeakClipButton.setVisible (false);
     operationsButton.setVisible (! captureFrame);
     stopButton.setVisible (role == Role::post && keepActive && ! captureFrame);
-    resetButton.setVisible (full && ! captureFrame);
+    resetButton.setVisible (false); // Reset Meter Session has one entry in MENU.
     noteButton.setVisible (role == Role::post && full && noteButton.isEnabled() && ! captureFrame);
-    captureButton.setVisible (full && ! captureFrame);
-    localBlindButton.setVisible (false);
+    captureButton.setVisible (false); // Image Capture has one entry in MENU.
+    localBlindButton.setVisible (full && localBlindEntryEnabled && ! captureFrame);
+    localBlindButton.setEnabled (! keepActive);
+    localBlindButton.setButtonText (getWidth() < 900 ? "BLIND 300%" : "PRE/POST BLIND");
+    localBlindButton.setTooltip (keepActive ? "Finish Keep / Record before PRE / POST Blind"
+        : getWidth() < 900 ? "Open PRE / POST Blind at 300%" : "Open PRE / POST Blind");
+    // Reserve NOTE and Stop slots: starting a recording does not move primary actions.
     juce::Array<juce::Button*> visible;
-    for (auto* button : { &hybridVuButton, &resetButton, &noteButton, &captureButton,
-                          &stopButton, &operationsButton })
-        if (button->isVisible()) visible.add (button);
+    if (full && ! captureFrame)
+    {
+        visible = { &hybridVuButton, &stopButton, &noteButton };
+        if (localBlindButton.isVisible()) visible.add (&localBlindButton);
+        visible.add (&operationsButton);
+    }
+    else
+        for (auto* button : { &hybridVuButton, &stopButton, &operationsButton })
+            if (button->isVisible()) visible.add (button);
     juce::Array<int> minimumWidths;
     const auto actionFont = labelFont (presentationContext(), typography::TextRole::action);
     int minimumTotal = 0;
     for (auto* button : visible)
     {
         const auto width = juce::roundToInt (
-            std::ceil (actionFont.getStringWidthFloat (button->getButtonText()) + 6.0f));
+            std::ceil (actionFont.getStringWidthFloat (button->getButtonText()) + 12.0f));
         minimumWidths.add (width);
         minimumTotal += width;
     }
@@ -144,6 +156,11 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
     else
         time_history::paint (g, area, history, compact ? historyRequest().label : "",
                              target() == ObservationTarget::delta, compact, selectedScaleMode,
-                             presentationContext());
+                             presentationContext(),
+                             target() == ObservationTarget::delta && frameAvailable
+                                 ? comparison_presentation::statusText (
+                                       observatoryFrame.comparison_state,
+                                       observatoryFrame.comparison_reason)
+                                 : juce::String());
 }
 }

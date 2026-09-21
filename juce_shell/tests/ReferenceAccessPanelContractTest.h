@@ -18,7 +18,8 @@ inline void verifyReferenceAccessPanelContract()
     for (auto access : { os_access::State::unowned, os_access::State::ownedDisconnected })
     {
         state.osAccess = access;
-        require (needsAccessPanel (state) && ! canSelectB (state), "help is not B permission");
+        require (needsAccessPanel (state) == (access == os_access::State::unowned)
+                     && ! canSelectB (state), "only entitlement discovery covers the Reference body");
         for (auto phase : { BlindPhase::starting, BlindPhase::active,
                             BlindPhase::revealed, BlindPhase::invalidated })
         {
@@ -103,8 +104,8 @@ inline void verifyReferenceAccessPanelContract()
         verifyLayout();
         require (! button ("reference-access-about")->isVisible(), "owner help is not repurchase");
         require (aboutCount == 1 && recheckCount == 0, "help does not activate or connect");
-        require (panel.getDescription().contains ("Connect Hypha POST"),
-                 "owner help identifies the current Work connection action");
+        require (panel.getDescription().contains ("Reference"),
+                 "owner help identifies independent Reference delivery");
         require (! panel.getDescription().contains ("Open in Hypha"),
                  "owner help never advertises the removed Reference action");
         button ("reference-access-recheck")->onClick();
@@ -112,10 +113,10 @@ inline void verifyReferenceAccessPanelContract()
         panel.setOwned (true);
         require (! panel.getDescription().contains ("License not confirmed"),
                  "external entitlement recognition clears stale recheck failure");
-        require (panel.getDescription().contains ("Open Kirin OS > INSPECT"),
-                 "recognized owner sees explicit license confirmation");
-        require (panel.getDescription().contains ("Connect Hypha POST"),
-                 "recognized owner sees the current Work connection action");
+        require (! panel.getDescription().contains ("INSPECT"),
+                 "recognized owner is never sent to INSPECT");
+        require (panel.getDescription().contains ("Reference"),
+                 "recognized owner sees independent Reference guidance");
         require (! panel.getDescription().contains ("Open in Hypha"),
                  "removed Reference action is never advertised");
         require (! panel.getDescription().contains ("activate Kirin OS"),

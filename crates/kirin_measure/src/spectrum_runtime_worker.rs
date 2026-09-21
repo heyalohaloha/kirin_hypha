@@ -6,26 +6,84 @@ use rtrb::Consumer;
 
 use super::assemblers::{AbsoluteAssembler, PerceptualAssembler, SpectrumAssembler};
 use super::PerceptualHistory;
-use super::{SpectrumConsumers, SpectrumRuntime};
+use super::{AnalysisSelection, SpectrumConsumers, SpectrumRuntime};
 use crate::absolute_timeline::AbsoluteFrame;
+use crate::channel_layout::{SpectrumView, MAX_ABI_CHANNELS};
 use crate::perceptual::PerceptualFrame;
 use crate::spectrum::{AnalysisViewMode, SpectrumAnalyzer, SpectrumFrame};
 use crate::MidSideSpectrumFrame;
 
 const WORKER_IDLE: Duration = Duration::from_millis(10);
 
+/// 1 フレームのうち、いまの view が使う入力チャンネルの位置。
+///
+/// **`input` は ring から 1 フレームあたり pop するサンプル数、`left` / `right` はそのフレームの
+/// 中の位置である。** B-963 までこの 2 つが同じ `num_channels` で呼ばれていたため、6ch の
+/// interleave が 1 本の流れとして読まれた。別の量には別の名前を付ける。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct FrameSelection {
+    input: usize,
+    left: usize,
+    right: Option<usize>,
+    /// この選択を決めた view の ABI コード。**同じ 1 回の読み出しから来る。**
+    /// 位置と名札を別々に読むと、その間に view が変わったとき
+    /// 「C と名乗るが L/R から作った frame」ができる（B-971 で塞いだはずの G）。
+    view_code: u8,
+}
+
+/// worker が持つ 3 つの組立器。**解析チャンネル数ごとに作り直す。**
+struct Assemblers {
+    spectrum: SpectrumAssembler,
+    perceptual: Option<PerceptualAssembler>,
+    absolute: Option<AbsoluteAssembler>,
+}
+
 impl SpectrumRuntime {
+    /// 解析チャンネル数ぶんの組立器を作る。`SpectrumAnalyzer` が作れなければ worker は止まる。
+    fn build_assemblers(&self, analysis_channels: usize) -> Option<Assemblers> {
+        let analyzer = SpectrumAnalyzer::new(self.sample_rate).ok()?;
+        Some(Assemblers {
+            spectrum: SpectrumAssembler::new(analyzer, analysis_channels),
+            perceptual: PerceptualAssembler::new(self.sample_rate, analysis_channels).ok(),
+            absolute: AbsoluteAssembler::new(self.sample_rate, analysis_channels).ok(),
+        })
+    }
+
+    /// いまの view が読む位置と、その view の名札。view が読めないときは `None`。
+    ///
+    /// `selection` is the one word copied onto the ingress block. Positions, width, and label
+    /// must all be derived from it rather than re-reading current control state.
+    fn frame_selection(&self, selection: AnalysisSelection) -> Option<FrameSelection> {
+        let view = selection.view;
+        let analysis = view.analysis_channels(self.layout);
+        let (left, right) = match view {
+            // 単一チャンネル view。役割で決まった位置を 1 本だけ解析へ渡す。
+            SpectrumView::Channel(role) => (self.layout().index_of(role)?, None),
+            // 導出 view（LR / MID / SIDE）。stereo family 限定なので先頭 2 本が L と R である。
+            _ => (0, (analysis == 2).then_some(1)),
+        };
+        Some(FrameSelection {
+            input: self.num_channels,
+            left,
+            right,
+            view_code: view.to_abi(),
+        })
+    }
+
     pub(super) fn run_worker(&self, consumers: &mut SpectrumConsumers) {
-        let Ok(analyzer) = SpectrumAnalyzer::new(self.sample_rate) else {
+        let mut built_for = self.selection().analysis_channels(self.layout);
+        let Some(mut assemblers) = self.build_assemblers(built_for) else {
             return;
         };
-        let mut spectrum = SpectrumAssembler::new(analyzer, self.num_channels);
-        let mut perceptual = PerceptualAssembler::new(self.sample_rate, self.num_channels).ok();
-        let mut absolute = AbsoluteAssembler::new(self.sample_rate, self.num_channels).ok();
+        let mut applied_stream_generation = 0;
         while !self.shutdown.load(Ordering::Acquire) {
             if !self.enabled.load(Ordering::Acquire) {
                 drain_consumers(consumers);
-                reset_assemblers(&mut spectrum, perceptual.as_mut(), absolute.as_mut());
+                reset_assemblers(
+                    &mut assemblers.spectrum,
+                    assemblers.perceptual.as_mut(),
+                    assemblers.absolute.as_mut(),
+                );
                 let guard = match self.wake.0.lock() {
                     Ok(guard) => guard,
                     Err(_) => return,
@@ -37,28 +95,71 @@ impl SpectrumRuntime {
                 thread::sleep(WORKER_IDLE);
                 continue;
             };
-            let generation = self.generation.load(Ordering::Acquire);
-            let mode = self.analysis_mode();
-            if block.generation != generation || block.channels as usize != self.num_channels {
+            let Some(selection) = AnalysisSelection::decode(block.selection, self.layout) else {
+                discard_samples(
+                    &mut consumers.samples,
+                    block.frames as usize * block.channels as usize,
+                );
+                continue;
+            };
+            if block.selection != self.selection.load(Ordering::Acquire)
+                || block.stream_generation == 0
+                || block.stream_generation != self.stream_generation.load(Ordering::Acquire)
+                || block.channels as usize != self.num_channels
+            {
                 discard_samples(
                     &mut consumers.samples,
                     block.frames as usize * block.channels as usize,
                 );
                 continue;
             }
+            let Some(command) = self.analysis_commands.for_generation(selection.generation) else {
+                discard_samples(
+                    &mut consumers.samples,
+                    block.frames as usize * block.channels as usize,
+                );
+                continue;
+            };
+            if applied_stream_generation != block.stream_generation {
+                reset_assemblers(
+                    &mut assemblers.spectrum,
+                    assemblers.perceptual.as_mut(),
+                    assemblers.absolute.as_mut(),
+                );
+                applied_stream_generation = block.stream_generation;
+            }
+            // The assembler width, mode, input positions, and frame label all come from the same
+            // selection word captured by the audio thread.
+            let analysis_channels = selection.analysis_channels(self.layout);
+            if analysis_channels != built_for {
+                let Some(rebuilt) = self.build_assemblers(analysis_channels) else {
+                    return;
+                };
+                assemblers = rebuilt;
+                built_for = analysis_channels;
+            }
+            let (spectrum, perceptual, absolute) = (
+                &mut assemblers.spectrum,
+                &mut assemblers.perceptual,
+                &mut assemblers.absolute,
+            );
+            let generation = selection.generation;
+            let mode = selection.mode;
+            self.applied_selection
+                .store(block.selection, Ordering::Release);
             let began = match mode {
                 AnalysisViewMode::Spectrum => {
-                    spectrum.begin_block(block.presentation_start_samples, block.generation)
+                    spectrum.begin_block(block.presentation_start_samples, generation)
                 }
                 AnalysisViewMode::Perceptual => perceptual.as_mut().is_some_and(|analyzer| {
                     analyzer.begin_block(
                         block.presentation_start_samples,
-                        block.generation,
-                        self.perceptual_state_epoch(),
+                        generation,
+                        command.perceptual_state_epoch,
                     )
                 }),
                 AnalysisViewMode::Absolute => absolute.as_mut().is_some_and(|analyzer| {
-                    analyzer.begin_block(block.presentation_start_samples, block.generation)
+                    analyzer.begin_block(block.presentation_start_samples, generation)
                 }),
                 AnalysisViewMode::Attack => false,
             };
@@ -68,7 +169,7 @@ impl SpectrumRuntime {
                     .is_some_and(|analyzer| analyzer.take_history_reset_required())
             {
                 if let Ok(mut history) = self.absolute_history.lock() {
-                    history.clear();
+                    history.clear_to(crate::AbsoluteTimeline::default());
                 }
             }
             if !began {
@@ -81,14 +182,14 @@ impl SpectrumRuntime {
             }
             let complete = self.consume_block(
                 consumers,
-                block.frames,
-                mode,
-                &mut spectrum,
+                &block,
+                selection,
+                spectrum,
                 perceptual.as_mut(),
                 absolute.as_mut(),
             );
             if !complete {
-                reset_assemblers(&mut spectrum, perceptual.as_mut(), absolute.as_mut());
+                reset_assemblers(spectrum, perceptual.as_mut(), absolute.as_mut());
                 if mode == AnalysisViewMode::Perceptual {
                     self.require_perceptual_rearm();
                 }
@@ -99,33 +200,40 @@ impl SpectrumRuntime {
     fn consume_block(
         &self,
         consumers: &mut SpectrumConsumers,
-        frames: u32,
-        mode: AnalysisViewMode,
+        block: &super::SpectrumIngressBlock,
+        selection: AnalysisSelection,
         spectrum: &mut SpectrumAssembler,
         mut perceptual: Option<&mut PerceptualAssembler>,
         mut absolute: Option<&mut AbsoluteAssembler>,
     ) -> bool {
-        let channel_mode = self.channel_mode();
-        for _ in 0..frames {
-            let Ok(left) = consumers.samples.pop() else {
-                return false;
-            };
-            let right = if self.num_channels == 2 {
-                match consumers.samples.pop() {
-                    Ok(right) => Some(right),
-                    Err(_) => return false,
-                }
-            } else {
-                None
-            };
-            match mode {
+        let channel_mode = selection.channel_mode();
+        let Some(frame_selection) = self.frame_selection(selection) else {
+            return false;
+        };
+        // 1 フレーム分をまとめて読む。**入力チャンネル数ぶん必ず読む**ので、選んだ役割が
+        // 先頭でなくても残りが ring に居残らない。B-963 はここで 1 本しか読まず詰まらせた。
+        let mut frame = [0.0f32; MAX_ABI_CHANNELS];
+        for _ in 0..block.frames {
+            for slot in frame.iter_mut().take(frame_selection.input) {
+                let Ok(sample) = consumers.samples.pop() else {
+                    return false;
+                };
+                *slot = sample;
+            }
+            let left = frame[frame_selection.left];
+            let right = frame_selection.right.map(|index| frame[index]);
+            match selection.mode {
                 AnalysisViewMode::Spectrum => {
-                    if self.mid_side_enabled() {
+                    if selection.mid_side {
                         if let Some(frame) = spectrum.push_mid_side_frame(left, right) {
-                            self.publish_mid_side(frame);
+                            self.publish_mid_side(frame, block.stream_generation, block.selection);
                         }
-                    } else if let Some(frame) = spectrum.push_frame(left, right, channel_mode) {
-                        self.publish_spectrum(frame);
+                    } else if let Some(mut frame) = spectrum.push_frame(left, right, channel_mode) {
+                        // どの観測対象で作ったかをフレーム自身に持たせる。view を選んでいるのは
+                        // ここだけで、view が変わると組立器は generation でリセットされるので、
+                        // この窓はまるごとこの view のものである。
+                        frame.view = frame_selection.view_code;
+                        self.publish_spectrum(frame, block.stream_generation, block.selection);
                     }
                 }
                 AnalysisViewMode::Perceptual => {
@@ -134,7 +242,11 @@ impl SpectrumRuntime {
                     };
                     if let Some(frames) = analyzer.push_frame(left, right, channel_mode) {
                         for frame in frames {
-                            self.publish_perceptual(frame);
+                            self.publish_perceptual(
+                                frame,
+                                block.stream_generation,
+                                block.selection,
+                            );
                         }
                     }
                 }
@@ -144,7 +256,7 @@ impl SpectrumRuntime {
                     };
                     if let Some(frames) = analyzer.push_frame(left, right) {
                         for frame in frames {
-                            self.publish_absolute(*frame);
+                            self.publish_absolute(*frame, block.stream_generation, block.selection);
                         }
                     }
                 }
@@ -154,58 +266,92 @@ impl SpectrumRuntime {
         true
     }
 
-    fn publish_spectrum(&self, frame: SpectrumFrame) {
-        if !self.frame_is_current(&frame) {
+    fn publish_spectrum(&self, frame: SpectrumFrame, stream_generation: u64, selection: u64) {
+        if !self.frame_is_current(&frame, stream_generation) {
             return;
         }
         self.analyzed_frames.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.history.lock() {
-            if self.frame_is_current(&frame) {
-                history.push(frame);
+            if self.frame_is_current(&frame, stream_generation) {
+                let identity = super::state::SnapshotIdentity {
+                    stream_generation,
+                    selection,
+                };
+                if history.identity != identity {
+                    history.value = super::SpectrumHistory::with_capacity();
+                }
+                history.value.push(frame);
+                history.identity = identity;
             }
         }
     }
 
-    fn publish_mid_side(&self, frame: MidSideSpectrumFrame) {
-        if !self.mid_side_frame_is_current(&frame) {
+    fn publish_mid_side(
+        &self,
+        frame: MidSideSpectrumFrame,
+        stream_generation: u64,
+        selection: u64,
+    ) {
+        if !self.mid_side_frame_is_current(&frame, stream_generation) {
             return;
         }
         self.analyzed_mid_side_frames
             .fetch_add(1, Ordering::Relaxed);
         if let Ok(mut latest) = self.latest_mid_side.lock() {
-            if self.mid_side_frame_is_current(&frame) {
-                *latest = Some(frame);
+            if self.mid_side_frame_is_current(&frame, stream_generation) {
+                latest.value = Some(frame);
+                latest.identity = super::state::SnapshotIdentity {
+                    stream_generation,
+                    selection,
+                };
             }
         }
     }
 
-    fn publish_perceptual(&self, frame: &PerceptualFrame) {
-        if !self.perceptual_frame_is_current(frame) {
+    fn publish_perceptual(&self, frame: &PerceptualFrame, stream_generation: u64, selection: u64) {
+        if !self.perceptual_frame_is_current(frame, stream_generation) {
             return;
         }
         self.analyzed_perceptual_frames
             .fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.perceptual_history.lock() {
-            if self.perceptual_frame_is_current(frame) {
-                history.push(frame.clone());
+            if self.perceptual_frame_is_current(frame, stream_generation) {
+                let identity = super::state::SnapshotIdentity {
+                    stream_generation,
+                    selection,
+                };
+                if history.identity != identity {
+                    history.value = PerceptualHistory::with_capacity();
+                }
+                history.value.push(frame.clone());
+                history.identity = identity;
             }
         }
     }
 
-    fn publish_absolute(&self, frame: AbsoluteFrame) {
-        if !self.absolute_frame_is_current(&frame) {
+    fn publish_absolute(&self, frame: AbsoluteFrame, stream_generation: u64, selection: u64) {
+        if !self.absolute_frame_is_current(&frame, stream_generation) {
             return;
         }
         self.analyzed_absolute_frames
             .fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.absolute_history.lock() {
-            if self.absolute_frame_is_current(&frame) {
-                history.push(frame);
+            if self.absolute_frame_is_current(&frame, stream_generation) {
+                let identity = super::state::SnapshotIdentity {
+                    stream_generation,
+                    selection,
+                };
+                if history.identity != identity {
+                    history.value.clear();
+                }
+                history.value.push(frame);
+                history.identity = identity;
             }
         }
     }
 
-    pub(super) fn frame_is_current(&self, frame: &SpectrumFrame) -> bool {
+    pub(super) fn frame_is_current(&self, frame: &SpectrumFrame, stream_generation: u64) -> bool {
+        let selection = self.selection();
         let layout_matches =
             crate::spectrum::SpectrumLayout::new(self.sample_rate).is_ok_and(|layout| {
                 frame.sample_rate == layout.sample_rate
@@ -215,38 +361,57 @@ impl SpectrumRuntime {
                     && frame.max_hz.to_bits() == layout.max_hz.to_bits()
             });
         self.enabled.load(Ordering::Acquire)
-            && self.analysis_mode() == AnalysisViewMode::Spectrum
-            && !self.mid_side_enabled()
+            && stream_generation != 0
+            && stream_generation == self.stream_generation.load(Ordering::Acquire)
+            && selection.mode == AnalysisViewMode::Spectrum
+            && !selection.mid_side
             && layout_matches
-            && frame.generation == self.generation.load(Ordering::Acquire)
-            && frame.channel_mode == self.channel_mode()
-            && frame.channels as usize == self.num_channels
+            && frame.generation == selection.generation
+            && frame.channel_mode == selection.channel_mode()
+            && frame.view == selection.view.to_abi()
+            && frame.channels as usize == selection.analysis_channels(self.layout)
     }
 
-    fn mid_side_frame_is_current(&self, frame: &MidSideSpectrumFrame) -> bool {
+    fn mid_side_frame_is_current(
+        &self,
+        frame: &MidSideSpectrumFrame,
+        stream_generation: u64,
+    ) -> bool {
+        let selection = self.selection();
         self.enabled.load(Ordering::Acquire)
-            && self.analysis_mode() == AnalysisViewMode::Spectrum
-            && self.mid_side_enabled()
-            && frame.generation() == self.generation.load(Ordering::Acquire)
+            && stream_generation != 0
+            && stream_generation == self.stream_generation.load(Ordering::Acquire)
+            && selection.mode == AnalysisViewMode::Spectrum
+            && selection.mid_side
+            && frame.generation() == selection.generation
             && frame.has_valid_layout()
             && frame.mid.sample_rate == self.sample_rate
-            && frame.mid.channels as usize == self.num_channels
+            && frame.mid.channels as usize == selection.analysis_channels(self.layout)
     }
 
-    fn perceptual_frame_is_current(&self, frame: &PerceptualFrame) -> bool {
+    fn perceptual_frame_is_current(&self, frame: &PerceptualFrame, stream_generation: u64) -> bool {
+        let selection = self.selection();
+        let command = self.analysis_commands.for_generation(selection.generation);
         self.enabled.load(Ordering::Acquire)
-            && self.analysis_mode() == AnalysisViewMode::Perceptual
-            && frame.generation == self.generation.load(Ordering::Acquire)
-            && Some(frame.state_epoch_samples) == self.perceptual_state_epoch()
-            && frame.channel_mode == self.channel_mode()
-            && frame.channels as usize == self.num_channels
+            && stream_generation != 0
+            && stream_generation == self.stream_generation.load(Ordering::Acquire)
+            && selection.mode == AnalysisViewMode::Perceptual
+            && frame.generation == selection.generation
+            && command.is_some_and(|command| {
+                Some(frame.state_epoch_samples) == command.perceptual_state_epoch
+            })
+            && frame.channel_mode == selection.channel_mode()
+            && frame.channels as usize == selection.analysis_channels(self.layout)
     }
 
-    fn absolute_frame_is_current(&self, frame: &AbsoluteFrame) -> bool {
+    fn absolute_frame_is_current(&self, frame: &AbsoluteFrame, stream_generation: u64) -> bool {
+        let selection = self.selection();
         self.enabled.load(Ordering::Acquire)
-            && self.analysis_mode() == AnalysisViewMode::Absolute
-            && frame.generation == self.generation.load(Ordering::Acquire)
-            && frame.channels as usize == self.num_channels
+            && stream_generation != 0
+            && stream_generation == self.stream_generation.load(Ordering::Acquire)
+            && selection.mode == AnalysisViewMode::Absolute
+            && frame.generation == selection.generation
+            && frame.channels as usize == selection.analysis_channels(self.layout)
             && frame.is_valid()
     }
 
@@ -262,7 +427,7 @@ impl SpectrumRuntime {
         self.perceptual_rearm_required
             .store(true, Ordering::Release);
         if let Ok(mut history) = self.perceptual_history.lock() {
-            *history = PerceptualHistory::with_capacity();
+            history.clear_to(PerceptualHistory::with_capacity());
         }
     }
 }
@@ -293,3 +458,7 @@ fn discard_samples(consumer: &mut Consumer<f32>, count: usize) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "spectrum_runtime_selection_tests.rs"]
+mod selection_tests;

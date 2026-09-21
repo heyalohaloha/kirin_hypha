@@ -7,7 +7,7 @@
  * 実装:           crates/kirin_hypha_ffi/src/lib.rs（このヘッダと常に一致させること）.
  *
  * C ABI surface（すべて実装済み）:
- *   - RT 計測: create / set_signal_state / push_samples / poll_result / destroy.
+ *   - RT 計測: create（kirin_hypha_channels.h）/ set_signal_state / push_samples / poll_result / destroy.
  *   - Record:  set_license / exit_record / poll_session
  *              （SessionSummary は Record finalize 後に成立。finalize は Measure Thread のみ）.
  *   - 識別子:  set_identity / get_identity（state chunk 方式A）.
@@ -31,14 +31,12 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "kirin_hypha_channels.h"
 #include "kirin_hypha_reference_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* 不透明ハンドル. */
-typedef struct KirinHypha KirinHypha;
-
 /* C / C++ shell が Rust ABI の数値を直書きしないための共有状態契約. */
 #define KIRIN_SIGNAL_STATE_INACTIVE 0u
 #define KIRIN_SIGNAL_STATE_ACTIVE 1u
@@ -52,11 +50,7 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_KEEP_PHASE_PREPARING 1u
 #define KIRIN_KEEP_PHASE_ARMED 2u
 
-#define KIRIN_DELTA_MODE_ACTIVE 0u
-#define KIRIN_DELTA_MODE_STALE 1u
-#define KIRIN_DELTA_MODE_NO_PRE 2u
-#define KIRIN_DELTA_MODE_BYPASSED 3u
-#define KIRIN_DELTA_MODE_PRE_INACTIVE 4u
+#include "kirin_hypha_delta_ffi.h"
 #define KIRIN_SPECTRUM_BAND_COUNT 256u
 #define KIRIN_SPECTRUM_DISPLAY_RANGE_DB 24.0f
 #define KIRIN_SPECTRUM_HIDDEN 0u
@@ -87,6 +81,14 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_BALANCE_RIGHT_ONLY 3u
 #define KIRIN_STEREO_FIELD_SIZE 25u
 #define KIRIN_STEREO_FIELD_BINS 625u
+/* MONO band split: 10 Hz to 22 kHz over 32 log bands is 0.347 octave each, a third octave. */
+#define KIRIN_MONO_SUM_BAND_COUNT 32u
+#define KIRIN_MONO_SUM_MIN_HZ 10.0f
+#define KIRIN_MONO_SUM_MAX_HZ 22000.0f
+/* Display: 0 dB at the top, -6 dB at the midpoint, -24 dB at the floor. The values users act on
+ * sit between 0 and -3 dB, so the top half carries them and the bottom half carries the rest. */
+#define KIRIN_MONO_SUM_DISPLAY_FLOOR_DB (-24.0f)
+#define KIRIN_MONO_SUM_DISPLAY_MIDPOINT_DB (-6.0f)
 
 #define KIRIN_METER_HISTORY_10_HZ 0u
 #define KIRIN_METER_HISTORY_1_HZ 1u
@@ -96,7 +98,7 @@ typedef struct KirinHypha KirinHypha;
 #define KIRIN_METER_HISTORY_0_1_HZ_CAPACITY 8640u
 #define KIRIN_METER_HISTORY_MAX_ENTRIES 8640u
 
-#define KIRIN_OBSERVATORY_FRAME_VERSION 3u
+#define KIRIN_OBSERVATORY_FRAME_VERSION 6u
 #define KIRIN_LRA_UNAVAILABLE 0u
 #define KIRIN_LRA_WARMING 1u
 #define KIRIN_LRA_READY 2u
@@ -133,65 +135,9 @@ typedef struct {
   double max_true_peak; /* セッション内 True Peak 最大 [dBTP] */
 } KirinSessionSummary;
 
-/* Record/Keepから独立した常設メーターセッション。値なしはNaN。
- * current/session値はobserved_framesの同一100ms境界から生成される。 */
-typedef struct {
-  uint64_t generation;
-  uint64_t active_frames;   /* 受理したActive音声の総フレーム数 */
-  uint64_t observed_frames; /* 全指標が共有する100ms測定境界 */
-  uint32_t sample_rate;
-  uint8_t state;            /* KIRIN_METER_SESSION_* */
-  uint8_t reserved[3];
-  double lufs_m;
-  double lufs_s;
-  double lufs_i;
-  double lra;
-  double true_peak;
-  double max_true_peak;
-  double plr;
-  uint8_t channels;
-  uint8_t balance_state; /* KIRIN_BALANCE_* */
-  uint8_t channel_clip_latched[2], stereo_reserved[4]; /* VU表示のみ。Session clip_eventsとは独立 */
-  double sample_peak_dbfs[2];
-  double sample_peak_hold_dbfs[2];
-  double channel_true_peak_dbtp[2];
-  double channel_max_true_peak_dbtp[2];
-  uint64_t clip_events[2];
-  double balance_db;  /* positive=L, negative=R; one-sidedはbalance_stateで表す */
-  double correlation; /* fixed 3 s; denominator 0/mono/未成立はNaN */
-  uint8_t field_size; /* 0=unavailable, otherwise KIRIN_STEREO_FIELD_SIZE */
-  uint8_t field_observation_count; /* rolling 100 ms observations, maximum 30 */
-  uint8_t field_reserved[6];
-  uint8_t field_density[KIRIN_STEREO_FIELD_BINS]; /* rolling 3 s MID/SIDE density */
-  double max_lufs_m; /* EBU Mode Maximum Momentary through observed_frames */
-  double channel_vu_dbfs[2], channel_instant_true_peak_dbtp[2]; /* 300 ms VU; 100 ms TP */
-} KirinMeterSession;
+#include "kirin_hypha_meter_session_ffi.h"
 
-typedef struct {
-  double min;
-  double max;
-  double mean;
-} KirinMeterHistoryRange;
-
-/* TIME履歴1点。10 Hzはexact（min=max=mean）、低rate層は100 ms事実の集約。 */
-typedef struct {
-  uint64_t generation;
-  uint64_t run_id;
-  uint64_t first_observed_frames;
-  uint64_t last_observed_frames;
-  int64_t first_timeline_endpoint_samples; /* 不明はINT64_MIN */
-  int64_t last_timeline_endpoint_samples;  /* 不明はINT64_MIN */
-  uint16_t observation_count;
-  uint8_t resolution; /* KIRIN_METER_HISTORY_* */
-  uint8_t reserved;
-  /* この履歴点の区間内で新たに始まったsample clip run数。0=L, 1=R。 */
-  uint32_t clip_event_count[2];
-  KirinMeterHistoryRange lufs_m;
-  KirinMeterHistoryRange lufs_s;
-  KirinMeterHistoryRange true_peak;
-  KirinMeterHistoryRange correlation;
-  KirinMeterHistoryRange plr;
-} KirinMeterHistoryEntry;
+#include "kirin_hypha_meter_history_ffi.h"
 
 /* state chunk 往復する識別子（方式A）. 各フィールドは null 終端 C 文字列（最大 63 + null）.
  * project_hash は派生値のため含めない（JUCE は下記 4 キーを chunk に保存する）. */
@@ -231,18 +177,18 @@ typedef struct {
   double psb_bark[20];  /* POST - PRE PSB share per Bark band */
 } KirinDelta;
 
-/* Observatoryが1回のUI pollで受け取るversion付き正本。
- * current値の表示可否はsignal_state、累積値はmeter.state、LRAはlra_stateが所有する。
- * pair接続状態は別のcontrol-plane事実であり、この計測フレームには混ぜない。 */
+/* Observatory 1 UI poll分。接続状態は別のcontrol-plane事実。 */
 typedef struct {
   uint32_t version;       /* KIRIN_OBSERVATORY_FRAME_VERSION */
   uint8_t signal_state;   /* KIRIN_SIGNAL_STATE_* */
   uint8_t lra_state;      /* KIRIN_LRA_* */
   uint8_t delta_available;/* ActiveかつfiniteなPOST-PRE測定値が1つ以上ある */
-  uint8_t reserved;
+  uint8_t comparison_state; /* KIRIN_COMPARISON_STATE_* */
   double lra_elapsed_seconds;
   KirinMeterSession meter;
   KirinDelta delta;
+  uint8_t comparison_reason; uint8_t comparison_reserved[7];
+  uint64_t comparison_generation; uint64_t comparison_identity;
 } KirinObservatoryFrame;
 
 /* POST専用Spectrum表示. pre/post_dbfsはdisplay_dbの正確な元フレーム、display_dbは
@@ -521,9 +467,6 @@ typedef struct {
   char paired_pre_instance_id[64];
   uint8_t has_paired_pre_instance_id;
 } KirinPostPairClaim;
-
-/* ランタイム生成. sample_rate!=48000 は内部で 48k 変換. num_channels は 1=mono / 2=stereo. */
-KirinHypha* kirin_hypha_create(uint32_t sample_rate, uint32_t num_channels);
 
 /* 信号状態（0=Inactive 1=Active 2=Bypassed）. */
 void kirin_hypha_set_signal_state(KirinHypha* handle, uint8_t state);

@@ -1,6 +1,5 @@
-# CMake build tree + plugin artefacts (段E: never commit build output)
-build/
-# B-082: universal (x86_64;arm64) ship build tree (scripts/build_juce_universal.sh)
-build-universal/
-# Host-validation CMake trees are generated locally, like the shipping build trees.
-build-pdc-macos/
+# CMake build trees + plugin artefacts (段E: never commit build output).
+# One pattern for every tree: build/ (default), build-universal/ (B-082 ship build),
+# build-pdc-macos/ (host validation), build-linux/ and build-windows/ (the per-platform
+# Reference preview renderer trees that hyphaReferencePreviewLocations.cjs looks in).
+build*/

@@ -8,8 +8,9 @@
 //! (2) 正常系が壊れていない、ことを確認する。
 
 use kirin_hypha_ffi::{
+    channel_abi::abi_codes, channel_abi::kirin_hypha_create,
     kirin_hypha_ack_local_blind_capture_request, kirin_hypha_ack_local_blind_pre_capture,
-    kirin_hypha_create, kirin_hypha_decode_legacy_nih_state, kirin_hypha_destroy,
+    kirin_hypha_decode_legacy_nih_state, kirin_hypha_destroy,
     kirin_hypha_enumerate_post_pair_claims, kirin_hypha_get_local_blind_pair_binding,
     kirin_hypha_get_paired_pre_instance_id, kirin_hypha_get_paired_pre_locator,
     kirin_hypha_issue_local_blind_capture_request_v2, kirin_hypha_local_blind_capture_is_armed,
@@ -25,6 +26,7 @@ use kirin_hypha_ffi::{
     KirinLocalBlindPreCaptureReceipt, KirinMeasureResult, KirinPostPairClaim, KirinRecordDisplay,
     KirinSessionSummary,
 };
+use kirin_measure::channel_layout::ChannelLayout;
 
 #[test]
 fn null_handle_calls_are_safe_noops() {
@@ -220,7 +222,7 @@ fn edge_create_inputs_do_not_abort_process() {
     // 境界引数（sample_rate=0 / num_channels=0）。内部で panic すれば catch_unwind→null、
     // panic しなければ有効 handle。いずれにせよ呼び出しが戻り（= abort しない）、
     // 有効 handle なら正常に destroy できることを確認する。
-    let h_edge = kirin_hypha_create(0, 0);
+    let h_edge = unsafe { kirin_hypha_create(0, std::ptr::null(), 0) };
     if !h_edge.is_null() {
         unsafe { kirin_hypha_destroy(h_edge) };
     }
@@ -231,7 +233,8 @@ fn edge_create_inputs_do_not_abort_process() {
 fn normal_lifecycle_intact_through_c_abi() {
     // 正常系（create→set_signal_state→push keepalive→poll→destroy）が catch_unwind 導入後も
     // 壊れていないこと。
-    let h = kirin_hypha_create(48_000, 2);
+    let roles = abi_codes(ChannelLayout::stereo());
+    let h = unsafe { kirin_hypha_create(48_000, roles.as_ptr(), roles.len() as u32) };
     assert!(!h.is_null(), "normal create must return non-null");
 
     unsafe {

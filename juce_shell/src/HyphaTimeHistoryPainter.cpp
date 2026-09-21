@@ -3,6 +3,7 @@
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <array>
@@ -359,7 +360,7 @@ void paintLegend (juce::Graphics& g,
     }
     g.setColour (COL_TEXT_TERTIARY);
     const auto basis = delta
-        ? juce::String ("  EXACT ") + hypha::delta() + " / " + axisLabel (axis.mode)
+        ? juce::String ("POST-PRE / ") + axisLabel (axis.mode)
         : juce::String ("  ") + axisLabel (axis.mode);
     g.drawText (rangeLabel + (compact ? "" : basis), range,
                 juce::Justification::centredRight);
@@ -373,9 +374,19 @@ void paint (juce::Graphics& g,
             bool delta,
             bool compactMeter,
             meter_context::ScaleMode scaleMode,
-            presentation::Context presentation)
+            presentation::Context presentation,
+            const juce::String& comparisonStatus)
 {
     surface_material::paintPanel (g, area.toFloat(), compactMeter ? 0.96f : 0.76f);
+    if (delta && comparisonStatus.isNotEmpty())
+    {
+        auto statusArea = area.removeFromTop (compactMeter ? 18 : 22);
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (presentation, typography::TextRole::status,
+                             typography::Composition::visualization));
+        text_style::drawEllipsized (g, comparisonStatus, statusArea.reduced (4, 1),
+                                    juce::Justification::centred);
+    }
     const auto geometry = makeGeometry (area, compactMeter, presentation);
     area = geometry.content;
     if (history.empty())

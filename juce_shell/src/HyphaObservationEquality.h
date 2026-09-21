@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kirin_hypha_ffi.h"
+#include <cstddef>
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -12,8 +13,16 @@ namespace hypha::observation_equality
 // Compare facts, not ABI padding. Repeated unavailable NaNs are unchanged; integer clocks
 // retain all 64 bits. Any ABI extension must explicitly extend these semantic comparisons.
 static_assert (sizeof (KirinMeasureResult) == 416 && sizeof (KirinWatchDisplay) == 832);
-static_assert (sizeof (KirinMeterSession) == 872 && sizeof (KirinDelta) == 224);
-static_assert (sizeof (KirinObservatoryFrame) == 1112 && sizeof (KirinMeterHistoryEntry) == 184);
+static_assert (sizeof (KirinMeterSession) == 1840 && sizeof (KirinDelta) == 224);
+static_assert (sizeof (KirinObservatoryFrame) == 2104 && sizeof (KirinMeterHistoryEntry) == 248);
+static_assert (offsetof (KirinMeterHistoryEntry, measurement_epoch) == 0);
+// The moving parts of B-958's widening, asserted where a header/shell mismatch is a compile error.
+// A stale *library* slips past this, which is what kirin_hypha_abi_contract is for.
+static_assert (alignof (KirinMeterSession) == 8);
+static_assert (offsetof (KirinMeterSession, channels) == 88);
+static_assert (offsetof (KirinMeterSession, sample_peak_dbfs) == 112);
+static_assert (offsetof (KirinMeterSession, channel_positions) == 1808);
+static_assert (offsetof (KirinMeterSession, measurement_epoch) == 1832);
 
 template <typename T> bool field (const T& a, const T& b) noexcept
 {
@@ -57,7 +66,9 @@ inline auto key (const KirinMeterSession& v) noexcept
         v.channel_clip_latched, v.clip_events,
         v.balance_db, v.correlation, v.field_size, v.field_observation_count,
         v.field_density, v.max_lufs_m, v.channel_vu_dbfs,
-        v.channel_instant_true_peak_dbtp);
+        v.channel_instant_true_peak_dbtp,
+        v.mono_sum_band_count, v.mono_sum_approximate_below_hz, v.mono_sum_db,
+        v.channel_positions, v.layout_id, v.measurement_epoch);
 }
 inline auto key (const KirinMeterHistoryRange& v) noexcept
 {
@@ -74,17 +85,21 @@ inline bool same (const KirinWatchDisplay& a, const KirinWatchDisplay& b) noexce
 inline bool same (const KirinObservatoryFrame& a, const KirinObservatoryFrame& b) noexcept
 {
     return fields (std::tie (a.version, a.signal_state, a.lra_state, a.delta_available,
-                            a.lra_elapsed_seconds),
+                            a.comparison_state, a.lra_elapsed_seconds, a.comparison_reason,
+                            a.comparison_generation, a.comparison_identity),
                    std::tie (b.version, b.signal_state, b.lra_state, b.delta_available,
-                            b.lra_elapsed_seconds))
+                            b.comparison_state, b.lra_elapsed_seconds, b.comparison_reason,
+                            b.comparison_generation, b.comparison_identity))
         && same (a.meter, b.meter) && same (a.delta, b.delta);
 }
 inline bool same (const KirinMeterHistoryEntry& a, const KirinMeterHistoryEntry& b) noexcept
 {
-    return fields (std::tie (a.generation, a.run_id, a.first_observed_frames, a.last_observed_frames,
+    return fields (std::tie (a.measurement_epoch,
+                            a.generation, a.run_id, a.first_observed_frames, a.last_observed_frames,
                             a.first_timeline_endpoint_samples, a.last_timeline_endpoint_samples,
                             a.observation_count, a.resolution, a.clip_event_count),
-                   std::tie (b.generation, b.run_id, b.first_observed_frames, b.last_observed_frames,
+                   std::tie (b.measurement_epoch,
+                            b.generation, b.run_id, b.first_observed_frames, b.last_observed_frames,
                             b.first_timeline_endpoint_samples, b.last_timeline_endpoint_samples,
                             b.observation_count, b.resolution, b.clip_event_count))
         && same (a.lufs_m, b.lufs_m) && same (a.lufs_s, b.lufs_s)

@@ -21,7 +21,9 @@ void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
         : elapsed < 60.0 ? KIRIN_LRA_WARMING
                          : std::isfinite (value.lra) ? KIRIN_LRA_READY : KIRIN_LRA_UNAVAILABLE;
     frameAvailable = available;
-    if (previouslyAvailable != available || ! observation_equality::same (previous, observatoryFrame))
+    const bool storedMono = monoSumHistory.append (value);
+    if (previouslyAvailable != available || storedMono
+        || ! observation_equality::same (previous, observatoryFrame))
         repaint (bodyArea);
 }
 
@@ -39,11 +41,35 @@ void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool availab
 {
     if (! available || value.version != KIRIN_OBSERVATORY_FRAME_VERSION)
         return;
-    if (frameAvailable && observation_equality::same (observatoryFrame, value))
+    // This is the entry point the plug-in uses. Anything a snapshot has to be stored into has to
+    // be stored here, not only in setMeterSnapshot, which nothing but tests calls.
+    const bool storedMono = monoSumHistory.append (value.meter);
+    if (! storedMono && frameAvailable
+        && observation_equality::same (observatoryFrame, value))
         return;
     observatoryFrame = value;
     frameAvailable = true;
     repaint (bodyArea);
+}
+
+void View::setRecordDisplay (const KirinRecordDisplay& value, bool available)
+{
+    const auto previouslyShowing = recordDisplayShowing();
+    recordDisplay = value;
+    recordDisplayAvailable = available;
+    const auto showing = recordDisplayShowing();
+    if (previouslyShowing != showing && onRecordBodyOwnershipChange)
+        onRecordBodyOwnershipChange (showing);
+    repaint (bodyArea);
+}
+
+bool View::recordDisplayShowing() const noexcept
+{
+    if (! recordDisplayAvailable)
+        return false;
+    return recordDisplay.phase == KIRIN_RECORD_DISPLAY_FINALIZING
+        || recordDisplay.phase == KIRIN_RECORD_DISPLAY_RESULT_HOLD
+        || recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE;
 }
 
 bool View::currentFactsAvailable() const noexcept

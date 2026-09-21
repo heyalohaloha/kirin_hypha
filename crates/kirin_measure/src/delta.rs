@@ -18,6 +18,19 @@ pub enum DeltaMode {
 
     /// PRE ファイルが 2 秒以内に更新されている（通常表示）
     Active,
+
+    /// PRE と POST が**違う配置で測っている**。Δ を出さない（B-976 / Gate A1）。
+    ///
+    /// 同じ音を通しても mono と stereo では loudness が 3.01 LU ずれる（mono は 1ch として測り
+    /// +3.01 dB バイアスを入れない）。その差は連鎖が加えたものではないので、引き算しない。
+    LayoutMismatch,
+
+    /// PRE が配置を名乗っていない。**compatible であることを確認できない。**
+    ///
+    /// 旧版の PRE は `layout` を書かない。読めること（transport）と、その測定値どうしを
+    /// 比べてよいこと（measurement compatibility）は別である。unknown を compatible と
+    /// みなさない。
+    LayoutUnknown,
 }
 
 /// 直近 `DeltaMode::Active` 時の Δ 6 軸スナップショット (B-048 / G-115-245 Last Known Good)。
@@ -86,6 +99,24 @@ pub struct DeltaResult {
     /// `run_tick` でのみ書き込まれる (`compute_delta_with_state` は触らない /
     /// §4-2)。`#[derive(Default)]` 自動派生で `None` 初期化。
     pub last_active: Option<DeltaSnapshot>,
+
+    /// State, reason, exact comparison identity, and edge generation published together.
+    pub comparison: crate::ComparisonSnapshot,
+}
+
+impl DeltaResult {
+    pub fn has_current_fact(&self) -> bool {
+        self.lufs.is_some_and(f64::is_finite)
+            || self.lufs_s.is_some_and(f64::is_finite)
+            || self.psr.is_some_and(f64::is_finite)
+            || self.tp.is_some_and(f64::is_finite)
+            || self.n_prime_total.is_some_and(f64::is_finite)
+            || self.crest.is_some_and(f64::is_finite)
+            || self.sharpness.is_some_and(f64::is_finite)
+            || self
+                .psb_bark
+                .is_some_and(|values| values.into_iter().all(f64::is_finite))
+    }
 }
 
 #[cfg(test)]

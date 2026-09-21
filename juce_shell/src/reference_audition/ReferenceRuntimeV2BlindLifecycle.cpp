@@ -56,6 +56,7 @@ namespace hypha::reference_audition
         }
         normalReturnRequired.store (false, std::memory_order_release);
         resetSession();
+        pendingNormalBlend.store (-1.0f, std::memory_order_release);
         try
         {
             const auto commitment = createRuntimeV2BlindCommitment();

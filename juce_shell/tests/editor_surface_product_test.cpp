@@ -1,8 +1,11 @@
-#include "../src/PluginProcessor.h"
+#include "../src/PluginEditor.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceAccessPanel.h"
+#include "../src/HyphaTextStyle.h"
 #include "ValidationStorageSandbox.h"
+#include "EditorCaptureProductTest.h"
 
+#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -16,6 +19,7 @@ namespace
 {
 using Processor = KirinHyphaProcessorBase;
 using Domain = hypha::observatory::Domain;
+using AnalysisPage = hypha::analysis_navigation::Page;
 
 void require (bool condition, const char* message)
 {
@@ -38,6 +42,113 @@ juce::Component* find (juce::Component& parent, const juce::String& id)
     return nullptr;
 }
 
+template <class Tag, typename Tag::Type Member> struct TestAccess
+{
+    friend typename Tag::Type testMember (Tag) { return Member; }
+};
+
+struct SetAnalysisPage
+{
+    using Type = void (KirinHyphaEditor::*) (AnalysisPage);
+    friend Type testMember (SetAnalysisPage);
+};
+template struct TestAccess<SetAnalysisPage, &KirinHyphaEditor::setAnalysisPage>;
+
+struct FreezeCapture
+{
+    using Type = hypha::capture::Snapshot (KirinHyphaEditor::*) (int, int);
+    friend Type testMember (FreezeCapture);
+};
+template struct TestAccess<FreezeCapture, &KirinHyphaEditor::freezeObservatoryCapture>;
+
+int differentPixels (const juce::Image& first, const juce::Image& second,
+                     juce::Rectangle<int> area)
+{
+    area = area.getIntersection (first.getBounds()).getIntersection (second.getBounds());
+    int changed = 0;
+    for (int y = area.getY(); y < area.getBottom(); ++y)
+        for (int x = area.getX(); x < area.getRight(); ++x)
+            if (first.getPixelAt (x, y) != second.getPixelAt (x, y)) ++changed;
+    return changed;
+}
+
+void verifyRecordBodyOwnership()
+{
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Post);
+    processor.setMeterContextPreference (hypha::meter_context::MeterContext::trackStem, false);
+    processor.setObservatoryDomainPreference (hypha::observatory::stateValue (Domain::frequency));
+    processor.prepareToPlay (48'000, 960);
+    auto editor = std::unique_ptr<KirinHyphaEditor> (
+        dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
+    require (editor != nullptr, "Record body shipping editor opens");
+    editor->setSize (600, 400);
+    editor->setVisible (true);
+    auto* view = component<hypha::observatory::View> (*editor);
+    auto* spectrum = component<hypha::SpectrumComponent> (*editor);
+    auto* perceptual = component<hypha::PerceptualComponent> (*editor);
+    auto* absolute = component<hypha::AbsoluteComponent> (*editor);
+    auto* attack = component<hypha::AttackComponent> (*editor);
+    require (view && spectrum && perceptual && absolute && attack,
+             "Record body uses the shipping component tree");
+
+    struct Case { AnalysisPage page; juce::Component* expected; const char* name; };
+    const std::array<Case, 4> cases {{
+        { AnalysisPage::spectrum, spectrum, "FREQ" },
+        // An unpaired SHARP page deliberately uses the absolute observation worker.
+        { AnalysisPage::perceptual, absolute, "SHARP" },
+        { AnalysisPage::absolute, absolute, "LIVE" },
+        { AnalysisPage::attack, attack, "ATTACK" },
+    }};
+    for (const auto& test : cases)
+    {
+        (editor.get()->*testMember (SetAnalysisPage {})) (test.page);
+        require (test.expected->isVisible(), "selected external analysis owns the body");
+        const auto domainBefore = view->domain();
+
+        KirinRecordDisplay record {};
+        record.phase = KIRIN_RECORD_DISPLAY_RESULT_HOLD;
+        record.generation = 42;
+        record.has_measure = 1;
+        record.has_session = 1;
+        record.measure.lufs_m = -17.2;
+        record.measure.lufs_s = -16.8;
+        record.measure.crest = 11.1;
+        record.measure.psr = 9.4;
+        record.measure.sharpness = 1.3;
+        record.session.max_true_peak = -0.8;
+        record.session.lufs_i = -16.1;
+        view->setRecordDisplay (record, true);
+        require (view->recordBodyActive(), "Record result owns the Observatory body");
+        require (! test.expected->isVisible(), "Record result retires the external analysis sibling");
+
+        const auto editorBody = editor->getLocalArea (view, view->analysisBodyBounds());
+        const auto captureBody = view->captureBodyBounds (1'200, 800, false);
+        const auto editorFirst = editor->createComponentSnapshot (editor->getLocalBounds());
+        const auto captureFirst = (editor.get()->*testMember (FreezeCapture {})) (1'200, 800).image;
+        record.measure.lufs_m = -37.2;
+        record.measure.lufs_s = -36.8;
+        record.session.lufs_i = -36.1;
+        view->setRecordDisplay (record, true);
+        const auto editorSecond = editor->createComponentSnapshot (editor->getLocalBounds());
+        const auto captureSecond = (editor.get()->*testMember (FreezeCapture {})) (1'200, 800).image;
+        require (differentPixels (editorFirst, editorSecond, editorBody) > 100,
+                 "Record values reach the shipping editor body");
+        require (differentPixels (captureFirst, captureSecond, captureBody) > 100,
+                 "Record values reach the synchronous Capture body");
+
+        record.phase = KIRIN_RECORD_DISPLAY_WATCH;
+        view->setRecordDisplay (record, false);
+        require (! view->recordBodyActive(), "Watch releases Record body ownership");
+        require (test.expected->isVisible(), "the selected analysis page returns after Record");
+        require (view->domain() == domainBefore, "Record preserves the selected domain");
+        std::cout << "Record body " << test.name << ": PASS" << std::endl;
+    }
+    processor.editorBeingDeleted (editor.get());
+    editor.reset();
+    processor.releaseResources();
+}
+
 struct HostClock final : juce::AudioPlayHead
 {
     juce::Optional<PositionInfo> getPosition() const override
@@ -51,6 +162,80 @@ struct HostClock final : juce::AudioPlayHead
     bool recording = false;
     std::int64_t position = 0;
 };
+
+void verifySavedReferenceChoices()
+{
+    juce::XmlElement xml ("KirinHyphaState");
+    hypha::reference_audition::ReferenceComparisonSettings settings;
+    settings.version = { "preset-b", "check-b", "candidate-b", "cue-b" };
+    settings.check = { "preset-c", "check-c", "candidate-c", "cue-c" };
+    settings.write (xml);
+    juce::MemoryBlock bytes;
+    juce::AudioProcessor::copyXmlToBinary (xml, bytes);
+    Processor restored (Processor::Role::Post);
+    restored.setStateInformation (bytes.getData(), static_cast<int> (bytes.getSize()));
+    juce::MemoryBlock saved;
+    restored.getStateInformation (saved);
+    const auto output = juce::AudioProcessor::getXmlFromBinary (saved.getData(), static_cast<int> (saved.getSize()));
+    require (output != nullptr, "Reference host XML state round trip");
+    const auto choices = hypha::reference_audition::ReferenceComparisonSettings::read (*output);
+    require (choices.version.target() == settings.version.target()
+        && choices.check.target() == settings.check.target(), "shipping processor retains B/C before prepare");
+    require (! restored.referenceAuditionSnapshot().bSelected, "restoring the processor never selects reference audio");
+}
+
+void verifyPairHeaderAtEverySize (const juce::File& previews)
+{
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Post);
+    processor.prepareToPlay (48'000, 960);
+    auto editor = std::unique_ptr<KirinHyphaEditor> (
+        dynamic_cast<KirinHyphaEditor*> (processor.createEditorIfNeeded()));
+    require (editor != nullptr, "POST editor opens for pair-header geometry");
+    auto* name = component<hypha::EditableName> (*editor);
+    auto* dropdown = component<hypha::PairDropdownButton> (*editor);
+    require (name != nullptr && dropdown != nullptr,
+             "shipping pair label and menu target both exist");
+    require (name->getParentComponent() == dropdown->getParentComponent(),
+             "pair label and menu use one coordinate space");
+
+    for (const auto preset : hypha::observatory::sizePresets)
+    {
+        editor->setSize (preset.width, preset.height);
+        const auto context = hypha::presentation::forEditor (preset.width, preset.height);
+        const auto style = hypha::typography::resolve (
+            context, hypha::typography::TextRole::selector);
+        const auto required = hypha::text_style::requiredWidth (
+            hypha::monoFont (context, hypha::typography::TextRole::selector), "PAIR", style);
+        require (dropdown->getWidth() == hypha::ui_contract::pairDropdownWidth,
+                 "pair menu retains its 28 px target");
+        require (! name->getBounds().intersects (dropdown->getBounds()),
+                 "pair label never intersects the down-arrow target");
+        require (name->getWidth() >= required,
+                 "PAIR remains fully paintable beside the down arrow");
+
+        name->setModelName ("PAIR");
+        const auto pair = name->createComponentSnapshot (name->getLocalBounds());
+        if (previews != juce::File())
+        {
+            require (previews.createDirectory().wasOk(), "pair-header preview directory");
+            auto output = previews.getChildFile (
+                "post-pair-header-" + juce::String (preset.width) + ".png").createOutputStream();
+            const auto image = editor->createComponentSnapshot (editor->getLocalBounds());
+            require (output != nullptr && output->setPosition (0) && output->truncate().wasOk(),
+                     "pair-header preview output");
+            require (juce::PNGImageFormat().writeImageToStream (image, *output),
+                     "pair-header preview PNG");
+        }
+        name->setModelName ("PAI");
+        const auto pai = name->createComponentSnapshot (name->getLocalBounds());
+        require (differentPixels (pair, pai, pair.getBounds()) > 4,
+                 "the final R is visible rather than clipped beneath the down arrow");
+    }
+    processor.editorBeingDeleted (editor.get());
+    editor.reset();
+    processor.releaseResources();
+}
 
 // Exercise the shipping editor's refresh timer, sibling z-order and hit routing together.
 // Calling a detached View's onClick cannot detect another pane covering the VU exit.
@@ -247,7 +432,12 @@ int main (int argc, char** argv)
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
-    SurfaceContract contract (argc > 1 ? juce::File (argv[1]) : juce::File());
+    verifyRecordBodyOwnership();
+    verifySavedReferenceChoices();
+    const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();
+    verifyPairHeaderAtEverySize (previews);
+    std::unique_ptr<SurfaceContract> contract;
+    CaptureProductContract capture([&] { contract=std::make_unique<SurfaceContract>(previews); });
     juce::MessageManager::getInstance()->runDispatchLoop();
-    return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;
+    return contract && contract->passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

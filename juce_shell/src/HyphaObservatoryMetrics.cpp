@@ -1,8 +1,11 @@
 #include "HyphaObservatoryView.h"
 
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaChannelReadoutLayout.h"
+#include "HyphaComparisonPresentation.h"
 #include "HyphaLevelMetricContract.h"
 #include "HyphaSurfaceMaterial.h"
+#include "HyphaTextStyle.h"
 
 #include <array>
 #include <cmath>
@@ -119,6 +122,82 @@ double optionValue (double value, bool available)
 }
 }
 
+void View::paintRecordDisplay (juce::Graphics& g, juce::Rectangle<int> area)
+{
+    const auto family = experienceFamily();
+    const auto context = presentationContext();
+    const bool hasMeasure = recordDisplay.has_measure != 0u;
+    const bool hasSession = recordDisplay.has_session != 0u;
+    const bool hasDelta = role == Role::post
+        && target() == ObservationTarget::delta
+        && recordDisplay.has_delta != 0u
+        && recordDisplay.pair_matches_current != 0u
+        && recordDisplay.delta.mode == KIRIN_DELTA_MODE_ACTIVE;
+    const bool shortTerm = selectedShortTermLoudness;
+
+    auto statusArea = area.removeFromTop (juce::jlimit (20, 28, area.getHeight() / 5));
+    area.removeFromTop (3);
+    drawPanel (g, statusArea, family);
+    const auto phaseText = recordDisplay.phase == KIRIN_RECORD_DISPLAY_FINALIZING
+        ? juce::String ("RECORD FINALIZING")
+        : recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
+            ? juce::String ("RECORD UNAVAILABLE")
+            : juce::String ("RECORD RESULT");
+    const auto sourceText = hasDelta ? juce::String (juce::CharPointer_UTF8 (" · POST − PRE"))
+                                     : juce::String (" · ABSOLUTE");
+    g.setColour (recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
+                     ? COL_MUTED : COL_NORMAL);
+    g.setFont (monoFont (context, typography::TextRole::status));
+    text_style::drawEllipsized (g, phaseText + sourceText, statusArea.reduced (5, 1),
+                                juce::Justification::centred);
+
+    const auto& measure = recordDisplay.measure;
+    const auto& session = recordDisplay.session;
+    const auto& delta = recordDisplay.delta;
+    const std::array<juce::String, 6> labels {
+        hasDelta ? hypha::delta() + (shortTerm ? "S" : "M") : (shortTerm ? "S" : "M"),
+        hasDelta ? hypha::delta() + "PSR" : "PSR",
+        "MAX TP", "I",
+        hasDelta ? hypha::delta() + "CREST" : "CREST",
+        hasDelta ? hypha::delta() + "SHARP" : "SHARP"
+    };
+    const std::array<double, 6> values {
+        hasDelta ? (shortTerm ? delta.lufs_s : delta.lufs)
+                 : (shortTerm ? measure.lufs_s : measure.lufs_m),
+        hasDelta ? delta.psr : measure.psr,
+        session.max_true_peak,
+        session.lufs_i,
+        hasDelta ? delta.crest : measure.crest,
+        hasDelta ? delta.sharpness : measure.sharpness
+    };
+    const std::array<bool, 6> available {
+        hasDelta || hasMeasure,
+        hasDelta || hasMeasure,
+        hasSession,
+        hasSession,
+        hasDelta || hasMeasure,
+        hasDelta || hasMeasure
+    };
+    const std::array<const char*, 6> units {
+        hasDelta ? "LU" : "LUFS", "dB", "dBTP", "LUFS", "dB", "acum"
+    };
+
+    auto top = area.removeFromTop ((area.getHeight() - 3) / 2);
+    area.removeFromTop (3);
+    for (int index = 0; index < 6; ++index)
+    {
+        auto& row = index < 3 ? top : area;
+        const auto remaining = 3 - (index % 3);
+        auto cell = row.removeFromLeft (row.getWidth() / remaining).reduced (2);
+        drawMetric (g, cell, labels[(size_t) index],
+                    optionValue (values[(size_t) index], available[(size_t) index]),
+                    units[(size_t) index], family, context, hasDelta,
+                    1, {}, -1.0f, {}, true,
+                    index < 2 ? typography::TextRole::primaryValue
+                              : typography::TextRole::secondaryValue);
+    }
+}
+
 void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                        bool includeChannelStrips)
 {
@@ -134,8 +213,22 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     if (includeChannelStrips && target() == ObservationTarget::absolute
         && (density == Density::standard || isFullDensity (density)))
         channelStrips = area.removeFromRight (
-            density == Density::inspection ? 164 : density == Density::observatory ? 120 : 62).reduced (2);
-    if (compact)
+            isFullDensity (density) ? channelStripWidth (context, density == Density::inspection ? 164 : 120) : 62).reduced (2);
+    const bool unavailableComparison = target() == ObservationTarget::delta
+        && ! deltaFactsAvailable();
+    if (unavailableComparison)
+    {
+        const auto statusArea = area.removeFromTop (compact ? 20 : 24);
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (labelFont (context, typography::TextRole::status,
+                              typography::Composition::facts));
+        text_style::drawEllipsized (
+            g,
+            comparison_presentation::statusText (observatoryFrame.comparison_state,
+                                                  observatoryFrame.comparison_reason),
+            statusArea.reduced (4, 1), juce::Justification::centred);
+    }
+    else if (compact)
         area.removeFromTop (20);
     if (target() == ObservationTarget::delta)
     {
@@ -151,7 +244,9 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
             };
             const std::array<const char*, 3> units { "LU", "dB", "dB" };
             for (int index = 0; index < 3; ++index)
-                drawMetric (g, area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
+                drawMetric (g, metricHelpArea (area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
+                            index == 0 ? (selectedShortTermLoudness ? level_metrics::Metric::shortTerm : level_metrics::Metric::momentary)
+                                : index == 1 ? level_metrics::Metric::truePeak : level_metrics::Metric::crest),
                             hypha::delta() + labels[(size_t) index],
                             optionValue (values[(size_t) index], deltaFactsAvailable()),
                             units[(size_t) index], family, context, true);
@@ -163,7 +258,9 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         const std::array<const char*, 4> labels { "M", "S", "TP", "CREST" };
         const std::array<const char*, 4> units { "LU", "LU", "dB", "dB" };
         for (int index = 0; index < 4; ++index)
-            drawMetric (g, area.removeFromLeft (area.getWidth() / (4 - index)).reduced (2),
+            drawMetric (g, metricHelpArea (area.removeFromLeft (area.getWidth() / (4 - index)).reduced (2),
+                        std::array { level_metrics::Metric::momentary, level_metrics::Metric::shortTerm,
+                            level_metrics::Metric::truePeak, level_metrics::Metric::crest }[(size_t) index]),
                         hypha::delta() + labels[(size_t) index],
                         optionValue (values[(size_t) index], deltaFactsAvailable()),
                         units[(size_t) index], family, context, true);
@@ -199,7 +296,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
             "LUFS", "LUFS", trackStem ? "dB" : "LUFS"
         };
         for (int index = 0; index < 3; ++index)
-            drawMetric (g, area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
+            drawMetric (g, metricHelpArea (area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
+                        level_metrics::layoutFor (trackStem).main[(size_t) index]),
                         compactLabels[(size_t) index],
                         optionValue (compactValues[(size_t) index],
                                      compactAvailable[(size_t) index]),
@@ -220,11 +318,10 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         "LUFS", "LUFS", trackStem ? "dB" : "LUFS"
     };
     constexpr int mainCount = 3;
-    if (isFullDensity (density))
-        background.drawLevelCorners (g, main, worldState());
     for (int index = 0; index < mainCount; ++index)
     {
-        drawMetric (g, main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
+        drawMetric (g, metricHelpArea (main.removeFromLeft (main.getWidth() / (mainCount - index)).reduced (2),
+                    metricLayout.main[(size_t) index]),
                     level_metrics::label (metricLayout.main[(size_t) index]),
                     optionValue (mainValues[(size_t) index], mainAvailable[(size_t) index]),
                     mainUnits[(size_t) index], family, context,
@@ -264,8 +361,9 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         const auto warmingText = warming
             ? "WARMING " + juce::String ((int) std::floor (observatoryFrame.lra_elapsed_seconds)) + " S"
             : juce::String();
-        drawMetric (g, area.removeFromLeft (
+        drawMetric (g, metricHelpArea (area.removeFromLeft (
                         area.getWidth() / (supportCount - index)).reduced (2),
+                        metricLayout.support[(size_t) index]),
                     level_metrics::label (metricLayout.support[(size_t) index]),
                     optionValue (supportValues[(size_t) index], supportAvailable[(size_t) index]),
                     supportUnits[(size_t) index], family, context,
@@ -282,7 +380,7 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
     const auto inspection = getWidth() >= 900;
     juce::Rectangle<int> channelStrips;
     if (target() == ObservationTarget::absolute)
-        channelStrips = area.removeFromRight (inspection ? 126 : 116).reduced (2);
+        channelStrips = area.removeFromRight (channelStripWidth (presentationContext(), inspection ? 126 : 116)).reduced (2);
 
     const auto landscape = area.getWidth() > area.getHeight();
     const auto previousHistoryHeight = juce::jlimit (

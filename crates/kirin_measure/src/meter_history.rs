@@ -27,6 +27,10 @@ pub struct MeterHistoryRange {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MeterHistoryEntry {
     pub resolution: MeterHistoryResolution,
+    /// どの測定区間の点か。`generation` も `run_id` も session ごとに 1 から数え直すので、
+    /// 別 layout / rate で作り直した engine の最初の行は、前の区間の最初の行と同じ番号になる。
+    /// **区間をまたいだ継続かどうかを言えるのはこの値だけである**（D-12 / 棚卸し §16.5）。
+    pub measurement_epoch: u64,
     pub generation: u64,
     pub run_id: u64,
     pub observation_count: u16,
@@ -53,6 +57,7 @@ pub struct MeterHistoryAux {
 
 impl MeterHistoryEntry {
     fn exact(
+        measurement_epoch: u64,
         generation: u64,
         run_id: u64,
         observed_frames: u64,
@@ -62,6 +67,7 @@ impl MeterHistoryEntry {
     ) -> Self {
         Self {
             resolution: MeterHistoryResolution::Hz10,
+            measurement_epoch,
             generation,
             run_id,
             observation_count: 1,
@@ -120,6 +126,7 @@ impl RangeAccumulator {
 
 #[derive(Debug, Clone, Copy)]
 struct BucketAccumulator {
+    measurement_epoch: u64,
     generation: u64,
     run_id: u64,
     observation_count: u16,
@@ -140,6 +147,7 @@ struct BucketAccumulator {
 impl BucketAccumulator {
     fn new(point: MeterHistoryEntry) -> Self {
         let mut bucket = Self {
+            measurement_epoch: point.measurement_epoch,
             generation: point.generation,
             run_id: point.run_id,
             observation_count: 0,
@@ -181,6 +189,7 @@ impl BucketAccumulator {
     fn finish(self, resolution: MeterHistoryResolution) -> MeterHistoryEntry {
         MeterHistoryEntry {
             resolution,
+            measurement_epoch: self.measurement_epoch,
             generation: self.generation,
             run_id: self.run_id,
             observation_count: self.observation_count,
@@ -230,7 +239,9 @@ impl HistoryTier {
 
     fn push(&mut self, point: MeterHistoryEntry) {
         if self.pending.is_some_and(|pending| {
-            pending.generation != point.generation || pending.run_id != point.run_id
+            pending.measurement_epoch != point.measurement_epoch
+                || pending.generation != point.generation
+                || pending.run_id != point.run_id
         }) {
             self.flush_pending();
         }
@@ -329,8 +340,10 @@ impl MeterHistory {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn push(
         &mut self,
+        measurement_epoch: u64,
         generation: u64,
         run_id: u64,
         observed_frames: u64,
@@ -338,8 +351,15 @@ impl MeterHistory {
         current: &MeasureResult,
         aux: MeterHistoryAux,
     ) {
-        let point =
-            MeterHistoryEntry::exact(generation, run_id, observed_frames, timeline, current, aux);
+        let point = MeterHistoryEntry::exact(
+            measurement_epoch,
+            generation,
+            run_id,
+            observed_frames,
+            timeline,
+            current,
+            aux,
+        );
         push_bounded(&mut self.exact, point, self.exact_capacity);
         self.one_second.push(point);
         self.ten_seconds.push(point);

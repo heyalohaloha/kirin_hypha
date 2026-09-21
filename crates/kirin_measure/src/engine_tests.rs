@@ -22,7 +22,7 @@ fn silence_100ms() -> Vec<f64> {
 
 #[test]
 fn push_observed_reports_input_samples_per_100ms_chunk() {
-    let mut engine = MeasureEngine::new(SR, 2).unwrap();
+    let mut engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
     let mut mixed = silence_100ms();
     mixed.extend(sine_100ms(0.25));
 
@@ -44,7 +44,7 @@ fn push_observed_reports_input_samples_per_100ms_chunk() {
 
 #[test]
 fn ten_ms_analysis_does_not_advance_the_public_clock_before_100ms() {
-    let mut engine = MeasureEngine::new(SR, 2).unwrap();
+    let mut engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
     let samples_150ms = vec![0.0; (SR as usize * 15 / 100) * 2];
     let samples_50ms = vec![0.0; (SR as usize * 5 / 100) * 2];
 
@@ -61,7 +61,7 @@ fn ten_ms_analysis_does_not_advance_the_public_clock_before_100ms() {
 fn non_divisible_sample_rate_keeps_ten_analysis_phases_on_one_public_boundary() {
     const ODD_SR: u32 = 44_105;
     let publish_frames = ((ODD_SR as usize) + 5) / 10;
-    let mut engine = MeasureEngine::new(ODD_SR, 2).unwrap();
+    let mut engine = MeasureEngine::new(ODD_SR, ChannelLayout::stereo()).unwrap();
     let samples = vec![0.0; publish_frames * 2];
     let mut observed = Vec::new();
 
@@ -77,17 +77,17 @@ fn non_divisible_sample_rate_keeps_ten_analysis_phases_on_one_public_boundary() 
 
 #[test]
 fn sample_rate_too_low_for_ten_ms_cadence_is_rejected() {
-    assert!(MeasureEngine::new(94, 2)
+    assert!(MeasureEngine::new(94, ChannelLayout::stereo())
         .err()
         .expect("94Hz must be rejected")
         .contains("too low for 10ms analysis cadence"));
-    assert!(MeasureEngine::new(95, 2).is_ok());
+    assert!(MeasureEngine::new(95, ChannelLayout::stereo()).is_ok());
 }
 
 #[test]
 fn subsilence_floor_collapses_to_none() {
     let drive = |amp: f64| -> MeasureResult {
-        let mut engine = MeasureEngine::new(SR, 2).unwrap();
+        let mut engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         engine.reset();
         let mut last = None;
         for _ in 0..6 {
@@ -115,7 +115,7 @@ fn subsilence_floor_collapses_to_none() {
 
 #[test]
 fn short_term_window_remains_independent_when_momentary_tail_is_floored() {
-    let mut engine = MeasureEngine::new(SR, 2).unwrap();
+    let mut engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
     let mut last = MeasureResult::default();
     for _ in 0..30 {
         last = engine.push(&sine_100ms(0.1)).expect("100ms result");
@@ -134,7 +134,7 @@ fn short_term_window_remains_independent_when_momentary_tail_is_floored() {
 fn tp_recent_expires_in_400ms_while_session_holds() {
     let amplitude: f64 = 0.5;
     let expected = 20.0 * amplitude.log10();
-    let mut engine = MeasureEngine::new(SR, 2).unwrap();
+    let mut engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
     engine.reset();
 
     let mut chunks = vec![sine_100ms(amplitude)];
@@ -169,7 +169,7 @@ fn tp_recent_independent_of_push_block_size() {
         signal.extend(silence_100ms());
     }
     let drive = |block_frames: usize| -> Vec<Option<f64>> {
-        let mut engine = MeasureEngine::new(SR, 2).unwrap();
+        let mut engine = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
         engine.reset();
         let mut output = Vec::new();
         let block_samples = block_frames * 2;

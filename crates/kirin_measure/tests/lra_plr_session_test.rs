@@ -11,6 +11,7 @@
 //! テスト信号は 48 kHz 正弦波 (1 kHz, peak ≈ -3 dBFS, ≈ 1 秒) を直接生成する。
 //! オフライン ebur128 検証は `tp_offline_reference.rs` 系列と同じ流儀。
 
+use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::engine::MeasureEngine;
 use kirin_measure::plugin_data::{
     verify_checksum, PluginDataFile, PluginDataWriter, Role, WriterPaths,
@@ -107,7 +108,7 @@ fn schema_version_is_1_3() {
 
 #[test]
 fn engine_finalize_returns_session_summary_with_lufs_i_lra_tp() {
-    let mut engine = MeasureEngine::new(SR, CH).expect("engine init");
+    let mut engine = MeasureEngine::new(SR, ChannelLayout::stereo()).expect("engine init");
 
     // 10 秒以上必要（loudness_global の最小ウィンドウ）。15 秒積む。
     let chunk_size = SR as usize / 10; // 100 ms
@@ -153,6 +154,7 @@ fn set_session_aggregates_writes_lufs_i_lra_plr_to_json() {
         lufs_i: Some(-14.3),
         lra: Some(6.4),
         max_true_peak: Some(-1.2),
+        layout: Some(ChannelLayout::stereo()),
     };
     w.set_session_aggregates(summary);
     let final_path = {
@@ -181,7 +183,49 @@ fn set_session_aggregates_writes_lufs_i_lra_plr_to_json() {
     assert_eq!(loaded.plr, Some(13.1));
     // Frame psr が JSON に出ている
     assert_eq!(loaded.frames[0].psr, Some(8.7));
+    // どの配置をどの map で測ったかが、書かれた JSON 自身に残る（P-2 / 棚卸し §8）。
+    let recorded = loaded
+        .measurement_layout
+        .as_ref()
+        .expect("a record must say what it measured");
+    assert_eq!(recorded.layout, "stereo");
+    assert_eq!(recorded.channel_positions, ["L", "R"]);
+    assert_eq!(recorded.loudness_map, ["Left", "Right"]);
+    assert_eq!(recorded.mapping_revision, 1);
     assert!(verify_checksum(&loaded));
+}
+
+#[test]
+fn a_record_from_a_summary_without_a_layout_omits_the_field_rather_than_inventing_one() {
+    use kirin_measure::engine::SessionSummary;
+
+    let base = isolated_base();
+    let mut w = make_writer(&base, Role::Post);
+    w.append_frame(0, [1.0; 20], 1.5, -14.0, -1.0, 12.0, Some(8.7));
+    w.set_session_aggregates(SessionSummary {
+        lufs_i: Some(-14.0),
+        lra: Some(3.0),
+        max_true_peak: Some(-1.0),
+        layout: None,
+    });
+    let final_path = WriterPaths::build(
+        &base,
+        "b043_ph",
+        "b043_iid",
+        Role::Post,
+        "2026-05-16T10:00:00Z",
+    )
+    .final_path;
+    w.close().unwrap();
+
+    let loaded = read_output_for_final(&final_path);
+    // 不在は「この版がその事実を持たなかった」であって、stereo の意味ではない。
+    assert!(loaded.measurement_layout.is_none());
+    let raw = serde_json::to_string(&loaded).unwrap();
+    assert!(
+        !raw.contains("measurement_layout"),
+        "an absent layout must be omitted from the JSON, not written as null"
+    );
 }
 
 #[test]
@@ -194,6 +238,7 @@ fn plr_omitted_when_lufs_i_is_none() {
         lufs_i: None,
         lra: None,
         max_true_peak: Some(-0.5),
+        layout: None,
     });
 
     // 注入後の json で lufs_i / lra / plr が省略されること
@@ -224,7 +269,7 @@ fn frame_psr_none_is_omitted_from_json() {
 fn finalize_handles_inf_or_neg_inf_loudness_gracefully() {
     // 無音入力では loudness_global / loudness_range が -inf or finite 端値を返し得る。
     // `is_finite()` フィルタで Some(NaN/Inf) が漏れないことを確認する。
-    let mut engine = MeasureEngine::new(SR, CH).expect("engine init");
+    let mut engine = MeasureEngine::new(SR, ChannelLayout::stereo()).expect("engine init");
     // 100ms 無音だけ push して finalize
     let chunk_size = SR as usize / 10;
     let silent: Vec<f64> = vec![0.0; chunk_size * CH];

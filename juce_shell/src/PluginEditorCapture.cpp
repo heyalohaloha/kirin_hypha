@@ -195,15 +195,18 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
         JucePlugin_VersionString, metadata, historySnapshot);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     juce::Component* external = nullptr;
-    if (analysisPage == AnalysisPage::spectrum)
-        external = &spectrumView;
-    else if (analysisPage == AnalysisPage::perceptual)
-        external = sharpnessUsesAbsolute ? static_cast<juce::Component*> (&absoluteView)
-                                         : static_cast<juce::Component*> (&perceptualView);
-    else if (analysisPage == AnalysisPage::absolute)
-        external = &absoluteView;
-    else if (analysisPage == AnalysisPage::attack)
-        external = &attackView;
+    if (externalAnalysisBodyShowing())
+    {
+        if (analysisPage == AnalysisPage::spectrum)
+            external = &spectrumView;
+        else if (analysisPage == AnalysisPage::perceptual)
+            external = sharpnessUsesAbsolute ? static_cast<juce::Component*> (&absoluteView)
+                                             : static_cast<juce::Component*> (&perceptualView);
+        else if (analysisPage == AnalysisPage::absolute)
+            external = &absoluteView;
+        else if (analysisPage == AnalysisPage::attack)
+            external = &attackView;
+    }
     if (external != nullptr && ! external->getLocalBounds().isEmpty())
     {
         const auto body = observatoryView.captureBodyBounds (

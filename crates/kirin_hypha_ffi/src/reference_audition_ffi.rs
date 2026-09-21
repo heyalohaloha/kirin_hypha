@@ -36,7 +36,11 @@ mod tests {
 
     #[test]
     fn reference_and_local_blind_share_one_owner() {
-        let engine = KirinHyphaEngine::new(48_000, 2);
+        let _serial = audition_admission_ffi::ADMISSION_TEST.lock().unwrap();
+        let engine = KirinHyphaEngine::new(
+            48_000,
+            kirin_measure::channel_layout::ChannelLayout::stereo(),
+        );
         assert!(!engine.set_reference_audition_active(true));
         *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
         let mut identity = engine.identity.lock().unwrap();

@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaLocalBlindAdmissionText.h"
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 
@@ -21,8 +22,12 @@ void KirinHyphaEditor::configureLocalBlindProduct()
     localBlindView.setMeterContext (processorRef.meterContextPreference());
 
     localBlindView.onCapture = [this] { beginLocalBlindProductCapture(); };
-    localBlindView.onContextMenu = [this]
-    { showMeterContextMenu (localBlindView.contextAnchor()); };
+    localBlindView.onRepair = [this]
+    {
+        const auto reason = processorRef.localBlindCaptureAvailability();
+        if (reason == hypha::local_blind::CaptureAdmission::pairRequired) showCandidateMenu();
+        else if (reason == hypha::local_blind::CaptureAdmission::keepBusy) closeLocalBlindProduct();
+    };
     localBlindView.onStart = [this] (bool approveLowerPost)
     {
         if (! processorRef.startLocalBlindProductTrial (approveLowerPost))
@@ -54,7 +59,7 @@ void KirinHyphaEditor::configureLocalBlindProduct()
     };
     localBlindView.onReturn = [this]
     {
-        processorRef.requestLocalBlindNormalReturn();
+        localBlindReturnIntent.arm (processorRef.requestLocalBlindNormalReturn());
         refreshLocalBlindProduct();
     };
     localBlindView.onClose = [this] { closeLocalBlindProduct(); };
@@ -79,23 +84,15 @@ void KirinHyphaEditor::openLocalBlindProduct()
         refreshLocalBlindProduct();
         return;
     }
-    if (processorRef.pairStatus() != KIRIN_PAIR_STATUS_PAIRED)
-    {
-        showToast ("Select one exact PRE pair before Blind Compare");
-        return;
-    }
-    if (processorRef.isRecording() || processorRef.keepPhase() != KIRIN_KEEP_PHASE_IDLE)
-    {
-        showToast ("Blind Compare is available after the current Keep or Record");
-        return;
-    }
     if (processorRef.referenceAuditionSnapshot().blindPhase
         != hypha::reference_audition::BlindPhase::inactive)
     {
         showToast ("End Reference Blind Compare before starting PRE / POST Blind");
         return;
     }
+    localBlindReturnIntent.clear();
     localBlindPreflight = true;
+    localBlindView.setMeterContext (processorRef.meterContextPreference());
     localBlindOpen = true;
     localBlindView.clearActionNotice();
     refreshLocalBlindProduct();
@@ -104,35 +101,18 @@ void KirinHyphaEditor::openLocalBlindProduct()
 
 void KirinHyphaEditor::beginLocalBlindProductCapture()
 {
-    if (! localBlindOpen || ! localBlindPreflight) return;
-    if (processorRef.pairStatus() != KIRIN_PAIR_STATUS_PAIRED)
-    {
-        localBlindView.setActionNotice ("PAIR CHANGED / RETURN AND REOPEN");
-        return;
-    }
-    if (processorRef.isRecording() || processorRef.keepPhase() != KIRIN_KEEP_PHASE_IDLE)
-    {
-        localBlindView.setActionNotice ("END KEEP / RECORD BEFORE CAPTURE");
-        return;
-    }
-    if (! processorRef.isPlaying() || ! processorRef.heartbeatLive())
-    {
-        localBlindView.setActionNotice ("START PLAYBACK BEFORE CAPTURE");
-        return;
-    }
-    if (processorRef.referenceAuditionSnapshot().blindPhase
-        != hypha::reference_audition::BlindPhase::inactive)
-    {
-        localBlindView.setActionNotice ("END REFERENCE BLIND BEFORE CAPTURE");
-        return;
-    }
+    if (! localBlindOpen) return;
+    const auto current = processorRef.localBlindProductView();
+    if (! localBlindPreflight && ! current.canRecapture) return;
     const auto previousPhase = processorRef.localBlindProductView().phase;
-    if (processorRef.requestLocalBlindProductCapture())
+    const auto result = processorRef.requestLocalBlindProductCapture (localBlindView.meterContext());
+    if (result == hypha::local_blind::CaptureAdmission::ready)
         localBlindPreflight = false;
     else
     {
-        localBlindPreflight = processorRef.localBlindProductView().phase == previousPhase;
-        localBlindView.setActionNotice ("ANALYSIS SLOT NOT AVAILABLE");
+        localBlindPreflight = localBlindPreflight
+            && processorRef.localBlindProductView().phase == previousPhase;
+        localBlindView.setActionNotice (hypha::local_blind_ui::admissionText (result));
     }
     refreshLocalBlindProduct();
 }
@@ -141,10 +121,18 @@ void KirinHyphaEditor::closeLocalBlindProduct()
 {
     if (! finished (processorRef.localBlindProductView().phase))
         return;
+    localBlindReturnIntent.clear();
     localBlindPreflight = false;
     localBlindOpen = false;
     localBlindView.setVisible (false);
     setLocalBlindIsolation (false);
+    setResizable (true, false);
+    if (! localBlindReturnSize.isOrigin())
+    {
+        const auto size = localBlindReturnSize;
+        localBlindReturnSize = {};
+        setSize (size.x, size.y);
+    }
     resized();
     refreshObservatory();
 }
@@ -152,10 +140,23 @@ void KirinHyphaEditor::closeLocalBlindProduct()
 void KirinHyphaEditor::refreshLocalBlindProduct()
 {
     const auto current = processorRef.localBlindProductView();
+    if (localBlindOpen && localBlindReturnIntent.shouldClose (current))
+    {
+        closeLocalBlindProduct();
+        return;
+    }
     if (processorRef.localBlindProductSupported()
         && ! localBlindOpen && hypha::local_blind_ui::needsRecoveryScreen (current))
         localBlindOpen = true;
-    localBlindView.setMeterContext (processorRef.meterContextPreference());
+    if (localBlindOpen && (localBlindPreflight || current.phase == Phase::failed))
+    {
+        localBlindView.setAdmission (processorRef.localBlindCaptureAvailability());
+        const auto id = processorRef.pairedPreInstanceId();
+        const auto name = processorRef.pairDisplayName();
+        localBlindView.setPairName (id.isEmpty() ? juce::String()
+            : "PAIR / " + (name.length() > 28 ? name.substring (0, 28) + "..." : name)
+                + " / " + id.substring (0, 8));
+    }
     localBlindView.setState (localBlindPreflight
         ? hypha::local_blind::ProductSessionView {} : current);
     layoutLocalBlindProduct();
@@ -163,6 +164,14 @@ void KirinHyphaEditor::refreshLocalBlindProduct()
 
 void KirinHyphaEditor::layoutLocalBlindProduct()
 {
+    const auto referenceBlind = processorRef.referenceAuditionSnapshot().blindPhase
+        != hypha::reference_audition::BlindPhase::inactive;
+    if ((localBlindOpen || referenceBlind) && (getWidth() < 900 || getHeight() < 600))
+    {
+        if (localBlindOpen && localBlindReturnSize.isOrigin()) localBlindReturnSize = { getWidth(), getHeight() };
+        setSize (900, 600);
+    }
+    setResizable (! localBlindOpen && ! referenceBlind, false);
     localBlindView.setBounds (scaleRoot.getLocalBounds());
     localBlindView.setVisible (localBlindOpen);
     setLocalBlindIsolation (localBlindOpen);

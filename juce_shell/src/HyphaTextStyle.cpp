@@ -14,24 +14,31 @@ int requiredLineHeight (const typography::TextStyle& style, int minimum) noexcep
     return juce::jmax (minimum, juce::roundToInt (std::ceil (style.lineHeight)));
 }
 
-namespace
+juce::String ellipsizedText (const juce::String& text, const juce::Font& font, float width)
 {
-juce::String ellipsize (const juce::String& text, const juce::Font& font, float width)
-{
+    if (width <= 0.0f || text.isEmpty()) return {};
     if (font.getStringWidthFloat (text) <= width)
         return text;
     const auto marker = juce::String::charToString (0x2026);
     if (font.getStringWidthFloat (marker) > width)
         return {};
-    for (auto length = text.length() - 1; length > 0; --length)
+    // Long source titles are painted repeatedly. Bound shaping work logarithmically
+    // instead of measuring every one-character-shorter copy on every frame.
+    int low = 0, high = text.length() - 1;
+    while (low < high)
     {
+        const auto length = low + (high - low + 1) / 2;
         const auto candidate = text.substring (0, length).trimEnd() + marker;
         if (font.getStringWidthFloat (candidate) <= width)
-            return candidate;
+            low = length;
+        else
+            high = length - 1;
     }
-    return marker;
+    return text.substring (0, low).trimEnd() + marker;
 }
 
+namespace
+{
 void drawWrapped (juce::Graphics& graphics, const juce::String& text,
                   juce::Rectangle<int> area, juce::Justification justification)
 {
@@ -67,7 +74,7 @@ void draw (juce::Graphics& graphics, const juce::String& text,
         return;
     }
     const auto displayed = overflow == typography::Overflow::ellipsize
-        ? ellipsize (text, graphics.getCurrentFont(), static_cast<float> (area.getWidth()))
+        ? ellipsizedText (text, graphics.getCurrentFont(), static_cast<float> (area.getWidth()))
         : text;
     graphics.drawText (displayed, area, justification, false);
 }
@@ -75,7 +82,8 @@ void draw (juce::Graphics& graphics, const juce::String& text,
 void drawEllipsized (juce::Graphics& graphics, const juce::String& text,
                      juce::Rectangle<int> area, juce::Justification justification)
 {
-    graphics.drawText (ellipsize (text, graphics.getCurrentFont(),
+    if (area.isEmpty() || text.isEmpty()) return;
+    graphics.drawText (ellipsizedText (text, graphics.getCurrentFont(),
                                   static_cast<float> (area.getWidth())),
                        area, justification, false);
 }

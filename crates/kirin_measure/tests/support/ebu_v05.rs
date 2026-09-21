@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use ebur128::{EbuR128, Mode};
 use hound::{SampleFormat, WavReader};
+use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::{MeasureEngine, SessionSummary};
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
@@ -176,7 +177,11 @@ pub fn measure(archive: &Path, name: &str) -> Measurement {
     let mode = Mode::M | Mode::S | Mode::I | Mode::LRA | Mode::TRUE_PEAK;
     let mut reference =
         EbuR128::new(channels as u32, sample_rate, mode).expect("create direct ebur128 reference");
-    let mut hypha = MeasureEngine::new(sample_rate, channels).expect("create Hypha engine");
+    // The reference above keeps ebur128's default map. At mono and stereo the explicit map is the
+    // same weighting, so any drift between the two is a real regression, not a map difference.
+    let layout = ChannelLayout::mono_or_stereo_by_count(channels)
+        .expect("EBU v05 comparison covers the mono and stereo path");
+    let mut hypha = MeasureEngine::new(sample_rate, layout).expect("create Hypha engine");
     let chunk_samples = sample_rate as usize / 10 * channels;
     let mut points = Vec::new();
     for chunk in samples.chunks(chunk_samples) {

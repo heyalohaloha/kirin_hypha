@@ -20,7 +20,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
 
     verify_ci_usage_gate(CI_WORKFLOW)?;
     eprintln!(
-        "[ci-usage-guard] OK: public history is always checked; full CI is gated behind workflow_dispatch, PR, or [ci full]."
+        "[ci-usage-guard] OK: public history and the lightweight source contract are always checked; full CI is gated behind workflow_dispatch, PR, or [ci full]."
     );
     Ok(())
 }
@@ -28,8 +28,8 @@ pub fn run(args: Vec<String>) -> Result<()> {
 fn print_usage() {
     eprintln!(
         "Usage: cargo run -p xtask -- ci-usage-guard\n\n\
-         Static guard for GitHub Actions usage. It verifies that one lightweight\n\
-         public-history job runs on every event while expensive runner jobs require\n\
+         Static guard for GitHub Actions usage. It verifies that public history and the\n\
+         lightweight source contract run on every event while expensive runner jobs require\n\
          workflow_dispatch, PR, or a commit message containing [ci full]."
     );
 }
@@ -94,6 +94,11 @@ fn require_unconditional_public_history_job(body: &str) -> Result<()> {
         body,
         "          fetch-depth: 0\n",
         "public history job must fetch complete tag and commit history",
+    )?;
+    require(
+        body,
+        "        run: bash scripts/test_lightweight_contract.sh\n",
+        "public history job must execute the lightweight source contract",
     )?;
     require(
         body,
@@ -225,6 +230,18 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("must remain unconditional"));
+    }
+
+    #[test]
+    fn guard_rejects_a_missing_lightweight_source_contract() {
+        let bad = CI_WORKFLOW.replace(
+            "        run: bash scripts/test_lightweight_contract.sh\n",
+            "        run: cargo fmt --all -- --check\n",
+        );
+        assert!(verify_ci_usage_gate(&bad)
+            .unwrap_err()
+            .to_string()
+            .contains("lightweight source contract"));
     }
 
     #[test]

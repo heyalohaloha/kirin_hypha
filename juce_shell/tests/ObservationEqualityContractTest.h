@@ -60,11 +60,15 @@ inline void verify()
     a.meter.lufs_m = b.meter.lufs_m = std::numeric_limits<double>::quiet_NaN();
     a.delta.psb_bark[19] = std::nan ("1"); b.delta.psb_bark[19] = std::nan ("2");
     require (same (a, b));
-    b.reserved = 255; b.meter.reserved[2] = 3; b.meter.field_reserved[5] = 7;
+    b.comparison_reserved[0] = 255; b.meter.reserved[2] = 3; b.meter.field_reserved[5] = 7;
     require (same (a, b));
     b.signal_state = 1; require (! same (a, b)); b.signal_state = 0;
     b.lra_state = 1; require (! same (a, b)); b.lra_state = 0;
     b.delta_available = 1; require (! same (a, b)); b.delta_available = 0;
+    b.comparison_state = KIRIN_COMPARISON_STATE_ACTIVE; require (! same (a, b)); b.comparison_state = 0;
+    b.comparison_reason = KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH; require (! same (a, b)); b.comparison_reason = 0;
+    b.comparison_generation = 8; require (! same (a, b)); b.comparison_generation = 0;
+    b.comparison_identity = 9; require (! same (a, b)); b.comparison_identity = 0;
     b.version = 1; require (! same (a, b)); b.version = 0;
     b.lra_elapsed_seconds = 1; require (! same (a, b)); b.lra_elapsed_seconds = 0;
     b.meter.lufs_m = -20; require (! same (a, b));

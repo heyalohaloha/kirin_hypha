@@ -18,6 +18,7 @@ namespace hypha::reference_audition
         juce::String runtimeInstanceId;
         juce::String workId;
         std::uint32_t hostProcessId = 0;
+        bool library = false;
 
         bool valid() const noexcept;
     };

@@ -1,25 +1,8 @@
 use super::*;
-use crate::spectrum::{
-    SpectrumFrame, SPECTRUM_BAND_COUNT, SPECTRUM_FFT_SIZE, SPECTRUM_SCHEMA_VERSION,
-    SPECTRUM_WINDOW_SIZE,
-};
 use std::thread;
-fn frame(end: i64, value: f32) -> SpectrumFrame {
-    SpectrumFrame {
-        schema_version: SPECTRUM_SCHEMA_VERSION,
-        sample_rate: 48_000,
-        aperture_samples: SPECTRUM_WINDOW_SIZE as u32,
-        fft_size: SPECTRUM_FFT_SIZE as u32,
-        band_count: SPECTRUM_BAND_COUNT as u16,
-        presentation_end_samples: end,
-        generation: 7,
-        channel_mode: SpectrumChannelMode::Lr,
-        channels: 2,
-        min_hz: 10.0,
-        max_hz: 22_000.0,
-        dbfs: [value; SPECTRUM_BAND_COUNT],
-    }
-}
+// `frame()` は `spectrum_exchange_view_tests.rs` が持つ（同じ親の兄弟モジュール）。
+// 同じ helper を 2 か所に置かない。
+use super::view_tests::frame;
 
 fn perceptual_frame(end: i64, value: f64) -> crate::PerceptualFrame {
     crate::PerceptualFrame {
@@ -73,7 +56,7 @@ fn normal_io_supervisor_renews_freq_and_sharp_requests_when_worker_stops_progres
         let pre_dir = temp.path().join(suffix).join("pre");
         let pre_json = pre_dir.join("pre.json");
         crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-        let runtime = SpectrumRuntime::new(48_000, 2);
+        let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
         let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
         let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
 
@@ -114,7 +97,7 @@ fn failed_worker_attempts_do_not_hide_a_stalled_request_from_the_supervisor() {
     let pre_dir = temp.path().join("pre");
     let pre_json = pre_dir.join("pre.json");
     crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
 
@@ -148,8 +131,8 @@ fn failed_pre_snapshot_write_is_not_reported_as_exchange_progress() {
     let pre_dir = temp.path().join("pre");
     let pre_json = pre_dir.join("pre.json");
     crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let pre_runtime = SpectrumRuntime::new(48_000, 2);
-    let post_runtime = SpectrumRuntime::new(48_000, 2);
+    let pre_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let post_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
     let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
@@ -185,7 +168,7 @@ fn failed_pre_snapshot_write_is_not_reported_as_exchange_progress() {
 
 #[test]
 fn transient_exchange_gap_holds_freq_and_sharp_presentations_until_the_lease_boundary() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
@@ -270,7 +253,7 @@ fn transient_exchange_gap_holds_freq_and_sharp_presentations_until_the_lease_bou
 
 #[test]
 fn repeated_stale_exact_endpoint_does_not_extend_the_gap_hold() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
@@ -325,7 +308,7 @@ fn repeated_stale_exact_endpoint_does_not_extend_the_gap_hold() {
 
 #[test]
 fn stationary_exact_endpoint_remains_visible_when_both_sides_stop() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
@@ -361,7 +344,7 @@ fn stationary_exact_endpoint_remains_visible_when_both_sides_stop() {
 
 #[test]
 fn confirmed_backwards_transport_boundary_restarts_the_freq_timeline() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
@@ -427,7 +410,7 @@ fn confirmed_backwards_transport_boundary_restarts_the_freq_timeline() {
 
 #[test]
 fn staggered_backwards_transport_workers_restart_freq_at_their_exact_intersection() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
@@ -486,7 +469,7 @@ fn staggered_backwards_transport_workers_restart_freq_at_their_exact_intersectio
 
 #[test]
 fn one_sided_lower_freq_result_cannot_move_the_presentation_backwards() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
         request_id: Uuid::new_v4(),
@@ -541,7 +524,7 @@ fn one_sided_lower_freq_result_cannot_move_the_presentation_backwards() {
 
 #[test]
 fn repeated_stale_sharpness_endpoint_does_not_extend_the_gap_hold() {
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     assert!(runtime.set_analysis_mode(AnalysisViewMode::Perceptual));
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let mut session = PostSession {
@@ -598,7 +581,7 @@ fn transient_request_renewal_failure_keeps_the_last_view_and_analysis_runtime_al
     let pre_dir = temp.path().join("pre");
     let pre_json = pre_dir.join("pre.json");
     crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
 
@@ -626,7 +609,7 @@ fn request_write_failure_is_unavailable_and_does_not_leave_fft_running() {
     let temp = tempfile::tempdir().unwrap();
     let blocked = temp.path().join("not-a-directory");
     fs::write(&blocked, b"file").unwrap();
-    let runtime = SpectrumRuntime::new(48_000, 2);
+    let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
     coordinator.set_post_visible(true);
     coordinator.post_tick(

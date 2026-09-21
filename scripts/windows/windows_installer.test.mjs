@@ -274,10 +274,11 @@ test('Inno recipe owns only Kirin bundle paths and signs generated uninstall sur
   assert.match(source, /\{commoncf\}\\Avid\\Audio\\Plug-Ins\\Kirin Hypha POST\.aaxplugin/);
 });
 
-test('installer verifier gates same-version reinstall, signed uninstaller, and unrelated VST3 preservation', () => {
+test('installer verifier gates prior-version upgrade, reinstall, signatures, and unrelated payload preservation', () => {
   const source = fs.readFileSync(path.join(scriptDir, 'verify-installer.ps1'), 'utf8');
   assert.match(source, /foreach \(\$installPass in 1\.\.2\)/);
-  assert.match(source, /-PreviousInstaller is required for AAX upgrade verification/);
+  assert.match(source, /-PreviousInstaller is required for signed release upgrade verification/);
+  assert.match(source, /if \(\$Signing -eq "signed"\)/);
   assert.match(source, /Resolve-HyphaUninstaller/);
   assert.match(source, /prior_public_upgrade/);
   assert.match(source, /installed uninstaller/);

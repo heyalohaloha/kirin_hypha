@@ -1,3 +1,4 @@
+use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::{MeasureEngine, MeasureResult};
 
 fn patterned_chunk(sample_rate: u32, channels: usize, chunk_index: usize) -> Vec<f64> {
@@ -45,16 +46,17 @@ fn assert_optional_close(label: &str, left: Option<f64>, right: Option<f64>) {
 #[test]
 fn one_large_push_matches_sequential_100ms_pushes_at_standard_rates() {
     for sample_rate in [44_100, 48_000, 96_000, 192_000] {
-        for channels in [1, 2] {
+        for layout in [ChannelLayout::mono(), ChannelLayout::stereo()] {
+            let channels = layout.channel_count();
             let chunks: Vec<Vec<f64>> = (0..5)
                 .map(|index| patterned_chunk(sample_rate, channels, index))
                 .collect();
             let all_samples: Vec<f64> = chunks.iter().flatten().copied().collect();
 
-            let mut batched = MeasureEngine::new(sample_rate, channels).unwrap();
+            let mut batched = MeasureEngine::new(sample_rate, layout).unwrap();
             let batched_results = collect_results(&mut batched, &all_samples);
 
-            let mut sequential = MeasureEngine::new(sample_rate, channels).unwrap();
+            let mut sequential = MeasureEngine::new(sample_rate, layout).unwrap();
             let sequential_results: Vec<MeasureResult> = chunks
                 .iter()
                 .flat_map(|chunk| collect_results(&mut sequential, chunk))
@@ -93,7 +95,7 @@ fn crest_pooling_uses_all_interleaved_channel_samples() {
     let sample_rate = 48_000;
     let frames = sample_rate as usize * 4 / 10;
     let stereo: Vec<f64> = (0..frames).flat_map(|_| [1.0, 0.0]).collect();
-    let mut engine = MeasureEngine::new(sample_rate, 2).unwrap();
+    let mut engine = MeasureEngine::new(sample_rate, ChannelLayout::stereo()).unwrap();
 
     let result = engine.push(&stereo).expect("four 100ms results");
     let crest = result.crest.expect("non-silent crest");

@@ -21,6 +21,7 @@ fn one_second_bucket_keeps_min_max_mean_and_exact_endpoints() {
     let mut history = MeterHistory::with_config(20, 20, 20, 10, 100);
     for index in 0..10_u64 {
         history.push(
+            11,
             1,
             4,
             (index + 1) * 4_800,
@@ -62,6 +63,7 @@ fn clip_event_counts_saturate_in_aggregated_history_without_wrapping() {
     let mut history = MeterHistory::with_config(4, 4, 4, 2, 2);
     for clip_event_count in [[u32::MAX, 10], [1, 20]] {
         history.push(
+            11,
             1,
             1,
             1,
@@ -90,6 +92,7 @@ fn run_change_flushes_partial_bucket_instead_of_joining_a_seek() {
     let mut history = MeterHistory::with_config(20, 20, 20, 10, 100);
     for index in 0..4_u64 {
         history.push(
+            11,
             1,
             1,
             index + 1,
@@ -99,6 +102,7 @@ fn run_change_flushes_partial_bucket_instead_of_joining_a_seek() {
         );
     }
     history.push(
+        11,
         1,
         2,
         5,
@@ -119,6 +123,7 @@ fn fixed_capacity_drops_only_the_oldest_entry_and_reset_clears_every_tier() {
     let mut history = MeterHistory::with_config(2, 2, 2, 1, 1);
     for index in 0..3_u64 {
         history.push(
+            11,
             1,
             1,
             index + 1,
@@ -144,6 +149,7 @@ fn full_day_tier_is_bounded_to_pixels_without_losing_endpoints_or_extrema() {
     let mut history = MeterHistory::with_config(8_640, 8_640, 8_640, 1, 1);
     for index in 0..8_640_u64 {
         history.push(
+            11,
             1,
             1,
             index + 1,
@@ -166,6 +172,7 @@ fn decimation_keeps_every_observation_when_run_boundaries_split_buckets() {
     let mut history = MeterHistory::with_config(20, 20, 20, 10, 100);
     for index in 0..6_u64 {
         history.push(
+            11,
             1,
             if index < 3 { 1 } else { 2 },
             index + 1,
@@ -206,6 +213,7 @@ fn decimation_keeps_recent_runs_separate_when_runs_outnumber_pixels() {
     let mut history = MeterHistory::with_config(20, 20, 20, 10, 100);
     for index in 0..6_u64 {
         history.push(
+            11,
             1,
             index + 1,
             index + 1,
@@ -223,4 +231,89 @@ fn decimation_keeps_recent_runs_separate_when_runs_outnumber_pixels() {
     assert!(display.iter().all(|entry| entry.observation_count == 1));
     assert_eq!(display.first().unwrap().first_observed_frames, 4);
     assert_eq!(display.last().unwrap().last_observed_frames, 6);
+}
+
+#[test]
+fn two_measurement_spans_do_not_aggregate_into_one_bucket() {
+    // `generation` も `run_id` も session ごとに 1 から数え直す。別 layout / rate で engine を
+    // 作り直した直後の行は、前の区間の最初の行と番号が同じになる。**区間が違えば別の測定である。**
+    let mut history = MeterHistory::with_config(20, 20, 20, 10, 100);
+    for (epoch, index) in [(7_u64, 0_u64), (7, 1), (8, 2), (8, 3)] {
+        history.push(
+            epoch,
+            1,
+            1,
+            (index + 1) * 4_800,
+            (
+                Some(10_000 + ((index + 1) * 4_800) as i64),
+                CaptureClockSource::ProjectTimeline,
+            ),
+            &point_value(-18.0),
+            MeterHistoryAux::default(),
+        );
+    }
+    let exact = history.recent(MeterHistoryResolution::Hz10, 8);
+    assert_eq!(exact.len(), 4);
+    assert_eq!(
+        exact
+            .iter()
+            .map(|e| e.measurement_epoch)
+            .collect::<Vec<_>>(),
+        [7, 7, 8, 8],
+        "each point keeps the span it was measured in"
+    );
+
+    // 1 Hz 層は 10 点で 1 バケットになる。区間をまたいだ 4 点が 1 つに畳まれたら、
+    // 別 layout で測った値が 1 つの min/max/mean に混ざる。区間の境目でバケットが閉じる。
+    let aggregated = history.recent(MeterHistoryResolution::Hz1, 8);
+    assert_eq!(
+        aggregated
+            .iter()
+            .map(|entry| entry.measurement_epoch)
+            .collect::<Vec<_>>(),
+        [7, 8],
+        "the span boundary must close the bucket instead of folding both spans into one"
+    );
+}
+
+/// B-962 は `KirinMeterHistoryEntry` に `measurement_epoch` を足し、内部 entry も
+/// 320 B から 328 B になった。3 tier はどれも `VecDeque::with_capacity` で
+/// **満杯分を engine 生成時に先に確保する**（`with_config`）ので、entry の 1 バイトは
+/// 21,843 倍で効く。`hypha_surround_ingest_capacity_20260918.md` §3.1 が「history の
+/// Nch 増分は 384 MiB の 4 領域モデルに入っていない」と書いたとおり、この量は
+/// 取込容量の算定に入っていない。**数字を変える変更は、ここを測り直してから通す。**
+///
+/// 注: これは論理的な確保容量であり、OS が観測する RSS ではない（容量 §4）。
+#[test]
+fn the_preallocated_history_cost_is_measured_not_assumed() {
+    assert_eq!(
+        std::mem::size_of::<MeterHistoryEntry>(),
+        328,
+        "entry のサイズを変えたら取込容量の算定をやり直す"
+    );
+    // 容量 §17.4 の「Nch 化したときの増分」はこの 48 B を前提に算術している。
+    assert_eq!(std::mem::size_of::<MeterHistoryRange>(), 48);
+
+    let history = MeterHistory::new();
+    // `with_capacity` の要求値そのままか（丸め上げがないか）を実測で確かめる。
+    assert_eq!(history.exact.capacity(), HISTORY_10_HZ_CAPACITY + 1);
+    assert_eq!(
+        history.one_second.entries.capacity(),
+        HISTORY_1_HZ_CAPACITY + 1
+    );
+    assert_eq!(
+        history.ten_seconds.entries.capacity(),
+        HISTORY_0_1_HZ_CAPACITY + 1
+    );
+
+    let entries = history.exact.capacity()
+        + history.one_second.entries.capacity()
+        + history.ten_seconds.entries.capacity();
+    assert_eq!(entries, 21_843);
+    assert_eq!(
+        entries * std::mem::size_of::<MeterHistoryEntry>(),
+        7_164_504,
+        "MeterHistory 1 本あたり 6.83 MiB。engine 1 台はこれを 2 本持つ \
+         (meter_session.rs:117 / meter_delta_history.rs:99)"
+    );
 }

@@ -125,7 +125,7 @@ BlindのPRE/POST割当は、Reveal前に画面、Tooltip、accessibility、全�
 | Reference接続案内 | `HyphaReferenceAccessPanel.h` | 未所有、所有済み、未接続、再確認 |
 | Local PRE/POST Blind | `HyphaLocalBlindComponent.cpp`、`PluginEditorLocalBlind.cpp` | 取得、準備、減衰承認、Source、回答、Reveal、中断、通常復帰 |
 | Hybrid VU | `HyphaHybridVuPainter.cpp`、`HyphaObservatoryViewLayout.cpp` | 計器の構図、目盛り、三値、VUとCLEAR、手動とRecord |
-| 共通操作と補足 | `HyphaWidgets*`、`PostControls*`、`HyphaTooltipLookAndFeel.h`、`PluginEditorInformation.cpp` | ボタン、名前入力、選択menu、情報menu、Tooltip、keyboard focus |
+| 共通操作と補足 | `HyphaWidgets*`、`HyphaTextButton*`、`HyphaObservatoryView*`、`HyphaTooltipLookAndFeel.h`、`PluginEditorInformation.cpp` | ボタン、Keep／Stop、名前入力、選択menu、情報menu、Tooltip、keyboard focus |
 | 画像出力 | `HyphaObservatoryCapture.cpp`、関連Capture描画、`tools/ReferencePreviewRenderer.cpp` | 出力寸法、付帯情報、実画面との役割共有 |
 
 共通の書体入口は`HyphaTheme.h`と`HyphaTypography.cpp`を整理する。

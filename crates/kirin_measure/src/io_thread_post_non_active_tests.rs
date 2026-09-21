@@ -17,6 +17,7 @@ fn inactive_with_pair_keeps_last_active_as_stale() {
             sharpness: Some(6.0),
             psb_bark: None,
         }),
+        comparison: Default::default(),
         ..Default::default()
     };
 
@@ -107,6 +108,7 @@ fn active_delta_fixture() -> DeltaResult {
             sharpness: Some(6.0),
             psb_bark: None,
         }),
+        comparison: Default::default(),
     }
 }
 
@@ -142,10 +144,13 @@ fn run_non_active_tick(
         "post-instance",
         "owner",
         &post_result,
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         &delta_result,
         &signal_state,
         pair_pre_name,
         12.5,
+        0,
+        None,
         "project",
         "daw",
         false,
@@ -193,6 +198,10 @@ fn inv_d8_inactive_exact_pair_retains_frozen_delta_and_writes_minimal_json() {
         .expect("Inactive exact pair must retain the last measured delta");
     assert_eq!(frozen.lufs, Some(1.0));
     assert_eq!(frozen.tp, Some(2.0));
+    assert_eq!(delta.comparison.state, crate::ComparisonState::Holding);
+    assert_eq!(delta.comparison.reason, crate::ComparisonReason::Stale);
+    assert_eq!(delta.comparison.generation, 1);
+    assert_ne!(delta.comparison.identity, 0);
     assert_minimal_post_json(&json, "inactive", "Drum");
 }
 
@@ -202,6 +211,8 @@ fn inv_d8_inactive_without_pair_clears_delta_and_writes_minimal_json() {
 
     assert_eq!(delta.mode, DeltaMode::NoPre);
     assert!(delta.last_active.is_none());
+    assert_eq!(delta.comparison.state, crate::ComparisonState::Rejected);
+    assert_eq!(delta.comparison.reason, crate::ComparisonReason::NoPair);
     assert_minimal_post_json(&json, "inactive", "");
 }
 
@@ -254,10 +265,13 @@ fn reference_b_clears_pre_delta_without_releasing_exact_pair() {
         "post-instance",
         "owner",
         &post_result,
+        &crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo()),
         &delta_result,
         &signal_state,
         "Mix",
         10.0,
+        1,
+        Some("pre-exact"),
         "project",
         "daw",
         false,
@@ -270,6 +284,11 @@ fn reference_b_clears_pre_delta_without_releasing_exact_pair() {
     assert_eq!(delta.mode, DeltaMode::NoPre);
     assert!(delta.lufs.is_none());
     assert!(delta.last_active.is_none());
+    assert_eq!(delta.comparison.state, crate::ComparisonState::Rejected);
+    assert_eq!(
+        delta.comparison.reason,
+        crate::ComparisonReason::AuditionActive
+    );
     assert_eq!(
         latched
             .lock()

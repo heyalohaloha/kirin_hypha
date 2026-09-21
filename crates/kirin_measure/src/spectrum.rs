@@ -7,10 +7,12 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::log_bands::log_band_edges;
 use rustfft::num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
 
-pub const SPECTRUM_SCHEMA_VERSION: u16 = 3;
+/// 4 = B-971。交換 wire の予約バイトに `view` を載せた（旧 wire は拒否される）。
+pub const SPECTRUM_SCHEMA_VERSION: u16 = 4;
 pub const SPECTRUM_REFERENCE_SAMPLE_RATE: u32 = 48_000;
 pub const SPECTRUM_WINDOW_SIZE: usize = 4_096;
 pub const SPECTRUM_FFT_SIZE: usize = 8_192;
@@ -130,6 +132,13 @@ pub struct SpectrumFrame {
     pub presentation_end_samples: i64,
     pub generation: u64,
     pub channel_mode: SpectrumChannelMode,
+    /// どの観測対象から作られたか（`SpectrumView::to_abi()`）。`SPECTRUM_VIEW_NONE` は
+    /// 「名乗っていない」であって既定値ではない。
+    ///
+    /// **`channel_mode` を view の名札として読まない。** 単一チャンネル view でも
+    /// `channel_mode` は `Lr` のままである（導出 view 専用の処理選択なので）。
+    /// 役割を選んだフレームを「LR」と表示すると、値は正しいのに意味が違う（D-13 の G）。
+    pub view: u8,
     pub channels: u8,
     /// First frequency backed by a real FFT bin. A renderer must not invent points below it.
     pub min_hz: f32,
@@ -159,6 +168,9 @@ impl SpectrumFrame {
             && self.fft_size == other.fft_size
             && self.band_count == other.band_count
             && self.channel_mode == other.channel_mode
+            // 違う観測対象を引き算しない。**同じ帯域図でも、L と C なら別の測定である。**
+            // 交換 wire はまだ view を運ばないので、両側とも NONE のときは従来どおり通る。
+            && self.view == other.view
             && self.channels == other.channels
             && self.min_hz.to_bits() == other.min_hz.to_bits()
             && self.max_hz.to_bits() == other.max_hz.to_bits()
@@ -168,62 +180,6 @@ impl SpectrumFrame {
         self.same_analysis_layout(other)
             && self.presentation_end_samples == other.presentation_end_samples
     }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct SpectrumDifference {
-    pub presentation_end_samples: i64,
-    pub sample_rate: u32,
-    pub aperture_samples: u32,
-    pub fft_size: u32,
-    pub approximate_below_hz: f32,
-    pub min_hz: f32,
-    pub max_hz: f32,
-    pub channel_mode: SpectrumChannelMode,
-    pub channels: u8,
-    /// Exact PRE magnitude used for this difference. Presentation only; never fed back to DSP.
-    pub pre_dbfs: [f32; SPECTRUM_BAND_COUNT],
-    /// Exact POST magnitude used for this difference. Presentation only; never fed back to DSP.
-    pub post_dbfs: [f32; SPECTRUM_BAND_COUNT],
-    /// Signed POST - PRE difference. This raw fact is never clipped.
-    pub raw_db: [f32; SPECTRUM_BAND_COUNT],
-    /// Display-only floor confidence. The raw difference above remains untouched.
-    pub display_db: [f32; SPECTRUM_BAND_COUNT],
-}
-
-pub fn difference_post_minus_pre(
-    post: &SpectrumFrame,
-    pre: &SpectrumFrame,
-) -> Option<SpectrumDifference> {
-    if !post.compatible_with(pre) {
-        return None;
-    }
-    let mut raw_db = [0.0; SPECTRUM_BAND_COUNT];
-    let mut display_db = [0.0; SPECTRUM_BAND_COUNT];
-    for index in 0..SPECTRUM_BAND_COUNT {
-        raw_db[index] = post.dbfs[index] - pre.dbfs[index];
-        let audible = post.dbfs[index].max(pre.dbfs[index]);
-        let confidence = ((audible - SPECTRUM_DISPLAY_FLOOR_START_DBFS)
-            / (SPECTRUM_DISPLAY_FLOOR_END_DBFS - SPECTRUM_DISPLAY_FLOOR_START_DBFS))
-            .clamp(0.0, 1.0);
-        display_db[index] = raw_db[index] * confidence;
-    }
-    Some(SpectrumDifference {
-        presentation_end_samples: post.presentation_end_samples,
-        sample_rate: post.sample_rate,
-        aperture_samples: post.aperture_samples,
-        fft_size: post.fft_size,
-        approximate_below_hz: SPECTRUM_APPROXIMATE_CYCLES * post.sample_rate as f32
-            / post.aperture_samples as f32,
-        min_hz: post.min_hz,
-        max_hz: post.max_hz,
-        channel_mode: post.channel_mode,
-        channels: post.channels,
-        pre_dbfs: pre.dbfs,
-        post_dbfs: post.dbfs,
-        raw_db,
-        display_db,
-    })
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -443,6 +399,8 @@ impl SpectrumAnalyzer {
             presentation_end_samples,
             generation,
             channel_mode,
+            // 解析器は view を知らない。名乗るのは view を選んでいる worker である。
+            view: crate::channel_layout::SPECTRUM_VIEW_NONE,
             channels,
             min_hz: self.layout.min_hz,
             max_hz: self.layout.max_hz,
@@ -472,11 +430,7 @@ impl SpectrumAnalyzer {
 }
 
 fn band_plan(index: usize, min_hz: f32, max_hz: f32, bin_hz: f32, max_bin: usize) -> BandPlan {
-    let ratio = max_hz / min_hz;
-    let edge =
-        |offset: usize| min_hz * ratio.powf((index + offset) as f32 / SPECTRUM_BAND_COUNT as f32);
-    let low = edge(0);
-    let high = edge(1);
+    let (low, high) = log_band_edges(index, SPECTRUM_BAND_COUNT, min_hz, max_hz);
     let first = (low / bin_hz).ceil().max(1.0) as usize;
     let last = (high / bin_hz).floor().min(max_bin as f32) as usize;
     if last >= first {
@@ -490,6 +444,10 @@ fn band_plan(index: usize, min_hz: f32, max_hz: f32, bin_hz: f32, max_bin: usize
         mix: (center - lower as f32).clamp(0.0, 1.0),
     }
 }
+
+#[path = "spectrum_difference.rs"]
+mod difference;
+pub use difference::{difference_post_minus_pre, SpectrumDifference};
 
 #[cfg(test)]
 #[path = "spectrum_tests.rs"]

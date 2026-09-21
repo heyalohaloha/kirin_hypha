@@ -65,81 +65,6 @@ namespace hypha
         juce::Image image;
     };
 
-    // ── one metric: [label | value | unit] with a per-cell hover help (egui .on_hover_text). ─
-    // Reused for Watch (3 stacked wide cells) and Record (6 cells, 2 columns). label/value/unit
-    // font sizes differ between the two modes, so they are set explicitly via setFonts().
-    class MetricCell : public juce::Component,
-                       public juce::SettableTooltipClient
-    {
-    public:
-        MetricCell();
-        void configure (const juce::String& label, const juce::String& unit,
-                        const juce::String& help, float minColW);
-        void setPresentationContext (presentation::Context next)
-        {
-            presentationContext = next;
-            repaint();
-        }
-        void setValue (const juce::String& value, juce::Colour valueColour);
-        void paint (juce::Graphics&) override;
-    private:
-        juce::String label, unit, value;
-        juce::Colour valueColour = COL_MUTED;
-        float minColW = ui_contract::metricMinimumLabelWidth;
-        presentation::Context presentationContext = presentation::defaultContext();
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MetricCell)
-    };
-
-    // Display-only M/S selector occupying the existing first metric label column. The two
-    // accessible buttons never alter either measurement engine; they only choose which already
-    // computed loudness value the six fixed cells render.
-    class LoudnessSelector : public juce::Component
-    {
-    public:
-        LoudnessSelector();
-
-        std::function<void (bool shortTerm)> onChange;
-
-        void setShortTerm (bool shortTerm);
-        void setDeltaMode (bool delta);
-        void setPresentationContext (presentation::Context next)
-        {
-            presentationContext = next;
-            momentary.setPresentationContext (next);
-            shortTerm.setPresentationContext (next);
-            resized();
-            repaint();
-        }
-        void paint (juce::Graphics&) override;
-        void resized() override;
-
-    private:
-        class SegmentButton final : public juce::Button
-        {
-        public:
-            explicit SegmentButton (const juce::String& text);
-            void setSelected (bool selectedIn);
-            void setPresentationContext (presentation::Context next) noexcept
-            {
-                presentationContext = next;
-                repaint();
-            }
-            void paintButton (juce::Graphics&, bool highlighted, bool down) override;
-        private:
-            const juce::String text;
-            bool selected = false;
-            presentation::Context presentationContext = presentation::defaultContext();
-        };
-
-        SegmentButton momentary { "M" };
-        SegmentButton shortTerm { "S" };
-        ui_contract::LoudnessSelectorLayout currentLayout() const;
-        bool selectedShortTerm = false;
-        bool deltaMode = false;
-        presentation::Context presentationContext = presentation::defaultContext();
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LoudnessSelector)
-    };
-
     // ── editable PRE name / read-only POST exact-pair selector ──────────────────────────────
     // Shows display text (optional prefix + raw name, or a fallback when the name is empty) in
     // COL_FLORA monospace. With onSelect, a click opens the exact selector; otherwise it opens
@@ -152,10 +77,13 @@ namespace hypha
         EditableName();
 
         std::function<void (const juce::String&)> onCommit; // called with the new raw name
+        std::function<void()> onPreviewDemand;
         std::function<void()> onSelect; // when present, click selects instead of editing
 
         void setPrefix (const juce::String& p)        { prefix = p; if (! editing) repaint(); }
         void setFallback (const juce::String& f)       { fallback = f; if (! editing) repaint(); }
+        bool setSelectionPreview (const juce::String&, std::uint64_t generation);
+        std::uint64_t paintedSelectionGeneration() const noexcept { return paintedPreview; }
         void setModelName (const juce::String& raw);   // edited value; repaints when not editing
                                                         // (named to avoid hiding juce::Component::setName)
         void setEditingEnabled (bool enabled);         // false -> click does nothing (locked)
@@ -175,6 +103,14 @@ namespace hypha
 
         void paint (juce::Graphics&) override;
         void mouseDown (const juce::MouseEvent&) override;
+        void mouseEnter (const juce::MouseEvent&) override { if (onPreviewDemand) onPreviewDemand(); }
+        void focusGained (FocusChangeType) override { if (onPreviewDemand) onPreviewDemand(); }
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            if (onSelect && (key == juce::KeyPress::returnKey || key == juce::KeyPress::spaceKey))
+            { onSelect(); return true; }
+            return false;
+        }
         void resized() override;
 
     private:
@@ -182,7 +118,8 @@ namespace hypha
         void commitEditing();
         void cancelEditing();
 
-        juce::String rawName, prefix, fallback, enabledTooltip, lockedTooltip;
+        juce::String rawName, prefix, fallback, enabledTooltip, lockedTooltip, selectionPreview;
+        std::uint64_t previewGeneration = 0, paintedPreview = 0;
         bool editing = false;
         bool editingEnabled = true;
         std::unique_ptr<juce::TextEditor> editor;

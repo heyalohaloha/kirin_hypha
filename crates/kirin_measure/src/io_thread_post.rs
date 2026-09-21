@@ -224,6 +224,8 @@ pub fn spawn_io_thread_post(
     instance_id: Arc<RwLock<String>>,
     project_hash: Arc<RwLock<String>>,
     sample_rate: u32,
+    // この engine が測っている配置。PRE と同じ map で測ったときだけ Δ を出す（B-976）。
+    layout: crate::channel_layout::ChannelLayout,
     record_sm: Arc<RecordStateMachine>,
     post_result: Arc<Mutex<MeasureResult>>,
     delta_result: Arc<Mutex<DeltaResult>>,
@@ -288,6 +290,7 @@ pub fn spawn_io_thread_post(
                 daw_session_id: Arc::clone(&daw_session_id_arc),
                 record_sm: Arc::clone(&record_sm),
                 post_result: Arc::clone(&post_result),
+                post_layout: crate::plugin_data::MeasurementLayout::new(layout),
                 delta_result,
                 signal_state: Arc::clone(&signal_state),
                 is_playing,
@@ -491,3 +494,7 @@ mod resolve_delta_for_store_tests;
 #[cfg(test)]
 #[path = "io_thread_post_non_active_tests.rs"]
 mod non_active_delta_store_tests;
+
+#[cfg(test)]
+#[path = "io_thread_post_layout_gate_tests.rs"]
+mod layout_gate_tests;

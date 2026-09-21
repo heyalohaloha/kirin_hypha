@@ -24,6 +24,10 @@ struct Range
 
 struct Summary
 {
+    /// Which measurement span this run belongs to. generation and runId both restart at 1 for a
+    /// new engine, so without this the first rows of a new span read as a continuation of the old
+    /// one, and two measurements made under different layouts or rates merge into one run (D-12).
+    std::uint64_t measurementEpoch = 0;
     std::uint64_t generation = 0;
     std::uint64_t runId = 0;
     std::uint64_t firstObservedFrames = 0;

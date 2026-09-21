@@ -11,14 +11,19 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+#[path = "meter_history_publisher.rs"]
+mod publisher;
+
 use crate::meter_history::MeterHistory;
+use crate::plugin_data::MeasurementLayout;
 use crate::{
     CaptureClockSource, MeasureResult, MeterHistoryAux, MeterHistoryEntry, MeterHistoryResolution,
     MeterSession,
 };
 
 pub const METER_HISTORY_EXCHANGE_FILE: &str = "meter_history.json";
-pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 2;
+/// 3 = B-968。`layout` を足し、違う map で測った 2 本を引き算しないようにした。
+pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 3;
 pub const METER_HISTORY_EXCHANGE_POINTS: usize = 32;
 const LOCAL_JOIN_POINTS: usize = METER_HISTORY_EXCHANGE_POINTS * 2;
 const MAX_EXCHANGE_BYTES: u64 = 64 * 1024;
@@ -41,7 +46,7 @@ impl MeterHistoryTarget {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 struct WirePoint {
     generation: u64,
     run_id: u64,
@@ -55,13 +60,17 @@ struct WirePoint {
     plr: Option<f64>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 struct Publication {
     schema: u8,
     pre_instance_id: String,
     watch_owner_id: String,
     daw_session_id: String,
     sample_rate: u32,
+    /// PRE が実際に測っている配置。**引き算が成立するのは同じ map で測った 2 本だけである。**
+    /// mono の PRE と stereo の POST は、同じ音を通しても loudness で 3.01 LU ずれる
+    /// （mono は 1ch として測り +3.01 dB バイアスを入れない）。その差は連鎖が加えたものではない。
+    layout: MeasurementLayout,
     points: Vec<WirePoint>,
 }
 
@@ -216,6 +225,9 @@ impl DeltaHistoryState {
                 ..MeasureResult::default()
             };
             self.history.push(
+                // Δ は POST の測定区間に属する。POST が別 layout / rate で作り直されたら、
+                // その前後の Δ は同じ測定の続きではない。
+                post_point.measurement_epoch,
                 self.generation.max(1),
                 self.next_run_id,
                 post_point.last_observed_frames,
@@ -262,16 +274,23 @@ impl DeltaHistoryState {
 
 pub struct MeterDeltaHistoryExchange {
     sample_rate: u32,
+    layout: MeasurementLayout,
     meter_session: Arc<Mutex<MeterSession>>,
     delta: Mutex<DeltaHistoryState>,
+    publisher: Mutex<publisher::HistoryPublisher>,
 }
 
 impl MeterDeltaHistoryExchange {
     pub fn new(sample_rate: u32, meter_session: Arc<Mutex<MeterSession>>) -> Arc<Self> {
+        // layout は session から読む。引数で二重に渡すと、渡し間違いが「違う map なのに一致」を
+        // 作れてしまう。ここで 1 度だけ lock する（生成直後で競合しない）。
+        let layout = MeasurementLayout::new(lock_recover(&meter_session).layout());
         Arc::new(Self {
             sample_rate,
+            layout,
             meter_session,
             delta: Mutex::new(DeltaHistoryState::default()),
+            publisher: Mutex::new(publisher::HistoryPublisher::default()),
         })
     }
 
@@ -282,28 +301,16 @@ impl MeterDeltaHistoryExchange {
         watch_owner_id: &str,
         instance_dir: &Path,
     ) -> Result<(), String> {
-        let points = self
-            .meter_session
+        self.publisher
             .try_lock()
-            .map_err(|_| "meter session busy".to_string())?
-            .recent_history(MeterHistoryResolution::Hz10, METER_HISTORY_EXCHANGE_POINTS)
-            .into_iter()
-            .filter_map(WirePoint::from_history)
-            .collect();
-        let publication = Publication {
-            schema: METER_HISTORY_EXCHANGE_SCHEMA,
-            pre_instance_id: pre_instance_id.to_string(),
-            watch_owner_id: watch_owner_id.to_string(),
-            daw_session_id: daw_session_id.to_string(),
-            sample_rate: self.sample_rate,
-            points,
-        };
-        let bytes = serde_json::to_vec(&publication).map_err(|error| error.to_string())?;
-        crate::atomic_file::write_bytes_atomic(
-            &instance_dir.join(METER_HISTORY_EXCHANGE_FILE),
-            &bytes,
-        )
-        .map_err(|error| error.to_string())
+            .map_err(|_| "history publisher busy".to_string())?
+            .publish(
+                self,
+                pre_instance_id,
+                daw_session_id,
+                watch_owner_id,
+                instance_dir,
+            )
     }
 
     pub fn service_post_endpoint(&self, target: Option<MeterHistoryTarget>) {
@@ -324,7 +331,7 @@ impl MeterDeltaHistoryExchange {
         let Ok(publication) = read_publication(&target.instance_dir) else {
             return;
         };
-        if !publication.valid_for(&identity, self.sample_rate) {
+        if !publication.valid_for(&identity, self.sample_rate, &self.layout) {
             return;
         }
         let Ok(session) = self.meter_session.try_lock() else {
@@ -399,9 +406,15 @@ impl WirePoint {
 }
 
 impl Publication {
-    fn valid_for(&self, identity: &PreIdentity, sample_rate: u32) -> bool {
+    fn valid_for(
+        &self,
+        identity: &PreIdentity,
+        sample_rate: u32,
+        layout: &MeasurementLayout,
+    ) -> bool {
         self.schema == METER_HISTORY_EXCHANGE_SCHEMA
             && self.sample_rate == sample_rate
+            && self.layout == *layout
             && self.pre_instance_id == identity.instance_id
             && self.watch_owner_id == identity.watch_owner_id
             && self.daw_session_id == identity.daw_session_id

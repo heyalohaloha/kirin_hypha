@@ -13,7 +13,10 @@ use std::path::{Path, PathBuf};
 /// 新規プロダクションコードは `compute_delta_with_state(..., pair_pre_name)` を直接呼ぶこと。
 #[doc(hidden)]
 pub fn compute_delta(project_dir: &Path, post: &MeasureResult) -> Result<DeltaResult, String> {
-    compute_delta_with_state(project_dir, post, None).map(|(delta, _)| delta)
+    // 互換入口。配置は stereo として比較する（この入口を使う既存 integration test の前提）。
+    let stereo =
+        crate::plugin_data::MeasurementLayout::new(crate::channel_layout::ChannelLayout::stereo());
+    compute_delta_with_state(project_dir, post, &stereo, None).map(|(delta, _)| delta)
 }
 
 /// B-048 / G-115-245 Last Known Good: 新 `DeltaResult` と前回 `last_active` を
@@ -58,7 +61,12 @@ pub fn merge_last_active(
             last_active: prev_last_active,
             ..new_delta
         },
-        DeltaMode::Bypassed | DeltaMode::PreInactive => new_delta,
+        // 凍結値を残さない。**配置が変わったなら、前の Δ はもう何も指していない。**
+        // Bypassed（明示 OFF）と同じ扱いにする（B-976）。
+        DeltaMode::Bypassed
+        | DeltaMode::PreInactive
+        | DeltaMode::LayoutMismatch
+        | DeltaMode::LayoutUnknown => new_delta,
     }
 }
 
@@ -148,6 +156,7 @@ pub(crate) fn resolve_delta_for_store(
 pub(super) fn compute_delta_with_state(
     project_dir: &Path,
     post: &MeasureResult,
+    post_layout: &crate::plugin_data::MeasurementLayout,
     pair_pre_name: Option<&str>,
 ) -> Result<(DeltaResult, Option<SignalState>), String> {
     if !project_dir.exists() {
@@ -222,7 +231,7 @@ pub(super) fn compute_delta_with_state(
     }
 
     let best = select_best_pre(&mut pre_files)?;
-    compute_delta_for_pre_file(&best, post)
+    compute_delta_for_pre_file(&best, post, post_layout)
 }
 
 /// 選定済みの PRE `pre.json` だけを読んで Δ を算出する。
@@ -230,13 +239,47 @@ pub(super) fn compute_delta_with_state(
 /// Pairing/Arm 側が決めた `LatchedPre::pre_json` を再スキャンで失わないための境界。
 /// `compute_delta_with_state` は棚から候補を選ぶ互換入口として残し、Record/ラッチ表示は
 /// 本関数へ直接入る。
+/// B-976 / Gate A1: 比較可否の判定。**読めることと、比べてよいことは別である。**
+///
+/// `pre.json` を読むのは transport の話で、その測定値どうしを引き算してよいかは別の判定である。
+/// PRE が配置を名乗っていなければ compatible だと**確認できない**ので比較しない。
+/// 旧版と新版が混ざるときに従来どおり引き算すると、unknown を compatible とみなすことになる。
+fn layout_rejection(
+    parsed: &serde_json::Value,
+    post_layout: &crate::plugin_data::MeasurementLayout,
+) -> Option<DeltaMode> {
+    let pre = parsed.get("layout")?;
+    let Ok(pre_layout) =
+        serde_json::from_value::<crate::plugin_data::MeasurementLayout>(pre.clone())
+    else {
+        // 名乗ってはいるが読めない。名乗っていないのと同じに扱う。近い配置へ丸めない。
+        return Some(DeltaMode::LayoutUnknown);
+    };
+    (pre_layout != *post_layout).then_some(DeltaMode::LayoutMismatch)
+}
+
 pub(super) fn compute_delta_for_pre_file(
     pre_json: &Path,
     post: &MeasureResult,
+    post_layout: &crate::plugin_data::MeasurementLayout,
 ) -> Result<(DeltaResult, Option<SignalState>), String> {
     let content = fs::read_to_string(pre_json).map_err(|e| format!("read PRE file: {e}"))?;
     let parsed: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| format!("parse PRE JSON: {e}"))?;
+    let pre_identity = crate::comparison_state::ComparisonIdentity::new()
+        .text(parsed["instance_id"].as_str().unwrap_or_default())
+        .number(parsed["playback_pass_id"].as_u64().unwrap_or_default())
+        .text(
+            &parsed
+                .get("layout")
+                .map(serde_json::Value::to_string)
+                .unwrap_or_default(),
+        )
+        .finish();
+    let attach_identity = |mut delta: DeltaResult| {
+        delta.comparison.identity = pre_identity;
+        delta
+    };
 
     let pre_signal_state = parsed["signal_state"].as_str().map(|s| match s {
         "active" => SignalState::Active,
@@ -246,7 +289,7 @@ pub(super) fn compute_delta_for_pre_file(
 
     if pre_signal_state != Some(SignalState::Active) {
         return Ok((
-            DeltaResult {
+            attach_identity(DeltaResult {
                 lufs: None,
                 lufs_s: None,
                 psr: None,
@@ -261,18 +304,38 @@ pub(super) fn compute_delta_for_pre_file(
                     _ => DeltaMode::NoPre,
                 },
                 last_active: None, // B-048 §4-2: run_tick で merge する責務分業
-            },
+                comparison: Default::default(),
+            }),
             pre_signal_state,
         ));
     }
 
+    // **不在が不一致に優先する。** `NoPre`（t が 10 秒より古い = 実質いない）は、配置の話より
+    // 先に決まる。ここを逆にすると、とうに消えた PRE に対して「配置が違う」と言うことになる
+    // （B-978 / 理由を出すのは Gate D なので、理由が正しい順序で決まっていないと意味がない）。
     let mode = freshness_mode(&parsed)?;
     if mode == DeltaMode::NoPre {
         return Ok((
-            DeltaResult {
+            attach_identity(DeltaResult {
                 mode: DeltaMode::NoPre,
                 ..Default::default()
-            },
+            }),
+            pre_signal_state,
+        ));
+    }
+
+    // いる PRE に対しては、古いかどうかより先に「比べてよい 2 本か」が決まる。
+    // `Stale` は同じペアの続きなので、不一致の方が行動可能な理由である。
+    // `layout` が無ければ `LayoutUnknown`（旧版の PRE）。あって違えば `LayoutMismatch`。
+    if let Some(mode) = match parsed.get("layout") {
+        Some(_) => layout_rejection(&parsed, post_layout),
+        None => Some(DeltaMode::LayoutUnknown),
+    } {
+        return Ok((
+            attach_identity(DeltaResult {
+                mode,
+                ..Default::default()
+            }),
             pre_signal_state,
         ));
     }
@@ -304,7 +367,7 @@ pub(super) fn compute_delta_for_pre_file(
         .map(|(post, pre)| std::array::from_fn(|index| post[index] - pre[index]));
 
     Ok((
-        DeltaResult {
+        attach_identity(DeltaResult {
             lufs: delta_lufs,
             lufs_s: delta_lufs_s,
             psr: delta_psr,
@@ -315,7 +378,8 @@ pub(super) fn compute_delta_for_pre_file(
             psb_bark: delta_psb,
             mode,
             last_active: None, // B-048 §4-2: run_tick で merge する責務分業
-        },
+            comparison: Default::default(),
+        }),
         pre_signal_state,
     ))
 }

@@ -1,5 +1,7 @@
 #pragma once
+#include "HyphaReferenceCaptureControls.h"
 
+#include <array>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -11,6 +13,9 @@
 #include "HyphaOsAccess.h"
 #include "HyphaPresentationContext.h"
 #include "HyphaReferenceSelectorLookAndFeel.h"
+#include "HyphaReferenceComparisonView.h"
+#include "HyphaReferenceTonalView.h"
+#include "HyphaReferenceWorkflowControls.h"
 #include "reference_audition/ReferenceRuntimeV2Measurement.h"
 #include "reference_audition/ReferenceRuntimeV2Profile.h"
 
@@ -59,6 +64,11 @@ struct SelectionOption
 
 struct State
 {
+    bool osOnline = false, libraryReceived = false, blindLargeScreen = true;
+    bool separateComparisons = false, versionReady = false, checkReady = false;
+    int comparisonSlot = 2, audibleComparisonSlot = 0;
+    juce::String versionId;
+    std::vector<SelectionOption> versions;
     Readiness readiness = Readiness::disconnected;
     juce::String title;
     juce::String sourceLabel;
@@ -83,6 +93,7 @@ struct State
     int answeredBlindStimulus = 0;
     bool blindStimulusOneHeard = false;
     bool blindStimulusTwoHeard = false;
+    bool blindPaused = false, blindOutsideSong = false;
     bool blindLowerAApprovalRequired = false;
     double blindRequiredAAttenuationDb = 0.0;
     juce::String blindReveal;
@@ -102,6 +113,10 @@ struct State
     std::vector<SelectionOption> candidates;
     std::vector<SelectionOption> cues;
     std::shared_ptr<const reference_audition::RuntimeDetailedMeasurement> detailedMeasurement;
+    std::shared_ptr<const reference_audition::VisualTimeline> visualTimeline;
+    double visualPositionSeconds = -1.0;
+    std::shared_ptr<reference_audition::VisualPreferences> visualPreferences;
+    std::shared_ptr<reference_audition::ACaptureAccess> captureAccess;
     std::vector<std::shared_ptr<const reference_audition::RuntimeProfile>> profiles;
     std::vector<float> liveSpectrumDbfs;
     float liveSpectrumMinimumHz = 0.0f;
@@ -113,6 +128,7 @@ struct State
     juce::String candidatePreparationAction;
     bool candidatePreparationPending = false;
     juce::String actionText;
+    reference_audition::WorkflowView workflow;
 };
 
 inline bool canSelectB (const State& state) noexcept
@@ -138,15 +154,19 @@ public:
         if (presentationContext == next) return;
         presentationContext = next;
         selectorLookAndFeel.setPresentationContext (next);
-        for (auto* button : { &aButton, &bButton, &blindButton, &oneButton, &twoButton,
+        for (auto* button : { &aButton, &bButton, &cButton, &blindButton, &oneButton, &twoButton,
                               &answerButton, &revealButton, &endBlindButton, &actionButton })
             button->setPresentationContext (next);
+        tonalView.update (current.visualTimeline, presentationContext,
+                          isBlindSession (current.blindPhase), current.candidateName, current.cueLabel);
         resized();
         repaint();
     }
 
     std::function<void()> onSelectA;
     std::function<void()> onSelectB;
+    std::function<void()> onSelectC;
+    std::function<void(const juce::String&)> onSelectVersion;
     std::function<void(const juce::String&)> onSelectPreset;
     std::function<void(const juce::String&)> onSelectCheck;
     std::function<void(const juce::String&)> onSelectCandidate;
@@ -157,10 +177,18 @@ public:
     std::function<void(int)> onAnswerBlind;
     std::function<void()> onRevealBlind;
     std::function<void()> onEndBlind;
+    std::function<void()> onStartReview, onStartBookmark, onWorkflowBack;
+    std::function<void()> onWorkflowConfirmed, onWorkflowDeferred, onWorkflowEnd;
+    std::function<void(double,double)> onCapturedTonalRange;
 
     void setState (State);
     const State& state() const noexcept { return current; }
     bool detailedLayout() const noexcept;
+    bool shortPanel() const noexcept { return getHeight()<150 && !isBlindSession(current.blindPhase); }
+    int panelHeaderHeight() const noexcept { return shortPanel() ? 20 : detailedLayout() ? 42 : 34; }
+    int panelPickerHeight() const noexcept { return shortPanel() ? 18 : 24; }
+    int panelGap() const noexcept { return shortPanel() ? 2 : 4; }
+    juce::Rectangle<int> panelArea() const noexcept { return getLocalBounds().reduced(6,shortPanel() ? 3 : 6); }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -181,14 +209,22 @@ private:
     };
 
     State current;
+    ComparisonView comparisonView;
+    TonalView tonalView;
+    CaptureControls captureControls;
+    WorkflowControls workflowControls;
     presentation::Context presentationContext = presentation::defaultContext();
     ReferenceSelectorLookAndFeel selectorLookAndFeel;
+    juce::Label connectionStatus;
     juce::ComboBox presetBox;
+    juce::ComboBox versionBox;
     juce::ComboBox checkBox;
     juce::ComboBox candidateBox;
     juce::ComboBox cueBox;
+    std::array<juce::Label, 5> selectionReadouts;
     SideButton aButton { "A" };
     SideButton bButton { "B" };
+    SideButton cButton { "C" };
     SideButton blindButton { "VERSION BLIND" };
     SideButton oneButton { "1" };
     SideButton twoButton { "2" };
@@ -197,6 +233,8 @@ private:
     SideButton endBlindButton { "END" };
     SideButton actionButton { "OPEN KIRIN OS" };
 
+    bool selectionVisible (const juce::ComboBox&) const;
+    void layoutSelectionReadouts();
     void syncSelectionControl (juce::ComboBox&, const std::vector<SelectionOption>&,
                                const juce::String& selectedId);
     static juce::String selectedOptionId (const juce::ComboBox&,

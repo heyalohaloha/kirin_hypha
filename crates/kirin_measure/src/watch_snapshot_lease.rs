@@ -238,7 +238,7 @@ pub(crate) fn snapshot_file_is_fresh_runtime_evidence(
         .unwrap_or(true)
 }
 
-fn owner_marker_path(instance_dir: &Path, owner_id: &str) -> Option<PathBuf> {
+pub(crate) fn owner_marker_path(instance_dir: &Path, owner_id: &str) -> Option<PathBuf> {
     let canonical = Uuid::parse_str(owner_id).ok()?.to_string();
     if canonical != owner_id {
         return None;

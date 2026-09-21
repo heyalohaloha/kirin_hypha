@@ -39,7 +39,7 @@ fn project_clock(position_samples: i64, epoch: u64) -> MeterClockStart {
 
 #[test]
 fn starts_empty_and_only_active_audio_advances_time() {
-    let mut session = MeterSession::new(SR, 2).unwrap();
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     let initial = session.snapshot();
     assert_eq!(initial.state, MeterSessionState::Empty);
     assert_eq!(initial.generation, 1);
@@ -64,7 +64,7 @@ fn starts_empty_and_only_active_audio_advances_time() {
 
 #[test]
 fn publication_exposes_only_complete_replacements_and_never_waits_for_writer() {
-    let mut session = MeterSession::new(SR, 2).unwrap();
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     let publication = MeterSessionPublication::new(session.snapshot());
     assert_eq!(
         publication.try_snapshot().unwrap().state,
@@ -89,11 +89,11 @@ fn publication_exposes_only_complete_replacements_and_never_waits_for_writer() {
 #[test]
 fn integrated_lra_peak_and_plr_share_one_session_fact() {
     let samples = stereo_sine(12.0, 0.5);
-    let mut reference = MeasureEngine::new(SR, 2).unwrap();
+    let mut reference = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
     let _ = reference.push(&samples);
     let expected = reference.finalize();
 
-    let mut session = MeterSession::new(SR, 2).unwrap();
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     for chunk in samples.chunks(SR as usize / 5) {
         assert!(session.push_active(chunk));
     }
@@ -114,7 +114,7 @@ fn integrated_lra_peak_and_plr_share_one_session_fact() {
 
 #[test]
 fn reset_is_the_only_explicit_discard_boundary() {
-    let mut session = MeterSession::new(SR, 2).unwrap();
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     assert!(session.push_active(&stereo_sine(1.0, 0.5)));
     session.pause();
     let before = session.snapshot();
@@ -132,7 +132,7 @@ fn reset_is_the_only_explicit_discard_boundary() {
 
 #[test]
 fn peak_clip_clear_does_not_discard_meter_session_truth() {
-    let mut session = MeterSession::new(SR, 2).unwrap();
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     assert!(session.push_active(&stereo_constant(1.1, 0.4)));
     let before = session.snapshot();
     let history_before = session.recent_history(MeterHistoryResolution::Hz10, 20);
@@ -183,11 +183,11 @@ fn peak_clip_clear_does_not_discard_meter_session_truth() {
 fn maximum_momentary_is_an_official_session_fact_until_explicit_reset() {
     let loud = stereo_sine(1.0, 0.5);
     let quiet = stereo_sine(1.0, 0.05);
-    let mut reference = MeasureEngine::new(SR, 2).unwrap();
+    let mut reference = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
     let _ = reference.push(&loud);
     let expected = reference.max_lufs_m();
 
-    let mut session = MeterSession::new(SR, 2).unwrap();
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     assert!(session.push_active(&loud));
     let loudest = session.snapshot().max_lufs_m;
     assert!(close(loudest, expected, 1.0e-12));
@@ -203,7 +203,7 @@ fn maximum_momentary_is_an_official_session_fact_until_explicit_reset() {
 
 #[test]
 fn maximum_momentary_never_runs_ahead_of_the_public_observation_boundary() {
-    let mut session = MeterSession::new(SR, 2).unwrap();
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     assert!(session.push_active(&stereo_sine(1.0, 0.05)));
     let complete = session.snapshot();
 
@@ -223,7 +223,7 @@ fn maximum_momentary_never_runs_ahead_of_the_public_observation_boundary() {
 
 #[test]
 fn malformed_input_fails_without_partial_session_mutation() {
-    let mut session = MeterSession::new(SR, 2).unwrap();
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     assert!(!session.push_active(&[]));
     assert!(!session.push_active(&[0.0]));
     assert!(!session.push_active(&[0.0, f64::NAN]));
@@ -234,7 +234,7 @@ fn malformed_input_fails_without_partial_session_mutation() {
 
 #[test]
 fn history_timestamps_new_channel_clip_runs_at_the_exact_observation() {
-    let mut session = MeterSession::new(SR, 2).unwrap();
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     assert!(session.push_active_at(&stereo_constant(1.0, 0.5), project_clock(0, 1)));
     assert!(session.push_active_at(&stereo_constant(0.5, 0.5), project_clock(4_800, 1)));
     assert!(session.push_active_at(&stereo_constant(0.5, -1.0), project_clock(9_600, 1)));
@@ -254,10 +254,10 @@ fn channel_and_stereo_facts_do_not_depend_on_caller_chunking() {
     for frame in (SR as usize / 2)..(SR as usize / 2 + 37) {
         samples[frame * 2] = 1.1;
     }
-    let mut whole = MeterSession::new(SR, 2).unwrap();
+    let mut whole = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     assert!(whole.push_active(&samples));
 
-    let mut chunked = MeterSession::new(SR, 2).unwrap();
+    let mut chunked = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     for chunk in samples.chunks(742) {
         assert!(chunked.push_active(chunk));
     }
@@ -300,7 +300,7 @@ fn channel_and_stereo_facts_do_not_depend_on_caller_chunking() {
 #[test]
 fn history_retains_exact_and_multi_resolution_facts_while_editor_is_absent() {
     let samples = stereo_sine(3.2, 0.5);
-    let mut session = MeterSession::new(SR, 2).unwrap();
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     let mut position = 120_000_i64;
     for chunk in samples.chunks(742) {
         assert!(session.push_active_at(chunk, project_clock(position, 9)));
@@ -334,7 +334,7 @@ fn history_retains_exact_and_multi_resolution_facts_while_editor_is_absent() {
 fn history_never_joins_one_observation_across_a_transport_jump() {
     let half_observation = stereo_sine(0.05, 0.5);
     let one_observation = stereo_sine(0.1, 0.5);
-    let mut session = MeterSession::new(SR, 2).unwrap();
+    let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     assert!(session.push_active_at(&half_observation, project_clock(10_000, 1)));
     assert!(session.push_active_at(&half_observation, project_clock(50_000, 2)));
     assert!(session

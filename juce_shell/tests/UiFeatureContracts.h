@@ -12,6 +12,8 @@
 #include "AbsoluteSpectrumContractTest.h"
 #include "ObservatoryViewContractTest.h"
 #include "CaptureHistoryContractTest.h"
+#include "ComparisonPresentationContractTest.h"
+#include "TimeFieldContractTest.h"
 #include "TimeHistoryContractTest.h"
 #include "SpaceFieldContractTest.h"
 #include "ReferenceAuditionComponentContractTest.h"
@@ -26,6 +28,8 @@
 #include "SpectrumResponsiveGeometryContractTest.h"
 #include "TypographyContractTest.h"
 #include "AnalysisDemandContractTest.h"
+#include "PreparedFormatContractTest.h"
+#include "MeasurementSpanContractTest.h"
 
 namespace hypha::tests
 {
@@ -42,19 +46,37 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
         && std::string_view (argv[1]) == "--time-history-only";
     const bool analysisDemandOnly = argc == 2
         && std::string_view (argv[1]) == "--analysis-demand-only";
+    const bool absoluteSpectrumOnly = argc == 2
+        && std::string_view (argv[1]) == "--absolute-spectrum-only";
+    const bool spaceOnly = argc == 2 && std::string_view (argv[1]) == "--space-only";
     if (argc != 1 && ! entryOnly && ! updatesOnly && ! focusOnly && ! hybridVuOnly
         && ! typographyOnly && ! typographyVisualOnly && ! timeHistoryOnly
-        && ! analysisDemandOnly)
+        && ! analysisDemandOnly && ! absoluteSpectrumOnly && ! spaceOnly)
     {
         std::cerr << "Usage: KirinUiRenderContractTests [--product-entry-only|"
                      "--observation-update-only|--spectrum-focus-only|--hybrid-vu-only|"
                      "--typography-only|--typography-visual-only|--time-history-only|"
-                     "--analysis-demand-only]\n";
+                     "--analysis-demand-only|--absolute-spectrum-only|--space-only]\n";
         std::exit (EXIT_FAILURE);
     }
+    prepared_format_contract::verify();
+    measurement_span_contract::verify();
     observation_equality_contract::verify();
+    comparison_presentation_contract::verify();
     analysis_demand_contract::verify();
+    // The row rule FREQ and SPACE share. Cheap, so every focused run exercises it.
+    verifyTimeFieldContract();
     if (analysisDemandOnly) return true;
+    if (spaceOnly)
+    {
+        verifySpaceFieldContract();
+        return true;
+    }
+    if (absoluteSpectrumOnly)
+    {
+        verifyAbsoluteSpectrumContract();
+        return true;
+    }
     verifyPolylineGeometryContract();
     verifySpectrumResponsiveGeometry();
     if (updatesOnly) return true;

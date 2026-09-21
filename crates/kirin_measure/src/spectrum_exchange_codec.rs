@@ -85,7 +85,10 @@ pub(super) fn encode_snapshot(request_id: Uuid, history: &SpectrumHistory) -> Ve
         bytes.extend_from_slice(&frame.generation.to_le_bytes());
         bytes.push(frame.channel_mode as u8);
         bytes.push(frame.channels);
-        bytes.extend_from_slice(&0_u16.to_le_bytes());
+        // 予約 u16 の 1 バイトを view に使う。フレーム長は変わらない。
+        // **どの観測対象で測ったかを運ばないと、L の PRE と C の POST が引き算される。**
+        bytes.push(frame.view);
+        bytes.push(0);
         bytes.extend_from_slice(&frame.min_hz.to_le_bytes());
         bytes.extend_from_slice(&frame.max_hz.to_le_bytes());
         for value in frame.dbfs {
@@ -120,7 +123,8 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
         if channel_mode == SpectrumChannelMode::Side && channels != 2 {
             return None;
         }
-        let _reserved = cursor.u16()?;
+        let view = cursor.u8()?;
+        let _reserved = cursor.u8()?;
         let min_hz = cursor.f32()?;
         let max_hz = cursor.f32()?;
         if min_hz.to_bits() != layout.min_hz.to_bits()
@@ -144,6 +148,7 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
             presentation_end_samples,
             generation,
             channel_mode,
+            view,
             channels,
             min_hz,
             max_hz,

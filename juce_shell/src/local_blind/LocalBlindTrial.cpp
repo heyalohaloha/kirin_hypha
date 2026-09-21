@@ -77,7 +77,8 @@ void LocalBlindTrial::stop() noexcept
 void LocalBlindTrial::requestNormalReturn() noexcept
 {
     // An explicit second action; invalidation/close/timeout must never call this automatically.
-    if (view().phase == TrialPhase::returnPending) issue (normalRequested);
+    if (kind (command.load (std::memory_order_acquire)) != normalRequested
+        && view().phase == TrialPhase::returnPending) issue (normalRequested);
 }
 
 void LocalBlindTrial::invalidate (TrialFailure reason) noexcept
@@ -273,6 +274,15 @@ bool LocalBlindTrial::normalReturnConfirmed() const noexcept
 {
     const auto current = command.load (std::memory_order_acquire);
     return kind (current) == normalRequested && returnReceipt.load (std::memory_order_acquire) == current;
+}
+
+TrialReturnFacts LocalBlindTrial::returnFacts() const noexcept
+{
+    const auto current = command.load (std::memory_order_acquire);
+    const bool requested = kind (current) == normalRequested;
+    return { format.epochs.scope, format.epochs.capture, requested ? current : 0,
+             requested && returnReceipt.load (std::memory_order_acquire) == current,
+             lowerApplied.load (std::memory_order_acquire) };
 }
 
 std::size_t LocalBlindTrial::pcmBytes() const noexcept { return (frozenPost.size() + frozenPre.size()) * sizeof (float); }

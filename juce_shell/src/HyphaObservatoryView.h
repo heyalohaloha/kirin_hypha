@@ -7,6 +7,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaCaptureContract.h"
+#include "HyphaLevelMetricContract.h"
 #include "HyphaMeterContext.h"
 #include "HyphaInformationButton.h"
 #include "HyphaObservatoryContract.h"
@@ -17,6 +18,7 @@
 #include "HyphaTheme.h"
 #include "HyphaWidgets.h"
 #include "kirin_hypha_ffi.h"
+#include "HyphaMonoSumHistory.h"
 
 namespace hypha::observatory
 {
@@ -62,10 +64,12 @@ public:
     std::function<void()> onSizeMenu;
     std::function<void()> onOperationsMenu;
     std::function<void()> onStop;
+    std::function<void()> onTimeRangeMenu;
     std::function<void()> onGuideDetails;
     std::function<void()> onFeedbackDetails;
     std::function<void (bool)> onHybridVuChange;
     std::function<void()> onClearPeakClipHolds;
+    std::function<void (bool)> onRecordBodyOwnershipChange;
     juce::Component& informationAnchor() noexcept { return informationButton; }
     juce::Component& domainMenuAnchor() noexcept { return domainCycleButton; }
     juce::Component& contextMenuAnchor() noexcept { return contextButton; }
@@ -113,6 +117,7 @@ public:
     void setMeterSnapshot (const KirinMeterSession&, bool available);
     void setDeltaSnapshot (const KirinDelta&, bool available);
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
+    void setRecordDisplay (const KirinRecordDisplay&, bool available);
     void setWatchDisplay (const KirinWatchDisplay&, bool available);
     void setShortTermLoudness (bool);
     bool shortTermLoudness() const noexcept { return selectedShortTermLoudness; }
@@ -127,8 +132,11 @@ public:
     }
     bool hybridVuVisible() const noexcept
     {
-        return (manualHybridVuSelected || recordingHybridVuRequested()) && ! captureFrame;
+        return (manualHybridVuSelected || recordingHybridVuRequested())
+            && ! captureFrame && ! recordDisplayShowing();
     }
+    bool recordBodyActive() const noexcept { return recordDisplayShowing(); }
+    bool recordDisplayShowingForTest() const noexcept { return recordBodyActive(); }
     void setCompactMaximum (bool);
     bool compactMaximum() const noexcept { return compactShowsMaximum; }
     void setMeterContext (meter_context::MeterContext);
@@ -169,6 +177,8 @@ public:
     void setNoteAvailability (bool osOwned, bool recording);
     void setKeepActive (bool active);
     bool localBlindEntryAvailable() const noexcept { return localBlindEntryEnabled; }
+    bool localBlindDirectEntryVisible() const noexcept { return localBlindButton.isVisible(); }
+    juce::Component& timeRangeMenuAnchor() noexcept { return timeRangeMenuButton; }
     const juce::String& feedback() const noexcept { return feedbackText; }
     void setLocalBlindEntryEnabled (bool enabled)
     {
@@ -210,6 +220,8 @@ public:
             && (selectedDomain == Domain::frequency || selectedDomain == Domain::reference);
     }
 
+    juce::String getTooltip() override;
+    juce::String metricHelpAt (juce::Point<int>) const;
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseMove (const juce::MouseEvent&) override;
@@ -233,20 +245,29 @@ private:
     void layoutFooterActions (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
     void paintLevelWithHistory (juce::Graphics&, juce::Rectangle<int>);
+    void paintRecordDisplay (juce::Graphics&, juce::Rectangle<int>);
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
     void refreshLevelHistoryHover();
+    juce::Rectangle<int> metricHelpArea (juce::Rectangle<int>, level_metrics::Metric);
+    struct MetricHelpRegion { juce::Rectangle<int> bounds; level_metrics::Metric metric; };
+    std::array<MetricHelpRegion, 8> metricHelpRegions {};
+    std::size_t metricHelpCount = 0;
     observatory_world::State worldState() const noexcept;
     bool currentFactsAvailable() const noexcept;
     bool cumulativeFactsAvailable() const noexcept;
     bool deltaFactsAvailable() const noexcept;
+    bool recordDisplayShowing() const noexcept;
 
     Role role;
     Domain selectedDomain = Domain::level;
     ObservationTarget selectedTarget = ObservationTarget::absolute;
     TimeRange timeRange = TimeRange::seconds30;
     KirinObservatoryFrame observatoryFrame {};
+    mono_sum_history::History monoSumHistory;
     bool frameAvailable = false;
+    KirinRecordDisplay recordDisplay {};
+    bool recordDisplayAvailable = false;
     KirinWatchDisplay watchDisplay {};
     bool watchDisplayAvailable = false;
     bool selectedShortTermLoudness = false;
@@ -301,6 +322,7 @@ private:
     Button targetButton { {}, false };
     Button deltaButton { hypha::delta(), false };
     Button timeRangeButton { {}, false };
+    Button timeRangeMenuButton { juce::String::fromUTF8 ("\xe2\x96\xbe"), false };
     Button compactLoudnessButton { {}, false };
     Button compactRangeButton { {}, false };
     Button contextButton { {}, false };

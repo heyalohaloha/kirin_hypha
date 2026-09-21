@@ -6,8 +6,8 @@ fn lease_enables_exact_pre_and_close_disables_it() {
     let pre_dir = temp.path().join("project").join("pre");
     let pre_json = pre_dir.join("pre.json");
     crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
-    let pre_runtime = SpectrumRuntime::new(48_000, 2);
-    let post_runtime = SpectrumRuntime::new(48_000, 2);
+    let pre_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let post_runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
     let pre = SpectrumCoordinator::new(48_000, Arc::clone(&pre_runtime));
     let post = SpectrumCoordinator::new(48_000, Arc::clone(&post_runtime));
     let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();

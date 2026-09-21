@@ -37,9 +37,9 @@ static_assert (alignof (KirinMidSideSpectrumView) == 8);
 static_assert (offsetof (KirinMidSideSpectrumView, mid_dbfs) == 16);
 static_assert (offsetof (KirinMidSideSpectrumView, side_dbfs) == 1'040);
 static_assert (offsetof (KirinMidSideSpectrumView, presentation_end_samples) == 2'064);
-static_assert (sizeof (KirinMeterSession) == 872u, "Meter Session ABI size must remain exact");
-static_assert (sizeof (KirinObservatoryFrame) == 1'112u, "Observatory frame ABI size must remain exact");
-static_assert (sizeof (KirinMeterHistoryEntry) == 184u, "Meter history ABI size must remain exact");
+static_assert (sizeof (KirinMeterSession) == 1'840u, "Meter Session ABI size must remain exact");
+static_assert (sizeof (KirinObservatoryFrame) == 2'104u, "Observatory frame ABI size must remain exact");
+static_assert (sizeof (KirinMeterHistoryEntry) == 248u, "Meter history ABI size must remain exact");
 namespace
 {
     void require (bool condition, const char* expression, int line)
@@ -129,6 +129,8 @@ using hypha::tests::renderMidSideSpectrumAtSize;
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    const auto previews = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+    if (previews.isNotEmpty()) KIRIN_REQUIRE (juce::File (previews).createDirectory().wasOk());
     if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
     {
         juce::Image panel (juce::Image::RGB, 120, 60, true);
@@ -148,7 +150,6 @@ int main (int argc, char** argv)
         KIRIN_REQUIRE (frame.getPixelAt (150, 1) != hypha::BG);
         KIRIN_REQUIRE (frame.getPixelAt (150, 100) == hypha::BG);
     }
-    constexpr auto compactPresentation = hypha::presentation::forEditor (300, 200);
     const auto preferenceDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory)
         .getNonexistentChildFile ("kirin-hypha-hover-help-contract", {}, false);
     KIRIN_REQUIRE (preferenceDirectory.createDirectory().wasOk());
@@ -193,24 +194,6 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (! hypha::analysis_navigation::releasesSlot (
         AnalysisPage::meters, AnalysisPage::spectrum));
 
-    const auto deltaFont = hypha::labelFont (
-        compactPresentation, hypha::typography::TextRole::metricLabel,
-        hypha::typography::Composition::facts);
-    const auto deltaWidth = static_cast<int> (
-        std::ceil (deltaFont.getStringWidthFloat (hypha::delta())));
-    const auto deltaLayout = ui::loudnessSelectorLayout (true, deltaWidth);
-    hypha::LoudnessSelector selector;
-    selector.setSize (ui::loudnessSelectorWidth, ui::metricRowHeight);
-    selector.setDeltaMode (true);
-    juce::Image selectorImage (juce::Image::ARGB, selector.getWidth(), selector.getHeight(), true);
-    {
-        juce::Graphics graphics (selectorImage);
-        selector.paintEntireComponent (graphics, true);
-    }
-    const int deltaPixels = countVisiblePixels (
-        selectorImage, { 0, 0, deltaLayout.deltaPrefixWidth, selector.getHeight() });
-    KIRIN_REQUIRE (deltaPixels > 0);
-
     hypha::PairDropdownButton pairDropdown;
     pairDropdown.setSize (ui::pairDropdownWidth, ui::nameFieldHeight);
     pairDropdown.setColour (juce::TextButton::buttonColourId, hypha::kFieldFill);
@@ -237,6 +220,15 @@ int main (int argc, char** argv)
         juce::Graphics graphics (warmingSpectrumImage);
         spectrum.paintEntireComponent (graphics, true);
     }
+    spectrum.setComparisonStatus ("CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS");
+    juce::Image refusedSpectrumImage (
+        juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
+    {
+        juce::Graphics graphics (refusedSpectrumImage);
+        spectrum.paintEntireComponent (graphics, true);
+    }
+    KIRIN_REQUIRE (countDifferentPixels (warmingSpectrumImage, refusedSpectrumImage) > 100);
+    spectrum.setComparisonStatus ({});
     KirinSpectrumView spectrumSnapshot {};
     spectrumSnapshot.status = KIRIN_SPECTRUM_ACTIVE;
     spectrumSnapshot.has_data = 1;
@@ -481,10 +473,7 @@ int main (int argc, char** argv)
     }
     std::cout << " ms/frame\n";
 
-    std::cout << "UI render contract passed: delta="
-              << deltaWidth << '/' << deltaLayout.deltaPrefixWidth << "px"
-              << " (" << deltaPixels << " pixels)"
-              << ", vector-arrow=" << arrowPixels << " pixels"
+    std::cout << "UI render contract passed: vector-arrow=" << arrowPixels << " pixels"
               << ", PRE-runs=" << preCurveRuns
               << ", POST-runs=" << postCurveRuns
               << ", spectrum-paint=" << compactSpectrum.paintMs

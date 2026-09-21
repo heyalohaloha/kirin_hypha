@@ -11,11 +11,7 @@
 
     #[test]
     fn juce_offline_lifecycle_does_not_stop_record() {
-        let prepare = between(
-            PLUGIN_PROCESSOR_CPP,
-            "void KirinHyphaProcessorBase::prepareToPlay",
-            "void KirinHyphaProcessorBase::releaseResources()",
-        );
+        let prepare = cpp_body(PLUGIN_PROCESSOR_CPP, "void KirinHyphaProcessorBase::prepareToPlay");
         assert!(
             !prepare.contains("maybeAutoStopOnOfflineEnd")
                 && !prepare.contains("offlineAutoStop")
@@ -47,7 +43,7 @@
         );
         assert!(
             PLUGIN_EDITOR_CPP
-                .contains("postControls->onStop = [this] { processorRef.stopPair(); };"),
+                .contains("observatoryView.onStop = [this] { processorRef.stopPair(); };"),
             "manual POST Stop must remain the UI path into stopPair"
         );
         assert!(PLUGIN_EDITOR_CPP.contains("else if (result == 5)\n        processorRef.stopPair();"));
@@ -90,7 +86,7 @@
             body.contains("recordStartWindowLatched")
                 && body.contains("recordStartCandidateWindow")
                 && body.contains("renderedRecordWindow")
-                && body.contains("const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer"),
+                && body.contains("(recording ? renderedRecordWindow : captureBuffer)"),
             "JUCE Record must not push or render idle pre-start windows before the first valid Record window"
         );
         assert!(
@@ -167,11 +163,7 @@
             "JUCE shell should absorb large offline-render blocks before falling back to oversized_drop"
         );
 
-        let prepare = between(
-            PLUGIN_PROCESSOR_CPP,
-            "void KirinHyphaProcessorBase::prepareToPlay",
-            "void KirinHyphaProcessorBase::releaseResources()",
-        );
+        let prepare = cpp_body(PLUGIN_PROCESSOR_CPP, "void KirinHyphaProcessorBase::prepareToPlay");
         assert!(
             prepare.contains("interleaveScratch.assign")
                 && prepare.contains("kOversizeHeadroomFrames")
@@ -235,84 +227,38 @@
         assert!(body.contains(
             "resolveSignalStateCode (bypassed, measurementTimelineActive,\n                                                      stateSilent, recording, nonRealtimeMode)"
         ));
+        // B-961: while a format change is held the engine is built for the old format, so audio
+        // passes through (R-12) but is not fed to a meter that would mislabel it.
         assert!(body.contains(
-            "const bool pushBuffer = recording ? renderedRecordWindow : captureBuffer;"
+            "const bool pushBuffer = ! formatHeld && (recording ? renderedRecordWindow : captureBuffer);"
         ));
     }
 
     #[test]
-    fn juce_post_record_display_keeps_six_metrics_before_signal_fallback() {
+    fn juce_record_result_is_presented_by_the_observatory_and_capture() {
         let start = PLUGIN_EDITOR_CPP
             .find("void KirinHyphaEditor::updatePost()")
             .expect("updatePost");
         let body = &PLUGIN_EDITOR_CPP[start..];
-        let record_branch = body.find("if (displayRecord)").expect("record branch");
-        let signal_branch = body
-            .find("else if (sig != KIRIN_SIGNAL_STATE_ACTIVE)")
-            .expect("signal fallback");
-
-        assert!(
-            record_branch < signal_branch,
-            "POST Record must keep its six fixed cells visible through finalize and result hold"
-        );
-        assert!(
-            body.contains("cachedRecordDisplay.has_delta != 0")
-                && body.contains("d = cachedRecordDisplay.delta")
-                && body.contains("display::recordPairContext (")
-                && body.contains("cachedRecordDisplay.pair_matches_current != 0")
-                && body.contains("display::recordMetricMode (recordPairSelected, haveD, d.mode)"),
-            "POST Record must bind its held delta and final I to one display generation and PRE"
-        );
-        assert!(
-            body.contains("summary.max_true_peak")
-                && body.contains("summary.lufs_i")
-                && body.contains("recordPhase == KIRIN_RECORD_DISPLAY_LIVE"),
-            "POST Record must show absolute Max TP/I and bypass the timed Watch hold after finalize"
-        );
-        assert!(HYPHA_DISPLAY_CONTRACT_H.contains("pairedPreIsExplicitlyBypassed"));
+        assert!(body.contains("const auto recordPhase = refreshRecordPhase();"));
+        assert!(PLUGIN_EDITOR_CPP.contains("observatoryView.setRecordDisplay ("));
+        assert!(HYPHA_OBSERVATORY_METRICS_CPP.contains("void View::paintRecordDisplay"));
+        assert!(HYPHA_OBSERVATORY_METRICS_CPP.contains("RECORD RESULT"));
+        assert!(HYPHA_OBSERVATORY_METRICS_CPP.contains("recordDisplay.pair_matches_current"));
+        assert!(HYPHA_OBSERVATORY_METRICS_CPP.contains("session.max_true_peak"));
+        assert!(HYPHA_OBSERVATORY_METRICS_CPP.contains("session.lufs_i"));
+        assert!(HYPHA_OBSERVATORY_CAPTURE_CPP.contains("frame.recordDisplay = recordDisplay;"));
     }
 
     #[test]
-    fn juce_post_watch_keeps_delta_grid_for_paired_stale_delta() {
-        let start = PLUGIN_EDITOR_CPP
-            .find("void KirinHyphaEditor::updatePost()")
-            .expect("updatePost");
-        let body = &PLUGIN_EDITOR_CPP[start..];
-        let watch_branch = body.find("else // Active + Watch").expect("watch branch");
-        let window = &body[watch_branch..body.len().min(watch_branch + 3600)];
-
-        assert!(
-            window.contains(
-                "display::watchMetricMode (pairSelected, effectiveHaveD, effectiveMode)"
-            )
-                && window.contains("configureForKind (Kind::WatchDelta6)")
-                && window.contains("display::deltaIsActive (d.mode)"),
-            "JUCE POST Watch must keep the Delta+MAX grid while an explicit pair is selected"
-        );
-        assert!(
-            window.contains("else if (! preUnavailable && pairSelected)")
-                && window.contains("displaySmoother.heldDeltaDisplay (held, t)")
-                && window.contains("const juce::Colour base = liveDelta ? COL_NORMAL : COL_MUTED;"),
-            "JUCE POST Watch must use held/muted delta values for transient stale PRE reads"
-        );
-        assert!(
-            PLUGIN_EDITOR_CPP.contains(
-                "if (pairSelected)\n        {\n            if (currentKind != Kind::WatchDelta6)"
-            ) && PLUGIN_EDITOR_CPP.contains("const bool unavailable = ! haveHeldD;"),
-            "JUCE POST Watch must keep the paired delta grid even when PRE measurements are unavailable"
-        );
-        assert_eq!(
-            count_occurrences (HYPHA_DISPLAY_CONTRACT_H,
-                               "pairedPreIsExplicitlyBypassed (pairSelected, haveDelta, mode)"),
-            2,
-            "Watch and Record must treat explicit PRE bypass identically"
-        );
-        assert!(
-            window.contains("selectedMeasure (watchMaximum)")
-                && window.contains("watchMaximum.true_peak")
-                && window.contains("watchMaximum.crest"),
-            "JUCE POST Watch must expose selected M/S, TP, and Crest absolute MAX values in both paired and unpaired layouts"
-        );
+    fn juce_watch_and_delta_have_one_observatory_path() {
+        assert!(PLUGIN_EDITOR_CPP.contains("processorRef.pollWatchDisplay (watch)"));
+        assert!(PLUGIN_EDITOR_CPP.contains("observatoryWatchDisplay = watch;"));
+        assert!(PLUGIN_EDITOR_CPP.contains("observatoryView.setWatchDisplay ("));
+        assert!(PLUGIN_EDITOR_CPP.contains("observatoryView.setObservatoryFrame (frame, frameAvailable)"));
+        for retired in ["pollDelta", "DisplaySmoother", "fillDelta", "configureForKind"] {
+            assert!(!PLUGIN_EDITOR_CPP.contains(retired), "retired hidden path: {retired}");
+        }
     }
 
     #[test]
@@ -323,7 +269,8 @@
         let body = &PLUGIN_EDITOR_CPP[start..];
 
         assert!(
-            body.contains("deriveLedState (alive, sig, rec && armed, ack, preset)")
+            body.contains("deriveLedState (")
+                && body.contains("alive, signal, recording && armed, acknowledged, preset)")
                 && !body.contains("watchHeldNormal"),
             "retained history must never relight the inactive live signal LED"
         );

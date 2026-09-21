@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn repeated_endpoint_expires_until_a_new_frame_arrives() {
-        let runtime = SpectrumRuntime::new(48_000, 2);
+        let runtime = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
         let coordinator = SpectrumCoordinator::new(48_000, Arc::clone(&runtime));
         let now = Instant::now();
         let first = frame(4_800);

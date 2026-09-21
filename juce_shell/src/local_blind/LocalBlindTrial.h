@@ -81,6 +81,16 @@ struct TrialView
     TrialFailure failure = TrialFailure::none;
 };
 
+// Non-RT lifecycle facts only. This never reveals the hidden assignment.
+struct TrialReturnFacts
+{
+    std::uint64_t scope = 0, capture = 0, command = 0;
+    bool confirmed = false, attenuationApplied = false;
+    bool requested() const noexcept { return scope != 0 && capture != 0 && command != 0; }
+    bool sameRequest (const TrialReturnFacts& b) const noexcept
+    { return requested() && scope == b.scope && capture == b.capture && command == b.command; }
+};
+
 class LocalBlindTrial final
 {
 public:
@@ -103,6 +113,7 @@ public:
     void requestNormalReturn() noexcept;
     TrialView view() const noexcept;
     bool normalReturnConfirmed() const noexcept;
+    TrialReturnFacts returnFacts() const noexcept;
     std::size_t pcmBytes() const noexcept;
 
     // Single producer, bounded callback. No allocation, lock, I/O, modulo, or PCM destruction.

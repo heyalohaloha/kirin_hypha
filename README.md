@@ -56,10 +56,35 @@ warning colour, score, or recommendation.
 LIVE overlays POST **LUFS-M**, **recent True Peak**, and **Sharpness** on one six-second time axis.
 Each metric keeps an independent fixed scale, and the current values update at a readable rate.
 
-### SPACE — stereo distribution without a verdict
+### SPACE — stereo distribution, and what the mono sum keeps
 
 SPACE shows three-second MID/SIDE density, L/R balance, and correlation. It stays absolute because
 Hypha does not invent PRE/POST subtraction for correlation or the stereo field.
+
+At the largest editor it also shows **MONO**: how much of each third-octave band survives being
+summed to mono. One correlation figure is one number for the whole signal, and a stereo problem is
+never spread evenly across the spectrum — it is a bass note, or a band an M/S move widened, or a
+pair of channels that ended up out of phase somewhere. MONO says which band, and by how much.
+
+Mid and Side are built in the time domain before the transform, so a phase cancellation is already
+in the magnitude and the figure is what the band actually loses, not a width estimate.
+
+Identical channels read 0 dB and a hard-panned source exactly -3.01 dB, and those two are the ends
+of one range: while a band's channels share polarity, its reading cannot fall below -3.01 dB,
+however wide the band is. A reading past -3.01 dB means the channels are partly opposed there, and
+a band that cancels outright falls to the floor. The scale is split on that: the top half carries
+0..-6 dB, which is every same-polarity reading and the margin around it, and the bottom half
+-6..-24 dB, which is cancellation. A band with nothing to measure breaks the line rather than being
+drawn at 0 dB, which is the one reading that means the band loses nothing. Below the frequency where one observation holds fewer than three
+cycles, a divider and a tilde say so without hiding the values.
+
+Under the curve, six seconds of the same bands run bottom to top: the newest observation along the
+bottom edge, rising as it ages. A cancellation that came and went is visible after it has gone.
+Those six seconds live in the editor, so closing it loses them; per-band history is not written to
+the TIME history or to Record.
+
+MONO is measured on both PRE and POST, so the two can be compared by switching between the
+plug-ins. It adds no analyzer, consumes no analysis slot, and runs whether or not SPACE is open.
 
 Two POST optional analyzers may stay active: one can remain on the 2MIX while the other follows the
 working track. A third identifies the owners and waits until one returns to **LEVEL**, **TIME /
@@ -79,6 +104,21 @@ It produces measurement data. During normal measurement, it does not generate, m
 or delay audio: the same input produces the same output, every time. An explicit comparison audition
 is a separate output-only path; it never rewrites the input, the captured PRE/POST measurements, or
 Record data. Numbers are reported as captured — no interpretation, no scoring, no recommendation.
+
+One display filter exists in the shipping JUCE surface. It affects what is drawn, never what is
+measured, stored, or read back.
+
+- **Live FREQ curves.** The absolute PRE / POST / MID / SIDE spectra rise on the next drawing tick
+  and fall at 20 dB per 500 ms. The signed Δ curve follows its target symmetrically over 150 ms, so
+  neither sign is favoured.
+
+Watch consumes the producer-owned `KirinWatchDisplay` snapshot directly. SPACE's MONO curve and its
+six-second field likewise draw observations as measured.
+
+Everything else is the measurement itself: the playback-pass and Keep maximums, LUFS-S, the FREQ
+numeric readout, the six-second field, MARK, Focus Trail, peak hold, Meter Session statistics, TIME
+history, the SHARP and LIVE timelines, Record, Keep, and `plugin_data`. A value read back later is therefore the measured
+one, and FREQ's live curve can differ from its unsmoothed numeric readout while it is moving.
 
 Every metric is backed by a known-signal golden test: the expected values are derived independently from the signal definition and the ITU-R BS.1770 filter coefficients, not asserted by hand. The measurement layer demonstrates its precision rather than claiming it.
 
@@ -115,9 +155,9 @@ is explicitly bypassed, POST returns to its own absolute values without releasin
 upper-right state changes from blue **PAIR** to lavender **ABS** until PRE is enabled again. A stop,
 silence, stale read, or temporary absence never claims that PRE was bypassed. The M/S choice
 also selects the independent MAX value for the current Watch playback pass.
-In the Watch grid, the live 400 ms True Peak and its playback-pass MAX are shown side by side.
-Pressing **Keep** changes the grid labels; **Max TP** then means the maximum for the whole Keep
-session, including across transport stops.
+In LEVEL, the live 400 ms True Peak and its playback-pass MAX are distinct facts. Pressing **Keep**
+changes the presented result context; **Max TP** then means the maximum for the whole Keep session,
+including across transport stops. Watch, every MAX, and everything Keep and Record write are raw.
 
 ### FREQ: Spectrum (on demand)
 
@@ -142,6 +182,17 @@ waveform. **SIDE** analyzes `(L−R)/2` and is available only for stereo input; 
 SIDE result. Switching LR / MID / SIDE clears the old frame and waits for an exact PRE/POST match in
 the newly selected mode. Record-mode N and Sharpness use their own independent-channel definition,
 described below, so they can differ from MID or SIDE Spectrum on wide or phase-opposed material.
+
+When POST has no verified PRE, Spectrum shows POST on its own: the current curve, a rolling peak
+hold, and the **six-second field** behind them. The field is a second axis inside the same
+rectangle — vertical is time, not level. The newest observation is drawn along the bottom edge and
+rises as it ages, leaving the top edge six seconds later, so a resonance that appeared, a sweep, or
+a level move traces a visible shape. Each of its 180 rows is one thirtieth of a second and shows
+the observation nearest that instant, at the full band resolution; density follows the measured
+level, so a loud band is far denser than a quiet one. Nothing is averaged, blended, or invented
+between observations. A row stays empty when the nearest observation is further away than the
+cadence the host is actually publishing at, so the field is continuous at any buffer size while a
+break in the measurement stays a break in the field.
 
 In the POST target, **M/S** is a fourth display choice beside LR / MID / SIDE. It overlays solid
 cyan Mid and violet Side curves calculated from the same aperture, with a shared
@@ -392,17 +443,65 @@ its exact instance identity. POST never accepts a typed pair name or retargets a
 
 Multiple PRE / POST pairs can run simultaneously (up to 12 active pairs per project).
 
+## Reference from Kirin OS
+
+Kirin OS automatically publishes its saved Reference library to POST. No Work connection,
+INSPECT screen, receiver choice, or connect button is required. Each POST chooses its preset,
+check, and source independently. A small OS indicator reports the connection; received settings
+remain visible when media is unavailable. Hypha does not substitute its own Factory library.
+
+A is the live DAW input. B selects a registered Version; C selects a Check from its own preset.
+Each has a button, and B/C have independent dropdowns. Choices and ordinary A/B/C audition remain
+available at every size. Blind opens at 300% (900×600).
+For Version comparison, play the DAW input to establish the same song and position against B's
+verified Kirin OS measurement. The short observation calibrates a fixed position map and gain;
+playback then follows the song beyond that observation, with A remaining live. Ambiguous repeated
+passages wait for distinguishing content. Ordinary B preserves A at 0 dB; if full matching exceeds
+the allowed peak ceiling, B remains available at its original level and Blind requires explicit
+approval before lowering A. The approved gain stays fixed through switches, seeks and pauses.
+Receiving or restoring settings never starts B. Explicit audition still verifies the immutable
+source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
+single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
+
+The Version view shows A above B on a shared song timeline, with peak outside and RMS inside.
+Only observed A regions are drawn; older passes are dimmed. Select a region for the shared
+LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play position.
+These controls change the view only. They do not seek the DAW or switch audio. The source-qualified
+view choice survives editor/session restoration, while live A observations are never restored as
+current audio. Blind hides these graphs and their accessibility content.
+
+**CAPTURE A** retains the original POST input's measured overview independently of B or a
+Kirin OS connection. Arm it, play the DAW from the desired start, then stop the DAW or use
+**FINISH A**. **CAPTURED / LIVE** changes the display; audio A always remains live at 0 dB.
+Capture continues without an editor. Its bounded summary is saved in the DAW session, and
+restores as historical data without starting capture, calibration, or audition.
+
+The captured range includes peak/RMS, 3-second loudness endpoints, Crest, and continuous-range
+integrated loudness/maximum true peak. A seek, missing clock/input, format change, or queue gap
+closes a partial pass; a failed retry preserves the previous successful capture. The two-hour
+limit also closes as partial, never as proof of a complete song. Revisited input changes are
+marked without rewriting the capture; unvisited regions are never certified as current.
+B comparisons require the captured pass's same-Work evidence and a separately verified live
+map. A restored capture must be revalidated before using that map. B loss leaves A available.
+Capture uses the existing two Analysis slots, shares its slot with ordinary audition, and
+excludes both kinds of Blind until the relevant capture or audible return has completed.
+
 ## Local PRE/POST Blind Compare
 
 Local Blind Compare auditions immutable copies of one exact four-second PRE/POST range. It is a
 preference listening trial, not a score or proof that either side is better, and it does not require
 Kirin OS.
 
-1. In POST, select the exact PRE pair and set **Meter Context** to **2MIX** or **TRACK/STEM** before
-   capture. This selection fixes the Gain Match policy for that trial.
-2. Open **PRE / POST Blind Compare** from POST's menu. The preflight shows the current context and
-   its Gain Match evidence before any capture begins. Change it if needed, keep the DAW playing,
-   then press **CAPTURE 4 S**. Wait for both sides of the exact range to finish preparation.
+The AAX entry is enabled by user direction for current-candidate validation. Its
+Pro Tools clock/PDC acceptance remains pending; exact capture and runtime checks
+are enforced on every format.
+
+1. In POST, select the exact PRE pair and open **PRE / POST Blind Compare** from POST's menu.
+2. Keep the DAW playing, then press **CAPTURE 4 S**. The small **2MIX / TRACK / STEM** selector
+   starts from the normal meter setting; change it only if needed for this comparison. Capture
+   freezes that Gain Match policy without changing the normal meter context or WIDE / FOCUS.
+   Wait for both sides of the exact range to finish preparation. If Gain Match is unavailable,
+   follow the section guidance and use **CAPTURE AGAIN** in the same screen.
 3. Start the prepared comparison, then play the DAW from before the displayed range. Hypha auditions
    only the captured samples, even when a processing block crosses either end of the range.
    After the first pass completes, select the other **Source** and play from before the same range
@@ -419,7 +518,8 @@ measurement and Record remain unchanged. Closing the editor ends the audition. R
 the explicit return screen without automatically resuming playback.
 
 The normal header's Meter Context control opens a descriptive choice rather than switching on one
-click. **2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
+click. Blind inherits it when opened and keeps any override within that comparison.
+**2MIX** identifies a mix or master bus and uses continuous active sections for Gain Match.
 **TRACK/STEM** identifies an individual track or group bus and uses short or sparse event energy.
 Hypha never infers or changes this choice from channel count, names, routing, or signal level.
 
@@ -430,10 +530,10 @@ Downstream processors still receive the selected copy and may react to it. Sends
 that branch before POST are not switched, so this is specifically a comparison between the chosen
 PRE and POST insertion points—not a claim about every route in the project.
 
-The current local trial length is four seconds. For long-form or whole-song comparison of finished
-versions, render and register immutable versions in Kirin OS and use the normal Reference audition
-with an appropriate Cue. The current Reference Blind flow is also based on a four-second live-A
-capture; registering a WAV does not turn it into a whole-song blind trial.
+The local PRE/POST trial length is four seconds. Reference Version Blind is a separate whole-song
+comparison between live DAW A and a measured, acoustically matched Version B from Kirin OS.
+Its four-second A observation proves calibration only; it neither replaces live A nor claims
+whole-song loudness or an immutable whole-song identity for the current DAW input.
 
 ## Watch mode
 

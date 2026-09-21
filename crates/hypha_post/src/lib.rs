@@ -1,4 +1,5 @@
 mod editor;
+mod vst3_identity;
 
 use kirin_measure::{
     add_watch_ring_cursor_samples, daw_session_id, delete_broadcast, delete_stop_broadcast,
@@ -666,7 +667,7 @@ impl Plugin for HyphaPost {
         let measure_handle = spawn_measure_thread(
             consumer,
             buffer_config.sample_rate as u32,
-            N_CHANNELS,
+            kirin_measure::channel_layout::ChannelLayout::stereo(),
             Arc::clone(&self.measure_result),
             None,
             None,
@@ -836,6 +837,7 @@ impl Plugin for HyphaPost {
             Arc::clone(&instance_id_arc),
             Arc::clone(&project_hash_arc),
             sample_rate,
+            kirin_measure::channel_layout::ChannelLayout::stereo(),
             Arc::clone(&self.record_sm),
             Arc::clone(&self.measure_result),
             Arc::clone(&self.delta_result),
@@ -920,6 +922,7 @@ impl Plugin for HyphaPost {
                     Arc::clone(&instance_id_arc),
                     Arc::clone(&project_hash_arc),
                     sample_rate,
+                    kirin_measure::channel_layout::ChannelLayout::stereo(),
                     Arc::clone(&record_sm),
                     Arc::clone(&measure_result),
                     Arc::clone(&delta_result),
@@ -957,7 +960,7 @@ impl Plugin for HyphaPost {
 
         self.watchdog_handle = Some(spawn_watchdog(WatchdogParams {
             sample_rate: buffer_config.sample_rate as u32,
-            n_channels: N_CHANNELS,
+            layout: kirin_measure::channel_layout::ChannelLayout::stereo(),
             ring_capacity: capacity,
             measure_result: Arc::clone(&self.measure_result),
             meter_session: None,
@@ -1235,12 +1238,6 @@ impl Plugin for HyphaPost {
 
         ProcessStatus::Normal
     }
-}
-
-impl Vst3Plugin for HyphaPost {
-    const VST3_CLASS_ID: [u8; 16] = *b"KirinHyphaPOSTv1";
-    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Fx, Vst3SubCategory::Analyzer];
 }
 
 /// B-107: 無音床のピーク線形しきい値 = -140 dBFS = 10^(-140/20) = 1e-7。

@@ -68,7 +68,7 @@ Windows 対応は、macOS/AU/VST3 の境界不具合を整理し、再発防止�
 
 5. Shell parity
    - nih-plug VST3 と JUCE AU で同じ状態を表示すること。
-   - `PostControls::update` と egui の button visibility が一致すること。
+   - ObservatoryのKeep／Stop状態とprototype editorの button visibility が一致すること。
    - FFI C ABI の enum / buffer / string truncate / null pointer safety。
 
 6. Windows readiness
@@ -123,7 +123,7 @@ Windows 対応は、macOS/AU/VST3 の境界不具合を整理し、再発防止�
 
 実施内容:
 - egui と JUCE が読む候補数、Keep可否、ボタン表示条件を Rust/FFI 側の共通 API に寄せる。
-- `PostControls::update(recording, license, pairNonEmpty)` のような C++ 側判断を、Rust側状態と比較できるテストにする。
+- ObservatoryのKeep／Stop判断を、Rust側状態と比較できるテストにする（旧`PostControls`はB-982で削除済み）。
 - FFI parity ignored suite を、変更ファイルに応じた必須ゲートとして明文化する。
 
 必須ゲート:

@@ -68,7 +68,11 @@ ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep teal�
 
 全面発光、全面texture、装飾目的の自律motionは使用しない。
 
-新しい背景は左上、右上、下端だけに有機鉱物構造を置き、中央を計測panel用の負空間として残す。
+新しい背景は右上に主形象を置き、下端には画面を支える低い有機鉱物構造だけを残す。
+
+左上と中央は計測panel用の負空間とし、下端の構造は画面高の12%以内、中央60%はほぼ暗部に保つ。
+
+LEVELは全面背景の上へ別の不透明画像を重ねない。
 
 指定されたHypha素材`bg_mycelium.png`はTIMEとATTACKの下層へ固定表示し、時間が堆積する菌糸床として扱う。
 
@@ -181,7 +185,9 @@ Record面の低明度菌糸はmeter face下端と外周だけに置き、目盛�
 
 600×400はConcept Cに合わせてM、S、Iを三つの主面とし、TP、MAX TP、LRA、PLR、Crestを五つの補助面へ置く。
 
-主面は横長の専用Hypha素材で一つに括るが、菌糸装飾は左右端だけに留め、中央の数値面を暗く静かに保つ。
+主面は全面背景の暗部とnativeの面差で一つに括り、別の不透明なHypha素材を重ねない。
+
+中央の数値面は暗く静かに保つ。
 
 LEVEL下段は60秒Historyを既定とし、Spectrumは重複搭載せずFREQを正規入口にする。
 
@@ -290,7 +296,9 @@ LEVELのObservation Plateでは、通常画面を縦横へ引き伸ばさず、�
 
 `observatory_understory.png`はbuilt-in image generationで新規生成した。
 
-出力は1536×1024、RGB、alphaなし、1,474,029 bytesである。
+2026-09-15に下部の主張を抑えたv8へ差し替えた。
+
+現在の出力は1536×1024、RGB、alphaなし、1,351,618 bytesである。
 
 参照画像はHypha内のConcept CとATTACK emissionだけである。
 
@@ -304,7 +312,7 @@ Kirin SenseのJungle素材は今回の実装へコピーしていない。
 
 最初の二出力はalphaがなく、透明checkerboardを焼き込んでいたため不採用とした。
 
-採用素材の生成promptは次のとおりである。
+初回素材の生成promptは次のとおりである。
 
 ```text
 Use case: stylized-concept
@@ -320,6 +328,12 @@ Color palette: #0D0F1A graphite, muted bronze/amber, deep teal, sparse ice-cyan
 Materials/textures: translucent mycelial veins and dark mineral shell
 Constraints: fully opaque image; no checkerboard; no white or light background; no UI panels; no values; no text; no letters; no icons; no logos; no watermark; no bright bloom; no full-screen texture
 Avoid: generic vines, steampunk ornament, Celtic filigree, floral wallpaper, fantasy magic, lush leaves, mushrooms, animals, eyes, landscape depth, green wash, decorative symmetry
+```
+
+v8への差し替えに使った編集promptは次のとおりである。
+
+```text
+Keep the approved upper-right spiral organism exactly as it is. Reduce the lower foreground substantially so it supports the interface instead of competing with it. In the lower-left, reduce the organic form to roughly 45 percent of its current height and 55 percent of its current area, keep it within the lowest 12 percent of the canvas, and reduce the amber light by about 60 percent. In the lower-right, remove the mushroom-like mound and leave only a very low dark substrate with one tiny subdued cyan gland near the edge. Keep the bottom center almost empty and near-black. Preserve irregular biological material and avoid repeated mesh, scales, regular cells, decorative bands, or wallpaper-like patterns. Do not change the graphite background, upper-right composition, palette, aspect ratio, or overall rendering style. No UI, text, letters, icons, logos, watermark, borders, or panels.
 ```
 
 ## 11. 検証項目

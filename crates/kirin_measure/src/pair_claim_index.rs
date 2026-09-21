@@ -20,6 +20,9 @@ const PAIR_CLAIM_SUBDIR: &str = "pair_target";
 #[path = "pair_claim_transaction.rs"]
 mod pair_claim_transaction;
 pub use pair_claim_transaction::publish_pair_claim;
+#[path = "pair_claim_preview.rs"]
+mod pair_claim_preview;
+pub(crate) use pair_claim_preview::preview_owner;
 use pair_claim_transaction::ClaimLock;
 pub(crate) use pair_claim_transaction::{prepare_pair_claim, PreparedPairClaim};
 

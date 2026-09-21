@@ -28,9 +28,10 @@ matrix provides contrary evidence.
 The old B-786 artifact exposed four components per role: stereo/mono Native and stereo/mono
 AudioSuite. AudioSuite is not a meaningful surface for a realtime meter and was not part of the
 Offline Bounce proof. Current source disables AudioSuite registration while retaining Native mono,
-stereo, and multi-mono support. The local PRE/POST Blind product entry also remains disabled on AAX
-until exact-range AAX project-clock and PDC behavior has its own proof; ordinary metering and pairing
-remain available.
+stereo, and multi-mono support. On 2026-09-13 the user explicitly requested enabling
+the local PRE/POST Blind entry on AAX. The format gate now permits it; exact capture,
+clock/PDC continuity and shared admission remain mandatory at runtime. AAX host/PDC
+acceptance remains unverified and is still required for release.
 
 This host evidence belongs to B-786, not to later same-version source. A current candidate must be
 built, signed, installed, and retested from its exact commit before release.
@@ -92,11 +93,14 @@ scripts/build_aax_universal.sh \
 ```
 
 The release command performs three separate gates in order: exact PACE + Developer ID signing,
-Apple notary submission, and a receipt bound to the current PRE/POST binary hashes and
-Apple CDHashes. `notarytool submit --wait` and a subsequent `notarytool info` must both report
-`Accepted`. The accepted submission ID is written to
-`build-aax-universal/kirin-hypha-macos-aax-notarization.json`. A valid signature alone is not a
-notarization result and cannot satisfy the packaging gate.
+an immutable Apple submission archive, and a receipt bound to that archive's complete content
+manifest. `notarytool submit --wait` and a subsequent `notarytool info` must both report
+`Accepted`; `notarytool log` must identify the same job and archive filename. The hash-addressed
+archive, full path/type/mode/file-hash/symlink manifest, and Apple log are preserved under
+`build-aax-universal/aax-notarization/<archive-sha256>/`. Their identities and the accepted
+submission ID are written to `build-aax-universal/kirin-hypha-macos-aax-notarization.json`.
+A v1 receipt or a valid signature alone is diagnostic evidence and cannot satisfy the packaging
+gate.
 
 This builds the Rust FFI for both Apple architectures, creates one Universal static library, and
 builds only the PRE/POST AAX targets under `build-aax-universal/`. Omitting the Kimera options is
@@ -142,12 +146,17 @@ all of these checks pass:
 - `x86_64 arm64` executable;
 - exact Developer ID Application authority/team, secure timestamp, and Apple CDHash;
 - exact PACE signer `Kirin Mastering` and PublisherId `0x488b4292`;
-- an `Accepted` Apple notarization receipt bound to the current commit and PRE/POST hashes;
-- a fresh online `notarytool info` confirmation of the recorded submission during packaging;
+- an `Accepted` Apple notarization receipt bound to the current commit, immutable submitted
+  archive, full content manifest, Apple log, and PRE/POST bundle manifests;
+- fresh online `notarytool info` and `notarytool log` confirmation of the recorded submission
+  during packaging;
 - an exact copy of that receipt in the HP zip under `AAX/`, preserving the submission ID and
   PRE/POST hash binding with the distributed artifact;
 - PACE compatibility signature symlink exists, resolves inside the bundle, and survives copying;
-- the staged copy and the copy extracted back from the final pkg or zip still match the source.
+- packager input materialized from the verified submission archive, never reread from the mutable
+  build directory;
+- the staged copy and the copy extracted back from the final pkg or zip still match that verified
+  archive, including resources, modes, and symlink targets.
 
 Every AAX directory copy and zip operation uses `ditto`. AAX package creation additionally expands
 the finished pkg and verifies the expanded payload before it can be reported as built.

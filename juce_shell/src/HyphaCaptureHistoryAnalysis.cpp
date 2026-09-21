@@ -14,7 +14,9 @@ namespace
 bool sameRun (const KirinMeterHistoryEntry& first,
               const KirinMeterHistoryEntry& second) noexcept
 {
-    return first.generation == second.generation && first.run_id == second.run_id;
+    // The span first: generation and run_id both restart at 1 for a new engine (D-12).
+    return first.measurement_epoch == second.measurement_epoch
+        && first.generation == second.generation && first.run_id == second.run_id;
 }
 
 double secondsBeforeEnd (const std::vector<KirinMeterHistoryEntry>& history,

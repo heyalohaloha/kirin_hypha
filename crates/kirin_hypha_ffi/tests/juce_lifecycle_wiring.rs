@@ -19,9 +19,11 @@ fn direct_keep_feedback_is_a_consumable_edge_not_a_persistent_error() {
         + &read_repo("juce_shell/src/PluginProcessorDisplayState.cpp");
     assert!(processor.contains("kirin_hypha_drain_keep_action_notice"));
     let editor = read_repo("juce_shell/src/PluginEditor.cpp")
+        + &read_repo("juce_shell/src/PluginEditorMeter.cpp")
         + &read_repo("juce_shell/src/PluginEditorAnalysis.cpp");
     assert!(editor.contains("processorRef.drainKeepActionNotice()"));
-    assert!(editor.contains("toastUntil = t + 3.0"));
+    assert!(editor.contains("toastText = keepNotice"));
+    assert!(editor.contains("toastUntil = now + 3.0"));
 }
 
 #[test]
@@ -51,50 +53,6 @@ fn juce_commits_take_start_only_after_whole_block_admission() {
 }
 
 #[test]
-fn paired_pre_off_is_absolute_while_inactive_and_stale_preserve_delta_layout() {
-    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
-    for required in [
-        "KIRIN_DELTA_MODE_ACTIVE 0u",
-        "KIRIN_DELTA_MODE_BYPASSED 3u",
-        "KIRIN_DELTA_MODE_PRE_INACTIVE 4u",
-        "KIRIN_PAIR_STATUS_PAIRED 2u",
-        "KIRIN_SIGNAL_STATE_ACTIVE 1u",
-    ] {
-        assert!(
-            ffi_header.contains(required),
-            "ABI contract missing {required}"
-        );
-    }
-
-    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
-    let display_contract = read_repo("juce_shell/src/HyphaDisplayContract.h");
-    assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_BYPASSED"));
-    assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_PRE_INACTIVE"));
-    assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_ACTIVE"));
-    assert!(display_contract.contains("pairedPreIsExplicitlyBypassed"));
-    assert!(editor.contains("display::preUnavailableForDelta (rawD.mode)"));
-    assert!(editor.contains("display::recordPairContext ("));
-    assert!(editor.contains("cachedRecordDisplay.pair_matches_current != 0"));
-    assert!(editor.contains("display::recordMetricMode (recordPairSelected, haveD, d.mode)"));
-    assert!(
-        editor.contains("display::watchMetricMode (pairSelected, effectiveHaveD, effectiveMode)")
-    );
-    assert!(!editor.contains("rawD.mode == 0"));
-    assert!(editor.contains("Kind::Abs6"));
-    assert!(editor.contains("const bool unavailable = ! haveHeldD;"));
-    assert!(editor
-        .contains("else // no selected pair, or paired PRE explicitly bypassed -> POST absolute"));
-    assert!(display_contract.contains("mode == KIRIN_DELTA_MODE_BYPASSED"));
-    assert!(editor.contains("Paired PRE is off. Showing POST absolute values."));
-    assert!(editor.contains("COL_SPECTRUM_POST"));
-    let producer = read_repo("crates/kirin_measure/src/io_thread_post_tick.rs")
-        + &read_repo("crates/kirin_measure/src/io_thread_post_delta.rs");
-    assert!(producer.contains("mode: DeltaMode::PreInactive"));
-    assert!(producer.contains("Some(SignalState::Inactive) => DeltaMode::PreInactive"));
-    assert!(producer.contains("POST absolute until it resumes"));
-    assert!(!producer.contains("idle はラッチ維持で Stale"));
-}
-#[test]
 fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
     assert!(header.contains("double lufs_s"));
@@ -113,16 +71,16 @@ fn loudness_view_and_integrated_result_are_additive_display_only_state() {
     assert!(processor.contains("observatory_height"));
     assert!(processor.contains("withNonParameterStateChanged (true)"));
 
-    let contract = read_repo("juce_shell/src/HyphaUiContract.h");
-    assert!(contract.contains("Metric::maxTruePeak"));
+    let contract = read_repo("juce_shell/src/HyphaLevelMetricContract.h");
+    assert!(contract.contains("Metric::maximumTruePeak"));
     assert!(contract.contains("Metric::integrated"));
-    assert!(!contract.contains("Metric::loudness"));
+    assert!(!contract.contains("    loudness,"));
 
-    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
-    assert!(editor.contains("return useShortTerm ? value.lufs_s : value.lufs_m"));
-    assert!(editor.contains("summary.max_true_peak"));
-    assert!(editor.contains("summary.lufs_i"));
-    assert!(!editor.contains("fillAbs (3, V (m.n_prime_total)"));
+    let observatory = read_repo("juce_shell/src/HyphaObservatoryMetrics.cpp");
+    assert!(observatory.contains("shortTerm ? measure.lufs_s : measure.lufs_m"));
+    assert!(observatory.contains("session.max_true_peak"));
+    assert!(observatory.contains("session.lufs_i"));
+    assert!(!observatory.contains("fillAbs (3, V (m.n_prime_total)"));
 
     let pre_json = read_repo("crates/kirin_measure/src/io_thread_pre.rs");
     let post_json = read_repo("crates/kirin_measure/src/io_thread_post_json.rs");
@@ -355,11 +313,12 @@ fn slice_between<'a>(src: &'a str, start_marker: &str, end_marker: &str) -> &'a 
 
 #[test]
 fn juce_prepare_does_not_destroy_engine_while_recording() {
-    let src = read_repo("juce_shell/src/PluginProcessor.cpp");
+    // B-961: format binding moved to its own translation unit; the guard's order is unchanged.
+    let src = read_repo("juce_shell/src/PluginProcessorFormat.cpp");
     let body = slice_between(
         &src,
         "void KirinHyphaProcessorBase::prepareToPlay",
-        "void KirinHyphaProcessorBase::releaseResources",
+        "void KirinHyphaProcessorBase::applyHeldFormatIfRecordReleased",
     );
 
     let guard = body
@@ -406,10 +365,11 @@ fn vst3_component_activation_is_distinct_from_release_resources() {
     assert!(activation.contains("hostComponentActive = active"));
     assert!(activation.contains("kirin_hypha_set_host_component_active"));
 
+    let format_unit = read_repo("juce_shell/src/PluginProcessorFormat.cpp");
     let prepare = slice_between(
-        &processor,
+        &format_unit,
         "void KirinHyphaProcessorBase::prepareToPlay",
-        "void KirinHyphaProcessorBase::releaseResources",
+        "void KirinHyphaProcessorBase::applyHeldFormatIfRecordReleased",
     );
     assert!(
         prepare

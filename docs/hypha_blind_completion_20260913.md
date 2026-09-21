@@ -11,8 +11,8 @@ feature. Preserve explicit PRE selection, 2MIX and TRACK/STEM Gain Match policie
 transparency, zero reported latency, immutable capture, single audition ownership, and the two
 Analysis slots. Reference Blind is a separate product flow.
 
-VST3 and AU have historical Studio Pro capture/PDC evidence. AAX remains disabled until its own
-native-clock and PDC acceptance passes. A build, a synthetic host, or a passing unit test cannot
+VST3 and AU have historical Studio Pro capture/PDC evidence. The AAX entry is enabled
+by explicit user direction on 2026-09-13; its native-clock/PDC host acceptance is pending. A build, a synthetic host, or a passing unit test cannot
 replace that evidence. Public distribution is a separate three-channel release gate.
 
 ## Reproduced completion defects
@@ -46,7 +46,7 @@ normal return. Capture/PDC proof and playback-boundary proof remain separate.
 | Source and range transitions; real-audio Gain Match | Targeted tests pass | Five-millisecond transition is partition-invariant; maximum constant-signal step is 0.00208336 (normal) or 0.00104171 (approved attenuation). S-1 matched gain tolerance is 0.002 dB. Complete processor/editor flow passes for stereo 2MIX and mono TRACK/STEM |
 | macOS VST3 and AU host acceptance | Pending | Current candidate product round trip, stopped/reopened editor and mix synchronization |
 | Windows VST3 host acceptance | Pending | Same candidate and conditions on the validation machine |
-| AAX native clock/PDC | Pending; product disabled | Known 4096-sample delay, exact PRE/POST capture, native hashes and residual zero on each supported host |
+| AAX native clock/PDC | Pending; entry enabled for validation | Known 4096-sample delay, exact PRE/POST capture, native hashes and residual zero on each supported host |
 | Final source gate / Clippy / CI | Rust libraries and Clippy pass; native/CI running | 1,638 library tests pass, nine existing slow tests remain ignored in this command; full Clippy has no owned-source diagnostics. Required PR gates remain authoritative |
 
 ## Host coordination
@@ -58,7 +58,8 @@ audio routes must not be replaced concurrently.
 
 The opt-in PDC validation effect now has a Native-only AAX target when the external licensed SDK is
 enabled. It is a separate diagnostic identity, reports and implements 4096 samples, and is absent
-from normal build/install/release targets. This does not enable the AAX Blind product gate.
+from normal build/install/release targets. It does not establish AAX host/PDC acceptance. The product gate is independently enabled
+by the user direction above.
 
 ## Product flow evidence
 
@@ -87,3 +88,60 @@ complete product harness now omits all position observations while stopped and d
 200 ms between START BLIND and starting the DAW. Both product contexts pass this sequence, and a
 PDC change on resumed playback remains a terminal refusal. CI uses two native compiler jobs to
 accommodate the complete common-processor contract within the existing validation gates.
+
+## AAX entry acceptance — B-870
+
+The user's 2026-09-13 direction enables AAX in the shared format gate used by both
+PRE capture and POST playback. The POST operations menu opens the existing product
+at 300%; it no longer displays a disabled AAX validation item. Unknown formats stay
+unavailable. Exact capture, clock/PDC continuity, frozen gains, two Analysis slots
+and Reference/Blind exclusion retain their existing checks.
+
+The same complete product fixture now runs with AAX wrapper identity, separately
+for stereo 2MIX and mono TRACK/STEM. Both pass, as do both VST3 regressions and the
+five-size UI contract: five selected tests, zero failures. Each product case
+captures 192,000 frames and checks 384,000 audition frames; measured fixed gain
+is -6.021 dB and maximum matched-copy error is 0.0000115335. These are common
+processor/editor tests with a synthetic clock, not Pro Tools host/PDC proof.
+
+The current-candidate Pro Tools checks remain: exact installed source identity,
+normal input/output transparency, native position and known-delay alignment,
+complete Blind return, Reference A/B/C and whole-song mapping, and mutual
+exclusion. Record their observed results independently of these native tests.
+
+## Comparison mode and recovery — B-876 (2026-09-14)
+
+The former `CHANGE CONTEXT` action opened the normal Meter Context menu. Besides
+changing the comparison policy, that path reset WIDE / FOCUS and could leave ATTACK.
+The preflight now gives capture the primary action and shows a small `2MIX` /
+`TRACK / STEM` selector, with the mode explanation in its tooltip and accessibility
+description. It inherits the normal setting on each fresh open; an override applies
+only to the current comparison. Capture freezes the selected policy and hides the
+selector until the attempt fails or ends. Neither Gain Match algorithm changed.
+
+Preparation failures retain their typed reason. Only unavailable Gain Match asks
+for a busier section or short-event mode; internal preparation failures no longer
+blame the material. The failed screen exposes `CAPTURE AGAIN`, enabled only after
+the old comparison scope, retained output and capture owner are released. Selecting
+a different mode does not capture or audition automatically.
+
+Validation on the Intel macOS development machine:
+
+- Native preparation plus all four product cases (VST3/AAX wrapper identity,
+  stereo/mono): **5/5 pass**, 75.87 seconds. The sparse mono cases deliberately fail
+  under inherited 2MIX, select TRACK/STEM and recapture through the actual editor.
+  The normal meter context and FOCUS setting remain unchanged. Stereo cases use
+  an explicit 2MIX override while the normal meter stays TRACK/STEM.
+- Each prepared trial contains 192,000 frames at 48 kHz, fixed gain -6.021 dB,
+  and 384,000 audition frames across both passes. Maximum matched-copy error is
+  0.0000115335; normal PRE/POST output remains bit identical. Both sources,
+  answer/reveal, editor reopen and explicit normal return pass.
+- UI product-entry contract: **pass**, including five Blind sizes, typed failure
+  guidance, retry readiness, delayed selection protection and hidden controls.
+  Initial 900×600 and failed 300×200 rendered images were visually inspected.
+- Source line budget, typography source contract and whitespace checks: **pass**.
+  Rust was unchanged; the full Rust/Reference suites were not repeated, following
+  the user's request to limit broad validation to one run.
+
+These are common processor/editor tests with synthetic host clocks. No plug-in was
+installed and no current-candidate DAW/PDC or Windows acceptance is claimed here.

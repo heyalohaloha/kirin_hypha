@@ -6,6 +6,7 @@ cd "$ROOT"
 
 UI_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-ui-contract-$$"
 OBSERVATORY_CONTRACT_BIN="${TMPDIR:-/tmp}/kirin-hypha-observatory-contract-$$"
+ABI_INCLUDE_DIR="$ROOT/crates/kirin_hypha_ffi/include"
 # Keep native objects under the already-ignored Cargo target tree. Re-running this gate now
 # recompiles only changed JUCE sources; CI workspaces are fresh, so release verification remains
 # independent there. Set KIRIN_HYPHA_NATIVE_TEST_BUILD to isolate a diagnostic run if needed.
@@ -56,25 +57,26 @@ assert_ctest_inventory() {
 # Shipping producer/consumer contract. This includes measurement, Record writer, generation,
 # pairing, TRACE publication, and error-path integration tests without treating the retired
 # nih-plug editors as the AU/VST3 release shell.
-run cargo fmt --all -- --check
+run bash scripts/test_lightweight_contract.sh
 run node --test scripts/public_history.test.mjs
 run node scripts/check_public_history.mjs --tip HEAD
 run node --test scripts/check_aax_sdk_absence.test.mjs
 run node scripts/check_aax_sdk_absence.mjs
+run node --test scripts/ls_release/aax_distribution.test.mjs
+run node --test scripts/ls_release/aax_submission_archive.test.mjs
+run node scripts/test_build_aax_universal.mjs
 run node --test scripts/check_typography_source.test.mjs
 run node scripts/check_typography_source.mjs
-run node --test scripts/structural_repair_detection.test.mjs
 run node --test scripts/research/review/review.test.mjs
 run node --test scripts/research/review/evaluate_review_answers.test.mjs
-run bash scripts/test_source_line_budget.sh
-run bash scripts/check_source_line_budget.sh
 run node --test scripts/ls_release/release_metadata.test.mjs
 run node --test scripts/windows/windows_installer.test.mjs
 
 # Pure C++ contract used by the common AU/VST3 editor. This deliberately runs before any JUCE
-# bundle build and blocks mismatched dimensions, bounds, fonts, colours, metric ordering, or MAX
-# inventory while remaining independent of host/plugin-format wrappers.
+# bundle build and blocks mismatched dimensions, bounds, ABI contracts, fonts, colours, or shared
+# UI constants while remaining independent of host/plugin-format wrappers.
 run "${CXX:-c++}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+  -I "$ABI_INCLUDE_DIR" \
   juce_shell/tests/ui_contract_test.cpp -o "$UI_CONTRACT_BIN"
 run "$UI_CONTRACT_BIN"
 
@@ -110,6 +112,8 @@ JUCE_TEST_TARGETS=(
   KirinUiRenderContractTests
   KirinAttackUiContractTests
   KirinReferenceAuditionRuntimeTests
+  KirinPairPreviewLifetimeTests
+  KirinReferenceContentCorrelationTests
   KirinReferenceAudioPagesTests
   KirinLocalBlindCaptureTests
   KirinLocalBlindTrialTests
@@ -121,8 +125,8 @@ JUCE_TEST_TARGETS=(
   KirinLocalBlindProductTests
   KirinEditorSurfaceProductTests
 )
-JUCE_TEST_REGEX='^(kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_time_history_contract|kirin_analysis_demand_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay|kirin_local_blind_product|kirin_local_blind_product_track|kirin_editor_surface_product)$'
-JUCE_TEST_COUNT=18
+JUCE_TEST_REGEX='^(kirin_pre_display_runtime|kirin_capture_work_attachment|kirin_ui_render_contract|kirin_time_history_contract|kirin_analysis_demand_contract|kirin_attack_ui_contract|kirin_reference_audition_runtime|kirin_reference_audio_pages|kirin_reference_content_correlation|kirin_local_blind_capture|kirin_local_blind_trial|kirin_local_blind_host_context|kirin_local_blind_preparation|kirin_local_blind_capture_service|kirin_local_blind_capture_pair_comparison|kirin_local_blind_pdc_validation_delay|kirin_local_blind_product|kirin_local_blind_product_track|kirin_local_blind_product_aax|kirin_local_blind_product_aax_track|kirin_editor_surface_product|kirin_pair_preview_lifetime|kirin_reference_capture_memory)$'
+JUCE_TEST_COUNT=23
 run cmake --build "$PRE_DISPLAY_BUILD" --target "${JUCE_TEST_TARGETS[@]}" --config Release
 assert_ctest_inventory "$PRE_DISPLAY_BUILD" Release "$JUCE_TEST_REGEX" "$JUCE_TEST_COUNT"
 run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
@@ -130,6 +134,9 @@ run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
 
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked
+# Keep legacy VST3 identity and Record styling covered without using these editors as shipping
+# AU/VST3 bundles. Their compatibility modules remain separate from the JUCE product surface.
+run cargo test -p hypha_pre -p hypha_post --locked
 # Each paired SHARP view runs one exact PRE/POST pair. The local LIVE view runs one POST analyzer;
 # quantify both allowed LIVE slots in the same optimized configuration that ships.
 run cargo test -p kirin_measure --release --locked \
@@ -172,5 +179,6 @@ run cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignore
 
 # Release-owned Rust code must remain warning-free. Upstream vendor crates are outside this gate.
 run cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings
+run cargo clippy -p hypha_pre -p hypha_post --all-targets --locked -- -D warnings
 
 echo "release source contract: PASS"

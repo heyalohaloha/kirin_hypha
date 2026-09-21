@@ -4,6 +4,7 @@
 //! momentary loudness and the 400 ms recent True Peak fact, so running S/I/LRA/Crest/PSR here would
 //! duplicate unrelated work for every visible POST Analysis slot.
 
+use crate::channel_layout::ChannelLayout;
 use std::collections::VecDeque;
 
 use ebur128::{EbuR128, Mode};
@@ -27,9 +28,12 @@ pub(crate) struct AbsoluteLevelAnalyzer {
 }
 
 impl AbsoluteLevelAnalyzer {
-    pub(crate) fn new(sample_rate: u32, channels: usize) -> Result<Self, ()> {
+    pub(crate) fn new(sample_rate: u32, layout: ChannelLayout) -> Result<Self, ()> {
+        let channels = layout.channel_count();
         let aperture_samples = ((sample_rate as usize) + 5) / 10;
-        let ebu = EbuR128::new(channels as u32, sample_rate, Mode::M | Mode::TRUE_PEAK)
+        let mut ebu = EbuR128::new(channels as u32, sample_rate, Mode::M | Mode::TRUE_PEAK)
+            .map_err(|_| ())?;
+        ebu.set_channel_map(&layout.loudness_map())
             .map_err(|_| ())?;
         Ok(Self {
             ebu,
@@ -88,6 +92,7 @@ impl AbsoluteLevelAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channel_layout::LayoutId;
     use crate::MeasureEngine;
 
     fn close(left: Option<f64>, right: Option<f64>) -> bool {
@@ -100,10 +105,16 @@ mod tests {
 
     #[test]
     fn minimal_level_path_matches_full_engine_at_every_public_boundary() {
-        for &(sample_rate, channels) in &[(44_100_u32, 1_usize), (48_000, 2), (96_000, 2)] {
+        for &(sample_rate, layout) in &[
+            (44_100_u32, LayoutId::Mono),
+            (48_000, LayoutId::Stereo),
+            (96_000, LayoutId::Stereo),
+        ] {
+            let layout = ChannelLayout::by_id(layout);
+            let channels = layout.channel_count();
             let aperture = ((sample_rate as usize) + 5) / 10;
-            let mut minimal = AbsoluteLevelAnalyzer::new(sample_rate, channels).unwrap();
-            let mut full = MeasureEngine::new(sample_rate, channels).unwrap();
+            let mut minimal = AbsoluteLevelAnalyzer::new(sample_rate, layout).unwrap();
+            let mut full = MeasureEngine::new(sample_rate, layout).unwrap();
             for slot in 0..12 {
                 let input = (0..aperture)
                     .flat_map(|frame| {
@@ -128,10 +139,16 @@ mod tests {
 
     #[test]
     fn true_peak_parity_survives_impulses_across_aperture_boundaries() {
-        for &(sample_rate, channels) in &[(44_100_u32, 1_usize), (48_000, 2), (96_000, 2)] {
+        for &(sample_rate, layout) in &[
+            (44_100_u32, LayoutId::Mono),
+            (48_000, LayoutId::Stereo),
+            (96_000, LayoutId::Stereo),
+        ] {
+            let layout = ChannelLayout::by_id(layout);
+            let channels = layout.channel_count();
             let aperture = ((sample_rate as usize) + 5) / 10;
-            let mut minimal = AbsoluteLevelAnalyzer::new(sample_rate, channels).unwrap();
-            let mut full = MeasureEngine::new(sample_rate, channels).unwrap();
+            let mut minimal = AbsoluteLevelAnalyzer::new(sample_rate, layout).unwrap();
+            let mut full = MeasureEngine::new(sample_rate, layout).unwrap();
             for slot in 0..8 {
                 let input = (0..aperture)
                     .flat_map(|frame| {
@@ -166,7 +183,7 @@ mod tests {
 
     #[test]
     fn reset_and_invalid_input_fail_closed_without_stale_peak() {
-        let mut analyzer = AbsoluteLevelAnalyzer::new(48_000, 2).unwrap();
+        let mut analyzer = AbsoluteLevelAnalyzer::new(48_000, ChannelLayout::stereo()).unwrap();
         let tone = vec![0.25_f32; 9_600];
         assert!(analyzer.analyze(&tone).unwrap().true_peak.is_some());
         analyzer.reset();

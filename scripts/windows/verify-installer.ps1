@@ -156,9 +156,9 @@ $manifestData = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $withAax = [bool]$manifestData.distribution.aax_included
 $previousInstallerPath = $null
 $previousVersion = $null
-if ($withAax) {
+if ($Signing -eq "signed") {
   if ([string]::IsNullOrWhiteSpace($PreviousInstaller)) {
-    throw "-PreviousInstaller is required for AAX upgrade verification"
+    throw "-PreviousInstaller is required for signed release upgrade verification"
   }
   $previousInstallerPath = Resolve-RequiredFile $PreviousInstaller "previous public installer"
   $previousVersion = [string](Get-Item -LiteralPath $previousInstallerPath).VersionInfo.FileVersion
@@ -206,7 +206,7 @@ $uninstallerPath = $null
 try {
   $records += Get-SignatureRecord "installer" $installerPath $Signing
   $installScope = if ($withAax) { "/ALLUSERS" } else { "/CURRENTUSER" }
-  if ($withAax) {
+  if ($null -ne $previousInstallerPath) {
     $previousInstall = Start-Process -FilePath $previousInstallerPath -ArgumentList @(
       "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $installScope
     ) -Wait -PassThru
@@ -279,7 +279,7 @@ try {
   $manifestData.ci_validation | Add-Member -NotePropertyName verified_at -NotePropertyValue ((Get-Date).ToUniversalTime().ToString("o")) -Force
   $facts = @(
     $(if ($withAax) { "all-users silent install passed" } else { "per-user silent install passed" }),
-    $(if ($withAax) { "upgrade from $previousVersion passed" }),
+    $(if ($null -ne $previousInstallerPath) { "upgrade from $previousVersion passed" }),
     "same-version repeat install passed",
     "installed PRE/POST hashes match packaged payload",
     $(if ($withAax) { "installed PRE/POST AAX passed Authenticode and PACE verification" }),
@@ -289,7 +289,7 @@ try {
     "uninstall registry entry was removed"
   ) | Where-Object { $null -ne $_ }
   $manifestData.ci_validation | Add-Member -NotePropertyName facts -NotePropertyValue $facts -Force
-  if ($withAax) {
+  if ($null -ne $previousInstallerPath) {
     $manifestData.ci_validation | Add-Member -NotePropertyName prior_public_upgrade -NotePropertyValue ([ordered]@{
       installer = [System.IO.Path]::GetFileName($previousInstallerPath)
       version = $previousVersion

@@ -25,7 +25,10 @@ function stripCommentsAndStrings(source) {
     if (state === 'code' && current === '/' && next === '*') {
       result += '  '; index += 1; state = 'block'; continue;
     }
-    if (state === 'code' && (current === '"' || current === '\'')) {
+    const numericSeparator = current === '\''
+      && /[0-9A-Fa-f]/.test(source[index - 1] ?? '')
+      && /[0-9A-Fa-f]/.test(next ?? '');
+    if (state === 'code' && (current === '"' || (current === '\'' && !numericSeparator))) {
       result += ' '; state = current === '"' ? 'string' : 'character'; continue;
     }
     if (state === 'line') {

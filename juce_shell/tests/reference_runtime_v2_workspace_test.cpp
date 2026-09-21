@@ -297,8 +297,8 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             juce::AudioBuffer<float> output (2, 256);
             output.clear();
             require (controller.renderSelectedB (output, 128, true)
-                     && std::abs (output.getSample (0, 1)) > 0.001f,
-                     "always-ready v2 B must render the verified source");
+                     && output.getMagnitude (0, 240, 16) > 0.001f,
+                     "always-ready v2 B must render the verified source after its 5 ms entry fade");
             controller.observeTransport (12'345, true, true);
             for (int attempt = 0; attempt < 100
                  && ! controller.snapshot().auditionBuffered; ++attempt)
@@ -480,8 +480,8 @@ void testRuntimeV2Workspace (const juce::File& sandbox)
             require (controller.renderSelectedB (
                          output, alignedA->startSample + 1, true)
                      && std::abs (output.getSample (0, 0)
-                                  - alignedA->interleaved[2] * 0.5f) < 1.0e-5f,
-                     "normal B must map bar-five DAW content to the matched trimmed-file sample");
+                                  - alignedA->interleaved[2] * 0.5f / 240.0f) < 1.0e-5f,
+                     "normal B entry fade must map bar-five DAW content to the matched trimmed-file sample");
             controller.selectA();
 
             verifyBlindSourceReplacementReturn (

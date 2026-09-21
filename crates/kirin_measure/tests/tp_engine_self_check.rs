@@ -8,6 +8,7 @@
 //! Run:
 //!   cargo test -p kirin_measure --test tp_engine_self_check -- --nocapture
 
+use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::engine::MeasureEngine;
 use std::fs::File;
 use std::path::Path;
@@ -147,7 +148,9 @@ fn decode_wav(path: &str) -> Result<(Vec<f64>, u32, usize), String> {
 fn hypha_engine_session_true_peak_dbtp(filename: &str) -> Result<f64, String> {
     let path = format!("{SIGNALS_DIR}/{filename}");
     let (interleaved, sample_rate, channels) = decode_wav(&path)?;
-    let mut engine = MeasureEngine::new(sample_rate, channels)?;
+    let layout = ChannelLayout::mono_or_stereo_by_count(channels)
+        .ok_or("the self-check signals are mono or stereo")?;
+    let mut engine = MeasureEngine::new(sample_rate, layout)?;
     let chunk_elems = (sample_rate as usize / 10) * channels;
 
     for chunk in interleaved.chunks(chunk_elems) {

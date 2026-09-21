@@ -21,6 +21,7 @@
 //!   が ITU 準拠であることの実証。
 //! - LRA(定常トーン) ≈ 0（ロードネス変動なし）。
 
+use kirin_measure::channel_layout::ChannelLayout;
 use kirin_measure::engine::{MeasureEngine, SessionSummary};
 use kirin_measure::MeasureResult;
 
@@ -116,7 +117,8 @@ fn decode_wav(path: &str) -> (Vec<f64>, u32, usize) {
 fn run_engine(filename: &str) -> (MeasureResult, SessionSummary, u32) {
     let path = format!("{SIGNALS_DIR}/{filename}");
     let (inter, sr, ch) = decode_wav(&path);
-    let mut eng = MeasureEngine::new(sr, ch).expect("engine init");
+    let layout = ChannelLayout::mono_or_stereo_by_count(ch).expect("fixture is mono or stereo");
+    let mut eng = MeasureEngine::new(sr, layout).expect("engine init");
     let chunk_elems = (sr as usize / 10) * ch; // 100ms
     let mut last = MeasureResult::default();
     for c in inter.chunks(chunk_elems) {

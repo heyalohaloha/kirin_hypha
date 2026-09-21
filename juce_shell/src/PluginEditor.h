@@ -1,22 +1,21 @@
 #pragma once
+#include "HyphaLocalBlindReturnIntent.h"
 
-#include <array>
 #include <memory>
 #include <vector>
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "PluginProcessor.h"
-#include "DisplaySmoother.h"
 #include "HyphaAnalysisNavigation.h"
 #include "HyphaHoverHelpPreference.h"
 #include "HyphaObservatoryView.h"
 #include "HyphaSurfaceMaterial.h"
+#include "HyphaTextButton.h"
 #include "HyphaTheme.h"
 #include "HyphaTimePageNavigation.h"
 #include "HyphaTooltipLookAndFeel.h"
 #include "HyphaWidgets.h"
-#include "PostControls.h"
 #include "appearance/AppearanceService.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaSpectrumComponent.h"
@@ -33,13 +32,8 @@
 // the editor only formats values the Rust engine produces. palette.rs is the colour source of
 // truth (no new colours hardcoded). No red / pure white (#ffffff) / neon (品位原則 / G-72-10).
 //
-// PRE: title "PRE" + click-to-edit Name (→ kirin_hypha_set_pre_name) + flora line + Watch(current+MAX)/
-//      Record(6) metric grid (per-cell hover help) + Keeping banner + 5-state static LED.
-// POST: title "POST" + exact PRE selector (name is display-only) + flora +
-//      display-branch grid (Bypassed/Inactive→"---" ; pair-empty/PRE bypassed→absolute ;
-//      paired Stale/NoPre/Inactive→muted Δ/--- ; PRE Bypassed→POST absolute ; Δ Active ; Record→6) +
-//      Keep/Stop/Sense hint + one prioritized feedback row + playback pair
-//      lock + LED + exact candidate dropdown + All Keep/All Stop. (Proposals cards remain egui-only.)
+// PRE/POST share the Observatory. The editor refreshes producer snapshots and control state; all
+// visible measurement rendering is owned by the Observatory and its analysis bodies.
 class KirinHyphaEditor : public juce::AudioProcessorEditor,
                          private juce::Timer
 {
@@ -101,6 +95,8 @@ private:
     void configureSpectrumAnalysis();
     hypha::analysis::Demand desiredAnalysisDemand() const noexcept;
     bool analysisSurfaceShowing() const noexcept;
+    bool externalAnalysisBodyShowing() const noexcept;
+    void updateAnalysisBodyPresentation();
     void syncAnalysisDemand();
     void configureSpectrumCallbacks();
     void updateTimePageNavigation();
@@ -108,6 +104,8 @@ private:
     void updateSpectrumSizeControl();
     void configureReferenceAudition();
     void showReferenceInformationMenu();
+    void refreshCaptureControls();
+    hypha::reference_ui::CaptureControls captureStatus{true};
     void layoutReferenceAudition (juce::Rectangle<int>);
     void refreshReferenceAudition (const KirinObservatoryFrame&, bool frameAvailable);
     void configureLocalBlindProduct();
@@ -122,14 +120,21 @@ private:
                                int pairStatus);
 #endif
 
-    // Which metric grid is configured (label/unit/font set). Abs* uses absolute labels
-    // (LUFS-M/TP/…); Delta* uses Δ labels (ΔLUFS/…). Watch is current|MAX; Record is 2×3.
-    enum class Kind { WatchAbs6, WatchDelta6, Abs6, Delta6 };
     static constexpr int jungleModeMenuAction = 13;
-    void configureForKind (Kind);
-    void layoutMetrics (bool six);
+    void refreshWatchSnapshot();
+    uint8_t refreshRecordPhase();
     void showCandidateMenu();
+    void refreshPairPreview (bool demand);
+    void selectPairPreview();
+    hypha::pair_preview::Ticket pairPreview;
+    KirinPairPreviewValue pairPreviewShown {};
+    bool pairPreviewWasFocused = false;
+    double pairPreviewRefreshAt = 0;
+    double pairPreviewNextDemandAt = 0;
+    double pairPreviewRetrySeconds = 1.05;
+    std::uint64_t pairPreviewObservedGeneration = 0;
     void showOperationsMenu();
+    void showTimeRangeMenu();
     void showMeterContextMenu (juce::Component& anchor);
     void applyMeterContextChoice (hypha::meter_context::MeterContext);
     void showDomainMenu();
@@ -143,8 +148,6 @@ private:
     void handleCandidateMenu (int result,
                               const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates);
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
-    void fillAbs (int cell, double v, bool isTp, bool muted = false);
-    void fillDelta (int cell, double v, bool isTp, juce::Colour deltaBase, bool tpWarn, bool muted = false);
     void showToast (const juce::String& msg);
     void updateFeedback (double now, bool keeping, const juce::String& persistentError);
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
@@ -162,11 +165,7 @@ private:
     hypha::MyceliumBackground bg;
     hypha::StatusLed          led;
     hypha::EditableName       nameField;                  // PRE name / POST exact-pair selector
-    juce::Label               pairStatusLabel;            // PRE/POST: PAIR — / ◌ / ●
-    std::array<hypha::MetricCell, 6> cells;
-    hypha::LoudnessSelector   loudnessSelector;           // occupies cell 0's existing label column
     juce::Label               feedbackLabel;              // toast > persistent error > Keeping
-    std::unique_ptr<hypha::PostControls> postControls;    // POST button row
     std::unique_ptr<juce::FileChooser> captureChooser;
     std::unique_ptr<juce::AlertWindow> noteDialog;
     hypha::capture::PrivacyOptions capturePrivacy;         // editor-lifetime, private by default
@@ -186,8 +185,6 @@ private:
     hypha::TooltipLookAndFeel tooltipLookAndFeel;
     hypha::HoverHelpTooltipWindow tooltip { this, 550 };    // user-level, bounded hover help
 
-    Kind   currentKind = Kind::WatchAbs6;
-    bool   currentSix  = false;
     hypha::observatory::Domain observatoryDomain = hypha::observatory::Domain::level;
     size_t observatorySizeIndex = 0;
 #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -203,7 +200,10 @@ private:
     std::int64_t cachedAttackLatest = -1;
     std::uint32_t cachedAttackRate = 0;
     std::uint64_t cachedAttackGeneration = 0;
+    juce::Point<int> localBlindReturnSize;
     bool localBlindOpen = false;
+    double localBlindPresentationAt = -1.0;
+    hypha::local_blind_ui::ReturnIntent localBlindReturnIntent;
     bool localBlindPreflight = false;
     struct LocalBlindUnderlyingState
     {
@@ -213,7 +213,6 @@ private:
     };
     std::vector<LocalBlindUnderlyingState> localBlindUnderlyingStates;
 #endif
-    int    metricTop   = 0;       // y of the first metric row (set in resized())
     int    floraY      = 0;       // y of the flora separator line
     juce::Rectangle<int> titleArea;
 
@@ -226,12 +225,11 @@ private:
     juce::String toastText;
     double pathAnomalyUntil = 0.0;        // B-128 (G-115-371 D3): restore identity anomaly latch
     juce::String pathAnomalyText;         //   drained 文言を fade まで保持
-    hypha::DisplaySmoother displaySmoother;
     KirinWatchDisplay observatoryWatchDisplay {};
     bool haveObservatoryWatchDisplay = false;
-    KirinMeasureResult watchMaximum {};
-    bool haveWatchMaximum = false;
-    bool pairedPreExplicitlyBypassed = false; // updated only from a successful exact delta poll
+    std::uint64_t comparisonObservedGeneration = 0;
+    std::uint64_t comparisonActionAfterGeneration = 0;
+    bool comparisonActionAwaitingResult = false;
     std::uint64_t analysisOwnerToken = 0;
     KirinRecordDisplay cachedRecordDisplay {};
     bool haveRecordDisplay = false;

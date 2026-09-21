@@ -1,4 +1,5 @@
 use super::*;
+use crate::channel_layout::ChannelLayout;
 use crate::{MeterClockStart, MeterHistoryRange};
 
 fn post_point(observed: u64, endpoint: i64, value: f64) -> MeterHistoryEntry {
@@ -9,6 +10,7 @@ fn post_point(observed: u64, endpoint: i64, value: f64) -> MeterHistoryEntry {
     };
     MeterHistoryEntry {
         resolution: MeterHistoryResolution::Hz10,
+        measurement_epoch: 11,
         generation: 3,
         run_id: 7,
         observation_count: 1,
@@ -177,7 +179,9 @@ fn sine(amplitude: f64) -> Vec<f64> {
 #[test]
 fn atomic_publication_and_exact_target_join_work_end_to_end() {
     let directory = tempfile::tempdir().unwrap();
-    let pre_session = Arc::new(Mutex::new(MeterSession::new(48_000, 2).unwrap()));
+    let pre_session = Arc::new(Mutex::new(
+        MeterSession::new(48_000, ChannelLayout::stereo()).unwrap(),
+    ));
     pre_session.lock().unwrap().push_active_at(
         &sine(0.25),
         MeterClockStart {
@@ -196,7 +200,9 @@ fn atomic_publication_and_exact_target_join_work_end_to_end() {
     )
     .unwrap();
 
-    let post_session = Arc::new(Mutex::new(MeterSession::new(48_000, 2).unwrap()));
+    let post_session = Arc::new(Mutex::new(
+        MeterSession::new(48_000, ChannelLayout::stereo()).unwrap(),
+    ));
     post_session.lock().unwrap().push_active_at(
         &sine(0.5),
         MeterClockStart {
@@ -220,11 +226,89 @@ fn atomic_publication_and_exact_target_join_work_end_to_end() {
     .unwrap();
     let replacement_post = MeterDeltaHistoryExchange::new(
         48_000,
-        Arc::new(Mutex::new(MeterSession::new(48_000, 2).unwrap())),
+        Arc::new(Mutex::new(
+            MeterSession::new(48_000, ChannelLayout::stereo()).unwrap(),
+        )),
     );
     replacement_post
         .service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), &pre_json));
     assert!(replacement_post
         .recent(MeterHistoryResolution::Hz10, 20)
         .is_empty());
+}
+
+fn mono_sine(amplitude: f64) -> Vec<f64> {
+    let mut samples = Vec::with_capacity(48_000);
+    for frame in 0..48_000 {
+        samples.push(
+            amplitude * (2.0 * std::f64::consts::PI * 1_000.0 * frame as f64 / 48_000.0).sin(),
+        );
+    }
+    samples
+}
+
+/// 同じ音を通しても、mono で測った PRE と stereo で測った POST は loudness で 3.01 LU ずれる
+/// （mono は 1ch として測り +3.01 dB バイアスを入れない）。引き算するとその 3.01 LU が
+/// 「連鎖が加えたもの」として出る。**加えていない。** B-968 で配置が違う 2 本は結合しない。
+///
+/// これは surround 以前の話で、出荷中の mono / stereo だけで起きる（`isBusesLayoutSupported`
+/// は両方を受理する）。mono トラックに PRE、stereo バスに POST は通常の配置である。
+#[test]
+fn a_different_layout_is_not_subtracted_because_the_gap_is_the_map_not_the_chain() {
+    fn publish_mono_pre(directory: &std::path::Path) -> std::path::PathBuf {
+        let pre_session = Arc::new(Mutex::new(
+            MeterSession::new(48_000, ChannelLayout::mono()).unwrap(),
+        ));
+        pre_session.lock().unwrap().push_active_at(
+            &mono_sine(0.25),
+            MeterClockStart {
+                position_samples: Some(0),
+                epoch: Some(1),
+                source: CaptureClockSource::ProjectTimeline,
+            },
+        );
+        let pre = MeterDeltaHistoryExchange::new(48_000, pre_session);
+        pre.service_pre_endpoint("pre", "song", "owner", directory)
+            .unwrap();
+        let pre_json = directory.join("pre.json");
+        fs::write(
+            &pre_json,
+            br#"{"instance_id":"pre","daw_session_id":"song","watch_owner_id":"owner","signal_state":"active"}"#,
+        )
+        .unwrap();
+        pre_json
+    }
+
+    fn join_against(pre_json: &std::path::Path, post: ChannelLayout, audio: &[f64]) -> usize {
+        let post_session = Arc::new(Mutex::new(MeterSession::new(48_000, post).unwrap()));
+        post_session.lock().unwrap().push_active_at(
+            audio,
+            MeterClockStart {
+                position_samples: Some(0),
+                epoch: Some(1),
+                source: CaptureClockSource::ProjectTimeline,
+            },
+        );
+        let post = MeterDeltaHistoryExchange::new(48_000, post_session);
+        post.service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), pre_json));
+        post.recent(MeterHistoryResolution::Hz10, 20).len()
+    }
+
+    // mono の PRE と mono の POST は結合する。拒否されるのが「mono だから」ではないことを先に示す。
+    let same = tempfile::tempdir().unwrap();
+    let pre_json = publish_mono_pre(same.path());
+    assert_eq!(
+        join_against(&pre_json, ChannelLayout::mono(), &mono_sine(0.25)),
+        10,
+        "同じ配置どうしは従来どおり結合する"
+    );
+
+    // 同じ音を stereo として測った POST とは結合しない。結合していた頃の差は +3.0103 LU だった。
+    let crossed = tempfile::tempdir().unwrap();
+    let pre_json = publish_mono_pre(crossed.path());
+    assert_eq!(
+        join_against(&pre_json, ChannelLayout::stereo(), &sine(0.25)),
+        0,
+        "違う map で測った 2 本を引き算しない"
+    );
 }

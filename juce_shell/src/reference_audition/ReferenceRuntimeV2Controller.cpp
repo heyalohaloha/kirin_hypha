@@ -25,11 +25,15 @@ namespace hypha::reference_audition
     }
 
     RuntimeV2Controller::RuntimeV2Controller (juce::File transportRootIn,
-                                              SelectionGate selectionGateIn)
+                                              SelectionGate selectionGateIn, bool wholeVersionComparison,
+                                              WorkflowCommitCallback workflowCommitCallbackIn)
         : juce::Thread ("Kirin Reference v2"),
           root (std::move (transportRootIn)),
+          versionComparison (wholeVersionComparison),
           selectionGate (std::move (selectionGateIn)),
+          workflowCommitCallback (std::move (workflowCommitCallbackIn)),
           repository (root),
+          workflowRepository (root),
           aBindingRepository (root),
           aCapture (root),
           sourceRepository (root),
@@ -43,6 +47,7 @@ namespace hypha::reference_audition
           presetAdoptionTransport (root),
           eventTransport (root)
     {
+        outputRetirement.start ([this] { serviceOutputRetirement(); });
         startThread (juce::Thread::Priority::low);
     }
 
@@ -53,6 +58,7 @@ namespace hypha::reference_audition
         notify();
         if (! stopThread (-1))
             jassertfalse;
+        outputRetirement.stop();
         blind.forceClearAfterAudioStopped();
         releaseActiveOutputGate();
         aCapture.disconnect();
@@ -62,15 +68,18 @@ namespace hypha::reference_audition
     void RuntimeV2Controller::configure (RuntimeIdentity identity, double hostSampleRate,
                                          int hostChannels)
     {
+        normalFadeStep.store (static_cast<float> (1.0 / juce::jmax (1.0, hostSampleRate * 0.005)), std::memory_order_release);
         if (identity.hostProcessId == 0)
             identity.hostProcessId = currentProcessId();
         {
             const juce::ScopedLock lock (stateLock);
+            const bool sameLibraryReceiver = identity.library && requestedConfiguration.identity.library
+                && identity.runtimeInstanceId == requestedConfiguration.identity.runtimeInstanceId;
             requestedConfiguration.identity = std::move (identity);
             requestedConfiguration.sampleRate = hostSampleRate;
             requestedConfiguration.channels = hostChannels;
             ++requestedConfiguration.generation;
-            requestedSelection = {};
+            if (! sameLibraryReceiver) requestedSelection = {};
             pendingApprovalKey.clear();
             currentSnapshot.sampleRateApprovalRequired = false;
             revokeAuditionPublication();
@@ -91,6 +100,8 @@ namespace hypha::reference_audition
     {
         const juce::ScopedLock lock (stateLock);
         auto result = currentSnapshot;
+        result.libraryReceived = libraryReceived.load (std::memory_order_acquire);
+        result.osOnline = libraryOnline.load (std::memory_order_acquire);
         const auto blindState = blind.snapshot();
         result.bSelected = bSelected.load (std::memory_order_acquire);
         result.transportPlaying = latestPlaying.load (std::memory_order_acquire);
@@ -100,13 +111,15 @@ namespace hypha::reference_audition
             || (result.transportPositionValid
                 && pages.readyAt (mappedSourcePosition (latestHostPosition.load()), 1)));
         result.blindEligible = publishedReady && blindState.eligible;
+        if (versionComparison && !blindState.eligible) result.auditionBuffered = false;
         result.blindPhase = blindState.phase;
         result.activeBlindStimulus = blindState.activeStimulus;
         result.pendingBlindStimulus = blindState.pendingStimulus;
         result.answeredBlindStimulus = blindState.answeredStimulus;
-        result.blindStimulusOneHeard = blindState.stimulusOneAudibleFrames > 0
+        const auto minimumFrames = blindState.wholeSong ? static_cast<std::uint64_t> (blindState.aSampleRateHz) * 3 : 1;
+        result.blindStimulusOneHeard = blindState.stimulusOneAudibleFrames >= minimumFrames
             && blindState.stimulusOneConfirmedSwitches > 0;
-        result.blindStimulusTwoHeard = blindState.stimulusTwoAudibleFrames > 0
+        result.blindStimulusTwoHeard = blindState.stimulusTwoAudibleFrames >= minimumFrames
             && blindState.stimulusTwoConfirmedSwitches > 0;
         result.blindLowerAApprovalRequired = result.blindEligible
             && blindState.lowerAApprovalRequired;
@@ -159,12 +172,12 @@ namespace hypha::reference_audition
     std::uint64_t RuntimeV2Controller::acquireOutputGate() noexcept
     {
         const juce::ScopedLock lock (outputGateLock);
-        if (activeOutputGateToken.load (std::memory_order_acquire) != 0)
-            return 0;
+        const bool retained = activeOutputGateToken.load (std::memory_order_acquire) != 0;
+        if (retained && (bSelected.load (std::memory_order_acquire) || blind.ongoing())) return 0;
         auto token = nextOutputGateToken.fetch_add (1, std::memory_order_acq_rel);
         if (token == 0)
             token = nextOutputGateToken.fetch_add (1, std::memory_order_acq_rel);
-        if (selectionGate && ! selectionGate (true))
+        if (!retained && selectionGate && ! selectionGate (true))
             return 0;
         activeOutputGateToken.store (token, std::memory_order_release);
         return token;
@@ -189,6 +202,8 @@ namespace hypha::reference_audition
 
     void RuntimeV2Controller::publishLocked (Snapshot next)
     {
+        next.workflowCatalog = workflowCatalog;
+        next.migratedVersionChoice = legacyVersionChoice;
         next.bSelected = bSelected.load (std::memory_order_acquire);
         if (next.bSelected || blind.ongoing())
         {
