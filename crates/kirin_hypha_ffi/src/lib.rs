@@ -87,6 +87,7 @@ mod pair_binding;
 mod pair_candidates_ffi;
 mod pair_restore_ffi;
 mod pair_snapshot_ffi;
+mod record_layout_gate;
 mod record_note_ffi;
 mod reference_audition_ffi;
 mod reference_gain_ffi;
@@ -1200,17 +1201,6 @@ impl KirinHyphaEngine {
         }
     }
 
-    /// ライセンスを設定（C ABI コード: 0=Os 1=Sense 2=Unknown / 未知は Unknown）。
-    /// 次回 Keep の開始可否だけに使う。開始済み Keep をライセンス更新で停止しない。
-    pub fn set_license(&self, abi: u8) {
-        let code = match abi {
-            LICENSE_OS => LICENSE_OS,
-            LICENSE_SENSE => LICENSE_SENSE,
-            _ => LICENSE_UNKNOWN,
-        };
-        self.license.store(license_from_abi(code));
-    }
-
     /// 現ライセンスを取得。
     fn current_license(&self) -> License {
         self.license.load()
@@ -1230,7 +1220,7 @@ impl KirinHyphaEngine {
     /// integration test）が状態機械を直接検証するために呼ぶため。C ABI 経由でこの crate の
     /// 外（JUCE 側）から呼べる経路は存在しない。
     pub fn enter_record(&self) -> bool {
-        if self.audition.blocks_record() {
+        if !self.supports_record_workflow() || self.audition.blocks_record() {
             return false;
         }
         let next_generation = self.record_sm.generation().saturating_add(1);
@@ -1772,6 +1762,7 @@ impl KirinHyphaEngine {
         // 値で呼ぶ。license は LiveLicense を live 読み（keep と同一 gate）。args (pre/post) は
         // 各 POST が自分の pair_target を再選定するため無視する。
         let trigger_pair_resolution: kirin_measure::TriggerPairResolutionFn = {
+            let record_workflow_supported = self.supports_record_workflow();
             let record_sm = Arc::clone(&self.record_sm);
             let pair_target = self.pair_binding.desired_name();
             let paired = self.pair_binding.recording_pre();
@@ -1789,6 +1780,9 @@ impl KirinHyphaEngine {
             let keep_record_generation = Arc::clone(&self.keep_record_generation);
             Arc::new(
                 move |_originator: &str, _started_at: &str, generation: &CaptureGeneration| {
+                    if !record_workflow_supported {
+                        return false;
+                    }
                     let lic = license.refresh_for_user_action();
                     resolve_and_enter_keep(
                         lic,
@@ -2391,6 +2385,9 @@ impl KirinHyphaEngine {
         if generation.is_none() {
             clear_keep_action_notice(&self.keep_action_notice);
         }
+        if self.reject_unsupported_record_action(generation.is_none()) {
+            return false;
+        }
         let (project_hash, post_iid, daw) = {
             let id = match self.identity.lock() {
                 Ok(g) => g,
@@ -2437,6 +2434,9 @@ impl KirinHyphaEngine {
     /// 自 keep の結果（有効ペアありなら true）を返す。broadcast 書込失敗は best-effort（無視）。
     pub fn keep_all(&self) -> bool {
         clear_keep_action_notice(&self.keep_action_notice);
+        if self.reject_unsupported_record_action(true) {
+            return false;
+        }
         if self.audition.reject_keep(&self.keep_action_notice) {
             return false;
         }

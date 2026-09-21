@@ -8,6 +8,12 @@ use crate::{CaptureClockSource, MeasureResult};
 pub const HISTORY_10_HZ_CAPACITY: usize = 10 * 60 * 10;
 pub const HISTORY_1_HZ_CAPACITY: usize = 2 * 60 * 60;
 pub const HISTORY_0_1_HZ_CAPACITY: usize = 24 * 60 * 6;
+/// Persisted TIME history is currently a mono/stereo/exact-5.1 product surface.
+///
+/// Keep this separate from the 16-slot public ABI: reserving future ABI capacity in every
+/// preallocated history entry would cost roughly 40 MiB across 24 PRE/POST instances without
+/// measuring another channel. Wider layouts must first define their product and memory contract.
+pub const METER_HISTORY_CHANNELS: usize = 6;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,8 +45,8 @@ pub struct MeterHistoryEntry {
     pub first_timeline_endpoint_samples: Option<i64>,
     pub last_timeline_endpoint_samples: Option<i64>,
     pub timeline_source: CaptureClockSource,
-    /// New contiguous sample-clip runs first observed inside this history point, per L/R channel.
-    pub clip_event_count: [u32; 2],
+    /// New contiguous sample-clip runs first observed inside this history point, per input role.
+    pub clip_event_count: [u32; METER_HISTORY_CHANNELS],
     pub lufs_m: MeterHistoryRange,
     pub lufs_s: MeterHistoryRange,
     pub true_peak: MeterHistoryRange,
@@ -52,7 +58,7 @@ pub struct MeterHistoryEntry {
 pub struct MeterHistoryAux {
     pub correlation: Option<f64>,
     pub plr: Option<f64>,
-    pub clip_event_count: [u32; 2],
+    pub clip_event_count: [u32; METER_HISTORY_CHANNELS],
 }
 
 impl MeterHistoryEntry {
@@ -136,7 +142,7 @@ struct BucketAccumulator {
     last_timeline_endpoint_samples: Option<i64>,
     timeline_complete: bool,
     timeline_source: CaptureClockSource,
-    clip_event_count: [u32; 2],
+    clip_event_count: [u32; METER_HISTORY_CHANNELS],
     lufs_m: RangeAccumulator,
     lufs_s: RangeAccumulator,
     true_peak: RangeAccumulator,
@@ -157,7 +163,7 @@ impl BucketAccumulator {
             last_timeline_endpoint_samples: point.last_timeline_endpoint_samples,
             timeline_complete: point.first_timeline_endpoint_samples.is_some(),
             timeline_source: point.timeline_source,
-            clip_event_count: [0; 2],
+            clip_event_count: [0; METER_HISTORY_CHANNELS],
             lufs_m: RangeAccumulator::default(),
             lufs_s: RangeAccumulator::default(),
             true_peak: RangeAccumulator::default(),

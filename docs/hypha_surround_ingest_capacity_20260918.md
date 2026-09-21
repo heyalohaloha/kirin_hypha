@@ -381,7 +381,8 @@ page-fault 挙動により、論理容量と観測 RSS が一致するとは事�
 
 Phase D stream 内部、StereoMeter、`ResamplerTo48k` 内部（FFT workspace）、
 SpectrumRuntime、AttackRuntime、Perceptual、`MeterSession` 自身の MeasureEngine、
-~~meter history、delta history~~（→ §17 で実測。**24 インスタンスで最大 328 MiB**）、
+~~meter history、delta history~~（→ §17 で実測。exact 5.1 の現行形は
+**24 インスタンスで最大 344.0 MiB**）、
 UI / FFI frame、control state。
 
 **§9.4 は下限であって上限ではない。**
@@ -687,7 +688,8 @@ Watch engine は 24 インスタンスで 74 MiB しか使っていない。
 3. ~~EbuR128 allocation audit~~ → §10.1 完了。
 4. ~~最小 RSS 実験~~ → §10.2 完了。**式は予測子にならないことが判明。**
 5. ~~残り全 allocation の census~~ → §11 完了。**`AttackRuntime` が最大の見落としだった。**
-5b. ~~meter history / delta history~~ → §17 完了。**24 インスタンスで最大 328 MiB。
+5b. ~~meter history / delta history~~ → §17 完了。exact 5.1 の現行形は
+**24 インスタンスで最大 344.0 MiB。**
    `AttackRuntime` を超える最大の未計上項目だった。**
 6. **4 領域（Watch ring / Record burst / scratch / pre-roll）の実測。** §10 の結果から
    「使うまで resident にならない」と推定しているが、**未測定** [C]。
@@ -729,12 +731,13 @@ Record burst を減らす、のどれも決定しない。**
 
 | tier | 解像度 | 要求 capacity | 実 capacity | bytes |
 |---|---|---:|---:|---:|
-| exact | 10 Hz / 10 分 | 6,000 | 6,001 | 1,968,328 |
-| one_second | 1 Hz / 2 時間 | 7,200 | 7,201 | 2,361,928 |
-| ten_seconds | 0.1 Hz / 24 時間 | 8,640 | 8,641 | 2,834,248 |
-| **合計** | | | **21,843** | **7,164,504（6.83 MiB）** |
+| exact | 10 Hz / 10 分 | 6,000 | 6,001 | 2,064,344 |
+| one_second | 1 Hz / 2 時間 | 7,200 | 7,201 | 2,477,144 |
+| ten_seconds | 0.1 Hz / 24 時間 | 8,640 | 8,641 | 2,972,504 |
+| **合計** | | | **21,843** | **7,513,992（7.17 MiB）** |
 
-`MeterHistoryEntry` は **328 B**（B-962 の `measurement_epoch` で 320 B から +8 B）。
+`MeterHistoryEntry` は exact 5.1 の6役割分のclip countを持つ現行形で **344 B**。
+16-slot ABIの将来余白は履歴へ先行確保せず、7.1.4等を有効にする際は改めて製品・容量契約を定める。
 1 バイトの増加が 21,843 倍で効く。`meter_history_tests.rs`
 `the_preallocated_history_cost_is_measured_not_assumed` がこの数字を固定する。
 
@@ -744,7 +747,9 @@ Record burst を減らす、のどれも決定しない。**
 後者は `KirinHyphaEngine::new` が `MeterDeltaHistoryExchange::new` を呼ぶ時点で確保される
 （`kirin_hypha_ffi/src/lib.rs:1008-1010`）。POST 結合が起きなくても確保は起きる。
 
-### 17.2 RSS 実測（`memory_contract_probe census`、24 インスタンス）
+### 17.2 B-967時点のRSS実測（`memory_contract_probe census`、24 インスタンス）
+
+次表はentry 328 BだったB-967時点の実測であり、現行344 BのRSS実測へ流用しない。
 
 | 条件 | 確保直後 | 全 tier を埋めたあと |
 |---|---:|---:|
@@ -753,28 +758,28 @@ Record burst を減らす、のどれも決定しない。**
 | 48 kHz / 6ch | +0.28 | +163.86 |
 
 **(1) 確保だけでは resident にならない。** 24 インスタンス分の論理確保は
-24 × 6.83 = 164.0 MiB だが、確保直後の RSS 増分は 0.29 MiB である。§4 / §10 の
+24 × 6.83 = 164.0 MiB だったが、確保直後の RSS 増分は 0.29 MiB である。§4 / §10 の
 「使うまで resident にならない」が history にも当てはまる。
 
 **(2) 埋め切ると論理確保とほぼ一致する。** 164.21 / 24 = 6.84 MiB。算術値 164.0 MiB との差は 0.2% 未満。
 **ring は 1 ページも余らせずに使い切る。**
 
 **(3) sample rate にもチャンネル数にも依存しない。** history の押下は観測（0.1 s）単位であり、
-`MeterHistoryEntry` は固定形（`clip_event_count: [u32; 2]`、range は L/R 集約済みスカラ）だからである。
-**これは Nch 化していないことの裏返しであって、Nch でも安いという意味ではない**（§17.4）。
+当時の`MeterHistoryEntry`は固定形（`clip_event_count: [u32; 2]`、range は集約済みスカラ）だった。
+現行はexact 5.1の6役割分まで固定形で保持する。**これは7.1.4まで安いという意味ではない**（§17.4）。
 
-### 17.3 製品としての量 — 未計上の 328 MiB
+### 17.3 製品としての量 — 現行算術で未計上の 344.0 MiB
 
-engine 1 台 = 2 本 = 13.66 MiB。`MAX_CAPTURE_PAIRS = 12` → 24 インスタンスで
-**328.0 MiB。384 MiB 予算の 85.4% に相当する量が §3 の 4 領域モデルに入っていない。**
+engine 1 台 = 2 本 = 14.33 MiB。`MAX_CAPTURE_PAIRS = 12` → 24 インスタンスで
+**344.0 MiB。384 MiB 予算の89.6%に相当する量が §3 の4領域モデルに入っていない。**
 
 ただし §17.2 (1) のとおり、これは時間をかけて resident 化する。埋まる速さは tier ごとに違う:
 
 | 経過 | 埋まる tier | ring 1 本あたり | 24 インスタンス × 2 本 |
 |---|---|---:|---:|
-| 10 分 | exact | 1.88 MiB | 90.1 MiB |
-| 2 時間 | + one_second | 4.13 | 198.2 |
-| 24 時間 | + ten_seconds | 6.83 | 328.0 |
+| 10 分 | exact | 1.97 MiB | 94.5 MiB |
+| 2 時間 | + one_second | 4.33 | 207.9 |
+| 24 時間 | + ten_seconds | 7.17 | 344.0 |
 
 （10 分 / 2 時間 / 24 時間の行は算術。24 時間の終点だけが §17.2 の実測である。）
 
@@ -784,22 +789,23 @@ history は **Watch を開いているだけで、作業時間に比例して埋
 
 `DeltaHistoryState` 側の ring は POST 結合が起きなければ押されないので、
 実際の 24 インスタンスがこの 2 倍を同時に埋めるかは **未確認** [C]。
-片側だけなら 24 時間で 164.0 MiB。
+片側だけなら 24 時間で 172.0 MiB。
 
 ### 17.4 Nch 化したときの増分（仮定を明示した算術。設計の提案ではない）
 
-現在 history が channel-independent なのは、`MeterHistoryEntry` が stereo 形のままだからである。
-**D-6「集約を発明しない」により、history を Nch でどう持つかは決まっていない。**
+現在historyは集約値を共有し、clip countだけをexact 5.1の6役割分保持する。
+**D-6「集約を発明しない」により、6chを超えるhistoryをどう持つかは決まっていない。**
 以下は「もしこう持つなら」という仮定に対する算術であり、候補の提示ではない。
 
 | 仮定 | entry | ring 1 本 | 24 × 2 本 |
 |---|---:|---:|---:|
-| 現状（stereo 形のまま） | 328 B | 6.83 MiB | 328.0 MiB |
-| `clip_event_count` のみ 12ch 化 | 368 B | 7.67 | 368.0 |
+| B-967（stereo形） | 328 B | 6.83 MiB | 328.0 MiB |
+| 現状（clip countをexact 5.1化） | 344 B | 7.17 | 344.0 |
+| `clip_event_count` を12ch化 | 368 B | 7.67 | 368.0 |
 | 5 range すべてを 12ch 分持つ | 3,008 B | 62.66 | 3,007.7 |
 
 `MeterHistoryRange` は `Option<f64>` × 3 = **48 B**（実測）。5 個で 240 B が
-entry 328 B のうちを占める。12ch 分持てば 2,880 B になる。
+entry 344 B のうちを占める。12ch 分持てば 2,880 B になる。
 
 **3 行目は 384 MiB 予算の 7.8 倍である。** D-14 の (a)(b)(c) を判断するとき、
 history を Nch でどう持つかは Record burst と同じ桁の材料になる。

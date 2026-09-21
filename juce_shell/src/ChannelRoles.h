@@ -73,6 +73,53 @@ inline std::vector<uint8_t> channelRoles (const juce::AudioChannelSet& set)
     return roles;
 }
 
+inline bool isMonoRoles (const std::vector<uint8_t>& roles) noexcept
+{
+    return roles.size() == 1u && roles[0] == KIRIN_CHANNEL_ROLE_CENTRE;
+}
+
+inline bool isStereoRoles (const std::vector<uint8_t>& roles) noexcept
+{
+    return roles.size() == 2u && roles[0] == KIRIN_CHANNEL_ROLE_LEFT
+           && roles[1] == KIRIN_CHANNEL_ROLE_RIGHT;
+}
+
+inline bool isSurround51Roles (const std::vector<uint8_t>& roles) noexcept
+{
+    return roles.size() == 6u && roles[0] == KIRIN_CHANNEL_ROLE_LEFT
+           && roles[1] == KIRIN_CHANNEL_ROLE_RIGHT && roles[2] == KIRIN_CHANNEL_ROLE_CENTRE
+           && roles[3] == KIRIN_CHANNEL_ROLE_LFE
+           && roles[4] == KIRIN_CHANNEL_ROLE_LEFT_SURROUND
+           && roles[5] == KIRIN_CHANNEL_ROLE_RIGHT_SURROUND;
+}
+
+inline bool supportsStereoWorkflows (const std::vector<uint8_t>& roles) noexcept
+{
+    return isMonoRoles (roles) || isStereoRoles (roles);
+}
+
+inline const char* channelRoleShortName (uint8_t role) noexcept
+{
+    switch (role)
+    {
+        case KIRIN_CHANNEL_ROLE_CENTRE:               return "C";
+        case KIRIN_CHANNEL_ROLE_LEFT:                 return "L";
+        case KIRIN_CHANNEL_ROLE_RIGHT:                return "R";
+        case KIRIN_CHANNEL_ROLE_LFE:                  return "LFE";
+        case KIRIN_CHANNEL_ROLE_LEFT_SURROUND:        return "Ls";
+        case KIRIN_CHANNEL_ROLE_RIGHT_SURROUND:       return "Rs";
+        case KIRIN_CHANNEL_ROLE_LEFT_SURROUND_SIDE:   return "Lss";
+        case KIRIN_CHANNEL_ROLE_RIGHT_SURROUND_SIDE:  return "Rss";
+        case KIRIN_CHANNEL_ROLE_LEFT_SURROUND_REAR:   return "Lrs";
+        case KIRIN_CHANNEL_ROLE_RIGHT_SURROUND_REAR:  return "Rrs";
+        case KIRIN_CHANNEL_ROLE_TOP_FRONT_LEFT:       return "Tfl";
+        case KIRIN_CHANNEL_ROLE_TOP_FRONT_RIGHT:      return "Tfr";
+        case KIRIN_CHANNEL_ROLE_TOP_REAR_LEFT:        return "Trl";
+        case KIRIN_CHANNEL_ROLE_TOP_REAR_RIGHT:       return "Trr";
+        default:                                      return "?";
+    }
+}
+
 /** Creates an engine for a role list, or returns nullptr when it is not measurable. */
 inline KirinHypha* createEngineForRoles (double sampleRate, const std::vector<uint8_t>& roles)
 {

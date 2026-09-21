@@ -8,6 +8,7 @@
 use crate::channel_layout::ChannelLayout;
 use crate::meter_clock::MeterClockTracker;
 use crate::meter_history::MeterHistory;
+use crate::meter_history::METER_HISTORY_CHANNELS;
 use crate::{
     MeasureEngine, MeasureResult, MeterClockStart, MeterHistoryAux, MeterHistoryEntry,
     MeterHistoryResolution, SessionSummary, StereoMeter, StereoMeterSnapshot,
@@ -134,6 +135,11 @@ impl MeterSession {
         measurement_epoch: u64,
     ) -> Result<Self, String> {
         let n_channels = layout.channel_count();
+        if n_channels > METER_HISTORY_CHANNELS {
+            return Err(format!(
+                "Meter Session supports at most {METER_HISTORY_CHANNELS} channels"
+            ));
+        }
         let engine = MeasureEngine::new(sample_rate, layout)?;
         let stereo = StereoMeter::new(sample_rate, layout)?;
         static NEXT_HISTORY_INCARNATION: AtomicU64 = AtomicU64::new(1);
@@ -188,17 +194,16 @@ impl MeterSession {
                 let stereo_advanced = self.stereo.push_observation(observed_samples);
                 let stereo_snapshot = stereo_advanced.then(|| self.stereo.snapshot());
                 let session_clip_events = self.stereo.session_clip_events();
-                let clip_event_count =
-                    stereo_advanced
-                        .then_some(session_clip_events)
-                        .map_or([0; 2], |events| {
-                            std::array::from_fn(|channel| {
-                                events[channel]
-                                    .saturating_sub(previous_clip_events[channel])
-                                    .min(MAX_HISTORY_CLIP_EVENTS)
-                                    as u32
-                            })
-                        });
+                let clip_event_count = stereo_advanced.then_some(session_clip_events).map_or(
+                    [0; METER_HISTORY_CHANNELS],
+                    |events| {
+                        std::array::from_fn(|channel| {
+                            events[channel]
+                                .saturating_sub(previous_clip_events[channel])
+                                .min(MAX_HISTORY_CLIP_EVENTS) as u32
+                        })
+                    },
+                );
                 self.current = current.clone();
                 self.max_lufs_m = max_lufs_m;
                 self.maximum.lufs_m = max_lufs_m;

@@ -49,11 +49,13 @@ void View::setKeepActive (bool active)
 void View::layoutFooterActions (juce::Rectangle<int> actions)
 {
     const bool reference = selectedDomain == Domain::reference;
-    const bool full = captureEntryAvailable (role, currentPreset()) && ! reference;
-    hybridVuButton.setVisible (! captureFrame);
+    const bool full = captureEntryAvailable (role, currentPreset()) && ! reference
+                   && ! measurementOnlySurround;
+    hybridVuButton.setVisible (! captureFrame && ! measurementOnlySurround);
     clearPeakClipButton.setVisible (false);
     operationsButton.setVisible (! captureFrame);
-    stopButton.setVisible (role == Role::post && keepActive && ! captureFrame);
+    stopButton.setVisible (role == Role::post && keepActive && ! captureFrame
+                           && ! measurementOnlySurround);
     resetButton.setVisible (false); // Reset Meter Session has one entry in MENU.
     noteButton.setVisible (role == Role::post && full && noteButton.isEnabled() && ! captureFrame);
     captureButton.setVisible (false); // Image Capture has one entry in MENU.
@@ -99,7 +101,8 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     drawPanel (g, toJuce (layout.footer), experienceFamily(), 4.0f);
     auto session = sessionArea.reduced (6, 0);
     const auto& meter = observatoryFrame.meter;
-    const auto state = ! frameAvailable || meter.state == KIRIN_METER_SESSION_EMPTY
+    const auto state = measurementOnlySurround ? juce::String ("5.1 MEASURE")
+                     : ! frameAvailable || meter.state == KIRIN_METER_SESSION_EMPTY
                          ? juce::String ("WAITING")
                      : observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED
                          ? juce::String ("BYPASSED") : juce::String();

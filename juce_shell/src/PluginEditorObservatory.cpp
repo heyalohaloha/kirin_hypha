@@ -140,6 +140,10 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
    #endif
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
     domain = hypha::observatory::sanitizeDomain (role, domain);
+    if (processorRef.surroundMeasurementOnly()
+        && domain != hypha::observatory::Domain::level
+        && domain != hypha::observatory::Domain::time)
+        domain = hypha::observatory::Domain::level;
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (observatoryDomain == hypha::observatory::Domain::reference
         && domain != hypha::observatory::Domain::reference)
@@ -187,6 +191,16 @@ void KirinHyphaEditor::visibilityChanged()
 void KirinHyphaEditor::refreshObservatory()
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (localBlindOpen && ! processorRef.localBlindProductSupported())
+        refreshLocalBlindProduct();
+   #endif
+    const bool surroundMeasurement = processorRef.surroundMeasurementOnly();
+    observatoryView.setSurroundMeasurementOnly (surroundMeasurement);
+    if (surroundMeasurement
+        && observatoryDomain != hypha::observatory::Domain::level
+        && observatoryDomain != hypha::observatory::Domain::time)
+        setObservatoryDomain (hypha::observatory::Domain::level);
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
     syncAnalysisDemand();
     if (localBlindOpen)
     {
@@ -222,7 +236,8 @@ void KirinHyphaEditor::refreshObservatory()
        #endif
     }
     const auto role = isPost ? hypha::observatory::Role::post : hypha::observatory::Role::pre;
-    const bool referenceOwned = isPost && processorRef.licenseIsOs();
+    const bool referenceOwned = isPost && processorRef.stereoWorkflowsSupported()
+                             && processorRef.licenseIsOs();
     if (observatoryView.isReferenceOwned() != referenceOwned)
         observatoryView.setReferenceOwned (referenceOwned);
     auto restoredDomain = hypha::observatory::domainFromState (

@@ -154,6 +154,9 @@ View::View (Role roleIn) : role (roleIn)
 void View::setDomain (Domain value)
 {
     value = sanitizeDomain (role, value);
+    if (measurementOnlySurround
+        && value != Domain::level && value != Domain::time)
+        value = Domain::level;
     if (selectedDomain == value)
         return;
     selectedDomain = value;
@@ -311,7 +314,9 @@ GuidePresence View::guidePresence() const noexcept
 
 void View::cycleDomain()
 {
-    const auto next = nextDomain (role, selectedDomain);
+    const auto next = measurementOnlySurround
+        ? (selectedDomain == Domain::level ? Domain::time : Domain::level)
+        : nextDomain (role, selectedDomain);
     if (onDomainChange) onDomainChange (next);
 }
 

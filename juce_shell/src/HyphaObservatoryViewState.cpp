@@ -74,6 +74,22 @@ bool View::setManualHybridVuVisible (bool visible)
     return true;
 }
 
+void View::setSurroundMeasurementOnly (bool enabled)
+{
+    if (measurementOnlySurround == enabled)
+        return;
+    measurementOnlySurround = enabled;
+    if (enabled)
+    {
+        manualHybridVuSelected = false;
+        if (selectedDomain != Domain::level && selectedDomain != Domain::time)
+            selectedDomain = Domain::level;
+    }
+    updateControls();
+    resized();
+    repaint();
+}
+
 void View::toggleHybridVu()
 {
     if (hybridVuVisible())

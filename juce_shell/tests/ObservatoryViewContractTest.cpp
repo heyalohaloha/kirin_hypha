@@ -1,16 +1,14 @@
 #include "ObservatoryViewContractTest.h"
 #include "ObservatoryCaptureContractTest.h"
 #include "JungleAppearanceContractTest.h"
-
+#include "SurroundObservatoryContractTest.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaSpectrumComponent.h"
-
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <utility>
 #include <vector>
-
 namespace hypha::tests
 {
 namespace
@@ -115,6 +113,7 @@ KirinObservatoryFrame activeFrame()
     frame.delta = activeDelta();
     return frame;
 }
+
 std::vector<KirinMeterHistoryEntry> historyFixture()
 {
     std::vector<KirinMeterHistoryEntry> result (90);
@@ -365,6 +364,7 @@ void verifyObservatoryViewContract()
     post.setGuide ("MASKING 03:18", "3150-3700 HZ", true);
     post.setDomain (observatory::Domain::level);
     post.setObservatoryFrame (activeFrame(), true);
+    verifySurroundObservatoryContract();
     observatory::View connectionProbe (observatory::Role::post);
     connectionProbe.setSize (300, 200);
     connectionProbe.setObservatoryFrame (activeFrame(), true);

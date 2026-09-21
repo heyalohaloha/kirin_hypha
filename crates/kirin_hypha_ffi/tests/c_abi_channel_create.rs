@@ -1,4 +1,4 @@
-//! `kirin_hypha_create` の受理と拒否（P-1 gate）。
+//! `kirin_hypha_create` の受理と拒否（製品レイアウトgate）。
 //!
 //! 役割コードは **リテラルで書く**。製品の `ChannelRole::to_abi()` から期待値を作ると、コード表が
 //! ずれても試験が一緒にずれて気づけない（試験規律 §9.1）。正本は
@@ -27,9 +27,10 @@ fn accepts(roles: &[u8]) -> bool {
 }
 
 #[test]
-fn mono_and_stereo_are_accepted() {
+fn mono_stereo_and_exact_five_one_are_accepted() {
     assert!(accepts(&[CENTRE]), "mono");
     assert!(accepts(&[LEFT, RIGHT]), "stereo");
+    assert!(accepts(&[LEFT, RIGHT, CENTRE, LFE, LS, RS]), "5.1");
 }
 
 #[test]
@@ -116,10 +117,15 @@ fn a_layout_missing_a_non_lfe_channel_is_refused() {
 }
 
 #[test]
-fn surround_is_recognised_but_not_yet_accepted() {
-    // `ChannelLayout` は 5.0 / 5.1 / 7.1.4 を認識する。P-1 の門はそれとは別で、engine が
-    // Nch を測れるようになるまで閉じている。門が先に開くと、認識できるだけの配置が
-    // ステレオ用の経路へ入る。
+fn unshipped_surround_layouts_remain_closed() {
+    // 5.1だけを製品面まで閉じた。認識可能であっても5.0と7.1.4はまだ受理しない。
     assert!(!accepts(&[LEFT, RIGHT, CENTRE, LS, RS]), "5.0");
-    assert!(!accepts(&[LEFT, RIGHT, CENTRE, LFE, LS, RS]), "5.1");
+    assert!(
+        !accepts(&[LEFT, RIGHT, CENTRE, LFE, LS, 6]),
+        "six recognised roles that are not the exact 5.1 layout"
+    );
+    assert!(
+        !accepts(&[LEFT, RIGHT, CENTRE, LFE, 6, 7, 10, 11, 12, 13, 8, 9]),
+        "7.1.4"
+    );
 }

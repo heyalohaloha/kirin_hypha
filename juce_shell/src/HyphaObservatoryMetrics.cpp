@@ -213,7 +213,11 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     if (includeChannelStrips && target() == ObservationTarget::absolute
         && (density == Density::standard || isFullDensity (density)))
         channelStrips = area.removeFromRight (
-            isFullDensity (density) ? channelStripWidth (context, density == Density::inspection ? 164 : 120) : 62).reduced (2);
+            measurementOnlySurround
+                ? channelStripWidth (context, density == Density::inspection ? 230 : 190)
+                : isFullDensity (density)
+                    ? channelStripWidth (context, density == Density::inspection ? 164 : 120)
+                    : 62).reduced (2);
     const bool unavailableComparison = target() == ObservationTarget::delta
         && ! deltaFactsAvailable();
     if (unavailableComparison)
@@ -380,7 +384,9 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
     const auto inspection = getWidth() >= 900;
     juce::Rectangle<int> channelStrips;
     if (target() == ObservationTarget::absolute)
-        channelStrips = area.removeFromRight (channelStripWidth (presentationContext(), inspection ? 126 : 116)).reduced (2);
+        channelStrips = area.removeFromRight (channelStripWidth (
+            presentationContext(), measurementOnlySurround ? (inspection ? 230 : 190)
+                                                            : (inspection ? 126 : 116))).reduced (2);
 
     const auto landscape = area.getWidth() > area.getHeight();
     const auto previousHistoryHeight = juce::jlimit (

@@ -180,7 +180,7 @@ pub use meter_delta_history::{
 };
 pub use meter_history::{
     MeterHistoryAux, MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution,
-    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY,
+    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, METER_HISTORY_CHANNELS,
 };
 pub use meter_session::{
     MeterSession, MeterSessionPublication, MeterSessionSnapshot, MeterSessionState,

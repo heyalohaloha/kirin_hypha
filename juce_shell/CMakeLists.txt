@@ -584,6 +584,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/HybridVuContractTest.cpp
         tests/ComparisonPresentationContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
+        tests/SurroundObservatoryContractTest.cpp
         tests/JungleAppearanceContractTest.cpp
         tests/ObservatoryCaptureContractTest.cpp
         tests/ObservatoryCompositeContractTest.cpp

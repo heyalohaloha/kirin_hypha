@@ -9,6 +9,13 @@ fn point_value(value: f64) -> MeasureResult {
     }
 }
 
+fn clip_counts(first: u32, second: u32) -> [u32; METER_HISTORY_CHANNELS] {
+    let mut counts = [0; METER_HISTORY_CHANNELS];
+    counts[0] = first;
+    counts[1] = second;
+    counts
+}
+
 #[test]
 fn product_capacities_match_ten_minutes_two_hours_and_twenty_four_hours() {
     assert_eq!(HISTORY_10_HZ_CAPACITY, 6_000);
@@ -34,9 +41,9 @@ fn one_second_bucket_keeps_min_max_mean_and_exact_endpoints() {
                 correlation: Some(index as f64 / 10.0),
                 plr: Some(10.0 + index as f64),
                 clip_event_count: match index {
-                    2 => [1, 0],
-                    8 => [0, 2],
-                    _ => [0, 0],
+                    2 => clip_counts(1, 0),
+                    8 => clip_counts(0, 2),
+                    _ => clip_counts(0, 0),
                 },
             },
         );
@@ -55,13 +62,13 @@ fn one_second_bucket_keeps_min_max_mean_and_exact_endpoints() {
     assert_eq!(entry.plr.min, Some(10.0));
     assert_eq!(entry.plr.max, Some(19.0));
     assert_eq!(entry.plr.mean, Some(14.5));
-    assert_eq!(entry.clip_event_count, [1, 2]);
+    assert_eq!(entry.clip_event_count, clip_counts(1, 2));
 }
 
 #[test]
 fn clip_event_counts_saturate_in_aggregated_history_without_wrapping() {
     let mut history = MeterHistory::with_config(4, 4, 4, 2, 2);
-    for clip_event_count in [[u32::MAX, 10], [1, 20]] {
+    for clip_event_count in [clip_counts(u32::MAX, 10), clip_counts(1, 20)] {
         history.push(
             11,
             1,
@@ -76,14 +83,14 @@ fn clip_event_counts_saturate_in_aggregated_history_without_wrapping() {
             },
         );
     }
-    const EXPECTED: [u32; 2] = [u32::MAX, 30];
+    let expected = clip_counts(u32::MAX, 30);
     assert_eq!(
         history.recent(MeterHistoryResolution::Hz1, 1)[0].clip_event_count,
-        EXPECTED
+        expected
     );
     assert_eq!(
         history.recent_decimated(MeterHistoryResolution::Hz10, 2, 1)[0].clip_event_count,
-        EXPECTED
+        expected
     );
 }
 
@@ -276,8 +283,9 @@ fn two_measurement_spans_do_not_aggregate_into_one_bucket() {
     );
 }
 
-/// B-962 は `KirinMeterHistoryEntry` に `measurement_epoch` を足し、内部 entry も
-/// 320 B から 328 B になった。3 tier はどれも `VecDeque::with_capacity` で
+/// Exact 5.1 support widens the internal clip counts to six product channels, making each entry
+/// 344 B. The 16-slot public ABI is deliberately not preallocated here. 3 tier はどれも
+/// `VecDeque::with_capacity` で
 /// **満杯分を engine 生成時に先に確保する**（`with_config`）ので、entry の 1 バイトは
 /// 21,843 倍で効く。`hypha_surround_ingest_capacity_20260918.md` §3.1 が「history の
 /// Nch 増分は 384 MiB の 4 領域モデルに入っていない」と書いたとおり、この量は
@@ -288,7 +296,7 @@ fn two_measurement_spans_do_not_aggregate_into_one_bucket() {
 fn the_preallocated_history_cost_is_measured_not_assumed() {
     assert_eq!(
         std::mem::size_of::<MeterHistoryEntry>(),
-        328,
+        344,
         "entry のサイズを変えたら取込容量の算定をやり直す"
     );
     // 容量 §17.4 の「Nch 化したときの増分」はこの 48 B を前提に算術している。
@@ -312,8 +320,8 @@ fn the_preallocated_history_cost_is_measured_not_assumed() {
     assert_eq!(entries, 21_843);
     assert_eq!(
         entries * std::mem::size_of::<MeterHistoryEntry>(),
-        7_164_504,
-        "MeterHistory 1 本あたり 6.83 MiB。engine 1 台はこれを 2 本持つ \
+        7_513_992,
+        "MeterHistory 1 本あたり 7.17 MiB。engine 1 台はこれを 2 本持つ \
          (meter_session.rs:117 / meter_delta_history.rs:99)"
     );
 }

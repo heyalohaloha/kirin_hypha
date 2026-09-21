@@ -147,6 +147,8 @@ public:
     // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until
     // exact-range project-clock and PDC proof has been recorded for that host format.
     bool localBlindProductSupported() const noexcept;
+    bool stereoWorkflowsSupported() const noexcept;
+    bool surroundMeasurementOnly() const noexcept;
     hypha::local_blind::ProductSessionView localBlindProductView() const;
     hypha::local_blind::CaptureAdmission localBlindCaptureAvailability() const;
     hypha::local_blind::CaptureAdmission requestLocalBlindProductCapture (hypha::meter_context::MeterContext);

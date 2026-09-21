@@ -38,6 +38,39 @@ fn project_clock(position_samples: i64, epoch: u64) -> MeterClockStart {
 }
 
 #[test]
+fn five_one_meter_session_keeps_role_local_peaks_and_clip_history() {
+    let layout = ChannelLayout::by_id(crate::channel_layout::LayoutId::Surround5_1);
+    let mut session = MeterSession::new_in_epoch(SR, layout, 17).unwrap();
+    let frame = [0.10, 0.20, 0.30, 0.40, 0.50, 1.00];
+    let samples: Vec<f64> = frame
+        .into_iter()
+        .cycle()
+        .take(SR as usize / 10 * frame.len())
+        .collect();
+    assert!(session.push_active_at(&samples, project_clock(0, 1)));
+
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.measurement_epoch, 17);
+    assert_eq!(snapshot.layout, layout);
+    assert_eq!(snapshot.stereo.channels, 6);
+    assert!(snapshot.stereo.sample_peak_dbfs[..6]
+        .iter()
+        .all(Option::is_some));
+    assert!(snapshot.stereo.sample_peak_dbfs[6..]
+        .iter()
+        .all(Option::is_none));
+    assert_eq!(snapshot.stereo.clip_events[..6], [0, 0, 0, 0, 0, 1]);
+    assert!(snapshot.stereo.correlation.is_none());
+
+    let history = session.recent_history(MeterHistoryResolution::Hz10, 1);
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].clip_event_count[..6], [0, 0, 0, 0, 0, 1]);
+    assert!(history[0].clip_event_count[6..]
+        .iter()
+        .all(|count| *count == 0));
+}
+
+#[test]
 fn starts_empty_and_only_active_audio_advances_time() {
     let mut session = MeterSession::new(SR, ChannelLayout::stereo()).unwrap();
     let initial = session.snapshot();
@@ -137,7 +170,9 @@ fn peak_clip_clear_does_not_discard_meter_session_truth() {
     let before = session.snapshot();
     let history_before = session.recent_history(MeterHistoryResolution::Hz10, 20);
     assert!(before.stereo.clip_events.iter().any(|count| *count > 0));
-    assert!(before.stereo.max_true_peak_dbtp.iter().all(Option::is_some));
+    assert!(before.stereo.max_true_peak_dbtp[..2]
+        .iter()
+        .all(Option::is_some));
 
     session.clear_peak_clip_holds();
     let cleared = session.snapshot();
@@ -153,7 +188,7 @@ fn peak_clip_clear_does_not_discard_meter_session_truth() {
     assert_eq!(cleared.current.true_peak, before.current.true_peak);
     assert_eq!(cleared.max_lufs_m, before.max_lufs_m);
     assert_eq!(cleared.stereo.clip_events, before.stereo.clip_events);
-    assert_eq!(cleared.stereo.clip_latched, [false, false]);
+    assert!(cleared.stereo.clip_latched.iter().all(|latched| !latched));
     assert!(cleared
         .stereo
         .max_true_peak_dbtp
@@ -166,17 +201,21 @@ fn peak_clip_clear_does_not_discard_meter_session_truth() {
 
     assert!(session.push_active(&stereo_constant(1.1, 0.4)));
     let relatched = session.snapshot();
-    assert_eq!(relatched.stereo.clip_events, [1, 0]);
-    assert_eq!(relatched.stereo.clip_latched, [true, false]);
+    assert_eq!(relatched.stereo.clip_events[..2], [1, 0]);
+    assert_eq!(relatched.stereo.clip_latched[..2], [true, false]);
     assert!(relatched.stereo.max_true_peak_dbtp[0].is_some());
     let history_after = session.recent_history(MeterHistoryResolution::Hz10, 20);
-    let clip_event_totals = history_after.iter().fold([0_u32; 2], |mut totals, entry| {
-        for (total, count) in totals.iter_mut().zip(entry.clip_event_count) {
-            *total += count;
-        }
-        totals
-    });
-    assert_eq!(clip_event_totals, [1, 0]);
+    let clip_event_totals = history_after.iter().fold(
+        [0_u32; crate::channel_layout::MAX_ABI_CHANNELS],
+        |mut totals, entry| {
+            for (total, count) in totals.iter_mut().zip(entry.clip_event_count) {
+                *total += count;
+            }
+            totals
+        },
+    );
+    assert_eq!(clip_event_totals[..2], [1, 0]);
+    assert!(clip_event_totals[2..].iter().all(|count| *count == 0));
 }
 
 #[test]
@@ -242,10 +281,16 @@ fn history_timestamps_new_channel_clip_runs_at_the_exact_observation() {
     let history = session.recent_history(MeterHistoryResolution::Hz10, 10);
     assert_eq!(history.len(), 3);
     assert_eq!(history[0].last_timeline_endpoint_samples, Some(4_800));
-    assert_eq!(history[0].clip_event_count, [1, 0]);
-    assert_eq!(history[1].clip_event_count, [0, 0]);
+    assert_eq!(history[0].clip_event_count[..2], [1, 0]);
+    assert!(history[0].clip_event_count[2..]
+        .iter()
+        .all(|count| *count == 0));
+    assert!(history[1].clip_event_count.iter().all(|count| *count == 0));
     assert_eq!(history[2].last_timeline_endpoint_samples, Some(14_400));
-    assert_eq!(history[2].clip_event_count, [0, 1]);
+    assert_eq!(history[2].clip_event_count[..2], [0, 1]);
+    assert!(history[2].clip_event_count[2..]
+        .iter()
+        .all(|count| *count == 0));
 }
 
 #[test]

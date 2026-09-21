@@ -4,7 +4,7 @@
 //! peaks, clip events, balance and correlation on the same sample boundary as loudness/session
 //! facts without adding work to the Audio Thread.
 
-use crate::channel_layout::{ChannelLayout, LayoutId};
+use crate::channel_layout::{ChannelLayout, MAX_ABI_CHANNELS};
 use std::collections::VecDeque;
 
 use ebur128::{EbuR128, Mode};
@@ -29,20 +29,20 @@ pub enum BalanceState {
 #[derive(Debug, Clone, Copy)]
 pub struct StereoMeterSnapshot {
     pub channels: u8,
-    pub sample_peak_dbfs: [Option<f64>; 2],
-    pub sample_peak_hold_dbfs: [Option<f64>; 2],
-    pub true_peak_dbtp: [Option<f64>; 2],
+    pub sample_peak_dbfs: [Option<f64>; MAX_ABI_CHANNELS],
+    pub sample_peak_hold_dbfs: [Option<f64>; MAX_ABI_CHANNELS],
+    pub true_peak_dbtp: [Option<f64>; MAX_ABI_CHANNELS],
     /// True Peak of the latest exact 100 ms observation. The 400 ms `true_peak_dbtp` value
     /// remains available for the conventional level strips.
-    pub instant_true_peak_dbtp: [Option<f64>; 2],
-    pub max_true_peak_dbtp: [Option<f64>; 2],
+    pub instant_true_peak_dbtp: [Option<f64>; MAX_ABI_CHANNELS],
+    pub max_true_peak_dbtp: [Option<f64>; MAX_ABI_CHANNELS],
     /// Sine-calibrated, full-wave average over the latest exact 300 ms. A sine whose peak is
     /// -18 dBFS therefore reads -18 dBFS and 0 VU at the UI's fixed reference.
-    pub vu_dbfs: [Option<f64>; 2],
+    pub vu_dbfs: [Option<f64>; MAX_ABI_CHANNELS],
     /// Session-cumulative contiguous sample-clip runs. Only a full Meter Session reset clears it.
-    pub clip_events: [u64; 2],
+    pub clip_events: [u64; MAX_ABI_CHANNELS],
     /// User-clearable Hybrid VU indicators. These do not replace the cumulative clip facts.
-    pub clip_latched: [bool; 2],
+    pub clip_latched: [bool; MAX_ABI_CHANNELS],
     pub balance_db: Option<f64>,
     pub balance_state: BalanceState,
     pub correlation: Option<f64>,
@@ -69,7 +69,7 @@ struct EnergyObservation {
 
 #[derive(Debug, Clone, Copy, Default)]
 struct VuObservation {
-    rectified: [f64; 2],
+    rectified: [f64; MAX_ABI_CHANNELS],
     frames: u64,
 }
 
@@ -81,15 +81,15 @@ struct FieldObservation {
 pub struct StereoMeter {
     ebu: EbuR128,
     channels: usize,
-    sample_peak: [f64; 2],
-    sample_peak_hold: [f64; 2],
-    true_peak_window: VecDeque<[f64; 2]>,
-    max_true_peak: [f64; 2],
+    sample_peak: [f64; MAX_ABI_CHANNELS],
+    sample_peak_hold: [f64; MAX_ABI_CHANNELS],
+    true_peak_window: VecDeque<[f64; MAX_ABI_CHANNELS]>,
+    max_true_peak: [f64; MAX_ABI_CHANNELS],
     vu_window: VecDeque<VuObservation>,
     vu_sum: VuObservation,
-    clip_latched: [bool; 2],
-    session_clip_events: [u64; 2],
-    session_clip_open: [bool; 2],
+    clip_latched: [bool; MAX_ABI_CHANNELS],
+    session_clip_events: [u64; MAX_ABI_CHANNELS],
+    session_clip_open: [bool; MAX_ABI_CHANNELS],
     energy_window: VecDeque<EnergyObservation>,
     energy_sum: EnergyObservation,
     field_window: VecDeque<FieldObservation>,
@@ -102,14 +102,11 @@ pub struct StereoMeter {
 }
 
 impl StereoMeter {
-    /// `layout` must still be mono or stereo: every field of this meter is a `[_; 2]`, so a wider
-    /// layout would be measured on its first two channels and reported as the whole programme.
-    /// The map is applied all the same, so the stereo path never relies on the ebur128 default.
+    /// Channel-local facts occupy the complete public ABI width. Stereo-only facts remain
+    /// unavailable outside the exact two-channel layout instead of being inferred from the first
+    /// two channels. The explicit loudness map is always applied.
     pub fn new(sample_rate: u32, layout: ChannelLayout) -> Result<Self, String> {
         let channels = layout.channel_count();
-        if !matches!(layout.id(), LayoutId::Mono | LayoutId::Stereo) {
-            return Err(format!("unsupported layout: {}", layout.id().as_str()));
-        }
         let mut ebu = EbuR128::new(channels as u32, sample_rate, Mode::TRUE_PEAK)
             .map_err(|error| format!("EbuR128::new: {error:?}"))?;
         ebu.set_channel_map(&layout.loudness_map())
@@ -120,15 +117,15 @@ impl StereoMeter {
             sample_rate,
             mono_sum: None,
             mono_sum_db: [None; MONO_SUM_BAND_COUNT],
-            sample_peak: [0.0; 2],
-            sample_peak_hold: [0.0; 2],
+            sample_peak: [0.0; MAX_ABI_CHANNELS],
+            sample_peak_hold: [0.0; MAX_ABI_CHANNELS],
             true_peak_window: VecDeque::with_capacity(OBSERVATIONS_PER_TP_WINDOW + 1),
-            max_true_peak: [0.0; 2],
+            max_true_peak: [0.0; MAX_ABI_CHANNELS],
             vu_window: VecDeque::with_capacity(OBSERVATIONS_PER_VU_WINDOW + 1),
             vu_sum: VuObservation::default(),
-            clip_latched: [false; 2],
-            session_clip_events: [0; 2],
-            session_clip_open: [false; 2],
+            clip_latched: [false; MAX_ABI_CHANNELS],
+            session_clip_events: [0; MAX_ABI_CHANNELS],
+            session_clip_open: [false; MAX_ABI_CHANNELS],
             energy_window: VecDeque::with_capacity(OBSERVATIONS_PER_THREE_SECONDS + 1),
             energy_sum: EnergyObservation::default(),
             field_window: VecDeque::with_capacity(OBSERVATIONS_PER_THREE_SECONDS + 1),
@@ -144,7 +141,7 @@ impl StereoMeter {
             return false;
         }
 
-        let mut peak = [0.0_f64; 2];
+        let mut peak = [0.0_f64; MAX_ABI_CHANNELS];
         let mut vu = VuObservation::default();
         let mut energy = EnergyObservation::default();
         let mut field = FieldObservation {
@@ -197,7 +194,7 @@ impl StereoMeter {
             self.sample_peak_hold[channel] = self.sample_peak_hold[channel].max(value);
         }
 
-        let mut true_peak = [0.0; 2];
+        let mut true_peak = [0.0; MAX_ABI_CHANNELS];
         for (channel, value) in true_peak.iter_mut().enumerate().take(self.channels) {
             *value = self.ebu.prev_true_peak(channel as u32).unwrap_or(0.0);
             self.max_true_peak[channel] = self.max_true_peak[channel].max(*value);
@@ -253,15 +250,15 @@ impl StereoMeter {
 
     pub fn reset(&mut self) {
         self.ebu.reset();
-        self.sample_peak = [0.0; 2];
-        self.sample_peak_hold = [0.0; 2];
+        self.sample_peak = [0.0; MAX_ABI_CHANNELS];
+        self.sample_peak_hold = [0.0; MAX_ABI_CHANNELS];
         self.true_peak_window.clear();
-        self.max_true_peak = [0.0; 2];
+        self.max_true_peak = [0.0; MAX_ABI_CHANNELS];
         self.vu_window.clear();
         self.vu_sum = VuObservation::default();
-        self.clip_latched = [false; 2];
-        self.session_clip_events = [0; 2];
-        self.session_clip_open = [false; 2];
+        self.clip_latched = [false; MAX_ABI_CHANNELS];
+        self.session_clip_events = [0; MAX_ABI_CHANNELS];
+        self.session_clip_open = [false; MAX_ABI_CHANNELS];
         self.energy_window.clear();
         self.energy_sum = EnergyObservation::default();
         self.field_window.clear();
@@ -289,18 +286,18 @@ impl StereoMeter {
     /// Clears only the Hybrid VU's user-resettable TP maximum and clip latch.
     /// Current/recent TP, VU averaging, sample peak hold, and stereo windows remain continuous.
     pub fn clear_peak_clip_holds(&mut self) {
-        self.max_true_peak = [0.0; 2];
-        self.clip_latched = [false; 2];
+        self.max_true_peak = [0.0; MAX_ABI_CHANNELS];
+        self.clip_latched = [false; MAX_ABI_CHANNELS];
     }
 
-    pub fn session_clip_events(&self) -> [u64; 2] {
+    pub fn session_clip_events(&self) -> [u64; MAX_ABI_CHANNELS] {
         self.session_clip_events
     }
 
     pub fn snapshot(&self) -> StereoMeterSnapshot {
         let sample_peak_dbfs = self.map_channels(self.sample_peak, linear_to_db);
         let sample_peak_hold_dbfs = self.map_channels(self.sample_peak_hold, linear_to_db);
-        let mut recent_true_peak = [0.0_f64; 2];
+        let mut recent_true_peak = [0.0_f64; MAX_ABI_CHANNELS];
         for observation in &self.true_peak_window {
             for (channel, value) in recent_true_peak.iter_mut().enumerate().take(self.channels) {
                 *value = (*value).max(observation[channel]);
@@ -308,7 +305,10 @@ impl StereoMeter {
         }
         let true_peak_dbtp = self.map_channels(recent_true_peak, linear_to_db);
         let instant_true_peak_dbtp = self.map_channels(
-            self.true_peak_window.back().copied().unwrap_or([0.0; 2]),
+            self.true_peak_window
+                .back()
+                .copied()
+                .unwrap_or([0.0; MAX_ABI_CHANNELS]),
             linear_to_db,
         );
         let vu_dbfs = self.vu_levels();
@@ -338,8 +338,12 @@ impl StereoMeter {
         }
     }
 
-    fn map_channels(&self, linear: [f64; 2], map: impl Fn(f64) -> Option<f64>) -> [Option<f64>; 2] {
-        let mut result = [None; 2];
+    fn map_channels(
+        &self,
+        linear: [f64; MAX_ABI_CHANNELS],
+        map: impl Fn(f64) -> Option<f64>,
+    ) -> [Option<f64>; MAX_ABI_CHANNELS] {
+        let mut result = [None; MAX_ABI_CHANNELS];
         for (channel, value) in linear.iter().copied().enumerate().take(self.channels) {
             result[channel] = map(value);
         }
@@ -368,8 +372,8 @@ impl StereoMeter {
         (balance, state, correlation)
     }
 
-    fn vu_levels(&self) -> [Option<f64>; 2] {
-        let mut result = [None; 2];
+    fn vu_levels(&self) -> [Option<f64>; MAX_ABI_CHANNELS] {
+        let mut result = [None; MAX_ABI_CHANNELS];
         if self.vu_window.len() < OBSERVATIONS_PER_VU_WINDOW || self.vu_sum.frames == 0 {
             return result;
         }

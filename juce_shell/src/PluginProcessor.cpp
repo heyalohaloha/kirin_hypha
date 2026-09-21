@@ -125,8 +125,8 @@ bool KirinHyphaProcessorBase::isBusesLayoutSupported (const BusesLayout& layouts
     if (mainIn != mainOut)
         return false;
 
-    return mainOut == juce::AudioChannelSet::mono()
-        || mainOut == juce::AudioChannelSet::stereo();
+    return mainOut == juce::AudioChannelSet::mono() || mainOut == juce::AudioChannelSet::stereo()
+        || mainOut == juce::AudioChannelSet::create5point1();
 }
 
 void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)

@@ -239,7 +239,7 @@ impl DeltaHistoryState {
                 MeterHistoryAux {
                     correlation: difference(post_point.correlation.mean, pre_point.correlation),
                     plr: difference(post_point.plr.mean, pre_point.plr),
-                    clip_event_count: [0; 2],
+                    clip_event_count: [0; crate::meter_history::METER_HISTORY_CHANNELS],
                 },
             );
             self.last_joined_axis = Some((post_point.last_observed_frames, key.1, key.0));

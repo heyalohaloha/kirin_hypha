@@ -77,24 +77,27 @@ void View::resized()
     domainCycleButton.setVisible (singleDomainControl);
     levelButton.setVisible (! singleDomainControl);
     timeButton.setVisible (! singleDomainControl);
-    frequencyButton.setVisible (! singleDomainControl
+    frequencyButton.setVisible (! measurementOnlySurround && ! singleDomainControl
                                 && domainCapabilities (role).frequency);
-    spaceButton.setVisible (! singleDomainControl);
-    referenceButton.setVisible (! singleDomainControl
+    spaceButton.setVisible (! measurementOnlySurround && ! singleDomainControl);
+    referenceButton.setVisible (! measurementOnlySurround && ! singleDomainControl
                                 && domainCapabilities (role).reference);
     if (singleDomainControl)
         domainCycleButton.setBounds (navigation);
     else
     {
         auto remaining = navigation;
-        const auto domainCount = domainCapabilities (role).reference ? 5 : 3;
+        const auto domainCount = measurementOnlySurround ? 2
+            : domainCapabilities (role).reference ? 5 : 3;
         const auto width = remaining.getWidth() / domainCount;
         levelButton.setBounds (remaining.removeFromLeft (width));
-        timeButton.setBounds (remaining.removeFromLeft (width));
-        if (domainCapabilities (role).frequency)
+        timeButton.setBounds (measurementOnlySurround ? remaining
+                                                      : remaining.removeFromLeft (width));
+        if (! measurementOnlySurround && domainCapabilities (role).frequency)
             frequencyButton.setBounds (remaining.removeFromLeft (width));
-        spaceButton.setBounds (remaining.removeFromLeft (width));
-        if (domainCapabilities (role).reference)
+        if (! measurementOnlySurround)
+            spaceButton.setBounds (remaining.removeFromLeft (width));
+        if (! measurementOnlySurround && domainCapabilities (role).reference)
             referenceButton.setBounds (remaining);
     }
 

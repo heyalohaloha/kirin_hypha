@@ -22,9 +22,8 @@ use crate::KirinHyphaEngine;
 /// （D-4）。認識できない役割・重複・順序違い・未知のレイアウトはすべて null で拒否し、
 /// 「それらしい」map で計測しない。
 ///
-/// P-1 時点の受理範囲は mono / stereo に留める。`ChannelLayout` は 5.0 / 5.1 / 7.1.4 も認識するが、
-/// engine 側の Nch 化が済むまでここで門を閉じる。呼び出し側の殻は `isBusesLayoutSupported` で
-/// そもそも mono / stereo 以外を交渉しない。
+/// 受理範囲は mono / stereo / exact 5.1。`ChannelLayout` は 5.0 / 7.1.4 も認識するが、製品表示と
+/// 検証を閉じた配置だけをここで開く。数が6というだけのunknown配置を5.1として受理しない。
 ///
 /// # Safety
 /// `channel_roles` は `channel_count` 要素以上の有効な配列か null であること。
@@ -59,8 +58,11 @@ unsafe fn layout_from_abi(roles: *const u8, count: u32) -> Option<ChannelLayout>
         .map(|code| ChannelRole::from_abi(*code))
         .collect();
     let layout = ChannelLayout::recognise(&roles?).ok()?;
-    // P-1 の門。engine が Nch を測れるようになるまで、認識できることと受理することを分ける。
-    matches!(layout.id(), LayoutId::Mono | LayoutId::Stereo).then_some(layout)
+    matches!(
+        layout.id(),
+        LayoutId::Mono | LayoutId::Stereo | LayoutId::Surround5_1
+    )
+    .then_some(layout)
 }
 
 /// あるレイアウトの役割コード列（バッファ順）。殻は自分のチャンネル集合から同じ列を組む。

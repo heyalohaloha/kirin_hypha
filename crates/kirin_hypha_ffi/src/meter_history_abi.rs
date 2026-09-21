@@ -59,7 +59,7 @@ mod tests {
             first_timeline_endpoint_samples: Some(104_800),
             last_timeline_endpoint_samples: None,
             timeline_source: CaptureClockSource::ProjectTimeline,
-            clip_event_count: [3, 1],
+            clip_event_count: std::array::from_fn(|slot| [3, 1].get(slot).copied().unwrap_or(0)),
             lufs_m: MeterHistoryRange {
                 min: Some(-16.0),
                 max: Some(-13.0),

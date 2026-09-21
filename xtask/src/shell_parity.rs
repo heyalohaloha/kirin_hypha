@@ -235,9 +235,9 @@ mod tests {
         assert!(body.contains("\"Preparing pairs...\""));
         assert!(body.contains("\"Ready to bounce\""));
         assert!(body.contains("observatoryView.setKeepActive (keepActive);"));
-        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains(
-            "stopButton.setVisible (role == Role::post && keepActive && ! captureFrame);"
-        ));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP
+            .contains("stopButton.setVisible (role == Role::post && keepActive && ! captureFrame"));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains("&& ! measurementOnlySurround);"));
     }
 
     #[test]
@@ -289,9 +289,9 @@ mod tests {
         assert!(PLUGIN_EDITOR_CPP.contains("menu.addSectionHeader (\"Keep\")"));
         assert!(PLUGIN_EDITOR_CPP.contains("osOwned && pairSelected"));
         assert!(PLUGIN_EDITOR_CPP.contains("processorRef.keepPair()"));
-        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains(
-            "stopButton.setVisible (role == Role::post && keepActive && ! captureFrame);"
-        ));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP
+            .contains("stopButton.setVisible (role == Role::post && keepActive && ! captureFrame"));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains("&& ! measurementOnlySurround);"));
         assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP
             .contains("localBlindButton.setEnabled (! keepActive);"));
     }

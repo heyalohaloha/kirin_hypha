@@ -80,6 +80,23 @@ public:
 
     void setDomain (Domain);
     Domain domain() const noexcept { return selectedDomain; }
+    void setSurroundMeasurementOnly (bool enabled);
+    bool surroundMeasurementOnlyForTest() const noexcept
+    {
+        return measurementOnlySurround;
+    }
+    bool frequencyControlVisibleForTest() const noexcept
+    {
+        return frequencyButton.isVisible();
+    }
+    bool spaceControlVisibleForTest() const noexcept
+    {
+        return spaceButton.isVisible();
+    }
+    bool referenceControlVisibleForTest() const noexcept
+    {
+        return referenceButton.isVisible();
+    }
     ExperienceFamily experienceFamily() const noexcept
     {
         return observatory::experienceFamily (currentPreset());
@@ -128,11 +145,13 @@ public:
     bool manualHybridVuVisible() const noexcept { return manualHybridVuSelected; }
     bool hybridVuShownByRecording() const noexcept
     {
-        return ! manualHybridVuSelected && recordingHybridVuRequested() && ! captureFrame;
+        return ! measurementOnlySurround && ! manualHybridVuSelected
+            && recordingHybridVuRequested() && ! captureFrame;
     }
     bool hybridVuVisible() const noexcept
     {
-        return (manualHybridVuSelected || recordingHybridVuRequested())
+        return ! measurementOnlySurround
+            && (manualHybridVuSelected || recordingHybridVuRequested())
             && ! captureFrame && ! recordDisplayShowing();
     }
     bool recordBodyActive() const noexcept { return recordDisplayShowing(); }
@@ -216,7 +235,7 @@ public:
     }
     bool bodyOwnedByExternalAnalysis() const noexcept
     {
-        return role == Role::post
+        return ! measurementOnlySurround && role == Role::post
             && (selectedDomain == Domain::frequency || selectedDomain == Domain::reference);
     }
 
@@ -286,6 +305,7 @@ private:
     juce::String feedbackText;
     bool referenceOwned = false;
     bool localBlindEntryEnabled = false;
+    bool measurementOnlySurround = false;
     bool keepActive = false;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;

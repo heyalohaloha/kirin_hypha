@@ -1,6 +1,7 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaChannelReadoutLayout.h"
+#include "ChannelRoles.h"
 
 #include <array>
 #include <cmath>
@@ -160,6 +161,98 @@ void paintFullChannelStrips (juce::Graphics& g,
                     "R", meter.clip_events[1], cumulativeAvailable && meter.channels > 1,
                     presentation);
 }
+
+void paintSurroundChannelRows (juce::Graphics& g,
+                               juce::Rectangle<int> area,
+                               const KirinMeterSession& meter,
+                               bool currentAvailable,
+                               bool cumulativeAvailable,
+                               presentation::Context presentation)
+{
+    auto title = area.removeFromTop (18);
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
+                          typography::Composition::instrument));
+    g.drawText ("5.1 CHANNEL PEAK", title, juce::Justification::centredLeft);
+    g.setFont (labelFont (presentation, typography::TextRole::unit,
+                          typography::Composition::instrument));
+    g.drawText ("dBTP / CLIP", title, juce::Justification::centredRight);
+
+    const auto channels = juce::jlimit (0, static_cast<int> (KIRIN_MAX_CHANNELS),
+                                        static_cast<int> (meter.channels));
+    const auto rows = juce::jmax (1, channels);
+    for (int channel = 0; channel < rows; ++channel)
+    {
+        auto row = channel + 1 == rows
+            ? area : area.removeFromTop (area.getHeight() / (rows - channel));
+        if (row.getHeight() <= 0)
+            continue;
+
+        const auto role = channel < channels
+            ? kirin::channelRoleShortName (meter.channel_positions[channel]) : "?";
+        auto label = row.removeFromLeft (juce::jmin (34, row.getWidth()));
+        auto clip = row.removeFromRight (juce::jmin (30, row.getWidth()));
+        auto value = row.removeFromRight (juce::jmin (44, row.getWidth()));
+        auto bar = row.reduced (3, juce::jmax (2, row.getHeight() / 4));
+
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (monoFont (presentation, typography::TextRole::legend,
+                             typography::Composition::instrument));
+        g.drawText (role, label, juce::Justification::centredLeft);
+
+        const bool peakAvailable = currentAvailable && channel < channels
+                                && std::isfinite (meter.sample_peak_dbfs[channel]);
+        const auto mapX = [&bar] (double db)
+        {
+            const auto normalized = juce::jlimit (0.0, 1.0, (db + 60.0) / 60.0);
+            return (float) bar.getX() + static_cast<float> (normalized)
+                                      * static_cast<float> (bar.getWidth());
+        };
+        g.setColour (COL_MUTED.withAlpha (0.22f));
+        g.fillRoundedRectangle (bar.toFloat(), 1.5f);
+        if (peakAvailable)
+        {
+            const auto right = mapX (meter.sample_peak_dbfs[channel]);
+            g.setColour ((meter.sample_peak_dbfs[channel] >= -6.0
+                              ? COL_FLORA : COL_SPECTRUM_DELTA).withAlpha (0.76f));
+            g.fillRoundedRectangle (bar.withRight (juce::roundToInt (right)).toFloat(), 1.5f);
+            if (std::isfinite (meter.channel_true_peak_dbtp[channel]))
+            {
+                g.setColour (COL_FLORA_BR);
+                const auto x = mapX (meter.channel_true_peak_dbtp[channel]);
+                g.drawVerticalLine (juce::roundToInt (x), (float) bar.getY(),
+                                    (float) bar.getBottom());
+            }
+        }
+        if (cumulativeAvailable && channel < channels
+            && std::isfinite (meter.sample_peak_hold_dbfs[channel]))
+        {
+            g.setColour (COL_NORMAL.withAlpha (0.72f));
+            const auto x = mapX (meter.sample_peak_hold_dbfs[channel]);
+            g.drawVerticalLine (juce::roundToInt (x), (float) bar.getY(),
+                                (float) bar.getBottom());
+        }
+
+        const bool truePeakAvailable = currentAvailable && channel < channels
+                                    && std::isfinite (meter.channel_true_peak_dbtp[channel]);
+        g.setColour (truePeakAvailable ? COL_NORMAL : COL_MUTED);
+        drawTabularText (
+            g, monoFont (presentation, typography::TextRole::readout,
+                         typography::Composition::instrument),
+            truePeakAvailable ? juce::String (meter.channel_true_peak_dbtp[channel], 1)
+                              : juce::String ("---"),
+            value.toFloat(), juce::Justification::centredRight);
+        const bool clipAvailable = cumulativeAvailable && channel < channels;
+        g.setColour (! clipAvailable ? COL_MUTED
+                                     : meter.clip_events[channel] > 0
+                                         ? COL_FLORA_BR : COL_TEXT_TERTIARY);
+        drawTabularText (
+            g, monoFont (presentation, typography::TextRole::legend,
+                         typography::Composition::instrument),
+            clipAvailable ? clipCountText (meter.clip_events[channel]) : hypha::emDash(),
+            clip.toFloat(), juce::Justification::centredRight);
+    }
+}
 }
 
 SizePreset View::currentPreset() const noexcept
@@ -208,6 +301,12 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
         g, area.toFloat(), experienceFamily() == ExperienceFamily::compactMeter
                                ? 0.96f : 0.76f);
     area.reduce (5, 5);
+    if (meter.channels > 2)
+    {
+        paintSurroundChannelRows (g, area, meter, currentAvailable, cumulativeAvailable,
+                                  presentationContext());
+        return;
+    }
     if (isFullDensity (currentPreset().density))
     {
         paintFullChannelStrips (g, area, meter, currentAvailable, cumulativeAvailable,
