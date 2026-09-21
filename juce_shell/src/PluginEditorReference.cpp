@@ -145,12 +145,9 @@ void KirinHyphaEditor::configureReferenceAudition()
     {
         if (! processorRef.answerReferenceBlind (stimulus))
             showToast ("Listen to both sources before choosing");
+        else if (! processorRef.revealReferenceBlind()) showToast ("Blind Compare could not be revealed");
     };
-    referenceView.onRevealBlind = [this]
-    {
-        if (! processorRef.revealReferenceBlind())
-            showToast ("Blind Compare could not be revealed");
-    };
+    referenceView.onRevealBlind = [this] { if (! processorRef.revealReferenceBlind()) showToast ("Blind Compare could not be revealed"); };
     referenceView.onEndBlind = [this] { processorRef.endReferenceBlind(); };
     referenceView.onStartReview=[this]{if(!processorRef.startLatestReferenceReview())showToast("Today's review is unavailable");};
     referenceView.onStartBookmark=[this]{if(!processorRef.startLatestReferenceBookmark())showToast("Bookmark is unavailable");};

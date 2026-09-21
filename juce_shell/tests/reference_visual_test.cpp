@@ -69,7 +69,8 @@ void testReferenceVisual (const juce::File& sandbox)
         beginReferenceRtProbe(); enqueueInput (input, 24000 + bin * 4800, true);
         require (endReferenceRtProbe() == 0, "display copy allocates zero times in callback");
         require (std::memcmp (input.getReadPointer (1,32), fixture.audio.getReadPointer (1,bin*4800+32), sizeof(float)) == 0, "observation preserves original A bits");
-        juce::Thread::sleep (10);
+        for(int i=0;i<800 && observation.pendingInput();++i) juce::Thread::sleep(5);
+        require(!observation.pendingInput(),"synthetic host waits for the finite display worker");
     };
     const auto measurementCpu = std::clock();
     for (int i = 0; i < 40; ++i) feed (i);
@@ -116,8 +117,15 @@ void testReferenceVisual (const juce::File& sandbox)
         require(capture.access->active,"Capture uses its own finite worker");
         for(int i=0;i<40;++i) {
             for(int c=0;c<2;++c) input.copyFrom(c,0,fixture.audio,c,i*4800,4800);
+            const auto processedBefore=capture.access->framesProcessed.load(std::memory_order_acquire);
             beginReferenceRtProbe(); capture.observe(input,24000+i*4800,true,true,true,1);
-            require(endReferenceRtProbe()==0,"stalled B never introduces RT allocation"); juce::Thread::sleep(10);
+            require(endReferenceRtProbe()==0,"stalled B never introduces RT allocation");
+            bool consumed=false; for(int attempt=0;attempt<800 && !consumed;++attempt) {
+                consumed=!capture.access->active.load(std::memory_order_acquire)
+                    || capture.access->framesProcessed.load(std::memory_order_acquire)>=processedBefore+4800;
+                if(!consumed) juce::Thread::sleep(5);
+            }
+            require(consumed,"synthetic host waits for the independent Capture worker");
         }
         capture.observe(input,216000,true,false,true,1);
         for(int i=0;i<600 && capture.access->busy();++i) juce::Thread::sleep(5);
@@ -177,7 +185,12 @@ void testReferenceVisualIntegration (ref::ReferenceComparisonController& control
 {
     controller.setPresented (true);
     // Allow the visible, calibrated Version binding to publish before the first callback.
-    juce::Thread::sleep (150);
+    bool observing=false; for(int attempt=0;attempt<500 && !observing;++attempt) {
+        const auto state=controller.snapshot(); observing=state.visualTimeline
+            && state.visualTimeline->observing && state.visualTimeline->pairedObserving;
+        if(!observing) juce::Thread::sleep(10);
+    }
+    require(observing,"whole-song comparison is observing before the synthetic host runs");
     for (int position=0; position+4800<=song.getNumSamples(); position+=4800)
     {
         juce::AudioBuffer<float> block (2,4800);
@@ -187,7 +200,13 @@ void testReferenceVisualIntegration (ref::ReferenceComparisonController& control
         controller.observeAInput (block,position,true,true,true);
         const bool rendered = controller.renderSelectedB (block,position,true,true,true);
         require (endReferenceRtProbe()==0 && !rendered, "whole-song display adds no RT heap operations or implicit B switch");
-        juce::Thread::sleep (10);
+        const auto index=size_t(position/4800);
+        bool consumed=false; for(int attempt=0;attempt<800 && !consumed;++attempt) {
+            const auto state=controller.snapshot(); consumed=state.visualTimeline
+                && index<state.visualTimeline->bins.size() && state.visualTimeline->bins[index].pass!=0;
+            if(!consumed) juce::Thread::sleep(5);
+        }
+        require(consumed,"synthetic host waits for the whole-song comparison worker");
     }
     size_t covered = 0;
     for (int i=0;i<300;++i)

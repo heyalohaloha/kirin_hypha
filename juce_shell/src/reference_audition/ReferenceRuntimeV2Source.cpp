@@ -288,6 +288,26 @@ namespace hypha::reference_audition
             return juce::String (std::to_string (value));
         }
 
+       #if JUCE_WINDOWS
+        bool windowsFileTimeTicksAsUnixNanoseconds (std::uint64_t ticks,
+                                                    juce::String& result)
+        {
+            constexpr std::uint64_t unixEpochOffsetTicks = 116'444'736'000'000'000ULL;
+            if (ticks < unixEpochOffsetTicks
+                || ticks - unixEpochOffsetTicks > std::numeric_limits<std::uint64_t>::max() / 100)
+                return false;
+            result = unsignedText ((ticks - unixEpochOffsetTicks) * 100);
+            return true;
+        }
+
+        bool windowsFileTimeAsUnixNanoseconds (DWORD high, DWORD low,
+                                               juce::String& result)
+        {
+            return windowsFileTimeTicksAsUnixNanoseconds (
+                (static_cast<std::uint64_t> (high) << 32) | low, result);
+        }
+       #endif
+
         bool currentRevision (const juce::File& file, RuntimeFileRevision& result)
         {
            #if JUCE_WINDOWS
@@ -297,9 +317,13 @@ namespace hypha::reference_audition
             if (handle == INVALID_HANDLE_VALUE)
                 return false;
             BY_HANDLE_FILE_INFORMATION info {};
+            FILE_BASIC_INFO basicInfo {};
             const bool ok = GetFileInformationByHandle (handle, &info) != 0
+                && GetFileInformationByHandleEx (handle, FileBasicInfo,
+                                                 &basicInfo, sizeof (basicInfo)) != 0
                 && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0
-                && (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+                && (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
+                && basicInfo.ChangeTime.QuadPart >= 0;
             CloseHandle (handle);
             if (! ok)
                 return false;
@@ -309,11 +333,12 @@ namespace hypha::reference_audition
             result.deviceId = unsignedText (info.dwVolumeSerialNumber);
             result.fileId = unsignedText (combine (info.nFileIndexHigh, info.nFileIndexLow));
             result.sizeBytes = unsignedText (combine (info.nFileSizeHigh, info.nFileSizeLow));
-            result.modifiedTimeNs = unsignedText (combine (info.ftLastWriteTime.dwHighDateTime,
-                                                           info.ftLastWriteTime.dwLowDateTime) * 100);
-            result.changedTimeNs = unsignedText (combine (info.ftCreationTime.dwHighDateTime,
-                                                          info.ftCreationTime.dwLowDateTime) * 100);
-            return true;
+            return windowsFileTimeAsUnixNanoseconds (info.ftLastWriteTime.dwHighDateTime,
+                                                     info.ftLastWriteTime.dwLowDateTime,
+                                                     result.modifiedTimeNs)
+                && windowsFileTimeTicksAsUnixNanoseconds (
+                    static_cast<std::uint64_t> (basicInfo.ChangeTime.QuadPart),
+                    result.changedTimeNs);
            #else
             struct stat info {};
             if (::lstat (file.getFullPathName().toRawUTF8(), &info) != 0 || ! S_ISREG (info.st_mode))

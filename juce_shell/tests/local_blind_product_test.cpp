@@ -250,27 +250,32 @@ private:
                 stage = 5;
                 break;
             case 5:
-                if (! state.trial.passComplete) break;
+                if (! state.trial.heardOneComplete || state.trial.pendingStimulus != 2) break;
                 require (! state.trial.canAnswer, "first side alone cannot answer");
                 play.store (false);
                 ++stage;
                 break;
             case 6:
                 if (post->isPlaying()) break;
-                if (! click ("local-blind-source-2")) break;
+                require (state.trial.pendingStimulus == 2,
+                         "completed source one arms source two without another click");
                 passNumber.store (2);
                 cue (nativeStart - 1003);
                 ++stage;
                 break;
             case 7:
                 if (! state.trial.passComplete || ! state.trial.canAnswer) break;
+                if (const auto* answer = find (*editor, "local-blind-answer-same");
+                    answer == nullptr || ! answer->isVisible()) break;
+                if (const auto* reveal = find (*editor, "local-blind-reveal");
+                    reveal == nullptr || reveal->isVisible())
+                    require (false, "normal answer flow hides the redundant Reveal action");
                 if (! click ("local-blind-answer-same")) break;
                 ++stage;
                 break;
             case 8:
-                if (state.trial.answer == hypha::local_blind::TrialAnswer::none) break;
-                if (! click ("local-blind-reveal")) break;
-                ++stage;
+                if (state.phase != Phase::revealed) break;
+                stage = 9;
                 break;
             case 9:
                 if (state.phase != Phase::revealed) break;

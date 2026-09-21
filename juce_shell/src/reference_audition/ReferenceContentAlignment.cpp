@@ -127,6 +127,8 @@ namespace hypha::reference_audition
             || reader->numChannels != static_cast<unsigned> (a.channels)) return result;
         const auto positions = expectedSourceStart ? std::vector<std::int64_t> { *expectedSourceStart }
                                                    : coarsePositions (a, measured);
+        const auto timeline = static_cast<std::int64_t> (std::llround (
+            static_cast<double> (a.startSample) * source.audio.sampleRateHz / a.sampleRateHz));
         const auto window = juce::jmin<std::int64_t> (a.frameCount / 4, 1'048'576);
         const auto lag = static_cast<int> (juce::jmin<std::int64_t> (window / 3 - 1,
             static_cast<std::int64_t> (std::ceil (measured.waveform->framesPerBin * 1.5
@@ -208,6 +210,109 @@ namespace hypha::reference_audition
             match.minimumAmbiguityDb = minimumAmbiguity;
             match.windowSpreadSamples = spread;
             matches.emplace_back (exact, std::move (match));
+        }
+        if (matches.empty())
+        {
+            struct MasteredCandidate
+            {
+                std::int64_t position = 0;
+                ContentEnvelopeCorrelation identity;
+                std::vector<float> probe;
+            };
+            std::vector<MasteredCandidate> candidates;
+            for (const auto position : positions)
+            {
+                std::vector<float> probe;
+                if (! readReferenceProbe (*reader, position, a.frameCount,
+                        static_cast<int> (a.sampleRateHz), a.channels, probe))
+                    continue;
+                const auto identity = correlateReferenceEnvelope (
+                    a.interleaved, probe, static_cast<int> (a.sampleRateHz), a.channels);
+                if (identity.accepted)
+                    candidates.push_back ({ position, identity, std::move (probe) });
+            }
+            std::sort (candidates.begin(), candidates.end(), [] (const auto& left, const auto& right) {
+                return left.identity.score() > right.identity.score();
+            });
+            if (! candidates.empty())
+            {
+                const auto bestScore = candidates.front().identity.score();
+                if (candidates.size() > 1
+                    && candidates[1].identity.score() >= bestScore - 0.04)
+                {
+                    result.reason = "reference_alignment_ambiguous";
+                    return result;
+                }
+
+                auto& best = candidates.front();
+                std::vector<std::int64_t> refinedOffsets;
+                double minimumRefinementCorrelation = 1.0;
+                double minimumRefinementAmbiguity = 300.0;
+                for (const auto first : starts)
+                {
+                    const auto sourceFirst = best.position + static_cast<std::int64_t> (std::llround (
+                        static_cast<double> (first) * source.audio.sampleRateHz / a.sampleRateHz));
+                    std::vector<float> raw, left (static_cast<size_t> (window)),
+                        right (static_cast<size_t> (window));
+                    if (! readReferenceProbe (*reader, sourceFirst, window,
+                            static_cast<int> (a.sampleRateHz), a.channels, raw))
+                        continue;
+                    for (std::int64_t frame = 0; frame < window; ++frame)
+                    {
+                        left[static_cast<size_t> (frame)] = a.interleaved[static_cast<size_t> (
+                            (first + frame) * a.channels + channel)];
+                        right[static_cast<size_t> (frame)] = raw[static_cast<size_t> (
+                            frame * a.channels + channel)];
+                    }
+                    const auto estimate = correlateReferenceContent (
+                        left, right, static_cast<int> (a.sampleRateHz), lag);
+                    if (estimate.correlation >= 0.30 && estimate.ambiguityDb >= 1.5
+                        && std::abs (estimate.offsetSamples) < lag)
+                    {
+                        refinedOffsets.push_back (estimate.offsetSamples);
+                        minimumRefinementCorrelation = std::min (
+                            minimumRefinementCorrelation, estimate.correlation);
+                        minimumRefinementAmbiguity = std::min (
+                            minimumRefinementAmbiguity, estimate.ambiguityDb);
+                    }
+                }
+                std::sort (refinedOffsets.begin(), refinedOffsets.end());
+                const auto refinementSpread = refinedOffsets.size() >= 2
+                    ? refinedOffsets.back() - refinedOffsets.front() : 0;
+                const bool exactTimeline = best.position == timeline;
+                const bool verifiedPrevious = expectedSourceStart
+                    && best.position == *expectedSourceStart;
+                const bool refined = refinedOffsets.size() >= 2
+                    && refinementSpread <= juce::jmax<std::int64_t> (
+                        2, a.sampleRateHz / 20000);
+                if (! refined && ! exactTimeline && ! verifiedPrevious)
+                    return result;
+
+                const auto exact = (exactTimeline || verifiedPrevious)
+                    ? best.position
+                    : best.position + refinedOffsets[refinedOffsets.size() / 2];
+                std::vector<float> alignedProbe;
+                if (! readReferenceProbe (*reader, exact, a.frameCount,
+                        static_cast<int> (a.sampleRateHz), a.channels, alignedProbe))
+                {
+                    result.reason = "reference_alignment_source_unavailable";
+                    return result;
+                }
+                result.sourceStartSample = exact;
+                result.minimumCorrelation = refined
+                    ? std::min (bestScore, minimumRefinementCorrelation) : bestScore;
+                const auto competingScore = candidates.size() > 1
+                    ? candidates[1].identity.score() : -1.0;
+                result.minimumAmbiguityDb = refined
+                    ? minimumRefinementAmbiguity
+                    : competingScore > 0.0
+                        ? 20.0 * std::log10 (bestScore / competingScore) : 300.0;
+                result.windowSpreadSamples = refinementSpread;
+                result.alignedProbe = std::move (alignedProbe);
+                result.reason.clear();
+                result.established = true;
+                return result;
+            }
         }
         if (matches.empty()) return result;
         // A repeated matching passage cannot choose its own occurrence. Continue

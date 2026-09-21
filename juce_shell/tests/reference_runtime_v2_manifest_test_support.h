@@ -188,19 +188,31 @@ namespace
                                          FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         require (handle != INVALID_HANDLE_VALUE, "source fixture handle must open");
         BY_HANDLE_FILE_INFORMATION info {};
+        FILE_BASIC_INFO basicInfo {};
         require (GetFileInformationByHandle (handle, &info) != 0,
                  "source fixture revision must be readable");
+        require (GetFileInformationByHandleEx (handle, FileBasicInfo,
+                                               &basicInfo, sizeof (basicInfo)) != FALSE,
+                 "source fixture change time must be readable");
         CloseHandle (handle);
+        require (basicInfo.ChangeTime.QuadPart >= 0,
+                 "source fixture change time must not be negative");
         const auto combine = [] (DWORD high, DWORD low) {
             return (static_cast<std::uint64_t> (high) << 32) | low;
+        };
+        constexpr std::uint64_t unixEpochOffsetTicks = 116'444'736'000'000'000ULL;
+        const auto unixNanoseconds = [&] (std::uint64_t ticks) {
+            require (ticks >= unixEpochOffsetTicks,
+                     "source fixture timestamp must be on or after the Unix epoch");
+            return (ticks - unixEpochOffsetTicks) * 100;
         };
         revision->setProperty ("device_id", text (info.dwVolumeSerialNumber));
         revision->setProperty ("file_id", text (combine (info.nFileIndexHigh, info.nFileIndexLow)));
         revision->setProperty ("size_bytes", text (combine (info.nFileSizeHigh, info.nFileSizeLow)));
-        revision->setProperty ("mtime_ns", text (combine (info.ftLastWriteTime.dwHighDateTime,
-                                                          info.ftLastWriteTime.dwLowDateTime) * 100));
-        revision->setProperty ("ctime_ns", text (combine (info.ftCreationTime.dwHighDateTime,
-                                                          info.ftCreationTime.dwLowDateTime) * 100));
+        revision->setProperty ("mtime_ns", text (unixNanoseconds (combine (
+            info.ftLastWriteTime.dwHighDateTime, info.ftLastWriteTime.dwLowDateTime))));
+        revision->setProperty ("ctime_ns", text (unixNanoseconds (
+            static_cast<std::uint64_t> (basicInfo.ChangeTime.QuadPart))));
        #else
         struct stat info {};
         require (::lstat (file.getFullPathName().toRawUTF8(), &info) == 0,

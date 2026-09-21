@@ -27,12 +27,26 @@ void testCaptureLiveSharing() {
     require(access && access->request(ref::ACaptureAccess::start),"Capture A begins without selected B");
     const auto wait=[](const auto& test){ for(int i=0;i<800;++i){ if(test())return true;juce::Thread::sleep(5); }return false; };
     require(wait([&]{return access->active.load();}),"Capture A admitted");
-    const auto feed=[&](float gain) {
+    const auto feed=[&](float gain, bool paceLive=false) {
+        if(paceLive)
+            require(wait([&]{const auto s=controller.snapshot();return s.visualTimeline
+                && s.visualTimeline->observing && s.visualTimeline->pairedObserving;}),
+                "LIVE comparison is observing before the synthetic host runs");
         juce::AudioBuffer<float> input(2,4800);
         for(int at=0;at<fixture.audio.getNumSamples();at+=4800) {
             for(int c=0;c<2;++c) input.copyFrom(c,0,fixture.audio,c,at,4800); input.applyGain(gain);
+            const auto processedBefore=access->framesProcessed.load(std::memory_order_acquire);
             controller.observeTransport(at,true,true); controller.observeAInput(input,at,true,true,true,1);
-            controller.setPresented(true); juce::Thread::sleep(12);
+            controller.setPresented(true);
+            if(access->active.load(std::memory_order_acquire))
+                require(wait([&]{return !access->active.load(std::memory_order_acquire)
+                    || access->framesProcessed.load(std::memory_order_acquire)>=processedBefore+4800;}),
+                    "synthetic host waits for finite Capture A worker capacity");
+            else if(paceLive)
+                require(wait([&,index=size_t(at/4800)]{const auto s=controller.snapshot();return s.visualTimeline
+                    && index<s.visualTimeline->bins.size() && s.visualTimeline->bins[index].pass!=0;}),
+                    "synthetic host waits for the LIVE comparison worker");
+            else juce::Thread::sleep(12);
         }
     };
     feed(0.5f); juce::AudioBuffer<float> stopped(2,16); stopped.clear();
@@ -52,7 +66,7 @@ void testCaptureLiveSharing() {
     require(proof.hostAnchor==proof.sourceAnchor && proof.probeEnd-proof.probeStart==192000,"historical source position error is zero samples");
 
     access->capturedView=false; controller.setPresented(true);
-    for(int pass=0;pass<3;++pass) feed(0.5f);
+    for(int pass=0;pass<3;++pass) feed(0.5f,true);
     const auto count=[](const auto& s){size_t n=0;if(s.visualTimeline)for(const auto& b:s.visualTimeline->bins) if(b.a.frames && b.pass)++n;return n;};
     auto before=controller.snapshot();
     std::cout << "LIVE with held A: timeline=" << bool(before.visualTimeline) << " captured=" << (before.visualTimeline && bool(before.visualTimeline->capture)) << " observing=" << (before.visualTimeline && before.visualTimeline->observing) << " measured_bins=" << count(before) << " revisit_units=" << access->snapshot().unitStatus.size() << std::endl;
@@ -65,7 +79,7 @@ void testCaptureLiveSharing() {
     selection.captureState={}; selection.capturedView=false; controller.restoreSettings(selection);
     require(wait([&]{return !access->snapshot().held;}),"capture cleared for control");
     controller.setPresented(true);
-    for(int pass=0;pass<3;++pass) feed(0.5f);
+    for(int pass=0;pass<3;++pass) feed(0.5f,true);
     const auto after=controller.snapshot();
     std::cout << "LIVE without held A: timeline=" << bool(after.visualTimeline) << " observing=" << (after.visualTimeline && after.visualTimeline->observing) << " measured_bins=" << count(after) << std::endl;
     spare=kirin_reference_visual_admission_create();

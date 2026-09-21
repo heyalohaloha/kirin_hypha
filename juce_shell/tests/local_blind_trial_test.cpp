@@ -97,7 +97,9 @@ static void selectionAndAnswers()
         require (t->view().activeStimulus == 0 && t->view().pendingStimulus == 1, "pending until callback");
         require (buffer.render (*t, block()) == TrialOutput::copy, "first copy");
         require (buffer.left[0] == (firstIsPre ? -0.125f : 0.25f), "random side maps to exact source");
-        require (t->view().activeStimulus == 1 && t->view().revealedOneSide == -1, "receipt without identity");
+        require (t->view().activeStimulus == 1 && t->view().pendingStimulus == 2
+                 && t->view().revealedOneSide == -1,
+                 "first completed pass arms source two without revealing identity");
         require (! t->answer (TrialAnswer::two), "both sides must have been output");
         require (t->select (2) && t->select (1) && t->select (2), "rapid requests");
         require (t->view().activeStimulus == 1 && t->view().pendingStimulus == 2, "old receipt is not new request");

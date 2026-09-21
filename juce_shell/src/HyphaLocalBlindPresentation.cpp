@@ -113,8 +113,13 @@ void Component::refreshPresentation()
     }
     else if (phase == Phase::armed)
     {
-        status = "WAITING FOR CAPTURED RANGE START";
-        detail = "DAW: play from before the captured range to hear the full pass.";
+        const bool secondReady = current.trial.heardOneComplete
+                              && ! current.trial.heardTwoComplete;
+        status = secondReady ? "SOURCE 1 COMPLETE / SOURCE 2 READY"
+                             : "WAITING FOR CAPTURED RANGE START";
+        detail = secondReady
+            ? "DAW: replay from before the captured range. No source selection is needed."
+            : "DAW: play from before the captured range to hear the full pass.";
     }
     else if (phase == Phase::listening)
     {
@@ -126,9 +131,9 @@ void Component::refreshPresentation()
                 ? "LISTENING TO SOURCE " + juce::String (current.trial.activeStimulus)
                 : "WAITING FOR AUDIBLE PLAYBACK";
         detail = current.trial.canAnswer
-            ? "Both complete passes were heard. Choose your answer, then reveal."
+            ? "Choose an answer to reveal, or replay a source if needed."
             : current.trial.passComplete
-                ? "HYPHA: select the other source. DAW: replay the captured range."
+                ? "DAW: replay the captured range. The next source is selected automatically."
                 : "Listen to one complete pass of Source 1 and Source 2.";
         result = answerText (current.trial.answer);
     }
@@ -180,16 +185,29 @@ void Component::refreshPresentation()
     detailLabel.setText (detail, juce::dontSendNotification);
     resultLabel.setText (result, juce::dontSendNotification);
 
-    const bool selectable = (phase == Phase::armed || phase == Phase::listening)
+    const bool replayAvailable = phase == Phase::listening && current.trial.canAnswer
         && current.trial.failure == local_blind::TrialFailure::none;
     for (auto* button : { &sourceOne, &sourceTwo })
     {
         button->setVisible (phase == Phase::armed || phase == Phase::listening
                             || phase == Phase::revealed);
-        button->setEnabled (selectable);
+        button->setEnabled (replayAvailable);
     }
-    sourceOne.setButtonText (current.trial.heardOneComplete ? "SOURCE 1 / DONE" : "SOURCE 1");
-    sourceTwo.setButtonText (current.trial.heardTwoComplete ? "SOURCE 2 / DONE" : "SOURCE 2");
+    const auto sourceText = [&] (int stimulus, bool heard)
+    {
+        if (heard) return juce::String { "SOURCE " } + juce::String (stimulus) + " / DONE";
+        if (current.trial.activeStimulus == stimulus)
+            return juce::String { "SOURCE " } + juce::String (stimulus) + " / PLAYING";
+        if (current.trial.pendingStimulus == stimulus)
+            return juce::String { "SOURCE " } + juce::String (stimulus) + " / NEXT";
+        return juce::String { "SOURCE " } + juce::String (stimulus);
+    };
+    sourceOne.setButtonText (sourceText (1, current.trial.heardOneComplete));
+    sourceTwo.setButtonText (sourceText (2, current.trial.heardTwoComplete));
+    sourceOne.setTooltip (replayAvailable ? "Replay hidden source 1 (optional)"
+                                          : "Source 1 progress; selection is automatic");
+    sourceTwo.setTooltip (replayAvailable ? "Replay hidden source 2 (optional)"
+                                          : "Source 2 progress; selection is automatic");
     sourceOne.setToggleState (current.trial.activeStimulus == 1, juce::dontSendNotification);
     sourceTwo.setToggleState (current.trial.activeStimulus == 2, juce::dontSendNotification);
 
@@ -217,7 +235,10 @@ void Component::refreshPresentation()
     captureButton.setButtonText (phase == Phase::failed ? "CAPTURE AGAIN" : "CAPTURE 4 S");
     contextChoice.setVisible (canChooseContext());
     contextChoice.setAccessible (canChooseContext());
-    revealButton.setVisible (answersVisible);
+    // Choosing an answer reveals the result in the normal flow. Keep the explicit
+    // button only as a recovery action if recording the answer succeeded but the
+    // automatic reveal did not.
+    revealButton.setVisible (answersVisible && current.trial.answer != Answer::none);
     revealButton.setEnabled (current.trial.canAnswer && current.trial.answer != Answer::none);
     stopButton.setVisible (phase == Phase::capturing || phase == Phase::preparing
                            || phase == Phase::ready || phase == Phase::armed
