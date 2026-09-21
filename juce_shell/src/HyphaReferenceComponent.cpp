@@ -79,7 +79,7 @@ Component::Component()
     blindButton.setTitle ("Start Version Blind");
     oneButton.setTitle ("Audition blind source 1");
     twoButton.setTitle ("Audition blind source 2");
-    answerButton.setTitle ("Choose the audible blind source as your answer");
+    answerButton.setTitle ("Choose the audible blind source and reveal the result");
     revealButton.setTitle ("Reveal blind sources");
     endBlindButton.setTitle ("End Blind Compare");
     aButton.setTooltip ("Return to the live DAW mix (A).");
@@ -88,7 +88,7 @@ Component::Component()
         "Start a separate Version Blind trial. Check Preset settings and facts are hidden.");
     oneButton.setTooltip ("Audition source 1. Its identity remains hidden.");
     twoButton.setTooltip ("Audition source 2. Its identity remains hidden.");
-    answerButton.setTooltip ("Record the source you are hearing as your answer before reveal.");
+    answerButton.setTooltip ("Choose the source you are hearing and reveal the result.");
     revealButton.setTooltip ("Reveal which source is A and which source is B.");
     endBlindButton.setTooltip ("End Blind Compare and return to live A.");
     actionButton.setTooltip ("Continue with the safe next action.");
@@ -193,7 +193,7 @@ void Component::setState (State next)
                              && bothHeard && current.activeBlindStimulus != 0);
     answerButton.setButtonText (current.answeredBlindStimulus == current.activeBlindStimulus
         ? "CHOSEN " + juce::String (current.activeBlindStimulus)
-        : "CHOOSE " + juce::String (current.activeBlindStimulus));
+        : "PREFER " + juce::String (current.activeBlindStimulus));
     revealButton.setVisible (current.blindPhase == BlindPhase::active
                              && current.answeredBlindStimulus != 0);
     const bool heldA = current.blindPhase == BlindPhase::invalidated

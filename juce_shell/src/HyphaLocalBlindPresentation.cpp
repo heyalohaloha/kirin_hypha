@@ -113,8 +113,13 @@ void Component::refreshPresentation()
     }
     else if (phase == Phase::armed)
     {
-        status = "WAITING FOR CAPTURED RANGE START";
-        detail = "DAW: play from before the captured range to hear the full pass.";
+        const bool secondReady = current.trial.heardOneComplete
+                              && ! current.trial.heardTwoComplete;
+        status = secondReady ? "SOURCE 1 COMPLETE / SOURCE 2 READY"
+                             : "WAITING FOR CAPTURED RANGE START";
+        detail = secondReady
+            ? "DAW: replay from before the captured range. No source selection is needed."
+            : "DAW: play from before the captured range to hear the full pass.";
     }
     else if (phase == Phase::listening)
     {

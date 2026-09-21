@@ -44,6 +44,8 @@ void KirinHyphaEditor::configureLocalBlindProduct()
     {
         if (! processorRef.answerLocalBlindProductTrial (answer))
             localBlindView.setActionNotice ("LISTEN TO BOTH COMPLETE PASSES FIRST");
+        else if (! processorRef.revealLocalBlindProductTrial())
+            localBlindView.setActionNotice ("RESULT COULD NOT BE REVEALED");
         refreshLocalBlindProduct();
     };
     localBlindView.onReveal = [this]

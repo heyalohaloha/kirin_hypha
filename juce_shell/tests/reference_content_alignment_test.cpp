@@ -2,6 +2,7 @@
 #include "reference_runtime_test_entries.h"
 #include "reference_rt_probe.h"
 #include "../src/reference_audition/ReferenceContentAlignment.h"
+#include "../src/reference_audition/ReferenceContentCorrelation.h"
 #include "../src/reference_audition/ReferenceProbeAudio.h"
 #include "../src/reference_audition/ReferenceRuntimeV2Blind.h"
 #include "../src/reference_audition/ReferenceAudioPages.h"
@@ -180,6 +181,105 @@ void testReferenceContentAlignment (const juce::File& sandbox)
     auto changed = measured;
     changed.sourceFileSha256 = juce::String::repeatedString ("f", 64);
     require (!ref::alignReferenceContent (a, source, changed, false).established, "stale measured source must be rejected");
+    ref::RuntimeACaptureAudio timelineMastered;
+    timelineMastered.sampleRateHz = rate;
+    timelineMastered.channels = channels;
+    timelineMastered.startSample = 8 * rate;
+    timelineMastered.frameCount = rate * 4;
+    timelineMastered.interleaved.resize (
+        static_cast<size_t> (timelineMastered.frameCount * channels));
+    std::array<std::array<float, 7>, channels> allPassInput {}, allPassOutput {};
+    const std::array<float, 7> allPassCoefficients {
+        0.98f, -0.96f, 0.94f, -0.92f, 0.9f, -0.88f, 0.86f,
+    };
+    for (std::int64_t frame = 0; frame < timelineMastered.frameCount; ++frame)
+        for (int channel = 0; channel < channels; ++channel)
+        {
+            const auto value = buffer.getSample (
+                channel, static_cast<int> (timelineMastered.startSample + frame));
+            auto shifted = value;
+            for (size_t stage = 0; stage < allPassCoefficients.size(); ++stage)
+            {
+                const auto coefficient = channel == 0
+                    ? allPassCoefficients[stage] : -allPassCoefficients[stage];
+                const auto input = shifted;
+                shifted = -coefficient * input
+                    + allPassInput[static_cast<size_t> (channel)][stage]
+                    + coefficient * allPassOutput[static_cast<size_t> (channel)][stage];
+                allPassInput[static_cast<size_t> (channel)][stage] = input;
+                allPassOutput[static_cast<size_t> (channel)][stage] = shifted;
+            }
+            timelineMastered.interleaved[static_cast<size_t> (frame * channels + channel)]
+                = std::tanh (shifted * 2.2f) * 0.45f;
+        }
+    timelineMastered.cuePcmSha256 = ref::referenceProbePcmHash (
+        timelineMastered.interleaved);
+    std::vector<float> timelineOriginal (timelineMastered.interleaved.size());
+    for (std::int64_t frame = 0; frame < timelineMastered.frameCount; ++frame)
+        for (int channel = 0; channel < channels; ++channel)
+            timelineOriginal[static_cast<size_t> (frame * channels + channel)]
+                = buffer.getSample (channel, static_cast<int> (timelineMastered.startSample + frame));
+    const auto timelineIdentity = ref::correlateReferenceEnvelope (
+        timelineMastered.interleaved, timelineOriginal, rate, channels);
+    std::cout << "mastered timeline envelope fast=" << timelineIdentity.fastCorrelation
+              << " slow=" << timelineIdentity.slowCorrelation
+              << " onset=" << timelineIdentity.onsetCorrelation
+              << " bands=" << timelineIdentity.bandMedianCorrelation
+              << " agreeing=" << timelineIdentity.agreeingBands << '\n';
+    require (timelineIdentity.accepted,
+             "mastered timeline fixture must retain a robust envelope identity");
+    const auto masteredTimeline = ref::alignReferenceContent (
+        timelineMastered, source, measured, false);
+    std::cout << "mastered timeline established=" << masteredTimeline.established
+              << " source=" << masteredTimeline.sourceStartSample
+              << " score=" << masteredTimeline.minimumCorrelation
+              << " reason=" << masteredTimeline.reason << '\n';
+    require (masteredTimeline.established
+                 && masteredTimeline.sourceStartSample == timelineMastered.startSample,
+             "same-Work mastering changes must use a content-confirmed exact host timeline");
+    constexpr int displacedSourceStart = 23 * rate + 31;
+    auto displacedMastered = timelineMastered;
+    displacedMastered.startSample = 8 * rate;
+    allPassInput = {};
+    allPassOutput = {};
+    for (std::int64_t frame = 0; frame < displacedMastered.frameCount; ++frame)
+        for (int channel = 0; channel < channels; ++channel)
+        {
+            const auto value = buffer.getSample (
+                channel, displacedSourceStart + static_cast<int> (frame));
+            auto shifted = value;
+            for (size_t stage = 0; stage < allPassCoefficients.size(); ++stage)
+            {
+                const auto coefficient = channel == 0
+                    ? allPassCoefficients[stage] : -allPassCoefficients[stage];
+                const auto input = shifted;
+                shifted = -coefficient * input
+                    + allPassInput[static_cast<size_t> (channel)][stage]
+                    + coefficient * allPassOutput[static_cast<size_t> (channel)][stage];
+                allPassInput[static_cast<size_t> (channel)][stage] = input;
+                allPassOutput[static_cast<size_t> (channel)][stage] = shifted;
+            }
+            displacedMastered.interleaved[static_cast<size_t> (frame * channels + channel)]
+                = std::tanh (shifted * 2.2f) * 0.45f;
+        }
+    displacedMastered.cuePcmSha256 = ref::referenceProbePcmHash (
+        displacedMastered.interleaved);
+    const auto masteredDisplaced = ref::alignReferenceContent (
+        displacedMastered, source, measured, false);
+    std::cout << "mastered displaced established=" << masteredDisplaced.established
+              << " source=" << masteredDisplaced.sourceStartSample
+              << " expected=" << displacedSourceStart
+              << " score=" << masteredDisplaced.minimumCorrelation
+              << " ambiguity=" << masteredDisplaced.minimumAmbiguityDb
+              << " reason=" << masteredDisplaced.reason << '\n';
+    require (masteredDisplaced.established
+                 && std::abs (masteredDisplaced.sourceStartSample - displacedSourceStart) <= 2,
+             "same-Work mastering changes must locate content when DAW and source timelines differ");
+    const auto masteredDisplacedCached = ref::alignReferenceContent (
+        displacedMastered, source, measured, false, masteredDisplaced.sourceStartSample);
+    require (masteredDisplacedCached.established
+                 && masteredDisplacedCached.sourceStartSample == masteredDisplaced.sourceStartSample,
+             "a verified mastered source map must remain stable on the next observation");
     require (file.deleteFile(), "source removal must succeed");
     require (!ref::alignReferenceContent (a, source, measured, false).established, "missing source must reject without fabricating alignment");
     // Two identical choruses at different song positions cannot be disambiguated

@@ -30,8 +30,14 @@ void testReferenceCaptureEvidence(const juce::File& sandbox)
         juce::AudioBuffer<float> input(2,4800);
         for(int at=0;at<fixture.audio.getNumSamples();at+=4800) {
             for(int c=0;c<2;++c) input.copyFrom(c,0,fixture.audio,c,at,4800); input.applyGain(gain);
+            const auto processedBefore=access->framesProcessed.load(std::memory_order_acquire);
             controller.observeTransport(at,true,true); controller.observeAInput(input,at,true,true,true,1);
-            controller.setPresented(true); juce::Thread::sleep(12);
+            controller.setPresented(true);
+            if(access->active.load(std::memory_order_acquire))
+                require(wait([&]{return !access->active.load(std::memory_order_acquire)
+                    || access->framesProcessed.load(std::memory_order_acquire)>=processedBefore+4800;}),
+                    "synthetic host waits for finite Capture A worker capacity");
+            else juce::Thread::sleep(12);
         }
     };
     feed(0.5f); juce::AudioBuffer<float> stopped(2,16); stopped.clear();

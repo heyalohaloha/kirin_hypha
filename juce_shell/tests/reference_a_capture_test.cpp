@@ -38,12 +38,18 @@ void testReferenceACapture(const juce::File& root)
         for(int i=first;i<first+count;++i) {
             for(int c=0;c<2;++c) audio.copyFrom(c,0,fixture.audio,c,i*4800,4800);
             if(altered) audio.applyGain(0.5f);
+            const auto processedBefore=capture.access->framesProcessed.load(std::memory_order_acquire);
             beginReferenceRtProbe(); const bool copied=capture.observe(audio,24000+i*4800,true,true,true,1);
             const auto allocations=endReferenceRtProbe();
-            require(copied && allocations==0,"Capture callback copies without allocation");
+            require(copied,"capture input remains within the bounded queue");
+            require(allocations==0,"Capture callback copies without allocation");
             const float observed=audio.getSample(0,123),expected=fixture.audio.getSample(0,i*4800+123)*(altered ? 0.5f : 1.0f);
             require(std::memcmp(&observed,&expected,sizeof(float))==0,"original A is bit identical");
-            juce::Thread::sleep(10);
+            if(capture.access->active.load(std::memory_order_acquire))
+                require(waitCapture([&]{return !capture.access->active.load(std::memory_order_acquire)
+                    || capture.access->framesProcessed.load(std::memory_order_acquire)>=processedBefore+4800;}),
+                    "test host waits for the finite capture worker before its next callback");
+            else juce::Thread::sleep(10);
         }
     };
     feed(0,40);

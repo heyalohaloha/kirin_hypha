@@ -44,10 +44,10 @@ Component::Component()
 
     styleButton (sourceOne, "local-blind-source-1", "Listen to hidden source 1");
     styleButton (sourceTwo, "local-blind-source-2", "Listen to hidden source 2");
-    styleButton (answerOne, "local-blind-answer-1", "Choose source 1");
-    styleButton (answerTwo, "local-blind-answer-2", "Choose source 2");
-    styleButton (noPreference, "local-blind-answer-neither", "Choose no preference");
-    styleButton (cannotDistinguish, "local-blind-answer-same", "Choose cannot tell apart");
+    styleButton (answerOne, "local-blind-answer-1", "Choose source 1 and reveal");
+    styleButton (answerTwo, "local-blind-answer-2", "Choose source 2 and reveal");
+    styleButton (noPreference, "local-blind-answer-neither", "Choose no preference and reveal");
+    styleButton (cannotDistinguish, "local-blind-answer-same", "Choose cannot tell apart and reveal");
     styleButton (startButton, "local-blind-start", "Start the prepared comparison");
     styleButton (revealButton, "local-blind-reveal", "Reveal the hidden source assignment");
     styleButton (captureButton, "local-blind-capture", "Capture one exact four second range");

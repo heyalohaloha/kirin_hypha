@@ -257,7 +257,8 @@ private:
                 break;
             case 6:
                 if (post->isPlaying()) break;
-                if (! click ("local-blind-source-2")) break;
+                require (state.trial.pendingStimulus == 2,
+                         "completed source one arms source two without another click");
                 passNumber.store (2);
                 cue (nativeStart - 1003);
                 ++stage;
@@ -268,9 +269,8 @@ private:
                 ++stage;
                 break;
             case 8:
-                if (state.trial.answer == hypha::local_blind::TrialAnswer::none) break;
-                if (! click ("local-blind-reveal")) break;
-                ++stage;
+                if (state.phase != Phase::revealed) break;
+                stage = 9;
                 break;
             case 9:
                 if (state.phase != Phase::revealed) break;

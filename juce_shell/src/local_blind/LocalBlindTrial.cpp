@@ -136,6 +136,15 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
     bool finishedRange = rangeComplete.load (std::memory_order_relaxed);
     const bool exactWrap = finishedRange && exactWrapEligible && format.exactLoopAllowed
         && block.exactLoopRangeValid && block.playing && block.position == format.start;
+    if (! block.playing)
+    {
+        // Stopped hosts may omit their playback clock. Keep a completed pass visible even
+        // when the next source has already been armed; consume that request only once a
+        // real playing callback arrives. An incomplete pass still cannot survive a stop.
+        exactWrapEligible = false;
+        if (hasPrevious && ! finishedRange) invalidate (TrialFailure::transport);
+        return hold (data, channels, frames, block);
+    }
     // A completed pass stays available for an answer. Only an explicit source command
     // or an immediately observed exact host loop may start another pass of the frozen range.
     if ((requested != renderedCommand && finishedRange) || exactWrap)
@@ -148,14 +157,6 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
         pendingRange.store (true, std::memory_order_release);
     }
     renderedCommand = requested;
-    if (! block.playing)
-    {
-        // Stopped hosts may omit their playback clock. A later playing callback must still
-        // match the frozen clock before copying; an incomplete pass cannot survive a stop.
-        exactWrapEligible = false;
-        if (hasPrevious && ! finishedRange) invalidate (TrialFailure::transport);
-        return hold (data, channels, frames, block);
-    }
     if (finishedRange)
     {
         exactWrapEligible = false;
@@ -227,7 +228,15 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
         && (format.minimumHeardFrames < static_cast<std::uint64_t> (format.frames)
             || passStart == format.start);
     if (completePass)
+    {
         (mode == one ? heardOne : heardTwo).store (passFrames, std::memory_order_release);
+        // The normal product path always begins with Source 1. Arm Source 2 as
+        // soon as that pass completes so replaying the range is the only next
+        // action; the user does not need a redundant source-selection click.
+        if (mode == one
+            && heardTwo.load (std::memory_order_acquire) < format.minimumHeardFrames)
+            issue (two);
+    }
     hasPrevious = true;
     previousEnd = blockEnd;
     exactWrapEligible = blockEnd == rangeEnd;
