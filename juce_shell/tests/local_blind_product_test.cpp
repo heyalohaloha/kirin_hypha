@@ -250,7 +250,7 @@ private:
                 stage = 5;
                 break;
             case 5:
-                if (! state.trial.passComplete) break;
+                if (! state.trial.heardOneComplete || state.trial.pendingStimulus != 2) break;
                 require (! state.trial.canAnswer, "first side alone cannot answer");
                 play.store (false);
                 ++stage;
@@ -265,6 +265,11 @@ private:
                 break;
             case 7:
                 if (! state.trial.passComplete || ! state.trial.canAnswer) break;
+                if (const auto* answer = find (*editor, "local-blind-answer-same");
+                    answer == nullptr || ! answer->isVisible()) break;
+                if (const auto* reveal = find (*editor, "local-blind-reveal");
+                    reveal == nullptr || reveal->isVisible())
+                    require (false, "normal answer flow hides the redundant Reveal action");
                 if (! click ("local-blind-answer-same")) break;
                 ++stage;
                 break;

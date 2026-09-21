@@ -244,15 +244,21 @@ inline void verifyLocalBlindUiContract()
     listening.trial.heardOneComplete = true;
     component.setState (listening);
     require (labelText ("local-blind-status").contains ("PASS COMPLETE")
-                 && labelText ("local-blind-detail").contains ("select the other source")
-                 && button ("local-blind-source-2")->isEnabled()
+                 && labelText ("local-blind-detail").contains ("selected automatically")
+                 && ! button ("local-blind-source-2")->isEnabled()
                  && ! button ("local-blind-answer-1")->isEnabled(),
-             "a completed first pass guides the next explicit audition without disclosing assignment");
+             "a completed first pass needs only DAW replay, without a redundant source click");
     listening.trial.canAnswer = true;
     listening.trial.heardTwoComplete = true;
     component.setState (listening);
+    require (button ("local-blind-source-1")->isEnabled()
+                 && button ("local-blind-source-2")->isEnabled()
+                 && button ("local-blind-source-1")->getTooltip().contains ("optional"),
+             "manual source selection becomes an optional replay only after both passes");
     local_blind::TrialAnswer answer = local_blind::TrialAnswer::none;
     component.onAnswer = [&] (auto value) { answer = value; };
+    require (! button ("local-blind-reveal")->isVisible(),
+             "the normal answer flow does not expose a redundant Reveal action");
     button ("local-blind-answer-neither")->onClick();
     require (answer == local_blind::TrialAnswer::noPreference,
              "no-preference answer stays distinct from cannot-distinguish");
