@@ -134,6 +134,9 @@ run ctest --test-dir "$PRE_DISPLAY_BUILD" --build-config Release \
 
 run cargo test -p kirin_measure --locked
 run cargo test -p kirin_hypha_ffi --locked
+# Keep legacy VST3 identity and Record styling covered without using these editors as shipping
+# AU/VST3 bundles. Their compatibility modules remain separate from the JUCE product surface.
+run cargo test -p hypha_pre -p hypha_post --locked
 # Each paired SHARP view runs one exact PRE/POST pair. The local LIVE view runs one POST analyzer;
 # quantify both allowed LIVE slots in the same optimized configuration that ships.
 run cargo test -p kirin_measure --release --locked \
@@ -176,5 +179,6 @@ run cargo test -p kirin_hypha_ffi --test pairing_candidates --locked -- --ignore
 
 # Release-owned Rust code must remain warning-free. Upstream vendor crates are outside this gate.
 run cargo clippy -p kirin_measure -p kirin_hypha_ffi -p xtask --all-targets --locked -- -D warnings
+run cargo clippy -p hypha_pre -p hypha_post --all-targets --locked -- -D warnings
 
 echo "release source contract: PASS"

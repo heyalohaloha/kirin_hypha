@@ -1,4 +1,5 @@
 mod editor;
+mod vst3_identity;
 
 use kirin_measure::{
     add_watch_ring_cursor_samples, daw_session_id, ensure_legacy_cleanup_done,
@@ -803,12 +804,6 @@ impl Plugin for HyphaPre {
 
         ProcessStatus::Normal
     }
-}
-
-impl Vst3Plugin for HyphaPre {
-    const VST3_CLASS_ID: [u8; 16] = *b"KirinHyphaPREv01";
-    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Fx, Vst3SubCategory::Analyzer];
 }
 
 /// B-107: 無音床のピーク線形しきい値 = -140 dBFS = 10^(-140/20) = 1e-7。

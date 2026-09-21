@@ -1,8 +1,8 @@
-crates/hypha_post/src/editor.rs	3035
-crates/hypha_post/src/lib.rs	1682
+crates/hypha_post/src/editor.rs	3025
+crates/hypha_post/src/lib.rs	1677
 crates/hypha_post/tests/gui_wiring_test.rs	1001
 crates/hypha_pre/src/editor.rs	661
-crates/hypha_pre/src/lib.rs	1261
+crates/hypha_pre/src/lib.rs	1256
 crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h	782
 crates/kirin_hypha_ffi/src/lib.rs	5252
 crates/kirin_hypha_ffi/tests/parity.rs	3007
