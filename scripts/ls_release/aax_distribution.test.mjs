@@ -68,17 +68,17 @@ test('AAX verifier fails closed when the requested bundle is missing', () => {
   );
 });
 
-test('AAX distribution identity requires the exact commit, clean source, Kimera, and Native-only surface', () => {
+test('AAX distribution identity requires exact source and Native-only, with optional Kimera', () => {
   const expected = {
     sourceId: '0123456789abcdef0123456789abcdef01234567',
     sourceState: 'clean source',
-    requireKimera: true,
+    requireDistribution: true,
     requireNativeOnly: true,
   };
   const actual = {
     sourceId: expected.sourceId,
     sourceState: expected.sourceState,
-    kimeraEmbedded: 'true',
+    kimeraEmbedded: 'false',
     audioSuiteEnabled: 'false',
     aaxBuildMode: 'release',
   };
@@ -94,9 +94,10 @@ test('AAX distribution identity requires the exact commit, clean source, Kimera,
     () => validateAaxBuildIdentity({ ...actual, sourceState: 'modified source' }, expected),
     /source state/,
   );
+  assert.doesNotThrow(() => validateAaxBuildIdentity({ ...actual, kimeraEmbedded: 'true' }, expected));
   assert.throws(
-    () => validateAaxBuildIdentity({ ...actual, kimeraEmbedded: 'false' }, expected),
-    /Kimera/,
+    () => validateAaxBuildIdentity({ ...actual, kimeraEmbedded: 'unknown' }, expected),
+    /optional Kimera state/,
   );
   assert.throws(
     () => validateAaxBuildIdentity({ ...actual, audioSuiteEnabled: 'true' }, expected),
@@ -106,6 +107,27 @@ test('AAX distribution identity requires the exact commit, clean source, Kimera,
     () => validateAaxBuildIdentity({ ...actual, aaxBuildMode: 'diagnostic' }, expected),
     /build mode/,
   );
+});
+
+test('AAX verifier can require optional Kimera only when explicitly requested', () => {
+  const expected = {
+    sourceId: '0123456789abcdef0123456789abcdef01234567',
+    sourceState: 'clean source',
+    requireDistribution: true,
+    requireKimera: true,
+  };
+  const actual = {
+    sourceId: expected.sourceId,
+    sourceState: expected.sourceState,
+    kimeraEmbedded: 'false',
+    audioSuiteEnabled: 'false',
+    aaxBuildMode: 'release',
+  };
+  assert.throws(() => validateAaxBuildIdentity(actual, expected), /Kimera/);
+  assert.doesNotThrow(() => validateAaxBuildIdentity({
+    ...actual,
+    kimeraEmbedded: 'true',
+  }, expected));
 });
 
 test('AAX diagnostic identity requires an explicit diagnostic build marker', () => {
@@ -309,14 +331,14 @@ test('AAX bundle identity stamp is idempotent on macOS', {
     '',
   ].join('\n'));
   const stamp = path.join(repoRoot, 'scripts/stamp_aax_bundle_identity.sh');
-  execFileSync('bash', [stamp, bundle, identity, '0']);
-  execFileSync('bash', [stamp, bundle, identity, '0']);
+  execFileSync('bash', [stamp, bundle, identity, '0', 'ON']);
+  execFileSync('bash', [stamp, bundle, identity, '0', 'ON']);
   const mode = execFileSync(
     '/usr/libexec/PlistBuddy',
     ['-c', 'Print :KirinHyphaAaxBuildMode', plist],
     { encoding: 'utf8' },
   ).trim();
-  assert.equal(mode, 'diagnostic');
+  assert.equal(mode, 'release');
 });
 
 test('release source identity uses exact fixture commits and distinguishes patches from gitlink changes', (context) => {
@@ -404,7 +426,8 @@ test('AAX target is Native-only and stamps signed build identity before distribu
   assert.match(buildScript, /Fusion\/Versions\/6\/bin\/wraptool/);
   assert.match(buildScript, /--account/);
   assert.match(buildScript, /mutually exclusive/);
-  assert.match(buildScript, /diagnostic modes cannot include Kimera/);
+  assert.doesNotMatch(buildScript, /diagnostic modes cannot include Kimera/);
+  assert.match(buildScript, /KIRIN_HYPHA_AAX_DISTRIBUTION_BUILD/);
   assert.match(diagnosticReceipt, /not_for_distribution: true/);
   assert.match(diagnosticReceipt, /host_validation_target/);
   assert.match(diagnosticReceipt, /verifyAaxBundle/);
@@ -460,7 +483,7 @@ test('Windows AAX provenance survives build, combined signing, installer, and re
     'utf8',
   );
   assert.match(build, /windows-aax-provenance\.mjs write-build/);
-  assert.match(build, /KIRIN_HYPHA_REQUIRE_KIMERA_FONT=ON/);
+  assert.match(build, /KIRIN_HYPHA_AAX_DISTRIBUTION_BUILD/);
   assert.match(sign, /windows-aax-provenance\.mjs verify-build/);
   assert.match(sign, /--require-release-ready/);
   assert.match(sign, /windows-aax-provenance\.mjs write-signed/);

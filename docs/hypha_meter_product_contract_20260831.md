@@ -1,6 +1,6 @@
 # Kirin Hypha Meter product contract
 
-Status: implemented development baseline; release conformance and licensed Kimera artifact pending
+Status: implemented development baseline; release conformance pending; Kimera is optional
 
 2026-09-06 A0 差分: 既存 ATTACK の製品表示は DRUM とし、TRACK/STEM の入口に限定する。
 2MIX では DRUM を表示せず、文脈の変更・復元時に DRUM の解析要求を終了する。
@@ -496,15 +496,15 @@ ivoryの数字、cool cyanの実測線、低彩度amberのholdと居住光を基
 
 数値はtabular figuresを使い、小数点、符号、単位の位置を揃える。
 
-製品UIの書体は有料版Kimera KMR Waldenburg Bookで確定する。
+製品UIはKimera KMR Waldenburg Bookを任意の付加価値として利用できる。
 
-既存のKimera App Licenseは購入済みであり、Kirin Hyphaへの適用可否をDaisukeが確認中である。
+既存のKimera App LicenseのKirin Hyphaへの適用可否は、Kimeraを搭載するbuildを作る時だけ確認する。
 
-追加licenseが必要な場合もKimeraの採用は変更せず、必要なlicenseを取得する。
+追加licenseが必要な場合は、確認が完了するまでnative fallbackで配布できる。
 
 Font Software本体はGPLソースへ含めず、Kirin Hyphaを対象にしたApp Licenseの確認後、リポジトリ外の正規OTFからrelease buildへ埋め込む。
 
-ライセンス確認前の開発buildは同じ文字役割と固定digit cellを保ったnative fallbackで検証し、公開buildではKimera埋め込みを必須gateにする。
+Kimeraを使わないbuildも同じ文字役割と固定digit cellを保ったnative fallbackで正式配布できる。Kimeraを指定したbuildだけ、対象App Licenseの確認と外部OTFの存在をgateにする。
 
 グラフには時間軸、値軸、現在位置を表示する。
 
@@ -645,4 +645,4 @@ visual方向はConcept Cで確定した。
 情報設計は既存動線を固定せず、`LEVEL / TIME / FREQ / SPACE`を上位構造として進める。
 Meter Sessionはplugin instanceの同一runtime中だけ保持し、DAW project reloadでは空のSessionから開始する。
 SPACEはPOST専用の実測MID/SIDE densityとして初回公開対象に含め、意味未定義のΔ表示は作らない。
-製品書体はKimera KMR Waldenburg Bookで確定し、OTF埋め込みだけをHypha対象App License確認後の公開gateとする。
+Kimera KMR Waldenburg Bookは任意で追加できる。OTFを埋め込む場合だけHypha対象App License確認をgateとし、未搭載を公開blockerにしない。

@@ -129,8 +129,8 @@ set(KIRIN_HYPHA_KIMERA_FONT_FILE "" CACHE FILEPATH
     "Licensed KMR Waldenburg Book OTF (kept outside this GPL repository)")
 option(KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED
     "Confirm that the supplied Kimera file is covered by an App License for Kirin Hypha" OFF)
-option(KIRIN_HYPHA_REQUIRE_KIMERA_FONT
-    "Fail configure unless licensed Kimera Font Software is embedded" OFF)
+option(KIRIN_HYPHA_AAX_DISTRIBUTION_BUILD
+    "Stamp AAX bundles as distribution candidates independently of optional typography" OFF)
 
 set(KIRIN_HYPHA_DATA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png
@@ -152,9 +152,6 @@ if(KIRIN_HYPHA_KIMERA_FONT_FILE)
                    "${KIRIN_HYPHA_KIMERA_BUILD_FILE}" COPYONLY)
     list(APPEND KIRIN_HYPHA_DATA_SOURCES "${KIRIN_HYPHA_KIMERA_BUILD_FILE}")
     set(KIRIN_HYPHA_KIMERA_EMBEDDED 1)
-elseif(KIRIN_HYPHA_REQUIRE_KIMERA_FONT)
-    message(FATAL_ERROR
-        "Licensed Kimera App font is required: set KIRIN_HYPHA_KIMERA_FONT_FILE")
 endif()
 
 juce_add_binary_data(KirinHyphaData SOURCES ${KIRIN_HYPHA_DATA_SOURCES})
@@ -437,13 +434,14 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     if(APPLE AND KIRIN_HYPHA_AAX_ENABLED)
         # These keys are added before PACE/Developer-ID signing. Distribution verification reads
         # them from the signed Info.plist, preventing a version-equal stale AAX from entering a
-        # newer release set. The script records whether this is a release (licensed Kimera) or
-        # diagnostic (system-font, never-for-distribution) build as well as the AudioSuite fact.
+        # newer release set. Distribution intent is independent of the optional Kimera typeface;
+        # the stamp records both facts separately, together with the AudioSuite surface.
         add_custom_command(TARGET ${TARGET}_AAX POST_BUILD
             COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/stamp_aax_bundle_identity.sh"
                 "$<TARGET_BUNDLE_DIR:${TARGET}_AAX>"
                 "${CMAKE_CURRENT_BINARY_DIR}/generated/HyphaBuildIdentity.h"
                 "${KIRIN_HYPHA_KIMERA_EMBEDDED}"
+                "${KIRIN_HYPHA_AAX_DISTRIBUTION_BUILD}"
             VERBATIM)
     endif()
 

@@ -36,12 +36,12 @@ mod tests {
     }
 
     #[test]
-    fn shipped_vst3_and_au_share_the_licensed_kimera_typeface_contract() {
+    fn shipped_vst3_and_au_can_optionally_share_the_licensed_kimera_typeface() {
         assert!(HYPHA_THEME_H.contains("usingKimeraTypography"));
         assert!(HYPHA_TYPOGRAPHY_CPP.contains("BinaryData::KMRWaldenburgBook_otf"));
         assert!(HYPHA_UI_CONTRACT_H.contains("kimeraFontFamily = \"KMR Waldenburg Book\""));
         assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED"));
-        assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_REQUIRE_KIMERA_FONT"));
+        assert!(!JUCE_CMAKE.contains("KIRIN_HYPHA_REQUIRE_KIMERA_FONT"));
         assert!(JUCE_CMAKE.contains("src/HyphaTypography.cpp"));
     }
 

@@ -26,7 +26,7 @@ Options:
   --license-confirmed    Confirm that the external SDK may be used for this build
   --sign                 PACE + Developer ID sign, notarize, and attest PRE and POST
   --diagnostic           Build an unsigned, explicitly non-distributable diagnostic artifact
-  --diagnostic-sign      PACE + Developer ID sign a Kimera-free, unnotarized diagnostic artifact
+  --diagnostic-sign      PACE + Developer ID sign an unnotarized diagnostic artifact
   --dry-run              Validate and print the build/sign command plan without executing it
   --kimera-font PATH     Licensed KMR Waldenburg Book OTF kept outside the repository
   --kimera-license-confirmed
@@ -164,19 +164,10 @@ if [[ -n "$KIMERA_FONT_FILE" ]]; then
 elif [[ "$KIMERA_LICENSE_CONFIRMED" == 1 ]]; then
   fail "--kimera-license-confirmed requires --kimera-font"
 fi
-if [[ "$DIAGNOSTIC_OUTPUT" == 1 || "$DIAGNOSTIC_SIGN_OUTPUT" == 1 ]] \
-  && [[ -n "$KIMERA_FONT_FILE" || "$KIMERA_LICENSE_CONFIRMED" == 1 ]]; then
-  fail "diagnostic modes cannot include Kimera font or license confirmation"
-fi
-
 RELEASE_SOURCE_ID=""
 WRAPTOOL=""
 WRAPTOOL_SIGN_ARGS=(sign)
 if [[ "$SIGN_OUTPUT" == 1 || "$DIAGNOSTIC_SIGN_OUTPUT" == 1 ]]; then
-  if [[ "$SIGN_OUTPUT" == 1 ]]; then
-    [[ -n "$KIMERA_FONT_FILE" ]] \
-      || fail "distribution signing requires --kimera-font and --kimera-license-confirmed"
-  fi
   : "${KIRIN_AAX_PACE_CUSTOMER_NUMBER:?required with signing mode}"
   : "${KIRIN_AAX_PACE_CUSTOMER_NAME:?required with signing mode}"
   : "${KIRIN_AAX_APPLE_SIGN_IDENTITY:?required with signing mode}"
@@ -228,17 +219,16 @@ cmake_args=(
   "-DKIRIN_FFI_LIB=$KIRIN_ROOT/target/universal/libkirin_hypha_ffi.a" \
   "-DKIRIN_HYPHA_AAX_SDK_PATH=$AAX_SDK_PATH" \
   -DKIRIN_HYPHA_AAX_SDK_LICENSE_CONFIRMED=ON \
-  -DKIRIN_HYPHA_REQUIRE_AAX=ON)
+  -DKIRIN_HYPHA_REQUIRE_AAX=ON \
+  "-DKIRIN_HYPHA_AAX_DISTRIBUTION_BUILD=$([[ "$SIGN_OUTPUT" == 1 ]] && echo ON || echo OFF)")
 if [[ -n "$KIMERA_FONT_FILE" ]]; then
   cmake_args+=(
     "-DKIRIN_HYPHA_KIMERA_FONT_FILE=$KIMERA_FONT_FILE"
-    -DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=ON
-    -DKIRIN_HYPHA_REQUIRE_KIMERA_FONT=ON)
+    -DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=ON)
 else
   cmake_args+=(
     -DKIRIN_HYPHA_KIMERA_FONT_FILE=
-    -DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=OFF
-    -DKIRIN_HYPHA_REQUIRE_KIMERA_FONT=OFF)
+    -DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=OFF)
 fi
 run cmake -S juce_shell -B build-aax-universal "${cmake_args[@]}"
 
@@ -283,7 +273,7 @@ if [[ "$SIGN_OUTPUT" == 1 || "$DIAGNOSTIC_SIGN_OUTPUT" == 1 ]]; then
         --version "$(sed -n 's/^version = "\([^"]*\)"/\1/p' crates/hypha_pre/Cargo.toml | head -1)" \
         --source-id "$RELEASE_SOURCE_ID" \
         --source-state "clean source" \
-        --require-kimera \
+        --require-distribution \
         --require-native-only
     fi
   done

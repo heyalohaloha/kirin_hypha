@@ -197,8 +197,10 @@ napi-rs依存を外し、純粋なRustライブラリとして抽出。
 AAXは既定OFFで、SDKとPACEツールはリポジトリ外に保つ。macOS Universal build/PACE署名と
 Windows x64 build/PACE+Authenticode署名の単体経路は実証済み。B-786のIntel版Pro Tools実機では
 Native load、再open、stereo/multi-mono、pairing、0 sample表示、Offline Bounceを確認済みだが、
-後続commitへ証跡を流用しない。現在の配布候補にはexact commit、clean source、Kimera、Native-only
-stampまたはWindows signed provenanceを要求する。Windows installerはprovenance sidecarと
+後続commitへ証跡を流用しない。現在の配布候補にはexact commit、clean source、Native-only
+stampまたはWindows signed provenanceを要求する。Kimeraフォントは任意の付加価値であり、
+未搭載をbuild・署名・公証・配布のblockerにしない。指定時だけ外部OTFとlicense確認を要求する。
+Windows installerはprovenance sidecarと
 PRE/POST hashを同じrelease commitへ結び、別commitの署名済みAAXを受理しない。
 AAXのローカルPRE/POST Blindの入口は2026-09-13の利用者指示により有効。
 exact capture、clock/PDC連続性、開始排他の検証は維持する。実AAX hostのPDC実証は未完了であり、

@@ -48,8 +48,9 @@ function inspectBundle(bundle, source, { version, signed }) {
   if (plistValue(plist, 'KirinHyphaSourceState') !== source.sourceState) {
     throw new Error(`${bundle.role} diagnostic AAX source state does not match the receipt`);
   }
-  if (plistValue(plist, 'KirinHyphaKimeraEmbedded') !== 'false') {
-    throw new Error(`${bundle.role} diagnostic AAX unexpectedly embeds Kimera`);
+  const kimeraEmbedded = plistValue(plist, 'KirinHyphaKimeraEmbedded');
+  if (!['true', 'false'].includes(kimeraEmbedded)) {
+    throw new Error(`${bundle.role} diagnostic AAX has an invalid optional Kimera state`);
   }
   if (plistValue(plist, 'KirinHyphaAudioSuiteEnabled') !== 'false') {
     throw new Error(`${bundle.role} diagnostic AAX exposes AudioSuite`);
@@ -85,6 +86,7 @@ function inspectBundle(bundle, source, { version, signed }) {
     size_bytes: fs.statSync(binary).size,
     sha256: binarySha256 || sha256(binary),
     architectures,
+    kimera_embedded: kimeraEmbedded === 'true',
   };
 }
 
@@ -104,6 +106,10 @@ export function writeMacAaxDiagnosticReceipt({
     .match(/^version\s*=\s*"([^"]+)"/m)?.[1];
   if (!version) throw new Error('Hypha version is missing');
   const bundles = manifest.bundles.map((bundle) => inspectBundle(bundle, source, { version, signed }));
+  const kimeraStates = new Set(bundles.map((bundle) => bundle.kimera_embedded));
+  if (kimeraStates.size !== 1) {
+    throw new Error('PRE and POST diagnostic AAX must use the same optional Kimera state');
+  }
   const receipt = {
     schema: 'kirin-hypha-macos-aax-diagnostic-v1',
     generated_at: new Date().toISOString(),
@@ -119,7 +125,7 @@ export function writeMacAaxDiagnosticReceipt({
       version,
     },
     diagnostic: {
-      kimera_embedded: false,
+      kimera_embedded: bundles[0].kimera_embedded,
       native_only: true,
       audio_suite_enabled: false,
       signed,

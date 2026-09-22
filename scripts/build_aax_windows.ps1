@@ -8,6 +8,8 @@ param(
 
   [switch]$KimeraLicenseConfirmed,
 
+  [switch]$Distribution,
+
   [string]$BuildDir = "build-aax-windows"
 )
 
@@ -67,19 +69,25 @@ $sourceIdentity = ($identityJson -join [Environment]::NewLine) | ConvertFrom-Jso
 
 $buildPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $BuildDir))
 $ffiLibrary = Join-Path $repoRoot "target\release\kirin_hypha_ffi.lib"
+$distributionBuild = if ($Distribution) { "ON" } else { "OFF" }
 $cmakeArguments = @(
   "-S", "juce_shell",
   "-B", $buildPath,
   "-DKIRIN_FFI_LIB=$ffiLibrary",
   "-DKIRIN_HYPHA_AAX_SDK_PATH=$sdkPath",
   "-DKIRIN_HYPHA_AAX_SDK_LICENSE_CONFIRMED=ON",
-  "-DKIRIN_HYPHA_REQUIRE_AAX=ON"
+  "-DKIRIN_HYPHA_REQUIRE_AAX=ON",
+  "-DKIRIN_HYPHA_AAX_DISTRIBUTION_BUILD=$distributionBuild"
 )
 if ($kimeraPath -ne "") {
   $cmakeArguments += @(
     "-DKIRIN_HYPHA_KIMERA_FONT_FILE=$kimeraPath",
-    "-DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=ON",
-    "-DKIRIN_HYPHA_REQUIRE_KIMERA_FONT=ON"
+    "-DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=ON"
+  )
+} else {
+  $cmakeArguments += @(
+    "-DKIRIN_HYPHA_KIMERA_FONT_FILE=",
+    "-DKIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=OFF"
   )
 }
 Invoke-Checked "configure external-SDK AAX build" {

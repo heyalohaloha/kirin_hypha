@@ -288,6 +288,7 @@ function manifestFor({ opts, installer, payloadRecords, aaxPayloadRecords, aaxPr
         source_commit: aaxProvenance.manifest.source.commit,
         b_number: aaxProvenance.manifest.source.b_number,
         source_state: aaxProvenance.manifest.source.state,
+        build_mode: aaxProvenance.manifest.release.mode,
         kimera_embedded: aaxProvenance.manifest.release.kimera_embedded,
         native_only: aaxProvenance.manifest.release.native_only,
         audio_suite_enabled: aaxProvenance.manifest.release.audio_suite_enabled,

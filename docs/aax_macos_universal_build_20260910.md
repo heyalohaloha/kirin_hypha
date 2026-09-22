@@ -47,8 +47,8 @@ bash scripts/build_aax_universal.sh \
   --diagnostic
 ```
 
-When the Kimera App License is still pending, the AAX host surface can be validated without
-blocking on the licensed typeface. The command above selects this mode explicitly. It produces
+The AAX host surface can be validated with or without the optional Kimera typeface. The command
+above selects a font-free diagnostic mode explicitly. It produces
 `build-aax-universal/kirin-hypha-macos-aax-diagnostic.json` beside the PRE/POST
 bundles. The receipt records the exact source commit/B number, Universal architectures, Native-only
 surface, and binary hashes. The bundles are intentionally unsigned and marked
@@ -56,7 +56,7 @@ surface, and binary hashes. The bundles are intentionally unsigned and marked
 (such as Pro Tools Developer). Do not copy them into a release package or replace a user's installed
 signed plug-in with them.
 
-For local validation in regular Pro Tools Ultimate, the same Kimera-free build can be signed with
+For local validation in regular Pro Tools Ultimate, the same diagnostic build can be signed with
 PACE and Developer ID while remaining explicitly non-distributable:
 
 ```bash
@@ -66,8 +66,9 @@ bash scripts/build_aax_universal.sh \
   --diagnostic-sign
 ```
 
-This requires the local PACE/iLok and signing environment, but does not require the Kimera App
-License. It writes the same diagnostic receipt with `signed: true`, `pace_verified: true`, and
+This requires the local PACE/iLok and signing environment. Kimera remains optional; supplying its
+OTF also requires explicit license confirmation. The command writes the same diagnostic receipt
+with `signed: true`, `pace_verified: true`, and
 `apple_signed: true`; notarization is intentionally not performed, so this artifact is for local
 Ultimate host testing only. It must never be included in a pkg/zip/installer or treated as a
 release candidate.
@@ -81,7 +82,16 @@ the successful Mac signing command. Leaving it unset allows an explicit second t
 credentials already synchronized by `wraptool sync`; the signing result determines whether the
 account is actually required. The value is never written to this repository.
 
-For the eventual distribution build, run this separately on the release operator's Mac:
+For a distribution build without the optional Kimera typeface, run this separately on the release operator's Mac:
+
+```bash
+scripts/build_aax_universal.sh \
+  --sdk /absolute/external/aax-sdk-root \
+  --license-confirmed \
+  --sign
+```
+
+Kimera can be added to any later build when its licensed OTF is available:
 
 ```bash
 scripts/build_aax_universal.sh \
@@ -104,13 +114,14 @@ gate.
 
 This builds the Rust FFI for both Apple architectures, creates one Universal static library, and
 builds only the PRE/POST AAX targets under `build-aax-universal/`. Omitting the Kimera options is
-allowed only for a diagnostic build. `--diagnostic` makes unsigned intent explicit, while
-`--diagnostic-sign` permits local PACE + Apple signing without Kimera and writes the same
-non-distribution receipt. `--sign` requires the licensed font, a clean source
+valid for both diagnostic and distribution builds. `--diagnostic` makes unsigned intent explicit,
+while `--diagnostic-sign` permits local PACE + Apple signing and writes the same
+non-distribution receipt. `--sign` requires a clean source
 commit with a B number, the exact tracked JUCE patch stack, the documented PACE and Apple signing
 environment, and a `notarytool` keychain profile (`KIRIN_NOTARY_PROFILE`, default
-`kirin-notarize`). The font, account identifiers, and signer values remain outside the repository
-and must not be written to logs.
+`kirin-notarize`). The font is optional; when supplied it additionally requires
+`--kimera-license-confirmed`. The font, account identifiers, and signer values remain outside the
+repository and must not be written to logs.
 
 `--dry-run` performs the same argument, external-SDK path, signing-mode, and command-composition
 checks without invoking Cargo, CMake, lipo, wraptool, or macOS-only tools. It is safe to run in the
@@ -142,7 +153,8 @@ Selecting `--with-aax` fails closed unless exactly one PRE and one POST AAX bund
 all of these checks pass:
 
 - expected bundle identifier, executable, version, and AAX package type;
-- exact source commit, `clean source` state, licensed Kimera embedding, and Native-only registration;
+- exact source commit, `clean source` state, explicit distribution marker, and Native-only registration;
+- a recorded boolean Kimera state; either value is valid, while an embedded font requires the explicit licensed-font build option;
 - `x86_64 arm64` executable;
 - exact Developer ID Application authority/team, secure timestamp, and Apple CDHash;
 - exact PACE signer `Kirin Mastering` and PublisherId `0x488b4292`;

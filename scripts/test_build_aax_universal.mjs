@@ -89,8 +89,6 @@ try {
     '--sdk', sdkRoot,
     '--license-confirmed',
     '--sign',
-    '--kimera-font', fontPath,
-    '--kimera-license-confirmed',
     '--dry-run',
   ], signingEnv);
   assert.equal(result.status, 0);
@@ -101,6 +99,10 @@ try {
   assert.match(result.output, /--signid \\<redacted\\>/);
   assert.match(result.output, /aax_notarization_receipt\.mjs submit/);
   assert.match(result.output, /--keychain-profile kirin-notarize/);
+  assert.match(result.output, /KIRIN_HYPHA_AAX_DISTRIBUTION_BUILD=ON/);
+  assert.match(result.output, /--require-distribution/);
+  assert.doesNotMatch(result.output, /--require-kimera/);
+  assert.match(result.output, /KIRIN_HYPHA_KIMERA_FONT_FILE=/);
   assert.doesNotMatch(result.output, /fixture-account|fixture-customer-number|Fixture Signer/);
 
   result = run([
@@ -117,6 +119,19 @@ try {
   result = run([
     '--sdk', sdkRoot,
     '--license-confirmed',
+    '--sign',
+    '--kimera-font', fontPath,
+    '--kimera-license-confirmed',
+    '--dry-run',
+  ], signingEnv);
+  assert.equal(result.status, 0);
+  assert.match(result.output, /KIRIN_HYPHA_KIMERA_FONT_FILE=.*diagnostic-font\.otf/);
+  assert.match(result.output, /KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=ON/);
+  assert.match(result.output, /KIRIN_HYPHA_AAX_DISTRIBUTION_BUILD=ON/);
+
+  result = run([
+    '--sdk', sdkRoot,
+    '--license-confirmed',
     '--diagnostic-sign',
     '--dry-run',
   ], signingEnv);
@@ -125,6 +140,18 @@ try {
   assert.match(result.output, /signed for diagnostics/);
   assert.doesNotMatch(result.output, /--require-kimera/);
   assert.doesNotMatch(result.output, /aax_notarization_receipt\.mjs submit/);
+
+  result = run([
+    '--sdk', sdkRoot,
+    '--license-confirmed',
+    '--diagnostic',
+    '--kimera-font', fontPath,
+    '--kimera-license-confirmed',
+    '--dry-run',
+  ]);
+  assert.equal(result.status, 0);
+  assert.match(result.output, /KIRIN_HYPHA_AAX_DISTRIBUTION_BUILD=OFF/);
+  assert.match(result.output, /KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED=ON/);
 
   result = run([
     '--sdk', sdkRoot,
