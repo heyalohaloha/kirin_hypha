@@ -129,7 +129,7 @@ function verifySourceBundle(bundle, releaseIdentity) {
       version: VERSION,
       sourceId: releaseIdentity.commit,
       sourceState: 'clean source',
-      requireKimera: true,
+      requireDistribution: true,
       requireNativeOnly: true,
     });
   } else {
@@ -310,7 +310,7 @@ function buildPackage() {
         version: VERSION,
         sourceId: releaseIdentity.commit,
         sourceState: 'clean source',
-        requireKimera: true,
+        requireDistribution: true,
         requireNativeOnly: true,
       });
     }

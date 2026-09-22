@@ -76,6 +76,10 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     if (hyphaHandle != nullptr) analysisApplication.engineCreated();
     preparedFormat = hyphaHandle != nullptr ? kirin::PreparedFormat { sampleRate, roles }
                                             : kirin::PreparedFormat {};
+    preparedProductMode.store (static_cast<uint8_t> (
+        hyphaHandle != nullptr ? kirin::productModeForRoles (roles)
+                               : kirin::PreparedProductMode::none),
+        std::memory_order_release);
     heldFormat.release();
     formatChangeHeld.store (false, std::memory_order_release);
 

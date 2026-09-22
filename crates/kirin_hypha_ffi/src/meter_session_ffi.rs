@@ -1,3 +1,4 @@
+use kirin_measure::channel_layout::MAX_ABI_CHANNELS;
 use kirin_measure::{BalanceState, MeterSessionSnapshot, MeterSessionState};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -87,8 +88,7 @@ pub(super) fn to_c_meter_session(snapshot: &MeterSessionSnapshot) -> KirinMeterS
         BalanceState::LeftOnly => KIRIN_BALANCE_LEFT_ONLY,
         BalanceState::RightOnly => KIRIN_BALANCE_RIGHT_ONLY,
     };
-    // `StereoMeterSnapshot` は `[_; 2]` のままなので、埋まっているのは報告された本数だけ。
-    let measured = (snapshot.stereo.channels as usize).min(2);
+    let measured = (snapshot.stereo.channels as usize).min(MAX_ABI_CHANNELS);
     KirinMeterSession {
         generation: snapshot.generation,
         active_frames: snapshot.active_frames,

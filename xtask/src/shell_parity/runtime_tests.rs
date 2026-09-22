@@ -322,6 +322,25 @@
     }
 
     #[test]
+    fn readme_exposes_exact_five_one_as_measurement_only() {
+        let scope = README
+            .split("\n## ")
+            .find(|section| section.starts_with("Channel scope\n"))
+            .expect("README Channel scope section");
+        let scope = scope.split_whitespace().collect::<Vec<_>>().join(" ");
+        for required_fact in [
+            "Exact 5.1 (`L, R, C, LFE, Ls, Rs`)",
+            "LEVEL and TIME measurement only",
+            "Record / Keep",
+            "deliberately unavailable",
+            "does not allocate the Record backlog",
+            "or run optional FREQ / ATTACK analysis",
+        ] {
+            assert!(scope.contains(required_fact), "README 5.1 scope missing {required_fact}");
+        }
+    }
+
+    #[test]
     fn readme_exposes_the_post_perceptual_delta_measurement_boundary() {
         let perceptual = README
             .split("\n### ")

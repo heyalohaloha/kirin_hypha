@@ -87,6 +87,7 @@ mod pair_binding;
 mod pair_candidates_ffi;
 mod pair_restore_ffi;
 mod pair_snapshot_ffi;
+mod record_layout_gate;
 mod record_note_ffi;
 mod reference_audition_ffi;
 mod reference_gain_ffi;
@@ -987,7 +988,7 @@ impl KirinHyphaEngine {
     ///
     /// `sample_rate` ≠ 48000 のときの 48k 変換は Measure Thread 内 `ResamplerTo48k` が
     /// 既存どおり担う（新規変換コードは書かない / measure_thread.rs:82-101）。
-    /// `layout` は現状 mono / stereo のみ。mono は 1ch として計測し +3.01 dB バイアスを入れない。
+    /// `layout` は mono / stereo / exact 5.1。mono は 1ch として計測し +3.01 dB バイアスを入れない。
     pub fn new(sample_rate: u32, layout: ChannelLayout) -> Self {
         let num_channels = layout.channel_count();
         let capacity = watch_ring_capacity_samples(num_channels);
@@ -1200,17 +1201,6 @@ impl KirinHyphaEngine {
         }
     }
 
-    /// ライセンスを設定（C ABI コード: 0=Os 1=Sense 2=Unknown / 未知は Unknown）。
-    /// 次回 Keep の開始可否だけに使う。開始済み Keep をライセンス更新で停止しない。
-    pub fn set_license(&self, abi: u8) {
-        let code = match abi {
-            LICENSE_OS => LICENSE_OS,
-            LICENSE_SENSE => LICENSE_SENSE,
-            _ => LICENSE_UNKNOWN,
-        };
-        self.license.store(license_from_abi(code));
-    }
-
     /// 現ライセンスを取得。
     fn current_license(&self) -> License {
         self.license.load()
@@ -1230,7 +1220,7 @@ impl KirinHyphaEngine {
     /// integration test）が状態機械を直接検証するために呼ぶため。C ABI 経由でこの crate の
     /// 外（JUCE 側）から呼べる経路は存在しない。
     pub fn enter_record(&self) -> bool {
-        if self.audition.blocks_record() {
+        if !self.supports_record_workflow() || self.audition.blocks_record() {
             return false;
         }
         let next_generation = self.record_sm.generation().saturating_add(1);
@@ -1772,6 +1762,7 @@ impl KirinHyphaEngine {
         // 値で呼ぶ。license は LiveLicense を live 読み（keep と同一 gate）。args (pre/post) は
         // 各 POST が自分の pair_target を再選定するため無視する。
         let trigger_pair_resolution: kirin_measure::TriggerPairResolutionFn = {
+            let record_workflow_supported = self.supports_record_workflow();
             let record_sm = Arc::clone(&self.record_sm);
             let pair_target = self.pair_binding.desired_name();
             let paired = self.pair_binding.recording_pre();
@@ -1789,6 +1780,9 @@ impl KirinHyphaEngine {
             let keep_record_generation = Arc::clone(&self.keep_record_generation);
             Arc::new(
                 move |_originator: &str, _started_at: &str, generation: &CaptureGeneration| {
+                    if !record_workflow_supported {
+                        return false;
+                    }
                     let lic = license.refresh_for_user_action();
                     resolve_and_enter_keep(
                         lic,
@@ -1937,7 +1931,7 @@ impl KirinHyphaEngine {
     pub fn set_spectrum_visible(&self, visible: bool) -> bool {
         let is_post =
             self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
-        if !is_post {
+        if !is_post || (visible && !self.supports_optional_analysis()) {
             return false;
         }
         if visible {
@@ -1955,12 +1949,11 @@ impl KirinHyphaEngine {
         self.spectrum.set_post_visible(visible);
         true
     }
-
     /// POST-only Perceptual Delta visibility edge. FFT and Sharpness analysis are exclusive.
     pub fn set_perceptual_visible(&self, visible: bool) -> bool {
         let is_post =
             self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
-        if !is_post {
+        if !is_post || (visible && !self.supports_optional_analysis()) {
             return false;
         }
         if visible {
@@ -1984,7 +1977,7 @@ impl KirinHyphaEngine {
     pub fn set_absolute_visible(&self, visible: bool) -> bool {
         let is_post =
             self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
-        if !is_post {
+        if !is_post || (visible && !self.supports_optional_analysis()) {
             return false;
         }
         if visible {
@@ -2011,9 +2004,10 @@ impl KirinHyphaEngine {
         let Ok(channel_mode) = SpectrumChannelMode::try_from(channel_mode) else {
             return false;
         };
-        is_post && self.spectrum.set_post_channel_mode(channel_mode)
+        is_post
+            && self.supports_optional_analysis()
+            && self.spectrum.set_post_channel_mode(channel_mode)
     }
-
     /// Latest POST-minus-PRE Spectrum display snapshot. Lock contention is a silent skipped
     /// presentation tick; it never reaches the audio or measurement paths.
     pub fn poll_spectrum(&self) -> Option<SpectrumViewSnapshot> {
@@ -2391,6 +2385,9 @@ impl KirinHyphaEngine {
         if generation.is_none() {
             clear_keep_action_notice(&self.keep_action_notice);
         }
+        if self.reject_unsupported_record_action(generation.is_none()) {
+            return false;
+        }
         let (project_hash, post_iid, daw) = {
             let id = match self.identity.lock() {
                 Ok(g) => g,
@@ -2437,6 +2434,9 @@ impl KirinHyphaEngine {
     /// 自 keep の結果（有効ペアありなら true）を返す。broadcast 書込失敗は best-effort（無視）。
     pub fn keep_all(&self) -> bool {
         clear_keep_action_notice(&self.keep_action_notice);
+        if self.reject_unsupported_record_action(true) {
+            return false;
+        }
         if self.audition.reject_keep(&self.keep_action_notice) {
             return false;
         }

@@ -74,6 +74,7 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
     preDisplayController.reset();
 #endif
     const juce::ScopedLock sl (handleLock);
+    preparedProductMode.store (static_cast<uint8_t> (kirin::PreparedProductMode::none), std::memory_order_release);
     if (hyphaHandle != nullptr)
     {
         if (role == Role::Post)
@@ -86,7 +87,6 @@ KirinHyphaProcessorBase::~KirinHyphaProcessorBase()
         analysisApplication.engineDestroyed();
     }
 }
-
 
 void KirinHyphaProcessorBase::releaseResources()
 {
@@ -125,8 +125,8 @@ bool KirinHyphaProcessorBase::isBusesLayoutSupported (const BusesLayout& layouts
     if (mainIn != mainOut)
         return false;
 
-    return mainOut == juce::AudioChannelSet::mono()
-        || mainOut == juce::AudioChannelSet::stereo();
+    return mainOut == juce::AudioChannelSet::mono() || mainOut == juce::AudioChannelSet::stereo()
+        || mainOut == juce::AudioChannelSet::create5point1();
 }
 
 void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)

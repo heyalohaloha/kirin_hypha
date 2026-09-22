@@ -216,7 +216,9 @@ pub struct KirinAttackStats {
 impl KirinHyphaEngine {
     /// POST-only ATTACK page switch. It is intentionally absent from persisted JUCE state.
     pub fn set_attack_enabled(&self, enabled: bool) -> bool {
-        if self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post) {
+        if self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post)
+            || (enabled && !self.supports_optional_analysis())
+        {
             return false;
         }
         if enabled {

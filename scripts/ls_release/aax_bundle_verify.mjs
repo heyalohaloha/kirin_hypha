@@ -84,7 +84,7 @@ export function validateAaxBuildIdentity(actual, expected) {
   if (actual.sourceState !== expected.sourceState) {
     throw new Error(`AAX source state ${actual.sourceState} does not match ${expected.sourceState}`);
   }
-  if (expected.requireKimera && actual.aaxBuildMode !== 'release') {
+  if (expected.requireDistribution && actual.aaxBuildMode !== 'release') {
     throw new Error(`AAX release bundle build mode is ${actual.aaxBuildMode}`);
   }
   if (expected.requireDiagnostic && actual.aaxBuildMode !== 'diagnostic') {
@@ -92,6 +92,9 @@ export function validateAaxBuildIdentity(actual, expected) {
   }
   if (expected.requireKimera && actual.kimeraEmbedded !== 'true') {
     throw new Error('AAX distribution bundle does not embed the licensed Kimera font');
+  }
+  if (!['true', 'false'].includes(actual.kimeraEmbedded)) {
+    throw new Error(`AAX optional Kimera state is invalid: ${actual.kimeraEmbedded}`);
   }
   if (expected.requireNativeOnly && actual.audioSuiteEnabled !== 'false') {
     throw new Error('AAX distribution bundle still exposes AudioSuite');
@@ -150,6 +153,7 @@ export function verifyAaxBundle({
   sourceId,
   sourceState,
   requireKimera = false,
+  requireDistribution = false,
   requireNativeOnly = false,
   requireDiagnostic = false,
 }) {
@@ -174,7 +178,8 @@ export function verifyAaxBundle({
     const actual = plistValue(plist, key);
     if (actual !== value) throw new Error(`AAX ${key}=${actual}, expected ${value}`);
   }
-  if (sourceId || sourceState || requireKimera || requireNativeOnly || requireDiagnostic) {
+  if (sourceId || sourceState || requireKimera || requireDistribution
+      || requireNativeOnly || requireDiagnostic) {
     validateAaxBuildIdentity({
       sourceId: plistValue(plist, 'KirinHyphaSourceID'),
       sourceState: plistValue(plist, 'KirinHyphaSourceState'),
@@ -185,6 +190,7 @@ export function verifyAaxBundle({
       sourceId,
       sourceState,
       requireKimera,
+      requireDistribution,
       requireNativeOnly,
       requireDiagnostic,
     });
@@ -223,6 +229,7 @@ export function verifyAaxBundleCopy({
   sourceId,
   sourceState,
   requireKimera = false,
+  requireDistribution = false,
   requireNativeOnly = false,
   requireDiagnostic = false,
 }) {
@@ -237,6 +244,7 @@ export function verifyAaxBundleCopy({
     sourceId,
     sourceState,
     requireKimera,
+    requireDistribution,
     requireNativeOnly,
     requireDiagnostic,
   });
@@ -246,6 +254,7 @@ export function verifyAaxBundleCopy({
     sourceId,
     sourceState,
     requireKimera,
+    requireDistribution,
     requireNativeOnly,
     requireDiagnostic,
   });
@@ -275,6 +284,7 @@ function parseArgs(argv) {
     else if (arg === '--source-id') options.sourceId = argv[++index];
     else if (arg === '--source-state') options.sourceState = argv[++index];
     else if (arg === '--require-kimera') options.requireKimera = true;
+    else if (arg === '--require-distribution') options.requireDistribution = true;
     else if (arg === '--require-native-only') options.requireNativeOnly = true;
     else if (arg === '--require-diagnostic') options.requireDiagnostic = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
@@ -286,7 +296,7 @@ function parseArgs(argv) {
 function runCli(argv) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log('Usage: node aax_bundle_verify.mjs --bundle PATH --executable NAME --identifier ID --version VERSION [--source PATH] [--source-id ID --source-state STATE --require-kimera --require-native-only --require-diagnostic]');
+    console.log('Usage: node aax_bundle_verify.mjs --bundle PATH --executable NAME --identifier ID --version VERSION [--source PATH] [--source-id ID --source-state STATE --require-distribution --require-kimera --require-native-only --require-diagnostic]');
     return;
   }
   for (const key of ['bundlePath', 'executableName', 'bundleIdentifier', 'version']) {
@@ -306,6 +316,7 @@ function runCli(argv) {
       sourceId: options.sourceId,
       sourceState: options.sourceState,
       requireKimera: options.requireKimera,
+      requireDistribution: options.requireDistribution,
       requireNativeOnly: options.requireNativeOnly,
       requireDiagnostic: options.requireDiagnostic,
     });
@@ -318,6 +329,7 @@ function runCli(argv) {
       sourceId: options.sourceId,
       sourceState: options.sourceState,
       requireKimera: options.requireKimera,
+      requireDistribution: options.requireDistribution,
       requireNativeOnly: options.requireNativeOnly,
       requireDiagnostic: options.requireDiagnostic,
     });

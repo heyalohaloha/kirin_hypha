@@ -1,3 +1,4 @@
+use crate::meter_history::METER_HISTORY_CHANNELS;
 use crate::{MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution};
 
 #[derive(Default)]
@@ -35,7 +36,7 @@ impl RangeAggregate {
 struct EntryAggregate {
     first: MeterHistoryEntry,
     observations: u32,
-    clip_event_count: [u32; 2],
+    clip_event_count: [u32; METER_HISTORY_CHANNELS],
     lufs_m: RangeAggregate,
     lufs_s: RangeAggregate,
     true_peak: RangeAggregate,
@@ -48,7 +49,7 @@ impl EntryAggregate {
         let mut result = Self {
             first: point,
             observations: 0,
-            clip_event_count: [0; 2],
+            clip_event_count: [0; METER_HISTORY_CHANNELS],
             lufs_m: RangeAggregate::default(),
             lufs_s: RangeAggregate::default(),
             true_peak: RangeAggregate::default(),

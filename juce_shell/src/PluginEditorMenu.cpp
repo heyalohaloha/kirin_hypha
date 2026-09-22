@@ -122,10 +122,11 @@ void KirinHyphaEditor::showOperationsMenu()
         || processorRef.keepPhase() != (int) KIRIN_KEEP_PHASE_IDLE;
     const bool pairSelected = processorRef.pairStatus() != KIRIN_PAIR_STATUS_UNPAIRED;
     const bool osOwned = processorRef.licenseIsOs();
+    const bool stereoWorkflows = processorRef.stereoWorkflowsSupported();
     const int nReady = processorRef.keepReadyCount();
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
-    if (isPost)
+    if (isPost && stereoWorkflows)
     {
         menu.addSectionHeader ("Keep");
         if (keepActive)
@@ -142,24 +143,35 @@ void KirinHyphaEditor::showOperationsMenu()
         }
         menu.addSeparator();
     }
+    else if (isPost)
+    {
+        menu.addSectionHeader ("Keep");
+        menu.addItem (3, "Record / Keep: mono / stereo only", false, false);
+        menu.addSeparator();
+    }
     menu.addSectionHeader ("Measurement");
     menu.addItem (20, "Reset Meter Session");
     if (isPost)
     {
-        if (recording) menu.addItem (22, "Add NOTE at current position", osOwned);
+        if (recording && stereoWorkflows)
+            menu.addItem (22, "Add NOTE at current position", osOwned);
         if (observatoryDomain != hypha::observatory::Domain::reference)
             menu.addItem (21, "Save measurement image");
-        if (observatoryView.localBlindEntryAvailable() && ! observatoryView.localBlindDirectEntryVisible())
+        if (stereoWorkflows && observatoryView.localBlindEntryAvailable()
+            && ! observatoryView.localBlindDirectEntryVisible())
             menu.addItem (23, (getWidth() < 900 ? juce::String ("PRE / POST Blind / Open at 300% / ")
                                               : juce::String ("PRE / POST Blind Compare / "))
                               + meterContextLabel (processorRef.meterContextPreference()));
     }
     menu.addSeparator();
     menu.addSectionHeader ("Display");
-    menu.addItem (11, "Show Hybrid VU while recording", true,
-                  processorRef.hybridVuOnRecordPreference());
-    if (observatoryView.hybridVuShownByRecording())
-        menu.addItem (12, "Show selected view for this recording");
+    if (stereoWorkflows)
+    {
+        menu.addItem (11, "Show Hybrid VU while recording", true,
+                      processorRef.hybridVuOnRecordPreference());
+        if (observatoryView.hybridVuShownByRecording())
+            menu.addItem (12, "Show selected view for this recording");
+    }
     menu.addItem (10, "Show hover help", true,
                   hypha::HoverHelpPreference::shared().isEnabled());
     if (appearanceSnapshot.activationSeen)
@@ -254,9 +266,14 @@ void KirinHyphaEditor::showDomainMenu()
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader ("Observation view");
     for (size_t index = 0; index < domains.size(); ++index)
+    {
+        const bool surroundDomain = domains[index] == hypha::observatory::Domain::level
+                                 || domains[index] == hypha::observatory::Domain::time;
         menu.addItem (300 + (int) index, labels[index],
-                      hypha::observatory::domainCapabilities (role).allows (domains[index]),
+                      hypha::observatory::domainCapabilities (role).allows (domains[index])
+                          && (! processorRef.surroundMeasurementOnly() || surroundDomain),
                       observatoryDomain == domains[index]);
+    }
     const auto options = juce::PopupMenu::Options()
         .withTargetComponent (&observatoryView.domainMenuAnchor())
         .withDeletionCheck (*this).withMinimumWidth (220).withMaximumNumColumns (1)

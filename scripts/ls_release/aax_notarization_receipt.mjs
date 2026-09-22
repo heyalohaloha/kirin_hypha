@@ -101,7 +101,7 @@ function inspectBundle(context, bundle, bundlePath) {
     version: context.version,
     sourceId: context.source.commit,
     sourceState: 'clean source',
-    requireKimera: true,
+    requireDistribution: true,
     requireNativeOnly: true,
   });
   return {
@@ -300,7 +300,7 @@ function verifyPayloadCopies(context, extractedRoot, payloadDir) {
       version: context.version,
       sourceId: context.source.commit,
       sourceState: 'clean source',
-      requireKimera: true,
+      requireDistribution: true,
       requireNativeOnly: true,
     });
   }

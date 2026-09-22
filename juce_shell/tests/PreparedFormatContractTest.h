@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../src/PreparedFormat.h"
+#include "../src/ChannelRoles.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -32,6 +33,7 @@ inline void verify()
 {
     using kirin::PrepareAction;
     const std::vector<uint8_t> stereo { kL, kR };
+    const std::vector<uint8_t> fiveOne { kL, kR, kC, kLfe, kLs, kRs };
     // Both ten channels. Only the roles tell them apart.
     const std::vector<uint8_t> sevenOneTwo { kL, kR, kC, kLfe, kLss, kRss, kLsr, kRsr, kTfl, kTfr };
     const std::vector<uint8_t> fiveOneFour { kL, kR, kC, kLfe, kLs, kRs, kTfl, kTfr, kTrl, kTrr };
@@ -41,6 +43,16 @@ inline void verify()
 
     KIRIN_PF_REQUIRE (sevenOneTwo.size() == fiveOneFour.size());
     KIRIN_PF_REQUIRE (sevenOne.size() == fiveOneTwo.size());
+    KIRIN_PF_REQUIRE (kirin::isSurround51Roles (fiveOne));
+    KIRIN_PF_REQUIRE (! kirin::supportsStereoWorkflows (fiveOne));
+    KIRIN_PF_REQUIRE (kirin::supportsStereoWorkflows (stereo));
+    KIRIN_PF_REQUIRE (kirin::productModeForRoles (stereo)
+                      == kirin::PreparedProductMode::stereoWorkflows);
+    KIRIN_PF_REQUIRE (kirin::productModeForRoles (fiveOne)
+                      == kirin::PreparedProductMode::surroundMeasurementOnly);
+    KIRIN_PF_REQUIRE (kirin::productModeForRoles ({})
+                      == kirin::PreparedProductMode::none);
+    KIRIN_PF_REQUIRE (std::string_view (kirin::channelRoleShortName (kLfe)) == "LFE");
 
     const kirin::PreparedFormat preparedStereo { 48'000.0, stereo };
     KIRIN_PF_REQUIRE (preparedStereo.matches (48'000.0, stereo));

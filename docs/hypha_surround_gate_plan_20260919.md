@@ -131,7 +131,10 @@ UI から選べ、表示される名札が測っている対象と一致する�
 
 ### Gate F — 5.1 bus 開放
 
-`isBusesLayoutSupported` で 5.1 を受理する。**Gate D が閉じていることが前提。**
+`isBusesLayoutSupported` でexact 5.1（`L, R, C, LFE, Ls, Rs`）を受理する。
+初回の製品範囲はLEVEL／TIMEの計測専用とし、Record／Keep、Reference、ローカルBlind、
+Hybrid VU、FREQ、SPACEを開かない。5.0、役割不明6ch、7.1.4はfail closedする。
+**Gate D が閉じていることが前提。**
 
 ### Gate F2 — 5.1 製品経路の実機検証
 
@@ -142,10 +145,11 @@ Gate B が mono / stereo しか見られない以上、surround 製品経路に�
 したがって Gate F2 は「壊していないことの証明」ではなく「初めて動かす試験」であり、
 **リスクの性質が Gate C2 / E2 と異なる。**
 
-- 5.1 の Watch / Record / reset / reopen
+- 5.1 の Watch / Meter Session / reset / reopen
+- 5.1でRecord／Keep、Reference、ローカルBlind、Hybrid VU、FREQ、SPACEへ入れないこと
 - 5.1 の state save → reopen
 - 5.1 ↔ stereo の bus 変更（D-12 の保留動作）
-- 5.1 での history RSS（§3 の算定は stereo 形 entry での値。Nch 化していなければ変わらない）
+- 5.1でのhistory RSS（現行6役割clip count形の344 B entryについて、§17の旧328 B実測を流用しない）
 - EBU 公式 test material による数値適合（D-1 の根拠）
 
 **含意**: Gate F2 の前に、5.1 を probe 経路でどこまで確かめられるかを尽くしておく。

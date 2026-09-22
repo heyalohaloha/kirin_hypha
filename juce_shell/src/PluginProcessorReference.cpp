@@ -341,6 +341,11 @@ void KirinHyphaProcessorBase::configureReferenceAudition()
 {
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (role != Role::Post) return;
+    if (! stereoWorkflowsSupported())
+    {
+        referenceAuditionController.reset();
+        return;
+    }
     if (referenceAuditionController == nullptr) createReferenceAuditionController();
     hypha::reference_audition::RuntimeIdentity identity;
     identity.runtimeInstanceId = referenceRuntimeId;

@@ -73,15 +73,18 @@ function inspectBuildConfiguration(artifactRoot) {
     cache,
     'KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED',
   ) === 'ON';
-  const requireKimera = cmakeCacheValue(cache, 'KIRIN_HYPHA_REQUIRE_KIMERA_FONT') === 'ON';
+  const distributionBuild = cmakeCacheValue(
+    cache,
+    'KIRIN_HYPHA_AAX_DISTRIBUTION_BUILD',
+  ) === 'ON';
   const nativeOnly = ['PRE', 'POST'].every((role) => {
     const project = path.join(artifactRoot, `KirinHypha${role}_AAX.vcxproj`);
     return fs.statSync(project, { throwIfNoEntry: false })?.isFile()
       && fs.readFileSync(project, 'utf8').includes('JucePlugin_AAXDisableAudioSuite=1');
   });
-  const kimeraEmbedded = font.length > 0 && licenseConfirmed && requireKimera;
+  const kimeraEmbedded = font.length > 0 && licenseConfirmed;
   return {
-    mode: kimeraEmbedded ? 'release' : 'diagnostic',
+    mode: distributionBuild ? 'release' : 'diagnostic',
     kimera_embedded: kimeraEmbedded,
     native_only: nativeOnly,
     audio_suite_enabled: !nativeOnly,
@@ -104,11 +107,11 @@ function validateRelease(release, requireReleaseReady) {
   if (typeof release?.kimera_embedded !== 'boolean') {
     throw new Error('Windows AAX Kimera state is missing');
   }
-  if (release.mode !== (release.kimera_embedded ? 'release' : 'diagnostic')) {
-    throw new Error('Windows AAX build mode does not match its Kimera state');
+  if (!['release', 'diagnostic'].includes(release.mode)) {
+    throw new Error('Windows AAX build mode is invalid');
   }
-  if (requireReleaseReady && release.kimera_embedded !== true) {
-    throw new Error('Windows AAX release signing requires the licensed Kimera App font');
+  if (requireReleaseReady && release.mode !== 'release') {
+    throw new Error('Windows AAX release signing requires an explicit distribution build');
   }
 }
 

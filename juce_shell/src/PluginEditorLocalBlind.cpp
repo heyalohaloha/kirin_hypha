@@ -17,7 +17,8 @@ void KirinHyphaEditor::configureLocalBlindProduct()
 {
     const auto productSupported = processorRef.localBlindProductSupported();
     observatoryView.setLocalBlindEntryEnabled (
-        hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType));
+        productSupported
+        && hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType));
     observatoryView.onLocalBlind = [this] { openLocalBlindProduct(); };
     localBlindView.setMeterContext (processorRef.meterContextPreference());
 
@@ -76,6 +77,7 @@ void KirinHyphaEditor::configureLocalBlindProduct()
 void KirinHyphaEditor::openLocalBlindProduct()
 {
     if (! isPost
+        || ! processorRef.localBlindProductSupported()
         || ! hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType))
         return;
     const auto existing = processorRef.localBlindProductView();
@@ -141,6 +143,24 @@ void KirinHyphaEditor::closeLocalBlindProduct()
 
 void KirinHyphaEditor::refreshLocalBlindProduct()
 {
+    if (! processorRef.localBlindProductSupported())
+    {
+        processorRef.cancelLocalBlindProductSession();
+        localBlindReturnIntent.clear();
+        localBlindPreflight = false;
+        localBlindOpen = false;
+        localBlindView.setVisible (false);
+        setLocalBlindIsolation (false);
+        setResizable (true, false);
+        if (! localBlindReturnSize.isOrigin())
+        {
+            const auto size = localBlindReturnSize;
+            localBlindReturnSize = {};
+            setSize (size.x, size.y);
+        }
+        resized();
+        return;
+    }
     const auto current = processorRef.localBlindProductView();
     if (localBlindOpen && localBlindReturnIntent.shouldClose (current))
     {

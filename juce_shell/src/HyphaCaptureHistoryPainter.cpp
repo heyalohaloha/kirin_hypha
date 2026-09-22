@@ -1,5 +1,6 @@
 #include "HyphaCaptureHistoryPainter.h"
 
+#include "HyphaChannelClipText.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTimeAxisContract.h"
@@ -199,7 +200,8 @@ void paintTruePeakEvents (juce::Graphics& g,
                           const std::vector<KirinMeterHistoryEntry>& history,
                           const time_history::HistoryAxis& axis,
                           const TruePeakSummary& summary,
-                          double sampleRate)
+                          double sampleRate,
+                          const KirinMeterSession* meter)
 {
     const auto overlay = truePeakOverlayFor (sharedPlot);
     const auto baseline = overlay.getBottom();
@@ -237,9 +239,11 @@ void paintTruePeakEvents (juce::Graphics& g,
             }
         }
     }
-    const std::array<juce::Colour, 2> clipColours { COL_LED_BLUE, COL_SPECTRUM_POST };
+    const std::array<juce::Colour, 6> clipColours {
+        COL_LED_BLUE, COL_SPECTRUM_POST, COL_FLORA_BR, COL_GUIDE_BR, COL_NORMAL, COL_FLORA
+    };
     for (std::size_t index = 0; index < history.size(); ++index)
-        for (std::size_t channel = 0; channel < 2; ++channel)
+        for (std::size_t channel = 0; channel < channel_clip::count (meter); ++channel)
             if (history[index].clip_event_count[channel] > 0u)
             {
                 const auto x = sharedPlot.getX()
@@ -248,9 +252,10 @@ void paintTruePeakEvents (juce::Graphics& g,
                                * sharedPlot.getWidth();
                 const auto y = sharedPlot.getBottom() - 2.0f
                              - static_cast<float> (channel) * 4.0f;
-                g.setColour (clipColours[channel].withAlpha (0.24f));
+                const auto colour = clipColours[channel % clipColours.size()];
+                g.setColour (colour.withAlpha (0.24f));
                 g.fillEllipse (x - 3.0f, y - 1.0f, 6.0f, 4.0f);
-                g.setColour (clipColours[channel].withAlpha (0.94f));
+                g.setColour (colour.withAlpha (0.94f));
                 g.fillRoundedRectangle (x - 1.5f, y, 3.0f, 2.0f, 1.0f);
             }
 }
@@ -328,7 +333,8 @@ void paint (juce::Graphics& g,
             double sampleRate,
             presentation::Context presentation,
             std::optional<std::size_t> hoveredIndex,
-            juce::String contextFact)
+            juce::String contextFact,
+            const KirinMeterSession* meter)
 {
     surface_material::paintPanel (g, area.toFloat(), 0.62f);
     const auto layout = layoutFor (area);
@@ -357,9 +363,8 @@ void paint (juce::Graphics& g,
                + "   M " + measuredText (entry.lufs_m.mean, delta);
         if (! delta)
             detail += "   TP " + measuredText (entry.true_peak.max) + " dBTP";
-        if (! delta && (entry.clip_event_count[0] > 0u || entry.clip_event_count[1] > 0u))
-            detail += "   CLIP L" + juce::String (entry.clip_event_count[0])
-                    + " R" + juce::String (entry.clip_event_count[1]);
+        if (! delta && channel_clip::total (entry.clip_event_count, meter) > 0u)
+            detail += "   " + channel_clip::text (entry.clip_event_count, meter, true);
     }
     else if (peakSummary.available)
     {
@@ -446,7 +451,7 @@ void paint (juce::Graphics& g,
     paintPath (g, layout.sharedPlot, history, axis, delta,
                COL_SPECTRUM_POST, 0.96f, 1.20f, sampleRate);
     if (! delta)
-        paintTruePeakEvents (g, layout.sharedPlot, history, axis, peakSummary, sampleRate);
+        paintTruePeakEvents (g, layout.sharedPlot, history, axis, peakSummary, sampleRate, meter);
     paintCurrentLoudness (g, layout.sharedPlot, history, delta, presentation);
     g.setColour (COL_MUTED.withAlpha (0.64f));
     g.setFont (monoFont (presentation, typography::TextRole::axis,

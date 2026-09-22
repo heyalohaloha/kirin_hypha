@@ -342,7 +342,7 @@ fn verify_bundle(
         .args(["--version", version])
         .args(["--source-id", source_id])
         .args(["--source-state", "clean source"])
-        .arg("--require-kimera")
+        .arg("--require-distribution")
         .arg("--require-native-only");
     if let Some(source) = source {
         command.args(["--source", path_text(source)?]);

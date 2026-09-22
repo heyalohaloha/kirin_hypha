@@ -36,12 +36,12 @@ mod tests {
     }
 
     #[test]
-    fn shipped_vst3_and_au_share_the_licensed_kimera_typeface_contract() {
+    fn shipped_vst3_and_au_can_optionally_share_the_licensed_kimera_typeface() {
         assert!(HYPHA_THEME_H.contains("usingKimeraTypography"));
         assert!(HYPHA_TYPOGRAPHY_CPP.contains("BinaryData::KMRWaldenburgBook_otf"));
         assert!(HYPHA_UI_CONTRACT_H.contains("kimeraFontFamily = \"KMR Waldenburg Book\""));
         assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED"));
-        assert!(JUCE_CMAKE.contains("KIRIN_HYPHA_REQUIRE_KIMERA_FONT"));
+        assert!(!JUCE_CMAKE.contains("KIRIN_HYPHA_REQUIRE_KIMERA_FONT"));
         assert!(JUCE_CMAKE.contains("src/HyphaTypography.cpp"));
     }
 
@@ -235,9 +235,9 @@ mod tests {
         assert!(body.contains("\"Preparing pairs...\""));
         assert!(body.contains("\"Ready to bounce\""));
         assert!(body.contains("observatoryView.setKeepActive (keepActive);"));
-        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains(
-            "stopButton.setVisible (role == Role::post && keepActive && ! captureFrame);"
-        ));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP
+            .contains("stopButton.setVisible (role == Role::post && keepActive && ! captureFrame"));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains("&& ! measurementOnlySurround);"));
     }
 
     #[test]
@@ -289,9 +289,9 @@ mod tests {
         assert!(PLUGIN_EDITOR_CPP.contains("menu.addSectionHeader (\"Keep\")"));
         assert!(PLUGIN_EDITOR_CPP.contains("osOwned && pairSelected"));
         assert!(PLUGIN_EDITOR_CPP.contains("processorRef.keepPair()"));
-        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains(
-            "stopButton.setVisible (role == Role::post && keepActive && ! captureFrame);"
-        ));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP
+            .contains("stopButton.setVisible (role == Role::post && keepActive && ! captureFrame"));
+        assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP.contains("&& ! measurementOnlySurround);"));
         assert!(HYPHA_OBSERVATORY_VIEW_FOOTER_CPP
             .contains("localBlindButton.setEnabled (! keepActive);"));
     }

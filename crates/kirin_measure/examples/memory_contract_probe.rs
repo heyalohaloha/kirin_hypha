@@ -303,7 +303,7 @@ fn probe_census(native_rate: u32, channels: usize, instances: usize) {
                     MeterHistoryAux {
                         correlation: Some(0.5),
                         plr: Some(9.0),
-                        clip_event_count: [0; 2],
+                        clip_event_count: [0; kirin_measure::METER_HISTORY_CHANNELS],
                     },
                 );
             }

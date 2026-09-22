@@ -82,7 +82,20 @@ KirinHyphaProcessorBase::localBlindProductView() const
 
 bool KirinHyphaProcessorBase::localBlindProductSupported() const noexcept
 {
-    return hypha::plugin_format::supportsLocalBlindProduct (wrapperType);
+    return stereoWorkflowsSupported()
+        && hypha::plugin_format::supportsLocalBlindProduct (wrapperType);
+}
+
+bool KirinHyphaProcessorBase::stereoWorkflowsSupported() const noexcept
+{
+    return preparedProductMode.load (std::memory_order_acquire)
+        == static_cast<uint8_t> (kirin::PreparedProductMode::stereoWorkflows);
+}
+
+bool KirinHyphaProcessorBase::surroundMeasurementOnly() const noexcept
+{
+    return preparedProductMode.load (std::memory_order_acquire)
+        == static_cast<uint8_t> (kirin::PreparedProductMode::surroundMeasurementOnly);
 }
 
 bool KirinHyphaProcessorBase::releaseLocalBlindProductScope (std::uint64_t epoch)
@@ -263,6 +276,10 @@ void KirinHyphaProcessorBase::stopLocalBlindCaptureForFormatChange (
 
 void KirinHyphaProcessorBase::startLocalBlindCaptureForPreparedFormat()
 {
+    // The diagnostic Debug entry may bypass wrapper-product availability, but never the channel
+    // contract: 5.1 is measurement-only and must not allocate or arm stereo audition capture.
+    if (! stereoWorkflowsSupported())
+        return;
    #if ! JUCE_DEBUG
     if (! localBlindProductSupported())
         return;

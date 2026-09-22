@@ -147,6 +147,10 @@ public:
     // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until
     // exact-range project-clock and PDC proof has been recorded for that host format.
     bool localBlindProductSupported() const noexcept;
+    bool stereoWorkflowsSupported() const noexcept;
+    bool surroundMeasurementOnly() const noexcept;
+    bool measurementFormatHeld() const noexcept
+    { return formatChangeHeld.load (std::memory_order_acquire); }
     hypha::local_blind::ProductSessionView localBlindProductView() const;
     hypha::local_blind::CaptureAdmission localBlindCaptureAvailability() const;
     hypha::local_blind::CaptureAdmission requestLocalBlindProductCapture (hypha::meter_context::MeterContext);
@@ -385,6 +389,8 @@ private:
     KirinHypha* hyphaHandle = nullptr;                 // owned; reused across same-format prepareToPlay; destroyed on incompatible reprepare/dtor
     bool hostComponentActive = true;                   // guarded by handleLock; retains VST3 setActive before engine creation
     kirin::PreparedFormat preparedFormat;              // rate + channel roles bound to hyphaHandle
+    std::atomic<uint8_t> preparedProductMode {
+        static_cast<uint8_t> (kirin::PreparedProductMode::none) };
     kirin::HeldFormat heldFormat;                      // reprepare refused during Record, not forgotten
     std::atomic<bool> formatChangeHeld { false };      // audio thread: stop feeding the stale engine
     bool lastProcessPositionValid = false;             // audio-thread local transport position cache

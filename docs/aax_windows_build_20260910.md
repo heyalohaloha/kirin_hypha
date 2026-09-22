@@ -27,17 +27,19 @@ Run from a Visual Studio x64 developer shell with the SDK outside the GPL reposi
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_aax_windows.ps1 `
   -Sdk C:\absolute\external\aax-sdk-2-9-0 `
   -LicenseConfirmed `
-  -KimeraFont C:\absolute\licensed\KMR-Waldenburg-Book.otf `
-  -KimeraLicenseConfirmed
+  -Distribution
 ```
+
+The optional Kimera typeface can be added to any build with `-KimeraFont` and
+`-KimeraLicenseConfirmed`. Its absence does not block signing or distribution.
 
 The script builds the Rust FFI static library, applies and verifies the tracked JUCE patch stack,
 requires a clean B-numbered source, configures the explicit AAX gate, builds only PRE/POST AAX,
 checks both version resources, and writes `kirin-hypha-windows-aax-build.json`. The manifest pins the
-full source commit, source state, Kimera embedding state, Native-only/AudioSuite state, and exact
-PRE/POST hashes. Omitting the Kimera options is permitted for an unsigned diagnostic build, but the
-resulting manifest records `kimera_embedded: false` and `mode: diagnostic`; release signing rejects
-it. Use that artifact only for a host that explicitly permits unsigned developer plug-ins. It must
+full source commit, source state, optional Kimera embedding state, explicit distribution intent,
+Native-only/AudioSuite state, and exact PRE/POST hashes. Omitting `-Distribution` records
+`mode: diagnostic`; release signing rejects that intent marker independently of the font state.
+Use that artifact only for a host that explicitly permits unsigned developer plug-ins. It must
 never be passed as `--aax-artifact-dir` to the public installer path.
 
 ## Signing boundary
@@ -73,8 +75,8 @@ The release sequence is:
 2. Load the eSigner CKA certificate into that same user's certificate store.
 3. Run `scripts/windows/sign-aax-wraptool.ps1` once, passing the certificate thumbprint to
    `wraptool`; the physical signing authorization must be attached. Before mutation, the script
-   verifies the build provenance and refuses modified-source, non-Kimera, non-Native-only, or
-   hash-mismatched input.
+   verifies the build provenance and refuses modified-source, non-distribution, non-Native-only,
+   or hash-mismatched input. Kimera presence is recorded but optional.
 4. Verify PACE locally, Authenticode validity, Kirin publisher identity, secure timestamp, x64 PE,
    version, and exact PRE/POST bundle structure before packaging. Successful signing writes
    `kirin-hypha-windows-aax-signed.json`, preserving unsigned hashes and recording signed hashes.

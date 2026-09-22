@@ -33,7 +33,7 @@ struct Summary
     std::uint64_t firstObservedFrames = 0;
     std::uint64_t lastObservedFrames = 0;
     std::uint64_t observationCount = 0;
-    std::array<std::uint64_t, 2> clipEvents {};
+    std::array<std::uint64_t, KIRIN_MAX_CHANNELS> clipEvents {};
     Range momentary;
     Range shortTerm;
     Range correlation;
@@ -58,5 +58,5 @@ int visibleRowCount (int width) noexcept;
 double durationSeconds (const Summary&, double sampleRate) noexcept;
 
 void paint (juce::Graphics&, juce::Rectangle<int>, const Result&, double sampleRate,
-            presentation::Context);
+            presentation::Context, const KirinMeterSession* meter = nullptr);
 }

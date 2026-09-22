@@ -213,7 +213,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     // 30 Hz only while its exact-pair exchange is active; every normal meter stays at 10 Hz.
     startTimerHz (ui::preDisplayPresentationHz);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
-    if (openAttackAtLaunch)
+    if (openAttackAtLaunch && ! processorRef.surroundMeasurementOnly())
     {
         observatorySizeIndex = ui::spectrumSizePresets.size() - 1u;
         observatoryDomain = hypha::observatory::Domain::time;

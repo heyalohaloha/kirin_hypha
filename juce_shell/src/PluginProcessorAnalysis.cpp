@@ -5,6 +5,12 @@ void KirinHyphaProcessorBase::normalizeSpectrumSelectionForInputChannels (int ch
 {
     if (role != Role::Post || channels == 2)
         return;
+    if (channels > 2)
+    {
+        analysisDemandOwner.replaceCurrentRequest ({});
+        analysisApplication.requestChanged();
+        return;
+    }
     if (preferredSpectrumChannelMode.load (std::memory_order_acquire)
             == KIRIN_SPECTRUM_CHANNEL_SIDE)
         preferredSpectrumChannelMode.store (
@@ -83,6 +89,8 @@ bool KirinHyphaProcessorBase::setAnalysisDemand (
         return false;
 
     const juce::ScopedLock sl (handleLock);
+    if (! stereoWorkflowsSupported())
+        return false;
     const auto changed = analysisDemandOwner.requested() != demand;
     if (! analysisDemandOwner.set (owner, demand))
         return false;

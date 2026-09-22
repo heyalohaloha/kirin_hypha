@@ -260,7 +260,8 @@ export function requireWindowsInstaller(
     if (aaxIdentity?.source_commit !== expectedIdentity.commit
         || aaxIdentity?.b_number !== expectedIdentity.bNumber
         || aaxIdentity?.source_state !== 'clean source'
-        || aaxIdentity?.kimera_embedded !== true
+        || aaxIdentity?.build_mode !== 'release'
+        || typeof aaxIdentity?.kimera_embedded !== 'boolean'
         || aaxIdentity?.native_only !== true
         || aaxIdentity?.audio_suite_enabled !== false
         || aaxIdentity?.signed_manifest !== expectedAaxManifestName
@@ -278,7 +279,9 @@ export function requireWindowsInstaller(
         || signedAax.source?.b_number !== expectedIdentity.bNumber
         || signedAax.source?.state !== 'clean source'
         || signedAax.product?.version !== expectedIdentity.version
-        || signedAax.release?.kimera_embedded !== true
+        || signedAax.release?.mode !== 'release'
+        || typeof signedAax.release?.kimera_embedded !== 'boolean'
+        || signedAax.release?.kimera_embedded !== aaxIdentity.kimera_embedded
         || signedAax.release?.native_only !== true
         || signedAax.release?.audio_suite_enabled !== false
         || signedAax.signing?.pace_verified !== true

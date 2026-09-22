@@ -67,6 +67,7 @@ mod record_entry_lock;
 pub mod record_expected;
 pub mod record_ingress;
 pub mod record_mark;
+mod record_measure_engines;
 pub mod record_signal;
 mod record_spool;
 pub mod record_take;
@@ -180,7 +181,7 @@ pub use meter_delta_history::{
 };
 pub use meter_history::{
     MeterHistoryAux, MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution,
-    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY,
+    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, METER_HISTORY_CHANNELS,
 };
 pub use meter_session::{
     MeterSession, MeterSessionPublication, MeterSessionSnapshot, MeterSessionState,
@@ -360,7 +361,6 @@ pub use watch_playback_pass::{
 };
 pub use watchdog::{spawn_watchdog, IoThreadHandle, RestartIoFn, WatchdogIo, WatchdogParams};
 pub use watchdog_handoff::WatchProducerHandoff;
-
 // ── B-027 段階 2: PRE/POST 共通の Name 正規化 ────────────────────────────
 /// Name 入力値を正規化 (R-28 機能的沈黙)。最大 16 文字。
 /// B-077: 非 ASCII（日本語等 UTF-8 印字可能文字）を **保持**する。実害のある文字＝

@@ -115,7 +115,8 @@ node scripts/ls_release/build_kirin_hypha_release_set.mjs \
 
 The command rejects a Windows AAX installer when `--with-aax` was omitted, and rejects a VST3-only
 installer when it was selected. macOS AAX bundles must carry the exact current commit, `clean
-source`, licensed Kimera, and Native-only stamps. Windows AAX must carry the equivalent signed
+source`, explicit distribution intent, and Native-only stamps. Kimera is optional and its absence
+does not block release. Windows AAX must carry the equivalent signed
 provenance sidecar, whose hash and PRE/POST hashes are bound into the installer manifest. In both
 cases, same-version bundles from an older commit cannot be packaged.
 
@@ -188,7 +189,7 @@ The four source, installed, archive, executable, display-name, and VST3 CID cont
 `config/hypha_macos_ship_bundles.json`. Before `pkgbuild`, the script verifies the exact payload
 layout—including the role-first VST3 outer names—against each bundle's `CFBundleExecutable`.
 With `--with-aax`, the separate AAX manifest requires exactly PRE and POST, verifies the exact source
-commit, clean-source/Kimera/Native-only stamps, Universal architecture, exact Apple and PACE signer
+commit, clean-source/distribution/Native-only stamps, a recorded optional Kimera state, Universal architecture, exact Apple and PACE signer
 identities, secure timestamp, accepted notarization archive/log receipt, and PACE symlink integrity.
 It reconfirms the receipt online with `notarytool info` and `notarytool log`, materializes AAX only
 from the verified submitted archive, expands the finished pkg, and compares the complete bundle

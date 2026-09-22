@@ -1,10 +1,47 @@
 use super::*;
+use crate::channel_layout::LayoutId;
 
 const SR: u32 = 48_000;
 const FRAMES: usize = SR as usize / 10;
 
 fn observation(left: f64, right: f64) -> Vec<f64> {
     [left, right].into_iter().cycle().take(FRAMES * 2).collect()
+}
+
+fn surround_observation(levels: [f64; 6]) -> Vec<f64> {
+    levels
+        .into_iter()
+        .cycle()
+        .take(FRAMES * levels.len())
+        .collect()
+}
+
+#[test]
+fn five_one_reports_every_role_without_inventing_stereo_facts() {
+    let layout = ChannelLayout::by_id(LayoutId::Surround5_1);
+    let mut meter = StereoMeter::new(SR, layout).unwrap();
+    let levels = [0.50, 0.40, 0.30, 0.20, 0.10, 1.00];
+    for _ in 0..3 {
+        assert!(meter.push_observation(&surround_observation(levels)));
+    }
+
+    let snapshot = meter.snapshot();
+    assert_eq!(snapshot.channels, 6);
+    for (channel, expected) in levels.into_iter().enumerate() {
+        assert!(
+            (snapshot.sample_peak_dbfs[channel].unwrap() - 20.0 * expected.log10()).abs() < 1.0e-9
+        );
+        assert!(snapshot.true_peak_dbtp[channel].is_some());
+        assert!(snapshot.vu_dbfs[channel].is_some());
+    }
+    assert!(snapshot.sample_peak_dbfs[6..].iter().all(Option::is_none));
+    assert_eq!(snapshot.clip_events[..6], [0, 0, 0, 0, 0, 1]);
+    assert_eq!(snapshot.balance_state, BalanceState::Unavailable);
+    assert!(snapshot.balance_db.is_none());
+    assert!(snapshot.correlation.is_none());
+    assert_eq!(snapshot.field_observation_count, 0);
+    assert!(snapshot.field_density.iter().all(|density| *density == 0));
+    assert!(snapshot.mono_sum_db.iter().all(Option::is_none));
 }
 
 fn sine_observation(left_peak: f64, right_peak: f64) -> Vec<f64> {
@@ -85,10 +122,10 @@ fn clip_events_are_channel_specific_contiguous_runs_across_observations() {
     let mut meter = StereoMeter::new(SR, ChannelLayout::stereo()).unwrap();
     assert!(meter.push_observation(&observation(1.0, 0.5)));
     assert!(meter.push_observation(&observation(1.2, 0.5)));
-    assert_eq!(meter.snapshot().clip_events, [1, 0]);
+    assert_eq!(meter.snapshot().clip_events[..2], [1, 0]);
     assert!(meter.push_observation(&observation(0.5, 0.5)));
     assert!(meter.push_observation(&observation(1.0, -1.0)));
-    assert_eq!(meter.snapshot().clip_events, [2, 1]);
+    assert_eq!(meter.snapshot().clip_events[..2], [2, 1]);
 }
 
 #[test]
@@ -135,7 +172,7 @@ fn peak_hold_and_true_peak_are_per_channel_and_reset_only_explicitly() {
     assert!(held.true_peak_dbtp[0].unwrap() > held.true_peak_dbtp[1].unwrap());
     meter.reset();
     let reset = meter.snapshot();
-    assert_eq!(reset.clip_events, [0, 0]);
+    assert!(reset.clip_events.iter().all(|count| *count == 0));
     assert!(reset.sample_peak_hold_dbfs.iter().all(Option::is_none));
     assert!(reset.max_true_peak_dbtp.iter().all(Option::is_none));
     assert!(reset.instant_true_peak_dbtp.iter().all(Option::is_none));
@@ -149,14 +186,14 @@ fn clear_peak_clip_holds_preserves_live_windows_and_relatches_continuing_clip() 
         assert!(meter.push_observation(&observation(1.1, 0.4)));
     }
     let before = meter.snapshot();
-    assert_eq!(before.clip_events, [1, 0]);
-    assert_eq!(meter.session_clip_events(), [1, 0]);
+    assert_eq!(before.clip_events[..2], [1, 0]);
+    assert_eq!(meter.session_clip_events()[..2], [1, 0]);
     assert!(before.max_true_peak_dbtp[0].is_some());
 
     meter.clear_peak_clip_holds();
     let cleared = meter.snapshot();
-    assert_eq!(cleared.clip_events, [1, 0]);
-    assert_eq!(cleared.clip_latched, [false, false]);
+    assert_eq!(cleared.clip_events[..2], [1, 0]);
+    assert!(cleared.clip_latched.iter().all(|latched| !latched));
     assert!(cleared.max_true_peak_dbtp.iter().all(Option::is_none));
     assert_eq!(cleared.true_peak_dbtp, before.true_peak_dbtp);
     assert_eq!(
@@ -165,13 +202,13 @@ fn clear_peak_clip_holds_preserves_live_windows_and_relatches_continuing_clip() 
     );
     assert_eq!(cleared.vu_dbfs, before.vu_dbfs);
     assert_eq!(cleared.sample_peak_hold_dbfs, before.sample_peak_hold_dbfs);
-    assert_eq!(meter.session_clip_events(), [1, 0]);
+    assert_eq!(meter.session_clip_events()[..2], [1, 0]);
 
     assert!(meter.push_observation(&observation(1.1, 0.4)));
     let relatched = meter.snapshot();
-    assert_eq!(relatched.clip_events, [1, 0]);
-    assert_eq!(relatched.clip_latched, [true, false]);
-    assert_eq!(meter.session_clip_events(), [1, 0]);
+    assert_eq!(relatched.clip_events[..2], [1, 0]);
+    assert_eq!(relatched.clip_latched[..2], [true, false]);
+    assert_eq!(meter.session_clip_events()[..2], [1, 0]);
     assert!(relatched.max_true_peak_dbtp[0].is_some());
 }
 
