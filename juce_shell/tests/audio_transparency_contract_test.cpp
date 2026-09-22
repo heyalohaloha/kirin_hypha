@@ -90,7 +90,8 @@ void verifyConfiguration (juce::AudioPluginFormat& format,
 {
     auto instance = createInstance (format, description);
     const auto channelSet = channels == 1 ? juce::AudioChannelSet::mono()
-                                          : juce::AudioChannelSet::stereo();
+                            : channels == 2 ? juce::AudioChannelSet::stereo()
+                                            : juce::AudioChannelSet::create5point1();
     juce::AudioProcessor::BusesLayout layout;
     layout.inputBuses.add (channelSet);
     layout.outputBuses.add (channelSet);
@@ -169,6 +170,21 @@ void verifyConfiguration (juce::AudioPluginFormat& format,
     std::cout << "PASS " << description.name << ' '
               << channels << "ch " << (offline ? "offline" : "realtime")
               << " samples=" << verifiedSamples << " latency=0 bit-identical\n";
+}
+
+void verifyRejectedConfiguration (juce::AudioPluginFormat& format,
+                                  const juce::PluginDescription& description,
+                                  const juce::AudioChannelSet& channelSet,
+                                  const char* layoutName)
+{
+    auto instance = createInstance (format, description);
+    juce::AudioProcessor::BusesLayout layout;
+    layout.inputBuses.add (channelSet);
+    layout.outputBuses.add (channelSet);
+    if (instance->setBusesLayout (layout))
+        fail (description.name.toStdString() + " accepted unsupported " + layoutName);
+
+    std::cout << "PASS " << description.name << " rejected " << layoutName << '\n';
 }
 
 struct Vst3State
@@ -305,6 +321,12 @@ void verifyBundle (juce::AudioPluginFormat& format,
     verifyConfiguration (format, *descriptions[0], 2, false);
     verifyConfiguration (format, *descriptions[0], 2, true);
     verifyConfiguration (format, *descriptions[0], 1, false);
+    verifyConfiguration (format, *descriptions[0], 6, false);
+    verifyConfiguration (format, *descriptions[0], 6, true);
+    verifyRejectedConfiguration (
+        format, *descriptions[0], juce::AudioChannelSet::create5point0(), "5.0");
+    verifyRejectedConfiguration (
+        format, *descriptions[0], juce::AudioChannelSet::create7point1(), "7.1");
     if (std::string (formatName) == "VST3")
         verifyVst3HostStatePersistence (format, *descriptions[0]);
 }

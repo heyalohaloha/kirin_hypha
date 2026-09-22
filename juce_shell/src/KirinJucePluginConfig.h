@@ -1,10 +1,10 @@
 #pragma once
 
 // CMake command lines are a brittle place for JUCE's brace-heavy preferred
-// channel list. Force-include this header so the AU wrapper receives the exact
-// mono/stereo map Logic needs.
+// channel list. Force-include this header so every wrapper advertises the
+// mono/stereo/exact-5.1 channel counts accepted by PluginProcessor.
 #ifndef JucePlugin_PreferredChannelConfigurations
-#define JucePlugin_PreferredChannelConfigurations {1, 1}, {2, 2}
+#define JucePlugin_PreferredChannelConfigurations {1, 1}, {2, 2}, {6, 6}
 #endif
 
 // Expose whether JUCE's AU playhead used the host transport timeline or the mandatory
