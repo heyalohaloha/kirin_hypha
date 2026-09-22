@@ -19,6 +19,20 @@
 namespace kirin
 {
 
+enum class PreparedProductMode : uint8_t
+{
+    none = 0,
+    stereoWorkflows,
+    surroundMeasurementOnly,
+};
+
+inline PreparedProductMode productModeForRoles (const std::vector<uint8_t>& roles) noexcept
+{
+    if (supportsStereoWorkflows (roles)) return PreparedProductMode::stereoWorkflows;
+    if (isSurround51Roles (roles)) return PreparedProductMode::surroundMeasurementOnly;
+    return PreparedProductMode::none;
+}
+
 /** The audio format an engine is actually bound to. Empty roles means no engine. */
 struct PreparedFormat
 {

@@ -81,10 +81,17 @@ public:
     void setDomain (Domain);
     Domain domain() const noexcept { return selectedDomain; }
     void setSurroundMeasurementOnly (bool enabled);
+    void setMeasurementFormatHeld (bool held)
+    {
+        if (measurementFormatHeld == held) return;
+        measurementFormatHeld = held;
+        repaint (sessionArea);
+    }
     bool surroundMeasurementOnlyForTest() const noexcept
     {
         return measurementOnlySurround;
     }
+    juce::String footerStatusForTest() const { return footerStatusText(); }
     bool frequencyControlVisibleForTest() const noexcept
     {
         return frequencyButton.isVisible();
@@ -261,6 +268,7 @@ private:
     GuidePresence guidePresence() const noexcept;
     void paintHeader (juce::Graphics&, const ShellLayout&);
     void paintFooter (juce::Graphics&, const ShellLayout&);
+    juce::String footerStatusText() const;
     void layoutFooterActions (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
     void paintLevelWithHistory (juce::Graphics&, juce::Rectangle<int>);
@@ -306,6 +314,7 @@ private:
     bool referenceOwned = false;
     bool localBlindEntryEnabled = false;
     bool measurementOnlySurround = false;
+    bool measurementFormatHeld = false;
     bool keepActive = false;
     juce::String connectionText;
     juce::Colour connectionColour = COL_MUTED;

@@ -96,16 +96,22 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     }
 }
 
+juce::String View::footerStatusText() const
+{
+    if (measurementFormatHeld) return "FORMAT HELD / STOP KEEP";
+    if (! frameAvailable || observatoryFrame.meter.state == KIRIN_METER_SESSION_EMPTY)
+        return "WAITING";
+    if (observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED)
+        return "BYPASSED";
+    return measurementOnlySurround ? juce::String ("5.1 MEASURE") : juce::String();
+}
+
 void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
 {
     drawPanel (g, toJuce (layout.footer), experienceFamily(), 4.0f);
     auto session = sessionArea.reduced (6, 0);
     const auto& meter = observatoryFrame.meter;
-    const auto state = measurementOnlySurround ? juce::String ("5.1 MEASURE")
-                     : ! frameAvailable || meter.state == KIRIN_METER_SESSION_EMPTY
-                         ? juce::String ("WAITING")
-                     : observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED
-                         ? juce::String ("BYPASSED") : juce::String();
+    const auto state = footerStatusText();
     const auto seconds = frameAvailable && meter.sample_rate > 0
         ? static_cast<double> (meter.active_frames) / static_cast<double> (meter.sample_rate) : 0.0;
     g.setColour (frameAvailable ? COL_TEXT_SECONDARY : COL_MUTED);
@@ -155,7 +161,8 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
     if (showRunSummary && target() == ObservationTarget::absolute)
         run_summary::paint (g, area, runSummary,
                             frameAvailable ? observatoryFrame.meter.sample_rate : 0.0,
-                            presentationContext());
+                            presentationContext(),
+                            frameAvailable ? &observatoryFrame.meter : nullptr);
     else
         time_history::paint (g, area, history, compact ? historyRequest().label : "",
                              target() == ObservationTarget::delta, compact, selectedScaleMode,

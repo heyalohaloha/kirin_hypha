@@ -10,6 +10,7 @@ use crate::phase_d::channels::PhaseDChannelStream;
 use crate::phase_d::tables::FieldType;
 use crate::raw_pre_roll::RawPreRollHistory;
 use crate::record::RecordStateMachine;
+use crate::record_measure_engines::RecordMeasureEngines;
 use crate::record_spool::MeasureSampleConsumer;
 use crate::record_take::{
     CaptureClockPoint, CaptureClockSource, PresentationLatencySamples, RecordTakeTracker,
@@ -247,26 +248,17 @@ pub fn spawn_measure_thread(
                 return;
             }
         };
-        let mut record_trace_engine = match MeasureEngine::new(sample_rate, layout) {
-            Ok(engine) => engine,
+        let mut record_engines = match RecordMeasureEngines::new(sample_rate, layout) {
+            Ok(engines) => engines,
             Err(error) => {
                 log::error!(
-                    "[MeasureThread] native Record TRACE engine construction failed: {}",
+                    "[MeasureThread] Record engine construction failed: {}",
                     error
                 );
                 return;
             }
         };
-        let mut record_summary_engine = match MeasureEngine::new(sample_rate, layout) {
-            Ok(engine) => engine,
-            Err(error) => {
-                log::error!(
-                    "[MeasureThread] native Record summary engine construction failed: {}",
-                    error
-                );
-                return;
-            }
-        };
+        let record_workflow_supported = record_engines.supported();
 
         // 入力 SR が 48 kHz の場合はバイパス（ゼロオーバーヘッド経路を維持）。
         // 異なる場合のみ rubato Fft リサンプラを構築する。失敗時は Measure Thread のみ終了。
@@ -309,16 +301,23 @@ pub fn spawn_measure_thread(
         // samples and clocks through the existing lock-free ring/atomics.
         let mut record_grid_cursor: Option<i64> = None;
         let mut record_next_grid_end: Option<i64> = None;
-        let mut record_alignment_silence =
-            Vec::with_capacity((sample_rate as usize / 10).saturating_mul(n_channels));
+        let mut record_alignment_silence = Vec::with_capacity(if record_workflow_supported {
+            (sample_rate as usize / 10).saturating_mul(n_channels)
+        } else {
+            0
+        });
 
         // f32 → f64 変換バッファ（ループをまたいで再利用。再アロケーションを避ける）
         let measure_chunk_samples = measure_chunk_capacity_samples(sample_rate, n_channels);
         let mut chunk_f64: Vec<f64> = Vec::with_capacity(measure_chunk_samples);
-        let mut raw_pre_roll = RawPreRollHistory::new(
-            raw_pre_roll_capacity_samples(sample_rate, n_channels),
-            n_channels,
-        );
+        let mut raw_pre_roll = if record_workflow_supported {
+            RawPreRollHistory::new(
+                raw_pre_roll_capacity_samples(sample_rate, n_channels),
+                n_channels,
+            )
+        } else {
+            RawPreRollHistory::disabled(n_channels)
+        };
         let mut record_prefix_samples = VecDeque::<f32>::new();
         let mut record_prefix_owns_history_storage = false;
         let mut record_prefix_pending = false;
@@ -375,7 +374,7 @@ pub fn spawn_measure_thread(
             //     を捨て、セッション通算値を 0 から積み直す。
             // Record→Watch: 共有 session_summary は IO Thread が読んだ後にクリア
             //   される（次の Watch→Record でここで上書き None する）。
-            let is_recording = record_sm.is_recording();
+            let is_recording = record_workflow_supported && record_sm.is_recording();
             // A replacement Measure worker owns the final restart decision. Watchdog may have
             // observed this generation live immediately before a concurrent Stop; sampling again
             // here retires that exact entered-and-closed generation. `has_record_session` keeps the
@@ -422,8 +421,7 @@ pub fn spawn_measure_thread(
                 consumed_samples = 0;
                 native_frames_total = 0;
                 engine.reset();
-                record_trace_engine.reset();
-                record_summary_engine.reset();
+                record_engines.reset();
                 phase_d.reset();
                 if let Some(rs) = &mut resampler {
                     rs.reset();
@@ -444,7 +442,7 @@ pub fn spawn_measure_thread(
                 record_prefix_samples.clear();
                 record_prefix_owns_history_storage = false;
                 record_origin_frames =
-                    native_frames_to_48k(record_trace_engine.total_frames(), sample_rate);
+                    native_frames_to_48k(record_engines.trace().total_frames(), sample_rate);
                 record_origin_native_frames = native_frames_total;
                 next_record_trace_ms = 0;
                 next_record_psb_ms = 0;
@@ -468,13 +466,14 @@ pub fn spawn_measure_thread(
                     .unwrap_or_else(|| record_sm.generation());
                 let capture_finished = record_ingress
                     .finish_capture_from_measure(record_generation, Duration::from_secs(10));
+                let (trace_engine, summary_engine) = record_engines.parts();
                 let drained = capture_finished
                     && drain_ring_into_session(
                         DrainRingSession {
                             consumer: &mut consumer,
                             resampler: &mut resampler,
-                            trace_engine: &mut record_trace_engine,
-                            summary_engine: &mut record_summary_engine,
+                            trace_engine,
+                            summary_engine,
                             session_summary: &session_summary,
                             meter_session: meter_session.as_ref(),
                             meter_session_publication: meter_session_publication.as_ref(),
@@ -680,8 +679,7 @@ pub fn spawn_measure_thread(
             if !prev_active {
                 if !is_recording {
                     engine.reset();
-                    record_trace_engine.reset();
-                    record_summary_engine.reset();
+                    record_engines.reset();
                 } else {
                     log::info!("[MeasureThread] SS-8 reset suppressed in Record mode (B-043)");
                 }
@@ -823,8 +821,7 @@ pub fn spawn_measure_thread(
                     && !is_recording
                 {
                     engine.reset();
-                    record_trace_engine.reset();
-                    record_summary_engine.reset();
+                    record_engines.reset();
                     phase_d.reset();
                     if let Some(rs) = &mut resampler {
                         rs.reset();
@@ -836,8 +833,10 @@ pub fn spawn_measure_thread(
                     record_grid_cursor = None;
                     record_next_grid_end = None;
                     if is_recording {
-                        record_origin_frames =
-                            native_frames_to_48k(record_trace_engine.total_frames(), sample_rate);
+                        record_origin_frames = native_frames_to_48k(
+                            record_engines.trace().total_frames(),
+                            sample_rate,
+                        );
                         record_origin_native_frames = native_frames_total;
                         record_origin_position_samples = capture_plan.position_start_samples;
                         record_capture_epoch = selected_record_epoch.or(capture_plan.capture_epoch);
@@ -957,7 +956,7 @@ pub fn spawn_measure_thread(
                                 sample_rate,
                                 &mut record_core_pending,
                             );
-                            record_trace_engine.reset();
+                            record_engines.trace().reset();
                             phase_d.reset();
                             latest_pd = None;
                             phase_d_slot_pending.clear();
@@ -974,7 +973,7 @@ pub fn spawn_measure_thread(
                             record_alignment_silence.clear();
                             record_alignment_silence
                                 .resize(alignment_frames.saturating_mul(n_channels), 0.0);
-                            let _ = record_trace_engine.push(&record_alignment_silence);
+                            let _ = record_engines.trace().push(&record_alignment_silence);
                             let phase_frames_48k =
                                 native_frames_to_48k(alignment_frames as u64, sample_rate) as usize;
                             record_alignment_silence.clear();
@@ -1042,11 +1041,12 @@ pub fn spawn_measure_thread(
                 }
 
                 if is_recording {
-                    let trace_engine_frames_before = record_trace_engine.total_frames();
-                    let trace_engine_pending_frames_before = record_trace_engine.pending_frames();
+                    let trace_engine_frames_before = record_engines.trace().total_frames();
+                    let trace_engine_pending_frames_before =
+                        record_engines.trace().pending_frames();
                     let captured_frames_before =
                         native_frames_after.saturating_sub(chunk_native_frames);
-                    let _ = record_trace_engine.push_observed(
+                    let _ = record_engines.trace().push_observed(
                         &chunk_f64,
                         |native_engine_frames, base_result, observed_chunk| {
                             let (observed_native_frames, clock_point) =
@@ -1095,7 +1095,7 @@ pub fn spawn_measure_thread(
                             });
                         },
                     );
-                    let _ = record_summary_engine.push(&chunk_f64);
+                    let _ = record_engines.summary().push(&chunk_f64);
                     if let Some(position_start) = capture_plan.position_start_samples {
                         record_grid_cursor =
                             Some(position_start.saturating_add(chunk_native_frames as i64));
@@ -1127,7 +1127,7 @@ pub fn spawn_measure_thread(
                 // IO Thread が Record→Watch 遷移時に直近の値を読み出して JSON に焼く。
                 // engine.push() 後に呼ぶことで最新チャンク反映後の値を取れる。
                 if is_recording {
-                    let summary = record_summary_engine.finalize();
+                    let summary = record_engines.summary().finalize();
                     if let Ok(mut g) = session_summary.lock() {
                         *g = Some(summary);
                     }

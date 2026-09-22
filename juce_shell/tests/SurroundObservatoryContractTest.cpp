@@ -94,6 +94,18 @@ void verifySurroundObservatoryContract()
     surround.setSize (600, 400);
     surround.setObservatoryFrame (frame, true);
     surround.setSurroundMeasurementOnly (true);
+    KIRIN_SURROUND_REQUIRE (surround.footerStatusForTest() == "5.1 MEASURE");
+    auto bypassed = frame;
+    bypassed.signal_state = KIRIN_SIGNAL_STATE_BYPASSED;
+    surround.setObservatoryFrame (bypassed, true);
+    KIRIN_SURROUND_REQUIRE (surround.footerStatusForTest() == "BYPASSED");
+    observatory::View waiting (observatory::Role::post);
+    waiting.setSurroundMeasurementOnly (true);
+    KIRIN_SURROUND_REQUIRE (waiting.footerStatusForTest() == "WAITING");
+    surround.setMeasurementFormatHeld (true);
+    KIRIN_SURROUND_REQUIRE (surround.footerStatusForTest() == "FORMAT HELD / STOP KEEP");
+    surround.setMeasurementFormatHeld (false);
+    surround.setObservatoryFrame (frame, true);
     KIRIN_SURROUND_REQUIRE (surround.surroundMeasurementOnlyForTest());
     KIRIN_SURROUND_REQUIRE (! surround.frequencyControlVisibleForTest());
     KIRIN_SURROUND_REQUIRE (! surround.spaceControlVisibleForTest());
@@ -116,5 +128,25 @@ void verifySurroundObservatoryContract()
     stereo.setObservatoryFrame (stereoFrame, true);
     KIRIN_SURROUND_REQUIRE (
         differentPixels (renderSurround (surround), renderSurround (stereo)) > 100);
+
+    for (const auto preset : observatory::sizePresets)
+    {
+        observatory::View first (observatory::Role::post);
+        observatory::View second (observatory::Role::post);
+        first.setSize (preset.width, preset.height);
+        second.setSize (preset.width, preset.height);
+        first.setSurroundMeasurementOnly (true);
+        second.setSurroundMeasurementOnly (true);
+        auto changedRole = frame;
+        changedRole.meter.channel_true_peak_dbtp[5] = -28.0;
+        changedRole.meter.sample_peak_dbfs[5] = -31.0;
+        changedRole.meter.clip_events[5] = 2;
+        first.setObservatoryFrame (frame, true);
+        second.setObservatoryFrame (changedRole, true);
+        const auto changed = differentPixels (renderSurround (first), renderSurround (second));
+        std::cout << "5.1 role render " << preset.width << "x" << preset.height
+                  << ": " << changed << " changed pixels\n";
+        KIRIN_SURROUND_REQUIRE (changed > 0);
+    }
 }
 } // namespace hypha::tests

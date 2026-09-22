@@ -24,6 +24,17 @@ pub(crate) struct RawRecordPrefix {
 }
 
 impl RawPreRollHistory {
+    pub(crate) fn disabled(channels: usize) -> Self {
+        Self {
+            samples: VecDeque::new(),
+            capacity_samples: 0,
+            channels: channels.max(1),
+            epoch: None,
+            start_capture_frame: None,
+            end_capture_frame: None,
+        }
+    }
+
     pub(crate) fn new(capacity_samples: usize, channels: usize) -> Self {
         let channels = channels.max(1);
         let capacity_samples = capacity_samples.max(channels) / channels * channels;
@@ -52,6 +63,9 @@ impl RawPreRollHistory {
         capture_start_frame: u64,
         samples: &[f64],
     ) -> bool {
+        if self.capacity_samples == 0 {
+            return false;
+        }
         let Some(epoch) = epoch.filter(|epoch| *epoch > 0) else {
             self.clear();
             return false;
@@ -161,6 +175,14 @@ impl RawPreRollHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disabled_history_never_allocates_or_accepts_audio() {
+        let mut history = RawPreRollHistory::disabled(6);
+        assert_eq!(history.samples.capacity(), 0);
+        assert!(!history.append_f64(Some(1), 0, &[0.0; 6]));
+        assert!(history.take_positioned_prefix(0, 1, 1).is_none());
+    }
 
     #[test]
     fn exact_epoch_suffix_is_moved_without_copying_another_history() {

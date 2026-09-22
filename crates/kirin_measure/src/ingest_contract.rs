@@ -2,8 +2,8 @@
 //!
 //! A non-blocking Audio Thread cannot promise lossless delivery for an unbounded number of
 //! callbacks with finite memory. Hypha therefore publishes one explicit, testable host contract:
-//! every supported instance accepts three complete maximum-sized callbacks before the Measure
-//! Thread has to reclaim a slot. Watch and Record use different preallocated lanes so ordinary
+//! every Record-capable instance accepts three complete maximum-sized callbacks before Measure
+//! has to reclaim a slot. Watch and Record use different preallocated lanes so ordinary
 //! metering no longer pays for a 30-second Record backlog.
 
 use crate::capture_contract::MAX_CAPTURE_PAIRS;
@@ -14,8 +14,11 @@ pub const MAX_AUDIO_BLOCK_FRAMES: usize = 262_144;
 /// Maximum number of complete Record callbacks that may remain unconsumed.
 pub const RECORD_UNCONSUMED_BURST_BLOCKS: usize = 3;
 
-/// Largest supported input layout (mono and stereo are accepted).
-pub const MAX_AUDIO_CHANNELS: usize = 2;
+/// Largest layout admitted to Record/Capture. Surround is measurement-only.
+pub const MAX_RECORD_AUDIO_CHANNELS: usize = 2;
+
+/// Largest currently shipped measurement-only layout.
+pub const MAX_MEASUREMENT_AUDIO_CHANNELS: usize = 6;
 
 /// Maximum supported native sample rate. The raw pre-roll allocation is part of the 12-pair RSS
 /// contract, so accepting an unbounded sample rate would make that contract fictitious.
@@ -67,12 +70,14 @@ pub const fn measure_chunk_capacity_samples(sample_rate: u32, n_channels: usize)
 /// Maximum Audio-ingest + JUCE scratch allocation for all 12 PRE/POST pairs.
 pub const fn max_generation_ingest_bytes() -> usize {
     let instances = MAX_CAPTURE_PAIRS.saturating_mul(2);
-    let per_instance_samples = watch_ring_capacity_samples(MAX_AUDIO_CHANNELS)
-        .saturating_add(record_ring_capacity_samples(MAX_AUDIO_CHANNELS))
-        .saturating_add(interleave_scratch_capacity_samples(MAX_AUDIO_CHANNELS))
+    let per_instance_samples = watch_ring_capacity_samples(MAX_RECORD_AUDIO_CHANNELS)
+        .saturating_add(record_ring_capacity_samples(MAX_RECORD_AUDIO_CHANNELS))
+        .saturating_add(interleave_scratch_capacity_samples(
+            MAX_RECORD_AUDIO_CHANNELS,
+        ))
         .saturating_add(raw_pre_roll_capacity_samples(
             MAX_SUPPORTED_SAMPLE_RATE,
-            MAX_AUDIO_CHANNELS,
+            MAX_RECORD_AUDIO_CHANNELS,
         ));
     instances
         .saturating_mul(per_instance_samples)
@@ -89,12 +94,31 @@ pub const fn max_generation_known_pipeline_bytes() -> usize {
         .saturating_add(instances.saturating_mul(crate::record_spool::memory_bytes_per_instance()))
         .saturating_add(
             instances
-                .saturating_mul(measure_chunk_capacity_samples(192_000, MAX_AUDIO_CHANNELS))
+                .saturating_mul(measure_chunk_capacity_samples(
+                    192_000,
+                    MAX_RECORD_AUDIO_CHANNELS,
+                ))
                 .saturating_mul(std::mem::size_of::<f64>()),
         )
 }
 
-/// Hard RSS allocation envelope reserved for ingest, engines and bounded control state.
+/// Measurement-only 5.1 has no allocated Record lane, raw pre-roll, or Record spool workspace.
+pub const fn max_generation_measurement_only_pipeline_bytes() -> usize {
+    let instances = MAX_CAPTURE_PAIRS.saturating_mul(2);
+    let channels = MAX_MEASUREMENT_AUDIO_CHANNELS;
+    let samples = watch_ring_capacity_samples(channels)
+        .saturating_add(interleave_scratch_capacity_samples(channels));
+    instances
+        .saturating_mul(samples.saturating_mul(std::mem::size_of::<f32>()))
+        .saturating_add(
+            instances
+                .saturating_mul(measure_chunk_capacity_samples(192_000, channels))
+                .saturating_mul(std::mem::size_of::<f64>()),
+        )
+}
+
+/// Legacy known-pipeline envelope. This is not a process-RSS claim; DSP histories and host/plugin
+/// overhead require the separate production-equivalent RSS gate.
 pub const CAPTURE_GENERATION_RSS_BUDGET_BYTES: usize = 384 * 1024 * 1024;
 
 #[cfg(test)]
@@ -111,10 +135,21 @@ mod tests {
     }
 
     #[test]
-    fn twelve_pairs_stay_below_the_process_rss_budget() {
+    fn twelve_pairs_stay_below_the_legacy_known_pipeline_envelope() {
         assert_eq!(max_generation_ingest_bytes(), 338_853_888);
         assert_eq!(max_generation_known_pipeline_bytes(), 349_372_416);
         assert!(max_generation_known_pipeline_bytes() <= CAPTURE_GENERATION_RSS_BUDGET_BYTES);
+    }
+
+    #[test]
+    fn exact_five_one_measurement_only_pipeline_excludes_record_storage() {
+        assert_eq!(
+            max_generation_measurement_only_pipeline_bytes(),
+            324_108_288
+        );
+        assert!(
+            max_generation_measurement_only_pipeline_bytes() <= CAPTURE_GENERATION_RSS_BUDGET_BYTES
+        );
     }
 
     #[test]

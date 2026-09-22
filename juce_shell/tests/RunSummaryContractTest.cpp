@@ -56,6 +56,7 @@ void verifyRunSummaryContract()
     };
     history[1].clip_event_count[0] = 2;
     history[2].clip_event_count[1] = 1;
+    history[3].clip_event_count[5] = 3;
     const auto result = run_summary::summarize (history);
     KIRIN_RUN_REQUIRE (result.exactTimeline);
     KIRIN_RUN_REQUIRE (result.runs.size() == 3u);
@@ -63,6 +64,7 @@ void verifyRunSummaryContract()
     KIRIN_RUN_REQUIRE (result.runs[2].generation == 5u);
     KIRIN_RUN_REQUIRE (result.runs[0].observationCount == 4u);
     KIRIN_RUN_REQUIRE (result.runs[0].clipEvents[0] == 2u);
+    KIRIN_RUN_REQUIRE (result.runs[2].clipEvents[5] == 3u);
     KIRIN_RUN_REQUIRE (std::abs (result.runs[0].momentary.mean - -12.5) < 1.0e-12);
     KIRIN_RUN_REQUIRE (std::abs (result.runs[0].momentary.minimum - -21.0) < 1.0e-12);
     KIRIN_RUN_REQUIRE (std::abs (result.runs[0].momentary.maximum - -9.0) < 1.0e-12);

@@ -60,5 +60,6 @@ void paint (juce::Graphics&,
             double sampleRate,
             presentation::Context,
             std::optional<std::size_t> hoveredIndex = std::nullopt,
-            juce::String contextFact = {});
+            juce::String contextFact = {},
+            const KirinMeterSession* meter = nullptr);
 }

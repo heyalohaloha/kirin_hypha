@@ -1,5 +1,6 @@
 #include "HyphaRunSummary.h"
 
+#include "HyphaChannelClipText.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -112,7 +113,7 @@ juce::String durationText (const Summary& run, double sampleRate)
 
 void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
                double sampleRate, bool latest, bool expanded,
-               presentation::Context presentation)
+               presentation::Context presentation, const KirinMeterSession* meter)
 {
     g.setColour ((latest ? COL_LED_BLUE : COL_MUTED).withAlpha (latest ? 0.15f : 0.08f));
     g.fillRoundedRectangle (row.toFloat(), 3.0f);
@@ -131,11 +132,11 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
                           + (latest ? " *" : ""), identity, presentation,
                           typography::TextRole::readout, juce::Justification::centredLeft,
                           1, typography::Composition::information);
-        auto clips = upper.removeFromRight (58).reduced (3, 0);
-        g.setColour ((run.clipEvents[0] + run.clipEvents[1] > 0 ? COL_SPECTRUM_POST : COL_MUTED)
+        auto clips = upper.removeFromRight (meter != nullptr && meter->channels > 2u ? 132 : 70)
+                          .reduced (3, 0);
+        g.setColour ((channel_clip::total (run.clipEvents, meter) > 0 ? COL_SPECTRUM_POST : COL_MUTED)
                          .withAlpha (0.90f));
-        text_style::draw (g, "L" + juce::String (run.clipEvents[0])
-                          + " R" + juce::String (run.clipEvents[1]), clips, presentation,
+        text_style::draw (g, channel_clip::text (run.clipEvents, meter, true), clips, presentation,
                           typography::TextRole::readout, juce::Justification::centredRight,
                           1, typography::Composition::information);
         g.setColour (COL_MUTED.brighter (0.22f));
@@ -173,10 +174,10 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
     g.setColour (COL_MUTED.brighter (0.22f));
     g.drawText (durationText (run, sampleRate), duration, juce::Justification::centredLeft);
 
-    const auto clipText = "L" + juce::String (run.clipEvents[0])
-                        + " R" + juce::String (run.clipEvents[1]);
-    auto clips = row.removeFromRight (78).reduced (3, 0);
-    g.setColour ((run.clipEvents[0] + run.clipEvents[1] > 0 ? COL_SPECTRUM_POST : COL_MUTED)
+    const auto clipText = channel_clip::text (run.clipEvents, meter, false);
+    auto clips = row.removeFromRight (meter != nullptr && meter->channels > 2u ? 190 : 88)
+                     .reduced (3, 0);
+    g.setColour ((channel_clip::total (run.clipEvents, meter) > 0 ? COL_SPECTRUM_POST : COL_MUTED)
                      .withAlpha (0.90f));
     text_style::draw (g, clipText, clips, presentation, typography::TextRole::readout,
                       juce::Justification::centredRight, 1,
@@ -267,7 +268,8 @@ int visibleRowCount (int width) noexcept
 }
 
 void paint (juce::Graphics& g, juce::Rectangle<int> area, const Result& result,
-            double sampleRate, presentation::Context presentation)
+            double sampleRate, presentation::Context presentation,
+            const KirinMeterSession* meter)
 {
     surface_material::paintPanel (g, area.toFloat(), 0.78f);
     area.reduce (8, 6);
@@ -298,7 +300,7 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const Result& result,
     {
         auto row = area.removeFromTop (juce::jmin (rowHeight, area.getHeight()));
         paintRow (g, row, result.runs[first + static_cast<std::size_t> (index)], sampleRate,
-                  index + 1 == rows, row.getWidth() >= 520, presentation);
+                  index + 1 == rows, row.getWidth() >= 520, presentation, meter);
     }
 }
 }

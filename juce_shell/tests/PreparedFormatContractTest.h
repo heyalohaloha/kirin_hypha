@@ -46,6 +46,12 @@ inline void verify()
     KIRIN_PF_REQUIRE (kirin::isSurround51Roles (fiveOne));
     KIRIN_PF_REQUIRE (! kirin::supportsStereoWorkflows (fiveOne));
     KIRIN_PF_REQUIRE (kirin::supportsStereoWorkflows (stereo));
+    KIRIN_PF_REQUIRE (kirin::productModeForRoles (stereo)
+                      == kirin::PreparedProductMode::stereoWorkflows);
+    KIRIN_PF_REQUIRE (kirin::productModeForRoles (fiveOne)
+                      == kirin::PreparedProductMode::surroundMeasurementOnly);
+    KIRIN_PF_REQUIRE (kirin::productModeForRoles ({})
+                      == kirin::PreparedProductMode::none);
     KIRIN_PF_REQUIRE (std::string_view (kirin::channelRoleShortName (kLfe)) == "LFE");
 
     const kirin::PreparedFormat preparedStereo { 48'000.0, stereo };

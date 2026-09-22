@@ -211,10 +211,13 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
     const auto compact = family == ExperienceFamily::compactMeter;
     juce::Rectangle<int> channelStrips;
     if (includeChannelStrips && target() == ObservationTarget::absolute
-        && (density == Density::standard || isFullDensity (density)))
+        && (measurementOnlySurround || density == Density::standard || isFullDensity (density)))
         channelStrips = area.removeFromRight (
             measurementOnlySurround
-                ? channelStripWidth (context, density == Density::inspection ? 230 : 190)
+                ? channelStripWidth (context,
+                    density == Density::compact ? 126
+                    : density == Density::focused ? 142
+                    : density == Density::inspection ? 230 : 190)
                 : isFullDensity (density)
                     ? channelStripWidth (context, density == Density::inspection ? 164 : 120)
                     : 62).reduced (2);
@@ -306,6 +309,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                         optionValue (compactValues[(size_t) index],
                                      compactAvailable[(size_t) index]),
                         compactUnits[(size_t) index], family, context);
+        if (! channelStrips.isEmpty())
+            paintChannelStrips (g, channelStrips);
         return;
     }
     const bool trackStem = selectedMeterContext == meter_context::MeterContext::trackStem;
@@ -412,7 +417,8 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
                             static_cast<double> (observatoryFrame.meter.sample_rate),
                             presentationContext(),
                             captureFrame ? std::nullopt : hoveredLevelHistoryIndex,
-                            maximumMomentary);
+                            maximumMomentary,
+                            frameAvailable ? &observatoryFrame.meter : nullptr);
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
 }

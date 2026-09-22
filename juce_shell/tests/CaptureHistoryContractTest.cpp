@@ -3,6 +3,7 @@
 #include "../src/HyphaCaptureHistoryPainter.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -51,12 +52,13 @@ std::vector<KirinMeterHistoryEntry> fixture()
 
 juce::Image render (const std::vector<KirinMeterHistoryEntry>& history,
                     bool delta,
-                    std::optional<std::size_t> hovered = std::nullopt)
+                    std::optional<std::size_t> hovered = std::nullopt,
+                    const KirinMeterSession* meter = nullptr)
 {
     juce::Image image (juce::Image::ARGB, 500, 130, true);
     juce::Graphics graphics (image);
     capture_history::paint (graphics, image.getBounds(), history, delta, 48'000.0,
-                            presentation::forEditor (500, 333), hovered);
+                            presentation::forEditor (500, 333), hovered, {}, meter);
     return image;
 }
 
@@ -124,6 +126,19 @@ void verifyCaptureHistoryContract()
         entry.clip_event_count[0] = entry.clip_event_count[1] = 0u;
     KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (factual, missing) > 40);
     KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (factual, render (noClipFacts, false)) > 10);
+    KirinMeterSession surroundMeter {};
+    surroundMeter.channels = 6;
+    const std::array<uint8_t, 6> roles {
+        KIRIN_CHANNEL_ROLE_LEFT, KIRIN_CHANNEL_ROLE_RIGHT, KIRIN_CHANNEL_ROLE_CENTRE,
+        KIRIN_CHANNEL_ROLE_LFE, KIRIN_CHANNEL_ROLE_LEFT_SURROUND,
+        KIRIN_CHANNEL_ROLE_RIGHT_SURROUND
+    };
+    std::copy (roles.begin(), roles.end(), surroundMeter.channel_positions);
+    auto surroundClip = noClipFacts;
+    surroundClip[3].clip_event_count[5] = 1u;
+    KIRIN_CAPTURE_HISTORY_REQUIRE (
+        changedPixels (render (noClipFacts, false, std::nullopt, &surroundMeter),
+                       render (surroundClip, false, std::nullopt, &surroundMeter)) > 4);
     KIRIN_CAPTURE_HISTORY_REQUIRE (
         changedPixels (factual, render (history, false, 5u)) > 40);
     KIRIN_CAPTURE_HISTORY_REQUIRE (

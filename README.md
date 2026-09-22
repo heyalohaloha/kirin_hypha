@@ -24,6 +24,20 @@ Names are optional labels. PRE and POST do not need matching names, and track po
 to guess a pair. The two plug-ins are the measurement boundary: PRE captures the input state, while
 POST captures the output state and joins only verified matching observations.
 
+## Channel scope
+
+- **Mono and stereo:** the complete LEVEL / TIME / FREQ / SPACE, Record / Keep, Reference, and
+  local PRE/POST Blind surface is available where its normal role and license gates allow it.
+- **Exact 5.1 (`L, R, C, LFE, Ls, Rs`):** LEVEL and TIME measurement only, including the six
+  role-specific Peak, True Peak, and Clip facts plus shared Loudness, LRA, and PLR. Record / Keep,
+  Reference, local PRE/POST Blind, Hybrid VU, FREQ, and SPACE are deliberately unavailable.
+- **Other multichannel layouts:** Hypha refuses the layout instead of guessing channel roles or
+  presenting stereo-only facts as surround measurements.
+
+The measurement-only 5.1 path remains a transparent pass-through with zero reported samples of
+latency. It does not allocate the Record backlog or run optional FREQ / ATTACK analysis in the
+background.
+
 ## Four observation domains
 
 ### LEVEL — loudness, peak, dynamics, and meaningful history
@@ -125,8 +139,9 @@ Every metric is backed by a known-signal golden test: the expected values are de
 The public [BS.1770-5 / EBU R 128 v5 measurement audit](docs/hypha_bs1770_5_r128_v5_audit_20260831.md)
 records the verified scope: BS.1770-5 Annex 1/2 for mono and stereo, all 70 assets in the EBU
 Loudness Test Set v05, the source archive SHA-256, and comparison of the Hypha wrapper with the
-pinned `ebur128` reference. Decoding the 5.0/5.1 test assets does not extend Hypha's mono/stereo
-product contract. Hypha does not claim EBU Mode conformance and does not use the EBU logo.
+pinned `ebur128` reference. Decoding the 5.0/5.1 test assets was not used as evidence for the
+separately implemented exact 5.1 measurement-only product mode. Hypha does not claim EBU Mode
+conformance and does not use the EBU logo.
 
 ## Modes
 

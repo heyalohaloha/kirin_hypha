@@ -196,6 +196,7 @@ void KirinHyphaEditor::refreshObservatory()
    #endif
     const bool surroundMeasurement = processorRef.surroundMeasurementOnly();
     observatoryView.setSurroundMeasurementOnly (surroundMeasurement);
+    observatoryView.setMeasurementFormatHeld (processorRef.measurementFormatHeld());
     if (surroundMeasurement
         && observatoryDomain != hypha::observatory::Domain::level
         && observatoryDomain != hypha::observatory::Domain::time)

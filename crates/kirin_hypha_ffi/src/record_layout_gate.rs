@@ -15,6 +15,10 @@ impl KirinHyphaEngine {
         matches!(self.layout.id(), LayoutId::Mono | LayoutId::Stereo)
     }
 
+    pub(super) fn supports_optional_analysis(&self) -> bool {
+        self.supports_record_workflow()
+    }
+
     pub(super) fn record_license_code(&self, requested: u8) -> u8 {
         if !self.supports_record_workflow() {
             return LICENSE_UNKNOWN;
@@ -51,5 +55,18 @@ mod tests {
 
         assert!(!engine.enter_record());
         assert!(!engine.is_recording());
+    }
+
+    #[test]
+    fn exact_five_one_rejects_every_optional_analysis_entry() {
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::by_id(LayoutId::Surround5_1));
+        *engine.write_role.lock().unwrap() = Some(super::super::PluginDataRole::Post);
+        assert!(!engine.set_spectrum_visible(true));
+        assert!(!engine.set_perceptual_visible(true));
+        assert!(!engine.set_absolute_visible(true));
+        assert!(!engine.set_spectrum_channel_mode(0));
+        assert!(!engine.set_attack_enabled(true));
+        assert!(!engine.spectrum_stats().enabled);
+        assert_eq!(engine.attack_stats().enabled, 0);
     }
 }

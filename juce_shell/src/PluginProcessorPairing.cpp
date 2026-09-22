@@ -88,12 +88,14 @@ bool KirinHyphaProcessorBase::localBlindProductSupported() const noexcept
 
 bool KirinHyphaProcessorBase::stereoWorkflowsSupported() const noexcept
 {
-    return kirin::supportsStereoWorkflows (preparedFormat.channelRoles);
+    return preparedProductMode.load (std::memory_order_acquire)
+        == static_cast<uint8_t> (kirin::PreparedProductMode::stereoWorkflows);
 }
 
 bool KirinHyphaProcessorBase::surroundMeasurementOnly() const noexcept
 {
-    return kirin::isSurround51Roles (preparedFormat.channelRoles);
+    return preparedProductMode.load (std::memory_order_acquire)
+        == static_cast<uint8_t> (kirin::PreparedProductMode::surroundMeasurementOnly);
 }
 
 bool KirinHyphaProcessorBase::releaseLocalBlindProductScope (std::uint64_t epoch)

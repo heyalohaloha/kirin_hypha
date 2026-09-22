@@ -988,7 +988,7 @@ impl KirinHyphaEngine {
     ///
     /// `sample_rate` ≠ 48000 のときの 48k 変換は Measure Thread 内 `ResamplerTo48k` が
     /// 既存どおり担う（新規変換コードは書かない / measure_thread.rs:82-101）。
-    /// `layout` は現状 mono / stereo のみ。mono は 1ch として計測し +3.01 dB バイアスを入れない。
+    /// `layout` は mono / stereo / exact 5.1。mono は 1ch として計測し +3.01 dB バイアスを入れない。
     pub fn new(sample_rate: u32, layout: ChannelLayout) -> Self {
         let num_channels = layout.channel_count();
         let capacity = watch_ring_capacity_samples(num_channels);
@@ -1931,7 +1931,7 @@ impl KirinHyphaEngine {
     pub fn set_spectrum_visible(&self, visible: bool) -> bool {
         let is_post =
             self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
-        if !is_post {
+        if !is_post || (visible && !self.supports_optional_analysis()) {
             return false;
         }
         if visible {
@@ -1949,12 +1949,11 @@ impl KirinHyphaEngine {
         self.spectrum.set_post_visible(visible);
         true
     }
-
     /// POST-only Perceptual Delta visibility edge. FFT and Sharpness analysis are exclusive.
     pub fn set_perceptual_visible(&self, visible: bool) -> bool {
         let is_post =
             self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
-        if !is_post {
+        if !is_post || (visible && !self.supports_optional_analysis()) {
             return false;
         }
         if visible {
@@ -1978,7 +1977,7 @@ impl KirinHyphaEngine {
     pub fn set_absolute_visible(&self, visible: bool) -> bool {
         let is_post =
             self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
-        if !is_post {
+        if !is_post || (visible && !self.supports_optional_analysis()) {
             return false;
         }
         if visible {
@@ -2005,9 +2004,10 @@ impl KirinHyphaEngine {
         let Ok(channel_mode) = SpectrumChannelMode::try_from(channel_mode) else {
             return false;
         };
-        is_post && self.spectrum.set_post_channel_mode(channel_mode)
+        is_post
+            && self.supports_optional_analysis()
+            && self.spectrum.set_post_channel_mode(channel_mode)
     }
-
     /// Latest POST-minus-PRE Spectrum display snapshot. Lock contention is a silent skipped
     /// presentation tick; it never reaches the audio or measurement paths.
     pub fn poll_spectrum(&self) -> Option<SpectrumViewSnapshot> {
