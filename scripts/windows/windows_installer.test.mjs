@@ -17,6 +17,7 @@ import {
   delayForFreshWindow,
   parseArgs as parseSignArgs,
   readWindowState,
+  resolveInvocation,
   signingEnvironment,
   waitForFreshWindow,
 } from './sign-codesigntool.mjs';
@@ -317,6 +318,29 @@ test('eSigner environment is fail-closed and never accepts partial credentials',
   }
   assert.deepEqual(parseSignArgs(['--input-file', 'setup.exe']).inputFile, 'setup.exe');
   assert.throws(() => parseSignArgs(['--secret', 'value']), /unknown option/);
+});
+
+test('Windows eSigner invokes the bundled Java runtime without cmd argument parsing', (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-codesigntool-java-'));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const command = path.join(root, 'jdk-11.0.2', 'bin', 'java.exe');
+  const jar = path.join(root, 'jar', 'code_sign_tool-1.3.2.jar');
+  for (const filePath of [command, jar]) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, '');
+  }
+  const env = {
+    ESIGNER_USERNAME: 'user',
+    ESIGNER_PASSWORD: 'password with & shell chars',
+    ESIGNER_CREDENTIAL_ID: 'credential',
+    ESIGNER_TOTP_SECRET: 'totp',
+    CODE_SIGN_TOOL_PATH: root,
+  };
+  assert.deepEqual(resolveInvocation(env, 'win32'), {
+    command,
+    cwd: root,
+    prefixArgs: ['-jar', jar],
+  });
 });
 
 test('eSigner requests never reuse the same TOTP authorization window', async (context) => {
