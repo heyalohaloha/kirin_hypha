@@ -41,13 +41,28 @@ export function signingEnvironment(env = process.env) {
   };
 }
 
-export function resolveInvocation(env = process.env) {
+export function resolveInvocation(env = process.env, platform = process.platform) {
   const { toolPath } = signingEnvironment(env);
-  const launcher = path.join(toolPath, process.platform === 'win32' ? 'CodeSignTool.bat' : 'CodeSignTool.sh');
+  if (platform === 'win32') {
+    // Avoid CodeSignTool.bat/cmd.exe: Node shell mode concatenates unescaped
+    // arguments, which splits paths such as "Kirin Hypha PRE.vst3" and lets
+    // password metacharacters reach cmd parsing. The pinned official Windows
+    // archive bundles the same Java runtime and jar used by that batch file.
+    const command = path.join(toolPath, 'jdk-11.0.2', 'bin', 'java.exe');
+    const jar = path.join(toolPath, 'jar', 'code_sign_tool-1.3.2.jar');
+    if (!fs.statSync(command, { throwIfNoEntry: false })?.isFile()) {
+      throw new Error(`CodeSignTool Java runtime not found: ${command}`);
+    }
+    if (!fs.statSync(jar, { throwIfNoEntry: false })?.isFile()) {
+      throw new Error(`CodeSignTool jar not found: ${jar}`);
+    }
+    return { command, cwd: toolPath, prefixArgs: ['-jar', jar] };
+  }
+  const launcher = path.join(toolPath, 'CodeSignTool.sh');
   if (!fs.statSync(launcher, { throwIfNoEntry: false })?.isFile()) {
     throw new Error(`CodeSignTool launcher not found: ${launcher}`);
   }
-  return { command: launcher, cwd: toolPath };
+  return { command: launcher, cwd: toolPath, prefixArgs: [] };
 }
 
 export function delayForFreshWindow(nowMs, previousWindow) {
@@ -96,7 +111,11 @@ function spawnOptions(command, options = {}) {
 
 function runTool(command, args, cwd, options = {}) {
   const spawn = options.spawnSync || spawnSync;
-  const result = spawn(command, args, spawnOptions(command, { cwd, stdio: options.stdio }));
+  const result = spawn(
+    command,
+    [...(options.prefixArgs || []), ...args],
+    spawnOptions(command, { cwd, stdio: options.stdio }),
+  );
   if (result.error) throw result.error;
   const output = `${result.stdout || ''}\n${result.stderr || ''}`;
   if (result.status !== 0 || /(^|\n)Error:/i.test(output)) {
@@ -113,14 +132,16 @@ function scan(filePath, context, options) {
     `-username=${context.creds.username}`,
     `-input_file_path=${filePath}`,
     `-password=${context.creds.password}`,
-  ], context.cwd, options);
+  ], context.cwd, { ...options, prefixArgs: context.prefixArgs });
 }
 
 function contextFrom(options) {
   const env = options.env || process.env;
   const creds = signingEnvironment(env);
-  const { command, cwd } = resolveInvocation(env);
-  return { env, creds, command, cwd };
+  const { command, cwd, prefixArgs } = resolveInvocation(env);
+  return {
+    env, creds, command, cwd, prefixArgs,
+  };
 }
 
 export async function signFile(inputFile, options = {}) {
@@ -146,7 +167,12 @@ export async function signFile(inputFile, options = {}) {
     `-output_dir_path=${path.dirname(full)}`,
     '-override=true',
     `-password=${context.creds.password}`,
-  ], context.cwd, { ...options, logger, stdio: options.stdio || 'inherit' });
+  ], context.cwd, {
+    ...options,
+    logger,
+    prefixArgs: context.prefixArgs,
+    stdio: options.stdio || 'inherit',
+  });
   return full;
 }
 
@@ -179,7 +205,7 @@ export async function batchSign(inputDir, outputDir, options = {}) {
     `-input_dir_path=${input}`,
     `-output_dir_path=${output}`,
     `-password=${context.creds.password}`,
-  ], context.cwd, { ...options, logger });
+  ], context.cwd, { ...options, logger, prefixArgs: context.prefixArgs });
   return files.map((file) => path.join(output, path.basename(file)));
 }
 

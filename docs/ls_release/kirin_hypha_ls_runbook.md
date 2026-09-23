@@ -378,7 +378,8 @@ pending state, then changes only the JSON sidecar. It does not rebuild or re-sig
 rejects a CI run whose commit or conclusion does not match, keeps the four `ESIGNER_*` secrets out of
 this public GPL repository, requires all three complete Hypha CI jobs, rejects distribution scripts
 outside its private SHA-256 allowlist, downloads pinned CodeSignTool bytes, uses a verified immutable
-Inno Setup release, and signs:
+Inno Setup release, and invokes the pinned CodeSignTool v1.3.2 bundled `java.exe` and jar directly
+so Windows shell parsing cannot split spaced paths or reinterpret password metacharacters. It signs:
 
 - PRE VST3 PE binary
 - POST VST3 PE binary
