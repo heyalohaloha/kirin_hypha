@@ -378,8 +378,10 @@ pending state, then changes only the JSON sidecar. It does not rebuild or re-sig
 rejects a CI run whose commit or conclusion does not match, keeps the four `ESIGNER_*` secrets out of
 this public GPL repository, requires all three complete Hypha CI jobs, rejects distribution scripts
 outside its private SHA-256 allowlist, downloads pinned CodeSignTool bytes, uses a verified immutable
-Inno Setup release, and invokes the pinned CodeSignTool v1.3.2 bundled `java.exe` and jar directly
-so Windows shell parsing cannot split spaced paths or reinterpret password metacharacters. It signs:
+Inno Setup release, and invokes the pinned CodeSignTool v1.3.2 jar directly with workflow-provisioned
+Temurin 17 so Windows shell parsing cannot split spaced paths or reinterpret password metacharacters.
+The bundled Java 11.0.2 is not used in CI because its stale trust store failed the current SSL.com TLS
+certificate chain on 2026-09-23; the archive and jar remain checksum-pinned. It signs:
 
 - PRE VST3 PE binary
 - POST VST3 PE binary

@@ -320,10 +320,10 @@ test('eSigner environment is fail-closed and never accepts partial credentials',
   assert.throws(() => parseSignArgs(['--secret', 'value']), /unknown option/);
 });
 
-test('Windows eSigner invokes the bundled Java runtime without cmd argument parsing', (context) => {
+test('Windows eSigner invokes current Java without cmd argument parsing', (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-codesigntool-java-'));
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const command = path.join(root, 'jdk-11.0.2', 'bin', 'java.exe');
+  const command = path.join(root, 'temurin-17', 'bin', 'java.exe');
   const jar = path.join(root, 'jar', 'code_sign_tool-1.3.2.jar');
   for (const filePath of [command, jar]) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -335,12 +335,30 @@ test('Windows eSigner invokes the bundled Java runtime without cmd argument pars
     ESIGNER_CREDENTIAL_ID: 'credential',
     ESIGNER_TOTP_SECRET: 'totp',
     CODE_SIGN_TOOL_PATH: root,
+    CODE_SIGN_TOOL_JAVA: command,
   };
   assert.deepEqual(resolveInvocation(env, 'win32'), {
     command,
     cwd: root,
     prefixArgs: ['-jar', jar],
   });
+});
+
+test('Windows eSigner rejects a relative explicit Java runtime', () => {
+  const env = {
+    ESIGNER_USERNAME: 'user', ESIGNER_PASSWORD: 'password',
+    ESIGNER_CREDENTIAL_ID: 'credential', ESIGNER_TOTP_SECRET: 'totp',
+    CODE_SIGN_TOOL_PATH: 'C:\\tool', CODE_SIGN_TOOL_JAVA: 'java.exe',
+  };
+  assert.throws(() => resolveInvocation(env, 'win32'), /absolute path/);
+});
+
+test('signed Windows CI provisions current Java for the pinned CodeSignTool jar', () => {
+  const workflow = fs.readFileSync(path.join(scriptDir, '..', '..', '.github', 'workflows', 'ci.yml'), 'utf8');
+  assert.match(workflow, /actions\/setup-java@v4/);
+  assert.match(workflow, /java-version: '17'/);
+  assert.match(workflow, /CODE_SIGN_TOOL_JAVA=\$javaPath/);
+  assert.match(workflow, /jar\\code_sign_tool-1\.3\.2\.jar/);
 });
 
 test('eSigner requests never reuse the same TOTP authorization window', async (context) => {

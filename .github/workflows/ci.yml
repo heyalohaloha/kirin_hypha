@@ -368,6 +368,13 @@ jobs:
           }
           "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Setup CodeSignTool Java
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_signing == 'signed' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Download pinned CodeSignTool
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_signing == 'signed' }}
         shell: pwsh
@@ -383,10 +390,16 @@ jobs:
           }
           $extractPath = Join-Path $env:RUNNER_TEMP 'CodeSignTool'
           Expand-Archive -LiteralPath $zipPath -DestinationPath $extractPath -Force
-          if (-not (Test-Path -LiteralPath (Join-Path $extractPath 'CodeSignTool.bat') -PathType Leaf)) {
-            throw 'CodeSignTool launcher not found after verified download'
+          $javaPath = Join-Path $env:JAVA_HOME 'bin\java.exe'
+          $jarPath = Join-Path $extractPath 'jar\code_sign_tool-1.3.2.jar'
+          if (-not (Test-Path -LiteralPath $javaPath -PathType Leaf)) {
+            throw 'Temurin CodeSignTool Java runtime not found'
+          }
+          if (-not (Test-Path -LiteralPath $jarPath -PathType Leaf)) {
+            throw 'CodeSignTool jar not found after verified download'
           }
           "CODE_SIGN_TOOL_PATH=$extractPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CODE_SIGN_TOOL_JAVA=$javaPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build Windows installer and sign all executable surfaces
         shell: pwsh

@@ -46,9 +46,14 @@ export function resolveInvocation(env = process.env, platform = process.platform
   if (platform === 'win32') {
     // Avoid CodeSignTool.bat/cmd.exe: Node shell mode concatenates unescaped
     // arguments, which splits paths such as "Kirin Hypha PRE.vst3" and lets
-    // password metacharacters reach cmd parsing. The pinned official Windows
-    // archive bundles the same Java runtime and jar used by that batch file.
-    const command = path.join(toolPath, 'jdk-11.0.2', 'bin', 'java.exe');
+    // password metacharacters reach cmd parsing. CI supplies a current Java
+    // trust store; the pinned archive's bundled runtime remains a local fallback.
+    const configuredJava = env.CODE_SIGN_TOOL_JAVA?.trim();
+    if (configuredJava && !path.isAbsolute(configuredJava)) {
+      throw new Error('CODE_SIGN_TOOL_JAVA must be an absolute path');
+    }
+    const command = configuredJava
+      || path.join(toolPath, 'jdk-11.0.2', 'bin', 'java.exe');
     const jar = path.join(toolPath, 'jar', 'code_sign_tool-1.3.2.jar');
     if (!fs.statSync(command, { throwIfNoEntry: false })?.isFile()) {
       throw new Error(`CodeSignTool Java runtime not found: ${command}`);
