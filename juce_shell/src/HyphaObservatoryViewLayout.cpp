@@ -24,6 +24,7 @@ void View::resized()
     informationButton.setBounds (toJuce (layout.roleTitle));
     sizeButton.setButtonText (preset.label);
     bodyArea = toJuce (layout.body);
+    layoutLevelHistoryControls();
     connectionArea = toJuce (layout.connectionStatus);
     guideArea = toJuce (layout.guideRail);
     sessionArea = toJuce (layout.session);
@@ -138,13 +139,14 @@ void View::resized()
         timeRangeButton.setBounds (range.reduced (2, 2));
     }
     const bool compactLevel = compact && selectedDomain == Domain::level;
-    compactLoudnessButton.setVisible (false);
+    compactLoudnessButton.setVisible (compactLevel);
     compactRangeButton.setVisible (
         compactLevel && target() == ObservationTarget::absolute);
     if (compactLevel)
     {
         auto compactBody = bodyArea;
         auto compactControls = compactBody.removeFromTop (20);
+        compactLoudnessButton.setBounds (compactControls.removeFromLeft (74).reduced (2, 1));
         if (compactRangeButton.isVisible())
             compactRangeButton.setBounds (
                 compactControls.removeFromRight (

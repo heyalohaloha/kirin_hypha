@@ -103,7 +103,8 @@ juce::String View::footerStatusText() const
         return "WAITING";
     if (observatoryFrame.signal_state == KIRIN_SIGNAL_STATE_BYPASSED)
         return "BYPASSED";
-    return measurementOnlySurround ? juce::String ("5.1 MEASURE") : juce::String();
+    if (! currentFactsAvailable()) return "HOLD";
+    return measurementOnlySurround ? juce::String ("5.1 MEASURE") : juce::String ("LIVE");
 }
 
 void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
@@ -118,15 +119,15 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     if (! captureFrame)
     {
         g.setFont (monoFont (presentationContext(), typography::TextRole::status));
-        if (feedbackText.isEmpty())
-            g.drawText (state, session, juce::Justification::centredLeft);
-       #if defined(JucePlugin_VersionString)
-        const auto version = juce::String ("v") + JucePlugin_VersionString;
-       #else
-        const auto version = juce::String ("development");
-       #endif
-        if (getWidth() >= 600 && feedbackText.isEmpty())
-            g.drawText (version, session, juce::Justification::centredRight);
+        // Version/build identity belongs to the information menu. It must not compete with
+        // live state in this narrow rail (the old development label rendered as "d...").
+        auto label = state;
+        if (g.getCurrentFont().getStringWidthFloat (label) > session.getWidth())
+            label = state == "BYPASSED" ? "BYP" : state == "WAITING" ? "WAIT"
+                  : state == "5.1 MEASURE" ? "5.1" : measurementFormatHeld ? "FORMAT" : state;
+        if (feedbackText.isEmpty()
+            && g.getCurrentFont().getStringWidthFloat (label) <= session.getWidth())
+            g.drawText (label, session, juce::Justification::centredLeft, false);
         return;
     }
 

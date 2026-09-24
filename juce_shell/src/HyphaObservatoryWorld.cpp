@@ -160,34 +160,44 @@ void drawAspectFill (juce::Graphics& g, const juce::Image& sourceImage,
 
 void Backdrop::draw (juce::Graphics& g, juce::Rectangle<int> area, const State& state) const
 {
-    g.setColour (BG);
-    g.fillRect (area);
     if (! image.isValid() || area.isEmpty())
+    {
+        g.setColour (BG);
+        g.fillRect (area);
         return;
+    }
 
     juce::Graphics::ScopedSaveState saved (g);
-    g.setOpacity (juce::jlimit (0.0f, 1.0f, backdropOpacity (state)));
+    const auto opacity = juce::jlimit (0.0f, 1.0f, backdropOpacity (state));
     const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
     const double pixels = static_cast<double> (area.getWidth()) * area.getHeight()
                         * scale * scale;
     if (! std::isfinite (scale) || scale <= 0.0f || pixels > 16'777'216.0)
     {
+        g.setColour (BG);
+        g.fillRect (area);
+        g.setOpacity (opacity);
         drawAspectFill (g, image, area);
         return;
     }
     const juce::Point<int> logicalSize (area.getWidth(), area.getHeight());
     if (! scaledBackdrop.isValid() || scaledBackdropLogicalSize != logicalSize
-        || std::abs (scaledBackdropPixelScale - scale) > 1.0e-6f)
+        || std::abs (scaledBackdropPixelScale - scale) > 1.0e-6f
+        || std::abs (scaledBackdropOpacity - opacity) > 1.0e-6f)
     {
-        scaledBackdrop = juce::Image (juce::Image::ARGB,
+        scaledBackdrop = juce::Image (juce::Image::RGB,
             juce::jmax (1, juce::roundToInt (area.getWidth() * scale)),
             juce::jmax (1, juce::roundToInt (area.getHeight() * scale)), true);
         juce::Graphics textureGraphics (scaledBackdrop);
+        textureGraphics.fillAll (BG);
         textureGraphics.addTransform (juce::AffineTransform::scale (scale));
+        textureGraphics.setOpacity (opacity);
         drawAspectFill (textureGraphics, image, area.withPosition (0, 0));
         scaledBackdropLogicalSize = logicalSize;
         scaledBackdropPixelScale = scale;
+        scaledBackdropOpacity = opacity;
     }
+    g.setOpacity (1.0f);
     g.drawImage (scaledBackdrop, area.toFloat());
 }
 

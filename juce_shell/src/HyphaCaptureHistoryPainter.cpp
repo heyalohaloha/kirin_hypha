@@ -4,6 +4,7 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
 #include "HyphaTimeAxisContract.h"
+#include "HyphaHistoryInspection.h"
 
 #include <algorithm>
 #include <array>
@@ -57,8 +58,11 @@ void paintCurrentLoudness (juce::Graphics& g,
         ? juce::String ("< -36")
         : (delta && value >= 0.0 ? "+" : "") + juce::String (value, 1);
     const auto text = juce::String ("NOW  ") + valueText;
+    const auto font = monoFont (presentation, typography::TextRole::readout,
+                               typography::Composition::visualization);
     const auto labelHeight = inspection ? 18.0f : 15.0f;
-    const auto labelWidth = inspection ? 88.0f : 72.0f;
+    const auto labelWidth = juce::jmin (plot.getWidth() - 8.0f,
+                                       font.getStringWidthFloat (text) + 10.0f);
     auto label = juce::Rectangle<float> (
         plot.getRight() - labelWidth - 4.0f,
         juce::jlimit (plot.getY() + 2.0f,
@@ -89,18 +93,6 @@ juce::Rectangle<float> truePeakOverlayFor (juce::Rectangle<float> sharedPlot) no
     const auto height = juce::jlimit (juce::jmin (48.0f, maximumHeight), maximumHeight,
                                       sharedPlot.getHeight() * 0.42f);
     return sharedPlot.withTop (sharedPlot.getBottom() - height);
-}
-
-double secondsBeforeEnd (const std::vector<KirinMeterHistoryEntry>& history,
-                         std::size_t index,
-                         double sampleRate) noexcept
-{
-    if (history.empty() || index >= history.size() || ! std::isfinite (sampleRate)
-        || sampleRate <= 0.0)
-        return 0.0;
-    const auto latest = history.back().last_observed_frames;
-    const auto observed = history[index].last_observed_frames;
-    return observed <= latest ? static_cast<double> (latest - observed) / sampleRate : 0.0;
 }
 
 double normalizedHistoryX (const std::vector<KirinMeterHistoryEntry>& history,
@@ -219,18 +211,18 @@ void paintTruePeakEvents (juce::Graphics& g,
                                history, axis, history[index], index, sampleRate))
                            * sharedPlot.getWidth();
             const auto y = yForTruePeak (overlay, value);
-            const auto relative = juce::jlimit (
-                0.0, 1.0, 1.0 - (summary.windowMaximumDbtp - value) / 12.0);
-            const auto maximum = index == summary.windowMaximumIndex;
-            const auto colour = maximum ? COL_FLORA_BR : COL_FLORA;
-            const auto alpha = maximum ? 0.94f : static_cast<float> (0.20 + relative * 0.52);
-            g.setColour (colour.withAlpha (maximum ? 0.16f : alpha * 0.10f));
-            g.drawLine (x, y, x, baseline,
-                        maximum ? 4.0f : 2.0f);
+            const bool overZero = history_inspection::strongPeak (value);
+            const auto colour = overZero ? COL_FLORA_BR : COL_FLORA;
+            const auto alpha = overZero ? 0.94f : 0.68f;
+            if (overZero)
+            {
+                g.setColour (colour.withAlpha (0.16f));
+                g.drawLine (x, y, x, baseline, 4.0f);
+            }
             g.setColour (colour.withAlpha (alpha));
             g.drawLine (x, y, x, baseline,
-                        maximum ? 1.5f : 0.75f);
-            if (maximum)
+                        overZero ? 1.5f : 0.75f);
+            if (overZero)
             {
                 g.setColour (colour.withAlpha (0.24f));
                 g.fillEllipse (x - 4.0f, y - 4.0f, 8.0f, 8.0f);
@@ -359,16 +351,16 @@ void paint (juce::Graphics& g,
     if (hoveredIndex.has_value() && *hoveredIndex < history.size())
     {
         const auto& entry = history[*hoveredIndex];
-        detail = relativeTimeText (secondsBeforeEnd (history, *hoveredIndex, sampleRate))
+        detail = history_inspection::positionText (entry, sampleRate)
                + "   M " + measuredText (entry.lufs_m.mean, delta);
         if (! delta)
-            detail += "   TP " + measuredText (entry.true_peak.max) + " dBTP";
+            detail += "   TP " + history_inspection::peakText (entry.true_peak.max) + " dBTP";
         if (! delta && channel_clip::total (entry.clip_event_count, meter) > 0u)
             detail += "   " + channel_clip::text (entry.clip_event_count, meter, true);
     }
     else if (peakSummary.available && ! peakSummary.eventIndices.empty())
     {
-        detail = "60 S MAX TP " + measuredText (peakSummary.windowMaximumDbtp) + " dBTP"
+        detail = "60 S MAX TP " + history_inspection::peakText (peakSummary.windowMaximumDbtp) + " dBTP"
                + " @ " + relativeTimeText (peakSummary.secondsBeforeEnd);
     }
     else

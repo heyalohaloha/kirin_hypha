@@ -378,7 +378,7 @@ void verifyObservatoryViewContract()
         differentPixels (compactCurrentMomentary, compactMaximumMomentary) > 100);
     post.setShortTermLoudness (true);
     KIRIN_OBSERVATORY_REQUIRE (
-        differentPixels (compactMaximumMomentary, render (post)) == 0);
+        differentPixels (compactMaximumMomentary, render (post)) > 20);
     post.setCompactMaximum (false);
     post.setTarget (observatory::ObservationTarget::delta);
     const auto compactDelta = render (post);

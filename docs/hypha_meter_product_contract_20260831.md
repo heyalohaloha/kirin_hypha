@@ -440,7 +440,7 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 | Size | POST required content | PRE required content |
 |---|---|---|
-| 300×200 | 選択domainの主値、role、pair、POST/Δ、Session state | MまたはS、TP、Crest、name、pair state |
+| 300×200 | 選択domainの主値、role、pair、POST/Δ、Session state | MまたはS、現在TP、MAX TP、補助I/Crest、name、pair state |
 | 375×250 | Compact内容、補助値、domain switch | Compact内容、I/O state、接続context |
 | 450×300 | 世界背景を抑えた主visual、軸、session facts | Standard内容、測定stateの詳細 |
 | 600×400 | Concept Cのfull cockpit、M/S/I、TP/MaxTP/LRA/PLR/Crest、History凡例のMax M、60秒History、左右TP、POST/Δ、Capture | POSTと共通のshell、広い数値面、接続context |
@@ -469,11 +469,20 @@ DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更�
 Hybrid VUは左右300 ms平均応答の針、左右100 ms True Peak rail、Session開始または直近`CLEAR`以降の左右最大TP marker、Session累積clip eventから独立した解除可能なclip indicator、M/S・TP・Crestの三値を同時表示し、音種別の目標帯や品質判定を表示しない。`CLEAR`は同じ面の既存button styleで置き、新しい画面を作らない。
 host callbackが350 ms以上停止した場合はRecord通知を失効させ、古いREC表示を保持しない。
 
-LEVELの60秒Historyは固定時間軸とし、M主線、run別2秒最大TP event、L/R別sample clip event、`60 S MAX TP`と相対時刻を表示する。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`+6〜-24 dBTP`軸と下から立ち上がるstemを重ねる。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。
+LEVELの60秒Historyは固定時間軸とし、M主線、TP > -1 dBTPの連続区間ごとの最大TP event、L/R別sample clip eventを表示する。閾値超過がある場合だけ`60 S MAX TP`と相対時刻を表示し、固定2秒区間の最大値とは呼ばない。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`+6〜-24 dBTP`軸と下から立ち上がるstemを重ねる。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。
 
 600×400以上のLEVELは、上段3と中段5の合計高を従来割当の約60%へ圧縮し、残りをHistoryへ渡す。FooterもCAPTUREボタン単体ではなく操作段全体を40 pxから24 pxへ縮め、測定履歴を画面の主面積にする。
 
 ## 12. Visual system
+
+2026-09-24の常時表示契約: Compact絶対表示は選択M/S、現在TP、Session MAX TPと補助I/Crestを示す。
+LEVELの履歴固定・前後TP選択・LIVE復帰は表示だけの操作であり、計測・Record・Session最大値を変更しない。
+強い局所発光はTP > 0 dBTPに限定し、TP > -1 dBTPのevent線の高さは実測値を維持する。
+host clockの種別が現行history ABIで失われるため、時刻はHOST ~／ELAPSEDと明記し、project timeやexact peak positionを保証しない。
+Record表示の同値更新ではbody再描画を要求しない。未表示Record値の変化も描画理由にしない。
+共通背景はサイズ・pixel scale・状態明度をkeyにした不透明な合成済みplateを再利用し、
+同じ明度での全面alpha合成を毎tick繰り返さない。状態変更時の明度、crop、PRE/POSTの差は維持する。
+この表示最適化は計測周期、Audio Thread、履歴・Recordの正本を変更しない。
 
 Concept C Hybrid Observatoryをvisual baselineとする。
 

@@ -225,7 +225,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         && ! deltaFactsAvailable();
     if (unavailableComparison)
     {
-        const auto statusArea = area.removeFromTop (compact ? 20 : 24);
+        auto statusArea = area.removeFromTop (compact ? 20 : 24);
+        if (compact) statusArea.removeFromLeft (78); // Leave the M/S control unobstructed.
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (labelFont (context, typography::TextRole::status,
                               typography::Composition::facts));
@@ -287,28 +288,41 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         const bool trackStem = selectedMeterContext
                             == meter_context::MeterContext::trackStem;
         const std::array<double, 3> compactValues {
-            watch.lufs_m,
-            watch.lufs_s,
-            trackStem ? watch.crest : meter.lufs_i
+            selectedShortTermLoudness ? watch.lufs_s : watch.lufs_m,
+            meter.true_peak,
+            meter.max_true_peak
         };
         const std::array<bool, 3> compactAvailable {
             compactFactsAvailable,
-            compactFactsAvailable,
-            trackStem ? compactFactsAvailable : cumulativeAvailable
+            currentAvailable,
+            cumulativeAvailable
         };
-        const std::array<const char*, 3> compactLabels {
-            "M", "S", trackStem ? "CREST" : "I"
+        const std::array<juce::String, 3> compactLabels {
+            juce::String (compactShowsMaximum ? "MAX " : "")
+                + (selectedShortTermLoudness ? "S" : "M"), "TP", "MAX TP"
         };
-        const std::array<const char*, 3> compactUnits {
-            "LUFS", "LUFS", trackStem ? "dB" : "LUFS"
+        const std::array<level_metrics::Metric, 3> compactMetrics {
+            selectedShortTermLoudness ? level_metrics::Metric::shortTerm : level_metrics::Metric::momentary,
+            level_metrics::Metric::truePeak, level_metrics::Metric::maximumTruePeak
         };
+        auto auxiliary = area.removeFromBottom (18);
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (context, typography::TextRole::status));
+        g.drawText (juce::String (trackStem ? "CREST " : "I ")
+                        + valueText (optionValue (trackStem ? watch.crest : meter.lufs_i,
+                            trackStem ? compactFactsAvailable : cumulativeAvailable), 1, false)
+                        + (trackStem ? " dB" : " LUFS"),
+                    metricHelpArea (auxiliary, trackStem ? level_metrics::Metric::crest
+                                                       : level_metrics::Metric::integrated),
+                    juce::Justification::centred);
         for (int index = 0; index < 3; ++index)
             drawMetric (g, metricHelpArea (area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
-                        level_metrics::layoutFor (trackStem).main[(size_t) index]),
+                        compactMetrics[(size_t) index]),
                         compactLabels[(size_t) index],
                         optionValue (compactValues[(size_t) index],
                                      compactAvailable[(size_t) index]),
-                        compactUnits[(size_t) index], family, context);
+                        index == 0 ? "LUFS" : "dBTP", family, context,
+                        false, 1, {}, -1.0f, {}, true);
         if (! channelStrips.isEmpty())
             paintChannelStrips (g, channelStrips);
         return;
@@ -393,31 +407,23 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
             presentationContext(), measurementOnlySurround ? (inspection ? 230 : 190)
                                                             : (inspection ? 126 : 116))).reduced (2);
 
-    const auto landscape = area.getWidth() > area.getHeight();
-    const auto previousHistoryHeight = juce::jlimit (
-        72, inspection ? 240 : 170,
-        juce::roundToInt (area.getHeight()
-                          * (inspection ? 0.46f : landscape ? 0.40f : 0.32f)));
-    const auto previousMetricsHeight = juce::jmax (
-        1, area.getHeight() - previousHistoryHeight - 4);
-    const auto metricsHeight = juce::jmin (area.getHeight() - 92,
-        juce::jmax (inspection ? 162 : 134, compressedLevelMetricsHeight (previousMetricsHeight)));
-    auto metricsArea = area.removeFromTop (metricsHeight);
-    area.removeFromTop (4);
-    auto historyArea = area;
+    const auto historyArea = levelHistoryBounds (area);
+    auto metricsArea = area.withBottom (historyArea.getY() - 4);
     paintLevel (g, metricsArea, false);
     levelHistoryArea = historyArea.reduced (2);
+    if (! captureFrame) levelHistoryArea.removeFromTop (22);
     const auto maximumMomentary = target() == ObservationTarget::absolute
                                && cumulativeFactsAvailable()
                                && std::isfinite (observatoryFrame.meter.max_lufs_m)
         ? juce::String ("MAX M ") + juce::String (observatoryFrame.meter.max_lufs_m, 1) + " LUFS"
         : juce::String();
-    capture_history::paint (g, levelHistoryArea, history,
+    const auto held = ! captureFrame && levelInspection.held();
+    capture_history::paint (g, levelHistoryArea, held ? levelInspection.snapshot : history,
                             target() == ObservationTarget::delta,
-                            static_cast<double> (observatoryFrame.meter.sample_rate),
+                            held ? levelInspection.sampleRate : static_cast<double> (observatoryFrame.meter.sample_rate),
                             presentationContext(),
-                            captureFrame ? std::nullopt : hoveredLevelHistoryIndex,
-                            maximumMomentary,
+                            held ? levelInspection.index : captureFrame ? std::nullopt : hoveredLevelHistoryIndex,
+                            held ? juce::String ("HOLD") : hoveredLevelHistoryIndex ? juce::String() : maximumMomentary,
                             frameAvailable ? &observatoryFrame.meter : nullptr);
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);

@@ -10,6 +10,7 @@ Button::Button (juce::String text, bool tabIn)
     : juce::TextButton (std::move (text)), tab (tabIn)
 {
     setWantsKeyboardFocus (true);
+    setMouseClickGrabsKeyboardFocus (false); // Keep keyboard traversal, not mouse-driven focus theft.
 }
 
 void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)

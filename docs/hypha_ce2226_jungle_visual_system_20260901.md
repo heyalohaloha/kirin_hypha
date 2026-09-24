@@ -139,9 +139,10 @@ ATTACKのbodyは`attack_specimen_body_v3.png`とnative painterを使用する。
 
 CompactはDAW作業中に常設する即読メーターである。
 
-主値一つと補助値二つまで、合計三つの数値的事実に限定する。
+主値三つの面と、小さな補助行一つに限定する。2026-09-24の常時表示改善承認により、TPを隠さない構成へ更新した。
 
-LEVELはM/SとCURRENT/MAXを切替式にし、選択LUFS、TP、Crestの三値だけを同時表示する。
+LEVELはM/SとCURRENT/MAXを切替式にし、選択LUFS、現在TP、Session MAX TPを同時表示する。
+補助行は2MIXでI、TRACKでCrest。CURRENT/MAXはLUFSとCrestだけを切り替え、TPとMAX TPの時間範囲を変えない。
 
 CURRENTとMAXの六値を同時に縮小表示しない。
 
@@ -193,15 +194,22 @@ LEVEL下段は60秒Historyを既定とし、Spectrumは重複搭載せずFREQを
 
 LEVEL Historyの横軸は常に固定60秒とし、測定開始直後の短い履歴を横幅いっぱいへ引き伸ばさない。
 
-Mを主線、Sを低彩度の副線とし、TPは連続線を重ねず、`-1.0 dBTP`を超える連続区間ごとの最大`true_peak.max`だけをevent stemとして示す。可視60秒の最大値であっても閾値以下ならstemへ昇格しない。TPは別railへ分離せず、同じ60秒全面の下部へ右側`+6〜-24 dBTP`軸とともに重ねる。M/S Historyは全面を使い、TP stemだけが下から立ち上がる。
+Mを主線とし、Sを含む詳細推移はTIMEに集約する。TPは連続線を重ねず、`-1.0 dBTP`を超える連続区間ごとの最大`true_peak.max`だけをevent stemとして示す。可視60秒の最大値であっても閾値以下ならstemへ昇格しない。TPは別railへ分離せず、同じ60秒全面の下部へ右側`+6〜-24 dBTP`軸とともに重ねる。M Historyは全面を使い、TP stemだけが下から立ち上がる。
 
 閾値を超えた可視区間の正確な最大値と相対時刻だけを`60 S MAX TP`として表示し、中央の`MAX TP`がResetまでの全Session最大であることと区別する。閾値以下しかない区間へ数値、stem、強い発光を追加しない。Max Mは現在Mの面から外し、同じHistory凡例にSession factとして置く。
 
-ポインタ位置では同一100 ms観測点のM、S、TP、相対時刻へ切り替え、Captureは同じ固定軸とevent位置を正本snapshotから描く。
+ポインタ位置では同一100 ms観測点のM、TP、host clock終端または経過時間へ切り替え、Captureは同じ固定軸とevent位置を正本snapshotから描く。
 
-Δ HistoryはM/S差分に限定し、意味の異なる符号付きΔTPを絶対TP eventへ混在させない。
+2026-09-24: 強い局所発光は丸め前TP > 0.0 dBTPだけに限定し、可視区間最大という理由では強調しない。
+LEVEL履歴のclickは表示用snapshotを固定し、計測やRecordは継続する。`< TP` / `TP >`は閾値超過eventを前後に選択し、`LIVE`は表示だけを再開する。
+Reset、engine世代、比較identity変更では古い選択を破棄する。Captureは従来どおり正本snapshotを使い、検査用の固定履歴を混ぜない。
+hover／固定表示の`HOST ~`はTP計測窓のhost clock終端であり、現行ABIではproject/render clockを区別できない。DAW上のexact peak位置やproject timeを保証しない。
+不明時は`ELAPSED`を使う。`COPY`はこの制約も含めて明示操作でコピーする。host seekは行わない。
+FooterはLIVE/HOLD/WAITING/BYPASSEDを表示し、versionは情報メニューに置く。狭い幅で`development`等を省略表示しない。
 
-各100 ms History点はL/R別の新規sample clip run数を保持し、shared plot下端にchannel別pipを置く。hoverでは同じ観測点の相対時刻とL/R件数を表示し、右stripのSession累積値とは範囲を混同しない。
+LEVELのΔ HistoryはM差分に限定し、意味の異なる符号付きΔTPを絶対TP eventへ混在させない。
+
+各100 ms History点はL/R別の新規sample clip run数を保持し、shared plot下端にchannel別pipを置く。hoverでは同じ観測点の時刻とL/R件数を表示し、右stripのSession累積値とは範囲を混同しない。
 
 900×600は四domain共通のInspection Viewとし、LEVELではHistory、channel strip、数値階層へ追加面積を与える。TIME、FREQ、SPACEとTIME配下解析も既存の測定事実と操作を変えず高解像度化し、未合意の新指標は載せない。
 

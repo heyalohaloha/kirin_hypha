@@ -47,10 +47,12 @@ public:
 
 private:
     juce::Image image;
-    // Only the immutable texture is cached; state-dependent opacity remains live.
+    // Cache the opaque, precomposited plate. State opacity is part of the key, not a
+    // full-surface alpha blend on every meter tick. Energy/direction do not affect the plate.
     mutable juce::Image scaledBackdrop;
     mutable juce::Point<int> scaledBackdropLogicalSize;
     mutable float scaledBackdropPixelScale = 0.0f;
+    mutable float scaledBackdropOpacity = -1.0f;
     mutable juce::Image domainBed;
     mutable juce::Point<int> domainBedSize;
     mutable float domainBedPixelScale = 0.0f;

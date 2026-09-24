@@ -19,6 +19,7 @@
 #include "HyphaWidgets.h"
 #include "kirin_hypha_ffi.h"
 #include "HyphaMonoSumHistory.h"
+#include "HyphaHistoryInspection.h"
 
 namespace hypha::observatory
 {
@@ -28,6 +29,7 @@ public:
     Button (juce::String text, bool tabIn);
     void setPresentationContext (presentation::Context next) noexcept
     {
+        if (presentationContext == next) return;
         presentationContext = next;
         repaint();
     }
@@ -252,6 +254,9 @@ public:
     void resized() override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    std::uint64_t recordInvalidationsForTest() const noexcept { return recordBodyInvalidations; }
+    bool historyHeldForTest() const noexcept { return levelInspection.held(); }
 
 private:
     void cycleDomain();
@@ -276,6 +281,12 @@ private:
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
     void refreshLevelHistoryHover();
+    void initializeLevelHistoryControls();
+    void layoutLevelHistoryControls();
+    void updateLevelHistoryControls();
+    void selectLevelHistoryEvent (int direction);
+    void resumeLevelHistory();
+    juce::Rectangle<int> levelHistoryBounds (juce::Rectangle<int>) const;
     juce::Rectangle<int> metricHelpArea (juce::Rectangle<int>, level_metrics::Metric);
     struct MetricHelpRegion { juce::Rectangle<int> bounds; level_metrics::Metric metric; };
     std::array<MetricHelpRegion, 8> metricHelpRegions {};
@@ -338,6 +349,12 @@ private:
     juce::Rectangle<int> levelHistoryArea;
     std::optional<juce::Point<float>> levelHistoryPointer;
     std::optional<std::size_t> hoveredLevelHistoryIndex;
+    history_inspection::Selection levelInspection;
+    std::uint64_t recordBodyInvalidations = 0;
+    Button previousPeakButton { "< TP", false };
+    Button nextPeakButton { "TP >", false };
+    Button historyLiveButton { "LIVE", false };
+    Button historyCopyButton { "COPY", false };
     observatory_world::Backdrop background;
     int displayedEditorWidth = 0;
     juce::String displayedSizeLabel;

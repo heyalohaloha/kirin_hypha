@@ -82,6 +82,18 @@ inline bool same (const KirinWatchDisplay& a, const KirinWatchDisplay& b) noexce
 {
     return same (a.current, b.current) && same (a.maximum, b.maximum);
 }
+inline bool same (const KirinRecordDisplay& a, const KirinRecordDisplay& b) noexcept
+{
+    return fields (std::tie (a.phase, a.generation, a.has_measure, a.has_session,
+                            a.has_delta, a.pair_matches_current),
+                   std::tie (b.phase, b.generation, b.has_measure, b.has_session,
+                            b.has_delta, b.pair_matches_current))
+        && (! a.has_measure || same (a.measure, b.measure))
+        && (! a.has_session || fields (
+            std::tie (a.session.lufs_i, a.session.lra, a.session.max_true_peak),
+            std::tie (b.session.lufs_i, b.session.lra, b.session.max_true_peak)))
+        && (! a.has_delta || same (a.delta, b.delta));
+}
 inline bool same (const KirinObservatoryFrame& a, const KirinObservatoryFrame& b) noexcept
 {
     return fields (std::tie (a.version, a.signal_state, a.lra_state, a.delta_available,

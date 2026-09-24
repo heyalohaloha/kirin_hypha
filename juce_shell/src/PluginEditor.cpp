@@ -27,6 +27,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
    #endif
     tooltip.setLookAndFeel (&tooltipLookAndFeel);
     setWantsKeyboardFocus (true);
+    setMouseClickGrabsKeyboardFocus (false);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
     // One opaque Observatory root lets Windows present a completed frame instead of compositing
     // intermediate transformed children.

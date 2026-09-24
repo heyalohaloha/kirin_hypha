@@ -42,6 +42,8 @@ void styleButton (juce::TextButton& button)
 View::View (Role roleIn) : role (roleIn)
 {
     setOpaque (true);
+    setMouseClickGrabsKeyboardFocus (false);
+    initializeLevelHistoryControls();
     addAndMakeVisible (informationButton);
     informationButton.onClick = [this] { if (onInformation) onInformation(); };
     for (auto* button : { &levelButton, &timeButton, &frequencyButton, &spaceButton,
@@ -160,6 +162,7 @@ void View::setDomain (Domain value)
     if (selectedDomain == value)
         return;
     selectedDomain = value;
+    levelInspection.clear();
     levelHistoryPointer.reset();
     hoveredLevelHistoryIndex.reset();
     levelHistoryArea = {};
@@ -186,6 +189,7 @@ void View::setTarget (ObservationTarget value)
     if (! targetAllowed (role, value) || selectedTarget == value)
         return;
     selectedTarget = value;
+    levelInspection.clear();
     history.clear();
     runSummary = {};
     levelHistoryPointer.reset();
@@ -286,6 +290,7 @@ void View::setHistory (std::vector<KirinMeterHistoryEntry> entries)
     runSummary = target() == ObservationTarget::absolute
         ? run_summary::summarize (history) : run_summary::Result {};
     refreshLevelHistoryHover();
+    updateLevelHistoryControls();
     if (selectedDomain == Domain::time
         || (selectedDomain == Domain::level && fullCockpit()))
         repaint (bodyArea);
