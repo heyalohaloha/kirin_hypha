@@ -40,7 +40,7 @@ pub struct KirinMeterHistoryEntry {
 
 #[cfg(test)]
 mod tests {
-    use crate::to_c_history_entry;
+    use crate::meter_observation_ffi::to_c_history_entry;
     use crate::KIRIN_METER_HISTORY_1_HZ;
     use kirin_measure::{
         CaptureClockSource, MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution,
