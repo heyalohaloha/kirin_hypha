@@ -2244,6 +2244,7 @@ fn dropped_samples_surfaced_via_c_abi_on_ring_overflow() {
                 got = true;
             }
         }
+
         assert!(got, "measure result should be produced");
         assert!(
             out.dropped_samples > 0,
@@ -2305,13 +2306,10 @@ fn b125_oversized_drop_surfaces_in_c_abi_dropped_samples() {
     unsafe {
         let h = kirin_hypha_create(SR, [1_u8, 2].as_ptr(), 2); // Left, Right
         assert!(!h.is_null(), "create");
-        kirin_hypha_set_signal_state(h, 1); // Active
-
-        // 1 病的 block 相当（例: 2048 frames × 2ch）を JUCE oversized 分岐と同じ note で計上。
-        // ring overflow は意図的に起こさない（容量内の小ブロックのみを流す）。
+        kirin_hypha_set_signal_state(h, 1);
+        // Activeのまま病的oversized blockを計上し、ringには容量内の小blockだけを流す。
         const OVERSIZED: u64 = 4096;
         kirin_hypha_note_oversized_drop(h, OVERSIZED);
-
         let mut out: KirinMeasureResult = std::mem::zeroed();
         let mut got = false;
         for block_index in 0..20 {
@@ -2325,6 +2323,9 @@ fn b125_oversized_drop_surfaces_in_c_abi_dropped_samples() {
                 1,
                 0,
                 false,
+                0,
+                false,
+                0,
                 0,
                 false,
                 0,
@@ -2351,7 +2352,6 @@ fn b125_oversized_drop_surfaces_in_c_abi_dropped_samples() {
 }
 
 // ── B-106: 2 POST instance が同一 dylib 共有セルで同一棚に first-wins 収束する（棚分裂修正）──
-
 /// 単一プロセスに POST engine を 2 つ enable し、別々の set_identity project_uuid を渡しても
 /// FFI dylib 共有セル（`shared_post_project_hash_cell`）が first-wins で 1 つの値に収束する
 /// ＝両 POST の io_thread broadcast scan 棚が一致することを、**実 module statics 経由**で検証する

@@ -261,9 +261,9 @@ fn local_blind_capture_binds_the_existing_exact_pair_without_requiring_a_name() 
 
 #[test]
 fn juce_wrappers_forward_host_presentation_latency_as_diagnostics() {
-    let ffi_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
-    assert!(ffi_header.contains("KIRIN_HYPHA_PRESENTATION_SOURCE_VST3 1"));
-    assert!(ffi_header.contains("KIRIN_HYPHA_PRESENTATION_SOURCE_AUDIO_UNIT_V2 2"));
+    let clock_header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_capture_clock.h");
+    assert!(clock_header.contains("KIRIN_HYPHA_PRESENTATION_SOURCE_VST3 1"));
+    assert!(clock_header.contains("KIRIN_HYPHA_PRESENTATION_SOURCE_AUDIO_UNIT_V2 2"));
 
     let patch = read_repo("juce_shell/patches/0005-host-presentation-clock.patch");
     for required in [

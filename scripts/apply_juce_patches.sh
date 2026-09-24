@@ -78,3 +78,9 @@ apply_patch_idempotent \
   "0007-vst3-host-component-activation.patch" \
   --unidiff-zero \
   --ignore-whitespace
+
+apply_patch_idempotent \
+  "0008" \
+  "0008-raw-auxiliary-sample-clock.patch" \
+  --unidiff-zero \
+  --ignore-whitespace

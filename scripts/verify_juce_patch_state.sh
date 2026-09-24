@@ -9,6 +9,7 @@ EXPECTED_HEAD="4f43011b96eb0636104cb3e433894cda98243626"
 
 EXPECTED_FILES=(
   "modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h"
+  "modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp"
   "modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm"
   "modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp"
   "modules/juce_audio_processors/processors/juce_AudioProcessor.h"
@@ -24,6 +25,7 @@ PATCHES=(
   "0005-host-presentation-clock.patch::--unidiff-zero --ignore-whitespace"
   "0006-vst3-component-id-continuity.patch::--unidiff-zero --ignore-whitespace"
   "0007-vst3-host-component-activation.patch::--unidiff-zero --ignore-whitespace"
+  "0008-raw-auxiliary-sample-clock.patch::--unidiff-zero --ignore-whitespace"
 )
 
 die() {
@@ -104,4 +106,4 @@ for expected in "${EXPECTED_FILES[@]}"; do
   fi
 done
 
-echo "JUCE patch state OK: upstream ${EXPECTED_HEAD} + 7 tracked patches"
+echo "JUCE patch state OK: upstream ${EXPECTED_HEAD} + ${#PATCHES[@]} tracked patches"

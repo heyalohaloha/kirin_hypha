@@ -32,6 +32,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "kirin_hypha_channels.h"
+#include "kirin_hypha_capture_clock.h"
 #include "kirin_hypha_reference_ffi.h"
 
 #ifdef __cplusplus
@@ -607,24 +608,6 @@ void kirin_hypha_note_record_window(KirinHypha* handle, bool recording, bool ren
                                     int64_t position_samples, uint64_t num_frames,
                                     int64_t clock_start_samples, bool clock_end_valid,
                                     int64_t clock_end_samples);
-
-/* measurement ring へ実際に投入する窓の host sample clock（Audio Thread単独・RT-safe）.
- * Watch pre-roll / Record 共通。対応する push_samples の直前に1回だけ呼ぶ. */
-#define KIRIN_HYPHA_CLOCK_UNKNOWN 0
-#define KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE 1
-#define KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE 2
-#define KIRIN_HYPHA_PRESENTATION_SOURCE_UNKNOWN 0
-#define KIRIN_HYPHA_PRESENTATION_SOURCE_VST3 1
-#define KIRIN_HYPHA_PRESENTATION_SOURCE_AUDIO_UNIT_V2 2
-void kirin_hypha_note_capture_window(KirinHypha* handle, bool position_valid,
-                                     int64_t position_samples, uint64_t num_frames,
-                                     uint8_t clock_source,
-                                     uint8_t presentation_source,
-                                     bool input_presentation_valid,
-                                     uint32_t input_presentation_samples,
-                                     bool output_presentation_valid,
-                                     uint32_t output_presentation_samples,
-                                     bool force_new_epoch);
 
 /* Watch MAX pass boundary notification (Audio Thread, RT-safe). */
 void kirin_hypha_note_transport_block(KirinHypha* handle, bool playing,

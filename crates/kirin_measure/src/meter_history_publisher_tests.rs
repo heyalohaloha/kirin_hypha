@@ -37,6 +37,7 @@ fn advance(session: &Arc<Mutex<MeterSession>>, start: i64) {
             position_samples: Some(start),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,
+            ..MeterClockStart::default()
         }
     ));
 }
@@ -236,6 +237,7 @@ fn no_snapshot_until_a_complete_history_observation_advances() {
             position_samples: Some(0),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,
+            ..MeterClockStart::default()
         },
     );
     publish(&exchange, dir.path()).unwrap();

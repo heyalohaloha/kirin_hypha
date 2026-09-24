@@ -424,7 +424,11 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
                             presentationContext(),
                             held ? levelInspection.index : captureFrame ? std::nullopt : hoveredLevelHistoryIndex,
                             held ? juce::String ("HOLD") : hoveredLevelHistoryIndex ? juce::String() : maximumMomentary,
-                            frameAvailable ? &observatoryFrame.meter : nullptr);
+                            frameAvailable ? &observatoryFrame.meter : nullptr,
+                            inspection && chainSnapshotAvailable && ! held
+                                ? &chainSnapshot : nullptr,
+                            inspection && chainSnapshotAvailable && ! held
+                                ? &chainPoints : nullptr);
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
 }

@@ -1,4 +1,5 @@
 #pragma once
+#include "HostAuxiliaryClock.h"
 #include <cstdint>
 
 namespace hypha
@@ -19,5 +20,6 @@ struct HostProcessClock
     bool outputPresentationValid = false;
     std::uint32_t outputPresentationSamples = 0;
     bool looping = false; // host boolean only; PPQ loop points are never promoted to sample authority
+    HostAuxiliaryClock auxiliary;
 };
 }

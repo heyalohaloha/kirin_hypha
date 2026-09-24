@@ -155,6 +155,8 @@ void paintCurves (juce::Graphics& g,
             for (size_t layer = 0; layer < tipDepthCoverage.size(); ++layer)
             {
                 auto& tip = intensityTips[layer][bucket];
+                if (tip.isEmpty())
+                    tip.preallocateSpace (static_cast<int> ((last - first + 2u) * 6u));
                 tip.startNewSubPath (x[first - 1], deltaY[first - 1]);
                 for (size_t index = first; index <= last; ++index)
                     if (keep[index]) tip.lineTo (x[index], deltaY[index]);
@@ -163,6 +165,9 @@ void paintCurves (juce::Graphics& g,
                 tip.closeSubPath();
             }
         }
+        if (highlights[bucket].isEmpty())
+            highlights[bucket].preallocateSpace (
+                static_cast<int> ((last - first + 2u) * 3u));
         highlights[bucket].startNewSubPath (x[first - 1], deltaY[first - 1]);
         for (size_t index = first; index <= last; ++index)
             if (keep[index]) highlights[bucket].lineTo (x[index], deltaY[index]);
@@ -186,6 +191,7 @@ void paintCurves (juce::Graphics& g,
                                         juce::PathStrokeType::rounded));
 
     juce::Path deltaFill;
+    deltaFill.preallocateSpace (static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 3u + 9u));
     deltaFill.setUsingNonZeroWinding (false);
     deltaFill.startNewSubPath (x.front(), zeroY);
     deltaFill.lineTo (x.front(), deltaY.front());

@@ -361,6 +361,27 @@ void KirinHyphaEditor::refreshObservatory()
             observatoryView.setHistory (std::move (history));
     }
 
+    const auto wantsChainObservation = isPost
+        && observatoryDomain == hypha::observatory::Domain::level
+        && observatoryView.inspectionCockpit()
+        && observatoryView.target() == hypha::observatory::ObservationTarget::absolute;
+    if (wantsChainObservation)
+    {
+        KirinChainSnapshot next {};
+        if (processorRef.pollChainObservation (chainRevision, next, chainPoints))
+        {
+            chainSnapshot = next;
+            chainRevision = next.revision;
+            observatoryView.setChainObservation (chainSnapshot, chainPoints.data());
+        }
+    }
+    else
+    {
+        chainRevision = 0u;
+        chainSnapshot = {};
+        observatoryView.clearChainObservation();
+    }
+
     const auto sourceName = isPost ? processorRef.pairDisplayName() : processorRef.preName();
     observatoryView.setConnection (observatoryPairText (isPost, pairStatus, sourceName),
                                    observatoryPairColour (isPost, pairStatus),

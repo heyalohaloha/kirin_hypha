@@ -166,6 +166,9 @@ void verifyRoleAtEverySize (observatory::Role role,
         observatory::View view (role);
         view.setLocalBlindEntryEnabled (role == observatory::Role::post);
         view.setSize (preset.width, preset.height);
+        KIRIN_OBSERVATORY_REQUIRE (
+            view.inspectionCockpit()
+            == (preset.density == observatory::Density::inspection));
         view.setConnection (role == observatory::Role::post ? "PAIR DRUM" : "SOURCE PRE",
                             COL_LED_BLUE,
                             role == observatory::Role::post

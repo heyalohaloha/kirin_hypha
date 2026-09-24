@@ -16,6 +16,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../crates/kirin_hypha_ffi/src/signal_state_ffi.rs"
     ));
+    const CAPTURE_WINDOW_FFI_RS: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/kirin_hypha_ffi/src/capture_window_ffi.rs"
+    ));
     const PLUGIN_PROCESSOR_CPP: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../juce_shell/src/PluginProcessor.cpp"
@@ -398,7 +402,7 @@ mod tests {
     fn capture_clock_core_avoids_io_allocation_and_blocking_locks() {
         let body = function_body(
             RECORD_TAKE_RS,
-            "pub fn note_capture_window_with_presentation_boundary(\n        &self,",
+            "pub fn note_capture_window_with_clocks_boundary(\n        &self,",
         );
 
         for forbidden in [
@@ -446,6 +450,8 @@ mod tests {
                 || signature.contains("kirin_hypha_set_signal_state")
             {
                 SIGNAL_STATE_FFI_RS
+            } else if signature.contains("kirin_hypha_note_capture_window") {
+                CAPTURE_WINDOW_FFI_RS
             } else {
                 FFI_LIB_RS
             };

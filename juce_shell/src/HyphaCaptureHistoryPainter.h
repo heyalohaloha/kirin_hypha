@@ -8,6 +8,7 @@
 
 #include "HyphaPresentationContext.h"
 #include "kirin_hypha_ffi.h"
+#include "kirin_hypha_chain_observation.h"
 
 namespace hypha::capture_history
 {
@@ -62,5 +63,7 @@ void paint (juce::Graphics&,
             presentation::Context,
             std::optional<std::size_t> hoveredIndex = std::nullopt,
             juce::String contextFact = {},
-            const KirinMeterSession* meter = nullptr);
+            const KirinMeterSession* meter = nullptr,
+            const KirinChainSnapshot* chain = nullptr,
+            const std::vector<KirinChainPoint>* chainPoints = nullptr);
 }

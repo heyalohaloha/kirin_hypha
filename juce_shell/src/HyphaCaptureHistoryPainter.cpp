@@ -1,5 +1,6 @@
 #include "HyphaCaptureHistoryPainter.h"
 
+#include "HyphaChainActionPainter.h"
 #include "HyphaChannelClipText.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
@@ -326,7 +327,9 @@ void paint (juce::Graphics& g,
             presentation::Context presentation,
             std::optional<std::size_t> hoveredIndex,
             juce::String contextFact,
-            const KirinMeterSession* meter)
+            const KirinMeterSession* meter,
+            const KirinChainSnapshot* chain,
+            const std::vector<KirinChainPoint>* chainPoints)
 {
     surface_material::paintPanel (g, area.toFloat(), 0.62f);
     const auto layout = layoutFor (area);
@@ -338,12 +341,16 @@ void paint (juce::Graphics& g,
                          typography::Composition::visualization));
     g.setColour (COL_SPECTRUM_POST);
     auto loudnessLegend = meanings.removeFromLeft (delta ? meanings.getWidth() : meanings.getWidth() / 2);
-    g.drawText (delta ? "M / POST - PRE / 60 S" : "M / momentary LUFS",
+    const auto chainView = chain_action::View { chain, chainPoints };
+    g.drawText (delta ? "M / POST - PRE / 60 S"
+                      : chainView.visible() ? "CHAIN ACTION / PRE TO POST M"
+                                            : "M / momentary LUFS",
                 loudnessLegend, juce::Justification::centredLeft);
     if (! delta)
     {
         g.setColour (COL_FLORA_BR);
-        g.drawText ("TP / > -1 dBTP events", meanings,
+        g.drawText (chainView.visible() ? "TP CROSSING / > -1 dBTP"
+                                        : "TP / > -1 dBTP events", meanings,
                     juce::Justification::centredRight);
     }
     g.setColour (COL_MUTED.brighter (0.15f));
@@ -358,7 +365,7 @@ void paint (juce::Graphics& g,
         if (! delta && channel_clip::total (entry.clip_event_count, meter) > 0u)
             detail += "   " + channel_clip::text (entry.clip_event_count, meter, true);
     }
-    else if (peakSummary.available && ! peakSummary.eventIndices.empty())
+    else if (peakSummary.available)
     {
         detail = "60 S MAX TP " + history_inspection::peakText (peakSummary.windowMaximumDbtp) + " dBTP"
                + " @ " + relativeTimeText (peakSummary.secondsBeforeEnd);
@@ -443,7 +450,11 @@ void paint (juce::Graphics& g,
     paintPath (g, layout.sharedPlot, history, axis, delta,
                COL_SPECTRUM_POST, 0.96f, 1.20f, sampleRate);
     if (! delta)
+    {
+        chain_action::paint (g, layout.sharedPlot,
+                             truePeakOverlayFor (layout.sharedPlot), chainView);
         paintTruePeakEvents (g, layout.sharedPlot, history, axis, peakSummary, sampleRate, meter);
+    }
     paintCurrentLoudness (g, layout.sharedPlot, history, delta, presentation);
     g.setColour (COL_MUTED.withAlpha (0.64f));
     g.setFont (monoFont (presentation, typography::TextRole::axis,

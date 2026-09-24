@@ -49,6 +49,9 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     frame.recordDisplayAvailable = recordDisplayAvailable;
     frame.watchDisplay = watchDisplay;
     frame.watchDisplayAvailable = watchDisplayAvailable;
+    frame.chainSnapshot = chainSnapshot;
+    frame.chainPoints = chainPoints;
+    frame.chainSnapshotAvailable = chainSnapshotAvailable;
     frame.selectedShortTermLoudness = selectedShortTermLoudness;
     frame.compactShowsMaximum = compactShowsMaximum;
     frame.connectionText = connectionText;

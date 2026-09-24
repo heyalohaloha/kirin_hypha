@@ -10,7 +10,9 @@
 #include "local_blind/VST3HostContext.h"
 #include "local_blind/HostClockProbe.h"
 #include "kirin_hypha_display_ffi.h"
+#include "kirin_hypha_chain_observation.h"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <vector>
@@ -75,6 +77,10 @@ public:
     bool pollRecordDisplay (KirinRecordDisplay& out) const;
     bool pollMeterSession (KirinMeterSession& out) const;
     bool pollObservatoryFrame (KirinObservatoryFrame& out) const;
+    bool pollChainObservation (
+        std::uint64_t knownRevision,
+        KirinChainSnapshot& out,
+        std::array<KirinChainPoint, KIRIN_CHAIN_CAPACITY>& points) const;
     bool pollMeterHistory (uint8_t resolution,
                            std::vector<KirinMeterHistoryEntry>& out,
                            size_t maxEntries,

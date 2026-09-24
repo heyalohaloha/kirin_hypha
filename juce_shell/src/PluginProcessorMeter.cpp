@@ -30,6 +30,18 @@ bool KirinHyphaProcessorBase::pollObservatoryFrame (KirinObservatoryFrame& out) 
     return hyphaHandle != nullptr && kirin_hypha_poll_observatory_frame (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::pollChainObservation (
+    std::uint64_t knownRevision,
+    KirinChainSnapshot& out,
+    std::array<KirinChainPoint, KIRIN_CHAIN_CAPACITY>& points) const
+{
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_chain_observation (
+            hyphaHandle, KIRIN_CHAIN_VERSION, knownRevision,
+            &out, points.data(), KIRIN_CHAIN_CAPACITY);
+}
+
 bool KirinHyphaProcessorBase::pollMeterHistory (
     uint8_t resolution,
     std::vector<KirinMeterHistoryEntry>& out,

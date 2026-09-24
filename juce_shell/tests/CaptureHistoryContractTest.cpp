@@ -53,12 +53,15 @@ std::vector<KirinMeterHistoryEntry> fixture()
 juce::Image render (const std::vector<KirinMeterHistoryEntry>& history,
                     bool delta,
                     std::optional<std::size_t> hovered = std::nullopt,
-                    const KirinMeterSession* meter = nullptr)
+                    const KirinMeterSession* meter = nullptr,
+                    const KirinChainSnapshot* chain = nullptr,
+                    const std::vector<KirinChainPoint>* chainPoints = nullptr)
 {
     juce::Image image (juce::Image::ARGB, 500, 130, true);
     juce::Graphics graphics (image);
     capture_history::paint (graphics, image.getBounds(), history, delta, 48'000.0,
-                            presentation::forEditor (500, 333), hovered, {}, meter);
+                            presentation::forEditor (500, 333), hovered, {}, meter,
+                            chain, chainPoints);
     return image;
 }
 
@@ -71,6 +74,36 @@ int changedPixels (const juce::Image& first, const juce::Image& second)
             changed += first.getPixelAt (x, y).getARGB()
                     != second.getPixelAt (x, y).getARGB();
     return changed;
+}
+
+std::pair<KirinChainSnapshot, std::vector<KirinChainPoint>> chainFixture (double peak)
+{
+    KirinChainSnapshot snapshot {};
+    snapshot.version = KIRIN_CHAIN_VERSION;
+    snapshot.revision = 2u;
+    snapshot.binding = 3u;
+    snapshot.sample_rate = 48'000u;
+    snapshot.post_observed = 33'600u;
+    snapshot.status = KIRIN_CHAIN_ACTIVE;
+    std::vector<KirinChainPoint> points (7u);
+    for (std::size_t index = 0; index < points.size(); ++index)
+    {
+        auto& point = points[index];
+        point.pre_generation = point.post_generation = 4u;
+        point.pre_run = point.post_run = 2u;
+        point.pre_observed = point.post_observed = (index + 1u) * 4'800u;
+        point.pre_m = -25.0 + static_cast<double> (index) * 0.1;
+        point.post_m = point.pre_m + 1.0;
+        point.pre_tp = peak - 0.2;
+        point.post_tp = peak;
+        point.pre_severity = point.pre_tp > 0.0 ? 3u : point.pre_tp > -1.0 ? 2u : 1u;
+        point.post_severity = point.post_tp > 0.0 ? 3u : point.post_tp > -1.0 ? 2u : 1u;
+        point.crossing = point.pre_severity == 1u && point.post_severity > 1u ? 3u
+                       : point.pre_severity > 1u && point.post_severity == 1u ? 2u
+                       : point.pre_severity > 1u && point.post_severity > 1u ? 4u : 1u;
+    }
+    snapshot.count = static_cast<std::uint32_t> (points.size());
+    return { snapshot, points };
 }
 }
 
@@ -102,6 +135,7 @@ void verifyCaptureHistoryContract()
     const auto below = capture_history::analyseTruePeak (belowEmphasis, 48'000.0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (below.available);
     KIRIN_CAPTURE_HISTORY_REQUIRE (below.eventIndices.empty());
+    KIRIN_CAPTURE_HISTORY_REQUIRE (std::isfinite (below.windowMaximumDbtp));
 
     auto justAboveEmphasis = belowEmphasis;
     justAboveEmphasis[3].true_peak.max = -0.999;
@@ -118,7 +152,9 @@ void verifyCaptureHistoryContract()
     KIRIN_CAPTURE_HISTORY_REQUIRE (
         ! capture_history::analyseTruePeak (noPeakFacts, 48'000.0).available);
     KIRIN_CAPTURE_HISTORY_REQUIRE (
-        changedPixels (render (belowEmphasis, false), render (noPeakFacts, false)) == 0);
+        // The factual 60 s maximum remains visible even when it is below the -1 dBTP event
+        // threshold. Only the event line/glow is suppressed.
+        changedPixels (render (belowEmphasis, false), render (noPeakFacts, false)) > 20);
     KIRIN_CAPTURE_HISTORY_REQUIRE (
         changedPixels (render (justAboveEmphasis, false),
                        render (belowEmphasis, false)) > 20);
@@ -164,6 +200,24 @@ void verifyCaptureHistoryContract()
         changedPixels (render (history, true), render (noPeakFacts, true)) == 0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (
         changedPixels (render (history, true), render (noClipFacts, true)) == 0);
+
+    auto [belowChain, belowChainPoints] = chainFixture (-1.2);
+    auto [crossingChain, crossingChainPoints] = chainFixture (-0.8);
+    auto [strongChain, strongChainPoints] = chainFixture (0.2);
+    const auto withoutChain = render (history, false);
+    const auto belowChainImage = render (
+        history, false, std::nullopt, nullptr, &belowChain, &belowChainPoints);
+    const auto crossingImage = render (
+        history, false, std::nullopt, nullptr, &crossingChain, &crossingChainPoints);
+    const auto strongImage = render (
+        history, false, std::nullopt, nullptr, &strongChain, &strongChainPoints);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (withoutChain, belowChainImage) > 20);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (belowChainImage, crossingImage) > 20);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (crossingImage, strongImage) > 20);
+    belowChain.status = KIRIN_CHAIN_AMBIGUOUS;
+    KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (
+        withoutChain, render (history, false, std::nullopt, nullptr,
+                              &belowChain, &belowChainPoints)) == 0);
 
     auto frozen = history;
     capture_history::retainThrough (frozen, history[4].last_observed_frames);

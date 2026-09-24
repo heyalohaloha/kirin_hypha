@@ -34,6 +34,7 @@ fn project_clock(position_samples: i64, epoch: u64) -> MeterClockStart {
         position_samples: Some(position_samples),
         epoch: Some(epoch),
         source: crate::CaptureClockSource::ProjectTimeline,
+        ..MeterClockStart::default()
     }
 }
 

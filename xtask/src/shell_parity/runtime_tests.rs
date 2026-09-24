@@ -141,7 +141,8 @@
         assert!(body
             .contains("&& (stateCode == 1 || playing || nonRealtimeMode || hasClockEnd);"));
         assert!(!body.contains("&& (stateCode == 1 || measurementTimelineActive"));
-        assert!(body.contains("windowPositionSamples, windowNumFrames, clockSource"));
+        assert!(body.contains("windowPositionSamples,\n                                             windowNumFrames, clockSource, presentationSource"));
+        assert!(body.contains("windowAuxiliary.valid, windowAuxiliary.samples"));
         assert!(body
             .contains("kirin_hypha_note_transport_block (hyphaHandle, measurementTimelineActive"));
         // The Session producer, not editor polling, now owns measurement/MAX time (B-705).

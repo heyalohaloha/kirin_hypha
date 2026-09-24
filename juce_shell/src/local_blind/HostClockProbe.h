@@ -1,5 +1,6 @@
 #pragma once
 #include "../HostProcessClock.h"
+#include "../HostAuxiliaryClock.h"
 #include <atomic>
 #include <cstring>
 
@@ -15,6 +16,7 @@ struct HostClockProbeSnapshot
     std::uint32_t frames = 0, channels = 0, inputLatency = 0, outputLatency = 0;
     std::uint8_t source = 0, presentationSource = 0;
     bool playing = false, hasPosition = false, hasInputLatency = false, hasOutputLatency = false;
+    HostAuxiliaryClock auxiliary;
 };
 
 // Keep the Audio Thread writer away from adjacent processor state when a non-RT diagnostic or
@@ -25,17 +27,21 @@ class alignas (128) HostClockProbe
 public:
     // One audio producer. No allocation, lock, retry, host call or I/O.
     void publish (const HostProcessClock& clock, double sampleRate,
-                  std::uint32_t blockFrames, std::uint32_t inputChannels) noexcept
+                  std::uint32_t blockFrames, std::uint32_t inputChannels,
+                  HostAuxiliaryClock auxiliary = {}) noexcept
     {
         sequence.fetch_add (1);
         position.store (clock.positionSamples);
+        auxiliarySamples.store (auxiliary.samples);
         std::uint64_t bits = 0;
         std::memcpy (&bits, &sampleRate, sizeof (bits));
         rate.store (bits);
         format.store ((std::uint64_t (inputChannels) << 32u) | blockFrames);
         latency.store ((std::uint64_t (clock.outputPresentationSamples) << 32u)
                        | clock.inputPresentationSamples);
-        flags.store ((std::uint64_t (clock.presentationSource) << 16u)
+        flags.store ((std::uint64_t (auxiliary.source) << 32u)
+                     | (auxiliary.valid ? (std::uint64_t { 1 } << 40u) : 0)
+                     | (std::uint64_t (clock.presentationSource) << 16u)
                      | (std::uint64_t (clock.clockSource) << 8u)
                      | (clock.playing ? 1u : 0u) | (clock.hasPosition ? 2u : 0u)
                      | (clock.inputPresentationValid ? 4u : 0u)
@@ -51,6 +57,7 @@ public:
         HostClockProbeSnapshot next;
         next.callback = before / 2;
         next.position = position.load();
+        next.auxiliary.samples = auxiliarySamples.load();
         const auto bits = rate.load();
         std::memcpy (&next.rate, &bits, sizeof (bits));
         const auto layout = format.load(), latencies = latency.load(), state = flags.load();
@@ -64,6 +71,8 @@ public:
         next.hasOutputLatency = (state & 8u) != 0;
         next.source = static_cast<std::uint8_t> (state >> 8u);
         next.presentationSource = static_cast<std::uint8_t> (state >> 16u);
+        next.auxiliary.source = static_cast<AuxiliaryClockSource> ((state >> 32u) & 0xffu);
+        next.auxiliary.valid = (state & (std::uint64_t { 1 } << 40u)) != 0;
         if (before != sequence.load()) return false;
         out = next;
         return true;
@@ -74,7 +83,7 @@ private:
     static_assert (std::atomic<std::uint64_t>::is_always_lock_free);
     static_assert (std::atomic<std::int64_t>::is_always_lock_free);
     std::atomic<std::uint64_t> sequence { 0 }, rate { 0 }, format { 0 }, latency { 0 }, flags { 0 };
-    std::atomic<std::int64_t> position { 0 };
+    std::atomic<std::int64_t> position { 0 }, auxiliarySamples { 0 };
 };
 static_assert (alignof (HostClockProbe) >= 128);
 }

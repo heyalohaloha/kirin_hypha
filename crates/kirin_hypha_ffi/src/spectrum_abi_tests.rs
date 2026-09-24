@@ -334,6 +334,7 @@ fn presentation_alignment_requires_known_wrapper_output_latency() {
             input: Some(0),
             output: Some(2_048),
         },
+        auxiliary: AuxiliaryClockSamples::default(),
         force_new_epoch: false,
     };
     assert_eq!(spectrum_presentation_start(exact), Some(11_648));
@@ -365,6 +366,7 @@ fn attack_uses_exact_project_clock_when_presentation_callback_is_absent() {
             input: Some(0),
             output: Some(2_048),
         },
+        auxiliary: AuxiliaryClockSamples::default(),
         force_new_epoch: false,
     };
     assert_eq!(attack_timeline_start(exact), Some(11_648));

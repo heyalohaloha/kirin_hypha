@@ -5,6 +5,38 @@
 
 namespace hypha::observatory
 {
+void View::setChainObservation (const KirinChainSnapshot& value,
+                                const KirinChainPoint* points)
+{
+    const auto valid = value.version == KIRIN_CHAIN_VERSION
+                    && value.count <= KIRIN_CHAIN_CAPACITY
+                    && (value.count == 0u || points != nullptr);
+    if (! valid)
+    {
+        clearChainObservation();
+        return;
+    }
+    if (chainSnapshotAvailable && chainSnapshot.revision == value.revision)
+        return;
+    chainSnapshot = value;
+    if (value.count == 0u)
+        chainPoints.clear();
+    else
+        chainPoints.assign (points, points + value.count);
+    chainSnapshotAvailable = true;
+    repaint (bodyArea);
+}
+
+void View::clearChainObservation()
+{
+    if (! chainSnapshotAvailable && chainPoints.empty())
+        return;
+    chainSnapshot = {};
+    chainPoints.clear();
+    chainSnapshotAvailable = false;
+    repaint (bodyArea);
+}
+
 void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
 {
     const auto previous = observatoryFrame;

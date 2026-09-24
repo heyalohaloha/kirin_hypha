@@ -117,6 +117,10 @@ void paint (juce::Graphics& g,
         y[i] = displayY (i);
     }
     juce::Path stroke, recentGlow;
+    const auto pathCoordinates = static_cast<int> (
+        spectrum_focus::focusTrailCapacity * 3u);
+    stroke.preallocateSpace (pathCoordinates);
+    recentGlow.preallocateSpace (pathCoordinates);
     const auto appendRun = [&] (juce::Path& path, size_t first, size_t last)
     {
         const auto keep = polyline_geometry::retainedVertices (x, y, first, last);

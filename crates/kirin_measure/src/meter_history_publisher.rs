@@ -95,11 +95,7 @@ impl HistoryPublisher {
                 instance_dir,
             );
         }
-        let points = session
-            .recent_history(MeterHistoryResolution::Hz10, METER_HISTORY_EXCHANGE_POINTS)
-            .into_iter()
-            .filter_map(WirePoint::from_history)
-            .collect();
+        let points = window::wire_tail(&session, exchange.sample_rate);
         drop(session);
         #[cfg(test)]
         {
@@ -132,6 +128,9 @@ impl HistoryPublisher {
             self.snapshots_serialized += 1;
         }
         let bytes = serde_json::to_vec(&publication).map_err(|error| error.to_string())?;
+        if bytes.len() as u64 > MAX_EXCHANGE_BYTES {
+            return Err("meter history exchange exceeds byte limit".into());
+        }
         let written = crate::atomic_file::write_bytes_atomic_metadata(&path, &bytes)
             .map_err(|error| error.to_string())?;
         // Commit only after success, and only for our own file. On Windows last-write time

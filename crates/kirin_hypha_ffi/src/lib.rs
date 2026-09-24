@@ -53,20 +53,21 @@ use kirin_measure::{
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
     spawn_watchdog, watch_ring_capacity_samples, write_broadcast_for_generation,
     write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
-    write_stop_broadcast_for_generation, AnalysisViewMode, CaptureClockSource, CaptureGeneration,
-    CaptureGenerationMember, CaptureGenerationTransaction, DeltaResult, GenerationTerminalReason,
-    IoThreadHandle, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult,
-    MeterDeltaHistoryExchange, MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution,
-    MeterSession, MeterSessionPublication, MeterSessionSnapshot, MeterSessionState,
-    PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths, PluginDataRole,
-    PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource, PsbSummary,
-    RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine,
-    RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError,
-    SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame, SpectrumRuntime,
-    SpectrumRuntimeStats, SpectrumTimelineFrame, SpectrumViewSnapshot, SpectrumViewStatus,
-    StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams,
-    ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT, HISTORY_0_1_HZ_CAPACITY,
-    HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
+    write_stop_broadcast_for_generation, AnalysisViewMode, AuxiliaryClockSamples,
+    AuxiliaryClockSource, CaptureClockSource, CaptureGeneration, CaptureGenerationMember,
+    CaptureGenerationTransaction, DeltaResult, GenerationTerminalReason, IoThreadHandle,
+    LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult, MeterDeltaHistoryExchange,
+    MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution, MeterSession,
+    MeterSessionPublication, MeterSessionSnapshot, MeterSessionState, PairOwnershipBinding,
+    PairOwnershipLease, PairStatus, PlatformPaths, PluginDataRole, PrePairStatusObserver,
+    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordDisplaySnapshot,
+    RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock,
+    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState,
+    SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame, SpectrumRuntime, SpectrumRuntimeStats,
+    SpectrumTimelineFrame, SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths, WatchMaxTracker,
+    WatchProducerHandoff, WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY,
+    CAPTURE_PRODUCER_READY_TIMEOUT, HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY,
+    HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
     MAX_CAPTURE_GENERATION_MEMBERS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS, STEREO_FIELD_SIZE,
 };
@@ -79,6 +80,8 @@ mod audition_admission_ffi;
 pub mod channel_abi;
 mod comparison_abi;
 pub use comparison_abi::*;
+mod capture_window_ffi;
+pub use capture_window_ffi::kirin_hypha_note_capture_window;
 mod identity_ffi;
 mod identity_registry;
 mod legacy_nih_state;
@@ -263,6 +266,7 @@ struct PendingCaptureWindow {
     num_frames: u64,
     clock_source: CaptureClockSource,
     presentation_latency: PresentationLatencySamples,
+    auxiliary: AuxiliaryClockSamples,
     force_new_epoch: bool,
 }
 
@@ -367,6 +371,9 @@ pub struct KirinHyphaEngine {
     pending_presentation_source: AtomicU8,
     pending_input_presentation_samples: AtomicU64,
     pending_output_presentation_samples: AtomicU64,
+    pending_auxiliary_source: AtomicU8,
+    pending_auxiliary_valid: AtomicBool,
+    pending_auxiliary_samples: AtomicI64,
     pending_force_new_epoch: AtomicBool,
     /// Record-take facts are staged by the JUCE callback beside the capture descriptor. A
     /// rendered block becomes visible to the immutable take selector only after `push_samples`
@@ -1136,6 +1143,9 @@ impl KirinHyphaEngine {
             pending_presentation_source: AtomicU8::new(PresentationLatencySource::Unknown as u8),
             pending_input_presentation_samples: AtomicU64::new(u64::MAX),
             pending_output_presentation_samples: AtomicU64::new(u64::MAX),
+            pending_auxiliary_source: AtomicU8::new(AuxiliaryClockSource::Unknown as u8),
+            pending_auxiliary_valid: AtomicBool::new(false),
+            pending_auxiliary_samples: AtomicI64::new(i64::MIN),
             pending_force_new_epoch: AtomicBool::new(false),
             pending_record_valid: AtomicBool::new(false),
             pending_recording: AtomicBool::new(false),
@@ -1391,104 +1401,6 @@ impl KirinHyphaEngine {
             clock_start_samples: block.clock_start_samples,
             clock_end_samples: block.clock_end_samples,
         });
-    }
-
-    /// Audio Thread が measurement ring へ投入する窓の host sample clock を通知する。
-    /// `note_record_block` とは独立させ、Watch pre-roll と Record の両方を同じ clock に載せる。
-    pub fn note_capture_window(
-        &self,
-        position_valid: bool,
-        position_samples: i64,
-        num_frames: u64,
-        clock_source: CaptureClockSource,
-    ) {
-        self.note_capture_window_with_presentation(
-            position_valid,
-            position_samples,
-            num_frames,
-            clock_source,
-            PresentationLatencySamples::default(),
-            false,
-        );
-    }
-
-    pub fn note_capture_window_with_presentation(
-        &self,
-        position_valid: bool,
-        position_samples: i64,
-        num_frames: u64,
-        clock_source: CaptureClockSource,
-        presentation_latency: PresentationLatencySamples,
-        force_new_epoch: bool,
-    ) {
-        // This call deliberately stages facts only. `push_samples` first proves whole-block SPSC
-        // capacity, then commits this descriptor and all samples as one producer transaction.
-        // Advancing the clock here would let a partially accepted callback permanently shift every
-        // later TRACE sample.
-        self.pending_capture_version.fetch_add(1, Ordering::AcqRel);
-        self.pending_capture_valid.store(false, Ordering::Relaxed);
-        self.pending_position_valid
-            .store(position_valid, Ordering::Relaxed);
-        self.pending_position_samples
-            .store(position_samples, Ordering::Relaxed);
-        self.pending_num_frames.store(num_frames, Ordering::Relaxed);
-        self.pending_clock_source
-            .store(clock_source as u8, Ordering::Relaxed);
-        self.pending_presentation_source
-            .store(presentation_latency.source as u8, Ordering::Relaxed);
-        self.pending_input_presentation_samples.store(
-            presentation_latency.input.map_or(u64::MAX, u64::from),
-            Ordering::Relaxed,
-        );
-        self.pending_output_presentation_samples.store(
-            presentation_latency.output.map_or(u64::MAX, u64::from),
-            Ordering::Relaxed,
-        );
-        self.pending_force_new_epoch
-            .store(force_new_epoch, Ordering::Relaxed);
-        self.pending_capture_valid.store(true, Ordering::Relaxed);
-        self.pending_capture_version.fetch_add(1, Ordering::Release);
-    }
-
-    #[inline]
-    fn take_pending_capture_window(&self, expected_frames: u64) -> Option<PendingCaptureWindow> {
-        for _ in 0..4 {
-            let before = self.pending_capture_version.load(Ordering::Acquire);
-            if before & 1 != 0 || !self.pending_capture_valid.load(Ordering::Relaxed) {
-                continue;
-            }
-            let pending = PendingCaptureWindow {
-                position_valid: self.pending_position_valid.load(Ordering::Relaxed),
-                position_samples: self.pending_position_samples.load(Ordering::Relaxed),
-                num_frames: self.pending_num_frames.load(Ordering::Relaxed),
-                clock_source: CaptureClockSource::from_abi(
-                    self.pending_clock_source.load(Ordering::Relaxed),
-                ),
-                presentation_latency: PresentationLatencySamples {
-                    source: PresentationLatencySource::from_abi(
-                        self.pending_presentation_source.load(Ordering::Relaxed),
-                    ),
-                    input: u32::try_from(
-                        self.pending_input_presentation_samples
-                            .load(Ordering::Relaxed),
-                    )
-                    .ok(),
-                    output: u32::try_from(
-                        self.pending_output_presentation_samples
-                            .load(Ordering::Relaxed),
-                    )
-                    .ok(),
-                },
-                force_new_epoch: self.pending_force_new_epoch.load(Ordering::Relaxed),
-            };
-            let after = self.pending_capture_version.load(Ordering::Acquire);
-            if before == after && after & 1 == 0 {
-                self.pending_capture_valid.store(false, Ordering::Release);
-                return (pending.num_frames == expected_frames).then_some(pending);
-            }
-        }
-        self.pending_capture_valid.store(false, Ordering::Release);
-        None
     }
 
     /// Publish one host transport block. Audio Thread only; atomics and the
@@ -2838,12 +2750,13 @@ impl KirinHyphaEngine {
                         }
                         if let Some(clock) = pending_clock {
                             self.record_take_tracker
-                                .note_capture_window_with_presentation_boundary(
+                                .note_capture_window_with_clocks_boundary(
                                     clock.position_valid,
                                     clock.position_samples,
                                     clock.num_frames,
                                     clock.clock_source,
                                     clock.presentation_latency,
+                                    clock.auxiliary,
                                     clock.force_new_epoch || offline_capture_boundary,
                                 );
                         }
@@ -2876,12 +2789,13 @@ impl KirinHyphaEngine {
                         }
                         if let Some(clock) = pending_clock {
                             self.record_take_tracker
-                                .note_capture_window_with_presentation_boundary(
+                                .note_capture_window_with_clocks_boundary(
                                     clock.position_valid,
                                     clock.position_samples,
                                     clock.num_frames,
                                     clock.clock_source,
                                     clock.presentation_latency,
+                                    clock.auxiliary,
                                     clock.force_new_epoch || offline_capture_boundary,
                                 );
                         }
@@ -4122,45 +4036,6 @@ pub unsafe extern "C" fn kirin_hypha_note_record_window(
     }));
 }
 
-/// measurement ring へ投入する窓の host sample clock を通知する（Audio Thread単独・RT-safe）。
-///
-/// # Safety
-/// `handle` は有効なハンドル。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_note_capture_window(
-    handle: *mut KirinHyphaEngine,
-    position_valid: bool,
-    position_samples: i64,
-    num_frames: u64,
-    clock_source: u8,
-    presentation_source: u8,
-    input_presentation_valid: bool,
-    input_presentation_samples: u32,
-    output_presentation_valid: bool,
-    output_presentation_samples: u32,
-    force_new_epoch: bool,
-) {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return;
-        }
-        unsafe {
-            (*handle).note_capture_window_with_presentation(
-                position_valid,
-                position_samples,
-                num_frames,
-                CaptureClockSource::from_abi(clock_source),
-                PresentationLatencySamples {
-                    source: PresentationLatencySource::from_abi(presentation_source),
-                    input: input_presentation_valid.then_some(input_presentation_samples),
-                    output: output_presentation_valid.then_some(output_presentation_samples),
-                },
-                force_new_epoch,
-            );
-        }
-    }));
-}
-
 /// Host transport block notification used only to delimit Watch MAX passes.
 /// Audio Thread safe: atomics + bounded seqlock writes, no allocation/IO/lock.
 ///
@@ -4740,6 +4615,10 @@ mod record_start_latch_tests {
 #[cfg(test)]
 mod admission_contract_tests {
     use super::{ChannelLayout, KirinHyphaEngine, RecordTakeBlock, MAX_AUDIO_BLOCK_FRAMES};
+    use kirin_measure::{
+        AuxiliaryClockSamples, AuxiliaryClockSource, CaptureClockSource,
+        PresentationLatencySamples, PresentationLatencySource,
+    };
 
     #[test]
     fn shipping_transaction_rejects_channel_remainder_without_advancing_clock() {
@@ -4763,6 +4642,51 @@ mod admission_contract_tests {
 
         assert!(!engine.push_samples_transaction(&[0.0, 0.0], 2));
         assert_eq!(engine.record_take_tracker.captured_frames_total(), 1);
+    }
+
+    #[test]
+    fn shipping_transaction_commits_auxiliary_clock_and_pdc_with_the_same_audio() {
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
+        engine.note_capture_window_with_clocks(
+            true,
+            20_000,
+            2,
+            CaptureClockSource::ProjectTimeline,
+            PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(4_096),
+            },
+            AuxiliaryClockSamples {
+                source: AuxiliaryClockSource::Vst3Continuous,
+                samples: Some(20_000),
+            },
+            false,
+        );
+        let staged = engine
+            .take_pending_capture_window(2)
+            .expect("one coherent staged descriptor");
+        assert_eq!(staged.auxiliary.samples, Some(20_000));
+        assert_eq!(
+            staged.auxiliary.source,
+            AuxiliaryClockSource::Vst3Continuous
+        );
+        assert_eq!(
+            staged.presentation_latency.source,
+            PresentationLatencySource::Vst3
+        );
+        assert_eq!(staged.presentation_latency.output, Some(4_096));
+        engine.note_capture_window_with_clocks(
+            true,
+            20_000,
+            2,
+            CaptureClockSource::ProjectTimeline,
+            staged.presentation_latency,
+            staged.auxiliary,
+            false,
+        );
+        assert!(engine.push_samples_transaction(&[0.25, -0.25, 0.5, -0.5], 2));
+        assert_eq!(engine.record_take_tracker.captured_frames_total(), 2);
     }
 
     #[test]

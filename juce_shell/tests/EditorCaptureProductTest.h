@@ -9,7 +9,10 @@ public:
     {
         juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_VST3);
         processor=std::make_unique<Processor>(Processor::Role::Post); prepareHost(); processor->addListener(this);
-        started=juce::Time::getMillisecondCounterHiRes(); startTimer(10);
+        // This contract declares a realtime host. Feed each 4,800-frame callback at its actual
+        // 100 ms cadence so the test does not accidentally turn into an unlabelled offline-render
+        // queue stress test.
+        started=juce::Time::getMillisecondCounterHiRes(); startTimer(100);
     }
     ~CaptureProductContract() override { stopTimer(); close(); }
 private:

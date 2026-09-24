@@ -1,0 +1,46 @@
+diff --git a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h b/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
+--- a/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
++++ b/modules/juce_audio_basics/audio_play_head/juce_AudioPlayHead.h
+@@ -408,0 +409,6 @@
++        // Raw auxiliary clock only: 1 VST3 continuous, 2 AU render, 3 AAX native.
++        // Neither availability nor matching numbers certify PDC or a shared occurrence.
++        int getKirinAuxiliaryClockSource() const { return kirinAuxiliaryClockSource; }
++        void setKirinAuxiliaryClockSource (int value) { kirinAuxiliaryClockSource = value; }
++        Optional<int64_t> getKirinAuxiliaryClockSamples() const { return getOptional (flagKirinAuxiliaryClock, kirinAuxiliaryClockSamples); }
++        void setKirinAuxiliaryClockSamples (Optional<int64_t> value) { setOptional (flagKirinAuxiliaryClock, kirinAuxiliaryClockSamples, value); }
+@@ -450,0 +457,2 @@
++                                        i.getKirinAuxiliaryClockSource(),
++                                        i.getKirinAuxiliaryClockSamples(),
+@@ -512,1 +520,2 @@
+-            flagKirinOutputPresentationLatency = 1 << 16
++            flagKirinOutputPresentationLatency = 1 << 16,
++            flagKirinAuxiliaryClock = 1 << 17
+@@ -530,0 +540,2 @@
++        int kirinAuxiliaryClockSource = 0;
++        int64_t kirinAuxiliaryClockSamples = 0;
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+@@ -3025,0 +3026,4 @@
++        info.setKirinAuxiliaryClockSource (1);
++        info.setKirinAuxiliaryClockSamples ((processContext.state & Vst::ProcessContext::kContTimeValid) != 0
++                                             ? makeOptional ((int64_t) processContext.continousTimeSamples)
++                                             : nullopt);
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+@@ -1340,0 +1341,5 @@
++            info.setKirinAuxiliaryClockSource (2);
++            // Preserve only exact integral sample positions; never round a fractional clock.
++            const auto renderSample = audioUnit.lastTimeStamp.mSampleTime;
++            info.setKirinAuxiliaryClockSamples (renderTimelineValid && std::trunc (renderSample) == renderSample
++                                                 ? makeOptional ((int64_t) renderSample) : nullopt);
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
+@@ -1172,0 +1173,5 @@
++           #if KIRIN_HYPHA_PRESENTATION_CLOCK
++            // Stopped selection positions are not native processing-buffer clocks.
++            info.setKirinAuxiliaryClockSource (3);
++            info.setKirinAuxiliaryClockSamples (info.getIsPlaying() ? optionalTimeInSamples : nullopt);
++           #endif

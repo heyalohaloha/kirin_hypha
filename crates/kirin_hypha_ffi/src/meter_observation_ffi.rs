@@ -1,5 +1,8 @@
 //! UI-only meter snapshots and history export. No audio processing lives here.
 use super::*;
+#[path = "chain_observation_ffi.rs"]
+mod chain_ffi;
+pub use chain_ffi::*;
 
 impl KirinHyphaEngine {
     /// Record/Keepから独立した常設メーターセッションの最新完了値を読む。

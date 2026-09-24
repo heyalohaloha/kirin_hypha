@@ -47,7 +47,8 @@ void writePreview (const juce::File& directory,
 {
     KIRIN_OBSERVATORY_CAPTURE_REQUIRE (directory.createDirectory().wasOk());
     auto output = directory.getChildFile (name).createOutputStream();
-    KIRIN_OBSERVATORY_CAPTURE_REQUIRE (output != nullptr);
+    KIRIN_OBSERVATORY_CAPTURE_REQUIRE (
+        output != nullptr && output->setPosition (0) && output->truncate().wasOk());
     KIRIN_OBSERVATORY_CAPTURE_REQUIRE (
         juce::PNGImageFormat().writeImageToStream (image, *output));
 }
@@ -83,6 +84,37 @@ std::vector<KirinMeterHistoryEntry> fullMinutePreviewHistory (
     return result;
 }
 
+std::pair<KirinChainSnapshot, std::vector<KirinChainPoint>> fullMinuteChainPreview()
+{
+    KirinChainSnapshot snapshot {};
+    snapshot.version = KIRIN_CHAIN_VERSION;
+    snapshot.revision = 8u;
+    snapshot.binding = 3u;
+    snapshot.sample_rate = 48'000u;
+    snapshot.post_observed = 600u * 4'800u;
+    snapshot.status = KIRIN_CHAIN_ACTIVE;
+    std::vector<KirinChainPoint> points (600u);
+    for (std::size_t index = 0; index < points.size(); ++index)
+    {
+        auto& point = points[index];
+        const auto wave = std::sin (static_cast<double> (index) * 0.24);
+        point.pre_generation = point.post_generation = 4u;
+        point.pre_run = point.post_run = 2u;
+        point.pre_observed = point.post_observed = (index + 1u) * 4'800u;
+        point.pre_m = -23.5 + 2.8 * wave;
+        point.post_m = -22.0 + 3.2 * wave;
+        point.pre_tp = index > 430u && index < 438u ? -0.6 : -5.5 + wave;
+        point.post_tp = index > 430u && index < 438u ? 0.2 : -5.0 + wave;
+        point.pre_severity = point.pre_tp > 0.0 ? 3u : point.pre_tp > -1.0 ? 2u : 1u;
+        point.post_severity = point.post_tp > 0.0 ? 3u : point.post_tp > -1.0 ? 2u : 1u;
+        point.crossing = point.pre_severity == 1u && point.post_severity > 1u ? 3u
+                       : point.pre_severity > 1u && point.post_severity == 1u ? 2u
+                       : point.pre_severity > 1u && point.post_severity > 1u ? 4u : 1u;
+    }
+    snapshot.count = static_cast<std::uint32_t> (points.size());
+    return { snapshot, points };
+}
+
 void writePreviews (observatory::View& post,
                     observatory::View& pre,
                     const std::vector<KirinMeterHistoryEntry>& history,
@@ -101,6 +133,8 @@ void writePreviews (observatory::View& post,
     post.setObservatoryFrame (activeFrame, true);
     post.setGuide ("OS GUIDE  MASKING 03:18", "3150-3700 HZ", true);
     post.setHistory (previewHistory);
+    auto [chainSnapshot, chainPoints] = fullMinuteChainPreview();
+    post.setChainObservation (chainSnapshot, chainPoints.data());
     for (const auto preset : observatory::sizePresets)
     {
         post.setSize (preset.width, preset.height);

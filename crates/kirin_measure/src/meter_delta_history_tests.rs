@@ -30,11 +30,16 @@ fn post_point(observed: u64, endpoint: i64, value: f64) -> MeterHistoryEntry {
 
 fn pre_point(endpoint: i64, value: f64) -> WirePoint {
     WirePoint {
+        window: None,
         generation: 2,
         run_id: 5,
         observed_frames: endpoint as u64,
         endpoint_samples: endpoint,
         source: CaptureClockSource::ProjectTimeline as u8,
+        auxiliary_endpoint_samples: None,
+        auxiliary_source: 0,
+        presentation_source: 0,
+        output_presentation_samples: None,
         lufs_m: Some(value),
         lufs_s: Some(value - 1.0),
         true_peak: Some(value + 10.0),
@@ -188,6 +193,7 @@ fn atomic_publication_and_exact_target_join_work_end_to_end() {
             position_samples: Some(0),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,
+            ..MeterClockStart::default()
         },
     );
     let pre = MeterDeltaHistoryExchange::new(48_000, pre_session);
@@ -209,6 +215,7 @@ fn atomic_publication_and_exact_target_join_work_end_to_end() {
             position_samples: Some(0),
             epoch: Some(9),
             source: CaptureClockSource::ProjectTimeline,
+            ..MeterClockStart::default()
         },
     );
     let post = MeterDeltaHistoryExchange::new(48_000, post_session);
@@ -265,6 +272,7 @@ fn a_different_layout_is_not_subtracted_because_the_gap_is_the_map_not_the_chain
                 position_samples: Some(0),
                 epoch: Some(1),
                 source: CaptureClockSource::ProjectTimeline,
+                ..MeterClockStart::default()
             },
         );
         let pre = MeterDeltaHistoryExchange::new(48_000, pre_session);
@@ -287,6 +295,7 @@ fn a_different_layout_is_not_subtracted_because_the_gap_is_the_map_not_the_chain
                 position_samples: Some(0),
                 epoch: Some(1),
                 source: CaptureClockSource::ProjectTimeline,
+                ..MeterClockStart::default()
             },
         );
         let post = MeterDeltaHistoryExchange::new(48_000, post_session);

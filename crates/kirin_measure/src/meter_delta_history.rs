@@ -16,7 +16,14 @@ mod pair_observation;
 #[path = "meter_history_publisher.rs"]
 mod publisher;
 use pair_observation::DeltaHistoryState;
+#[path = "chain_observation.rs"]
+pub mod chain;
+#[path = "meter_chain_join.rs"]
+mod chain_join;
+#[path = "meter_chain_window.rs"]
+mod window;
 
+use crate::meter_clock::MeterClockWitness;
 use crate::meter_history::MeterHistory;
 use crate::plugin_data::MeasurementLayout;
 use crate::{
@@ -25,8 +32,8 @@ use crate::{
 };
 
 pub const METER_HISTORY_EXCHANGE_FILE: &str = "meter_history.json";
-/// 3 = B-968。`layout` を足し、違う map で測った 2 本を引き算しないようにした。
-pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 3;
+/// 5 adds raw auxiliary/PDC witnesses. Schemas 3/4 remain readable for legacy TIME only.
+pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 5;
 pub const METER_HISTORY_EXCHANGE_POINTS: usize = 32;
 const LOCAL_JOIN_POINTS: usize = METER_HISTORY_EXCHANGE_POINTS * 2;
 const MAX_EXCHANGE_BYTES: u64 = 64 * 1024;
@@ -51,11 +58,21 @@ impl MeterHistoryTarget {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 struct WirePoint {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    window: Option<window::WindowProvenance>,
     generation: u64,
     run_id: u64,
     observed_frames: u64,
     endpoint_samples: i64,
     source: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    auxiliary_endpoint_samples: Option<i64>,
+    #[serde(default)]
+    auxiliary_source: u8,
+    #[serde(default)]
+    presentation_source: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    output_presentation_samples: Option<u32>,
     lufs_m: Option<f64>,
     lufs_s: Option<f64>,
     true_peak: Option<f64>,
@@ -145,10 +162,16 @@ impl MeterDeltaHistoryExchange {
         let Ok(identity) = read_pre_identity(&target.pre_json) else {
             return;
         };
-        if identity.instance_id != target.pre_instance_id
-            || identity.watch_owner_id.is_empty()
-            || identity.signal_state != "active"
-        {
+        if identity.instance_id != target.pre_instance_id || identity.watch_owner_id.is_empty() {
+            return;
+        }
+        // An owner replacement invalidates history before the replacement publishes a file.
+        lock_recover(&self.delta).bind(PairKey {
+            instance_id: target.pre_instance_id.clone(),
+            instance_dir: target.instance_dir.clone(),
+            owner_id: identity.watch_owner_id.clone(),
+        });
+        if identity.signal_state != "active" {
             return;
         }
         let Ok(publication) = read_publication(&target.instance_dir) else {
@@ -161,6 +184,9 @@ impl MeterDeltaHistoryExchange {
             return;
         };
         let local = session.recent_history(MeterHistoryResolution::Hz10, LOCAL_JOIN_POINTS);
+        let local_clocks = session.recent_clock_witnesses(LOCAL_JOIN_POINTS);
+        let snapshot = session.snapshot();
+        let incarnation = session.history_publication_revision().0;
         drop(session);
         let mut delta = lock_recover(&self.delta);
         delta.bind(PairKey {
@@ -168,7 +194,14 @@ impl MeterDeltaHistoryExchange {
             instance_dir: target.instance_dir,
             owner_id: identity.watch_owner_id,
         });
+        delta
+            .chain
+            .begin(&publication, &local, &local_clocks, &snapshot, incarnation);
+        delta
+            .chain
+            .ingest(&publication.points, &local, &local_clocks);
         delta.ingest(&publication.points, &local, self.sample_rate);
+        delta.chain.finish();
     }
 
     pub fn recent(
@@ -195,16 +228,40 @@ impl MeterDeltaHistoryExchange {
     pub fn reset(&self) {
         lock_recover(&self.delta).reset();
     }
+
+    /// Explicit comparison audition ends a chain observation binding, not a Meter Session.
+    pub fn clear_chain(&self) {
+        let mut delta = lock_recover(&self.delta);
+        let binding = delta.chain.history.binding.wrapping_add(1).max(1);
+        delta.chain.clear(binding);
+    }
+
+    /// UI-only, nonblocking; unchanged revision does not clone the bounded batch.
+    pub fn chain_snapshot(
+        &self,
+        known_revision: u64,
+        snapshot: &crate::MeterSessionSnapshot,
+    ) -> Option<chain::Snapshot> {
+        let mut delta = self.delta.try_lock().ok()?;
+        delta.chain.progress(snapshot);
+        delta.chain.history.snapshot(known_revision)
+    }
 }
 
 impl WirePoint {
-    fn from_history(entry: MeterHistoryEntry) -> Option<Self> {
+    fn from_history(entry: MeterHistoryEntry, witness: Option<MeterClockWitness>) -> Option<Self> {
         Some(Self {
+            window: None,
             generation: entry.generation,
             run_id: entry.run_id,
             observed_frames: entry.last_observed_frames,
             endpoint_samples: entry.last_timeline_endpoint_samples?,
             source: exact_source(entry.timeline_source)?,
+            auxiliary_endpoint_samples: witness.and_then(|clock| clock.auxiliary_endpoint_samples),
+            auxiliary_source: witness.map_or(0, |clock| clock.auxiliary_source as u8),
+            presentation_source: witness.map_or(0, |clock| clock.presentation_latency.source as u8),
+            output_presentation_samples: witness
+                .and_then(|clock| clock.presentation_latency.output),
             lufs_m: finite(entry.lufs_m.mean),
             lufs_s: finite(entry.lufs_s.mean),
             true_peak: finite(entry.true_peak.mean),
@@ -235,7 +292,7 @@ impl Publication {
         sample_rate: u32,
         layout: &MeasurementLayout,
     ) -> bool {
-        self.schema == METER_HISTORY_EXCHANGE_SCHEMA
+        matches!(self.schema, 3 | 4 | METER_HISTORY_EXCHANGE_SCHEMA)
             && self.sample_rate == sample_rate
             && self.layout == *layout
             && self.pre_instance_id == identity.instance_id
@@ -255,11 +312,20 @@ fn read_publication(instance_dir: &Path) -> Result<Publication, String> {
 }
 
 fn read_bounded_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
+    use std::io::Read;
     let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
     if metadata.len() > MAX_EXCHANGE_BYTES {
         return Err("meter history exchange exceeds byte limit".to_string());
     }
-    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .map_err(|error| error.to_string())?
+        .take(MAX_EXCHANGE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > MAX_EXCHANGE_BYTES {
+        return Err("meter history exchange exceeds byte limit".to_string());
+    }
     serde_json::from_slice(&bytes).map_err(|error| error.to_string())
 }
 
@@ -305,3 +371,7 @@ fn lock_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[cfg(test)]
 #[path = "meter_delta_history_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "meter_chain_exchange_tests.rs"]
+mod chain_exchange_tests;

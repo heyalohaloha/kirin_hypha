@@ -262,10 +262,13 @@ void coherentClockProbe()
     probe.publish (clock, 48000, 512, 2);
     REQUIRE (probe.read (snapshot) && snapshot.position == -512);
     REQUIRE (! snapshot.hasPosition && ! snapshot.hasInputLatency && ! snapshot.hasOutputLatency);
+    REQUIRE (! snapshot.auxiliary.valid);
     clock.hasPosition = clock.inputPresentationValid = clock.outputPresentationValid = true;
-    probe.publish (clock, 48000, 512, 2);
+    probe.publish (clock, 48000, 512, 2, { -1024, hypha::AuxiliaryClockSource::vst3Continuous, true });
     REQUIRE (probe.read (snapshot) && snapshot.inputLatency == 0 && snapshot.hasInputLatency);
     REQUIRE (snapshot.outputLatency == 0 && snapshot.hasOutputLatency); // 0 remains raw/ambiguous.
+    REQUIRE (snapshot.auxiliary.valid && snapshot.auxiliary.samples == -1024);
+    REQUIRE (snapshot.auxiliary.source == hypha::AuxiliaryClockSource::vst3Continuous);
     std::atomic<bool> finished { false };
     std::thread producer ([&] {
         for (std::uint32_t i = 1; i <= 10000; ++i)
@@ -276,7 +279,8 @@ void coherentClockProbe()
             next.outputPresentationSamples = i + 1;
             next.playing = next.hasPosition = next.inputPresentationValid = true;
             next.clockSource = next.presentationSource = 1;
-            probe.publish (next, 48000 + i, i, i % 2 + 1);
+            probe.publish (next, 48000 + i, i, i % 2 + 1,
+                           { i * 2, hypha::AuxiliaryClockSource::aaxNative, true });
         }
         finished.store (true);
     });
@@ -290,10 +294,16 @@ void coherentClockProbe()
             REQUIRE (snapshot.outputLatency == value + 1 && ! snapshot.hasOutputLatency);
             REQUIRE (snapshot.playing && snapshot.hasPosition && snapshot.hasInputLatency);
             REQUIRE (snapshot.source == 1 && snapshot.presentationSource == 1);
+            REQUIRE (snapshot.auxiliary.valid && snapshot.auxiliary.samples == value * 2);
+            REQUIRE (snapshot.auxiliary.source == hypha::AuxiliaryClockSource::aaxNative);
         }
     } while (! finished.load());
     producer.join();
     REQUIRE (probe.read (snapshot) && snapshot.callback == 10002 && snapshot.position == 10000);
+    probe.publish (clock, 48000, 512, 2);
+    REQUIRE (probe.read (snapshot) && ! snapshot.auxiliary.valid && snapshot.auxiliary.samples == 0);
+    REQUIRE (snapshot.auxiliary.source == hypha::AuxiliaryClockSource::unavailable);
+    REQUIRE (sizeof (HostClockProbe) == 128); // Auxiliary facts stay in the existing cache isolation.
 }
 }
 

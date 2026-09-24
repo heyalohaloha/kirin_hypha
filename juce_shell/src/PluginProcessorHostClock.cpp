@@ -22,6 +22,7 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
     bool outputPresentationValid = false;
     uint32_t outputPresentationSamples = 0;
     bool looping = false;
+    hypha::HostAuxiliaryClock auxiliary;
     if (auto* ph = getPlayHead())
         if (const auto pos = ph->getPosition())
         {
@@ -45,6 +46,16 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
                #endif
             }
            #if KIRIN_HYPHA_PRESENTATION_CLOCK
+            const auto auxiliarySource = pos->getKirinAuxiliaryClockSource();
+            if (auxiliarySource >= 1 && auxiliarySource <= 3)
+            {
+                auxiliary.source = static_cast<hypha::AuxiliaryClockSource> (auxiliarySource);
+                if (const auto samples = pos->getKirinAuxiliaryClockSamples())
+                {
+                    auxiliary.samples = *samples;
+                    auxiliary.valid = true;
+                }
+            }
             const auto wrapperSource = pos->getKirinPresentationLatencySource();
             if (wrapperSource == KIRIN_HYPHA_PRESENTATION_SOURCE_VST3
                 || wrapperSource == KIRIN_HYPHA_PRESENTATION_SOURCE_AUDIO_UNIT_V2)
@@ -72,7 +83,7 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
     const hypha::HostProcessClock clock { playing, hasPosition, clockSource, positionSamples, hasClockEnd,
              clockStartSamples, clockEndSamples, presentationSource,
              inputPresentationValid, inputPresentationSamples,
-             outputPresentationValid, outputPresentationSamples, looping };
+             outputPresentationValid, outputPresentationSamples, looping, auxiliary };
     // Release PRE never issues a capture request. Keep its Audio Thread free of an otherwise
     // unused snapshot write while retaining both-role clock diagnostics in Debug validation.
    #if JUCE_DEBUG
@@ -83,6 +94,6 @@ hypha::HostProcessClock KirinHyphaProcessorBase::readHostProcessClock() const
     if (publishClockProbe)
         hostClockProbe.publish (clock, preparedFormat.sampleRate,
             static_cast<std::uint32_t> (getBlockSize()),
-            static_cast<std::uint32_t> (getTotalNumInputChannels()));
+            static_cast<std::uint32_t> (getTotalNumInputChannels()), auxiliary);
     return clock;
 }

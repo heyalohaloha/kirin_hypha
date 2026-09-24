@@ -9,6 +9,7 @@ struct JoinedPoint {
 
 #[derive(Default)]
 pub(super) struct DeltaHistoryState {
+    pub(super) chain: chain_join::Admission,
     generation: u64,
     next_run_id: u64,
     current_source_run: Option<(u64, u64, u64, u64)>,
@@ -50,6 +51,7 @@ impl DeltaHistoryState {
 
     fn discard(&mut self) {
         self.generation = self.generation.wrapping_add(1).max(1);
+        self.chain.clear(self.generation);
         self.next_run_id = 0;
         self.current_source_run = None;
         self.last_joined_axis = None;

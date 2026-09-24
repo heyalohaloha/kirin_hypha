@@ -52,9 +52,12 @@ impl AuditionState {
         true
     }
 
-    #[cfg(test)]
     pub(crate) fn is_active(&self) -> bool {
         self.active.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::Acquire)
     }
 }
 
@@ -143,6 +146,9 @@ impl KirinHyphaEngine {
             .is_some_and(|epoch| epoch == 0 || epoch != self.audition.epoch.load(Ordering::Acquire))
         {
             return false;
+        }
+        if let Some(history) = self.meter_delta_history.as_ref() {
+            history.clear_chain();
         }
         self.audition.active.store(false, Ordering::Release);
         if let Some(mut held) = admission.take() {

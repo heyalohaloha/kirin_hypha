@@ -114,6 +114,10 @@ public:
     {
         return isFullDensity (currentPreset().density);
     }
+    bool inspectionCockpit() const noexcept
+    {
+        return currentPreset().density == Density::inspection;
+    }
     PresentationContract presentation() const noexcept
     {
         return presentationContract (currentPreset());
@@ -145,6 +149,8 @@ public:
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
     void setRecordDisplay (const KirinRecordDisplay&, bool available);
     void setWatchDisplay (const KirinWatchDisplay&, bool available);
+    void setChainObservation (const KirinChainSnapshot&, const KirinChainPoint*);
+    void clearChainObservation();
     void setShortTermLoudness (bool);
     bool shortTermLoudness() const noexcept { return selectedShortTermLoudness; }
     bool setHostRecording (bool recording);
@@ -308,6 +314,9 @@ private:
     bool recordDisplayAvailable = false;
     KirinWatchDisplay watchDisplay {};
     bool watchDisplayAvailable = false;
+    KirinChainSnapshot chainSnapshot {};
+    std::vector<KirinChainPoint> chainPoints;
+    bool chainSnapshotAvailable = false;
     bool selectedShortTermLoudness = false;
     bool hostRecording = false;
     bool hybridVuOnRecordEnabled = true;

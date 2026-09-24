@@ -11,6 +11,7 @@ pub mod atomic_file;
 pub mod attack_perception;
 pub mod attack_runtime;
 mod broadcast_edge;
+mod capture_clock;
 pub mod capture_contract;
 pub mod capture_generation;
 pub mod capture_generation_lifecycle;
@@ -126,6 +127,10 @@ pub use attack_runtime::{
     AttackPairError, AttackPairEvent, AttackPairEventKind, AttackPairJoiner, AttackRuntime,
     AttackRuntimeStats, AttackWaveformPoint, ATTACK_EVENT_HISTORY_CAPACITY,
     ATTACK_ODF_HISTORY_CAPACITY, ATTACK_SHAPE_POINT_CAPACITY, ATTACK_WAVEFORM_HISTORY_CAPACITY,
+};
+pub use capture_clock::{
+    AuxiliaryClockSamples, AuxiliaryClockSource, CaptureClockPoint, CaptureClockSource,
+    PresentationLatencySamples, PresentationLatencySource,
 };
 pub use capture_contract::{CAPTURE_PRODUCER_READY_TIMEOUT, MAX_CAPTURE_PAIRS};
 pub use capture_generation::{
@@ -293,8 +298,7 @@ pub use record_signal::{
     SIGNAL_FILENAME, TARGET_SIGNALS_SUBDIR,
 };
 pub use record_take::{
-    new_record_take_tracker, CaptureClockPoint, CaptureClockSource, PresentationLatencySamples,
-    PresentationLatencySource, RecordTakeBlock, RecordTakeSnapshot, RecordTakeTracker,
+    new_record_take_tracker, RecordTakeBlock, RecordTakeSnapshot, RecordTakeTracker,
     RECORD_TAKE_SOURCE_RENDER_CLOCK,
 };
 pub use record_writer::{
@@ -380,14 +384,12 @@ pub fn sanitize_name(raw: &str) -> String {
     cleaned.trim().chars().take(16).collect()
 }
 // ── 共有定数 ────────────────────────────────────────────────────────────────
-
 /// Audio Thread → Measure Thread リングバッファの保持長（秒）。
 ///
 /// Offline bounce は DAW が実時間より速く Audio Thread を進めるため、短い ring では
 /// Measure Thread が追いつく前に overflow し、Record の sample count が WAV と一致しなくなる。
 /// Audio Thread はブロックできないので、余裕のある SPSC 容量で clean Record を優先する。
 pub const RING_BUFFER_SECONDS: usize = 30;
-
 // ── プロセス単位識別子（B-020 / γ-3 chunk-persistent UUID 後）─────────────
 //
 // 履歴:
@@ -402,12 +404,10 @@ pub const RING_BUFFER_SECONDS: usize = 30;
 // `initialize()` から chunk-persist 値で `set_project_uuid()` / `set_daw_session_id()`
 // により更新される。ファイル階層は `plugin_data/{project_uuid}/{instance_id}/{pre|post}/`
 // で区切られる（bus 概念は path から削除済）。
-
 fn project_uuid_cell() -> &'static Arc<RwLock<String>> {
     static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
     CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
 }
-
 fn daw_session_id_cell() -> &'static Arc<RwLock<String>> {
     static CELL: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
     CELL.get_or_init(|| Arc::new(RwLock::new(String::new())))
