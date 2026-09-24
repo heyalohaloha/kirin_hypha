@@ -96,6 +96,20 @@ void verifyCaptureHistoryContract()
     KIRIN_CAPTURE_HISTORY_REQUIRE (emphasized.eventIndices[0] == 1u);
     KIRIN_CAPTURE_HISTORY_REQUIRE (emphasized.eventIndices[1] == 5u);
 
+    auto belowEmphasis = history;
+    for (auto& entry : belowEmphasis)
+        entry.true_peak.max = juce::jmin (entry.true_peak.max, -1.0);
+    const auto below = capture_history::analyseTruePeak (belowEmphasis, 48'000.0);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (below.available);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (below.eventIndices.empty());
+
+    auto justAboveEmphasis = belowEmphasis;
+    justAboveEmphasis[3].true_peak.max = -0.999;
+    const auto justAbove = capture_history::analyseTruePeak (
+        justAboveEmphasis, 48'000.0);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (justAbove.eventIndices.size() == 1u);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (justAbove.eventIndices.front() == 3u);
+
     auto noPeakFacts = history;
     for (auto& entry : noPeakFacts)
         entry.true_peak = { std::numeric_limits<double>::quiet_NaN(),
@@ -103,6 +117,11 @@ void verifyCaptureHistoryContract()
                             std::numeric_limits<double>::quiet_NaN() };
     KIRIN_CAPTURE_HISTORY_REQUIRE (
         ! capture_history::analyseTruePeak (noPeakFacts, 48'000.0).available);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (
+        changedPixels (render (belowEmphasis, false), render (noPeakFacts, false)) == 0);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (
+        changedPixels (render (justAboveEmphasis, false),
+                       render (belowEmphasis, false)) > 20);
     const auto zeroRate = capture_history::analyseTruePeak (history, 0.0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (zeroRate.available);
     KIRIN_CAPTURE_HISTORY_REQUIRE (zeroRate.secondsBeforeEnd == 0.0);

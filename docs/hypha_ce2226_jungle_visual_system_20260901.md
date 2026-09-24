@@ -193,9 +193,9 @@ LEVEL下段は60秒Historyを既定とし、Spectrumは重複搭載せずFREQを
 
 LEVEL Historyの横軸は常に固定60秒とし、測定開始直後の短い履歴を横幅いっぱいへ引き伸ばさない。
 
-Mを主線、Sを低彩度の副線とし、TPは連続線を重ねず、runごとの2秒区間で保持した最大`true_peak.max`をevent stemとして示す。TPは別railへ分離せず、同じ60秒全面の下部へ右側`+6〜-24 dBTP`軸とともに重ねる。M/S Historyは全面を使い、TP stemだけが下から立ち上がる。
+Mを主線、Sを低彩度の副線とし、TPは連続線を重ねず、`-1.0 dBTP`を超える連続区間ごとの最大`true_peak.max`だけをevent stemとして示す。可視60秒の最大値であっても閾値以下ならstemへ昇格しない。TPは別railへ分離せず、同じ60秒全面の下部へ右側`+6〜-24 dBTP`軸とともに重ねる。M/S Historyは全面を使い、TP stemだけが下から立ち上がる。
 
-可視区間の正確な最大値と相対時刻を`60 S MAX TP`として表示し、中央の`MAX TP`がResetまでの全Session最大であることと区別する。Max Mは現在Mの面から外し、同じHistory凡例にSession factとして置く。
+閾値を超えた可視区間の正確な最大値と相対時刻だけを`60 S MAX TP`として表示し、中央の`MAX TP`がResetまでの全Session最大であることと区別する。閾値以下しかない区間へ数値、stem、強い発光を追加しない。Max Mは現在Mの面から外し、同じHistory凡例にSession factとして置く。
 
 ポインタ位置では同一100 ms観測点のM、S、TP、相対時刻へ切り替え、Captureは同じ固定軸とevent位置を正本snapshotから描く。
 

@@ -351,7 +351,7 @@ void paint (juce::Graphics& g,
     if (! delta)
     {
         g.setColour (COL_FLORA_BR);
-        g.drawText ("TP / 2 S peak hold / dBTP", meanings,
+        g.drawText ("TP / > -1 dBTP events", meanings,
                     juce::Justification::centredRight);
     }
     g.setColour (COL_MUTED.brighter (0.15f));
@@ -366,7 +366,7 @@ void paint (juce::Graphics& g,
         if (! delta && channel_clip::total (entry.clip_event_count, meter) > 0u)
             detail += "   " + channel_clip::text (entry.clip_event_count, meter, true);
     }
-    else if (peakSummary.available)
+    else if (peakSummary.available && ! peakSummary.eventIndices.empty())
     {
         detail = "60 S MAX TP " + measuredText (peakSummary.windowMaximumDbtp) + " dBTP"
                + " @ " + relativeTimeText (peakSummary.secondsBeforeEnd);
