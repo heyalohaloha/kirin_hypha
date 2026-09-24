@@ -22,14 +22,23 @@ struct State
 
 constexpr float backdropOpacity (const State& state) noexcept
 {
-    const float density = state.density == observatory::Density::compact ? 0.48f
-                        : state.density == observatory::Density::focused ? 0.58f
-                        : state.density == observatory::Density::standard ? 0.68f : 0.78f;
-    const float role = state.role == observatory::Role::pre ? 0.72f : 1.0f;
-    const float signal = state.active ? 1.0f : 0.48f;
+    // The plate is already authored at its final low luminance. Keep the structural world
+    // readable in every state instead of dimming the dark pixels a second time.
+    const float density = state.density == observatory::Density::compact ? 0.72f
+                        : state.density == observatory::Density::focused ? 0.80f
+                        : state.density == observatory::Density::standard ? 0.88f : 0.96f;
+    const float role = state.role == observatory::Role::pre ? 0.90f : 1.0f;
+    const float signal = state.active ? 1.0f : 0.82f;
     const float capture = state.capture ? 1.08f : 1.0f;
     const float jungle = state.jungle ? 1.08f : 1.0f;
     return density * role * signal * capture * jungle;
+}
+
+constexpr float hyphaSpecimenOpacity (const State& state) noexcept
+{
+    const float role = state.role == observatory::Role::pre ? 0.90f : 1.0f;
+    const float signal = state.active ? 0.32f : 0.20f;
+    return signal * role * (state.jungle ? 1.05f : 1.0f);
 }
 
 class Backdrop

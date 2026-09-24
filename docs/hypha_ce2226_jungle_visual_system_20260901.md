@@ -244,11 +244,15 @@ Audio Thread、Measure Thread、FFI ABIへ新しい処理や値は追加して�
 
 ## 7. 状態と発光
 
-POST Activeを背景明度の基準値にする。
+背景素材は最終的な低輝度で制作済みの不透明plateであり、状態係数で暗部を二重に潰さない。
 
-PREは同じ素材をPOSTの72%へ抑える。
+POST Activeを背景明度の基準値にする。画面密度ごとの表示率はCompact 72%、Focused 80%、Standard 88%、Observatory 96%とし、素材の負空間はそのまま維持する。
 
-InactiveとBypassedはActiveの48%へ抑える。
+PREは同じ素材をPOSTの90%へ抑える。
+
+InactiveとBypassedはActiveの82%へ抑える。最暗条件のPRE Compact Inactiveでも約53%を維持し、信号がなくても構造層が読み取れるようにする。
+
+TIMEの`bg_mycelium.png`は新背景を置き換える全面素材ではなく、時間層の下端標本に限定する。Active 32%、Inactive 20%を上限とし、PREはその90%に抑える。
 
 Captureは静止画で外周を読み取れるよう、同じ背景を8%だけ持ち上げる。
 

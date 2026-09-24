@@ -272,9 +272,7 @@ void Backdrop::drawHyphaSpecimen (juce::Graphics& g,
     const int x = area.getCentreX() - specimen.getWidth() / 2;
     const int y = area.getBottom() - specimen.getHeight();
     juce::Graphics::ScopedSaveState saved (g);
-    const float roleOpacity = state.role == observatory::Role::pre ? 0.72f : 1.0f;
-    g.setOpacity ((state.active ? 0.76f : 0.42f) * roleOpacity
-                  * (state.jungle ? 1.10f : 1.0f));
+    g.setOpacity (hyphaSpecimenOpacity (state));
     g.drawImageAt (specimen, x, y, false);
 }
 
