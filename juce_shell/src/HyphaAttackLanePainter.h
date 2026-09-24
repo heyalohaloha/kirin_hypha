@@ -15,7 +15,9 @@ struct Frame
     const attack_lanes::Model& model;
     std::int64_t latest = 0;
     std::uint32_t rate = 0;
-    std::int64_t selected = -1;
+    // The selected hit while it is on the six-second axis. A locked hit that has scrolled out has
+    // no hypha, so its values are not shown either.
+    const attack_lanes::Hit* selected = nullptr;
     presentation::Context context = presentation::defaultContext();
 };
 
@@ -39,7 +41,7 @@ void paintLaneChrome (juce::Graphics&, attack_lanes::Lane, juce::Rectangle<int> 
                       juce::Rectangle<int> plot, bool delta, const presentation::Context&);
 void paintLaneValues (juce::Graphics&, attack_lanes::Lane, juce::Rectangle<int> plot,
                       juce::Rectangle<int> readout, const Frame&);
-void paintLine (juce::Graphics&, juce::Rectangle<int>, const Frame&);
+void paintLine (juce::Graphics&, const attack_ui::Layout&, const Frame&);
 void paintHistoryLabel (juce::Graphics&, juce::Rectangle<int>, const presentation::Context&);
 void paintSelectedTime (juce::Graphics&, juce::Rectangle<int>, const Frame&);
 

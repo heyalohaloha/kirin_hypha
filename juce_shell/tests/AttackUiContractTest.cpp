@@ -4,6 +4,8 @@
 #include "../src/HyphaTheme.h"
 #include "AttackUiImageHelpers.h"
 #include "AttackUiLaneContract.h"
+#include "AttackUiChromeContract.h"
+#include "AttackUiSelectionContract.h"
 #include "AttackUiOverviewContract.h"
 #include "AttackUiSizeContract.h"
 #include "AttackUiLifecycleContract.h"
@@ -37,14 +39,14 @@ namespace
 
     int eventX (std::int64_t sample, std::int64_t latest)
     {
-        const auto plot = historyPlot (layout);
+        const auto plot = historyRect (layout);
         return plot.getX() + hypha::attack_ui::eventX (sample, latest, 48'000, plot.getWidth());
     }
 
     // The selection hypha is drawn at 90% opacity through the HISTORY plot.
     bool selectionNear (const juce::Image& image, int x)
     {
-        const auto plot = historyPlot (layout);
+        const auto plot = historyRect (layout);
         return countColour (image, plot.withX (x - 3).withWidth (7),
                             juce::Colour (hypha::attack_ui::selectionColour), 40) > 0;
     }
@@ -159,6 +161,9 @@ int main()
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
                            288'000, 48'000, 7, stats);
     component.setOverlayMode (false);
+    // Timing runs before the image-heavy contracts: their caches and heap growth measurably slow
+    // later frames in the same process (about 0.5 ms at 300% / DPI 2).
+    KIRIN_REQUIRE (verifyAttackFrameBudget());
     KIRIN_REQUIRE (verifyLaneModel());
     KIRIN_REQUIRE (verifyDetailLifecycle (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (verifyMeasuredEnvelope());
@@ -168,9 +173,13 @@ int main()
     KIRIN_REQUIRE (verifyLaneRendering());
     KIRIN_REQUIRE (verifyHistoryIsolation());
     KIRIN_REQUIRE (verifyPostOnlyLanes());
+    KIRIN_REQUIRE (verifyLanesShowDifferencesOnly());
     KIRIN_REQUIRE (verifyLoupe());
     KIRIN_REQUIRE (verifyCompactLine());
     KIRIN_REQUIRE (verifySelectionHypha());
+    KIRIN_REQUIRE (verifyOffscreenLock());
+    KIRIN_REQUIRE (verifyHoldAtEverySize());
+    KIRIN_REQUIRE (verifyChromeCache());
     hypha::tests::verifyPolylineGeometryContract();
     KIRIN_REQUIRE (verifyRedrawContract (events, waveform, details, pairEvents, stats));
     const auto image = renderAttack (component);
@@ -192,7 +201,7 @@ int main()
     identityComponent.setSnapshot (events, waveform, details, waveform, details, pairEvents,
                                    288'000, 48'000, 7, stats);
     const auto identity = renderAttack (identityComponent);
-    const auto history = historyPlot (layout);
+    const auto history = historyRect (layout);
     const auto rowHeight = history.getHeight() / 2;
     const juce::Rectangle<int> preRow { history.getX() + 40, history.getY() + 2,
                                         history.getWidth() - 48, rowHeight - 4 };
@@ -277,7 +286,7 @@ int main()
     const auto laneY = static_cast<float> (layout.lanes[2].y + layout.lanes[2].height / 2);
     component.mouseDown (mouseEvent (component, static_cast<float> (firstEventX), laneY));
     KIRIN_REQUIRE (selectionNear (renderAttack (component), firstEventX));
-    const auto axis = plotColumn (layout, layout.axis);
+    const auto axis = columnRect (layout, layout.axis);
     component.mouseDown (mouseEvent (component, static_cast<float> (axis.getRight() - 4),
                                      static_cast<float> (axis.getCentreY())));
     KIRIN_REQUIRE (selectionNear (renderAttack (component), lastEventX));
@@ -289,7 +298,6 @@ int main()
     KIRIN_REQUIRE (differences (identityOverlay, overlay, history) > 0);
     KIRIN_REQUIRE (writePreviewTo ("KIRIN_ATTACK_UI_OVERLAY_PREVIEW_PATH", overlay));
     KIRIN_REQUIRE (verifySupportedSizes (component));
-    KIRIN_REQUIRE (verifyAttackFrameBudget());
     component.setPresentationContext (context);
     component.setSize (width, height);
     stats.worker_running = 0;

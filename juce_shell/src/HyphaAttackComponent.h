@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -39,7 +40,17 @@ namespace hypha
         void presentationTick (bool signalActive);
         void presentationTickAt (double nowMs);
         bool pairedObservation() const noexcept { return pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE; }
+        // The cached structure image is rebuilt on the next paint. The editor calls this when a
+        // host hides it without destroying it; leaving the page or hiding this view does it too.
+        void releaseCachedChrome() noexcept { chromeImage = {}; }
+        std::size_t cachedChromeBytes() const noexcept
+        {
+            return chromeImage.isValid() ? static_cast<std::size_t> (chromeImage.getWidth())
+                                               * static_cast<std::size_t> (chromeImage.getHeight()) * 4
+                                         : 0;
+        }
         void paint (juce::Graphics&) override;
+        void visibilityChanged() override;
         void mouseDown (const juce::MouseEvent&) override;
         void mouseDrag (const juce::MouseEvent&) override;
         bool keyPressed (const juce::KeyPress&) override;
@@ -67,6 +78,8 @@ namespace hypha
 
         // Structure that only changes with size, device scale, context, VIEW, pairing and data
         // validity is rendered once into this image; every frame repaints only observations.
+        // While the size changes between paints (a corner drag, a Capture layout) the structure
+        // is drawn directly and the image is kept for the size it was built at.
         struct ChromeKey
         {
             int width = 0;
@@ -81,6 +94,8 @@ namespace hypha
         static constexpr std::size_t chromeByteBudget = 8 * 1024 * 1024;
         juce::Image chromeImage;
         ChromeKey chromeKey;
+        int paintedWidth = 0;
+        int paintedHeight = 0;
 
         static juce::Rectangle<int> rectangleOf (attack_ui::Box box) noexcept
         {
@@ -89,11 +104,9 @@ namespace hypha
         const KirinAttackPairEvent* selectedPairEvent() const noexcept;
         const KirinAttackDetail* selectedPostDetail() const noexcept;
         const KirinAttackDetail* selectedPreDetail() const noexcept;
+        const attack_lanes::Hit* visibleSelection() const noexcept;
         attack_ui::Layout layout() const noexcept;
-        juce::Rectangle<int> plotColumn (attack_ui::Box row) const noexcept;
-        juce::Rectangle<int> historyPlotBounds() const noexcept;
-        juce::Rectangle<int> axisPlotBounds() const noexcept;
-        bool selectsAt (juce::Point<int>) const noexcept;
+        bool selectsAt (const attack_ui::Layout&, juce::Point<int>) const noexcept;
         int viewControlWidth() const;
         int statusControlWidth() const;
         void selectNearestEventAtX (int x) noexcept;
@@ -106,8 +119,9 @@ namespace hypha
         void drawHistoryChrome (juce::Graphics&, juce::Rectangle<int> plot);
         void paintHeaderState (juce::Graphics&, const attack_ui::Layout&);
         void paintHistory (juce::Graphics&, juce::Rectangle<int> plot);
-        void paintAxis (juce::Graphics&, juce::Rectangle<int> axis);
-        void paintSelection (juce::Graphics&, const attack_ui::Layout&);
+        void paintAxis (juce::Graphics&, const attack_ui::Layout&);
+        void paintSelection (juce::Graphics&, const attack_ui::Layout&, const attack_lanes::Hit*);
+        juce::String timeMode() const;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AttackComponent)
     };

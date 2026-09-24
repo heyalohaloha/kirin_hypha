@@ -31,7 +31,7 @@ enum class Reason : std::uint8_t
     missing,       // detail not delivered yet, or a non-finite descriptor
     noMatch,       // PRE-only, POST-only or ambiguous common event
     onsetDiffers,  // PRE and POST onsets differ, so their windows are different audio
-    afterSilence,  // TRANSIENT context below the HISTORY floor
+    quietContext,  // TRANSIENT context below the HISTORY floor: silence or near-silence
     pairOnly,      // SHARPNESS per hit is shown only as an exact PRE/POST difference
 };
 
@@ -161,7 +161,9 @@ inline Cell measured (float value) noexcept
     return std::isfinite (value) ? Cell { value, Reason::value } : Cell {};
 }
 
-inline bool silentContext (const Side& side) noexcept
+// Below -72 dBFS the context is under the HISTORY floor, so the contrast would mostly describe
+// the quiet gap rather than the hit.
+inline bool belowFloor (const Side& side) noexcept
 {
     return ! std::isfinite (side.contextDb) || side.contextDb < attack_ui::absoluteFloorDb;
 }
@@ -180,8 +182,8 @@ inline void fillDelta (Hit& hit, std::uint8_t kind, bool preOffered, bool postOf
         const auto pre = hit.pre.values[index (lane)];
         const auto post = hit.post.values[index (lane)];
         auto& cell = hit.cells[index (lane)];
-        if (lane == Lane::transient && (silentContext (hit.pre) || silentContext (hit.post)))
-            cell = withheld (Reason::afterSilence);
+        if (lane == Lane::transient && (belowFloor (hit.pre) || belowFloor (hit.post)))
+            cell = withheld (Reason::quietContext);
         else
             cell = std::isfinite (pre) && std::isfinite (post) ? measured (post - pre) : Cell {};
     }
@@ -191,8 +193,8 @@ inline void fillAbsolute (Hit& hit) noexcept
 {
     for (const auto lane : lanes)
         hit.cells[index (lane)] = measured (hit.post.values[index (lane)]);
-    if (silentContext (hit.post))
-        hit.cells[index (Lane::transient)] = withheld (Reason::afterSilence);
+    if (belowFloor (hit.post))
+        hit.cells[index (Lane::transient)] = withheld (Reason::quietContext);
     hit.cells[index (Lane::sharpness)] = withheld (Reason::pairOnly);
 }
 
@@ -244,5 +246,15 @@ inline const Hit* find (const Model& model, std::int64_t sample) noexcept
         if (model.hits[item].sample == sample)
             return &model.hits[item];
     return nullptr;
+}
+
+// The hits on the six-second axis: exactly the columns the lanes draw.
+inline std::uint32_t visibleCount (const Model& model, std::int64_t latest,
+                                   std::uint32_t rate) noexcept
+{
+    std::uint32_t visible = 0;
+    for (std::uint32_t item = 0; item < model.count; ++item)
+        visible += attack_ui::eventIsVisible (model.hits[item].sample, latest, rate) ? 1u : 0u;
+    return visible;
 }
 }

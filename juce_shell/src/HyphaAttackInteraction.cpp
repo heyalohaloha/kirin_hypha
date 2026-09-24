@@ -14,10 +14,9 @@ AttackComponent::AttackComponent()
 }
 
 // HISTORY, the axis and every lane share one plot column; any point in it selects by time.
-bool AttackComponent::selectsAt (juce::Point<int> point) const noexcept
+bool AttackComponent::selectsAt (const attack_ui::Layout& shape, juce::Point<int> point) const noexcept
 {
-    const auto shape = layout();
-    const auto history = historyPlotBounds();
+    const auto history = rectangleOf (attack_ui::historyPlot (shape));
     if (history.isEmpty())
         return false;
     const auto bottom = shape.arrangement == attack_ui::Arrangement::lanes
@@ -36,7 +35,8 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
         repaint();
         return;
     }
-    const auto axis = axisPlotBounds();
+    const auto shape = layout();
+    const auto axis = rectangleOf (attack_ui::axisPlot (shape));
     if (axis.contains (event.getPosition()) && event.x > axis.getRight() - 40)
     {
         followLatest = true;
@@ -44,7 +44,7 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
         repaint();
         return;
     }
-    if (! selectsAt (event.getPosition()) || ! attack_ui::validTimeline (latest, rate))
+    if (! selectsAt (shape, event.getPosition()) || ! attack_ui::validTimeline (latest, rate))
         return;
     followLatest = false;
     selectNearestEventAtX (event.x);
@@ -53,7 +53,7 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
 
 void AttackComponent::mouseDrag (const juce::MouseEvent& event)
 {
-    if (! selectsAt (event.getPosition()) || ! attack_ui::validTimeline (latest, rate))
+    if (! selectsAt (layout(), event.getPosition()) || ! attack_ui::validTimeline (latest, rate))
         return;
     followLatest = false;
     selectNearestEventAtX (event.x);
@@ -62,7 +62,7 @@ void AttackComponent::mouseDrag (const juce::MouseEvent& event)
 
 void AttackComponent::selectNearestEventAtX (int x) noexcept
 {
-    const auto plot = historyPlotBounds();
+    const auto plot = rectangleOf (attack_ui::historyPlot (layout()));
     const auto first = latest - attack_ui::windowSamples (rate);
     const auto requested = first + static_cast<std::int64_t> (
         static_cast<long double> (x - plot.getX()) * attack_ui::windowSamples (rate)

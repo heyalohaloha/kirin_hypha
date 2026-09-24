@@ -52,8 +52,9 @@ TIME directly selects **HISTORY**, validated DRUM **ATTACK**, signed **SHARP**, 
 
 DRUM draws the six-second PRE/POST envelope above four per-hit lanes on the same time axis:
 **TRANSIENT**, **STRENGTH**, **CREST**, and **SHARPNESS**, each as POST − PRE. A hit whose PRE and
-POST onsets are not the same sample, or whose TRANSIENT would only measure preceding silence, shows
-the reason instead of a value. Without PRE, the lanes show POST values.
+POST onsets are not the same sample, or whose TRANSIENT follows a context below the −72 dBFS HISTORY
+floor, shows the reason instead of a value. Without PRE, the lanes show POST values; per-hit
+SHARPNESS appears only as a difference.
 
 ### FREQ — where the chain changed
 

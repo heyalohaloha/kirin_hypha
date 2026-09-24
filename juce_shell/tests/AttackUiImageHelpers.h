@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 
@@ -19,26 +20,25 @@ inline juce::Rectangle<int> rectangle (attack_ui::Box box)
     return { box.x, box.y, box.width, box.height };
 }
 
-// Mirrors AttackComponent::plotColumn: every row shares one horizontal plot column.
-inline juce::Rectangle<int> plotColumn (const attack_ui::Layout& layout, attack_ui::Box row)
+// Geometry comes from the same attack_ui cells the painters use; tests never repeat an inset.
+inline juce::Rectangle<int> columnRect (const attack_ui::Layout& layout, attack_ui::Box row)
 {
-    auto column = rectangle (row);
-    if (layout.arrangement == attack_ui::Arrangement::lanes)
-    {
-        column.removeFromLeft (layout.labelWidth);
-        column.removeFromRight (layout.readoutWidth);
-    }
-    return column.reduced (1, 0);
+    return rectangle (attack_ui::plotColumn (layout, row));
 }
 
-inline juce::Rectangle<int> historyPlot (const attack_ui::Layout& layout)
+inline juce::Rectangle<int> historyRect (const attack_ui::Layout& layout)
 {
-    return plotColumn (layout, layout.history).reduced (0, 1);
+    return rectangle (attack_ui::historyPlot (layout));
 }
 
-inline juce::Rectangle<int> historyReadout (const attack_ui::Layout& layout)
+inline juce::Rectangle<int> historyReadoutRect (const attack_ui::Layout& layout)
 {
-    return rectangle (layout.history).removeFromRight (layout.readoutWidth);
+    return rectangle (attack_ui::readoutCell (layout, layout.history));
+}
+
+inline juce::Rectangle<int> laneRect (const attack_ui::Layout& layout, std::size_t lane)
+{
+    return rectangle (attack_ui::lanePlot (layout, lane));
 }
 
 inline juce::Rectangle<int> lanesArea (const attack_ui::Layout& layout)
@@ -86,10 +86,12 @@ inline int countColour (const juce::Image& image, juce::Rectangle<int> requested
     return count;
 }
 
-inline juce::Image renderAttack (juce::Component& component)
+inline juce::Image renderAttack (juce::Component& component, float dpi = 1.0f)
 {
-    juce::Image image (juce::Image::ARGB, component.getWidth(), component.getHeight(), true);
+    juce::Image image (juce::Image::ARGB, static_cast<int> (std::ceil (component.getWidth() * dpi)),
+                       static_cast<int> (std::ceil (component.getHeight() * dpi)), true);
     juce::Graphics graphics (image);
+    graphics.addTransform (juce::AffineTransform::scale (dpi));
     component.paintEntireComponent (graphics, true);
     return image;
 }

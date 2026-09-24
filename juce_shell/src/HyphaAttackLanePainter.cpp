@@ -26,9 +26,12 @@ int lineHeight (const presentation::Context& context, TextRole role)
 
 juce::String shortReason (const juce::String& reason)
 {
-    return reason == "ONSET DIFFERS" ? juce::String ("ONSET")
-         : reason == "AFTER SILENCE" ? juce::String ("SILENCE")
-         : reason.upToFirstOccurrenceOf (" ", false, false);
+    return reason.upToFirstOccurrenceOf (" ", false, false); // ONSET, QUIET, PAIR, PRE, POST, NO
+}
+
+juce::Rectangle<int> rectangleOf (attack_ui::Box box)
+{
+    return { box.x, box.y, box.width, box.height };
 }
 
 float unitHash (std::int64_t seed, int step) noexcept
@@ -43,7 +46,8 @@ float unitHash (std::int64_t seed, int step) noexcept
 
 juce::Rectangle<float> lanePlotInner (juce::Rectangle<int> plot)
 {
-    return plot.toFloat().reduced (1.0f, 3.0f);
+    return plot.toFloat().reduced (static_cast<float> (attack_ui::laneInsetX),
+                                   static_cast<float> (attack_ui::laneInsetY));
 }
 
 float baseFraction (attack_lanes::Scale scale) noexcept
@@ -138,7 +142,7 @@ juce::String reasonText (const attack_lanes::Hit& hit, Reason reason)
         case Reason::value:        return {};
         case Reason::missing:      return "--";
         case Reason::onsetDiffers: return "ONSET DIFFERS";
-        case Reason::afterSilence: return "AFTER SILENCE";
+        case Reason::quietContext: return "QUIET BEFORE";
         case Reason::pairOnly:     return "PAIR ONLY";
         case Reason::noMatch:
             return hit.pre.available && ! hit.post.available ? "PRE ONLY"
@@ -219,7 +223,7 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
                 continue;
             const auto centreX = static_cast<float> (plot.getX() + x) + 0.5f;
             const auto& cell = hit.cells[index (lane)];
-            const bool selected = hit.sample == frame.selected;
+            const bool selected = &hit == frame.selected;
             // Recency: the newest hits burn brightest, as they do on the time axis itself.
             const auto age = window > 0.0f
                 ? juce::jlimit (0.0f, 1.0f, static_cast<float> (frame.latest - hit.sample) / window) : 0.0f;
@@ -274,8 +278,8 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
 
     if (readout.isEmpty())
         return;
-    auto cell = readout.reduced (6, 1);
-    const auto* hit = attack_lanes::find (frame.model, frame.selected);
+    const auto cell = readout.reduced (6, 1);
+    const auto* hit = frame.selected;
     paintAccent (g, readout, colour, hit != nullptr ? 0.9f : 0.35f);
     if (hit == nullptr)
     {
@@ -284,53 +288,33 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
                      juce::Justification::centredLeft);
         return;
     }
+    // The readout states the lane's own quantity only: POST - PRE when paired, the POST value
+    // otherwise. Per-hit PRE and POST operands are not shown (SHARPNESS per hit is a difference
+    // only until its aperture follows the onset).
     const auto& value = hit->cells[index (lane)];
-    const auto primaryHeight = lineHeight (context, TextRole::secondaryValue);
-    const auto secondaryHeight = lineHeight (context, TextRole::legend);
-    const auto pre = hit->pre.values[index (lane)];
-    const auto post = hit->post.values[index (lane)];
-    const bool sides = delta && std::isfinite (pre) && std::isfinite (post)
-                    && value.reason != Reason::afterSilence;
-    const bool twoLines = sides && cell.getHeight() >= primaryHeight + secondaryHeight;
-    auto primary = twoLines ? cell.removeFromTop (cell.getHeight() - secondaryHeight) : cell;
     if (value.reason == Reason::value)
     {
         g.setColour (COL_OBSERVATORY_VALUE);
         drawFitting (g, { valueText (lane, value.value, delta, true),
                           valueText (lane, value.value, delta, false) },
-                     primary, context, TextRole::secondaryValue,
-                     twoLines ? juce::Justification::bottomLeft
-                              : juce::Justification::centredLeft);
+                     cell, context, TextRole::secondaryValue, juce::Justification::centredLeft);
+        return;
     }
-    else
-    {
-        const auto reason = reasonText (*hit, value.reason);
-        g.setColour (COL_TEXT_SECONDARY);
-        drawFitting (g, { reason, shortReason (reason), "--" }, primary, context,
-                     TextRole::readout, twoLines ? juce::Justification::bottomLeft
-                                                 : juce::Justification::centredLeft,
-                     attack_stage::captionTracking (context));
-    }
-    if (twoLines)
-    {
-        g.setColour (COL_TEXT_TERTIARY);
-        drawFitting (g, { "PRE " + valueText (lane, pre, false, false)
-                              + "  POST " + valueText (lane, post, false, false) },
-                     cell, context, TextRole::legend, juce::Justification::topLeft);
-    }
+    const auto reason = reasonText (*hit, value.reason);
+    g.setColour (COL_TEXT_SECONDARY);
+    drawFitting (g, { reason, shortReason (reason), "--" }, cell, context, TextRole::readout,
+                 juce::Justification::centredLeft, attack_stage::captionTracking (context));
 }
 
-void paintLine (juce::Graphics& g, juce::Rectangle<int> area, const Frame& frame)
+void paintLine (juce::Graphics& g, const attack_ui::Layout& layout, const Frame& frame)
 {
-    area = area.reduced (4, 0);
-    const auto* hit = attack_lanes::find (frame.model, frame.selected);
-    const auto segment = area.getWidth() / static_cast<int> (attack_ui::laneCount);
+    const auto* hit = frame.selected;
     for (const auto lane : attack_lanes::lanes)
     {
-        auto cell = lane == Lane::sharpness ? area : area.removeFromLeft (segment);
+        auto cell = rectangleOf (attack_ui::lineCell (layout, index (lane)));
         const bool measured = hit != nullptr && hit->cells[index (lane)].reason == Reason::value;
         paintAccent (g, cell, colourFor (lane), measured ? 0.9f : 0.35f);
-        cell.removeFromLeft (5);
+        cell.removeFromLeft (attack_ui::lineAccentWidth);
         const auto code = codeFor (lane);
         if (measured)
         {
@@ -373,7 +357,7 @@ void paintHistoryLabel (juce::Graphics& g, juce::Rectangle<int> area,
 void paintSelectedTime (juce::Graphics& g, juce::Rectangle<int> area, const Frame& frame)
 {
     auto cell = area.reduced (6, 2);
-    const auto* hit = attack_lanes::find (frame.model, frame.selected);
+    const auto* hit = frame.selected;
     const auto titleHeight = lineHeight (frame.context, TextRole::legend);
     const auto valueHeight = lineHeight (frame.context, TextRole::secondaryValue);
     if (cell.getHeight() < titleHeight + valueHeight)

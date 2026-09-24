@@ -183,38 +183,24 @@ void AttackComponent::clearSnapshot()
     currentGeneration = 0;
     selectedEventSample = -1;
     followLatest = true;
+    // Leaving the DRUM page ends this view's data; its structure image goes with it.
+    releaseCachedChrome();
+    paintedWidth = paintedHeight = 0;
     repaint();
+}
+
+void AttackComponent::visibilityChanged()
+{
+    if (! isVisible())
+    {
+        releaseCachedChrome();
+        paintedWidth = paintedHeight = 0;
+    }
 }
 
 attack_ui::Layout AttackComponent::layout() const noexcept
 {
     return attack_ui::layoutFor (getWidth(), getHeight(), presentationContext);
-}
-
-// Every row shares one horizontal plot column, so a hit has the same x in HISTORY and each lane.
-juce::Rectangle<int> AttackComponent::plotColumn (attack_ui::Box row) const noexcept
-{
-    const auto shape = layout();
-    auto column = rectangleOf (row);
-    if (shape.arrangement == attack_ui::Arrangement::lanes)
-    {
-        column.removeFromLeft (shape.labelWidth);
-        column.removeFromRight (shape.readoutWidth);
-    }
-    return column.reduced (1, 0);
-}
-
-juce::Rectangle<int> AttackComponent::historyPlotBounds() const noexcept
-{
-    const auto shape = layout();
-    return shape.history.empty() ? juce::Rectangle<int> {}
-                                 : plotColumn (shape.history).reduced (0, 1);
-}
-
-juce::Rectangle<int> AttackComponent::axisPlotBounds() const noexcept
-{
-    const auto shape = layout();
-    return shape.axis.empty() ? juce::Rectangle<int> {} : plotColumn (shape.axis);
 }
 
 int AttackComponent::viewControlWidth() const
@@ -265,6 +251,19 @@ const KirinAttackDetail* AttackComponent::selectedPreDetail() const noexcept
     return nullptr;
 }
 
+// Values follow the hypha: a LOCK that has scrolled out of the six seconds keeps its lock, but
+// nothing on screen describes a hit that is no longer drawn.
+const attack_lanes::Hit* AttackComponent::visibleSelection() const noexcept
+{
+    const auto* hit = attack_lanes::find (laneModel, selectedEventSample);
+    return hit != nullptr && attack_ui::eventIsVisible (hit->sample, latest, rate) ? hit : nullptr;
+}
+
+juce::String AttackComponent::timeMode() const
+{
+    return followLatest ? (liveSignalActive ? "LIVE" : "HOLD") : "LOCK";
+}
+
 // Observations only: the cached chrome already holds the stage, grid, rows and labels.
 void AttackComponent::paintHistory (juce::Graphics& g, juce::Rectangle<int> plot)
 {
@@ -300,30 +299,19 @@ void AttackComponent::paintHistory (juce::Graphics& g, juce::Rectangle<int> plot
     }
 }
 
-void AttackComponent::paintAxis (juce::Graphics& g, juce::Rectangle<int> axis)
+// The count is the hit columns the lanes draw; the mode is the same LIVE / HOLD / LOCK fact the
+// header states, so a body too narrow for the header state still shows it here.
+void AttackComponent::paintAxis (juce::Graphics& g, const attack_ui::Layout& shape)
 {
-    std::uint32_t visibleCount = 0;
-    const auto countVisible = [&] (std::int64_t sample)
-    {
-        if (attack_ui::eventIsVisible (sample, latest, rate))
-            ++visibleCount;
-    };
-    if (pairedObservation())
-        for (std::uint32_t index = 0; index < juce::jmin (pairEventBatch.count,
-                 static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY)); ++index)
-            countVisible (pairEventBatch.events[index].event_sample);
-    else
-        for (std::uint32_t index = 0; index < juce::jmin (eventBatch.count,
-                 static_cast<std::uint32_t> (KIRIN_ATTACK_EVENT_BATCH_CAPACITY)); ++index)
-            countVisible (eventBatch.events[index].event_sample);
-
-    const auto labelWidth = juce::jmin (35, axis.getWidth() / 5);
+    const auto visibleCount = attack_lanes::visibleCount (laneModel, latest, rate);
+    auto axis = rectangleOf (attack_ui::axisPlot (shape));
+    const auto labelWidth = attack_ui::axisLabelWidth (shape);
     axis.removeFromLeft (labelWidth); // "-6 s" and the rail are cached chrome.
     g.setFont (monoFont (presentationContext, typography::TextRole::axis, visualization));
     g.setColour (followLatest ? selectionColour : COL_TEXT_TERTIARY);
     g.drawText ("NOW", axis.removeFromRight (labelWidth), juce::Justification::centredRight);
     g.setColour (COL_NORMAL);
-    const auto mode = followLatest ? juce::String ("LIVE") : juce::String ("LOCK");
+    const auto mode = timeMode();
     const auto noun = visibleCount == 1 ? juce::String (" EVENT") : juce::String (" EVENTS");
     attack_lane_painter::drawFitting (g, { juce::String (visibleCount) + noun + "  /  " + mode,
                                            juce::String (visibleCount) + " / " + mode },
@@ -331,10 +319,12 @@ void AttackComponent::paintAxis (juce::Graphics& g, juce::Rectangle<int> axis)
                                       juce::Justification::centred);
 }
 
-void AttackComponent::paintSelection (juce::Graphics& g, const attack_ui::Layout& shape)
+void AttackComponent::paintSelection (juce::Graphics& g, const attack_ui::Layout& shape,
+                                      const attack_lanes::Hit* selected)
 {
-    const auto history = historyPlotBounds();
-    const auto x = attack_ui::eventX (selectedEventSample, latest, rate, history.getWidth());
+    const auto history = rectangleOf (attack_ui::historyPlot (shape));
+    const auto x = selected != nullptr
+        ? attack_ui::eventX (selected->sample, latest, rate, history.getWidth()) : -1;
     if (history.isEmpty() || x < 0)
         return;
     const bool lanes = shape.arrangement == attack_ui::Arrangement::lanes;
@@ -342,7 +332,7 @@ void AttackComponent::paintSelection (juce::Graphics& g, const attack_ui::Layout
     attack_lane_painter::paintHypha (
         g, static_cast<float> (history.getX() + x) + 0.5f, static_cast<float> (history.getY() + 2),
         static_cast<float> (bottom), static_cast<float> (history.getCentreY()),
-        selectedEventSample);
+        selected->sample);
 }
 
 void AttackComponent::paint (juce::Graphics& g)
@@ -366,30 +356,32 @@ void AttackComponent::paint (juce::Graphics& g)
                     juce::Justification::centred);
         return;
     }
-    const attack_lane_painter::Frame frame { laneModel, latest, rate, selectedEventSample,
-                                             presentationContext };
-    const auto history = historyPlotBounds();
+    const auto* selected = visibleSelection();
+    const attack_lane_painter::Frame frame { laneModel, latest, rate, selected, presentationContext };
+    const auto history = rectangleOf (attack_ui::historyPlot (shape));
     if (! history.isEmpty())
         paintHistory (g, history);
     if (shape.arrangement == attack_ui::Arrangement::lanes)
     {
-        const auto readout = rectangleOf (shape.history).removeFromRight (shape.readoutWidth);
         if (shape.loupe)
-            attack_loupe::paint (g, readout.reduced (2, 1), selectedPreDetail(),
-                                 selectedPostDetail(), presentationContext);
+            attack_loupe::paint (g, rectangleOf (attack_ui::loupeArea (shape)),
+                                 selected != nullptr ? selectedPreDetail() : nullptr,
+                                 selected != nullptr ? selectedPostDetail() : nullptr,
+                                 presentationContext);
         else
-            attack_lane_painter::paintSelectedTime (g, readout, frame);
+            attack_lane_painter::paintSelectedTime (
+                g, rectangleOf (attack_ui::readoutCell (shape, shape.history)), frame);
         for (std::size_t index = 0; index < attack_ui::laneCount; ++index)
             attack_lane_painter::paintLaneValues (
-                g, attack_lanes::lanes[index], plotColumn (shape.lanes[index]).reduced (0, 1),
-                rectangleOf (shape.lanes[index]).removeFromRight (shape.readoutWidth), frame);
+                g, attack_lanes::lanes[index], rectangleOf (attack_ui::lanePlot (shape, index)),
+                rectangleOf (attack_ui::readoutCell (shape, shape.lanes[index])), frame);
     }
     else
     {
-        attack_lane_painter::paintLine (g, rectangleOf (shape.line), frame);
+        attack_lane_painter::paintLine (g, shape, frame);
     }
-    paintSelection (g, shape);
+    paintSelection (g, shape, selected);
     if (! shape.axis.empty())
-        paintAxis (g, axisPlotBounds());
+        paintAxis (g, shape);
 }
 }

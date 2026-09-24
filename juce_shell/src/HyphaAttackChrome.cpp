@@ -38,15 +38,22 @@ void AttackComponent::paintChrome (juce::Graphics& g, const attack_ui::Layout& s
         && pixelWidth > 0 && pixelHeight > 0
         && static_cast<std::size_t> (pixelWidth) * static_cast<std::size_t> (pixelHeight) * 4
                <= chromeByteBudget;
-    if (! cacheable)
+    const ChromeKey key { getWidth(), getHeight(), scale, presentationContext, overlayMode,
+                          pairedObservation(), dormant };
+    // A size that differs from the previous paint is a corner drag or a Capture layout: building
+    // an image for every step costs more than drawing once. The image of the last held size is
+    // kept, so the editor size is served from it again after a Capture.
+    const bool sizeHeld = paintedWidth == 0
+                       || (paintedWidth == getWidth() && paintedHeight == getHeight());
+    paintedWidth = getWidth();
+    paintedHeight = getHeight();
+    const bool cached = chromeImage.isValid() && key == chromeKey;
+    if (! cached && (! cacheable || ! sizeHeld))
     {
-        chromeImage = {};
         drawChrome (g, shape, dormant);
         return;
     }
-    const ChromeKey key { getWidth(), getHeight(), scale, presentationContext, overlayMode,
-                          pairedObservation(), dormant };
-    if (! chromeImage.isValid() || ! (key == chromeKey))
+    if (! cached)
     {
         juce::Image next (juce::Image::ARGB, pixelWidth, pixelHeight, true);
         {
@@ -73,27 +80,26 @@ void AttackComponent::drawChrome (juce::Graphics& g, const attack_ui::Layout& sh
     drawHeaderChrome (g, shape);
     if (dormant || shape.arrangement == attack_ui::Arrangement::header)
         return;
-    const auto history = historyPlotBounds();
+    const auto history = rectangleOf (attack_ui::historyPlot (shape));
     if (! history.isEmpty())
         drawHistoryChrome (g, history);
     if (shape.arrangement == attack_ui::Arrangement::lanes)
     {
-        auto historyRow = rectangleOf (shape.history);
         attack_lane_painter::paintHistoryLabel (
-            g, historyRow.removeFromLeft (shape.labelWidth), presentationContext);
+            g, rectangleOf (attack_ui::labelCell (shape, shape.history)), presentationContext);
         if (shape.loupe)
-            attack_loupe::paintPanel (g, historyRow.removeFromRight (shape.readoutWidth).reduced (2, 1));
+            attack_loupe::paintPanel (g, rectangleOf (attack_ui::loupeArea (shape)));
         for (std::size_t index = 0; index < attack_ui::laneCount; ++index)
             attack_lane_painter::paintLaneChrome (
                 g, attack_lanes::lanes[index],
-                rectangleOf (shape.lanes[index]).removeFromLeft (shape.labelWidth),
-                plotColumn (shape.lanes[index]).reduced (0, 1), pairedObservation(),
+                rectangleOf (attack_ui::labelCell (shape, shape.lanes[index])),
+                rectangleOf (attack_ui::lanePlot (shape, index)), pairedObservation(),
                 presentationContext);
     }
     if (! shape.axis.empty())
     {
-        auto axis = axisPlotBounds();
-        const auto labelWidth = juce::jmin (35, axis.getWidth() / 5);
+        auto axis = rectangleOf (attack_ui::axisPlot (shape));
+        const auto labelWidth = attack_ui::axisLabelWidth (shape);
         g.setColour (waveformColour.withAlpha (0.28f));
         g.drawHorizontalLine (axis.getCentreY() - 2, static_cast<float> (axis.getX() + labelWidth),
                               static_cast<float> (axis.getRight() - labelWidth));
@@ -197,7 +203,8 @@ void AttackComponent::drawHistoryChrome (juce::Graphics& g, juce::Rectangle<int>
                                         static_cast<float> (plot.getHeight() - 4)));
 }
 
-// The only live header fact: pairing and whether time follows LIVE, is held, or is locked.
+// The only live header fact: pairing and whether time follows LIVE, is held, or is locked. Below
+// 470 px the legend needs the row; the axis row states the same LIVE / HOLD / LOCK there.
 void AttackComponent::paintHeaderState (juce::Graphics& g, const attack_ui::Layout& shape)
 {
     if (getWidth() < 470)
@@ -205,8 +212,7 @@ void AttackComponent::paintHeaderState (juce::Graphics& g, const attack_ui::Layo
     auto header = rectangleOf (shape.header);
     header.removeFromTop (attack_ui::titleRowHeight (presentationContext));
     const auto state = header.removeFromRight (statusControlWidth());
-    const auto mode = followLatest ? (liveSignalActive ? "LIVE" : "HOLD") : "LOCK";
-    const auto text = juce::String (pairedObservation() ? "PAIR / " : "POST / ") + mode;
+    const auto text = juce::String (pairedObservation() ? "PAIR / " : "POST / ") + timeMode();
     const auto font = monoFont (presentationContext, typography::TextRole::status, visualization);
     g.setColour (COL_TEXT_SECONDARY);
     g.setFont (font);

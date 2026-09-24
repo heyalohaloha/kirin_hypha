@@ -14,15 +14,16 @@ inline bool verifyThinSelection (const juce::Image& image, const attack_ui::Layo
     if (layout.history.empty())
         return true;
     const auto target = juce::Colour (attack_ui::selectionColour);
-    const auto history = historyPlot (layout);
+    const auto history = historyRect (layout);
     const auto bottom = layout.arrangement == attack_ui::Arrangement::lanes
         ? layout.lanes.back().bottom() : layout.axis.bottom();
     for (int y = history.getY(); y < bottom; ++y)
     {
-        // The axis row is text; its NOW label uses the selection colour while following LIVE.
+        juce::Rectangle<int> row { history.getX(), y, history.getWidth(), 1 };
+        // NOW is text in the selection colour while following LIVE; only its label is exempt.
         if (y >= layout.axis.y && y < layout.axis.bottom())
-            continue;
-        if (countColour (image, { history.getX(), y, history.getWidth(), 1 }, target, 40) > 6)
+            row.removeFromRight (attack_ui::axisLabelWidth (layout));
+        if (countColour (image, row, target, 40) > 6)
         {
             std::cerr << "selection wider than a hypha at y=" << y << '\n';
             return false;

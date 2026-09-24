@@ -217,16 +217,18 @@ void verifyPreservedSurfaceText()
             for (const auto* value : { "+12.3 dB", "-10.0 dBFS", "-0.12 acum" })
                 KIRIN_TYPOGRAPHY_REQUIRE (required (typography::TextRole::secondaryValue, value)
                                           <= drum.readoutWidth - 12);
-            for (const auto* reason : { "AFTER SILENCE", "ONSET DIFFERS", "POST ONLY" })
+            for (const auto* reason : { "QUIET BEFORE", "ONSET DIFFERS", "POST ONLY" })
                 KIRIN_TYPOGRAPHY_REQUIRE (required (typography::TextRole::readout, reason,
                                                     attack_stage::captionTracking (context))
                                           <= drum.readoutWidth - 12);
         }
         else
         {
-            const auto segment = (drum.line.width - 8) / static_cast<int> (attack_ui::laneCount);
-            KIRIN_TYPOGRAPHY_REQUIRE (required (typography::TextRole::readout, "TR +12.3")
-                                      <= segment);
+            // Each one-row cell is led by its lane accent; the text receives the rest.
+            for (std::size_t lane = 0; lane < attack_ui::laneCount; ++lane)
+                KIRIN_TYPOGRAPHY_REQUIRE (required (typography::TextRole::readout, "TR +12.3")
+                                          <= attack_ui::lineCell (drum, lane).width
+                                               - attack_ui::lineAccentWidth);
         }
         KIRIN_TYPOGRAPHY_REQUIRE (
             attack_ui::headerHeightFor (context)

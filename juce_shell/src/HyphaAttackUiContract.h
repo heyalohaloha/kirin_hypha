@@ -212,8 +212,111 @@ namespace hypha::attack_ui
         return layout;
     }
 
+    // Cells inside a layout. Painters, hit testing and tests all derive geometry from these, so
+    // no caller repeats an inset. Rectangle arithmetic matches juce::Rectangle.
+    constexpr Box reduced (Box box, int dx, int dy) noexcept
+    {
+        const auto width = box.width - 2 * dx;
+        const auto height = box.height - 2 * dy;
+        return { box.x + dx, box.y + dy, width > 0 ? width : 0, height > 0 ? height : 0 };
+    }
+
+    constexpr Box labelCell (const Layout& layout, Box row) noexcept
+    {
+        if (layout.arrangement != Arrangement::lanes)
+            return {};
+        return { row.x, row.y, layout.labelWidth < row.width ? layout.labelWidth : row.width,
+                 row.height };
+    }
+
+    constexpr Box readoutCell (const Layout& layout, Box row) noexcept
+    {
+        if (layout.arrangement != Arrangement::lanes)
+            return {};
+        const auto width = layout.readoutWidth < row.width ? layout.readoutWidth : row.width;
+        return { row.right() - width, row.y, width, row.height };
+    }
+
+    // HISTORY, the axis and every lane share one horizontal plot column, so a hit has the same x
+    // in each of them.
+    constexpr Box plotColumn (const Layout& layout, Box row) noexcept
+    {
+        if (layout.arrangement == Arrangement::lanes)
+        {
+            const auto label = labelCell (layout, row).width;
+            row.x += label;
+            row.width -= label;
+            row.width -= layout.readoutWidth < row.width ? layout.readoutWidth : row.width;
+        }
+        return reduced (row, 1, 0);
+    }
+
+    constexpr Box historyPlot (const Layout& layout) noexcept
+    {
+        return layout.history.empty() ? Box {} : reduced (plotColumn (layout, layout.history), 0, 1);
+    }
+
+    constexpr Box axisPlot (const Layout& layout) noexcept
+    {
+        return layout.axis.empty() ? Box {} : plotColumn (layout, layout.axis);
+    }
+
+    constexpr Box lanePlot (const Layout& layout, std::size_t lane) noexcept
+    {
+        return layout.arrangement == Arrangement::lanes && lane < laneCount
+            ? reduced (plotColumn (layout, layout.lanes[lane]), 0, 1) : Box {};
+    }
+
+    constexpr Box loupeArea (const Layout& layout) noexcept
+    {
+        return layout.loupe ? reduced (readoutCell (layout, layout.history), 2, 1) : Box {};
+    }
+
+    // "-6 s" sits at the left end of the axis plot and NOW at its right end.
+    constexpr int axisLabelWidth (const Layout& layout) noexcept
+    {
+        const auto fifth = axisPlot (layout).width / 5;
+        return fifth < 35 ? fifth : 35;
+    }
+
+    // Lane values stay inside the lane stage, so a cap never touches its edge.
+    constexpr int laneInsetX = 1;
+    constexpr int laneInsetY = 3;
+
+    // The one-row readout: four equal cells (SHARPNESS takes the remainder), each led by a short
+    // lane-colour accent before its text.
+    constexpr int lineInset = 4;
+    constexpr int lineAccentWidth = 5;
+
+    constexpr Box lineCell (const Layout& layout, std::size_t lane) noexcept
+    {
+        const auto area = reduced (layout.line, lineInset, 0);
+        const auto segment = area.width / static_cast<int> (laneCount);
+        const auto x = area.x + segment * static_cast<int> (lane);
+        return { x, area.y, lane + 1 == laneCount ? area.right() - x : segment, area.height };
+    }
+
+    constexpr bool sharesOnePlotColumn (const Layout& layout) noexcept
+    {
+        const auto history = historyPlot (layout);
+        const auto axis = axisPlot (layout);
+        if (history.empty() || axis.x != history.x || axis.width != history.width)
+            return false;
+        if (layout.arrangement == Arrangement::lanes)
+            for (std::size_t lane = 0; lane < laneCount; ++lane)
+                if (lanePlot (layout, lane).x != history.x
+                    || lanePlot (layout, lane).width != history.width)
+                    return false;
+        return ! layout.loupe || loupeArea (layout).x >= history.right();
+    }
+
     // The five editor bodies (POST, Guide absent, TIME navigation removed) keep the approved
     // arrangement: one selected-hit row at 100% and 125%, lanes from 150%, a loupe only at 300%.
+    static_assert (sharesOnePlotColumn (layoutFor (292, 94, presentation::forEditor (300, 200))));
+    static_assert (sharesOnePlotColumn (layoutFor (363, 128, presentation::forEditor (375, 250))));
+    static_assert (sharesOnePlotColumn (layoutFor (434, 164, presentation::forEditor (450, 300))));
+    static_assert (sharesOnePlotColumn (layoutFor (580, 248, presentation::forEditor (600, 400))));
+    static_assert (sharesOnePlotColumn (layoutFor (872, 412, presentation::forEditor (900, 600))));
     static_assert (layoutFor (292, 94, presentation::forEditor (300, 200)).arrangement
                    == Arrangement::line);
     static_assert (! layoutFor (292, 94, presentation::forEditor (300, 200)).history.empty());

@@ -10,6 +10,8 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <utility>
+#include <vector>
 
 namespace hypha::attack_ui_test
 {
@@ -46,10 +48,10 @@ struct LaneFixture
     KirinAttackStats stats {};
     static constexpr std::int64_t latest = 288'000;
 
-    bool submit (AttackComponent& component) const
+    bool submit (AttackComponent& component, std::int64_t at = latest) const
     {
         return component.setSnapshot (*events, *waveform, *post, *waveform, *pre, *pairs,
-                                      latest, 48'000, 7, stats);
+                                      at, 48'000, 7, stats);
     }
 };
 
@@ -128,11 +130,14 @@ inline bool verifyLaneModel()
             return false;
     if (! hits[1].selectable || hits[4].selectable
         || attack_lane_painter::reasonText (hits[4], Reason::noMatch) != "PRE ONLY"
-        || reason (2, Lane::transient) != Reason::afterSilence
+        || reason (2, Lane::transient) != Reason::quietContext
         || reason (2, Lane::strength) != Reason::value
         || reason (3, Lane::sharpness) != Reason::missing
         || reason (3, Lane::crest) != Reason::missing
         || reason (3, Lane::transient) != Reason::value)
+        return false;
+    // The count is the hits on the six-second axis, the same columns the lanes draw.
+    if (visibleCount (*model, 288'000, 48'000) != 5 || visibleCount (*model, 384'000, 48'000) != 4)
         return false;
 
     auto late = std::make_unique<KirinAttackDetailBatch> (post);
@@ -142,13 +147,14 @@ inline bool verifyLaneModel()
         return false;
 
     pairs.status = KIRIN_SPECTRUM_NO_PAIR;
-    post.details[2].context_rms_dbfs = -120.0f;
+    post.details[2].context_rms_dbfs = -80.0f; // quiet room tone, not digital silence
     post.details[4].generation = 6; // stale POST detail never becomes a hit
     build (*model, pairs, post, pre, 7, 48'000);
     return ! model->delta && model->count == 4
         && near (value (0, Lane::transient), 11.0f) && near (value (0, Lane::strength), -10.0f)
         && reason (0, Lane::sharpness) == Reason::pairOnly
-        && reason (2, Lane::transient) == Reason::afterSilence
+        && reason (2, Lane::transient) == Reason::quietContext
+        && attack_lane_painter::reasonText (hits[2], Reason::quietContext) == "QUIET BEFORE"
         && attack_lane_painter::valueText (Lane::strength, -10.0f, false, true) == "-10.0 dBFS"
         && attack_lane_painter::valueText (Lane::sharpness, -0.004f, true, true) == "+0.00 acum";
 }
@@ -168,9 +174,14 @@ inline LaneScene laneScene (int width, int height, presentation::Context context
     return scene;
 }
 
-inline juce::Rectangle<int> lanePlot (const attack_ui::Layout& layout, std::size_t lane)
+// The DRUM body of one editor preset: POST, Guide absent, TIME navigation removed.
+inline LaneScene presetScene (const observatory::SizePreset& preset)
 {
-    return plotColumn (layout, layout.lanes[lane]).reduced (0, 1);
+    const auto shell = observatory::shellLayout (observatory::Role::post, preset,
+                                                 observatory::GuidePresence::absent);
+    return laneScene (shell.body.width,
+                      shell.body.height - observatory::timeNavigationHeight (preset.density),
+                      presentation::forEditor (preset.width, preset.height));
 }
 
 inline bool verifyLaneRendering()
@@ -195,8 +206,9 @@ inline bool verifyLaneRendering()
     const auto image = renderAttack (*scene.component);
     for (std::size_t lane = 0; lane < attack_ui::laneCount; ++lane)
     {
-        const auto plot = lanePlot (scene.layout, lane);
-        const auto inner = plot.toFloat().reduced (1.0f, 3.0f);
+        const auto plot = laneRect (scene.layout, lane);
+        const auto inner = plot.toFloat().reduced (static_cast<float> (attack_ui::laneInsetX),
+                                                   static_cast<float> (attack_ui::laneInsetY));
         const auto zeroY = juce::roundToInt (inner.getCentreY());
         const auto column = [&] (std::int64_t sample, bool above) {
             const auto x = plot.getX() + attack_ui::eventX (sample, LaneFixture::latest, 48'000,
@@ -233,7 +245,7 @@ inline bool verifyHistoryIsolation()
     }
     fixture.submit (*scene.component);
     const auto detailsChanged = renderAttack (*scene.component);
-    const auto history = historyPlot (scene.layout);
+    const auto history = historyRect (scene.layout);
     const auto lanes = lanesArea (scene.layout);
     if (differences (base, detailsChanged, history) != 0
         || differences (base, detailsChanged, lanes) < 40)
@@ -257,6 +269,13 @@ inline bool verifyPostOnlyLanes()
     if (scene.component->pairedObservation())
         return false;
     const auto base = renderAttack (*scene.component);
+    // An event whose detail has not arrived draws no lane column, so it is not counted either.
+    auto& pending = fixture.events->events[fixture.events->count++];
+    pending = fixture.events->events[0];
+    pending.event_sample = 264'000;
+    fixture.submit (*scene.component);
+    if (differences (base, renderAttack (*scene.component)) != 0)
+        return false;
     for (std::uint32_t index = 0; index < fixture.post->count; ++index)
         fixture.post->details[index].sharpness_acum += 1.5f;
     fixture.submit (*scene.component);
@@ -266,8 +285,55 @@ inline bool verifyPostOnlyLanes()
     fixture.submit (*scene.component);
     const auto stronger = renderAttack (*scene.component);
     return differences (base, sharper) == 0
-        && differences (sharper, stronger, lanePlot (scene.layout, 0)) > 0
+        && differences (sharper, stronger, laneRect (scene.layout, 0)) > 0
         && writePreviewTo ("KIRIN_ATTACK_UI_POST_ONLY_PREVIEW_PATH", stronger);
+}
+
+// Paired lanes and their readouts show POST - PRE only. Moving PRE and POST together leaves every
+// lane and one-row readout unchanged at each editor preset and Capture layout; for SHARPNESS,
+// which is a per-hit difference only, nothing on screen changes at all.
+inline bool verifyLanesShowDifferencesOnly()
+{
+    std::vector<LaneScene> scenes;
+    for (const auto& preset : observatory::sizePresets)
+        scenes.push_back (presetScene (preset));
+    for (const auto& [pixelWidth, pixelHeight] : { std::pair { 1200, 630 }, std::pair { 1080, 1080 } })
+    {
+        const auto width = juce::roundToInt (static_cast<float> (pixelWidth) / observatory::captureRenderScale);
+        const auto height = juce::roundToInt (static_cast<float> (pixelHeight) / observatory::captureRenderScale);
+        const auto body = observatory::shellLayout (observatory::Role::post,
+            { width, height, observatory::densityForWidth (width), "CAPTURE" },
+            observatory::GuidePresence::absent).body;
+        scenes.push_back (laneScene (body.width, body.height, presentation::forOutput (
+            width, height, presentation::OutputTarget::capture)));
+    }
+    for (auto& scene : scenes)
+    {
+        auto fixture = laneFixture ({ 96'000, 192'000, 240'000 });
+        fixture.submit (*scene.component);
+        const auto base = renderAttack (*scene.component);
+        const auto both = [&fixture] (auto&& move) {
+            for (auto* batch : { fixture.post.get(), fixture.pre.get() })
+                for (std::uint32_t index = 0; index < batch->count; ++index)
+                    move (batch->details[index]);
+        };
+        both ([] (KirinAttackDetail& detail) { detail.sharpness_acum += 0.5f; });
+        fixture.submit (*scene.component);
+        const auto sharper = renderAttack (*scene.component);
+        both ([] (KirinAttackDetail& detail) {
+            detail.contrast_db += 3.0f; detail.attack_rms_dbfs += 3.0f; detail.crest_db += 3.0f; });
+        fixture.submit (*scene.component);
+        const auto louder = renderAttack (*scene.component);
+        const auto values = scene.layout.arrangement == attack_ui::Arrangement::lanes
+            ? lanesArea (scene.layout) : rectangle (scene.layout.line);
+        if (differences (base, sharper) != 0 || differences (base, louder, values) != 0)
+        {
+            std::cerr << "lanes show PRE / POST operands at " << scene.component->getWidth()
+                      << 'x' << scene.component->getHeight() << '\n';
+            return false;
+        }
+    }
+    return true;
 }
 
 // The loupe exists only in the 300% Inspection body and draws the measured hit shape.
@@ -286,7 +352,7 @@ inline bool verifyLoupe()
             for (auto& point : fixture.post->details[index].shape) point *= 0.25f;
         fixture.submit (*scene.component);
         const auto quieter = renderAttack (*scene.component);
-        const auto changed = differences (base, quieter, historyReadout (scene.layout));
+        const auto changed = differences (base, quieter, historyReadoutRect (scene.layout));
         if (inspection ? changed < 40 : differences (base, quieter) != 0)
             return false;
         if (inspection && ! writePreviewTo ("KIRIN_ATTACK_UI_LOUPE_PREVIEW_PATH", base))
@@ -316,7 +382,7 @@ inline bool verifyCompactLine()
         fixture.submit (*scene.component);
         const auto changed = renderAttack (*scene.component);
         if (differences (base, changed, rectangle (scene.layout.line)) < 10
-            || differences (base, changed, historyPlot (scene.layout)) != 0)
+            || differences (base, changed, historyRect (scene.layout)) != 0)
             return false;
         if (preset.density == observatory::Density::compact
             && ! writePreviewTo ("KIRIN_ATTACK_UI_COMPACT_PREVIEW_PATH", changed))
@@ -334,14 +400,14 @@ inline bool verifySelectionHypha()
     scene.component->keyPressed (juce::KeyPress (juce::KeyPress::homeKey));
     const auto image = renderAttack (*scene.component);
     const auto target = juce::Colour (attack_ui::selectionColour);
-    const auto history = historyPlot (scene.layout);
+    const auto history = historyRect (scene.layout);
     const auto x = history.getX() + attack_ui::eventX (96'000, LaneFixture::latest, 48'000,
                                                        history.getWidth());
     // The hypha is drawn at 90% opacity; 40 still separates it from gold bars and white text.
     constexpr int tolerance = 40;
     const auto near = [&] (juce::Rectangle<int> row) {
         return countColour (image, row.withX (x - 3).withWidth (7), target, tolerance) > 0; };
-    if (! near (history) || ! near (lanePlot (scene.layout, 0)) || ! near (lanePlot (scene.layout, 3)))
+    if (! near (history) || ! near (laneRect (scene.layout, 0)) || ! near (laneRect (scene.layout, 3)))
         return false;
     for (int y = history.getY(); y < scene.layout.lanes.back().bottom(); ++y)
         if (countColour (image, { history.getX(), y, history.getWidth(), 1 }, target, tolerance) > 6)
