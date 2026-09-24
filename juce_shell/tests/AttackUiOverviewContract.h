@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include "AttackUiImageHelpers.h"
 #include "../src/HyphaAttackEnvelopeGeometry.h"
 #include <cstdint>
 
@@ -15,13 +16,13 @@ inline KirinAttackDetail overviewDetail()
     detail.shape_start_sample = detail.event_sample - 4'800;
     detail.shape_end_sample = detail.event_sample + 1'440;
     detail.shape_count = KIRIN_ATTACK_SHAPE_CAPACITY;
-    detail.attack_rms_dbfs = attack_ui::strengthGlowFullDbfs;
+    detail.attack_rms_dbfs = -6.0f;
+    detail.context_rms_dbfs = -21.0f;
+    detail.sample_peak_dbfs = -1.0f;
     detail.sharpness_available = 1;
-    detail.sharpness_acum = attack_ui::sharpnessGlowFullAcum;
-    detail.contrast_db = attack_ui::transientGlowFullDb;
-    detail.sample_edge_ratio_db = 0.0f;
-    detail.crest_db = 0.0f;
-    detail.peak_plateau_ms = 4.0f;
+    detail.sharpness_acum = 2.5f;
+    detail.contrast_db = 15.0f;
+    detail.crest_db = 5.0f;
     for (std::uint32_t index = 0; index < detail.shape_count; ++index)
     {
         const auto distance = std::abs (static_cast<int> (index) - 74);
@@ -59,70 +60,6 @@ inline bool verifyMeasuredEnvelope()
     constexpr auto huge=INT64_C(9007199254740993);
     for (auto& p:batch.points){p.start_sample+=huge;p.end_sample+=huge;}
     return original.body == attack_envelope::geometry (batch,area,huge,huge+288000,48000).body;
-}
-inline bool verifyUpperFeatureIsolation (const KirinAttackEventBatch& events,
-    const KirinAttackWaveformBatch& waveform, const KirinAttackDetailBatch& details,
-    const KirinAttackPairEventBatch& pairs, const KirinAttackStats& stats)
-{
-    auto component=std::make_unique<AttackComponent>();
-    auto changed=std::make_unique<KirinAttackDetailBatch> (details);
-    component->setSize (880,480);
-    const auto draw=[&] {
-        component->setSnapshot (events,waveform,*changed,waveform,details,pairs,288000,48000,7,stats);
-        juce::Image image (juce::Image::ARGB,880,480,true);juce::Graphics g (image);
-        component->paintEntireComponent (g,true);
-        return image;
-    };
-    const auto before=draw();
-    for (std::uint32_t i=0;i<changed->count;++i) {
-        auto& d=changed->details[i]; d.sharpness_acum=0;d.attack_rms_dbfs=-70;
-        d.sample_edge_ratio_db=-24;d.crest_db=12;d.peak_plateau_ms=0;
-    }
-    const auto after=draw();
-    const auto metricsTop = attack_ui::headerHeight + attack_ui::timelineHeight (480)
-                          + attack_ui::axisHeight (480) + attack_ui::transientHeight (480);
-    for (int y=0;y<metricsTop;++y)
-        for (int x=0;x<880;++x)
-            if (before.getPixelAt (x,y)!=after.getPixelAt (x,y)) return false;
-    return specimenDifferences (before,after,
-        {0,metricsTop,880,480-metricsTop})>100;
-}
-
-inline bool verifyTransientIsolation (const KirinAttackEventBatch& events,
-    const KirinAttackWaveformBatch& waveform, const KirinAttackDetailBatch& details,
-    const KirinAttackPairEventBatch& pairs, const KirinAttackStats& stats)
-{
-    auto component=std::make_unique<AttackComponent>();
-    auto post=std::make_unique<KirinAttackDetailBatch> (details);
-    auto pre=std::make_unique<KirinAttackDetailBatch> (details);
-    component->setSize (880,480);
-    for (std::uint32_t i=0;i<pre->count;++i) pre->details[i].contrast_db=5.0f;
-    const auto draw=[&] (const KirinAttackPairEventBatch& pairState) {
-        component->setSnapshot (events,waveform,*post,waveform,*pre,pairState,288000,48000,7,stats);
-        juce::Image image (juce::Image::ARGB,880,480,true);juce::Graphics g (image);
-        component->paintEntireComponent (g,true);
-        return image;
-    };
-    for (std::uint32_t i=0;i<post->count;++i) post->details[i].contrast_db=8.0f;
-    const auto positive=draw (pairs);
-    for (std::uint32_t i=0;i<post->count;++i) post->details[i].contrast_db=2.0f;
-    const auto negative=draw (pairs);
-    for (std::uint32_t i=0;i<post->count;++i) post->details[i].contrast_db=5.0f;
-    const auto identity=draw (pairs);
-    auto postOnlyPairs=pairs;postOnlyPairs.status=KIRIN_SPECTRUM_NO_PAIR;postOnlyPairs.count=0;
-    const auto postOnly=draw (postOnlyPairs);
-    const auto transientTop = attack_ui::headerHeight + attack_ui::timelineHeight (480)
-                            + attack_ui::axisHeight (480);
-    const auto transientHeight = attack_ui::transientHeight (480);
-    const auto metricsTop = transientTop + transientHeight;
-    const juce::Rectangle<int> transientArea {0,transientTop,880,transientHeight};
-    const juce::Rectangle<int> specimenArea {0,metricsTop,880,480-metricsTop};
-    return specimenDifferences (positive,negative,transientArea)>40
-        && specimenDifferences (positive,identity,transientArea)>40
-        && specimenDifferences (identity,postOnly,transientArea)>40
-        && specimenDifferences (positive,negative,specimenArea)==0
-        && specimenDifferences (positive,identity,specimenArea)==0
-        && specimenDifferences (identity,postOnly,specimenArea)==0;
 }
 inline bool verifyEnvelopeSimplificationBound()
 {
@@ -176,7 +113,7 @@ inline bool verifyEnvelopeRaster()
             return image;
         };
         const auto full=draw (1,false), inherited=draw (.02f,false), empty=draw (1,true);
-        if (specimenDifferences (full,inherited)!=0 || specimenLight (empty)!=0) return false;
+        if (differences (full,inherited)!=0 || light (empty)!=0) return false;
         const auto y=static_cast<int> ((area.getY()+area.getHeight()*.35f)*dpi);
         const auto at=[&] (float fraction) {
             return full.getPixelAt (static_cast<int> ((area.getX()+width*fraction)*dpi),y).getAlpha(); };

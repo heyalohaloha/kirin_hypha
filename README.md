@@ -50,6 +50,11 @@ S, I, five supporting facts, and L/R meters without changing the compact measure
 TIME directly selects **HISTORY**, validated DRUM **ATTACK**, signed **SHARP**, or three absolute
 **LIVE** facts. Only the selected optional analyzer runs.
 
+DRUM draws the six-second PRE/POST envelope above four per-hit lanes on the same time axis:
+**TRANSIENT**, **STRENGTH**, **CREST**, and **SHARPNESS**, each as POST − PRE. A hit whose PRE and
+POST onsets are not the same sample, or whose TRANSIENT would only measure preceding silence, shows
+the reason instead of a value. Without PRE, the lanes show POST values.
+
 ### FREQ — where the chain changed
 
 The cyan **Δ (POST − PRE)** curve is the primary view. PRE and POST remain visible as references.

@@ -1,13 +1,12 @@
 #include "../src/HyphaAttackComponent.h"
 #include "../src/HyphaAttackPainter.h"
 #include "../src/HyphaAttackUiContract.h"
-#include "../src/HyphaSpectrumUiContract.h"
 #include "../src/HyphaTheme.h"
-#include "AttackUiComparisonContract.h"
+#include "AttackUiImageHelpers.h"
+#include "AttackUiLaneContract.h"
 #include "AttackUiOverviewContract.h"
 #include "AttackUiSizeContract.h"
 #include "AttackUiLifecycleContract.h"
-#include "AttackUiMembraneContract.h"
 #include "AttackUiRuntimeContract.h"
 #include "AttackUiFrameBudget.h"
 #include "PolylineGeometryContractTest.h"
@@ -16,8 +15,11 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <utility>
 namespace
 {
+    using namespace hypha::attack_ui_test;
+
     void require (bool condition, const char* expression, int line)
     {
         if (condition)
@@ -28,101 +30,23 @@ namespace
     }
 #define KIRIN_REQUIRE(expression) require ((expression), #expression, __LINE__)
 
-    bool nearRgb (juce::Colour pixel, juce::Colour target)
+    const auto context = hypha::presentation::forEditor (600, 400);
+    constexpr int width = 580;
+    constexpr int height = 248;
+    const auto layout = hypha::attack_ui::layoutFor (width, height, context);
+
+    int eventX (std::int64_t sample, std::int64_t latest)
     {
-        constexpr int tolerance = 12;
-        return pixel.getAlpha() > 16
-            && std::abs ((int) pixel.getRed() - (int) target.getRed()) <= tolerance
-            && std::abs ((int) pixel.getGreen() - (int) target.getGreen()) <= tolerance
-            && std::abs ((int) pixel.getBlue() - (int) target.getBlue()) <= tolerance;
+        const auto plot = historyPlot (layout);
+        return plot.getX() + hypha::attack_ui::eventX (sample, latest, 48'000, plot.getWidth());
     }
 
-    int countAreaDifferences (const juce::Image& first,
-                              const juce::Image& second,
-                              juce::Rectangle<int> requested)
+    // The selection hypha is drawn at 90% opacity through the HISTORY plot.
+    bool selectionNear (const juce::Image& image, int x)
     {
-        KIRIN_REQUIRE (first.getBounds() == second.getBounds());
-        const auto area = requested.getIntersection (first.getBounds());
-        int count = 0;
-        for (int y = area.getY(); y < area.getBottom(); ++y)
-            for (int x = area.getX(); x < area.getRight(); ++x)
-                count += first.getPixelAt (x, y) != second.getPixelAt (x, y);
-        return count;
-    }
-
-    int countTranslatedDifferences (const juce::Image& image,
-                                    juce::Rectangle<int> first,
-                                    juce::Rectangle<int> second)
-    {
-        KIRIN_REQUIRE (first.getWidth() == second.getWidth());
-        KIRIN_REQUIRE (first.getHeight() == second.getHeight());
-        int count = 0;
-        for (int y = 0; y < first.getHeight(); ++y)
-            for (int x = 0; x < first.getWidth(); ++x)
-                count += image.getPixelAt (first.getX() + x, first.getY() + y)
-                      != image.getPixelAt (second.getX() + x, second.getY() + y);
-        return count;
-    }
-
-    int countRuns (const juce::Image& image, juce::Rectangle<int> requested,
-                   juce::Colour target)
-    {
-        const auto area = requested.getIntersection (image.getBounds());
-        int runs = 0;
-        bool previousColumn = false;
-        for (int x = area.getX(); x < area.getRight(); ++x)
-        {
-            bool currentColumn = false;
-            for (int y = area.getY(); y < area.getBottom(); ++y)
-                currentColumn = currentColumn
-                    || nearRgb (image.getPixelAt (x, y), target);
-            if (currentColumn && ! previousColumn)
-                ++runs;
-            previousColumn = currentColumn;
-        }
-        return runs;
-    }
-
-    bool hasColourNear (const juce::Image& image, int centreX, juce::Colour target)
-    {
-        const auto area = juce::Rectangle<int> (
-            centreX - 2, hypha::attack_ui::headerHeight, 5,
-            hypha::attack_ui::timelineHeight (image.getHeight()))
-                .getIntersection (image.getBounds());
-        for (int x = area.getX(); x < area.getRight(); ++x)
-            for (int y = area.getY(); y < area.getBottom(); ++y)
-                if (nearRgb (image.getPixelAt (x, y), target))
-                    return true;
-        return false;
-    }
-
-    int countDifferentPixels (const juce::Image& first, const juce::Image& second)
-    {
-        KIRIN_REQUIRE (first.getBounds() == second.getBounds());
-        int count = 0;
-        for (int y = 0; y < first.getHeight(); ++y)
-            for (int x = 0; x < first.getWidth(); ++x)
-                count += first.getPixelAt (x, y) != second.getPixelAt (x, y);
-        return count;
-    }
-
-    juce::Image render (hypha::AttackComponent& component)
-    {
-        juce::Image image (
-            juce::Image::ARGB, component.getWidth(), component.getHeight(), true);
-        juce::Graphics graphics (image);
-        component.paintEntireComponent (graphics, true);
-        return image;
-    }
-
-    void writePreview (const char* environmentName, const juce::Image& image)
-    {
-        if (const auto* path = std::getenv (environmentName))
-        {
-            juce::FileOutputStream output { juce::File { path } };
-            juce::PNGImageFormat png;
-            KIRIN_REQUIRE (output.openedOk() && png.writeImageToStream (image, output));
-        }
+        const auto plot = historyPlot (layout);
+        return countColour (image, plot.withX (x - 3).withWidth (7),
+                            juce::Colour (hypha::attack_ui::selectionColour), 40) > 0;
     }
 
     juce::MouseEvent mouseEvent (juce::Component& component, float x, float y)
@@ -147,9 +71,8 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     auto componentStorage = std::make_unique<hypha::AttackComponent>();
     auto& component = *componentStorage;
-    const auto selectionColour = juce::Colour (hypha::attack_ui::selectionColour);
-    const auto bounds = hypha::ui_contract::spectrumPlotBounds (600, 400);
-    component.setSize (bounds.width, bounds.height);
+    component.setPresentationContext (context);
+    component.setSize (width, height);
     KirinAttackStats stats {};
     stats.available = 1;
     stats.enabled = 1;
@@ -174,70 +97,38 @@ int main()
     waveform.count = KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY;
     for (std::uint32_t index = 0; index < waveform.count; ++index)
     {
-        waveform.points[index].generation = 7;
-        waveform.points[index].sample_rate = 48'000;
-        waveform.points[index].channels = 2;
-        waveform.points[index].start_sample = static_cast<std::int64_t> (index) * 480;
-        waveform.points[index].end_sample = waveform.points[index].start_sample + 480;
-        const auto sample = waveform.points[index].start_sample
-                          + (waveform.points[index].end_sample
-                             - waveform.points[index].start_sample) / 2;
-        const auto nearestEvent = sample < 72'000 ? 0
-                                : sample < 216'000 ? 144'000 : 288'000;
+        auto& point = waveform.points[index];
+        point.generation = 7;
+        point.sample_rate = 48'000;
+        point.channels = 2;
+        point.start_sample = static_cast<std::int64_t> (index) * 480;
+        point.end_sample = point.start_sample + 480;
+        const auto sample = point.start_sample + 240;
+        const auto nearestEvent = sample < 72'000 ? 0 : sample < 216'000 ? 144'000 : 288'000;
         const auto relative = sample - nearestEvent;
         auto pulse = 0.0f;
         if (relative >= 0)
         {
             const auto elapsed = static_cast<float> (relative);
             pulse = 0.70f * std::exp (-elapsed / 8'500.0f)
-                  + 0.20f * std::exp (-elapsed / 2'600.0f)
-                      * std::abs (std::sin (elapsed / 720.0f))
+                  + 0.20f * std::exp (-elapsed / 2'600.0f) * std::abs (std::sin (elapsed / 720.0f))
                   + 0.10f * std::exp (-elapsed / 25'000.0f);
         }
         else if (relative >= -1'440)
-        {
             pulse = 0.08f * std::exp (static_cast<float> (relative) / 520.0f);
-        }
-        waveform.points[index].rms_dbfs = -58.0f + pulse * 48.0f;
+        point.rms_dbfs = -58.0f + pulse * 48.0f;
     }
 
     auto detailsStorage = std::make_unique<KirinAttackDetailBatch>();
     auto& details = *detailsStorage;
     details.capacity = KIRIN_ATTACK_DETAIL_BATCH_CAPACITY;
-    details.count = 1;
-    auto& detail = details.details[0];
-    detail.generation = 7;
-    detail.sample_rate = 48'000;
-    detail.channels = 2;
-    detail.event_sample = 288'000;
-    detail.shape_start_sample = detail.event_sample - 4'800;
-    detail.shape_end_sample = detail.event_sample + 1'440;
-    detail.shape_count = KIRIN_ATTACK_SHAPE_CAPACITY;
-    detail.contrast_db = 8.0f;
-    detail.attack_rms_dbfs = -14.0f;
-    detail.sample_peak_dbfs = -3.0f;
-    detail.crest_db = 6.0f;
-    detail.sample_edge_ratio_db = -12.0f;
-    detail.peak_plateau_ms = 1.5f;
-    detail.sharpness_available = 1;
-    detail.sharpness_acum = 1.6f;
-    for (std::uint32_t index = 0; index < detail.shape_count; ++index)
-    {
-        const auto distance = std::abs (static_cast<int> (index) - 74);
-        detail.shape[index] = index < 74 ? 0.025f
-            : 0.82f * std::exp (-static_cast<float> (distance) / 8.0f) + 0.018f;
-    }
-    details.count = 2;
-    details.details[1] = details.details[0];
-    details.details[1].event_sample = 144'000;
-    details.details[1].shape_start_sample = 139'200;
-    details.details[1].shape_end_sample = 145'440;
     details.count = 3;
-    details.details[2] = details.details[0];
-    details.details[2].event_sample = 0;
-    details.details[2].shape_start_sample = -4'800;
-    details.details[2].shape_end_sample = 1'440;
-
+    for (const auto [index, sample] : { std::pair<std::uint32_t, std::int64_t> { 0, 288'000 },
+                                        { 1, 144'000 }, { 2, 0 } })
+    {
+        details.details[index] = laneDetail (sample);
+        details.details[index].sharpness_acum = 1.6f;
+    }
     auto preWaveformStorage = std::make_unique<KirinAttackWaveformBatch> (waveform);
     auto& preWaveform = *preWaveformStorage;
     for (std::uint32_t index = 0; index < preWaveform.count; ++index)
@@ -248,10 +139,7 @@ int main()
     {
         preDetails.details[index].contrast_db = 5.0f;
         preDetails.details[index].attack_rms_dbfs = -20.0f;
-        preDetails.details[index].crest_db = 8.0f;
-        preDetails.details[index].sample_edge_ratio_db = -14.0f;
-        preDetails.details[index].peak_plateau_ms = 1.0f;
-        preDetails.details[index].sharpness_available = 1;
+        preDetails.details[index].crest_db = 10.0f;
         preDetails.details[index].sharpness_acum = 1.2f;
     }
     KirinAttackPairEventBatch pairEvents {};
@@ -260,73 +148,82 @@ int main()
     pairEvents.count = 3;
     for (std::uint32_t index = 0; index < pairEvents.count; ++index)
     {
-        pairEvents.events[index].event_sample = events.events[index].event_sample;
-        pairEvents.events[index].pre_event_sample = events.events[index].event_sample;
-        pairEvents.events[index].post_event_sample = events.events[index].event_sample;
-        pairEvents.events[index].sample_rate = 48'000;
-        pairEvents.events[index].pre_generation = pairEvents.events[index].post_generation = 7;
+        auto& pair = pairEvents.events[index];
+        pair.event_sample = pair.pre_event_sample = pair.post_event_sample
+            = events.events[index].event_sample;
+        pair.sample_rate = 48'000;
+        pair.pre_generation = pair.post_generation = 7;
+        pair.pre_available = pair.post_available = 1;
     }
-    pairEvents.events[1].pre_available = 1;
-    pairEvents.events[1].post_available = 1;
-    pairEvents.events[2].pre_available = 1;
-    pairEvents.events[2].post_available = 1;
-    pairEvents.events[0].pre_available = 1;
-    pairEvents.events[0].post_available = 1;
 
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
                            288'000, 48'000, 7, stats);
     component.setOverlayMode (false);
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyDetailLifecycle (events, waveform, details, pairEvents, stats));
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyPostAbsoluteSpecimen());
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyMeasuredEnvelope());
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyEnvelopeSimplificationBound());
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyEnvelopeRaster());
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyUpperFeatureIsolation (events, waveform, details, pairEvents, stats));
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyTransientIsolation (events, waveform, details, pairEvents, stats));
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyContinuousTrace (waveform, details));
-    const auto image = render (component);
-    writePreview ("KIRIN_ATTACK_UI_PREVIEW_PATH", image);
-    KIRIN_REQUIRE (countRuns (image, { 0, 20, image.getWidth(), 150 }, selectionColour) > 0);
-    KIRIN_REQUIRE (countRuns (image, { 0, 200, image.getWidth(), image.getHeight() },
-                              juce::Colour (hypha::attack_ui::textureColour)) > 0);
-    const auto timelineHeight = hypha::attack_ui::timelineHeight (component.getHeight());
+    KIRIN_REQUIRE (verifyLaneModel());
+    KIRIN_REQUIRE (verifyDetailLifecycle (events, waveform, details, pairEvents, stats));
+    KIRIN_REQUIRE (verifyMeasuredEnvelope());
+    KIRIN_REQUIRE (verifyEnvelopeSimplificationBound());
+    KIRIN_REQUIRE (verifyEnvelopeRaster());
+    KIRIN_REQUIRE (verifyContinuousTrace (waveform));
+    KIRIN_REQUIRE (verifyLaneRendering());
+    KIRIN_REQUIRE (verifyHistoryIsolation());
+    KIRIN_REQUIRE (verifyPostOnlyLanes());
+    KIRIN_REQUIRE (verifyLoupe());
+    KIRIN_REQUIRE (verifyCompactLine());
+    KIRIN_REQUIRE (verifySelectionHypha());
+    hypha::tests::verifyPolylineGeometryContract();
+    KIRIN_REQUIRE (verifyRedrawContract (events, waveform, details, pairEvents, stats));
+    const auto image = renderAttack (component);
+    KIRIN_REQUIRE (writePreviewTo ("KIRIN_ATTACK_UI_PREVIEW_PATH", image));
+    KIRIN_REQUIRE (selectionNear (image, eventX (288'000, 288'000)));
+
+    // With identical PRE and POST, the two HISTORY rows are the same measured envelope. The
+    // envelope ink is isolated from the row's vertical material gradient by subtracting a frame
+    // painted without envelopes.
     auto identityComponentStorage = std::make_unique<hypha::AttackComponent>();
     auto& identityComponent = *identityComponentStorage;
-    identityComponent.setSize (bounds.width, bounds.height);
+    identityComponent.setPresentationContext (context);
+    identityComponent.setSize (width, height);
     identityComponent.setOverlayMode (false);
+    auto emptyWaveform = std::make_unique<KirinAttackWaveformBatch>();
+    identityComponent.setSnapshot (events, *emptyWaveform, details, *emptyWaveform, details,
+                                   pairEvents, 288'000, 48'000, 7, stats);
+    const auto withoutEnvelope = renderAttack (identityComponent);
     identityComponent.setSnapshot (events, waveform, details, waveform, details, pairEvents,
                                    288'000, 48'000, 7, stats);
-    const auto identity = render (identityComponent);
-    const auto paintedTimelineY = hypha::attack_ui::headerHeight + 1;
-    const auto paintedLaneHeight = (timelineHeight - 2) / 2;
-    const auto comparisonHeight = paintedLaneHeight - 25;
-    const auto identityDifferences = countTranslatedDifferences (
-        identity,
-        { 42, paintedTimelineY + 20,
-          image.getWidth() - 48, comparisonHeight },
-        { 42, paintedTimelineY + paintedLaneHeight + 20,
-          image.getWidth() - 48, comparisonHeight });
+    const auto identity = renderAttack (identityComponent);
+    const auto history = historyPlot (layout);
+    const auto rowHeight = history.getHeight() / 2;
+    const juce::Rectangle<int> preRow { history.getX() + 40, history.getY() + 2,
+                                        history.getWidth() - 48, rowHeight - 4 };
+    const auto ink = [&] (int x, int y) {
+        return identity.getPixelAt (x, y) != withoutEnvelope.getPixelAt (x, y); };
+    int identityInk = 0, identityDifferences = 0;
+    for (int y = preRow.getY(); y < preRow.getBottom(); ++y)
+        for (int x = preRow.getX(); x < preRow.getRight(); ++x)
+        {
+            identityInk += ink (x, y);
+            identityDifferences += ink (x, y) != ink (x, y + rowHeight);
+        }
+    if (identityDifferences > 100)
+        std::cerr << "identity rows: " << identityDifferences << " of " << identityInk << '\n';
+    KIRIN_REQUIRE (writePreviewTo ("KIRIN_ATTACK_UI_IDENTITY_PREVIEW_PATH", identity));
+    KIRIN_REQUIRE (identityInk > 200);
     KIRIN_REQUIRE (identityDifferences <= 100); // Mirrored curve antialiasing differs at subpixels.
-
-    const auto middleEventX = hypha::attack_ui::eventX (
-        events.events[1].event_sample, 288'000, 48'000, image.getWidth());
-    const auto firstEventX = hypha::attack_ui::eventX (
-        events.events[0].event_sample, 288'000, 48'000, image.getWidth());
-    const auto lastEventX = hypha::attack_ui::eventX (
-        events.events[2].event_sample, 288'000, 48'000, image.getWidth());
     identityComponent.setOverlayMode (true);
-    const auto identityOverlay = render (identityComponent);
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyMembraneContract());
-    hypha::tests::verifyPolylineGeometryContract();
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyFocusCache());
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyRedrawContract (events, waveform, details, pairEvents, stats));
-    KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::leftKey)));
-    KIRIN_REQUIRE (hasColourNear (render (component), middleEventX, selectionColour));
-    KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::homeKey)));
-    KIRIN_REQUIRE (hasColourNear (render (component), firstEventX, selectionColour));
-    KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::rightKey)));
-    KIRIN_REQUIRE (hasColourNear (render (component), middleEventX, selectionColour));
+    const auto identityOverlay = renderAttack (identityComponent);
 
+    const auto firstEventX = eventX (0, 288'000);
+    const auto middleEventX = eventX (144'000, 288'000);
+    const auto lastEventX = eventX (288'000, 288'000);
+    KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::leftKey)));
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), middleEventX));
+    KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::homeKey)));
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), firstEventX));
+    KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::rightKey)));
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), middleEventX));
+
+    // A locked selection moves with time at the presentation rate and never jumps to new hits.
     auto laterPairEvents = pairEvents;
     laterPairEvents.count = 4;
     laterPairEvents.events[3] = pairEvents.events[2];
@@ -336,28 +233,19 @@ int main()
     const auto transitionStart = juce::Time::getMillisecondCounterHiRes();
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, laterPairEvents,
                            336'000, 48'000, 7, stats);
-    KIRIN_REQUIRE (hasColourNear (render (component), middleEventX, selectionColour));
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), middleEventX));
     component.presentationTickAt (transitionStart + 25.0);
-    const auto quarterTransitionX = hypha::attack_ui::eventX (
-        events.events[1].event_sample, 300'000, 48'000, image.getWidth());
-    KIRIN_REQUIRE (hasColourNear (render (component), quarterTransitionX, selectionColour));
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), eventX (144'000, 300'000)));
     component.presentationTickAt (transitionStart + 50.0);
-    const auto halfTransitionX = hypha::attack_ui::eventX (
-        events.events[1].event_sample, 312'000, 48'000, image.getWidth());
-    KIRIN_REQUIRE (hasColourNear (render (component), halfTransitionX, selectionColour));
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), eventX (144'000, 312'000)));
     component.presentationTickAt (transitionStart + 200.0);
-    const auto lockedMiddleX = hypha::attack_ui::eventX (
-        events.events[1].event_sample, 336'000, 48'000, image.getWidth());
-    const auto newLastX = hypha::attack_ui::eventX (
-        laterPairEvents.events[3].event_sample, 336'000, 48'000, image.getWidth());
-    const auto lastCompleteX = hypha::attack_ui::eventX (
-        laterPairEvents.events[2].event_sample, 336'000, 48'000, image.getWidth());
-    KIRIN_REQUIRE (hasColourNear (render (component), lockedMiddleX, selectionColour));
-    KIRIN_REQUIRE (! hasColourNear (render (component), newLastX, selectionColour));
-
+    const auto newLastX = eventX (320'000, 336'000);
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), eventX (144'000, 336'000)));
+    KIRIN_REQUIRE (! selectionNear (renderAttack (component), newLastX));
+    // END returns to the newest hit with delivered POST detail, not an incomplete event.
     KIRIN_REQUIRE (component.keyPressed (juce::KeyPress (juce::KeyPress::endKey)));
-    KIRIN_REQUIRE (hasColourNear (render (component), lastCompleteX, selectionColour));
-    KIRIN_REQUIRE (! hasColourNear (render (component), newLastX, selectionColour));
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), eventX (288'000, 336'000)));
+    KIRIN_REQUIRE (! selectionNear (renderAttack (component), newLastX));
 
     auto newestPairEvents = laterPairEvents;
     newestPairEvents.count = 5;
@@ -367,49 +255,49 @@ int main()
     newestPairEvents.events[4].post_event_sample = 370'000;
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, newestPairEvents,
                            384'000, 48'000, 7, stats);
-    const auto beforeHold = render (component);
-    component.presentationTick (false); // Silence/stop holds the last complete specimen.
-    const auto held = render (component);
-    const auto heldMetricsHeight = hypha::attack_ui::metricsHeight (held.getHeight());
-    const juce::Rectangle<int> heldSpecimen {
-        0, held.getHeight() - heldMetricsHeight, held.getWidth(), heldMetricsHeight };
-    KIRIN_REQUIRE (hypha::attack_ui_test::specimenDifferences (
-                       beforeHold, held, heldSpecimen) == 0
-                   && hypha::attack_ui_test::specimenDifferences (beforeHold, held) > 0);
+    // Finish the pending time movement first: HOLD freezes time, it does not move the lanes.
+    component.presentationTickAt (juce::Time::getMillisecondCounterHiRes() + 1'000.0);
+    const auto beforeHold = renderAttack (component);
+    component.presentationTick (false); // Silence/stop holds the last complete hit.
+    const auto held = renderAttack (component);
+    KIRIN_REQUIRE (differences (beforeHold, held, lanesArea (layout)) == 0
+                   && differences (beforeHold, held) > 0);
     component.presentationTick (true);
     KIRIN_REQUIRE (! component.keyPressed (juce::KeyPress ('x')));
 
+    // Pointer selection works in HISTORY and in every lane, which share one time column.
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
                            288'000, 48'000, 7, stats);
-    const auto scrubY = static_cast<float> (hypha::attack_ui::headerHeight + 20);
-    component.mouseDown (mouseEvent (component, static_cast<float> (firstEventX), scrubY));
-    KIRIN_REQUIRE (hasColourNear (render (component), firstEventX, selectionColour));
-    component.mouseDrag (mouseEvent (component, static_cast<float> (middleEventX), scrubY));
-    KIRIN_REQUIRE (hasColourNear (render (component), middleEventX, selectionColour));
-    writePreview ("KIRIN_ATTACK_UI_LOCK_PREVIEW_PATH", render (component));
-    component.mouseDown (mouseEvent (
-        component, static_cast<float> (component.getWidth() - 4),
-        static_cast<float> (hypha::attack_ui::headerHeight
-            + hypha::attack_ui::timelineHeight (component.getHeight())
-            + hypha::attack_ui::axisLabelHeight / 2)));
-    KIRIN_REQUIRE (hasColourNear (render (component), lastEventX, selectionColour));
-    const auto twoRows = render (component);
+    const auto historyY = static_cast<float> (history.getCentreY());
+    component.mouseDown (mouseEvent (component, static_cast<float> (firstEventX), historyY));
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), firstEventX));
+    component.mouseDrag (mouseEvent (component, static_cast<float> (middleEventX), historyY));
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), middleEventX));
+    KIRIN_REQUIRE (writePreviewTo ("KIRIN_ATTACK_UI_LOCK_PREVIEW_PATH", renderAttack (component)));
+    const auto laneY = static_cast<float> (layout.lanes[2].y + layout.lanes[2].height / 2);
+    component.mouseDown (mouseEvent (component, static_cast<float> (firstEventX), laneY));
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), firstEventX));
+    const auto axis = plotColumn (layout, layout.axis);
+    component.mouseDown (mouseEvent (component, static_cast<float> (axis.getRight() - 4),
+                                     static_cast<float> (axis.getCentreY())));
+    KIRIN_REQUIRE (selectionNear (renderAttack (component), lastEventX));
+
+    const auto twoRows = renderAttack (component);
     component.setOverlayMode (true);
-    const auto overlay = render (component);
-    KIRIN_REQUIRE (countDifferentPixels (twoRows, overlay) > 100);
-    const auto overlayTimeline = juce::Rectangle<int> (
-        0, hypha::attack_ui::headerHeight, image.getWidth(), timelineHeight);
-    KIRIN_REQUIRE (countAreaDifferences (identityOverlay, overlay, overlayTimeline) > 0);
-    writePreview ("KIRIN_ATTACK_UI_OVERLAY_PREVIEW_PATH", overlay);
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifySupportedSizes (component));
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyAttackFrameBudget());
+    const auto overlay = renderAttack (component);
+    KIRIN_REQUIRE (differences (twoRows, overlay) > 100);
+    KIRIN_REQUIRE (differences (identityOverlay, overlay, history) > 0);
+    KIRIN_REQUIRE (writePreviewTo ("KIRIN_ATTACK_UI_OVERLAY_PREVIEW_PATH", overlay));
+    KIRIN_REQUIRE (verifySupportedSizes (component));
+    KIRIN_REQUIRE (verifyAttackFrameBudget());
+    component.setPresentationContext (context);
+    component.setSize (width, height);
     stats.worker_running = 0;
     component.setSnapshot (events, waveform, details, preWaveform, preDetails, pairEvents,
                            288'000, 48'000, 7, stats);
-    const auto warming = render (component);
-    KIRIN_REQUIRE (countRuns (warming, { 0, 20, warming.getWidth(), 150 },
-                              selectionColour) == 0);
-    KIRIN_REQUIRE (hypha::attack_ui_test::verifyDormantSpecimenQuiet (warming));
-    std::cout << "ATTACK UI contract passed: HISTORY, TRANSIENT comparison, POST specimen\n";
+    const auto warming = renderAttack (component);
+    KIRIN_REQUIRE (! selectionNear (warming, lastEventX));
+    KIRIN_REQUIRE (verifyDormantQuiet (warming, layout));
+    std::cout << "ATTACK UI contract passed: HISTORY, per-hit lanes, loupe, one-row readout\n";
     return EXIT_SUCCESS;
 }

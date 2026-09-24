@@ -289,9 +289,10 @@ MIDは`(L+R)/2`、SIDEは`(L-R)/2`とし、25×25の固定fieldへ各観測最�
 30観測未満は実際の観測数を`WARMING n/30`として表示し、mono、無音、未成立を数値で装わない。
 correlationとL/R balanceも同じrolling 3秒窓を参照し、SPACEの発光やcell色は品質判定へ使わない。
 
-ATTACKはTRACK／STEMのDRUMに限定する。pair時のHISTORYとTRANSIENTはexact PRE/POSTを比較し、
-中央標本はpair状態にかかわらず選択POSTのStrength／Texture／Sharpness絶対値だけを表示する。
-PRE未接続時はPOST absoluteを維持し、PREと差分を生成しない。
+ATTACKはTRACK／STEMのDRUMに限定する。pair時のHISTORYはexact PRE/POSTを重ね、
+TRANSIENT／STRENGTH／CREST／SHARPNESSの四laneは同じonset sampleのPRE/POST detailだけから打音ごとの`POST−PRE`を描く。
+PRE未接続時はlaneをPOST absoluteへ切り替え、per-hit SHARPNESSは表示せず、PREと差分を生成しない。
+正本は`hypha_drum_lanes_20260924.md`とする。
 
 ### 7.4 OS Guide layer
 

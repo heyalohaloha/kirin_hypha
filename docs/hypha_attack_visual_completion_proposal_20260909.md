@@ -2,6 +2,7 @@
 
 - **作成日**：2026-09-09
 - **更新日**：2026-09-09
+- **後継**：B-1015で中央標本とTextureを撤去し、HISTORYと四lane表示へ置き換えた。中央標本、Texture、300%配置の各節は`hypha_drum_lanes_20260924.md`が正本である。
 - **状態**：TRACK / STEM表示を修正中。B-777のMac実画面は視認性と点滅で不合格。B-778で点滅原因を除去し、B-782で中央標本の形・材質・三量分離を構造から置換。Windows実画面とMac作業終了後のMac実画面確認待ち。
 - **変更範囲**：表示契約、JUCE native描画、比較画像。測定coreとAudio Threadは変更しない。
 - **対象**：TRACK / STEMのDRUM ATTACK。

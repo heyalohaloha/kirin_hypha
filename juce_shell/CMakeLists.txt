@@ -135,8 +135,7 @@ option(KIRIN_HYPHA_AAX_DISTRIBUTION_BUILD
 set(KIRIN_HYPHA_DATA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hybrid_vu_chassis.png
-    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/observatory_understory.png
-    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/attack_specimen_body_v3.png)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/observatory_understory.png)
 set(KIRIN_HYPHA_KIMERA_EMBEDDED 0)
 if(KIRIN_HYPHA_KIMERA_FONT_FILE)
     if(NOT KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED)
@@ -355,14 +354,13 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/PluginEditorReferenceCapture.cpp
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
+            src/HyphaAttackChrome.cpp
             src/HyphaAttackComponent.cpp
-            src/HyphaAttackDetailView.cpp
             src/HyphaAttackInteraction.cpp
-            src/HyphaAttackMetricPainter.cpp
-            src/HyphaAttackOverviewGlyphPainter.cpp
-            src/HyphaAttackOrganismPainter.cpp
+            src/HyphaAttackLanePainter.cpp
+            src/HyphaAttackLoupePainter.cpp
             src/HyphaAttackPainter.cpp
-            src/HyphaAttackSpecimenPainter.cpp
+            src/HyphaAttackStage.cpp
             src/HyphaGuideFrequencyOverlay.cpp
             src/HyphaPerceptualComponent.cpp
             src/HyphaPerceptualPainter.cpp
@@ -624,14 +622,13 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaGuideFrequencyOverlay.cpp
         src/HyphaAbsoluteComponent.cpp
         src/HyphaAbsolutePainter.cpp
+        src/HyphaAttackChrome.cpp
         src/HyphaAttackComponent.cpp
-        src/HyphaAttackDetailView.cpp
         src/HyphaAttackInteraction.cpp
-        src/HyphaAttackMetricPainter.cpp
-        src/HyphaAttackOverviewGlyphPainter.cpp
-        src/HyphaAttackOrganismPainter.cpp
+        src/HyphaAttackLanePainter.cpp
+        src/HyphaAttackLoupePainter.cpp
         src/HyphaAttackPainter.cpp
-        src/HyphaAttackSpecimenPainter.cpp
+        src/HyphaAttackStage.cpp
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
@@ -741,14 +738,13 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin ATTACK UI Contract Tests")
     target_sources(KirinAttackUiContractTests PRIVATE
         tests/AttackUiContractTest.cpp
+        src/HyphaAttackChrome.cpp
         src/HyphaAttackComponent.cpp
-        src/HyphaAttackDetailView.cpp
         src/HyphaAttackInteraction.cpp
-        src/HyphaAttackMetricPainter.cpp
-        src/HyphaAttackOverviewGlyphPainter.cpp
-        src/HyphaAttackOrganismPainter.cpp
+        src/HyphaAttackLanePainter.cpp
+        src/HyphaAttackLoupePainter.cpp
         src/HyphaAttackPainter.cpp
-        src/HyphaAttackSpecimenPainter.cpp
+        src/HyphaAttackStage.cpp
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp)
     target_compile_definitions(KirinAttackUiContractTests PRIVATE

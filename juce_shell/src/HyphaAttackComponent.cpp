@@ -1,9 +1,14 @@
 #include "HyphaAttackComponent.h"
 
+#include <algorithm>
+#include <cmath>
+#include <initializer_list>
+
+#include "HyphaAttackLanePainter.h"
+#include "HyphaAttackLoupePainter.h"
 #include "HyphaAttackPainter.h"
-#include "HyphaAttackUiContract.h"
 #include "HyphaAttackSnapshotEquality.h"
-#include "HyphaSurfaceMaterial.h"
+#include "HyphaAttackStage.h"
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
 
@@ -13,27 +18,7 @@ namespace
 {
 const auto waveformColour = juce::Colour (attack_ui::waveformColour);
 const auto selectionColour = juce::Colour (attack_ui::selectionColour);
-
-const KirinAttackDetail* findDetail (const KirinAttackDetailBatch& batch,
-                                     std::int64_t eventSample, std::uint64_t generation,
-                                     std::uint32_t sampleRate) noexcept
-{
-    const auto count = juce::jmin (
-        batch.count, static_cast<std::uint32_t> (KIRIN_ATTACK_DETAIL_BATCH_CAPACITY));
-    for (std::uint32_t index = 0; index < count; ++index)
-        if (batch.details[index].event_sample == eventSample
-            && batch.details[index].generation == generation
-            && batch.details[index].sample_rate == sampleRate)
-            return &batch.details[index];
-    return nullptr;
-}
-
-void drawSelectionArc (juce::Graphics& g, int x, juce::Rectangle<int> timeline)
-{
-    g.setColour (selectionColour);
-    g.fillEllipse (static_cast<float> (x - 2), static_cast<float> (timeline.getBottom() - 5),
-                   4.0f, 4.0f);
-}
+constexpr auto visualization = typography::Composition::visualization;
 }
 
 using attack_painter::drawEnvelope;
@@ -91,15 +76,15 @@ void AttackComponent::presentationTickAt (double nowMs)
 }
 
 bool AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
-                                           const KirinAttackWaveformBatch& waveform,
-                                           const KirinAttackDetailBatch& details,
-                                           const KirinAttackWaveformBatch& preWaveform,
-                                           const KirinAttackDetailBatch& preDetails,
-                                           const KirinAttackPairEventBatch& pairEvents,
-                                           std::int64_t latestSample,
-                                           std::uint32_t sampleRate,
-                                           std::uint64_t generation,
-                                           const KirinAttackStats& stats)
+                                   const KirinAttackWaveformBatch& waveform,
+                                   const KirinAttackDetailBatch& details,
+                                   const KirinAttackWaveformBatch& preWaveform,
+                                   const KirinAttackDetailBatch& preDetails,
+                                   const KirinAttackPairEventBatch& pairEvents,
+                                   std::int64_t latestSample,
+                                   std::uint32_t sampleRate,
+                                   std::uint64_t generation,
+                                   const KirinAttackStats& stats)
 {
     const auto current = [generation, sampleRate] (const auto& item) {
         return item.generation == generation && item.sample_rate == sampleRate; };
@@ -151,6 +136,8 @@ bool AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
             || (pair.post_available != 0 && pair.post_generation != generation); }) - pairs);
     if (pairCount != 0 && pairEventBatch.count == 0)
         pairEventBatch.status = KIRIN_SPECTRUM_WARMING_UP;
+    attack_lanes::build (laneModel, pairEventBatch, detailBatch, preDetailBatch,
+                         generation, sampleRate);
     runtimeStats = stats;
     if (resetPresentation)
     {
@@ -186,6 +173,8 @@ void AttackComponent::clearSnapshot()
     preDetailBatch = {};
     pairEventBatch = {};
     runtimeStats = {};
+    laneModel.count = 0;
+    laneModel.delta = false;
     latest = -1;
     presentationStartLatest = -1;
     presentationTargetLatest = -1;
@@ -197,28 +186,42 @@ void AttackComponent::clearSnapshot()
     repaint();
 }
 
-juce::Rectangle<int> AttackComponent::timelineBounds() const noexcept
+attack_ui::Layout AttackComponent::layout() const noexcept
 {
-    auto bounds = getLocalBounds();
-    bounds.removeFromTop (attack_ui::headerHeightFor (presentationContext));
-    return bounds.removeFromTop (attack_ui::timelineHeight (getHeight()));
+    return attack_ui::layoutFor (getWidth(), getHeight(), presentationContext);
 }
 
-juce::Rectangle<int> AttackComponent::scrubBounds() const noexcept
+// Every row shares one horizontal plot column, so a hit has the same x in HISTORY and each lane.
+juce::Rectangle<int> AttackComponent::plotColumn (attack_ui::Box row) const noexcept
 {
-    auto bounds = getLocalBounds();
-    bounds.removeFromTop (attack_ui::headerHeightFor (presentationContext)
-                          + attack_ui::timelineHeight (getHeight()));
-    return bounds.removeFromTop (attack_ui::axisHeight (getHeight()));
+    const auto shape = layout();
+    auto column = rectangleOf (row);
+    if (shape.arrangement == attack_ui::Arrangement::lanes)
+    {
+        column.removeFromLeft (shape.labelWidth);
+        column.removeFromRight (shape.readoutWidth);
+    }
+    return column.reduced (1, 0);
+}
+
+juce::Rectangle<int> AttackComponent::historyPlotBounds() const noexcept
+{
+    const auto shape = layout();
+    return shape.history.empty() ? juce::Rectangle<int> {}
+                                 : plotColumn (shape.history).reduced (0, 1);
+}
+
+juce::Rectangle<int> AttackComponent::axisPlotBounds() const noexcept
+{
+    const auto shape = layout();
+    return shape.axis.empty() ? juce::Rectangle<int> {} : plotColumn (shape.axis);
 }
 
 int AttackComponent::viewControlWidth() const
 {
     const auto style = typography::resolve (
-        presentationContext, typography::TextRole::action,
-        typography::Composition::visualization);
-    const auto font = monoFont (presentationContext, typography::TextRole::action,
-                                typography::Composition::visualization);
+        presentationContext, typography::TextRole::action, visualization);
+    const auto font = monoFont (presentationContext, typography::TextRole::action, visualization);
     const auto overlayWidth = text_style::requiredWidth (font, "VIEW  OVERLAY", style);
     const auto rowsWidth = text_style::requiredWidth (font, "VIEW  2 ROWS", style);
     return attack_ui::modeControlWidth (getWidth(), juce::jmax (overlayWidth, rowsWidth));
@@ -227,10 +230,8 @@ int AttackComponent::viewControlWidth() const
 int AttackComponent::statusControlWidth() const
 {
     const auto style = typography::resolve (
-        presentationContext, typography::TextRole::status,
-        typography::Composition::visualization);
-    const auto font = monoFont (presentationContext, typography::TextRole::status,
-                                typography::Composition::visualization);
+        presentationContext, typography::TextRole::status, visualization);
+    const auto font = monoFont (presentationContext, typography::TextRole::status, visualization);
     return attack_ui::statusControlWidth (
         getWidth(), text_style::requiredWidth (font, "PAIR / HOLD", style));
 }
@@ -247,193 +248,148 @@ const KirinAttackPairEvent* AttackComponent::selectedPairEvent() const noexcept
     return nullptr;
 }
 
-bool AttackComponent::pairHasPostDetail (const KirinAttackPairEvent& pair) const noexcept
-{
-    return pair.post_available != 0
-        && findDetail (detailBatch, pair.post_event_sample,
-                       pair.post_generation, pair.sample_rate) != nullptr;
-}
-
 const KirinAttackDetail* AttackComponent::selectedPostDetail() const noexcept
 {
     if (const auto* pair = selectedPairEvent(); pair != nullptr && pair->post_available != 0)
-        return findDetail (detailBatch, pair->post_event_sample, pair->post_generation, pair->sample_rate);
+        return attack_lanes::findDetail (detailBatch, pair->post_event_sample,
+                                         pair->post_generation, pair->sample_rate);
     if (selectedPairEvent() != nullptr) return nullptr;
-    return findDetail (detailBatch, selectedEventSample, currentGeneration, rate);
+    return attack_lanes::findDetail (detailBatch, selectedEventSample, currentGeneration, rate);
 }
 
 const KirinAttackDetail* AttackComponent::selectedPreDetail() const noexcept
 {
     if (const auto* pair = selectedPairEvent(); pair != nullptr && pair->pre_available != 0)
-        return findDetail (preDetailBatch, pair->pre_event_sample, pair->pre_generation, pair->sample_rate);
+        return attack_lanes::findDetail (preDetailBatch, pair->pre_event_sample,
+                                         pair->pre_generation, pair->sample_rate);
     return nullptr;
 }
 
-void AttackComponent::paint (juce::Graphics& g)
+// Observations only: the cached chrome already holds the stage, grid, rows and labels.
+void AttackComponent::paintHistory (juce::Graphics& g, juce::Rectangle<int> plot)
 {
-    auto bounds = getLocalBounds();
-    // ATTACK owns the Observatory body while selected. Keep the body opaque so the HISTORY
-    // labels beneath this child cannot leak into its transparent header or capture composite.
-    surface_material::paintPanel (g, bounds.toFloat(), 1.0f);
-    const bool running = runtimeStats.available != 0 && runtimeStats.enabled != 0
-                      && runtimeStats.worker_running != 0;
-    const auto responsiveHeaderHeight = attack_ui::headerHeightFor (presentationContext);
-    auto header = bounds.removeFromTop (responsiveHeaderHeight);
-    auto timeline = bounds.removeFromTop (attack_ui::timelineHeight (getHeight()));
-    auto scrub = bounds.removeFromTop (attack_ui::axisHeight (getHeight()));
-    auto transient = bounds.removeFromTop (attack_ui::transientHeight (getHeight()));
-    auto metrics = bounds;
-    const bool paired = pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE;
-    for (auto area : { transient, metrics })
+    const auto first = latest - attack_ui::windowSamples (rate);
+    const bool paired = pairedObservation();
+    if (paired && ! overlayMode)
     {
-        if (area.isEmpty()) continue;
-        g.setColour (juce::Colours::black);
-        g.fillRoundedRectangle (area.reduced (1).toFloat(), 4.0f);
-        surface_material::paintPanel (g, area.reduced (1).toFloat(), 0.12f);
+        const auto laneHeight = plot.getHeight() / 2;
+        auto preLane = plot.removeFromTop (laneHeight);
+        auto postLane = plot.removeFromTop (laneHeight);
+        drawEnvelope (g, preWaveformBatch, preLane.reduced (0, 4),
+                      first, latest, rate, WaveformStyle::continuous, 0.90f);
+        drawEnvelope (g, waveformBatch, postLane.reduced (0, 4),
+                      first, latest, rate, WaveformStyle::continuous, 0.90f);
+        g.setColour (COL_TEXT_TERTIARY);
+        g.setFont (attack_stage::trackedFont (presentationContext, typography::TextRole::legend,
+                                              attack_stage::captionTracking (presentationContext)));
+        g.drawText ("PRE", preLane.reduced (5, 1), juce::Justification::topLeft);
+        g.drawText ("POST", postLane.reduced (5, 1), juce::Justification::topLeft);
     }
-
-    auto titleRow = header.removeFromTop (attack_ui::titleRowHeight (presentationContext));
-    auto viewButton = titleRow.removeFromRight (viewControlWidth());
-    g.setFont (monoFont (presentationContext, typography::TextRole::sectionTitle,
-                         typography::Composition::visualization));
-    g.setColour (COL_NORMAL);
-    g.drawText (getWidth() < 430 ? "DRUM / ATTACK" : "DRUM / ATTACK SPECIMEN",
-                titleRow, juce::Justification::centredLeft);
-    surface_material::paintControl (
-        g, viewButton.reduced (1).toFloat(), false, false, overlayMode,
-        waveformColour, 3.0f);
-    g.setColour (COL_NORMAL);
-    g.setFont (monoFont (presentationContext, typography::TextRole::action,
-                         typography::Composition::visualization));
-    g.drawText (overlayMode ? "VIEW  2 ROWS" : "VIEW  OVERLAY",
-                viewButton, juce::Justification::centred);
-
-    auto state = getWidth() >= 470 ? header.removeFromRight (statusControlWidth())
-                                   : juce::Rectangle<int> {};
-    g.setColour (COL_TEXT_SECONDARY);
-    g.setFont (monoFont (presentationContext, typography::TextRole::legend,
-                         typography::Composition::visualization));
-    g.drawText (timeline.isEmpty() ? "POST FACTS"
-                : getWidth() < 470 ? "RMS / 6 S"
-                : getWidth() >= 700 ? "10 ms RMS / 6 S   PRE trace / POST body"
-                                    : "10 ms RMS / 6 S / -72..0 dBFS",
-                header, juce::Justification::centredLeft);
-    if (! state.isEmpty())
+    else if (paired)
     {
-        g.setColour (COL_TEXT_SECONDARY);
-        g.setFont (monoFont (presentationContext, typography::TextRole::status,
-                             typography::Composition::visualization));
-        g.drawText (juce::String (paired ? "PAIR / " : "POST / ")
-                        + (followLatest ? (liveSignalActive ? "LIVE" : "HOLD") : "LOCK"),
-                    state, juce::Justification::centredRight);
+        const auto waveArea = plot.reduced (0, 7);
+        drawEnvelope (g, preWaveformBatch, waveArea,
+                      first, latest, rate, WaveformStyle::trace, 0.64f);
+        drawEnvelope (g, waveformBatch, waveArea,
+                      first, latest, rate, WaveformStyle::continuous, 0.94f);
     }
-    if (! running || ! attack_ui::validTimeline (latest, rate))
+    else
     {
-        g.setColour (COL_TEXT_SECONDARY);
-        g.setFont (monoFont (presentationContext, typography::TextRole::status,
-                             typography::Composition::visualization));
-        g.drawText (runtimeStats.available == 0 ? "UNAVAILABLE" : "WARMING UP",
-                    timeline.isEmpty() ? getLocalBounds().withTrimmedTop (responsiveHeaderHeight)
-                                       : timeline,
-                    juce::Justification::centred);
-        return;
+        drawEnvelope (g, waveformBatch, plot.reduced (0, 7),
+                      first, latest, rate, WaveformStyle::continuous, 0.94f);
     }
+}
 
-    if (! timeline.isEmpty())
-    {
-        timeline = timeline.reduced (1);
-        surface_material::paintPanel (g, timeline.toFloat(), 0.94f);
-        g.setColour (waveformColour.withAlpha (0.075f));
-        g.drawRoundedRectangle (timeline.toFloat(), 4.0f, 0.7f);
-        for (int second = 1; second < attack_ui::presentationSeconds; ++second)
-        {
-            const auto x = timeline.getX() + second * timeline.getWidth()
-                         / attack_ui::presentationSeconds;
-            g.setColour (waveformColour.withAlpha (second == 3 ? 0.10f : 0.035f));
-            g.drawVerticalLine (x, static_cast<float> (timeline.getY() + 4),
-                                static_cast<float> (timeline.getBottom() - 4));
-        }
-        const auto first = latest - attack_ui::windowSamples (rate);
-        if (paired && ! overlayMode)
-        {
-            const auto laneHeight = timeline.getHeight() / 2;
-            auto preLane = timeline.removeFromTop (laneHeight);
-            auto postLane = timeline.removeFromTop (laneHeight);
-            drawEnvelope (g, preWaveformBatch, preLane.reduced (0, 4),
-                          first, latest, rate, WaveformStyle::continuous, 0.90f);
-            drawEnvelope (g, waveformBatch, postLane.reduced (0, 4),
-                          first, latest, rate, WaveformStyle::continuous, 0.90f);
-            g.setColour (waveformColour.withAlpha (0.075f));
-            g.drawHorizontalLine (preLane.getBottom(), static_cast<float> (preLane.getX() + 3),
-                                  static_cast<float> (preLane.getRight() - 3));
-            g.setColour (COL_TEXT_TERTIARY);
-            g.setFont (monoFont (presentationContext, typography::TextRole::legend,
-                                 typography::Composition::visualization));
-            g.drawText ("PRE", preLane.reduced (5, 1), juce::Justification::topLeft);
-            g.drawText ("POST", postLane.reduced (5, 1), juce::Justification::topLeft);
-        }
-        else if (paired)
-        {
-            const auto waveArea = timeline.reduced (0, 7);
-            drawEnvelope (g, preWaveformBatch, waveArea,
-                          first, latest, rate, WaveformStyle::trace, 0.64f);
-            drawEnvelope (g, waveformBatch, waveArea,
-                          first, latest, rate, WaveformStyle::continuous, 0.94f);
-        }
-        else
-        {
-            drawEnvelope (g, waveformBatch, timeline.reduced (0, 7),
-                          first, latest, rate, WaveformStyle::continuous, 0.94f);
-        }
-    }
-
+void AttackComponent::paintAxis (juce::Graphics& g, juce::Rectangle<int> axis)
+{
     std::uint32_t visibleCount = 0;
     const auto countVisible = [&] (std::int64_t sample)
     {
         if (attack_ui::eventIsVisible (sample, latest, rate))
             ++visibleCount;
     };
-    if (paired)
-    {
-        const auto count = juce::jmin (
-            pairEventBatch.count,
-            static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
-        for (std::uint32_t index = 0; index < count; ++index)
+    if (pairedObservation())
+        for (std::uint32_t index = 0; index < juce::jmin (pairEventBatch.count,
+                 static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY)); ++index)
             countVisible (pairEventBatch.events[index].event_sample);
+    else
+        for (std::uint32_t index = 0; index < juce::jmin (eventBatch.count,
+                 static_cast<std::uint32_t> (KIRIN_ATTACK_EVENT_BATCH_CAPACITY)); ++index)
+            countVisible (eventBatch.events[index].event_sample);
+
+    const auto labelWidth = juce::jmin (35, axis.getWidth() / 5);
+    axis.removeFromLeft (labelWidth); // "-6 s" and the rail are cached chrome.
+    g.setFont (monoFont (presentationContext, typography::TextRole::axis, visualization));
+    g.setColour (followLatest ? selectionColour : COL_TEXT_TERTIARY);
+    g.drawText ("NOW", axis.removeFromRight (labelWidth), juce::Justification::centredRight);
+    g.setColour (COL_NORMAL);
+    const auto mode = followLatest ? juce::String ("LIVE") : juce::String ("LOCK");
+    const auto noun = visibleCount == 1 ? juce::String (" EVENT") : juce::String (" EVENTS");
+    attack_lane_painter::drawFitting (g, { juce::String (visibleCount) + noun + "  /  " + mode,
+                                           juce::String (visibleCount) + " / " + mode },
+                                      axis, presentationContext, typography::TextRole::axis,
+                                      juce::Justification::centred);
+}
+
+void AttackComponent::paintSelection (juce::Graphics& g, const attack_ui::Layout& shape)
+{
+    const auto history = historyPlotBounds();
+    const auto x = attack_ui::eventX (selectedEventSample, latest, rate, history.getWidth());
+    if (history.isEmpty() || x < 0)
+        return;
+    const bool lanes = shape.arrangement == attack_ui::Arrangement::lanes;
+    const auto bottom = lanes ? shape.lanes.back().bottom() - 3 : history.getBottom() - 2;
+    attack_lane_painter::paintHypha (
+        g, static_cast<float> (history.getX() + x) + 0.5f, static_cast<float> (history.getY() + 2),
+        static_cast<float> (bottom), static_cast<float> (history.getCentreY()),
+        selectedEventSample);
+}
+
+void AttackComponent::paint (juce::Graphics& g)
+{
+    const auto shape = layout();
+    const bool running = runtimeStats.available != 0 && runtimeStats.enabled != 0
+                      && runtimeStats.worker_running != 0;
+    const bool dormant = ! running || ! attack_ui::validTimeline (latest, rate);
+    paintChrome (g, shape, dormant);
+    paintHeaderState (g, shape);
+    if (shape.arrangement == attack_ui::Arrangement::header)
+        return;
+    if (dormant)
+    {
+        // Lanes stay empty until data is valid; the state is stated once, inside HISTORY.
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (presentationContext, typography::TextRole::status, visualization));
+        g.drawText (runtimeStats.available == 0 ? "UNAVAILABLE" : "WARMING UP",
+                    shape.history.empty() ? getLocalBounds().withTrimmedTop (shape.header.height)
+                                          : rectangleOf (shape.history),
+                    juce::Justification::centred);
+        return;
+    }
+    const attack_lane_painter::Frame frame { laneModel, latest, rate, selectedEventSample,
+                                             presentationContext };
+    const auto history = historyPlotBounds();
+    if (! history.isEmpty())
+        paintHistory (g, history);
+    if (shape.arrangement == attack_ui::Arrangement::lanes)
+    {
+        const auto readout = rectangleOf (shape.history).removeFromRight (shape.readoutWidth);
+        if (shape.loupe)
+            attack_loupe::paint (g, readout.reduced (2, 1), selectedPreDetail(),
+                                 selectedPostDetail(), presentationContext);
+        else
+            attack_lane_painter::paintSelectedTime (g, readout, frame);
+        for (std::size_t index = 0; index < attack_ui::laneCount; ++index)
+            attack_lane_painter::paintLaneValues (
+                g, attack_lanes::lanes[index], plotColumn (shape.lanes[index]).reduced (0, 1),
+                rectangleOf (shape.lanes[index]).removeFromRight (shape.readoutWidth), frame);
     }
     else
     {
-        const auto count = juce::jmin (
-            eventBatch.count, static_cast<std::uint32_t> (KIRIN_ATTACK_EVENT_BATCH_CAPACITY));
-        for (std::uint32_t index = 0; index < count; ++index)
-            countVisible (eventBatch.events[index].event_sample);
+        attack_lane_painter::paintLine (g, rectangleOf (shape.line), frame);
     }
-
-    const auto markerArea = timelineBounds().reduced (1);
-    const auto selectedX = attack_ui::eventX (
-        selectedEventSample, latest, rate, markerArea.getWidth());
-    if (! metrics.isEmpty() && selectedX >= 0)
-        drawSelectionArc (g, markerArea.getX() + selectedX, markerArea);
-
-    if (! scrub.isEmpty())
-    {
-        const auto railY = scrub.getCentreY() - 2;
-        g.setColour (waveformColour.withAlpha (0.28f));
-        g.drawHorizontalLine (railY, static_cast<float> (scrub.getX() + 35),
-                              static_cast<float> (scrub.getRight() - 35));
-        g.setFont (monoFont (presentationContext, typography::TextRole::axis,
-                             typography::Composition::visualization));
-        g.setColour (COL_TEXT_TERTIARY);
-        g.drawText ("-6 s", scrub.removeFromLeft (35), juce::Justification::centredLeft);
-        g.setColour (followLatest ? selectionColour : COL_TEXT_TERTIARY);
-        g.drawText ("NOW", scrub.removeFromRight (35), juce::Justification::centredRight);
-        g.setColour (COL_NORMAL);
-        g.drawText (juce::String (visibleCount)
-                        + (followLatest ? " EVENTS  /  LIVE" : " EVENTS  /  LOCK"),
-                    scrub, juce::Justification::centred);
-    }
-
-    paintTransientComparison (g, transient);
-    paintSelectedEvent (g, metrics);
+    paintSelection (g, shape);
+    if (! shape.axis.empty())
+        paintAxis (g, axisPlotBounds());
 }
 }

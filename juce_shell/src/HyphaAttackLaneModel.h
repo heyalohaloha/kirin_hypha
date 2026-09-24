@@ -1,0 +1,248 @@
+#pragma once
+
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <limits>
+
+#include "kirin_hypha_ffi.h"
+#include "HyphaAttackUiContract.h"
+
+// Per-hit DRUM lanes. Paired lanes are exact POST - PRE differences of the existing event
+// details; without a pair they are POST absolute observations. A value is withheld, never
+// estimated, when its two measurement windows are not the same audio position or when the
+// preceding context is below the HISTORY floor (the contrast would describe silence, not a hit).
+namespace hypha::attack_lanes
+{
+enum class Lane : std::uint8_t
+{
+    transient,
+    strength,
+    crest,
+    sharpness,
+};
+
+inline constexpr std::array<Lane, attack_ui::laneCount> lanes {
+    Lane::transient, Lane::strength, Lane::crest, Lane::sharpness };
+
+enum class Reason : std::uint8_t
+{
+    value,
+    missing,       // detail not delivered yet, or a non-finite descriptor
+    noMatch,       // PRE-only, POST-only or ambiguous common event
+    onsetDiffers,  // PRE and POST onsets differ, so their windows are different audio
+    afterSilence,  // TRANSIENT context below the HISTORY floor
+    pairOnly,      // SHARPNESS per hit is shown only as an exact PRE/POST difference
+};
+
+struct Cell
+{
+    float value = std::numeric_limits<float>::quiet_NaN();
+    Reason reason = Reason::missing;
+};
+
+struct Side
+{
+    bool available = false;
+    std::int64_t onset = 0;
+    std::array<float, attack_ui::laneCount> values {
+        std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN() };
+    float contextDb = std::numeric_limits<float>::quiet_NaN();
+};
+
+struct Hit
+{
+    std::int64_t sample = 0;
+    bool selectable = false; // B-778: only events with delivered POST detail can be selected.
+    std::array<Cell, attack_ui::laneCount> cells {};
+    Side pre {}, post {};
+};
+
+struct Model
+{
+    bool delta = false;
+    std::uint32_t count = 0;
+    std::array<Hit, KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY> hits {};
+};
+
+static_assert (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY >= KIRIN_ATTACK_DETAIL_BATCH_CAPACITY);
+
+constexpr std::size_t index (Lane lane) noexcept
+{
+    return static_cast<std::size_t> (lane);
+}
+
+struct Scale
+{
+    float minimum = 0.0f;
+    float maximum = 1.0f;
+    bool centred = false;
+};
+
+// Fixed scales. The dB lanes share one range so the same change has the same bar length in every
+// lane. Per-hit Sharpness differences in the B-1015 audit stayed within about +/-0.75 acum.
+constexpr Scale scaleFor (Lane lane, bool delta) noexcept
+{
+    if (delta)
+        return lane == Lane::sharpness ? Scale { -1.0f, 1.0f, true }
+                                       : Scale { -12.0f, 12.0f, true };
+    switch (lane)
+    {
+        case Lane::transient: return { 0.0f, 18.0f, false };
+        case Lane::strength:  return { attack_ui::absoluteFloorDb, 0.0f, false };
+        case Lane::crest:     return { 0.0f, 24.0f, false };
+        case Lane::sharpness: return { 0.0f, 1.0f, false };
+    }
+    return {};
+}
+
+struct Extent
+{
+    float from = 0.0f; // 0 = bottom of the plot, 1 = top
+    float to = 0.0f;
+    bool clippedLow = false;
+    bool clippedHigh = false;
+};
+
+constexpr Extent extentFor (float value, Scale scale) noexcept
+{
+    const auto span = scale.maximum - scale.minimum;
+    if (! (span > 0.0f) || value != value)
+        return {};
+    const auto clamped = value < scale.minimum ? scale.minimum
+                       : value > scale.maximum ? scale.maximum : value;
+    const auto position = (clamped - scale.minimum) / span;
+    const auto base = scale.centred ? (0.0f - scale.minimum) / span : 0.0f;
+    return { base, position, value < scale.minimum, value > scale.maximum };
+}
+
+static_assert (extentFor (6.0f, scaleFor (Lane::transient, true)).to == 0.75f);
+static_assert (extentFor (-30.0f, scaleFor (Lane::crest, true)).clippedLow);
+static_assert (extentFor (-36.0f, scaleFor (Lane::strength, false)).to == 0.5f);
+
+inline const KirinAttackDetail* findDetail (const KirinAttackDetailBatch& batch,
+                                            std::int64_t sample, std::uint64_t generation,
+                                            std::uint32_t rate) noexcept
+{
+    const auto count = batch.count < KIRIN_ATTACK_DETAIL_BATCH_CAPACITY
+        ? batch.count : static_cast<std::uint32_t> (KIRIN_ATTACK_DETAIL_BATCH_CAPACITY);
+    for (std::uint32_t item = 0; item < count; ++item)
+        if (batch.details[item].event_sample == sample
+            && batch.details[item].generation == generation
+            && batch.details[item].sample_rate == rate)
+            return &batch.details[item];
+    return nullptr;
+}
+
+inline Side sideFor (const KirinAttackDetail* detail) noexcept
+{
+    Side side;
+    if (detail == nullptr)
+        return side;
+    side.available = true;
+    side.onset = detail->event_sample;
+    side.values[index (Lane::transient)] = detail->contrast_db;
+    side.values[index (Lane::strength)] = detail->attack_rms_dbfs;
+    side.values[index (Lane::crest)] = detail->crest_db;
+    if (detail->sharpness_available != 0)
+        side.values[index (Lane::sharpness)] = detail->sharpness_acum;
+    side.contextDb = detail->context_rms_dbfs;
+    return side;
+}
+
+inline Cell withheld (Reason reason) noexcept
+{
+    return { std::numeric_limits<float>::quiet_NaN(), reason };
+}
+
+inline Cell measured (float value) noexcept
+{
+    return std::isfinite (value) ? Cell { value, Reason::value } : Cell {};
+}
+
+inline bool silentContext (const Side& side) noexcept
+{
+    return ! std::isfinite (side.contextDb) || side.contextDb < attack_ui::absoluteFloorDb;
+}
+
+inline void fillDelta (Hit& hit, std::uint8_t kind, bool preOffered, bool postOffered) noexcept
+{
+    const auto withholdAll = [&hit] (Reason reason) { hit.cells.fill (withheld (reason)); };
+    if (kind != 0 || ! preOffered || ! postOffered)
+        return withholdAll (Reason::noMatch);
+    if (! hit.pre.available || ! hit.post.available)
+        return withholdAll (Reason::missing);
+    if (hit.pre.onset != hit.post.onset)
+        return withholdAll (Reason::onsetDiffers);
+    for (const auto lane : lanes)
+    {
+        const auto pre = hit.pre.values[index (lane)];
+        const auto post = hit.post.values[index (lane)];
+        auto& cell = hit.cells[index (lane)];
+        if (lane == Lane::transient && (silentContext (hit.pre) || silentContext (hit.post)))
+            cell = withheld (Reason::afterSilence);
+        else
+            cell = std::isfinite (pre) && std::isfinite (post) ? measured (post - pre) : Cell {};
+    }
+}
+
+inline void fillAbsolute (Hit& hit) noexcept
+{
+    for (const auto lane : lanes)
+        hit.cells[index (lane)] = measured (hit.post.values[index (lane)]);
+    if (silentContext (hit.post))
+        hit.cells[index (Lane::transient)] = withheld (Reason::afterSilence);
+    hit.cells[index (Lane::sharpness)] = withheld (Reason::pairOnly);
+}
+
+// Snapshot inputs are already restricted to the current generation and sample rate.
+inline void build (Model& model, const KirinAttackPairEventBatch& pairs,
+                   const KirinAttackDetailBatch& post, const KirinAttackDetailBatch& pre,
+                   std::uint64_t postGeneration, std::uint32_t rate) noexcept
+{
+    model.delta = pairs.status == KIRIN_SPECTRUM_ACTIVE;
+    model.count = 0;
+    if (model.delta)
+    {
+        const auto count = pairs.count < KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY
+            ? pairs.count : static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY);
+        for (std::uint32_t item = 0; item < count; ++item)
+        {
+            const auto& pair = pairs.events[item];
+            auto& hit = model.hits[model.count++];
+            hit = {};
+            hit.sample = pair.event_sample;
+            hit.post = sideFor (pair.post_available != 0 ? findDetail (
+                post, pair.post_event_sample, pair.post_generation, pair.sample_rate) : nullptr);
+            hit.pre = sideFor (pair.pre_available != 0 ? findDetail (
+                pre, pair.pre_event_sample, pair.pre_generation, pair.sample_rate) : nullptr);
+            hit.selectable = hit.post.available;
+            fillDelta (hit, pair.kind, pair.pre_available != 0, pair.post_available != 0);
+        }
+        return;
+    }
+    const auto count = post.count < KIRIN_ATTACK_DETAIL_BATCH_CAPACITY
+        ? post.count : static_cast<std::uint32_t> (KIRIN_ATTACK_DETAIL_BATCH_CAPACITY);
+    for (std::uint32_t item = 0; item < count; ++item)
+    {
+        const auto& detail = post.details[item];
+        if (detail.generation != postGeneration || detail.sample_rate != rate)
+            continue;
+        auto& hit = model.hits[model.count++];
+        hit = {};
+        hit.sample = detail.event_sample;
+        hit.post = sideFor (&detail);
+        hit.selectable = true;
+        fillAbsolute (hit);
+    }
+}
+
+inline const Hit* find (const Model& model, std::int64_t sample) noexcept
+{
+    for (std::uint32_t item = 0; item < model.count; ++item)
+        if (model.hits[item].sample == sample)
+            return &model.hits[item];
+    return nullptr;
+}
+}
