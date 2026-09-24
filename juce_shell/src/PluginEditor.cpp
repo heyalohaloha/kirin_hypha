@@ -230,7 +230,7 @@ juce::String KirinHyphaEditor::instanceId8() const
 
 void KirinHyphaEditor::paint (juce::Graphics& g)
 {
-    bg.draw (g, getLocalBounds()); // mycelium PNG over BG (R-12: pure chrome)
+    bg.draw (g, getLocalBounds()); // current Observatory plate (R-12: pure chrome)
 
     g.setColour (COL_NORMAL);
     g.setFont (hypha::labelFont (hypha::presentation::forEditor (getWidth(), getHeight()),

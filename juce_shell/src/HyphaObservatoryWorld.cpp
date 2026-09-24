@@ -6,7 +6,6 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaJungleMaterial.h"
 
-#include <array>
 #include <cmath>
 
 namespace hypha::observatory_world
@@ -19,36 +18,6 @@ const juce::Image& sharedBackdropImage()
         BinaryData::observatory_understory_png,
         static_cast<size_t> (BinaryData::observatory_understory_pngSize));
     return shared;
-}
-
-const juce::Image& sharedHyphaSpecimenImage()
-{
-    static const juce::Image shared = juce::ImageFileFormat::loadFrom (
-        BinaryData::bg_mycelium_png,
-        static_cast<size_t> (BinaryData::bg_mycelium_pngSize));
-    return shared;
-}
-
-const std::array<juce::Image, 4>& sharedHyphaSpecimenVariants()
-{
-    static const std::array<juce::Image, 4> variants = []
-    {
-        const auto& source = sharedHyphaSpecimenImage();
-        return std::array<juce::Image, 4> {
-            source.rescaled (174, 116, juce::Graphics::mediumResamplingQuality),
-            source.rescaled (240, 160, juce::Graphics::mediumResamplingQuality),
-            source.rescaled (270, 180, juce::Graphics::mediumResamplingQuality),
-            source,
-        };
-    }();
-    return variants;
-}
-
-size_t densityIndex (observatory::Density density) noexcept
-{
-    return density == observatory::Density::compact ? 0u
-         : density == observatory::Density::focused ? 1u
-         : density == observatory::Density::standard ? 2u : 3u;
 }
 
 float visualScale (const State& state) noexcept
@@ -154,7 +123,6 @@ void paintReferenceBridge (juce::Graphics& g, juce::Rectangle<float> area, const
 Backdrop::Backdrop()
 {
     image = sharedBackdropImage();
-    hyphaSpecimen = sharedHyphaSpecimenImage();
 }
 
 juce::Rectangle<float> aspectFillSourceBounds (int sourceWidth, int sourceHeight,
@@ -258,22 +226,6 @@ void Backdrop::drawDomainBed (juce::Graphics& g, juce::Rectangle<int> area,
     juce::Graphics::ScopedSaveState saved (g);
     g.setOpacity (1.0f);
     g.drawImage (domainBed, rasterArea.toFloat());
-}
-
-void Backdrop::drawHyphaSpecimen (juce::Graphics& g,
-                                  juce::Rectangle<int> area,
-                                  const State& state) const
-{
-    if (state.domain != observatory::Domain::time
-        || ! hyphaSpecimen.isValid() || area.isEmpty())
-        return;
-
-    const auto& specimen = sharedHyphaSpecimenVariants()[densityIndex (state.density)];
-    const int x = area.getCentreX() - specimen.getWidth() / 2;
-    const int y = area.getBottom() - specimen.getHeight();
-    juce::Graphics::ScopedSaveState saved (g);
-    g.setOpacity (hyphaSpecimenOpacity (state));
-    g.drawImageAt (specimen, x, y, false);
 }
 
 void paintDomainBed (juce::Graphics& g, juce::Rectangle<int> area, const State& state)

@@ -429,11 +429,7 @@ void View::paint (juce::Graphics& g)
     }
     const auto layout = shellLayout (role, currentPreset(), guidePresence());
     if (contract.domainWorld)
-    {
         background.drawDomainBed (g, bodyArea, state);
-        if (selectedDomain == Domain::time)
-            background.drawHyphaSpecimen (g, bodyArea, state);
-    }
     paintHeader (g, layout);
     if (recordDisplayShowing())
         paintRecordDisplay (g, bodyArea);

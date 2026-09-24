@@ -34,28 +34,19 @@ constexpr float backdropOpacity (const State& state) noexcept
     return density * role * signal * capture * jungle;
 }
 
-constexpr float hyphaSpecimenOpacity (const State& state) noexcept
-{
-    const float role = state.role == observatory::Role::pre ? 0.90f : 1.0f;
-    const float signal = state.active ? 0.32f : 0.20f;
-    return signal * role * (state.jungle ? 1.05f : 1.0f);
-}
-
 class Backdrop
 {
 public:
     Backdrop();
     void draw (juce::Graphics&, juce::Rectangle<int>, const State&) const;
-    void drawHyphaSpecimen (juce::Graphics&, juce::Rectangle<int>, const State&) const;
     void drawDomainBed (juce::Graphics&, juce::Rectangle<int>, const State&) const;
     bool isValid() const noexcept
     {
-        return image.isValid() && hyphaSpecimen.isValid();
+        return image.isValid();
     }
 
 private:
     juce::Image image;
-    juce::Image hyphaSpecimen;
     // Only the immutable texture is cached; state-dependent opacity remains live.
     mutable juce::Image scaledBackdrop;
     mutable juce::Point<int> scaledBackdropLogicalSize;

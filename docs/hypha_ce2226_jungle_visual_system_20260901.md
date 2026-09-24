@@ -74,9 +74,9 @@ ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep teal�
 
 LEVELは全面背景の上へ別の不透明画像を重ねない。
 
-指定されたHypha素材`bg_mycelium.png`はTIMEとATTACKの下層へ固定表示し、時間が堆積する菌糸床として扱う。
+LEVEL / TIME / FREQ / SPACE / Referenceと親editorの背景は、すべて同じ`observatory_understory.png`へ統一する。
 
-生成した外周素材は観測所、`bg_mycelium.png`はHypha本体という役割に分ける。
+TIMEとATTACKの時間層はnativeの地層線と実測historyで表し、旧`bg_mycelium.png`を重ねない。
 
 数値、label、unit、axis、statusはJUCEで描画し、生成画像へ焼き込まない。
 
@@ -252,8 +252,6 @@ PREは同じ素材をPOSTの90%へ抑える。
 
 InactiveとBypassedはActiveの82%へ抑える。最暗条件のPRE Compact Inactiveでも約53%を維持し、信号がなくても構造層が読み取れるようにする。
 
-TIMEの`bg_mycelium.png`は新背景を置き換える全面素材ではなく、時間層の下端標本に限定する。Active 32%、Inactive 20%を上限とし、PREはその90%に抑える。
-
 Captureは静止画で外周を読み取れるよう、同じ背景を8%だけ持ち上げる。
 
 LEVELの菌糸量はLUFS-Mを`-48..0 LUFS`から`0..1`へclampした値だけで変える。
@@ -306,9 +304,7 @@ LEVELのObservation Plateでは、通常画面を縦横へ引き伸ばさず、�
 
 参照画像はHypha内のConcept CとATTACK emissionだけである。
 
-指定された添付JPEGと既存`bg_mycelium.png`は300×200で一致し、pixel比較の平均PSNRは47.12 dBだった。
-
-JPEG圧縮による差をproduction assetへ増やさないため、既存のPNG正本を使用する。
+旧`bg_mycelium.png`と対応する添付JPEGは初期系統の確認にだけ使用し、B-1011でproduction assetと全描画経路から除去した。
 
 Kirin SenseのJungle素材は今回の実装へコピーしていない。
 
@@ -357,8 +353,6 @@ ATTACKはCompact、Observatory、1200×630 Captureの三経路でbodyが欠落�
 TIMEとSPACEの600×400描画は12 ms未満を維持し、900×600も独立の性能上限で検証する。
 
 背景PNGはUIプロセス内で一度だけdecodeし、通常ViewとCapture Viewで共有する。
-
-指定Hypha素材は四つの画面密度に対応するrasterを初回だけ生成し、通常描画では再scaleしない。
 
 描画処理はMessage Threadだけで動作する。
 

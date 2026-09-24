@@ -22,15 +22,6 @@ inline void verifyObservatoryBackdropContract()
     KIRIN_OBSERVATORY_REQUIRE (preInactive > minimumBackdrop);
     KIRIN_OBSERVATORY_REQUIRE (minimumBackdrop >= 0.50f);
 
-    probeState.role = observatory::Role::post;
-    probeState.active = true;
-    const auto activeSpecimen = observatory_world::hyphaSpecimenOpacity (probeState);
-    probeState.active = false;
-    const auto inactiveSpecimen = observatory_world::hyphaSpecimenOpacity (probeState);
-    KIRIN_OBSERVATORY_REQUIRE (activeSpecimen > inactiveSpecimen);
-    KIRIN_OBSERVATORY_REQUIRE (activeSpecimen <= 0.32f);
-    KIRIN_OBSERVATORY_REQUIRE (inactiveSpecimen <= 0.20f);
-
     const auto source = juce::ImageFileFormat::loadFrom (
         BinaryData::observatory_understory_png,
         static_cast<size_t> (BinaryData::observatory_understory_pngSize));

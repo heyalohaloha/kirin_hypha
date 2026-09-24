@@ -6,7 +6,7 @@
 
 #include "HyphaTheme.h"
 
-// B-054: shared GUI primitives ported element-for-element from crates/hypha_gui
+// Shared GUI primitives ported element-for-element from crates/hypha_gui
 // (background.rs / led.rs / common.rs) and the egui PRE/POST name fields. No measurement
 // logic lives here (R-12 / R-22): widgets only render values the Rust engine produces.
 namespace hypha
@@ -52,14 +52,13 @@ namespace hypha
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PairDropdownButton)
     };
 
-    // ── background.rs: mycelium PNG (300×200), drawn OPAQUE over the BG fill. ───────────────
-    // The "15%" is the asset's baked-in brightness (RGB <= 96), not an opacity multiplier —
-    // egui draws it with Color32::WHITE (background.rs:84). A draw-helper (not a Component) so
-    // the editor can paint it first and then its own title/flora chrome on top.
-    class MyceliumBackground
+    // ── background.rs: current Observatory plate, drawn opaque over the BG fill. ───────────
+    // A draw-helper (not a Component) lets the parent editor and Observatory child share the
+    // same visual world without a legacy layer appearing through component gaps.
+    class ProductBackground
     {
     public:
-        MyceliumBackground(); // decodes once from embedded BinaryData (invalid -> BG fill only)
+        ProductBackground(); // decodes once from embedded BinaryData (invalid -> BG fill only)
         void draw (juce::Graphics&, juce::Rectangle<int> area) const;
     private:
         juce::Image image;
