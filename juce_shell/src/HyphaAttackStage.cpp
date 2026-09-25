@@ -50,10 +50,11 @@ void paint (juce::Graphics& g, juce::Rectangle<float> area, float corner, float 
                 outer.getRight() - radius, outer.getBottom() - 0.5f, 0.8f);
 }
 
+// Measuring only: setFont builds the same font inline, as the typography source contract requires.
 juce::Font trackedFont (const presentation::Context& context, typography::TextRole role,
                         float tracking)
 {
-    const auto font = monoFont (context, role, typography::Composition::visualization);
-    return tracking > 0.0f ? font.withExtraKerningFactor (tracking) : font;
+    return monoFont (context, role, typography::Composition::visualization)
+        .withExtraKerningFactor (tracking);
 }
 }

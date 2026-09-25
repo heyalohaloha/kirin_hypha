@@ -121,7 +121,8 @@ fn confirmed_runtime_event_receives_real_perceptual_detail() {
     let runtime = AttackRuntime::new(48_000, 2).unwrap();
     assert!(runtime.set_enabled(true));
     // The body ends 130 ms after the onset and every earlier onset must be decided first.
-    feed(&runtime, 24_000, 256, Some(8_000));
+    // Phase D settles 300 ms after the run start, so the hit comes after that.
+    feed(&runtime, 28_800, 256, Some(16_000));
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
         if let Some(detail) = runtime

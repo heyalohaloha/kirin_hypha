@@ -52,10 +52,10 @@ TIME directly selects **HISTORY**, validated DRUM **ATTACK**, signed **SHARP**, 
 
 DRUM draws the six-second PRE/POST envelope above four per-hit lanes on the same time axis:
 **TRANSIENT** (the first 30 ms against the body that follows), **STRENGTH**, **CREST**, and
-**SHARPNESS** (the first 100 ms), each as POST − PRE. POST is measured at the PRE onset, so both
-sides always read the same audio. A TRANSIENT whose next hit leaves no 20 ms body, or whose body is
-below the −72 dBFS HISTORY floor, shows the reason instead of a value. Without PRE, the lanes show
-POST values.
+**SHARPNESS** (the first 100 ms), each as POST − PRE. A matched POST hit is measured at the PRE
+onset, so both sides read the same content samples. A TRANSIENT whose next hit leaves no 20 ms body,
+or whose body is below the −72 dBFS HISTORY floor, shows the reason instead of a value. Without PRE,
+the lanes show POST values.
 
 ### FREQ — where the chain changed
 

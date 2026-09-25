@@ -18,6 +18,10 @@ const PHASE_D_RATE: i64 = 48_000;
 const PHASE_D_FRAME_SAMPLES: i64 = 24;
 /// The DIN 45692 implementation reports 0 acum below 0.1 sone; such frames carry no Sharpness.
 pub(super) const SHARPNESS_MIN_LOUDNESS_SONE: f64 = 0.1;
+/// A reset Phase D stream (filter bank, temporal decay) takes about 300 ms to settle. With the
+/// same drum-like input reset 1 s apart, a 100 ms window read +0.42 acum at the epoch, +0.13 at
+/// 50 ms, +0.025 at 200 ms and +0.003 at 300 ms, at 48 kHz and 44.1 kHz alike.
+const SETTLE_CHUNKS: i64 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct SharpnessFrame {
@@ -83,9 +87,10 @@ impl AttackSharpnessStream {
         self.frames = 0;
     }
 
-    /// First content sample with Phase D frames in this run.
-    pub(super) fn epoch(&self) -> i64 {
-        self.epoch
+    /// First content sample whose Sharpness no longer depends on where the run started: windows
+    /// that start earlier (the first hit after a transport start or loop jump) have none.
+    pub(super) fn settled(&self) -> i64 {
+        self.epoch + SETTLE_CHUNKS * self.chunk
     }
 
     /// Source sample of the next frame: every bin before it has all of its frames.

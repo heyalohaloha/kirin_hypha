@@ -78,7 +78,7 @@ bool drawFitting (juce::Graphics& g, std::initializer_list<juce::String> candida
         if (text.isNotEmpty()
             && text_style::requiredWidth (font, text, style) <= area.getWidth())
         {
-            g.setFont (font);
+            g.setFont (monoFont (context, role, visualization).withExtraKerningFactor (tracking));
             g.drawText (text, area, justification, false);
             return true;
         }
@@ -276,8 +276,7 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
         return;
     }
     // The readout states the lane's own quantity only: POST - PRE when paired, the POST value
-    // otherwise. Per-hit PRE and POST operands are not shown (SHARPNESS per hit is a difference
-    // only until its aperture follows the onset).
+    // otherwise. Per-hit PRE and POST operands are not shown.
     const auto& value = hit->cells[index (lane)];
     if (value.reason == Reason::value)
     {

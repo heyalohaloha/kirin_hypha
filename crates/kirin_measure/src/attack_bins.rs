@@ -37,7 +37,7 @@ pub(super) struct AttackBins {
     generation: u64,
     first: i64,
     bins: VecDeque<Bin>,
-    /// First bin with Phase D frames in this run; `None` when the rate has no Sharpness.
+    /// First bin whose windows read Sharpness in this run; `None` when the rate has none.
     sharpness_start: Option<i64>,
     /// Bins before this index have every Phase D frame.
     sharpness_end: i64,
@@ -61,13 +61,14 @@ impl AttackBins {
     }
 
     /// Start a continuous run. Bins are complete from the first whole bin at or after `start`;
-    /// Phase D frames cover every bin from the first whole bin at or after `sharpness_epoch`.
-    /// Without a Sharpness stream every window is complete as soon as its level bins are.
-    pub(super) fn begin_run(&mut self, start: i64, generation: u64, sharpness_epoch: Option<i64>) {
+    /// windows read Sharpness from the first whole bin at or after `sharpness_from`, where the
+    /// Phase D frames exist and have settled. Without a Sharpness stream every window is complete
+    /// as soon as its level bins are.
+    pub(super) fn begin_run(&mut self, start: i64, generation: u64, sharpness_from: Option<i64>) {
         self.generation = generation;
         self.first = self.whole_bin_from(start);
         self.bins.clear();
-        self.sharpness_start = sharpness_epoch.map(|epoch| self.whole_bin_from(epoch));
+        self.sharpness_start = sharpness_from.map(|from| self.whole_bin_from(from));
         self.sharpness_end = i64::MIN;
         self.waiting.clear();
     }

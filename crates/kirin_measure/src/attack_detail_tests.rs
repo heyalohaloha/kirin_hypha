@@ -127,7 +127,8 @@ fn burst(onset: i64, position: i64) -> f32 {
     noise * 0.6 * (-(offset as f32) / 2_400.0).exp()
 }
 
-fn sharpness_at(onset: i64, block: usize) -> f32 {
+/// The run starts at 0; Phase D has settled from 14_400 (300 ms).
+fn sharpness_at(onset: i64, block: usize) -> Option<f32> {
     const RATE: u32 = 48_000;
     let shared = Mutex::new(AttackBins::new(RATE, 1));
     let mut tracker = AttackDetailTracker::new(RATE, 1);
@@ -145,7 +146,7 @@ fn sharpness_at(onset: i64, block: usize) -> f32 {
     tracker.note_decided_before(end);
     let details = tracker.flush(&shared);
     assert_eq!(details.len(), 1);
-    details[0].features.sharpness_acum.unwrap()
+    details[0].features.sharpness_acum
 }
 
 #[test]
@@ -153,17 +154,17 @@ fn per_hit_sharpness_follows_the_onset_not_a_fixed_grid() {
     // The fixed 100 ms grid read 0.6 to 3.0 acum for one snare moved in 10 ms steps. Moves by
     // whole 100 ms read identical Phase D input; other moves differ only by where the 100 ms
     // input chunks split the hit and by the sub-millisecond window start.
-    let first = sharpness_at(9_617, 512);
+    let first = sharpness_at(24_017, 512).unwrap();
     assert!(first > 0.5, "{first}");
     for shift in [4_800, 9_600] {
-        let moved = sharpness_at(9_617 + shift, 512);
+        let moved = sharpness_at(24_017 + shift, 512).unwrap();
         assert!(
             (moved - first).abs() < 1e-6,
             "{first} vs {moved} at {shift}"
         );
     }
     for shift in [7, 25, 480, 961, 2_400, 4_327] {
-        let moved = sharpness_at(9_617 + shift, 512);
+        let moved = sharpness_at(24_017 + shift, 512).unwrap();
         assert!(
             (moved - first).abs() < 0.05,
             "{first} vs {moved} at {shift}"
@@ -173,8 +174,35 @@ fn per_hit_sharpness_follows_the_onset_not_a_fixed_grid() {
 
 #[test]
 fn host_block_size_never_changes_a_value() {
-    let reference = sharpness_at(10_097, 512);
+    let reference = sharpness_at(24_497, 512);
+    assert!(reference.is_some());
     for block in [64, 333, 4_096] {
-        assert_eq!(sharpness_at(10_097, block), reference, "block {block}");
+        assert_eq!(sharpness_at(24_497, block), reference, "block {block}");
     }
+}
+
+#[test]
+fn a_hit_before_phase_d_settles_has_no_sharpness() {
+    // The first hit after a transport start or loop jump would read up to 0.4 acum high.
+    assert_eq!(sharpness_at(9_617, 512), None);
+    assert_eq!(
+        sharpness_at(14_399, 512),
+        None,
+        "its window starts in bin 299"
+    );
+    assert!(sharpness_at(14_400, 512).is_some());
+}
+
+#[test]
+fn a_failed_sharpness_stream_is_rebuilt_for_the_next_run() {
+    let mut tracker = AttackDetailTracker::new(48_000, 1);
+    assert!(tracker.begin_block(0, 5));
+    tracker.sharpness = None;
+    assert!(
+        tracker.begin_block(0, 5),
+        "the same run keeps going without it"
+    );
+    assert!(tracker.sharpness.is_none());
+    assert!(tracker.begin_block(96_000, 5), "a jump starts a new run");
+    assert!(tracker.sharpness.is_some());
 }

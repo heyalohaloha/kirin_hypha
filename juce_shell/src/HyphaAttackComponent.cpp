@@ -279,8 +279,8 @@ void AttackComponent::paintHistory (juce::Graphics& g, juce::Rectangle<int> plot
         drawEnvelope (g, waveformBatch, postLane.reduced (0, 4),
                       first, latest, rate, WaveformStyle::continuous, 0.90f);
         g.setColour (COL_TEXT_TERTIARY);
-        g.setFont (attack_stage::trackedFont (presentationContext, typography::TextRole::legend,
-                                              attack_stage::captionTracking (presentationContext)));
+        g.setFont (monoFont (presentationContext, typography::TextRole::legend, visualization)
+                       .withExtraKerningFactor (attack_stage::captionTracking (presentationContext)));
         g.drawText ("PRE", preLane.reduced (5, 1), juce::Justification::topLeft);
         g.drawText ("POST", postLane.reduced (5, 1), juce::Justification::topLeft);
     }

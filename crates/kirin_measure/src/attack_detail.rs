@@ -76,6 +76,10 @@ impl AttackDetailTracker {
             self.reset();
             self.generation = generation;
             self.restart = Some(start);
+            // A stream that failed in an earlier run is rebuilt; the failure ends with its run.
+            if self.sharpness.is_none() {
+                self.sharpness = AttackSharpnessStream::new(self.sample_rate, self.channels);
+            }
             if let Some(stream) = self.sharpness.as_mut() {
                 stream.reset(start);
             }
@@ -147,8 +151,8 @@ impl AttackDetailTracker {
             Err(poisoned) => poisoned.into_inner(),
         };
         if let Some(start) = self.restart.take() {
-            let epoch = self.sharpness.as_ref().map(AttackSharpnessStream::epoch);
-            bins.begin_run(start, self.generation, epoch);
+            let settled = self.sharpness.as_ref().map(AttackSharpnessStream::settled);
+            bins.begin_run(start, self.generation, settled);
         }
         for (index, bin) in self.completed.drain(..) {
             bins.push_level(index, bin);

@@ -24,5 +24,7 @@ constexpr float captionTracking (const presentation::Context& context) noexcept
     return observatory::isFullDensity (context.density) ? 0.05f : 0.0f;
 }
 
+// For measuring text. A setFont call builds the same font inline:
+// monoFont (context, role, visualization).withExtraKerningFactor (tracking).
 juce::Font trackedFont (const presentation::Context&, typography::TextRole, float tracking);
 }

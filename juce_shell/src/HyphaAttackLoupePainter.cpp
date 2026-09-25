@@ -136,8 +136,8 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
     const auto axisStyle = typography::resolve (context, typography::TextRole::axis, visualization);
     auto title = inner.removeFromTop (text_style::requiredLineHeight (legendStyle));
     auto axisRow = inner.removeFromBottom (text_style::requiredLineHeight (axisStyle));
-    g.setFont (attack_stage::trackedFont (context, typography::TextRole::legend,
-                                          attack_stage::captionTracking (context)));
+    g.setFont (monoFont (context, typography::TextRole::legend, visualization)
+                   .withExtraKerningFactor (attack_stage::captionTracking (context)));
     g.setColour (COL_TEXT_SECONDARY);
     g.drawText ("HIT 150 ms", title, juce::Justification::centredLeft, false);
     const auto preUsable = usable (pre);
