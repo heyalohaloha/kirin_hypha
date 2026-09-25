@@ -8,10 +8,10 @@
 #include "kirin_hypha_ffi.h"
 #include "HyphaAttackUiContract.h"
 
-// Per-hit DRUM lanes. Paired lanes are exact POST - PRE differences of the existing event
-// details; without a pair they are POST absolute observations. A value is withheld, never
-// estimated, when its two measurement windows are not the same audio position or when the
-// preceding context is below the HISTORY floor (the contrast would describe silence, not a hit).
+// Per-hit DRUM lanes. Paired lanes are exact POST - PRE differences of event details measured
+// over the same content samples (POST is measured at the PRE onset, B-1016); without a pair they
+// are POST absolute observations. TRANSIENT is withheld, never estimated, when the next onset
+// leaves no 20 ms body or when the body is below the HISTORY floor (it would describe the gap).
 namespace hypha::attack_lanes
 {
 enum class Lane : std::uint8_t
@@ -30,9 +30,8 @@ enum class Reason : std::uint8_t
     value,
     missing,       // detail not delivered yet, or a non-finite descriptor
     noMatch,       // PRE-only, POST-only or ambiguous common event
-    onsetDiffers,  // PRE and POST onsets differ, so their windows are different audio
-    quietContext,  // TRANSIENT context below the HISTORY floor: silence or near-silence
-    pairOnly,      // SHARPNESS per hit is shown only as an exact PRE/POST difference
+    nextHit,       // TRANSIENT: the next onset leaves less than 20 ms of body
+    quietBody,     // TRANSIENT: the body is below the HISTORY floor, silence or near-silence
 };
 
 struct Cell
@@ -48,7 +47,8 @@ struct Side
     std::array<float, attack_ui::laneCount> values {
         std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN() };
-    float contextDb = std::numeric_limits<float>::quiet_NaN();
+    bool bodyCut = false;
+    float bodyDb = std::numeric_limits<float>::quiet_NaN();
 };
 
 struct Hit
@@ -77,11 +77,12 @@ struct Scale
 {
     float minimum = 0.0f;
     float maximum = 1.0f;
-    bool centred = false;
+    bool fromZero = false; // bars grow from the value 0; otherwise from the scale minimum
 };
 
 // Fixed scales. The dB lanes share one range so the same change has the same bar length in every
-// lane. Per-hit Sharpness differences in the B-1015 audit stayed within about +/-0.75 acum.
+// lane. Per-hit Sharpness differences stayed within about +/-0.4 acum and single hits within
+// 0.2..6 acum in the B-1016 audit; head minus body ran from about -2 to +19 dB.
 constexpr Scale scaleFor (Lane lane, bool delta) noexcept
 {
     if (delta)
@@ -89,10 +90,10 @@ constexpr Scale scaleFor (Lane lane, bool delta) noexcept
                                        : Scale { -12.0f, 12.0f, true };
     switch (lane)
     {
-        case Lane::transient: return { 0.0f, 18.0f, false };
+        case Lane::transient: return { -12.0f, 24.0f, true };
         case Lane::strength:  return { attack_ui::absoluteFloorDb, 0.0f, false };
         case Lane::crest:     return { 0.0f, 24.0f, false };
-        case Lane::sharpness: return { 0.0f, 1.0f, false };
+        case Lane::sharpness: return { 0.0f, 8.0f, false };
     }
     return {};
 }
@@ -113,13 +114,15 @@ constexpr Extent extentFor (float value, Scale scale) noexcept
     const auto clamped = value < scale.minimum ? scale.minimum
                        : value > scale.maximum ? scale.maximum : value;
     const auto position = (clamped - scale.minimum) / span;
-    const auto base = scale.centred ? (0.0f - scale.minimum) / span : 0.0f;
+    const auto base = scale.fromZero ? (0.0f - scale.minimum) / span : 0.0f;
     return { base, position, value < scale.minimum, value > scale.maximum };
 }
 
 static_assert (extentFor (6.0f, scaleFor (Lane::transient, true)).to == 0.75f);
 static_assert (extentFor (-30.0f, scaleFor (Lane::crest, true)).clippedLow);
 static_assert (extentFor (-36.0f, scaleFor (Lane::strength, false)).to == 0.5f);
+static_assert (extentFor (-6.0f, scaleFor (Lane::transient, false)).from * 3.0f == 1.0f);
+static_assert (extentFor (4.0f, scaleFor (Lane::sharpness, false)).to == 0.5f);
 
 inline const KirinAttackDetail* findDetail (const KirinAttackDetailBatch& batch,
                                             std::int64_t sample, std::uint64_t generation,
@@ -142,12 +145,16 @@ inline Side sideFor (const KirinAttackDetail* detail) noexcept
         return side;
     side.available = true;
     side.onset = detail->event_sample;
-    side.values[index (Lane::transient)] = detail->contrast_db;
+    side.bodyCut = detail->transient_available == 0;
+    if (! side.bodyCut)
+    {
+        side.values[index (Lane::transient)] = detail->transient_db;
+        side.bodyDb = detail->body_rms_dbfs;
+    }
     side.values[index (Lane::strength)] = detail->attack_rms_dbfs;
     side.values[index (Lane::crest)] = detail->crest_db;
     if (detail->sharpness_available != 0)
         side.values[index (Lane::sharpness)] = detail->sharpness_acum;
-    side.contextDb = detail->context_rms_dbfs;
     return side;
 }
 
@@ -161,11 +168,19 @@ inline Cell measured (float value) noexcept
     return std::isfinite (value) ? Cell { value, Reason::value } : Cell {};
 }
 
-// Below -72 dBFS the context is under the HISTORY floor, so the contrast would mostly describe
-// the quiet gap rather than the hit.
-inline bool belowFloor (const Side& side) noexcept
+// Below -72 dBFS the body is under the HISTORY floor, so head minus body would mostly describe
+// the quiet gap after the hit rather than its decay.
+inline bool quietBody (const Side& side) noexcept
 {
-    return ! std::isfinite (side.contextDb) || side.contextDb < attack_ui::absoluteFloorDb;
+    return ! side.bodyCut
+        && (! std::isfinite (side.bodyDb) || side.bodyDb < attack_ui::absoluteFloorDb);
+}
+
+inline Cell transientCell (const Side& side) noexcept
+{
+    return side.bodyCut ? withheld (Reason::nextHit)
+         : quietBody (side) ? withheld (Reason::quietBody)
+         : measured (side.values[index (Lane::transient)]);
 }
 
 inline void fillDelta (Hit& hit, std::uint8_t kind, bool preOffered, bool postOffered) noexcept
@@ -173,17 +188,18 @@ inline void fillDelta (Hit& hit, std::uint8_t kind, bool preOffered, bool postOf
     const auto withholdAll = [&hit] (Reason reason) { hit.cells.fill (withheld (reason)); };
     if (kind != 0 || ! preOffered || ! postOffered)
         return withholdAll (Reason::noMatch);
-    if (! hit.pre.available || ! hit.post.available)
+    // Matched POST is measured at the PRE onset; any other pairing of windows is not a difference.
+    if (! hit.pre.available || ! hit.post.available || hit.pre.onset != hit.post.onset)
         return withholdAll (Reason::missing);
-    if (hit.pre.onset != hit.post.onset)
-        return withholdAll (Reason::onsetDiffers);
     for (const auto lane : lanes)
     {
         const auto pre = hit.pre.values[index (lane)];
         const auto post = hit.post.values[index (lane)];
         auto& cell = hit.cells[index (lane)];
-        if (lane == Lane::transient && (belowFloor (hit.pre) || belowFloor (hit.post)))
-            cell = withheld (Reason::quietContext);
+        if (lane == Lane::transient && (hit.pre.bodyCut || hit.post.bodyCut))
+            cell = withheld (Reason::nextHit);
+        else if (lane == Lane::transient && (quietBody (hit.pre) || quietBody (hit.post)))
+            cell = withheld (Reason::quietBody);
         else
             cell = std::isfinite (pre) && std::isfinite (post) ? measured (post - pre) : Cell {};
     }
@@ -193,9 +209,7 @@ inline void fillAbsolute (Hit& hit) noexcept
 {
     for (const auto lane : lanes)
         hit.cells[index (lane)] = measured (hit.post.values[index (lane)]);
-    if (belowFloor (hit.post))
-        hit.cells[index (Lane::transient)] = withheld (Reason::quietContext);
-    hit.cells[index (Lane::sharpness)] = withheld (Reason::pairOnly);
+    hit.cells[index (Lane::transient)] = transientCell (hit.post);
 }
 
 // Snapshot inputs are already restricted to the current generation and sample rate.

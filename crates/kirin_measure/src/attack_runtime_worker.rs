@@ -102,6 +102,15 @@ impl AttackRuntime {
                 self.publish(frame, peak_picker, detail_tracker);
             }
         }
+        for detail in detail_tracker.flush(&self.bins) {
+            if let Ok(mut history) = self.history.lock() {
+                if self.enabled.load(Ordering::Acquire)
+                    && detail.event.generation == self.generation.load(Ordering::Acquire)
+                {
+                    history.push_detail(detail);
+                }
+            }
+        }
         true
     }
 
@@ -129,19 +138,16 @@ impl AttackRuntime {
         if let Some(event) = event {
             detail_tracker.queue_event(event);
         }
+        detail_tracker.note_decided_before(super::peak::decided_before(
+            frame.event_sample,
+            frame.sample_rate,
+        ));
         self.analyzed_frames.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut history) = self.history.lock() {
             if self.frame_is_current(&frame) {
                 history.push(frame);
                 if let Some(event) = event {
                     history.push_event(event);
-                }
-            }
-        }
-        while let Some(detail) = detail_tracker.capture_next_ready() {
-            if let Ok(mut history) = self.history.lock() {
-                if self.frame_is_current(&frame) {
-                    history.push_detail(detail);
                 }
             }
         }

@@ -71,7 +71,7 @@ impl KirinHyphaEngine {
         self.attack_pair_view().map(to_c_attack_pair_event_batch)
     }
 
-    fn attack_pair_view(&self) -> Option<kirin_measure::AttackPairViewSnapshot> {
+    pub(super) fn attack_pair_view(&self) -> Option<kirin_measure::AttackPairViewSnapshot> {
         if self.write_role.lock().ok().and_then(|role| *role) != Some(PluginDataRole::Post) {
             return None;
         }

@@ -26,7 +26,7 @@ int lineHeight (const presentation::Context& context, TextRole role)
 
 juce::String shortReason (const juce::String& reason)
 {
-    return reason.upToFirstOccurrenceOf (" ", false, false); // ONSET, QUIET, PAIR, PRE, POST, NO
+    return reason.upToFirstOccurrenceOf (" ", false, false); // NEXT, QUIET, PRE, POST, NO
 }
 
 juce::Rectangle<int> rectangleOf (attack_ui::Box box)
@@ -52,7 +52,7 @@ juce::Rectangle<float> lanePlotInner (juce::Rectangle<int> plot)
 
 float baseFraction (attack_lanes::Scale scale) noexcept
 {
-    return scale.centred ? -scale.minimum / (scale.maximum - scale.minimum) : 0.0f;
+    return scale.fromZero ? -scale.minimum / (scale.maximum - scale.minimum) : 0.0f;
 }
 
 // A short lane-colour mark identifies a readout; the number itself stays ivory.
@@ -113,7 +113,7 @@ juce::String scaleCaption (Lane lane, bool delta)
 {
     if (delta)
         return lane == Lane::sharpness ? "+/-1 acum" : "+/-12 dB";
-    constexpr const char* absolute[] { "0..18 dB", "-72..0 dBFS", "0..24 dB", "" };
+    constexpr const char* absolute[] { "-12..24 dB", "-72..0 dBFS", "0..24 dB", "0..8 acum" };
     return absolute[index (lane)];
 }
 
@@ -141,9 +141,8 @@ juce::String reasonText (const attack_lanes::Hit& hit, Reason reason)
     {
         case Reason::value:        return {};
         case Reason::missing:      return "--";
-        case Reason::onsetDiffers: return "ONSET DIFFERS";
-        case Reason::quietContext: return "QUIET BEFORE";
-        case Reason::pairOnly:     return "PAIR ONLY";
+        case Reason::nextHit:      return "NEXT HIT";
+        case Reason::quietBody:    return "QUIET AFTER";
         case Reason::noMatch:
             return hit.pre.available && ! hit.post.available ? "PRE ONLY"
                  : hit.post.available && ! hit.pre.available ? "POST ONLY" : "NO PAIR";
@@ -193,12 +192,6 @@ void paintLaneChrome (juce::Graphics& g, Lane lane, juce::Rectangle<int> label,
         g.drawHorizontalLine (y, inner.getX(), inner.getX() + 4.0f);
         g.drawHorizontalLine (y, inner.getRight() - 4.0f, inner.getRight());
     }
-    if (! delta && lane == Lane::sharpness)
-    {
-        g.setColour (COL_TEXT_TERTIARY);
-        drawFitting (g, { "PAIR ONLY" }, plot, context, TextRole::legend,
-                     juce::Justification::centred, attack_stage::captionTracking (context));
-    }
 }
 
 void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
@@ -212,67 +205,61 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
     const auto yAt = [inner] (float fraction) { return inner.getBottom() - fraction * inner.getHeight(); };
     const auto baseY = yAt (baseFraction (scale));
     const auto window = static_cast<float> (attack_ui::windowSamples (frame.rate));
-    if (delta || lane != Lane::sharpness)
+    const auto barWidth = static_cast<float> (juce::jlimit (2, 4, plot.getWidth() / 180));
+    for (std::uint32_t item = 0; item < frame.model.count; ++item)
     {
-        const auto barWidth = static_cast<float> (juce::jlimit (2, 4, plot.getWidth() / 180));
-        for (std::uint32_t item = 0; item < frame.model.count; ++item)
+        const auto& hit = frame.model.hits[item];
+        const auto x = attack_ui::eventX (hit.sample, frame.latest, frame.rate, plot.getWidth());
+        if (x < 0)
+            continue;
+        const auto centreX = static_cast<float> (plot.getX() + x) + 0.5f;
+        const auto& cell = hit.cells[index (lane)];
+        const bool selected = &hit == frame.selected;
+        // Recency: the newest hits burn brightest, as they do on the time axis itself.
+        const auto age = window > 0.0f
+            ? juce::jlimit (0.0f, 1.0f, static_cast<float> (frame.latest - hit.sample) / window) : 0.0f;
+        const auto life = 1.0f - 0.45f * age;
+        if (cell.reason != Reason::value)
         {
-            const auto& hit = frame.model.hits[item];
-            const auto x = attack_ui::eventX (hit.sample, frame.latest, frame.rate, plot.getWidth());
-            if (x < 0)
-                continue;
-            const auto centreX = static_cast<float> (plot.getX() + x) + 0.5f;
-            const auto& cell = hit.cells[index (lane)];
-            const bool selected = &hit == frame.selected;
-            // Recency: the newest hits burn brightest, as they do on the time axis itself.
-            const auto age = window > 0.0f
-                ? juce::jlimit (0.0f, 1.0f, static_cast<float> (frame.latest - hit.sample) / window) : 0.0f;
-            const auto life = 1.0f - 0.45f * age;
-            if (cell.reason != Reason::value)
-            {
-                if (cell.reason != Reason::pairOnly)
-                {
-                    g.setColour (COL_TEXT_TERTIARY.withAlpha (selected ? 1.0f : 0.72f));
-                    g.drawEllipse (centreX - 1.6f, baseY - 1.6f, 3.2f, 3.2f, 0.8f);
-                }
-                continue;
-            }
-            const auto extent = attack_lanes::extentFor (cell.value, scale);
-            auto top = yAt (juce::jmax (extent.from, extent.to));
-            auto bottom = yAt (juce::jmin (extent.from, extent.to));
-            if (bottom - top < 1.0f)
-            {
-                top = baseY - 0.5f;
-                bottom = baseY + 0.5f;
-            }
-            const juce::Rectangle<float> core (centreX - barWidth * 0.5f, top, barWidth, bottom - top);
-            g.setColour (colour.withAlpha ((selected ? 0.34f : 0.15f) * life));
-            g.fillRect (core.expanded (2.0f, 0.0f));
-            g.setColour (colour.withAlpha ((selected ? 1.0f : 0.80f) * life));
-            g.fillRect (core);
-            // Tips, caps and spores keep the pure lane colour: brightening the gold lanes would
-            // approach the pale selection colour and make the selected hit ambiguous.
-            const bool rising = extent.to >= extent.from;
-            const auto tipY = rising ? top : bottom - 1.0f;
-            g.setColour (colour.withAlpha (life));
-            g.fillRect (juce::Rectangle<float> (core.getX() - 0.5f, tipY, core.getWidth() + 1.0f, 1.0f));
-            if (extent.clippedHigh || extent.clippedLow)
-            {
-                // An out-of-range value reaches the lane edge and keeps a cap; the exact
-                // number stays in the readout.
-                g.setColour (colour);
-                g.fillRect (juce::Rectangle<float> (
-                    core.getX() - 1.5f, extent.clippedHigh ? inner.getY() : inner.getBottom() - 1.0f,
-                    core.getWidth() + 3.0f, 1.0f));
-            }
-            if (selected)
-            {
-                const auto sporeY = rising ? top : bottom;
-                g.setColour (colour.withAlpha (0.24f));
-                g.fillEllipse (centreX - 4.5f, sporeY - 4.5f, 9.0f, 9.0f);
-                g.setColour (colour);
-                g.fillEllipse (centreX - 2.2f, sporeY - 2.2f, 4.4f, 4.4f);
-            }
+            g.setColour (COL_TEXT_TERTIARY.withAlpha (selected ? 1.0f : 0.72f));
+            g.drawEllipse (centreX - 1.6f, baseY - 1.6f, 3.2f, 3.2f, 0.8f);
+            continue;
+        }
+        const auto extent = attack_lanes::extentFor (cell.value, scale);
+        auto top = yAt (juce::jmax (extent.from, extent.to));
+        auto bottom = yAt (juce::jmin (extent.from, extent.to));
+        if (bottom - top < 1.0f)
+        {
+            top = baseY - 0.5f;
+            bottom = baseY + 0.5f;
+        }
+        const juce::Rectangle<float> core (centreX - barWidth * 0.5f, top, barWidth, bottom - top);
+        g.setColour (colour.withAlpha ((selected ? 0.34f : 0.15f) * life));
+        g.fillRect (core.expanded (2.0f, 0.0f));
+        g.setColour (colour.withAlpha ((selected ? 1.0f : 0.80f) * life));
+        g.fillRect (core);
+        // Tips, caps and spores keep the pure lane colour: brightening the gold lanes would
+        // approach the pale selection colour and make the selected hit ambiguous.
+        const bool rising = extent.to >= extent.from;
+        const auto tipY = rising ? top : bottom - 1.0f;
+        g.setColour (colour.withAlpha (life));
+        g.fillRect (juce::Rectangle<float> (core.getX() - 0.5f, tipY, core.getWidth() + 1.0f, 1.0f));
+        if (extent.clippedHigh || extent.clippedLow)
+        {
+            // An out-of-range value reaches the lane edge and keeps a cap; the exact
+            // number stays in the readout.
+            g.setColour (colour);
+            g.fillRect (juce::Rectangle<float> (
+                core.getX() - 1.5f, extent.clippedHigh ? inner.getY() : inner.getBottom() - 1.0f,
+                core.getWidth() + 3.0f, 1.0f));
+        }
+        if (selected)
+        {
+            const auto sporeY = rising ? top : bottom;
+            g.setColour (colour.withAlpha (0.24f));
+            g.fillEllipse (centreX - 4.5f, sporeY - 4.5f, 9.0f, 9.0f);
+            g.setColour (colour);
+            g.fillEllipse (centreX - 2.2f, sporeY - 2.2f, 4.4f, 4.4f);
         }
     }
 

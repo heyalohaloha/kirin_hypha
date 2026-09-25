@@ -143,7 +143,15 @@ impl AttackDetailedEvent {
             && self.event.sample_rate == self.features.sample_rate
             && self.event.channels == self.features.channels
             && self.event.event_sample == self.shape.event_sample
+            && self.features.starts_at(self.event.event_sample)
     }
+}
+
+/// POST measured at a PRE onset: the event to report and the PRE body end it must share.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AttackAnchor {
+    pub event: AttackEvent,
+    pub body_end_sample: i64,
 }
 
 #[derive(Clone, Debug)]

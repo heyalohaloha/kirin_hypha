@@ -13,20 +13,23 @@ inline KirinAttackDetail overviewDetail()
     detail.sample_rate = 48'000;
     detail.channels = 2;
     detail.event_sample = 144'000;
-    detail.shape_start_sample = detail.event_sample - 4'800;
-    detail.shape_end_sample = detail.event_sample + 1'440;
+    detail.bin_frames = 48;
+    detail.shape_start_sample = detail.event_sample - 20 * 48;
+    detail.shape_end_sample = detail.event_sample + 130 * 48;
+    detail.body_end_sample = detail.shape_end_sample;
     detail.shape_count = KIRIN_ATTACK_SHAPE_CAPACITY;
     detail.attack_rms_dbfs = -6.0f;
-    detail.context_rms_dbfs = -21.0f;
     detail.sample_peak_dbfs = -1.0f;
     detail.sharpness_available = 1;
     detail.sharpness_acum = 2.5f;
-    detail.contrast_db = 15.0f;
+    detail.transient_available = 1;
+    detail.transient_db = 15.0f;
+    detail.body_rms_dbfs = -21.0f;
     detail.crest_db = 5.0f;
     for (std::uint32_t index = 0; index < detail.shape_count; ++index)
     {
-        const auto distance = std::abs (static_cast<int> (index) - 74);
-        detail.shape[index] = index < 74 ? 0.03f
+        const auto distance = std::abs (static_cast<int> (index) - 13);
+        detail.shape[index] = index < 13 ? 0.03f
             : 0.88f * std::exp (-static_cast<float> (distance) / 8.0f) + 0.02f;
     }
     return detail;

@@ -19,7 +19,7 @@ inline bool verifyOffscreenLock()
         const auto locked = renderAttack (*scene.component);
         const auto change = [&fixture] {
             auto& old = fixture.post->details[0];
-            old.contrast_db += 3.0f; old.attack_rms_dbfs += 3.0f;
+            old.transient_db += 3.0f; old.attack_rms_dbfs += 3.0f;
             old.crest_db += 3.0f; old.sharpness_acum += 0.25f;
             for (auto& point : old.shape) point *= 0.5f;
         };

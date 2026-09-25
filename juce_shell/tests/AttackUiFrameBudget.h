@@ -42,7 +42,7 @@ inline bool verifyAttackFrameBudget()
         {
             auto& pre = preDetails->details[i];
             pre.attack_rms_dbfs -= 5.3f; pre.sharpness_acum *= .77f;
-            pre.contrast_db *= .65f; pre.sample_edge_ratio_db -= 3.7f;
+            pre.transient_db *= .65f; pre.crest_db -= 1.5f;
         }
         waveform->count = preWaveform->count = KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY;
         for (int instances : { 1, 2 })

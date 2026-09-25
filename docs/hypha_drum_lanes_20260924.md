@@ -1,8 +1,8 @@
 # DRUM lane表示と4量の精査
 
 - **作成日**：2026-09-24
-- **状態**：B-1015で画面側を実装し、2026-09-25に厳しめレビューの指摘13件を修正した。計測core側の修正は別Bへ分離（Daisuke承認済み）。
-- **変更範囲**：JUCE native描画、表示契約、UI契約test。計測core、FFI layout、transport、Audio Threadは変更しない。
+- **状態**：B-1015で画面側を実装し、2026-09-25に厳しめレビューの指摘13件を修正した。計測core側の3件はB-1016で実装した（§4）。
+- **変更範囲**：B-1015はJUCE native描画、表示契約、UI契約test。B-1016は`kirin_measure`のATTACK detail、PRE→POST exchange codec（版2）、FFIのdetail layout（同じ512 byte）とJUCE表示。Audio Threadの仕事は変えない。
 - **対象**：TRACK / STEMのDRUM ATTACK。
 - **置き換える文書**：`hypha_attack_visual_completion_proposal_20260909.md`の中央標本、Texture、300%配置の各節。
 
@@ -17,6 +17,7 @@
 7. 4量はTRANSIENT / STRENGTH / CREST / SHARPNESSとし、TEXTUREをCRESTへ置き換える。
 8. 定義の欠陥は、今回は画面側で値を出さないことで止血し、計測core側の修正は別Bで検証してから入れる。
 9. per-hit SHARPNESSは、区間の修正が入るまでPRE不在時も表示せず、差分だけを出す。
+10. 2026-09-25（番人廃止後、Daisuke「進めて下さい」）：計測core側の3件をB-1016として実装する。§2.2の推奨どおりTRANSIENTはATTACK−BODYへ置き換え、SHARPNESSの区間は打音から始め、POSTはPREの検出位置で計算し直す。
 
 ## 2. 4量の精査
 
@@ -64,10 +65,10 @@ label、plot、readout、loupe、1行表示の各cellも`attack_ui`の関数（`
 
 | lane | PAIR時（POST − PRE） | PRE未接続時（POST） |
 |---|---|---|
-| TRANSIENT | ±12 dB | 0–18 dB |
+| TRANSIENT（頭 − body） | ±12 dB | −12..24 dB（0 dBから伸ばす） |
 | STRENGTH | ±12 dB | −72..0 dBFS |
 | CREST | ±12 dB | 0–24 dB |
-| SHARPNESS | ±1 acum | 表示しない（`PAIR ONLY`） |
+| SHARPNESS | ±1 acum | 0–8 acum |
 
 dB laneは同じ変化が同じ棒長になるよう尺度を共有する。範囲外の値はlane端でcapを付け、正確な値はreadoutに出す。
 増減は棒の向きで示し、良し悪しの色を使わない（R-22）。
@@ -76,12 +77,13 @@ dB laneは同じ変化が同じ棒長になるよう尺度を共有する。範�
 
 | 条件 | readout |
 |---|---|
-| PRE/POSTのonset sampleが異なる | `ONSET DIFFERS` |
-| PREかPOSTの直前context（100 ms RMS）がHISTORY下限（−72 dBFS）未満。デジタル無音に限らない（TRANSIENTのみ） | `QUIET BEFORE` |
+| 次の打音が近く、bodyが20 ms未満になる（TRANSIENTのみ） | `NEXT HIT` |
+| PREかPOSTのbody RMSがHISTORY下限（−72 dBFS）未満。デジタル無音に限らない（TRANSIENTのみ） | `QUIET AFTER` |
 | PRE-only / POST-only / ambiguous | `PRE ONLY` / `POST ONLY` / `NO PAIR` |
-| detail未着、非有限値、片側Sharpness欠測 | `--` |
+| detail未着、PREの位置でのPOST測定がまだない、非有限値、Sharpness欠測 | `--` |
 
-onsetが同じなら、SHARPNESSの100 ms窓も同じ格子位置になる。
+対応が取れた打音では、POSTをPREのonsetで同じ窓のまま測り直す（§4）。PRE/POSTの差はいつも同じcontent sampleどうしの差になる。
+B-1015の`ONSET DIFFERS`と`QUIET BEFORE`は、B-1016で原因がなくなったため撤去した。
 
 readoutは各laneの量だけを示す（PAIR時は`POST − PRE`、PRE未接続時はPOST値）。打音ごとのPRE値、POST値の内訳は出さない。
 時間軸行の打音数は、laneが6秒内に描く列の数と一致させる（detail未着のeventは数えない）。
@@ -96,9 +98,9 @@ readoutは各laneの量だけを示す（PAIR時は`POST − PRE`、PRE未接続
 LIVE / HOLD / LOCKは時間軸行にも出す。header右の状態表示は幅470 px以上だけなので、100%〜150%では時間軸行がHOLDを示す。
 
 loupeはInspectionだけに置く。
-選択打音の`shape[96]`（区間内peak）をPRE traceとPOST bodyで描き、直前100 msと頭30 msのRMSを段として描く。
-段の高さがTRANSIENT、頭の段の高さがSTRENGTH、頭のpeakと頭RMSの差（橙のbracket）がCRESTである。
-PRE/POSTは各自のonset sampleに置き、ずれを揃えて隠さない。
+選択打音の`shape[96]`（打音の20 ms前からbodyの終わりまで150 msの区間内peak）をPRE traceとPOST bodyで描き、頭30 msとbodyのRMSを段として描く。
+頭の段の高さがSTRENGTH、頭からbodyへ下がる段差がTRANSIENT、頭のpeakと頭RMSの差（橙のbracket）がCRESTである。
+対応が取れた打音はPOSTもPREのonsetで測るため、PRE/POSTの窓と段は同じ位置に並ぶ。
 
 ### 3.4 外観
 
@@ -152,14 +154,50 @@ layoutは1回の描画で1度だけ計算する。
 同じ負荷の下では、通常frameの2枠中央値の最悪値が修正前15.0–18.0 ms、修正後16.5–17.0 msとなり、双方とも16 msの予算を超える回があった（修正前3回中2回、修正後3回中3回）。交互に測った全条件の平均中央値は修正前3.71–4.16 ms、修正後3.82–3.97 msで同等だった。
 画像を多く描くUI契約testの後では同じ描画が約0.5 ms遅くなる（DPI 2・300%）ため、描画予算の検査は他の検査より先に走らせる。
 
-## 4. 別Bへ分離した計測core側の修正
+## 4. 計測core側の修正（B-1016）
 
-1. TRANSIENTを「頭30 ms RMS − 後続区間RMS」（ATTACK−BODY）へ置き換えるか、BODYを追加する。密なパターンで次の打音が後続区間へ入る場合の切り方を検証する。
-2. SHARPNESSの100 ms区間を打音の位置から始める。
-3. POSTの特徴量をPREのonset sampleで計算し直し、PRE/POSTの窓を必ず揃える。
+§2.2の推奨（2026-09-24承認）を、2026-09-25に次の定義で実装した。
 
-いずれも`kirin_measure`、PRE→POST exchange codec、FFIの変更と、ignored parity / pairing_candidates suiteの全件実行を要する。
-入れた後は、3.2の画面側止血（`ONSET DIFFERS`、`AFTER SILENCE`、per-hit SHARPNESSの差分限定）を見直す。
+### 4.1 窓
+
+- 全ての窓は、onsetを含む約1 msのcontent bin（48 kHzで48 sample、44.1 kHzで44 sample）の先頭から始める。binはcontent sample 0から数えるため、PREとPOSTは同じonsetで同じsampleを読む。
+- 頭：30 bin（30 ms）。RMSがSTRENGTH、sample peakとの差がCREST。
+- body：頭の後の100 bin。次のonsetが先に来れば、そのonsetを含むbinの手前で切る。20 bin未満なら測らない（`NEXT HIT`）。
+- TRANSIENT：頭RMS − body RMS（ATTACK−BODY）。直前contextは使わない。body RMSが−72 dBFS未満なら画面で`QUIET AFTER`とする。
+- SHARPNESS：頭から100 binの、DIN 45692 Sharpnessの音量加重平均（0.1 sone未満のPhase D frameは除く）。旧来の値は100 ms固定格子の区間終わりの瞬間値だった。
+- detailは、bodyの終わりまでのbinとPhase D frameが揃い、その手前の全onsetが確定した後に出す。onsetから約0.18〜0.2秒後になる（body 130 ms、ODFの半窓21 ms、確定待ち30 ms、Phase Dの100 ms区切り）。
+
+### 4.2 POSTはPREの検出位置で測る
+
+- 各instanceは直近7秒のbin（音量、peak、Phase D frameの和）を保持する。
+- POST側のpair joinは、対応が取れた打音ごとに、PREのonsetとPRE detailのbody終端でPOSTのbinを測る。POSTの検出器自身のonset（±50 ms以内でずれうる）は窓に使わない。
+- FFIは、対応が取れた打音のPOST detailをPREのonsetで渡し、`post_event_sample`もそのonsetにする。
+- PRE→POST exchange codecは版2へ上げた（body終端、TRANSIENT、新しいSharpnessを運ぶ）。版1とは相互に読まない。
+
+### 4.3 Phase Dの区切り
+
+既存のPhase D実装は、入力の区切り位置で出力がわずかに変わる。
+DAWの処理ブロックではなく、content sample 0からの100 ms格子（SHARP timelineと同じ）で区切って流す。
+このため、host block sizeが変わっても値は1 bitも変わらず、PREとPOSTは同じ位置を同じ区切りで処理する。
+run開始点の後の最初の100 ms境界より前から始まる窓には、Sharpnessを出さない。
+
+### 4.4 実データでの確認（2026-09-25）
+
+§2.1と同じ82本・701打と6処理で、POSTをPREのonsetで測る条件で比べた（監査用の再実装。音源はrepositoryへ入れていない）。
+
+| 項目 | 結果 |
+|---|---|
+| bodyに次の打音が入る打音 | Kick 50/214、Snare 1/74、Hats 156/348、Claps 8/76 |
+| 次の打音の手前で切る場合と除外する場合 | Δの中央値は同傾向（例：Hats shaper +5.27 / +4.76 dB、Kick 遅いcomp +5.37 / +5.89 dB）。除外するとHatsの46%（156/337）を失い、切る場合は6%（20/337）を失う |
+| 切らずに次の打音を含める場合 | 処理の効果が薄まる（Hats shaper +3.38 dB、下位10% 0.00 dB） |
+| gain +6 dBでのΔTRANSIENT | 全楽器で0.00 |
+| 同じSnareを10 msずつ動かしたSHARPNESS | 旧来の格子終わりの瞬間値は0.63–2.97 acum、新定義は幅0.07 acum以内（例：2.68–2.74） |
+| 3 kHz high shelf +6 dBでのΔSHARPNESS | +0.06（Kick）〜+0.29（Snare）acum |
+| gain +6 dBでのΔSHARPNESS | 中央値で±0.04 acum以内 |
+
+同じ打音の繰り返しでも、onsetが256 sample格子で揺れるため、POST単独のTRANSIENT絶対値は打音ごとに1〜4 dB揺れる。PRE/POSTの差はonsetを共有するため、この揺れを含まない。
+
+B-1016で、§3.2の止血のうち`ONSET DIFFERS`と`QUIET BEFORE`を撤去し、PRE未接続時のper-hit SHARPNESSを表示に戻した。
 
 ## 5. 検証
 
@@ -173,4 +211,10 @@ layoutは1回の描画で1度だけ計算する。
 - `KirinUiRenderContractTests`（Release）：Observatory合成、Capture、Typography（字間込みのlane名・値・理由の幅）を含め全件PASS。
 - `KirinEditorSurfaceProductTests`（Release）：40ケースPASS。
 - DebugのUI render suiteでは、未変更のFREQ Focus Trailの時間予算（100% 4.5 ms）が4.47〜5.03 msで揺れて停止した。同じ検査はReleaseで2.4 msとなりPASSした。
+- B-1016（`kirin_measure` / `kirin_hypha_ffi`）：
+  - bin窓：頭・body・TRANSIENTの値、次onsetでのbody終端と20 ms未満の扱い、gainでTRANSIENTとCRESTが動かないこと、保持外と別runの打音を測らないこと、run途中開始のbinを使わないこと、Sharpnessの音量加重平均と0.1 sone未満frameの除外、shapeの20 ms前置き。
+  - `per_hit_sharpness_follows_the_onset_not_a_fixed_grid`：同じ打音を100 ms動かすと同値、他の移動でも0.05 acum未満。
+  - `host_block_size_never_changes_a_value`：host blockを64 / 333 / 512 / 4096 sampleにしても同値。
+  - `exact_pair_transports_real_pre_and_post_attack_histories_end_to_end`：PRE→POSTの実transportで、POSTをPREのonsetとbody終端で測り、窓がPREと一致し、振幅半分のPOSTが−6.02 dBになること。
+  - FFI：detail layout（512 byte、`transient_db`=84、`body_end_sample`=104、`sharpness_acum`=112、`bin_frames`=116、`shape`=128）と、pair時にPREの位置で測ったPOST detailを優先し、matchedの`post_event_sample`をPRE onsetにすること。
 - 未実施：Studio One / Pro Toolsでの実機表示、Windows実画面。

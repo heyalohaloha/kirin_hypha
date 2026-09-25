@@ -13,7 +13,10 @@ use crate::{
 };
 
 const SNAPSHOT_MAGIC: &[u8; 8] = b"KHATK001";
-const SNAPSHOT_VERSION: u16 = 1;
+/// Version 2 (B-1016): content-grid windows, body end, TRANSIENT as head minus body, and the
+/// loudness-weighted Sharpness of the 100 ms from the onset.
+const SNAPSHOT_VERSION: u16 = 2;
+const DETAIL_BYTES: usize = 460;
 pub(super) const ATTACK_SNAPSHOT_MAX_BYTES: u64 = 196_608;
 
 pub(super) struct DecodedAttackSnapshot {
@@ -58,7 +61,9 @@ pub(super) fn encode_attack_snapshot(request_id: Uuid, history: &AttackHistory) 
         .min(ATTACK_WAVEFORM_HISTORY_CAPACITY) as u16;
     let detail_count = history.details().len().min(ATTACK_EVENT_HISTORY_CAPACITY) as u16;
     let mut bytes = Vec::with_capacity(
-        92 + frame_count as usize * 12 + waveform_count as usize * 24 + detail_count as usize * 468,
+        92 + frame_count as usize * 12
+            + waveform_count as usize * 24
+            + detail_count as usize * DETAIL_BYTES,
     );
     bytes.extend_from_slice(SNAPSHOT_MAGIC);
     bytes.extend_from_slice(&SNAPSHOT_VERSION.to_le_bytes());
@@ -96,21 +101,17 @@ fn encode_detail(bytes: &mut Vec<u8>, detail: &AttackDetailedEvent) {
     bytes.extend_from_slice(&detail.event.event_sample.to_le_bytes());
     bytes.extend_from_slice(&detail.event.decision_sample.to_le_bytes());
     bytes.extend_from_slice(&detail.event.value.to_le_bytes());
-    bytes.push(features.contrast_floor_limited as u8);
-    bytes.push(features.temporal_centroid_ms.is_some() as u8);
+    bytes.push(features.body_rms_dbfs.is_some() as u8);
     bytes.push(features.sharpness_acum.is_some() as u8);
-    bytes.push(0);
-    bytes.extend_from_slice(&features.context_frames.to_le_bytes());
-    bytes.extend_from_slice(&features.attack_frames.to_le_bytes());
+    bytes.extend_from_slice(&[0; 2]);
+    bytes.extend_from_slice(&features.bin_frames.to_le_bytes());
+    bytes.extend_from_slice(&features.body_end_sample.to_le_bytes());
     for value in [
-        features.contrast_db,
-        features.context_rms_dbfs,
         features.attack_rms_dbfs,
         features.sample_peak_dbfs,
         features.crest_db,
-        features.sample_edge_ratio_db,
-        features.peak_plateau_ms,
-        features.temporal_centroid_ms.unwrap_or(0.0),
+        features.body_rms_dbfs.unwrap_or(0.0),
+        features.transient_db.unwrap_or(0.0),
         features.sharpness_acum.unwrap_or(0.0),
     ] {
         bytes.extend_from_slice(&value.to_le_bytes());
@@ -201,13 +202,12 @@ fn decode_detail(
     let event_sample = cursor.i64()?;
     let decision_sample = cursor.i64()?;
     let value = cursor.f32()?;
-    let contrast_floor_limited = cursor.bool()?;
-    let temporal_available = cursor.bool()?;
+    let body_available = cursor.bool()?;
     let sharpness_available = cursor.bool()?;
-    let _reserved = cursor.u8()?;
-    let context_frames = cursor.u32()?;
-    let attack_frames = cursor.u32()?;
-    let values = cursor.f32_array::<9>()?;
+    let _reserved = cursor.take(2)?;
+    let bin_frames = cursor.u32()?;
+    let body_end_sample = cursor.i64()?;
+    let values = cursor.f32_array::<6>()?;
     let shape_start = cursor.i64()?;
     let shape_end = cursor.i64()?;
     let points = cursor.f32_array::<ATTACK_SHAPE_POINT_CAPACITY>()?;
@@ -220,21 +220,19 @@ fn decode_detail(
         decision_sample,
         value,
     };
+    let bin = i64::from(bin_frames);
     let features = AttackPerceptualFeatures {
         sample_rate,
         channels,
-        context_frames,
-        attack_frames,
-        contrast_db: values[0],
-        contrast_floor_limited,
-        context_rms_dbfs: values[1],
-        attack_rms_dbfs: values[2],
-        sample_peak_dbfs: values[3],
-        crest_db: values[4],
-        sample_edge_ratio_db: values[5],
-        peak_plateau_ms: values[6],
-        temporal_centroid_ms: temporal_available.then_some(values[7]),
-        sharpness_acum: sharpness_available.then_some(values[8]),
+        bin_frames,
+        window_start_sample: event_sample.div_euclid(bin.max(1)) * bin,
+        attack_rms_dbfs: values[0],
+        sample_peak_dbfs: values[1],
+        crest_db: values[2],
+        body_end_sample,
+        body_rms_dbfs: body_available.then_some(values[3]),
+        transient_db: body_available.then_some(values[4]),
+        sharpness_acum: sharpness_available.then_some(values[5]),
     };
     let shape = AttackEventShape {
         start_sample: shape_start,

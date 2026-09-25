@@ -121,6 +121,9 @@ pub struct AttackPairViewSnapshot {
     pub pre: Option<AttackHistory>,
     pub post: Option<AttackHistory>,
     pub pair_events: Vec<AttackPairEvent>,
+    /// POST measured at each matched PRE onset over that PRE detail's windows (B-1016), so a
+    /// paired difference always compares the same content samples.
+    pub post_anchored: Vec<crate::AttackDetailedEvent>,
 }
 
 #[derive(Clone)]

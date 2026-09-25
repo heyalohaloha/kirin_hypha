@@ -22,19 +22,24 @@ inline KirinAttackDetail laneDetail (std::int64_t sample, std::uint64_t generati
     detail.sample_rate = 48'000;
     detail.channels = 2;
     detail.event_sample = sample;
-    detail.shape_start_sample = sample - 4'800;
-    detail.shape_end_sample = sample + 1'440;
+    detail.bin_frames = 48;
+    // Windows start at the onset's 1 ms bin; the shape runs from 20 ms before to the body end.
+    const auto start = sample / 48 * 48;
+    detail.shape_start_sample = start - 20 * 48;
+    detail.shape_end_sample = start + 130 * 48;
+    detail.body_end_sample = start + 130 * 48;
     detail.shape_count = KIRIN_ATTACK_SHAPE_CAPACITY;
-    detail.contrast_db = 8.0f;
-    detail.context_rms_dbfs = -30.0f;
+    detail.transient_available = 1;
+    detail.transient_db = 8.0f;
+    detail.body_rms_dbfs = -22.0f;
     detail.attack_rms_dbfs = -14.0f;
     detail.sample_peak_dbfs = -6.0f;
     detail.crest_db = 8.0f;
     detail.sharpness_available = 1;
     detail.sharpness_acum = 1.4f;
     for (std::uint32_t index = 0; index < detail.shape_count; ++index)
-        detail.shape[index] = index < 74 ? 0.03f
-            : 0.82f * std::exp (-static_cast<float> (index - 74) / 8.0f) + 0.02f;
+        detail.shape[index] = index < 13 ? 0.03f
+            : 0.82f * std::exp (-static_cast<float> (index - 13) / 8.0f) + 0.02f;
     return detail;
 }
 
@@ -105,15 +110,17 @@ inline bool verifyLaneModel()
     auto& post = *fixture.post;
     auto& pre = *fixture.pre;
     auto& pairs = *fixture.pairs;
-    post.details[0].contrast_db = 11.0f;
+    post.details[0].transient_db = 11.0f;
     post.details[0].attack_rms_dbfs = -10.0f;
     post.details[0].crest_db = 5.0f;
     post.details[0].sharpness_acum = 1.7f;
-    pairs.events[1].post_event_sample += 256; // one ODF hop: different audio windows
+    // Matched POST is measured at the PRE onset; windows elsewhere are never differenced.
+    pairs.events[1].post_event_sample += 256;
     post.details[1].event_sample += 256;
-    pre.details[2].context_rms_dbfs = -120.0f; // the PRE hit follows digital silence
+    pre.details[2].body_rms_dbfs = -80.0f; // the PRE body is below the HISTORY floor
     pre.details[3].sharpness_available = 0;
     post.details[3].crest_db = std::numeric_limits<float>::quiet_NaN();
+    post.details[3].transient_available = 0; // the next onset left no 20 ms body
     pairs.events[4].kind = 1; // PRE-only common event
     pairs.events[4].post_available = 0;
     auto model = std::make_unique<Model>();
@@ -126,15 +133,16 @@ inline bool verifyLaneModel()
         || ! near (value (0, Lane::crest), -3.0f) || ! near (value (0, Lane::sharpness), 0.3f))
         return false;
     for (const auto lane : lanes)
-        if (reason (1, lane) != Reason::onsetDiffers || reason (4, lane) != Reason::noMatch)
+        if (reason (1, lane) != Reason::missing || reason (4, lane) != Reason::noMatch)
             return false;
     if (! hits[1].selectable || hits[4].selectable
         || attack_lane_painter::reasonText (hits[4], Reason::noMatch) != "PRE ONLY"
-        || reason (2, Lane::transient) != Reason::quietContext
+        || reason (2, Lane::transient) != Reason::quietBody
         || reason (2, Lane::strength) != Reason::value
         || reason (3, Lane::sharpness) != Reason::missing
         || reason (3, Lane::crest) != Reason::missing
-        || reason (3, Lane::transient) != Reason::value)
+        || reason (3, Lane::transient) != Reason::nextHit
+        || attack_lane_painter::reasonText (hits[3], Reason::nextHit) != "NEXT HIT")
         return false;
     // The count is the hits on the six-second axis, the same columns the lanes draw.
     if (visibleCount (*model, 288'000, 48'000) != 5 || visibleCount (*model, 384'000, 48'000) != 4)
@@ -147,14 +155,16 @@ inline bool verifyLaneModel()
         return false;
 
     pairs.status = KIRIN_SPECTRUM_NO_PAIR;
-    post.details[2].context_rms_dbfs = -80.0f; // quiet room tone, not digital silence
+    post.details[2].body_rms_dbfs = -80.0f; // quiet room tone after the hit, not digital silence
     post.details[4].generation = 6; // stale POST detail never becomes a hit
     build (*model, pairs, post, pre, 7, 48'000);
+    // Without a pair every lane is a POST value; per-hit Sharpness now follows the onset.
     return ! model->delta && model->count == 4
         && near (value (0, Lane::transient), 11.0f) && near (value (0, Lane::strength), -10.0f)
-        && reason (0, Lane::sharpness) == Reason::pairOnly
-        && reason (2, Lane::transient) == Reason::quietContext
-        && attack_lane_painter::reasonText (hits[2], Reason::quietContext) == "QUIET BEFORE"
+        && near (value (0, Lane::sharpness), 1.7f)
+        && reason (2, Lane::transient) == Reason::quietBody
+        && reason (3, Lane::transient) == Reason::nextHit
+        && attack_lane_painter::reasonText (hits[2], Reason::quietBody) == "QUIET AFTER"
         && attack_lane_painter::valueText (Lane::strength, -10.0f, false, true) == "-10.0 dBFS"
         && attack_lane_painter::valueText (Lane::sharpness, -0.004f, true, true) == "+0.00 acum";
 }
@@ -190,7 +200,7 @@ inline bool verifyLaneRendering()
     auto fixture = laneFixture ({ 96'000, 192'000, 240'000 });
     auto zero = laneFixture ({ 96'000, 192'000, 240'000 });
     auto& post = *fixture.post;
-    post.details[0].contrast_db += 6.0f;  post.details[1].contrast_db -= 6.0f;
+    post.details[0].transient_db += 6.0f;  post.details[1].transient_db -= 6.0f;
     post.details[0].attack_rms_dbfs += 6.0f;  post.details[1].attack_rms_dbfs -= 6.0f;
     post.details[0].crest_db += 6.0f;  post.details[1].crest_db -= 6.0f;
     post.details[0].sharpness_acum += 0.5f;  post.details[1].sharpness_acum -= 0.5f;
@@ -199,7 +209,7 @@ inline bool verifyLaneRendering()
         batch->pairs->events[2].post_event_sample += 256;
         batch->post->details[2].event_sample += 256;
     }
-    post.details[2].contrast_db += 6.0f; // withheld: must draw no bar at all
+    post.details[2].transient_db += 6.0f; // withheld: must draw no bar at all
     zero.submit (*scene.component);
     const auto reference = renderAttack (*scene.component);
     fixture.submit (*scene.component);
@@ -239,7 +249,7 @@ inline bool verifyHistoryIsolation()
     for (std::uint32_t index = 0; index < fixture.post->count; ++index)
     {
         auto& detail = fixture.post->details[index];
-        detail.contrast_db += 4.0f; detail.attack_rms_dbfs -= 5.0f;
+        detail.transient_db += 4.0f; detail.attack_rms_dbfs -= 5.0f;
         detail.crest_db += 3.0f; detail.sharpness_acum += 0.4f;
         for (auto& point : detail.shape) point *= 0.5f;
     }
@@ -258,7 +268,7 @@ inline bool verifyHistoryIsolation()
         && differences (detailsChanged, envelopeChanged, lanes) == 0;
 }
 
-// Without a pair, lanes are POST values and per-hit Sharpness is not shown at all.
+// Without a pair, lanes are POST values, per-hit Sharpness included.
 inline bool verifyPostOnlyLanes()
 {
     auto scene = laneScene (580, 248, presentation::forEditor (600, 400));
@@ -281,10 +291,11 @@ inline bool verifyPostOnlyLanes()
     fixture.submit (*scene.component);
     const auto sharper = renderAttack (*scene.component);
     for (std::uint32_t index = 0; index < fixture.post->count; ++index)
-        fixture.post->details[index].contrast_db += 6.0f;
+        fixture.post->details[index].transient_db += 6.0f;
     fixture.submit (*scene.component);
     const auto stronger = renderAttack (*scene.component);
-    return differences (base, sharper) == 0
+    return differences (base, sharper, laneRect (scene.layout, 3)) > 0
+        && differences (base, sharper, laneRect (scene.layout, 0)) == 0
         && differences (sharper, stronger, laneRect (scene.layout, 0)) > 0
         && writePreviewTo ("KIRIN_ATTACK_UI_POST_ONLY_PREVIEW_PATH", stronger);
 }
@@ -321,7 +332,7 @@ inline bool verifyLanesShowDifferencesOnly()
         fixture.submit (*scene.component);
         const auto sharper = renderAttack (*scene.component);
         both ([] (KirinAttackDetail& detail) {
-            detail.contrast_db += 3.0f; detail.attack_rms_dbfs += 3.0f; detail.crest_db += 3.0f; });
+            detail.transient_db += 3.0f; detail.attack_rms_dbfs += 3.0f; detail.crest_db += 3.0f; });
         fixture.submit (*scene.component);
         const auto louder = renderAttack (*scene.component);
         const auto values = scene.layout.arrangement == attack_ui::Arrangement::lanes
@@ -377,7 +388,7 @@ inline bool verifyCompactLine()
         auto fixture = laneFixture ({ 96'000, 192'000, 240'000 });
         fixture.submit (*scene.component);
         const auto base = renderAttack (*scene.component);
-        fixture.post->details[2].contrast_db += 5.0f;
+        fixture.post->details[2].transient_db += 5.0f;
         fixture.post->details[2].crest_db -= 2.0f;
         fixture.submit (*scene.component);
         const auto changed = renderAttack (*scene.component);

@@ -290,8 +290,8 @@ MIDは`(L+R)/2`、SIDEは`(L-R)/2`とし、25×25の固定fieldへ各観測最�
 correlationとL/R balanceも同じrolling 3秒窓を参照し、SPACEの発光やcell色は品質判定へ使わない。
 
 ATTACKはTRACK／STEMのDRUMに限定する。pair時のHISTORYはexact PRE/POSTを重ね、
-TRANSIENT／STRENGTH／CREST／SHARPNESSの四laneは同じonset sampleのPRE/POST detailだけから打音ごとの`POST−PRE`を描く。
-PRE未接続時はlaneをPOST absoluteへ切り替え、per-hit SHARPNESSは表示せず、PREと差分を生成しない。
+TRANSIENT／STRENGTH／CREST／SHARPNESSの四laneは、POSTをPREのonsetで同じ窓のまま測り直した打音ごとの`POST−PRE`を描く（B-1016）。
+PRE未接続時はlaneをPOST absoluteへ切り替え、PREと差分を生成しない。
 正本は`hypha_drum_lanes_20260924.md`とする。
 
 ### 7.4 OS Guide layer

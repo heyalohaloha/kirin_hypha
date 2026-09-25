@@ -31,7 +31,7 @@ fn histories_are_ready(pre: &AttackRuntime, post: &AttackRuntime) -> bool {
                 && history
                     .waveform()
                     .next_back()
-                    .is_some_and(|point| point.end_sample >= 13_920)
+                    .is_some_and(|point| point.end_sample >= 24_000)
         })
     })
 }
@@ -67,7 +67,8 @@ fn exact_pair_transports_real_pre_and_post_attack_histories_end_to_end() {
     assert!(pre_attack.is_enabled());
     assert!(post_attack.is_enabled());
 
-    push_impulse_pair(&pre_attack, &post_attack, 14_000, 8_000);
+    // A detail waits for its 130 ms windows and for every onset before the body end.
+    push_impulse_pair(&pre_attack, &post_attack, 24_000, 8_000);
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline && !histories_are_ready(&pre_attack, &post_attack) {
         thread::sleep(Duration::from_millis(2));
@@ -102,6 +103,29 @@ fn exact_pair_transports_real_pre_and_post_attack_histories_end_to_end() {
         .pair_events
         .iter()
         .any(|event| event.kind == crate::AttackPairEventKind::Matched));
+    // POST is measured at the PRE onset over the PRE detail's exact windows (B-1016).
+    let pre_detail = *pre_history.details().next_back().unwrap();
+    let anchored = view
+        .post_anchored
+        .iter()
+        .find(|detail| detail.event.event_sample == pre_detail.event.event_sample)
+        .expect("POST measured at the PRE onset");
+    assert_eq!(
+        anchored.features.window_start_sample,
+        pre_detail.features.window_start_sample
+    );
+    assert_eq!(
+        anchored.features.body_end_sample,
+        pre_detail.features.body_end_sample
+    );
+    assert_eq!(
+        anchored.event.generation,
+        post_history.newest().unwrap().generation
+    );
+    assert!(
+        (anchored.features.attack_rms_dbfs - pre_detail.features.attack_rms_dbfs + 6.020_6).abs()
+            < 1e-3
+    );
 
     pre.shutdown();
     post.shutdown();

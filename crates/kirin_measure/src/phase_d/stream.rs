@@ -162,7 +162,10 @@ impl PhaseDStream {
         })
     }
 
-    fn push_iso_core(&mut self, mono_48k: &[f64]) -> Option<(calc_slopes::SlopesResult, Vec<f64>)> {
+    pub(crate) fn push_iso_core(
+        &mut self,
+        mono_48k: &[f64],
+    ) -> Option<(calc_slopes::SlopesResult, Vec<f64>)> {
         let spl_frames = self.fb.process(mono_48k);
         if spl_frames.is_empty() {
             return None;

@@ -139,7 +139,7 @@ int main()
     auto& preDetails = *preDetailsStorage;
     for (std::uint32_t index = 0; index < preDetails.count; ++index)
     {
-        preDetails.details[index].contrast_db = 5.0f;
+        preDetails.details[index].transient_db = 5.0f;
         preDetails.details[index].attack_rms_dbfs = -20.0f;
         preDetails.details[index].crest_db = 10.0f;
         preDetails.details[index].sharpness_acum = 1.2f;

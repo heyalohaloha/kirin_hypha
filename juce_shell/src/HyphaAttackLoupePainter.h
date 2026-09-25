@@ -7,10 +7,10 @@
 
 namespace hypha::attack_loupe
 {
-// Inspection-only magnifier of the selected hit. It draws the measured 96-point peak shapes over
-// the exact 100 ms context and 30 ms attack windows, with the RMS levels that define TRANSIENT
-// (the step), STRENGTH (the attack level) and CREST (peak above attack RMS). Each side stays at its
-// own onset sample, so a PRE/POST onset difference remains visible instead of being aligned away.
+// Inspection-only magnifier of the selected hit: the measured 96-point peak shapes from 20 ms
+// before the window to the end of the full body, with the RMS levels that define STRENGTH (the
+// 30 ms head), TRANSIENT (the step from the head down to the body) and CREST (head peak above head
+// RMS). A matched POST is measured at the PRE onset, so both sides share every window.
 // The panel is cached chrome; `paint` draws only the selected hit.
 void paintPanel (juce::Graphics&, juce::Rectangle<int>);
 void paint (juce::Graphics&, juce::Rectangle<int>, const KirinAttackDetail* pre,

@@ -269,25 +269,27 @@ std::unique_ptr<AttackComponent> attackFixture()
     detail.sample_rate = 48'000u;
     detail.channels = 2u;
     detail.event_sample = 288'000;
-    detail.shape_start_sample = 283'200;
-    detail.shape_end_sample = 289'440;
+    detail.bin_frames = 48u;
+    detail.shape_start_sample = 288'000 - 20 * 48;
+    detail.shape_end_sample = 288'000 + 130 * 48;
+    detail.body_end_sample = 288'000 + 130 * 48;
     detail.shape_count = KIRIN_ATTACK_SHAPE_CAPACITY;
-    detail.contrast_db = 8.0f;
+    detail.transient_available = 1u;
+    detail.transient_db = 8.0f;
+    detail.body_rms_dbfs = -22.0f;
     detail.attack_rms_dbfs = -14.0f;
     detail.sample_peak_dbfs = -3.0f;
     detail.crest_db = 6.0f;
-    detail.sample_edge_ratio_db = -12.0f;
-    detail.peak_plateau_ms = 1.5f;
     detail.sharpness_available = 1u;
     detail.sharpness_acum = 1.6f;
     for (std::uint32_t index = 0; index < detail.shape_count; ++index)
-        detail.shape[index] = index < 70u ? 0.03f
-            : 0.82f * std::exp (-static_cast<float> (index - 70u) / 8.0f) + 0.02f;
+        detail.shape[index] = index < 13u ? 0.03f
+            : 0.82f * std::exp (-static_cast<float> (index - 13u) / 8.0f) + 0.02f;
     auto preWaveform = std::make_unique<KirinAttackWaveformBatch> (*waveform);
     auto preDetails = std::make_unique<KirinAttackDetailBatch> (*details);
     for (std::uint32_t index = 0; index < preWaveform->count; ++index)
         preWaveform->points[index].rms_dbfs -= 2.0f;
-    preDetails->details[0].contrast_db = 5.0f;
+    preDetails->details[0].transient_db = 5.0f;
     preDetails->details[0].attack_rms_dbfs = -20.0f;
     preDetails->details[0].sharpness_acum = 1.2f;
     KirinAttackPairEventBatch pairs {};

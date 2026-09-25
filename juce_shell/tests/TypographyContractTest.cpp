@@ -214,10 +214,10 @@ void verifyPreservedSurfaceText()
                 KIRIN_TYPOGRAPHY_REQUIRE (required (typography::TextRole::metricLabel, name,
                                                     attack_stage::labelTracking (context))
                                           <= drum.labelWidth - 8);
-            for (const auto* value : { "+12.3 dB", "-10.0 dBFS", "-0.12 acum" })
+            for (const auto* value : { "+12.3 dB", "-10.0 dBFS", "-0.12 acum", "5.25 acum" })
                 KIRIN_TYPOGRAPHY_REQUIRE (required (typography::TextRole::secondaryValue, value)
                                           <= drum.readoutWidth - 12);
-            for (const auto* reason : { "QUIET BEFORE", "ONSET DIFFERS", "POST ONLY" })
+            for (const auto* reason : { "QUIET AFTER", "NEXT HIT", "POST ONLY" })
                 KIRIN_TYPOGRAPHY_REQUIRE (required (typography::TextRole::readout, reason,
                                                     attack_stage::captionTracking (context))
                                           <= drum.readoutWidth - 12);

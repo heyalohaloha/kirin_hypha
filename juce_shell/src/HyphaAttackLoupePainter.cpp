@@ -17,10 +17,23 @@ const auto preColour = juce::Colour (0xffa3b3b9); // the HISTORY PRE trace colou
 
 bool usable (const KirinAttackDetail* detail) noexcept
 {
-    return detail != nullptr && detail->sample_rate > 0
+    return detail != nullptr && detail->sample_rate > 0 && detail->bin_frames > 0
         && detail->shape_count >= 2 && detail->shape_count <= KIRIN_ATTACK_SHAPE_CAPACITY
         && detail->shape_start_sample < detail->event_sample
         && detail->event_sample < detail->shape_end_sample;
+}
+
+// Every window starts at the first sample of the content bin that contains the onset.
+std::int64_t windowStart (const KirinAttackDetail& detail) noexcept
+{
+    const auto bin = static_cast<std::int64_t> (detail.bin_frames);
+    const auto whole = detail.event_sample / bin;
+    return (detail.event_sample % bin < 0 ? whole - 1 : whole) * bin;
+}
+
+std::int64_t headEnd (const KirinAttackDetail& detail) noexcept
+{
+    return windowStart (detail) + attack_ui::headBins * static_cast<std::int64_t> (detail.bin_frames);
 }
 
 struct Axis
@@ -81,16 +94,20 @@ juce::Path shapePath (const KirinAttackDetail& detail, const Axis& axis, bool cl
     return path;
 }
 
-// Context RMS, the step at the onset, then attack RMS: the operands of TRANSIENT and STRENGTH.
+// Head RMS, then the step down to the body RMS: the operands of STRENGTH and TRANSIENT. A body
+// cut short by the next onset has no level, so the step stops at the head.
 void paintRmsSteps (juce::Graphics& g, const KirinAttackDetail& detail, const Axis& axis,
                     juce::Colour colour, float thickness)
 {
     juce::Path steps;
-    const auto onset = axis.x (detail.event_sample);
-    steps.startNewSubPath (axis.x (detail.shape_start_sample), axis.y (detail.context_rms_dbfs));
-    steps.lineTo (onset, axis.y (detail.context_rms_dbfs));
-    steps.lineTo (onset, axis.y (detail.attack_rms_dbfs));
-    steps.lineTo (axis.x (detail.shape_end_sample), axis.y (detail.attack_rms_dbfs));
+    const auto head = axis.x (headEnd (detail));
+    steps.startNewSubPath (axis.x (windowStart (detail)), axis.y (detail.attack_rms_dbfs));
+    steps.lineTo (head, axis.y (detail.attack_rms_dbfs));
+    if (detail.transient_available != 0)
+    {
+        steps.lineTo (head, axis.y (detail.body_rms_dbfs));
+        steps.lineTo (axis.x (detail.body_end_sample), axis.y (detail.body_rms_dbfs));
+    }
     g.setColour (colour);
     g.strokePath (steps, juce::PathStrokeType (thickness));
 }
@@ -122,7 +139,7 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
     g.setFont (attack_stage::trackedFont (context, typography::TextRole::legend,
                                           attack_stage::captionTracking (context)));
     g.setColour (COL_TEXT_SECONDARY);
-    g.drawText ("HIT 130 ms", title, juce::Justification::centredLeft, false);
+    g.drawText ("HIT 150 ms", title, juce::Justification::centredLeft, false);
     const auto preUsable = usable (pre);
     const auto postUsable = usable (post);
     if (! preUsable && ! postUsable)
@@ -149,11 +166,16 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
         g.setColour (COL_TEXT_TERTIARY.withAlpha (0.16f));
         g.drawHorizontalLine (juce::roundToInt (axis.y (db)), plot.getX(), plot.getRight());
     }
-    const auto attackLeft = axis.x (anchor.event_sample);
-    const auto attackRight = axis.x (anchor.shape_end_sample);
+    // The head window, then the body window more faintly; the onset line is the zero.
+    const auto headLeft = axis.x (windowStart (anchor));
+    const auto headRight = axis.x (headEnd (anchor));
     g.setColour (juce::Colour (attack_ui::transientColour).withAlpha (0.08f));
     g.fillRect (juce::Rectangle<float>::leftTopRightBottom (
-        attackLeft, plot.getY(), attackRight, plot.getBottom()));
+        headLeft, plot.getY(), headRight, plot.getBottom()));
+    g.setColour (juce::Colour (attack_ui::transientColour).withAlpha (0.035f));
+    g.fillRect (juce::Rectangle<float>::leftTopRightBottom (
+        headRight, plot.getY(), axis.x (anchor.body_end_sample), plot.getBottom()));
+    const auto attackLeft = axis.x (anchor.event_sample);
     g.setColour (juce::Colour (attack_ui::selectionColour).withAlpha (0.55f));
     g.drawVerticalLine (juce::roundToInt (attackLeft), plot.getY(), plot.getBottom());
     if (preUsable && postUsable && pre->event_sample != post->event_sample)
@@ -187,7 +209,7 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
         paintRmsSteps (g, *post, axis, juce::Colour (attack_ui::transientColour), 1.4f);
         if (std::isfinite (post->sample_peak_dbfs) && std::isfinite (post->attack_rms_dbfs))
         {
-            const auto x = axis.x (post->shape_end_sample) - 3.0f;
+            const auto x = axis.x (headEnd (*post)) - 3.0f;
             const auto top = axis.y (post->sample_peak_dbfs);
             const auto bottom = axis.y (post->attack_rms_dbfs);
             g.setColour (juce::Colour (attack_ui::crestColour));

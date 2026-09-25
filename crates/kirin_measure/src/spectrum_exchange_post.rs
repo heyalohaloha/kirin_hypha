@@ -180,7 +180,7 @@ impl SpectrumCoordinator {
             status: SpectrumViewStatus::NoPair,
             pre: None,
             post,
-            pair_events: Vec::new(),
+            ..Default::default()
         });
         true
     }
