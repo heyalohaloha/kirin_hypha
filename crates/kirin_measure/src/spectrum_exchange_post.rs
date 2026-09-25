@@ -75,10 +75,7 @@ impl SpectrumCoordinator {
             cleanup_owned_request(retired_target.as_ref(), retired_id);
         }
         if reset_runtime {
-            self.disable_analysis_runtimes();
-            if analysis_mode == AnalysisViewMode::Perceptual {
-                let _ = self.runtime.set_perceptual_state_epoch(None);
-            }
+            self.restart_session_runtimes(analysis_mode);
         }
         if renewal && !self.publish_post_request(&session, post_instance_id, &target) {
             return false;

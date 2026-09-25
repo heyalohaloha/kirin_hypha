@@ -51,10 +51,7 @@ impl SpectrumCoordinator {
             None => return false,
         };
         if slot.as_ref().map(|state| state.request_id) != Some(request_id) {
-            self.disable_analysis_runtimes();
-            if analysis_mode == AnalysisViewMode::Perceptual {
-                let _ = self.runtime.set_perceptual_state_epoch(None);
-            }
+            self.restart_session_runtimes(analysis_mode);
             if !self.set_active_runtime_enabled(analysis_mode, true) {
                 *slot = None;
                 return false;

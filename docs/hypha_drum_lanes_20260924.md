@@ -181,6 +181,7 @@ layoutは1回の描画で1度だけ計算する。
 - PRE detailが頭だけの間、またはPOSTのbinがまだbody終端まで揃わない間は、POSTも頭だけを測る。
 - PRE→POST exchange codecは版2でbody終端、TRANSIENT、新しいSharpnessを運び、版3（B-1024）で頭だけのdetailを示す`complete`を加えた。版の違うsnapshotは読まない。
 - PREはsnapshotを、waveformの末尾が進んだときだけでなく、detailの追加や完了を含むhistoryの変化ごとに書き直す。停止直前に出た頭だけのdetailもPOSTへ届く。
+- ペアの交換セッションを作り直しても（相手が一時的に外れて戻る、復元したペアが確定する、POSTの依頼が変わる）、PRE・POSTとも動いているATTACKの計測は作り直さない。ATTACKは両側とも絶対content格子で測っており、セッションは両者の履歴を結ぶだけだからである。以前は作り直しで両側の履歴が消え、停止中はHOLDが空（WARMING UP）になった（B-1026、Studio Pro 8実機で観察）。SpectrumとSHARPは相手と状態を合わせるため、従来どおり作り直す。
 
 ### 4.3 Phase Dの区切り
 

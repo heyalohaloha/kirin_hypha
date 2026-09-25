@@ -134,3 +134,75 @@ fn exact_pair_transports_real_pre_and_post_attack_histories_end_to_end() {
     pre_spectrum.shutdown_and_join();
     post_spectrum.shutdown_and_join();
 }
+
+#[test]
+fn a_pairing_flicker_keeps_the_post_attack_history() {
+    // With the transport stopped nothing new is measured, so HOLD shows the last six seconds only
+    // if a pairing that drops for one tick and comes back does not restart POST's own ATTACK run.
+    let temp = tempfile::tempdir().unwrap();
+    let pre_dir = temp.path().join("project").join("pre");
+    let pre_json = pre_dir.join("pre.json");
+    crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
+    let pre_spectrum = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let post_spectrum =
+        SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let pre_attack = AttackRuntime::new(48_000, 2).unwrap();
+    let post_attack = AttackRuntime::new(48_000, 2).unwrap();
+    let pre = SpectrumCoordinator::new_with_attack(
+        48_000,
+        Arc::clone(&pre_spectrum),
+        Some(Arc::clone(&pre_attack)),
+    );
+    let post = SpectrumCoordinator::new_with_attack(
+        48_000,
+        Arc::clone(&post_spectrum),
+        Some(Arc::clone(&post_attack)),
+    );
+    let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
+    assert!(post.set_post_analysis_mode(AnalysisViewMode::Attack));
+    post.set_post_visible(true);
+    assert!(post.post_tick("post", Some(target.clone())));
+    assert!(pre.pre_tick("pre", &pre_dir));
+    push_impulse_pair(&pre_attack, &post_attack, 24_000, 8_000);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline && !histories_are_ready(&pre_attack, &post_attack) {
+        thread::sleep(Duration::from_millis(2));
+    }
+    assert!(histories_are_ready(&pre_attack, &post_attack));
+    let before = post_attack.try_history().unwrap();
+
+    assert!(
+        post.post_tick("post", None),
+        "the pairing drops for one tick"
+    );
+    assert!(
+        post.post_tick("post", Some(target.clone())),
+        "and comes back"
+    );
+    let after = post_attack.try_history().unwrap();
+    assert_eq!(
+        after.frames().count(),
+        before.frames().count(),
+        "POST keeps its measured ATTACK history"
+    );
+    assert_eq!(after.details().count(), before.details().count());
+    assert_eq!(after.newest(), before.newest());
+
+    // The new pair session joins the kept POST history with PRE again.
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut status = SpectrumViewStatus::WarmingUp;
+    while Instant::now() < deadline && status != SpectrumViewStatus::Active {
+        assert!(pre.pre_tick("pre", &pre_dir));
+        let _ = post.post_tick("post", Some(target.clone()));
+        status = post.try_attack_view().map_or(status, |view| view.status);
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(status, SpectrumViewStatus::Active);
+
+    pre.shutdown();
+    post.shutdown();
+    pre_attack.shutdown_and_join();
+    post_attack.shutdown_and_join();
+    pre_spectrum.shutdown_and_join();
+    post_spectrum.shutdown_and_join();
+}
