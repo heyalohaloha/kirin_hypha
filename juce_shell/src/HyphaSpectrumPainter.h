@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 
 #include <juce_graphics/juce_graphics.h>
 
@@ -11,6 +12,7 @@
 namespace hypha::spectrum_painter
 {
     using SpectrumBins = std::array<float, KIRIN_SPECTRUM_BAND_COUNT>;
+    using SpectrumValidity = std::array<uint8_t, KIRIN_SPECTRUM_BAND_COUNT>;
 
     // Pure presentation helper. It has no timer, interaction, pair, FFT, or audio state.
     void paintCurves (juce::Graphics& graphics,
@@ -19,7 +21,9 @@ namespace hypha::spectrum_painter
                       const SpectrumBins& pre,
                       const SpectrumBins& post,
                       const SpectrumBins& delta,
-                      const SpectrumBins* mark);
+                      const SpectrumValidity& deltaValid,
+                      const SpectrumBins* mark,
+                      const SpectrumValidity* markValid);
 
     void paintAbsolute (juce::Graphics& graphics,
                         juce::Rectangle<float> plot,

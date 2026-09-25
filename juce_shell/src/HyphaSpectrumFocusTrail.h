@@ -14,6 +14,7 @@ namespace hypha::spectrum_focus
         ui_contract::spectrumPresentationHz) * focusTrailSeconds;
 
     using DeltaBins = std::array<float, KIRIN_SPECTRUM_BAND_COUNT>;
+    using Validity = std::array<uint8_t, KIRIN_SPECTRUM_BAND_COUNT>;
 
     enum class AppendResult
     {
@@ -33,6 +34,10 @@ namespace hypha::spectrum_focus
         AppendResult append (int64_t presentationEndSamples,
                              uint32_t sampleRate,
                              const DeltaBins& displayDelta) noexcept;
+        AppendResult append (int64_t presentationEndSamples,
+                             uint32_t sampleRate,
+                             const DeltaBins& displayDelta,
+                             const Validity& valid) noexcept;
         void clear() noexcept;
 
         bool empty() const noexcept { return count == 0u; }
@@ -48,6 +53,7 @@ namespace hypha::spectrum_focus
         {
             int64_t presentationEndSamples = 0;
             DeltaBins displayDelta {};
+            Validity valid {};
         };
 
         size_t physicalIndex (size_t chronologicalIndex) const noexcept;

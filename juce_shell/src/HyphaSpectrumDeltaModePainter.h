@@ -1,0 +1,30 @@
+#pragma once
+
+#include <juce_graphics/juce_graphics.h>
+
+#include "HyphaPresentationContext.h"
+#include "HyphaSpectrumGeometry.h"
+#include "HyphaTheme.h"
+
+namespace hypha::spectrum_delta_mode
+{
+inline void paint (juce::Graphics& g, juce::Rectangle<float> outer, float scale,
+                   bool shape, presentation::Context context)
+{
+    const auto bounds = spectrum_geometry::deltaModeBoundsFor (outer, scale);
+    const auto half = bounds.getWidth() * 0.5f;
+    const auto raw = bounds.withWidth (half);
+    const auto normalized = bounds.withTrimmedLeft (half);
+    const auto selected = shape ? normalized : raw;
+    g.setColour (BG.brighter (0.10f).withAlpha (0.91f));
+    g.fillRoundedRectangle (selected, 2.5f * scale);
+    g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.60f));
+    g.drawRoundedRectangle (selected.reduced (0.3f), 2.5f * scale, 0.65f * scale);
+    g.setFont (monoFont (context, typography::TextRole::legend,
+                         typography::Composition::visualization));
+    g.setColour ((shape ? COL_TEXT_SECONDARY : COL_SPECTRUM_DELTA_BR).withAlpha (0.94f));
+    g.drawText ("RAW", raw.toNearestInt(), juce::Justification::centred);
+    g.setColour ((shape ? COL_SPECTRUM_DELTA_BR : COL_TEXT_SECONDARY).withAlpha (0.94f));
+    g.drawText ("SHAPE", normalized.toNearestInt(), juce::Justification::centred);
+}
+}

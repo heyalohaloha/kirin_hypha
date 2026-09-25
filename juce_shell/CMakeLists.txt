@@ -575,6 +575,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/AbsoluteSpectrumContractTest.cpp
         tests/PerceptualHistoryContractTest.cpp
         tests/SpectrumInteractionContractTest.cpp
+        tests/SpectrumShapeContractTest.cpp
         tests/SpectrumFocusTrailContractTest.cpp
         tests/SpectrumPresentationContractTest.cpp
         tests/GuideFrequencyOverlayContractTest.cpp

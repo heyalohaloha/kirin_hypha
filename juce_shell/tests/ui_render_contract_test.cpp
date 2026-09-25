@@ -12,6 +12,7 @@
 #include "AbsoluteSpectrumContractTest.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
+#include "SpectrumShapeContractTest.h"
 #include "SpectrumPresentationContractTest.h"
 #include "GuideFrequencyOverlayContractTest.h"
 #include "ObservatoryViewContractTest.h"
@@ -138,6 +139,8 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_AAX, "Studio Pro", "8.1.2.113407") == 0);
     KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_VST3, "Studio Pro", "8.1.2.113408") == 0);
     KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_VST3, "Other Host", "8.1.2.113407") == 0);
+    if (std::getenv ("HYPHA_SHAPE_ONLY") != nullptr)
+    { hypha::tests::verifySpectrumShapeContract (KirinSpectrumView {}); return 0; }
     const auto previews = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
     if (previews.isNotEmpty()) KIRIN_REQUIRE (juce::File (previews).createDirectory().wasOk());
     if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
@@ -367,6 +370,7 @@ int main (int argc, char** argv)
     }
     // Keep the performance-sensitive trail gate after all five MARK size contracts.
     hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);
+    hypha::tests::verifySpectrumShapeContract (spectrumSnapshot);
     hypha::SpectrumComponent lineEncodingSpectrum;
     lineEncodingSpectrum.setPresentationContext (hypha::presentation::forEditor (
         ui::editorWidth, ui::editorHeight));

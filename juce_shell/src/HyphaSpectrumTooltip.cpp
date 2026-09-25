@@ -47,6 +47,15 @@ void SpectrumComponent::mouseMove (const juce::MouseEvent& event)
                 ? analysis_ui::midSideModeTooltip (absoluteObservation, inputChannels == 2u)
                 : analysis_ui::channelModeTooltip (static_cast<uint8_t> (index));
 
+    if (! absoluteObservation && ! midSideObservation && tip.isEmpty())
+    {
+        const auto selector = spectrum_geometry::deltaModeBoundsFor (outer, scale);
+        if (selector.contains (position))
+            tip = position.x < selector.getCentreX()
+                ? "RAW: exact POST - PRE spectral difference"
+                : "SHAPE: spectral difference after same-window energy normalization";
+    }
+
     const auto mark = spectrum_geometry::markBoundsFor (outer, scale);
     if (! absoluteObservation && tip.isEmpty()
         && focusFrequencyHz <= 0.0f && mark.contains (position))

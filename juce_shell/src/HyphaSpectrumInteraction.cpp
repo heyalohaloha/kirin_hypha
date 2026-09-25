@@ -3,6 +3,8 @@
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumUiContract.h"
 
+#include <algorithm>
+
 namespace hypha
 {
 void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
@@ -63,6 +65,9 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         pendingPre.fill (0.0f);
         pendingPost.fill (0.0f);
         pendingDelta.fill (0.0f);
+        displayedDeltaValid.fill (0u);
+        readoutDeltaValid.fill (0u);
+        pendingDeltaValid.fill (0u);
         clearInteractionState();
         haveSnapshot = false;
         havePendingSnapshot = false;
@@ -74,6 +79,27 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
 
+    if (! absoluteObservation && ! midSideObservation)
+    {
+        const auto selector = spectrum_geometry::deltaModeBoundsFor (outerPlot, scale);
+        if (selector.contains (event.position))
+        {
+            const bool requestedShape = event.position.x >= selector.getCentreX();
+            if (requestedShape != shapeObservation)
+            {
+                const auto latest = havePendingSnapshot ? pendingSnapshot : snapshot;
+                const bool restore = havePendingSnapshot || haveSnapshot;
+                shapeObservation = requestedShape;
+                clearInteractionState();
+                haveSnapshot = false;
+                havePendingSnapshot = false;
+                if (restore) setSnapshot (latest);
+                else repaint();
+            }
+            return;
+        }
+    }
+
     const auto markBounds = spectrum_geometry::markBoundsFor (outerPlot, scale);
     if (! absoluteObservation
         && focusFrequencyHz <= 0.0f && hoverNormalisedX < 0.0f
@@ -83,11 +109,15 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
                 markBounds, scale).contains (event.position))
         {
             markedDelta.fill (0.0f);
+            markedDeltaValid.fill (0u);
             haveMark = false;
         }
-        else if (haveSnapshot && currentSnapshotValid())
+        else if (haveSnapshot && currentSnapshotValid()
+                 && std::any_of (pendingDeltaValid.begin(), pendingDeltaValid.end(),
+                                 [] (uint8_t valid) { return valid != 0u; }))
         {
             markedDelta = pendingDelta;
+            markedDeltaValid = pendingDeltaValid;
             haveMark = true;
         }
         else

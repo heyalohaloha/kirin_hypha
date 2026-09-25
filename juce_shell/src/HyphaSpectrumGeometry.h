@@ -145,6 +145,17 @@ namespace hypha::spectrum_geometry
                  (float) ui_contract::spectrumChannelModeHeight * scale };
     }
 
+    inline juce::Rectangle<float> deltaModeBoundsFor (juce::Rectangle<float> outerPlot,
+                                                      float scale) noexcept
+    {
+        return { outerPlot.getRight()
+                    - (float) ui_contract::spectrumDeltaModeWidth * scale,
+                 outerPlot.getY()
+                    + (float) ui_contract::spectrumDeltaModeTop * scale,
+                 (float) ui_contract::spectrumDeltaModeWidth * scale,
+                 (float) ui_contract::spectrumLegendHeight * scale };
+    }
+
     inline juce::Rectangle<float> subviewBoundsFor (juce::Rectangle<float> outerPlot,
                                                      float scale) noexcept
     {

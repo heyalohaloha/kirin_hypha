@@ -140,7 +140,7 @@ namespace
             image.clear (image.getBounds(), BG);
             juce::Graphics graphics (image);
             spectrum_focus_painter::paint (
-                graphics, bounds, scale, history, 0.70f, scale <= 1.1f,
+                graphics, bounds, scale, history, 0.70f, scale <= 1.1f, false,
                 context);
         }
         return (juce::Time::getMillisecondCounterHiRes() - started) / iterations;

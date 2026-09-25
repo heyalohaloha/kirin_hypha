@@ -101,11 +101,12 @@ void SpectrumComponent::paint (juce::Graphics& g)
     else
     {
         const spectrum_chrome::PaintState state {
-            snapshot, displayedPre, displayedPost, displayedDelta,
-            readoutPre, readoutPost, readoutDelta, markedDelta,
+            snapshot, displayedPre, displayedPost, displayedDelta, displayedDeltaValid,
+            readoutPre, readoutPost, readoutDelta, readoutDeltaValid,
+            markedDelta, markedDeltaValid,
             focusTrail.get(), modeActionNotice, comparisonStatus, analysisOwnerNames, guideOverlay,
             &absoluteHistory, absoluteHistory.peakHold(), absoluteObservation,
-            midSideObservation,
+            midSideObservation, shapeObservation,
             haveSnapshot, signalActive && currentSnapshotValid(),
             haveMark, hoverNormalisedX, focusFrequencyHz, channelMode, inputChannels, signalActive,
             presentationContext

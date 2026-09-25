@@ -69,6 +69,7 @@ namespace
             && sameFloatBits (left.approximate_below_hz, right.approximate_below_hz)
             && left.channel_mode == right.channel_mode
             && left.channels == right.channels
+            && left.analysis_view == right.analysis_view
             && sameFloatBits (left.min_hz, right.min_hz)
             && sameFloatBits (left.max_hz, right.max_hz);
     }
@@ -135,17 +136,18 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
             displayedPre.fill (0.0f);
         displayedPost = spectrum_presentation::calmLowFrequencies (
             snapshot.post_dbfs, calmWeights);
-        if (snapshot.has_data != 0)
-            displayedDelta = spectrum_presentation::calmLowFrequencies (
-                snapshot.display_db, calmWeights);
-        else
-            displayedDelta.fill (0.0f);
+        const auto selected = spectrum_delta::select (
+            snapshot, shapeObservation, calmWeights);
+        displayedDelta = selected.values;
+        displayedDeltaValid = selected.valid;
         readoutPre = displayedPre;
         readoutPost = displayedPost;
         readoutDelta = displayedDelta;
+        readoutDeltaValid = displayedDeltaValid;
         pendingPre = displayedPre;
         pendingPost = displayedPost;
         pendingDelta = displayedDelta;
+        pendingDeltaValid = displayedDeltaValid;
         absoluteHistory.append (snapshot);
         if (! absoluteObservation)
         {
@@ -153,7 +155,7 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
                 focusTrail = std::make_unique<spectrum_focus::FocusTrailHistory>();
             focusTrail->append (snapshot.presentation_end_samples,
                                 snapshot.sample_rate,
-                                displayedDelta);
+                                displayedDelta, displayedDeltaValid);
         }
     }
     else
@@ -167,6 +169,9 @@ void SpectrumComponent::setSnapshot (const KirinSpectrumView& next)
         pendingPre.fill (0.0f);
         pendingPost.fill (0.0f);
         pendingDelta.fill (0.0f);
+        displayedDeltaValid.fill (0u);
+        readoutDeltaValid.fill (0u);
+        pendingDeltaValid.fill (0u);
     }
     pendingSnapshot = next;
     havePendingSnapshot = true;
@@ -253,16 +258,16 @@ void SpectrumComponent::queueSnapshot (const KirinSpectrumView& next)
     else
         pendingPre.fill (0.0f);
     pendingPost = spectrum_presentation::calmLowFrequencies (next.post_dbfs, calmWeights);
-    if (next.has_data != 0)
-        pendingDelta = spectrum_presentation::calmLowFrequencies (next.display_db, calmWeights);
-    else
-        pendingDelta.fill (0.0f);
+    const auto selected = spectrum_delta::select (next, shapeObservation, calmWeights);
+    pendingDelta = selected.values;
+    pendingDeltaValid = selected.valid;
     absoluteHistory.append (next);
     if (! absoluteObservation)
     {
         if (focusTrail == nullptr)
             focusTrail = std::make_unique<spectrum_focus::FocusTrailHistory>();
-        focusTrail->append (next.presentation_end_samples, next.sample_rate, pendingDelta);
+        focusTrail->append (next.presentation_end_samples, next.sample_rate,
+                            pendingDelta, pendingDeltaValid);
     }
     pendingSnapshot = next;
     havePendingSnapshot = true;
@@ -291,6 +296,9 @@ void SpectrumComponent::clearSnapshot()
     pendingPre.fill (0.0f);
     pendingPost.fill (0.0f);
     pendingDelta.fill (0.0f);
+    displayedDeltaValid.fill (0u);
+    readoutDeltaValid.fill (0u);
+    pendingDeltaValid.fill (0u);
     clearInteractionState();
     haveSnapshot = false;
     havePendingSnapshot = false;
@@ -310,6 +318,7 @@ void SpectrumComponent::clearInteractionState() noexcept
 {
     interactionDefinition = {};
     markedDelta.fill (0.0f);
+    markedDeltaValid.fill (0u);
     focusTrail.reset();
     haveInteractionDefinition = false;
     haveMark = false;
@@ -340,6 +349,7 @@ void SpectrumComponent::presentationTickAt (double nowMs)
         spectrum_presentation::advanceAbsoluteCurve (displayedPost, pendingPost, elapsedMs);
         spectrum_presentation::advanceSignedDeltaCurve (
             displayedDelta, pendingDelta, elapsedMs);
+        displayedDeltaValid = pendingDeltaValid;
         curveDirty = false;
         lastCurvePresentationMs = nowMs - lastCurvePresentationMs > 2.0 * intervalMs
                                 ? nowMs : lastCurvePresentationMs + intervalMs;
@@ -354,6 +364,7 @@ void SpectrumComponent::presentationTickAt (double nowMs)
         readoutPre = pendingPre;
         readoutPost = pendingPost;
         readoutDelta = pendingDelta;
+        readoutDeltaValid = pendingDeltaValid;
         numericDirty = false;
         lastNumericPresentationMs = nowMs - lastNumericPresentationMs > 2.0 * intervalMs
                                   ? nowMs : lastNumericPresentationMs + intervalMs;

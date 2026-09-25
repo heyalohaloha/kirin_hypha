@@ -5,6 +5,8 @@
 #include "HyphaPolylineGeometry.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace hypha::spectrum_focus_painter
 {
@@ -48,6 +50,7 @@ void paint (juce::Graphics& g,
             const spectrum_focus::FocusTrailHistory& history,
             float normalisedBand,
             bool compact,
+            bool shape,
             presentation::Context presentation)
 {
     if (history.empty() || bounds.isEmpty())
@@ -75,8 +78,10 @@ void paint (juce::Graphics& g,
         g.setFont (monoFont (presentation, typography::TextRole::legend,
                              typography::Composition::visualization));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.68f));
-        g.drawText (juce::String (juce::CharPointer_UTF8 (
-                        "\xCE\x94 \xC2\xB7 6s \xC2\xB7 \xC2\xB1\x31\x32")),
+        g.drawText ((shape ? juce::String ("SHAPE")
+                           : juce::String (juce::CharPointer_UTF8 ("\xCE\x94")))
+                    + juce::String (juce::CharPointer_UTF8 (
+                        " \xC2\xB7 6s \xC2\xB7 \xC2\xB1\x31\x32")),
                     plot.removeFromTop (juce::jmax (14.0f, 7.0f * visualScale)),
                     juce::Justification::centredLeft);
     }
@@ -98,13 +103,16 @@ void paint (juce::Graphics& g,
     const auto displayY = [&] (size_t index)
     {
         auto value = history.valueAt (index, normalisedBand);
+        if (! std::isfinite (value))
+            return std::numeric_limits<float>::quiet_NaN();
         if (index > 0u && index + 1u < history.size()
             && ! history.hasGapBetween (index - 1u, index)
             && ! history.hasGapBetween (index, index + 1u))
         {
-            value = 0.25f * history.valueAt (index - 1u, normalisedBand)
-                  + 0.50f * value
-                  + 0.25f * history.valueAt (index + 1u, normalisedBand);
+            const auto before = history.valueAt (index - 1u, normalisedBand);
+            const auto after = history.valueAt (index + 1u, normalisedBand);
+            if (std::isfinite (before) && std::isfinite (after))
+                value = 0.25f * before + 0.50f * value + 0.25f * after;
         }
         return yForDelta (value, plot);
     };
@@ -132,8 +140,10 @@ void paint (juce::Graphics& g,
     // this keeps narrow excursions and the two sides of every missing-data gap at every size.
     for (size_t first = 0; first < history.size();)
     {
+        if (! std::isfinite (y[first])) { ++first; continue; }
         size_t last = first;
         while (last + 1 < history.size() && x[last + 1] > x[last]
+               && std::isfinite (y[last + 1])
                && ! history.hasGapBetween (last, last + 1))
             ++last;
         appendRun (stroke, first, last);
@@ -167,11 +177,14 @@ void paint (juce::Graphics& g,
         juce::PathStrokeType::curved,
         juce::PathStrokeType::rounded));
 
-    g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.18f));
-    g.fillEllipse (newestX - 2.8f * strokeScale, newestY - 2.8f * strokeScale,
-                   5.6f * strokeScale, 5.6f * strokeScale);
-    g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.98f));
-    g.fillEllipse (newestX - 1.25f * strokeScale, newestY - 1.25f * strokeScale,
-                   2.5f * strokeScale, 2.5f * strokeScale);
+    if (std::isfinite (newestY))
+    {
+        g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.18f));
+        g.fillEllipse (newestX - 2.8f * strokeScale, newestY - 2.8f * strokeScale,
+                       5.6f * strokeScale, 5.6f * strokeScale);
+        g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.98f));
+        g.fillEllipse (newestX - 1.25f * strokeScale, newestY - 1.25f * strokeScale,
+                       2.5f * strokeScale, 2.5f * strokeScale);
+    }
 }
 }

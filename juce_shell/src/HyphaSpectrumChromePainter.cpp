@@ -5,6 +5,7 @@
 #include "HyphaSpectrumAxisPainter.h"
 #include "HyphaAnalysisUiText.h"
 #include "HyphaSpectrumFocusTrailPainter.h"
+#include "HyphaSpectrumDeltaModePainter.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
@@ -90,19 +91,25 @@ namespace
             g.drawText (channelModeText (mode), segment.toNearestInt(),
                         juce::Justification::centred);
         }
+        if (! state.absoluteObservation && ! state.midSideObservation)
+            spectrum_delta_mode::paint (g, outerPlot, scale, state.shapeObservation,
+                                        state.presentation);
         if (showProbe)
             return;
 
         const int legendOffset = 0;
         const float legendTop = outerPlot.getY()
                               + scaled (17.0f);
+        const auto textArea = state.absoluteObservation || state.midSideObservation
+            ? outerPlot : outerPlot.withTrimmedRight (
+                scaled ((float) ui_contract::spectrumDeltaModeWidth + 2.0f));
         g.setFont (monoFont (state.presentation, typography::TextRole::legend,
                              typography::Composition::visualization));
         if (state.actionNotice.isNotEmpty())
         {
             g.setColour (COL_MUTED.withAlpha (0.90f));
             g.drawText (state.actionNotice,
-                        outerPlot.withTop (legendTop).withHeight (
+                        textArea.withTop (legendTop).withHeight (
                             scaled ((float) ui_contract::spectrumLegendHeight)).toNearestInt(),
                         juce::Justification::centredLeft);
             return;
@@ -112,9 +119,20 @@ namespace
             g.setColour (COL_TEXT_SECONDARY);
             text_style::drawEllipsized (
                 g, state.comparisonStatus,
-                outerPlot.withTop (legendTop).withHeight (
+                textArea.withTop (legendTop).withHeight (
                     scaled ((float) ui_contract::spectrumLegendHeight)).toNearestInt(),
                 juce::Justification::centredLeft);
+            return;
+        }
+        if (state.shapeObservation && state.snapshotValid
+            && std::none_of (state.deltaValid.begin(), state.deltaValid.end(),
+                             [] (uint8_t valid) { return valid != 0u; }))
+        {
+            g.setColour (COL_MUTED.withAlpha (0.84f));
+            g.drawText ("SHAPE — LOW ENERGY",
+                        textArea.withTop (legendTop).withHeight (
+                            scaled ((float) ui_contract::spectrumLegendHeight)).toNearestInt(),
+                        juce::Justification::centredLeft);
             return;
         }
         if (state.midSideObservation)
@@ -225,6 +243,9 @@ namespace
             blend, state.readoutPost[lower], state.readoutPost[upper]);
         const float deltaDb = juce::jmap (
             blend, state.readoutDelta[lower], state.readoutDelta[upper]);
+        const bool deltaValid = state.readoutDeltaValid[lower] != 0u
+            && (upper == lower || blend < 0.0001f
+                || state.readoutDeltaValid[upper] != 0u);
         const float pointY = state.absoluteObservation
             ? juce::jmap (juce::jlimit (-96.0f, 0.0f, postDbfs),
                           0.0f, -96.0f, plot.getY(), plot.getBottom())
@@ -236,7 +257,7 @@ namespace
                         * ui_contract::spectrumHoverLineWidth);
         const auto pointColour = state.absoluteObservation
             ? COL_SPECTRUM_POST : COL_SPECTRUM_DELTA;
-        if (! state.midSideObservation)
+        if (! state.midSideObservation && (state.absoluteObservation || deltaValid))
         {
             g.setColour (pointColour.withAlpha (0.18f));
             g.fillEllipse (hoverX - scaled (3.5f), pointY - scaled (3.5f),
@@ -258,8 +279,11 @@ namespace
 
         const float frequency = spectrum_geometry::frequencyForProbeNormalisedX (
             effectiveNormalisedX, minimumHz, maximumHz);
-        const auto deltaText = juce::String (deltaDb >= 0.0f ? "+" : "")
-                             + juce::String (deltaDb, 1);
+        const auto deltaText = deltaValid
+            ? juce::String (deltaDb >= 0.0f ? "+" : "") + juce::String (deltaDb, 1)
+            : juce::String (juce::CharPointer_UTF8 ("—"));
+        const juce::String deltaLabel = state.shapeObservation ? "S" :
+            juce::String (juce::CharPointer_UTF8 ("Δ"));
         const int textY = juce::roundToInt (readout.getY());
         g.setFont (monoFont (state.presentation, typography::TextRole::readout,
                              typography::Composition::visualization));
@@ -337,7 +361,7 @@ namespace
                       ui_contract::spectrumExpandedPostX,
                       ui_contract::spectrumExpandedPostWidth,
                       juce::Justification::centredRight);
-            drawText (juce::String (juce::CharPointer_UTF8 ("Δ")) + deltaText,
+            drawText (deltaLabel + deltaText,
                       COL_SPECTRUM_DELTA_BR.withAlpha (0.98f),
                       ui_contract::spectrumExpandedDeltaX,
                       ui_contract::spectrumExpandedDeltaWidth,
@@ -351,7 +375,7 @@ namespace
                       ui_contract::spectrumHoverFrequencyX,
                       ui_contract::spectrumHoverFrequencyWidth,
                       juce::Justification::centredLeft);
-            drawText (juce::String (juce::CharPointer_UTF8 ("Δ")) + deltaText,
+            drawText (deltaLabel + deltaText,
                       COL_SPECTRUM_DELTA_BR.withAlpha (0.98f),
                       ui_contract::spectrumHoverDeltaX,
                       ui_contract::spectrumHoverDeltaWidth,
@@ -436,13 +460,16 @@ void paint (juce::Graphics& g,
                                          *state.absoluteHistory, state.presentation);
     else
         spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
-                                       state.delta, state.haveMark ? &state.mark : nullptr);
+                                       state.delta, state.deltaValid,
+                                       state.haveMark ? &state.mark : nullptr,
+                                       state.haveMark ? &state.markValid : nullptr);
     if (focusLocked
         && state.focusTrail != nullptr && ! state.focusTrail->empty())
     {
         spectrum_focus_painter::paint (
             g, spectrum_geometry::focusTrailBoundsFor (bounds), scale,
-            *state.focusTrail, focusNormalisedX, scale <= 1.1f, state.presentation);
+            *state.focusTrail, focusNormalisedX, scale <= 1.1f,
+            state.shapeObservation, state.presentation);
     }
     if (probeNormalisedX >= 0.0f)
         paintProbe (g, outerPlot, plot, scale, probeNormalisedX,
