@@ -374,6 +374,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp
             src/HyphaSpectrumComponent.cpp
+            src/HyphaSpectrumInteraction.cpp
             src/HyphaSpectrumPsb.cpp
             src/HyphaSpectrumTooltip.cpp
             src/HyphaSpectrumChromePainter.cpp
@@ -644,6 +645,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaTextButton.cpp
         src/HyphaPsbPainter.cpp
         src/HyphaSpectrumComponent.cpp
+        src/HyphaSpectrumInteraction.cpp
         src/HyphaSpectrumPsb.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
@@ -708,6 +710,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaGuideFrequencyOverlay.cpp
         src/HyphaPsbPainter.cpp
         src/HyphaSpectrumComponent.cpp
+        src/HyphaSpectrumInteraction.cpp
         src/HyphaSpectrumPsb.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
