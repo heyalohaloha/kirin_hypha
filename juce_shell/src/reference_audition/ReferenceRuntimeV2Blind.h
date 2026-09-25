@@ -149,6 +149,10 @@ namespace hypha::reference_audition
         };
 
         bool enterPreparation() noexcept;
+        void publishSessionIdentity (std::uint64_t sequence,
+                                     std::uint64_t auditionEpoch,
+                                     std::uint64_t outputGateToken) noexcept;
+        void clearSessionIdentity() noexcept;
         bool renderWholeSong (juce::AudioBuffer<float>&, AudioPages&, std::int64_t sourcePosition) noexcept;
         void restorePreparedGain() noexcept;
         void resetSession() noexcept;

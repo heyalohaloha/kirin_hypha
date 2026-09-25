@@ -1,6 +1,7 @@
 #include "../src/local_blind/LocalBlindSlot.h"
 #include "../src/local_blind/LocalBlindEpochSnapshot.h"
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -313,7 +314,9 @@ static void concurrentRetirement()
             slot.render (buffer.pointers.data(), 2, 64, block (position));
             inRt = false;
             position = position == 128 ? -64 : position + 64;
-            std::this_thread::yield();
+            // A DAW callback always has a non-callback interval. Preserve that boundary here so
+            // the non-RT owner can observe readers == 0 instead of racing an artificial tight loop.
+            std::this_thread::sleep_for (std::chrono::microseconds (1));
         }
     });
     for (int round = 0; round < 100; ++round)
