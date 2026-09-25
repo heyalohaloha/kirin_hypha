@@ -53,6 +53,13 @@ std::optional<std::size_t> hitTest (juce::Rectangle<int> area,
                                     const std::vector<KirinMeterHistoryEntry>&,
                                     juce::Point<float> position,
                                     double sampleRate);
+// Only the comparison band selects an exact 400 ms chain point. Its endpoint need not coincide
+// with an independently phased absolute 100 ms history endpoint.
+std::optional<std::size_t> hitTestChain (juce::Rectangle<int> area,
+                                        const KirinChainSnapshot&,
+                                        const std::vector<KirinChainPoint>&,
+                                        std::uint64_t axisEndObserved,
+                                        juce::Point<float> position);
 
 // A shared 60-second LEVEL context plot. M is the only loudness path; sparse TP events use the
 // right +6..-24 dBTP axis, and channel clip runs remain timestamped pips. Detailed M/S/TP history
@@ -68,5 +75,6 @@ void paint (juce::Graphics&,
             const KirinMeterSession* meter = nullptr,
             const KirinChainSnapshot* chain = nullptr,
             const std::vector<KirinChainPoint>* chainPoints = nullptr,
-            chain_action::GeometryCache* chainCache = nullptr);
+            chain_action::GeometryCache* chainCache = nullptr,
+            const KirinChainPoint* selectedChain = nullptr);
 }

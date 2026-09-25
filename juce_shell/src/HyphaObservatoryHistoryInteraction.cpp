@@ -1,6 +1,7 @@
 #include "HyphaObservatoryView.h"
 
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaCaptureHistoryGeometry.h"
 #include "HyphaChannelReadoutLayout.h"
 
 namespace hypha::observatory
@@ -19,7 +20,11 @@ void View::mouseMove (const juce::MouseEvent& event)
 void View::refreshLevelHistoryHover()
 {
     if (levelInspection.held()) return;
+    const auto chainVisible = chainSnapshotAvailable && chain_action::View {
+        &chainSnapshot, &chainPoints, history.empty() ? 0u : history.back().last_observed_frames
+    }.visible();
     const auto next = levelHistoryPointer.has_value()
+        && ! (chainVisible && capture_history::inChainBand (levelHistoryArea, *levelHistoryPointer))
         ? capture_history::hitTest (
               levelHistoryArea, history, *levelHistoryPointer,
               static_cast<double> (observatoryFrame.meter.sample_rate))
@@ -60,20 +65,22 @@ void View::initializeLevelHistoryControls()
     historyCopyButton.onClick = [this]
     {
         if (! levelInspection.held() || target() != ObservationTarget::absolute) return;
-        const auto& entry = levelInspection.snapshot[*levelInspection.index];
-        auto copy = history_inspection::positionText (entry, levelInspection.sampleRate)
-            + " | TP " + history_inspection::peakText (entry.true_peak.max)
-            + " dBTP | host project/render clock; measured window endpoint, not exact peak or guaranteed project time";
+        juce::String copy;
+        if (const auto* entry = levelInspection.selectedAbsolute())
+            copy = history_inspection::positionText (*entry, levelInspection.sampleRate)
+                + " | TP " + history_inspection::peakText (entry->true_peak.max)
+                + " dBTP | host project/render clock; measured 100 ms endpoint, not exact peak or guaranteed project time";
         if (const auto* chain = levelInspection.selectedChain())
-            copy += " | CONTENT END " + juce::String (chain->endpoint)
-                + " | PRE M " + history_inspection::peakText (chain->pre_m)
+            copy += (copy.isEmpty() ? juce::String() : juce::String (" | "))
+                + "CONTENT END " + juce::String (chain->endpoint)
+                + " | 400 ms PRE M " + history_inspection::peakText (chain->pre_m)
                 + " POST M " + history_inspection::peakText (chain->post_m)
                 + " PRE TP " + history_inspection::peakText (chain->pre_tp)
                 + " POST TP " + history_inspection::peakText (chain->post_tp)
                 + " dBTP | delta M " + history_inspection::peakText (chain->delta_m)
                 + " LU delta TP " + history_inspection::peakText (chain->delta_tp)
                 + " dB REL " + history_inspection::peakText (chain->relation) + " dB";
-        juce::SystemClipboard::copyTextToClipboard (copy);
+        if (copy.isNotEmpty()) juce::SystemClipboard::copyTextToClipboard (copy);
     };
 }
 
@@ -130,13 +137,34 @@ void View::mouseDown (const juce::MouseEvent& event)
     if (selectedDomain != Domain::level || ! fullCockpit() || captureFrame
         || hybridVuVisible() || recordDisplayShowing() || ! event.mods.isLeftButtonDown()) return;
     const auto& entries = levelInspection.held() ? levelInspection.snapshot : history;
+    const auto* selectedChainSnapshot = levelInspection.held()
+        ? &levelInspection.chainSnapshot : chainSnapshotAvailable ? &chainSnapshot : nullptr;
+    const auto* selectedChainPoints = levelInspection.held()
+        ? &levelInspection.chainPoints : chainSnapshotAvailable ? &chainPoints : nullptr;
+    if (selectedChainSnapshot != nullptr && selectedChainPoints != nullptr && ! entries.empty())
+        if (const auto chainHit = capture_history::hitTestChain (
+                levelHistoryArea, *selectedChainSnapshot, *selectedChainPoints,
+                entries.back().last_observed_frames, event.position))
+        {
+            if (levelInspection.held()) levelInspection.selectChain (*chainHit);
+            else levelInspection.pinChain (history, *chainHit, observatoryFrame.meter,
+                                           chainSnapshot, chainPoints, &observatoryFrame);
+            updateLevelHistoryControls();
+            repaint (levelHistoryArea);
+            return;
+        }
+    if (selectedChainSnapshot != nullptr && selectedChainPoints != nullptr
+        && chain_action::View { selectedChainSnapshot, selectedChainPoints,
+             entries.empty() ? 0u : entries.back().last_observed_frames }.visible()
+        && capture_history::inChainBand (levelHistoryArea, event.position))
+        return;
     const auto hit = capture_history::hitTest (levelHistoryArea, entries, event.position,
         levelInspection.held() ? levelInspection.sampleRate : observatoryFrame.meter.sample_rate);
     if (! hit) return;
     if (levelInspection.held()) levelInspection.select (*hit);
     else levelInspection.pin (history, *hit, observatoryFrame.meter,
         chainSnapshotAvailable ? &chainSnapshot : nullptr,
-        chainSnapshotAvailable ? &chainPoints : nullptr);
+        chainSnapshotAvailable ? &chainPoints : nullptr, &observatoryFrame);
     updateLevelHistoryControls();
     repaint (levelHistoryArea);
 }
@@ -148,7 +176,7 @@ void View::selectLevelHistoryEvent (int direction)
     if (levelInspection.held()) levelInspection.select (*at);
     else levelInspection.pin (history, *at, observatoryFrame.meter,
         chainSnapshotAvailable ? &chainSnapshot : nullptr,
-        chainSnapshotAvailable ? &chainPoints : nullptr);
+        chainSnapshotAvailable ? &chainPoints : nullptr, &observatoryFrame);
     updateLevelHistoryControls();
     repaint (levelHistoryArea);
 }

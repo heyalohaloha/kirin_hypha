@@ -43,12 +43,19 @@ struct Selection
     std::optional<std::size_t> chainIndex;
     double sampleRate = 0.0;
     std::uint64_t epoch = 0, generation = 0;
+    KirinObservatoryFrame packetFrame {};
+    bool packetFrameAvailable = false;
 
-    bool held() const noexcept { return index.has_value() && *index < snapshot.size(); }
+    bool held() const noexcept
+    {
+        return (index && *index < snapshot.size())
+            || (chainIndex && *chainIndex < chainPoints.size());
+    }
     void clear()
     {
         snapshot.clear(); index.reset();
         chainSnapshot = {}; chainPoints.clear(); chainIndex.reset();
+        packetFrame = {}; packetFrameAvailable = false;
     }
     bool matches (const KirinMeterSession& meter) const noexcept
     {
@@ -59,7 +66,8 @@ struct Selection
     bool pin (const std::vector<KirinMeterHistoryEntry>& live, std::size_t at,
               const KirinMeterSession& meter,
               const KirinChainSnapshot* liveChain = nullptr,
-              const std::vector<KirinChainPoint>* liveChainPoints = nullptr)
+              const std::vector<KirinChainPoint>* liveChainPoints = nullptr,
+              const KirinObservatoryFrame* frame = nullptr)
     {
         if (at >= live.size() || ! std::isfinite (meter.sample_rate) || meter.sample_rate <= 0) return false;
         if (meter.state == KIRIN_METER_SESSION_EMPTY
@@ -67,35 +75,56 @@ struct Selection
             || live.back().generation != meter.generation) return false;
         snapshot = live; index = at; sampleRate = meter.sample_rate;
         epoch = meter.measurement_epoch; generation = meter.generation;
-        chainSnapshot = {}; chainPoints.clear(); chainIndex.reset();
-        if (liveChain != nullptr && liveChainPoints != nullptr
-            && liveChain->version == KIRIN_CHAIN_VERSION
-            && liveChain->count == liveChainPoints->size()
-            && (liveChain->status == KIRIN_CHAIN_ACTIVE
-                || liveChain->status == KIRIN_CHAIN_HOLD))
-        {
-            chainSnapshot = *liveChain;
-            chainSnapshot.post_observed = live.back().last_observed_frames;
-            for (const auto& point : *liveChainPoints)
-                if (point.post_observed <= chainSnapshot.post_observed
-                    && point.post_epoch == meter.measurement_epoch
-                    && point.post_generation == meter.generation)
-                    chainPoints.push_back (point);
-            chainSnapshot.count = static_cast<std::uint32_t> (chainPoints.size());
-            selectChainNearest();
-        }
+        retainFrame (frame, live.back().last_observed_frames);
+        copyChain (liveChain, liveChainPoints, live.back().last_observed_frames);
+        selectChainAtExactEndpoint();
         return true;
+    }
+    bool pinChain (const std::vector<KirinMeterHistoryEntry>& live, std::size_t at,
+                   const KirinMeterSession& meter, const KirinChainSnapshot& liveChain,
+                   const std::vector<KirinChainPoint>& liveChainPoints,
+                   const KirinObservatoryFrame* frame = nullptr)
+    {
+        if (live.empty() || at >= liveChainPoints.size()
+            || ! std::isfinite (meter.sample_rate) || meter.sample_rate <= 0.0
+            || meter.state == KIRIN_METER_SESSION_EMPTY
+            || live.back().measurement_epoch != meter.measurement_epoch
+            || live.back().generation != meter.generation)
+            return false;
+        snapshot = live; index.reset(); sampleRate = meter.sample_rate;
+        epoch = meter.measurement_epoch; generation = meter.generation;
+        retainFrame (frame, live.back().last_observed_frames);
+        copyChain (&liveChain, &liveChainPoints, live.back().last_observed_frames);
+        const auto& wanted = liveChainPoints[at];
+        for (std::size_t candidate = 0; candidate < chainPoints.size(); ++candidate)
+            if (samePoint (chainPoints[candidate], wanted))
+            {
+                chainIndex = candidate;
+                return true;
+            }
+        clear();
+        return false;
     }
     void select (std::size_t at)
     {
         if (! held() || at >= snapshot.size()) return;
         index = at;
-        selectChainNearest();
+        selectChainAtExactEndpoint();
+    }
+    void selectChain (std::size_t at)
+    {
+        if (! held() || at >= chainPoints.size()) return;
+        index.reset();
+        chainIndex = at;
     }
     const KirinChainPoint* selectedChain() const noexcept
     {
         return chainIndex && *chainIndex < chainPoints.size()
             ? &chainPoints[*chainIndex] : nullptr;
+    }
+    const KirinMeterHistoryEntry* selectedAbsolute() const noexcept
+    {
+        return index && *index < snapshot.size() ? &snapshot[*index] : nullptr;
     }
     std::optional<std::size_t> event (const std::vector<KirinMeterHistoryEntry>& live,
                                      double rate, int direction) const
@@ -104,35 +133,76 @@ struct Selection
         const auto peaks = capture_history::analyseTruePeak (entries, held() ? sampleRate : rate);
         if (peaks.eventIndices.empty()) return std::nullopt;
         if (! held()) return direction < 0 ? peaks.eventIndices.back() : peaks.eventIndices.front();
+        const auto observed = selectedAbsolute() != nullptr
+            ? selectedAbsolute()->last_observed_frames
+            : selectedChain()->post_observed;
         if (direction < 0)
         {
             for (auto it = peaks.eventIndices.rbegin(); it != peaks.eventIndices.rend(); ++it)
-                if (*it < *index) return *it;
+                if (entries[*it].last_observed_frames < observed) return *it;
         }
         else
-            for (auto at : peaks.eventIndices) if (at > *index) return at;
+            for (auto at : peaks.eventIndices)
+                if (entries[at].last_observed_frames > observed) return at;
         return std::nullopt;
     }
 
 private:
-    void selectChainNearest()
+    void retainFrame (const KirinObservatoryFrame* frame, std::uint64_t historyCutoff)
+    {
+        packetFrameAvailable = frame != nullptr
+            && frame->version == KIRIN_OBSERVATORY_FRAME_VERSION
+            && frame->meter.measurement_epoch == epoch
+            && frame->meter.generation == generation
+            && std::equal_to<double> {} (frame->meter.sample_rate, sampleRate)
+            && frame->meter.observed_frames >= historyCutoff;
+        packetFrame = packetFrameAvailable ? *frame : KirinObservatoryFrame {};
+    }
+    static bool samePoint (const KirinChainPoint& left, const KirinChainPoint& right) noexcept
+    {
+        return left.post_epoch == right.post_epoch
+            && left.post_generation == right.post_generation
+            && left.post_run == right.post_run
+            && left.post_observed == right.post_observed
+            && left.endpoint == right.endpoint;
+    }
+    void copyChain (const KirinChainSnapshot* liveChain,
+                    const std::vector<KirinChainPoint>* liveChainPoints,
+                    std::uint64_t cutoff)
+    {
+        chainSnapshot = {}; chainPoints.clear(); chainIndex.reset();
+        if (liveChain != nullptr && liveChainPoints != nullptr
+            && liveChain->version == KIRIN_CHAIN_VERSION
+            && std::equal_to<double> {} (liveChain->sample_rate, sampleRate)
+            && liveChain->count == liveChainPoints->size()
+            && (liveChain->status == KIRIN_CHAIN_ACTIVE
+                || liveChain->status == KIRIN_CHAIN_HOLD))
+        {
+            chainSnapshot = *liveChain;
+            chainSnapshot.post_observed = cutoff;
+            for (const auto& point : *liveChainPoints)
+                if (point.post_observed <= chainSnapshot.post_observed
+                    && point.post_epoch == epoch
+                    && point.post_generation == generation)
+                    chainPoints.push_back (point);
+            chainSnapshot.count = static_cast<std::uint32_t> (chainPoints.size());
+        }
+    }
+    void selectChainAtExactEndpoint()
     {
         chainIndex.reset();
-        if (! held() || chainPoints.empty()) return;
+        if (! index || *index >= snapshot.size() || chainPoints.empty()) return;
         const auto observed = snapshot[*index].last_observed_frames;
-        auto nearest = std::numeric_limits<std::uint64_t>::max();
         for (std::size_t at = 0; at < chainPoints.size(); ++at)
         {
-            const auto other = chainPoints[at].post_observed;
-            const auto distance = other > observed ? other - observed : observed - other;
-            if (distance < nearest)
+            const auto& point = chainPoints[at];
+            if (point.post_observed == observed
+                && point.post_run == snapshot[*index].run_id)
             {
-                nearest = distance;
                 chainIndex = at;
+                return;
             }
         }
-        if (nearest > static_cast<std::uint64_t> (sampleRate / 20.0))
-            chainIndex.reset();
     }
 };
 }

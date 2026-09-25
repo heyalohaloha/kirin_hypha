@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../src/HyphaObservatoryView.h"
+#include "../src/HyphaCaptureHistoryGeometry.h"
 #include "../src/HyphaObservationEquality.h"
 #include <cstdlib>
 #include <iostream>
@@ -81,6 +82,57 @@ inline void verify()
     reset = frame.meter; ++reset.measurement_epoch;
     require (! selection.matches (reset), "new engine invalidates repeated generation");
     selection.clear(); require (! selection.held(), "resume");
+
+    KirinChainSnapshot chain {};
+    chain.version = KIRIN_CHAIN_VERSION;
+    chain.status = KIRIN_CHAIN_ACTIVE;
+    chain.sample_rate = 48000;
+    chain.binding = 99;
+    chain.count = 1;
+    KirinChainPoint chainPoint {};
+    chainPoint.post_epoch = 41; chainPoint.post_generation = 7; chainPoint.post_run = 1;
+    chainPoint.post_observed = live[300].last_observed_frames + 2400;
+    chainPoint.endpoint = 123456;
+    std::vector<KirinChainPoint> paired { chainPoint };
+    require (selection.pin (live, 300, frame.meter, &chain, &paired), "absolute hold with comparison");
+    require (selection.selectedChain() == nullptr, "half-tick neighbor is not the same 400 ms window");
+    require (selection.pinChain (live, 0, frame.meter, chain, paired),
+             "the exact comparison point has a separate one-click hold");
+    require (selection.held() && selection.selectedAbsolute() == nullptr
+             && selection.selectedChain()->endpoint == chainPoint.endpoint,
+             "comparison hold preserves point identity without inventing an absolute endpoint");
+    require (selection.event (live, 48000, -1) == 300,
+             "TP navigation from a comparison point uses its observed endpoint");
+    const auto area = juce::Rectangle<int> (0, 0, 900, 240);
+    const auto plot = capture_history::layoutFor (area).sharedPlot;
+    const auto chainView = chain_action::View { &chain, &paired, live.back().last_observed_frames };
+    const auto chainX = chain_action::xFor (plot, chainView, paired[0]);
+    require (chainX.has_value(), "comparison point has a visible 60-second coordinate");
+    require (capture_history::hitTestChain (area, chain, paired, live.back().last_observed_frames,
+             { *chainX, plot.getBottom() - 4.0f }) == 0,
+             "one click in the comparison band selects its actual point");
+    require (! capture_history::hitTestChain (area, chain, paired, live.back().last_observed_frames,
+             { *chainX, plot.getY() + 4.0f }), "loudness plot is not a chain-selection shortcut");
+    selection.select (300);
+    require (selection.selectedChain() == nullptr && selection.selectedAbsolute() != nullptr,
+             "navigating to a different absolute point drops unrelated comparison detail");
+    paired[0].post_observed = live[300].last_observed_frames;
+    require (selection.pin (live, 300, frame.meter, &chain, &paired)
+             && selection.selectedChain() != nullptr, "exact run and endpoint may share the detail");
+    paired[0].post_run = 2;
+    require (selection.pin (live, 300, frame.meter, &chain, &paired)
+             && selection.selectedChain() == nullptr, "equal endpoint in another run is rejected");
+    frame.meter.observed_frames = live.back().last_observed_frames;
+    require (selection.pin (live, 300, frame.meter, &chain, &paired, &frame)
+             && selection.packetFrameAvailable, "hold retains the packet cutoff for Capture");
+    const auto capturedMeter = selection.packetFrame.meter.observed_frames;
+    frame.meter.observed_frames += 4800;
+    require (selection.packetFrame.meter.observed_frames == capturedMeter,
+             "later live meter polls cannot enter a held Capture");
+    chain.status = KIRIN_CHAIN_AMBIGUOUS;
+    require (! capture_history::hitTestChain (area, chain, paired, live.back().last_observed_frames,
+             { *chainX, plot.getBottom() - 4.0f }), "ambiguous comparison cannot be selected");
+    selection.clear();
 
     for (auto role : { observatory::Role::pre, observatory::Role::post })
     {

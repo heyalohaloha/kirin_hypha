@@ -461,7 +461,8 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
                             held && ! levelInspection.chainPoints.empty()
                                 ? &levelInspection.chainPoints
                                 : chainSnapshotAvailable && ! held ? &chainPoints : nullptr,
-                            &chainGeometry);
+                            &chainGeometry,
+                            held && ! levelInspection.index ? levelInspection.selectedChain() : nullptr);
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
 }

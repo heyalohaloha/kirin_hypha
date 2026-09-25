@@ -67,6 +67,9 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     {
         frame.levelInspection = levelInspection;
         frame.history = levelInspection.snapshot;
+        // A held chart must not be combined with meter scalars acquired on a later UI poll.
+        if (levelInspection.packetFrameAvailable)
+            frame.observatoryFrame = levelInspection.packetFrame;
         if (levelInspection.chainSnapshot.count > 0u)
         {
             frame.chainSnapshot = levelInspection.chainSnapshot;

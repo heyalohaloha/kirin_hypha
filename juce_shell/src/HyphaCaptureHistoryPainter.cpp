@@ -1,4 +1,5 @@
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaCaptureHistoryGeometry.h"
 
 #include "HyphaChainActionPainter.h"
 #include "HyphaChannelClipText.h"
@@ -15,25 +16,6 @@ namespace hypha::capture_history
 {
 namespace
 {
-struct Layout
-{
-    juce::Rectangle<int> legend;
-    juce::Rectangle<int> loudnessLabels;
-    juce::Rectangle<int> timeLabels;
-    juce::Rectangle<float> sharedPlot;
-};
-Layout layoutFor (juce::Rectangle<int> area)
-{
-    area.reduce (7, 5);
-    const auto inspection = area.getWidth() >= 700;
-    Layout result;
-    result.legend = area.removeFromTop (inspection ? 36 : 30);
-    result.loudnessLabels = area.removeFromLeft (inspection ? 54 : 40);
-    area.removeFromRight (6);
-    result.timeLabels = area.removeFromBottom (inspection ? 16 : 14);
-    result.sharedPlot = area.reduced (2, 2).toFloat();
-    return result;
-}
 float yForLoudness (juce::Rectangle<float> plot, double value, bool delta) noexcept
 {
     const auto normalized = normalizedLoudness (value, delta);
@@ -44,6 +26,7 @@ void paintCurrentLoudness (juce::Graphics& g,
                            juce::Rectangle<float> plot,
                            const std::vector<KirinMeterHistoryEntry>& history,
                            bool delta,
+                           bool held,
                            presentation::Context presentation)
 {
     if (history.empty())
@@ -57,7 +40,7 @@ void paintCurrentLoudness (juce::Graphics& g,
     const auto valueText = belowFloor
         ? juce::String ("< -36")
         : (delta && value >= 0.0 ? "+" : "") + juce::String (value, 1);
-    const auto text = juce::String ("NOW  ") + valueText;
+    const auto text = juce::String (held ? "HOLD  " : "NOW  ") + valueText;
     const auto font = monoFont (presentation, typography::TextRole::readout,
                                typography::Composition::visualization);
     const auto labelHeight = inspection ? 18.0f : 15.0f;
@@ -79,26 +62,6 @@ void paintCurrentLoudness (juce::Graphics& g,
     g.drawText (text, label.toNearestInt().reduced (3, 0),
                 juce::Justification::centredRight);
 }
-double normalizedHistoryX (const std::vector<KirinMeterHistoryEntry>& history,
-                           const time_history::HistoryAxis& fallbackAxis,
-                           const KirinMeterHistoryEntry& entry,
-                           std::size_t index,
-                           double sampleRate) noexcept
-{
-    if (! history.empty() && std::isfinite (sampleRate) && sampleRate > 0.0)
-    {
-        constexpr double windowSeconds = 60.0;
-        const auto latest = history.back().last_observed_frames;
-        if (entry.last_observed_frames <= latest)
-        {
-            const auto ageFrames = latest - entry.last_observed_frames;
-            return juce::jlimit (
-                0.0, 1.0, 1.0 - static_cast<double> (ageFrames)
-                                     / (sampleRate * windowSeconds));
-        }
-    }
-    return time_history::normalizedX (fallbackAxis, entry, index, history.size());
-}
 
 juce::String relativeTimeText (double seconds)
 {
@@ -112,20 +75,29 @@ juce::String measuredText (double value, bool delta = false)
     return (delta && value >= 0.0 ? "+" : "") + juce::String (value, 1);
 }
 
-const KirinChainPoint* nearestChainPoint (const chain_action::View& view,
-                                         std::uint64_t observed) noexcept
+const KirinChainPoint* chainAtExactEndpoint (const chain_action::View& view,
+                                             const KirinMeterHistoryEntry& entry) noexcept
 {
     if (! view.visible()) return nullptr;
-    const KirinChainPoint* nearest = nullptr;
-    auto distance = std::numeric_limits<std::uint64_t>::max();
     for (const auto& point : *view.points)
-    {
-        if (point.post_observed > view.axisEndObserved) continue;
-        const auto gap = point.post_observed > observed
-            ? point.post_observed - observed : observed - point.post_observed;
-        if (gap < distance) { distance = gap; nearest = &point; }
-    }
-    return distance <= view.snapshot->sample_rate / 20u ? nearest : nullptr;
+        if (point.post_observed == entry.last_observed_frames
+            && point.post_run == entry.run_id
+            && point.post_epoch == entry.measurement_epoch
+            && point.post_generation == entry.generation)
+            return &point;
+    return nullptr;
+}
+
+juce::String chainDetail (const KirinChainPoint& point, bool wide)
+{
+    const auto compound = juce::String ("   DM ") + measuredText (point.delta_m, true)
+        + "  DTP " + measuredText (point.delta_tp, true)
+        + "  REL " + measuredText (point.relation, true);
+    const auto label = juce::String ("400 MS / CONTENT END ") + juce::String (point.endpoint);
+    return wide ? label + "   M400 " + measuredText (point.pre_m) + "/" + measuredText (point.post_m)
+            + "   TP400 " + measuredText (point.pre_tp) + "/" + measuredText (point.post_tp)
+            + compound
+        : label + compound;
 }
 
 void paintPath (juce::Graphics& g,
@@ -333,6 +305,27 @@ std::optional<std::size_t> hitTest (juce::Rectangle<int> area,
         : std::nullopt;
 }
 
+std::optional<std::size_t> hitTestChain (juce::Rectangle<int> area,
+                                        const KirinChainSnapshot& snapshot,
+                                        const std::vector<KirinChainPoint>& points,
+                                        std::uint64_t axisEndObserved,
+                                        juce::Point<float> position)
+{
+    const auto layout = layoutFor (area);
+    const auto view = chain_action::View { &snapshot, &points, axisEndObserved };
+    if (! view.visible() || ! inChainBand (area, position))
+        return std::nullopt;
+    auto nearest = std::optional<std::size_t> {};
+    auto distance = 8.0f;
+    for (std::size_t at = 0; at < points.size(); ++at)
+        if (const auto x = chain_action::xFor (layout.sharedPlot, view, points[at]))
+        {
+            const auto gap = std::abs (*x - position.x);
+            if (gap <= distance) { nearest = at; distance = gap; }
+        }
+    return nearest;
+}
+
 void paint (juce::Graphics& g,
             juce::Rectangle<int> area,
             const std::vector<KirinMeterHistoryEntry>& history,
@@ -344,7 +337,8 @@ void paint (juce::Graphics& g,
             const KirinMeterSession* meter,
             const KirinChainSnapshot* chain,
             const std::vector<KirinChainPoint>* chainPoints,
-            chain_action::GeometryCache* chainCache)
+            chain_action::GeometryCache* chainCache,
+            const KirinChainPoint* selectedChain)
 {
     surface_material::paintPanel (g, area.toFloat(), 0.62f);
     const auto layout = layoutFor (area);
@@ -381,19 +375,13 @@ void paint (juce::Graphics& g,
         if (! delta && channel_clip::total (entry.clip_event_count, meter) > 0u)
             detail += "   " + channel_clip::text (entry.clip_event_count, meter, true);
         if (! delta)
-            if (const auto* point = nearestChainPoint (chainView, entry.last_observed_frames))
+            if (const auto* point = chainAtExactEndpoint (chainView, entry))
             {
-                const auto compound = "   DM " + measuredText (point->delta_m, true)
-                    + "  DTP " + measuredText (point->delta_tp, true)
-                    + "  REL " + measuredText (point->relation, true);
-                detail = layout.legend.getWidth() >= 700
-                    ? history_inspection::positionText (entry, sampleRate)
-                        + "   M " + measuredText (point->pre_m) + "/" + measuredText (point->post_m)
-                        + "   TP " + measuredText (point->pre_tp) + "/" + measuredText (point->post_tp)
-                        + compound
-                    : history_inspection::positionText (entry, sampleRate) + compound;
+                detail = chainDetail (*point, layout.legend.getWidth() >= 700);
             }
     }
+    else if (selectedChain != nullptr && chainView.visible())
+        detail = chainDetail (*selectedChain, layout.legend.getWidth() >= 700);
     else if (peakSummary.available)
     {
         detail = "60 S MAX TP " + history_inspection::peakText (peakSummary.windowMaximumDbtp) + " dBTP"
@@ -479,7 +467,8 @@ void paint (juce::Graphics& g,
             paintTruePeakBand (g, band, history, axis, sampleRate);
         paintClipPips (g, loudnessPlot, history, axis, sampleRate, meter);
     }
-    paintCurrentLoudness (g, loudnessPlot, history, delta, presentation);
+    paintCurrentLoudness (g, loudnessPlot, history, delta,
+                          contextFact == "HOLD", presentation);
     g.setColour (COL_MUTED.withAlpha (0.64f));
     g.setFont (monoFont (presentation, typography::TextRole::axis,
                          typography::Composition::visualization));
@@ -489,5 +478,11 @@ void paint (juce::Graphics& g,
     g.drawText ("NOW", layout.timeLabels.withLeft (layout.timeLabels.getRight() - 24),
                 juce::Justification::centredRight);
     paintHover (g, layout, loudnessPlot, history, axis, hoveredIndex, delta, sampleRate);
+    if (selectedChain != nullptr && chainView.visible())
+        if (const auto x = chain_action::xFor (layout.sharedPlot, chainView, *selectedChain))
+        {
+            g.setColour (COL_LED_BLUE.withAlpha (0.48f));
+            g.drawVerticalLine (juce::roundToInt (*x), band.getY(), band.getBottom());
+        }
 }
 }
