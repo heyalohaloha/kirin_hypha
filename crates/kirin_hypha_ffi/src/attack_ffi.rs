@@ -266,13 +266,17 @@ impl KirinHyphaEngine {
     /// POST details. While a pair is active, matched events carry POST measured at the PRE onset.
     pub fn poll_attack_details(&self) -> Option<KirinAttackDetailBatch> {
         let history = self.post_attack_history()?;
-        Some(match self.attack_pair_view() {
-            Some(view) if view.status == kirin_measure::SpectrumViewStatus::Active => {
+        // A POST instance always has a pair view; none means it is being replaced. The editor
+        // keeps its last batch instead of losing every PRE-anchored detail for one poll.
+        let view = self.attack_pair_view()?;
+        Some(
+            if view.status == kirin_measure::SpectrumViewStatus::Active {
                 let own = history.details().copied().collect::<Vec<_>>();
-                to_c_paired_post_detail_batch(&own, &view.post_anchored)
-            }
-            _ => to_c_attack_detail_batch(history),
-        })
+                to_c_paired_post_detail_batch(&own, &view)
+            } else {
+                to_c_attack_detail_batch(history)
+            },
+        )
     }
 
     pub fn attack_stats(&self) -> KirinAttackStats {

@@ -79,14 +79,16 @@ fn anchored_post_details(
     else {
         return Vec::new();
     };
+    // History details are strictly increasing in event_sample.
+    let pre_details = pre.details().collect::<Vec<_>>();
     let anchors = pairs
         .iter()
         .filter(|pair| pair.kind == AttackPairEventKind::Matched)
         .filter_map(|pair| {
             let onset = pair.pre_event_sample?;
-            let pre_detail = pre
-                .details()
-                .find(|detail| detail.event.event_sample == onset)?;
+            let found =
+                pre_details.binary_search_by_key(&onset, |detail| detail.event.event_sample);
+            let pre_detail = pre_details[found.ok()?];
             Some(AttackAnchor {
                 event: AttackEvent {
                     generation: identity.generation,

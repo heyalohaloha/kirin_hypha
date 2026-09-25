@@ -178,3 +178,66 @@ fn the_shape_leads_in_twenty_ms_and_reads_missing_lead_in_as_silence() {
     assert!((peak - 0.9).abs() < 1e-6);
     assert_eq!(shape.points[0], 0.0);
 }
+
+fn frame_at(sample: i64, sharpness: f64) -> SharpnessFrame {
+    SharpnessFrame {
+        source_sample: sample,
+        sharpness: [sharpness, 0.0],
+        loudness: [1.0, 0.0],
+    }
+}
+
+#[test]
+fn a_frame_ahead_of_its_level_bin_waits_for_it() {
+    let mut bins = AttackBins::new(48_000, 1);
+    bins.begin_run(0, 7, Some(0));
+    for index in 0..10 {
+        bins.push_level(index, level_for(48, 0.1));
+    }
+    // The chunk ended inside bin 10, which is not complete at this flush.
+    bins.push_sharpness(
+        &[frame_at(48 * 9, 1.0), frame_at(48 * 10, 3.0)],
+        48 * 10 + 7,
+    );
+    for index in 10..200 {
+        bins.push_level(index, level_for(48, 0.1));
+    }
+    bins.push_sharpness(&[], 48 * 200);
+    let (features, _) = bins
+        .measure(
+            AttackEvent {
+                sample_rate: 48_000,
+                ..event(48 * 10, 7)
+            },
+            48 * 140,
+        )
+        .unwrap();
+    assert_eq!(features.sharpness_acum, Some(3.0));
+    assert!(bins.waiting.is_empty());
+}
+
+#[test]
+fn sharpness_starts_at_the_first_whole_bin_after_the_epoch() {
+    // 44.1 kHz: 44-sample bins, and the first 100 ms chunk starts at 4,410 inside bin 100.
+    let mut bins = AttackBins::new(44_100, 1);
+    bins.begin_run(4_400, 7, Some(4_410));
+    for index in 100..300 {
+        bins.push_level(index, level_for(44, 0.1));
+    }
+    let frames = (0..400)
+        .map(|frame| frame_at(4_410 + frame * 22, 2.0))
+        .collect::<Vec<_>>();
+    bins.push_sharpness(&frames, 44 * 300);
+    let at = |bin: i64| {
+        let onset = AttackEvent {
+            sample_rate: 44_100,
+            ..event(44 * bin, 7)
+        };
+        bins.measure(onset, 44 * (bin + 130))
+            .unwrap()
+            .0
+            .sharpness_acum
+    };
+    assert_eq!(at(100), None, "bin 100 has no frames before 4,410");
+    assert_eq!(at(101), Some(2.0));
+}

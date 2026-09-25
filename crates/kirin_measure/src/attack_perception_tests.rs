@@ -56,6 +56,15 @@ fn the_body_follows_the_head_and_carries_its_transient() {
     cut.body_rms_dbfs = None;
     cut.transient_db = None;
     assert!(cut.has_valid_layout());
+    let mut short_with_value = features();
+    short_with_value.body_end_sample = 4_800 + 49 * 48;
+    assert!(!short_with_value.has_valid_layout(), "19 bins have no body");
+    short_with_value.body_end_sample += 48;
+    assert!(short_with_value.has_valid_layout(), "20 bins have one");
+    let mut full_without_value = features();
+    full_without_value.body_rms_dbfs = None;
+    full_without_value.transient_db = None;
+    assert!(!full_without_value.has_valid_layout());
 }
 
 #[test]

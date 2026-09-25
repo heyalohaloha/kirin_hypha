@@ -135,18 +135,30 @@ pub(super) fn to_c_attack_detail_batch(history: AttackHistory) -> KirinAttackDet
 }
 
 /// POST details while a pair is active: POST measured at every matched PRE onset replaces the
-/// POST detector's own detail there, and its own details remain for POST-only events. The
-/// newest details are kept in content-sample order.
+/// POST detector's own detail at that pair's POST onset (reported as the PRE onset), and its own
+/// details remain for every other event. The newest details are kept in content-sample order.
 pub(super) fn to_c_paired_post_detail_batch(
     own: &[AttackDetailedEvent],
-    anchored: &[AttackDetailedEvent],
+    view: &AttackPairViewSnapshot,
 ) -> KirinAttackDetailBatch {
-    let mut details = anchored.to_vec();
-    details.extend(own.iter().copied().filter(|own| {
-        anchored
-            .iter()
-            .all(|anchor| anchor.event.event_sample != own.event.event_sample)
-    }));
+    let mut replaced = view
+        .pair_events
+        .iter()
+        .filter(|pair| pair.kind == AttackPairEventKind::Matched)
+        .filter_map(|pair| pair.post_event_sample)
+        .chain(
+            view.post_anchored
+                .iter()
+                .map(|anchor| anchor.event.event_sample),
+        )
+        .collect::<Vec<_>>();
+    replaced.sort_unstable();
+    let mut details = view.post_anchored.clone();
+    details.extend(
+        own.iter()
+            .copied()
+            .filter(|own| replaced.binary_search(&own.event.event_sample).is_err()),
+    );
     details.sort_by_key(|detail| detail.event.event_sample);
     let skip = details
         .len()

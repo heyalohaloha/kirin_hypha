@@ -2,6 +2,7 @@
 //! window reads. PRE and POST share the content sample grid, so one onset gives both sides the
 //! same windows. Bins reach back 7 s, so POST can be measured at a PRE onset after the exchange.
 
+use std::collections::vec_deque::Iter;
 use std::collections::VecDeque;
 
 use super::sharpness::{SharpnessFrame, SHARPNESS_MIN_LOUDNESS_SONE};
@@ -40,6 +41,8 @@ pub(super) struct AttackBins {
     sharpness_start: Option<i64>,
     /// Bins before this index have every Phase D frame.
     sharpness_end: i64,
+    /// Phase D frames of bins that are not complete yet; applied once their bin arrives.
+    waiting: Vec<SharpnessFrame>,
 }
 
 impl AttackBins {
@@ -53,25 +56,31 @@ impl AttackBins {
             bins: VecDeque::with_capacity(RETENTION_BINS),
             sharpness_start: None,
             sharpness_end: i64::MIN,
+            waiting: Vec::new(),
         }
     }
 
     /// Start a continuous run. Bins are complete from the first whole bin at or after `start`;
-    /// Phase D frames exist from `sharpness_epoch`. Without a Sharpness stream every window is
-    /// complete as soon as its level bins are.
+    /// Phase D frames cover every bin from the first whole bin at or after `sharpness_epoch`.
+    /// Without a Sharpness stream every window is complete as soon as its level bins are.
     pub(super) fn begin_run(&mut self, start: i64, generation: u64, sharpness_epoch: Option<i64>) {
-        let bin = self.bin_frames;
         self.generation = generation;
-        self.first = start.div_euclid(bin) + i64::from(start.rem_euclid(bin) != 0);
+        self.first = self.whole_bin_from(start);
         self.bins.clear();
-        self.sharpness_start = sharpness_epoch.map(|epoch| epoch.div_euclid(bin));
+        self.sharpness_start = sharpness_epoch.map(|epoch| self.whole_bin_from(epoch));
         self.sharpness_end = i64::MIN;
+        self.waiting.clear();
     }
 
     pub(super) fn clear(&mut self) {
         self.generation = 0;
         self.bins.clear();
         self.sharpness_start = None;
+        self.waiting.clear();
+    }
+
+    fn whole_bin_from(&self, sample: i64) -> i64 {
+        sample.div_euclid(self.bin_frames) + i64::from(sample.rem_euclid(self.bin_frames) != 0)
     }
 
     /// The Sharpness stream failed: windows complete without it for the rest of the run.
@@ -99,24 +108,33 @@ impl AttackBins {
         self.bins.push_back(bin);
     }
 
-    /// Add Phase D frames and record the bin index before which every frame has arrived.
+    /// Add Phase D frames and record the bin index before which every frame has arrived. A frame
+    /// whose bin is not complete yet waits for it; a frame before the retained bins is dropped.
     pub(super) fn push_sharpness(&mut self, frames: &[SharpnessFrame], next_frame_sample: i64) {
-        for frame in frames {
+        let mut waiting = std::mem::take(&mut self.waiting);
+        waiting.extend_from_slice(frames);
+        let end = self.end();
+        waiting.retain(|frame| {
             let index = frame.source_sample.div_euclid(self.bin_frames);
-            let Some(bin) = index
+            if index >= end {
+                return true;
+            }
+            if let Some(bin) = index
                 .checked_sub(self.first)
                 .and_then(|offset| usize::try_from(offset).ok())
                 .and_then(|offset| self.bins.get_mut(offset))
-            else {
-                continue;
-            };
-            for channel in 0..self.channels {
-                if frame.loudness[channel] >= SHARPNESS_MIN_LOUDNESS_SONE {
-                    bin.sharpness[channel] += frame.sharpness[channel] * frame.loudness[channel];
-                    bin.loudness[channel] += frame.loudness[channel];
+            {
+                for channel in 0..self.channels {
+                    if frame.loudness[channel] >= SHARPNESS_MIN_LOUDNESS_SONE {
+                        bin.sharpness[channel] +=
+                            frame.sharpness[channel] * frame.loudness[channel];
+                        bin.loudness[channel] += frame.loudness[channel];
+                    }
                 }
             }
-        }
+            false
+        });
+        self.waiting = waiting;
         self.sharpness_end = next_frame_sample.div_euclid(self.bin_frames);
     }
 
@@ -163,18 +181,16 @@ impl AttackBins {
         }
         let head = self.range(start, head_end)?;
         let floor_power = 10.0_f64.powf(f64::from(ATTACK_LEVEL_FLOOR_DBFS) / 10.0);
-        let rms_dbfs = |bins: &[Bin]| {
-            let power = bins.iter().map(|bin| bin.power).sum::<f64>()
-                / (bins.len() as f64 * self.bin_frames as f64);
+        let rms_dbfs = |bins: Iter<'_, Bin>| {
+            let frames = bins.len() as f64 * self.bin_frames as f64;
+            let power = bins.map(|bin| bin.power).sum::<f64>() / frames;
             (10.0 * power.max(floor_power).log10()) as f32
         };
-        let attack_rms_dbfs = rms_dbfs(&head);
-        let peak = head
-            .iter()
-            .fold(0.0_f32, |peak, bin| peak.max(bin.peak_sample));
+        let attack_rms_dbfs = rms_dbfs(head.clone());
+        let peak = head.fold(0.0_f32, |peak, bin| peak.max(bin.peak_sample));
         let sample_peak_dbfs = (20.0 * f64::from(peak).max(floor_power.sqrt()).log10()) as f32;
         let body_rms_dbfs = (body_end - head_end >= ATTACK_MIN_BODY_BINS)
-            .then(|| self.range(head_end, body_end).map(|body| rms_dbfs(&body)))
+            .then(|| self.range(head_end, body_end).map(rms_dbfs))
             .flatten();
         let features = AttackPerceptualFeatures {
             sample_rate: self.sample_rate,
@@ -193,11 +209,10 @@ impl AttackBins {
         Some((features, shape))
     }
 
-    fn range(&self, from: i64, to: i64) -> Option<Vec<Bin>> {
+    fn range(&self, from: i64, to: i64) -> Option<Iter<'_, Bin>> {
         let offset = usize::try_from(from.checked_sub(self.first)?).ok()?;
         let count = usize::try_from(to.checked_sub(from)?).ok()?;
-        (offset + count <= self.bins.len())
-            .then(|| self.bins.range(offset..offset + count).copied().collect())
+        (offset + count <= self.bins.len()).then(|| self.bins.range(offset..offset + count))
     }
 
     /// Loudness-weighted Sharpness of the 100 ms from the window start, averaged over the
@@ -211,9 +226,9 @@ impl AttackBins {
         let mut sum = 0.0;
         let mut measured = 0;
         for channel in 0..self.channels {
-            let loudness = bins.iter().map(|bin| bin.loudness[channel]).sum::<f64>();
+            let loudness = bins.clone().map(|bin| bin.loudness[channel]).sum::<f64>();
             if loudness > 0.0 {
-                sum += bins.iter().map(|bin| bin.sharpness[channel]).sum::<f64>() / loudness;
+                sum += bins.clone().map(|bin| bin.sharpness[channel]).sum::<f64>() / loudness;
                 measured += 1;
             }
         }

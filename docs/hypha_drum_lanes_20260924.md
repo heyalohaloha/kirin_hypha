@@ -166,12 +166,15 @@ layoutは1回の描画で1度だけ計算する。
 - TRANSIENT：頭RMS − body RMS（ATTACK−BODY）。直前contextは使わない。body RMSが−72 dBFS未満なら画面で`QUIET AFTER`とする。
 - SHARPNESS：頭から100 binの、DIN 45692 Sharpnessの音量加重平均（0.1 sone未満のPhase D frameは除く）。旧来の値は100 ms固定格子の区間終わりの瞬間値だった。
 - detailは、bodyの終わりまでのbinとPhase D frameが揃い、その手前の全onsetが確定した後に出す。onsetから約0.18〜0.2秒後になる（body 130 ms、ODFの半窓21 ms、確定待ち30 ms、Phase Dの100 ms区切り）。
+- 再生を止めるとshellはATTACKへ音声を送らないため、停止直前の約0.2秒の打音にはdetailが出ず、HOLDでは`--`になる。窓を短くした値や停止後の無音で埋めた値は出さない。
+- loupeの導入20 msのうち、run開始より前の部分は無音として描く。表示だけで、値には使わない。
 
 ### 4.2 POSTはPREの検出位置で測る
 
 - 各instanceは直近7秒のbin（音量、peak、Phase D frameの和）を保持する。
 - POST側のpair joinは、対応が取れた打音ごとに、PREのonsetとPRE detailのbody終端でPOSTのbinを測る。POSTの検出器自身のonset（±50 ms以内でずれうる）は窓に使わない。
-- FFIは、対応が取れた打音のPOST detailをPREのonsetで渡し、`post_event_sample`もそのonsetにする。
+- FFIは、対応が取れた打音のPOST detailをPREのonsetで渡し、`post_event_sample`もそのonsetにする。POSTの検出器自身がそのPOST onsetで測ったdetailは渡さない（6秒分のbatch上限240件を重複で使い切らないため）。
+- pair viewの読み取りが他threadと重なった回は、PREのonsetで測ったdetailを欠いたbatchを渡さず、editorは前回のbatchを保つ。
 - PRE→POST exchange codecは版2へ上げた（body終端、TRANSIENT、新しいSharpnessを運ぶ）。版1とは相互に読まない。
 
 ### 4.3 Phase Dの区切り
@@ -179,7 +182,8 @@ layoutは1回の描画で1度だけ計算する。
 既存のPhase D実装は、入力の区切り位置で出力がわずかに変わる。
 DAWの処理ブロックではなく、content sample 0からの100 ms格子（SHARP timelineと同じ）で区切って流す。
 このため、host block sizeが変わっても値は1 bitも変わらず、PREとPOSTは同じ位置を同じ区切りで処理する。
-run開始点の後の最初の100 ms境界より前から始まる窓には、Sharpnessを出さない。
+run開始点の後の最初の100 ms境界を含むbinより前から始まる窓には、Sharpnessを出さない（44.1 kHzでは境界がbinの途中に来るため、次のbinから数える）。
+100 msの区切りがbinの途中で終わり、そのbinの音量がまだ揃っていない場合も、そのbinのPhase D frameはbinが揃うまで保持し、捨てない。
 
 ### 4.4 実データでの確認（2026-09-25）
 

@@ -61,6 +61,8 @@ impl AttackPerceptualFeatures {
                 .into_iter()
                 .all(f32::is_finite)
             && self.transient_db.is_some() == self.body_rms_dbfs.is_some()
+            && self.body_rms_dbfs.is_some()
+                == (self.body_end_sample - head_end >= ATTACK_MIN_BODY_BINS * bin)
             && self
                 .body_rms_dbfs
                 .into_iter()
