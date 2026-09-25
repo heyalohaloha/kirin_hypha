@@ -159,6 +159,8 @@ fn active_pair(directory: &std::path::Path) -> ActivePair {
     (pre_session, post_session, pre, post, identity)
 }
 
+#[path = "meter_chain_binding_tests.rs"]
+mod binding_tests;
 #[path = "meter_chain_clock_policy_tests.rs"]
 mod clock_policy_tests;
 #[path = "meter_chain_seek_tests.rs"]

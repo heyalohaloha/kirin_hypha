@@ -3,7 +3,7 @@
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use super::analysis::PostAnalysisEndpoints;
+use super::analysis::{PostAnalysisBinding, PostAnalysisEndpoints};
 
 #[path = "io_thread_post_observation_pair.rs"]
 mod pair;
@@ -77,8 +77,14 @@ impl PostObservation {
         );
         self.analysis.service(
             self.pair.latched_pre(),
-            &identity.instance_id,
-            &pair.name,
+            PostAnalysisBinding {
+                post_instance_id: &identity.instance_id,
+                pair_pre_name: &pair.name,
+                paired_pre_instance_id: pair.pre_instance_id.as_deref(),
+                pair_owner_id: self.pair.owner_id(),
+                generation: pair.binding_generation,
+                claimed_at: pair.claimed_at,
+            },
             comparison_audition_active,
         );
         self.pair.publish_claim(

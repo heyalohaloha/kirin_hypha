@@ -51,6 +51,15 @@ pub struct MeterHistoryTarget {
     pub pre_instance_id: String,
     pub pre_json: PathBuf,
     pub instance_dir: PathBuf,
+    post_binding: Option<PostBindingProvenance>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct PostBindingProvenance {
+    pair_owner_id: String,
+    post_instance_id: String,
+    generation: u64,
+    claimed_at_bits: u64,
 }
 
 impl MeterHistoryTarget {
@@ -59,7 +68,34 @@ impl MeterHistoryTarget {
             pre_instance_id,
             instance_dir: pre_json.parent()?.to_path_buf(),
             pre_json: pre_json.to_path_buf(),
+            post_binding: None,
         })
+    }
+
+    /// Bind a confirmed PRE locator to the exact POST engine selection. A repeated selection
+    /// of the same PRE path is a new comparison, not a continuation of the previous history.
+    pub fn with_post_binding(
+        mut self,
+        pair_owner_id: &str,
+        post_instance_id: &str,
+        generation: u64,
+        claimed_at: f64,
+    ) -> Option<Self> {
+        if !crate::path_identity::is_path_safe_component(pair_owner_id)
+            || !crate::path_identity::is_path_safe_component(post_instance_id)
+            || generation == 0
+            || !claimed_at.is_finite()
+            || claimed_at <= 0.0
+        {
+            return None;
+        }
+        self.post_binding = Some(PostBindingProvenance {
+            pair_owner_id: pair_owner_id.into(),
+            post_instance_id: post_instance_id.into(),
+            generation,
+            claimed_at_bits: claimed_at.to_bits(),
+        });
+        Some(self)
     }
 }
 
@@ -109,6 +145,8 @@ struct PairKey {
     instance_id: String,
     instance_dir: PathBuf,
     owner_id: String,
+    daw_session_id: String,
+    post_binding: Option<PostBindingProvenance>,
 }
 
 pub struct MeterDeltaHistoryExchange {
@@ -189,6 +227,8 @@ impl MeterDeltaHistoryExchange {
             instance_id: target.pre_instance_id.clone(),
             instance_dir: target.instance_dir.clone(),
             owner_id: identity.watch_owner_id.clone(),
+            daw_session_id: identity.daw_session_id.clone(),
+            post_binding: target.post_binding.clone(),
         });
         if identity.signal_state != "active" {
             return;
@@ -223,6 +263,8 @@ impl MeterDeltaHistoryExchange {
             instance_id: target.pre_instance_id,
             instance_dir: target.instance_dir,
             owner_id: identity.watch_owner_id,
+            daw_session_id: identity.daw_session_id,
+            post_binding: target.post_binding,
         });
         delta.chain.begin(
             &publication,

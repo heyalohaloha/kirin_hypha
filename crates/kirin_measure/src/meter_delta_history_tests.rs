@@ -50,6 +50,8 @@ fn joins_only_the_same_unique_presentation_endpoint() {
         instance_id: "pre".into(),
         instance_dir: "/tmp/pre".into(),
         owner_id: "owner".into(),
+        daw_session_id: "song".into(),
+        post_binding: None,
     });
     delta.ingest(
         &[pre_point(4_800, -20.0), pre_point(9_600, -18.0)],
@@ -145,6 +147,8 @@ fn pair_change_discards_history_instead_of_blending_sources() {
         instance_id: "pre-a".into(),
         instance_dir: "/tmp/pre-a".into(),
         owner_id: "owner-a".into(),
+        daw_session_id: "song".into(),
+        post_binding: None,
     });
     delta.ingest(
         &[pre_point(4_800, -20.0)],
@@ -159,6 +163,8 @@ fn pair_change_discards_history_instead_of_blending_sources() {
         instance_id: "pre-b".into(),
         instance_dir: "/tmp/pre-b".into(),
         owner_id: "owner-b".into(),
+        daw_session_id: "song".into(),
+        post_binding: None,
     });
     assert!(delta
         .history

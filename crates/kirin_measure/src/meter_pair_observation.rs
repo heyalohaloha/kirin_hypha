@@ -39,7 +39,9 @@ impl DeltaHistoryState {
 
     pub(super) fn clear_if_different_target(&mut self, target: &MeterHistoryTarget) {
         if self.pair.as_ref().is_some_and(|pair| {
-            pair.instance_id != target.pre_instance_id || pair.instance_dir != target.instance_dir
+            pair.instance_id != target.pre_instance_id
+                || pair.instance_dir != target.instance_dir
+                || pair.post_binding != target.post_binding
         }) {
             self.clear_pair();
         }
