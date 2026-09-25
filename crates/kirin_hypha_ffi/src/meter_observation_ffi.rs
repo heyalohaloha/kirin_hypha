@@ -3,6 +3,9 @@ use super::*;
 #[path = "chain_observation_ffi.rs"]
 mod chain_ffi;
 pub use chain_ffi::*;
+#[path = "level_snapshot_ffi.rs"]
+mod level_ffi;
+pub use level_ffi::*;
 
 impl KirinHyphaEngine {
     /// Record/Keepから独立した常設メーターセッションの最新完了値を読む。
@@ -153,36 +156,47 @@ pub unsafe extern "C" fn kirin_hypha_poll_observatory_frame(
         let Some(snapshot) = engine.poll_meter_session() else {
             return false;
         };
-        let delta_result = engine.poll_delta().unwrap_or_default();
-        let delta = to_c_delta(&delta_result);
-        let signal_after = engine.signal_state_abi();
-        if signal_before != signal_after {
+        let Some(frame) = build_observatory_frame(engine, &snapshot, signal_before) else {
             return false;
-        }
-        let (lra_state, lra_elapsed_seconds) = lra_readiness(&snapshot);
-        let comparison = comparison_projection(
-            &delta_result,
-            snapshot.measurement_epoch,
-            snapshot.generation,
-        );
-        let frame = KirinObservatoryFrame {
-            version: abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION,
-            signal_state: signal_after,
-            lra_state,
-            delta_available: delta_has_finite_fact(&delta) as u8,
-            comparison_state: comparison.state,
-            lra_elapsed_seconds,
-            meter: to_c_meter_session(&snapshot),
-            delta,
-            comparison_reason: comparison.reason,
-            comparison_reserved: [0; 7],
-            comparison_generation: comparison.generation,
-            comparison_identity: comparison.identity,
         };
         unsafe { *out = frame };
         true
     }))
     .unwrap_or(false)
+}
+
+fn build_observatory_frame(
+    engine: &KirinHyphaEngine,
+    snapshot: &MeterSessionSnapshot,
+    signal_before: u8,
+) -> Option<KirinObservatoryFrame> {
+    let delta_result = engine.poll_delta().unwrap_or_default();
+    let delta = to_c_delta(&delta_result);
+    let signal_after = engine.signal_state_abi();
+    if signal_before != signal_after {
+        return None;
+    }
+    let (lra_state, lra_elapsed_seconds) = lra_readiness(snapshot);
+    let comparison = comparison_projection(
+        &delta_result,
+        snapshot.measurement_epoch,
+        snapshot.generation,
+    );
+    let frame = KirinObservatoryFrame {
+        version: abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION,
+        signal_state: signal_after,
+        lra_state,
+        delta_available: delta_has_finite_fact(&delta) as u8,
+        comparison_state: comparison.state,
+        lra_elapsed_seconds,
+        meter: to_c_meter_session(snapshot),
+        delta,
+        comparison_reason: comparison.reason,
+        comparison_reserved: [0; 7],
+        comparison_generation: comparison.generation,
+        comparison_identity: comparison.identity,
+    };
+    Some(frame)
 }
 
 /// 常設Meter SessionのTIME履歴を古い順で最大`out_capacity`件取得する。

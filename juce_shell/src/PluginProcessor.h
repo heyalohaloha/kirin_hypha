@@ -11,6 +11,7 @@
 #include "local_blind/HostClockProbe.h"
 #include "kirin_hypha_display_ffi.h"
 #include "kirin_hypha_chain_observation.h"
+#include "kirin_hypha_level_snapshot.h"
 
 #include <array>
 #include <atomic>
@@ -77,11 +78,11 @@ public:
     bool pollRecordDisplay (KirinRecordDisplay& out) const;
     bool pollMeterSession (KirinMeterSession& out) const;
     bool pollObservatoryFrame (KirinObservatoryFrame& out) const;
-    bool pollChainObservation (
-        std::uint64_t knownRevision,
-        KirinChainSnapshot& out,
-        std::array<KirinChainPoint, KIRIN_CHAIN_CAPACITY>& points,
-        bool latestOnly = false) const;
+    bool pollLevelSnapshot (KirinLevelSnapshot& out,
+                            std::vector<KirinMeterHistoryEntry>& history,
+                            std::array<KirinChainPoint, KIRIN_CHAIN_CAPACITY>& chain,
+                            size_t maxEntries, size_t maxOutputEntries,
+                            std::uint64_t knownChainRevision, bool latestOnly) const;
     bool pollMeterHistory (uint8_t resolution,
                            std::vector<KirinMeterHistoryEntry>& out,
                            size_t maxEntries,

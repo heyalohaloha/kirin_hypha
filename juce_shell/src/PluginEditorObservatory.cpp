@@ -290,7 +290,29 @@ void KirinHyphaEditor::refreshObservatory()
     }
 
     KirinObservatoryFrame frame {};
-    const bool frameAvailable = processorRef.pollObservatoryFrame (frame);
+    KirinLevelSnapshot levelSnapshot {};
+    std::vector<KirinMeterHistoryEntry> levelHistory;
+    const auto levelAbsolute = observatoryDomain == hypha::observatory::Domain::level
+        && observatoryView.target() == hypha::observatory::ObservationTarget::absolute;
+    const auto latestOnly = ! observatoryView.fullCockpit();
+    if (levelAbsolute && chainLatestOnly != latestOnly)
+    {
+        chainLatestOnly = latestOnly;
+        chainRevision = 0u;
+    }
+    const auto levelOutput = static_cast<size_t> (
+        juce::jlimit (128, 600, observatoryView.bodyBounds().getWidth() * 2));
+    const bool levelReady = levelAbsolute
+        && processorRef.pollLevelSnapshot (
+            levelSnapshot, levelHistory, chainPoints,
+            observatoryView.fullCockpit() ? 600u : 0u,
+            observatoryView.fullCockpit() ? levelOutput : 0u,
+            chainRevision, latestOnly);
+    // A busy history lock cannot make the absolute meter disappear. The standalone publication
+    // remains useful, but never combine it with an older LEVEL history/chain packet.
+    const bool frameAvailable = levelReady || processorRef.pollObservatoryFrame (frame);
+    if (levelReady)
+        frame = levelSnapshot.frame;
     observatoryView.setObservatoryFrame (frame, frameAvailable);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumView.setComparisonStatus (
@@ -350,53 +372,25 @@ void KirinHyphaEditor::refreshObservatory()
     else if (observatoryDomain == hypha::observatory::Domain::level
              && observatoryView.fullCockpit())
     {
-        std::vector<KirinMeterHistoryEntry> history;
-        constexpr size_t maximumEntries = 600;
-        const auto maximumOutput = static_cast<size_t> (
-            juce::jlimit (128, 600, observatoryView.bodyBounds().getWidth() * 2));
-        const auto historyReady = observatoryView.target()
-            == hypha::observatory::ObservationTarget::absolute
-            ? processorRef.pollMeterHistory (KIRIN_METER_HISTORY_10_HZ, history,
-                                             maximumEntries, maximumOutput)
-            : processorRef.pollMeterDeltaHistory (KIRIN_METER_HISTORY_10_HZ, history,
-                                                  maximumEntries, maximumOutput);
-        if (historyReady)
-            observatoryView.setHistory (std::move (history));
+        if (levelAbsolute)
+            observatoryView.setHistory (levelReady
+                ? std::move (levelHistory) : std::vector<KirinMeterHistoryEntry> {});
+        else
+        {
+            std::vector<KirinMeterHistoryEntry> history;
+            if (processorRef.pollMeterDeltaHistory (KIRIN_METER_HISTORY_10_HZ, history,
+                                                    600u, levelOutput))
+                observatoryView.setHistory (std::move (history));
+        }
     }
 
-    const auto wantsChainObservation = isPost
-        && observatoryDomain == hypha::observatory::Domain::level
-        && observatoryView.target() == hypha::observatory::ObservationTarget::absolute;
-    if (wantsChainObservation && frameAvailable)
+    if (levelReady && isPost && levelSnapshot.chain_updated != 0u)
     {
-        const auto latestOnly = ! observatoryView.fullCockpit();
-        if (chainLatestOnly != latestOnly)
-        {
-            chainLatestOnly = latestOnly;
-            chainRevision = 0u;
-        }
-        KirinChainSnapshot next {};
-        if (processorRef.pollChainObservation (
-                chainRevision, next, chainPoints, latestOnly))
-        {
-            const auto sameFrame = next.count == 0u
-                || (next.count <= (latestOnly ? 1u : KIRIN_CHAIN_CAPACITY)
-                    && std::all_of (chainPoints.begin(), chainPoints.begin()
-                            + static_cast<std::ptrdiff_t> (next.count),
-                        [&frame] (const KirinChainPoint& point) {
-                            return point.post_epoch == frame.meter.measurement_epoch
-                                && point.post_generation == frame.meter.generation
-                                && point.post_observed <= frame.meter.observed_frames;
-                        }));
-            if (sameFrame)
-            {
-                chainSnapshot = next;
-                chainRevision = next.revision;
-                observatoryView.setChainObservation (chainSnapshot, chainPoints.data());
-            }
-        }
+        chainSnapshot = levelSnapshot.chain;
+        chainRevision = chainSnapshot.revision;
+        observatoryView.setChainObservation (chainSnapshot, chainPoints.data());
     }
-    else if (! wantsChainObservation)
+    else if (! levelAbsolute || ! levelReady)
     {
         chainRevision = 0u;
         chainSnapshot = {};
