@@ -86,7 +86,7 @@ LEVELは全面背景の上へ別の不透明画像を重ねない。
 |---|---:|---|---|---|
 | POST LEVEL | 2/5 | 構造、観測、接続 | LUFS-Mとbalanceが低明度の菌糸形状を決める | 選択M/S、TP、Crest |
 | POST TIME HISTORY | 3/5 | 時間、観測 | ObservatoryはM、S、TP、PLR、correlationのexact history、CompactはM、S、TPだけを表示する | M、S、TP |
-| POST TIME ATTACK | 5/5 | 観測、時間 | 選択eventのstrength、texture、brightness、transientをspecimenへ投影する | specimen、主値、選択位置 |
+| POST TIME ATTACK | 5/5 | 観測、時間 | 六秒HISTORYの下で打音ごとのTRANSIENT、STRENGTH、CREST、SHARPNESSのlaneを同じ時間軸へ並べ、選択打音を静的な菌糸線で貫く | HISTORY、選択打音の四値、選択位置 |
 | POST TIME SHARP | 3/5 | 観測、時間 | exact Sharpness差分と六秒historyを膜状のfillへ投影する | 現在値、差分、history |
 | POST TIME LIVE | 3/5 | 観測、時間 | POST単体のLUFS-M、TP、Sharpnessを固定scale上で追跡する | 三つの絶対値、history |
 | POST FREQ | 3/5 | 構造、観測、接続 | SpectrumとGuide bandを別authorityとして重ねる | Spectrum、主値、差分 |
@@ -127,9 +127,10 @@ M/S中のΔとΔ中のM/Sは位置を残して低明度のdisabled表示とし�
 
 Captureは追加で1080×1080と1080×1350のbounds契約を検証する。
 
-ATTACKのbodyは`attack_specimen_body_v3.png`とnative painterを使用する。半透明の水中生命体として、クラゲの傘とイカの推進を思わせる膜、青緑の屈折、暖色の生体発光脈を持たせ、親Shell側の背景を新しい地下観測所へ統一する。
-
-旧`attack_specimen_emission.png`は長い尾を持つ診断素材であり、製品ATTACKの中央標本には使用しない。
+ATTACKは専用の画像素材を持たない。B-1015で水中生命体の中央標本（`attack_specimen_body_v3.png`）を撤去し、HISTORYと四laneをnative painterで描く。
+計測面は殻より一段深い黒とし、共通のHypha素材`bg_mycelium.png`を時間の床として低明度で敷く。
+CE 2226の表現は、選択打音を貫く静的な菌糸線（exact x ±1 px、打音sampleで決まるdrift、HISTORY上のbulb、各laneの値の先端の点、下端の先端）と、観測値だけが持つcyanの狭い発光に集約する。時間で揺らさない。
+数値はivory、lane色はlabelと棒と短いaccentに限る。詳細は`hypha_drum_lanes_20260924.md`の外観節を正本とする。
 
 ## 6. responsive契約
 
@@ -346,7 +347,7 @@ ATTACKはCompact、Observatory、1200×630 Captureの三経路でbodyが欠落�
 
 300×200と375×250はCompact、450×300はStandard、600×400はfull cockpit、900×600はInspection Viewとしてcompile-timeとruntimeの両方で固定する。文字はこの五つを基準点として中間寸法を連続補間し、役割と構成は`HyphaTypographyContract.h`、画面対応は`HyphaSurfacePresentation.h`を正本とする。
 
-文字は一律拡大しない。LEVELのM/S/Iなど即読する主値を`primaryValue`、TP、MAX TP、LRA、PLR、Crestなど比較を補助する値を`secondaryValue`として、全基準寸法で主値を大きく保つ。ATTACKのStrength、Texture、Sharpnessは同じ観測階層として均等な三列に置き、label、value、contextの中央軸をそろえる。
+文字は一律拡大しない。LEVELのM/S/Iなど即読する主値を`primaryValue`、TP、MAX TP、LRA、PLR、Crestなど比較を補助する値を`secondaryValue`として、全基準寸法で主値を大きく保つ。ATTACKの四laneは同じ観測階層として同じ高さと列にそろえ、lane名を`metricLabel`、選択打音の値を`secondaryValue`、値を出さない理由を`readout`とする。
 
 利用可能なlabel、unit、axis、legend、説明文には背景に対して4.5:1以上の可読色を使う。従来のmuted色は欠測値、無効な操作、非文字の補助線へ限定し、存在する情報を単に薄く見せる用途には使わない。PRESENCE overlayの既存値は変更しない。
 

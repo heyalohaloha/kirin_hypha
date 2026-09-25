@@ -360,12 +360,13 @@ typedef struct {
   KirinAttackWaveformPoint points[KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY];
 } KirinAttackWaveformBatch;
 
-/* 確定eventの実波形shapeと事実記述子。評価語や処理器種別は含めない。 */
+/* 確定eventの実波形shapeと事実記述子（B-1016）。窓はonsetを含む約1 ms content binから始まりPRE/POST同一。
+ * transient=頭30 ms RMS−body RMS。bodyは頭の後100 msか次onsetまで、20 ms未満ならなし。sharpnessは頭から100 msの音量加重平均。 */
 typedef struct {
   uint64_t generation;
   uint32_t sample_rate;
   uint8_t channels;
-  uint8_t temporal_centroid_available;
+  uint8_t transient_available;
   uint8_t sharpness_available;
   uint8_t reserved;
   uint8_t definition_hash[32];
@@ -374,15 +375,14 @@ typedef struct {
   int64_t shape_start_sample;
   int64_t shape_end_sample;
   float value;
-  float contrast_db;
-  float context_rms_dbfs;
+  float transient_db;
+  float body_rms_dbfs;
   float attack_rms_dbfs;
   float sample_peak_dbfs;
   float crest_db;
-  float sample_edge_ratio_db;
-  float peak_plateau_ms;
-  float temporal_centroid_ms;
+  int64_t body_end_sample;
   float sharpness_acum;
+  uint32_t bin_frames;
   uint32_t shape_count;
   uint32_t reserved2;
   float shape[KIRIN_ATTACK_SHAPE_CAPACITY];
@@ -394,7 +394,7 @@ typedef struct {
   KirinAttackDetail details[KIRIN_ATTACK_DETAIL_BATCH_CAPACITY];
 } KirinAttackDetailBatch;
 
-/* 同一content sample上の共通ATTACK判定。kind: 0=matched,1=PRE-only,2=POST-only,3=ambiguous. */
+/* 同一content sample上の共通ATTACK判定。kind: 0=matched,1=PRE-only,2=POST-only,3=ambiguous. matchedのpost_event_sampleはPOSTを測ったPRE onset。 */
 typedef struct {
   uint64_t pair_generation;
   uint64_t pre_generation;

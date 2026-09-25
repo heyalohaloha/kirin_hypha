@@ -15,12 +15,16 @@ use crate::{SuperFluxChannelMode, SuperFluxConfig, SuperFluxLayout};
 
 #[path = "attack_runtime_assembler.rs"]
 mod assembler;
+#[path = "attack_bins.rs"]
+mod bins;
 #[path = "attack_detail.rs"]
 mod detail;
 #[path = "attack_pair.rs"]
 mod pair;
 #[path = "attack_peak.rs"]
 mod peak;
+#[path = "attack_sharpness.rs"]
+mod sharpness;
 #[path = "attack_runtime_state.rs"]
 mod state;
 #[path = "attack_runtime_worker.rs"]
@@ -28,8 +32,8 @@ mod worker;
 
 pub use pair::{AttackPairError, AttackPairEvent, AttackPairEventKind, AttackPairJoiner};
 pub use state::{
-    AttackDetailedEvent, AttackEvent, AttackEventShape, AttackHistory, AttackOdfFrame,
-    AttackRuntimeStats, AttackWaveformPoint, ATTACK_EVENT_HISTORY_CAPACITY,
+    AttackAnchor, AttackDetailedEvent, AttackEvent, AttackEventShape, AttackHistory,
+    AttackOdfFrame, AttackRuntimeStats, AttackWaveformPoint, ATTACK_EVENT_HISTORY_CAPACITY,
     ATTACK_ODF_HISTORY_CAPACITY, ATTACK_SHAPE_POINT_CAPACITY, ATTACK_WAVEFORM_HISTORY_CAPACITY,
 };
 
@@ -63,6 +67,7 @@ pub struct AttackRuntime {
     worker: Mutex<Option<JoinHandle<AttackConsumers>>>,
     wake: (Mutex<()>, Condvar),
     history: Mutex<AttackHistory>,
+    bins: Mutex<bins::AttackBins>,
     worker_running: AtomicBool,
     pushed_blocks: AtomicU64,
     dropped_blocks: AtomicU64,
@@ -103,6 +108,7 @@ impl AttackRuntime {
             worker: Mutex::new(None),
             wake: (Mutex::new(()), Condvar::new()),
             history: Mutex::new(AttackHistory::with_capacity()),
+            bins: Mutex::new(bins::AttackBins::new(sample_rate, num_channels)),
             worker_running: AtomicBool::new(false),
             pushed_blocks: AtomicU64::new(0),
             dropped_blocks: AtomicU64::new(0),
@@ -128,6 +134,9 @@ impl AttackRuntime {
                 .store(NO_PRESENTATION_POSITION, Ordering::Release);
             if let Ok(mut history) = self.history.lock() {
                 *history = AttackHistory::with_capacity();
+            }
+            if let Ok(mut bins) = self.bins.lock() {
+                bins.clear();
             }
         }
         self.wake.1.notify_all();
@@ -206,6 +215,27 @@ impl AttackRuntime {
 
     pub fn try_history(&self) -> Option<AttackHistory> {
         self.history.try_lock().ok().map(|history| history.clone())
+    }
+
+    /// POST measured at PRE onsets: the same content-grid windows the PRE details used, read from
+    /// this runtime's retained bins. Anchors outside them, or from another run, give no detail.
+    pub fn details_at(&self, anchors: &[AttackAnchor]) -> Vec<AttackDetailedEvent> {
+        let bins = match self.bins.lock() {
+            Ok(bins) => bins,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        anchors
+            .iter()
+            .filter_map(|anchor| {
+                let (features, shape) = bins.measure(anchor.event, anchor.body_end_sample)?;
+                let detail = AttackDetailedEvent {
+                    event: anchor.event,
+                    features,
+                    shape,
+                };
+                detail.has_valid_layout().then_some(detail)
+            })
+            .collect()
     }
 
     pub fn latest_presentation_end(&self) -> Option<i64> {

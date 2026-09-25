@@ -1,75 +1,55 @@
 #pragma once
+#include "AttackUiImageHelpers.h"
 #include "AttackUiPerformanceProbe.h"
 
 #include <array>
-#include <cmath>
 #include <cstdlib>
+#include <iostream>
 
 namespace hypha::attack_ui_test
 {
-inline bool nearColour (juce::Colour pixel, juce::Colour target)
+// The selected hit is a thin hypha. No row may contain a selection-coloured highlight bar.
+inline bool verifyThinSelection (const juce::Image& image, const attack_ui::Layout& layout)
 {
-    constexpr int tolerance = 12;
-    return pixel.getAlpha() > 16
-        && std::abs ((int) pixel.getRed() - (int) target.getRed()) <= tolerance
-        && std::abs ((int) pixel.getGreen() - (int) target.getGreen()) <= tolerance
-        && std::abs ((int) pixel.getBlue() - (int) target.getBlue()) <= tolerance;
-}
-
-inline bool verifyNoSelectionBar (const juce::Image& image,
-                                  presentation::Context presentation)
-{
+    if (layout.history.empty())
+        return true;
     const auto target = juce::Colour (attack_ui::selectionColour);
-    const auto top = attack_ui::headerHeightFor (presentation);
-    const auto height = attack_ui::timelineHeight (image.getHeight());
-    for (int x = 0; x < image.getWidth(); ++x)
+    const auto history = historyRect (layout);
+    const auto bottom = layout.arrangement == attack_ui::Arrangement::lanes
+        ? layout.lanes.back().bottom() : layout.axis.bottom();
+    for (int y = history.getY(); y < bottom; ++y)
     {
-        int run = 0;
-        for (int y = top; y < top + height; ++y)
+        juce::Rectangle<int> row { history.getX(), y, history.getWidth(), 1 };
+        // NOW is text in the selection colour while following LIVE; only its label is exempt.
+        if (y >= layout.axis.y && y < layout.axis.bottom())
+            row.removeFromRight (attack_ui::axisLabelWidth (layout));
+        if (countColour (image, row, target, 40) > 6)
         {
-            run = nearColour (image.getPixelAt (x, y), target) ? run + 1 : 0;
-            if (run > juce::jmax (10, height / 3))
-                return false;
+            std::cerr << "selection wider than a hypha at y=" << y << '\n';
+            return false;
         }
     }
     return true;
 }
 
-inline bool verifyContinuousScrubRail (const juce::Image& image,
-                                       presentation::Context presentation)
+inline bool verifyDormantQuiet (const juce::Image& image, const attack_ui::Layout& layout)
 {
-    if (attack_ui::axisHeight (image.getHeight()) == 0) return true;
-    const auto scrubTop = attack_ui::headerHeightFor (presentation)
-                        + attack_ui::timelineHeight (image.getHeight());
-    const auto railY = scrubTop + attack_ui::axisLabelHeight / 2 - 2;
-    for (int x = 35; x < image.getWidth() - 35; ++x)
-        if (image.getPixelAt (x, railY).getAlpha() == 0)
-            return false;
-    return true;
-}
-
-inline bool verifyDormantSpecimenQuiet (
-    const juce::Image& image,
-    presentation::Context presentation = presentation::defaultContext())
-{
-    const auto height = attack_ui::metricsHeightFor (image.getHeight(), presentation);
-    if (height == 0)
-        return true;
-    const auto area = juce::Rectangle<int> (0, image.getHeight() - height,
-                                            image.getWidth(), height).reduced (5);
+    const auto area = (layout.arrangement == attack_ui::Arrangement::lanes
+        ? lanesArea (layout) : rectangle (layout.line)).reduced (5);
     const std::array semanticColours {
         juce::Colour (attack_ui::selectionColour),
         juce::Colour (attack_ui::strengthColour),
-        juce::Colour (attack_ui::textureColour),
+        juce::Colour (attack_ui::crestColour),
         juce::Colour (attack_ui::sharpnessColour),
         juce::Colour (attack_ui::transientColour),
+        juce::Colour (attack_ui::waveformColour),
     };
     for (int y = area.getY(); y < area.getBottom(); ++y)
         for (int x = area.getX(); x < area.getRight(); ++x)
         {
             const auto pixel = image.getPixelAt (x, y);
-            // A dormant specimen may retain the low-contrast CE 2226 surface material, but it
-            // must not expose a value, label, selection, or metric colour before data is valid.
+            // Dormant lanes may retain the low-contrast CE 2226 material, but never a value,
+            // label, selection, or metric colour before data is valid.
             if (juce::jmax (pixel.getRed(), pixel.getGreen(), pixel.getBlue()) > 48)
                 return false;
             for (const auto colour : semanticColours)
@@ -79,18 +59,22 @@ inline bool verifyDormantSpecimenQuiet (
     return true;
 }
 
-inline bool verifySectionLayout (const juce::Image& image,
-                                 presentation::Context presentation)
+inline bool verifySectionLayout (const attack_ui::Layout& layout, int height)
 {
-    return attack_ui::headerHeightFor (presentation)
-         + attack_ui::timelineHeight (image.getHeight())
-         + attack_ui::axisHeight (image.getHeight())
-         + attack_ui::transientHeight (image.getHeight())
-         + attack_ui::metricsHeightFor (image.getHeight(), presentation) == image.getHeight();
+    auto total = layout.header.height + layout.history.height + layout.axis.height;
+    if (layout.arrangement != attack_ui::Arrangement::lanes)
+        return total + layout.line.height == height;
+    for (const auto& lane : layout.lanes)
+    {
+        total += lane.height;
+        if (lane.height != layout.lanes.front().height
+            || lane.height < attack_ui::laneMinimumHeight)
+            return false;
+    }
+    return total == height && layout.history.height >= attack_ui::historyMinimumHeight;
 }
 
-inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform,
-                                   const KirinAttackDetailBatch&)
+inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform)
 {
     juce::Image image (juce::Image::ARGB, 360, 80, true);
     juce::Graphics graphics (image);
@@ -114,6 +98,7 @@ inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform,
     return started;
 }
 
+// All five editor bodies: one row at 100%/125%, lanes from 150%, the loupe only at 300%.
 inline bool verifySupportedSizes (AttackComponent& component)
 {
     profileDenseAttackIfRequested();
@@ -137,28 +122,29 @@ inline bool verifySupportedSizes (AttackComponent& component)
     {
         component.setOverlayMode (mode == 1);
         const auto& variables = mode == 0 ? splitPreviewVariables : overlayPreviewVariables;
-        for (std::size_t index = 0; index < ui_contract::spectrumSizePresets.size(); ++index)
+        for (std::size_t index = 0; index < observatory::sizePresets.size(); ++index)
         {
-            const auto& preset = ui_contract::spectrumSizePresets[index];
-            const auto bounds = ui_contract::spectrumPlotBounds (preset.width, preset.height);
+            const auto& preset = observatory::sizePresets[index];
+            const auto shell = observatory::shellLayout (observatory::Role::post, preset,
+                                                         observatory::GuidePresence::absent);
+            const auto width = shell.body.width;
+            const auto height = shell.body.height - observatory::timeNavigationHeight (preset.density);
             const auto context = presentation::forEditor (preset.width, preset.height);
             component.setPresentationContext (context);
-            component.setSize (bounds.width, bounds.height);
-            juce::Image image (juce::Image::ARGB, bounds.width, bounds.height, true);
-            juce::Graphics graphics (image);
-            component.paintEntireComponent (graphics, true);
-            if (image.getWidth() != bounds.width || image.getHeight() != bounds.height)
-                return false;
-            if (! verifyNoSelectionBar (image, context)
-                || ! verifyContinuousScrubRail (image, context)
-                || ! verifySectionLayout (image, context))
-                return false;
-            if (const auto* path = std::getenv (variables[index]))
+            component.setSize (width, height);
+            const auto image = renderAttack (component);
+            const auto layout = attack_ui::layoutFor (width, height, context);
+            const auto expected = index < 2 ? attack_ui::Arrangement::line
+                                            : attack_ui::Arrangement::lanes;
+            if (image.getWidth() != width || image.getHeight() != height
+                || layout.arrangement != expected || layout.history.empty()
+                || layout.loupe != (index + 1 == observatory::sizePresets.size())
+                || ! verifyThinSelection (image, layout)
+                || ! verifySectionLayout (layout, height)
+                || ! writePreviewTo (variables[index], image))
             {
-                juce::FileOutputStream output { juce::File { path } };
-                juce::PNGImageFormat png;
-                if (! output.openedOk() || ! png.writeImageToStream (image, output))
-                    return false;
+                std::cerr << "supported size failed: " << width << 'x' << height << '\n';
+                return false;
             }
         }
     }

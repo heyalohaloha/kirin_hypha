@@ -1,5 +1,4 @@
 #include "HyphaAttackPainter.h"
-#include "HyphaAttackOrganismPainter.h"
 #include "HyphaAttackEnvelopeGeometry.h"
 
 namespace hypha::attack_painter
@@ -25,8 +24,15 @@ void drawEnvelope (juce::Graphics& g, const KirinAttackWaveformBatch& batch,
         gradient.addColour (.5, colour.withAlpha (alpha*.10f));
         target.setGradientFill (gradient); target.fillPath (shape.body);
     }
-    target.setColour (colour.withAlpha (alpha * (reference ? .45f : .70f)));
-    target.strokePath (shape.edge, juce::PathStrokeType (.65f, juce::PathStrokeType::beveled));
+    if (! reference)
+    {
+        // The measured POST edge carries a narrow cyan glow; PRE stays a plain reference trace.
+        target.setColour (colour.withAlpha (alpha * .16f));
+        target.strokePath (shape.edge, juce::PathStrokeType (2.4f, juce::PathStrokeType::beveled));
+    }
+    target.setColour (colour.withAlpha (alpha * (reference ? .45f : .85f)));
+    target.strokePath (shape.edge, juce::PathStrokeType (reference ? .65f : .8f,
+                                                         juce::PathStrokeType::beveled));
     };
    #if JUCE_MAC
     // CoreGraphics uses an intermediate software raster for this many-segment envelope.
@@ -59,11 +65,5 @@ void drawEnvelope (juce::Graphics& g, const KirinAttackWaveformBatch& batch,
     }
    #endif
     paint (g);
-}
-void drawEventFocus (juce::Graphics& g, const KirinAttackDetail* pre,
-                     const KirinAttackDetail* post, juce::Rectangle<int> area,
-                     const attack_motion::Motion& motion, attack_focus::Cache* cache)
-{
-    attack_organism::drawFocus (g, pre, post, area, motion, cache);
 }
 }

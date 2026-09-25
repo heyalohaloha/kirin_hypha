@@ -120,7 +120,9 @@ fn selected_drum_superflux_runs_on_source_zero_grid() {
 fn confirmed_runtime_event_receives_real_perceptual_detail() {
     let runtime = AttackRuntime::new(48_000, 2).unwrap();
     assert!(runtime.set_enabled(true));
-    feed(&runtime, 14_000, 256, Some(8_000));
+    // The body ends 130 ms after the onset and every earlier onset must be decided first.
+    // Phase D settles 300 ms after the run start, so the hit comes after that.
+    feed(&runtime, 28_800, 256, Some(16_000));
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
         if let Some(detail) = runtime
@@ -129,10 +131,13 @@ fn confirmed_runtime_event_receives_real_perceptual_detail() {
         {
             assert!(detail.has_valid_layout());
             assert_eq!(detail.event.channels, 2);
-            assert_eq!(detail.features.context_frames, 4_800);
-            assert_eq!(detail.features.attack_frames, 1_440);
-            assert!(detail.features.contrast_db > 0.0);
-            assert!(detail.features.temporal_centroid_ms.is_some());
+            assert_eq!(detail.features.bin_frames, 48);
+            assert!(detail.features.starts_at(detail.event.event_sample));
+            assert!(detail
+                .features
+                .transient_db
+                .is_some_and(|value| value > 0.0));
+            assert!(detail.features.sharpness_acum.is_some());
             assert_eq!(detail.shape.points.len(), ATTACK_SHAPE_POINT_CAPACITY);
             assert!(detail.shape.points.iter().any(|value| *value > 0.0));
             runtime.shutdown_and_join();

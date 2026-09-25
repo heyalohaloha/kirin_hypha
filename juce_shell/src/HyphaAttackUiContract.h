@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <limits>
 
@@ -18,9 +19,16 @@ namespace hypha::attack_ui
     constexpr int minimumPlotWidth = 1;
     constexpr int headerHeight = 28;
     constexpr int axisLabelHeight = 14;
-    constexpr int transientRowMaximumHeight = 44;
     constexpr int modeControlMinimumWidth = 112;
     constexpr int statusControlMinimumWidth = 84;
+    constexpr std::size_t laneCount = 4;
+    constexpr int historyMinimumHeight = 36;
+    constexpr int historyLineMinimumHeight = 24;
+    constexpr int laneMinimumHeight = 18;
+    constexpr int laneMaximumHeight = 52;
+    // Lanes receive this share of the body; HISTORY keeps the rest so it stays the largest area.
+    constexpr int laneShareNumerator = 13;
+    constexpr int laneShareDenominator = 100;
 
     constexpr int ceilPixels (float value) noexcept
     {
@@ -56,22 +64,35 @@ namespace hypha::attack_ui
         const auto required = titleRowHeight (context) + statusRowHeight (context);
         return required > headerHeight ? required : headerHeight;
     }
+
+    constexpr int axisRowHeight (const presentation::Context& context) noexcept
+    {
+        const auto required = roundPixels (typography::resolve (
+            context, typography::TextRole::axis,
+            typography::Composition::visualization).lineHeight) + 1;
+        return required > axisLabelHeight ? required : axisLabelHeight;
+    }
+
+    constexpr int readoutLineHeight (const presentation::Context& context) noexcept
+    {
+        const auto required = roundPixels (typography::resolve (
+            context, typography::TextRole::readout,
+            typography::Composition::visualization).lineHeight) + 4;
+        return required > 16 ? required : 16;
+    }
+
     constexpr float absoluteFloorDb = -72.0f;
-    constexpr float strengthGlowOnDbfs = -42.0f;
-    constexpr float strengthGlowFullDbfs = -6.0f;
-    constexpr float sharpnessGlowOnAcum = 0.60f;
-    constexpr float sharpnessGlowFullAcum = 2.50f;
-    constexpr float transientGlowOnDb = 3.0f;
-    constexpr float transientGlowFullDb = 15.0f;
-    constexpr float textureGlowOn = 0.10f;
-    constexpr float textureGlowFull = 0.65f;
-    // A colour-vision-resilient gold/cyan family. Labels and geometry remain the primary
-    // identifiers; magnitude never depends on hue movement alone.
+    // Event windows in about-1 ms content bins (kirin_measure ATTACK_HEAD_BINS / BODY_BINS):
+    // the 30 ms head, then the body of up to 100 ms that ends early at the next onset.
+    constexpr std::int64_t headBins = 30;
+    constexpr std::int64_t bodyBins = 100;
+    // A colour-vision-resilient gold/cyan family. Labels, lane order and bar direction remain the
+    // primary identifiers; magnitude and sign never depend on hue alone.
     constexpr std::uint32_t waveformColour = 0xff32ced7;
     constexpr std::uint32_t strengthColour = 0xffefc977;
     constexpr std::uint32_t sharpnessColour = 0xffa9dcf3;
     constexpr std::uint32_t transientColour = 0xff59d6d0;
-    constexpr std::uint32_t textureColour = 0xffdd8b54;
+    constexpr std::uint32_t crestColour = 0xffdd8b54;
     constexpr std::uint32_t selectionColour = 0xffffe6ad;
 
     constexpr int rgbChromaRange (std::uint32_t colour) noexcept
@@ -90,43 +111,229 @@ namespace hypha::attack_ui
     static_assert (rgbChromaRange (strengthColour) >= 56);
     static_assert (rgbChromaRange (sharpnessColour) >= 56);
     static_assert (rgbChromaRange (transientColour) >= 56);
-    static_assert (rgbChromaRange (textureColour) >= 56);
+    static_assert (rgbChromaRange (crestColour) >= 56);
 
-    constexpr int timelineHeight (int totalHeight) noexcept
+    struct Box
     {
-        return totalHeight >= 400 ? 64
-             : totalHeight >= 260 ? 42
-             : totalHeight >= 170 ? 36 : 0;
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+        constexpr bool empty() const noexcept { return width <= 0 || height <= 0; }
+        constexpr int right() const noexcept { return x + width; }
+        constexpr int bottom() const noexcept { return y + height; }
+    };
+
+    enum class Arrangement
+    {
+        header,  // too small for any observation surface
+        line,    // selected-hit values in one row, with HISTORY above when it fits
+        lanes,   // HISTORY above four per-hit lanes sharing its time axis
+    };
+
+    struct Layout
+    {
+        Arrangement arrangement = Arrangement::header;
+        Box header, history, axis, line;
+        std::array<Box, laneCount> lanes {};
+        int labelWidth = 0;
+        int readoutWidth = 0;
+        bool loupe = false;
+    };
+
+    constexpr int labelColumnWidth (observatory::Density density) noexcept
+    {
+        switch (density)
+        {
+            case observatory::Density::compact:     return 56;
+            case observatory::Density::focused:     return 60;
+            case observatory::Density::standard:    return 72;
+            case observatory::Density::observatory: return 88;
+            case observatory::Density::inspection:  return 108;
+        }
+        return 56;
     }
 
-    constexpr int transientHeight (int totalHeight) noexcept
+    constexpr int readoutColumnWidth (observatory::Density density) noexcept
     {
-        return totalHeight >= 400 ? transientRowMaximumHeight
-             : totalHeight >= 260 ? 30
-             : totalHeight >= 170 ? 26
-             : totalHeight >= 115 ? 24 : 0;
+        switch (density)
+        {
+            case observatory::Density::compact:     return 84;
+            case observatory::Density::focused:     return 92;
+            case observatory::Density::standard:    return 104;
+            case observatory::Density::observatory: return 132;
+            case observatory::Density::inspection:  return 236;
+        }
+        return 84;
     }
 
-    constexpr int axisHeight (int totalHeight) noexcept
+    constexpr Layout layoutFor (int width, int height,
+                                const presentation::Context& context) noexcept
     {
-        return timelineHeight (totalHeight) > 0 ? axisLabelHeight : 0;
+        Layout layout;
+        if (width <= 0 || height <= 0)
+            return layout;
+        const auto headerRows = headerHeightFor (context);
+        const auto header = headerRows < height ? headerRows : height;
+        layout.header = { 0, 0, width, header };
+        const auto body = height - header;
+        const auto axis = axisRowHeight (context);
+        const auto line = readoutLineHeight (context);
+        if (body >= historyMinimumHeight + axis + static_cast<int> (laneCount) * laneMinimumHeight)
+        {
+            auto lane = (body * laneShareNumerator + laneShareDenominator / 2) / laneShareDenominator;
+            lane = lane < laneMinimumHeight ? laneMinimumHeight
+                 : lane > laneMaximumHeight ? laneMaximumHeight : lane;
+            const auto history = body - axis - static_cast<int> (laneCount) * lane;
+            layout.arrangement = Arrangement::lanes;
+            layout.history = { 0, header, width, history };
+            layout.axis = { 0, header + history, width, axis };
+            for (std::size_t index = 0; index < laneCount; ++index)
+                layout.lanes[index] = { 0, header + history + axis + static_cast<int> (index) * lane,
+                                        width, lane };
+            const auto label = labelColumnWidth (context.density);
+            const auto readout = readoutColumnWidth (context.density);
+            layout.labelWidth = label < width / 6 ? label : width / 6;
+            layout.readoutWidth = readout < width / 4 ? readout : width / 4;
+            layout.loupe = context.density == observatory::Density::inspection
+                        && layout.readoutWidth >= 160 && history >= 90;
+            return layout;
+        }
+        if (body < line)
+            return layout;
+        layout.arrangement = Arrangement::line;
+        const auto history = body - axis - line;
+        if (history >= historyLineMinimumHeight)
+        {
+            layout.history = { 0, header, width, history };
+            layout.axis = { 0, header + history, width, axis };
+            layout.line = { 0, header + history + axis, width, line };
+        }
+        else
+        {
+            layout.line = { 0, header, width, line };
+        }
+        return layout;
     }
 
-    constexpr int metricsHeight (int totalHeight) noexcept
+    // Cells inside a layout. Painters, hit testing and tests all derive geometry from these, so
+    // no caller repeats an inset. Rectangle arithmetic matches juce::Rectangle.
+    constexpr Box reduced (Box box, int dx, int dy) noexcept
     {
-        const int available = totalHeight - headerHeight - axisHeight (totalHeight)
-                            - timelineHeight (totalHeight) - transientHeight (totalHeight);
-        return available > 0 ? available : 0;
+        const auto width = box.width - 2 * dx;
+        const auto height = box.height - 2 * dy;
+        return { box.x + dx, box.y + dy, width > 0 ? width : 0, height > 0 ? height : 0 };
     }
 
-    constexpr int metricsHeightFor (int totalHeight,
-                                    const presentation::Context& context) noexcept
+    constexpr Box labelCell (const Layout& layout, Box row) noexcept
     {
-        const int available = totalHeight - headerHeightFor (context)
-                            - axisHeight (totalHeight) - timelineHeight (totalHeight)
-                            - transientHeight (totalHeight);
-        return available > 0 ? available : 0;
+        if (layout.arrangement != Arrangement::lanes)
+            return {};
+        return { row.x, row.y, layout.labelWidth < row.width ? layout.labelWidth : row.width,
+                 row.height };
     }
+
+    constexpr Box readoutCell (const Layout& layout, Box row) noexcept
+    {
+        if (layout.arrangement != Arrangement::lanes)
+            return {};
+        const auto width = layout.readoutWidth < row.width ? layout.readoutWidth : row.width;
+        return { row.right() - width, row.y, width, row.height };
+    }
+
+    // HISTORY, the axis and every lane share one horizontal plot column, so a hit has the same x
+    // in each of them.
+    constexpr Box plotColumn (const Layout& layout, Box row) noexcept
+    {
+        if (layout.arrangement == Arrangement::lanes)
+        {
+            const auto label = labelCell (layout, row).width;
+            row.x += label;
+            row.width -= label;
+            row.width -= layout.readoutWidth < row.width ? layout.readoutWidth : row.width;
+        }
+        return reduced (row, 1, 0);
+    }
+
+    constexpr Box historyPlot (const Layout& layout) noexcept
+    {
+        return layout.history.empty() ? Box {} : reduced (plotColumn (layout, layout.history), 0, 1);
+    }
+
+    constexpr Box axisPlot (const Layout& layout) noexcept
+    {
+        return layout.axis.empty() ? Box {} : plotColumn (layout, layout.axis);
+    }
+
+    constexpr Box lanePlot (const Layout& layout, std::size_t lane) noexcept
+    {
+        return layout.arrangement == Arrangement::lanes && lane < laneCount
+            ? reduced (plotColumn (layout, layout.lanes[lane]), 0, 1) : Box {};
+    }
+
+    constexpr Box loupeArea (const Layout& layout) noexcept
+    {
+        return layout.loupe ? reduced (readoutCell (layout, layout.history), 2, 1) : Box {};
+    }
+
+    // "-6 s" sits at the left end of the axis plot and NOW at its right end.
+    constexpr int axisLabelWidth (const Layout& layout) noexcept
+    {
+        const auto fifth = axisPlot (layout).width / 5;
+        return fifth < 35 ? fifth : 35;
+    }
+
+    // Lane values stay inside the lane stage, so a cap never touches its edge.
+    constexpr int laneInsetX = 1;
+    constexpr int laneInsetY = 3;
+
+    // The one-row readout: four equal cells (SHARPNESS takes the remainder), each led by a short
+    // lane-colour accent before its text.
+    constexpr int lineInset = 4;
+    constexpr int lineAccentWidth = 5;
+
+    constexpr Box lineCell (const Layout& layout, std::size_t lane) noexcept
+    {
+        const auto area = reduced (layout.line, lineInset, 0);
+        const auto segment = area.width / static_cast<int> (laneCount);
+        const auto x = area.x + segment * static_cast<int> (lane);
+        return { x, area.y, lane + 1 == laneCount ? area.right() - x : segment, area.height };
+    }
+
+    constexpr bool sharesOnePlotColumn (const Layout& layout) noexcept
+    {
+        const auto history = historyPlot (layout);
+        const auto axis = axisPlot (layout);
+        if (history.empty() || axis.x != history.x || axis.width != history.width)
+            return false;
+        if (layout.arrangement == Arrangement::lanes)
+            for (std::size_t lane = 0; lane < laneCount; ++lane)
+                if (lanePlot (layout, lane).x != history.x
+                    || lanePlot (layout, lane).width != history.width)
+                    return false;
+        return ! layout.loupe || loupeArea (layout).x >= history.right();
+    }
+
+    // The five editor bodies (POST, Guide absent, TIME navigation removed) keep the approved
+    // arrangement: one selected-hit row at 100% and 125%, lanes from 150%, a loupe only at 300%.
+    static_assert (sharesOnePlotColumn (layoutFor (292, 94, presentation::forEditor (300, 200))));
+    static_assert (sharesOnePlotColumn (layoutFor (363, 128, presentation::forEditor (375, 250))));
+    static_assert (sharesOnePlotColumn (layoutFor (434, 164, presentation::forEditor (450, 300))));
+    static_assert (sharesOnePlotColumn (layoutFor (580, 248, presentation::forEditor (600, 400))));
+    static_assert (sharesOnePlotColumn (layoutFor (872, 412, presentation::forEditor (900, 600))));
+    static_assert (layoutFor (292, 94, presentation::forEditor (300, 200)).arrangement
+                   == Arrangement::line);
+    static_assert (! layoutFor (292, 94, presentation::forEditor (300, 200)).history.empty());
+    static_assert (layoutFor (363, 128, presentation::forEditor (375, 250)).arrangement
+                   == Arrangement::line);
+    static_assert (layoutFor (434, 164, presentation::forEditor (450, 300)).arrangement
+                   == Arrangement::lanes);
+    static_assert (layoutFor (580, 248, presentation::forEditor (600, 400)).arrangement
+                   == Arrangement::lanes);
+    static_assert (! layoutFor (580, 248, presentation::forEditor (600, 400)).loupe);
+    static_assert (layoutFor (872, 412, presentation::forEditor (900, 600)).loupe);
+    static_assert (layoutFor (872, 412, presentation::forEditor (900, 600)).lanes[3].bottom()
+                   == 412);
 
     constexpr int modeControlWidth (int totalWidth,
                                     int requiredWidth = modeControlMinimumWidth) noexcept
@@ -141,19 +348,6 @@ namespace hypha::attack_ui
         const auto desired = requiredWidth > statusControlMinimumWidth
             ? requiredWidth : statusControlMinimumWidth;
         return desired < totalWidth / 3 ? desired : totalWidth / 3;
-    }
-
-    constexpr const char* transientTitle (const presentation::Context& context) noexcept
-    {
-        return context.density == observatory::Density::compact ? "TR dB"
-             : context.density == observatory::Density::focused ? "TRANS dB"
-                                                                : "TRANSIENT dB";
-    }
-
-    constexpr int transientTitleWidth (int totalWidth, int requiredWidth) noexcept
-    {
-        const auto maximum = totalWidth / 4;
-        return requiredWidth < maximum ? requiredWidth : maximum;
     }
 
     constexpr std::int64_t windowSamples (std::uint32_t sampleRate) noexcept

@@ -4,6 +4,7 @@
 #include <array>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 namespace hypha::attack_ui_test
 {
@@ -41,7 +42,7 @@ inline bool verifyAttackFrameBudget()
         {
             auto& pre = preDetails->details[i];
             pre.attack_rms_dbfs -= 5.3f; pre.sharpness_acum *= .77f;
-            pre.contrast_db *= .65f; pre.sample_edge_ratio_db -= 3.7f;
+            pre.transient_db *= .65f; pre.crest_db -= 1.5f;
         }
         waveform->count = preWaveform->count = KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY;
         for (int instances : { 1, 2 })
@@ -104,6 +105,50 @@ inline bool verifyAttackFrameBudget()
                       << " median_ms=" << samples[2] << " max_ms=" << samples[4] << '\n';
 #if ! JUCE_DEBUG
             withinBudget = withinBudget && samples[2] <= (instances == 1 ? 12.0 : 16.0) && samples[4] <= 24.0 && cold <= 80.0;
+#endif
+        }
+        // A corner drag from 300% to 100% and back: the body changes on every frame, so no
+        // cached structure can be reused until the size holds.
+        for (auto dpi : { 1.0f, 1.25f, 2.0f })
+        {
+            auto component = std::make_unique<AttackComponent>();
+            juce::Image image (juce::Image::ARGB, static_cast<int> (std::ceil (900 * dpi)),
+                                static_cast<int> (std::ceil (600 * dpi)), true);
+            std::vector<double> samples;
+            for (int step = 0; step <= 100; ++step)
+            {
+                const auto editorWidth = 900 - 12 * (step <= 50 ? step : 100 - step);
+                const observatory::SizePreset preset { editorWidth, editorWidth * 2 / 3,
+                    observatory::densityForWidth (editorWidth), "" };
+                const auto body = observatory::shellLayout (observatory::Role::post, preset,
+                    observatory::GuidePresence::absent).body;
+                component->setPresentationContext (presentation::forEditor (preset.width, preset.height));
+                component->setSize (body.width, body.height - observatory::timeNavigationHeight (preset.density));
+                const auto offset = step * 480;
+                for (std::uint32_t i = 0; i < waveform->count; ++i)
+                {
+                    auto& p = waveform->points[i]; p.generation = 7; p.sample_rate = 48000; p.channels = 2;
+                    p.start_sample = static_cast<std::int64_t> (i) * 480 + offset; p.end_sample = p.start_sample + 480;
+                    p.rms_dbfs = -20 + 9 * std::sin (static_cast<float> (i) * .08f + step * .04f);
+                    preWaveform->points[i] = p;
+                    preWaveform->points[i].rms_dbfs -= 5.3f;
+                }
+                const auto start = juce::Time::getMillisecondCounterHiRes();
+                component->setSnapshot (*events, *waveform, *details, *preWaveform, *preDetails,
+                                        *pairs, 288000 + offset, 48000, 7, stats);
+                component->presentationTickAt (start + 101);
+                juce::Graphics g (image); g.addTransform (juce::AffineTransform::scale (dpi));
+                component->paintEntireComponent (g, true);
+                if (step > 0) // the first frame is the cold start measured above
+                    samples.push_back (juce::Time::getMillisecondCounterHiRes() - start);
+            }
+            std::sort (samples.begin(), samples.end());
+            const auto median = samples[samples.size() / 2];
+            std::cout << "DRUM resize frame: dpi=" << dpi << " events=" << count
+                      << " steps=" << samples.size() << " median_ms=" << median
+                      << " max_ms=" << samples.back() << '\n';
+#if ! JUCE_DEBUG
+            withinBudget = withinBudget && median <= 16.0 && samples.back() <= 40.0;
 #endif
         }
     }

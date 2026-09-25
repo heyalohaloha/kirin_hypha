@@ -128,7 +128,7 @@ pub struct KirinAttackDetail {
     pub generation: u64,
     pub sample_rate: u32,
     pub channels: u8,
-    pub temporal_centroid_available: u8,
+    pub transient_available: u8,
     pub sharpness_available: u8,
     pub reserved: u8,
     pub definition_hash: [u8; 32],
@@ -137,15 +137,14 @@ pub struct KirinAttackDetail {
     pub shape_start_sample: i64,
     pub shape_end_sample: i64,
     pub value: f32,
-    pub contrast_db: f32,
-    pub context_rms_dbfs: f32,
+    pub transient_db: f32,
+    pub body_rms_dbfs: f32,
     pub attack_rms_dbfs: f32,
     pub sample_peak_dbfs: f32,
     pub crest_db: f32,
-    pub sample_edge_ratio_db: f32,
-    pub peak_plateau_ms: f32,
-    pub temporal_centroid_ms: f32,
+    pub body_end_sample: i64,
     pub sharpness_acum: f32,
+    pub bin_frames: u32,
     pub shape_count: u32,
     pub reserved2: u32,
     pub shape: [f32; KIRIN_ATTACK_SHAPE_CAPACITY],
@@ -157,7 +156,7 @@ impl Default for KirinAttackDetail {
             generation: 0,
             sample_rate: 0,
             channels: 0,
-            temporal_centroid_available: 0,
+            transient_available: 0,
             sharpness_available: 0,
             reserved: 0,
             definition_hash: [0; 32],
@@ -166,15 +165,14 @@ impl Default for KirinAttackDetail {
             shape_start_sample: 0,
             shape_end_sample: 0,
             value: 0.0,
-            contrast_db: 0.0,
-            context_rms_dbfs: 0.0,
+            transient_db: 0.0,
+            body_rms_dbfs: 0.0,
             attack_rms_dbfs: 0.0,
             sample_peak_dbfs: 0.0,
             crest_db: 0.0,
-            sample_edge_ratio_db: 0.0,
-            peak_plateau_ms: 0.0,
-            temporal_centroid_ms: 0.0,
+            body_end_sample: 0,
             sharpness_acum: 0.0,
+            bin_frames: 0,
             shape_count: 0,
             reserved2: 0,
             shape: [0.0; KIRIN_ATTACK_SHAPE_CAPACITY],
@@ -265,8 +263,20 @@ impl KirinHyphaEngine {
         self.post_attack_history().map(to_c_attack_waveform_batch)
     }
 
+    /// POST details. While a pair is active, matched events carry POST measured at the PRE onset.
     pub fn poll_attack_details(&self) -> Option<KirinAttackDetailBatch> {
-        self.post_attack_history().map(to_c_attack_detail_batch)
+        let history = self.post_attack_history()?;
+        // A POST instance always has a pair view; none means it is being replaced. The editor
+        // keeps its last batch instead of losing every PRE-anchored detail for one poll.
+        let view = self.attack_pair_view()?;
+        Some(
+            if view.status == kirin_measure::SpectrumViewStatus::Active {
+                let own = history.details().copied().collect::<Vec<_>>();
+                to_c_paired_post_detail_batch(&own, &view)
+            } else {
+                to_c_attack_detail_batch(history)
+            },
+        )
     }
 
     pub fn attack_stats(&self) -> KirinAttackStats {

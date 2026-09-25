@@ -6,18 +6,18 @@ get_filename_component(HYPHA_SHELL "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(HYPHA_JUCE_SOURCE "${HYPHA_SHELL}/JUCE" CACHE PATH "Read-only JUCE 7.0.12 source")
 add_subdirectory("${HYPHA_JUCE_SOURCE}" JUCE)
 juce_add_binary_data(KirinAttackValidationData SOURCES
-    ${HYPHA_SHELL}/../crates/hypha_gui/assets/attack_specimen_body_v3.png)
+    ${HYPHA_SHELL}/../crates/hypha_gui/assets/bg_mycelium.png)
 juce_add_console_app(KirinAttackUiContractTests PRODUCT_NAME "Hypha Attack Validation")
 target_sources(KirinAttackUiContractTests PRIVATE
     ../AttackUiContractTest.cpp
+    ${HYPHA_SHELL}/src/HyphaAttackChrome.cpp
     ${HYPHA_SHELL}/src/HyphaAttackComponent.cpp
-    ${HYPHA_SHELL}/src/HyphaAttackDetailView.cpp
     ${HYPHA_SHELL}/src/HyphaAttackInteraction.cpp
-    ${HYPHA_SHELL}/src/HyphaAttackMetricPainter.cpp
-    ${HYPHA_SHELL}/src/HyphaAttackOverviewGlyphPainter.cpp
-    ${HYPHA_SHELL}/src/HyphaAttackOrganismPainter.cpp
+    ${HYPHA_SHELL}/src/HyphaAttackLanePainter.cpp
+    ${HYPHA_SHELL}/src/HyphaAttackLoupePainter.cpp
     ${HYPHA_SHELL}/src/HyphaAttackPainter.cpp
-    ${HYPHA_SHELL}/src/HyphaAttackSpecimenPainter.cpp
+    ${HYPHA_SHELL}/src/HyphaAttackStage.cpp
+    ${HYPHA_SHELL}/src/HyphaTextStyle.cpp
     ${HYPHA_SHELL}/src/HyphaTypography.cpp)
 target_include_directories(KirinAttackUiContractTests PRIVATE
     ${HYPHA_SHELL}/../crates/kirin_hypha_ffi/include)

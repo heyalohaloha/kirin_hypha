@@ -13,10 +13,21 @@ AttackComponent::AttackComponent()
     setWantsKeyboardFocus (true);
 }
 
+// HISTORY, the axis and every lane share one plot column; any point in it selects by time.
+bool AttackComponent::selectsAt (const attack_ui::Layout& shape, juce::Point<int> point) const noexcept
+{
+    const auto history = rectangleOf (attack_ui::historyPlot (shape));
+    if (history.isEmpty())
+        return false;
+    const auto bottom = shape.arrangement == attack_ui::Arrangement::lanes
+        ? shape.lanes.back().bottom() : shape.axis.bottom();
+    return point.x >= history.getX() && point.x < history.getRight()
+        && point.y >= shape.history.y && point.y < bottom;
+}
+
 void AttackComponent::mouseDown (const juce::MouseEvent& event)
 {
     if (isShowing()) grabKeyboardFocus();
-    if (getHeight() < 145) return;
     if (event.y < attack_ui::titleRowHeight (presentationContext)
         && event.x > getWidth() - viewControlWidth())
     {
@@ -24,17 +35,16 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
         repaint();
         return;
     }
-    const auto scrub = scrubBounds();
-    if (scrub.contains (event.getPosition()) && event.x > scrub.getRight() - 40)
+    const auto shape = layout();
+    const auto axis = rectangleOf (attack_ui::axisPlot (shape));
+    if (axis.contains (event.getPosition()) && event.x > axis.getRight() - 40)
     {
         followLatest = true;
         selectBoundaryEvent (true);
         repaint();
         return;
     }
-    const auto timeline = timelineBounds();
-    if ((! timeline.contains (event.getPosition()) && ! scrub.contains (event.getPosition()))
-        || ! attack_ui::validTimeline (latest, rate))
+    if (! selectsAt (shape, event.getPosition()) || ! attack_ui::validTimeline (latest, rate))
         return;
     followLatest = false;
     selectNearestEventAtX (event.x);
@@ -43,10 +53,7 @@ void AttackComponent::mouseDown (const juce::MouseEvent& event)
 
 void AttackComponent::mouseDrag (const juce::MouseEvent& event)
 {
-    if (getHeight() < 145) return;
-    if ((! timelineBounds().contains (event.getPosition())
-         && ! scrubBounds().contains (event.getPosition()))
-        || ! attack_ui::validTimeline (latest, rate))
+    if (! selectsAt (layout(), event.getPosition()) || ! attack_ui::validTimeline (latest, rate))
         return;
     followLatest = false;
     selectNearestEventAtX (event.x);
@@ -55,38 +62,24 @@ void AttackComponent::mouseDrag (const juce::MouseEvent& event)
 
 void AttackComponent::selectNearestEventAtX (int x) noexcept
 {
-    const auto timeline = timelineBounds();
+    const auto plot = rectangleOf (attack_ui::historyPlot (layout()));
     const auto first = latest - attack_ui::windowSamples (rate);
     const auto requested = first + static_cast<std::int64_t> (
-        static_cast<long double> (x - timeline.getX()) * attack_ui::windowSamples (rate)
-        / juce::jmax (1, timeline.getWidth() - 1));
+        static_cast<long double> (x - plot.getX()) * attack_ui::windowSamples (rate)
+        / juce::jmax (1, plot.getWidth() - 1));
     std::int64_t bestDistance = std::numeric_limits<std::int64_t>::max();
-    const auto consider = [&] (std::int64_t sample)
+    for (std::uint32_t item = 0; item < laneModel.count; ++item)
     {
-        if (! attack_ui::eventIsVisible (sample, latest, rate))
-            return;
-        const auto distance = sample > requested ? sample - requested : requested - sample;
+        const auto& hit = laneModel.hits[item];
+        if (! hit.selectable || ! attack_ui::eventIsVisible (hit.sample, latest, rate))
+            continue;
+        const auto distance = hit.sample > requested ? hit.sample - requested
+                                                     : requested - hit.sample;
         if (distance < bestDistance)
         {
             bestDistance = distance;
-            selectedEventSample = sample;
+            selectedEventSample = hit.sample;
         }
-    };
-    if (pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE)
-    {
-        const auto count = juce::jmin (
-            pairEventBatch.count,
-            static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
-        for (std::uint32_t index = 0; index < count; ++index)
-            if (pairHasPostDetail (pairEventBatch.events[index]))
-                consider (pairEventBatch.events[index].event_sample);
-    }
-    else
-    {
-        const auto count = juce::jmin (
-            detailBatch.count, static_cast<std::uint32_t> (KIRIN_ATTACK_DETAIL_BATCH_CAPACITY));
-        for (std::uint32_t index = 0; index < count; ++index)
-            consider (detailBatch.details[index].event_sample);
     }
 }
 
@@ -94,28 +87,13 @@ void AttackComponent::selectBoundaryEvent (bool selectLast) noexcept
 {
     auto selected = selectLast ? std::numeric_limits<std::int64_t>::min()
                                : std::numeric_limits<std::int64_t>::max();
-    const auto consider = [&] (std::int64_t sample)
+    for (std::uint32_t item = 0; item < laneModel.count; ++item)
     {
-        if (! attack_ui::eventIsVisible (sample, latest, rate))
-            return;
-        if ((selectLast && sample > selected) || (! selectLast && sample < selected))
-            selected = sample;
-    };
-    if (pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE)
-    {
-        const auto count = juce::jmin (
-            pairEventBatch.count,
-            static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
-        for (std::uint32_t index = 0; index < count; ++index)
-            if (pairHasPostDetail (pairEventBatch.events[index]))
-                consider (pairEventBatch.events[index].event_sample);
-    }
-    else
-    {
-        const auto count = juce::jmin (
-            detailBatch.count, static_cast<std::uint32_t> (KIRIN_ATTACK_DETAIL_BATCH_CAPACITY));
-        for (std::uint32_t index = 0; index < count; ++index)
-            consider (detailBatch.details[index].event_sample);
+        const auto& hit = laneModel.hits[item];
+        if (! hit.selectable || ! attack_ui::eventIsVisible (hit.sample, latest, rate))
+            continue;
+        if ((selectLast && hit.sample > selected) || (! selectLast && hit.sample < selected))
+            selected = hit.sample;
     }
     if (selected != std::numeric_limits<std::int64_t>::min()
         && selected != std::numeric_limits<std::int64_t>::max())
@@ -127,29 +105,14 @@ void AttackComponent::selectAdjacentEvent (bool moveRight) noexcept
     followLatest = false;
     auto selected = moveRight ? std::numeric_limits<std::int64_t>::max()
                               : std::numeric_limits<std::int64_t>::min();
-    const auto consider = [&] (std::int64_t sample)
+    for (std::uint32_t item = 0; item < laneModel.count; ++item)
     {
-        if (! attack_ui::eventIsVisible (sample, latest, rate))
-            return;
-        if ((moveRight && sample > selectedEventSample && sample < selected)
-            || (! moveRight && sample < selectedEventSample && sample > selected))
-            selected = sample;
-    };
-    if (pairEventBatch.status == KIRIN_SPECTRUM_ACTIVE)
-    {
-        const auto count = juce::jmin (
-            pairEventBatch.count,
-            static_cast<std::uint32_t> (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY));
-        for (std::uint32_t index = 0; index < count; ++index)
-            if (pairHasPostDetail (pairEventBatch.events[index]))
-                consider (pairEventBatch.events[index].event_sample);
-    }
-    else
-    {
-        const auto count = juce::jmin (
-            detailBatch.count, static_cast<std::uint32_t> (KIRIN_ATTACK_DETAIL_BATCH_CAPACITY));
-        for (std::uint32_t index = 0; index < count; ++index)
-            consider (detailBatch.details[index].event_sample);
+        const auto& hit = laneModel.hits[item];
+        if (! hit.selectable || ! attack_ui::eventIsVisible (hit.sample, latest, rate))
+            continue;
+        if ((moveRight && hit.sample > selectedEventSample && hit.sample < selected)
+            || (! moveRight && hit.sample < selectedEventSample && hit.sample > selected))
+            selected = hit.sample;
     }
     if (selected == std::numeric_limits<std::int64_t>::min()
         || selected == std::numeric_limits<std::int64_t>::max())

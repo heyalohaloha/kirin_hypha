@@ -23,6 +23,10 @@ fn attack_c_layout_is_fixed_without_changing_existing_abi() {
     assert_eq!(size_of::<KirinAttackWaveformPoint>(), 40);
     assert_eq!(size_of::<KirinAttackWaveformBatch>(), 24_008);
     assert_eq!(size_of::<KirinAttackDetail>(), 512);
+    assert_eq!(offset_of!(KirinAttackDetail, transient_db), 84);
+    assert_eq!(offset_of!(KirinAttackDetail, body_end_sample), 104);
+    assert_eq!(offset_of!(KirinAttackDetail, sharpness_acum), 112);
+    assert_eq!(offset_of!(KirinAttackDetail, bin_frames), 116);
     assert_eq!(offset_of!(KirinAttackDetail, shape), 128);
     assert_eq!(size_of::<KirinAttackDetailBatch>(), 122_888);
     assert_eq!(size_of::<KirinAttackPairEvent>(), 112);
@@ -81,8 +85,9 @@ fn unsupported_host_rate_stays_unavailable_without_failing_engine() {
 }
 
 fn feed_shipping_audio(engine: &KirinHyphaEngine, with_presentation: bool) {
+    // A detail waits for its 130 ms windows and every onset before the body end: 256 ms of audio.
     let mut position = 0_i64;
-    for block_index in 0..24 {
+    for block_index in 0..48 {
         let mut block = vec![0.0_f32; 256 * 2];
         if block_index == 8 {
             block[0] = 1.0;
@@ -217,4 +222,143 @@ fn c_functions_are_null_safe() {
             &mut pair_events
         ));
     }
+}
+
+fn measured_detail(onset: i64, attack_rms_dbfs: f32) -> kirin_measure::AttackDetailedEvent {
+    let start = onset.div_euclid(48) * 48;
+    kirin_measure::AttackDetailedEvent {
+        event: kirin_measure::AttackEvent {
+            generation: 3,
+            sample_rate: 48_000,
+            channels: 2,
+            definition_hash: [7; 32],
+            event_sample: onset,
+            decision_sample: onset + 1_600,
+            value: 0.4,
+        },
+        features: kirin_measure::AttackPerceptualFeatures {
+            sample_rate: 48_000,
+            channels: 2,
+            bin_frames: 48,
+            window_start_sample: start,
+            attack_rms_dbfs,
+            sample_peak_dbfs: attack_rms_dbfs + 10.0,
+            crest_db: 10.0,
+            body_end_sample: start + 60 * 48,
+            body_rms_dbfs: Some(attack_rms_dbfs - 8.0),
+            transient_db: Some(8.0),
+            sharpness_acum: None,
+        },
+        shape: kirin_measure::AttackEventShape {
+            start_sample: start - 20 * 48,
+            end_sample: start + 130 * 48,
+            event_sample: onset,
+            points: [0.1; ATTACK_SHAPE_POINT_CAPACITY],
+        },
+    }
+}
+
+fn pair(
+    kind: kirin_measure::AttackPairEventKind,
+    pre: Option<i64>,
+    post: Option<i64>,
+) -> kirin_measure::AttackPairEvent {
+    kirin_measure::AttackPairEvent {
+        pair_generation: 1,
+        pre_generation: 2,
+        post_generation: 3,
+        sample_rate: 48_000,
+        channels: 2,
+        definition_hash: [7; 32],
+        event_sample: pre.or(post).unwrap_or(0),
+        decision_sample: 22_000,
+        kind,
+        pre_event_sample: pre,
+        post_event_sample: post,
+        pre_value: pre.map(|_| 0.3),
+        post_value: post.map(|_| 0.4),
+        delta_value: pre.zip(post).map(|_| 0.4 - 0.3),
+    }
+}
+
+fn active_view(
+    pair_events: Vec<kirin_measure::AttackPairEvent>,
+    post_anchored: Vec<kirin_measure::AttackDetailedEvent>,
+) -> kirin_measure::AttackPairViewSnapshot {
+    kirin_measure::AttackPairViewSnapshot {
+        status: kirin_measure::SpectrumViewStatus::Active,
+        pair_events,
+        post_anchored,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn paired_post_details_are_measured_at_the_pre_onset() {
+    use kirin_measure::AttackPairEventKind::{Matched, PostOnly};
+    // The POST detector found its own onsets at 10_000, 20_200 and 30_000; POST was also
+    // measured at PRE 10_000 and 20_150. 30_000 is POST only.
+    let own = [
+        measured_detail(10_000, -20.0),
+        measured_detail(20_200, -18.0),
+        measured_detail(30_000, -16.0),
+    ];
+    let view = active_view(
+        vec![
+            pair(Matched, Some(10_000), Some(10_000)),
+            pair(Matched, Some(20_150), Some(20_200)),
+            pair(PostOnly, None, Some(30_000)),
+        ],
+        vec![
+            measured_detail(10_000, -21.0),
+            measured_detail(20_150, -17.0),
+        ],
+    );
+    let batch = to_c_paired_post_detail_batch(&own, &view);
+    let samples = batch.details[..batch.count as usize]
+        .iter()
+        .map(|detail| (detail.event_sample, detail.attack_rms_dbfs))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        samples,
+        [(10_000, -21.0), (20_150, -17.0), (30_000, -16.0)],
+        "the own detail at the matched POST onset 20_200 is replaced"
+    );
+    let detail = batch.details[1];
+    assert_eq!(
+        (detail.transient_available, detail.sharpness_available),
+        (1, 0)
+    );
+    assert_eq!((detail.transient_db, detail.bin_frames), (8.0, 48));
+    assert_eq!(detail.body_end_sample, 20_112 + 60 * 48);
+
+    let pairs = to_c_attack_pair_event_batch(view);
+    assert_eq!(pairs.events[1].post_event_sample, 20_150);
+    assert_eq!(pairs.events[2].post_event_sample, 30_000);
+}
+
+#[test]
+fn a_full_window_of_matched_hits_keeps_every_anchored_detail() {
+    use kirin_measure::AttackPairEventKind::Matched;
+    // 200 matched hits whose POST onsets are 40 samples after PRE: 400 details before the
+    // replacement, 200 after it, so none of the anchored details is cut.
+    let pre = (0..200).map(|hit| 10_000 + hit * 1_440).collect::<Vec<_>>();
+    let own = pre
+        .iter()
+        .map(|onset| measured_detail(onset + 40, -18.0))
+        .collect::<Vec<_>>();
+    let view = active_view(
+        pre.iter()
+            .map(|onset| pair(Matched, Some(*onset), Some(onset + 40)))
+            .collect(),
+        pre.iter()
+            .map(|onset| measured_detail(*onset, -17.0))
+            .collect(),
+    );
+    let batch = to_c_paired_post_detail_batch(&own, &view);
+    assert_eq!(batch.count, 200);
+    assert!(batch.details[..200]
+        .iter()
+        .zip(&pre)
+        .all(|(detail, onset)| detail.event_sample == *onset && detail.attack_rms_dbfs == -17.0));
 }

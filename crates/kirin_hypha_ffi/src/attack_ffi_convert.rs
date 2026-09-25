@@ -97,12 +97,13 @@ pub(super) fn to_c_attack_waveform_batch(history: AttackHistory) -> KirinAttackW
 }
 
 fn to_c_attack_detail(detail: &AttackDetailedEvent) -> KirinAttackDetail {
+    let features = detail.features;
     KirinAttackDetail {
         generation: detail.event.generation,
         sample_rate: detail.event.sample_rate,
         channels: detail.event.channels,
-        temporal_centroid_available: detail.features.temporal_centroid_ms.is_some() as u8,
-        sharpness_available: detail.features.sharpness_acum.is_some() as u8,
+        transient_available: features.transient_db.is_some() as u8,
+        sharpness_available: features.sharpness_acum.is_some() as u8,
         reserved: 0,
         definition_hash: detail.event.definition_hash,
         event_sample: detail.event.event_sample,
@@ -110,15 +111,14 @@ fn to_c_attack_detail(detail: &AttackDetailedEvent) -> KirinAttackDetail {
         shape_start_sample: detail.shape.start_sample,
         shape_end_sample: detail.shape.end_sample,
         value: detail.event.value,
-        contrast_db: detail.features.contrast_db,
-        context_rms_dbfs: detail.features.context_rms_dbfs,
-        attack_rms_dbfs: detail.features.attack_rms_dbfs,
-        sample_peak_dbfs: detail.features.sample_peak_dbfs,
-        crest_db: detail.features.crest_db,
-        sample_edge_ratio_db: detail.features.sample_edge_ratio_db,
-        peak_plateau_ms: detail.features.peak_plateau_ms,
-        temporal_centroid_ms: detail.features.temporal_centroid_ms.unwrap_or(0.0),
-        sharpness_acum: detail.features.sharpness_acum.unwrap_or(0.0),
+        transient_db: features.transient_db.unwrap_or(0.0),
+        body_rms_dbfs: features.body_rms_dbfs.unwrap_or(0.0),
+        attack_rms_dbfs: features.attack_rms_dbfs,
+        sample_peak_dbfs: features.sample_peak_dbfs,
+        crest_db: features.crest_db,
+        body_end_sample: features.body_end_sample,
+        sharpness_acum: features.sharpness_acum.unwrap_or(0.0),
+        bin_frames: features.bin_frames,
         shape_count: KIRIN_ATTACK_SHAPE_CAPACITY as u32,
         reserved2: 0,
         shape: detail.shape.points,
@@ -128,6 +128,43 @@ fn to_c_attack_detail(detail: &AttackDetailedEvent) -> KirinAttackDetail {
 pub(super) fn to_c_attack_detail_batch(history: AttackHistory) -> KirinAttackDetailBatch {
     let mut batch = KirinAttackDetailBatch::default();
     for (destination, source) in batch.details.iter_mut().zip(history.details()) {
+        *destination = to_c_attack_detail(source);
+        batch.count += 1;
+    }
+    batch
+}
+
+/// POST details while a pair is active: POST measured at every matched PRE onset replaces the
+/// POST detector's own detail at that pair's POST onset (reported as the PRE onset), and its own
+/// details remain for every other event. The newest details are kept in content-sample order.
+pub(super) fn to_c_paired_post_detail_batch(
+    own: &[AttackDetailedEvent],
+    view: &AttackPairViewSnapshot,
+) -> KirinAttackDetailBatch {
+    let mut replaced = view
+        .pair_events
+        .iter()
+        .filter(|pair| pair.kind == AttackPairEventKind::Matched)
+        .filter_map(|pair| pair.post_event_sample)
+        .chain(
+            view.post_anchored
+                .iter()
+                .map(|anchor| anchor.event.event_sample),
+        )
+        .collect::<Vec<_>>();
+    replaced.sort_unstable();
+    let mut details = view.post_anchored.clone();
+    details.extend(
+        own.iter()
+            .copied()
+            .filter(|own| replaced.binary_search(&own.event.event_sample).is_err()),
+    );
+    details.sort_by_key(|detail| detail.event.event_sample);
+    let skip = details
+        .len()
+        .saturating_sub(KIRIN_ATTACK_DETAIL_BATCH_CAPACITY);
+    let mut batch = KirinAttackDetailBatch::default();
+    for (destination, source) in batch.details.iter_mut().zip(details.iter().skip(skip)) {
         *destination = to_c_attack_detail(source);
         batch.count += 1;
     }
@@ -153,7 +190,12 @@ fn to_c_attack_pair_event(event: AttackPairEvent) -> KirinAttackPairEvent {
         event_sample: event.event_sample,
         decision_sample: event.decision_sample,
         pre_event_sample: event.pre_event_sample.unwrap_or(0),
-        post_event_sample: event.post_event_sample.unwrap_or(0),
+        // A matched POST is measured at the PRE onset (B-1016); its detail is found there.
+        post_event_sample: match event.kind {
+            AttackPairEventKind::Matched => event.pre_event_sample,
+            _ => event.post_event_sample,
+        }
+        .unwrap_or(0),
         pre_value: event.pre_value.unwrap_or(0.0),
         post_value: event.post_value.unwrap_or(0.0),
         delta_value: event.delta_value.unwrap_or(0.0),

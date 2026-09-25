@@ -117,8 +117,8 @@ pub use all_stop_signal::{
 };
 pub use analysis_lease::{AuditionAdmission, ANALYSIS_OWNER_NAME_MAX_BYTES, ANALYSIS_SLOT_COUNT};
 pub use attack_perception::{
-    AttackPerceptionError, AttackPerceptualDelta, AttackPerceptualFeatures, ATTACK_CONTEXT_MICROS,
-    ATTACK_DETAIL_MICROS, ATTACK_LEVEL_FLOOR_DBFS,
+    AttackPerceptualFeatures, ATTACK_BIN_MICROS, ATTACK_BODY_BINS, ATTACK_HEAD_BINS,
+    ATTACK_LEVEL_FLOOR_DBFS, ATTACK_MIN_BODY_BINS, ATTACK_SHAPE_LEAD_BINS, ATTACK_SHARPNESS_BINS,
 };
 pub use attack_runtime::{
     analyze_drum_attacks_interleaved_offline, analyze_drum_attacks_mono_offline,
