@@ -4,9 +4,16 @@
 #include "../src/reference_audition/ReferenceCaptureEvidence.h"
 #include <iostream>
 void testCaptureLiveSharing();
+static void captureLiveSharing(const juce::File& sandbox);
 void testCaptureLiveSharing() {
     const auto sandbox=juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("hypha-b885-review-"+juce::Uuid().toString());
     require(sandbox.createDirectory(),"review sandbox");
+    // The controller and its workers end with captureLiveSharing(). Windows cannot delete a file a
+    // worker still holds open, so the sandbox is removed only after that, as in the other suites.
+    captureLiveSharing(sandbox);
+    require(sandbox.deleteRecursively(),"review sandbox cleanup");
+}
+static void captureLiveSharing(const juce::File& sandbox) {
     const auto root=sandbox.getChildFile("capture-evidence"); require(root.createDirectory(),"capture evidence fixture");
     const auto file=root.getChildFile("version.wav");
     const juce::String recording="22222222-2222-4222-8222-222222222222",version="33333333-3333-4333-8333-333333333333";
@@ -85,5 +92,4 @@ void testCaptureLiveSharing() {
     spare=kirin_reference_visual_admission_create();
     std::cout << "second POST admission without held A=" << kirin_reference_visual_admission_set(spare,true) << std::endl;
     kirin_reference_visual_admission_drop(spare);
-    require(sandbox.deleteRecursively(),"review sandbox cleanup");
 }
