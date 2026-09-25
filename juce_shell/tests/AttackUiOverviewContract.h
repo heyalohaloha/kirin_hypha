@@ -18,6 +18,7 @@ inline KirinAttackDetail overviewDetail()
     detail.shape_end_sample = detail.event_sample + 130 * 48;
     detail.body_end_sample = detail.shape_end_sample;
     detail.shape_count = KIRIN_ATTACK_SHAPE_CAPACITY;
+    detail.complete = 1;
     detail.attack_rms_dbfs = -6.0f;
     detail.sample_peak_dbfs = -1.0f;
     detail.sharpness_available = 1;

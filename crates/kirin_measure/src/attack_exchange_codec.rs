@@ -14,8 +14,9 @@ use crate::{
 
 const SNAPSHOT_MAGIC: &[u8; 8] = b"KHATK001";
 /// Version 2 (B-1016): content-grid windows, body end, TRANSIENT as head minus body, and the
-/// loudness-weighted Sharpness of the 100 ms from the onset.
-const SNAPSHOT_VERSION: u16 = 2;
+/// loudness-weighted Sharpness of the 100 ms from the onset. Version 3 (B-1024): a detail may be
+/// head-only (`complete` = 0) and its shape covers only the measured span.
+const SNAPSHOT_VERSION: u16 = 3;
 const DETAIL_BYTES: usize = 460;
 pub(super) const ATTACK_SNAPSHOT_MAX_BYTES: u64 = 196_608;
 
@@ -103,7 +104,8 @@ fn encode_detail(bytes: &mut Vec<u8>, detail: &AttackDetailedEvent) {
     bytes.extend_from_slice(&detail.event.value.to_le_bytes());
     bytes.push(features.body_rms_dbfs.is_some() as u8);
     bytes.push(features.sharpness_acum.is_some() as u8);
-    bytes.extend_from_slice(&[0; 2]);
+    bytes.push(features.complete as u8);
+    bytes.push(0);
     bytes.extend_from_slice(&features.bin_frames.to_le_bytes());
     bytes.extend_from_slice(&features.body_end_sample.to_le_bytes());
     for value in [
@@ -204,7 +206,8 @@ fn decode_detail(
     let value = cursor.f32()?;
     let body_available = cursor.bool()?;
     let sharpness_available = cursor.bool()?;
-    let _reserved = cursor.take(2)?;
+    let complete = cursor.bool()?;
+    let _reserved = cursor.u8()?;
     let bin_frames = cursor.u32()?;
     let body_end_sample = cursor.i64()?;
     let values = cursor.f32_array::<6>()?;
@@ -229,6 +232,7 @@ fn decode_detail(
         attack_rms_dbfs: values[0],
         sample_peak_dbfs: values[1],
         crest_db: values[2],
+        complete,
         body_end_sample,
         body_rms_dbfs: body_available.then_some(values[3]),
         transient_db: body_available.then_some(values[4]),

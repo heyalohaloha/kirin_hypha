@@ -33,7 +33,7 @@ inline auto key (const KirinAttackWaveformPoint& v) noexcept
 inline auto key (const KirinAttackDetail& v) noexcept
 {
     return std::tie (v.generation, v.sample_rate, v.channels, v.transient_available,
-        v.sharpness_available, v.definition_hash, v.event_sample, v.decision_sample,
+        v.sharpness_available, v.complete, v.definition_hash, v.event_sample, v.decision_sample,
         v.shape_start_sample, v.shape_end_sample, v.value, v.transient_db, v.body_rms_dbfs,
         v.attack_rms_dbfs, v.sample_peak_dbfs, v.crest_db, v.body_end_sample,
         v.sharpness_acum, v.bin_frames, v.shape_count, v.shape);

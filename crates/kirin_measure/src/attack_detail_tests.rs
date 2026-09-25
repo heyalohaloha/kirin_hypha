@@ -33,20 +33,51 @@ fn hit(position: i64) -> f32 {
 }
 
 #[test]
-fn a_hit_waits_until_every_onset_before_its_body_end_is_decided() {
+fn a_hit_publishes_its_head_then_completes_once_its_body_end_is_decided() {
     let shared = Mutex::new(AttackBins::new(1_000, 1));
     let mut tracker = tracker_with(hit, 400, 4);
     tracker.queue_event(event(120, 4, 1_000));
-    assert!(tracker.flush(&shared).is_empty());
+    let head = tracker.flush(&shared);
+    assert_eq!(
+        head.len(),
+        1,
+        "the head is measured before any later onset is decided"
+    );
+    assert!(!head[0].features.complete);
+    assert_eq!(head[0].features.transient_db, None);
+    assert!(head[0].has_valid_layout());
     tracker.note_decided_before(249);
-    assert!(tracker.flush(&shared).is_empty());
+    assert!(
+        tracker.flush(&shared).is_empty(),
+        "the head is published once"
+    );
     tracker.note_decided_before(250);
     let details = tracker.flush(&shared);
     assert_eq!(details.len(), 1);
     let features = details[0].features;
+    assert!(features.complete);
     assert!((features.transient_db.unwrap() - 20.0).abs() < 1e-3);
     assert_eq!(features.body_end_sample, 250);
+    assert_eq!(features.attack_rms_dbfs, head[0].features.attack_rms_dbfs);
     assert!(details[0].has_valid_layout());
+}
+
+#[test]
+fn a_hit_whose_audio_stops_keeps_its_head() {
+    // The transport stops 60 ms after the onset: no more bins or decisions ever arrive.
+    let shared = Mutex::new(AttackBins::new(1_000, 1));
+    let mut tracker = tracker_with(hit, 180, 4);
+    tracker.queue_event(event(120, 4, 1_000));
+    tracker.note_decided_before(150);
+    let head = tracker.flush(&shared);
+    assert_eq!(head.len(), 1);
+    assert!(!head[0].features.complete);
+    assert!((head[0].features.attack_rms_dbfs + 6.020_6).abs() < 1e-3);
+    assert_eq!(
+        (head[0].shape.start_sample, head[0].shape.end_sample),
+        (100, 180)
+    );
+    assert!(tracker.flush(&shared).is_empty());
 }
 
 #[test]

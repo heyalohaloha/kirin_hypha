@@ -39,8 +39,9 @@ pub struct AttackEventShape {
 }
 
 impl AttackEventShape {
+    /// The measured span contains the onset; it starts at the onset when the run does.
     pub fn has_valid_layout(&self) -> bool {
-        self.start_sample < self.event_sample
+        self.start_sample <= self.event_sample
             && self.event_sample < self.end_sample
             && self
                 .points
@@ -147,11 +148,12 @@ impl AttackDetailedEvent {
     }
 }
 
-/// POST measured at a PRE onset: the event to report and the PRE body end it must share.
+/// POST measured at a PRE onset: the event to report and the PRE body end it must share, or
+/// `None` while the PRE detail has only its head.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AttackAnchor {
     pub event: AttackEvent,
-    pub body_end_sample: i64,
+    pub body_end_sample: Option<i64>,
 }
 
 #[derive(Clone, Debug)]
@@ -160,6 +162,8 @@ pub struct AttackHistory {
     events: VecDeque<AttackEvent>,
     details: VecDeque<AttackDetailedEvent>,
     waveform: VecDeque<AttackWaveformPoint>,
+    /// Advances on every accepted change, including a detail completed after its waveform.
+    revision: u64,
 }
 
 impl Default for AttackHistory {
@@ -175,6 +179,7 @@ impl AttackHistory {
             events: VecDeque::with_capacity(ATTACK_EVENT_HISTORY_CAPACITY),
             details: VecDeque::with_capacity(ATTACK_EVENT_HISTORY_CAPACITY),
             waveform: VecDeque::with_capacity(ATTACK_WAVEFORM_HISTORY_CAPACITY),
+            revision: 0,
         }
     }
 
@@ -197,6 +202,7 @@ impl AttackHistory {
             self.frames.pop_front();
         }
         self.frames.push_back(frame);
+        self.revision += 1;
     }
 
     pub(crate) fn push_event(&mut self, event: AttackEvent) {
@@ -215,15 +221,30 @@ impl AttackHistory {
             self.events.pop_front();
         }
         self.events.push_back(event);
+        self.revision += 1;
     }
 
+    /// Append a hit's detail, or complete the head-only detail of the same hit in place.
     pub(crate) fn push_detail(&mut self, detail: AttackDetailedEvent) {
-        if !detail.has_valid_layout()
-            || self.events.iter().all(|event| *event != detail.event)
-            || self
-                .details
-                .back()
-                .is_some_and(|current| current.event.event_sample >= detail.event.event_sample)
+        if !detail.has_valid_layout() || self.events.iter().all(|event| *event != detail.event) {
+            return;
+        }
+        if let Some(current) = self
+            .details
+            .iter_mut()
+            .rev()
+            .find(|current| current.event == detail.event)
+        {
+            if !current.features.complete && detail.features.complete {
+                *current = detail;
+                self.revision += 1;
+            }
+            return;
+        }
+        if self
+            .details
+            .back()
+            .is_some_and(|current| current.event.event_sample >= detail.event.event_sample)
         {
             return;
         }
@@ -231,6 +252,7 @@ impl AttackHistory {
             self.details.pop_front();
         }
         self.details.push_back(detail);
+        self.revision += 1;
     }
 
     pub(crate) fn push_waveform(&mut self, point: AttackWaveformPoint) {
@@ -252,6 +274,11 @@ impl AttackHistory {
             self.waveform.pop_front();
         }
         self.waveform.push_back(point);
+        self.revision += 1;
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub fn newest(&self) -> Option<&AttackOdfFrame> {

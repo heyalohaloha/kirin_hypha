@@ -54,8 +54,10 @@ DRUM draws the six-second PRE/POST envelope above four per-hit lanes on the same
 **TRANSIENT** (the first 30 ms against the body that follows), **STRENGTH**, **CREST**, and
 **SHARPNESS** (the first 100 ms), each as POST − PRE. A matched POST hit is measured at the PRE
 onset, so both sides read the same content samples. A TRANSIENT whose next hit leaves no 20 ms body,
-or whose body is below the −72 dBFS HISTORY floor, shows the reason instead of a value. Without PRE,
-the lanes show POST values.
+or whose body is below the −72 dBFS HISTORY floor, shows the reason instead of a value. A hit shows
+STRENGTH and CREST as soon as its first 30 ms are measured; TRANSIENT and SHARPNESS follow once its
+body is complete, and stay empty for a hit cut off by a transport stop. Without PRE, the lanes show
+POST values.
 
 ### FREQ — where the chain changed
 

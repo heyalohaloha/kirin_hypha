@@ -360,7 +360,7 @@ typedef struct {
   KirinAttackWaveformPoint points[KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY];
 } KirinAttackWaveformBatch;
 
-/* 確定eventの実波形shapeと事実記述子（B-1016）。窓はonsetを含む約1 ms content binから始まりPRE/POST同一。
+/* 確定eventの事実記述子（B-1016/B-1024）。窓はonsetを含む約1 ms binから始まりPRE/POST同一。complete=0は頭30 msだけ測定済み。shapeは測定済み区間。
  * transient=頭30 ms RMS−body RMS。bodyは頭の後100 msか次onsetまで、20 ms未満ならなし。sharpnessは頭から100 msの音量加重平均。 */
 typedef struct {
   uint64_t generation;
@@ -368,7 +368,7 @@ typedef struct {
   uint8_t channels;
   uint8_t transient_available;
   uint8_t sharpness_available;
-  uint8_t reserved;
+  uint8_t complete;
   uint8_t definition_hash[32];
   int64_t event_sample;
   int64_t decision_sample;

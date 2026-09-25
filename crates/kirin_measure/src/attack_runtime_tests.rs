@@ -125,10 +125,14 @@ fn confirmed_runtime_event_receives_real_perceptual_detail() {
     feed(&runtime, 28_800, 256, Some(16_000));
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
-        if let Some(detail) = runtime
-            .try_history()
-            .and_then(|history| history.details().next_back().copied())
-        {
+        // The head arrives first; wait for the complete detail.
+        if let Some(detail) = runtime.try_history().and_then(|history| {
+            history
+                .details()
+                .next_back()
+                .copied()
+                .filter(|detail| detail.features.complete)
+        }) {
             assert!(detail.has_valid_layout());
             assert_eq!(detail.event.channels, 2);
             assert_eq!(detail.features.bin_frames, 48);
