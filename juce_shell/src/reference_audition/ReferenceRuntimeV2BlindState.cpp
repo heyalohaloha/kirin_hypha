@@ -229,12 +229,12 @@ namespace hypha::reference_audition
             return {};
 
         ReferenceSessionIdentity identity;
-        identity.sequence = sessionSequence.load (std::memory_order_acquire);
+        identity.sequence = sessionSequence.load (std::memory_order_seq_cst);
         if (identity.sequence == 0)
             return {};
-        identity.auditionEpoch = sessionAuditionEpoch.load (std::memory_order_relaxed);
-        identity.outputGateToken = sessionOutputGateToken.load (std::memory_order_relaxed);
-        if (sessionSequence.load (std::memory_order_acquire) != identity.sequence
+        identity.auditionEpoch = sessionAuditionEpoch.load (std::memory_order_seq_cst);
+        identity.outputGateToken = sessionOutputGateToken.load (std::memory_order_seq_cst);
+        if (sessionSequence.load (std::memory_order_seq_cst) != identity.sequence
             || lifecycle.load (std::memory_order_acquire) != state)
             return {};
         return identity;

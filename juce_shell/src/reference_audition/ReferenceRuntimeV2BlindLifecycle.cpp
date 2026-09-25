@@ -2,6 +2,26 @@
 
 namespace hypha::reference_audition
 {
+    void RuntimeV2Blind::publishSessionIdentity (
+        std::uint64_t sequence, std::uint64_t auditionEpoch,
+        std::uint64_t outputGateToken) noexcept
+    {
+        // The sequence is the publication word. Sequential consistency keeps readers from
+        // accepting epoch/token values spanning a retired and replacement session.
+        sessionAuditionEpoch.store (auditionEpoch, std::memory_order_seq_cst);
+        sessionOutputGateToken.store (outputGateToken, std::memory_order_seq_cst);
+        sessionSequence.store (sequence, std::memory_order_seq_cst);
+    }
+
+    void RuntimeV2Blind::clearSessionIdentity() noexcept
+    {
+        // Withdraw the publication word before clearing its fields. A reader that overlaps
+        // this transition must observe either one complete identity or no identity.
+        sessionSequence.store (0, std::memory_order_seq_cst);
+        sessionAuditionEpoch.store (0, std::memory_order_seq_cst);
+        sessionOutputGateToken.store (0, std::memory_order_seq_cst);
+    }
+
     bool RuntimeV2Blind::enterPreparation() noexcept
     {
         if (attenuationHoldActive.load (std::memory_order_acquire)
@@ -76,9 +96,7 @@ namespace hypha::reference_audition
         auto sequence = nextSessionSequence.fetch_add (1, std::memory_order_acq_rel);
         if (sequence == 0)
             sequence = nextSessionSequence.fetch_add (1, std::memory_order_acq_rel);
-        sessionAuditionEpoch.store (auditionEpoch, std::memory_order_relaxed);
-        sessionOutputGateToken.store (outputGateToken, std::memory_order_relaxed);
-        sessionSequence.store (sequence, std::memory_order_release);
+        publishSessionIdentity (sequence, auditionEpoch, outputGateToken);
         returnLifecycle.store (requiredAAttenuationDb > 0.0
                                    ? approvalRequired : prepared,
                                std::memory_order_relaxed);
@@ -88,9 +106,7 @@ namespace hypha::reference_audition
         if (lifecycle.compare_exchange_strong (preparingState, armed,
                                                std::memory_order_acq_rel))
             return true;
-        sessionSequence.store (0, std::memory_order_release);
-        sessionAuditionEpoch.store (0, std::memory_order_relaxed);
-        sessionOutputGateToken.store (0, std::memory_order_relaxed);
+        clearSessionIdentity();
         return false;
     }
 
@@ -129,9 +145,7 @@ namespace hypha::reference_audition
                     std::memory_order_relaxed);
                 restorePreparedGain();
                 resetSession();
-                sessionSequence.store (0, std::memory_order_release);
-                sessionAuditionEpoch.store (0, std::memory_order_relaxed);
-                sessionOutputGateToken.store (0, std::memory_order_relaxed);
+                clearSessionIdentity();
                 lifecycle.store (target, std::memory_order_release);
                 return true;
             }
@@ -194,9 +208,7 @@ namespace hypha::reference_audition
             std::memory_order_relaxed);
         if (target == approvalRequired) restorePreparedGain();
         resetSession();
-        sessionSequence.store (0, std::memory_order_release);
-        sessionAuditionEpoch.store (0, std::memory_order_relaxed);
-        sessionOutputGateToken.store (0, std::memory_order_relaxed);
+        clearSessionIdentity();
         int preparingState = preparing;
         lifecycle.compare_exchange_strong (preparingState, target,
                                             std::memory_order_release);
@@ -222,9 +234,7 @@ namespace hypha::reference_audition
         normalReturnRequired.store (false, std::memory_order_release);
         returnLifecycle.store (unavailable, std::memory_order_release);
         resetSession();
-        sessionSequence.store (0, std::memory_order_release);
-        sessionAuditionEpoch.store (0, std::memory_order_relaxed);
-        sessionOutputGateToken.store (0, std::memory_order_relaxed);
+        clearSessionIdentity();
         lifecycle.store (unavailable, std::memory_order_release);
     }
 
@@ -269,9 +279,7 @@ namespace hypha::reference_audition
             return;
         }
         resetSession();
-        sessionSequence.store (0, std::memory_order_release);
-        sessionAuditionEpoch.store (0, std::memory_order_relaxed);
-        sessionOutputGateToken.store (0, std::memory_order_relaxed);
+        clearSessionIdentity();
         lifecycle.store (unavailable, std::memory_order_release);
     }
 
