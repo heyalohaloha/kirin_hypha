@@ -116,6 +116,23 @@ impl Admission {
             return;
         }
         let pre_frontier = pre.iter().map(|point| point.observed_frames).max();
+        let pre_tail_endpoint = pre.last().map(|point| point.endpoint_samples);
+        let post_tail_endpoint = post.last().map(|point| point.endpoint_samples);
+        if let (Some(previous), Some(pre_tail), Some(post_tail)) =
+            (self.pair_run, pre.last(), post.last())
+        {
+            let pre_changed = pre_tail.run_id != previous.0;
+            let post_changed = post_tail.run_id != previous.1;
+            // Inspect the new run before looking for an equal endpoint. Otherwise a paused
+            // side can seek ahead, publish alone, and later adopt the peer's catch-up window.
+            if pre_changed != post_changed
+                && pre_tail.endpoint_samples != post_tail.endpoint_samples
+            {
+                self.awaiting_rejoin_from = Some(previous);
+                self.enter_ambiguous(post_tail.observed_frames, pre_frontier);
+                return;
+            }
+        }
         for q in post {
             if q.observed_frames <= self.last_post_observed {
                 continue;
@@ -148,22 +165,36 @@ impl Admission {
                 self.enter_ambiguous(q.observed_frames, pre_frontier);
                 continue;
             }
-            self.observe(p, q, pre_frontier);
+            self.observe(p, q, pre_frontier, pre_tail_endpoint, post_tail_endpoint);
         }
     }
 
-    fn observe(&mut self, p: &ContentWirePoint, q: &ContentWirePoint, pre_frontier: Option<u64>) {
+    fn observe(
+        &mut self,
+        p: &ContentWirePoint,
+        q: &ContentWirePoint,
+        pre_frontier: Option<u64>,
+        pre_tail_endpoint: Option<i64>,
+        post_tail_endpoint: Option<i64>,
+    ) {
         let occurrence = q.endpoint_samples;
         let run = (p.run_id, q.run_id);
         if let Some(previous) = self.pair_run {
             let pre_changed = previous.0 != run.0;
             let post_changed = previous.1 != run.1;
-            if self.awaiting_rejoin_from.is_none()
-                && pre_changed != post_changed
-                && ((pre_changed && p.run_origin == ClockRunOrigin::ClockDiscontinuity as u8)
-                    || (post_changed && q.run_origin == ClockRunOrigin::ClockDiscontinuity as u8))
-            {
-                self.awaiting_rejoin_from = Some(previous);
+            if self.awaiting_rejoin_from.is_none() && pre_changed != post_changed {
+                let raw_jump = (pre_changed
+                    && p.run_origin == ClockRunOrigin::ClockDiscontinuity as u8)
+                    || (post_changed && q.run_origin == ClockRunOrigin::ClockDiscontinuity as u8);
+                // A paused side can resume after a seek. If the continuing peer has already
+                // published beyond its first complete window, later matching coordinates are
+                // not proof that both observations belong to the same playback occurrence.
+                let peer_was_ahead = (pre_changed
+                    && post_tail_endpoint.is_some_and(|end| end > occurrence))
+                    || (post_changed && pre_tail_endpoint.is_some_and(|end| end > occurrence));
+                if raw_jump || peer_was_ahead {
+                    self.awaiting_rejoin_from = Some(previous);
+                }
             }
         }
         if self.pair_run.is_some_and(|previous| previous != run)

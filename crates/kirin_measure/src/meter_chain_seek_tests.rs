@@ -154,3 +154,113 @@ fn both_sides_seek_to_a_new_run_and_resume_only_with_fresh_windows() {
         .all(|point| point.raw.pre_run == 2 && point.raw.post_run == 2));
     assert_eq!(chain.points.last().unwrap().raw.endpoint, 40 * 4_800);
 }
+
+#[test]
+fn post_pause_then_forward_seek_cannot_join_a_continuing_pre_run() {
+    let directory = tempfile::tempdir().unwrap();
+    let (pre_session, post_session, pre, post, identity) = active_pair(directory.path());
+    for block in 0..16_i64 {
+        let at = block * 4_800;
+        advance_exact(&pre_session, at, at, 0, 0.25);
+        advance_exact(&post_session, at, at, 0, 0.5);
+        pre.service_pre_endpoint("pre", "song", "owner", directory.path())
+            .unwrap();
+        post.service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), &identity));
+    }
+    post_session.lock().unwrap().pause();
+    // PRE carries on while POST has no callbacks. The latter resumes at an overlapping
+    // future coordinate following a seek, not at the same playback occurrence.
+    for block in 16..32_i64 {
+        let at = block * 4_800;
+        advance_exact(&pre_session, at, at, 0, 0.25);
+        pre.service_pre_endpoint("pre", "song", "owner", directory.path())
+            .unwrap();
+    }
+    for block in 24..48_i64 {
+        let at = block * 4_800;
+        advance_exact(&post_session, at, at, 0, 0.5);
+        if block >= 32 {
+            advance_exact(&pre_session, at, at, 0, 0.25);
+            pre.service_pre_endpoint("pre", "song", "owner", directory.path())
+                .unwrap();
+        }
+        post.service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), &identity));
+    }
+    let meter = post_session.lock().unwrap().snapshot();
+    let chain = post.chain_snapshot(0, &meter).unwrap();
+    assert_eq!(chain.status, chain::Status::Ambiguous);
+    assert!(chain.points.is_empty());
+}
+
+#[test]
+fn pre_pause_then_forward_seek_cannot_join_a_continuing_post_run() {
+    let directory = tempfile::tempdir().unwrap();
+    let (pre_session, post_session, pre, post, identity) = active_pair(directory.path());
+    for block in 0..16_i64 {
+        let at = block * 4_800;
+        advance_exact(&pre_session, at, at, 0, 0.25);
+        advance_exact(&post_session, at, at, 0, 0.5);
+        pre.service_pre_endpoint("pre", "song", "owner", directory.path())
+            .unwrap();
+        post.service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), &identity));
+    }
+    pre_session.lock().unwrap().pause();
+    for block in 16..32_i64 {
+        let at = block * 4_800;
+        advance_exact(&post_session, at, at, 0, 0.5);
+        post.service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), &identity));
+    }
+    for block in 24..48_i64 {
+        let at = block * 4_800;
+        advance_exact(&pre_session, at, at, 0, 0.25);
+        if block >= 32 {
+            advance_exact(&post_session, at, at, 0, 0.5);
+        }
+        pre.service_pre_endpoint("pre", "song", "owner", directory.path())
+            .unwrap();
+        post.service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), &identity));
+    }
+    let meter = post_session.lock().unwrap().snapshot();
+    let chain = post.chain_snapshot(0, &meter).unwrap();
+    assert_eq!(chain.status, chain::Status::Ambiguous);
+    assert!(chain.points.is_empty());
+}
+
+#[test]
+fn paused_post_seek_cannot_join_when_pre_catches_up_to_its_first_window() {
+    let directory = tempfile::tempdir().unwrap();
+    let (pre_session, post_session, pre, post, identity) = active_pair(directory.path());
+    for block in 0..16_i64 {
+        let at = block * 4_800;
+        advance_exact(&pre_session, at, at, 0, 0.25);
+        advance_exact(&post_session, at, at, 0, 0.5);
+        pre.service_pre_endpoint("pre", "song", "owner", directory.path())
+            .unwrap();
+        post.service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), &identity));
+    }
+    post_session.lock().unwrap().pause();
+    for block in 32..36_i64 {
+        let at = block * 4_800;
+        advance_exact(&post_session, at, at, 0, 0.5);
+        post.service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), &identity));
+    }
+    for block in 16..36_i64 {
+        let at = block * 4_800;
+        advance_exact(&pre_session, at, at, 0, 0.25);
+        pre.service_pre_endpoint("pre", "song", "owner", directory.path())
+            .unwrap();
+    }
+    post.service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), &identity));
+    for block in 36..48_i64 {
+        let at = block * 4_800;
+        advance_exact(&pre_session, at, at, 0, 0.25);
+        advance_exact(&post_session, at, at, 0, 0.5);
+        pre.service_pre_endpoint("pre", "song", "owner", directory.path())
+            .unwrap();
+        post.service_post_endpoint(MeterHistoryTarget::from_pre_json("pre".into(), &identity));
+    }
+    let meter = post_session.lock().unwrap().snapshot();
+    let chain = post.chain_snapshot(0, &meter).unwrap();
+    assert_eq!(chain.status, chain::Status::Ambiguous);
+    assert!(chain.points.is_empty());
+}
