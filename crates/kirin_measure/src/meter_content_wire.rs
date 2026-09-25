@@ -10,6 +10,7 @@ pub(super) struct ContentWirePoint {
     pub(super) incarnation: u64,
     pub(super) generation: u64,
     pub(super) run_id: u64,
+    pub(super) run_origin: u8,
     pub(super) observed_frames: u64,
     pub(super) endpoint_samples: i64,
     pub(super) timeline_endpoint_samples: Option<i64>,
@@ -33,6 +34,7 @@ impl ContentWirePoint {
             incarnation,
             generation,
             run_id: point.run_id,
+            run_origin: point.run_origin as u8,
             observed_frames: point.observed_frames,
             endpoint_samples: point.endpoint_samples,
             timeline_endpoint_samples: point.timeline_endpoint_samples,
@@ -49,6 +51,7 @@ impl ContentWirePoint {
         self.measurement_epoch > 0
             && self.incarnation > 0
             && self.run_id > 0
+            && (1..=3).contains(&self.run_origin)
             && sample_rate > 0
             && sample_rate.is_multiple_of(10)
             && self

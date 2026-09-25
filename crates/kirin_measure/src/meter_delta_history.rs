@@ -35,7 +35,7 @@ use crate::{
 pub const METER_HISTORY_EXCHANGE_FILE: &str = "meter_history.json";
 /// One same-version PRE/POST envelope for TIME and qualified content observations. An older
 /// peer is rejected as a unit; no cross-version comparison or partial TIME claim is inferred.
-pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 6;
+pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 7;
 pub const METER_HISTORY_EXCHANGE_POINTS: usize = 32;
 const LOCAL_JOIN_POINTS: usize = METER_HISTORY_EXCHANGE_POINTS * 2;
 const MAX_EXCHANGE_BYTES: u64 = 64 * 1024;

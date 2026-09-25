@@ -161,6 +161,8 @@ fn active_pair(directory: &std::path::Path) -> ActivePair {
 
 #[path = "meter_chain_clock_policy_tests.rs"]
 mod clock_policy_tests;
+#[path = "meter_chain_seek_tests.rs"]
+mod seek_tests;
 
 #[test]
 fn exact_auxiliary_occurrence_and_pdc_produce_chain_facts_after_warmup() {
@@ -437,7 +439,7 @@ fn matching_content_position_cannot_certify_pdc_or_the_same_loop_occurrence() {
     old_wire.schema = METER_HISTORY_EXCHANGE_SCHEMA;
     let identity = read_pre_identity(&identity_path).unwrap();
     assert!(old_wire.valid_for(&identity, 48_000, &pre.layout));
-    old_wire.schema = 5;
+    old_wire.schema = 6;
     assert!(!old_wire.valid_for(&identity, 48_000, &pre.layout));
     old_wire.schema = 255;
     assert!(!old_wire.valid_for(&identity, 48_000, &pre.layout));

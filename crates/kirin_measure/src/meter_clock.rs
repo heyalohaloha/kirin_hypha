@@ -6,6 +6,14 @@ use crate::{
     AuxiliaryClockSamples, AuxiliaryClockSource, CaptureClockSource, PresentationLatencySamples,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum ClockRunOrigin {
+    Initial = 1,
+    AfterPause = 2,
+    ClockDiscontinuity = 3,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MeterClockStart {
     pub position_samples: Option<i64>,
@@ -24,6 +32,7 @@ impl MeterClockStart {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MeterObservationClock {
     pub run_id: u64,
+    pub run_origin: ClockRunOrigin,
     pub timeline_endpoint_samples: Option<i64>,
     pub timeline_source: CaptureClockSource,
     pub auxiliary_endpoint_samples: Option<i64>,
@@ -51,6 +60,7 @@ struct PendingSpan {
     next_auxiliary_samples: Option<i64>,
     kind: ClockKind,
     run_id: u64,
+    run_origin: ClockRunOrigin,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -59,12 +69,14 @@ struct LastInputClock {
     end_auxiliary_samples: Option<i64>,
     kind: ClockKind,
     run_id: u64,
+    run_origin: ClockRunOrigin,
 }
 
 pub(crate) struct MeterClockTracker {
     pending: VecDeque<PendingSpan>,
     last_input: Option<LastInputClock>,
     next_run_id: u64,
+    paused_boundary: bool,
 }
 
 impl MeterClockTracker {
@@ -73,6 +85,7 @@ impl MeterClockTracker {
             pending: VecDeque::new(),
             last_input: None,
             next_run_id: 1,
+            paused_boundary: false,
         }
     }
 
@@ -107,13 +120,25 @@ impl MeterClockTracker {
                     }
                 }
         });
-        let run_id = if continuation {
-            self.last_input.map_or(1, |last| last.run_id)
+        let (run_id, run_origin) = if continuation {
+            (
+                self.last_input.map_or(1, |last| last.run_id),
+                self.last_input
+                    .map_or(ClockRunOrigin::Initial, |last| last.run_origin),
+            )
         } else {
             let id = self.next_run_id;
             self.next_run_id = self.next_run_id.wrapping_add(1).max(1);
-            id
+            let origin = if self.paused_boundary {
+                ClockRunOrigin::AfterPause
+            } else if id == 1 {
+                ClockRunOrigin::Initial
+            } else {
+                ClockRunOrigin::ClockDiscontinuity
+            };
+            (id, origin)
         };
+        self.paused_boundary = false;
         let end_position_samples = position.and_then(|value| {
             i64::try_from(frames)
                 .ok()
@@ -130,12 +155,14 @@ impl MeterClockTracker {
             next_auxiliary_samples: start.auxiliary.samples,
             kind,
             run_id,
+            run_origin,
         });
         self.last_input = Some(LastInputClock {
             end_position_samples,
             end_auxiliary_samples,
             kind,
             run_id,
+            run_origin,
         });
     }
 
@@ -172,6 +199,7 @@ impl MeterClockTracker {
     pub fn consume_observation(&mut self, frames: u64) -> MeterObservationClock {
         let mut remaining = frames;
         let mut run_id = None;
+        let mut run_origin = None;
         let mut kind = None;
         let mut compatible = frames > 0;
         let mut timeline_endpoint_samples = None;
@@ -188,6 +216,7 @@ impl MeterClockTracker {
                 compatible = false;
             }
             run_id.get_or_insert(front.run_id);
+            run_origin.get_or_insert(front.run_origin);
             kind.get_or_insert(front.kind);
             let consumed = remaining.min(front.remaining_frames);
             if let Some(position) = front.next_position_samples {
@@ -215,6 +244,7 @@ impl MeterClockTracker {
 
         MeterObservationClock {
             run_id: run_id.unwrap_or(0),
+            run_origin: run_origin.unwrap_or(ClockRunOrigin::Initial),
             timeline_endpoint_samples: compatible.then_some(timeline_endpoint_samples).flatten(),
             timeline_source: if compatible {
                 match kind {
@@ -254,12 +284,14 @@ impl MeterClockTracker {
         self.pending.clear();
         self.last_input = None;
         self.next_run_id = 1;
+        self.paused_boundary = false;
     }
 
     /// Stop/resume is a provenance boundary, not a reset of session statistics.
     /// Keep queued partial observations so their mixed windows are rejected when consumed.
     pub fn break_continuity(&mut self) {
         self.last_input = None;
+        self.paused_boundary = true;
     }
 }
 
@@ -302,7 +334,23 @@ mod tests {
         let resumed = tracker.consume_observation(4_800);
         assert!(resumed.usable_for_history);
         assert_eq!(resumed.run_id, 2);
+        assert_eq!(resumed.run_origin, ClockRunOrigin::ClockDiscontinuity);
         assert_eq!(resumed.timeline_endpoint_samples, Some(37_200));
+    }
+
+    #[test]
+    fn explicit_pause_and_raw_clock_jump_have_distinct_run_origins() {
+        let mut tracker = MeterClockTracker::new();
+        tracker.push_span(4_800, exact(0, 1));
+        let initial = tracker.consume_observation(4_800);
+        assert_eq!(initial.run_origin, ClockRunOrigin::Initial);
+        tracker.break_continuity();
+        tracker.push_span(4_800, exact(9_600, 1));
+        let resumed = tracker.consume_observation(4_800);
+        assert_eq!(resumed.run_origin, ClockRunOrigin::AfterPause);
+        tracker.push_span(4_800, exact(48_000, 1));
+        let jumped = tracker.consume_observation(4_800);
+        assert_eq!(jumped.run_origin, ClockRunOrigin::ClockDiscontinuity);
     }
 
     #[test]

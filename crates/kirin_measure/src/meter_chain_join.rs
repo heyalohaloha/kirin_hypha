@@ -2,6 +2,7 @@
 //! Neither a local 100 ms endpoint nor a PDC number relabels a completed value here.
 
 use super::*;
+use crate::meter_clock::ClockRunOrigin;
 use chain::{History, Point, Status};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -21,7 +22,13 @@ pub(super) struct Admission {
     pub history: History,
     identity: Option<Identity>,
     pair_run: Option<(u64, u64)>,
+    /// A one-sided clock jump is not a comparison rebind. Both local runs must leave the
+    /// prior pair before the new playback occurrence can even be considered for admission.
+    awaiting_rejoin_from: Option<(u64, u64)>,
     high_water: Option<i64>,
+    /// A new comparison run cannot reuse any PRE window already in the publication tail
+    /// when its boundary was observed. PRE and POST frame counters are local, not comparable.
+    fresh_pre_after: Option<u64>,
     last_occurrence: Option<i64>,
     last_post_observed: u64,
     ambiguous_through: Option<i64>,
@@ -76,7 +83,9 @@ impl Admission {
             let previous_high_water = self.high_water.filter(|_| same_session);
             self.identity = Some(identity);
             self.pair_run = None;
+            self.awaiting_rejoin_from = None;
             self.high_water = previous_high_water;
+            self.fresh_pre_after = Some(p.observed_frames);
             self.last_occurrence = None;
             self.last_post_observed = q.observed_frames;
             self.ambiguous_through = previous_high_water;
@@ -106,6 +115,7 @@ impl Admission {
         if !self.supported {
             return;
         }
+        let pre_frontier = pre.iter().map(|point| point.observed_frames).max();
         for q in post {
             if q.observed_frames <= self.last_post_observed {
                 continue;
@@ -135,26 +145,49 @@ impl Admission {
                 continue;
             };
             if post_occurrences != 1 || pre_matches.next().is_some() {
-                self.enter_ambiguous(q.observed_frames);
+                self.enter_ambiguous(q.observed_frames, pre_frontier);
                 continue;
             }
-            self.observe(p, q);
+            self.observe(p, q, pre_frontier);
         }
     }
 
-    fn observe(&mut self, p: &ContentWirePoint, q: &ContentWirePoint) {
+    fn observe(&mut self, p: &ContentWirePoint, q: &ContentWirePoint, pre_frontier: Option<u64>) {
         let occurrence = q.endpoint_samples;
         let run = (p.run_id, q.run_id);
+        if let Some(previous) = self.pair_run {
+            let pre_changed = previous.0 != run.0;
+            let post_changed = previous.1 != run.1;
+            if self.awaiting_rejoin_from.is_none()
+                && pre_changed != post_changed
+                && ((pre_changed && p.run_origin == ClockRunOrigin::ClockDiscontinuity as u8)
+                    || (post_changed && q.run_origin == ClockRunOrigin::ClockDiscontinuity as u8))
+            {
+                self.awaiting_rejoin_from = Some(previous);
+            }
+        }
         if self.pair_run.is_some_and(|previous| previous != run)
             || self.last_occurrence.is_some_and(|last| occurrence <= last)
         {
-            self.enter_ambiguous(q.observed_frames);
+            self.enter_ambiguous(q.observed_frames, pre_frontier);
         }
         self.pair_run = Some(run);
         self.last_post_observed = q.observed_frames;
         self.last_occurrence = Some(occurrence);
         let old_high_water = self.high_water;
         self.high_water = Some(old_high_water.unwrap_or(i64::MIN).max(occurrence));
+        if let Some((old_pre, old_post)) = self.awaiting_rejoin_from {
+            if p.run_id == old_pre || q.run_id == old_post {
+                return;
+            }
+            self.awaiting_rejoin_from = None;
+        }
+        if self
+            .fresh_pre_after
+            .is_some_and(|frontier| p.observed_frames <= frontier)
+        {
+            return;
+        }
         // Reused host coordinates are not a fresh occurrence. This guard is intentionally
         // fail-closed until a new run has advanced past all previously published content.
         if self.ambiguous_through.is_some_and(|end| {
@@ -165,6 +198,7 @@ impl Admission {
             return;
         }
         self.ambiguous_through = None;
+        self.fresh_pre_after = None;
         let Some(identity) = self.identity else {
             return;
         };
@@ -188,8 +222,9 @@ impl Admission {
         debug_assert_eq!(identity.pre_epoch, p.measurement_epoch);
     }
 
-    fn enter_ambiguous(&mut self, observed_frames: u64) {
+    fn enter_ambiguous(&mut self, observed_frames: u64, pre_frontier: Option<u64>) {
         self.ambiguous_through = self.high_water;
+        self.fresh_pre_after = pre_frontier;
         self.pair_run = None;
         self.last_occurrence = None;
         self.last_post_observed = observed_frames;
@@ -201,7 +236,7 @@ impl Admission {
     }
 
     pub fn finish(&mut self) {
-        if self.ambiguous_through.is_some() {
+        if self.ambiguous_through.is_some() || self.awaiting_rejoin_from.is_some() {
             self.history.set_status(Status::Ambiguous);
         } else if self.supported {
             self.history.update_freshness(self.active);

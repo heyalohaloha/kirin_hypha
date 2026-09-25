@@ -7,6 +7,7 @@ fn malformed_zero_rate_content_point_is_rejected_without_division() {
         incarnation: 1,
         generation: 1,
         run_id: 1,
+        run_origin: 1,
         observed_frames: 19_200,
         endpoint_samples: 19_200,
         timeline_endpoint_samples: Some(19_200),
@@ -20,6 +21,16 @@ fn malformed_zero_rate_content_point_is_rejected_without_division() {
     assert!(!point.valid(0));
     assert!(!point.valid(44_101));
     assert!(point.valid(48_000));
+    let invalid_origin = ContentWirePoint {
+        run_origin: 0,
+        ..point
+    };
+    assert!(!invalid_origin.valid(48_000));
+    let unknown_origin = ContentWirePoint {
+        run_origin: 255,
+        ..point
+    };
+    assert!(!unknown_origin.valid(48_000));
 }
 
 #[test]
@@ -111,7 +122,7 @@ fn previous_exchange_schema_is_rejected_instead_of_mixing_old_and_new_facts() {
     let mut old = read_publication(directory.path()).unwrap();
     assert_eq!(old.schema, METER_HISTORY_EXCHANGE_SCHEMA);
     assert!(!old.content_windows.is_empty());
-    old.schema = 5;
+    old.schema = 6;
     old.clock_policy = CLOCK_POLICY_UNKNOWN;
     fs::write(
         directory.path().join(METER_HISTORY_EXCHANGE_FILE),

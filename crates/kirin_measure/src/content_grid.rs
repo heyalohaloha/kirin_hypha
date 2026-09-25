@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 
-use crate::meter_clock::{MeterClockTracker, MeterObservationClock};
+use crate::meter_clock::{ClockRunOrigin, MeterClockTracker, MeterObservationClock};
 use crate::{
     AuxiliaryClockSource, CaptureClockSource, MeterClockStart, PresentationLatencySamples,
 };
@@ -12,6 +12,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ContentWindowObservation {
     pub run_id: u64,
+    pub run_origin: ClockRunOrigin,
     pub observed_frames: u64,
     pub endpoint_samples: i64,
     pub timeline_endpoint_samples: Option<i64>,
@@ -159,6 +160,7 @@ impl ContentGrid {
             .fold(0.0_f64, f64::max);
         Some(ContentWindowObservation {
             run_id: clock.run_id,
+            run_origin: clock.run_origin,
             observed_frames,
             endpoint_samples: end,
             timeline_endpoint_samples: clock.timeline_endpoint_samples,
