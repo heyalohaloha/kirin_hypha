@@ -310,6 +310,28 @@ void verifyObservatoryCaptureContract (
     KIRIN_OBSERVATORY_CAPTURE_REQUIRE (
         differentPixels (measuredSignature, deltaSignature) > 500);
     post.setTarget (observatory::ObservationTarget::absolute);
+    observatory::View small (observatory::Role::post);
+    small.setSize (300, 200);
+    small.setDomain (observatory::Domain::level);
+    small.setObservatoryFrame (activeFrame, true);
+    const auto withoutSummary = render (small);
+    auto [onePoint, historyPoints] = fullMinuteChainPreview();
+    onePoint.version = KIRIN_CHAIN_VERSION_LATEST;
+    onePoint.count = 1u;
+    small.setChainObservation (onePoint, &historyPoints.back());
+    KIRIN_OBSERVATORY_CAPTURE_REQUIRE (
+        differentPixels (withoutSummary, render (small)) > 8);
+    auto nextEpoch = activeFrame;
+    nextEpoch.meter.measurement_epoch += 1u;
+    small.setObservatoryFrame (nextEpoch, true);
+    KIRIN_OBSERVATORY_CAPTURE_REQUIRE (
+        differentPixels (withoutSummary, render (small)) == 0);
+    onePoint.revision += 1u;
+    onePoint.status = KIRIN_CHAIN_SUPPRESSED;
+    onePoint.count = 0u;
+    small.setChainObservation (onePoint, nullptr);
+    KIRIN_OBSERVATORY_CAPTURE_REQUIRE (
+        differentPixels (withoutSummary, render (small)) == 0);
     writePreviews (post, pre, history, activeFrame, inactiveFrame, unsafeNames, allNames);
 }
 }

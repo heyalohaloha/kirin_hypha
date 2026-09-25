@@ -2,7 +2,25 @@
 use super::*;
 use kirin_measure::meter_delta_history::chain;
 
+/// Called only while configuring a fresh handle, before the IO publisher begins.
+/// # Safety
+/// `handle` must be null or a valid live engine pointer, and no other thread may destroy it.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_set_chain_clock_policy(
+    handle: *mut KirinHyphaEngine,
+    policy: u8,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Some(exchange) =
+            unsafe { handle.as_ref() }.and_then(|engine| engine.meter_delta_history.as_ref())
+        {
+            exchange.set_clock_policy(policy);
+        }
+    }));
+}
+
 pub const KIRIN_CHAIN_VERSION: u32 = 1;
+pub const KIRIN_CHAIN_VERSION_LATEST: u32 = 2;
 pub const KIRIN_CHAIN_SUPPRESSED: u8 = 5;
 
 #[repr(C)]
@@ -45,13 +63,19 @@ pub struct KirinChainSnapshot {
     pub reserved: [u8; 3],
 }
 
-fn suppressed_snapshot(known_revision: u64) -> Option<KirinChainSnapshot> {
+fn suppressed_snapshot(known_revision: u64, version: u32) -> Option<KirinChainSnapshot> {
     (known_revision != u64::MAX).then_some(KirinChainSnapshot {
-        version: KIRIN_CHAIN_VERSION,
+        version,
         revision: u64::MAX,
         status: KIRIN_CHAIN_SUPPRESSED,
         ..Default::default()
     })
+}
+
+fn valid_request(version: u32, capacity: u32) -> bool {
+    (version == KIRIN_CHAIN_VERSION && capacity as usize == chain::CAPACITY)
+        || (version == KIRIN_CHAIN_VERSION_LATEST
+            && (capacity == 1 || capacity as usize == chain::CAPACITY))
 }
 
 impl From<chain::MatchedPoint> for KirinChainPoint {
@@ -101,8 +125,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_chain_observation(
         if handle.is_null()
             || out.is_null()
             || points.is_null()
-            || version != KIRIN_CHAIN_VERSION
-            || capacity as usize != chain::CAPACITY
+            || !valid_request(version, capacity)
         {
             return false;
         }
@@ -112,7 +135,7 @@ pub unsafe extern "C" fn kirin_hypha_poll_chain_observation(
             return false;
         }
         if engine.audition.is_active() {
-            let Some(suppressed) = suppressed_snapshot(known_revision) else {
+            let Some(suppressed) = suppressed_snapshot(known_revision, version) else {
                 return false;
             };
             unsafe {
@@ -126,7 +149,9 @@ pub unsafe extern "C" fn kirin_hypha_poll_chain_observation(
         let Some(exchange) = engine.meter_delta_history.as_ref() else {
             return false;
         };
-        let Some(snapshot) = exchange.chain_snapshot(known_revision, &meter) else {
+        let Some(snapshot) =
+            exchange.chain_snapshot_limit(known_revision, &meter, capacity as usize)
+        else {
             return false;
         };
         // Also catch a complete enter/leave transition during assembly.
@@ -162,17 +187,24 @@ mod tests {
 
     #[test]
     fn audition_suppression_has_no_values_or_repeated_notifications() {
-        let state = suppressed_snapshot(0).unwrap();
+        let state = suppressed_snapshot(0, KIRIN_CHAIN_VERSION_LATEST).unwrap();
+        assert_eq!(state.version, KIRIN_CHAIN_VERSION_LATEST);
         assert_eq!(state.status, KIRIN_CHAIN_SUPPRESSED);
         assert_eq!(state.count, 0);
         assert_eq!(state.binding, 0);
         for _ in 0..1_000 {
-            assert!(suppressed_snapshot(state.revision).is_none());
+            assert!(suppressed_snapshot(state.revision, KIRIN_CHAIN_VERSION_LATEST).is_none());
         }
     }
 
     #[test]
     fn layout_and_invalid_call_are_stable() {
+        assert!(valid_request(KIRIN_CHAIN_VERSION, 600));
+        assert!(!valid_request(KIRIN_CHAIN_VERSION, 1));
+        assert!(valid_request(KIRIN_CHAIN_VERSION_LATEST, 1));
+        assert!(valid_request(KIRIN_CHAIN_VERSION_LATEST, 600));
+        assert!(!valid_request(KIRIN_CHAIN_VERSION_LATEST, 2));
+        assert!(!valid_request(0, 600));
         assert_eq!(std::mem::size_of::<KirinChainSnapshot>(), 40);
         assert_eq!(std::mem::size_of::<KirinChainPoint>(), 144);
         assert_eq!(std::mem::offset_of!(KirinChainPoint, source), 136);

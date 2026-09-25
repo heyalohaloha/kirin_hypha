@@ -1,6 +1,7 @@
 #include "HyphaObservatoryView.h"
 
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaChainSummaryText.h"
 #include "HyphaChannelReadoutLayout.h"
 #include "HyphaComparisonPresentation.h"
 #include "HyphaLevelMetricContract.h"
@@ -20,6 +21,23 @@ juce::String valueText (double value, int decimals, bool signedValue)
     if (! std::isfinite (value))
         return "---";
     return (signedValue && value >= 0.0 ? "+" : "") + juce::String (value, decimals);
+}
+
+void paintChainSummary (juce::Graphics& g, juce::Rectangle<int> area,
+                        const KirinChainSnapshot& snapshot,
+                        const std::vector<KirinChainPoint>& points,
+                        presentation::Context context, bool compact)
+{
+    if (snapshot.count == 0u || points.empty()
+        || (snapshot.status != KIRIN_CHAIN_ACTIVE && snapshot.status != KIRIN_CHAIN_HOLD))
+        return;
+    const auto& point = points.back();
+    const auto text = chain_action::summaryText (snapshot, point, compact);
+    g.setColour (point.pre_severity == 3u || point.post_severity == 3u
+                     ? COL_FLORA_BR : COL_TEXT_SECONDARY);
+    g.setFont (monoFont (context, typography::TextRole::status));
+    text_style::drawEllipsized (g, text, area.reduced (2, 0),
+                               juce::Justification::centredRight);
 }
 
 void drawPanel (juce::Graphics& g,
@@ -237,7 +255,19 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
             statusArea.reduced (4, 1), juce::Justification::centred);
     }
     else if (compact)
-        area.removeFromTop (20);
+    {
+        auto summary = area.removeFromTop (20);
+        summary.removeFromLeft (78); // The M/S control owns this part of the header.
+        summary.removeFromRight (72); // The CURRENT/MAX selector owns the far edge.
+        if (chainSnapshotAvailable && target() == ObservationTarget::absolute)
+            paintChainSummary (g, summary, chainSnapshot, chainPoints, context, true);
+    }
+    else if (density == Density::standard && target() == ObservationTarget::absolute)
+    {
+        const auto summary = area.removeFromTop (20);
+        if (chainSnapshotAvailable)
+            paintChainSummary (g, summary, chainSnapshot, chainPoints, context, false);
+    }
     if (target() == ObservationTarget::delta)
     {
         if (compact)
@@ -417,7 +447,7 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
                                && std::isfinite (observatoryFrame.meter.max_lufs_m)
         ? juce::String ("MAX M ") + juce::String (observatoryFrame.meter.max_lufs_m, 1) + " LUFS"
         : juce::String();
-    const auto held = ! captureFrame && levelInspection.held();
+    const auto held = levelInspection.held();
     capture_history::paint (g, levelHistoryArea, held ? levelInspection.snapshot : history,
                             target() == ObservationTarget::delta,
                             held ? levelInspection.sampleRate : static_cast<double> (observatoryFrame.meter.sample_rate),
@@ -425,10 +455,13 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
                             held ? levelInspection.index : captureFrame ? std::nullopt : hoveredLevelHistoryIndex,
                             held ? juce::String ("HOLD") : hoveredLevelHistoryIndex ? juce::String() : maximumMomentary,
                             frameAvailable ? &observatoryFrame.meter : nullptr,
-                            inspection && chainSnapshotAvailable && ! held
-                                ? &chainSnapshot : nullptr,
-                            inspection && chainSnapshotAvailable && ! held
-                                ? &chainPoints : nullptr);
+                            held && levelInspection.chainSnapshot.count > 0u
+                                ? &levelInspection.chainSnapshot
+                                : chainSnapshotAvailable && ! held ? &chainSnapshot : nullptr,
+                            held && ! levelInspection.chainPoints.empty()
+                                ? &levelInspection.chainPoints
+                                : chainSnapshotAvailable && ! held ? &chainPoints : nullptr,
+                            &chainGeometry);
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
 }

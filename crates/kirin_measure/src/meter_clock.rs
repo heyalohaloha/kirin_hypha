@@ -34,40 +34,6 @@ pub(crate) struct MeterObservationClock {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct MeterClockWitness {
-    pub measurement_epoch: u64,
-    pub generation: u64,
-    pub run_id: u64,
-    pub observed_frames: u64,
-    pub timeline_endpoint_samples: Option<i64>,
-    pub timeline_source: CaptureClockSource,
-    pub auxiliary_endpoint_samples: Option<i64>,
-    pub auxiliary_source: AuxiliaryClockSource,
-    pub presentation_latency: PresentationLatencySamples,
-}
-
-impl MeterObservationClock {
-    pub(crate) fn witness(
-        self,
-        measurement_epoch: u64,
-        generation: u64,
-        observed_frames: u64,
-    ) -> MeterClockWitness {
-        MeterClockWitness {
-            measurement_epoch,
-            generation,
-            run_id: self.run_id,
-            observed_frames,
-            timeline_endpoint_samples: self.timeline_endpoint_samples,
-            timeline_source: self.timeline_source,
-            auxiliary_endpoint_samples: self.auxiliary_endpoint_samples,
-            auxiliary_source: self.auxiliary_source,
-            presentation_latency: self.presentation_latency,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ClockKind {
     Unknown,
     Exact {
@@ -171,6 +137,36 @@ impl MeterClockTracker {
             kind,
             run_id,
         });
+    }
+
+    /// The next DSP segment may cross callback spans in the same clock run, but must end at
+    /// a content-grid boundary or before a provenance transition. This is only a processing
+    /// boundary; it does not grant comparison authority to the clock source.
+    pub fn frames_to_content_boundary(&self, maximum: u64, step: u64) -> u64 {
+        let Some(first) = self.pending.front() else {
+            return maximum;
+        };
+        let mut same_run = 0_u64;
+        for span in &self.pending {
+            if span.run_id != first.run_id || span.kind != first.kind {
+                break;
+            }
+            same_run = same_run.saturating_add(span.remaining_frames);
+            if same_run >= maximum {
+                break;
+            }
+        }
+        let grid = first.next_auxiliary_samples.and_then(|auxiliary| {
+            let step = i64::try_from(step).ok().filter(|step| *step > 0)?;
+            let remainder = auxiliary.rem_euclid(step);
+            u64::try_from(if remainder == 0 {
+                step
+            } else {
+                step - remainder
+            })
+            .ok()
+        });
+        maximum.min(same_run).min(grid.unwrap_or(maximum)).max(1)
     }
 
     pub fn consume_observation(&mut self, frames: u64) -> MeterObservationClock {

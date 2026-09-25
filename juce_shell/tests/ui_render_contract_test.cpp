@@ -2,6 +2,7 @@
 #include "../src/HyphaAnalysisNavigation.h"
 #include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaHoverHelpPreference.h"
+#include "../src/HyphaChainClockPolicy.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaSurfaceMaterial.h"
@@ -29,8 +30,8 @@
 #include <cstdlib>
 #include <iostream>
 namespace ui = hypha::ui_contract;
-static_assert (sizeof (KirinSpectrumView) == 3'112, "Spectrum view ABI size must remain exact");
-static_assert (sizeof (KirinSpectrumBatch) == 28'016, "Spectrum batch ABI size must remain exact");
+static_assert (sizeof (KirinSpectrumView) == 4'400, "Spectrum view ABI size must remain exact");
+static_assert (sizeof (KirinSpectrumBatch) == 39'608, "Spectrum batch ABI size must remain exact");
 static_assert (sizeof (KirinMidSideSpectrumView) == 2'088,
                "Mid/Side Spectrum ABI size must remain exact");
 static_assert (alignof (KirinMidSideSpectrumView) == 8);
@@ -129,6 +130,14 @@ using hypha::tests::renderMidSideSpectrumAtSize;
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    using Wrapper = juce::AudioProcessor;
+    using hypha::chain_clock_policy::classify;
+    KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_VST3, "Studio Pro", "8.1.2.113407")
+                   == KIRIN_CHAIN_CLOCK_POLICY_STUDIO_PRO_812_WINDOWS_VST3);
+    KIRIN_REQUIRE (classify (false, Wrapper::wrapperType_VST3, "Studio Pro", "8.1.2.113407") == 0);
+    KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_AAX, "Studio Pro", "8.1.2.113407") == 0);
+    KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_VST3, "Studio Pro", "8.1.2.113408") == 0);
+    KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_VST3, "Other Host", "8.1.2.113407") == 0);
     const auto previews = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
     if (previews.isNotEmpty()) KIRIN_REQUIRE (juce::File (previews).createDirectory().wasOk());
     if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;

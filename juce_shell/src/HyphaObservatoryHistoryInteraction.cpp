@@ -61,10 +61,19 @@ void View::initializeLevelHistoryControls()
     {
         if (! levelInspection.held() || target() != ObservationTarget::absolute) return;
         const auto& entry = levelInspection.snapshot[*levelInspection.index];
-        juce::SystemClipboard::copyTextToClipboard (
-            history_inspection::positionText (entry, levelInspection.sampleRate)
+        auto copy = history_inspection::positionText (entry, levelInspection.sampleRate)
             + " | TP " + history_inspection::peakText (entry.true_peak.max)
-            + " dBTP | host project/render clock; measured window endpoint, not exact peak or guaranteed project time");
+            + " dBTP | host project/render clock; measured window endpoint, not exact peak or guaranteed project time";
+        if (const auto* chain = levelInspection.selectedChain())
+            copy += " | CONTENT END " + juce::String (chain->endpoint)
+                + " | PRE M " + history_inspection::peakText (chain->pre_m)
+                + " POST M " + history_inspection::peakText (chain->post_m)
+                + " PRE TP " + history_inspection::peakText (chain->pre_tp)
+                + " POST TP " + history_inspection::peakText (chain->post_tp)
+                + " dBTP | delta M " + history_inspection::peakText (chain->delta_m)
+                + " LU delta TP " + history_inspection::peakText (chain->delta_tp)
+                + " dB REL " + history_inspection::peakText (chain->relation) + " dB";
+        juce::SystemClipboard::copyTextToClipboard (copy);
     };
 }
 
@@ -124,8 +133,10 @@ void View::mouseDown (const juce::MouseEvent& event)
     const auto hit = capture_history::hitTest (levelHistoryArea, entries, event.position,
         levelInspection.held() ? levelInspection.sampleRate : observatoryFrame.meter.sample_rate);
     if (! hit) return;
-    if (levelInspection.held()) levelInspection.index = hit;
-    else levelInspection.pin (history, *hit, observatoryFrame.meter);
+    if (levelInspection.held()) levelInspection.select (*hit);
+    else levelInspection.pin (history, *hit, observatoryFrame.meter,
+        chainSnapshotAvailable ? &chainSnapshot : nullptr,
+        chainSnapshotAvailable ? &chainPoints : nullptr);
     updateLevelHistoryControls();
     repaint (levelHistoryArea);
 }
@@ -134,8 +145,10 @@ void View::selectLevelHistoryEvent (int direction)
 {
     const auto at = levelInspection.event (history, observatoryFrame.meter.sample_rate, direction);
     if (! at) return;
-    if (levelInspection.held()) levelInspection.index = at;
-    else levelInspection.pin (history, *at, observatoryFrame.meter);
+    if (levelInspection.held()) levelInspection.select (*at);
+    else levelInspection.pin (history, *at, observatoryFrame.meter,
+        chainSnapshotAvailable ? &chainSnapshot : nullptr,
+        chainSnapshotAvailable ? &chainPoints : nullptr);
     updateLevelHistoryControls();
     repaint (levelHistoryArea);
 }

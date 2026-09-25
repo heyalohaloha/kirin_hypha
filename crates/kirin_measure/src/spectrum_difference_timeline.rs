@@ -31,10 +31,16 @@ pub struct SpectrumTimelineFrame {
     pub min_hz: f32,
     pub max_hz: f32,
     pub channel_mode: SpectrumChannelMode,
+    pub view: u8,
     pub channels: u8,
     pub pre_dbfs: [f32; SPECTRUM_BAND_COUNT],
     pub post_dbfs: [f32; SPECTRUM_BAND_COUNT],
     pub display_db: [f32; SPECTRUM_BAND_COUNT],
+    pub energy_delta_db: Option<f32>,
+    /// Presentation-only 0.01 dB quantization keeps the eight-frame recovery ring under 32 KiB.
+    /// The current measurement fact retains its full f32 SHAPE values.
+    shape_centidb: [i16; SPECTRUM_BAND_COUNT],
+    shape_valid_bits: [u8; SPECTRUM_BAND_COUNT / 8],
 }
 
 impl From<&SpectrumDifference> for SpectrumTimelineFrame {
@@ -48,11 +54,29 @@ impl From<&SpectrumDifference> for SpectrumTimelineFrame {
             min_hz: frame.min_hz,
             max_hz: frame.max_hz,
             channel_mode: frame.channel_mode,
+            view: frame.view,
             channels: frame.channels,
             pre_dbfs: frame.pre_dbfs,
             post_dbfs: frame.post_dbfs,
             display_db: frame.display_db,
+            energy_delta_db: frame.energy_delta_db,
+            shape_centidb: std::array::from_fn(|index| {
+                (frame.shape_db[index].clamp(-24.0, 24.0) * 100.0).round() as i16
+            }),
+            shape_valid_bits: std::array::from_fn(|byte| {
+                (0..8).fold(0_u8, |bits, bit| {
+                    bits | (u8::from(frame.shape_valid[byte * 8 + bit]) << bit)
+                })
+            }),
         }
+    }
+}
+
+impl SpectrumTimelineFrame {
+    pub fn shape_db_at(&self, index: usize) -> Option<f32> {
+        (index < SPECTRUM_BAND_COUNT
+            && self.shape_valid_bits[index / 8] & (1_u8 << (index % 8)) != 0)
+            .then(|| f32::from(self.shape_centidb[index]) * 0.01)
     }
 }
 
@@ -130,6 +154,7 @@ fn same_definition(left: &SpectrumTimelineFrame, right: &SpectrumTimelineFrame) 
         && left.fft_size == right.fft_size
         && left.approximate_below_hz.to_bits() == right.approximate_below_hz.to_bits()
         && left.channel_mode == right.channel_mode
+        && left.view == right.view
         && left.channels == right.channels
         && left.min_hz.to_bits() == right.min_hz.to_bits()
         && left.max_hz.to_bits() == right.max_hz.to_bits()
@@ -154,6 +179,9 @@ mod tests {
             post_dbfs: [-27.0; SPECTRUM_BAND_COUNT],
             raw_db: [3.0; SPECTRUM_BAND_COUNT],
             display_db: [3.0; SPECTRUM_BAND_COUNT],
+            energy_delta_db: Some(3.0),
+            shape_db: [0.0; SPECTRUM_BAND_COUNT],
+            shape_valid: [true; SPECTRUM_BAND_COUNT],
         }
     }
 
@@ -199,6 +227,26 @@ mod tests {
             timeline.newest().unwrap().channel_mode,
             SpectrumChannelMode::Mid
         );
+    }
+
+    #[test]
+    fn view_change_resets_history_and_invalid_shape_is_not_a_zero_fact() {
+        let mut timeline = SpectrumDifferenceTimeline::default();
+        let mut first = difference(1_600);
+        first.shape_db[3] = 2.345;
+        first.shape_valid[4] = false;
+        timeline.push(&first);
+        assert_eq!(timeline.newest().unwrap().shape_db_at(3), Some(2.35));
+        assert_eq!(timeline.newest().unwrap().shape_db_at(4), None);
+        let mut changed = difference(3_200);
+        changed.view =
+            crate::channel_layout::SpectrumView::Channel(crate::channel_layout::ChannelRole::Left)
+                .to_abi();
+        assert_eq!(
+            timeline.push(&changed),
+            SpectrumTimelinePushResult::DefinitionReset
+        );
+        assert_eq!(timeline.frames().count(), 1);
     }
 
     #[test]

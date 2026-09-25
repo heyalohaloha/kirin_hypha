@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -20,10 +21,10 @@ use pair_observation::DeltaHistoryState;
 pub mod chain;
 #[path = "meter_chain_join.rs"]
 mod chain_join;
-#[path = "meter_chain_window.rs"]
-mod window;
+#[path = "meter_content_wire.rs"]
+mod content_wire;
+use content_wire::ContentWirePoint;
 
-use crate::meter_clock::MeterClockWitness;
 use crate::meter_history::MeterHistory;
 use crate::plugin_data::MeasurementLayout;
 use crate::{
@@ -32,12 +33,18 @@ use crate::{
 };
 
 pub const METER_HISTORY_EXCHANGE_FILE: &str = "meter_history.json";
-/// 5 adds raw auxiliary/PDC witnesses. Schemas 3/4 remain readable for legacy TIME only.
-pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 5;
+/// One same-version PRE/POST envelope for TIME and qualified content observations. An older
+/// peer is rejected as a unit; no cross-version comparison or partial TIME claim is inferred.
+pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 6;
 pub const METER_HISTORY_EXCHANGE_POINTS: usize = 32;
 const LOCAL_JOIN_POINTS: usize = METER_HISTORY_EXCHANGE_POINTS * 2;
 const MAX_EXCHANGE_BYTES: u64 = 64 * 1024;
 const JOINED_POINT_CAPACITY: usize = crate::HISTORY_10_HZ_CAPACITY;
+
+/// The host/API evidence behind the optional exact comparison clock. A wrapper source alone
+/// does not identify its host's PDC semantics. Unknown remains the default for every caller.
+pub const CLOCK_POLICY_UNKNOWN: u8 = 0;
+pub const CLOCK_POLICY_STUDIO_PRO_812_WINDOWS_VST3: u8 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MeterHistoryTarget {
@@ -58,21 +65,11 @@ impl MeterHistoryTarget {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 struct WirePoint {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    window: Option<window::WindowProvenance>,
     generation: u64,
     run_id: u64,
     observed_frames: u64,
     endpoint_samples: i64,
     source: u8,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    auxiliary_endpoint_samples: Option<i64>,
-    #[serde(default)]
-    auxiliary_source: u8,
-    #[serde(default)]
-    presentation_source: u8,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    output_presentation_samples: Option<u32>,
     lufs_m: Option<f64>,
     lufs_s: Option<f64>,
     true_peak: Option<f64>,
@@ -91,7 +88,9 @@ struct Publication {
     /// mono の PRE と stereo の POST は、同じ音を通しても loudness で 3.01 LU ずれる
     /// （mono は 1ch として測り +3.01 dB バイアスを入れない）。その差は連鎖が加えたものではない。
     layout: MeasurementLayout,
+    clock_policy: u8,
     points: Vec<WirePoint>,
+    content_windows: Vec<ContentWirePoint>,
 }
 
 #[derive(Deserialize)]
@@ -115,6 +114,7 @@ struct PairKey {
 pub struct MeterDeltaHistoryExchange {
     sample_rate: u32,
     layout: MeasurementLayout,
+    clock_policy: AtomicU8,
     meter_session: Arc<Mutex<MeterSession>>,
     delta: Mutex<DeltaHistoryState>,
     publisher: Mutex<publisher::HistoryPublisher>,
@@ -128,10 +128,29 @@ impl MeterDeltaHistoryExchange {
         Arc::new(Self {
             sample_rate,
             layout,
+            clock_policy: AtomicU8::new(CLOCK_POLICY_UNKNOWN),
             meter_session,
             delta: Mutex::new(DeltaHistoryState::default()),
             publisher: Mutex::new(publisher::HistoryPublisher::default()),
         })
+    }
+
+    /// Non-RT setup only, before either endpoint starts publishing. An unknown value is never
+    /// promoted to an observed host policy. Caller must bind this to the exact executable build
+    /// and active plugin wrapper, not to the presence of a raw optional latency value.
+    pub fn set_clock_policy(&self, policy: u8) {
+        self.clock_policy.store(
+            if policy == CLOCK_POLICY_STUDIO_PRO_812_WINDOWS_VST3 {
+                policy
+            } else {
+                CLOCK_POLICY_UNKNOWN
+            },
+            Ordering::Release,
+        );
+    }
+
+    fn clock_policy(&self) -> u8 {
+        self.clock_policy.load(Ordering::Acquire)
     }
 
     pub fn service_pre_endpoint(
@@ -184,9 +203,20 @@ impl MeterDeltaHistoryExchange {
             return;
         };
         let local = session.recent_history(MeterHistoryResolution::Hz10, LOCAL_JOIN_POINTS);
-        let local_clocks = session.recent_clock_witnesses(LOCAL_JOIN_POINTS);
         let snapshot = session.snapshot();
         let incarnation = session.history_publication_revision().0;
+        let local_content: Vec<_> = session
+            .recent_content_windows(LOCAL_JOIN_POINTS)
+            .into_iter()
+            .map(|point| {
+                ContentWirePoint::from_observation(
+                    point,
+                    snapshot.measurement_epoch,
+                    incarnation,
+                    snapshot.generation,
+                )
+            })
+            .collect();
         drop(session);
         let mut delta = lock_recover(&self.delta);
         delta.bind(PairKey {
@@ -194,12 +224,16 @@ impl MeterDeltaHistoryExchange {
             instance_dir: target.instance_dir,
             owner_id: identity.watch_owner_id,
         });
+        delta.chain.begin(
+            &publication,
+            &local_content,
+            &snapshot,
+            incarnation,
+            self.clock_policy(),
+        );
         delta
             .chain
-            .begin(&publication, &local, &local_clocks, &snapshot, incarnation);
-        delta
-            .chain
-            .ingest(&publication.points, &local, &local_clocks);
+            .ingest(&publication.content_windows, &local_content);
         delta.ingest(&publication.points, &local, self.sample_rate);
         delta.chain.finish();
     }
@@ -242,26 +276,30 @@ impl MeterDeltaHistoryExchange {
         known_revision: u64,
         snapshot: &crate::MeterSessionSnapshot,
     ) -> Option<chain::Snapshot> {
+        self.chain_snapshot_limit(known_revision, snapshot, chain::CAPACITY)
+    }
+
+    /// UI-only. Small editors request the newest point, not a 600-point history clone.
+    pub fn chain_snapshot_limit(
+        &self,
+        known_revision: u64,
+        snapshot: &crate::MeterSessionSnapshot,
+        limit: usize,
+    ) -> Option<chain::Snapshot> {
         let mut delta = self.delta.try_lock().ok()?;
         delta.chain.progress(snapshot);
-        delta.chain.history.snapshot(known_revision)
+        delta.chain.history.snapshot_limit(known_revision, limit)
     }
 }
 
 impl WirePoint {
-    fn from_history(entry: MeterHistoryEntry, witness: Option<MeterClockWitness>) -> Option<Self> {
+    fn from_history(entry: MeterHistoryEntry) -> Option<Self> {
         Some(Self {
-            window: None,
             generation: entry.generation,
             run_id: entry.run_id,
             observed_frames: entry.last_observed_frames,
             endpoint_samples: entry.last_timeline_endpoint_samples?,
             source: exact_source(entry.timeline_source)?,
-            auxiliary_endpoint_samples: witness.and_then(|clock| clock.auxiliary_endpoint_samples),
-            auxiliary_source: witness.map_or(0, |clock| clock.auxiliary_source as u8),
-            presentation_source: witness.map_or(0, |clock| clock.presentation_latency.source as u8),
-            output_presentation_samples: witness
-                .and_then(|clock| clock.presentation_latency.output),
             lufs_m: finite(entry.lufs_m.mean),
             lufs_s: finite(entry.lufs_s.mean),
             true_peak: finite(entry.true_peak.mean),
@@ -292,7 +330,7 @@ impl Publication {
         sample_rate: u32,
         layout: &MeasurementLayout,
     ) -> bool {
-        matches!(self.schema, 3 | 4 | METER_HISTORY_EXCHANGE_SCHEMA)
+        self.schema == METER_HISTORY_EXCHANGE_SCHEMA
             && self.sample_rate == sample_rate
             && self.layout == *layout
             && self.pre_instance_id == identity.instance_id
@@ -300,6 +338,11 @@ impl Publication {
             && self.daw_session_id == identity.daw_session_id
             && self.points.len() <= METER_HISTORY_EXCHANGE_POINTS
             && self.points.iter().all(WirePoint::valid)
+            && self.content_windows.len() <= METER_HISTORY_EXCHANGE_POINTS
+            && self
+                .content_windows
+                .iter()
+                .all(|point| point.valid(sample_rate))
     }
 }
 

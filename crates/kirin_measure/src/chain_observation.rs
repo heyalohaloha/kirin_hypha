@@ -154,17 +154,22 @@ impl History {
     }
 
     pub fn advance(&mut self, rate: u32, observed: u64) {
-        if self.rate != rate || self.now != observed {
+        if self.rate != rate {
             self.rate = rate;
-            self.now = observed;
             self.touch();
         }
+        self.now = observed;
+        let mut expired = false;
         while self
             .points
             .front()
             .is_some_and(|p| observed.saturating_sub(p.raw.post_observed) >= u64::from(rate) * 60)
         {
             self.points.pop_front();
+            expired = true;
+        }
+        if expired {
+            self.touch();
         }
     }
 
@@ -216,14 +221,19 @@ impl History {
         self.set_status(next);
     }
 
-    pub fn snapshot(&self, known_revision: u64) -> Option<Snapshot> {
+    pub fn snapshot_limit(&self, known_revision: u64, limit: usize) -> Option<Snapshot> {
         (known_revision != self.revision).then(|| Snapshot {
             revision: self.revision,
             binding: self.binding,
             status: self.status,
             sample_rate: self.rate,
             post_observed: self.now,
-            points: self.points.iter().copied().collect(),
+            points: self
+                .points
+                .iter()
+                .skip(self.points.len().saturating_sub(limit))
+                .copied()
+                .collect(),
         })
     }
 

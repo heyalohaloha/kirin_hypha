@@ -20,6 +20,7 @@
 #include "kirin_hypha_ffi.h"
 #include "HyphaMonoSumHistory.h"
 #include "HyphaHistoryInspection.h"
+#include "HyphaChainActionPainter.h"
 
 namespace hypha::observatory
 {
@@ -317,6 +318,7 @@ private:
     KirinChainSnapshot chainSnapshot {};
     std::vector<KirinChainPoint> chainPoints;
     bool chainSnapshotAvailable = false;
+    chain_action::GeometryCache chainGeometry;
     bool selectedShortTermLoudness = false;
     bool hostRecording = false;
     bool hybridVuOnRecordEnabled = true;

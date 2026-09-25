@@ -1,6 +1,9 @@
 #include "PluginEditor.h"
 #include "HyphaComparisonPresentation.h"
 
+#include <algorithm>
+#include <cstddef>
+
 using hypha::COL_LED_BLUE;
 using hypha::COL_MUTED;
 
@@ -363,19 +366,37 @@ void KirinHyphaEditor::refreshObservatory()
 
     const auto wantsChainObservation = isPost
         && observatoryDomain == hypha::observatory::Domain::level
-        && observatoryView.inspectionCockpit()
         && observatoryView.target() == hypha::observatory::ObservationTarget::absolute;
-    if (wantsChainObservation)
+    if (wantsChainObservation && frameAvailable)
     {
-        KirinChainSnapshot next {};
-        if (processorRef.pollChainObservation (chainRevision, next, chainPoints))
+        const auto latestOnly = ! observatoryView.fullCockpit();
+        if (chainLatestOnly != latestOnly)
         {
-            chainSnapshot = next;
-            chainRevision = next.revision;
-            observatoryView.setChainObservation (chainSnapshot, chainPoints.data());
+            chainLatestOnly = latestOnly;
+            chainRevision = 0u;
+        }
+        KirinChainSnapshot next {};
+        if (processorRef.pollChainObservation (
+                chainRevision, next, chainPoints, latestOnly))
+        {
+            const auto sameFrame = next.count == 0u
+                || (next.count <= (latestOnly ? 1u : KIRIN_CHAIN_CAPACITY)
+                    && std::all_of (chainPoints.begin(), chainPoints.begin()
+                            + static_cast<std::ptrdiff_t> (next.count),
+                        [&frame] (const KirinChainPoint& point) {
+                            return point.post_epoch == frame.meter.measurement_epoch
+                                && point.post_generation == frame.meter.generation
+                                && point.post_observed <= frame.meter.observed_frames;
+                        }));
+            if (sameFrame)
+            {
+                chainSnapshot = next;
+                chainRevision = next.revision;
+                observatoryView.setChainObservation (chainSnapshot, chainPoints.data());
+            }
         }
     }
-    else
+    else if (! wantsChainObservation)
     {
         chainRevision = 0u;
         chainSnapshot = {};

@@ -1,9 +1,13 @@
-//! Admission at the existing join, not a second matcher. Local run numbers are never equated.
+//! Exact content-window admission. The current TIME absolute-history join remains independent.
+//! Neither a local 100 ms endpoint nor a PDC number relabels a completed value here.
+
 use super::*;
 use chain::{History, Point, Status};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Identity {
+    pre_policy: u8,
+    post_policy: u8,
     pre_epoch: u64,
     pre_incarnation: u64,
     pre_generation: u64,
@@ -16,8 +20,7 @@ struct Identity {
 pub(super) struct Admission {
     pub history: History,
     identity: Option<Identity>,
-    watermark: Option<(u64, u64)>,
-    anchor: Option<(u64, u64)>,
+    pair_run: Option<(u64, u64)>,
     high_water: Option<i64>,
     last_occurrence: Option<i64>,
     last_post_observed: u64,
@@ -38,35 +41,28 @@ impl Admission {
     pub fn begin(
         &mut self,
         pre: &Publication,
-        post: &[MeterHistoryEntry],
-        post_clocks: &[crate::meter_clock::MeterClockWitness],
+        post: &[ContentWirePoint],
         snapshot: &crate::MeterSessionSnapshot,
         incarnation: u64,
+        local_policy: u8,
     ) {
         self.rate = snapshot.sample_rate;
         self.active = snapshot.state == crate::MeterSessionState::Active;
         self.history.advance(self.rate, snapshot.observed_frames);
         self.supported = false;
-        let Some(p) = pre.points.last() else {
-            self.identity = None;
+        let Some(p) = pre.content_windows.last() else {
             self.history.unavailable();
             return;
         };
-        let Some(w) = p
-            .window
-            .filter(|_| pre.schema == METER_HISTORY_EXCHANGE_SCHEMA)
-        else {
-            self.identity = None;
-            self.history.unavailable();
-            return;
-        };
-        let Some(_q) = post.last() else {
+        let Some(q) = post.last() else {
             self.finish();
             return;
         };
         let identity = Identity {
-            pre_epoch: w.measurement_epoch,
-            pre_incarnation: w.incarnation,
+            pre_policy: pre.clock_policy,
+            post_policy: local_policy,
+            pre_epoch: p.measurement_epoch,
+            pre_incarnation: p.incarnation,
             pre_generation: p.generation,
             post_epoch: snapshot.measurement_epoch,
             post_incarnation: incarnation,
@@ -79,11 +75,10 @@ impl Admission {
             });
             let previous_high_water = self.high_water.filter(|_| same_session);
             self.identity = Some(identity);
-            self.watermark = Some((p.observed_frames, snapshot.observed_frames));
-            self.anchor = None;
+            self.pair_run = None;
             self.high_water = previous_high_water;
             self.last_occurrence = None;
-            self.last_post_observed = snapshot.observed_frames;
+            self.last_post_observed = q.observed_frames;
             self.ambiguous_through = previous_high_water;
             self.history.clear(
                 self.history.binding.wrapping_add(1).max(1),
@@ -95,146 +90,114 @@ impl Admission {
             );
             self.history.advance(self.rate, snapshot.observed_frames);
         }
-        self.supported = w.content_clock_qualified
-            && window::complete_content_window(post, post_clocks, post.len() - 1, self.rate)
-            && w.incarnation > 0
-            && w.measurement_epoch > 0
-            && snapshot.measurement_epoch > 0;
+        self.supported = identity.pre_policy == CLOCK_POLICY_STUDIO_PRO_812_WINDOWS_VST3
+            && identity.post_policy == identity.pre_policy
+            && p.valid(self.rate)
+            && q.valid(self.rate)
+            && identity.pre_epoch > 0
+            && identity.post_epoch > 0
+            && host_clocks_present(p, q);
         if !self.supported {
             self.history.unavailable();
         }
     }
 
-    pub fn ingest(
-        &mut self,
-        pre: &[WirePoint],
-        post: &[MeterHistoryEntry],
-        post_clocks: &[crate::meter_clock::MeterClockWitness],
-    ) {
+    pub fn ingest(&mut self, pre: &[ContentWirePoint], post: &[ContentWirePoint]) {
         if !self.supported {
             return;
         }
-        for (post_index, q) in post.iter().enumerate() {
-            if q.last_observed_frames <= self.last_post_observed
-                || !window::complete_content_window(post, post_clocks, post_index, self.rate)
+        for q in post {
+            if q.observed_frames <= self.last_post_observed {
+                continue;
+            }
+            let Some(identity) = self.identity else {
+                return;
+            };
+            if q.measurement_epoch != identity.post_epoch
+                || q.incarnation != identity.post_incarnation
+                || q.generation != identity.post_generation
+                || !q.valid(self.rate)
             {
                 continue;
             }
-            let mut matches = pre.iter().filter(|p| {
-                p.window
-                    .is_some_and(|w| w.complete_400ms && w.content_clock_qualified)
-                    && common_occurrence(p, q, post_clocks).is_some()
+            let post_occurrences = post
+                .iter()
+                .filter(|candidate| candidate.endpoint_samples == q.endpoint_samples)
+                .count();
+            let mut pre_matches = pre.iter().filter(|p| {
+                p.endpoint_samples == q.endpoint_samples
+                    && p.measurement_epoch == identity.pre_epoch
+                    && p.incarnation == identity.pre_incarnation
+                    && p.generation == identity.pre_generation
+                    && host_clocks_compatible(p, q)
             });
-            let Some(matched) = matches.next() else {
+            let Some(p) = pre_matches.next() else {
                 continue;
             };
-            if matches.next().is_some() {
-                let occurrence = common_occurrence(matched, q, post_clocks);
-                self.high_water = self.high_water.max(occurrence);
-                self.ambiguous_through = self.high_water;
-                self.anchor = None;
-                self.last_post_observed = q.last_observed_frames;
-                self.history.clear(
-                    self.history.binding.wrapping_add(1).max(1),
-                    Status::Ambiguous,
-                );
-                self.history.advance(self.rate, q.last_observed_frames);
+            if post_occurrences != 1 || pre_matches.next().is_some() {
+                self.enter_ambiguous(q.observed_frames);
                 continue;
             }
-            self.observe(matched, q, post_clocks);
+            self.observe(p, q);
         }
     }
 
-    fn observe(
-        &mut self,
-        p: &WirePoint,
-        q: &MeterHistoryEntry,
-        post_clocks: &[crate::meter_clock::MeterClockWitness],
-    ) {
-        let Some(w) = p
-            .window
-            .filter(|w| w.complete_400ms && w.content_clock_qualified)
-        else {
-            return;
-        };
-        let Some(identity) = self.identity else {
-            return;
-        };
-        if identity.pre_epoch != w.measurement_epoch
-            || identity.pre_incarnation != w.incarnation
-            || identity.pre_generation != p.generation
-            || identity.post_epoch != q.measurement_epoch
-            || identity.post_generation != q.generation
+    fn observe(&mut self, p: &ContentWirePoint, q: &ContentWirePoint) {
+        let occurrence = q.endpoint_samples;
+        let run = (p.run_id, q.run_id);
+        if self.pair_run.is_some_and(|previous| previous != run)
+            || self.last_occurrence.is_some_and(|last| occurrence <= last)
         {
-            return;
+            self.enter_ambiguous(q.observed_frames);
         }
-        let Some(occurrence) = common_occurrence(p, q, post_clocks) else {
-            return;
-        };
-        if self.last_occurrence.is_some_and(|last| occurrence <= last) {
-            self.ambiguous_through = self.high_water;
-            self.anchor = None;
-            self.watermark = Some((p.observed_frames, q.last_observed_frames));
-            self.history.clear(
-                self.history.binding.wrapping_add(1).max(1),
-                Status::Ambiguous,
-            );
-            self.history.advance(self.rate, q.last_observed_frames);
-        }
+        self.pair_run = Some(run);
+        self.last_post_observed = q.observed_frames;
         self.last_occurrence = Some(occurrence);
-        self.high_water = Some(self.high_water.unwrap_or(i64::MIN).max(occurrence));
-        self.last_post_observed = q.last_observed_frames;
-        let window = u64::from(self.rate) * 2 / 5;
-        let Some((pre_start, post_start)) = self.watermark else {
-            return;
-        };
-        if p.observed_frames
-            .checked_sub(pre_start)
-            .is_none_or(|n| n < window)
-            || q.last_observed_frames
-                .checked_sub(post_start)
-                .is_none_or(|n| n < window)
-        {
-            return;
-        }
+        let old_high_water = self.high_water;
+        self.high_water = Some(old_high_water.unwrap_or(i64::MIN).max(occurrence));
+        // Reused host coordinates are not a fresh occurrence. This guard is intentionally
+        // fail-closed until a new run has advanced past all previously published content.
         if self.ambiguous_through.is_some_and(|end| {
             occurrence
                 .checked_sub(end)
-                .is_none_or(|n| n < window as i64)
+                .is_none_or(|distance| distance < i64::from(self.rate) * 2 / 5)
         }) {
             return;
         }
-        // A consistency check in addition to content-clock authority, never a substitute
-        // for proving a shared occurrence on both sides.
-        if let Some((pre_anchor, post_anchor)) = self.anchor {
-            if p.observed_frames.checked_sub(pre_anchor)
-                != q.last_observed_frames.checked_sub(post_anchor)
-            {
-                self.history.set_status(Status::Ambiguous);
-                self.ambiguous_through = self.high_water;
-                return;
-            }
-        } else {
-            self.anchor = Some((p.observed_frames, q.last_observed_frames));
-        }
         self.ambiguous_through = None;
+        let Some(identity) = self.identity else {
+            return;
+        };
         self.history.push(Point {
-            pre_epoch: w.measurement_epoch,
+            pre_epoch: p.measurement_epoch,
             post_epoch: q.measurement_epoch,
-            pre_incarnation: w.incarnation,
+            pre_incarnation: p.incarnation,
             pre_generation: p.generation,
             post_generation: q.generation,
             pre_run: p.run_id,
             post_run: q.run_id,
             pre_observed: p.observed_frames,
-            post_observed: q.last_observed_frames,
+            post_observed: q.observed_frames,
             endpoint: occurrence,
-            source: p.source,
+            source: p.auxiliary_source,
             pre_m: p.lufs_m,
-            post_m: finite(q.lufs_m.mean),
+            post_m: q.lufs_m,
             pre_tp: p.true_peak,
-            post_tp: finite(q.true_peak.mean),
+            post_tp: q.true_peak,
         });
+        debug_assert_eq!(identity.pre_epoch, p.measurement_epoch);
+    }
+
+    fn enter_ambiguous(&mut self, observed_frames: u64) {
+        self.ambiguous_through = self.high_water;
+        self.pair_run = None;
+        self.last_occurrence = None;
+        self.last_post_observed = observed_frames;
+        self.history.clear(
+            self.history.binding.wrapping_add(1).max(1),
+            Status::Ambiguous,
+        );
+        self.history.advance(self.rate, observed_frames);
     }
 
     pub fn finish(&mut self) {
@@ -258,19 +221,33 @@ impl Admission {
     }
 }
 
-fn common_occurrence(
-    pre: &WirePoint,
-    post: &MeterHistoryEntry,
-    post_clocks: &[crate::meter_clock::MeterClockWitness],
-) -> Option<i64> {
-    let post_clock = window::witness_for(post, post_clocks)?;
-    let pre_auxiliary = pre.auxiliary_endpoint_samples?;
-    let post_auxiliary = post_clock.auxiliary_endpoint_samples?;
-    pre.output_presentation_samples?;
-    post_clock.presentation_latency.output?;
-    (pre.auxiliary_source == post_clock.auxiliary_source as u8
-        && pre.presentation_source == post_clock.presentation_latency.source as u8
-        && matches!((pre.auxiliary_source, pre.presentation_source), (1, 1)))
-    .then_some(())?;
-    (post_auxiliary == pre_auxiliary).then_some(pre_auxiliary)
+fn host_clocks_compatible(pre: &ContentWirePoint, post: &ContentWirePoint) -> bool {
+    if !host_clocks_present(pre, post) {
+        return false;
+    }
+    let (Some(pre_project), Some(post_project), Some(pre_output), Some(post_output)) = (
+        pre.timeline_endpoint_samples,
+        post.timeline_endpoint_samples,
+        pre.output_presentation_samples,
+        post.output_presentation_samples,
+    ) else {
+        return false;
+    };
+    // Studio Pro's observed VST3 mapping: at one content endpoint, the POST project clock
+    // leads PRE by the difference in reported output presentation delays. A one-sample
+    // clock error must fail closed even though both streams hit the same grid coordinate.
+    post_project.checked_sub(pre_project)
+        == i64::from(pre_output).checked_sub(i64::from(post_output))
+}
+
+fn host_clocks_present(pre: &ContentWirePoint, post: &ContentWirePoint) -> bool {
+    pre.auxiliary_source == post.auxiliary_source
+        && pre.presentation_source == post.presentation_source
+        && matches!((pre.auxiliary_source, pre.presentation_source), (1, 1))
+        && pre.timeline_source == post.timeline_source
+        && pre.timeline_source == 1
+        && pre.timeline_endpoint_samples.is_some()
+        && post.timeline_endpoint_samples.is_some()
+        && pre.output_presentation_samples.is_some()
+        && post.output_presentation_samples.is_some()
 }

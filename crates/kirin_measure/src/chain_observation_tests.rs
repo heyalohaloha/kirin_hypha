@@ -79,13 +79,14 @@ fn unchanged_snapshot_is_free_and_missing_samples_still_age_out() {
         history.push(point(4_800));
         history.advance(48_000, 4_800);
         history.update_freshness(true);
-        assert!(history.snapshot(revision).is_none());
+        assert!(history.snapshot_limit(revision, CAPACITY).is_none());
     }
     assert_eq!(*history.points.back().unwrap(), cached);
     assert!((cached.relation.unwrap() + 1.8).abs() < 1e-9);
     history.advance(48_000, 14_400);
     history.update_freshness(true);
     assert_eq!(history.status, Status::Active); // inclusive 200 ms display freshness
+    assert!(history.snapshot_limit(revision, CAPACITY).is_none()); // advancing NOW alone copies no 600-point batch
     history.advance(48_000, 14_401);
     history.update_freshness(true);
     assert_eq!(history.status, Status::Hold);
@@ -106,7 +107,23 @@ fn storage_is_bounded_and_epoch_clear_invalidates_all_points() {
     assert!(std::mem::size_of::<MatchedPoint>() * CAPACITY * 3 < 512 * 1024);
     let revision = history.revision;
     history.clear(8, Status::Syncing);
-    let snapshot = history.snapshot(revision).unwrap();
+    let snapshot = history.snapshot_limit(revision, CAPACITY).unwrap();
     assert!(snapshot.points.is_empty());
     assert_eq!(snapshot.binding, 8);
+}
+
+#[test]
+fn latest_only_snapshot_keeps_status_and_copies_one_point() {
+    let mut history = History::default();
+    history.advance(48_000, 14_400);
+    for frame in [4_800, 9_600, 14_400] {
+        history.push(point(frame));
+    }
+    history.update_freshness(true);
+    let latest = history.snapshot_limit(0, 1).unwrap();
+    assert_eq!(latest.status, Status::Active);
+    assert_eq!(latest.points.len(), 1);
+    assert_eq!(latest.points[0].raw.endpoint, 14_400);
+    assert_eq!(history.snapshot_limit(0, CAPACITY).unwrap().points.len(), 3);
+    assert!(history.snapshot_limit(latest.revision, 1).is_none());
 }

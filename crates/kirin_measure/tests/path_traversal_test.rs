@@ -6,6 +6,7 @@
 //! crate の builder wall + materialize を検証すれば両殻の restore 値を end-to-end で守れる。
 
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use kirin_measure::all_keep_signal;
 use kirin_measure::all_stop_signal;
@@ -27,6 +28,13 @@ const CONTROL: &str = "a\nb"; // 制御文字混入（newline）= D4/D5 拒否�
 const NON_UUID: &str = "not-a-uuid";
 /// 真の traversal（絶対 / ..）のみ。non-UUID(safe) は traversal でないため別扱い。
 const TRAVERSAL_ATTACKS: [&str; 2] = [ABS, TRAVERSAL];
+
+// This integration binary uses the production global path-event sink. Every case must own it
+// from drain through assertion; otherwise an unrelated concurrent attack can make C1 fail.
+fn event_sink_guard() -> MutexGuard<'static, ()> {
+    static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+    GUARD.get_or_init(|| Mutex::new(())).lock().unwrap()
+}
 
 fn isolated_base() -> PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -56,6 +64,7 @@ fn assert_within_base(path: &Path, base: &Path) {
 // ── §7 + C2: builder 直接注入（materialize bypass）で全 builder が base 内に留まる ──────
 #[test]
 fn c2_all_builders_quarantine_traversal_within_base() {
+    let _guard = event_sink_guard();
     let base = isolated_base();
     for atk in TRAVERSAL_ATTACKS {
         let _ = drain_path_events();
@@ -85,6 +94,7 @@ fn c2_all_builders_quarantine_traversal_within_base() {
 // ── §7(iii): 非UUID(path-safe) は traversal でない → base 内素通し（観測継続）─────────
 #[test]
 fn s7_non_uuid_safe_value_stays_within_base() {
+    let _guard = event_sink_guard();
     let base = isolated_base();
     assert!(
         is_path_safe_component(NON_UUID),
@@ -104,6 +114,7 @@ fn s7_non_uuid_safe_value_stays_within_base() {
 // ── D5: 代表 3 攻撃（絶対 / ../ / 制御文字）を egui 経路 end-to-end で base 内に封じる ──────
 #[test]
 fn d5_three_attacks_egui_end_to_end_within_base() {
+    let _guard = event_sink_guard();
     let kirin_root = std::env::temp_dir().join("kirin");
     for atk in [ABS, TRAVERSAL, CONTROL] {
         // D4: is_path_safe_component が 3 攻撃すべて reject（絶対 / `..` / 制御文字）。
@@ -136,6 +147,7 @@ fn d5_three_attacks_egui_end_to_end_within_base() {
 // ── §7 egui 経路 end-to-end: set_project_uuid（egui restore 入口）→ builder が base 内 ──────
 #[test]
 fn s7_egui_set_project_uuid_path_is_within_base() {
+    let _guard = event_sink_guard();
     // egui 殻の restore: params.project_uuid（#[persist]）→ set_project_uuid(cell) → io_thread が
     // process_project_hash() を project_hash として builder へ。攻撃値を set してもその値で構築される
     // path は wall で base 内に留まる。within-base は cell の値に依らず常に成立（並行テスト安全）。
@@ -155,6 +167,7 @@ fn s7_egui_set_project_uuid_path_is_within_base() {
 // ── C1: valid UUID は全 builder で同一 canonical（family 間分岐ゼロ）──────────────────
 #[test]
 fn c1_valid_uuid_is_identical_canonical_across_families() {
+    let _guard = event_sink_guard();
     let base = isolated_base();
     let uuid = "a1b2c3d4-1111-4222-8333-444455556666"; // valid canonical UUID
     let _ = drain_path_events();
@@ -186,6 +199,7 @@ fn c1_valid_uuid_is_identical_canonical_across_families() {
 // ── C3: traversal 注入が正規 12-pair cap を消費/汚染しない（bypass/DoS 不可）+ 決定性 ──────
 #[test]
 fn c3_quarantine_does_not_pollute_cap_and_is_deterministic() {
+    let _guard = event_sink_guard();
     let base = isolated_base();
     let ph = "c0ffee00-1111-4222-8333-444455556666"; // 正規 project（valid UUID）
     let now = chrono::Utc::now();
@@ -237,6 +251,7 @@ fn c3_quarantine_does_not_pollute_cap_and_is_deterministic() {
 // ── C3 cap-bypass 封止: 予約 marker `_q_` を含む値で cap を bypass できない ───────────────
 #[test]
 fn c3_reserved_marker_literal_cannot_bypass_cap() {
+    let _guard = event_sink_guard();
     // 攻撃: instance_id が path-safe な `_q_*` literal を持つと、guard が無改変で通し real 枠を作るが
     // count_frames の `_q_` 除外で未計数 → 12-pair cap を bypass できてしまう（review 指摘の high）。
     // 封止後: `_q_` を含む値は unsafe 扱い → 決定的 quarantine（攻撃値そのものは枠名にならない）。

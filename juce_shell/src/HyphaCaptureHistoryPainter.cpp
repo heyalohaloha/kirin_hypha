@@ -19,7 +19,6 @@ struct Layout
 {
     juce::Rectangle<int> legend;
     juce::Rectangle<int> loudnessLabels;
-    juce::Rectangle<int> truePeakLabels;
     juce::Rectangle<int> timeLabels;
     juce::Rectangle<float> sharedPlot;
 };
@@ -30,7 +29,7 @@ Layout layoutFor (juce::Rectangle<int> area)
     Layout result;
     result.legend = area.removeFromTop (inspection ? 36 : 30);
     result.loudnessLabels = area.removeFromLeft (inspection ? 54 : 40);
-    result.truePeakLabels = area.removeFromRight (inspection ? 38 : 31);
+    area.removeFromRight (6);
     result.timeLabels = area.removeFromBottom (inspection ? 16 : 14);
     result.sharedPlot = area.reduced (2, 2).toFloat();
     return result;
@@ -80,22 +79,6 @@ void paintCurrentLoudness (juce::Graphics& g,
     g.drawText (text, label.toNearestInt().reduced (3, 0),
                 juce::Justification::centredRight);
 }
-float yForTruePeak (juce::Rectangle<float> plot, double value) noexcept
-{
-    constexpr double minimum = -24.0;
-    constexpr double maximum = 6.0;
-    const auto normalized = juce::jlimit (0.0, 1.0, (value - minimum) / (maximum - minimum));
-    return plot.getBottom() - static_cast<float> (normalized) * plot.getHeight();
-}
-
-juce::Rectangle<float> truePeakOverlayFor (juce::Rectangle<float> sharedPlot) noexcept
-{
-    const auto maximumHeight = juce::jmax (1.0f, sharedPlot.getHeight() - 8.0f);
-    const auto height = juce::jlimit (juce::jmin (48.0f, maximumHeight), maximumHeight,
-                                      sharedPlot.getHeight() * 0.42f);
-    return sharedPlot.withTop (sharedPlot.getBottom() - height);
-}
-
 double normalizedHistoryX (const std::vector<KirinMeterHistoryEntry>& history,
                            const time_history::HistoryAxis& fallbackAxis,
                            const KirinMeterHistoryEntry& entry,
@@ -127,6 +110,22 @@ juce::String measuredText (double value, bool delta = false)
     if (! std::isfinite (value))
         return "---";
     return (delta && value >= 0.0 ? "+" : "") + juce::String (value, 1);
+}
+
+const KirinChainPoint* nearestChainPoint (const chain_action::View& view,
+                                         std::uint64_t observed) noexcept
+{
+    if (! view.visible()) return nullptr;
+    const KirinChainPoint* nearest = nullptr;
+    auto distance = std::numeric_limits<std::uint64_t>::max();
+    for (const auto& point : *view.points)
+    {
+        if (point.post_observed > view.axisEndObserved) continue;
+        const auto gap = point.post_observed > observed
+            ? point.post_observed - observed : observed - point.post_observed;
+        if (gap < distance) { distance = gap; nearest = &point; }
+    }
+    return distance <= view.snapshot->sample_rate / 20u ? nearest : nullptr;
 }
 
 void paintPath (juce::Graphics& g,
@@ -188,50 +187,65 @@ void paintPath (juce::Graphics& g,
     }
 }
 
-void paintTruePeakEvents (juce::Graphics& g,
-                          juce::Rectangle<float> sharedPlot,
-                          const std::vector<KirinMeterHistoryEntry>& history,
-                          const time_history::HistoryAxis& axis,
-                          const TruePeakSummary& summary,
-                          double sampleRate,
-                          const KirinMeterSession* meter)
+void paintTruePeakBand (juce::Graphics& g,
+                        juce::Rectangle<float> band,
+                        const std::vector<KirinMeterHistoryEntry>& history,
+                        const time_history::HistoryAxis& axis,
+                        double sampleRate)
 {
-    const auto overlay = truePeakOverlayFor (sharedPlot);
-    const auto baseline = overlay.getBottom();
-    if (summary.available)
+    juce::Path moderate, strong;
+    moderate.preallocateSpace (static_cast<int> (history.size() * 5u));
+    strong.preallocateSpace (static_cast<int> (history.size() * 5u));
+    bool previousValid = false;
+    std::uint64_t previousGeneration = 0u, previousRun = 0u, previousObserved = 0u;
+    std::uint8_t previousSeverity = 0u;
+    const auto y = band.getCentreY();
+    for (std::size_t index = 0; index < history.size(); ++index)
     {
-        for (const auto index : summary.eventIndices)
+        const auto& point = history[index];
+        const auto value = point.true_peak.max;
+        const auto severity = static_cast<std::uint8_t> (
+            ! std::isfinite (value) ? 0u : value > 0.0 ? 3u
+            : value > -1.0 ? 2u : 1u);
+        const auto x = band.getX() + static_cast<float> (normalizedHistoryX (
+            history, axis, point, index, sampleRate)) * band.getWidth();
+        const bool continuous = previousValid
+            && previousGeneration == point.generation && previousRun == point.run_id
+            && point.last_observed_frames > previousObserved
+            && point.last_observed_frames - previousObserved
+                == static_cast<std::uint64_t> (sampleRate / 10.0);
+        if (severity >= 2u)
         {
-            if (index >= history.size())
-                continue;
-            const auto value = history[index].true_peak.max;
-            if (! std::isfinite (value))
-                continue;
-            const auto x = sharedPlot.getX()
-                         + static_cast<float> (normalizedHistoryX (
-                               history, axis, history[index], index, sampleRate))
-                           * sharedPlot.getWidth();
-            const auto y = yForTruePeak (overlay, value);
-            const bool overZero = history_inspection::strongPeak (value);
-            const auto colour = overZero ? COL_FLORA_BR : COL_FLORA;
-            const auto alpha = overZero ? 0.94f : 0.68f;
-            if (overZero)
+            auto& path = severity == 3u ? strong : moderate;
+            if (continuous && previousSeverity == severity)
+                path.lineTo (x, y);
+            else
             {
-                g.setColour (colour.withAlpha (0.16f));
-                g.drawLine (x, y, x, baseline, 4.0f);
-            }
-            g.setColour (colour.withAlpha (alpha));
-            g.drawLine (x, y, x, baseline,
-                        overZero ? 1.5f : 0.75f);
-            if (overZero)
-            {
-                g.setColour (colour.withAlpha (0.24f));
-                g.fillEllipse (x - 4.0f, y - 4.0f, 8.0f, 8.0f);
-                g.setColour (colour);
-                g.fillEllipse (x - 1.7f, y - 1.7f, 3.4f, 3.4f);
+                path.startNewSubPath (x - 1.2f, y);
+                path.lineTo (x + 1.2f, y);
             }
         }
+        previousValid = true;
+        previousGeneration = point.generation;
+        previousRun = point.run_id;
+        previousObserved = point.last_observed_frames;
+        previousSeverity = severity;
     }
+    g.setColour (COL_FLORA.withAlpha (0.72f));
+    g.strokePath (moderate, juce::PathStrokeType (1.5f));
+    g.setColour (COL_FLORA_BR.withAlpha (0.18f));
+    g.strokePath (strong, juce::PathStrokeType (5.0f));
+    g.setColour (COL_FLORA_BR.withAlpha (0.96f));
+    g.strokePath (strong, juce::PathStrokeType (2.5f));
+}
+
+void paintClipPips (juce::Graphics& g,
+                    juce::Rectangle<float> plot,
+                    const std::vector<KirinMeterHistoryEntry>& history,
+                    const time_history::HistoryAxis& axis,
+                    double sampleRate,
+                    const KirinMeterSession* meter)
+{
     const std::array<juce::Colour, 6> clipColours {
         COL_LED_BLUE, COL_SPECTRUM_POST, COL_FLORA_BR, COL_GUIDE_BR, COL_NORMAL, COL_FLORA
     };
@@ -239,11 +253,11 @@ void paintTruePeakEvents (juce::Graphics& g,
         for (std::size_t channel = 0; channel < channel_clip::count (meter); ++channel)
             if (history[index].clip_event_count[channel] > 0u)
             {
-                const auto x = sharedPlot.getX()
+                const auto x = plot.getX()
                              + static_cast<float> (normalizedHistoryX (
                                    history, axis, history[index], index, sampleRate))
-                               * sharedPlot.getWidth();
-                const auto y = sharedPlot.getBottom() - 2.0f
+                               * plot.getWidth();
+                const auto y = plot.getBottom() - 2.0f
                              - static_cast<float> (channel) * 4.0f;
                 const auto colour = clipColours[channel % clipColours.size()];
                 g.setColour (colour.withAlpha (0.24f));
@@ -255,6 +269,7 @@ void paintTruePeakEvents (juce::Graphics& g,
 
 void paintHover (juce::Graphics& g,
                  const Layout& layout,
+                 juce::Rectangle<float> loudnessPlot,
                  const std::vector<KirinMeterHistoryEntry>& history,
                  const time_history::HistoryAxis& axis,
                  std::optional<std::size_t> hoveredIndex,
@@ -273,14 +288,13 @@ void paintHover (juce::Graphics& g,
                         layout.sharedPlot.getBottom());
     if (std::isfinite (entry.lufs_m.mean))
     {
-        const auto y = yForLoudness (layout.sharedPlot, entry.lufs_m.mean, delta);
+        const auto y = yForLoudness (loudnessPlot, entry.lufs_m.mean, delta);
         g.setColour (COL_SPECTRUM_POST);
         g.fillEllipse (x - 2.0f, y - 2.0f, 4.0f, 4.0f);
     }
-    if (! delta && std::isfinite (entry.true_peak.max))
+    if (! delta && std::isfinite (entry.true_peak.max) && entry.true_peak.max > -1.0)
     {
-        const auto y = yForTruePeak (truePeakOverlayFor (layout.sharedPlot),
-                                     entry.true_peak.max);
+        const auto y = layout.sharedPlot.getBottom() - 4.5f;
         g.setColour (COL_FLORA_BR);
         g.fillEllipse (x - 2.0f, y - 2.0f, 4.0f, 4.0f);
     }
@@ -329,7 +343,8 @@ void paint (juce::Graphics& g,
             juce::String contextFact,
             const KirinMeterSession* meter,
             const KirinChainSnapshot* chain,
-            const std::vector<KirinChainPoint>* chainPoints)
+            const std::vector<KirinChainPoint>* chainPoints,
+            chain_action::GeometryCache* chainCache)
 {
     surface_material::paintPanel (g, area.toFloat(), 0.62f);
     const auto layout = layoutFor (area);
@@ -341,7 +356,8 @@ void paint (juce::Graphics& g,
                          typography::Composition::visualization));
     g.setColour (COL_SPECTRUM_POST);
     auto loudnessLegend = meanings.removeFromLeft (delta ? meanings.getWidth() : meanings.getWidth() / 2);
-    const auto chainView = chain_action::View { chain, chainPoints };
+    const auto axisEnd = history.empty() ? 0u : history.back().last_observed_frames;
+    const auto chainView = chain_action::View { chain, chainPoints, axisEnd };
     g.drawText (delta ? "M / POST - PRE / 60 S"
                       : chainView.visible() ? "CHAIN ACTION / PRE TO POST M"
                                             : "M / momentary LUFS",
@@ -364,6 +380,19 @@ void paint (juce::Graphics& g,
             detail += "   TP " + history_inspection::peakText (entry.true_peak.max) + " dBTP";
         if (! delta && channel_clip::total (entry.clip_event_count, meter) > 0u)
             detail += "   " + channel_clip::text (entry.clip_event_count, meter, true);
+        if (! delta)
+            if (const auto* point = nearestChainPoint (chainView, entry.last_observed_frames))
+            {
+                const auto compound = "   DM " + measuredText (point->delta_m, true)
+                    + "  DTP " + measuredText (point->delta_tp, true)
+                    + "  REL " + measuredText (point->relation, true);
+                detail = layout.legend.getWidth() >= 700
+                    ? history_inspection::positionText (entry, sampleRate)
+                        + "   M " + measuredText (point->pre_m) + "/" + measuredText (point->post_m)
+                        + "   TP " + measuredText (point->pre_tp) + "/" + measuredText (point->post_tp)
+                        + compound
+                    : history_inspection::positionText (entry, sampleRate) + compound;
+            }
     }
     else if (peakSummary.available)
     {
@@ -387,6 +416,10 @@ void paint (juce::Graphics& g,
         return;
     }
 
+    const auto bandHeight = chainView.visible() ? 30.0f : delta ? 0.0f : 11.0f;
+    const auto loudnessPlot = layout.sharedPlot.withBottom (
+        layout.sharedPlot.getBottom() - bandHeight);
+    const auto band = layout.sharedPlot.withTop (loudnessPlot.getBottom());
     constexpr std::array<double, 7> absoluteTicks {
         0.0, -6.0, -12.0, -18.0, -24.0, -30.0, -36.0
     };
@@ -397,15 +430,15 @@ void paint (juce::Graphics& g,
     {
         for (size_t index = 0; index < ticks.size(); ++index)
         {
-            if (layout.sharedPlot.getHeight() < 110.0f
+            if (loudnessPlot.getHeight() < 110.0f
                 && index != 0 && index != ticks.size() / 2 && index != ticks.size() - 1)
                 continue;
             const auto tick = ticks[index];
-            const auto y = juce::roundToInt (yForLoudness (layout.sharedPlot, tick, delta));
+            const auto y = juce::roundToInt (yForLoudness (loudnessPlot, tick, delta));
             const bool zero = delta && tick == 0.0;
             g.setColour ((zero ? COL_FLORA_BR : COL_MUTED).withAlpha (
                 zero ? 0.42f : 0.25f));
-            g.drawHorizontalLine (y, layout.sharedPlot.getX(), layout.sharedPlot.getRight());
+            g.drawHorizontalLine (y, loudnessPlot.getX(), loudnessPlot.getRight());
             g.setColour (COL_MUTED.brighter (0.20f).withAlpha (0.86f));
             const auto label = (delta && tick > 0.0 ? "+" : "")
                              + juce::String (tick, 0);
@@ -418,44 +451,35 @@ void paint (juce::Graphics& g,
         paintLoudnessTicks (deltaTicks);
     else
         paintLoudnessTicks (absoluteTicks);
-    if (! delta)
-    {
-        constexpr std::array<double, 5> truePeakTicks { 6.0, 0.0, -6.0, -12.0, -24.0 };
-        const auto overlay = truePeakOverlayFor (layout.sharedPlot);
-        g.setFont (monoFont (presentation, typography::TextRole::axis,
-                             typography::Composition::visualization));
-        g.setColour (COL_FLORA.withAlpha (0.72f));
-        g.drawText ("TP", layout.truePeakLabels.getX(),
-                    juce::roundToInt (overlay.getY()) - 16,
-                    layout.truePeakLabels.getWidth(), 14,
-                    juce::Justification::centredLeft);
-        for (const auto tick : truePeakTicks)
-        {
-            if (overlay.getHeight() < 100.0f && std::abs (tick) > 0.01 && tick > -23.99)
-                continue;
-            const auto y = juce::roundToInt (yForTruePeak (overlay, tick));
-            g.setColour (COL_FLORA.withAlpha (tick == 0.0 ? 0.28f : 0.16f));
-            g.drawHorizontalLine (y, layout.sharedPlot.getRight() - 5.0f,
-                                  layout.sharedPlot.getRight());
-            g.setColour (COL_MUTED.withAlpha (0.72f));
-            const auto label = tick > 0.0 ? "+" + juce::String (tick, 0)
-                                         : juce::String (tick, 0);
-            g.drawText (label, layout.truePeakLabels.getX(), y - 7,
-                        layout.truePeakLabels.getWidth(), 14,
-                        juce::Justification::centredLeft);
-        }
-    }
-
     const auto axis = time_history::selectAxis (history);
-    paintPath (g, layout.sharedPlot, history, axis, delta,
+    paintPath (g, loudnessPlot, history, axis, delta,
                COL_SPECTRUM_POST, 0.96f, 1.20f, sampleRate);
     if (! delta)
     {
-        chain_action::paint (g, layout.sharedPlot,
-                             truePeakOverlayFor (layout.sharedPlot), chainView);
-        paintTruePeakEvents (g, layout.sharedPlot, history, axis, peakSummary, sampleRate, meter);
+        if (chainView.visible())
+        {
+            chain_action::GeometryCache temporary;
+            auto& geometry = chainCache == nullptr ? temporary : *chainCache;
+            geometry.update (band, chainView);
+            geometry.paint (g);
+            g.setColour (COL_MUTED.brighter (0.25f));
+            g.setFont (monoFont (presentation, typography::TextRole::axis,
+                                 typography::Composition::visualization));
+            g.drawText ("REL", layout.loudnessLabels.getX(), juce::roundToInt (band.getY()),
+                        layout.loudnessLabels.getWidth() - 2, 12,
+                        juce::Justification::centredRight);
+            g.drawText ("PRE", layout.loudnessLabels.getX(), juce::roundToInt (band.getBottom() - 14.0f),
+                        layout.loudnessLabels.getWidth() - 2, 7,
+                        juce::Justification::centredRight);
+            g.drawText ("POST", layout.loudnessLabels.getX(), juce::roundToInt (band.getBottom() - 8.0f),
+                        layout.loudnessLabels.getWidth() - 2, 7,
+                        juce::Justification::centredRight);
+        }
+        else
+            paintTruePeakBand (g, band, history, axis, sampleRate);
+        paintClipPips (g, loudnessPlot, history, axis, sampleRate, meter);
     }
-    paintCurrentLoudness (g, layout.sharedPlot, history, delta, presentation);
+    paintCurrentLoudness (g, loudnessPlot, history, delta, presentation);
     g.setColour (COL_MUTED.withAlpha (0.64f));
     g.setFont (monoFont (presentation, typography::TextRole::axis,
                          typography::Composition::visualization));
@@ -464,6 +488,6 @@ void paint (juce::Graphics& g,
                 juce::Justification::centred);
     g.drawText ("NOW", layout.timeLabels.withLeft (layout.timeLabels.getRight() - 24),
                 juce::Justification::centredRight);
-    paintHover (g, layout, history, axis, hoveredIndex, delta, sampleRate);
+    paintHover (g, layout, loudnessPlot, history, axis, hoveredIndex, delta, sampleRate);
 }
 }

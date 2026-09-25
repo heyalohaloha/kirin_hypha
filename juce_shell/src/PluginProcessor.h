@@ -80,7 +80,8 @@ public:
     bool pollChainObservation (
         std::uint64_t knownRevision,
         KirinChainSnapshot& out,
-        std::array<KirinChainPoint, KIRIN_CHAIN_CAPACITY>& points) const;
+        std::array<KirinChainPoint, KIRIN_CHAIN_CAPACITY>& points,
+        bool latestOnly = false) const;
     bool pollMeterHistory (uint8_t resolution,
                            std::vector<KirinMeterHistoryEntry>& out,
                            size_t maxEntries,

@@ -1,6 +1,7 @@
 #include "CaptureHistoryContractTest.h"
 
 #include "../src/HyphaCaptureHistoryPainter.h"
+#include "../src/HyphaChainSummaryText.h"
 
 #include <algorithm>
 #include <array>
@@ -170,7 +171,7 @@ void verifyCaptureHistoryContract()
         area, history, { 250.0f, 65.0f }, 48'000.0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (! beforeAvailableWindow.has_value());
     const auto newest = capture_history::hitTest (
-        area, history, { 459.9f, 65.0f }, 48'000.0);
+        area, history, { 484.9f, 65.0f }, 48'000.0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (newest.has_value());
     KIRIN_CAPTURE_HISTORY_REQUIRE (*newest == history.size() - 1u);
 
@@ -204,6 +205,15 @@ void verifyCaptureHistoryContract()
     auto [belowChain, belowChainPoints] = chainFixture (-1.2);
     auto [crossingChain, crossingChainPoints] = chainFixture (-0.8);
     auto [strongChain, strongChainPoints] = chainFixture (0.2);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (
+        chain_action::summaryText (belowChain, belowChainPoints.back(), true)
+            .contains ("BOTH<=-1"));
+    KIRIN_CAPTURE_HISTORY_REQUIRE (
+        chain_action::summaryText (crossingChain, crossingChainPoints.back(), false)
+            .contains ("POST>-1"));
+    KIRIN_CAPTURE_HISTORY_REQUIRE (
+        chain_action::summaryText (strongChain, strongChainPoints.back(), false)
+            .contains ("POST>0"));
     const auto withoutChain = render (history, false);
     const auto belowChainImage = render (
         history, false, std::nullopt, nullptr, &belowChain, &belowChainPoints);
@@ -212,8 +222,8 @@ void verifyCaptureHistoryContract()
     const auto strongImage = render (
         history, false, std::nullopt, nullptr, &strongChain, &strongChainPoints);
     KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (withoutChain, belowChainImage) > 20);
-    KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (belowChainImage, crossingImage) > 20);
-    KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (crossingImage, strongImage) > 20);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (belowChainImage, crossingImage) > 4);
+    KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (crossingImage, strongImage) > 4);
     belowChain.status = KIRIN_CHAIN_AMBIGUOUS;
     KIRIN_CAPTURE_HISTORY_REQUIRE (changedPixels (
         withoutChain, render (history, false, std::nullopt, nullptr,

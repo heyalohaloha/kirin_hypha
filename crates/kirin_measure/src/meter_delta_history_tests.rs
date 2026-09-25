@@ -30,16 +30,11 @@ fn post_point(observed: u64, endpoint: i64, value: f64) -> MeterHistoryEntry {
 
 fn pre_point(endpoint: i64, value: f64) -> WirePoint {
     WirePoint {
-        window: None,
         generation: 2,
         run_id: 5,
         observed_frames: endpoint as u64,
         endpoint_samples: endpoint,
         source: CaptureClockSource::ProjectTimeline as u8,
-        auxiliary_endpoint_samples: None,
-        auxiliary_source: 0,
-        presentation_source: 0,
-        output_presentation_samples: None,
         lufs_m: Some(value),
         lufs_s: Some(value - 1.0),
         true_peak: Some(value + 10.0),

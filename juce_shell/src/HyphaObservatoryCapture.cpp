@@ -63,7 +63,19 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
         frame.guideDetail = guideDetail;
         frame.guideEmphasized = guideEmphasized;
     }
-    frame.history = historySnapshot != nullptr ? *historySnapshot : history;
+    if (levelInspection.held() && selectedDomain == Domain::level)
+    {
+        frame.levelInspection = levelInspection;
+        frame.history = levelInspection.snapshot;
+        if (levelInspection.chainSnapshot.count > 0u)
+        {
+            frame.chainSnapshot = levelInspection.chainSnapshot;
+            frame.chainPoints = levelInspection.chainPoints;
+            frame.chainSnapshotAvailable = true;
+        }
+    }
+    else
+        frame.history = historySnapshot != nullptr ? *historySnapshot : history;
     frame.captureFrame = true;
     frame.jungleAppearance = jungleAppearance;
     frame.presentationOutput = presentation::OutputTarget::capture;

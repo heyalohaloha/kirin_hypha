@@ -20,6 +20,7 @@ fn frame(index: i64, value: f32) -> SpectrumFrame {
         channels: 2,
         min_hz: 10.0,
         max_hz: 22_000.0,
+        windowed_energy: 0.01,
         dbfs: [value; SPECTRUM_BAND_COUNT],
     }
 }

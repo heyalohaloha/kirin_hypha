@@ -8,15 +8,22 @@ namespace hypha::observatory
 void View::setChainObservation (const KirinChainSnapshot& value,
                                 const KirinChainPoint* points)
 {
-    const auto valid = value.version == KIRIN_CHAIN_VERSION
-                    && value.count <= KIRIN_CHAIN_CAPACITY
+    const auto valid = ((value.version == KIRIN_CHAIN_VERSION
+                             && value.count <= KIRIN_CHAIN_CAPACITY)
+                        || (value.version == KIRIN_CHAIN_VERSION_LATEST
+                             && value.count <= 1u))
                     && (value.count == 0u || points != nullptr);
     if (! valid)
     {
         clearChainObservation();
         return;
     }
-    if (chainSnapshotAvailable && chainSnapshot.revision == value.revision)
+    if (levelInspection.held() && levelInspection.chainSnapshot.binding != 0u
+        && (levelInspection.chainSnapshot.binding != value.binding
+            || value.status == KIRIN_CHAIN_SUPPRESSED))
+        resumeLevelHistory();
+    if (chainSnapshotAvailable && chainSnapshot.revision == value.revision
+        && chainSnapshot.version == value.version)
         return;
     chainSnapshot = value;
     if (value.count == 0u)
@@ -31,6 +38,8 @@ void View::clearChainObservation()
 {
     if (! chainSnapshotAvailable && chainPoints.empty())
         return;
+    if (levelInspection.held() && levelInspection.chainSnapshot.binding != 0u)
+        resumeLevelHistory();
     chainSnapshot = {};
     chainPoints.clear();
     chainSnapshotAvailable = false;
@@ -92,6 +101,10 @@ void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool availab
         || observatoryFrame.meter.state != value.meter.state;
     observatoryFrame = value;
     frameAvailable = true;
+    if (chainSnapshotAvailable && ! chainPoints.empty()
+        && (chainPoints.back().post_epoch != value.meter.measurement_epoch
+            || chainPoints.back().post_generation != value.meter.generation))
+        clearChainObservation();
     if (levelInspection.held() && (comparisonChanged || ! levelInspection.matches (value.meter)))
         resumeLevelHistory();
     else if (historyIdentityChanged) updateLevelHistoryControls();

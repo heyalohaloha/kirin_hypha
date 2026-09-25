@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "kirin_hypha_ffi.h"
 #define KIRIN_CHAIN_VERSION 1u
+#define KIRIN_CHAIN_VERSION_LATEST 2u
 #define KIRIN_CHAIN_CAPACITY 600u
 #define KIRIN_CHAIN_UNAVAILABLE 0u
 #define KIRIN_CHAIN_SYNCING 1u
@@ -11,6 +12,8 @@
 #define KIRIN_CHAIN_HOLD 3u
 #define KIRIN_CHAIN_AMBIGUOUS 4u
 #define KIRIN_CHAIN_SUPPRESSED 5u
+#define KIRIN_CHAIN_CLOCK_POLICY_UNKNOWN 0u
+#define KIRIN_CHAIN_CLOCK_POLICY_STUDIO_PRO_812_WINDOWS_VST3 1u
 
 /* Same complete 400 ms aperture. NaN is missing, never zero. Window endpoint, not peak sample. */
 typedef struct {
@@ -29,7 +32,11 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* UI only. Capacity must be 600. False leaves outputs untouched (including unchanged revision). */
+/* Non-RT setup before endpoint publication. Unknown and unrecognized values cannot admit
+   exact PRE/POST comparison; this never changes the absolute Meter Session. */
+void kirin_hypha_set_chain_clock_policy(KirinHypha* handle, uint8_t policy);
+/* UI only. v1 requires 600 slots; v2 accepts 1 (latest-only) or 600 slots.
+   False leaves outputs untouched (including unchanged revision). */
 bool kirin_hypha_poll_chain_observation(KirinHypha* handle, uint32_t version,
     uint64_t known_revision, KirinChainSnapshot* out, KirinChainPoint* points, uint32_t capacity);
 #ifdef __cplusplus

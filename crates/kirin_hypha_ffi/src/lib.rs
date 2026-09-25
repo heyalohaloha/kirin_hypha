@@ -64,11 +64,11 @@ use kirin_measure::{
     RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock,
     RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState,
     SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame, SpectrumRuntime, SpectrumRuntimeStats,
-    SpectrumTimelineFrame, SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths, WatchMaxTracker,
-    WatchProducerHandoff, WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY,
-    CAPTURE_PRODUCER_READY_TIMEOUT, HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY,
-    HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
-    MAX_CAPTURE_GENERATION_MEMBERS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
+    SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff,
+    WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
+    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT,
+    MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS,
+    PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS, STEREO_FIELD_SIZE,
 };
 use uuid::Uuid;
@@ -98,6 +98,7 @@ mod reference_audition_ffi;
 mod reference_gain_ffi;
 mod signal_state_ffi;
 mod spectrum_mid_side_ffi;
+mod spectrum_view_abi;
 mod watch_display_ffi;
 use analysis_display_ffi::{to_c_absolute_batch, to_c_perceptual, to_c_perceptual_batch};
 pub use attack_ffi::*;
@@ -124,6 +125,8 @@ pub use signal_state_ffi::{
     kirin_hypha_set_signal_state,
 };
 pub use spectrum_mid_side_ffi::*;
+use spectrum_view_abi::c_spectrum_from_timeline;
+pub use spectrum_view_abi::{KirinSpectrumBatch, KirinSpectrumView};
 pub use watch_display_ffi::kirin_hypha_poll_watch_display;
 pub const KIRIN_SIGNAL_STATE_INACTIVE: u8 = 0;
 pub const KIRIN_SIGNAL_STATE_ACTIVE: u8 = 1;
@@ -3043,43 +3046,6 @@ pub struct KirinAnalysisOwners {
     pub names: [[u8; KIRIN_ANALYSIS_OWNER_NAME_CAPACITY]; KIRIN_ANALYSIS_SLOT_COUNT],
 }
 
-/// POST-only Spectrum view. PRE/POST are the exact magnitudes behind `display_db`, which is signed
-/// POST - PRE and bounded only by the renderer. Rust retains the unclipped raw difference.
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct KirinSpectrumView {
-    pub status: u8,
-    pub has_data: u8,
-    pub channel_mode: u8,
-    pub channels: u8,
-    pub sample_rate: u32,
-    pub min_hz: f32,
-    pub max_hz: f32,
-    pub pre_dbfs: [f32; SPECTRUM_BAND_COUNT],
-    pub post_dbfs: [f32; SPECTRUM_BAND_COUNT],
-    pub display_db: [f32; SPECTRUM_BAND_COUNT],
-    /// Exact shared PRE/POST presentation endpoint. Tail-appended for ABI prefix stability.
-    pub presentation_end_samples: i64,
-    /// Exact host-rate aperture and FFT layout used by both frames.
-    pub aperture_samples: u32,
-    pub fft_size: u32,
-    /// Frequencies below this cycle-derived boundary remain visible but use an approximate label.
-    pub approximate_below_hz: f32,
-    /// A local POST Spectrum may exist without an exact PRE/POST difference.
-    pub post_has_data: u8,
-    pub post_reserved: [u8; 3],
-}
-
-/// Eight already-computed exact Spectrum differences, oldest first. This bounded recovery window
-/// absorbs short UI stalls without adding FFT work or changing the latest-view ABI.
-#[repr(C)]
-pub struct KirinSpectrumBatch {
-    pub latest: KirinSpectrumView,
-    pub count: u32,
-    pub reserved: u32,
-    pub frames: [KirinSpectrumView; SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY],
-}
-
 /// POST-only exact-aperture Perceptual Delta view. It carries measured facts, never a verdict.
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -3318,6 +3284,12 @@ fn c_spectrum_from_difference(
         approximate_below_hz: difference.approximate_below_hz,
         post_has_data: 1,
         post_reserved: [0; 3],
+        shape_has_energy: u8::from(difference.energy_delta_db.is_some()),
+        analysis_view: difference.view,
+        shape_reserved: [0; 2],
+        shape_energy_delta_db: difference.energy_delta_db.unwrap_or(0.0),
+        shape_db: difference.shape_db,
+        shape_valid: difference.shape_valid.map(u8::from),
     }
 }
 
@@ -3339,27 +3311,12 @@ fn c_spectrum_from_post(status: u8, post: &SpectrumFrame) -> KirinSpectrumView {
         approximate_below_hz: 3.0 * post.sample_rate as f32 / post.aperture_samples as f32,
         post_has_data: 1,
         post_reserved: [0; 3],
-    }
-}
-
-fn c_spectrum_from_timeline(status: u8, difference: &SpectrumTimelineFrame) -> KirinSpectrumView {
-    KirinSpectrumView {
-        status,
-        has_data: 1,
-        channel_mode: difference.channel_mode as u8,
-        channels: difference.channels,
-        sample_rate: difference.sample_rate,
-        min_hz: difference.min_hz,
-        max_hz: difference.max_hz,
-        pre_dbfs: difference.pre_dbfs,
-        post_dbfs: difference.post_dbfs,
-        display_db: difference.display_db,
-        presentation_end_samples: difference.presentation_end_samples,
-        aperture_samples: difference.aperture_samples,
-        fft_size: difference.fft_size,
-        approximate_below_hz: difference.approximate_below_hz,
-        post_has_data: 1,
-        post_reserved: [0; 3],
+        shape_has_energy: 0,
+        analysis_view: post.view,
+        shape_reserved: [0; 2],
+        shape_energy_delta_db: 0.0,
+        shape_db: [0.0; SPECTRUM_BAND_COUNT],
+        shape_valid: [0; SPECTRUM_BAND_COUNT],
     }
 }
 
@@ -3381,6 +3338,12 @@ fn empty_c_spectrum() -> KirinSpectrumView {
         approximate_below_hz: 0.0,
         post_has_data: 0,
         post_reserved: [0; 3],
+        shape_has_energy: 0,
+        analysis_view: 0,
+        shape_reserved: [0; 2],
+        shape_energy_delta_db: 0.0,
+        shape_db: [0.0; SPECTRUM_BAND_COUNT],
+        shape_valid: [0; SPECTRUM_BAND_COUNT],
     }
 }
 

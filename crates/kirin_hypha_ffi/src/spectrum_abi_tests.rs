@@ -1,6 +1,9 @@
 use super::*;
 use kirin_measure::channel_layout::ChannelLayout;
 
+#[path = "spectrum_clock_abi_tests.rs"]
+mod clock_tests;
+
 fn post_engine(layout: ChannelLayout) -> Box<KirinHyphaEngine> {
     let engine = Box::new(KirinHyphaEngine::new(48_000, layout));
     *engine.write_role.lock().unwrap() = Some(PluginDataRole::Post);
@@ -80,7 +83,7 @@ use kirin_measure::spectrum::SpectrumDifference;
 
 #[test]
 fn spectrum_status_and_signed_display_values_have_stable_c_mapping() {
-    assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_112);
+    assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 4_400);
     assert_eq!(
         std::mem::offset_of!(KirinSpectrumView, presentation_end_samples),
         3_088
@@ -94,6 +97,12 @@ fn spectrum_status_and_signed_display_values_have_stable_c_mapping() {
         std::mem::offset_of!(KirinSpectrumView, approximate_below_hz),
         3_104
     );
+    assert_eq!(
+        std::mem::offset_of!(KirinSpectrumView, shape_has_energy),
+        3_112
+    );
+    assert_eq!(std::mem::offset_of!(KirinSpectrumView, shape_db), 3_120);
+    assert_eq!(std::mem::offset_of!(KirinSpectrumView, shape_valid), 4_144);
     assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::Hidden), 0);
     assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::NoPair), 1);
     assert_eq!(spectrum_status_to_abi(SpectrumViewStatus::WarmingUp), 2);
@@ -116,6 +125,9 @@ fn spectrum_status_and_signed_display_values_have_stable_c_mapping() {
         post_dbfs: [-45.5; SPECTRUM_BAND_COUNT],
         raw_db: [15.0; SPECTRUM_BAND_COUNT],
         display_db: [-3.5; SPECTRUM_BAND_COUNT],
+        energy_delta_db: Some(3.0),
+        shape_db: [-6.5; SPECTRUM_BAND_COUNT],
+        shape_valid: [true; SPECTRUM_BAND_COUNT],
     };
     let mut spectrum_timeline = kirin_measure::SpectrumDifferenceTimeline::default();
     spectrum_timeline.push(&difference);
@@ -148,14 +160,20 @@ fn spectrum_status_and_signed_display_values_have_stable_c_mapping() {
     assert_eq!(out.aperture_samples, 4_096);
     assert_eq!(out.fft_size, 8_192);
     assert_eq!(out.approximate_below_hz, 35.15625);
+    assert_eq!(out.shape_has_energy, 1);
+    assert_eq!(out.shape_energy_delta_db, 3.0);
+    assert_eq!(out.shape_db[0], -6.5);
+    assert_eq!(out.shape_valid[0], 1);
     let batch = to_c_spectrum_batch(snapshot);
-    // The four-byte POST-presence tail occupies the struct's former alignment padding.
-    assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 3_112);
-    assert_eq!(std::mem::size_of::<KirinSpectrumBatch>(), 28_016);
+    // Latest plus eight bounded recovery frames; no FFT or resampling during UI readout.
+    assert_eq!(std::mem::size_of::<KirinSpectrumView>(), 4_400);
+    assert_eq!(std::mem::size_of::<KirinSpectrumBatch>(), 39_608);
     assert_eq!(batch.count, 1);
     assert_eq!(batch.latest.presentation_end_samples, 48_000);
     assert_eq!(batch.frames[0].presentation_end_samples, 48_000);
     assert_eq!(batch.frames[0].display_db[0], -3.5);
+    assert_eq!(batch.frames[0].shape_db[0], -6.5);
+    assert_eq!(batch.frames[0].shape_valid[0], 1);
 }
 
 #[test]
@@ -180,6 +198,7 @@ fn unpaired_post_spectrum_is_distinct_from_exact_delta_at_the_abi() {
             channels: 2,
             min_hz: 10.0,
             max_hz: 22_000.0,
+            windowed_energy: 0.01,
             dbfs: [-27.5; SPECTRUM_BAND_COUNT],
         }),
         post_spectrum_history: Default::default(),
@@ -196,6 +215,8 @@ fn unpaired_post_spectrum_is_distinct_from_exact_delta_at_the_abi() {
     assert_eq!(out.presentation_end_samples, 9_600);
     assert_eq!(out.pre_dbfs, [0.0; SPECTRUM_BAND_COUNT]);
     assert_eq!(out.display_db, [0.0; SPECTRUM_BAND_COUNT]);
+    assert_eq!(out.shape_has_energy, 0);
+    assert_eq!(out.shape_valid, [0; SPECTRUM_BAND_COUNT]);
 }
 
 #[test]
@@ -319,38 +340,6 @@ fn analysis_owner_names_are_bounded_utf8_and_null_terminated() {
     assert_eq!(
         std::str::from_utf8(&unicode.names[0][..nul]).unwrap(),
         "ボーカル"
-    );
-}
-
-#[test]
-fn presentation_alignment_requires_known_wrapper_output_latency() {
-    let exact = PendingCaptureWindow {
-        position_valid: true,
-        position_samples: 9_600,
-        num_frames: 480,
-        clock_source: CaptureClockSource::ProjectTimeline,
-        presentation_latency: PresentationLatencySamples {
-            source: PresentationLatencySource::Vst3,
-            input: Some(0),
-            output: Some(2_048),
-        },
-        auxiliary: AuxiliaryClockSamples::default(),
-        force_new_epoch: false,
-    };
-    assert_eq!(spectrum_presentation_start(exact), Some(11_648));
-    assert_eq!(
-        spectrum_presentation_start(PendingCaptureWindow {
-            presentation_latency: PresentationLatencySamples::default(),
-            ..exact
-        }),
-        None
-    );
-    assert_eq!(
-        spectrum_presentation_start(PendingCaptureWindow {
-            position_valid: false,
-            ..exact
-        }),
-        None
     );
 }
 

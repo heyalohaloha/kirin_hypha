@@ -10,6 +10,8 @@
 #include "kirin_hypha_ffi.h"
 #include "kirin_hypha_chain_observation.h"
 
+namespace hypha::chain_action { class GeometryCache; }
+
 namespace hypha::capture_history
 {
 constexpr double absoluteLoudnessMinimum = -36.0;
@@ -65,5 +67,6 @@ void paint (juce::Graphics&,
             juce::String contextFact = {},
             const KirinMeterSession* meter = nullptr,
             const KirinChainSnapshot* chain = nullptr,
-            const std::vector<KirinChainPoint>* chainPoints = nullptr);
+            const std::vector<KirinChainPoint>* chainPoints = nullptr,
+            chain_action::GeometryCache* chainCache = nullptr);
 }
