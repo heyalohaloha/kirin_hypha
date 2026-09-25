@@ -29,6 +29,7 @@ inline KirinAttackDetail laneDetail (std::int64_t sample, std::uint64_t generati
     detail.shape_end_sample = start + 130 * 48;
     detail.body_end_sample = start + 130 * 48;
     detail.shape_count = KIRIN_ATTACK_SHAPE_CAPACITY;
+    detail.complete = 1;
     detail.transient_available = 1;
     detail.transient_db = 8.0f;
     detail.body_rms_dbfs = -22.0f;

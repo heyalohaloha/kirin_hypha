@@ -244,6 +244,7 @@ fn measured_detail(onset: i64, attack_rms_dbfs: f32) -> kirin_measure::AttackDet
             attack_rms_dbfs,
             sample_peak_dbfs: attack_rms_dbfs + 10.0,
             crest_db: 10.0,
+            complete: true,
             body_end_sample: start + 60 * 48,
             body_rms_dbfs: Some(attack_rms_dbfs - 8.0),
             transient_db: Some(8.0),
@@ -326,8 +327,12 @@ fn paired_post_details_are_measured_at_the_pre_onset() {
     );
     let detail = batch.details[1];
     assert_eq!(
-        (detail.transient_available, detail.sharpness_available),
-        (1, 0)
+        (
+            detail.complete,
+            detail.transient_available,
+            detail.sharpness_available
+        ),
+        (1, 1, 0)
     );
     assert_eq!((detail.transient_db, detail.bin_frames), (8.0, 48));
     assert_eq!(detail.body_end_sample, 20_112 + 60 * 48);
@@ -361,4 +366,30 @@ fn a_full_window_of_matched_hits_keeps_every_anchored_detail() {
         .iter()
         .zip(&pre)
         .all(|(detail, onset)| detail.event_sample == *onset && detail.attack_rms_dbfs == -17.0));
+}
+
+#[test]
+fn a_head_only_detail_crosses_the_abi_as_incomplete() {
+    let mut head = measured_detail(20_150, -17.0);
+    let head_end = head.features.window_start_sample + 30 * 48;
+    head.features.complete = false;
+    head.features.body_end_sample = head_end;
+    head.features.body_rms_dbfs = None;
+    head.features.transient_db = None;
+    head.shape.end_sample = head_end + 12 * 48;
+    assert!(head.has_valid_layout());
+    let batch = to_c_paired_post_detail_batch(&[head], &active_view(Vec::new(), Vec::new()));
+    assert_eq!(batch.count, 1);
+    let detail = batch.details[0];
+    assert_eq!(
+        (
+            detail.complete,
+            detail.transient_available,
+            detail.sharpness_available
+        ),
+        (0, 0, 0)
+    );
+    assert_eq!(detail.attack_rms_dbfs, -17.0);
+    assert_eq!(detail.body_end_sample, head_end);
+    assert_eq!(detail.shape_end_sample, head_end + 12 * 48);
 }

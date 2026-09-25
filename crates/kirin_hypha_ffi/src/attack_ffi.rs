@@ -130,7 +130,9 @@ pub struct KirinAttackDetail {
     pub channels: u8,
     pub transient_available: u8,
     pub sharpness_available: u8,
-    pub reserved: u8,
+    /// 0 while only the head (STRENGTH, CREST) is measured; TRANSIENT and SHARPNESS are then
+    /// not available and the shape covers only the measured span.
+    pub complete: u8,
     pub definition_hash: [u8; 32],
     pub event_sample: i64,
     pub decision_sample: i64,
@@ -158,7 +160,7 @@ impl Default for KirinAttackDetail {
             channels: 0,
             transient_available: 0,
             sharpness_available: 0,
-            reserved: 0,
+            complete: 0,
             definition_hash: [0; 32],
             event_sample: 0,
             decision_sample: 0,

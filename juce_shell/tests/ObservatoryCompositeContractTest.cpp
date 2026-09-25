@@ -274,6 +274,7 @@ std::unique_ptr<AttackComponent> attackFixture()
     detail.shape_end_sample = 288'000 + 130 * 48;
     detail.body_end_sample = 288'000 + 130 * 48;
     detail.shape_count = KIRIN_ATTACK_SHAPE_CAPACITY;
+    detail.complete = 1u;
     detail.transient_available = 1u;
     detail.transient_db = 8.0f;
     detail.body_rms_dbfs = -22.0f;

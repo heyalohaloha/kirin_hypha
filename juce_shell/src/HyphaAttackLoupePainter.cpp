@@ -19,7 +19,7 @@ bool usable (const KirinAttackDetail* detail) noexcept
 {
     return detail != nullptr && detail->sample_rate > 0 && detail->bin_frames > 0
         && detail->shape_count >= 2 && detail->shape_count <= KIRIN_ATTACK_SHAPE_CAPACITY
-        && detail->shape_start_sample < detail->event_sample
+        && detail->shape_start_sample <= detail->event_sample
         && detail->event_sample < detail->shape_end_sample;
 }
 
@@ -34,6 +34,17 @@ std::int64_t windowStart (const KirinAttackDetail& detail) noexcept
 std::int64_t headEnd (const KirinAttackDetail& detail) noexcept
 {
     return windowStart (detail) + attack_ui::headBins * static_cast<std::int64_t> (detail.bin_frames);
+}
+
+// The loupe's fixed span: 20 ms before the head to the end of a full body.
+std::int64_t spanFirst (const KirinAttackDetail& detail) noexcept
+{
+    return windowStart (detail) - attack_ui::shapeLeadBins * static_cast<std::int64_t> (detail.bin_frames);
+}
+
+std::int64_t spanLast (const KirinAttackDetail& detail) noexcept
+{
+    return headEnd (detail) + attack_ui::bodyBins * static_cast<std::int64_t> (detail.bin_frames);
 }
 
 struct Axis
@@ -95,7 +106,7 @@ juce::Path shapePath (const KirinAttackDetail& detail, const Axis& axis, bool cl
 }
 
 // Head RMS, then the step down to the body RMS: the operands of STRENGTH and TRANSIENT. A body
-// cut short by the next onset has no level, so the step stops at the head.
+// cut short by the next onset, or not measured yet, has no level, so the step stops at the head.
 void paintRmsSteps (juce::Graphics& g, const KirinAttackDetail& detail, const Axis& axis,
                     juce::Colour colour, float thickness)
 {
@@ -103,7 +114,7 @@ void paintRmsSteps (juce::Graphics& g, const KirinAttackDetail& detail, const Ax
     const auto head = axis.x (headEnd (detail));
     steps.startNewSubPath (axis.x (windowStart (detail)), axis.y (detail.attack_rms_dbfs));
     steps.lineTo (head, axis.y (detail.attack_rms_dbfs));
-    if (detail.transient_available != 0)
+    if (detail.complete != 0 && detail.transient_available != 0)
     {
         steps.lineTo (head, axis.y (detail.body_rms_dbfs));
         steps.lineTo (axis.x (detail.body_end_sample), axis.y (detail.body_rms_dbfs));
@@ -153,12 +164,11 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
                 title, juce::Justification::centredRight, false);
 
     const auto& anchor = postUsable ? *post : *pre;
-    Axis axis { inner.toFloat().reduced (2.0f, 2.0f), anchor.shape_start_sample,
-                anchor.shape_end_sample };
+    Axis axis { inner.toFloat().reduced (2.0f, 2.0f), spanFirst (anchor), spanLast (anchor) };
     if (preUsable && postUsable)
     {
-        axis.first = std::min (pre->shape_start_sample, post->shape_start_sample);
-        axis.last = std::max (pre->shape_end_sample, post->shape_end_sample);
+        axis.first = std::min (spanFirst (*pre), spanFirst (*post));
+        axis.last = std::max (spanLast (*pre), spanLast (*post));
     }
     const auto& plot = axis.plot;
     for (const auto db : { -24.0f, -48.0f })

@@ -82,10 +82,12 @@ namespace hypha::attack_ui
     }
 
     constexpr float absoluteFloorDb = -72.0f;
-    // Event windows in about-1 ms content bins (kirin_measure ATTACK_HEAD_BINS / BODY_BINS):
-    // the 30 ms head, then the body of up to 100 ms that ends early at the next onset.
+    // Event windows in about-1 ms content bins, kept equal to kirin_measure's ATTACK_HEAD_BINS,
+    // ATTACK_BODY_BINS and ATTACK_SHAPE_LEAD_BINS by a kirin_hypha_ffi test: the 30 ms head, the
+    // body of up to 100 ms that ends early at the next onset, and 20 ms of shape before the head.
     constexpr std::int64_t headBins = 30;
     constexpr std::int64_t bodyBins = 100;
+    constexpr std::int64_t shapeLeadBins = 20;
     // A colour-vision-resilient gold/cyan family. Labels, lane order and bar direction remain the
     // primary identifiers; magnitude and sign never depend on hue alone.
     constexpr std::uint32_t waveformColour = 0xff32ced7;

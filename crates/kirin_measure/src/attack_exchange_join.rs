@@ -67,8 +67,9 @@ pub(super) fn store_joined_attack(
 }
 
 /// POST measured at each matched PRE onset over the PRE detail's head, body and Sharpness
-/// windows, read from the POST runtime's retained bins. A pair whose PRE detail has not arrived,
-/// or whose windows are outside the bins, has no anchored POST detail yet.
+/// windows, read from the POST runtime's retained bins; only the head while either side's body is
+/// not final. A pair whose PRE detail has not arrived, or whose windows are outside the bins, has
+/// no anchored POST detail yet.
 fn anchored_post_details(
     coordinator: &SpectrumCoordinator,
     pre: &AttackHistory,
@@ -99,7 +100,10 @@ fn anchored_post_details(
                     decision_sample: pair.decision_sample.max(onset),
                     value: pair.post_value.unwrap_or(0.0),
                 },
-                body_end_sample: pre_detail.features.body_end_sample,
+                body_end_sample: pre_detail
+                    .features
+                    .complete
+                    .then_some(pre_detail.features.body_end_sample),
             })
         })
         .collect::<Vec<_>>();

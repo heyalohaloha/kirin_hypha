@@ -159,27 +159,37 @@ impl AttackBins {
         end.max(head_end) * self.bin_frames
     }
 
-    /// Measure the windows of `event` against this run's bins, ending the body at
-    /// `body_end_sample`. `None` when a required bin is not retained.
+    /// Measure the windows of `event` against this run's bins. With `body_end_sample` the hit is
+    /// complete: its body ends there and every window must be final. Without it only the head is
+    /// measured, while the body is not final or after its audio stopped. `None` when a required
+    /// bin is not retained.
     pub(super) fn measure(
         &self,
         event: AttackEvent,
-        body_end_sample: i64,
+        body_end_sample: Option<i64>,
     ) -> Option<(AttackPerceptualFeatures, AttackEventShape)> {
         if event.generation != self.generation
             || event.sample_rate != self.sample_rate
             || usize::from(event.channels) != self.channels
-            || !self.ready_for(event.event_sample)
-            || body_end_sample.rem_euclid(self.bin_frames) != 0
         {
             return None;
         }
         let start = event.event_sample.div_euclid(self.bin_frames);
         let head_end = start + ATTACK_HEAD_BINS;
-        let body_end = body_end_sample / self.bin_frames;
-        if body_end < head_end || body_end > head_end + ATTACK_BODY_BINS {
-            return None;
-        }
+        let body_end = match body_end_sample {
+            Some(sample) => {
+                if !self.ready_for(event.event_sample) || sample.rem_euclid(self.bin_frames) != 0 {
+                    return None;
+                }
+                let end = sample.div_euclid(self.bin_frames);
+                if end < head_end || end > head_end + ATTACK_BODY_BINS {
+                    return None;
+                }
+                end
+            }
+            None => head_end,
+        };
+        let complete = body_end_sample.is_some();
         let head = self.range(start, head_end)?;
         let floor_power = 10.0_f64.powf(f64::from(ATTACK_LEVEL_FLOOR_DBFS) / 10.0);
         let rms_dbfs = |bins: Iter<'_, Bin>| {
@@ -201,10 +211,11 @@ impl AttackBins {
             attack_rms_dbfs,
             sample_peak_dbfs,
             crest_db: sample_peak_dbfs - attack_rms_dbfs,
-            body_end_sample,
+            complete,
+            body_end_sample: body_end * self.bin_frames,
             body_rms_dbfs,
             transient_db: body_rms_dbfs.map(|body| attack_rms_dbfs - body),
-            sharpness_acum: self.sharpness(start),
+            sharpness_acum: complete.then(|| self.sharpness(start)).flatten(),
         };
         let shape = self.shape(event.event_sample, start)?;
         Some((features, shape))
@@ -236,18 +247,19 @@ impl AttackBins {
         (measured > 0).then(|| (sum / f64::from(measured)) as f32)
     }
 
-    /// Frame-envelope peaks from 20 ms before the window start to the end of the full body.
-    /// Missing lead-in bins (the start of a run) read as silence; this is display only.
+    /// Frame-envelope peaks over the measured part of [window start - 20 ms, window start +
+    /// 130 ms). Bins before the run or already dropped, and bins not measured yet, are left out
+    /// instead of drawn as silence; the 96 points spread over the measured span.
     fn shape(&self, event_sample: i64, start: i64) -> Option<AttackEventShape> {
-        let from = start - ATTACK_SHAPE_LEAD_BINS;
-        let to = start + ATTACK_HEAD_BINS + ATTACK_BODY_BINS;
-        let total = (to - from) as usize;
+        let from = (start - ATTACK_SHAPE_LEAD_BINS).max(self.first);
+        let to = (start + ATTACK_HEAD_BINS + ATTACK_BODY_BINS).min(self.end());
+        let total = usize::try_from(to - from).ok().filter(|total| *total > 0)?;
         let mut points = [0.0_f32; ATTACK_SHAPE_POINT_CAPACITY];
         for (index, point) in points.iter_mut().enumerate() {
             let first = index * total / ATTACK_SHAPE_POINT_CAPACITY;
             let last = ((index + 1) * total / ATTACK_SHAPE_POINT_CAPACITY).max(first + 1);
-            *point = (first..last)
-                .filter_map(|bin| self.get(from + bin as i64))
+            *point = self
+                .range(from + first as i64, from + last as i64)?
                 .fold(0.0_f32, |peak, bin| peak.max(bin.peak_frame));
         }
         let shape = AttackEventShape {
@@ -257,11 +269,6 @@ impl AttackBins {
             points,
         };
         shape.has_valid_layout().then_some(shape)
-    }
-
-    fn get(&self, index: i64) -> Option<&Bin> {
-        self.bins
-            .get(usize::try_from(index.checked_sub(self.first)?).ok()?)
     }
 }
 

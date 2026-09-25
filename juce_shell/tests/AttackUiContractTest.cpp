@@ -6,6 +6,7 @@
 #include "AttackUiLaneContract.h"
 #include "AttackUiChromeContract.h"
 #include "AttackUiSelectionContract.h"
+#include "AttackUiHeadOnlyContract.h"
 #include "AttackUiOverviewContract.h"
 #include "AttackUiSizeContract.h"
 #include "AttackUiLifecycleContract.h"
@@ -175,6 +176,8 @@ int main()
     KIRIN_REQUIRE (verifyPostOnlyLanes());
     KIRIN_REQUIRE (verifyLanesShowDifferencesOnly());
     KIRIN_REQUIRE (verifyLoupe());
+    KIRIN_REQUIRE (verifyHeadOnlyCells());
+    KIRIN_REQUIRE (verifyHeadOnlyLoupe());
     KIRIN_REQUIRE (verifyCompactLine());
     KIRIN_REQUIRE (verifySelectionHypha());
     KIRIN_REQUIRE (verifyOffscreenLock());

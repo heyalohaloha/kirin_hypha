@@ -4,6 +4,10 @@
 //! first sample of the about-1 ms content bin that contains the onset, so PRE and POST measured at
 //! one onset read exactly the same content samples. Stereo is aggregated as mean linear power; no
 //! downmix is used.
+//!
+//! A hit is published in two stages. Once its 30 ms head is measured it carries STRENGTH and
+//! CREST; once its body, next onset and Sharpness window are final it is complete. A hit whose
+//! audio stops first (the transport stopped) keeps its head values and never invents the rest.
 
 pub const ATTACK_BIN_MICROS: u32 = 1_000;
 /// Head: the first 30 ms, whose RMS is STRENGTH.
@@ -36,6 +40,9 @@ pub struct AttackPerceptualFeatures {
     pub sample_peak_dbfs: f32,
     /// Head sample peak minus head RMS (CREST).
     pub crest_db: f32,
+    /// False while only the head is measured: the body end is then the head end, and the body,
+    /// TRANSIENT and Sharpness are `None`.
+    pub complete: bool,
     /// Exclusive end of the body window; PRE and POST share it for one pair.
     pub body_end_sample: i64,
     /// Body RMS; `None` when the next onset leaves less than 20 ms of body.
@@ -43,7 +50,8 @@ pub struct AttackPerceptualFeatures {
     /// Head RMS minus body RMS (TRANSIENT); present exactly when the body is.
     pub transient_db: Option<f32>,
     /// Loudness-weighted DIN 45692 Sharpness of the 100 ms from the window start, ignoring
-    /// Phase D frames below 0.1 sone; `None` when nothing there is loud enough.
+    /// Phase D frames below 0.1 sone; `None` when nothing there is loud enough, before Phase D
+    /// settles in a run, or while the hit is not complete.
     pub sharpness_acum: Option<f32>,
 }
 
@@ -57,6 +65,8 @@ impl AttackPerceptualFeatures {
             && self.window_start_sample.rem_euclid(bin) == 0
             && self.body_end_sample.rem_euclid(bin) == 0
             && (head_end..=head_end + ATTACK_BODY_BINS * bin).contains(&self.body_end_sample)
+            && (self.complete
+                || (self.body_end_sample == head_end && self.sharpness_acum.is_none()))
             && [self.attack_rms_dbfs, self.sample_peak_dbfs, self.crest_db]
                 .into_iter()
                 .all(f32::is_finite)

@@ -2,7 +2,9 @@
 //!
 //! Each sample updates one about-1 ms bin and the 10 ms waveform. At the end of every block the
 //! bins and the block's Phase D Sharpness frames move to the runtime's shared bin history, where
-//! this worker measures its own hits and the POST coordinator measures POST at PRE onsets.
+//! this worker measures its own hits and the POST coordinator measures POST at PRE onsets. A hit
+//! is published with its head as soon as that is measured, and completed once its body, next
+//! onset and Sharpness window are final.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -16,6 +18,13 @@ use super::state::{AttackDetailedEvent, AttackEvent};
 
 const WAVEFORM_BIN_MICROS: u32 = 10_000;
 const PENDING_EVENT_CAPACITY: usize = 32;
+
+/// A confirmed hit that is not complete yet, and whether its head has been published.
+#[derive(Clone, Copy)]
+struct Pending {
+    event: AttackEvent,
+    head_sent: bool,
+}
 
 pub(super) struct AttackDetailTracker {
     channels: usize,
@@ -36,7 +45,7 @@ pub(super) struct AttackDetailTracker {
     waveform_count: i64,
     waveform_power_sum: f64,
     waveform_peak: f64,
-    pending_events: VecDeque<AttackEvent>,
+    pending_events: VecDeque<Pending>,
     decided_before: Option<i64>,
     sample_rate: u32,
 }
@@ -129,7 +138,10 @@ impl AttackDetailTracker {
         if self.pending_events.len() == PENDING_EVENT_CAPACITY {
             self.pending_events.pop_front();
         }
-        self.pending_events.push_back(event);
+        self.pending_events.push_back(Pending {
+            event,
+            head_sent: false,
+        });
     }
 
     /// Every onset before `sample` has been decided by the peak picker.
@@ -137,8 +149,9 @@ impl AttackDetailTracker {
         self.decided_before = Some(sample);
     }
 
-    /// Move this block's bins and Sharpness frames to the shared history, then measure every
-    /// queued hit whose windows and next onset are final. The body ends at the next onset.
+    /// Move this block's bins and Sharpness frames to the shared history, then complete every
+    /// queued hit whose windows and next onset are final (the body ends at the next onset) and
+    /// publish the head of every other hit whose head is measured.
     pub(super) fn flush(&mut self, shared: &Mutex<AttackBins>) -> Vec<AttackDetailedEvent> {
         self.frames.clear();
         let sharpness_failed = self
@@ -164,7 +177,19 @@ impl AttackDetailTracker {
             bins.push_sharpness(&self.frames, stream.next_frame_sample());
         }
         let mut details = Vec::new();
-        while let Some(&event) = self.pending_events.front() {
+        let mut publish = |event, measured: Option<(_, _)>| {
+            if let Some((features, shape)) = measured {
+                let detail = AttackDetailedEvent {
+                    event,
+                    features,
+                    shape,
+                };
+                if detail.has_valid_layout() {
+                    details.push(detail);
+                }
+            }
+        };
+        while let Some(&Pending { event, .. }) = self.pending_events.front() {
             let limit = (event.event_sample.div_euclid(self.bin_frames)
                 + ATTACK_HEAD_BINS
                 + ATTACK_BODY_BINS)
@@ -175,17 +200,22 @@ impl AttackDetailTracker {
                 break;
             }
             self.pending_events.pop_front();
-            let next = self.pending_events.front().map(|next| next.event_sample);
+            let next = self
+                .pending_events
+                .front()
+                .map(|next| next.event.event_sample);
             let body_end = bins.body_end_sample(event.event_sample, next);
-            if let Some((features, shape)) = bins.measure(event, body_end) {
-                let detail = AttackDetailedEvent {
-                    event,
-                    features,
-                    shape,
-                };
-                if detail.has_valid_layout() {
-                    details.push(detail);
-                }
+            publish(event, bins.measure(event, Some(body_end)));
+        }
+        for pending in self
+            .pending_events
+            .iter_mut()
+            .filter(|pending| !pending.head_sent)
+        {
+            let head = bins.measure(pending.event, None);
+            if head.is_some() {
+                pending.head_sent = true;
+                publish(pending.event, head);
             }
         }
         details

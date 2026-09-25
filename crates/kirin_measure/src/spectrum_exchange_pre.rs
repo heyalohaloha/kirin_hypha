@@ -231,12 +231,13 @@ impl SpectrumCoordinator {
                 else {
                     return true;
                 };
-                let newest_end = history.waveform().next_back().map(|point| point.end_sample);
-                (
-                    newest_end,
-                    encode_attack_snapshot(request_id, &history),
-                    None,
-                )
+                // Details are published or completed after their waveform, so any history
+                // change, not only a new waveform end, is a new snapshot.
+                let revision = history
+                    .waveform()
+                    .next_back()
+                    .map(|_| history.revision() as i64);
+                (revision, encode_attack_snapshot(request_id, &history), None)
             }
             AnalysisViewMode::Absolute => return false,
         };

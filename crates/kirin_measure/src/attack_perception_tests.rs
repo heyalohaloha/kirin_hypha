@@ -9,6 +9,7 @@ fn features() -> AttackPerceptualFeatures {
         attack_rms_dbfs: -18.0,
         sample_peak_dbfs: -6.0,
         crest_db: 12.0,
+        complete: true,
         body_end_sample: 4_800 + 130 * 48,
         body_rms_dbfs: Some(-24.0),
         transient_db: Some(6.0),
@@ -81,4 +82,24 @@ fn non_finite_or_negative_values_are_invalid() {
     let mut unmeasured = features();
     unmeasured.sharpness_acum = None;
     assert!(unmeasured.has_valid_layout());
+}
+
+#[test]
+fn a_head_only_detail_has_no_body_or_sharpness() {
+    let mut head = features();
+    head.complete = false;
+    head.body_end_sample = 4_800 + 30 * 48;
+    head.body_rms_dbfs = None;
+    head.transient_db = None;
+    head.sharpness_acum = None;
+    assert!(head.has_valid_layout());
+    let mut with_sharpness = head;
+    with_sharpness.sharpness_acum = Some(1.0);
+    assert!(!with_sharpness.has_valid_layout());
+    let mut with_body_end = head;
+    with_body_end.body_end_sample += 20 * 48;
+    assert!(
+        !with_body_end.has_valid_layout(),
+        "the body end is the head end"
+    );
 }

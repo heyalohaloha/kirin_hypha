@@ -12,6 +12,8 @@
 // over the same content samples (POST is measured at the PRE onset, B-1016); without a pair they
 // are POST absolute observations. TRANSIENT is withheld, never estimated, when the next onset
 // leaves no 20 ms body or when the body is below the HISTORY floor (it would describe the gap).
+// A hit arrives with its head first (STRENGTH, CREST); TRANSIENT and SHARPNESS stay "--" until it
+// is complete, and for good when its audio stopped first (B-1024).
 namespace hypha::attack_lanes
 {
 enum class Lane : std::uint8_t
@@ -28,7 +30,7 @@ inline constexpr std::array<Lane, attack_ui::laneCount> lanes {
 enum class Reason : std::uint8_t
 {
     value,
-    missing,       // detail not delivered yet, or a non-finite descriptor
+    missing,       // detail or its body not delivered yet, or a non-finite descriptor
     noMatch,       // PRE-only, POST-only or ambiguous common event
     nextHit,       // TRANSIENT: the next onset leaves less than 20 ms of body
     quietBody,     // TRANSIENT: the body is below the HISTORY floor, silence or near-silence
@@ -43,6 +45,7 @@ struct Cell
 struct Side
 {
     bool available = false;
+    bool complete = false; // false: only the head is measured
     std::int64_t onset = 0;
     std::array<float, attack_ui::laneCount> values {
         std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(),
@@ -144,15 +147,18 @@ inline Side sideFor (const KirinAttackDetail* detail) noexcept
     if (detail == nullptr)
         return side;
     side.available = true;
+    side.complete = detail->complete != 0;
     side.onset = detail->event_sample;
+    side.values[index (Lane::strength)] = detail->attack_rms_dbfs;
+    side.values[index (Lane::crest)] = detail->crest_db;
+    if (! side.complete)
+        return side;
     side.bodyCut = detail->transient_available == 0;
     if (! side.bodyCut)
     {
         side.values[index (Lane::transient)] = detail->transient_db;
         side.bodyDb = detail->body_rms_dbfs;
     }
-    side.values[index (Lane::strength)] = detail->attack_rms_dbfs;
-    side.values[index (Lane::crest)] = detail->crest_db;
     if (detail->sharpness_available != 0)
         side.values[index (Lane::sharpness)] = detail->sharpness_acum;
     return side;
@@ -172,13 +178,14 @@ inline Cell measured (float value) noexcept
 // the quiet gap after the hit rather than its decay.
 inline bool quietBody (const Side& side) noexcept
 {
-    return ! side.bodyCut
+    return side.complete && ! side.bodyCut
         && (! std::isfinite (side.bodyDb) || side.bodyDb < attack_ui::absoluteFloorDb);
 }
 
 inline Cell transientCell (const Side& side) noexcept
 {
-    return side.bodyCut ? withheld (Reason::nextHit)
+    return ! side.complete ? withheld (Reason::missing)
+         : side.bodyCut ? withheld (Reason::nextHit)
          : quietBody (side) ? withheld (Reason::quietBody)
          : measured (side.values[index (Lane::transient)]);
 }
@@ -196,7 +203,9 @@ inline void fillDelta (Hit& hit, std::uint8_t kind, bool preOffered, bool postOf
         const auto pre = hit.pre.values[index (lane)];
         const auto post = hit.post.values[index (lane)];
         auto& cell = hit.cells[index (lane)];
-        if (lane == Lane::transient && (hit.pre.bodyCut || hit.post.bodyCut))
+        if (lane == Lane::transient && (! hit.pre.complete || ! hit.post.complete))
+            cell = withheld (Reason::missing);
+        else if (lane == Lane::transient && (hit.pre.bodyCut || hit.post.bodyCut))
             cell = withheld (Reason::nextHit);
         else if (lane == Lane::transient && (quietBody (hit.pre) || quietBody (hit.post)))
             cell = withheld (Reason::quietBody);

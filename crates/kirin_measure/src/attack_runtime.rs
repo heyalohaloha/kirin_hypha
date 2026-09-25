@@ -218,7 +218,9 @@ impl AttackRuntime {
     }
 
     /// POST measured at PRE onsets: the same content-grid windows the PRE details used, read from
-    /// this runtime's retained bins. Anchors outside them, or from another run, give no detail.
+    /// this runtime's retained bins. A complete PRE detail gives a complete POST detail once these
+    /// bins are final, and only the head until then. Anchors outside the bins, or from another
+    /// run, give no detail.
     pub fn details_at(&self, anchors: &[AttackAnchor]) -> Vec<AttackDetailedEvent> {
         let bins = match self.bins.lock() {
             Ok(bins) => bins,
@@ -227,7 +229,10 @@ impl AttackRuntime {
         anchors
             .iter()
             .filter_map(|anchor| {
-                let (features, shape) = bins.measure(anchor.event, anchor.body_end_sample)?;
+                let (features, shape) = anchor
+                    .body_end_sample
+                    .and_then(|body_end| bins.measure(anchor.event, Some(body_end)))
+                    .or_else(|| bins.measure(anchor.event, None))?;
                 let detail = AttackDetailedEvent {
                     event: anchor.event,
                     features,

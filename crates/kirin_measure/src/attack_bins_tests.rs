@@ -48,7 +48,7 @@ fn head_body_and_transient_read_the_content_grid() {
     let bins = hit_bins(1.0, 400);
     let body_end = bins.body_end_sample(100, None);
     assert_eq!(body_end, 230);
-    let (features, shape) = bins.measure(event(100, 4), body_end).unwrap();
+    let (features, shape) = bins.measure(event(100, 4), Some(body_end)).unwrap();
     assert!((features.attack_rms_dbfs + 6.020_6).abs() < 1e-3);
     assert!((features.body_rms_dbfs.unwrap() + 26.020_6).abs() < 1e-3);
     assert!((features.transient_db.unwrap() - 20.0).abs() < 1e-3);
@@ -72,21 +72,21 @@ fn the_body_stops_at_the_next_onset_and_needs_twenty_ms() {
         130,
         "never inside the head"
     );
-    let (cut, _) = bins.measure(event(100, 4), 160).unwrap();
+    let (cut, _) = bins.measure(event(100, 4), Some(160)).unwrap();
     assert!((cut.transient_db.unwrap() - 20.0).abs() < 1e-3);
-    let (short, _) = bins.measure(event(100, 4), 145).unwrap();
+    let (short, _) = bins.measure(event(100, 4), Some(145)).unwrap();
     assert_eq!((short.body_rms_dbfs, short.transient_db), (None, None));
     assert!(short.has_valid_layout());
-    assert!(bins.measure(event(100, 4), 129).is_none());
-    assert!(bins.measure(event(100, 4), 231).is_none());
+    assert!(bins.measure(event(100, 4), Some(129)).is_none());
+    assert!(bins.measure(event(100, 4), Some(231)).is_none());
 }
 
 #[test]
 fn gain_moves_level_but_not_transient_or_crest() {
     let pre = hit_bins(1.0, 400);
     let post = hit_bins(2.0, 400);
-    let (pre, _) = pre.measure(event(100, 4), 230).unwrap();
-    let (post, _) = post.measure(event(100, 4), 230).unwrap();
+    let (pre, _) = pre.measure(event(100, 4), Some(230)).unwrap();
+    let (post, _) = post.measure(event(100, 4), Some(230)).unwrap();
     assert!((post.attack_rms_dbfs - pre.attack_rms_dbfs - 6.020_6).abs() < 1e-3);
     assert!((post.transient_db.unwrap() - pre.transient_db.unwrap()).abs() < 1e-4);
     assert!((post.crest_db - pre.crest_db).abs() < 1e-4);
@@ -94,16 +94,18 @@ fn gain_moves_level_but_not_transient_or_crest() {
 
 #[test]
 fn every_window_bin_must_be_retained_and_current() {
-    assert!(hit_bins(1.0, 229).measure(event(100, 4), 230).is_none());
+    assert!(hit_bins(1.0, 229)
+        .measure(event(100, 4), Some(230))
+        .is_none());
     let bins = hit_bins(1.0, 400);
-    assert!(bins.measure(event(100, 5), 230).is_none());
+    assert!(bins.measure(event(100, 5), Some(230)).is_none());
     let mut long = AttackBins::new(RATE, 1);
     long.begin_run(0, 4, None);
     for index in 0..8_000 {
         long.push_level(index, level(0.1));
     }
-    assert!(long.measure(event(100, 4), 230).is_none());
-    assert!(long.measure(event(7_500, 4), 7_630).is_some());
+    assert!(long.measure(event(100, 4), Some(230)).is_none());
+    assert!(long.measure(event(7_500, 4), Some(7_630)).is_some());
 }
 
 #[test]
@@ -118,15 +120,15 @@ fn a_run_that_starts_mid_bin_skips_that_bin() {
         sample_rate: 48_000,
         ..event(48 * 3 + 5, 2)
     };
-    let (features, _) = bins.measure(late, 48 * 133).unwrap();
+    let (features, _) = bins.measure(late, Some(48 * 133)).unwrap();
     assert!((features.attack_rms_dbfs + 20.0).abs() < 1e-3);
     let early = AttackEvent {
         sample_rate: 48_000,
         ..event(5, 2)
     };
-    assert!(bins.measure(early, 48 * 130).is_none());
+    assert!(bins.measure(early, Some(48 * 130)).is_none());
     assert!(
-        bins.measure(late, 48 * 133 + 1).is_none(),
+        bins.measure(late, Some(48 * 133 + 1)).is_none(),
         "body end off the grid"
     );
 }
@@ -160,23 +162,67 @@ fn sharpness_is_the_loudness_weighted_mean_of_the_hundred_ms_from_the_onset() {
         "frames up to bin 110 are not all in"
     );
     bins.push_sharpness(&[], 48 * 140);
-    let (features, _) = bins.measure(onset, 48 * 140).unwrap();
+    let (features, _) = bins.measure(onset, Some(48 * 140)).unwrap();
     let expected = (2.0 * 1.0 + 4.0 * 3.0) / (1.0 + 3.0);
     assert!((f64::from(features.sharpness_acum.unwrap()) - expected).abs() < 1e-6);
 }
 
 #[test]
-fn the_shape_leads_in_twenty_ms_and_reads_missing_lead_in_as_silence() {
-    let mut bins = AttackBins::new(RATE, 1);
-    bins.begin_run(0, 4, None);
+fn the_shape_leads_in_twenty_ms_and_leaves_out_what_was_not_measured() {
+    let bins = hit_bins(1.0, 400);
+    let (_, full) = bins.measure(event(100, 4), Some(230)).unwrap();
+    assert_eq!((full.start_sample, full.end_sample), (80, 230));
+
+    // The run starts at bin 0: a hit at bin 10 has only 10 of its 20 lead-in bins.
+    let mut early = AttackBins::new(RATE, 1);
+    early.begin_run(0, 4, None);
     for index in 0..200 {
-        bins.push_level(index, level(if index == 10 { 0.9 } else { 0.0 }));
+        early.push_level(index, level(if index == 10 { 0.9 } else { 0.1 }));
     }
-    let (_, shape) = bins.measure(event(10, 4), 140).unwrap();
-    assert_eq!((shape.start_sample, shape.end_sample), (-10, 140));
-    let peak = shape.points.iter().copied().fold(0.0, f32::max);
-    assert!((peak - 0.9).abs() < 1e-6);
-    assert_eq!(shape.points[0], 0.0);
+    let (_, shape) = early.measure(event(10, 4), Some(140)).unwrap();
+    assert_eq!((shape.start_sample, shape.end_sample), (0, 140));
+    assert!(
+        shape.points.iter().all(|point| *point > 0.0),
+        "no invented silence"
+    );
+    assert!((shape.points.iter().copied().fold(0.0, f32::max) - 0.9).abs() < 1e-6);
+
+    // A hit at the run's first sample has no lead-in at all.
+    let (_, first) = early.measure(event(0, 4), Some(130)).unwrap();
+    assert_eq!((first.start_sample, first.event_sample), (0, 0));
+    assert!(first.has_valid_layout());
+}
+
+#[test]
+fn the_head_is_measured_before_the_body_is_final() {
+    let bins = hit_bins(1.0, 145);
+    assert!(
+        bins.measure(event(100, 4), Some(230)).is_none(),
+        "the body is not final"
+    );
+    let (head, shape) = bins.measure(event(100, 4), None).unwrap();
+    assert!(!head.complete);
+    assert!((head.attack_rms_dbfs + 6.020_6).abs() < 1e-3);
+    assert!(head.crest_db.abs() < 1e-3);
+    assert_eq!(head.body_end_sample, 130);
+    assert_eq!((head.body_rms_dbfs, head.transient_db), (None, None));
+    assert_eq!(head.sharpness_acum, None);
+    assert!(head.has_valid_layout());
+    assert_eq!(
+        (shape.start_sample, shape.end_sample),
+        (80, 145),
+        "the shape stops at the last measured bin"
+    );
+    assert!(hit_bins(1.0, 129).measure(event(100, 4), None).is_none());
+
+    let (complete, _) = hit_bins(1.0, 400)
+        .measure(event(100, 4), Some(230))
+        .unwrap();
+    assert!(complete.complete);
+    assert_eq!(
+        complete.attack_rms_dbfs, head.attack_rms_dbfs,
+        "the head does not change"
+    );
 }
 
 fn frame_at(sample: i64, sharpness: f64) -> SharpnessFrame {
@@ -209,7 +255,7 @@ fn a_frame_ahead_of_its_level_bin_waits_for_it() {
                 sample_rate: 48_000,
                 ..event(48 * 10, 7)
             },
-            48 * 140,
+            Some(48 * 140),
         )
         .unwrap();
     assert_eq!(features.sharpness_acum, Some(3.0));
@@ -233,7 +279,7 @@ fn sharpness_starts_at_the_first_whole_bin_after_the_epoch() {
             sample_rate: 44_100,
             ..event(44 * bin, 7)
         };
-        bins.measure(onset, 44 * (bin + 130))
+        bins.measure(onset, Some(44 * (bin + 130)))
             .unwrap()
             .0
             .sharpness_acum

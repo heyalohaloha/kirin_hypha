@@ -104,7 +104,7 @@ fn to_c_attack_detail(detail: &AttackDetailedEvent) -> KirinAttackDetail {
         channels: detail.event.channels,
         transient_available: features.transient_db.is_some() as u8,
         sharpness_available: features.sharpness_acum.is_some() as u8,
-        reserved: 0,
+        complete: features.complete as u8,
         definition_hash: detail.event.definition_hash,
         event_sample: detail.event.event_sample,
         decision_sample: detail.event.decision_sample,

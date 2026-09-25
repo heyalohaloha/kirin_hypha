@@ -20,7 +20,8 @@ inline bool verifyRedrawContract (const KirinAttackEventBatch& events,
     if (! submit() || submit()) return false;
     post->details[1].sharpness_acum = std::numeric_limits<float>::quiet_NaN();
     if (! submit() || submit()) return false;
-    post->details[1].reserved = 91;
+    post->details[1].complete = 0; // a head-only detail is a different observation
+    if (! submit() || submit()) return false;
     post->details[1].reserved2 = 551;
     if (submit()) return false;
     component->presentationTick (false);
