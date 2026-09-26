@@ -128,6 +128,8 @@ namespace hypha::ui_contract
     // MARK is one frozen full-band reference. It must remain visibly distinct from PRE/POST
     // while staying below the live 2.15 px Δ curve, which also owns fill and glow.
     constexpr float spectrumMarkCurveAlpha = 0.88f;
+    // POST peak hold: the curve and its legend word share one colour, COL_FLORA_BR at this alpha.
+    constexpr float spectrumHoldAlpha = 0.58f;
     constexpr float spectrumMarkStrokeWidth = 1.50f;
     constexpr float spectrumMarkButtonInactiveAlpha = 0.78f;
     constexpr float spectrumMarkButtonActiveAlpha = 0.98f;

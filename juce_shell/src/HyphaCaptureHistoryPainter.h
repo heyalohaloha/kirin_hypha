@@ -50,6 +50,10 @@ std::optional<std::size_t> hitTest (juce::Rectangle<int> area,
                                     juce::Point<float> position,
                                     double sampleRate);
 
+// The current-loudness label ("NOW  -14.2") is never narrower than its own text, so the value is
+// never cut short at a large editor size.
+float currentLabelWidth (const juce::String& text, bool inspection, presentation::Context);
+
 // A shared 60-second LEVEL context plot. M is the only loudness path; sparse TP events use the
 // right +6..-24 dBTP axis, and channel clip runs remain timestamped pips. Detailed M/S/TP history
 // belongs to TIME, so LEVEL does not duplicate its secondary S path.

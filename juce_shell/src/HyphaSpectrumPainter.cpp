@@ -339,7 +339,7 @@ void paintAbsolute (juce::Graphics& g,
     g.strokePath (current, juce::PathStrokeType (1.8f * strokeScale,
                                                   juce::PathStrokeType::curved,
                                                   juce::PathStrokeType::rounded));
-    g.setColour (COL_FLORA_BR.withAlpha (0.58f));
+    g.setColour (COL_FLORA_BR.withAlpha (ui_contract::spectrumHoldAlpha));
     g.strokePath (hold, juce::PathStrokeType (0.85f * strokeScale,
                                                juce::PathStrokeType::curved,
                                                juce::PathStrokeType::rounded));

@@ -187,7 +187,6 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     }
     lastProcessHadPosition = hasPosition;
     const bool silent = bufferIsSilent (buffer);
-    liveInputPresent.store (! silent, std::memory_order_relaxed);
     const bool recording = kirin_hypha_is_recording (hyphaHandle);
     if (! recording)
     {
@@ -208,9 +207,9 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                                         && measurementTimelineActive
                                         && previousSignalState != KIRIN_SIGNAL_STATE_ACTIVE;
     // A single silent callback used to collapse PRE to Inactive, clear its measurement engine,
-    // and make the paired POST lose its delta for one or more UI ticks. Preserve Watch continuity
-    // across musical rests shorter than the exact 3 s LUFS-S window. Transport stop, bypass, and
-    // every Record/TRACE path remain outside this gate and retain their existing state rules.
+    // blank the live analysis views, and drop the paired POST delta for one or more UI ticks. Keep
+    // Watch and the displayed live input through musical rests shorter than the exact 3 s LUFS-S
+    // window. Transport stop, bypass, and every Record/TRACE path keep their existing state rules.
     const bool watchActiveThroughSilence = watchSilenceGate.observeBlock (
         hypha::signal_state_contract::WatchSilenceGate::eligible (
             bypassed, recording, measurementTimelineActive),
@@ -219,6 +218,7 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
         (uint64_t) juce::jmax (0, numFrames),
         preparedFormat.sampleRate);
     const bool stateSilent = silent && ! watchActiveThroughSilence;
+    liveInputPresent.store (! stateSilent, std::memory_order_relaxed); // same rests as Watch
     int windowStartFrame = 0;
     int windowEndFrame = numFrames;
     int64_t windowPositionSamples = positionSamples;

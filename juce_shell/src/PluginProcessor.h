@@ -342,7 +342,7 @@ public:
 private:
     hypha::HostProcessClock readHostProcessClock() const;
     static bool bufferIsSilent (const juce::AudioBuffer<float>& buffer); // B-107: peak < -140 dBFS (parity)
-    std::atomic<bool> liveInputPresent { false }; // Display only; never changes Watch continuity.
+    std::atomic<bool> liveInputPresent { false }; // Display only; follows Watch's musical rests.
 
     // B-070/B-126 + Logic stopped-state fix: enable plugin_data writes exactly once, on the message thread, after
     // prepareToPlay (create + set_license). processBlock only sets lock-free flags; it no longer
