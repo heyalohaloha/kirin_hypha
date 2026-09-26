@@ -60,12 +60,12 @@ void paintGlints (juce::Graphics& g, const juce::Path& edge, float crestY, juce:
     int count = 0;
     bool falling = false;
     const auto glintAt = [&] (juce::Point<float> at) {
-        const auto strength = light * ageLight (at.x, plot);
-        g.setColour (glow.withAlpha (juce::jmin (1.0f, 0.16f * strength)));
+        const auto lit = light * ageLight (at.x, plot);
+        g.setColour (glow.withAlpha (juce::jmin (1.0f, 0.16f * lit)));
         g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (at));
-        g.setColour (glow.withAlpha (juce::jmin (1.0f, 0.38f * strength)));
+        g.setColour (glow.withAlpha (juce::jmin (1.0f, 0.38f * lit)));
         g.fillEllipse (juce::Rectangle<float> (3.6f, 3.6f).withCentre (at));
-        g.setColour (COL_NORMAL.withAlpha (juce::jmin (1.0f, 0.85f * strength)));
+        g.setColour (COL_NORMAL.withAlpha (juce::jmin (1.0f, 0.85f * lit)));
         g.fillEllipse (juce::Rectangle<float> (1.6f, 1.6f).withCentre (at));
     };
     while (it.next())

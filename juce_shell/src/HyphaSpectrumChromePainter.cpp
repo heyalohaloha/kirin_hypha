@@ -133,12 +133,24 @@ namespace
         }
         if (state.absoluteObservation)
         {
+            const juce::Rectangle<int> legend { juce::roundToInt (outerPlot.getX()),
+                                                juce::roundToInt (legendTop),
+                                                juce::roundToInt (outerPlot.getWidth()),
+                                                scaledInt (ui_contract::spectrumLegendHeight) };
+            const juce::String lead (scale > 1.4f ? "POST dBFS / 6s field / " : "POST dBFS / 6s");
             g.setColour (COL_SPECTRUM_POST.withAlpha (0.96f));
-            g.drawText (scale > 1.4f ? "POST dBFS / 6s field / peak hold" : "POST dBFS / 6s",
-                        juce::roundToInt (outerPlot.getX()),
-                        juce::roundToInt (legendTop), juce::roundToInt (outerPlot.getWidth()),
-                        scaledInt (ui_contract::spectrumLegendHeight),
-                        juce::Justification::centredLeft);
+            g.drawText (lead, legend, juce::Justification::centredLeft);
+            if (scale > 1.4f)
+            {
+                // The hold curve's own colour names it, as MID and SIDE are named in theirs.
+                const auto style = typography::resolve (state.presentation, typography::TextRole::legend,
+                                                        typography::Composition::visualization);
+                g.setColour (COL_FLORA_BR.withAlpha (ui_contract::spectrumHoldAlpha));
+                const auto leadWidth = text_style::requiredWidth (g.getCurrentFont(), lead, style)
+                                     - juce::roundToInt (2.0f * style.horizontalPadding);
+                g.drawText ("peak hold", legend.withTrimmedLeft (leadWidth),
+                            juce::Justification::centredLeft);
+            }
             return;
         }
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (ui_contract::spectrumDeltaLegendAlpha));

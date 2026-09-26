@@ -2,6 +2,7 @@
 
 #include "HyphaChannelClipText.h"
 #include "HyphaSurfaceMaterial.h"
+#include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
 #include "HyphaTimeAxisContract.h"
 
@@ -39,6 +40,19 @@ float yForLoudness (juce::Rectangle<float> plot, double value, bool delta) noexc
     return plot.getBottom() - static_cast<float> (normalized) * plot.getHeight();
 }
 
+}
+
+float currentLabelWidth (const juce::String& text, bool inspection, presentation::Context presentation)
+{
+    constexpr auto visualization = typography::Composition::visualization;
+    const auto font = monoFont (presentation, typography::TextRole::readout, visualization);
+    const auto style = typography::resolve (presentation, typography::TextRole::readout, visualization);
+    return std::max (inspection ? 88.0f : 72.0f,
+                     (float) text_style::requiredWidth (font, text, style) + 8.0f);
+}
+
+namespace
+{
 void paintCurrentLoudness (juce::Graphics& g,
                            juce::Rectangle<float> plot,
                            const std::vector<KirinMeterHistoryEntry>& history,
@@ -58,7 +72,7 @@ void paintCurrentLoudness (juce::Graphics& g,
         : (delta && value >= 0.0 ? "+" : "") + juce::String (value, 1);
     const auto text = juce::String ("NOW  ") + valueText;
     const auto labelHeight = inspection ? 18.0f : 15.0f;
-    const auto labelWidth = inspection ? 88.0f : 72.0f;
+    const auto labelWidth = currentLabelWidth (text, inspection, presentation);
     auto label = juce::Rectangle<float> (
         plot.getRight() - labelWidth - 4.0f,
         juce::jlimit (plot.getY() + 2.0f,

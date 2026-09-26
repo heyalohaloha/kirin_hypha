@@ -1,6 +1,9 @@
 #include "CaptureHistoryContractTest.h"
 
 #include "../src/HyphaCaptureHistoryPainter.h"
+#include "../src/HyphaObservatoryContract.h"
+#include "../src/HyphaTextStyle.h"
+#include "../src/HyphaTheme.h"
 
 #include <algorithm>
 #include <array>
@@ -74,8 +77,28 @@ int changedPixels (const juce::Image& first, const juce::Image& second)
 }
 }
 
+namespace
+{
+// The current-loudness label shows its whole value at every editor size: the widest values it can
+// hold must fit the label without being ellipsized.
+void verifyCurrentLabelNeverCutsTheValue()
+{
+    for (const auto& preset : observatory::sizePresets)
+        for (const bool inspection : { false, true })
+            for (const auto* text : { "NOW  < -36", "NOW  -35.9", "NOW  +12.0" })
+            {
+                const auto context = presentation::forEditor (preset.width, preset.height);
+                const auto font = monoFont (context, typography::TextRole::readout,
+                                            typography::Composition::visualization);
+                const auto inner = capture_history::currentLabelWidth (text, inspection, context) - 6.0f;
+                KIRIN_CAPTURE_HISTORY_REQUIRE (text_style::ellipsizedText (text, font, inner) == text);
+            }
+}
+}
+
 void verifyCaptureHistoryContract()
 {
+    verifyCurrentLabelNeverCutsTheValue();
     static_assert (capture_history::normalizedLoudness (-36.0, false) == 0.0);
     static_assert (capture_history::normalizedLoudness (-18.0, false) == 0.5);
     static_assert (capture_history::normalizedLoudness (0.0, false) == 1.0);
