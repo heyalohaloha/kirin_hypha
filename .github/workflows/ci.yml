@@ -233,6 +233,34 @@ jobs:
           cmake --build juce_shell/build-windows --config Release --target KirinUiRenderContractTests
           ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_ui_render_contract$'
 
+      # The DRUM (TIME > ATTACK) surface is rendered by the Windows JUCE graphics stack as well, and
+      # its previews are kept so the Windows screen can be inspected for every change.
+      - name: Validate Windows DRUM UI contract
+        shell: pwsh
+        env:
+          KIRIN_ATTACK_UI_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\preview.png
+          KIRIN_ATTACK_UI_LANES_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\lanes.png
+          KIRIN_ATTACK_UI_LOUPE_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\loupe.png
+          KIRIN_ATTACK_UI_HEAD_ONLY_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\head_only.png
+          KIRIN_ATTACK_UI_COMPACT_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\compact.png
+          KIRIN_ATTACK_UI_SELECTION_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\selection.png
+          KIRIN_ATTACK_UI_POST_ONLY_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\post_only.png
+          KIRIN_ATTACK_UI_OVERLAY_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\overlay.png
+          KIRIN_ATTACK_UI_LOCK_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\lock.png
+          KIRIN_ATTACK_UI_IDENTITY_PREVIEW_PATH: ${{ github.workspace }}\drum-ui-preview\identity.png
+        run: |
+          New-Item -ItemType Directory -Force -Path drum-ui-preview | Out-Null
+          cmake --build juce_shell/build-windows --config Release --target KirinAttackUiContractTests
+          ctest --test-dir juce_shell/build-windows -C Release --output-on-failure -R '^kirin_attack_ui_contract$'
+
+      - name: Upload Windows DRUM UI previews
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: kirin-hypha-windows-drum-ui
+          path: drum-ui-preview/*.png
+          if-no-files-found: warn
+
       - name: Validate Kirin OS Reference preview renderer (Windows)
         run: |
           cmake --build juce_shell/build-windows --config Release --target KirinHyphaReferencePreviewRenderer
