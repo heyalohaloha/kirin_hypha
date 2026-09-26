@@ -2,6 +2,9 @@
 
 #include <BinaryData.h>
 
+#include <algorithm>
+#include <vector>
+
 namespace hypha::tests
 {
 inline void verifyObservatoryBackdropContract()
@@ -55,5 +58,52 @@ inline void verifyObservatoryBackdropContract()
                 KIRIN_OBSERVATORY_REQUIRE (
                     error / (3.0 * expected.getWidth() * expected.getHeight()) < 1.0);
             }
+
+    // CoreGraphics draws an image whose opacity is below one through a slow path (17 times an
+    // opaque copy for 1800 x 1200). The backdrop bakes its state's opacity into one opaque image,
+    // so a steady paint copies pixels. Measured in the same run against the texture drawn at its
+    // opacity, the way every full repaint used to draw it.
+    observatory_world::Backdrop steady;
+    observatory_world::State state;
+    state.active = true;
+    state.density = observatory::Density::inspection;
+    const juce::Rectangle<int> area (0, 0, 900, 600);
+    juce::Image texture (juce::Image::ARGB, 1800, 1200, true);
+    {
+        juce::Graphics graphics (texture);
+        graphics.addTransform (juce::AffineTransform::scale (2.0f));
+        observatory_world::drawAspectFill (graphics, source, area);
+    }
+    juce::Image surface (juce::Image::ARGB, 1800, 1200, true);
+    const auto median = [&surface] (auto&& paint)
+    {
+        std::vector<double> samples;
+        for (int index = 0; index < 15; ++index)
+        {
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+            {
+                juce::Graphics graphics (surface);
+                graphics.addTransform (juce::AffineTransform::scale (2.0f));
+                paint (graphics);
+            }
+            if (index >= 3)
+                samples.push_back (juce::Time::getMillisecondCounterHiRes() - start);
+        }
+        std::sort (samples.begin(), samples.end());
+        return samples[samples.size() / 2];
+    };
+    const auto baked = median ([&] (juce::Graphics& g) { steady.draw (g, area, state); });
+    const auto live = median ([&] (juce::Graphics& g) {
+        g.fillAll (BG);
+        g.setOpacity (observatory_world::backdropOpacity (state));
+        g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+        g.drawImage (texture, area.toFloat());
+    });
+    std::cout << "Backdrop 300% at DPI 2: baked " << baked << " ms, texture at its opacity " << live << " ms\n";
+   #if JUCE_MAC
+    KIRIN_OBSERVATORY_REQUIRE (baked * 2.0 < live);
+   #else
+    KIRIN_OBSERVATORY_REQUIRE (baked < live * 1.25 + 0.5);
+   #endif
 }
 }

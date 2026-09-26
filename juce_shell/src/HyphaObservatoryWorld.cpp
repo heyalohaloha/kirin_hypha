@@ -192,34 +192,48 @@ void drawAspectFill (juce::Graphics& g, const juce::Image& sourceImage,
 
 void Backdrop::draw (juce::Graphics& g, juce::Rectangle<int> area, const State& state) const
 {
-    g.setColour (BG);
-    g.fillRect (area);
-    if (! image.isValid() || area.isEmpty())
-        return;
-
-    juce::Graphics::ScopedSaveState saved (g);
-    g.setOpacity (juce::jlimit (0.0f, 1.0f, backdropOpacity (state)));
+    const auto opacity = juce::jlimit (0.0f, 1.0f, backdropOpacity (state));
     const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
     const double pixels = static_cast<double> (area.getWidth()) * area.getHeight()
                         * scale * scale;
-    if (! std::isfinite (scale) || scale <= 0.0f || pixels > 16'777'216.0)
+    if (! image.isValid() || area.isEmpty() || ! std::isfinite (scale) || scale <= 0.0f
+        || pixels > 16'777'216.0)
     {
+        g.setColour (BG);
+        g.fillRect (area);
+        if (! image.isValid() || area.isEmpty())
+            return;
+        juce::Graphics::ScopedSaveState saved (g);
+        g.setOpacity (opacity);
         drawAspectFill (g, image, area);
         return;
     }
+    // The whole backdrop, BG under the texture at this state's opacity, is one opaque image at
+    // device resolution. CoreGraphics draws an image with an opacity below one through a slow path
+    // (about 26 ms for 1800 x 1200 against 1.5 ms opaque), so the opacity is baked in once, when
+    // the state or size changes, and every paint copies pixels.
     const juce::Point<int> logicalSize (area.getWidth(), area.getHeight());
     if (! scaledBackdrop.isValid() || scaledBackdropLogicalSize != logicalSize
-        || std::abs (scaledBackdropPixelScale - scale) > 1.0e-6f)
+        || std::abs (scaledBackdropPixelScale - scale) > 1.0e-6f
+        || std::abs (scaledBackdropOpacity - opacity) > 1.0e-6f)
     {
         scaledBackdrop = juce::Image (juce::Image::ARGB,
             juce::jmax (1, juce::roundToInt (area.getWidth() * scale)),
             juce::jmax (1, juce::roundToInt (area.getHeight() * scale)), true);
-        juce::Graphics textureGraphics (scaledBackdrop);
-        textureGraphics.addTransform (juce::AffineTransform::scale (scale));
-        drawAspectFill (textureGraphics, image, area.withPosition (0, 0));
+        juce::Graphics composite (scaledBackdrop);
+        composite.addTransform (juce::AffineTransform::scale (scale));
+        composite.setColour (BG);
+        composite.fillRect (area.withPosition (0, 0));
+        composite.setOpacity (opacity);
+        drawAspectFill (composite, image, area.withPosition (0, 0));
         scaledBackdropLogicalSize = logicalSize;
         scaledBackdropPixelScale = scale;
+        scaledBackdropOpacity = opacity;
     }
+    juce::Graphics::ScopedSaveState saved (g);
+    g.setOpacity (1.0f);
+    // Already device resolution: one image pixel per device pixel, never smoothed.
+    g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
     g.drawImage (scaledBackdrop, area.toFloat());
 }
 
@@ -257,6 +271,7 @@ void Backdrop::drawDomainBed (juce::Graphics& g, juce::Rectangle<int> area,
     }
     juce::Graphics::ScopedSaveState saved (g);
     g.setOpacity (1.0f);
+    g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality); // device resolution
     g.drawImage (domainBed, rasterArea.toFloat());
 }
 
@@ -268,14 +283,39 @@ void Backdrop::drawHyphaSpecimen (juce::Graphics& g,
         || ! hyphaSpecimen.isValid() || area.isEmpty())
         return;
 
-    const auto& specimen = sharedHyphaSpecimenVariants()[densityIndex (state.density)];
+    const auto index = densityIndex (state.density);
+    const auto& specimen = sharedHyphaSpecimenVariants()[index];
     const int x = area.getCentreX() - specimen.getWidth() / 2;
     const int y = area.getBottom() - specimen.getHeight();
-    juce::Graphics::ScopedSaveState saved (g);
     const float roleOpacity = state.role == observatory::Role::pre ? 0.72f : 1.0f;
-    g.setOpacity ((state.active ? 0.76f : 0.42f) * roleOpacity
-                  * (state.jungle ? 1.10f : 1.0f));
-    g.drawImageAt (specimen, x, y, false);
+    const auto opacity = juce::jlimit (0.0f, 1.0f, (state.active ? 0.76f : 0.42f) * roleOpacity
+                                                   * (state.jungle ? 1.10f : 1.0f));
+    const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+    juce::Graphics::ScopedSaveState saved (g);
+    if (! std::isfinite (scale) || scale <= 0.0f || scale > 8.0f)
+    {
+        g.setOpacity (opacity);
+        g.drawImageAt (specimen, x, y, false);
+        return;
+    }
+    // As the backdrop: the opacity is baked into a device-resolution image, drawn opaque-fast.
+    if (! specimenComposite.isValid() || specimenIndex != index
+        || std::abs (specimenPixelScale - scale) > 1.0e-6f || std::abs (specimenOpacity - opacity) > 1.0e-6f)
+    {
+        specimenComposite = juce::Image (juce::Image::ARGB,
+            juce::jmax (1, juce::roundToInt ((float) specimen.getWidth() * scale)),
+            juce::jmax (1, juce::roundToInt ((float) specimen.getHeight() * scale)), true);
+        juce::Graphics composite (specimenComposite);
+        composite.addTransform (juce::AffineTransform::scale (scale));
+        composite.setOpacity (opacity);
+        composite.drawImageAt (specimen, 0, 0, false);
+        specimenIndex = index;
+        specimenPixelScale = scale;
+        specimenOpacity = opacity;
+    }
+    g.setOpacity (1.0f);
+    g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+    g.drawImage (specimenComposite, juce::Rectangle<int> (x, y, specimen.getWidth(), specimen.getHeight()).toFloat());
 }
 
 void paintDomainBed (juce::Graphics& g, juce::Rectangle<int> area, const State& state)
