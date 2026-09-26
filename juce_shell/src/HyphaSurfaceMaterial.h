@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "HyphaDepthMaterial.h"
+#include "HyphaMaterialCache.h"
 #include "HyphaTheme.h"
 
 namespace hypha::surface_material
@@ -12,16 +13,14 @@ inline juce::Colour graphiteEdge() noexcept
     return COL_MUTED.interpolatedWith (COL_NORMAL, 0.18f);
 }
 
-// Panels are recessed glass under the shared key light; controls pass `raised` and become plates.
+namespace uncached
+{
 inline void paintPanel (juce::Graphics& g,
                         juce::Rectangle<float> area,
                         float fillAlpha,
-                        float corner = 4.0f,
-                        bool raised = false)
+                        float corner,
+                        bool raised)
 {
-    if (area.isEmpty())
-        return;
-
     const auto outer = area.reduced (0.5f);
     const auto radius = juce::jlimit (1.0f, juce::jmin (outer.getWidth(), outer.getHeight()) * 0.5f,
                                       corner);
@@ -68,6 +67,43 @@ inline void paintPanel (juce::Graphics& g,
     }
     depth_material::paintCastShadowAbove (g, outer, radius, 0.36f * fillAlpha);
     depth_material::paintRecessedWell (g, outer, radius, depth_material::panelWellLight (fillAlpha));
+}
+
+inline void paintObservationWell (juce::Graphics& g, juce::Rectangle<float> area)
+{
+    g.setColour (BG.darker (0.48f));
+    g.fillRect (area);
+
+    const auto inner = area.reduced (0.35f);
+    g.setColour (BG.darker (0.88f).withAlpha (0.90f));
+    g.drawRect (inner, 0.70f);
+    g.setColour (COL_NORMAL.withAlpha (0.045f));
+    g.drawLine (inner.getX() + 1.0f, inner.getY() + 0.40f,
+                inner.getRight() - 1.0f, inner.getY() + 0.40f, 0.60f);
+    g.setColour (BG.darker (0.82f).withAlpha (0.88f));
+    g.drawLine (inner.getX() + 1.0f, inner.getBottom() - 0.35f,
+                inner.getRight() - 1.0f, inner.getBottom() - 0.35f, 0.65f);
+    // Observation windows are recessed glass under the same key light as DRUM.
+    depth_material::paintCastShadowAbove (g, area, 2.0f, 0.42f);
+    depth_material::paintRecessedWell (g, area, 2.0f, depth_material::observationWellLight());
+}
+}
+
+// Panels are recessed glass under the shared key light; controls pass `raised` and become plates.
+// Both are static material, so they are served from the material cache while an editor is open.
+inline void paintPanel (juce::Graphics& g,
+                        juce::Rectangle<float> area,
+                        float fillAlpha,
+                        float corner = 4.0f,
+                        bool raised = false)
+{
+    if (area.isEmpty())
+        return;
+    // A cast shadow sits above a recessed panel, a contact shadow below a raised plate.
+    material_cache::draw (g, area, { 1, { fillAlpha, corner, raised ? 1.0f : 0.0f, 0.0f } },
+                          { raised ? 0.0f : 1.0f, raised ? 3.0f : 0.0f },
+                          [&] (juce::Graphics& target, juce::Rectangle<float> local) {
+                              uncached::paintPanel (target, local, fillAlpha, corner, raised); });
 }
 
 inline void paintControl (juce::Graphics& g,
@@ -130,21 +166,8 @@ inline void paintObservationWell (juce::Graphics& g, juce::Rectangle<float> area
 {
     if (area.isEmpty())
         return;
-
-    g.setColour (BG.darker (0.48f));
-    g.fillRect (area);
-
-    const auto inner = area.reduced (0.35f);
-    g.setColour (BG.darker (0.88f).withAlpha (0.90f));
-    g.drawRect (inner, 0.70f);
-    g.setColour (COL_NORMAL.withAlpha (0.045f));
-    g.drawLine (inner.getX() + 1.0f, inner.getY() + 0.40f,
-                inner.getRight() - 1.0f, inner.getY() + 0.40f, 0.60f);
-    g.setColour (BG.darker (0.82f).withAlpha (0.88f));
-    g.drawLine (inner.getX() + 1.0f, inner.getBottom() - 0.35f,
-                inner.getRight() - 1.0f, inner.getBottom() - 0.35f, 0.65f);
-    // Observation windows are recessed glass under the same key light as DRUM.
-    depth_material::paintCastShadowAbove (g, area, 2.0f, 0.42f);
-    depth_material::paintRecessedWell (g, area, 2.0f, depth_material::observationWellLight());
+    material_cache::draw (g, area, { 2 }, { 1.0f, 0.0f },
+                          [] (juce::Graphics& target, juce::Rectangle<float> local) {
+                              uncached::paintObservationWell (target, local); });
 }
 }

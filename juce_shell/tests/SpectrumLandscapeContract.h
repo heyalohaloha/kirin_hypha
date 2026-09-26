@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../src/HyphaAbsoluteSpectrumHistory.h"
+#include "../src/HyphaMaterialCache.h"
 #include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaSpectrumTerrain.h"
 #include "../src/HyphaTheme.h"
@@ -11,6 +12,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <vector>
 
 // FREQ landscape contract. The landscape is a picture of measured history, so every ridge has to
 // stand where its own frame's age, frequency and level put it, older ridges have to read farther
@@ -243,7 +245,8 @@ inline void verifyAGapStaysEmpty()
                                  >= inkThreshold);
 }
 
-// Two observations five seconds apart are two ridges, not a range between them.
+// Two observations five seconds apart are two ridges, not a range between them, and nothing is
+// drawn in the sky above the oldest one.
 inline void verifyTwoObservationsAreTwoRidges()
 {
     absolute_spectrum::History history;
@@ -260,6 +263,9 @@ inline void verifyTwoObservationsAreTwoRidges()
                                  >= inkThreshold);
     KIRIN_LANDSCAPE_REQUIRE (inkIn (image, { plot.getX() + 1.0f, oldest + 2.5f,
                                              plot.getWidth() - 2.0f, newest - oldest - 5.0f })
+                             < inkThreshold);
+    KIRIN_LANDSCAPE_REQUIRE (inkIn (image, { plot.getX() + 1.0f, plot.getY() + 1.0f,
+                                             plot.getWidth() - 2.0f, oldest - plot.getY() - 3.5f })
                              < inkThreshold);
 }
 
@@ -299,6 +305,44 @@ inline void verifyOnlyWideEditorsDrawTheLandscape()
             KIRIN_LANDSCAPE_REQUIRE (inkIn (notes, notes.getBounds().toFloat()) == 0);
     }
 }
+
+// The 300% landscape at DPI 2 with a new frame every paint, as an open editor draws it. The ridges
+// are rasterized once per paint without path filling, so they stay a small part of a frame.
+inline void verifyLandscapeFrameBudget()
+{
+    material_cache::Lifetime editor;
+    const auto bounds = componentBounds (900, 600);
+    const auto plot = spectrum_geometry::dataPlotBoundsFor (bounds, false);
+    const auto busy = [] (int index) {
+        auto view = frameWith ((int64_t) (index + 1) * frameSamples, 0u, quietDbfs);
+        for (size_t band = 0u; band < KIRIN_SPECTRUM_BAND_COUNT; ++band)
+            view.post_dbfs[band] = -42.0f + 18.0f * std::sin ((float) band * 0.07f + (float) index * 0.21f)
+                                 + 9.0f * std::sin ((float) band * 0.31f - (float) index * 0.13f);
+        return view;
+    };
+    absolute_spectrum::History history;
+    for (int index = 0; index < (int) frames; ++index)
+        KIRIN_LANDSCAPE_REQUIRE (history.append (busy (index)));
+    juce::Image image (juce::Image::ARGB, (int) std::ceil (bounds.getWidth() * 2.0f),
+                       (int) std::ceil (bounds.getHeight() * 2.0f), true);
+    std::vector<double> samples;
+    for (int index = 0; index < 33; ++index)
+    {
+        KIRIN_LANDSCAPE_REQUIRE (history.append (busy ((int) frames + index)));
+        const auto start = juce::Time::getMillisecondCounterHiRes();
+        {
+            juce::Graphics g (image);
+            g.addTransform (juce::AffineTransform::scale (2.0f));
+            KIRIN_LANDSCAPE_REQUIRE (spectrum_terrain::paintLevelLandscape (g, plot, history));
+        }
+        if (index >= 3)
+            samples.push_back (juce::Time::getMillisecondCounterHiRes() - start);
+    }
+    std::sort (samples.begin(), samples.end());
+    const auto median = samples[samples.size() / 2];
+    std::cout << "FREQ landscape 300% at DPI 2: " << median << " ms/frame\n";
+    KIRIN_LANDSCAPE_REQUIRE (median < 12.0);
+}
 }
 
 inline void verifyLevelLandscape()
@@ -308,5 +352,6 @@ inline void verifyLevelLandscape()
     landscape_contract::verifyAGapStaysEmpty();
     landscape_contract::verifyTwoObservationsAreTwoRidges();
     landscape_contract::verifyOnlyWideEditorsDrawTheLandscape();
+    landscape_contract::verifyLandscapeFrameBudget();
 }
 }

@@ -1,6 +1,7 @@
 #include "HyphaAttackPainter.h"
 #include "HyphaAttackDepth.h"
 #include "HyphaAttackEnvelopeGeometry.h"
+#include "HyphaMaterialCache.h"
 #include "HyphaTheme.h"
 
 namespace hypha::attack_painter
@@ -26,18 +27,45 @@ void drawEnvelope (juce::Graphics& g, const KirinAttackWaveformBatch& batch,
         target.setGradientFill (attack_depth::ageBrush (ink, a, plot));
         target.strokePath (path, type, shift);
     };
+    // Light falls from the measured edge toward the floor of the plot, and older light is fainter:
+    // the body darkens by what age has taken from it. Both depend only on the position in the plot,
+    // so while an editor is open they are composed once into a device-resolution texture, and the
+    // body takes one image fill per frame instead of two gradient fills.
+    const auto fillBody = [&] (juce::Graphics& target, juce::Rectangle<float> at, const juce::Path* shapeOnly) {
+        juce::ColourGradient body (colour.withAlpha (alpha*.42f), at.getTopLeft(),
+            colour.withAlpha (alpha*.03f), at.getBottomLeft(), false);
+        body.addColour (.35, colour.withAlpha (alpha*.16f));
+        target.setGradientFill (body);
+        shapeOnly != nullptr ? target.fillPath (*shapeOnly) : target.fillRect (at);
+        target.setGradientFill (attack_depth::ageShade (BG.darker (.82f), at));
+        shapeOnly != nullptr ? target.fillPath (*shapeOnly) : target.fillRect (at);
+    };
+    const auto scale = std::isfinite (dpi) && dpi > 0 && dpi <= 4 ? dpi : 0.0f;
+    const auto texture = scale > 0.0f && ! reference
+        ? material_cache::image ({ 3, { alpha, 0.0f, 0.0f, 0.0f }, plot.getWidth(), plot.getHeight(), scale },
+                                 static_cast<int> (std::ceil (plot.getWidth() * scale)),
+                                 static_cast<int> (std::ceil (plot.getHeight() * scale)),
+                                 [&] (juce::Graphics& pixels) {
+                                     pixels.addTransform (juce::AffineTransform::scale (scale));
+                                     fillBody (pixels, plot.withZeroOrigin(), nullptr); })
+        : juce::Image {};
     const auto paint = [&] (juce::Graphics& target) {
     juce::Graphics::ScopedSaveState saved (target); target.reduceClipRegion (area);
     if (! reference)
     {
-        // Light falls from the measured edge toward the floor of the plot, and older light is
-        // fainter: the body darkens by what age has taken from it.
-        juce::ColourGradient body (colour.withAlpha (alpha*.42f), plot.getTopLeft(),
-            colour.withAlpha (alpha*.03f), plot.getBottomLeft(), false);
-        body.addColour (.35, colour.withAlpha (alpha*.16f));
-        target.setGradientFill (body); target.fillPath (shape.body);
-        target.setGradientFill (attack_depth::ageShade (BG.darker (.82f), plot));
-        target.fillPath (shape.body);
+        if (texture.isValid())
+        {
+            // A clipped, untiled image draw: the tiled image fill costs a division per pixel.
+            juce::Graphics::ScopedSaveState clipped (target);
+            target.reduceClipRegion (shape.body);
+            target.setOpacity (1.0f);
+            target.drawImageTransformed (texture, juce::AffineTransform::scale (1.0f / scale)
+                                                      .translated (plot.getX(), plot.getY()));
+        }
+        else
+        {
+            fillBody (target, plot, &shape.body);
+        }
         // A glass-tube wall straddles the edge (inside: the wall, outside: its glow), and the key
         // light catches just inside it.
         stroke (target, shape.edge, colour, alpha * (depth.fresnel + .03f * depth.bloom),
@@ -65,10 +93,11 @@ void drawEnvelope (juce::Graphics& g, const KirinAttackWaveformBatch& batch,
         const auto ph = static_cast<int> (std::ceil (area.getHeight() * dpi));
         if (static_cast<std::uint64_t> (pw) * static_cast<std::uint64_t> (ph) > 2*1024*1024)
         { paint (g); return; }
-        juce::Image raster (juce::Image::ARGB, pw, ph, true, juce::SoftwareImageType {});
+        auto raster = material_cache::scratchImage (pw, ph);
         if (raster.isValid())
         {
-            { juce::Graphics pixels (raster);
+            { juce::LowLevelGraphicsSoftwareRenderer renderer (raster);
+              juce::Graphics pixels (renderer);
               pixels.addTransform (juce::AffineTransform::translation (
                   -static_cast<float> (area.getX()), -static_cast<float> (area.getY())).scaled (dpi));
               paint (pixels); }

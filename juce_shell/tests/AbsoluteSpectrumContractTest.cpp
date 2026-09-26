@@ -413,6 +413,9 @@ void verifyAbsoluteSpectrumContract()
     KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (
         deltaComponent.absoluteHistorySizeForTest() == 0u);
 
+    // An open editor holds the material cache (HyphaMaterialCache.h), so its steady repaint draws
+    // the static panels and wells from images. The gate measures that repaint.
+    material_cache::Lifetime editorMaterial;
     juce::Image image (juce::Image::ARGB, component.getWidth(), component.getHeight(), true);
     constexpr int paintIterations = 40;
     const double startedMs = juce::Time::getMillisecondCounterHiRes();

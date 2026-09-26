@@ -158,6 +158,8 @@ private:
     void releaseAppearanceVisibility();
 
     KirinHyphaProcessorBase& processorRef;
+    // Static surface material is cached as images while this editor is open (HyphaMaterialCache.h).
+    hypha::material_cache::Lifetime materialCache;
     const bool isPost;
     juce::Component scaleRoot;
     hypha::observatory::View observatoryView;

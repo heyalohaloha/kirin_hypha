@@ -414,6 +414,9 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE ((float) postCurveColumns
                        >= (float) innerPlotWidth * minimumContinuousCoverage);
 
+    // An open editor holds the material cache (HyphaMaterialCache.h), so its steady repaint draws
+    // the static panels and wells from images. The gate measures that repaint.
+    const hypha::material_cache::Lifetime editorMaterial;
     const auto compactSpectrum = renderSpectrumAtSize (
         spectrumSnapshot, ui::spectrumSizePresets[0], "KIRIN_UI_RENDER_OUTPUT");
     const auto mediumSpectrum = renderSpectrumAtSize (

@@ -7,6 +7,7 @@
 #include <functional>
 #include <limits>
 
+#include "../src/HyphaMaterialCache.h"
 #include "../src/HyphaObservatoryView.h"
 
 #include <cstdlib>
@@ -389,6 +390,9 @@ void verifySpaceFieldContract()
     // repaint regression and would fail the gate for work the plug-in never repeats.
     constexpr int warmupIterations = 3;
     constexpr int paintIterations = 30;
+    // An open editor holds the material cache (HyphaMaterialCache.h), so its steady repaint draws
+    // the static panels and wells from images. The gate measures that repaint.
+    material_cache::Lifetime editorMaterial;
     observatory::View steady (observatory::Role::post);
     steady.setSize (600, 400);
     steady.setDomain (observatory::Domain::space);

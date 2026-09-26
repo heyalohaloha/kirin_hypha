@@ -1,5 +1,6 @@
 #include "TimeHistoryContractTest.h"
 
+#include "../src/HyphaMaterialCache.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
 #include "../src/HyphaTimeAxisContract.h"
@@ -361,6 +362,9 @@ void verifyTimeHistoryContract()
     // The editor retains its View and backing surface between timer ticks. Keep setup and
     // allocation outside this gate so it measures the production steady-state repaint,
     // rather than repeatedly constructing a synthetic editor for every sample.
+    // An open editor holds the material cache (HyphaMaterialCache.h), so its steady repaint draws
+    // the static panels and wells from images. The gate measures that repaint.
+    material_cache::Lifetime editorMaterial;
     SteadyPaintFixture firstSlot (normal);
     SteadyPaintFixture secondSlot (normal);
     constexpr int warmupIterations = 3;
