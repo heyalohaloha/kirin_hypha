@@ -109,7 +109,7 @@ namespace
 
 int main()
 {
-    ref::AudioPages pages;
+    ref::AudioPages pages { ref::AudioPages::ServiceMode::manual };
     require (pages.installReaderForTest (
                  std::make_unique<TestReader> (48'000.0, 2, 480'000), 48'000.0, 2).isEmpty(),
              "matching host format must open");
@@ -173,7 +173,7 @@ int main()
     require (pages.render (miss, 200'000, 1.0f),
              "non-RT service must make the requested jump available");
 
-    ref::AudioPages continuity;
+    ref::AudioPages continuity { ref::AudioPages::ServiceMode::manual };
     require (continuity.installReaderForTest (
                  std::make_unique<TestReader> (48'000.0, 2, 480'000), 48'000.0, 2).isEmpty(),
              "continuity source must open");

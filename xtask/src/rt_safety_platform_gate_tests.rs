@@ -3,7 +3,9 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
     let ci = include_str!("../../.github/workflows/ci.yml");
     let source_gate = include_str!("../../scripts/test_release_source.sh");
     let root_cmake = include_str!("../../juce_shell/CMakeLists.txt").to_owned()
-        + include_str!("../../juce_shell/cmake/PairPreviewTests.cmake");
+        + include_str!("../../juce_shell/cmake/PairPreviewTests.cmake")
+        + include_str!("../../juce_shell/cmake/ReferenceAudioStreamingTests.cmake");
+    assert!(root_cmake.contains("include(cmake/ReferenceAudioStreamingTests.cmake)"));
     let cmake = include_str!("../../juce_shell/cmake/LocalBlind.cmake");
     let portable = include_str!("../../juce_shell/cmake/LocalBlindPortable.cmake");
     assert!(cmake.contains("include(${CMAKE_CURRENT_LIST_DIR}/LocalBlindPortable.cmake)"));
@@ -35,6 +37,10 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
             "kirin_reference_audio_pages",
         ),
         (
+            "KirinReferenceAudioStreamingTests",
+            "kirin_reference_audio_streaming",
+        ),
+        (
             "KirinPairPreviewLifetimeTests",
             "kirin_pair_preview_lifetime",
         ),
@@ -55,10 +61,24 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         .expect("the native gate has one anchored test selection")
         .split('|')
         .collect();
+    let expected_count: usize = source_gate
+        .lines()
+        .find_map(|line| line.strip_prefix("JUCE_TEST_COUNT="))
+        .expect("the native gate pins its expected CTest inventory")
+        .parse()
+        .expect("the expected CTest inventory is an integer");
+    let unique: std::collections::BTreeSet<_> = selected.iter().copied().collect();
+    assert_eq!(unique.len(), selected.len(), "duplicate CTest selection");
+    assert_eq!(
+        selected.len(),
+        expected_count,
+        "native gate selection and expected inventory must agree"
+    );
     for test in [
         "kirin_editor_surface_product",
         "kirin_pair_preview_lifetime",
         "kirin_reference_capture_memory",
+        "kirin_reference_audio_streaming",
     ] {
         assert!(
             selected.contains(&test),
