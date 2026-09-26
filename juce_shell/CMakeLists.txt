@@ -378,6 +378,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaSpectrumPsb.cpp
             src/HyphaSpectrumTooltip.cpp
             src/HyphaSpectrumChromePainter.cpp
+            src/HyphaSpectrumTerrain.cpp
             src/HyphaSpectrumFocusTrail.cpp
             src/HyphaSpectrumFocusTrailPainter.cpp
             src/HyphaSpectrumPainter.cpp
@@ -648,6 +649,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaSpectrumPsb.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
+        src/HyphaSpectrumTerrain.cpp
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
         src/HyphaSpectrumPainter.cpp
@@ -712,6 +714,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaSpectrumPsb.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
+        src/HyphaSpectrumTerrain.cpp
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
         src/HyphaSpectrumPainter.cpp

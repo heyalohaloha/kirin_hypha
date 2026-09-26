@@ -422,6 +422,8 @@ TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠�
 
 POST FREQは既存Spectrum解析の同じ実測frameから、現在Spectrum、6秒固定長の時間周波数field、rolling peak holdを生成する。
 
+6秒の時間周波数fieldは、100%、125%、150%では縦軸を時間とする平面の濃淡、200%と300%では同じframeを奥へ並べた遠近の地形として描く（INV-S30、INV-S34）。PRE/POST対応のΔ表示は全サイズで平面のままとする。
+
 POST FREQのM/Sは同じstereo入力窓をMID、SIDEの順で解析し、一つの専用frameとして公開する。
 
 M/SはPOSTローカルであり、PRE要求、PRE/POST差分、6秒field、peak hold、MARK、Focus Trailを生成しない。

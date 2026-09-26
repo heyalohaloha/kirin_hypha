@@ -5,6 +5,7 @@
 #include "HyphaSpectrumAxisPainter.h"
 #include "HyphaAnalysisUiText.h"
 #include "HyphaSpectrumFocusTrailPainter.h"
+#include "HyphaSpectrumTerrain.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
@@ -437,6 +438,9 @@ void paint (juce::Graphics& g,
     else
         spectrum_painter::paintCurves (g, plot, scale, state.pre, state.post,
                                        state.delta, state.haveMark ? &state.mark : nullptr);
+    if (! state.midSideObservation)
+        spectrum_terrain::paintInstrumentNotes (g, plot, state.snapshot, ! state.absoluteObservation,
+                                                state.presentation);
     if (focusLocked
         && state.focusTrail != nullptr && ! state.focusTrail->empty())
     {

@@ -1,9 +1,11 @@
 #include "AbsoluteSpectrumContractTest.h"
+#include "SpectrumLandscapeContract.h"
 
 #include "../src/HyphaAbsoluteSpectrumHistory.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaSpectrumPainter.h"
+#include "../src/HyphaSpectrumTerrain.h"
 #include "../src/HyphaSpectrumUiContract.h"
 
 #include <cmath>
@@ -28,6 +30,11 @@ void require (bool condition, const char* expression, int line)
 
 #define KIRIN_ABSOLUTE_SPECTRUM_REQUIRE(expression) \
     require ((expression), #expression, __LINE__)
+
+// The flat six-second field serves plots narrower than the landscape's minimum width (the 100%
+// and 125% editors); wider plots draw the perspective landscape, whose contract is separate.
+constexpr int fieldWidth = 400;
+constexpr int fieldHeight = 280;
 
 KirinSpectrumView postFrame (int64_t endpoint, float magnitude)
 {
@@ -100,6 +107,7 @@ juce::Image renderField (const absolute_spectrum::History& history, int width, i
     juce::Image image (juce::Image::ARGB, width, height, true);
     juce::Graphics graphics (image);
     const auto plot = spectrum_geometry::dataPlotBoundsFor (image.getBounds().toFloat(), false);
+    KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (plot.getWidth() < spectrum_terrain::minimumPlotWidth);
     spectrum_painter::paintAbsolute (
         graphics, plot, spectrum_geometry::visualScaleFor (image.getBounds().toFloat()),
         post, hold, history, presentation::forEditor (width, height));
@@ -111,8 +119,8 @@ juce::Image renderField (const absolute_spectrum::History& history, int width, i
 // measurement gap creates.
 void verifyFieldIsContinuousAtAnyHostCadence()
 {
-    constexpr int width = 600;
-    constexpr int height = 400;
+    constexpr int width = fieldWidth;
+    constexpr int height = fieldHeight;
 
     for (const auto spacingSamples : { 1'600, 1'536, 2'048, 2'560, 3'200, 4'096, 8'192 })
     {
@@ -155,8 +163,8 @@ void verifyFieldIsContinuousAtAnyHostCadence()
 // seconds just because there is nothing else to compare them against.
 void verifyFieldDoesNotInventACadenceFromTwoObservations()
 {
-    constexpr int width = 600;
-    constexpr int height = 400;
+    constexpr int width = fieldWidth;
+    constexpr int height = fieldHeight;
 
     absolute_spectrum::History history;
     KIRIN_ABSOLUTE_SPECTRUM_REQUIRE (history.append (markedFrame (1'600, 100u, -20.0f)));
@@ -178,8 +186,8 @@ void verifyFieldDoesNotInventACadenceFromTwoObservations()
 // stay visible as a band of empty rows.
 void verifyFieldKeepsARealGapEmpty()
 {
-    constexpr int width = 600;
-    constexpr int height = 400;
+    constexpr int width = fieldWidth;
+    constexpr int height = fieldHeight;
     constexpr int64_t spacing = 1'600;
 
     absolute_spectrum::History history;
@@ -216,8 +224,8 @@ void verifyFieldKeepsARealGapEmpty()
 // streak's resolution is what tells the user whether a change was sudden or gradual.
 void verifySixSecondFieldReadsAsTime()
 {
-    constexpr int width = 600;
-    constexpr int height = 400;
+    constexpr int width = fieldWidth;
+    constexpr int height = fieldHeight;
     constexpr size_t frames = absolute_spectrum::historyCapacity;
     constexpr size_t oldestBand = 40u;
     constexpr size_t newestBand = 200u;
@@ -326,11 +334,14 @@ void verifySixSecondFieldReadsAsTime()
         spectrum_painter::paintAbsolute (
             graphics, plot, spectrum_geometry::visualScaleFor (target.getBounds().toFloat()),
             post, hold, single, presentation::forEditor (width, height));
+        // A band is little more than a pixel wide, and the field is drawn without smoothing, so
+        // the band's own pixel column is the brightest of the three around its centre.
         const auto column = juce::roundToInt (juce::jmap (
             spectrum_geometry::bandCentreNormalisedX (100u), plot.getX(), plot.getRight()));
         int best = 0;
         for (int y = plot.toNearestInt().getY(); y < plot.toNearestInt().getBottom() - 12; ++y)
-            best = std::max (best, fieldInkAt (target, column, y));
+            for (int x = column - 1; x <= column + 1; ++x)
+                best = std::max (best, fieldInkAt (target, x, y));
         return best;
     };
     const auto loudInk = inkForSingle (loudImage, -6.0f);
@@ -343,6 +354,7 @@ void verifySixSecondFieldReadsAsTime()
 
 void verifyAbsoluteSpectrumContract()
 {
+    verifyLevelLandscape();
     verifySixSecondFieldReadsAsTime();
     verifyFieldIsContinuousAtAnyHostCadence();
     verifyFieldKeepsARealGapEmpty();
