@@ -27,7 +27,6 @@ struct Look
     float fresnel = 0.0f;    // glass-tube rim: measured bodies glow just inside their edges
     float halo = 0.0f;       // the selected hit lights the HISTORY glass around it
     float rail = 0.0f;       // each lane's zero line becomes a lit rail in the lane colour
-    float haze = 0.0f;       // faint volumetric light in the middle of the HISTORY well
     float glint = 0.0f;      // key light catching the crest of each measured peak
 };
 

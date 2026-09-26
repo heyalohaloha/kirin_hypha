@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "HyphaDepthMaterial.h"
 #include "HyphaTheme.h"
 
 namespace hypha::surface_material
@@ -11,10 +12,12 @@ inline juce::Colour graphiteEdge() noexcept
     return COL_MUTED.interpolatedWith (COL_NORMAL, 0.18f);
 }
 
+// Panels are recessed glass under the shared key light; controls pass `raised` and become plates.
 inline void paintPanel (juce::Graphics& g,
                         juce::Rectangle<float> area,
                         float fillAlpha,
-                        float corner = 4.0f)
+                        float corner = 4.0f,
+                        bool raised = false)
 {
     if (area.isEmpty())
         return;
@@ -58,6 +61,13 @@ inline void paintPanel (juce::Graphics& g,
         g.drawLine (inner.getX() + radius, inner.getBottom() - 0.35f,
                     inner.getRight() - radius, inner.getBottom() - 0.35f, 0.60f);
     }
+    if (raised)
+    {
+        depth_material::paintRaisedPlate (g, outer, radius, fillAlpha);
+        return;
+    }
+    depth_material::paintCastShadowAbove (g, outer, radius, 0.36f * fillAlpha);
+    depth_material::paintRecessedWell (g, outer, radius, depth_material::panelWellLight (fillAlpha));
 }
 
 inline void paintControl (juce::Graphics& g,
@@ -74,7 +84,7 @@ inline void paintControl (juce::Graphics& g,
     const auto fill = selected ? accent.interpolatedWith (BG, 0.82f)
                                : down ? kFieldFill.brighter (0.08f)
                                       : kFieldFill;
-    paintPanel (g, area, highlighted ? 0.94f : selected ? 0.88f : 0.74f, corner);
+    paintPanel (g, area, highlighted ? 0.94f : selected ? 0.88f : 0.74f, corner, true);
     g.setColour (fill.withAlpha (down ? 0.62f : selected ? 0.42f : 0.18f));
     g.fillRoundedRectangle (area.reduced (1.35f), juce::jmax (1.0f, corner - 0.8f));
     if (selected || highlighted)
@@ -133,5 +143,8 @@ inline void paintObservationWell (juce::Graphics& g, juce::Rectangle<float> area
     g.setColour (BG.darker (0.82f).withAlpha (0.88f));
     g.drawLine (inner.getX() + 1.0f, inner.getBottom() - 0.35f,
                 inner.getRight() - 1.0f, inner.getBottom() - 0.35f, 0.65f);
+    // Observation windows are recessed glass under the same key light as DRUM.
+    depth_material::paintCastShadowAbove (g, area, 2.0f, 0.42f);
+    depth_material::paintRecessedWell (g, area, 2.0f, depth_material::observationWellLight());
 }
 }
