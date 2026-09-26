@@ -40,7 +40,7 @@ inline double medianPaint (float scale, const std::function<void (juce::Graphics
     juce::Image surface (juce::Image::ARGB, (int) std::ceil (900.0f * scale), (int) std::ceil (600.0f * scale),
                          true, juce::NativeImageType {});
     std::vector<double> samples;
-    for (int index = 0; index < 13; ++index)
+    for (int index = 0; index < 9; ++index)
     {
         const auto start = juce::Time::getMillisecondCounterHiRes();
         {
@@ -48,7 +48,7 @@ inline double medianPaint (float scale, const std::function<void (juce::Graphics
             g.addTransform (juce::AffineTransform::scale (scale));
             paint (g);
         }
-        if (index >= 3)
+        if (index >= 2)
             samples.push_back (juce::Time::getMillisecondCounterHiRes() - start);
     }
     std::sort (samples.begin(), samples.end());
