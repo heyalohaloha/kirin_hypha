@@ -400,7 +400,8 @@ void KirinHyphaEditor::showFeedbackInformationMenu()
     menu.addSectionHeader ("Status");
     menu.addItem (600, observatoryView.feedback(), false);
     menu.showMenuAsync (juce::PopupMenu::Options()
-        .withTargetComponent (&observatoryView.feedbackDetailsAnchor())
+        .withTargetComponent (feedbackStrip.isVisible() ? static_cast<juce::Component*> (&feedbackStrip)
+                                                        : &observatoryView.feedbackDetailsAnchor())
         .withDeletionCheck (*this).withMinimumWidth (juce::jlimit (300, 440, getWidth()))
         .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight),
         [] (int) {});

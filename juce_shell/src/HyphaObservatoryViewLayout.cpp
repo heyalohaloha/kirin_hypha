@@ -7,6 +7,8 @@ juce::Rectangle<int> toJuce (Rect r) { return { r.x, r.y, r.width, r.height }; }
 void View::resized()
 {
     levelHistoryArea = {};
+    statusStrip = {};
+    statusStripOverBody = false;
     levelHistoryPointer.reset();
     hoveredLevelHistoryIndex.reset();
     const auto preset = currentPreset();
@@ -66,6 +68,11 @@ void View::resized()
     const auto compact = contract.family == ExperienceFamily::compactMeter;
     const auto singleDomainControl = ! contract.domainTabs;
     auto navigation = toJuce (layout.domainNavigation);
+    // Folded footer: a short status (WAITING, BYPASSED) takes the right half of the cycle's row
+    // while shown; feedback and a running capture go to the strip over the body's bottom edge.
+    const bool folded = footerFolds (preset.density) && ! captureFrame;
+    if (folded && footerStatusText().isNotEmpty())
+        sessionArea = navigation.removeFromRight (navigation.getWidth() / 2);
     contextButton.setVisible (! captureFrame);
     if (contextButton.isVisible())
     {
@@ -161,7 +168,9 @@ void View::resized()
         footerActions.setLeft (footerActions.getRight() - (preset.density == Density::inspection ? 290 : 250));
         sessionArea.setRight (footerActions.getX() - 4);
     }
-    statusButton.setVisible (! captureFrame && feedbackText.isNotEmpty());
+    statusStripOverBody = folded;
+    statusStrip = folded ? bodyArea.withTop (bodyArea.getBottom() - statusStripHeight()) : sessionArea;
+    statusButton.setVisible (! captureFrame && ! folded && feedbackText.isNotEmpty());
     statusButton.setBounds (sessionArea.reduced (1, 2));
     layoutFooterActions (footerActions);
 }

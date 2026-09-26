@@ -589,7 +589,12 @@ own slots, while a third identifies the owners and waits.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
-The **VU** button added to the existing footer opens the same Hybrid VU during ordinary playback; it is not a separate
+At 100% and 125% the footer folds into the header's second row: the domain cycle, VU, MENU, the size
+and POST / Δ share one row, and the measurement reaches the bottom edge. Short states such as WAITING
+and BYPASSED appear beside the domain cycle. A toast or a persistent status appears whole in a
+one-line strip over the bottom edge of the measurement while it lasts; clicking it opens the details.
+
+The **VU** button in the footer (in the header's second row at 100% and 125%) opens the same Hybrid VU during ordinary playback; it is not a separate
 measurement mode and does not alter the selected domain. The selection survives closing and reopening
 the editor while that plug-in instance remains loaded. In the Hybrid VU, **CLEAR** releases only the
 per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU needles, Meter Session

@@ -10,6 +10,7 @@
 #include "AbsoluteTimelineContractTest.h"
 #include "AbsoluteSpectrumContractTest.h"
 #include "SpectrumTerrainShowcase.h"
+#include "CompactReviewShowcase.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
@@ -133,6 +134,7 @@ int main (int argc, char** argv)
     const auto previews = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
     if (previews.isNotEmpty()) KIRIN_REQUIRE (juce::File (previews).createDirectory().wasOk());
     KIRIN_REQUIRE (hypha::tests::writeSpectrumShowcase());
+    KIRIN_REQUIRE (hypha::tests::writeCompactReview());
     if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
     {
         juce::Image panel (juce::Image::RGB, 120, 60, true);

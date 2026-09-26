@@ -194,7 +194,12 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 
 300×200と375×250は同じgeometry規則を使用し、375専用の第三の表示思想を作らない。
 
-DAW Record中はCompactの常設面をHybrid VUへ一時置換する。通常時も既存Footerへ追加した`VU`ボタンから同じ面を開き、同じボタンで選択domainを変更せず元の画面へ戻る。
+2026-09-26から、Compactの二寸法では下段を上段2行目へ畳み、本体を下端の余白まで広げる（INV-S37）。
+2行目は右からPOST／Δ、サイズ、VU・STOP・MENU、OS Guideの順に場所を保ち、domainの巡回が残りの幅を使う。
+WAITING、BYPASSEDなど短い状態は表示中だけ巡回の行の右半分に出す。
+フィードバックと実行中のCaptureは表示中だけ本体下端の1行の帯に全幅で出し、解析ページより手前に置く。
+
+DAW Record中はCompactの常設面をHybrid VUへ一時置換する。通常時も`VU`ボタン（Compactでは上段2行目、Observatoryでは下段）から同じ面を開き、同じボタンで選択domainを変更せず元の画面へ戻る。
 Recordによる面は停止時に元の画面へ戻る。手動選択はRecord開始／停止と独立する。
 既定ONの表示設定をOFFにした場合、またはHybrid VUの情報メニューから選択中のviewへ戻した場合は、自動置換を行わない。後者はそのRecord区間だけ有効とする。
 左右の針は0 VU = -18 dBFSの300 ms平均応答、上段cyan railは左右100 ms True Peak、amber markerはSession開始または直近`CLEAR`以降の左右最大TPとし、異なる時間尺度を一つの針へ混ぜない。
@@ -301,7 +306,7 @@ LEVELの菌糸量はLUFS-Mを`-48..0 LUFS`から`0..1`へclampした値だけで
 
 waitingと未接続では接続済みの形を表示しない。
 
-OS Guideが存在する場合だけFooterに短いGuide contextを表示する。
+OS Guideが存在する場合だけFooter（Compactでは上段2行目）に短いGuide contextを表示する。
 
 Guide contextは現在のdomainを変更せず、測定面の高さも変えない。
 

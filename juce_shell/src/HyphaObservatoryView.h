@@ -84,8 +84,10 @@ public:
     void setMeasurementFormatHeld (bool held)
     {
         if (measurementFormatHeld == held) return;
+        const auto statusBefore = footerStatusText();
         measurementFormatHeld = held;
         repaint (sessionArea);
+        refreshFoldedStatus (statusBefore);
     }
     bool surroundMeasurementOnlyForTest() const noexcept
     {
@@ -236,6 +238,10 @@ public:
     juce::Rectangle<int> connectionBounds() const noexcept { return connectionArea; }
     juce::Rectangle<int> guideBounds() const noexcept { return guideArea; }
     juce::Rectangle<int> sessionBounds() const noexcept { return sessionArea; }
+    // Where feedback and a running capture are shown: the footer's session line, or, where the
+    // footer folds into the header, a strip over the bottom edge of the body (statusStripFolded).
+    juce::Rectangle<int> statusStripBounds() const noexcept { return statusStrip; }
+    bool statusStripFolded() const noexcept { return statusStripOverBody; }
     std::uint64_t captureHistoryEndpoint() const noexcept
     {
         return frameAvailable ? observatoryFrame.meter.observed_frames : 0u;
@@ -269,6 +275,9 @@ private:
     void paintHeader (juce::Graphics&, const ShellLayout&);
     void paintFooter (juce::Graphics&, const ShellLayout&);
     juce::String footerStatusText() const;
+    // With the footer folded into the header, a status change moves the cycle and status line.
+    void refreshFoldedStatus (const juce::String& statusBefore);
+    int statusStripHeight() const;
     void layoutFooterActions (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
     void paintLevelWithHistory (juce::Graphics&, juce::Rectangle<int>);
@@ -335,6 +344,8 @@ private:
     juce::Rectangle<int> connectionArea;
     juce::Rectangle<int> guideArea;
     juce::Rectangle<int> sessionArea;
+    juce::Rectangle<int> statusStrip;
+    bool statusStripOverBody = false;
     juce::Rectangle<int> levelHistoryArea;
     std::optional<juce::Point<float>> levelHistoryPointer;
     std::optional<std::size_t> hoveredLevelHistoryIndex;

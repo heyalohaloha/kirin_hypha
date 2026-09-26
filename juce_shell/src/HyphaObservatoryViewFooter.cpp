@@ -96,6 +96,11 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     }
 }
 
+int View::statusStripHeight() const
+{
+    return juce::roundToInt (monoFont (presentationContext(), typography::TextRole::status).getHeight()) + 5;
+}
+
 juce::String View::footerStatusText() const
 {
     if (measurementFormatHeld) return "FORMAT HELD / STOP KEEP";
@@ -118,7 +123,7 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     if (! captureFrame)
     {
         g.setFont (monoFont (presentationContext(), typography::TextRole::status));
-        if (feedbackText.isEmpty())
+        if (feedbackText.isEmpty() || statusStripOverBody)
             g.drawText (state, session, juce::Justification::centredLeft);
        #if defined(JucePlugin_VersionString)
         const auto version = juce::String ("v") + JucePlugin_VersionString;

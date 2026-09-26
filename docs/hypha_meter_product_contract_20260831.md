@@ -465,7 +465,7 @@ channel数、名前、routing、levelからcontextを推測または自動変更
 
 900×600（300%）は600×400を置換せず、LEVEL、TIME、FREQ、SPACEとTIME配下の解析を同じ操作体系のまま高解像度で読むInspection Viewとする。LEVELは履歴面積、channel strip、数値階層を拡張するが、未合意の新指標は追加しない。将来Session Atlasを載せる場合は別途表示内容を確定する。
 
-既存Footerへ置く`VU`ボタンは通常時もHybrid VUを全sizeで前面表示し、同じボタンで選択domainを変更せず元の画面へ戻す。手動選択は読み込まれたplugin instanceのeditorを閉じて再表示しても保持するが、DAW project stateへは保存しない。
+Footer（100%と125%では上段2行目）へ置く`VU`ボタンは通常時もHybrid VUを全sizeで前面表示し、同じボタンで選択domainを変更せず元の画面へ戻す。手動選択は読み込まれたplugin instanceのeditorを閉じて再表示しても保持するが、DAW project stateへは保存しない。
 DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更せず、一時的なHybrid VU面を全sizeで前面表示する。
 停止後はRecord前の画面へ復帰する。
 情報メニューの`Show Hybrid VU while recording`は既定ONとし、DAWのplugin stateへ保存する。OFFではRecord中も選択中のdomainを維持する。ONでもHybrid VUの役割表示から情報メニューを開き、`Show selected view for this recording`を選ぶと、そのRecord区間だけ自動表示を解除できる。次のRecord開始時には再びHybrid VUを表示する。

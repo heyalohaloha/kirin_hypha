@@ -4,10 +4,10 @@
 #include "../src/HyphaTextStyle.h"
 #include "ValidationStorageSandbox.h"
 #include "EditorCaptureProductTest.h"
+#include "EditorProductChecks.h"
 
 #include <array>
 #include <chrono>
-#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -163,61 +163,6 @@ struct HostClock final : juce::AudioPlayHead
     bool recording = false;
     std::int64_t position = 0;
 };
-
-// Drum hits leave silent blocks between them. The live analysis views must read those as a rest,
-// as Watch does, not as the input ending, or FREQ, LIVE, SHARP and DRUM blank between hits. A
-// rest longer than the 3 s window, or a stopped transport, still ends the live input.
-void verifyLiveInputThroughMusicalRests()
-{
-    struct Transport final : juce::AudioPlayHead
-    {
-        juce::Optional<PositionInfo> getPosition() const override
-        {
-            PositionInfo info;
-            info.setIsPlaying (playing);
-            info.setTimeInSamples (position);
-            return info;
-        }
-        bool playing = true;
-        std::int64_t position = 0;
-    } transport;
-    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
-    Processor processor (Processor::Role::Post);
-    constexpr int block = 480;
-    processor.prepareToPlay (48'000, block);
-    processor.setPlayHead (&transport);
-    juce::AudioBuffer<float> buffer (2, block);
-    juce::MidiBuffer midi;
-    const auto process = [&] (bool audible) {
-        for (int channel = 0; channel < 2; ++channel)
-            for (int sample = 0; sample < block; ++sample)
-                buffer.setSample (channel, sample, audible
-                    ? 0.1f * std::sin (0.05f * (float) (transport.position + sample)) : 0.0f);
-        processor.processBlock (buffer, midi);
-        transport.position += block;
-    };
-    for (int index = 0; index < 20; ++index)
-        process (true);
-    require (processor.hasLiveInput(), "audible input is live");
-    for (int hit = 0; hit < 8; ++hit)
-    {
-        for (int rest = 0; rest < 25; ++rest) // 250 ms between hits
-        {
-            process (false);
-            require (processor.hasLiveInput(), "a rest between hits keeps the input live");
-        }
-        process (true);
-    }
-    for (int index = 0; index < 330; ++index) // 3.3 s of silence
-        process (false);
-    require (! processor.hasLiveInput(), "a rest longer than the Watch window ends the live input");
-    process (true);
-    transport.playing = false;
-    process (false);
-    require (! processor.hasLiveInput(), "a stopped transport ends the live input at once");
-    processor.setPlayHead (nullptr);
-    processor.releaseResources();
-}
 
 void verifySavedReferenceChoices()
 {
@@ -489,7 +434,8 @@ int main (int argc, char** argv)
    #endif
     juce::ScopedJuceInitialiser_GUI init;
     verifyRecordBodyOwnership();
-    verifyLiveInputThroughMusicalRests();
+    hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
+    hypha::tests::editor_product::verifyFoldedFeedbackStrip();
     verifySavedReferenceChoices();
     const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();
     verifyPairHeaderAtEverySize (previews);

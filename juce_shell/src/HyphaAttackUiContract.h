@@ -184,7 +184,12 @@ namespace hypha::attack_ui
         const auto body = height - header;
         const auto axis = axisRowHeight (context);
         const auto line = readoutLineHeight (context);
-        if (body >= historyMinimumHeight + axis + static_cast<int> (laneCount) * laneMinimumHeight)
+        // The compact meter sizes read DRUM as one line of four differences, even though their
+        // body (with the footer folded into the header) would now hold four short lanes.
+        const bool compactMeter = context.density == observatory::Density::compact
+                               || context.density == observatory::Density::focused;
+        if (! compactMeter
+            && body >= historyMinimumHeight + axis + static_cast<int> (laneCount) * laneMinimumHeight)
         {
             auto lane = (body * laneShareNumerator + laneShareDenominator / 2) / laneShareDenominator;
             lane = lane < laneMinimumHeight ? laneMinimumHeight

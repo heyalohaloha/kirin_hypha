@@ -196,6 +196,40 @@ struct ShellLayout
     Rect sizeSelector;
 };
 
+// The compact meter sizes (100% and 125%) fold the footer rail into the second header row, so the
+// body gains the rail's height. Each footer control keeps a place there, right to left: target,
+// size, actions and guide; the domain cycle takes the rest. The view carves a short status
+// (WAITING, BYPASSED) out of the cycle's row only while there is one; feedback and a running
+// capture are shown in a strip over the body's bottom edge instead (statusStripBounds).
+constexpr bool footerFolds (Density density) noexcept
+{
+    return density == Density::compact || density == Density::focused;
+}
+
+constexpr ShellLayout foldFooter (ShellLayout layout, Role role, Density density,
+                                  GuidePresence guide, int margin, int gap) noexcept
+{
+    const bool compact = density == Density::compact;
+    const int y = layout.domainNavigation.y, height = layout.domainNavigation.height;
+    const int targetWidth = role == Role::post ? (compact ? 44 : 52) : 0;
+    const int sizeWidth = compact ? 36 : 40, actionWidth = compact ? 96 : 104;
+    const int guideWidth = guide == GuidePresence::present ? (compact ? 60 : 66) : 0;
+    int edge = right (layout.header) - targetWidth;
+    layout.observationTarget = { edge, y, targetWidth, height };
+    edge -= (targetWidth > 0 ? gap : 0) + sizeWidth;
+    layout.sizeSelector = { edge, y, sizeWidth, height };
+    edge -= gap + actionWidth;
+    layout.actions = { edge, y, actionWidth, height };
+    edge -= guideWidth > 0 ? gap + guideWidth : 0;
+    layout.guideRail = { edge, y, guideWidth, guideWidth > 0 ? height : 0 };
+    edge -= gap;
+    layout.domainNavigation = { layout.header.x, y, edge - layout.header.x, height };
+    layout.session = { edge, y, 0, height };
+    layout.footer = { margin, layout.outer.height - margin, layout.outer.width - 2 * margin, 0 };
+    layout.body.height = layout.outer.height - margin - layout.body.y;
+    return layout;
+}
+
 constexpr ShellLayout shellLayout (Role role,
                                    SizePreset preset,
                                    GuidePresence guide) noexcept
@@ -275,21 +309,11 @@ constexpr ShellLayout shellLayout (Role role,
         sessionX, footer.y, actions.x - gap - sessionX, footer.height
     };
 
-    return {
-        { 0, 0, preset.width, preset.height },
-        header,
-        roleTitle,
-        domainNavigation,
-        contextSelector,
-        connectionStatus,
-        guideRail,
-        body,
-        footer,
-        observationTarget,
-        session,
-        actions,
-        sizeSelector,
-    };
+    const ShellLayout unfolded { { 0, 0, preset.width, preset.height }, header, roleTitle,
+        domainNavigation, contextSelector, connectionStatus, guideRail, body, footer,
+        observationTarget, session, actions, sizeSelector };
+    return footerFolds (preset.density)
+        ? foldFooter (unfolded, role, preset.density, guide, margin, gap) : unfolded;
 }
 
 struct VisibleContent
