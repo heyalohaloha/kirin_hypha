@@ -337,6 +337,9 @@ inline bool writeCompactReview()
                 for (int index = 0; index < freq_showcase::frameCount; ++index)
                     absolute.setSnapshot (freq_showcase::frame (index));
                 write (rolePrefix + "freq_post", compose (shell, absolute, analysis_navigation::Page::spectrum));
+                // A rest past the Watch window: the status is stated over the dimmed history.
+                absolute.setSignalActive (false);
+                write (rolePrefix + "freq_inactive", compose (shell, absolute, analysis_navigation::Page::spectrum));
             }
             shell.setDomain (observatory::Domain::time);
             {

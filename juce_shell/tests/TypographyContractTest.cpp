@@ -374,10 +374,45 @@ void verifyTooltipBounds()
                     available.contains (lookAndFeel.getTooltipBounds (text, position, parent)));
     }
 }
+
+// A status that may wrap (INACTIVE, PREPARING ANALYSIS) is justified inside its own area: a
+// centred status stands whole in the middle, never half outside on the right.
+void verifyWrappedStatusPlacement()
+{
+    const auto context = presentation::forEditor (300, 200);
+    const juce::Rectangle<int> area (10, 10, 240, 40);
+    for (const auto justification : { juce::Justification::centred, juce::Justification::centredLeft,
+                                      juce::Justification::centredRight })
+    {
+        juce::Image image (juce::Image::ARGB, 260, 60, true);
+        juce::Graphics g (image);
+        g.setColour (juce::Colours::white);
+        g.setFont (monoFont (context, typography::TextRole::status, typography::Composition::visualization));
+        text_style::draw (g, "INACTIVE", area, context, typography::TextRole::status, justification, 2,
+                          typography::Composition::visualization);
+        int left = image.getWidth(), right = -1;
+        for (int y = 0; y < image.getHeight(); ++y)
+            for (int x = 0; x < image.getWidth(); ++x)
+                if (image.getPixelAt (x, y).getAlpha() > 64)
+                {
+                    left = std::min (left, x);
+                    right = std::max (right, x);
+                }
+        const auto textWidth = g.getCurrentFont().getStringWidthFloat ("INACTIVE");
+        KIRIN_TYPOGRAPHY_REQUIRE ((float) (right - left + 1) >= textWidth * 0.8f);
+        if (justification == juce::Justification::centred)
+            KIRIN_TYPOGRAPHY_REQUIRE (std::abs ((left + right) / 2 - area.getCentreX()) <= 3);
+        else if (justification == juce::Justification::centredLeft)
+            KIRIN_TYPOGRAPHY_REQUIRE (left - area.getX() <= 3);
+        else
+            KIRIN_TYPOGRAPHY_REQUIRE (area.getRight() - right <= 4);
+    }
+}
 }
 
 void verifyTypographyContract()
 {
+    verifyWrappedStatusPlacement();
     verifyResolvedStyles();
     verifyPreservedSurfaceText();
     verifySurfaceInventory();

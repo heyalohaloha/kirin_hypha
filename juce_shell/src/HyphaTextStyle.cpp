@@ -51,12 +51,12 @@ void drawWrapped (juce::Graphics& graphics, const juce::String& text,
         + juce::roundToInt (juce::jmax (0.0f,
               (static_cast<float> (area.getHeight()) - layout.getHeight()) * 0.5f)
               + font.getAscent());
-    const auto startX = justification.testFlags (juce::Justification::horizontallyCentred)
-        ? area.getCentreX() : justification.testFlags (juce::Justification::right)
-            ? area.getRight() : area.getX();
+    // drawMultiLineText justifies each line inside [x, x + width], so the box starts at the area's
+    // left edge whatever the justification. Starting it at the centre put a centred status half
+    // outside the area, where the clip cut "INACTIVE" to "INAC".
     juce::Graphics::ScopedSaveState saved (graphics);
     graphics.reduceClipRegion (area);
-    graphics.drawMultiLineText (text, startX, baseline, area.getWidth(), justification);
+    graphics.drawMultiLineText (text, area.getX(), baseline, area.getWidth(), justification);
 }
 }
 
