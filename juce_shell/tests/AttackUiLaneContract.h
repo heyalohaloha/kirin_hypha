@@ -384,7 +384,10 @@ inline bool verifyCompactLine()
         auto scene = laneScene (layout.body.width,
                                 layout.body.height - observatory::timeNavigationHeight (preset.density),
                                 context);
-        if (scene.layout.arrangement != attack_ui::Arrangement::line || scene.layout.history.empty())
+        // 100% is the glance (one-row HISTORY over four large values); 125% the one-line readout.
+        const bool glance = preset.density == observatory::Density::compact;
+        if (scene.layout.arrangement != (glance ? attack_ui::Arrangement::glance : attack_ui::Arrangement::line)
+            || scene.layout.history.empty())
             return false;
         auto fixture = laneFixture ({ 96'000, 192'000, 240'000 });
         fixture.submit (*scene.component);

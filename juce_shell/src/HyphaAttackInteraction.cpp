@@ -19,8 +19,9 @@ bool AttackComponent::selectsAt (const attack_ui::Layout& shape, juce::Point<int
     const auto history = rectangleOf (attack_ui::historyPlot (shape));
     if (history.isEmpty())
         return false;
-    const auto bottom = shape.arrangement == attack_ui::Arrangement::lanes
-        ? shape.lanes.back().bottom() : shape.axis.bottom();
+    const auto bottom = shape.arrangement == attack_ui::Arrangement::lanes ? shape.lanes.back().bottom()
+                      : shape.arrangement == attack_ui::Arrangement::glance ? shape.history.bottom()
+                                                                            : shape.axis.bottom();
     return point.x >= history.getX() && point.x < history.getRight()
         && point.y >= shape.history.y && point.y < bottom;
 }
@@ -28,14 +29,28 @@ bool AttackComponent::selectsAt (const attack_ui::Layout& shape, juce::Point<int
 void AttackComponent::mouseDown (const juce::MouseEvent& event)
 {
     if (isShowing()) grabKeyboardFocus();
-    if (event.y < attack_ui::titleRowHeight (presentationContext)
-        && event.x > getWidth() - viewControlWidth())
+    const auto shape = layout();
+    // 100% has no VIEW button (VIEW is chosen at 125% and above); its HOLD / LOCK caption, top
+    // right in HISTORY, returns to LIVE as NOW does in the axis row at the larger sizes.
+    if (shape.arrangement == attack_ui::Arrangement::glance)
+    {
+        const auto history = rectangleOf (attack_ui::historyPlot (shape));
+        if (! followLatest && history.withTrimmedLeft (history.getWidth() - 48).withHeight (18)
+                                  .contains (event.getPosition()))
+        {
+            followLatest = true;
+            selectBoundaryEvent (true);
+            repaint();
+            return;
+        }
+    }
+    else if (event.y < attack_ui::titleRowHeight (presentationContext)
+             && event.x > getWidth() - viewControlWidth())
     {
         overlayMode = ! overlayMode;
         repaint();
         return;
     }
-    const auto shape = layout();
     const auto axis = rectangleOf (attack_ui::axisPlot (shape));
     if (axis.contains (event.getPosition()) && event.x > axis.getRight() - 40)
     {

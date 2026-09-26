@@ -60,7 +60,8 @@ namespace
         g.setFont (monoFont (state.presentation, typography::TextRole::navigation,
                              typography::Composition::visualization));
         juce::ignoreUnused (reservedReadoutWidth, expandedReadout);
-        for (size_t index = 0; index < ui_contract::spectrumDisplayModeWidths.size(); ++index)
+        const bool viewOnly = spectrum_geometry::viewOnly (scale);
+        for (size_t index = 0; index < ui_contract::spectrumDisplayModeWidths.size() && ! viewOnly; ++index)
         {
             const auto mode = static_cast<uint8_t> (index);
             const auto segment = spectrum_geometry::displayModeBoundsFor (
@@ -96,8 +97,21 @@ namespace
             return;
 
         const int legendOffset = 0;
-        const float legendTop = outerPlot.getY()
-                              + scaled (17.0f);
+        // At 100% the legend sits inside the plot's top edge, where the rows used to be.
+        const float legendTop = outerPlot.getY() + scaled (viewOnly ? 2.0f : 17.0f);
+        if (viewOnly)
+        {
+            // A state chosen at a larger size is named, not operated: MID, SIDE, a held MARK.
+            const auto chosen = juce::String (state.channelMode == KIRIN_SPECTRUM_CHANNEL_MID ? "MID"
+                                            : state.channelMode == KIRIN_SPECTRUM_CHANNEL_SIDE ? "SIDE" : "")
+                              + (state.haveMark && ! state.absoluteObservation ? "  MARK" : "");
+            g.setFont (monoFont (state.presentation, typography::TextRole::legend,
+                                 typography::Composition::visualization));
+            g.setColour (COL_FLORA.withAlpha (0.86f));
+            g.drawText (chosen.trim(), outerPlot.withTop (legendTop).withHeight (
+                            scaled ((float) ui_contract::spectrumLegendHeight)).reduced (scaled (4.0f), 0.0f)
+                            .toNearestInt(), juce::Justification::centredRight);
+        }
         g.setFont (monoFont (state.presentation, typography::TextRole::legend,
                              typography::Composition::visualization));
         if (state.actionNotice.isNotEmpty())
@@ -132,6 +146,8 @@ namespace
                         juce::Justification::centredLeft);
             return;
         }
+        if (state.absoluteObservation && viewOnly)
+            return; // POST is named by the target button beside the domain cycle.
         if (state.absoluteObservation)
         {
             const juce::Rectangle<int> legend { juce::roundToInt (outerPlot.getX()),
@@ -176,6 +192,8 @@ namespace
                     scaledInt (ui_contract::spectrumPostLegendLabelWidth),
                     scaledInt (ui_contract::spectrumLegendHeight),
                     juce::Justification::centredLeft);
+        if (viewOnly)
+            return;
 
         const auto mark = spectrum_geometry::markBoundsFor (outerPlot, scale);
         if (state.haveMark)

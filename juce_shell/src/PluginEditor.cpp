@@ -353,7 +353,8 @@ void KirinHyphaEditor::updateFeedback (
         toastText.clear();
 
     observatoryView.setFeedback (text);
-    feedbackStrip.setFeedback (text);
+    // The strip also carries the footer's short status (WAITING, BYPASSED) while nothing else shows.
+    feedbackStrip.setFeedback (text.isNotEmpty() ? text : observatoryView.footerStatus());
     layoutFeedbackStrip();
 }
 

@@ -443,7 +443,7 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 | Size | POST required content | PRE required content |
 |---|---|---|
-| 300×200 | 選択domainの主値、role、pair、POST/Δ、Session state | MまたはS、TP、Crest、name、pair state |
+| 300×200 | 選択domainの主値、role、pair、POST/Δ、Session state。操作を置かない | S、I（TRACK/STEMではCrest）、MAX TP、name、pair state |
 | 375×250 | Compact内容、補助値、domain switch | Compact内容、I/O state、接続context |
 | 450×300 | 世界背景を抑えた主visual、軸、session facts | Standard内容、測定stateの詳細 |
 | 600×400 | Concept Cのfull cockpit、M/S/I、TP/MaxTP/LRA/PLR/Crest、History凡例のMax M、60秒History、左右TP、POST/Δ、Capture | POSTと共通のshell、広い数値面、接続context |

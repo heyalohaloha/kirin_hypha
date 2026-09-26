@@ -84,16 +84,16 @@ public:
     void setMeasurementFormatHeld (bool held)
     {
         if (measurementFormatHeld == held) return;
-        const auto statusBefore = footerStatusText();
         measurementFormatHeld = held;
         repaint (sessionArea);
-        refreshFoldedStatus (statusBefore);
     }
     bool surroundMeasurementOnlyForTest() const noexcept
     {
         return measurementOnlySurround;
     }
     juce::String footerStatusForTest() const { return footerStatusText(); }
+    // WAITING, BYPASSED and the like; shown by the status strip where the footer folds.
+    juce::String footerStatus() const { return footerStatusText(); }
     bool frequencyControlVisibleForTest() const noexcept
     {
         return frequencyButton.isVisible();
@@ -138,6 +138,11 @@ public:
     void setAttackPaired (bool);
     void setFeedback (juce::String text);
     int timeControlsHeight() const noexcept;
+    // 100% is view-only: the history range and the loudness scale are chosen at 125% and above.
+    bool timeControlsShown() const noexcept
+    {
+        return ! captureFrame && currentPreset().density != Density::compact;
+    }
     void setTimeRange (TimeRange);
     TimeRange selectedTimeRange() const noexcept { return timeRange; }
     void setMeterSnapshot (const KirinMeterSession&, bool available);
@@ -275,8 +280,6 @@ private:
     void paintHeader (juce::Graphics&, const ShellLayout&);
     void paintFooter (juce::Graphics&, const ShellLayout&);
     juce::String footerStatusText() const;
-    // With the footer folded into the header, a status change moves the cycle and status line.
-    void refreshFoldedStatus (const juce::String& statusBefore);
     int statusStripHeight() const;
     void layoutFooterActions (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);

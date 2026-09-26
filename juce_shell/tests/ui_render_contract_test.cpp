@@ -11,6 +11,7 @@
 #include "AbsoluteSpectrumContractTest.h"
 #include "SpectrumTerrainShowcase.h"
 #include "CompactReviewShowcase.h"
+#include "SpectrumControlsContract.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
@@ -318,9 +319,14 @@ int main (int argc, char** argv)
         spectrum.paintEntireComponent (graphics, true);
     }
     KIRIN_REQUIRE (countDifferentPixels (spectrumWithoutHover, spectrumWithFocusLock) > 30);
-    const float clearX = (float) spectrumBounds.width
-                       - (float) ui::spectrumPlotRightInset - 3.0f;
-    const float clearY = (float) ui::spectrumPlotTopInset + 24.0f;
+    // The lock's x sits in its readout, which follows the plot's right edge at every size.
+    const auto lockBounds = spectrum.getLocalBounds().toFloat();
+    const auto lockScale = hypha::spectrum_geometry::visualScaleFor (lockBounds);
+    const auto clearPoint = hypha::spectrum_geometry::focusClearBoundsFor (
+        hypha::spectrum_geometry::readoutBoundsFor (hypha::spectrum_geometry::plotBoundsFor (lockBounds),
+                                                    lockScale, lockScale > 1.1f, true), lockScale).getCentre();
+    const float clearX = clearPoint.x;
+    const float clearY = clearPoint.y;
     const juce::MouseEvent clearEvent (
         juce::Desktop::getInstance().getMainMouseSource(),
         { clearX, clearY }, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
@@ -337,28 +343,8 @@ int main (int argc, char** argv)
         const auto markSpectrumBounds = ui::spectrumPlotBounds (preset.width, preset.height);
         markSpectrum.setSize (markSpectrumBounds.width, markSpectrumBounds.height);
         markSpectrum.setSnapshot (spectrumSnapshot);
-        const auto outer = hypha::spectrum_geometry::plotBoundsFor (
-            markSpectrum.getLocalBounds().toFloat());
-        const auto scale = hypha::spectrum_geometry::visualScaleFor (
-            markSpectrum.getLocalBounds().toFloat());
-        const auto modeFont = hypha::monoFont (
-            presentation, hypha::typography::TextRole::navigation,
-            hypha::typography::Composition::visualization);
-        constexpr std::array<const char*, 4> labels { "LR", "MID", "SIDE", "M/S" };
-        for (size_t index = 0u; index < labels.size(); ++index)
-            KIRIN_REQUIRE (hypha::spectrum_geometry::displayModeBoundsFor (
-                index, outer, scale).getWidth() >= std::ceil (
-                    modeFont.getStringWidthFloat (labels[index]) + modeFont.getHeight() * 0.5f));
-        const auto readoutFont = hypha::monoFont (
-            presentation, hypha::typography::TextRole::readout,
-            hypha::typography::Composition::visualization);
-        if (scale <= 1.1f)
-            KIRIN_REQUIRE (70.0f * scale >= std::ceil (
-                hypha::tabularTextWidth (readoutFont, "M -144.0")
-                + readoutFont.getHeight() * 0.5f));
-        hypha::tests::verifySpectrumInteractionContract (
-            markSpectrum, spectrumSnapshot,
-            markSpectrumBounds.width, markSpectrumBounds.height, eventTime);
+        hypha::tests::verifySpectrumControlsAt (markSpectrum, spectrumSnapshot,
+                                                preset.width, preset.height, eventTime);
     }
     // Keep the performance-sensitive trail gate after all five MARK size contracts.
     hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);

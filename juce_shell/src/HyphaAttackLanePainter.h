@@ -27,6 +27,9 @@ bool drawFitting (juce::Graphics&, std::initializer_list<juce::String> candidate
                   juce::Rectangle<int>, const presentation::Context&, typography::TextRole,
                   juce::Justification, float tracking = 0.0f);
 
+// A short lane-colour mark identifies a readout; the number itself stays ivory.
+void paintAccent (juce::Graphics&, juce::Rectangle<int> row, juce::Colour, float alpha);
+
 juce::Colour colourFor (attack_lanes::Lane) noexcept;
 juce::String nameFor (attack_lanes::Lane);
 juce::String codeFor (attack_lanes::Lane);
@@ -42,6 +45,8 @@ void paintLaneChrome (juce::Graphics&, attack_lanes::Lane, juce::Rectangle<int> 
 void paintLaneValues (juce::Graphics&, attack_lanes::Lane, juce::Rectangle<int> plot,
                       juce::Rectangle<int> readout, const Frame&);
 void paintLine (juce::Graphics&, const attack_ui::Layout&, const Frame&);
+// 100%: the selected hit's four values, large, under their lane codes (HyphaAttackGlancePainter.cpp).
+void paintGlance (juce::Graphics&, const attack_ui::Layout&, const Frame&);
 void paintHistoryLabel (juce::Graphics&, juce::Rectangle<int>, const presentation::Context&);
 void paintSelectedTime (juce::Graphics&, juce::Rectangle<int>, const Frame&);
 

@@ -117,8 +117,9 @@ inline void verifyLiveInputThroughMusicalRests()
 }
 
 // Where the footer folds into the header (100% and 125%), feedback is shown whole in a strip over
-// the bottom edge of the body: above the analysis page that owns the body, receiving the pointer,
-// and gone again with the feedback. At the larger sizes the footer keeps it and no strip appears.
+// the bottom edge of the body: above the analysis page that owns the body and receiving the
+// pointer. Without feedback the strip carries the footer's short status (WAITING here, before any
+// audio) and the domain cycle keeps its whole row. At the larger sizes the footer keeps both.
 inline void verifyFoldedFeedbackStrip()
 {
     const juce::String message ("Jungle Mode changed for this session only");
@@ -141,7 +142,7 @@ inline void verifyFoldedFeedbackStrip()
             require (shipping != nullptr && view != nullptr && strip != nullptr, "editor, view and strip exist");
             const bool folded = observatory::footerFolds (preset.density);
             require (view->statusStripFolded() == folded, "the status strip folds with the footer");
-            require (! strip->isVisible(), "no strip without feedback");
+            require (! folded || view->sessionBounds().getWidth() == 0, "the cycle keeps its whole row");
 
             (shipping->*privateMember (ShowToast {})) (message);
             const auto body = view->bodyBounds();
@@ -170,7 +171,9 @@ inline void verifyFoldedFeedbackStrip()
                 require (area == view->sessionBounds(), "without folding, status stays in the footer");
 
             (shipping->*privateMember (ShowToast {})) ({});
-            require (! strip->isVisible(), "the strip leaves with the feedback");
+            require (view->footerStatus() == "WAITING", "no audio yet: the status is WAITING");
+            require (strip->isVisible() == folded && (! folded || strip->text() == "WAITING"),
+                     "after the feedback the strip returns to the short status");
             processor.editorBeingDeleted (editor.get());
             editor.reset();
             processor.releaseResources();

@@ -208,19 +208,34 @@ void verifyPsbComposites (observatory::View& shell)
             const auto toggleInterior = toggle.toNearestInt().reduced (
                 juce::jmax (2, juce::roundToInt (toggle.getWidth() * 0.12f)),
                 juce::jmax (1, juce::roundToInt (toggle.getHeight() * 0.18f)));
-            KIRIN_COMPOSITE_REQUIRE (
-                brightPixels (render (component), toggleInterior, 0.28f) > 3);
-            const auto now = juce::Time::getCurrentTime();
-            component.mouseDown ({ juce::Desktop::getInstance().getMainMouseSource(),
-                toggle.getCentre(), {}, 0, 0, 0, 0, 0, &component, &component, now,
-                toggle.getCentre(), now, 0, false });
-            KIRIN_COMPOSITE_REQUIRE (component.isPsbObservation());
-            KIRIN_COMPOSITE_REQUIRE (monoFont (presentation::forEditor (preset.width, preset.height),
-                                               typography::TextRole::action,
-                                               typography::Composition::visualization)
-                .getStringWidthFloat ("SPECTRUM") < toggle.getWidth());
-            KIRIN_COMPOSITE_REQUIRE (
-                brightPixels (render (component), toggleInterior, 0.28f) > 3);
+            const auto click = [] (SpectrumComponent& target, juce::Point<float> at) {
+                const auto now = juce::Time::getCurrentTime();
+                target.mouseDown ({ juce::Desktop::getInstance().getMainMouseSource(), at, {}, 0, 0, 0,
+                                    0, 0, &target, &target, now, at, now, 0, false });
+            };
+            if (spectrum_geometry::viewOnly (scale))
+            {
+                // 100% only views: no PSB toggle. PSB chosen at a larger size is still shown here.
+                KIRIN_COMPOSITE_REQUIRE (toggle.isEmpty());
+                const auto viewing = component.getBounds();
+                component.setSize (viewing.getWidth() * 5 / 4, viewing.getHeight() * 5 / 4);
+                const auto larger = component.getLocalBounds().toFloat();
+                click (component, spectrum_geometry::subviewBoundsFor (spectrum_geometry::plotBoundsFor (larger),
+                           spectrum_geometry::visualScaleFor (larger)).getCentre());
+                component.setBounds (viewing);
+                KIRIN_COMPOSITE_REQUIRE (component.isPsbObservation());
+            }
+            else
+            {
+                KIRIN_COMPOSITE_REQUIRE (brightPixels (render (component), toggleInterior, 0.28f) > 3);
+                click (component, toggle.getCentre());
+                KIRIN_COMPOSITE_REQUIRE (component.isPsbObservation());
+                KIRIN_COMPOSITE_REQUIRE (monoFont (presentation::forEditor (preset.width, preset.height),
+                                                   typography::TextRole::action,
+                                                   typography::Composition::visualization)
+                    .getStringWidthFloat ("SPECTRUM") < toggle.getWidth());
+                KIRIN_COMPOSITE_REQUIRE (brightPixels (render (component), toggleInterior, 0.28f) > 3);
+            }
             const auto missing = compose (shell, component);
             KirinPsbView value {};
             value.status = KIRIN_SPECTRUM_ACTIVE;

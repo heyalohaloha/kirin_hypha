@@ -479,9 +479,8 @@ void SpectrumComponent::mouseDown (const juce::MouseEvent& event)
             return;
         }
     }
-    const float controlsBottom = outerPlot.getY()
-        + (float) (ui_contract::spectrumChannelModeTop
-                 + ui_contract::spectrumChannelModeHeight) * scale;
+    const float controlsBottom = outerPlot.getY() + (spectrum_geometry::viewOnly (scale) ? 0.0f
+        : (float) (ui_contract::spectrumChannelModeTop + ui_contract::spectrumChannelModeHeight) * scale);
     if (! plot.contains (event.position) || event.position.y < controlsBottom)
         return;
     const float normalised = spectrum_geometry::clampToBandCentreRange (

@@ -3,6 +3,19 @@ namespace hypha::observatory
 {
 namespace {
 juce::Rectangle<int> toJuce (Rect r) { return { r.x, r.y, r.width, r.height }; }
+
+// Folded, a page without the POST / Δ target (Reference) gives the target's place, and the gap
+// before it, to the domain cycle: size, actions and guide move right by that much.
+ShellLayout withoutFoldedTarget (ShellLayout layout)
+{
+    const auto shift = layout.observationTarget.x + layout.observationTarget.width
+                     - (layout.sizeSelector.x + layout.sizeSelector.width);
+    for (auto* rect : { &layout.sizeSelector, &layout.actions, &layout.guideRail, &layout.session })
+        rect->x += shift;
+    layout.domainNavigation.width += shift;
+    layout.observationTarget.width = 0;
+    return layout;
+}
 }
 void View::resized()
 {
@@ -21,7 +34,10 @@ void View::resized()
                           &clearPeakClipButton, &resetButton, &noteButton, &captureButton,
                           &localBlindButton })
         button->setPresentationContext (context);
-    const auto layout = shellLayout (role, preset, guidePresence());
+    auto layout = shellLayout (role, preset, guidePresence());
+    if (footerFolds (preset.density) && layout.observationTarget.width > 0
+        && selectedDomain == Domain::reference)
+        layout = withoutFoldedTarget (layout);
     informationButton.setVisible (! captureFrame);
     informationButton.setBounds (toJuce (layout.roleTitle));
     sizeButton.setButtonText (preset.label);
@@ -68,11 +84,9 @@ void View::resized()
     const auto compact = contract.family == ExperienceFamily::compactMeter;
     const auto singleDomainControl = ! contract.domainTabs;
     auto navigation = toJuce (layout.domainNavigation);
-    // Folded footer: a short status (WAITING, BYPASSED) takes the right half of the cycle's row
-    // while shown; feedback and a running capture go to the strip over the body's bottom edge.
+    // Folded footer: every status line (feedback, a running capture, WAITING and the like) goes to
+    // the strip over the body's bottom edge; the cycle keeps its whole row.
     const bool folded = footerFolds (preset.density) && ! captureFrame;
-    if (folded && footerStatusText().isNotEmpty())
-        sessionArea = navigation.removeFromRight (navigation.getWidth() / 2);
     contextButton.setVisible (! captureFrame);
     if (contextButton.isVisible())
     {
@@ -124,9 +138,9 @@ void View::resized()
     }
     else
         targetButton.setBounds (targetArea.reduced (0, 2));
-    timeRangeButton.setVisible (capabilities().historyRange && ! captureFrame);
+    timeRangeButton.setVisible (capabilities().historyRange && timeControlsShown());
     timeRangeMenuButton.setVisible (timeRangeButton.isVisible() && isFullDensity (preset.density));
-    scaleButton.setVisible (capabilities().loudnessScale && ! captureFrame);
+    scaleButton.setVisible (capabilities().loudnessScale && timeControlsShown());
     if (scaleButton.isVisible())
     {
         const auto density = preset.density;
@@ -146,8 +160,9 @@ void View::resized()
     }
     const bool compactLevel = compact && selectedDomain == Domain::level;
     compactLoudnessButton.setVisible (false);
-    compactRangeButton.setVisible (
-        compactLevel && target() == ObservationTarget::absolute);
+    // 100% is view-only: CURRENT / MAX is chosen at 125% and above.
+    compactRangeButton.setVisible (compactLevel && preset.density != Density::compact
+                                   && target() == ObservationTarget::absolute);
     if (compactLevel)
     {
         auto compactBody = bodyArea;

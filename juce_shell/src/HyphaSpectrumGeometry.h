@@ -36,11 +36,19 @@ namespace hypha::spectrum_geometry
         return ui_contract::spectrumVisualScale (juce::roundToInt (bounds.getWidth()));
     }
 
+    // 100% is view-only. FREQ's channel modes, M/S, PSB and MARK, and SHARP's channel modes, are
+    // chosen at 125% and above: at 100% they have no bounds, so nothing paints, hits or explains
+    // them, and the plot takes their rows and FREQ's right-hand absolute axis.
+    inline bool viewOnly (float visualScale) noexcept { return visualScale < 1.1f; }
+    constexpr float viewOnlyRightInset = 6.0f;
+
     inline juce::Rectangle<float> plotBoundsFor (juce::Rectangle<float> bounds) noexcept
     {
         const float scale = visualScaleFor (bounds);
+        const float rightInset = viewOnly (scale) ? viewOnlyRightInset
+                                                  : (float) ui_contract::spectrumPlotRightInset;
         return bounds.withTrimmedLeft ((float) ui_contract::spectrumPlotLeftInset * scale)
-                     .withTrimmedRight ((float) ui_contract::spectrumPlotRightInset * scale)
+                     .withTrimmedRight (rightInset * scale)
                      .withTrimmedTop ((float) ui_contract::spectrumPlotTopInset * scale)
                      .withTrimmedBottom ((float) ui_contract::spectrumPlotBottomInset * scale);
     }
@@ -50,7 +58,8 @@ namespace hypha::spectrum_geometry
     {
         const float scale = visualScaleFor (bounds);
         auto plot = plotBoundsFor (bounds);
-        plot.removeFromTop (juce::jmax (32.0f, 30.0f * scale));
+        if (! viewOnly (scale))
+            plot.removeFromTop (juce::jmax (32.0f, 30.0f * scale));
         if (reserveFocusTrail && scale > 1.1f)
         {
             plot.removeFromBottom (
@@ -111,6 +120,8 @@ namespace hypha::spectrum_geometry
                                                          juce::Rectangle<float> outerPlot,
                                                          float scale) noexcept
     {
+        if (viewOnly (scale))
+            return {};
         float x = outerPlot.getX();
         for (size_t preceding = 0; preceding < index; ++preceding)
             x += (float) (ui_contract::spectrumChannelModeWidths[preceding]
@@ -125,6 +136,8 @@ namespace hypha::spectrum_geometry
                                                          juce::Rectangle<float> outerPlot,
                                                          float scale) noexcept
     {
+        if (viewOnly (scale))
+            return {};
         float x = outerPlot.getX();
         for (size_t preceding = 0; preceding < index; ++preceding)
             x += (float) (ui_contract::spectrumDisplayModeWidths[preceding]
@@ -138,6 +151,8 @@ namespace hypha::spectrum_geometry
     inline juce::Rectangle<float> markBoundsFor (juce::Rectangle<float> outerPlot,
                                                   float scale) noexcept
     {
+        if (viewOnly (scale))
+            return {};
         return { outerPlot.getRight()
                     - (float) ui_contract::spectrumMarkWidth * scale,
                  outerPlot.getY() + (float) ui_contract::spectrumChannelModeTop * scale,
@@ -148,6 +163,8 @@ namespace hypha::spectrum_geometry
     inline juce::Rectangle<float> subviewBoundsFor (juce::Rectangle<float> outerPlot,
                                                      float scale) noexcept
     {
+        if (viewOnly (scale))
+            return {};
         return { outerPlot.getRight()
                     - (float) (ui_contract::spectrumMarkWidth
                              + ui_contract::spectrumSubviewGap

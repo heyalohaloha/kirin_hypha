@@ -55,8 +55,8 @@ juce::String View::metricHelpAt (juce::Point<int> point) const
         const bool difference = target() == ObservationTarget::delta;
         auto help = juce::String (difference ? "POST minus PRE. " : role == Role::pre ? "PRE. " : "POST. ");
         help += level_metrics::scopeHelp (region.metric);
-        if (! difference && experienceFamily() == ExperienceFamily::compactMeter
-            && compactShowsMaximum && region.metric != level_metrics::Metric::integrated)
+        if (! difference && experienceFamily() == ExperienceFamily::compactMeter && compactShowsMaximum
+            && (region.metric == level_metrics::Metric::shortTerm || region.metric == level_metrics::Metric::crest))
             help += " Showing its maximum since the last Meter Session reset.";
         return help;
     }

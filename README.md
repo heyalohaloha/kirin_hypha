@@ -590,9 +590,19 @@ own slots, while a third identifies the owners and waits.
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
 At 100% and 125% the footer folds into the header's second row: the domain cycle, VU, MENU, the size
-and POST / Δ share one row, and the measurement reaches the bottom edge. Short states such as WAITING
-and BYPASSED appear beside the domain cycle. A toast or a persistent status appears whole in a
-one-line strip over the bottom edge of the measurement while it lasts; clicking it opens the details.
+and POST / Δ share one row, and the measurement reaches the bottom edge. Status lines (a toast, a
+persistent status, a running capture, or WAITING and BYPASSED when nothing else is shown) appear
+whole in a one-line strip over the bottom edge of the measurement while they last; clicking feedback
+opens the details.
+
+100% is for reading, not operating. The buttons that take room (CURRENT / MAX, the history range
+and FOCUS, LR / MID / SIDE, M/S, PSB, MARK, and DRUM's VIEW) are chosen at 125% and above; a
+choice made there stays in force at 100%, where only a non-default one (MID, SIDE, MARK, HOLD, LOCK)
+is named. Clicking the plot itself (FREQ's frequency lock, DRUM's hit selection) works at every
+size. The room goes to the measurement: LEVEL reads S, I (Crest for a track or stem) and the
+Session's MAX TP; TIME HISTORY draws S and TP; DRUM shows one row of history over its four values,
+large; FREQ's plot takes the control rows and the right-hand absolute axis; SPACE's scatter takes
+the full height with BAL and CORR beside it.
 
 The **VU** button in the footer (in the header's second row at 100% and 125%) opens the same Hybrid VU during ordinary playback; it is not a separate
 measurement mode and does not alter the selected domain. The selection survives closing and reopening

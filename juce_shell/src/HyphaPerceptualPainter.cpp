@@ -56,6 +56,8 @@ namespace
                     float scale,
                     const PaintState& state)
     {
+        if (spectrum_geometry::viewOnly (scale))
+            return; // 100% is view-only: the header names a non-LR mode instead.
         g.setFont (monoFont (state.presentation, typography::TextRole::navigation,
                              typography::Composition::visualization));
         if (state.actionNotice.isNotEmpty())
@@ -90,13 +92,17 @@ namespace
                       float scale,
                       const PaintState& state)
     {
-        const float left = outer.getX() + 84.0f * scale;
+        const bool viewOnly = spectrum_geometry::viewOnly (scale);
+        const float left = outer.getX() + (viewOnly ? 0.0f : 84.0f * scale);
         const float right = outer.getRight();
         g.setFont (monoFont (state.presentation, typography::TextRole::readout,
                              typography::Composition::visualization));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.96f));
-        g.drawText (juce::CharPointer_UTF8 ("Δ SHARPNESS"),
-                    juce::Rectangle<float> (left, outer.getY(), 76.0f * scale, 13.0f * scale),
+        const auto mode = viewOnly && state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR
+            ? "  " + channelModeText (state.channelMode) : juce::String();
+        g.drawText (juce::String (juce::CharPointer_UTF8 ("Δ SHARPNESS")) + mode,
+                    juce::Rectangle<float> (left, outer.getY(), (viewOnly ? 130.0f : 76.0f) * scale,
+                                            13.0f * scale),
                     juce::Justification::centredLeft);
         if (! state.snapshotValid)
             return;

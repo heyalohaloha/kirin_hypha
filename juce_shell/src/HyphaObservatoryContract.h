@@ -198,9 +198,9 @@ struct ShellLayout
 
 // The compact meter sizes (100% and 125%) fold the footer rail into the second header row, so the
 // body gains the rail's height. Each footer control keeps a place there, right to left: target,
-// size, actions and guide; the domain cycle takes the rest. The view carves a short status
-// (WAITING, BYPASSED) out of the cycle's row only while there is one; feedback and a running
-// capture are shown in a strip over the body's bottom edge instead (statusStripBounds).
+// size, actions and guide; the domain cycle takes the rest. Status lines (feedback, a running
+// capture, WAITING and the like) are shown in a strip over the body's bottom edge instead
+// (statusStripBounds).
 constexpr bool footerFolds (Density density) noexcept
 {
     return density == Density::compact || density == Density::focused;

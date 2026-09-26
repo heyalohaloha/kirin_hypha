@@ -5,18 +5,8 @@
 
 namespace hypha::observatory
 {
-void View::refreshFoldedStatus (const juce::String& statusBefore)
-{
-    if (footerFolds (currentPreset().density) && statusBefore != footerStatusText())
-    {
-        resized();
-        repaint();
-    }
-}
-
 void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
 {
-    const auto statusBefore = footerStatusText();
     const auto previous = observatoryFrame;
     const auto previouslyAvailable = frameAvailable;
     observatoryFrame.version = KIRIN_OBSERVATORY_FRAME_VERSION;
@@ -35,7 +25,6 @@ void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
     if (previouslyAvailable != available || storedMono
         || ! observation_equality::same (previous, observatoryFrame))
         repaint (bodyArea);
-    refreshFoldedStatus (statusBefore);
 }
 
 void View::setDeltaSnapshot (const KirinDelta& value, bool available)
@@ -58,11 +47,9 @@ void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool availab
     if (! storedMono && frameAvailable
         && observation_equality::same (observatoryFrame, value))
         return;
-    const auto statusBefore = footerStatusText();
     observatoryFrame = value;
     frameAvailable = true;
     repaint (bodyArea);
-    refreshFoldedStatus (statusBefore);
 }
 
 void View::setRecordDisplay (const KirinRecordDisplay& value, bool available)

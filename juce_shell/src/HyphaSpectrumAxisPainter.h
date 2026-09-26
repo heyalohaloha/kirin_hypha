@@ -49,7 +49,9 @@ namespace hypha::spectrum_axes
                 g.setColour (COL_MUTED.withAlpha (0.18f));
                 g.drawHorizontalLine (juce::roundToInt (y), plot.getX(), plot.getRight());
             }
-            spectrum_magnitude_chrome::paintAxis (g, plot, scale, false, false, presentation);
+            // PRE and POST's absolute axis stands right of the plot, which takes that room at 100%.
+            if (! spectrum_geometry::viewOnly (scale))
+                spectrum_magnitude_chrome::paintAxis (g, plot, scale, false, false, presentation);
         }
         for (float hz : { 100.0f, 1'000.0f, 10'000.0f })
         {

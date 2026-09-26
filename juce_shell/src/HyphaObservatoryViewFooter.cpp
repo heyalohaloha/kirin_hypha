@@ -123,7 +123,7 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     if (! captureFrame)
     {
         g.setFont (monoFont (presentationContext(), typography::TextRole::status));
-        if (feedbackText.isEmpty() || statusStripOverBody)
+        if (feedbackText.isEmpty())
             g.drawText (state, session, juce::Justification::centredLeft);
        #if defined(JucePlugin_VersionString)
         const auto version = juce::String ("v") + JucePlugin_VersionString;
@@ -176,6 +176,7 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
                                  ? comparison_presentation::statusText (
                                        observatoryFrame.comparison_state,
                                        observatoryFrame.comparison_reason)
-                                 : juce::String());
+                                 : juce::String(),
+                             currentPreset().density != Density::compact);
 }
 }
