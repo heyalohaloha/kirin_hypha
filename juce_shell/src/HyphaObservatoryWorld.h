@@ -47,10 +47,16 @@ public:
 private:
     juce::Image image;
     juce::Image hyphaSpecimen;
-    // Only the immutable texture is cached; state-dependent opacity remains live.
+    // The backdrop and the TIME specimen at device resolution with their state's opacity baked in:
+    // rebuilt when the size, device scale or opacity changes, copied opaque-fast on every paint.
     mutable juce::Image scaledBackdrop;
     mutable juce::Point<int> scaledBackdropLogicalSize;
     mutable float scaledBackdropPixelScale = 0.0f;
+    mutable float scaledBackdropOpacity = -1.0f;
+    mutable juce::Image specimenComposite;
+    mutable size_t specimenIndex = 0u;
+    mutable float specimenPixelScale = 0.0f;
+    mutable float specimenOpacity = -1.0f;
     mutable juce::Image domainBed;
     mutable juce::Point<int> domainBedSize;
     mutable float domainBedPixelScale = 0.0f;
