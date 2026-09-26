@@ -1,4 +1,5 @@
 #include "HyphaAttackDepth.h"
+#include "HyphaDepthMaterial.h"
 
 #include <cmath>
 
@@ -27,7 +28,6 @@ constexpr Look product {
     0.32f,  // fresnel
     0.090f, // halo
     0.65f,  // rail
-    0.060f, // haze
     0.90f,  // glint
 };
 }
@@ -40,81 +40,10 @@ const Look& look() noexcept
 void paintWell (juce::Graphics& g, juce::Rectangle<float> area, float radius, bool vignette)
 {
     const auto& depth = look();
-    if (area.getWidth() < 6.0f || area.getHeight() < 6.0f
-        || (depth.wellShadow <= 0.0f && depth.wellRim <= 0.0f && depth.sheen <= 0.0f
-            && (! vignette || depth.vignette <= 0.0f)))
-        return;
-    juce::Graphics::ScopedSaveState saved (g);
-    juce::Path clip;
-    clip.addRoundedRectangle (area, radius);
-    g.reduceClipRegion (clip);
-    const auto black = juce::Colours::black;
-    if (depth.wellShadow > 0.0f)
-    {
-        // The upper and left walls face away from the key light.
-        const auto drop = juce::jlimit (3.0f, 12.0f, area.getHeight() * 0.16f);
-        g.setGradientFill ({ black.withAlpha (depth.wellShadow), 0.0f, area.getY(),
-                             black.withAlpha (0.0f), 0.0f, area.getY() + drop, false });
-        g.fillRect (area.withHeight (drop));
-        const auto side = juce::jlimit (2.0f, 8.0f, area.getWidth() * 0.02f);
-        g.setGradientFill ({ black.withAlpha (depth.wellShadow * 0.6f), area.getX(), 0.0f,
-                             black.withAlpha (0.0f), area.getX() + side, 0.0f, false });
-        g.fillRect (area.withWidth (side));
-    }
-    if (vignette && depth.vignette > 0.0f)
-    {
-        const auto reach = area.getWidth() * 0.12f;
-        g.setGradientFill ({ black.withAlpha (0.0f), area.getRight() - reach, 0.0f,
-                             black.withAlpha (depth.vignette * 0.6f), area.getRight(), 0.0f, false });
-        g.fillRect (area.withLeft (area.getRight() - reach));
-        const auto low = area.getHeight() * 0.24f;
-        g.setGradientFill ({ black.withAlpha (0.0f), 0.0f, area.getBottom() - low,
-                             black.withAlpha (depth.vignette * 0.5f), 0.0f, area.getBottom(), false });
-        g.fillRect (area.withTop (area.getBottom() - low));
-    }
-    if (vignette && depth.haze > 0.0f)
-    {
-        // A little of the measured light hangs in the glass around the middle of the well.
-        const auto haze = juce::Colour (attack_ui::waveformColour);
-        const auto centre = area.getCentre();
-        g.setGradientFill ({ haze.withAlpha (depth.haze), centre.x, centre.y,
-                             haze.withAlpha (0.0f), centre.x, area.getY() - area.getHeight() * 0.1f,
-                             true });
-        g.fillRect (area);
-    }
-    if (depth.sheen > 0.0f)
-    {
-        // A still reflection on the glass cover, falling away before the centre of the well.
-        juce::Path band;
-        band.startNewSubPath (area.getX(), area.getY());
-        band.lineTo (area.getX() + area.getWidth() * 0.62f, area.getY());
-        band.lineTo (area.getX() + area.getWidth() * 0.34f, area.getBottom());
-        band.lineTo (area.getX(), area.getBottom());
-        band.closeSubPath();
-        g.setGradientFill ({ COL_NORMAL.withAlpha (depth.sheen), area.getX(), area.getY(),
-                             COL_NORMAL.withAlpha (0.0f), area.getX() + area.getWidth() * 0.36f,
-                             area.getBottom(), false });
-        g.fillPath (band);
-    }
-    if (depth.wellRim > 0.0f)
-    {
-        // The lower and right walls catch the light and bounce a little of it back up.
-        const auto rim = juce::Colour (attack_ui::waveformColour);
-        const auto bounce = juce::jlimit (2.0f, 8.0f, area.getHeight() * 0.08f);
-        g.setGradientFill ({ rim.withAlpha (0.0f), 0.0f, area.getBottom() - bounce,
-                             rim.withAlpha (depth.wellRim * 0.35f), 0.0f, area.getBottom(), false });
-        g.fillRect (area.withTop (area.getBottom() - bounce));
-        g.setColour (rim.withAlpha (depth.wellRim));
-        g.fillRect (juce::Rectangle<float> (area.getX() + radius, area.getBottom() - 1.0f,
-                                            area.getWidth() - 2.0f * radius, 1.0f));
-        // The cut glass edge: a fine ivory lip just above the lit lower rim.
-        g.setColour (COL_NORMAL.withAlpha (depth.wellRim * 0.55f));
-        g.fillRect (juce::Rectangle<float> (area.getX() + radius * 2.0f, area.getBottom() - 2.0f,
-                                            area.getWidth() - 4.0f * radius, 0.6f));
-        g.setColour (rim.withAlpha (depth.wellRim * 0.45f));
-        g.fillRect (juce::Rectangle<float> (area.getRight() - 1.0f, area.getY() + radius,
-                                            1.0f, area.getHeight() - 2.0f * radius));
-    }
+    const auto gold = juce::Colour (attack_ui::waveformColour);
+    depth_material::paintRecessedWell (g, area, radius,
+        { depth.wellShadow, depth.wellRim, depth.sheen, vignette ? depth.vignette : 0.0f, 0.0f,
+          gold });
 }
 
 void paintGlints (juce::Graphics& g, const juce::Path& edge, float crestY, juce::Colour colour,

@@ -1,5 +1,6 @@
 #include "SpectrumFocusTrailContractTest.h"
 
+#include "../src/HyphaMaterialCache.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include "../src/HyphaSpectrumFocusTrail.h"
 #include "../src/HyphaSpectrumFocusTrailPainter.h"
@@ -163,6 +164,9 @@ namespace
                                 double totalBudgetMs,
                                 double trailBudgetMs)
     {
+        // An open editor holds the material cache (HyphaMaterialCache.h), so its steady repaint
+        // draws the static panels and wells from images. The gate measures that repaint.
+        material_cache::Lifetime editorMaterial;
         SpectrumComponent component;
         component.setPresentationContext (
             presentation::forEditor (preset.width, preset.height));

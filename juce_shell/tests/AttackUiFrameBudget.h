@@ -1,4 +1,5 @@
 #pragma once
+#include "../src/HyphaMaterialCache.h"
 #include "../src/HyphaObservatoryContract.h"
 #include <algorithm>
 #include <array>
@@ -13,6 +14,8 @@ inline bool verifyAttackFrameBudget()
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_FRAME_BUDGET", {}).isEmpty())
         return true;
     std::cout << std::unitbuf;
+    // An open editor holds the material cache; the budget measures the editor's paints.
+    material_cache::Lifetime materialCache;
     bool withinBudget = true;
     auto events = std::make_unique<KirinAttackEventBatch>();
     auto details = std::make_unique<KirinAttackDetailBatch>();

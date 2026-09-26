@@ -3,6 +3,7 @@
 #include <BinaryData.h>
 
 #include "HyphaAttackDepth.h"
+#include "HyphaDepthMaterial.h"
 #include "HyphaAttackUiContract.h"
 #include "HyphaTheme.h"
 
@@ -25,13 +26,8 @@ void paint (juce::Graphics& g, juce::Rectangle<float> area, float corner, float 
     const auto outer = area.reduced (0.5f);
     const auto radius = juce::jlimit (1.0f, juce::jmin (outer.getWidth(), outer.getHeight()) * 0.5f,
                                       corner);
-    if (const auto shadow = attack_depth::look().wellShadow; shadow > 0.0f)
-    {
-        // The well is cut into the face: its upper lip casts a line of shadow onto the face.
-        g.setColour (juce::Colours::black.withAlpha (juce::jmin (1.0f, shadow * 0.9f)));
-        g.fillRect (juce::Rectangle<float> (outer.getX() + radius, outer.getY() - 1.0f,
-                                            outer.getWidth() - 2.0f * radius, 1.0f));
-    }
+    // The well is cut into the face: its upper lip casts a line of shadow onto the face.
+    depth_material::paintCastShadowAbove (g, outer, radius, attack_depth::look().wellShadow * 0.9f);
     juce::ColourGradient depth (BG.darker (0.55f), outer.getCentreX(), outer.getY(),
                                 BG.darker (0.82f), outer.getCentreX(), outer.getBottom(), false);
     g.setGradientFill (depth);

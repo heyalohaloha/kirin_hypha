@@ -5,6 +5,7 @@
 #include "HyphaTheme.h"
 #include "HyphaPolylineGeometry.h"
 #include "HyphaTimeFieldImage.h"
+#include "HyphaSpectrumTerrain.h"
 
 #include <algorithm>
 #include <array>
@@ -266,7 +267,7 @@ void paintAbsolute (juce::Graphics& g,
                     const absolute_spectrum::History& history,
                     presentation::Context presentation)
 {
-    if (! history.empty())
+    if (! history.empty() && ! spectrum_terrain::paintLevelLandscape (g, plot, history))
     {
         // One blit at the measured resolution: a column per band, a row per 1/180 of the six
         // seconds. The 64 x 40 cell grid this replaced kept one frame per row, so 140 of 180

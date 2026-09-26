@@ -218,6 +218,17 @@ between observations. A row stays empty when the nearest observation is further 
 cadence the host is actually publishing at, so the field is continuous at any buffer size while a
 break in the measurement stays a break in the field.
 
+At 200% and 300% the same six seconds are drawn as a landscape instead of a flat field. The newest
+spectrum stands on the plot itself as the front ridge, on the same frequency and level axes as the
+curve, and older spectra recede toward a horizon: higher, narrower, and fainter with age. Each of
+the 24 ridges is the one observation nearest its age, keeping the loudest band in each of its 96
+columns so a narrow peak is not thinned away. A ridge with no observation within half a ridge
+spacing is left out and grid lines join only neighbouring ridges, so a gap stays a gap and two lone
+observations never grow a range between them. The landscape adds no value to the reading; the
+current curve drawn over it does. The paired Δ view stays flat. At these two sizes the plot also
+names what it draws (`Δ(f) = POST(f) - PRE(f)` or `L(f) = POST(f)`) and the analysis behind it —
+aperture, FFT size, band count, and presentation rate — read from the frame itself.
+
 In the POST target, **M/S** is a fourth display choice beside LR / MID / SIDE. It overlays solid
 cyan Mid and violet Side curves calculated from the same aperture, with a shared
 0 to −96 dBFS scale and a two-value probe at every editor size. M/S is an absolute POST observation:
