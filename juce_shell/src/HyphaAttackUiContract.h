@@ -90,12 +90,15 @@ namespace hypha::attack_ui
     constexpr std::int64_t shapeLeadBins = 20;
     // A colour-vision-resilient gold/cyan family. Labels, lane order and bar direction remain the
     // primary identifiers; magnitude and sign never depend on hue alone.
-    constexpr std::uint32_t waveformColour = 0xff32ced7;
-    constexpr std::uint32_t strengthColour = 0xffefc977;
-    constexpr std::uint32_t sharpnessColour = 0xffa9dcf3;
-    constexpr std::uint32_t transientColour = 0xff59d6d0;
-    constexpr std::uint32_t crestColour = 0xffdd8b54;
-    constexpr std::uint32_t selectionColour = 0xffffe6ad;
+    constexpr std::uint32_t waveformColour = 0xffe0bd7e;
+    constexpr std::uint32_t strengthColour = 0xffd9a24e;
+    constexpr std::uint32_t sharpnessColour = 0xffb3a2e6; // ui_contract::sharpness
+    constexpr std::uint32_t transientColour = 0xff7fcfd8;
+    constexpr std::uint32_t crestColour = 0xffd0835a;
+    // A pale ice cyan: apart from ivory text and glints and from the TRANSIENT cyan.
+    constexpr std::uint32_t selectionColour = 0xffb5e6ef;
+    // PRE is the reference: a warm light neutral that stays legible over the gold POST body.
+    constexpr std::uint32_t preTraceColour = 0xffd8d0c4;
 
     constexpr int rgbChromaRange (std::uint32_t colour) noexcept
     {

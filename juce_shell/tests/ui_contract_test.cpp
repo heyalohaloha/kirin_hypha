@@ -107,16 +107,16 @@ int main()
     static_assert (ui::pairMenuItemHeight >= 28);
     static_assert (ui::pairMenuMinimumWidth >= ui::editorWidth);
     static_assert (ui::pairMenuMaximumColumns == 1);
-    static_assert (ui::background == 0xff0d0f1a);
-    static_assert (ui::normal == 0xffe0e0e0);
-    static_assert (ui::observatoryValue == 0xffe8d8bd);
-    static_assert (ui::muted == 0xff606060);
+    static_assert (ui::background == 0xff16110d);
+    static_assert (ui::normal == 0xffe8e2d8);
+    static_assert (ui::observatoryValue == 0xfff0e4cc);
+    static_assert (ui::muted == 0xff6b6158);
     static_assert (ui::preDisplayContextDetail == 0xff898989);
-    static_assert (ui::flora == 0xffd4a043);
-    static_assert (ui::spectrumDelta == 0xff75d6e8);
-    static_assert (ui::spectrumDeltaBright == 0xffcdeff5);
-    static_assert (ui::spectrumPre == 0xff74808f);
-    static_assert (ui::spectrumPost == 0xffa695d6);
+    static_assert (ui::flora == 0xffc9a15a);
+    static_assert (ui::spectrumDelta == 0xff7fcfd8);
+    static_assert (ui::spectrumDeltaBright == 0xffd3eff3);
+    static_assert (ui::spectrumPre == 0xff968c80);
+    static_assert (ui::spectrumPost == 0xffe0bd7e);
     static_assert (ui::spectrumLegendFontHeight >= 8.5f);
     static_assert (ui::spectrumDeltaLegendLabelX + ui::spectrumDeltaLegendLabelWidth
                    < ui::spectrumPreLegendLabelX);
@@ -168,7 +168,7 @@ int main()
                            ui::background) >= 4.5);
     assert (contrastRatio (ui::preDisplayPrimaryColour (ui::PreDisplayTone::emphasis),
                            ui::background) >= 4.5);
-    static_assert (ui::ledBlue == 0xff4488cc);
+    static_assert (ui::ledBlue == 0xff7fcfd8); // PAIR shares the difference cyan
     static_assert (ui::ledGreen == 0xff4cc07a);
     static_assert (KIRIN_SIGNAL_STATE_INACTIVE == 0u);
     static_assert (KIRIN_SIGNAL_STATE_ACTIVE == 1u);

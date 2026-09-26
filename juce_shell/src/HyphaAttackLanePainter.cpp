@@ -3,6 +3,7 @@
 #include <cmath>
 #include <initializer_list>
 
+#include "HyphaAttackDepth.h"
 #include "HyphaAttackStage.h"
 #include "HyphaAttackUiContract.h"
 #include "HyphaTextStyle.h"
@@ -43,6 +44,9 @@ float unitHash (std::int64_t seed, int step) noexcept
     h ^= h >> 29;
     return static_cast<float> ((h >> 40) & 0xffffu) / 65535.0f * 2.0f - 1.0f;
 }
+
+constexpr std::uint32_t denseHitCount = 48;
+const attack_depth::Look plainLook {};
 
 juce::Rectangle<float> lanePlotInner (juce::Rectangle<int> plot)
 {
@@ -180,7 +184,20 @@ void paintLaneChrome (juce::Graphics& g, Lane lane, juce::Rectangle<int> label,
     const auto inner = lanePlotInner (plot);
     const auto fraction = baseFraction (attack_lanes::scaleFor (lane, delta));
     const auto baseY = inner.getBottom() - fraction * inner.getHeight();
-    g.setColour (COL_TEXT_TERTIARY.withAlpha (delta ? 0.46f : 0.28f));
+    const auto& depth = attack_depth::look();
+    attack_depth::engraveLip (g, baseY, inner.getX(), inner.getRight());
+    if (depth.rail > 0.0f)
+    {
+        // The zero line is a fine ivory rail; hits stand on it. Colour stays on the bars and
+        // labels, so four lanes never become four bands of colour. Short lanes dim the rail so it
+        // never outshines the bars it carries.
+        const auto rail = depth.rail * juce::jlimit (0.35f, 1.0f, (inner.getHeight() - 10.0f) / 26.0f);
+        g.setColour (COL_OBSERVATORY_VALUE.withAlpha (juce::jmin (1.0f, 0.06f * rail)));
+        g.fillRect (juce::Rectangle<float> (inner.getX(), baseY - 1.0f, inner.getWidth(), 3.0f));
+        g.setColour (COL_OBSERVATORY_VALUE.withAlpha (juce::jmin (1.0f, 0.34f * rail)));
+    }
+    else
+        g.setColour (COL_TEXT_TERTIARY.withAlpha (delta ? 0.46f : 0.28f));
     g.drawHorizontalLine (juce::roundToInt (baseY), inner.getX(), inner.getRight());
     // Fixed-scale ticks at both plot edges: half range and full range on each side of zero.
     g.setColour (COL_TEXT_TERTIARY.withAlpha (0.30f));
@@ -205,7 +222,10 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
     const auto yAt = [inner] (float fraction) { return inner.getBottom() - fraction * inner.getHeight(); };
     const auto baseY = yAt (baseFraction (scale));
     const auto window = static_cast<float> (attack_ui::windowSamples (frame.rate));
-    const auto barWidth = static_cast<float> (juce::jlimit (2, 4, plot.getWidth() / 180));
+    const auto barWidth = static_cast<float> (juce::jlimit (2, 3, plot.getWidth() / 150));
+    // Dense hits leave no room to read a bar's shading; they keep the plain bar, which also
+    // bounds the repaint cost when the six seconds are full of hits.
+    const auto& depth = frame.model.count <= denseHitCount ? attack_depth::look() : plainLook;
     for (std::uint32_t item = 0; item < frame.model.count; ++item)
     {
         const auto& hit = frame.model.hits[item];
@@ -218,7 +238,7 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
         // Recency: the newest hits burn brightest, as they do on the time axis itself.
         const auto age = window > 0.0f
             ? juce::jlimit (0.0f, 1.0f, static_cast<float> (frame.latest - hit.sample) / window) : 0.0f;
-        const auto life = 1.0f - 0.45f * age;
+        const auto life = 1.0f - (depth.age > 0.0f ? depth.age : 0.45f) * age;
         if (cell.reason != Reason::value)
         {
             g.setColour (COL_TEXT_TERTIARY.withAlpha (selected ? 1.0f : 0.72f));
@@ -236,12 +256,32 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
         const juce::Rectangle<float> core (centreX - barWidth * 0.5f, top, barWidth, bottom - top);
         g.setColour (colour.withAlpha ((selected ? 0.34f : 0.15f) * life));
         g.fillRect (core.expanded (2.0f, 0.0f));
-        g.setColour (colour.withAlpha ((selected ? 1.0f : 0.80f) * life));
+        const auto coreAlpha = (selected ? 1.0f : 0.80f) * life;
+        g.setColour (colour.withAlpha (coreAlpha));
         g.fillRect (core);
+        if (depth.pin > 0.0f)
+        {
+            // A lit prism: the key-light side keeps the pure lane colour and the far side turns
+            // into shadow. Nothing is lightened, so gold never approaches the selection colour.
+            g.setColour (colour.darker (0.9f * depth.pin).withAlpha (coreAlpha));
+            g.fillRect (core.withTrimmedLeft (core.getWidth() * 0.5f));
+        }
         // Tips, caps and spores keep the pure lane colour: brightening the gold lanes would
         // approach the pale selection colour and make the selected hit ambiguous.
         const bool rising = extent.to >= extent.from;
         const auto tipY = rising ? top : bottom - 1.0f;
+        if (depth.tip > 0.0f && bottom - top >= 3.0f)
+        {
+            // The value end glows just beyond its tip, inside its own column and on its own
+            // side of zero; a bar too short to have a tip keeps none, so no light reaches the
+            // other side of zero. One solid step keeps the lanes cheap to repaint.
+            const auto y = rising ? tipY - 2.0f : tipY + 1.0f;
+            if (y >= inner.getY() && y + 2.0f <= inner.getBottom())
+            {
+                g.setColour (colour.withAlpha (juce::jmin (1.0f, 0.30f * depth.tip) * life));
+                g.fillRect (juce::Rectangle<float> (centreX - 2.0f, y, 4.0f, 2.0f));
+            }
+        }
         g.setColour (colour.withAlpha (life));
         g.fillRect (juce::Rectangle<float> (core.getX() - 0.5f, tipY, core.getWidth() + 1.0f, 1.0f));
         if (extent.clippedHigh || extent.clippedLow)
@@ -258,8 +298,13 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
             const auto sporeY = rising ? top : bottom;
             g.setColour (colour.withAlpha (0.24f));
             g.fillEllipse (centreX - 4.5f, sporeY - 4.5f, 9.0f, 9.0f);
-            g.setColour (colour);
-            g.fillEllipse (centreX - 2.2f, sporeY - 2.2f, 4.4f, 4.4f);
+            if (depth.sphere > 0.0f)
+                attack_depth::paintSphere (g, { centreX, sporeY }, 2.4f, colour);
+            else
+            {
+                g.setColour (colour);
+                g.fillEllipse (centreX - 2.2f, sporeY - 2.2f, 4.4f, 4.4f);
+            }
         }
     }
 
@@ -386,6 +431,16 @@ void paintHypha (juce::Graphics& g, float x, float top, float bottom, float bulb
                        drift (101 + step * 2), y0 + (y1 - y0) * 0.70f,
                        drift (step), y1);
     }
+    const auto& depth = attack_depth::look();
+    if (depth.lift > 0.0f)
+    {
+        // The hypha floats above the glass: its shadow falls down and right of the key light.
+        g.setColour (juce::Colours::black.withAlpha (juce::jmin (1.0f, 0.60f * depth.lift)));
+        g.strokePath (hypha, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved,
+                                                   juce::PathStrokeType::rounded),
+                      juce::AffineTransform::translation (1.4f, 1.0f));
+    }
+    attack_depth::strokeBloom (g, hypha, colour, depth.bloom * 0.8f);
     g.setColour (colour.withAlpha (0.14f));
     g.strokePath (hypha, juce::PathStrokeType (3.2f, juce::PathStrokeType::curved,
                                                juce::PathStrokeType::rounded));
@@ -396,8 +451,13 @@ void paintHypha (juce::Graphics& g, float x, float top, float bottom, float bulb
     {
         g.setColour (colour.withAlpha (0.20f));
         g.fillEllipse (x - 5.0f, bulbY - 5.0f, 10.0f, 10.0f);
-        g.setColour (colour.withAlpha (0.95f));
-        g.fillEllipse (x - 2.3f, bulbY - 2.3f, 4.6f, 4.6f);
+        if (depth.sphere > 0.0f)
+            attack_depth::paintSphere (g, { x, bulbY }, 2.6f, colour);
+        else
+        {
+            g.setColour (colour.withAlpha (0.95f));
+            g.fillEllipse (x - 2.3f, bulbY - 2.3f, 4.6f, 4.6f);
+        }
     }
     g.setColour (colour);
     g.fillEllipse (x - 1.2f, bottom - 1.2f, 2.4f, 2.4f);

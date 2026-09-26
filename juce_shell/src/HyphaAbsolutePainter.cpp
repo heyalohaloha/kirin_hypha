@@ -99,8 +99,10 @@ namespace
         auto latest = state.numericSnapshot;
         if (! state.haveNumericSnapshot)
             latest.lufs_m = latest.true_peak = latest.sharpness = std::numeric_limits<double>::quiet_NaN();
+        // One meaning, one colour on every page: the POST level in gold, true peak in the cyan
+        // of the VU peak bars, Sharpness in its lilac.
         const std::array<juce::Colour, 3> colours {
-            COL_SPECTRUM_DELTA, COL_SPECTRUM_POST, COL_FLORA
+            COL_SPECTRUM_POST, COL_SPECTRUM_DELTA, COL_SHARPNESS
         };
         const std::array<juce::String, 3> text {
             factText ("M", "LUFS-M", latest.lufs_m, 1, scale),
@@ -255,17 +257,17 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
         return;
     }
 
-    paintSeries (g, state.batch, plot, COL_SPECTRUM_DELTA,
+    paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
                  lufsMinimum, lufsMaximum,
                  ui_contract::absoluteLufsBandTop,
                  ui_contract::absoluteLufsBandBottom, scale,
                  [] (const KirinAbsoluteView& frame) { return frame.lufs_m; });
-    paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
+    paintSeries (g, state.batch, plot, COL_SPECTRUM_DELTA,
                  peakMinimum, peakMaximum,
                  ui_contract::absolutePeakBandTop,
                  ui_contract::absolutePeakBandBottom, scale,
                  [] (const KirinAbsoluteView& frame) { return frame.true_peak; });
-    paintSeries (g, state.batch, plot, COL_FLORA,
+    paintSeries (g, state.batch, plot, COL_SHARPNESS,
                  sharpnessMinimum, sharpnessMaximum,
                  ui_contract::absoluteSharpnessBandTop,
                  ui_contract::absoluteSharpnessBandBottom, scale,

@@ -2,6 +2,7 @@
 
 #include <BinaryData.h>
 
+#include "HyphaAttackDepth.h"
 #include "HyphaAttackUiContract.h"
 #include "HyphaTheme.h"
 
@@ -17,13 +18,20 @@ const juce::Image& myceliumBed()
 }
 }
 
-void paint (juce::Graphics& g, juce::Rectangle<float> area, float corner, float bed)
+void paint (juce::Graphics& g, juce::Rectangle<float> area, float corner, float bed, bool vignette)
 {
     if (area.getWidth() < 2.0f || area.getHeight() < 2.0f)
         return;
     const auto outer = area.reduced (0.5f);
     const auto radius = juce::jlimit (1.0f, juce::jmin (outer.getWidth(), outer.getHeight()) * 0.5f,
                                       corner);
+    if (const auto shadow = attack_depth::look().wellShadow; shadow > 0.0f)
+    {
+        // The well is cut into the face: its upper lip casts a line of shadow onto the face.
+        g.setColour (juce::Colours::black.withAlpha (juce::jmin (1.0f, shadow * 0.9f)));
+        g.fillRect (juce::Rectangle<float> (outer.getX() + radius, outer.getY() - 1.0f,
+                                            outer.getWidth() - 2.0f * radius, 1.0f));
+    }
     juce::ColourGradient depth (BG.darker (0.55f), outer.getCentreX(), outer.getY(),
                                 BG.darker (0.82f), outer.getCentreX(), outer.getBottom(), false);
     g.setGradientFill (depth);
@@ -48,6 +56,7 @@ void paint (juce::Graphics& g, juce::Rectangle<float> area, float corner, float 
     g.setColour (juce::Colours::black.withAlpha (0.55f));
     g.drawLine (outer.getX() + radius, outer.getBottom() - 0.5f,
                 outer.getRight() - radius, outer.getBottom() - 0.5f, 0.8f);
+    attack_depth::paintWell (g, outer, radius, vignette);
 }
 
 // Measuring only: setFont builds the same font inline, as the typography source contract requires.

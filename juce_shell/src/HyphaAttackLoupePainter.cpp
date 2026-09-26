@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "HyphaAttackDepth.h"
 #include "HyphaAttackStage.h"
 #include "HyphaAttackUiContract.h"
 #include "HyphaTextStyle.h"
@@ -13,7 +14,7 @@ namespace hypha::attack_loupe
 namespace
 {
 constexpr auto visualization = typography::Composition::visualization;
-const auto preColour = juce::Colour (0xffa3b3b9); // the HISTORY PRE trace colour
+const auto preColour = juce::Colour (attack_ui::preTraceColour); // the HISTORY PRE trace colour
 
 bool usable (const KirinAttackDetail* detail) noexcept
 {
@@ -123,6 +124,33 @@ void paintRmsSteps (juce::Graphics& g, const KirinAttackDetail& detail, const Ax
     g.strokePath (steps, juce::PathStrokeType (thickness));
 }
 
+// Graticule: 10 ms ticks from the onset on the upper and lower walls, longer every 50 ms, and a
+// tick every 12 dB on both side walls. Fixed by the onset, never by a measured level.
+void paintGraticule (juce::Graphics& g, const Axis& axis, const KirinAttackDetail& anchor,
+                     float strength)
+{
+    if (strength <= 0.0f)
+        return;
+    const auto& plot = axis.plot;
+    g.setColour (COL_TEXT_TERTIARY.withAlpha (juce::jmin (1.0f, strength * 2.2f)));
+    for (int ms = -20; ms <= 130; ms += 10)
+    {
+        const auto x = axis.x (anchor.event_sample
+                               + static_cast<std::int64_t> (ms) * anchor.sample_rate / 1'000);
+        if (x < plot.getX() || x > plot.getRight())
+            continue;
+        const auto length = ms % 50 == 0 ? 5.0f : 2.5f;
+        g.drawVerticalLine (juce::roundToInt (x), plot.getY(), plot.getY() + length);
+        g.drawVerticalLine (juce::roundToInt (x), plot.getBottom() - length, plot.getBottom());
+    }
+    for (int db = -12; db > static_cast<int> (attack_ui::absoluteFloorDb); db -= 12)
+    {
+        const auto y = juce::roundToInt (axis.y (static_cast<float> (db)));
+        g.drawHorizontalLine (y, plot.getX(), plot.getX() + 3.0f);
+        g.drawHorizontalLine (y, plot.getRight() - 3.0f, plot.getRight());
+    }
+}
+
 juce::String relativeMs (std::int64_t sample, const KirinAttackDetail& anchor)
 {
     const auto ms = std::round (static_cast<double> (sample - anchor.event_sample) * 1'000.0
@@ -171,11 +199,13 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
         axis.last = std::max (spanLast (*pre), spanLast (*post));
     }
     const auto& plot = axis.plot;
+    const auto& depth = attack_depth::look();
     for (const auto db : { -24.0f, -48.0f })
     {
         g.setColour (COL_TEXT_TERTIARY.withAlpha (0.16f));
         g.drawHorizontalLine (juce::roundToInt (axis.y (db)), plot.getX(), plot.getRight());
     }
+    paintGraticule (g, axis, anchor, depth.graticule);
     // The head window, then the body window more faintly; the onset line is the zero.
     const auto headLeft = axis.x (windowStart (anchor));
     const auto headRight = axis.x (headEnd (anchor));
@@ -199,10 +229,20 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
     {
         const auto waveform = juce::Colour (attack_ui::waveformColour);
         const auto edge = shapePath (*post, axis, false);
+        const auto closed = shapePath (*post, axis, true);
+        if (depth.lift > 0.0f)
+        {
+            juce::Graphics::ScopedSaveState saved (g);
+            g.reduceClipRegion (plot.getSmallestIntegerContainer());
+            g.setColour (juce::Colours::black.withAlpha (juce::jmin (1.0f, 0.85f * depth.lift)));
+            g.fillPath (closed, juce::AffineTransform::translation (1.0f, 1.5f));
+        }
         juce::ColourGradient body (waveform.withAlpha (0.34f), plot.getX(), plot.getY(),
                                    waveform.withAlpha (0.04f), plot.getX(), plot.getBottom(), false);
         g.setGradientFill (body);
-        g.fillPath (shapePath (*post, axis, true));
+        g.fillPath (closed);
+        attack_depth::lightVolume (g, edge, edge, waveform, depth.fresnel + 0.03f * depth.bloom,
+                                   depth.specular, 1.4f);
         g.setColour (waveform.withAlpha (0.20f));
         g.strokePath (edge, juce::PathStrokeType (2.6f));
         g.setColour (waveform.withAlpha (0.92f));

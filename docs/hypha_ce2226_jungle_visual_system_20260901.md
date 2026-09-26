@@ -54,13 +54,32 @@ Hyphaの画面だけを見た段階では地下の観測設備として読め、
 
 ## 3. 共通色と素材
 
-graphiteを画面とpanelの基材にする。
+温かい黒（`#16110D`、わずかに焦げ茶へ寄せたgraphite）を画面とpanelの基材にする。
 
 通常panelと未選択controlは、明るい四角枠で区切らない。
 暗い基材の層差、上辺の連続した低明度反射、下辺の沈みで境界を成立させ、選択箇所だけ意味色の短い光を持たせる。
 VUの計器フレームはこの簡略化の対象外とし、既存の筐体構図と意味を維持する。
 
-ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep tealは構造の微光へ割り当てる。
+### 3.1 Hypha共通配色（2026-09-26 Daisuke決定）
+
+案2（黒とシャンパンゴールド）を中心に、案3（焦げ茶の地と水色）を少し混ぜた配色を全画面で使う。
+実画面4面（VU、FREQ、DRUM、LIVE）の比較で決めた。色の値は`HyphaUiContract.h`と`HyphaAttackUiContract.h`が正本である。
+
+| 役割 | 色 | 使う所 |
+|---|---|---|
+| 基材 | 温かい黒 `#16110D` | 画面、panel、計測面 |
+| POSTの値 | シャンパンゴールド `#E0BD7E` | FREQのPOST、LIVEのLUFS-M、DRUMのPOST包絡、STRENGTH（`#D9A24E`） |
+| 差分・動き・選択 | 水色 `#7FCFD8` | Δ、M/SのMID、true peak（VUのbar、LIVE）、PAIR、TRANSIENT、DRUMの選択（淡い氷色 `#B5E6EF`） |
+| PRE | 温かい灰 `#968C80`（DRUMのPRE traceは明るい無彩色 `#D8D0C4`） | PRE曲線、PRE trace |
+| 数値 | 象牙色 `#F0E4CC`、通常文字 `#E8E2D8` | 数値、見出し |
+| 素材・保持・Guide | 金 `#C9A15A` | 名前、hold、Session、Guide |
+| 小さな印と細い線だけ | 銅 `#D0835A`、薄紫（SIDE `#AD9FDC`、Sharpness `#B3A2E6`） | CREST、SIDE、Sharpness（LIVEの線、DRUMのlane）のlabel、棒、細い線 |
+
+広い面と長い線に使う色は、基材、金、水色、無彩色（象牙色、温かい灰）だけとする。
+銅と薄紫は区別のための色なので、label、棒、先端、細いデータ線にだけ使い、帯や面にしない（DRUMのlaneの0線は象牙色）。
+同じ意味には全画面で同じ色を使う。画面ごとに意味を変えない。
+根拠：核の色を2〜3色に絞る、低彩度ほど格が高く見える、青は有能さと精密さ、黒と金は精密さと高品質の印象を与える、計器は意味ごとに色を固定する、という調査結果による。
+
 
 赤、黄、緑の信号色で品質を採点しない。
 
@@ -129,7 +148,8 @@ Captureは追加で1080×1080と1080×1350のbounds契約を検証する。
 
 ATTACKは専用の画像素材を持たない。B-1015で水中生命体の中央標本（`attack_specimen_body_v3.png`）を撤去し、HISTORYと四laneをnative painterで描く。
 計測面は殻より一段深い黒とし、共通のHypha素材`bg_mycelium.png`を時間の床として低明度で敷く。
-CE 2226の表現は、選択打音を貫く静的な菌糸線（exact x ±1 px、打音sampleで決まるdrift、HISTORY上のbulb、各laneの値の先端の点、下端の先端）と、観測値だけが持つcyanの狭い発光に集約する。時間で揺らさない。
+CE 2226の表現は、選択打音を貫く静的な菌糸線（exact x ±1 px、打音sampleで決まるdrift、HISTORY上のbulb、各laneの値の先端の点、下端の先端）と、観測値だけが持つ光に集約する。時間で揺らさない。
+2026-09-26から計測面は2.5Dの奥行き（凹んだガラスの溝、ガラス管の光、古いほど薄くなる光、片側のHISTORY）を持つ。
 数値はivory、lane色はlabelと棒と短いaccentに限る。詳細は`hypha_drum_lanes_20260924.md`の外観節を正本とする。
 
 ## 6. responsive契約

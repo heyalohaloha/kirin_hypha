@@ -10,7 +10,9 @@
 // Stage material is structure only; it never changes with a measured value.
 namespace hypha::attack_stage
 {
-void paint (juce::Graphics&, juce::Rectangle<float> area, float corner, float bed);
+// A vignette darkens only the HISTORY well; lanes and the loupe stay evenly lit.
+void paint (juce::Graphics&, juce::Rectangle<float> area, float corner, float bed,
+            bool vignette = false);
 
 // Uppercase labels are tracked for an instrument face where the full-density columns leave room;
 // smaller editors keep plain spacing so every lane name stays whole. Numbers are never tracked.

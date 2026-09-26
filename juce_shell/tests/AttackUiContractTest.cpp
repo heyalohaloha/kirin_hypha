@@ -12,6 +12,7 @@
 #include "AttackUiLifecycleContract.h"
 #include "AttackUiRuntimeContract.h"
 #include "AttackUiFrameBudget.h"
+#include "AttackUiShowcase.h"
 #include "PolylineGeometryContractTest.h"
 #include <cmath>
 #include <cstddef>
@@ -65,6 +66,7 @@ namespace
 int main()
 {
     static_assert (sizeof (KirinAttackWaveformPoint) == 40);
+    static_assert (hypha::attack_ui::sharpnessColour == hypha::ui_contract::sharpness);
     static_assert (sizeof (KirinAttackWaveformBatch) == 24'008);
     static_assert (sizeof (KirinAttackDetail) == 512);
     static_assert (offsetof (KirinAttackDetail, shape) == 128);
@@ -309,6 +311,7 @@ int main()
     const auto warming = renderAttack (component);
     KIRIN_REQUIRE (! selectionNear (warming, lastEventX));
     KIRIN_REQUIRE (verifyDormantQuiet (warming, layout));
+    KIRIN_REQUIRE (writeAttackShowcase());
     std::cout << "ATTACK UI contract passed: HISTORY, per-hit lanes, loupe, one-row readout\n";
     return EXIT_SUCCESS;
 }

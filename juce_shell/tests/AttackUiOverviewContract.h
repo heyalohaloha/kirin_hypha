@@ -47,13 +47,13 @@ inline bool verifyMeasuredEnvelope()
     const auto base=attack_envelope::geometry (batch,area,0,288000,48000);
     const auto bounds=base.body.getBounds();
     if (std::abs (bounds.getX()-100)>0.001f || std::abs (bounds.getRight()-106)>0.001f
-        || std::abs (bounds.getHeight()-73.5f)>0.001f) return false;
+        || std::abs (bounds.getHeight()-73.875f)>0.001f) return false; // floor 99.5 to -18 dB
     batch.points[3].start_sample+=240;
     const auto gap=attack_envelope::geometry (batch,area,0,288000,48000);
-    if (gap.body.contains (103.25f,50) || ! gap.body.contains (104.5f,50)) return false;
+    if (gap.body.contains (103.25f,75) || ! gap.body.contains (104.5f,75)) return false;
     batch.points[3].start_sample-=240;
     batch.points[3].rms_dbfs=std::numeric_limits<float>::quiet_NaN();
-    if (attack_envelope::geometry (batch,area,0,288000,48000).body.contains (103.5f,50)) return false;
+    if (attack_envelope::geometry (batch,area,0,288000,48000).body.contains (103.5f,75)) return false;
     for (auto& p:batch.points)p.rms_dbfs=-120;
     if (! attack_envelope::geometry (batch,area,0,288000,48000).body.isEmpty()) return false;
     for (auto& p:batch.points)p.rms_dbfs=-36;
@@ -76,7 +76,7 @@ inline bool verifyEnvelopeSimplificationBound()
         const auto shape=attack_envelope::geometry (batch,{0,0,900,180},0,288000,48000,.05f/dpi);
         for (std::uint32_t i=0;i<batch.count;++i) {
             const juce::Point<float> measured {(static_cast<float> (i)+.5f)*1.5f,
-                90-(batch.points[i].rms_dbfs+72)/72*89};
+                179.5f-(batch.points[i].rms_dbfs+72)/72*178.5f};
             juce::Point<float> previous;
             float closest=10000;
             juce::Path::Iterator path (shape.edge);
