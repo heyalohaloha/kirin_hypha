@@ -8,6 +8,7 @@
 
 #include "PluginProcessor.h"
 #include "HyphaAnalysisNavigation.h"
+#include "HyphaFeedbackStrip.h"
 #include "HyphaHoverHelpPreference.h"
 #include "HyphaObservatoryView.h"
 #include "HyphaSurfaceMaterial.h"
@@ -150,6 +151,7 @@ private:
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
     void updateFeedback (double now, bool keeping, const juce::String& persistentError);
+    void layoutFeedbackStrip();
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
     void commitEditorSizeStateIfSettled (bool force);
@@ -167,7 +169,7 @@ private:
     hypha::MyceliumBackground bg;
     hypha::StatusLed          led;
     hypha::EditableName       nameField;                  // PRE name / POST exact-pair selector
-    juce::Label               feedbackLabel;              // toast > persistent error > Keeping
+    hypha::FeedbackStrip      feedbackStrip;              // compact sizes: toast > persistent error > Keeping
     std::unique_ptr<juce::FileChooser> captureChooser;
     std::unique_ptr<juce::AlertWindow> noteDialog;
     hypha::capture::PrivacyOptions capturePrivacy;         // editor-lifetime, private by default

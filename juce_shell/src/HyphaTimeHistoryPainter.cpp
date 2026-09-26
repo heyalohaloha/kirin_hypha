@@ -338,7 +338,8 @@ void paintLegend (juce::Graphics& g,
                   juce::Rectangle<int> area,
                   const std::vector<KirinMeterHistoryEntry>& history,
                   const juce::String& rangeLabel,
-                  const std::array<MetricVisual, 3>& visuals,
+                  const MetricVisual* firstVisual,
+                  const MetricVisual* endVisual,
                   const HistoryAxis& axis,
                   bool delta,
                   bool compact,
@@ -349,13 +350,13 @@ void paintLegend (juce::Graphics& g,
     const int metricWidth = compact ? 42 : juce::jmin (72, left.getWidth() / 3);
     g.setFont (monoFont (presentation, typography::TextRole::legend,
                          typography::Composition::visualization));
-    for (const auto& visual : visuals)
+    for (auto* visual = firstVisual; visual != endVisual; ++visual)
     {
         auto cell = left.removeFromLeft (metricWidth);
-        g.setColour (visual.colour);
-        const auto text = compact ? juce::String (visual.label)
-                                  : juce::String (visual.label) + " "
-                                      + latestText (history, visual.metric, delta);
+        g.setColour (visual->colour);
+        const auto text = compact ? juce::String (visual->label)
+                                  : juce::String (visual->label) + " "
+                                      + latestText (history, visual->metric, delta);
         g.drawText (text, cell, juce::Justification::centredLeft);
     }
     g.setColour (COL_TEXT_TERTIARY);
@@ -375,7 +376,8 @@ void paint (juce::Graphics& g,
             bool compactMeter,
             meter_context::ScaleMode scaleMode,
             presentation::Context presentation,
-            const juce::String& comparisonStatus)
+            const juce::String& comparisonStatus,
+            bool momentary)
 {
     surface_material::paintPanel (g, area.toFloat(), compactMeter ? 0.96f : 0.76f);
     if (delta && comparisonStatus.isNotEmpty())
@@ -406,15 +408,17 @@ void paint (juce::Graphics& g,
         { Metric::shortTerm, "S", COL_NORMAL, 3.0f, 1.05f },
         { Metric::truePeak, "TP", COL_FLORA_BR, 2.4f, 0.9f },
     }};
+    const auto* firstVisual = momentary ? visuals.data() : visuals.data() + 1;
+    const auto* endVisual = visuals.data() + visuals.size();
     const auto axis = selectAxis (history);
     paintLegend (g, geometry.legend, history, rangeLabel,
-                 visuals, axis, delta, compactMeter, presentation);
+                 firstVisual, endVisual, axis, delta, compactMeter, presentation);
     paintAxes (g, geometry.mainPlot, delta,
                ! compactMeter && geometry.mainPlot.getHeight() >= 55.0f, scaleMode,
                presentation);
 
-    for (const auto& visual : visuals)
-        paintMetric (g, geometry.mainPlot, history, visual, axis, delta, scaleMode, presentation);
+    for (auto* visual = firstVisual; visual != endVisual; ++visual)
+        paintMetric (g, geometry.mainPlot, history, *visual, axis, delta, scaleMode, presentation);
     if (! compactMeter)
     {
         paintAuxLane (g, geometry.plrBounds, history, Metric::plr, "PLR", COL_GUIDE_BR,

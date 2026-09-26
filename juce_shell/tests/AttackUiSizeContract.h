@@ -15,8 +15,9 @@ inline bool verifyThinSelection (const juce::Image& image, const attack_ui::Layo
         return true;
     const auto target = juce::Colour (attack_ui::selectionColour);
     const auto history = historyRect (layout);
-    const auto bottom = layout.arrangement == attack_ui::Arrangement::lanes
-        ? layout.lanes.back().bottom() : layout.axis.bottom();
+    const auto bottom = layout.arrangement == attack_ui::Arrangement::lanes ? layout.lanes.back().bottom()
+                      : layout.arrangement == attack_ui::Arrangement::glance ? layout.history.bottom()
+                                                                               : layout.axis.bottom();
     for (int y = history.getY(); y < bottom; ++y)
     {
         juce::Rectangle<int> row { history.getX(), y, history.getWidth(), 1 };
@@ -98,7 +99,8 @@ inline bool verifyContinuousTrace (const KirinAttackWaveformBatch& waveform)
     return started;
 }
 
-// All five editor bodies: one row at 100%/125%, lanes from 150%, the loupe only at 300%.
+// All five editor bodies: the glance at 100%, one row at 125%, lanes from 150%, the loupe only
+// at 300%.
 inline bool verifySupportedSizes (AttackComponent& component)
 {
     profileDenseAttackIfRequested();
@@ -134,8 +136,8 @@ inline bool verifySupportedSizes (AttackComponent& component)
             component.setSize (width, height);
             const auto image = renderAttack (component);
             const auto layout = attack_ui::layoutFor (width, height, context);
-            const auto expected = index < 2 ? attack_ui::Arrangement::line
-                                            : attack_ui::Arrangement::lanes;
+            const auto expected = index == 0 ? attack_ui::Arrangement::glance
+                                : index == 1 ? attack_ui::Arrangement::line : attack_ui::Arrangement::lanes;
             if (image.getWidth() != width || image.getHeight() != height
                 || layout.arrangement != expected || layout.history.empty()
                 || layout.loupe != (index + 1 == observatory::sizePresets.size())

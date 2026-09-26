@@ -96,6 +96,11 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     }
 }
 
+int View::statusStripHeight() const
+{
+    return juce::roundToInt (monoFont (presentationContext(), typography::TextRole::status).getHeight()) + 5;
+}
+
 juce::String View::footerStatusText() const
 {
     if (measurementFormatHeld) return "FORMAT HELD / STOP KEEP";
@@ -171,6 +176,7 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
                                  ? comparison_presentation::statusText (
                                        observatoryFrame.comparison_state,
                                        observatoryFrame.comparison_reason)
-                                 : juce::String());
+                                 : juce::String(),
+                             currentPreset().density != Density::compact);
 }
 }

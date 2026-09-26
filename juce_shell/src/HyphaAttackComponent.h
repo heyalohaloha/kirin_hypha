@@ -106,6 +106,9 @@ namespace hypha
         const KirinAttackDetail* selectedPreDetail() const noexcept;
         const attack_lanes::Hit* visibleSelection() const noexcept;
         attack_ui::Layout layout() const noexcept;
+        // 100% is view-only and shows HISTORY in one row whatever VIEW was chosen at 125% and up.
+        bool viewOnly() const noexcept { return presentationContext.density == observatory::Density::compact; }
+        bool twoRows() const noexcept { return pairedObservation() && ! overlayMode && ! viewOnly(); }
         bool selectsAt (const attack_ui::Layout&, juce::Point<int>) const noexcept;
         int viewControlWidth() const;
         int statusControlWidth() const;

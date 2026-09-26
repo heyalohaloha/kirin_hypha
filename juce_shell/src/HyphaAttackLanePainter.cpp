@@ -59,7 +59,8 @@ float baseFraction (attack_lanes::Scale scale) noexcept
     return scale.fromZero ? -scale.minimum / (scale.maximum - scale.minimum) : 0.0f;
 }
 
-// A short lane-colour mark identifies a readout; the number itself stays ivory.
+}
+
 void paintAccent (juce::Graphics& g, juce::Rectangle<int> row, juce::Colour colour, float alpha)
 {
     const auto height = juce::jmin (static_cast<float> (row.getHeight()) - 6.0f, 18.0f);
@@ -69,7 +70,6 @@ void paintAccent (juce::Graphics& g, juce::Rectangle<int> row, juce::Colour colo
     g.fillRoundedRectangle ({ static_cast<float> (row.getX()),
                               static_cast<float> (row.getCentreY()) - height * 0.5f,
                               2.0f, height }, 1.0f);
-}
 }
 
 bool drawFitting (juce::Graphics& g, std::initializer_list<juce::String> candidates,

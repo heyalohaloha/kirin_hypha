@@ -1,4 +1,5 @@
 #include "HyphaAbsolutePainter.h"
+#include "HyphaStoppedHistory.h"
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
@@ -219,6 +220,33 @@ namespace
                                                   juce::PathStrokeType::curved,
                                                   juce::PathStrokeType::rounded));
     }
+
+    void paintTimeline (juce::Graphics& g, juce::Rectangle<float> plot, float scale, const PaintState& state)
+    {
+        if (state.sharpnessOnly)
+        {
+            paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
+                         sharpnessMinimum, sharpnessMaximum, 0.0f, 1.0f, scale,
+                         [] (const KirinAbsoluteView& frame) { return frame.sharpness; });
+            return;
+        }
+
+        paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
+                     lufsMinimum, lufsMaximum,
+                     ui_contract::absoluteLufsBandTop,
+                     ui_contract::absoluteLufsBandBottom, scale,
+                     [] (const KirinAbsoluteView& frame) { return frame.lufs_m; });
+        paintSeries (g, state.batch, plot, COL_SPECTRUM_DELTA,
+                     peakMinimum, peakMaximum,
+                     ui_contract::absolutePeakBandTop,
+                     ui_contract::absolutePeakBandBottom, scale,
+                     [] (const KirinAbsoluteView& frame) { return frame.true_peak; });
+        paintSeries (g, state.batch, plot, COL_SHARPNESS,
+                     sharpnessMinimum, sharpnessMaximum,
+                     ui_contract::absoluteSharpnessBandTop,
+                     ui_contract::absoluteSharpnessBandBottom, scale,
+                     [] (const KirinAbsoluteView& frame) { return frame.sharpness; });
+    }
 }
 
 void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& state)
@@ -234,6 +262,9 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
 
     if (! state.signalActive || ! state.haveBatch || state.batch.count == 0u)
     {
+        // Stopped: the six seconds already measured stay, dimmed, under the status.
+        if (! state.signalActive && state.haveBatch && state.batch.count > 0u)
+            stopped_history::paintDimmed (g, [&] { paintTimeline (g, plot, scale, state); });
         const auto inactive = state.sharpnessOnly ? "INACTIVE / POST SHARPNESS"
                                                   : "INACTIVE / POST ABSOLUTE";
         const auto status = ! state.signalActive ? juce::String (inactive) : state.haveBatch
@@ -248,29 +279,6 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
                           2, typography::Composition::visualization);
         return;
     }
-
-    if (state.sharpnessOnly)
-    {
-        paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
-                     sharpnessMinimum, sharpnessMaximum, 0.0f, 1.0f, scale,
-                     [] (const KirinAbsoluteView& frame) { return frame.sharpness; });
-        return;
-    }
-
-    paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
-                 lufsMinimum, lufsMaximum,
-                 ui_contract::absoluteLufsBandTop,
-                 ui_contract::absoluteLufsBandBottom, scale,
-                 [] (const KirinAbsoluteView& frame) { return frame.lufs_m; });
-    paintSeries (g, state.batch, plot, COL_SPECTRUM_DELTA,
-                 peakMinimum, peakMaximum,
-                 ui_contract::absolutePeakBandTop,
-                 ui_contract::absolutePeakBandBottom, scale,
-                 [] (const KirinAbsoluteView& frame) { return frame.true_peak; });
-    paintSeries (g, state.batch, plot, COL_SHARPNESS,
-                 sharpnessMinimum, sharpnessMaximum,
-                 ui_contract::absoluteSharpnessBandTop,
-                 ui_contract::absoluteSharpnessBandBottom, scale,
-                 [] (const KirinAbsoluteView& frame) { return frame.sharpness; });
+    paintTimeline (g, plot, scale, state);
 }
 }

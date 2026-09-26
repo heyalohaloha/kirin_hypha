@@ -119,15 +119,15 @@ PRE/POST対応のΔ表示は平面のままとする（2026-09-26 Daisuke決定�
 
 | Surface | 強度 | 主な視覚層 | 実測との接続 | Compactで残す事実（最大3） |
 |---|---:|---|---|---|
-| POST LEVEL | 2/5 | 構造、観測、接続 | LUFS-Mとbalanceが低明度の菌糸形状を決める | 選択M/S、TP、Crest |
-| POST TIME HISTORY | 3/5 | 時間、観測 | ObservatoryはM、S、TP、PLR、correlationのexact history、CompactはM、S、TPだけを表示する | M、S、TP |
-| POST TIME ATTACK | 5/5 | 観測、時間 | 六秒HISTORYの下で打音ごとのTRANSIENT、STRENGTH、CREST、SHARPNESSのlaneを同じ時間軸へ並べ、選択打音を静的な菌糸線で貫く | HISTORY、選択打音の四値、選択位置 |
+| POST LEVEL | 2/5 | 構造、観測、接続 | LUFS-Mとbalanceが低明度の菌糸形状を決める | S、I（TRACK/STEMではCrest）、MAX TP |
+| POST TIME HISTORY | 3/5 | 時間、観測 | ObservatoryはM、S、TP、PLR、correlationのexact history、125%はM、S、TP、100%はSとTPだけを表示する | M、S、TP（100%はS、TP） |
+| POST TIME ATTACK | 5/5 | 観測、時間 | 六秒HISTORYの下で打音ごとのTRANSIENT、STRENGTH、CREST、SHARPNESSのlaneを同じ時間軸へ並べ、選択打音を静的な菌糸線で貫く | HISTORY、選択打音の四値、選択位置（100%は1段のHISTORYと大きな四値） |
 | POST TIME SHARP | 3/5 | 観測、時間 | exact Sharpness差分と六秒historyを膜状のfillへ投影する | 現在値、差分、history |
 | POST TIME LIVE | 3/5 | 観測、時間 | POST単体のLUFS-M、TP、Sharpnessを固定scale上で追跡する | 三つの絶対値、history |
 | POST FREQ | 3/5 | 構造、観測、接続 | SpectrumとGuide bandを別authorityとして重ねる | Spectrum、主値、差分 |
 | POST SPACE | 4/5 | 観測 | 三秒MID/SIDE densityを抽象的な場へ投影する | field、balance、correlation |
 | POST Delta | 2/5 | 観測 | PREを低明度の基準、POSTを現在の測定として描く | 選択ΔM/S、ΔTP、ΔCrest |
-| PRE LEVEL | 2/5 | 構造、観測 | upstream sensorの実測だけを表示する | 選択M/S、TP、Crest |
+| PRE LEVEL | 2/5 | 構造、観測 | upstream sensorの実測だけを表示する | S、I（TRACK/STEMではCrest）、MAX TP |
 | Capture | 4/5 | 全層 | immutable snapshotをObservation Plateへ固定する | Compactでは操作を出さない |
 | WARMING、Inactive、Bypassed | 1/5 | 構造 | 成立していない値を`---`または事実状態で示す | role、domain、state、操作 |
 
@@ -178,7 +178,8 @@ CompactはDAW作業中に常設する即読メーターである。
 
 主値一つと補助値二つまで、合計三つの数値的事実に限定する。
 
-LEVELはM/SとCURRENT/MAXを切替式にし、選択LUFS、TP、Crestの三値だけを同時表示する。
+LEVELはS（今の音量）、I（曲全体。TRACK/STEMではCrest）、MAX TP（Meter Sessionの最大True Peak）の三値を表示する。
+125%のCURRENT/MAXはSとCrestをWatchの最大値へ切り替え、MAX TPは常に最大値とする（2026-09-26 Daisuke承認）。
 
 CURRENTとMAXの六値を同時に縮小表示しない。
 
@@ -194,7 +195,20 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 
 300×200と375×250は同じgeometry規則を使用し、375専用の第三の表示思想を作らない。
 
-DAW Record中はCompactの常設面をHybrid VUへ一時置換する。通常時も既存Footerへ追加した`VU`ボタンから同じ面を開き、同じボタンで選択domainを変更せず元の画面へ戻る。
+100%（300×200）は見るだけの面とする（INV-S38、2026-09-26 Daisuke承認）。
+場所を取る操作（LEVELのCURRENT/MAX、TIMEの範囲とFOCUS、FREQのLR/MID/SIDE・M/S・PSB・MARK、SHARPのLR/MID/SIDE、DRUMのVIEW）は125%以上で選び、100%では既定と異なる選択（MID、SIDE、MARK、HOLD、LOCK）だけを小さく名指しする。
+図を直接触る操作（FREQの周波数固定、DRUMの打音選択）は全サイズで変えない。
+100%のTIME HISTORYはSとTPの2本とする。
+DRUMは見出し、説明、時間軸の行を置かず、1段のHISTORYの下に選択打音の四値（PREと組めばΔ付き）を同じ大きさの数字で置く。
+FREQは操作行、凡例行、右側の絶対値軸を置かずに図を広げ、Δの凡例だけを図の左上に重ねる。
+SPACEは散布図を高さいっぱいに置き、左にBAL、右にCORRを枠なしの数字で置く。
+
+2026-09-26から、Compactの二寸法では下段を上段2行目へ畳み、本体を下端の余白まで広げる（INV-S37）。
+2行目は右からPOST／Δ、サイズ、VU・STOP・MENU、OS Guideの順に場所を保ち、domainの巡回が残りの幅を使う。
+POST／Δを持たないReferenceでは、その場所を巡回へ回す。
+状態の行（フィードバック、実行中のCapture、フィードバックが無い間のWAITING・BYPASSEDなど）は、表示中だけ本体下端の1行の帯に全幅で出し、解析ページより手前に置く。
+
+DAW Record中はCompactの常設面をHybrid VUへ一時置換する。通常時も`VU`ボタン（Compactでは上段2行目、Observatoryでは下段）から同じ面を開き、同じボタンで選択domainを変更せず元の画面へ戻る。
 Recordによる面は停止時に元の画面へ戻る。手動選択はRecord開始／停止と独立する。
 既定ONの表示設定をOFFにした場合、またはHybrid VUの情報メニューから選択中のviewへ戻した場合は、自動置換を行わない。後者はそのRecord区間だけ有効とする。
 左右の針は0 VU = -18 dBFSの300 ms平均応答、上段cyan railは左右100 ms True Peak、amber markerはSession開始または直近`CLEAR`以降の左右最大TPとし、異なる時間尺度を一つの針へ混ぜない。
@@ -301,7 +315,7 @@ LEVELの菌糸量はLUFS-Mを`-48..0 LUFS`から`0..1`へclampした値だけで
 
 waitingと未接続では接続済みの形を表示しない。
 
-OS Guideが存在する場合だけFooterに短いGuide contextを表示する。
+OS Guideが存在する場合だけFooter（Compactでは上段2行目）に短いGuide contextを表示する。
 
 Guide contextは現在のdomainを変更せず、測定面の高さも変えない。
 

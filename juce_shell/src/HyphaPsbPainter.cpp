@@ -55,6 +55,8 @@ void paintSubviewToggle (juce::Graphics& g, juce::Rectangle<float> bounds, bool 
     const auto scale = visualScale (bounds);
     const auto button = spectrum_geometry::subviewBoundsFor (
         spectrum_geometry::plotBoundsFor (bounds), scale);
+    if (button.isEmpty())
+        return; // 100% is view-only
     surface_material::paintControl (
         g, button, false, false, psbSelected, COL_LED_BLUE, 3.0f * scale);
     g.setFont (monoFont (presentation, typography::TextRole::action,

@@ -38,7 +38,7 @@ void KirinHyphaEditor::applyPresentationContext()
 {
     const auto context = hypha::presentation::forEditor (getWidth(), getHeight());
     nameField.setPresentationContext (context);
-    feedbackLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
+    feedbackStrip.setPresentationContext (context);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumView.setPresentationContext (context);
     perceptualView.setPresentationContext (context);

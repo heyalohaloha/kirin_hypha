@@ -128,15 +128,23 @@ or delay audio: the same input produces the same output, every time. An explicit
 is a separate output-only path; it never rewrites the input, the captured PRE/POST measurements, or
 Record data. Numbers are reported as captured — no interpretation, no scoring, no recommendation.
 
-One display filter exists in the shipping JUCE surface. It affects what is drawn, never what is
+Two display filters exist in the shipping JUCE surface. They affect what is drawn, never what is
 measured, stored, or read back.
 
 - **Live FREQ curves.** The absolute PRE / POST / MID / SIDE spectra rise on the next drawing tick
   and fall at 20 dB per 500 ms. The signed Δ curve follows its target symmetrically over 150 ms, so
   neither sign is favoured.
+- **MONO's live curve.** A band with nothing to measure in the current 100 ms observation (the rest
+  between two drum hits, for instance) keeps the value it was last measured at for up to one second,
+  drawn faintly, so the curve does not blink between hits. After that the band breaks the line.
 
-Watch consumes the producer-owned `KirinWatchDisplay` snapshot directly. SPACE's MONO curve and its
-six-second field likewise draw observations as measured.
+Watch consumes the producer-owned `KirinWatchDisplay` snapshot directly. SPACE's six-second MONO
+field draws observations as measured.
+
+When playback stops, or a rest outlasts the 3-second Watch window, the pages with a six-second history
+(FREQ's field or landscape, LIVE, SHARP and SPACE's MONO field) keep what was measured on screen,
+dimmed, and withdraw only the present: the live curve and the current values. Rests shorter than
+3 seconds, such as the gaps between drum hits, keep every page live.
 
 Everything else is the measurement itself: the playback-pass and Keep maximums, LUFS-S, the FREQ
 numeric readout, the six-second field, MARK, Focus Trail, peak hold, Meter Session statistics, TIME
@@ -581,7 +589,22 @@ own slots, while a third identifies the owners and waits.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
-The **VU** button added to the existing footer opens the same Hybrid VU during ordinary playback; it is not a separate
+At 100% and 125% the footer folds into the header's second row: the domain cycle, VU, MENU, the size
+and POST / Δ share one row, and the measurement reaches the bottom edge. Status lines (a toast, a
+persistent status, a running capture, or WAITING and BYPASSED when nothing else is shown) appear
+whole in a one-line strip over the bottom edge of the measurement while they last; clicking feedback
+opens the details.
+
+100% is for reading, not operating. The buttons that take room (CURRENT / MAX, the history range
+and FOCUS, LR / MID / SIDE, M/S, PSB, MARK, and DRUM's VIEW) are chosen at 125% and above; a
+choice made there stays in force at 100%, where only a non-default one (MID, SIDE, MARK, HOLD, LOCK)
+is named. Clicking the plot itself (FREQ's frequency lock, DRUM's hit selection) works at every
+size. The room goes to the measurement: LEVEL reads S, I (Crest for a track or stem) and the
+Session's MAX TP; TIME HISTORY draws S and TP; DRUM shows one row of history over its four values,
+large; FREQ's plot takes the control rows and the right-hand absolute axis; SPACE's scatter takes
+the full height with BAL and CORR beside it.
+
+The **VU** button in the footer (in the header's second row at 100% and 125%) opens the same Hybrid VU during ordinary playback; it is not a separate
 measurement mode and does not alter the selected domain. The selection survives closing and reopening
 the editor while that plug-in instance remains loaded. In the Hybrid VU, **CLEAR** releases only the
 per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU needles, Meter Session

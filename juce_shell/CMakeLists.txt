@@ -358,6 +358,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaAttackComponent.cpp
             src/HyphaAttackInteraction.cpp
             src/HyphaAttackLanePainter.cpp
+            src/HyphaAttackGlancePainter.cpp
             src/HyphaAttackLoupePainter.cpp
             src/HyphaAttackPainter.cpp
             src/HyphaAttackDepth.cpp
@@ -628,6 +629,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaAttackComponent.cpp
         src/HyphaAttackInteraction.cpp
         src/HyphaAttackLanePainter.cpp
+        src/HyphaAttackGlancePainter.cpp
         src/HyphaAttackLoupePainter.cpp
         src/HyphaAttackPainter.cpp
         src/HyphaAttackDepth.cpp
@@ -747,6 +749,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaAttackComponent.cpp
         src/HyphaAttackInteraction.cpp
         src/HyphaAttackLanePainter.cpp
+        src/HyphaAttackGlancePainter.cpp
         src/HyphaAttackLoupePainter.cpp
         src/HyphaAttackPainter.cpp
         src/HyphaAttackDepth.cpp

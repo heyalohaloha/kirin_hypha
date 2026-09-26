@@ -78,7 +78,8 @@ void AttackComponent::drawChrome (juce::Graphics& g, const attack_ui::Layout& sh
     // ATTACK owns the Observatory body while selected. Keep the body opaque so the HISTORY
     // labels beneath this child cannot leak into its transparent header or capture composite.
     surface_material::paintPanel (g, getLocalBounds().toFloat(), 1.0f);
-    drawHeaderChrome (g, shape);
+    if (shape.arrangement != attack_ui::Arrangement::glance)
+        drawHeaderChrome (g, shape);
     if (dormant || shape.arrangement == attack_ui::Arrangement::header)
         return;
     const auto history = rectangleOf (attack_ui::historyPlot (shape));

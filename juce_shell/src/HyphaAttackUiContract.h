@@ -134,6 +134,7 @@ namespace hypha::attack_ui
         header,  // too small for any observation surface
         line,    // selected-hit values in one row, with HISTORY above when it fits
         lanes,   // HISTORY above four per-hit lanes sharing its time axis
+        glance,  // 100%: HISTORY in one row above the selected hit's four values, large
     };
 
     struct Layout
@@ -178,13 +179,30 @@ namespace hypha::attack_ui
         Layout layout;
         if (width <= 0 || height <= 0)
             return layout;
+        // 100% is read at a glance and only viewed: no title, captions, VIEW or axis row. The
+        // selected hit's four values take the lower part, large; HISTORY the rest, in one row.
+        if (context.density == observatory::Density::compact)
+        {
+            const auto values = height * 45 / 100 < 40 ? 40 : height * 45 / 100 > 64 ? 64
+                              : height * 45 / 100;
+            layout.arrangement = Arrangement::glance;
+            layout.header = { 0, 0, width, 0 };
+            if (height > values + historyLineMinimumHeight)
+                layout.history = { 0, 0, width, height - values };
+            layout.line = { 0, layout.history.height, width, height - layout.history.height };
+            return layout;
+        }
         const auto headerRows = headerHeightFor (context);
         const auto header = headerRows < height ? headerRows : height;
         layout.header = { 0, 0, width, header };
         const auto body = height - header;
         const auto axis = axisRowHeight (context);
         const auto line = readoutLineHeight (context);
-        if (body >= historyMinimumHeight + axis + static_cast<int> (laneCount) * laneMinimumHeight)
+        // 125% reads DRUM as one line of four differences, even though its body (with the
+        // footer folded into the header) would now hold four short lanes.
+        const bool compactMeter = context.density == observatory::Density::focused;
+        if (! compactMeter
+            && body >= historyMinimumHeight + axis + static_cast<int> (laneCount) * laneMinimumHeight)
         {
             auto lane = (body * laneShareNumerator + laneShareDenominator / 2) / laneShareDenominator;
             lane = lane < laneMinimumHeight ? laneMinimumHeight
@@ -319,17 +337,20 @@ namespace hypha::attack_ui
         return ! layout.loupe || loupeArea (layout).x >= history.right();
     }
 
-    // The five editor bodies (POST, Guide absent, TIME navigation removed) keep the approved
-    // arrangement: one selected-hit row at 100% and 125%, lanes from 150%, a loupe only at 300%.
-    static_assert (sharesOnePlotColumn (layoutFor (292, 94, presentation::forEditor (300, 200))));
-    static_assert (sharesOnePlotColumn (layoutFor (363, 128, presentation::forEditor (375, 250))));
+    // The five editor bodies (POST, Guide absent, TIME navigation removed, footer folded at 100%
+    // and 125%) keep the approved arrangement: the glance at 100%, one selected-hit row at 125%,
+    // lanes from 150%, a loupe only at 300%.
+    static_assert (layoutFor (292, 120, presentation::forEditor (300, 200)).arrangement
+                   == Arrangement::glance);
+    static_assert (layoutFor (292, 120, presentation::forEditor (300, 200)).history.height
+                   + layoutFor (292, 120, presentation::forEditor (300, 200)).line.height == 120);
+    static_assert (layoutFor (292, 120, presentation::forEditor (300, 200)).line.height >= 40);
+    static_assert (sharesOnePlotColumn (layoutFor (363, 158, presentation::forEditor (375, 250))));
     static_assert (sharesOnePlotColumn (layoutFor (434, 164, presentation::forEditor (450, 300))));
     static_assert (sharesOnePlotColumn (layoutFor (580, 248, presentation::forEditor (600, 400))));
     static_assert (sharesOnePlotColumn (layoutFor (872, 412, presentation::forEditor (900, 600))));
-    static_assert (layoutFor (292, 94, presentation::forEditor (300, 200)).arrangement
-                   == Arrangement::line);
-    static_assert (! layoutFor (292, 94, presentation::forEditor (300, 200)).history.empty());
-    static_assert (layoutFor (363, 128, presentation::forEditor (375, 250)).arrangement
+    static_assert (! layoutFor (292, 120, presentation::forEditor (300, 200)).history.empty());
+    static_assert (layoutFor (363, 158, presentation::forEditor (375, 250)).arrangement
                    == Arrangement::line);
     static_assert (layoutFor (434, 164, presentation::forEditor (450, 300)).arrangement
                    == Arrangement::lanes);

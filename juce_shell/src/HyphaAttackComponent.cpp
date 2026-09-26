@@ -269,7 +269,7 @@ std::size_t AttackComponent::envelopeBands (juce::Rectangle<int> plot,
                                            std::array<juce::Rectangle<int>, 2>& bands) const noexcept
 {
     // The envelope rises from its floor, so each band keeps more room above for its glow.
-    if (pairedObservation() && ! overlayMode)
+    if (twoRows())
     {
         const auto rowHeight = plot.getHeight() / 2;
         for (auto& band : bands)
@@ -287,7 +287,7 @@ void AttackComponent::paintHistory (juce::Graphics& g, juce::Rectangle<int> plot
     const bool paired = pairedObservation();
     std::array<juce::Rectangle<int>, 2> bands;
     envelopeBands (plot, bands);
-    if (paired && ! overlayMode)
+    if (twoRows())
     {
         const auto laneHeight = plot.getHeight() / 2;
         auto preLane = plot.removeFromTop (laneHeight);
@@ -394,6 +394,15 @@ void AttackComponent::paint (juce::Graphics& g)
             attack_lane_painter::paintLaneValues (
                 g, attack_lanes::lanes[index], rectangleOf (attack_ui::lanePlot (shape, index)),
                 rectangleOf (attack_ui::readoutCell (shape, shape.lanes[index])), frame);
+    }
+    else if (shape.arrangement == attack_ui::Arrangement::glance)
+    {
+        attack_lane_painter::paintGlance (g, shape, frame);
+        // Only a HISTORY that has stopped following the latest hit says so; LIVE is silent.
+        g.setColour (COL_TEXT_SECONDARY);
+        g.setFont (monoFont (presentationContext, typography::TextRole::legend, visualization));
+        if (timeMode() != "LIVE")
+            g.drawText (timeMode(), history.reduced (6, 3), juce::Justification::topRight);
     }
     else
     {

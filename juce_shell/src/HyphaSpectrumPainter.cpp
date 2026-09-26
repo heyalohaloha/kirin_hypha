@@ -259,13 +259,9 @@ void paintCurves (juce::Graphics& g,
     }
 }
 
-void paintAbsolute (juce::Graphics& g,
-                    juce::Rectangle<float> plot,
-                    float visualScale,
-                    const SpectrumBins& post,
-                    const SpectrumBins& peakHold,
-                    const absolute_spectrum::History& history,
-                    presentation::Context presentation)
+void paintAbsoluteHistory (juce::Graphics& g,
+                           juce::Rectangle<float> plot,
+                           const absolute_spectrum::History& history)
 {
     if (! history.empty() && ! spectrum_terrain::paintLevelLandscape (g, plot, history))
     {
@@ -292,6 +288,17 @@ void paintAbsolute (juce::Graphics& g,
             [&alphaTable] (float dbfs) { return fieldAlphaStepFor (dbfs, alphaTable); });
         time_field::draw (g, field, plot);
     }
+}
+
+void paintAbsolute (juce::Graphics& g,
+                    juce::Rectangle<float> plot,
+                    float visualScale,
+                    const SpectrumBins& post,
+                    const SpectrumBins& peakHold,
+                    const absolute_spectrum::History& history,
+                    presentation::Context presentation)
+{
+    paintAbsoluteHistory (g, plot, history);
 
     SpectrumBins x {};
     SpectrumBins currentY {};

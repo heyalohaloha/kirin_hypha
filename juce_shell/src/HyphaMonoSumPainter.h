@@ -15,6 +15,11 @@
 // carries 0..-6 dB and the bottom half -6..-24 dB.
 namespace hypha::mono_sum_curve
 {
+/// How long the live curve keeps a band's last measured value while the band has nothing to
+/// measure, and how faintly that held value is drawn.
+inline constexpr double holdSeconds = 1.0;
+inline constexpr float heldAlpha = 0.38f;
+
 /// Height of one band value on the split scale. Values outside the scale stop at its edge.
 float yForDb (float db, juce::Rectangle<float> plot) noexcept;
 

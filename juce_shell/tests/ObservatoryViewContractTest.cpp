@@ -218,7 +218,7 @@ void verifyRoleAtEverySize (observatory::Role role,
                 view.setMeterSnapshot (meter, true);
                 auto alternateWatch = activeWatch();
                 if (observatory::isCompactMeter (preset))
-                    alternateWatch.current.lufs_m -= 6.0;
+                    alternateWatch.current.lufs_s -= 6.0; // the compact meter reads S
                 else
                     alternateWatch.current.crest += 5.0;
                 view.setWatchDisplay (alternateWatch, true);

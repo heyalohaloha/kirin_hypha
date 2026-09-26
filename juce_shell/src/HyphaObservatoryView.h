@@ -92,6 +92,8 @@ public:
         return measurementOnlySurround;
     }
     juce::String footerStatusForTest() const { return footerStatusText(); }
+    // WAITING, BYPASSED and the like; shown by the status strip where the footer folds.
+    juce::String footerStatus() const { return footerStatusText(); }
     bool frequencyControlVisibleForTest() const noexcept
     {
         return frequencyButton.isVisible();
@@ -136,6 +138,11 @@ public:
     void setAttackPaired (bool);
     void setFeedback (juce::String text);
     int timeControlsHeight() const noexcept;
+    // 100% is view-only: the history range and the loudness scale are chosen at 125% and above.
+    bool timeControlsShown() const noexcept
+    {
+        return ! captureFrame && currentPreset().density != Density::compact;
+    }
     void setTimeRange (TimeRange);
     TimeRange selectedTimeRange() const noexcept { return timeRange; }
     void setMeterSnapshot (const KirinMeterSession&, bool available);
@@ -236,6 +243,10 @@ public:
     juce::Rectangle<int> connectionBounds() const noexcept { return connectionArea; }
     juce::Rectangle<int> guideBounds() const noexcept { return guideArea; }
     juce::Rectangle<int> sessionBounds() const noexcept { return sessionArea; }
+    // Where feedback and a running capture are shown: the footer's session line, or, where the
+    // footer folds into the header, a strip over the bottom edge of the body (statusStripFolded).
+    juce::Rectangle<int> statusStripBounds() const noexcept { return statusStrip; }
+    bool statusStripFolded() const noexcept { return statusStripOverBody; }
     std::uint64_t captureHistoryEndpoint() const noexcept
     {
         return frameAvailable ? observatoryFrame.meter.observed_frames : 0u;
@@ -269,6 +280,7 @@ private:
     void paintHeader (juce::Graphics&, const ShellLayout&);
     void paintFooter (juce::Graphics&, const ShellLayout&);
     juce::String footerStatusText() const;
+    int statusStripHeight() const;
     void layoutFooterActions (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
     void paintLevelWithHistory (juce::Graphics&, juce::Rectangle<int>);
@@ -335,6 +347,8 @@ private:
     juce::Rectangle<int> connectionArea;
     juce::Rectangle<int> guideArea;
     juce::Rectangle<int> sessionArea;
+    juce::Rectangle<int> statusStrip;
+    bool statusStripOverBody = false;
     juce::Rectangle<int> levelHistoryArea;
     std::optional<juce::Point<float>> levelHistoryPointer;
     std::optional<std::size_t> hoveredLevelHistoryIndex;

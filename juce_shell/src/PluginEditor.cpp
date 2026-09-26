@@ -195,13 +195,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setFallback (instanceId8());
     }
 
-    // One role-independent slot owns feedback priority and the only bottom-row rectangle.
-    feedbackLabel.setFont (hypha::monoFont (
-        hypha::presentation::defaultContext(), hypha::typography::TextRole::status));
-    feedbackLabel.setJustificationType (juce::Justification::centredLeft);
-    feedbackLabel.setMinimumHorizontalScale (1.0f);
-    feedbackLabel.setInterceptsMouseClicks (false, false);
-    scaleRoot.addChildComponent (feedbackLabel);
+    // Where the footer folds into the header, feedback is shown over the body's bottom edge.
+    feedbackStrip.onClick = [this] { showFeedbackInformationMenu(); };
+    scaleRoot.addChildComponent (feedbackStrip);
 
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumToggle.setVisible (false);
@@ -304,8 +300,8 @@ void KirinHyphaEditor::resized()
         timePageNavigation.toFront (false);
     }
    #endif
-    feedbackLabel.setBounds (observatoryView.sessionBounds());
-    feedbackLabel.toFront (false);
+    layoutFeedbackStrip();
+    feedbackStrip.toFront (false);
     if (observatoryView.hybridVuVisible()) observatoryView.toFront (false);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost) layoutLocalBlindProduct();
@@ -342,35 +338,34 @@ void KirinHyphaEditor::updateFeedback (
     double now, bool keeping, const juce::String& persistentError)
 {
     juce::String text;
-    juce::Colour colour = COL_MUTED;
 
     // Direct user-action feedback must remain visible even while a persistent producer error is
     // present (R-28). After the three-second toast, the persistent error automatically returns;
     // the short acknowledgement is the lowest-priority informational state.
     if (now < toastUntil && toastText.isNotEmpty())
-    {
         text = toastText;
-        colour = COL_NORMAL;
-    }
     else if (persistentError.isNotEmpty())
-    {
         text = persistentError;
-        colour = hypha::COL_LED_YELLOW;
-    }
     else if (keeping)
-    {
         text = "Keeping";
-        colour = COL_FLORA;
-    }
 
     if (now >= toastUntil)
         toastText.clear();
 
     observatoryView.setFeedback (text);
-    feedbackLabel.setVisible (false);
-    if (text.isNotEmpty())
-    {
-        feedbackLabel.setText (text, juce::dontSendNotification);
-        feedbackLabel.setColour (juce::Label::textColourId, colour);
-    }
+    // The strip also carries the footer's short status (WAITING, BYPASSED) while nothing else shows.
+    feedbackStrip.setFeedback (text.isNotEmpty() ? text : observatoryView.footerStatus());
+    layoutFeedbackStrip();
+}
+
+void KirinHyphaEditor::layoutFeedbackStrip()
+{
+    bool shown = observatoryView.statusStripFolded() && feedbackStrip.text().isNotEmpty();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    shown = shown && ! localBlindOpen;
+   #endif
+    feedbackStrip.setBounds (observatoryView.statusStripBounds());
+    if (shown && ! feedbackStrip.isVisible())
+        feedbackStrip.toFront (false);
+    feedbackStrip.setVisible (shown);
 }

@@ -235,8 +235,8 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                                                   observatoryFrame.comparison_reason),
             statusArea.reduced (4, 1), juce::Justification::centred);
     }
-    else if (compact)
-        area.removeFromTop (20);
+    else if (compact && density != Density::compact)
+        area.removeFromTop (20); // CURRENT / MAX; 100% is view-only
     if (target() == ObservationTarget::delta)
     {
         if (compact)
@@ -286,25 +286,35 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
             && (compactShowsMaximum ? cumulativeFactsAvailable() : currentFactsAvailable());
         const bool trackStem = selectedMeterContext
                             == meter_context::MeterContext::trackStem;
+        // The loudness now (S), the programme so far (I; Crest for a track or stem) and the
+        // highest true peak of the Meter Session. MAX switches S and Crest to their Watch
+        // maxima; MAX TP is a maximum already.
         const std::array<double, 3> compactValues {
-            watch.lufs_m,
             watch.lufs_s,
-            trackStem ? watch.crest : meter.lufs_i
+            trackStem ? watch.crest : meter.lufs_i,
+            meter.max_true_peak
         };
         const std::array<bool, 3> compactAvailable {
             compactFactsAvailable,
-            compactFactsAvailable,
-            trackStem ? compactFactsAvailable : cumulativeAvailable
+            trackStem ? compactFactsAvailable : cumulativeAvailable,
+            cumulativeAvailable
         };
         const std::array<const char*, 3> compactLabels {
-            "M", "S", trackStem ? "CREST" : "I"
+            compactShowsMaximum ? "MAX S" : "S",
+            trackStem ? (compactShowsMaximum ? "MAX CREST" : "CREST") : "I",
+            "MAX TP"
         };
         const std::array<const char*, 3> compactUnits {
-            "LUFS", "LUFS", trackStem ? "dB" : "LUFS"
+            "LUFS", trackStem ? "dB" : "LUFS", "dBTP"
+        };
+        const std::array<level_metrics::Metric, 3> compactMetrics {
+            level_metrics::Metric::shortTerm,
+            trackStem ? level_metrics::Metric::crest : level_metrics::Metric::integrated,
+            level_metrics::Metric::maximumTruePeak
         };
         for (int index = 0; index < 3; ++index)
             drawMetric (g, metricHelpArea (area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
-                        level_metrics::layoutFor (trackStem).main[(size_t) index]),
+                        compactMetrics[(size_t) index]),
                         compactLabels[(size_t) index],
                         optionValue (compactValues[(size_t) index],
                                      compactAvailable[(size_t) index]),

@@ -31,8 +31,7 @@ void verifyLayout (observatory::Role role,
 
     for (const auto rect : std::array {
              layout.header, layout.roleTitle, layout.domainNavigation,
-             layout.connectionStatus, layout.body, layout.footer,
-             layout.session, layout.actions, layout.sizeSelector })
+             layout.connectionStatus, layout.body, layout.actions, layout.sizeSelector })
     {
         assert (observatory::hasArea (rect));
         assert (observatory::fitsWithin (rect, preset.width, preset.height));
@@ -41,9 +40,35 @@ void verifyLayout (observatory::Role role,
     assert (! overlaps (layout.roleTitle, layout.domainNavigation));
     assert (! overlaps (layout.domainNavigation, layout.connectionStatus));
     assert (! overlaps (layout.header, layout.body));
-    assert (! overlaps (layout.body, layout.footer));
-    assert (! overlaps (layout.session, layout.actions));
     assert (! overlaps (layout.actions, layout.sizeSelector));
+    if (observatory::footerFolds (preset.density))
+    {
+        // 100% and 125%: the footer rail folds into the second header row. The body reaches the
+        // bottom margin, and every footer control sits in that row beside the domain cycle.
+        assert (! observatory::hasArea (layout.footer));
+        assert (observatory::bottom (layout.body)
+                == preset.height - observatory::shellMargin (preset.density));
+        for (const auto rect : std::array { layout.actions, layout.sizeSelector })
+        {
+            assert (rect.y == layout.domainNavigation.y);
+            assert (observatory::bottom (rect) <= observatory::bottom (layout.header));
+            assert (! overlaps (rect, layout.domainNavigation));
+            assert (! overlaps (rect, layout.body));
+        }
+        assert (layout.domainNavigation.width >= 44);
+        if (role == observatory::Role::post)
+            assert (! overlaps (layout.sizeSelector, layout.observationTarget));
+    }
+    else
+    {
+        for (const auto rect : std::array { layout.footer, layout.session })
+        {
+            assert (observatory::hasArea (rect));
+            assert (observatory::fitsWithin (rect, preset.width, preset.height));
+        }
+        assert (! overlaps (layout.body, layout.footer));
+        assert (! overlaps (layout.session, layout.actions));
+    }
 
     if (role == observatory::Role::post)
     {
@@ -59,10 +84,18 @@ void verifyLayout (observatory::Role role,
     {
         assert (observatory::hasArea (layout.guideRail));
         assert (observatory::fitsWithin (layout.guideRail, preset.width, preset.height));
-        assert (! overlaps (layout.header, layout.guideRail));
         assert (! overlaps (layout.guideRail, layout.body));
-        assert (overlaps (layout.guideRail, layout.footer));
         assert (! overlaps (layout.guideRail, layout.session));
+        if (observatory::footerFolds (preset.density))
+        {
+            assert (! overlaps (layout.guideRail, layout.domainNavigation));
+            assert (! overlaps (layout.guideRail, layout.actions));
+        }
+        else
+        {
+            assert (! overlaps (layout.header, layout.guideRail));
+            assert (overlaps (layout.guideRail, layout.footer));
+        }
     }
     else
     {

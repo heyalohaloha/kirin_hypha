@@ -21,6 +21,11 @@ namespace hypha::spectrum_painter
                       const SpectrumBins& delta,
                       const SpectrumBins* mark);
 
+    // The six seconds behind the POST curve: the landscape at 200% and 300%, the flat field below.
+    void paintAbsoluteHistory (juce::Graphics& graphics,
+                               juce::Rectangle<float> plot,
+                               const absolute_spectrum::History& history);
+
     void paintAbsolute (juce::Graphics& graphics,
                         juce::Rectangle<float> plot,
                         float visualScale,
