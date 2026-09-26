@@ -6,6 +6,7 @@
 #include "HyphaAnalysisUiText.h"
 #include "HyphaSpectrumFocusTrailPainter.h"
 #include "HyphaSpectrumTerrain.h"
+#include "HyphaStoppedHistory.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
@@ -421,6 +422,11 @@ void paint (juce::Graphics& g,
 
     if (! state.snapshotValid)
     {
+        // Stopped: the six seconds already measured stay, dimmed, under the status.
+        if (state.absoluteObservation && ! state.midSideObservation && ! state.signalActive
+            && state.absoluteHistory != nullptr && ! state.absoluteHistory->empty())
+            stopped_history::paintDimmed (g, [&] {
+                spectrum_painter::paintAbsoluteHistory (g, plot, *state.absoluteHistory); });
         const auto text = ! state.absoluteObservation && state.comparisonStatus.isNotEmpty()
                             ? state.comparisonStatus
                             : ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot

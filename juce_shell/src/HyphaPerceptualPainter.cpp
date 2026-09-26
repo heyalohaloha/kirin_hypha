@@ -1,4 +1,5 @@
 #include "HyphaPerceptualPainter.h"
+#include "HyphaStoppedHistory.h"
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
@@ -306,6 +307,9 @@ void paint (juce::Graphics& g,
 
     if (! state.snapshotValid || state.history.empty())
     {
+        // Stopped: the six seconds already measured stay, dimmed, under the status.
+        if (! state.signalActive && ! state.history.empty())
+            stopped_history::paintDimmed (g, [&] { paintHistory (g, plot, scale, state.history); });
         const auto text = ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot
                             ? statusText (state.snapshot.status, state.analysisOwnerNames)
                                              : juce::String ("PREPARING ANALYSIS");
