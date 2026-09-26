@@ -5,6 +5,7 @@
 #include <functional>
 #include <initializer_list>
 
+#include "HyphaAttackDepth.h"
 #include "HyphaAttackLanePainter.h"
 #include "HyphaAttackLoupePainter.h"
 #include "HyphaAttackStage.h"
@@ -103,6 +104,9 @@ void AttackComponent::drawChrome (juce::Graphics& g, const attack_ui::Layout& sh
         g.setColour (waveformColour.withAlpha (0.28f));
         g.drawHorizontalLine (axis.getCentreY() - 2, static_cast<float> (axis.getX() + labelWidth),
                               static_cast<float> (axis.getRight() - labelWidth));
+        attack_depth::engraveLip (g, static_cast<float> (axis.getCentreY() - 2),
+                                  static_cast<float> (axis.getX() + labelWidth),
+                                  static_cast<float> (axis.getRight() - labelWidth));
         g.setFont (monoFont (presentationContext, typography::TextRole::axis, visualization));
         g.setColour (COL_TEXT_TERTIARY);
         g.drawText ("-6 s", axis.removeFromLeft (labelWidth), juce::Justification::centredLeft);
@@ -118,11 +122,24 @@ void AttackComponent::drawHeaderChrome (juce::Graphics& g, const attack_ui::Layo
         presentationContext, typography::TextRole::sectionTitle, 0.08f);
     g.setFont (monoFont (presentationContext, typography::TextRole::sectionTitle, visualization)
                    .withExtraKerningFactor (0.08f));
+    const auto& depth = attack_depth::look();
+    if (depth.engrave > 0.0f)
+    {
+        // Etched into the instrument face: the impression sits one pixel below the lit letters.
+        g.setColour (juce::Colours::black.withAlpha (0.75f * depth.engrave));
+        g.drawText ("DRUM / ATTACK", titleRow.translated (0, 1), juce::Justification::centredLeft);
+    }
     g.setColour (COL_NORMAL);
     g.drawText ("DRUM / ATTACK", titleRow, juce::Justification::centredLeft);
     // The selected TIME page carries one short cyan light under its name.
     const auto accentWidth = juce::jmin (44.0f, titleFont.getStringWidthFloat ("DRUM"));
     const auto accentY = static_cast<float> (titleRow.getBottom()) - 1.5f;
+    if (depth.bloom > 0.0f)
+    {
+        g.setColour (waveformColour.withAlpha (juce::jmin (1.0f, 0.07f * depth.bloom)));
+        g.fillRoundedRectangle ({ static_cast<float> (titleRow.getX()) - 2.0f, accentY - 3.5f,
+                                  accentWidth + 4.0f, 7.0f }, 3.5f);
+    }
     g.setColour (waveformColour.withAlpha (0.16f));
     g.fillRoundedRectangle ({ static_cast<float> (titleRow.getX()), accentY - 1.5f,
                               accentWidth, 3.0f }, 1.5f);
@@ -158,7 +175,8 @@ void AttackComponent::drawHeaderChrome (juce::Graphics& g, const attack_ui::Layo
 
 void AttackComponent::drawHistoryChrome (juce::Graphics& g, juce::Rectangle<int> plot)
 {
-    attack_stage::paint (g, plot.toFloat(), 4.0f, 0.30f);
+    attack_stage::paint (g, plot.toFloat(), 4.0f, 0.30f, true);
+    const auto& depth = attack_depth::look();
     for (int second = 1; second < attack_ui::presentationSeconds; ++second)
     {
         const auto x = plot.getX() + second * plot.getWidth() / attack_ui::presentationSeconds;
@@ -166,36 +184,60 @@ void AttackComponent::drawHistoryChrome (juce::Graphics& g, juce::Rectangle<int>
         g.drawVerticalLine (x, static_cast<float> (plot.getY() + 4),
                             static_cast<float> (plot.getBottom() - 4));
     }
-    // Faint -24 and -48 dBFS levels on each mirrored envelope band, the envelope's own scale.
-    std::array<juce::Rectangle<int>, 2> bands;
-    std::size_t bandCount = 1;
-    if (pairedObservation() && ! overlayMode)
+    if (depth.graticule > 0.0f)
     {
-        auto rows = plot;
-        const auto rowHeight = plot.getHeight() / 2;
-        bands[0] = rows.removeFromTop (rowHeight).reduced (0, 4);
-        bands[1] = rows.removeFromTop (rowHeight).reduced (0, 4);
-        bandCount = 2;
+        // Instrument ticks on the upper and lower walls: every 0.25 s, longer at each second.
+        constexpr int quarters = attack_ui::presentationSeconds * 4;
+        g.setColour (COL_TEXT_TERTIARY.withAlpha (juce::jmin (1.0f, depth.graticule * 2.0f)));
+        for (int quarter = 1; quarter < quarters; ++quarter)
+        {
+            const auto x = plot.getX() + quarter * plot.getWidth() / quarters;
+            const auto length = quarter % 4 == 0 ? 5.0f : 2.5f;
+            const auto top = static_cast<float> (plot.getY()) + 1.0f;
+            const auto bottom = static_cast<float> (plot.getBottom()) - 1.0f;
+            g.drawVerticalLine (x, top, top + length);
+            g.drawVerticalLine (x, bottom - length, bottom);
+        }
+    }
+    // Faint -24 and -48 dBFS levels on each envelope band, the envelope's own scale.
+    std::array<juce::Rectangle<int>, 2> bands;
+    const auto bandCount = envelopeBands (plot, bands);
+    if (bandCount == 2)
+    {
         g.setColour (waveformColour.withAlpha (0.075f));
-        g.drawHorizontalLine (plot.getY() + rowHeight, static_cast<float> (plot.getX() + 3),
+        g.drawHorizontalLine (plot.getY() + plot.getHeight() / 2, static_cast<float> (plot.getX() + 3),
                               static_cast<float> (plot.getRight() - 3));
     }
-    else
-        bands[0] = plot.reduced (0, 7);
-    g.setColour (COL_TEXT_TERTIARY.withAlpha (0.08f));
     for (std::size_t index = 0; index < bandCount; ++index)
     {
         const auto band = bands[index].toFloat();
-        const auto half = juce::jmax (0.0f, band.getHeight() * 0.5f - 1.0f);
+        const auto level = [&band] (float db) {
+            const auto fraction = (db - attack_ui::absoluteFloorDb) / -attack_ui::absoluteFloorDb;
+            return band.getBottom() - 0.5f - fraction * juce::jmax (0.0f, band.getHeight() - 1.5f); };
+        g.setColour (COL_TEXT_TERTIARY.withAlpha (0.08f));
         for (const auto db : { -24.0f, -48.0f })
+            g.drawHorizontalLine (juce::roundToInt (level (db)), band.getX() + 2.0f, band.getRight() - 2.0f);
+        // The floor the light rises from, and a scale tick every 12 dB on both walls.
+        g.setColour (waveformColour.withAlpha (0.14f));
+        g.drawHorizontalLine (juce::roundToInt (band.getBottom() - 0.5f), band.getX() + 2.0f,
+                              band.getRight() - 2.0f);
+        attack_depth::engraveLip (g, band.getBottom() - 0.5f, band.getX() + 2.0f, band.getRight() - 2.0f);
+        g.setColour (COL_TEXT_TERTIARY.withAlpha (juce::jmin (1.0f, depth.graticule * 2.0f)));
+        for (int db = -12; db > static_cast<int> (attack_ui::absoluteFloorDb); db -= 12)
         {
-            const auto offset = (db - attack_ui::absoluteFloorDb) / -attack_ui::absoluteFloorDb * half;
-            for (const auto y : { band.getCentreY() - offset, band.getCentreY() + offset })
-                g.drawHorizontalLine (juce::roundToInt (y), band.getX() + 2.0f, band.getRight() - 2.0f);
+            const auto y = juce::roundToInt (level (static_cast<float> (db)));
+            g.drawHorizontalLine (y, band.getX() + 1.0f, band.getX() + 4.0f);
+            g.drawHorizontalLine (y, band.getRight() - 4.0f, band.getRight() - 1.0f);
         }
     }
     // NOW: the current measurement edge in cyan, with a narrow glow.
     const auto nowX = static_cast<float> (plot.getRight()) - 1.5f;
+    if (depth.bloom > 0.0f)
+    {
+        g.setColour (waveformColour.withAlpha (juce::jmin (1.0f, 0.045f * depth.bloom)));
+        g.fillRect (juce::Rectangle<float> (nowX - 3.5f, static_cast<float> (plot.getY() + 2), 5.0f,
+                                            static_cast<float> (plot.getHeight() - 4)));
+    }
     g.setColour (waveformColour.withAlpha (0.12f));
     g.fillRect (juce::Rectangle<float> (nowX - 1.5f, static_cast<float> (plot.getY() + 2), 3.0f,
                                         static_cast<float> (plot.getHeight() - 4)));

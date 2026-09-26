@@ -53,25 +53,28 @@ namespace hypha::ui_contract
 
     constexpr const char* preTitle = "PRE";
     constexpr const char* postTitle = "POST";
-    constexpr std::uint32_t background = 0xff0d0f1a;
-    constexpr std::uint32_t normal     = 0xffe0e0e0;
+    constexpr std::uint32_t background = 0xff16110d;
+    constexpr std::uint32_t normal     = 0xffe8e2d8;
     // Full LEVEL Observatory numerals use the concept image's warm instrument ivory. Compact
     // meters retain `normal` for maximum small-size contrast.
-    constexpr std::uint32_t observatoryValue = 0xffe8d8bd;
-    constexpr std::uint32_t muted      = 0xff606060;
+    constexpr std::uint32_t observatoryValue = 0xfff0e4cc;
+    constexpr std::uint32_t muted      = 0xff6b6158;
     constexpr std::uint32_t preDisplayContextDetail = 0xff898989;
-    constexpr std::uint32_t flora      = 0xffd4a043;
-    constexpr std::uint32_t floraBright = 0xffffe0a0;
+    constexpr std::uint32_t flora      = 0xffc9a15a;
+    constexpr std::uint32_t floraBright = 0xfff3d7a0;
     // Guide gold is a semantic alias, not a quality scale: it identifies received Kirin OS facts.
     constexpr std::uint32_t guideGold = flora;
     constexpr std::uint32_t guideGoldBright = floraBright;
-    constexpr std::uint32_t spectrumDelta = 0xff75d6e8;
-    constexpr std::uint32_t spectrumDeltaBright = 0xffcdeff5;
-    constexpr std::uint32_t spectrumPre = 0xff74808f;
-    constexpr std::uint32_t spectrumPost = 0xffa695d6;
-    constexpr std::uint32_t spectrumMid = 0xff75d6e8;
-    constexpr std::uint32_t spectrumSide = 0xffa695d6;
-    constexpr std::uint32_t ledBlue    = 0xff4488cc;
+    constexpr std::uint32_t spectrumDelta = 0xff7fcfd8;
+    constexpr std::uint32_t spectrumDeltaBright = 0xffd3eff3;
+    constexpr std::uint32_t spectrumPre = 0xff968c80;
+    constexpr std::uint32_t spectrumPost = 0xffe0bd7e;
+    constexpr std::uint32_t spectrumMid = 0xff7fcfd8;
+    constexpr std::uint32_t spectrumSide = 0xffad9fdc;
+    // Sharpness keeps one identity colour on every page (LIVE, DRUM). Lilac is a small-mark and
+    // thin-line colour only; it never fills an area.
+    constexpr std::uint32_t sharpness = 0xffb3a2e6;
+    constexpr std::uint32_t ledBlue    = 0xff7fcfd8;
     constexpr std::uint32_t ledGreen   = 0xff4cc07a;
     constexpr std::uint32_t ledYellow  = 0xffccaa44;
     constexpr std::uint32_t ledGrey    = 0xff555558;

@@ -215,7 +215,7 @@ void verifyAbsoluteTimelineContract()
     KIRIN_ABSOLUTE_REQUIRE (
         countNearColour (multiPointImage, historyInterior, COL_SPECTRUM_POST) > 8);
     KIRIN_ABSOLUTE_REQUIRE (
-        countNearColour (multiPointImage, historyInterior, COL_FLORA) > 8);
+        countNearColour (multiPointImage, historyInterior, COL_SHARPNESS) > 8);
 
     // SHARP reuses the same exact POST timeline when there is no pair, but presents only the
     // Sharpness fact at its full 0..3 acum scale.
@@ -238,7 +238,7 @@ void verifyAbsoluteTimelineContract()
     KIRIN_ABSOLUTE_REQUIRE (
         countNearColour (postSharpnessImage, historyInterior, COL_SPECTRUM_DELTA) == 0);
     KIRIN_ABSOLUTE_REQUIRE (
-        countNearColour (postSharpnessImage, historyInterior, COL_FLORA) == 0);
+        countNearColour (postSharpnessImage, historyInterior, COL_SHARPNESS) == 0);
     postSharpness.mouseMove (mouseEvent (
         postSharpness, (float) compactBounds.width * 0.5f,
         (float) compactBounds.height * 0.5f));

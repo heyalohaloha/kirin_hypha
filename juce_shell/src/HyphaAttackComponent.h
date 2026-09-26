@@ -117,6 +117,10 @@ namespace hypha
         void drawChrome (juce::Graphics&, const attack_ui::Layout&, bool dormant);
         void drawHeaderChrome (juce::Graphics&, const attack_ui::Layout&);
         void drawHistoryChrome (juce::Graphics&, juce::Rectangle<int> plot);
+        // The envelope bands inside a HISTORY plot: one, or PRE above POST in two rows. The
+        // chrome's scale lines and the painted envelopes share them.
+        std::size_t envelopeBands (juce::Rectangle<int> plot,
+                                   std::array<juce::Rectangle<int>, 2>& bands) const noexcept;
         void paintHeaderState (juce::Graphics&, const attack_ui::Layout&);
         void paintHistory (juce::Graphics&, juce::Rectangle<int> plot);
         void paintAxis (juce::Graphics&, const attack_ui::Layout&);

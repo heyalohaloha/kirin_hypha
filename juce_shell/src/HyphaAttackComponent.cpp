@@ -4,6 +4,7 @@
 #include <cmath>
 #include <initializer_list>
 
+#include "HyphaAttackDepth.h"
 #include "HyphaAttackLanePainter.h"
 #include "HyphaAttackLoupePainter.h"
 #include "HyphaAttackPainter.h"
@@ -264,19 +265,36 @@ juce::String AttackComponent::timeMode() const
     return followLatest ? (liveSignalActive ? "LIVE" : "HOLD") : "LOCK";
 }
 
+std::size_t AttackComponent::envelopeBands (juce::Rectangle<int> plot,
+                                           std::array<juce::Rectangle<int>, 2>& bands) const noexcept
+{
+    // The envelope rises from its floor, so each band keeps more room above for its glow.
+    if (pairedObservation() && ! overlayMode)
+    {
+        const auto rowHeight = plot.getHeight() / 2;
+        for (auto& band : bands)
+            band = plot.removeFromTop (rowHeight).withTrimmedTop (5).withTrimmedBottom (2);
+        return 2;
+    }
+    bands[0] = plot.withTrimmedTop (7).withTrimmedBottom (3);
+    return 1;
+}
+
 // Observations only: the cached chrome already holds the stage, grid, rows and labels.
 void AttackComponent::paintHistory (juce::Graphics& g, juce::Rectangle<int> plot)
 {
     const auto first = latest - attack_ui::windowSamples (rate);
     const bool paired = pairedObservation();
+    std::array<juce::Rectangle<int>, 2> bands;
+    envelopeBands (plot, bands);
     if (paired && ! overlayMode)
     {
         const auto laneHeight = plot.getHeight() / 2;
         auto preLane = plot.removeFromTop (laneHeight);
         auto postLane = plot.removeFromTop (laneHeight);
-        drawEnvelope (g, preWaveformBatch, preLane.reduced (0, 4),
+        drawEnvelope (g, preWaveformBatch, bands[0],
                       first, latest, rate, WaveformStyle::continuous, 0.90f);
-        drawEnvelope (g, waveformBatch, postLane.reduced (0, 4),
+        drawEnvelope (g, waveformBatch, bands[1],
                       first, latest, rate, WaveformStyle::continuous, 0.90f);
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (monoFont (presentationContext, typography::TextRole::legend, visualization)
@@ -286,15 +304,15 @@ void AttackComponent::paintHistory (juce::Graphics& g, juce::Rectangle<int> plot
     }
     else if (paired)
     {
-        const auto waveArea = plot.reduced (0, 7);
-        drawEnvelope (g, preWaveformBatch, waveArea,
-                      first, latest, rate, WaveformStyle::trace, 0.64f);
-        drawEnvelope (g, waveformBatch, waveArea,
+        // The thin PRE reference goes over the POST body so the glass never hides it.
+        drawEnvelope (g, waveformBatch, bands[0],
                       first, latest, rate, WaveformStyle::continuous, 0.94f);
+        drawEnvelope (g, preWaveformBatch, bands[0],
+                      first, latest, rate, WaveformStyle::trace, 0.64f);
     }
     else
     {
-        drawEnvelope (g, waveformBatch, plot.reduced (0, 7),
+        drawEnvelope (g, waveformBatch, bands[0],
                       first, latest, rate, WaveformStyle::continuous, 0.94f);
     }
 }
@@ -329,6 +347,7 @@ void AttackComponent::paintSelection (juce::Graphics& g, const attack_ui::Layout
         return;
     const bool lanes = shape.arrangement == attack_ui::Arrangement::lanes;
     const auto bottom = lanes ? shape.lanes.back().bottom() - 3 : history.getBottom() - 2;
+    attack_depth::paintHalo (g, history, static_cast<float> (history.getX() + x) + 0.5f, selectionColour);
     attack_lane_painter::paintHypha (
         g, static_cast<float> (history.getX() + x) + 0.5f, static_cast<float> (history.getY() + 2),
         static_cast<float> (bottom), static_cast<float> (history.getCentreY()),

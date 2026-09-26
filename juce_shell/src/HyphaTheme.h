@@ -7,18 +7,20 @@
 #include "HyphaUiContract.h"
 #include "HyphaTypographyContract.h"
 
-// B-054: element-for-element port of crates/hypha_gui/{palette,common,led}.rs into JUCE.
-// palette.rs is the single source of truth for colour (no new colours hardcoded) — every
-// constant below is the exact RGB from palette.rs. No red / pure white (#ffffff) / neon
+// B-054: element-for-element port of crates/hypha_gui/{common,led}.rs into JUCE. Colour comes
+// only from HyphaUiContract.h (no new colours hardcoded). No red / pure white (#ffffff) / neon
 // (品位原則 / G-72-10). Formatting/colour helpers mirror common.rs (fmt_val / fmt_delta /
 // val_color / tp_color / tp_over); breathe()/dim() mirror led.rs.
 namespace hypha
 {
-    // ── palette.rs (exact) ───────────────────────────────────────────────────────────────
-    inline const juce::Colour BG            { ui_contract::background }; // #0D0F1A panel/window fill
-    inline const juce::Colour COL_NORMAL    { ui_contract::normal }; // #E0E0E0 values / title (not pure white)
+    // ── product palette (HyphaUiContract.h) ──────────────────────────────────────────────
+    // 2026-09-26: warm black, champagne gold for POST values, ice cyan for differences, motion and
+    // selection, ivory numerals. Wide areas and long lines use only these; the remaining hues
+    // (copper, lilac) are small marks. The legacy egui palette.rs is not shipped and not mirrored.
+    inline const juce::Colour BG            { ui_contract::background }; // #16110D warm black
+    inline const juce::Colour COL_NORMAL    { ui_contract::normal }; // #E8E2D8 values / title (not pure white)
     inline const juce::Colour COL_OBSERVATORY_VALUE { ui_contract::observatoryValue };
-    inline const juce::Colour COL_MUTED     { ui_contract::muted }; // #606060 labels / units / "---"
+    inline const juce::Colour COL_MUTED     { ui_contract::muted }; // #6B6158 labels / units / "---"
     // Readable text tiers are derived from the fixed palette. COL_MUTED remains reserved for
     // unavailable values, disabled controls, and non-text geometry; it is too quiet for small
     // explanatory copy on the cockpit background.
@@ -26,8 +28,8 @@ namespace hypha
         COL_MUTED.interpolatedWith (COL_NORMAL, 0.30f) };
     inline const juce::Colour COL_TEXT_TERTIARY {
         COL_MUTED.interpolatedWith (COL_NORMAL, 0.22f) };
-    inline const juce::Colour COL_FLORA     { ui_contract::flora }; // #D4A043 name / flora line / Keeping / preset LED
-    inline const juce::Colour COL_FLORA_BR  { ui_contract::floraBright }; // #FFE0A0 TP > -1.0 dBTP
+    inline const juce::Colour COL_FLORA     { ui_contract::flora }; // #C9A15A name / flora line / Keeping / preset LED
+    inline const juce::Colour COL_FLORA_BR  { ui_contract::floraBright }; // #F3D7A0 TP > -1.0 dBTP
     inline const juce::Colour COL_GUIDE     { ui_contract::guideGold };
     inline const juce::Colour COL_GUIDE_BR  { ui_contract::guideGoldBright };
     inline const juce::Colour COL_SPECTRUM_DELTA { ui_contract::spectrumDelta };
@@ -36,6 +38,7 @@ namespace hypha
     inline const juce::Colour COL_SPECTRUM_POST { ui_contract::spectrumPost };
     inline const juce::Colour COL_SPECTRUM_MID { ui_contract::spectrumMid };
     inline const juce::Colour COL_SPECTRUM_SIDE { ui_contract::spectrumSide };
+    inline const juce::Colour COL_SHARPNESS { ui_contract::sharpness };
     inline const juce::Colour COL_LED_BLUE  { ui_contract::ledBlue }; // #4488CC WatchBreathing
     inline const juce::Colour COL_LED_GREEN { ui_contract::ledGreen }; // #4CC07A RecordStandby / RecordActive
     inline const juce::Colour COL_LED_YELLOW{ ui_contract::ledYellow }; // #CCAA44 Error (measure thread)

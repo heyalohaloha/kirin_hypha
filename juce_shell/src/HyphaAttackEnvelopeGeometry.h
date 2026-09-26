@@ -9,6 +9,7 @@
 namespace hypha::attack_envelope
 {
 inline constexpr std::size_t capacity = KIRIN_ATTACK_WAVEFORM_BATCH_CAPACITY;
+// The RMS level has one sign, so it rises from the floor of the area over its full height.
 struct Geometry { juce::Path body, edge; };
 inline Geometry geometry (const KirinAttackWaveformBatch& batch, juce::Rectangle<float> area,
                           std::int64_t first, std::int64_t latest, std::uint32_t rate,
@@ -21,7 +22,7 @@ inline Geometry geometry (const KirinAttackWaveformBatch& batch, juce::Rectangle
     std::array<juce::Point<float>, capacity + 2> top;
     int used = 0;
     float startX = 0, endX = 0;
-    const auto centre = area.getCentreY();
+    const auto floor = area.getBottom() - .5f;
     const auto span = static_cast<std::uint64_t> (latest) - static_cast<std::uint64_t> (first);
     const auto x = [&] (std::int64_t sample) {
         const auto offset = static_cast<std::uint64_t> (sample) - static_cast<std::uint64_t> (first);
@@ -47,21 +48,15 @@ inline Geometry geometry (const KirinAttackWaveformBatch& batch, juce::Rectangle
         for (std::size_t i=1;i<last;++i)
             if ((ys[i]<ys[i-1] && ys[i]<=ys[i+1]) || (ys[i]>ys[i-1] && ys[i]>=ys[i+1])) retain (i);
         retain (last);
-        result.body.startNewSubPath (startX, top[0].y);
+        result.body.startNewSubPath (startX, floor);
+        result.body.lineTo (startX, top[0].y);
         result.edge.startNewSubPath (startX, top[0].y);
         for (int i = 0; i < used; ++i) { if (! keep[static_cast<std::size_t> (i+1)]) continue;
                                        result.body.lineTo (top[static_cast<std::size_t> (i)]);
                                        result.edge.lineTo (top[static_cast<std::size_t> (i)]); }
         result.body.lineTo (endX, top[static_cast<std::size_t> (used - 1)].y);
         result.edge.lineTo (endX, top[static_cast<std::size_t> (used - 1)].y);
-        result.body.lineTo (endX, 2*centre - top[static_cast<std::size_t> (used - 1)].y);
-        result.edge.startNewSubPath (endX, 2*centre - top[static_cast<std::size_t> (used - 1)].y);
-        for (int i = used - 1; i >= 0; --i) {
-            if (! keep[static_cast<std::size_t> (i+1)]) continue;
-            const auto p = top[static_cast<std::size_t> (i)];
-            result.body.lineTo (p.x, 2*centre - p.y); result.edge.lineTo (p.x, 2*centre - p.y); }
-        result.body.lineTo (startX, 2*centre - top[0].y); result.body.closeSubPath();
-        result.edge.lineTo (startX, 2*centre - top[0].y); used = 0;
+        result.body.lineTo (endX, floor); result.body.closeSubPath(); used = 0;
     };
     const auto count = std::min (batch.count, static_cast<std::uint32_t> (capacity));
     std::int64_t previousEnd = 0;
@@ -85,7 +80,7 @@ inline Geometry geometry (const KirinAttackWaveformBatch& batch, juce::Rectangle
         endX = x (right);
         top[static_cast<std::size_t> (used++)] = {
             (x (left) + endX) * .5f,
-            centre - level * std::max (0.0f, area.getHeight() * .5f - 1.0f) };
+            floor - level * std::max (0.0f, area.getHeight() - 1.5f) };
         previousEnd = p.end_sample; generation = p.generation; channels = p.channels;
     }
     finish(); return result;

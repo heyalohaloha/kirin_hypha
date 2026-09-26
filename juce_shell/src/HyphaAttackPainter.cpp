@@ -1,5 +1,7 @@
 #include "HyphaAttackPainter.h"
+#include "HyphaAttackDepth.h"
 #include "HyphaAttackEnvelopeGeometry.h"
+#include "HyphaTheme.h"
 
 namespace hypha::attack_painter
 {
@@ -11,28 +13,45 @@ void drawEnvelope (juce::Graphics& g, const KirinAttackWaveformBatch& batch,
     // The upper lane contains only the measured 10 ms RMS envelope on its actual sample axis.
     // Detail values cannot alter its shape, colour or apparent duration.
     const auto dpi = g.getInternalContext().getPhysicalPixelScaleFactor();
+    const auto& depth = attack_depth::look();
     const auto shape = attack_envelope::geometry (batch, area.toFloat(), first, latest, rate,
                                                   .05f / juce::jmax (1.0f, dpi));
     const bool reference = style == WaveformStyle::trace;
-    const auto colour = reference ? juce::Colour (0xffa3b3b9) : juce::Colour (attack_ui::waveformColour);
+    const auto colour = reference ? juce::Colour (attack_ui::preTraceColour) : juce::Colour (attack_ui::waveformColour);
+    const auto plot = area.toFloat();
+    // Measured light fades with age toward the left end of the plot, the oldest time.
+    const auto stroke = [&] (juce::Graphics& target, const juce::Path& path, juce::Colour ink, float a,
+                             const juce::PathStrokeType& type, juce::AffineTransform shift = {}) {
+        if (path.isEmpty() || a <= 0.0f) return;
+        target.setGradientFill (attack_depth::ageBrush (ink, a, plot));
+        target.strokePath (path, type, shift);
+    };
     const auto paint = [&] (juce::Graphics& target) {
     juce::Graphics::ScopedSaveState saved (target); target.reduceClipRegion (area);
     if (! reference)
     {
-        juce::ColourGradient gradient (colour.withAlpha (alpha*.55f), area.toFloat().getTopLeft(),
-            colour.withAlpha (alpha*.55f), area.toFloat().getBottomLeft(), false);
-        gradient.addColour (.5, colour.withAlpha (alpha*.10f));
-        target.setGradientFill (gradient); target.fillPath (shape.body);
+        // Light falls from the measured edge toward the floor of the plot, and older light is
+        // fainter: the body darkens by what age has taken from it.
+        juce::ColourGradient body (colour.withAlpha (alpha*.42f), plot.getTopLeft(),
+            colour.withAlpha (alpha*.03f), plot.getBottomLeft(), false);
+        body.addColour (.35, colour.withAlpha (alpha*.16f));
+        target.setGradientFill (body); target.fillPath (shape.body);
+        target.setGradientFill (attack_depth::ageShade (BG.darker (.82f), plot));
+        target.fillPath (shape.body);
+        // A glass-tube wall straddles the edge (inside: the wall, outside: its glow), and the key
+        // light catches just inside it.
+        stroke (target, shape.edge, colour, alpha * (depth.fresnel + .03f * depth.bloom),
+                juce::PathStrokeType (5.5f, juce::PathStrokeType::beveled));
+        // The highlight stays cyan so the only pale neutral line is the PRE reference.
+        stroke (target, shape.edge, colour.interpolatedWith (COL_NORMAL, .25f), alpha * depth.specular,
+                juce::PathStrokeType (1.1f), juce::AffineTransform::translation (0.0f, 1.6f));
     }
+    // PRE stays a plain reference trace; the measured POST edge is the brightest line.
+    stroke (target, shape.edge, colour, alpha * (reference ? .80f : .85f),
+            juce::PathStrokeType (reference ? 1.0f : .8f, juce::PathStrokeType::beveled));
     if (! reference)
-    {
-        // The measured POST edge carries a narrow cyan glow; PRE stays a plain reference trace.
-        target.setColour (colour.withAlpha (alpha * .16f));
-        target.strokePath (shape.edge, juce::PathStrokeType (2.4f, juce::PathStrokeType::beveled));
-    }
-    target.setColour (colour.withAlpha (alpha * (reference ? .45f : .85f)));
-    target.strokePath (shape.edge, juce::PathStrokeType (reference ? .65f : .8f,
-                                                         juce::PathStrokeType::beveled));
+        attack_depth::paintGlints (target, shape.edge, plot.getY() + plot.getHeight() * .30f,
+                                   colour, alpha * depth.glint, plot);
     };
    #if JUCE_MAC
     // CoreGraphics uses an intermediate software raster for this many-segment envelope.
