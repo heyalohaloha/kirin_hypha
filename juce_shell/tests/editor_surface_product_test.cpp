@@ -355,7 +355,8 @@ private:
 
     void timerCallback() override
     {
-        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (110), "surface round trip timeout");
+        // 48 cases, the 450% ones magnified by the software renderer on Windows: a hang, not a slow case.
+        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (180), "surface round trip timeout");
         buffer.clear();
         processor->processBlock (buffer, midi);
         clock.position += buffer.getNumSamples();
