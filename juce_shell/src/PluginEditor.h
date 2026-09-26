@@ -8,6 +8,7 @@
 
 #include "PluginProcessor.h"
 #include "HyphaAnalysisNavigation.h"
+#include "HyphaEditorSizeConstrainer.h"
 #include "HyphaFeedbackStrip.h"
 #include "HyphaHoverHelpPreference.h"
 #include "HyphaObservatoryView.h"
@@ -78,6 +79,13 @@ private:
     void updatePost();
     void refreshObservatory();
     void applyPresentationContext();
+    // Beyond 300% the Observatory is the Inspection View magnified; its children lay out at the
+    // logical 900 x 600, so they take their presentation from the viewport, not the window.
+    hypha::presentation::Context logicalPresentationContext() const;
+    // The size rule for the display the editor is on: free 3:2 up to 300%, then the magnified steps
+    // on whole device pixels that fit the display (HyphaEditorSizeConstrainer.h).
+    void updateResizeLimits();
+    hypha::EditorSizeConstrainer sizeConstrainer;
     void configureMeterContext();
     void showNoteDialog();
     void setObservatoryDomain (hypha::observatory::Domain domain);

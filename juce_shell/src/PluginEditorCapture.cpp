@@ -227,8 +227,7 @@ hypha::capture::Snapshot KirinHyphaEditor::freezeObservatoryCapture (int width, 
         const auto analysis = external->createComponentSnapshot (
             external->getLocalBounds(), true, hypha::observatory::captureRenderScale);
         external->setBounds (originalBounds);
-        setAnalysisPresentationContext (*external,
-            hypha::presentation::forEditor (getWidth(), getHeight()));
+        setAnalysisPresentationContext (*external, logicalPresentationContext());
         juce::Graphics graphics (snapshot.image);
         hypha::surface_material::paintPanel (graphics, body.toFloat(), 1.0f);
         graphics.drawImage (analysis, body.getX(), body.getY(), body.getWidth(), body.getHeight(),

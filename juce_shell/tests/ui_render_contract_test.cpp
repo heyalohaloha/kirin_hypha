@@ -12,6 +12,7 @@
 #include "SpectrumTerrainShowcase.h"
 #include "CompactReviewShowcase.h"
 #include "SpectrumControlsContract.h"
+#include "MagnifiedInspectionContract.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
@@ -136,6 +137,7 @@ int main (int argc, char** argv)
     if (previews.isNotEmpty()) KIRIN_REQUIRE (juce::File (previews).createDirectory().wasOk());
     KIRIN_REQUIRE (hypha::tests::writeSpectrumShowcase());
     KIRIN_REQUIRE (hypha::tests::writeCompactReview());
+    hypha::tests::verifyMagnifiedInspectionBudget();
     if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
     {
         juce::Image panel (juce::Image::RGB, 120, 60, true);
