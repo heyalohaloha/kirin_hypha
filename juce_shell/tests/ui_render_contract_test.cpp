@@ -12,6 +12,7 @@
 #include "SpectrumTerrainShowcase.h"
 #include "CompactReviewShowcase.h"
 #include "ReferenceGuidanceReview.h"
+#include "LargePageReview.h"
 #include "SpectrumControlsContract.h"
 #include "LanguageContract.h"
 #include "MagnifiedInspectionContract.h"
@@ -140,6 +141,7 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (hypha::tests::writeSpectrumShowcase());
     KIRIN_REQUIRE (hypha::tests::writeCompactReview());
     KIRIN_REQUIRE (hypha::tests::writeReferenceReview());
+    KIRIN_REQUIRE (hypha::tests::writeLargePageReview());
     if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
     {
         juce::Image panel (juce::Image::RGB, 120, 60, true);

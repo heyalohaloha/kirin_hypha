@@ -84,8 +84,8 @@ Each metric keeps an independent fixed scale, and the current values update at a
 SPACE shows three-second MID/SIDE density, L/R balance, and correlation. It stays absolute because
 Hypha does not invent PRE/POST subtraction for correlation or the stereo field.
 
-At the largest editor it also shows **MONO**: how much of each third-octave band survives being
-summed to mono. One correlation figure is one number for the whole signal, and a stereo problem is
+At the largest editor it also shows **MONO**, beside the full-height scatter and under BAL and
+CORR: how much of each third-octave band survives being summed to mono. One correlation figure is one number for the whole signal, and a stereo problem is
 never spread evenly across the spectrum — it is a bass note, or a band an M/S move widened, or a
 pair of channels that ended up out of phase somewhere. MONO says which band, and by how much.
 

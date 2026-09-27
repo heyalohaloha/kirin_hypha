@@ -398,7 +398,7 @@ L/R同時clipは各チャンネルの独立eventとして数え、総数へ暗�
 
 M、S、TP、PLR、CORRを10 Hzで10分、1 Hzで2時間、0.1 Hzで24時間保持する。
 
-RUNは選択中のTIME resolutionだけを`generation + run_id`で集約し、別の履歴や永続化を作らない。表示範囲内の経過時間、M min/max、Max TP、L/R clip数を出す。DAW sample endpointが全点で成立する時は`RUNS IN VIEW`、clock不明のホストでは捏造した区切りを足さず`SESSION RUN`として1本を表示する。resolution混在、不完全なsample endpoint、非単調sample位置は表示しない。PRE/POST間でrun_idを同一識別子として扱わず、RUNのΔは初期契約に含めない。
+RUNは選択中のTIME resolutionだけを`generation + run_id`で集約し、別の履歴や永続化を作らない。表示範囲内の経過時間、M min/max、Max TP、L/R clip数を出す。見出しの下に「再生1回ごとに1行（再生から停止まで）」の一文を置き、幅のある行（520 px以上）では列の見出し（RUN、LENGTH、M RANGE LUFS、TP MAX dBTP、CLIPS）を添える。行は読める高さまでとし、少ないrunを画面全体へ引き伸ばさない。clip数の欄は表示する書体の文字幅から決め、300%でも切らない。DAW sample endpointが全点で成立する時は`RUNS IN VIEW`、clock不明のホストでは捏造した区切りを足さず`SESSION RUN`として1本を表示する。resolution混在、不完全なsample endpoint、非単調sample位置は表示しない。PRE/POST間でrun_idを同一識別子として扱わず、RUNのΔは初期契約に含めない。
 
 10 Hz層は既存Watch snapshotのexact sample endpointを保持する。
 
