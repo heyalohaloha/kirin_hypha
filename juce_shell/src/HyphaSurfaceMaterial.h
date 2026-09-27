@@ -135,6 +135,19 @@ inline void paintControl (juce::Graphics& g,
     }
 }
 
+// The chevron a menu opens from (the Reference selectors, the TIME history range): a stroked path
+// hanging from `apex`, never a font glyph, so every platform and font draws the same arrow.
+inline void strokeMenuArrow (juce::Graphics& g, juce::Point<float> apex,
+                             float halfWidth, float rise, float thickness)
+{
+    juce::Path arrow;
+    arrow.startNewSubPath (apex.x - halfWidth, apex.y - rise);
+    arrow.lineTo (apex);
+    arrow.lineTo (apex.x + halfWidth, apex.y - rise);
+    g.strokePath (arrow, juce::PathStrokeType (thickness, juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
+}
+
 inline void paintInstrumentFrame (juce::Graphics& g,
                                   juce::Rectangle<float> area,
                                   bool capture)
