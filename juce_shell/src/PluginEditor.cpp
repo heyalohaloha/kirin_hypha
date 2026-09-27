@@ -44,9 +44,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     observatoryView.setTimeRange (hypha::observatory::timeRangeFromState (
         processorRef.observatoryTimeRangePreference()));
     configureMeterContext(); setResizable (true, false);
-    setResizeLimits (300, 200, 900, 600);
-    if (auto* aspectConstrainer = getConstrainer())
-        aspectConstrainer->setFixedAspectRatio (1.5);
+    setConstrainer (&sizeConstrainer);
+    updateResizeLimits();
     const auto storedEditorSize = hypha::observatory::unpackEditorSize (
         processorRef.observatoryEditorSizePreference());
     auto initialWidth = storedEditorSize.width;
@@ -57,6 +56,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         initialWidth = fallback.width;
         initialHeight = fallback.height;
     }
+    // A saved size opens as this display allows it: a magnified one on its nearest step.
+    const auto allowedInitial = sizeConstrainer.allowedSize ({ initialWidth, initialHeight });
+    initialWidth = allowedInitial.width;
+    initialHeight = allowedInitial.height;
     editorSizePersistenceReady = true;
     setSize (initialWidth, initialHeight);
     observatoryView.setHybridVuOnRecordEnabled (processorRef.hybridVuOnRecordPreference());
@@ -94,6 +97,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     };
     observatoryView.onSizeChange = [this] (hypha::observatory::SizePreset preset)
     {
+        // A size this display cannot hold wraps to 100%.
+        if (preset.width > sizeConstrainer.getMaximumWidth())
+            preset = hypha::observatory::sizePresets.front();
         for (size_t index = 0; index < hypha::observatory::sizePresets.size(); ++index)
             if (hypha::observatory::sizePresets[index].width == preset.width)
             {
@@ -326,6 +332,28 @@ void KirinHyphaEditor::updateSpectrumSizeControl()
     spectrumSizeToggle.setTooltip (preset.tooltip);
 }
 #endif
+
+hypha::presentation::Context KirinHyphaEditor::logicalPresentationContext() const
+{
+    const auto viewport = hypha::observatory::displayViewport (getWidth(), getHeight());
+    return hypha::presentation::forEditor (viewport.width, viewport.height);
+}
+
+void KirinHyphaEditor::updateResizeLimits()
+{
+    // The display the editor is on (the primary one before it is shown) sets the steps and the
+    // largest size; host window chrome (title bar, borders) stays outside its usable area.
+    const auto& displays = juce::Desktop::getInstance().getDisplays();
+    const auto* display = isShowing() ? displays.getDisplayForRect (getScreenBounds())
+                                      : displays.getPrimaryDisplay();
+    const auto scale = display != nullptr ? (float) display->scale : 1.0f;
+    const auto largest = display != nullptr
+        ? hypha::observatory::largestEditorSizeWithin (display->userArea.getWidth() - 32,
+                                                       display->userArea.getHeight() - 64, scale)
+        : hypha::observatory::EditorSize { 900, 600 };
+    sizeConstrainer.setDisplayScale (scale);
+    sizeConstrainer.setSizeLimits (300, 200, largest.width, largest.height);
+}
 
 void KirinHyphaEditor::showToast (const juce::String& msg)
 {

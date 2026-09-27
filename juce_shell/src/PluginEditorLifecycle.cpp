@@ -3,6 +3,7 @@
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    setConstrainer (nullptr); // the size rule is a member and goes before the base editor
     pairPreview.reset();
     processorRef.setReferenceViewPresented (false);
     releaseAppearanceVisibility();

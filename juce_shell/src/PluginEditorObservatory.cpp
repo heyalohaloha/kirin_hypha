@@ -36,7 +36,7 @@ hypha::observatory::ConnectionState observatoryConnectionState (bool isPost, int
 
 void KirinHyphaEditor::applyPresentationContext()
 {
-    const auto context = hypha::presentation::forEditor (getWidth(), getHeight());
+    const auto context = logicalPresentationContext();
     nameField.setPresentationContext (context);
     feedbackStrip.setPresentationContext (context);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -168,6 +168,15 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 
 void KirinHyphaEditor::visibilityChanged()
 {
+    if (isVisible())
+    {
+        // The display the editor opened on decides the magnified steps; a size that is not a step
+        // there lands on the nearest one.
+        updateResizeLimits();
+        const auto allowed = sizeConstrainer.allowedSize ({ getWidth(), getHeight() });
+        if (allowed.width != getWidth() || allowed.height != getHeight())
+            setSize (allowed.width, allowed.height);
+    }
     refreshPairPreview (true);
     refreshAppearance();
     // Some hosts snapshot non-parameter state when the editor becomes hidden, before destroying
@@ -276,8 +285,10 @@ void KirinHyphaEditor::refreshObservatory()
     const auto restoredSize = juce::jmin (
         (size_t) processorRef.spectrumSizePreference(),
         hypha::observatory::sizePresets.size() - 1u);
-    const auto restoredEditorSize = hypha::observatory::unpackEditorSize (
+    auto restoredEditorSize = hypha::observatory::unpackEditorSize (
         processorRef.observatoryEditorSizePreference());
+    if (hypha::observatory::validEditorSize (restoredEditorSize.width, restoredEditorSize.height))
+        restoredEditorSize = sizeConstrainer.allowedSize (restoredEditorSize);
     if (hypha::observatory::validEditorSize (
             restoredEditorSize.width, restoredEditorSize.height)
         && (restoredEditorSize.width != getWidth()

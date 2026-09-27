@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../src/PluginEditor.h"
+#include "../src/HyphaEditorSizeConstrainer.h"
 #include "../src/HyphaFeedbackStrip.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
@@ -178,5 +179,49 @@ inline void verifyFoldedFeedbackStrip()
             editor.reset();
             processor.releaseResources();
         }
+}
+
+// Above 300% the shipping editor takes only the magnified steps of its display (450% and 600% on
+// DPI 2): a corner drag lands on the nearest step, keeping the edge not dragged, and a magnified
+// editor lays the Inspection View out at 900 x 600 and scales it to fill the window.
+inline void verifyMagnifiedEditor()
+{
+    juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+    Processor processor (Processor::Role::Post);
+    processor.prepareToPlay (48'000, 960);
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditorIfNeeded());
+    auto* rule = dynamic_cast<EditorSizeConstrainer*> (editor->getConstrainer());
+    require (rule != nullptr, "the editor sizes itself by the step rule");
+    rule->setDisplayScale (2.0f);
+    rule->setSizeLimits (300, 200, 2700, 1800);
+    const auto drag = [rule] (juce::Rectangle<int> bounds, bool left, bool top) {
+        rule->checkBounds (bounds, { 0, 0, 900, 600 }, { 0, 0, 4000, 4000 }, top, left, ! top, ! left);
+        return bounds;
+    };
+    require (drag ({ 0, 0, 720, 480 }, false, false) == juce::Rectangle<int> (0, 0, 720, 480),
+             "up to 300% any 3:2 size stays");
+    require (drag ({ 0, 0, 1300, 867 }, false, false) == juce::Rectangle<int> (0, 0, 1350, 900),
+             "past 300% the size lands on the nearest step");
+    require (drag ({ 0, 0, 1000, 667 }, false, false) == juce::Rectangle<int> (0, 0, 900, 600),
+             "just past 300% returns to 300%");
+    require (drag ({ 0, 0, 1700, 1133 }, false, false) == juce::Rectangle<int> (0, 0, 1800, 1200),
+             "600% is the next step on DPI 2");
+    require (drag ({ -400, -267, 1300, 867 }, true, true).getBottomRight() == juce::Point<int> (900, 600),
+             "a drag from the top left keeps the bottom right edge");
+    require (rule->allowedSize ({ 1200, 800 }).width == 1350, "a saved size that is not a step lands on one");
+    require (rule->allowedSize ({ 3600, 2400 }).width == 2700, "and the largest step within the display");
+
+    editor->setSize (1350, 900);
+    auto* view = component<observatory::View> (*editor);
+    require (view != nullptr && view->getWidth() == 900 && view->getHeight() == 600,
+             "the magnified editor lays the Inspection View out at 900 x 600");
+    const auto transform = view->getParentComponent()->getTransform();
+    require (std::abs (transform.mat00 - 1.5f) < 1.0e-6f && std::abs (transform.mat11 - 1.5f) < 1.0e-6f,
+             "and scales it by 1.5 to fill 1350 x 900");
+    auto* sizeButton = dynamic_cast<juce::Button*> (&view->sizeMenuAnchor());
+    require (sizeButton != nullptr && sizeButton->getButtonText() == "450%", "the size reads 450%");
+    processor.editorBeingDeleted (editor.get());
+    editor.reset();
+    processor.releaseResources();
 }
 }

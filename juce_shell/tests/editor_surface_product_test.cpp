@@ -238,6 +238,10 @@ void verifyPairHeaderAtEverySize (const juce::File& previews)
     processor.releaseResources();
 }
 
+// The five layouts and one magnified step (450% on DPI 2), whose hits cross the view's scale.
+constexpr std::array<hypha::observatory::EditorSize, 6> surfaceSizes {{
+    { 300, 200 }, { 375, 250 }, { 450, 300 }, { 600, 400 }, { 900, 600 }, { 1350, 900 } }};
+
 // Exercise the shipping editor's refresh timer, sibling z-order and hit routing together.
 // Calling a detached View's onClick cannot detect another pane covering the VU exit.
 class SurfaceContract final : private juce::Timer
@@ -265,7 +269,7 @@ private:
     {
         editor.reset (processor->createEditorIfNeeded());
         require (editor != nullptr, "shipping editor opens");
-        const auto size = hypha::observatory::sizePresets[sizeIndex];
+        const auto size = surfaceSizes[sizeIndex];
         editor->setSize (size.width, size.height);
         editor->setVisible (true);
         view = component<hypha::observatory::View> (*editor);
@@ -351,7 +355,8 @@ private:
 
     void timerCallback() override
     {
-        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (110), "surface round trip timeout");
+        // 48 cases, the 450% ones magnified by the software renderer on Windows: a hang, not a slow case.
+        require (std::chrono::steady_clock::now() - started < std::chrono::seconds (180), "surface round trip timeout");
         buffer.clear();
         processor->processBlock (buffer, midi);
         clock.position += buffer.getNumSamples();
@@ -387,7 +392,7 @@ private:
             case 6:
                 verifySurface (false);
                 ++completed;
-                if (++sizeIndex == hypha::observatory::sizePresets.size())
+                if (++sizeIndex == surfaceSizes.size())
                 {
                     sizeIndex = 0;
                     ++domainIndex;
@@ -436,6 +441,7 @@ int main (int argc, char** argv)
     verifyRecordBodyOwnership();
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
     hypha::tests::editor_product::verifyFoldedFeedbackStrip();
+    hypha::tests::editor_product::verifyMagnifiedEditor();
     verifySavedReferenceChoices();
     const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();
     verifyPairHeaderAtEverySize (previews);

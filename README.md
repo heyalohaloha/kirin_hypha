@@ -206,7 +206,7 @@ output-presentation sample endpoint.
 | M/S | Overlays the POST-local `(L+R)/2` Mid and `(L-R)/2` Side spectra from one stereo aperture; unavailable for mono or Δ |
 | Hover / click | Reads frequency and Δ; click locks the probe, shows its six-second Focus Trail, and × releases it |
 | MARK | Captures or replaces one temporary display-only Δ reference; × clears it |
-| Free resize / 100–300% presets | Keeps a fixed 3:2 aspect ratio from 300×200 through the native 900×600 Inspection View and remembers the exact loaded-instance size |
+| Free resize / 100–300% presets | Keeps a fixed 3:2 aspect ratio from 300×200 through the native 900×600 Inspection View and remembers the exact loaded-instance size. Above 300% the Inspection View is magnified in steps that keep it on whole device pixels for the display (450% and 600% on a Retina display; 600% at 100% Windows scaling; 400% and 600% at 150%) |
 
 The page analyzes one selected channel view at a time. **LR** transforms L and R independently and
 averages their power, so opposite-polarity channels do not cancel. **MID** analyzes the `(L+R)/2`
