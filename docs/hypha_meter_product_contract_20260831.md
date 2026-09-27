@@ -482,7 +482,7 @@ PRE／POSTのexact chain action level observation（B-1046以降）はRust／FFI
 
 ## 12. Visual system
 
-2026-09-24の常時表示契約: Compact絶対表示は選択M/S、現在TP、Session MAX TPと補助I/Crestを示す。
+2026-09-24の常時表示契約のうち、Compactの値の構成は2026-09-26のINV-S38（S、I／TRACK・STEMではCrest、MAX TP）に置き換えた。LEVEL履歴と描画更新については次を維持する。
 LEVELの履歴固定・前後TP選択・LIVE復帰は表示だけの操作であり、計測・Record・Session最大値を変更しない。
 強い局所発光はTP > 0 dBTPに限定し、TP > -1 dBTPのevent線の高さは実測値を維持する。
 host clockの種別が現行history ABIで失われるため、時刻はHOST ~／ELAPSEDと明記し、project timeやexact peak positionを保証しない。

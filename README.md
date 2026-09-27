@@ -45,10 +45,9 @@ background.
 LEVEL keeps immediate loudness and dynamics facts above fixed-scale history. The large view adds M,
 S, I, five supporting facts, and L/R meters without changing the compact measurement definitions.
 
-For an always-open small meter, LEVEL shows selected M/S, current TP and session MAX TP together,
-with I (2MIX) or Crest (TRACK) on a small supporting line. CURRENT/MAX changes loudness and Crest,
-not the separately labelled TP and MAX TP. The footer distinguishes LIVE, HOLD, WAITING and BYPASSED;
-the loaded version remains in the information menu, not in the narrow status rail.
+The footer at 150% and above distinguishes LIVE, HOLD, WAITING and BYPASSED; at 100% and 125% the
+folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD, 5.1 MEASURE). The loaded
+version remains in the information menu, not in the narrow status rail.
 
 At 600×400 and above, click a LEVEL history point to hold the display while measurement continues.
 `< TP` / `TP >` select adjacent excursions above −1 dBTP; `LIVE` resumes scrolling without resetting
