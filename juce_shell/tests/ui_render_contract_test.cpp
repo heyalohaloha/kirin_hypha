@@ -12,6 +12,7 @@
 #include "SpectrumTerrainShowcase.h"
 #include "CompactReviewShowcase.h"
 #include "SpectrumControlsContract.h"
+#include "MagnifiedInspectionContract.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumPresentationContractTest.h"
@@ -465,6 +466,8 @@ int main (int argc, char** argv)
         std::cout << (index == 0u ? " " : "/") << midSideRenders[index].paintMs;
     }
     std::cout << " ms/frame\n";
+    // Last: its magnified paints must not warm or load the machine for the budgets above.
+    hypha::tests::verifyMagnifiedInspectionBudget();
 
     std::cout << "UI render contract passed: vector-arrow=" << arrowPixels << " pixels"
               << ", PRE-runs=" << preCurveRuns

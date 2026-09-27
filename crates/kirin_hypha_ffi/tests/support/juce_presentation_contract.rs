@@ -347,8 +347,15 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     assert!(editor.contains("ui::spectrumSizePresets[observatorySizeIndex]"));
     assert!(editor.contains("setSize (preset.width, preset.height)"));
     assert!(editor.contains("setResizable (true, false)"));
-    assert!(editor.contains("setResizeLimits (300, 200, 900, 600)"));
-    assert!(editor.contains("setFixedAspectRatio (1.5)"));
+    // Any 3:2 size up to 300%, then only the magnified steps on whole device pixels (INV-S39).
+    let size_rule = read_repo("juce_shell/src/HyphaEditorSizeConstrainer.h");
+    assert!(editor.contains("setConstrainer (&sizeConstrainer)"));
+    assert!(
+        editor.contains("sizeConstrainer.setSizeLimits (300, 200, largest.width, largest.height)")
+    );
+    assert!(size_rule.contains("setFixedAspectRatio (1.5)"));
+    assert!(size_rule.contains("observatory::nearestMagnifiedSize"));
+    assert!(resize_contract.contains("constexpr EditorSize magnifiedStep"));
     assert!(editor.contains("displayViewport (getWidth(), getHeight())"));
     assert!(editor.contains("scaleRoot.setOpaque (true)"));
     assert!(editor.contains("scaleRoot.setBufferedToImage (false)"));

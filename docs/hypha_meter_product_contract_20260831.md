@@ -448,6 +448,7 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 | 450×300 | 世界背景を抑えた主visual、軸、session facts | Standard内容、測定stateの詳細 |
 | 600×400 | Concept Cのfull cockpit、M/S/I、TP/MaxTP/LRA/PLR/Crest、History凡例のMax M、60秒History、左右TP、POST/Δ、Capture | POSTと共通のshell、広い数値面、接続context |
 | 900×600 | 全domain共通Inspection View、拡張History、詳細axis、既存解析の高解像度表示 | POSTと共通のInspection shell、拡張History、詳細axis |
+| 450%以上 | 900×600のInspection Viewを画面の画素に揃う段階で拡大（配置は900×600と同一） | POSTと同じ |
 
 小さい画面で情報を単純に縮小しない。
 

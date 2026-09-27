@@ -46,7 +46,12 @@ struct Bleed
 class Store
 {
 public:
+    // Holds one open editor's images at 300% on DPI 2 (2 device pixels per point). A magnified
+    // editor (450%, 600% on DPI 2) draws the same images at 3 or 4, so the budget follows the
+    // square of the largest device scale drawn, up to the budget at 5.
     static constexpr size_t budgetBytes = 24u * 1024u * 1024u;
+    static constexpr float budgetScale = 2.0f;
+    static constexpr float largestBudgetScale = 5.0f;
     static constexpr size_t maximumEntries = 192u;
 
     struct Lookup
@@ -58,6 +63,8 @@ public:
     Lookup lookup (const Key& key)
     {
         const std::scoped_lock lock (mutex);
+        if (key.scale > largestScale)
+            largestScale = key.scale < largestBudgetScale ? key.scale : largestBudgetScale;
         const auto now = ++clock;
         for (auto& entry : entries)
             if (entry.key == key)
@@ -75,7 +82,7 @@ public:
     {
         const std::scoped_lock lock (mutex);
         const auto bytes = bytesOf (image);
-        if (bytes > budgetBytes)
+        if (bytes > budgetLocked())
             return;
         for (auto& entry : entries)
             if (entry.key == key)
@@ -86,13 +93,19 @@ public:
                 totalBytes += bytes;
                 break;
             }
-        while (totalBytes > budgetBytes && evictOldest (true)) {}
+        while (totalBytes > budgetLocked() && evictOldest (true)) {}
     }
 
     size_t bytes() const
     {
         const std::scoped_lock lock (mutex);
         return totalBytes;
+    }
+
+    size_t budget() const
+    {
+        const std::scoped_lock lock (mutex);
+        return budgetLocked();
     }
 
     // A software raster of this size for a painter that draws into it and blits it within one
@@ -124,6 +137,12 @@ private:
         uint64_t lastUse = 0u;
     };
 
+    size_t budgetLocked() const noexcept
+    {
+        const auto ratio = largestScale > budgetScale ? largestScale / budgetScale : 1.0f;
+        return static_cast<size_t> (static_cast<double> (budgetBytes) * ratio * ratio);
+    }
+
     static size_t bytesOf (const juce::Image& image) noexcept
     {
         return image.isValid() ? (size_t) image.getWidth() * (size_t) image.getHeight() * 4u : 0u;
@@ -150,6 +169,7 @@ private:
     std::vector<juce::Image> scratches;
     size_t totalBytes = 0u;
     uint64_t clock = 0u;
+    float largestScale = 0.0f;
 };
 
 // Held by each editor: the images are released when the last editor closes.
