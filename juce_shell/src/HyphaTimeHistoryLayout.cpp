@@ -68,8 +68,11 @@ Geometry makeGeometry (juce::Rectangle<int> outer, bool compactMeter,
 
     if (! compactMeter)
     {
+        // PLR and CORR are slow session facts: each keeps one readable row, and the height beyond
+        // it goes to the S and TP history above. A fifth of the page each (72 px at 300%) spent
+        // most of the page on two lines that barely move.
         const auto laneHeight = remaining.getHeight() < 160
-            ? 24 : juce::jlimit (30, 72, remaining.getHeight() / 5);
+            ? 24 : juce::jlimit (26, 36, remaining.getHeight() / 10);
         auto auxiliary = result.mainBounds.removeFromBottom (laneHeight * 2 + 2);
         result.plrBounds = auxiliary.removeFromTop (laneHeight);
         auxiliary.removeFromTop (2);

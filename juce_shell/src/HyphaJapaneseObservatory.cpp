@@ -56,6 +56,7 @@ const Entry entries[] = {
     { u8"RECORD RESULT · POST − PRE", u8"Recordの結果 · POST − PRE" },
     { u8"RECORD RESULT · ABSOLUTE", u8"Recordの結果 · 絶対値" },
     { "WARMING %1 S", u8"準備中 %1 S" },
+    { "One row per playback, from play to stop", u8"再生1回ごとに1行（再生から停止まで）" },
     { "Play audio to collect run facts in this history range",
       u8"再生すると、この履歴の範囲で再生ごとの値が集まります" },
 

@@ -202,6 +202,14 @@ void paintAuxLane (juce::Graphics& g,
                                             : (delta ? "+2" : "+1");
     const auto bottom = metric == Metric::plr ? (delta ? "-12" : "0")
                                                : (delta ? "-2" : "-1");
+    // A lane too short for both ends keeps the top one, at the top where its line is.
+    const auto axisLine = juce::roundToInt (std::ceil (typography::resolve (
+        presentation, typography::TextRole::axis, typography::Composition::visualization).lineHeight));
+    if (axisArea.getHeight() < 2 * axisLine)
+    {
+        text_style::drawText (g, top, axisArea.withHeight (axisLine), juce::Justification::centredRight);
+        return;
+    }
     text_style::drawText (g, top, axisArea.removeFromTop (axisArea.getHeight() / 2),
                 juce::Justification::centredRight);
     text_style::drawText (g, bottom, axisArea, juce::Justification::centredRight);

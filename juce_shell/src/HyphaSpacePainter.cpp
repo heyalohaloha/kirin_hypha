@@ -255,39 +255,42 @@ void paint (juce::Graphics& g,
     // "wide or narrow" at a glance and stays the panel's own picture; MONO is a chart to read,
     // and it is worth having only once there is room for both to be themselves.
     //
-    // Three conditions, all measured from what the parts lay out rather than from a size preset:
-    // MONO needs its title, its frequency row and a plot tall enough to separate 0, -6 and -24;
-    // the metric column needs the height drawMetric gives two boxes; and the square left over has
-    // to stay wide enough for the scatter's own axis labels. The third is what rules out the
-    // 600x400 editor, where the strip fits but pushes "SIDE < 0" down to "S<0". Today only the
-    // largest editor clears all three.
-    // The strip carries the curve, the six-second field under it and one frequency row for both.
+    // With MONO the square keeps the panel's full height on the left, and BAL and CORR side by
+    // side, then MONO under them, share the column on its right. MONO used to run under the whole
+    // row, which cut the square to half the height and left wide empty sides at 300%. The column
+    // has to hold MONO's plot, its six-second field and both boxes beside a full-height square,
+    // measured from the panel rather than a size preset: today only the largest editor has it.
     constexpr int monoStripMinimum = 116;
-    constexpr int metricsRowMinimum = 136;
-    const int metricWidth = juce::jlimit (82, compact ? 102 : 168,
-                                          juce::roundToInt (area.getWidth() * 0.31f));
-    // The same inset the square's plot is drawn with below, so the gate cannot disagree with what
-    // is actually painted.
+    constexpr int monoColumnMinimum = 360;
     const int fieldInset = compact ? 11 : 16;
-    const auto squarePlotWidthAfter = [&] (int stripHeight) {
-        const int rowHeight = area.getHeight() - (stripHeight > 0 ? stripHeight + gap : 0);
-        return juce::jmin (area.getWidth() - metricWidth - gap, rowHeight) - fieldInset * 2;
-    };
-    const int monoHeight = juce::jmax (monoStripMinimum,
-                                       juce::roundToInt (area.getHeight() * 0.42f));
+    const int metricsHeight = juce::jlimit (96, 150, area.getHeight() / 4);
     const bool showMono = ! compact
-                       && area.getHeight() >= monoHeight + gap + metricsRowMinimum
-                       && squarePlotWidthAfter (monoHeight) / 3
-                              >= axisLabelWidth (presentation, false);
-    auto mono = showMono ? area.removeFromBottom (monoHeight) : juce::Rectangle<int> {};
+                       && area.getWidth() - area.getHeight() - gap >= monoColumnMinimum
+                       && area.getHeight() - metricsHeight - gap >= monoStripMinimum;
+    juce::Rectangle<int> field, mono, balance, correlationBox;
     if (showMono)
-        area.removeFromBottom (gap);
-
-    auto metrics = area.removeFromRight (metricWidth);
-    area.removeFromRight (gap);
-
-    const int side = juce::jmin (area.getWidth(), area.getHeight());
-    auto field = juce::Rectangle<int> (0, 0, side, side).withCentre (area.getCentre());
+    {
+        field = area.removeFromLeft (area.getHeight());
+        area.removeFromLeft (gap);
+        auto metrics = area.removeFromTop (metricsHeight);
+        area.removeFromTop (gap);
+        mono = area;
+        balance = metrics.removeFromLeft ((metrics.getWidth() - gap) / 2);
+        metrics.removeFromLeft (gap);
+        correlationBox = metrics;
+    }
+    else
+    {
+        const int metricWidth = juce::jlimit (82, compact ? 102 : 168,
+                                              juce::roundToInt (area.getWidth() * 0.31f));
+        auto metrics = area.removeFromRight (metricWidth);
+        area.removeFromRight (gap);
+        const int side = juce::jmin (area.getWidth(), area.getHeight());
+        field = juce::Rectangle<int> (0, 0, side, side).withCentre (area.getCentre());
+        balance = metrics.removeFromTop ((metrics.getHeight() - gap) / 2);
+        metrics.removeFromTop (gap);
+        correlationBox = metrics;
+    }
     drawPanel (g, field, compact);
     auto plot = field.reduced (fieldInset).toFloat();
     drawFieldAxes (g, plot);
@@ -309,13 +312,11 @@ void paint (juce::Graphics& g,
                                true, presentation);
     }
 
-    auto balance = metrics.removeFromTop ((metrics.getHeight() - gap) / 2);
-    metrics.removeFromTop (gap);
     drawMetric (g, balance, compact ? "BAL" : "L/R BALANCE",
                 balanceText (meter, available), "dB L/R", compact, presentation);
     const auto correlation = available && std::isfinite (meter.correlation)
         ? juce::String (meter.correlation, 2) : juce::String ("---");
-    drawMetric (g, metrics, compact ? "CORR" : "CORRELATION", correlation, "3 S",
+    drawMetric (g, correlationBox, compact ? "CORR" : "CORRELATION", correlation, "3 S",
                 compact, presentation);
 }
 }

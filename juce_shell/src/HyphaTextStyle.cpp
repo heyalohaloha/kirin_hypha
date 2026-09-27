@@ -187,6 +187,13 @@ float wrappedHeight (const juce::String& shown, const juce::Font& font, int widt
     return layout.getHeight();
 }
 
+float shownWrappedHeight (const juce::String& text, const juce::Font& font, int width)
+{
+    const auto shown = shownText (text);
+    return wrappedHeight (shown, requiresJapaneseGlyphs (shown) ? nativeTextFontLike (font) : font,
+                          width);
+}
+
 namespace
 {
 // Japanese text needs the native font; the caller's font and everything else it set come back

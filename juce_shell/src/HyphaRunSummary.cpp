@@ -111,6 +111,36 @@ juce::String durationText (const Summary& run, double sampleRate)
          + juce::String (whole % 60).paddedLeft ('0', 2);
 }
 
+// A wide row's columns, shared by the rows and the labels above them.
+struct Columns
+{
+    juce::Rectangle<int> identity, duration, loudness, peak, clips;
+};
+
+// Wide enough for three-digit counts on every channel in the readout face, which grows with the
+// editor: a fixed 88 px cut "CLIP L0 R0" at 300%.
+int clipsWidth (const KirinMeterSession* meter, presentation::Context presentation)
+{
+    juce::String widest ("CLIP");
+    for (std::size_t channel = 0; channel < channel_clip::count (meter); ++channel)
+        widest += " " + juce::String (channel_clip::role (meter, channel)) + "000";
+    const auto font = monoFont (presentation, typography::TextRole::readout,
+                                typography::Composition::information);
+    return juce::jmax (88, juce::roundToInt (std::ceil (text_style::shownWidth (font, widest))) + 6);
+}
+
+Columns columnsOf (juce::Rectangle<int> row, const KirinMeterSession* meter,
+                   presentation::Context presentation)
+{
+    Columns columns;
+    columns.identity = row.removeFromLeft (92);
+    columns.duration = row.removeFromLeft (62);
+    columns.clips = row.removeFromRight (juce::jmin (row.getWidth() / 3, clipsWidth (meter, presentation)));
+    columns.peak = row.removeFromRight (106);
+    columns.loudness = row;
+    return columns;
+}
+
 void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
                double sampleRate, bool latest, bool expanded,
                presentation::Context presentation, const KirinMeterSession* meter)
@@ -160,8 +190,8 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
         return;
     }
 
-    constexpr auto runWidth = 92;
-    auto identity = row.removeFromLeft (runWidth).reduced (5, 0);
+    const auto columns = columnsOf (row, meter, presentation);
+    auto identity = columns.identity.reduced (5, 0);
     g.setColour (latest ? COL_LED_BLUE : COL_NORMAL);
     g.setFont (monoFont (presentation, typography::TextRole::readout,
                          typography::Composition::information));
@@ -170,20 +200,19 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
                       typography::TextRole::readout, juce::Justification::centredLeft,
                       1, typography::Composition::information);
 
-    auto duration = row.removeFromLeft (62).reduced (3, 0);
+    auto duration = columns.duration.reduced (3, 0);
     g.setColour (COL_MUTED.brighter (0.22f));
     text_style::drawText (g, durationText (run, sampleRate), duration, juce::Justification::centredLeft);
 
     const auto clipText = channel_clip::text (run.clipEvents, meter, false);
-    auto clips = row.removeFromRight (meter != nullptr && meter->channels > 2u ? 190 : 88)
-                     .reduced (3, 0);
+    auto clips = columns.clips.reduced (3, 0);
     g.setColour ((channel_clip::total (run.clipEvents, meter) > 0 ? COL_SPECTRUM_POST : COL_MUTED)
                      .withAlpha (0.90f));
     text_style::draw (g, clipText, clips, presentation, typography::TextRole::readout,
                       juce::Justification::centredRight, 1,
                       typography::Composition::information);
 
-    auto peak = row.removeFromRight (106).reduced (3, 0);
+    auto peak = columns.peak.reduced (3, 0);
     g.setColour (COL_FLORA_BR.withAlpha (0.92f));
     text_style::draw (g, "TP " + (run.truePeakAvailable
                         ? number (run.maximumTruePeak) : juce::String ("---")), peak,
@@ -195,9 +224,38 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
         ? "M " + number (run.momentary.minimum) + ".." + number (run.momentary.maximum)
         : juce::String ("M ---");
     g.setColour (COL_SPECTRUM_POST.withAlpha (0.95f));
-    text_style::draw (g, loudness, row.reduced (3, 0), presentation,
+    text_style::draw (g, loudness, columns.loudness.reduced (3, 0), presentation,
                       typography::TextRole::readout, juce::Justification::centredLeft,
                       1, typography::Composition::information);
+}
+
+// What a row is, and over wide rows what each column holds: without them the page reads as code.
+void paintLegend (juce::Graphics& g, juce::Rectangle<int>& area, bool expanded, int rows,
+                  presentation::Context presentation, const KirinMeterSession* meter)
+{
+    const auto line = juce::roundToInt (std::ceil (typography::resolve (
+        presentation, typography::TextRole::status, typography::Composition::information).lineHeight));
+    const auto rowMinimum = expanded ? 20 : 36;
+    if (area.getHeight() < line + rows * rowMinimum)
+        return;
+    g.setColour (COL_TEXT_SECONDARY);
+    g.setFont (labelFont (presentation, typography::TextRole::status,
+                          typography::Composition::information));
+    text_style::drawEllipsized (g, "One row per playback, from play to stop",
+                                area.removeFromTop (line), juce::Justification::centredLeft);
+    if (! expanded || area.getHeight() < line + rows * rowMinimum)
+        return;
+    const auto labels = columnsOf (area.removeFromTop (line), meter, presentation);
+    g.setColour (COL_TEXT_TERTIARY);
+    g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
+                          typography::Composition::information));
+    text_style::drawText (g, "RUN", labels.identity.reduced (5, 0), juce::Justification::centredLeft);
+    text_style::drawText (g, "LENGTH", labels.duration.reduced (3, 0), juce::Justification::centredLeft);
+    text_style::drawText (g, "M RANGE  LUFS", labels.loudness.reduced (3, 0),
+                          juce::Justification::centredLeft);
+    text_style::drawText (g, "TP MAX  dBTP", labels.peak.reduced (3, 0),
+                          juce::Justification::centredRight);
+    text_style::drawText (g, "CLIPS", labels.clips.reduced (3, 0), juce::Justification::centredRight);
 }
 }
 
@@ -294,7 +352,13 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const Result& result,
 
     const auto rows = juce::jmin (visibleRowCount (area.getWidth()),
                                   static_cast<int> (result.runs.size()));
-    const auto rowHeight = juce::jmax (20, area.getHeight() / juce::jmax (1, rows));
+    paintLegend (g, area, area.getWidth() >= 520, rows, presentation, meter);
+    // A few runs keep rows of reading height at the top instead of stretching over the page.
+    const auto line = typography::resolve (presentation, typography::TextRole::readout,
+                                           typography::Composition::information).lineHeight;
+    const auto tallest = juce::roundToInt (area.getWidth() >= 520 ? line * 2.4f : line * 2.0f + 12.0f);
+    const auto rowHeight = juce::jlimit (20, juce::jmax (20, tallest),
+                                         area.getHeight() / juce::jmax (1, rows));
     const auto first = result.runs.size() - static_cast<std::size_t> (rows);
     for (int index = 0; index < rows; ++index)
     {
