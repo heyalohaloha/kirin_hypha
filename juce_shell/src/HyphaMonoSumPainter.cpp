@@ -1,4 +1,5 @@
 #include "HyphaMonoSumPainter.h"
+#include "HyphaStoppedHistory.h"
 
 #include "HyphaTheme.h"
 #include "HyphaTextStyle.h"
@@ -49,7 +50,7 @@ namespace
             // instead of hanging back into the value gutter.
             const auto left = juce::jlimit (plot.getX(), plot.getRight() - 28.0f,
                                             xForHz (tick.hz, plot) - 14.0f);
-            g.drawText (tick.label,
+            text_style::drawText (g, tick.label,
                         juce::Rectangle<float> { left, rowTop, 28.0f, 12.0f }.toNearestInt(),
                         juce::Justification::centred);
         }
@@ -91,7 +92,7 @@ namespace
             // The floor label is held inside the plot so it does not collide with the frequency
             // row directly under it.
             const auto top = juce::jlimit (plot.getY() - 7.0f, plot.getBottom() - 14.0f, y - 7.0f);
-            g.drawText (line.label,
+            text_style::drawText (g, line.label,
                         juce::Rectangle<float> { plot.getX() - gutter - 3.0f, top, gutter, 14.0f }
                             .toNearestInt(),
                         juce::Justification::centredRight);
@@ -117,7 +118,7 @@ namespace
         g.setFont (monoFont (presentation, typography::TextRole::axis,
                              typography::Composition::visualization));
         g.setColour (COL_TEXT_TERTIARY);
-        g.drawText ("~", juce::Rectangle<float> { plot.getX(), plot.getY() + 1.0f,
+        text_style::drawText (g, "~", juce::Rectangle<float> { plot.getX(), plot.getY() + 1.0f,
                                                   x - plot.getX() - 2.0f, 12.0f }.toNearestInt(),
                     juce::Justification::centredRight);
     }
@@ -149,21 +150,21 @@ namespace
         g.setFont (monoFont (presentation, typography::TextRole::axis,
                              typography::Composition::visualization));
         g.setColour (COL_TEXT_TERTIARY);
-        g.drawText ("6s", juce::Rectangle<float> { plot.getX() - 29.0f, plot.getY(),
+        text_style::drawText (g, "6s", juce::Rectangle<float> { plot.getX() - 29.0f, plot.getY(),
                                                    26.0f, 11.0f }.toNearestInt(),
                     juce::Justification::centredRight);
         // "0s" rather than "NOW": it pairs with the "6s" above it, and it fits the gutter the
         // dB labels already set, where "NOW" clipped.
-        g.drawText ("0s", juce::Rectangle<float> { plot.getX() - 29.0f,
+        text_style::drawText (g, "0s", juce::Rectangle<float> { plot.getX() - 29.0f,
                                                    plot.getBottom() - 11.0f, 26.0f, 11.0f }
                         .toNearestInt(),
                     juce::Justification::centredRight);
     }
 
-    /// Runs of bands that were measured. A band with nothing to measure breaks the line rather
-    /// than being drawn at 0 dB, which is the one reading that means the band loses nothing.
-    void drawCurve (juce::Graphics& g, juce::Rectangle<float> plot,
-                    const KirinMeterSession& meter, float strokeWidth)
+    /// Runs of bands with a value. A band without one breaks the line rather than being drawn at
+    /// 0 dB, which is the one reading that means the band loses nothing.
+    void drawRuns (juce::Graphics& g, juce::Rectangle<float> plot,
+                   const std::array<float, KIRIN_MONO_SUM_BAND_COUNT>& values, float strokeWidth)
     {
         juce::Path run;
         bool open = false;
@@ -173,8 +174,8 @@ namespace
                 return;
             if (pointsInRun == 1)
             {
-                // One measured band between two unmeasured ones still has to be visible, and a
-                // path of a single point strokes nothing.
+                // One band between two without a value still has to be visible, and a path of a
+                // single point strokes nothing.
                 const auto only = run.getCurrentPosition();
                 g.fillEllipse (only.x - strokeWidth, only.y - strokeWidth,
                                strokeWidth * 2.0f, strokeWidth * 2.0f);
@@ -190,10 +191,9 @@ namespace
             pointsInRun = 0;
         };
 
-        g.setColour (COL_SPECTRUM_POST);
         for (size_t band = 0u; band < KIRIN_MONO_SUM_BAND_COUNT; ++band)
         {
-            const auto value = meter.mono_sum_db[band];
+            const auto value = values[band];
             if (! std::isfinite (value))
             {
                 flush();
@@ -213,6 +213,46 @@ namespace
             }
         }
         flush();
+    }
+
+    /// The live curve. A band with nothing to measure in this 100 ms observation (the rest between
+    /// two drum hits, say) keeps the value it was last measured at for up to one second, drawn
+    /// faintly, so the curve does not blink between hits. Unmeasured for longer, it breaks the
+    /// line: nothing is invented, and the stored observations are never changed.
+    void drawCurve (juce::Graphics& g, juce::Rectangle<float> plot, const KirinMeterSession& meter,
+                    const mono_sum_history::History& history, float strokeWidth)
+    {
+        std::array<float, KIRIN_MONO_SUM_BAND_COUNT> measured {};
+        std::array<float, KIRIN_MONO_SUM_BAND_COUNT> held {};
+        bool anyHeld = false;
+        for (size_t band = 0u; band < KIRIN_MONO_SUM_BAND_COUNT; ++band)
+        {
+            measured[band] = held[band] = meter.mono_sum_db[band];
+            if (std::isfinite (measured[band]))
+                continue;
+            for (size_t index = history.size(); index-- > 0u;)
+            {
+                const auto& entry = history.at (index);
+                if (entry.sampleRate == 0u || entry.observedFrames > meter.observed_frames)
+                    continue;
+                if ((double) (meter.observed_frames - entry.observedFrames) / (double) entry.sampleRate
+                    > mono_sum_curve::holdSeconds)
+                    break;
+                if (std::isfinite (entry.db[band]))
+                {
+                    held[band] = entry.db[band];
+                    anyHeld = true;
+                    break;
+                }
+            }
+        }
+        if (anyHeld)
+        {
+            g.setColour (COL_SPECTRUM_POST.withAlpha (mono_sum_curve::heldAlpha));
+            drawRuns (g, plot, held, strokeWidth);
+        }
+        g.setColour (COL_SPECTRUM_POST);
+        drawRuns (g, plot, measured, strokeWidth);
     }
 }
 
@@ -275,9 +315,9 @@ void paint (juce::Graphics& g,
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (monoFont (presentation, typography::TextRole::legend,
                              typography::Composition::visualization));
-        g.drawText (compact ? "MONO" : "MONO SUM", title, juce::Justification::centredLeft);
+        text_style::drawText (g, compact ? "MONO" : "MONO SUM", title, juce::Justification::centredLeft);
         g.setColour (bands ? COL_SPECTRUM_POST : COL_MUTED);
-        g.drawText (state, title, juce::Justification::centredRight);
+        text_style::drawText (g, state, title, juce::Justification::centredRight);
     }
 
     auto plot = area.reduced (0, compact ? 3 : 4).toFloat();
@@ -304,12 +344,18 @@ void paint (juce::Graphics& g,
         drawFrequencyLabels (g, curvePlot, curvePlot.getBottom() + 1.0f, presentation);
     if (! bands)
     {
+        // Stopped: the six seconds already measured stay, dimmed; only the live curve goes.
+        if (withField && ! available && ! history.empty())
+        {
+            stopped_history::paintDimmed (g, [&] { drawTimeField (g, fieldPlot, history, presentation); });
+            drawFrequencyLabels (g, curvePlot, fieldPlot.getBottom() + 1.0f, presentation);
+        }
         if (! compact)
         {
             g.setColour (COL_TEXT_SECONDARY);
             g.setFont (monoFont (presentation, typography::TextRole::status,
                                  typography::Composition::visualization));
-            g.drawText (state, curvePlot.toNearestInt(), juce::Justification::centred);
+            text_style::drawText (g, state, curvePlot.toNearestInt(), juce::Justification::centred);
         }
         return;
     }
@@ -320,6 +366,6 @@ void paint (juce::Graphics& g,
         drawFrequencyLabels (g, curvePlot, (withField ? fieldPlot : curvePlot).getBottom() + 1.0f,
                              presentation);
     drawApproximateBoundary (g, curvePlot, meter.mono_sum_approximate_below_hz, presentation);
-    drawCurve (g, curvePlot, meter, compact ? 1.2f : 1.6f);
+    drawCurve (g, curvePlot, meter, history, compact ? 1.2f : 1.6f);
 }
 }

@@ -38,7 +38,7 @@ void ComparisonView::ViewButton::paintButton (juce::Graphics& g, bool highlighte
     g.setColour (getToggleState() ? COL_FLORA : COL_TEXT_SECONDARY);
     g.setFont (labelFont (presentation::forEditor (300, 200), typography::TextRole::captureMetadata,
         typography::Composition::visualization));
-    g.drawText (getButtonText(), bounds, juce::Justification::centred);
+    text_style::drawText (g, getButtonText(), bounds, juce::Justification::centred);
 }
 ComparisonView::ComparisonView()
 {
@@ -237,8 +237,8 @@ void ComparisonView::paint (juce::Graphics& g)
     if (cacheRevision != data->revision) rebuild();
     if (waveformCache.isValid()) g.drawImageAt (waveformCache, int(waveform.getX()), int(waveform.getY()));
     g.setColour (COL_TEXT_SECONDARY);
-    if (waveform.getHeight() >= 24) g.drawText ("A", juce::Rectangle<float> (4, waveform.getY(), 12, waveform.getHeight()*0.5f), juce::Justification::centred);
-    if (waveform.getHeight() >= 24) g.drawText ("B", juce::Rectangle<float> (4, waveform.getCentreY(), 12, waveform.getHeight()*0.5f), juce::Justification::centred);
+    if (waveform.getHeight() >= 24) text_style::drawText (g, "A", juce::Rectangle<float> (4, waveform.getY(), 12, waveform.getHeight()*0.5f), juce::Justification::centred);
+    if (waveform.getHeight() >= 24) text_style::drawText (g, "B", juce::Rectangle<float> (4, waveform.getCentreY(), 12, waveform.getHeight()*0.5f), juce::Justification::centred);
     const auto duration = data->duration();
     if (duration > 0)
     {
@@ -266,7 +266,7 @@ void ComparisonView::paintDetails (juce::Graphics& g)
     const auto time = pointedTime >= 0 ? pointedTime : position;
     g.setColour (COL_TEXT_SECONDARY);
     const auto rangeText = timeText (start) + " - " + timeText (end);
-    g.drawText (rangeText, juce::Rectangle<float> (float (getWidth()-110), graph.getY()-23, 102, 18), juce::Justification::centredRight);
+    text_style::drawText (g, rangeText, juce::Rectangle<float> (float (getWidth()-110), graph.getY()-23, 102, 18), juce::Justification::centredRight);
     auto chart = graph; chart.removeFromBottom (18);
     double minimum = showingCrest ? 0.0 : -24.0, maximum = showingCrest ? 18.0 : -6.0;
     double low = std::numeric_limits<double>::infinity(), high = -low;
@@ -289,7 +289,7 @@ void ComparisonView::paintDetails (juce::Graphics& g)
         const auto y = chart.getY()+chart.getHeight()*i/4;
         g.setColour (COL_MUTED.withAlpha (0.12f)); g.drawHorizontalLine (int (y), chart.getX(), chart.getRight());
         g.setColour (COL_TEXT_SECONDARY.withAlpha (0.65f));
-        g.drawText (juce::String (maximum-(maximum-minimum)*i/4,1), juce::Rectangle<float> (chart.getX(),y-11,32,11), juce::Justification::centredLeft);
+        text_style::drawText (g, juce::String (maximum-(maximum-minimum)*i/4,1), juce::Rectangle<float> (chart.getX(),y-11,32,11), juce::Justification::centredLeft);
     }
     if (data && (data->capture || data->binding.aligned) && end > start)
     {

@@ -12,28 +12,28 @@ inline juce::String statusText (uint8_t state, uint8_t reason)
     {
         case KIRIN_COMPARISON_REASON_NONE: return {};
         case KIRIN_COMPARISON_REASON_AWAITING_MEASUREMENT:
-            return "MATCHED PAIR — MEASURING";
+            return juce::CharPointer_UTF8 ("MATCHED PAIR — MEASURING");
         case KIRIN_COMPARISON_REASON_STALE:
             return state == KIRIN_COMPARISON_STATE_HOLDING
                 ? juce::CharPointer_UTF8 ("PRE UPDATE DELAYED — HOLDING MATCHED Δ")
-                : "PRE UPDATE DELAYED — WAITING FOR MATCHED DATA";
+                : juce::CharPointer_UTF8 ("PRE UPDATE DELAYED — WAITING FOR MATCHED DATA");
         case KIRIN_COMPARISON_REASON_PRE_BYPASSED:
-            return "PRE IS OFF — ENABLE PRE TO COMPARE";
+            return juce::CharPointer_UTF8 ("PRE IS OFF — ENABLE PRE TO COMPARE");
         case KIRIN_COMPARISON_REASON_PRE_INACTIVE:
-            return "PRE INACTIVE — START PLAYBACK";
+            return juce::CharPointer_UTF8 ("PRE INACTIVE — START PLAYBACK");
         case KIRIN_COMPARISON_REASON_LAYOUT_MISMATCH:
-            return "CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS";
+            return juce::CharPointer_UTF8 ("CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS");
         case KIRIN_COMPARISON_REASON_LAYOUT_UNKNOWN:
-            return "PRE LAYOUT UNKNOWN — UPDATE OR REOPEN PRE";
+            return juce::CharPointer_UTF8 ("PRE LAYOUT UNKNOWN — UPDATE OR REOPEN PRE");
         case KIRIN_COMPARISON_REASON_AUDITION_ACTIVE:
-            return "REFERENCE AUDITION — RETURN TO A TO COMPARE";
+            return juce::CharPointer_UTF8 ("REFERENCE AUDITION — RETURN TO A TO COMPARE");
         case KIRIN_COMPARISON_REASON_UNSUPPORTED_VIEW:
-            return "VIEW CANNOT BE COMPARED — CHOOSE A SUPPORTED VIEW";
+            return juce::CharPointer_UTF8 ("VIEW CANNOT BE COMPARED — CHOOSE A SUPPORTED VIEW");
         case KIRIN_COMPARISON_REASON_UNSUPPORTED_METRIC:
-            return "METRIC CANNOT BE COMPARED — CHOOSE A SUPPORTED METRIC";
+            return juce::CharPointer_UTF8 ("METRIC CANNOT BE COMPARED — CHOOSE A SUPPORTED METRIC");
         case KIRIN_COMPARISON_REASON_NO_PAIR:
         default:
-            return "NO MATCHING PRE — SELECT A PRE";
+            return juce::CharPointer_UTF8 ("NO MATCHING PRE — SELECT A PRE");
     }
 }
 

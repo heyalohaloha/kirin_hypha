@@ -17,15 +17,20 @@ inline void verifyMetricPresentationWorkflow()
         juce::Image image (juce::Image::ARGB, preset.width, preset.height, true);
         juce::Graphics graphics (image);
         view.paintEntireComponent (graphics, true);
-        bool momentary = false, integrated = false;
+        // The compact sizes read S (3 s) as the current window and add the Session's MAX TP;
+        // the larger sizes read M (400 ms).
+        const bool compact = preset.width < 450;
+        bool current = false, integrated = false, maximumPeak = false;
         for (int y = 0; y < preset.height; y += 5)
             for (int x = 0; x < preset.width; x += 5)
             {
                 const auto help = view.metricHelpAt ({ x, y });
-                momentary |= help.contains ("400 ms");
+                current |= help.contains (compact ? "over 3 seconds" : "400 ms");
                 integrated |= help.contains ("Integrated loudness since");
+                maximumPeak |= help.contains ("Highest true peak since");
             }
-        require (momentary && integrated, "current window and cumulative values explain their ranges on hover at every size");
+        require (current && integrated, "current window and cumulative values explain their ranges on hover at every size");
+        require (! compact || maximumPeak, "the compact MAX TP explains its Session range on hover");
         view.setDomain (observatory::Domain::reference);
         require (view.metricHelpAt (view.bodyBounds().getCentre()).isEmpty(),
                  "a page change cannot expose old metric help over Reference");

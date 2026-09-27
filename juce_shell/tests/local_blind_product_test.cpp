@@ -1,4 +1,5 @@
 #include "../src/PluginProcessor.h"
+#include "../src/HyphaLanguage.h"
 #include "../src/HyphaLocalBlindComponent.h"
 #include "ValidationStorageSandbox.h"
 
@@ -413,6 +414,8 @@ int main (int argc, char** argv)
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
+    // The shipping editors here run under simulated wrappers: they stay in English (INV-S40).
+    hypha::i18n::holdLanguage (true);
     ProductContract contract (std::move (signal), trackMono, aax);
     juce::MessageManager::getInstance()->runDispatchLoop();
     return contract.passed ? EXIT_SUCCESS : EXIT_FAILURE;

@@ -81,7 +81,7 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     for (auto* button : visible)
     {
         const auto width = juce::roundToInt (
-            std::ceil (actionFont.getStringWidthFloat (button->getButtonText()) + 12.0f));
+            std::ceil (text_style::shownWidth (actionFont, button->getButtonText()) + 12.0f));
         minimumWidths.add (width);
         minimumTotal += width;
     }
@@ -94,6 +94,11 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
         visible[index]->setBounds ((index + 1 == visible.size()
             ? actions : actions.removeFromLeft (width)).reduced (1, 2));
     }
+}
+
+int View::statusStripHeight() const
+{
+    return juce::roundToInt (monoFont (presentationContext(), typography::TextRole::status).getHeight()) + 5;
 }
 
 juce::String View::footerStatusText() const
@@ -121,13 +126,14 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
         g.setFont (monoFont (presentationContext(), typography::TextRole::status));
         // Version/build identity belongs to the information menu. It must not compete with
         // live state in this narrow rail (the old development label rendered as "d...").
+        const auto font = g.getCurrentFont();
         auto label = state;
-        if (g.getCurrentFont().getStringWidthFloat (label) > session.getWidth())
+        if (text_style::shownWidth (font, label) > (float) session.getWidth())
             label = state == "BYPASSED" ? "BYP" : state == "WAITING" ? "WAIT"
                   : state == "5.1 MEASURE" ? "5.1" : measurementFormatHeld ? "FORMAT" : state;
         if (feedbackText.isEmpty()
-            && g.getCurrentFont().getStringWidthFloat (label) <= session.getWidth())
-            g.drawText (label, session, juce::Justification::centredLeft, false);
+            && text_style::shownWidth (font, label) <= (float) session.getWidth())
+            text_style::drawText (g, label, session, juce::Justification::centredLeft, false);
         return;
     }
 
@@ -172,6 +178,7 @@ void View::paintTime (juce::Graphics& g, juce::Rectangle<int> area)
                                  ? comparison_presentation::statusText (
                                        observatoryFrame.comparison_state,
                                        observatoryFrame.comparison_reason)
-                                 : juce::String());
+                                 : juce::String(),
+                             currentPreset().density != Density::compact);
 }
 }

@@ -9,13 +9,13 @@ namespace hypha::reference_ui
 inline juce::String standardDisplayName (const juce::String& input)
 {
     static constexpr const char* names[][2] {
-        { "全工程｜基本3項目", "Quick Reference" },
-        { "全工程｜基本5項目", "Quick Reference" },
-        { "録音", "Recording" }, { "編曲", "Arrangement" },
-        { "ミックス", "MIX" }, { "マスタリング", "Mastering" },
-        { "低域", "Low end" }, { "ダイナミクス", "Dynamics" },
-        { "ボーカルバランス", "Vocal balance" }, { "音色", "Tone" },
-        { "ステレオ", "Stereo" }, { "曲全体", "Full track" }
+        { u8"全工程｜基本3項目", "Quick Reference" },
+        { u8"全工程｜基本5項目", "Quick Reference" },
+        { u8"録音", "Recording" }, { u8"編曲", "Arrangement" },
+        { u8"ミックス", "MIX" }, { u8"マスタリング", "Mastering" },
+        { u8"低域", "Low end" }, { u8"ダイナミクス", "Dynamics" },
+        { u8"ボーカルバランス", "Vocal balance" }, { u8"音色", "Tone" },
+        { u8"ステレオ", "Stereo" }, { u8"曲全体", "Full track" }
     };
     for (const auto& pair : names)
     {

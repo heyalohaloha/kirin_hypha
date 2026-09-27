@@ -51,10 +51,7 @@ impl SpectrumCoordinator {
             None => return false,
         };
         if slot.as_ref().map(|state| state.request_id) != Some(request_id) {
-            self.disable_analysis_runtimes();
-            if analysis_mode == AnalysisViewMode::Perceptual {
-                let _ = self.runtime.set_perceptual_state_epoch(None);
-            }
+            self.restart_session_runtimes(analysis_mode);
             if !self.set_active_runtime_enabled(analysis_mode, true) {
                 *slot = None;
                 return false;
@@ -231,12 +228,13 @@ impl SpectrumCoordinator {
                 else {
                     return true;
                 };
-                let newest_end = history.waveform().next_back().map(|point| point.end_sample);
-                (
-                    newest_end,
-                    encode_attack_snapshot(request_id, &history),
-                    None,
-                )
+                // Details are published or completed after their waveform, so any history
+                // change, not only a new waveform end, is a new snapshot.
+                let revision = history
+                    .waveform()
+                    .next_back()
+                    .map(|_| history.revision() as i64);
+                (revision, encode_attack_snapshot(request_id, &history), None)
             }
             AnalysisViewMode::Absolute => return false,
         };

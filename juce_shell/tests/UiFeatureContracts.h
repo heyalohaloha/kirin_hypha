@@ -31,6 +31,8 @@
 #include "PreparedFormatContractTest.h"
 #include "MeasurementSpanContractTest.h"
 #include "AlwaysVisibleContractTest.h"
+#include "MaterialCacheContract.h"
+#include "StoppedHistoryContract.h"
 
 namespace hypha::tests
 {
@@ -126,6 +128,8 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyRunSummaryContract();
     verifyGuideFrequencyOverlayContract();
     verifyAbsoluteTimelineContract();
+    verifyMaterialCacheContract();
+    verifyStoppedHistoryContract();
     verifyAbsoluteSpectrumContract();
     verifyPerceptualRenderingContract();
     verifyHybridVuContract();

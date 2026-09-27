@@ -159,6 +159,22 @@ impl SpectrumCoordinator {
         }
     }
 
+    /// Start the runtimes over for a new exchange session. Spectrum and Sharpness align their
+    /// state with the other side per session, so they restart. ATTACK is measured on the absolute
+    /// content grid on each side and a session only joins the two histories, so a running ATTACK
+    /// run is kept: a pairing that drops for one tick (a transport stop, a restored latch) must not
+    /// erase the HOLD view it is about to show again.
+    pub(super) fn restart_session_runtimes(&self, mode: AnalysisViewMode) {
+        if mode == AnalysisViewMode::Attack {
+            let _ = self.runtime.set_enabled(false);
+            return;
+        }
+        self.disable_analysis_runtimes();
+        if mode == AnalysisViewMode::Perceptual {
+            let _ = self.runtime.set_perceptual_state_epoch(None);
+        }
+    }
+
     pub(super) fn set_active_runtime_enabled(&self, mode: AnalysisViewMode, enabled: bool) -> bool {
         match mode {
             AnalysisViewMode::Attack => {

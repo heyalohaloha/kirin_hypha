@@ -39,9 +39,9 @@ hypha::observatory::ConnectionState observatoryConnectionState (bool isPost, int
 
 void KirinHyphaEditor::applyPresentationContext()
 {
-    const auto context = hypha::presentation::forEditor (getWidth(), getHeight());
+    const auto context = logicalPresentationContext();
     nameField.setPresentationContext (context);
-    feedbackLabel.setFont (hypha::monoFont (context, hypha::typography::TextRole::status));
+    feedbackStrip.setPresentationContext (context);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumView.setPresentationContext (context);
     perceptualView.setPresentationContext (context);
@@ -108,12 +108,19 @@ void KirinHyphaEditor::configureMeterContext()
 void KirinHyphaEditor::showNoteDialog()
 {
     if (! isPost || noteDialog != nullptr) return;
+    // The dialog is built in the language shown; its buttons measure and draw through the
+    // editor's LookAndFeel, and a note may be typed in Japanese, which the native font carries.
     noteDialog = std::make_unique<juce::AlertWindow> (
-        "NOTE", "Attach a note to the current sample position.",
+        "NOTE", hypha::i18n::tr ("Attach a note to the current sample position."),
         juce::MessageBoxIconType::NoIcon, this);
+    noteDialog->setLookAndFeel (&textLookAndFeel);
     noteDialog->addTextEditor ("memo", {}, "NOTE");
     if (auto* editor = noteDialog->getTextEditor ("memo"))
+    {
         editor->setInputRestrictions (240);
+        editor->setFont (hypha::nativeTextFont (logicalPresentationContext(),
+                                                hypha::typography::TextRole::body));
+    }
     noteDialog->addButton ("ADD", 1, juce::KeyPress (juce::KeyPress::returnKey));
     noteDialog->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
     noteDialog->centreAroundComponent (this, 360, 170);
@@ -171,6 +178,15 @@ void KirinHyphaEditor::setObservatoryDomain (hypha::observatory::Domain domain)
 
 void KirinHyphaEditor::visibilityChanged()
 {
+    if (isVisible())
+    {
+        // The display the editor opened on decides the magnified steps; a size that is not a step
+        // there lands on the nearest one.
+        updateResizeLimits();
+        const auto allowed = sizeConstrainer.allowedSize ({ getWidth(), getHeight() });
+        if (allowed.width != getWidth() || allowed.height != getHeight())
+            setSize (allowed.width, allowed.height);
+    }
     refreshPairPreview (true);
     refreshAppearance();
     // Some hosts snapshot non-parameter state when the editor becomes hidden, before destroying
@@ -183,6 +199,7 @@ void KirinHyphaEditor::visibilityChanged()
         // Pro Tools can hide an editor without destroying it when another insert is opened.
         // The editor owns one typed optional-analysis request and releases it at this boundary.
         syncAnalysisDemand();
+        attackView.releaseCachedChrome();
        #endif
     }
    #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -278,8 +295,10 @@ void KirinHyphaEditor::refreshObservatory()
     const auto restoredSize = juce::jmin (
         (size_t) processorRef.spectrumSizePreference(),
         hypha::observatory::sizePresets.size() - 1u);
-    const auto restoredEditorSize = hypha::observatory::unpackEditorSize (
+    auto restoredEditorSize = hypha::observatory::unpackEditorSize (
         processorRef.observatoryEditorSizePreference());
+    if (hypha::observatory::validEditorSize (restoredEditorSize.width, restoredEditorSize.height))
+        restoredEditorSize = sizeConstrainer.allowedSize (restoredEditorSize);
     if (hypha::observatory::validEditorSize (
             restoredEditorSize.width, restoredEditorSize.height)
         && (restoredEditorSize.width != getWidth()

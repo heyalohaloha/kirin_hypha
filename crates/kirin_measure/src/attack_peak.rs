@@ -123,6 +123,12 @@ fn refractory_samples(sample_rate: u32) -> i64 {
     (i64::from(sample_rate) * REFRACTORY_MICROS + 500_000) / 1_000_000
 }
 
+/// Once the trace has reached `current_sample`, every onset before the returned sample has been
+/// emitted: a pending candidate is emitted, or replaced by a later one, within the refractory time.
+pub(super) fn decided_before(current_sample: i64, sample_rate: u32) -> i64 {
+    current_sample.saturating_sub(refractory_samples(sample_rate))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

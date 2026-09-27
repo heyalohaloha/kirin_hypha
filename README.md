@@ -62,6 +62,15 @@ and render clocks. An unavailable host position is shown as `ELAPSED`, never inv
 TIME directly selects **HISTORY**, validated DRUM **ATTACK**, signed **SHARP**, or three absolute
 **LIVE** facts. Only the selected optional analyzer runs.
 
+DRUM draws the six-second PRE/POST envelope above four per-hit lanes on the same time axis:
+**TRANSIENT** (the first 30 ms against the body that follows), **STRENGTH**, **CREST**, and
+**SHARPNESS** (the first 100 ms), each as POST − PRE. A matched POST hit is measured at the PRE
+onset, so both sides read the same content samples. A TRANSIENT whose next hit leaves no 20 ms body,
+or whose body is below the −72 dBFS HISTORY floor, shows the reason instead of a value. A hit shows
+STRENGTH and CREST as soon as its first 30 ms are measured; TRANSIENT and SHARPNESS follow once its
+body is complete, and stay empty for a hit cut off by a transport stop. Without PRE, the lanes show
+POST values.
+
 ### FREQ — where the chain changed
 
 The cyan **Δ (POST − PRE)** curve is the primary view. PRE and POST remain visible as references.
@@ -131,15 +140,23 @@ or delay audio: the same input produces the same output, every time. An explicit
 is a separate output-only path; it never rewrites the input, the captured PRE/POST measurements, or
 Record data. Numbers are reported as captured — no interpretation, no scoring, no recommendation.
 
-One display filter exists in the shipping JUCE surface. It affects what is drawn, never what is
+Two display filters exist in the shipping JUCE surface. They affect what is drawn, never what is
 measured, stored, or read back.
 
 - **Live FREQ curves.** The absolute PRE / POST / MID / SIDE spectra rise on the next drawing tick
   and fall at 20 dB per 500 ms. The signed Δ curve follows its target symmetrically over 150 ms, so
   neither sign is favoured.
+- **MONO's live curve.** A band with nothing to measure in the current 100 ms observation (the rest
+  between two drum hits, for instance) keeps the value it was last measured at for up to one second,
+  drawn faintly, so the curve does not blink between hits. After that the band breaks the line.
 
-Watch consumes the producer-owned `KirinWatchDisplay` snapshot directly. SPACE's MONO curve and its
-six-second field likewise draw observations as measured.
+Watch consumes the producer-owned `KirinWatchDisplay` snapshot directly. SPACE's six-second MONO
+field draws observations as measured.
+
+When playback stops, or a rest outlasts the 3-second Watch window, the pages with a six-second history
+(FREQ's field or landscape, LIVE, SHARP and SPACE's MONO field) keep what was measured on screen,
+dimmed, and withdraw only the present: the live curve and the current values. Rests shorter than
+3 seconds, such as the gaps between drum hits, keep every page live.
 
 Everything else is the measurement itself: the playback-pass and Keep maximums, LUFS-S, the FREQ
 numeric readout, the six-second field, MARK, Focus Trail, peak hold, Meter Session statistics, TIME
@@ -166,6 +183,17 @@ conformance and does not use the EBU logo.
 | plugin_data output | — | ✓ |
 
 Kirin Hypha is free and fully functional as a standalone plugin. Record mode requires a Kirin OS license.
+
+## Screen language
+
+Hypha's screen is in English or Japanese. **MENU → Display → Language** chooses **English** or
+**日本語**; until a choice is made, Hypha follows the system's display language. The choice is saved
+for every PRE and POST, and open editors switch at once. In Japanese, what explains or reports is
+Japanese: status lines, notices, hover help, menus, guidance and dialog text. Labels, abbreviations,
+legends, units, values and names (LEVEL, LUFS, TP, POST / Δ, MARK, Kirin OS names) stay as written,
+so the layout and the measurement vocabulary are the same in both languages. The language changes
+only what is drawn; plug-in names shown by the host, Record, `plugin_data`, the data exchanged with
+Kirin OS, and every measurement stay the same.
 
 ## What it measures
 
@@ -206,7 +234,7 @@ output-presentation sample endpoint.
 | RAW / SHAPE | Switches the same exact-pair curve between gain-inclusive difference and energy-normalized shape; clears a mode-specific MARK and Focus Trail |
 | Hover / click | Reads frequency and the selected RAW/SHAPE value; click locks the probe, shows its six-second Focus Trail, and × releases it |
 | MARK | Captures or replaces one temporary display-only reference in the selected mode; × clears it |
-| Free resize / 100–300% presets | Keeps a fixed 3:2 aspect ratio from 300×200 through the native 900×600 Inspection View and remembers the exact loaded-instance size |
+| Free resize / 100–300% presets | Keeps a fixed 3:2 aspect ratio from 300×200 through the native 900×600 Inspection View and remembers the exact loaded-instance size. Above 300% the Inspection View is magnified in steps that keep it on whole device pixels for the display (450% and 600% on a Retina display; 600% at 100% Windows scaling; 400% and 600% at 150%) |
 
 The page analyzes one selected channel view at a time. **LR** transforms L and R independently and
 averages their power, so opposite-polarity channels do not cancel. **MID** analyzes the `(L+R)/2`
@@ -225,6 +253,17 @@ level, so a loud band is far denser than a quiet one. Nothing is averaged, blend
 between observations. A row stays empty when the nearest observation is further away than the
 cadence the host is actually publishing at, so the field is continuous at any buffer size while a
 break in the measurement stays a break in the field.
+
+At 200% and 300% the same six seconds are drawn as a landscape instead of a flat field. The newest
+spectrum stands on the plot itself as the front ridge, on the same frequency and level axes as the
+curve, and older spectra recede toward a horizon: higher, narrower, and fainter with age. Each of
+the 24 ridges is the one observation nearest its age, keeping the loudest band in each of its 96
+columns so a narrow peak is not thinned away. A ridge with no observation within half a ridge
+spacing is left out and grid lines join only neighbouring ridges, so a gap stays a gap and two lone
+observations never grow a range between them. The landscape adds no value to the reading; the
+current curve drawn over it does. The paired Δ view stays flat. At these two sizes the plot also
+names what it draws (`Δ(f) = POST(f) - PRE(f)` or `L(f) = POST(f)`) and the analysis behind it —
+aperture, FFT size, band count, and presentation rate — read from the frame itself.
 
 In the POST target, **M/S** is a fourth display choice beside LR / MID / SIDE. It overlays solid
 cyan Mid and violet Side curves calculated from the same aperture, with a shared
@@ -578,7 +617,22 @@ own slots, while a third identifies the owners and waits.
 
 Closing the GUI does not stop measurement. The audio thread continues running as long as the plugin is loaded in the DAW.
 
-The **VU** button added to the existing footer opens the same Hybrid VU during ordinary playback; it is not a separate
+At 100% and 125% the footer folds into the header's second row: the domain cycle, VU, MENU, the size
+and POST / Δ share one row, and the measurement reaches the bottom edge. Status lines (a toast, a
+persistent status, a running capture, or WAITING and BYPASSED when nothing else is shown) appear
+whole in a one-line strip over the bottom edge of the measurement while they last; clicking feedback
+opens the details.
+
+100% is for reading, not operating. The buttons that take room (CURRENT / MAX, the history range
+and FOCUS, LR / MID / SIDE, M/S, PSB, MARK, and DRUM's VIEW) are chosen at 125% and above; a
+choice made there stays in force at 100%, where only a non-default one (MID, SIDE, MARK, HOLD, LOCK)
+is named. Clicking the plot itself (FREQ's frequency lock, DRUM's hit selection) works at every
+size. The room goes to the measurement: LEVEL reads S, I (Crest for a track or stem) and the
+Session's MAX TP; TIME HISTORY draws S and TP; DRUM shows one row of history over its four values,
+large; FREQ's plot takes the control rows and the right-hand absolute axis; SPACE's scatter takes
+the full height with BAL and CORR beside it.
+
+The **VU** button in the footer (in the header's second row at 100% and 125%) opens the same Hybrid VU during ordinary playback; it is not a separate
 measurement mode and does not alter the selected domain. The selection survives closing and reopening
 the editor while that plug-in instance remains loaded. In the Hybrid VU, **CLEAR** releases only the
 per-channel held True Peak markers and Clip indicators. Live TP, the 300 ms VU needles, Meter Session

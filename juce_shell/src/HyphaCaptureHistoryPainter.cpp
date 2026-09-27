@@ -4,6 +4,7 @@
 #include "HyphaChainActionPainter.h"
 #include "HyphaChannelClipText.h"
 #include "HyphaSurfaceMaterial.h"
+#include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
 #include "HyphaTimeAxisContract.h"
 #include "HyphaHistoryInspection.h"
@@ -22,6 +23,19 @@ float yForLoudness (juce::Rectangle<float> plot, double value, bool delta) noexc
     return plot.getBottom() - static_cast<float> (normalized) * plot.getHeight();
 }
 
+}
+
+float currentLabelWidth (const juce::String& text, bool inspection, presentation::Context presentation)
+{
+    constexpr auto visualization = typography::Composition::visualization;
+    const auto font = monoFont (presentation, typography::TextRole::readout, visualization);
+    const auto style = typography::resolve (presentation, typography::TextRole::readout, visualization);
+    return std::max (inspection ? 88.0f : 72.0f,
+                     (float) text_style::requiredWidth (font, text, style) + 8.0f);
+}
+
+namespace
+{
 void paintCurrentLoudness (juce::Graphics& g,
                            juce::Rectangle<float> plot,
                            const std::vector<KirinMeterHistoryEntry>& history,
@@ -44,8 +58,7 @@ void paintCurrentLoudness (juce::Graphics& g,
     const auto font = monoFont (presentation, typography::TextRole::readout,
                                typography::Composition::visualization);
     const auto labelHeight = inspection ? 18.0f : 15.0f;
-    const auto labelWidth = juce::jmin (plot.getWidth() - 8.0f,
-                                       font.getStringWidthFloat (text) + 10.0f);
+    const auto labelWidth = currentLabelWidth (text, inspection, presentation);
     auto label = juce::Rectangle<float> (
         plot.getRight() - labelWidth - 4.0f,
         juce::jlimit (plot.getY() + 2.0f,
@@ -59,7 +72,7 @@ void paintCurrentLoudness (juce::Graphics& g,
     g.setColour (COL_OBSERVATORY_VALUE);
     g.setFont (monoFont (presentation, typography::TextRole::readout,
                          typography::Composition::visualization));
-    g.drawText (text, label.toNearestInt().reduced (3, 0),
+    text_style::drawText (g, text, label.toNearestInt().reduced (3, 0),
                 juce::Justification::centredRight);
 }
 
@@ -352,14 +365,14 @@ void paint (juce::Graphics& g,
     auto loudnessLegend = meanings.removeFromLeft (delta ? meanings.getWidth() : meanings.getWidth() / 2);
     const auto axisEnd = history.empty() ? 0u : history.back().last_observed_frames;
     const auto chainView = chain_action::View { chain, chainPoints, axisEnd };
-    g.drawText (delta ? "M / POST - PRE / 60 S"
+    text_style::drawText (g, delta ? "M / POST - PRE / 60 S"
                       : chainView.visible() ? "CHAIN ACTION / PRE TO POST M"
                                             : "M / momentary LUFS",
                 loudnessLegend, juce::Justification::centredLeft);
     if (! delta)
     {
         g.setColour (COL_FLORA_BR);
-        g.drawText (chainView.visible() ? "TP CROSSING / > -1 dBTP"
+        text_style::drawText (g, chainView.visible() ? "TP CROSSING / > -1 dBTP"
                                         : "TP / > -1 dBTP events", meanings,
                     juce::Justification::centredRight);
     }
@@ -392,14 +405,14 @@ void paint (juce::Graphics& g,
                        : juce::String ("TP ") + emDash() + " / 60 S AUDIO";
     if (contextFact.isNotEmpty())
         detail = contextFact + "   |   " + detail;
-    g.drawText (detail, legend, juce::Justification::centredLeft);
+    text_style::drawText (g, detail, legend, juce::Justification::centredLeft);
 
     if (history.empty())
     {
         g.setColour (COL_MUTED);
         g.setFont (monoFont (presentation, typography::TextRole::status,
                              typography::Composition::visualization));
-        g.drawText (juce::String ("HISTORY ") + emDash(),
+        text_style::drawText (g, juce::String ("HISTORY ") + emDash(),
                     layout.sharedPlot.toNearestInt(), juce::Justification::centred);
         return;
     }
@@ -430,7 +443,7 @@ void paint (juce::Graphics& g,
             g.setColour (COL_MUTED.brighter (0.20f).withAlpha (0.86f));
             const auto label = (delta && tick > 0.0 ? "+" : "")
                              + juce::String (tick, 0);
-            g.drawText (label, layout.loudnessLabels.getX(), y - 7,
+            text_style::drawText (g, label, layout.loudnessLabels.getX(), y - 7,
                         layout.loudnessLabels.getWidth() - 3, 14,
                         juce::Justification::centredRight);
         }
@@ -472,10 +485,10 @@ void paint (juce::Graphics& g,
     g.setColour (COL_MUTED.withAlpha (0.64f));
     g.setFont (monoFont (presentation, typography::TextRole::axis,
                          typography::Composition::visualization));
-    g.drawText ("-60", layout.timeLabels.withWidth (24), juce::Justification::centredLeft);
-    g.drawText ("-30", layout.timeLabels.withSizeKeepingCentre (30, layout.timeLabels.getHeight()),
+    text_style::drawText (g, "-60", layout.timeLabels.withWidth (24), juce::Justification::centredLeft);
+    text_style::drawText (g, "-30", layout.timeLabels.withSizeKeepingCentre (30, layout.timeLabels.getHeight()),
                 juce::Justification::centred);
-    g.drawText ("NOW", layout.timeLabels.withLeft (layout.timeLabels.getRight() - 24),
+    text_style::drawText (g, "NOW", layout.timeLabels.withLeft (layout.timeLabels.getRight() - 24),
                 juce::Justification::centredRight);
     paintHover (g, layout, loudnessPlot, history, axis, hoveredIndex, delta, sampleRate);
     if (selectedChain != nullptr && chainView.visible())

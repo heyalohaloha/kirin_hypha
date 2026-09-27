@@ -1,4 +1,5 @@
 #include "HyphaPerceptualPainter.h"
+#include "HyphaStoppedHistory.h"
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
@@ -55,12 +56,14 @@ namespace
                     float scale,
                     const PaintState& state)
     {
+        if (spectrum_geometry::viewOnly (scale))
+            return; // 100% is view-only: the header names a non-LR mode instead.
         g.setFont (monoFont (state.presentation, typography::TextRole::navigation,
                              typography::Composition::visualization));
         if (state.actionNotice.isNotEmpty())
         {
             g.setColour (COL_MUTED.withAlpha (0.90f));
-            g.drawText (state.actionNotice,
+            text_style::drawText (g, state.actionNotice,
                         outer.removeFromTop (13.0f * scale),
                         juce::Justification::centredLeft);
             return;
@@ -79,7 +82,7 @@ namespace
             g.setColour (unavailable ? COL_MUTED.withAlpha (0.30f)
                                      : selected ? COL_SPECTRUM_DELTA_BR.withAlpha (0.98f)
                                                 : COL_TEXT_SECONDARY);
-            g.drawText (channelModeText (mode), segment.toNearestInt(),
+            text_style::drawText (g, channelModeText (mode), segment.toNearestInt(),
                         juce::Justification::centred);
         }
     }
@@ -89,13 +92,17 @@ namespace
                       float scale,
                       const PaintState& state)
     {
-        const float left = outer.getX() + 84.0f * scale;
+        const bool viewOnly = spectrum_geometry::viewOnly (scale);
+        const float left = outer.getX() + (viewOnly ? 0.0f : 84.0f * scale);
         const float right = outer.getRight();
         g.setFont (monoFont (state.presentation, typography::TextRole::readout,
                              typography::Composition::visualization));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.96f));
-        g.drawText (juce::CharPointer_UTF8 ("Δ SHARPNESS"),
-                    juce::Rectangle<float> (left, outer.getY(), 76.0f * scale, 13.0f * scale),
+        const auto mode = viewOnly && state.channelMode != KIRIN_SPECTRUM_CHANNEL_LR
+            ? "  " + channelModeText (state.channelMode) : juce::String();
+        text_style::drawText (g, juce::String (juce::CharPointer_UTF8 ("Δ SHARPNESS")) + mode,
+                    juce::Rectangle<float> (left, outer.getY(), (viewOnly ? 130.0f : 76.0f) * scale,
+                                            13.0f * scale),
                     juce::Justification::centredLeft);
         if (! state.snapshotValid)
             return;
@@ -104,7 +111,7 @@ namespace
                                + juce::String (state.snapshot.delta_sharpness, 2);
         const float readoutWidth = 67.0f * scale;
         g.setColour (COL_SPECTRUM_DELTA_BR.withAlpha (0.98f));
-        g.drawText (signedValue + " acum",
+        text_style::drawText (g, signedValue + " acum",
                     juce::Rectangle<float> (right - readoutWidth, outer.getY(),
                                             readoutWidth, 13.0f * scale),
                     juce::Justification::centredRight);
@@ -116,7 +123,7 @@ namespace
             g.setColour (COL_SPECTRUM_PRE.withAlpha (0.88f));
             const auto text = "PRE " + juce::String (state.snapshot.pre_sharpness, 2)
                             + "   POST " + juce::String (state.snapshot.post_sharpness, 2);
-            g.drawText (text,
+            text_style::drawText (g, text,
                         juce::Rectangle<float> (left, outer.getY() + 12.0f * scale,
                                                 right - left, 11.0f * scale),
                         juce::Justification::centredLeft);
@@ -132,11 +139,11 @@ namespace
         g.setColour (COL_MUTED.withAlpha (0.86f));
         const int labelWidth = juce::roundToInt (21.0f * scale);
         const int labelHeight = juce::roundToInt (10.0f * scale);
-        g.drawText ("+2", 0, juce::roundToInt (plot.getY()) - 4,
+        text_style::drawText (g, "+2", 0, juce::roundToInt (plot.getY()) - 4,
                     labelWidth, labelHeight, juce::Justification::centredRight);
-        g.drawText ("0", 0, juce::roundToInt (zeroY) - labelHeight / 2,
+        text_style::drawText (g, "0", 0, juce::roundToInt (zeroY) - labelHeight / 2,
                     labelWidth, labelHeight, juce::Justification::centredRight);
-        g.drawText ("-2", 0, juce::roundToInt (plot.getBottom()) - labelHeight + 3,
+        text_style::drawText (g, "-2", 0, juce::roundToInt (plot.getBottom()) - labelHeight + 3,
                     labelWidth, labelHeight, juce::Justification::centredRight);
 
         for (double value : { -1.0, 1.0 })
@@ -155,13 +162,13 @@ namespace
             g.drawVerticalLine (juce::roundToInt (x), plot.getY(), plot.getBottom());
         }
         g.setColour (COL_MUTED.withAlpha (0.86f));
-        g.drawText ("-6s", juce::roundToInt (plot.getX()),
+        text_style::drawText (g, "-6s", juce::roundToInt (plot.getX()),
                     juce::roundToInt (plot.getBottom()), 28, labelHeight,
                     juce::Justification::centredLeft);
-        g.drawText ("-3", juce::roundToInt (plot.getCentreX()) - 14,
+        text_style::drawText (g, "-3", juce::roundToInt (plot.getCentreX()) - 14,
                     juce::roundToInt (plot.getBottom()), 28, labelHeight,
                     juce::Justification::centred);
-        g.drawText ("NOW", juce::roundToInt (plot.getRight()) - 30,
+        text_style::drawText (g, "NOW", juce::roundToInt (plot.getRight()) - 30,
                     juce::roundToInt (plot.getBottom()), 30, labelHeight,
                     juce::Justification::centredRight);
     }
@@ -306,6 +313,9 @@ void paint (juce::Graphics& g,
 
     if (! state.snapshotValid || state.history.empty())
     {
+        // Stopped: the six seconds already measured stay, dimmed, under the status.
+        if (! state.signalActive && ! state.history.empty())
+            stopped_history::paintDimmed (g, [&] { paintHistory (g, plot, scale, state.history); });
         const auto text = ! state.signalActive ? juce::String ("INACTIVE") : state.haveSnapshot
                             ? statusText (state.snapshot.status, state.analysisOwnerNames)
                                              : juce::String ("PREPARING ANALYSIS");

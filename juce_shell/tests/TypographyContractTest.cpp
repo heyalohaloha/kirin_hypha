@@ -1,7 +1,9 @@
 #include "TypographyContractTest.h"
 
 #include "../src/HyphaAnalysisUiText.h"
+#include "../src/HyphaAttackStage.h"
 #include "../src/HyphaAttackUiContract.h"
+#include "../src/HyphaObservatoryContract.h"
 #include "../src/HyphaSpacePainter.h"
 #include "../src/HyphaSurfacePresentation.h"
 #include "../src/HyphaTheme.h"
@@ -195,34 +197,39 @@ void verifyPreservedSurfaceText()
             actionFont, "VIEW  OVERLAY",
             attack_ui::modeControlWidth (body.width, actionRequired)));
 
-        const auto titleStyle = typography::resolve (
-            context, typography::TextRole::sectionTitle,
-            typography::Composition::visualization);
-        const auto titleFont = monoFont (
-            context, typography::TextRole::sectionTitle,
-            typography::Composition::visualization);
-        const auto titleText = juce::String (attack_ui::transientTitle (context));
-        KIRIN_TYPOGRAPHY_REQUIRE (fits (
-            titleFont, titleText, attack_ui::transientTitleWidth (
-                body.width - 14,
-                text_style::requiredWidth (titleFont, titleText, titleStyle))));
-        const auto transientContentWidth = body.width - 14;
-        const auto transientTitleWidth = attack_ui::transientTitleWidth (
-            transientContentWidth,
-            text_style::requiredWidth (titleFont, titleText, titleStyle));
-        const auto transientSectionWidth = (transientContentWidth - transientTitleWidth) / 3;
-        const auto readoutStyle = typography::resolve (
-            context, typography::TextRole::readout,
-            typography::Composition::visualization);
-        const auto readoutFont = monoFont (
-            context, typography::TextRole::readout,
-            typography::Composition::visualization);
-        const auto longestTransientLabel = body.width >= 700 ? juce::String ("DELTA")
-                                                             : juce::String ("POST");
-        KIRIN_TYPOGRAPHY_REQUIRE (
-            text_style::requiredWidth (readoutFont, longestTransientLabel, readoutStyle)
-            + text_style::requiredWidth (readoutFont, "+3.0", readoutStyle)
-            <= transientSectionWidth - 8);
+        // DRUM lanes: names, values and withheld reasons fit their columns at every editor size.
+        const auto shell = observatory::shellLayout (observatory::Role::post, preset,
+                                                     observatory::GuidePresence::absent);
+        const auto drum = attack_ui::layoutFor (
+            shell.body.width, shell.body.height - observatory::timeNavigationHeight (preset.density),
+            context);
+        // Widths use the fonts the DRUM painters use, including label tracking.
+        const auto required = [&context] (typography::TextRole role, const juce::String& text,
+                                          float tracking = 0.0f) {
+            return text_style::requiredWidth (attack_stage::trackedFont (context, role, tracking),
+                text, typography::resolve (context, role, typography::Composition::visualization)); };
+        if (drum.arrangement == attack_ui::Arrangement::lanes)
+        {
+            for (const auto* name : { "TRANSIENT", "STRENGTH", "CREST", "SHARPNESS", "HISTORY" })
+                KIRIN_TYPOGRAPHY_REQUIRE (required (typography::TextRole::metricLabel, name,
+                                                    attack_stage::labelTracking (context))
+                                          <= drum.labelWidth - 8);
+            for (const auto* value : { "+12.3 dB", "-10.0 dBFS", "-0.12 acum", "5.25 acum" })
+                KIRIN_TYPOGRAPHY_REQUIRE (required (typography::TextRole::secondaryValue, value)
+                                          <= drum.readoutWidth - 12);
+            for (const auto* reason : { "QUIET AFTER", "NEXT HIT", "POST ONLY" })
+                KIRIN_TYPOGRAPHY_REQUIRE (required (typography::TextRole::readout, reason,
+                                                    attack_stage::captionTracking (context))
+                                          <= drum.readoutWidth - 12);
+        }
+        else
+        {
+            // Each one-row cell is led by its lane accent; the text receives the rest.
+            for (std::size_t lane = 0; lane < attack_ui::laneCount; ++lane)
+                KIRIN_TYPOGRAPHY_REQUIRE (required (typography::TextRole::readout, "TR +12.3")
+                                          <= attack_ui::lineCell (drum, lane).width
+                                               - attack_ui::lineAccentWidth);
+        }
         KIRIN_TYPOGRAPHY_REQUIRE (
             attack_ui::headerHeightFor (context)
             >= attack_ui::titleRowHeight (context) + attack_ui::statusRowHeight (context));
@@ -367,10 +374,45 @@ void verifyTooltipBounds()
                     available.contains (lookAndFeel.getTooltipBounds (text, position, parent)));
     }
 }
+
+// A status that may wrap (INACTIVE, PREPARING ANALYSIS) is justified inside its own area: a
+// centred status stands whole in the middle, never half outside on the right.
+void verifyWrappedStatusPlacement()
+{
+    const auto context = presentation::forEditor (300, 200);
+    const juce::Rectangle<int> area (10, 10, 240, 40);
+    for (const auto justification : { juce::Justification::centred, juce::Justification::centredLeft,
+                                      juce::Justification::centredRight })
+    {
+        juce::Image image (juce::Image::ARGB, 260, 60, true);
+        juce::Graphics g (image);
+        g.setColour (juce::Colours::white);
+        g.setFont (monoFont (context, typography::TextRole::status, typography::Composition::visualization));
+        text_style::draw (g, "INACTIVE", area, context, typography::TextRole::status, justification, 2,
+                          typography::Composition::visualization);
+        int left = image.getWidth(), right = -1;
+        for (int y = 0; y < image.getHeight(); ++y)
+            for (int x = 0; x < image.getWidth(); ++x)
+                if (image.getPixelAt (x, y).getAlpha() > 64)
+                {
+                    left = std::min (left, x);
+                    right = std::max (right, x);
+                }
+        const auto textWidth = g.getCurrentFont().getStringWidthFloat ("INACTIVE");
+        KIRIN_TYPOGRAPHY_REQUIRE ((float) (right - left + 1) >= textWidth * 0.8f);
+        if (justification == juce::Justification::centred)
+            KIRIN_TYPOGRAPHY_REQUIRE (std::abs ((left + right) / 2 - area.getCentreX()) <= 3);
+        else if (justification == juce::Justification::centredLeft)
+            KIRIN_TYPOGRAPHY_REQUIRE (left - area.getX() <= 3);
+        else
+            KIRIN_TYPOGRAPHY_REQUIRE (area.getRight() - right <= 4);
+    }
+}
 }
 
 void verifyTypographyContract()
 {
+    verifyWrappedStatusPlacement();
     verifyResolvedStyles();
     verifyPreservedSurfaceText();
     verifySurfaceInventory();

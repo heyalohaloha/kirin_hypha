@@ -54,13 +54,32 @@ Hyphaの画面だけを見た段階では地下の観測設備として読め、
 
 ## 3. 共通色と素材
 
-graphiteを画面とpanelの基材にする。
+温かい黒（`#16110D`、わずかに焦げ茶へ寄せたgraphite）を画面とpanelの基材にする。
 
 通常panelと未選択controlは、明るい四角枠で区切らない。
 暗い基材の層差、上辺の連続した低明度反射、下辺の沈みで境界を成立させ、選択箇所だけ意味色の短い光を持たせる。
 VUの計器フレームはこの簡略化の対象外とし、既存の筐体構図と意味を維持する。
 
-ivoryは数値、cyanは現在の測定線、amberはholdとSession、deep tealは構造の微光へ割り当てる。
+### 3.1 Hypha共通配色（2026-09-26 Daisuke決定）
+
+案2（黒とシャンパンゴールド）を中心に、案3（焦げ茶の地と水色）を少し混ぜた配色を全画面で使う。
+実画面4面（VU、FREQ、DRUM、LIVE）の比較で決めた。色の値は`HyphaUiContract.h`と`HyphaAttackUiContract.h`が正本である。
+
+| 役割 | 色 | 使う所 |
+|---|---|---|
+| 基材 | 温かい黒 `#16110D` | 画面、panel、計測面 |
+| POSTの値 | シャンパンゴールド `#E0BD7E` | FREQのPOST、LIVEのLUFS-M、DRUMのPOST包絡、STRENGTH（`#D9A24E`） |
+| 差分・動き・選択 | 水色 `#7FCFD8` | Δ、M/SのMID、true peak（VUのbar、LIVE）、PAIR、TRANSIENT、DRUMの選択（淡い氷色 `#B5E6EF`） |
+| PRE | 温かい灰 `#968C80`（DRUMのPRE traceは明るい無彩色 `#D8D0C4`） | PRE曲線、PRE trace |
+| 数値 | 象牙色 `#F0E4CC`、通常文字 `#E8E2D8` | 数値、見出し |
+| 素材・保持・Guide | 金 `#C9A15A` | 名前、hold、Session、Guide |
+| 小さな印と細い線だけ | 銅 `#D0835A`、薄紫（SIDE `#AD9FDC`、Sharpness `#B3A2E6`） | CREST、SIDE、Sharpness（LIVEの線、DRUMのlane）のlabel、棒、細い線 |
+
+広い面と長い線に使う色は、基材、金、水色、無彩色（象牙色、温かい灰）だけとする。
+銅と薄紫は区別のための色なので、label、棒、先端、細いデータ線にだけ使い、帯や面にしない（DRUMのlaneの0線は象牙色）。
+同じ意味には全画面で同じ色を使う。画面ごとに意味を変えない。
+根拠：核の色を2〜3色に絞る、低彩度ほど格が高く見える、青は有能さと精密さ、黒と金は精密さと高品質の印象を与える、計器は意味ごとに色を固定する、という調査結果による。
+
 
 赤、黄、緑の信号色で品質を採点しない。
 
@@ -80,19 +99,35 @@ TIMEとATTACKの時間層はnativeの地層線と実測historyで表し、旧`bg
 
 数値、label、unit、axis、statusはJUCEで描画し、生成画像へ焼き込まない。
 
+### 3.2 立体感（2.5D）（2026-09-26 Daisuke決定）
+
+立体感は縁で作り、面の中央を光らせない。中央を明るくして膨らみを見せる表現は使わない。
+光源は左上の一つだけとし、全画面の面が同じ向きの光を受ける。
+
+- 観測窓（FREQ、LIVE、SHARPなどのplot）と計測card、section panelは凹んだガラスとする。上と左の壁に内側の影、下と右の縁に弱い反射、切り口の上端に細い象牙色の線、左上から中央の手前で消える静かな映り込みを置く。観測窓だけ右端と床をわずかに沈める。
+- 操作部は浮き出た板とする。上の縁に細い光、下側に沈み、板の下に柔らかい接地影を置く。
+- 凹んだ面の上端のすぐ外に、面の縁が落とす1 pxの影を置く。
+- これらは素材であり、計測値に従わないので描画cacheに一度だけ描いてよい。正本は`HyphaDepthMaterial.h`で、DRUMの溝も同じ関数を使う。
+- 軽さは見た目と同じく品質の一部とする（2026-09-26 Daisuke指示）。静的な素材（panel、観測窓、操作部の板、DRUMの本体の光）はエディタが開いている間、端末解像度の画像として一度だけ描き、以後の再描画では貼るだけにする（`HyphaMaterialCache.h`）。画像はエディタを閉じると解放し、合計24 MBを上限とする。直接描画との差は3階調以内とし、契約テストで確かめる。
+- 毎フレーム変わる層（FREQの地形など）は、半透明の面を重ね塗りせず各画素をほぼ一度だけ書く。描画予算は、エディタと同じくcacheを持った状態で測る。
+
+FREQの200%と300%のPOST絶対表示は、六秒の履歴を奥へ並べた地形として描く（INV-S34）。平面曲線が現在の値、地形はその六秒前までの経過である。
+PRE/POST対応のΔ表示は平面のままとする（2026-09-26 Daisuke決定）。
+同じ2サイズでは、plotの四隅の目印、描いている量の定義、表示中の解析条件を計器の注記として小さく左下と左上へ置く。
+
 ## 4. 画面別の配分
 
 | Surface | 強度 | 主な視覚層 | 実測との接続 | Compactで残す事実（最大3） |
 |---|---:|---|---|---|
-| POST LEVEL | 2/5 | 構造、観測、接続 | LUFS-Mとbalanceが低明度の菌糸形状を決める | 選択M/S、TP、Crest |
-| POST TIME HISTORY | 3/5 | 時間、観測 | ObservatoryはM、S、TP、PLR、correlationのexact history、CompactはM、S、TPだけを表示する | M、S、TP |
-| POST TIME ATTACK | 5/5 | 観測、時間 | 選択eventのstrength、texture、brightness、transientをspecimenへ投影する | specimen、主値、選択位置 |
+| POST LEVEL | 2/5 | 構造、観測、接続 | LUFS-Mとbalanceが低明度の菌糸形状を決める | S、I（TRACK/STEMではCrest）、MAX TP |
+| POST TIME HISTORY | 3/5 | 時間、観測 | ObservatoryはM、S、TP、PLR、correlationのexact history、125%はM、S、TP、100%はSとTPだけを表示する | M、S、TP（100%はS、TP） |
+| POST TIME ATTACK | 5/5 | 観測、時間 | 六秒HISTORYの下で打音ごとのTRANSIENT、STRENGTH、CREST、SHARPNESSのlaneを同じ時間軸へ並べ、選択打音を静的な菌糸線で貫く | HISTORY、選択打音の四値、選択位置（100%は1段のHISTORYと大きな四値） |
 | POST TIME SHARP | 3/5 | 観測、時間 | exact Sharpness差分と六秒historyを膜状のfillへ投影する | 現在値、差分、history |
 | POST TIME LIVE | 3/5 | 観測、時間 | POST単体のLUFS-M、TP、Sharpnessを固定scale上で追跡する | 三つの絶対値、history |
 | POST FREQ | 3/5 | 構造、観測、接続 | SpectrumとGuide bandを別authorityとして重ねる | Spectrum、主値、差分 |
 | POST SPACE | 4/5 | 観測 | 三秒MID/SIDE densityを抽象的な場へ投影する | field、balance、correlation |
 | POST Delta | 2/5 | 観測 | PREを低明度の基準、POSTを現在の測定として描く | 選択ΔM/S、ΔTP、ΔCrest |
-| PRE LEVEL | 2/5 | 構造、観測 | upstream sensorの実測だけを表示する | 選択M/S、TP、Crest |
+| PRE LEVEL | 2/5 | 構造、観測 | upstream sensorの実測だけを表示する | S、I（TRACK/STEMではCrest）、MAX TP |
 | Capture | 4/5 | 全層 | immutable snapshotをObservation Plateへ固定する | Compactでは操作を出さない |
 | WARMING、Inactive、Bypassed | 1/5 | 構造 | 成立していない値を`---`または事実状態で示す | role、domain、state、操作 |
 
@@ -127,13 +162,18 @@ M/S中のΔとΔ中のM/Sは位置を残して低明度のdisabled表示とし�
 
 Captureは追加で1080×1080と1080×1350のbounds契約を検証する。
 
-ATTACKのbodyは`attack_specimen_body_v3.png`とnative painterを使用する。半透明の水中生命体として、クラゲの傘とイカの推進を思わせる膜、青緑の屈折、暖色の生体発光脈を持たせ、親Shell側の背景を新しい地下観測所へ統一する。
-
-旧`attack_specimen_emission.png`は長い尾を持つ診断素材であり、製品ATTACKの中央標本には使用しない。
+ATTACKは専用の画像素材を持たない。B-1015で水中生命体の中央標本（`attack_specimen_body_v3.png`）を撤去し、HISTORYと四laneをnative painterで描く。
+計測面は殻より一段深い黒とし、共通のHypha素材`bg_mycelium.png`を時間の床として低明度で敷く。
+CE 2226の表現は、選択打音を貫く静的な菌糸線（exact x ±1 px、打音sampleで決まるdrift、HISTORY上のbulb、各laneの値の先端の点、下端の先端）と、観測値だけが持つ光に集約する。時間で揺らさない。
+2026-09-26から計測面は2.5Dの奥行き（凹んだガラスの溝、ガラス管の光、古いほど薄くなる光、片側のHISTORY）を持つ。
+数値はivory、lane色はlabelと棒と短いaccentに限る。詳細は`hypha_drum_lanes_20260924.md`の外観節を正本とする。
 
 ## 6. responsive契約
 
 画面寸法は300×200、375×250、450×300、600×400、900×600の五つを基準とするが、利用者に提供する表示思想はCompactとObservatoryの二系統だけとする。
+
+900×600を超える大きさは第六の配置を作らず、900×600のInspection Viewを拡大して表示する（INV-S39、2026-09-27 Daisuke承認）。
+拡大は、拡大率×画面の倍率が整数になる段階だけとし（Retinaは450%・600%、Windowsの100%表示は600%、150%表示は400%・600%）、作り置きの画像を端末の画素と1対1で貼る。角のドラッグは300%までは自由、それを超えると近い段階に吸着する。
 
 ### Compact meter: 300×200、375×250
 
@@ -141,8 +181,8 @@ CompactはDAW作業中に常設する即読メーターである。
 
 主値三つの面と、小さな補助行一つに限定する。2026-09-24の常時表示改善承認により、TPを隠さない構成へ更新した。
 
-LEVELはM/SとCURRENT/MAXを切替式にし、選択LUFS、現在TP、Session MAX TPを同時表示する。
-補助行は2MIXでI、TRACKでCrest。CURRENT/MAXはLUFSとCrestだけを切り替え、TPとMAX TPの時間範囲を変えない。
+LEVELはS（今の音量）、I（曲全体。TRACK/STEMではCrest）、MAX TP（Meter Sessionの最大True Peak）の三値を表示する。
+125%のCURRENT/MAXはSとCrestをWatchの最大値へ切り替え、MAX TPは常に最大値とする（2026-09-26 Daisuke承認）。
 
 CURRENTとMAXの六値を同時に縮小表示しない。
 
@@ -158,7 +198,20 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 
 300×200と375×250は同じgeometry規則を使用し、375専用の第三の表示思想を作らない。
 
-DAW Record中はCompactの常設面をHybrid VUへ一時置換する。通常時も既存Footerへ追加した`VU`ボタンから同じ面を開き、同じボタンで選択domainを変更せず元の画面へ戻る。
+100%（300×200）は見るだけの面とする（INV-S38、2026-09-26 Daisuke承認）。
+場所を取る操作（LEVELのCURRENT/MAX、TIMEの範囲とFOCUS、FREQのLR/MID/SIDE・M/S・PSB・MARK、SHARPのLR/MID/SIDE、DRUMのVIEW）は125%以上で選び、100%では既定と異なる選択（MID、SIDE、MARK、HOLD、LOCK）だけを小さく名指しする。
+図を直接触る操作（FREQの周波数固定、DRUMの打音選択）は全サイズで変えない。
+100%のTIME HISTORYはSとTPの2本とする。
+DRUMは見出し、説明、時間軸の行を置かず、1段のHISTORYの下に選択打音の四値（PREと組めばΔ付き）を同じ大きさの数字で置く。
+FREQは操作行、凡例行、右側の絶対値軸を置かずに図を広げ、Δの凡例だけを図の左上に重ねる。
+SPACEは散布図を高さいっぱいに置き、左にBAL、右にCORRを枠なしの数字で置く。
+
+2026-09-26から、Compactの二寸法では下段を上段2行目へ畳み、本体を下端の余白まで広げる（INV-S37）。
+2行目は右からPOST／Δ、サイズ、VU・STOP・MENU、OS Guideの順に場所を保ち、domainの巡回が残りの幅を使う。
+POST／Δを持たないReferenceでは、その場所を巡回へ回す。
+状態の行（フィードバック、実行中のCapture、フィードバックが無い間のWAITING・BYPASSEDなど）は、表示中だけ本体下端の1行の帯に全幅で出し、解析ページより手前に置く。
+
+DAW Record中はCompactの常設面をHybrid VUへ一時置換する。通常時も`VU`ボタン（Compactでは上段2行目、Observatoryでは下段）から同じ面を開き、同じボタンで選択domainを変更せず元の画面へ戻る。
 Recordによる面は停止時に元の画面へ戻る。手動選択はRecord開始／停止と独立する。
 既定ONの表示設定をOFFにした場合、またはHybrid VUの情報メニューから選択中のviewへ戻した場合は、自動置換を行わない。後者はそのRecord区間だけ有効とする。
 左右の針は0 VU = -18 dBFSの300 ms平均応答、上段cyan railは左右100 ms True Peak、amber markerはSession開始または直近`CLEAR`以降の左右最大TPとし、異なる時間尺度を一つの針へ混ぜない。
@@ -274,7 +327,7 @@ LEVELの菌糸量はLUFS-Mを`-48..0 LUFS`から`0..1`へclampした値だけで
 
 waitingと未接続では接続済みの形を表示しない。
 
-OS Guideが存在する場合だけFooterに短いGuide contextを表示する。
+OS Guideが存在する場合だけFooter（Compactでは上段2行目）に短いGuide contextを表示する。
 
 Guide contextは現在のdomainを変更せず、測定面の高さも変えない。
 
@@ -354,9 +407,11 @@ ATTACKはCompact、Observatory、1200×630 Captureの三経路でbodyが欠落�
 
 300×200と375×250はCompact、450×300はStandard、600×400はfull cockpit、900×600はInspection Viewとしてcompile-timeとruntimeの両方で固定する。文字はこの五つを基準点として中間寸法を連続補間し、役割と構成は`HyphaTypographyContract.h`、画面対応は`HyphaSurfacePresentation.h`を正本とする。
 
-文字は一律拡大しない。LEVELのM/S/Iなど即読する主値を`primaryValue`、TP、MAX TP、LRA、PLR、Crestなど比較を補助する値を`secondaryValue`として、全基準寸法で主値を大きく保つ。ATTACKのStrength、Texture、Sharpnessは同じ観測階層として均等な三列に置き、label、value、contextの中央軸をそろえる。
+文字は一律拡大しない。LEVELのM/S/Iなど即読する主値を`primaryValue`、TP、MAX TP、LRA、PLR、Crestなど比較を補助する値を`secondaryValue`として、全基準寸法で主値を大きく保つ。ATTACKの四laneは同じ観測階層として同じ高さと列にそろえ、lane名を`metricLabel`、選択打音の値を`secondaryValue`、値を出さない理由を`readout`とする。
 
 利用可能なlabel、unit、axis、legend、説明文には背景に対して4.5:1以上の可読色を使う。従来のmuted色は欠測値、無効な操作、非文字の補助線へ限定し、存在する情報を単に薄く見せる用途には使わない。PRESENCE overlayの既存値は変更しない。
+
+日本語の画面（INV-S40）では、状態、通知、説明、メニュー、案内だけを日本語にし、label、unit、axis、legend、数値、名前は英語のまま残す。日本語の文字を含む文だけを、呼び出し側が決めた高さのままネイティブ書体（macOSはヒラギノ、WindowsはYu Gothic UI）へ切り替える。英語の書体と文字組みは変えない。日本語は空白で折り返せないので任意の文字で折り返し、行間を文字の高さの2割とる。圧縮も縮小もしない。1行で描く状態は英語の幅＋2文字以内、通知は100%の帯（270 px）に収まる長さで書く。
 
 TIMEとSPACEの600×400描画は12 ms未満を維持し、900×600も独立の性能上限で検証する。
 

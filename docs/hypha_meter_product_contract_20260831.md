@@ -83,6 +83,7 @@ Kirin OS連携は`OS未所有`、`OS所有・未接続`、`接続済み・準備
 
 POSTのREF入口はOS権限を確認できない状態でも開け、Referenceの説明、公式製品ページ、所有者向け接続案内を表示する。
 公式製品ページは英語と日本語の明示選択で開き、購入処理や外部通信を自動開始しない。
+画面の言語（英語／日本語）はこの選択と独立しており、どちらの画面からも両方の公式ページを選べる（INV-S40）。
 所有者向け案内ではローカルlicenseの明示再確認を提供し、確認できないことを「未購入」と断定しない。
 Keep／All Keepは消さずdisabled表示にする。
 ReferenceはKirin OSが保存済みプリセットを自動配信し、POSTが受信する独立した経路である。
@@ -289,9 +290,10 @@ MIDは`(L+R)/2`、SIDEは`(L-R)/2`とし、25×25の固定fieldへ各観測最�
 30観測未満は実際の観測数を`WARMING n/30`として表示し、mono、無音、未成立を数値で装わない。
 correlationとL/R balanceも同じrolling 3秒窓を参照し、SPACEの発光やcell色は品質判定へ使わない。
 
-ATTACKはTRACK／STEMのDRUMに限定する。pair時のHISTORYとTRANSIENTはexact PRE/POSTを比較し、
-中央標本はpair状態にかかわらず選択POSTのStrength／Texture／Sharpness絶対値だけを表示する。
-PRE未接続時はPOST absoluteを維持し、PREと差分を生成しない。
+ATTACKはTRACK／STEMのDRUMに限定する。pair時のHISTORYはexact PRE/POSTを重ね、
+TRANSIENT／STRENGTH／CREST／SHARPNESSの四laneは、POSTをPREのonsetで同じ窓のまま測り直した打音ごとの`POST−PRE`を描く（B-1016）。
+PRE未接続時はlaneをPOST absoluteへ切り替え、PREと差分を生成しない。
+正本は`hypha_drum_lanes_20260924.md`とする。
 
 ### 7.4 OS Guide layer
 
@@ -421,6 +423,8 @@ TIMEのSHARPまたはATTACKも、該当subviewを開いたときだけ解析枠�
 
 POST FREQは既存Spectrum解析の同じ実測frameから、現在Spectrum、6秒固定長の時間周波数field、rolling peak holdを生成する。
 
+6秒の時間周波数fieldは、100%、125%、150%では縦軸を時間とする平面の濃淡、200%と300%では同じframeを奥へ並べた遠近の地形として描く（INV-S30、INV-S34）。PRE/POST対応のΔ表示は全サイズで平面のままとする。
+
 POST FREQのM/Sは同じstereo入力窓をMID、SIDEの順で解析し、一つの専用frameとして公開する。
 
 M/SはPOSTローカルであり、PRE要求、PRE/POST差分、6秒field、peak hold、MARK、Focus Trailを生成しない。
@@ -440,11 +444,12 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 
 | Size | POST required content | PRE required content |
 |---|---|---|
-| 300×200 | 選択domainの主値、role、pair、POST/Δ、Session state | MまたはS、現在TP、MAX TP、補助I/Crest、name、pair state |
+| 300×200 | 選択domainの主値、role、pair、POST/Δ、Session state。操作を置かない | S、I（TRACK/STEMではCrest）、MAX TP、name、pair state |
 | 375×250 | Compact内容、補助値、domain switch | Compact内容、I/O state、接続context |
 | 450×300 | 世界背景を抑えた主visual、軸、session facts | Standard内容、測定stateの詳細 |
 | 600×400 | Concept Cのfull cockpit、M/S/I、TP/MaxTP/LRA/PLR/Crest、History凡例のMax M、60秒History、左右TP、POST/Δ、Capture | POSTと共通のshell、広い数値面、接続context |
 | 900×600 | 全domain共通Inspection View、拡張History、詳細axis、既存解析の高解像度表示 | POSTと共通のInspection shell、拡張History、詳細axis |
+| 450%以上 | 900×600のInspection Viewを画面の画素に揃う段階で拡大（配置は900×600と同一） | POSTと同じ |
 
 小さい画面で情報を単純に縮小しない。
 
@@ -462,7 +467,7 @@ channel数、名前、routing、levelからcontextを推測または自動変更
 
 900×600（300%）は600×400を置換せず、LEVEL、TIME、FREQ、SPACEとTIME配下の解析を同じ操作体系のまま高解像度で読むInspection Viewとする。LEVELは履歴面積、channel strip、数値階層を拡張するが、未合意の新指標は追加しない。将来Session Atlasを載せる場合は別途表示内容を確定する。
 
-既存Footerへ置く`VU`ボタンは通常時もHybrid VUを全sizeで前面表示し、同じボタンで選択domainを変更せず元の画面へ戻す。手動選択は読み込まれたplugin instanceのeditorを閉じて再表示しても保持するが、DAW project stateへは保存しない。
+Footer（100%と125%では上段2行目）へ置く`VU`ボタンは通常時もHybrid VUを全sizeで前面表示し、同じボタンで選択domainを変更せず元の画面へ戻す。手動選択は読み込まれたplugin instanceのeditorを閉じて再表示しても保持するが、DAW project stateへは保存しない。
 DAW hostがRecordを通知している間は、選択domainやPOST/Δを変更せず、一時的なHybrid VU面を全sizeで前面表示する。
 停止後はRecord前の画面へ復帰する。
 情報メニューの`Show Hybrid VU while recording`は既定ONとし、DAWのplugin stateへ保存する。OFFではRecord中も選択中のdomainを維持する。ONでもHybrid VUの役割表示から情報メニューを開き、`Show selected view for this recording`を選ぶと、そのRecord区間だけ自動表示を解除できる。次のRecord開始時には再びHybrid VUを表示する。

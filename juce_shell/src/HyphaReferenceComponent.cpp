@@ -47,6 +47,8 @@ Component::Component()
     connectionStatus.setText ("OS", juce::dontSendNotification);
     connectionStatus.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (connectionStatus);
+    // Labels and the review workflow's buttons show their text in the current language (INV-S40).
+    setLookAndFeel (&selectorLookAndFeel);
     presetBox.setLookAndFeel (&selectorLookAndFeel);
     versionBox.setLookAndFeel (&selectorLookAndFeel);
     checkBox.setLookAndFeel (&selectorLookAndFeel);
@@ -286,7 +288,7 @@ void Component::paint (juce::Graphics& g)
             g.setColour (COL_MUTED.withAlpha (0.82f));
             g.setFont (labelFont (presentationContext, typography::TextRole::metricLabel,
                                   typography::Composition::information));
-            g.drawText (text, cell.removeFromTop (15), juce::Justification::centredLeft);
+            text_style::drawText (g, text, cell.removeFromTop (15), juce::Justification::centredLeft);
         };
         drawSelectorLabel (selectors.removeFromLeft (columnWidth), "PRESET");
         selectors.removeFromLeft (gap);
@@ -415,7 +417,7 @@ void Component::paint (juce::Graphics& g)
         ? "REVEALED / " + current.blindReveal : current.status;
     const auto side = current.separateComparisons && current.comparisonSlot == 2 ? "C" : "B";
     if (current.bSelected && ! blindRevealed)
-        statusText = juce::String { side } + "  /  PRE " + delta() + " PAUSED";
+        statusText = juce::String { side } + juce::String (juce::CharPointer_UTF8 ("  /  PRE Δ PAUSED"));
     auto availableStatusArea = statusArea;
     if (blindRevealed)
         availableStatusArea.removeFromLeft ((detailedLayout() ? 62 : 48) * 2 + 6);

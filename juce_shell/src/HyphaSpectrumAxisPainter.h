@@ -2,6 +2,7 @@
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSpectrumMagnitudeChrome.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 #include <cmath>
 
 namespace hypha::spectrum_axes
@@ -37,11 +38,11 @@ namespace hypha::spectrum_axes
         else
         {
             const float zeroY = spectrum_geometry::yForDeltaDb (0.0f, plot);
-            g.drawText ("+24", 0, juce::roundToInt (plot.getY()) - scaledInt (4),
+            text_style::drawText (g, "+24", 0, juce::roundToInt (plot.getY()) - scaledInt (4),
                         scaledInt (21), scaledInt (10), juce::Justification::centredRight);
-            g.drawText ("0", 0, juce::roundToInt (zeroY) - scaledInt (5),
+            text_style::drawText (g, "0", 0, juce::roundToInt (zeroY) - scaledInt (5),
                         scaledInt (21), scaledInt (10), juce::Justification::centredRight);
-            g.drawText ("-24", 0, juce::roundToInt (plot.getBottom()) - scaledInt (6),
+            text_style::drawText (g, "-24", 0, juce::roundToInt (plot.getBottom()) - scaledInt (6),
                         scaledInt (21), scaledInt (10), juce::Justification::centredRight);
             for (float db : { -12.0f, -6.0f, 6.0f, 12.0f })
             {
@@ -49,7 +50,9 @@ namespace hypha::spectrum_axes
                 g.setColour (COL_MUTED.withAlpha (0.18f));
                 g.drawHorizontalLine (juce::roundToInt (y), plot.getX(), plot.getRight());
             }
-            spectrum_magnitude_chrome::paintAxis (g, plot, scale, false, false, presentation);
+            // PRE and POST's absolute axis stands right of the plot, which takes that room at 100%.
+            if (! spectrum_geometry::viewOnly (scale))
+                spectrum_magnitude_chrome::paintAxis (g, plot, scale, false, false, presentation);
         }
         for (float hz : { 100.0f, 1'000.0f, 10'000.0f })
         {
@@ -77,18 +80,18 @@ namespace hypha::spectrum_axes
         }
 
         g.setColour (COL_MUTED.withAlpha (0.9f));
-        g.drawText (axisFrequencyText (minimumHz), juce::roundToInt (plot.getX()),
+        text_style::drawText (g, axisFrequencyText (minimumHz), juce::roundToInt (plot.getX()),
                     juce::roundToInt (plot.getBottom()) + scaledInt (1),
                     scaledInt (30), scaledInt (10), juce::Justification::centredLeft);
         if (minimumHz < 1'000.0f && maximumHz > 1'000.0f)
         {
             const float oneKhzX = spectrum_geometry::xForFrequency (
                 1'000.0f, minimumHz, maximumHz, plot);
-            g.drawText ("1k", juce::roundToInt (oneKhzX) - scaledInt (15),
+            text_style::drawText (g, "1k", juce::roundToInt (oneKhzX) - scaledInt (15),
                         juce::roundToInt (plot.getBottom()) + scaledInt (1),
                         scaledInt (30), scaledInt (10), juce::Justification::centred);
         }
-        g.drawText (axisFrequencyText (maximumHz),
+        text_style::drawText (g, axisFrequencyText (maximumHz),
                     juce::roundToInt (plot.getRight()) - scaledInt (30),
                     juce::roundToInt (plot.getBottom()) + scaledInt (1),
                     scaledInt (30), scaledInt (10), juce::Justification::centredRight);
@@ -101,7 +104,7 @@ namespace hypha::spectrum_axes
                     continue;
                 const float x = spectrum_geometry::xForFrequency (
                     hz, minimumHz, maximumHz, plot);
-                g.drawText (axisFrequencyText (hz),
+                text_style::drawText (g, axisFrequencyText (hz),
                             juce::roundToInt (x) - scaledInt (15),
                             juce::roundToInt (plot.getBottom()) + scaledInt (1),
                             scaledInt (30), scaledInt (10), juce::Justification::centred);

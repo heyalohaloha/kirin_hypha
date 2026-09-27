@@ -10,6 +10,11 @@
 #include "PerceptualHistoryContractTest.h"
 #include "AbsoluteTimelineContractTest.h"
 #include "AbsoluteSpectrumContractTest.h"
+#include "SpectrumTerrainShowcase.h"
+#include "CompactReviewShowcase.h"
+#include "SpectrumControlsContract.h"
+#include "LanguageContract.h"
+#include "MagnifiedInspectionContract.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
 #include "SpectrumShapeContractTest.h"
@@ -143,6 +148,8 @@ int main (int argc, char** argv)
     { hypha::tests::verifySpectrumShapeContract (KirinSpectrumView {}); return 0; }
     const auto previews = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
     if (previews.isNotEmpty()) KIRIN_REQUIRE (juce::File (previews).createDirectory().wasOk());
+    KIRIN_REQUIRE (hypha::tests::writeSpectrumShowcase());
+    KIRIN_REQUIRE (hypha::tests::writeCompactReview());
     if (hypha::tests::verifyUiFeatureContracts (argc, argv)) return 0;
     {
         juce::Image panel (juce::Image::RGB, 120, 60, true);
@@ -186,6 +193,7 @@ int main (int argc, char** argv)
         KIRIN_REQUIRE (! fallback.isEnabled()); // failed persistence keeps the session choice
     }
     KIRIN_REQUIRE (preferenceDirectory.deleteRecursively());
+    hypha::tests::verifyLanguageContract();
 
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.0f) - 1.0f) < 1.0e-6f);
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.25f) - 1.12f) < 1.0e-6f);
@@ -232,7 +240,7 @@ int main (int argc, char** argv)
         juce::Graphics graphics (warmingSpectrumImage);
         spectrum.paintEntireComponent (graphics, true);
     }
-    spectrum.setComparisonStatus ("CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS");
+    spectrum.setComparisonStatus (juce::String (juce::CharPointer_UTF8 ("CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS")));
     juce::Image refusedSpectrumImage (
         juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
     {
@@ -326,9 +334,14 @@ int main (int argc, char** argv)
         spectrum.paintEntireComponent (graphics, true);
     }
     KIRIN_REQUIRE (countDifferentPixels (spectrumWithoutHover, spectrumWithFocusLock) > 30);
-    const float clearX = (float) spectrumBounds.width
-                       - (float) ui::spectrumPlotRightInset - 3.0f;
-    const float clearY = (float) ui::spectrumPlotTopInset + 24.0f;
+    // The lock's x sits in its readout, which follows the plot's right edge at every size.
+    const auto lockBounds = spectrum.getLocalBounds().toFloat();
+    const auto lockScale = hypha::spectrum_geometry::visualScaleFor (lockBounds);
+    const auto clearPoint = hypha::spectrum_geometry::focusClearBoundsFor (
+        hypha::spectrum_geometry::readoutBoundsFor (hypha::spectrum_geometry::plotBoundsFor (lockBounds),
+                                                    lockScale, lockScale > 1.1f, true), lockScale).getCentre();
+    const float clearX = clearPoint.x;
+    const float clearY = clearPoint.y;
     const juce::MouseEvent clearEvent (
         juce::Desktop::getInstance().getMainMouseSource(),
         { clearX, clearY }, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
@@ -345,28 +358,8 @@ int main (int argc, char** argv)
         const auto markSpectrumBounds = ui::spectrumPlotBounds (preset.width, preset.height);
         markSpectrum.setSize (markSpectrumBounds.width, markSpectrumBounds.height);
         markSpectrum.setSnapshot (spectrumSnapshot);
-        const auto outer = hypha::spectrum_geometry::plotBoundsFor (
-            markSpectrum.getLocalBounds().toFloat());
-        const auto scale = hypha::spectrum_geometry::visualScaleFor (
-            markSpectrum.getLocalBounds().toFloat());
-        const auto modeFont = hypha::monoFont (
-            presentation, hypha::typography::TextRole::navigation,
-            hypha::typography::Composition::visualization);
-        constexpr std::array<const char*, 4> labels { "LR", "MID", "SIDE", "M/S" };
-        for (size_t index = 0u; index < labels.size(); ++index)
-            KIRIN_REQUIRE (hypha::spectrum_geometry::displayModeBoundsFor (
-                index, outer, scale).getWidth() >= std::ceil (
-                    modeFont.getStringWidthFloat (labels[index]) + modeFont.getHeight() * 0.5f));
-        const auto readoutFont = hypha::monoFont (
-            presentation, hypha::typography::TextRole::readout,
-            hypha::typography::Composition::visualization);
-        if (scale <= 1.1f)
-            KIRIN_REQUIRE (70.0f * scale >= std::ceil (
-                hypha::tabularTextWidth (readoutFont, "M -144.0")
-                + readoutFont.getHeight() * 0.5f));
-        hypha::tests::verifySpectrumInteractionContract (
-            markSpectrum, spectrumSnapshot,
-            markSpectrumBounds.width, markSpectrumBounds.height, eventTime);
+        hypha::tests::verifySpectrumControlsAt (markSpectrum, spectrumSnapshot,
+                                                preset.width, preset.height, eventTime);
     }
     // Keep the performance-sensitive trail gate after all five MARK size contracts.
     hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);
@@ -425,6 +418,9 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE ((float) postCurveColumns
                        >= (float) innerPlotWidth * minimumContinuousCoverage);
 
+    // An open editor holds the material cache (HyphaMaterialCache.h), so its steady repaint draws
+    // the static panels and wells from images. The gate measures that repaint.
+    const hypha::material_cache::Lifetime editorMaterial;
     const auto compactSpectrum = renderSpectrumAtSize (
         spectrumSnapshot, ui::spectrumSizePresets[0], "KIRIN_UI_RENDER_OUTPUT");
     const auto mediumSpectrum = renderSpectrumAtSize (
@@ -485,6 +481,8 @@ int main (int argc, char** argv)
         std::cout << (index == 0u ? " " : "/") << midSideRenders[index].paintMs;
     }
     std::cout << " ms/frame\n";
+    // Last: its magnified paints must not warm or load the machine for the budgets above.
+    hypha::tests::verifyMagnifiedInspectionBudget();
 
     std::cout << "UI render contract passed: vector-arrow=" << arrowPixels << " pixels"
               << ", PRE-runs=" << preCurveRuns

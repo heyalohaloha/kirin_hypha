@@ -5,6 +5,8 @@
 #include "HyphaTheme.h"
 #include "HyphaPolylineGeometry.h"
 #include "HyphaTimeFieldImage.h"
+#include "HyphaSpectrumTerrain.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <array>
@@ -300,15 +302,11 @@ void paintCurves (juce::Graphics& g,
     }
 }
 
-void paintAbsolute (juce::Graphics& g,
-                    juce::Rectangle<float> plot,
-                    float visualScale,
-                    const SpectrumBins& post,
-                    const SpectrumBins& peakHold,
-                    const absolute_spectrum::History& history,
-                    presentation::Context presentation)
+void paintAbsoluteHistory (juce::Graphics& g,
+                           juce::Rectangle<float> plot,
+                           const absolute_spectrum::History& history)
 {
-    if (! history.empty())
+    if (! history.empty() && ! spectrum_terrain::paintLevelLandscape (g, plot, history))
     {
         // One blit at the measured resolution: a column per band, a row per 1/180 of the six
         // seconds. The 64 x 40 cell grid this replaced kept one frame per row, so 140 of 180
@@ -333,6 +331,17 @@ void paintAbsolute (juce::Graphics& g,
             [&alphaTable] (float dbfs) { return fieldAlphaStepFor (dbfs, alphaTable); });
         time_field::draw (g, field, plot);
     }
+}
+
+void paintAbsolute (juce::Graphics& g,
+                    juce::Rectangle<float> plot,
+                    float visualScale,
+                    const SpectrumBins& post,
+                    const SpectrumBins& peakHold,
+                    const absolute_spectrum::History& history,
+                    presentation::Context presentation)
+{
+    paintAbsoluteHistory (g, plot, history);
 
     SpectrumBins x {};
     SpectrumBins currentY {};
@@ -351,10 +360,10 @@ void paintAbsolute (juce::Graphics& g,
     g.setFont (monoFont (presentation, typography::TextRole::axis,
                          typography::Composition::visualization));
     g.setColour (COL_NORMAL.withAlpha (0.82f));
-    g.drawText ("-6s", juce::Rectangle<float> { plot.getRight() - 36.0f, plot.getY(),
+    text_style::drawText (g, "-6s", juce::Rectangle<float> { plot.getRight() - 36.0f, plot.getY(),
                                                 36.0f, 14.0f }.toNearestInt(),
                 juce::Justification::centredRight);
-    g.drawText ("NOW", plot.withLeft (plot.getRight() - 36).withTop (plot.getBottom() - 14).toNearestInt(),
+    text_style::drawText (g, "NOW", plot.withLeft (plot.getRight() - 36).withTop (plot.getBottom() - 14).toNearestInt(),
                 juce::Justification::centredRight);
 
     juce::Path fill;
@@ -380,7 +389,7 @@ void paintAbsolute (juce::Graphics& g,
     g.strokePath (current, juce::PathStrokeType (1.8f * strokeScale,
                                                   juce::PathStrokeType::curved,
                                                   juce::PathStrokeType::rounded));
-    g.setColour (COL_FLORA_BR.withAlpha (0.58f));
+    g.setColour (COL_FLORA_BR.withAlpha (ui_contract::spectrumHoldAlpha));
     g.strokePath (hold, juce::PathStrokeType (0.85f * strokeScale,
                                                juce::PathStrokeType::curved,
                                                juce::PathStrokeType::rounded));

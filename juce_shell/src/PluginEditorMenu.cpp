@@ -174,6 +174,7 @@ void KirinHyphaEditor::showOperationsMenu()
     }
     menu.addItem (10, "Show hover help", true,
                   hypha::HoverHelpPreference::shared().isEnabled());
+    addLanguageMenu (menu);
     if (appearanceSnapshot.activationSeen)
         menu.addItem (jungleModeMenuAction, "Jungle Mode", true,
                       observatoryView.jungleAppearanceEnabled());
@@ -188,6 +189,7 @@ void KirinHyphaEditor::showOperationsMenu()
 
 void KirinHyphaEditor::handleOperationsMenu (int result)
 {
+    if (handleLanguageMenu (result)) return;
     if (result == 20)
     {
         if (observatoryView.onReset) observatoryView.onReset();
@@ -315,13 +317,23 @@ void KirinHyphaEditor::showSizeMenu()
     juce::PopupMenu menu;
     menu.setLookAndFeel (&pairMenuLookAndFeel());
     menu.addSectionHeader ("Editor size");
-    for (size_t index = 0; index < hypha::observatory::sizePresets.size(); ++index)
+    // The five layouts, then the magnified steps this display holds on whole device pixels.
+    std::vector<hypha::observatory::SizePreset> choices (hypha::observatory::sizePresets.begin(),
+                                                        hypha::observatory::sizePresets.end());
+    for (int index = 0;; ++index)
     {
-        const auto& preset = hypha::observatory::sizePresets[index];
-        const auto label = juce::String (preset.label) + "   "
+        const auto step = hypha::observatory::magnifiedStep (sizeConstrainer.getDisplayScale(), index);
+        if (step.width == 0 || step.width > sizeConstrainer.getMaximumWidth())
+            break;
+        choices.push_back ({ step.width, step.height, hypha::observatory::Density::inspection, "" });
+    }
+    for (size_t index = 0; index < choices.size(); ++index)
+    {
+        const auto& preset = choices[index];
+        const auto label = juce::String (juce::roundToInt (preset.width * 100.0 / 300.0)) + "%   "
                          + juce::String (preset.width) + juce::String::fromUTF8 ("×")
                          + juce::String (preset.height);
-        menu.addItem (400 + (int) index, label, true,
+        menu.addItem (400 + (int) index, label, preset.width <= sizeConstrainer.getMaximumWidth(),
                       getWidth() == preset.width && getHeight() == preset.height);
     }
     const auto options = juce::PopupMenu::Options()
@@ -329,10 +341,10 @@ void KirinHyphaEditor::showSizeMenu()
         .withDeletionCheck (*this).withMinimumWidth (240).withMaximumNumColumns (1)
         .withStandardItemHeight (ui::pairMenuItemHeight);
     juce::Component::SafePointer<KirinHyphaEditor> safe (this);
-    menu.showMenuAsync (options, [safe] (int result)
+    menu.showMenuAsync (options, [safe, choices] (int result)
     {
-        if (safe == nullptr || result < 400 || result >= 405) return;
-        const auto preset = hypha::observatory::sizePresets[(size_t) (result - 400)];
+        if (safe == nullptr || result < 400 || result >= 400 + (int) choices.size()) return;
+        const auto preset = choices[(size_t) (result - 400)];
         juce::PopupMenu::dismissAllActiveMenus();
         juce::MessageManager::callAsync ([safe, preset]
         {
@@ -400,7 +412,8 @@ void KirinHyphaEditor::showFeedbackInformationMenu()
     menu.addSectionHeader ("Status");
     menu.addItem (600, observatoryView.feedback(), false);
     menu.showMenuAsync (juce::PopupMenu::Options()
-        .withTargetComponent (&observatoryView.feedbackDetailsAnchor())
+        .withTargetComponent (feedbackStrip.isVisible() ? static_cast<juce::Component*> (&feedbackStrip)
+                                                        : &observatoryView.feedbackDetailsAnchor())
         .withDeletionCheck (*this).withMinimumWidth (juce::jlimit (300, 440, getWidth()))
         .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight),
         [] (int) {});

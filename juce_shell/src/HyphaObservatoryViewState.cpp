@@ -108,7 +108,8 @@ void View::toggleHybridVu()
 int View::timeControlsHeight() const noexcept
 {
     if (selectedDomain != Domain::time) return 0;
-    const bool controls = capabilities().historyRange || capabilities().loudnessScale;
+    const bool controls = (capabilities().historyRange || capabilities().loudnessScale)
+                       && currentPreset().density != Density::compact;
     return (role == Role::post || controls) ? timeNavigationHeight (currentPreset().density) : 0;
 }
 void View::setMeterContext (meter_context::MeterContext value)
@@ -150,6 +151,10 @@ juce::Rectangle<int> View::analysisBodyBounds() const noexcept
     auto area = bodyArea;
     if (selectedDomain == Domain::time)
         area.removeFromTop (timeControlsHeight());
+    // Folded, Reference keeps its bottom row (the reason line, OPEN REFERENCE) clear of the status
+    // strip: the page ends where the strip begins. The other pages let the strip pass over them.
+    if (statusStripOverBody && selectedDomain == Domain::reference)
+        area.setBottom (statusStrip.getY());
     return area;
 }
 
@@ -160,9 +165,9 @@ juce::Rectangle<int> View::timeNavigationBounds() const noexcept
     const auto density = currentPreset().density;
     auto available = bodyArea;
     auto row = available.removeFromTop (timeNavigationHeight (density));
-    if (capabilities().loudnessScale && ! captureFrame)
+    if (capabilities().loudnessScale && timeControlsShown())
         row.removeFromRight (timeScaleWidth (density));
-    if (capabilities().historyRange && ! captureFrame)
+    if (capabilities().historyRange && timeControlsShown())
         row.removeFromRight (juce::jmax (120, timeRangeWidth (density)));
     return row;
 }

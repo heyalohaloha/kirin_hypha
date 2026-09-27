@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaTextStyle.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaAttackUiContract.h"
 #endif
@@ -26,6 +27,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
                .trim() == hypha::attack_ui::activationValue;
    #endif
     tooltip.setLookAndFeel (&tooltipLookAndFeel);
+    setLookAndFeel (&textLookAndFeel);
+    syncLanguage (false); // before the first layout, which then uses the language shown
     setWantsKeyboardFocus (true);
     setMouseClickGrabsKeyboardFocus (false);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
@@ -45,9 +48,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     observatoryView.setTimeRange (hypha::observatory::timeRangeFromState (
         processorRef.observatoryTimeRangePreference()));
     configureMeterContext(); setResizable (true, false);
-    setResizeLimits (300, 200, 900, 600);
-    if (auto* aspectConstrainer = getConstrainer())
-        aspectConstrainer->setFixedAspectRatio (1.5);
+    setConstrainer (&sizeConstrainer);
+    updateResizeLimits();
     const auto storedEditorSize = hypha::observatory::unpackEditorSize (
         processorRef.observatoryEditorSizePreference());
     auto initialWidth = storedEditorSize.width;
@@ -58,6 +60,10 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         initialWidth = fallback.width;
         initialHeight = fallback.height;
     }
+    // A saved size opens as this display allows it: a magnified one on its nearest step.
+    const auto allowedInitial = sizeConstrainer.allowedSize ({ initialWidth, initialHeight });
+    initialWidth = allowedInitial.width;
+    initialHeight = allowedInitial.height;
     editorSizePersistenceReady = true;
     setSize (initialWidth, initialHeight);
     observatoryView.setHybridVuOnRecordEnabled (processorRef.hybridVuOnRecordPreference());
@@ -95,6 +101,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     };
     observatoryView.onSizeChange = [this] (hypha::observatory::SizePreset preset)
     {
+        // A size this display cannot hold wraps to 100%.
+        if (preset.width > sizeConstrainer.getMaximumWidth())
+            preset = hypha::observatory::sizePresets.front();
         for (size_t index = 0; index < hypha::observatory::sizePresets.size(); ++index)
             if (hypha::observatory::sizePresets[index].width == preset.width)
             {
@@ -196,13 +205,9 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         nameField.setFallback (instanceId8());
     }
 
-    // One role-independent slot owns feedback priority and the only bottom-row rectangle.
-    feedbackLabel.setFont (hypha::monoFont (
-        hypha::presentation::defaultContext(), hypha::typography::TextRole::status));
-    feedbackLabel.setJustificationType (juce::Justification::centredLeft);
-    feedbackLabel.setMinimumHorizontalScale (1.0f);
-    feedbackLabel.setInterceptsMouseClicks (false, false);
-    scaleRoot.addChildComponent (feedbackLabel);
+    // Where the footer folds into the header, feedback is shown over the body's bottom edge.
+    feedbackStrip.onClick = [this] { showFeedbackInformationMenu(); };
+    scaleRoot.addChildComponent (feedbackStrip);
 
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     spectrumToggle.setVisible (false);
@@ -236,7 +241,7 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
     g.setColour (COL_NORMAL);
     g.setFont (hypha::labelFont (hypha::presentation::forEditor (getWidth(), getHeight()),
                                  hypha::typography::TextRole::shellTitle));
-    g.drawText (isPost ? ui::postTitle : ui::preTitle,
+    hypha::text_style::drawText (g, isPost ? ui::postTitle : ui::preTitle,
                 titleArea,
                 juce::Justification::centredLeft);
 
@@ -305,8 +310,8 @@ void KirinHyphaEditor::resized()
         timePageNavigation.toFront (false);
     }
    #endif
-    feedbackLabel.setBounds (observatoryView.sessionBounds());
-    feedbackLabel.toFront (false);
+    layoutFeedbackStrip();
+    feedbackStrip.toFront (false);
     if (observatoryView.hybridVuVisible()) observatoryView.toFront (false);
    #if ! KIRIN_HYPHA_PRE_DISPLAY
     if (isPost) layoutLocalBlindProduct();
@@ -332,6 +337,28 @@ void KirinHyphaEditor::updateSpectrumSizeControl()
 }
 #endif
 
+hypha::presentation::Context KirinHyphaEditor::logicalPresentationContext() const
+{
+    const auto viewport = hypha::observatory::displayViewport (getWidth(), getHeight());
+    return hypha::presentation::forEditor (viewport.width, viewport.height);
+}
+
+void KirinHyphaEditor::updateResizeLimits()
+{
+    // The display the editor is on (the primary one before it is shown) sets the steps and the
+    // largest size; host window chrome (title bar, borders) stays outside its usable area.
+    const auto& displays = juce::Desktop::getInstance().getDisplays();
+    const auto* display = isShowing() ? displays.getDisplayForRect (getScreenBounds())
+                                      : displays.getPrimaryDisplay();
+    const auto scale = display != nullptr ? (float) display->scale : 1.0f;
+    const auto largest = display != nullptr
+        ? hypha::observatory::largestEditorSizeWithin (display->userArea.getWidth() - 32,
+                                                       display->userArea.getHeight() - 64, scale)
+        : hypha::observatory::EditorSize { 900, 600 };
+    sizeConstrainer.setDisplayScale (scale);
+    sizeConstrainer.setSizeLimits (300, 200, largest.width, largest.height);
+}
+
 void KirinHyphaEditor::showToast (const juce::String& msg)
 {
     toastUntil = nowSecs() + 3.0; // TOAST_DURATION_SECS
@@ -343,35 +370,34 @@ void KirinHyphaEditor::updateFeedback (
     double now, bool keeping, const juce::String& persistentError)
 {
     juce::String text;
-    juce::Colour colour = COL_MUTED;
 
     // Direct user-action feedback must remain visible even while a persistent producer error is
     // present (R-28). After the three-second toast, the persistent error automatically returns;
     // the short acknowledgement is the lowest-priority informational state.
     if (now < toastUntil && toastText.isNotEmpty())
-    {
         text = toastText;
-        colour = COL_NORMAL;
-    }
     else if (persistentError.isNotEmpty())
-    {
         text = persistentError;
-        colour = hypha::COL_LED_YELLOW;
-    }
     else if (keeping)
-    {
         text = "Keeping";
-        colour = COL_FLORA;
-    }
 
     if (now >= toastUntil)
         toastText.clear();
 
     observatoryView.setFeedback (text);
-    feedbackLabel.setVisible (false);
-    if (text.isNotEmpty())
-    {
-        feedbackLabel.setText (text, juce::dontSendNotification);
-        feedbackLabel.setColour (juce::Label::textColourId, colour);
-    }
+    // The strip also carries the footer's short status (WAITING, BYPASSED) while nothing else shows.
+    feedbackStrip.setFeedback (text.isNotEmpty() ? text : observatoryView.footerStatus());
+    layoutFeedbackStrip();
+}
+
+void KirinHyphaEditor::layoutFeedbackStrip()
+{
+    bool shown = observatoryView.statusStripFolded() && feedbackStrip.text().isNotEmpty();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    shown = shown && ! localBlindOpen;
+   #endif
+    feedbackStrip.setBounds (observatoryView.statusStripBounds());
+    if (shown && ! feedbackStrip.isVisible())
+        feedbackStrip.toFront (false);
+    feedbackStrip.setVisible (shown);
 }

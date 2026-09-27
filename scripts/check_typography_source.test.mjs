@@ -63,6 +63,39 @@ for (const [name, source, reason] of [
   assert.match(findTypographyViolations(source)[0]?.reason ?? '', reason);
 });
 
+test('screen text is drawn only through the text_style boundary (INV-S40)', () => {
+  const direct = 'g.drawText ("WAITING", area, centred, false);';
+  assert.match(findTypographyViolations(direct, 'juce_shell/src/NewPainter.cpp')[0]?.reason ?? '',
+    /drawn through text_style/);
+  assert.match(findTypographyViolations('g.drawMultiLineText (text, 0, 10, 80);',
+    'juce_shell/src/NewPainter.cpp')[0]?.reason ?? '', /drawn through text_style/);
+  assert.deepEqual(findTypographyViolations(direct, 'juce_shell/src/HyphaTextStyle.cpp'), []);
+  assert.deepEqual(findTypographyViolations(direct, 'juce_shell/tests/Baseline.cpp'), []);
+  assert.deepEqual(findTypographyViolations(
+    'text_style::drawText (g, "WAITING", area, centred);', 'juce_shell/src/NewPainter.cpp'), []);
+});
+
+test('text outside ASCII says its encoding', () => {
+  for (const source of [
+    'auto a = juce::String (juce::CharPointer_UTF8 ("PRE — POST"));',
+    'auto b = juce::String::fromUTF8 (\n    "待機中");',
+    'const Entry e { "WAITING", u8"待機中" };',
+    'auto c = u"document-α";',
+    'auto d = juce::CharPointer_UTF8 ("A "\n    "— B");',
+  ]) assert.deepEqual(findTypographyViolations(source), [], source);
+  assert.match(findTypographyViolations('return "PRE IS OFF — ENABLE PRE";')[0]?.reason ?? '',
+    /outside ASCII/);
+  assert.match(findTypographyViolations('auto e = juce::String (" · ABSOLUTE");')[0]?.reason ?? '',
+    /outside ASCII/);
+});
+
+test('the native twin of a contracted font is a typography factory', () => {
+  assert.deepEqual(findTypographyViolations(
+    'g.setFont (nativeTextFontLike (monoFont (context, typography::TextRole::status)));'), []);
+  assert.match(findTypographyViolations('g.setFont (nativeTextFontLike ());')[0]?.reason ?? '',
+    /requires presentation context/);
+});
+
 test('untracked source files are included by the filesystem walk', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hypha-typography-source-'));
   try {

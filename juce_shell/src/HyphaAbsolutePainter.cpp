@@ -1,4 +1,5 @@
 #include "HyphaAbsolutePainter.h"
+#include "HyphaStoppedHistory.h"
 
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaAnalysisUiText.h"
@@ -89,7 +90,7 @@ namespace
             g.setFont (monoFont (state.presentation, typography::TextRole::readout,
                                  typography::Composition::visualization));
             g.setColour (COL_SPECTRUM_POST.withAlpha (0.98f));
-            g.drawText (juce::String (label) + factValueText (value, 2) + " acum",
+            text_style::drawText (g, juce::String (label) + factValueText (value, 2) + " acum",
                         area, juce::Justification::centred);
             return;
         }
@@ -99,8 +100,10 @@ namespace
         auto latest = state.numericSnapshot;
         if (! state.haveNumericSnapshot)
             latest.lufs_m = latest.true_peak = latest.sharpness = std::numeric_limits<double>::quiet_NaN();
+        // One meaning, one colour on every page: the POST level in gold, true peak in the cyan
+        // of the VU peak bars, Sharpness in its lilac.
         const std::array<juce::Colour, 3> colours {
-            COL_SPECTRUM_DELTA, COL_SPECTRUM_POST, COL_FLORA
+            COL_SPECTRUM_POST, COL_SPECTRUM_DELTA, COL_SHARPNESS
         };
         const std::array<juce::String, 3> text {
             factText ("M", "LUFS-M", latest.lufs_m, 1, scale),
@@ -110,7 +113,7 @@ namespace
         for (size_t index = 0u; index < text.size(); ++index)
         {
             g.setColour (colours[index].withAlpha (0.98f));
-            g.drawText (text[index],
+            text_style::drawText (g, text[index],
                         juce::Rectangle<float> (area.getX() + third * static_cast<float> (index),
                                                 area.getY(), third, area.getHeight()),
                         juce::Justification::centred);
@@ -139,24 +142,24 @@ namespace
         const int y = juce::roundToInt (plot.getBottom());
         const int labelWidth = juce::roundToInt (30.0f * scale);
         const int labelHeight = juce::roundToInt (10.0f * scale);
-        g.drawText ("-6s", juce::roundToInt (plot.getX()), y,
+        text_style::drawText (g, "-6s", juce::roundToInt (plot.getX()), y,
                     labelWidth, labelHeight,
                     juce::Justification::centredLeft);
-        g.drawText ("-3", juce::roundToInt (plot.getCentreX()) - labelWidth / 2, y,
+        text_style::drawText (g, "-3", juce::roundToInt (plot.getCentreX()) - labelWidth / 2, y,
                     labelWidth, labelHeight,
                     juce::Justification::centred);
-        g.drawText ("NOW", juce::roundToInt (plot.getRight()) - labelWidth, y,
+        text_style::drawText (g, "NOW", juce::roundToInt (plot.getRight()) - labelWidth, y,
                     labelWidth, labelHeight,
                     juce::Justification::centredRight);
         if (sharpnessOnly)
         {
-            g.drawText ("3", 0, juce::roundToInt (plot.getY()) - labelHeight / 2,
+            text_style::drawText (g, "3", 0, juce::roundToInt (plot.getY()) - labelHeight / 2,
                         juce::roundToInt (plot.getX()) - 3, labelHeight,
                         juce::Justification::centredRight);
-            g.drawText ("1.5", 0, juce::roundToInt (plot.getCentreY()) - labelHeight / 2,
+            text_style::drawText (g, "1.5", 0, juce::roundToInt (plot.getCentreY()) - labelHeight / 2,
                         juce::roundToInt (plot.getX()) - 3, labelHeight,
                         juce::Justification::centredRight);
-            g.drawText ("0", 0, juce::roundToInt (plot.getBottom()) - labelHeight,
+            text_style::drawText (g, "0", 0, juce::roundToInt (plot.getBottom()) - labelHeight,
                         juce::roundToInt (plot.getX()) - 3, labelHeight,
                         juce::Justification::centredRight);
         }
@@ -217,6 +220,33 @@ namespace
                                                   juce::PathStrokeType::curved,
                                                   juce::PathStrokeType::rounded));
     }
+
+    void paintTimeline (juce::Graphics& g, juce::Rectangle<float> plot, float scale, const PaintState& state)
+    {
+        if (state.sharpnessOnly)
+        {
+            paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
+                         sharpnessMinimum, sharpnessMaximum, 0.0f, 1.0f, scale,
+                         [] (const KirinAbsoluteView& frame) { return frame.sharpness; });
+            return;
+        }
+
+        paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
+                     lufsMinimum, lufsMaximum,
+                     ui_contract::absoluteLufsBandTop,
+                     ui_contract::absoluteLufsBandBottom, scale,
+                     [] (const KirinAbsoluteView& frame) { return frame.lufs_m; });
+        paintSeries (g, state.batch, plot, COL_SPECTRUM_DELTA,
+                     peakMinimum, peakMaximum,
+                     ui_contract::absolutePeakBandTop,
+                     ui_contract::absolutePeakBandBottom, scale,
+                     [] (const KirinAbsoluteView& frame) { return frame.true_peak; });
+        paintSeries (g, state.batch, plot, COL_SHARPNESS,
+                     sharpnessMinimum, sharpnessMaximum,
+                     ui_contract::absoluteSharpnessBandTop,
+                     ui_contract::absoluteSharpnessBandBottom, scale,
+                     [] (const KirinAbsoluteView& frame) { return frame.sharpness; });
+    }
 }
 
 void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& state)
@@ -232,6 +262,9 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
 
     if (! state.signalActive || ! state.haveBatch || state.batch.count == 0u)
     {
+        // Stopped: the six seconds already measured stay, dimmed, under the status.
+        if (! state.signalActive && state.haveBatch && state.batch.count > 0u)
+            stopped_history::paintDimmed (g, [&] { paintTimeline (g, plot, scale, state); });
         const auto inactive = state.sharpnessOnly ? "INACTIVE / POST SHARPNESS"
                                                   : "INACTIVE / POST ABSOLUTE";
         const auto status = ! state.signalActive ? juce::String (inactive) : state.haveBatch
@@ -246,29 +279,6 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const PaintState& 
                           2, typography::Composition::visualization);
         return;
     }
-
-    if (state.sharpnessOnly)
-    {
-        paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
-                     sharpnessMinimum, sharpnessMaximum, 0.0f, 1.0f, scale,
-                     [] (const KirinAbsoluteView& frame) { return frame.sharpness; });
-        return;
-    }
-
-    paintSeries (g, state.batch, plot, COL_SPECTRUM_DELTA,
-                 lufsMinimum, lufsMaximum,
-                 ui_contract::absoluteLufsBandTop,
-                 ui_contract::absoluteLufsBandBottom, scale,
-                 [] (const KirinAbsoluteView& frame) { return frame.lufs_m; });
-    paintSeries (g, state.batch, plot, COL_SPECTRUM_POST,
-                 peakMinimum, peakMaximum,
-                 ui_contract::absolutePeakBandTop,
-                 ui_contract::absolutePeakBandBottom, scale,
-                 [] (const KirinAbsoluteView& frame) { return frame.true_peak; });
-    paintSeries (g, state.batch, plot, COL_FLORA,
-                 sharpnessMinimum, sharpnessMaximum,
-                 ui_contract::absoluteSharpnessBandTop,
-                 ui_contract::absoluteSharpnessBandBottom, scale,
-                 [] (const KirinAbsoluteView& frame) { return frame.sharpness; });
+    paintTimeline (g, plot, scale, state);
 }
 }

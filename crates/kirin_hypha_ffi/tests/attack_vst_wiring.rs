@@ -112,3 +112,20 @@ fn attack_abi_stays_compatible_and_the_product_view_has_a_navigation_route() {
     assert!(navigation.contains("attack"));
     assert!(navigation.contains("ATTACK"));
 }
+
+#[test]
+fn drum_ui_windows_are_the_measurement_windows() {
+    // The loupe draws the head step, the body and the shape lead-in from its own constants.
+    let contract = read_repo("juce_shell/src/HyphaAttackUiContract.h");
+    for (name, value) in [
+        ("headBins", kirin_measure::ATTACK_HEAD_BINS),
+        ("bodyBins", kirin_measure::ATTACK_BODY_BINS),
+        ("shapeLeadBins", kirin_measure::ATTACK_SHAPE_LEAD_BINS),
+    ] {
+        let line = format!("constexpr std::int64_t {name} = {value};");
+        assert!(
+            contract.contains(&line),
+            "HyphaAttackUiContract.h must declare `{line}`"
+        );
+    }
+}

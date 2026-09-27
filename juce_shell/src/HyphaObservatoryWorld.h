@@ -22,13 +22,11 @@ struct State
 
 constexpr float backdropOpacity (const State& state) noexcept
 {
-    // The plate is already authored at its final low luminance. Keep the structural world
-    // readable in every state instead of dimming the dark pixels a second time.
-    const float density = state.density == observatory::Density::compact ? 0.72f
-                        : state.density == observatory::Density::focused ? 0.80f
-                        : state.density == observatory::Density::standard ? 0.88f : 0.96f;
-    const float role = state.role == observatory::Role::pre ? 0.90f : 1.0f;
-    const float signal = state.active ? 1.0f : 0.82f;
+    const float density = state.density == observatory::Density::compact ? 0.48f
+                        : state.density == observatory::Density::focused ? 0.58f
+                        : state.density == observatory::Density::standard ? 0.68f : 0.78f;
+    const float role = state.role == observatory::Role::pre ? 0.72f : 1.0f;
+    const float signal = state.active ? 1.0f : 0.48f;
     const float capture = state.capture ? 1.08f : 1.0f;
     const float jungle = state.jungle ? 1.08f : 1.0f;
     return density * role * signal * capture * jungle;
@@ -39,20 +37,26 @@ class Backdrop
 public:
     Backdrop();
     void draw (juce::Graphics&, juce::Rectangle<int>, const State&) const;
+    void drawHyphaSpecimen (juce::Graphics&, juce::Rectangle<int>, const State&) const;
     void drawDomainBed (juce::Graphics&, juce::Rectangle<int>, const State&) const;
     bool isValid() const noexcept
     {
-        return image.isValid();
+        return image.isValid() && hyphaSpecimen.isValid();
     }
 
 private:
     juce::Image image;
-    // Cache the opaque, precomposited plate. State opacity is part of the key, not a
-    // full-surface alpha blend on every meter tick. Energy/direction do not affect the plate.
+    juce::Image hyphaSpecimen;
+    // The backdrop and the TIME specimen at device resolution with their state's opacity baked in:
+    // rebuilt when the size, device scale or opacity changes, copied opaque-fast on every paint.
     mutable juce::Image scaledBackdrop;
     mutable juce::Point<int> scaledBackdropLogicalSize;
     mutable float scaledBackdropPixelScale = 0.0f;
     mutable float scaledBackdropOpacity = -1.0f;
+    mutable juce::Image specimenComposite;
+    mutable size_t specimenIndex = 0u;
+    mutable float specimenPixelScale = 0.0f;
+    mutable float specimenOpacity = -1.0f;
     mutable juce::Image domainBed;
     mutable juce::Point<int> domainBedSize;
     mutable float domainBedPixelScale = 0.0f;

@@ -76,7 +76,7 @@ void drawMetric (juce::Graphics& g,
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                               typography::Composition::facts));
-        g.drawText (label, labelArea.reduced (4, 0), juce::Justification::centred);
+        text_style::drawText (g, label, labelArea.reduced (4, 0), juce::Justification::centred);
         g.setColour (std::isfinite (value) && textOverride.isEmpty()
                          ? COL_OBSERVATORY_VALUE : COL_MUTED);
         drawTabularText (g, monoFont (presentation, valueRole,
@@ -88,14 +88,14 @@ void drawMetric (juce::Graphics& g,
         g.setFont (labelFont (presentation, typography::TextRole::unit,
                               typography::Composition::facts));
         if (textOverride.isEmpty())
-            g.drawText (unit, unitArea.reduced (3, 0), juce::Justification::centred);
+            text_style::drawText (g, unit, unitArea.reduced (3, 0), juce::Justification::centred);
         return;
     }
     const auto labelArea = area.removeFromTop (juce::jmax (14, area.getHeight() / 4));
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                           typography::Composition::facts));
-    g.drawText (label, labelArea.reduced (6, 1), juce::Justification::centredLeft);
+    text_style::drawText (g, label, labelArea.reduced (6, 1), juce::Justification::centredLeft);
     if (auxiliaryText.isNotEmpty())
     {
         const auto auxiliaryHeight = juce::jlimit (10, 14, area.getHeight() / 3);
@@ -103,14 +103,14 @@ void drawMetric (juce::Graphics& g,
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (labelFont (presentation, typography::TextRole::status,
                               typography::Composition::facts));
-        g.drawText (auxiliaryText, auxiliaryArea.reduced (6, 0),
+        text_style::drawText (g, auxiliaryText, auxiliaryArea.reduced (6, 0),
                     juce::Justification::centredRight);
     }
     if (area.getWidth() < 180)
     {
         g.setFont (labelFont (presentation, typography::TextRole::unit,
                               typography::Composition::facts));
-        g.drawText (unit, labelArea.reduced (6, 1), juce::Justification::centredRight);
+        text_style::drawText (g, unit, labelArea.reduced (6, 1), juce::Justification::centredRight);
         g.setColour (std::isfinite (value) && textOverride.isEmpty() ? COL_NORMAL : COL_MUTED);
         drawTabularText (g, monoFont (presentation, valueRole,
                                       typography::Composition::facts),
@@ -130,7 +130,7 @@ void drawMetric (juce::Graphics& g,
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::unit,
                           typography::Composition::facts));
-    g.drawText (unit, unitArea.reduced (2, 0), juce::Justification::centredLeft);
+    text_style::drawText (g, unit, unitArea.reduced (2, 0), juce::Justification::centredLeft);
 }
 
 double optionValue (double value, bool available)
@@ -162,7 +162,7 @@ void View::paintRecordDisplay (juce::Graphics& g, juce::Rectangle<int> area)
             ? juce::String ("RECORD UNAVAILABLE")
             : juce::String ("RECORD RESULT");
     const auto sourceText = hasDelta ? juce::String (juce::CharPointer_UTF8 (" · POST − PRE"))
-                                     : juce::String (" · ABSOLUTE");
+                                     : juce::String (juce::CharPointer_UTF8 (" · ABSOLUTE"));
     g.setColour (recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
                      ? COL_MUTED : COL_NORMAL);
     g.setFont (monoFont (context, typography::TextRole::status));
@@ -243,8 +243,7 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
         && ! deltaFactsAvailable();
     if (unavailableComparison)
     {
-        auto statusArea = area.removeFromTop (compact ? 20 : 24);
-        if (compact) statusArea.removeFromLeft (78); // Leave the M/S control unobstructed.
+        const auto statusArea = area.removeFromTop (compact ? 20 : 24);
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (labelFont (context, typography::TextRole::status,
                               typography::Composition::facts));
@@ -254,10 +253,9 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
                                                   observatoryFrame.comparison_reason),
             statusArea.reduced (4, 1), juce::Justification::centred);
     }
-    else if (compact)
+    else if (compact && density != Density::compact)
     {
-        auto summary = area.removeFromTop (20);
-        summary.removeFromLeft (78); // The M/S control owns this part of the header.
+        auto summary = area.removeFromTop (20); // CURRENT / MAX; 100% is view-only
         summary.removeFromRight (72); // The CURRENT/MAX selector owns the far edge.
         if (chainSnapshotAvailable && target() == ObservationTarget::absolute)
             paintChainSummary (g, summary, chainSnapshot, chainPoints, context, true);
@@ -317,42 +315,39 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
             && (compactShowsMaximum ? cumulativeFactsAvailable() : currentFactsAvailable());
         const bool trackStem = selectedMeterContext
                             == meter_context::MeterContext::trackStem;
+        // The loudness now (S), the programme so far (I; Crest for a track or stem) and the
+        // highest true peak of the Meter Session. MAX switches S and Crest to their Watch
+        // maxima; MAX TP is a maximum already.
         const std::array<double, 3> compactValues {
-            selectedShortTermLoudness ? watch.lufs_s : watch.lufs_m,
-            meter.true_peak,
+            watch.lufs_s,
+            trackStem ? watch.crest : meter.lufs_i,
             meter.max_true_peak
         };
         const std::array<bool, 3> compactAvailable {
             compactFactsAvailable,
-            currentAvailable,
+            trackStem ? compactFactsAvailable : cumulativeAvailable,
             cumulativeAvailable
         };
-        const std::array<juce::String, 3> compactLabels {
-            juce::String (compactShowsMaximum ? "MAX " : "")
-                + (selectedShortTermLoudness ? "S" : "M"), "TP", "MAX TP"
+        const std::array<const char*, 3> compactLabels {
+            compactShowsMaximum ? "MAX S" : "S",
+            trackStem ? (compactShowsMaximum ? "MAX CREST" : "CREST") : "I",
+            "MAX TP"
+        };
+        const std::array<const char*, 3> compactUnits {
+            "LUFS", trackStem ? "dB" : "LUFS", "dBTP"
         };
         const std::array<level_metrics::Metric, 3> compactMetrics {
-            selectedShortTermLoudness ? level_metrics::Metric::shortTerm : level_metrics::Metric::momentary,
-            level_metrics::Metric::truePeak, level_metrics::Metric::maximumTruePeak
+            level_metrics::Metric::shortTerm,
+            trackStem ? level_metrics::Metric::crest : level_metrics::Metric::integrated,
+            level_metrics::Metric::maximumTruePeak
         };
-        auto auxiliary = area.removeFromBottom (18);
-        g.setColour (COL_TEXT_SECONDARY);
-        g.setFont (monoFont (context, typography::TextRole::status));
-        g.drawText (juce::String (trackStem ? "CREST " : "I ")
-                        + valueText (optionValue (trackStem ? watch.crest : meter.lufs_i,
-                            trackStem ? compactFactsAvailable : cumulativeAvailable), 1, false)
-                        + (trackStem ? " dB" : " LUFS"),
-                    metricHelpArea (auxiliary, trackStem ? level_metrics::Metric::crest
-                                                       : level_metrics::Metric::integrated),
-                    juce::Justification::centred);
         for (int index = 0; index < 3; ++index)
             drawMetric (g, metricHelpArea (area.removeFromLeft (area.getWidth() / (3 - index)).reduced (2),
                         compactMetrics[(size_t) index]),
                         compactLabels[(size_t) index],
                         optionValue (compactValues[(size_t) index],
                                      compactAvailable[(size_t) index]),
-                        index == 0 ? "LUFS" : "dBTP", family, context,
-                        false, 1, {}, -1.0f, {}, true);
+                        compactUnits[(size_t) index], family, context);
         if (! channelStrips.isEmpty())
             paintChannelStrips (g, channelStrips);
         return;

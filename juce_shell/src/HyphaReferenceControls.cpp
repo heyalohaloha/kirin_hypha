@@ -24,6 +24,6 @@ void Component::SideButton::paintButton (juce::Graphics& g, bool highlighted, bo
                                           : separateTrial ? COL_FLORA_BR : COL_NORMAL);
     g.setFont (labelFont (presentationContext, typography::TextRole::action,
                           typography::Composition::information));
-    g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
+    text_style::drawText (g, getButtonText(), getLocalBounds(), juce::Justification::centred);
 }
 }

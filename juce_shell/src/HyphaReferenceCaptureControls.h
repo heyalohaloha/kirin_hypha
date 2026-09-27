@@ -112,7 +112,7 @@ private:
             g.setColour(COL_MUTED.withAlpha(0.30f)); g.drawRoundedRectangle(bounds,3,0.6f);
             g.setColour(COL_TEXT_SECONDARY.withAlpha(isEnabled() ? 1.0f : 0.4f));
             g.setFont(labelFont(context,typography::TextRole::captureMetadata,typography::Composition::information));
-            g.drawText(getButtonText(),getLocalBounds().reduced(3,0),juce::Justification::centred);
+            text_style::drawText (g, getButtonText(),getLocalBounds().reduced(3,0),juce::Justification::centred);
         }
     private: bool keyHeld=false,ignoredMouseGesture=false; std::optional<CommandBinding> held; presentation::Context context=presentation::defaultContext();
     };

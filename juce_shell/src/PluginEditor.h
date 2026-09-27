@@ -9,13 +9,17 @@
 
 #include "PluginProcessor.h"
 #include "HyphaAnalysisNavigation.h"
+#include "HyphaEditorSizeConstrainer.h"
+#include "HyphaFeedbackStrip.h"
 #include "HyphaHoverHelpPreference.h"
 #include "HyphaObservatoryView.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextButton.h"
+#include "HyphaTextLookAndFeel.h"
 #include "HyphaTheme.h"
 #include "HyphaTimePageNavigation.h"
 #include "HyphaTooltipLookAndFeel.h"
+#include "HyphaUiPreferences.h"
 #include "HyphaWidgets.h"
 #include "appearance/AppearanceService.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -47,7 +51,7 @@ public:
     void visibilityChanged() override;
 
 private:
-    class PairMenuLookAndFeel final : public juce::LookAndFeel_V4
+    class PairMenuLookAndFeel final : public hypha::TextLookAndFeel
     {
     public:
         PairMenuLookAndFeel()
@@ -71,13 +75,29 @@ private:
             hypha::surface_material::paintInstrumentFrame (
                 g, juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height), false);
         }
+        // Menus are built in English and shown in the current language by TextLookAndFeel,
+        // in the native menu font above, which carries Japanese (INV-S40).
     };
 
     void timerCallback() override;
+    // The language every hosted editor shows follows LanguagePreference; a change lays the whole
+    // editor out again, since text widths change (PluginEditorLanguage.cpp).
+    void syncLanguage (bool layOutOnChange = true);
+    void applyLanguage();
+    void addLanguageMenu (juce::PopupMenu&) const;
+    bool handleLanguageMenu (int result);
+    unsigned int appliedLanguageRevision = 0;
     void updatePre();
     void updatePost();
     void refreshObservatory();
     void applyPresentationContext();
+    // Beyond 300% the Observatory is the Inspection View magnified; its children lay out at the
+    // logical 900 x 600, so they take their presentation from the viewport, not the window.
+    hypha::presentation::Context logicalPresentationContext() const;
+    // The size rule for the display the editor is on: free 3:2 up to 300%, then the magnified steps
+    // on whole device pixels that fit the display (HyphaEditorSizeConstrainer.h).
+    void updateResizeLimits();
+    hypha::EditorSizeConstrainer sizeConstrainer;
     void configureMeterContext();
     void showNoteDialog();
     void setObservatoryDomain (hypha::observatory::Domain domain);
@@ -151,6 +171,7 @@ private:
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
     void updateFeedback (double now, bool keeping, const juce::String& persistentError);
+    void layoutFeedbackStrip();
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
     double nowSecs() const { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
     void commitEditorSizeStateIfSettled (bool force);
@@ -159,6 +180,11 @@ private:
     void releaseAppearanceVisibility();
 
     KirinHyphaProcessorBase& processorRef;
+    // Static surface material is cached as images while this editor is open (HyphaMaterialCache.h).
+    hypha::material_cache::Lifetime materialCache;
+    // JUCE labels, buttons and the NOTE dialog in the current language; declared before every
+    // component that uses it, so it outlives them.
+    hypha::TextLookAndFeel textLookAndFeel;
     const bool isPost;
     juce::Component scaleRoot;
     hypha::observatory::View observatoryView;
@@ -166,7 +192,7 @@ private:
     hypha::ProductBackground bg;
     hypha::StatusLed          led;
     hypha::EditableName       nameField;                  // PRE name / POST exact-pair selector
-    juce::Label               feedbackLabel;              // toast > persistent error > Keeping
+    hypha::FeedbackStrip      feedbackStrip;              // compact sizes: toast > persistent error > Keeping
     std::unique_ptr<juce::FileChooser> captureChooser;
     std::unique_ptr<juce::AlertWindow> noteDialog;
     hypha::capture::PrivacyOptions capturePrivacy;         // editor-lifetime, private by default

@@ -13,11 +13,12 @@ namespace hypha::reference_audition
 {
     struct RuntimeSource;
 
-    class AudioPages final
+    class AudioPages final : private juce::Thread
     {
     public:
-        AudioPages();
-        ~AudioPages();
+        enum class ServiceMode { background, manual };
+        explicit AudioPages (ServiceMode = ServiceMode::background);
+        ~AudioPages() override;
 
         juce::String open (const SourceReceipt&, double hostSampleRate, int hostChannels);
         juce::String open (const RuntimeSource&, double hostSampleRate, int hostChannels,
@@ -55,6 +56,8 @@ namespace hypha::reference_audition
         }
 
     private:
+        void run() override;
+        void serviceOnce();
         enum PageState : std::uint8_t { empty, loading, ready, inUse };
         static constexpr size_t pageCount = 6;
 
@@ -84,6 +87,11 @@ namespace hypha::reference_audition
         bool retirePages();
 
         mutable std::array<Page, pageCount> pages;
+        // Non-RT reader owners only: refill/open/close. Control service and cue
+        // publication do not wait for decoding. render/request/readyAt take no lock.
+        const ServiceMode serviceMode;
+        juce::CriticalSection readerLock;
+        juce::CriticalSection cueLock;
         juce::AudioFormatManager formats;
         std::unique_ptr<juce::AudioFormatReader> reader;
         juce::AudioBuffer<float> conversionInput;

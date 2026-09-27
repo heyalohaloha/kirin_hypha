@@ -31,7 +31,7 @@ fn histories_are_ready(pre: &AttackRuntime, post: &AttackRuntime) -> bool {
                 && history
                     .waveform()
                     .next_back()
-                    .is_some_and(|point| point.end_sample >= 13_920)
+                    .is_some_and(|point| point.end_sample >= 24_000)
         })
     })
 }
@@ -67,7 +67,8 @@ fn exact_pair_transports_real_pre_and_post_attack_histories_end_to_end() {
     assert!(pre_attack.is_enabled());
     assert!(post_attack.is_enabled());
 
-    push_impulse_pair(&pre_attack, &post_attack, 14_000, 8_000);
+    // A detail waits for its 130 ms windows and for every onset before the body end.
+    push_impulse_pair(&pre_attack, &post_attack, 24_000, 8_000);
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline && !histories_are_ready(&pre_attack, &post_attack) {
         thread::sleep(Duration::from_millis(2));
@@ -102,6 +103,101 @@ fn exact_pair_transports_real_pre_and_post_attack_histories_end_to_end() {
         .pair_events
         .iter()
         .any(|event| event.kind == crate::AttackPairEventKind::Matched));
+    // POST is measured at the PRE onset over the PRE detail's exact windows (B-1016).
+    let pre_detail = *pre_history.details().next_back().unwrap();
+    let anchored = view
+        .post_anchored
+        .iter()
+        .find(|detail| detail.event.event_sample == pre_detail.event.event_sample)
+        .expect("POST measured at the PRE onset");
+    assert_eq!(
+        anchored.features.window_start_sample,
+        pre_detail.features.window_start_sample
+    );
+    assert_eq!(
+        anchored.features.body_end_sample,
+        pre_detail.features.body_end_sample
+    );
+    assert_eq!(
+        anchored.event.generation,
+        post_history.newest().unwrap().generation
+    );
+    assert!(
+        (anchored.features.attack_rms_dbfs - pre_detail.features.attack_rms_dbfs + 6.020_6).abs()
+            < 1e-3
+    );
+
+    pre.shutdown();
+    post.shutdown();
+    pre_attack.shutdown_and_join();
+    post_attack.shutdown_and_join();
+    pre_spectrum.shutdown_and_join();
+    post_spectrum.shutdown_and_join();
+}
+
+#[test]
+fn a_pairing_flicker_keeps_the_post_attack_history() {
+    // With the transport stopped nothing new is measured, so HOLD shows the last six seconds only
+    // if a pairing that drops for one tick and comes back does not restart POST's own ATTACK run.
+    let temp = tempfile::tempdir().unwrap();
+    let pre_dir = temp.path().join("project").join("pre");
+    let pre_json = pre_dir.join("pre.json");
+    crate::atomic_file::write_bytes_atomic(&pre_json, b"{}").unwrap();
+    let pre_spectrum = SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let post_spectrum =
+        SpectrumRuntime::new(48_000, crate::channel_layout::ChannelLayout::stereo());
+    let pre_attack = AttackRuntime::new(48_000, 2).unwrap();
+    let post_attack = AttackRuntime::new(48_000, 2).unwrap();
+    let pre = SpectrumCoordinator::new_with_attack(
+        48_000,
+        Arc::clone(&pre_spectrum),
+        Some(Arc::clone(&pre_attack)),
+    );
+    let post = SpectrumCoordinator::new_with_attack(
+        48_000,
+        Arc::clone(&post_spectrum),
+        Some(Arc::clone(&post_attack)),
+    );
+    let target = SpectrumTarget::from_pre_json("pre".to_string(), &pre_json).unwrap();
+    assert!(post.set_post_analysis_mode(AnalysisViewMode::Attack));
+    post.set_post_visible(true);
+    assert!(post.post_tick("post", Some(target.clone())));
+    assert!(pre.pre_tick("pre", &pre_dir));
+    push_impulse_pair(&pre_attack, &post_attack, 24_000, 8_000);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline && !histories_are_ready(&pre_attack, &post_attack) {
+        thread::sleep(Duration::from_millis(2));
+    }
+    assert!(histories_are_ready(&pre_attack, &post_attack));
+    let before = post_attack.try_history().unwrap();
+
+    assert!(
+        post.post_tick("post", None),
+        "the pairing drops for one tick"
+    );
+    assert!(
+        post.post_tick("post", Some(target.clone())),
+        "and comes back"
+    );
+    let after = post_attack.try_history().unwrap();
+    assert_eq!(
+        after.frames().count(),
+        before.frames().count(),
+        "POST keeps its measured ATTACK history"
+    );
+    assert_eq!(after.details().count(), before.details().count());
+    assert_eq!(after.newest(), before.newest());
+
+    // The new pair session joins the kept POST history with PRE again.
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut status = SpectrumViewStatus::WarmingUp;
+    while Instant::now() < deadline && status != SpectrumViewStatus::Active {
+        assert!(pre.pre_tick("pre", &pre_dir));
+        let _ = post.post_tick("post", Some(target.clone()));
+        status = post.try_attack_view().map_or(status, |view| view.status);
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(status, SpectrumViewStatus::Active);
 
     pre.shutdown();
     post.shutdown();

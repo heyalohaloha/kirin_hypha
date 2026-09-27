@@ -1,6 +1,11 @@
 use super::*;
 
 fn history() -> AttackHistory {
+    history_with(true)
+}
+
+/// One hit, complete or with only its head measured (the body not final yet).
+fn history_with(complete: bool) -> AttackHistory {
     let mut history = AttackHistory::with_capacity();
     let definition_hash = [7; 32];
     let frame = AttackOdfFrame {
@@ -40,22 +45,20 @@ fn history() -> AttackHistory {
         features: AttackPerceptualFeatures {
             sample_rate: 48_000,
             channels: 2,
-            context_frames: 4_800,
-            attack_frames: 1_440,
-            contrast_db: 6.0,
-            contrast_floor_limited: false,
-            context_rms_dbfs: -24.0,
+            bin_frames: 48,
+            window_start_sample: 1_008,
             attack_rms_dbfs: -18.0,
             sample_peak_dbfs: -6.0,
             crest_db: 12.0,
-            sample_edge_ratio_db: -4.0,
-            peak_plateau_ms: 2.5,
-            temporal_centroid_ms: Some(8.0),
-            sharpness_acum: Some(1.25),
+            complete,
+            body_end_sample: 1_008 + if complete { 130 } else { 30 } * 48,
+            body_rms_dbfs: complete.then_some(-24.0),
+            transient_db: complete.then_some(6.0),
+            sharpness_acum: complete.then_some(1.25),
         },
         shape: AttackEventShape {
-            start_sample: -3_776,
-            end_sample: 2_464,
+            start_sample: 1_008 - 20 * 48,
+            end_sample: 1_008 + if complete { 130 } else { 42 } * 48,
             event_sample: 1_024,
             points: [0.5; ATTACK_SHAPE_POINT_CAPACITY],
         },
@@ -95,6 +98,55 @@ fn attack_snapshot_rejects_truncation_trailing_bytes_and_invalid_bool() {
     let mut invalid_bool = bytes;
     invalid_bool[detail_bool_offset] = 2;
     assert!(decode_attack_snapshot(&invalid_bool).is_none());
+}
+
+#[test]
+fn a_head_only_detail_round_trips_and_its_flag_is_checked() {
+    let head = history_with(false);
+    assert_eq!(
+        head.details().len(),
+        1,
+        "a head-only detail is a valid detail"
+    );
+    let bytes = encode_attack_snapshot(Uuid::new_v4(), &head);
+    let decoded = decode_attack_snapshot(&bytes).unwrap();
+    assert_eq!(
+        decoded.history.details().copied().collect::<Vec<_>>(),
+        head.details().copied().collect::<Vec<_>>()
+    );
+    let complete_flag_offset = 92 + 12 + 24 + 22;
+    let mut invalid = bytes.clone();
+    invalid[complete_flag_offset] = 2;
+    assert!(decode_attack_snapshot(&invalid).is_none());
+    let mut version_two = bytes;
+    version_two[8..10].copy_from_slice(&2_u16.to_le_bytes());
+    assert!(
+        decode_attack_snapshot(&version_two).is_none(),
+        "version 2 has no head-only details"
+    );
+}
+
+#[test]
+fn a_complete_detail_replaces_its_head_and_advances_the_revision() {
+    let mut history = history_with(false);
+    let complete = *history_with(true).details().next().unwrap();
+    let before = history.revision();
+    history.push_detail(complete);
+    assert_eq!(history.details().len(), 1);
+    assert_eq!(*history.details().next().unwrap(), complete);
+    assert!(
+        history.revision() > before,
+        "PRE republishes a completed detail"
+    );
+    let head = *history_with(false).details().next().unwrap();
+    let completed = history.revision();
+    history.push_detail(head);
+    assert_eq!(
+        *history.details().next().unwrap(),
+        complete,
+        "never back to the head"
+    );
+    assert_eq!(history.revision(), completed);
 }
 
 #[test]

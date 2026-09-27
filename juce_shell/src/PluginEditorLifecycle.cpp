@@ -3,11 +3,13 @@
 KirinHyphaEditor::~KirinHyphaEditor()
 {
     stopTimer();
+    setConstrainer (nullptr); // the size rule is a member and goes before the base editor
     pairPreview.reset();
     processorRef.setReferenceViewPresented (false);
     releaseAppearanceVisibility();
     commitEditorSizeStateIfSettled (true);
     tooltip.setLookAndFeel (nullptr);
+    setLookAndFeel (nullptr);
     if (isPost)
     {
        #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -23,6 +25,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
 
 void KirinHyphaEditor::timerCallback()
 {
+    syncLanguage();
     refreshAppearance();
     commitEditorSizeStateIfSettled (false);
 #if KIRIN_HYPHA_GUIDE_TRANSPORT

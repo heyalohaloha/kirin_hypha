@@ -59,6 +59,7 @@ set(KIRIN_FFI_LIB "${_KIRIN_FFI_DEFAULT}"
 # target. JUCE's SDK registration function is called below after JUCE has defined it.
 include(cmake/KirinHyphaAax.cmake)
 include(cmake/ObservatoryMaterial.cmake)
+include(cmake/HyphaLanguage.cmake)
 kirin_hypha_configure_aax(KIRIN_HYPHA_AAX_ENABLED)
 
 # B-376: The C ABI symbol name does not encode its argument list, so an old staticlib can link
@@ -132,9 +133,9 @@ option(KIRIN_HYPHA_AAX_DISTRIBUTION_BUILD
     "Stamp AAX bundles as distribution candidates independently of optional typography" OFF)
 
 set(KIRIN_HYPHA_DATA_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/bg_mycelium.png
     ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/hybrid_vu_chassis.png
-    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/observatory_understory.png
-    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/attack_specimen_body_v3.png)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../crates/hypha_gui/assets/observatory_understory.png)
 set(KIRIN_HYPHA_KIMERA_EMBEDDED 0)
 if(KIRIN_HYPHA_KIMERA_FONT_FILE)
     if(NOT KIRIN_HYPHA_KIMERA_APP_LICENSE_CONFIRMED)
@@ -289,6 +290,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
         src/PluginEditorLifecycle.cpp
+        src/PluginEditorLanguage.cpp
         src/PluginEditorPairPreview.cpp
         src/PluginEditorAppearance.cpp
         src/PluginEditorMenu.cpp
@@ -322,6 +324,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES}
         src/HyphaHoverHelpPreference.cpp
         src/appearance/AppearanceContract.cpp
         src/appearance/AppearanceFileLock.cpp
@@ -353,14 +356,15 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/PluginEditorReferenceCapture.cpp
             src/HyphaAbsoluteComponent.cpp
             src/HyphaAbsolutePainter.cpp
+            src/HyphaAttackChrome.cpp
             src/HyphaAttackComponent.cpp
-            src/HyphaAttackDetailView.cpp
             src/HyphaAttackInteraction.cpp
-            src/HyphaAttackMetricPainter.cpp
-            src/HyphaAttackOverviewGlyphPainter.cpp
-            src/HyphaAttackOrganismPainter.cpp
+            src/HyphaAttackLanePainter.cpp
+            src/HyphaAttackGlancePainter.cpp
+            src/HyphaAttackLoupePainter.cpp
             src/HyphaAttackPainter.cpp
-            src/HyphaAttackSpecimenPainter.cpp
+            src/HyphaAttackDepth.cpp
+            src/HyphaAttackStage.cpp
             src/HyphaGuideFrequencyOverlay.cpp
             src/HyphaPerceptualComponent.cpp
             src/HyphaPerceptualPainter.cpp
@@ -378,6 +382,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaSpectrumPsb.cpp
             src/HyphaSpectrumTooltip.cpp
             src/HyphaSpectrumChromePainter.cpp
+            src/HyphaSpectrumTerrain.cpp
             src/HyphaSpectrumFocusTrail.cpp
             src/HyphaSpectrumFocusTrailPainter.cpp
             src/HyphaSpectrumPainter.cpp
@@ -543,6 +548,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES}
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinHyphaReferencePreviewRenderer PRIVATE
         JUCE_WEB_BROWSER=0
@@ -620,18 +626,20 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES}
         src/HyphaHoverHelpPreference.cpp
         src/HyphaGuideFrequencyOverlay.cpp
         src/HyphaAbsoluteComponent.cpp
         src/HyphaAbsolutePainter.cpp
+        src/HyphaAttackChrome.cpp
         src/HyphaAttackComponent.cpp
-        src/HyphaAttackDetailView.cpp
         src/HyphaAttackInteraction.cpp
-        src/HyphaAttackMetricPainter.cpp
-        src/HyphaAttackOverviewGlyphPainter.cpp
-        src/HyphaAttackOrganismPainter.cpp
+        src/HyphaAttackLanePainter.cpp
+        src/HyphaAttackGlancePainter.cpp
+        src/HyphaAttackLoupePainter.cpp
         src/HyphaAttackPainter.cpp
-        src/HyphaAttackSpecimenPainter.cpp
+        src/HyphaAttackDepth.cpp
+        src/HyphaAttackStage.cpp
         src/HyphaPerceptualComponent.cpp
         src/HyphaPerceptualPainter.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
@@ -650,6 +658,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaSpectrumPsb.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
+        src/HyphaSpectrumTerrain.cpp
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
         src/HyphaSpectrumPainter.cpp
@@ -715,13 +724,15 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaSpectrumPsb.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
+        src/HyphaSpectrumTerrain.cpp
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
         src/HyphaSpectrumPainter.cpp
         src/HyphaSpectrumMidSide.cpp
         src/HyphaSpectrumMidSidePainter.cpp
         src/HyphaTypography.cpp
-        src/HyphaTextStyle.cpp)
+        src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES})
     target_compile_definitions(KirinGuideFrequencyOverlayContractTests PRIVATE
         KIRIN_GUIDE_OVERLAY_STANDALONE=1
         JUCE_WEB_BROWSER=0
@@ -743,16 +754,18 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         PRODUCT_NAME "Kirin ATTACK UI Contract Tests")
     target_sources(KirinAttackUiContractTests PRIVATE
         tests/AttackUiContractTest.cpp
+        src/HyphaAttackChrome.cpp
         src/HyphaAttackComponent.cpp
-        src/HyphaAttackDetailView.cpp
         src/HyphaAttackInteraction.cpp
-        src/HyphaAttackMetricPainter.cpp
-        src/HyphaAttackOverviewGlyphPainter.cpp
-        src/HyphaAttackOrganismPainter.cpp
+        src/HyphaAttackLanePainter.cpp
+        src/HyphaAttackGlancePainter.cpp
+        src/HyphaAttackLoupePainter.cpp
         src/HyphaAttackPainter.cpp
-        src/HyphaAttackSpecimenPainter.cpp
+        src/HyphaAttackDepth.cpp
+        src/HyphaAttackStage.cpp
         src/HyphaTypography.cpp
-        src/HyphaTextStyle.cpp)
+        src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES})
     target_compile_definitions(KirinAttackUiContractTests PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
@@ -891,6 +904,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
     add_test(NAME kirin_reference_audio_pages COMMAND KirinReferenceAudioPagesTests)
+    include(cmake/ReferenceAudioStreamingTests.cmake)
 
     juce_add_console_app(KirinReferenceAuditionComponentTests
         PRODUCT_NAME "Kirin Reference Audition Component Tests")
@@ -926,6 +940,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES}
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinReferenceAuditionComponentTests PRIVATE
         JUCE_WEB_BROWSER=0
