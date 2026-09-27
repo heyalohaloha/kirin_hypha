@@ -88,9 +88,6 @@ TruePeakSummary analyseTruePeak (const std::vector<KirinMeterHistoryEntry>& hist
             excursionMaximum = index;
     }
     closeExcursion();
-    if (std::find (result.eventIndices.begin(), result.eventIndices.end(),
-                   result.windowMaximumIndex) == result.eventIndices.end())
-        result.eventIndices.push_back (result.windowMaximumIndex);
     std::sort (result.eventIndices.begin(), result.eventIndices.end());
     result.secondsBeforeEnd = secondsBeforeEnd (
         history, result.windowMaximumIndex, sampleRate);

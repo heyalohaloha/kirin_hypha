@@ -17,5 +17,6 @@ namespace hypha::spectrum_focus_painter
                 const spectrum_focus::FocusTrailHistory& history,
                 float normalisedBand,
                 bool compact,
+                bool shape,
                 presentation::Context);
 }

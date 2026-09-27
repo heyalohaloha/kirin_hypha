@@ -42,6 +42,7 @@ void View::resized()
     informationButton.setBounds (toJuce (layout.roleTitle));
     sizeButton.setButtonText (preset.label);
     bodyArea = toJuce (layout.body);
+    layoutLevelHistoryControls();
     connectionArea = toJuce (layout.connectionStatus);
     guideArea = toJuce (layout.guideRail);
     sessionArea = toJuce (layout.session);

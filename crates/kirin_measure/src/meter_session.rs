@@ -6,6 +6,7 @@
 //! restart does not implicitly discard the session.
 
 use crate::channel_layout::ChannelLayout;
+use crate::engine::ContentWindowObservation;
 use crate::meter_clock::MeterClockTracker;
 use crate::meter_history::MeterHistory;
 use crate::meter_history::METER_HISTORY_CHANNELS;
@@ -115,6 +116,8 @@ pub struct MeterSession {
     observed_frames: u64,
     stereo: StereoMeter,
     clock: MeterClockTracker,
+    content_windows: std::collections::VecDeque<ContentWindowObservation>,
+    content_revision: u64,
     history: MeterHistory,
     history_incarnation: u64,
     history_revision: u64,
@@ -140,7 +143,8 @@ impl MeterSession {
                 "Meter Session supports at most {METER_HISTORY_CHANNELS} channels"
             ));
         }
-        let engine = MeasureEngine::new(sample_rate, layout)?;
+        let mut engine = MeasureEngine::new(sample_rate, layout)?;
+        engine.enable_content_grid(sample_rate);
         let stereo = StereoMeter::new(sample_rate, layout)?;
         static NEXT_HISTORY_INCARNATION: AtomicU64 = AtomicU64::new(1);
         Ok(Self {
@@ -157,6 +161,8 @@ impl MeterSession {
             observed_frames: 0,
             stereo,
             clock: MeterClockTracker::new(),
+            content_windows: std::collections::VecDeque::with_capacity(64),
+            content_revision: 0,
             history: MeterHistory::new(),
             history_incarnation: NEXT_HISTORY_INCARNATION.fetch_add(1, Ordering::Relaxed),
             history_revision: 0,
@@ -186,8 +192,9 @@ impl MeterSession {
         self.clock
             .push_span((interleaved.len() / self.n_channels) as u64, clock);
         let mut advanced = false;
-        self.engine.push_observed_with_session_facts(
+        self.engine.push_observed_with_session_facts_at(
             interleaved,
+            clock,
             |_, current, observed_samples, plr, max_lufs_m| {
                 const MAX_HISTORY_CLIP_EVENTS: u64 = u32::MAX as u64;
                 let previous_clip_events = self.stereo.session_clip_events();
@@ -241,6 +248,13 @@ impl MeterSession {
                 }
                 advanced = true;
             },
+            |point| {
+                if self.content_windows.len() == 64 {
+                    self.content_windows.pop_front();
+                }
+                self.content_windows.push_back(point);
+                self.content_revision = self.content_revision.wrapping_add(1);
+            },
         );
         if advanced {
             self.summary = self.engine.finalize();
@@ -254,8 +268,19 @@ impl MeterSession {
         (
             self.history_incarnation,
             self.generation,
-            self.history_revision,
+            self.history_revision.wrapping_add(self.content_revision),
         )
+    }
+
+    pub(crate) fn recent_content_windows(
+        &self,
+        max_entries: usize,
+    ) -> Vec<ContentWindowObservation> {
+        self.content_windows
+            .iter()
+            .copied()
+            .skip(self.content_windows.len().saturating_sub(max_entries))
+            .collect()
     }
 
     pub fn recent_history(
@@ -277,6 +302,10 @@ impl MeterSession {
     }
 
     pub fn pause(&mut self) {
+        if self.state == MeterSessionState::Active {
+            self.clock.break_continuity();
+            self.engine.break_content_continuity();
+        }
         if self.state != MeterSessionState::Empty {
             self.state = MeterSessionState::Paused;
         }
@@ -294,6 +323,8 @@ impl MeterSession {
         self.observed_frames = 0;
         self.stereo.reset();
         self.clock.reset();
+        self.content_windows.clear();
+        self.content_revision = self.content_revision.wrapping_add(1);
         self.history.reset();
         self.history_revision = self.history_revision.wrapping_add(1);
     }

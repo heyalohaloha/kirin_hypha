@@ -71,6 +71,8 @@ namespace hypha::ui_contract
     constexpr float spectrumLegendFontHeight = 8.5f;
     constexpr int spectrumLegendTop = 1;
     constexpr int spectrumLegendHeight = 10;
+    constexpr int spectrumDeltaModeWidth = 72;
+    constexpr int spectrumDeltaModeTop = 17;
     constexpr int spectrumDeltaLegendLabelX = 3;
     constexpr int spectrumDeltaLegendLabelWidth = 12;
     constexpr int spectrumPreLegendSampleWidth = 0;

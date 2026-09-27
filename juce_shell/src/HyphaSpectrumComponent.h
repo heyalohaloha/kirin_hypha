@@ -11,6 +11,7 @@
 #include "HyphaAbsoluteSpectrumHistory.h"
 #include "HyphaGuideFrequencyOverlay.h"
 #include "HyphaSpectrumFocusTrail.h"
+#include "HyphaSpectrumDeltaSelection.h"
 #include "HyphaSpectrumPresentation.h"
 #include "kirin_hypha_ffi.h"
 #include "kirin_hypha_display_ffi.h"
@@ -52,6 +53,7 @@ public:
     void setDisplaySelection (uint8_t selection);
     void setPsbSnapshot (const KirinPsbView&);
     bool isPsbObservation() const noexcept { return psbObservation; }
+    bool isShapeObservationForTest() const noexcept { return shapeObservation; }
     bool isMidSideObservation() const noexcept { return midSideObservation; }
     std::function<void()> onSubviewChange;
     void setSignalActive (bool active);
@@ -75,6 +77,10 @@ public:
     float readoutDeltaForTest (size_t index) const noexcept
     {
         return index < readoutDelta.size() ? readoutDelta[index] : 0.0f;
+    }
+    bool readoutDeltaValidForTest (size_t index) const noexcept
+    {
+        return index < readoutDeltaValid.size() && readoutDeltaValid[index] != 0u;
     }
     float readoutMidForTest (size_t index) const noexcept
     { return index < readoutPre.size() ? readoutPre[index] : 0.0f; }
@@ -128,6 +134,10 @@ private:
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> pendingPost {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> pendingDelta {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> markedDelta {};
+    spectrum_delta::Validity displayedDeltaValid {};
+    spectrum_delta::Validity readoutDeltaValid {};
+    spectrum_delta::Validity pendingDeltaValid {};
+    spectrum_delta::Validity markedDeltaValid {};
     std::array<float, KIRIN_SPECTRUM_BAND_COUNT> cachedCalmWeights {};
     std::unique_ptr<spectrum_focus::FocusTrailHistory> focusTrail;
     bool haveSnapshot = false;
@@ -156,6 +166,7 @@ private:
     bool absolutePsbAvailable = false;
     bool deltaPsbAvailable = false;
     bool psbObservation = false;
+    bool shapeObservation = false;
     bool signalActive = false;
     uint8_t psbStatus = KIRIN_SPECTRUM_WARMING_UP;
     int psbHoverBand = -1;

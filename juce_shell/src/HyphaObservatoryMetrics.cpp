@@ -1,6 +1,7 @@
 #include "HyphaObservatoryView.h"
 
 #include "HyphaCaptureHistoryPainter.h"
+#include "HyphaChainSummaryText.h"
 #include "HyphaChannelReadoutLayout.h"
 #include "HyphaComparisonPresentation.h"
 #include "HyphaLevelMetricContract.h"
@@ -20,6 +21,23 @@ juce::String valueText (double value, int decimals, bool signedValue)
     if (! std::isfinite (value))
         return "---";
     return (signedValue && value >= 0.0 ? "+" : "") + juce::String (value, decimals);
+}
+
+void paintChainSummary (juce::Graphics& g, juce::Rectangle<int> area,
+                        const KirinChainSnapshot& snapshot,
+                        const std::vector<KirinChainPoint>& points,
+                        presentation::Context context, bool compact)
+{
+    if (snapshot.count == 0u || points.empty()
+        || (snapshot.status != KIRIN_CHAIN_ACTIVE && snapshot.status != KIRIN_CHAIN_HOLD))
+        return;
+    const auto& point = points.back();
+    const auto text = chain_action::summaryText (snapshot, point, compact);
+    g.setColour (point.pre_severity == 3u || point.post_severity == 3u
+                     ? COL_FLORA_BR : COL_TEXT_SECONDARY);
+    g.setFont (monoFont (context, typography::TextRole::status));
+    text_style::drawEllipsized (g, text, area.reduced (2, 0),
+                               juce::Justification::centredRight);
 }
 
 void drawPanel (juce::Graphics& g,
@@ -236,7 +254,18 @@ void View::paintLevel (juce::Graphics& g, juce::Rectangle<int> area,
             statusArea.reduced (4, 1), juce::Justification::centred);
     }
     else if (compact && density != Density::compact)
-        area.removeFromTop (20); // CURRENT / MAX; 100% is view-only
+    {
+        auto summary = area.removeFromTop (20); // CURRENT / MAX; 100% is view-only
+        summary.removeFromRight (72); // The CURRENT/MAX selector owns the far edge.
+        if (chainSnapshotAvailable && target() == ObservationTarget::absolute)
+            paintChainSummary (g, summary, chainSnapshot, chainPoints, context, true);
+    }
+    else if (density == Density::standard && target() == ObservationTarget::absolute)
+    {
+        const auto summary = area.removeFromTop (20);
+        if (chainSnapshotAvailable)
+            paintChainSummary (g, summary, chainSnapshot, chainPoints, context, false);
+    }
     if (target() == ObservationTarget::delta)
     {
         if (compact)
@@ -403,32 +432,32 @@ void View::paintLevelWithHistory (juce::Graphics& g, juce::Rectangle<int> area)
             presentationContext(), measurementOnlySurround ? (inspection ? 230 : 190)
                                                             : (inspection ? 126 : 116))).reduced (2);
 
-    const auto landscape = area.getWidth() > area.getHeight();
-    const auto previousHistoryHeight = juce::jlimit (
-        72, inspection ? 240 : 170,
-        juce::roundToInt (area.getHeight()
-                          * (inspection ? 0.46f : landscape ? 0.40f : 0.32f)));
-    const auto previousMetricsHeight = juce::jmax (
-        1, area.getHeight() - previousHistoryHeight - 4);
-    const auto metricsHeight = juce::jmin (area.getHeight() - 92,
-        juce::jmax (inspection ? 162 : 134, compressedLevelMetricsHeight (previousMetricsHeight)));
-    auto metricsArea = area.removeFromTop (metricsHeight);
-    area.removeFromTop (4);
-    auto historyArea = area;
+    const auto historyArea = levelHistoryBounds (area);
+    auto metricsArea = area.withBottom (historyArea.getY() - 4);
     paintLevel (g, metricsArea, false);
     levelHistoryArea = historyArea.reduced (2);
+    if (! captureFrame) levelHistoryArea.removeFromTop (22);
     const auto maximumMomentary = target() == ObservationTarget::absolute
                                && cumulativeFactsAvailable()
                                && std::isfinite (observatoryFrame.meter.max_lufs_m)
         ? juce::String ("MAX M ") + juce::String (observatoryFrame.meter.max_lufs_m, 1) + " LUFS"
         : juce::String();
-    capture_history::paint (g, levelHistoryArea, history,
+    const auto held = levelInspection.held();
+    capture_history::paint (g, levelHistoryArea, held ? levelInspection.snapshot : history,
                             target() == ObservationTarget::delta,
-                            static_cast<double> (observatoryFrame.meter.sample_rate),
+                            held ? levelInspection.sampleRate : static_cast<double> (observatoryFrame.meter.sample_rate),
                             presentationContext(),
-                            captureFrame ? std::nullopt : hoveredLevelHistoryIndex,
-                            maximumMomentary,
-                            frameAvailable ? &observatoryFrame.meter : nullptr);
+                            held ? levelInspection.index : captureFrame ? std::nullopt : hoveredLevelHistoryIndex,
+                            held ? juce::String ("HOLD") : hoveredLevelHistoryIndex ? juce::String() : maximumMomentary,
+                            frameAvailable ? &observatoryFrame.meter : nullptr,
+                            held && levelInspection.chainSnapshot.count > 0u
+                                ? &levelInspection.chainSnapshot
+                                : chainSnapshotAvailable && ! held ? &chainSnapshot : nullptr,
+                            held && ! levelInspection.chainPoints.empty()
+                                ? &levelInspection.chainPoints
+                                : chainSnapshotAvailable && ! held ? &chainPoints : nullptr,
+                            &chainGeometry,
+                            held && ! levelInspection.index ? levelInspection.selectedChain() : nullptr);
     if (! channelStrips.isEmpty())
         paintChannelStrips (g, channelStrips);
 }

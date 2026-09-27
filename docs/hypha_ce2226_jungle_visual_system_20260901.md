@@ -199,7 +199,7 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 300×200と375×250は同じgeometry規則を使用し、375専用の第三の表示思想を作らない。
 
 100%（300×200）は見るだけの面とする（INV-S38、2026-09-26 Daisuke承認）。
-場所を取る操作（LEVELのCURRENT/MAX、TIMEの範囲とFOCUS、FREQのLR/MID/SIDE・M/S・PSB・MARK、SHARPのLR/MID/SIDE、DRUMのVIEW）は125%以上で選び、100%では既定と異なる選択（MID、SIDE、MARK、HOLD、LOCK）だけを小さく名指しする。
+場所を取る操作（LEVELのCURRENT/MAX、TIMEの範囲とFOCUS、FREQのLR/MID/SIDE・M/S・PSB・MARK・RAW/SHAPE、SHARPのLR/MID/SIDE、DRUMのVIEW）は125%以上で選び、100%では既定と異なる選択（MID、SIDE、SHAPE、MARK、HOLD、LOCK）だけを小さく名指しする。
 図を直接触る操作（FREQの周波数固定、DRUMの打音選択）は全サイズで変えない。
 100%のTIME HISTORYはSとTPの2本とする。
 DRUMは見出し、説明、時間軸の行を置かず、1段のHISTORYの下に選択打音の四値（PREと組めばΔ付き）を同じ大きさの数字で置く。
@@ -247,15 +247,22 @@ LEVEL下段は60秒Historyを既定とし、Spectrumは重複搭載せずFREQを
 
 LEVEL Historyの横軸は常に固定60秒とし、測定開始直後の短い履歴を横幅いっぱいへ引き伸ばさない。
 
-Mを主線、Sを低彩度の副線とし、TPは連続線を重ねず、runごとの2秒区間で保持した最大`true_peak.max`をevent stemとして示す。TPは別railへ分離せず、同じ60秒全面の下部へ右側`+6〜-24 dBTP`軸とともに重ねる。M/S Historyは全面を使い、TP stemだけが下から立ち上がる。
+Mを主線とし、Sを含む詳細推移はTIMEに集約する。TPは連続線を重ねず、`-1.0 dBTP`を超える連続区間ごとの最大`true_peak.max`だけをevent stemとして示す。可視60秒の最大値であっても閾値以下ならstemへ昇格しない。TPは別railへ分離せず、同じ60秒全面の下部へ右側`+6〜-24 dBTP`軸とともに重ねる。M Historyは全面を使い、TP stemだけが下から立ち上がる。
 
-可視区間の正確な最大値と相対時刻を`60 S MAX TP`として表示し、中央の`MAX TP`がResetまでの全Session最大であることと区別する。Max Mは現在Mの面から外し、同じHistory凡例にSession factとして置く。
+閾値を超えた可視区間の正確な最大値と相対時刻だけを`60 S MAX TP`として表示し、中央の`MAX TP`がResetまでの全Session最大であることと区別する。閾値以下しかない区間へ数値、stem、強い発光を追加しない。Max Mは現在Mの面から外し、同じHistory凡例にSession factとして置く。
 
-ポインタ位置では同一100 ms観測点のM、S、TP、相対時刻へ切り替え、Captureは同じ固定軸とevent位置を正本snapshotから描く。
+ポインタ位置では同一100 ms観測点のM、TP、host clock終端または経過時間へ切り替え、Captureは同じ固定軸とevent位置を正本snapshotから描く。
 
-Δ HistoryはM/S差分に限定し、意味の異なる符号付きΔTPを絶対TP eventへ混在させない。
+2026-09-24: 強い局所発光は丸め前TP > 0.0 dBTPだけに限定し、可視区間最大という理由では強調しない。
+LEVEL履歴のclickは表示用snapshotを固定し、計測やRecordは継続する。`< TP` / `TP >`は閾値超過eventを前後に選択し、`LIVE`は表示だけを再開する。
+Reset、engine世代、比較identity変更では古い選択を破棄する。Captureは従来どおり正本snapshotを使い、検査用の固定履歴を混ぜない。
+hover／固定表示の`HOST ~`はTP計測窓のhost clock終端であり、現行ABIではproject/render clockを区別できない。DAW上のexact peak位置やproject timeを保証しない。
+不明時は`ELAPSED`を使う。`COPY`はこの制約も含めて明示操作でコピーする。host seekは行わない。
+150%以上のFooterはLIVE/HOLD/WAITING/BYPASSEDを表示し、100%と125%の折りたたみ帯は短い状態（WAITING、BYPASSED、FORMAT HELD、5.1 MEASURE）だけを示す。versionは情報メニューに置く。狭い幅で`development`等を省略表示しない。
 
-各100 ms History点はL/R別の新規sample clip run数を保持し、shared plot下端にchannel別pipを置く。hoverでは同じ観測点の相対時刻とL/R件数を表示し、右stripのSession累積値とは範囲を混同しない。
+LEVELのΔ HistoryはM差分に限定し、意味の異なる符号付きΔTPを絶対TP eventへ混在させない。
+
+各100 ms History点はL/R別の新規sample clip run数を保持し、shared plot下端にchannel別pipを置く。hoverでは同じ観測点の時刻とL/R件数を表示し、右stripのSession累積値とは範囲を混同しない。
 
 900×600は四domain共通のInspection Viewとし、LEVELではHistory、channel strip、数値階層へ追加面積を与える。TIME、FREQ、SPACEとTIME配下解析も既存の測定事実と操作を変えず高解像度化し、未合意の新指標は載せない。
 

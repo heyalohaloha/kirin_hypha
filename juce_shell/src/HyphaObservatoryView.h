@@ -19,6 +19,8 @@
 #include "HyphaWidgets.h"
 #include "kirin_hypha_ffi.h"
 #include "HyphaMonoSumHistory.h"
+#include "HyphaHistoryInspection.h"
+#include "HyphaChainActionPainter.h"
 
 namespace hypha::observatory
 {
@@ -32,6 +34,7 @@ public:
     Button (juce::String text, bool tabIn, Mark markIn = Mark::none);
     void setPresentationContext (presentation::Context next) noexcept
     {
+        if (presentationContext == next) return;
         presentationContext = next;
         repaint();
     }
@@ -98,7 +101,13 @@ public:
     }
     juce::String footerStatusForTest() const { return footerStatusText(); }
     // WAITING, BYPASSED and the like; shown by the status strip where the footer folds.
-    juce::String footerStatus() const { return footerStatusText(); }
+    // The folded strip at 100% and 125% carries only the short states (WAITING, BYPASSED,
+    // FORMAT HELD, 5.1 MEASURE); LIVE and HOLD are read in the footer rail at 150% and above.
+    juce::String footerStatus() const
+    {
+        const auto state = footerStatusText();
+        return state == "LIVE" || state == "HOLD" ? juce::String() : state;
+    }
     bool frequencyControlVisibleForTest() const noexcept
     {
         return frequencyButton.isVisible();
@@ -118,6 +127,10 @@ public:
     bool fullCockpit() const noexcept
     {
         return isFullDensity (currentPreset().density);
+    }
+    bool inspectionCockpit() const noexcept
+    {
+        return currentPreset().density == Density::inspection;
     }
     PresentationContract presentation() const noexcept
     {
@@ -155,6 +168,8 @@ public:
     void setObservatoryFrame (const KirinObservatoryFrame&, bool available);
     void setRecordDisplay (const KirinRecordDisplay&, bool available);
     void setWatchDisplay (const KirinWatchDisplay&, bool available);
+    void setChainObservation (const KirinChainSnapshot&, const KirinChainPoint*);
+    void clearChainObservation();
     void setShortTermLoudness (bool);
     bool shortTermLoudness() const noexcept { return selectedShortTermLoudness; }
     bool setHostRecording (bool recording);
@@ -268,6 +283,9 @@ public:
     void resized() override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    std::uint64_t recordInvalidationsForTest() const noexcept { return recordBodyInvalidations; }
+    bool historyHeldForTest() const noexcept { return levelInspection.held(); }
 
 private:
     void cycleDomain();
@@ -293,6 +311,12 @@ private:
     void paintChannelStrips (juce::Graphics&, juce::Rectangle<int>);
     void paintTime (juce::Graphics&, juce::Rectangle<int>);
     void refreshLevelHistoryHover();
+    void initializeLevelHistoryControls();
+    void layoutLevelHistoryControls();
+    void updateLevelHistoryControls();
+    void selectLevelHistoryEvent (int direction);
+    void resumeLevelHistory();
+    juce::Rectangle<int> levelHistoryBounds (juce::Rectangle<int>) const;
     juce::Rectangle<int> metricHelpArea (juce::Rectangle<int>, level_metrics::Metric);
     struct MetricHelpRegion { juce::Rectangle<int> bounds; level_metrics::Metric metric; };
     std::array<MetricHelpRegion, 8> metricHelpRegions {};
@@ -314,6 +338,10 @@ private:
     bool recordDisplayAvailable = false;
     KirinWatchDisplay watchDisplay {};
     bool watchDisplayAvailable = false;
+    KirinChainSnapshot chainSnapshot {};
+    std::vector<KirinChainPoint> chainPoints;
+    bool chainSnapshotAvailable = false;
+    chain_action::GeometryCache chainGeometry;
     bool selectedShortTermLoudness = false;
     bool hostRecording = false;
     bool hybridVuOnRecordEnabled = true;
@@ -357,6 +385,12 @@ private:
     juce::Rectangle<int> levelHistoryArea;
     std::optional<juce::Point<float>> levelHistoryPointer;
     std::optional<std::size_t> hoveredLevelHistoryIndex;
+    history_inspection::Selection levelInspection;
+    std::uint64_t recordBodyInvalidations = 0;
+    Button previousPeakButton { "< TP", false };
+    Button nextPeakButton { "TP >", false };
+    Button historyLiveButton { "LIVE", false };
+    Button historyCopyButton { "COPY", false };
     observatory_world::Backdrop background;
     int displayedEditorWidth = 0;
     juce::String displayedSizeLabel;

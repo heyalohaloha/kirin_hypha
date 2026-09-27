@@ -3,6 +3,8 @@
 #include "reference_whole_song_fixture.h"
 #include "reference_library_manifest_fixture.h"
 
+#include <cmath>
+
 namespace
 {
 juce::var calibrationReceipt (ref::ReferenceComparisonController& controller, const WholeSongFixture& fixture,
@@ -41,22 +43,44 @@ juce::var calibrationReceipt (ref::ReferenceComparisonController& controller, co
 }
 
 void feedPassage (ref::ReferenceComparisonController& controller, const WholeSongFixture& fixture,
-                  int sourceStart, int hostStart, float gain, bool duringBlind = false)
+                  int sourceStart, int hostStart, float gain, const char* label,
+                  bool duringBlind = false)
 {
-    for (int frame = 0; frame < 192000; frame += 256)
+    juce::AudioBuffer<float> input (2, 256);
+    bool observedNewCapture = false;
+    for (int attempt = 0; attempt < 3; ++attempt)
     {
-        juce::AudioBuffer<float> input (2, 256);
-        for (int c = 0; c < 2; ++c) input.copyFrom (c, 0, fixture.audio, c, sourceStart + frame, 256);
-        input.applyGain (gain);
-        controller.observeTransport (hostStart + frame, true, true);
-        controller.observeAInput (input, hostStart + frame, true, true, true);
-        juce::Thread::sleep (6);
-    }
-    for (int i = 0; i < 500; ++i)
-    {
-        controller.observeTransport (hostStart + 191744, true, true); juce::Thread::sleep (10);
+        for (int frame = 0; frame < 192000; frame += 256)
+        {
+            for (int c = 0; c < 2; ++c)
+                input.copyFrom (c, 0, fixture.audio, c, sourceStart + frame, 256);
+            input.applyGain (gain);
+            controller.observeTransport (hostStart + frame, true, true);
+            controller.observeAInput (input, hostStart + frame, true, true, true);
+            if ((frame % 8192) == 0)
+                observedNewCapture = observedNewCapture
+                    || controller.snapshot().aCaptureAvailable;
+            juce::Thread::sleep (8);
+        }
+        for (int i = 0; i < 500; ++i)
+        {
+            controller.observeTransport (hostStart + 191744, true, true);
+            juce::Thread::sleep (10);
+            const auto state = controller.snapshot();
+            observedNewCapture = observedNewCapture || state.aCaptureAvailable;
+            if (duringBlind ? state.blindPhase == ref::BlindPhase::invalidated
+                            : observedNewCapture && state.versionReady)
+                return;
+        }
         const auto state = controller.snapshot();
-        if (state.aCaptureAvailable && (duringBlind ? state.blindPhase == ref::BlindPhase::invalidated : state.versionReady)) return;
+        std::cerr << "calibration observation retry label=" << label
+                  << " attempt=" << (attempt + 1)
+                  << " capture=" << state.aCaptureAvailable
+                  << " capture_seen=" << observedNewCapture
+                  << " version_ready=" << state.versionReady
+                  << " gain_db=" << state.appliedGainDb
+                  << " blind_phase=" << static_cast<int> (state.blindPhase)
+                  << " rejection=" << state.rejectionCode << '\n';
     }
     require (false, "new observation must finish acoustic calibration");
 }
@@ -122,7 +146,7 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     const auto initial = calibrationReceipt (controller, fixture, root);
     const int a = static_cast<int> (initial["calibration"]["a"]["start_sample"]);
     const int b = static_cast<int> (initial["calibration"]["b"]["start_sample"]);
-    feedPassage (controller, fixture, b, a, 0.5f);
+    feedPassage (controller, fixture, b, a, 0.5f, "gain-edit");
     require (controller.selectB (-28.0206, -12.0206), "B is available after repeated-passage gain edit");
     const auto corrected = controller.snapshot().appliedGainDb;
     require (std::abs (corrected + 6.0205999) < 0.01, "B gain follows the revised A calibration, not the old 0 dB receipt");
@@ -131,7 +155,7 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     const auto hash = gained["sources"]["a"]["observation_pcm_sha256"].toString();
     const int gainedA = static_cast<int> (gained["calibration"]["a"]["start_sample"]);
     const int gainedB = static_cast<int> (gained["calibration"]["b"]["start_sample"]);
-    feedPassage (controller, fixture, gainedB, gainedA + 48000, 0.5f);
+    feedPassage (controller, fixture, gainedB, gainedA + 48000, 0.5f, "relocation");
     const auto moved = calibrationReceipt (controller, fixture, root, gainedA + 48000);
     require (moved["sources"]["a"]["observation_pcm_sha256"] == hash, "relocation reuses exactly the same PCM hash");
     require (static_cast<int> (moved["calibration"]["a"]["start_sample"]) == gainedA + 48000
@@ -141,7 +165,8 @@ void testReferenceCalibrationRegressions (const juce::File& sandbox)
     require (controller.startBlind (-28, -12), "start trial before another live A edit");
     juce::AudioBuffer<float> trialInput (2, 256); trialInput.clear();
     require (controller.renderSelectedB (trialInput, gainedA + 48000, true, true, true), "arm active trial on audio callback");
-    feedPassage (controller, fixture, gainedB, gainedA + 48000, 1.0f, true);
+    feedPassage (controller, fixture, gainedB, gainedA + 48000, 1.0f,
+                 "blind-live-edit", true);
     require (!controller.answerBlind (1), "changed A cannot produce a valid Blind answer");
     controller.observeTransport (0, false, false); controller.endBlind();
     for (int i = 0; i < 500 && controller.snapshot().blindPhase != ref::BlindPhase::inactive; ++i) juce::Thread::sleep (10);

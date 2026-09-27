@@ -50,6 +50,8 @@ fn joins_only_the_same_unique_presentation_endpoint() {
         instance_id: "pre".into(),
         instance_dir: "/tmp/pre".into(),
         owner_id: "owner".into(),
+        daw_session_id: "song".into(),
+        post_binding: None,
     });
     delta.ingest(
         &[pre_point(4_800, -20.0), pre_point(9_600, -18.0)],
@@ -145,6 +147,8 @@ fn pair_change_discards_history_instead_of_blending_sources() {
         instance_id: "pre-a".into(),
         instance_dir: "/tmp/pre-a".into(),
         owner_id: "owner-a".into(),
+        daw_session_id: "song".into(),
+        post_binding: None,
     });
     delta.ingest(
         &[pre_point(4_800, -20.0)],
@@ -159,6 +163,8 @@ fn pair_change_discards_history_instead_of_blending_sources() {
         instance_id: "pre-b".into(),
         instance_dir: "/tmp/pre-b".into(),
         owner_id: "owner-b".into(),
+        daw_session_id: "song".into(),
+        post_binding: None,
     });
     assert!(delta
         .history
@@ -188,6 +194,7 @@ fn atomic_publication_and_exact_target_join_work_end_to_end() {
             position_samples: Some(0),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,
+            ..MeterClockStart::default()
         },
     );
     let pre = MeterDeltaHistoryExchange::new(48_000, pre_session);
@@ -209,6 +216,7 @@ fn atomic_publication_and_exact_target_join_work_end_to_end() {
             position_samples: Some(0),
             epoch: Some(9),
             source: CaptureClockSource::ProjectTimeline,
+            ..MeterClockStart::default()
         },
     );
     let post = MeterDeltaHistoryExchange::new(48_000, post_session);
@@ -265,6 +273,7 @@ fn a_different_layout_is_not_subtracted_because_the_gap_is_the_map_not_the_chain
                 position_samples: Some(0),
                 epoch: Some(1),
                 source: CaptureClockSource::ProjectTimeline,
+                ..MeterClockStart::default()
             },
         );
         let pre = MeterDeltaHistoryExchange::new(48_000, pre_session);
@@ -287,6 +296,7 @@ fn a_different_layout_is_not_subtracted_because_the_gap_is_the_map_not_the_chain
                 position_samples: Some(0),
                 epoch: Some(1),
                 source: CaptureClockSource::ProjectTimeline,
+                ..MeterClockStart::default()
             },
         );
         let post = MeterDeltaHistoryExchange::new(48_000, post_session);

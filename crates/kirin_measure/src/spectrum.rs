@@ -11,8 +11,8 @@ use crate::log_bands::log_band_edges;
 use rustfft::num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
 
-/// 4 = B-971。交換 wire の予約バイトに `view` を載せた（旧 wire は拒否される）。
-pub const SPECTRUM_SCHEMA_VERSION: u16 = 4;
+/// Same-candidate PRE/POST exchange. Older wire is rejected rather than mixed with SHAPE.
+pub const SPECTRUM_SCHEMA_VERSION: u16 = 5;
 pub const SPECTRUM_REFERENCE_SAMPLE_RATE: u32 = 48_000;
 pub const SPECTRUM_WINDOW_SIZE: usize = 4_096;
 pub const SPECTRUM_FFT_SIZE: usize = 8_192;
@@ -23,6 +23,8 @@ pub const SPECTRUM_MAX_HZ: f32 = 22_000.0;
 pub const SPECTRUM_FLOOR_DBFS: f32 = -144.0;
 pub const SPECTRUM_DISPLAY_FLOOR_START_DBFS: f32 = -120.0;
 pub const SPECTRUM_DISPLAY_FLOOR_END_DBFS: f32 = -96.0;
+/// Below this true aperture energy, an energy ratio is numerically possible but not useful.
+pub const SPECTRUM_SHAPE_MIN_ENERGY_DBFS: f32 = -120.0;
 pub const SPECTRUM_APPROXIMATE_CYCLES: f32 = 3.0;
 
 /// The exact analysis layout for one host sample rate.
@@ -143,6 +145,9 @@ pub struct SpectrumFrame {
     /// First frequency backed by a real FFT bin. A renderer must not invent points below it.
     pub min_hz: f32,
     pub max_hz: f32,
+    /// Mean square of the same Hann-windowed aperture used by this frame's FFT. This is
+    /// calculated before any display floor and normalized by the sum of squared window weights.
+    pub windowed_energy: f64,
     pub dbfs: [f32; SPECTRUM_BAND_COUNT],
 }
 
@@ -156,6 +161,8 @@ impl SpectrumFrame {
                     && self.min_hz.to_bits() == layout.min_hz.to_bits()
                     && self.max_hz.to_bits() == layout.max_hz.to_bits()
             })
+            && self.windowed_energy.is_finite()
+            && self.windowed_energy >= 0.0
             && self.dbfs.iter().all(|value| value.is_finite())
     }
 
@@ -169,7 +176,8 @@ impl SpectrumFrame {
             && self.band_count == other.band_count
             && self.channel_mode == other.channel_mode
             // 違う観測対象を引き算しない。**同じ帯域図でも、L と C なら別の測定である。**
-            // 交換 wire はまだ view を運ばないので、両側とも NONE のときは従来どおり通る。
+            // 現行wireはviewを運ぶ。NONE同士は観測対象が未確定なので、呼出側で
+            // 対象選択の資格を別途確認しなければならない。
             && self.view == other.view
             && self.channels == other.channels
             && self.min_hz.to_bits() == other.min_hz.to_bits()
@@ -230,6 +238,7 @@ pub struct SpectrumAnalyzer {
     combined: Vec<f32>,
     bands: [BandPlan; SPECTRUM_BAND_COUNT],
     amplitude_scale: f32,
+    window_energy_normalizer: f64,
 }
 
 impl SpectrumAnalyzer {
@@ -245,6 +254,10 @@ impl SpectrumAnalyzer {
             })
             .collect::<Vec<_>>();
         let amplitude_scale = 2.0 / window.iter().sum::<f32>();
+        let window_energy_normalizer = window
+            .iter()
+            .map(|weight| f64::from(*weight) * f64::from(*weight))
+            .sum::<f64>();
         let bands = std::array::from_fn(|index| {
             band_plan(
                 index,
@@ -265,6 +278,7 @@ impl SpectrumAnalyzer {
             window,
             bands,
             amplitude_scale,
+            window_energy_normalizer,
         })
     }
 
@@ -321,7 +335,7 @@ impl SpectrumAnalyzer {
             return Err(SpectrumError::NonFiniteInput);
         }
         let channels = if right.is_some() { 2 } else { 1 };
-        match (channel_mode, right) {
+        let windowed_energy = match (channel_mode, right) {
             (SpectrumChannelMode::Side, None) => return Err(SpectrumError::SideRequiresStereo),
             (SpectrumChannelMode::Mid | SpectrumChannelMode::Side, Some(right)) => {
                 let polarity = if channel_mode == SpectrumChannelMode::Mid {
@@ -340,7 +354,7 @@ impl SpectrumAnalyzer {
                     &mut self.fft_scratch,
                     &mut self.left_power,
                     &self.combined,
-                );
+                )
             }
             (SpectrumChannelMode::Mid, None) | (SpectrumChannelMode::Lr, None) => {
                 Self::transform_channel(
@@ -351,10 +365,10 @@ impl SpectrumAnalyzer {
                     &mut self.fft_scratch,
                     &mut self.left_power,
                     left,
-                );
+                )
             }
             (SpectrumChannelMode::Lr, Some(right)) => {
-                Self::transform_channel(
+                let left_energy = Self::transform_channel(
                     &self.fft,
                     &self.window,
                     self.amplitude_scale,
@@ -363,7 +377,7 @@ impl SpectrumAnalyzer {
                     &mut self.left_power,
                     left,
                 );
-                Self::transform_channel(
+                let right_energy = Self::transform_channel(
                     &self.fft,
                     &self.window,
                     self.amplitude_scale,
@@ -375,8 +389,9 @@ impl SpectrumAnalyzer {
                 for (left, right) in self.left_power.iter_mut().zip(&self.right_power) {
                     *left = (*left + *right) * 0.5;
                 }
+                (left_energy + right_energy) * 0.5
             }
-        }
+        } / self.window_energy_normalizer;
         let floor_power = 10.0_f32.powf(SPECTRUM_FLOOR_DBFS / 10.0);
         let dbfs = std::array::from_fn(|index| {
             let power = match self.bands[index] {
@@ -404,6 +419,7 @@ impl SpectrumAnalyzer {
             channels,
             min_hz: self.layout.min_hz,
             max_hz: self.layout.max_hz,
+            windowed_energy,
             dbfs,
         })
     }
@@ -417,15 +433,19 @@ impl SpectrumAnalyzer {
         fft_scratch: &mut [Complex32],
         power: &mut [f32],
         samples: &[f32],
-    ) {
+    ) -> f64 {
         fft_buffer.fill(Complex32::ZERO);
+        let mut energy = 0.0_f64;
         for ((slot, sample), window) in fft_buffer.iter_mut().zip(samples).zip(window) {
-            *slot = Complex32::new(*sample * *window, 0.0);
+            let weighted = *sample * *window;
+            energy += f64::from(weighted) * f64::from(weighted);
+            *slot = Complex32::new(weighted, 0.0);
         }
         fft.process_with_scratch(fft_buffer, fft_scratch);
         for (target, value) in power.iter_mut().zip(fft_buffer.iter()) {
             *target = value.norm_sqr() * amplitude_scale * amplitude_scale;
         }
+        energy
     }
 }
 
@@ -456,3 +476,7 @@ mod tests;
 #[cfg(test)]
 #[path = "spectrum_host_rate_tests.rs"]
 mod host_rate_tests;
+
+#[cfg(test)]
+#[path = "spectrum_shape_tests.rs"]
+mod shape_tests;

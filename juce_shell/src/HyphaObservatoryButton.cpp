@@ -27,6 +27,7 @@ Button::Button (juce::String text, bool tabIn, Mark markIn)
     : juce::TextButton (std::move (text)), tab (tabIn), mark (markIn)
 {
     setWantsKeyboardFocus (true);
+    setMouseClickGrabsKeyboardFocus (false); // Keep keyboard traversal, not mouse-driven focus theft.
 }
 
 void Button::paintButton (juce::Graphics& g, bool highlighted, bool down)

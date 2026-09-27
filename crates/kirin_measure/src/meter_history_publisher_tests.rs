@@ -37,6 +37,7 @@ fn advance(session: &Arc<Mutex<MeterSession>>, start: i64) {
             position_samples: Some(start),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,
+            ..MeterClockStart::default()
         }
     ));
 }
@@ -56,6 +57,60 @@ fn unchanged_history_skips_clone_serialization_and_replacement_for_600_polls() {
     assert_eq!(counts(&exchange), (1, 1));
     assert_eq!(FileStamp::read(&path).unwrap(), initial);
     assert_eq!(fs::read(path).unwrap(), bytes);
+}
+
+#[test]
+fn full_legacy_and_content_tails_fit_the_existing_exchange_limit() {
+    use crate::{
+        AuxiliaryClockSamples, AuxiliaryClockSource, PresentationLatencySamples,
+        PresentationLatencySource,
+    };
+    let (dir, session, exchange) = fixture();
+    let audio: Vec<_> = (0..4_800)
+        .flat_map(|frame| {
+            let value = 0.2 * (frame as f64 * std::f64::consts::TAU / 48.0).sin();
+            [value, value]
+        })
+        .collect();
+    for index in 0..35_i64 {
+        let at = index * 4_800;
+        assert!(session.lock().unwrap().push_active_at(
+            &audio,
+            MeterClockStart {
+                position_samples: Some(at),
+                epoch: Some(1),
+                source: CaptureClockSource::ProjectTimeline,
+                auxiliary: AuxiliaryClockSamples {
+                    source: AuxiliaryClockSource::Vst3Continuous,
+                    samples: Some(at),
+                },
+                presentation_latency: PresentationLatencySamples {
+                    source: PresentationLatencySource::Vst3,
+                    input: None,
+                    output: Some(0),
+                },
+            }
+        ));
+    }
+    publish(&exchange, dir.path()).unwrap();
+    let publication = read_publication(dir.path()).unwrap();
+    assert_eq!(publication.points.len(), METER_HISTORY_EXCHANGE_POINTS);
+    assert_eq!(
+        publication.content_windows.len(),
+        METER_HISTORY_EXCHANGE_POINTS
+    );
+    let bytes = fs::metadata(dir.path().join(METER_HISTORY_EXCHANGE_FILE))
+        .unwrap()
+        .len();
+    println!("full history exchange: {bytes} bytes");
+    assert!(
+        bytes <= MAX_EXCHANGE_BYTES,
+        "{bytes} byte exchange exceeds protocol limit"
+    );
+    assert!(
+        bytes > 10_000,
+        "{bytes} byte fixture did not exercise both tails"
+    );
 }
 
 #[test]
@@ -236,6 +291,7 @@ fn no_snapshot_until_a_complete_history_observation_advances() {
             position_samples: Some(0),
             epoch: Some(1),
             source: CaptureClockSource::ProjectTimeline,
+            ..MeterClockStart::default()
         },
     );
     publish(&exchange, dir.path()).unwrap();

@@ -12,7 +12,7 @@ use crate::spectrum::{
 };
 use crate::spectrum_runtime::{SpectrumHistory, SPECTRUM_HISTORY_CAPACITY};
 
-const SNAPSHOT_MAGIC: &[u8; 8] = b"KHSPEC03";
+const SNAPSHOT_MAGIC: &[u8; 8] = b"KHSPEC04";
 pub(super) const SNAPSHOT_MAX_BYTES: u64 = 16_384;
 
 pub(super) struct DecodedSnapshot {
@@ -55,7 +55,7 @@ pub(crate) fn read_bounded(path: &Path, maximum_bytes: u64) -> Option<Vec<u8>> {
 
 pub(super) fn encode_snapshot(request_id: Uuid, history: &SpectrumHistory) -> Vec<u8> {
     let frame_count = history.frames().len().min(u16::MAX as usize) as u16;
-    let mut bytes = Vec::with_capacity(44 + frame_count as usize * (28 + SPECTRUM_BAND_COUNT * 4));
+    let mut bytes = Vec::with_capacity(44 + frame_count as usize * (36 + SPECTRUM_BAND_COUNT * 4));
     bytes.extend_from_slice(SNAPSHOT_MAGIC);
     bytes.extend_from_slice(&SPECTRUM_SCHEMA_VERSION.to_le_bytes());
     bytes.extend_from_slice(&(SPECTRUM_BAND_COUNT as u16).to_le_bytes());
@@ -91,6 +91,7 @@ pub(super) fn encode_snapshot(request_id: Uuid, history: &SpectrumHistory) -> Ve
         bytes.push(0);
         bytes.extend_from_slice(&frame.min_hz.to_le_bytes());
         bytes.extend_from_slice(&frame.max_hz.to_le_bytes());
+        bytes.extend_from_slice(&frame.windowed_energy.to_le_bytes());
         for value in frame.dbfs {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
@@ -132,6 +133,10 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
         {
             return None;
         }
+        let windowed_energy = cursor.f64()?;
+        if !windowed_energy.is_finite() || windowed_energy < 0.0 {
+            return None;
+        }
         let mut dbfs = [0.0; SPECTRUM_BAND_COUNT];
         for value in &mut dbfs {
             *value = cursor.f32()?;
@@ -152,6 +157,7 @@ pub(super) fn decode_snapshot(bytes: &[u8]) -> Option<DecodedSnapshot> {
             channels,
             min_hz,
             max_hz,
+            windowed_energy,
             dbfs,
         });
     }
@@ -195,6 +201,9 @@ impl<'a> Cursor<'a> {
     }
     fn f32(&mut self) -> Option<f32> {
         Some(f32::from_le_bytes(self.take(4)?.try_into().ok()?))
+    }
+    fn f64(&mut self) -> Option<f64> {
+        Some(f64::from_le_bytes(self.take(8)?.try_into().ok()?))
     }
     fn remaining(&self) -> usize {
         self.bytes.len().saturating_sub(self.offset)

@@ -1,4 +1,7 @@
-use super::{active_analysis_targets, confirmed_analysis_targets};
+use super::{
+    active_analysis_targets, bound_analysis_targets, confirmed_analysis_targets,
+    PostAnalysisBinding,
+};
 use crate::pairing_scope::{LatchedPre, LatchedPreReadiness};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -72,4 +75,67 @@ fn absent_or_poisoned_latch_feeds_neither_optional_analysis_endpoint() {
     })
     .join();
     assert_eq!(confirmed_analysis_targets(&poisoned), (None, None));
+}
+
+#[test]
+fn analysis_requires_the_same_exact_pre_and_post_binding() {
+    let exact = latch(
+        LatchedPreReadiness::Confirmed,
+        PathBuf::from("/tmp/kirin/project/pre-exact/pre.json"),
+    );
+    let bound = |owner, generation, claimed_at| {
+        bound_analysis_targets(
+            &exact,
+            PostAnalysisBinding {
+                post_instance_id: "post-exact",
+                pair_pre_name: "PRE-A",
+                paired_pre_instance_id: Some("pre-exact"),
+                pair_owner_id: owner,
+                generation,
+                claimed_at,
+            },
+            false,
+        )
+    };
+    let first = bound("pair-owner-a", 7, 1.0);
+    let second = bound("pair-owner-a", 8, 1.0);
+    assert!(first.0.is_some());
+    assert!(first.1.is_some());
+    assert_ne!(first.1, second.1);
+    let missing_owner = bound("", 7, 1.0);
+    assert!(missing_owner.0.is_some());
+    assert!(missing_owner.1.is_none());
+    let missing_generation = bound("pair-owner-a", 0, 1.0);
+    assert!(missing_generation.0.is_some());
+    assert!(missing_generation.1.is_none());
+    assert_eq!(
+        bound_analysis_targets(
+            &exact,
+            PostAnalysisBinding {
+                post_instance_id: "post-exact",
+                pair_pre_name: "PRE-A",
+                paired_pre_instance_id: Some("other-pre"),
+                pair_owner_id: "pair-owner-a",
+                generation: 7,
+                claimed_at: 1.0,
+            },
+            false,
+        ),
+        (None, None)
+    );
+    assert_eq!(
+        bound_analysis_targets(
+            &exact,
+            PostAnalysisBinding {
+                post_instance_id: "post-exact",
+                pair_pre_name: "PRE-A",
+                paired_pre_instance_id: Some("pre-exact"),
+                pair_owner_id: "pair-owner-a",
+                generation: 7,
+                claimed_at: 1.0,
+            },
+            true,
+        ),
+        (None, None)
+    );
 }

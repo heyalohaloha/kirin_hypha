@@ -30,6 +30,33 @@ bool KirinHyphaProcessorBase::pollObservatoryFrame (KirinObservatoryFrame& out) 
     return hyphaHandle != nullptr && kirin_hypha_poll_observatory_frame (hyphaHandle, &out);
 }
 
+bool KirinHyphaProcessorBase::pollLevelSnapshot (
+    KirinLevelSnapshot& out,
+    std::vector<KirinMeterHistoryEntry>& history,
+    std::array<KirinChainPoint, KIRIN_CHAIN_CAPACITY>& chain,
+    size_t maxEntries, size_t maxOutputEntries,
+    std::uint64_t knownChainRevision, bool latestOnly) const
+{
+    const auto range = std::min (maxEntries, static_cast<size_t> (KIRIN_CHAIN_CAPACITY));
+    const auto capacity = std::min (maxOutputEntries, range);
+    std::vector<KirinMeterHistoryEntry> candidate (capacity);
+    KirinLevelSnapshot next {};
+    const auto chainCapacity = role == Role::Post
+        ? (latestOnly ? 1u : KIRIN_CHAIN_CAPACITY) : 0u;
+    const juce::ScopedLock sl (handleLock);
+    const auto ok = hyphaHandle != nullptr
+        && kirin_hypha_poll_level_snapshot (
+            hyphaHandle, KIRIN_LEVEL_SNAPSHOT_VERSION, static_cast<uint32_t> (range),
+            candidate.data(), static_cast<uint32_t> (capacity), knownChainRevision,
+            chain.data(), chainCapacity, &next);
+    if (! ok || next.history_count > capacity)
+        return false;
+    candidate.resize (next.history_count);
+    out = next;
+    history = std::move (candidate);
+    return true;
+}
+
 bool KirinHyphaProcessorBase::pollMeterHistory (
     uint8_t resolution,
     std::vector<KirinMeterHistoryEntry>& out,

@@ -49,6 +49,9 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
     frame.recordDisplayAvailable = recordDisplayAvailable;
     frame.watchDisplay = watchDisplay;
     frame.watchDisplayAvailable = watchDisplayAvailable;
+    frame.chainSnapshot = chainSnapshot;
+    frame.chainPoints = chainPoints;
+    frame.chainSnapshotAvailable = chainSnapshotAvailable;
     frame.selectedShortTermLoudness = selectedShortTermLoudness;
     frame.compactShowsMaximum = compactShowsMaximum;
     frame.connectionText = connectionText;
@@ -60,7 +63,22 @@ juce::Image View::createCaptureImage (int pixelWidth, int pixelHeight,
         frame.guideDetail = guideDetail;
         frame.guideEmphasized = guideEmphasized;
     }
-    frame.history = historySnapshot != nullptr ? *historySnapshot : history;
+    if (levelInspection.held() && selectedDomain == Domain::level)
+    {
+        frame.levelInspection = levelInspection;
+        frame.history = levelInspection.snapshot;
+        // A held chart must not be combined with meter scalars acquired on a later UI poll.
+        if (levelInspection.packetFrameAvailable)
+            frame.observatoryFrame = levelInspection.packetFrame;
+        if (levelInspection.chainSnapshot.count > 0u)
+        {
+            frame.chainSnapshot = levelInspection.chainSnapshot;
+            frame.chainPoints = levelInspection.chainPoints;
+            frame.chainSnapshotAvailable = true;
+        }
+    }
+    else
+        frame.history = historySnapshot != nullptr ? *historySnapshot : history;
     frame.captureFrame = true;
     frame.jungleAppearance = jungleAppearance;
     frame.presentationOutput = presentation::OutputTarget::capture;

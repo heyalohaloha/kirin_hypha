@@ -5,9 +5,51 @@
 
 namespace hypha::observatory
 {
+void View::setChainObservation (const KirinChainSnapshot& value,
+                                const KirinChainPoint* points)
+{
+    const auto valid = ((value.version == KIRIN_CHAIN_VERSION
+                             && value.count <= KIRIN_CHAIN_CAPACITY)
+                        || (value.version == KIRIN_CHAIN_VERSION_LATEST
+                             && value.count <= 1u))
+                    && (value.count == 0u || points != nullptr);
+    if (! valid)
+    {
+        clearChainObservation();
+        return;
+    }
+    if (levelInspection.held() && levelInspection.chainSnapshot.binding != 0u
+        && (levelInspection.chainSnapshot.binding != value.binding
+            || value.status == KIRIN_CHAIN_SUPPRESSED))
+        resumeLevelHistory();
+    if (chainSnapshotAvailable && chainSnapshot.revision == value.revision
+        && chainSnapshot.version == value.version)
+        return;
+    chainSnapshot = value;
+    if (value.count == 0u)
+        chainPoints.clear();
+    else
+        chainPoints.assign (points, points + value.count);
+    chainSnapshotAvailable = true;
+    repaint (bodyArea);
+}
+
+void View::clearChainObservation()
+{
+    if (! chainSnapshotAvailable && chainPoints.empty())
+        return;
+    if (levelInspection.held() && levelInspection.chainSnapshot.binding != 0u)
+        resumeLevelHistory();
+    chainSnapshot = {};
+    chainPoints.clear();
+    chainSnapshotAvailable = false;
+    repaint (bodyArea);
+}
+
 void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
 {
     const auto previous = observatoryFrame;
+    const auto previousState = footerStatusText();
     const auto previouslyAvailable = frameAvailable;
     observatoryFrame.version = KIRIN_OBSERVATORY_FRAME_VERSION;
     observatoryFrame.meter = value;
@@ -24,7 +66,10 @@ void View::setMeterSnapshot (const KirinMeterSession& value, bool available)
     const bool storedMono = monoSumHistory.append (value);
     if (previouslyAvailable != available || storedMono
         || ! observation_equality::same (previous, observatoryFrame))
+    {
         repaint (bodyArea);
+        if (previousState != footerStatusText()) repaint (sessionArea);
+    }
 }
 
 void View::setDeltaSnapshot (const KirinDelta& value, bool available)
@@ -47,20 +92,43 @@ void View::setObservatoryFrame (const KirinObservatoryFrame& value, bool availab
     if (! storedMono && frameAvailable
         && observation_equality::same (observatoryFrame, value))
         return;
+    const auto previousState = footerStatusText();
+    const bool comparisonChanged = target() == ObservationTarget::delta
+        && (observatoryFrame.comparison_identity != value.comparison_identity
+            || observatoryFrame.comparison_generation != value.comparison_generation);
+    const bool historyIdentityChanged = observatoryFrame.meter.generation != value.meter.generation
+        || observatoryFrame.meter.measurement_epoch != value.meter.measurement_epoch
+        || observatoryFrame.meter.state != value.meter.state;
     observatoryFrame = value;
     frameAvailable = true;
+    if (chainSnapshotAvailable && ! chainPoints.empty()
+        && (chainPoints.back().post_epoch != value.meter.measurement_epoch
+            || chainPoints.back().post_generation != value.meter.generation))
+        clearChainObservation();
+    if (levelInspection.held() && (comparisonChanged || ! levelInspection.matches (value.meter)))
+        resumeLevelHistory();
+    else if (historyIdentityChanged) updateLevelHistoryControls();
     repaint (bodyArea);
+    if (previousState != footerStatusText()) repaint (sessionArea);
 }
 
 void View::setRecordDisplay (const KirinRecordDisplay& value, bool available)
 {
+    if (recordDisplayAvailable == available
+        && (! available || observation_equality::same (recordDisplay, value)))
+        return;
     const auto previouslyShowing = recordDisplayShowing();
     recordDisplay = value;
     recordDisplayAvailable = available;
     const auto showing = recordDisplayShowing();
     if (previouslyShowing != showing && onRecordBodyOwnershipChange)
         onRecordBodyOwnershipChange (showing);
-    repaint (bodyArea);
+    if (previouslyShowing || showing)
+    {
+        ++recordBodyInvalidations;
+        layoutLevelHistoryControls();
+        repaint (bodyArea);
+    }
 }
 
 bool View::recordDisplayShowing() const noexcept

@@ -142,6 +142,10 @@ impl PostPairObservation {
         &self.deps.latched_pre
     }
 
+    pub(super) fn owner_id(&self) -> &str {
+        self.deps.pair_owner.owner_id()
+    }
+
     fn claimed_at(&self) -> f64 {
         self.deps
             .pair_claimed_at

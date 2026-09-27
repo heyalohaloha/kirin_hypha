@@ -74,6 +74,7 @@ impl HistoryPublisher {
         let revision = session.history_publication_revision();
         let unchanged = self.published.as_ref().filter(|last| {
             last.revision == revision
+                && last.publication.clock_policy == exchange.clock_policy()
                 && last.pre_instance_id == pre_instance_id
                 && last.daw_session_id == daw_session_id
                 && last.watch_owner_id == watch_owner_id
@@ -95,10 +96,23 @@ impl HistoryPublisher {
                 instance_dir,
             );
         }
+        let snapshot = session.snapshot();
         let points = session
             .recent_history(MeterHistoryResolution::Hz10, METER_HISTORY_EXCHANGE_POINTS)
             .into_iter()
             .filter_map(WirePoint::from_history)
+            .collect();
+        let content_windows = session
+            .recent_content_windows(METER_HISTORY_EXCHANGE_POINTS)
+            .into_iter()
+            .map(|point| {
+                ContentWirePoint::from_observation(
+                    point,
+                    snapshot.measurement_epoch,
+                    revision.0,
+                    snapshot.generation,
+                )
+            })
             .collect();
         drop(session);
         #[cfg(test)]
@@ -112,7 +126,9 @@ impl HistoryPublisher {
             daw_session_id: daw_session_id.into(),
             sample_rate: exchange.sample_rate,
             layout: exchange.layout.clone(),
+            clock_policy: exchange.clock_policy(),
             points,
+            content_windows,
         };
         let path = instance_dir.join(METER_HISTORY_EXCHANGE_FILE);
         // Unsupported/missing presentation clocks may advance local history without changing
@@ -132,6 +148,9 @@ impl HistoryPublisher {
             self.snapshots_serialized += 1;
         }
         let bytes = serde_json::to_vec(&publication).map_err(|error| error.to_string())?;
+        if bytes.len() as u64 > MAX_EXCHANGE_BYTES {
+            return Err("meter history exchange exceeds byte limit".into());
+        }
         let written = crate::atomic_file::write_bytes_atomic_metadata(&path, &bytes)
             .map_err(|error| error.to_string())?;
         // Commit only after success, and only for our own file. On Windows last-write time

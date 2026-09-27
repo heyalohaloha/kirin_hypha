@@ -41,6 +41,20 @@ static void captureLiveSharing(const juce::File& sandbox) {
                 "LIVE comparison is observing before the synthetic host runs");
         juce::AudioBuffer<float> input(2,4800);
         for(int at=0;at<fixture.audio.getNumSamples();at+=4800) {
+            const auto index = size_t (at / 4800);
+            const auto unitIndex = size_t (at / 48000);
+            const bool unitBoundary = ((at + 4800) % 48000) == 0;
+            std::uint64_t previousUnitPass = 0;
+            const auto observationBefore = access->snapshot();
+            if (unitBoundary && unitIndex < observationBefore.unitPass.size())
+                previousUnitPass = observationBefore.unitPass[unitIndex];
+            std::uint64_t previousLivePass = 0;
+            if (paceLive)
+            {
+                const auto current = controller.snapshot();
+                if (current.visualTimeline && index < current.visualTimeline->bins.size())
+                    previousLivePass = current.visualTimeline->bins[index].pass;
+            }
             for(int c=0;c<2;++c) input.copyFrom(c,0,fixture.audio,c,at,4800); input.applyGain(gain);
             const auto processedBefore=access->framesProcessed.load(std::memory_order_acquire);
             controller.observeTransport(at,true,true); controller.observeAInput(input,at,true,true,true,1);
@@ -50,9 +64,28 @@ static void captureLiveSharing(const juce::File& sandbox) {
                     || access->framesProcessed.load(std::memory_order_acquire)>=processedBefore+4800;}),
                     "synthetic host waits for finite Capture A worker capacity");
             else if(paceLive)
-                require(wait([&,index=size_t(at/4800)]{const auto s=controller.snapshot();return s.visualTimeline
-                    && index<s.visualTimeline->bins.size() && s.visualTimeline->bins[index].pass!=0;}),
-                    "synthetic host waits for the LIVE comparison worker");
+            {
+                if (! wait ([&] { const auto s = controller.snapshot(); return s.visualTimeline
+                    && index < s.visualTimeline->bins.size()
+                    && s.visualTimeline->bins[index].pass > previousLivePass; }))
+                {
+                    const auto s = controller.snapshot();
+                    std::cerr << "LIVE worker timeout index=" << index
+                              << " timeline=" << bool (s.visualTimeline)
+                              << " observing=" << (s.visualTimeline && s.visualTimeline->observing)
+                              << " paired=" << (s.visualTimeline && s.visualTimeline->pairedObserving)
+                              << " bins=" << (s.visualTimeline ? s.visualTimeline->bins.size() : 0u)
+                              << " previous_pass=" << previousLivePass
+                              << " current_pass=" << (s.visualTimeline && index < s.visualTimeline->bins.size()
+                                                        ? s.visualTimeline->bins[index].pass : 0)
+                              << std::endl;
+                    require (false, "synthetic host waits for the LIVE comparison worker");
+                }
+            }
+            else if (unitBoundary && observationBefore.held)
+                require (wait ([&] { const auto state = access->snapshot(); return unitIndex < state.unitPass.size()
+                    && state.unitPass[unitIndex] > previousUnitPass; }),
+                    "synthetic host waits for each held-capture comparison unit");
             else juce::Thread::sleep(12);
         }
     };

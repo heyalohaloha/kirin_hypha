@@ -343,6 +343,7 @@ fn stale_generation_channel_mode_or_view_can_never_be_republished() {
         channels: 2,
         min_hz: 10.0,
         max_hz: 22_000.0,
+        windowed_energy: 0.01,
         dbfs: [-24.0; crate::SPECTRUM_BAND_COUNT],
     };
     let stream = runtime.stream_generation.load(Ordering::Acquire);

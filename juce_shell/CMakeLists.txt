@@ -307,6 +307,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryCapture.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
@@ -380,9 +381,11 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
             src/HyphaReferenceComparisonView.cpp
         src/HyphaReferenceCapturedView.cpp
             src/HyphaSpectrumComponent.cpp
+            src/HyphaSpectrumInteraction.cpp
             src/HyphaSpectrumPsb.cpp
             src/HyphaSpectrumTooltip.cpp
             src/HyphaSpectrumChromePainter.cpp
+            src/HyphaSpectrumProbePainter.cpp
             src/HyphaSpectrumTerrain.cpp
             src/HyphaSpectrumFocusTrail.cpp
             src/HyphaSpectrumFocusTrailPainter.cpp
@@ -523,6 +526,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         tools/ReferencePreviewRenderer.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp
         src/HyphaReferenceGuide.cpp
@@ -583,6 +587,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/AbsoluteSpectrumContractTest.cpp
         tests/PerceptualHistoryContractTest.cpp
         tests/SpectrumInteractionContractTest.cpp
+        tests/SpectrumShapeContractTest.cpp
         tests/SpectrumFocusTrailContractTest.cpp
         tests/SpectrumPresentationContractTest.cpp
         tests/GuideFrequencyOverlayContractTest.cpp
@@ -609,6 +614,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaObservatoryCapture.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
@@ -656,9 +662,11 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaTextButton.cpp
         src/HyphaPsbPainter.cpp
         src/HyphaSpectrumComponent.cpp
+        src/HyphaSpectrumInteraction.cpp
         src/HyphaSpectrumPsb.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
+        src/HyphaSpectrumProbePainter.cpp
         src/HyphaSpectrumTerrain.cpp
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
@@ -721,9 +729,11 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaGuideFrequencyOverlay.cpp
         src/HyphaPsbPainter.cpp
         src/HyphaSpectrumComponent.cpp
+        src/HyphaSpectrumInteraction.cpp
         src/HyphaSpectrumPsb.cpp
         src/HyphaSpectrumTooltip.cpp
         src/HyphaSpectrumChromePainter.cpp
+        src/HyphaSpectrumProbePainter.cpp
         src/HyphaSpectrumTerrain.cpp
         src/HyphaSpectrumFocusTrail.cpp
         src/HyphaSpectrumFocusTrailPainter.cpp
@@ -915,6 +925,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/reference_audition/ReferenceTonalSummary.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp
         src/HyphaReferenceGuide.cpp

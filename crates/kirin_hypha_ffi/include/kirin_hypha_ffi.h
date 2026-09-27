@@ -32,6 +32,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "kirin_hypha_channels.h"
+#include "kirin_hypha_capture_clock.h"
 #include "kirin_hypha_reference_ffi.h"
 
 #ifdef __cplusplus
@@ -191,38 +192,7 @@ typedef struct {
   uint64_t comparison_generation; uint64_t comparison_identity;
 } KirinObservatoryFrame;
 
-/* POST専用Spectrum表示. pre/post_dbfsはdisplay_dbの正確な元フレーム、display_dbは
- * 符号付きPOST-PRE。描画側が±24 dBへ収めるが、Rust内部のraw差分はclipしない。
- * presentation_end_samplesは実フレームの終端。has_dataはexact Δ、post_has_dataはPOST絶対値を表し、
- * PAIR不在ではhas_data=0かつpost_has_data=1になり得る。 */
-typedef struct {
-  uint8_t status;       /* KIRIN_SPECTRUM_* */
-  uint8_t has_data;
-  uint8_t channel_mode; /* KIRIN_SPECTRUM_CHANNEL_* */
-  uint8_t channels;     /* 1=mono / 2=stereo */
-  uint32_t sample_rate;
-  float min_hz;
-  float max_hz;
-  float pre_dbfs[KIRIN_SPECTRUM_BAND_COUNT];
-  float post_dbfs[KIRIN_SPECTRUM_BAND_COUNT];
-  float display_db[KIRIN_SPECTRUM_BAND_COUNT];
-  int64_t presentation_end_samples; /* 末尾追加: 既存field offsetを不変に保つ */
-  uint32_t aperture_samples; /* host rate追従のexact aperture */
-  uint32_t fft_size;         /* apertureに対応する2x以上のFFT layout */
-  float approximate_below_hz; /* 3周期未満: 値は保持し周波数labelだけ近似表示 */
-  uint8_t post_has_data; /* post_dbfsが実測POST Spectrumを持つ */
-  uint8_t post_reserved[3];
-} KirinSpectrumView;
-
-#define KIRIN_SPECTRUM_BATCH_CAPACITY 8
-
-/* UI scheduling stall用の固定長回収窓。既に算出済みのexact差分だけを古い順に保持する。 */
-typedef struct {
-  KirinSpectrumView latest; /* status-only時も有効 */
-  uint32_t count;
-  uint32_t reserved;
-  KirinSpectrumView frames[KIRIN_SPECTRUM_BATCH_CAPACITY];
-} KirinSpectrumBatch;
+#include "kirin_hypha_spectrum_view_ffi.h"
 #include "kirin_hypha_spectrum_mid_side_ffi.h"
 /* POST専用Perceptual Delta表示. 同一100 ms aperture / presentation endpointで一致した
  * PRE/POST Sharpnessだけを公開する。delta_sharpnessは符号付きPOST-PREでclipしない。 */
@@ -607,24 +577,6 @@ void kirin_hypha_note_record_window(KirinHypha* handle, bool recording, bool ren
                                     int64_t position_samples, uint64_t num_frames,
                                     int64_t clock_start_samples, bool clock_end_valid,
                                     int64_t clock_end_samples);
-
-/* measurement ring へ実際に投入する窓の host sample clock（Audio Thread単独・RT-safe）.
- * Watch pre-roll / Record 共通。対応する push_samples の直前に1回だけ呼ぶ. */
-#define KIRIN_HYPHA_CLOCK_UNKNOWN 0
-#define KIRIN_HYPHA_CLOCK_PROJECT_TIMELINE 1
-#define KIRIN_HYPHA_CLOCK_AUDIO_RENDER_TIMELINE 2
-#define KIRIN_HYPHA_PRESENTATION_SOURCE_UNKNOWN 0
-#define KIRIN_HYPHA_PRESENTATION_SOURCE_VST3 1
-#define KIRIN_HYPHA_PRESENTATION_SOURCE_AUDIO_UNIT_V2 2
-void kirin_hypha_note_capture_window(KirinHypha* handle, bool position_valid,
-                                     int64_t position_samples, uint64_t num_frames,
-                                     uint8_t clock_source,
-                                     uint8_t presentation_source,
-                                     bool input_presentation_valid,
-                                     uint32_t input_presentation_samples,
-                                     bool output_presentation_valid,
-                                     uint32_t output_presentation_samples,
-                                     bool force_new_epoch);
 
 /* Watch MAX pass boundary notification (Audio Thread, RT-safe). */
 void kirin_hypha_note_transport_block(KirinHypha* handle, bool playing,

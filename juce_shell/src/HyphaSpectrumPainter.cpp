@@ -74,10 +74,24 @@ namespace
                            plot.getY(), plot.getBottom());
     }
 
-    juce::Path makeCurve (const SpectrumBins& x, const SpectrumBins& y)
+    juce::Path makeCurve (const SpectrumBins& x, const SpectrumBins& y,
+                          const SpectrumValidity* valid = nullptr)
     {
         juce::Path curve;
         curve.preallocateSpace (static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 3u));
+        if (valid != nullptr && ! std::all_of (valid->begin(), valid->end(),
+                                               [] (uint8_t bit) { return bit != 0u; }))
+        {
+            bool inRun = false;
+            for (size_t index = 0; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
+            {
+                if ((*valid)[index] == 0u) { inRun = false; continue; }
+                if (! inRun) curve.startNewSubPath (x[index], y[index]);
+                else curve.lineTo (x[index], y[index]);
+                inRun = true;
+            }
+            return curve;
+        }
         const auto keep = polyline_geometry::retainedVertices (x, y);
         curve.startNewSubPath (x.front(), y.front());
         for (size_t index = 1; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
@@ -92,7 +106,9 @@ void paintCurves (juce::Graphics& g,
                   const SpectrumBins& pre,
                   const SpectrumBins& post,
                   const SpectrumBins& delta,
-                  const SpectrumBins* mark)
+                  const SpectrumValidity& deltaValid,
+                  const SpectrumBins* mark,
+                  const SpectrumValidity* markValid)
 {
     const float strokeScale = ui_contract::spectrumStrokeScale (visualScale);
     const float glowScale = ui_contract::spectrumGlowScale (visualScale);
@@ -117,8 +133,9 @@ void paintCurves (juce::Graphics& g,
 
     const juce::Path preCurve = makeCurve (x, preY);
     const juce::Path postCurve = makeCurve (x, postY);
-    const juce::Path deltaCurve = makeCurve (x, deltaY);
-    const juce::Path markCurve = mark != nullptr ? makeCurve (x, markY) : juce::Path {};
+    const juce::Path deltaCurve = makeCurve (x, deltaY, &deltaValid);
+    const juce::Path markCurve = mark != nullptr
+        ? makeCurve (x, markY, markValid) : juce::Path {};
 
     // The wider ±24 dB geometry must not make ordinary 1–6 dB work look dimmer. Brightness keeps
     // the proven ±18 dB response and simply reaches its maximum before the new display edge.
@@ -147,9 +164,16 @@ void paintCurves (juce::Graphics& g,
     // This bounds stroke tessellation by colour runs instead of by individual FFT bands.
     for (size_t first = 1; first < KIRIN_SPECTRUM_BAND_COUNT;)
     {
+        if (deltaValid[first - 1] == 0u || deltaValid[first] == 0u)
+        {
+            ++first;
+            continue;
+        }
         const size_t bucket = bucketForSegment (first);
         size_t last = first;
-        while (last + 1 < KIRIN_SPECTRUM_BAND_COUNT && bucketForSegment (last + 1) == bucket)
+        while (last + 1 < KIRIN_SPECTRUM_BAND_COUNT
+               && deltaValid[last + 1] != 0u
+               && bucketForSegment (last + 1) == bucket)
             ++last;
         const auto keep = polyline_geometry::retainedVertices (x, deltaY, first - 1, last);
         if (bucket > 0u)
@@ -157,6 +181,8 @@ void paintCurves (juce::Graphics& g,
             for (size_t layer = 0; layer < tipDepthCoverage.size(); ++layer)
             {
                 auto& tip = intensityTips[layer][bucket];
+                if (tip.isEmpty())
+                    tip.preallocateSpace (static_cast<int> ((last - first + 2u) * 6u));
                 tip.startNewSubPath (x[first - 1], deltaY[first - 1]);
                 for (size_t index = first; index <= last; ++index)
                     if (keep[index]) tip.lineTo (x[index], deltaY[index]);
@@ -165,6 +191,9 @@ void paintCurves (juce::Graphics& g,
                 tip.closeSubPath();
             }
         }
+        if (highlights[bucket].isEmpty())
+            highlights[bucket].preallocateSpace (
+                static_cast<int> ((last - first + 2u) * 3u));
         highlights[bucket].startNewSubPath (x[first - 1], deltaY[first - 1]);
         for (size_t index = first; index <= last; ++index)
             if (keep[index]) highlights[bucket].lineTo (x[index], deltaY[index]);
@@ -188,13 +217,26 @@ void paintCurves (juce::Graphics& g,
                                         juce::PathStrokeType::rounded));
 
     juce::Path deltaFill;
+    deltaFill.preallocateSpace (static_cast<int> (KIRIN_SPECTRUM_BAND_COUNT * 3u + 9u));
     deltaFill.setUsingNonZeroWinding (false);
-    deltaFill.startNewSubPath (x.front(), zeroY);
-    deltaFill.lineTo (x.front(), deltaY.front());
-    for (size_t index = 1; index < KIRIN_SPECTRUM_BAND_COUNT; ++index)
-        deltaFill.lineTo (x[index], deltaY[index]);
-    deltaFill.lineTo (x.back(), zeroY);
-    deltaFill.closeSubPath();
+    for (size_t first = 0; first < KIRIN_SPECTRUM_BAND_COUNT;)
+    {
+        while (first < KIRIN_SPECTRUM_BAND_COUNT && deltaValid[first] == 0u) ++first;
+        if (first >= KIRIN_SPECTRUM_BAND_COUNT) break;
+        size_t last = first;
+        while (last + 1 < KIRIN_SPECTRUM_BAND_COUNT && deltaValid[last + 1] != 0u)
+            ++last;
+        if (last > first)
+        {
+            deltaFill.startNewSubPath (x[first], zeroY);
+            deltaFill.lineTo (x[first], deltaY[first]);
+            for (size_t index = first + 1; index <= last; ++index)
+                deltaFill.lineTo (x[index], deltaY[index]);
+            deltaFill.lineTo (x[last], zeroY);
+            deltaFill.closeSubPath();
+        }
+        first = last + 1;
+    }
     juce::ColourGradient fillGradient (COL_SPECTRUM_DELTA.withAlpha (0.34f),
                                        plot.getX(), plot.getY(),
                                        COL_SPECTRUM_DELTA.withAlpha (0.34f),

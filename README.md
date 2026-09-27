@@ -45,6 +45,17 @@ background.
 LEVEL keeps immediate loudness and dynamics facts above fixed-scale history. The large view adds M,
 S, I, five supporting facts, and L/R meters without changing the compact measurement definitions.
 
+The footer at 150% and above distinguishes LIVE, HOLD, WAITING and BYPASSED; at 100% and 125% the
+folded strip shows only the short states (WAITING, BYPASSED, FORMAT HELD, 5.1 MEASURE). The loaded
+version remains in the information menu, not in the narrow status rail.
+
+At 600×400 and above, click a LEVEL history point to hold the display while measurement continues.
+`< TP` / `TP >` select adjacent excursions above −1 dBTP; `LIVE` resumes scrolling without resetting
+measurements. Only TP strictly above 0 dBTP receives strong local glow, always at its measured height.
+`COPY` copies the selected TP and approximate host-clock window endpoint. `HOST ~` does not promise
+project-timeline coordinates or an exact peak sample: this history ABI does not distinguish project
+and render clocks. An unavailable host position is shown as `ELAPSED`, never invented as a DAW position.
+
 ### TIME — what happened and when
 
 TIME directly selects **HISTORY**, validated DRUM **ATTACK**, signed **SHARP**, or three absolute
@@ -206,7 +217,11 @@ including across transport stops. Watch, every MAX, and everything Keep and Reco
 
 A paired POST uses top-level **FREQ** to inspect processing between PRE and POST. Spectrum runs only
 while FREQ is open. The signed **Δ (POST − PRE)** curve is the primary
-display, with absolute PRE and POST spectra retained as reference curves. Δ is shown on a ±24 dB
+**RAW** display, with absolute PRE and POST spectra retained as reference curves. **SHAPE** is a
+one-click alternative: it removes the measured whole-aperture energy difference from each valid
+band to make relative spectral reshaping visible. RAW and SHAPE use the same exact PRE/POST
+apertures and require no additional FFT. Bands without sufficient energy remain absent, rather
+than being joined across a gap or shown as a zero difference. Both modes use a ±24 dB
 scale; the underlying difference is not clipped. A difference is produced only when PRE and POST
 frames have the same sample rate, aperture length, FFT layout, channel mode, channel count, and
 output-presentation sample endpoint.
@@ -215,8 +230,9 @@ output-presentation sample endpoint.
 |---|---|
 | LR / MID / SIDE | Selects exactly one channel definition; the three analyzers never run in parallel |
 | M/S | Overlays the POST-local `(L+R)/2` Mid and `(L-R)/2` Side spectra from one stereo aperture; unavailable for mono or Δ |
-| Hover / click | Reads frequency and Δ; click locks the probe, shows its six-second Focus Trail, and × releases it |
-| MARK | Captures or replaces one temporary display-only Δ reference; × clears it |
+| RAW / SHAPE | Switches the same exact-pair curve between gain-inclusive difference and energy-normalized shape; clears a mode-specific MARK and Focus Trail |
+| Hover / click | Reads frequency and the selected RAW/SHAPE value; click locks the probe, shows its six-second Focus Trail, and × releases it |
+| MARK | Captures or replaces one temporary display-only reference in the selected mode; × clears it |
 | Free resize / 100–300% presets | Keeps a fixed 3:2 aspect ratio from 300×200 through the native 900×600 Inspection View and remembers the exact loaded-instance size. Above 300% the Inspection View is magnified in steps that keep it on whole device pixels for the display (450% and 600% on a Retina display; 600% at 100% Windows scaling; 400% and 600% at 150%) |
 
 The page analyzes one selected channel view at a time. **LR** transforms L and R independently and
@@ -256,7 +272,7 @@ M/S creates no PRE request, six-second field, peak hold, MARK, or Focus Trail, a
 leaks into SHARP. The loaded plug-in instance remembers the choice across editor close/reopen, but
 new instances and restored DAW sessions start from the existing LR default.
 
-Hovering the plot shows frequency and Δ; larger views also show PRE and POST values.
+Hovering the plot shows frequency and the selected RAW/SHAPE value; larger views also show PRE and POST values.
 Below the cycle-derived low-frequency confidence boundary (about 35 Hz), the frequency alone carries
 an unobtrusive `~` prefix. The measured band and Δ remain visible and are not dimmed, hidden, or
 replaced by a warning. Hover help explains that `~` means an approximate low-frequency position.
@@ -265,7 +281,7 @@ in the POST arrow menu disables or restores explanatory popups for every PRE and
 preference survives plug-in and DAW restarts. FREQ inspection, click lock, Focus Trail, and MARK stay
 available while help is hidden. A click in the plot
 locks that readout to the same frequency until its × is pressed. While locked,
-**Focus Trail** shows six seconds of Δ: compact at the smallest size and in its own lane when space
+**Focus Trail** shows six seconds of the selected mode: compact at the smallest size and in its own lane when space
 permits. Its newest point is the same exact PRE/POST presentation frame as the live Δ, not a
 UI-clock estimate. A missed UI poll does not erase valid older observations: retained points keep
 their true sample-time positions. The work-surface stroke joins the surrounding exact points across a
@@ -275,13 +291,13 @@ a forward discontinuity beyond the six-second view, start a clean trail. After a
 move, PRE and POST may resume one analysis cadence apart; FREQ waits until both have crossed the old
 endpoint, then resumes from their newest exact shared endpoint. The frequency lock and MARK remain
 where the user placed them across a loop, silence, temporary warming state, or short I/O gap; only
-the factual trail restarts on the new exact time axis. **MARK** freezes one display-only full-band Δ curve as a solid amber reference beneath
+the factual trail restarts on the new exact time axis. **MARK** freezes one display-only full-band curve as a solid amber reference beneath
 the cyan live curve; pressing MARK again replaces it, and its × clears it.
 MARK is temporary and is cleared when the pair, sample rate, FFT layout, channel mode, or page changes.
 It adds no analyzer and changes no measured value. Exact 3:2 size is remembered for the loaded
 instance, while Spectrum itself still opens off.
 Focus Trail retains only fixed-capacity display snapshots while Spectrum is open. It adds no analyzer,
-does not smooth or delay the live Δ, and is discarded on pair, rate, layout, channel-mode, or page
+does not smooth or delay the live curve, and is discarded on pair, rate, layout, channel-mode, or page
 changes.
 
 Continuity has two bounded layers. POST keeps the newest eight already-computed exact Spectrum
@@ -612,9 +628,9 @@ whole in a one-line strip over the bottom edge of the measurement while they las
 opens the details.
 
 100% is for reading, not operating. The buttons that take room (CURRENT / MAX, the history range
-and FOCUS, LR / MID / SIDE, M/S, PSB, MARK, and DRUM's VIEW) are chosen at 125% and above; a
-choice made there stays in force at 100%, where only a non-default one (MID, SIDE, MARK, HOLD, LOCK)
-is named. Clicking the plot itself (FREQ's frequency lock, DRUM's hit selection) works at every
+and FOCUS, LR / MID / SIDE, M/S, PSB, MARK, RAW / SHAPE, and DRUM's VIEW) are chosen at 125% and
+above; a choice made there stays in force at 100%, where only a non-default one (MID, SIDE, SHAPE,
+MARK, HOLD, LOCK) is named. Clicking the plot itself (FREQ's frequency lock, DRUM's hit selection) works at every
 size. The room goes to the measurement: LEVEL reads S, I (Crest for a track or stem) and the
 Session's MAX TP; TIME HISTORY draws S and TP; DRUM shows one row of history over its four values,
 large; FREQ's plot takes the control rows and the right-hand absolute axis; SPACE's scatter takes

@@ -31,6 +31,7 @@
 #include "AnalysisDemandContractTest.h"
 #include "PreparedFormatContractTest.h"
 #include "MeasurementSpanContractTest.h"
+#include "AlwaysVisibleContractTest.h"
 #include "MaterialCacheContract.h"
 #include "StoppedHistoryContract.h"
 
@@ -65,6 +66,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     prepared_format_contract::verify();
     measurement_span_contract::verify();
     observation_equality_contract::verify();
+    always_visible::verify();
     comparison_presentation_contract::verify();
     analysis_demand_contract::verify();
     // The row rule FREQ and SPACE share. Cheap, so every focused run exercises it.

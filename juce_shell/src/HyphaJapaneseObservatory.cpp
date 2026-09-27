@@ -104,10 +104,22 @@ const Entry entries[] = {
     { "POST minus PRE. %1", u8"POST − PRE：%1" },
     { "POST. %1", u8"POST：%1" },
     { "PRE. %1", u8"PRE：%1" },
-    { "Displayed history covers 60 seconds. MAX M is the maximum momentary loudness since the "
-      "last Meter Session reset.",
-      u8"表示中の履歴は60秒間です。MAX Mは、最後にMeter Sessionをリセットしてからのモーメンタリー"
-      u8"ラウドネスの最大値です。" },
+    { "Click to hold; measurement continues. HOST ~ is the window endpoint on the host "
+      "project/render clock, not guaranteed project time or the exact peak. LIVE resumes "
+      "scrolling.",
+      u8"クリックすると表示を止めます。計測は続きます。HOST ~は計測窓の終わりをホストの"
+      u8"プロジェクト／レンダーの時計で示したもので、プロジェクト上の時刻やピークの正確な位置"
+      u8"ではありません。LIVEで表示を再開します。" },
+    { "Hold the previous TP > -1 dBTP event; measurement continues",
+      u8"−1 dBTPを超えた一つ前のTPで表示を止めます。計測は続きます" },
+    { "Hold the next TP > -1 dBTP event; measurement continues",
+      u8"−1 dBTPを超えた一つ後のTPで表示を止めます。計測は続きます" },
+    { "Resume scrolling history; measurement and session maxima are unchanged",
+      u8"履歴の表示を再開します。計測値とセッションの最大値は変わりません" },
+    { "Copy TP window endpoint on the host clock (project or render clock, not guaranteed "
+      "project time)",
+      u8"TPの計測窓の終わりを、ホストの時計の値でコピーします（プロジェクトかレンダーの時計です。"
+      u8"プロジェクト上の時刻は保証しません）" },
 
     // TIME pages.
     { "TIME detail", u8"TIMEの詳細" },

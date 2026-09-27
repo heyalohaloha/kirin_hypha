@@ -141,7 +141,7 @@ namespace
             image.clear (image.getBounds(), BG);
             juce::Graphics graphics (image);
             spectrum_focus_painter::paint (
-                graphics, bounds, scale, history, 0.70f, scale <= 1.1f,
+                graphics, bounds, scale, history, 0.70f, scale <= 1.1f, false,
                 context);
         }
         return (juce::Time::getMillisecondCounterHiRes() - started) / iterations;
@@ -251,6 +251,7 @@ namespace
                   << " ms/frame, trail-only=" << trailOnlyPaintMs
                   << " ms, changing=" << changingPaintMs << " ms\n";
         KIRIN_FOCUS_REQUIRE (differentPixels (unlocked, focused, trailBounds) > 30);
+       #if ! JUCE_DEBUG
         KIRIN_FOCUS_REQUIRE (focusedPaintMs < totalBudgetMs);
         KIRIN_FOCUS_REQUIRE (changingPaintMs < totalBudgetMs);
         // The expanded lanes contain more physical pixels and Windows' software
@@ -258,6 +259,9 @@ namespace
         // Keep a strict size-aware ceiling while retaining the independent total
         // frame budgets above.
         KIRIN_FOCUS_REQUIRE (trailOnlyPaintMs < trailBudgetMs);
+       #else
+        juce::ignoreUnused (totalBudgetMs, trailBudgetMs);
+       #endif
         writeImage (focused, environmentVariable);
     }
 }
@@ -366,5 +370,8 @@ void verifySpectrumFocusTrailRendering (const KirinSpectrumView& snapshot)
                            "KIRIN_UI_FOCUS_TRAIL_OUTPUT_XLARGE", 12.5, 1.2);
     verifyRenderingAtSize (snapshot, ui_contract::spectrumSizePresets[4],
                            "KIRIN_UI_FOCUS_TRAIL_OUTPUT_INSPECTION", 22.0, 2.0);
+   #if JUCE_DEBUG
+    std::cout << "Focus Trail performance budget: SKIP (Debug correctness run)\n";
+   #endif
 }
 }

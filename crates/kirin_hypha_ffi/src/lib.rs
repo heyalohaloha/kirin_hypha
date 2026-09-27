@@ -53,21 +53,22 @@ use kirin_measure::{
     set_project_uuid, spawn_io_thread_post, spawn_io_thread_pre, spawn_measure_thread,
     spawn_watchdog, watch_ring_capacity_samples, write_broadcast_for_generation,
     write_pending_claiming_expected_and_clock_for_generation, write_stop_broadcast,
-    write_stop_broadcast_for_generation, AnalysisViewMode, CaptureClockSource, CaptureGeneration,
-    CaptureGenerationMember, CaptureGenerationTransaction, DeltaResult, GenerationTerminalReason,
-    IoThreadHandle, LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult,
-    MeterDeltaHistoryExchange, MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution,
-    MeterSession, MeterSessionPublication, MeterSessionSnapshot, MeterSessionState,
-    PairOwnershipBinding, PairOwnershipLease, PairStatus, PlatformPaths, PluginDataRole,
-    PrePairStatusObserver, PresentationLatencySamples, PresentationLatencySource, PsbSummary,
-    RecordDisplaySnapshot, RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine,
-    RecordTakeBlock, RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError,
-    SignalState, SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame, SpectrumRuntime,
-    SpectrumRuntimeStats, SpectrumTimelineFrame, SpectrumViewSnapshot, SpectrumViewStatus,
-    StoragePaths, WatchMaxTracker, WatchProducerHandoff, WatchdogIo, WatchdogParams,
-    ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT, HISTORY_0_1_HZ_CAPACITY,
-    HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT, MAX_AUDIO_BLOCK_FRAMES,
-    MAX_CAPTURE_GENERATION_MEMBERS, PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
+    write_stop_broadcast_for_generation, AnalysisViewMode, AuxiliaryClockSamples,
+    AuxiliaryClockSource, CaptureClockSource, CaptureGeneration, CaptureGenerationMember,
+    CaptureGenerationTransaction, DeltaResult, GenerationTerminalReason, IoThreadHandle,
+    LatchedPre, License, LiveLicense, LivenessEvaluator, MeasureResult, MeterDeltaHistoryExchange,
+    MeterHistoryEntry, MeterHistoryRange, MeterHistoryResolution, MeterSession,
+    MeterSessionPublication, MeterSessionSnapshot, MeterSessionState, PairOwnershipBinding,
+    PairOwnershipLease, PairStatus, PlatformPaths, PluginDataRole, PrePairStatusObserver,
+    PresentationLatencySamples, PresentationLatencySource, PsbSummary, RecordDisplaySnapshot,
+    RecordDisplayStatus, RecordIngress, RecordMarkQueue, RecordStateMachine, RecordTakeBlock,
+    RecordTakeTracker, RecordTraceQueue, ReleaseReason, RestartIoFn, SignalError, SignalState,
+    SpectrumChannelMode, SpectrumCoordinator, SpectrumFrame, SpectrumRuntime, SpectrumRuntimeStats,
+    SpectrumViewSnapshot, SpectrumViewStatus, StoragePaths, WatchMaxTracker, WatchProducerHandoff,
+    WatchdogIo, WatchdogParams, ABSOLUTE_TIMELINE_CAPACITY, CAPTURE_PRODUCER_READY_TIMEOUT,
+    HISTORY_0_1_HZ_CAPACITY, HISTORY_10_HZ_CAPACITY, HISTORY_1_HZ_CAPACITY, MAX_ACTIVE_PER_PROJECT,
+    MAX_AUDIO_BLOCK_FRAMES, MAX_CAPTURE_GENERATION_MEMBERS,
+    PERCEPTUAL_DIFFERENCE_TIMELINE_CAPACITY, SPECTRUM_BAND_COUNT,
     SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY, STEREO_FIELD_BINS, STEREO_FIELD_SIZE,
 };
 use uuid::Uuid;
@@ -79,10 +80,14 @@ mod audition_admission_ffi;
 pub mod channel_abi;
 mod comparison_abi;
 pub use comparison_abi::*;
+mod capture_window_ffi;
+pub use capture_window_ffi::kirin_hypha_note_capture_window;
 mod identity_ffi;
 mod identity_registry;
 mod legacy_nih_state;
+mod meter_observation_ffi;
 mod meter_session_ffi;
+pub use meter_observation_ffi::*;
 mod pair_binding;
 mod pair_candidates_ffi;
 mod pair_restore_ffi;
@@ -93,6 +98,7 @@ mod reference_audition_ffi;
 mod reference_gain_ffi;
 mod signal_state_ffi;
 mod spectrum_mid_side_ffi;
+mod spectrum_view_abi;
 mod watch_display_ffi;
 use analysis_display_ffi::{to_c_absolute_batch, to_c_perceptual, to_c_perceptual_batch};
 pub use attack_ffi::*;
@@ -119,6 +125,8 @@ pub use signal_state_ffi::{
     kirin_hypha_set_signal_state,
 };
 pub use spectrum_mid_side_ffi::*;
+use spectrum_view_abi::c_spectrum_from_timeline;
+pub use spectrum_view_abi::{KirinSpectrumBatch, KirinSpectrumView};
 pub use watch_display_ffi::kirin_hypha_poll_watch_display;
 pub const KIRIN_SIGNAL_STATE_INACTIVE: u8 = 0;
 pub const KIRIN_SIGNAL_STATE_ACTIVE: u8 = 1;
@@ -261,6 +269,7 @@ struct PendingCaptureWindow {
     num_frames: u64,
     clock_source: CaptureClockSource,
     presentation_latency: PresentationLatencySamples,
+    auxiliary: AuxiliaryClockSamples,
     force_new_epoch: bool,
 }
 
@@ -365,6 +374,9 @@ pub struct KirinHyphaEngine {
     pending_presentation_source: AtomicU8,
     pending_input_presentation_samples: AtomicU64,
     pending_output_presentation_samples: AtomicU64,
+    pending_auxiliary_source: AtomicU8,
+    pending_auxiliary_valid: AtomicBool,
+    pending_auxiliary_samples: AtomicI64,
     pending_force_new_epoch: AtomicBool,
     /// Record-take facts are staged by the JUCE callback beside the capture descriptor. A
     /// rendered block becomes visible to the immutable take selector only after `push_samples`
@@ -1134,6 +1146,9 @@ impl KirinHyphaEngine {
             pending_presentation_source: AtomicU8::new(PresentationLatencySource::Unknown as u8),
             pending_input_presentation_samples: AtomicU64::new(u64::MAX),
             pending_output_presentation_samples: AtomicU64::new(u64::MAX),
+            pending_auxiliary_source: AtomicU8::new(AuxiliaryClockSource::Unknown as u8),
+            pending_auxiliary_valid: AtomicBool::new(false),
+            pending_auxiliary_samples: AtomicI64::new(i64::MIN),
             pending_force_new_epoch: AtomicBool::new(false),
             pending_record_valid: AtomicBool::new(false),
             pending_recording: AtomicBool::new(false),
@@ -1389,104 +1404,6 @@ impl KirinHyphaEngine {
             clock_start_samples: block.clock_start_samples,
             clock_end_samples: block.clock_end_samples,
         });
-    }
-
-    /// Audio Thread が measurement ring へ投入する窓の host sample clock を通知する。
-    /// `note_record_block` とは独立させ、Watch pre-roll と Record の両方を同じ clock に載せる。
-    pub fn note_capture_window(
-        &self,
-        position_valid: bool,
-        position_samples: i64,
-        num_frames: u64,
-        clock_source: CaptureClockSource,
-    ) {
-        self.note_capture_window_with_presentation(
-            position_valid,
-            position_samples,
-            num_frames,
-            clock_source,
-            PresentationLatencySamples::default(),
-            false,
-        );
-    }
-
-    pub fn note_capture_window_with_presentation(
-        &self,
-        position_valid: bool,
-        position_samples: i64,
-        num_frames: u64,
-        clock_source: CaptureClockSource,
-        presentation_latency: PresentationLatencySamples,
-        force_new_epoch: bool,
-    ) {
-        // This call deliberately stages facts only. `push_samples` first proves whole-block SPSC
-        // capacity, then commits this descriptor and all samples as one producer transaction.
-        // Advancing the clock here would let a partially accepted callback permanently shift every
-        // later TRACE sample.
-        self.pending_capture_version.fetch_add(1, Ordering::AcqRel);
-        self.pending_capture_valid.store(false, Ordering::Relaxed);
-        self.pending_position_valid
-            .store(position_valid, Ordering::Relaxed);
-        self.pending_position_samples
-            .store(position_samples, Ordering::Relaxed);
-        self.pending_num_frames.store(num_frames, Ordering::Relaxed);
-        self.pending_clock_source
-            .store(clock_source as u8, Ordering::Relaxed);
-        self.pending_presentation_source
-            .store(presentation_latency.source as u8, Ordering::Relaxed);
-        self.pending_input_presentation_samples.store(
-            presentation_latency.input.map_or(u64::MAX, u64::from),
-            Ordering::Relaxed,
-        );
-        self.pending_output_presentation_samples.store(
-            presentation_latency.output.map_or(u64::MAX, u64::from),
-            Ordering::Relaxed,
-        );
-        self.pending_force_new_epoch
-            .store(force_new_epoch, Ordering::Relaxed);
-        self.pending_capture_valid.store(true, Ordering::Relaxed);
-        self.pending_capture_version.fetch_add(1, Ordering::Release);
-    }
-
-    #[inline]
-    fn take_pending_capture_window(&self, expected_frames: u64) -> Option<PendingCaptureWindow> {
-        for _ in 0..4 {
-            let before = self.pending_capture_version.load(Ordering::Acquire);
-            if before & 1 != 0 || !self.pending_capture_valid.load(Ordering::Relaxed) {
-                continue;
-            }
-            let pending = PendingCaptureWindow {
-                position_valid: self.pending_position_valid.load(Ordering::Relaxed),
-                position_samples: self.pending_position_samples.load(Ordering::Relaxed),
-                num_frames: self.pending_num_frames.load(Ordering::Relaxed),
-                clock_source: CaptureClockSource::from_abi(
-                    self.pending_clock_source.load(Ordering::Relaxed),
-                ),
-                presentation_latency: PresentationLatencySamples {
-                    source: PresentationLatencySource::from_abi(
-                        self.pending_presentation_source.load(Ordering::Relaxed),
-                    ),
-                    input: u32::try_from(
-                        self.pending_input_presentation_samples
-                            .load(Ordering::Relaxed),
-                    )
-                    .ok(),
-                    output: u32::try_from(
-                        self.pending_output_presentation_samples
-                            .load(Ordering::Relaxed),
-                    )
-                    .ok(),
-                },
-                force_new_epoch: self.pending_force_new_epoch.load(Ordering::Relaxed),
-            };
-            let after = self.pending_capture_version.load(Ordering::Acquire);
-            if before == after && after & 1 == 0 {
-                self.pending_capture_valid.store(false, Ordering::Release);
-                return (pending.num_frames == expected_frames).then_some(pending);
-            }
-        }
-        self.pending_capture_valid.store(false, Ordering::Release);
-        None
     }
 
     /// Publish one host transport block. Audio Thread only; atomics and the
@@ -2836,12 +2753,13 @@ impl KirinHyphaEngine {
                         }
                         if let Some(clock) = pending_clock {
                             self.record_take_tracker
-                                .note_capture_window_with_presentation_boundary(
+                                .note_capture_window_with_clocks_boundary(
                                     clock.position_valid,
                                     clock.position_samples,
                                     clock.num_frames,
                                     clock.clock_source,
                                     clock.presentation_latency,
+                                    clock.auxiliary,
                                     clock.force_new_epoch || offline_capture_boundary,
                                 );
                         }
@@ -2874,12 +2792,13 @@ impl KirinHyphaEngine {
                         }
                         if let Some(clock) = pending_clock {
                             self.record_take_tracker
-                                .note_capture_window_with_presentation_boundary(
+                                .note_capture_window_with_clocks_boundary(
                                     clock.position_valid,
                                     clock.position_samples,
                                     clock.num_frames,
                                     clock.clock_source,
                                     clock.presentation_latency,
+                                    clock.auxiliary,
                                     clock.force_new_epoch || offline_capture_boundary,
                                 );
                         }
@@ -2925,68 +2844,6 @@ impl KirinHyphaEngine {
             Ok(g) => *g,
             Err(_) => None,
         }
-    }
-
-    /// Record/Keepから独立した常設メーターセッションの最新完了値を読む。
-    /// Live EBU calculation lock is never touched by this UI path.
-    pub fn poll_meter_session(&self) -> Option<MeterSessionSnapshot> {
-        self.meter_session_publication.as_ref()?.try_snapshot()
-    }
-
-    /// TIME履歴を選択したresolutionで新しい順の範囲まで非ブロッキング取得する。
-    pub fn poll_meter_history(
-        &self,
-        resolution: MeterHistoryResolution,
-        max_entries: usize,
-    ) -> Option<Vec<MeterHistoryEntry>> {
-        self.meter_session
-            .as_ref()?
-            .try_lock()
-            .ok()
-            .map(|session| session.recent_history(resolution, max_entries))
-    }
-
-    pub fn poll_meter_history_decimated(
-        &self,
-        resolution: MeterHistoryResolution,
-        max_entries: usize,
-        max_output: usize,
-    ) -> Option<Vec<MeterHistoryEntry>> {
-        self.meter_session
-            .as_ref()?
-            .try_lock()
-            .ok()
-            .map(|session| session.recent_history_decimated(resolution, max_entries, max_output))
-    }
-
-    /// Exact-pair POST−PRE TIME history. PRE/unenabled roles fail closed.
-    pub fn poll_meter_delta_history(
-        &self,
-        resolution: MeterHistoryResolution,
-        max_entries: usize,
-    ) -> Option<Vec<MeterHistoryEntry>> {
-        let is_post =
-            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
-        is_post.then(|| {
-            self.meter_delta_history
-                .as_ref()
-                .map(|exchange| exchange.recent(resolution, max_entries))
-        })?
-    }
-
-    pub fn poll_meter_delta_history_decimated(
-        &self,
-        resolution: MeterHistoryResolution,
-        max_entries: usize,
-        max_output: usize,
-    ) -> Option<Vec<MeterHistoryEntry>> {
-        let is_post =
-            self.write_role.lock().ok().and_then(|role| *role) == Some(PluginDataRole::Post);
-        is_post.then(|| {
-            self.meter_delta_history
-                .as_ref()
-                .map(|exchange| exchange.recent_decimated(resolution, max_entries, max_output))
-        })?
     }
 
     pub fn overflow_count(&self) -> u64 {
@@ -3189,43 +3046,6 @@ pub struct KirinAnalysisOwners {
     pub names: [[u8; KIRIN_ANALYSIS_OWNER_NAME_CAPACITY]; KIRIN_ANALYSIS_SLOT_COUNT],
 }
 
-/// POST-only Spectrum view. PRE/POST are the exact magnitudes behind `display_db`, which is signed
-/// POST - PRE and bounded only by the renderer. Rust retains the unclipped raw difference.
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct KirinSpectrumView {
-    pub status: u8,
-    pub has_data: u8,
-    pub channel_mode: u8,
-    pub channels: u8,
-    pub sample_rate: u32,
-    pub min_hz: f32,
-    pub max_hz: f32,
-    pub pre_dbfs: [f32; SPECTRUM_BAND_COUNT],
-    pub post_dbfs: [f32; SPECTRUM_BAND_COUNT],
-    pub display_db: [f32; SPECTRUM_BAND_COUNT],
-    /// Exact shared PRE/POST presentation endpoint. Tail-appended for ABI prefix stability.
-    pub presentation_end_samples: i64,
-    /// Exact host-rate aperture and FFT layout used by both frames.
-    pub aperture_samples: u32,
-    pub fft_size: u32,
-    /// Frequencies below this cycle-derived boundary remain visible but use an approximate label.
-    pub approximate_below_hz: f32,
-    /// A local POST Spectrum may exist without an exact PRE/POST difference.
-    pub post_has_data: u8,
-    pub post_reserved: [u8; 3],
-}
-
-/// Eight already-computed exact Spectrum differences, oldest first. This bounded recovery window
-/// absorbs short UI stalls without adding FFT work or changing the latest-view ABI.
-#[repr(C)]
-pub struct KirinSpectrumBatch {
-    pub latest: KirinSpectrumView,
-    pub count: u32,
-    pub reserved: u32,
-    pub frames: [KirinSpectrumView; SPECTRUM_DIFFERENCE_TIMELINE_CAPACITY],
-}
-
 /// POST-only exact-aperture Perceptual Delta view. It carries measured facts, never a verdict.
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -3356,49 +3176,6 @@ fn to_c_session(s: &SessionSummary) -> KirinSessionSummary {
     }
 }
 
-fn to_c_history_range(range: MeterHistoryRange) -> KirinMeterHistoryRange {
-    KirinMeterHistoryRange {
-        min: opt_f64(range.min),
-        max: opt_f64(range.max),
-        mean: opt_f64(range.mean),
-    }
-}
-
-fn to_c_history_entry(entry: MeterHistoryEntry) -> KirinMeterHistoryEntry {
-    let resolution = match entry.resolution {
-        MeterHistoryResolution::Hz10 => KIRIN_METER_HISTORY_10_HZ,
-        MeterHistoryResolution::Hz1 => KIRIN_METER_HISTORY_1_HZ,
-        MeterHistoryResolution::Hz0_1 => KIRIN_METER_HISTORY_0_1_HZ,
-    };
-    KirinMeterHistoryEntry {
-        generation: entry.generation,
-        measurement_epoch: entry.measurement_epoch,
-        run_id: entry.run_id,
-        first_observed_frames: entry.first_observed_frames,
-        last_observed_frames: entry.last_observed_frames,
-        first_timeline_endpoint_samples: entry.first_timeline_endpoint_samples.unwrap_or(i64::MIN),
-        last_timeline_endpoint_samples: entry.last_timeline_endpoint_samples.unwrap_or(i64::MIN),
-        observation_count: entry.observation_count,
-        resolution,
-        reserved: 0,
-        clip_event_count: channel_abi::widen(&entry.clip_event_count, 0),
-        lufs_m: to_c_history_range(entry.lufs_m),
-        lufs_s: to_c_history_range(entry.lufs_s),
-        true_peak: to_c_history_range(entry.true_peak),
-        correlation: to_c_history_range(entry.correlation),
-        plr: to_c_history_range(entry.plr),
-    }
-}
-
-fn meter_history_resolution_from_abi(value: u8) -> Option<MeterHistoryResolution> {
-    match value {
-        KIRIN_METER_HISTORY_10_HZ => Some(MeterHistoryResolution::Hz10),
-        KIRIN_METER_HISTORY_1_HZ => Some(MeterHistoryResolution::Hz1),
-        KIRIN_METER_HISTORY_0_1_HZ => Some(MeterHistoryResolution::Hz0_1),
-        _ => None,
-    }
-}
-
 #[path = "delta_abi.rs"]
 mod delta_abi;
 use comparison_abi::comparison_projection;
@@ -3507,6 +3284,12 @@ fn c_spectrum_from_difference(
         approximate_below_hz: difference.approximate_below_hz,
         post_has_data: 1,
         post_reserved: [0; 3],
+        shape_has_energy: u8::from(difference.energy_delta_db.is_some()),
+        analysis_view: difference.view,
+        shape_reserved: [0; 2],
+        shape_energy_delta_db: difference.energy_delta_db.unwrap_or(0.0),
+        shape_db: difference.shape_db,
+        shape_valid: difference.shape_valid.map(u8::from),
     }
 }
 
@@ -3528,27 +3311,12 @@ fn c_spectrum_from_post(status: u8, post: &SpectrumFrame) -> KirinSpectrumView {
         approximate_below_hz: 3.0 * post.sample_rate as f32 / post.aperture_samples as f32,
         post_has_data: 1,
         post_reserved: [0; 3],
-    }
-}
-
-fn c_spectrum_from_timeline(status: u8, difference: &SpectrumTimelineFrame) -> KirinSpectrumView {
-    KirinSpectrumView {
-        status,
-        has_data: 1,
-        channel_mode: difference.channel_mode as u8,
-        channels: difference.channels,
-        sample_rate: difference.sample_rate,
-        min_hz: difference.min_hz,
-        max_hz: difference.max_hz,
-        pre_dbfs: difference.pre_dbfs,
-        post_dbfs: difference.post_dbfs,
-        display_db: difference.display_db,
-        presentation_end_samples: difference.presentation_end_samples,
-        aperture_samples: difference.aperture_samples,
-        fft_size: difference.fft_size,
-        approximate_below_hz: difference.approximate_below_hz,
-        post_has_data: 1,
-        post_reserved: [0; 3],
+        shape_has_energy: 0,
+        analysis_view: post.view,
+        shape_reserved: [0; 2],
+        shape_energy_delta_db: 0.0,
+        shape_db: [0.0; SPECTRUM_BAND_COUNT],
+        shape_valid: [0; SPECTRUM_BAND_COUNT],
     }
 }
 
@@ -3570,6 +3338,12 @@ fn empty_c_spectrum() -> KirinSpectrumView {
         approximate_below_hz: 0.0,
         post_has_data: 0,
         post_reserved: [0; 3],
+        shape_has_energy: 0,
+        analysis_view: 0,
+        shape_reserved: [0; 2],
+        shape_energy_delta_db: 0.0,
+        shape_db: [0.0; SPECTRUM_BAND_COUNT],
+        shape_valid: [0; SPECTRUM_BAND_COUNT],
     }
 }
 
@@ -4225,45 +3999,6 @@ pub unsafe extern "C" fn kirin_hypha_note_record_window(
     }));
 }
 
-/// measurement ring へ投入する窓の host sample clock を通知する（Audio Thread単独・RT-safe）。
-///
-/// # Safety
-/// `handle` は有効なハンドル。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_note_capture_window(
-    handle: *mut KirinHyphaEngine,
-    position_valid: bool,
-    position_samples: i64,
-    num_frames: u64,
-    clock_source: u8,
-    presentation_source: u8,
-    input_presentation_valid: bool,
-    input_presentation_samples: u32,
-    output_presentation_valid: bool,
-    output_presentation_samples: u32,
-    force_new_epoch: bool,
-) {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() {
-            return;
-        }
-        unsafe {
-            (*handle).note_capture_window_with_presentation(
-                position_valid,
-                position_samples,
-                num_frames,
-                CaptureClockSource::from_abi(clock_source),
-                PresentationLatencySamples {
-                    source: PresentationLatencySource::from_abi(presentation_source),
-                    input: input_presentation_valid.then_some(input_presentation_samples),
-                    output: output_presentation_valid.then_some(output_presentation_samples),
-                },
-                force_new_epoch,
-            );
-        }
-    }));
-}
-
 /// Host transport block notification used only to delimit Watch MAX passes.
 /// Audio Thread safe: atomics + bounded seqlock writes, no allocation/IO/lock.
 ///
@@ -4768,242 +4503,6 @@ pub unsafe extern "C" fn kirin_hypha_poll_session(
     .unwrap_or(false)
 }
 
-/// Record/Keepから独立した常設メーターセッションを1スナップショットで取得する。
-/// Empty状態も成立した事実なのでtrueを返し、未成立値はNaNになる。
-///
-/// # Safety
-/// `handle`/`out` は有効。UI Threadから呼ぶこと。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_meter_session(
-    handle: *mut KirinHyphaEngine,
-    out: *mut KirinMeterSession,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() {
-            return false;
-        }
-        let Some(snapshot) = (unsafe { &*handle }).poll_meter_session() else {
-            return false;
-        };
-        unsafe { *out = to_c_meter_session(&snapshot) };
-        true
-    }))
-    .unwrap_or(false)
-}
-
-/// Observatoryの測定事実を1つのversion付きフレームとして取得する。
-/// 組立前後でsignal stateが変わった場合はfalseとし、異なる時点を混ぜない。
-///
-/// # Safety
-/// `handle`/`out` は有効。UI Threadから呼ぶこと。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_observatory_frame(
-    handle: *mut KirinHyphaEngine,
-    out: *mut KirinObservatoryFrame,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() {
-            return false;
-        }
-        let engine = unsafe { &*handle };
-        let signal_before = engine.signal_state_abi();
-        let Some(snapshot) = engine.poll_meter_session() else {
-            return false;
-        };
-        let delta_result = engine.poll_delta().unwrap_or_default();
-        let delta = to_c_delta(&delta_result);
-        let signal_after = engine.signal_state_abi();
-        if signal_before != signal_after {
-            return false;
-        }
-        let (lra_state, lra_elapsed_seconds) = lra_readiness(&snapshot);
-        let comparison = comparison_projection(
-            &delta_result,
-            snapshot.measurement_epoch,
-            snapshot.generation,
-        );
-        let frame = KirinObservatoryFrame {
-            version: abi_contract::KIRIN_OBSERVATORY_FRAME_VERSION,
-            signal_state: signal_after,
-            lra_state,
-            delta_available: delta_has_finite_fact(&delta) as u8,
-            comparison_state: comparison.state,
-            lra_elapsed_seconds,
-            meter: to_c_meter_session(&snapshot),
-            delta,
-            comparison_reason: comparison.reason,
-            comparison_reserved: [0; 7],
-            comparison_generation: comparison.generation,
-            comparison_identity: comparison.identity,
-        };
-        unsafe { *out = frame };
-        true
-    }))
-    .unwrap_or(false)
-}
-
-/// 常設Meter SessionのTIME履歴を古い順で最大`out_capacity`件取得する。
-/// 10 Hzはexact、1 Hz/0.1 Hzはmin/max/mean集約であり、同じ線として偽装しない。
-///
-/// # Safety
-/// `out_count`は書き込み可能、`out_capacity > 0`なら`out`は同数要素を書き込み可能であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_meter_history(
-    handle: *mut KirinHyphaEngine,
-    resolution: u8,
-    out: *mut KirinMeterHistoryEntry,
-    out_capacity: u32,
-    out_count: *mut u32,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null()
-            || out_count.is_null()
-            || (out_capacity > 0 && out.is_null())
-            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
-        {
-            return false;
-        }
-        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
-            return false;
-        };
-        let Some(entries) =
-            (unsafe { &*handle }).poll_meter_history(resolution, out_capacity as usize)
-        else {
-            return false;
-        };
-        let count = u32::try_from(entries.len()).unwrap_or(u32::MAX);
-        for (index, entry) in entries.into_iter().enumerate() {
-            unsafe { out.add(index).write(to_c_history_entry(entry)) };
-        }
-        unsafe { *out_count = out_capacity.min(count) };
-        true
-    }))
-    .unwrap_or(false)
-}
-
-/// 指定時間範囲を最大`out_capacity`点へ集約して取得する。
-///
-/// # Safety
-/// `handle`は有効なエンジンを指すこと。`out_count`は書き込み可能で、`out_capacity > 0`
-/// のとき`out`は同数以上の要素を書き込める領域を指すこと。UI Threadから呼ぶこと。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_meter_history_decimated(
-    handle: *mut KirinHyphaEngine,
-    resolution: u8,
-    max_entries: u32,
-    out: *mut KirinMeterHistoryEntry,
-    out_capacity: u32,
-    out_count: *mut u32,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null()
-            || out_count.is_null()
-            || (out_capacity > 0 && out.is_null())
-            || max_entries as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
-            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
-        {
-            return false;
-        }
-        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
-            return false;
-        };
-        let Some(entries) = (unsafe { &*handle }).poll_meter_history_decimated(
-            resolution,
-            max_entries as usize,
-            out_capacity as usize,
-        ) else {
-            return false;
-        };
-        for (index, entry) in entries.iter().copied().enumerate() {
-            unsafe { out.add(index).write(to_c_history_entry(entry)) };
-        }
-        unsafe { *out_count = entries.len() as u32 };
-        true
-    }))
-    .unwrap_or(false)
-}
-
-/// 同じDAW presentation sample終端で結合できたPOST−PRE TIME履歴だけを返す。
-/// 欠測・重複時刻・PRE roleは値を生成しない。
-///
-/// # Safety
-/// `out_count`は書き込み可能、`out_capacity > 0`なら`out`は同数要素を書き込み可能であること。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_meter_delta_history(
-    handle: *mut KirinHyphaEngine,
-    resolution: u8,
-    out: *mut KirinMeterHistoryEntry,
-    out_capacity: u32,
-    out_count: *mut u32,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null()
-            || out_count.is_null()
-            || (out_capacity > 0 && out.is_null())
-            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
-        {
-            return false;
-        }
-        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
-            return false;
-        };
-        let Some(entries) =
-            (unsafe { &*handle }).poll_meter_delta_history(resolution, out_capacity as usize)
-        else {
-            return false;
-        };
-        let count = u32::try_from(entries.len()).unwrap_or(u32::MAX);
-        for (index, entry) in entries.into_iter().enumerate() {
-            unsafe { out.add(index).write(to_c_history_entry(entry)) };
-        }
-        unsafe { *out_count = out_capacity.min(count) };
-        true
-    }))
-    .unwrap_or(false)
-}
-
-/// exact join済みPOST−PRE履歴を最大`out_capacity`点へ集約して取得する。
-///
-/// # Safety
-/// `handle`は有効なエンジンを指すこと。`out_count`は書き込み可能で、`out_capacity > 0`
-/// のとき`out`は同数以上の要素を書き込める領域を指すこと。UI Threadから呼ぶこと。
-#[no_mangle]
-pub unsafe extern "C" fn kirin_hypha_poll_meter_delta_history_decimated(
-    handle: *mut KirinHyphaEngine,
-    resolution: u8,
-    max_entries: u32,
-    out: *mut KirinMeterHistoryEntry,
-    out_capacity: u32,
-    out_count: *mut u32,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null()
-            || out_count.is_null()
-            || (out_capacity > 0 && out.is_null())
-            || max_entries as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
-            || out_capacity as usize > KIRIN_METER_HISTORY_MAX_ENTRIES
-        {
-            return false;
-        }
-        let Some(resolution) = meter_history_resolution_from_abi(resolution) else {
-            return false;
-        };
-        let Some(entries) = (unsafe { &*handle }).poll_meter_delta_history_decimated(
-            resolution,
-            max_entries as usize,
-            out_capacity as usize,
-        ) else {
-            return false;
-        };
-        for (index, entry) in entries.iter().copied().enumerate() {
-            unsafe { out.add(index).write(to_c_history_entry(entry)) };
-        }
-        unsafe { *out_count = entries.len() as u32 };
-        true
-    }))
-    .unwrap_or(false)
-}
-
 /// ランタイムを破棄（shutdown → Measure Thread join）。
 ///
 /// # Safety
@@ -5079,6 +4578,10 @@ mod record_start_latch_tests {
 #[cfg(test)]
 mod admission_contract_tests {
     use super::{ChannelLayout, KirinHyphaEngine, RecordTakeBlock, MAX_AUDIO_BLOCK_FRAMES};
+    use kirin_measure::{
+        AuxiliaryClockSamples, AuxiliaryClockSource, CaptureClockSource,
+        PresentationLatencySamples, PresentationLatencySource,
+    };
 
     #[test]
     fn shipping_transaction_rejects_channel_remainder_without_advancing_clock() {
@@ -5102,6 +4605,51 @@ mod admission_contract_tests {
 
         assert!(!engine.push_samples_transaction(&[0.0, 0.0], 2));
         assert_eq!(engine.record_take_tracker.captured_frames_total(), 1);
+    }
+
+    #[test]
+    fn shipping_transaction_commits_auxiliary_clock_and_pdc_with_the_same_audio() {
+        let engine = KirinHyphaEngine::new(48_000, ChannelLayout::stereo());
+        engine.note_capture_window_with_clocks(
+            true,
+            20_000,
+            2,
+            CaptureClockSource::ProjectTimeline,
+            PresentationLatencySamples {
+                source: PresentationLatencySource::Vst3,
+                input: Some(0),
+                output: Some(4_096),
+            },
+            AuxiliaryClockSamples {
+                source: AuxiliaryClockSource::Vst3Continuous,
+                samples: Some(20_000),
+            },
+            false,
+        );
+        let staged = engine
+            .take_pending_capture_window(2)
+            .expect("one coherent staged descriptor");
+        assert_eq!(staged.auxiliary.samples, Some(20_000));
+        assert_eq!(
+            staged.auxiliary.source,
+            AuxiliaryClockSource::Vst3Continuous
+        );
+        assert_eq!(
+            staged.presentation_latency.source,
+            PresentationLatencySource::Vst3
+        );
+        assert_eq!(staged.presentation_latency.output, Some(4_096));
+        engine.note_capture_window_with_clocks(
+            true,
+            20_000,
+            2,
+            CaptureClockSource::ProjectTimeline,
+            staged.presentation_latency,
+            staged.auxiliary,
+            false,
+        );
+        assert!(engine.push_samples_transaction(&[0.25, -0.25, 0.5, -0.5], 2));
+        assert_eq!(engine.record_take_tracker.captured_frames_total(), 2);
     }
 
     #[test]

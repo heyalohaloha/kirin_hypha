@@ -7,12 +7,23 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+#[path = "meter_pair_observation.rs"]
+mod pair_observation;
 #[path = "meter_history_publisher.rs"]
 mod publisher;
+use pair_observation::DeltaHistoryState;
+#[path = "chain_observation.rs"]
+pub mod chain;
+#[path = "meter_chain_join.rs"]
+mod chain_join;
+#[path = "meter_content_wire.rs"]
+mod content_wire;
+use content_wire::ContentWirePoint;
 
 use crate::meter_history::MeterHistory;
 use crate::plugin_data::MeasurementLayout;
@@ -22,18 +33,33 @@ use crate::{
 };
 
 pub const METER_HISTORY_EXCHANGE_FILE: &str = "meter_history.json";
-/// 3 = B-968。`layout` を足し、違う map で測った 2 本を引き算しないようにした。
-pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 3;
+/// One same-version PRE/POST envelope for TIME and qualified content observations. An older
+/// peer is rejected as a unit; no cross-version comparison or partial TIME claim is inferred.
+pub const METER_HISTORY_EXCHANGE_SCHEMA: u8 = 7;
 pub const METER_HISTORY_EXCHANGE_POINTS: usize = 32;
 const LOCAL_JOIN_POINTS: usize = METER_HISTORY_EXCHANGE_POINTS * 2;
 const MAX_EXCHANGE_BYTES: u64 = 64 * 1024;
 const JOINED_POINT_CAPACITY: usize = crate::HISTORY_10_HZ_CAPACITY;
+
+/// The host/API evidence behind the optional exact comparison clock. A wrapper source alone
+/// does not identify its host's PDC semantics. Unknown remains the default for every caller.
+pub const CLOCK_POLICY_UNKNOWN: u8 = 0;
+pub const CLOCK_POLICY_STUDIO_PRO_812_WINDOWS_VST3: u8 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MeterHistoryTarget {
     pub pre_instance_id: String,
     pub pre_json: PathBuf,
     pub instance_dir: PathBuf,
+    post_binding: Option<PostBindingProvenance>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct PostBindingProvenance {
+    pair_owner_id: String,
+    post_instance_id: String,
+    generation: u64,
+    claimed_at_bits: u64,
 }
 
 impl MeterHistoryTarget {
@@ -42,7 +68,34 @@ impl MeterHistoryTarget {
             pre_instance_id,
             instance_dir: pre_json.parent()?.to_path_buf(),
             pre_json: pre_json.to_path_buf(),
+            post_binding: None,
         })
+    }
+
+    /// Bind a confirmed PRE locator to the exact POST engine selection. A repeated selection
+    /// of the same PRE path is a new comparison, not a continuation of the previous history.
+    pub fn with_post_binding(
+        mut self,
+        pair_owner_id: &str,
+        post_instance_id: &str,
+        generation: u64,
+        claimed_at: f64,
+    ) -> Option<Self> {
+        if !crate::path_identity::is_path_safe_component(pair_owner_id)
+            || !crate::path_identity::is_path_safe_component(post_instance_id)
+            || generation == 0
+            || !claimed_at.is_finite()
+            || claimed_at <= 0.0
+        {
+            return None;
+        }
+        self.post_binding = Some(PostBindingProvenance {
+            pair_owner_id: pair_owner_id.into(),
+            post_instance_id: post_instance_id.into(),
+            generation,
+            claimed_at_bits: claimed_at.to_bits(),
+        });
+        Some(self)
     }
 }
 
@@ -71,7 +124,9 @@ struct Publication {
     /// mono の PRE と stereo の POST は、同じ音を通しても loudness で 3.01 LU ずれる
     /// （mono は 1ch として測り +3.01 dB バイアスを入れない）。その差は連鎖が加えたものではない。
     layout: MeasurementLayout,
+    clock_policy: u8,
     points: Vec<WirePoint>,
+    content_windows: Vec<ContentWirePoint>,
 }
 
 #[derive(Deserialize)]
@@ -90,191 +145,14 @@ struct PairKey {
     instance_id: String,
     instance_dir: PathBuf,
     owner_id: String,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct JoinedPoint {
-    generation: u64,
-    observed_frames: u64,
-}
-
-#[derive(Default)]
-struct DeltaHistoryState {
-    generation: u64,
-    next_run_id: u64,
-    current_source_run: Option<(u64, u64, u64, u64)>,
-    last_joined_axis: Option<(u64, i64, u8)>,
-    pair: Option<PairKey>,
-    history: MeterHistory,
-    joined_order: VecDeque<JoinedPoint>,
-    joined: HashSet<JoinedPoint>,
-    consumed_pre_order: VecDeque<JoinedPoint>,
-    consumed_pre: HashSet<JoinedPoint>,
-}
-
-impl DeltaHistoryState {
-    fn bind(&mut self, pair: PairKey) {
-        if self.pair.as_ref() == Some(&pair) {
-            return;
-        }
-        self.pair = Some(pair);
-        self.discard();
-    }
-
-    fn clear_pair(&mut self) {
-        if self.pair.take().is_some() {
-            self.discard();
-        }
-    }
-
-    fn clear_if_different_target(&mut self, target: &MeterHistoryTarget) {
-        if self.pair.as_ref().is_some_and(|pair| {
-            pair.instance_id != target.pre_instance_id || pair.instance_dir != target.instance_dir
-        }) {
-            self.clear_pair();
-        }
-    }
-
-    fn reset(&mut self) {
-        self.discard();
-    }
-
-    fn discard(&mut self) {
-        self.generation = self.generation.wrapping_add(1).max(1);
-        self.next_run_id = 0;
-        self.current_source_run = None;
-        self.last_joined_axis = None;
-        self.history.reset();
-        self.joined_order.clear();
-        self.joined.clear();
-        self.consumed_pre_order.clear();
-        self.consumed_pre.clear();
-    }
-
-    fn ingest(&mut self, pre: &[WirePoint], post: &[MeterHistoryEntry], sample_rate: u32) {
-        let available_pre = pre.iter().filter(|point| {
-            !self.consumed_pre.contains(&JoinedPoint {
-                generation: point.generation,
-                observed_frames: point.observed_frames,
-            })
-        });
-        let pre_counts = key_counts(available_pre.clone().map(wire_key));
-        let post_counts = key_counts(
-            post.iter()
-                .filter(|point| {
-                    !self.joined.contains(&JoinedPoint {
-                        generation: point.generation,
-                        observed_frames: point.last_observed_frames,
-                    })
-                })
-                .filter_map(history_key),
-        );
-        let pre_by_key: HashMap<_, _> = available_pre
-            .map(|point| (wire_key(point), point))
-            .collect();
-
-        for post_point in post {
-            let joined_id = JoinedPoint {
-                generation: post_point.generation,
-                observed_frames: post_point.last_observed_frames,
-            };
-            if self.joined.contains(&joined_id) {
-                continue;
-            }
-            let Some(key) = history_key(post_point) else {
-                continue;
-            };
-            if pre_counts.get(&key) != Some(&1) || post_counts.get(&key) != Some(&1) {
-                continue;
-            }
-            let Some(pre_point) = pre_by_key.get(&key) else {
-                continue;
-            };
-            if self
-                .last_joined_axis
-                .is_some_and(|(observed, _, _)| post_point.last_observed_frames <= observed)
-            {
-                continue;
-            }
-            let source_run = (
-                pre_point.generation,
-                pre_point.run_id,
-                post_point.generation,
-                post_point.run_id,
-            );
-            let expected_step = u64::from(sample_rate / 10).max(1);
-            let continuous = self
-                .last_joined_axis
-                .is_some_and(|(observed, endpoint, source)| {
-                    post_point.last_observed_frames.saturating_sub(observed) == expected_step
-                        && post_point
-                            .last_timeline_endpoint_samples
-                            .is_some_and(|current| {
-                                current.saturating_sub(endpoint) == expected_step as i64
-                            })
-                        && source == key.0
-                });
-            if self.current_source_run != Some(source_run) || !continuous {
-                self.current_source_run = Some(source_run);
-                self.next_run_id = self.next_run_id.wrapping_add(1).max(1);
-            }
-            let delta = MeasureResult {
-                lufs_m: difference(post_point.lufs_m.mean, pre_point.lufs_m),
-                lufs_s: difference(post_point.lufs_s.mean, pre_point.lufs_s),
-                true_peak: difference(post_point.true_peak.mean, pre_point.true_peak),
-                ..MeasureResult::default()
-            };
-            self.history.push(
-                // Δ は POST の測定区間に属する。POST が別 layout / rate で作り直されたら、
-                // その前後の Δ は同じ測定の続きではない。
-                post_point.measurement_epoch,
-                self.generation.max(1),
-                self.next_run_id,
-                post_point.last_observed_frames,
-                (
-                    post_point.last_timeline_endpoint_samples,
-                    post_point.timeline_source,
-                ),
-                &delta,
-                MeterHistoryAux {
-                    correlation: difference(post_point.correlation.mean, pre_point.correlation),
-                    plr: difference(post_point.plr.mean, pre_point.plr),
-                    clip_event_count: [0; crate::meter_history::METER_HISTORY_CHANNELS],
-                },
-            );
-            self.last_joined_axis = Some((post_point.last_observed_frames, key.1, key.0));
-            self.remember_joined(joined_id);
-            self.remember_consumed_pre(JoinedPoint {
-                generation: pre_point.generation,
-                observed_frames: pre_point.observed_frames,
-            });
-        }
-    }
-
-    fn remember_joined(&mut self, point: JoinedPoint) {
-        self.joined.insert(point);
-        self.joined_order.push_back(point);
-        while self.joined_order.len() > JOINED_POINT_CAPACITY {
-            if let Some(oldest) = self.joined_order.pop_front() {
-                self.joined.remove(&oldest);
-            }
-        }
-    }
-
-    fn remember_consumed_pre(&mut self, point: JoinedPoint) {
-        self.consumed_pre.insert(point);
-        self.consumed_pre_order.push_back(point);
-        while self.consumed_pre_order.len() > JOINED_POINT_CAPACITY {
-            if let Some(oldest) = self.consumed_pre_order.pop_front() {
-                self.consumed_pre.remove(&oldest);
-            }
-        }
-    }
+    daw_session_id: String,
+    post_binding: Option<PostBindingProvenance>,
 }
 
 pub struct MeterDeltaHistoryExchange {
     sample_rate: u32,
     layout: MeasurementLayout,
+    clock_policy: AtomicU8,
     meter_session: Arc<Mutex<MeterSession>>,
     delta: Mutex<DeltaHistoryState>,
     publisher: Mutex<publisher::HistoryPublisher>,
@@ -288,10 +166,29 @@ impl MeterDeltaHistoryExchange {
         Arc::new(Self {
             sample_rate,
             layout,
+            clock_policy: AtomicU8::new(CLOCK_POLICY_UNKNOWN),
             meter_session,
             delta: Mutex::new(DeltaHistoryState::default()),
             publisher: Mutex::new(publisher::HistoryPublisher::default()),
         })
+    }
+
+    /// Non-RT setup only, before either endpoint starts publishing. An unknown value is never
+    /// promoted to an observed host policy. Caller must bind this to the exact executable build
+    /// and active plugin wrapper, not to the presence of a raw optional latency value.
+    pub fn set_clock_policy(&self, policy: u8) {
+        self.clock_policy.store(
+            if policy == CLOCK_POLICY_STUDIO_PRO_812_WINDOWS_VST3 {
+                policy
+            } else {
+                CLOCK_POLICY_UNKNOWN
+            },
+            Ordering::Release,
+        );
+    }
+
+    fn clock_policy(&self) -> u8 {
+        self.clock_policy.load(Ordering::Acquire)
     }
 
     pub fn service_pre_endpoint(
@@ -322,10 +219,18 @@ impl MeterDeltaHistoryExchange {
         let Ok(identity) = read_pre_identity(&target.pre_json) else {
             return;
         };
-        if identity.instance_id != target.pre_instance_id
-            || identity.watch_owner_id.is_empty()
-            || identity.signal_state != "active"
-        {
+        if identity.instance_id != target.pre_instance_id || identity.watch_owner_id.is_empty() {
+            return;
+        }
+        // An owner replacement invalidates history before the replacement publishes a file.
+        lock_recover(&self.delta).bind(PairKey {
+            instance_id: target.pre_instance_id.clone(),
+            instance_dir: target.instance_dir.clone(),
+            owner_id: identity.watch_owner_id.clone(),
+            daw_session_id: identity.daw_session_id.clone(),
+            post_binding: target.post_binding.clone(),
+        });
+        if identity.signal_state != "active" {
             return;
         }
         let Ok(publication) = read_publication(&target.instance_dir) else {
@@ -338,14 +243,41 @@ impl MeterDeltaHistoryExchange {
             return;
         };
         let local = session.recent_history(MeterHistoryResolution::Hz10, LOCAL_JOIN_POINTS);
+        let snapshot = session.snapshot();
+        let incarnation = session.history_publication_revision().0;
+        let local_content: Vec<_> = session
+            .recent_content_windows(LOCAL_JOIN_POINTS)
+            .into_iter()
+            .map(|point| {
+                ContentWirePoint::from_observation(
+                    point,
+                    snapshot.measurement_epoch,
+                    incarnation,
+                    snapshot.generation,
+                )
+            })
+            .collect();
         drop(session);
         let mut delta = lock_recover(&self.delta);
         delta.bind(PairKey {
             instance_id: target.pre_instance_id,
             instance_dir: target.instance_dir,
             owner_id: identity.watch_owner_id,
+            daw_session_id: identity.daw_session_id,
+            post_binding: target.post_binding,
         });
+        delta.chain.begin(
+            &publication,
+            &local_content,
+            &snapshot,
+            incarnation,
+            self.clock_policy(),
+        );
+        delta
+            .chain
+            .ingest(&publication.content_windows, &local_content);
         delta.ingest(&publication.points, &local, self.sample_rate);
+        delta.chain.finish();
     }
 
     pub fn recent(
@@ -371,6 +303,34 @@ impl MeterDeltaHistoryExchange {
 
     pub fn reset(&self) {
         lock_recover(&self.delta).reset();
+    }
+
+    /// Explicit comparison audition ends a chain observation binding, not a Meter Session.
+    pub fn clear_chain(&self) {
+        let mut delta = lock_recover(&self.delta);
+        let binding = delta.chain.history.binding.wrapping_add(1).max(1);
+        delta.chain.clear(binding);
+    }
+
+    /// UI-only, nonblocking; unchanged revision does not clone the bounded batch.
+    pub fn chain_snapshot(
+        &self,
+        known_revision: u64,
+        snapshot: &crate::MeterSessionSnapshot,
+    ) -> Option<chain::Snapshot> {
+        self.chain_snapshot_limit(known_revision, snapshot, chain::CAPACITY)
+    }
+
+    /// UI-only. Small editors request the newest point, not a 600-point history clone.
+    pub fn chain_snapshot_limit(
+        &self,
+        known_revision: u64,
+        snapshot: &crate::MeterSessionSnapshot,
+        limit: usize,
+    ) -> Option<chain::Snapshot> {
+        let mut delta = self.delta.try_lock().ok()?;
+        delta.chain.progress(snapshot);
+        delta.chain.history.snapshot_limit(known_revision, limit)
     }
 }
 
@@ -420,6 +380,11 @@ impl Publication {
             && self.daw_session_id == identity.daw_session_id
             && self.points.len() <= METER_HISTORY_EXCHANGE_POINTS
             && self.points.iter().all(WirePoint::valid)
+            && self.content_windows.len() <= METER_HISTORY_EXCHANGE_POINTS
+            && self
+                .content_windows
+                .iter()
+                .all(|point| point.valid(sample_rate))
     }
 }
 
@@ -432,11 +397,20 @@ fn read_publication(instance_dir: &Path) -> Result<Publication, String> {
 }
 
 fn read_bounded_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
+    use std::io::Read;
     let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
     if metadata.len() > MAX_EXCHANGE_BYTES {
         return Err("meter history exchange exceeds byte limit".to_string());
     }
-    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .map_err(|error| error.to_string())?
+        .take(MAX_EXCHANGE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > MAX_EXCHANGE_BYTES {
+        return Err("meter history exchange exceeds byte limit".to_string());
+    }
     serde_json::from_slice(&bytes).map_err(|error| error.to_string())
 }
 
@@ -482,3 +456,7 @@ fn lock_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[cfg(test)]
 #[path = "meter_delta_history_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "meter_chain_exchange_tests.rs"]
+mod chain_exchange_tests;

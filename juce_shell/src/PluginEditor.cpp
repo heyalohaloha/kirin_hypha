@@ -30,6 +30,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
     setLookAndFeel (&textLookAndFeel);
     syncLanguage (false); // before the first layout, which then uses the language shown
     setWantsKeyboardFocus (true);
+    setMouseClickGrabsKeyboardFocus (false);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
     // One opaque Observatory root lets Windows present a completed frame instead of compositing
     // intermediate transformed children.

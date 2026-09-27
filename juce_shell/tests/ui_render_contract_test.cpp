@@ -18,6 +18,7 @@
 #include "MagnifiedInspectionContract.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
+#include "SpectrumShapeContractTest.h"
 #include "SpectrumPresentationContractTest.h"
 #include "GuideFrequencyOverlayContractTest.h"
 #include "ObservatoryViewContractTest.h"
@@ -32,12 +33,13 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "OsAccessUiContractTest.h"
 #include "UiFeatureContracts.h"
+#include "ChainClockPolicyContract.h"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 namespace ui = hypha::ui_contract;
-static_assert (sizeof (KirinSpectrumView) == 3'112, "Spectrum view ABI size must remain exact");
-static_assert (sizeof (KirinSpectrumBatch) == 28'016, "Spectrum batch ABI size must remain exact");
+static_assert (sizeof (KirinSpectrumView) == 4'400, "Spectrum view ABI size must remain exact");
+static_assert (sizeof (KirinSpectrumBatch) == 39'608, "Spectrum batch ABI size must remain exact");
 static_assert (sizeof (KirinMidSideSpectrumView) == 2'088,
                "Mid/Side Spectrum ABI size must remain exact");
 static_assert (alignof (KirinMidSideSpectrumView) == 8);
@@ -136,6 +138,9 @@ using hypha::tests::renderMidSideSpectrumAtSize;
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    hypha::tests::verifyChainClockPolicy();
+    if (std::getenv ("HYPHA_SHAPE_ONLY") != nullptr)
+    { hypha::tests::verifySpectrumShapeContract (KirinSpectrumView {}); return 0; }
     const auto previews = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
     if (previews.isNotEmpty()) KIRIN_REQUIRE (juce::File (previews).createDirectory().wasOk());
     KIRIN_REQUIRE (hypha::tests::writeSpectrumShowcase());
@@ -355,6 +360,7 @@ int main (int argc, char** argv)
     }
     // Keep the performance-sensitive trail gate after all five MARK size contracts.
     hypha::tests::verifySpectrumFocusTrailRendering (spectrumSnapshot);
+    hypha::tests::verifySpectrumShapeContract (spectrumSnapshot);
     hypha::SpectrumComponent lineEncodingSpectrum;
     lineEncodingSpectrum.setPresentationContext (hypha::presentation::forEditor (
         ui::editorWidth, ui::editorHeight));

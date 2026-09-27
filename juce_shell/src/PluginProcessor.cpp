@@ -159,10 +159,9 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
     // --- Signal state derivation (parity: hypha_pre.rs:397-403) -------------------
     const bool bypassed = (bypassParam != nullptr && bypassParam->get());
     const auto processClock = readHostProcessClock();
-    const auto [playing, hasPosition, clockSource, positionSamples, hasClockEnd,
-          clockStartSamples, clockEndSamples, presentationSource,
-          inputPresentationValid, inputPresentationSamples, outputPresentationValid,
-          outputPresentationSamples, looping] = processClock;
+    const auto [playing, hasPosition, clockSource, positionSamples, hasClockEnd, clockStartSamples, clockEndSamples,
+          presentationSource, inputPresentationValid, inputPresentationSamples, outputPresentationValid,
+          outputPresentationSamples, looping, auxiliaryClock] = processClock;
     juce::ignoreUnused (looping); // Used by the explicit local Blind output path below.
     lastPlaying.store (playing, std::memory_order_release); // B-054: POST pair lock reads this
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
@@ -317,11 +316,12 @@ void KirinHyphaProcessorBase::processBlock (juce::AudioBuffer<float>& buffer, ju
                 for (int ch = 0; ch < numCh; ++ch)
                     interleaveScratch[idx++] = buffer.getReadPointer (ch)[f];
 
-            kirin_hypha_note_capture_window (hyphaHandle, hasPosition,
-                                             windowPositionSamples, windowNumFrames, clockSource,
-                                             presentationSource,
+            const auto windowAuxiliary = hypha::offsetAuxiliaryClock (auxiliaryClock, (std::uint64_t) windowStartFrame);
+            kirin_hypha_note_capture_window (hyphaHandle, hasPosition, windowPositionSamples,
+                                             windowNumFrames, clockSource, presentationSource,
                                              inputPresentationValid, inputPresentationSamples,
                                              outputPresentationValid, outputPresentationSamples,
+                                             (std::uint8_t) windowAuxiliary.source, windowAuxiliary.valid, windowAuxiliary.samples,
                                              forceTakeStartEpoch);
             const bool blockAccepted = kirin_hypha_push_samples (
                 hyphaHandle, interleaveScratch.data(),

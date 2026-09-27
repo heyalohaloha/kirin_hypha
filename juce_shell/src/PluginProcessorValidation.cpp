@@ -90,6 +90,9 @@ juce::StringArray KirinHyphaProcessorBase::localValidationFacts() const
         { return ! present ? juce::String ("not reported") : value == 0 ? juce::String ("0 (ambiguous)") : number (value); };
         lines.add ("Input presentation: " + latency (clock.hasInputLatency, clock.inputLatency));
         lines.add ("Output presentation: " + latency (clock.hasOutputLatency, clock.outputLatency));
+        lines.add (juce::String (hypha::auxiliaryClockName (clock.auxiliary.source)) + ": "
+                   + (clock.auxiliary.valid ? number (clock.auxiliary.samples) : "not reported")
+                   + " (raw, not PDC proof)");
     }
     else lines.add ("Last callback: unavailable / concurrent read");
     if (isPostRole())

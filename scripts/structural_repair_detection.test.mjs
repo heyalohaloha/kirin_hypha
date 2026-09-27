@@ -95,9 +95,9 @@ const analysisIdentitiesAreSeparated = (runtime) => {
     && !drop.includes('advance_selection_generation');
 };
 
-const comparisonRefusalIsTransported = ({ producer, header, ffi, editor, presentation }) => {
+const comparisonRefusalIsTransported = ({ producer, header, ffiRoot, ffiObservation, editor, presentation }) => {
   const poll = between(
-    ffi,
+    ffiObservation,
     'pub unsafe extern "C" fn kirin_hypha_poll_observatory_frame',
     'pub unsafe extern "C" fn kirin_hypha_poll_meter_history',
   );
@@ -107,6 +107,8 @@ const comparisonRefusalIsTransported = ({ producer, header, ffi, editor, present
     && header.includes('uint8_t comparison_reason;')
     && header.includes('uint64_t comparison_generation;')
     && header.includes('uint64_t comparison_identity;')
+    && ffiRoot.includes('mod meter_observation_ffi;')
+    && ffiRoot.includes('pub use meter_observation_ffi::*;')
     && poll.includes('comparison_projection(')
     && poll.includes('comparison_generation: comparison.generation')
     && editor.includes('frame.comparison_generation > comparisonActionAfterGeneration')
@@ -145,7 +147,8 @@ test('structural repair detectors reject the nine known mutation classes', () =>
   const comparisonProducer = read('crates/kirin_measure/src/io_thread_post_tick.rs')
     + read('crates/kirin_measure/src/io_thread_post_delta.rs');
   const ffiHeader = read('crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h');
-  const ffiSource = read('crates/kirin_hypha_ffi/src/lib.rs');
+  const ffiRoot = read('crates/kirin_hypha_ffi/src/lib.rs');
+  const ffiObservation = read('crates/kirin_hypha_ffi/src/meter_observation_ffi.rs');
   const observatoryEditor = read('juce_shell/src/PluginEditorObservatory.cpp');
   const comparisonPresentation = read('juce_shell/src/HyphaComparisonPresentation.h');
   const editor = read('juce_shell/src/PluginEditor.cpp');
@@ -163,7 +166,8 @@ test('structural repair detectors reject the nine known mutation classes', () =>
   const comparisonTransport = {
     producer: comparisonProducer,
     header: ffiHeader,
-    ffi: ffiSource,
+    ffiRoot,
+    ffiObservation,
     editor: observatoryEditor,
     presentation: comparisonPresentation,
   };

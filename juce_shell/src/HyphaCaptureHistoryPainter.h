@@ -8,6 +8,9 @@
 
 #include "HyphaPresentationContext.h"
 #include "kirin_hypha_ffi.h"
+#include "kirin_hypha_chain_observation.h"
+
+namespace hypha::chain_action { class GeometryCache; }
 
 namespace hypha::capture_history
 {
@@ -37,9 +40,10 @@ struct TruePeakSummary
 // history poll enrich Capture without mixing a later audio callback into the frozen UI fact.
 void retainThrough (std::vector<KirinMeterHistoryEntry>&, std::uint64_t observedFrames);
 
-// One maximum for each contiguous excursion above the shared TP emphasis threshold, plus the exact
-// maximum in the visible window. `true_peak.max` retains a short transient instead of replacing it
-// with a bucket mean; periodic local maxima are deliberately not promoted to visual events.
+// One maximum for each contiguous excursion above the shared TP emphasis threshold. The visible
+// window maximum is not promoted to a stem when it stays at or below that threshold.
+// `true_peak.max` retains a short transient instead of replacing it with a bucket mean; periodic
+// local maxima are deliberately not promoted to visual events.
 TruePeakSummary analyseTruePeak (const std::vector<KirinMeterHistoryEntry>&,
                                  double sampleRate);
 
@@ -49,6 +53,13 @@ std::optional<std::size_t> hitTest (juce::Rectangle<int> area,
                                     const std::vector<KirinMeterHistoryEntry>&,
                                     juce::Point<float> position,
                                     double sampleRate);
+// Only the comparison band selects an exact 400 ms chain point. Its endpoint need not coincide
+// with an independently phased absolute 100 ms history endpoint.
+std::optional<std::size_t> hitTestChain (juce::Rectangle<int> area,
+                                        const KirinChainSnapshot&,
+                                        const std::vector<KirinChainPoint>&,
+                                        std::uint64_t axisEndObserved,
+                                        juce::Point<float> position);
 
 // The current-loudness label ("NOW  -14.2") is never narrower than its own text, so the value is
 // never cut short at a large editor size.
@@ -65,5 +76,9 @@ void paint (juce::Graphics&,
             presentation::Context,
             std::optional<std::size_t> hoveredIndex = std::nullopt,
             juce::String contextFact = {},
-            const KirinMeterSession* meter = nullptr);
+            const KirinMeterSession* meter = nullptr,
+            const KirinChainSnapshot* chain = nullptr,
+            const std::vector<KirinChainPoint>* chainPoints = nullptr,
+            chain_action::GeometryCache* chainCache = nullptr,
+            const KirinChainPoint* selectedChain = nullptr);
 }

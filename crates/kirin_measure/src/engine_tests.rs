@@ -200,6 +200,77 @@ fn tp_recent_independent_of_push_block_size() {
 }
 
 #[test]
+fn content_grid_splits_do_not_change_canonical_engine_facts() {
+    use crate::{
+        AuxiliaryClockSamples, AuxiliaryClockSource, CaptureClockSource,
+        PresentationLatencySamples, PresentationLatencySource,
+    };
+
+    let mut baseline = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
+    let mut gridded = MeasureEngine::new(SR, ChannelLayout::stereo()).unwrap();
+    gridded.enable_content_grid(SR);
+    let mut base_points = Vec::new();
+    let mut grid_points = Vec::new();
+    let mut content_points = Vec::new();
+    let total = SR as usize * 3;
+    let mut start = 0_usize;
+    while start < total {
+        let frames = (total - start).min(528);
+        let mut pcm = Vec::with_capacity(frames * 2);
+        for frame in start..start + frames {
+            let mut sample = (0.1 + (frame / 5_000 % 3) as f64 * 0.07)
+                * (frame as f64 * std::f64::consts::TAU / 48.0).sin();
+            if matches!(frame, 4_799 | 4_800 | 19_199 | 19_200 | 48_000) {
+                sample = 0.91;
+            }
+            pcm.extend([sample, sample]);
+        }
+        baseline.push_observed(&pcm, |_, result, _| base_points.push(result.clone()));
+        gridded.push_observed_with_session_facts_at(
+            &pcm,
+            MeterClockStart {
+                position_samples: Some(start as i64),
+                epoch: Some(1),
+                source: CaptureClockSource::ProjectTimeline,
+                auxiliary: AuxiliaryClockSamples {
+                    source: AuxiliaryClockSource::Vst3Continuous,
+                    samples: Some(start as i64 - 4_096),
+                },
+                presentation_latency: PresentationLatencySamples {
+                    source: PresentationLatencySource::Vst3,
+                    input: None,
+                    output: Some(4_096),
+                },
+            },
+            |_, result, _, _, _| grid_points.push(result.clone()),
+            |point| content_points.push(point),
+        );
+        start += frames;
+    }
+    assert_eq!(base_points.len(), 30);
+    assert_eq!(grid_points.len(), base_points.len());
+    assert!(!content_points.is_empty());
+    let near = |a: Option<f64>, b: Option<f64>| {
+        assert_eq!(a.is_some(), b.is_some());
+        if let (Some(a), Some(b)) = (a, b) {
+            assert!((a - b).abs() <= 1e-9, "{a} != {b}");
+        }
+    };
+    for (base, grid) in base_points.iter().zip(&grid_points) {
+        near(base.lufs_m, grid.lufs_m);
+        near(base.lufs_s, grid.lufs_s);
+        near(base.true_peak, grid.true_peak);
+        near(base.tp_session_max, grid.tp_session_max);
+        near(base.crest, grid.crest);
+        near(base.psr, grid.psr);
+    }
+    near(baseline.max_lufs_m(), gridded.max_lufs_m());
+    near(baseline.max_lufs_s(), gridded.max_lufs_s());
+    near(baseline.finalize().lufs_i, gridded.finalize().lufs_i);
+    near(baseline.finalize().lra, gridded.finalize().lra);
+}
+
+#[test]
 fn add_frames_f64_errors_on_misaligned_frame_count_is_observable() {
     let mut ebu = EbuR128::new(2, 48_000, Mode::M).unwrap();
     assert!(ebu.add_frames_f64(&[0.0_f64; 3]).is_err());

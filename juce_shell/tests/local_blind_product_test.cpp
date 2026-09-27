@@ -159,7 +159,15 @@ private:
                 if (! pairPreview)
                 {
                     pairPreview = post->createPairPreview();
-                    require (hypha::pair_preview::request (pairPreview), "demand starts one bounded discovery job outside handle lock");
+                    pairPreviewDemanded = false;
+                }
+                if (! pairPreviewDemanded)
+                {
+                    // The non-blocking product API deliberately reports transient service-lock
+                    // contention as false. A UI timer retries instead of turning that bounded
+                    // back-pressure into a product failure.
+                    if (! hypha::pair_preview::request (pairPreview)) break;
+                    pairPreviewDemanded = true;
                     pairPreviewRequestedAt = std::chrono::steady_clock::now();
                 }
                 KirinPairPreviewValue preview {};
@@ -173,9 +181,8 @@ private:
                     if (std::chrono::steady_clock::now() - pairPreviewRequestedAt
                         >= std::chrono::milliseconds (1050))
                     {
-                        require (hypha::pair_preview::request (pairPreview),
-                                 "empty discovery can request one bounded retry");
-                        pairPreviewRequestedAt = std::chrono::steady_clock::now();
+                        if (hypha::pair_preview::request (pairPreview))
+                            pairPreviewRequestedAt = std::chrono::steady_clock::now();
                     }
                     break;
                 }
@@ -385,7 +392,7 @@ private:
     std::chrono::steady_clock::time_point pairPreviewRequestedAt;
     hypha::pair_preview::Ticket pairPreview;
     int stage = 0, reportedStage = -1, waitingUi = 0;
-    bool reopened = false;
+    bool reopened = false, pairPreviewDemanded = false;
 };
 }
 

@@ -4,12 +4,23 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace hypha::spectrum_focus
 {
 AppendResult FocusTrailHistory::append (int64_t presentationEndSamples,
                                         uint32_t incomingSampleRate,
                                         const DeltaBins& displayDelta) noexcept
+{
+    Validity all {};
+    all.fill (1u);
+    return append (presentationEndSamples, incomingSampleRate, displayDelta, all);
+}
+
+AppendResult FocusTrailHistory::append (int64_t presentationEndSamples,
+                                        uint32_t incomingSampleRate,
+                                        const DeltaBins& displayDelta,
+                                        const Validity& valid) noexcept
 {
     if (incomingSampleRate < static_cast<uint32_t> (ui_contract::spectrumPresentationHz)
         || ! std::all_of (displayDelta.begin(), displayDelta.end(),
@@ -66,6 +77,7 @@ AppendResult FocusTrailHistory::append (int64_t presentationEndSamples,
         : start;
     frames[destination].presentationEndSamples = presentationEndSamples;
     frames[destination].displayDelta = displayDelta;
+    frames[destination].valid = valid;
     if (count < focusTrailCapacity)
         ++count;
     else
@@ -117,12 +129,16 @@ float FocusTrailHistory::valueAt (size_t chronologicalIndex, float normalisedBan
 {
     if (empty())
         return 0.0f;
-    const auto& bins = frames[physicalIndex (chronologicalIndex)].displayDelta;
+    const auto& frame = frames[physicalIndex (chronologicalIndex)];
+    const auto& bins = frame.displayDelta;
     const float position = spectrum_geometry::bandPositionForNormalisedX (normalisedBand);
     const size_t lower = static_cast<size_t> (std::floor (position));
     const size_t upper = std::min (lower + 1u,
                                    static_cast<size_t> (KIRIN_SPECTRUM_BAND_COUNT - 1u));
     const float blend = position - static_cast<float> (lower);
+    if (frame.valid[lower] == 0u
+        || (upper != lower && blend > 0.0001f && frame.valid[upper] == 0u))
+        return std::numeric_limits<float>::quiet_NaN();
     return bins[lower] + blend * (bins[upper] - bins[lower]);
 }
 

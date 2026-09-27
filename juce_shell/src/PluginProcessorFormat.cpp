@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "ChannelRoles.h"
 #include "PluginEditor.h"
+#include "HyphaChainClockPolicy.h"
 
 // Format binding: which audio format the Rust engine is built for, and what happens when the host
 // negotiates a different one. Split out of PluginProcessor.cpp in B-961, when an incompatible
@@ -73,6 +74,9 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
         hyphaHandle = nullptr;
     }
     hyphaHandle = kirin::createEngineForRoles (sampleRate, roles);
+    if (hyphaHandle != nullptr)
+        kirin_hypha_set_chain_clock_policy (hyphaHandle,
+                                           hypha::chain_clock_policy::current (wrapperType));
     if (hyphaHandle != nullptr) analysisApplication.engineCreated();
     preparedFormat = hyphaHandle != nullptr ? kirin::PreparedFormat { sampleRate, roles }
                                             : kirin::PreparedFormat {};

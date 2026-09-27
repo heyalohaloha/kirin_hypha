@@ -2,13 +2,25 @@
 
 use std::collections::VecDeque;
 
-use crate::CaptureClockSource;
+use crate::{
+    AuxiliaryClockSamples, AuxiliaryClockSource, CaptureClockSource, PresentationLatencySamples,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum ClockRunOrigin {
+    Initial = 1,
+    AfterPause = 2,
+    ClockDiscontinuity = 3,
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MeterClockStart {
     pub position_samples: Option<i64>,
     pub epoch: Option<u64>,
     pub source: CaptureClockSource,
+    pub auxiliary: AuxiliaryClockSamples,
+    pub presentation_latency: PresentationLatencySamples,
 }
 
 impl MeterClockStart {
@@ -20,8 +32,12 @@ impl MeterClockStart {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MeterObservationClock {
     pub run_id: u64,
+    pub run_origin: ClockRunOrigin,
     pub timeline_endpoint_samples: Option<i64>,
     pub timeline_source: CaptureClockSource,
+    pub auxiliary_endpoint_samples: Option<i64>,
+    pub auxiliary_source: AuxiliaryClockSource,
+    pub presentation_latency: PresentationLatencySamples,
     /// False only when one observation straddles incompatible clock runs.
     pub usable_for_history: bool,
 }
@@ -32,6 +48,8 @@ enum ClockKind {
     Exact {
         epoch: u64,
         source: CaptureClockSource,
+        auxiliary_source: AuxiliaryClockSource,
+        presentation_latency: PresentationLatencySamples,
     },
 }
 
@@ -39,21 +57,26 @@ enum ClockKind {
 struct PendingSpan {
     remaining_frames: u64,
     next_position_samples: Option<i64>,
+    next_auxiliary_samples: Option<i64>,
     kind: ClockKind,
     run_id: u64,
+    run_origin: ClockRunOrigin,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct LastInputClock {
     end_position_samples: Option<i64>,
+    end_auxiliary_samples: Option<i64>,
     kind: ClockKind,
     run_id: u64,
+    run_origin: ClockRunOrigin,
 }
 
 pub(crate) struct MeterClockTracker {
     pending: VecDeque<PendingSpan>,
     last_input: Option<LastInputClock>,
     next_run_id: u64,
+    paused_boundary: bool,
 }
 
 impl MeterClockTracker {
@@ -62,6 +85,7 @@ impl MeterClockTracker {
             pending: VecDeque::new(),
             last_input: None,
             next_run_id: 1,
+            paused_boundary: false,
         }
     }
 
@@ -81,6 +105,8 @@ impl MeterClockTracker {
                 ClockKind::Exact {
                     epoch,
                     source: start.source,
+                    auxiliary_source: start.auxiliary.source,
+                    presentation_latency: start.presentation_latency,
                 },
             )
         });
@@ -88,17 +114,37 @@ impl MeterClockTracker {
             last.kind == kind
                 && match kind {
                     ClockKind::Unknown => true,
-                    ClockKind::Exact { .. } => last.end_position_samples == position,
+                    ClockKind::Exact { .. } => {
+                        last.end_position_samples == position
+                            && last.end_auxiliary_samples == start.auxiliary.samples
+                    }
                 }
         });
-        let run_id = if continuation {
-            self.last_input.map_or(1, |last| last.run_id)
+        let (run_id, run_origin) = if continuation {
+            (
+                self.last_input.map_or(1, |last| last.run_id),
+                self.last_input
+                    .map_or(ClockRunOrigin::Initial, |last| last.run_origin),
+            )
         } else {
             let id = self.next_run_id;
             self.next_run_id = self.next_run_id.wrapping_add(1).max(1);
-            id
+            let origin = if self.paused_boundary {
+                ClockRunOrigin::AfterPause
+            } else if id == 1 {
+                ClockRunOrigin::Initial
+            } else {
+                ClockRunOrigin::ClockDiscontinuity
+            };
+            (id, origin)
         };
+        self.paused_boundary = false;
         let end_position_samples = position.and_then(|value| {
+            i64::try_from(frames)
+                .ok()
+                .and_then(|frames| value.checked_add(frames))
+        });
+        let end_auxiliary_samples = start.auxiliary.samples.and_then(|value| {
             i64::try_from(frames)
                 .ok()
                 .and_then(|frames| value.checked_add(frames))
@@ -106,22 +152,58 @@ impl MeterClockTracker {
         self.pending.push_back(PendingSpan {
             remaining_frames: frames,
             next_position_samples: position,
+            next_auxiliary_samples: start.auxiliary.samples,
             kind,
             run_id,
+            run_origin,
         });
         self.last_input = Some(LastInputClock {
             end_position_samples,
+            end_auxiliary_samples,
             kind,
             run_id,
+            run_origin,
         });
+    }
+
+    /// The next DSP segment may cross callback spans in the same clock run, but must end at
+    /// a content-grid boundary or before a provenance transition. This is only a processing
+    /// boundary; it does not grant comparison authority to the clock source.
+    pub fn frames_to_content_boundary(&self, maximum: u64, step: u64) -> u64 {
+        let Some(first) = self.pending.front() else {
+            return maximum;
+        };
+        let mut same_run = 0_u64;
+        for span in &self.pending {
+            if span.run_id != first.run_id || span.kind != first.kind {
+                break;
+            }
+            same_run = same_run.saturating_add(span.remaining_frames);
+            if same_run >= maximum {
+                break;
+            }
+        }
+        let grid = first.next_auxiliary_samples.and_then(|auxiliary| {
+            let step = i64::try_from(step).ok().filter(|step| *step > 0)?;
+            let remainder = auxiliary.rem_euclid(step);
+            u64::try_from(if remainder == 0 {
+                step
+            } else {
+                step - remainder
+            })
+            .ok()
+        });
+        maximum.min(same_run).min(grid.unwrap_or(maximum)).max(1)
     }
 
     pub fn consume_observation(&mut self, frames: u64) -> MeterObservationClock {
         let mut remaining = frames;
         let mut run_id = None;
+        let mut run_origin = None;
         let mut kind = None;
         let mut compatible = frames > 0;
         let mut timeline_endpoint_samples = None;
+        let mut auxiliary_endpoint_samples = None;
 
         while remaining > 0 {
             let Some(front) = self.pending.front_mut() else {
@@ -134,6 +216,7 @@ impl MeterClockTracker {
                 compatible = false;
             }
             run_id.get_or_insert(front.run_id);
+            run_origin.get_or_insert(front.run_origin);
             kind.get_or_insert(front.kind);
             let consumed = remaining.min(front.remaining_frames);
             if let Some(position) = front.next_position_samples {
@@ -144,6 +227,14 @@ impl MeterClockTracker {
             } else {
                 timeline_endpoint_samples = None;
             }
+            if let Some(position) = front.next_auxiliary_samples {
+                auxiliary_endpoint_samples = i64::try_from(consumed)
+                    .ok()
+                    .and_then(|frames| position.checked_add(frames));
+                front.next_auxiliary_samples = auxiliary_endpoint_samples;
+            } else {
+                auxiliary_endpoint_samples = None;
+            }
             front.remaining_frames -= consumed;
             remaining -= consumed;
             if front.remaining_frames == 0 {
@@ -153,6 +244,7 @@ impl MeterClockTracker {
 
         MeterObservationClock {
             run_id: run_id.unwrap_or(0),
+            run_origin: run_origin.unwrap_or(ClockRunOrigin::Initial),
             timeline_endpoint_samples: compatible.then_some(timeline_endpoint_samples).flatten(),
             timeline_source: if compatible {
                 match kind {
@@ -162,6 +254,28 @@ impl MeterClockTracker {
             } else {
                 CaptureClockSource::Unknown
             },
+            auxiliary_endpoint_samples: compatible.then_some(auxiliary_endpoint_samples).flatten(),
+            auxiliary_source: if compatible {
+                match kind {
+                    Some(ClockKind::Exact {
+                        auxiliary_source, ..
+                    }) => auxiliary_source,
+                    _ => AuxiliaryClockSource::Unknown,
+                }
+            } else {
+                AuxiliaryClockSource::Unknown
+            },
+            presentation_latency: if compatible {
+                match kind {
+                    Some(ClockKind::Exact {
+                        presentation_latency,
+                        ..
+                    }) => presentation_latency,
+                    _ => PresentationLatencySamples::default(),
+                }
+            } else {
+                PresentationLatencySamples::default()
+            },
             usable_for_history: compatible && remaining == 0,
         }
     }
@@ -170,6 +284,14 @@ impl MeterClockTracker {
         self.pending.clear();
         self.last_input = None;
         self.next_run_id = 1;
+        self.paused_boundary = false;
+    }
+
+    /// Stop/resume is a provenance boundary, not a reset of session statistics.
+    /// Keep queued partial observations so their mixed windows are rejected when consumed.
+    pub fn break_continuity(&mut self) {
+        self.last_input = None;
+        self.paused_boundary = true;
     }
 }
 
@@ -182,6 +304,7 @@ mod tests {
             position_samples: Some(position_samples),
             epoch: Some(epoch),
             source: CaptureClockSource::ProjectTimeline,
+            ..MeterClockStart::default()
         }
     }
 
@@ -211,7 +334,23 @@ mod tests {
         let resumed = tracker.consume_observation(4_800);
         assert!(resumed.usable_for_history);
         assert_eq!(resumed.run_id, 2);
+        assert_eq!(resumed.run_origin, ClockRunOrigin::ClockDiscontinuity);
         assert_eq!(resumed.timeline_endpoint_samples, Some(37_200));
+    }
+
+    #[test]
+    fn explicit_pause_and_raw_clock_jump_have_distinct_run_origins() {
+        let mut tracker = MeterClockTracker::new();
+        tracker.push_span(4_800, exact(0, 1));
+        let initial = tracker.consume_observation(4_800);
+        assert_eq!(initial.run_origin, ClockRunOrigin::Initial);
+        tracker.break_continuity();
+        tracker.push_span(4_800, exact(9_600, 1));
+        let resumed = tracker.consume_observation(4_800);
+        assert_eq!(resumed.run_origin, ClockRunOrigin::AfterPause);
+        tracker.push_span(4_800, exact(48_000, 1));
+        let jumped = tracker.consume_observation(4_800);
+        assert_eq!(jumped.run_origin, ClockRunOrigin::ClockDiscontinuity);
     }
 
     #[test]
@@ -222,5 +361,41 @@ mod tests {
         assert!(point.usable_for_history);
         assert_eq!(point.run_id, 1);
         assert_eq!(point.timeline_endpoint_samples, None);
+    }
+
+    #[test]
+    fn studio_pro_pdc_zero_clamp_does_not_create_a_false_exact_observation() {
+        // Windows Studio Pro 8.1.2, 48 kHz, 528-frame callbacks, 4096-sample delay.
+        // Observed POST project starts: eight zeros, then 128, 656, ... . Raw
+        // continuous time starts at -4096, but is not yet an admission authority.
+        let mut tracker = MeterClockTracker::new();
+        for _ in 0..8 {
+            tracker.push_span(528, exact(0, 1));
+        }
+        for index in 0..20 {
+            tracker.push_span(528, exact(128 + index * 528, 1));
+        }
+        let mixed = tracker.consume_observation(4_800);
+        assert!(!mixed.usable_for_history);
+        assert_eq!(mixed.timeline_endpoint_samples, None);
+        assert_eq!(mixed.timeline_source, CaptureClockSource::Unknown);
+        let contiguous = tracker.consume_observation(4_800);
+        assert!(contiguous.usable_for_history);
+        assert_eq!(contiguous.timeline_endpoint_samples, Some(9_600 - 4_096));
+        // This only establishes a contiguous 100 ms point, NOT a 400 ms window
+        // or common PRE/POST occurrence. Those remain separate requirements.
+    }
+
+    #[test]
+    fn studio_pro_loop_wrap_is_a_boundary_even_without_an_epoch_change() {
+        // Real PRE loop transition: a 528-frame block at 1_151_568 straddles
+        // the 1_152_000-frame cycle, followed by project 96. Project alone
+        // cannot describe the samples inside that straddling block.
+        let mut tracker = MeterClockTracker::new();
+        tracker.push_span(528, exact(1_151_568, 1));
+        tracker.push_span(528, exact(96, 1));
+        let mixed = tracker.consume_observation(1_056);
+        assert!(!mixed.usable_for_history);
+        assert_eq!(mixed.timeline_endpoint_samples, None);
     }
 }
