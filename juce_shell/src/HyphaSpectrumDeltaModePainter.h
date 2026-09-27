@@ -12,6 +12,8 @@ inline void paint (juce::Graphics& g, juce::Rectangle<float> outer, float scale,
                    bool shape, presentation::Context context)
 {
     const auto bounds = spectrum_geometry::deltaModeBoundsFor (outer, scale);
+    if (bounds.isEmpty())
+        return;
     const auto half = bounds.getWidth() * 0.5f;
     const auto raw = bounds.withWidth (half);
     const auto normalized = bounds.withTrimmedLeft (half);

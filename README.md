@@ -624,9 +624,9 @@ whole in a one-line strip over the bottom edge of the measurement while they las
 opens the details.
 
 100% is for reading, not operating. The buttons that take room (CURRENT / MAX, the history range
-and FOCUS, LR / MID / SIDE, M/S, PSB, MARK, and DRUM's VIEW) are chosen at 125% and above; a
-choice made there stays in force at 100%, where only a non-default one (MID, SIDE, MARK, HOLD, LOCK)
-is named. Clicking the plot itself (FREQ's frequency lock, DRUM's hit selection) works at every
+and FOCUS, LR / MID / SIDE, M/S, PSB, MARK, RAW / SHAPE, and DRUM's VIEW) are chosen at 125% and
+above; a choice made there stays in force at 100%, where only a non-default one (MID, SIDE, SHAPE,
+MARK, HOLD, LOCK) is named. Clicking the plot itself (FREQ's frequency lock, DRUM's hit selection) works at every
 size. The room goes to the measurement: LEVEL reads S, I (Crest for a track or stem) and the
 Session's MAX TP; TIME HISTORY draws S and TP; DRUM shows one row of history over its four values,
 large; FREQ's plot takes the control rows and the right-hand absolute axis; SPACE's scatter takes

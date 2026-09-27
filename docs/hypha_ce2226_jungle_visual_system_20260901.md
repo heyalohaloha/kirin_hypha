@@ -199,7 +199,7 @@ domainが変わっても位置と面積を変えず、小画面へ複数の世�
 300×200と375×250は同じgeometry規則を使用し、375専用の第三の表示思想を作らない。
 
 100%（300×200）は見るだけの面とする（INV-S38、2026-09-26 Daisuke承認）。
-場所を取る操作（LEVELのCURRENT/MAX、TIMEの範囲とFOCUS、FREQのLR/MID/SIDE・M/S・PSB・MARK、SHARPのLR/MID/SIDE、DRUMのVIEW）は125%以上で選び、100%では既定と異なる選択（MID、SIDE、MARK、HOLD、LOCK）だけを小さく名指しする。
+場所を取る操作（LEVELのCURRENT/MAX、TIMEの範囲とFOCUS、FREQのLR/MID/SIDE・M/S・PSB・MARK・RAW/SHAPE、SHARPのLR/MID/SIDE、DRUMのVIEW）は125%以上で選び、100%では既定と異なる選択（MID、SIDE、SHAPE、MARK、HOLD、LOCK）だけを小さく名指しする。
 図を直接触る操作（FREQの周波数固定、DRUMの打音選択）は全サイズで変えない。
 100%のTIME HISTORYはSとTPの2本とする。
 DRUMは見出し、説明、時間軸の行を置かず、1段のHISTORYの下に選択打音の四値（PREと組めばΔ付き）を同じ大きさの数字で置く。

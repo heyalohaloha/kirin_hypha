@@ -163,6 +163,8 @@ namespace hypha::spectrum_geometry
     inline juce::Rectangle<float> deltaModeBoundsFor (juce::Rectangle<float> outerPlot,
                                                       float scale) noexcept
     {
+        if (viewOnly (scale))
+            return {};
         return { outerPlot.getRight()
                     - (float) ui_contract::spectrumDeltaModeWidth * scale,
                  outerPlot.getY()

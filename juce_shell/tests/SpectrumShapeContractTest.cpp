@@ -121,15 +121,24 @@ void verifySpectrumShapeContract (const KirinSpectrumView& baseline)
         sized.setSignalActive (true);
         sized.setSnapshot (view);
         const auto area = sized.getLocalBounds().toFloat();
+        const auto scale = spectrum_geometry::visualScaleFor (area);
         const auto control = spectrum_geometry::deltaModeBoundsFor (
-            spectrum_geometry::plotBoundsFor (area),
-            spectrum_geometry::visualScaleFor (area));
+            spectrum_geometry::plotBoundsFor (area), scale);
+        if (spectrum_geometry::viewOnly (scale))
+        {
+            // 100% is view-only (INV-S38): RAW / SHAPE has no position, paint, hit or tooltip.
+            SHAPE_REQUIRE (control.isEmpty());
+            continue;
+        }
         sized.mouseDown (eventAt (sized,
                                   { control.getRight() - 1.0f, control.getCentreY() }));
         SHAPE_REQUIRE (sized.isShapeObservationForTest());
         juce::Image image (juce::Image::ARGB, width, height, true);
         { juce::Graphics graphics (image); sized.paintEntireComponent (graphics, true); }
         SHAPE_REQUIRE (image.getPixelAt (width / 2, height / 2).getARGB() != 0u);
+        // A SHAPE chosen at a larger size stays in force at the view-only size.
+        sized.setSize (300, 200);
+        SHAPE_REQUIRE (sized.isShapeObservationForTest());
     }
 
     spectrum_focus::FocusTrailHistory trail;

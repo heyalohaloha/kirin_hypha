@@ -95,7 +95,7 @@ namespace
             text_style::drawText (g, channelModeText (mode), segment.toNearestInt(),
                         juce::Justification::centred);
         }
-        if (! state.absoluteObservation && ! state.midSideObservation)
+        if (! viewOnly && ! state.absoluteObservation && ! state.midSideObservation)
             spectrum_delta_mode::paint (g, outerPlot, scale, state.shapeObservation,
                                         state.presentation);
         if (showProbe)
@@ -104,14 +104,15 @@ namespace
         const int legendOffset = 0;
         // At 100% the legend sits inside the plot's top edge, where the rows used to be.
         const float legendTop = outerPlot.getY() + scaled (viewOnly ? 2.0f : 17.0f);
-        const auto textArea = state.absoluteObservation || state.midSideObservation
+        const auto textArea = viewOnly || state.absoluteObservation || state.midSideObservation
             ? outerPlot : outerPlot.withTrimmedRight (
                 scaled ((float) ui_contract::spectrumDeltaModeWidth + 2.0f));
         if (viewOnly)
         {
-            // A state chosen at a larger size is named, not operated: MID, SIDE, a held MARK.
+            // A state chosen at a larger size is named, not operated: MID, SIDE, SHAPE, a held MARK.
             const auto chosen = juce::String (state.channelMode == KIRIN_SPECTRUM_CHANNEL_MID ? "MID"
                                             : state.channelMode == KIRIN_SPECTRUM_CHANNEL_SIDE ? "SIDE" : "")
+                              + (state.shapeObservation && ! state.absoluteObservation ? "  SHAPE" : "")
                               + (state.haveMark && ! state.absoluteObservation ? "  MARK" : "");
             g.setFont (monoFont (state.presentation, typography::TextRole::legend,
                                  typography::Composition::visualization));
