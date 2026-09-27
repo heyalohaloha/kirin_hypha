@@ -901,6 +901,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
     add_test(NAME kirin_reference_audio_pages COMMAND KirinReferenceAudioPagesTests)
+    include(cmake/ReferenceAudioStreamingTests.cmake)
 
     juce_add_console_app(KirinReferenceAuditionComponentTests
         PRODUCT_NAME "Kirin Reference Audition Component Tests")

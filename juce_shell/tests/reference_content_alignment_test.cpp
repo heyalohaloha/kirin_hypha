@@ -96,7 +96,8 @@ void testReferenceContentAlignment (const juce::File& sandbox)
     ref::RuntimeV2Blind blind;
     require (blind.prepareWholeSong (a, source, match) && blind.snapshot().wholeSong,
              "verified content must prepare a whole-song comparison");
-    ref::AudioPages pages;
+    // This fixture prepares each region synchronously before probing the RT render.
+    ref::AudioPages pages { ref::AudioPages::ServiceMode::manual };
     require (pages.open (source, rate, channels, false).isEmpty(), "streamed source must open");
     require (blind.start(), "whole-song comparison must start without replacing live A");
     constexpr int callbackFrames = 257;
