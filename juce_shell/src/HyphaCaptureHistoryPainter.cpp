@@ -1,5 +1,6 @@
 #include "HyphaCaptureHistoryPainter.h"
 #include "HyphaCaptureHistoryGeometry.h"
+#include "HyphaCaptureHistoryTruePeak.h"
 
 #include "HyphaChainActionPainter.h"
 #include "HyphaChannelClipText.h"
@@ -172,58 +173,6 @@ void paintPath (juce::Graphics& g,
     }
 }
 
-void paintTruePeakBand (juce::Graphics& g,
-                        juce::Rectangle<float> band,
-                        const std::vector<KirinMeterHistoryEntry>& history,
-                        const time_history::HistoryAxis& axis,
-                        double sampleRate)
-{
-    juce::Path moderate, strong;
-    moderate.preallocateSpace (static_cast<int> (history.size() * 5u));
-    strong.preallocateSpace (static_cast<int> (history.size() * 5u));
-    bool previousValid = false;
-    std::uint64_t previousGeneration = 0u, previousRun = 0u, previousObserved = 0u;
-    std::uint8_t previousSeverity = 0u;
-    const auto y = band.getCentreY();
-    for (std::size_t index = 0; index < history.size(); ++index)
-    {
-        const auto& point = history[index];
-        const auto value = point.true_peak.max;
-        const auto severity = static_cast<std::uint8_t> (
-            ! std::isfinite (value) ? 0u : value > 0.0 ? 3u
-            : value > -1.0 ? 2u : 1u);
-        const auto x = band.getX() + static_cast<float> (normalizedHistoryX (
-            history, axis, point, index, sampleRate)) * band.getWidth();
-        const bool continuous = previousValid
-            && previousGeneration == point.generation && previousRun == point.run_id
-            && point.last_observed_frames > previousObserved
-            && point.last_observed_frames - previousObserved
-                == static_cast<std::uint64_t> (sampleRate / 10.0);
-        if (severity >= 2u)
-        {
-            auto& path = severity == 3u ? strong : moderate;
-            if (continuous && previousSeverity == severity)
-                path.lineTo (x, y);
-            else
-            {
-                path.startNewSubPath (x - 1.2f, y);
-                path.lineTo (x + 1.2f, y);
-            }
-        }
-        previousValid = true;
-        previousGeneration = point.generation;
-        previousRun = point.run_id;
-        previousObserved = point.last_observed_frames;
-        previousSeverity = severity;
-    }
-    g.setColour (COL_FLORA.withAlpha (0.72f));
-    g.strokePath (moderate, juce::PathStrokeType (1.5f));
-    g.setColour (COL_FLORA_BR.withAlpha (0.18f));
-    g.strokePath (strong, juce::PathStrokeType (5.0f));
-    g.setColour (COL_FLORA_BR.withAlpha (0.96f));
-    g.strokePath (strong, juce::PathStrokeType (2.5f));
-}
-
 void paintClipPips (juce::Graphics& g,
                     juce::Rectangle<float> plot,
                     const std::vector<KirinMeterHistoryEntry>& history,
@@ -259,6 +208,7 @@ void paintHover (juce::Graphics& g,
                  const time_history::HistoryAxis& axis,
                  std::optional<std::size_t> hoveredIndex,
                  bool delta,
+                 bool chainBand,
                  double sampleRate)
 {
     if (! hoveredIndex.has_value() || *hoveredIndex >= history.size())
@@ -277,9 +227,11 @@ void paintHover (juce::Graphics& g,
         g.setColour (COL_SPECTRUM_POST);
         g.fillEllipse (x - 2.0f, y - 2.0f, 4.0f, 4.0f);
     }
-    if (! delta && std::isfinite (entry.true_peak.max) && entry.true_peak.max > -1.0)
+    if (! delta && std::isfinite (entry.true_peak.max) && (! chainBand || entry.true_peak.max > -1.0))
     {
-        const auto y = layout.sharedPlot.getBottom() - 4.5f;
+        const auto y = chainBand ? layout.sharedPlot.getBottom() - 4.5f
+                                 : true_peak::yFor (true_peak::overlayFor (layout.sharedPlot),
+                                                    entry.true_peak.max);
         g.setColour (COL_FLORA_BR);
         g.fillEllipse (x - 2.0f, y - 2.0f, 4.0f, 4.0f);
     }
@@ -395,7 +347,7 @@ void paint (juce::Graphics& g,
     }
     else if (selectedChain != nullptr && chainView.visible())
         detail = chainDetail (*selectedChain, layout.legend.getWidth() >= 700);
-    else if (peakSummary.available)
+    else if (peakSummary.available && ! peakSummary.eventIndices.empty())
     {
         detail = "60 S MAX TP " + history_inspection::peakText (peakSummary.windowMaximumDbtp) + " dBTP"
                + " @ " + relativeTimeText (peakSummary.secondsBeforeEnd);
@@ -417,7 +369,7 @@ void paint (juce::Graphics& g,
         return;
     }
 
-    const auto bandHeight = chainView.visible() ? 30.0f : delta ? 0.0f : 11.0f;
+    const auto bandHeight = chainView.visible() ? 30.0f : 0.0f;
     const auto loudnessPlot = layout.sharedPlot.withBottom (
         layout.sharedPlot.getBottom() - bandHeight);
     const auto band = layout.sharedPlot.withTop (loudnessPlot.getBottom());
@@ -452,6 +404,8 @@ void paint (juce::Graphics& g,
         paintLoudnessTicks (deltaTicks);
     else
         paintLoudnessTicks (absoluteTicks);
+    if (! delta && ! chainView.visible())
+        true_peak::paintAxis (g, layout, presentation);
     const auto axis = time_history::selectAxis (history);
     paintPath (g, loudnessPlot, history, axis, delta,
                COL_SPECTRUM_POST, 0.96f, 1.20f, sampleRate);
@@ -477,7 +431,7 @@ void paint (juce::Graphics& g,
                         juce::Justification::centredRight);
         }
         else
-            paintTruePeakBand (g, band, history, axis, sampleRate);
+            true_peak::paintEvents (g, layout.sharedPlot, history, axis, peakSummary, sampleRate);
         paintClipPips (g, loudnessPlot, history, axis, sampleRate, meter);
     }
     paintCurrentLoudness (g, loudnessPlot, history, delta,
@@ -490,7 +444,8 @@ void paint (juce::Graphics& g,
                 juce::Justification::centred);
     text_style::drawText (g, "NOW", layout.timeLabels.withLeft (layout.timeLabels.getRight() - 24),
                 juce::Justification::centredRight);
-    paintHover (g, layout, loudnessPlot, history, axis, hoveredIndex, delta, sampleRate);
+    paintHover (g, layout, loudnessPlot, history, axis, hoveredIndex, delta, chainView.visible(),
+                sampleRate);
     if (selectedChain != nullptr && chainView.visible())
         if (const auto x = chain_action::xFor (layout.sharedPlot, chainView, *selectedChain))
         {

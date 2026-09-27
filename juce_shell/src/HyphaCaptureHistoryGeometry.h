@@ -13,6 +13,7 @@ struct Layout
 {
     juce::Rectangle<int> legend;
     juce::Rectangle<int> loudnessLabels;
+    juce::Rectangle<int> truePeakLabels;
     juce::Rectangle<int> timeLabels;
     juce::Rectangle<float> sharedPlot;
 };
@@ -24,7 +25,7 @@ inline Layout layoutFor (juce::Rectangle<int> area)
     Layout result;
     result.legend = area.removeFromTop (inspection ? 36 : 30);
     result.loudnessLabels = area.removeFromLeft (inspection ? 54 : 40);
-    area.removeFromRight (6);
+    result.truePeakLabels = area.removeFromRight (inspection ? 38 : 31);
     result.timeLabels = area.removeFromBottom (inspection ? 16 : 14);
     result.sharedPlot = area.reduced (2, 2).toFloat();
     return result;

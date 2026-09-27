@@ -176,12 +176,17 @@ void verifyCaptureHistoryContract()
     KIRIN_CAPTURE_HISTORY_REQUIRE (
         ! capture_history::analyseTruePeak (noPeakFacts, 48'000.0).available);
     KIRIN_CAPTURE_HISTORY_REQUIRE (
-        // The factual 60 s maximum remains visible even when it is below the -1 dBTP event
-        // threshold. Only the event line/glow is suppressed.
-        changedPixels (render (belowEmphasis, false), render (noPeakFacts, false)) > 20);
+        // A window that stays at or below the -1 dBTP event threshold adds nothing: no number,
+        // stem or glow (2026-09-24 contract).
+        changedPixels (render (belowEmphasis, false), render (noPeakFacts, false)) == 0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (
         changedPixels (render (justAboveEmphasis, false),
                        render (belowEmphasis, false)) > 20);
+    // The stem keeps the measured height on the TP axis, so a higher peak is drawn higher.
+    auto higherPeak = justAboveEmphasis;
+    higherPeak[3].true_peak.max = -0.2;
+    KIRIN_CAPTURE_HISTORY_REQUIRE (
+        changedPixels (render (higherPeak, false), render (justAboveEmphasis, false)) > 2);
     const auto zeroRate = capture_history::analyseTruePeak (history, 0.0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (zeroRate.available);
     KIRIN_CAPTURE_HISTORY_REQUIRE (zeroRate.secondsBeforeEnd == 0.0);
@@ -194,7 +199,7 @@ void verifyCaptureHistoryContract()
         area, history, { 250.0f, 65.0f }, 48'000.0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (! beforeAvailableWindow.has_value());
     const auto newest = capture_history::hitTest (
-        area, history, { 484.9f, 65.0f }, 48'000.0);
+        area, history, { 459.9f, 65.0f }, 48'000.0);
     KIRIN_CAPTURE_HISTORY_REQUIRE (newest.has_value());
     KIRIN_CAPTURE_HISTORY_REQUIRE (*newest == history.size() - 1u);
 

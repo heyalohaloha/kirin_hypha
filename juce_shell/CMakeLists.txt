@@ -307,6 +307,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryCapture.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
@@ -523,6 +524,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         tools/ReferencePreviewRenderer.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp
         src/HyphaReferenceControls.cpp
@@ -609,6 +611,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaObservatoryCapture.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaObservatoryButton.cpp
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
@@ -916,6 +919,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/reference_audition/ReferenceTonalSummary.cpp
         src/HyphaCaptureHistoryAnalysis.cpp
         src/HyphaCaptureHistoryPainter.cpp
+        src/HyphaCaptureHistoryTruePeak.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceSelection.cpp
         src/HyphaReferenceComponent.cpp src/HyphaReferenceLayout.cpp
         src/HyphaReferenceControls.cpp
