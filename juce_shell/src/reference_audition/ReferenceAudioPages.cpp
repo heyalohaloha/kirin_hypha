@@ -12,14 +12,28 @@ namespace hypha::reference_audition
     static_assert (std::atomic<std::int64_t>::is_always_lock_free);
     static_assert (std::atomic<float>::is_always_lock_free);
 
-    AudioPages::AudioPages()
+    AudioPages::AudioPages (ServiceMode mode)
+        : juce::Thread ("Reference audio refill"), serviceMode (mode)
     {
         formats.registerBasicFormats();
     }
 
     AudioPages::~AudioPages()
     {
+        // Join outside readerLock; the refill may currently own it while decoding.
+        signalThreadShouldExit();
+        notify();
+        stopThread (-1);
         close();
+    }
+
+    void AudioPages::run()
+    {
+        while (!threadShouldExit())
+        {
+            serviceOnce();
+            wait (sourceOpen() ? 10 : -1);
+        }
     }
 
     juce::String AudioPages::open (const SourceReceipt& receipt,
@@ -58,15 +72,14 @@ namespace hypha::reference_audition
         std::unique_ptr<juce::AudioFormatReader> nextReader,
         double hostSampleRate, int hostChannels, bool sampleRateConversionApproved)
     {
+        const juce::ScopedLock lock (readerLock);
         openState.store (false, std::memory_order_release);
         if (! retirePages())
             return "runtime_busy";
         reader.reset();
         sourceLength = 0;
         sourceChannels = 0;
-        pinnedCueStart = 0;
-        pinnedCueEnd = 0;
-        pinnedCueLoops = false;
+        setPinnedCue (0, 0, false);
         if (nextReader == nullptr || ! std::isfinite (hostSampleRate) || hostSampleRate <= 0.0
             || (hostChannels != 1 && hostChannels != 2))
             return "runtime_format_invalid";
@@ -98,13 +111,21 @@ namespace hypha::reference_audition
         reader = std::move (nextReader);
         activeGeneration.fetch_add (1, std::memory_order_acq_rel);
         requestedPosition.store (0, std::memory_order_release);
-        service();
+        serviceOnce();
+        if (serviceMode == ServiceMode::background && !isThreadRunning()
+            && !startThread (juce::Thread::Priority::normal))
+        {
+            close();
+            return "runtime_busy";
+        }
         openState.store (true, std::memory_order_release);
+        notify();
         return {};
     }
 
     void AudioPages::close()
     {
+        const juce::ScopedLock lock (readerLock);
         openState.store (false, std::memory_order_release);
         activeGeneration.fetch_add (1, std::memory_order_acq_rel);
         if (retirePages())
@@ -116,9 +137,7 @@ namespace hypha::reference_audition
             sourceSampleRate = 0.0;
             outputSampleRate = 0.0;
             sampleRateConversion = false;
-            pinnedCueStart = 0;
-            pinnedCueEnd = 0;
-            pinnedCueLoops = false;
+            setPinnedCue (0, 0, false);
         }
     }
 
@@ -160,13 +179,26 @@ namespace hypha::reference_audition
                                    std::int64_t cueEnd,
                                    bool loopEnabled) noexcept
     {
-        pinnedCueStart = cueStart;
-        pinnedCueEnd = cueEnd;
-        pinnedCueLoops = loopEnabled && cueStart >= 0 && cueEnd > cueStart;
+        {
+            const juce::ScopedLock lock (cueLock);
+            pinnedCueStart = cueStart;
+            pinnedCueEnd = cueEnd;
+            pinnedCueLoops = loopEnabled && cueStart >= 0 && cueEnd > cueStart;
+        }
+        notify();
     }
 
     void AudioPages::service()
     {
+        // Controllers keep draining A capture and processing commands even when
+        // B's reader is stalled. Only explicit manual-test mode decodes here.
+        if (serviceMode == ServiceMode::background) notify();
+        else serviceOnce();
+    }
+
+    void AudioPages::serviceOnce()
+    {
+        const juce::ScopedLock lock (readerLock);
         const auto framesPerPage = pageFrames.load (std::memory_order_acquire);
         if (reader == nullptr || framesPerPage <= 0)
             return;
@@ -190,10 +222,13 @@ namespace hypha::reference_audition
         protect (current);
         protect (current + framesPerPage);
         protect (current - framesPerPage);
-        if (pinnedCueLoops)
         {
-            protect ((pinnedCueStart / framesPerPage) * framesPerPage);
-            protect (((pinnedCueEnd - 1) / framesPerPage) * framesPerPage);
+            const juce::ScopedLock lockCue (cueLock);
+            if (pinnedCueLoops)
+            {
+                protect ((pinnedCueStart / framesPerPage) * framesPerPage);
+                protect (((pinnedCueEnd - 1) / framesPerPage) * framesPerPage);
+            }
         }
         for (size_t index = 0; index < protectedCount; ++index)
             fill (protectedStarts[index], protectedStarts, protectedCount, generation);

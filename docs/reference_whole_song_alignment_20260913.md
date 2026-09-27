@@ -103,6 +103,27 @@ is presented or auditioning. Reopening after hidden idle time requires fresh
 evidence. Playback uses the existing prepared pages and a preallocated two-channel
 scratch, with a fixed 5 ms transition. These limits do not cap 300% windows.
 
+## Streaming ownership
+
+The bounded audio-page cache has its own non-RT refill worker. Content matching,
+measurement/repository reads and capture processing must not be the only callers
+that keep audible pages supplied. Both Reference controllers use this same owner.
+Reader installation and close serialize with refill; destruction joins it before
+releasing the reader. Background-mode control service only wakes refill, and cue
+publication uses a separate short lock never held during decoding. Neither waits
+for B's I/O before the controller can drain A capture. Manual-test mode retains
+synchronous service. The audio callback still only
+requests a position and acquires prepared page leases: no new locks, I/O or wakeups.
+Missing pages, failed decoding and invalid source generations still preserve A.
+
+`kirin_reference_audio_streaming` covers refill without control-worker service,
+multiple cache rotations, a blocked/failed reader, close during I/O, source reopen
+and destruction during refill. A held reader also verifies that control service
+and cue publication finish before decoding resumes. `kirin_reference_audio_pages` keeps its explicit
+manual-service fixtures for deterministic cache-miss and ownership interleavings.
+Neither these tests nor silent host diagnostics establish physical listening or
+compatibility with an untested DAW.
+
 ## Fixed gain contract
 
 Use the existing ITU-R BS.1770 aligned-active-block policy: 400 ms windows at a

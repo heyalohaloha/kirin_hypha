@@ -154,7 +154,8 @@ void testReferenceVisual (const juce::File& sandbox)
     // The display converter is the very same implementation used by audible pages.
     juce::AudioFormatManager formats; formats.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
-    ref::AudioPages pages;
+    // Compare the two converters with an explicitly prepared, deterministic page.
+    ref::AudioPages pages { ref::AudioPages::ServiceMode::manual };
     source->sourceKind = "work_version";
     require (pages.open (*source, 44100, 2, true).isEmpty(), "non-integer rate audition source");
     pages.request (1777); pages.service();
