@@ -2,6 +2,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "HyphaLanguage.h"
+
 namespace hypha
 {
 // User-level presentation preference shared by PRE and POST. The file is read only from JUCE's
@@ -36,6 +38,7 @@ private:
 
 // One gate suppresses every SettableTooltipClient in the editor, including dynamic Analysis
 // explanations, without disabling mouseMove, FREQ inspection, Focus Trail, MARK, or accessibility.
+// Components keep their English help; it is shown in the current language here (INV-S40).
 class HoverHelpTooltipWindow final : public juce::TooltipWindow
 {
 public:
@@ -47,7 +50,7 @@ public:
     juce::String getTipFor (juce::Component& component) override
     {
         return HoverHelpPreference::shared().isEnabled()
-                 ? juce::TooltipWindow::getTipFor (component)
+                 ? i18n::tr (juce::TooltipWindow::getTipFor (component))
                  : juce::String();
     }
 

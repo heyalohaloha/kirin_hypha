@@ -1,0 +1,54 @@
+# Screen text that stays English in Japanese (INV-S40), one per line: the literal, a tab, why.
+# Labels, legends, units and names stay as written; the rest never reaches the screen as prose.
+10 ms RMS / 6 S   PRE trace / POST body   bars POST - PRE	DRUM legend
+RMS / 6 S / bars POST-PRE	DRUM legend
+bars POST-PRE	DRUM legend
+10 ms RMS / 6 S   POST body   bars POST values	DRUM legend
+RMS / 6 S / POST values	DRUM legend
+POST values	DRUM legend
++/-1 acum	DRUM lane scale
+0..8 acum	DRUM lane scale
+M / momentary LUFS	LEVEL history legend
+TP / 2 S peak hold / dBTP	LEVEL history legend
+PSB / delta pp	PSB legend
+0-24 Bark | LR	PSB axis caption
+POST dBFS / 6s field / 	FREQ legend
+SESSION FACT / TP MAX - LUFS-I	TIME HISTORY legend
+PLR POST - PRE	TIME HISTORY legend
+TP MAX - LUFS-I	TIME HISTORY legend
+RUNS IN VIEW	RUN heading
+MAXIMUM TRUE PEAK	REF metric heading
+PRE/POST BLIND	footer control label
+DRUM Attack	page name (accessibility title)
+B Version	REF selector name
+B Source	REF selector name
+PRE / POST Blind Compare	feature name
+PRE / POST Blind Compare / 	feature name before the context label
+Quick Reference	Kirin OS vocabulary name
+Low end	Kirin OS vocabulary name
+Vocal balance	Kirin OS vocabulary name
+Full track	Kirin OS vocabulary name
+POST Kirin Hypha	plug-in name the host shows
+PRE Kirin Hypha	plug-in name the host shows
+Format unconfirmed	plug-in format name
+Captured A	accessibility description only
+, cue 	accessibility description only
+, selected 	accessibility description only
+KIRIN_HYPHA_OPEN_ATTACK	environment variable name
+Focus Trail must retain exactly six seconds at the 30 Hz presentation rate	compile-time assertion
+Focus Trail UI storage must remain below the 256 KiB budget	compile-time assertion
+Audio Thread host-state notifications must remain lock-free	compile-time assertion
+Momentary Loudness — ITU BS.1770 (LUFS)	unused theme help
+Short-term Loudness — ITU BS.1770, 3 s (LUFS)	unused theme help
+Integrated Loudness — current Keep session (LUFS)	unused theme help
+True Peak — inter-sample peak, ITU BS.1770 (dBTP)	unused theme help
+Crest Factor — peak vs RMS difference (dB)	unused theme help
+Peak to Short-term Loudness Ratio (dB)	unused theme help
+Loudness — Zwicker model, ISO 532-1 (sone)	unused theme help
+Sharpness — high-frequency content weighting,\nDIN 45692 (acum)	unused theme help
+Validation facts (read-only)	debug builds only
+Local Blind host validation	debug builds only
+Capture one exact 4 s PRE/POST range	debug builds only
+Capture scheduled; keep playback running for 5 seconds	debug builds only
+Capture not scheduled; reopen Validation facts for the exact reason	debug builds only
+Full song	REF cue name

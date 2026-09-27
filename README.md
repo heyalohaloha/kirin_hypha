@@ -172,6 +172,17 @@ conformance and does not use the EBU logo.
 
 Kirin Hypha is free and fully functional as a standalone plugin. Record mode requires a Kirin OS license.
 
+## Screen language
+
+Hypha's screen is in English or Japanese. **MENU → Display → Language** chooses **English** or
+**日本語**; until a choice is made, Hypha follows the system's display language. The choice is saved
+for every PRE and POST, and open editors switch at once. In Japanese, what explains or reports is
+Japanese: status lines, notices, hover help, menus, guidance and dialog text. Labels, abbreviations,
+legends, units, values and names (LEVEL, LUFS, TP, POST / Δ, MARK, Kirin OS names) stay as written,
+so the layout and the measurement vocabulary are the same in both languages. The language changes
+only what is drawn; plug-in names shown by the host, Record, `plugin_data`, the data exchanged with
+Kirin OS, and every measurement stay the same.
+
 ## What it measures
 
 ### Watch mode (real-time)

@@ -29,7 +29,7 @@ void paintValue (juce::Graphics& g, juce::Rectangle<float> area,
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::unit,
                           typography::Composition::information));
-    g.drawText (unit, unitArea, juce::Justification::centred);
+    text_style::drawText (g, unit, unitArea, juce::Justification::centred);
     g.setColour (std::isfinite (value) ? colour : COL_MUTED);
     drawTabularText (g, monoFont (presentation, typography::TextRole::primaryValue,
                                   typography::Composition::information),
@@ -72,7 +72,7 @@ void paintMetric (juce::Graphics& g, juce::Rectangle<float> area,
     g.setColour (COL_NORMAL.withAlpha (0.78f));
     g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                           typography::Composition::information));
-    g.drawText (name, header.reduced (9.0f, 0.0f), juce::Justification::centredLeft);
+    text_style::drawText (g, name, header.reduced (9.0f, 0.0f), juce::Justification::centredLeft);
     area.reduce (5.0f, 3.0f);
     const float columnWidth = area.getWidth() / 3.0f;
     paintValue (g, area.removeFromLeft (columnWidth), "A", a, unit,
@@ -95,11 +95,11 @@ void paintCompactDelta (juce::Graphics& g, juce::Rectangle<float> area,
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                               typography::Composition::information));
-        g.drawText (side + "-A " + name, label, juce::Justification::centredLeft);
+        text_style::drawText (g, side + "-A " + name, label, juce::Justification::centredLeft);
         g.setColour (std::isfinite (value) ? COL_SPECTRUM_DELTA_BR : COL_MUTED);
         g.setFont (monoFont (presentation, typography::TextRole::readout,
                              typography::Composition::information));
-        g.drawText (valueText (value, true), area, juce::Justification::centredRight);
+        text_style::drawText (g, valueText (value, true), area, juce::Justification::centredRight);
         return;
     }
     area.reduce (4.0f, 3.0f);

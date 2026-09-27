@@ -6,6 +6,7 @@
 #include "HyphaPolylineGeometry.h"
 #include "HyphaTimeFieldImage.h"
 #include "HyphaSpectrumTerrain.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <array>
@@ -317,10 +318,10 @@ void paintAbsolute (juce::Graphics& g,
     g.setFont (monoFont (presentation, typography::TextRole::axis,
                          typography::Composition::visualization));
     g.setColour (COL_NORMAL.withAlpha (0.82f));
-    g.drawText ("-6s", juce::Rectangle<float> { plot.getRight() - 36.0f, plot.getY(),
+    text_style::drawText (g, "-6s", juce::Rectangle<float> { plot.getRight() - 36.0f, plot.getY(),
                                                 36.0f, 14.0f }.toNearestInt(),
                 juce::Justification::centredRight);
-    g.drawText ("NOW", plot.withLeft (plot.getRight() - 36).withTop (plot.getBottom() - 14).toNearestInt(),
+    text_style::drawText (g, "NOW", plot.withLeft (plot.getRight() - 36).withTop (plot.getBottom() - 14).toNearestInt(),
                 juce::Justification::centredRight);
 
     juce::Path fill;

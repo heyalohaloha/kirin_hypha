@@ -1,26 +1,15 @@
 #include "HyphaHoverHelpPreference.h"
 
+#include "HyphaUiPreferences.h"
+
 #include <utility>
 
 namespace hypha
 {
 namespace
 {
-    constexpr auto kHeader = "KIRIN_HYPHA_UI_PREFERENCES_V1";
-    constexpr auto kEnabled = "show_hover_help=1";
-    constexpr auto kDisabled = "show_hover_help=0";
+    constexpr auto kHoverHelpKey = "show_hover_help";
     constexpr juce::uint32 kRefreshIntervalMs = 1000u;
-
-    bool decodeEnabled (const juce::String& text, bool fallback)
-    {
-        if (! text.startsWith (kHeader))
-            return fallback;
-        if (text.contains (kDisabled))
-            return false;
-        if (text.contains (kEnabled))
-            return true;
-        return fallback;
-    }
 }
 
 HoverHelpPreference::HoverHelpPreference (juce::File storageFile)
@@ -36,13 +25,7 @@ HoverHelpPreference& HoverHelpPreference::shared()
 
 juce::File HoverHelpPreference::defaultStorageFile()
 {
-    auto root = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
-   #if JUCE_MAC
-    root = root.getChildFile ("Application Support");
-   #endif
-    return root.getChildFile ("Kirin")
-               .getChildFile ("Kirin Hypha")
-               .getChildFile ("ui-preferences.txt");
+    return ui_preferences::defaultFile();
 }
 
 bool HoverHelpPreference::isEnabled()
@@ -79,28 +62,16 @@ void HoverHelpPreference::refreshNowForTest()
 
 void HoverHelpPreference::refreshUnlocked()
 {
-    if (! file.existsAsFile())
-    {
+    const auto stored = ui_preferences::read (file, kHoverHelpKey);
+    if (stored == "0")
+        cachedEnabled = false;
+    else if (stored == "1" || ! file.existsAsFile())
         cachedEnabled = true;
-        haveRead = true;
-        return;
-    }
-
-    const auto text = file.loadFileAsString();
-    cachedEnabled = decodeEnabled (text, cachedEnabled);
     haveRead = true;
 }
 
 bool HoverHelpPreference::writeUnlocked (bool enabled)
 {
-    if (file.getParentDirectory().createDirectory().failed())
-        return false;
-
-    juce::TemporaryFile temporary (file);
-    const juce::String text = juce::String (kHeader) + "\n"
-                            + (enabled ? kEnabled : kDisabled) + "\n";
-    if (! temporary.getFile().replaceWithText (text, false, false, "\n"))
-        return false;
-    return temporary.overwriteTargetFileWithTemporary();
+    return ui_preferences::write (file, kHoverHelpKey, enabled ? "1" : "0");
 }
 }

@@ -57,7 +57,7 @@ void KirinHyphaEditor::showInformationMenu()
     menu.addSeparator();
     const auto add = [&] (update::Action action, const juce::String& text)
     { menu.addItem (static_cast<int> (action), text); };
-    // The current shell has no language setting. Offer both official languages explicitly.
+    // Both official languages stay on offer whatever the screen language (INV-S40).
     add (update::Action::downloadsEnglish, "Update information and downloads (English)");
     add (update::Action::downloadsJapanese, juce::String::fromUTF8 ("更新情報とダウンロード（日本語）"));
     add (update::Action::changes, "Release notes");

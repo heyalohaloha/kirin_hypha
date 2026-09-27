@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaTextStyle.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
  #include "HyphaAttackUiContract.h"
 #endif
@@ -26,6 +27,8 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
                .trim() == hypha::attack_ui::activationValue;
    #endif
     tooltip.setLookAndFeel (&tooltipLookAndFeel);
+    setLookAndFeel (&textLookAndFeel);
+    syncLanguage (false); // before the first layout, which then uses the language shown
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
     // One opaque Observatory root lets Windows present a completed frame instead of compositing
@@ -237,7 +240,7 @@ void KirinHyphaEditor::paint (juce::Graphics& g)
     g.setColour (COL_NORMAL);
     g.setFont (hypha::labelFont (hypha::presentation::forEditor (getWidth(), getHeight()),
                                  hypha::typography::TextRole::shellTitle));
-    g.drawText (isPost ? ui::postTitle : ui::preTitle,
+    hypha::text_style::drawText (g, isPost ? ui::postTitle : ui::preTitle,
                 titleArea,
                 juce::Justification::centredLeft);
 

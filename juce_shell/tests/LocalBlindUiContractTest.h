@@ -1,6 +1,9 @@
 #pragma once
 
+#include "../src/HyphaLanguage.h"
+#include "LanguageMisses.h"
 #include "../src/HyphaLocalBlindComponent.h"
+#include "../src/HyphaTextStyle.h"
 #include "../src/HyphaObservatoryView.h"
 
 #include <cstdlib>
@@ -297,87 +300,101 @@ inline void verifyLocalBlindUiContract()
              "confirmed live return releases the screen");
 
     // Exercise the actual presentation at every product size, including the instructions that
-    // connect two completed passes. Child rectangles alone cannot detect clipped text.
-    for (auto phase : { local_blind::ProductSessionPhase::idle,
-                        local_blind::ProductSessionPhase::capturing,
-                        local_blind::ProductSessionPhase::preparing,
-                        local_blind::ProductSessionPhase::ready,
-                        local_blind::ProductSessionPhase::armed,
-                        local_blind::ProductSessionPhase::listening,
-                        local_blind::ProductSessionPhase::returnPending,
-                        local_blind::ProductSessionPhase::revealed,
-                        local_blind::ProductSessionPhase::returned,
-                        local_blind::ProductSessionPhase::failed })
-        for (const auto preset : observatory::sizePresets)
-        {
-            auto state = ready;
-            state.phase = phase;
-            state.trial.activeStimulus = 1;
-            state.trial.passComplete = phase == local_blind::ProductSessionPhase::listening;
-            state.trial.lowerPostApprovalRequired = phase == local_blind::ProductSessionPhase::ready;
-            state.lowerPostGainDb = -18.0;
-            state.failure = local_blind::ProductSessionFailure::preparation;
-            state.preparationFailure = local_blind::PreparationFailure::gainUnavailable;
-            state.canRecapture = true;
-            component.setState (state);
-            component.setPresentationContext (presentation::forEditor (preset.width, preset.height));
-            component.setSize (preset.width, preset.height);
-            for (int index = 0; index < component.getNumChildComponents(); ++index)
+    // connect two completed passes, in English and in Japanese (INV-S40). Child rectangles alone
+    // cannot detect clipped text.
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage shown (language);
+        const language_misses::Scope watching;
+        const auto languagePrefix = language == i18n::Language::japanese ? juce::String ("ja-") : juce::String();
+        for (auto phase : { local_blind::ProductSessionPhase::idle,
+                            local_blind::ProductSessionPhase::capturing,
+                            local_blind::ProductSessionPhase::preparing,
+                            local_blind::ProductSessionPhase::ready,
+                            local_blind::ProductSessionPhase::armed,
+                            local_blind::ProductSessionPhase::listening,
+                            local_blind::ProductSessionPhase::returnPending,
+                            local_blind::ProductSessionPhase::revealed,
+                            local_blind::ProductSessionPhase::returned,
+                            local_blind::ProductSessionPhase::failed })
+            for (const auto preset : observatory::sizePresets)
             {
-                const auto* child = component.getChildComponent (index);
-                if (! child->isVisible()) continue;
-                require (! child->getBounds().isEmpty()
-                             && component.getLocalBounds().contains (child->getBounds()),
-                         "every playback phase remains within the editor");
-                if (const auto* action = dynamic_cast<const juce::TextButton*> (child))
+                auto state = ready;
+                state.phase = phase;
+                state.trial.activeStimulus = 1;
+                state.trial.passComplete = phase == local_blind::ProductSessionPhase::listening;
+                state.trial.lowerPostApprovalRequired = phase == local_blind::ProductSessionPhase::ready;
+                state.lowerPostGainDb = -18.0;
+                state.failure = local_blind::ProductSessionFailure::preparation;
+                state.preparationFailure = local_blind::PreparationFailure::gainUnavailable;
+                state.canRecapture = true;
+                component.setState (state);
+                component.setPresentationContext (presentation::forEditor (preset.width, preset.height));
+                component.setSize (preset.width, preset.height);
+                for (int index = 0; index < component.getNumChildComponents(); ++index)
                 {
-                    const auto font = monoFont (presentation::forEditor (preset.width, preset.height),
-                                                typography::TextRole::action);
-                    const auto required = font.getStringWidthFloat (action->getButtonText());
-                    if (required > action->getWidth() - 12)
-                        std::cerr << "Blind clipped action: " << preset.width << " "
-                                  << action->getButtonText() << " needs=" << required
-                                  << " available=" << action->getWidth() - 12 << '\n';
-                    require (required <= action->getWidth() - 12,
-                             "complete answer labels and explicit attenuation fit without shrinking");
+                    const auto* child = component.getChildComponent (index);
+                    if (! child->isVisible()) continue;
+                    require (! child->getBounds().isEmpty()
+                                 && component.getLocalBounds().contains (child->getBounds()),
+                             "every playback phase remains within the editor");
+                    if (const auto* action = dynamic_cast<const juce::TextButton*> (child))
+                    {
+                        const auto font = monoFont (presentation::forEditor (preset.width, preset.height),
+                                                    typography::TextRole::action);
+                        const auto required = text_style::shownWidth (font, action->getButtonText());
+                        if (required > action->getWidth() - 12)
+                            std::cerr << "Blind clipped action: " << preset.width << " "
+                                      << text_style::shownText (action->getButtonText()) << " needs=" << required
+                                      << " available=" << action->getWidth() - 12 << '\n';
+                        require (required <= action->getWidth() - 12,
+                                 "complete answer labels and explicit attenuation fit without shrinking");
+                    }
+                    if (const auto* label = dynamic_cast<const juce::Label*> (child))
+                    {
+                        if (label->getText().isEmpty()) continue;
+                        const auto shownLabel = text_style::shownText (label->getText());
+                        juce::AttributedString text;
+                        text.append (shownLabel, label->getFont(), juce::Colours::white);
+                        juce::TextLayout layout;
+                        const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
+                        layout.createLayout (text, static_cast<float> (bounds.getWidth()));
+                        // Japanese is drawn by the text LookAndFeel; measure it the way it is drawn.
+                        const auto height = requiresJapaneseGlyphs (shownLabel)
+                            ? text_style::wrappedHeight (shownLabel, nativeTextFontLike (label->getFont()),
+                                                         bounds.getWidth())
+                            : layout.getHeight();
+                        if (height > bounds.getHeight() + 1)
+                            std::cerr << "Blind clipped label: " << preset.width << " phase="
+                                      << static_cast<int> (phase) << " " << label->getComponentID()
+                                      << " needs=" << height << " available="
+                                      << bounds.getHeight() << '\n';
+                        require (height <= bounds.getHeight() + 1,
+                                 "playback instructions remain readable without font compression");
+                    }
+                    if (const auto* selected = dynamic_cast<const juce::ComboBox*> (child))
+                    {
+                        const auto font = selected->getLookAndFeel().getComboBoxFont (*choice);
+                        require (font.getStringWidthFloat (selected->getText()) <= selected->getWidth() - 32,
+                                 "both mode labels fit without font compression");
+                    }
                 }
-                if (const auto* label = dynamic_cast<const juce::Label*> (child))
+                const auto directory = juce::SystemStats::getEnvironmentVariable (
+                    "KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
+                if (directory.isNotEmpty())
                 {
-                    if (label->getText().isEmpty()) continue;
-                    juce::AttributedString text;
-                    text.append (label->getText(), label->getFont(), juce::Colours::white);
-                    juce::TextLayout layout;
-                    const auto bounds = label->getBorderSize().subtractedFrom (label->getLocalBounds());
-                    layout.createLayout (text, static_cast<float> (bounds.getWidth()));
-                    if (layout.getHeight() > bounds.getHeight() + 1)
-                        std::cerr << "Blind clipped label: " << preset.width << " phase="
-                                  << static_cast<int> (phase) << " " << label->getComponentID()
-                                  << " needs=" << layout.getHeight() << " available="
-                                  << bounds.getHeight() << '\n';
-                    require (layout.getHeight() <= bounds.getHeight() + 1,
-                             "playback instructions remain readable without font compression");
-                }
-                if (const auto* selected = dynamic_cast<const juce::ComboBox*> (child))
-                {
-                    const auto font = selected->getLookAndFeel().getComboBoxFont (*choice);
-                    require (font.getStringWidthFloat (selected->getText()) <= selected->getWidth() - 32,
-                             "both mode labels fit without font compression");
+                    juce::Image preview (juce::Image::ARGB, preset.width, preset.height, true);
+                    juce::Graphics graphics (preview);
+                    component.paintEntireComponent (graphics, true);
+                    auto output = juce::File (directory).getChildFile (
+                        languagePrefix + "local-blind-phase-" + juce::String (static_cast<int> (phase))
+                            + "-" + juce::String (preset.width) + ".png").createOutputStream();
+                    require (output != nullptr && output->setPosition (0) && output->truncate().wasOk()
+                                 && juce::PNGImageFormat().writeImageToStream (preview, *output),
+                             "playback presentation preview is written");
                 }
             }
-            const auto directory = juce::SystemStats::getEnvironmentVariable (
-                "KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
-            if (directory.isNotEmpty())
-            {
-                juce::Image preview (juce::Image::ARGB, preset.width, preset.height, true);
-                juce::Graphics graphics (preview);
-                component.paintEntireComponent (graphics, true);
-                auto output = juce::File (directory).getChildFile (
-                    "local-blind-phase-" + juce::String (static_cast<int> (phase))
-                        + "-" + juce::String (preset.width) + ".png").createOutputStream();
-                require (output != nullptr && output->setPosition (0) && output->truncate().wasOk()
-                             && juce::PNGImageFormat().writeImageToStream (preview, *output),
-                         "playback presentation preview is written");
-            }
-        }
+    }
+    language_misses::report ("blind");
 }
 }

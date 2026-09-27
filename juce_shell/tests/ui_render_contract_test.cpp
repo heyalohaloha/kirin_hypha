@@ -12,6 +12,7 @@
 #include "SpectrumTerrainShowcase.h"
 #include "CompactReviewShowcase.h"
 #include "SpectrumControlsContract.h"
+#include "LanguageContract.h"
 #include "MagnifiedInspectionContract.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumInteractionContractTest.h"
@@ -180,6 +181,7 @@ int main (int argc, char** argv)
         KIRIN_REQUIRE (! fallback.isEnabled()); // failed persistence keeps the session choice
     }
     KIRIN_REQUIRE (preferenceDirectory.deleteRecursively());
+    hypha::tests::verifyLanguageContract();
 
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.0f) - 1.0f) < 1.0e-6f);
     KIRIN_REQUIRE (std::abs (ui::spectrumStrokeScale (1.25f) - 1.12f) < 1.0e-6f);
@@ -226,7 +228,7 @@ int main (int argc, char** argv)
         juce::Graphics graphics (warmingSpectrumImage);
         spectrum.paintEntireComponent (graphics, true);
     }
-    spectrum.setComparisonStatus ("CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS");
+    spectrum.setComparisonStatus (juce::String (juce::CharPointer_UTF8 ("CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS")));
     juce::Image refusedSpectrumImage (
         juce::Image::ARGB, spectrum.getWidth(), spectrum.getHeight(), true);
     {

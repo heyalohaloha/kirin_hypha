@@ -110,7 +110,7 @@ void AttackComponent::drawChrome (juce::Graphics& g, const attack_ui::Layout& sh
                                   static_cast<float> (axis.getRight() - labelWidth));
         g.setFont (monoFont (presentationContext, typography::TextRole::axis, visualization));
         g.setColour (COL_TEXT_TERTIARY);
-        g.drawText ("-6 s", axis.removeFromLeft (labelWidth), juce::Justification::centredLeft);
+        text_style::drawText (g, "-6 s", axis.removeFromLeft (labelWidth), juce::Justification::centredLeft);
     }
 }
 
@@ -128,10 +128,10 @@ void AttackComponent::drawHeaderChrome (juce::Graphics& g, const attack_ui::Layo
     {
         // Etched into the instrument face: the impression sits one pixel below the lit letters.
         g.setColour (juce::Colours::black.withAlpha (0.75f * depth.engrave));
-        g.drawText ("DRUM / ATTACK", titleRow.translated (0, 1), juce::Justification::centredLeft);
+        text_style::drawText (g, "DRUM / ATTACK", titleRow.translated (0, 1), juce::Justification::centredLeft);
     }
     g.setColour (COL_NORMAL);
-    g.drawText ("DRUM / ATTACK", titleRow, juce::Justification::centredLeft);
+    text_style::drawText (g, "DRUM / ATTACK", titleRow, juce::Justification::centredLeft);
     // The selected TIME page carries one short cyan light under its name.
     const auto accentWidth = juce::jmin (44.0f, titleFont.getStringWidthFloat ("DRUM"));
     const auto accentY = static_cast<float> (titleRow.getBottom()) - 1.5f;
@@ -151,7 +151,7 @@ void AttackComponent::drawHeaderChrome (juce::Graphics& g, const attack_ui::Layo
         g, viewButton.reduced (1).toFloat(), false, false, overlayMode, waveformColour, 3.0f);
     g.setColour (COL_NORMAL);
     g.setFont (monoFont (presentationContext, typography::TextRole::action, visualization));
-    g.drawText (overlayMode ? "VIEW  2 ROWS" : "VIEW  OVERLAY",
+    text_style::drawText (g, overlayMode ? "VIEW  2 ROWS" : "VIEW  OVERLAY",
                 viewButton, juce::Justification::centred);
 
     if (getWidth() >= 470)
@@ -260,7 +260,7 @@ void AttackComponent::paintHeaderState (juce::Graphics& g, const attack_ui::Layo
     const auto font = monoFont (presentationContext, typography::TextRole::status, visualization);
     g.setColour (COL_TEXT_SECONDARY);
     g.setFont (monoFont (presentationContext, typography::TextRole::status, visualization));
-    g.drawText (text, state, juce::Justification::centredRight);
+    text_style::drawText (g, text, state, juce::Justification::centredRight);
     const auto dotColour = ! followLatest ? juce::Colour (attack_ui::selectionColour)
                          : liveSignalActive ? waveformColour : COL_FLORA;
     const auto dotX = static_cast<float> (state.getRight()) - font.getStringWidthFloat (text) - 8.0f;

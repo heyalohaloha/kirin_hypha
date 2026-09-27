@@ -90,7 +90,7 @@ namespace
             g.setColour (unavailable ? COL_MUTED.withAlpha (0.30f)
                                      : selected ? COL_SPECTRUM_DELTA_BR.withAlpha (0.98f)
                                                 : COL_TEXT_SECONDARY);
-            g.drawText (channelModeText (mode), segment.toNearestInt(),
+            text_style::drawText (g, channelModeText (mode), segment.toNearestInt(),
                         juce::Justification::centred);
         }
         if (showProbe)
@@ -108,7 +108,7 @@ namespace
             g.setFont (monoFont (state.presentation, typography::TextRole::legend,
                                  typography::Composition::visualization));
             g.setColour (COL_FLORA.withAlpha (0.86f));
-            g.drawText (chosen.trim(), outerPlot.withTop (legendTop).withHeight (
+            text_style::drawText (g, chosen.trim(), outerPlot.withTop (legendTop).withHeight (
                             scaled ((float) ui_contract::spectrumLegendHeight)).reduced (scaled (4.0f), 0.0f)
                             .toNearestInt(), juce::Justification::centredRight);
         }
@@ -117,7 +117,7 @@ namespace
         if (state.actionNotice.isNotEmpty())
         {
             g.setColour (COL_MUTED.withAlpha (0.90f));
-            g.drawText (state.actionNotice,
+            text_style::drawText (g, state.actionNotice,
                         outerPlot.withTop (legendTop).withHeight (
                             scaled ((float) ui_contract::spectrumLegendHeight)).toNearestInt(),
                         juce::Justification::centredLeft);
@@ -136,11 +136,11 @@ namespace
         if (state.midSideObservation)
         {
             g.setColour (COL_SPECTRUM_MID.withAlpha (0.98f));
-            g.drawText ("MID", juce::Rectangle<float> { outerPlot.getX(), legendTop,
+            text_style::drawText (g, "MID", juce::Rectangle<float> { outerPlot.getX(), legendTop,
                         scaled (36.0f), scaled ((float) ui_contract::spectrumLegendHeight) }
                         .toNearestInt(), juce::Justification::centredLeft);
             g.setColour (COL_SPECTRUM_SIDE.withAlpha (0.98f));
-            g.drawText ("SIDE", juce::Rectangle<float> { outerPlot.getX() + scaled (42.0f),
+            text_style::drawText (g, "SIDE", juce::Rectangle<float> { outerPlot.getX() + scaled (42.0f),
                         legendTop, scaled (42.0f),
                         scaled ((float) ui_contract::spectrumLegendHeight) }.toNearestInt(),
                         juce::Justification::centredLeft);
@@ -156,7 +156,7 @@ namespace
                                                 scaledInt (ui_contract::spectrumLegendHeight) };
             const juce::String lead (scale > 1.4f ? "POST dBFS / 6s field / " : "POST dBFS / 6s");
             g.setColour (COL_SPECTRUM_POST.withAlpha (0.96f));
-            g.drawText (lead, legend, juce::Justification::centredLeft);
+            text_style::drawText (g, lead, legend, juce::Justification::centredLeft);
             if (scale > 1.4f)
             {
                 // The hold curve's own colour names it, as MID and SIDE are named in theirs.
@@ -165,13 +165,13 @@ namespace
                 g.setColour (COL_FLORA_BR.withAlpha (ui_contract::spectrumHoldAlpha));
                 const auto leadWidth = text_style::requiredWidth (g.getCurrentFont(), lead, style)
                                      - juce::roundToInt (2.0f * style.horizontalPadding);
-                g.drawText ("peak hold", legend.withTrimmedLeft (leadWidth),
+                text_style::drawText (g, "peak hold", legend.withTrimmedLeft (leadWidth),
                             juce::Justification::centredLeft);
             }
             return;
         }
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (ui_contract::spectrumDeltaLegendAlpha));
-        g.drawText (juce::CharPointer_UTF8 ("\xCE\x94"),
+        text_style::drawText (g, juce::CharPointer_UTF8 ("\xCE\x94"),
                     juce::roundToInt (outerPlot.getX()) + legendOffset
                         + scaledInt (ui_contract::spectrumDeltaLegendLabelX),
                     juce::roundToInt (legendTop),
@@ -179,14 +179,14 @@ namespace
                     scaledInt (ui_contract::spectrumLegendHeight),
                     juce::Justification::centredLeft);
         g.setColour (COL_SPECTRUM_PRE.withAlpha (ui_contract::spectrumPreLegendAlpha));
-        g.drawText ("PRE", juce::roundToInt (outerPlot.getX()) + legendOffset
+        text_style::drawText (g, "PRE", juce::roundToInt (outerPlot.getX()) + legendOffset
                              + scaledInt (ui_contract::spectrumPreLegendLabelX),
                     juce::roundToInt (legendTop),
                     scaledInt (ui_contract::spectrumPreLegendLabelWidth),
                     scaledInt (ui_contract::spectrumLegendHeight),
                     juce::Justification::centredLeft);
         g.setColour (COL_SPECTRUM_POST.withAlpha (ui_contract::spectrumPostLegendAlpha));
-        g.drawText ("POST", juce::roundToInt (outerPlot.getX()) + legendOffset
+        text_style::drawText (g, "POST", juce::roundToInt (outerPlot.getX()) + legendOffset
                               + scaledInt (ui_contract::spectrumPostLegendLabelX),
                     juce::roundToInt (legendTop),
                     scaledInt (ui_contract::spectrumPostLegendLabelWidth),
@@ -217,11 +217,11 @@ namespace
         auto labelBounds = mark;
         if (state.haveMark)
             labelBounds.removeFromRight (scaled ((float) ui_contract::spectrumMarkClearWidth));
-        g.drawText ("MARK", labelBounds.toNearestInt(), juce::Justification::centred);
+        text_style::drawText (g, "MARK", labelBounds.toNearestInt(), juce::Justification::centred);
         if (state.haveMark)
         {
             g.setColour (COL_FLORA_BR.withAlpha (0.82f));
-            g.drawText (juce::CharPointer_UTF8 ("×"),
+            text_style::drawText (g, juce::CharPointer_UTF8 ("×"),
                         spectrum_geometry::markClearBoundsFor (mark, scale).toNearestInt(),
                         juce::Justification::centred);
         }
@@ -300,7 +300,7 @@ namespace
                                     juce::Justification justification)
         {
             g.setColour (colour);
-            g.drawText (text, juce::roundToInt (readout.getX()) + scaledInt (logicalX),
+            text_style::drawText (g, text, juce::roundToInt (readout.getX()) + scaledInt (logicalX),
                         textY, scaledInt (logicalWidth),
                         scaledInt (ui_contract::spectrumHoverReadoutHeight), justification);
         };
@@ -318,7 +318,7 @@ namespace
             if (focusLocked)
             {
                 g.setColour (COL_NORMAL.withAlpha (0.72f));
-                g.drawText (juce::CharPointer_UTF8 ("×"),
+                text_style::drawText (g, juce::CharPointer_UTF8 ("×"),
                             spectrum_geometry::focusClearBoundsFor (readout, scale).toNearestInt(),
                             juce::Justification::centred);
             }
@@ -344,7 +344,7 @@ namespace
             if (focusLocked)
             {
                 g.setColour (COL_NORMAL.withAlpha (0.72f));
-                g.drawText (juce::CharPointer_UTF8 ("×"),
+                text_style::drawText (g, juce::CharPointer_UTF8 ("×"),
                             spectrum_geometry::focusClearBoundsFor (
                                 readout, scale).toNearestInt(),
                             juce::Justification::centred);
@@ -392,7 +392,7 @@ namespace
         if (focusLocked)
         {
             g.setColour (COL_NORMAL.withAlpha (0.72f));
-            g.drawText (juce::CharPointer_UTF8 ("×"),
+            text_style::drawText (g, juce::CharPointer_UTF8 ("×"),
                         spectrum_geometry::focusClearBoundsFor (
                             readout, scale).toNearestInt(),
                         juce::Justification::centred);

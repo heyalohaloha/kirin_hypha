@@ -140,7 +140,7 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
                           typography::TextRole::readout, juce::Justification::centredRight,
                           1, typography::Composition::information);
         g.setColour (COL_MUTED.brighter (0.22f));
-        g.drawText (durationText (run, sampleRate), upper.reduced (3, 0),
+        text_style::drawText (g, durationText (run, sampleRate), upper.reduced (3, 0),
                     juce::Justification::centredRight);
 
         auto peak = row.removeFromRight (84).reduced (3, 0);
@@ -172,7 +172,7 @@ void paintRow (juce::Graphics& g, juce::Rectangle<int> row, const Summary& run,
 
     auto duration = row.removeFromLeft (62).reduced (3, 0);
     g.setColour (COL_MUTED.brighter (0.22f));
-    g.drawText (durationText (run, sampleRate), duration, juce::Justification::centredLeft);
+    text_style::drawText (g, durationText (run, sampleRate), duration, juce::Justification::centredLeft);
 
     const auto clipText = channel_clip::text (run.clipEvents, meter, false);
     auto clips = row.removeFromRight (meter != nullptr && meter->channels > 2u ? 190 : 88)
@@ -277,10 +277,10 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const Result& result,
     g.setFont (monoFont (presentation, typography::TextRole::sectionTitle,
                          typography::Composition::information));
     g.setColour (COL_NORMAL);
-    g.drawText (result.exactTimeline ? "RUNS IN VIEW" : "SESSION RUN", heading,
+    text_style::drawText (g, result.exactTimeline ? "RUNS IN VIEW" : "SESSION RUN", heading,
                 juce::Justification::centredLeft);
     g.setColour (COL_MUTED);
-    g.drawText ("* LATEST / POST", heading, juce::Justification::centredRight);
+    text_style::drawText (g, "* LATEST / POST", heading, juce::Justification::centredRight);
     if (result.runs.empty())
     {
         g.setFont (monoFont (presentation, typography::TextRole::status,

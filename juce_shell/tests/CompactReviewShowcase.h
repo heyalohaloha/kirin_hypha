@@ -2,6 +2,8 @@
 
 #include "../src/HyphaAbsoluteComponent.h"
 #include "../src/HyphaAttackComponent.h"
+#include "../src/HyphaLanguage.h"
+#include "LanguageMisses.h"
 #include "../src/HyphaMaterialCache.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaPerceptualComponent.h"
@@ -289,86 +291,104 @@ inline bool writeCompactReview()
     using namespace compact_review;
     material_cache::Lifetime editorMaterial;
     bool written = true;
+    // Each render in English, then in Japanese (INV-S40) under a "ja_" name.
+    juce::String languagePrefix;
     const auto write = [&] (const juce::String& name, const juce::Image& image) {
-        written = written && freq_showcase::writePng (directory.getChildFile (name + ".png"), image);
+        written = written && freq_showcase::writePng (
+            directory.getChildFile (languagePrefix + name + ".png"), image);
     };
-    for (const auto& [width, height] : { std::array<int, 2> { 300, 200 }, std::array<int, 2> { 375, 250 },
-                                         std::array<int, 2> { 600, 400 } })
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
-        const auto prefix = juce::String (width) + "_";
-        for (const auto role : { observatory::Role::pre, observatory::Role::post })
+        const i18n::ScopedLanguage shown (language);
+        const language_misses::Scope watching;
+        languagePrefix = language == i18n::Language::japanese ? "ja_" : "";
+        for (const auto& [width, height] : { std::array<int, 2> { 300, 200 }, std::array<int, 2> { 375, 250 },
+                                             std::array<int, 2> { 600, 400 } })
         {
-            observatory::View shell (role);
-            shell.setSize (width, height);
-            shell.setObservatoryFrame (frame(), true);
-            shell.setWatchDisplay (watch(), true);
-            shell.setHistory (history());
-            const bool post = role == observatory::Role::post;
-            shell.setConnection (post ? "PAIR DRUM" : "SOURCE PRE", COL_LED_BLUE,
-                                 observatory::ConnectionState::paired);
-            const auto rolePrefix = prefix + (post ? "post_" : "pre_");
-            for (const auto& [domain, name] : { std::pair { observatory::Domain::level, "level" },
-                                                std::pair { observatory::Domain::time, "time_history" },
-                                                std::pair { observatory::Domain::space, "space" },
-                                                std::pair { observatory::Domain::reference, "ref" } })
+            const auto prefix = juce::String (width) + "_";
+            for (const auto role : { observatory::Role::pre, observatory::Role::post })
             {
-                if (! post && domain == observatory::Domain::reference)
+                observatory::View shell (role);
+                shell.setSize (width, height);
+                shell.setObservatoryFrame (frame(), true);
+                shell.setWatchDisplay (watch(), true);
+                shell.setHistory (history());
+                const bool post = role == observatory::Role::post;
+                shell.setConnection (post ? "PAIR DRUM" : "SOURCE PRE", COL_LED_BLUE,
+                                     observatory::ConnectionState::paired);
+                const auto rolePrefix = prefix + (post ? "post_" : "pre_");
+                for (const auto& [domain, name] : { std::pair { observatory::Domain::level, "level" },
+                                                    std::pair { observatory::Domain::time, "time_history" },
+                                                    std::pair { observatory::Domain::space, "space" },
+                                                    std::pair { observatory::Domain::reference, "ref" } })
+                {
+                    if (! post && domain == observatory::Domain::reference)
+                        continue;
+                    shell.setDomain (domain);
+                    write (rolePrefix + name, renderShell (shell));
+                }
+                if (! post)
                     continue;
-                shell.setDomain (domain);
-                write (rolePrefix + name, renderShell (shell));
-            }
-            if (! post)
-                continue;
-            shell.setDomain (observatory::Domain::level);
-            shell.setTarget (observatory::ObservationTarget::delta);
-            write (rolePrefix + "level_delta", renderShell (shell));
-            shell.setTarget (observatory::ObservationTarget::absolute);
+                shell.setDomain (observatory::Domain::level);
+                shell.setTarget (observatory::ObservationTarget::delta);
+                write (rolePrefix + "level_delta", renderShell (shell));
+                // PRE is off: the comparison says why and what to do.
+                auto preOff = frame();
+                preOff.delta_available = 0u;
+                preOff.comparison_state = KIRIN_COMPARISON_STATE_REJECTED;
+                preOff.comparison_reason = KIRIN_COMPARISON_REASON_PRE_BYPASSED;
+                shell.setObservatoryFrame (preOff, true);
+                write (rolePrefix + "level_pre_off", renderShell (shell));
+                shell.setObservatoryFrame (frame(), true);
+                shell.setTarget (observatory::ObservationTarget::absolute);
 
-            shell.setDomain (observatory::Domain::frequency);
-            {
-                SpectrumComponent delta;
-                delta.setSignalActive (true);
-                for (int index = 0; index < freq_showcase::frameCount; ++index)
-                    delta.setSnapshot (freq_showcase::frame (index));
-                write (rolePrefix + "freq_delta", compose (shell, delta, analysis_navigation::Page::spectrum));
-                SpectrumComponent absolute;
-                absolute.setAbsoluteObservation (true);
-                absolute.setSignalActive (true);
-                for (int index = 0; index < freq_showcase::frameCount; ++index)
-                    absolute.setSnapshot (freq_showcase::frame (index));
-                write (rolePrefix + "freq_post", compose (shell, absolute, analysis_navigation::Page::spectrum));
-                // A rest past the Watch window: the status is stated over the dimmed history.
-                absolute.setSignalActive (false);
-                write (rolePrefix + "freq_inactive", compose (shell, absolute, analysis_navigation::Page::spectrum));
+                shell.setDomain (observatory::Domain::frequency);
+                {
+                    SpectrumComponent delta;
+                    delta.setSignalActive (true);
+                    for (int index = 0; index < freq_showcase::frameCount; ++index)
+                        delta.setSnapshot (freq_showcase::frame (index));
+                    write (rolePrefix + "freq_delta", compose (shell, delta, analysis_navigation::Page::spectrum));
+                    SpectrumComponent absolute;
+                    absolute.setAbsoluteObservation (true);
+                    absolute.setSignalActive (true);
+                    for (int index = 0; index < freq_showcase::frameCount; ++index)
+                        absolute.setSnapshot (freq_showcase::frame (index));
+                    write (rolePrefix + "freq_post", compose (shell, absolute, analysis_navigation::Page::spectrum));
+                    // A rest past the Watch window: the status is stated over the dimmed history.
+                    absolute.setSignalActive (false);
+                    write (rolePrefix + "freq_inactive", compose (shell, absolute, analysis_navigation::Page::spectrum));
+                }
+                shell.setDomain (observatory::Domain::time);
+                {
+                    PerceptualComponent sharp;
+                    sharp.setSignalActive (true);
+                    sharp.setBatch (sharpness());
+                    sharp.presentationTickAt (60'000.0);
+                    write (rolePrefix + "time_sharp", compose (shell, sharp, analysis_navigation::Page::perceptual));
+                    AbsoluteComponent timeline;
+                    timeline.setSignalActive (true);
+                    timeline.setBatchAt (live(), 60'000.0);
+                    write (rolePrefix + "time_live", compose (shell, timeline, analysis_navigation::Page::absolute));
+                    auto attack = drum();
+                    attack->presentationTickAt (60'000.0);
+                    write (rolePrefix + "time_drum", compose (shell, *attack, analysis_navigation::Page::attack));
+                }
             }
-            shell.setDomain (observatory::Domain::time);
-            {
-                PerceptualComponent sharp;
-                sharp.setSignalActive (true);
-                sharp.setBatch (sharpness());
-                sharp.presentationTickAt (60'000.0);
-                write (rolePrefix + "time_sharp", compose (shell, sharp, analysis_navigation::Page::perceptual));
-                AbsoluteComponent timeline;
-                timeline.setSignalActive (true);
-                timeline.setBatchAt (live(), 60'000.0);
-                write (rolePrefix + "time_live", compose (shell, timeline, analysis_navigation::Page::absolute));
-                auto attack = drum();
-                attack->presentationTickAt (60'000.0);
-                write (rolePrefix + "time_drum", compose (shell, *attack, analysis_navigation::Page::attack));
-            }
+            // The status and feedback lines, which share the cycle's row where the footer folds.
+            observatory::View waiting (observatory::Role::post);
+            waiting.setSize (width, height);
+            write (prefix + "post_waiting", renderShell (waiting));
+            waiting.setObservatoryFrame (frame(), true);
+            waiting.setFeedback ("Jungle Mode changed for this session only");
+            write (prefix + "post_feedback", renderShell (waiting));
+            // A Keep in progress adds STOP beside VU and MENU.
+            waiting.setFeedback ({});
+            waiting.setKeepActive (true);
+            write (prefix + "post_keep", renderShell (waiting));
         }
-        // The status and feedback lines, which share the cycle's row where the footer folds.
-        observatory::View waiting (observatory::Role::post);
-        waiting.setSize (width, height);
-        write (prefix + "post_waiting", renderShell (waiting));
-        waiting.setObservatoryFrame (frame(), true);
-        waiting.setFeedback ("Jungle Mode changed for this session only");
-        write (prefix + "post_feedback", renderShell (waiting));
-        // A Keep in progress adds STOP beside VU and MENU.
-        waiting.setFeedback ({});
-        waiting.setKeepActive (true);
-        write (prefix + "post_keep", renderShell (waiting));
     }
+    language_misses::report ("pages");
     return written;
 }
 }

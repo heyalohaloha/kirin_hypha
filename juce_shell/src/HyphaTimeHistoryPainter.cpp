@@ -126,14 +126,14 @@ void paintAuxLane (juce::Graphics& g,
                          + latestText (history, metric, delta) + (metric == Metric::plr ? " dB" : "");
     if (metric == Metric::plr)
     {
-        g.drawText (labelText, labelArea.removeFromTop (labelArea.getHeight() / 2),
+        text_style::drawText (g, labelText, labelArea.removeFromTop (labelArea.getHeight() / 2),
                     juce::Justification::centredLeft);
         g.setFont (monoFont (presentation, typography::TextRole::body,
                              typography::Composition::visualization));
         const auto definition = presentation.logicalWidth >= 600
             ? (delta ? "PLR / POST - PRE" : "SESSION FACT / TP MAX - LUFS-I")
             : (delta ? "PLR POST - PRE" : "TP MAX - LUFS-I");
-        g.drawText (definition, labelArea,
+        text_style::drawText (g, definition, labelArea,
                     juce::Justification::centredLeft);
 
         // PLR is a cumulative session fact and normally changes very little. Present it as a
@@ -158,7 +158,7 @@ void paintAuxLane (juce::Graphics& g,
         return;
     }
     else
-        g.drawText (labelText, labelArea.reduced (2, 0), juce::Justification::centredLeft);
+        text_style::drawText (g, labelText, labelArea.reduced (2, 0), juce::Justification::centredLeft);
 
     auto axisArea = sharedGeometry != nullptr ? sharedGeometry->axis
                                               : area.removeFromRight (32);
@@ -202,9 +202,9 @@ void paintAuxLane (juce::Graphics& g,
                                             : (delta ? "+2" : "+1");
     const auto bottom = metric == Metric::plr ? (delta ? "-12" : "0")
                                                : (delta ? "-2" : "-1");
-    g.drawText (top, axisArea.removeFromTop (axisArea.getHeight() / 2),
+    text_style::drawText (g, top, axisArea.removeFromTop (axisArea.getHeight() / 2),
                 juce::Justification::centredRight);
-    g.drawText (bottom, axisArea, juce::Justification::centredRight);
+    text_style::drawText (g, bottom, axisArea, juce::Justification::centredRight);
 }
 
 void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta,
@@ -229,11 +229,11 @@ void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta,
         {
             g.setColour (COL_TEXT_TERTIARY);
             const auto loudness = juce::String (floor * (double) index / 4.0, 0);
-            g.drawText (delta ? juce::String (difference[index]) : loudness,
+            text_style::drawText (g, delta ? juce::String (difference[index]) : loudness,
                         juce::roundToInt (plot.getX()) - 32, y - 7,
                         28, 14, juce::Justification::centredRight);
             if (delta)
-                g.drawText (difference[index], juce::roundToInt (plot.getRight()) + 4,
+                text_style::drawText (g, difference[index], juce::roundToInt (plot.getRight()) + 4,
                             y - 7, 28, 14, juce::Justification::centredLeft);
         }
     }
@@ -247,7 +247,7 @@ void paintAxes (juce::Graphics& g, juce::Rectangle<float> plot, bool delta,
             yFor (plot, Metric::truePeak, value, false, scaleMode));
         g.setColour ((value == 0.0 ? COL_FLORA_BR : COL_MUTED).withAlpha (0.78f));
         const auto label = juce::String (value > 0.0 ? "+" : "") + juce::String (value, 0);
-        g.drawText (label, juce::roundToInt (plot.getRight()) + 4, y - 7,
+        text_style::drawText (g, label, juce::roundToInt (plot.getRight()) + 4, y - 7,
                     28, 14, juce::Justification::centredLeft);
     }
 }
@@ -327,7 +327,7 @@ void paintMetric (juce::Graphics& g,
             const auto offset = visual.metric == Metric::momentary ? -12 : 3;
             g.setFont (monoFont (presentation, typography::TextRole::legend,
                                  typography::Composition::visualization));
-            g.drawText (visual.label, juce::roundToInt (lastX) - 22,
+            text_style::drawText (g, visual.label, juce::roundToInt (lastX) - 22,
                         juce::roundToInt (lastY) + offset, 18, 10,
                         juce::Justification::centredRight);
         }
@@ -357,13 +357,13 @@ void paintLegend (juce::Graphics& g,
         const auto text = compact ? juce::String (visual->label)
                                   : juce::String (visual->label) + " "
                                       + latestText (history, visual->metric, delta);
-        g.drawText (text, cell, juce::Justification::centredLeft);
+        text_style::drawText (g, text, cell, juce::Justification::centredLeft);
     }
     g.setColour (COL_TEXT_TERTIARY);
     const auto basis = delta
         ? juce::String ("POST-PRE / ") + axisLabel (axis.mode)
         : juce::String ("  ") + axisLabel (axis.mode);
-    g.drawText (rangeLabel + (compact ? "" : basis), range,
+    text_style::drawText (g, rangeLabel + (compact ? "" : basis), range,
                 juce::Justification::centredRight);
 }
 }
@@ -399,7 +399,7 @@ void paint (juce::Graphics& g,
         const auto emptyText = delta
             ? juce::String ("EXACT ") + hypha::delta() + " HISTORY " + hypha::emDash()
             : juce::String ("HISTORY ") + hypha::emDash();
-        g.drawText (emptyText, area, juce::Justification::centred);
+        text_style::drawText (g, emptyText, area, juce::Justification::centred);
         return;
     }
 

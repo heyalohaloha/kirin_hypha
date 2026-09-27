@@ -438,10 +438,13 @@ int main (int argc, char** argv)
     initialiseBlindProductHostApplication();
    #endif
     juce::ScopedJuceInitialiser_GUI init;
+    // The shipping editors here run under simulated wrappers: they stay in English (INV-S40).
+    hypha::i18n::holdLanguage (true);
     verifyRecordBodyOwnership();
     hypha::tests::editor_product::verifyLiveInputThroughMusicalRests();
     hypha::tests::editor_product::verifyFoldedFeedbackStrip();
     hypha::tests::editor_product::verifyMagnifiedEditor();
+    hypha::tests::editor_product::verifyLanguageSwitch();
     verifySavedReferenceChoices();
     const auto previews = argc > 1 ? juce::File (argv[1]) : juce::File();
     verifyPairHeaderAtEverySize (previews);

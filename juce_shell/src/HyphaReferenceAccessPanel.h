@@ -2,6 +2,7 @@
 
 #include "HyphaObservatoryView.h"
 #include "HyphaReferenceComponent.h"
+#include "HyphaTextLookAndFeel.h"
 
 namespace hypha::reference_ui
 {
@@ -20,6 +21,8 @@ public:
 
     AccessPanel()
     {
+        // Its labels show their text in the current language (INV-S40).
+        setLookAndFeel (&textLookAndFeel);
         setTitle ("Kirin OS Reference access");
         for (auto* label : { &heading, &detail })
         {
@@ -100,9 +103,12 @@ public:
         }
     }
 
+    ~AccessPanel() override { setLookAndFeel (nullptr); }
+
 private:
     bool owned = false, ownerHelp = false, unconfirmed = false;
     presentation::Context presentationContext = presentation::defaultContext();
+    TextLookAndFeel textLookAndFeel;
     juce::Label heading, detail;
     observatory::Button about { "ABOUT KIRIN OS", false };
     observatory::Button owner { "ALREADY OWN IT?", false };

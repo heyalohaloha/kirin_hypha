@@ -143,16 +143,42 @@ fn hover_help_is_one_user_preference_without_touching_measurement_state() {
     let editor = read_repo("juce_shell/src/PluginEditor.cpp");
     let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
 
+    let preferences = read_repo("juce_shell/src/HyphaUiPreferences.cpp");
+
     assert!(header.contains("class HoverHelpTooltipWindow"));
-    assert!(header.contains("TooltipWindow::getTipFor (component)"));
-    assert!(implementation.contains("show_hover_help=1"));
-    assert!(implementation.contains("show_hover_help=0"));
+    assert!(header.contains("i18n::tr (juce::TooltipWindow::getTipFor (component))"));
+    assert!(implementation.contains("kHoverHelpKey = \"show_hover_help\""));
+    assert!(implementation
+        .contains("ui_preferences::write (file, kHoverHelpKey, enabled ? \"1\" : \"0\")"));
+    assert!(preferences.contains("KIRIN_HYPHA_UI_PREFERENCES_V1"));
     assert!(implementation.contains("kRefreshIntervalMs = 1000u"));
     assert!(editor.contains("menu.addItem (10, \"Show hover help\""));
     assert!(editor.contains("tooltip.hideTip()"));
     assert!(editor.contains("Hover help changed for this session only"));
     assert!(!processor.contains("show_hover_help"));
     assert!(!processor.contains("HoverHelpPreference"));
+}
+
+#[test]
+fn screen_language_is_one_user_preference_without_touching_measurement_state() {
+    let preferences = read_repo("juce_shell/src/HyphaUiPreferences.cpp");
+    let language = read_repo("juce_shell/src/PluginEditorLanguage.cpp");
+    let editor = read_repo("juce_shell/src/PluginEditor.cpp");
+    let processor = read_repo("juce_shell/src/PluginProcessor.cpp");
+
+    // One shared file: the language is one more key beside hover help, and a write keeps the rest.
+    assert!(preferences.contains("constexpr auto kLanguageKey = \"language\""));
+    assert!(preferences.contains("juce::SystemStats::getDisplayLanguage()"));
+    // Hosted editors follow it; tests and tools keep the language they set.
+    assert!(language
+        .contains("processorRef.wrapperType != juce::AudioProcessor::wrapperType_Undefined"));
+    assert!(language.contains("! hypha::i18n::languageHeld()"));
+    assert!(language.contains("Language changed for this session only"));
+    assert!(editor.contains("addLanguageMenu (menu);"));
+    assert!(editor.contains("if (handleLanguageMenu (result)) return;"));
+    // The screen language never reaches the processor, the audio thread or Record.
+    assert!(!processor.contains("LanguagePreference"));
+    assert!(!processor.contains("i18n::"));
 }
 
 #[test]

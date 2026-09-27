@@ -11,6 +11,14 @@ const fontFactories = new Map([
   ['monoFont', 2],
   ['nativeTextFont', 2],
   ['displayTextFont', 3],
+  // The native twin of a font the contract already chose, for Japanese text (INV-S40).
+  ['nativeTextFontLike', 1],
+]);
+const factoryPattern = 'labelFont|monoFont|nativeTextFont|displayTextFont|nativeTextFontLike';
+// Screen text is drawn only here, where it is translated and given a font with its glyphs.
+const textBoundaryFiles = new Set([
+  'juce_shell/src/HyphaTextStyle.cpp',
+  'juce_shell/src/HyphaTypography.cpp',
 ]);
 
 function stripCommentsAndStrings(source) {
@@ -87,7 +95,7 @@ function recordFontHeightMutations(violations, source) {
     /\b(?:const\s+)?(?:juce\s*::\s*)?Font\s*(?:const\s*)?[&*]?\s*([A-Za-z_]\w*)/g,
   )) fontVariables.add(match[1]);
   for (const match of source.matchAll(
-    /\b(?:auto|(?:juce\s*::\s*)?Font)\s+([A-Za-z_]\w*)\s*=\s*(?:labelFont|monoFont|nativeTextFont|displayTextFont)\s*\(/g,
+    new RegExp(`\\b(?:auto|(?:juce\\s*::\\s*)?Font)\\s+([A-Za-z_]\\w*)\\s*=\\s*(?:${factoryPattern})\\s*\\(`, 'g'),
   )) fontVariables.add(match[1]);
 
   for (const match of source.matchAll(
@@ -103,15 +111,68 @@ function recordFontHeightMutations(violations, source) {
   recordMatches(
     violations,
     source,
-    /\b(?:labelFont|monoFont|nativeTextFont|displayTextFont)\s*\([^;]*?\)\s*\.\s*(?:withHeight|setHeight)\s*\(/g,
+    new RegExp(`\\b(?:${factoryPattern})\\s*\\([^;]*?\\)\\s*\\.\\s*(?:withHeight|setHeight)\\s*\\(`, 'g'),
     'direct height mutation bypasses the semantic typography contract',
   );
+}
+
+// A narrow literal is read as ASCII by juce::String, so text outside ASCII (an em dash, a middle
+// dot, Japanese) must say what it is: a u8 (or u, U, L) literal, or one handed straight to
+// CharPointer_UTF8 or fromUTF8. Adjacent literals that continue a marked one are marked too.
+function recordUnmarkedNonAsciiLiterals(violations, source) {
+  let state = 'code';
+  let previousLiteralMarked = null;
+  let codeSinceLiteral = '';
+  for (let index = 0; index < source.length; ++index) {
+    const current = source[index];
+    const next = source[index + 1];
+    if (state === 'line') { if (current === '\n') state = 'code'; continue; }
+    if (state === 'block') { if (current === '*' && next === '/') { state = 'code'; index += 1; } continue; }
+    if (current === '/' && next === '/') { state = 'line'; index += 1; continue; }
+    if (current === '/' && next === '*') { state = 'block'; index += 1; continue; }
+    if (current === '\'') {
+      const numericSeparator = /[0-9A-Fa-f]/.test(source[index - 1] ?? '') && /[0-9A-Fa-f]/.test(next ?? '');
+      if (!numericSeparator) {
+        index += 1;
+        while (index < source.length && source[index] !== '\'') index += source[index] === '\\' ? 2 : 1;
+      }
+      codeSinceLiteral += 'x';
+      continue;
+    }
+    if (current !== '"') { codeSinceLiteral += current; continue; }
+    const start = index;
+    let body = '';
+    index += 1;
+    while (index < source.length && source[index] !== '"') {
+      if (source[index] === '\\') { body += source.slice(index, index + 2); index += 2; }
+      else { body += source[index]; index += 1; }
+    }
+    const before = source.slice(0, start);
+    // u8, u, U and L literals carry a defined encoding of their own.
+    const u8 = /(?:^|[^A-Za-z0-9_])(?:u8|u|U|L)$/.test(before);
+    const wrapped = /(?:CharPointer_UTF8|fromUTF8)\s*\(\s*$/.test(before);
+    const continues = previousLiteralMarked === true && /^\s*$/.test(codeSinceLiteral);
+    const nonAscii = /[^\x00-\x7f]/.test(body) || /\\x[89A-Fa-f][0-9A-Fa-f]/.test(body);
+    const marked = u8 || wrapped || continues;
+    if (nonAscii && !marked)
+      violations.push({ line: lineAt(source, start),
+        reason: 'text outside ASCII must be a u8 literal or go straight to CharPointer_UTF8 / fromUTF8' });
+    previousLiteralMarked = marked;
+    codeSinceLiteral = '';
+  }
 }
 
 export function findTypographyViolations(source, relativePath = 'fixture.cpp') {
   const clean = stripCommentsAndStrings(source);
   const violations = [];
-  const adapter = relativePath.split(path.sep).join('/') === 'juce_shell/src/HyphaTypography.cpp';
+  const normalizedPath = relativePath.split(path.sep).join('/');
+  const adapter = normalizedPath === 'juce_shell/src/HyphaTypography.cpp';
+  // Product screens draw text only through the boundary; tests may draw it directly to compare.
+  if (normalizedPath.startsWith('juce_shell/src/') && !textBoundaryFiles.has(normalizedPath)) {
+    recordMatches(violations, clean, /\.\s*(?:drawText|drawMultiLineText|drawSingleLineText)\s*\(/g,
+      'screen text is drawn through text_style, which shows it in the current language');
+  }
+  recordUnmarkedNonAsciiLiterals(violations, source);
   if (!adapter) {
     recordMatches(violations, clean, /\bjuce\s*::\s*Font\s*[({]/g,
       'direct juce::Font construction is restricted to HyphaTypography.cpp');
@@ -124,7 +185,7 @@ export function findTypographyViolations(source, relativePath = 'fixture.cpp') {
   recordMatches(violations, clean, /\bdrawFittedText\s*\(/g,
     'drawFittedText may compress text; use HyphaTextStyle overflow handling');
 
-  for (const match of clean.matchAll(/\b(labelFont|monoFont|nativeTextFont|displayTextFont)\s*\(/g)) {
+  for (const match of clean.matchAll(new RegExp(`\\b(${factoryPattern})\\s*\\(`, 'g'))) {
     const name = match[1];
     const openIndex = clean.indexOf('(', match.index + name.length);
     const args = callArguments(clean, openIndex);
@@ -144,7 +205,7 @@ export function findTypographyViolations(source, relativePath = 'fixture.cpp') {
     for (const match of clean.matchAll(/\bsetFont\s*\(/g)) {
       const openIndex = clean.indexOf('(', match.index);
       const args = callArguments(clean, openIndex);
-      if (!/\b(?:labelFont|monoFont|nativeTextFont|displayTextFont)\s*\(/.test(args.content))
+      if (!new RegExp(`\\b(?:${factoryPattern})\\s*\\(`).test(args.content))
         violations.push({ line: lineAt(clean, match.index),
           reason: 'setFont must consume a semantic typography factory in the same call' });
     }

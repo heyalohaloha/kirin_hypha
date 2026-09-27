@@ -139,7 +139,8 @@ namespace hypha
         editor->setMultiLine (false);
         editor->setReturnKeyStartsNewLine (false);
         editor->setInputRestrictions (16, allowedNameChars()); // parity with sanitize_name (≤16)
-        editor->setFont (monoFont (presentationContext, typography::TextRole::selector));
+        // A name may be typed in Japanese; the native font carries every script while editing.
+        editor->setFont (nativeTextFont (presentationContext, typography::TextRole::selector));
         editor->setColour (juce::TextEditor::backgroundColourId, kFieldFill);
         editor->setColour (juce::TextEditor::textColourId, COL_FLORA);
         editor->setColour (juce::TextEditor::outlineColourId, COL_MUTED);
@@ -222,7 +223,7 @@ namespace hypha
     bool EditableName::setSelectionPreview (const juce::String& text, std::uint64_t generation)
     {
         const auto fits = text.isNotEmpty()
-            && monoFont (presentationContext, typography::TextRole::selector).getStringWidthFloat (text) + 4 <= getWidth();
+            && text_style::shownWidth (monoFont (presentationContext, typography::TextRole::selector), text) + 4 <= getWidth();
         const auto next = fits ? text : juce::String();
         const auto nextGeneration = fits ? generation : 0;
         if (selectionPreview != next || previewGeneration != nextGeneration)
@@ -246,7 +247,7 @@ namespace hypha
 
         const bool empty = rawName.isEmpty();
         const bool previewFits = selectionPreview.isNotEmpty()
-            && monoFont (presentationContext, typography::TextRole::selector).getStringWidthFloat (selectionPreview) + 4 <= getWidth();
+            && text_style::shownWidth (monoFont (presentationContext, typography::TextRole::selector), selectionPreview) + 4 <= getWidth();
         const juce::String shown = previewFits ? selectionPreview : prefix + (empty ? fallback : rawName);
         paintedPreview = previewFits ? previewGeneration : 0;
         g.setFont (monoFont (presentationContext, typography::TextRole::selector));

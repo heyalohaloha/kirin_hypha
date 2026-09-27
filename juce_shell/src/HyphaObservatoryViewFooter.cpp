@@ -81,7 +81,7 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     for (auto* button : visible)
     {
         const auto width = juce::roundToInt (
-            std::ceil (actionFont.getStringWidthFloat (button->getButtonText()) + 12.0f));
+            std::ceil (text_style::shownWidth (actionFont, button->getButtonText()) + 12.0f));
         minimumWidths.add (width);
         minimumTotal += width;
     }
@@ -124,14 +124,14 @@ void View::paintFooter (juce::Graphics& g, const ShellLayout& layout)
     {
         g.setFont (monoFont (presentationContext(), typography::TextRole::status));
         if (feedbackText.isEmpty())
-            g.drawText (state, session, juce::Justification::centredLeft);
+            text_style::drawText (g, state, session, juce::Justification::centredLeft);
        #if defined(JucePlugin_VersionString)
         const auto version = juce::String ("v") + JucePlugin_VersionString;
        #else
         const auto version = juce::String ("development");
        #endif
         if (getWidth() >= 600 && feedbackText.isEmpty())
-            g.drawText (version, session, juce::Justification::centredRight);
+            text_style::drawText (g, version, session, juce::Justification::centredRight);
         return;
     }
 

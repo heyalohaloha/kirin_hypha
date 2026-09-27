@@ -3,6 +3,7 @@
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
 #include "HyphaPolylineGeometry.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 
@@ -38,7 +39,7 @@ void paintEmptyPrompt (juce::Graphics& g,
     g.setColour (COL_MUTED.brighter (0.10f).withAlpha (0.64f));
     g.setFont (monoFont (presentation, typography::TextRole::status,
                          typography::Composition::visualization));
-    g.drawText ("FOCUS TRAIL  /  CLICK A BAND", bounds.toNearestInt(),
+    text_style::drawText (g, "FOCUS TRAIL  /  CLICK A BAND", bounds.toNearestInt(),
                 juce::Justification::centred);
 }
 
@@ -75,7 +76,7 @@ void paint (juce::Graphics& g,
         g.setFont (monoFont (presentation, typography::TextRole::legend,
                              typography::Composition::visualization));
         g.setColour (COL_SPECTRUM_DELTA.withAlpha (0.68f));
-        g.drawText (juce::String (juce::CharPointer_UTF8 (
+        text_style::drawText (g, juce::String (juce::CharPointer_UTF8 (
                         "\xCE\x94 \xC2\xB7 6s \xC2\xB7 \xC2\xB1\x31\x32")),
                     plot.removeFromTop (juce::jmax (14.0f, 7.0f * visualScale)),
                     juce::Justification::centredLeft);

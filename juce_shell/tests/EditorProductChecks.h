@@ -3,6 +3,8 @@
 #include "../src/PluginEditor.h"
 #include "../src/HyphaEditorSizeConstrainer.h"
 #include "../src/HyphaFeedbackStrip.h"
+#include "../src/HyphaLanguage.h"
+#include "LanguageMisses.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
 
@@ -48,6 +50,13 @@ struct ShowToast
     friend Type privateMember (ShowToast);
 };
 template struct PrivateAccess<ShowToast, &KirinHyphaEditor::showToast>;
+
+struct SyncLanguage
+{
+    using Type = void (KirinHyphaEditor::*) (bool);
+    friend Type privateMember (SyncLanguage);
+};
+template struct PrivateAccess<SyncLanguage, &KirinHyphaEditor::syncLanguage>;
 
 // A look review of the shipping editor, written only when KIRIN_HYPHA_COMPACT_REVIEW_DIR is set.
 inline void writeReview (juce::Component& editor, const juce::String& name)
@@ -124,61 +133,114 @@ inline void verifyLiveInputThroughMusicalRests()
 inline void verifyFoldedFeedbackStrip()
 {
     const juce::String message ("Jungle Mode changed for this session only");
-    for (const auto role : { Processor::Role::Post, Processor::Role::Pre })
-        for (const auto& preset : observatory::sizePresets)
+    // In Japanese too (INV-S40): the strip carries the translated notice whole.
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+        for (const auto role : { Processor::Role::Post, Processor::Role::Pre })
+            for (const auto& preset : observatory::sizePresets)
+            {
+                const i18n::ScopedLanguage shown (language);
+                const auto reviewPrefix = language == i18n::Language::japanese ? "ja_" : "";
+                juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
+                Processor processor (role);
+                // POST FREQ: an analysis page owns the body. PRE: the Observatory paints LEVEL itself.
+                processor.setObservatoryDomainPreference (observatory::stateValue (
+                    role == Processor::Role::Post ? observatory::Domain::frequency : observatory::Domain::level));
+                processor.prepareToPlay (48'000, 960);
+                std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditorIfNeeded());
+                require (editor != nullptr, "shipping editor opens");
+                editor->setSize (preset.width, preset.height);
+                editor->setVisible (true);
+                auto* shipping = dynamic_cast<KirinHyphaEditor*> (editor.get());
+                auto* view = component<observatory::View> (*editor);
+                auto* strip = dynamic_cast<FeedbackStrip*> (find (*editor, "feedback-strip"));
+                require (shipping != nullptr && view != nullptr && strip != nullptr, "editor, view and strip exist");
+                const bool folded = observatory::footerFolds (preset.density);
+                require (view->statusStripFolded() == folded, "the status strip folds with the footer");
+                require (! folded || view->sessionBounds().getWidth() == 0, "the cycle keeps its whole row");
+
+                (shipping->*privateMember (ShowToast {})) (message);
+                const auto body = view->bodyBounds();
+                const auto area = view->statusStripBounds();
+                require (strip->isVisible() == folded, "the strip shows feedback only where the footer folds");
+                require (view->feedbackDetailsAnchor().isVisible() == ! folded,
+                         "the footer's status line shows feedback where the footer stays");
+                if (folded)
+                {
+                    require (area.getX() == body.getX() && area.getRight() == body.getRight()
+                                 && area.getBottom() == body.getBottom() && area.getY() > body.getY(),
+                             "the strip spans the bottom edge of the body");
+                    const auto context = presentation::forEditor (preset.width, preset.height);
+                    const auto needed = text_style::requiredWidth (
+                        monoFont (context, typography::TextRole::status), message,
+                        typography::resolve (context, typography::TextRole::status));
+                    std::cout << "Feedback strip " << preset.width << ": " << area.getWidth() << " wide, text "
+                              << needed << '\n';
+                    require (needed + 12 <= area.getWidth(), "the feedback reads whole");
+                    const auto centre = editor->getLocalPoint (strip, strip->getLocalBounds().getCentre());
+                    require (editor->getComponentAt (centre) == strip, "the strip is above the page and takes the pointer");
+                    writeReview (*editor, reviewPrefix + juce::String (role == Processor::Role::Post ? "post" : "pre")
+                                              + "_feedback_strip_" + juce::String (preset.width));
+                }
+                else
+                    require (area == view->sessionBounds(), "without folding, status stays in the footer");
+
+                (shipping->*privateMember (ShowToast {})) ({});
+                require (view->footerStatus() == "WAITING", "no audio yet: the status is WAITING");
+                require (strip->isVisible() == folded && (! folded || strip->text() == "WAITING"),
+                         "after the feedback the strip returns to the short status");
+                processor.editorBeingDeleted (editor.get());
+                editor.reset();
+                processor.releaseResources();
+            }
+}
+
+// The language changes while an editor is open (INV-S40): the editor lays itself out again and
+// draws in the new language, and switching back draws exactly what it drew before. With
+// KIRIN_HYPHA_COMPACT_REVIEW_DIR set, each domain is also written in Japanese at 100%, 125% and 300%.
+inline void verifyLanguageSwitch()
+{
+    const auto samePixels = [] (const juce::Image& left, const juce::Image& right) {
+        for (int y = 0; y < left.getHeight(); ++y)
+            for (int x = 0; x < left.getWidth(); ++x)
+                if (left.getPixelAt (x, y) != right.getPixelAt (x, y)) return false;
+        return true;
+    };
+    for (const auto& preset : { observatory::sizePresets[0], observatory::sizePresets[1],
+                                observatory::sizePresets.back() })
+        for (const auto& [domain, name] : { std::pair { observatory::Domain::level, "level" },
+                                            std::pair { observatory::Domain::time, "time" },
+                                            std::pair { observatory::Domain::frequency, "freq" },
+                                            std::pair { observatory::Domain::space, "space" },
+                                            std::pair { observatory::Domain::reference, "ref" } })
         {
             juce::AudioProcessor::setTypeOfNextNewPlugin (juce::AudioProcessor::wrapperType_VST3);
-            Processor processor (role);
-            // POST FREQ: an analysis page owns the body. PRE: the Observatory paints LEVEL itself.
-            processor.setObservatoryDomainPreference (observatory::stateValue (
-                role == Processor::Role::Post ? observatory::Domain::frequency : observatory::Domain::level));
+            Processor processor (Processor::Role::Post);
+            processor.setObservatoryDomainPreference (observatory::stateValue (domain));
             processor.prepareToPlay (48'000, 960);
             std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditorIfNeeded());
-            require (editor != nullptr, "shipping editor opens");
             editor->setSize (preset.width, preset.height);
             editor->setVisible (true);
             auto* shipping = dynamic_cast<KirinHyphaEditor*> (editor.get());
-            auto* view = component<observatory::View> (*editor);
-            auto* strip = dynamic_cast<FeedbackStrip*> (find (*editor, "feedback-strip"));
-            require (shipping != nullptr && view != nullptr && strip != nullptr, "editor, view and strip exist");
-            const bool folded = observatory::footerFolds (preset.density);
-            require (view->statusStripFolded() == folded, "the status strip folds with the footer");
-            require (! folded || view->sessionBounds().getWidth() == 0, "the cycle keeps its whole row");
-
-            (shipping->*privateMember (ShowToast {})) (message);
-            const auto body = view->bodyBounds();
-            const auto area = view->statusStripBounds();
-            require (strip->isVisible() == folded, "the strip shows feedback only where the footer folds");
-            require (view->feedbackDetailsAnchor().isVisible() == ! folded,
-                     "the footer's status line shows feedback where the footer stays");
-            if (folded)
+            require (shipping != nullptr, "the shipping editor opens");
+            const auto snapshot = [&editor] {
+                return editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
+            };
+            snapshot(); // the first paint builds the material caches that later paints reuse
+            const auto english = snapshot();
             {
-                require (area.getX() == body.getX() && area.getRight() == body.getRight()
-                             && area.getBottom() == body.getBottom() && area.getY() > body.getY(),
-                         "the strip spans the bottom edge of the body");
-                const auto context = presentation::forEditor (preset.width, preset.height);
-                const auto needed = text_style::requiredWidth (
-                    monoFont (context, typography::TextRole::status), message,
-                    typography::resolve (context, typography::TextRole::status));
-                std::cout << "Feedback strip " << preset.width << ": " << area.getWidth() << " wide, text "
-                          << needed << '\n';
-                require (needed + 12 <= area.getWidth(), "the feedback reads whole");
-                const auto centre = editor->getLocalPoint (strip, strip->getLocalBounds().getCentre());
-                require (editor->getComponentAt (centre) == strip, "the strip is above the page and takes the pointer");
-                writeReview (*editor, juce::String (role == Processor::Role::Post ? "post" : "pre")
-                                          + "_feedback_strip_" + juce::String (preset.width));
+                const i18n::ScopedLanguage japanese (i18n::Language::japanese);
+                const language_misses::Scope watching;
+                (shipping->*privateMember (SyncLanguage {})) (true);
+                require (! samePixels (english, snapshot()), "an open editor draws the new language");
+                writeReview (*editor, "ja_editor_" + juce::String (name) + "_" + juce::String (preset.width));
             }
-            else
-                require (area == view->sessionBounds(), "without folding, status stays in the footer");
-
-            (shipping->*privateMember (ShowToast {})) ({});
-            require (view->footerStatus() == "WAITING", "no audio yet: the status is WAITING");
-            require (strip->isVisible() == folded && (! folded || strip->text() == "WAITING"),
-                     "after the feedback the strip returns to the short status");
+            (shipping->*privateMember (SyncLanguage {})) (true);
+            require (samePixels (english, snapshot()), "switching back draws exactly what it drew");
             processor.editorBeingDeleted (editor.get());
             editor.reset();
             processor.releaseResources();
         }
+    language_misses::report ("editor");
 }
 
 // Above 300% the shipping editor takes only the magnified steps of its display (450% and 600% on

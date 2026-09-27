@@ -90,7 +90,7 @@ namespace
             g.setFont (monoFont (state.presentation, typography::TextRole::readout,
                                  typography::Composition::visualization));
             g.setColour (COL_SPECTRUM_POST.withAlpha (0.98f));
-            g.drawText (juce::String (label) + factValueText (value, 2) + " acum",
+            text_style::drawText (g, juce::String (label) + factValueText (value, 2) + " acum",
                         area, juce::Justification::centred);
             return;
         }
@@ -113,7 +113,7 @@ namespace
         for (size_t index = 0u; index < text.size(); ++index)
         {
             g.setColour (colours[index].withAlpha (0.98f));
-            g.drawText (text[index],
+            text_style::drawText (g, text[index],
                         juce::Rectangle<float> (area.getX() + third * static_cast<float> (index),
                                                 area.getY(), third, area.getHeight()),
                         juce::Justification::centred);
@@ -142,24 +142,24 @@ namespace
         const int y = juce::roundToInt (plot.getBottom());
         const int labelWidth = juce::roundToInt (30.0f * scale);
         const int labelHeight = juce::roundToInt (10.0f * scale);
-        g.drawText ("-6s", juce::roundToInt (plot.getX()), y,
+        text_style::drawText (g, "-6s", juce::roundToInt (plot.getX()), y,
                     labelWidth, labelHeight,
                     juce::Justification::centredLeft);
-        g.drawText ("-3", juce::roundToInt (plot.getCentreX()) - labelWidth / 2, y,
+        text_style::drawText (g, "-3", juce::roundToInt (plot.getCentreX()) - labelWidth / 2, y,
                     labelWidth, labelHeight,
                     juce::Justification::centred);
-        g.drawText ("NOW", juce::roundToInt (plot.getRight()) - labelWidth, y,
+        text_style::drawText (g, "NOW", juce::roundToInt (plot.getRight()) - labelWidth, y,
                     labelWidth, labelHeight,
                     juce::Justification::centredRight);
         if (sharpnessOnly)
         {
-            g.drawText ("3", 0, juce::roundToInt (plot.getY()) - labelHeight / 2,
+            text_style::drawText (g, "3", 0, juce::roundToInt (plot.getY()) - labelHeight / 2,
                         juce::roundToInt (plot.getX()) - 3, labelHeight,
                         juce::Justification::centredRight);
-            g.drawText ("1.5", 0, juce::roundToInt (plot.getCentreY()) - labelHeight / 2,
+            text_style::drawText (g, "1.5", 0, juce::roundToInt (plot.getCentreY()) - labelHeight / 2,
                         juce::roundToInt (plot.getX()) - 3, labelHeight,
                         juce::Justification::centredRight);
-            g.drawText ("0", 0, juce::roundToInt (plot.getBottom()) - labelHeight,
+            text_style::drawText (g, "0", 0, juce::roundToInt (plot.getBottom()) - labelHeight,
                         juce::roundToInt (plot.getX()) - 3, labelHeight,
                         juce::Justification::centredRight);
         }

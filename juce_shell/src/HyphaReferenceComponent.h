@@ -148,6 +148,7 @@ class Component final : public juce::Component
 {
 public:
     Component();
+    ~Component() override { setLookAndFeel (nullptr); }
 
     void setPresentationContext (presentation::Context next)
     {

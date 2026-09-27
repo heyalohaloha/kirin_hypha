@@ -171,7 +171,7 @@ void verifyTimeHistoryContract()
         time_history::paint (graphics, refusedEmpty.getBounds(), noHistory, "30 S", true,
                              false, meter_context::ScaleMode::wide,
                              presentation::forEditor (600, 300),
-                             "CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS");
+                             juce::String (juce::CharPointer_UTF8 ("CHANNEL LAYOUTS DIFFER — MATCH PRE / POST BUS")));
     }
     KIRIN_TIME_HISTORY_REQUIRE (changedPixels (genericEmpty, refusedEmpty) > 100);
 

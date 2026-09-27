@@ -6,6 +6,7 @@
 
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 namespace hypha::spectrum_magnitude_chrome
 {
@@ -27,7 +28,7 @@ inline void paintAxis (juce::Graphics& g,
     for (size_t index = 0u; index < labels.size(); ++index)
     {
         const int x = left ? 0 : juce::roundToInt (plot.getRight()) + scaled (3);
-        g.drawText (labels[index], x,
+        text_style::drawText (g, labels[index], x,
                     juce::roundToInt (plot.getY() + positions[index] * plot.getHeight())
                         - scaled (5),
                     scaled (21), scaled (10),

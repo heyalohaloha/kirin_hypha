@@ -487,7 +487,7 @@ void View::paintHeader (juce::Graphics& g, const ShellLayout& layout)
         g.setFont (monoFont (context, typography::TextRole::status));
         if (contract.hyphaAperture)
             statusArea.removeFromLeft (22);
-        g.drawText (connectionText, statusArea.reduced (4, 0),
+        text_style::drawText (g, connectionText, statusArea.reduced (4, 0),
                     juce::Justification::centredRight);
     }
 }
