@@ -25,7 +25,11 @@ namespace hypha::observatory
 class Button final : public juce::TextButton
 {
 public:
-    Button (juce::String text, bool tabIn);
+    // What the button shows: its text, or a drawn menu arrow. The arrow is a path because JUCE 7
+    // draws a label in one typeface with no fallback, and Windows' label fonts have no U+25BE:
+    // the glyph showed there as an empty box.
+    enum class Mark { none, menuArrow };
+    Button (juce::String text, bool tabIn, Mark markIn = Mark::none);
     void setPresentationContext (presentation::Context next) noexcept
     {
         presentationContext = next;
@@ -39,6 +43,7 @@ public:
 
 private:
     bool tab = false;
+    Mark mark = Mark::none;
     presentation::Context presentationContext = presentation::defaultContext();
 };
 
@@ -365,7 +370,7 @@ private:
     Button targetButton { {}, false };
     Button deltaButton { hypha::delta(), false };
     Button timeRangeButton { {}, false };
-    Button timeRangeMenuButton { juce::String::fromUTF8 ("\xe2\x96\xbe"), false };
+    Button timeRangeMenuButton { {}, false, Button::Mark::menuArrow };
     Button compactLoudnessButton { {}, false };
     Button compactRangeButton { {}, false };
     Button contextButton { {}, false };
