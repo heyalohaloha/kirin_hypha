@@ -4,6 +4,7 @@
 
 #include "HyphaPresentationContext.h"
 #include "HyphaSpectrumGeometry.h"
+#include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
 
 namespace hypha::spectrum_delta_mode
@@ -25,8 +26,8 @@ inline void paint (juce::Graphics& g, juce::Rectangle<float> outer, float scale,
     g.setFont (monoFont (context, typography::TextRole::legend,
                          typography::Composition::visualization));
     g.setColour ((shape ? COL_TEXT_SECONDARY : COL_SPECTRUM_DELTA_BR).withAlpha (0.94f));
-    g.drawText ("RAW", raw.toNearestInt(), juce::Justification::centred);
+    text_style::drawText (g, "RAW", raw.toNearestInt(), juce::Justification::centred);
     g.setColour ((shape ? COL_SPECTRUM_DELTA_BR : COL_TEXT_SECONDARY).withAlpha (0.94f));
-    g.drawText ("SHAPE", normalized.toNearestInt(), juce::Justification::centred);
+    text_style::drawText (g, "SHAPE", normalized.toNearestInt(), juce::Justification::centred);
 }
 }

@@ -420,13 +420,13 @@ void paint (juce::Graphics& g,
             g.setColour (COL_MUTED.brighter (0.25f));
             g.setFont (monoFont (presentation, typography::TextRole::axis,
                                  typography::Composition::visualization));
-            g.drawText ("REL", layout.loudnessLabels.getX(), juce::roundToInt (band.getY()),
+            text_style::drawText (g, "REL", layout.loudnessLabels.getX(), juce::roundToInt (band.getY()),
                         layout.loudnessLabels.getWidth() - 2, 12,
                         juce::Justification::centredRight);
-            g.drawText ("PRE", layout.loudnessLabels.getX(), juce::roundToInt (band.getBottom() - 14.0f),
+            text_style::drawText (g, "PRE", layout.loudnessLabels.getX(), juce::roundToInt (band.getBottom() - 14.0f),
                         layout.loudnessLabels.getWidth() - 2, 7,
                         juce::Justification::centredRight);
-            g.drawText ("POST", layout.loudnessLabels.getX(), juce::roundToInt (band.getBottom() - 8.0f),
+            text_style::drawText (g, "POST", layout.loudnessLabels.getX(), juce::roundToInt (band.getBottom() - 8.0f),
                         layout.loudnessLabels.getWidth() - 2, 7,
                         juce::Justification::centredRight);
         }

@@ -147,7 +147,7 @@ namespace
                              [] (uint8_t valid) { return valid != 0u; }))
         {
             g.setColour (COL_MUTED.withAlpha (0.84f));
-            g.drawText ("SHAPE — LOW ENERGY",
+            text_style::drawText (g, juce::String (juce::CharPointer_UTF8 ("SHAPE \xE2\x80\x94 LOW ENERGY")),
                         textArea.withTop (legendTop).withHeight (
                             scaled ((float) ui_contract::spectrumLegendHeight)).toNearestInt(),
                         juce::Justification::centredLeft);

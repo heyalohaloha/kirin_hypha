@@ -9,7 +9,7 @@ POST values	DRUM legend
 +/-1 acum	DRUM lane scale
 0..8 acum	DRUM lane scale
 M / momentary LUFS	LEVEL history legend
-TP / 2 S peak hold / dBTP	LEVEL history legend
+TP / > -1 dBTP events	LEVEL history legend
 PSB / delta pp	PSB legend
 0-24 Bark | LR	PSB axis caption
 POST dBFS / 6s field / 	FREQ legend
@@ -52,3 +52,11 @@ Capture one exact 4 s PRE/POST range	debug builds only
 Capture scheduled; keep playback running for 5 seconds	debug builds only
 Capture not scheduled; reopen Validation facts for the exact reason	debug builds only
 Full song	REF cue name
+CHAIN ACTION / PRE TO POST M	Debug-only CHAIN ACTION legend; a release build never shows it
+Studio Pro	host executable name compared by the chain clock policy; never drawn
+VST3 continuous	host clock source name in validation diagnostics
+AU render	host clock source name in validation diagnostics
+AAX native	host clock source name in validation diagnostics
+dBTP | host project/render clock; measured 100 ms endpoint, not exact peak or guaranteed project time	LEVEL history COPY text; copied, never drawn
+dBTP | delta M	LEVEL history COPY text; copied, never drawn
+LU delta TP	LEVEL history COPY text; copied, never drawn
