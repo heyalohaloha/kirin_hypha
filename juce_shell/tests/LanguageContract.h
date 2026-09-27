@@ -264,12 +264,16 @@ inline void verifyLineBreaking()
     const auto font = nativeTextFontLike (labelFont (presentation::forEditor (300, 200),
                                                      typography::TextRole::body));
     const auto sentence = utf8 (u8"DAW：取り込んだ範囲をもう一度再生してください。次のソースは自動で選ばれます。");
-    // Just too narrow for the closing 。: it must not stand alone at the start of a line.
+    // Just too narrow for the closing 。: it must not stand alone at the start of a line, and
+    // rather than leave "す。" behind, the paragraph breaks between its two sentences.
     const auto width = font.getStringWidthFloat (sentence.dropLastCharacters (1)) + 0.5f;
     const auto lines = text_style::japaneseLines (sentence, font, width);
-    KIRIN_LANGUAGE_REQUIRE (lines.size() == 2 && lines[1] == utf8 (u8"す。"));
-    for (const auto& line : lines)
-        KIRIN_LANGUAGE_REQUIRE (! line.startsWith (utf8 (u8"。")));
+    KIRIN_LANGUAGE_REQUIRE (lines.size() == 2
+                            && lines[0] == utf8 (u8"DAW：取り込んだ範囲をもう一度再生してください。")
+                            && lines[1] == utf8 (u8"次のソースは自動で選ばれます。"));
+    for (auto narrow = 60.0f; narrow < 400.0f; narrow += 5.0f)
+        for (const auto& line : text_style::japaneseLines (sentence, font, narrow))
+            KIRIN_LANGUAGE_REQUIRE (! line.startsWith (utf8 (u8"。")) && ! line.startsWith (utf8 (u8"、")));
 
     const auto brand = utf8 (u8"「Kirin OSについて」：製品、試用、購入の情報です。");
     for (auto narrow = 40.0f; narrow < 200.0f; narrow += 7.0f)

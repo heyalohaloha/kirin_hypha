@@ -117,6 +117,7 @@ juce::StringArray japaneseLines (const juce::String& text, const juce::Font& fon
     { return font.getStringWidthFloat (line.trimEnd()) <= width; };
     for (const auto& paragraph : paragraphs)
     {
+        const auto first = lines.size();
         juce::String line;
         for (const auto& unit : breakUnits (paragraph))
         {
@@ -137,6 +138,25 @@ juce::StringArray japaneseLines (const juce::String& text, const juce::Font& fon
             }
         }
         lines.add (line.trimEnd());
+        // A last line of a few characters ("す。") reads as a broken word: when the line before
+        // holds a sentence or clause break, the paragraph breaks there instead, if both still fit.
+        const auto last = lines.size() - 1;
+        if (last > first && font.getStringWidthFloat (lines[last]) < width * 0.3f)
+        {
+            const auto& previous = lines.getReference (last - 1);
+            static const auto clauseEnds = juce::String::fromUTF8 (u8"。、！？ ");
+            for (auto split = previous.length() - 1; split > 0; --split)
+            {
+                if (! clauseEnds.containsChar (previous[split - 1]))
+                    continue;
+                const auto moved = previous.substring (split).trimStart() + lines[last];
+                if (! fits (moved))
+                    break;
+                lines.set (last, moved);
+                lines.set (last - 1, previous.substring (0, split).trimEnd());
+                break;
+            }
+        }
     }
     return lines;
 }
