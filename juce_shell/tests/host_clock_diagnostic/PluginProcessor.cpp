@@ -1,4 +1,5 @@
 #include "ClockTrace.h"
+#include "../../src/HyphaTheme.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <cstring>
 
@@ -81,7 +82,8 @@ public:
 private:
     double rate = 0;
 };
-Editor::Editor (Processor& processor) : AudioProcessorEditor (processor), owner (processor)
+Editor::Editor (Processor& processorOwner)
+    : AudioProcessorEditor (processorOwner), owner (processorOwner)
 {
     addAndMakeVisible (start); addAndMakeVisible (save);
     start.onClick = [this] { owner.trace.start(); start.setEnabled (false); };
@@ -119,12 +121,16 @@ void Editor::resized()
 }
 void Editor::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colours::black); g.setColour (juce::Colours::white); g.setFont (16.0f);
+    g.fillAll (juce::Colours::black);
+    g.setColour (juce::Colours::white);
+    const auto context = hypha::presentation::forEditor (getWidth(), getHeight());
+    g.setFont (hypha::labelFont (context, hypha::typography::TextRole::body,
+                                hypha::typography::Composition::information));
     auto text = juce::String ("CLOCK DIAGNOSTIC ONLY / NOT HYPHA PRODUCT\n")
         + "Instance " + owner.instance.substring (0, 12) + "\n"
         + "Callbacks " + juce::String (owner.trace.size()) + " / " + juce::String (owner.trace.capacity())
         + "\nRaw clock evidence, not PDC qualification\n" + result;
-    g.drawFittedText (text, 20, 15, 460, 160, juce::Justification::topLeft, 7);
+    g.drawMultiLineText (text, 20, 15, 460, juce::Justification::topLeft);
 }
 }
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new Processor(); }

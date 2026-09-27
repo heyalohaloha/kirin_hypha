@@ -15,7 +15,9 @@ juce_add_plugin(HyphaClockDiagnostic
     COMPANY_NAME Kirin BUNDLE_ID com.kirinmastering.clock-diagnostic
     VST3_CATEGORIES Fx Tools IS_SYNTH FALSE NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE IS_MIDI_EFFECT FALSE COPY_PLUGIN_AFTER_BUILD FALSE)
-target_sources(HyphaClockDiagnostic PRIVATE PluginProcessor.cpp)
+target_sources(HyphaClockDiagnostic PRIVATE
+    PluginProcessor.cpp
+    ../../src/HyphaTypography.cpp)
 target_compile_definitions(HyphaClockDiagnostic PUBLIC
     NOMINMAX=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0 KIRIN_HYPHA_PRESENTATION_CLOCK=1)
