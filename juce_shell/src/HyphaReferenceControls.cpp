@@ -18,8 +18,8 @@ void Component::SideButton::paintButton (juce::Graphics& g, bool highlighted, bo
     const bool selected = getToggleState();
     const bool separateTrial = getComponentID() == "reference-blind";
     const auto accent = separateTrial ? COL_FLORA_BR : COL_SPECTRUM_DELTA_BR;
-    surface_material::paintControl (g, area, highlighted, down, selected, accent, 4.0f);
-    g.setColour (! isEnabled() ? COL_MUTED.withAlpha (0.32f)
+    surface_material::paintControl (g, area, highlighted && ready, down && ready, selected, accent, 4.0f);
+    g.setColour (! isEnabled() || ! ready ? COL_MUTED.withAlpha (0.32f)
                                : selected ? COL_OBSERVATORY_VALUE
                                           : separateTrial ? COL_FLORA_BR : COL_NORMAL);
     g.setFont (labelFont (presentationContext, typography::TextRole::action,

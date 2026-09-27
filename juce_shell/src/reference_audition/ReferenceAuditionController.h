@@ -85,7 +85,7 @@ namespace hypha::reference_audition
         std::vector<RuntimeSelectionOption> cues;
         std::vector<RuntimeSelectionOption> versions;
         std::vector<RuntimeSelectionOption> checkTargets;
-        std::shared_ptr<const Snapshot> checkSelection;
+        std::shared_ptr<const Snapshot> checkSelection, versionSelection;
         juce::String selectedVersionId, migratedVersionChoice;
         bool separateComparisons = false, versionReady = false, checkReady = false;
         int comparisonSlot = 2, audibleComparisonSlot = 0;

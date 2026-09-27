@@ -115,7 +115,7 @@ Component::Component()
         if (id.isNotEmpty() && id != current.cueId && onSelectCue) onSelectCue (id);
     };
     aButton.onClick = [this] { if (onSelectA) onSelectA(); };
-    bButton.onClick = [this] { if (onSelectB) onSelectB(); };
+    bButton.onClick = [this] { if (! explainUnavailable (true) && onSelectB) onSelectB(); };
     blindButton.onClick = [this] { if (onStartBlind) onStartBlind(); };
     oneButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (1); };
     twoButton.onClick = [this] { if (onSelectBlindStimulus) onSelectBlindStimulus (2); };
@@ -127,7 +127,7 @@ Component::Component()
     revealButton.onClick = [this] { if (onRevealBlind) onRevealBlind(); };
     endBlindButton.onClick = [this] { if (onEndBlind) onEndBlind(); };
     actionButton.onClick = [this] { if (onAction) onAction(); };
-    cButton.onClick = [this] { if (onSelectC) onSelectC(); };
+    cButton.onClick = [this] { if (! explainUnavailable (false) && onSelectC) onSelectC(); };
     versionBox.onChange = [this]
     { if (onSelectVersion) onSelectVersion (selectedOptionId (versionBox, current.versions)); };
     for (size_t i = 0; i < selectionReadouts.size(); ++i)
@@ -174,10 +174,7 @@ void Component::setState (State next)
     bButton.setToggleState (current.bSelected && (! current.separateComparisons
         || current.audibleComparisonSlot == 1), juce::dontSendNotification);
     cButton.setToggleState (current.bSelected && current.audibleComparisonSlot == 2, juce::dontSendNotification);
-    const bool sourcesAllowed = current.osAccess != os_access::State::unowned
-        && current.libraryReceived && current.aAvailable;
-    bButton.setEnabled (current.separateComparisons ? sourcesAllowed && current.versionReady : canSelectB (current));
-    cButton.setEnabled (sourcesAllowed && current.checkReady);
+    syncSourceButtons();
     aButton.setVisible (! blindSession);
     bButton.setVisible (! blindSession);
     cButton.setVisible (! blindSession && current.separateComparisons);
@@ -233,11 +230,11 @@ void Component::setState (State next)
     workflowControls.setVisible(!blindSession&&(current.workflow.reviewAvailable
         ||current.workflow.bookmarkAvailable
         ||current.workflow.mode!=reference_audition::WorkflowView::Mode::normal));
-    comparisonView.setVisible (current.separateComparisons && (current.comparisonSlot == 1 || (current.captureAccess && current.captureAccess->capturedView)) && !blindSession);
+    comparisonView.setVisible (! guideShown && current.separateComparisons && (current.comparisonSlot == 1 || (current.captureAccess && current.captureAccess->capturedView)) && !blindSession);
     comparisonView.update (current.visualTimeline, current.visualPositionSeconds, presentationContext, blindSession, current.visualPreferences);
     const bool tonalSelected = std::find (current.viewBindings.begin(), current.viewBindings.end(),
                                           "balance") != current.viewBindings.end();
-    tonalView.setVisible (! blindSession && ! comparisonView.isVisible() && tonalSelected);
+    tonalView.setVisible (! guideShown && ! blindSession && ! comparisonView.isVisible() && tonalSelected);
     tonalView.update (current.visualTimeline, presentationContext, blindSession,
                       current.candidateName, current.cueLabel);
     resized();
@@ -252,6 +249,7 @@ bool Component::detailedLayout() const noexcept
 
 void Component::paint (juce::Graphics& g)
 {
+    lastGuideFit = {};
     auto area = panelArea();
     auto header = area.removeFromTop (panelHeaderHeight());
     const bool blindActive = current.blindPhase == BlindPhase::active;
@@ -275,6 +273,7 @@ void Component::paint (juce::Graphics& g)
         };
         label (versionBox, detailedLayout() ? "B / VERSION" : "B");
         label (checkBox, detailedLayout() ? "C / CHECK" : "C");
+        if (detailedLayout() && ! guideShown) paintSourceHints (g);
         if (detailedLayout()) { if (selectionVisible (presetBox)) label (presetBox, "PRESET"); if (selectionVisible (cueBox)) label (cueBox, "CUE"); }
     }
     else if (detailedLayout() && ! blindSession)
@@ -430,8 +429,19 @@ void Component::paint (juce::Graphics& g)
     if (detailedLayout() && current.bSelected)
         primaryStatusArea = gainStatusArea.removeFromLeft (
             juce::roundToInt (gainStatusArea.getWidth() * 0.42f));
-    text_style::drawEllipsized (g, statusText, primaryStatusArea.reduced (4, 0),
-                                juce::Justification::centredLeft);
+    // The guide already says the next step; the line stays for a rejection or an action.
+    const bool statusShown = ! guideShown || current.readiness == Readiness::rejected
+                          || actionButton.isVisible();
+    if (statusShown)
+        text_style::drawEllipsized (g, statusText, primaryStatusArea.reduced (4, 0),
+                                    juce::Justification::centredLeft);
+    if (guideShown)
+    {
+        const bool footerFree = ! statusShown && ! blindButton.isVisible();
+        lastGuideFit = paintGuide (g, footerFree ? area.getUnion (statusArea) : area, guide (current),
+                                   presentationContext);
+        return;
+    }
 
     if (detailedLayout())
     {

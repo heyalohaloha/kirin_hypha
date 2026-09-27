@@ -12,6 +12,7 @@
 
 #include "HyphaOsAccess.h"
 #include "HyphaPresentationContext.h"
+#include "HyphaReferenceGuide.h"
 #include "HyphaReferenceSelectorLookAndFeel.h"
 #include "HyphaReferenceComparisonView.h"
 #include "HyphaReferenceTonalView.h"
@@ -66,6 +67,8 @@ struct State
 {
     bool osOnline = false, libraryReceived = false, blindLargeScreen = true;
     bool separateComparisons = false, versionReady = false, checkReady = false;
+    // Where B and C each stand, whichever of them the page shows (the guide names both).
+    SourceStep versionStep = SourceStep::waitingForKirinOs, checkStep = SourceStep::waitingForKirinOs;
     int comparisonSlot = 2, audibleComparisonSlot = 0;
     juce::String versionId;
     std::vector<SelectionOption> versions;
@@ -144,6 +147,21 @@ inline bool canStartBlind (const State& state) noexcept
         && ! state.blindLowerAApprovalRequired && canSelectB (state);
 }
 
+// B and C as their buttons deliver them: Kirin OS has sent the library, the DAW plays A, and the
+// source itself is ready.
+inline bool canHearVersion (const State& state) noexcept
+{
+    const bool sources = state.osAccess != os_access::State::unowned
+        && state.libraryReceived && state.aAvailable;
+    return state.separateComparisons ? sources && state.versionReady : canSelectB (state);
+}
+
+inline bool canHearCheck (const State& state) noexcept
+{
+    return state.separateComparisons && state.osAccess != os_access::State::unowned
+        && state.libraryReceived && state.aAvailable && state.checkReady;
+}
+
 class Component final : public juce::Component
 {
 public:
@@ -181,10 +199,14 @@ public:
     std::function<void()> onStartReview, onStartBookmark, onWorkflowBack;
     std::function<void()> onWorkflowConfirmed, onWorkflowDeferred, onWorkflowEnd;
     std::function<void(double,double)> onCapturedTonalRange;
+    // A B or C that cannot be heard yet says why when it is clicked.
+    std::function<void(const juce::String&)> onExplain;
 
     void setState (State);
     const State& state() const noexcept { return current; }
     bool detailedLayout() const noexcept;
+    // Whether the last paint showed the guide whole (HyphaReferenceGuide.h); checked by the tests.
+    const GuideFit& guideFit() const noexcept { return lastGuideFit; }
     bool shortPanel() const noexcept { return getHeight()<150 && !isBlindSession(current.blindPhase); }
     int panelHeaderHeight() const noexcept { return shortPanel() ? 20 : detailedLayout() ? 42 : 34; }
     int panelPickerHeight() const noexcept { return shortPanel() ? 18 : 24; }
@@ -203,13 +225,18 @@ private:
         {
             presentationContext = next;
         }
+        // Not ready yet: drawn like a disabled button, but a click still reaches onClick to explain.
+        void setReady (bool next) { if (ready != next) { ready = next; repaint(); } }
         void paintButton (juce::Graphics&, bool highlighted, bool down) override;
 
     private:
         presentation::Context presentationContext = presentation::defaultContext();
+        bool ready = true;
     };
 
     State current;
+    bool guideShown = false;
+    GuideFit lastGuideFit;
     ComparisonView comparisonView;
     TonalView tonalView;
     CaptureControls captureControls;
@@ -235,6 +262,11 @@ private:
     SideButton actionButton { "OPEN KIRIN OS" };
 
     bool selectionVisible (const juce::ComboBox&) const;
+    // B and C while they cannot be heard: dimmed, with the reason on hover and after a click, and
+    // the guide in the comparison's place when neither can (HyphaReferenceGuide.cpp).
+    void syncSourceButtons();
+    bool explainUnavailable (bool version);
+    void paintSourceHints (juce::Graphics&) const;
     void layoutSelectionReadouts();
     void syncSelectionControl (juce::ComboBox&, const std::vector<SelectionOption>&,
                                const juce::String& selectedId);
