@@ -22,7 +22,7 @@ Date: 2026-08-31
 
 現行PRE/POST画像は `docs/media/kirin-hypha-pre-post.jpg` を参照する。
 
-当時の菌糸背景は旧`bg_mycelium.png`を参照した。B-1011以降の製品背景は`crates/hypha_gui/assets/observatory_understory.png`へ統一している。
+現行菌糸背景は `crates/hypha_gui/assets/bg_mycelium.png` を参照する。
 
 ATTACK baseline内の現行Analysis画面は`docs/media/kirin-hypha-freq.jpg`、`docs/media/kirin-hypha-sharp.jpg`、`docs/media/kirin-hypha-live.jpg`を参照する。
 

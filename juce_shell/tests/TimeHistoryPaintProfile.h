@@ -28,6 +28,7 @@ inline void profileTimeHistoryPaint (const std::vector<KirinMeterHistoryEntry>& 
                   << (juce::Time::getMillisecondCounterHiRes() - start) / 30 << " ms\n";
     };
     measure ("backdrop", [&] { backdrop.draw (graphics, image.getBounds(), state); });
+    measure ("specimen", [&] { backdrop.drawHyphaSpecimen (graphics, view.bodyBounds(), state); });
     measure ("domain", [&] { observatory_world::paintDomainBed (graphics, view.bodyBounds(), state); });
     measure ("graph", [&] { time_history::paint (graphics, graph, history, "", false, false,
                                                 meter_context::ScaleMode::wide,

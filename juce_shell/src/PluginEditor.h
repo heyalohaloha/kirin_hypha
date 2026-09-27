@@ -189,7 +189,7 @@ private:
     juce::Component scaleRoot;
     hypha::observatory::View observatoryView;
 
-    hypha::ProductBackground bg;
+    hypha::MyceliumBackground bg;
     hypha::StatusLed          led;
     hypha::EditableName       nameField;                  // PRE name / POST exact-pair selector
     hypha::FeedbackStrip      feedbackStrip;              // compact sizes: toast > persistent error > Keeping

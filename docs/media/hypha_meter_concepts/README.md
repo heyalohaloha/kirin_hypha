@@ -9,7 +9,7 @@ Mode: reference-guided image generation
 ## References
 
 1. `docs/media/kirin-hypha-pre-post.jpg`
-2. 旧`bg_mycelium.png`（B-1011で製品ソースから除去。履歴はB-1010以前を参照）
+2. `crates/hypha_gui/assets/bg_mycelium.png`
 
 The generator used the copies at the original Hypha worktree path.
 

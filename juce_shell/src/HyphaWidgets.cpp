@@ -111,20 +111,22 @@ namespace hypha
         g.fillPath (arrow);
     }
 
-    // ── ProductBackground ────────────────────────────────────────────────────────────────
-    ProductBackground::ProductBackground()
+    // ── MyceliumBackground ───────────────────────────────────────────────────────────────
+    MyceliumBackground::MyceliumBackground()
     {
-        image = juce::ImageFileFormat::loadFrom (
-            BinaryData::observatory_understory_png,
-            static_cast<size_t> (BinaryData::observatory_understory_pngSize));
+        image = juce::ImageFileFormat::loadFrom (BinaryData::bg_mycelium_png,
+                                                 (size_t) BinaryData::bg_mycelium_pngSize);
     }
 
-    void ProductBackground::draw (juce::Graphics& g, juce::Rectangle<int> area) const
+    void MyceliumBackground::draw (juce::Graphics& g, juce::Rectangle<int> area) const
     {
         g.setColour (BG);
-        g.fillRect (area);
+        g.fillRect (area); // fallback / behind a non-opaque image
         if (image.isValid())
+        {
+            // Opaque, stretched to fill (300×200 asset == window, so 1:1). LINEAR by default.
             g.drawImage (image, area.toFloat(), juce::RectanglePlacement::stretchToFit);
+        }
     }
 
     // ── EditableName ─────────────────────────────────────────────────────────────────────

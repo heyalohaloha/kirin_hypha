@@ -119,8 +119,9 @@ if(KIRIN_HYPHA_AAX_ENABLED)
     juce_set_aax_sdk_path("${KIRIN_HYPHA_AAX_SDK_PATH}")
 endif()
 
-# Embed the current Observatory background as BinaryData so every editor surface uses the same
-# plate without a runtime file dependency. Shared by both plugin targets and compatibility views.
+# B-054: embed the mycelium background PNG (the same GPLv3 asset egui uses:
+# crates/hypha_gui/assets/bg_mycelium.png, 300×200, brightness ~15%) as BinaryData so the
+# editor can draw it without a runtime file dependency. Shared by both plugin targets.
 #
 # Waldenburg Book is commercial Font Software and must never enter this GPL source tree. A release
 # owner with the separate Kimera App License supplies the original OTF at configure time. CMake

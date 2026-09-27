@@ -1,6 +1,6 @@
-//! 背景テクスチャ — 1536×1024 Observatory PNG。
+//! 背景テクスチャ — 300×200 菌糸 PNG（brightness 15%）。
 //!
-//! PNG は `assets/observatory_understory.png` から `include_bytes!` で埋め込む。
+//! PNG は `assets/bg_mycelium.png` から `include_bytes!` で埋め込む。
 //! decode は `BackgroundTexture` 1 個につき 1 回のみ（`ColorImage` を保持）。
 //!
 //! # ライフサイクル対応
@@ -13,7 +13,7 @@
 
 use nih_plug_egui::egui::{self, Color32, ColorImage, Context, TextureHandle, TextureOptions};
 
-const BG_BYTES: &[u8] = include_bytes!("../assets/observatory_understory.png");
+const BG_BYTES: &[u8] = include_bytes!("../assets/bg_mycelium.png");
 
 /// 背景テクスチャのロード状態。エディタ state に 1 つ置く。
 pub struct BackgroundTexture {
@@ -63,7 +63,7 @@ impl BackgroundTexture {
         if need_reload {
             if let Some(img) = self.image.as_ref() {
                 self.handle = Some(ctx.load_texture(
-                    "hypha_observatory_understory",
+                    "hypha_bg_mycelium",
                     img.clone(),
                     TextureOptions::LINEAR,
                 ));
@@ -131,20 +131,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn embedded_png_decodes_to_observatory_plate() {
+    fn embedded_png_decodes_to_300x200() {
         let img = decode_png(BG_BYTES).expect("decode failed");
-        assert_eq!(img.size, [1536, 1024]);
+        assert_eq!(img.size, [300, 200]);
     }
 
     // ── U-8 / G-60-03: CE 2226 PNG アセット描画系の安全網 ────────────────
 
-    /// 埋込 PNG の RGBA ピクセル数が1536×1024になること。
+    /// 埋込 PNG の RGBA ピクセル数が 300×200×4 になること。
     /// `Vec<Color32>` ではなく size + alpha/RGB ピクセル列の妥当性を直接確認。
     #[test]
     fn embedded_png_pixels_are_well_formed() {
         let img = decode_png(BG_BYTES).expect("decode failed");
-        assert_eq!(img.pixels.len(), 1536 * 1024, "1536x1024 pixel count");
-        // Observatory plateは不透明で、UIを支える暗部が画面の過半を占める。
+        assert_eq!(img.pixels.len(), 300 * 200, "300x200 pixel count");
+        // 暗い菌糸テクスチャ → 各ピクセルのアルファは不透明に近いこと（>=128）
+        // かつ RGB は低輝度側に寄っている（brightness ~15% = RGB <= 96 目安）
         let mut bright = 0usize;
         for p in &img.pixels {
             if p.a() < 128 {
