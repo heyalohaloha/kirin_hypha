@@ -257,6 +257,39 @@ inline void verifyDrawing()
                                             .getStringWidthFloat (utf8 (u8"待機中"))) < 0.01f);
 }
 
+// Japanese breaks where Japanese may break: no line starts with closing punctuation, none ends with
+// an opening bracket, and a Latin word stays whole.
+inline void verifyLineBreaking()
+{
+    const auto font = nativeTextFontLike (labelFont (presentation::forEditor (300, 200),
+                                                     typography::TextRole::body));
+    const auto sentence = utf8 (u8"DAW：取り込んだ範囲をもう一度再生してください。次のソースは自動で選ばれます。");
+    // Just too narrow for the closing 。: it must not stand alone at the start of a line.
+    const auto width = font.getStringWidthFloat (sentence.dropLastCharacters (1)) + 0.5f;
+    const auto lines = text_style::japaneseLines (sentence, font, width);
+    KIRIN_LANGUAGE_REQUIRE (lines.size() == 2 && lines[1] == utf8 (u8"す。"));
+    for (const auto& line : lines)
+        KIRIN_LANGUAGE_REQUIRE (! line.startsWith (utf8 (u8"。")));
+
+    const auto brand = utf8 (u8"「Kirin OSについて」：製品、試用、購入の情報です。");
+    for (auto narrow = 40.0f; narrow < 200.0f; narrow += 7.0f)
+        for (const auto& line : text_style::japaneseLines (brand, font, narrow))
+        {
+            KIRIN_LANGUAGE_REQUIRE (! line.endsWith (utf8 (u8"「")));
+            KIRIN_LANGUAGE_REQUIRE (! line.startsWith (utf8 (u8"」")) && ! line.startsWith (utf8 (u8"、")));
+            KIRIN_LANGUAGE_REQUIRE (! line.endsWith ("Kiri") && ! line.startsWith ("rin"));
+        }
+    // The height is those lines with a fifth of a line between them.
+    for (const auto columns : { 1000, 160, 90 })
+    {
+        const auto count = static_cast<float> (
+            text_style::japaneseLines (sentence, font, static_cast<float> (columns)).size());
+        KIRIN_LANGUAGE_REQUIRE (std::abs (text_style::wrappedHeight (sentence, font, columns)
+                                          - (count * font.getHeight() + (count - 1.0f) * 0.2f * font.getHeight()))
+                                < 0.01f);
+    }
+}
+
 // JUCE's own label and button text goes through the same translation, sized in the native font.
 inline void verifyLookAndFeel()
 {
@@ -318,6 +351,7 @@ inline void verifyLanguageContract()
     language_contract::verifyWidths();
     language_contract::verifyPreference();
     language_contract::verifyDrawing();
+    language_contract::verifyLineBreaking();
     language_contract::verifyLookAndFeel();
 }
 }

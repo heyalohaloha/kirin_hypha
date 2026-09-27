@@ -53,17 +53,112 @@ juce::String ellipsizedText (const juce::String& text, const juce::Font& font, f
     return text.substring (0, low).trimEnd() + marker;
 }
 
+namespace
+{
+// Japanese line breaking: a line never starts with closing punctuation or a small kana, never
+// ends with an opening bracket, and a Latin word ("Kirin OS", "PRE") never breaks inside.
+bool opensNoLine (juce::juce_wchar character) noexcept
+{
+    static const auto marks = juce::String::fromUTF8 (
+        u8"、。，．・：；？！ー」』）】〕〉》…‥ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ");
+    return marks.containsChar (character) || juce::String (",.)]!?:;").containsChar (character);
+}
+
+bool closesNoLine (juce::juce_wchar character) noexcept
+{
+    static const auto marks = juce::String::fromUTF8 (u8"「『（【〔〈《");
+    return marks.containsChar (character) || character == '(' || character == '[';
+}
+
+bool latinWord (juce::juce_wchar character) noexcept
+{
+    return character != ' ' && character < 0x2e80;
+}
+
+// The pieces a line may break between: one kana or kanji at a time, a whole Latin word, with
+// the punctuation and brackets that must stay beside them.
+juce::StringArray breakUnits (const juce::String& paragraph)
+{
+    juce::StringArray units;
+    juce::String unit;
+    juce::juce_wchar previous = 0;
+    for (auto cursor = paragraph.getCharPointer(); ! cursor.isEmpty(); ++cursor)
+    {
+        const auto character = *cursor;
+        const auto joins = unit.isNotEmpty()
+            && (opensNoLine (character) || closesNoLine (previous)
+                || (latinWord (character) && latinWord (previous)));
+        if (! joins && unit.isNotEmpty())
+        {
+            units.add (unit);
+            unit.clear();
+        }
+        unit += juce::String::charToString (character);
+        if (character == ' ')
+        {
+            units.add (unit);
+            unit.clear();
+        }
+        previous = character;
+    }
+    if (unit.isNotEmpty())
+        units.add (unit);
+    return units;
+}
+
+}
+
+juce::StringArray japaneseLines (const juce::String& text, const juce::Font& font, float width)
+{
+    juce::StringArray lines;
+    juce::StringArray paragraphs;
+    paragraphs.addTokens (text, "\n", {});
+    const auto fits = [&font, width] (const juce::String& line)
+    { return font.getStringWidthFloat (line.trimEnd()) <= width; };
+    for (const auto& paragraph : paragraphs)
+    {
+        juce::String line;
+        for (const auto& unit : breakUnits (paragraph))
+        {
+            if (line.isNotEmpty() && ! fits (line + unit))
+            {
+                lines.add (line.trimEnd());
+                line.clear();
+            }
+            line += unit;
+            // A piece wider than the whole line (a long Latin word) breaks where it overflows.
+            while (! fits (line) && line.length() > 1)
+            {
+                auto length = line.length() - 1;
+                while (length > 1 && ! fits (line.substring (0, length)))
+                    --length;
+                lines.add (line.substring (0, length));
+                line = line.substring (length);
+            }
+        }
+        lines.add (line.trimEnd());
+    }
+    return lines;
+}
+
+namespace
+{
+float lineLeading (const juce::Font& font)
+{
+    return font.getHeight() * 0.2f;
+}
+}
+
 float wrappedHeight (const juce::String& shown, const juce::Font& font, int width)
 {
-    // Japanese has no spaces to break at, and drawMultiLineText then breaks at the character that
-    // overflows. Measure with the same line breaking so the block stays centred on its lines.
+    // Japanese is broken into lines here, by the rules above, and drawn line by line: the height
+    // is those lines with a fifth of a line between them.
     if (requiresJapaneseGlyphs (shown))
     {
-        juce::GlyphArrangement arrangement;
-        arrangement.addJustifiedText (font, shown, 0.0f, 0.0f, static_cast<float> (width),
-                                      juce::Justification::left, font.getHeight() * 0.2f);
-        return arrangement.getNumGlyphs() > 0
-            ? arrangement.getBoundingBox (0, -1, true).getHeight() : 0.0f;
+        const auto count = japaneseLines (shown, font, static_cast<float> (width)).size();
+        return count > 0 ? static_cast<float> (count) * font.getHeight()
+                               + static_cast<float> (count - 1) * lineLeading (font)
+                         : 0.0f;
     }
     juce::AttributedString attributed;
     attributed.append (shown, font, juce::Colours::white);
@@ -91,11 +186,6 @@ private:
     std::optional<juce::Graphics::ScopedSaveState> saved;
 };
 
-float lineLeading (const juce::String& text, const juce::Font& font)
-{
-    return requiresJapaneseGlyphs (text) ? font.getHeight() * 0.2f : 0.0f;
-}
-
 void drawWrapped (juce::Graphics& graphics, const juce::String& text,
                   juce::Rectangle<int> area, juce::Justification justification)
 {
@@ -106,14 +196,29 @@ void drawWrapped (juce::Graphics& graphics, const juce::String& text,
     const auto offset = justification.testFlags (juce::Justification::top) ? 0.0f
                       : justification.testFlags (juce::Justification::bottom) ? free
                                                                              : free * 0.5f;
-    const auto baseline = area.getY() + juce::roundToInt (offset + font.getAscent());
+    juce::Graphics::ScopedSaveState saved (graphics);
+    graphics.reduceClipRegion (area);
+    if (requiresJapaneseGlyphs (text))
+    {
+        const auto row = font.getHeight() + lineLeading (font);
+        auto top = static_cast<float> (area.getY()) + offset;
+        for (const auto& line : japaneseLines (text, font, static_cast<float> (area.getWidth())))
+        {
+            graphics.drawText (line, juce::Rectangle<float> (static_cast<float> (area.getX()), top,
+                                                             static_cast<float> (area.getWidth()),
+                                                             font.getHeight()),
+                               justification.getOnlyHorizontalFlags()
+                                   | juce::Justification::verticallyCentred,
+                               false);
+            top += row;
+        }
+        return;
+    }
     // drawMultiLineText justifies each line inside [x, x + width], so the box starts at the area's
     // left edge whatever the justification. Starting it at the centre put a centred status half
     // outside the area, where the clip cut "INACTIVE" to "INAC".
-    juce::Graphics::ScopedSaveState saved (graphics);
-    graphics.reduceClipRegion (area);
-    graphics.drawMultiLineText (text, area.getX(), baseline, area.getWidth(), justification,
-                                lineLeading (text, font));
+    const auto baseline = area.getY() + juce::roundToInt (offset + font.getAscent());
+    graphics.drawMultiLineText (text, area.getX(), baseline, area.getWidth(), justification);
 }
 
 template <typename Area>
