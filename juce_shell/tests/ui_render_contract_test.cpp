@@ -2,7 +2,6 @@
 #include "../src/HyphaAnalysisNavigation.h"
 #include "../src/HyphaAnalysisUiText.h"
 #include "../src/HyphaHoverHelpPreference.h"
-#include "../src/HyphaChainClockPolicy.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include "../src/HyphaSpectrumGeometry.h"
 #include "../src/HyphaSurfaceMaterial.h"
@@ -32,6 +31,7 @@
 #include "ReferenceAuditionComponentContractTest.h"
 #include "OsAccessUiContractTest.h"
 #include "UiFeatureContracts.h"
+#include "ChainClockPolicyContract.h"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -136,20 +136,7 @@ using hypha::tests::renderMidSideSpectrumAtSize;
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    using Wrapper = juce::AudioProcessor;
-    using hypha::chain_clock_policy::classify;
-    KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_VST3, "Studio Pro", "8.1.2.113407")
-                   == KIRIN_CHAIN_CLOCK_POLICY_STUDIO_PRO_812_WINDOWS_VST3);
-    KIRIN_REQUIRE (classify (false, Wrapper::wrapperType_VST3, "Studio Pro", "8.1.2.113407") == 0);
-    KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_AAX, "Studio Pro", "8.1.2.113407") == 0);
-    KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_VST3, "Studio Pro", "8.1.2.113408") == 0);
-    KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_VST3, "Other Host", "8.1.2.113407") == 0);
-   #if ! JUCE_DEBUG
-    // A release build certifies no host, so CHAIN ACTION never reaches the product screen.
-    for (const auto wrapper : { Wrapper::wrapperType_VST3, Wrapper::wrapperType_AudioUnit,
-                                Wrapper::wrapperType_AAX })
-        KIRIN_REQUIRE (hypha::chain_clock_policy::current (wrapper) == KIRIN_CHAIN_CLOCK_POLICY_UNKNOWN);
-   #endif
+    hypha::tests::verifyChainClockPolicy();
     if (std::getenv ("HYPHA_SHAPE_ONLY") != nullptr)
     { hypha::tests::verifySpectrumShapeContract (KirinSpectrumView {}); return 0; }
     const auto previews = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
