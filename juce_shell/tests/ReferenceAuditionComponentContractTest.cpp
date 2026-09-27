@@ -6,6 +6,7 @@
 #include "MetricPresentationWorkflowTest.h"
 #include "PairPreviewUiContractTest.h"
 #include "ReferenceTonalViewContractTest.h"
+#include "ReferenceGuideContractTest.h"
 
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaReferenceComponent.h"
@@ -432,7 +433,13 @@ void verifyReferenceAuditionComponentContract()
     abc.osAccess = os_access::State::connectedUnprepared;
     abc.checkReady = false;
     component.setState (abc);
-    KIRIN_REF_REQUIRE (b->isEnabled() && ! c->isEnabled() && a->isEnabled());
+    // C cannot be heard yet: it stays clickable and says why instead of selecting (INV-S41).
+    juce::String explained;
+    component.onExplain = [&explained] (const juce::String& reason) { explained = reason; };
+    requestedC = false;
+    c->onClick();
+    KIRIN_REF_REQUIRE (b->isEnabled() && c->isEnabled() && a->isEnabled() && ! requestedC
+                       && explained.startsWith ("C: "));
     abc.readiness = reference_ui::Readiness::ready;
     abc.osAccess = os_access::State::ready;
     abc.comparisonSlot = 1; abc.audibleComparisonSlot = 0; abc.bSelected = false;
@@ -454,6 +461,7 @@ void verifyReferenceAuditionComponentContract()
     verifyMetricPresentationWorkflow();
     verifyPairPreviewUiContract();
     verifyReferenceSelectionWorkflow (readyState());
+    verifyReferenceGuideContract();
 
     const auto compositePath = juce::SystemStats::getEnvironmentVariable (
         "KIRIN_REFERENCE_UI_COMPOSITE_OUTPUT", {});

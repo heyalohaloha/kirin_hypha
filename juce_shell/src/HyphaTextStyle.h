@@ -28,6 +28,9 @@ juce::StringArray japaneseLines (const juce::String& shown, const juce::Font&, f
 // drawLines and the wrapping roles draw it: Japanese breaks anywhere and keeps a fifth of a line
 // between lines, since it has no spaces or descenders to separate them.
 float wrappedHeight (const juce::String& shown, const juce::Font&, int width);
+// The height drawLines gives `text` at `width`: in the current language, and in the native font
+// when that is Japanese.
+float shownWrappedHeight (const juce::String& text, const juce::Font&, int width);
 // Up to `maximumLines` lines, wrapped at spaces (or anywhere in Japanese) and never compressed.
 void drawLines (juce::Graphics&, const juce::String&, juce::Rectangle<int>,
                 juce::Justification, int maximumLines);

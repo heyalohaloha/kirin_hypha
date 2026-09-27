@@ -95,5 +95,22 @@ public:
                                    { leftIndent, yIndent, textWidth, button.getHeight() - yIndent * 2 },
                                    juce::Justification::centred, 2);
     }
+
+    // A combo box's "nothing selected" text ("Choose Version") is drawn here, not by its label:
+    // English as JUCE draws it, Japanese with LookAndFeel_V2's geometry and colour.
+    void drawComboBoxTextWhenNothingSelected (juce::Graphics& g, juce::ComboBox& box,
+                                              juce::Label& label) override
+    {
+        if (! requiresJapaneseGlyphs (text_style::shownText (box.getTextWhenNothingSelected())))
+        {
+            juce::LookAndFeel_V4::drawComboBoxTextWhenNothingSelected (g, box, label);
+            return;
+        }
+        g.setColour (findColour (juce::ComboBox::textColourId).withMultipliedAlpha (0.5f));
+        g.setFont (nativeTextFontLike (label.getLookAndFeel().getLabelFont (label)));
+        text_style::drawText (g, box.getTextWhenNothingSelected(),
+                              getLabelBorderSize (label).subtractedFrom (label.getBounds()),
+                              label.getJustificationType());
+    }
 };
 }

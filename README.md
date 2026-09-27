@@ -517,6 +517,11 @@ Receiving or restoring settings never starts B. Explicit audition still verifies
 source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
 single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
 
+Until B or C can be heard, the page says why instead of showing empty comparisons: the next step
+(open Kirin OS, play the song in the DAW, choose a Version for B, enable a Check in Kirin OS) and
+where A, B and C each stand. A B or C that cannot be heard yet is drawn dimmed but stays
+clickable: a click or hover gives its reason instead of doing nothing.
+
 The Version view shows A above B on a shared song timeline, with peak outside and RMS inside.
 Only observed A regions are drawn; older passes are dimmed. Select a region for the shared
 LOUDNESS (3-second endpoint) or CREST comparison, or use FOLLOW to return to the play position.
