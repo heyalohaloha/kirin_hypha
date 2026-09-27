@@ -14,9 +14,11 @@
 #include "HyphaObservatoryView.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTextButton.h"
+#include "HyphaTextLookAndFeel.h"
 #include "HyphaTheme.h"
 #include "HyphaTimePageNavigation.h"
 #include "HyphaTooltipLookAndFeel.h"
+#include "HyphaUiPreferences.h"
 #include "HyphaWidgets.h"
 #include "appearance/AppearanceService.h"
 #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -48,7 +50,7 @@ public:
     void visibilityChanged() override;
 
 private:
-    class PairMenuLookAndFeel final : public juce::LookAndFeel_V4
+    class PairMenuLookAndFeel final : public hypha::TextLookAndFeel
     {
     public:
         PairMenuLookAndFeel()
@@ -72,9 +74,18 @@ private:
             hypha::surface_material::paintInstrumentFrame (
                 g, juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height), false);
         }
+        // Menus are built in English and shown in the current language by TextLookAndFeel,
+        // in the native menu font above, which carries Japanese (INV-S40).
     };
 
     void timerCallback() override;
+    // The language every hosted editor shows follows LanguagePreference; a change lays the whole
+    // editor out again, since text widths change (PluginEditorLanguage.cpp).
+    void syncLanguage (bool layOutOnChange = true);
+    void applyLanguage();
+    void addLanguageMenu (juce::PopupMenu&) const;
+    bool handleLanguageMenu (int result);
+    unsigned int appliedLanguageRevision = 0;
     void updatePre();
     void updatePost();
     void refreshObservatory();
@@ -170,6 +181,9 @@ private:
     KirinHyphaProcessorBase& processorRef;
     // Static surface material is cached as images while this editor is open (HyphaMaterialCache.h).
     hypha::material_cache::Lifetime materialCache;
+    // JUCE labels, buttons and the NOTE dialog in the current language; declared before every
+    // component that uses it, so it outlives them.
+    hypha::TextLookAndFeel textLookAndFeel;
     const bool isPost;
     juce::Component scaleRoot;
     hypha::observatory::View observatoryView;

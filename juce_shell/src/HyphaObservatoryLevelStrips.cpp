@@ -2,6 +2,7 @@
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaChannelReadoutLayout.h"
 #include "ChannelRoles.h"
+#include "HyphaTextStyle.h"
 
 #include <array>
 #include <cmath>
@@ -47,10 +48,10 @@ void paintFullChannelStrips (juce::Graphics& g,
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                          typography::Composition::instrument));
-    g.drawText ("TP", title, juce::Justification::centredLeft);
+    text_style::drawText (g, "TP", title, juce::Justification::centredLeft);
     g.setFont (labelFont (presentation, typography::TextRole::unit,
                          typography::Composition::instrument));
-    g.drawText ("dBTP", title, juce::Justification::centredRight);
+    text_style::drawText (g, "dBTP", title, juce::Justification::centredRight);
     const auto readoutHeight = (int) std::ceil (valueFont.getHeight()) + 2;
     for (int channel = 0; channel < 2; ++channel)
     {
@@ -60,7 +61,7 @@ void paintFullChannelStrips (juce::Graphics& g,
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (monoFont (presentation, typography::TextRole::legend,
                             typography::Composition::instrument));
-        g.drawText (channel == 0 ? "L" : "R", row.withWidth (16), juce::Justification::centredLeft);
+        text_style::drawText (g, channel == 0 ? "L" : "R", row.withWidth (16), juce::Justification::centredLeft);
         g.setColour (available ? COL_NORMAL : COL_MUTED);
         drawTabularText (g, valueFont,
                          available ? juce::String (meter.channel_true_peak_dbtp[channel], 1)
@@ -82,9 +83,9 @@ void paintFullChannelStrips (juce::Graphics& g,
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (monoFont (presentation, typography::TextRole::legend,
                          typography::Composition::instrument));
-    g.drawText ("L", labels.withX (leftColumn.getX()).withWidth (columnWidth),
+    text_style::drawText (g, "L", labels.withX (leftColumn.getX()).withWidth (columnWidth),
                 juce::Justification::centred);
-    g.drawText (meter.channels > 1 ? juce::String ("R") : hypha::emDash(),
+    text_style::drawText (g, meter.channels > 1 ? juce::String ("R") : hypha::emDash(),
                 labels.withX (rightColumn.getX()).withWidth (columnWidth),
                 juce::Justification::centred);
 
@@ -103,7 +104,7 @@ void paintFullChannelStrips (juce::Graphics& g,
         for (const auto column : columns)
             g.drawHorizontalLine (y, (float) column.getX(), (float) column.getRight());
         g.setColour (COL_TEXT_TERTIARY);
-        g.drawText (juce::String (db),
+        text_style::drawText (g, juce::String (db),
                     juce::Rectangle<int> { scaleColumn.getX(), labelY,
                                            scaleColumn.getWidth(), 14 },
                     juce::Justification::centred);
@@ -153,7 +154,7 @@ void paintFullChannelStrips (juce::Graphics& g,
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                           typography::Composition::instrument));
-    g.drawText ("CLIP", clips.removeFromTop (14), juce::Justification::centred);
+    text_style::drawText (g, "CLIP", clips.removeFromTop (14), juce::Justification::centred);
     paintClipCount (g, clips.withX (leftColumn.getX()).withWidth (columnWidth),
                     "L", meter.clip_events[0], cumulativeAvailable && meter.channels > 0,
                     presentation);
@@ -173,10 +174,10 @@ void paintSurroundChannelRows (juce::Graphics& g,
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                           typography::Composition::instrument));
-    g.drawText ("5.1 CHANNEL PEAK", title, juce::Justification::centredLeft);
+    text_style::drawText (g, "5.1 CHANNEL PEAK", title, juce::Justification::centredLeft);
     g.setFont (labelFont (presentation, typography::TextRole::unit,
                           typography::Composition::instrument));
-    g.drawText ("dBTP / CLIP", title, juce::Justification::centredRight);
+    text_style::drawText (g, "dBTP / CLIP", title, juce::Justification::centredRight);
 
     const auto channels = juce::jlimit (0, static_cast<int> (KIRIN_MAX_CHANNELS),
                                         static_cast<int> (meter.channels));
@@ -198,7 +199,7 @@ void paintSurroundChannelRows (juce::Graphics& g,
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (monoFont (presentation, typography::TextRole::legend,
                              typography::Composition::instrument));
-        g.drawText (role, label, juce::Justification::centredLeft);
+        text_style::drawText (g, role, label, juce::Justification::centredLeft);
 
         const bool peakAvailable = currentAvailable && channel < channels
                                 && std::isfinite (meter.sample_peak_dbfs[channel]);
@@ -326,9 +327,9 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     g.setFont (monoFont (presentationContext(), typography::TextRole::legend,
                          typography::Composition::instrument));
     g.setColour (COL_TEXT_TERTIARY);
-    g.drawText ("L", labels.removeFromLeft (columnWidth), juce::Justification::centred);
+    text_style::drawText (g, "L", labels.removeFromLeft (columnWidth), juce::Justification::centred);
     labels.removeFromLeft (columnGap);
-    g.drawText (meter.channels > 1 ? juce::String ("R") : hypha::emDash(), labels,
+    text_style::drawText (g, meter.channels > 1 ? juce::String ("R") : hypha::emDash(), labels,
                 juce::Justification::centred);
 
     for (int channel = 0; channel < 2; ++channel)
@@ -370,7 +371,7 @@ void View::paintChannelStrips (juce::Graphics& g, juce::Rectangle<int> area)
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentationContext(), typography::TextRole::metricLabel,
                           typography::Composition::instrument));
-    g.drawText ("CLIP", clips.removeFromTop (14), juce::Justification::centred);
+    text_style::drawText (g, "CLIP", clips.removeFromTop (14), juce::Justification::centred);
     const auto left = clips.removeFromLeft (columnWidth);
     clips.removeFromLeft (columnGap);
     paintClipCount (g, left, "L", meter.clip_events[0],

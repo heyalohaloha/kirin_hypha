@@ -121,6 +121,26 @@ bool requiresNativeTextFont (const juce::String& text) noexcept
     return false;
 }
 
+bool requiresJapaneseGlyphs (const juce::String& text) noexcept
+{
+    for (auto cursor = text.getCharPointer(); ! cursor.isEmpty(); ++cursor)
+    {
+        const auto character = *cursor;
+        if ((character >= 0x3000 && character <= 0x30ff)      // CJK punctuation, kana
+            || (character >= 0x31f0 && character <= 0x31ff)   // katakana extensions
+            || (character >= 0x3400 && character <= 0x4dbf)   // CJK extension A
+            || (character >= 0x4e00 && character <= 0x9fff)   // CJK unified ideographs
+            || (character >= 0xff00 && character <= 0xffef))  // full-width and half-width forms
+            return true;
+    }
+    return false;
+}
+
+juce::Font nativeTextFontLike (const juce::Font& contracted)
+{
+    return makeNativeTextFont (contracted.getHeight());
+}
+
 juce::Font labelFont (const presentation::Context& context,
                       typography::TextRole role,
                       typography::Composition composition)

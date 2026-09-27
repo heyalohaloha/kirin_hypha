@@ -1,11 +1,12 @@
 #pragma once
 
 #include "HyphaSurfaceMaterial.h"
+#include "HyphaTextLookAndFeel.h"
 #include "HyphaTheme.h"
 
 namespace hypha::reference_ui
 {
-class ReferenceSelectorLookAndFeel final : public juce::LookAndFeel_V4
+class ReferenceSelectorLookAndFeel final : public TextLookAndFeel
 {
 public:
     void setPresentationContext (presentation::Context next) noexcept { context = next; }

@@ -9,6 +9,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
     releaseAppearanceVisibility();
     commitEditorSizeStateIfSettled (true);
     tooltip.setLookAndFeel (nullptr);
+    setLookAndFeel (nullptr);
     if (isPost)
     {
        #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -24,6 +25,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
 
 void KirinHyphaEditor::timerCallback()
 {
+    syncLanguage();
     refreshAppearance();
     commitEditorSizeStateIfSettled (false);
 #if KIRIN_HYPHA_GUIDE_TRANSPORT

@@ -2,6 +2,7 @@
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaLocalBlindPresentationState.h"
+#include "HyphaTextStyle.h"
 
 #include <array>
 #include <cmath>
@@ -20,6 +21,8 @@ Component::Component()
     setWantsKeyboardFocus (true);
     setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);
     setComponentID ("local-blind-screen");
+    // Its labels show their text in the current language wherever the screen is drawn (INV-S40).
+    setLookAndFeel (&contextLookAndFeel);
 
     const auto configureLabel = [this] (juce::Label& label, const juce::String& id,
                                          typography::TextRole role, juce::Colour colour)
@@ -187,7 +190,7 @@ void Component::layoutRow (juce::Rectangle<int> area,
     int totalMinimum = 0;
     for (const auto* button : visible)
     {
-        const auto minimum = juce::roundToInt (std::ceil (font.getStringWidthFloat (button->getButtonText()))) + 12;
+        const auto minimum = juce::roundToInt (std::ceil (text_style::shownWidth (font, button->getButtonText()))) + 12;
         minimumWidths.add (minimum);
         totalMinimum += minimum;
     }

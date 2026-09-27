@@ -174,6 +174,7 @@ void KirinHyphaEditor::showOperationsMenu()
     }
     menu.addItem (10, "Show hover help", true,
                   hypha::HoverHelpPreference::shared().isEnabled());
+    addLanguageMenu (menu);
     if (appearanceSnapshot.activationSeen)
         menu.addItem (jungleModeMenuAction, "Jungle Mode", true,
                       observatoryView.jungleAppearanceEnabled());
@@ -188,6 +189,7 @@ void KirinHyphaEditor::showOperationsMenu()
 
 void KirinHyphaEditor::handleOperationsMenu (int result)
 {
+    if (handleLanguageMenu (result)) return;
     if (result == 20)
     {
         if (observatoryView.onReset) observatoryView.onReset();

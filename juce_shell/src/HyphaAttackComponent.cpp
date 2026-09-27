@@ -299,8 +299,8 @@ void AttackComponent::paintHistory (juce::Graphics& g, juce::Rectangle<int> plot
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (monoFont (presentationContext, typography::TextRole::legend, visualization)
                        .withExtraKerningFactor (attack_stage::captionTracking (presentationContext)));
-        g.drawText ("PRE", preLane.reduced (5, 1), juce::Justification::topLeft);
-        g.drawText ("POST", postLane.reduced (5, 1), juce::Justification::topLeft);
+        text_style::drawText (g, "PRE", preLane.reduced (5, 1), juce::Justification::topLeft);
+        text_style::drawText (g, "POST", postLane.reduced (5, 1), juce::Justification::topLeft);
     }
     else if (paired)
     {
@@ -327,7 +327,7 @@ void AttackComponent::paintAxis (juce::Graphics& g, const attack_ui::Layout& sha
     axis.removeFromLeft (labelWidth); // "-6 s" and the rail are cached chrome.
     g.setFont (monoFont (presentationContext, typography::TextRole::axis, visualization));
     g.setColour (followLatest ? selectionColour : COL_TEXT_TERTIARY);
-    g.drawText ("NOW", axis.removeFromRight (labelWidth), juce::Justification::centredRight);
+    text_style::drawText (g, "NOW", axis.removeFromRight (labelWidth), juce::Justification::centredRight);
     g.setColour (COL_NORMAL);
     const auto mode = timeMode();
     const auto noun = visibleCount == 1 ? juce::String (" EVENT") : juce::String (" EVENTS");
@@ -369,7 +369,7 @@ void AttackComponent::paint (juce::Graphics& g)
         // Lanes stay empty until data is valid; the state is stated once, inside HISTORY.
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (monoFont (presentationContext, typography::TextRole::status, visualization));
-        g.drawText (runtimeStats.available == 0 ? "UNAVAILABLE" : "WARMING UP",
+        text_style::drawText (g, runtimeStats.available == 0 ? "UNAVAILABLE" : "WARMING UP",
                     shape.history.empty() ? getLocalBounds().withTrimmedTop (shape.header.height)
                                           : rectangleOf (shape.history),
                     juce::Justification::centred);
@@ -402,7 +402,7 @@ void AttackComponent::paint (juce::Graphics& g)
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (monoFont (presentationContext, typography::TextRole::legend, visualization));
         if (timeMode() != "LIVE")
-            g.drawText (timeMode(), history.reduced (6, 3), juce::Justification::topRight);
+            text_style::drawText (g, timeMode(), history.reduced (6, 3), juce::Justification::topRight);
     }
     else
     {

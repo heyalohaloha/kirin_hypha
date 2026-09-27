@@ -74,13 +74,17 @@ private:
 
     juce::TextLayout makeLayout (const juce::String& text, int width) const
     {
+        // The tooltip window hands over help already in the current language (INV-S40); Japanese
+        // help takes the native font, English keeps the label font.
+        const auto context = presentation::forOutput (
+            450, 300, presentation::OutputTarget::tooltip);
         juce::AttributedString attributed;
         attributed.setJustification (juce::Justification::centred);
         attributed.append (
             text,
-            labelFont (presentation::forOutput (
-                450, 300, presentation::OutputTarget::tooltip),
-                typography::TextRole::tooltip),
+            requiresJapaneseGlyphs (text)
+                ? nativeTextFont (context, typography::TextRole::tooltip)
+                : labelFont (context, typography::TextRole::tooltip),
             findColour (juce::TooltipWindow::textColourId));
         juce::TextLayout layout;
         layout.createLayoutWithBalancedLineLengths (

@@ -4,6 +4,7 @@
 #include "HyphaMaterialCache.h"
 #include "HyphaSpectrumUiContract.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <array>
@@ -343,12 +344,12 @@ void paintInstrumentNotes (juce::Graphics& g, juce::Rectangle<float> plot,
     g.setFont (monoFont (context, typography::TextRole::axis, typography::Composition::visualization));
     g.setColour (COL_TEXT_TERTIARY.withAlpha (0.85f));
     const auto notes = inner.reduced (10.0f, 6.0f).toNearestInt();
-    g.drawText (delta ? hypha::delta() + "(f) = POST(f) - PRE(f)  dB" : juce::String ("L(f) = POST(f)"),
+    text_style::drawText (g, delta ? hypha::delta() + "(f) = POST(f) - PRE(f)  dB" : juce::String ("L(f) = POST(f)"),
                 notes, juce::Justification::topLeft, false);
     if (view.sample_rate > 0u && view.aperture_samples > 0u)
     {
         const auto apertureMs = 1'000.0 * (double) view.aperture_samples / (double) view.sample_rate;
-        g.drawText ("APERTURE " + juce::String (apertureMs, 1) + " ms   FFT "
+        text_style::drawText (g, "APERTURE " + juce::String (apertureMs, 1) + " ms   FFT "
                         + juce::String ((int) view.fft_size) + "   "
                         + juce::String ((int) KIRIN_SPECTRUM_BAND_COUNT) + " BANDS   "
                         + juce::String (ui_contract::spectrumPresentationHz) + " Hz",

@@ -64,6 +64,11 @@ namespace hypha
                                 typography::TextRole,
                                 typography::Composition = typography::Composition::shell);
     bool requiresNativeTextFont (const juce::String& text) noexcept;
+    // Japanese screen text (INV-S40): kana, kanji and full-width forms, which the label fonts do
+    // not carry. Only such text changes font, so English is drawn exactly as before.
+    bool requiresJapaneseGlyphs (const juce::String& text) noexcept;
+    // The system's Japanese-capable text font at the height of a font the contract already chose.
+    juce::Font nativeTextFontLike (const juce::Font& contracted);
     bool usingKimeraTypography() noexcept;
     const char* nativeFallbackLabelFontFamily() noexcept;
     const char* nativeFallbackMonoFontFamily() noexcept;

@@ -50,7 +50,7 @@ namespace
             // instead of hanging back into the value gutter.
             const auto left = juce::jlimit (plot.getX(), plot.getRight() - 28.0f,
                                             xForHz (tick.hz, plot) - 14.0f);
-            g.drawText (tick.label,
+            text_style::drawText (g, tick.label,
                         juce::Rectangle<float> { left, rowTop, 28.0f, 12.0f }.toNearestInt(),
                         juce::Justification::centred);
         }
@@ -92,7 +92,7 @@ namespace
             // The floor label is held inside the plot so it does not collide with the frequency
             // row directly under it.
             const auto top = juce::jlimit (plot.getY() - 7.0f, plot.getBottom() - 14.0f, y - 7.0f);
-            g.drawText (line.label,
+            text_style::drawText (g, line.label,
                         juce::Rectangle<float> { plot.getX() - gutter - 3.0f, top, gutter, 14.0f }
                             .toNearestInt(),
                         juce::Justification::centredRight);
@@ -118,7 +118,7 @@ namespace
         g.setFont (monoFont (presentation, typography::TextRole::axis,
                              typography::Composition::visualization));
         g.setColour (COL_TEXT_TERTIARY);
-        g.drawText ("~", juce::Rectangle<float> { plot.getX(), plot.getY() + 1.0f,
+        text_style::drawText (g, "~", juce::Rectangle<float> { plot.getX(), plot.getY() + 1.0f,
                                                   x - plot.getX() - 2.0f, 12.0f }.toNearestInt(),
                     juce::Justification::centredRight);
     }
@@ -150,12 +150,12 @@ namespace
         g.setFont (monoFont (presentation, typography::TextRole::axis,
                              typography::Composition::visualization));
         g.setColour (COL_TEXT_TERTIARY);
-        g.drawText ("6s", juce::Rectangle<float> { plot.getX() - 29.0f, plot.getY(),
+        text_style::drawText (g, "6s", juce::Rectangle<float> { plot.getX() - 29.0f, plot.getY(),
                                                    26.0f, 11.0f }.toNearestInt(),
                     juce::Justification::centredRight);
         // "0s" rather than "NOW": it pairs with the "6s" above it, and it fits the gutter the
         // dB labels already set, where "NOW" clipped.
-        g.drawText ("0s", juce::Rectangle<float> { plot.getX() - 29.0f,
+        text_style::drawText (g, "0s", juce::Rectangle<float> { plot.getX() - 29.0f,
                                                    plot.getBottom() - 11.0f, 26.0f, 11.0f }
                         .toNearestInt(),
                     juce::Justification::centredRight);
@@ -315,9 +315,9 @@ void paint (juce::Graphics& g,
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (monoFont (presentation, typography::TextRole::legend,
                              typography::Composition::visualization));
-        g.drawText (compact ? "MONO" : "MONO SUM", title, juce::Justification::centredLeft);
+        text_style::drawText (g, compact ? "MONO" : "MONO SUM", title, juce::Justification::centredLeft);
         g.setColour (bands ? COL_SPECTRUM_POST : COL_MUTED);
-        g.drawText (state, title, juce::Justification::centredRight);
+        text_style::drawText (g, state, title, juce::Justification::centredRight);
     }
 
     auto plot = area.reduced (0, compact ? 3 : 4).toFloat();
@@ -355,7 +355,7 @@ void paint (juce::Graphics& g,
             g.setColour (COL_TEXT_SECONDARY);
             g.setFont (monoFont (presentation, typography::TextRole::status,
                                  typography::Composition::visualization));
-            g.drawText (state, curvePlot.toNearestInt(), juce::Justification::centred);
+            text_style::drawText (g, state, curvePlot.toNearestInt(), juce::Justification::centred);
         }
         return;
     }

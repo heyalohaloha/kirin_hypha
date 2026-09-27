@@ -178,17 +178,17 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
     g.setFont (monoFont (context, typography::TextRole::legend, visualization)
                    .withExtraKerningFactor (attack_stage::captionTracking (context)));
     g.setColour (COL_TEXT_SECONDARY);
-    g.drawText ("HIT 150 ms", title, juce::Justification::centredLeft, false);
+    text_style::drawText (g, "HIT 150 ms", title, juce::Justification::centredLeft, false);
     const auto preUsable = usable (pre);
     const auto postUsable = usable (post);
     if (! preUsable && ! postUsable)
     {
         g.setColour (COL_TEXT_TERTIARY);
-        g.drawText ("NO HIT", inner, juce::Justification::centred, false);
+        text_style::drawText (g, "NO HIT", inner, juce::Justification::centred, false);
         return;
     }
     g.setColour (COL_TEXT_TERTIARY);
-    g.drawText (preUsable && postUsable ? "PRE / POST" : postUsable ? "POST" : "PRE",
+    text_style::drawText (g, preUsable && postUsable ? "PRE / POST" : postUsable ? "POST" : "PRE",
                 title, juce::Justification::centredRight, false);
 
     const auto& anchor = postUsable ? *post : *pre;
@@ -272,7 +272,7 @@ void paint (juce::Graphics& g, juce::Rectangle<int> area, const KirinAttackDetai
     // never collides with its own label.
     g.setFont (monoFont (context, typography::TextRole::axis, visualization));
     g.setColour (COL_TEXT_TERTIARY);
-    g.drawText (relativeMs (axis.first, anchor), axisRow, juce::Justification::centredLeft, false);
-    g.drawText (relativeMs (axis.last, anchor), axisRow, juce::Justification::centredRight, false);
+    text_style::drawText (g, relativeMs (axis.first, anchor), axisRow, juce::Justification::centredLeft, false);
+    text_style::drawText (g, relativeMs (axis.last, anchor), axisRow, juce::Justification::centredRight, false);
 }
 }

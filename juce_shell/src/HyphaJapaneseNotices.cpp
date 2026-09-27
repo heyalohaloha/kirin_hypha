@@ -1,0 +1,94 @@
+#include "HyphaJapaneseCatalog.h"
+
+// Notices: the short answers to an action (a toast) and the messages the Rust engine sends up for
+// Keep, Record and Mark. At 100% they read in the one-line strip over the body, so each one fits
+// that line whole (LanguageContract.h).
+namespace hypha::i18n::catalog
+{
+namespace
+{
+const Entry entries[] = {
+    { "Capture could not be prepared", u8"画像を準備できませんでした" },
+    { "Sending Capture to Work", u8"CaptureをWorkに送信中" },
+    { "Another Work attachment is still in progress", u8"別のWorkへの添付が進行中です" },
+    { "Kirin OS is required to attach Capture to Work", u8"Workへの添付にはKirin OSが必要です" },
+    { "Capture could not be saved", u8"画像を保存できませんでした" },
+    { "Capture saved", u8"画像を保存しました" },
+    { "Capture attached to Work", u8"CaptureをWorkに添付しました" },
+    { "Work connection changed; Capture was not attached", u8"Workの接続が変わり、Captureは未添付です" },
+    { "Connected Work is no longer available", u8"接続していたWorkはもうありません" },
+    { "Work could not be updated", u8"Workを更新できませんでした" },
+    { "Capture could not be attached", u8"Captureを添付できませんでした" },
+    { "Kirin OS could not attach this Capture", u8"Kirin OSはこのCaptureを添付できませんでした" },
+    { "OS Guide will be included", u8"OS Guideを含めます" },
+    { "OS Guide will stay private", u8"OS Guideは含めません" },
+    { "PRE name will be included", u8"PREの名前を含めます" },
+    { "PRE name will stay private", u8"PREの名前は含めません" },
+    { "POST name will be included", u8"POSTの名前を含めます" },
+    { "POST name will stay private", u8"POSTの名前は含めません" },
+    { "Project name will be included", u8"プロジェクト名を含めます" },
+    { "Project name will stay private", u8"プロジェクト名は含めません" },
+    { "Connection request is no longer available", u8"接続の要求は期限切れです" },
+    { "Kirin OS is required for Work connection", u8"Workとの接続にはKirin OSが必要です" },
+    { "No PRE Paired", u8"ペアのPREがありません" },
+    { "Record requires Kirin OS license", u8"RecordにはKirin OSのライセンスが必要です" },
+    { "Hover help changed for this session only", u8"ホバーヘルプの変更は保存されません" },
+    { "Language changed for this session only", u8"言語の変更は保存されません" },
+    { "Jungle Mode changed for this session only", u8"Jungle Modeの変更は保存されません" },
+    { "Jungle Mode could not be saved by this Hypha version", u8"この版のHyphaはJungle Modeを保存できません" },
+    { "PRE no longer available", u8"そのPREはもう使えません" },
+    { "Meter Session could not be reset", u8"Meter Sessionをリセットできませんでした" },
+    { "TP / Clip CLEAR failed", u8"TP／Clipを消去できませんでした" },
+    { "Keeping", u8"Keep中" },
+    { "Final measurement unavailable", u8"最終の計測値がありません" },
+    { "Preparing pairs...", u8"ペアを準備中…" },
+    { "Ready to bounce", u8"バウンスできます" },
+    { "NOTE is empty", u8"NOTEが空です" },
+    { "NOTE added at current sample", u8"今の位置にNOTEを追加しました" },
+    { "NOTE could not be added at current sample", u8"今の位置にNOTEを追加できませんでした" },
+    { "Hypha information is available after Blind Compare", u8"Hyphaの情報はBlind Compareの後で見られます" },
+    { "Available after Blind Compare", u8"Blind Compareの後で使えます" },
+    { "Official URL copied", u8"公式URLをコピーしました" },
+    { "PRE preview changed. Choose the PRE again.", u8"PREの候補が変わりました。選び直してください。" },
+    { "Failed to start record", u8"Recordを開始できませんでした" },
+    { "Another Keep is active", u8"別のKeepが動作中です" },
+    { "Blind Compare active", u8"Blind Compareの最中です" },
+    { "All Keep failed (file write error)", u8"All Keep失敗（書き込みエラー）" },
+    { "Record is available for mono / stereo only", u8"Recordはモノラル／ステレオのみです" },
+    { "Mark unavailable", u8"Markを付けられません" },
+    { "Note is empty or too long", u8"メモが空か長すぎます" },
+    { "Mark requires Record", u8"MarkにはRecordが必要です" },
+    { "Mark waiting for audio", u8"Markは音声待ちです" },
+    { "Auto-stopped after %1 idle. Take saved.", u8"無音%1で自動停止（テイク保存済み）" },
+    { "Auto-stopped after %1 idle.", u8"無音%1で自動停止しました" },
+    { "Reference B is not ready", u8"Reference Bは準備中です" },
+    { "Reference C is not ready", u8"Reference Cは準備中です" },
+    { "Version selection was not changed", u8"Versionの選択は変わっていません" },
+    { "Check Preset selection was not changed", u8"Check Presetの選択は変わっていません" },
+    { "Check selection was not changed", u8"Checkの選択は変わっていません" },
+    { "Reference selection was not changed", u8"Referenceの選択は変わっていません" },
+    { "Cue selection was not changed", u8"Cueの選択は変わっていません" },
+    { "Kirin OS could not receive the request", u8"Kirin OSが要求を受け取れませんでした" },
+    { "Blind Compare could not start", u8"Blind Compareを開始できませんでした" },
+    { "Blind source could not be confirmed", u8"Blindのソースを確定できませんでした" },
+    { "Listen to both sources before choosing", u8"選ぶ前に両方のソースを聴いてください" },
+    { "Blind Compare could not be revealed", u8"Blind Compareの答えを表示できませんでした" },
+    { "Today's review is unavailable", u8"今日のレビューは使えません" },
+    { "Bookmark is unavailable", u8"ブックマークは使えません" },
+    { "Previous item is unavailable", u8"前の項目は使えません" },
+    { "Next item is unavailable", u8"次の項目は使えません" },
+    { "BLIND COMPARE COULD NOT START", u8"Blind Compareを開始できません" },
+    { "SOURCE COULD NOT BE SELECTED", u8"ソースを選べませんでした" },
+    { "LISTEN TO BOTH COMPLETE PASSES FIRST", u8"先に両方を最後まで聴いてください" },
+    { "RESULT COULD NOT BE REVEALED", u8"答えを表示できませんでした" },
+    { "CHOOSE AN ANSWER AFTER BOTH PASSES", u8"両方を聴いてから回答してください" },
+    { "End Reference Blind Compare before starting PRE / POST Blind",
+      u8"先にReferenceのBlindを終えてください" },
+};
+}
+
+Section noticeSection() noexcept
+{
+    return { "notices", entries, sizeof (entries) / sizeof (entries[0]) };
+}
+}

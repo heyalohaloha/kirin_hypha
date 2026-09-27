@@ -86,7 +86,7 @@ void paintCurrentLoudness (juce::Graphics& g,
     g.setColour (COL_OBSERVATORY_VALUE);
     g.setFont (monoFont (presentation, typography::TextRole::readout,
                          typography::Composition::visualization));
-    g.drawText (text, label.toNearestInt().reduced (3, 0),
+    text_style::drawText (g, text, label.toNearestInt().reduced (3, 0),
                 juce::Justification::centredRight);
 }
 float yForTruePeak (juce::Rectangle<float> plot, double value) noexcept
@@ -360,12 +360,12 @@ void paint (juce::Graphics& g,
                          typography::Composition::visualization));
     g.setColour (COL_SPECTRUM_POST);
     auto loudnessLegend = meanings.removeFromLeft (delta ? meanings.getWidth() : meanings.getWidth() / 2);
-    g.drawText (delta ? "M / POST - PRE / 60 S" : "M / momentary LUFS",
+    text_style::drawText (g, delta ? "M / POST - PRE / 60 S" : "M / momentary LUFS",
                 loudnessLegend, juce::Justification::centredLeft);
     if (! delta)
     {
         g.setColour (COL_FLORA_BR);
-        g.drawText ("TP / 2 S peak hold / dBTP", meanings,
+        text_style::drawText (g, "TP / 2 S peak hold / dBTP", meanings,
                     juce::Justification::centredRight);
     }
     g.setColour (COL_MUTED.brighter (0.15f));
@@ -390,14 +390,14 @@ void paint (juce::Graphics& g,
                        : juce::String ("TP ") + emDash() + " / 60 S AUDIO";
     if (contextFact.isNotEmpty())
         detail = contextFact + "   |   " + detail;
-    g.drawText (detail, legend, juce::Justification::centredLeft);
+    text_style::drawText (g, detail, legend, juce::Justification::centredLeft);
 
     if (history.empty())
     {
         g.setColour (COL_MUTED);
         g.setFont (monoFont (presentation, typography::TextRole::status,
                              typography::Composition::visualization));
-        g.drawText (juce::String ("HISTORY ") + emDash(),
+        text_style::drawText (g, juce::String ("HISTORY ") + emDash(),
                     layout.sharedPlot.toNearestInt(), juce::Justification::centred);
         return;
     }
@@ -424,7 +424,7 @@ void paint (juce::Graphics& g,
             g.setColour (COL_MUTED.brighter (0.20f).withAlpha (0.86f));
             const auto label = (delta && tick > 0.0 ? "+" : "")
                              + juce::String (tick, 0);
-            g.drawText (label, layout.loudnessLabels.getX(), y - 7,
+            text_style::drawText (g, label, layout.loudnessLabels.getX(), y - 7,
                         layout.loudnessLabels.getWidth() - 3, 14,
                         juce::Justification::centredRight);
         }
@@ -440,7 +440,7 @@ void paint (juce::Graphics& g,
         g.setFont (monoFont (presentation, typography::TextRole::axis,
                              typography::Composition::visualization));
         g.setColour (COL_FLORA.withAlpha (0.72f));
-        g.drawText ("TP", layout.truePeakLabels.getX(),
+        text_style::drawText (g, "TP", layout.truePeakLabels.getX(),
                     juce::roundToInt (overlay.getY()) - 16,
                     layout.truePeakLabels.getWidth(), 14,
                     juce::Justification::centredLeft);
@@ -455,7 +455,7 @@ void paint (juce::Graphics& g,
             g.setColour (COL_MUTED.withAlpha (0.72f));
             const auto label = tick > 0.0 ? "+" + juce::String (tick, 0)
                                          : juce::String (tick, 0);
-            g.drawText (label, layout.truePeakLabels.getX(), y - 7,
+            text_style::drawText (g, label, layout.truePeakLabels.getX(), y - 7,
                         layout.truePeakLabels.getWidth(), 14,
                         juce::Justification::centredLeft);
         }
@@ -470,10 +470,10 @@ void paint (juce::Graphics& g,
     g.setColour (COL_MUTED.withAlpha (0.64f));
     g.setFont (monoFont (presentation, typography::TextRole::axis,
                          typography::Composition::visualization));
-    g.drawText ("-60", layout.timeLabels.withWidth (24), juce::Justification::centredLeft);
-    g.drawText ("-30", layout.timeLabels.withSizeKeepingCentre (30, layout.timeLabels.getHeight()),
+    text_style::drawText (g, "-60", layout.timeLabels.withWidth (24), juce::Justification::centredLeft);
+    text_style::drawText (g, "-30", layout.timeLabels.withSizeKeepingCentre (30, layout.timeLabels.getHeight()),
                 juce::Justification::centred);
-    g.drawText ("NOW", layout.timeLabels.withLeft (layout.timeLabels.getRight() - 24),
+    text_style::drawText (g, "NOW", layout.timeLabels.withLeft (layout.timeLabels.getRight() - 24),
                 juce::Justification::centredRight);
     paintHover (g, layout, history, axis, hoveredIndex, delta, sampleRate);
 }

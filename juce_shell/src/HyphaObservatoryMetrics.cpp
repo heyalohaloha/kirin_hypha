@@ -58,7 +58,7 @@ void drawMetric (juce::Graphics& g,
         g.setColour (COL_TEXT_TERTIARY);
         g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                               typography::Composition::facts));
-        g.drawText (label, labelArea.reduced (4, 0), juce::Justification::centred);
+        text_style::drawText (g, label, labelArea.reduced (4, 0), juce::Justification::centred);
         g.setColour (std::isfinite (value) && textOverride.isEmpty()
                          ? COL_OBSERVATORY_VALUE : COL_MUTED);
         drawTabularText (g, monoFont (presentation, valueRole,
@@ -70,14 +70,14 @@ void drawMetric (juce::Graphics& g,
         g.setFont (labelFont (presentation, typography::TextRole::unit,
                               typography::Composition::facts));
         if (textOverride.isEmpty())
-            g.drawText (unit, unitArea.reduced (3, 0), juce::Justification::centred);
+            text_style::drawText (g, unit, unitArea.reduced (3, 0), juce::Justification::centred);
         return;
     }
     const auto labelArea = area.removeFromTop (juce::jmax (14, area.getHeight() / 4));
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::metricLabel,
                           typography::Composition::facts));
-    g.drawText (label, labelArea.reduced (6, 1), juce::Justification::centredLeft);
+    text_style::drawText (g, label, labelArea.reduced (6, 1), juce::Justification::centredLeft);
     if (auxiliaryText.isNotEmpty())
     {
         const auto auxiliaryHeight = juce::jlimit (10, 14, area.getHeight() / 3);
@@ -85,14 +85,14 @@ void drawMetric (juce::Graphics& g,
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (labelFont (presentation, typography::TextRole::status,
                               typography::Composition::facts));
-        g.drawText (auxiliaryText, auxiliaryArea.reduced (6, 0),
+        text_style::drawText (g, auxiliaryText, auxiliaryArea.reduced (6, 0),
                     juce::Justification::centredRight);
     }
     if (area.getWidth() < 180)
     {
         g.setFont (labelFont (presentation, typography::TextRole::unit,
                               typography::Composition::facts));
-        g.drawText (unit, labelArea.reduced (6, 1), juce::Justification::centredRight);
+        text_style::drawText (g, unit, labelArea.reduced (6, 1), juce::Justification::centredRight);
         g.setColour (std::isfinite (value) && textOverride.isEmpty() ? COL_NORMAL : COL_MUTED);
         drawTabularText (g, monoFont (presentation, valueRole,
                                       typography::Composition::facts),
@@ -112,7 +112,7 @@ void drawMetric (juce::Graphics& g,
     g.setColour (COL_TEXT_TERTIARY);
     g.setFont (labelFont (presentation, typography::TextRole::unit,
                           typography::Composition::facts));
-    g.drawText (unit, unitArea.reduced (2, 0), juce::Justification::centredLeft);
+    text_style::drawText (g, unit, unitArea.reduced (2, 0), juce::Justification::centredLeft);
 }
 
 double optionValue (double value, bool available)
@@ -144,7 +144,7 @@ void View::paintRecordDisplay (juce::Graphics& g, juce::Rectangle<int> area)
             ? juce::String ("RECORD UNAVAILABLE")
             : juce::String ("RECORD RESULT");
     const auto sourceText = hasDelta ? juce::String (juce::CharPointer_UTF8 (" · POST − PRE"))
-                                     : juce::String (" · ABSOLUTE");
+                                     : juce::String (juce::CharPointer_UTF8 (" · ABSOLUTE"));
     g.setColour (recordDisplay.phase == KIRIN_RECORD_DISPLAY_UNAVAILABLE
                      ? COL_MUTED : COL_NORMAL);
     g.setFont (monoFont (context, typography::TextRole::status));

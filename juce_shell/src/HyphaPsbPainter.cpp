@@ -3,6 +3,7 @@
 #include "HyphaSpectrumGeometry.h"
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaTheme.h"
+#include "HyphaTextStyle.h"
 
 #include <algorithm>
 #include <cmath>
@@ -63,7 +64,7 @@ void paintSubviewToggle (juce::Graphics& g, juce::Rectangle<float> bounds, bool 
                          typography::Composition::visualization));
     g.setColour (psbSelected ? COL_LED_BLUE.brighter (0.24f)
                              : COL_TEXT_SECONDARY.withAlpha (0.92f));
-    g.drawText (psbSelected ? "SPECTRUM" : "PSB", button.toNearestInt(),
+    text_style::drawText (g, psbSelected ? "SPECTRUM" : "PSB", button.toNearestInt(),
                 juce::Justification::centred);
 }
 
@@ -77,14 +78,14 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
     g.setFont (monoFont (state.presentation, typography::TextRole::legend,
                          typography::Composition::visualization));
     g.setColour (COL_NORMAL.withAlpha (0.86f));
-    g.drawText (state.delta ? "PSB / delta pp" : "PSB / POST %",
+    text_style::drawText (g, state.delta ? "PSB / delta pp" : "PSB / POST %",
                 juce::Rectangle<float> { outer.getX(), outer.getY(),
                     outer.getWidth() - 100.0f * scale, 18.0f * scale }.toNearestInt(),
                 juce::Justification::centredLeft);
     if (! state.available)
     {
         g.setColour (COL_MUTED.withAlpha (0.72f));
-        g.drawText (state.unavailableText, plot.toNearestInt(), juce::Justification::centred);
+        text_style::drawText (g, state.unavailableText, plot.toNearestInt(), juce::Justification::centred);
         return;
     }
 
@@ -124,16 +125,16 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
         outer.getX(), outer.getY() + 17.0f * scale,
         outer.getWidth(), 13.0f * scale
     };
-    g.drawText ("0-24 Bark | LR", axisLegend.withTrimmedRight (90.0f * scale).toNearestInt(),
+    text_style::drawText (g, "0-24 Bark | LR", axisLegend.withTrimmedRight (90.0f * scale).toNearestInt(),
                 juce::Justification::centredLeft);
-    g.drawText (state.delta ? "+/- " + juce::String (ceiling * 100.0f, 0) + " PP"
+    text_style::drawText (g, state.delta ? "+/- " + juce::String (ceiling * 100.0f, 0) + " PP"
                             : "0 - " + juce::String (ceiling * 100.0f, 0) + "%",
                 axisLegend.toNearestInt(),
                 juce::Justification::centredRight);
     for (const int band : { 1, 5, 10, 15, 20 })
     {
         const auto x = plot.getX() + slot * ((float) band - 0.5f);
-        g.drawText (juce::String ((band - 0.5) * 1.2, 1), juce::Rectangle<float> (x - 12.0f * scale,
+        text_style::drawText (g, juce::String ((band - 0.5) * 1.2, 1), juce::Rectangle<float> (x - 12.0f * scale,
                     plot.getBottom(), 24.0f * scale, 14.0f * scale).toNearestInt(),
                     juce::Justification::centred);
     }
@@ -147,7 +148,7 @@ void paint (juce::Graphics& g, juce::Rectangle<float> bounds, const State& state
         g.setColour (BG.brighter (0.1f).withAlpha (0.96f));
         g.fillRoundedRectangle (readout, 3.0f * scale);
         g.setColour (colour);
-        g.drawText (text, readout.toNearestInt(), juce::Justification::centred);
+        text_style::drawText (g, text, readout.toNearestInt(), juce::Justification::centred);
     }
 }
 }

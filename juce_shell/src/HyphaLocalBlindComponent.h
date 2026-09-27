@@ -17,7 +17,11 @@ class Component final : public juce::Component
 {
 public:
     Component();
-    ~Component() override { contextChoice.setLookAndFeel (nullptr); }
+    ~Component() override
+    {
+        contextChoice.setLookAndFeel (nullptr);
+        setLookAndFeel (nullptr);
+    }
 
     void setPresentationContext (presentation::Context next)
     {

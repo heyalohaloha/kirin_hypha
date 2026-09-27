@@ -794,7 +794,7 @@ int main()
     pre::GuideModel threeBand;
     require (pre::parseArtifactVerifiedGuideModel (
                  *threeBandValue.getDynamicObject(), "three-band", threeBand),
-             "accept the native 20–250 Hz sub measurement boundary");
+             u8"accept the native 20–250 Hz sub measurement boundary");
     auto wrongTypeValue = maskingGuide ("wrong_type", hashA, true, true, true);
     wrongTypeValue.getDynamicObject()->setProperty ("guide_id", 123);
     pre::GuideModel wrongType;

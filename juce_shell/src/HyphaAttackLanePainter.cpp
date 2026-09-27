@@ -83,7 +83,7 @@ bool drawFitting (juce::Graphics& g, std::initializer_list<juce::String> candida
             && text_style::requiredWidth (font, text, style) <= area.getWidth())
         {
             g.setFont (monoFont (context, role, visualization).withExtraKerningFactor (tracking));
-            g.drawText (text, area, justification, false);
+            text_style::drawText (g, text, area, justification, false);
             return true;
         }
     return false;

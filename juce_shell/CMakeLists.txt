@@ -59,6 +59,7 @@ set(KIRIN_FFI_LIB "${_KIRIN_FFI_DEFAULT}"
 # target. JUCE's SDK registration function is called below after JUCE has defined it.
 include(cmake/KirinHyphaAax.cmake)
 include(cmake/ObservatoryMaterial.cmake)
+include(cmake/HyphaLanguage.cmake)
 kirin_hypha_configure_aax(KIRIN_HYPHA_AAX_ENABLED)
 
 # B-376: The C ABI symbol name does not encode its argument list, so an old staticlib can link
@@ -290,6 +291,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessorNote.cpp
         src/PluginEditor.cpp
         src/PluginEditorLifecycle.cpp
+        src/PluginEditorLanguage.cpp
         src/PluginEditorPairPreview.cpp
         src/PluginEditorAppearance.cpp
         src/PluginEditorMenu.cpp
@@ -323,6 +325,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES}
         src/HyphaHoverHelpPreference.cpp
         src/appearance/AppearanceContract.cpp
         src/appearance/AppearanceFileLock.cpp
@@ -545,6 +548,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES}
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinHyphaReferencePreviewRenderer PRIVATE
         JUCE_WEB_BROWSER=0
@@ -621,6 +625,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES}
         src/HyphaHoverHelpPreference.cpp
         src/HyphaGuideFrequencyOverlay.cpp
         src/HyphaAbsoluteComponent.cpp
@@ -723,7 +728,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaSpectrumMidSide.cpp
         src/HyphaSpectrumMidSidePainter.cpp
         src/HyphaTypography.cpp
-        src/HyphaTextStyle.cpp)
+        src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES})
     target_compile_definitions(KirinGuideFrequencyOverlayContractTests PRIVATE
         KIRIN_GUIDE_OVERLAY_STANDALONE=1
         JUCE_WEB_BROWSER=0
@@ -755,7 +761,8 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaAttackDepth.cpp
         src/HyphaAttackStage.cpp
         src/HyphaTypography.cpp
-        src/HyphaTextStyle.cpp)
+        src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES})
     target_compile_definitions(KirinAttackUiContractTests PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
@@ -930,6 +937,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaRunSummary.cpp
         src/HyphaTypography.cpp
         src/HyphaTextStyle.cpp
+        ${KIRIN_HYPHA_LANGUAGE_SOURCES}
         ${KIRIN_HYPHA_WIDGETS_SOURCE})
     target_compile_definitions(KirinReferenceAuditionComponentTests PRIVATE
         JUCE_WEB_BROWSER=0
