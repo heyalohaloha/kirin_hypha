@@ -476,6 +476,8 @@ host callbackが350 ms以上停止した場合はRecord通知を失効させ、�
 
 LEVELの60秒Historyは固定時間軸とし、M主線、TP > -1 dBTPの連続区間ごとの最大TP event、L/R別sample clip eventを表示する。閾値超過がある場合だけ`60 S MAX TP`と相対時刻を表示し、固定2秒区間の最大値とは呼ばない。Sを含む詳細なM/S/TP推移はTIMEへ集約し、LEVELは現在地を読むcontext面として重複させない。TP専用railは作らず、Mが全面を使う同じ横軸の下部へ、右側`+6〜-24 dBTP`軸と下から立ち上がるstemを重ねる。中央の`MAX TP`は全Session、Historyは直近60秒という範囲差を文言で固定する。Max MもSession事実としてHistory上部凡例へ置き、現在のM数値内へ混在させない。
 
+PRE／POSTのexact chain action level observation（B-1046以降）はRust／FFIで計測・照合するが、LEVEL HistoryのCHAIN ACTION帯とCompact／Standardのchain summaryはDebug buildの診断表示に限り、製品buildでは表示しない（2026-09-27）。現在の認定hostはWindowsのStudio Pro 8.1.2.113407（VST3）だけであり、表示は認定hostが広がった時点で改めて判断する。
+
 600×400以上のLEVELは、上段3と中段5の合計高を従来割当の約60%へ圧縮し、残りをHistoryへ渡す。FooterもCAPTUREボタン単体ではなく操作段全体を40 pxから24 pxへ縮め、測定履歴を画面の主面積にする。
 
 ## 12. Visual system

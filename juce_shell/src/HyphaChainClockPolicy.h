@@ -20,9 +20,12 @@ inline std::uint8_t classify (bool windows, juce::AudioProcessor::WrapperType wr
             : KIRIN_CHAIN_CLOCK_POLICY_UNKNOWN;
 }
 
+// CHAIN ACTION is a Debug-only diagnostic until more hosts are certified: a release build never
+// reports a certified host, so the chain join stays unavailable and LEVEL draws no chain band or
+// summary. The Rust observation and join ship unchanged.
 inline std::uint8_t current (juce::AudioProcessor::WrapperType wrapper)
 {
-   #if JUCE_WINDOWS
+   #if JUCE_WINDOWS && JUCE_DEBUG
     // currentExecutableFile resolves the plugin DLL in JUCE on Windows. Only the main
     // process executable identifies the DAW whose clock semantics were measured.
     const auto executable = juce::File::getSpecialLocation (juce::File::hostApplicationPath);

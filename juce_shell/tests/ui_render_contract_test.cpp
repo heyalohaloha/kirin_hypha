@@ -144,6 +144,12 @@ int main (int argc, char** argv)
     KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_AAX, "Studio Pro", "8.1.2.113407") == 0);
     KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_VST3, "Studio Pro", "8.1.2.113408") == 0);
     KIRIN_REQUIRE (classify (true, Wrapper::wrapperType_VST3, "Other Host", "8.1.2.113407") == 0);
+   #if ! JUCE_DEBUG
+    // A release build certifies no host, so CHAIN ACTION never reaches the product screen.
+    for (const auto wrapper : { Wrapper::wrapperType_VST3, Wrapper::wrapperType_AudioUnit,
+                                Wrapper::wrapperType_AAX })
+        KIRIN_REQUIRE (hypha::chain_clock_policy::current (wrapper) == KIRIN_CHAIN_CLOCK_POLICY_UNKNOWN);
+   #endif
     if (std::getenv ("HYPHA_SHAPE_ONLY") != nullptr)
     { hypha::tests::verifySpectrumShapeContract (KirinSpectrumView {}); return 0; }
     const auto previews = juce::SystemStats::getEnvironmentVariable ("KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});
