@@ -153,6 +153,7 @@ inline void verify()
         view.mouseExit (click); require (view.historyHeldForTest(), "mouse exit preserves hold");
         button (view, "history-live").onClick();
         require (view.footerStatusForTest() == "LIVE", "live state, not development label");
+        require (view.footerStatus().isEmpty(), "the folded 100% / 125% strip stays empty while live");
         button (view, "history-previous-tp").onClick();
         require (view.historyHeldForTest(), "one click holds newest peak");
         view.setHistory (changed); require (view.historyHeldForTest(), "held while live updates");

@@ -311,7 +311,7 @@ void verifyObservatoryCaptureContract (
         differentPixels (measuredSignature, deltaSignature) > 500);
     post.setTarget (observatory::ObservationTarget::absolute);
     observatory::View small (observatory::Role::post);
-    small.setSize (300, 200);
+    small.setSize (375, 250); // 100% is view-only and has no summary row (INV-S38).
     small.setDomain (observatory::Domain::level);
     small.setObservatoryFrame (activeFrame, true);
     const auto withoutSummary = render (small);

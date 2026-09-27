@@ -96,7 +96,13 @@ public:
     }
     juce::String footerStatusForTest() const { return footerStatusText(); }
     // WAITING, BYPASSED and the like; shown by the status strip where the footer folds.
-    juce::String footerStatus() const { return footerStatusText(); }
+    // The folded strip at 100% and 125% carries only the short states (WAITING, BYPASSED,
+    // FORMAT HELD, 5.1 MEASURE); LIVE and HOLD are read in the footer rail at 150% and above.
+    juce::String footerStatus() const
+    {
+        const auto state = footerStatusText();
+        return state == "LIVE" || state == "HOLD" ? juce::String() : state;
+    }
     bool frequencyControlVisibleForTest() const noexcept
     {
         return frequencyButton.isVisible();

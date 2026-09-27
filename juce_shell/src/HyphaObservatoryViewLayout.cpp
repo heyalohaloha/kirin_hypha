@@ -168,7 +168,6 @@ void View::resized()
     {
         auto compactBody = bodyArea;
         auto compactControls = compactBody.removeFromTop (20);
-        compactLoudnessButton.setBounds (compactControls.removeFromLeft (74).reduced (2, 1));
         if (compactRangeButton.isVisible())
             compactRangeButton.setBounds (
                 compactControls.removeFromRight (
