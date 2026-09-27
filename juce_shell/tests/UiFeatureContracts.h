@@ -4,6 +4,7 @@
 #include "ObservatoryCompositeContractTest.h"
 #include "PerceptualHistoryContractTest.h"
 #include "TimePageNavigationContractTest.h"
+#include "MenuArrowContract.h"
 #include "SpectrumFocusTrailContractTest.h"
 #include "SpectrumPresentationContractTest.h"
 #include "RunSummaryContractTest.h"
@@ -112,6 +113,7 @@ inline bool verifyUiFeatureContracts (int argc, char** argv)
     verifyReferenceAuditionComponentContract();
     verifyOsAccessUiContract();
     verifyTimePageNavigationContract();
+    verifyMenuArrowContract();
     verifyLocalBlindUiContract();
     if (entryOnly)
     {
