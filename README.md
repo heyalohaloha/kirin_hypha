@@ -84,8 +84,8 @@ Each metric keeps an independent fixed scale, and the current values update at a
 SPACE shows three-second MID/SIDE density, L/R balance, and correlation. It stays absolute because
 Hypha does not invent PRE/POST subtraction for correlation or the stereo field.
 
-At the largest editor it also shows **MONO**: how much of each third-octave band survives being
-summed to mono. One correlation figure is one number for the whole signal, and a stereo problem is
+At the largest editor it also shows **MONO**, beside the full-height scatter and under BAL and
+CORR: how much of each third-octave band survives being summed to mono. One correlation figure is one number for the whole signal, and a stereo problem is
 never spread evenly across the spectrum — it is a bass note, or a band an M/S move widened, or a
 pair of channels that ended up out of phase somewhere. MONO says which band, and by how much.
 
@@ -516,6 +516,11 @@ approval before lowering A. The approved gain stays fixed through switches, seek
 Receiving or restoring settings never starts B. Explicit audition still verifies the immutable
 source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
 single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
+
+Until B or C can be heard, the page says why instead of showing empty comparisons: the next step
+(open Kirin OS, play the song in the DAW, choose a Version for B, enable a Check in Kirin OS) and
+where A, B and C each stand. A B or C that cannot be heard yet is drawn dimmed but stays
+clickable: a click or hover gives its reason instead of doing nothing.
 
 The Version view shows A above B on a shared song timeline, with peak outside and RMS inside.
 Only observed A regions are drawn; older passes are dimmed. Select a region for the shared

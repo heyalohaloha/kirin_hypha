@@ -224,6 +224,7 @@ Snapshot ReferenceComparisonController::snapshot()
     result.comparisonSlot = slot;
     result.audibleComparisonSlot = b.bSelected ? 1 : c.bSelected ? 2 : 0;
     result.checkSelection = std::make_shared<const Snapshot> (c);
+    result.versionSelection = std::make_shared<const Snapshot> (b);
     result.versions = b.versions;
     result.selectedVersionId = b.migratedVersionChoice == versionId && versionId.isNotEmpty()
         ? b.presetId + "/" + b.checkId + "/" + b.candidateId : versionId;

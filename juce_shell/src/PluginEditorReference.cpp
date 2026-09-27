@@ -5,67 +5,8 @@
 #include <iterator>
 #include "HyphaUpdateContract.h"
 #include "reference_audition/ReferenceRuntimePresetOptions.h"
-namespace
-{
-hypha::reference_ui::Readiness referenceReadiness (
-    hypha::reference_audition::RuntimeState state) noexcept
-{
-    using Input = hypha::reference_audition::RuntimeState;
-    using Output = hypha::reference_ui::Readiness;
-    switch (state)
-    {
-        case Input::disconnected: return Output::disconnected;
-        case Input::waiting:      return Output::waiting;
-        case Input::verifying:    return Output::verifying;
-        case Input::ready:        return Output::ready;
-        case Input::rejected:     return Output::rejected;
-    }
-    return Output::disconnected;
-}
-juce::String sourceLabel (const juce::String& kind)
-{
-    if (kind == "work_version") return "WORK VERSION";
-    if (kind == "catalog_track" || kind == "catalog") return "CATALOG";
-    return "KIRIN OS";
-}
-juce::String rejectedStatus (const juce::String& code)
-{
-    if (code == "source_changed") return "SOURCE CHANGED / PREPARE AGAIN IN KIRIN OS";
-    if (code == "source_open_failed" || code == "source_decode_failed"
-        || code == "reference_source_open_failed"
-        || code == "reference_source_decode_failed")
-        return "SOURCE COULD NOT BE OPENED";
-    if (code == "reference_source_changed") return "SOURCE CHANGED / VERIFY IN KIRIN OS";
-    if (code == "reference_source_audio_mismatch")
-        return "SOURCE FORMAT CHANGED / VERIFY IN KIRIN OS";
-    return "PREPARE AGAIN IN KIRIN OS";
-}
-std::vector<hypha::reference_ui::SelectionOption> selectionOptions (
-    const std::vector<hypha::reference_audition::RuntimeSelectionOption>& input)
-{
-    std::vector<hypha::reference_ui::SelectionOption> output;
-    output.reserve (input.size());
-    for (const auto& item : input) output.push_back ({
-        item.id, item.label + (item.requiresPreparation ? "  /  PREPARE" : "") });
-    return output;
-}
-hypha::reference_ui::BlindPhase referenceBlindPhase (
-    hypha::reference_audition::BlindPhase phase,
-    bool available) noexcept
-{
-    using Input = hypha::reference_audition::BlindPhase;
-    using Output = hypha::reference_ui::BlindPhase;
-    switch (phase)
-    {
-        case Input::active:      return Output::active;
-        case Input::revealed:    return Output::revealed;
-        case Input::invalidated: return Output::invalidated;
-        case Input::starting:    return Output::starting;
-        case Input::inactive:    return available ? Output::available : Output::unavailable;
-    }
-    return Output::unavailable;
-}
-}
+#include "HyphaReferenceRuntimeView.h"
+using namespace hypha::reference_ui::runtime_view;
 void KirinHyphaEditor::configureReferenceAudition()
 {
     referenceAccessView.onAbout = [this] { showReferenceInformationMenu(); };
@@ -78,6 +19,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     };
     scaleRoot.addChildComponent (referenceAccessView);
     referenceView.onSelectA = [this] { processorRef.selectReferenceA(); };
+    referenceView.onExplain = [this] (const juce::String& reason) { showToast (reason); };
     referenceView.onSelectB = [this]
     {
         const auto& state = referenceView.state();
@@ -251,6 +193,7 @@ void KirinHyphaEditor::refreshReferenceAudition (const KirinObservatoryFrame& fr
         || runtime.blindPhase == hypha::reference_audition::BlindPhase::revealed;
     state.aAvailable = runtime.bSelected || frozenBlindA
         || (callbackLive && runtime.transportPlaying && runtime.transportPositionValid);
+    setSourceSteps (state, runtime);
     state.aIntegratedLoudness = runtime.bSelected || frozenBlindA
         ? runtime.aIntegratedLoudness
         : liveA ? frame.meter.lufs_i : hypha::reference_ui::unavailableValue();
