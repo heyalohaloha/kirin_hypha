@@ -133,6 +133,20 @@ bool LocalBlindProductSession::start (bool approve) noexcept
     return trial != nullptr && trial->start (approve);
 }
 
+bool LocalBlindProductSession::startNamed (bool approve) noexcept
+{
+    const std::lock_guard<std::mutex> lock (controlLock);
+    auto* trial = output.control();
+    return trial != nullptr && trial->startNamed (approve);
+}
+
+bool LocalBlindProductSession::startBlind() noexcept
+{
+    const std::lock_guard<std::mutex> lock (controlLock);
+    auto* trial = output.control();
+    return trial != nullptr && trial->startBlind();
+}
+
 bool LocalBlindProductSession::select (int stimulus) noexcept
 {
     const std::lock_guard<std::mutex> lock (controlLock);

@@ -78,6 +78,7 @@ const Entry entries[] = {
     { "Previous item is unavailable", u8"前の項目は使えません" },
     { "Next item is unavailable", u8"次の項目は使えません" },
     { "BLIND COMPARE COULD NOT START", u8"Blind Compareを開始できません" },
+    { "NAMED A/B COULD NOT START", u8"記名A/Bを開始できません" },
     { "SOURCE COULD NOT BE SELECTED", u8"ソースを選べませんでした" },
     { "LISTEN TO BOTH COMPLETE PASSES FIRST", u8"先に両方を最後まで聴いてください" },
     { "RESULT COULD NOT BE REVEALED", u8"答えを表示できませんでした" },

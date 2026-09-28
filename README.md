@@ -660,11 +660,16 @@ are enforced on every format.
    freezes that Gain Match policy without changing the normal meter context or WIDE / FOCUS.
    Wait for both sides of the exact range to finish preparation. If Gain Match is unavailable,
    follow the section guidance and use **CAPTURE AGAIN** in the same screen.
-3. Start the prepared comparison, then play the DAW from before the displayed range. Hypha auditions
+3. Optionally, press **NAMED A/B** first (from 200%, or wherever the screen fits it beside
+   **START BLIND**). It plays the same frozen range by name: **PRE** with its fixed gain and
+   **POST**. Choose either at any time; play the DAW from before the range to hear it again. A stop
+   or a seek only waits for the range start again, and nothing is counted or answered. Press
+   **START BLIND** when ready: which is which is hidden again, and Blind begins from empty.
+4. Start the prepared comparison, then play the DAW from before the displayed range. Hypha auditions
    only the captured samples, even when a processing block crosses either end of the range.
    After the first pass completes, select the other **Source** and play from before the same range
    again. A sample-exact DAW loop is optional. Both sources must complete a full pass before answering.
-4. Answer, reveal the hidden assignment, end the comparison, and explicitly return to the live
+5. Answer, reveal the hidden assignment, end the comparison, and explicitly return to the live
    signal.
 
 POST is the normal Gain Match reference: the frozen PRE audition copy receives one fixed gain so it

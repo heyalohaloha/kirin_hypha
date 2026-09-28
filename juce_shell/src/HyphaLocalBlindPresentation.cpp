@@ -55,17 +55,29 @@ juce::String contextTag (bool trackStem)
 {
     return trackStem ? "TRACK / STEM" : "2MIX";
 }
+
+// INV-LC17: the named A/B says which is which and the fixed gain each one plays at.
+juce::String sourceName (int stimulus)
+{
+    return stimulus == 1 ? "PRE" : "POST";
+}
+
+juce::String namedGain (double db)
+{
+    return std::abs (db) < 0.05 ? juce::String() : " " + juce::String (db > 0.0 ? "+" : "") + juce::String (db, 1) + " dB";
+}
 }
 
 void Component::refreshPresentation()
 {
     const auto phase = current.phase;
-    const bool hidden = phase == Phase::armed || phase == Phase::listening;
+    const bool named = current.trial.named && (phase == Phase::armed || phase == Phase::listening);
+    const bool hidden = ! named && (phase == Phase::armed || phase == Phase::listening);
     const bool trackStem = canChooseContext()
         ? preflightContext == meter_context::MeterContext::trackStem
         : trackStemPolicy (current);
     const auto tag = contextTag (trackStem);
-    titleLabel.setText (juce::String (hidden ? "BLIND COMPARE"
+    titleLabel.setText (juce::String (named ? "PRE / POST NAMED A/B" : hidden ? "BLIND COMPARE"
                                             : phase == Phase::revealed ? "BLIND RESULT"
                                                                       : "PRE / POST BLIND")
                            + (canChooseContext() ? juce::String() : " / " + tag),
@@ -101,6 +113,8 @@ void Component::refreshPresentation()
             startButton.setTitle ("Approve fixed POST attenuation and start Blind Compare");
             startButton.setDescription (startButton.getTitle());
             startButton.setTooltip (startButton.getTitle());
+            namedButton.setButtonText ("LOWER POST " + juce::String (attenuation, 1) + " dB & A/B");
+            namedButton.setTitle ("Approve fixed POST attenuation and hear PRE and POST by name");
         }
         else
         {
@@ -109,7 +123,26 @@ void Component::refreshPresentation()
                 "Start the prepared comparison. PRE is matched to POST with fixed gain; DAW Solo and routing stay unchanged");
             startButton.setDescription (startButton.getTitle());
             startButton.setTooltip (startButton.getTitle());
+            namedButton.setButtonText ("NAMED A/B");
+            namedButton.setTitle ("Hear PRE and POST by name at the fixed level before Blind");
         }
+        namedButton.setDescription (namedButton.getTitle());
+        namedButton.setTooltip (namedButton.getTitle());
+    }
+    else if (named)
+    {
+        status = phase == Phase::armed ? juce::String ("WAITING FOR CAPTURED RANGE START")
+            : current.trial.pendingStimulus != 0 ? "SWITCHING TO " + sourceName (current.trial.pendingStimulus)
+            : current.trial.activeStimulus == 0 ? juce::String ("WAITING FOR AUDIBLE PLAYBACK")
+            : current.trial.passComplete ? "PASS COMPLETE / " + sourceName (current.trial.activeStimulus)
+            : "PLAYING " + sourceName (current.trial.activeStimulus);
+        detail = phase == Phase::armed || current.trial.passComplete
+            ? "DAW: play from before the captured range. Choose PRE or POST at any time."
+            : "Choose PRE or POST at any time. START BLIND hides which is which.";
+        startButton.setButtonText ("START BLIND");
+        startButton.setTitle ("Start Blind on the same range; which is which is hidden again");
+        startButton.setDescription (startButton.getTitle());
+        startButton.setTooltip (startButton.getTitle());
     }
     else if (phase == Phase::armed)
     {
@@ -191,7 +224,7 @@ void Component::refreshPresentation()
     {
         button->setVisible (phase == Phase::armed || phase == Phase::listening
                             || phase == Phase::revealed);
-        button->setEnabled (replayAvailable);
+        button->setEnabled (named || replayAvailable);
     }
     const auto sourceText = [&] (int stimulus, bool heard)
     {
@@ -202,12 +235,24 @@ void Component::refreshPresentation()
             return juce::String { "SOURCE " } + juce::String (stimulus) + " / NEXT";
         return juce::String { "SOURCE " } + juce::String (stimulus);
     };
-    sourceOne.setButtonText (sourceText (1, current.trial.heardOneComplete));
-    sourceTwo.setButtonText (sourceText (2, current.trial.heardTwoComplete));
-    sourceOne.setTooltip (replayAvailable ? "Replay hidden source 1 (optional)"
-                                          : "Source 1 progress; selection is automatic");
-    sourceTwo.setTooltip (replayAvailable ? "Replay hidden source 2 (optional)"
-                                          : "Source 2 progress; selection is automatic");
+    if (named)
+    {
+        // With POST lowered by approval, PRE plays at its own level.
+        const bool lowered = current.lowerPostGainDb < -0.05;
+        sourceOne.setButtonText (sourceName (1) + namedGain (lowered ? 0.0 : current.fixedPreGainDb));
+        sourceTwo.setButtonText (sourceName (2) + namedGain (lowered ? current.lowerPostGainDb : 0.0));
+        sourceOne.setTooltip ("Play PRE, the input of this chain, at the fixed level");
+        sourceTwo.setTooltip ("Play POST, the output of this chain");
+    }
+    else
+    {
+        sourceOne.setButtonText (sourceText (1, current.trial.heardOneComplete));
+        sourceTwo.setButtonText (sourceText (2, current.trial.heardTwoComplete));
+        sourceOne.setTooltip (replayAvailable ? "Replay hidden source 1 (optional)"
+                                              : "Source 1 progress; selection is automatic");
+        sourceTwo.setTooltip (replayAvailable ? "Replay hidden source 2 (optional)"
+                                              : "Source 2 progress; selection is automatic");
+    }
     sourceOne.setToggleState (current.trial.activeStimulus == 1, juce::dontSendNotification);
     sourceTwo.setToggleState (current.trial.activeStimulus == 2, juce::dontSendNotification);
 
@@ -224,7 +269,8 @@ void Component::refreshPresentation()
     cannotDistinguish.setToggleState (current.trial.answer == Answer::cannotDistinguish,
                                       juce::dontSendNotification);
 
-    startButton.setVisible (phase == Phase::ready);
+    startButton.setVisible (phase == Phase::ready || named);
+    // The named A/B entry's visibility depends on the width it has: resized() sets it.
     const bool repairPair = admission == local_blind::CaptureAdmission::pairRequired;
     const bool repairKeep = admission == local_blind::CaptureAdmission::keepBusy;
     repairButton.setVisible (canChooseContext() && (repairPair || repairKeep));

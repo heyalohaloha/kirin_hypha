@@ -54,6 +54,8 @@ Component::Component()
     styleButton (noPreference, "local-blind-answer-neither", "Choose no preference and reveal");
     styleButton (cannotDistinguish, "local-blind-answer-same", "Choose cannot tell apart and reveal");
     styleButton (startButton, "local-blind-start", "Start the prepared comparison");
+    styleButton (namedButton, "local-blind-named",
+                 "Hear PRE and POST by name at the fixed level before Blind");
     styleButton (revealButton, "local-blind-reveal", "Reveal the hidden source assignment");
     styleButton (captureButton, "local-blind-capture", "Capture one exact four second range");
     styleButton (repairButton, "local-blind-repair", "Resolve the capture requirement");
@@ -80,7 +82,12 @@ Component::Component()
     noPreference.onClick = [this] { if (onAnswer) onAnswer (Answer::noPreference); };
     cannotDistinguish.onClick = [this] { if (onAnswer) onAnswer (Answer::cannotDistinguish); };
     startButton.onClick = [this]
-    { if (onStart) onStart (current.trial.lowerPostApprovalRequired); };
+    {
+        if (current.trial.named) { if (onStartBlind) onStartBlind(); }
+        else if (onStart) onStart (current.trial.lowerPostApprovalRequired);
+    };
+    namedButton.onClick = [this]
+    { if (onStartNamed) onStartNamed (current.trial.lowerPostApprovalRequired); };
     revealButton.onClick = [this] { if (onReveal) onReveal(); };
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
     contextChoice.onChange = [this]
@@ -211,6 +218,17 @@ void Component::layoutRow (juce::Rectangle<int> area,
     }
 }
 
+// Whether these labels fit whole in one row of this width, as layoutRow lays them out.
+bool Component::rowFits (int width, std::initializer_list<const juce::Button*> buttons) const
+{
+    const int gap = presentation::densityIndex (presentationContext.density) <= 1 ? 4 : 6;
+    const auto font = monoFont (presentationContext, typography::TextRole::action);
+    int total = -gap;
+    for (const auto* button : buttons)
+        total += juce::roundToInt (std::ceil (text_style::shownWidth (font, button->getButtonText()))) + 12 + gap;
+    return total <= width;
+}
+
 void Component::resized()
 {
     const bool compact = presentation::densityIndex (presentationContext.density) <= 1;
@@ -236,7 +254,7 @@ void Component::resized()
     resultLabel.setFont (labelFont (presentationContext, typography::TextRole::secondaryValue,
                                     typography::Composition::information));
 
-    if (canChooseContext()) { layoutPreflight(); return; }
+    if (canChooseContext()) { namedButton.setVisible (false); layoutPreflight(); return; }
     titleLabel.setJustificationType (juce::Justification::centred);
 
     auto area = getLocalBounds().reduced (margin);
@@ -260,7 +278,10 @@ void Component::resized()
     const auto stopArea = actions.removeFromRight (compact ? 66 : medium ? 100 : 140);
     if (stopButton.isVisible()) stopButton.setBounds (stopArea);
     actions.removeFromRight (gap);
-    layoutRow (actions, { &captureButton, &startButton, &revealButton,
+    // The named A/B (INV-LC17) starts beside START BLIND wherever both labels fit whole.
+    namedButton.setVisible (current.phase == Phase::ready
+                            && rowFits (actions.getWidth(), { &namedButton, &startButton }));
+    layoutRow (actions, { &captureButton, &namedButton, &startButton, &revealButton,
                          &returnButton, &closeButton });
 }
 

@@ -198,6 +198,12 @@ hypha::local_blind::CaptureAdmission KirinHyphaProcessorBase::requestLocalBlindP
 bool KirinHyphaProcessorBase::startLocalBlindProductTrial (bool approveLowerPost)
 { return localBlindProductSupported() && localBlindProductSession.start (approveLowerPost); }
 
+bool KirinHyphaProcessorBase::startLocalBlindProductNamed (bool approveLowerPost)
+{ return localBlindProductSupported() && localBlindProductSession.startNamed (approveLowerPost); }
+
+bool KirinHyphaProcessorBase::startLocalBlindProductBlindFromNamed()
+{ return localBlindProductSupported() && localBlindProductSession.startBlind(); }
+
 bool KirinHyphaProcessorBase::selectLocalBlindProductStimulus (int stimulus)
 { return localBlindProductSupported() && localBlindProductSession.select (stimulus); }
 

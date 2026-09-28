@@ -197,7 +197,7 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 - 通常経路はmono / stereo限定。サラウンド対応を計測coreの引数だけから推定しない。
 - macOSのPRE表示共有はatomic file、Windowsはpagefile-backed共有メモリを使う。platformごとの
   transport正本を確認し、`/tmp/`だけを全platform共通仕様として扱わない。
-- Reference比較試聴、live PRE/POST比較、承認済みのローカルBlindは通常A経路とは別の明示操作である。
+- Reference比較試聴、live PRE/POST比較、承認済みのローカルBlind（その前の記名A/Bを含む）は通常A経路とは別の明示操作である。
   Preference Listening TrialをABX識別検定や音質改善の証明と呼ばない。
 
 ### PRE/POST別バイナリ

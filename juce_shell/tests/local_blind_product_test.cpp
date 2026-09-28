@@ -231,7 +231,34 @@ private:
                 nativeStart = state.start;
                 nativeEnd = state.start + state.frames;
                 play.store (false);
+                stage = 30;
+                break;
+            case 30:
+                // INV-LC17: the named A/B first. PRE plays by name through one pass of the range.
+                if (post->isPlaying() || ! click ("local-blind-named")) break;
+                passNumber.store (3);
+                cue (nativeStart - 1003);
                 ++stage;
+                break;
+            case 31:
+                if (! state.trial.named || ! state.trial.passComplete || state.trial.activeStimulus != 1) break;
+                require (! state.trial.heardOneComplete && ! state.trial.canAnswer, "the named A/B counts nothing as heard");
+                play.store (false);
+                ++stage;
+                break;
+            case 32:
+                // POST by name on a replay from before the range.
+                if (post->isPlaying() || ! click ("local-blind-source-2")) break;
+                passNumber.store (4);
+                cue (nativeStart - 1003);
+                ++stage;
+                break;
+            case 33:
+                if (! state.trial.named || ! state.trial.passComplete || state.trial.activeStimulus != 2) break;
+                require (correlationNamedPre.load() > 0 && correlationNamedPost.load() < 0,
+                         "the named A/B played PRE, then POST, by name");
+                play.store (false);
+                stage = 4;
                 break;
             case 4:
                 if (post->isPlaying()) break;
@@ -314,7 +341,7 @@ private:
                 require (preTransparent.load() && postTransparent.load(), "normal PRE/POST paths stay bit identical");
                 require (maximumCopyError.load() < 0.00004, "matched output stays within fixed-gain quantization bound");
                 require (auditionSamples.load() >= 192000 * 2, "actual audio output covered both complete sides");
-                std::cout << "Blind product: PASS (real C ABI, pair/PCM transport, editor reopen, two complete passes,"
+                std::cout << "Blind product: PASS (real C ABI, pair/PCM transport, named A/B, editor reopen, two complete passes,"
                              " answer/reveal/return); max_copy_error=" << maximumCopyError.load()
                           << " audition_samples=" << auditionSamples.load() << '\n';
                 passed = true;
@@ -361,7 +388,9 @@ private:
                         const auto output = buffer.getSample (c, f);
                         maximumCopyError.store (std::max (maximumCopyError.load(),
                             std::abs (std::abs (output) - std::abs (expected))));
-                        auto& correlation = passNumber.load() == 1 ? correlationOne : correlationTwo;
+                        const auto pass = passNumber.load();
+                        auto& correlation = pass == 1 ? correlationOne : pass == 2 ? correlationTwo
+                                          : pass == 3 ? correlationNamedPre : correlationNamedPost;
                         correlation.store (correlation.load() + output * -expected);
                     }
                     else if (! inRange && error != 0.0f) postTransparent.store (false);
@@ -387,6 +416,7 @@ private:
     std::atomic<float> maximumCopyError { 0 };
     std::atomic<int> passNumber { 0 };
     std::atomic<double> correlationOne { 0 }, correlationTwo { 0 };
+    std::atomic<double> correlationNamedPre { 0 }, correlationNamedPost { 0 }; // INV-LC17
     std::chrono::steady_clock::time_point started;
     std::chrono::steady_clock::time_point armedAt;
     std::chrono::steady_clock::time_point pairPreviewRequestedAt;

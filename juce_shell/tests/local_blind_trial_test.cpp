@@ -367,6 +367,8 @@ static void coherentEpochs()
 #include "LocalBlindPlaybackContract.h"
 #include "LocalBlindTransitionContract.h"
 
+void verifyNamedAb(); // local_blind_named_trial_test.cpp (INV-LC17)
+
 int main()
 {
     nativeRangePlaybackContract();
@@ -382,6 +384,7 @@ int main()
     validation();
     concurrentRetirement();
     coherentEpochs();
+    verifyNamedAb();
     require (rtAllocations.load() == 0 && rtDeletes.load() == 0, "RT allocation/destruction must be zero");
     std::cout << "Local Blind trial: PASS (selection/receipt, 10 invalidations, exact loop, lower-level return, 9 bounds, 100 retire races, 10000 epoch writes; RT new/delete=0)\n";
 }

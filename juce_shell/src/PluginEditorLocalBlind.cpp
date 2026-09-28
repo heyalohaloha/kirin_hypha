@@ -35,6 +35,19 @@ void KirinHyphaEditor::configureLocalBlindProduct()
             localBlindView.setActionNotice ("BLIND COMPARE COULD NOT START");
         refreshLocalBlindProduct();
     };
+    // INV-LC17: the same frozen range heard by name first, then Blind as a new trial.
+    localBlindView.onStartNamed = [this] (bool approveLowerPost)
+    {
+        if (! processorRef.startLocalBlindProductNamed (approveLowerPost))
+            localBlindView.setActionNotice ("NAMED A/B COULD NOT START");
+        refreshLocalBlindProduct();
+    };
+    localBlindView.onStartBlind = [this]
+    {
+        if (! processorRef.startLocalBlindProductBlindFromNamed())
+            localBlindView.setActionNotice ("BLIND COMPARE COULD NOT START");
+        refreshLocalBlindProduct();
+    };
     localBlindView.onSelectStimulus = [this] (int stimulus)
     {
         if (! processorRef.selectLocalBlindProductStimulus (stimulus))
