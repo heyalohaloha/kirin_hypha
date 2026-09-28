@@ -7,7 +7,7 @@
 - 周回単位の取り違えの限界を明記した。
 - 定数をhostごとの値にした。
 - 自動で戻るときの遷移と表示を加えた。
-- AAX（Pro Tools）の条件を加えた（第2.5節、INV-LC8〜LC10）。INV-LC9とINV-LC10は、同日に利用者が推奨を採用した。
+- AAX（Pro Tools）の条件を加えた（第2.5節、INV-LC8〜LC10）。INV-LC9とINV-LC10は、同日に利用者が推奨を採用した。同日のPro Toolsでの実測（G1記録第9節）で第2.5節を改めた。
 状態: 下書き。AGENTS、不変条件表、READMEの正本はまだ変更しない。
 [実装計画](hypha_live_chain_compare_implementation_plan_20260927.md)（第14版）の方針どおり、正本は実装の承認時に改める。
 本書は、そのときに入れる差分を先に固定し、承認の判断材料にする。
@@ -25,7 +25,7 @@
 | 遅延の報告の誤りへの備え: 比較の開始時と定期的に中身のずれを推定し、時計の対応と食い違えば警告する（止めない）。DAWの遅延補償に依存することを説明書に記す | 2026-09-28（見直し。利用者が判断を委任し、推奨を採用） | 同第8.6節 |
 | AAX（Pro Tools）をVST3、AUと並ぶ重要な対象として扱い、同じ規則が成り立つかを実測で確かめる | 2026-09-28（利用者の指示） | 本書第2.5節、実装計画第5.4節 |
 | AAXはプロが使うので、出来る限り完璧に近く、他のプラグインより高い精度を保つ。品質目標を出荷の条件にする | 2026-09-28（利用者の指示） | 実装計画第5.4節の品質目標 |
-| 比較の途中で中身のずれが跳んだら（Pro Toolsの再生中の遅延変更など）、POSTへ倒し、再生の停止と再開の後に戻す（INV-LC10）。AAXのmulti-monoでも比較を提供し、全channelを同じblockで切り替える（INV-LC9） | 2026-09-28（利用者が推奨を採用） | 実装計画第5.4節 |
+| 比較の途中で中身のずれが跳んだら（補償を改めないhostや、報告しないpluginの遅延変更など）、POSTへ倒し、再生の停止と再開の後に戻す（INV-LC10）。AAXのmulti-monoでも比較を提供し、全channelを同じblockで切り替える（INV-LC9） | 2026-09-28（利用者が推奨を採用） | 実装計画第5.4節 |
 
 ## 2. AGENTS.md
 
@@ -80,18 +80,17 @@ G1のプローブはPOSIX共有memoryを使ったが、Studio Proが同じproces
 
 ### 2.5 AAX（Pro Tools）で成り立つかを確かめる前提
 
-G1の実測はStudio ProのVST3とAUだけである。
-AAXでは次の点が異なり、第3節の規則をそのまま当てはめられるかは未確認である。
+AAXでは次の点がVST3、AUと異なる。2026-09-28にPro Tools Developer 2026.4（Intel Mac、48 kHz）で実測し（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第9節）、その結果を右の列に含めた。
 出典は、Avidが公開するAAX SDKの[Pro Tools Guide](https://learn-cdn.avid.com/AAX_SDK_2p1p1/Documentation/Doxygen/output/html/a00274.html)と、手元のAAX SDK 2.9のheaderの説明である。
 
 | 点 | AAXの仕様 | live比較への意味 |
 | --- | --- | --- |
-| 連続時計 | `AAX_ITransport::GetCurrentNativeSampleLocation`は、再生中だけ、callbackのbuffer先頭のtimeline位置を返す。`AAX_IController::GetTODLocation`は、再生開始からplayheadが進んだsample数を返す。現行のJUCE patchは前者をAAXの補助時計として渡す | 前者はproject時刻にあたり、loopを挟んで連続する時計ではない見込み。後者は連続時計の候補だが、audio engine全体の値なので、PREとPOSTで同じ値になる見込み |
-| 遅延補償された位置 | POSTに渡る位置が、PREとPOSTの間のpluginの遅延の分だけ補償されているかは書かれていない | 補償されていなければ、project時刻の一致からKを較正できない。AAXでは対応の鍵そのものが成り立たないので、最優先で実測する |
-| 再生中の遅延変更 | Pro Toolsは再生中に遅延補償の設定を更新しない。遅延を動的に変えるpluginは、再生中の変更を避けるか、ずれを利用者に示すべきとされる | 再生中の遅延変更によるずれは、再生を止めて再開するまで続く。INV-LC5の許容の外であり、INV-LC7の警告で扱う。警告には「再生を止めて再開する」を示す |
+| 連続時計 | `AAX_ITransport::GetCurrentNativeSampleLocation`は、再生中だけ、callbackのbuffer先頭のtimeline位置を返す。`AAX_IController::GetTODLocation`は、再生開始からplayheadが進んだsample数を返す。現行のJUCE patchは前者をAAXの補助時計として渡す | 前者はproject時刻にあたり、loopで折り返す。後者は、audio engine全体の値なので、PREとPOSTで同じ値になる見込み（未測定）。pluginが数えるframe数（AUのrender時刻と同じ性質）を連続時計にすると、実測で成り立った |
+| 遅延補償された位置 | POSTに渡る位置が、PREとPOSTの間のpluginの遅延の分だけ補償されているかは書かれていない | 実測では補償されていた（中身と位置の差は、照合できた全blockで0）。loopの折返しでもPOSTの位置は中身と一致した。補償されない版やplatformでは、project時刻の一致からKを較正できない |
+| 再生中の遅延変更 | 公開ガイド（2.1.1版）は、Pro Toolsは再生中に遅延補償の設定を更新しないと書く。遅延を動的に変えるpluginは、再生中の変更を避けるか、ずれを利用者に示すべきとされる | Pro Tools 2026.4の実測では再生中に反映され、時計（位置とK）が変わった。M1で誤対応は1〜2 block（1024 framesで21〜43 ms）。補償を改めない版やhostでは、ずれは再生を止めて再開するまで続くので、INV-LC10で扱う |
 | 遅延補償のOFF | Pro Tools 12.6以降は、遅延補償の全体の有効・無効をpluginに通知する（`AAX_eNotificationEvent_DelayCompensationState`）。JUCEはこの通知を扱っていない | OFFの間は、対応の前提が成り立たないと分かる（INV-LC8） |
-| Dynamic Plug-In Processing | Pro Tools 11以降は、一定時間無音のtrackや停止中のpluginを止める。止めさせない方法はdescriptorの`AAX_eProperty_Constraint_AlwaysProcess`で、そのpluginのchain全体を処理させ続ける。SDKは、実際に支障があるときだけ使うよう求める | Studio ProのPlug-in Napと同じ問題がある。この属性は静的なので、「比較中だけ」は選べない（INV-LC6） |
-| loop | loopの終わりから始めへ、pluginの状態をresetせずに続けて処理する | loopでの時計の振る舞いはG1-03で測る |
+| Dynamic Plug-In Processing | Pro Tools 11以降は、一定時間無音のtrackや停止中のpluginを止める。止めさせない方法はdescriptorの`AAX_eProperty_Constraint_AlwaysProcess`で、そのpluginのchain全体を処理させ続ける。SDKは、実際に支障があるときだけ使うよう求める | 実測では、入力が無音になって約8秒後に、再生中も停止中も呼出しが止まった。AlwaysProcessを付けると、停止中も含めてchain全体が呼ばれ続けた。この属性は静的なので、「比較中だけ」は選べない（INV-LC6） |
+| loop | loopの終わりから始めへ、pluginの状態をresetせずに続けて処理する | 実測では、callbackはloop終端で分割されず、終端をまたぐblockは折返し前の開始位置で報告された。POSTの位置は中身と一致したまま折り返した |
 | offline bounce | 実時間より速く呼ぶ。wall-clockに依存する処理を避けるよう求める | 呼出しの空白の規則は使えない。offlineではA経路を保つ（R-12） |
 
 ## 3. 不変条件表（docs/hypha_invariants.md）
@@ -124,9 +123,9 @@ chainの遅延がloop長以上だと、この前提が崩れ、Kを周回単位�
 前提を確かめる手段と、確かめられない場合の扱い（PREを出さない、またはINV-LC7の警告）は、周回ごとに印が変わるfixtureを使うG1-03で決める。
 
 INV-LC1は、hostがPOSTへ遅延補償済みの位置を渡すことも前提にする（Studio Proでは成り立った。G1記録第2節）。
-AAXでは、この前提も、連続時計に何を使うか（`GetTODLocation`か、pluginが数えるframe数か）も未確認である（第2.5節）。
-補償済みの位置が渡らないhostでは、時計だけではKを較正できない。
-その場合の選択肢（中身による較正を認めるか、そのhostでは提供しないか）は、Pro Toolsの実測の後に利用者の判断を求める。
+AAXでは、Pro Tools Developer 2026.4で、この前提が成り立ち、pluginが数えるframe数を連続時計にして方式が成り立った（第2.5節）。
+補償済みの位置が渡らない版やplatformでは、時計だけではKを較正できない。
+その場合の選択肢（中身による較正を認めるか、そこでは提供しないか）は、事実を添えて利用者の判断を求める。
 
 INV-LC4の自動復帰は、既存のReference試聴と逆の振る舞いである。
 Reference試聴は、停止、位置不明、準備未完了でBの選択を解除してAへ戻し、再選択を求める（ReferenceRuntimeV2。実装計画第3節）。
@@ -137,8 +136,8 @@ Referenceの規則は変えない。
 INV-LC5の許容の外になる型がある。報告が来ない型と、hostが再生中に補償を改めない型である。
 [VST3のFAQ](https://steinbergmedia.github.io/vst3_dev_portal/pages/FAQ/Processing.html)では、latencyの変わったpluginが`restartComponent(kLatencyChanged)`を呼ぶ。hostは`getLatencySamples()`を読み直し、対応していれば補償を改める。
 これらの型では、ずれは自然には終わらないので、INV-LC7の警告で扱う。
-Pro Toolsは後者の型である。再生中は遅延補償を更新しないとAvidが明記している（第2.5節）。
-Pro Toolsでは、警告に「再生を止めて再開すると補償が改まる」ことを示す。
+Avidの公開ガイドはPro Toolsを後者の型と書くが、Pro Tools 2026.4の実測では再生中に反映された（第2.5節）。hostの版ごとにprofileで扱う。
+補償を改めないhostでは、警告に「再生を止めて再開すると補償が改まる」ことを示す。
 
 INV-LC6は、現行の`getTailLengthSeconds()`が0を返す実装（`juce_shell/src/PluginProcessor.cpp`）を変える。
 [VST3のFAQ](https://steinbergmedia.github.io/vst3_dev_portal/pages/FAQ/Processing.html)は、`getTailSamples`で`kInfiniteTail`を返すことを、pluginを常に処理させる方法として挙げる。
@@ -172,11 +171,11 @@ READMEは英語なので、案も英語で書く。画面の日本語は翻訳ca
 > - Right after a seek or a new start, you hear POST for about the latency of the chain between PRE and POST.
 > - If the input stays silent for several seconds, the DAW may stop calling Hypha. PRE comes back shortly after the sound returns.
 > - If you change a plug-in setting that changes its latency (look-ahead, oversampling, linear phase) while comparing, PRE can be misaligned for a moment right after the change. How long depends on the DAW and its buffer size.
-> - Pro Tools does not update its delay compensation during playback. If a latency change shifts the audio while you compare, you hear POST until you stop and start playback again. While delay compensation is turned off in Pro Tools, you hear POST.
+> - If your DAW does not update its delay compensation during playback and a latency change shifts the audio while you compare, you hear POST until you stop and start playback again. While delay compensation is turned off in Pro Tools, you hear POST.
 > - Offline render and a broken or changed pair end the comparison. Select PRE again to continue.
 
 hostごとの実測値（seek直後の長さ、遅延変更の直後の長さ）は、対応host一覧に載せる。
-Pro Toolsの項の最後の一文は、INV-LC8を採用した場合に入れる。
+この項の最後の一文（Pro Toolsの遅延補償のOFF）は、INV-LC8を採用した場合に入れる。
 sleepの一文は、INV-LC6を採用したら「DAWが止めても比較は途切れない」の趣旨へ差し替える。
 短いloopと長い遅延の扱い（INV-LC1の注記）が決まったら、1行を加える。
 Referenceとの振る舞いの違い（INV-LC4の注記）は、Referenceの節と本節の両方に1行ずつ書く。
@@ -191,7 +190,7 @@ Referenceとの振る舞いの違い（INV-LC4の注記）は、Referenceの節�
 | 周回の特定 | 周回ごとに印が変わるfixtureで、chainの遅延がloop長以上の条件を試す。INV-LC1の前提を確かめる手段と、確かめられない場合の扱いを決める |
 | 中身のずれの警告 | INV-LC7の推定の方式（窓、探索範囲、周期）、誤警告（意図したdelay、reverb、強い加工）、判定不能の割合。以前のG1-05の構成を、警告だけの形で使う |
 | 転送経路 | G1-06。macOSのPOSIX共有memoryとfile-backed mapping、sandboxのhostと、AUを別processで動かすhost（Logic）での到達性。Windowsのmapping。30分以上 |
-| AAX（Pro Tools） | macOSとWindowsのPro Toolsで、PREとPOSTに渡る位置（`GetCurrentNativeSampleLocation`）と`GetTODLocation`が、間のpluginの遅延の分だけ補償されているか（最優先）。loop、seek、再生開始、Dynamic Plug-In Processing、再生中の遅延変更、遅延補償のOFF、multi-mono。AAXのプローブは、Pro Toolsが読み込める署名が要る |
+| AAX（Pro Tools） | Pro Tools Developer 2026.4（macOS、Intel）では、補償済みの位置、loop、再生開始、Dynamic Plug-In Processing、再生中の遅延変更を確かめた（G1記録第9節）。残りは、WindowsのPro Tools、製品版（PACE署名が要る）、Apple silicon、multi-mono、遅延補償のOFF、`GetTODLocation`、hostの通知を待ってから音の遅延を変える型 |
 | M1 | plugin内での実装と、再配置の直後の追加棄却（記録からの再計算ではAUで30 block） |
 | 遷移と表示 | 対称5 msでの復帰、PRE待ちの表示の最短時間（短い区間でちらつかない）、Referenceとの振る舞いの違いの伝え方 |
 | 実装の承認 | 本書の差分は実装の承認と同時に正本へ入れる。承認前に正本の文言だけを先に変えない |

@@ -1,10 +1,11 @@
-# 連続PRE/POST比較 G1実測: Studio Pro 8.1.2のloop、seek、遅延補償、到着、転送、周回、plugin sleep、動的PDC（VST3とAU）
+# 連続PRE/POST比較 G1実測: Studio Pro 8.1.2（VST3とAU）とPro Tools 2026.4（AAX）のloop、seek、遅延補償、到着、転送、周回、plugin sleep、動的PDC
 
 作成日: 2026-09-28。
 対象: [実装計画](hypha_live_chain_compare_implementation_plan_20260927.md)第12.1節のG1-01（静的対応）とG1-03（境界）のうち、1 hostの一部条件。
 第6節は同じhostでのG1-02（到着期限）とG1-06（転送）の限定条件（同一process、短時間）である。
 第7節は、第6節の対策（PREの周回）をplugin内で動かした再試験と、そこで見つかったplugin sleepの影響である。
 第8節は、呼出しの空白の規則をplugin内で動かした再試験、G1-04（再生中の遅延変更）の限定条件、sleepを避ける手段の観察である。
+第9節は、Pro Tools Developer 2026.4（AAX）での同じ種類の試験である。遅延補償された位置、loop、Dynamic Plug-In Processing、再生中の遅延変更を測った。
 本書は実測の記録であり、host認定、製品の実装、公開の判断ではない。
 2026-09-28の見直しで、第8.2節の判定を事前に決めた件数の条件に照らして書き直し、全試験に共通する限界（遅延の報告の誤り、周回単位の取り違え）を第8.6節に加えた。
 
@@ -371,3 +372,63 @@ G1Rの決定と、その後の見直し（遅延の報告の誤りへの警告�
 | binary | `tools/BINARIES-SHA256.txt`。VST3 PRE `6329f124f245635eaf4a3bae39cf1aab2b45f4752f31f207048228b55c0a0c8d`、VST3 POST `d3ea4ecdc2ecdc545eb4bd583a3482cf27f9b232700c79a97665d5ed72e3797a`、AU PRE `21a51e0552d744937394e18fe35ac96d57da70608da477612104b2e0ab0ba12c`、AU POST `f7150af4eb23f17fc8e828cf41eb73e4365c5ad5cfebfce54202190f631d472d`、Latency Switch `bfe05cab1ad382a2d83ad3ad181007ef6ccbfbb2a85640c7e8f2febd380bc2b5`、Tail Monitor `1e37e8aff7bec904c8a6f03300c759b390d4786e11f9ace360d841b3aba29c4e`。試験後にuser領域から削除し、共有memoryをunlinkした |
 
 区間ごとの判定は`node phases3.mjs`（結果は`tools/phases3-result.json`）、M1は`node m1-replay.mjs pre.csv post.csv`で求めた。
+
+## 9. Pro Tools（AAX）: 遅延補償された位置、loop、Dynamic Plug-In Processing、再生中の遅延変更
+
+2026-09-28、利用者の指示（AAXも重要、出来る限り完璧に近く）を受けて行った。
+事前に決めた合格条件は置かず、実装計画第5.4節の未確認（POSTに遅延補償済みの位置が渡るか）に答えるための探索として測った。
+判定器の判定は、第7.1節のC1〜C4と同じ観点で記録からの再計算と照らした。
+
+### 9.1 条件
+
+| 項目 | 値 |
+| --- | --- |
+| host | Pro Tools Developer 2026.4.0.5（Pro Tools Ultimate 2026.4の開発版。未署名のAAXを読み込み、保存は無効）、Intel Mac |
+| 出力、rate | BlackHole 2ch（音は出さない）、48 kHz。sessionは32-bit float（識別PCMを変換せずに使うため） |
+| buffer | H/W buffer 256 samples。pluginへのcallbackは、再生中も停止中も全件1024 frames |
+| 設定 | Delay Compensation有効、Dynamic Plugin Processing有効（どちらも既存の設定のまま） |
+| session | 使い捨て（`~/KirinValidation/ProToolsG1/`）、120 BPM、4/4 |
+| 音源 | 第1節と同じ48 kHzの識別PCM。Pro Toolsは追加の際に元のファイルへmetadataのchunk（bext、umid、regn等）を追記した。音のdataのchunkは同一だった。元のhashのファイルを作り直して元の場所へ戻し、追記後のファイルは別名で残した |
+| 構成 | 1 trackのinsertに上から、Clock Diagnostic（上）→ Transport Probe PRE → Latency Switch（4096、報告latencyも4096）→ Transport Probe POST → Clock Diagnostic（下）。段階4では6番目にAlwaysProcess Monitorを加えた |
+| 計測器 | 第1節と第8節の計測器を、AAXとして別IDでbuildした非出荷fixture（未署名、Pro Tools Developerだけで使用）。AAXにはloopを挟んで連続する時計がないので、判定器はplugin自身が数えるframe数を連続時計として使った（AUのrender時刻と同じ性質で、呼ばれた分だけ進む） |
+| 操作 | 段階1: 4秒loopを約26秒、8.125秒loopを約20秒、約3秒停止して約20秒、loopの開始を2秒へ移して約15秒。段階2: loopを外し、18秒の位置から音源の終わり（24秒）を越えて無音まで約30秒、停止約12秒。段階3: 8.125秒loopを再生中に遅延を4096→0、停止と再生、0→4096、停止と再生。段階4: AlwaysProcess Monitorを加え、18秒の位置から無音まで約30秒、停止約8秒 |
+
+### 9.2 結果
+
+- **遅延補償された位置**: 下のClock Diagnosticでも、各callbackの先頭sampleの中身の位置と、報告された位置（`GetCurrentNativeSampleLocation`）の差は、照合できたblockで0だった。再生開始の最初のblockの位置は、上が−257、下が−4353（= −257 − 4096）で、間の遅延の分だけ補償されていた。照合できなかったのは、再生開始の直後の遅延の分（各runの先頭の4〜5 block）と無音だった。
+- **loop**: callbackはloop終端で分割されず、終端をまたぐblockは折返し前の開始位置で報告された（上も下も）。下の位置は、中身と一致したまま、中身が折り返すblockで折り返した。Studio Proのように、POSTの位置がloop先頭に留まって中身とずれることはなかった。
+- **判定器**: 評価9003 block、受入れ8959、誤受入れ17。誤受入れはすべて遅延切替の直後（4096→0で9 block、0→4096で8 block）で、loop、停止と再生、開始位置の移動、sleepの前後では0だった。棄却44 blockは、すべてK無効（呼出しの空白の後の再較正）だった。空白の判定、Kの較正状態、判定結果は、記録からの再計算と全blockで一致した。
+- **M1**（記録からの再計算）: 誤受入れは3 block（4096→0の直後2 block、0→4096の直後1 block）になり、追加の棄却は14 blockだった。遅延切替のとき以外に、候補の食い違いでKを無効にしたことはなかった。
+- **再生中の遅延変更**: Pro Toolsは、報告latencyの変更を再生中に反映した。4096→0では、遅延切替器が音の遅延を変えたblockだけ、下の位置が古い補償のままだった（中身と位置の差が+4096）。次のblockで位置が4096進み、差は0に戻った。0→4096では、同じblockで位置も改まった。判定器のKは、plugin自身のframe数が基準なので、遅延の差の分だけ変わった（−748544と−752640）。
+- **Dynamic Plug-In Processing**: 入力が無音になって約8秒後に、再生中でも停止中でも、chainのpluginが呼ばれなくなった。呼出しの空白は5回（4.4〜60.8秒）。停止しても、約8秒より短い停止（約2〜6秒）では呼ばれ続けた。空白の後は、呼出しの空白の規則でKを較正し直し、誤受入れはなかった。
+- **AlwaysProcess**: AlwaysProcess Monitorを同じchainに加えると、無音区間でも停止中でも、chainの全pluginが呼ばれ続けた（停止中も1024 framesで毎秒約47回）。Monitor自身の記録（3416 callback）に空白はなかった。
+- **所要時間**（1024 framesのcallbackあたり、比較を含む）: p99.9はPRE 34.9 µs、POST 32.1 µs、最大はPOST 65.9 µs。PREの公開からPOSTの読取りまでは、中央値16 µs、最大98 µs。
+
+### 9.3 計画への意味
+
+1. **対応の鍵**: このPro Toolsでは、POSTに遅延補償済みの位置が渡る。AAXでも「連続時計 + project時刻の一致から較正したK」が成り立つ。連続時計には、pluginが数えるframe数を使える（AUと同じ扱いで、呼出しの空白の規則が要る）。
+2. **公開ガイドとの違い**: AvidのAAX SDKの公開ガイド（2.1.1版）は、Pro Toolsは再生中に遅延補償を更新しないと書く。このPro Tools 2026.4では、再生中に反映された。hostの版ごとにprofileで扱う。
+3. **遅延変更の直後**: M1で、時計で検出できない区間が1〜2 block（1024 framesで21〜43 ms）まで縮む。Studio Proの2〜4 block（最大171 ms）より短い。
+4. **静かな区間**: Dynamic Plug-In Processingは、約8秒の無音で呼出しを止める。AlwaysProcessは、停止中も含めてchain全体を動かし続けるので、常に付ける案はCPUの代償が大きい。付けない場合は、Cの自動復帰で扱える。
+
+### 9.4 範囲と未確認
+
+- Pro Tools Developerの1版、Intel Mac、48 kHz、H/W buffer 256（plugin 1024 frames）、stereo、1回の試験である。製品版のPro Tools、Apple silicon、Windows、他のbuffer、multi-mono、他のrateは未実施である。
+- 遅延変更は、報告と音を同じ時点で変える1つの型（JUCEの`setLatencySamples`で即時に変える）である。AAXの推奨どおり、hostの通知を待ってから音の遅延を変える型は測っていない。
+- `GetTODLocation`、遅延補償のOFF、offline bounce、AudioSuiteは測っていない。
+- 第8.6節の限界（遅延の報告への依存、周回単位の取り違え）は、ここでも同じである（loopは4〜8.125秒、遅延は約85 ms）。
+- 開発版とplatformの制約で、製品のPRE/POSTそのものは使っていない。
+
+### 9.5 証跡
+
+証跡の実体は公開repositoryの外（作業者の手元）にある。
+
+| 物 | 場所とSHA-256 |
+| --- | --- |
+| 判定器の書出し | `~/KirinValidation/TransportProbeAAX/`。PRE `aax-pre-343d0567f2ef4e9da3941fcffbc471b3-13499.csv` `8288f5d8dc4214b6ece8a299ab7e66f9025d6c56b7b3d514f70596ba2ef0689d`、POST `aax-post-31b4bc71726d4bc3a6e9e7375b771ad3-13502.csv` `0b056ca77052ca75a9d113495e0c3547f1f3a0cdaf1f17cf7deedb9140028bb5`、Latency Switch `aax-switch-8084e76a665c4d929f2ad9472212dd22-13501.csv` `bef72c405f75063a8590c20a703d717a695a81e68d2cd0072a2cdb95b2bdc7a2`、AlwaysProcess Monitor `aax-monitor-22392b01373b4e8399276d30088ad0e3-3416.csv` `d4312e7764b3b04c372b599ff2f6c7ceba9745cf66b7222b1491e44cb78ae6b8` |
+| Clock Diagnosticの書出し | `~/KirinValidation/HyphaClockDiagnostic/`。上 `79836790286e4149b889e2b11d2a62e2-14057.csv` `cec96f18c1c6706d2fc380b6b4d929f80bf96979191d44ef2d7d61a753fe4e71`、下 `9d25f8b4fafd47409cee1a2a2d87b2f9-14320.csv` `d457a1b3b22d1d7f207e5627c22a9579da118e82c756ef8df96d719d16302c29` |
+| source | `~/KirinValidation/TransportProbeAAX/tools/`（`SHA256SUMS.txt`）。`ProbeShared.h` `5894aa58b2dab568361d713dcfaeaacda9e1e75da48bf11b1564f9f16a3c74c4`、`Probe.cpp` `89534244a5aa04bd8c20c3b604e743f06f938c0df649849528372a9444c740f3`、`Aux.cpp` `9f92afd4aa58a6dc41161a5c3dd45d04d070bb67ee4e02dab00fa1ee29e1aeec`、`CMakeLists.txt` `e68c011c2803610bb631334ad8f76ace7df70b992622474eea5c3a6f456c45ee`。Clock DiagnosticとPDC Validation Delayは、repositoryの`juce_shell/tests/`のsourceをそのまま使った |
+| 解析 | `analyze-trace.mjs` `dbab4b16f538e4b4dc3943cc4d91c9e02440822f16460cec7420e8e1ecc7cb28`（repository）、`analyze3.mjs` `e59fb5b504573f62d367212fbe232e94d33b1fc0e8f7b1bf68dd1f9fe29cac02`、`m1-replay.mjs` `ef63f0ade11fa82c59d35ea880450458a355a33ae267f66bf70c9d7fa3fd1c6b`。結果は`tools/aax-trace.json` `154985a1dd219fff83e6dc62b770fb832cfa264bb825c0c72e147c5aa14e3b27`、`tools/aax-probe-result.json` `5a7c67b3b1ce7649d4d69bcee85650a39816eeb47d7d23bdcc0b88711a31ba17` |
+| binary | `tools/BINARIES-SHA256.txt`。Clock Diagnostic `f35794f4dd525cbb2fa6dc7c92cd10a00b35adfab58be8f846ab42d3c0027a9c`、Transport Probe PRE `3ebede96cd74558da67f04e42d804f84024e9ee70a8f3e09cb26857499bd489d`、POST `19d12e826fe4d3e15061549ed546b787cfe5edad415807c69c3b10b3153788b2`、Latency Switch `9a6c34cab5eee0a88f024ebec28115cfc648b58e9cce924f3d4ac9541b0d6f32`、AlwaysProcess Monitor `a03f74aaaf095d2d9d5853ddd9389d2ed1de48d14c7977a103f3807cd59397fc`、PDC Validation Delay（未使用）`27886e2740a72968a9241bfd0427684eea88a08ae63400245f99f2869c24dfc4`。試験後にPro Toolsのplug-in folderから`~/KirinValidation/ProToolsG1/removed-aax-fixtures/`へ移し、共有memoryをunlinkした |
+| 識別PCM | 元の場所のファイルは作り直した元のhash `727fd737fcf2d0fa53d131530f443d43cf30177b601ef436c690b73a42b57309`（第5節と同じ）。Pro Toolsが追記した後のファイルは`~/KirinValidation/ProToolsG1/hypha-g1-clock-fixture-48k.after-protools-import.wav` `3356ed6d4c0383f075cb2feba7f5c7542012cba59ddbdb516900df442f1cb3aa`。Clock Diagnosticの解析は追記後のファイルで行った（音のdataは同一） |
+| session | `~/KirinValidation/ProToolsG1/HyphaG1AAX/`（Pro Toolsが作成時に書いたsession fileとwaveform cache。削除していない） |

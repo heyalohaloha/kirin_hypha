@@ -37,13 +37,13 @@
 - 間のpluginが遅延を正しく報告し、hostが補償している。
 - chainの遅延がloop長より短い。
 - 時計で検出できない遅延変更の直後の短い区間を除く。
-- AAXでは、POSTに補償済みの位置が渡るかが未確認である。
+- AAXでは、POSTに補償済みの位置が渡ることを、同日にPro Tools Developer 2026.4（Intel Mac）でだけ確かめた（第0.4節）。
 
 ### 0.3 AAXの追加
 
 利用者の指示を受け、AAXをVST3、AUと並ぶ重要な対象として計画第5.4節を新設した。
 AvidのAAX SDK Pro Tools Guideと、手元のAAX SDK 2.9のheaderから、次を確かめた。
-- Pro Toolsは再生中に遅延補償を更新しない。
+- Pro Toolsは再生中に遅延補償を更新しない（公開ガイド2.1.1版の記述。同日の実測では、Pro Tools 2026.4は再生中に反映した。第0.4節）。
 - 一定時間無音のtrackや停止中のpluginを止める（Dynamic Plug-In Processing）。止めさせる方法は静的な`AAX_eProperty_Constraint_AlwaysProcess`だけで、chain全体に効く。
 - Pro Tools 12.6以降は、遅延補償の全体の有効・無効を通知する。
 - 位置は`GetCurrentNativeSampleLocation`（timeline位置）と`GetTODLocation`（再生開始からの進み）がある。現行のJUCE patchは前者をAAXの補助時計にしている。
@@ -57,22 +57,30 @@ AvidのAAX SDK Pro Tools Guideと、手元のAAX SDK 2.9のheaderから、次を
 続けて利用者は、「AAXではプロが使うので、出来る限り完璧に近いプラグインにする必要がある。他のプラグインよりも精度を高く保つ」と指示した。
 計画第5.4節に品質目標を置き、出荷の条件にした。外部調査の公開資料と比べ、時刻の対応、遅延が変わった後、音量一致、切替、検証の各項目で上回る目標にした。
 この指示に沿って、次の2点を推奨にした。
-- Pro Toolsの再生中の遅延変更では、中身のずれの跳びを境界として扱い、POSTへ倒す（INV-LC10）。止めずに警告する判断を、この場合に限って強める案なので、利用者の確認を待つ。
+- 時計が変わらない遅延変更（公開ガイドはPro Toolsをこの型と書く）では、中身のずれの跳びを境界として扱い、POSTへ倒す（INV-LC10）。止めずに警告する判断を、この場合に限って強める案なので、利用者の確認を待つ。
 - multi-monoでは、channelの間でPREとPOSTを混ぜないことを必須にし、全channelを同じblockで切り替える方式を推奨にした（INV-LC9）。
 
 利用者は2件とも推奨を採用した（「推奨で」）。INV-LC10とINV-LC9は案から決定に改めた。
 
-### 0.4 検証と限界
+### 0.4 Pro Toolsでの実測（同日）
+
+利用者がMacの前に来られたので、同日にPro Tools Developer 2026.4（Intel Mac、48 kHz）で実測した（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第9節）。
+- POSTに遅延補償済みの位置が渡った。AAXでも、pluginが数えるframe数を連続時計にして方式が成り立った（遅延切替の直後を除き誤受入れ0）。
+- 公開ガイドの「再生中は遅延補償を更新しない」は、この版では当てはまらなかった。再生中に反映され、時計が変わるので、M1で誤対応は1〜2 blockになる。
+- 計画と改定案の、公開ガイドを前提にした記述を、実測に合わせて改めた。INV-LC10は、時計が変わらない場合の安全網として、利用者の決定どおり維持する。
+- Pro Toolsは取り込んだ識別PCMのファイルにmetadataを追記した。音のdataは同一だった。元のhashのファイルを作り直して戻した。
+
+### 0.5 検証と限界
 
 - 文書だけの改訂であり、実測、製品コード、正本の変更はない。
 - 表の列数、表の直後の本文（GitHubでは表の行として表示される）を機械的に確かめた。第13版からあった9か所に空行を入れた。
 - 外部資料は各本文の出典欄に置いた。Studio OneのPlug-in NapとLogic、REAPERの処理の説明は第三者の解説を含み、挙動は実測で確かめる。
 - AAX SDKのheaderはrepositoryの外の手元の版（2.9）であり、本文は要旨だけを記した。
 
-### 0.5 未処理と申し送り
+### 0.6 未処理と申し送り
 
 - 利用者の判断: 補償済みの位置が渡らないhostの扱い（実測の後）、infinite tailとAlwaysProcessの範囲（副作用の確認後）。INV-LC10とINV-LC9は、2026-09-28に推奨を採用した。
-- 実測: Pro ToolsのG1-01（最優先）、Windows、他のbuffer設定、周回ごとに印が変わるfixture、中身のずれの警告の方式。
+- 実測: AAXの残り（WindowsのPro Tools、製品版、multi-mono、遅延補償のOFF）、Windows、他のbuffer設定、周回ごとに印が変わるfixture、中身のずれの警告の方式。
 - 証跡をrepositoryへ入れるかの判断（L3）。
 
 ## 1. 第7版の精査と第8版への改訂
