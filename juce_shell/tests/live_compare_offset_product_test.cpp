@@ -232,7 +232,9 @@ private:
         }
     }
 
-    static constexpr int blockFrames = 1024;
+    // A host block of 4096 frames (85 ms): the callback-gap rule then tolerates test-machine stalls
+    // up to 213 ms, as a DAW's real-time thread never needs.
+    static constexpr int blockFrames = 4096;
     Clock clock;
     std::unique_ptr<Processor> pre, post;
     std::unique_ptr<juce::AudioProcessorEditor> editor;

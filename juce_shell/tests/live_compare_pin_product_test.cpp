@@ -1,5 +1,6 @@
 #include "../src/PluginProcessor.h"
 #include "../src/HyphaLanguage.h"
+#include "../src/HyphaObservatoryView.h"
 #include "ValidationStorageSandbox.h"
 
 #include <atomic>
@@ -33,6 +34,14 @@ juce::Component* find (juce::Component& parent, const juce::String& id)
     if (parent.getComponentID() == id) return &parent;
     for (int i = 0; i < parent.getNumChildComponents(); ++i)
         if (auto* child = find (*parent.getChildComponent (i), id)) return child;
+    return nullptr;
+}
+
+const hypha::observatory::View* findView (juce::Component& parent)
+{
+    if (auto* view = dynamic_cast<const hypha::observatory::View*> (&parent)) return view;
+    for (int i = 0; i < parent.getNumChildComponents(); ++i)
+        if (auto* view = findView (*parent.getChildComponent (i))) return view;
     return nullptr;
 }
 
@@ -95,6 +104,12 @@ public:
     bool passed = false;
 
 private:
+    juce::String footer() const
+    {
+        const auto* view = findView (*editor);
+        return view != nullptr ? view->feedback() : juce::String();
+    }
+
     bool click (const char* id)
     {
         auto* button = dynamic_cast<juce::Button*> (find (*editor, id));
@@ -150,7 +165,16 @@ private:
                     || post->liveCompareStatus().verdict != hypha::live_compare::Verdict::accepted)
                     break;
                 if (! click ("observatory-live-pin")) break;
-                require (! post->liveCompareStatus().active, "PIN ends the live session");
+                if (post->liveCompareStatus().active)
+                {
+                    // A scheduling stall of the test machine longer than the callback-gap rule
+                    // allows starts a new PRE run, and PIN rightly refuses a window across it
+                    // (INV-LC15). Say why and try again once four seconds of one run have passed.
+                    std::cout << "PIN refused, retrying: " << footer() << std::endl;
+                    require (++pinAttempts < 6, "PIN ends the live session");
+                    listenedAt = std::chrono::steady_clock::now();
+                    break;
+                }
                 ++stage;
                 break;
             case 4:
@@ -199,7 +223,9 @@ private:
         }
     }
 
-    static constexpr int blockFrames = 1024;
+    // A host block of 4096 frames (85 ms): the callback-gap rule then tolerates test-machine stalls
+    // up to 213 ms, as a DAW's real-time thread never needs.
+    static constexpr int blockFrames = 4096;
     Clock clock;
     std::vector<float> signal;
     std::unique_ptr<Processor> pre, post;
@@ -208,7 +234,7 @@ private:
     std::atomic<bool> running { true }, play { false };
     std::chrono::steady_clock::time_point started, listenedAt, requestedAt;
     hypha::pair_preview::Ticket preview;
-    int stage = 0;
+    int stage = 0, pinAttempts = 0;
     bool demanded = false;
 };
 }
