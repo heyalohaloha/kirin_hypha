@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CompactReviewShowcase.h"
+#include "DrumBandMock.h"
 
 #include <cmath>
 
@@ -71,6 +72,23 @@ inline bool writeLargePageReview()
             shell.setRunSummaryMode (true);
             written = written && freq_showcase::writePng (name ("run"), renderShell (shell));
             shell.setRunSummaryMode (false);
+            {
+                auto attack = drum();
+                auto image = compose (shell, *attack, analysis_navigation::Page::attack);
+                written = written && freq_showcase::writePng (name ("drum"), image);
+                // Design mock: the same page with a band chosen in the loupe.
+                const auto body = shell.analysisBodyBounds();
+                const auto context = presentation::forEditor (size[0], size[1]);
+                const auto layout = attack_ui::layoutFor (body.getWidth(), body.getHeight(), context);
+                if (layout.arrangement == attack_ui::Arrangement::lanes)
+                {
+                    juce::Graphics g (image);
+                    g.addTransform (juce::AffineTransform::translation (
+                        (float) body.getX(), (float) body.getY()).scaled (dpi));
+                    drum_band_mock::paintBandView (g, layout, context);
+                    written = written && freq_showcase::writePng (name ("drum_band_mock"), image);
+                }
+            }
             shell.setDomain (observatory::Domain::space);
             written = written && freq_showcase::writePng (name ("space"), renderShell (shell));
         }
