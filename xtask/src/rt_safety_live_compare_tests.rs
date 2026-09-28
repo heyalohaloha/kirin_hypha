@@ -362,3 +362,15 @@ fn live_compare_auto_follows_pre_only_within_the_approved_point() {
     assert!(render.contains("preLevel.settle (preGain);"));
     assert!(render.contains("const float gain = preLevel.next (preGain);"));
 }
+
+// INV-LC6 (2026-09-28): the live compare never keeps the host awake. PRE and POST report no tail
+// and AAX never asks for AlwaysProcess; after a host sleep the correspondence rules return PRE.
+#[test]
+fn live_compare_never_reports_an_infinite_tail() {
+    let processor = include_str!("../../juce_shell/src/PluginProcessor.cpp");
+    assert!(processor
+        .contains("double KirinHyphaProcessorBase::getTailLengthSeconds() const { return 0.0; }"));
+    let cmake = include_str!("../../juce_shell/CMakeLists.txt");
+    assert!(!cmake.contains("JucePlugin_AAXDisableDynamicProcessing=1"));
+    assert!(!cmake.contains("AAX_eProperty_Constraint_AlwaysProcess"));
+}

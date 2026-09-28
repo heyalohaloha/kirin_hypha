@@ -21,7 +21,7 @@
 | 周回 | PREは時計の不連続と自分の呼出しの空白で周回を改める。POSTは今の周回で書かれた範囲だけを受け入れる | plugin内で誤受入れ0。ただし識別PCMで見分けられる誤りに限る |
 | 呼出しの空白 | 各側の空白を時計の不連続として扱う。POSTは自分の空白でKを無効にして較正し直す。AUは候補の食い違いでも無効にする（M1） | 判定値と較正回数はhost profileの値。今の値はStudio Proでの初期値（第5.2節） |
 | 境界 | 案C。時計の規則で対応を確かめられない区間はPOSTを鳴らし、確かめられた最初のblockからPREへ対称5 msで戻す。PREを選んだままPOSTが鳴る間は「PRE待ち」を示す | 2026-09-28決定（G1R）。遷移と表示は第14版で加えた（第5.3節） |
-| 静かな区間 | hostのplugin sleepを、infinite tail（AAXはAlwaysProcess）で避ける案が本命。副作用と報告する範囲を確かめてから採る | G1R。AAXの属性は静的なので「比較中だけ」は選べない |
+| 静かな区間 | infinite tailは報告せず（AAXのAlwaysProcessも付けない）、hostが無音でpluginを止めても、音が戻って規則Cで対応を確かめ直した最初のblockからPREへ戻す（INV-LC6） | 2026-09-28、利用者が推奨を採用（「推奨で」）。常に報告するとbounceやfreeze、停止中のCPUまで変わり、比較中だけの報告はhostが読み直す保証がなく、AAXでは静的な属性のため選べない |
 | 遅延変更の直後 | 時計で検出できない短い区間の誤対応を許容し、説明書に記す | G1R。報告されない変更と、再生中に補償を改めないhostは許容の外。Pro Tools 2026.4は再生中に反映し、M1で1〜2 block |
 | 遅延の報告の誤り | 開始時と定期的に中身のずれを推定し、時計の対応と食い違えば警告する。止めず、補正しない。DAWの遅延補償への依存を説明書に記す | 2026-09-28、見直しで決定（利用者が判断を委任し、推奨を採用）。比較の途中で中身のずれが跳んだら、POSTへ倒して再生の停止と再開の後に戻す（同日、利用者が推奨を採用。第5.4節） |
 | multi-mono（AAX） | 提供する。全channelを同じblockで切り替え、channelの間でPREとPOSTを混ぜない | 2026-09-28、利用者が推奨を採用（第5.4節） |
@@ -34,6 +34,7 @@
 - 2026-09-28: 上表の対応の鍵、呼出しの空白、静かな区間、遅延変更の直後、境界C（A′を置き換え）、遅延の報告の誤りへの警告。AAXを重要な対象とする（利用者の指示）。
 - 2026-09-28: AAXはプロが使うので、出来る限り完璧に近いpluginにし、他のプラグインよりも精度を高く保つ（利用者の指示）。品質目標は第5.4節。
 - 2026-09-28: 比較の途中で中身のずれが跳んだら（補償を改めないhostや、報告しないpluginの遅延変更など）、POSTへ倒し、再生の停止と再開の後に戻す。AAXのmulti-monoでも比較を提供し、全channelを同じblockで切り替える（利用者が推奨を採用）。
+- 2026-09-28（「推奨で」）: 静かな区間ではinfinite tailを報告しない（INV-LC6）。INV-LC8（Pro Toolsの遅延補償OFFの間はPOSTを出して理由を示す）を採用して実装する。INV-LC9はLC8の後に実装する。記名の固定ABはその後に回す。PACEで署名したAAXを製品版Pro Toolsで確認する。
 - 契約の正本（AGENTS、INV、README、共通安全契約）は、実装の承認時に[契約改定案](hypha_live_chain_compare_contract_draft_20260928.md)に沿って改める。
 
 ### 分かっている限界
@@ -56,6 +57,9 @@ R-12と安全契約の改定、既存Blindのhost gate、E2でのowner、exact 4
    - 同じ確認で見つかったこと（B-1079）: ずれのms表示がhostの`getSampleRate()`を使っていたため、hostを通さずに準備したprocessorでは値が壊れた（試験で「PRE 2000000.00 ms early」）。ringに刻んだ標本化周波数で換算するように直し、実物のPRE/POST、ring、画面を通す端から端までの試験（報告のない2000 samplesで「PRE 41.67 ms early」、3000への跳びで保持と「PRE held: latency changed」、停止で解除）を加えた。
    - 第3段階の追従（B-1080、INV-LC16）: 一致済みのMATCHを押すと「もう一度MATCH」と「AUTO」を選べる。AUTOは第6.2節の実験値（1秒ごと、許容差0.5 dB、MATCHから±6 dB、50 msのramp）で、MATCHで承認したceilingを上げず、POSTを動かさず、範囲を出るときは止めて通知する。フッターの幅を増やさないよう、AUTOはMATCHの枠に表示する。PREのgainの変化は、PREが鳴っている間は50 msの直線rampにした（新しいMATCHにも効く）。値は聴取で決めるまで実験値として画面に出す。
    - Windowsの転送（B-1081、INV-LC11）: pagefile-backedの名前付き領域（`Local\`、作成者の既定のアクセス制御、Analysis exchangeと同じ）で、PREとPOSTの転送をmacOSと同じ規則にした。Windowsの名前は領域を持つprocessがある限り消えないため、POSTが閉じた領域を持っている間は、PREが次の枠（最大4つ）に新しい領域を作り、POSTは閉じた印のない枠だけを開く（POSIXのunlinkと同じ結果）。PINとずれ警告の端から端までの試験をWindows CIでも走らせる。WindowsのDAW確認は未実施。
+   - 実機確認（2026-09-28、6d10d00dの公証済みVST3、Studio Pro 8、48 kHz、300%）: PRE → Mixtool −5.76 dB → POSTで、MATCHは「MATCH：PRE -5.76 dB」。一致済みのMATCHを押すと「もう一度MATCH／AUTO：POSTに0.5 dB以内で追従」が出て、AUTOでMATCHの枠がAUTOになった。再生中にMixtoolを−8.64 dBへ変えると、5秒以内にPREが−8.6 dBへ追従した。音源の終わりの無音（HOLD）では何も変わらなかった。Mixtoolを+0.48 dBへ変えると（MATCHから6.24 dB）「AUTO停止：6 dBを超える変化」を示して止まり、PREは−8.6 dBのまま動かず、枠はMATCHに戻った。「もう一度MATCH」でPRE +0.48 dBになり、終了でLISTENとBLINDに戻った。インストールしたPRE・POSTのAUはauvalに合格した。Windowsでは、CI（windows-latest）で共有リングの試験、PINからBlind、ずれ警告と保留のproduct testが通った（DAWでの確認は未実施）。
+   - Windowsの実機確認（2026-09-28、6d10d00dのwindows-latest CI成果物のVST3、Windows検証機のStudio Pro 8.1.2 Win x64、48 kHz、300%）: PRE → Mixtool −5.76 dB → POSTで、LISTENが始まり、MATCHは「MATCH：PRE -5.76 dB」、PREを選ぶとWAITにならずに鳴り、PIN 4 SでBlindが「範囲の準備完了」（00:55.433〜00:59.433）で開き、「今の音に戻す」で戻った。検証機では、ユーザー別のVST3フォルダ（`%LOCALAPPDATA%\Programs\Common\VST3`）に今朝入った別の版のHyphaが、全ユーザーのフォルダの新しい版より優先されて読み込まれ、LISTENの入口が出なかった。確認の間だけ別の版を退避し、確認後に同じハッシュで戻した。インストーラーが別のモードの古い版を消さないことによる問題で、別の作業として提案した。
+   - 製品版Pro Toolsの実機確認（2026-09-28、fffd3761（B-1084）をPACEとDeveloper IDで署名した非配布の確認用AAX、Pro Tools Ultimate 26.4.1、48 kHz、32-bit float、300%、Targetオフ）: PRE → Trim −6.0 dB（multi-mono）→ POST（stereo）で、LISTENが始まり、MATCHは「MATCH：PRE -6.00 dB」、PREを選ぶとWAITにならずに鳴り、PIN 4 SでBlindが「範囲の準備完了」（00:19.325〜00:23.325）で開き、Blindを始めるとSOURCE 1が範囲で鳴って「SOURCE 1 聴取完了」になった。確認後、製品版の1.1.51（署名済み）を同じハッシュで戻した。
 1. AAXの残り: WindowsのPro Tools、製品版、multi-mono、遅延補償のOFF、hostの通知を待ってから音の遅延を変える型の遅延変更。
 2. Windows、他のbuffer設定、報告が先に来る型の遅延変更。
 3. 周回ごとに印が変わるfixtureと、遅延がloop長以上の条件。
