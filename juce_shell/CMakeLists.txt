@@ -353,6 +353,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_sources(${TARGET} PRIVATE
             src/PluginEditorLocalBlind.cpp
             src/HyphaLocalBlindComponent.cpp
+            src/HyphaLocalBlindSteps.cpp
         src/HyphaLocalBlindPresentation.cpp
             src/PluginEditorReference.cpp
             src/PluginEditorReferenceCapture.cpp
@@ -609,6 +610,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/ReferenceAuditionComponentContractTest.cpp
         tests/ReferenceTonalViewContractTest.cpp
         src/HyphaLocalBlindComponent.cpp
+        src/HyphaLocalBlindSteps.cpp
         src/HyphaLocalBlindPresentation.cpp
         tests/OsAccessUiContractTest.cpp
         src/HyphaObservatoryCapture.cpp

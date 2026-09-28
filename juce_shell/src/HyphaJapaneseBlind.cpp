@@ -8,6 +8,16 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    // The step bar and the purpose line (HyphaLocalBlindSteps.h, INV-S43).
+    { "1  Capture", u8"1  取り込み" },
+    { "2  Start", u8"2  開始" },
+    { "3  Listen", u8"3  試聴" },
+    { "4  Answer", u8"4  回答" },
+    { "5  Result", u8"5  結果" },
+    { "Hear the same 4 seconds of PRE and POST at matched level, without knowing which is "
+      "which, and say which you prefer, if either.",
+      u8"同じ4秒間のPREとPOSTを、音量を揃え、どちらがどちらか分からない状態で聴き比べます。"
+      u8"好みがあれば、その方を答えます。" },
     // Steps.
     { "READY TO CAPTURE", u8"取り込み準備完了" },
     { "BEFORE CAPTURE", u8"取り込みの前に" },
