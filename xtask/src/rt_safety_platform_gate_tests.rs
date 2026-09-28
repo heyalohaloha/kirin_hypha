@@ -54,6 +54,13 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         assert!(source_gate.contains(target) && source_gate.contains(test_name));
     }
     assert!(ci.contains("-R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'"));
+    let live_compare = include_str!("../../juce_shell/cmake/LiveCompare.cmake");
+    assert!(root_cmake.contains("include(cmake/LiveCompare.cmake)"));
+    assert!(live_compare.contains("KirinLiveCompareCorrespondenceTests"));
+    assert!(live_compare.contains("kirin_live_compare_correspondence"));
+    assert!(ci.contains("KirinLiveCompareCorrespondenceTests"));
+    assert!(ci.contains("-R '^kirin_live_compare_correspondence$'"));
+    assert!(source_gate.contains("KirinLiveCompareCorrespondenceTests"));
     let selected: Vec<_> = source_gate
         .lines()
         .find_map(|line| line.strip_prefix("JUCE_TEST_REGEX='^("))
@@ -79,6 +86,7 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         "kirin_pair_preview_lifetime",
         "kirin_reference_capture_memory",
         "kirin_reference_audio_streaming",
+        "kirin_live_compare_correspondence",
     ] {
         assert!(
             selected.contains(&test),

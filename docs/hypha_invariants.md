@@ -253,6 +253,21 @@ Audio Threadの取得入口は正本計測後かつ出力切替前とし、posit
 Local Blind UIのINV-S25は番号と内容を維持する。
 番号移行: B-1018（`2c2a2ef8`）からlocal lineの統合mergeまでの側枝では、表の「INV-S34（FREQのRAW／SHAPE）」はINV-S42を指す。mainのINV-S34はFREQの地形である。
 
+## 9. 連続PRE/POST比較（INV-LC）
+
+2026-09-28、利用者が実装の開始を承認した。根拠と残りの行（INV-LC4〜LC10）は
+`docs/planning/hypha_live_chain_compare_contract_draft_20260928.md`にあり、実装と試験ができた時点で本表へ入れる。
+閾値と回数はhost profileの値であり、本表に固定値を書かない。
+
+| ID | 不変条件 | 紐づくテスト |
+|----|----------|--------------|
+| INV-LC1 | PREとPOSTのsample対応は、連続時計（VST3連続時刻、AU render時刻、AAXはplugin自身が数えるframe数）と、定常区間でproject時刻の一致から較正した差Kで決める。較正に要る連続一致の回数はhost profileの値とする。project時刻だけ、counter差、wall-clock、相関で対応を決めない。POSTは別のpairや別のsample rateのringを使わない。PREとPOSTの共有領域は、sample本体を含めてすべてlock-freeなatomicで読み書きし、読取り中の書換えを検出したblockは出さない | `kirin_live_compare_correspondence` measuredHostsNeverAcceptWrongPre / foreignRingIsRefused / concurrentReadersNeverSeeTornBlocks |
+| INV-LC2 | PREは、連続時計が直前のblockと連続しないとき、または自分の呼出しの空白（判定値はhost profileの値）の後に周回を改め、周回、先頭、書込み末尾を一貫して公開する。POSTは今の周回で書かれ、ring容量内にある範囲だけを受け入れ、書込み末尾だけでは受け入れない | `kirin_live_compare_correspondence` measuredHostsNeverAcceptWrongPre / postOnlySleepIsCaughtByTheGapRule / gapThresholdsFollowTheProfile |
+| INV-LC3 | POSTは自分の呼出しの空白でKを無効にし、較正し直すまでPREを出さない。較正の候補がKと1回でも食い違えば、Kを無効にする（M1） | `kirin_live_compare_correspondence` postOnlySleepIsCaughtByTheGapRule / latencyChangesAreBoundedByM1 |
+
+既知の限界: seekの直後の古い音に、新しい周回の中の時計の値を付けるhostは、時計の規則では見分けられない（`kirin_live_compare_correspondence` mislabellingHostIsAKnownLimit）。
+chainの遅延がloop長以上のときの周回単位の取り違えと、遅延の報告の誤りも、時計の規則では検出できない。hostの認定では中身の照合で確かめる。
+
 ---
 
 ## ゲート別の走らせ方

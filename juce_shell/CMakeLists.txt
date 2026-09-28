@@ -517,6 +517,7 @@ endif()
 option(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS
     "Build the native-font and fixed-geometry UI render contract test" OFF)
 include(cmake/LocalBlind.cmake)
+include(cmake/LiveCompare.cmake)
 option(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER
     "Build the display-only Reference preview renderer used by Kirin OS" ON)
 if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)

@@ -79,8 +79,22 @@ PRE/POST の2バイナリでマスタリングチェインの前後を計測し�
 正本のPRE/POST測定・Recordは変更せず、接続、読込、復元だけでBへ自動切替しない。offline render、
 Reference欠損、検証失敗時はA経路を維持する。
 
-Audio Thread（processBlock）は通常計測では読み取り・コピー・通知だけを行う。比較試聴では、非RT側で
-検証・decode・準備した事前確保済みReference bufferの選択とRT-safeな出力だけを許可する。
+利用者の明示操作によるlive PRE/POST比較試聴も、この禁止対象に含めない。同じchainのPREが公開した
+直前の入力を、POSTは時計の規則で対応を確かめた範囲だけ試聴用B経路で出力し、試聴コピーにだけ
+承認済みのgainを適用できる。PREからPOSTへの転送経路はplatformごとに事前確保し、方式は実測で決める。
+対応は連続時計、定常区間で較正した差K、PREの周回、各側の呼出しの空白で確かめ、時計の一致や到着
+だけでは受け入れない。確かめられない区間はPOSTを出力し、PREの選択と承認済みのgainは保持して、
+確かめられた最初のblockからPREへ戻す。PREの入力、A経路、正本のPRE/POST測定・Recordは変更せず、
+接続、読込、復元だけでBへ自動切替しない。offline render、検証失敗、説明できない欠落、pair／format
+失効ではPOSTを維持して比較を中断し、再選択まで戻さない。この対応は、PREとPOSTの間のpluginが遅延を
+正しく報告し、DAWが遅延を補償することを前提にする。前提が崩れた疑いは利用者に警告し、遅延が変わる
+設定変更の直後の短い区間に時計で検出できない誤対応があり得ることも示す。
+（2026-09-28、利用者が実装の開始を承認。根拠は`docs/planning/hypha_live_chain_compare_contract_draft_20260928.md`）
+
+Audio Thread（processBlock）は通常計測では読み取り・コピー・通知だけを行う。Reference比較試聴では、
+非RT側で検証・decode・準備した事前確保済みReference bufferの選択とRT-safeな出力だけを許可する。
+live比較では、PREは事前確保済みの転送領域への書込みと周回の公開だけを、POSTは同じ領域の読取り、
+対応の判定、RT-safeな出力だけを許可する。
 いずれもAudio Threadでのアロケーション、ロック、ブロッキングI/Oは禁止する。
 
 ### R-13（Hub & Spoke）
@@ -89,7 +103,8 @@ Audio Thread（processBlock）は通常計測では読み取り・コピー・�
 ### 3層隔離
 ```
 Audio Thread   — 通常計測は読み取り・コピー・通知のみ。明示的な比較試聴は準備済みReference bufferの
-                 RT-safeな選択・出力だけを許可（alloc/lock/IO 禁止）。絶対に落ちない
+                 選択・出力と、live比較の事前確保した転送領域の書込み・読取り・判定・出力だけを許可
+                 （alloc/lock/IO 禁止）。絶対に落ちない
 Measure Thread — 計測。クラッシュ → Audio Threadが検出 → 自動再起動
 IO Thread      — /tmp/ 書き込み。クラッシュ → Audio Threadが検出 → 自動再起動
 ```
@@ -175,7 +190,7 @@ Audio Thread が止まる = DAWの再生が止まる = 利用者の作業が全�
 - 通常経路はmono / stereo限定。サラウンド対応を計測coreの引数だけから推定しない。
 - macOSのPRE表示共有はatomic file、Windowsはpagefile-backed共有メモリを使う。platformごとの
   transport正本を確認し、`/tmp/`だけを全platform共通仕様として扱わない。
-- Reference比較試聴と承認済みのローカルBlindは通常A経路とは別の明示操作である。
+- Reference比較試聴、live PRE/POST比較、承認済みのローカルBlindは通常A経路とは別の明示操作である。
   Preference Listening TrialをABX識別検定や音質改善の証明と呼ばない。
 
 ### PRE/POST別バイナリ
