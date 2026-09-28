@@ -58,6 +58,25 @@ MatchPlan planMatch (const MatchResult& result, double heldPostDb) noexcept
     return plan;
 }
 
+FollowStep followStep (const MatchResult& result, double heldPostDb, double approvedPreDb, double ceilingDbtp,
+                       double currentPreDb) noexcept
+{
+    FollowStep step;
+    if (! result.ok())
+        return step;
+    const double needed = result.measuredDb + std::min (0.0, heldPostDb);
+    if (result.prePeakDbtp + needed > ceilingDbtp + 1.0e-9)
+        step.action = FollowAction::stopCeiling;
+    else if (std::fabs (needed - approvedPreDb) > followReachDb)
+        step.action = FollowAction::stopReach;
+    else if (std::fabs (needed - currentPreDb) >= followToleranceDb)
+    {
+        step.action = FollowAction::move;
+        step.preGainDb = needed;
+    }
+    return step;
+}
+
 MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::uint32_t sampleRate,
                           double maximumSeconds, double minimumSeconds)
 {

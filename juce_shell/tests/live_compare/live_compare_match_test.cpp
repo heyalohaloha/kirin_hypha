@@ -172,6 +172,36 @@ static void aJumpNeedsTwoAgreeingEstimates()
     require (! monitor.observe (at (0), true).jumped, "while held, nothing jumps again");
 }
 
+// INV-LC16: AUTO moves PRE only beyond 0.5 dB, never past the ceiling the MATCH approved (a louder
+// window's own ceiling does not raise it), never more than 6 dB from the MATCH, keeps POST's
+// approved attenuation, and changes nothing when a window does not measure.
+static void autoFollowsWithinReachAndStopsAtTheCeiling()
+{
+    const auto measured = [] (double db, double prePeak, double ceiling)
+    {
+        MatchResult r;
+        r.failure = MatchFailure::none;
+        r.measuredDb = db;
+        r.prePeakDbtp = prePeak;
+        r.ceilingDbtp = ceiling;
+        return r;
+    };
+    const auto step = [] (const MatchResult& r, double held, double current)
+    { return followStep (r, held, -6.0, -1.0, current); };
+    require (step (measured (-6.4, -10.0, -1.0), 0.0, -6.0).action == FollowAction::keep, "0.4 dB off stays");
+    const auto moved = step (measured (-6.6, -10.0, -1.0), 0.0, -6.0);
+    require (moved.action == FollowAction::move && std::fabs (moved.preGainDb + 6.6) < 1.0e-9, "0.6 dB off moves PRE to the match");
+    const auto held = step (measured (-6.0, -10.0, -1.0), -3.0, -6.0);
+    require (held.action == FollowAction::move && std::fabs (held.preGainDb + 9.0) < 1.0e-9,
+             "PRE takes what remains with POST at its approved attenuation");
+    require (step (measured (-12.5, -10.0, -1.0), 0.0, -6.0).action == FollowAction::stopReach, "6.5 dB from MATCH stops");
+    require (step (measured (-0.5, -0.3, 2.0), 0.0, -6.0).action == FollowAction::stopCeiling,
+             "a louder window's ceiling never raises the approved one");
+    MatchResult quiet;
+    quiet.failure = MatchFailure::notEnoughSignal;
+    require (step (quiet, 0.0, -6.0).action == FollowAction::keep, "silence keeps the gain");
+}
+
 // No proven K, or less than three seconds of contiguous history, measures nothing.
 static void unprovenOrShortWindowsAreRefused()
 {
@@ -199,6 +229,7 @@ int main()
     aHeldAttenuationCarriesIntoTheNextMatch();
     unprovenOrShortWindowsAreRefused();
     theMappingShowsAnUnreportedDelay();
+    autoFollowsWithinReachAndStopsAtTheCeiling();
     aJumpNeedsTwoAgreeingEstimates();
     hypha::tests::verifyLiveCompareOffset();
     std::printf ("live compare match: all checks passed\n");

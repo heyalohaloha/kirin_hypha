@@ -143,6 +143,10 @@ private:
     bool liveCompareHoldBlocksAudition();
     void pinLiveCompareForBlind();
     void monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
+    void matchLiveCompare();
+    void chooseLiveCompareFollow();
+    void followLiveCompare (const hypha::live_compare::Status&, double now);
+    void stopLiveCompareAuto (const juce::String& notice);
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,
                                int pairStatus);
@@ -264,6 +268,13 @@ private:
         hypha::live_compare::OffsetMonitor monitor;
     };
     LiveCompareOffsetWatch liveCompareOffset;
+    // INV-LC16: AUTO and the point the last explicit MATCH approved (PRE gain, true-peak ceiling).
+    struct LiveCompareAuto
+    {
+        bool on = false;
+        double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
+    };
+    LiveCompareAuto liveCompareAuto;
     juce::String liveCompareOffsetWarning;
     double liveComparePreWaitUntil = 0.0;
 #endif

@@ -200,6 +200,49 @@ static void guardKeepsPreUnderTheCeiling()
     require (nan.guardTripped && poisoned.postUntouched(), "a non-finite PRE sample never sounds");
 }
 
+// A gain that changes while PRE sounds (a new MATCH, AUTO) moves linearly over 50 ms, never in a
+// step, and the guard checks a rising ramp at its end.
+static void preGainRampsOverFiftyMilliseconds()
+{
+    Pair pair;
+    pair.calibrate (true, 1.0f);
+    pair.step (true, true, 1.0f);
+    std::vector<float> gains;
+    for (int b = 0; b < 6; ++b)
+    {
+        const auto start = pair.clock;
+        pair.step (true, true, 0.5f);
+        for (int i = 0; i < frames; ++i)
+            gains.push_back (pair.post[0][size_t (i)] / preValue (start + i, 0));
+    }
+    const float increment = 0.5f / 2400.0f;
+    float largest = 0.0f;
+    for (std::size_t i = 1; i < gains.size(); ++i)
+        largest = std::max (largest, std::fabs (gains[i] - gains[i - 1]));
+    std::printf ("pre gain ramp: first %.6f, frame 2398 %.6f, frame 2399 %.6f, largest step %.7f\n",
+                 gains[0], gains[2398], gains[2399], largest);
+    require (std::fabs (gains[0] - (1.0f - increment)) < 2.0e-5f, "the ramp starts in the first frame");
+    require (largest <= increment * 1.01f + 2.0e-6f, "no step is larger than one ramp increment");
+    require (gains[2398] > 0.5f + increment * 0.5f, "the ramp is still moving before 50 ms");
+    for (std::size_t i = 2399; i < gains.size(); ++i)
+        require (std::fabs (gains[i] - 0.5f) < 1.0e-6f, "after 50 ms PRE sits at the new gain");
+
+    Pair raised;
+    raised.ceiling = 0.5f;
+    raised.calibrate (true, 1.0f);
+    raised.step (true, true, 1.0f);
+    const auto tripped = raised.step (true, true, 1.5f);
+    require (tripped.guardTripped && raised.postUntouched(), "a rising ramp is checked at its end value");
+
+    Pair silent;
+    silent.calibrate (true, 1.0f);
+    silent.step (true, true, 1.0f);
+    silent.step (true, false, 1.0f);
+    const auto back = silent.step (true, true, 0.25f);
+    require (back.preAudible && std::fabs (silent.post[0][frames - 1] - preValue (silent.clock - 1, 0) * 0.25f) < 1.0e-6f,
+             "a gain set while PRE is silent applies at once");
+}
+
 // A Pin fixes the latest window as one project range: POST's input and the PRE mapped to it. Too
 // little history, or a seek inside the window, fixes nothing.
 static void pinFixesOneProjectRange()
@@ -268,6 +311,7 @@ int main()
     approvedAttenuationLowersPostOnly();
     postLevelRampsDownFastAndUpSlowly();
     guardKeepsPreUnderTheCeiling();
+    preGainRampsOverFiftyMilliseconds();
     pinFixesOneProjectRange();
     std::printf ("live compare session: all checks passed\n");
     return 0;

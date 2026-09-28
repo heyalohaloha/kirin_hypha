@@ -360,6 +360,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         target_sources(${TARGET} PRIVATE
             src/PluginEditorLocalBlind.cpp
             src/PluginEditorLiveCompare.cpp
+            src/PluginEditorLiveCompareAuto.cpp
             src/HyphaLocalBlindComponent.cpp
             src/HyphaLocalBlindSteps.cpp
         src/HyphaLocalBlindPresentation.cpp

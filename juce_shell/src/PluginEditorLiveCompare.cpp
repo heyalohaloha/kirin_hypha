@@ -6,9 +6,9 @@
 #include <cmath>
 #include <cstdlib>
 
-// The editor side of the live PRE / POST compare (AGENTS R-12, INV-LC1 to INV-LC14). It starts and
-// ends the session, forwards the PRE / POST choice, MATCH and RETURN, asks before lowering POST, and
-// shows what the Audio Thread reports. Closing the editor ends the session, so a closed window
+// The editor side of the live PRE / POST compare (AGENTS R-12, INV-LC1 to INV-LC16). It starts and
+// ends the session, forwards the PRE / POST choice, MATCH, AUTO and RETURN, asks before lowering
+// POST, and shows what the Audio Thread reports. Closing the editor ends the session, so a closed window
 // never leaves PRE sounding; an approved POST attenuation stays until RETURN.
 namespace
 {
@@ -94,6 +94,7 @@ void KirinHyphaEditor::configureLiveCompare()
         liveCompareMatched = false;
         liveCompareLimited = false;
         liveCompareInterruptSeen = false;
+        liveCompareAuto = {};
         if (result == StartResult::started)
             showToast ("Closing returns to POST");
         else
@@ -110,20 +111,13 @@ void KirinHyphaEditor::configureLiveCompare()
         liveCompareInterruptSeen = false;
         refreshLiveCompare();
     };
+    // Once matched, MATCH offers MATCH again and AUTO (INV-LC16); the first MATCH measures at once.
     observatoryView.onLiveCompareMatch = [this]
     {
-        const auto result = processorRef.measureLiveCompare();
-        if (! result.ok())
-        {
-            showToast (matchFailure (result.failure));
-            return;
-        }
-        const auto held = processorRef.liveCompareStatus().postTarget;
-        const auto plan = hypha::live_compare::planMatch (result, held > 0.0f ? 20.0 * std::log10 (held) : 0.0);
-        if (plan.needsApproval)
-            chooseLiveCompareMatch (plan);
+        if (liveCompareMatched)
+            chooseLiveCompareFollow();
         else
-            applyLiveCompareChoice (plan, MatchChoice::basis);
+            matchLiveCompare();
     };
     observatoryView.onLiveCompareEnd = [this]
     {
@@ -131,6 +125,7 @@ void KirinHyphaEditor::configureLiveCompare()
         liveCompareMatched = false;
         liveCompareLimited = false;
         liveCompareActiveSeen = false;
+        liveCompareAuto = {};
         refreshLiveCompare();
     };
     observatoryView.onLiveComparePin = [this] { pinLiveCompareForBlind(); };
@@ -140,6 +135,24 @@ void KirinHyphaEditor::configureLiveCompare()
         showToast ("POST back to normal");
         refreshLiveCompare();
     };
+}
+
+// The explicit MATCH: measure the latest window and apply it, asking first when PRE would pass the
+// true-peak ceiling.
+void KirinHyphaEditor::matchLiveCompare()
+{
+    const auto result = processorRef.measureLiveCompare();
+    if (! result.ok())
+    {
+        showToast (matchFailure (result.failure));
+        return;
+    }
+    const auto held = processorRef.liveCompareStatus().postTarget;
+    const auto plan = hypha::live_compare::planMatch (result, held > 0.0f ? 20.0 * std::log10 (held) : 0.0);
+    if (plan.needsApproval)
+        chooseLiveCompareMatch (plan);
+    else
+        applyLiveCompareChoice (plan, MatchChoice::basis);
 }
 
 // PRE would pass the true-peak ceiling on the POST basis: the user chooses, as in Local Blind,
@@ -174,6 +187,11 @@ void KirinHyphaEditor::applyLiveCompareChoice (const MatchPlan& plan, MatchChoic
     }
     liveCompareMatched = true;
     liveCompareLimited = choice == MatchChoice::limitPre;
+    // The point AUTO keeps to: this MATCH's PRE gain and ceiling. AUTO cannot follow a TP LIMIT.
+    liveCompareAuto.approvedPreDb = choice == MatchChoice::lowerPost ? 0.0 : plan.preGainDb;
+    liveCompareAuto.ceilingDbtp = plan.ceilingDbtp;
+    liveCompareAuto.nextAt = nowSecs() + 1.0;
+    liveCompareAuto.on = liveCompareAuto.on && ! liveCompareLimited;
     showToast (choice == MatchChoice::lowerPost ? "MATCH: POST " + signedDb (plan.lowerPostGainDb)
                : choice == MatchChoice::limitPre
                    ? "TP limit: PRE " + signedDb (plan.limitedPreGainDb) + ", need " + signedDb (plan.neededPreGainDb)
@@ -198,6 +216,7 @@ void KirinHyphaEditor::pinLiveCompareForBlind()
     liveCompareMatched = false;
     liveCompareLimited = false;
     liveCompareActiveSeen = false;
+    liveCompareAuto = {};
     localBlindReturnIntent.clear();
     localBlindPreflight = false;
     localBlindView.setMeterContext (processorRef.meterContextPreference());
@@ -265,6 +284,7 @@ void KirinHyphaEditor::refreshLiveCompare()
         showToast ("LISTEN ended; POST plays");
     liveCompareActiveSeen = status.active;
     monitorLiveCompareOffset (status, now);
+    followLiveCompare (status, now);
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported();
     footer.active = status.active;
@@ -275,6 +295,7 @@ void KirinHyphaEditor::refreshLiveCompare()
         && hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType);
     footer.matched = status.active && liveCompareMatched;
     footer.matchLimited = footer.matched && liveCompareLimited;
+    footer.following = status.active && liveCompareAuto.on;
     footer.preGainTenthsDb = status.gain > 0.0f ? juce::roundToInt (200.0f * std::log10 (status.gain)) : 0;
     footer.postHeldTenthsDb = status.postTarget > 0.0f && status.postTarget < 1.0f
         ? juce::jmin (-1, juce::roundToInt (200.0f * std::log10 (status.postTarget))) : 0;

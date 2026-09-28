@@ -52,6 +52,32 @@ MatchPlan planMatch (const MatchResult&, double heldPostDb) noexcept;
 // What the user chose for a plan that needs approval; `basis` for a plan that does not.
 enum class MatchChoice : std::uint8_t { basis, lowerPost, limitPre };
 
+// INV-LC16, AUTO after an explicit MATCH. The plan's experimental values (6.2) until listening
+// decides them: a step a second, 0.5 dB of tolerance, at most 6 dB from the MATCH.
+constexpr double followIntervalSeconds = 1.0;
+constexpr double followToleranceDb = 0.5;
+constexpr double followReachDb = 6.0;
+
+enum class FollowAction : std::uint8_t
+{
+    keep,        // within the tolerance, or nothing measured (silence keeps the gain)
+    move,        // PRE moves to preGainDb
+    stopCeiling, // PRE would pass the ceiling the MATCH approved; AUTO never raises it
+    stopReach    // PRE would move more than followReachDb from the MATCH
+};
+
+struct FollowStep
+{
+    FollowAction action = FollowAction::keep;
+    double preGainDb = 0.0;
+};
+
+// One AUTO step from a fresh measurement on the POST basis: PRE takes the difference that remains
+// with POST at its approved attenuation (heldPostDb, 0 or below). approvedPreDb and ceilingDbtp are
+// the last explicit MATCH's; POST never moves.
+FollowStep followStep (const MatchResult&, double heldPostDb, double approvedPreDb, double ceilingDbtp,
+                       double currentPreDb) noexcept;
+
 // Non-RT (message thread). Aligns the latest window of POST's input history with PRE's ring through
 // the proven K and measures it with the Local Blind gain policies (BS.1770 loudness, cue true peak).
 MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::uint32_t sampleRate,

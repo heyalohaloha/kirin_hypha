@@ -593,11 +593,17 @@ instances; multi-mono and Windows come later.
    Closing the menu changes nothing. MATCH is fixed: it does not follow later level changes, so
    press it again after changing the chain. Each session starts PRE at unity gain. If a raised PRE
    would still peak above the ceiling later in the song, Hypha stops PRE at that block and asks you
-   to select it again.
-4. Press **END** to return to POST. Closing the Hypha window, opening Blind, changing the pair or
+   to select it again. A new gain while PRE plays glides over 50 ms instead of jumping.
+4. Once matched, pressing MATCH offers **MATCH again** or **AUTO**. With AUTO, PRE follows POST:
+   every second of playback Hypha measures again and moves PRE once it is 0.5 dB or more away. The
+   control reads **AUTO**. AUTO never moves POST, never raises PRE above the ceiling approved at
+   MATCH and never moves PRE more than 6 dB from that MATCH; it stops and says why instead. Silence
+   changes nothing. AUTO is not available after a TP LIMIT match, and it stops at END or PIN. These
+   values are experimental until listening tests settle them.
+5. Press **END** to return to POST. Closing the Hypha window, opening Blind, changing the pair or
    the sample rate, and removing or re-preparing PRE also end the session. Offline render, a bypass
    the DAW reports, and another audition return to POST and ask you to select PRE again.
-5. A lowered POST stays lowered after END, even with the window closed, until you press
+6. A lowered POST stays lowered after END, even with the window closed, until you press
    **RETURN**. RETURN names how much POST rises, for example **RETURN +7.0 dB**, and brings it back
    over half a second. Blind and Reference audition wait for RETURN. Offline render and a bypass
    the DAW reports are never lowered, and measurement is always taken before the attenuation.

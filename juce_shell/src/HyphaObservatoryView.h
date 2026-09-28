@@ -64,13 +64,14 @@ struct LiveCompareFooter
     int postHeldTenthsDb = 0;  // approved POST attenuation (0 or below), held until RETURN
     bool contentHeld = false;  // INV-LC10: POST until playback stops and restarts
     bool pinAvailable = false; // PIN can hand the last four seconds to PRE / POST Blind
+    bool following = false;    // INV-LC16: AUTO keeps PRE's gain on POST's loudness
     bool operator== (const LiveCompareFooter& other) const noexcept
     {
         return entryEnabled == other.entryEnabled && active == other.active && pinAvailable == other.pinAvailable
             && preSelected == other.preSelected && preWaiting == other.preWaiting
             && matched == other.matched && matchLimited == other.matchLimited
             && preGainTenthsDb == other.preGainTenthsDb && postHeldTenthsDb == other.postHeldTenthsDb
-            && contentHeld == other.contentHeld;
+            && contentHeld == other.contentHeld && following == other.following;
     }
 };
 

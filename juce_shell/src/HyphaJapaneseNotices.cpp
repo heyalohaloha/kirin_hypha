@@ -110,6 +110,10 @@ const Entry entries[] = {
     { "PIN needs 4 s of play", u8"PINには4秒の再生が必要" },
     { "Last 4 s not one range", u8"直前4秒が一続きではありません" },
     { "PIN failed; try again", u8"PINをやり直してください" },
+    { "AUTO on: within 0.5 dB", u8"AUTO：0.5 dB以内で追従" },
+    { "AUTO off", u8"AUTOを止めました" },
+    { "AUTO stopped: TP ceiling", u8"AUTO停止：TP上限" },
+    { "AUTO stopped: over 6 dB", u8"AUTO停止：6 dBを超える変化" },
 };
 }
 

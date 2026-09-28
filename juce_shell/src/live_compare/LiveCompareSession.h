@@ -74,6 +74,52 @@ private:
     std::atomic<float> downStep { 1.0f / 2400.0f }, upStep { 1.0f / 24000.0f };
 };
 
+// The PRE gain on its way to a new MATCH or AUTO value (plan 6.2): a linear ramp over 50 ms, so a
+// gain that changes while PRE sounds never steps. While PRE is silent it moves at once.
+class GainRamp
+{
+public:
+    void configure (double sampleRate) noexcept
+    {
+        rampFrames = std::max (1, static_cast<int> (sampleRate * 0.05 + 0.5));
+        settle (1.0f);
+    }
+
+    // Audio Thread: the gain for the next frame on the way to wanted. Each frame is placed on the
+    // line from the ramp's start, so no rounding accumulates into a step.
+    float next (float wanted) noexcept
+    {
+        if (std::fabs (wanted - target) > 0.0f)
+        {
+            start = current;
+            target = wanted;
+            position = 0;
+        }
+        if (position < rampFrames)
+        {
+            ++position;
+            current = position >= rampFrames
+                ? target
+                : start + (target - start) * (static_cast<float> (position) / static_cast<float> (rampFrames));
+        }
+        return current;
+    }
+
+    // Audio Thread: PRE is silent, nothing hears the gain move.
+    void settle (float wanted) noexcept
+    {
+        start = current = target = wanted;
+        position = rampFrames;
+    }
+
+    // The largest gain the next block reaches: a rising ramp is checked at its end.
+    float peak (float wanted) const noexcept { return std::max (current, wanted); }
+
+private:
+    float start = 1.0f, current = 1.0f, target = 1.0f; // Audio Thread only
+    int rampFrames = 2400, position = 2400;
+};
+
 struct RenderReport
 {
     Verdict verdict = Verdict::noClock;
@@ -85,7 +131,8 @@ struct RenderReport
 // POST, Audio Thread output (INV-LC4, INV-LC14). PRE sounds only in blocks whose every frame is
 // proven and passes the guard. Returning to PRE fades symmetrically over proven samples; losing the
 // proof switches to POST at the block start and never uses unproven PRE samples. The approved gain
-// applies to the PRE copy; an approved POST attenuation applies to POST, in and out of a session.
+// applies to the PRE copy, ramped when it changes while PRE sounds; an approved POST attenuation
+// applies to POST, in and out of a session.
 class PostRenderer
 {
 public:
@@ -97,6 +144,7 @@ public:
         left = std::make_unique<float[]> (static_cast<std::size_t> (capacity));
         right = std::make_unique<float[]> (static_cast<std::size_t> (capacity));
         fadeFrames = std::max (1, static_cast<int> (sampleRate * fadeSeconds + 0.5));
+        preLevel.configure (sampleRate);
         std::int64_t frames = 1;
         while (static_cast<double> (frames) < sampleRate * historySeconds)
             frames <<= 1;
@@ -187,7 +235,9 @@ public:
             post.apply (io, channels, block.frames, postTarget);
             return report;
         }
-        if ((preSelected || weight > 0.0f) && ! guardPasses (block.frames, preGain, ceilingLinear))
+        if (weight <= 0.0f)
+            preLevel.settle (preGain);
+        if ((preSelected || weight > 0.0f) && ! guardPasses (block.frames, preLevel.peak (preGain), ceilingLinear))
         {
             weight = 0.0f;
             report.guardTripped = true;
@@ -205,9 +255,10 @@ public:
         {
             weight = weight < target ? std::min (target, weight + step) : std::max (target, weight - step);
             const float postGain = post.next (postTarget) * (1.0f - weight);
+            const float gain = preLevel.next (preGain);
             for (int channel = 0; channel < channels; ++channel)
             {
-                const float pre = scratch[std::min (channel, 1)][i] * preGain;
+                const float pre = scratch[std::min (channel, 1)][i] * gain;
                 io[channel][i] = io[channel][i] * postGain + pre * weight;
             }
         }
@@ -263,6 +314,7 @@ private:
     }
 
     Consumer consumer;
+    GainRamp preLevel;
     std::unique_ptr<float[]> left, right;
     int capacity = 0;
     int fadeFrames = 240;

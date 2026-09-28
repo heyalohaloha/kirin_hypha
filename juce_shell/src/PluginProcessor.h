@@ -160,6 +160,7 @@ public:
     void setLiveCompareGain (float linear) noexcept;
     hypha::live_compare::MatchResult measureLiveCompare();
     bool applyLiveCompareMatch (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
+    bool followLiveCompareGain (double preDb); // INV-LC16: AUTO moves PRE only
     void returnLiveComparePostToNormal() noexcept;
     bool takeLiveCompareGuardTrip() noexcept;
     hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
