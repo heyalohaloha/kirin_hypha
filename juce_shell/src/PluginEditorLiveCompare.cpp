@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "HyphaLocalBlindAdmissionText.h"
 
 #if ! KIRIN_HYPHA_PRE_DISPLAY
 
@@ -37,6 +38,20 @@ juce::String offsetText (std::int64_t lag, double sampleRate)
 {
     const auto ms = std::fabs (static_cast<double> (lag)) * 1000.0 / juce::jmax (1.0, sampleRate);
     return "PRE " + juce::String (ms, 2) + (lag < 0 ? " ms early" : " ms late");
+}
+
+juce::String pinFailure (hypha::live_compare::PinFailure failure)
+{
+    using hypha::live_compare::PinFailure;
+    switch (failure)
+    {
+        case PinFailure::none:        return {};
+        case PinFailure::notProven:   return "PIN waits for PRE";
+        case PinFailure::tooShort:    return "PIN needs 4 s of play";
+        case PinFailure::notOneRange: return "Last 4 s not one range";
+        case PinFailure::overwritten: return "PIN failed; try again";
+    }
+    return {};
 }
 
 juce::String startFailure (StartResult result)
@@ -115,6 +130,7 @@ void KirinHyphaEditor::configureLiveCompare()
         liveCompareActiveSeen = false;
         refreshLiveCompare();
     };
+    observatoryView.onLiveComparePin = [this] { pinLiveCompareForBlind(); };
     observatoryView.onLiveCompareReturn = [this]
     {
         processorRef.returnLiveComparePostToNormal();
@@ -160,6 +176,32 @@ void KirinHyphaEditor::applyLiveCompareChoice (const MatchPlan& plan, MatchChoic
                    ? "TP limit: PRE " + signedDb (plan.limitedPreGainDb) + ", need " + signedDb (plan.neededPreGainDb)
                    : "MATCH: PRE " + signedDb (plan.preGainDb));
     refreshLiveCompare();
+}
+
+// INV-LC15: PIN fixes the last four seconds and opens PRE / POST Blind on them, past its capture
+// step. The live session ends; Blind owns the output from here, and its own RETURN brings back POST.
+void KirinHyphaEditor::pinLiveCompareForBlind()
+{
+    if (liveCompareHoldBlocksAudition())
+        return;
+    const auto result = processorRef.pinLiveCompareForBlind (processorRef.meterContextPreference());
+    if (! result.pinned)
+    {
+        showToast (result.pin != hypha::live_compare::PinFailure::none
+                       ? pinFailure (result.pin) : hypha::local_blind_ui::admissionText (result.admission));
+        return;
+    }
+    processorRef.stopLiveCompare();
+    liveCompareMatched = false;
+    liveCompareLimited = false;
+    liveCompareActiveSeen = false;
+    localBlindReturnIntent.clear();
+    localBlindPreflight = false;
+    localBlindView.setMeterContext (processorRef.meterContextPreference());
+    localBlindOpen = true;
+    localBlindView.clearActionNotice();
+    refreshLocalBlindProduct();
+    localBlindView.grabKeyboardFocus();
 }
 
 // Another audition must not start on top of an approved POST attenuation: RETURN first.
@@ -224,6 +266,8 @@ void KirinHyphaEditor::refreshLiveCompare()
     footer.preSelected = status.active && status.preSelected;
     footer.preWaiting = footer.preSelected && (status.preWaiting || now < liveComparePreWaitUntil);
     footer.contentHeld = status.active && status.contentHeld;
+    footer.pinAvailable = processorRef.localBlindProductSupported()
+        && hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType);
     footer.matched = status.active && liveCompareMatched;
     footer.matchLimited = footer.matched && liveCompareLimited;
     footer.preGainTenthsDb = status.gain > 0.0f ? juce::roundToInt (200.0f * std::log10 (status.gain)) : 0;

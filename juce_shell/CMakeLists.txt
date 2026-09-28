@@ -278,9 +278,11 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/PluginProcessor.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
         src/PluginProcessorLiveCompare.cpp
+        src/PluginProcessorLiveComparePin.cpp
         src/live_compare/LiveCompareSharedRing.cpp
         src/live_compare/LiveCompareMatch.cpp
         src/live_compare/LiveCompareOffset.cpp
+        src/live_compare/LiveComparePin.cpp
         src/local_blind/LocalBlindCaptureService.cpp
         src/local_blind/CapturePairComparison.cpp
         src/local_blind/LocalBlindPreparation.cpp

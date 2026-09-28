@@ -14,6 +14,9 @@ const EDITOR_LOCAL_BLIND_CPP: &str =
 const EDITOR_LIVE_COMPARE_CPP: &str =
     include_str!("../../juce_shell/src/PluginEditorLiveCompare.cpp");
 const EDITOR_REFERENCE_CPP: &str = include_str!("../../juce_shell/src/PluginEditorReference.cpp");
+const PROCESSOR_PIN_CPP: &str =
+    include_str!("../../juce_shell/src/PluginProcessorLiveComparePin.cpp");
+const PIN_CPP: &str = include_str!("../../juce_shell/src/live_compare/LiveComparePin.cpp");
 
 // The body of the first function whose definition starts with signature (brace matched).
 fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
@@ -288,4 +291,32 @@ fn live_compare_offset_is_shown_and_a_jump_holds_post_until_playback_restarts() 
         1,
         "only the settled jump holds POST"
     );
+}
+
+// INV-LC15: PIN fixes one project range without padding or joining, goes through Local Blind's own
+// admission and acceptance, never starts on a held attenuation, and ends the live session.
+#[test]
+fn live_compare_pin_hands_one_range_to_blind_through_its_own_admission() {
+    assert!(PIN_CPP.contains("project.runStart > start"));
+    assert!(PIN_CPP.contains("PinFailure::notOneRange"));
+    let pin = function_body(
+        PROCESSOR_PIN_CPP,
+        "hypha::live_compare::LivePinResult KirinHyphaProcessorBase::pinLiveCompareForBlind",
+    );
+    let pinned = pin.find("hypha::live_compare::pinLatest").unwrap();
+    let admitted = pin.find("localBlindCaptureAvailability()").unwrap();
+    let accepted = pin
+        .find("localBlindProductSession.acceptCapturedPair")
+        .unwrap();
+    assert!(pinned < admitted && admitted < accepted);
+    assert!(pin.contains("releaseLocalBlindProductScope (scopeEpoch);"));
+    assert!(pin.contains("localBlindProductSession.failCaptureRequest();"));
+    let editor = function_body(
+        EDITOR_LIVE_COMPARE_CPP,
+        "void KirinHyphaEditor::pinLiveCompareForBlind",
+    );
+    let held = editor.find("if (liveCompareHoldBlocksAudition())").unwrap();
+    let request = editor.find("processorRef.pinLiveCompareForBlind").unwrap();
+    let stop = editor.find("processorRef.stopLiveCompare();").unwrap();
+    assert!(held < request && request < stop);
 }

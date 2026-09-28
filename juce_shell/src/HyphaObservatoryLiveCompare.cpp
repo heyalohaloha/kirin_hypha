@@ -24,7 +24,7 @@ juce::String signedGain (int tenths)
 void View::configureComparisonEntries()
 {
     for (auto* button : { &localBlindButton, &liveCompareButton, &livePreButton, &livePostButton,
-                          &liveMatchButton, &liveEndButton, &liveReturnButton })
+                          &liveMatchButton, &liveEndButton, &liveReturnButton, &livePinButton })
     {
         button->setMouseCursor (juce::MouseCursor::PointingHandCursor);
         addChildComponent (*button);
@@ -61,6 +61,11 @@ void View::configureComparisonEntries()
     liveReturnButton.setDescription ("Return POST to its normal level; it rises by the amount shown");
     liveReturnButton.setTooltip (liveReturnButton.getDescription());
     liveReturnButton.onClick = [this] { if (onLiveCompareReturn) onLiveCompareReturn(); };
+    livePinButton.setComponentID ("observatory-live-pin");
+    livePinButton.setTitle ("PIN 4 S");
+    livePinButton.setDescription ("Fix the last four seconds of PRE and POST and open them in PRE / POST Blind");
+    livePinButton.setTooltip (livePinButton.getDescription());
+    livePinButton.onClick = [this] { if (onLiveComparePin) onLiveComparePin(); };
 }
 
 void View::setLiveCompareFooter (const LiveCompareFooter& next)
@@ -79,7 +84,8 @@ void View::setLiveCompareFooter (const LiveCompareFooter& next)
 // longest text, so a boundary that toggles WAIT never moves a control.
 bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
 {
-    for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &liveReturnButton })
+    for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &liveReturnButton,
+                          &livePinButton })
         button->setVisible (false);
     if (captureFrame)
         return false;
@@ -95,9 +101,16 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     const int matchWidth = juce::jmax (footerButtonWidth ("MATCH"), footerButtonWidth ("TP LIMIT"));
     const bool postLowered = state.postHeldTenthsDb < 0;
     const juce::String postNamed = postLowered ? "POST " + signedGain (state.postHeldTenthsDb) : juce::String ("POST");
-    const std::array<juce::Array<juce::Button*>, 4> sets {
-        juce::Array<juce::Button*> { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton,
-                                     &operationsButton },
+    // PIN comes before MENU and after MATCH; without Blind in this host it never shows.
+    auto withPin = [this] (juce::Array<juce::Button*> set)
+    {
+        if (liveCompareState.pinAvailable)
+            set.insert (3, &livePinButton);
+        return set;
+    };
+    const std::array<juce::Array<juce::Button*>, 5> sets {
+        withPin ({ &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &operationsButton }),
+        withPin ({ &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton }),
         juce::Array<juce::Button*> { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton },
         juce::Array<juce::Button*> { &livePreButton, &livePostButton, &liveEndButton },
         juce::Array<juce::Button*> { &livePostButton, &liveEndButton } };

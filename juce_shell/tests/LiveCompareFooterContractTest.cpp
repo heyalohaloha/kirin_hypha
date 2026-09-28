@@ -198,6 +198,33 @@ void verifyLiveCompareFooterContract()
         }
     }
 
+    // INV-LC15: PIN sits between MATCH and END at 200% and 300% where Blind exists, and never
+    // where it does not.
+    auto* pinButton = control (post, "observatory-live-pin");
+    int pinned = 0;
+    post.onLiveComparePin = [&] { ++pinned; };
+    state.pinAvailable = true;
+    post.setLiveCompareFooter (state);
+    for (const auto preset : observatory::sizePresets)
+    {
+        post.setSize (preset.width, preset.height);
+        require (pinButton->isVisible() == (preset.width >= 600), "PIN shows at the large sizes");
+        if (! pinButton->isVisible())
+            continue;
+        require (readable (post, *pinButton) && post.getLocalBounds().contains (pinButton->getBounds()),
+                 "PIN reads whole");
+        for (auto* other : std::vector<juce::Component*> { preButton, postButton, match, end, menu })
+            require (! other->isVisible() || ! other->getBounds().intersects (pinButton->getBounds()),
+                     "PIN overlaps no other control");
+        require (match->getX() < pinButton->getX() && pinButton->getX() < end->getX(),
+                 "PIN sits between MATCH and END");
+    }
+    pinButton->onClick();
+    require (pinned == 1, "PIN reaches the editor");
+    state.pinAvailable = false;
+    post.setLiveCompareFooter (state);
+    require (! pinButton->isVisible(), "without Blind in this host there is no PIN");
+
     // An approved POST attenuation is named on POST during a session; after END it is held, and
     // RETURN names how much POST rises, at every size, while Blind waits for it (INV-LC14).
     auto* returnButton = control (post, "observatory-live-return");

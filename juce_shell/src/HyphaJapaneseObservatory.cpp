@@ -43,6 +43,8 @@ const Entry entries[] = {
     { "PRE is selected. POST plays until PRE is confirmed at this position",
       u8"PREを選択中です。この位置でPREを確かめられるまでPOSTが鳴ります" },
     { "Listen to POST, the output of this chain", u8"このチェーンの出力、POSTを聴きます" },
+    { "Fix the last four seconds of PRE and POST and open them in PRE / POST Blind",
+      u8"直前4秒のPREとPOSTを固定し、PRE／POST Blindで開きます" },
     { "Listen to POST, lowered by the attenuation you approved", u8"承認した減衰で下げたPOSTを聴きます" },
     { "Return POST to its normal level; it rises by the amount shown",
       u8"POSTを通常の音量に戻します。表示の分だけ上がります" },

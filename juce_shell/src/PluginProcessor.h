@@ -165,6 +165,7 @@ public:
     hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
     void holdLiveCompareForContentJump() noexcept;
     std::uint32_t liveComparePlaybackRun() const noexcept;
+    hypha::live_compare::LivePinResult pinLiveCompareForBlind (hypha::meter_context::MeterContext);
     hypha::live_compare::Status liveCompareStatus() const noexcept;
     bool liveCompareSupported() const noexcept;
     bool takeLiveComparePreWait() noexcept;

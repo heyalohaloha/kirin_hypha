@@ -4,6 +4,7 @@
 #include "LiveCompareClock.h"
 #include "LiveCompareMatch.h"
 #include "LiveCompareOffset.h"
+#include "LiveComparePinResult.h"
 #include "LiveCompareSession.h"
 #include "LiveCompareSharedRing.h"
 

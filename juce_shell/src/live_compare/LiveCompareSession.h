@@ -104,6 +104,9 @@ public:
         history = std::make_unique<std::atomic<float>[]> (static_cast<std::size_t> (frames) * 2);
         historyStart.store (0, std::memory_order_relaxed);
         historyEnd.store (0, std::memory_order_relaxed);
+        projectRunStart.store (0, std::memory_order_relaxed);
+        projectOffset.store (0, std::memory_order_relaxed);
+        projectKnown.store (false, std::memory_order_relaxed);
         matchOffsetValid.store (false, std::memory_order_relaxed);
         consumer.reset();
         weight = 0.0f;
@@ -132,6 +135,25 @@ public:
     }
 
     std::int64_t historyWriteEnd() const noexcept { return historyEnd.load (std::memory_order_acquire); }
+
+    // The stretch of the history whose project time advanced with POST's clock: from runStart on,
+    // project = clock + offset. A loop wrap, a seek, a stop or the host's post-wrap clamp starts a
+    // new stretch. A Pin needs its whole window inside one.
+    struct ProjectView
+    {
+        std::int64_t runStart = 0, offset = 0;
+        bool known = false;
+    };
+
+    bool projectView (ProjectView& out) const noexcept
+    {
+        const auto before = projectRunStart.load (std::memory_order_acquire);
+        out.offset = projectOffset.load (std::memory_order_relaxed);
+        out.known = projectKnown.load (std::memory_order_relaxed);
+        std::atomic_thread_fence (std::memory_order_acquire);
+        out.runStart = projectRunStart.load (std::memory_order_relaxed);
+        return out.runStart == before;
+    }
 
     RenderReport render (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
                          const BlockClock& block, float* const* io, int channels,
@@ -219,8 +241,17 @@ private:
         if (history == nullptr || ! block.clockValid)
             return;
         const auto end = historyEnd.load (std::memory_order_relaxed);
-        if (block.afterGap || ! block.playing || block.clock != end || end == 0)
+        const bool restarted = block.afterGap || ! block.playing || block.clock != end || end == 0;
+        if (restarted)
             historyStart.store (block.clock, std::memory_order_release);
+        const auto offset = block.project - block.clock;
+        if (restarted || ! block.projectValid || ! projectKnown.load (std::memory_order_relaxed)
+            || offset != projectOffset.load (std::memory_order_relaxed))
+        {
+            projectOffset.store (offset, std::memory_order_relaxed);
+            projectKnown.store (block.projectValid && block.playing, std::memory_order_relaxed);
+            projectRunStart.store (block.clock, std::memory_order_release);
+        }
         const auto mask = historyFrames - 1;
         for (std::int32_t i = 0; i < block.frames; ++i)
         {
@@ -239,6 +270,8 @@ private:
     std::unique_ptr<std::atomic<float>[]> history;
     std::int64_t historyFrames = 0;
     std::atomic<std::int64_t> historyStart { 0 }, historyEnd { 0 }, matchOffset { 0 };
+    std::atomic<std::int64_t> projectRunStart { 0 }, projectOffset { 0 };
+    std::atomic<bool> projectKnown { false };
     std::atomic<bool> matchOffsetValid { false };
 };
 }

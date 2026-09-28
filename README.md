@@ -602,6 +602,11 @@ instances; multi-mono and Windows come later.
    over half a second. Blind and Reference audition wait for RETURN. Offline render and a bypass
    the DAW reports are never lowered, and measurement is always taken before the attenuation.
 
+At 200% and 300%, **PIN 4 S** fixes the last four seconds of PRE and POST and opens them in
+PRE / POST Blind, prepared and ready to start, without Blind's own capture step. It needs four
+seconds of confirmed playback with no loop wrap, seek or stop inside; otherwise Hypha says why.
+PIN ends the live session, and Blind's own RETURN brings back POST.
+
 While a session runs, the footer keeps **POST** and **END** at every size. Keep POST's window
 open while comparing: in Studio One / Studio Pro, pin it before opening another plug-in on the
 same channel; in Pro Tools, turn off its **Target** button.

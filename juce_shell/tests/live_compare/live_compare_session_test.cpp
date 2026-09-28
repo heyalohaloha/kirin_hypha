@@ -1,3 +1,4 @@
+#include "../../src/live_compare/LiveComparePin.h"
 #include "../../src/live_compare/LiveCompareSession.h"
 #include "../../src/live_compare/LiveCompareSharedRing.h"
 
@@ -32,7 +33,7 @@ struct Pair
     PostLevel level;
     float postTarget = 1.0f, ceiling = 1.0f;
     std::vector<float> pre[2], post[2];
-    std::int64_t clock = 0;
+    std::int64_t clock = 0, projectShift = 0;
 
     Pair()
     {
@@ -48,7 +49,8 @@ struct Pair
     {
         ring->header.demand.store (demand ? 1u : 0u);
         BlockClock b;
-        b.clock = b.project = clock;
+        b.clock = clock;
+        b.project = clock + projectShift;
         b.frames = frames;
         b.clockValid = b.projectValid = b.playing = true;
         b.afterGap = afterGap;
@@ -198,6 +200,33 @@ static void guardKeepsPreUnderTheCeiling()
     require (nan.guardTripped && poisoned.postUntouched(), "a non-finite PRE sample never sounds");
 }
 
+// A Pin fixes the latest window as one project range: POST's input and the PRE mapped to it. Too
+// little history, or a seek inside the window, fixes nothing.
+static void pinFixesOneProjectRange()
+{
+    Pair pair;
+    pair.calibrate (false, 1.0f);
+    for (int i = 0; i < 12; ++i) pair.step (true, false, 1.0f);
+    const auto stereo = pinLatest (*pair.ring, pair.renderer, 4096, 2);
+    require (stereo.ok() && stereo.projectStart == pair.clock - 4096 && stereo.post.size() == 8192,
+             "the latest window is one project range");
+    require (stereo.post[0] == postValue && stereo.pre[0] == preValue (stereo.projectStart, 0)
+                 && stereo.pre[8191] == preValue (pair.clock - 1, 1),
+             "POST and PRE hold the same range");
+    const auto mono = pinLatest (*pair.ring, pair.renderer, 4096, 1);
+    require (mono.ok() && mono.pre.size() == 4096 && mono.pre[1] == preValue (mono.projectStart + 1, 0),
+             "a mono POST pins one channel");
+    require (pinLatest (*pair.ring, pair.renderer, 1 << 20, 2).failure == PinFailure::tooShort,
+             "more than the history is too short");
+    pair.projectShift = 96000;
+    pair.step (true, false, 1.0f);
+    require (pinLatest (*pair.ring, pair.renderer, 4096, 2).failure == PinFailure::notOneRange,
+             "a seek inside the window fixes nothing");
+    for (int i = 0; i < 9; ++i) pair.step (true, false, 1.0f);
+    const auto after = pinLatest (*pair.ring, pair.renderer, 4096, 2);
+    require (after.ok() && after.projectStart == pair.clock - 4096 + 96000, "after the seek, a new range");
+}
+
 // PRE creates the ring for its identity; POST opens it for the same key and rate only.
 static void sharedRingPairsOnlyTheSameIdentityAndRate()
 {
@@ -239,6 +268,7 @@ int main()
     approvedAttenuationLowersPostOnly();
     postLevelRampsDownFastAndUpSlowly();
     guardKeepsPreUnderTheCeiling();
+    pinFixesOneProjectRange();
     std::printf ("live compare session: all checks passed\n");
     return 0;
 }

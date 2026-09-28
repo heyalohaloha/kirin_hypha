@@ -141,6 +141,7 @@ private:
     void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
     void applyLiveCompareChoice (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
     bool liveCompareHoldBlocksAudition();
+    void pinLiveCompareForBlind();
     void monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,

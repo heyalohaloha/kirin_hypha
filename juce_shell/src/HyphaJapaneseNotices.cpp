@@ -106,6 +106,10 @@ const Entry entries[] = {
     { "PRE %1 ms early", u8"PREが%1 ms早く鳴っています" },
     { "PRE %1 ms late", u8"PREが%1 ms遅れて鳴っています" },
     { "PRE held: latency changed", u8"遅延が変わりPREを保留中" },
+    { "PIN waits for PRE", u8"PINはPRE待ちです" },
+    { "PIN needs 4 s of play", u8"PINには4秒の再生が必要" },
+    { "Last 4 s not one range", u8"直前4秒が一続きではありません" },
+    { "PIN failed; try again", u8"PINをやり直してください" },
 };
 }
 

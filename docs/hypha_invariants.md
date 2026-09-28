@@ -257,7 +257,7 @@ Local Blind UIのINV-S25は番号と内容を維持する。
 
 2026-09-28、利用者が実装の開始を承認した。根拠と残りの行（INV-LC5、LC6、LC8、LC9）は
 `docs/planning/hypha_live_chain_compare_contract_draft_20260928.md`にあり、実装と試験ができた時点で本表へ入れる。
-INV-LC12とLC13は第1段階の画面とMATCHで、INV-LC14は承認付きのPOST減衰（2026-09-28、利用者が第3段階から前倒しを承認）で加えた。
+INV-LC12とLC13は第1段階の画面とMATCHで、INV-LC14は承認付きのPOST減衰（2026-09-28、利用者が第3段階から前倒しを承認）で、INV-LC15は第2段階のPINで加えた。
 閾値と回数はhost profileの値であり、本表に固定値を書かない。
 
 | ID | 不変条件 | 紐づくテスト |
@@ -272,6 +272,7 @@ INV-LC12とLC13は第1段階の画面とMATCHで、INV-LC14は承認付きのPOS
 | INV-LC12 | live比較は、POSTの画面で利用者が明示して始める（入口は200%以上）。sessionの間は、Hybrid VUの全面表示を除く全サイズにPOSTとENDを残し、200%以上ではPRE、MATCH、MENUも出す。画面を閉じる、Blindを開く、組の変更と解除、PREの領域の終了、formatの変更でsessionを終え、END以外の終了は通知する。入口の説明は、hostごとに画面を開いたままにする方法を示す。AAXでは、全channelを同じblockで切り替える実装（INV-LC9）まで、stereoのinstanceだけで提供し、channelの間でPREとPOSTを混ぜない | `KirinUiRenderContractTests` verifyLiveCompareFooterContract / `kirin_live_compare_session` sharedRingPairsOnlyTheSameIdentityAndRate / xtask `live_compare_sessions_end_where_the_user_cannot_see_them` |
 | INV-LC13 | MATCHは利用者の明示操作で、直近4秒（最短3秒）の連続したPOST入力と、Kで揃えたPREの範囲を、Local Blindのgain方針（BS.1770のloudness、足りなければtrack eventの窓）で測り、±24 dB以内の差だけを固定する。追従しない。sessionのPRE gainは等倍で始める。POSTを基準にPREの試聴コピーへ差を掛ける。PREの増幅がC=max(−1 dBTP, POSTのTP, PREのTP)を超えるときは、利用者に「POSTを差だけ下げ、PREは原音量のまま」か「PREをCまで上げるだけ（TP LIMIT、一致に要る値を通知）」を選ばせ、選ばずに閉じれば何も変えない。承認済みのPOST減衰は次のMATCHにも引き継ぎ、MATCHはPOSTを上げない。PREとPOSTの操作は、適用したgainと減衰を0.1 dB単位で文字に示す | `kirin_live_compare_match` matchesALevelDifference / aBoostAboveTheCeilingAsksToLowerPost / aHeldAttenuationCarriesIntoTheNextMatch / unprovenOrShortWindowsAreRefused / `KirinUiRenderContractTests` verifyLiveCompareFooterContract |
 | INV-LC14 | 承認済みのPOST減衰は、試聴中もsessionの終了後も、利用者がRETURNで明示して戻すまでPOSTの出力に保持する。下げるときは全範囲50 ms、戻すときは全範囲500 msの直線rampで変え、急に上げない。RETURNは上がる量を示し、全サイズで操作できる。offline render、hostが知らせるbypass、他の試聴が出力を取ったblockには減衰を含め何も適用せず、正本のPRE/POST測定とRecordは減衰の前で取る。減衰を保持している間は、ローカルBlindと、ReferenceのB、C、Blindを始めない。PREの試聴blockは、非有限値を含むか、承認gainで上げた標本がCを超えるときは出さず、そのblockの先頭からPOSTにしてPREの選択を解き、通知する。標本値のguardであり、inter-sample peakまでは保証しない | `kirin_live_compare_session` approvedAttenuationLowersPostOnly / postLevelRampsDownFastAndUpSlowly / guardKeepsPreUnderTheCeiling / `KirinUiRenderContractTests` verifyLiveCompareFooterContract / xtask `live_compare_post_attenuation_is_approved_held_and_never_offline` |
+| INV-LC15 | PIN 4 Sは、live session中の利用者の明示操作で、直前4秒（Kで対応を確かめたPOSTの入力とPRE）を一続きのプロジェクト範囲として固定し、取り込み済みの組としてPRE／POST Blindへ渡す。窓は履歴の連続区間、プロジェクト時刻の一続きの区間（ループの折返し、シーク、停止を含まない）、PREの現在の周回の中になければならず、詰め物、接合、移動はしない。受け入れ判定、世代、準備、Gain Match、試験、通常への復帰はローカルBlindのものを使い、取り込みの段階だけが異なる。PINでlive sessionを終える。承認済みPOST減衰の保持中はPINしない。入口は200%以上で、Blindを出さないhostには出さない | `kirin_live_compare_session` pinFixesOneProjectRange / `kirin_live_compare_pin_product` / `KirinUiRenderContractTests` verifyLiveCompareFooterContract / xtask `live_compare_pin_hands_one_range_to_blind_through_its_own_admission` |
 
 既知の限界: seekの直後の古い音に、新しい周回の中の時計の値を付けるhostは、時計の規則では見分けられない（`kirin_live_compare_correspondence` mislabellingHostIsAKnownLimit）。
 chainの遅延がloop長以上のときの周回単位の取り違えと、遅延の報告の誤りも、時計の規則では検出できない。hostの認定では中身の照合で確かめる。
