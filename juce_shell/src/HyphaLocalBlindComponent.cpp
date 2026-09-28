@@ -2,6 +2,7 @@
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaLocalBlindPresentationState.h"
+#include "HyphaLocalBlindSteps.h"
 #include "HyphaTextStyle.h"
 
 #include <array>
@@ -38,8 +39,9 @@ Component::Component()
                     COL_NORMAL);
     configureLabel (statusLabel, "local-blind-status", typography::TextRole::status,
                     COL_FLORA_BR);
+    // The instruction is what to do now: bright enough to read at a glance.
     configureLabel (detailLabel, "local-blind-detail", typography::TextRole::body,
-                    COL_MUTED.brighter (0.25f));
+                    COL_NORMAL.withAlpha (0.86f));
     configureLabel (resultLabel, "local-blind-result", typography::TextRole::secondaryValue,
                     COL_NORMAL);
     detailLabel.setMinimumHorizontalScale (1.0f);
@@ -52,6 +54,8 @@ Component::Component()
     styleButton (noPreference, "local-blind-answer-neither", "Choose no preference and reveal");
     styleButton (cannotDistinguish, "local-blind-answer-same", "Choose cannot tell apart and reveal");
     styleButton (startButton, "local-blind-start", "Start the prepared comparison");
+    styleButton (namedButton, "local-blind-named",
+                 "Hear PRE and POST by name at the fixed level before Blind");
     styleButton (revealButton, "local-blind-reveal", "Reveal the hidden source assignment");
     styleButton (captureButton, "local-blind-capture", "Capture one exact four second range");
     styleButton (repairButton, "local-blind-repair", "Resolve the capture requirement");
@@ -78,7 +82,12 @@ Component::Component()
     noPreference.onClick = [this] { if (onAnswer) onAnswer (Answer::noPreference); };
     cannotDistinguish.onClick = [this] { if (onAnswer) onAnswer (Answer::cannotDistinguish); };
     startButton.onClick = [this]
-    { if (onStart) onStart (current.trial.lowerPostApprovalRequired); };
+    {
+        if (current.trial.named) { if (onStartBlind) onStartBlind(); }
+        else if (onStart) onStart (current.trial.lowerPostApprovalRequired);
+    };
+    namedButton.onClick = [this]
+    { if (onStartNamed) onStartNamed (current.trial.lowerPostApprovalRequired); };
     revealButton.onClick = [this] { if (onReveal) onReveal(); };
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
     contextChoice.onChange = [this]
@@ -175,6 +184,12 @@ void Component::paint (juce::Graphics& g)
     surface_material::paintPanel (g, area, 0.94f, 7.0f);
     g.setColour (COL_LED_BLUE.withAlpha (0.34f));
     g.fillEllipse (area.getX() + 18.0f, area.getY() + 18.0f, 7.0f, 7.0f);
+    paintSteps (g, stepsArea, stepFor (current), presentationContext);
+    if (purposeArea.isEmpty()) return;
+    g.setColour (COL_TEXT_SECONDARY);
+    g.setFont (labelFont (presentationContext, typography::TextRole::body,
+                          typography::Composition::information));
+    text_style::drawLines (g, purposeText(), purposeArea, juce::Justification::topLeft, 3);
 }
 
 void Component::layoutRow (juce::Rectangle<int> area,
@@ -203,6 +218,17 @@ void Component::layoutRow (juce::Rectangle<int> area,
     }
 }
 
+// Whether these labels fit whole in one row of this width, as layoutRow lays them out.
+bool Component::rowFits (int width, std::initializer_list<const juce::Button*> buttons) const
+{
+    const int gap = presentation::densityIndex (presentationContext.density) <= 1 ? 4 : 6;
+    const auto font = monoFont (presentationContext, typography::TextRole::action);
+    int total = -gap;
+    for (const auto* button : buttons)
+        total += juce::roundToInt (std::ceil (text_style::shownWidth (font, button->getButtonText()))) + 12 + gap;
+    return total <= width;
+}
+
 void Component::resized()
 {
     const bool compact = presentation::densityIndex (presentationContext.density) <= 1;
@@ -228,12 +254,15 @@ void Component::resized()
     resultLabel.setFont (labelFont (presentationContext, typography::TextRole::secondaryValue,
                                     typography::Composition::information));
 
-    if (canChooseContext()) { layoutPreflight(); return; }
+    if (canChooseContext()) { namedButton.setVisible (false); layoutPreflight(); return; }
     titleLabel.setJustificationType (juce::Justification::centred);
 
     auto area = getLocalBounds().reduced (margin);
     titleLabel.setBounds (area.removeFromTop (titleHeight));
     area.removeFromTop (gap);
+    // The steps sit under the title from 150%; at the compact sizes the screen holds only the step.
+    stepsArea = compact ? juce::Rectangle<int>() : area.removeFromTop (stepsHeight (presentationContext));
+    purposeArea = {};
     statusLabel.setBounds (area.removeFromTop (statusHeight));
     detailLabel.setBounds (area.removeFromTop (detailHeight));
     resultLabel.setBounds (area.removeFromTop (resultHeight));
@@ -249,7 +278,10 @@ void Component::resized()
     const auto stopArea = actions.removeFromRight (compact ? 66 : medium ? 100 : 140);
     if (stopButton.isVisible()) stopButton.setBounds (stopArea);
     actions.removeFromRight (gap);
-    layoutRow (actions, { &captureButton, &startButton, &revealButton,
+    // The named A/B (INV-LC17) starts beside START BLIND wherever both labels fit whole.
+    namedButton.setVisible (current.phase == Phase::ready
+                            && rowFits (actions.getWidth(), { &namedButton, &startButton }));
+    layoutRow (actions, { &captureButton, &namedButton, &startButton, &revealButton,
                          &returnButton, &closeButton });
 }
 
@@ -276,6 +308,21 @@ void Component::layoutPreflight()
         titleLabel.setBounds (header);
     }
     auto actions = area.removeFromBottom (compact ? 28 : 44);
+    stepsArea = purposeArea = {};
+    if (! compact)
+    {
+        area.removeFromTop (8);
+        stepsArea = area.removeFromTop (stepsHeight (presentationContext));
+        // At 150% the status, instruction and result need every remaining row; the purpose
+        // joins them from 200%.
+        if (current.phase == local_blind::ProductSessionPhase::idle && getWidth() >= 600)
+        {
+            area.removeFromTop (10);
+            purposeArea = area.removeFromTop (juce::roundToInt (std::ceil (text_style::shownWrappedHeight (
+                purposeText(), labelFont (presentationContext, typography::TextRole::body,
+                                          typography::Composition::information), area.getWidth()))));
+        }
+    }
     const int backWidth = compact ? 58 : 92;
     closeButton.setBounds (actions.removeFromRight (backWidth));
     actions.removeFromRight (8);

@@ -2,6 +2,7 @@
 #include "ObservatoryCaptureContractTest.h"
 #include "JungleAppearanceContractTest.h"
 #include "SurroundObservatoryContractTest.h"
+#include "LiveCompareFooterContractTest.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaSpectrumComponent.h"
 #include <cmath>
@@ -345,6 +346,7 @@ void verifyObservatoryViewContract()
     post.setDomain (observatory::Domain::level);
     post.setObservatoryFrame (activeFrame(), true);
     verifySurroundObservatoryContract();
+    verifyLiveCompareFooterContract();
     observatory::View connectionProbe (observatory::Role::post);
     connectionProbe.setSize (300, 200);
     connectionProbe.setObservatoryFrame (activeFrame(), true);

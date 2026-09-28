@@ -54,6 +54,44 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         assert!(source_gate.contains(target) && source_gate.contains(test_name));
     }
     assert!(ci.contains("-R '^(kirin_local_blind_.*|kirin_editor_surface_product)$'"));
+    let live_compare = include_str!("../../juce_shell/cmake/LiveCompare.cmake");
+    assert!(root_cmake.contains("include(cmake/LiveCompare.cmake)"));
+    assert!(live_compare.contains("KirinLiveCompareCorrespondenceTests"));
+    assert!(live_compare.contains("kirin_live_compare_correspondence"));
+    assert!(ci.contains("KirinLiveCompareCorrespondenceTests"));
+    assert!(live_compare.contains("KirinLiveCompareSessionTests"));
+    assert!(live_compare.contains("kirin_live_compare_session"));
+    assert!(ci.contains("KirinLiveCompareSessionTests"));
+    assert!(live_compare.contains("KirinLiveCompareMatchTests"));
+    assert!(ci.contains("KirinLiveCompareMatchTests"));
+    assert!(ci.contains(
+        "-R '^(kirin_live_compare_correspondence|kirin_live_compare_session|kirin_live_compare_match)$'"
+    ));
+    assert!(source_gate.contains("KirinLiveCompareMatchTests"));
+    assert!(source_gate.contains("KirinLiveCompareSessionTests"));
+    assert!(source_gate.contains("KirinLiveCompareCorrespondenceTests"));
+    // PIN to Blind and the offset warning run the real processors through the live ring of each
+    // platform: the macOS source gate and the Windows CI both execute them.
+    let local_blind = include_str!("../../juce_shell/cmake/LocalBlind.cmake");
+    assert!(local_blind.contains("KirinLiveComparePinProductTests"));
+    assert!(local_blind.contains("kirin_live_compare_pin_product"));
+    assert!(source_gate.contains("KirinLiveComparePinProductTests"));
+    assert!(local_blind.contains("KirinLiveCompareOffsetProductTests"));
+    assert!(local_blind.contains("kirin_live_compare_offset_product"));
+    assert!(source_gate.contains("KirinLiveCompareOffsetProductTests"));
+    assert!(local_blind.contains("KirinLiveCompareAaxGroupProductTests"));
+    assert!(local_blind.contains("kirin_live_compare_aax_group_product"));
+    assert!(source_gate.contains("KirinLiveCompareAaxGroupProductTests"));
+    assert!(
+        !local_blind.contains("if(NOT WIN32)\n        add_executable(KirinLiveCompare"),
+        "the live compare product tests are built on Windows too"
+    );
+    assert!(
+        ci.contains("--target KirinLiveComparePinProductTests KirinLiveCompareOffsetProductTests KirinLiveCompareAaxGroupProductTests")
+    );
+    assert!(
+        ci.contains("-R '^(kirin_live_compare_pin_product|kirin_live_compare_offset_product|kirin_live_compare_aax_group_product)$'")
+    );
     let selected: Vec<_> = source_gate
         .lines()
         .find_map(|line| line.strip_prefix("JUCE_TEST_REGEX='^("))
@@ -79,6 +117,12 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         "kirin_pair_preview_lifetime",
         "kirin_reference_capture_memory",
         "kirin_reference_audio_streaming",
+        "kirin_live_compare_correspondence",
+        "kirin_live_compare_session",
+        "kirin_live_compare_match",
+        "kirin_live_compare_pin_product",
+        "kirin_live_compare_offset_product",
+        "kirin_live_compare_aax_group_product",
     ] {
         assert!(
             selected.contains(&test),

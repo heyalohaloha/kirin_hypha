@@ -74,6 +74,8 @@ public:
                              const std::function<bool()>& secureAssignmentBit) noexcept;
 
     bool start (bool approveLowerPost = false) noexcept;
+    bool startNamed (bool approveLowerPost = false) noexcept; // INV-LC17: PRE / POST by name
+    bool startBlind() noexcept;                               // from the named A/B
     bool select (int stimulus) noexcept;
     bool answer (TrialAnswer) noexcept;
     bool reveal() noexcept;

@@ -70,7 +70,8 @@ enum class TrialAnswer : unsigned char { none, one, two, noPreference, cannotDis
 enum class TrialOutput { untouched, copy, heldAttenuation };
 enum class TrialFailure : unsigned char { none, format, transport, epochs, discontinuity, range, clock };
 
-// Intentionally contains no source labels, hashes, gain, waveform, or participant identity.
+// Intentionally contains no source labels, hashes, gain, waveform, or participant identity. Only
+// the named A/B that precedes Blind (INV-LC17) says which stimulus is which: 1 is PRE, 2 is POST.
 struct TrialView
 {
     TrialPhase phase = TrialPhase::ready;
@@ -78,6 +79,7 @@ struct TrialView
     TrialAnswer answer = TrialAnswer::none;
     bool canAnswer = false, lowerPostApprovalRequired = false;
     bool passComplete = false, heardOneComplete = false, heardTwoComplete = false;
+    bool named = false; // the named A/B: stimulus 1 is PRE and 2 is POST, never counted as heard
     TrialFailure failure = TrialFailure::none;
 };
 
@@ -106,6 +108,13 @@ public:
     // is auditioned. After a finished pass, selecting a source explicitly arms another pass.
     // Preparation, seek, or resume alone never arms another pass.
     bool start (bool approveLowerPost = false) noexcept;
+    // INV-LC17: the same frozen PCM and gain heard by name first. PRE plays as stimulus 1 and POST
+    // as 2; a DAW replay from before the range or a seek never fails it, and nothing counts as
+    // heard. startBlind then begins a new anonymous trial of the same frozen range: heard, answer
+    // and reveal start empty, the hidden assignment is the one drawn at preparation, and the first
+    // Blind pass waits for the range start.
+    bool startNamed (bool approveLowerPost = false) noexcept;
+    bool startBlind() noexcept;
     bool select (int stimulus) noexcept;
     bool answer (TrialAnswer) noexcept;
     bool reveal() noexcept;
@@ -120,7 +129,8 @@ public:
     TrialOutput render (float* const* output, int channels, int frames, const TrialBlock&) noexcept;
 
 private:
-    enum Command : std::uint64_t { ready = 0, one = 1, two = 2, stopRequested = 3, normalRequested = 4 };
+    enum Command : std::uint64_t
+    { ready = 0, one = 1, two = 2, stopRequested = 3, normalRequested = 4, namedOne = 5, namedTwo = 6 };
     const TrialFormat format;
     const TrialGain gain;
     const std::vector<float> frozenPost, frozenPre;
@@ -143,6 +153,9 @@ private:
     LocalBlindTransition transition; // RT-owned; stereo shares one transition weight per frame
 
     static Command kind (std::uint64_t value) noexcept { return static_cast<Command> (value & 7u); }
+    static bool isNamed (Command c) noexcept { return c == namedOne || c == namedTwo; }
+    static int stimulusOf (Command c) noexcept { return c == one || c == namedOne ? 1 : c == two || c == namedTwo ? 2 : 0; }
+    void beginPass() noexcept; // RT only: forget the pass in progress and wait for the range start
     bool issue (Command) noexcept;
     void invalidate (TrialFailure) noexcept;
     bool inputLayout (float* const*, int channels, int frames) const noexcept;

@@ -194,6 +194,7 @@ KirinHyphaEditor::KirinHyphaEditor (KirinHyphaProcessorBase& p)
         scaleRoot.addChildComponent (attackView);
         configureReferenceAudition();
         configureLocalBlindProduct();
+        configureLiveCompare();
        #endif
     }
     else

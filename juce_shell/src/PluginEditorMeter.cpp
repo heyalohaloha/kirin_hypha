@@ -112,7 +112,7 @@ void KirinHyphaEditor::updatePost()
                                   ? juce::String ("Final measurement unavailable")
                               : preparing ? juce::String ("Preparing pairs...")
                               : armed ? juce::String ("Ready to bounce")
-                              : juce::String();
+                              : liveCompareWarningText();
     updateFeedback (now, now < bannerUntil, status);
 
     refreshWatchSnapshot();

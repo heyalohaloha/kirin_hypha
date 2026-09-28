@@ -64,27 +64,41 @@ void View::layoutFooterActions (juce::Rectangle<int> actions)
     localBlindButton.setButtonText (getWidth() < 900 ? "BLIND 300%" : "PRE/POST BLIND");
     localBlindButton.setTooltip (keepActive ? "Finish Keep / Record before PRE / POST Blind"
         : getWidth() < 900 ? "Open PRE / POST Blind at 300%" : "Open PRE / POST Blind");
+    liveCompareButton.setVisible (full && liveCompareState.entryEnabled && ! captureFrame);
+    liveCompareButton.setButtonText (getWidth() < 900 ? "LISTEN" : "PRE/POST LISTEN");
+    if (layoutLiveCompareFooter (actions))
+        return;
     // Reserve NOTE and Stop slots: starting a recording does not move primary actions.
     juce::Array<juce::Button*> visible;
     if (full && ! captureFrame)
     {
         visible = { &hybridVuButton, &stopButton, &noteButton };
+        if (liveCompareButton.isVisible()) visible.add (&liveCompareButton);
         if (localBlindButton.isVisible()) visible.add (&localBlindButton);
         visible.add (&operationsButton);
     }
     else
         for (auto* button : { &hybridVuButton, &stopButton, &operationsButton })
             if (button->isVisible()) visible.add (button);
-    juce::Array<int> minimumWidths;
-    const auto actionFont = labelFont (presentationContext(), typography::TextRole::action);
-    int minimumTotal = 0;
+    juce::Array<int> widths;
     for (auto* button : visible)
-    {
-        const auto width = juce::roundToInt (
-            std::ceil (text_style::shownWidth (actionFont, button->getButtonText()) + 12.0f));
-        minimumWidths.add (width);
+        widths.add (footerButtonWidth (button->getButtonText()));
+    placeFooterButtons (visible, widths, actions);
+}
+
+int View::footerButtonWidth (const juce::String& text) const
+{
+    const auto actionFont = labelFont (presentationContext(), typography::TextRole::action);
+    return juce::roundToInt (std::ceil (text_style::shownWidth (actionFont, text) + 12.0f));
+}
+
+// Each button gets its minimum width, and the rest of the rail is shared out evenly.
+void View::placeFooterButtons (const juce::Array<juce::Button*>& visible,
+                               const juce::Array<int>& minimumWidths, juce::Rectangle<int> actions)
+{
+    int minimumTotal = 0;
+    for (const auto width : minimumWidths)
         minimumTotal += width;
-    }
     auto flexible = juce::jmax (0, actions.getWidth() - minimumTotal);
     for (int index = 0; index < visible.size(); ++index)
     {

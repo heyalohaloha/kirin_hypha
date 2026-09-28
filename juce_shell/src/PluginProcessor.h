@@ -9,6 +9,7 @@
 #include "local_blind/PairCaptureBarrier.h"
 #include "local_blind/VST3HostContext.h"
 #include "local_blind/HostClockProbe.h"
+#include "live_compare/LiveCompareProcessorState.h"
 #include "kirin_hypha_display_ffi.h"
 #include "kirin_hypha_chain_observation.h"
 #include "kirin_hypha_level_snapshot.h"
@@ -152,6 +153,27 @@ public:
     juce::String pairedPreInstanceId() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
+    // Live PRE/POST compare (stage 1): explicit POST session control and status for the editor.
+    hypha::live_compare::StartResult startLiveCompare();
+    void stopLiveCompare();
+    void selectLiveComparePre (bool pre) noexcept;
+    void setLiveCompareGain (float linear) noexcept;
+    hypha::live_compare::MatchResult measureLiveCompare();
+    bool applyLiveCompareMatch (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
+    bool followLiveCompareGain (double preDb); // INV-LC16: AUTO moves PRE only
+    void kirinHostDelayCompensationStateChanged (bool enabled) override; // INV-LC8, AAX only
+    void kirinHostInstanceGroup (juce::uint64 group, bool valid) override; // INV-LC9, AAX only
+    void returnLiveComparePostToNormal() noexcept;
+    bool takeLiveCompareGuardTrip() noexcept;
+    hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
+    void holdLiveCompareForContentJump() noexcept;
+    std::uint32_t liveComparePlaybackRun() const noexcept;
+    hypha::live_compare::LivePinResult pinLiveCompareForBlind (hypha::meter_context::MeterContext);
+    hypha::live_compare::Status liveCompareStatus() const noexcept;
+    bool liveCompareSupported() const noexcept;
+    bool aaxMultiMonoMember() const noexcept;
+    bool takeLiveComparePreWait() noexcept;
+    bool serviceLiveCompare();
     // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until
     // exact-range project-clock and PDC proof has been recorded for that host format.
     bool localBlindProductSupported() const noexcept;
@@ -163,6 +185,8 @@ public:
     hypha::local_blind::CaptureAdmission localBlindCaptureAvailability() const;
     hypha::local_blind::CaptureAdmission requestLocalBlindProductCapture (hypha::meter_context::MeterContext);
     bool startLocalBlindProductTrial (bool approveLowerPost = false);
+    bool startLocalBlindProductNamed (bool approveLowerPost = false); // INV-LC17
+    bool startLocalBlindProductBlindFromNamed();
     bool selectLocalBlindProductStimulus (int stimulus);
     bool answerLocalBlindProductTrial (hypha::local_blind::TrialAnswer);
     bool revealLocalBlindProductTrial();
@@ -374,6 +398,11 @@ private:
     void stopLocalBlindCaptureForFormatChange (double sampleRate,
                                                const std::vector<uint8_t>& channelRoles);
     void startLocalBlindCaptureForPreparedFormat();
+    void startPreparedFormatServices();
+    void prepareLiveCompareForPreparedFormat();
+    void stopLiveCompareForFormatChange();
+    void processLiveCompare (juce::AudioBuffer<float>&, const hypha::HostProcessClock&,
+                             bool bypassed, bool nonRealtimeMode, bool outputTaken) noexcept;
     void processComparisonPaths (juce::AudioBuffer<float>&, const hypha::HostProcessClock&,
                                  bool timelineActive,
                                  bool bypassed, bool nonRealtimeMode);
@@ -383,6 +412,7 @@ private:
     mutable hypha::local_blind::HostClockProbe hostClockProbe;
     hypha::local_blind::LocalBlindProductSession localBlindProductSession;
     hypha::local_blind::LocalBlindCaptureService localBlindCapture;
+    hypha::live_compare::ProcessorState liveCompare;
     std::atomic<std::uint64_t> localBlindProductSerial { 0 };
 #if JUCE_DEBUG
     std::atomic<std::uint64_t> localBlindPdcValidationSerial { 0 };

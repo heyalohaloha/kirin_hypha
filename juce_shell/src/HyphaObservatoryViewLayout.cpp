@@ -32,7 +32,8 @@ void View::resized()
                           &contextButton, &scaleButton, &sizeButton, &operationsButton,
                           &stopButton, &guideButton, &statusButton, &hybridVuButton,
                           &clearPeakClipButton, &resetButton, &noteButton, &captureButton,
-                          &localBlindButton })
+                          &localBlindButton, &liveCompareButton, &livePreButton, &livePostButton,
+                          &liveMatchButton, &liveEndButton, &liveReturnButton, &livePinButton })
         button->setPresentationContext (context);
     auto layout = shellLayout (role, preset, guidePresence());
     if (footerFolds (preset.density) && layout.observationTarget.width > 0
@@ -58,7 +59,9 @@ void View::resized()
                               &timeRangeButton, &timeRangeMenuButton, &compactLoudnessButton, &compactRangeButton,
                               &contextButton, &scaleButton, &sizeButton, &operationsButton,
                               &stopButton, &guideButton, &statusButton, &resetButton,
-                              &noteButton, &captureButton, &localBlindButton })
+                              &noteButton, &captureButton, &localBlindButton, &liveCompareButton,
+                              &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton,
+                              &liveReturnButton, &livePinButton })
             button->setVisible (false);
         const auto bounds = getLocalBounds();
         auto calibration = juce::Rectangle<int> (

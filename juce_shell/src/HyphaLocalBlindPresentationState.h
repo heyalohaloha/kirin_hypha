@@ -15,7 +15,7 @@ inline bool samePresentation (const local_blind::ProductSessionView& a,
             v.lowerPostGainDb, v.matchedAnalysisUnits, t.phase, t.activeStimulus,
             t.pendingStimulus, t.revealedOneSide, t.answer, t.canAnswer,
             t.lowerPostApprovalRequired, t.passComplete, t.heardOneComplete,
-            t.heardTwoComplete, t.failure, r.scope, r.capture, r.command, r.confirmed,
+            t.heardTwoComplete, t.named, t.failure, r.scope, r.capture, r.command, r.confirmed,
             r.attenuationApplied);
     };
     return facts (a) == facts (b);

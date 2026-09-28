@@ -136,6 +136,17 @@ private:
     void refreshLocalBlindProduct();
     void layoutLocalBlindProduct();
     void setLocalBlindIsolation (bool active);
+    void configureLiveCompare();
+    void refreshLiveCompare();
+    void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
+    void applyLiveCompareChoice (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
+    bool liveCompareHoldBlocksAudition();
+    void pinLiveCompareForBlind();
+    void monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
+    void matchLiveCompare();
+    void chooseLiveCompareFollow();
+    void followLiveCompare (const hypha::live_compare::Status&, double now);
+    void stopLiveCompareAuto (const juce::String& notice);
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,
                                int pairStatus);
@@ -170,6 +181,11 @@ private:
                               const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates);
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    juce::String liveCompareWarningText() const { return liveCompareWarning; }
+#else
+    juce::String liveCompareWarningText() const { return {}; }
+#endif
     void updateFeedback (double now, bool keeping, const juce::String& persistentError);
     void layoutFeedbackStrip();
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
@@ -239,6 +255,28 @@ private:
         bool enabled = true;
     };
     std::vector<LocalBlindUnderlyingState> localBlindUnderlyingStates;
+    bool liveCompareMatched = false;
+    bool liveCompareLimited = false;
+    bool liveCompareInterruptSeen = false;
+    bool liveCompareActiveSeen = false;
+    // INV-LC7 / LC10: the content offset, measured every two seconds of proven playback.
+    struct LiveCompareOffsetWatch
+    {
+        std::uint32_t run = 0;
+        double nextAt = 0.0, warningUntil = 0.0, rate = 0.0;
+        std::int64_t lag = 0;
+        hypha::live_compare::OffsetMonitor monitor;
+    };
+    LiveCompareOffsetWatch liveCompareOffset;
+    // INV-LC16: AUTO and the point the last explicit MATCH approved (PRE gain, true-peak ceiling).
+    struct LiveCompareAuto
+    {
+        bool on = false;
+        double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
+    };
+    LiveCompareAuto liveCompareAuto;
+    juce::String liveCompareWarning;
+    double liveComparePreWaitUntil = 0.0;
 #endif
     int    floraY      = 0;       // y of the flora separator line
     juce::Rectangle<int> titleArea;

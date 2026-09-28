@@ -143,13 +143,7 @@ View::View (Role roleIn) : role (roleIn)
     noteButton.setComponentID ("observatory-note");
     captureButton.setComponentID ("observatory-capture");
     captureButton.onClick = [this] { if (onCapture) onCapture(); };
-    styleButton (localBlindButton);
-    localBlindButton.setComponentID ("observatory-local-blind");
-    localBlindButton.setTitle ("PRE / POST Blind Compare");
-    localBlindButton.setDescription ("Capture and compare one exact four second PRE and POST range");
-    localBlindButton.setTooltip (localBlindButton.getDescription());
-    localBlindButton.onClick = [this] { if (onLocalBlind) onLocalBlind(); };
-    addChildComponent (localBlindButton);
+    configureComparisonEntries();
     updateControls();
 }
 

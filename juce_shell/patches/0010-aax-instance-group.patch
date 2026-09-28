@@ -1,0 +1,17 @@
+--- a/modules/juce_audio_processors/processors/juce_AudioProcessor.h
++++ b/modules/juce_audio_processors/processors/juce_AudioProcessor.h
+@@ -1310,0 +1311,7 @@
++
++    /** Kirin Hypha: the AAX instance group of this instance (AAX_IController::GetInstanceGroupID,
++        AAX SDK 2.9). Pro Tools gives the instances of one multi-mono set the same group. Only the
++        AAX wrapper calls this, once, before the first prepareToPlay; valid is false when the host
++        provides no group. Other formats never call it.
++    */
++    virtual void kirinHostInstanceGroup (uint64 group, bool valid) { ignoreUnused (group, valid); }
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
+@@ -870,0 +871,4 @@
++            AAX_CInstanceGroupID kirinGroup = kAAX_InstanceGroupID_Undefined;
++            const bool kirinGroupKnown = Controller()->GetInstanceGroupID (&kirinGroup) == AAX_SUCCESS
++                                      && kirinGroup != kAAX_InstanceGroupID_Undefined;
++            pluginInstance->kirinHostInstanceGroup (static_cast<uint64> (kirinGroup), kirinGroupKnown);

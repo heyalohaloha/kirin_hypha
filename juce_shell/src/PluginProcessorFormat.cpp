@@ -61,6 +61,7 @@ void KirinHyphaProcessorBase::prepareToPlay (double sampleRate, int samplesPerBl
     }
 
     selectReferenceA(); // A is mandatory before replacing the comparison-suspension owner.
+    stopLiveCompareForFormatChange();
 
     lastProcessPositionValid = false;
     lastProcessHadPosition = false;

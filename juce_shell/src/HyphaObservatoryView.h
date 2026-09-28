@@ -50,6 +50,33 @@ private:
     presentation::Context presentationContext = presentation::defaultContext();
 };
 
+// The live PRE / POST compare as the footer shows it (INV-LC4). PRE can be selected while POST
+// still sounds, until the correspondence at this position is proven: the PRE control says WAIT.
+struct LiveCompareFooter
+{
+    bool entryEnabled = false; // this POST can open a session (host format, platform, layout)
+    bool active = false;
+    bool preSelected = false;
+    bool preWaiting = false;
+    bool matched = false;      // an explicit MATCH set the PRE gain in this session
+    bool matchLimited = false; // that MATCH stopped at the true-peak ceiling: PRE is still quieter
+    int preGainTenthsDb = 0;   // that gain in 0.1 dB steps, as the PRE control shows it
+    int postHeldTenthsDb = 0;  // approved POST attenuation (0 or below), held until RETURN
+    bool contentHeld = false;  // INV-LC10: POST until playback stops and restarts
+    bool pinAvailable = false; // PIN can hand the last four seconds to PRE / POST Blind
+    bool following = false;    // INV-LC16: AUTO keeps PRE's gain on POST's loudness
+    bool compensationOff = false; // INV-LC8: the host's delay compensation is off; PRE waits
+    bool operator== (const LiveCompareFooter& other) const noexcept
+    {
+        return entryEnabled == other.entryEnabled && active == other.active && pinAvailable == other.pinAvailable
+            && preSelected == other.preSelected && preWaiting == other.preWaiting
+            && matched == other.matched && matchLimited == other.matchLimited
+            && preGainTenthsDb == other.preGainTenthsDb && postHeldTenthsDb == other.postHeldTenthsDb
+            && contentHeld == other.contentHeld && following == other.following
+            && compensationOff == other.compensationOff;
+    }
+};
+
 class View final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
@@ -68,6 +95,12 @@ public:
     std::function<void()> onNote;
     std::function<void()> onInformation;
     std::function<void()> onLocalBlind;
+    std::function<void()> onLiveCompareStart;
+    std::function<void (bool pre)> onLiveCompareSelect;
+    std::function<void()> onLiveCompareMatch;
+    std::function<void()> onLiveCompareEnd;
+    std::function<void()> onLiveCompareReturn;
+    std::function<void()> onLiveComparePin;
     std::function<void()> onDomainMenu;
     std::function<void()> onSizeMenu;
     std::function<void()> onOperationsMenu;
@@ -239,6 +272,9 @@ public:
         localBlindEntryEnabled = enabled;
         resized();
     }
+    void setLiveCompareFooter (const LiveCompareFooter&);
+    const LiveCompareFooter& liveCompareFooter() const noexcept { return liveCompareState; }
+    juce::Component& liveMatchAnchor() noexcept { return liveMatchButton; }
 
     struct HistoryRequest
     {
@@ -305,6 +341,12 @@ private:
     juce::String footerStatusText() const;
     int statusStripHeight() const;
     void layoutFooterActions (juce::Rectangle<int>);
+    int footerButtonWidth (const juce::String& text) const;
+    void placeFooterButtons (const juce::Array<juce::Button*>&, const juce::Array<int>& minimumWidths,
+                             juce::Rectangle<int>);
+    void configureComparisonEntries();
+    bool layoutLiveCompareFooter (juce::Rectangle<int>);
+    bool layoutHeldAttenuation (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
     void paintLevelWithHistory (juce::Graphics&, juce::Rectangle<int>);
     void paintRecordDisplay (juce::Graphics&, juce::Rectangle<int>);
@@ -358,6 +400,7 @@ private:
     juce::String feedbackText;
     bool referenceOwned = false;
     bool localBlindEntryEnabled = false;
+    LiveCompareFooter liveCompareState;
     bool measurementOnlySurround = false;
     bool measurementFormatHeld = false;
     bool keepActive = false;
@@ -420,6 +463,13 @@ private:
     Button noteButton { "NOTE", false };
     Button captureButton { "CAPTURE", false };
     Button localBlindButton { "BLIND", false };
+    Button liveCompareButton { "LISTEN", false };
+    Button livePreButton { "PRE", false };
+    Button livePostButton { "POST", false };
+    Button liveMatchButton { "MATCH", false };
+    Button liveEndButton { "END", false };
+    Button liveReturnButton { "RETURN", false };
+    Button livePinButton { "PIN 4 S", false };
     InformationButton informationButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (View)

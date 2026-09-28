@@ -8,6 +8,16 @@ namespace hypha::i18n::catalog
 namespace
 {
 const Entry entries[] = {
+    // The step bar and the purpose line (HyphaLocalBlindSteps.h, INV-S43).
+    { "1  Capture", u8"1  取り込み" },
+    { "2  Start", u8"2  開始" },
+    { "3  Listen", u8"3  試聴" },
+    { "4  Answer", u8"4  回答" },
+    { "5  Result", u8"5  結果" },
+    { "Hear the same 4 seconds of PRE and POST at matched level, without knowing which is "
+      "which, and say which you prefer, if either.",
+      u8"同じ4秒間のPREとPOSTを、音量を揃え、どちらがどちらか分からない状態で聴き比べます。"
+      u8"好みがあれば、その方を答えます。" },
     // Steps.
     { "READY TO CAPTURE", u8"取り込み準備完了" },
     { "BEFORE CAPTURE", u8"取り込みの前に" },
@@ -24,6 +34,26 @@ const Entry entries[] = {
     { "Approve fixed POST attenuation and start Blind Compare",
       u8"POSTを一定量下げることを承認し、Blind Compareを開始します" },
     { "START BLIND", u8"Blindを開始" },
+    // The named A/B before Blind (INV-LC17).
+    { "NAMED A/B", u8"記名A/B" },
+    { "LOWER POST %1 dB & A/B", u8"POSTを%1 dB下げてA/B" },
+    { "Approve fixed POST attenuation and hear PRE and POST by name",
+      u8"POSTを一定量下げることを承認し、PREとPOSTを名前付きで聴きます" },
+    { "Hear PRE and POST by name at the fixed level before Blind",
+      u8"Blindの前に、固定の音量でPREとPOSTを名前付きで聴きます" },
+    { "SWITCHING TO PRE", u8"PREに切り替え中" },
+    { "SWITCHING TO POST", u8"POSTに切り替え中" },
+    { "PLAYING PRE", u8"PREを再生中" },
+    { "PLAYING POST", u8"POSTを再生中" },
+    { "DAW: play from before the captured range. Choose PRE or POST at any time.",
+      u8"DAW：取り込んだ範囲の少し前から再生してください。PREとPOSTはいつでも選べます。" },
+    { "Choose PRE or POST at any time. START BLIND hides which is which.",
+      u8"PREとPOSTはいつでも選べます。「Blindを開始」で、どちらがどちらか分からなくなります。" },
+    { "Start Blind on the same range; which is which is hidden again",
+      u8"同じ範囲でBlindを始めます。どちらがどちらかは再び隠れます" },
+    { "Play PRE, the input of this chain, at the fixed level",
+      u8"このチェーンの入力、PREを固定の音量で再生します" },
+    { "Play POST, the output of this chain", u8"このチェーンの出力、POSTを再生します" },
     { "Start the prepared comparison. PRE is matched to POST with fixed gain; DAW Solo and "
       "routing stay unchanged",
       u8"準備した比較を始めます。PREは固定のゲインでPOSTに揃えます。DAWのソロと経路は変わりません" },

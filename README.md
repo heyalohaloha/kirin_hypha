@@ -5,8 +5,9 @@
 Kirin Hypha is a free, open-source pass-through measurement plug-in for macOS and Windows. Place
 **PRE** before the processors you want to inspect and **POST** after them. POST then shows the measured
 difference between those two exact points. Normal measurement does not generate, modify, attenuate,
-or delay audio. Only an explicit Reference or PRE/POST Blind audition temporarily replaces POST's
-audition output with a verified, immutable comparison copy.
+or delay audio. Only an explicit audition temporarily replaces POST's output: Reference and PRE/POST
+Blind play a verified, immutable comparison copy, and the live PRE/POST compare plays PRE's input
+where its line-up with POST is proven.
 
 ![Kirin Hypha FREQ showing the signed POST minus PRE spectrum and a locked six-second Focus Trail](docs/media/kirin-hypha-freq.jpg)
 
@@ -26,11 +27,13 @@ POST captures the output state and joins only verified matching observations.
 
 ## Channel scope
 
-- **Mono and stereo:** the complete LEVEL / TIME / FREQ / SPACE, Record / Keep, Reference, and
-  local PRE/POST Blind surface is available where its normal role and license gates allow it.
+- **Mono and stereo:** the complete LEVEL / TIME / FREQ / SPACE, Record / Keep, Reference, local
+  PRE/POST Blind and live PRE/POST compare surface is available where its normal role, license and
+  platform gates allow it.
 - **Exact 5.1 (`L, R, C, LFE, Ls, Rs`):** LEVEL and TIME measurement only, including the six
   role-specific Peak, True Peak, and Clip facts plus shared Loudness, LRA, and PLR. Record / Keep,
-  Reference, local PRE/POST Blind, Hybrid VU, FREQ, and SPACE are deliberately unavailable.
+  Reference, local PRE/POST Blind, the live PRE/POST compare, Hybrid VU, FREQ, and SPACE are
+  deliberately unavailable.
 - **Other multichannel layouts:** Hypha refuses the layout instead of guessing channel roles or
   presenting stereo-only facts as surround measurements.
 
@@ -178,6 +181,7 @@ conformance and does not use the EBU logo.
 | Watch mode | ✓ | ✓ |
 | POST on-demand ATTACK / FREQ / SHARP / LIVE | ✓ | ✓ |
 | Local PRE/POST Blind Compare | ✓ | ✓ |
+| Live PRE/POST compare (Windows: Pro Tools check pending) | ✓ | ✓ |
 | Record mode | — | ✓ |
 | plugin_data output | — | ✓ |
 
@@ -532,6 +536,8 @@ approval before lowering A. The approved gain stays fixed through switches, seek
 Receiving or restoring settings never starts B. Explicit audition still verifies the immutable
 source, keeps the live A measurement unchanged, and shares the existing two Analysis slots and
 single comparison owner with PRE/POST Blind. Unsupported host clock proof remains unavailable.
+Unlike the live PRE/POST compare, a stop, an unknown position or an unready B returns Reference to
+A and asks you to select B again.
 
 Until B or C can be heard, the page says why instead of showing empty comparisons: the next step
 (open Kirin OS, play the song in the DAW, choose a Version for B, enable a Check in Kirin OS) and
@@ -561,6 +567,83 @@ map. A restored capture must be revalidated before using that map. B loss leaves
 Capture uses the existing two Analysis slots, shares its slot with ordinary audition, and
 excludes both kinds of Blind until the relevant capture or audible return has completed.
 
+## Live PRE/POST compare
+
+Switch between PRE and POST of the same chain while the song keeps playing. When you select PRE,
+POST plays the input that PRE received, lined up with what POST is processing by the DAW's timing
+and delay compensation. Where Hypha cannot confirm that line-up, you hear POST, and PRE comes back
+by itself as soon as it can confirm it again. Whenever you hear POST with PRE selected, even
+briefly, the PRE control reads **PRE WAIT**. Measurement and Records are never changed.
+
+It runs on macOS in VST3, AU and AAX, and on Windows in VST3 and AAX. In Pro Tools it is offered
+on stereo instances and on mono tracks. Insert PRE and POST as stereo (multichannel) plug-ins: a
+multi-mono PRE or POST does not offer it, because Pro Tools processes the channels of a
+multi-mono plug-in in parallel. On Windows it passes the same automated end-to-end tests as macOS
+and was checked in Studio Pro (VST3); Pro Tools on Windows is still to be checked.
+
+1. In POST, select the exact PRE pair. At 200% or 300%, press **LISTEN** (**PRE/POST LISTEN** at
+   300%) in the footer.
+2. Play the DAW and choose **PRE** or **POST**. Each switch crossfades over 5 ms.
+3. Press **MATCH** to level PRE to POST. Hypha measures the latest four seconds of playback (at
+   least three, BS.1770 loudness, up to ±24 dB) and applies that gain to PRE only; the PRE control
+   shows it, for example **PRE +3.2 dB**. If PRE would have to rise above the larger of −1 dBTP and
+   the measured true peaks, which is common with a loud, limited master, MATCH asks first:
+   - **Lower POST** by the whole difference and keep PRE at its own level. POST then reads, for
+     example, **POST -7.0 dB**.
+   - Or raise PRE only up to that ceiling. MATCH reads **TP LIMIT**, PRE stays quieter than POST,
+     and Hypha reports the gain a full match would need.
+
+   Closing the menu changes nothing. MATCH is fixed: it does not follow later level changes, so
+   press it again after changing the chain. Each session starts PRE at unity gain. If a raised PRE
+   would still peak above the ceiling later in the song, Hypha stops PRE at that block and asks you
+   to select it again. A new gain while PRE plays glides over 50 ms instead of jumping.
+4. Once matched, pressing MATCH offers **MATCH again** or **AUTO**. With AUTO, PRE follows POST:
+   every second of playback Hypha measures again and moves PRE once it is 0.5 dB or more away. The
+   control reads **AUTO**. AUTO never moves POST, never raises PRE above the ceiling approved at
+   MATCH and never moves PRE more than 6 dB from that MATCH; it stops and says why instead. Silence
+   changes nothing. AUTO is not available after a TP LIMIT match, and it stops at END or PIN. These
+   values are experimental until listening tests settle them.
+5. Press **END** to return to POST. Closing the Hypha window, opening Blind, changing the pair or
+   the sample rate, and removing or re-preparing PRE also end the session. Offline render, a bypass
+   the DAW reports, and another audition return to POST and ask you to select PRE again.
+6. A lowered POST stays lowered after END, even with the window closed, until you press
+   **RETURN**. RETURN names how much POST rises, for example **RETURN +7.0 dB**, and brings it back
+   over half a second. Blind and Reference audition wait for RETURN. Offline render and a bypass
+   the DAW reports are never lowered, and measurement is always taken before the attenuation.
+
+At 200% and 300%, **PIN 4 S** fixes the last four seconds of PRE and POST and opens them in
+PRE / POST Blind, prepared and ready to start, without Blind's own capture step. It needs four
+seconds of confirmed playback with no loop wrap, seek or stop inside; otherwise Hypha says why.
+PIN ends the live session, and Blind's own RETURN brings back POST.
+
+While a session runs, the footer keeps **POST** and **END** at every size. Keep POST's window
+open while comparing: in Studio One / Studio Pro, pin it before opening another plug-in on the
+same channel; in Pro Tools, turn off its **Target** button.
+
+- The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Every
+  two seconds of playback Hypha also compares the audio itself. When PRE is off, the status line
+  says so, for example **PRE 2.31 ms early** (a plug-in between that under-reports its latency) or
+  **late**. An intentional delay, reverb or heavy processing can cause the same message, and
+  silence or a held tone cannot be judged; Hypha never changes the comparison because of it.
+- If that offset jumps during playback, as when a plug-in changes its latency and the DAW does not
+  compensate until playback restarts, Hypha plays POST (the PRE control reads **PRE WAIT**) until
+  you stop and restart playback.
+- While delay compensation is turned off in Pro Tools, you hear POST, the PRE control reads
+  **PRE WAIT** and the status line says why. PRE comes back by itself once delay compensation is
+  on again.
+- If the chosen PRE is one channel of a multi-mono plug-in in Pro Tools, LISTEN does not start
+  and the status line says so.
+- Right after a seek or a new start, you hear POST for about the latency of the chain plus a few
+  blocks while Hypha confirms the line-up.
+- If the input stays silent for several seconds, the DAW may stop calling Hypha. PRE comes back
+  shortly after the sound returns.
+- If you change a plug-in setting that changes its latency (look-ahead, oversampling, linear
+  phase) while comparing, PRE can be misaligned for a moment right after the change. In our
+  measurements this lasted up to four blocks in Studio Pro 8.1.2 (171 ms at 2048 samples); the
+  clocks recorded in Pro Tools 2026.4 bound it to two blocks (43 ms at 1024 samples).
+- With a loop shorter than the chain's latency, PRE can come from the previous pass of the loop.
+- Unlike Reference, a stop or a seek does not deselect PRE: it waits and returns by itself.
+
 ## Local PRE/POST Blind Compare
 
 Local Blind Compare auditions immutable copies of one exact four-second PRE/POST range. It is a
@@ -577,11 +660,16 @@ are enforced on every format.
    freezes that Gain Match policy without changing the normal meter context or WIDE / FOCUS.
    Wait for both sides of the exact range to finish preparation. If Gain Match is unavailable,
    follow the section guidance and use **CAPTURE AGAIN** in the same screen.
-3. Start the prepared comparison, then play the DAW from before the displayed range. Hypha auditions
+3. Optionally, press **NAMED A/B** first (from 200%, or wherever the screen fits it beside
+   **START BLIND**). It plays the same frozen range by name: **PRE** with its fixed gain and
+   **POST**. Choose either at any time; play the DAW from before the range to hear it again. A stop
+   or a seek only waits for the range start again, and nothing is counted or answered. Press
+   **START BLIND** when ready: which is which is hidden again, and Blind begins from empty.
+4. Start the prepared comparison, then play the DAW from before the displayed range. Hypha auditions
    only the captured samples, even when a processing block crosses either end of the range.
    After the first pass completes, select the other **Source** and play from before the same range
    again. A sample-exact DAW loop is optional. Both sources must complete a full pass before answering.
-4. Answer, reveal the hidden assignment, end the comparison, and explicitly return to the live
+5. Answer, reveal the hidden assignment, end the comparison, and explicitly return to the live
    signal.
 
 POST is the normal Gain Match reference: the frozen PRE audition copy receives one fixed gain so it
