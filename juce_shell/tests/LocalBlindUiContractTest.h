@@ -3,6 +3,7 @@
 #include "../src/HyphaLanguage.h"
 #include "LanguageMisses.h"
 #include "../src/HyphaLocalBlindComponent.h"
+#include "../src/HyphaLocalBlindSteps.h"
 #include "../src/HyphaTextStyle.h"
 #include "../src/HyphaObservatoryView.h"
 
@@ -75,6 +76,32 @@ inline void verifyLocalBlindUiContract()
     contextEntry->onClick();
     require (contextMenuRequested && post.meterContext() == meter_context::defaultContext,
              "Meter Context opens an explanatory menu instead of changing immediately");
+
+    {
+        // One of the five steps is lit in every phase of the test (INV-S43); returning to the
+        // live signal is outside it.
+        using Phase = local_blind::ProductSessionPhase;
+        using local_blind_ui::Step;
+        const auto stepAt = [] (Phase phase, bool canAnswer)
+        {
+            local_blind::ProductSessionView view;
+            view.phase = phase;
+            view.trial.canAnswer = canAnswer;
+            return local_blind_ui::stepFor (view);
+        };
+        require (stepAt (Phase::idle, false) == Step::capture
+                     && stepAt (Phase::failed, false) == Step::capture
+                     && stepAt (Phase::capturing, false) == Step::capture
+                     && stepAt (Phase::preparing, false) == Step::capture
+                     && stepAt (Phase::ready, false) == Step::start
+                     && stepAt (Phase::armed, false) == Step::listen
+                     && stepAt (Phase::listening, false) == Step::listen
+                     && stepAt (Phase::listening, true) == Step::answer
+                     && stepAt (Phase::revealed, false) == Step::result
+                     && stepAt (Phase::returnPending, false) == Step::none
+                     && stepAt (Phase::returned, false) == Step::none,
+                 "each phase lights its step, and none is lit while returning to the live signal");
+    }
 
     local_blind_ui::Component component;
     component.setPresentationContext (presentation::forEditor (600, 400));
@@ -378,6 +405,63 @@ inline void verifyLocalBlindUiContract()
                         require (font.getStringWidthFloat (selected->getText()) <= selected->getWidth() - 32,
                                  "both mode labels fit without font compression");
                     }
+                }
+                // The steps under the title from 150% and the purpose on the screen that starts
+                // the test from 200% (INV-S43): whole in both languages, clear of every control.
+                const auto context = presentation::forEditor (preset.width, preset.height);
+                const auto steps = component.stepsBounds();
+                const auto purpose = component.purposeBounds();
+                require (steps.isEmpty() == (preset.width < 450),
+                         "the steps show from 150% and are omitted at 100% and 125%");
+                require (purpose.isEmpty() == (phase != local_blind::ProductSessionPhase::idle
+                                               || preset.width < 600),
+                         "the purpose shows once, on the screen that starts the test, from 200%");
+                for (const auto area : { steps, purpose })
+                {
+                    if (area.isEmpty()) continue;
+                    require (component.getLocalBounds().contains (area),
+                             "the steps and the purpose stay within the screen");
+                    for (int index = 0; index < component.getNumChildComponents(); ++index)
+                    {
+                        const auto* child = component.getChildComponent (index);
+                        require (! child->isVisible() || ! child->getBounds().intersects (area),
+                                 "the steps and the purpose never cover a control or an instruction");
+                    }
+                }
+                if (! steps.isEmpty())
+                {
+                    const auto cells = local_blind_ui::stepCells (steps);
+                    const auto font = local_blind_ui::stepFont (context);
+                    for (int index = 0; index < 5; ++index)
+                    {
+                        const auto name = local_blind_ui::stepName (index);
+                        const auto cell = cells[static_cast<std::size_t> (index)].reduced (3, 0);
+                        const auto needed = text_style::shownWidth (font, name);
+                        if (needed > static_cast<float> (cell.getWidth())
+                            || font.getHeight() > static_cast<float> (cell.getHeight() - 2))
+                            std::cerr << "Blind clipped step: " << preset.width << " "
+                                      << text_style::shownText (name) << " needs=" << needed
+                                      << "x" << font.getHeight() << " available=" << cell.getWidth()
+                                      << "x" << cell.getHeight() - 2 << '\n';
+                        require (needed <= static_cast<float> (cell.getWidth())
+                                     && font.getHeight() <= static_cast<float> (cell.getHeight() - 2),
+                                 "every step name fits its cell without an ellipsis");
+                        require (language == i18n::Language::english || i18n::hasTranslation (name),
+                                 "every step name has Japanese");
+                    }
+                }
+                if (! purpose.isEmpty())
+                {
+                    const auto font = labelFont (context, typography::TextRole::body,
+                                                 typography::Composition::information);
+                    const auto needed = text_style::shownWrappedHeight (local_blind_ui::purposeText(),
+                                                                        font, purpose.getWidth());
+                    require (needed <= static_cast<float> (purpose.getHeight()) + 1.0f
+                                 && needed <= font.getHeight() * 3.0f * 1.25f,
+                             "the purpose is whole within three lines");
+                    require (language == i18n::Language::english
+                                 || i18n::hasTranslation (local_blind_ui::purposeText()),
+                             "the purpose has Japanese");
                 }
                 const auto directory = juce::SystemStats::getEnvironmentVariable (
                     "KIRIN_HYPHA_COMPOSITE_PREVIEW_DIR", {});

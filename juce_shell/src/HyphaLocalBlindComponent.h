@@ -57,6 +57,9 @@ public:
     const local_blind::ProductSessionView& state() const noexcept { return current; }
 
     juce::Component& repairAnchor() noexcept { return repairButton; }
+    // Where the steps and the purpose are drawn; empty when the size or the phase omits them.
+    juce::Rectangle<int> stepsBounds() const noexcept { return stepsArea; }
+    juce::Rectangle<int> purposeBounds() const noexcept { return purposeArea; }
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -92,6 +95,8 @@ private:
     HyphaTextButton returnButton { "RETURN TO LIVE" };
     HyphaTextButton closeButton { "CLOSE" };
     meter_context::MeterContext preflightContext = meter_context::defaultContext;
+    // The five steps and, before a capture, what the test is (HyphaLocalBlindSteps.h).
+    juce::Rectangle<int> stepsArea, purposeArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Component)
 };

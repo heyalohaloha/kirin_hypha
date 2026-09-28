@@ -2,6 +2,7 @@
 
 #include "HyphaSurfaceMaterial.h"
 #include "HyphaLocalBlindPresentationState.h"
+#include "HyphaLocalBlindSteps.h"
 #include "HyphaTextStyle.h"
 
 #include <array>
@@ -38,8 +39,9 @@ Component::Component()
                     COL_NORMAL);
     configureLabel (statusLabel, "local-blind-status", typography::TextRole::status,
                     COL_FLORA_BR);
+    // The instruction is what to do now: bright enough to read at a glance.
     configureLabel (detailLabel, "local-blind-detail", typography::TextRole::body,
-                    COL_MUTED.brighter (0.25f));
+                    COL_NORMAL.withAlpha (0.86f));
     configureLabel (resultLabel, "local-blind-result", typography::TextRole::secondaryValue,
                     COL_NORMAL);
     detailLabel.setMinimumHorizontalScale (1.0f);
@@ -175,6 +177,12 @@ void Component::paint (juce::Graphics& g)
     surface_material::paintPanel (g, area, 0.94f, 7.0f);
     g.setColour (COL_LED_BLUE.withAlpha (0.34f));
     g.fillEllipse (area.getX() + 18.0f, area.getY() + 18.0f, 7.0f, 7.0f);
+    paintSteps (g, stepsArea, stepFor (current), presentationContext);
+    if (purposeArea.isEmpty()) return;
+    g.setColour (COL_TEXT_SECONDARY);
+    g.setFont (labelFont (presentationContext, typography::TextRole::body,
+                          typography::Composition::information));
+    text_style::drawLines (g, purposeText(), purposeArea, juce::Justification::topLeft, 3);
 }
 
 void Component::layoutRow (juce::Rectangle<int> area,
@@ -234,6 +242,9 @@ void Component::resized()
     auto area = getLocalBounds().reduced (margin);
     titleLabel.setBounds (area.removeFromTop (titleHeight));
     area.removeFromTop (gap);
+    // The steps sit under the title from 150%; at the compact sizes the screen holds only the step.
+    stepsArea = compact ? juce::Rectangle<int>() : area.removeFromTop (stepsHeight (presentationContext));
+    purposeArea = {};
     statusLabel.setBounds (area.removeFromTop (statusHeight));
     detailLabel.setBounds (area.removeFromTop (detailHeight));
     resultLabel.setBounds (area.removeFromTop (resultHeight));
@@ -276,6 +287,21 @@ void Component::layoutPreflight()
         titleLabel.setBounds (header);
     }
     auto actions = area.removeFromBottom (compact ? 28 : 44);
+    stepsArea = purposeArea = {};
+    if (! compact)
+    {
+        area.removeFromTop (8);
+        stepsArea = area.removeFromTop (stepsHeight (presentationContext));
+        // At 150% the status, instruction and result need every remaining row; the purpose
+        // joins them from 200%.
+        if (current.phase == local_blind::ProductSessionPhase::idle && getWidth() >= 600)
+        {
+            area.removeFromTop (10);
+            purposeArea = area.removeFromTop (juce::roundToInt (std::ceil (text_style::shownWrappedHeight (
+                purposeText(), labelFont (presentationContext, typography::TextRole::body,
+                                          typography::Composition::information), area.getWidth()))));
+        }
+    }
     const int backWidth = compact ? 58 : 92;
     closeButton.setBounds (actions.removeFromRight (backWidth));
     actions.removeFromRight (8);
