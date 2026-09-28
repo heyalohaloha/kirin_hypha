@@ -572,8 +572,8 @@ excludes both kinds of Blind until the relevant capture or audible return has co
 Switch between PRE and POST of the same chain while the song keeps playing. When you select PRE,
 POST plays the input that PRE received, lined up with what POST is processing by the DAW's timing
 and delay compensation. Where Hypha cannot confirm that line-up, you hear POST, and PRE comes back
-by itself as soon as it can confirm it again. While you hear POST with PRE selected, the PRE
-control reads **PRE WAIT**. Measurement and Records are never changed.
+by itself as soon as it can confirm it again. Whenever you hear POST with PRE selected, even
+briefly, the PRE control reads **PRE WAIT**. Measurement and Records are never changed.
 
 This first stage runs on macOS in VST3, AU and AAX. In Pro Tools it is offered on stereo
 instances; multi-mono and Windows come later.
@@ -584,14 +584,17 @@ instances; multi-mono and Windows come later.
 3. Press **MATCH** to level PRE to POST. Hypha measures the latest four seconds of playback (at
    least three, BS.1770 loudness) and applies that gain to PRE only; the PRE control shows it, for
    example **PRE +3.2 dB**. A boost that would take PRE above the larger of −1 dBTP and the measured
-   true peaks is limited, and Hypha reports the gain a full match would need. MATCH is fixed: it
-   does not follow later level changes, so press it again after changing the chain. Each session
-   starts at unity gain.
+   true peaks is limited: MATCH then reads **TP LIMIT**, PRE stays quieter than POST, and Hypha
+   reports the gain a full match would need. This is common with a loud, limited master; lowering
+   POST instead comes in a later stage. MATCH is fixed: it does not follow later level changes, so
+   press it again after changing the chain. Each session starts at unity gain.
 4. Press **END** to return to POST. Closing the Hypha window, opening Blind, changing the pair or
    the sample rate, and removing or re-preparing PRE also end the session. Offline render, a bypass
    the DAW reports, and another audition return to POST and ask you to select PRE again.
 
-While a session runs, the footer keeps **POST** and **END** at every size.
+While a session runs, the footer keeps **POST** and **END** at every size. Keep POST's window
+open while comparing: in Studio One / Studio Pro, pin it before opening another plug-in on the
+same channel; in Pro Tools, turn off its **Target** button.
 
 - The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Hypha
   does not yet compare the audio itself to check it.

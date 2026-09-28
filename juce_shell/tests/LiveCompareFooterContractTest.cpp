@@ -1,5 +1,6 @@
 #include "LiveCompareFooterContractTest.h"
 
+#include "../src/HyphaLanguage.h"
 #include "../src/HyphaObservatoryView.h"
 #include "../src/HyphaTextStyle.h"
 
@@ -159,6 +160,43 @@ void verifyLiveCompareFooterContract()
     end->onClick();
     require (selectedPre == 1 && selectedPost == 1 && matched == 1 && ended == 1,
              "PRE, POST, MATCH and END reach the editor");
+
+    // A MATCH that stopped at the true-peak ceiling says so in text, and its slot does not move.
+    for (const auto preset : { observatory::sizePresets[3], observatory::sizePresets[4] })
+    {
+        post.setSize (preset.width, preset.height);
+        state.preGainTenthsDb = 125;
+        state.matchLimited = false;
+        post.setLiveCompareFooter (state);
+        const auto matchedBounds = boundsOf (rail);
+        state.matchLimited = true;
+        post.setLiveCompareFooter (state);
+        require (match->getButtonText() == "TP LIMIT" && readable (post, *match) && readable (post, *preButton),
+                 "TP LIMIT and the longest gain read whole");
+        require (boundsOf (rail) == matchedBounds, "TP LIMIT never moves a control");
+        require (preButton->isVisible() && menu->isVisible(), "the longest texts keep PRE, MATCH and MENU");
+    }
+    state.matchLimited = false;
+
+    // Every live notice reads whole in the 300% footer, in both languages. The TP limit notice
+    // carries two values and may lose the second; TP LIMIT stays on MATCH.
+    post.setSize (900, 600);
+    for (const auto language : { i18n::Language::english, i18n::Language::japanese })
+    {
+        const i18n::ScopedLanguage scoped (language);
+        const auto font = labelFont (post.presentationContext(), typography::TextRole::action);
+        const auto available = static_cast<float> (post.sessionBounds().getWidth() - 8);
+        for (const char* notice : { "Closing returns to POST", "LISTEN could not start",
+                                    "Choose the PRE first", "Mono / stereo only", "Paired PRE unavailable",
+                                    "Select PRE again", "LISTEN ended; POST plays", "MATCH: PRE -12.50 dB",
+                                    "MATCH waits for PRE", "MATCH needs 3 s of play", "MATCH failed; try again",
+                                    "MATCH needs more signal" })
+        {
+            if (text_style::shownWidth (font, notice) > available)
+                std::cerr << "too wide at 300%: " << text_style::shownText (notice) << '\n';
+            require (text_style::shownWidth (font, notice) <= available, "a live notice reads whole at 300%");
+        }
+    }
 
     require (post.setManualHybridVuVisible (true), "Hybrid VU opens");
     require (! preButton->isVisible() && ! postButton->isVisible() && ! end->isVisible(),

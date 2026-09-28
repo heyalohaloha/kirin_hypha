@@ -27,9 +27,13 @@ const Entry entries[] = {
     { "Capture and compare one exact four second PRE and POST range",
       u8"PREとPOSTの同じ4秒間を取り込んで聴き比べます" },
     { "Switch between PRE and POST of this chain while the song plays. "
-      "Leave this window open; closing it returns to POST",
+      "Keep this window open (pin it in Studio One / Studio Pro, turn off "
+      "Target in Pro Tools); closing or replacing it returns to POST",
       u8"曲を再生したまま、このチェーンのPREとPOSTを切り替えます。"
-      u8"この画面は開いたままにしてください。閉じるとPOSTに戻ります" },
+      u8"この画面は開いたままにしてください（Studio One／Studio Proではピン留め、"
+      u8"Pro ToolsではTargetをオフ）。閉じたり置き換えたりするとPOSTに戻ります" },
+    { "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again",
+      u8"MATCHはトゥルーピークの上限で止まりました。PREはまだPOSTより小さい音です。押すと測り直します" },
     { "Listen to PRE, the input of this chain. MATCH levels it to POST",
       u8"このチェーンの入力、PREを聴きます。MATCHでPOSTと音量を揃えます" },
     { "Listen to PRE, the input of this chain, at the level MATCH set",

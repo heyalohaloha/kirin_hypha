@@ -141,6 +141,11 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::matchLiveCompare()
     return result;
 }
 
+bool KirinHyphaProcessorBase::takeLiveComparePreWait() noexcept
+{
+    return liveCompare.preWaitSeen.exchange (false, std::memory_order_acq_rel);
+}
+
 bool KirinHyphaProcessorBase::liveCompareSupported() const noexcept
 {
     // AAX multi-mono runs one mono instance per channel, and a mono instance cannot tell that apart
@@ -238,5 +243,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         liveCompare.verdict.store (static_cast<std::uint8_t> (report.verdict), std::memory_order_release);
         liveCompare.preAudible.store (report.preAudible, std::memory_order_release);
         liveCompare.preWaiting.store (report.preWaiting, std::memory_order_release);
+        if (report.preWaiting)
+            liveCompare.preWaitSeen.store (true, std::memory_order_release);
     });
 }
