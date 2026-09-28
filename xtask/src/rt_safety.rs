@@ -7,6 +7,10 @@ mod platform_gate_tests;
 mod live_compare_tests;
 
 #[cfg(test)]
+#[path = "rt_safety_named_ab_tests.rs"]
+mod named_ab_tests;
+
+#[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 

@@ -46,13 +46,34 @@ bool LocalBlindTrial::start (bool approve) noexcept
     return issue (one);
 }
 
+bool LocalBlindTrial::startNamed (bool approve) noexcept
+{
+    if (command.load (std::memory_order_acquire) != ready
+        || (gain.requiresLowerPostApproval && ! approve)) return false;
+    lowerApproved.store (gain.requiresLowerPostApproval && approve, std::memory_order_relaxed);
+    return issue (namedOne);
+}
+
+bool LocalBlindTrial::startBlind() noexcept
+{
+    if (! isNamed (kind (command.load (std::memory_order_acquire)))
+        || failed.load (std::memory_order_acquire) != TrialFailure::none) return false;
+    // The RT never writes these in the named A/B; the command's release publishes the reset.
+    heardOne.store (0, std::memory_order_relaxed);
+    heardTwo.store (0, std::memory_order_relaxed);
+    answered.store (TrialAnswer::none, std::memory_order_relaxed);
+    revealed.store (false, std::memory_order_relaxed);
+    return issue (one);
+}
+
 bool LocalBlindTrial::select (int stimulus) noexcept
 {
     const auto state = kind (command.load (std::memory_order_acquire));
-    if ((state != one && state != two) || failed.load (std::memory_order_acquire) != TrialFailure::none
+    const bool named = isNamed (state);
+    if ((state != one && state != two && ! named) || failed.load (std::memory_order_acquire) != TrialFailure::none
         || revealed.load (std::memory_order_acquire)
         || (stimulus != 1 && stimulus != 2)) return false;
-    return issue (stimulus == 1 ? one : two);
+    return issue (named ? (stimulus == 1 ? namedOne : namedTwo) : (stimulus == 1 ? one : two));
 }
 
 bool LocalBlindTrial::answer (TrialAnswer value) noexcept
@@ -104,10 +125,25 @@ TrialOutput LocalBlindTrial::hold (float* const* data, int channels, int frames,
     return TrialOutput::heldAttenuation;
 }
 
+void LocalBlindTrial::beginPass() noexcept
+{
+    hasPrevious = false;
+    passActive = false;
+    exactWrapEligible = false;
+    transition.beginPass();
+    rangeComplete.store (false, std::memory_order_release);
+    pendingRange.store (true, std::memory_order_release);
+}
+
 TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frames, const TrialBlock& block) noexcept
 {
     const auto requested = command.load (std::memory_order_acquire);
     const auto mode = kind (requested);
+    const bool named = isNamed (mode);
+    // Blind after the named A/B is a new trial of the same range: its first pass starts at the
+    // range start, whatever the named pass was doing.
+    if (! named && requested != renderedCommand && isNamed (kind (renderedCommand)))
+        beginPass();
     if (mode == ready) return TrialOutput::untouched;
     if (mode == normalRequested)
     {
@@ -140,10 +176,21 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
     {
         // Stopped hosts may omit their playback clock. Keep a completed pass visible even
         // when the next source has already been armed; consume that request only once a
-        // real playing callback arrives. An incomplete pass still cannot survive a stop.
+        // real playing callback arrives. An incomplete pass still cannot survive a stop; the
+        // named A/B only forgets it and waits for the range start again.
         exactWrapEligible = false;
-        if (hasPrevious && ! finishedRange) invalidate (TrialFailure::transport);
+        if (hasPrevious && ! finishedRange)
+        {
+            if (! named) invalidate (TrialFailure::transport);
+            else beginPass();
+        }
         return hold (data, channels, frames, block);
+    }
+    // The named A/B plays the range again whenever the DAW plays from before it.
+    if (named && finishedRange && block.position + frames <= format.start)
+    {
+        beginPass();
+        finishedRange = false;
     }
     // A completed pass stays available for an answer. Only an explicit source command
     // or an immediately observed exact host loop may start another pass of the frozen range.
@@ -164,8 +211,12 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
     }
     if (hasPrevious && block.position != previousEnd)
     {
-        invalidate (TrialFailure::discontinuity);
-        return hold (data, channels, frames, block);
+        if (! named)
+        {
+            invalidate (TrialFailure::discontinuity);
+            return hold (data, channels, frames, block);
+        }
+        beginPass(); // a seek during the named A/B waits for the range start again
     }
     const auto blockEnd = block.position + frames;
     if (! hasPrevious && (block.position > format.start || blockEnd <= format.start))
@@ -180,7 +231,7 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
         invalidate (TrialFailure::range);
         return hold (data, channels, frames, block);
     }
-    const bool pre = (mode == one) == oneIsPre;
+    const bool pre = named ? mode == namedOne : (mode == one) == oneIsPre;
     const bool lower = lowerApproved.load (std::memory_order_relaxed);
     const bool alreadyLowered = lowerApplied.load (std::memory_order_acquire);
     if (! hasPrevious) entryFromHeld = alreadyLowered;
@@ -227,7 +278,7 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
     const bool completePass = passFrames >= format.minimumHeardFrames
         && (format.minimumHeardFrames < static_cast<std::uint64_t> (format.frames)
             || passStart == format.start);
-    if (completePass)
+    if (completePass && ! named)
     {
         (mode == one ? heardOne : heardTwo).store (passFrames, std::memory_order_release);
         // The normal product path always begins with Source 1. Arm Source 2 as
@@ -265,10 +316,14 @@ TrialView LocalBlindTrial::view() const noexcept
     result.passComplete = rangeComplete.load (std::memory_order_acquire);
     result.heardOneComplete = heardOne.load (std::memory_order_acquire) >= format.minimumHeardFrames;
     result.heardTwoComplete = heardTwo.load (std::memory_order_acquire) >= format.minimumHeardFrames;
-    result.activeStimulus = confirmed == 0 ? 0 : static_cast<int> (kind (confirmed));
-    result.pendingStimulus = current == confirmed ? 0 : static_cast<int> (mode);
+    result.named = isNamed (mode);
+    // Until Blind renders its first block, the last receipt is the named A/B's: nothing of Blind
+    // plays yet.
+    result.activeStimulus = confirmed == 0 || isNamed (kind (confirmed)) != result.named
+        ? 0 : stimulusOf (kind (confirmed));
+    result.pendingStimulus = current == confirmed ? 0 : stimulusOf (mode);
     const bool isRevealed = revealed.load (std::memory_order_acquire);
-    result.canAnswer = ! isRevealed && current == confirmed
+    result.canAnswer = ! result.named && ! isRevealed && current == confirmed
         && result.heardOneComplete && result.heardTwoComplete;
     result.answer = answered.load (std::memory_order_acquire);
     result.phase = isRevealed ? TrialPhase::revealed

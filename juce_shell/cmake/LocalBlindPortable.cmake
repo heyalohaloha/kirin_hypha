@@ -4,7 +4,8 @@ function(kirin_add_local_blind_portable_contracts root)
     find_package(Threads REQUIRED)
     add_executable(KirinLocalBlindCaptureTests "${root}/tests/local_blind_capture_test.cpp")
     add_executable(KirinLocalBlindTrialTests
-        "${root}/tests/local_blind_trial_test.cpp" "${root}/src/local_blind/LocalBlindTrial.cpp")
+        "${root}/tests/local_blind_trial_test.cpp" "${root}/tests/local_blind_named_trial_test.cpp"
+        "${root}/src/local_blind/LocalBlindTrial.cpp")
     add_executable(KirinLocalBlindHostContextTests
         "${root}/tests/local_blind_host_context_test.cpp" "${root}/src/local_blind/HostContext.cpp")
     target_include_directories(KirinLocalBlindHostContextTests PRIVATE

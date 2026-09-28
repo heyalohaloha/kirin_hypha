@@ -185,6 +185,8 @@ public:
     hypha::local_blind::CaptureAdmission localBlindCaptureAvailability() const;
     hypha::local_blind::CaptureAdmission requestLocalBlindProductCapture (hypha::meter_context::MeterContext);
     bool startLocalBlindProductTrial (bool approveLowerPost = false);
+    bool startLocalBlindProductNamed (bool approveLowerPost = false); // INV-LC17
+    bool startLocalBlindProductBlindFromNamed();
     bool selectLocalBlindProductStimulus (int stimulus);
     bool answerLocalBlindProductTrial (hypha::local_blind::TrialAnswer);
     bool revealLocalBlindProductTrial();

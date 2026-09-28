@@ -29,7 +29,7 @@ public:
         presentationContext = next;
         contextLookAndFeel.setPresentationContext (next);
         for (auto* button : { &sourceOne, &sourceTwo, &answerOne, &answerTwo,
-                              &noPreference, &cannotDistinguish, &startButton, &revealButton,
+                              &noPreference, &cannotDistinguish, &startButton, &namedButton, &revealButton,
                               &captureButton, &repairButton, &stopButton, &returnButton,
                               &closeButton })
             button->setPresentationContext (next);
@@ -38,6 +38,8 @@ public:
     }
 
     std::function<void (bool approveLowerPost)> onStart;
+    std::function<void (bool approveLowerPost)> onStartNamed; // INV-LC17: PRE / POST by name
+    std::function<void()> onStartBlind;                        // from the named A/B
     std::function<void()> onCapture;
     std::function<void()> onRepair;
     std::function<void (int stimulus)> onSelectStimulus;
@@ -68,6 +70,7 @@ private:
     void styleButton (juce::Button&, const juce::String& id,
                       const juce::String& title);
     void layoutRow (juce::Rectangle<int>, std::initializer_list<juce::Button*>);
+    bool rowFits (int width, std::initializer_list<const juce::Button*>) const;
     bool canChooseContext() const noexcept;
     void layoutPreflight();
 
@@ -86,6 +89,7 @@ private:
     HyphaTextButton noPreference { "NO PREFERENCE" };
     HyphaTextButton cannotDistinguish { "CANNOT TELL" };
     HyphaTextButton startButton { "START BLIND" };
+    HyphaTextButton namedButton { "NAMED A/B" };
     HyphaTextButton revealButton { "REVEAL" };
     HyphaTextButton captureButton { "CAPTURE 4 S" };
     HyphaTextButton repairButton { "SELECT PRE" };

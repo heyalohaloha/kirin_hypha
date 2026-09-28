@@ -23,8 +23,10 @@ Step stepFor (const local_blind::ProductSessionView& view) noexcept
         case Phase::capturing:
         case Phase::preparing: return Step::capture;
         case Phase::ready: return Step::start;
-        case Phase::armed: return Step::listen;
-        case Phase::listening: return view.trial.canAnswer ? Step::answer : Step::listen;
+        // The named A/B (INV-LC17) comes before Blind starts.
+        case Phase::armed: return view.trial.named ? Step::start : Step::listen;
+        case Phase::listening:
+            return view.trial.named ? Step::start : view.trial.canAnswer ? Step::answer : Step::listen;
         case Phase::revealed: return Step::result;
         case Phase::returnPending:
         case Phase::returned: break;
