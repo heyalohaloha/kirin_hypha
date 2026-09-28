@@ -45,13 +45,18 @@ void KirinHyphaProcessorBase::startPreparedFormatServices()
 
 void KirinHyphaProcessorBase::prepareLiveCompareForPreparedFormat()
 {
-    // PRE stamps a ring for its identity and the prepared rate once its writes are enabled.
+    // PRE stamps a ring for its identity and the prepared rate once its writes are enabled. Any
+    // ring it still owns closes first: the name is never re-stamped under a live mapping, and a
+    // POST holding the old one sees its owner go.
     if (role != Role::Pre || ! stereoWorkflowsSupported() || persistInstanceId.isEmpty())
+        return;
+    liveCompare.ring.retire();
+    if (! collectWithin (liveCompare.ring))
         return;
     auto mapping = std::make_unique<SharedRingMapping>();
     const auto key = hypha::live_compare::pairKeyForPreInstance (persistInstanceId.toStdString());
     if (mapping->create (key, static_cast<std::uint32_t> (preparedFormat.sampleRate)))
-        publishMapping (liveCompare.ring, std::move (mapping));
+        liveCompare.ring.publish (std::move (mapping));
 }
 
 void KirinHyphaProcessorBase::stopLiveCompareForFormatChange()
@@ -144,6 +149,23 @@ bool KirinHyphaProcessorBase::liveCompareSupported() const noexcept
     const bool aaxMono = wrapperType == wrapperType_AAX && getTotalNumInputChannels() < 2;
     return role == Role::Post && stereoWorkflowsSupported() && ! aaxMono
         && hypha::live_compare::sharedRingAvailable();
+}
+
+// Message thread. A session belongs to the PRE ring it opened: a changed or cleared pair, or a PRE
+// that closed that ring (re-prepared, removed), ends it. Returns true when it ended the session.
+bool KirinHyphaProcessorBase::serviceLiveCompare()
+{
+    if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire))
+        return false;
+    const auto* mapping = liveCompare.ring.control();
+    const auto pre = pairedPreInstanceId();
+    const bool current = mapping != nullptr && mapping->ring() != nullptr && pre.isNotEmpty()
+        && hypha::live_compare::pairKeyForPreInstance (pre.toStdString()) == mapping->key()
+        && mapping->ring()->header.ownerClosed.load (std::memory_order_acquire) == 0;
+    if (current)
+        return false;
+    stopLiveCompare();
+    return true;
 }
 
 hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const noexcept

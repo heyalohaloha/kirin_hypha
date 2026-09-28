@@ -52,6 +52,7 @@ struct RingHeader
     std::atomic<std::uint32_t> sampleRate { 0 };
     std::atomic<std::uint64_t> pairKey { 0 }; // POST refuses a ring stamped for another pair
     std::atomic<std::uint32_t> demand { 0 };  // POST sets it while a live session wants PRE input
+    std::atomic<std::uint32_t> ownerClosed { 0 }; // PRE sets it as it unmaps; POST's session ends
     std::atomic<std::uint64_t> seq { 0 };     // odd while PRE writes samples or the run fields
     std::atomic<std::uint64_t> run { 0 };
     std::atomic<std::int64_t> runStart { 0 };
@@ -76,6 +77,7 @@ struct Ring
         h.sampleRate.store (sampleRate, std::memory_order_relaxed);
         h.pairKey.store (pairKey, std::memory_order_relaxed);
         h.demand.store (0, std::memory_order_relaxed);
+        h.ownerClosed.store (0, std::memory_order_relaxed);
         h.seq.store (0, std::memory_order_relaxed);
         h.run.store (0, std::memory_order_relaxed);
         h.runStart.store (0, std::memory_order_relaxed);

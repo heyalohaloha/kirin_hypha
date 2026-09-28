@@ -161,6 +161,7 @@ public:
     hypha::live_compare::MatchResult matchLiveCompare();
     hypha::live_compare::Status liveCompareStatus() const noexcept;
     bool liveCompareSupported() const noexcept;
+    bool serviceLiveCompare();
     // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until
     // exact-range project-clock and PDC proof has been recorded for that host format.
     bool localBlindProductSupported() const noexcept;

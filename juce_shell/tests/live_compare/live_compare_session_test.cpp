@@ -147,11 +147,13 @@ static void sharedRingPairsOnlyTheSameIdentityAndRate()
     const auto name = sharedRingName (pairKeyForPreInstance ("pre-instance-id"));
     require (name.size() <= 31 && name.rfind ("/kh-lc-", 0) == 0, "the name fits the POSIX limit");
     require (pairKeyForPreInstance ("a") != pairKeyForPreInstance ("b"), "different PRE identities give different keys");
+    const auto pairKey = pairKeyForPreInstance ("live-compare-session-test");
 #if defined (_WIN32)
     SharedRingMapping unavailable;
-    require (! unavailable.create (key, 48000), "Windows has no live compare transport until its stage");
+    require (! sharedRingAvailable() && ! unavailable.create (pairKey, 48000),
+             "Windows has no live compare transport until its stage");
 #else
-    const auto pairKey = pairKeyForPreInstance ("live-compare-session-test");
+    require (sharedRingAvailable(), "macOS maps the ring");
     SharedRingMapping pre, post, wrongRate;
     require (pre.create (pairKey, 48000), "PRE creates its ring");
     require (post.open (pairKey, 48000), "POST opens the ring of its PRE");
@@ -160,9 +162,13 @@ static void sharedRingPairsOnlyTheSameIdentityAndRate()
     require (pre.ring()->header.demand.load() == 1, "both roles see the same memory");
     post.close();
     require (pre.ring()->header.demand.load() == 0, "closing POST clears its demand");
+    require (post.open (pairKey, 48000) && post.ring()->header.ownerClosed.load() == 0,
+             "an open PRE ring is live");
     pre.close();
+    require (post.ring()->header.ownerClosed.load() == 1, "POST learns that PRE closed its ring");
     SharedRingMapping late;
     require (! late.open (pairKey, 48000), "the owner's close removes the name");
+    post.close();
 #endif
 }
 

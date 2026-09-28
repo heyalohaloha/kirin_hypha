@@ -126,7 +126,11 @@ void SharedRingMapping::close() noexcept
 {
     if (mapped != nullptr)
     {
-        if (! owner)
+        // A re-prepared PRE maps a new object under the same name; a POST still holding this one
+        // would wait for writes that never come, so it learns that the owner has gone.
+        if (owner)
+            mapped->header.ownerClosed.store (1, std::memory_order_release);
+        else
             mapped->header.demand.store (0, std::memory_order_release);
         munmap (mapped, mappingBytes());
         if (owner)

@@ -101,6 +101,7 @@ void KirinHyphaEditor::configureLiveCompare()
 
 void KirinHyphaEditor::refreshLiveCompare()
 {
+    processorRef.serviceLiveCompare();
     const auto status = processorRef.liveCompareStatus();
     const auto now = nowSecs();
     // A wait shorter than one refresh still reads: WAIT stays for at least half a second. The
@@ -110,7 +111,7 @@ void KirinHyphaEditor::refreshLiveCompare()
     if (status.interrupted && ! liveCompareInterruptSeen)
         showToast ("PRE was deselected. Select PRE again");
     liveCompareInterruptSeen = status.interrupted;
-    // A format change or another comparison ended the session without END: say so.
+    // A format change, a changed pair or a closed PRE ended the session without END: say so.
     if (liveCompareActiveSeen && ! status.active)
         showToast ("PRE / POST listening ended. POST is playing");
     liveCompareActiveSeen = status.active;
