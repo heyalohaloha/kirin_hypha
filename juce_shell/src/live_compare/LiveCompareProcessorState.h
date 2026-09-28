@@ -3,6 +3,7 @@
 #include "../local_blind/RtPublicationSlot.h"
 #include "LiveCompareClock.h"
 #include "LiveCompareMatch.h"
+#include "LiveCompareOffset.h"
 #include "LiveCompareSession.h"
 #include "LiveCompareSharedRing.h"
 
@@ -31,6 +32,7 @@ struct Status
     Verdict verdict = Verdict::noClock;
     float gain = 1.0f;
     float postTarget = 1.0f;  // approved POST attenuation, held after the session until RETURN
+    bool contentHeld = false; // INV-LC10: POST until playback stops and restarts
 };
 
 // Everything one processor owns for the live compare. PRE uses the ring and the feeder; POST uses
@@ -55,5 +57,8 @@ struct ProcessorState
     std::atomic<float> postTarget { 1.0f };   // approved POST attenuation (linear, at most 1)
     std::atomic<float> ceilingLinear { 1.0f }; // PRE guard fixed at MATCH, 10^(C/20)
     std::atomic<bool> guardTripped { false };
+    std::atomic<bool> contentHold { false };      // INV-LC10: the content offset jumped
+    std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions
+    bool wasPlaying = false;                      // Audio Thread only
 };
 }

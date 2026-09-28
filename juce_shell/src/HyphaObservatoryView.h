@@ -62,12 +62,14 @@ struct LiveCompareFooter
     bool matchLimited = false; // that MATCH stopped at the true-peak ceiling: PRE is still quieter
     int preGainTenthsDb = 0;   // that gain in 0.1 dB steps, as the PRE control shows it
     int postHeldTenthsDb = 0;  // approved POST attenuation (0 or below), held until RETURN
+    bool contentHeld = false;  // INV-LC10: POST until playback stops and restarts
     bool operator== (const LiveCompareFooter& other) const noexcept
     {
         return entryEnabled == other.entryEnabled && active == other.active
             && preSelected == other.preSelected && preWaiting == other.preWaiting
             && matched == other.matched && matchLimited == other.matchLimited
-            && preGainTenthsDb == other.preGainTenthsDb && postHeldTenthsDb == other.postHeldTenthsDb;
+            && preGainTenthsDb == other.preGainTenthsDb && postHeldTenthsDb == other.postHeldTenthsDb
+            && contentHeld == other.contentHeld;
     }
 };
 

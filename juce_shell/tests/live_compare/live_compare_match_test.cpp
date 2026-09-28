@@ -1,4 +1,6 @@
 #include "../../src/live_compare/LiveCompareMatch.h"
+#include "../../src/live_compare/LiveCompareOffset.h"
+#include "live_compare_offset_test.h"
 
 #include <cmath>
 #include <cstdio>
@@ -46,7 +48,8 @@ struct Pair
         renderer.prepare (4096, rate);
     }
 
-    void run (double seconds, float preScale, float postGain, std::int64_t spikeAt = -1)
+    void run (double seconds, float preScale, float postGain, std::int64_t spikeAt = -1,
+              std::int64_t contentDelay = 0)
     {
         std::vector<float> pre[2], post[2];
         for (int c = 0; c < 2; ++c) { pre[c].assign (frames, 0.0f); post[c].assign (frames, 0.0f); }
@@ -59,7 +62,7 @@ struct Pair
                     const auto t = clock + i;
                     const float base = noise (t, c) * preScale;
                     pre[c][size_t (i)] = t == spikeAt ? 0.95f : base;
-                    post[c][size_t (i)] = noise (t, c) * postGain;
+                    post[c][size_t (i)] = noise (t - contentDelay, c) * postGain;
                 }
             BlockClock block;
             block.clock = block.project = clock;
@@ -132,6 +135,42 @@ static void aHeldAttenuationCarriesIntoTheNextMatch()
              "a louder PRE is cut, and POST is not raised");
 }
 
+// INV-LC7: through the ring and the proven K, a POST that carries PRE 10 ms later than the clocks
+// say (a plug-in between that does not report its latency) shows PRE playing 480 frames early.
+static void theMappingShowsAnUnreportedDelay()
+{
+    Pair aligned;
+    aligned.run (3.0, 1.0f, 0.5f);
+    const auto zero = measureOffset (*aligned.ring, aligned.renderer);
+    require (zero.determined && zero.lagFrames == 0, "an aligned chain shows no offset");
+    Pair delayed;
+    delayed.run (3.0, 1.0f, 0.5f, -1, 480);
+    const auto early = measureOffset (*delayed.ring, delayed.renderer);
+    std::printf ("mapping offset: lag %lld (peak %.3f)\n", static_cast<long long> (early.lagFrames), early.peak);
+    require (early.determined && early.lagFrames == -480, "an unreported 10 ms delay shows PRE 480 frames early");
+    Pair early1;
+    early1.run (0.5, 1.0f, 0.5f);
+    require (! measureOffset (*early1.ring, early1.renderer).determined, "without enough history nothing is claimed");
+}
+
+// INV-LC7 / LC10: one estimate never decides; two agreeing ones settle the offset and the run's
+// baseline, and two agreeing ones away from it are a jump, once, while not already held.
+static void aJumpNeedsTwoAgreeingEstimates()
+{
+    const auto at = [] (std::int64_t lag) { OffsetEstimate e; e.determined = true; e.lagFrames = lag; return e; };
+    OffsetMonitor monitor;
+    require (! monitor.observe (at (0), false).settled, "one estimate settles nothing");
+    require (! monitor.observe (OffsetEstimate {}, false).settled, "an undetermined estimate settles nothing");
+    const auto base = monitor.observe (at (1), false);
+    require (base.settled && base.lagFrames == 1 && ! base.jumped, "two agreeing estimates set the baseline");
+    require (! monitor.observe (at (480), false).jumped, "a single outlier is not a jump");
+    const auto jump = monitor.observe (at (481), false);
+    require (jump.settled && jump.jumped && jump.lagFrames == 481, "two agreeing estimates away from it are a jump");
+    require (! monitor.observe (at (481), false).jumped, "the jump becomes the new baseline");
+    monitor.observe (at (0), true);
+    require (! monitor.observe (at (0), true).jumped, "while held, nothing jumps again");
+}
+
 // No proven K, or less than three seconds of contiguous history, measures nothing.
 static void unprovenOrShortWindowsAreRefused()
 {
@@ -158,6 +197,9 @@ int main()
     aBoostAboveTheCeilingAsksToLowerPost();
     aHeldAttenuationCarriesIntoTheNextMatch();
     unprovenOrShortWindowsAreRefused();
+    theMappingShowsAnUnreportedDelay();
+    aJumpNeedsTwoAgreeingEstimates();
+    hypha::tests::verifyLiveCompareOffset();
     std::printf ("live compare match: all checks passed\n");
     return 0;
 }

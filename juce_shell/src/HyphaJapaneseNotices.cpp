@@ -103,6 +103,9 @@ const Entry entries[] = {
     { "POST back to normal", u8"POSTを通常の音量に戻しました" },
     { "Press RETURN first", u8"先にRETURNを押してください" },
     { "PRE over TP ceiling", u8"PREがTP上限を超えました" },
+    { "PRE %1 ms early", u8"PREが%1 ms早く鳴っています" },
+    { "PRE %1 ms late", u8"PREが%1 ms遅れて鳴っています" },
+    { "PRE held: latency changed", u8"遅延が変わりPREを保留中" },
 };
 }
 

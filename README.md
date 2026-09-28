@@ -606,8 +606,14 @@ While a session runs, the footer keeps **POST** and **END** at every size. Keep 
 open while comparing: in Studio One / Studio Pro, pin it before opening another plug-in on the
 same channel; in Pro Tools, turn off its **Target** button.
 
-- The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Hypha
-  does not yet compare the audio itself to check it.
+- The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Every
+  two seconds of playback Hypha also compares the audio itself. When PRE is off, the status line
+  says so, for example **PRE 2.31 ms early** (a plug-in between that under-reports its latency) or
+  **late**. An intentional delay, reverb or heavy processing can cause the same message, and
+  silence or a held tone cannot be judged; Hypha never changes the comparison because of it.
+- If that offset jumps during playback, as when a plug-in changes its latency and the DAW does not
+  compensate until playback restarts, Hypha plays POST (the PRE control reads **PRE WAIT**) until
+  you stop and restart playback.
 - Right after a seek or a new start, you hear POST for about the latency of the chain plus a few
   blocks while Hypha confirms the line-up.
 - If the input stays silent for several seconds, the DAW may stop calling Hypha. PRE comes back

@@ -32,6 +32,13 @@ juce::String magnitudeDb (double db)
     return signedDb (std::fabs (db)).trimCharactersAtStart ("+");
 }
 
+// INV-LC7: the offset as a fact, without a judgement (R-22).
+juce::String offsetText (std::int64_t lag, double sampleRate)
+{
+    const auto ms = std::fabs (static_cast<double> (lag)) * 1000.0 / juce::jmax (1.0, sampleRate);
+    return "PRE " + juce::String (ms, 2) + (lag < 0 ? " ms early" : " ms late");
+}
+
 juce::String startFailure (StartResult result)
 {
     switch (result)
@@ -164,6 +171,34 @@ bool KirinHyphaEditor::liveCompareHoldBlocksAudition()
     return true;
 }
 
+void KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Status& status, double now)
+{
+    auto& m = liveCompareOffset;
+    const auto run = processorRef.liveComparePlaybackRun();
+    if (! status.active || run != m.run)
+    {
+        m = {};
+        m.run = run;
+    }
+    if (status.active && status.verdict == hypha::live_compare::Verdict::accepted && now >= m.nextAt)
+    {
+        m.nextAt = now + 2.0;
+        const auto step = m.monitor.observe (processorRef.measureLiveCompareOffset(), status.contentHeld);
+        if (step.jumped)
+        {
+            processorRef.holdLiveCompareForContentJump();
+            showToast ("PRE held: latency changed");
+        }
+        if (step.settled)
+        {
+            m.lag = step.lagFrames;
+            m.warningUntil = std::llabs (m.lag) > 1 ? now + 10.0 : 0.0;
+        }
+    }
+    liveCompareOffsetWarning = status.active && now < m.warningUntil
+        ? offsetText (m.lag, processorRef.getSampleRate()) : juce::String();
+}
+
 void KirinHyphaEditor::refreshLiveCompare()
 {
     processorRef.serviceLiveCompare();
@@ -182,11 +217,13 @@ void KirinHyphaEditor::refreshLiveCompare()
     if (liveCompareActiveSeen && ! status.active)
         showToast ("LISTEN ended; POST plays");
     liveCompareActiveSeen = status.active;
+    monitorLiveCompareOffset (status, now);
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported();
     footer.active = status.active;
     footer.preSelected = status.active && status.preSelected;
     footer.preWaiting = footer.preSelected && (status.preWaiting || now < liveComparePreWaitUntil);
+    footer.contentHeld = status.active && status.contentHeld;
     footer.matched = status.active && liveCompareMatched;
     footer.matchLimited = footer.matched && liveCompareLimited;
     footer.preGainTenthsDb = status.gain > 0.0f ? juce::roundToInt (200.0f * std::log10 (status.gain)) : 0;
