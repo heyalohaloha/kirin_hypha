@@ -111,7 +111,7 @@ blockの長さが変わるhostや、呼出しが不規則なhostでは、空白�
 | INV-LC3 | POSTは自分の呼出しの空白でKを無効にし、較正し直すまでPREを出さない。AUでは候補の食い違いを1回見た時点でもKを無効にする（M1） | LC-20、LC-26 |
 | INV-LC4 | 境界（seek、再生開始、loop、sleep、遅延変更）で時計の規則が対応を確かめられない区間はPOSTを出力し、PREの選択と承認済みgainを保持して、確かめられた最初のblockからPREへ戻す。戻すときは既存の対称5 ms遷移を使い、確かめたPREのsampleだけを遷移に使う。確かめられなくなったときは、そのblockの先頭でPOSTへ切り替え、確かめていないPREを遷移に使わない。PREを選んだままPOSTが鳴っている間は、画面にその状態（PRE待ち）を示す。説明できない欠落、protocol／pair／format失効、上限超過では比較を中断し、再選択まで戻さない | LC-06、LC-12、LC-14、LC-26 |
 | INV-LC5 | 遅延変更の直後は、時計で検出できた時点で直ちにPOSTへ倒す。検出できない最初の区間を許容するのは、pluginが変更を報告し、hostが再生中に補償を改め、区間の長さをhostごとに実測したprofileに限る。長さはprofileと説明書に記す（Studio Pro 8.1.2、2048 frames、音と報告を同時に変える型で最大4 block、171 ms）。中身の推定で比較を止めたり、Kを補正したりしない | LC-20 |
-| INV-LC6 | （副作用と範囲の確認後に採用）PREとPOSTはinfinite tailを報告し、hostのplugin sleepで比較が途切れないようにする。音声とlatencyは変えない | LC-01、LC-21、LC-25 |
+| INV-LC6 | （2026-09-28決定、下の案は採らない）PREとPOSTはinfinite tailを報告しない（AAXのAlwaysProcessも付けない）。hostが無音でpluginを止めて対応が途切れても、音が戻って規則Cで確かめ直した最初のblockからPREへ戻す。元の案は「infinite tailを報告し、hostのplugin sleepで比較が途切れないようにする」 | LC-01、LC-21、LC-25 |
 | INV-LC7 | 比較の開始時と、その後は定期的に、非RTのworkerでPREとPOSTの中身のずれを推定する。時計の規則による対応と食い違えば、推定したずれと、考えられる原因（遅延の報告の誤り、意図したdelay、強い加工）を事実として示し、警告する。比較は止めず、Kも補正しない。推定できないとき（無音、周期信号、強い加工など）は判定不能とし、警告も「一致」の表示も出さない。比較の途中の跳びの扱いはINV-LC10 | LC-29 |
 | INV-LC8 | （案）hostが遅延補償の無効を通知している間（AAXの`AAX_eNotificationEvent_DelayCompensationState`が0）は、対応を確かめられないものとしてPOSTを出力し、理由を画面に示す。通知が有効へ戻れば、Cの規則で確かめ直してPREへ戻す | LC-20、LC-26 |
 | INV-LC9 | AAXのmulti-monoでも比較を提供し、channelの間でPREとPOSTを混ぜない。あるblockを最初に判定したPOSTのinstanceが全channelの判定を決めて公開し、他のinstanceはそれに従う。全channelで対応を確かめられたblockだけPREを出す | LC-12、LC-26、LC-33 |
