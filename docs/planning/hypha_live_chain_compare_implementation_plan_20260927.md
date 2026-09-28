@@ -61,7 +61,8 @@ R-12と安全契約の改定、既存Blindのhost gate、E2でのowner、exact 4
    - Windowsの実機確認（2026-09-28、6d10d00dのwindows-latest CI成果物のVST3、Windows検証機のStudio Pro 8.1.2 Win x64、48 kHz、300%）: PRE → Mixtool −5.76 dB → POSTで、LISTENが始まり、MATCHは「MATCH：PRE -5.76 dB」、PREを選ぶとWAITにならずに鳴り、PIN 4 SでBlindが「範囲の準備完了」（00:55.433〜00:59.433）で開き、「今の音に戻す」で戻った。検証機では、ユーザー別のVST3フォルダ（`%LOCALAPPDATA%\Programs\Common\VST3`）に今朝入った別の版のHyphaが、全ユーザーのフォルダの新しい版より優先されて読み込まれ、LISTENの入口が出なかった。確認の間だけ別の版を退避し、確認後に同じハッシュで戻した。インストーラーが別のモードの古い版を消さないことによる問題で、別の作業として提案した。
    - 製品版Pro Toolsの実機確認（2026-09-28、fffd3761（B-1084）をPACEとDeveloper IDで署名した非配布の確認用AAX、Pro Tools Ultimate 26.4.1、48 kHz、32-bit float、300%、Targetオフ）: PRE → Trim −6.0 dB（multi-mono）→ POST（stereo）で、LISTENが始まり、MATCHは「MATCH：PRE -6.00 dB」、PREを選ぶとWAITにならずに鳴り、PIN 4 SでBlindが「範囲の準備完了」（00:19.325〜00:23.325）で開き、Blindを始めるとSOURCE 1が範囲で鳴って「SOURCE 1 聴取完了」になった。確認後、製品版の1.1.51（署名済み）を同じハッシュで戻した。
    - 遅延補償のOFF（B-1086、INV-LC8）: Pro Tools 12.6以降が送る`AAX_eNotificationEvent_DelayCompensationState`（int32の0か1）を、JUCEのpatch 0009で受けてprocessorへ渡す。OFFの間はPOSTを出し、PREの選択を保ってPRE WAITと状態欄の理由（「Pro Toolsの遅延補償がOFFです」）で示す。ONへ戻ると、呼出しの空白と同じくKを確かめ直し、規則Cで確かめた最初のblockからPREへ戻す。切り替えを中身の跳び（INV-LC10）とは扱わず、OFFの間は中身のずれを推定しない。実物のPRE/POST、C ABI、ring、画面を通す端から端までの試験に、PREが鳴っている最中のOFFとONの往復を加えた。通知はAAXだけで、VST3とAUでは何もしない。
-1. AAXの残り: WindowsのPro Tools、multi-mono、遅延補償のOFFの実機確認、hostの通知を待ってから音の遅延を変える型の遅延変更。
+   - 製品版Pro Toolsでの遅延補償のOFFの実機確認（2026-09-28、895bff74（B-1086）をPACEとDeveloper IDで署名した非配布の確認用AAX、Pro Tools Ultimate 26.4.1、48 kHz、32-bit float、300%、Targetオフ）: PRE → Trim −6.0 dB（multi-mono）→ POST（stereo）で、MATCH −6.00 dBの後にPREを選んで鳴らし、再生中にOptions → Delay CompensationをOFFにすると、再生は止まらずにPOSTが鳴り、PREの操作は「PRE WAIT」、状態欄は「Pro Toolsの遅延補償がOFFです」になった。ONに戻すと、操作なしで「PRE -6.0 dB」に戻った（2回）。OFFのままPOSTを入れ直すと、新しいinstanceも最初から「PRE WAIT」と理由を示し、ONで戻った。Pro Toolsは挿入時にも状態を知らせ、登録（`RegisterForNotification`）なしで届く。同じsessionでmulti-monoのPRE（L/Rの2 instance）を入れると、POSTの組の候補に別々のPRE（IDだけで、channelの区別なし）として並んだ。INV-LC9の設計で扱う。確認後、製品版の1.1.51を同じハッシュで戻した。sessionは保存していない。
+1. AAXの残り: WindowsのPro Tools、multi-mono、hostの通知を待ってから音の遅延を変える型の遅延変更。
 2. Windows、他のbuffer設定、報告が先に来る型の遅延変更。
 3. 周回ごとに印が変わるfixtureと、遅延がloop長以上の条件。
 4. infinite tailとAlwaysProcessの副作用、中身のずれの警告の方式。
@@ -1164,7 +1165,7 @@ INV番号、clock診断、Reference audio、英日表示、画面規則、「ロ
 
 次の順で進める。
 
-1. AAXの残り: WindowsのPro Tools、multi-mono、遅延補償のOFFの実機確認、`GetTODLocation`、hostの通知を待ってから音の遅延を変える型の遅延変更。
+1. AAXの残り: WindowsのPro Tools、multi-mono、`GetTODLocation`、hostの通知を待ってから音の遅延を変える型の遅延変更。
 2. 同じ装置でのWindows、他のbuffer設定、報告が先に来る型の遅延変更（G1-04）。
 3. 周回ごとに印が変わるfixtureでの照合と、遅延がloop長以上の条件（G1-03）。
 4. infinite tailとAlwaysProcessの副作用、中身のずれの警告の方式（G1-05）。
