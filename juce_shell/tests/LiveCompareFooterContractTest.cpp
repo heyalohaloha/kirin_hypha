@@ -211,6 +211,7 @@ void verifyLiveCompareFooterContract()
         const auto available = static_cast<float> (post.sessionBounds().getWidth() - 8);
         for (const char* notice : { "Closing returns to POST", "LISTEN could not start",
                                     "Choose the PRE first", "Mono / stereo only", "Paired PRE unavailable",
+                                    "PRE is multi-mono: insert it as stereo",
                                     "Select PRE again", "LISTEN ended; POST plays", "MATCH: PRE -12.50 dB",
                                     "MATCH waits for PRE", "MATCH needs 3 s of play", "MATCH failed; try again",
                                     "MATCH needs more signal", "MATCH over 24 dB", "MATCH: POST -24.00 dB",

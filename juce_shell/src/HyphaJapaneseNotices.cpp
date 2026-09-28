@@ -90,6 +90,7 @@ const Entry entries[] = {
     { "Choose the PRE first", u8"先にPREを選んでください" },
     { "Mono / stereo only", u8"モノラル／ステレオのみ" },
     { "Paired PRE unavailable", u8"ペアのPREを使えません" },
+    { "PRE is multi-mono: insert it as stereo", u8"PREをstereoで入れてください" },
     { "Select PRE again", u8"PREを選び直してください" },
     { "LISTEN ended; POST plays", u8"試聴終了。POSTが鳴ります" },
     { "MATCH: PRE %1", u8"MATCH：PRE %1" },

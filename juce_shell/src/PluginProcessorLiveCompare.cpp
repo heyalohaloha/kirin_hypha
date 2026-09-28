@@ -56,7 +56,10 @@ void KirinHyphaProcessorBase::prepareLiveCompareForPreparedFormat()
         return;
     auto mapping = std::make_unique<SharedRingMapping>();
     const auto key = hypha::live_compare::pairKeyForPreInstance (persistInstanceId.toStdString());
-    if (mapping->create (key, static_cast<std::uint32_t> (preparedFormat.sampleRate)))
+    // INV-LC9: a PRE that is one channel of a multi-mono set says so, and POST refuses it with the
+    // reason. The set is complete by now: writes are enabled well after the host creates it.
+    const auto source = aaxMultiMonoMember() ? hypha::live_compare::ringSourceMultiMono : 0u;
+    if (mapping->create (key, static_cast<std::uint32_t> (preparedFormat.sampleRate), source))
         liveCompare.ring.publish (std::move (mapping));
 }
 
@@ -88,6 +91,8 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
     const auto key = hypha::live_compare::pairKeyForPreInstance (pre.toStdString());
     if (! mapping->open (key, static_cast<std::uint32_t> (preparedFormat.sampleRate)))
         return StartResult::preUnavailable;
+    if ((mapping->ring()->header.source.load (std::memory_order_acquire) & hypha::live_compare::ringSourceMultiMono) != 0)
+        return StartResult::preMultiMono;
     liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), preparedFormat.sampleRate);
     liveCompare.gain.store (1.0f, std::memory_order_release); // each session approves its own MATCH
     mapping->ring()->header.demand.store (1, std::memory_order_release);
@@ -176,6 +181,12 @@ void KirinHyphaProcessorBase::kirinHostDelayCompensationStateChanged (bool enabl
     liveCompare.compensationOff.store (! enabled, std::memory_order_release);
 }
 
+// INV-LC9: Pro Tools names this instance's group once, before the first prepare (JUCE patch 0010).
+void KirinHyphaProcessorBase::kirinHostInstanceGroup (juce::uint64 group, bool valid)
+{
+    liveCompare.aaxGroup.assign (static_cast<std::uint64_t> (group), valid);
+}
+
 // Message thread, the explicit RETURN: POST rises back to its normal level over half a second.
 void KirinHyphaProcessorBase::returnLiveComparePostToNormal() noexcept
 {
@@ -217,12 +228,18 @@ bool KirinHyphaProcessorBase::takeLiveComparePreWait() noexcept
 
 bool KirinHyphaProcessorBase::liveCompareSupported() const noexcept
 {
-    // AAX multi-mono runs one mono instance per channel, and a mono instance cannot tell that apart
-    // from a mono track. Until every channel switches in the same block (INV-LC9), AAX offers the
-    // live compare on stereo instances only, so PRE and POST never mix across channels.
-    const bool aaxMono = wrapperType == wrapperType_AAX && getTotalNumInputChannels() < 2;
-    return role == Role::Post && stereoWorkflowsSupported() && ! aaxMono
+    // INV-LC9: AAX offers the live compare on stereo instances and on the only instance of its
+    // group, as on a mono track, so PRE and POST never mix across the channels of a multi-mono set.
+    return role == Role::Post && stereoWorkflowsSupported() && ! aaxMultiMonoMember()
         && hypha::live_compare::sharedRingAvailable();
+}
+
+// INV-LC9: a mono AAX instance that the host does not show to be the only one of its group: one
+// channel of a multi-mono set, or a host that names no groups. Pro Tools processes the channels of
+// a set on parallel threads (G1 record, section 10), so no instance can switch them all in a block.
+bool KirinHyphaProcessorBase::aaxMultiMonoMember() const noexcept
+{
+    return wrapperType == wrapperType_AAX && getTotalNumInputChannels() < 2 && ! liveCompare.aaxGroup.alone();
 }
 
 // Message thread. A session belongs to the PRE ring it opened: a changed or cleared pair, or a PRE

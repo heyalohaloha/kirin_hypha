@@ -13,11 +13,12 @@ namespace hypha::live_compare
 // field and sample is a lock-free atomic, so PRE and POST running concurrently is race-free rather
 // than merely detected. The layout is the same in both processes of a pair and never resized.
 constexpr std::uint32_t ringMagic = 0x4B4C4331u; // "KLC1"
-constexpr std::uint32_t ringVersion = 1;
+constexpr std::uint32_t ringVersion = 2;
 constexpr std::uint32_t ringChannels = 2;
 constexpr std::uint32_t ringCapacityFrames = 1u << 19; // power of two: about 10.9 s at 48 kHz
 constexpr std::uint32_t ringDescriptors = 1024;
 constexpr std::uint32_t joinSearchDepth = 256; // latest PRE blocks searched for a project-time join
+constexpr std::uint32_t ringSourceMultiMono = 1u; // PRE is one channel of an AAX multi-mono set (INV-LC9)
 
 static_assert ((ringCapacityFrames & (ringCapacityFrames - 1)) == 0);
 static_assert (joinSearchDepth <= ringDescriptors);
@@ -50,6 +51,7 @@ struct RingHeader
     std::atomic<std::uint32_t> channels { 0 };
     std::atomic<std::uint32_t> capacityFrames { 0 };
     std::atomic<std::uint32_t> sampleRate { 0 };
+    std::atomic<std::uint32_t> source { 0 };  // PRE's input, ringSourceMultiMono or 0; fills the padding
     std::atomic<std::uint64_t> pairKey { 0 }; // POST refuses a ring stamped for another pair
     std::atomic<std::uint32_t> demand { 0 };  // POST sets it while a live session wants PRE input
     std::atomic<std::uint32_t> ownerClosed { 0 }; // PRE sets it as it unmaps; POST's session ends
@@ -67,7 +69,7 @@ struct Ring
     std::atomic<float> samples[std::size_t (ringCapacityFrames) * ringChannels];
 
     // Non-RT owner, before PRE publishes: stamps an empty ring for one pair and sample rate.
-    void initialise (std::uint64_t pairKey, std::uint32_t sampleRate) noexcept
+    void initialise (std::uint64_t pairKey, std::uint32_t sampleRate, std::uint32_t source = 0) noexcept
     {
         auto& h = header;
         h.magic.store (0, std::memory_order_relaxed);
@@ -75,6 +77,7 @@ struct Ring
         h.channels.store (ringChannels, std::memory_order_relaxed);
         h.capacityFrames.store (ringCapacityFrames, std::memory_order_relaxed);
         h.sampleRate.store (sampleRate, std::memory_order_relaxed);
+        h.source.store (source, std::memory_order_relaxed);
         h.pairKey.store (pairKey, std::memory_order_relaxed);
         h.demand.store (0, std::memory_order_relaxed);
         h.ownerClosed.store (0, std::memory_order_relaxed);

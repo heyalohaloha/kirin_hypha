@@ -90,3 +90,9 @@ apply_patch_idempotent \
   "0009-aax-delay-compensation-state.patch" \
   --unidiff-zero \
   --ignore-whitespace
+
+apply_patch_idempotent \
+  "0010" \
+  "0010-aax-instance-group.patch" \
+  --unidiff-zero \
+  --ignore-whitespace

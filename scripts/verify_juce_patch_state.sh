@@ -27,6 +27,7 @@ PATCHES=(
   "0007-vst3-host-component-activation.patch::--unidiff-zero --ignore-whitespace"
   "0008-raw-auxiliary-sample-clock.patch::--unidiff-zero --ignore-whitespace"
   "0009-aax-delay-compensation-state.patch::--unidiff-zero --ignore-whitespace"
+  "0010-aax-instance-group.patch::--unidiff-zero --ignore-whitespace"
 )
 
 die() {

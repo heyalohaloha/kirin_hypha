@@ -162,6 +162,7 @@ public:
     bool applyLiveCompareMatch (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
     bool followLiveCompareGain (double preDb); // INV-LC16: AUTO moves PRE only
     void kirinHostDelayCompensationStateChanged (bool enabled) override; // INV-LC8, AAX only
+    void kirinHostInstanceGroup (juce::uint64 group, bool valid) override; // INV-LC9, AAX only
     void returnLiveComparePostToNormal() noexcept;
     bool takeLiveCompareGuardTrip() noexcept;
     hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
@@ -170,6 +171,7 @@ public:
     hypha::live_compare::LivePinResult pinLiveCompareForBlind (hypha::meter_context::MeterContext);
     hypha::live_compare::Status liveCompareStatus() const noexcept;
     bool liveCompareSupported() const noexcept;
+    bool aaxMultiMonoMember() const noexcept;
     bool takeLiveComparePreWait() noexcept;
     bool serviceLiveCompare();
     // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until

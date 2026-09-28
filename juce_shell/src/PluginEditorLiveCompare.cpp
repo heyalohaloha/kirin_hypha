@@ -67,6 +67,7 @@ juce::String startFailure (StartResult result)
         case StartResult::noPair:            return "Choose the PRE first";
         case StartResult::unsupportedLayout: return "Mono / stereo only";
         case StartResult::preUnavailable:    return "Paired PRE unavailable";
+        case StartResult::preMultiMono:      return "PRE is multi-mono: insert it as stereo";
     }
     return {};
 }

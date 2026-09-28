@@ -283,6 +283,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/live_compare/LiveCompareMatch.cpp
         src/live_compare/LiveCompareOffset.cpp
         src/live_compare/LiveComparePin.cpp
+        src/live_compare/LiveCompareAaxGroup.cpp
         src/local_blind/LocalBlindCaptureService.cpp
         src/local_blind/CapturePairComparison.cpp
         src/local_blind/LocalBlindPreparation.cpp

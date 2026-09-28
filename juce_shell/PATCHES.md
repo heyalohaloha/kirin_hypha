@@ -208,3 +208,21 @@ release gate.
   nothing) and call it from the AAX wrapper's `NotificationReceived` for that notification.
 - **Scope / impact:** Observation only, AAX only, off the audio thread. Audio, parameters and
   clocks are untouched; other formats never call it.
+
+---
+
+## 0010 — AAX instance group
+
+- **Files:** `juce_AudioProcessor.h`, `juce_audio_plugin_client_AAX.cpp`
+- **Patch:** `patches/0010-aax-instance-group.patch`
+- **Why:** Pro Tools gives the instances of one multi-mono set the same instance group
+  (`AAX_IController::GetInstanceGroupID`, AAX SDK 2.9) and processes their channels on parallel
+  threads, so the live PRE/POST compare cannot switch every channel in the same block. It is
+  offered only on stereo instances and on the only instance of a group, as on a mono track
+  (INV-LC9). JUCE 7.0.12 does not read the group.
+- **Change:** Add `AudioProcessor::kirinHostInstanceGroup (uint64, bool)` (default: nothing) and
+  call it once from the AAX wrapper's `EffectInit`, before the first prepare. `valid` is false
+  when the host names no group.
+- **Scope / impact:** Observation only, AAX only, off the audio thread. Audio, parameters and
+  clocks are untouched; other formats never call it.
+

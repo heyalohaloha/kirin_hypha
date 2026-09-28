@@ -30,7 +30,7 @@ public:
     SharedRingMapping (const SharedRingMapping&) = delete;
     SharedRingMapping& operator= (const SharedRingMapping&) = delete;
 
-    bool create (std::uint64_t pairKey, std::uint32_t sampleRate); // PRE
+    bool create (std::uint64_t pairKey, std::uint32_t sampleRate, std::uint32_t source = 0); // PRE
     bool open (std::uint64_t pairKey, std::uint32_t sampleRate);   // POST
     void close() noexcept;
 

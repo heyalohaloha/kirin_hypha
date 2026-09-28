@@ -114,6 +114,22 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     add_test(NAME kirin_live_compare_offset_product COMMAND KirinLiveCompareOffsetProductTests)
     set_tests_properties(kirin_live_compare_offset_product PROPERTIES TIMEOUT 90)
 
+    # AAX mono: a mono track's PRE and POST compare; a multi-mono set never does (INV-LC9).
+    add_executable(KirinLiveCompareAaxGroupProductTests tests/live_compare_aax_group_product_test.cpp)
+    if(APPLE)
+        target_sources(KirinLiveCompareAaxGroupProductTests PRIVATE tests/BlindProductMacRunLoop.mm)
+    endif()
+    target_compile_features(KirinLiveCompareAaxGroupProductTests PRIVATE cxx_std_17)
+    target_compile_options(KirinLiveCompareAaxGroupProductTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_compile_definitions(KirinLiveCompareAaxGroupProductTests PRIVATE
+        "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
+    target_include_directories(KirinLiveCompareAaxGroupProductTests PRIVATE
+        "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
+    target_link_libraries(KirinLiveCompareAaxGroupProductTests PRIVATE KirinHyphaPOST
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_live_compare_aax_group_product COMMAND KirinLiveCompareAaxGroupProductTests)
+    set_tests_properties(kirin_live_compare_aax_group_product PROPERTIES TIMEOUT 90)
+
     add_executable(KirinEditorSurfaceProductTests tests/editor_surface_product_test.cpp)
     if(APPLE)
         target_sources(KirinEditorSurfaceProductTests PRIVATE tests/BlindProductMacRunLoop.mm)
