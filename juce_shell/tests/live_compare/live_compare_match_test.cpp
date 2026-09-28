@@ -148,6 +148,7 @@ static void theMappingShowsAnUnreportedDelay()
     const auto early = measureOffset (*delayed.ring, delayed.renderer);
     std::printf ("mapping offset: lag %lld (peak %.3f)\n", static_cast<long long> (early.lagFrames), early.peak);
     require (early.determined && early.lagFrames == -480, "an unreported 10 ms delay shows PRE 480 frames early");
+    require (early.sampleRate == static_cast<double> (rate), "the lag counts in the ring's stamped rate");
     Pair early1;
     early1.run (0.5, 1.0f, 0.5f);
     require (! measureOffset (*early1.ring, early1.renderer).determined, "without enough history nothing is claimed");

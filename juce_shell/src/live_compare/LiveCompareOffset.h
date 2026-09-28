@@ -19,6 +19,7 @@ struct OffsetEstimate
     std::int64_t lagFrames = 0;
     double peak = 0.0;      // GCC-PHAT peak, 1 for a delayed copy
     double dominance = 0.0; // the peak over the strongest peak away from it
+    double sampleRate = 0.0; // the rate lagFrames counts in: the rate the ring is stamped with
 };
 
 constexpr std::int64_t offsetSearchFrames = 8192;  // +/-170 ms at 48 kHz

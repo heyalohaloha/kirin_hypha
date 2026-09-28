@@ -149,6 +149,8 @@ OffsetEstimate measureOffset (const Ring& ring, const PostRenderer& renderer)
     if (renderer.historyWriteEnd() - postStart > view.frames
         || ! copyPreRing (ring, postStart - view.k - lag, frames + 2 * lag, pre))
         return {};
-    return estimateOffset (monoSum (post), monoSum (pre), lag);
+    auto estimate = estimateOffset (monoSum (post), monoSum (pre), lag);
+    estimate.sampleRate = static_cast<double> (ring.header.sampleRate.load (std::memory_order_relaxed));
+    return estimate;
 }
 }

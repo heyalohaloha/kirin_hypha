@@ -70,12 +70,17 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
     assert!(source_gate.contains("KirinLiveCompareMatchTests"));
     assert!(source_gate.contains("KirinLiveCompareSessionTests"));
     assert!(source_gate.contains("KirinLiveCompareCorrespondenceTests"));
-    // PIN to Blind runs the real processors through the live ring: macOS until the Windows transport.
+    // PIN to Blind and the offset warning run the real processors through the live ring: macOS until
+    // the Windows transport.
     let local_blind = include_str!("../../juce_shell/cmake/LocalBlind.cmake");
     assert!(local_blind.contains("KirinLiveComparePinProductTests"));
     assert!(local_blind.contains("kirin_live_compare_pin_product"));
     assert!(source_gate.contains("KirinLiveComparePinProductTests"));
     assert!(!ci.contains("KirinLiveComparePinProductTests"));
+    assert!(local_blind.contains("KirinLiveCompareOffsetProductTests"));
+    assert!(local_blind.contains("kirin_live_compare_offset_product"));
+    assert!(source_gate.contains("KirinLiveCompareOffsetProductTests"));
+    assert!(!ci.contains("KirinLiveCompareOffsetProductTests"));
     let selected: Vec<_> = source_gate
         .lines()
         .find_map(|line| line.strip_prefix("JUCE_TEST_REGEX='^("))
@@ -105,6 +110,7 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         "kirin_live_compare_session",
         "kirin_live_compare_match",
         "kirin_live_compare_pin_product",
+        "kirin_live_compare_offset_product",
     ] {
         assert!(
             selected.contains(&test),

@@ -33,10 +33,13 @@ juce::String magnitudeDb (double db)
     return signedDb (std::fabs (db)).trimCharactersAtStart ("+");
 }
 
-// INV-LC7: the offset as a fact, without a judgement (R-22).
+// INV-LC7: the offset as a fact, without a judgement (R-22), in milliseconds at the rate the ring
+// counts in. The host's rate is not read here: a processor prepared without it reports none.
 juce::String offsetText (std::int64_t lag, double sampleRate)
 {
-    const auto ms = std::fabs (static_cast<double> (lag)) * 1000.0 / juce::jmax (1.0, sampleRate);
+    if (sampleRate <= 0.0)
+        return {};
+    const auto ms = std::fabs (static_cast<double> (lag)) * 1000.0 / sampleRate;
     return "PRE " + juce::String (ms, 2) + (lag < 0 ? " ms early" : " ms late");
 }
 
@@ -225,7 +228,8 @@ void KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
     if (status.active && status.verdict == hypha::live_compare::Verdict::accepted && now >= m.nextAt)
     {
         m.nextAt = now + 2.0;
-        const auto step = m.monitor.observe (processorRef.measureLiveCompareOffset(), status.contentHeld);
+        const auto estimate = processorRef.measureLiveCompareOffset();
+        const auto step = m.monitor.observe (estimate, status.contentHeld);
         if (step.jumped)
         {
             processorRef.holdLiveCompareForContentJump();
@@ -234,11 +238,12 @@ void KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
         if (step.settled)
         {
             m.lag = step.lagFrames;
+            m.rate = estimate.sampleRate;
             m.warningUntil = std::llabs (m.lag) > 1 ? now + 10.0 : 0.0;
         }
     }
     liveCompareOffsetWarning = status.active && now < m.warningUntil
-        ? offsetText (m.lag, processorRef.getSampleRate()) : juce::String();
+        ? offsetText (m.lag, m.rate) : juce::String();
 }
 
 void KirinHyphaEditor::refreshLiveCompare()

@@ -259,7 +259,7 @@ private:
     struct LiveCompareOffsetWatch
     {
         std::uint32_t run = 0;
-        double nextAt = 0.0, warningUntil = 0.0;
+        double nextAt = 0.0, warningUntil = 0.0, rate = 0.0;
         std::int64_t lag = 0;
         hypha::live_compare::OffsetMonitor monitor;
     };
