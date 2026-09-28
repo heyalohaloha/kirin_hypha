@@ -178,9 +178,32 @@ void verifyLiveCompareFooterContract()
     }
     state.matchLimited = false;
 
-    // Every live notice reads whole in the 300% footer, in both languages. The TP limit notice
-    // carries two values and may lose the second; TP LIMIT stays on MATCH.
+    // INV-LC16: while PRE follows POST the MATCH slot reads AUTO, in the same place.
+    for (const auto preset : { observatory::sizePresets[3], observatory::sizePresets[4] })
+    {
+        post.setSize (preset.width, preset.height);
+        post.setLiveCompareFooter (state);
+        const auto matchedBounds = boundsOf (rail);
+        state.following = true;
+        post.setLiveCompareFooter (state);
+        require (match->getButtonText() == "AUTO" && match->getToggleState() && readable (post, *match),
+                 "AUTO reads on the MATCH slot");
+        require (boundsOf (rail) == matchedBounds, "AUTO never moves a control");
+        state.following = false;
+        post.setLiveCompareFooter (state);
+        require (match->getButtonText() == "MATCH", "stopping AUTO reads MATCH again");
+    }
+
+    // Every live notice reads whole in the 300% footer, in both languages, beside the widest rail:
+    // named PRE and POST gains, PIN and AUTO. The TP limit notice carries two values and may lose
+    // the second; TP LIMIT stays on MATCH.
     post.setSize (900, 600);
+    const auto plain = state;
+    state.preGainTenthsDb = -125;
+    state.postHeldTenthsDb = -100;
+    state.pinAvailable = true;
+    state.following = true;
+    post.setLiveCompareFooter (state);
     for (const auto language : { i18n::Language::english, i18n::Language::japanese })
     {
         const i18n::ScopedLanguage scoped (language);
@@ -190,13 +213,47 @@ void verifyLiveCompareFooterContract()
                                     "Choose the PRE first", "Mono / stereo only", "Paired PRE unavailable",
                                     "Select PRE again", "LISTEN ended; POST plays", "MATCH: PRE -12.50 dB",
                                     "MATCH waits for PRE", "MATCH needs 3 s of play", "MATCH failed; try again",
-                                    "MATCH needs more signal" })
+                                    "MATCH needs more signal", "MATCH over 24 dB", "MATCH: POST -24.00 dB",
+                                    "POST back to normal", "Press RETURN first", "PRE over TP ceiling",
+                                    "PRE 170.67 ms early", "PRE 170.67 ms late", "PRE held: latency changed",
+                                    "PIN waits for PRE", "PIN needs 4 s of play", "Last 4 s not one range",
+                                    "PIN failed; try again", "AUTO on: within 0.5 dB", "AUTO off",
+                                    "AUTO stopped: TP ceiling", "AUTO stopped: over 6 dB" })
         {
             if (text_style::shownWidth (font, notice) > available)
                 std::cerr << "too wide at 300%: " << text_style::shownText (notice) << '\n';
             require (text_style::shownWidth (font, notice) <= available, "a live notice reads whole at 300%");
         }
     }
+    state = plain;
+    post.setLiveCompareFooter (state);
+
+    // INV-LC15: PIN sits between MATCH and END at 200% and 300% where Blind exists, and never
+    // where it does not.
+    auto* pinButton = control (post, "observatory-live-pin");
+    int pinned = 0;
+    post.onLiveComparePin = [&] { ++pinned; };
+    state.pinAvailable = true;
+    post.setLiveCompareFooter (state);
+    for (const auto preset : observatory::sizePresets)
+    {
+        post.setSize (preset.width, preset.height);
+        require (pinButton->isVisible() == (preset.width >= 600), "PIN shows at the large sizes");
+        if (! pinButton->isVisible())
+            continue;
+        require (readable (post, *pinButton) && post.getLocalBounds().contains (pinButton->getBounds()),
+                 "PIN reads whole");
+        for (auto* other : std::vector<juce::Component*> { preButton, postButton, match, end, menu })
+            require (! other->isVisible() || ! other->getBounds().intersects (pinButton->getBounds()),
+                     "PIN overlaps no other control");
+        require (match->getX() < pinButton->getX() && pinButton->getX() < end->getX(),
+                 "PIN sits between MATCH and END");
+    }
+    pinButton->onClick();
+    require (pinned == 1, "PIN reaches the editor");
+    state.pinAvailable = false;
+    post.setLiveCompareFooter (state);
+    require (! pinButton->isVisible(), "without Blind in this host there is no PIN");
 
     // An approved POST attenuation is named on POST during a session; after END it is held, and
     // RETURN names how much POST rises, at every size, while Blind waits for it (INV-LC14).

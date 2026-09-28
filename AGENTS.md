@@ -94,6 +94,9 @@ PREの増幅が比較ceilingを超えるMATCHでは、利用者の明示承認�
 差だけ固定減衰できる（Local Blindと同じ方式）。減衰は試聴の終了後も、利用者が明示して通常の音量へ
 戻すまで保持し、急に上げない。offline render、hostが知らせるbypass、他の試聴が出力を取るblockには
 適用せず、正本のPRE/POST測定・Recordは減衰の前で取る。（2026-09-28、利用者が承認）
+明示MATCHの後、利用者が明示して選んだ追従（AUTO）だけは、そのMATCHのgainから±6 dB以内、そのMATCHで
+承認したceiling以下で、PREの試聴コピーのgainを50 msのrampで動かせる。POSTとceilingは動かさず、範囲を
+出るときは追従を止めて通知する。追従はBlindへ持ち込まない。（2026-09-28、第3段階として利用者が承認）
 
 Audio Thread（processBlock）は通常計測では読み取り・コピー・通知だけを行う。Reference比較試聴では、
 非RT側で検証・decode・準備した事前確保済みReference bufferの選択とRT-safeな出力だけを許可する。

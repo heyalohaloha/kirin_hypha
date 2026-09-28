@@ -1,3 +1,4 @@
+#include "../../src/live_compare/LiveComparePin.h"
 #include "../../src/live_compare/LiveCompareSession.h"
 #include "../../src/live_compare/LiveCompareSharedRing.h"
 
@@ -32,7 +33,7 @@ struct Pair
     PostLevel level;
     float postTarget = 1.0f, ceiling = 1.0f;
     std::vector<float> pre[2], post[2];
-    std::int64_t clock = 0;
+    std::int64_t clock = 0, projectShift = 0;
 
     Pair()
     {
@@ -48,7 +49,8 @@ struct Pair
     {
         ring->header.demand.store (demand ? 1u : 0u);
         BlockClock b;
-        b.clock = b.project = clock;
+        b.clock = clock;
+        b.project = clock + projectShift;
         b.frames = frames;
         b.clockValid = b.projectValid = b.playing = true;
         b.afterGap = afterGap;
@@ -198,6 +200,76 @@ static void guardKeepsPreUnderTheCeiling()
     require (nan.guardTripped && poisoned.postUntouched(), "a non-finite PRE sample never sounds");
 }
 
+// A gain that changes while PRE sounds (a new MATCH, AUTO) moves linearly over 50 ms, never in a
+// step, and the guard checks a rising ramp at its end.
+static void preGainRampsOverFiftyMilliseconds()
+{
+    Pair pair;
+    pair.calibrate (true, 1.0f);
+    pair.step (true, true, 1.0f);
+    std::vector<float> gains;
+    for (int b = 0; b < 6; ++b)
+    {
+        const auto start = pair.clock;
+        pair.step (true, true, 0.5f);
+        for (int i = 0; i < frames; ++i)
+            gains.push_back (pair.post[0][size_t (i)] / preValue (start + i, 0));
+    }
+    const float increment = 0.5f / 2400.0f;
+    float largest = 0.0f;
+    for (std::size_t i = 1; i < gains.size(); ++i)
+        largest = std::max (largest, std::fabs (gains[i] - gains[i - 1]));
+    std::printf ("pre gain ramp: first %.6f, frame 2398 %.6f, frame 2399 %.6f, largest step %.7f\n",
+                 gains[0], gains[2398], gains[2399], largest);
+    require (std::fabs (gains[0] - (1.0f - increment)) < 2.0e-5f, "the ramp starts in the first frame");
+    require (largest <= increment * 1.01f + 2.0e-6f, "no step is larger than one ramp increment");
+    require (gains[2398] > 0.5f + increment * 0.5f, "the ramp is still moving before 50 ms");
+    for (std::size_t i = 2399; i < gains.size(); ++i)
+        require (std::fabs (gains[i] - 0.5f) < 1.0e-6f, "after 50 ms PRE sits at the new gain");
+
+    Pair raised;
+    raised.ceiling = 0.5f;
+    raised.calibrate (true, 1.0f);
+    raised.step (true, true, 1.0f);
+    const auto tripped = raised.step (true, true, 1.5f);
+    require (tripped.guardTripped && raised.postUntouched(), "a rising ramp is checked at its end value");
+
+    Pair silent;
+    silent.calibrate (true, 1.0f);
+    silent.step (true, true, 1.0f);
+    silent.step (true, false, 1.0f);
+    const auto back = silent.step (true, true, 0.25f);
+    require (back.preAudible && std::fabs (silent.post[0][frames - 1] - preValue (silent.clock - 1, 0) * 0.25f) < 1.0e-6f,
+             "a gain set while PRE is silent applies at once");
+}
+
+// A Pin fixes the latest window as one project range: POST's input and the PRE mapped to it. Too
+// little history, or a seek inside the window, fixes nothing.
+static void pinFixesOneProjectRange()
+{
+    Pair pair;
+    pair.calibrate (false, 1.0f);
+    for (int i = 0; i < 12; ++i) pair.step (true, false, 1.0f);
+    const auto stereo = pinLatest (*pair.ring, pair.renderer, 4096, 2);
+    require (stereo.ok() && stereo.projectStart == pair.clock - 4096 && stereo.post.size() == 8192,
+             "the latest window is one project range");
+    require (stereo.post[0] == postValue && stereo.pre[0] == preValue (stereo.projectStart, 0)
+                 && stereo.pre[8191] == preValue (pair.clock - 1, 1),
+             "POST and PRE hold the same range");
+    const auto mono = pinLatest (*pair.ring, pair.renderer, 4096, 1);
+    require (mono.ok() && mono.pre.size() == 4096 && mono.pre[1] == preValue (mono.projectStart + 1, 0),
+             "a mono POST pins one channel");
+    require (pinLatest (*pair.ring, pair.renderer, 1 << 20, 2).failure == PinFailure::tooShort,
+             "more than the history is too short");
+    pair.projectShift = 96000;
+    pair.step (true, false, 1.0f);
+    require (pinLatest (*pair.ring, pair.renderer, 4096, 2).failure == PinFailure::notOneRange,
+             "a seek inside the window fixes nothing");
+    for (int i = 0; i < 9; ++i) pair.step (true, false, 1.0f);
+    const auto after = pinLatest (*pair.ring, pair.renderer, 4096, 2);
+    require (after.ok() && after.projectStart == pair.clock - 4096 + 96000, "after the seek, a new range");
+}
+
 // PRE creates the ring for its identity; POST opens it for the same key and rate only.
 static void sharedRingPairsOnlyTheSameIdentityAndRate()
 {
@@ -205,12 +277,7 @@ static void sharedRingPairsOnlyTheSameIdentityAndRate()
     require (name.size() <= 31 && name.rfind ("/kh-lc-", 0) == 0, "the name fits the POSIX limit");
     require (pairKeyForPreInstance ("a") != pairKeyForPreInstance ("b"), "different PRE identities give different keys");
     const auto pairKey = pairKeyForPreInstance ("live-compare-session-test");
-#if defined (_WIN32)
-    SharedRingMapping unavailable;
-    require (! sharedRingAvailable() && ! unavailable.create (pairKey, 48000),
-             "Windows has no live compare transport until its stage");
-#else
-    require (sharedRingAvailable(), "macOS maps the ring");
+    require (sharedRingAvailable(), "macOS and Windows map the ring");
     SharedRingMapping pre, post, wrongRate;
     require (pre.create (pairKey, 48000), "PRE creates its ring");
     require (post.open (pairKey, 48000), "POST opens the ring of its PRE");
@@ -224,9 +291,24 @@ static void sharedRingPairsOnlyTheSameIdentityAndRate()
     pre.close();
     require (post.ring()->header.ownerClosed.load() == 1, "POST learns that PRE closed its ring");
     SharedRingMapping late;
-    require (! late.open (pairKey, 48000), "the owner's close removes the name");
+    require (! late.open (pairKey, 48000), "a ring its PRE closed is never opened again");
+
+    // PRE prepares again while POST still holds the closed ring (on Windows the section keeps its
+    // name): PRE gets a new ring, the old one stays closed for that POST, and a new POST opens the
+    // new one.
+    SharedRingMapping again, newer;
+    require (again.create (pairKey, 48000), "PRE creates a new ring while POST holds the old one");
+    post.ring()->header.demand.store (0);
+    again.ring()->header.demand.store (1);
+    require (post.ring()->header.ownerClosed.load() == 1 && post.ring()->header.demand.load() == 0,
+             "the old ring stays closed and apart from the new one");
+    require (newer.open (pairKey, 48000) && newer.ring()->header.demand.load() == 1
+                 && newer.ring()->header.ownerClosed.load() == 0,
+             "a new POST opens the new ring");
     post.close();
-#endif
+    newer.close();
+    again.close();
+    require (! late.open (pairKey, 48000), "nothing is left open after every owner closed");
 }
 
 int main()
@@ -239,6 +321,8 @@ int main()
     approvedAttenuationLowersPostOnly();
     postLevelRampsDownFastAndUpSlowly();
     guardKeepsPreUnderTheCeiling();
+    preGainRampsOverFiftyMilliseconds();
+    pinFixesOneProjectRange();
     std::printf ("live compare session: all checks passed\n");
     return 0;
 }

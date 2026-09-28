@@ -24,7 +24,7 @@ juce::String signedGain (int tenths)
 void View::configureComparisonEntries()
 {
     for (auto* button : { &localBlindButton, &liveCompareButton, &livePreButton, &livePostButton,
-                          &liveMatchButton, &liveEndButton, &liveReturnButton })
+                          &liveMatchButton, &liveEndButton, &liveReturnButton, &livePinButton })
     {
         button->setMouseCursor (juce::MouseCursor::PointingHandCursor);
         addChildComponent (*button);
@@ -61,6 +61,11 @@ void View::configureComparisonEntries()
     liveReturnButton.setDescription ("Return POST to its normal level; it rises by the amount shown");
     liveReturnButton.setTooltip (liveReturnButton.getDescription());
     liveReturnButton.onClick = [this] { if (onLiveCompareReturn) onLiveCompareReturn(); };
+    livePinButton.setComponentID ("observatory-live-pin");
+    livePinButton.setTitle ("PIN 4 S");
+    livePinButton.setDescription ("Fix the last four seconds of PRE and POST and open them in PRE / POST Blind");
+    livePinButton.setTooltip (livePinButton.getDescription());
+    livePinButton.onClick = [this] { if (onLiveComparePin) onLiveComparePin(); };
 }
 
 void View::setLiveCompareFooter (const LiveCompareFooter& next)
@@ -75,11 +80,12 @@ void View::setLiveCompareFooter (const LiveCompareFooter& next)
 // PRE, POST, MATCH, END and MENU while a session runs. Where the rail is narrow MENU goes first,
 // then MATCH, then PRE; POST and END stay at every size. The PRE control names what it plays: its
 // MATCH gain, or WAIT while PRE is selected and POST still sounds, never by colour alone. MATCH
-// reads TP LIMIT while its gain stopped at the true-peak ceiling. Each slot is as wide as its
-// longest text, so a boundary that toggles WAIT never moves a control.
+// reads TP LIMIT while its gain stopped at the true-peak ceiling, and AUTO while PRE follows POST.
+// Each slot is as wide as its longest text, so a boundary that toggles WAIT never moves a control.
 bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
 {
-    for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &liveReturnButton })
+    for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &liveReturnButton,
+                          &livePinButton })
         button->setVisible (false);
     if (captureFrame)
         return false;
@@ -92,12 +98,20 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     const juce::String named = state.matched ? "PRE " + signedGain (state.preGainTenthsDb) : juce::String ("PRE");
     const int namedWidth = juce::jmax (footerButtonWidth (named), footerButtonWidth ("PRE WAIT"));
     const int briefWidth = juce::jmax (footerButtonWidth ("PRE"), footerButtonWidth ("WAIT"));
-    const int matchWidth = juce::jmax (footerButtonWidth ("MATCH"), footerButtonWidth ("TP LIMIT"));
+    const int matchWidth = juce::jmax (footerButtonWidth ("MATCH"), footerButtonWidth ("TP LIMIT"),
+                                       footerButtonWidth ("AUTO"));
     const bool postLowered = state.postHeldTenthsDb < 0;
     const juce::String postNamed = postLowered ? "POST " + signedGain (state.postHeldTenthsDb) : juce::String ("POST");
-    const std::array<juce::Array<juce::Button*>, 4> sets {
-        juce::Array<juce::Button*> { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton,
-                                     &operationsButton },
+    // PIN comes before MENU and after MATCH; without Blind in this host it never shows.
+    auto withPin = [this] (juce::Array<juce::Button*> set)
+    {
+        if (liveCompareState.pinAvailable)
+            set.insert (3, &livePinButton);
+        return set;
+    };
+    const std::array<juce::Array<juce::Button*>, 5> sets {
+        withPin ({ &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton, &operationsButton }),
+        withPin ({ &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton }),
         juce::Array<juce::Button*> { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton },
         juce::Array<juce::Button*> { &livePreButton, &livePostButton, &liveEndButton },
         juce::Array<juce::Button*> { &livePostButton, &liveEndButton } };
@@ -141,10 +155,13 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     livePostButton.setDescription (postHelp);
     livePostButton.setTooltip (postHelp);
     livePostButton.setToggleState (! state.preSelected, juce::dontSendNotification);
-    const juce::String matchHelp = state.matchLimited
+    const juce::String matchHelp = state.following
+        ? "AUTO: PRE follows POST loudness within 0.5 dB, up to 6 dB from your MATCH. Press to MATCH again or stop AUTO"
+        : state.matchLimited
         ? "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again"
-        : "Match PRE to POST loudness over the latest four seconds";
-    liveMatchButton.setButtonText (state.matchLimited ? "TP LIMIT" : "MATCH");
+        : state.matched ? "Press to MATCH again or to let PRE follow POST (AUTO)"
+                        : "Match PRE to POST loudness over the latest four seconds";
+    liveMatchButton.setButtonText (state.following ? "AUTO" : state.matchLimited ? "TP LIMIT" : "MATCH");
     liveMatchButton.setDescription (matchHelp);
     liveMatchButton.setTooltip (matchHelp);
     liveMatchButton.setToggleState (state.matched, juce::dontSendNotification);

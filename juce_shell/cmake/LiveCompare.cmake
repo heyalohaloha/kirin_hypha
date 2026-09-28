@@ -14,6 +14,7 @@ if(KIRIN_HYPHA_BUILD_LIVE_COMPARE_TESTS OR KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS
     set_tests_properties(kirin_live_compare_correspondence PROPERTIES TIMEOUT 120)
     add_executable(KirinLiveCompareSessionTests
         tests/live_compare/live_compare_session_test.cpp
+        src/live_compare/LiveComparePin.cpp
         src/live_compare/LiveCompareSharedRing.cpp)
     target_compile_features(KirinLiveCompareSessionTests PRIVATE cxx_std_17)
     target_compile_options(KirinLiveCompareSessionTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})

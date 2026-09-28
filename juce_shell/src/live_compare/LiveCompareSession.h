@@ -74,6 +74,52 @@ private:
     std::atomic<float> downStep { 1.0f / 2400.0f }, upStep { 1.0f / 24000.0f };
 };
 
+// The PRE gain on its way to a new MATCH or AUTO value (plan 6.2): a linear ramp over 50 ms, so a
+// gain that changes while PRE sounds never steps. While PRE is silent it moves at once.
+class GainRamp
+{
+public:
+    void configure (double sampleRate) noexcept
+    {
+        rampFrames = std::max (1, static_cast<int> (sampleRate * 0.05 + 0.5));
+        settle (1.0f);
+    }
+
+    // Audio Thread: the gain for the next frame on the way to wanted. Each frame is placed on the
+    // line from the ramp's start, so no rounding accumulates into a step.
+    float next (float wanted) noexcept
+    {
+        if (std::fabs (wanted - target) > 0.0f)
+        {
+            start = current;
+            target = wanted;
+            position = 0;
+        }
+        if (position < rampFrames)
+        {
+            ++position;
+            current = position >= rampFrames
+                ? target
+                : start + (target - start) * (static_cast<float> (position) / static_cast<float> (rampFrames));
+        }
+        return current;
+    }
+
+    // Audio Thread: PRE is silent, nothing hears the gain move.
+    void settle (float wanted) noexcept
+    {
+        start = current = target = wanted;
+        position = rampFrames;
+    }
+
+    // The largest gain the next block reaches: a rising ramp is checked at its end.
+    float peak (float wanted) const noexcept { return std::max (current, wanted); }
+
+private:
+    float start = 1.0f, current = 1.0f, target = 1.0f; // Audio Thread only
+    int rampFrames = 2400, position = 2400;
+};
+
 struct RenderReport
 {
     Verdict verdict = Verdict::noClock;
@@ -85,7 +131,8 @@ struct RenderReport
 // POST, Audio Thread output (INV-LC4, INV-LC14). PRE sounds only in blocks whose every frame is
 // proven and passes the guard. Returning to PRE fades symmetrically over proven samples; losing the
 // proof switches to POST at the block start and never uses unproven PRE samples. The approved gain
-// applies to the PRE copy; an approved POST attenuation applies to POST, in and out of a session.
+// applies to the PRE copy, ramped when it changes while PRE sounds; an approved POST attenuation
+// applies to POST, in and out of a session.
 class PostRenderer
 {
 public:
@@ -97,6 +144,7 @@ public:
         left = std::make_unique<float[]> (static_cast<std::size_t> (capacity));
         right = std::make_unique<float[]> (static_cast<std::size_t> (capacity));
         fadeFrames = std::max (1, static_cast<int> (sampleRate * fadeSeconds + 0.5));
+        preLevel.configure (sampleRate);
         std::int64_t frames = 1;
         while (static_cast<double> (frames) < sampleRate * historySeconds)
             frames <<= 1;
@@ -104,6 +152,9 @@ public:
         history = std::make_unique<std::atomic<float>[]> (static_cast<std::size_t> (frames) * 2);
         historyStart.store (0, std::memory_order_relaxed);
         historyEnd.store (0, std::memory_order_relaxed);
+        projectRunStart.store (0, std::memory_order_relaxed);
+        projectOffset.store (0, std::memory_order_relaxed);
+        projectKnown.store (false, std::memory_order_relaxed);
         matchOffsetValid.store (false, std::memory_order_relaxed);
         consumer.reset();
         weight = 0.0f;
@@ -132,6 +183,25 @@ public:
     }
 
     std::int64_t historyWriteEnd() const noexcept { return historyEnd.load (std::memory_order_acquire); }
+
+    // The stretch of the history whose project time advanced with POST's clock: from runStart on,
+    // project = clock + offset. A loop wrap, a seek, a stop or the host's post-wrap clamp starts a
+    // new stretch. A Pin needs its whole window inside one.
+    struct ProjectView
+    {
+        std::int64_t runStart = 0, offset = 0;
+        bool known = false;
+    };
+
+    bool projectView (ProjectView& out) const noexcept
+    {
+        const auto before = projectRunStart.load (std::memory_order_acquire);
+        out.offset = projectOffset.load (std::memory_order_relaxed);
+        out.known = projectKnown.load (std::memory_order_relaxed);
+        std::atomic_thread_fence (std::memory_order_acquire);
+        out.runStart = projectRunStart.load (std::memory_order_relaxed);
+        return out.runStart == before;
+    }
 
     RenderReport render (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
                          const BlockClock& block, float* const* io, int channels,
@@ -165,7 +235,9 @@ public:
             post.apply (io, channels, block.frames, postTarget);
             return report;
         }
-        if ((preSelected || weight > 0.0f) && ! guardPasses (block.frames, preGain, ceilingLinear))
+        if (weight <= 0.0f)
+            preLevel.settle (preGain);
+        if ((preSelected || weight > 0.0f) && ! guardPasses (block.frames, preLevel.peak (preGain), ceilingLinear))
         {
             weight = 0.0f;
             report.guardTripped = true;
@@ -183,9 +255,10 @@ public:
         {
             weight = weight < target ? std::min (target, weight + step) : std::max (target, weight - step);
             const float postGain = post.next (postTarget) * (1.0f - weight);
+            const float gain = preLevel.next (preGain);
             for (int channel = 0; channel < channels; ++channel)
             {
-                const float pre = scratch[std::min (channel, 1)][i] * preGain;
+                const float pre = scratch[std::min (channel, 1)][i] * gain;
                 io[channel][i] = io[channel][i] * postGain + pre * weight;
             }
         }
@@ -219,8 +292,17 @@ private:
         if (history == nullptr || ! block.clockValid)
             return;
         const auto end = historyEnd.load (std::memory_order_relaxed);
-        if (block.afterGap || ! block.playing || block.clock != end || end == 0)
+        const bool restarted = block.afterGap || ! block.playing || block.clock != end || end == 0;
+        if (restarted)
             historyStart.store (block.clock, std::memory_order_release);
+        const auto offset = block.project - block.clock;
+        if (restarted || ! block.projectValid || ! projectKnown.load (std::memory_order_relaxed)
+            || offset != projectOffset.load (std::memory_order_relaxed))
+        {
+            projectOffset.store (offset, std::memory_order_relaxed);
+            projectKnown.store (block.projectValid && block.playing, std::memory_order_relaxed);
+            projectRunStart.store (block.clock, std::memory_order_release);
+        }
         const auto mask = historyFrames - 1;
         for (std::int32_t i = 0; i < block.frames; ++i)
         {
@@ -232,6 +314,7 @@ private:
     }
 
     Consumer consumer;
+    GainRamp preLevel;
     std::unique_ptr<float[]> left, right;
     int capacity = 0;
     int fadeFrames = 240;
@@ -239,6 +322,8 @@ private:
     std::unique_ptr<std::atomic<float>[]> history;
     std::int64_t historyFrames = 0;
     std::atomic<std::int64_t> historyStart { 0 }, historyEnd { 0 }, matchOffset { 0 };
+    std::atomic<std::int64_t> projectRunStart { 0 }, projectOffset { 0 };
+    std::atomic<bool> projectKnown { false };
     std::atomic<bool> matchOffsetValid { false };
 };
 }

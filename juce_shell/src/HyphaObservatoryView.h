@@ -63,13 +63,15 @@ struct LiveCompareFooter
     int preGainTenthsDb = 0;   // that gain in 0.1 dB steps, as the PRE control shows it
     int postHeldTenthsDb = 0;  // approved POST attenuation (0 or below), held until RETURN
     bool contentHeld = false;  // INV-LC10: POST until playback stops and restarts
+    bool pinAvailable = false; // PIN can hand the last four seconds to PRE / POST Blind
+    bool following = false;    // INV-LC16: AUTO keeps PRE's gain on POST's loudness
     bool operator== (const LiveCompareFooter& other) const noexcept
     {
-        return entryEnabled == other.entryEnabled && active == other.active
+        return entryEnabled == other.entryEnabled && active == other.active && pinAvailable == other.pinAvailable
             && preSelected == other.preSelected && preWaiting == other.preWaiting
             && matched == other.matched && matchLimited == other.matchLimited
             && preGainTenthsDb == other.preGainTenthsDb && postHeldTenthsDb == other.postHeldTenthsDb
-            && contentHeld == other.contentHeld;
+            && contentHeld == other.contentHeld && following == other.following;
     }
 };
 
@@ -96,6 +98,7 @@ public:
     std::function<void()> onLiveCompareMatch;
     std::function<void()> onLiveCompareEnd;
     std::function<void()> onLiveCompareReturn;
+    std::function<void()> onLiveComparePin;
     std::function<void()> onDomainMenu;
     std::function<void()> onSizeMenu;
     std::function<void()> onOperationsMenu;
@@ -464,6 +467,7 @@ private:
     Button liveMatchButton { "MATCH", false };
     Button liveEndButton { "END", false };
     Button liveReturnButton { "RETURN", false };
+    Button livePinButton { "PIN 4 S", false };
     InformationButton informationButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (View)

@@ -80,6 +80,40 @@ if(KIRIN_HYPHA_BUILD_LOCAL_BLIND_TESTS OR KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
     set_tests_properties(kirin_local_blind_product kirin_local_blind_product_track
         kirin_local_blind_product_aax kirin_local_blind_product_aax_track PROPERTIES TIMEOUT 90)
 
+    # Live compare PIN to Blind (INV-LC15) and the offset warning, end to end through the live ring
+    # of each platform (POSIX shared memory on macOS, a named section on Windows).
+    add_executable(KirinLiveComparePinProductTests tests/live_compare_pin_product_test.cpp)
+    if(APPLE)
+        target_sources(KirinLiveComparePinProductTests PRIVATE tests/BlindProductMacRunLoop.mm)
+    endif()
+    target_compile_features(KirinLiveComparePinProductTests PRIVATE cxx_std_17)
+    target_compile_options(KirinLiveComparePinProductTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_compile_definitions(KirinLiveComparePinProductTests PRIVATE
+        "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
+    target_include_directories(KirinLiveComparePinProductTests PRIVATE
+        "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
+    target_link_libraries(KirinLiveComparePinProductTests PRIVATE KirinHyphaPOST
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_live_compare_pin_product COMMAND KirinLiveComparePinProductTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/../test_signals/S-1_1kHz_sine_m6dBFS_10s.wav")
+    set_tests_properties(kirin_live_compare_pin_product PROPERTIES TIMEOUT 90)
+
+    # The content-offset warning and the hold on a latency jump (INV-LC7, LC10), end to end.
+    add_executable(KirinLiveCompareOffsetProductTests tests/live_compare_offset_product_test.cpp)
+    if(APPLE)
+        target_sources(KirinLiveCompareOffsetProductTests PRIVATE tests/BlindProductMacRunLoop.mm)
+    endif()
+    target_compile_features(KirinLiveCompareOffsetProductTests PRIVATE cxx_std_17)
+    target_compile_options(KirinLiveCompareOffsetProductTests PRIVATE ${KIRIN_SOURCE_ENCODING_ARGS})
+    target_compile_definitions(KirinLiveCompareOffsetProductTests PRIVATE
+        "$<TARGET_PROPERTY:KirinHyphaPOST,COMPILE_DEFINITIONS>")
+    target_include_directories(KirinLiveCompareOffsetProductTests PRIVATE
+        "$<TARGET_PROPERTY:KirinHyphaPOST,INCLUDE_DIRECTORIES>")
+    target_link_libraries(KirinLiveCompareOffsetProductTests PRIVATE KirinHyphaPOST
+        juce::juce_recommended_warning_flags)
+    add_test(NAME kirin_live_compare_offset_product COMMAND KirinLiveCompareOffsetProductTests)
+    set_tests_properties(kirin_live_compare_offset_product PROPERTIES TIMEOUT 90)
+
     add_executable(KirinEditorSurfaceProductTests tests/editor_surface_product_test.cpp)
     if(APPLE)
         target_sources(KirinEditorSurfaceProductTests PRIVATE tests/BlindProductMacRunLoop.mm)

@@ -181,7 +181,7 @@ conformance and does not use the EBU logo.
 | Watch mode | ✓ | ✓ |
 | POST on-demand ATTACK / FREQ / SHARP / LIVE | ✓ | ✓ |
 | Local PRE/POST Blind Compare | ✓ | ✓ |
-| Live PRE/POST compare (macOS) | ✓ | ✓ |
+| Live PRE/POST compare (Windows: DAW check pending) | ✓ | ✓ |
 | Record mode | — | ✓ |
 | plugin_data output | — | ✓ |
 
@@ -575,8 +575,9 @@ and delay compensation. Where Hypha cannot confirm that line-up, you hear POST, 
 by itself as soon as it can confirm it again. Whenever you hear POST with PRE selected, even
 briefly, the PRE control reads **PRE WAIT**. Measurement and Records are never changed.
 
-This first stage runs on macOS in VST3, AU and AAX. In Pro Tools it is offered on stereo
-instances; multi-mono and Windows come later.
+It runs on macOS in VST3, AU and AAX, and on Windows in VST3 and AAX. In Pro Tools it is offered
+on stereo instances; multi-mono comes later. The Windows build passes the same automated
+end-to-end tests as macOS; its check in a DAW is still pending.
 
 1. In POST, select the exact PRE pair. At 200% or 300%, press **LISTEN** (**PRE/POST LISTEN** at
    300%) in the footer.
@@ -593,14 +594,25 @@ instances; multi-mono and Windows come later.
    Closing the menu changes nothing. MATCH is fixed: it does not follow later level changes, so
    press it again after changing the chain. Each session starts PRE at unity gain. If a raised PRE
    would still peak above the ceiling later in the song, Hypha stops PRE at that block and asks you
-   to select it again.
-4. Press **END** to return to POST. Closing the Hypha window, opening Blind, changing the pair or
+   to select it again. A new gain while PRE plays glides over 50 ms instead of jumping.
+4. Once matched, pressing MATCH offers **MATCH again** or **AUTO**. With AUTO, PRE follows POST:
+   every second of playback Hypha measures again and moves PRE once it is 0.5 dB or more away. The
+   control reads **AUTO**. AUTO never moves POST, never raises PRE above the ceiling approved at
+   MATCH and never moves PRE more than 6 dB from that MATCH; it stops and says why instead. Silence
+   changes nothing. AUTO is not available after a TP LIMIT match, and it stops at END or PIN. These
+   values are experimental until listening tests settle them.
+5. Press **END** to return to POST. Closing the Hypha window, opening Blind, changing the pair or
    the sample rate, and removing or re-preparing PRE also end the session. Offline render, a bypass
    the DAW reports, and another audition return to POST and ask you to select PRE again.
-5. A lowered POST stays lowered after END, even with the window closed, until you press
+6. A lowered POST stays lowered after END, even with the window closed, until you press
    **RETURN**. RETURN names how much POST rises, for example **RETURN +7.0 dB**, and brings it back
    over half a second. Blind and Reference audition wait for RETURN. Offline render and a bypass
    the DAW reports are never lowered, and measurement is always taken before the attenuation.
+
+At 200% and 300%, **PIN 4 S** fixes the last four seconds of PRE and POST and opens them in
+PRE / POST Blind, prepared and ready to start, without Blind's own capture step. It needs four
+seconds of confirmed playback with no loop wrap, seek or stop inside; otherwise Hypha says why.
+PIN ends the live session, and Blind's own RETURN brings back POST.
 
 While a session runs, the footer keeps **POST** and **END** at every size. Keep POST's window
 open while comparing: in Studio One / Studio Pro, pin it before opening another plug-in on the
@@ -619,7 +631,9 @@ same channel; in Pro Tools, turn off its **Target** button.
 - If the input stays silent for several seconds, the DAW may stop calling Hypha. PRE comes back
   shortly after the sound returns.
 - If you change a plug-in setting that changes its latency (look-ahead, oversampling, linear
-  phase) while comparing, PRE can be misaligned for a moment right after the change.
+  phase) while comparing, PRE can be misaligned for a moment right after the change. In our
+  measurements this lasted up to four blocks in Studio Pro 8.1.2 (171 ms at 2048 samples); the
+  clocks recorded in Pro Tools 2026.4 bound it to two blocks (43 ms at 1024 samples).
 - With a loop shorter than the chain's latency, PRE can come from the previous pass of the loop.
 - Unlike Reference, a stop or a seek does not deselect PRE: it waits and returns by itself.
 

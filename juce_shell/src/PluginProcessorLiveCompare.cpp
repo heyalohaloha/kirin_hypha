@@ -158,6 +158,16 @@ bool KirinHyphaProcessorBase::applyLiveCompareMatch (const hypha::live_compare::
     return true;
 }
 
+// Message thread (INV-LC16): AUTO moves PRE's gain only. The ceiling and POST stay as the explicit
+// MATCH approved them; the Audio Thread ramps the new gain over 50 ms.
+bool KirinHyphaProcessorBase::followLiveCompareGain (double preDb)
+{
+    if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire) || ! std::isfinite (preDb))
+        return false;
+    setLiveCompareGain (static_cast<float> (std::pow (10.0, preDb / 20.0)));
+    return true;
+}
+
 // Message thread, the explicit RETURN: POST rises back to its normal level over half a second.
 void KirinHyphaProcessorBase::returnLiveComparePostToNormal() noexcept
 {
