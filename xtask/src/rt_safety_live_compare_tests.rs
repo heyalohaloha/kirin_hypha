@@ -8,6 +8,11 @@ const CLOCK_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompar
 const SESSION_H: &str = include_str!("../../juce_shell/src/live_compare/LiveCompareSession.h");
 const PROCESSOR_CPP: &str = include_str!("../../juce_shell/src/PluginProcessorLiveCompare.cpp");
 const AUDITION_CPP: &str = include_str!("../../juce_shell/src/PluginProcessorAudition.cpp");
+const EDITOR_LIFECYCLE_CPP: &str = include_str!("../../juce_shell/src/PluginEditorLifecycle.cpp");
+const EDITOR_LOCAL_BLIND_CPP: &str =
+    include_str!("../../juce_shell/src/PluginEditorLocalBlind.cpp");
+const EDITOR_LIVE_COMPARE_CPP: &str =
+    include_str!("../../juce_shell/src/PluginEditorLiveCompare.cpp");
 
 // The body of the first function whose definition starts with signature (brace matched).
 fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
@@ -162,4 +167,44 @@ fn live_compare_output_is_proven_last_and_non_rt_setup_stays_off_the_audio_threa
             "processLiveCompare must not contain {forbidden}"
         );
     }
+}
+
+// INV-LC12: a session never outlives the screen that controls it, never overlaps Blind, never
+// follows a changed pair or a closed PRE ring, and AAX offers it on stereo instances only until
+// every multi-mono channel switches in the same block (INV-LC9).
+#[test]
+fn live_compare_sessions_end_where_the_user_cannot_see_them() {
+    let destructor = function_body(EDITOR_LIFECYCLE_CPP, "KirinHyphaEditor::~KirinHyphaEditor");
+    assert!(destructor.contains("processorRef.stopLiveCompare();"));
+    let blind = function_body(
+        EDITOR_LOCAL_BLIND_CPP,
+        "void KirinHyphaEditor::openLocalBlindProduct",
+    );
+    assert!(blind.contains("processorRef.stopLiveCompare();"));
+    let refresh = function_body(
+        EDITOR_LIVE_COMPARE_CPP,
+        "void KirinHyphaEditor::refreshLiveCompare",
+    );
+    assert!(refresh.contains("processorRef.serviceLiveCompare();"));
+    let service = function_body(
+        PROCESSOR_CPP,
+        "bool KirinHyphaProcessorBase::serviceLiveCompare",
+    );
+    for required in ["pairKeyForPreInstance", "ownerClosed", "stopLiveCompare();"] {
+        assert!(
+            service.contains(required),
+            "serviceLiveCompare must check {required}"
+        );
+    }
+    let supported = function_body(
+        PROCESSOR_CPP,
+        "bool KirinHyphaProcessorBase::liveCompareSupported",
+    );
+    assert!(supported.contains("wrapperType == wrapperType_AAX && getTotalNumInputChannels() < 2"));
+    let start = function_body(
+        PROCESSOR_CPP,
+        "hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare",
+    );
+    assert!(start.contains("if (! liveCompareSupported())"));
+    assert!(start.contains("liveCompare.gain.store (1.0f"));
 }
