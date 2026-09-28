@@ -631,7 +631,9 @@ same channel; in Pro Tools, turn off its **Target** button.
 - If the input stays silent for several seconds, the DAW may stop calling Hypha. PRE comes back
   shortly after the sound returns.
 - If you change a plug-in setting that changes its latency (look-ahead, oversampling, linear
-  phase) while comparing, PRE can be misaligned for a moment right after the change.
+  phase) while comparing, PRE can be misaligned for a moment right after the change. In our
+  measurements this lasted up to four blocks in Studio Pro 8.1.2 (171 ms at 2048 samples); the
+  clocks recorded in Pro Tools 2026.4 bound it to two blocks (43 ms at 1024 samples).
 - With a loop shorter than the chain's latency, PRE can come from the previous pass of the loop.
 - Unlike Reference, a stop or a seek does not deselect PRE: it waits and returns by itself.
 

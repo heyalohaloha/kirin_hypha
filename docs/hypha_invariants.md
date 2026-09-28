@@ -255,9 +255,9 @@ Local Blind UIのINV-S25は番号と内容を維持する。
 
 ## 9. 連続PRE/POST比較（INV-LC）
 
-2026-09-28、利用者が実装の開始を承認した。根拠と残りの行（INV-LC5、LC6、LC8、LC9）は
+2026-09-28、利用者が実装の開始を承認した。根拠と残りの行（INV-LC6、LC8、LC9）は
 `docs/planning/hypha_live_chain_compare_contract_draft_20260928.md`にあり、実装と試験ができた時点で本表へ入れる。
-INV-LC12とLC13は第1段階の画面とMATCHで、INV-LC14は承認付きのPOST減衰（2026-09-28、利用者が第3段階から前倒しを承認）で、INV-LC15は第2段階のPINで、INV-LC16は第3段階の追従（AUTO）で加えた。
+INV-LC5は第1段階の対応規則の実測（G1記録）を正本へ移したもので、INV-LC12とLC13は第1段階の画面とMATCHで、INV-LC14は承認付きのPOST減衰（2026-09-28、利用者が第3段階から前倒しを承認）で、INV-LC15は第2段階のPINで、INV-LC16は第3段階の追従（AUTO）で加えた。
 閾値と回数はhost profileの値であり、本表に固定値を書かない。
 
 | ID | 不変条件 | 紐づくテスト |
@@ -266,6 +266,7 @@ INV-LC12とLC13は第1段階の画面とMATCHで、INV-LC14は承認付きのPOS
 | INV-LC2 | PREは、連続時計が直前のblockと連続しないとき、または自分の呼出しの空白（判定値はhost profileの値）の後に周回を改め、周回、先頭、書込み末尾を一貫して公開する。POSTは今の周回で書かれ、ring容量内にある範囲だけを受け入れ、書込み末尾だけでは受け入れない | `kirin_live_compare_correspondence` measuredHostsNeverAcceptWrongPre / postOnlySleepIsCaughtByTheGapRule / gapThresholdsFollowTheProfile |
 | INV-LC3 | POSTは自分の呼出しの空白でKを無効にし、較正し直すまでPREを出さない。較正の候補がKと1回でも食い違えば、Kを無効にする（M1） | `kirin_live_compare_correspondence` postOnlySleepIsCaughtByTheGapRule / latencyChangesAreBoundedByM1 |
 | INV-LC4 | POSTは、時計の規則で全frameの対応を確かめたblockでだけPREを鳴らす。確かめられない間はPOSTをbit同一のまま出し、PREの選択と承認済みgainを保持して、確かめられた最初のblockからPREへ戻す。戻るときも利用者がPOSTへ切り替えるときも、確かめたPREのsampleだけで対称5 msの遷移を行い、確かめられなくなったときはそのblockの先頭でPOSTへ切り替える。承認済みgainはPREの試聴コピーにだけ掛ける。3ch以上では鳴らさない。PREは、POSTの試聴sessionが要求している間だけ入力を書く。PREを選んだままPOSTが鳴る間は、画面の更新の間に終わった短い待ちも含めて、PREの操作が文字でWAITを示し（最短0.5秒。最終値はG4で決める）、WAITの切替で操作の位置は動かない。offline render、hostが知らせるbypass、配置の変更、他の試聴が出力を取ったときは、POSTを出してPREの選択を解き、選び直しを通知で求める | `kirin_live_compare_session` preSoundsOnlyWhenProven / userSwitchFadesBothWays / approvedGainAppliesToPre / unsupportedLayoutsAndNoDemandKeepPost / `KirinUiRenderContractTests` verifyLiveCompareFooterContract |
+| INV-LC5 | 遅延変更の直後は、時計で検出できた時点で直ちにPOSTへ倒す（INV-LC3のM1を含む）。時計で検出できない最初の区間は、pluginが変更を報告し、hostが再生中に補償を改める型に限って許容し、その長さはhostごとの実測としてREADMEとG1記録に記す。中身の推定でKを補正しない。中身の推定で比較を止めるのは、INV-LC10の跳びだけである | `kirin_live_compare_correspondence` latencyChangesAreBoundedByM1 / `kirin_live_compare_match` aJumpNeedsTwoAgreeingEstimates |
 | INV-LC7 | 比較中、対応を確かめた再生の2秒ごとに、非RTでPOSTの入力の直近の窓（32768 frames）と、Kで対応させたPRE（前後±8192 frames）の中身のずれをGCC-PHATで推定する。無音、狭帯域（純音など）、峰が1つに定まらないとき、探索範囲の端では判定不能とし、何も示さない。2回続けて一致した推定だけを採り、ずれが1 frameを超えるときは状態欄に事実として示す（PREが○ms早く／遅れて鳴っています）。考えられる原因（遅延の報告の誤り、意図したdelay、強い加工）はREADMEに記し、画面で価値判断を出さない。比較は止めず、Kも補正しない | `kirin_live_compare_match` theMappingShowsAnUnreportedDelay / verifyLiveCompareOffset |
 | INV-LC10 | 再生の周回（停止から再生まで）ごとに、最初に2回続けて一致した推定を基準にする。その後2回続けて一致した推定が基準から2 frame以上離れたら、時計の変わらない遅延変更として、再生を止めるまでPOSTを出す。PREの選択は保ち、PRE WAITと通知で示し、再生の停止で解いて次の周回で確かめ直す。1回だけの外れ値では保たない | `kirin_live_compare_match` aJumpNeedsTwoAgreeingEstimates / xtask `live_compare_offset_is_shown_and_a_jump_holds_post_until_playback_restarts` |
 | INV-LC11 | PREは自分のidentityから決まる名前（31 bytes以内）で転送領域を作り、POSTは組んだPREの同じ名前と同じsample rateの領域だけを開く。領域を作ったPREは、閉じるときに領域へ閉じた印を付けてから名前を消し、新しい領域を作る前に自分の古い領域を閉じる。閉じた印の付いた領域は二度と開かない。macOSの共有memoryは本人だけ（0600）が開ける。Windowsではlogon sessionの`Local\`名前空間に、作成者の既定のアクセス制御でpagefile-backedの領域を作る（Analysis exchangeと同じ）。Windowsの名前は領域を持つprocessがある限り消えないため、閉じた領域をPOSTが持っている間は、PREは次の枠（最大4つ）に新しい領域を作り、POSTは閉じた印のない枠だけを開く | `kirin_live_compare_session` sharedRingPairsOnlyTheSameIdentityAndRate / `kirin_live_compare_pin_product` / `kirin_live_compare_offset_product`（macOSとWindows） |
