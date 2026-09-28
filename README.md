@@ -181,7 +181,7 @@ conformance and does not use the EBU logo.
 | Watch mode | ✓ | ✓ |
 | POST on-demand ATTACK / FREQ / SHARP / LIVE | ✓ | ✓ |
 | Local PRE/POST Blind Compare | ✓ | ✓ |
-| Live PRE/POST compare (macOS) | ✓ | ✓ |
+| Live PRE/POST compare (Windows: DAW check pending) | ✓ | ✓ |
 | Record mode | — | ✓ |
 | plugin_data output | — | ✓ |
 
@@ -575,8 +575,9 @@ and delay compensation. Where Hypha cannot confirm that line-up, you hear POST, 
 by itself as soon as it can confirm it again. Whenever you hear POST with PRE selected, even
 briefly, the PRE control reads **PRE WAIT**. Measurement and Records are never changed.
 
-This first stage runs on macOS in VST3, AU and AAX. In Pro Tools it is offered on stereo
-instances; multi-mono and Windows come later.
+It runs on macOS in VST3, AU and AAX, and on Windows in VST3 and AAX. In Pro Tools it is offered
+on stereo instances; multi-mono comes later. The Windows build passes the same automated
+end-to-end tests as macOS; its check in a DAW is still pending.
 
 1. In POST, select the exact PRE pair. At 200% or 300%, press **LISTEN** (**PRE/POST LISTEN** at
    300%) in the footer.

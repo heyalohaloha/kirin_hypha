@@ -10,24 +10,18 @@ namespace hypha::live_compare
 // The pair key both roles derive from the PRE instance identity without talking to each other.
 std::uint64_t pairKeyForPreInstance (const std::string& preInstanceId) noexcept;
 
-// Stage 1 maps the ring with POSIX shared memory; Windows has no live compare until its stage.
-constexpr bool sharedRingAvailable() noexcept
-{
-#if defined (_WIN32)
-    return false;
-#else
-    return true;
-#endif
-}
+// macOS maps the ring with POSIX shared memory, Windows with a pagefile-backed named section.
+constexpr bool sharedRingAvailable() noexcept { return true; }
 
 // "/kh-lc-" and 16 hex digits: 23 bytes, within the 31-byte POSIX shared-memory name limit.
+// Windows derives its section names from it ("Local\kh-lc-...-slot").
 std::string sharedRingName (std::uint64_t pairKey);
 
 // Non-RT owner of one mapping. PRE creates the ring for its own identity when its writes are
 // enabled; POST opens that ring when the user starts a live session and raises its demand flag.
 // The Audio Thread sees the Ring only through a publication slot and never maps, unmaps or names
-// anything. Until the Windows stage, create and open return false on Windows (live compare
-// unavailable there).
+// anything. A ring its PRE closed is never opened again: POSIX removes the name, and on Windows,
+// where a name lives while any process holds the section, PRE moves to the next of a few slots.
 class SharedRingMapping
 {
 public:
@@ -49,6 +43,10 @@ private:
     bool owner = false;
     std::uint64_t pairKeyValue = 0;
     std::uint32_t sampleRateValue = 0;
+#if defined (_WIN32)
+    void* section = nullptr; // HANDLE of the mapped section
+#else
     std::string name;
+#endif
 };
 }

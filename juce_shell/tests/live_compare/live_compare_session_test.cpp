@@ -277,12 +277,7 @@ static void sharedRingPairsOnlyTheSameIdentityAndRate()
     require (name.size() <= 31 && name.rfind ("/kh-lc-", 0) == 0, "the name fits the POSIX limit");
     require (pairKeyForPreInstance ("a") != pairKeyForPreInstance ("b"), "different PRE identities give different keys");
     const auto pairKey = pairKeyForPreInstance ("live-compare-session-test");
-#if defined (_WIN32)
-    SharedRingMapping unavailable;
-    require (! sharedRingAvailable() && ! unavailable.create (pairKey, 48000),
-             "Windows has no live compare transport until its stage");
-#else
-    require (sharedRingAvailable(), "macOS maps the ring");
+    require (sharedRingAvailable(), "macOS and Windows map the ring");
     SharedRingMapping pre, post, wrongRate;
     require (pre.create (pairKey, 48000), "PRE creates its ring");
     require (post.open (pairKey, 48000), "POST opens the ring of its PRE");
@@ -296,9 +291,24 @@ static void sharedRingPairsOnlyTheSameIdentityAndRate()
     pre.close();
     require (post.ring()->header.ownerClosed.load() == 1, "POST learns that PRE closed its ring");
     SharedRingMapping late;
-    require (! late.open (pairKey, 48000), "the owner's close removes the name");
+    require (! late.open (pairKey, 48000), "a ring its PRE closed is never opened again");
+
+    // PRE prepares again while POST still holds the closed ring (on Windows the section keeps its
+    // name): PRE gets a new ring, the old one stays closed for that POST, and a new POST opens the
+    // new one.
+    SharedRingMapping again, newer;
+    require (again.create (pairKey, 48000), "PRE creates a new ring while POST holds the old one");
+    post.ring()->header.demand.store (0);
+    again.ring()->header.demand.store (1);
+    require (post.ring()->header.ownerClosed.load() == 1 && post.ring()->header.demand.load() == 0,
+             "the old ring stays closed and apart from the new one");
+    require (newer.open (pairKey, 48000) && newer.ring()->header.demand.load() == 1
+                 && newer.ring()->header.ownerClosed.load() == 0,
+             "a new POST opens the new ring");
     post.close();
-#endif
+    newer.close();
+    again.close();
+    require (! late.open (pairKey, 48000), "nothing is left open after every owner closed");
 }
 
 int main()
