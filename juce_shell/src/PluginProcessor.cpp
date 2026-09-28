@@ -707,5 +707,5 @@ void KirinHyphaProcessorBase::enableWritesNow()
     writesEnabled.store (true, std::memory_order_release);
     analysisApplication.engineReady();
     serviceRequestedAnalysisUnderHandleLock();
-    startLocalBlindCaptureForPreparedFormat();
+    startPreparedFormatServices();
 }

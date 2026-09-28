@@ -38,7 +38,7 @@ const engineLifecycleIsOrdered = ({ format, processor, demand }) => {
   const enable = between(
     processor,
     'void KirinHyphaProcessorBase::enableWritesNow()',
-    'startLocalBlindCaptureForPreparedFormat();',
+    'startPreparedFormatServices();',
   );
   const writes = enable.indexOf('writesEnabled.store (true');
   const ready = enable.indexOf('analysisApplication.engineReady()');

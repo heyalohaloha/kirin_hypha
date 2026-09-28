@@ -9,6 +9,7 @@
 #include "local_blind/PairCaptureBarrier.h"
 #include "local_blind/VST3HostContext.h"
 #include "local_blind/HostClockProbe.h"
+#include "live_compare/LiveCompareProcessorState.h"
 #include "kirin_hypha_display_ffi.h"
 #include "kirin_hypha_chain_observation.h"
 #include "kirin_hypha_level_snapshot.h"
@@ -152,6 +153,12 @@ public:
     juce::String pairedPreInstanceId() const;
     bool pairedPreLocator (juce::String& projectHash, juce::String& instanceId) const;
     bool localBlindPairBinding (hypha::local_blind::ExactPairBinding& out) const;
+    // Live PRE/POST compare (stage 1): explicit POST session control and status for the editor.
+    hypha::live_compare::StartResult startLiveCompare();
+    void stopLiveCompare();
+    void selectLiveComparePre (bool pre) noexcept;
+    void setLiveCompareGain (float linear) noexcept;
+    hypha::live_compare::Status liveCompareStatus() const noexcept;
     // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until
     // exact-range project-clock and PDC proof has been recorded for that host format.
     bool localBlindProductSupported() const noexcept;
@@ -374,6 +381,11 @@ private:
     void stopLocalBlindCaptureForFormatChange (double sampleRate,
                                                const std::vector<uint8_t>& channelRoles);
     void startLocalBlindCaptureForPreparedFormat();
+    void startPreparedFormatServices();
+    void prepareLiveCompareForPreparedFormat();
+    void stopLiveCompareForFormatChange();
+    void processLiveCompare (juce::AudioBuffer<float>&, const hypha::HostProcessClock&,
+                             bool bypassed, bool nonRealtimeMode, bool outputTaken) noexcept;
     void processComparisonPaths (juce::AudioBuffer<float>&, const hypha::HostProcessClock&,
                                  bool timelineActive,
                                  bool bypassed, bool nonRealtimeMode);
@@ -383,6 +395,7 @@ private:
     mutable hypha::local_blind::HostClockProbe hostClockProbe;
     hypha::local_blind::LocalBlindProductSession localBlindProductSession;
     hypha::local_blind::LocalBlindCaptureService localBlindCapture;
+    hypha::live_compare::ProcessorState liveCompare;
     std::atomic<std::uint64_t> localBlindProductSerial { 0 };
 #if JUCE_DEBUG
     std::atomic<std::uint64_t> localBlindPdcValidationSerial { 0 };
