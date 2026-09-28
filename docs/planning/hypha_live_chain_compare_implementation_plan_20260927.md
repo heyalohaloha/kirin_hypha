@@ -1,49 +1,55 @@
-# Hypha 連続PRE/POST比較とBlindをつなぐ実装計画 第13版
+# Hypha 連続PRE/POST比較とBlindをつなぐ実装計画 第14版
 
 作成日: 2026-09-27。
-改訂: 第13版（2026-09-28）。G1R（第12節）で利用者が決めた4件（呼出しの空白の規則、静かな区間、動的PDCの直後、境界規則）を記録した。実測の追加はない。
-第12版（同日、1089行、SHA-256 `1cf32a68b64534b901328d14138894d402c56419bc84d6c2d9b2207a1ccb7b81`）は、同じ[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)の第8節（呼出しの空白の規則のplugin内実装、G1-04の限定条件、infinite tail）を反映した版である。
-第11版（同日、1074行、SHA-256 `0aa87eb780163be1ebac3a0c41f5d4e0beb7fff2a69f2d0c526d267678b46fd4`）は、同記録の第7節（周回の規則のplugin内実装とplugin sleep）を反映し、対応の鍵に呼出しの空白の規則を加えた版である。
-第10版（同日、1053行、SHA-256 `05360dbe6818d4fb513969dd38805ff66592a9637062ebce8d3b41d08fd0cb96`）は、同記録の第6節（G1-02とG1-06のプローブ）を反映し、対応の鍵にPREのrun世代を加えた版である。
-第9版（同日、1034行、SHA-256 `537b14894ae9f5223e7b5c2a9a2e7213c1571b0ce0713059c067f7a3af572476`）は、Studio Pro 8.1.2でのG1-01とG1-03の実測を反映し、統合後のmainを確認した版である。
-第8版（2026-09-27）: 別セッションが作成した第7版（944行、`_v7`版、SHA-256 `94f91730817e6799a34dfdd65b01eac2b127c35947ec1464ff4767e7229a693d`）を精査し、その本文に追加と補正を加えた。
-第7版の原本と、その根拠である[第6版の精査記録](hypha_live_chain_compare_review_v6_20260927.md)は変更していない。
-本ファイルの旧内容は第6版（885行、SHA-256 `951026e5c109aa971c338be4a50d2141b8a7d4ca6bdbc5aba152163a6aff0199`）であり、第8版で置き換えた。
-第8版の変更根拠と検証は[精査記録](hypha_live_chain_compare_review_20260927.md)の第1節に置く。
+改訂: 第14版（2026-09-28）。厳しめの見直し（[精査記録](hypha_live_chain_compare_review_20260927.md)第0節）の指摘と、AAXを重要な対象とする利用者の指示を反映した。実測の追加はない。
+第13版（同日、1096行、SHA-256 `454762c1e1bf39f81ea3cf1f2e7d61b5119c5070508e4c9d1d92d96a7213c78e`）は、G1Rで利用者が決めた4件を記録した版である。
+それより前の版の記録、確認基点、版ごとの改訂表は、付録Aへ移した（内容は第13版のまま）。
 状態: 計画案。製品実装、契約変更、実機検証、公開は未実施。
-第4版に記録した利用者の決定のうち、E1＋E2、100%での復帰操作、Pinの二つの代替と遡及代替の不採用を、本版でも計画上の前提として維持する。境界規則A′は、2026-09-28のG1Rで案C（境界ではPOSTへ切り替え、対応が再び証明されたらPREへ自動で戻す）に置き換えた。
 本版は新たな実装や契約変更の承認記録ではない。
-併読: [外部調査](hypha_live_chain_compare_external_research_20260927.md)（第5版。境界の長さ、loop再生、host画面の既定値の書き方を本書に合わせて補正）、[精査記録](hypha_live_chain_compare_review_20260927.md)（第7版から第8版、および第2版から第6版までの精査）、[第6版の精査記録](hypha_live_chain_compare_review_v6_20260927.md)（別セッション作成）。
+併読: [G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)、[契約改定案](hypha_live_chain_compare_contract_draft_20260928.md)（第2版）、[外部調査](hypha_live_chain_compare_external_research_20260927.md)（第5版）、[精査記録](hypha_live_chain_compare_review_20260927.md)、[第6版の精査記録](hypha_live_chain_compare_review_v6_20260927.md)（別セッション作成）。
 併読文書と本書が食い違う場合は、本書第5.3、7.2、7.3、8.1節の条件付きの記述を優先する。
-
-確認基点はローカルHEAD `ee522a536fa7f418ce3247c64eb77ec55d1d8d86`（B-1023）と、remote-tracking ref `5a6a9db5c4d82ee28d5ef26839e782e3bd4882c0`（B-1044を含む）である。
-第4版が参照した `83b383a65b6c92a3e6f32f579b8a93cf39088e98`（B-1041を含む）も履歴として照合した。
-2026-09-27 14:38 JSTのローカル読取りでは、HEADは83b383a6に対してahead 14 / behind 43、5a6a9db5に対してahead 14 / behind 48だった。
-同日15時台には、別セッションが統合branch `claude/local-main-reconcile` で、衝突したB番号の付け替え（B-1015→B-1046、B-1016→B-1047、B-1022→B-1048）と、main checkoutの未commit修正の取り込み（B-1049）を行い、origin/mainとのmergeを進めていた。
-第6版の観測後、同branchにmerge commit `8d13800e6d1ff3797e244633cf2b7e75b0a60637`（15:11 JST）が作られた。
-第7版の読取りsnapshotでは、同branchは `805ff180822d924d0ec71dd26ffe8466d456d30f`（B-1053）を指していた。
-第8版の読取り（16:01 JST）では、同branchは `c60ab6790880240f8a02473ae0a42e1a4b41e42b`（B-1056）まで進み、ローカルorigin/mainに対してahead 22 / behind 0だった。
-mainと本worktreeのHEADはee522a53、ローカルorigin/mainは5a6a9db5のままだった。
-同時刻の`git ls-remote`では、remoteに同branchは無かった。
-統合内容の全面検証、fetch、merge、pushは行っていない。
-本書が根拠に使うBlind、admission、pairing、gainのsource（第14節）は、ee522a53、5a6a9db5、c60ab679の三基点で同一blobだった。
-2026-09-28 00:33 JST、統合branchはPR #50（merge commit `9fa244d9`）でmainへ入った。
-第9版で確かめた上記のsourceは、`9fa244d9`でも同一blobである。
-B番号には重複と付け替えがあるため、証跡はcommit hashとfile pathで識別する。
 
 ## 要約
 
-- 目的: 同じチャンネルのPRE→処理→POSTを、再生を止めずに等音量で切り替え、同じ4秒を固定してBlindまで一続きに使えるようにする。
-- 決定済み（2026-09-27、計画上）: editor非表示はE1＋E2。100%でもPOST復帰とRETURNを残す。Pinの代替は次周回予約と次の4秒で、遡及は採らない。境界はA′（PREの選択を解除し、ready後1操作で再選択）としたが、2026-09-28に下記のCへ置き換えた。
-- 決定済み（2026-09-28）: 対応の鍵は「連続時計 + 較正した差K」を設計の基準にする。対応hostの確定はWindowsとG1-04の後。
-- 決定済み（2026-09-28、G1R）: (1) 呼出しの空白を時計の不連続として扱う規則を採る。(2) 静かな区間は、infinite tailの報告でhostのplugin sleepを避ける案を本命とし、bounceの末尾、AU、他のhostでの副作用を確かめてから採用する。副作用があれば、無音の後にPREへ自動で戻す案にする。(3) 遅延変更の直後に残る2〜4 block（このhostで最大171 ms）の誤対応は許容し、説明書に記す。AUには候補の食い違いで直ちにKを無効にする規則（M1）を加える。中身による検出（G1-05）と、遅延変更を伴う構成での比較停止は採らない。(4) 境界規則は案C: seek、再生開始、loop、sleep、遅延変更のどの境界でも、対応が証明できない区間はPOSTを鳴らし、証明が戻った最初のblockからPREへ自動で戻す。利用者の再選択は要らない。説明できない欠落、protocol/pair/format失効、上限超過は従来どおり比較中断とし、再選択を要する。
-- 未決: R-12と安全契約の改定、既存Blindのhost gate、E2でのowner、exact 4秒loopへの対応、Kの較正と照合の細則（run世代の公開方式を含む）、infinite tailの副作用（bounceの末尾、AU、他のhost）。
-- 第8版の追加: loop内の範囲を、折返し後の再開位置から最大callback分以上後ろに置けば、非分割hostでも既存rendererで両sourceが開始・完走する（実rendererへの模擬callbackで確認）。exact 4秒loop（4/4拍子、120 BPMの2小節など）は引き続き境界証拠が要る。
-- 第9版の実測: Studio Pro 8.1.2（macOS VST3、48 kHz）はloop境界でcallbackを分割しない。遅延のあるchainのPOSTでは、project時刻が折返しのたびにchain遅延の長さだけ内容とずれる。VST3連続時刻はPREとPOSTで同じ内容に同じ値を持ち、AUのrender時刻はPREとPOSTの差が一定で、どちらもloopで途切れなかった（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)）。
-- 第10版の実測: 同じhostで、連続時計とKでPREを引くプローブを動かした。到着は全blockで間に合い（隣接構成の余白は0）、RTの追加は最大30 µs程度だった。VST3ではseekと再生開始の直後に、ringに残っていたseek前のrunの音を、書込み末尾の判定だけで誤って受け入れた。PREのrun世代を照合に含めると、誤受入れ0、正常blockの棄却0になった（記録済みcallbackのオフライン再生）。AUではseekと再生開始をまたいで対応が続いた（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第6節）。
-- 第11版の実測: 周回の規則をplugin内で動かし、VST3では事前に決めた条件（誤受入れ0、棄却の説明と件数、旧規則の誤受入れの再現、再計算との一致）をすべて満たした。AUでは、Studio Proのplugin sleep（無音入力が約4秒続くと呼出しを止める。再生中も起きる）でPREとPOSTの差Kが変わり、POSTだけが眠った場合は周回の規則でも8 blockを誤って受け入れた（事前に予測して再現）。呼出しの空白を時計の不連続として扱う規則を加えると、全記録で誤受入れ0になった（記録からの再計算）（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第7節）。
-- 第12版の実測: 呼出しの空白の規則をplugin内で動かし、再配置、PREだけのsleep、POSTだけのsleepで、両formatとも誤受入れ0だった（対照のv2の規則は、AUのPOSTだけのsleepで8 blockを誤受入れ）。再生中の遅延変更（G1-04）では、音の変化が時計より2〜4 block（最大171 ms）先に来て、どの時計の規則でもその間の誤対応を防げなかった。infinite tailを報告したpluginは一度も眠らなかった（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第8節）。
-- 次の一手: 決定4件を製品の契約へ落とす準備（R-12、INV、READMEの改定案）と、Windows、他のbuffer設定、報告が先に来る型の遅延変更、infinite tailの副作用の測定。G1の結果なしに対応hostを確定しない。
+目的: 同じチャンネルのPRE→処理→POSTを、再生を止めずに等音量で切り替え、同じ4秒を固定してBlindまで一続きに使えるようにする。
+
+### 今の設計
+
+| 要素 | 設計 | 根拠と状態 |
+| --- | --- | --- |
+| 対応の鍵 | 連続時計（VST3連続時刻、AU render時刻）と、定常区間でproject時刻の一致から較正した差K | Studio Pro 8.1.2で実測（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第2、6〜8節）。AAXの連続時計と、POSTに遅延補償済みの位置が渡るかは未確認（第5.4節） |
+| 周回 | PREは時計の不連続と自分の呼出しの空白で周回を改める。POSTは今の周回で書かれた範囲だけを受け入れる | plugin内で誤受入れ0。ただし識別PCMで見分けられる誤りに限る |
+| 呼出しの空白 | 各側の空白を時計の不連続として扱う。POSTは自分の空白でKを無効にして較正し直す。AUは候補の食い違いでも無効にする（M1） | 判定値と較正回数はhost profileの値。今の値はStudio Proでの初期値（第5.2節） |
+| 境界 | 案C。時計の規則で対応を確かめられない区間はPOSTを鳴らし、確かめられた最初のblockからPREへ対称5 msで戻す。PREを選んだままPOSTが鳴る間は「PRE待ち」を示す | 2026-09-28決定（G1R）。遷移と表示は第14版で加えた（第5.3節） |
+| 静かな区間 | hostのplugin sleepを、infinite tail（AAXはAlwaysProcess）で避ける案が本命。副作用と報告する範囲を確かめてから採る | G1R。AAXの属性は静的なので「比較中だけ」は選べない |
+| 遅延変更の直後 | 時計で検出できない短い区間の誤対応を許容し、説明書に記す | G1R。報告されない変更と、再生中に補償を改めないhost（Pro Tools）は許容の外 |
+| 遅延の報告の誤り | 開始時と定期的に中身のずれを推定し、時計の対応と食い違えば警告する。止めず、補正しない。DAWの遅延補償への依存を説明書に記す | 2026-09-28、見直しで決定（利用者が判断を委任し、推奨を採用） |
+| 故障 | 説明できない欠落、protocol/pair/format失効、上限超過は比較中断と再選択 | 第4版から維持 |
+| 転送 | platformごとに事前確保した転送経路。方式はG1-06で決める | 第5.1節 |
+
+### 決定済み（計画上）
+
+- 2026-09-27: editor非表示はE1＋E2。100%でもPOST復帰とRETURNを残す。Pinの代替は次周回予約と次の4秒で、遡及は採らない。
+- 2026-09-28: 上表の対応の鍵、呼出しの空白、静かな区間、遅延変更の直後、境界C（A′を置き換え）、遅延の報告の誤りへの警告。AAXを重要な対象とする（利用者の指示）。
+- 契約の正本（AGENTS、INV、README、共通安全契約）は、実装の承認時に[契約改定案](hypha_live_chain_compare_contract_draft_20260928.md)に沿って改める。
+
+### 分かっている限界
+
+- **遅延の報告への依存**: 間のpluginが遅延を正しく報告し、DAWが補償することを前提にする。崩れると、時計の規則では検出できず、ずれが続く。中身の推定による警告で扱う。
+- **周回単位の取り違え**: chainの遅延がloop長以上だと、Kを周回単位でずらして較正し得る。G1の照合（識別PCM）は、この誤りを検出できない。
+- **AAX**: POSTに遅延補償済みの位置が渡るかが未確認である。渡らなければ、AAXでは時計だけでKを較正できない。
+
+### 未決
+
+R-12と安全契約の改定、既存Blindのhost gate、E2でのowner、exact 4秒loopへの対応、Kの較正と照合の細則、infinite tailとAlwaysProcessの副作用と範囲、周回を特定する手段、AAXの時計と鍵、補償済みの位置が渡らないhostの扱い、AAXのmulti-mono、遅延補償のOFFの扱い。
+
+### 次の一手
+
+1. Pro Tools（AAX Native。macOS、続いてWindows）で、PREとPOSTに渡る位置が遅延の分だけ補償されるかを測る。AAXで鍵が成り立つかが決まる。
+2. Windows、他のbuffer設定、報告が先に来る型の遅延変更。
+3. 周回ごとに印が変わるfixtureと、遅延がloop長以上の条件。
+4. infinite tailとAlwaysProcessの副作用、中身のずれの警告の方式。
+G1の結果なしに対応hostを確定しない。
 
 ## 0. 採用方針と実装前の障害
 
@@ -69,12 +75,12 @@ loop、seek、追従補正、Blind統合を、承認なく後続フェーズへ�
 | 論点 | 第3版 | 第4版の決定と第5版の条件 |
 | --- | --- | --- |
 | 調査の基点 | ローカルmain ee522a53 | 分岐は維持。第4版の83b383a6と今回の5a6a9db5を区別し、統合後の参照と日本語UI契約をG0で再照合する |
-| host起点の境界 | 音声不足は一律に比較中断 | resetやhost scheduling次第で対応未証明の区間が生じ得る。片側証拠の先着は分類待ちとして扱い、POSTの必要範囲に証明済みの対応がある間はPREを続ける（第6版で修正）。A′の明示再選択を維持する |
+| host起点の境界 | 音声不足は一律に比較中断 | resetやhost scheduling次第で対応未証明の区間が生じ得る。片側証拠の先着は分類待ちとして扱い、POSTの必要範囲に証明済みの対応がある間はPREを続ける（第6版で修正）。A′の明示再選択を維持する（2026-09-28のG1RでCへ置き換え） |
 | Pinの失敗 | 直前4秒が単一範囲でなければ失敗 | 次周回のexact4秒を明示予約する代替を維持。ただし既存の1秒先＋4秒取得の直用では4秒loopに収まらず、新しい予約方式の実証が必要。4/Tは一様位相の仮定下の割合のみ |
 | 固定音の再生 | DAWの巻戻しを明示 | loopへの包含に加え、範囲先頭を含む正確なcallbackと完走までの連続性が得られる場合に限り、巻戻しを省ける。余白付き窓の範囲では、非分割hostでもこの条件が位相によらず成立する（第8版） |
 | editorの非表示 | 契約は変えずに観察 | host設定による画面置換にE1+E2で対応する。PRE/固定音の停止、既承認POST減衰、解析lease、非可聴cacheを区別する |
 | 小さい画面 | 全基準サイズで操作 | liveでは100%に入口を出さず復帰操作を残す。Blindは既存の最小900×600の隔離面を維持し、縮小時のPRE/POST名指しを匿名面へ持ち込まない |
-| 動的PDC | 観測できなければ出荷の障害 | 開始や補正には使わない停止専用の相関監視を、G1の評価候補に加える |
+| 動的PDC | 観測できなければ出荷の障害 | 開始や補正には使わない停止専用の相関監視を、G1の評価候補に加える（2026-09-28のG1Rで不採用。同日の見直しで、止めない警告へ改めた。第5.2節） |
 | RT sample guard | 閾値が未定義 | 承認時の観測TP基準Cを、sample peakの閾値に使う。inter-sample peakはworkerで別に記録する |
 | live転送の保持 | 記載なし | 固定AB/Blind中も予算内で保持候補とする。新鮮な証拠が維持される場合だけ復帰準備を短縮し、待ちなしを保証しない。背景経路の故障を固定artifactと分離 |
 | 競合資料 | Perception ABのPRE基準は「clipの可能性が低い」 | 同じマニュアルでp.8は可能性が低い、p.21は決してclipしないと書き、記述が一致しない。どちらもHyphaの根拠にしない |
@@ -91,76 +97,16 @@ loop、seek、追従補正、Blind統合を、承認なく後続フェーズへ�
 | 対応の鍵（2026-09-28） | Studio Pro 8.1.2の実測を受け、「連続時計（VST3連続時刻、AU render時刻）+ 定常区間で較正した差K」を対応の鍵の設計基準にした。対応hostとしての確定は、WindowsとG1-04（動的PDC）の実測の後にする | 第5.2節、第15節 |
 | 呼出しの空白（2026-09-28、G1R） | 各側の呼出しの空白を時計の不連続として扱う規則を採用した。PREは周回を改め、POSTはKを無効にして較正し直す | 第5.2節、第15節 |
 | 静かな区間（2026-09-28、G1R） | infinite tailの報告でplugin sleepを避ける案を本命にした。bounceの末尾、AU、他のhostでの副作用を確かめてから採用し、副作用があれば無音の後の自動復帰にする | 第5.3節、第15節 |
-| 動的PDCの直後（2026-09-28、G1R） | 遅延変更の直後に残る2〜4 block（最大171 ms）の誤対応を許容し、説明書に記す。AUにはM1を加える。中身による検出と、遅延変更を伴う構成での比較停止は採らない | 第5.2節、第12.1節、第15節 |
+| 動的PDCの直後（2026-09-28、G1R） | 遅延変更の直後に残る2〜4 block（最大171 ms）の誤対応を許容し、説明書に記す。AUにはM1を加える。中身による検出と、遅延変更を伴う構成での比較停止は採らない。同日の見直しで、止めずに警告する中身の推定を加えた（下記） | 第5.2節、第12.1節、第15節 |
 | 境界規則（2026-09-28、G1R） | A′を案Cに置き換えた。どの境界でも、証明できない区間はPOSTを鳴らし、証明が戻り次第PREへ自動で戻す。説明できない欠落と失効は従来どおり中断と再選択 | 第5.3節、第15節 |
+| 遅延の報告の誤り（2026-09-28、見直し） | 時計の規則は、遅延の報告の誤りを検出できない。比較の開始時と定期的に中身のずれを推定し、時計の対応と食い違えば警告する。止めず、Kも補正しない。DAWの遅延補償に依存することを説明書に記す。利用者が判断を委任し、推奨（案a）を採用した | 第5.2節、第12.1節（G1-05）、LC-29 |
+| AAX（2026-09-28、利用者の指示） | AAXを、VST3、AUと並ぶ重要な対象として扱う。同じ規則が成り立つかを、Pro Toolsで最初に測る | 第5.4節、第12.1節、LC-33 |
+
 これらは計画上の決定である。
 AGENTS、INV、README、共通安全契約の正本は、実装の承認時に改める。
 
 第5版の追加修正は、既存future captureと次周回Pinの区別、境界証拠の片側先着、E2の出力と資源、Blindのサイズ/匿名性、段階間gain復帰である。
 同期とPinの実現方式、保持中の資源権限、現行契約の例外はG1/G1Rへ残し、文書改訂を実証済みの意味にしない。
-
-### 第6版の改善と第7版の補正
-
-| 論点 | 維持する改善 | 第7版で明確にする条件 |
-| --- | --- | --- |
-| 境界証拠の片側先着 | 有効な対応が続く範囲ではPREを一律に切らない | callback順、host時計の境界、PCM内容の境界を分ける。旧PCMがあるだけでは継続を許さず、reset等をまたぐ証拠の有効性を認定する |
-| 次周回予約 | live経路上の予約とRT sealを第一候補にする | 4秒loopでは境界blockを避けられない。sample-levelの分割証拠、事前確保、上書き防止、callback当たりの処理上限が必要 |
-| 非表示中の解析queue | enqueueとworkerを停止し、計画的な停止をoverflow扱いしない | 再開時は解析epochまたはgap barrierを更新。旧queueと部分窓を混ぜない |
-| E2のowner | unity時に限るowner解放案を、未採用の比較候補として残す | 現行admissionは解析枠と試聴排他を束ねる。解析枠だけの停止/再取得をG2の責務へ加える |
-| 固定音の再生 | Source 1完走後のSource 2自動armを維持 | loopへの包含だけでは鳴らない。範囲先頭を含む正確なcallbackと、完走までの連続性が必要 |
-| G1実験 | G1-01〜10を維持 | 同一passの独立oracle、遅延がloopより長い条件、保持上限、取得後の実再生までを追加 |
-| 基点 | hashで観測状態を区別する | 統合branchのmerge済みsnapshotと、main未反映、統合結果未検証を区別 |
-
-### 第8版での追加
-
-| 論点 | 第7版 | 第8版 |
-| --- | --- | --- |
-| 範囲の置き方 | 境界blockを丸ごと避ける方式は、4秒に余裕のあるloopでの限定案とした | 余白付き窓を既定にする。範囲の先頭を折返し後の再開位置から最大callback分以上後ろに置き、終端を折返し位置までに収める。取得は境界blockの折返し後の部分を使わず、再生でも範囲先頭を含むcallbackが位相によらず来る。exact 4秒loopは第7版の条件のまま（第7.2節） |
-| 再生の確認 | 非分割境界で範囲先頭を取り逃す反例を示した | 同じ実rendererで、余白付き窓の範囲がadapterなしで両source完走することを確認した（callback長64〜512 frames、200通りの位相）。範囲先頭を再開位置に置くと200通り中193通りで完走しない対照も得た |
-| 遡及Pinの再生可否 | 取得の可否だけを判定 | Pin時に再生可否も判定する。範囲先頭が再開位置の余白内にあれば待機し得ることを示し、DAWでの巻戻しか、余白付き窓での次周回予約を選べるようにする |
-| exact 4秒loopの頻度 | 記載なし | 4/4拍子、120 BPMの2小節は48 kHzで192000 samplesとなり、4秒のartifactと一致する。珍しい条件として扱わない |
-| host認定の現況 | ローカルのみのexact host判定 | 統合候補c60ab679（B-1052）ではこの判定がDebug buildに限られ、release buildは認定hostを返さない。live比較の認定に流用しない |
-| 基点 | 805ff180まで | c60ab679（B-1056）まで確認。根拠のsourceは三基点で同一blob |
-
-### 第9版での実測の反映
-
-| 論点 | 第8版 | 第9版（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)） |
-| --- | --- | --- |
-| loop境界の分割 | 非分割hostを想定し、G1-03で確かめるとした | Studio Pro 8.1.2は分割しない。境界をまたぐcallbackは、PRE側では折返し前の開始位置で報告された |
-| POSTの時刻 | 時計と内容の境界差Uが観測されたら余白に加える | 遅延4096のchainでは、POSTのproject時刻が折返しのたびに4096 samplesの間loop先頭に留まり、内容は折返し前の末尾だった。U = chain遅延 |
-| 対応の鍵 | 同一native位置を候補とした | VST3連続時刻はPREとPOSTで同じ内容に同じ値（K = 0）を持ち、AUのrender時刻はPREとPOSTの差Kが一定で、どちらもloopで途切れなかった。「連続時計 + 較正したK」を鍵の設計基準にした（2026-09-28決定） |
-| seekと再生開始 | 境界確認待ちとして扱う | POSTの時刻は新位置からchain遅延を引いた位置へ即時に跳び、その間の内容は旧位置の続きか無音だった。対応するPREは現在のrunに存在しない（run世代を照合しなければ誤受入れになることを第10版で確認） |
-| 既存Local Blind | 他hostの前提をG1-10で確かめる | POSTのproject時刻を使うため、遅延のあるchainで範囲がloop終端からchain遅延以内にかかると試行が失効する。音はPOSTへ戻る |
-| 基点 | 統合branchの採用が未決 | PR #50（9fa244d9）でmainへ入った |
-
-### 第10版での実測の反映
-
-| 論点 | 第9版 | 第10版（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第6節） |
-| --- | --- | --- |
-| 対応の鍵 | 連続時計 + 較正したK | 連続時計の値はrunをまたいで再利用される（VST3連続時刻はseekと再生開始でproject位置へ戻る）。鍵にPREのrun世代を加え、PREの現在のrunで書かれた範囲だけを受け入れる |
-| seekと再生開始 | 対応するPREが無いので欠落として検出できる | POSTが指すringの格納位置には旧runの音が残るため、書込み末尾だけの判定は誤受入れになった（VST3、chain遅延と同じ2 blockを2回）。run世代の照合で、その4 blockだけを棄却できた（オフライン再生） |
-| AUの境界 | render時刻はseekでも途切れない | seekと再生開始の後も、POSTの内容は「render時刻 − K」のPREとbit一致した。A′で解除しない境界の候補 |
-| 到着 | 未測定 | このhostの同一process、負荷なし、2048 framesで未到着0。余白はchain遅延と同じで、隣接構成では0 |
-| 転送 | 未測定 | POSIX共有memoryの事前確保ringで、callbackあたりの追加時間は最大30 µs程度、p99.9は25 µs以下 |
-| plugin sleep | 記載なし | 停止中、editorを表示していないPREへの呼出しがほぼ止まった。再生中の扱いは未確認 |
-
-### 第11版での実測の反映
-
-| 論点 | 第10版 | 第11版（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第7節） |
-| --- | --- | --- |
-| 周回の規則 | 記録からの再計算で確認 | plugin内で動かし、VST3で事前条件C1〜C4をすべて満たした。誤受入れ0、棄却はseekと再生開始ごとのchain遅延分（2 block）だけ、旧規則の誤受入れ10を再現、再計算と全block一致 |
-| plugin sleep | 停止中にPREへの呼出しが止まった | 無音入力が約4秒続くと、再生中でも呼出しが止まる。editorを表示したinstanceは呼ばれ続けた |
-| AUのK | 一定 | sleepで「PREの未呼出しframe数 − POSTの未呼出しframe数」だけ変わる。POSTだけが眠り、ずれがring容量（約10.9秒）内だと、古いKで過去の音を受け入れた（8 block） |
-| 対応の鍵 | 連続時計 + K + PREの周回 | さらに各側の呼出しの空白（壁時計）を時計の不連続として扱う。PREは周回を改め、POSTはKを無効にして較正し直す。記録からの再計算で誤受入れ0 |
-| host認定 | 中身の照合の必要を明記していない | seek直後の古い音に新しい周回の番号を付けるhostでは、周回の規則が働かない（host模型で確認）。認定は中身の照合で行う |
-
-### 第12版での実測の反映
-
-| 論点 | 第11版 | 第12版（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第8節） |
-| --- | --- | --- |
-| 呼出しの空白の規則 | 記録からの再計算で誤受入れ0 | plugin内で動かし、再配置、PREだけのsleep、POSTだけのsleep、隣接構成で、両formatとも誤受入れ0。対照のv2の規則はAUのPOSTだけのsleepで8 blockを誤受入れ |
-| 動的PDC（G1-04） | 未測定 | 再生中に遅延を4096 ↔ 0と変えると、音の変化が時計より先に来た。VST3は2〜3 block後にPOSTの時計が補正され、AUはKが4096変わった。どの時計の規則でも、直後の2〜4 block（最大171 ms）の誤対応は防げない。AUは候補の食い違いで直ちにKを無効にする規則（M1）で10〜11 blockを3〜4 blockに縮められる |
-| sleepを避ける手段 | 未測定 | infinite tailを報告したVST3 pluginは、停止中も無音区間も一度も眠らなかった |
 
 ## 1. 完成させる操作
 
@@ -246,6 +192,7 @@ CPU削減機能でもない。
 | 非表示時の解析lease | 両基点のINV-S7は全optional Analysis lease解放を要求。E2のcache保持と解析を続けることは別 |
 | 現行Blindの画面 | PluginEditorLocalBlind.cppは最低900×600へ拡大し、Blind中の自由リサイズを止める。100% live規則をそのまま適用しない |
 | 日本語表示 | remote側INV-S40、HyphaLanguage.h、HyphaJapaneseCatalog.h。案内/状態/通知の英日対訳と小型折返し、匿名性を両言語で試験する |
+
 過去のB1は静的なsample対応の有力な証拠であり、host内部のPDC実装を一意に証明するものではない。
 当該commitと条件を超える現在callbackへの到着、loop、seek、latency変更、別processのRT安全性は別途検証する。
 
@@ -285,6 +232,10 @@ macOSの確認したXNU実装では名前の上限はNULを除く31 bytesであ�
 サイズ変更は一度の割当を前提にし、変更時は新generationのmappingを作る。
 App Group風の名前だけで第三者AU hostのsandbox権限が得られるとは扱わない。
 実host processのentitlementsとAU形態に対する到達性を試験する。
+出荷AUのresourceUsageは`temporary-exception.files.all.read-write`だけである（B-130）。TN2247がresourceUsageに挙げる鍵に、共有memoryの例外はない。
+sandboxの中のPOSIX semaphoreと共有memoryの名前は、app group IDを接頭辞にした`GGG/NNN`で、31 bytes以内とされる（Apple DTS）。app groupはprocessのentitlementなので、sandboxのhostではfile-backed mappingが現実的な候補になる。
+LogicがApple siliconでAUを別process（AUHostingService）で動かすという報告は未確認であり、G1-06で確かめる。
+AAXはPro Toolsのprocessの中で動くが、multi-monoではchannelごとに別instanceになる（第5.4節）。
 Windowsは同じuser/session内を基本とし、Global namespaceの特権を前提にしない。
 出典は第14節に置く。
 
@@ -319,6 +270,7 @@ live転送は、固定ABとBlindの段階でも非可聴のまま保持する候
 | どのPRE sampleがPOST入力のどのsampleに対応するか | 識別PCMと既知delayによるexactな対応。native位置一致は候補であり、全host共通の保証ではない |
 | 必要なPRE sampleが出力deadline前に到着するか | 実callback trace、範囲coverage、可変block、負荷、分離processでの確認 |
 | loop、seek、PDC変更をまたいで対応が維持されるか | 周回識別、reset/flush、境界block、通知タイミングを含む独立試験 |
+
 直列chainでもPRE256 framesの公開後にPOST64 framesを4回処理すれば、公開末尾と消費counterとの差は256、192、128、64になる。
 すべてのPOST要求範囲が存在する場合でも差は一定でない。
 したがってlocal counter差一定を必要条件にも十分条件にも使わない。
@@ -329,7 +281,7 @@ host認定profileはDAW build、OS build、format、architecture、rate/block条
 同一native写像を採用できるprofileから検証を始める。
 Metric ABの変更履歴は、Logic Proでbus trackを有効にした場合などにhostが正しいPDC情報を渡さないとして手動補正を設けている。
 Logic Proはrouting条件別にprofileを分け、同じDAWでも一括で認定しない。
-相関は非出荷のdiagnosticで残差を確認するために使い、任意のEQ、reverb、意図的delayを実行中に「誤差」として自動補正しない。
+相関（中身のずれの推定）は、非出荷のdiagnosticでの残差の確認と、製品での警告（下記）にだけ使い、任意のEQ、reverb、意図的delayを実行中に「誤差」として自動補正しない。
 異なる時刻写像や追加出力delayが必要なら、0 sample境界への影響と製品範囲を再提案する。
 
 VST3ではloop境界でhostがblockを分割する義務はない。
@@ -365,6 +317,31 @@ VST3は2〜3 block後にPOSTの時計が補正されて自然に戻り、AUはK�
 代わりに、変更直後の2〜4 block（このhostで最大171 ms）の誤対応を許容して説明書に記し、AUにはM1を加えて区間を縮める。
 遅延変更を伴う構成での比較停止は、事前に判別できないので採らない。
 この許容は、時計で検出できない区間が実測で有限（2〜4 block）だったhostに限る。他のhostでは、G1-04の実測で区間の長さを確かめてから同じ扱いにする。
+許容は、pluginが遅延の変更を報告し、hostが再生中に補償を改める場合に限る。
+報告しない変更と、再生中に補償を改めないhostでは、ずれは自然には終わらない。Pro Toolsは後者である（第5.4節）。
+
+**遅延の報告への依存（2026-09-28の見直し）**
+対応の鍵は、PREとPOSTの間のpluginが遅延を正しく報告し、hostがそれで補償することを前提にする。
+遅延を報告しない、または誤って報告するpluginが間にあると、時計の対応は正しく見えたまま、PREが誤差の分ずれ続ける。
+どの時計の規則でも検出できない。上のMetric ABの例のように、hostの側で補償が崩れる条件もある。
+そこで、比較の開始時と、その後は定期的に、非RTのworkerでPREとPOSTの中身のずれを推定し、時計の対応と食い違えば警告する（契約改定案のINV-LC7）。
+比較は止めず、Kも補正しない。推定できないときは判定不能とし、「一致」も表示しない。
+意図したdelay、reverb、強い加工でも食い違いは出る。警告は、推定したずれと考えられる原因を事実として示し、価値判断を出さない（R-22）。
+Pro Toolsでは、再生を止めて再開すると補償が改まることも示す。
+説明書には、DAWの遅延補償に依存することを記す。
+この警告は、以前の停止専用の相関監視と違い、比較を止めない。誤警告、見逃し、判定不能の率は、G1-05の構成で測る（第12.1節）。
+利用者が判断を委任し、推奨（案a）を採用した。
+
+**周回単位の取り違え**
+Kの較正は、project時刻の一致が、POSTが聞いている周回のPREの記録と結び付くことを前提にする。
+chainの遅延がloop長以上だと、新しい周回のPREの記録と結び付き、周回単位でずれたKを採り得る（判定コードの作りからの推論。未試験）。
+G1の照合に使った識別PCMは、位置ごとに一意だが周回ごとには同じなので、この誤りを検出できない（G1記録第8.6節）。
+G1-03で、周回ごとに印が変わるfixtureを使って試し、前提を確かめる手段と、確かめられない場合の扱い（PREを出さない、または警告）を決める。
+
+**定数はhostごとの値**
+空白の判定（直前block長の2.5倍かつ20 ms超）と較正の連続一致（8回）は、Studio Pro 8.1.2、2048 framesで試しただけの初期値である。
+blockの長さが変わるhostや、呼出しが不規則になり得るhost（LogicのProcess Buffer Range、REAPERのanticipative FX。影響は未測定）では、空白を誤って検出し、PREが頻繁に途切れるおそれがある。
+host profileの値として扱い、hostとbuffer設定ごとに実測で決める。
 
 ### 5.3 境界、故障、解析不足を分ける
 
@@ -380,13 +357,13 @@ callbackの実行/公開順、host時計やtransportの境界通知、PCM内容�
 
 認定profileが境界後も旧runの対応の継続を証明し、reset/flush、clock/pair/generation変更などの失効条件がない場合に限り、必要な旧範囲のPREを継続できる。
 旧PCMがringに存在することは必要条件の一つであり、現在のPOST入力との対応が有効であることの証明ではない。
-profileにその継続証拠がない場合は保守的にPREを解除するが、原因分類は期限内で続ける。
+profileにその継続証拠がない場合は保守的にPOSTを鳴らし（PREの選択は保つ。C）、原因分類は期限内で続ける。
 全sampleの対応を新runへ途切れず引き継げると実証された場合には、中断せず継続できる。
 
 | 区分 | 判定と出力 | 次の状態 |
 | --- | --- | --- |
-| 境界確認待ち | 片側先着後も旧証拠が有効だとprofileが示し、POSTの必要範囲がその対応に含まれる間だけPREを続ける。証拠が失効した最初のsampleからPOSTへ移す。POSTだけが境界を示して対応証拠がない場合もPOSTへ移す。範囲と理由をreceiptへ記録 | 有限の期限内に両側の新鮮な証拠を集める。証明の無いPRE継続と、解除後の自動再開はしない |
-| host起点の境界 | 両側の対応する遷移、run、位置、順序を認定profileの規則で確認 | 対応が途切れてPREを解除した場合はA′で再準備し、ready後に明示選択。全sampleの有効な対応が継続する場合は選択を維持 |
+| 境界確認待ち | 片側先着後も旧証拠が有効だとprofileが示し、POSTの必要範囲がその対応に含まれる間だけPREを続ける。証拠が失効した最初のsampleからPOSTへ移す。POSTだけが境界を示して対応証拠がない場合もPOSTへ移す。範囲と理由をreceiptへ記録 | 有限の期限内に両側の新鮮な証拠を集める。証明の無いPRE継続はしない。証明が戻れば、Cにより最初のblockからPREへ戻す（対称5 ms）。期限を超えたら説明できない欠落として扱う |
+| host起点の境界 | 両側の対応する遷移、run、位置、順序を認定profileの規則で確認 | 対応が途切れた区間はPOSTを鳴らし、PREの選択と承認済みgainを保持する（C）。証明が戻った最初のblockからPREへ戻す。全sampleの有効な対応が継続する場合はPREのまま |
 | 説明できない欠落 | 連続再生中のcoverage欠損、期限後も片側だけの境界、protocol/pair/format失効 | 比較中断をlatch。失効した証拠に応じ再準備を求める |
 | 解析だけの不足 | 音声coverageとRT guardは正常でworker queueだけが遅延/欠測 | 追従更新とPinを停止。独立性を実証した構成では承認済み固定gainの試聴を維持 |
 
@@ -421,13 +398,44 @@ Studio Proは、入力が約4秒無音のPREの呼出しを再生中でも止め
 境界があっても全sampleの対応を維持できるprofileでは、PREを中断する必要はない。
 Cでは、未証明区間の間はPOSTが鳴り、証明が戻ればPREへ戻る。利用者の操作は要らない。
 証明が戻るまでPOSTを鳴らす仕組みは、第12版までの実測でplugin内で機能した（誤受入れ0）。これが、再選択を求める安全上の理由をなくした根拠である。
+この「誤受入れ0」は、識別PCMで見分けられる誤りに限り、遅延の報告が正しいchainでの結果である（第5.2節）。
+時計の規則で検出できない誤り（遅延の報告の誤り、周回単位の取り違え）は、A′の再選択でも防げない。Cを選んでも、その危険は増えない。
+
+Cで自動で戻るときは、既存の対称5 ms遷移（LocalBlindTransition.h、INV-S25）を使い、確かめたPREのsampleだけを遷移に使う。
+確かめられなくなったときは、そのblockの先頭でPOSTへ切り替える。確かめていないPREを遷移に使わない。
+この切替は、seek、loop、sleep、遅延変更の境界で起こり、音そのものが不連続になる場面と重なる。
+PREを選んだままPOSTが鳴っている間は、画面に「PRE待ち」を示す。区間が短いとちらつくので、最短の表示時間をG4で決める。
+既存のReference試聴は、停止、位置不明、準備未完了でBの選択を解除し、再選択を求める（第3節）。Cはこれと逆の振る舞いである。
+live比較のPOSTは同じ曲の同じ位置の音であり、境界ごとに時計の規則で確かめ直せるので、選択を保つ。Referenceの規則は変えず、画面とREADMEで違いを示す。
 説明できない欠落、protocol/pair/format失効、上限超過は従来どおり比較中断とし、再選択を要する。
 「1操作」はready時の再開操作数であり、境界の証明待ちをゼロにする保証ではない。
 固定gainの保持と、現在の音も同じラウドネスであることは別であり、測定条件が変われば残差や再MATCHの必要を示す。
 
-故障を短いPOST代替で隠し、次blockで自動PRE復帰させない。
+故障を短いPOST代替で隠し、次blockで自動PRE復帰させない（Cの自動復帰は境界だけに適用する）。
 block途中までPREを出した事実があればtransition/中断範囲をreceiptへ残し、純粋なPRE完走と数えない。
 解析worker復旧後も古い候補を使わず、再解析と追従再開の明示確認を要する。
+
+### 5.4 AAX（Pro Tools）
+
+AAXは、VST3、AUと並ぶ重要な対象である（2026-09-28、利用者の指示）。
+G1の実測はStudio ProのVST3とAUだけなので、同じ規則がPro Toolsで成り立つかは未確認である。
+出典は、Avidが公開するAAX SDKの[Pro Tools Guide](https://learn-cdn.avid.com/AAX_SDK_2p1p1/Documentation/Doxygen/output/html/a00274.html)と、手元のAAX SDK 2.9のheaderの説明である（第14節）。
+
+| 点 | AAXの仕様 | 設計への意味 |
+| --- | --- | --- |
+| 連続時計 | `AAX_ITransport::GetCurrentNativeSampleLocation`は、再生中だけ、callbackのbuffer先頭のtimeline位置を返す。`AAX_IController::GetTODLocation`は、再生開始からplayheadが進んだsample数を返し、audio engineの実時間の処理の中で増える。現行のJUCE patch（0008）は、前者をAAXの補助時計として渡している | 前者はproject時刻にあたり、loopを挟んで連続する時計ではない見込み。後者が連続時計の候補だが、engine全体の値なので、同じcycleのPREとPOSTで同じ値になる見込み。pluginが数えるframe数（AUのrender時刻と同じ性質）も候補 |
+| 遅延補償された位置 | POSTに渡る位置が、PREとPOSTの間のpluginの遅延の分だけ補償されるかは書かれていない。Studio ProのVST3とAUでは補償されていた（G1記録第2節） | 補償されていなければ、project時刻の一致からKを較正できず、対応の鍵がAAXでは成り立たない。最優先で実測する。成り立たない場合の選択肢（中身による較正を認めるか、AAXでは提供しないか）は、利用者の判断を求める |
+| 再生中の遅延変更 | Pro Toolsは再生中に遅延補償の設定を更新しない。遅延を動的に変えるpluginは、再生中の変更を避けるか、ずれを利用者に示すべきとされる。`SetSignalLatency`の即時の適用も保証されない | 再生中の変更によるずれは、再生を止めて再開するまで続く。第5.2節の許容の外で、警告で扱う |
+| 遅延補償のOFF | Pro Tools 12.6以降は、遅延補償の全体の有効・無効をpluginに通知する（`AAX_eNotificationEvent_DelayCompensationState`）。JUCEはこの通知を扱っていない | OFFの間は対応の前提が成り立たないと分かる。POSTを出し、理由を示す案（契約改定案のINV-LC8） |
+| Dynamic Plug-In Processing | Pro Tools 11以降は、一定時間無音のtrackや停止中のpluginを止める。止めさせない方法は、descriptorの`AAX_eProperty_Constraint_AlwaysProcess`（JUCEの`JucePlugin_AAXDisableDynamicProcessing`）で、そのpluginのchain全体を処理させ続ける。SDKは、実際に支障があるときだけ使うよう求める | Studio ProのPlug-in Napと同じ問題がある。属性は静的なので、「比較中だけ」は選べない |
+| loop | loopの終わりから始めへ、pluginの状態をresetせずに続けて処理する | loopでの位置とTODの振る舞いはG1-03で測る |
+| offline bounce | 実時間より速く呼ぶ。wall-clockに依存する処理を避けるよう求める | 呼出しの空白の規則はofflineでは使えない。offlineではA経路を保つ（R-12） |
+| multi-mono | channelごとに別instanceを作る | PREとPOSTの組、転送、Kがchannelごとになる。channelごとに切り替えると、channelの間でPREとPOSTが混ざる。全channelを同じsampleで切り替える設計にするか、live比較をstereoのinstanceに限るかは、利用者の判断（契約改定案のINV-LC9） |
+
+AAXのG1は、Pro Tools（AAX Native）のmacOSから始め、Windowsへ広げる。
+最初に、遅延のあるchainで、PREとPOSTに渡る位置とTODを同じcycleで記録し、補償の有無を確かめる（G1-01）。
+鍵が成り立つと分かった後に、G1-03、G1-04、Dynamic Plug-In Processingを測る。
+AAXのプローブは、Pro Toolsが読み込める署名が要る。製品と別identityの非出荷fixtureとし、署名は既存のAAXの経路（`docs/aax_macos_universal_build_20260910.md`、`docs/aax_windows_build_20260910.md`）に沿う。PACEでの署名は、行う前に利用者の確認を得る。
 
 ## 6. Gain Matchの方式
 
@@ -444,6 +452,7 @@ Blind側も統一する場合は互換性とpolicy versionへの影響を示し�
 | --- | --- | --- | --- |
 | POST基準 | d | 0 | 既定候補。POSTのmix内音量を維持 |
 | 明示承認付き減衰 | min(d, 0) | min(−d, 0) | 両側を小さい側へ合わせる式。d>0ではPREを原音量に保ちPOSTを下げる |
+
 既存Blindでは、POST基準の正のPRE補正が観測TP基準を超える場合に減衰の承認を求める。
 これをliveにも統合し、「Quietest」という独立エンジンを重ねない。
 超過前から減衰基準を任意選択できるようにするかは追加の製品判断とする。
@@ -520,6 +529,7 @@ hostがbypass中にprocess自体を止める場合は音声を書き換えず、
 | Blind | 同じartifactを匿名の新trialで聴く。両source完走後に回答可能 |
 | 終了処理/減衰保持 | 現在の実gainを示す。必要なownerとRecord排他を保持 |
 | 通常へ復帰済み | unity POSTのRT receiptを確認してownerと資源を解放 |
+
 receiptは要求sourceと実出力sourceを分ける。
 session、command sequence、pair/run、gain revision、実gain、transition、fallback範囲、境界区間、中断理由を含める。
 UI threadの要求を「適用済み」と表示しない。
@@ -679,7 +689,7 @@ Preference Listening TrialをABX検定や改善の証明と呼ばない。
 live、固定AB、Local Blindは一つのcomparison_sessionが排他的に所有する。
 独立した二つの可聴ownerを許可せず、段階移行途中でownerを解放して取り直す隙間も作らない。
 移行は非RTのtransactionとし、失敗時は獲得済み分だけを巻き戻す。
-試聴は既存process/project排他へ参加し、gain推定と停止専用監視は既存2枠中の1枠で行う。
+試聴は既存process/project排他へ参加し、gain推定と中身のずれの推定（警告用）は既存2枠中の1枠で行う。
 PREに第三の解析枠を設けない。
 資源共有は名前だけでなく、仕事量、所有権、上限、停止時の解放を定義する。
 現行`AuditionAdmission`はanalysis、process/project試聴排他、capture barrierを束ね、公開の`release()`はまとめて解放する。
@@ -745,16 +755,16 @@ owner解放後に再取得する方式を選ぶ場合は、再開競合と承認
 | 可聴PRE選択、追従許可、旧command | 解除し、再表示で復元しない |
 | comparison owner、必要なRecord排他 | 全体Return完了まで保持 |
 | 承認済みgain/C/policy/revision | 数値と承認範囲を保持。現在の音量一致を意味せず、古さと再検証結果を別保存 |
-| optional Analysis leaseとgain/相関worker | INV-S7に従い解放/停止。追従、相関監視、Pin候補の更新も止める |
+| optional Analysis leaseとgain/ずれ推定worker | INV-S7に従い解放/停止。追従、中身のずれの推定、Pin候補の更新も止める |
 | 音声IPCとclock coverage | 予算内で保持候補。非可聴consumerと寿命管理を続けられる構成だけに限定。RTは解析queueへ積まず、ringの消費とcoverage検証だけを続ける。計画的な停止をqueue overflowの故障に数えない |
 | snapshot | 不変payloadを保持できるが、Blind mutable trialの自動復活には使わない |
 
 IPCを保持しても、解析leaseを返したまま同じ解析を別名workerで走らせない。
 音声coverageの維持に解析workerが不可欠なら、「準備の全維持」とINV-S7は両立しない。
 その場合はreadyを取り下げて再表示時に再準備し、必要な例外はG1Rで承認を求める。
-停止中の相関監視がないことも含め、非表示中に時刻対応が有効だったと推測しない。
+停止中は中身のずれの推定もないことを含め、非表示中に時刻対応が有効だったと推測しない。
 解析停止は同一run中でも起こるので、analysis epochまたは同等のgap barrierを更新する。
-RTのenqueue停止を確認した後、旧queue、部分的な音量窓、相関履歴を非RTで退役させる。
+RTのenqueue停止を確認した後、旧queue、部分的な音量窓、ずれ推定の履歴を非RTで退役させる。
 再開後の新鮮な連続窓から候補を作り、非表示前後のデータを連続と扱わない。
 承認済み固定gainの保持と、新しいMATCH/FOLLOW/Pin候補のreadyを区別する。
 G1-08/LC-22ではworker停止の表示だけでなく、別instanceが実際に空いた解析枠を獲得できることを試験する。
@@ -823,7 +833,7 @@ remote側INV-S40に合わせ、案内、状態、通知、menu、tooltipは英�
 新しい境界待ち、Pin予約、E2、減衰保持、Returnの文言は小型の折返し、missing translation、accessibilityを確認する。
 匿名性は両言語のtooltipと読み上げでも保ち、英語だけの合格で終えない。
 
-色やhoverだけに依存せず、要求中、適用済み、再生待ち、境界確認待ち、中断、減衰保持、通常復帰を区別する。
+色やhoverだけに依存せず、要求中、適用済み、再生待ち、境界確認待ち、PRE待ち（PREを選んだままPOSTが鳴っている）、中身のずれの警告、中断、減衰保持、通常復帰を区別する。
 未認定hostや明示操作の失敗は通知し、無操作時の内部fallbackで不要なエラーを出さない。
 観察試験は開始、切替、隣のEQ、編集、Hypha再表示、Pin/代替予約、DAW再生、Blind、回答/保留、reveal、再試行、live復帰、全体Returnを一巡する。
 回答やrevealを退出の条件にしない。
@@ -845,7 +855,7 @@ host clock診断はG1で拡張する対象である。
 | host認定 | ローカルのみのHyphaChainClockPolicy.hのexact host判定。統合候補c60ab679ではDebug限定 | live_compare/LiveCompareHostPolicy.h。計測用の判定とは別の認定一覧と証跡 |
 | 連続PCMと寿命 | 既存pair locatorとcontrolの検証境界、RtPublicationSlot.h、Referenceのpage lease | live_compare/LivePcmRing.*、LivePcmTransportMac.*、LivePcmTransportWindows.*、Rust側のlayout定義 |
 | 開始、終了、排他 | PluginProcessorPairing.cpp、analysis_lease.rs、project_audition_lease.rs、reference_capture_admission.rs、audition_admission_ffi.rs | live_compare/LiveCompareSession.*、live_compare_admission.rs、専用C ABI module。ownerと解析grantの独立停止/再取得 |
-| 音量推定と更新policy | reference_gain.rs、reference_gain_ffi.rs、LocalBlindPreparation.cpp | live_compare/LiveCompareGainWorker.*、live用policy、固定/追従とblock guard、停止専用監視（採用時） |
+| 音量推定と更新policy | reference_gain.rs、reference_gain_ffi.rs、LocalBlindPreparation.cpp | live_compare/LiveCompareGainWorker.*、live用policy、固定/追従とblock guard、中身のずれの推定と警告（INV-LC7案） |
 | 固定ABとLocal Blindの共通準備 | ExactRangeCapture*、LocalBlindProductSession.*、LocalBlindPreparation.*、LocalBlindTrial.*、LocalBlindTransition.h | comparison/ComparisonSnapshot.*、共通factory、次周回予約と余白付き窓の算定、bounded seal、exact loopで必要な場合のsub-block renderer adapter、段階gain profile。匿名TrialViewは分離 |
 | Referenceとの競合 | reference_audition/ReferenceComparisonController.*、ReferenceComparisonCapture.cpp | 共通ownerの拡張と競合試験 |
 | UIと保存 | PluginEditor.*、PluginEditorMenu.cpp、PluginEditorLocalBlind.cpp、PluginProcessorState.cpp、HyphaObservatoryView*、HyphaUiContract.h | PluginEditorLiveCompare.cpp、HyphaLiveCompareView.* |
@@ -853,6 +863,7 @@ host clock診断はG1で拡張する対象である。
 | 検証装置（非出荷） | tests/pdc_validation_delay/、CapturePairComparison.*、ローカルのみのtests/host_clock_diagnostic/ | latency切替fixture、AU/AAX用の時計trace、転送試作用の別identity plugin |
 | 検証と配布 | juce_shell/tests/、juce_shell/CMakeLists.txt、.github/workflows/ci.yml、source契約とline budget | 連続比較のnative試験、実host証跡、protocol互換試験 |
 | 正本文書 | AGENTS.md、README.md、docs/hypha_invariants.md、meter表示契約、共通安全契約、9/14 Blind計画 | 本計画を採用した範囲の同期 |
+
 新設名は責務を示す候補であり、存在するAPIやfileとして引用しない。
 既存の500行超fileとline budget baselineは着手時に再確認する。
 例えばFFIのlib.rsは、origin/mainで5252行、ローカルmainで4800行と異なる。
@@ -881,6 +892,7 @@ worker queue 0.5秒 = 2 × 0.5 × F × C × 4 bytes
 | 48 kHz | 1.16 MiB | 2.93 MiB | 2.93 MiB | 0.37 MiB | 7.3867 MiB |
 | 192 kHz | 4.46 MiB | 11.72 MiB | 11.72 MiB | 1.46 MiB | 29.3594 MiB |
 | 768 kHz | 17.64 MiB | 46.88 MiB | 46.88 MiB | 5.86 MiB | 117.2500 MiB |
+
 これは実測RSSでも総容量でもない。
 現行factoryのvectorコピーをそのまま追加すると、768 kHzで46.875 MiB増え、164.125 MiBになる。
 旧rendererの退役だけを待ってもこの複製は消えない。
@@ -893,7 +905,7 @@ shared ownershipを使っても、最後のrelease/freeをAudio Threadへ持ち�
 768 kHz stereoのraw PRE/POST 4秒は12,288,000個のfloat、46.875 MiBであり、終端callbackへ一括コピーを集中させない。
 既存の履歴/snapshot枠をadoptするのか別領域を増やすのかをledgerに明記し、segment保護中の書込み先と旧artifactの退役待ちも重複計上する。
 既存future captureの領域だけで収まるとは仮定しない。
-さらにrun metadata、alignment、mapping丸め、RT scratch、filter、Pin封印待ち、future capture、転送decode用buffer、旧新artifactの重なり、停止専用監視の作業領域を計上する。
+さらにrun metadata、alignment、mapping丸め、RT scratch、filter、Pin封印待ち、future capture、転送decode用buffer、旧新artifactの重なり、中身のずれの推定の作業領域を計上する。
 capture開始から解析、AB、Blind、取り直し、終了までのピークledgerを作り、allocation creditで同時確保を制限する。
 128 MiBは暫定の新経路予算であって、全rateで達成済みとはしない。
 既存Referenceや別の解析枠を含む総プロセス量も測る。
@@ -915,14 +927,16 @@ mappingの初回接触は非RTで済ませるが、一般OS上でpage residency�
 | Gate | 作業 | 通過条件 |
 | --- | --- | --- |
 | G0 基点と調査範囲の承認 | ローカルmainとorigin/mainの統合状況（B-1010〜B-1023、重複したB番号、INV番号）を確定する。対象host候補、統合workflow、安全契約の変更候補を整理する。既存差分と正本を、統合後のmainで再照合する | 判断事項と実験事項が分離される。未実証の技術選択を利用者に保証させない。本書の参照が統合後のmainで成立する |
-| G1 成立性prototype | 静的対応、deadline、境界確認待ち、動的PDC、IPC、次周回予約、E2資源、容量を非出荷fixtureで検証。相関監視は見逃し/判定不能も評価 | 三条件と予約の締切を独立判定。4秒loopと非分割境界を含め、未達は障害として提示。固定Δや相関の沈黙で免除しない |
+| G1 成立性prototype | 静的対応、deadline、境界確認待ち、動的PDC、IPC、次周回予約、E2資源、容量を非出荷fixtureで検証。中身のずれの警告は誤警告、見逃し、判定不能も評価 | 三条件と予約の締切を独立判定。4秒loopと非分割境界を含め、未達は障害として提示。固定Δや警告の沈黙で免除しない |
 | G1R 採用判断 | G1結果からhost認定単位、境界規則、同期方式、復帰policy、追従値、容量を提案 | 利用者が提供範囲と契約変更を承認。必須項目の無断先送りなし |
 | G2 transport/owner | 対象責務を先行抽出し、共有protocol、寿命、排他transaction、解析grantの独立停止/再取得、故障経路を実装 | RT禁止操作0。owner保持中の解析枠解放、再取得失敗、旧版混在、競合を含む試験が合格 |
 | G3 gain/snapshot/Blind | 共通gain、追従、RT guard、exact Pinとその代替、payload共有、新trial、Returnを実装 | raw計測不変、同じ固定AB/Blind出力、匿名性、ピークledgerが合格 |
 | G4 操作と観察 | live/固定AB/Blind別のサイズ規則、英日表示、実receipt、DAW再生、E2、Undo/復元を確認 | 匿名性、現在音源、gain復帰、隠れたownerと全体終了が理解される |
 | G5 同一候補の受入 | 第13節、通常回帰、native、性能、各hostをexact commitで検証 | 全必須条件が合格。過去の別commitの証跡を完了根拠に流用しない |
 | G6 配布 | 別途許可されたreleaseとして同一commitの三チャネルを用意 | LS signed/notarized pkg、HP zip/GitHub/英日リンク、署名Windows installerの全条件を満たす |
+
 G1候補はmacOS Studio Pro VST3/AU、Windows Studio Pro VST3、Logic AU、AAX NativeのmacOS/Windowsを個別に扱う。
+AAXはPro Toolsで、対応の鍵の前提（POSTに遅延補償済みの位置が渡るか）を最初に測る（第5.4節）。
 これは対応を約束した一覧ではない。
 OS/DAW build、architecture、rate、buffer、process mode、PDC設定、経路は開始前に記録する。
 Logic Proはbus trackの有無など、PDC情報が変わり得るrouting条件を分けて記録する。
@@ -939,12 +953,12 @@ profileはDAW build、OS build、PREとPOSTそれぞれのformat、architecture�
 
 | ID | 問い | 構成と操作 | 記録する値 | 決まること |
 | --- | --- | --- | --- | --- |
-| G1-01 静的対応 | 同一native位置のPRE/POSTは同じ音か | PRE→既知遅延（0、1、4096 sample、保持上限付近）→POST。epochを識別できるPCM | 同一範囲のbit一致、残差、位置の付き方。信号遅延と通知順を分離 | host認定の候補、同一native写像を使えるprofile |
+| G1-01 静的対応 | 同一native位置のPRE/POSTは同じ音か | PRE→既知遅延（0、1、4096 sample、保持上限付近）→POST。epochを識別できるPCM。AAXはPro Toolsで、同じcycleのPREとPOSTの`GetCurrentNativeSampleLocation`と`GetTODLocation`を記録 | 同一範囲のbit一致、残差、位置の付き方。信号遅延と通知順を分離。AAXでは位置の補償の有無 | host認定の候補、同一native写像を使えるprofile、AAXで対応の鍵が成り立つか |
 | G1-02 到着期限 | POSTが必要とするPREは間に合うか | G1-01の構成に可変buffer、CPU負荷、mixed format、別process（対象時） | 未到着件数、PREの公開とPOSTの要求の時刻差 | 転送方式、別processとmixed formatの提供範囲 |
-| G1-03 境界 | loop、seek、停止と再開で何が起きるか | loop長2/4/8/16秒、非整列境界、前後seek、reset有無。3秒delay/2秒loop等の遅延がloopより長い条件と保持容量超過。hostのplugin sleep（無音入力で呼出しが止まる）をまたぐ条件 | callback順、host時計変化、PCM境界ID、reset時点を別記。折返しをまたぐcallbackの報告位置、周回ごとの折返し/再開位置、POSTの時計と内容の境界差U。複数pending epoch、証拠失効、未対応区間、ringに残る旧runの音の誤受入れ | 境界待ちの上限、旧証拠の有効範囲、Cで境界ごとにPOSTが鳴る区間の長さ |
-| G1-04 動的PDC | latency変更を音より先に観測できるか | 切替式遅延（0↔4096）を再生中に切り替え、通知の先行、遅延、欠落を作る | 音の変化から位置の変化までの時間、誤対応sample数 | 動的PDCが出荷の障害か、barrierの要件 |
-| G1-05 停止専用監視 | 相関で遅延の変化を止められるか | G1-04に加え、意図的delay、reverb、周期信号、無音、極性反転、非線形処理 | 検出遅れ、誤停止、見逃し、判定不能 | 監視の採否（2026-09-28: 採らないと決めたので実施しない） |
-| G1-06 転送 | 共有memoryをRTで安全に使えるか | macOSのPOSIX shmとfile-backed、Windowsのmapping。同一process別module、別process、sandbox（対象時）で30分以上 | 欠落、page fault、追加RT時間のp99.9と最大、到達の可否 | platform別の転送方式 |
+| G1-03 境界 | loop、seek、停止と再開で何が起きるか | loop長2/4/8/16秒、非整列境界、前後seek、reset有無。3秒delay/2秒loop等の遅延がloopより長い条件と保持容量超過。hostのplugin sleep（無音入力で呼出しが止まる。AAXはDynamic Plug-In Processing）をまたぐ条件。照合は周回ごとに印が変わるfixtureで行い、直前の周回の誤採用を検出できるようにする | callback順、host時計変化、PCM境界ID、reset時点を別記。折返しをまたぐcallbackの報告位置、周回ごとの折返し/再開位置、POSTの時計と内容の境界差U。複数pending epoch、証拠失効、未対応区間、ringに残る旧runの音の誤受入れ | 境界待ちの上限、旧証拠の有効範囲、Cで境界ごとにPOSTが鳴る区間の長さ、周回を特定する手段と、確かめられない場合の扱い |
+| G1-04 動的PDC | latency変更を音より先に観測できるか | 切替式遅延（0↔4096）を再生中に切り替え、通知の先行、遅延、欠落を作る。Pro Toolsでは、再生中に補償が改まらないことと、停止と再開での復帰、遅延補償のOFFの通知 | 音の変化から位置の変化までの時間、誤対応sample数、自然に終わらないずれの有無 | 動的PDCが出荷の障害か、barrierの要件、警告で扱う型 |
+| G1-05 中身のずれの警告 | 時計の対応と中身のずれの食い違いを警告できるか（止めない） | G1-04に加え、遅延を誤って報告する（報告しない）fixture、Pro Toolsの再生中の遅延変更、意図的delay、reverb、周期信号、無音、極性反転、非線形処理 | 警告までの時間、誤警告、見逃し、判定不能の割合 | INV-LC7案の推定の方式（窓、探索範囲、周期）と警告の条件。2026-09-28の見直しで、停止専用監視からこの形へ改めた |
+| G1-06 転送 | PREからPOSTへの転送をRTで安全に使えるか | macOSのPOSIX shmとfile-backed、Windowsのmapping。同一process別module、別process、30分以上。sandboxのhost（GarageBand等）と、AUを別processで動かすhost（Logic）で、名前の規則（app groupの接頭辞、31 bytes）とresourceUsageの範囲で届くか。AAX（Pro Tools）のstereoとmulti-mono | 欠落、page fault、追加RT時間のp99.9と最大、到達の可否 | platform別の転送方式 |
 | G1-07 次周回予約と再生 | loop内の4秒を取得し、両sourceを完走できるか | 余白付き窓（8/16秒loop、4秒 + 2B付近）とexact 4秒loopを分ける。非分割境界、予約、bounded seal、worker 0.5秒遅延、Source 1/2再生まで接続 | 同一passの独立raw tapとの各sideのhash一致、誤epoch、先頭上書き、RT最大処理量、待機/完走。窓の縁と窓外の対照 | Pin方式、余白付き窓の実DAWでの成立、exact loopでのrenderer adapterの要否 |
 | G1-08 editorと資源 | 非表示時に何が起き、何を保てるか | hostの画面置換/固定、hide/show、別instanceの解析枠取得、再取得拒否、同一run中の解析gap | callback順、実lease所有、Record排他、queue epoch、転送、ready待ち | E2の細部、admission分離、INV-S7例外の要否 |
 | G1-09 容量 | 予算に収まるか | 48、96、192、384、768 kHzのstereoで、live、Pin、Blind、取り直しを通す | ピークledgerと実測RSS | 128 MiB案の可否、所有権の再設計の要否 |
@@ -955,7 +969,8 @@ G1-01、G1-02、G1-03を最初に行い、その結果で後続の実験範囲�
 G1-02とG1-06は、同じhostの同一process、負荷なし、各試験の再生が約1分という限定条件で、プローブにより実施した（同記録第6節）。
 周回の規則をplugin内で動かすプローブv2で、G1-02、G1-03、G1-06を再試験し、plugin sleepの影響を測った（同記録第7節）。
 呼出しの空白の規則をplugin内で動かすプローブv3で同じ試験を再実施し、G1-04を音と報告を同時に変える1つの型で測り、infinite tailの報告を観察した（同記録第8節）。
-Windows、他のbuffer設定、保持上限付近の遅延、報告が先に来る型や報告が来ない型の遅延変更、G1-02の可変bufferと負荷と別process、G1-06の30分以上と別processとfile-backed、M1のplugin内での実装は未実施である。
+AAX（Pro Tools）、Windows、他のbuffer設定、保持上限付近の遅延、報告が先に来る型や報告が来ない型の遅延変更、G1-02の可変bufferと負荷と別process、G1-06の30分以上と別processとfile-backed、M1のplugin内での実装は未実施である。
+これまでの照合は、位置ごとに一意で周回ごとに同じ識別PCMで行った。周回単位の取り違えは検出できないので、G1-03で周回ごとに印が変わるfixtureを使う。
 G1-07の余白付き窓は、G1-03で折返しの報告位置を確かめたprofileから行い、exact 4秒loopは境界証拠を得られたprofileに限る。
 4096 samplesは48 kHzで約85.33 msであり、これだけで3秒保持と短loopの組合せを検証済みにしない。
 保持容量内の最大需要と上限+1を分け、超過を正常な対応へ丸めない。
@@ -964,7 +979,7 @@ G1-07のoracleは、同じpass/epochのPREとPOSTそれぞれのraw tapを、被
 fixtureは周回ごとに異なる決定的な有限PCMを出し、直前周回を誤採用する故障注入を検出する。
 別の再生passのhashを正解にせず、状態を持つ処理の正常な変化を誤失敗としない。
 PREとPOSTのbit一致は純粋な既知delay fixtureの評価に限定し、一般の加工chainには同一passの各sideの忠実性を要求する。
-どの実験でも、未達を固定Δや相関の沈黙で埋めない。
+どの実験でも、未達を固定Δや警告の沈黙で埋めない。
 
 ## 13. 受入試験
 
@@ -976,7 +991,7 @@ PREとPOSTのbit一致は純粋な既知delay fixtureの評価に限定し、一
 | LC-01 通常透明性 | inactive、音量適用前の準備取消、offline/host bypass通知buffer、再openでraw入出力bit同一、追加latency 0、正本Record不変。音量適用後の中断はLC-10と区別 |
 | LC-02 静的対応 | 識別PCM/既知delay、mono/stereo、rate/block matrixで残差0 sample。意図的delayやEQを勝手に補正しない |
 | LC-03 callback分割 | PRE256→POST64×4、その逆、0 frame、可変block、境界跨ぎ。counter差ではなくcoverageで採否 |
-| LC-04 host認定 | profile外、optional clock欠落、同位置別周回、古いpacketで誤って対応成立としない |
+| LC-04 host認定 | profile外、optional clock欠落、同位置別周回、古いpacketで誤って対応成立としない。周回ごとに印が変わるfixtureで、遅延がloop長以上の条件を含める |
 | LC-05 転送 | wrap、descriptor frontier、短loop、producer/consumer競合、別module/process、再起動、旧版混在、formatが異なるPRE/POST。data race/未初期化読取り0 |
 | LC-06 故障 | PCM underflow/overflow、peer終了、pair消失、rate変更でPRE失効。通信回復だけのPRE再開0 |
 | LC-07 gain基準 | d=0、正負、±24 dB境界、ceiling境界、承認拒否。POST基準と承認付き減衰をgolden値で照合 |
@@ -992,20 +1007,22 @@ PREとPOSTのbit一致は純粋な既知delay fixtureの評価に限定し、一
 | LC-17 trial分離 | 記名AB完走後の初回Blind、reveal後、再入場で新ID/乱数/heard初期化。乱数失敗、旧回答、旧commandを拒否 |
 | LC-18 操作 | DAW巻戻しまたはloopを含む全工程のclick/待ち時間/再armを記録。固定音と現在chainの混同0を目標に観察 |
 | LC-19 メモリ/RT | 全rateのピークledger、連打、取り直し、退役待ち、future capture、live転送の保持、allocation失敗。予算超過とRT禁止操作0 |
-| LC-20 動的PDC | delay変更と通知先行/遅延/欠落を分ける。最初の観測可能な不整合で中断。観測不能な誤対応は検出保証の未達として記録 |
+| LC-20 動的PDC | delay変更と通知先行/遅延/欠落を分ける。時計で最初に検出できた不整合でPOSTへ倒し（C）、較正し直してPREへ戻る。検出できない区間の長さを記録し、profileの許容値と照合。報告しない変更と、再生中に補償を改めないhost（Pro Tools）では、中身のずれの警告が出ることを確かめる |
 | LC-21 長時間 | 30分以上のlive、並行解析、pause/resume、CPU負荷、分離process。deadline、欠落、page fault、p99.9と最大を記録 |
 | LC-22 editor | 画面置換/固定表示、E2のunity/減衰保持/RT未確認を区別。owner保持中に別instanceが空いた解析枠を取得でき、再取得拒否でも減衰/Record排他が維持される。旧command解除、ready時の1操作、失効時の再準備、終了導線を確認 |
 | LC-23 匿名UI | 英日双方で名前/gain/meter/波形/tooltip/accessibilityの対応漏れなし。Blindの900×600最小/resize制限と終了receipt後のlive表示復帰を確認 |
 | LC-24 worker隔離 | 解析停止中のenqueue停止、同一runでのanalysis epoch/gap更新、旧queue/部分窓の破棄、新鮮な連続窓での復帰を確認。追従/Pin保留と固定gain試聴を分離し、計画的な停止を音声故障と混同しない |
 | LC-25 回帰 | 既存Local Blind、Reference A/B/C、Version Blind、計測、Keep/Record、PRE不在、再起動、ファイル欠損を確認 |
-| LC-26 境界の分類 | 時計通知/PCM境界/実行順を分け、片側先着、古い証拠、reset、複数pending epoch、timeoutを注入。旧PCMの存在だけでは継続せず、現在も有効な証拠の範囲のみPRE。失効時はPOST、有限期限で分類する。境界では証明が戻った最初のblockでPREへ自動復帰し、証明前の復帰0。説明できない欠落と失効では自動復帰0 |
+| LC-26 境界の分類 | 時計通知/PCM境界/実行順を分け、片側先着、古い証拠、reset、複数pending epoch、timeoutを注入。旧PCMの存在だけでは継続せず、現在も有効な証拠の範囲のみPRE。失効時はPOST、有限期限で分類する。境界では証明が戻った最初のblockでPREへ自動復帰し、証明前の復帰0。説明できない欠落と失効では自動復帰0。自動復帰は対称5 ms遷移で、確かめていないPREを遷移に使わない。PRE待ちの表示が実音と一致 |
 | LC-27 Pinの代替 | 周期4/8/16秒、余白付き窓の縁（q + B − 1、p + 1）と窓外、非分割境界のexact subrange、予約締切、arm遅延、loop変更、宣言値を超えるcallback、誤epochを確認。同一passの独立raw tapと比較し、前周回の故障注入を拒否。既存1秒leadと境界block回避だけでは4秒loopを取れない対照を保持。無言置換0 |
 | LC-28 小さい画面 | live/記名ABの100%復帰例外、125%以上の詳細操作、Blindへの拡大とresize制限を別試験。英日通知、language切替、許可拡大段階、DPI、keyboard/accessibilityを確認 |
-| LC-29 停止専用監視（採用時） | 無音、周期、低SNR、極性反転、非線形、reverb、探索範囲外で誤停止、見逃し、判定不能、検出遅れを記録。開始/補正/再開/正常証明に使わない |
+| LC-29 中身のずれの警告 | 遅延を誤って報告するfixture、Pro Toolsの再生中の遅延変更、無音、周期、低SNR、極性反転、非線形、reverb、意図したdelay、探索範囲外で、警告までの時間、誤警告、見逃し、判定不能を記録。比較の停止、Kの補正、開始や再開の条件に使わない。「一致」を表示しない |
 | LC-30 段階gain復帰 | live −8 dB→snapshot −12 dB→liveの+4 dB復帰を含め、profile/revision、承認、実gain receiptを照合。未回答Blindの停止→減衰表示→増大承認→live/unityを試験。停止/live復帰/全体Returnのreceipt混同と無言増大0 |
 | LC-31 背景故障 | 背景liveだけの故障では固定artifactの条件が有効なら継続。共通pair/format/clock失効は既存規則で中断。帰還時のready失効/再準備を確認 |
 | LC-32 loop再生 | 余白付き窓、範囲先頭が余白内の包含loop、exact loopを分け、初回、Source 2自動arm後、明示切替、両側完走後、再試聴を分離。余白付き窓は可変callbackでもadapterなしで両側完走。preroll初回成功後に非分割境界でSource 2が待機する対照を保持し、exact loopは対応profileのadapterで両側完走を実証。遡及Pinの再生可否の予告と実際の待機が一致。無限待機の成功扱い、完走誤計上、準備だけの開始は0 |
-利用者の痛みとの対応はP1→LC-07/10、P2→LC-09/10/30、P3→LC-18/22/27/32、P4→LC-02/03/14/20/26/29、P5→LC-13、P6→LC-01/10/13、P7→LC-08/09、P8→LC-16/17/23/28とする。
+| LC-33 AAX | Pro Tools（macOS、Windows）で、補償済みの位置、Dynamic Plug-In Processing、遅延補償のOFFの通知、multi-monoでchannelの間にPREとPOSTが混ざらないこと、offline bounceでA経路、AudioSuiteのinstanceで比較を開かないことを確認 |
+
+利用者の痛みとの対応はP1→LC-07/10、P2→LC-09/10/30、P3→LC-18/22/27/32、P4→LC-02/03/14/20/26/29/33、P5→LC-13、P6→LC-01/10/13、P7→LC-08/09、P8→LC-16/17/23/28とする。
 実装変更時はcargo test、cargo clippy、対象native試験、source契約、line budgetを実行する。
 kirin_hypha_ffi変更時は通常workspace greenだけで終えず、ignored parity/pairing_candidatesの一覧件数を実測して全件実行する。
 release時の三チャネルgateはLS runbookに従い、macOSだけで完了としない。
@@ -1015,14 +1032,19 @@ release時の三チャネルgateはLS runbookに従い、macOSだけで完了と
 | 資料 | 確認内容と限界 |
 | --- | --- |
 | [Steinberg ProcessContext](https://steinbergmedia.github.io/vst3_doc/vstinterfaces/structSteinberg_1_1Vst_1_1ProcessContext.html) | loop境界でのblock分割は必須ではない。project時刻とoptional連続時刻を区別 |
-| [VST3 Processing FAQ](https://steinbergmedia.github.io/vst3_dev_portal/pages/FAQ/Processing.html) | 自分のlatency変更通知を、隣接pluginの変更前barrierや総遅延取得APIとみなさない |
+| [VST3 Processing FAQ](https://steinbergmedia.github.io/vst3_dev_portal/pages/FAQ/Processing.html) | 自分のlatency変更通知（`restartComponent(kLatencyChanged)`。hostは読み直し、対応していれば補償を改める）を、隣接pluginの変更前barrierや総遅延取得APIとみなさない。`getTailSamples`の`kInfiniteTail`は、pluginを常に処理させる方法として挙げられている |
 | [JUCE AudioProcessor](https://docs.juce.com/master/classjuce_1_1AudioProcessor.html) | 可変callback長。typical block sizeだけで対応を決めない |
 | [Apple AU Programming Guide](https://developer.apple.com/library/archive/documentation/MusicAudio/Conceptual/AudioUnitProgrammingGuide/AudioUnitDevelopmentFundamentals/AudioUnitDevelopmentFundamentals.html) | ResetでDSP状態を戻す説明。全seekでの呼出し、chain全遅延分の無音、preroll不在までは定義しない |
 | [XNU header](https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/bsd/sys/posix_shm.h)、[実装](https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/bsd/kern/posix_shm.c) | 確認した実装の31 bytes、割当済みshmの再ftruncate拒否。対象OSで再測定する |
-| [Apple App Groups](https://developer.apple.com/documentation/BundleResources/Entitlements/com.apple.security.application-groups)、[TN2247](https://developer.apple.com/library/archive/technotes/tn2247/_index.html) | 第三者hostへ命名だけでsandbox権限を付与できない |
+| [Apple App Groups](https://developer.apple.com/documentation/BundleResources/Entitlements/com.apple.security.application-groups)、[TN2247](https://developer.apple.com/library/archive/technotes/tn2247/_index.html) | 第三者hostへ命名だけでsandbox権限を付与できない。TN2247がAUのresourceUsageに挙げる鍵は`iokit.user-client`、`mach-lookup.global-name`、`network.client`、`temporary-exception.files.all.read-write`の4つ |
+| [Apple DTSの回答（POSIX semaphore）](https://developer.apple.com/forums/thread/756420)、[同（共有memory）](https://developer.apple.com/forums/thread/719897) | sandboxの中の名前は、app group IDを接頭辞にした`GGG/NNN`で最大31 bytes。共有memoryもApp Group経由で共有する |
 | [Microsoft Named Shared Memory](https://learn.microsoft.com/en-us/windows/win32/memory/creating-named-shared-memory) | pagefile-backed方式と寿命。Global特権を必須にしない |
 | [Ableton PDC FAQ](https://help.ableton.com/hc/en-us/articles/209072409-Delay-Compensation-FAQ) | 曲位置依存の処理の制約。全host共通の時刻意味とはしない |
 | [Metric AB変更履歴](https://www.plugin-alliance.com/products/metric-ab) | Logicのbus track等のPDC情報に対する手動補正のメーカー説明。Logic全routingへの一般保証ではない |
+| [Sound On Sound: Studio One 5.4](https://www.soundonsound.com/techniques/studio-one-54-plug-nap-real-time-chord-detection) | Plug-in Nap。instrumentとMain出力のinsertには働かない。外部の解説であり、Studio Pro 8の挙動は実測（G1記録第7.4節、第8.4節）で確かめる |
+| [Apple: Logic Proの過負荷を避ける](https://support.apple.com/en-us/108295)、[Sound On Sound: REAPER](https://www.soundonsound.com/techniques/running-multiple-plug-ins) | LogicのProcess Buffer Range、REAPERのanticipative FX processing。呼出しの間隔への影響は未測定であり、空白の判定値をhostごとに決める理由として挙げる |
+| [AAX SDK Pro Tools Guide](https://learn-cdn.avid.com/AAX_SDK_2p1p1/Documentation/Doxygen/output/html/a00274.html) | 再生中は遅延補償を更新しない。Dynamic Plug-In Processing（Pro Tools 11以降）。loopで状態をresetしない。offline bounceは実時間より速い。multi-monoはchannelごとのinstance |
+| AAX SDK 2.9のheader（手元。SDKはrepositoryの外） | `GetCurrentNativeSampleLocation`（再生中だけ、buffer先頭のtimeline位置）、`GetTODLocation`（再生開始からの進み）、`SetSignalLatency`（即時の適用は保証されない）、`AAX_eNotificationEvent_DelayCompensationState`（Pro Tools 12.6以降）、`AAX_eProperty_Constraint_AlwaysProcess`（chain全体を処理させ続ける） |
 | [Apple Logic Pro guide](https://support.apple.com/guide/logicpro/work-in-the-plug-in-window-lgcpbc21a1fd/mac) | Link Singleで画面再利用、Offで別画面、project全体の設定。Singleが工場既定かは未確認 |
 | [Studio One 4.1公式manual](https://pae-web.presonusmusic.com/downloads/products/pdf/Studio_One_4.1_Reference_Manual1.pdf) | 単一editorとPinの説明。現行Studio Pro 8の既定値やHypha callbackを証明するものではない |
 | [Avid Using EuControl Surfaces 2025.12](https://resources.avid.com/SupportFiles/ProMixing/Using_EuControl_Surfaces_v2025.12.pdf) | p.151でTarget on時の画面置換、off、Shift操作、既定onの説明。実際のhost lifecycleは別試験 |
@@ -1054,16 +1076,17 @@ JUCE wrapperはsubmodule内のVST3 setProcessingとAU Resetを参照し、版更
 
 | 区分 | 状態 |
 | --- | --- |
-| 維持する計画上の決定 | editor E1＋E2、liveの100%復帰例外、次周回/次4秒の明示代替、末尾4秒遡及代替は採らない。境界はC（2026-09-28、A′を置き換え） |
+| 維持する計画上の決定 | editor E1＋E2、liveの100%復帰例外、次周回/次4秒の明示代替、末尾4秒遡及代替は採らない。境界はC（2026-09-28、A′を置き換え）。遅延の報告の誤りは止めずに警告する（2026-09-28、見直し）。AAXを重要な対象とする（同、利用者の指示） |
 | 基点の統合 | 統合branchはPR #50（9fa244d9）でmainへ入った。本書の参照とINV番号はmainで照合し直す |
-| 対応の鍵 | 「連続時計（VST3連続時刻、AU render時刻）+ 較正した差K」を設計の基準とする（2026-09-28決定）。照合にはPREのrun世代を含める（第10版）。各側の呼出しの空白も時計の不連続として扱う（2026-09-28決定。第12版でplugin内で確認）。AUでは候補の食い違いで直ちにKを無効にする（M1、2026-09-28決定。plugin内での実装は未確認）。Kの較正と照合の細則、対応hostの確定はWindowsの実測の後に決める |
-| 動的PDC | 変更直後の2〜4 block（最大171 ms）の誤対応を許容し、説明書に記す（2026-09-28決定）。中身による検出（G1-05）と、遅延変更を伴う構成での比較停止は採らない |
-| 静かな区間 | infinite tailの報告でplugin sleepを避ける案を本命とする（2026-09-28決定）。bounceの末尾、AU、他のhostでの副作用を確かめてから採用し、副作用があれば無音の後の自動復帰（C）にする |
+| 対応の鍵 | 「連続時計（VST3連続時刻、AU render時刻）+ 較正した差K」を設計の基準とする（2026-09-28決定）。照合にはPREのrun世代を含める（第10版）。各側の呼出しの空白も時計の不連続として扱う（2026-09-28決定。第12版でplugin内で確認）。AUでは候補の食い違いで直ちにKを無効にする（M1、2026-09-28決定。plugin内での実装は未確認）。Kの較正と照合の細則、対応hostの確定はWindowsの実測の後に決める。判定値と較正回数はhost profileの値とする。周回を特定する手段はG1-03で決める。AAXの連続時計と、POSTに補償済みの位置が渡るかは未確認（第5.4節） |
+| 動的PDC | 変更直後に時計で検出できない短い区間（Studio Pro 8.1.2、2048 framesで最大4 block、171 ms）の誤対応を許容し、説明書に記す（2026-09-28決定）。中身による停止と、遅延変更を伴う構成での比較停止は採らない。報告しない変更と、再生中に補償を改めないhost（Pro Tools）は許容の外で、止めない警告で扱う（2026-09-28、見直し） |
+| 静かな区間 | infinite tailの報告でplugin sleepを避ける案を本命とする（2026-09-28決定）。bounceの末尾、AU、他のhostでの副作用を確かめてから採用し、副作用があれば無音の後の自動復帰（C）にする。報告する範囲（常に、比較中だけ）も選ぶ。AAXはAlwaysProcessの静的属性なので、常にか、なしの2案 |
+| AAX | 重要な対象（2026-09-28、利用者の指示）。対応の鍵の前提（POSTに補償済みの位置が渡るか）をPro Toolsで最初に測る。遅延補償のOFFの間はPOSTを出す案（INV-LC8）。multi-mono（INV-LC9）と、補償済みの位置が渡らない場合の扱いは利用者の判断 |
 | 製品範囲 | live/固定AB/Blind統合、追従、遡及、host/format、無料範囲の承認状況を確認。mixed-formatは追加候補として別認定 |
 | 安全契約 | R-12、減衰と復帰、既存Blindのhost gateは未決。E2とINV-S7、次周回予約とINV-S22、サイズとINV-S25/S38を一貫させる |
-| G1で決める方式 | 境界pendingの上限と証拠、次周回予約の方式（live経路上の予約とRT sealを第一候補）、余白付き窓の前提（折返しの報告位置、周回ごとの一致、境界差U）、exact 4秒loopの証拠とadapter、予約締切、動的PDCの観測可能性、IPC、容量、ramp/更新周期/許容差 |
-| G1後の追加承認 | E2で解析lease例外が必要か、出荷可能なprofile範囲、infinite tailの副作用の確認結果。停止専用相関を認定の代用にしない |
-| G4で観察する操作 | 隠れたowner、再表示時の再準備、Pin予約待ち、loop長の案内、gain増大の復帰承認、小型/英日表示、既存Blind直接入口 |
+| G1で決める方式 | 境界pendingの上限と証拠、次周回予約の方式（live経路上の予約とRT sealを第一候補）、余白付き窓の前提（折返しの報告位置、周回ごとの一致、境界差U）、exact 4秒loopの証拠とadapter、予約締切、動的PDCの観測可能性、IPC、容量、ramp/更新周期/許容差、周回を特定する手段、中身のずれの警告の方式 |
+| G1後の追加承認 | E2で解析lease例外が必要か、出荷可能なprofile範囲、infinite tailとAlwaysProcessの副作用の確認結果、補償済みの位置が渡らないhostの扱い、AAXのmulti-mono。中身のずれの推定を認定や対応の代用にしない |
+| G4で観察する操作 | 隠れたowner、再表示時の再準備、Pin予約待ち、loop長の案内、gain増大の復帰承認、小型/英日表示、既存Blind直接入口、PRE待ちの表示の最短時間、Referenceとの振る舞いの違い、中身のずれの警告の文言 |
 | E2のowner | unity時にownerを解放し非可聴cacheだけ残す方式を、保持方式とG4で比べる。採用するなら契約変更として承認を求める |
 
 既存Blindのformat gateも同じ時刻根拠を用いるため、新しいliveだけの問題として切り離さない。
@@ -1071,6 +1094,138 @@ JUCE wrapperはsubmodule内のVST3 setProcessingとAU Resetを参照し、版更
 通常のDAW bypassを等音量比較と同等の代替機能とは案内しない。
 
 ## 16. 現在地と申し送り
+
+第14版は、厳しめの見直し（[精査記録](hypha_live_chain_compare_review_20260927.md)第0節）の指摘を反映し、AAXの前提を加えた文書改訂である。版ごとの経緯は付録Aに置く。
+製品コード、AGENTS、不変条件、README、DAW設定、配布物は変更していない。
+G0〜G6、live成立性、性能、実音、installerの検証は未実施である。
+G1の実測は、Studio Pro 8.1.2（Intel Mac、48 kHz、2048 frames）のVST3とAUだけである。
+
+統合branchは2026-09-28にPR #50でmainへ入った。
+INV番号、clock診断、Reference audio、英日表示、画面規則、「ローカルのみ」とした参照は、mainで照合し直す。
+残る論点は、hostごとの時計と境界の実報告、到着期限、容量など、実測でしか決まらない。
+文書だけの改訂は、実測の結果か、見直しで見つかった誤りに限る。
+
+次の順で進める。
+
+1. Pro Tools（AAX Native。macOS、続いてWindows）で、PREとPOSTに渡る`GetCurrentNativeSampleLocation`と`GetTODLocation`が、間のpluginの遅延の分だけ補償されるかを測る（G1-01のAAX）。AAXのプローブは、Pro Toolsが読み込める署名が要る。
+2. 同じ装置でのWindows、他のbuffer設定、報告が先に来る型の遅延変更（G1-04）。
+3. 周回ごとに印が変わるfixtureでの照合と、遅延がloop長以上の条件（G1-03）。
+4. infinite tailとAlwaysProcessの副作用、中身のずれの警告の方式（G1-05）。
+5. G1-06の長時間、別process、sandbox。続いてG1-07。
+
+決定済みの方針を変更せずに閉じられない部分は、G1の結果を添えて再判断を求める。
+G1のプローブのsource、解析script、CSVは公開repositoryの外にあり、第三者は検証できない。
+repositoryへ入れるか（場所、500行の規約、license）を、実装の承認の前に決める。
+Notionの現在地、日次ログ、Handoffは利用者の指示により記録せず、引継ぎ内容は精査記録へ残す。
+
+## 付録A. 改訂履歴と確認基点
+
+第14版で、要約、第0節、第16節から版ごとの経緯をここへ移した。
+内容は第13版の原文のままであり、当時の基点と判断を示す。今の設計は要約と本文を正とする。
+
+### A.1 版の記録と確認基点
+
+
+第13版（2026-09-28）: G1R（第12節）で利用者が決めた4件（呼出しの空白の規則、静かな区間、動的PDCの直後、境界規則）を記録した。実測の追加はない。
+第12版（同日、1089行、SHA-256 `1cf32a68b64534b901328d14138894d402c56419bc84d6c2d9b2207a1ccb7b81`）は、同じ[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)の第8節（呼出しの空白の規則のplugin内実装、G1-04の限定条件、infinite tail）を反映した版である。
+第11版（同日、1074行、SHA-256 `0aa87eb780163be1ebac3a0c41f5d4e0beb7fff2a69f2d0c526d267678b46fd4`）は、同記録の第7節（周回の規則のplugin内実装とplugin sleep）を反映し、対応の鍵に呼出しの空白の規則を加えた版である。
+第10版（同日、1053行、SHA-256 `05360dbe6818d4fb513969dd38805ff66592a9637062ebce8d3b41d08fd0cb96`）は、同記録の第6節（G1-02とG1-06のプローブ）を反映し、対応の鍵にPREのrun世代を加えた版である。
+第9版（同日、1034行、SHA-256 `537b14894ae9f5223e7b5c2a9a2e7213c1571b0ce0713059c067f7a3af572476`）は、Studio Pro 8.1.2でのG1-01とG1-03の実測を反映し、統合後のmainを確認した版である。
+第8版（2026-09-27）: 別セッションが作成した第7版（944行、`_v7`版、SHA-256 `94f91730817e6799a34dfdd65b01eac2b127c35947ec1464ff4767e7229a693d`）を精査し、その本文に追加と補正を加えた。
+第7版の原本と、その根拠である[第6版の精査記録](hypha_live_chain_compare_review_v6_20260927.md)は変更していない。
+本ファイルの旧内容は第6版（885行、SHA-256 `951026e5c109aa971c338be4a50d2141b8a7d4ca6bdbc5aba152163a6aff0199`）であり、第8版で置き換えた。
+第8版の変更根拠と検証は[精査記録](hypha_live_chain_compare_review_20260927.md)の第1節に置く。
+第4版に記録した利用者の決定のうち、E1＋E2、100%での復帰操作、Pinの二つの代替と遡及代替の不採用を、本版でも計画上の前提として維持する。境界規則A′は、2026-09-28のG1Rで案C（境界ではPOSTへ切り替え、対応が再び証明されたらPREへ自動で戻す）に置き換えた。
+
+確認基点はローカルHEAD `ee522a536fa7f418ce3247c64eb77ec55d1d8d86`（B-1023）と、remote-tracking ref `5a6a9db5c4d82ee28d5ef26839e782e3bd4882c0`（B-1044を含む）である。
+第4版が参照した `83b383a65b6c92a3e6f32f579b8a93cf39088e98`（B-1041を含む）も履歴として照合した。
+2026-09-27 14:38 JSTのローカル読取りでは、HEADは83b383a6に対してahead 14 / behind 43、5a6a9db5に対してahead 14 / behind 48だった。
+同日15時台には、別セッションが統合branch `claude/local-main-reconcile` で、衝突したB番号の付け替え（B-1015→B-1046、B-1016→B-1047、B-1022→B-1048）と、main checkoutの未commit修正の取り込み（B-1049）を行い、origin/mainとのmergeを進めていた。
+第6版の観測後、同branchにmerge commit `8d13800e6d1ff3797e244633cf2b7e75b0a60637`（15:11 JST）が作られた。
+第7版の読取りsnapshotでは、同branchは `805ff180822d924d0ec71dd26ffe8466d456d30f`（B-1053）を指していた。
+第8版の読取り（16:01 JST）では、同branchは `c60ab6790880240f8a02473ae0a42e1a4b41e42b`（B-1056）まで進み、ローカルorigin/mainに対してahead 22 / behind 0だった。
+mainと本worktreeのHEADはee522a53、ローカルorigin/mainは5a6a9db5のままだった。
+同時刻の`git ls-remote`では、remoteに同branchは無かった。
+統合内容の全面検証、fetch、merge、pushは行っていない。
+本書が根拠に使うBlind、admission、pairing、gainのsource（第14節）は、ee522a53、5a6a9db5、c60ab679の三基点で同一blobだった。
+2026-09-28 00:33 JST、統合branchはPR #50（merge commit `9fa244d9`）でmainへ入った。
+第9版で確かめた上記のsourceは、`9fa244d9`でも同一blobである。
+B番号には重複と付け替えがあるため、証跡はcommit hashとfile pathで識別する。
+
+### A.2 版ごとの要約（第8版〜第12版）
+
+- 第8版の追加: loop内の範囲を、折返し後の再開位置から最大callback分以上後ろに置けば、非分割hostでも既存rendererで両sourceが開始・完走する（実rendererへの模擬callbackで確認）。exact 4秒loop（4/4拍子、120 BPMの2小節など）は引き続き境界証拠が要る。
+- 第9版の実測: Studio Pro 8.1.2（macOS VST3、48 kHz）はloop境界でcallbackを分割しない。遅延のあるchainのPOSTでは、project時刻が折返しのたびにchain遅延の長さだけ内容とずれる。VST3連続時刻はPREとPOSTで同じ内容に同じ値を持ち、AUのrender時刻はPREとPOSTの差が一定で、どちらもloopで途切れなかった（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)）。
+- 第10版の実測: 同じhostで、連続時計とKでPREを引くプローブを動かした。到着は全blockで間に合い（隣接構成の余白は0）、RTの追加は最大30 µs程度だった。VST3ではseekと再生開始の直後に、ringに残っていたseek前のrunの音を、書込み末尾の判定だけで誤って受け入れた。PREのrun世代を照合に含めると、誤受入れ0、正常blockの棄却0になった（記録済みcallbackのオフライン再生）。AUではseekと再生開始をまたいで対応が続いた（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第6節）。
+- 第11版の実測: 周回の規則をplugin内で動かし、VST3では事前に決めた条件（誤受入れ0、棄却の説明と件数、旧規則の誤受入れの再現、再計算との一致）をすべて満たした。AUでは、Studio Proのplugin sleep（無音入力が約4秒続くと呼出しを止める。再生中も起きる）でPREとPOSTの差Kが変わり、POSTだけが眠った場合は周回の規則でも8 blockを誤って受け入れた（事前に予測して再現）。呼出しの空白を時計の不連続として扱う規則を加えると、全記録で誤受入れ0になった（記録からの再計算）（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第7節）。
+- 第12版の実測: 呼出しの空白の規則をplugin内で動かし、再配置、PREだけのsleep、POSTだけのsleepで、両formatとも誤受入れ0だった（対照のv2の規則は、AUのPOSTだけのsleepで8 blockを誤受入れ）。再生中の遅延変更（G1-04）では、音の変化が時計より2〜4 block（最大171 ms）先に来て、どの時計の規則でもその間の誤対応を防げなかった。infinite tailを報告したpluginは一度も眠らなかった（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第8節）。
+
+### A.3 第6版から第12版までの改訂表
+
+#### 第6版の改善と第7版の補正
+
+| 論点 | 維持する改善 | 第7版で明確にする条件 |
+| --- | --- | --- |
+| 境界証拠の片側先着 | 有効な対応が続く範囲ではPREを一律に切らない | callback順、host時計の境界、PCM内容の境界を分ける。旧PCMがあるだけでは継続を許さず、reset等をまたぐ証拠の有効性を認定する |
+| 次周回予約 | live経路上の予約とRT sealを第一候補にする | 4秒loopでは境界blockを避けられない。sample-levelの分割証拠、事前確保、上書き防止、callback当たりの処理上限が必要 |
+| 非表示中の解析queue | enqueueとworkerを停止し、計画的な停止をoverflow扱いしない | 再開時は解析epochまたはgap barrierを更新。旧queueと部分窓を混ぜない |
+| E2のowner | unity時に限るowner解放案を、未採用の比較候補として残す | 現行admissionは解析枠と試聴排他を束ねる。解析枠だけの停止/再取得をG2の責務へ加える |
+| 固定音の再生 | Source 1完走後のSource 2自動armを維持 | loopへの包含だけでは鳴らない。範囲先頭を含む正確なcallbackと、完走までの連続性が必要 |
+| G1実験 | G1-01〜10を維持 | 同一passの独立oracle、遅延がloopより長い条件、保持上限、取得後の実再生までを追加 |
+| 基点 | hashで観測状態を区別する | 統合branchのmerge済みsnapshotと、main未反映、統合結果未検証を区別 |
+
+#### 第8版での追加
+
+| 論点 | 第7版 | 第8版 |
+| --- | --- | --- |
+| 範囲の置き方 | 境界blockを丸ごと避ける方式は、4秒に余裕のあるloopでの限定案とした | 余白付き窓を既定にする。範囲の先頭を折返し後の再開位置から最大callback分以上後ろに置き、終端を折返し位置までに収める。取得は境界blockの折返し後の部分を使わず、再生でも範囲先頭を含むcallbackが位相によらず来る。exact 4秒loopは第7版の条件のまま（第7.2節） |
+| 再生の確認 | 非分割境界で範囲先頭を取り逃す反例を示した | 同じ実rendererで、余白付き窓の範囲がadapterなしで両source完走することを確認した（callback長64〜512 frames、200通りの位相）。範囲先頭を再開位置に置くと200通り中193通りで完走しない対照も得た |
+| 遡及Pinの再生可否 | 取得の可否だけを判定 | Pin時に再生可否も判定する。範囲先頭が再開位置の余白内にあれば待機し得ることを示し、DAWでの巻戻しか、余白付き窓での次周回予約を選べるようにする |
+| exact 4秒loopの頻度 | 記載なし | 4/4拍子、120 BPMの2小節は48 kHzで192000 samplesとなり、4秒のartifactと一致する。珍しい条件として扱わない |
+| host認定の現況 | ローカルのみのexact host判定 | 統合候補c60ab679（B-1052）ではこの判定がDebug buildに限られ、release buildは認定hostを返さない。live比較の認定に流用しない |
+| 基点 | 805ff180まで | c60ab679（B-1056）まで確認。根拠のsourceは三基点で同一blob |
+
+#### 第9版での実測の反映
+
+| 論点 | 第8版 | 第9版（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)） |
+| --- | --- | --- |
+| loop境界の分割 | 非分割hostを想定し、G1-03で確かめるとした | Studio Pro 8.1.2は分割しない。境界をまたぐcallbackは、PRE側では折返し前の開始位置で報告された |
+| POSTの時刻 | 時計と内容の境界差Uが観測されたら余白に加える | 遅延4096のchainでは、POSTのproject時刻が折返しのたびに4096 samplesの間loop先頭に留まり、内容は折返し前の末尾だった。U = chain遅延 |
+| 対応の鍵 | 同一native位置を候補とした | VST3連続時刻はPREとPOSTで同じ内容に同じ値（K = 0）を持ち、AUのrender時刻はPREとPOSTの差Kが一定で、どちらもloopで途切れなかった。「連続時計 + 較正したK」を鍵の設計基準にした（2026-09-28決定） |
+| seekと再生開始 | 境界確認待ちとして扱う | POSTの時刻は新位置からchain遅延を引いた位置へ即時に跳び、その間の内容は旧位置の続きか無音だった。対応するPREは現在のrunに存在しない（run世代を照合しなければ誤受入れになることを第10版で確認） |
+| 既存Local Blind | 他hostの前提をG1-10で確かめる | POSTのproject時刻を使うため、遅延のあるchainで範囲がloop終端からchain遅延以内にかかると試行が失効する。音はPOSTへ戻る |
+| 基点 | 統合branchの採用が未決 | PR #50（9fa244d9）でmainへ入った |
+
+#### 第10版での実測の反映
+
+| 論点 | 第9版 | 第10版（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第6節） |
+| --- | --- | --- |
+| 対応の鍵 | 連続時計 + 較正したK | 連続時計の値はrunをまたいで再利用される（VST3連続時刻はseekと再生開始でproject位置へ戻る）。鍵にPREのrun世代を加え、PREの現在のrunで書かれた範囲だけを受け入れる |
+| seekと再生開始 | 対応するPREが無いので欠落として検出できる | POSTが指すringの格納位置には旧runの音が残るため、書込み末尾だけの判定は誤受入れになった（VST3、chain遅延と同じ2 blockを2回）。run世代の照合で、その4 blockだけを棄却できた（オフライン再生） |
+| AUの境界 | render時刻はseekでも途切れない | seekと再生開始の後も、POSTの内容は「render時刻 − K」のPREとbit一致した。A′で解除しない境界の候補 |
+| 到着 | 未測定 | このhostの同一process、負荷なし、2048 framesで未到着0。余白はchain遅延と同じで、隣接構成では0 |
+| 転送 | 未測定 | POSIX共有memoryの事前確保ringで、callbackあたりの追加時間は最大30 µs程度、p99.9は25 µs以下 |
+| plugin sleep | 記載なし | 停止中、editorを表示していないPREへの呼出しがほぼ止まった。再生中の扱いは未確認 |
+
+#### 第11版での実測の反映
+
+| 論点 | 第10版 | 第11版（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第7節） |
+| --- | --- | --- |
+| 周回の規則 | 記録からの再計算で確認 | plugin内で動かし、VST3で事前条件C1〜C4をすべて満たした。誤受入れ0、棄却はseekと再生開始ごとのchain遅延分（2 block）だけ、旧規則の誤受入れ10を再現、再計算と全block一致 |
+| plugin sleep | 停止中にPREへの呼出しが止まった | 無音入力が約4秒続くと、再生中でも呼出しが止まる。editorを表示したinstanceは呼ばれ続けた |
+| AUのK | 一定 | sleepで「PREの未呼出しframe数 − POSTの未呼出しframe数」だけ変わる。POSTだけが眠り、ずれがring容量（約10.9秒）内だと、古いKで過去の音を受け入れた（8 block） |
+| 対応の鍵 | 連続時計 + K + PREの周回 | さらに各側の呼出しの空白（壁時計）を時計の不連続として扱う。PREは周回を改め、POSTはKを無効にして較正し直す。記録からの再計算で誤受入れ0 |
+| host認定 | 中身の照合の必要を明記していない | seek直後の古い音に新しい周回の番号を付けるhostでは、周回の規則が働かない（host模型で確認）。認定は中身の照合で行う |
+
+#### 第12版での実測の反映
+
+| 論点 | 第11版 | 第12版（[G1実測記録](hypha_live_chain_compare_g1_studio_pro_20260928.md)第8節） |
+| --- | --- | --- |
+| 呼出しの空白の規則 | 記録からの再計算で誤受入れ0 | plugin内で動かし、再配置、PREだけのsleep、POSTだけのsleep、隣接構成で、両formatとも誤受入れ0。対照のv2の規則はAUのPOSTだけのsleepで8 blockを誤受入れ |
+| 動的PDC（G1-04） | 未測定 | 再生中に遅延を4096 ↔ 0と変えると、音の変化が時計より先に来た。VST3は2〜3 block後にPOSTの時計が補正され、AUはKが4096変わった。どの時計の規則でも、直後の2〜4 block（最大171 ms）の誤対応は防げない。AUは候補の食い違いで直ちにKを無効にする規則（M1）で10〜11 blockを3〜4 blockに縮められる |
+| sleepを避ける手段 | 未測定 | infinite tailを報告したVST3 pluginは、停止中も無音区間も一度も眠らなかった |
+
+### A.4 各版の位置付け（第13版の第16節）
 
 第7版は、第6版、確認基点のコード、公式仕様を照合した文書改訂と、使い捨てfixtureによる限定的な反例確認である。
 第8版は、第7版の主張をコードと独立の模擬callbackで再確認し、余白付き窓、遡及Pinの再生可否、host認定の現況を加えた文書改訂である。
