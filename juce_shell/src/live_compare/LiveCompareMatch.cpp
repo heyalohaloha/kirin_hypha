@@ -42,15 +42,15 @@ bool copyPre (const Ring& ring, std::int64_t start, std::int64_t frames, std::ve
 }
 
 bool analyse (const std::vector<float>& post, const std::vector<float>& pre, std::int64_t frames,
-              std::uint32_t sampleRate, MatchResult& result, double& postPeak, double& prePeak)
+              std::uint32_t sampleRate, MatchResult& result)
 {
     KirinReferenceGainFacts active {};
     if (kirin_hypha_analyze_reference_gain (post.data(), pre.data(), static_cast<std::size_t> (frames),
                                             sampleRate, 2, &active))
     {
         result.measuredDb = active.paired_loudness_delta_median_millilu / 1000.0;
-        postPeak = active.a_cue_true_peak_millidbtp / 1000.0;
-        prePeak = active.b_cue_true_peak_millidbtp / 1000.0;
+        result.postPeakDbtp = active.a_cue_true_peak_millidbtp / 1000.0;
+        result.prePeakDbtp = active.b_cue_true_peak_millidbtp / 1000.0;
         result.analysisUnits = active.paired_block_count;
         return true;
     }
@@ -59,13 +59,33 @@ bool analyse (const std::vector<float>& post, const std::vector<float>& pre, std
                                               sampleRate, 2, &events))
     {
         result.measuredDb = events.paired_energy_delta_millidb / 1000.0;
-        postPeak = events.post_cue_true_peak_millidbtp / 1000.0;
-        prePeak = events.pre_cue_true_peak_millidbtp / 1000.0;
+        result.postPeakDbtp = events.post_cue_true_peak_millidbtp / 1000.0;
+        result.prePeakDbtp = events.pre_cue_true_peak_millidbtp / 1000.0;
         result.analysisUnits = events.paired_window_count;
         return true;
     }
     return false;
 }
+}
+
+MatchPlan planMatch (const MatchResult& result, double heldPostDb) noexcept
+{
+    MatchPlan plan;
+    plan.ceilingDbtp = result.ceilingDbtp;
+    const double held = std::min (0.0, heldPostDb);
+    const double needed = result.measuredDb + held; // POST already sounds `held` dB quieter
+    plan.neededPreGainDb = needed;
+    plan.postGainDb = held;
+    if (needed <= 0.0 || result.prePeakDbtp + needed <= result.ceilingDbtp + 1.0e-9)
+    {
+        plan.preGainDb = needed;
+        return plan;
+    }
+    plan.needsApproval = true;
+    plan.lowerPostGainDb = held - needed;
+    plan.limitedPreGainDb = std::max (0.0, result.ceilingDbtp - result.prePeakDbtp);
+    plan.preGainDb = plan.limitedPreGainDb;
+    return plan;
 }
 
 MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::uint32_t sampleRate,
@@ -93,21 +113,15 @@ MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::u
         result.failure = MatchFailure::overwritten;
         return result;
     }
-    double postPeak = 0.0, prePeak = 0.0;
-    if (! analyse (post, pre, frames, sampleRate, result, postPeak, prePeak))
+    if (! analyse (post, pre, frames, sampleRate, result))
     {
         result.failure = MatchFailure::notEnoughSignal;
         return result;
     }
     result.seconds = static_cast<double> (frames) / sampleRate;
-    result.ceilingDbtp = std::max ({ -1.0, postPeak, prePeak });
-    result.appliedDb = result.measuredDb;
-    if (result.measuredDb > 0.0 && prePeak + result.measuredDb > result.ceilingDbtp + 1.0e-9)
-    {
-        result.limitedByTruePeak = true;
-        result.appliedDb = std::max (0.0, result.ceilingDbtp - prePeak);
-    }
-    result.failure = MatchFailure::none;
+    result.ceilingDbtp = std::max ({ -1.0, result.postPeakDbtp, result.prePeakDbtp });
+    result.failure = std::isfinite (result.measuredDb) && std::fabs (result.measuredDb) <= maximumMatchDb
+        ? MatchFailure::none : MatchFailure::outOfRange;
     return result;
 }
 }

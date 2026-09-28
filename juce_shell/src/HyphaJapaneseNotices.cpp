@@ -98,6 +98,11 @@ const Entry entries[] = {
     { "MATCH needs 3 s of play", u8"MATCHには3秒の再生が必要" },
     { "MATCH failed; try again", u8"MATCHをやり直してください" },
     { "MATCH needs more signal", u8"MATCHには信号が足りません" },
+    { "MATCH over 24 dB", u8"MATCHの差が24 dBを超えています" },
+    { "MATCH: POST %1", u8"MATCH：POST %1" },
+    { "POST back to normal", u8"POSTを通常の音量に戻しました" },
+    { "Press RETURN first", u8"先にRETURNを押してください" },
+    { "PRE over TP ceiling", u8"PREがTP上限を超えました" },
 };
 }
 

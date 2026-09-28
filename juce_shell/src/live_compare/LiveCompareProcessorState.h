@@ -30,6 +30,7 @@ struct Status
     bool interrupted = false; // offline render or bypass ended the session; select PRE again
     Verdict verdict = Verdict::noClock;
     float gain = 1.0f;
+    float postTarget = 1.0f;  // approved POST attenuation, held after the session until RETURN
 };
 
 // Everything one processor owns for the live compare. PRE uses the ring and the feeder; POST uses
@@ -50,5 +51,9 @@ struct ProcessorState
     std::atomic<bool> interrupted { false };
     std::atomic<float> gain { 1.0f };
     std::atomic<std::uint8_t> verdict { 0 };
+    PostLevel postLevel;                      // Audio Thread; the message thread configures it
+    std::atomic<float> postTarget { 1.0f };   // approved POST attenuation (linear, at most 1)
+    std::atomic<float> ceilingLinear { 1.0f }; // PRE guard fixed at MATCH, 10^(C/20)
+    std::atomic<bool> guardTripped { false };
 };
 }

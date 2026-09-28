@@ -29,6 +29,8 @@ struct Pair
     std::unique_ptr<Ring> ring = std::make_unique<Ring>();
     PreFeeder feeder;
     PostRenderer renderer;
+    PostLevel level;
+    float postTarget = 1.0f, ceiling = 1.0f;
     std::vector<float> pre[2], post[2];
     std::int64_t clock = 0;
 
@@ -36,11 +38,13 @@ struct Pair
     {
         ring->initialise (key, 48000);
         renderer.prepare (4096, 48000.0);
+        level.configure (48000.0);
         for (auto* set : { pre, post })
             for (int c = 0; c < 2; ++c) set[c].assign (frames, 0.0f);
     }
 
-    RenderReport step (bool demand, bool preSelected, float gain, bool afterGap = false, int channels = 2)
+    RenderReport step (bool demand, bool preSelected, float gain, bool afterGap = false, int channels = 2,
+                       bool poison = false)
     {
         ring->header.demand.store (demand ? 1u : 0u);
         BlockClock b;
@@ -54,10 +58,13 @@ struct Pair
                 pre[c][size_t (i)] = preValue (clock + i, c);
                 post[c][size_t (i)] = postValue;
             }
+        if (poison)
+            pre[0][5] = std::nanf ("");
         const float* in[] = { pre[0].data(), pre[1].data() };
         feeder.feed (*ring, b, in, 2);
         float* io[] = { post[0].data(), post[1].data() };
-        const auto report = renderer.render (*ring, key, 48000, b, io, channels, preSelected, gain);
+        const auto report = renderer.render (*ring, key, 48000, b, io, channels, preSelected, gain, level,
+                                             postTarget, ceiling);
         clock += frames;
         return report;
     }
@@ -72,7 +79,7 @@ struct Pair
                 return r;
             require (r.verdict == Verdict::calibrating && r.preWaiting == preSelected && ! r.preAudible,
                      "calibration keeps POST and reports PRE waiting");
-            require (postUntouched(), "an unproven block leaves POST bit-identical");
+            require (postTarget < 1.0f || postUntouched(), "an unproven block leaves POST bit-identical");
         }
         require (false, "the pair never calibrated");
         return {};
@@ -141,6 +148,56 @@ static void unsupportedLayoutsAndNoDemandKeepPost()
     require (idle.ring->header.published.load() == 0, "PRE publishes only while a session demands it");
 }
 
+// INV-LC14: an approved POST attenuation lowers POST, and only POST: PRE keeps its own gain.
+static void approvedAttenuationLowersPostOnly()
+{
+    Pair pair;
+    pair.postTarget = 0.5f;
+    pair.calibrate (false, 1.0f);
+    for (int i = 0; i < 4; ++i) pair.step (true, false, 1.0f);
+    require (pair.post[0][0] == postValue * 0.5f && pair.post[1][frames - 1] == postValue * 0.5f,
+             "POST sounds at the approved attenuation");
+    pair.step (true, true, 1.0f);
+    pair.step (true, true, 1.0f);
+    require (pair.post[0][9] == preValue (pair.clock - frames + 9, 0), "PRE stays at its level");
+}
+
+// The attenuation ramps down over 50 ms and back up over 500 ms of full range, never jumping, and a
+// settled unity level leaves the audio bit-identical.
+static void postLevelRampsDownFastAndUpSlowly()
+{
+    PostLevel level;
+    level.configure (48000.0);
+    int down = 0;
+    while (level.next (0.5f) > 0.5f) ++down;
+    int up = 0;
+    while (level.next (1.0f) < 1.0f) ++up;
+    std::printf ("post level: down to -6 dB in %d frames, back up in %d frames\n", down, up);
+    require (down >= 1190 && down <= 1201, "halfway down takes 25 ms");
+    require (up >= 11990 && up <= 12001, "halfway up takes 250 ms");
+    float samples[] = { 0.3f, -0.2f, 0.1f };
+    float* io[] = { samples };
+    level.apply (io, 1, 3, 1.0f);
+    require (samples[0] == 0.3f && samples[1] == -0.2f && samples[2] == 0.1f, "settled unity is bit-identical");
+}
+
+// INV-LC14: PRE raised above the ceiling fixed at MATCH never sounds; the block is POST from its
+// start and the report ends the selection. A non-finite PRE sample trips the guard at any gain.
+static void guardKeepsPreUnderTheCeiling()
+{
+    Pair raised;
+    raised.ceiling = 0.5f;
+    raised.calibrate (true, 1.0f);
+    raised.step (true, true, 1.0f);
+    const auto tripped = raised.step (true, true, 2.0f);
+    require (tripped.guardTripped && ! tripped.preAudible && raised.postUntouched(),
+             "a raised PRE over the ceiling is POST from the block start");
+    Pair poisoned;
+    poisoned.calibrate (true, 1.0f);
+    const auto nan = poisoned.step (true, true, 1.0f, false, 2, true);
+    require (nan.guardTripped && poisoned.postUntouched(), "a non-finite PRE sample never sounds");
+}
+
 // PRE creates the ring for its identity; POST opens it for the same key and rate only.
 static void sharedRingPairsOnlyTheSameIdentityAndRate()
 {
@@ -179,6 +236,9 @@ int main()
     approvedGainAppliesToPre();
     unsupportedLayoutsAndNoDemandKeepPost();
     sharedRingPairsOnlyTheSameIdentityAndRate();
+    approvedAttenuationLowersPostOnly();
+    postLevelRampsDownFastAndUpSlowly();
+    guardKeepsPreUnderTheCeiling();
     std::printf ("live compare session: all checks passed\n");
     return 0;
 }

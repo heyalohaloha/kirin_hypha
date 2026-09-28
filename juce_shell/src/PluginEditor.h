@@ -138,6 +138,9 @@ private:
     void setLocalBlindIsolation (bool active);
     void configureLiveCompare();
     void refreshLiveCompare();
+    void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
+    void applyLiveCompareChoice (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
+    bool liveCompareHoldBlocksAudition();
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,
                                int pairStatus);
