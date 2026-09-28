@@ -87,7 +87,10 @@ void blindAfterNamedIsANewTrial()
         require (t->select (2), "POST by name");
         b.play (*t, at (0));
         require (t->startBlind() && ! t->view().named && ! t->startBlind(), "Blind starts once from the named A/B");
+        require (t->view().activeStimulus == 0 && t->view().pendingStimulus == 1,
+                 "nothing of Blind plays yet, whatever the named A/B played last");
         require (b.play (*t, at (64)) == 0.8f, "the first Blind pass waits for the range start");
+        require (t->view().activeStimulus == 0, "still nothing while Blind waits");
         require (! t->view().heardOneComplete && t->view().answer == TrialAnswer::none, "heard and answer start empty");
         for (std::int64_t p = -64; p < 192; p += 64)
             require (b.play (*t, at (p)) == one, "Source 1 plays the hidden assignment drawn at preparation");

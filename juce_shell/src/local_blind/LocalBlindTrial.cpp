@@ -317,7 +317,10 @@ TrialView LocalBlindTrial::view() const noexcept
     result.heardOneComplete = heardOne.load (std::memory_order_acquire) >= format.minimumHeardFrames;
     result.heardTwoComplete = heardTwo.load (std::memory_order_acquire) >= format.minimumHeardFrames;
     result.named = isNamed (mode);
-    result.activeStimulus = confirmed == 0 ? 0 : stimulusOf (kind (confirmed));
+    // Until Blind renders its first block, the last receipt is the named A/B's: nothing of Blind
+    // plays yet.
+    result.activeStimulus = confirmed == 0 || isNamed (kind (confirmed)) != result.named
+        ? 0 : stimulusOf (kind (confirmed));
     result.pendingStimulus = current == confirmed ? 0 : stimulusOf (mode);
     const bool isRevealed = revealed.load (std::memory_order_acquire);
     result.canAnswer = ! result.named && ! isRevealed && current == confirmed
