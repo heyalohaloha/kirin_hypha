@@ -29,10 +29,10 @@ juce::String startFailure (StartResult result)
     {
         case StartResult::started:
         case StartResult::notPost:           return {};
-        case StartResult::notReady:          return "PRE / POST listening could not start. Try again";
-        case StartResult::noPair:            return "Choose the PRE for this POST first";
-        case StartResult::unsupportedLayout: return "PRE / POST listening is for mono / stereo only";
-        case StartResult::preUnavailable:    return "The paired PRE is not available. Check that it is active";
+        case StartResult::notReady:          return "LISTEN could not start";
+        case StartResult::noPair:            return "Choose the PRE first";
+        case StartResult::unsupportedLayout: return "Mono / stereo only";
+        case StartResult::preUnavailable:    return "Paired PRE unavailable";
     }
     return {};
 }
@@ -42,10 +42,10 @@ juce::String matchFailure (MatchFailure failure)
     switch (failure)
     {
         case MatchFailure::none:            return {};
-        case MatchFailure::notProven:       return "MATCH waits for PRE. Play the song";
-        case MatchFailure::tooShort:        return "MATCH needs three seconds of continuous playback";
-        case MatchFailure::overwritten:     return "MATCH could not read a stable range. Try again";
-        case MatchFailure::notEnoughSignal: return "MATCH needs more signal in the latest four seconds";
+        case MatchFailure::notProven:       return "MATCH waits for PRE";
+        case MatchFailure::tooShort:        return "MATCH needs 3 s of play";
+        case MatchFailure::overwritten:     return "MATCH failed; try again";
+        case MatchFailure::notEnoughSignal: return "MATCH needs more signal";
     }
     return {};
 }
@@ -57,9 +57,10 @@ void KirinHyphaEditor::configureLiveCompare()
     {
         const auto result = processorRef.startLiveCompare();
         liveCompareMatched = false;
+        liveCompareLimited = false;
         liveCompareInterruptSeen = false;
         if (result == StartResult::started)
-            showToast ("PRE / POST listening started. Closing this window returns to POST");
+            showToast ("Closing returns to POST");
         else
         {
             showToast (startFailure (result));
@@ -82,11 +83,10 @@ void KirinHyphaEditor::configureLiveCompare()
         else
         {
             liveCompareMatched = true;
+            liveCompareLimited = result.limitedByTruePeak;
             showToast (result.limitedByTruePeak
-                ? "PRE gain limited to " + signedDb (result.appliedDb) + " by the True Peak ceiling; "
-                      + signedDb (result.measuredDb) + " would match"
-                : "PRE matched to POST: " + signedDb (result.appliedDb) + " over "
-                      + juce::String (result.seconds, 1) + " s");
+                ? "TP limit: PRE " + signedDb (result.appliedDb) + ", need " + signedDb (result.measuredDb)
+                : "MATCH: PRE " + signedDb (result.appliedDb));
         }
         refreshLiveCompare();
     };
@@ -94,6 +94,7 @@ void KirinHyphaEditor::configureLiveCompare()
     {
         processorRef.stopLiveCompare();
         liveCompareMatched = false;
+        liveCompareLimited = false;
         liveCompareActiveSeen = false;
         refreshLiveCompare();
     };
@@ -104,16 +105,16 @@ void KirinHyphaEditor::refreshLiveCompare()
     processorRef.serviceLiveCompare();
     const auto status = processorRef.liveCompareStatus();
     const auto now = nowSecs();
-    // A wait shorter than one refresh still reads: WAIT stays for at least half a second. The
-    // final minimum is a listening decision (plan G4).
-    if (status.preWaiting)
+    // Any waiting block since the last refresh reads, however short: WAIT stays for at least half
+    // a second. The final minimum is a listening decision (plan G4).
+    if (processorRef.takeLiveComparePreWait() || status.preWaiting)
         liveComparePreWaitUntil = now + 0.5;
     if (status.interrupted && ! liveCompareInterruptSeen)
-        showToast ("PRE was deselected. Select PRE again");
+        showToast ("Select PRE again");
     liveCompareInterruptSeen = status.interrupted;
     // A format change, a changed pair or a closed PRE ended the session without END: say so.
     if (liveCompareActiveSeen && ! status.active)
-        showToast ("PRE / POST listening ended. POST is playing");
+        showToast ("LISTEN ended; POST plays");
     liveCompareActiveSeen = status.active;
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported();
@@ -121,6 +122,7 @@ void KirinHyphaEditor::refreshLiveCompare()
     footer.preSelected = status.active && status.preSelected;
     footer.preWaiting = footer.preSelected && (status.preWaiting || now < liveComparePreWaitUntil);
     footer.matched = status.active && liveCompareMatched;
+    footer.matchLimited = footer.matched && liveCompareLimited;
     footer.preGainTenthsDb = status.gain > 0.0f ? juce::roundToInt (200.0f * std::log10 (status.gain)) : 0;
     observatoryView.setLiveCompareFooter (footer);
 }

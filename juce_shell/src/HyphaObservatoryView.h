@@ -59,12 +59,14 @@ struct LiveCompareFooter
     bool preSelected = false;
     bool preWaiting = false;
     bool matched = false;      // an explicit MATCH set the PRE gain in this session
+    bool matchLimited = false; // that MATCH stopped at the true-peak ceiling: PRE is still quieter
     int preGainTenthsDb = 0;   // that gain in 0.1 dB steps, as the PRE control shows it
     bool operator== (const LiveCompareFooter& other) const noexcept
     {
         return entryEnabled == other.entryEnabled && active == other.active
             && preSelected == other.preSelected && preWaiting == other.preWaiting
-            && matched == other.matched && preGainTenthsDb == other.preGainTenthsDb;
+            && matched == other.matched && matchLimited == other.matchLimited
+            && preGainTenthsDb == other.preGainTenthsDb;
     }
 };
 

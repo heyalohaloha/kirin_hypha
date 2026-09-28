@@ -38,7 +38,8 @@ void View::configureComparisonEntries()
     liveCompareButton.setComponentID ("observatory-live-compare");
     liveCompareButton.setTitle ("PRE / POST Listen");
     liveCompareButton.setDescription ("Switch between PRE and POST of this chain while the song plays. "
-                                      "Leave this window open; closing it returns to POST");
+                                      "Keep this window open (pin it in Studio One / Studio Pro, turn off "
+                                      "Target in Pro Tools); closing or replacing it returns to POST");
     liveCompareButton.setTooltip (liveCompareButton.getDescription());
     liveCompareButton.onClick = [this] { if (onLiveCompareStart) onLiveCompareStart(); };
     livePreButton.setComponentID ("observatory-live-pre");
@@ -51,8 +52,6 @@ void View::configureComparisonEntries()
     livePostButton.onClick = [this] { if (onLiveCompareSelect) onLiveCompareSelect (false); };
     liveMatchButton.setComponentID ("observatory-live-match");
     liveMatchButton.setTitle ("MATCH");
-    liveMatchButton.setDescription ("Match PRE to POST loudness over the latest four seconds");
-    liveMatchButton.setTooltip (liveMatchButton.getDescription());
     liveMatchButton.onClick = [this] { if (onLiveCompareMatch) onLiveCompareMatch(); };
     liveEndButton.setComponentID ("observatory-live-end");
     liveEndButton.setTitle ("END");
@@ -72,8 +71,9 @@ void View::setLiveCompareFooter (const LiveCompareFooter& next)
 
 // PRE, POST, MATCH, END and MENU while a session runs. Where the rail is narrow MENU goes first,
 // then MATCH, then PRE; POST and END stay at every size. The PRE control names what it plays: its
-// MATCH gain, or WAIT while PRE is selected and POST still sounds, never by colour alone. Its slot
-// is as wide as the longest of these, so a boundary that toggles WAIT never moves a control.
+// MATCH gain, or WAIT while PRE is selected and POST still sounds, never by colour alone. MATCH
+// reads TP LIMIT while its gain stopped at the true-peak ceiling. Each slot is as wide as its
+// longest text, so a boundary that toggles WAIT never moves a control.
 bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
 {
     for (auto* button : { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton })
@@ -87,6 +87,7 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     const juce::String named = state.matched ? "PRE " + signedGain (state.preGainTenthsDb) : juce::String ("PRE");
     const int namedWidth = juce::jmax (footerButtonWidth (named), footerButtonWidth ("PRE WAIT"));
     const int briefWidth = juce::jmax (footerButtonWidth ("PRE"), footerButtonWidth ("WAIT"));
+    const int matchWidth = juce::jmax (footerButtonWidth ("MATCH"), footerButtonWidth ("TP LIMIT"));
     const std::array<juce::Array<juce::Button*>, 4> sets {
         juce::Array<juce::Button*> { &livePreButton, &livePostButton, &liveMatchButton, &liveEndButton,
                                      &operationsButton },
@@ -97,7 +98,9 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     {
         juce::Array<int> widths;
         for (auto* button : set)
-            widths.add (button == &livePreButton ? preWidth : footerButtonWidth (button->getButtonText()));
+            widths.add (button == &livePreButton ? preWidth
+                        : button == &liveMatchButton ? matchWidth
+                                                     : footerButtonWidth (button->getButtonText()));
         return widths;
     };
     const auto total = [] (const juce::Array<int>& widths)
@@ -124,6 +127,12 @@ bool View::layoutLiveCompareFooter (juce::Rectangle<int> actions)
     livePreButton.setTooltip (preHelp);
     livePreButton.setToggleState (state.preSelected, juce::dontSendNotification);
     livePostButton.setToggleState (! state.preSelected, juce::dontSendNotification);
+    const juce::String matchHelp = state.matchLimited
+        ? "MATCH stopped at the true-peak ceiling: PRE is still quieter than POST. Press to measure again"
+        : "Match PRE to POST loudness over the latest four seconds";
+    liveMatchButton.setButtonText (state.matchLimited ? "TP LIMIT" : "MATCH");
+    liveMatchButton.setDescription (matchHelp);
+    liveMatchButton.setTooltip (matchHelp);
     liveMatchButton.setToggleState (state.matched, juce::dontSendNotification);
     operationsButton.setVisible (chosen->contains (&operationsButton));
     for (auto* button : *chosen)

@@ -242,6 +242,7 @@ private:
     };
     std::vector<LocalBlindUnderlyingState> localBlindUnderlyingStates;
     bool liveCompareMatched = false;
+    bool liveCompareLimited = false;
     bool liveCompareInterruptSeen = false;
     bool liveCompareActiveSeen = false;
     double liveComparePreWaitUntil = 0.0;

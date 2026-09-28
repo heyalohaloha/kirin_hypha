@@ -49,6 +49,8 @@ R-12と安全契約の改定、既存Blindのhost gate、E2でのowner、exact 4
 ### 次の一手
 
 0. 第1段階の実装を始めた（2026-09-28、利用者が段階的な実装を承認）。macOSで、再生中のPRE/POST切替（固定の音量一致、境界規則C、VST3・AU・AAX）を作る。最初のPRは、対応の中核（ring、周回、空白、K、M1）と試験、契約の正本（AGENTS、INV-LC1〜LC3）である。
+   - 実機確認（2026-09-28、bb1cfc26の公証済みVST3・AUと未署名のAAX診断版、48 kHz）: Studio Pro 8のVST3で、PRE→4096サンプル遅延→−6 dB→POSTのchainに、POSTの後ろの計測用Hyphaで出力を測った。POST選択で−29.0 LUFS、PRE選択で−23.0 LUFS、MATCHは−6.00 dBで、PRE選択中の出力は−29.0 LUFSになった。AUでは対応が成立し（PRE表示）、無音でのMATCHは信号不足を通知した。Pro Tools Developer 2026.4のAAX（stereo、−6 dBのTrim）でも、−29.0→−23.0 LUFS、MATCH −6.00 dB、終了を確かめた。停止中はPRE WAITを示した。
+   - 実機で分かったこと: Studio Proは同じchannelのplugin画面を1つの窓で使い回し、Pro ToolsはTarget窓を置き換える。どちらも画面が閉じてsessionが終わる（E2どおり）。画面を開いたままにする方法（ピン留め、Targetのオフ）を入口とREADMEに書いた。通知は300%の状態欄に全文が入る長さにした。短い待ちが画面の更新の間に終わると見逃すため、待ちを記録してWAITを必ず示すようにした。マスタリングのように大きく持ち上げるchainでは、MATCHがTP上限で止まりやすいため、MATCHの操作にTP LIMITを出す。
 1. AAXの残り: WindowsのPro Tools、製品版、multi-mono、遅延補償のOFF、hostの通知を待ってから音の遅延を変える型の遅延変更。
 2. Windows、他のbuffer設定、報告が先に来る型の遅延変更。
 3. 周回ごとに印が変わるfixtureと、遅延がloop長以上の条件。

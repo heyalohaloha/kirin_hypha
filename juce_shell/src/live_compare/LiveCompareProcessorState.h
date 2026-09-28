@@ -46,6 +46,7 @@ struct ProcessorState
     std::atomic<bool> preSelected { false };
     std::atomic<bool> preAudible { false };
     std::atomic<bool> preWaiting { false };
+    std::atomic<bool> preWaitSeen { false }; // any waiting block since the editor last looked
     std::atomic<bool> interrupted { false };
     std::atomic<float> gain { 1.0f };
     std::atomic<std::uint8_t> verdict { 0 };

@@ -186,6 +186,12 @@ fn live_compare_sessions_end_where_the_user_cannot_see_them() {
         "void KirinHyphaEditor::refreshLiveCompare",
     );
     assert!(refresh.contains("processorRef.serviceLiveCompare();"));
+    assert!(refresh.contains("processorRef.takeLiveComparePreWait()"));
+    let process = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::processLiveCompare",
+    );
+    assert!(process.contains("liveCompare.preWaitSeen.store (true"));
     let service = function_body(
         PROCESSOR_CPP,
         "bool KirinHyphaProcessorBase::serviceLiveCompare",
