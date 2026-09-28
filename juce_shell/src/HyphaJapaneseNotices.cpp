@@ -90,6 +90,7 @@ const Entry entries[] = {
     { "Choose the PRE first", u8"先にPREを選んでください" },
     { "Mono / stereo only", u8"モノラル／ステレオのみ" },
     { "Paired PRE unavailable", u8"ペアのPREを使えません" },
+    { "PRE is multi-mono: insert it as stereo", u8"PREをstereoで入れてください" },
     { "Select PRE again", u8"PREを選び直してください" },
     { "LISTEN ended; POST plays", u8"試聴終了。POSTが鳴ります" },
     { "MATCH: PRE %1", u8"MATCH：PRE %1" },
@@ -114,6 +115,7 @@ const Entry entries[] = {
     { "AUTO off", u8"AUTOを止めました" },
     { "AUTO stopped: TP ceiling", u8"AUTO停止：TP上限" },
     { "AUTO stopped: over 6 dB", u8"AUTO停止：6 dBを超える変化" },
+    { "Delay compensation is off in Pro Tools", u8"Pro Toolsの遅延補償がOFFです" },
 };
 }
 

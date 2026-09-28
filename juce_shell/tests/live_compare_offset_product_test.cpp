@@ -24,7 +24,8 @@ void initialiseBlindProductHostApplication();
 // shared live ring and the product editor. Between PRE and POST sits a delay the host does not know
 // about, 2000 frames (41.67 ms at 48 kHz), as from a plug-in that under-reports its latency. A few
 // seconds after LISTEN the footer reads the offset. The delay then grows to 3000 frames with the
-// clocks unchanged: POST is held until playback stops, and the footer reads the new offset.
+// clocks unchanged: POST is held until playback stops, and the footer reads the new offset. With
+// the host's delay compensation off (INV-LC8) PRE waits and the footer says why; back on, PRE returns.
 namespace
 {
 using Processor = KirinHyphaProcessorBase;
@@ -190,11 +191,41 @@ private:
                 // Stopping ends the hold; the session stays for the next run.
                 if (post->liveCompareStatus().contentHeld) break;
                 require (post->liveCompareStatus().active, "the session survives the stop");
-                std::cout << "Live offset product: PASS (real C ABI, pair discovery, live ring, footer warning, hold)\n";
+                play.store (true);
+                ++stage;
+                break;
+            case 6:
+                // PRE plays again in the new run.
+                if (! post->liveCompareStatus().preSelected && ! click ("observatory-live-pre")) break;
+                if (! post->liveCompareStatus().preAudible) break;
+                post->kirinHostDelayCompensationStateChanged (false);
+                ++stage;
+                break;
+            case 7:
+            {
+                // INV-LC8: with the host's delay compensation off, POST sounds, PRE waits and the
+                // status line says why; the offset monitor claims no jump.
+                const auto status = post->liveCompareStatus();
+                if (! status.preWaiting || status.preAudible || footer() != "Delay compensation is off in Pro Tools") break;
+                require (! status.contentHeld, "switching compensation off is not a latency jump");
+                std::cout << "compensation off: " << footer() << std::endl;
+                post->kirinHostDelayCompensationStateChanged (true);
+                ++stage;
+                break;
+            }
+            case 8:
+            {
+                // Back on: the correspondence is proven again and PRE returns by itself.
+                const auto status = post->liveCompareStatus();
+                if (! status.preAudible || status.preWaiting) break;
+                require (footer() != "Delay compensation is off in Pro Tools", "the reason clears once it is on");
+                std::cout << "Live offset product: PASS (real C ABI, pair discovery, live ring, footer warning, hold, "
+                             "delay compensation off)\n";
                 passed = true;
                 stopTimer();
                 juce::MessageManager::getInstance()->stopDispatchLoop();
                 break;
+            }
             default:
                 break;
         }

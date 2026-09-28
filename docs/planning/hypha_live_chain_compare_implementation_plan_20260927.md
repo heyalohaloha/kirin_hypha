@@ -24,7 +24,7 @@
 | 静かな区間 | infinite tailは報告せず（AAXのAlwaysProcessも付けない）、hostが無音でpluginを止めても、音が戻って規則Cで対応を確かめ直した最初のblockからPREへ戻す（INV-LC6） | 2026-09-28、利用者が推奨を採用（「推奨で」）。常に報告するとbounceやfreeze、停止中のCPUまで変わり、比較中だけの報告はhostが読み直す保証がなく、AAXでは静的な属性のため選べない |
 | 遅延変更の直後 | 時計で検出できない短い区間の誤対応を許容し、説明書に記す | G1R。報告されない変更と、再生中に補償を改めないhostは許容の外。Pro Tools 2026.4は再生中に反映し、M1で1〜2 block |
 | 遅延の報告の誤り | 開始時と定期的に中身のずれを推定し、時計の対応と食い違えば警告する。止めず、補正しない。DAWの遅延補償への依存を説明書に記す | 2026-09-28、見直しで決定（利用者が判断を委任し、推奨を採用）。比較の途中で中身のずれが跳んだら、POSTへ倒して再生の停止と再開の後に戻す（同日、利用者が推奨を採用。第5.4節） |
-| multi-mono（AAX） | 提供する。全channelを同じblockで切り替え、channelの間でPREとPOSTを混ぜない | 2026-09-28、利用者が推奨を採用（第5.4節） |
+| multi-mono（AAX） | 提供しない。live比較はstereoのinstanceと、組の唯一のinstance（mono track）で提供する（INV-LC9）。Pro Toolsはmulti-monoのchannelを並行に処理し、全channelを同じblockで切り替えることを保証できない（G1記録第10節） | 2026-09-28、実測を受けて利用者が推奨を採用。当初の「提供する」を取りやめた（第5.4節） |
 | 故障 | 説明できない欠落、protocol/pair/format失効、上限超過は比較中断と再選択 | 第4版から維持 |
 | 転送 | platformごとに事前確保した転送経路。方式はG1-06で決める | 第5.1節 |
 
@@ -35,6 +35,7 @@
 - 2026-09-28: AAXはプロが使うので、出来る限り完璧に近いpluginにし、他のプラグインよりも精度を高く保つ（利用者の指示）。品質目標は第5.4節。
 - 2026-09-28: 比較の途中で中身のずれが跳んだら（補償を改めないhostや、報告しないpluginの遅延変更など）、POSTへ倒し、再生の停止と再開の後に戻す。AAXのmulti-monoでも比較を提供し、全channelを同じblockで切り替える（利用者が推奨を採用）。
 - 2026-09-28（「推奨で」）: 静かな区間ではinfinite tailを報告しない（INV-LC6）。INV-LC8（Pro Toolsの遅延補償OFFの間はPOSTを出して理由を示す）を採用して実装する。INV-LC9はLC8の後に実装する。記名の固定ABはその後に回す。PACEで署名したAAXを製品版Pro Toolsで確認する。
+- 2026-09-28（multi-monoの実測の後）: AAXのlive比較はstereoのinstanceに限る（推奨）。あわせて、組の唯一のinstance（mono track）でも使えるようにする（INV-LC9）。記名の固定ABはその後に進める。
 - 契約の正本（AGENTS、INV、README、共通安全契約）は、実装の承認時に[契約改定案](hypha_live_chain_compare_contract_draft_20260928.md)に沿って改める。
 
 ### 分かっている限界
@@ -60,7 +61,11 @@ R-12と安全契約の改定、既存Blindのhost gate、E2でのowner、exact 4
    - 実機確認（2026-09-28、6d10d00dの公証済みVST3、Studio Pro 8、48 kHz、300%）: PRE → Mixtool −5.76 dB → POSTで、MATCHは「MATCH：PRE -5.76 dB」。一致済みのMATCHを押すと「もう一度MATCH／AUTO：POSTに0.5 dB以内で追従」が出て、AUTOでMATCHの枠がAUTOになった。再生中にMixtoolを−8.64 dBへ変えると、5秒以内にPREが−8.6 dBへ追従した。音源の終わりの無音（HOLD）では何も変わらなかった。Mixtoolを+0.48 dBへ変えると（MATCHから6.24 dB）「AUTO停止：6 dBを超える変化」を示して止まり、PREは−8.6 dBのまま動かず、枠はMATCHに戻った。「もう一度MATCH」でPRE +0.48 dBになり、終了でLISTENとBLINDに戻った。インストールしたPRE・POSTのAUはauvalに合格した。Windowsでは、CI（windows-latest）で共有リングの試験、PINからBlind、ずれ警告と保留のproduct testが通った（DAWでの確認は未実施）。
    - Windowsの実機確認（2026-09-28、6d10d00dのwindows-latest CI成果物のVST3、Windows検証機のStudio Pro 8.1.2 Win x64、48 kHz、300%）: PRE → Mixtool −5.76 dB → POSTで、LISTENが始まり、MATCHは「MATCH：PRE -5.76 dB」、PREを選ぶとWAITにならずに鳴り、PIN 4 SでBlindが「範囲の準備完了」（00:55.433〜00:59.433）で開き、「今の音に戻す」で戻った。検証機では、ユーザー別のVST3フォルダ（`%LOCALAPPDATA%\Programs\Common\VST3`）に今朝入った別の版のHyphaが、全ユーザーのフォルダの新しい版より優先されて読み込まれ、LISTENの入口が出なかった。確認の間だけ別の版を退避し、確認後に同じハッシュで戻した。インストーラーが別のモードの古い版を消さないことによる問題で、別の作業として提案した。
    - 製品版Pro Toolsの実機確認（2026-09-28、fffd3761（B-1084）をPACEとDeveloper IDで署名した非配布の確認用AAX、Pro Tools Ultimate 26.4.1、48 kHz、32-bit float、300%、Targetオフ）: PRE → Trim −6.0 dB（multi-mono）→ POST（stereo）で、LISTENが始まり、MATCHは「MATCH：PRE -6.00 dB」、PREを選ぶとWAITにならずに鳴り、PIN 4 SでBlindが「範囲の準備完了」（00:19.325〜00:23.325）で開き、Blindを始めるとSOURCE 1が範囲で鳴って「SOURCE 1 聴取完了」になった。確認後、製品版の1.1.51（署名済み）を同じハッシュで戻した。
-1. AAXの残り: WindowsのPro Tools、製品版、multi-mono、遅延補償のOFF、hostの通知を待ってから音の遅延を変える型の遅延変更。
+   - 遅延補償のOFF（B-1086、INV-LC8）: Pro Tools 12.6以降が送る`AAX_eNotificationEvent_DelayCompensationState`（int32の0か1）を、JUCEのpatch 0009で受けてprocessorへ渡す。OFFの間はPOSTを出し、PREの選択を保ってPRE WAITと状態欄の理由（「Pro Toolsの遅延補償がOFFです」）で示す。ONへ戻ると、呼出しの空白と同じくKを確かめ直し、規則Cで確かめた最初のblockからPREへ戻す。切り替えを中身の跳び（INV-LC10）とは扱わず、OFFの間は中身のずれを推定しない。実物のPRE/POST、C ABI、ring、画面を通す端から端までの試験に、PREが鳴っている最中のOFFとONの往復を加えた。通知はAAXだけで、VST3とAUでは何もしない。
+   - 製品版Pro Toolsでの遅延補償のOFFの実機確認（2026-09-28、895bff74（B-1086）をPACEとDeveloper IDで署名した非配布の確認用AAX、Pro Tools Ultimate 26.4.1、48 kHz、32-bit float、300%、Targetオフ）: PRE → Trim −6.0 dB（multi-mono）→ POST（stereo）で、MATCH −6.00 dBの後にPREを選んで鳴らし、再生中にOptions → Delay CompensationをOFFにすると、再生は止まらずにPOSTが鳴り、PREの操作は「PRE WAIT」、状態欄は「Pro Toolsの遅延補償がOFFです」になった。ONに戻すと、操作なしで「PRE -6.0 dB」に戻った（2回）。OFFのままPOSTを入れ直すと、新しいinstanceも最初から「PRE WAIT」と理由を示し、ONで戻った。Pro Toolsは挿入時にも状態を知らせ、登録（`RegisterForNotification`）なしで届く。同じsessionでmulti-monoのPRE（L/Rの2 instance）を入れると、POSTの組の候補に別々のPRE（IDだけで、channelの区別なし）として並んだ。INV-LC9の設計で扱う。確認後、製品版の1.1.51を同じハッシュで戻した。sessionは保存していない。
+   - multi-monoの実測と判断（2026-09-28、Pro Tools Developer 2026.4、G1記録第10節。B-1088、INV-LC9）: multi-monoの組のinstanceは同じ組のID（`GetInstanceGroupID`）を持つが、LとRのchainは別threadで並行に処理され、Lの後段がRの前段より先に走ることがあった。あるblockを最初に判定したPOSTが全channelを決める案は、RTで待たずには成り立たない。利用者は、AAXのlive比較をstereoのinstanceに限り、組の唯一のinstance（mono track）でも使えるようにする案を採用した。JUCEのpatch 0010で組のIDをprepareの前に受け、各binaryが組ごとのinstance数を数える。multi-monoのPOSTはLISTENを出さず、multi-monoのPREは自分のringに印を付け、それを選んだLISTENは「PRE is multi-mono: insert it as stereo」（日本語は「PREをstereoで入れてください」）と示して開始しない。組を示さないhostのmono instanceも提供しない。実物のAAX monoのPRE/POST、C ABI、ring、画面を通す試験（`kirin_live_compare_aax_group_product`）を加えた。
+   - 製品版Pro Toolsでの実機確認（2026-09-28、47aac2ab（B-1088）をPACEとDeveloper IDで署名した非配布の確認用AAX、Pro Tools Ultimate 26.4.1、48 kHz、32-bit float、300%、Targetオフ）: mono trackのPRE → Trim −6.0 dB → POST（いずれもmono）で、POSTにLISTENが出て、MATCHは「MATCH：PRE -6.00 dB」、PREを選ぶとWAITにならずに鳴った（製品版でも組のIDが渡る）。stereo trackでmulti-monoのPRE（2 instance）と組にしたstereoのPOSTでは、LISTENは始まらず「PREをstereoで入れてください」を示した。multi-monoのPOSTは300%でもLISTENを出さず、PRE/POST BLINDとMENUだけを示した。確認後、製品版の1.1.51を同じハッシュで戻した。sessionは保存していない。
+1. AAXの残り: WindowsのPro Tools、hostの通知を待ってから音の遅延を変える型の遅延変更。
 2. Windows、他のbuffer設定、報告が先に来る型の遅延変更。
 3. 周回ごとに印が変わるfixtureと、遅延がloop長以上の条件。
 4. infinite tailとAlwaysProcessの副作用、中身のずれの警告の方式。
@@ -116,7 +121,7 @@ loop、seek、追従補正、Blind統合を、承認なく後続フェーズへ�
 | 境界規則（2026-09-28、G1R） | A′を案Cに置き換えた。どの境界でも、証明できない区間はPOSTを鳴らし、証明が戻り次第PREへ自動で戻す。説明できない欠落と失効は従来どおり中断と再選択 | 第5.3節、第15節 |
 | 遅延の報告の誤り（2026-09-28、見直し） | 時計の規則は、遅延の報告の誤りを検出できない。比較の開始時と定期的に中身のずれを推定し、時計の対応と食い違えば警告する。止めず、Kも補正しない。DAWの遅延補償に依存することを説明書に記す。利用者が判断を委任し、推奨（案a）を採用した | 第5.2節、第12.1節（G1-05）、LC-29 |
 | AAX（2026-09-28、利用者の指示） | AAXを、VST3、AUと並ぶ重要な対象として扱う。同じ規則が成り立つかを、Pro Toolsで最初に測る（同日に実施。G1記録第9節） | 第5.4節、第12.1節、LC-33 |
-| 遅延変更の跳びとmulti-mono（2026-09-28、利用者が推奨を採用） | 比較の途中で中身のずれが跳び、時計は変わらないときは、補償されていない遅延変更の境界として扱う。POSTを出し、再生の停止と再開の後に確かめ直して戻す（INV-LC10）。AAXのmulti-monoでも比較を提供し、全channelを同じblockで切り替える（INV-LC9） | 第5.4節、LC-20、LC-33 |
+| 遅延変更の跳びとmulti-mono（2026-09-28、利用者が推奨を採用） | 比較の途中で中身のずれが跳び、時計は変わらないときは、補償されていない遅延変更の境界として扱う。POSTを出し、再生の停止と再開の後に確かめ直して戻す（INV-LC10）。AAXのmulti-monoでの提供は、同日の実測（G1記録第10節）を受けて取りやめ、stereoのinstanceと組の唯一のinstanceで提供する（INV-LC9） | 第5.4節、LC-20、LC-33 |
 | 実装の開始（2026-09-28、利用者の決定） | 段階的に実装する。第1段階はmacOSで、再生中のPRE/POST切替（固定の音量一致、境界規則C、VST3・AU・AAX）。続いて4秒の固定→固定AB→Blind、追従の音量一致、Windows。契約の正本は実装の開始と同時に改める（AGENTS、INV-LC1〜LC3。READMEとINV-LC4以降は、実装と試験ができた時点） | 第12節、第16節 |
 | AAXの品質（2026-09-28、利用者の指示） | 「AAXではプロが使うので、出来る限り完璧に近いプラグインにする必要がある。他のプラグインよりも精度を高く保つ」。品質目標を出荷の条件にし、満たせない条件が見つかったら事実と選択肢を示して判断を求める | 第5.4節、第6.2節、LC-33 |
 
@@ -445,11 +450,11 @@ AAXは、VST3、AUと並ぶ重要な対象である（2026-09-28、利用者の�
 | 連続時計 | `AAX_ITransport::GetCurrentNativeSampleLocation`は、再生中だけ、callbackのbuffer先頭のtimeline位置を返す。`AAX_IController::GetTODLocation`は、再生開始からplayheadが進んだsample数を返し、audio engineの実時間の処理の中で増える。現行のJUCE patch（0008）は、前者をAAXの補助時計として渡している | 前者はproject時刻にあたり、loopで折り返す。後者は連続時計の候補だが、engine全体の値なので、同じcycleのPREとPOSTで同じ値になる見込み（未測定）。pluginが数えるframe数（AUのrender時刻と同じ性質）を連続時計にすると、実測で成り立った |
 | 遅延補償された位置 | POSTに渡る位置が、PREとPOSTの間のpluginの遅延の分だけ補償されるかは書かれていない。Studio ProのVST3とAUでは補償されていた（G1記録第2節） | 実測では補償されていた。下のClock Diagnosticの位置は、再生開始で上より4096小さく（−4353と−257）、中身と位置の差は照合できた全blockで0だった。loopの折返しでも、POSTの位置は中身と一致したまま折り返した。他の版やplatformで補償されない場合の選択肢（中身による較正を認めるか、提供しないか）は、利用者の判断を求める |
 | 再生中の遅延変更 | 公開ガイド（2.1.1版）は、Pro Toolsは再生中に遅延補償の設定を更新しないと書く。遅延を動的に変えるpluginは、再生中の変更を避けるか、ずれを利用者に示すべきとされる。`SetSignalLatency`の即時の適用も保証されない | Pro Tools 2026.4の実測では、再生中に反映された。4096→0では1 blockだけ位置が古い補償のままで、0→4096では同じblockで改まった。frame数のKが遅延の差だけ変わるので、M1で誤対応は1〜2 block。補償を改めない版やhostでは、中身の跳び（INV-LC10）で扱う |
-| 遅延補償のOFF | Pro Tools 12.6以降は、遅延補償の全体の有効・無効をpluginに通知する（`AAX_eNotificationEvent_DelayCompensationState`）。JUCEはこの通知を扱っていない | OFFの間は対応の前提が成り立たないと分かる。POSTを出し、理由を示す案（契約改定案のINV-LC8） |
+| 遅延補償のOFF | Pro Tools 12.6以降は、遅延補償の全体の有効・無効をpluginに通知する（`AAX_eNotificationEvent_DelayCompensationState`）。JUCEはこの通知を扱っていない | OFFの間は対応の前提が成り立たないと分かる。POSTを出し、理由を示す（INV-LC8、2026-09-28採用。通知はJUCEのpatch 0009で受ける） |
 | Dynamic Plug-In Processing | Pro Tools 11以降は、一定時間無音のtrackや停止中のpluginを止める。止めさせない方法は、descriptorの`AAX_eProperty_Constraint_AlwaysProcess`（JUCEの`JucePlugin_AAXDisableDynamicProcessing`）で、そのpluginのchain全体を処理させ続ける。SDKは、実際に支障があるときだけ使うよう求める | 実測では、入力が無音になって約8秒後に、再生中も停止中も呼出しが止まり、空白の規則で誤対応はなかった。AlwaysProcessを付けると、停止中も含めてchain全体が呼ばれ続けた。属性は静的なので、「比較中だけ」は選べない |
 | loop | loopの終わりから始めへ、pluginの状態をresetせずに続けて処理する | loopでの位置とTODの振る舞いはG1-03で測る |
 | offline bounce | 実時間より速く呼ぶ。wall-clockに依存する処理を避けるよう求める | 呼出しの空白の規則はofflineでは使えない。offlineではA経路を保つ（R-12） |
-| multi-mono | channelごとに別instanceを作る | PREとPOSTの組、転送、Kがchannelごとになる。channelごとに切り替えると、channelの間でPREとPOSTが混ざる。全channelを同じblockで切り替えて提供する（2026-09-28、利用者が推奨を採用。契約改定案のINV-LC9） |
+| multi-mono | channelごとに別instanceを作る。同じ組のinstanceは同じ組のID（`GetInstanceGroupID`、AAX SDK 2.9）を持つ | PREとPOSTの組、転送、Kがchannelごとになる。channelごとに切り替えると、channelの間でPREとPOSTが混ざる。Pro Tools 2026.4は各channelのchainを別threadで並行に処理し、あるblockを最初に処理したinstanceが他のchannelのPREのそのblockを読めるとは限らない（G1記録第10節）。live比較はstereoのinstanceと、組の唯一のinstance（mono track）でだけ提供する（2026-09-28、利用者が推奨を採用。INV-LC9） |
 
 **品質目標（2026-09-28、利用者の指示）**
 「AAXではプロが使うので、出来る限り完璧に近いプラグインにする必要がある。他のプラグインよりも精度を高く保つ」。
@@ -460,11 +465,11 @@ AAXは、VST3、AUと並ぶ重要な対象である（2026-09-28、利用者の�
 | --- | --- | --- |
 | 時刻の対応 | 自動検出か手入力。Perception ABは遅延変更の後に再Syncを案内し、Metric ABはPDC Modeで手動補正する。GainMatchとABLM2も自動検出と手入力 | hostの時計で毎block確かめ、定常で0 sample。確かめられない区間はPOSTを出し、ずれたPREを出さない |
 | 遅延が変わった後 | 利用者が再操作する | 自動で確かめ直して戻る。時計の変化はM1で直ちに検出してPOSTへ倒し（Pro Tools 2026.4で1〜2 block）、時計が変わらない場合は中身の跳びで倒す（下記） |
-| 遅延補償のOFF | 記載なし | Pro Toolsの通知を読み、OFFの間はPOSTを出して理由を示す（契約改定案のINV-LC8） |
-| multi-mono | 記載なし | channelの間でPREとPOSTを混ぜない。全channelを同じblockで切り替える（下記） |
+| 遅延補償のOFF | 記載なし | Pro Toolsの通知を読み、OFFの間はPOSTを出して理由を示す（INV-LC8） |
+| multi-mono | 記載なし | channelの間でPREとPOSTを混ぜない。multi-monoの組では提供せず、理由を示す（下記、INV-LC9） |
 | 音量一致 | GainMatchはAUTOの許容差±1 dB（公式manual）。Perception ABは毎秒のAuto Match | loudnessの測定は参照実装との差0.1 LU以内、適用するgainの分解能は0.01 dB以内。追従の許容差は聴取で決め、値を画面に出す（第6.2節） |
 | 切替 | GainMatchは短いfade | 対称5 ms。確かめたPREのsampleだけを使う |
-| 検証 | 公開なし | Pro Toolsの版、macOSとWindows、rate（44.1〜192 kHz）、Pro Toolsで選べるbufferの最小・最大・代表値、stereoとmulti-mono、Dynamic Plug-In Processing、遅延補償のOFFの各条件で、周回ごとに印が変わるfixtureによるbit一致を確かめて認定する |
+| 検証 | 公開なし | Pro Toolsの版、macOSとWindows、rate（44.1〜192 kHz）、Pro Toolsで選べるbufferの最小・最大・代表値、stereoとmono track、Dynamic Plug-In Processing、遅延補償のOFFの各条件で、周回ごとに印が変わるfixtureによるbit一致を確かめて認定する |
 
 **時計が変わらない遅延変更（2026-09-28、利用者が推奨を採用）**
 hostが再生中に補償を改めない場合、間のpluginの遅延が変わると、時計は変わらないまま中身だけがずれる。
@@ -478,13 +483,15 @@ Avidの公開ガイドはPro Toolsをこの型と書いていたので、推奨�
 
 **multi-monoの切替**
 channelの間でPREとPOSTを混ぜないことは必須とする。
-推奨は、POSTのchannelのinstanceのうち、あるblockを最初に判定したinstanceが全channelの判定を決めて事前確保の領域へ公開し、他のinstanceはそれに従う方式である。
-全channelで対応を確かめられたblockだけPREを出す。判定の順序、事前確保、RTで待たないことは、G1-06とLC-33で確かめる。
-multi-monoでもlive比較を提供する（2026-09-28、利用者が推奨を採用。契約改定案のINV-LC9）。
+当初の推奨は、あるblockを最初に判定したPOSTのinstanceが全channelの判定を決めて公開し、他のinstanceが従う方式だった。
+2026-09-28のPro Tools Developer 2026.4での実測（G1記録第10節）で、各channelのchainは別threadで並行に処理され、Lの後段がRの前段より先に走ることがあると分かった。
+最初のinstanceは他のchannelのPREのそのblockを読めるとは限らず、RTで待たずには成り立たない。
+同日、利用者は、AAXのlive比較をstereoのinstanceと、Pro Toolsが示す組（`GetInstanceGroupID`）の唯一のinstance（mono track）に限る案を採用した（INV-LC9）。
+multi-monoのPOSTは入口を出さず、multi-monoのPREを選んだLISTENは理由を示して開始しない。
 
 AAXのG1は、Pro Tools Developer 2026.4（macOS、Intel）でG1-01、G1-03、G1-04、Dynamic Plug-In Processingを行った（G1記録第9節）。
 署名の要らない開発版を使い、PACEでの署名は行っていない。
-残りは、WindowsのPro Tools、製品版、Apple silicon、multi-mono、他のbufferとrate、遅延補償のOFF、`GetTODLocation`、hostの通知を待ってから音の遅延を変える型の遅延変更である。
+残りは、WindowsのPro Tools、Apple silicon、他のbufferとrate、`GetTODLocation`、hostの通知を待ってから音の遅延を変える型の遅延変更である（製品版と遅延補償のOFFは2026-09-28に製品版Pro Toolsで、multi-monoは同日にG1記録第10節で確かめた）。
 AAXのプローブは、Pro Toolsが読み込める署名が要る。製品と別identityの非出荷fixtureとし、署名は既存のAAXの経路（`docs/aax_macos_universal_build_20260910.md`、`docs/aax_windows_build_20260910.md`）に沿う。PACEでの署名は、行う前に利用者の確認を得る。
 
 ## 6. Gain Matchの方式
@@ -1076,7 +1083,7 @@ PREとPOSTのbit一致は純粋な既知delay fixtureの評価に限定し、一
 | LC-30 段階gain復帰 | live −8 dB→snapshot −12 dB→liveの+4 dB復帰を含め、profile/revision、承認、実gain receiptを照合。未回答Blindの停止→減衰表示→増大承認→live/unityを試験。停止/live復帰/全体Returnのreceipt混同と無言増大0 |
 | LC-31 背景故障 | 背景liveだけの故障では固定artifactの条件が有効なら継続。共通pair/format/clock失効は既存規則で中断。帰還時のready失効/再準備を確認 |
 | LC-32 loop再生 | 余白付き窓、範囲先頭が余白内の包含loop、exact loopを分け、初回、Source 2自動arm後、明示切替、両側完走後、再試聴を分離。余白付き窓は可変callbackでもadapterなしで両側完走。preroll初回成功後に非分割境界でSource 2が待機する対照を保持し、exact loopは対応profileのadapterで両側完走を実証。遡及Pinの再生可否の予告と実際の待機が一致。無限待機の成功扱い、完走誤計上、準備だけの開始は0 |
-| LC-33 AAX | Pro Tools（macOS、Windows）で、補償済みの位置、Dynamic Plug-In Processing、遅延補償のOFFの通知、multi-monoでchannelの間にPREとPOSTが混ざらないこと、offline bounceでA経路、AudioSuiteのinstanceで比較を開かないことを確認。第5.4節の品質目標を、認定範囲の全条件（版、OS、rate、buffer、stereo/multi-mono）で満たす。再生中の遅延変更では、ずれたPREを出す時間を測って記録する |
+| LC-33 AAX | Pro Tools（macOS、Windows）で、補償済みの位置、Dynamic Plug-In Processing、遅延補償のOFFの通知、multi-monoの組でlive比較を提供しないこと（入口を出さず、multi-monoのPREは理由を示して断る）、offline bounceでA経路、AudioSuiteのinstanceで比較を開かないことを確認。第5.4節の品質目標を、認定範囲の全条件（版、OS、rate、buffer、stereoとmono track）で満たす。再生中の遅延変更では、ずれたPREを出す時間を測って記録する |
 
 利用者の痛みとの対応はP1→LC-07/10、P2→LC-09/10/30、P3→LC-18/22/27/32、P4→LC-02/03/14/20/26/29/33、P5→LC-13、P6→LC-01/10/13、P7→LC-08/09、P8→LC-16/17/23/28とする。
 実装変更時はcargo test、cargo clippy、対象native試験、source契約、line budgetを実行する。
@@ -1137,7 +1144,7 @@ JUCE wrapperはsubmodule内のVST3 setProcessingとAU Resetを参照し、版更
 | 対応の鍵 | 「連続時計（VST3連続時刻、AU render時刻）+ 較正した差K」を設計の基準とする（2026-09-28決定）。照合にはPREのrun世代を含める（第10版）。各側の呼出しの空白も時計の不連続として扱う（2026-09-28決定。第12版でplugin内で確認）。AUでは候補の食い違いで直ちにKを無効にする（M1、2026-09-28決定。plugin内での実装は未確認）。Kの較正と照合の細則、対応hostの確定はWindowsの実測の後に決める。判定値と較正回数はhost profileの値とする。周回を特定する手段はG1-03で決める。AAXは、pluginが数えるframe数を連続時計にして、Pro Tools Developer 2026.4で成り立った（G1記録第9節） |
 | 動的PDC | 変更直後に時計で検出できない短い区間（Studio Pro 8.1.2、2048 framesで最大4 block、171 ms。Pro Tools 2026.4、1024 framesではM1で1〜2 block）の誤対応を許容し、説明書に記す（2026-09-28決定）。中身による停止と、遅延変更を伴う構成での比較停止は採らない。報告しない変更と、再生中に補償を改めないhostは許容の外で、止めない警告と、中身の跳びでPOSTへ倒す規則（INV-LC10）で扱う（2026-09-28） |
 | 静かな区間 | infinite tailの報告でplugin sleepを避ける案を本命とする（2026-09-28決定）。bounceの末尾、AU、他のhostでの副作用を確かめてから採用し、副作用があれば無音の後の自動復帰（C）にする。報告する範囲（常に、比較中だけ）も選ぶ。AAXはAlwaysProcessの静的属性なので、常にか、なしの2案 |
-| AAX | 重要な対象で、出来る限り完璧に近く他のプラグインより高い精度を保つ（2026-09-28、利用者の指示）。品質目標（第5.4節）を出荷の条件にする。対応の鍵の前提（POSTに補償済みの位置が渡るか）は、Pro Tools Developer 2026.4で成り立った。遅延補償のOFFの間はPOSTを出す案（INV-LC8）。再生中の遅延変更でPOSTへ倒すこと（INV-LC10）と、multi-monoでの提供（INV-LC9）は、2026-09-28に利用者が推奨を採用。他の版やplatformで補償済みの位置が渡らない場合の扱いは、利用者の判断 |
+| AAX | 重要な対象で、出来る限り完璧に近く他のプラグインより高い精度を保つ（2026-09-28、利用者の指示）。品質目標（第5.4節）を出荷の条件にする。対応の鍵の前提（POSTに補償済みの位置が渡るか）は、Pro Tools Developer 2026.4で成り立った。遅延補償のOFFの間はPOSTを出す（INV-LC8、2026-09-28に利用者が推奨を採用）。再生中の遅延変更でPOSTへ倒すこと（INV-LC10）は、2026-09-28に利用者が推奨を採用。multi-monoでの提供（INV-LC9）は、同日の実測（G1記録第10節）を受けて取りやめ、stereoのinstanceと組の唯一のinstanceで提供する。他の版やplatformで補償済みの位置が渡らない場合の扱いは、利用者の判断 |
 | 製品範囲 | live/固定AB/Blind統合、追従、遡及、host/format、無料範囲の承認状況を確認。mixed-formatは追加候補として別認定 |
 | 安全契約 | R-12、減衰と復帰、既存Blindのhost gateは未決。E2とINV-S7、次周回予約とINV-S22、サイズとINV-S25/S38を一貫させる |
 | G1で決める方式 | 境界pendingの上限と証拠、次周回予約の方式（live経路上の予約とRT sealを第一候補）、余白付き窓の前提（折返しの報告位置、周回ごとの一致、境界差U）、exact 4秒loopの証拠とadapter、予約締切、動的PDCの観測可能性、IPC、容量、ramp/更新周期/許容差、周回を特定する手段、中身のずれの警告の方式 |
@@ -1163,7 +1170,7 @@ INV番号、clock診断、Reference audio、英日表示、画面規則、「ロ
 
 次の順で進める。
 
-1. AAXの残り: WindowsのPro Tools、製品版（PACE署名が要る。行う前に利用者の確認を得る）、multi-mono、遅延補償のOFF、`GetTODLocation`、hostの通知を待ってから音の遅延を変える型の遅延変更。
+1. AAXの残り: WindowsのPro Tools、`GetTODLocation`、hostの通知を待ってから音の遅延を変える型の遅延変更。
 2. 同じ装置でのWindows、他のbuffer設定、報告が先に来る型の遅延変更（G1-04）。
 3. 周回ごとに印が変わるfixtureでの照合と、遅延がloop長以上の条件（G1-03）。
 4. infinite tailとAlwaysProcessの副作用、中身のずれの警告の方式（G1-05）。

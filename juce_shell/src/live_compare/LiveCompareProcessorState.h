@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../local_blind/RtPublicationSlot.h"
+#include "LiveCompareAaxGroup.h"
 #include "LiveCompareClock.h"
 #include "LiveCompareMatch.h"
 #include "LiveCompareOffset.h"
@@ -19,8 +20,9 @@ enum class StartResult : std::uint8_t
     notPost,           // only POST starts a live session
     notReady,          // writes are not enabled yet, or the previous mapping is still in use
     noPair,            // POST is not paired with a PRE
-    unsupportedLayout, // mono/stereo only; AAX stereo only until INV-LC9 (no platform ring either)
-    preUnavailable     // PRE's ring is missing, stale, for another rate, or the platform has none
+    unsupportedLayout, // mono/stereo only; AAX mono only as the one instance of its group (INV-LC9)
+    preUnavailable,    // PRE's ring is missing, stale, for another rate, or the platform has none
+    preMultiMono       // PRE is one channel of an AAX multi-mono set (INV-LC9)
 };
 
 struct Status
@@ -34,6 +36,7 @@ struct Status
     float gain = 1.0f;
     float postTarget = 1.0f;  // approved POST attenuation, held after the session until RETURN
     bool contentHeld = false; // INV-LC10: POST until playback stops and restarts
+    bool compensationOff = false; // INV-LC8: the host's delay compensation is off
 };
 
 // Everything one processor owns for the live compare. PRE uses the ring and the feeder; POST uses
@@ -61,5 +64,8 @@ struct ProcessorState
     std::atomic<bool> contentHold { false };      // INV-LC10: the content offset jumped
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions
     bool wasPlaying = false;                      // Audio Thread only
+    std::atomic<bool> compensationOff { false };  // INV-LC8: the host says delay compensation is off
+    bool compensationWasOff = false;              // Audio Thread only
+    AaxGroupMembership aaxGroup;                  // INV-LC9: the host's AAX instance group
 };
 }

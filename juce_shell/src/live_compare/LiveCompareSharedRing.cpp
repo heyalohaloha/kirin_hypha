@@ -89,7 +89,7 @@ void* mapSection (HANDLE section) noexcept
 }
 }
 
-bool SharedRingMapping::create (std::uint64_t pairKey, std::uint32_t sampleRate)
+bool SharedRingMapping::create (std::uint64_t pairKey, std::uint32_t sampleRate, std::uint32_t source)
 {
     close();
     const auto bytes = static_cast<std::uint64_t> (mappingBytes());
@@ -112,7 +112,7 @@ bool SharedRingMapping::create (std::uint64_t pairKey, std::uint32_t sampleRate)
             continue;
         }
         mapped = fresh ? ::new (memory) Ring() : existing;
-        mapped->initialise (pairKey, sampleRate);
+        mapped->initialise (pairKey, sampleRate, source);
         section = handle;
         owner = true;
         pairKeyValue = pairKey;
@@ -213,7 +213,7 @@ void* mapNamed (const std::string& name, bool create, bool& fresh) noexcept
 }
 }
 
-bool SharedRingMapping::create (std::uint64_t pairKey, std::uint32_t sampleRate)
+bool SharedRingMapping::create (std::uint64_t pairKey, std::uint32_t sampleRate, std::uint32_t source)
 {
     close();
     name = sharedRingName (pairKey);
@@ -222,7 +222,7 @@ bool SharedRingMapping::create (std::uint64_t pairKey, std::uint32_t sampleRate)
     if (memory == nullptr)
         return false;
     mapped = fresh ? ::new (memory) Ring() : std::launder (reinterpret_cast<Ring*> (memory));
-    mapped->initialise (pairKey, sampleRate);
+    mapped->initialise (pairKey, sampleRate, source);
     owner = true;
     pairKeyValue = pairKey;
     sampleRateValue = sampleRate;

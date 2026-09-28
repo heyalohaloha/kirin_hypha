@@ -211,6 +211,7 @@ void verifyLiveCompareFooterContract()
         const auto available = static_cast<float> (post.sessionBounds().getWidth() - 8);
         for (const char* notice : { "Closing returns to POST", "LISTEN could not start",
                                     "Choose the PRE first", "Mono / stereo only", "Paired PRE unavailable",
+                                    "PRE is multi-mono: insert it as stereo",
                                     "Select PRE again", "LISTEN ended; POST plays", "MATCH: PRE -12.50 dB",
                                     "MATCH waits for PRE", "MATCH needs 3 s of play", "MATCH failed; try again",
                                     "MATCH needs more signal", "MATCH over 24 dB", "MATCH: POST -24.00 dB",
@@ -218,7 +219,8 @@ void verifyLiveCompareFooterContract()
                                     "PRE 170.67 ms early", "PRE 170.67 ms late", "PRE held: latency changed",
                                     "PIN waits for PRE", "PIN needs 4 s of play", "Last 4 s not one range",
                                     "PIN failed; try again", "AUTO on: within 0.5 dB", "AUTO off",
-                                    "AUTO stopped: TP ceiling", "AUTO stopped: over 6 dB" })
+                                    "AUTO stopped: TP ceiling", "AUTO stopped: over 6 dB",
+                                    "Delay compensation is off in Pro Tools" })
         {
             if (text_style::shownWidth (font, notice) > available)
                 std::cerr << "too wide at 300%: " << text_style::shownText (notice) << '\n';

@@ -181,7 +181,7 @@ conformance and does not use the EBU logo.
 | Watch mode | ✓ | ✓ |
 | POST on-demand ATTACK / FREQ / SHARP / LIVE | ✓ | ✓ |
 | Local PRE/POST Blind Compare | ✓ | ✓ |
-| Live PRE/POST compare (Windows: DAW check pending) | ✓ | ✓ |
+| Live PRE/POST compare (Windows: Pro Tools check pending) | ✓ | ✓ |
 | Record mode | — | ✓ |
 | plugin_data output | — | ✓ |
 
@@ -576,8 +576,10 @@ by itself as soon as it can confirm it again. Whenever you hear POST with PRE se
 briefly, the PRE control reads **PRE WAIT**. Measurement and Records are never changed.
 
 It runs on macOS in VST3, AU and AAX, and on Windows in VST3 and AAX. In Pro Tools it is offered
-on stereo instances; multi-mono comes later. The Windows build passes the same automated
-end-to-end tests as macOS; its check in a DAW is still pending.
+on stereo instances and on mono tracks. Insert PRE and POST as stereo (multichannel) plug-ins: a
+multi-mono PRE or POST does not offer it, because Pro Tools processes the channels of a
+multi-mono plug-in in parallel. On Windows it passes the same automated end-to-end tests as macOS
+and was checked in Studio Pro (VST3); Pro Tools on Windows is still to be checked.
 
 1. In POST, select the exact PRE pair. At 200% or 300%, press **LISTEN** (**PRE/POST LISTEN** at
    300%) in the footer.
@@ -626,6 +628,11 @@ same channel; in Pro Tools, turn off its **Target** button.
 - If that offset jumps during playback, as when a plug-in changes its latency and the DAW does not
   compensate until playback restarts, Hypha plays POST (the PRE control reads **PRE WAIT**) until
   you stop and restart playback.
+- While delay compensation is turned off in Pro Tools, you hear POST, the PRE control reads
+  **PRE WAIT** and the status line says why. PRE comes back by itself once delay compensation is
+  on again.
+- If the chosen PRE is one channel of a multi-mono plug-in in Pro Tools, LISTEN does not start
+  and the status line says so.
 - Right after a seek or a new start, you hear POST for about the latency of the chain plus a few
   blocks while Hypha confirms the line-up.
 - If the input stays silent for several seconds, the DAW may stop calling Hypha. PRE comes back

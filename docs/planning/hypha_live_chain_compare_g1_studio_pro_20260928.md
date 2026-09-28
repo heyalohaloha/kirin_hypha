@@ -6,6 +6,7 @@
 第7節は、第6節の対策（PREの周回）をplugin内で動かした再試験と、そこで見つかったplugin sleepの影響である。
 第8節は、呼出しの空白の規則をplugin内で動かした再試験、G1-04（再生中の遅延変更）の限定条件、sleepを避ける手段の観察である。
 第9節は、Pro Tools Developer 2026.4（AAX）での同じ種類の試験である。遅延補償された位置、loop、Dynamic Plug-In Processing、再生中の遅延変更を測った。
+第10節は、同じPro Tools Developerでのmulti-monoの組、呼出し順、threadの実測である（INV-LC9の前提）。
 本書は実測の記録であり、host認定、製品の実装、公開の判断ではない。
 2026-09-28の見直しで、第8.2節の判定を事前に決めた件数の条件に照らして書き直し、全試験に共通する限界（遅延の報告の誤り、周回単位の取り違え）を第8.6節に加えた。
 
@@ -432,3 +433,53 @@ G1Rの決定と、その後の見直し（遅延の報告の誤りへの警告�
 | binary | `tools/BINARIES-SHA256.txt`。Clock Diagnostic `f35794f4dd525cbb2fa6dc7c92cd10a00b35adfab58be8f846ab42d3c0027a9c`、Transport Probe PRE `3ebede96cd74558da67f04e42d804f84024e9ee70a8f3e09cb26857499bd489d`、POST `19d12e826fe4d3e15061549ed546b787cfe5edad415807c69c3b10b3153788b2`、Latency Switch `9a6c34cab5eee0a88f024ebec28115cfc648b58e9cce924f3d4ac9541b0d6f32`、AlwaysProcess Monitor `a03f74aaaf095d2d9d5853ddd9389d2ed1de48d14c7977a103f3807cd59397fc`、PDC Validation Delay（未使用）`27886e2740a72968a9241bfd0427684eea88a08ae63400245f99f2869c24dfc4`。試験後にPro Toolsのplug-in folderから`~/KirinValidation/ProToolsG1/removed-aax-fixtures/`へ移し、共有memoryをunlinkした |
 | 識別PCM | 元の場所のファイルは作り直した元のhash `727fd737fcf2d0fa53d131530f443d43cf30177b601ef436c690b73a42b57309`（第5節と同じ）。Pro Toolsが追記した後のファイルは`~/KirinValidation/ProToolsG1/hypha-g1-clock-fixture-48k.after-protools-import.wav` `3356ed6d4c0383f075cb2feba7f5c7542012cba59ddbdb516900df442f1cb3aa`。Clock Diagnosticの解析は追記後のファイルで行った（音のdataは同一） |
 | session | `~/KirinValidation/ProToolsG1/HyphaG1AAX/`（Pro Toolsが作成時に書いたsession fileとwaveform cache。削除していない） |
+
+## 10. Pro Tools（AAX）: multi-monoの組、呼出し順、thread
+
+2026-09-28、INV-LC9の案（multi-monoでも、あるblockを最初に判定したPOSTのinstanceが全channelを決める）の前提を確かめるために測った。
+事前に決めた合格条件は置かない探索である。
+
+### 10.1 条件
+
+| 項目 | 値 |
+| --- | --- |
+| host | Pro Tools Developer 2026.4（開発版。未署名のAAXを読み込み、保存は無効）、Intel Mac |
+| rate、buffer | 48 kHz。pluginへのcallbackは再生中も停止中も1024 frames |
+| session | 使い捨て（`~/KirinValidation/ProToolsG1/hypha-mm-probe2/`）。stereo track 1本 |
+| 音源 | 48 kHz、24 bit、40秒のstereo。Lは1 kHz、Rは3 kHzのsine（−20 dBFS）。コピーしたファイルをFinderからtrack一覧へドラッグして追加した |
+| 構成 | insert A: 計測器（multi-mono、2 instance）、insert B: 計測器（multi-mono、2 instance）、insert C: 計測器（stereo、1 instance） |
+| 計測器 | 非出荷のmulti-mono probe（AAX、未署名、Pro Tools Developerだけで使用）。音は素通しする。JUCEの写しに、patch 0010と同じhook（AAXのEffectInitで`GetInstanceGroupID`を読み、prepareの前に渡す）を加えてbuildした。各callbackで、入口と出口の時刻（`mach_absolute_time`）、呼んだthread、host位置、自分で数えたframe数、channel 0の零交差の数を事前確保の記録へ書き、message threadが0.5秒ごとにCSVへ書き出した |
+| 操作 | 先頭から約10秒再生して停止した |
+
+### 10.2 結果
+
+- **組のID**: 同じinsertのmulti-monoの2 instanceは同じ組のIDを持ち（insert Aで140482646579840、insert Bで140482734717232）、insertごとに違った。stereoのinstanceも、自分だけの組のIDを持った。起動時のscanで作られたinstanceは組を持たず、prepareもされなかった。
+- **作成順とchannel**: 各insertで先に作られたinstanceがL（1 kHz。1024 frameあたりの零交差は中央値43）、次がR（3 kHz、128）だった。
+- **thread**: 各instanceは18本のthreadのどれかで呼ばれ、決まったthreadはなかった。
+- **呼出し順**: 再生中の478 blockで、同じblockの5回の呼出しの順は6通りだった。多い順に、R_A → L_A → R_B → L_B → stereoが149、L_A → R_A → L_B → R_B → stereoが132、L_A → R_A → R_B → L_B → stereoが117、R_A → L_A → L_B → R_B → stereoが54、L_A → L_B → R_A → R_B → stereoが14、R_A → R_B → L_A → L_B → stereoが12だった（A、Bはinsert）。LとRのchainは並行に処理され、Lの後段（L_B）がRの前段（R_A）より先に走ることもあった。stereoのinstanceは常に最後だった。順に並べた隣どうしの呼出しで時間が重なったものは792件あった。
+- **時計**: 同じblockでの兄弟のframe数は、全blockで一致した。呼出しの開始の差は中央値1〜3 µs、最大55 µs、呼出しの間隔の差は最大0.06 msだった。
+
+### 10.3 計画への意味
+
+1. multi-monoでは、あるblockを最初に処理したPOSTのinstanceが、他のchannelのPREのそのblockを読めるとは限らない（Rの前段より先にLの後段が走る）。INV-LC9の案は、待たずには成り立たない。Audio Threadで待つことは禁止されている。
+2. 全channelが同じ入力（時計、組で共有する空白の判定、block番号で揃えた操作）から同じ判定を出す方式なら揃えられるが、片方のPREだけが止まる故障では最大1 blockが混ざる。組の候補表示と、全channelでのMATCHも要る。
+3. 2026-09-28、利用者は、AAXのlive比較をstereoのinstanceに限る案（推奨）と、組の唯一のinstance（mono track）でも使えるようにする案を採用した（INV-LC9）。組のIDで、mono trackのmono instanceとmulti-monoの片側を見分けられる。
+4. 作成順とchannelの対応は、この1回の2 channelでの観察である。channelの順を使う設計は採らないので、これ以上は確かめていない。
+
+### 10.4 範囲と未確認
+
+- Pro Tools Developerの1版、Intel Mac、48 kHz、1024 frames、stereo trackの2 channel、1回の試験である。製品版、Windows、他のbufferとrate、surroundのmulti-monoは測っていない。
+- 組のIDをどの版のPro Toolsから渡すかは確かめていない（AAX SDK 2.9で加わった）。渡さないhostでは、mono instanceにlive比較を出さない。
+
+### 10.5 証跡
+
+証跡の実体は公開repositoryの外（作業者の手元）にある。
+
+| 物 | 場所とSHA-256 |
+| --- | --- |
+| 書出し | `~/KirinValidation/MultiMonoProbeAAX/`。`inst-2.csv`（L_A）`c7b22e7f3f4523cf2b6fbff5c19629c98104ffa1c5f0da3fa485ee93460606f4`、`inst-3.csv`（R_A）`746089bf98b0e65bce777054682d3b6c22185227f8499c0f3b18a7aa374da30a`、`inst-4.csv`（L_B）`8319377c5b2a2882f290222b77536809e8ac2d50d05aa907b1b7f6d53f289b27`、`inst-5.csv`（R_B）`8f0fe6f069435b86d6cac762b35b97037f679594768397bc2eb827c0850f7a21`、`inst-6.csv`（stereo）`a6c6ebb368fe8ae9b997b67197c38e3fbd5b67e4980a436940dac20ba7dbd22c`。`inst-1.csv`は起動時のscanのinstance |
+| source | `tools/`（`SHA256SUMS.txt`）。`MultiMonoProbe.cpp` `782c23e947812b7e57a33a27413c2d8262da58f21ce78048ef72b1f5bddfe3d8`、`CMakeLists.txt` `7415a64ca099c0d20e0edb8c84090f25d6af55604b72b32d2153be7caec7e2b2`。JUCEは`4f43011b`とtracked patch 0001〜0009に、patch 0010と同じhookを加えた写し |
+| 解析 | `tools/analyze-multi-mono.py` `dce584be5308790ce4062a401a27ab18dac9e95f491df78b45b1e808cc809570`、出力`tools/analysis-output.txt` `1eb111a9f7729f9c4680345df8949be16925f799cf7bb4de89383ff4314487c3` |
+| binary | multi-mono probe `b08780ee77a8922804e4f280a0ca2cf9f4eda3a1acbe52af896f27510e0650a0`。試験後にPro Toolsのplug-in folderから`~/KirinValidation/ProToolsG1/removed-aax-fixtures/`へ移した |
+| 試験音 | `tools/mm-l1k-r3k.wav` `38c87899f8eecc81bec1126f218a30f23b7bad60bdc5489a00c354e3097e2055`（Pro Toolsへはコピーを追加した） |
+

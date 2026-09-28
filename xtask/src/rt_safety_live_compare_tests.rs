@@ -176,8 +176,8 @@ fn live_compare_output_is_proven_last_and_non_rt_setup_stays_off_the_audio_threa
 }
 
 // INV-LC12: a session never outlives the screen that controls it, never overlaps Blind, never
-// follows a changed pair or a closed PRE ring, and AAX offers it on stereo instances only until
-// every multi-mono channel switches in the same block (INV-LC9).
+// follows a changed pair or a closed PRE ring, and AAX offers it only where no multi-mono channel
+// takes part (INV-LC9).
 #[test]
 fn live_compare_sessions_end_where_the_user_cannot_see_them() {
     let destructor = function_body(EDITOR_LIFECYCLE_CPP, "KirinHyphaEditor::~KirinHyphaEditor");
@@ -212,7 +212,7 @@ fn live_compare_sessions_end_where_the_user_cannot_see_them() {
         PROCESSOR_CPP,
         "bool KirinHyphaProcessorBase::liveCompareSupported",
     );
-    assert!(supported.contains("wrapperType == wrapperType_AAX && getTotalNumInputChannels() < 2"));
+    assert!(supported.contains("! aaxMultiMonoMember()"));
     let start = function_body(
         PROCESSOR_CPP,
         "hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare",
@@ -373,4 +373,91 @@ fn live_compare_never_reports_an_infinite_tail() {
     let cmake = include_str!("../../juce_shell/CMakeLists.txt");
     assert!(!cmake.contains("JucePlugin_AAXDisableDynamicProcessing=1"));
     assert!(!cmake.contains("AAX_eProperty_Constraint_AlwaysProcess"));
+}
+
+// INV-LC8: Pro Tools reports its delay compensation as a whole on or off (JUCE patch 0009). While
+// it is off POST sounds and PRE waits; a change proves K again, and the offset monitor claims no
+// jump from it.
+#[test]
+fn live_compare_holds_pre_while_host_delay_compensation_is_off() {
+    let patch = include_str!("../../juce_shell/patches/0009-aax-delay-compensation-state.patch");
+    assert!(patch.contains("case AAX_eNotificationEvent_DelayCompensationState:"));
+    assert!(patch.contains("size == sizeof (int32_t)"));
+    assert!(patch.contains(
+        "kirinHostDelayCompensationStateChanged (*static_cast<const int32_t*> (data) != 0);"
+    ));
+    let apply = include_str!("../../scripts/apply_juce_patches.sh");
+    let verify = include_str!("../../scripts/verify_juce_patch_state.sh");
+    assert!(apply.contains("0009-aax-delay-compensation-state.patch"));
+    assert!(verify
+        .contains("0009-aax-delay-compensation-state.patch::--unidiff-zero --ignore-whitespace"));
+    let hook = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::kirinHostDelayCompensationStateChanged",
+    );
+    assert!(
+        hook.contains("liveCompare.compensationOff.store (! enabled, std::memory_order_release);")
+    );
+    let rt = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::processLiveCompare",
+    );
+    assert!(rt.contains("block.afterGap = true;"));
+    assert!(rt.contains("preSelected && ! contentHeld && ! compensationOff"));
+    assert!(rt.contains("(contentHeld || compensationOff)"));
+    let monitor = function_body(
+        EDITOR_LIVE_COMPARE_CPP,
+        "void KirinHyphaEditor::monitorLiveCompareOffset",
+    );
+    assert!(monitor.contains("|| status.compensationOff)"));
+    assert!(monitor.contains("\"Delay compensation is off in Pro Tools\""));
+}
+
+// INV-LC9: Pro Tools processes the channels of a multi-mono set on parallel threads, so AAX offers
+// the live compare only on stereo instances and on the only instance of a group (a mono track).
+// JUCE patch 0010 names the group before the first prepare; a PRE that is one channel of a set
+// stamps its ring, and POST refuses it with the reason.
+#[test]
+fn live_compare_never_runs_on_one_channel_of_a_multi_mono_set() {
+    let patch = include_str!("../../juce_shell/patches/0010-aax-instance-group.patch");
+    assert!(patch.contains("Controller()->GetInstanceGroupID (&kirinGroup) == AAX_SUCCESS"));
+    assert!(patch.contains("kirinGroup != kAAX_InstanceGroupID_Undefined"));
+    assert!(patch.contains("pluginInstance->kirinHostInstanceGroup (static_cast<uint64> (kirinGroup), kirinGroupKnown);"));
+    // Line 870 of the wrapper after patch 0009 is EffectInit's `processingSidechainChange = false;`,
+    // just before `auto err = preparePlugin();`: the group is named before the first prepare.
+    assert!(patch.contains("@@ -870,0 +871,4 @@"));
+    let apply = include_str!("../../scripts/apply_juce_patches.sh");
+    let verify = include_str!("../../scripts/verify_juce_patch_state.sh");
+    assert!(apply.contains("0010-aax-instance-group.patch"));
+    assert!(verify.contains("0010-aax-instance-group.patch::--unidiff-zero --ignore-whitespace"));
+    let hook = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::kirinHostInstanceGroup",
+    );
+    assert!(hook.contains("liveCompare.aaxGroup.assign"));
+    let member = function_body(
+        PROCESSOR_CPP,
+        "bool KirinHyphaProcessorBase::aaxMultiMonoMember",
+    );
+    assert!(member.contains("wrapperType == wrapperType_AAX && getTotalNumInputChannels() < 2 && ! liveCompare.aaxGroup.alone()"));
+    let prepare = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::prepareLiveCompareForPreparedFormat",
+    );
+    assert!(
+        prepare.contains("aaxMultiMonoMember() ? hypha::live_compare::ringSourceMultiMono : 0u")
+    );
+    let start = function_body(
+        PROCESSOR_CPP,
+        "hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare",
+    );
+    let refused = start
+        .find("return StartResult::preMultiMono;")
+        .expect("POST refuses a multi-mono PRE");
+    let demand = start
+        .find("header.demand.store (1")
+        .expect("POST raises demand");
+    assert!(refused < demand, "a refused PRE never sees demand");
+    let group = include_str!("../../juce_shell/src/live_compare/LiveCompareAaxGroup.cpp");
+    assert!(group.contains("it->second == 1"));
 }

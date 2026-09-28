@@ -1,3 +1,4 @@
+#include "../../src/live_compare/LiveCompareAaxGroup.h"
 #include "../../src/live_compare/LiveComparePin.h"
 #include "../../src/live_compare/LiveCompareSession.h"
 #include "../../src/live_compare/LiveCompareSharedRing.h"
@@ -309,6 +310,42 @@ static void sharedRingPairsOnlyTheSameIdentityAndRate()
     newer.close();
     again.close();
     require (! late.open (pairKey, 48000), "nothing is left open after every owner closed");
+
+    // INV-LC9: a PRE that is one channel of a multi-mono set stamps its ring, and POST reads it.
+    SharedRingMapping channel, reader;
+    require (channel.create (pairKey, 48000, ringSourceMultiMono), "a multi-mono PRE creates its ring");
+    require (reader.open (pairKey, 48000) && reader.ring()->header.source.load() == ringSourceMultiMono,
+             "POST sees that PRE is one channel of a multi-mono set");
+    reader.close();
+    channel.close();
+    require (again.create (pairKey, 48000) && again.ring()->header.source.load() == 0,
+             "a stereo or mono-track PRE stamps none");
+    again.close();
+}
+
+// INV-LC9: the host's AAX instance group tells a mono track (the group's only instance) from a
+// multi-mono set (instances sharing a group). A host that names no group proves nothing.
+static void aaxGroupsTellAMonoTrackFromAMultiMonoSet()
+{
+    AaxGroupMembership unnamed;
+    require (! unnamed.alone(), "without a group a mono instance is not shown to be a mono track");
+    unnamed.assign (7, false);
+    require (! unnamed.alone(), "an undefined group proves nothing");
+    AaxGroupMembership track;
+    track.assign (11, true);
+    require (track.alone(), "the only instance of its group is a mono track");
+    {
+        AaxGroupMembership left, right;
+        left.assign (22, true);
+        right.assign (22, true);
+        require (! left.alone() && ! right.alone(), "the channels of a multi-mono set share their group");
+        require (track.alone(), "another group changes nothing");
+    }
+    AaxGroupMembership moved;
+    moved.assign (22, true);
+    require (moved.alone(), "a group counts only the instances that still live");
+    moved.assign (11, true);
+    require (! moved.alone() && ! track.alone(), "joining a group leaves the old one");
 }
 
 int main()
@@ -318,6 +355,7 @@ int main()
     approvedGainAppliesToPre();
     unsupportedLayoutsAndNoDemandKeepPost();
     sharedRingPairsOnlyTheSameIdentityAndRate();
+    aaxGroupsTellAMonoTrackFromAMultiMonoSet();
     approvedAttenuationLowersPostOnly();
     postLevelRampsDownFastAndUpSlowly();
     guardKeepsPreUnderTheCeiling();

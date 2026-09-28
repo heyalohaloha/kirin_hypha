@@ -7,7 +7,7 @@
 - 周回単位の取り違えの限界を明記した。
 - 定数をhostごとの値にした。
 - 自動で戻るときの遷移と表示を加えた。
-- AAX（Pro Tools）の条件を加えた（第2.5節、INV-LC8〜LC10）。INV-LC9とINV-LC10は、同日に利用者が推奨を採用した。同日のPro Toolsでの実測（G1記録第9節）で第2.5節を改めた。
+- AAX（Pro Tools）の条件を加えた（第2.5節、INV-LC8〜LC10）。INV-LC9とINV-LC10は、同日に利用者が推奨を採用した。同日のPro Toolsでの実測（G1記録第9節）で第2.5節を改めた。INV-LC9は、同日のmulti-monoの実測（G1記録第10節）を受けて、stereoのinstanceと組の唯一のinstanceに限る案へ改めた。
 状態: 2026-09-28、利用者が段階的な実装の開始を承認した。第2.1〜2.3節をAGENTSへ、INV-LC1〜LC3を不変条件表へ入れた。README（第4節）とINV-LC4以降は、それぞれの実装と試験ができた時点で入れる。
 [実装計画](hypha_live_chain_compare_implementation_plan_20260927.md)（第14版）の方針どおり、正本は実装の承認時に改める。
 本書は、そのときに入れる差分を先に固定し、承認の判断材料にする。
@@ -25,7 +25,7 @@
 | 遅延の報告の誤りへの備え: 比較の開始時と定期的に中身のずれを推定し、時計の対応と食い違えば警告する（止めない）。DAWの遅延補償に依存することを説明書に記す | 2026-09-28（見直し。利用者が判断を委任し、推奨を採用） | 同第8.6節 |
 | AAX（Pro Tools）をVST3、AUと並ぶ重要な対象として扱い、同じ規則が成り立つかを実測で確かめる | 2026-09-28（利用者の指示） | 本書第2.5節、実装計画第5.4節 |
 | AAXはプロが使うので、出来る限り完璧に近く、他のプラグインより高い精度を保つ。品質目標を出荷の条件にする | 2026-09-28（利用者の指示） | 実装計画第5.4節の品質目標 |
-| 比較の途中で中身のずれが跳んだら（補償を改めないhostや、報告しないpluginの遅延変更など）、POSTへ倒し、再生の停止と再開の後に戻す（INV-LC10）。AAXのmulti-monoでも比較を提供し、全channelを同じblockで切り替える（INV-LC9） | 2026-09-28（利用者が推奨を採用） | 実装計画第5.4節 |
+| 比較の途中で中身のずれが跳んだら（補償を改めないhostや、報告しないpluginの遅延変更など）、POSTへ倒し、再生の停止と再開の後に戻す（INV-LC10）。AAXのmulti-monoでの比較は、同日の実測（G1記録第10節）を受けて取りやめ、stereoのinstanceと組の唯一のinstanceで提供する（INV-LC9） | 2026-09-28（利用者が推奨を採用） | 実装計画第5.4節 |
 
 ## 2. AGENTS.md
 
@@ -113,8 +113,8 @@ blockの長さが変わるhostや、呼出しが不規則なhostでは、空白�
 | INV-LC5 | 遅延変更の直後は、時計で検出できた時点で直ちにPOSTへ倒す。検出できない最初の区間を許容するのは、pluginが変更を報告し、hostが再生中に補償を改め、区間の長さをhostごとに実測したprofileに限る。長さはprofileと説明書に記す（Studio Pro 8.1.2、2048 frames、音と報告を同時に変える型で最大4 block、171 ms）。中身の推定で比較を止めたり、Kを補正したりしない | LC-20 |
 | INV-LC6 | （2026-09-28決定、下の案は採らない）PREとPOSTはinfinite tailを報告しない（AAXのAlwaysProcessも付けない）。hostが無音でpluginを止めて対応が途切れても、音が戻って規則Cで確かめ直した最初のblockからPREへ戻す。元の案は「infinite tailを報告し、hostのplugin sleepで比較が途切れないようにする」 | LC-01、LC-21、LC-25 |
 | INV-LC7 | 比較の開始時と、その後は定期的に、非RTのworkerでPREとPOSTの中身のずれを推定する。時計の規則による対応と食い違えば、推定したずれと、考えられる原因（遅延の報告の誤り、意図したdelay、強い加工）を事実として示し、警告する。比較は止めず、Kも補正しない。推定できないとき（無音、周期信号、強い加工など）は判定不能とし、警告も「一致」の表示も出さない。比較の途中の跳びの扱いはINV-LC10 | LC-29 |
-| INV-LC8 | （案）hostが遅延補償の無効を通知している間（AAXの`AAX_eNotificationEvent_DelayCompensationState`が0）は、対応を確かめられないものとしてPOSTを出力し、理由を画面に示す。通知が有効へ戻れば、Cの規則で確かめ直してPREへ戻す | LC-20、LC-26 |
-| INV-LC9 | AAXのmulti-monoでも比較を提供し、channelの間でPREとPOSTを混ぜない。あるblockを最初に判定したPOSTのinstanceが全channelの判定を決めて公開し、他のinstanceはそれに従う。全channelで対応を確かめられたblockだけPREを出す | LC-12、LC-26、LC-33 |
+| INV-LC8 | （2026-09-28採用、利用者が推奨を採用。正本はdocs/hypha_invariants.md）hostが遅延補償の無効を通知している間（AAXの`AAX_eNotificationEvent_DelayCompensationState`が0）は、対応を確かめられないものとしてPOSTを出力し、理由を画面に示す。通知が有効へ戻れば、Cの規則で確かめ直してPREへ戻す | LC-20、LC-26 |
+| INV-LC9 | （2026-09-28決定、下の案は採らない。Pro Toolsはmulti-monoの各channelを並行に処理し、最初に判定したinstanceが他のchannelのPREを読めるとは限らない（G1記録第10節）。AAXではstereoのinstanceと組の唯一のinstanceだけで提供する。正本はdocs/hypha_invariants.md）AAXのmulti-monoでも比較を提供し、channelの間でPREとPOSTを混ぜない。あるblockを最初に判定したPOSTのinstanceが全channelの判定を決めて公開し、他のinstanceはそれに従う。全channelで対応を確かめられたblockだけPREを出す | LC-12、LC-26、LC-33 |
 | INV-LC10 | 比較の途中で中身のずれが基準値から跳び、時計は変わらないときは、補償されていない遅延変更の境界として扱う。POSTを出力し、PREの選択は保ち、再生の停止と再開の後に時計と中身で確かめ直して戻す。初めからある絶対値の食い違いは、INV-LC7の警告だけにする | LC-20、LC-29、LC-33 |
 
 INV-LC1は、project時刻の一致が、POSTが聞いている周回のPREの記録と結び付くことを前提にする。

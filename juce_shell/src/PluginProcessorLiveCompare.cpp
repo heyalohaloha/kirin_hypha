@@ -56,7 +56,10 @@ void KirinHyphaProcessorBase::prepareLiveCompareForPreparedFormat()
         return;
     auto mapping = std::make_unique<SharedRingMapping>();
     const auto key = hypha::live_compare::pairKeyForPreInstance (persistInstanceId.toStdString());
-    if (mapping->create (key, static_cast<std::uint32_t> (preparedFormat.sampleRate)))
+    // INV-LC9: a PRE that is one channel of a multi-mono set says so, and POST refuses it with the
+    // reason. The set is complete by now: writes are enabled well after the host creates it.
+    const auto source = aaxMultiMonoMember() ? hypha::live_compare::ringSourceMultiMono : 0u;
+    if (mapping->create (key, static_cast<std::uint32_t> (preparedFormat.sampleRate), source))
         liveCompare.ring.publish (std::move (mapping));
 }
 
@@ -88,6 +91,8 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
     const auto key = hypha::live_compare::pairKeyForPreInstance (pre.toStdString());
     if (! mapping->open (key, static_cast<std::uint32_t> (preparedFormat.sampleRate)))
         return StartResult::preUnavailable;
+    if ((mapping->ring()->header.source.load (std::memory_order_acquire) & hypha::live_compare::ringSourceMultiMono) != 0)
+        return StartResult::preMultiMono;
     liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), preparedFormat.sampleRate);
     liveCompare.gain.store (1.0f, std::memory_order_release); // each session approves its own MATCH
     mapping->ring()->header.demand.store (1, std::memory_order_release);
@@ -168,6 +173,20 @@ bool KirinHyphaProcessorBase::followLiveCompareGain (double preDb)
     return true;
 }
 
+// INV-LC8: Pro Tools says its delay compensation as a whole is on or off (JUCE patch 0009, AAX
+// only, off the Audio Thread). While it is off the positions POST sees are not compensated, so no
+// clock can prove the correspondence: POST sounds and PRE waits until it is on again.
+void KirinHyphaProcessorBase::kirinHostDelayCompensationStateChanged (bool enabled)
+{
+    liveCompare.compensationOff.store (! enabled, std::memory_order_release);
+}
+
+// INV-LC9: Pro Tools names this instance's group once, before the first prepare (JUCE patch 0010).
+void KirinHyphaProcessorBase::kirinHostInstanceGroup (juce::uint64 group, bool valid)
+{
+    liveCompare.aaxGroup.assign (static_cast<std::uint64_t> (group), valid);
+}
+
 // Message thread, the explicit RETURN: POST rises back to its normal level over half a second.
 void KirinHyphaProcessorBase::returnLiveComparePostToNormal() noexcept
 {
@@ -209,12 +228,18 @@ bool KirinHyphaProcessorBase::takeLiveComparePreWait() noexcept
 
 bool KirinHyphaProcessorBase::liveCompareSupported() const noexcept
 {
-    // AAX multi-mono runs one mono instance per channel, and a mono instance cannot tell that apart
-    // from a mono track. Until every channel switches in the same block (INV-LC9), AAX offers the
-    // live compare on stereo instances only, so PRE and POST never mix across channels.
-    const bool aaxMono = wrapperType == wrapperType_AAX && getTotalNumInputChannels() < 2;
-    return role == Role::Post && stereoWorkflowsSupported() && ! aaxMono
+    // INV-LC9: AAX offers the live compare on stereo instances and on the only instance of its
+    // group, as on a mono track, so PRE and POST never mix across the channels of a multi-mono set.
+    return role == Role::Post && stereoWorkflowsSupported() && ! aaxMultiMonoMember()
         && hypha::live_compare::sharedRingAvailable();
+}
+
+// INV-LC9: a mono AAX instance that the host does not show to be the only one of its group: one
+// channel of a multi-mono set, or a host that names no groups. Pro Tools processes the channels of
+// a set on parallel threads (G1 record, section 10), so no instance can switch them all in a block.
+bool KirinHyphaProcessorBase::aaxMultiMonoMember() const noexcept
+{
+    return wrapperType == wrapperType_AAX && getTotalNumInputChannels() < 2 && ! liveCompare.aaxGroup.alone();
 }
 
 // Message thread. A session belongs to the PRE ring it opened: a changed or cleared pair, or a PRE
@@ -246,6 +271,7 @@ hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const n
     status.gain = liveCompare.gain.load (std::memory_order_acquire);
     status.postTarget = liveCompare.postTarget.load (std::memory_order_acquire);
     status.contentHeld = liveCompare.contentHold.load (std::memory_order_acquire);
+    status.compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);
     return status;
 }
 
@@ -286,6 +312,13 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         liveCompare.contentHold.store (false, std::memory_order_release);
     liveCompare.wasPlaying = block.playing;
     const bool contentHeld = liveCompare.contentHold.load (std::memory_order_acquire);
+    // INV-LC8: a change of the host's delay compensation moves POST's positions; K is proven again.
+    const bool compensationOff = liveCompare.compensationOff.load (std::memory_order_acquire);
+    if (compensationOff != liveCompare.compensationWasOff)
+    {
+        block.afterGap = true;
+        liveCompare.compensationWasOff = compensationOff;
+    }
     const bool preSelected = liveCompare.preSelected.load (std::memory_order_acquire);
     const float postTarget = liveCompare.postTarget.load (std::memory_order_acquire);
     bool rendered = false;
@@ -311,7 +344,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         rendered = true;
         const auto report = liveCompare.renderer.render (*ring, mapping.key(), mapping.rate(), block,
                                                          buffer.getArrayOfWritePointers(), channels,
-                                                         preSelected && ! contentHeld,
+                                                         preSelected && ! contentHeld && ! compensationOff,
                                                          liveCompare.gain.load (std::memory_order_acquire),
                                                          liveCompare.postLevel, postTarget,
                                                          liveCompare.ceilingLinear.load (std::memory_order_acquire));
@@ -324,7 +357,8 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         }
         liveCompare.verdict.store (static_cast<std::uint8_t> (report.verdict), std::memory_order_release);
         liveCompare.preAudible.store (report.preAudible, std::memory_order_release);
-        const bool preHeldBack = report.preWaiting || (preSelected && contentHeld && ! report.guardTripped);
+        const bool preHeldBack = report.preWaiting
+            || (preSelected && (contentHeld || compensationOff) && ! report.guardTripped);
         liveCompare.preWaiting.store (preHeldBack, std::memory_order_release);
         if (preHeldBack)
             liveCompare.preWaitSeen.store (true, std::memory_order_release);

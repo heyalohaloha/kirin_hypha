@@ -182,7 +182,7 @@ private:
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
 #if ! KIRIN_HYPHA_PRE_DISPLAY
-    juce::String liveCompareWarningText() const { return liveCompareOffsetWarning; }
+    juce::String liveCompareWarningText() const { return liveCompareWarning; }
 #else
     juce::String liveCompareWarningText() const { return {}; }
 #endif
@@ -275,7 +275,7 @@ private:
         double approvedPreDb = 0.0, ceilingDbtp = 0.0, nextAt = 0.0;
     };
     LiveCompareAuto liveCompareAuto;
-    juce::String liveCompareOffsetWarning;
+    juce::String liveCompareWarning;
     double liveComparePreWaitUntil = 0.0;
 #endif
     int    floraY      = 0;       // y of the flora separator line
