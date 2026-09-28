@@ -374,3 +374,41 @@ fn live_compare_never_reports_an_infinite_tail() {
     assert!(!cmake.contains("JucePlugin_AAXDisableDynamicProcessing=1"));
     assert!(!cmake.contains("AAX_eProperty_Constraint_AlwaysProcess"));
 }
+
+// INV-LC8: Pro Tools reports its delay compensation as a whole on or off (JUCE patch 0009). While
+// it is off POST sounds and PRE waits; a change proves K again, and the offset monitor claims no
+// jump from it.
+#[test]
+fn live_compare_holds_pre_while_host_delay_compensation_is_off() {
+    let patch = include_str!("../../juce_shell/patches/0009-aax-delay-compensation-state.patch");
+    assert!(patch.contains("case AAX_eNotificationEvent_DelayCompensationState:"));
+    assert!(patch.contains("size == sizeof (int32_t)"));
+    assert!(patch.contains(
+        "kirinHostDelayCompensationStateChanged (*static_cast<const int32_t*> (data) != 0);"
+    ));
+    let apply = include_str!("../../scripts/apply_juce_patches.sh");
+    let verify = include_str!("../../scripts/verify_juce_patch_state.sh");
+    assert!(apply.contains("0009-aax-delay-compensation-state.patch"));
+    assert!(verify
+        .contains("0009-aax-delay-compensation-state.patch::--unidiff-zero --ignore-whitespace"));
+    let hook = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::kirinHostDelayCompensationStateChanged",
+    );
+    assert!(
+        hook.contains("liveCompare.compensationOff.store (! enabled, std::memory_order_release);")
+    );
+    let rt = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::processLiveCompare",
+    );
+    assert!(rt.contains("block.afterGap = true;"));
+    assert!(rt.contains("preSelected && ! contentHeld && ! compensationOff"));
+    assert!(rt.contains("(contentHeld || compensationOff)"));
+    let monitor = function_body(
+        EDITOR_LIVE_COMPARE_CPP,
+        "void KirinHyphaEditor::monitorLiveCompareOffset",
+    );
+    assert!(monitor.contains("|| status.compensationOff)"));
+    assert!(monitor.contains("\"Delay compensation is off in Pro Tools\""));
+}

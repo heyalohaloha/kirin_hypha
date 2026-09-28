@@ -1,0 +1,20 @@
+diff --git a/modules/juce_audio_processors/processors/juce_AudioProcessor.h b/modules/juce_audio_processors/processors/juce_AudioProcessor.h
+--- a/modules/juce_audio_processors/processors/juce_AudioProcessor.h
++++ b/modules/juce_audio_processors/processors/juce_AudioProcessor.h
+@@ -1303,0 +1304,7 @@
++
++    /** Kirin Hypha: Pro Tools 12.6 and later report their delay compensation as a whole
++        switched on (true) or off (false) (AAX_eNotificationEvent_DelayCompensationState). Only
++        the AAX wrapper calls this, off the audio thread; other formats never do. While it is
++        off the host neither compensates plug-in latency nor changes it.
++    */
++    virtual void kirinHostDelayCompensationStateChanged (bool enabled) { ignoreUnused (enabled); }
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
+@@ -1381,0 +1382,5 @@
++
++                case AAX_eNotificationEvent_DelayCompensationState:
++                    if (data != nullptr && size == sizeof (int32_t))
++                        pluginInstance->kirinHostDelayCompensationStateChanged (*static_cast<const int32_t*> (data) != 0);
++                    break;

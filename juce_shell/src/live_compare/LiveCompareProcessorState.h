@@ -34,6 +34,7 @@ struct Status
     float gain = 1.0f;
     float postTarget = 1.0f;  // approved POST attenuation, held after the session until RETURN
     bool contentHeld = false; // INV-LC10: POST until playback stops and restarts
+    bool compensationOff = false; // INV-LC8: the host's delay compensation is off
 };
 
 // Everything one processor owns for the live compare. PRE uses the ring and the feeder; POST uses
@@ -61,5 +62,7 @@ struct ProcessorState
     std::atomic<bool> contentHold { false };      // INV-LC10: the content offset jumped
     std::atomic<std::uint32_t> playbackRun { 0 }; // counts stop-to-play transitions
     bool wasPlaying = false;                      // Audio Thread only
+    std::atomic<bool> compensationOff { false };  // INV-LC8: the host says delay compensation is off
+    bool compensationWasOff = false;              // Audio Thread only
 };
 }

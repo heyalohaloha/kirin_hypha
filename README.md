@@ -626,6 +626,9 @@ same channel; in Pro Tools, turn off its **Target** button.
 - If that offset jumps during playback, as when a plug-in changes its latency and the DAW does not
   compensate until playback restarts, Hypha plays POST (the PRE control reads **PRE WAIT**) until
   you stop and restart playback.
+- While delay compensation is turned off in Pro Tools, you hear POST, the PRE control reads
+  **PRE WAIT** and the status line says why. PRE comes back by itself once delay compensation is
+  on again.
 - Right after a seek or a new start, you hear POST for about the latency of the chain plus a few
   blocks while Hypha confirms the line-up.
 - If the input stays silent for several seconds, the DAW may stop calling Hypha. PRE comes back

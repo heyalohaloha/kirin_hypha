@@ -239,12 +239,15 @@ void KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
 {
     auto& m = liveCompareOffset;
     const auto run = processorRef.liveComparePlaybackRun();
-    if (! status.active || run != m.run)
+    // INV-LC8: while the host's delay compensation is off, the content offset is the chain's
+    // uncompensated latency, not a jump; the estimates start again once it is on.
+    if (! status.active || run != m.run || status.compensationOff)
     {
         m = {};
         m.run = run;
     }
-    if (status.active && status.verdict == hypha::live_compare::Verdict::accepted && now >= m.nextAt)
+    if (status.active && ! status.compensationOff && status.verdict == hypha::live_compare::Verdict::accepted
+        && now >= m.nextAt)
     {
         m.nextAt = now + 2.0;
         const auto estimate = processorRef.measureLiveCompareOffset();
@@ -261,8 +264,8 @@ void KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Stat
             m.warningUntil = std::llabs (m.lag) > 1 ? now + 10.0 : 0.0;
         }
     }
-    liveCompareOffsetWarning = status.active && now < m.warningUntil
-        ? offsetText (m.lag, m.rate) : juce::String();
+    liveCompareWarning = status.active && status.compensationOff ? juce::String ("Delay compensation is off in Pro Tools")
+                       : status.active && now < m.warningUntil ? offsetText (m.lag, m.rate) : juce::String();
 }
 
 void KirinHyphaEditor::refreshLiveCompare()
@@ -291,6 +294,7 @@ void KirinHyphaEditor::refreshLiveCompare()
     footer.preSelected = status.active && status.preSelected;
     footer.preWaiting = footer.preSelected && (status.preWaiting || now < liveComparePreWaitUntil);
     footer.contentHeld = status.active && status.contentHeld;
+    footer.compensationOff = status.active && status.compensationOff;
     footer.pinAvailable = processorRef.localBlindProductSupported()
         && hypha::local_blind_ui::productEntryEnabled (processorRef.wrapperType);
     footer.matched = status.active && liveCompareMatched;

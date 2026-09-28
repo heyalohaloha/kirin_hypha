@@ -114,6 +114,7 @@ const Entry entries[] = {
     { "AUTO off", u8"AUTOを止めました" },
     { "AUTO stopped: TP ceiling", u8"AUTO停止：TP上限" },
     { "AUTO stopped: over 6 dB", u8"AUTO停止：6 dBを超える変化" },
+    { "Delay compensation is off in Pro Tools", u8"Pro Toolsの遅延補償がOFFです" },
 };
 }
 

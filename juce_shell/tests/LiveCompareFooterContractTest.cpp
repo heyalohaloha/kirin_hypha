@@ -218,7 +218,8 @@ void verifyLiveCompareFooterContract()
                                     "PRE 170.67 ms early", "PRE 170.67 ms late", "PRE held: latency changed",
                                     "PIN waits for PRE", "PIN needs 4 s of play", "Last 4 s not one range",
                                     "PIN failed; try again", "AUTO on: within 0.5 dB", "AUTO off",
-                                    "AUTO stopped: TP ceiling", "AUTO stopped: over 6 dB" })
+                                    "AUTO stopped: TP ceiling", "AUTO stopped: over 6 dB",
+                                    "Delay compensation is off in Pro Tools" })
         {
             if (text_style::shownWidth (font, notice) > available)
                 std::cerr << "too wide at 300%: " << text_style::shownText (notice) << '\n';

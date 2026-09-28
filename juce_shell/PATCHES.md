@@ -28,7 +28,8 @@ bash scripts/verify_juce_patch_state.sh
 
 `cargo run --package xtask -- release-package` also runs this verifier before it
 allows an uploadable zip. A dirty submodule is acceptable only when it matches
-the pinned JUCE commit plus these six patch files byte-for-byte; unexpected
+the pinned JUCE commit plus the tracked patch files listed in
+`scripts/verify_juce_patch_state.sh`, byte-for-byte; unexpected
 JUCE edits, staged files, untracked files, or a moved submodule HEAD fail the
 release gate.
 
@@ -164,3 +165,46 @@ release gate.
   byte-order convention. Targets without these definitions retain JUCE defaults.
 - **Scope / impact:** Factory identity only. DSP, audio buffers, parameters and clocks
   are untouched. Old nih-plug state bytes are migrated separately at the FFI boundary.
+
+---
+
+## 0007 — VST3 host component activation
+
+- **Files:** `juce_audio_plugin_client_VST3.cpp`, `juce_AudioProcessor.h`
+- **Patch:** `patches/0007-vst3-host-component-activation.patch`
+- **Why:** A VST3 host switches a component off and on (`setActive`) independently of
+  transport, silence and the bypass parameter. JUCE 7.0.12 does not tell the processor.
+- **Change:** Add `AudioProcessor::hostComponentActivationChanged (bool)` (default: nothing)
+  and call it from the VST3 wrapper's `setActive` (B-544).
+- **Scope / impact:** Observation only; audio, parameters and clocks are untouched.
+
+---
+
+## 0008 — Raw auxiliary sample clock
+
+- **Files:** `juce_AudioPlayHead.h`, `juce_audio_plugin_client_VST3.cpp`,
+  `juce_audio_plugin_client_AU_1.mm`, `juce_audio_plugin_client_AAX.cpp`
+- **Patch:** `patches/0008-raw-auxiliary-sample-clock.patch`
+- **Why:** The live PRE/POST compare keys its correspondence on a continuous clock per
+  format (VST3 continuous time, AU render time, AAX native sample location), which JUCE's
+  `PositionInfo` does not carry (B-1046).
+- **Change:** Surface the raw value and its source in `PositionInfo`. Neither availability nor
+  matching numbers certify delay compensation or a shared occurrence; the product proves the
+  correspondence with its own rules.
+- **Scope / impact:** Observation only; audio and callback positions are untouched.
+
+---
+
+## 0009 — AAX delay compensation state
+
+- **Files:** `juce_AudioProcessor.h`, `juce_audio_plugin_client_AAX.cpp`
+- **Patch:** `patches/0009-aax-delay-compensation-state.patch`
+- **Why:** Pro Tools 12.6 and later notify a plug-in when the session's delay compensation as a
+  whole is switched on or off (`AAX_eNotificationEvent_DelayCompensationState`, an `int32_t`
+  0 or 1; AAX SDK `AAX_Enums.h`). While it is off, the positions a later plug-in sees are not
+  compensated, so the live PRE/POST compare must not play PRE (INV-LC8). JUCE 7.0.12 ignores
+  the notification.
+- **Change:** Add `AudioProcessor::kirinHostDelayCompensationStateChanged (bool)` (default:
+  nothing) and call it from the AAX wrapper's `NotificationReceived` for that notification.
+- **Scope / impact:** Observation only, AAX only, off the audio thread. Audio, parameters and
+  clocks are untouched; other formats never call it.
