@@ -69,6 +69,8 @@ fn vst_audio_callback_reaches_the_on_demand_attack_lane() {
 #[test]
 fn attack_abi_stays_compatible_and_the_product_view_has_a_navigation_route() {
     let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_ffi.h");
+    assert!(header.contains("#include \"kirin_hypha_attack_ffi.h\""));
+    let header = read_repo("crates/kirin_hypha_ffi/include/kirin_hypha_attack_ffi.h");
     for required in [
         "KIRIN_ATTACK_BATCH_CAPACITY 64u",
         "KIRIN_ATTACK_EVENT_BATCH_CAPACITY 240u",
