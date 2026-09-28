@@ -223,9 +223,10 @@ private:
         }
     }
 
-    // A host block of 4096 frames (85 ms): the callback-gap rule then tolerates test-machine stalls
-    // up to 213 ms, as a DAW's real-time thread never needs.
-    static constexpr int blockFrames = 4096;
+    // A host block of 8192 frames (171 ms): the callback-gap rule then tolerates test-machine stalls
+    // up to 427 ms, as a DAW's real-time thread never needs. PIN needs four seconds of one run; with
+    // 4096 frames a loaded macOS runner refused six windows in a row (2026-09-28).
+    static constexpr int blockFrames = 8192;
     Clock clock;
     std::vector<float> signal;
     std::unique_ptr<Processor> pre, post;
