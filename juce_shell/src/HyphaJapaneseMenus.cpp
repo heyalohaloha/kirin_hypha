@@ -96,6 +96,10 @@ const Entry entries[] = {
     { "Include project name", u8"プロジェクト名を含める" },
                                                     { "Save Hypha capture", u8"Hyphaの画像を保存" },
 
+    // The choice when MATCH would raise PRE above the true-peak ceiling.
+    { "PRE needs %1; TP ceiling allows %2", u8"PREは%1必要、TP上限までは%2" },
+    { "Lower POST by %1; PRE stays at its level", u8"POSTを%1下げる（PREは原音量のまま）" },
+    { "Raise PRE by %1 only (TP LIMIT)", u8"PREを%1だけ上げる（TP LIMIT）" },
     // The NOTE dialog.
     { "Attach a note to the current sample position.", u8"今の位置にメモを付けます。" },
     { "ADD", u8"追加" },

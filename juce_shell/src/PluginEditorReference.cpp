@@ -22,6 +22,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     referenceView.onExplain = [this] (const juce::String& reason) { showToast (reason); };
     referenceView.onSelectB = [this]
     {
+        if (liveCompareHoldBlocksAudition()) return;
         const auto& state = referenceView.state();
         if (! processorRef.selectReferenceB (state.aIntegratedLoudness,
                                               state.aMaximumTruePeakDbtp))
@@ -29,6 +30,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     };
     referenceView.onSelectC = [this]
     {
+        if (liveCompareHoldBlocksAudition()) return;
         const auto& state = referenceView.state();
         if (! processorRef.selectReferenceC (state.aIntegratedLoudness, state.aMaximumTruePeakDbtp))
             showToast ("Reference C is not ready");
@@ -72,6 +74,7 @@ void KirinHyphaEditor::configureReferenceAudition()
     };
     referenceView.onStartBlind = [this]
     {
+        if (liveCompareHoldBlocksAudition()) return;
         if (getWidth() < 900 || getHeight() < 600) { setSize (900, 600); return; }
         const auto& state = referenceView.state();
         if (! processorRef.startReferenceBlind (state.aIntegratedLoudness,

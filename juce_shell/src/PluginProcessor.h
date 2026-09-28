@@ -158,7 +158,13 @@ public:
     void stopLiveCompare();
     void selectLiveComparePre (bool pre) noexcept;
     void setLiveCompareGain (float linear) noexcept;
-    hypha::live_compare::MatchResult matchLiveCompare();
+    hypha::live_compare::MatchResult measureLiveCompare();
+    bool applyLiveCompareMatch (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
+    void returnLiveComparePostToNormal() noexcept;
+    bool takeLiveCompareGuardTrip() noexcept;
+    hypha::live_compare::OffsetEstimate measureLiveCompareOffset();
+    void holdLiveCompareForContentJump() noexcept;
+    std::uint32_t liveComparePlaybackRun() const noexcept;
     hypha::live_compare::Status liveCompareStatus() const noexcept;
     bool liveCompareSupported() const noexcept;
     bool takeLiveComparePreWait() noexcept;

@@ -12,25 +12,48 @@ enum class MatchFailure : std::uint8_t
     notProven,       // K is not valid for the latest block
     tooShort,        // less than minimumSeconds of contiguous, proven history
     overwritten,     // PRE or POST moved past the window while it was copied
-    notEnoughSignal  // neither gain policy found enough paired active signal
+    notEnoughSignal, // neither gain policy found enough paired active signal
+    outOfRange       // the difference is beyond maximumMatchDb
 };
 
+// A MATCH never moves either side by more than this (the TRACK/STEM gate of Local Blind).
+constexpr double maximumMatchDb = 24.0;
+
+// What one MATCH measured over the aligned window. The ceiling is C = max(-1 dBTP, POST true
+// peak, PRE true peak), the observed-TP basis of Local Blind (INV-S24).
 struct MatchResult
 {
     MatchFailure failure = MatchFailure::notProven;
-    double measuredDb = 0.0;       // POST loudness minus PRE loudness over the aligned window
-    double appliedDb = 0.0;        // gain applied to the PRE copy
-    bool limitedByTruePeak = false; // PRE would exceed the true-peak ceiling at measuredDb
+    double measuredDb = 0.0;   // POST loudness minus PRE loudness
+    double prePeakDbtp = 0.0, postPeakDbtp = 0.0;
     double ceilingDbtp = 0.0;
     std::uint64_t analysisUnits = 0;
     double seconds = 0.0;
     bool ok() const noexcept { return failure == MatchFailure::none; }
 };
 
+// The gains a MATCH asks for, given the POST attenuation the user already approved (heldPostDb,
+// never above 0). On the POST basis PRE takes the whole remaining difference. When that would
+// raise PRE's true peak above C the user chooses, as in Local Blind: lower POST instead, PRE
+// staying at its level, or raise PRE only up to C and hear the rest as TP LIMIT. Nothing is
+// clamped without that choice, and a MATCH never raises POST.
+struct MatchPlan
+{
+    double preGainDb = 0.0, postGainDb = 0.0; // POST basis, when no choice is needed
+    bool needsApproval = false;
+    double neededPreGainDb = 0.0;             // what PRE would need on the POST basis
+    double lowerPostGainDb = 0.0;             // approved: PRE at 0 dB, POST at this
+    double limitedPreGainDb = 0.0;            // declined: PRE at this, POST held
+    double ceilingDbtp = 0.0;
+};
+
+MatchPlan planMatch (const MatchResult&, double heldPostDb) noexcept;
+
+// What the user chose for a plan that needs approval; `basis` for a plan that does not.
+enum class MatchChoice : std::uint8_t { basis, lowerPost, limitPre };
+
 // Non-RT (message thread). Aligns the latest window of POST's input history with PRE's ring through
-// the proven K, measures it with the Local Blind gain policies (BS.1770 loudness, cue true peak),
-// and returns the PRE gain. A PRE boost that would exceed max(-1 dBTP, POST peak, PRE peak) is
-// limited to the ceiling in stage 1; the residual is reported instead of lowering POST.
+// the proven K and measures it with the Local Blind gain policies (BS.1770 loudness, cue true peak).
 MatchResult computeMatch (const Ring& ring, const PostRenderer& renderer, std::uint32_t sampleRate,
                           double maximumSeconds = 4.0, double minimumSeconds = 3.0);
 }

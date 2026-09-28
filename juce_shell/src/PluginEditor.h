@@ -138,6 +138,10 @@ private:
     void setLocalBlindIsolation (bool active);
     void configureLiveCompare();
     void refreshLiveCompare();
+    void chooseLiveCompareMatch (const hypha::live_compare::MatchPlan&);
+    void applyLiveCompareChoice (const hypha::live_compare::MatchPlan&, hypha::live_compare::MatchChoice);
+    bool liveCompareHoldBlocksAudition();
+    void monitorLiveCompareOffset (const hypha::live_compare::Status&, double now);
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,
                                int pairStatus);
@@ -172,6 +176,11 @@ private:
                               const juce::Array<KirinHyphaProcessorBase::PreCandidate>& candidates);
     static PairMenuLookAndFeel& pairMenuLookAndFeel();
     void showToast (const juce::String& msg);
+#if ! KIRIN_HYPHA_PRE_DISPLAY
+    juce::String liveCompareWarningText() const { return liveCompareOffsetWarning; }
+#else
+    juce::String liveCompareWarningText() const { return {}; }
+#endif
     void updateFeedback (double now, bool keeping, const juce::String& persistentError);
     void layoutFeedbackStrip();
     juce::String instanceId8() const; // first 8 chars of instance_id (empty-name fallback)
@@ -245,6 +254,16 @@ private:
     bool liveCompareLimited = false;
     bool liveCompareInterruptSeen = false;
     bool liveCompareActiveSeen = false;
+    // INV-LC7 / LC10: the content offset, measured every two seconds of proven playback.
+    struct LiveCompareOffsetWatch
+    {
+        std::uint32_t run = 0;
+        double nextAt = 0.0, warningUntil = 0.0;
+        std::int64_t lag = 0;
+        hypha::live_compare::OffsetMonitor monitor;
+    };
+    LiveCompareOffsetWatch liveCompareOffset;
+    juce::String liveCompareOffsetWarning;
     double liveComparePreWaitUntil = 0.0;
 #endif
     int    floraY      = 0;       // y of the flora separator line

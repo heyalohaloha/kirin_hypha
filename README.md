@@ -582,22 +582,38 @@ instances; multi-mono and Windows come later.
    300%) in the footer.
 2. Play the DAW and choose **PRE** or **POST**. Each switch crossfades over 5 ms.
 3. Press **MATCH** to level PRE to POST. Hypha measures the latest four seconds of playback (at
-   least three, BS.1770 loudness) and applies that gain to PRE only; the PRE control shows it, for
-   example **PRE +3.2 dB**. A boost that would take PRE above the larger of −1 dBTP and the measured
-   true peaks is limited: MATCH then reads **TP LIMIT**, PRE stays quieter than POST, and Hypha
-   reports the gain a full match would need. This is common with a loud, limited master; lowering
-   POST instead comes in a later stage. MATCH is fixed: it does not follow later level changes, so
-   press it again after changing the chain. Each session starts at unity gain.
+   least three, BS.1770 loudness, up to ±24 dB) and applies that gain to PRE only; the PRE control
+   shows it, for example **PRE +3.2 dB**. If PRE would have to rise above the larger of −1 dBTP and
+   the measured true peaks, which is common with a loud, limited master, MATCH asks first:
+   - **Lower POST** by the whole difference and keep PRE at its own level. POST then reads, for
+     example, **POST -7.0 dB**.
+   - Or raise PRE only up to that ceiling. MATCH reads **TP LIMIT**, PRE stays quieter than POST,
+     and Hypha reports the gain a full match would need.
+
+   Closing the menu changes nothing. MATCH is fixed: it does not follow later level changes, so
+   press it again after changing the chain. Each session starts PRE at unity gain. If a raised PRE
+   would still peak above the ceiling later in the song, Hypha stops PRE at that block and asks you
+   to select it again.
 4. Press **END** to return to POST. Closing the Hypha window, opening Blind, changing the pair or
    the sample rate, and removing or re-preparing PRE also end the session. Offline render, a bypass
    the DAW reports, and another audition return to POST and ask you to select PRE again.
+5. A lowered POST stays lowered after END, even with the window closed, until you press
+   **RETURN**. RETURN names how much POST rises, for example **RETURN +7.0 dB**, and brings it back
+   over half a second. Blind and Reference audition wait for RETURN. Offline render and a bypass
+   the DAW reports are never lowered, and measurement is always taken before the attenuation.
 
 While a session runs, the footer keeps **POST** and **END** at every size. Keep POST's window
 open while comparing: in Studio One / Studio Pro, pin it before opening another plug-in on the
 same channel; in Pro Tools, turn off its **Target** button.
 
-- The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Hypha
-  does not yet compare the audio itself to check it.
+- The line-up relies on every plug-in between PRE and POST reporting its latency correctly. Every
+  two seconds of playback Hypha also compares the audio itself. When PRE is off, the status line
+  says so, for example **PRE 2.31 ms early** (a plug-in between that under-reports its latency) or
+  **late**. An intentional delay, reverb or heavy processing can cause the same message, and
+  silence or a held tone cannot be judged; Hypha never changes the comparison because of it.
+- If that offset jumps during playback, as when a plug-in changes its latency and the DAW does not
+  compensate until playback restarts, Hypha plays POST (the PRE control reads **PRE WAIT**) until
+  you stop and restart playback.
 - Right after a seek or a new start, you hear POST for about the latency of the chain plus a few
   blocks while Hypha confirms the line-up.
 - If the input stays silent for several seconds, the DAW may stop calling Hypha. PRE comes back

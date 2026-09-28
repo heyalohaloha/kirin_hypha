@@ -90,11 +90,15 @@ Reference欠損、検証失敗時はA経路を維持する。
 正しく報告し、DAWが遅延を補償することを前提にする。前提が崩れた疑いは利用者に警告し、遅延が変わる
 設定変更の直後の短い区間に時計で検出できない誤対応があり得ることも示す。
 （2026-09-28、利用者が実装の開始を承認。根拠は`docs/planning/hypha_live_chain_compare_contract_draft_20260928.md`）
+PREの増幅が比較ceilingを超えるMATCHでは、利用者の明示承認の後だけ、PREを原音量に保ってPOSTの出力を
+差だけ固定減衰できる（Local Blindと同じ方式）。減衰は試聴の終了後も、利用者が明示して通常の音量へ
+戻すまで保持し、急に上げない。offline render、hostが知らせるbypass、他の試聴が出力を取るblockには
+適用せず、正本のPRE/POST測定・Recordは減衰の前で取る。（2026-09-28、利用者が承認）
 
 Audio Thread（processBlock）は通常計測では読み取り・コピー・通知だけを行う。Reference比較試聴では、
 非RT側で検証・decode・準備した事前確保済みReference bufferの選択とRT-safeな出力だけを許可する。
 live比較では、PREは事前確保済みの転送領域への書込みと周回の公開だけを、POSTは同じ領域の読取り、
-対応の判定、RT-safeな出力だけを許可する。
+対応の判定、承認済みPOST減衰の適用を含むRT-safeな出力だけを許可する。
 いずれもAudio Threadでのアロケーション、ロック、ブロッキングI/Oは禁止する。
 
 ### R-13（Hub & Spoke）

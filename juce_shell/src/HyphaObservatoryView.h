@@ -61,12 +61,15 @@ struct LiveCompareFooter
     bool matched = false;      // an explicit MATCH set the PRE gain in this session
     bool matchLimited = false; // that MATCH stopped at the true-peak ceiling: PRE is still quieter
     int preGainTenthsDb = 0;   // that gain in 0.1 dB steps, as the PRE control shows it
+    int postHeldTenthsDb = 0;  // approved POST attenuation (0 or below), held until RETURN
+    bool contentHeld = false;  // INV-LC10: POST until playback stops and restarts
     bool operator== (const LiveCompareFooter& other) const noexcept
     {
         return entryEnabled == other.entryEnabled && active == other.active
             && preSelected == other.preSelected && preWaiting == other.preWaiting
             && matched == other.matched && matchLimited == other.matchLimited
-            && preGainTenthsDb == other.preGainTenthsDb;
+            && preGainTenthsDb == other.preGainTenthsDb && postHeldTenthsDb == other.postHeldTenthsDb
+            && contentHeld == other.contentHeld;
     }
 };
 
@@ -92,6 +95,7 @@ public:
     std::function<void (bool pre)> onLiveCompareSelect;
     std::function<void()> onLiveCompareMatch;
     std::function<void()> onLiveCompareEnd;
+    std::function<void()> onLiveCompareReturn;
     std::function<void()> onDomainMenu;
     std::function<void()> onSizeMenu;
     std::function<void()> onOperationsMenu;
@@ -265,6 +269,7 @@ public:
     }
     void setLiveCompareFooter (const LiveCompareFooter&);
     const LiveCompareFooter& liveCompareFooter() const noexcept { return liveCompareState; }
+    juce::Component& liveMatchAnchor() noexcept { return liveMatchButton; }
 
     struct HistoryRequest
     {
@@ -336,6 +341,7 @@ private:
                              juce::Rectangle<int>);
     void configureComparisonEntries();
     bool layoutLiveCompareFooter (juce::Rectangle<int>);
+    bool layoutHeldAttenuation (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
     void paintLevelWithHistory (juce::Graphics&, juce::Rectangle<int>);
     void paintRecordDisplay (juce::Graphics&, juce::Rectangle<int>);
@@ -457,6 +463,7 @@ private:
     Button livePostButton { "POST", false };
     Button liveMatchButton { "MATCH", false };
     Button liveEndButton { "END", false };
+    Button liveReturnButton { "RETURN", false };
     InformationButton informationButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (View)

@@ -13,6 +13,7 @@ const EDITOR_LOCAL_BLIND_CPP: &str =
     include_str!("../../juce_shell/src/PluginEditorLocalBlind.cpp");
 const EDITOR_LIVE_COMPARE_CPP: &str =
     include_str!("../../juce_shell/src/PluginEditorLiveCompare.cpp");
+const EDITOR_REFERENCE_CPP: &str = include_str!("../../juce_shell/src/PluginEditorReference.cpp");
 
 // The body of the first function whose definition starts with signature (brace matched).
 fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
@@ -213,4 +214,78 @@ fn live_compare_sessions_end_where_the_user_cannot_see_them() {
     );
     assert!(start.contains("if (! liveCompareSupported())"));
     assert!(start.contains("liveCompare.gain.store (1.0f"));
+}
+
+// INV-LC14: POST is lowered only by an approved MATCH choice, the attenuation stays until the
+// explicit RETURN, offline render, bypass and another audition's output are never touched, a PRE
+// block over the guard never sounds, and no other audition starts on top of a held attenuation.
+#[test]
+fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
+    let rt = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::processLiveCompare",
+    );
+    let ring_section = rt.find("liveCompare.ring.withRealtime").unwrap();
+    let held = rt
+        .find("if (! rendered && usable && ! outputTaken)")
+        .unwrap();
+    assert!(ring_section < held);
+    assert!(rt.contains("liveCompare.postLevel.apply (buffer.getArrayOfWritePointers(), channels, frames, postTarget);"));
+    assert!(rt.contains("if (report.guardTripped)"));
+    let apply = function_body(
+        PROCESSOR_CPP,
+        "bool KirinHyphaProcessorBase::applyLiveCompareMatch",
+    );
+    assert!(apply.contains("plan.needsApproval == (choice == MatchChoice::basis)"));
+    assert!(apply.contains("std::min (1.0f, linear (postDb))"));
+    let stop = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::stopLiveCompare",
+    );
+    assert!(
+        !stop.contains("postTarget"),
+        "ending a session must not release the held attenuation"
+    );
+    let render = function_body(SESSION_H, "RenderReport render (");
+    assert!(render.contains("! guardPasses (block.frames, preGain, ceilingLinear)"));
+    assert!(render.contains("report.guardTripped = true;"));
+    let blind = function_body(
+        EDITOR_LOCAL_BLIND_CPP,
+        "void KirinHyphaEditor::openLocalBlindProduct",
+    );
+    assert!(blind.contains("if (liveCompareHoldBlocksAudition())"));
+    assert_eq!(
+        EDITOR_REFERENCE_CPP
+            .matches("if (liveCompareHoldBlocksAudition()) return;")
+            .count(),
+        3,
+        "Reference B, C and Blind wait for RETURN"
+    );
+}
+
+// INV-LC7 / LC10: the content offset is measured off the Audio Thread and only shown; a jump the
+// monitor settles holds POST, with PRE still selected, until playback stops.
+#[test]
+fn live_compare_offset_is_shown_and_a_jump_holds_post_until_playback_restarts() {
+    let rt = function_body(
+        PROCESSOR_CPP,
+        "void KirinHyphaProcessorBase::processLiveCompare",
+    );
+    assert!(rt.contains("preSelected && ! contentHeld"));
+    assert!(rt.contains("if (! block.playing)"));
+    assert!(rt.contains("liveCompare.contentHold.store (false, std::memory_order_release);"));
+    assert!(!rt.contains("measureOffset") && !rt.contains("estimateOffset"));
+    let monitor = function_body(
+        EDITOR_LIVE_COMPARE_CPP,
+        "void KirinHyphaEditor::monitorLiveCompareOffset",
+    );
+    assert!(monitor.contains("if (step.jumped)"));
+    assert!(monitor.contains("processorRef.holdLiveCompareForContentJump();"));
+    assert_eq!(
+        EDITOR_LIVE_COMPARE_CPP
+            .matches("holdLiveCompareForContentJump")
+            .count(),
+        1,
+        "only the settled jump holds POST"
+    );
 }

@@ -198,6 +198,43 @@ void verifyLiveCompareFooterContract()
         }
     }
 
+    // An approved POST attenuation is named on POST during a session; after END it is held, and
+    // RETURN names how much POST rises, at every size, while Blind waits for it (INV-LC14).
+    auto* returnButton = control (post, "observatory-live-return");
+    int returned = 0;
+    post.onLiveCompareReturn = [&] { ++returned; };
+    post.setSize (900, 600);
+    state.matchLimited = false;
+    state.postHeldTenthsDb = -70;
+    post.setLiveCompareFooter (state);
+    require (postButton->getButtonText() == "POST -7.0 dB" && readable (post, *postButton) && ! returnButton->isVisible(),
+             "a session names the approved POST attenuation");
+    const auto held = state;
+    state = {};
+    state.entryEnabled = true;
+    state.postHeldTenthsDb = -70;
+    post.setLiveCompareFooter (state);
+    for (const auto preset : observatory::sizePresets)
+    {
+        post.setSize (preset.width, preset.height);
+        require (returnButton->isVisible() && readable (post, *returnButton)
+                     && post.getLocalBounds().contains (returnButton->getBounds()),
+                 "RETURN stays reachable and reads whole at every size");
+        require (! blind->isVisible() && ! postButton->isVisible(), "Blind waits for RETURN; no session controls");
+        if (preset.width >= 600)
+            require (returnButton->getButtonText() == "RETURN +7.0 dB" && entry->isVisible()
+                         && ! returnButton->getBounds().intersects (entry->getBounds()),
+                     "the large rail names the rise and keeps LISTEN");
+    }
+    returnButton->onClick();
+    require (returned == 1, "RETURN reaches the editor");
+    state.postHeldTenthsDb = 0;
+    post.setLiveCompareFooter (state);
+    require (! returnButton->isVisible(), "without a held attenuation there is no RETURN");
+    state = held;
+    state.postHeldTenthsDb = 0;
+    post.setLiveCompareFooter (state);
+
     require (post.setManualHybridVuVisible (true), "Hybrid VU opens");
     require (! preButton->isVisible() && ! postButton->isVisible() && ! end->isVisible(),
              "the Hybrid VU page shows no footer controls");

@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 
 namespace hypha::live_compare
@@ -29,16 +31,61 @@ private:
     Publisher publisher;
 };
 
+// POST's audible level while a session runs or an approved attenuation is held (INV-LC14). It
+// follows its target linearly in gain, down over 50 ms and up over 500 ms for the full range, so
+// that applying an approved attenuation never clicks and returning to normal never jumps. The
+// steps are atomics because the message thread configures them for the prepared sample rate.
+class PostLevel
+{
+public:
+    void configure (double sampleRate) noexcept
+    {
+        const auto frames = [sampleRate] (double seconds)
+        { return static_cast<float> (std::max (1.0, sampleRate * seconds)); };
+        downStep.store (1.0f / frames (0.05), std::memory_order_relaxed);
+        upStep.store (1.0f / frames (0.5), std::memory_order_relaxed);
+    }
+
+    // Audio Thread: the gain for the next frame on the way to target (at most 1).
+    float next (float target) noexcept
+    {
+        current = current > target ? std::max (target, current - downStep.load (std::memory_order_relaxed))
+                                   : std::min (target, current + upStep.load (std::memory_order_relaxed));
+        return current;
+    }
+
+    // Audio Thread: POST alone. At unity, settled, the audio is left bit-identical.
+    void apply (float* const* io, int channels, int frames, float target) noexcept
+    {
+        if (target >= 1.0f && current >= 1.0f)
+            return;
+        for (int i = 0; i < frames; ++i)
+        {
+            const float gain = next (target);
+            for (int channel = 0; channel < channels; ++channel)
+                io[channel][i] *= gain;
+        }
+    }
+
+    float value() const noexcept { return current; }
+
+private:
+    float current = 1.0f; // Audio Thread only
+    std::atomic<float> downStep { 1.0f / 2400.0f }, upStep { 1.0f / 24000.0f };
+};
+
 struct RenderReport
 {
     Verdict verdict = Verdict::noClock;
-    bool preAudible = false; // PRE weight above zero at the end of the block
-    bool preWaiting = false; // PRE is selected but POST sounds because the block is not proven
+    bool preAudible = false;   // PRE weight above zero at the end of the block
+    bool preWaiting = false;   // PRE is selected but POST sounds because the block is not proven
+    bool guardTripped = false; // PRE was not finite or, raised, peaked above the ceiling
 };
 
-// POST, Audio Thread output (INV-LC4). PRE sounds only in blocks whose every frame is proven.
-// Returning to PRE fades symmetrically over proven samples; losing the proof switches to POST at
-// the block start and never uses unproven PRE samples. The approved gain applies to the PRE copy.
+// POST, Audio Thread output (INV-LC4, INV-LC14). PRE sounds only in blocks whose every frame is
+// proven and passes the guard. Returning to PRE fades symmetrically over proven samples; losing the
+// proof switches to POST at the block start and never uses unproven PRE samples. The approved gain
+// applies to the PRE copy; an approved POST attenuation applies to POST, in and out of a session.
 class PostRenderer
 {
 public:
@@ -88,13 +135,21 @@ public:
 
     RenderReport render (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
                          const BlockClock& block, float* const* io, int channels,
-                         bool preSelected, float gain) noexcept
+                         bool preSelected, float preGain, PostLevel& post, float postTarget,
+                         float ceilingLinear) noexcept
     {
         RenderReport report;
-        if (block.frames <= 0 || block.frames > capacity || channels <= 0 || channels > 2 || io == nullptr)
+        if (io == nullptr || channels <= 0 || channels > 2 || block.frames <= 0)
         {
             weight = 0.0f;
             report.preWaiting = preSelected;
+            return report;
+        }
+        if (block.frames > capacity)
+        {
+            weight = 0.0f;
+            report.preWaiting = preSelected;
+            post.apply (io, channels, block.frames, postTarget);
             return report;
         }
         recordHistory (block, io, channels);
@@ -107,19 +162,31 @@ public:
         {
             weight = 0.0f; // switch to POST at the block start
             report.preWaiting = preSelected;
+            post.apply (io, channels, block.frames, postTarget);
+            return report;
+        }
+        if ((preSelected || weight > 0.0f) && ! guardPasses (block.frames, preGain, ceilingLinear))
+        {
+            weight = 0.0f;
+            report.guardTripped = true;
+            post.apply (io, channels, block.frames, postTarget);
             return report;
         }
         const float target = preSelected ? 1.0f : 0.0f;
-        if (weight == 0.0f && target == 0.0f)
+        if (weight <= 0.0f && target <= 0.0f)
+        {
+            post.apply (io, channels, block.frames, postTarget);
             return report;
+        }
         const float step = 1.0f / static_cast<float> (fadeFrames);
         for (std::int32_t i = 0; i < block.frames; ++i)
         {
             weight = weight < target ? std::min (target, weight + step) : std::max (target, weight - step);
+            const float postGain = post.next (postTarget) * (1.0f - weight);
             for (int channel = 0; channel < channels; ++channel)
             {
-                const float pre = scratch[std::min (channel, 1)][i] * gain;
-                io[channel][i] = io[channel][i] * (1.0f - weight) + pre * weight;
+                const float pre = scratch[std::min (channel, 1)][i] * preGain;
+                io[channel][i] = io[channel][i] * postGain + pre * weight;
             }
         }
         report.preAudible = weight > 0.0f;
@@ -132,6 +199,19 @@ public:
 private:
     static constexpr double fadeSeconds = 0.005; // the symmetric transition of Local Blind (INV-S25)
     static constexpr double historySeconds = 8.0; // MATCH reads up to 4 s of it
+
+    // INV-LC14: a PRE block is never output when a sample is not finite or, raised by the approved
+    // gain, peaks above the ceiling fixed at MATCH. Sample peaks miss inter-sample peaks, so this
+    // guard alone does not prove the true peak.
+    bool guardPasses (std::int32_t frames, float preGain, float ceilingLinear) const noexcept
+    {
+        const float limit = preGain > 1.0f ? ceilingLinear / preGain : std::numeric_limits<float>::infinity();
+        for (const float* channel : { left.get(), right.get() })
+            for (std::int32_t i = 0; i < frames; ++i)
+                if (! std::isfinite (channel[i]) || std::fabs (channel[i]) > limit)
+                    return false;
+        return true;
+    }
 
     // Audio Thread: the POST input (A, before any output mixing) indexed by POST's continuous clock.
     void recordHistory (const BlockClock& block, float* const* io, int channels) noexcept

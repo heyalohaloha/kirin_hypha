@@ -5,12 +5,16 @@
 #include <cmath>
 #include <cstdlib>
 
-// The editor side of the live PRE / POST compare (AGENTS R-12, INV-LC1 to INV-LC4). It starts and
-// ends the session, forwards the PRE / POST choice and MATCH, and shows what the Audio Thread
-// reports. Closing the editor ends the session, so a closed window never leaves PRE sounding.
+// The editor side of the live PRE / POST compare (AGENTS R-12, INV-LC1 to INV-LC14). It starts and
+// ends the session, forwards the PRE / POST choice, MATCH and RETURN, asks before lowering POST, and
+// shows what the Audio Thread reports. Closing the editor ends the session, so a closed window
+// never leaves PRE sounding; an approved POST attenuation stays until RETURN.
 namespace
 {
+namespace ui = hypha::ui_contract;
+using hypha::live_compare::MatchChoice;
 using hypha::live_compare::MatchFailure;
+using hypha::live_compare::MatchPlan;
 using hypha::live_compare::StartResult;
 
 juce::String signedDb (double db)
@@ -21,6 +25,18 @@ juce::String signedDb (double db)
     const auto magnitude = std::abs (hundredths);
     return juce::String (hundredths > 0 ? "+" : "-") + juce::String (magnitude / 100) + "."
          + juce::String (magnitude % 100).paddedLeft ('0', 2) + " dB";
+}
+
+juce::String magnitudeDb (double db)
+{
+    return signedDb (std::fabs (db)).trimCharactersAtStart ("+");
+}
+
+// INV-LC7: the offset as a fact, without a judgement (R-22).
+juce::String offsetText (std::int64_t lag, double sampleRate)
+{
+    const auto ms = std::fabs (static_cast<double> (lag)) * 1000.0 / juce::jmax (1.0, sampleRate);
+    return "PRE " + juce::String (ms, 2) + (lag < 0 ? " ms early" : " ms late");
 }
 
 juce::String startFailure (StartResult result)
@@ -46,6 +62,7 @@ juce::String matchFailure (MatchFailure failure)
         case MatchFailure::tooShort:        return "MATCH needs 3 s of play";
         case MatchFailure::overwritten:     return "MATCH failed; try again";
         case MatchFailure::notEnoughSignal: return "MATCH needs more signal";
+        case MatchFailure::outOfRange:      return "MATCH over 24 dB";
     }
     return {};
 }
@@ -77,18 +94,18 @@ void KirinHyphaEditor::configureLiveCompare()
     };
     observatoryView.onLiveCompareMatch = [this]
     {
-        const auto result = processorRef.matchLiveCompare();
+        const auto result = processorRef.measureLiveCompare();
         if (! result.ok())
-            showToast (matchFailure (result.failure));
-        else
         {
-            liveCompareMatched = true;
-            liveCompareLimited = result.limitedByTruePeak;
-            showToast (result.limitedByTruePeak
-                ? "TP limit: PRE " + signedDb (result.appliedDb) + ", need " + signedDb (result.measuredDb)
-                : "MATCH: PRE " + signedDb (result.appliedDb));
+            showToast (matchFailure (result.failure));
+            return;
         }
-        refreshLiveCompare();
+        const auto held = processorRef.liveCompareStatus().postTarget;
+        const auto plan = hypha::live_compare::planMatch (result, held > 0.0f ? 20.0 * std::log10 (held) : 0.0);
+        if (plan.needsApproval)
+            chooseLiveCompareMatch (plan);
+        else
+            applyLiveCompareChoice (plan, MatchChoice::basis);
     };
     observatoryView.onLiveCompareEnd = [this]
     {
@@ -98,6 +115,88 @@ void KirinHyphaEditor::configureLiveCompare()
         liveCompareActiveSeen = false;
         refreshLiveCompare();
     };
+    observatoryView.onLiveCompareReturn = [this]
+    {
+        processorRef.returnLiveComparePostToNormal();
+        showToast ("POST back to normal");
+        refreshLiveCompare();
+    };
+}
+
+// PRE would pass the true-peak ceiling on the POST basis: the user chooses, as in Local Blind,
+// between lowering POST (PRE at its level) and raising PRE only up to the ceiling. Dismissing the
+// menu changes nothing.
+void KirinHyphaEditor::chooseLiveCompareMatch (const MatchPlan& plan)
+{
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&pairMenuLookAndFeel());
+    menu.addSectionHeader ("PRE needs " + signedDb (plan.neededPreGainDb) + "; TP ceiling allows "
+                           + signedDb (plan.limitedPreGainDb));
+    menu.addItem (1, "Lower POST by " + magnitudeDb (plan.lowerPostGainDb) + "; PRE stays at its level");
+    menu.addItem (2, "Raise PRE by " + signedDb (plan.limitedPreGainDb) + " only (TP LIMIT)");
+    const auto options = juce::PopupMenu::Options()
+        .withTargetComponent (&observatoryView.liveMatchAnchor()).withDeletionCheck (*this)
+        .withMinimumWidth (juce::jlimit (300, 520, getWidth()))
+        .withMaximumNumColumns (1).withStandardItemHeight (ui::pairMenuItemHeight);
+    juce::Component::SafePointer<KirinHyphaEditor> safe (this);
+    menu.showMenuAsync (options, [safe, plan] (int result)
+    {
+        if (safe != nullptr && (result == 1 || result == 2))
+            safe->applyLiveCompareChoice (plan, result == 1 ? MatchChoice::lowerPost : MatchChoice::limitPre);
+    });
+}
+
+void KirinHyphaEditor::applyLiveCompareChoice (const MatchPlan& plan, MatchChoice choice)
+{
+    if (! processorRef.applyLiveCompareMatch (plan, choice))
+    {
+        showToast ("MATCH failed; try again");
+        return;
+    }
+    liveCompareMatched = true;
+    liveCompareLimited = choice == MatchChoice::limitPre;
+    showToast (choice == MatchChoice::lowerPost ? "MATCH: POST " + signedDb (plan.lowerPostGainDb)
+               : choice == MatchChoice::limitPre
+                   ? "TP limit: PRE " + signedDb (plan.limitedPreGainDb) + ", need " + signedDb (plan.neededPreGainDb)
+                   : "MATCH: PRE " + signedDb (plan.preGainDb));
+    refreshLiveCompare();
+}
+
+// Another audition must not start on top of an approved POST attenuation: RETURN first.
+bool KirinHyphaEditor::liveCompareHoldBlocksAudition()
+{
+    if (processorRef.liveCompareStatus().postTarget >= 1.0f)
+        return false;
+    showToast ("Press RETURN first");
+    return true;
+}
+
+void KirinHyphaEditor::monitorLiveCompareOffset (const hypha::live_compare::Status& status, double now)
+{
+    auto& m = liveCompareOffset;
+    const auto run = processorRef.liveComparePlaybackRun();
+    if (! status.active || run != m.run)
+    {
+        m = {};
+        m.run = run;
+    }
+    if (status.active && status.verdict == hypha::live_compare::Verdict::accepted && now >= m.nextAt)
+    {
+        m.nextAt = now + 2.0;
+        const auto step = m.monitor.observe (processorRef.measureLiveCompareOffset(), status.contentHeld);
+        if (step.jumped)
+        {
+            processorRef.holdLiveCompareForContentJump();
+            showToast ("PRE held: latency changed");
+        }
+        if (step.settled)
+        {
+            m.lag = step.lagFrames;
+            m.warningUntil = std::llabs (m.lag) > 1 ? now + 10.0 : 0.0;
+        }
+    }
+    liveCompareOffsetWarning = status.active && now < m.warningUntil
+        ? offsetText (m.lag, processorRef.getSampleRate()) : juce::String();
 }
 
 void KirinHyphaEditor::refreshLiveCompare()
@@ -109,21 +208,27 @@ void KirinHyphaEditor::refreshLiveCompare()
     // a second. The final minimum is a listening decision (plan G4).
     if (processorRef.takeLiveComparePreWait() || status.preWaiting)
         liveComparePreWaitUntil = now + 0.5;
-    if (status.interrupted && ! liveCompareInterruptSeen)
+    if (processorRef.takeLiveCompareGuardTrip())
+        showToast ("PRE over TP ceiling");
+    else if (status.interrupted && ! liveCompareInterruptSeen)
         showToast ("Select PRE again");
     liveCompareInterruptSeen = status.interrupted;
     // A format change, a changed pair or a closed PRE ended the session without END: say so.
     if (liveCompareActiveSeen && ! status.active)
         showToast ("LISTEN ended; POST plays");
     liveCompareActiveSeen = status.active;
+    monitorLiveCompareOffset (status, now);
     hypha::observatory::LiveCompareFooter footer;
     footer.entryEnabled = processorRef.liveCompareSupported();
     footer.active = status.active;
     footer.preSelected = status.active && status.preSelected;
     footer.preWaiting = footer.preSelected && (status.preWaiting || now < liveComparePreWaitUntil);
+    footer.contentHeld = status.active && status.contentHeld;
     footer.matched = status.active && liveCompareMatched;
     footer.matchLimited = footer.matched && liveCompareLimited;
     footer.preGainTenthsDb = status.gain > 0.0f ? juce::roundToInt (200.0f * std::log10 (status.gain)) : 0;
+    footer.postHeldTenthsDb = status.postTarget > 0.0f && status.postTarget < 1.0f
+        ? juce::jmin (-1, juce::roundToInt (200.0f * std::log10 (status.postTarget))) : 0;
     observatoryView.setLiveCompareFooter (footer);
 }
 

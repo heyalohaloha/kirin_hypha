@@ -94,6 +94,8 @@ void KirinHyphaEditor::openLocalBlindProduct()
         showToast ("End Reference Blind Compare before starting PRE / POST Blind");
         return;
     }
+    if (liveCompareHoldBlocksAudition())
+        return;
     processorRef.stopLiveCompare(); // one comparison at a time; Blind starts from POST
     localBlindReturnIntent.clear();
     localBlindPreflight = true;
