@@ -10,6 +10,9 @@
 #define KIRIN_ATTACK_DETAIL_BATCH_CAPACITY 240u
 #define KIRIN_ATTACK_SHAPE_CAPACITY 96u
 #define KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY 240u
+#define KIRIN_ATTACK_BAND_BATCH_CAPACITY 64u
+#define KIRIN_ATTACK_BAND_HEAD_POINTS 96u
+#define KIRIN_ATTACK_BAND_TAIL_POINTS 64u
 
 /* ATTACK DRUM内部検証用のraw SuperFlux ODF。公開Analysis route/stateには含めない。 */
 typedef struct {
@@ -145,6 +148,52 @@ typedef struct {
   uint64_t analyzed_frames;
 } KirinAttackStats;
 
+/* DRUM帯域（B-1096）: 1打の片側。時刻はonsetからのms。*_available=0の値は音に無かった事実で、0ではない。 */
+typedef struct {
+  uint8_t available;
+  uint8_t arrival_available;
+  uint8_t attack_available;
+  uint8_t release_available;
+  uint8_t reserved[4];
+  int64_t span_end_sample; /* 測った尾の終わり（排他）: onset+300 ms か次のonset */
+  float peak_ms;
+  float arrival_ms;  /* 帯域がピーク-20 dBを上向きに越える時刻 */
+  float attack_ms;   /* ピークの10 %から90 %まで */
+  float release_ms;  /* ピークからピーク-20 dBまで */
+  float level_dbfs;  /* 帯域包絡のピーク */
+  float reserved2;
+  float head_dbfs[KIRIN_ATTACK_BAND_HEAD_POINTS]; /* [onset-20 ms, onset+40 ms) */
+  float tail_dbfs[KIRIN_ATTACK_BAND_TAIL_POINTS]; /* [onset, onset+300 ms); span_end以降は床 */
+} KirinAttackBandSide;
+
+/* kind: 0=matched（PRE onsetでPREとPOST）, 2=POSTのみ。resolution_microsは帯域の中心周波数1周期。 */
+typedef struct {
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint8_t channels;
+  uint8_t band; /* 1=63 Hz … 8=8 kHz */
+  uint8_t kind;
+  uint8_t delay_available;
+  int64_t event_sample;
+  uint32_t resolution_micros;
+  float delay_ms; /* POST − PRE のarrival */
+  KirinAttackBandSide pre;
+  KirinAttackBandSide post;
+} KirinAttackBandHit;
+
+/* statusはpair viewと同じ語彙。bandは選択中の帯域（0=なし）。pre_band_availableはPREのsnapshotが
+ * 同じ帯域を名乗ったときだけ1: 帯域を知らないPREは名乗らず、hitsはPOSTだけのまま。 */
+typedef struct {
+  uint8_t status;
+  uint8_t band;
+  uint8_t pre_band_available;
+  uint8_t reserved;
+  uint32_t count;
+  uint32_t capacity;
+  uint32_t reserved2;
+  KirinAttackBandHit hits[KIRIN_ATTACK_BAND_BATCH_CAPACITY];
+} KirinAttackBandBatch;
+
 /* ATTACK DRUM製品導線。POSTだけが有効化可能で、画面非表示時は停止・state保存なし。 */
 bool kirin_hypha_set_attack_enabled(KirinHypha* handle, bool enabled);
 bool kirin_hypha_poll_attack_batch(KirinHypha* handle, KirinAttackBatch* out);
@@ -158,5 +207,8 @@ bool kirin_hypha_poll_attack_pre_details(KirinHypha* handle,
 bool kirin_hypha_poll_attack_pair_events(KirinHypha* handle,
                                          KirinAttackPairEventBatch* out);
 bool kirin_hypha_attack_stats(KirinHypha* handle, KirinAttackStats* out);
+/* DRUM帯域。POSTだけが選べ、0で解除。選んでいる間だけ計測し、state保存なし。 */
+bool kirin_hypha_set_attack_band(KirinHypha* handle, uint8_t band);
+bool kirin_hypha_poll_attack_band(KirinHypha* handle, KirinAttackBandBatch* out);
 
 #endif /* KIRIN_HYPHA_ATTACK_FFI_H */

@@ -7,6 +7,7 @@ use super::{
     AttackPairViewSnapshot, PostSession, SpectrumCoordinator, SpectrumViewStatus,
     PRESENTATION_HOLD, WARMUP_LIMIT,
 };
+use crate::attack_perception::band::{band_delay_frames, AttackBand, AttackBandPair};
 use crate::attack_runtime::AttackAnchor;
 use crate::{
     AttackDetailedEvent, AttackEvent, AttackHistory, AttackPairEvent, AttackPairEventKind,
@@ -18,8 +19,16 @@ pub(super) fn store_joined_attack(
     session: &mut PostSession,
     now: Instant,
     post: Option<AttackHistory>,
-    pre: Option<AttackHistory>,
+    pre: Option<(AttackHistory, Option<AttackBand>)>,
 ) {
+    let band = coordinator
+        .attack_runtime
+        .as_ref()
+        .and_then(|runtime| runtime.band());
+    let (pre, pre_band) = match pre {
+        Some((history, pre_band)) => (Some(history), pre_band),
+        None => (None, None),
+    };
     let joined = post
         .as_ref()
         .zip(pre.as_ref())
@@ -30,12 +39,20 @@ pub(super) fn store_joined_attack(
             .zip(pre.as_ref())
             .map(|(post, pre)| anchored_post_details(coordinator, pre, post, &pair_events))
             .unwrap_or_default();
+        let band_pairs = band
+            .filter(|band| pre_band == Some(*band))
+            .zip(post.as_ref().zip(pre.as_ref()))
+            .map(|(band, (post, pre))| band_pairs(coordinator, band, pre, post, &pair_events))
+            .unwrap_or_default();
         coordinator.store_attack_view(AttackPairViewSnapshot {
             status: SpectrumViewStatus::Active,
             pre,
             post,
             pair_events,
             post_anchored,
+            band,
+            pre_band,
+            band_pairs,
         });
         session.last_presented_at = Some(now);
         session.last_presented_end_samples = Some(endpoint);
@@ -62,8 +79,75 @@ pub(super) fn store_joined_attack(
         status,
         pre,
         post,
+        band,
+        pre_band,
         ..Default::default()
     });
+}
+
+/// PRE's band measure at each matched onset, with POST measured there over the same span from
+/// its ring. A pair whose PRE measure has not arrived, or whose POST audio is not retained yet,
+/// carries PRE alone until it is.
+fn band_pairs(
+    coordinator: &SpectrumCoordinator,
+    band: AttackBand,
+    pre: &AttackHistory,
+    post: &AttackHistory,
+    pairs: &[AttackPairEvent],
+) -> Vec<AttackBandPair> {
+    let (Some(runtime), Some(identity)) = (coordinator.attack_runtime.as_ref(), post.newest())
+    else {
+        return Vec::new();
+    };
+    let pre_details = pre
+        .band_details()
+        .filter(|detail| detail.measure.band == band)
+        .collect::<Vec<_>>();
+    let matched = pairs
+        .iter()
+        .filter(|pair| pair.kind == AttackPairEventKind::Matched)
+        .filter_map(|pair| {
+            let onset = pair.pre_event_sample?;
+            let found =
+                pre_details.binary_search_by_key(&onset, |detail| detail.event.event_sample);
+            let pre_detail = pre_details[found.ok()?];
+            let anchor = AttackEvent {
+                generation: identity.generation,
+                sample_rate: identity.sample_rate,
+                channels: identity.channels,
+                definition_hash: identity.definition_hash,
+                event_sample: onset,
+                decision_sample: pair.decision_sample.max(onset),
+                value: pair.post_value.unwrap_or(0.0),
+            };
+            Some((
+                pre_detail.measure,
+                (anchor, pre_detail.measure.span_end_sample),
+            ))
+        })
+        .collect::<Vec<_>>();
+    let anchors = matched
+        .iter()
+        .map(|(_, anchor)| *anchor)
+        .collect::<Vec<_>>();
+    let post_details = runtime.band_details_at(band, &anchors);
+    matched
+        .into_iter()
+        .map(|(pre_measure, (anchor, _))| {
+            let post_measure = post_details
+                .iter()
+                .find(|detail| detail.event.event_sample == anchor.event_sample)
+                .map(|detail| detail.measure);
+            AttackBandPair {
+                event_sample: anchor.event_sample,
+                pre: pre_measure,
+                post: post_measure,
+                delay_frames: post_measure
+                    .as_ref()
+                    .and_then(|post| band_delay_frames(&pre_measure, post)),
+            }
+        })
+        .collect()
 }
 
 /// POST measured at each matched PRE onset over the PRE detail's head, body and Sharpness

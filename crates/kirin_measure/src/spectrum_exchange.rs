@@ -4,7 +4,7 @@
 #[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -39,9 +39,10 @@ use crate::analysis_exchange_protocol::request_path;
 use crate::analysis_exchange_protocol::JSON_MAX_BYTES as REQUEST_MAX_BYTES;
 use crate::analysis_exchange_protocol::{
     common_future_epoch, read_ready, read_request, remove_ready, remove_request, validated_request,
-    write_ready, write_request, AnalysisReady, AnalysisRequest, REQUEST_SCHEMA,
+    write_ready, write_request, AnalysisReady, AnalysisRequest, ValidatedRequest, REQUEST_SCHEMA,
 };
 use crate::analysis_lease::AnalysisLease;
+use crate::attack_perception::band::{AttackBand, AttackBandPair};
 use crate::perceptual::PerceptualDifference;
 use crate::perceptual_difference_timeline::PerceptualDifferenceTimeline;
 use crate::spectrum::{AnalysisViewMode, SpectrumChannelMode, SpectrumDifference, SpectrumFrame};
@@ -124,6 +125,12 @@ pub struct AttackPairViewSnapshot {
     /// POST measured at each matched PRE onset over that PRE detail's windows (B-1016), so a
     /// paired difference always compares the same content samples.
     pub post_anchored: Vec<crate::AttackDetailedEvent>,
+    /// The band POST asked for, and the band PRE's snapshot declared (B-1096). A PRE that
+    /// predates bands declares none, however long the pair runs.
+    pub band: Option<AttackBand>,
+    pub pre_band: Option<AttackBand>,
+    /// PRE's and POST's measures of the chosen band at each matched onset.
+    pub band_pairs: Vec<AttackBandPair>,
 }
 
 #[derive(Clone)]
@@ -156,6 +163,10 @@ pub struct SpectrumCoordinator {
     runtime: Arc<SpectrumRuntime>,
     attack_runtime: Option<Arc<AttackRuntime>>,
     post_visible: AtomicBool,
+    /// The DRUM band POST shows, 0 for none, and the band the request last carried to PRE: a
+    /// difference renews the request at once.
+    post_attack_band: AtomicU8,
+    sent_attack_band: AtomicU8,
     post_session: Mutex<Option<PostSession>>,
     pre_session: Mutex<Option<PreSession>>,
     view: Mutex<SpectrumViewSnapshot>,
@@ -227,6 +238,8 @@ impl SpectrumCoordinator {
             runtime,
             attack_runtime,
             post_visible: AtomicBool::new(false),
+            post_attack_band: AtomicU8::new(0),
+            sent_attack_band: AtomicU8::new(0),
             post_session: Mutex::new(None),
             pre_session: Mutex::new(None),
             view: Mutex::new(SpectrumViewSnapshot::default()),
@@ -308,6 +321,7 @@ fn renew_request(
     target: &SpectrumTarget,
     sample_rate: u32,
     now_unix_ms: i64,
+    attack_band: Option<AttackBand>,
 ) -> std::io::Result<()> {
     write_request(
         &target.instance_dir,
@@ -321,6 +335,7 @@ fn renew_request(
             channel_mode: session.channel_mode as u8,
             state_epoch_samples: session.state_epoch_samples,
             expires_at_unix_ms: now_unix_ms.saturating_add(REQUEST_LEASE_MS),
+            attack_band: attack_band.map(AttackBand::index),
         },
     )
 }

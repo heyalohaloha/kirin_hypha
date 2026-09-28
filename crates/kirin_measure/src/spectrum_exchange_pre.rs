@@ -14,7 +14,14 @@ impl SpectrumCoordinator {
             self.sample_rate,
             unix_ms_now(),
         );
-        let Some((request_id, analysis_mode, channel_mode, requested_epoch)) = request else {
+        let Some(ValidatedRequest {
+            request_id,
+            analysis_mode,
+            channel_mode,
+            state_epoch_samples: requested_epoch,
+            attack_band,
+        }) = request
+        else {
             self.retire_pre_session();
             return false;
         };
@@ -26,6 +33,9 @@ impl SpectrumCoordinator {
         }
         if !self.prepare_pre_session(request_id, instance_dir, analysis_mode) {
             return false;
+        }
+        if let Some(runtime) = self.attack_runtime.as_ref() {
+            runtime.set_band(attack_band);
         }
         if analysis_mode == AnalysisViewMode::Perceptual {
             if let Some(active) = self.service_perceptual_handshake(
@@ -234,7 +244,15 @@ impl SpectrumCoordinator {
                     .waveform()
                     .next_back()
                     .map(|_| history.revision() as i64);
-                (revision, encode_attack_snapshot(request_id, &history), None)
+                let band = self
+                    .attack_runtime
+                    .as_ref()
+                    .and_then(|runtime| runtime.band());
+                (
+                    revision,
+                    encode_attack_snapshot(request_id, &history, band),
+                    None,
+                )
             }
             AnalysisViewMode::Absolute => return false,
         };
@@ -321,6 +339,9 @@ impl SpectrumCoordinator {
             .is_some();
         if retired {
             self.disable_analysis_runtimes();
+            if let Some(runtime) = self.attack_runtime.as_ref() {
+                runtime.set_band(None);
+            }
             let _ = self.runtime.set_perceptual_state_epoch(None);
         }
     }
@@ -354,7 +375,7 @@ impl SpectrumCoordinator {
             self.sample_rate,
             unix_ms_now(),
         )
-        .is_some_and(|(current_id, _, _, _)| current_id == request_id)
+        .is_some_and(|current| current.request_id == request_id)
     }
 
     fn try_pre_session(&self) -> Option<MutexGuard<'_, Option<PreSession>>> {

@@ -41,7 +41,7 @@ fn exact_histories_publish_active_pair_without_time_shifting() {
         &mut session,
         Instant::now(),
         Some(history(2, 0.8)),
-        Some(history(4, 0.6)),
+        Some((history(4, 0.6), None)),
     );
     let view = coordinator.try_attack_view().unwrap();
     assert_eq!(view.status, SpectrumViewStatus::Active);
@@ -71,7 +71,7 @@ fn mismatched_content_stays_unavailable_instead_of_correlating() {
         &mut session,
         Instant::now(),
         Some(post),
-        Some(std::mem::take(&mut pre)),
+        Some((std::mem::take(&mut pre), None)),
     );
     assert_eq!(
         coordinator.try_attack_view().unwrap().status,
