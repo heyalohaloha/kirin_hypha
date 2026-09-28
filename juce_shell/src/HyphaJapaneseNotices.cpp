@@ -84,6 +84,22 @@ const Entry entries[] = {
     { "CHOOSE AN ANSWER AFTER BOTH PASSES", u8"両方を聴いてから回答してください" },
     { "End Reference Blind Compare before starting PRE / POST Blind",
       u8"先にReferenceのBlindを終えてください" },
+    { "PRE / POST listening started. Closing this window returns to POST",
+      u8"試聴を始めました。画面を閉じるとPOSTに戻ります" },
+    { "PRE / POST listening could not start. Try again", u8"試聴を開始できません。もう一度試してください" },
+    { "Choose the PRE for this POST first", u8"先にこのPOSTのPREを選んでください" },
+    { "PRE / POST listening is for mono / stereo only", u8"PRE／POSTの試聴はモノラル／ステレオのみです" },
+    { "The paired PRE is not available. Check that it is active",
+      u8"ペアのPREを使えません。有効か確認してください" },
+    { "PRE was deselected. Select PRE again", u8"PREの選択を解除しました。選び直してください" },
+    { "PRE / POST listening ended. POST is playing", u8"試聴を終えました。POSTが鳴っています" },
+    { "PRE matched to POST: %1 over %2 s", u8"PREをPOSTに合わせました：%1（%2秒）" },
+    { "PRE gain limited to %1 by the True Peak ceiling; %2 would match",
+      u8"トゥルーピーク上限でPREを%1に制限（一致は%2）" },
+    { "MATCH waits for PRE. Play the song", u8"MATCHはPRE待ちです。曲を再生してください" },
+    { "MATCH needs three seconds of continuous playback", u8"MATCHには3秒以上の連続再生が必要です" },
+    { "MATCH could not read a stable range. Try again", u8"範囲を読めません。もう一度MATCHしてください" },
+    { "MATCH needs more signal in the latest four seconds", u8"直近4秒の信号が足りずMATCHできません" },
 };
 }
 

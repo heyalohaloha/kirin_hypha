@@ -277,6 +277,9 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     target_sources(${TARGET} PRIVATE
         src/PluginProcessor.cpp src/PluginProcessorFormat.cpp src/PluginProcessorCandidates.cpp src/HyphaPairPreview.cpp src/PluginProcessorState.cpp src/PluginProcessorAudition.cpp src/PluginProcessorPairing.cpp
         src/PluginProcessorLocalBlindTransport.cpp
+        src/PluginProcessorLiveCompare.cpp
+        src/live_compare/LiveCompareSharedRing.cpp
+        src/live_compare/LiveCompareMatch.cpp
         src/local_blind/LocalBlindCaptureService.cpp
         src/local_blind/CapturePairComparison.cpp
         src/local_blind/LocalBlindPreparation.cpp
@@ -313,6 +316,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryLiveCompare.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
@@ -352,6 +356,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     else()
         target_sources(${TARGET} PRIVATE
             src/PluginEditorLocalBlind.cpp
+            src/PluginEditorLiveCompare.cpp
             src/HyphaLocalBlindComponent.cpp
             src/HyphaLocalBlindSteps.cpp
         src/HyphaLocalBlindPresentation.cpp
@@ -517,6 +522,7 @@ endif()
 option(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS
     "Build the native-font and fixed-geometry UI render contract test" OFF)
 include(cmake/LocalBlind.cmake)
+include(cmake/LiveCompare.cmake)
 option(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER
     "Build the display-only Reference preview renderer used by Kirin OS" ON)
 if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
@@ -547,6 +553,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryLiveCompare.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaSpacePainter.cpp
         src/HyphaMonoSumPainter.cpp
@@ -595,6 +602,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/HybridVuContractTest.cpp
         tests/ComparisonPresentationContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
+        tests/LiveCompareFooterContractTest.cpp
         tests/SurroundObservatoryContractTest.cpp
         tests/JungleAppearanceContractTest.cpp
         tests/ObservatoryCaptureContractTest.cpp
@@ -622,6 +630,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryLiveCompare.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
@@ -946,6 +955,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryLiveCompare.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaSpacePainter.cpp
         src/HyphaMonoSumPainter.cpp

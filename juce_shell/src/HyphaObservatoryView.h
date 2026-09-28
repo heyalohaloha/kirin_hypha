@@ -50,6 +50,24 @@ private:
     presentation::Context presentationContext = presentation::defaultContext();
 };
 
+// The live PRE / POST compare as the footer shows it (INV-LC4). PRE can be selected while POST
+// still sounds, until the correspondence at this position is proven: the PRE control says WAIT.
+struct LiveCompareFooter
+{
+    bool entryEnabled = false; // this POST can open a session (host format, platform, layout)
+    bool active = false;
+    bool preSelected = false;
+    bool preWaiting = false;
+    bool matched = false;      // an explicit MATCH set the PRE gain in this session
+    int preGainTenthsDb = 0;   // that gain in 0.1 dB steps, as the PRE control shows it
+    bool operator== (const LiveCompareFooter& other) const noexcept
+    {
+        return entryEnabled == other.entryEnabled && active == other.active
+            && preSelected == other.preSelected && preWaiting == other.preWaiting
+            && matched == other.matched && preGainTenthsDb == other.preGainTenthsDb;
+    }
+};
+
 class View final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
@@ -68,6 +86,10 @@ public:
     std::function<void()> onNote;
     std::function<void()> onInformation;
     std::function<void()> onLocalBlind;
+    std::function<void()> onLiveCompareStart;
+    std::function<void (bool pre)> onLiveCompareSelect;
+    std::function<void()> onLiveCompareMatch;
+    std::function<void()> onLiveCompareEnd;
     std::function<void()> onDomainMenu;
     std::function<void()> onSizeMenu;
     std::function<void()> onOperationsMenu;
@@ -239,6 +261,8 @@ public:
         localBlindEntryEnabled = enabled;
         resized();
     }
+    void setLiveCompareFooter (const LiveCompareFooter&);
+    const LiveCompareFooter& liveCompareFooter() const noexcept { return liveCompareState; }
 
     struct HistoryRequest
     {
@@ -305,6 +329,11 @@ private:
     juce::String footerStatusText() const;
     int statusStripHeight() const;
     void layoutFooterActions (juce::Rectangle<int>);
+    int footerButtonWidth (const juce::String& text) const;
+    void placeFooterButtons (const juce::Array<juce::Button*>&, const juce::Array<int>& minimumWidths,
+                             juce::Rectangle<int>);
+    void configureComparisonEntries();
+    bool layoutLiveCompareFooter (juce::Rectangle<int>);
     void paintLevel (juce::Graphics&, juce::Rectangle<int>, bool includeChannelStrips = true);
     void paintLevelWithHistory (juce::Graphics&, juce::Rectangle<int>);
     void paintRecordDisplay (juce::Graphics&, juce::Rectangle<int>);
@@ -358,6 +387,7 @@ private:
     juce::String feedbackText;
     bool referenceOwned = false;
     bool localBlindEntryEnabled = false;
+    LiveCompareFooter liveCompareState;
     bool measurementOnlySurround = false;
     bool measurementFormatHeld = false;
     bool keepActive = false;
@@ -420,6 +450,11 @@ private:
     Button noteButton { "NOTE", false };
     Button captureButton { "CAPTURE", false };
     Button localBlindButton { "BLIND", false };
+    Button liveCompareButton { "LISTEN", false };
+    Button livePreButton { "PRE", false };
+    Button livePostButton { "POST", false };
+    Button liveMatchButton { "MATCH", false };
+    Button liveEndButton { "END", false };
     InformationButton informationButton;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (View)

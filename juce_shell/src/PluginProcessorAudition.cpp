@@ -53,12 +53,16 @@ void KirinHyphaProcessorBase::processComparisonPaths (
             {clock.inputPresentationSamples,clock.outputPresentationSamples,clock.presentationSource,clock.inputPresentationValid,clock.outputPresentationValid});
     // Explicit B is an output-only audition copy. A has already been measured. Offline
     // render, bypass, missing project time, cache miss, and every consumer failure keep A intact.
+    bool referenceRendered = false;
     if (role == Role::Post && referenceAuditionController != nullptr)
-        referenceAuditionController->renderSelectedB (
+        referenceRendered = referenceAuditionController->renderSelectedB (
             buffer, clock.positionSamples, clock.hasPosition,
             ! bypassed && ! nonRealtimeMode && licenseIsOs(),
             ! bypassed && ! nonRealtimeMode);
+    // Live PRE/POST compare comes last: A is already observed and another audition keeps POST.
+    processLiveCompare (buffer, clock, bypassed, nonRealtimeMode, referenceRendered);
 #else
-    juce::ignoreUnused (buffer, clock, bypassed, nonRealtimeMode);
+    // The PRE product feeds the live compare ring only while a POST session demands it.
+    processLiveCompare (buffer, clock, bypassed, nonRealtimeMode, false);
 #endif
 }

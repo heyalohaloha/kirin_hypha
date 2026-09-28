@@ -1,0 +1,176 @@
+#include "LiveCompareFooterContractTest.h"
+
+#include "../src/HyphaObservatoryView.h"
+#include "../src/HyphaTextStyle.h"
+
+#include <cstdlib>
+#include <iostream>
+#include <vector>
+
+// The live PRE / POST compare in the Observatory footer (INV-LC4, plan section 9): the entry beside
+// Blind at the large POST sizes, a running session's POST and END at every size, a PRE control that
+// names WAIT and its MATCH gain in text, and slots that a boundary never moves.
+namespace hypha::tests
+{
+namespace
+{
+void require (bool condition, const char* what)
+{
+    if (condition)
+        return;
+    std::cerr << "Live compare footer contract failed: " << what << '\n';
+    std::exit (EXIT_FAILURE);
+}
+
+juce::Button* control (observatory::View& view, const char* id)
+{
+    auto* button = dynamic_cast<juce::Button*> (view.findChildWithID (id));
+    require (button != nullptr && button->onClick != nullptr, id);
+    return button;
+}
+
+bool readable (observatory::View& view, const juce::Button& button)
+{
+    const auto font = labelFont (view.presentationContext(), typography::TextRole::action);
+    return text_style::shownWidth (font, button.getButtonText()) + 6.0f <= static_cast<float> (button.getWidth());
+}
+
+std::vector<juce::Rectangle<int>> boundsOf (const std::vector<juce::Component*>& controls)
+{
+    std::vector<juce::Rectangle<int>> bounds;
+    for (const auto* component : controls)
+        bounds.push_back (component->isVisible() ? component->getBounds() : juce::Rectangle<int>());
+    return bounds;
+}
+}
+
+void verifyLiveCompareFooterContract()
+{
+    observatory::View post (observatory::Role::post);
+    observatory::View pre (observatory::Role::pre);
+    auto* entry = control (post, "observatory-live-compare");
+    auto* preEntry = control (pre, "observatory-live-compare");
+    auto* preButton = control (post, "observatory-live-pre");
+    auto* postButton = control (post, "observatory-live-post");
+    auto* match = control (post, "observatory-live-match");
+    auto* end = control (post, "observatory-live-end");
+    auto* blind = control (post, "observatory-local-blind");
+    auto* menu = &post.operationsMenuAnchor();
+
+    observatory::LiveCompareFooter state;
+    for (const auto preset : observatory::sizePresets)
+    {
+        post.setSize (preset.width, preset.height);
+        require (! entry->isVisible(), "no entry until the processor offers the live compare");
+    }
+    state.entryEnabled = true;
+    post.setLiveCompareFooter (state);
+    pre.setLiveCompareFooter (state);
+    post.setLocalBlindEntryEnabled (true);
+    for (const auto preset : observatory::sizePresets)
+    {
+        post.setSize (preset.width, preset.height);
+        pre.setSize (preset.width, preset.height);
+        require (entry->isVisible() == (preset.width >= 600), "the entry sits beside Blind at the large sizes");
+        require (! preEntry->isVisible(), "PRE never offers the live compare");
+        require (! preButton->isVisible() && ! postButton->isVisible() && ! end->isVisible(),
+                 "no session controls before a session");
+        if (entry->isVisible())
+            require (readable (post, *entry) && blind->isVisible()
+                         && ! entry->getBounds().intersects (blind->getBounds())
+                         && ! entry->getBounds().intersects (menu->getBounds()),
+                     "the entry reads whole and overlaps neither Blind nor MENU");
+    }
+
+    int started = 0, ended = 0, matched = 0, selectedPre = 0, selectedPost = 0;
+    post.onLiveCompareStart = [&] { ++started; };
+    post.onLiveCompareEnd = [&] { ++ended; };
+    post.onLiveCompareMatch = [&] { ++matched; };
+    post.onLiveCompareSelect = [&] (bool choosePre) { ++(choosePre ? selectedPre : selectedPost); };
+    post.setSize (900, 600);
+    entry->onClick();
+    require (started == 1, "the entry asks the editor to start a session");
+
+    state.active = true;
+    post.setLiveCompareFooter (state);
+    const std::vector<juce::Component*> rail { preButton, postButton, match, end, menu };
+    for (const auto preset : observatory::sizePresets)
+    {
+        post.setSize (preset.width, preset.height);
+        require (postButton->isVisible() && end->isVisible(), "POST and END stay at every size");
+        require (! entry->isVisible() && ! blind->isVisible(), "a session replaces the comparison entries");
+        if (preset.width >= 600)
+            require (preButton->isVisible() && match->isVisible() && menu->isVisible(),
+                     "the large rail keeps PRE, MATCH and MENU");
+        std::cout << "Live compare footer " << preset.label << ":";
+        for (auto* component : rail)
+            if (component->isVisible())
+                std::cout << ' ' << component->getComponentID();
+        std::cout << '\n';
+        for (std::size_t i = 0; i < rail.size(); ++i)
+        {
+            if (! rail[i]->isVisible())
+                continue;
+            require (post.getLocalBounds().contains (rail[i]->getBounds()), "each control lies in the editor");
+            if (auto* button = dynamic_cast<juce::Button*> (rail[i]); button != nullptr && rail[i] != menu)
+                require (readable (post, *button), "each control reads whole");
+            for (std::size_t j = i + 1; j < rail.size(); ++j)
+                require (! rail[j]->isVisible() || ! rail[i]->getBounds().intersects (rail[j]->getBounds()),
+                         "controls never overlap");
+        }
+        require (postButton->getToggleState() && ! preButton->getToggleState(), "POST is the selected source");
+
+        const auto before = boundsOf (rail);
+        state.preSelected = true;
+        state.preWaiting = true;
+        post.setLiveCompareFooter (state);
+        require (boundsOf (rail) == before, "WAIT never moves a control");
+        require (! preButton->isVisible() || preButton->getButtonText().contains ("WAIT"),
+                 "PRE selected while POST sounds reads WAIT in text");
+        require (preButton->getToggleState() && ! postButton->getToggleState(), "PRE is the selected source");
+        state.preWaiting = false;
+        post.setLiveCompareFooter (state);
+        require (boundsOf (rail) == before, "the proof returning never moves a control");
+        require (! preButton->isVisible() || preButton->getButtonText() == "PRE", "PRE reads PRE once proven");
+        state.preSelected = false;
+        post.setLiveCompareFooter (state);
+    }
+
+    post.setSize (900, 600);
+    state.matched = true;
+    state.preGainTenthsDb = 32;
+    post.setLiveCompareFooter (state);
+    require (preButton->getButtonText() == "PRE +3.2 dB" && match->getToggleState(),
+             "the PRE control names its MATCH gain and MATCH shows it is applied");
+    state.preGainTenthsDb = 0;
+    post.setLiveCompareFooter (state);
+    require (preButton->getButtonText() == "PRE 0.0 dB", "a unity MATCH has no sign");
+    state.preGainTenthsDb = -60;
+    post.setLiveCompareFooter (state);
+    require (preButton->getButtonText() == "PRE -6.0 dB", "a cut keeps its sign");
+    state.preGainTenthsDb = -125;
+    post.setLiveCompareFooter (state);
+    require (preButton->getButtonText() == "PRE -12.5 dB" && readable (post, *preButton),
+             "a two-digit gain still reads whole");
+
+    preButton->onClick();
+    postButton->onClick();
+    match->onClick();
+    end->onClick();
+    require (selectedPre == 1 && selectedPost == 1 && matched == 1 && ended == 1,
+             "PRE, POST, MATCH and END reach the editor");
+
+    require (post.setManualHybridVuVisible (true), "Hybrid VU opens");
+    require (! preButton->isVisible() && ! postButton->isVisible() && ! end->isVisible(),
+             "the Hybrid VU page shows no footer controls");
+    post.setManualHybridVuVisible (false);
+    require (postButton->isVisible() && end->isVisible(), "leaving the Hybrid VU brings the session back");
+
+    state = {};
+    state.entryEnabled = true;
+    post.setLiveCompareFooter (state);
+    require (entry->isVisible() && ! postButton->isVisible() && ! end->isVisible(),
+             "ending the session restores the entry");
+    std::cout << "Live compare footer contract: PASS\n";
+}
+}

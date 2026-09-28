@@ -327,7 +327,7 @@ fn optional_analysis_is_post_only_on_demand_and_isolated_from_existing_schemas()
     let enable = slice_between(
         &processor_lifecycle,
         "void KirinHyphaProcessorBase::enableWritesNow()",
-        "startLocalBlindCaptureForPreparedFormat();",
+        "startPreparedFormatServices();",
     );
     let writes_ready = enable
         .find("writesEnabled.store (true")

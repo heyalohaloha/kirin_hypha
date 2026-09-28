@@ -136,6 +136,8 @@ private:
     void refreshLocalBlindProduct();
     void layoutLocalBlindProduct();
     void setLocalBlindIsolation (bool active);
+    void configureLiveCompare();
+    void refreshLiveCompare();
     bool refreshAnalysisViews (bool alive, int signalState, bool recording,
                                bool armed, bool acknowledged, bool presetAvailable,
                                int pairStatus);
@@ -239,6 +241,10 @@ private:
         bool enabled = true;
     };
     std::vector<LocalBlindUnderlyingState> localBlindUnderlyingStates;
+    bool liveCompareMatched = false;
+    bool liveCompareInterruptSeen = false;
+    bool liveCompareActiveSeen = false;
+    double liveComparePreWaitUntil = 0.0;
 #endif
     int    floraY      = 0;       // y of the flora separator line
     juce::Rectangle<int> titleArea;

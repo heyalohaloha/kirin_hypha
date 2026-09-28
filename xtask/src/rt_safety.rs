@@ -3,6 +3,10 @@
 mod platform_gate_tests;
 
 #[cfg(test)]
+#[path = "rt_safety_live_compare_tests.rs"]
+mod live_compare_tests;
+
+#[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
