@@ -7,7 +7,7 @@
 - 周回単位の取り違えの限界を明記した。
 - 定数をhostごとの値にした。
 - 自動で戻るときの遷移と表示を加えた。
-- AAX（Pro Tools）の条件を加えた（第2.5節、INV-LC8）。
+- AAX（Pro Tools）の条件を加えた（第2.5節、INV-LC8〜LC10）。INV-LC9とINV-LC10は、同日に利用者が推奨を採用した。
 状態: 下書き。AGENTS、不変条件表、READMEの正本はまだ変更しない。
 [実装計画](hypha_live_chain_compare_implementation_plan_20260927.md)（第14版）の方針どおり、正本は実装の承認時に改める。
 本書は、そのときに入れる差分を先に固定し、承認の判断材料にする。
@@ -25,6 +25,7 @@
 | 遅延の報告の誤りへの備え: 比較の開始時と定期的に中身のずれを推定し、時計の対応と食い違えば警告する（止めない）。DAWの遅延補償に依存することを説明書に記す | 2026-09-28（見直し。利用者が判断を委任し、推奨を採用） | 同第8.6節 |
 | AAX（Pro Tools）をVST3、AUと並ぶ重要な対象として扱い、同じ規則が成り立つかを実測で確かめる | 2026-09-28（利用者の指示） | 本書第2.5節、実装計画第5.4節 |
 | AAXはプロが使うので、出来る限り完璧に近く、他のプラグインより高い精度を保つ。品質目標を出荷の条件にする | 2026-09-28（利用者の指示） | 実装計画第5.4節の品質目標 |
+| 比較の途中で中身のずれが跳んだら（Pro Toolsの再生中の遅延変更など）、POSTへ倒し、再生の停止と再開の後に戻す（INV-LC10）。AAXのmulti-monoでも比較を提供し、全channelを同じblockで切り替える（INV-LC9） | 2026-09-28（利用者が推奨を採用） | 実装計画第5.4節 |
 
 ## 2. AGENTS.md
 
@@ -114,8 +115,8 @@ blockの長さが変わるhostや、呼出しが不規則なhostでは、空白�
 | INV-LC6 | （副作用と範囲の確認後に採用）PREとPOSTはinfinite tailを報告し、hostのplugin sleepで比較が途切れないようにする。音声とlatencyは変えない | LC-01、LC-21、LC-25 |
 | INV-LC7 | 比較の開始時と、その後は定期的に、非RTのworkerでPREとPOSTの中身のずれを推定する。時計の規則による対応と食い違えば、推定したずれと、考えられる原因（遅延の報告の誤り、意図したdelay、強い加工）を事実として示し、警告する。比較は止めず、Kも補正しない。推定できないとき（無音、周期信号、強い加工など）は判定不能とし、警告も「一致」の表示も出さない。比較の途中の跳びの扱いはINV-LC10 | LC-29 |
 | INV-LC8 | （案）hostが遅延補償の無効を通知している間（AAXの`AAX_eNotificationEvent_DelayCompensationState`が0）は、対応を確かめられないものとしてPOSTを出力し、理由を画面に示す。通知が有効へ戻れば、Cの規則で確かめ直してPREへ戻す | LC-20、LC-26 |
-| INV-LC9 | AAXのmulti-monoでは、channelの間でPREとPOSTを混ぜない（必須）。提供するかは利用者の判断で、提供する場合は、あるblockを最初に判定したPOSTのinstanceが全channelの判定を決めて公開し、他のinstanceはそれに従う（推奨）。全channelで対応を確かめられたblockだけPREを出す | LC-12、LC-26、LC-33 |
-| INV-LC10 | （案。利用者の確認待ち）比較の途中で中身のずれが基準値から跳び、時計は変わらないときは、補償されていない遅延変更の境界として扱う。POSTを出力し、PREの選択は保ち、再生の停止と再開の後に時計と中身で確かめ直して戻す。初めからある絶対値の食い違いは、INV-LC7の警告だけにする | LC-20、LC-29、LC-33 |
+| INV-LC9 | AAXのmulti-monoでも比較を提供し、channelの間でPREとPOSTを混ぜない。あるblockを最初に判定したPOSTのinstanceが全channelの判定を決めて公開し、他のinstanceはそれに従う。全channelで対応を確かめられたblockだけPREを出す | LC-12、LC-26、LC-33 |
+| INV-LC10 | 比較の途中で中身のずれが基準値から跳び、時計は変わらないときは、補償されていない遅延変更の境界として扱う。POSTを出力し、PREの選択は保ち、再生の停止と再開の後に時計と中身で確かめ直して戻す。初めからある絶対値の食い違いは、INV-LC7の警告だけにする | LC-20、LC-29、LC-33 |
 
 INV-LC1は、project時刻の一致が、POSTが聞いている周回のPREの記録と結び付くことを前提にする。
 chainの遅延がloop長以上だと、この前提が崩れ、Kを周回単位でずらして較正し得る（G1記録第8.6節。判定コードの作りからの推論で、未試験）。
@@ -171,12 +172,11 @@ READMEは英語なので、案も英語で書く。画面の日本語は翻訳ca
 > - Right after a seek or a new start, you hear POST for about the latency of the chain between PRE and POST.
 > - If the input stays silent for several seconds, the DAW may stop calling Hypha. PRE comes back shortly after the sound returns.
 > - If you change a plug-in setting that changes its latency (look-ahead, oversampling, linear phase) while comparing, PRE can be misaligned for a moment right after the change. How long depends on the DAW and its buffer size.
-> - Pro Tools does not update its delay compensation during playback. After such a change, stop and start playback again. Until then, Hypha shows the warning above. While delay compensation is turned off in Pro Tools, you hear POST.
+> - Pro Tools does not update its delay compensation during playback. If a latency change shifts the audio while you compare, you hear POST until you stop and start playback again. While delay compensation is turned off in Pro Tools, you hear POST.
 > - Offline render and a broken or changed pair end the comparison. Select PRE again to continue.
 
 hostごとの実測値（seek直後の長さ、遅延変更の直後の長さ）は、対応host一覧に載せる。
 Pro Toolsの項の最後の一文は、INV-LC8を採用した場合に入れる。
-INV-LC10を採用したら、Pro Toolsの項の「Until then, Hypha shows the warning above.」を「Until then, you hear POST.」に改める。
 sleepの一文は、INV-LC6を採用したら「DAWが止めても比較は途切れない」の趣旨へ差し替える。
 短いloopと長い遅延の扱い（INV-LC1の注記）が決まったら、1行を加える。
 Referenceとの振る舞いの違い（INV-LC4の注記）は、Referenceの節と本節の両方に1行ずつ書く。

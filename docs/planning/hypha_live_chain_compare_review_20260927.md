@@ -60,6 +60,8 @@ AvidのAAX SDK Pro Tools Guideと、手元のAAX SDK 2.9のheaderから、次を
 - Pro Toolsの再生中の遅延変更では、中身のずれの跳びを境界として扱い、POSTへ倒す（INV-LC10）。止めずに警告する判断を、この場合に限って強める案なので、利用者の確認を待つ。
 - multi-monoでは、channelの間でPREとPOSTを混ぜないことを必須にし、全channelを同じblockで切り替える方式を推奨にした（INV-LC9）。
 
+利用者は2件とも推奨を採用した（「推奨で」）。INV-LC10とINV-LC9は案から決定に改めた。
+
 ### 0.4 検証と限界
 
 - 文書だけの改訂であり、実測、製品コード、正本の変更はない。
@@ -69,7 +71,7 @@ AvidのAAX SDK Pro Tools Guideと、手元のAAX SDK 2.9のheaderから、次を
 
 ### 0.5 未処理と申し送り
 
-- 利用者の判断: Pro Toolsの再生中の遅延変更でPOSTへ倒す案（INV-LC10）、AAXのmulti-monoを提供するか（INV-LC9）、補償済みの位置が渡らないhostの扱い、infinite tailとAlwaysProcessの範囲（副作用の確認後）。
+- 利用者の判断: 補償済みの位置が渡らないhostの扱い（実測の後）、infinite tailとAlwaysProcessの範囲（副作用の確認後）。INV-LC10とINV-LC9は、2026-09-28に推奨を採用した。
 - 実測: Pro ToolsのG1-01（最優先）、Windows、他のbuffer設定、周回ごとに印が変わるfixture、中身のずれの警告の方式。
 - 証跡をrepositoryへ入れるかの判断（L3）。
 
