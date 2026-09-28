@@ -6,6 +6,11 @@ use uuid::Uuid;
 
 use super::attack_snapshot_path;
 use crate::analysis_exchange_transport::{self, AnalysisSlot};
+use crate::attack_perception::band::{
+    AttackBand, AttackBandMeasure, ATTACK_BAND_HEAD_POINTS, ATTACK_BAND_HISTORY_CAPACITY,
+    ATTACK_BAND_TAIL_POINTS,
+};
+use crate::attack_runtime::AttackBandDetail;
 use crate::{
     AttackDetailedEvent, AttackEvent, AttackEventShape, AttackHistory, AttackOdfFrame,
     AttackPerceptualFeatures, AttackWaveformPoint, ATTACK_EVENT_HISTORY_CAPACITY,
@@ -15,14 +20,20 @@ use crate::{
 const SNAPSHOT_MAGIC: &[u8; 8] = b"KHATK001";
 /// Version 2 (B-1016): content-grid windows, body end, TRANSIENT as head minus body, and the
 /// loudness-weighted Sharpness of the 100 ms from the onset. Version 3 (B-1024): a detail may be
-/// head-only (`complete` = 0) and its shape covers only the measured span.
+/// head-only (`complete` = 0) and its shape covers only the measured span. Version 4 (B-1096):
+/// written only while a band is requested, it appends the band and its measures. A POST that
+/// never requests a band keeps receiving version 3.
 const SNAPSHOT_VERSION: u16 = 3;
+const SNAPSHOT_VERSION_BAND: u16 = 4;
 const DETAIL_BYTES: usize = 460;
-pub(super) const ATTACK_SNAPSHOT_MAX_BYTES: u64 = 196_608;
+const BAND_DETAIL_BYTES: usize = 692;
+pub(super) const ATTACK_SNAPSHOT_MAX_BYTES: u64 = 262_144;
 
 pub(super) struct DecodedAttackSnapshot {
     pub(super) request_id: Uuid,
     pub(super) history: AttackHistory,
+    /// The band PRE was measuring, when the snapshot is version 4.
+    pub(super) band: Option<AttackBand>,
 }
 
 pub(super) fn read_attack_snapshot(instance_dir: &Path) -> Option<DecodedAttackSnapshot> {
@@ -51,7 +62,11 @@ pub(super) fn remove_attack_snapshot(instance_dir: &Path) {
     );
 }
 
-pub(super) fn encode_attack_snapshot(request_id: Uuid, history: &AttackHistory) -> Vec<u8> {
+pub(super) fn encode_attack_snapshot(
+    request_id: Uuid,
+    history: &AttackHistory,
+    band: Option<AttackBand>,
+) -> Vec<u8> {
     let Some(identity) = history.newest() else {
         return Vec::new();
     };
@@ -61,13 +76,28 @@ pub(super) fn encode_attack_snapshot(request_id: Uuid, history: &AttackHistory) 
         .len()
         .min(ATTACK_WAVEFORM_HISTORY_CAPACITY) as u16;
     let detail_count = history.details().len().min(ATTACK_EVENT_HISTORY_CAPACITY) as u16;
+    let band_details = band
+        .map(|band| {
+            history
+                .band_details()
+                .filter(|detail| detail.measure.band == band)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let band_count = band_details.len().min(ATTACK_BAND_HISTORY_CAPACITY) as u16;
     let mut bytes = Vec::with_capacity(
-        92 + frame_count as usize * 12
+        96 + frame_count as usize * 12
             + waveform_count as usize * 24
-            + detail_count as usize * DETAIL_BYTES,
+            + detail_count as usize * DETAIL_BYTES
+            + band_count as usize * BAND_DETAIL_BYTES,
     );
     bytes.extend_from_slice(SNAPSHOT_MAGIC);
-    bytes.extend_from_slice(&SNAPSHOT_VERSION.to_le_bytes());
+    let version = if band.is_some() {
+        SNAPSHOT_VERSION_BAND
+    } else {
+        SNAPSHOT_VERSION
+    };
+    bytes.extend_from_slice(&version.to_le_bytes());
     bytes.extend_from_slice(&0_u16.to_le_bytes());
     bytes.extend_from_slice(request_id.as_bytes());
     bytes.extend_from_slice(&identity.sample_rate.to_le_bytes());
@@ -94,7 +124,39 @@ pub(super) fn encode_attack_snapshot(request_id: Uuid, history: &AttackHistory) 
     for detail in history.details() {
         encode_detail(&mut bytes, detail);
     }
+    if let Some(band) = band {
+        bytes.push(band.index());
+        bytes.push(0);
+        bytes.extend_from_slice(&band_count.to_le_bytes());
+        for detail in band_details.iter().take(band_count as usize) {
+            encode_band_detail(&mut bytes, detail);
+        }
+    }
     bytes
+}
+
+fn encode_band_detail(bytes: &mut Vec<u8>, detail: &AttackBandDetail) {
+    let measure = detail.measure;
+    bytes.extend_from_slice(&detail.event.event_sample.to_le_bytes());
+    bytes.extend_from_slice(&detail.event.decision_sample.to_le_bytes());
+    bytes.extend_from_slice(&detail.event.value.to_le_bytes());
+    bytes.extend_from_slice(&measure.span_end_sample.to_le_bytes());
+    bytes.extend_from_slice(&measure.peak_frames.to_le_bytes());
+    bytes.extend_from_slice(&measure.level_dbfs.to_le_bytes());
+    bytes.push(measure.arrival_frames.is_some() as u8);
+    bytes.push(measure.attack_frames.is_some() as u8);
+    bytes.push(measure.release_frames.is_some() as u8);
+    bytes.push(0);
+    for value in [
+        measure.arrival_frames.unwrap_or(0.0),
+        measure.attack_frames.unwrap_or(0.0),
+        measure.release_frames.unwrap_or(0.0),
+    ] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in measure.head_dbfs.iter().chain(measure.tail_dbfs.iter()) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
 }
 
 fn encode_detail(bytes: &mut Vec<u8>, detail: &AttackDetailedEvent) {
@@ -128,7 +190,8 @@ fn encode_detail(bytes: &mut Vec<u8>, detail: &AttackDetailedEvent) {
 pub(super) fn decode_attack_snapshot(bytes: &[u8]) -> Option<DecodedAttackSnapshot> {
     let mut cursor = Cursor::new(bytes);
     (cursor.take(8)? == SNAPSHOT_MAGIC).then_some(())?;
-    (cursor.u16()? == SNAPSHOT_VERSION).then_some(())?;
+    let version = cursor.u16()?;
+    (version == SNAPSHOT_VERSION || version == SNAPSHOT_VERSION_BAND).then_some(())?;
     let _reserved = cursor.u16()?;
     let request_id = Uuid::from_slice(cursor.take(16)?).ok()?;
     let sample_rate = cursor.u32()?;
@@ -188,10 +251,83 @@ pub(super) fn decode_attack_snapshot(bytes: &[u8]) -> Option<DecodedAttackSnapsh
         history.push_event(detail.event);
         history.push_detail(detail);
     }
+    let mut band = None;
+    if version == SNAPSHOT_VERSION_BAND {
+        let chosen = AttackBand::from_index(cursor.u8()?)?;
+        let _reserved = cursor.u8()?;
+        let band_count = cursor.u16()? as usize;
+        (band_count <= ATTACK_BAND_HISTORY_CAPACITY).then_some(())?;
+        for _ in 0..band_count {
+            let detail = decode_band_detail(
+                &mut cursor,
+                chosen,
+                generation,
+                sample_rate,
+                channels,
+                definition_hash,
+            )?;
+            if history.events().all(|event| *event != detail.event) {
+                history.push_event(detail.event);
+            }
+            history.push_band_detail(detail);
+        }
+        band = Some(chosen);
+    }
     (cursor.remaining() == 0).then_some(DecodedAttackSnapshot {
         request_id,
         history,
+        band,
     })
+}
+
+fn decode_band_detail(
+    cursor: &mut Cursor<'_>,
+    band: AttackBand,
+    generation: u64,
+    sample_rate: u32,
+    channels: u8,
+    definition_hash: [u8; 32],
+) -> Option<AttackBandDetail> {
+    let event_sample = cursor.i64()?;
+    let decision_sample = cursor.i64()?;
+    let value = cursor.f32()?;
+    let span_end_sample = cursor.i64()?;
+    let peak_frames = cursor.f32()?;
+    let level_dbfs = cursor.f32()?;
+    let arrival_available = cursor.bool()?;
+    let attack_available = cursor.bool()?;
+    let release_available = cursor.bool()?;
+    let _reserved = cursor.u8()?;
+    let times = cursor.f32_array::<3>()?;
+    let head_dbfs = cursor.f32_array::<ATTACK_BAND_HEAD_POINTS>()?;
+    let tail_dbfs = cursor.f32_array::<ATTACK_BAND_TAIL_POINTS>()?;
+    let event = AttackEvent {
+        generation,
+        sample_rate,
+        channels,
+        definition_hash,
+        event_sample,
+        decision_sample,
+        value,
+    };
+    let detail = AttackBandDetail {
+        event,
+        measure: AttackBandMeasure {
+            band,
+            sample_rate,
+            channels,
+            event_sample,
+            span_end_sample,
+            peak_frames,
+            level_dbfs,
+            arrival_frames: arrival_available.then_some(times[0]),
+            attack_frames: attack_available.then_some(times[1]),
+            release_frames: release_available.then_some(times[2]),
+            head_dbfs,
+            tail_dbfs,
+        },
+    };
+    detail.has_valid_layout().then_some(detail)
 }
 
 fn decode_detail(

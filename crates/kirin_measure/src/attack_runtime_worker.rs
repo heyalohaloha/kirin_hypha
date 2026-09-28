@@ -5,6 +5,7 @@ use std::time::Duration;
 use rtrb::Consumer;
 
 use super::assembler::AttackAssembler;
+use super::band_worker::BandWorker;
 use super::detail::AttackDetailTracker;
 use super::peak::AttackPeakPicker;
 use super::{drum_config, AttackConsumers, AttackRuntime};
@@ -21,12 +22,14 @@ impl AttackRuntime {
         let mut assembler = AttackAssembler::new(analyzer, self.num_channels);
         let mut detail_tracker = AttackDetailTracker::new(self.sample_rate, self.num_channels);
         let mut peak_picker = AttackPeakPicker::new();
+        let mut band_worker = BandWorker::new();
         while !self.shutdown.load(Ordering::Acquire) {
             if !self.enabled.load(Ordering::Acquire) {
                 drain(consumers);
                 assembler.reset();
                 detail_tracker.reset();
                 peak_picker.reset();
+                band_worker.reset();
                 let guard = match self.wake.0.lock() {
                     Ok(guard) => guard,
                     Err(_) => return,
@@ -65,6 +68,7 @@ impl AttackRuntime {
                 &mut assembler,
                 &mut peak_picker,
                 &mut detail_tracker,
+                &mut band_worker,
             ) {
                 assembler.reset();
                 peak_picker.reset();
@@ -80,6 +84,7 @@ impl AttackRuntime {
         assembler: &mut AttackAssembler,
         peak_picker: &mut AttackPeakPicker,
         detail_tracker: &mut AttackDetailTracker,
+        band_worker: &mut BandWorker,
     ) -> bool {
         for _ in 0..frames {
             let Ok(left) = consumers.samples.pop() else {
@@ -102,15 +107,18 @@ impl AttackRuntime {
                 self.publish(frame, peak_picker, detail_tracker);
             }
         }
-        for detail in detail_tracker.flush(&self.bins) {
+        self.service_band_audio(band_worker, detail_tracker);
+        let details = detail_tracker.flush(&self.bins);
+        for detail in &details {
             if let Ok(mut history) = self.history.lock() {
                 if self.enabled.load(Ordering::Acquire)
                     && detail.event.generation == self.generation.load(Ordering::Acquire)
                 {
-                    history.push_detail(detail);
+                    history.push_detail(*detail);
                 }
             }
         }
+        self.service_band_hits(band_worker, detail_tracker, &details);
         true
     }
 

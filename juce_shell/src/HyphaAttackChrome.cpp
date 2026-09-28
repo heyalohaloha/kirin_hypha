@@ -5,6 +5,7 @@
 #include <functional>
 #include <initializer_list>
 
+#include "HyphaAttackBandPainter.h"
 #include "HyphaAttackDepth.h"
 #include "HyphaAttackLanePainter.h"
 #include "HyphaAttackLoupePainter.h"
@@ -13,8 +14,9 @@
 #include "HyphaTextStyle.h"
 #include "HyphaTheme.h"
 
-// Cached DRUM structure: shell material, title, VIEW control, legend, every stage, label, scale
-// tick and zero line. None of it depends on a measured value, so a live frame only blits it.
+// Cached DRUM structure: shell material, title, VIEW control, band chips, legend, every stage,
+// label, scale tick and zero line. None of it depends on a measured value, so a live frame only
+// blits it.
 namespace hypha
 {
 namespace
@@ -27,7 +29,8 @@ bool AttackComponent::ChromeKey::operator== (const ChromeKey& other) const noexc
 {
     return width == other.width && height == other.height
         && std::equal_to<float> {} (scale, other.scale) && context == other.context
-        && overlay == other.overlay && paired == other.paired && dormant == other.dormant;
+        && overlay == other.overlay && paired == other.paired && dormant == other.dormant
+        && band == other.band && bandDelta == other.bandDelta && prePending == other.prePending;
 }
 
 void AttackComponent::paintChrome (juce::Graphics& g, const attack_ui::Layout& shape, bool dormant)
@@ -40,7 +43,7 @@ void AttackComponent::paintChrome (juce::Graphics& g, const attack_ui::Layout& s
         && static_cast<std::size_t> (pixelWidth) * static_cast<std::size_t> (pixelHeight) * 4
                <= chromeByteBudget;
     const ChromeKey key { getWidth(), getHeight(), scale, presentationContext, overlayMode,
-                          pairedObservation(), dormant };
+                          pairedObservation(), dormant, chosenBand, bandModel.delta, preBandPending() };
     // A size that differs from the previous paint is a corner drag or a Capture layout: building
     // an image for every step costs more than drawing once. The image of the last held size is
     // kept, so the editor size is served from it again after a Capture.
@@ -82,21 +85,30 @@ void AttackComponent::drawChrome (juce::Graphics& g, const attack_ui::Layout& sh
         drawHeaderChrome (g, shape);
     if (dormant || shape.arrangement == attack_ui::Arrangement::header)
         return;
+    const bool bandView = chosenBand != 0;
     const auto history = rectangleOf (attack_ui::historyPlot (shape));
-    if (! history.isEmpty())
+    if (bandPanes (shape))
+        attack_band_painter::paintPaneChrome (g, shape, presentationContext,
+                                              twoRows() && bandModel.delta, bandModel.delta,
+                                              preBandPending());
+    else if (! history.isEmpty())
         drawHistoryChrome (g, history);
     if (shape.arrangement == attack_ui::Arrangement::lanes)
     {
-        attack_lane_painter::paintHistoryLabel (
-            g, rectangleOf (attack_ui::labelCell (shape, shape.history)), presentationContext);
+        const auto label = rectangleOf (attack_ui::labelCell (shape, shape.history));
+        if (bandPanes (shape))
+            attack_band_painter::paintPaneLabel (g, label, presentationContext, chosenBand);
+        else
+            attack_lane_painter::paintHistoryLabel (g, label, presentationContext);
         if (shape.loupe)
             attack_loupe::paintPanel (g, rectangleOf (attack_ui::loupeArea (shape)));
+        const auto& order = bandView ? attack_lanes::bandLanes : attack_lanes::lanes;
+        const bool delta = bandView ? bandModel.delta : pairedObservation();
         for (std::size_t index = 0; index < attack_ui::laneCount; ++index)
             attack_lane_painter::paintLaneChrome (
-                g, attack_lanes::lanes[index],
+                g, order[index],
                 rectangleOf (attack_ui::labelCell (shape, shape.lanes[index])),
-                rectangleOf (attack_ui::lanePlot (shape, index)), pairedObservation(),
-                presentationContext);
+                rectangleOf (attack_ui::lanePlot (shape, index)), delta, presentationContext);
     }
     if (! shape.axis.empty())
     {
@@ -156,9 +168,23 @@ void AttackComponent::drawHeaderChrome (juce::Graphics& g, const attack_ui::Layo
 
     if (getWidth() >= 470)
         header.removeFromRight (statusControlWidth());
+    // The band chips lead the second row; the legend takes what is left, and only when it fits.
+    const auto chips = rectangleOf (attack_band::chipRow (shape, presentationContext));
+    if (! chips.isEmpty())
+    {
+        attack_band_painter::paintChips (g, shape, presentationContext, chosenBand);
+        header.removeFromLeft (chips.getRight() - header.getX() + 10);
+    }
     const bool paired = pairedObservation();
     g.setColour (COL_TEXT_SECONDARY);
-    if (shape.arrangement == attack_ui::Arrangement::lanes)
+    if (chosenBand != 0)
+    {
+        const auto legend = attack_band_painter::legend (chosenBand, bandModel.delta);
+        attack_lane_painter::drawFitting (g, { legend[0], legend[1], legend[2] }, header,
+                                          presentationContext, typography::TextRole::legend,
+                                          juce::Justification::centredLeft);
+    }
+    else if (shape.arrangement == attack_ui::Arrangement::lanes)
         attack_lane_painter::drawFitting (g, paired
             ? std::initializer_list<juce::String> {
                   "10 ms RMS / 6 S   PRE trace / POST body   bars POST - PRE",

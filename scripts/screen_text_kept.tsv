@@ -62,3 +62,8 @@ AAX native	host clock source name in validation diagnostics
 dBTP | host project/render clock; measured 100 ms endpoint, not exact peak or guaranteed project time	LEVEL history COPY text; copied, never drawn
 dBTP | delta M	LEVEL history COPY text; copied, never drawn
 LU delta TP	LEVEL history COPY text; copied, never drawn
+PRE trace / POST body   bars POST - PRE	DRUM band legend
+/ bars POST-PRE	DRUM band legend
+POST body   bars POST values	DRUM band legend
+/ POST values	DRUM band legend
+PEAK -20 dB	DRUM band TAIL caption

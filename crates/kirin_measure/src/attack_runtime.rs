@@ -5,16 +5,19 @@
 
 use std::cell::UnsafeCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 
 use rtrb::{Consumer, Producer, RingBuffer};
 
+use crate::attack_perception::band::{self, AttackBand, AttackBandRing, BandScratch};
 use crate::{SuperFluxChannelMode, SuperFluxConfig, SuperFluxLayout};
 
 #[path = "attack_runtime_assembler.rs"]
 mod assembler;
+#[path = "attack_band_worker.rs"]
+mod band_worker;
 #[path = "attack_bins.rs"]
 mod bins;
 #[path = "attack_detail.rs"]
@@ -32,9 +35,10 @@ mod worker;
 
 pub use pair::{AttackPairError, AttackPairEvent, AttackPairEventKind, AttackPairJoiner};
 pub use state::{
-    AttackAnchor, AttackDetailedEvent, AttackEvent, AttackEventShape, AttackHistory,
-    AttackOdfFrame, AttackRuntimeStats, AttackWaveformPoint, ATTACK_EVENT_HISTORY_CAPACITY,
-    ATTACK_ODF_HISTORY_CAPACITY, ATTACK_SHAPE_POINT_CAPACITY, ATTACK_WAVEFORM_HISTORY_CAPACITY,
+    AttackAnchor, AttackBandDetail, AttackDetailedEvent, AttackEvent, AttackEventShape,
+    AttackHistory, AttackOdfFrame, AttackRuntimeStats, AttackWaveformPoint,
+    ATTACK_EVENT_HISTORY_CAPACITY, ATTACK_ODF_HISTORY_CAPACITY, ATTACK_SHAPE_POINT_CAPACITY,
+    ATTACK_WAVEFORM_HISTORY_CAPACITY,
 };
 
 const ATTACK_BLOCK_RING_CAPACITY: usize = 128;
@@ -68,6 +72,11 @@ pub struct AttackRuntime {
     wake: (Mutex<()>, Condvar),
     history: Mutex<AttackHistory>,
     bins: Mutex<bins::AttackBins>,
+    /// The chosen band's index, 0 for none. The ring exists only while a band is chosen and the
+    /// worker runs; POST measures at PRE onsets from it on the exchange thread.
+    band: AtomicU8,
+    band_ring: Mutex<Option<AttackBandRing>>,
+    band_scratch: Mutex<BandScratch>,
     worker_running: AtomicBool,
     pushed_blocks: AtomicU64,
     dropped_blocks: AtomicU64,
@@ -109,6 +118,9 @@ impl AttackRuntime {
             wake: (Mutex::new(()), Condvar::new()),
             history: Mutex::new(AttackHistory::with_capacity()),
             bins: Mutex::new(bins::AttackBins::new(sample_rate, num_channels)),
+            band: AtomicU8::new(0),
+            band_ring: Mutex::new(None),
+            band_scratch: Mutex::new(BandScratch::default()),
             worker_running: AtomicBool::new(false),
             pushed_blocks: AtomicU64::new(0),
             dropped_blocks: AtomicU64::new(0),
@@ -138,9 +150,74 @@ impl AttackRuntime {
             if let Ok(mut bins) = self.bins.lock() {
                 bins.clear();
             }
+            if let Ok(mut ring) = self.band_ring.lock() {
+                *ring = None;
+            }
         }
         self.wake.1.notify_all();
         true
+    }
+
+    /// Choose the band DRUM shows, or none. A change drops the ring and the band history; the
+    /// worker fills both again from the next block. ALL costs nothing: no ring, no filter.
+    pub fn set_band(&self, band: Option<AttackBand>) {
+        let index = band.map_or(0, AttackBand::index);
+        if self.band.swap(index, Ordering::AcqRel) == index {
+            return;
+        }
+        if let Ok(mut ring) = self.band_ring.lock() {
+            *ring = None;
+        }
+        if let Ok(mut history) = self.history.lock() {
+            history.clear_band_details();
+        }
+        self.wake.1.notify_all();
+    }
+
+    pub fn band(&self) -> Option<AttackBand> {
+        AttackBand::from_index(self.band.load(Ordering::Acquire))
+    }
+
+    /// POST measured at PRE onsets in `band` over each PRE measure's span, from this runtime's
+    /// ring. An anchor whose audio is not retained, or not there yet, gives no detail.
+    pub fn band_details_at(
+        &self,
+        band: AttackBand,
+        anchors: &[(AttackEvent, i64)],
+    ) -> Vec<AttackBandDetail> {
+        if self.band() != Some(band) {
+            return Vec::new();
+        }
+        let ring = match self.band_ring.lock() {
+            Ok(ring) => ring,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(ring) = ring.as_ref() else {
+            return Vec::new();
+        };
+        let mut scratch = match self.band_scratch.lock() {
+            Ok(scratch) => scratch,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        anchors
+            .iter()
+            .filter_map(|(event, span_end)| {
+                let measure = band::measure_from_ring(
+                    ring,
+                    band,
+                    self.sample_rate,
+                    self.num_channels,
+                    event.event_sample,
+                    *span_end,
+                    &mut scratch,
+                )?;
+                let detail = AttackBandDetail {
+                    event: *event,
+                    measure,
+                };
+                detail.has_valid_layout().then_some(detail)
+            })
+            .collect()
     }
 
     pub fn is_enabled(&self) -> bool {

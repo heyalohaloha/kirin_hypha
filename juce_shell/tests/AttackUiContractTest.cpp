@@ -4,6 +4,7 @@
 #include "../src/HyphaTheme.h"
 #include "AttackUiImageHelpers.h"
 #include "AttackUiLaneContract.h"
+#include "AttackUiBandContract.h"
 #include "AttackUiChromeContract.h"
 #include "AttackUiSelectionContract.h"
 #include "AttackUiHeadOnlyContract.h"
@@ -167,7 +168,11 @@ int main()
     // Timing runs before the image-heavy contracts: their caches and heap growth measurably slow
     // later frames in the same process (about 0.5 ms at 300% / DPI 2).
     KIRIN_REQUIRE (verifyAttackFrameBudget());
+    KIRIN_REQUIRE (verifyBandFrameBudget());
     KIRIN_REQUIRE (verifyLaneModel());
+    KIRIN_REQUIRE (verifyBandModel());
+    KIRIN_REQUIRE (verifyBandRendering());
+    KIRIN_REQUIRE (verifyBandInteraction());
     KIRIN_REQUIRE (verifyDetailLifecycle (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (verifyMeasuredEnvelope());
     KIRIN_REQUIRE (verifyEnvelopeSimplificationBound());
@@ -312,6 +317,6 @@ int main()
     KIRIN_REQUIRE (! selectionNear (warming, lastEventX));
     KIRIN_REQUIRE (verifyDormantQuiet (warming, layout));
     KIRIN_REQUIRE (writeAttackShowcase());
-    std::cout << "ATTACK UI contract passed: HISTORY, per-hit lanes, loupe, one-row readout\n";
+    std::cout << "ATTACK UI contract passed: HISTORY, per-hit lanes, loupe, one-row readout, band view\n";
     return EXIT_SUCCESS;
 }

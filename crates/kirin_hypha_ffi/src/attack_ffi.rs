@@ -11,10 +11,13 @@ use kirin_measure::{
 
 use super::KirinHyphaEngine;
 
+#[path = "attack_ffi_band.rs"]
+mod band;
 #[path = "attack_ffi_convert.rs"]
 mod convert;
 #[path = "attack_ffi_pair.rs"]
 mod pair;
+pub use band::*;
 use convert::*;
 pub use pair::*;
 

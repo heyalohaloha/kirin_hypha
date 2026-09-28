@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AttackUiBandContract.h"
 #include "AttackUiLaneContract.h"
 
 #include <array>
@@ -16,6 +17,8 @@ struct ChromeState
     bool paired = true;
     bool running = true;
     float dpi = 1.0f;
+    std::uint8_t band = 0;
+    bool preBand = true;
 };
 
 inline void applyChromeState (AttackComponent& component, const ChromeState& state)
@@ -31,11 +34,14 @@ inline void applyChromeState (AttackComponent& component, const ChromeState& sta
     }
     fixture.stats.worker_running = state.running ? 1 : 0;
     fixture.submit (component);
+    component.setBand (state.band);
+    if (state.band != 0)
+        component.setBandSnapshot (*bandBatch ({ 96'000, 192'000, 240'000 }, state.band, state.preBand));
 }
 
 // The cached structure follows every input it depends on. One component walks through size,
-// density, VIEW, pairing, data validity and device scale; after each step both its first frame
-// and its cached second frame must equal a fresh component's frame in that state.
+// density, VIEW, pairing, data validity, the band and device scale; after each step both its
+// first frame and its cached second frame must equal a fresh component's frame in that state.
 inline bool verifyChromeCache()
 {
     const auto base = ChromeState {};
@@ -47,11 +53,15 @@ inline bool verifyChromeCache()
     auto unpaired = overlay;   unpaired.paired = false;
     auto dormant = unpaired;   dormant.running = false;
     auto awake = dormant;      awake.running = true;
-    auto retina = awake;       retina.dpi = 2.0f;
-    auto back = retina;        back.width = 580; back.height = 248;
+    auto banded = awake;       banded.paired = true; banded.band = 4;
+    auto pending = banded;     pending.preBand = false;
+    auto rows = pending;       rows.preBand = true; rows.overlay = false;
+    auto retina = rows;        retina.dpi = 2.0f;
+    auto whole = retina;       whole.band = 0;
+    auto back = whole;         back.width = 580; back.height = 248;
                                back.context = presentation::forEditor (600, 400);
     const std::array states { base, size, density, inspection, overlay, unpaired, dormant, awake,
-                              retina, back };
+                              banded, pending, rows, retina, whole, back };
     auto moving = std::make_unique<AttackComponent>();
     for (std::size_t step = 0; step < states.size(); ++step)
     {

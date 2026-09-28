@@ -260,6 +260,8 @@ public:
     bool pollAttackPreDetails (KirinAttackDetailBatch& out) const;
     bool pollAttackPairEvents (KirinAttackPairEventBatch& out) const;
     bool attackStats (KirinAttackStats& out) const;
+    bool setAttackBand (uint8_t band);                  // DRUM band, 0 = ALL; kept across engines
+    bool pollAttackBand (KirinAttackBandBatch& out) const;
     uint8_t spectrumSizePreference() const              // nearest preset; exact free size stored below
     {
         return preferredSpectrumSize.load (std::memory_order_acquire);
@@ -476,6 +478,7 @@ private:
     std::atomic<bool> manualHybridVuSelected { false };
     std::atomic<uint8_t> preferredSpectrumChannelMode { KIRIN_SPECTRUM_CHANNEL_LR };
     std::atomic<uint8_t> preferredSpectrumDisplaySelection { KIRIN_SPECTRUM_CHANNEL_LR };
+    std::atomic<uint8_t> preferredAttackBand { 0 };        // editor-lifetime; not persisted
 
 #if KIRIN_HYPHA_GUIDE_TRANSPORT
     hypha::pre_display::ClockTap preDisplayClock;

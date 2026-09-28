@@ -134,6 +134,22 @@ impl AttackDetailTracker {
         Ok(self.push_waveform_frame(position, power))
     }
 
+    /// This block's interleaved samples so far, from `block_start`; cleared by `flush`.
+    pub(super) fn block_audio(&self) -> (i64, &[f32]) {
+        (self.block_start, &self.block)
+    }
+
+    /// The earliest confirmed onset still waiting for its windows, if any.
+    pub(super) fn next_pending_onset(&self) -> Option<i64> {
+        self.pending_events
+            .front()
+            .map(|pending| pending.event.event_sample)
+    }
+
+    pub(super) fn decided_before(&self) -> Option<i64> {
+        self.decided_before
+    }
+
     pub(super) fn queue_event(&mut self, event: AttackEvent) {
         if self.pending_events.len() == PENDING_EVENT_CAPACITY {
             self.pending_events.pop_front();

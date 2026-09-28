@@ -63,7 +63,13 @@ bool KirinHyphaProcessorBase::serviceRequestedAnalysisUnderHandleLock()
     const bool accepted = hypha::analysis::apply (previous, demand, adapter);
 
     if (accepted)
+    {
         analysisApplication.applicationSucceeded (demand);
+        // The band DRUM chose rides with ATTACK onto this engine, whether new or re-enabled.
+        if (hypha::analysis::isAttack (demand))
+            kirin_hypha_set_attack_band (hyphaHandle,
+                                         preferredAttackBand.load (std::memory_order_acquire));
+    }
     else
     {
         // Failure must never become an applied-state claim. Both stop calls are idempotent and
@@ -189,6 +195,25 @@ bool KirinHyphaProcessorBase::pollAttackPairEvents (KirinAttackPairEventBatch& o
     const juce::ScopedLock sl (handleLock);
     return hyphaHandle != nullptr
         && kirin_hypha_poll_attack_pair_events (hyphaHandle, &out);
+}
+
+bool KirinHyphaProcessorBase::setAttackBand (uint8_t band)
+{
+    if (role != Role::Post || band > 8)
+        return false;
+    preferredAttackBand.store (band, std::memory_order_release);
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr && writesEnabled.load (std::memory_order_acquire)
+        && kirin_hypha_set_attack_band (hyphaHandle, band);
+}
+
+bool KirinHyphaProcessorBase::pollAttackBand (KirinAttackBandBatch& out) const
+{
+    if (role != Role::Post)
+        return false;
+    const juce::ScopedLock sl (handleLock);
+    return hyphaHandle != nullptr
+        && kirin_hypha_poll_attack_band (hyphaHandle, &out);
 }
 
 bool KirinHyphaProcessorBase::attackStats (KirinAttackStats& out) const

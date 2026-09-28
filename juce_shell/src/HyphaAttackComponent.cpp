@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <limits>
 
+#include "HyphaAttackBandModel.h"
+#include "HyphaAttackBandPainter.h"
 #include "HyphaAttackDepth.h"
 #include "HyphaAttackLanePainter.h"
 #include "HyphaAttackLoupePainter.h"
@@ -30,6 +33,26 @@ void AttackComponent::setOverlayMode (bool shouldOverlay)
     if (overlayMode == shouldOverlay) return;
     overlayMode = shouldOverlay;
     repaint();
+}
+
+void AttackComponent::setBand (std::uint8_t band)
+{
+    if (band > attack_band::bandCount || band == chosenBand) return;
+    chosenBand = band;
+    rebuildBandModel();
+    if (onBandChange) onBandChange (band);
+    repaint();
+}
+
+bool AttackComponent::preBandPending() const noexcept
+{
+    return chosenBand != 0 && pairedObservation()
+        && (bandBatch.band != chosenBand || bandBatch.pre_band_available == 0);
+}
+
+void AttackComponent::rebuildBandModel() noexcept
+{
+    attack_band::build (bandModel, bandBatch, chosenBand, currentGeneration, rate, pairedObservation());
 }
 
 void AttackComponent::advancePresentation (double nowMs) noexcept
@@ -156,11 +179,31 @@ bool AttackComponent::setSnapshot (const KirinAttackEventBatch& events,
     }
     rate = sampleRate;
     currentGeneration = generation;
+    rebuildBandModel();
     if (followLatest)
     {
         selectedEventSample = -1;
         selectBoundaryEvent (true);
     }
+    repaint();
+    return true;
+}
+
+bool AttackComponent::setBandSnapshot (const KirinAttackBandBatch& batch)
+{
+    const auto current = [this] (const auto& hit) {
+        return hit.generation == currentGeneration && hit.sample_rate == rate; };
+    if (bandBatch.status == batch.status && bandBatch.band == batch.band
+        && bandBatch.pre_band_available == batch.pre_band_available
+        && attack_equality::retained (bandBatch.hits, bandBatch.count, batch.hits, batch.count, current))
+        return false;
+    bandBatch = batch;
+    const auto count = juce::jmin (bandBatch.count,
+        static_cast<std::uint32_t> (KIRIN_ATTACK_BAND_BATCH_CAPACITY));
+    auto* hits = bandBatch.hits;
+    bandBatch.count = static_cast<std::uint32_t> (std::remove_if (hits, hits + count,
+        [&current] (const auto& hit) { return ! current (hit); }) - hits);
+    rebuildBandModel();
     repaint();
     return true;
 }
@@ -173,9 +216,12 @@ void AttackComponent::clearSnapshot()
     preWaveformBatch = {};
     preDetailBatch = {};
     pairEventBatch = {};
+    bandBatch = {};
     runtimeStats = {};
     laneModel.count = 0;
     laneModel.delta = false;
+    bandModel.count = 0;
+    bandModel.delta = false;
     latest = -1;
     presentationStartLatest = -1;
     presentationTargetLatest = -1;
@@ -258,6 +304,19 @@ const attack_lanes::Hit* AttackComponent::visibleSelection() const noexcept
 {
     const auto* hit = attack_lanes::find (laneModel, selectedEventSample);
     return hit != nullptr && attack_ui::eventIsVisible (hit->sample, latest, rate) ? hit : nullptr;
+}
+
+const attack_lanes::Hit* AttackComponent::bandSelection (const attack_lanes::Hit* selected) const noexcept
+{
+    return selected != nullptr && chosenBand != 0 ? attack_lanes::find (bandModel, selected->sample)
+                                                  : nullptr;
+}
+
+const KirinAttackBandHit* AttackComponent::selectedBandHit (const attack_lanes::Hit* selected) const noexcept
+{
+    return selected != nullptr
+        ? attack_band::findHit (bandBatch, chosenBand, selected->sample, currentGeneration, rate)
+        : nullptr;
 }
 
 juce::String AttackComponent::timeMode() const
@@ -347,11 +406,19 @@ void AttackComponent::paintSelection (juce::Graphics& g, const attack_ui::Layout
         return;
     const bool lanes = shape.arrangement == attack_ui::Arrangement::lanes;
     const auto bottom = lanes ? shape.lanes.back().bottom() - 3 : history.getBottom() - 2;
-    attack_depth::paintHalo (g, history, static_cast<float> (history.getX() + x) + 0.5f, selectionColour);
+    const auto lineX = static_cast<float> (history.getX() + x) + 0.5f;
+    // The band panes show one hit, not six seconds: the hypha stands in the axis and lanes only.
+    if (bandPanes (shape))
+    {
+        attack_lane_painter::paintHypha (g, lineX, static_cast<float> (shape.axis.y) + 1.0f,
+                                         static_cast<float> (bottom),
+                                         std::numeric_limits<float>::quiet_NaN(), selected->sample);
+        return;
+    }
+    attack_depth::paintHalo (g, history, lineX, selectionColour);
     attack_lane_painter::paintHypha (
-        g, static_cast<float> (history.getX() + x) + 0.5f, static_cast<float> (history.getY() + 2),
-        static_cast<float> (bottom), static_cast<float> (history.getCentreY()),
-        selected->sample);
+        g, lineX, static_cast<float> (history.getY() + 2), static_cast<float> (bottom),
+        static_cast<float> (history.getCentreY()), selected->sample);
 }
 
 void AttackComponent::paint (juce::Graphics& g)
@@ -376,9 +443,16 @@ void AttackComponent::paint (juce::Graphics& g)
         return;
     }
     const auto* selected = visibleSelection();
-    const attack_lane_painter::Frame frame { laneModel, latest, rate, selected, presentationContext };
+    const bool bandView = chosenBand != 0;
+    const attack_lane_painter::Frame frame {
+        bandView ? bandModel : laneModel, latest, rate,
+        bandView ? bandSelection (selected) : selected, presentationContext,
+        bandView ? attack_lanes::bandLanes : attack_lanes::lanes };
     const auto history = rectangleOf (attack_ui::historyPlot (shape));
-    if (! history.isEmpty())
+    if (bandPanes (shape))
+        attack_band_painter::paintPanes (g, shape, presentationContext, selectedBandHit (selected),
+                                         twoRows() && bandModel.delta);
+    else if (! history.isEmpty())
         paintHistory (g, history);
     if (shape.arrangement == attack_ui::Arrangement::lanes)
     {
@@ -392,17 +466,19 @@ void AttackComponent::paint (juce::Graphics& g)
                 g, rectangleOf (attack_ui::readoutCell (shape, shape.history)), frame);
         for (std::size_t index = 0; index < attack_ui::laneCount; ++index)
             attack_lane_painter::paintLaneValues (
-                g, attack_lanes::lanes[index], rectangleOf (attack_ui::lanePlot (shape, index)),
+                g, frame.lanes[index], rectangleOf (attack_ui::lanePlot (shape, index)),
                 rectangleOf (attack_ui::readoutCell (shape, shape.lanes[index])), frame);
     }
     else if (shape.arrangement == attack_ui::Arrangement::glance)
     {
         attack_lane_painter::paintGlance (g, shape, frame);
-        // Only a HISTORY that has stopped following the latest hit says so; LIVE is silent.
+        // Only a HISTORY that has stopped following the latest hit says so; LIVE is silent. The
+        // band, a non-default choice made at 125% and above, is named the same way.
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (monoFont (presentationContext, typography::TextRole::legend, visualization));
         if (timeMode() != "LIVE")
             text_style::drawText (g, timeMode(), history.reduced (6, 3), juce::Justification::topRight);
+        attack_band_painter::paintGlanceCaption (g, history, presentationContext, chosenBand);
     }
     else
     {

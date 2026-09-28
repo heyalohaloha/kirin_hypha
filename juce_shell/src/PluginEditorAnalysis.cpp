@@ -28,6 +28,8 @@ void KirinHyphaEditor::configureSpectrumCallbacks()
             || processorRef.spectrumDisplaySelection() != KIRIN_SPECTRUM_SELECTION_MID_SIDE);
         configureSpectrumAnalysis();
     };
+    // The DRUM band is the view's own state; the engine follows it and PRE follows the engine.
+    attackView.onBandChange = [this] (std::uint8_t band) { processorRef.setAttackBand (band); };
 }
 
 void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
@@ -49,10 +51,14 @@ void KirinHyphaEditor::setAnalysisPage (AnalysisPage page)
     cachedAttackPreDetails = {};
     cachedAttackPairEvents = {};
     cachedAttackStats = {};
+    cachedAttackBand = {};
     cachedAttackLatest = -1;
     cachedAttackRate = 0;
     cachedAttackGeneration = 0;
     analysisPage = page;
+    // A reopened editor starts at ALL while the engine may still hold an earlier choice.
+    if (page == AnalysisPage::attack)
+        processorRef.setAttackBand (attackView.band());
     sharpnessUsesAbsolute = page == AnalysisPage::perceptual
         && processorRef.pairStatus() != KIRIN_PAIR_STATUS_PAIRED;
     absoluteView.setSharpnessOnly (sharpnessUsesAbsolute);
@@ -235,6 +241,12 @@ bool KirinHyphaEditor::refreshAnalysisViews (
                 cachedAttackEvents, cachedAttackWaveform, cachedAttackDetails,
                 cachedAttackPreWaveform, cachedAttackPreDetails, cachedAttackPairEvents,
                 cachedAttackLatest, cachedAttackRate, cachedAttackGeneration, cachedAttackStats);
+        if (attackView.band() != 0)
+        {
+            // The band's hits follow the snapshot; a failed poll keeps the last delivered batch.
+            processorRef.pollAttackBand (cachedAttackBand);
+            attackView.setBandSnapshot (cachedAttackBand);
+        }
         observatoryView.setAttackPaired (attackView.pairedObservation());
         attackView.presentationTick (liveInput);
         updateLed();

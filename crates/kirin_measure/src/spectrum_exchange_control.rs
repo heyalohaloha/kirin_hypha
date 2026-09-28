@@ -152,6 +152,27 @@ impl SpectrumCoordinator {
         }
     }
 
+    /// UI/control thread only. The band DRUM shows; the next request renewal carries it to PRE.
+    pub fn set_post_attack_band(&self, band: Option<AttackBand>) {
+        let index = band.map_or(0, AttackBand::index);
+        if self.post_attack_band.swap(index, Ordering::AcqRel) != index {
+            self.exchange_worker.notify();
+        }
+    }
+
+    pub fn post_attack_band(&self) -> Option<AttackBand> {
+        AttackBand::from_index(self.post_attack_band.load(Ordering::Acquire))
+    }
+
+    pub(super) fn sent_attack_band(&self) -> Option<AttackBand> {
+        AttackBand::from_index(self.sent_attack_band.load(Ordering::Acquire))
+    }
+
+    pub(super) fn note_sent_attack_band(&self, band: Option<AttackBand>) {
+        self.sent_attack_band
+            .store(band.map_or(0, AttackBand::index), Ordering::Release);
+    }
+
     pub(super) fn disable_analysis_runtimes(&self) {
         let _ = self.runtime.set_enabled(false);
         if let Some(runtime) = self.attack_runtime.as_ref() {

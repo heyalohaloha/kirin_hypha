@@ -9,6 +9,10 @@
 //! CREST; once its body, next onset and Sharpness window are final it is complete. A hit whose
 //! audio stops first (the transport stopped) keeps its head values and never invents the rest.
 
+/// One octave band of a hit (B-1096): the DRUM band view's measures.
+#[path = "attack_band.rs"]
+pub mod band;
+
 pub const ATTACK_BIN_MICROS: u32 = 1_000;
 /// Head: the first 30 ms, whose RMS is STRENGTH.
 pub const ATTACK_HEAD_BINS: i64 = 30;

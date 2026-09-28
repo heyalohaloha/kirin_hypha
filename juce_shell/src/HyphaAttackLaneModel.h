@@ -14,6 +14,8 @@
 // leaves no 20 ms body or when the body is below the HISTORY floor (it would describe the gap).
 // A hit arrives with its head first (STRENGTH, CREST); TRANSIENT and SHARPNESS stay "--" until it
 // is complete, and for good when its audio stopped first (B-1024).
+// With a band chosen (B-1097) the same four rows carry the band lanes DELAY, ATT, REL and LEVEL,
+// built by attack_band::build (HyphaAttackBandModel.h) into the same Model.
 namespace hypha::attack_lanes
 {
 enum class Lane : std::uint8_t
@@ -22,18 +24,27 @@ enum class Lane : std::uint8_t
     strength,
     crest,
     sharpness,
+    delay,      // band: POST arrival - PRE arrival, ms
+    attackTime, // band: ATT, 10 % to 90 % of the band peak, ms
+    release,    // band: REL, band peak to peak - 20 dB, ms
+    level,      // band: the band's peak envelope level
 };
 
 inline constexpr std::array<Lane, attack_ui::laneCount> lanes {
     Lane::transient, Lane::strength, Lane::crest, Lane::sharpness };
+inline constexpr std::array<Lane, attack_ui::laneCount> bandLanes {
+    Lane::delay, Lane::attackTime, Lane::release, Lane::level };
 
 enum class Reason : std::uint8_t
 {
     value,
-    missing,       // detail or its body not delivered yet, or a non-finite descriptor
-    noMatch,       // PRE-only, POST-only or ambiguous common event
-    nextHit,       // TRANSIENT: the next onset leaves less than 20 ms of body
-    quietBody,     // TRANSIENT: the body is below the HISTORY floor, silence or near-silence
+    missing,          // detail or its body not delivered yet, or a non-finite descriptor
+    noMatch,          // PRE-only, POST-only or ambiguous common event
+    nextHit,          // TRANSIENT: the next onset leaves less than 20 ms of body; REL: tail cut
+    quietBody,        // TRANSIENT: the body is below the HISTORY floor, silence or near-silence
+    belowResolution,  // band ATT: within one period of the band's centre; the value is the bound
+    ringing,          // band: the band still rings from the previous hit, so no arrival
+    noPreBand,        // band DELAY: paired, but PRE has not sent this band
 };
 
 struct Cell
@@ -58,6 +69,7 @@ struct Hit
 {
     std::int64_t sample = 0;
     bool selectable = false; // B-778: only events with delivered POST detail can be selected.
+    float resolutionMs = 0.0f; // band: one period of the centre; 0 for the whole signal
     std::array<Cell, attack_ui::laneCount> cells {};
     Side pre {}, post {};
 };
@@ -71,9 +83,15 @@ struct Model
 
 static_assert (KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY >= KIRIN_ATTACK_DETAIL_BATCH_CAPACITY);
 
+constexpr bool isBand (Lane lane) noexcept
+{
+    return static_cast<std::size_t> (lane) >= attack_ui::laneCount;
+}
+
+// The row a lane occupies, and its cell in a hit: the whole-signal and band lanes share rows.
 constexpr std::size_t index (Lane lane) noexcept
 {
-    return static_cast<std::size_t> (lane);
+    return static_cast<std::size_t> (lane) % attack_ui::laneCount;
 }
 
 struct Scale
@@ -85,18 +103,33 @@ struct Scale
 
 // Fixed scales. The dB lanes share one range so the same change has the same bar length in every
 // lane. Per-hit Sharpness differences stayed within about +/-0.4 acum and single hits within
-// 0.2..6 acum in the B-1016 audit; head minus body ran from about -2 to +19 dB.
+// 0.2..6 acum in the B-1016 audit; head minus body ran from about -2 to +19 dB. The band time
+// scales are the plan's first values (DELAY and ATT +/-10 ms, REL +/-100 ms), to be reviewed
+// against measured drums.
 constexpr Scale scaleFor (Lane lane, bool delta) noexcept
 {
     if (delta)
-        return lane == Lane::sharpness ? Scale { -1.0f, 1.0f, true }
-                                       : Scale { -12.0f, 12.0f, true };
+        switch (lane)
+        {
+            case Lane::transient:
+            case Lane::strength:
+            case Lane::crest:
+            case Lane::level:      return { -12.0f, 12.0f, true };
+            case Lane::sharpness:  return { -1.0f, 1.0f, true };
+            case Lane::delay:
+            case Lane::attackTime: return { -10.0f, 10.0f, true };
+            case Lane::release:    return { -100.0f, 100.0f, true };
+        }
     switch (lane)
     {
-        case Lane::transient: return { -12.0f, 24.0f, true };
-        case Lane::strength:  return { attack_ui::absoluteFloorDb, 0.0f, false };
-        case Lane::crest:     return { 0.0f, 24.0f, false };
-        case Lane::sharpness: return { 0.0f, 8.0f, false };
+        case Lane::transient:  return { -12.0f, 24.0f, true };
+        case Lane::strength:   return { attack_ui::absoluteFloorDb, 0.0f, false };
+        case Lane::crest:      return { 0.0f, 24.0f, false };
+        case Lane::sharpness:  return { 0.0f, 8.0f, false };
+        case Lane::delay:      return { -10.0f, 10.0f, true }; // never a value without PRE
+        case Lane::attackTime: return { 0.0f, 40.0f, false };
+        case Lane::release:    return { 0.0f, 300.0f, false };
+        case Lane::level:      return { attack_ui::absoluteFloorDb, 0.0f, false };
     }
     return {};
 }
@@ -126,6 +159,10 @@ static_assert (extentFor (-30.0f, scaleFor (Lane::crest, true)).clippedLow);
 static_assert (extentFor (-36.0f, scaleFor (Lane::strength, false)).to == 0.5f);
 static_assert (extentFor (-6.0f, scaleFor (Lane::transient, false)).from * 3.0f == 1.0f);
 static_assert (extentFor (4.0f, scaleFor (Lane::sharpness, false)).to == 0.5f);
+static_assert (extentFor (5.0f, scaleFor (Lane::delay, true)).to == 0.75f);
+static_assert (extentFor (-50.0f, scaleFor (Lane::release, true)).to == 0.25f);
+static_assert (extentFor (150.0f, scaleFor (Lane::release, false)).to == 0.5f);
+static_assert (index (Lane::level) == index (Lane::sharpness) && isBand (Lane::level));
 
 inline const KirinAttackDetail* findDetail (const KirinAttackDetailBatch& batch,
                                             std::int64_t sample, std::uint64_t generation,

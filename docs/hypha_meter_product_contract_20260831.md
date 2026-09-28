@@ -297,6 +297,12 @@ TRANSIENT／STRENGTH／CREST／SHARPNESSの四laneは、POSTをPREのonsetで同
 PRE未接続時はlaneをPOST absoluteへ切り替え、PREと差分を生成しない。
 正本は`hypha_drum_lanes_20260924.md`とする。
 
+B-1097でDRUMに帯域（BAND）を加えた。見出し2行目のBANDで1オクターブ帯域（ISO 63 Hz〜8 kHz）を選ぶと、
+4laneはその帯域のDELAY／ATT／REL／LEVELになり、PAIR時はPREのonsetで測り直したPOSTとの`POST−PRE`、
+PRE未接続またはPREが帯域を返さない間はPOST値を示す。200%以上のHISTORYは選択打音のHEAD／TAILの帯域包絡に替わる。
+ALLで従来のDRUMに戻り、帯域を選ばない間の負荷とメモリは従来と同じ（B-1096）。
+正本は`hypha_drum_band_view_plan_20260928.md`（§11・§12）とINV-S44とする。
+
 ### 7.4 OS Guide layer
 
 Kirin OSのINSPECTとMASKINGは、POSTの第五domainではなく全domainへ作用できるGuide layerとする。

@@ -195,6 +195,11 @@ impl SpectrumCoordinator {
         let definition_changed = session.target.as_ref() != Some(target)
             || session.analysis_mode != analysis_mode
             || session.channel_mode != channel_mode;
+        // A band change is not a new definition: the session keeps its request id and its
+        // history, and the next renewal tells PRE the band.
+        if self.post_attack_band() != self.sent_attack_band() {
+            session.last_renewed = None;
+        }
         let mut retired = None;
         if definition_changed || rearm_required {
             retired = Some((session.target.clone(), session.request_id));
@@ -225,59 +230,6 @@ impl SpectrumCoordinator {
             retired,
             reset_runtime: definition_changed || rearm_required,
         })
-    }
-
-    fn publish_post_request(
-        &self,
-        session: &PostSession,
-        post_instance_id: &str,
-        target: &SpectrumTarget,
-    ) -> bool {
-        let issued_at_unix_ms = unix_ms_now();
-        let result = renew_request(
-            session,
-            post_instance_id,
-            target,
-            self.sample_rate,
-            issued_at_unix_ms,
-        );
-        let completed_at = Instant::now();
-        let completed_at_unix_ms = unix_ms_now();
-        let published_live_lease = result.is_ok()
-            && completed_at_unix_ms <= issued_at_unix_ms.saturating_add(REQUEST_LEASE_MS);
-        let mut slot = match self.post_session.lock() {
-            Ok(slot) => slot,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        let current = slot.as_mut().filter(|current| {
-            current.request_id == session.request_id
-                && current.target.as_ref() == Some(target)
-                && current.analysis_mode == session.analysis_mode
-                && current.channel_mode == session.channel_mode
-                && current.state_epoch_samples == session.state_epoch_samples
-        });
-        match (published_live_lease, current) {
-            (true, Some(current)) if self.post_visible() => {
-                current.last_renewed = Some(completed_at);
-                self.exchange_worker.record_published_update();
-                true
-            }
-            (true, _) => {
-                drop(slot);
-                cleanup_owned_request(Some(target), session.request_id);
-                false
-            }
-            (false, Some(current)) => {
-                let factual_lease = current.last_renewed.is_some_and(|renewed| {
-                    completed_at.duration_since(renewed) < PRESENTATION_HOLD
-                });
-                if !factual_lease {
-                    self.store_view(SpectrumViewStatus::Unavailable, None, None);
-                }
-                false
-            }
-            (false, None) => false,
-        }
     }
 
     fn arm_perceptual_session(
@@ -365,7 +317,7 @@ impl SpectrumCoordinator {
             .then(|| read_attack_snapshot(&target.instance_dir))
             .flatten()
             .filter(|snapshot| snapshot.request_id == session.request_id)
-            .map(|snapshot| snapshot.history);
+            .map(|snapshot| (snapshot.history, snapshot.band));
         let mut slot = match self.post_session.try_lock() {
             Ok(slot) => slot,
             Err(TryLockError::WouldBlock) => return false,

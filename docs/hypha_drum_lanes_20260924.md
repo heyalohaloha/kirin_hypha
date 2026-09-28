@@ -252,3 +252,9 @@ B-1016で、§3.2の止血のうち`ONSET DIFFERS`と`QUIET BEFORE`を撤去し�
   - UI：頭だけの打音でSTRENGTHとCRESTが値、TRANSIENTとSHARPNESSが`--`（`NEXT HIT`や`QUIET AFTER`にならない）で選択できること（PAIR時と非PAIR時）。loupeが150 msの軸を保ち、測定済みの区間の外にshapeを描かないこと。
   - UIの窓定数（`headBins`、`bodyBins`、`shapeLeadBins`）が`kirin_measure`の定義と一致すること（`drum_ui_windows_are_the_measurement_windows`）。
 - 未実施：Studio One / Pro Toolsでの実機表示、Windows実画面。
+
+## 6. 帯域（BAND、B-1097）
+
+見出し2行目のBANDで1オクターブ帯域を選ぶと、4laneはその帯域のDELAY／ATT／REL／LEVELに替わり、
+200%以上のHISTORYは選択打音のHEAD／TAILの帯域包絡になる。ALLは本書のDRUMそのものである。
+正本は`hypha_drum_band_view_plan_20260928.md`の§11（計算）と§12（画面）、不変条件はINV-S44とする。
