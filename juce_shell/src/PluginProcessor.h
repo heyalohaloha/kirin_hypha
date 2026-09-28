@@ -158,6 +158,7 @@ public:
     void stopLiveCompare();
     void selectLiveComparePre (bool pre) noexcept;
     void setLiveCompareGain (float linear) noexcept;
+    hypha::live_compare::MatchResult matchLiveCompare();
     hypha::live_compare::Status liveCompareStatus() const noexcept;
     // Product-session admission is wrapper-specific. Unsupported/new wrappers fail closed until
     // exact-range project-clock and PDC proof has been recorded for that host format.

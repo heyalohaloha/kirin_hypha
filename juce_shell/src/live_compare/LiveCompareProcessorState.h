@@ -2,6 +2,7 @@
 
 #include "../local_blind/RtPublicationSlot.h"
 #include "LiveCompareClock.h"
+#include "LiveCompareMatch.h"
 #include "LiveCompareSession.h"
 #include "LiveCompareSharedRing.h"
 

@@ -42,16 +42,49 @@ struct RenderReport
 class PostRenderer
 {
 public:
-    // Non-RT: sizes the scratch for the largest realtime block and the fade length.
+    // Non-RT: sizes the scratch for the largest realtime block, the fade length and the POST input
+    // history that MATCH reads (a power of two of at least historySeconds).
     void prepare (int maximumFrames, double sampleRate)
     {
         capacity = std::max (0, maximumFrames);
         left = std::make_unique<float[]> (static_cast<std::size_t> (capacity));
         right = std::make_unique<float[]> (static_cast<std::size_t> (capacity));
         fadeFrames = std::max (1, static_cast<int> (sampleRate * fadeSeconds + 0.5));
+        std::int64_t frames = 1;
+        while (static_cast<double> (frames) < sampleRate * historySeconds)
+            frames <<= 1;
+        historyFrames = frames;
+        history = std::make_unique<std::atomic<float>[]> (static_cast<std::size_t> (frames) * 2);
+        historyStart.store (0, std::memory_order_relaxed);
+        historyEnd.store (0, std::memory_order_relaxed);
+        matchOffsetValid.store (false, std::memory_order_relaxed);
         consumer.reset();
         weight = 0.0f;
     }
+
+    // MATCH (non-RT) reads the POST input history, contiguous over [start, end) of POST's clock,
+    // and the K that mapped the latest block, then verifies the history was not overwritten.
+    struct HistoryView
+    {
+        const std::atomic<float>* samples = nullptr; // interleaved stereo, historyFrames long
+        std::int64_t frames = 0;
+        std::int64_t start = 0, end = 0, k = 0;
+        bool kValid = false;
+    };
+
+    HistoryView historyView() const noexcept
+    {
+        HistoryView view;
+        view.samples = history.get();
+        view.frames = historyFrames;
+        view.end = historyEnd.load (std::memory_order_acquire);
+        view.start = historyStart.load (std::memory_order_acquire);
+        view.k = matchOffset.load (std::memory_order_acquire);
+        view.kValid = matchOffsetValid.load (std::memory_order_acquire);
+        return view;
+    }
+
+    std::int64_t historyWriteEnd() const noexcept { return historyEnd.load (std::memory_order_acquire); }
 
     RenderReport render (const Ring& ring, std::uint64_t pairKey, std::uint32_t sampleRate,
                          const BlockClock& block, float* const* io, int channels,
@@ -64,8 +97,11 @@ public:
             report.preWaiting = preSelected;
             return report;
         }
+        recordHistory (block, io, channels);
         float* scratch[] = { left.get(), right.get() };
         const auto decision = consumer.process (ring, pairKey, sampleRate, block, scratch, 2);
+        matchOffset.store (decision.k, std::memory_order_release);
+        matchOffsetValid.store (decision.kValid, std::memory_order_release);
         report.verdict = decision.verdict;
         if (decision.verdict != Verdict::accepted)
         {
@@ -95,11 +131,34 @@ public:
 
 private:
     static constexpr double fadeSeconds = 0.005; // the symmetric transition of Local Blind (INV-S25)
+    static constexpr double historySeconds = 8.0; // MATCH reads up to 4 s of it
+
+    // Audio Thread: the POST input (A, before any output mixing) indexed by POST's continuous clock.
+    void recordHistory (const BlockClock& block, float* const* io, int channels) noexcept
+    {
+        if (history == nullptr || ! block.clockValid)
+            return;
+        const auto end = historyEnd.load (std::memory_order_relaxed);
+        if (block.afterGap || ! block.playing || block.clock != end || end == 0)
+            historyStart.store (block.clock, std::memory_order_release);
+        const auto mask = historyFrames - 1;
+        for (std::int32_t i = 0; i < block.frames; ++i)
+        {
+            const auto slot = static_cast<std::size_t> ((block.clock + i) & mask) * 2;
+            history[slot].store (io[0][i], std::memory_order_relaxed);
+            history[slot + 1].store (io[std::min (1, channels - 1)][i], std::memory_order_relaxed);
+        }
+        historyEnd.store (block.clock + block.frames, std::memory_order_release);
+    }
 
     Consumer consumer;
     std::unique_ptr<float[]> left, right;
     int capacity = 0;
     int fadeFrames = 240;
     float weight = 0.0f;
+    std::unique_ptr<std::atomic<float>[]> history;
+    std::int64_t historyFrames = 0;
+    std::atomic<std::int64_t> historyStart { 0 }, historyEnd { 0 }, matchOffset { 0 };
+    std::atomic<bool> matchOffsetValid { false };
 };
 }

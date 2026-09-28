@@ -62,7 +62,12 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
     assert!(live_compare.contains("KirinLiveCompareSessionTests"));
     assert!(live_compare.contains("kirin_live_compare_session"));
     assert!(ci.contains("KirinLiveCompareSessionTests"));
-    assert!(ci.contains("-R '^(kirin_live_compare_correspondence|kirin_live_compare_session)$'"));
+    assert!(live_compare.contains("KirinLiveCompareMatchTests"));
+    assert!(ci.contains("KirinLiveCompareMatchTests"));
+    assert!(ci.contains(
+        "-R '^(kirin_live_compare_correspondence|kirin_live_compare_session|kirin_live_compare_match)$'"
+    ));
+    assert!(source_gate.contains("KirinLiveCompareMatchTests"));
     assert!(source_gate.contains("KirinLiveCompareSessionTests"));
     assert!(source_gate.contains("KirinLiveCompareCorrespondenceTests"));
     let selected: Vec<_> = source_gate
@@ -92,6 +97,7 @@ fn product_runtime_contracts_are_registered_in_platform_gates() {
         "kirin_reference_audio_streaming",
         "kirin_live_compare_correspondence",
         "kirin_live_compare_session",
+        "kirin_live_compare_match",
     ] {
         assert!(
             selected.contains(&test),

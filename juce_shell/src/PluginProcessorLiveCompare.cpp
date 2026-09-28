@@ -120,6 +120,21 @@ void KirinHyphaProcessorBase::setLiveCompareGain (float linear) noexcept
         liveCompare.gain.store (linear, std::memory_order_release);
 }
 
+hypha::live_compare::MatchResult KirinHyphaProcessorBase::matchLiveCompare()
+{
+    // Message thread: reads the POST history and PRE's ring through atomics only.
+    hypha::live_compare::MatchResult result;
+    if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire))
+        return result;
+    const auto* mapping = liveCompare.ring.control();
+    if (mapping == nullptr || mapping->ring() == nullptr)
+        return result;
+    result = hypha::live_compare::computeMatch (*mapping->ring(), liveCompare.renderer, mapping->rate());
+    if (result.ok())
+        setLiveCompareGain (static_cast<float> (std::pow (10.0, result.appliedDb / 20.0)));
+    return result;
+}
+
 hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const noexcept
 {
     hypha::live_compare::Status status;
