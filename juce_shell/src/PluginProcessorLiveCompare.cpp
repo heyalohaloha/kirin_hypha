@@ -72,7 +72,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
         return StartResult::notPost;
     if (! writesEnabled.load (std::memory_order_acquire))
         return StartResult::notReady;
-    if (! stereoWorkflowsSupported())
+    if (! liveCompareSupported())
         return StartResult::unsupportedLayout;
     const auto pre = pairedPreInstanceId();
     if (pre.isEmpty())
@@ -83,6 +83,7 @@ hypha::live_compare::StartResult KirinHyphaProcessorBase::startLiveCompare()
     if (! mapping->open (key, static_cast<std::uint32_t> (preparedFormat.sampleRate)))
         return StartResult::preUnavailable;
     liveCompare.renderer.prepare (juce::jmax (getBlockSize(), 16384), preparedFormat.sampleRate);
+    liveCompare.gain.store (1.0f, std::memory_order_release); // each session approves its own MATCH
     mapping->ring()->header.demand.store (1, std::memory_order_release);
     if (! publishMapping (liveCompare.ring, std::move (mapping)))
         return StartResult::notReady;
@@ -133,6 +134,16 @@ hypha::live_compare::MatchResult KirinHyphaProcessorBase::matchLiveCompare()
     if (result.ok())
         setLiveCompareGain (static_cast<float> (std::pow (10.0, result.appliedDb / 20.0)));
     return result;
+}
+
+bool KirinHyphaProcessorBase::liveCompareSupported() const noexcept
+{
+    // AAX multi-mono runs one mono instance per channel, and a mono instance cannot tell that apart
+    // from a mono track. Until every channel switches in the same block (INV-LC9), AAX offers the
+    // live compare on stereo instances only, so PRE and POST never mix across channels.
+    const bool aaxMono = wrapperType == wrapperType_AAX && getTotalNumInputChannels() < 2;
+    return role == Role::Post && stereoWorkflowsSupported() && ! aaxMono
+        && hypha::live_compare::sharedRingAvailable();
 }
 
 hypha::live_compare::Status KirinHyphaProcessorBase::liveCompareStatus() const noexcept
@@ -186,9 +197,10 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
             return;
         if (! usable || outputTaken)
         {
-            // Offline render, bypass or another audition keeps POST; the session needs re-selection.
+            // Offline render, bypass, a layout change or another audition keeps POST; PRE needs
+            // selecting again.
             liveCompare.renderer.silenceTransition();
-            if (preSelected && (nonRealtimeMode || bypassed))
+            if (preSelected)
             {
                 liveCompare.preSelected.store (false, std::memory_order_release);
                 liveCompare.interrupted.store (true, std::memory_order_release);

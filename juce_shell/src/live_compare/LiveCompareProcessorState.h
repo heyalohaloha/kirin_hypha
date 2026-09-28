@@ -17,7 +17,7 @@ enum class StartResult : std::uint8_t
     notPost,           // only POST starts a live session
     notReady,          // writes are not enabled yet, or the previous mapping is still in use
     noPair,            // POST is not paired with a PRE
-    unsupportedLayout, // live compare is mono/stereo only
+    unsupportedLayout, // mono/stereo only; AAX stereo only until INV-LC9 (no platform ring either)
     preUnavailable     // PRE's ring is missing, stale, for another rate, or the platform has none
 };
 

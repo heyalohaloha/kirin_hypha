@@ -14,6 +14,7 @@ KirinHyphaEditor::~KirinHyphaEditor()
     {
        #if ! KIRIN_HYPHA_PRE_DISPLAY
         if (localBlindOpen) processorRef.cancelLocalBlindProductSession();
+        processorRef.stopLiveCompare(); // a closed window never leaves PRE sounding (plan E2)
        #endif
         processorRef.endReferenceBlind();
        #if ! KIRIN_HYPHA_PRE_DISPLAY
@@ -53,6 +54,9 @@ void KirinHyphaEditor::timerCallback()
     if (isPost) updatePost();
     else        updatePre();
     refreshObservatory();
+   #if ! KIRIN_HYPHA_PRE_DISPLAY
+    if (isPost) refreshLiveCompare();
+   #endif
     refreshPairPreview (false);
 }
 

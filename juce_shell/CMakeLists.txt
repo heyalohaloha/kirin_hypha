@@ -316,6 +316,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryLiveCompare.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
@@ -355,6 +356,7 @@ function(add_kirin_plugin TARGET CODE PRODUCT DISPLAY_NAME MAIN_SRC BUNDLE_ID)
     else()
         target_sources(${TARGET} PRIVATE
             src/PluginEditorLocalBlind.cpp
+            src/PluginEditorLiveCompare.cpp
             src/HyphaLocalBlindComponent.cpp
             src/HyphaLocalBlindSteps.cpp
         src/HyphaLocalBlindPresentation.cpp
@@ -551,6 +553,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_PREVIEW_RENDERER)
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryLiveCompare.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaSpacePainter.cpp
         src/HyphaMonoSumPainter.cpp
@@ -599,6 +602,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         tests/HybridVuContractTest.cpp
         tests/ComparisonPresentationContractTest.cpp
         tests/ObservatoryViewContractTest.cpp
+        tests/LiveCompareFooterContractTest.cpp
         tests/SurroundObservatoryContractTest.cpp
         tests/JungleAppearanceContractTest.cpp
         tests/ObservatoryCaptureContractTest.cpp
@@ -626,6 +630,7 @@ if(KIRIN_HYPHA_BUILD_UI_RENDER_TESTS)
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryLiveCompare.cpp
         src/HyphaObservatoryFrame.cpp
         src/HyphaObservatoryHistoryInteraction.cpp
         src/HyphaObservatoryMetrics.cpp
@@ -950,6 +955,7 @@ if(KIRIN_HYPHA_BUILD_REFERENCE_AUDITION_TESTS)
         src/HyphaObservatoryView.cpp
         src/HyphaObservatoryViewLayout.cpp
         src/HyphaObservatoryViewFooter.cpp
+        src/HyphaObservatoryLiveCompare.cpp
         src/HyphaObservatoryViewState.cpp
         src/HyphaSpacePainter.cpp
         src/HyphaMonoSumPainter.cpp

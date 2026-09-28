@@ -10,6 +10,16 @@ namespace hypha::live_compare
 // The pair key both roles derive from the PRE instance identity without talking to each other.
 std::uint64_t pairKeyForPreInstance (const std::string& preInstanceId) noexcept;
 
+// Stage 1 maps the ring with POSIX shared memory; Windows has no live compare until its stage.
+constexpr bool sharedRingAvailable() noexcept
+{
+#if defined (_WIN32)
+    return false;
+#else
+    return true;
+#endif
+}
+
 // "/kh-lc-" and 16 hex digits: 23 bytes, within the 31-byte POSIX shared-memory name limit.
 std::string sharedRingName (std::uint64_t pairKey);
 
