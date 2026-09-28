@@ -27,19 +27,13 @@ juce::Rectangle<int> rectangleOf (attack_ui::Box box)
     return { box.x, box.y, box.width, box.height };
 }
 
-juce::String unitFor (Lane lane, bool delta)
-{
-    return lane == Lane::sharpness ? "acum" : lane == Lane::strength && ! delta ? "dBFS" : "dB";
-}
-
-juce::String cellText (const attack_lanes::Hit* hit, Lane lane, bool delta)
+juce::String glanceText (const attack_lanes::Hit* hit, Lane lane, bool delta)
 {
     if (hit == nullptr)
         return "--";
-    const auto& cell = hit->cells[index (lane)];
-    if (cell.reason == Reason::value)
-        return valueText (lane, cell.value, delta, false);
-    return reasonText (*hit, cell.reason).upToFirstOccurrenceOf (" ", false, false);
+    if (stated (hit->cells[index (lane)]))
+        return cellText (*hit, lane, delta, false);
+    return cellText (*hit, lane, delta, false).upToFirstOccurrenceOf (" ", false, false);
 }
 }
 
@@ -49,10 +43,10 @@ void paintGlance (juce::Graphics& g, const attack_ui::Layout& layout, const Fram
     const bool delta = frame.model.delta;
     std::array<juce::String, attack_ui::laneCount> texts;
     std::array<juce::Rectangle<int>, attack_ui::laneCount> cells;
-    for (const auto lane : attack_lanes::lanes)
+    for (const auto lane : frame.lanes)
     {
         cells[index (lane)] = rectangleOf (attack_ui::lineCell (layout, index (lane)));
-        texts[index (lane)] = cellText (hit, lane, delta);
+        texts[index (lane)] = glanceText (hit, lane, delta);
     }
     juce::Font valueFont;
     for (const auto composition : { Composition::facts, Composition::instrument,
@@ -68,10 +62,10 @@ void paintGlance (juce::Graphics& g, const attack_ui::Layout& layout, const Fram
     }
     const auto labelHeight = text_style::requiredLineHeight (
         typography::resolve (frame.context, TextRole::metricLabel, Composition::visualization));
-    for (const auto lane : attack_lanes::lanes)
+    for (const auto lane : frame.lanes)
     {
         auto cell = cells[index (lane)];
-        const bool measured = hit != nullptr && hit->cells[index (lane)].reason == Reason::value;
+        const bool measured = hit != nullptr && stated (hit->cells[index (lane)]);
         paintAccent (g, cell, colourFor (lane), measured ? 0.9f : 0.35f);
         cell.removeFromLeft (attack_ui::lineAccentWidth);
         auto head = cell.removeFromTop (labelHeight);

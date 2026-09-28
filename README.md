@@ -73,6 +73,16 @@ STRENGTH and CREST as soon as its first 30 ms are measured; TRANSIENT and SHARPN
 body is complete, and stay empty for a hit cut off by a transport stop. Without PRE, the lanes show
 POST values.
 
+**BAND**, on DRUM's second header row, filters each hit to one ISO octave band (63 Hz to 8 kHz) on
+PRE and POST and turns the four lanes into **DELAY** (POST arrival − PRE arrival, where the band
+envelope rises through its peak − 20 dB), **ATT** (10 → 90 % of the band peak), **REL** (peak →
+−20 dB) and **LEVEL** (the band peak), each as POST − PRE of the same hit. At 200 % and 300 %
+HISTORY shows the selected hit's **HEAD** (−5 to +40 ms) and **TAIL** (0 to 300 ms) in that band.
+An ATT shorter than the band's time resolution (one period of its centre) reads as an upper bound
+such as `<16 ms`. **ALL** returns to the whole-signal DRUM, and while no band is chosen nothing
+extra is measured. A PRE older than bands keeps pairing but sends no band: the lanes then show
+POST values and DELAY says so.
+
 ### FREQ — where the chain changed
 
 The cyan **Δ (POST − PRE)** curve is the primary view. PRE and POST remain visible as references.
@@ -716,9 +726,9 @@ whole in a one-line strip over the bottom edge of the measurement while they las
 opens the details.
 
 100% is for reading, not operating. The buttons that take room (CURRENT / MAX, the history range
-and FOCUS, LR / MID / SIDE, M/S, PSB, MARK, RAW / SHAPE, and DRUM's VIEW) are chosen at 125% and
-above; a choice made there stays in force at 100%, where only a non-default one (MID, SIDE, SHAPE,
-MARK, HOLD, LOCK) is named. Clicking the plot itself (FREQ's frequency lock, DRUM's hit selection) works at every
+and FOCUS, LR / MID / SIDE, M/S, PSB, MARK, RAW / SHAPE, and DRUM's VIEW and BAND) are chosen at
+125% and above; a choice made there stays in force at 100%, where only a non-default one (MID, SIDE,
+SHAPE, MARK, HOLD, LOCK, a DRUM band) is named. Clicking the plot itself (FREQ's frequency lock, DRUM's hit selection) works at every
 size. The room goes to the measurement: LEVEL reads S, I (Crest for a track or stem) and the
 Session's MAX TP; TIME HISTORY draws S and TP; DRUM shows one row of history over its four values,
 large; FREQ's plot takes the control rows and the right-hand absolute axis; SPACE's scatter takes

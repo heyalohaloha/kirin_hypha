@@ -89,71 +89,6 @@ bool drawFitting (juce::Graphics& g, std::initializer_list<juce::String> candida
     return false;
 }
 
-juce::Colour colourFor (Lane lane) noexcept
-{
-    switch (lane)
-    {
-        case Lane::transient: return juce::Colour (attack_ui::transientColour);
-        case Lane::strength:  return juce::Colour (attack_ui::strengthColour);
-        case Lane::crest:     return juce::Colour (attack_ui::crestColour);
-        case Lane::sharpness: return juce::Colour (attack_ui::sharpnessColour);
-    }
-    return COL_NORMAL;
-}
-
-juce::String nameFor (Lane lane)
-{
-    constexpr const char* names[] { "TRANSIENT", "STRENGTH", "CREST", "SHARPNESS" };
-    return names[index (lane)];
-}
-
-juce::String codeFor (Lane lane)
-{
-    constexpr const char* codes[] { "TR", "ST", "CR", "SH" };
-    return codes[index (lane)];
-}
-
-juce::String scaleCaption (Lane lane, bool delta)
-{
-    if (delta)
-        return lane == Lane::sharpness ? "+/-1 acum" : "+/-12 dB";
-    constexpr const char* absolute[] { "-12..24 dB", "-72..0 dBFS", "0..24 dB", "0..8 acum" };
-    return absolute[index (lane)];
-}
-
-juce::String valueText (Lane lane, float value, bool delta, bool withUnit)
-{
-    if (! std::isfinite (value))
-        return "--";
-    const auto decimals = lane == Lane::sharpness ? 2 : 1;
-    const auto step = decimals == 2 ? 100.0f : 10.0f;
-    auto rounded = std::round (value * step) / step;
-    if (rounded == 0.0f)
-        rounded = 0.0f; // never print -0.0
-    auto text = juce::String (rounded, decimals);
-    if (delta && rounded >= 0.0f)
-        text = "+" + text;
-    if (! withUnit)
-        return text;
-    return text + (lane == Lane::sharpness ? " acum"
-                 : lane == Lane::strength && ! delta ? " dBFS" : " dB");
-}
-
-juce::String reasonText (const attack_lanes::Hit& hit, Reason reason)
-{
-    switch (reason)
-    {
-        case Reason::value:        return {};
-        case Reason::missing:      return "--";
-        case Reason::nextHit:      return "NEXT HIT";
-        case Reason::quietBody:    return "QUIET AFTER";
-        case Reason::noMatch:
-            return hit.pre.available && ! hit.post.available ? "PRE ONLY"
-                 : hit.post.available && ! hit.pre.available ? "POST ONLY" : "NO PAIR";
-    }
-    return "--";
-}
-
 void paintLaneChrome (juce::Graphics& g, Lane lane, juce::Rectangle<int> label,
                       juce::Rectangle<int> plot, bool delta, const presentation::Context& context)
 {
@@ -322,16 +257,14 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
     }
     // The readout states the lane's own quantity only: POST - PRE when paired, the POST value
     // otherwise. Per-hit PRE and POST operands are not shown.
-    const auto& value = hit->cells[index (lane)];
-    if (value.reason == Reason::value)
+    if (stated (hit->cells[index (lane)]))
     {
         g.setColour (COL_OBSERVATORY_VALUE);
-        drawFitting (g, { valueText (lane, value.value, delta, true),
-                          valueText (lane, value.value, delta, false) },
+        drawFitting (g, { cellText (*hit, lane, delta, true), cellText (*hit, lane, delta, false) },
                      cell, context, TextRole::secondaryValue, juce::Justification::centredLeft);
         return;
     }
-    const auto reason = reasonText (*hit, value.reason);
+    const auto reason = cellText (*hit, lane, delta, false);
     g.setColour (COL_TEXT_SECONDARY);
     drawFitting (g, { reason, shortReason (reason), "--" }, cell, context, TextRole::readout,
                  juce::Justification::centredLeft, attack_stage::captionTracking (context));
@@ -340,20 +273,19 @@ void paintLaneValues (juce::Graphics& g, Lane lane, juce::Rectangle<int> plot,
 void paintLine (juce::Graphics& g, const attack_ui::Layout& layout, const Frame& frame)
 {
     const auto* hit = frame.selected;
-    for (const auto lane : attack_lanes::lanes)
+    for (const auto lane : frame.lanes)
     {
         auto cell = rectangleOf (attack_ui::lineCell (layout, index (lane)));
-        const bool measured = hit != nullptr && hit->cells[index (lane)].reason == Reason::value;
+        const bool measured = hit != nullptr && stated (hit->cells[index (lane)]);
         paintAccent (g, cell, colourFor (lane), measured ? 0.9f : 0.35f);
         cell.removeFromLeft (attack_ui::lineAccentWidth);
         const auto code = codeFor (lane);
         if (measured)
         {
-            const auto value = hit->cells[index (lane)].value;
             g.setColour (COL_OBSERVATORY_VALUE);
-            drawFitting (g, { code + " " + valueText (lane, value, frame.model.delta, true),
-                              code + " " + valueText (lane, value, frame.model.delta, false),
-                              valueText (lane, value, frame.model.delta, false) },
+            drawFitting (g, { code + " " + cellText (*hit, lane, frame.model.delta, true),
+                              code + " " + cellText (*hit, lane, frame.model.delta, false),
+                              cellText (*hit, lane, frame.model.delta, false) },
                          cell, frame.context, TextRole::readout,
                          juce::Justification::centredLeft);
         }

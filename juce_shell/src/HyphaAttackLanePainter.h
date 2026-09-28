@@ -19,6 +19,8 @@ struct Frame
     // no hypha, so its values are not shown either.
     const attack_lanes::Hit* selected = nullptr;
     presentation::Context context = presentation::defaultContext();
+    // The four rows: the whole-signal lanes, or the band lanes while a band is chosen.
+    const std::array<attack_lanes::Lane, attack_ui::laneCount>& lanes = attack_lanes::lanes;
 };
 
 // Draws the first candidate that fits the area and returns false when none fits, so a narrow
@@ -34,8 +36,21 @@ juce::Colour colourFor (attack_lanes::Lane) noexcept;
 juce::String nameFor (attack_lanes::Lane);
 juce::String codeFor (attack_lanes::Lane);
 juce::String scaleCaption (attack_lanes::Lane, bool delta);
+juce::String unitFor (attack_lanes::Lane, bool delta);
 juce::String valueText (attack_lanes::Lane, float value, bool delta, bool withUnit);
+// A band's time resolution, one period of its centre: "16 ms", "0.13 ms"; and the ATT bound
+// stated inside it (D4): "<16 ms".
+juce::String resolutionText (float ms);
+juce::String boundText (float ms);
 juce::String reasonText (const attack_lanes::Hit&, attack_lanes::Reason);
+// What a cell says: its value, the ATT bound "<16 ms" (D4), or why it is withheld.
+juce::String cellText (const attack_lanes::Hit&, attack_lanes::Lane, bool delta, bool withUnit);
+// A cell that states a fact (a value or a bound) is drawn as a value; a reason is not.
+inline bool stated (const attack_lanes::Cell& cell) noexcept
+{
+    return cell.reason == attack_lanes::Reason::value
+        || cell.reason == attack_lanes::Reason::belowResolution;
+}
 
 // One lane row is split by lifetime. The chrome (name, fixed scale, stage, zero line) only
 // changes with size, context and pairing and is cached; the values (per-hit filaments on the

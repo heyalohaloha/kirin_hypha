@@ -12,7 +12,8 @@
   - **負荷を増やさない**。
   - **帯域の選び方は外部調査で見直す**（§2）。
 - **2026-09-28、D1〜D5 は推奨どおりで Daisuke が確定した**（§9）。
-- **2026-09-29、PR-A（計算・FFI・負荷の実測）を実装した。** 実装で決めた点は §11。PR-B（画面）は次。
+- **2026-09-29、PR-A（計算・FFI・負荷の実測）を実装した。** 実装で決めた点は §11。
+- **2026-09-29、PR-B（画面）を実装した。** 実装で決めた点は §12。不変条件は INV-S44。
 - **Hypha の立場**：
   - 音を変えない（R-12）。シェイパーやコンプは PRE と POST の間にある利用者のプラグインで、Hypha はその前後を**同じ打撃で**比べて示す。
   - 良し悪しは言わない（R-22）。
@@ -238,3 +239,22 @@
 - [An overview of filters, Part 4: Time and phase issues（Analog IC Tips）](https://www.analogictips.com/an-overview-of-filters-and-their-parameters-part-4-time-and-phase-issues/)
 - [Bandsplitting for mastering: minimum phase or linear phase?（Gearspace）](https://gearspace.com/board/mastering-forum/1378687-bandsplitting-mastering-purposes-minimum-phase-linear-phase.html)
 - [Group Delay Calculator for Audio（CMUSE）](https://www.cmuse.org/group-delay-calculator/)
+
+## 12. PR-B の実装記録（2026-09-29）
+
+計画（§3・§6）からの違いと、実装で決めた点。
+
+- **帯域の範囲の表示**：凡例とホバーの範囲は、エンジンの正確な中心（62.5 Hz × 2^n）から求める。63 の帯域は `44-88 Hz`、8k は `5.66-11.3 kHz` と出る（§2 の 44–89 は名目の 63 Hz から計算した概数）。
+- **入り方**：見出しの2行目に `BAND` と9つのチップ（ALL・63・125・250・500・1k・2k・4k・8k）を置いた。凡例はチップの右に、収まるときだけ出す（`drawFitting`）。見本の「Hz」の見出しは `BAND` にした（ALL が先頭に来るため）。VIEW は OVERLAY / 2 ROWS のまま（D3）。100% にはチップがなく、選んだ帯域を保って HISTORY 左上に `63 Hz` と名指しする（INV-S38）。
+- **HEAD の範囲**：見本の −5〜+25 ms ではなく **−5〜+40 ms** にした。エンジンが届ける HEAD は −20〜+40 ms で、63 Hz 帯域の立ち上がり（約 13〜20 ms）と到達が +25 ms に収まらない場合があるため。300% の HEAD 面は約 280 px なので 45 ms でも 6 px/ms あり、2.4 ms の DELAY は十数 px の隙間として見える。
+- **面を出す大きさ**：HISTORY の plot が 64 px 以上のとき（200%・300%）だけ HEAD / TAIL に替える。150% 以下は HISTORY の 6 秒をそのまま保ち、段だけが帯域になる（§3「100%〜150% は 4 つの値だけ」）。面は打音を選ばず、時間軸と段だけが選ぶ。選択の菌糸線は面を通らず時間軸から下だけに立つ。
+- **dB の尺度**：面は HISTORY と同じ −72〜0 dBFS 固定（自動スケールなし）。
+- **VIEW 2 ROWS**：面を PRE 上・POST 下に分け、各行に自分の印を置く。括弧（DELAY・REL の差）は OVERLAY だけ。
+- **段の尺度**：差分は DELAY ±10 ms、ATT ±10 ms、REL ±100 ms、LEVEL ±12 dB。POST 値は ATT 0〜40 ms、REL 0〜300 ms、LEVEL −72〜0 dBFS。DELAY は差でしか意味がないので POST 値の段は空で `NO PAIR`。実測のあと見直す。
+- **D4（ATT の上限）**：|ATT| または |ΔATT| が帯域の時間の細かさ（1周期）未満のとき、読み出しは `<16 ms` の形で上限を示し、棒は 0 線の中空の印にする。`≤` ではなく ASCII の `<` にしたのは、既存の尺度表記が `+/-` を使っており、mono 書体と Windows で記号の有無を確かめずに済ませるため。
+- **理由の語**：`RINGING`（前の打音の余韻で到達が取れない。DELAY・ATT）、`NEXT HIT`（次の打音で尾が切れた。REL）、`PRE NO BAND`（ペアだが PRE が帯域を返していない。DELAY）、`POST ONLY` / `NO PAIR` は従来どおり。
+- **古い PRE**：`pre_band_available == 0` の間は「届く前」と「帯域より古い PRE」を区別できないので、両方を同じ言葉で扱う。段は POST 値、DELAY は `PRE NO BAND`、HEAD の見出しは `PRE: NO BAND YET`、選んだチップのホバーで「帯域より古い PRE からは届かない。PRE を更新すると比べられる」と説明する（R-28）。
+- **エンジンとの同期**：帯域は `AttackComponent` のエディター寿命の状態（VIEW と同じ）。エディターは `onBandChange` で `setAttackBand` を呼び、DRUM ページに入るたびに自分の帯域を送り直す（開き直したエディターは ALL、エンジンに前の帯域が残っていても揃う）。プロセッサは帯域を覚え、ATTACK をエンジン（新規・再有効化）へ適用するたびに送り直す。届いた batch の帯域が選んだ帯域と違う間（切替直後）は何も出さない。
+- **ホバー**：チップ・HEAD・TAIL・帯域の4段に日本語つきの説明（INV-S40）。従来の4段には付けていない。
+- **画像**：`KIRIN_ATTACK_UI_SHOWCASE_DIR` で 63 Hz の見本画像（900 overlay / rows、600、450、375、300）を書く。
+- **検証**：`verifyBandModel`（差分・POST 値・PRE 待ち・理由・D4・文字）、`verifyBandRendering`（5 サイズ、チップ、面、段、ALL で完全に元へ戻る）、`verifyBandInteraction`（チップ、面は選ばない、段は選ぶ、ホバー、100% で反応なし）、`verifyChromeCache`（帯域・PRE 待ち・2 ROWS を含む）。`KIRIN_ATTACK_FRAME_BUDGET` で 300% 帯域表示の描画時間も測る。

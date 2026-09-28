@@ -12,6 +12,7 @@ namespace hypha::attack_equality
 static_assert (sizeof (KirinAttackEvent) == 72 && sizeof (KirinAttackDetail) == 512);
 static_assert (sizeof (KirinAttackWaveformPoint) == 40 && sizeof (KirinAttackPairEvent) == 112);
 static_assert (sizeof (KirinAttackStats) == 32);
+template <typename T> bool same (const T& a, const T& b) noexcept;
 template <typename T> bool field (const T& a, const T& b) noexcept
 {
     if constexpr (std::is_floating_point_v<T>)
@@ -19,6 +20,8 @@ template <typename T> bool field (const T& a, const T& b) noexcept
     else if constexpr (std::is_array_v<T>)
         return std::equal (std::begin (a), std::end (a), std::begin (b),
                            [] (const auto& x, const auto& y) { return field (x, y); });
+    else if constexpr (std::is_same_v<T, KirinAttackBandSide>)
+        return same (a, b);
     else return a == b;
 }
 template <typename T, std::size_t... I>
@@ -48,6 +51,17 @@ inline auto key (const KirinAttackPairEvent& v) noexcept
 inline auto key (const KirinAttackStats& v) noexcept
 { return std::tie (v.available, v.enabled, v.worker_running, v.channels,
                    v.pushed_blocks, v.dropped_blocks, v.analyzed_frames); }
+inline auto key (const KirinAttackBandSide& v) noexcept
+{
+    return std::tie (v.available, v.arrival_available, v.attack_available, v.release_available,
+        v.span_end_sample, v.peak_ms, v.arrival_ms, v.attack_ms, v.release_ms, v.level_dbfs,
+        v.head_dbfs, v.tail_dbfs);
+}
+inline auto key (const KirinAttackBandHit& v) noexcept
+{
+    return std::tie (v.generation, v.sample_rate, v.channels, v.band, v.kind, v.delay_available,
+        v.event_sample, v.resolution_micros, v.delay_ms, v.pre, v.post);
+}
 template <typename T> bool same (const T& a, const T& b) noexcept
 {
     const auto ka = key (a), kb = key (b);

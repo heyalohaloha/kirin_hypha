@@ -240,6 +240,7 @@ private:
     KirinAttackDetailBatch cachedAttackPreDetails {};
     KirinAttackPairEventBatch cachedAttackPairEvents {};
     KirinAttackStats cachedAttackStats {};
+    KirinAttackBandBatch cachedAttackBand {};
     std::int64_t cachedAttackLatest = -1;
     std::uint32_t cachedAttackRate = 0;
     std::uint64_t cachedAttackGeneration = 0;
