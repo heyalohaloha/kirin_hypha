@@ -138,5 +138,10 @@ or newer version, so a same-version reinstall cannot be mislabeled as an upgrade
   and uninstall validation.
 - Complete Windows Pro Tools load, category, transparency, Offline Bounce, restore, mono/stereo,
   and pairing validation. The macOS B-786 artifact has an Intel Pro Tools proof, but that evidence
-  neither covers Windows nor a later same-version source commit.
+  neither covers Windows nor a later same-version source commit. On 2026-09-29 unsigned diagnostic
+  builds of B-1092 loaded in Pro Tools Developer 2026.4.0 on Windows 11: Native insertion under
+  **Other**, stereo, mono and multi-mono instances, PRE/POST pairing, live compare, the named A/B
+  and Blind, and an exact 4 s PRE/POST range across a 4096-sample validation delay that was
+  bit-identical with zero residual (B-1094). Transparency, Offline Bounce, session reopen and a
+  PACE-signed candidate in retail Pro Tools remain.
 - Produce all three public channels from the same release commit; AAX is not a fourth channel.

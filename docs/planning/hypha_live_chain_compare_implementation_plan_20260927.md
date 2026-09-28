@@ -43,7 +43,7 @@
 
 - **遅延の報告への依存**: 間のpluginが遅延を正しく報告し、DAWが補償することを前提にする。崩れると、時計の規則では検出できず、ずれが続く。中身の推定による警告で扱う。
 - **周回単位の取り違え**: chainの遅延がloop長以上だと、Kを周回単位でずらして較正し得る。G1の照合（識別PCM）は、この誤りを検出できない。
-- **AAX**: Pro Tools Developer 2026.4（Intel Mac、48 kHz）では、POSTに遅延補償済みの位置が渡り、方式が成り立った（G1記録第9節）。製品版、Apple silicon、Windows、multi-mono、他のbufferは未確認である。
+- **AAX**: Pro Tools Developer 2026.4（Intel Mac、48 kHz）では、POSTに遅延補償済みの位置が渡り、方式が成り立った（G1記録第9節）。製品版、multi-mono、遅延補償のOFFは2026-09-28に、WindowsのPro Tools Developerは2026-09-29に確かめた（次の一手の記録）。製品版のWindows Pro Tools、Apple silicon、他のbufferは未確認である。
 
 ### 未決
 
@@ -68,7 +68,8 @@ R-12と安全契約の改定、既存Blindのhost gate、E2でのowner、exact 4
    - 製品版Pro Toolsでの実機確認（2026-09-28、47aac2ab（B-1088）をPACEとDeveloper IDで署名した非配布の確認用AAX、Pro Tools Ultimate 26.4.1、48 kHz、32-bit float、300%、Targetオフ）: mono trackのPRE → Trim −6.0 dB → POST（いずれもmono）で、POSTにLISTENが出て、MATCHは「MATCH：PRE -6.00 dB」、PREを選ぶとWAITにならずに鳴った（製品版でも組のIDが渡る）。stereo trackでmulti-monoのPRE（2 instance）と組にしたstereoのPOSTでは、LISTENは始まらず「PREをstereoで入れてください」を示した。multi-monoのPOSTは300%でもLISTENを出さず、PRE/POST BLINDとMENUだけを示した。確認後、製品版の1.1.51を同じハッシュで戻した。sessionは保存していない。
    - 記名の固定AB（B-1090、INV-LC17）: PRE／POST Blindの範囲の準備ができた画面で、「Blindを開始」の隣に「記名A/B」を出す（両方の表示が丸ごと収まるサイズだけ。200%以上では必ず）。記名A/Bは同じ固定PCMと固定gainで、SOURCE 1をPRE、2をPOSTとして名前と固定gain（例「PRE -6.0 dB」「POST」。承認でPOSTを下げた時は「PRE」「POST -18.0 dB」）を示して鳴らし、どちらもいつでも選べる。範囲の前から再生し直せばもう一度鳴り、停止やseekは失敗にせず範囲の始まりを待ち直す。heardを数えず、回答とrevealはない。「Blindを開始」で同じ範囲の新しい匿名の試行へ移り、heard、回答、revealは空で始まり、割当は準備の時にCSPRNGで引いて記名A/Bでは使わないものを使い、最初の1周は範囲の始まりから始まる。承認済みのPOST減衰はそのまま引き継ぐ。PCMは同じtrialが持つので二重に持たない。PINからのBlindにも、既存のBlindの直接入口にも同じ画面が出る。trialの単体試験、画面の契約（全サイズ、英日）、Blindのproduct test（stereoとmono、VST3とAAXの4通りで、記名A/BのPRE、POST、続くBlind）を加えた。
    - 製品版Pro Toolsでの記名A/Bの実機確認（2026-09-28、21b6dc65（B-1090）とf5e9e948（B-1091）をPACEとDeveloper IDで署名した非配布の確認用AAX、Pro Tools Ultimate 26.4.1、48 kHz、32-bit float、300%、Targetオフ）: stereoのPRE → Trim −6.0 dB → POSTで、POSTのPRE/POST BLINDから4秒を取り込むと、「範囲の準備完了」の画面に「記名A/B」「Blindを開始」「STOP」が並んだ。「記名A/B」で題は「PRE / POST NAMED A/B / 2MIX」、段階は「2 開始」になり、範囲に入ると「PREを再生中」（「PRE -6.0 dB」が点灯）になった。1周の後にPOSTを選ぶと、範囲の前から再生し直したときに「POSTを再生中」になり、範囲の途中でPREを押すと0.7秒以内に「PREを再生中」へ切り替わった。「Blindを開始」で「BLIND COMPARE / 2MIX」「3 試聴」になり、範囲の始まりを待ってからSOURCE 1が鳴った。この確認で、Blindへ移った直後の待機中に記名A/Bの最後の受領が残り「SOURCE 1 / 再生中」と出ることが見つかった（記名A/Bで最後にPOSTを鳴らせば「SOURCE 2 / 再生中」になる。割当は漏れない）。B-1091で直し、記名A/Bで最後にPOSTを鳴らしてから「Blindを開始」しても「SOURCE 1 / 次」「SOURCE 2」と出ることを確かめた。どちらの確認も最後は「今の音に戻す」で戻り、製品版の1.1.51を同じハッシュで戻した。sessionは保存していない。
-1. AAXの残り: WindowsのPro Tools、hostの通知を待ってから音の遅延を変える型の遅延変更。
+   - WindowsのPro Toolsでの実機確認（2026-09-29、B-1092（1085c52c、mainと同じ中身）からWindows検証機でbuildした非配布の確認用AAX（未署名、Release版とDebug版）、Pro Tools Developer 2026.4.0（Windows 11、x64）、Windows Audio Deviceの共有モード、48 kHz、H/W buffer 256（pluginへのcallbackは1024 frames）、32-bit float、300%、Targetオフ）: stereo trackのPRE → 4096サンプル遅延 → POSTで、LISTENが始まり、MATCHは「PRE 0.0 dB」、PREを選ぶとWAITにならずに鳴った。再生中にOptions → 遅延補償をOFFにすると、POSTが鳴り、PREの操作は「PRE WAIT」、状態欄は「Pro Toolsの遅延補償がOFFです」になり、音のある区間でONに戻すと操作なしで「PRE 0.0 dB」に戻った。無音の区間（Dynamic Plug-In Processingが呼出しを止める）でONに戻した時は、音が戻るまでPRE WAITのままで、先頭から再生し直すと戻った。mono trackのPRE → 4096サンプル遅延 → POST（いずれもmono）では、POSTにLISTENが出て、MATCHは「PRE 0.0 dB」、PREを選ぶとWAITにならずに鳴った（Windowsでも組のIDが渡る）。stereo trackにmulti-monoのPRE（2 instance）とmulti-monoのPOSTを加えると、multi-monoのPOSTは300%でもLISTENを出さず、PRE/POST BLINDとMENUだけを示した。stereoのPOSTの組の候補にはmulti-monoのPREが別々に2つ並び、その1つを選んだLISTENは開始せず「PREをstereoで入れてください」を示した。記名A/Bは、4秒を取り込むと「記名A/B」「Blindを開始」「STOP」が並び、記名A/Bで「PRE / POST NAMED A/B / 2MIX」「2 開始」、範囲の前から再生して「1周完了 / PRE」、POSTを選んで再生し直すと「POSTを再生中」、範囲の途中でPREを押すと0.7秒以内に「PREを再生中」になった。記名A/Bで最後にPOSTを鳴らしてから「Blindを開始」すると「BLIND COMPARE / 2MIX」「3 試聴」「SOURCE 1 / 次」になり、範囲の始まりを待ってからSOURCE 1が鳴り、1周で「SOURCE 1 聴取完了 / SOURCE 2 準備完了」になった（B-1091の修正はWindowsでも保たれた）。最後はSTOPから「今の音に戻す」で戻った。続けてDebug版で、PRE → 4096サンプル遅延 → POSTの同じ4秒（192,000 frames、stereo）の範囲を取得すると、bit一致、推定残差0 samples、相関1.00000000、正規化zero RMS誤差0だった（Windows版Pro ToolsのAAXでのexact-rangeのPDC実証。`docs/hypha_b1_host_observation_20260907.md`）。Pro Toolsは保存せずに終え、確認用のAAXはplug-inのfolderから退避のfolderへ移した（Windows版Pro Toolsに他のHyphaはない）。PACE署名の配布候補での製品版のWindows Pro Tools、transparency、Offline Bounce、sessionの再openは確かめていない。
+1. AAXの残り: 製品版のWindows Pro Tools（PACE署名の配布候補で）、Apple silicon、hostの通知を待ってから音の遅延を変える型の遅延変更。
 2. Windows、他のbuffer設定、報告が先に来る型の遅延変更。
 3. 周回ごとに印が変わるfixtureと、遅延がloop長以上の条件。
 4. infinite tailとAlwaysProcessの副作用、中身のずれの警告の方式。
@@ -494,7 +495,7 @@ multi-monoのPOSTは入口を出さず、multi-monoのPREを選んだLISTENは�
 
 AAXのG1は、Pro Tools Developer 2026.4（macOS、Intel）でG1-01、G1-03、G1-04、Dynamic Plug-In Processingを行った（G1記録第9節）。
 署名の要らない開発版を使い、PACEでの署名は行っていない。
-残りは、WindowsのPro Tools、Apple silicon、他のbufferとrate、`GetTODLocation`、hostの通知を待ってから音の遅延を変える型の遅延変更である（製品版と遅延補償のOFFは2026-09-28に製品版Pro Toolsで、multi-monoは同日にG1記録第10節で確かめた）。
+残りは、製品版のWindows Pro Tools、Apple silicon、他のbufferとrate、`GetTODLocation`、hostの通知を待ってから音の遅延を変える型の遅延変更である（製品版と遅延補償のOFFは2026-09-28に製品版Pro Toolsで、multi-monoは同日にG1記録第10節で、WindowsのPro Tools Developerは2026-09-29に確かめた）。
 AAXのプローブは、Pro Toolsが読み込める署名が要る。製品と別identityの非出荷fixtureとし、署名は既存のAAXの経路（`docs/aax_macos_universal_build_20260910.md`、`docs/aax_windows_build_20260910.md`）に沿う。PACEでの署名は、行う前に利用者の確認を得る。
 
 ## 6. Gain Matchの方式
@@ -1173,7 +1174,7 @@ INV番号、clock診断、Reference audio、英日表示、画面規則、「ロ
 
 次の順で進める。
 
-1. AAXの残り: WindowsのPro Tools、`GetTODLocation`、hostの通知を待ってから音の遅延を変える型の遅延変更。
+1. AAXの残り: 製品版のWindows Pro Tools（PACE署名の配布候補で）、`GetTODLocation`、hostの通知を待ってから音の遅延を変える型の遅延変更（WindowsのPro Tools Developerは2026-09-29に確かめた）。
 2. 同じ装置でのWindows、他のbuffer設定、報告が先に来る型の遅延変更（G1-04）。
 3. 周回ごとに印が変わるfixtureでの照合と、遅延がloop長以上の条件（G1-03）。
 4. infinite tailとAlwaysProcessの副作用、中身のずれの警告の方式（G1-05）。
