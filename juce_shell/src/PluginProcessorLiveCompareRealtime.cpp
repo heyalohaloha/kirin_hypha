@@ -57,6 +57,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
     }
     const auto finishToken = liveCompare.completion.command();
     const bool finishing = liveCompare.completion.pending();
+    const bool permitted = liveCompare.authority.permitted();
     const auto blindCommand = liveCompare.blind.command();
     const auto revision = liveCompare.gainRevision.load (std::memory_order_acquire);
     const float gain = liveCompare.gain.load (std::memory_order_acquire);
@@ -82,7 +83,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         liveCompare.matched.store (false, std::memory_order_release);
     }
     const bool blindRejected = blindCommand.active()
-        && (! liveCompare.blind.valid (blindCommand) || discontinuity || ! coherent
+        && (! permitted || ! liveCompare.blind.valid (blindCommand) || discontinuity || ! coherent
             || contentHeld || compensationOff || ! usable || outputTaken
             || ! liveCompare.matched.load (std::memory_order_acquire));
     if (blindRejected)
@@ -90,7 +91,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         liveCompare.blind.invalidate (blindCommand);
         liveCompare.preSelected.store (false, std::memory_order_release);
     }
-    const bool preSelected = ! finishing && coherent && ! blindRejected
+    const bool preSelected = permitted && ! finishing && coherent && ! blindRejected
         && (blindCommand.active() ? blindCommand.pre()
                                   : liveCompare.preSelected.load (std::memory_order_acquire));
     // END first removes PRE, then returns POST. A closed/retired ring still returns normally.
@@ -105,7 +106,7 @@ void KirinHyphaProcessorBase::processLiveCompare (juce::AudioBuffer<float>& buff
         if (ring == nullptr)
             return;
         // Renderer lifetime is protected by the publication slot, including END/fault reads.
-        if (blindRejected || ! coherent) liveCompare.renderer.silenceTransition();
+        if (! permitted || blindRejected || ! coherent) liveCompare.renderer.silenceTransition();
         if (finishing && coherent && liveCompare.renderer.hasPre()) postTarget = heldTarget;
         if (! usable || outputTaken)
         {

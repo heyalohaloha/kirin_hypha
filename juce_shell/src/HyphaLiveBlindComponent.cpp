@@ -57,7 +57,10 @@ void Component::refresh()
     const auto returnDb = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;
     juce::String instruction, explanation = returnDb > 0.05
         ? "END returns +" + juce::String (returnDb, 1) + " dB" : "END restores normal level";
-    if (current.stage == Stage::invalidated || current.trial.invalidated)
+    if (current.stage == Stage::failed)
+        instruction = current.waiting == live_compare::MatchFailure::outOfRange
+            ? "MATCH over 24 dB" : "MATCH failed; try again";
+    else if (current.stage == Stage::invalidated || current.trial.invalidated)
     {
         instruction = "Blind stopped; POST plays";
         const auto db = actualPost > 0.0f ? -20.0 * std::log10 (actualPost) : 0.0;

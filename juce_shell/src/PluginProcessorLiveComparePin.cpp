@@ -16,7 +16,8 @@ hypha::live_compare::LivePinResult KirinHyphaProcessorBase::pinLiveCompareForBli
     hypha::live_compare::LivePinResult result;
     result.pin = hypha::live_compare::PinFailure::notProven;
     if (role != Role::Post || ! liveCompare.sessionActive.load (std::memory_order_acquire)
-        || liveCompare.blindScope != 0 || liveCompare.completion.pending())
+        || ! liveCompare.authority.permitted()
+        || liveCompareAdmission (false) != hypha::live_compare::StartResult::started)
         return result;
     const auto* mapping = liveCompare.ring.control();
     if (mapping == nullptr || mapping->ring() == nullptr)
@@ -67,7 +68,7 @@ hypha::live_compare::LivePinResult KirinHyphaProcessorBase::pinLiveCompareForBli
         ? hypha::local_blind::GainMatchPolicy::exactTrackEventEnergyV1
         : hypha::local_blind::GainMatchPolicy::alignedActiveBlocksV1;
     hypha::local_blind::ExactCaptureRequest request;
-    if (generation == 0 || ! localBlindPairBinding (request.pair)
+    if (! liveCompare.authority.permitted() || generation == 0 || ! localBlindPairBinding (request.pair)
         || ! localBlindProductSession.beginCapture (
                scopeEpoch, generation, policy,
                { clock.source, clock.presentationSource, clock.inputLatency, clock.outputLatency,

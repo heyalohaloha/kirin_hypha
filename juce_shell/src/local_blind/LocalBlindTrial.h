@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 #include "LocalBlindTransition.h"
+#include "TrialCommandState.h"
 
 namespace hypha::local_blind
 {
@@ -103,7 +104,7 @@ public:
     LocalBlindTrial (const LocalBlindTrial&) = delete;
     LocalBlindTrial& operator= (const LocalBlindTrial&) = delete;
 
-    // Single non-RT control owner; RT only consumes atomic commands and publishes receipts.
+    // Single non-RT control owner; RT publishes receipts and conditionally advances its command.
     // Explicitly arm. The DAW may start before the captured range; only its exact intersection
     // is auditioned. After a finished pass, selecting a source explicitly arms another pass.
     // Preparation, seek, or resume alone never arms another pass.
@@ -135,7 +136,8 @@ private:
     const TrialGain gain;
     const std::vector<float> frozenPost, frozenPre;
     const bool oneIsPre;
-    std::atomic<std::uint64_t> command { ready }, receipt { 0 }, returnReceipt { 0 };
+    TrialCommandState command;
+    std::atomic<std::uint64_t> receipt { 0 }, returnReceipt { 0 };
     std::atomic<std::uint64_t> heardOne { 0 }, heardTwo { 0 };
     std::atomic<TrialFailure> failed { TrialFailure::none };
     std::atomic<bool> lowerApproved { false }, lowerApplied { false }, revealed { false };

@@ -23,11 +23,13 @@ inline void verifyLiveBlindUiContract()
     {
         i18n::ScopedLanguage scoped (language);
         for (auto preset : observatory::sizePresets)
-            for (int phase = 0; phase < 9; ++phase)
+            for (int phase = 0; phase < 11; ++phase)
             {
                 live_compare::LiveBlindStatus state;
                 state.stage = phase == 0 ? Stage::preparing : phase == 1 ? Stage::approval
-                    : phase == 7 ? Stage::invalidated : phase == 8 ? Stage::finishing : Stage::active;
+                    : phase == 7 ? Stage::invalidated : phase == 8 ? Stage::finishing
+                    : phase >= 9 ? Stage::failed : Stage::active;
+                state.waiting = phase == 9 ? live_compare::MatchFailure::outOfRange : live_compare::MatchFailure::invalidPlan;
                 state.lowerPostDb = -24.0;
                 state.trial.played = phase >= 3 ? 3 : 1;
                 state.trial.audible = phase == 2 ? 1 : 2;
@@ -39,6 +41,9 @@ inline void verifyLiveBlindUiContract()
                 require (! button ("live-blind-end")->isEnabled() == (phase == 8), "END receipt controls availability");
                 if (phase == 2) require (! button ("live-blind-answer")->isEnabled(), "one source cannot answer");
                 if (phase == 3) require (button ("live-blind-answer")->isEnabled(), "both sources can answer");
+                if (phase >= 9) require (! button ("live-blind-source-1")->isVisible()
+                    && ! button ("live-blind-answer")->isVisible() && button ("live-blind-end")->isEnabled(),
+                    "failed MATCH offers END, never source selection or an answer");
                 for (int i = 0; i < view.getNumChildComponents(); ++i)
                 {
                     auto* child = view.getChildComponent (i);

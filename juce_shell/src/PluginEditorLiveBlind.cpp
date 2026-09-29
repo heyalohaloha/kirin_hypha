@@ -54,7 +54,8 @@ void KirinHyphaEditor::openLiveBlind()
     if (result != StartResult::started)
     {
         if (result == StartResult::noPair) showCandidateMenu();
-        else showToast (result == StartResult::comparisonBusy ? "End the current comparison first"
+        else showToast (result == StartResult::returnRequired ? "Press RETURN first"
+                      : result == StartResult::comparisonBusy ? "End the current comparison first"
                                                             : "BLIND COMPARE COULD NOT START");
         return;
     }
@@ -90,7 +91,7 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
     const auto live = processorRef.liveCompareStatus();
     if (! processorRef.stereoWorkflowsSupported() || ! processorRef.liveCompareSupported()) return;
     menu.addSectionHeader ("PRE / POST");
-    if (! live.active) menu.addItem (40, "LISTEN", ! live.finishing);
+    if (! live.active) menu.addItem (40, "LISTEN", processorRef.liveCompareAdmission (false) == StartResult::started);
     else
     {
         menu.addItem (41, "MATCH", ! live.finishing);
@@ -99,7 +100,8 @@ void KirinHyphaEditor::addLiveCompareMenu (juce::PopupMenu& menu, bool keepActiv
         menu.addItem (44, "PIN 4 S", ! live.finishing);
     }
     if (observatoryView.localBlindEntryAvailable())
-        menu.addItem (23, "BLIND", ! keepActive && ! live.finishing && (! live.active || live.matchReady));
+        menu.addItem (23, "BLIND", ! keepActive && processorRef.liveCompareAdmission (true) == StartResult::started
+            && (! live.active || live.matchReady));
 }
 
 bool KirinHyphaEditor::handleLiveCompareMenu (int result)

@@ -667,10 +667,16 @@ another measurement; AUTO stops and the gain is frozen. TP LIMIT is not a full m
 requires lowering POST, approval names both the reduction and the rise on END before applying it.
 END ends the entire comparison, not a return to matched LISTEN. Any rise is shown before pressing
 END, ramped, and confirmed by the Audio Thread. Closing the window alone never raises the level.
+If closing or restoring state leaves POST attenuated, use the displayed **RETURN +x dB** before
+starting a new LISTEN or BLIND session. Only a still-active session can carry its own approved
+attenuation into BLIND. A match outside the final ±24 dB range reports why it cannot start;
+it does not remain in preparation without an explanation.
 
 Live Blind compares different moments within one continuous playback; it does not claim identical
 sample ranges, an ABX identification test, or proof of better sound. Stop, seek, loop wrap, clock
 failure, bypass, offline render or a safety failure ends that trial without automatically restarting.
+Restoring plug-in state also cancels the old trial and MATCH, even if the same PRE pair is restored.
+Existing attenuation stays held; an END already requested continues to actual normal level.
 Meters, names, gain details and their accessibility are isolated until the comparison ends.
 The new one-pass/END flow still requires real-host acceptance on each supported format.
 

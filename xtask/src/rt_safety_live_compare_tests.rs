@@ -272,9 +272,9 @@ fn live_compare_post_attenuation_is_approved_held_and_never_offline() {
     assert!(rt.contains("if (report.guardTripped)"));
     let apply = function_body(
         PROCESSOR_CPP,
-        "bool KirinHyphaProcessorBase::applyLiveCompareMatch",
+        "hypha::live_compare::MatchApplication KirinHyphaProcessorBase::applyLiveCompareMatch",
     );
-    assert!(apply.contains("plan.needsApproval == (choice == MatchChoice::basis)"));
+    assert!(apply.contains("validateMatchPlan (plan, choice)"));
     assert!(apply.contains("std::min (1.0f, linear (postDb))"));
     let stop = function_body(
         PROCESSOR_CPP,

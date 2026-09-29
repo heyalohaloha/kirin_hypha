@@ -479,6 +479,9 @@ PRE不在時もPOST absolute factsは表示できるが、Δ、MARK、Focus Trai
 共通HeaderのMeter Contextは即時toggleにせず、`2MIX`をmix／master busと連続active区間、
 `TRACK / STEM`をindividual／group busと短い・疎なeventとして説明する選択menuを開く。
 PRE／POST Live Blindは現在の再生から固定MATCHを準備し、Capture操作を要求しない。
+復元で失効した試行はSource／回答を閉じ、保持減衰と明示済みENDだけを残す。減衰保持中の新規比較は
+主面とMENUで同じ開始条件を使い、上昇量付きRETURNを先に完了する。同一sessionのMATCH→BLINDは継続できる。
+MATCHの最終gainが±24 dBを超える場合は理由とENDを示し、準備中表示のまま待たせない。
 任意のExact 4 Sでは明示PINで同じ4秒を固定し、準備画面のtagは取得時のpolicyから表示する。
 channel数、名前、routing、levelからcontextを推測または自動変更せず、通常画面の行も増やさない。
 

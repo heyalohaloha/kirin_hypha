@@ -41,6 +41,15 @@ bool analyse (const std::vector<float>& post, const std::vector<float>& pre, std
 MatchPlan planMatch (const MatchResult& result, double heldPostDb) noexcept
 {
     MatchPlan plan;
+    plan.failure = result.failure;
+    if (! result.ok()) return plan;
+    if (! std::isfinite (heldPostDb) || heldPostDb > 0.0
+        || ! std::isfinite (result.measuredDb) || ! std::isfinite (result.prePeakDbtp)
+        || ! std::isfinite (result.ceilingDbtp))
+    {
+        plan.failure = MatchFailure::invalidPlan;
+        return plan;
+    }
     plan.generation = result.generation;
     plan.generationBound = result.generationBound;
     plan.ceilingDbtp = result.ceilingDbtp;
@@ -51,13 +60,30 @@ MatchPlan planMatch (const MatchResult& result, double heldPostDb) noexcept
     if (needed <= 0.0 || result.prePeakDbtp + needed <= result.ceilingDbtp + 1.0e-9)
     {
         plan.preGainDb = needed;
+        plan.failure = validateMatchPlan (plan, MatchChoice::basis);
         return plan;
     }
     plan.needsApproval = true;
     plan.lowerPostGainDb = held - needed;
     plan.limitedPreGainDb = std::max (0.0, result.ceilingDbtp - result.prePeakDbtp);
     plan.preGainDb = plan.limitedPreGainDb;
+    plan.failure = validateMatchPlan (plan, MatchChoice::lowerPost);
     return plan;
+}
+
+MatchFailure validateMatchPlan (const MatchPlan& plan, MatchChoice choice) noexcept
+{
+    if (plan.failure != MatchFailure::none) return plan.failure;
+    if (plan.needsApproval == (choice == MatchChoice::basis)
+        || (choice != MatchChoice::basis && choice != MatchChoice::lowerPost && choice != MatchChoice::limitPre)
+        || ! std::isfinite (plan.preGainDb) || ! std::isfinite (plan.lowerPostGainDb)
+        || ! std::isfinite (plan.postGainDb) || ! std::isfinite (plan.ceilingDbtp)
+        || plan.lowerPostGainDb > 0.0 || plan.postGainDb > 0.0)
+        return MatchFailure::invalidPlan;
+    if (std::abs (plan.preGainDb) > maximumMatchDb || plan.lowerPostGainDb < -maximumMatchDb
+        || plan.postGainDb < -maximumMatchDb)
+        return MatchFailure::outOfRange;
+    return MatchFailure::none;
 }
 
 FollowStep followStep (const MatchResult& result, double heldPostDb, double approvedPreDb, double ceilingDbtp,

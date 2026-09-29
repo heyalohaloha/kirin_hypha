@@ -63,6 +63,7 @@ juce::String startFailure (StartResult result)
         case StartResult::started:
         case StartResult::notPost:           return {};
         case StartResult::comparisonBusy:    return "End the current comparison first";
+        case StartResult::returnRequired:    return "Press RETURN first";
         case StartResult::notReady:          return "LISTEN could not start";
         case StartResult::noPair:            return "Choose the PRE first";
         case StartResult::unsupportedLayout: return "Mono / stereo only";
@@ -82,6 +83,8 @@ juce::String matchFailure (MatchFailure failure)
         case MatchFailure::overwritten:     return "MATCH failed; try again";
         case MatchFailure::notEnoughSignal: return "MATCH needs more signal";
         case MatchFailure::outOfRange:      return "MATCH over 24 dB";
+        case MatchFailure::stale:
+        case MatchFailure::invalidPlan:     return "MATCH failed; try again";
     }
     return {};
 }
@@ -151,6 +154,11 @@ void KirinHyphaEditor::matchLiveCompare()
     }
     const auto held = processorRef.liveCompareStatus().postTarget;
     const auto plan = hypha::live_compare::planMatch (result, held > 0.0f ? 20.0 * std::log10 (held) : 0.0);
+    if (plan.failure != MatchFailure::none)
+    {
+        showToast (matchFailure (plan.failure));
+        return;
+    }
     if (plan.needsApproval)
         chooseLiveCompareMatch (plan);
     else
@@ -186,9 +194,10 @@ void KirinHyphaEditor::chooseLiveCompareMatch (const MatchPlan& plan)
 
 void KirinHyphaEditor::applyLiveCompareChoice (const MatchPlan& plan, MatchChoice choice)
 {
-    if (! processorRef.applyLiveCompareMatch (plan, choice))
+    const auto applied = processorRef.applyLiveCompareMatch (plan, choice);
+    if (! applied)
     {
-        showToast ("MATCH failed; try again");
+        showToast (matchFailure (applied.failure));
         return;
     }
     liveCompareMatched = true;
@@ -235,9 +244,9 @@ void KirinHyphaEditor::pinLiveCompareForBlind()
 // Another audition must not start on top of an approved POST attenuation: RETURN first.
 bool KirinHyphaEditor::liveCompareHoldBlocksAudition()
 {
-    if (processorRef.liveCompareStatus().postTarget >= 1.0f)
-        return false;
-    showToast ("Press RETURN first");
+    const auto admission = processorRef.liveCompareAdmission (false);
+    if (admission == StartResult::started) return false;
+    showToast (startFailure (admission));
     return true;
 }
 
@@ -301,10 +310,12 @@ void KirinHyphaEditor::refreshLiveCompare()
     monitorLiveCompareOffset (status, now);
     followLiveCompare (status, now);
     hypha::observatory::LiveCompareFooter footer;
-    footer.entryEnabled = processorRef.liveCompareSupported();
+    footer.entryEnabled = processorRef.liveCompareSupported()
+        && processorRef.liveCompareAdmission (false) == StartResult::started;
     footer.active = status.active || status.finishing;
     footer.finishing = status.finishing;
-    footer.blindAvailable = status.matchReady;
+    footer.blindAvailable = status.matchReady
+        && processorRef.liveCompareAdmission (true) == StartResult::started;
     footer.preSelected = status.active && status.preSelected;
     footer.preWaiting = footer.preSelected && (status.preWaiting || now < liveComparePreWaitUntil);
     footer.contentHeld = status.active && status.contentHeld;

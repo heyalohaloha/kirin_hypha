@@ -32,10 +32,7 @@ LocalBlindTrial::LocalBlindTrial (TrialFormat f, TrialGain g, std::vector<float>
 
 bool LocalBlindTrial::issue (Command next) noexcept
 {
-    const auto current = command.load (std::memory_order_relaxed);
-    if (current > std::numeric_limits<std::uint64_t>::max() - 16) return false;
-    command.store (((current >> 3) + 1) * 8 + next, std::memory_order_release);
-    return true;
+    return command.issue (next);
 }
 
 bool LocalBlindTrial::start (bool approve) noexcept
@@ -286,7 +283,7 @@ TrialOutput LocalBlindTrial::render (float* const* data, int channels, int frame
         // action; the user does not need a redundant source-selection click.
         if (mode == one
             && heardTwo.load (std::memory_order_acquire) < format.minimumHeardFrames)
-            issue (two);
+            command.advanceRendered (requested, two);
     }
     hasPrevious = true;
     previousEnd = blockEnd;

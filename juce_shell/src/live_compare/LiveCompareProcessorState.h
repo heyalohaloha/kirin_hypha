@@ -10,25 +10,14 @@
 #include "LiveCompareSharedRing.h"
 #include "LiveCompareCompletion.h"
 #include "LiveBlindSession.h"
+#include "LiveCompareAuthority.h"
 
 #include <atomic>
 #include <cstdint>
 
 namespace hypha::live_compare
 {
-enum class StartResult : std::uint8_t
-{
-    started,
-    notPost,           // only POST starts a live session
-    notReady,          // writes are not enabled yet, or the previous mapping is still in use
-    noPair,            // POST is not paired with a PRE
-    unsupportedLayout, // mono/stereo only; AAX mono only as the one instance of its group (INV-LC9)
-    preUnavailable,    // PRE's ring is missing, stale, for another rate, or the platform has none
-    preMultiMono,      // PRE is one channel of an AAX multi-mono set (INV-LC9)
-    comparisonBusy
-};
-
-enum class BlindStage { idle, preparing, approval, settling, active, invalidated, finishing };
+enum class BlindStage { idle, preparing, approval, settling, active, invalidated, finishing, failed };
 struct LiveBlindStatus
 {
     BlindStage stage = BlindStage::idle;
@@ -60,6 +49,8 @@ struct Status
 // Thread reads it only through the slot and publishes its observations through the atomics.
 struct ProcessorState
 {
+    Authority authority;
+    std::uint64_t restoreServiced = 0; // message thread retires the revoked session
     Completion completion;
     BlindSession blind;
     std::atomic<std::uint64_t> sessionGeneration { 0 }, gainRevision { 0 }, gainReceipt { 0 };
