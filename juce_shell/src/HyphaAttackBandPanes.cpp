@@ -1,7 +1,9 @@
 #include "HyphaAttackBandPainter.h"
 
+#include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <vector>
 
 #include "HyphaAttackDepth.h"
 #include "HyphaAttackLanePainter.h"
@@ -360,6 +362,104 @@ void paintPaneChrome (juce::Graphics& g, const attack_ui::Layout& layout,
                 g.drawVerticalLine (juce::roundToInt (axis.x (0.0f)), plot.getY(), plot.getBottom());
             }
         }
+    }
+}
+
+namespace
+{
+// The spread of the summed hits: POST's lowest and highest point by point, as one band.
+juce::Path spreadPath (const KirinAttackBandSummary& summary, bool head, const Axis& axis)
+{
+    const auto low = pathFor (summary.post_low, head, axis, false);
+    const auto high = pathFor (summary.post_high, head, axis, false);
+    juce::Path band (high);
+    // Walk the low edge back so the two edges close one shape.
+    std::vector<juce::Point<float>> points;
+    for (juce::Path::Iterator it (low); it.next();)
+        points.emplace_back (it.x1, it.y1);
+    for (auto point = points.rbegin(); point != points.rend(); ++point)
+        band.lineTo (*point);
+    band.closeSubPath();
+    return band;
+}
+
+void paintSummaryValues (juce::Graphics& g, juce::Rectangle<int> pane, bool head,
+                         const KirinAttackBandSummary& summary, const presentation::Context& context,
+                         bool twoRows)
+{
+    const bool delta = summary.delta != 0;
+    const auto parts = partsOf (pane, context, twoRows);
+    const auto peakOf = [head] (const KirinAttackBandEnvelope& envelope) {
+        const auto* values = head ? envelope.head_dbfs : envelope.tail_dbfs;
+        const auto count = head ? static_cast<std::size_t> (KIRIN_ATTACK_BAND_HEAD_POINTS)
+                                : static_cast<std::size_t> (KIRIN_ATTACK_BAND_TAIL_POINTS);
+        auto peak = -120.0f;
+        for (std::size_t point = 0; point < count; ++point)
+            if (std::isfinite (values[point]))
+                peak = std::max (peak, values[point]);
+        return peak; };
+    for (std::size_t row = 0; row < parts.rows; ++row)
+    {
+        const auto axis = axisFor (parts.plots[row], head);
+        const bool pre = delta && (parts.rows == 1 || row == 0);
+        const bool post = parts.rows == 1 || row == 1;
+        if (post)
+        {
+            juce::Graphics::ScopedSaveState saved (g);
+            g.reduceClipRegion (axis.plot.getSmallestIntegerContainer());
+            g.setColour (postColour.withAlpha (0.16f));
+            g.fillPath (spreadPath (summary, head, axis));
+        }
+        if (post) paintSide (g, summary.post, head, axis, true);
+        if (pre) paintSide (g, summary.pre, head, axis, false);
+        const auto& plot = axis.plot;
+        const auto mark = [&] (float ms, float level, juce::Colour colour) {
+            if (! std::isfinite (ms))
+                return;
+            g.setColour (colour.withAlpha (head ? 0.70f : 0.85f));
+            if (head)
+                g.drawVerticalLine (juce::roundToInt (axis.x (ms)), plot.getY(), plot.getBottom());
+            else
+                g.drawLine (axis.x (ms), axis.y (level - 20.0f) - 6.0f, axis.x (ms), axis.y (level - 20.0f) + 6.0f, 1.2f);
+        };
+        const auto preLevel = peakOf (summary.pre);
+        const auto postLevel = peakOf (summary.post);
+        if (pre) mark (head ? summary.pre_arrival_ms : summary.pre_release_end_ms, preLevel, preColour);
+        if (post) mark (head ? summary.post_arrival_ms : summary.post_release_end_ms, postLevel, postColour);
+        if (! (pre && post))
+            continue;
+        // The median difference, as the lane states it, between the median marks.
+        const auto& lane = summary.lanes[head ? 0 : 2];
+        const auto from = head ? summary.pre_arrival_ms : summary.pre_release_end_ms;
+        const auto to = head ? summary.post_arrival_ms : summary.post_release_end_ms;
+        if (lane.state == KIRIN_ATTACK_BAND_LANE_VALUE && std::isfinite (from) && std::isfinite (to))
+            paintBracket (g, axis, from, to,
+                          head ? plot.getY() + 9.0f
+                               : juce::jmax (plot.getY() + 9.0f, juce::jmin (axis.y (preLevel - 20.0f), axis.y (postLevel - 20.0f)) - 12.0f),
+                          signedMs (lane.median, head ? 1 : 0), context);
+    }
+}
+}
+
+void paintSummaryPanes (juce::Graphics& g, const attack_ui::Layout& layout,
+                        const presentation::Context& context, const KirinAttackBandSummary& summary,
+                        const juce::String& waiting, bool twoRows)
+{
+    if (summary.count == 0)
+    {
+        const auto pane = rectangleOf (attack_band::tailPane (layout));
+        if (pane.isEmpty())
+            return;
+        g.setColour (COL_TEXT_SECONDARY);
+        attack_lane_painter::drawFitting (g, { waiting }, partsOf (pane, context, false).plots[0].getSmallestIntegerContainer().reduced (4, 0),
+                                          context, TextRole::status, juce::Justification::centred);
+        return;
+    }
+    for (const bool head : { true, false })
+    {
+        const auto pane = rectangleOf (head ? attack_band::headPane (layout) : attack_band::tailPane (layout));
+        if (! pane.isEmpty())
+            paintSummaryValues (g, pane, head, summary, context, twoRows);
     }
 }
 

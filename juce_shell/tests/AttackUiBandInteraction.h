@@ -11,22 +11,23 @@ inline juce::MouseEvent bandMouse (juce::Component& component, juce::Point<float
              0.0f, &component, &component, now, at, now, 0, false };
 }
 
-// Chips choose, panes do not select, lanes still do; the hover help names what the pointer is on;
-// LIVE follows the newest hit with its band stated; a PRE that predates bands is explained.
+// Chips choose; while LIVE the panes and the reading do not select and nothing is fetched; a dot
+// locks its hit (its envelope fetched), the same dot or an empty place on the line returns, as END
+// does; the hover help names what the pointer is on, LIVE or locked; a PRE that predates bands is
+// explained.
 inline bool verifyBandInteraction()
 {
     auto scene = presetScene (observatory::sizePresets.back());
     auto& component = *scene.component;
     const auto& layout = scene.layout;
     const auto context = presentation::forEditor (900, 600);
-    auto fixture = laneFixture ({ 96'000, 192'000, 240'000 });
-    fixture.submit (component);
+    auto fixture = summaryFixture (3);
+    fixture.lanes.submit (component);
     int chosen = -1;
     component.onBandChange = [&chosen] (std::uint8_t band) { chosen = band; };
-    const auto click = [&component] (juce::Rectangle<int> area) {
-        component.mouseDown (bandMouse (component, area.getCentre().toFloat())); };
-    const auto hover = [&component] (juce::Rectangle<int> area) {
-        component.mouseMove (bandMouse (component, area.getCentre().toFloat())); };
+    const auto at = [&component] (juce::Point<float> point) { return bandMouse (component, point); };
+    const auto click = [&component, &at] (juce::Rectangle<int> area) { component.mouseDown (at (area.getCentre().toFloat())); };
+    const auto hover = [&component, &at] (juce::Rectangle<int> area) { component.mouseMove (at (area.getCentre().toFloat())); };
     const auto tip = [&component] (const juce::String& expected, const char* where) {
         if (component.getTooltip() == expected)
             return true;
@@ -35,48 +36,67 @@ inline bool verifyBandInteraction()
     click (rectangle (attack_band::chipCell (layout, context, 3)));
     if (component.band() != 3 || chosen != 3)
         return false;
-    // The newest hit is still measuring: LIVE shows the newest hit that has its band stated.
-    auto batch = bandBatchFor (fixture, 3);
-    batch->hits[2].post = sideIn (KIRIN_ATTACK_BAND_SIDE_PENDING);
-    EnvelopeSource source { batch.get() };
+    EnvelopeSource source { fixture.batch.get() };
+    showSummary (component, fixture);
     component.bandEnvelopeSource = source;
-    component.setBandSnapshot (*batch);
-    if (source.asked->empty() || source.asked->back() != batch->hits[1].event_sample)
+    component.setBandSnapshot (*fixture.batch);
+    const auto live = renderAttack (component);
+    if (! source.asked->empty())
     {
-        std::cerr << "LIVE did not follow the newest measured hit\n";
+        std::cerr << "a hit's envelope was fetched while LIVE shows the summary\n";
         return false;
     }
-    batch->hits[2].post = batch->hits[1].post;
-    component.setBandSnapshot (*batch);
-    if (source.asked->back() != batch->hits[2].event_sample)
-        return false;
-    component.keyPressed (juce::KeyPress (juce::KeyPress::homeKey));
-    const auto locked = renderAttack (component);
-    click (rectangle (attack_band::headPane (layout)));
-    if (differences (locked, renderAttack (component)) != 0)
+    for (const auto area : { rectangle (attack_band::headPane (layout)), readingArea (layout) })
     {
-        std::cerr << "a click in the HEAD pane changed the selection\n";
-        return false;
+        click (area);
+        if (differences (live, renderAttack (component)) != 0)
+        {
+            std::cerr << "a click on the panes or the reading changed the view\n";
+            return false;
+        }
     }
-    const auto lane = laneRect (layout, 1);
-    click (lane.withX (lane.getRight() - 8).withWidth (4));
-    if (differences (locked, renderAttack (component)) == 0 || source.asked->back() != batch->hits[2].event_sample)
-    {
-        std::cerr << "a click in a lane no longer selects, or its envelope was not fetched\n";
-        return false;
-    }
-    hover (rectangle (attack_band::chipCell (layout, context, 5)));
-    if (! tip (attack_band_painter::chipTooltip (5), "a chip")) return false;
     hover (rectangle (attack_band::headPane (layout)));
     if (! tip (attack_band_painter::paneTooltip (true), "HEAD")) return false;
     hover (rectangle (attack_band::tailPane (layout)));
     if (! tip (attack_band_painter::paneTooltip (false), "TAIL")) return false;
+    hover (readingArea (layout));
+    if (! tip (attack_band_summary_painter::cardTooltip(), "the card")) return false;
     hover (rectangle (layout.lanes[0]));
-    if (! tip (attack_band_painter::laneTooltip (attack_lanes::Lane::delay), "DELAY")) return false;
+    if (! tip (attack_band_summary_painter::laneTooltip (0, true), "a number line")) return false;
+    // A dot locks its hit: LEVEL's sixth summed hit.
+    const auto plot = rectangle (attack_ui::lanePlot (layout, 3));
+    const auto dot = attack_band_summary_painter::dotCentre (fixture.summary, 3, plot, 5);
+    component.mouseDown (at (dot));
+    const auto key = fixture.summary.event_samples[5];
+    if (differences (live, renderAttack (component)) == 0 || source.asked->empty() || source.asked->back() != key)
+    {
+        std::cerr << "a dot did not lock its hit, or the hit's envelope was not fetched\n";
+        return false;
+    }
+    hover (rectangle (layout.lanes[2]));
+    if (! tip (attack_band_painter::laneTooltip (attack_lanes::Lane::release), "a locked hit's lane")) return false;
+    const auto returned = [&] (const char* how) {
+        if (differences (live, renderAttack (component)) == 0)
+            return true;
+        std::cerr << how << " did not return to the summary\n";
+        return false; };
+    component.mouseDown (at (dot));
+    if (! returned ("the locked dot")) return false;
+    component.mouseDown (at (dot));
+    component.mouseDown (at ({ static_cast<float> (plot.getX() + 14), static_cast<float> (plot.getCentreY()) }));
+    if (! returned ("an empty place on the line")) return false;
+    component.mouseDown (at (dot));
+    click (rectangle (attack_ui::readoutCell (layout, layout.axis)));
+    if (! returned ("NOW beside the scale")) return false;
+    component.keyPressed (juce::KeyPress (juce::KeyPress::homeKey));
+    component.keyPressed (juce::KeyPress (juce::KeyPress::endKey));
+    if (! returned ("END")) return false;
+    hover (rectangle (attack_band::chipCell (layout, context, 5)));
+    if (! tip (attack_band_painter::chipTooltip (5), "a chip")) return false;
     component.mouseExit (bandMouse (component, {}));
     if (! tip ({}, "nothing")) return false;
     // A PRE that predates bands: the chosen chip says so and what to do.
-    auto older = bandBatchFor (fixture, 3, KIRIN_ATTACK_BAND_PRE_PREDATES);
+    auto older = bandBatchFor (fixture.lanes, 3, KIRIN_ATTACK_BAND_PRE_PREDATES);
     component.setBandSnapshot (*older);
     if (component.preBand() != attack_band::PreBand::predates)
         return false;
@@ -88,9 +108,30 @@ inline bool verifyBandInteraction()
     hover (rectangle (layout.lanes[0]));
     if (! tip ({}, "the whole-signal lanes"))
         return false;
+    // 125%: the small number lines in HISTORY lock a hit as the lanes do, and name their lane.
+    {
+        auto line = presetScene (observatory::sizePresets[1]);
+        showSummary (*line.component, fixture);
+        const auto rows = attack_band_summary_painter::rowPlots (rectangle (line.layout.history),
+                                                                 presentation::forEditor (450, 300));
+        const auto summaryImage = renderAttack (*line.component);
+        line.component->mouseMove (bandMouse (*line.component, rows[1].getCentre().toFloat()));
+        if (rows[3].isEmpty() || line.component->getTooltip() != attack_band_summary_painter::laneTooltip (1, true))
+        {
+            std::cerr << "the 125% number lines are missing or unnamed\n";
+            return false;
+        }
+        line.component->mouseDown (bandMouse (*line.component,
+                                              attack_band_summary_painter::dotCentre (fixture.summary, 3, rows[3], 5)));
+        if (differences (summaryImage, renderAttack (*line.component)) == 0)
+        {
+            std::cerr << "a dot at 125% did not lock its hit\n";
+            return false;
+        }
+    }
     // 100% has no chips: a click where they would stand leaves the band alone.
     auto compact = presetScene (observatory::sizePresets.front());
-    fixture.submit (*compact.component);
+    fixture.lanes.submit (*compact.component);
     compact.component->setBand (2);
     chosen = -1;
     compact.component->onBandChange = [&chosen] (std::uint8_t band) { chosen = band; };
@@ -127,6 +168,51 @@ inline bool verifyBandTranslations()
         if (const auto brief = attack_lane_painter::shortReasonText (hit, reason); brief != "--")
             prose.push_back (brief);
     }
+    // The summary's words: directions, readings, cards, withheld lanes, axes and hover help.
+    namespace summary = attack_band_summary;
+    auto kicks = summaryFixture (1);
+    auto hidden = summaryFixture (1);
+    auto cut = summaryFixture (1);
+    auto past = summaryFixture (1);
+    for (std::uint32_t item = 0; item < kicks.batch->count; ++item)
+    {
+        hidden.batch->hits[item].pre.arrival_state = KIRIN_ATTACK_BAND_ARRIVAL_RINGING;
+        cut.batch->hits[item].post.release_state = KIRIN_ATTACK_BAND_RELEASE_NEXT_HIT;
+        past.batch->hits[item].post.release_state = KIRIN_ATTACK_BAND_RELEASE_AT_LEAST;
+    }
+    for (auto* fixture : { &hidden, &cut, &past })
+        fixture->resum();
+    const auto name = nameText (1);
+    const auto title = summary::titleText (name, kicks.summary.count);
+    prose.insert (prose.end(), { summary::leftOutText (name, 1), summary::leftOutText (name, 3), title,
+                                 summary::titleText (name, 1), summary::lastText (8), summary::lastText (1), "SAME",
+                                 "- SMALLER / EARLIER", "LATER / LARGER +", "- SMALLER", "LARGER +", "0 = SAME",
+                                 "POST VALUES", attack_band_summary_painter::cardTooltip() });
+    for (std::size_t lane = 0; lane < summary::laneCount; ++lane)
+    {
+        prose.insert (prose.end(), { summary::directionWord (lane, 1.0f), summary::directionWord (lane, -1.0f),
+                                     attack_band_summary_painter::laneTooltip (lane, true),
+                                     attack_band_summary_painter::laneTooltip (lane, false) });
+        for (const auto* fixture : { &kicks, &hidden, &cut, &past })
+            if (const auto word = summary::wordText (fixture->summary, lane); word.isNotEmpty())
+                prose.push_back (word);
+        for (const auto* fixture : { &kicks, &hidden, &cut, &past })
+            if (const auto why = summary::withheldText (fixture->summary, lane, "NO PAIR"); why != "--")
+                prose.push_back (why);
+    }
+    for (const auto* fixture : { &kicks, &hidden, &cut, &past })
+        for (const auto& fact : summary::cardFacts (fixture->summary, "NO PAIR"))
+        {
+            // A moved lane's bare form is its value (a number and a unit); a quiet one's is a word.
+            prose.insert (prose.end(), { fact.text, fact.brief });
+            if (fact.quiet)
+                prose.push_back (fact.bare);
+        }
+    // POST's own values are labels and units (English); what says why DELAY has none is prose.
+    for (const auto& reason : { juce::String ("NO PAIR"), juce::String ("UPDATE PRE") })
+        for (const auto& fact : summary::cardFacts (summaryFixture (1, KIRIN_ATTACK_BAND_PRE_PREDATES).summary, reason))
+            if (fact.quiet)
+                prose.push_back (fact.text);
     for (const auto& text : prose)
         if (! i18n::hasTranslation (text))
         {
@@ -137,21 +223,21 @@ inline bool verifyBandTranslations()
     for (const auto& preset : observatory::sizePresets)
     {
         auto scene = presetScene (preset);
-        auto fixture = laneFixture ({ 96'000, 192'000 });
-        fixture.submit (*scene.component);
-        auto batch = bandBatchFor (fixture, 1);
-        batch->hits[1].pre = sideIn (KIRIN_ATTACK_BAND_SIDE_NOT_KEPT);
-        scene.component->bandEnvelopeSource = EnvelopeSource { batch.get() };
-        scene.component->setBand (1);
-        scene.component->setBandSnapshot (*batch);
-        if (renderAttack (*scene.component).getWidth() != scene.component->getWidth())
+        showSummary (*scene.component, kicks);
+        const auto live = renderAttack (*scene.component);
+        scene.component->keyPressed (juce::KeyPress (juce::KeyPress::leftKey));
+        const auto locked = renderAttack (*scene.component);
+        if (live.getWidth() != scene.component->getWidth()
+            || ! writeBandPreview (preset.label, "_ja_summary", live)
+            || ! writeBandPreview (preset.label, "_ja_locked", locked))
             return false;
     }
     return true;
 }
 
-// The narrow sizes say why a value is withheld instead of "--": the 125% readout, and the 100%
-// glance, where a reason is drawn in its own face and never changes how the other values read.
+// A locked hit at the narrow sizes says why a value is withheld instead of "--": the 125% readout,
+// and the 100% glance, where a reason is drawn in its own face and never changes how the other
+// values read. The LIVE summary's reasons: verifySummaryReasons.
 inline bool verifyBandReasonsAtSmallSizes()
 {
     {
@@ -167,6 +253,8 @@ inline bool verifyBandReasonsAtSmallSizes()
             pending->hits[item].pre = sideIn (KIRIN_ATTACK_BAND_SIDE_PENDING);
         }
         scene.component->setBandSnapshot (*ringing);
+        scene.component->keyPressed (juce::KeyPress (juce::KeyPress::endKey));
+        scene.component->keyPressed (juce::KeyPress (juce::KeyPress::leftKey));
         const auto stated = renderAttack (*scene.component);
         scene.component->setBandSnapshot (*pending);
         if (differences (stated, renderAttack (*scene.component),
@@ -186,6 +274,7 @@ inline bool verifyBandReasonsAtSmallSizes()
         fixture.submit (*scene.component);
         scene.component->setBand (4);
         scene.component->setBandSnapshot (*bandBatchFor (fixture, 4, KIRIN_ATTACK_BAND_PRE_PREDATES));
+        scene.component->keyPressed (juce::KeyPress (juce::KeyPress::leftKey));
         return std::pair { renderAttack (*scene.component), scene.layout };
     };
     const auto [older, layout] = glanceWith (true);
@@ -199,8 +288,8 @@ inline bool verifyBandReasonsAtSmallSizes()
     return differences (older, alone, rectangle (attack_ui::lineCell (layout, 0))) != 0;
 }
 
-// Run with KIRIN_ATTACK_FRAME_BUDGET set: the 300% band view with 60 hits, changing every frame,
-// against the same ceilings as the whole-signal view.
+// Run with KIRIN_ATTACK_FRAME_BUDGET set: the 300% band view with 60 hits and their summary,
+// changing every frame, against the same ceilings as the whole-signal view.
 inline bool verifyBandFrameBudget()
 {
     if (juce::SystemStats::getEnvironmentVariable ("KIRIN_ATTACK_FRAME_BUDGET", {}).isEmpty())
@@ -229,9 +318,11 @@ inline bool verifyBandFrameBudget()
         {
             for (std::uint32_t hit = 0; hit < batch->count; ++hit)
                 batch->hits[hit].post.level_dbfs = -6.8f - 0.1f * static_cast<float> (frame);
+            const auto summary = summaryFor (*batch);
             const auto start = juce::Time::getMillisecondCounterHiRes();
             fixture.submit (component, 288'000 + static_cast<std::int64_t> (frame) * 480);
             component.setBandSnapshot (*batch);
+            component.setBandSummary (summary);
             component.presentationTickAt (start + 101.0);
             juce::Graphics g (image);
             g.addTransform (juce::AffineTransform::scale (dpi));

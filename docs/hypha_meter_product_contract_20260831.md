@@ -299,12 +299,14 @@ PRE未接続時はlaneをPOST absoluteへ切り替え、PREと差分を生成し
 
 B-1097でDRUMに帯域（BAND）を加えた。見出し2行目のBANDで1オクターブ帯域（ISO 63 Hz〜8 kHz）を選ぶと、
 4laneはその帯域のDELAY／ATT／REL／LEVELになり、PAIR時はPREのonsetで測り直したPOSTとの`POST−PRE`、
-PRE未接続またはPREが帯域より古い間はPOST値を示す。200%以上のHISTORYは選択打音のHEAD／TAILの帯域包絡に替わる。
-帯域の段は全帯域の段と同じ打音で、各打音は余韻の後に1回だけ測り、帯域を替えると直近7秒を停止中でも測り直す。
+PRE未接続またはPREが帯域より古い間はPOST値を示す。4laneは帯域で立ち上がった直近8打の数直線になり、LIVEの間は
+各段の中央値・向きの語・同じ向きの打音の数と、200%以上では平均のHEAD／TAILの帯域包絡とカードでまとめて示す。
+点で打音を固定すると、その打音の値と包絡を示し、END・NOW・同じ点でまとめへ戻る（B-1104・B-1105）。
+帯域の打音は全帯域の段と同じ打音で、各打音は余韻の後に1回だけ測り、帯域を替えると直近7秒を停止中でも測り直す。
 値の無い段は全サイズで理由（`RINGING`・`NO SOUND`・`NEXT HIT`・`LONG TAIL`・`NOT MEASURED`・`UPDATE PRE`・`NO PAIR`）
 か下限・上限（`<16 ms`・`>288 ms`・`<-66.0 dB`）を示し、6秒内に測れた打音が無いときは`PLAY TO MEASURE 63 Hz`と案内する（B-1098）。
 ALLで従来のDRUMに戻り、帯域を選ばない間の負荷とメモリは従来と同じ（B-1096）。
-正本は`hypha_drum_band_view_plan_20260928.md`（§11〜§13）とINV-S44とする。
+正本は`hypha_drum_band_view_plan_20260928.md`（§11〜§14）とINV-S44とする。
 
 ### 7.4 OS Guide layer
 

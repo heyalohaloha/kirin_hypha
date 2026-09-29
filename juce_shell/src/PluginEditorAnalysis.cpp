@@ -248,6 +248,8 @@ bool KirinHyphaEditor::refreshAnalysisViews (
             // The band's hits follow the snapshot; a failed poll keeps the last delivered batch.
             processorRef.pollAttackBand (cachedAttackBand);
             attackView.setBandSnapshot (cachedAttackBand);
+            processorRef.pollAttackBandSummary (cachedAttackBandSummary);
+            attackView.setBandSummary (cachedAttackBandSummary);
         }
         observatoryView.setAttackPaired (attackView.pairedObservation());
         attackView.presentationTick (liveInput);

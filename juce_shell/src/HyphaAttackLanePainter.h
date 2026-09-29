@@ -60,6 +60,9 @@ inline bool stated (const attack_lanes::Cell& cell) noexcept
 // shared six-second axis and the selected hit's value or withheld reason) are painted per frame.
 void paintLaneChrome (juce::Graphics&, attack_lanes::Lane, juce::Rectangle<int> label,
                       juce::Rectangle<int> plot, bool delta, const presentation::Context&);
+// The label cell alone: the lane's name and its scale.
+void paintLaneLabel (juce::Graphics&, attack_lanes::Lane, juce::Rectangle<int> label, bool delta,
+                     const presentation::Context&);
 void paintLaneValues (juce::Graphics&, attack_lanes::Lane, juce::Rectangle<int> plot,
                       juce::Rectangle<int> readout, const Frame&);
 void paintLine (juce::Graphics&, const attack_ui::Layout&, const Frame&);

@@ -76,11 +76,18 @@ POST values.
 **BAND**, on DRUM's second header row, filters each hit to one ISO octave band (63 Hz to 8 kHz) on
 PRE and POST and turns the four lanes into **DELAY** (POST arrival − PRE arrival, where the band
 envelope rises through its peak − 20 dB), **ATT** (10 → 90 % of the band peak), **REL** (peak →
-−20 dB) and **LEVEL** (the band peak), each as POST − PRE of the same hit. At 200 % and 300 %
-HISTORY shows the selected hit's **HEAD** (−5 to +40 ms) and **TAIL** (0 to 300 ms) in that band.
-The band lanes are the same hits as the whole-signal lanes. Each hit is measured once, after its
-ring-out, and choosing another band measures the last 7 s again, even while stopped. Every missing
-value says why at every size: `RINGING` (the previous hit still rings in the band), `NO SOUND`,
+−20 dB) and **LEVEL** (the band peak), each as POST − PRE of the same hit. The four lanes become
+number lines: each of the last eight hits that rise in the band is a dot at its value, and the bar is
+their median. While LIVE, DRUM reads them in one steady summary: each lane's median with its
+direction in words and how many hits agree (`+2.7 ms LATER 8/8`), `SAME` when the median is inside
+what the band can tell apart, and a card or line such as `POST 2.7 ms LATER / TAIL 28 ms LONGER`.
+Hits whose band only rings on, is silent or was not kept are left out and counted. At 200 % and
+300 % HISTORY shows those hits' average **HEAD** (−5 to +40 ms) and **TAIL** (0 to 300 ms) in that
+band; at 125 % it holds four small number lines. Click a dot (or use ← → HOME) to lock that hit and
+read its own values, envelopes and place in the six seconds; the same dot, END or NOW returns to
+the summary. The band hits are the same hits as the whole-signal lanes. Each hit is measured once,
+after its ring-out, and choosing another band measures the last 7 s again, even while stopped. Every
+missing value says why at every size: `RINGING` (the previous hit still rings in the band), `NO SOUND`,
 `NEXT HIT` (the tail was cut), `LONG TAIL`, or `NOT MEASURED` (played before the band was chosen).
 A value past what was measured reads as a bound, such as `<16 ms` for an ATT shorter than the band's
 time resolution (one period of its centre), `>288 ms` for a tail still ringing, or `<-66.0 dB` when

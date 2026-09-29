@@ -3,10 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
-#include <limits>
 
 #include "HyphaAttackBandModel.h"
-#include "HyphaAttackBandPainter.h"
 #include "HyphaAttackDepth.h"
 #include "HyphaAttackLanePainter.h"
 #include "HyphaAttackLoupePainter.h"
@@ -184,6 +182,7 @@ void AttackComponent::clearSnapshot()
     preDetailBatch = {};
     pairEventBatch = {};
     bandBatch = {};
+    bandSummary = {};
     bandEnvelope = {};
     bandEnvelopeValid = false;
     runtimeStats = {};
@@ -363,14 +362,6 @@ void AttackComponent::paintSelection (juce::Graphics& g, const attack_ui::Layout
     const bool lanes = shape.arrangement == attack_ui::Arrangement::lanes;
     const auto bottom = lanes ? shape.lanes.back().bottom() - 3 : history.getBottom() - 2;
     const auto lineX = static_cast<float> (history.getX() + x) + 0.5f;
-    // The band panes show one hit, not six seconds: the hypha stands in the axis and lanes only.
-    if (bandPanes (shape))
-    {
-        attack_lane_painter::paintHypha (g, lineX, static_cast<float> (shape.axis.y) + 1.0f,
-                                         static_cast<float> (bottom),
-                                         std::numeric_limits<float>::quiet_NaN(), selected->sample);
-        return;
-    }
     attack_depth::paintHalo (g, history, lineX, selectionColour);
     attack_lane_painter::paintHypha (
         g, lineX, static_cast<float> (history.getY() + 2), static_cast<float> (bottom),
@@ -399,25 +390,16 @@ void AttackComponent::paint (juce::Graphics& g)
         return;
     }
     const auto* selected = visibleSelection();
-    const bool bandView = chosenBand != 0;
-    const attack_lane_painter::Frame frame {
-        bandView ? bandModel : laneModel, latest, rate,
-        bandView ? bandSelection (selected) : selected, presentationContext,
-        bandView ? attack_lanes::bandLanes : attack_lanes::lanes };
-    const auto history = rectangleOf (attack_ui::historyPlot (shape));
-    const bool needsPlay = bandNeedsPlay();
-    if (bandPanes (shape))
-        attack_band_painter::paintPanes (g, shape, presentationContext,
-                                         { selectedBandEnvelope (selected), selected != nullptr,
-                                           needsPlay, bandModel.delta, twoRows() && bandModel.delta,
-                                           chosenBand });
-    else if (! history.isEmpty())
+    if (chosenBand != 0)
     {
-        paintHistory (g, history);
-        // Below 200% the six seconds stay; a band with nothing measured in them says what to do.
-        if (needsPlay && shape.arrangement != attack_ui::Arrangement::glance)
-            attack_band_painter::paintPlayGuidance (g, history, presentationContext, chosenBand);
+        paintBand (g, shape, selected);
+        return;
     }
+    const attack_lane_painter::Frame frame { laneModel, latest, rate, selected, presentationContext,
+                                             attack_lanes::lanes };
+    const auto history = rectangleOf (attack_ui::historyPlot (shape));
+    if (! history.isEmpty())
+        paintHistory (g, history);
     if (shape.arrangement == attack_ui::Arrangement::lanes)
     {
         if (shape.loupe)
@@ -436,14 +418,11 @@ void AttackComponent::paint (juce::Graphics& g)
     else if (shape.arrangement == attack_ui::Arrangement::glance)
     {
         attack_lane_painter::paintGlance (g, shape, frame);
-        // Only a HISTORY that has stopped following the latest hit says so; LIVE is silent. The
-        // band, a non-default choice made at 125% and above, is named the same way.
+        // Only a HISTORY that has stopped following the latest hit says so; LIVE is silent.
         g.setColour (COL_TEXT_SECONDARY);
         g.setFont (monoFont (presentationContext, typography::TextRole::legend, visualization));
         if (timeMode() != "LIVE")
             text_style::drawText (g, timeMode(), history.reduced (6, 3), juce::Justification::topRight);
-        attack_band_painter::paintGlanceCaption (g, history, presentationContext, chosenBand,
-                                                 needsPlay);
     }
     else
     {
