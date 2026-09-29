@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace hypha::spectrum_terrain
@@ -152,52 +153,81 @@ void trace (const std::array<juce::Point<float>, columnCount>& p, int first, int
     }
 }
 
-void draw (juce::Image& image, float dpi, juce::Rectangle<float> plot, const Source& source,
-           const Scale& scale, juce::Colour ink, juce::Colour floor, double seconds)
+// One ridge before projection: its depth (0 front, 1 oldest), the level of each column, how
+// strongly it is drawn, and whether a grid line joins it to the next nearer ridge.
+struct RidgeValues
 {
-    // Each ridge takes the measured frame nearest to its age. A ridge with no frame within half a
-    // ridge spacing is left out, so a gap in the measurement stays empty instead of being bridged.
-    const auto spacing = seconds / (double) (ridgeCount - 1);
+    float depth = 0.0f;
+    float fade = 1.0f;
+    bool joinsNearer = true;
+    std::array<float, columnCount> values {};
+};
+
+// Quarter seconds on the running clock, oldest first, each the highest level of its frames. A
+// quarter without a frame has no ridge, and a grid line joins only consecutive quarters.
+std::vector<RidgeValues> sliceRidges (const Source& source, double seconds)
+{
+    std::vector<RidgeValues> ridges;
+    const auto newest = source.timeSeconds (source.count - 1u);
+    auto current = std::numeric_limits<std::int64_t>::min();
+    for (size_t index = 0; index < source.count; ++index)
+    {
+        const auto time = source.timeSeconds (index);
+        const auto age = sliceAge (time, newest);
+        if (age > seconds)
+            continue;
+        const auto slice = (std::int64_t) std::floor (time / sliceSeconds);
+        if (slice != current)
+        {
+            if (! ridges.empty())
+                ridges.back().joinsNearer = slice == current + 1;
+            RidgeValues ridge;
+            ridge.depth = (float) (age / seconds);
+            // The oldest ridges fade out over the last tenth, so a ridge leaves instead of vanishing.
+            ridge.fade = (float) juce::jlimit (0.0, 1.0, (seconds - age) / (0.1 * seconds));
+            ridge.joinsNearer = false;
+            ridges.push_back (ridge);
+            current = slice;
+        }
+        auto& ridge = ridges.back();
+        for (int column = 0; column < columnCount; ++column)
+            ridge.values[(size_t) column] = std::max (ridge.values[(size_t) column],
+                source.peakIn (index, (float) column / (float) columnCount,
+                               (float) (column + 1) / (float) columnCount));
+    }
+    return ridges;
+}
+
+// `ridges` oldest first.
+void draw (juce::Image& image, float dpi, juce::Rectangle<float> plot, const std::vector<RidgeValues>& values,
+           const Scale& scale, juce::Colour ink, juce::Colour floor)
+{
     const auto toRaster = [&plot, dpi] (juce::Point<float> point) {
         return juce::Point<float> ((point.x - plot.getX()) * dpi, (point.y - plot.getY()) * dpi); };
-    std::array<Ridge, ridgeCount> ridges {};
-    size_t cursor = 0u;
-    for (int row = 0; row < ridgeCount; ++row)
+    std::vector<Ridge> ridges (values.size());
+    for (size_t index = 0; index < values.size(); ++index)
     {
-        const auto target = ridgeAge (row, seconds);
-        while (cursor + 1u < source.count && source.ageSeconds (cursor + 1u) >= target)
-            ++cursor;
-        auto frame = cursor;
-        if (cursor + 1u < source.count
-            && std::abs (source.ageSeconds (cursor + 1u) - target)
-                   < std::abs (source.ageSeconds (cursor) - target))
-            frame = cursor + 1u;
-        const auto age = source.ageSeconds (frame);
-        if (std::abs (age - target) > 0.5 * spacing || age > seconds)
-            continue;
-        auto& ridge = ridges[(size_t) row];
+        auto& ridge = ridges[index];
         ridge.valid = true;
-        ridge.depth = (float) juce::jlimit (0.0, 1.0, age / seconds);
+        ridge.depth = values[index].depth;
         for (int column = 0; column < columnCount; ++column)
         {
             const auto from = (float) column / (float) columnCount;
             const auto to = (float) (column + 1) / (float) columnCount;
             ridge.points[(size_t) column] = toRaster (project (plot, scale, ridge.depth, 0.5f * (from + to),
-                                                               source.peakIn (frame, from, to)));
+                                                               values[index].values[(size_t) column]));
         }
     }
 
     Raster raster (image);
     const auto frontZeroY = (scale.frontZeroY - plot.getY()) * dpi;
     const auto curtainDepth = (scale.frontZeroY - project (plot, scale, 1.0f, 0.5f, 0.0f).y) * 0.14f * dpi;
-    const auto curtainColour = floor.withAlpha (curtainAlpha).getPixelARGB();
     std::vector<Column> columns ((size_t) raster.width());
-    for (int row = ridgeCount - 1; row >= 0; --row)
+    for (int row = (int) ridges.size() - 1; row >= 0; --row)
     {
         const auto& ridge = ridges[(size_t) row];
-        if (! ridge.valid)
-            continue;
-        const auto light = 1.0f - 0.78f * ridge.depth; // older ridges are fainter
+        const auto fade = values[(size_t) row].fade;
+        const auto light = (1.0f - 0.78f * ridge.depth) * fade; // older ridges are fainter
         const auto& p = ridge.points;
         const auto first = std::max (0, (int) std::ceil (p.front().x));
         const auto last = std::min (raster.width() - 1, (int) std::floor (p.back().x) - 1);
@@ -212,18 +242,18 @@ void draw (juce::Image& image, float dpi, juce::Rectangle<float> plot, const Sou
                                                                + curtainDepth);
             for (int x = first; x <= last; ++x)
                 raster.span (x, columns[(size_t) x].top, std::min (slopeBottom, raster.horizonAt (x)),
-                             curtainColour);
+                             floor.withAlpha (curtainAlpha * fade).getPixelARGB());
         }
         // Grid lines along time join only neighbouring ridges; a missing ridge breaks them.
-        if (row + 1 < ridgeCount && ridges[(size_t) row + 1u].valid)
+        if (row + 1 < (int) ridges.size() && values[(size_t) row].joinsNearer)
         {
             const auto& nearer = ridges[(size_t) row + 1u];
-            const auto crossColour = ink.withAlpha (0.20f * (1.0f - 0.78f * nearer.depth)).getPixelARGB();
+            const auto crossColour = ink.withAlpha (0.20f * fade * (1.0f - 0.78f * nearer.depth)).getPixelARGB();
             for (int column = crossEvery / 2; column < columnCount; column += crossEvery)
                 raster.segment (p[(size_t) column], nearer.points[(size_t) column], 0.7f * dpi, crossColour);
         }
         const auto thickness = (0.6f + 0.5f * light) * dpi;
-        const auto lineColour = ink.withAlpha (0.08f + 0.62f * light).getPixelARGB();
+        const auto lineColour = ink.withAlpha (0.08f * fade + 0.62f * light).getPixelARGB();
         for (int x = first; x <= last; ++x)
         {
             const auto& column = columns[(size_t) x];
@@ -236,11 +266,31 @@ void draw (juce::Image& image, float dpi, juce::Rectangle<float> plot, const Sou
         }
     }
 }
+
+void paintRidges (juce::Graphics& g, juce::Rectangle<float> plot, const std::vector<RidgeValues>& ridges,
+                  const Scale& scale, juce::Colour ink, juce::Colour floor)
+{
+    // One device-resolution raster, drawn once: the ridges never go through path filling.
+    const auto reported = g.getInternalContext().getPhysicalPixelScaleFactor();
+    const auto dpi = std::isfinite (reported) && reported > 0.0f ? std::min (reported, 4.0f) : 1.0f;
+    const auto width = (int) std::ceil (plot.getWidth() * dpi);
+    const auto height = (int) std::ceil (plot.getHeight() * dpi);
+    auto raster = material_cache::scratchImage (width, height);
+    if (! raster.isValid())
+        return;
+    draw (raster, dpi, plot, ridges, scale, ink, floor);
+    const juce::Graphics::ScopedSaveState saved (g);
+    g.reduceClipRegion (plot.toNearestInt());
+    g.setOpacity (1.0f);
+    g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+    g.drawImage (raster, { plot.getX(), plot.getY(), (float) width / dpi, (float) height / dpi });
+}
 }
 
-double ridgeAge (int ridge, double seconds) noexcept
+double sliceAge (double frameSeconds, double newestSeconds) noexcept
 {
-    return seconds * (1.0 - (double) ridge / (double) (ridgeCount - 1));
+    const auto end = (std::floor (frameSeconds / sliceSeconds) + 1.0) * sliceSeconds;
+    return std::max (0.0, newestSeconds - end);
 }
 
 juce::Point<float> project (juce::Rectangle<float> plot, const Scale& scale, float depth,
@@ -267,22 +317,9 @@ void paint (juce::Graphics& g, juce::Rectangle<float> plot, const Source& source
             const Scale& scale, juce::Colour ink, juce::Colour floor, double seconds)
 {
     if (source.count < 2u || plot.getWidth() < minimumPlotWidth || plot.isEmpty()
-        || ! (seconds > 0.0) || ! source.ageSeconds || ! source.peakIn)
+        || ! (seconds > 0.0) || ! source.timeSeconds || ! source.peakIn)
         return;
-    // One device-resolution raster, drawn once: the ridges never go through path filling.
-    const auto reported = g.getInternalContext().getPhysicalPixelScaleFactor();
-    const auto dpi = std::isfinite (reported) && reported > 0.0f ? std::min (reported, 4.0f) : 1.0f;
-    const auto width = (int) std::ceil (plot.getWidth() * dpi);
-    const auto height = (int) std::ceil (plot.getHeight() * dpi);
-    auto raster = material_cache::scratchImage (width, height);
-    if (! raster.isValid())
-        return;
-    draw (raster, dpi, plot, source, scale, ink, floor, seconds);
-    const juce::Graphics::ScopedSaveState saved (g);
-    g.reduceClipRegion (plot.toNearestInt());
-    g.setOpacity (1.0f);
-    g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
-    g.drawImage (raster, { plot.getX(), plot.getY(), (float) width / dpi, (float) height / dpi });
+    paintRidges (g, plot, sliceRidges (source, seconds), scale, ink, floor);
 }
 
 bool paintLevelLandscape (juce::Graphics& g, juce::Rectangle<float> plot,
@@ -290,14 +327,11 @@ bool paintLevelLandscape (juce::Graphics& g, juce::Rectangle<float> plot,
 {
     if (history.size() < 2u || plot.getWidth() < minimumPlotWidth)
         return false;
-    const auto& newest = history.at (history.size() - 1u);
+    // The history keeps one sample rate: a change clears it.
+    const auto rate = (double) std::max (1u, history.at (history.size() - 1u).sampleRate);
     const Source source {
         history.size(),
-        [&history, &newest] (size_t index) {
-            const auto& frame = history.at (index);
-            return frame.sampleRate > 0u
-                ? (double) (newest.endpoint - frame.endpoint) / (double) frame.sampleRate
-                : absolute_spectrum::historySeconds; },
+        [&history, rate] (size_t index) { return (double) history.at (index).endpoint / rate; },
         [&history] (size_t index, float from, float to) {
             // Every band whose centre lies in the column counts; a column narrower than one band
             // takes the band under its middle.

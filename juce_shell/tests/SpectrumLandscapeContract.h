@@ -14,9 +14,11 @@
 #include <iostream>
 #include <vector>
 
-// FREQ landscape contract. The landscape is a picture of measured history, so every ridge has to
-// stand where its own frame's age, frequency and level put it, older ridges have to read farther
-// away, and nothing may appear where no measurement exists: a missing ridge stays missing, and two
+// FREQ landscape contract. The landscape is a picture of measured history: each ridge is a quarter
+// second on the running clock and holds the highest level of its frames, so a hit's top stands
+// where its quarter's age, its frequency and its level put it however briefly it lasted; a ridge
+// moves back with time rather than being redrawn in place; older ridges read farther away; and
+// nothing may appear where no measurement exists: a quarter without frames stays empty, and two
 // lone observations do not grow a range between them. It is painted over the opaque page colour,
 // so ink is brightness above that colour; the curtains that hide farther ridges only darken.
 namespace hypha::tests
@@ -68,11 +70,6 @@ inline KirinSpectrumView frameWith (int64_t endpoint, size_t loudBand, float lou
         value = quietDbfs;
     view.post_dbfs[loudBand] = loudDbfs;
     return view;
-}
-
-inline double frameAge (size_t index) noexcept
-{
-    return (double) (frames - 1u - index) / 30.0;
 }
 
 struct Render
@@ -160,29 +157,33 @@ inline void verifyPerspective()
     }
 }
 
-inline size_t frameNearestRidge (int row) noexcept
+inline double frameSeconds (size_t index) noexcept
 {
-    const auto age = spectrum_terrain::ridgeAge (row, absolute_spectrum::historySeconds);
-    return frames - 1u - (size_t) std::lround (age * 30.0);
+    return (double) (index + 1u) * (double) frameSamples / 48'000.0;
 }
 
-// Only the frame each checked ridge should take carries a loud band, each at its own frequency,
-// and every other frame is quiet. A ridge that took a neighbouring frame, or stood at the wrong
-// depth, would lose its peak. The peaks have to be where their frames' age, frequency and level
-// project, and older peaks have to be fainter. Rows 8 and 13 lie nearer the newer of their two
-// neighbouring frames, rows 4 and 22 nearer the older one.
-inline void verifyRidgesStandWhereTheyWereMeasured()
+inline float depthOfFrame (size_t index, size_t newest = frames - 1u) noexcept
+{
+    return (float) (spectrum_terrain::sliceAge (frameSeconds (index), frameSeconds (newest))
+                    / absolute_spectrum::historySeconds);
+}
+
+// One frame in the middle of each checked quarter carries a loud band, each at its own frequency;
+// every other frame is quiet. Each quarter's ridge holds that band's top where the quarter's age,
+// the band and its level project, however briefly it lasted, and older tops are fainter.
+inline void verifyEachQuarterKeepsItsTop()
 {
     constexpr float loudDbfs = -6.0f;
-    constexpr std::array<int, 4> rows { 4, 8, 13, 22 };
+    // Frames in the middle of quarters that end 5.0, 3.25, 1.75 and 0.75 s before the newest.
+    constexpr std::array<size_t, 4> loudFrames { 25u, 78u, 123u, 153u };
     constexpr std::array<size_t, 4> bands { 60u, 110u, 160u, 210u };
 
     absolute_spectrum::History history;
     for (size_t index = 0u; index < frames; ++index)
     {
         auto view = frameWith ((int64_t) (index + 1u) * frameSamples, 20u, quietDbfs);
-        for (size_t check = 0u; check < rows.size(); ++check)
-            if (index == frameNearestRidge (rows[check]))
+        for (size_t check = 0u; check < loudFrames.size(); ++check)
+            if (index == loudFrames[check])
                 view.post_dbfs[bands[check]] = loudDbfs;
         KIRIN_LANDSCAPE_REQUIRE (history.append (view));
     }
@@ -192,10 +193,9 @@ inline void verifyRidgesStandWhereTheyWereMeasured()
     const auto plot = plotBounds();
     const auto scale = spectrum_terrain::levelScale (plot);
     std::array<int, 4> ink {};
-    for (size_t check = 0u; check < rows.size(); ++check)
+    for (size_t check = 0u; check < loudFrames.size(); ++check)
     {
-        const auto depth = (float) (frameAge (frameNearestRidge (rows[check]))
-                                    / absolute_spectrum::historySeconds);
+        const auto depth = depthOfFrame (loudFrames[check]);
         const auto peak = spectrum_terrain::project (
             plot, scale, depth, spectrum_geometry::bandCentreNormalisedX (bands[check]),
             loudDbfs - spectrum_terrain::levelFloorDbfs);
@@ -207,29 +207,63 @@ inline void verifyRidgesStandWhereTheyWereMeasured()
     KIRIN_LANDSCAPE_REQUIRE (ink.back() * 2 > ink.front() * 3);
 }
 
-// Half a ridge spacing is the most a ridge may borrow from a neighbouring frame. A measurement
-// gap wider than that leaves its ridge out, and no grid line bridges the ridges on either side.
+// A ridge moves back with its quarter: a tenth of a second later the same top stands where the
+// greater age puts it (closer to the centre and the horizon), not where it stood.
+inline void verifyARidgeMovesBack()
+{
+    constexpr float topDbfs = -30.0f;
+    constexpr size_t topFrame = 119u;
+    constexpr size_t band = 40u;
+    const auto plot = plotBounds();
+    const auto scale = spectrum_terrain::levelScale (plot);
+    const auto topAt = [&] (size_t newest) {
+        absolute_spectrum::History history;
+        for (size_t index = 0u; index <= newest; ++index)
+        {
+            auto view = frameWith ((int64_t) (index + 1u) * frameSamples, 20u, quietDbfs);
+            if (index == topFrame)
+                view.post_dbfs[band] = topDbfs;
+            KIRIN_LANDSCAPE_REQUIRE (history.append (view));
+        }
+        const auto result = render (history);
+        KIRIN_LANDSCAPE_REQUIRE (result.drawn);
+        const auto depth = depthOfFrame (topFrame, newest);
+        const auto point = spectrum_terrain::project (plot, scale, depth,
+            spectrum_geometry::bandCentreNormalisedX (band), topDbfs - spectrum_terrain::levelFloorDbfs);
+        const auto column = ridgeWidth (plot, depth) / (float) spectrum_terrain::columnCount;
+        return std::pair { point, inkNear (result.image, point, 0.5f * column + 1.5f, 2.5f) };
+    };
+    const auto earlier = topAt (frames - 4u);
+    const auto later = topAt (frames - 1u);
+    KIRIN_LANDSCAPE_REQUIRE (earlier.second >= inkThreshold && later.second >= inkThreshold);
+    KIRIN_LANDSCAPE_REQUIRE (earlier.first.getDistanceFrom (later.first) > 1.0f);
+    KIRIN_LANDSCAPE_REQUIRE (later.first.x > earlier.first.x && later.first.y < earlier.first.y);
+}
+
+// A quarter with no frame has no ridge, and no grid line bridges the quarters on either side.
 inline void verifyAGapStaysEmpty()
 {
-    constexpr int missingRow = spectrum_terrain::ridgeCount - 4;
-    const auto seconds = absolute_spectrum::historySeconds;
-    const auto spacing = seconds / (double) (spectrum_terrain::ridgeCount - 1);
-    const auto missingAge = spectrum_terrain::ridgeAge (missingRow, seconds);
+    // The quarter that ends 0.75 s before the newest frame, near the front where ridges stand apart.
+    const auto newest = frameSeconds (frames - 1u);
+    const auto missing = (std::int64_t) std::floor ((newest - 0.875) / spectrum_terrain::sliceSeconds);
+    const auto inQuarter = [] (size_t index, std::int64_t quarter) {
+        return (std::int64_t) std::floor (frameSeconds (index) / spectrum_terrain::sliceSeconds) == quarter; };
     const auto build = [&] (bool gap) {
         absolute_spectrum::History history;
         for (size_t index = 0u; index < frames; ++index)
-            if (! gap || std::abs (frameAge (index) - missingAge) >= 0.7 * spacing)
+            if (! gap || ! inQuarter (index, missing))
                 KIRIN_LANDSCAPE_REQUIRE (history.append (
                     frameWith ((int64_t) (index + 1u) * frameSamples, 20u, quietDbfs)));
         return history;
     };
+    const auto depthOfQuarter = [&] (std::int64_t quarter) {
+        return (float) (spectrum_terrain::sliceAge ((double) quarter * spectrum_terrain::sliceSeconds, newest)
+                        / absolute_spectrum::historySeconds); };
 
     // Between the ridges on either side of the missing one, clear of their own lines.
     const auto plot = plotBounds();
-    const auto depthOf = [&] (int row) {
-        return (float) (frameAge (frameNearestRidge (row)) / seconds); };
-    const auto older = quietLineY (plot, depthOf (missingRow - 1));
-    const auto newer = quietLineY (plot, depthOf (missingRow + 1));
+    const auto older = quietLineY (plot, depthOfQuarter (missing - 1));
+    const auto newer = quietLineY (plot, depthOfQuarter (missing + 1));
     KIRIN_LANDSCAPE_REQUIRE (newer - older > 10.0f);
     const juce::Rectangle<float> between { plot.getX() + 1.0f, older + 2.5f,
                                            plot.getWidth() - 2.0f, newer - older - 5.0f };
@@ -256,7 +290,9 @@ inline void verifyTwoObservationsAreTwoRidges()
     KIRIN_LANDSCAPE_REQUIRE (drawn);
 
     const auto plot = plotBounds();
-    const auto oldest = quietLineY (plot, 5.0f / 6.0f);
+    const auto oldest = quietLineY (plot, (float) (spectrum_terrain::sliceAge (
+        (double) frameSamples / 48'000.0, (double) (frameSamples + 5 * 48'000) / 48'000.0)
+        / absolute_spectrum::historySeconds));
     const auto newest = quietLineY (plot, 0.0f);
     for (const auto line : { oldest, newest })
         KIRIN_LANDSCAPE_REQUIRE (inkNear (image, { plot.getCentreX(), line }, 2.0f, 2.0f)
@@ -348,7 +384,8 @@ inline void verifyLandscapeFrameBudget()
 inline void verifyLevelLandscape()
 {
     landscape_contract::verifyPerspective();
-    landscape_contract::verifyRidgesStandWhereTheyWereMeasured();
+    landscape_contract::verifyEachQuarterKeepsItsTop();
+    landscape_contract::verifyARidgeMovesBack();
     landscape_contract::verifyAGapStaysEmpty();
     landscape_contract::verifyTwoObservationsAreTwoRidges();
     landscape_contract::verifyOnlyWideEditorsDrawTheLandscape();
