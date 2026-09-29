@@ -198,7 +198,7 @@ inline DrumScene drumScene()
 
 // The Observatory body of one POST editor size, as the shell lays it out without a Guide.
 inline juce::Image render (const DrumScene& scene, int editorWidth, bool overlay, float dpi,
-                           std::uint8_t band = 0)
+                           std::uint8_t band = 0, bool live = false)
 {
     const observatory::SizePreset preset { editorWidth, editorWidth * 2 / 3,
                                            observatory::densityForWidth (editorWidth), "" };
@@ -214,7 +214,10 @@ inline juce::Image render (const DrumScene& scene, int editorWidth, bool overlay
         component->bandEnvelopeSource = EnvelopeSource { scene.band.get() };
         component->setBand (band);
         component->setBandSnapshot (*scene.band);
+        component->setBandSummary (summaryFor (*scene.band));
     }
+    if (live)
+        return renderAttack (*component, dpi);
     // Inspecting the eighth hit (3.8 s): the hypha stands inside the six seconds.
     component->keyPressed (juce::KeyPress (juce::KeyPress::homeKey));
     for (int step = 0; step < 7; ++step)
@@ -240,19 +243,23 @@ inline bool writeAttackShowcase()
     if (! directory.createDirectory())
         return false;
     const auto scene = showcase::drumScene();
-    struct Shot { const char* name; int width; bool overlay; std::uint8_t band; };
-    constexpr std::array shots { Shot { "900_overlay", 900, true, 0 }, Shot { "900_rows", 900, false, 0 },
-                                 Shot { "600_overlay", 600, true, 0 }, Shot { "450_overlay", 450, true, 0 },
-                                 Shot { "300_overlay", 300, true, 0 },
-                                 Shot { "900_band63", 900, true, 1 }, Shot { "900_band63_rows", 900, false, 1 },
-                                 Shot { "600_band63", 600, true, 1 }, Shot { "450_band63", 450, true, 1 },
-                                 Shot { "375_band63", 375, true, 1 }, Shot { "300_band63", 300, true, 1 } };
+    // A band while LIVE (its summary) and with the eighth hit locked.
+    struct Shot { const char* name; int width; bool overlay; std::uint8_t band; bool live; };
+    constexpr std::array shots { Shot { "900_overlay", 900, true, 0, false }, Shot { "900_rows", 900, false, 0, false },
+                                 Shot { "600_overlay", 600, true, 0, false }, Shot { "450_overlay", 450, true, 0, false },
+                                 Shot { "300_overlay", 300, true, 0, false },
+                                 Shot { "900_band63_live", 900, true, 1, true }, Shot { "900_band63_rows_live", 900, false, 1, true },
+                                 Shot { "600_band63_live", 600, true, 1, true }, Shot { "450_band63_live", 450, true, 1, true },
+                                 Shot { "375_band63_live", 375, true, 1, true }, Shot { "300_band63_live", 300, true, 1, true },
+                                 Shot { "900_band63", 900, true, 1, false }, Shot { "900_band63_rows", 900, false, 1, false },
+                                 Shot { "600_band63", 600, true, 1, false }, Shot { "450_band63", 450, true, 1, false },
+                                 Shot { "375_band63", 375, true, 1, false }, Shot { "300_band63", 300, true, 1, false } };
     bool written = true;
     for (const auto& shot : shots)
         for (const auto dpi : { 1.0f, 2.0f })
             written = written && showcase::writePng (
                 directory.getChildFile (juce::String (shot.name) + (dpi > 1.0f ? "@2x.png" : ".png")),
-                showcase::render (scene, shot.width, shot.overlay, dpi, shot.band));
+                showcase::render (scene, shot.width, shot.overlay, dpi, shot.band, shot.live));
     return written;
 }
 }

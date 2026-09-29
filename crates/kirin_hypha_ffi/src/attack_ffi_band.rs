@@ -13,6 +13,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use kirin_measure::attack_perception::band::{
     AttackBand, ATTACK_BAND_HEAD_POINTS, ATTACK_BAND_TAIL_POINTS,
 };
+use kirin_measure::attack_runtime::AttackPreBand;
 use kirin_measure::{AttackOdfFrame, AttackPairViewSnapshot, PluginDataRole, SpectrumViewStatus};
 
 use super::{KirinHyphaEngine, KIRIN_ATTACK_PAIR_EVENT_BATCH_CAPACITY};
@@ -143,6 +144,15 @@ pub struct KirinAttackBandHitEnvelope {
 mod map;
 use map::{pre_band_code, sources, status_code, to_c_envelope, Source};
 
+#[path = "attack_ffi_band_summary.rs"]
+mod summary;
+pub use summary::{
+    KirinAttackBandLaneSummary, KirinAttackBandSummary, KIRIN_ATTACK_BAND_HELD_LONG_TAIL,
+    KIRIN_ATTACK_BAND_HELD_NEXT_HIT, KIRIN_ATTACK_BAND_HELD_NONE, KIRIN_ATTACK_BAND_HELD_RINGING,
+    KIRIN_ATTACK_BAND_LANE_NONE, KIRIN_ATTACK_BAND_LANE_VALUE, KIRIN_ATTACK_BAND_LANE_WITHIN,
+    KIRIN_ATTACK_BAND_LEVEL_WITHIN_DB, KIRIN_ATTACK_BAND_SUMMARY_HITS,
+};
+
 impl KirinHyphaEngine {
     /// POST only. 0 chooses no band; 1 to 8 choose 63 Hz to 8 kHz. It is not persisted.
     pub fn set_attack_band(&self, band: u8) -> bool {
@@ -239,6 +249,34 @@ impl KirinHyphaEngine {
         })
     }
 
+    /// The recent hits that rise in the chosen band, summed up (`attack_ffi_band_summary.rs`).
+    pub fn poll_attack_band_summary(&self) -> Option<KirinAttackBandSummary> {
+        self.with_band_sources(|view, band, identity, hits| {
+            let active = view.status == SpectrumViewStatus::Active;
+            let mut summary = KirinAttackBandSummary {
+                status: status_code(view.status),
+                band: band.map_or(0, AttackBand::index),
+                pre_band: if active {
+                    pre_band_code(view.pre_band)
+                } else {
+                    KIRIN_ATTACK_BAND_PRE_OFF
+                },
+                resolution_micros: band.map_or(0, AttackBand::resolution_micros),
+                generation: identity.map_or(0, |identity| identity.generation),
+                sample_rate: identity.map_or(0, |identity| identity.sample_rate),
+                ..Default::default()
+            };
+            if band.is_some() {
+                // While PRE switches bands the view keeps POST - PRE and waits for it.
+                let delta =
+                    active && matches!(view.pre_band, AttackPreBand::Same | AttackPreBand::Waiting);
+                let resolution_ms = summary.resolution_micros as f32 / 1_000.0;
+                summary::summarise(&mut summary, hits, delta, resolution_ms);
+            }
+            summary
+        })
+    }
+
     /// The hit keyed `event_sample` with both envelopes; `None` when it is not a lanes hit now.
     pub fn poll_attack_band_envelope(
         &self,
@@ -294,6 +332,28 @@ pub unsafe extern "C" fn kirin_hypha_poll_attack_band(
             return false;
         };
         unsafe { *out = batch };
+        true
+    }))
+    .unwrap_or(false)
+}
+
+/// Copies the summary of the recent hits that rise in the chosen band. UI thread only.
+///
+/// # Safety
+/// `handle` and `out` must be live writable pointers.
+#[no_mangle]
+pub unsafe extern "C" fn kirin_hypha_poll_attack_band_summary(
+    handle: *mut KirinHyphaEngine,
+    out: *mut KirinAttackBandSummary,
+) -> bool {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out.is_null() {
+            return false;
+        }
+        let Some(summary) = (unsafe { &*handle }).poll_attack_band_summary() else {
+            return false;
+        };
+        unsafe { *out = summary };
         true
     }))
     .unwrap_or(false)

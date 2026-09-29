@@ -177,6 +177,7 @@ int main()
     KIRIN_REQUIRE (verifyBandInteraction());
     KIRIN_REQUIRE (verifyBandTranslations());
     KIRIN_REQUIRE (verifyBandReasonsAtSmallSizes());
+    KIRIN_REQUIRE (verifySummaryReasons());
     KIRIN_REQUIRE (verifyDetailLifecycle (events, waveform, details, pairEvents, stats));
     KIRIN_REQUIRE (verifyMeasuredEnvelope());
     KIRIN_REQUIRE (verifyEnvelopeSimplificationBound());

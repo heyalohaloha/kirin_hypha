@@ -19,7 +19,7 @@
 
 // DRUM BAND (B-1097, B-1098): the band lanes are the whole-signal lanes' own hits; every cell says
 // what the engine stated; the chips, panes, guidance and hover help work at every size and in both
-// languages.
+// languages. The LIVE summary and a locked hit: AttackUiBandSummaryContract.h.
 namespace hypha::attack_ui_test
 {
 inline bool expectText (const juce::String& actual, const char* expected, const char* what)
@@ -121,112 +121,7 @@ inline bool verifyBandModel()
             return false;
     return true;
 }
-
-// The band view at the five editor sizes: chips from 125%, panes at 200% and 300% drawn from the
-// record of the selected hit, the band lanes named, the guidance when nothing was measured, and
-// ALL returning exactly to the whole-signal view.
-inline bool verifyBandRendering()
-{
-    for (const auto& preset : observatory::sizePresets)
-    {
-        auto scene = presetScene (preset);
-        auto& component = *scene.component;
-        const auto& layout = scene.layout;
-        const auto context = presentation::forEditor (preset.width, preset.height);
-        auto fixture = laneFixture ({ 96'000, 192'000, 240'000 });
-        fixture.submit (component);
-        component.presentationTickAt (juce::Time::getMillisecondCounterHiRes() + 1'000.0);
-        const auto plain = renderAttack (component);
-        auto batch = bandBatchFor (fixture, 4);
-        component.bandEnvelopeSource = EnvelopeSource { batch.get() };
-        component.setBand (4);
-        component.setBandSnapshot (*batch);
-        const auto banded = renderAttack (component);
-        for (std::uint32_t item = 0; item < batch->count; ++item)
-            batch->hits[item].pre = sideIn (KIRIN_ATTACK_BAND_SIDE_NOT_KEPT);
-        component.setBandSnapshot (*batch);
-        const auto unmeasured = renderAttack (component);
-        // The newest hit with three withheld values beside one: each says why at every size.
-        auto mixed = bandBatchFor (fixture, 4);
-        mixed->hits[2].pre.arrival_state = KIRIN_ATTACK_BAND_ARRIVAL_RINGING;
-        mixed->hits[2].post.release_state = KIRIN_ATTACK_BAND_RELEASE_NEXT_HIT;
-        component.bandEnvelopeSource = EnvelopeSource { mixed.get() };
-        component.setBandSnapshot (*mixed);
-        const auto reasons = renderAttack (component);
-        if (differences (banded, reasons, rectangle (attack_ui::lineCell (layout, 0))) == 0
-            && layout.arrangement != attack_ui::Arrangement::lanes)
-        {
-            std::cerr << "a withheld DELAY reads like a value at " << preset.label << '\n';
-            return false;
-        }
-        if (const auto* previews = std::getenv ("KIRIN_ATTACK_UI_BAND_PREVIEW_DIR"); previews != nullptr)
-            for (const auto& [name, image] : { std::pair { "_band500", &banded }, std::pair { "_play", &unmeasured },
-                                               std::pair { "_reasons", &reasons } })
-            {
-                juce::FileOutputStream output { juce::File { previews }.getChildFile (juce::String (preset.label) + name + ".png") };
-                if (! output.openedOk() || ! juce::PNGImageFormat().writeImageToStream (*image, output))
-                    return false;
-            }
-        const bool compact = preset.density == observatory::Density::compact;
-        if (attack_band::chipRow (layout, context).empty() != compact)
-        {
-            std::cerr << "band chips at " << preset.label << '\n';
-            return false;
-        }
-        const auto history = historyRect (layout);
-        if (differences (banded, unmeasured, history) == 0)
-        {
-            std::cerr << "no guidance when nothing was measured at " << preset.label << '\n';
-            return false;
-        }
-        if (! compact)
-        {
-            // The choice moved from ALL to 500: both chips change, an unchosen one does not.
-            const auto chosen = rectangle (attack_band::chipCell (layout, context, 4));
-            const auto all = rectangle (attack_band::chipCell (layout, context, 0));
-            const auto other = rectangle (attack_band::chipCell (layout, context, 2));
-            if (differences (plain, banded, chosen) == 0 || differences (plain, banded, all) == 0
-                || differences (plain, banded, other) != 0)
-            {
-                std::cerr << "chip choice not shown at " << preset.label << '\n';
-                return false;
-            }
-        }
-        const bool panes = attack_band::panesShown (layout);
-        if (panes != (preset.width >= 600))
-            return false;
-        if (panes)
-        {
-            const auto head = rectangle (attack_band::headPane (layout));
-            const auto tail = rectangle (attack_band::tailPane (layout));
-            for (const auto& pane : { head, tail })
-                if (countColour (banded, pane, juce::Colour (attack_ui::preTraceColour), 40) == 0
-                    || countColour (banded, pane, juce::Colour (attack_ui::waveformColour), 40) == 0)
-                {
-                    std::cerr << "panes empty at " << preset.label << '\n';
-                    return false;
-                }
-        }
-        if (layout.arrangement == attack_ui::Arrangement::lanes)
-        {
-            const auto label = rectangle (attack_ui::labelCell (layout, layout.lanes[0]));
-            if (countColour (banded, label, juce::Colour (attack_ui::transientColour), 40) == 0)
-            {
-                std::cerr << "band lanes unlabelled at " << preset.label << '\n';
-                return false;
-            }
-        }
-        if (! verifyThinSelection (banded, layout))
-            return false;
-        component.setBand (0);
-        if (differences (plain, renderAttack (component)) != 0)
-        {
-            std::cerr << "ALL differs from before at " << preset.label << '\n';
-            return false;
-        }
-    }
-    return true;
-}
 }
 
+#include "AttackUiBandSummaryContract.h"
 #include "AttackUiBandInteraction.h"

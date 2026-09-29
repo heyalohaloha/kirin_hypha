@@ -223,6 +223,56 @@ typedef struct {
   KirinAttackBandEnvelope post;
 } KirinAttackBandHitEnvelope;
 
+/* DRUM帯域のまとめ（2026-09-29）: その帯域で音が立ち上がった直近の打音（最大8打）をまとめたもの。
+ * POST-PREではmatchedの両側が立ち上がった打音、それ以外はPOSTが立ち上がった打音を使う。
+ * 余韻だけ・無音・未保持の打音はleft_outに数え、測定中の打音は数えない。 */
+#define KIRIN_ATTACK_BAND_SUMMARY_HITS 8
+#define KIRIN_ATTACK_BAND_LANE_NONE 0   /* 値を持つ打音がない（PREのないDELAYなど） */
+#define KIRIN_ATTACK_BAND_LANE_VALUE 1  /* 中央値が差（またはPOST自身の値）を示す */
+#define KIRIN_ATTACK_BAND_LANE_WITHIN 2 /* 中央値がwithin以内: 帯域で見分けられない差、またはPOSTのATTの上限 */
+#define KIRIN_ATTACK_BAND_LEVEL_WITHIN_DB (0.2f)
+/* 値のない打音がなぜ値を持たないか（その中で最も多い理由）: なし、前の余韻で立ち上がりが
+ * 見えない、次の打音で減衰が切れた、減衰が窓を越えた。 */
+#define KIRIN_ATTACK_BAND_HELD_NONE 0
+#define KIRIN_ATTACK_BAND_HELD_RINGING 1
+#define KIRIN_ATTACK_BAND_HELD_NEXT_HIT 2
+#define KIRIN_ATTACK_BAND_HELD_LONG_TAIL 3
+
+typedef struct {
+  uint8_t state; /* KIRIN_ATTACK_BAND_LANE_* */
+  uint8_t count; /* この段に値を持つ打音の数 */
+  uint8_t agree; /* そのうち中央値と同じ向きの打音の数（POST-PREで差があるときだけ） */
+  uint8_t withheld; /* KIRIN_ATTACK_BAND_HELD_* */
+  float median;
+  float low;
+  float high;
+  float within;
+  float values[KIRIN_ATTACK_BAND_SUMMARY_HITS]; /* 各打音の値。古い順、値がなければNaN */
+} KirinAttackBandLaneSummary;
+
+typedef struct {
+  uint8_t status;   /* pair viewと同じ語彙 */
+  uint8_t band;
+  uint8_t pre_band; /* KIRIN_ATTACK_BAND_PRE_* */
+  uint8_t delta;    /* 1: POST-PRE、0: POST自身の値 */
+  uint32_t count;
+  uint32_t left_out;
+  uint32_t resolution_micros;
+  uint64_t generation;
+  uint32_t sample_rate;
+  uint32_t reserved;
+  int64_t event_samples[KIRIN_ATTACK_BAND_SUMMARY_HITS]; /* まとめた打音のレーンの鍵。古い順 */
+  KirinAttackBandLaneSummary lanes[4];                   /* DELAY, ATT, REL, LEVEL */
+  float pre_arrival_ms;      /* 以下4つは中央値。onsetからのms、なければNaN */
+  float post_arrival_ms;
+  float pre_release_end_ms;
+  float post_release_end_ms;
+  KirinAttackBandEnvelope pre;       /* 平均の包絡（PREはPOST-PREのときだけ） */
+  KirinAttackBandEnvelope post;
+  KirinAttackBandEnvelope post_low;  /* POSTの各点の最小と最大 */
+  KirinAttackBandEnvelope post_high;
+} KirinAttackBandSummary;
+
 /* ATTACK DRUM製品導線。POSTだけが有効化可能で、画面非表示時は停止・state保存なし。 */
 bool kirin_hypha_set_attack_enabled(KirinHypha* handle, bool enabled);
 bool kirin_hypha_poll_attack_batch(KirinHypha* handle, KirinAttackBatch* out);
@@ -239,6 +289,7 @@ bool kirin_hypha_attack_stats(KirinHypha* handle, KirinAttackStats* out);
 /* DRUM帯域。POSTだけが選べ、0で解除。選んでいる間だけ計測し、state保存なし。 */
 bool kirin_hypha_set_attack_band(KirinHypha* handle, uint8_t band);
 bool kirin_hypha_poll_attack_band(KirinHypha* handle, KirinAttackBandBatch* out);
+bool kirin_hypha_poll_attack_band_summary(KirinHypha* handle, KirinAttackBandSummary* out);
 bool kirin_hypha_poll_attack_band_envelope(KirinHypha* handle, int64_t event_sample,
                                            KirinAttackBandHitEnvelope* out);
 

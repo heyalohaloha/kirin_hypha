@@ -84,8 +84,8 @@ bool drawFitting (juce::Graphics& g, std::initializer_list<juce::String> candida
     return false;
 }
 
-void paintLaneChrome (juce::Graphics& g, Lane lane, juce::Rectangle<int> label,
-                      juce::Rectangle<int> plot, bool delta, const presentation::Context& context)
+void paintLaneLabel (juce::Graphics& g, Lane lane, juce::Rectangle<int> label, bool delta,
+                     const presentation::Context& context)
 {
     const auto colour = colourFor (lane);
     if (! label.isEmpty())
@@ -109,7 +109,12 @@ void paintLaneChrome (juce::Graphics& g, Lane lane, juce::Rectangle<int> label,
                          juce::Justification::topLeft, attack_stage::captionTracking (context));
         }
     }
+}
 
+void paintLaneChrome (juce::Graphics& g, Lane lane, juce::Rectangle<int> label,
+                      juce::Rectangle<int> plot, bool delta, const presentation::Context& context)
+{
+    paintLaneLabel (g, lane, label, delta, context);
     attack_stage::paint (g, plot.toFloat(), 3.0f, 0.16f);
     const auto inner = lanePlotInner (plot);
     const auto fraction = baseFraction (attack_lanes::scaleFor (lane, delta));

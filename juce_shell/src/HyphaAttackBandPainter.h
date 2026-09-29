@@ -29,9 +29,9 @@ std::array<juce::String, 3> legend (std::uint8_t band, bool paired);
 // Chrome (cached): "BAND" and the nine chips, the chosen one lit.
 void paintChips (juce::Graphics&, const attack_ui::Layout&, const presentation::Context&,
                  std::uint8_t band);
-// Chrome: the band's name and HIT in the HISTORY label cell.
+// Chrome: the band's name and what the row shows (HIT, AVERAGE, SUMMARY) in the HISTORY label cell.
 void paintPaneLabel (juce::Graphics&, juce::Rectangle<int>, const presentation::Context&,
-                     std::uint8_t band);
+                     std::uint8_t band, const juce::String& caption);
 // Chrome: the two wells, their captions and time labels, the dB grid. A PRE that predates
 // bands is named where PRE / POST would stand.
 void paintPaneChrome (juce::Graphics&, const attack_ui::Layout&, const presentation::Context&,
@@ -54,6 +54,11 @@ struct PaneFrame
 // PLAY TO MEASURE, NO PAIR or NO SOUND.
 void paintPanes (juce::Graphics&, const attack_ui::Layout&, const presentation::Context&,
                  const PaneFrame&);
+// While LIVE with a band: the average envelopes of the summed hits (PRE trace, POST body), POST's
+// spread, the median arrival and release marks and the lanes' median DELAY and REL; `waiting`
+// (PLAY TO MEASURE or MEASURING) in TAIL while nothing is summed.
+void paintSummaryPanes (juce::Graphics&, const attack_ui::Layout&, const presentation::Context&,
+                        const KirinAttackBandSummary&, const juce::String& waiting, bool twoRows);
 // Below 200%: the same guidance over the six seconds.
 void paintPlayGuidance (juce::Graphics&, juce::Rectangle<int> history,
                         const presentation::Context&, std::uint8_t band);

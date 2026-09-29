@@ -139,7 +139,7 @@ void paintChips (juce::Graphics& g, const attack_ui::Layout& layout,
 }
 
 void paintPaneLabel (juce::Graphics& g, juce::Rectangle<int> area,
-                     const presentation::Context& context, std::uint8_t band)
+                     const presentation::Context& context, std::uint8_t band, const juce::String& caption)
 {
     auto cell = area.reduced (4, 2);
     const auto nameHeight = lineHeight (context, TextRole::metricLabel);
@@ -154,7 +154,7 @@ void paintPaneLabel (juce::Graphics& g, juce::Rectangle<int> area,
                                       juce::Justification::centredLeft,
                                       attack_stage::labelTracking (context));
     g.setColour (COL_TEXT_TERTIARY);
-    attack_lane_painter::drawFitting (g, { "HIT", "" }, cell, context, TextRole::legend,
+    attack_lane_painter::drawFitting (g, { caption, "" }, cell, context, TextRole::legend,
                                       juce::Justification::centredLeft,
                                       attack_stage::captionTracking (context));
 }
