@@ -6,8 +6,9 @@
 
 // Hypha depth material (2.5D), shared by every page. The light follows the page's composition, as
 // on the VU chassis (2026-09-29, Daisuke): each page has one main observation window, and only it
-// catches the light from above, on its cut edge (brightest along the top and where the edge turns
-// at the two upper corners, a warm bounce along the bottom). Cards, panels and lanes stay quiet: a
+// catches the light from above, on its cut edge (brightest along the top, a warm bounce along the
+// bottom). No light is placed the same on every window: a spot at each upper corner of every
+// window read as ornament, not as light (Daisuke). Cards, panels and lanes stay quiet: a
 // fine outline and the shadow of their upper wall. The glass itself never holds a reflection
 // shape, so no line crosses a surface. Controls are raised plates (a lit upper bevel, a shaded
 // lower edge and a soft contact shadow). Material only: nothing here follows a measured value, so
@@ -23,8 +24,8 @@ struct WellLight
 };
 
 // The main window's cut edge, a bevel a few pixels wide as on the VU chassis: a dark outer line,
-// the lit face of the bevel and a fine ivory lip where the glass begins, soft spots where the edge
-// turns at the upper corners, and a dark band just inside that sets the glass back.
+// the lit face of the bevel and a fine ivory lip where the glass begins, and a dark band just
+// inside that sets the glass back.
 inline void paintMainEdge (juce::Graphics& g, juce::Rectangle<float> area, float radius, float k)
 {
     const auto black = juce::Colours::black;
@@ -59,15 +60,6 @@ inline void paintMainEdge (juce::Graphics& g, juce::Rectangle<float> area, float
     lipLight.addColour (0.3, COL_NORMAL.withAlpha (0.04f * k));
     g.setGradientFill (lipLight);
     g.strokePath (lip, juce::PathStrokeType (0.7f));
-    // The spots sit on the edge itself, never over the glass where labels are.
-    const auto spotWidth = juce::jlimit (12.0f, 80.0f, area.getWidth() * 0.12f);
-    for (const auto x : { area.getX() + radius + spotWidth * 0.35f, area.getRight() - radius - spotWidth * 0.35f })
-    {
-        const juce::Point<float> centre (x, area.getY() + 2.0f);
-        g.setGradientFill ({ COL_NORMAL.withAlpha (0.55f * k), centre.x, centre.y,
-                             COL_NORMAL.withAlpha (0.0f), centre.x + spotWidth * 0.5f, centre.y, true });
-        g.fillEllipse (juce::Rectangle<float> (spotWidth, 3.2f).withCentre (centre));
-    }
     const auto bounce = juce::jlimit (3.0f, 10.0f, area.getHeight() * 0.08f);
     g.setGradientFill ({ warm.withAlpha (0.0f), 0.0f, area.getBottom() - bounce,
                          warm.withAlpha (0.10f * k), 0.0f, area.getBottom(), false });
